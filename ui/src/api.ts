@@ -1289,6 +1289,78 @@ export async function fetchTrialQueries(datasetId: string): Promise<TrialQueries
   return (await res.json()) as TrialQueries
 }
 
+/** Everything needed to re-open「データの数えかた」on an already-saved design. */
+export interface RecountMaterials {
+  dataset_id: string
+  skeleton: MappingSkeleton
+  /** Server-side copy of the persisted source (ADR source-staging.md), so the
+   *  gate can re-check its evidence without the browser holding the files. */
+  staging_id: string
+  sources: { name: string; size: number }[]
+  expires_at: string
+}
+
+/** Re-open the counting gate on a dataset whose design is already saved.
+ *
+ *  A catalog review starts at S6 and drops the browser's copy of the source, so
+ *  the wizard has neither the skeleton nor a readable source when someone asks
+ *  to go back to the counting. The server holds both; this fetches them. */
+export async function recountDataset(datasetId: string): Promise<RecountMaterials> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/recount`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'recount')
+  return (await res.json()) as RecountMaterials
+}
+
+/** One map whose subject template changed — an address that moves. */
+export interface IdMoveEntry {
+  name: string
+  old_name: string
+  source: string
+  old_template: string
+  new_template: string
+}
+
+/** One map whose OLD ids cannot be forwarded, and why. */
+export interface IdMoveBlocked {
+  name: string
+  source: string
+  /** `no_matching_map` (the kind is gone) | `missing_columns` (the old key's
+   *  columns are not in the current file). */
+  reason: string
+  missing_columns: string[]
+}
+
+/** What the pending re-ingest does to a dataset's PUBLISHED ids
+ *  (ADR id-move-after-publish.md).
+ *
+ *  `changes_ids: false` covers everything that leaves addresses alone: a first
+ *  publication, a meanings-only edit, a dataset that was never published. */
+export interface IdMove {
+  dataset_id: string
+  changes_ids: boolean
+  fully_movable?: boolean
+  /** Forwarding rows actually written (old id → new id), measured, not planned. */
+  forwarded?: number
+  moved?: IdMoveEntry[]
+  unchanged?: string[]
+  blocked?: IdMoveBlocked[]
+  /** The ledger could not be built at all — the old ids will stop resolving. */
+  ledger_error?: boolean
+}
+
+/** Read before publishing an update: which already-cited ids move, and whether
+ *  every one of them can be forwarded (K10 — the consequence is shown first). */
+export async function fetchIdMove(datasetId: string): Promise<IdMove> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/id-move`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'id move')
+  return (await res.json()) as IdMove
+}
+
 /** A dataset's stored design (propose/refine Markdown) for the redesign flow. */
 export interface DatasetProposal {
   dataset_id: string

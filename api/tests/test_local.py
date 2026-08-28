@@ -15,8 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import shutil
+import signal
+import socket
 import stat
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -447,6 +454,53 @@ def test_missing_oxigraph_binary_is_a_clear_exit(
     assert rc == 2
 
 
+def test_default_log_level_quiets_httpx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """httpx's per-request INFO line (the Oxigraph liveness probe, every
+    ~10s) was 98.5% of a real backend.log (180,621 of 183,451 lines) and
+    buried the handful of lines an actual investigation needed. Default
+    runs must drop it to WARNING; ``--log-level debug`` must not touch it.
+    """
+    monkeypatch.delenv("CSV2RDF_OXIGRAPH_URL", raising=False)
+    monkeypatch.delenv("ASTERISM_OXIGRAPH_BIN", raising=False)
+    monkeypatch.setattr("asterism_api.local.shutil.which", lambda _name: None)
+    httpx_logger = logging.getLogger("httpx")
+    prev_level = httpx_logger.level
+    try:
+        httpx_logger.setLevel(logging.NOTSET)
+        rc = main(["--data-dir", str(tmp_path / "home"), "--no-browser"])
+        assert rc == 2
+        assert httpx_logger.level == logging.WARNING
+    finally:
+        httpx_logger.setLevel(prev_level)
+
+
+def test_debug_log_level_leaves_httpx_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CSV2RDF_OXIGRAPH_URL", raising=False)
+    monkeypatch.delenv("ASTERISM_OXIGRAPH_BIN", raising=False)
+    monkeypatch.setattr("asterism_api.local.shutil.which", lambda _name: None)
+    httpx_logger = logging.getLogger("httpx")
+    prev_level = httpx_logger.level
+    try:
+        httpx_logger.setLevel(logging.NOTSET)
+        rc = main(
+            [
+                "--data-dir",
+                str(tmp_path / "home"),
+                "--no-browser",
+                "--log-level",
+                "debug",
+            ]
+        )
+        assert rc == 2
+        assert httpx_logger.level == logging.NOTSET
+    finally:
+        httpx_logger.setLevel(prev_level)
+
+
 def test_oxigraph_binary_env_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -454,3 +508,133 @@ def test_oxigraph_binary_env_override(
     fake.write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setenv("ASTERISM_OXIGRAPH_BIN", str(fake))
     assert find_oxigraph_binary() == str(fake)
+
+
+# ---------------------------------------------------------------------------
+# SIGTERM must not orphan children (real subprocess — this is a regression
+# test for a bug that only exists in uvicorn's actual signal handling, so a
+# mock/TestClient run cannot see it: see _Server in asterism_api.local).
+
+_HAS_PS = shutil.which("ps") is not None
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_health(url: str, process: subprocess.Popen[bytes], timeout_s: float) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            if httpx.get(url, timeout=2.0).status_code == 200:
+                return True
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def _descendant_pids(parent_pid: int) -> set[int]:
+    """Every live pid whose ppid is ``parent_pid`` (``ps`` — no new dependency;
+    ``psutil`` is not in the api's dependencies)."""
+    out = subprocess.run(
+        ["ps", "-eo", "pid=,ppid="], capture_output=True, text=True, check=True
+    ).stdout
+    children = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        pid, ppid = parts
+        if ppid.isdigit() and int(ppid) == parent_pid and pid.isdigit():
+            children.add(int(pid))
+    return children
+
+
+@pytest.mark.skipif(
+    find_oxigraph_binary() is None, reason="no oxigraph binary (ASTERISM_OXIGRAPH_BIN / PATH)"
+)
+@pytest.mark.skipif(not _HAS_PS, reason="no `ps` on this platform")
+def test_sigterm_does_not_orphan_children(tmp_path: Path) -> None:
+    """Reproduces the production incident (v0.22.1, Oxigraph + demo-agent left
+    running as pid 1 orphans): start ``asterism-local`` for real, SIGTERM the
+    parent, and require that every child it spawned (at least Oxigraph) is
+    also gone — not just the parent."""
+    port = _free_port()
+    home = tmp_path / "home"
+    env = dict(os.environ)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "asterism_api.local",
+            "--port",
+            str(port),
+            "--data-dir",
+            str(home),
+            "--no-browser",
+            "--log-level",
+            "warning",
+        ],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        ready = _wait_for_health(f"http://127.0.0.1:{port}/health", proc, timeout_s=30.0)
+        if not ready:
+            output = proc.stdout.read().decode("utf-8", "replace") if proc.stdout else ""
+            pytest.fail(f"asterism-local did not become ready:\n{output}")
+
+        children_before = _descendant_pids(proc.pid)
+        assert children_before, (
+            "no children detected under the asterism-local process — the test "
+            "cannot exercise the orphan bug (expected at least the Oxigraph child)"
+        )
+
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            output = proc.stdout.read().decode("utf-8", "replace") if proc.stdout else ""
+            proc.kill()
+            proc.wait(timeout=5.0)
+            pytest.fail(f"asterism-local did not exit within 10s of SIGTERM:\n{output}")
+
+        # Give the OS a moment to reap; then NONE of the children spawned
+        # before SIGTERM may still be alive (as themselves, or reparented to
+        # pid 1 — either way they are still descendants of nothing we own).
+        deadline = time.monotonic() + 5.0
+        survivors = children_before
+        while time.monotonic() < deadline:
+            survivors = {
+                pid
+                for pid in children_before
+                if subprocess.run(
+                    ["ps", "-p", str(pid)], capture_output=True
+                ).returncode
+                == 0
+            }
+            if not survivors:
+                break
+            time.sleep(0.2)
+        assert not survivors, f"orphaned child pid(s) after SIGTERM: {survivors}"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5.0)
+        if proc.stdout:
+            proc.stdout.close()
+
+
+def test_local_env_carries_the_mcp_endpoint(tmp_path: Path) -> None:
+    """The settings screen reads this back through /api/appdata/info."""
+    home = tmp_path / "home"
+    url = "http://127.0.0.1:8801/mcp"
+    assert local_env(home, "http://x", "tok", mcp_url=url)["ASTERISM_MCP_URL"] == url
+    # --no-mcp: absent, not empty — Settings must see "no endpoint here".
+    assert "ASTERISM_MCP_URL" not in local_env(home, "http://x", "tok")

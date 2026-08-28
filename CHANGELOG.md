@@ -1,5 +1,33 @@
 # Changelog
 
+## [v0.23.0](https://github.com/kumagallium/asterism/compare/v0.22.4...v0.23.0) - 2026-08-28
+
+- feat: アプリ本体が MCP を出す（/mcp）＋設定から各 AI へ配る by @kumagallium in https://github.com/kumagallium/asterism/pull/447
+
+## [v0.22.4](https://github.com/kumagallium/asterism/compare/v0.22.3...v0.22.4) - 2026-08-27
+
+- fix(kantan): 公開後の「データの数えかたに戻る」を、行数を読めない画面でも出す by @kumagallium in https://github.com/kumagallium/asterism/pull/441
+- fix(step0): 連続値の列を ID 候補から外す — 幅広い表で構造解析が LLM に渡らなくなっていた by @kumagallium in https://github.com/kumagallium/asterism/pull/446
+- feat(datasets/mp): starrydata の母相を MP API で解決し 2,402 材料の実データに — 空間群を持つ唯一のソース by @kumagallium in https://github.com/kumagallium/asterism/pull/444
+
+## [v0.22.3](https://github.com/kumagallium/asterism/compare/v0.22.2...v0.22.3) - 2026-08-27
+
+- fix(desktop): 同梱コマンドがビルド機のパスを指したまま配布されていた by @kumagallium in https://github.com/kumagallium/asterism/pull/442
+
+## [v0.22.2](https://github.com/kumagallium/asterism/compare/v0.22.1...v0.22.2) - 2026-08-27
+
+- feat(ui): 右下のボタンを「AI に相談」にする — 誰に相談するのかを押す前に示す by @kumagallium in https://github.com/kumagallium/asterism/pull/427
+- feat(desktop): バックエンドが止まったら気づかせて、その場で再起動できるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/430
+- fix(local): SIGTERM で Oxigraph / demo-agent が孤児として残るのを直す by @kumagallium in https://github.com/kumagallium/asterism/pull/431
+- fix(log): backend.log を読めるものにする — 死活確認のノイズ・世代・インスタンスの境目 by @kumagallium in https://github.com/kumagallium/asterism/pull/433
+- chore(ci): ui のユニットテストを CI で走らせる by @kumagallium in https://github.com/kumagallium/asterism/pull/432
+- feat(mcp): どのデータセットがあるかを機械が答える — find_datasets と、届いていなかった registry by @kumagallium in https://github.com/kumagallium/asterism/pull/438
+- feat: 公開したあとに「データの数えかた」を直せるようにする — 前の ID は引っ越し先を指す by @kumagallium in https://github.com/kumagallium/asterism/pull/437
+- feat(tier0): 単一 object のドットパス取得と Python リテラル repr の受理 — pandas の dict 列が展開できなかった by @kumagallium in https://github.com/kumagallium/asterism/pull/439
+- docs: ID の引っ越しを本番デプロイ済みに更新 — 既存データ無傷を確認 by @kumagallium in https://github.com/kumagallium/asterism/pull/440
+- fix(infra): Crucible から素直に deploy できるようにする — 内部ポートと subdir の mcp.json by @kumagallium in https://github.com/kumagallium/asterism/pull/434
+- fix(prod): ホームの「事実の数」が出ない — api の露出プロファイルを開ける by @kumagallium in https://github.com/kumagallium/asterism/pull/435
+
 ## [v0.22.1](https://github.com/kumagallium/asterism/compare/v0.22.0...v0.22.1) - 2026-08-26
 
 - fix(infra/desktop): 配布物に manual/ を同梱 — 相談チャットの知識源の欠落 by @kumagallium in https://github.com/kumagallium/asterism/pull/423

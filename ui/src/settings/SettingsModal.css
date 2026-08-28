@@ -614,3 +614,77 @@
   font-size: 0.82rem;
   word-break: break-all;
 }
+
+/* ---- connect tab（ほかの AI から使う） ---- */
+.connect-url {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.connect-url-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.connect-url-value {
+  word-break: break-all;
+}
+.connect-copy {
+  flex: none;
+}
+
+.connect-clients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 10px;
+}
+.connect-client {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.connect-client:hover {
+  color: var(--fg);
+}
+.connect-client.active {
+  color: var(--primary);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.connect-steps {
+  margin: 0 0 10px;
+  padding-left: 1.3em;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  color: var(--fg);
+}
+
+.connect-snippet {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.connect-snippet pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft, rgba(0, 0, 0, 0.03));
+  overflow-x: auto;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.connect-caveat {
+  margin-bottom: 0;
+}

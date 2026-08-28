@@ -25,17 +25,21 @@ module import time.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib.util
 import ipaddress
 import logging
 import os
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +49,8 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from asterism_api.mcp_mount import MCP_PATH, attach_mcp
 
 if TYPE_CHECKING:
     from asterism.oxigraph_client import OxigraphClient
@@ -142,7 +148,9 @@ def ensure_write_token(home: Path) -> str:
     return token
 
 
-def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
+def local_env(
+    home: Path, oxigraph_url: str, token: str, *, mcp_url: str | None = None
+) -> dict[str, str]:
     """Env defaults for a local run, applied with ``setdefault`` (user wins).
 
     ``ASTERISM_EXPOSE_RAW_SPARQL=1``: the single-user loopback box is the
@@ -168,6 +176,11 @@ def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
         # the appdata routes there stay 404 and behaviour is unchanged.
         "ASTERISM_SINGLE_USER": "1",
         "ASTERISM_APPDATA_ROOT": str(home / "appdata"),
+        # The MCP endpoint to register in an external AI client (ADR
+        # mcp-endpoint-on-the-app.md). Built from the port that was actually
+        # bound, not from the 8765 preference: the settings screen shows this
+        # string verbatim, and a confident wrong URL is worse than none.
+        **({"ASTERISM_MCP_URL": mcp_url} if mcp_url else {}),
     }
 
 
@@ -490,13 +503,17 @@ def build_local_app(
     start_watcher: bool = True,
     demo_agent_url: str | None = None,
     demo_relay_client: httpx.AsyncClient | None = None,
+    mcp: bool = True,
 ) -> FastAPI:
-    """``build_app`` + optional /demo relay + SPA mount + token injection.
+    """``build_app`` + optional /demo relay + /mcp + SPA mount + token injection.
 
     Route order matters: ``build_app`` registers the api routes first, the
-    ``/demo/*`` relay is included next, and the static catch-all mount goes
-    last — so ``/api/*``, ``/jobs``, ``/health``, ``/describe``,
-    ``/upload/{kind}`` and ``/demo/*`` all win over the SPA fallback.
+    ``/demo/*`` relay is included next, the MCP endpoint after that, and the
+    static catch-all mount goes last — so ``/api/*``, ``/jobs``, ``/health``,
+    ``/describe``, ``/upload/{kind}``, ``/demo/*`` and ``/mcp`` all win over
+    the SPA fallback. (Before ``/mcp`` had a route of its own, that fallback
+    answered it with the SPA's index.html — a 200 full of HTML, which is why
+    the endpoint looked present and was not.)
     """
     from asterism_api.main import build_app
 
@@ -505,6 +522,8 @@ def build_local_app(
     )
     if demo_agent_url is not None:
         app.include_router(create_demo_relay(demo_agent_url, demo_relay_client))
+    if mcp:
+        attach_mcp(app)
     if ui_dist is not None:
         app.mount("/", SpaStaticFiles(directory=str(ui_dist), html=True), name="spa")
     app.add_middleware(LoopbackTokenInjector, token=token)
@@ -520,10 +539,73 @@ async def _open_when_ready(server: Any, url: str) -> None:
 def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> None:
     import uvicorn
 
+    # _Server is defined here, not at module scope, because it subclasses
+    # uvicorn.Server and uvicorn is only imported lazily inside this function
+    # — the rest of this module (CLI arg parsing, env setup) must stay
+    # importable without pulling in uvicorn.
+    class _Server(uvicorn.Server):
+        """``uvicorn.Server`` without the terminal signal re-raise.
+
+        Upstream's ``capture_signals`` (``uvicorn/server.py`` — private, no
+        public hook exists for this) installs ``self.handle_exit`` for the
+        duration of ``serve()``, then on the way out restores the *original*
+        handlers (for SIGTERM that is the default, i.e. terminate-immediately)
+        and re-raises the captured signal at itself with ``signal.raise_signal``.
+        That re-raise exists so a process killed by SIGTERM also *reports*
+        SIGTERM in its exit status — reasonable in isolation, but it kills the
+        process before control ever returns to the ``await server.serve()``
+        caller, which for local mode is ``main()``'s ``finally`` — the place
+        that ``_terminate()``s the Oxigraph / demo-agent children. With the
+        re-raise, that ``finally`` never runs and the children are orphaned
+        (confirmed in production: v0.22.1, twice, both Oxigraph and
+        demo-agent). This process's job is to not leave children behind, not
+        to report an accurate signal-based exit status, so the re-raise is
+        dropped. Handler installation/removal and ``handle_exit``'s graceful-
+        shutdown semantics are copied from upstream unchanged; only a log
+        line is added so a future incident shows *why* the process is going
+        down instead of only uvicorn's own "Shutting down".
+        """
+
+        @contextlib.contextmanager
+        def capture_signals(self) -> Iterator[None]:
+            # Mirrors uvicorn.Server.capture_signals: signals can only be
+            # listened to from the main thread.
+            if threading.current_thread() is not threading.main_thread():
+                yield
+                return
+
+            def _handle_and_log(sig: int, frame: Any) -> None:
+                logger.warning(
+                    "received %s (signal %d) — shutting down and stopping "
+                    "children (pid %d, ppid %d)",
+                    signal.Signals(sig).name,
+                    sig,
+                    os.getpid(),
+                    os.getppid(),
+                )
+                self.handle_exit(sig, frame)
+
+            # uvicorn.server.HANDLED_SIGNALS, not a local copy: this stays in
+            # step with whatever signal set upstream decides to handle
+            # (SIGINT/SIGTERM today, plus SIGBREAK on Windows).
+            original_handlers = {
+                sig: signal.signal(sig, _handle_and_log)
+                for sig in uvicorn.server.HANDLED_SIGNALS
+            }
+            try:
+                yield
+            finally:
+                for sig, handler in original_handlers.items():
+                    signal.signal(sig, handler)
+            # Deliberately no ``signal.raise_signal`` here — see the class
+            # docstring above.
+
     # timeout_graceful_shutdown: SIGTERM must reach main()'s finally (which
     # terminates the oxigraph / demo-agent children) BEFORE a supervising shell
     # (the desktop app) escalates to SIGKILL — unbounded graceful shutdown can
-    # linger on keep-alive connections and orphan the grandchildren.
+    # linger on keep-alive connections and orphan the grandchildren. _Server
+    # above is what makes that true: without it, uvicorn's own signal handling
+    # re-kills the process on the way out and main()'s finally never runs.
     config = uvicorn.Config(
         app,
         host="127.0.0.1",
@@ -531,7 +613,7 @@ def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> 
         log_level=log_level,
         timeout_graceful_shutdown=5,
     )
-    server = uvicorn.Server(config)
+    server = _Server(config)
 
     async def _run() -> None:
         opener = (
@@ -585,11 +667,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="do not spawn the demo-agent child (Ask view degrades)",
     )
+    parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help="do not serve the MCP endpoint at /mcp",
+    )
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(message)s")
+    if args.log_level.upper() != "DEBUG":
+        # httpx logs one INFO line per request, and the Oxigraph readiness
+        # probe (wait_oxigraph_ready) polls it every ~10s for as long as the
+        # process runs. In a real backend.log this was 180,621 of 183,451
+        # lines (98.5%) — pure liveness-check noise that buried the handful
+        # of lines an actual investigation needed (see PR #430/#431). Leave
+        # it alone under --log-level debug, where seeing every request is
+        # the point.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
     # Private-by-default at-rest, same rationale as asterism-api (_main).
     os.umask(0o077)
 
@@ -624,7 +720,8 @@ def main(argv: list[str] | None = None) -> int:
             home / "oxigraph_store",
         )
 
-    for key, value in local_env(home, oxigraph_url, token).items():
+    mcp_url = None if args.no_mcp else f"http://127.0.0.1:{args.port}{MCP_PATH}"
+    for key, value in local_env(home, oxigraph_url, token, mcp_url=mcp_url).items():
         os.environ.setdefault(key, value)
 
     ui_dist = find_ui_dist(args.ui_dist)
@@ -677,9 +774,13 @@ def main(argv: list[str] | None = None) -> int:
             ui_dist=ui_dist,
             settings=Settings(),
             demo_agent_url=demo_url,
+            mcp=not args.no_mcp,
         )
         url = f"http://127.0.0.1:{args.port}/"
         logger.info("Asterism local: %s (data: %s)", url, home)
+        if mcp_url:
+            # The literal string a person registers in their AI client.
+            logger.info("MCP endpoint: %s", mcp_url)
         _serve(
             app,
             port=args.port,

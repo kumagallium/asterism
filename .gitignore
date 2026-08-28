@@ -97,3 +97,7 @@ asterism.env
 dist/
 build/
 *.egg
+
+# MP API snapshot の中間生成物（生レスポンスのレジューム用キャッシュ。
+# 出力の mp.json はコミットするが、これは再取得で作り直せる）
+datasets/materials_project/json/mp.cache.json

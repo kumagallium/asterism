@@ -6,6 +6,7 @@ import { AskView } from './AskView'
 import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
+import { BackendDownBanner } from './desktop/BackendDownBanner'
 import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
@@ -325,6 +326,7 @@ function App() {
       <StaleChunkBanner />
       <PortFallbackBanner />
       <UpdateBanner />
+      <BackendDownBanner />
       <div className="app-shell">
         <aside className="sidebar">
           <div className="brand">

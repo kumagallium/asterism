@@ -51,6 +51,7 @@ __all__ = [
     "parse_mapping_ir",
     "referenced_columns",
     "structural_property_issues",
+    "template_placeholders",
     "validate_mapping_ir",
 ]
 
@@ -253,7 +254,10 @@ def _suggest(wrong: str, options: Sequence[str]) -> str:
     return f" Did you mean: {', '.join(close)}?" if close else ""
 
 
-def _placeholders(template: str) -> list[str]:
+def template_placeholders(template: str) -> list[str]:
+    """The ``{column}`` slots of one template, in order (escaped ``\\{`` is a
+    literal brace). Public because the ID-move planner reads the columns an
+    ALREADY-PUBLISHED subject template needs, which is not a map it holds."""
     return [m.group(1) for m in _PLACEHOLDER.finditer(template)]
 
 
@@ -263,13 +267,13 @@ def referenced_columns(m: TriplesMapIR) -> set[str]:
     substrate's substitution slot, not a column."""
     cols: set[str] = set()
     if m.subject.template:
-        cols.update(_placeholders(m.subject.template))
+        cols.update(template_placeholders(m.subject.template))
     for p in m.properties:
         if p.column:
             cols.add(p.column)
         cols.update(p.columns)
         if p.object_template:
-            cols.update(_placeholders(p.object_template))
+            cols.update(template_placeholders(p.object_template))
     cols.discard(_RUN_ID_PLACEHOLDER)
     return cols
 
@@ -369,7 +373,7 @@ def _parse_transform(
         issues.append(f"{where}.transform must be a mapping of {{placeholder: function}}.")
         return {}
     out: dict[str, str] = {}
-    slots = set(_placeholders(template)) if template else set()
+    slots = set(template_placeholders(template)) if template else set()
     for col, fn in raw.items():
         col_s = str(col)
         fn_s = _expect_str(fn, f"{where}.transform[{col_s!r}]", issues)
@@ -442,7 +446,7 @@ def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
         )
     if template is not None:
         template = _expect_str(template, f"{where}.subject.template", issues)
-        if template is not None and not _placeholders(template):
+        if template is not None and not template_placeholders(template):
             issues.append(
                 f"{where}.subject.template has no {{column}} placeholder; a fixed "
                 f"IRI should use 'constant' instead."

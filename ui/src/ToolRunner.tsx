@@ -1,33 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isBundledTool } from './bundledTools'
+import { copyText } from './clipboard'
 import { plainError } from './kantan/errorMessages'
 import { runTool, type QueryTool, type QueryToolParam, type ToolRunResult } from './toolsApi'
 
 function fmt(v: unknown): string {
   return v == null ? '' : String(v)
-}
-
-/** Copy text to the clipboard, with an execCommand fallback for non-secure contexts. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      document.body.removeChild(ta)
-      return ok
-    } catch {
-      return false
-    }
-  }
 }
 
 /** The tool a search hit is quoted with, and the parameter carrying the hit. */

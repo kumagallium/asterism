@@ -186,6 +186,44 @@ Optional but recommended: add the Apple Developer signing secrets
 `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` — same names as Graphium) so the
 installed/updated app is notarized and not Gatekeeper-blocked.
 
+## AI クライアントから MCP として使う
+
+同梱の `asterism` は **MCP サーバー**でもある。stdio transport を持つので、Claude Code /
+Claude Desktop がサブプロセスとして直接起動できる — **Docker も Crucible も別サーバーも
+要らない**。バンドルに入っている実体はこれ:
+
+```
+/Applications/Asterism.app/Contents/Resources/backend/uv-python/cpython-3.11*/bin/asterism
+```
+
+```bash
+APP=/Applications/Asterism.app/Contents/Resources/backend
+AST=$(echo $APP/uv-python/cpython-3.11*/bin/asterism)
+
+claude mcp add asterism \
+  -e CSV2RDF_OXIGRAPH_URL=http://127.0.0.1:<oxigraph のポート> \
+  -e CSV2RDF_REGISTRY_ROOT="$HOME/Documents/Asterism/registry" \
+  -e ASTERISM_EXPOSE_RAW_SPARQL=false \
+  -- "$AST" --transport stdio
+```
+
+| env | 意味 |
+|---|---|
+| `CSV2RDF_OXIGRAPH_URL` | store の在り処。**デスクトップ版の oxigraph は空きポートで起動する**ので、`<data-dir>/logs/oxigraph.log` の `Listening for requests at …` から読む |
+| `CSV2RDF_REGISTRY_ROOT` | 設計したデータセットの typed tool（`<id>/query_tools.yaml`）。省略すると組み込みの 3 つだけになる |
+| `ASTERISM_EXPOSE_RAW_SPARQL` | `false` で任意 SPARQL の escape を出さない（既定も閉） |
+
+> ⚠️ **oxigraph のポートが起動ごとに変わる**ため、いまは登録し直しが要る。固定ポート化 or
+> ポートを書き出す仕組みは未実装（§Not yet done）。
+
+### console script の shebang について
+
+`bundle-backend.sh` はバンドル後に console script の shebang を **sh/python polyglot** に
+差し替える。pip/uv はビルド機のインタプリタパスを焼き込むので、そのままでは配布先で
+`bad interpreter` になる（shebang は絶対パスしか解釈されないため、相対では書けない）。
+アプリ本体は `python -m` で起動するので影響を受けないが、**外部から `asterism` を呼ぶ経路**
+— まさに上の MCP 登録 — はこれが無いと動かない。
+
 ## Storage location
 
 By default the backend keeps all data (datasets, graphs, chat threads,
@@ -216,3 +254,6 @@ normally — nothing is lost. Either way the shell reports the outcome once via
   updater's `latest.json` cover macOS aarch64 only.
 - **Docling (PDF)**: not bundled — optional download later; PDF ingest
   degrades with the existing clear 4xx.
+- **MCP のポート発見**: oxigraph は空きポートで起動するので、MCP クライアントに
+  `CSV2RDF_OXIGRAPH_URL` を固定で書けない（起動ごとに登録し直しになる）。固定ポート化か、
+  実ポートを既知の場所に書き出す仕組みが要る。

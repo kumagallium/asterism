@@ -175,6 +175,20 @@ def test_json_array() -> None:
     assert json_array("[null]") is None
 
 
+def test_json_array_single_python_literal_repr() -> None:
+    assert json_array_single("['Soziale Innovation']") == "Soziale Innovation"
+    # existing "bad input → empty" behavior is unchanged
+    assert json_array_single("not json") == ""
+    assert json_array_single("") == ""
+
+
+def test_json_array_python_literal_repr() -> None:
+    assert json_array("['a', 'b', 'c']") == ["a", "b", "c"]
+    # existing "bad input → None" behavior is unchanged
+    assert json_array("not json") is None
+    assert json_array("") is None
+
+
 def test_value_unit_split() -> None:
     assert value_of("300 K") == "300" and unit_of("300 K") == "K"
     assert value_of("12.5 mm/s") == "12.5" and unit_of("12.5 mm/s") == "mm/s"

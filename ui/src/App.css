@@ -44,6 +44,34 @@
   color: var(--error-fg);
 }
 
+.backend-down-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: 0.45rem var(--space-6);
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-border);
+  color: var(--warn-fg);
+  font-size: 0.875rem;
+}
+.backend-down-banner-text {
+  font-weight: 600;
+}
+.backend-down-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.backend-down-banner-error {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--error-fg);
+}
+
 .sidebar {
   flex: none;
   width: 248px;
@@ -7564,6 +7592,36 @@ tr.kz-attn td {
 }
 .kz-words {
   margin-top: var(--space-1);
+}
+/* S8: what this update does to already-published IDs
+   (ADR id-move-after-publish.md). Two states, and they must not look alike:
+   forwarding in place is information, forwarding that could NOT be built is the
+   one thing on this screen that breaks someone else's link. */
+.kz-idmove {
+  border-left: 3px solid var(--primary);
+  background: var(--primary-softer);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+  font-size: 0.88rem;
+}
+.kz-idmove--warn {
+  border-left-color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+.kz-idmove-head {
+  font-weight: 600;
+  margin: 0 0 var(--space-1);
+}
+.kz-idmove p {
+  margin: var(--space-1) 0 0;
+}
+.kz-idmove-list {
+  margin: var(--space-1) 0 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 .kz-words summary {
   cursor: pointer;

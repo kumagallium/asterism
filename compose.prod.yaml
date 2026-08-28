@@ -62,6 +62,12 @@ services:
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
       ASTERISM_DOCLING_URL: http://docling:8090
+      # Private 本体 UI は raw SPARQL を開ける (ADR store-mcp-split §7)。ホームの統計と
+      # 開発者向け SPARQL ページが POST /api/sparql を叩くため、既定の「閉」のままだと
+      # 403 になり「事実の数」が出ない。全サイトがセッションゲートの裏なので外には出ない。
+      # 外向きに publish する MCP フロントは別プロセスで false のまま (compose.mcp-front.yaml)。
+      # demo-agent には意図的に渡さない (Ask は typed tools のみ) ため env_file ではなくここ。
+      ASTERISM_EXPOSE_RAW_SPARQL: "1"
     volumes:
       - asterism-data:/data/sources    # registry + sources + jobs + append inbox
     depends_on: [oxigraph]

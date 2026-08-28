@@ -47,6 +47,7 @@ read path — and the rendered Markdown — byte-identical.
 
 from __future__ import annotations
 
+import ast
 import csv
 import io
 import itertools
@@ -57,6 +58,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from asterism_step0.dialect import (
     LEGACY_SUFFIXES,
@@ -112,11 +114,79 @@ def _infer_cell_type(value: str) -> str:
     return "xsd:string"
 
 
+# ---- relaxed literal parsing (inspection only) -------------------------------
+# A pandas dict/list column written through ``to_csv()`` serializes each cell
+# with Python's ``repr()`` — single-quoted keys, ``True``/``False``/``None`` —
+# which ``json.loads`` rejects outright. Inspection has to recognize such a
+# column as an object/array anyway: if it does not, the column's keys never
+# reach the proposal and no ``fn:json_get`` path can be written for it.
+#
+# This mirrors ``asterism._jsonio.loads_relaxed`` (the ingest-side reader the
+# Tier 0 functions use at materialize time) with the same bounds, and is kept
+# local rather than imported because step0 deliberately carries **no hard
+# runtime dependency** on the ingest package (see ``step0/pyproject.toml``).
+# The two are a pair: ingest's copy governs what a mapping may *read*, this one
+# governs what inspection can *see*. Change them together.
+#
+# ``ast.literal_eval`` is not ``eval`` — it rebuilds only literal AST nodes, so
+# a call / name / attribute node raises ``ValueError`` instead of executing.
+# The residual attack surface is denial of service, bounded here by an input
+# size cap and a nesting-depth cap measured *before* either parser runs.
+_MAX_LITERAL_BYTES = 1 << 20  # 1 MiB
+_MAX_LITERAL_DEPTH = 64
+_BRACKETS_OPEN = "[{("
+_BRACKETS_CLOSE = "]})"
+
+
+def _max_nesting_depth(text: str) -> int:
+    """Maximum bracket nesting depth, counting **every** bracket including those
+    inside string literals. A quote-aware scan would have to re-implement
+    Python's string lexer exactly; getting it wrong hides real nesting behind a
+    mis-parsed quote. Over-counting only ever refuses more input, so the error
+    falls on the safe side. Single linear pass, no recursion, early return once
+    the cap is passed."""
+    depth = 0
+    max_depth = 0
+    for ch in text:
+        if ch in _BRACKETS_OPEN:
+            depth += 1
+            if depth > max_depth:
+                max_depth = depth
+                if max_depth > _MAX_LITERAL_DEPTH:
+                    return max_depth
+        elif ch in _BRACKETS_CLOSE:
+            depth -= 1
+    return max_depth
+
+
+def _loads_relaxed(value: str) -> Any | None:
+    """Parse ``value`` as JSON, falling back to a Python literal repr. Returns
+    ``None`` — never raises — for empty / oversized / over-nested input or for
+    anything neither parser accepts."""
+    if not value or not value.strip():
+        return None
+    if len(value) > _MAX_LITERAL_BYTES:
+        return None
+    if _max_nesting_depth(value) > _MAX_LITERAL_DEPTH:
+        return None
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    try:
+        return ast.literal_eval(value)
+    except (ValueError, SyntaxError, MemoryError, RecursionError, TypeError):
+        return None
+
+
 def _detect_json_kind(samples: Sequence[str]) -> str | None:
     """If every non-empty sample looks like a JSON array / object, return its kind.
 
     Returns ``"json-array"`` / ``"json-object"`` or ``None`` if at least one
-    non-empty cell does not begin with ``[`` / ``{`` (or parses cleanly).
+    non-empty cell does not begin with ``[`` / ``{`` (or parses cleanly). A
+    Python literal repr (single-quoted — what ``pandas.to_csv()`` writes for a
+    dict/list column) counts as parsing cleanly; the Tier 0 readers accept that
+    shape too.
     """
     nonempty = [s.strip() for s in samples if s.strip()]
     if not nonempty:
@@ -125,18 +195,12 @@ def _detect_json_kind(samples: Sequence[str]) -> str | None:
     object_count = 0
     for s in nonempty:
         if s[0] == _JSON_ARRAY_OPEN:
-            try:
-                parsed = json.loads(s)
-            except json.JSONDecodeError:
-                return None
+            parsed = _loads_relaxed(s)
             if not isinstance(parsed, list):
                 return None
             array_count += 1
         elif s[0] == _JSON_OBJECT_OPEN:
-            try:
-                parsed = json.loads(s)
-            except json.JSONDecodeError:
-                return None
+            parsed = _loads_relaxed(s)
             if not isinstance(parsed, dict):
                 return None
             object_count += 1
@@ -205,20 +269,36 @@ def _looks_like_json(value: str) -> bool:
     return v.startswith(_JSON_ARRAY_OPEN) or v.startswith(_JSON_OBJECT_OPEN)
 
 
-def _json_first_keys(samples: Sequence[str], max_keys: int = 12) -> list[str]:
-    """For json-object columns, collect a sample of top-level keys."""
+def _json_first_keys(
+    samples: Sequence[str], max_keys: int = 24, max_depth: int = 2
+) -> list[str]:
+    """For json-object columns, collect a sample of keys as **dotted paths**.
+
+    A nested object's own keys are exactly what ``fn:json_get`` needs as its
+    ``path`` argument, so stopping at the top level would hide them: a cell like
+    ``{"lattice": {"a": 3.3}}`` has to advertise ``lattice.a``, not just
+    ``lattice``. Descends ``max_depth`` levels into nested *objects* only —
+    arrays are reported by their own key and left to ``fn:json_array`` /
+    ``fn:json_pluck`` / a nested TriplesMap.
+    """
     keys: list[str] = []
+
+    def _walk(obj: dict[str, Any], prefix: str, depth: int) -> bool:
+        """Append paths under ``obj``; returns True once ``max_keys`` is hit."""
+        for k, v in obj.items():
+            path = f"{prefix}{k}"
+            if path not in keys:
+                keys.append(path)
+                if len(keys) >= max_keys:
+                    return True
+            if isinstance(v, dict) and depth < max_depth and _walk(v, f"{path}.", depth + 1):
+                return True
+        return False
+
     for s in samples:
-        try:
-            parsed = json.loads(s)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            for k in parsed:
-                if k not in keys:
-                    keys.append(k)
-                    if len(keys) >= max_keys:
-                        return keys
+        parsed = _loads_relaxed(s)
+        if isinstance(parsed, dict) and _walk(parsed, "", 1):
+            return keys
     return keys
 
 
@@ -573,7 +653,16 @@ def _id_candidate_columns(
         # counts hit the cap they're not informative — fall back to "is this
         # column probably an ID by name" heuristic.
         capped = min(s.non_null_count, _SAMPLE_RING) * threshold
-        by_unique = s.unique_count >= capped
+        # A continuous quantity is never an identifier, however distinct its
+        # values happen to be. Without this guard a wide table of measurements
+        # nominates nearly every float column: `density`, `volume`,
+        # `total_magnetization_normalized_vol` are all ~100% distinct across a
+        # few thousand rows. The composite search below is cubic in the number of
+        # candidates, so those columns are what turn a normal inspection into a
+        # 16,000-row uniqueness table (measured: 46 candidates -> 45,540 triples
+        # to test; dropping doubles leaves 14 -> 1,092). The name heuristic below
+        # already excluded doubles for the same reason; this closes the other door.
+        by_unique = s.unique_count >= capped and s.inferred_type != "xsd:double"
         by_name = _looks_like_id_by_name(s.name) and s.inferred_type in {
             "xsd:integer",
             "xsd:string",
@@ -1194,6 +1283,13 @@ def render_markdown(
         json_cols = [c for c in ins.columns if c.inferred_type in {"json-array", "json-object"}]
         if json_cols:
             buf.write("### JSON columns\n\n")
+            buf.write(
+                "A cell holding one **object** yields a scalar via `fn:json_get` "
+                "(`args: {path: \"<dotted path below>\"}`); a cell holding an "
+                "**array** explodes via `fn:json_array` (scalars) / `fn:json_pluck` "
+                "(objects). Single-quoted cells are Python literal reprs (a pandas "
+                "dict/list column) and are read the same way.\n\n"
+            )
             for col in json_cols:
                 if col.inferred_type == "json-object":
                     keys = ", ".join(f"`{k}`" for k in col.json_keys) or "(no keys seen)"

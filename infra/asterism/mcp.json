@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "name": "asterism",
+  "display_name": "Asterism (Materials Knowledge Graph)",
+  "description": "Typed MCP front over an Asterism knowledge graph (materials measurement curves, samples, papers; PROV-O first-class). Reads an external Oxigraph store over CSV2RDF_OXIGRAPH_URL. Set ASTERISM_EXPOSE_RAW_SPARQL=false to withhold the arbitrary-SPARQL escape and publish only the vetted typed tools.",
+  "version": "0.1.0",
+  "author": "kumagallium",
+  "transport": "auto",
+  "health_check": "/mcp",
+  "dify": {
+    "auto_register": false,
+    "label": "asterism",
+    "icon": "🧪",
+    "icon_background": "#EDF5EE"
+  },
+  "env": {
+    "required": [],
+    "optional": [
+      "CSV2RDF_OXIGRAPH_URL",
+      "ASTERISM_EXPOSE_RAW_SPARQL",
+      "ASTERISM_BUNDLED_TOOLS",
+      "CSV2RDF_REGISTRY_ROOT"
+    ]
+  },
+  "groups": [
+    "user"
+  ]
+}

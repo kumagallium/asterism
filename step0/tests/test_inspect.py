@@ -17,6 +17,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from asterism_step0.inspect import (
+    _id_candidate_columns,
     inspect_csv,
     inspect_csv_set,
     inspect_json,
@@ -179,6 +180,131 @@ def test_json_object_detected_with_keys(tmp_path: Path) -> None:
     assert info is not None
     assert info.inferred_type == "json-object"
     assert set(info.json_keys) == {"given", "family"}
+
+
+def test_python_literal_object_detected_with_dotted_keys(tmp_path: Path) -> None:
+    """A pandas dict column round-tripped through ``to_csv()`` is a Python literal
+    repr, not JSON. It must still be recognized as an object AND advertise its
+    nested keys as dotted paths — that is exactly what ``fn:json_get`` needs as
+    its ``path`` argument (ADR tier0-object-path-and-python-literals.md)."""
+    csv_path = _write_csv(
+        tmp_path / "pyrepr.csv",
+        """
+        id,structure
+        1,"{'lattice': {'a': 3.33, 'volume': 27.5}, 'sites': [{'label': 'In'}]}"
+        2,"{'lattice': {'a': 4.05, 'volume': 66.4}, 'sites': [{'label': 'Al'}]}"
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    info = ins.column("structure")
+    assert info is not None
+    assert info.inferred_type == "json-object"
+    # Nested object keys surface as dotted paths; the array stops at its own key.
+    assert "lattice.a" in info.json_keys
+    assert "lattice.volume" in info.json_keys
+    assert "sites" in info.json_keys
+    assert not any(k.startswith("sites.") for k in info.json_keys)
+
+
+def test_python_literal_array_detected(tmp_path: Path) -> None:
+    csv_path = _write_csv(
+        tmp_path / "pyarr.csv",
+        """
+        id,tags
+        1,"['a', 'b']"
+        2,"['c']"
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    info = ins.column("tags")
+    assert info is not None
+    assert info.inferred_type == "json-array"
+
+
+def test_nested_keys_stop_at_max_depth(tmp_path: Path) -> None:
+    """Key collection descends two levels, no further — a deeper path is left to
+    a nested TriplesMap rather than exploding the inspection."""
+    csv_path = _write_csv(
+        tmp_path / "deep.csv",
+        """
+        id,d
+        1,"{""a"": {""b"": {""c"": 1}}}"
+        2,"{""a"": {""b"": {""c"": 2}}}"
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    info = ins.column("d")
+    assert info is not None
+    assert "a" in info.json_keys
+    assert "a.b" in info.json_keys
+    assert "a.b.c" not in info.json_keys
+
+
+def test_relaxed_parse_refuses_oversized_and_over_nested() -> None:
+    """The inspection-side reader carries the same DoS bounds as the ingest-side
+    ``asterism._jsonio`` — and returns None instead of raising."""
+    from asterism_step0.inspect import _MAX_LITERAL_BYTES, _loads_relaxed
+
+    assert _loads_relaxed('{"a": 1}') == {"a": 1}
+    assert _loads_relaxed("{'a': 1}") == {"a": 1}
+    assert _loads_relaxed('["x" ' + "," * _MAX_LITERAL_BYTES + "]") is None
+    assert _loads_relaxed("[" * 100 + "]" * 100) is None
+    # Balanced punctuation inside a string does not accumulate depth...
+    assert _loads_relaxed("{'cif': '(x, y, z)'}") == {"cif": "(x, y, z)"}
+    # ...and real nesting cannot hide behind a quote the scanner mis-reads.
+    attack = "{'c': '''it's fine''', 'm': " + "[" * 150 + "]" * 150 + "}"
+    assert _loads_relaxed(attack) is None
+    # Nothing executable survives the literal-only walk.
+    assert _loads_relaxed("__import__('os').system('echo pwned')") is None
+    assert _loads_relaxed("[].__class__") is None
+
+
+def test_continuous_columns_are_not_id_candidates(tmp_path: Path) -> None:
+    """A float column is never an identifier, however distinct its values are.
+
+    Regression: a wide measurement table (Materials Project, 64 columns) nominated
+    46 ID candidates because every float column was ~100% distinct across 2,402
+    rows. The composite-key search is cubic in that count, so the uniqueness table
+    grew to 16,267 rows and the inspection to 1.2 MB — past what an LLM can read,
+    which is how it surfaced: "AI がデータを読めませんでした" at the propose step.
+    """
+    csv_path = _write_csv(
+        tmp_path / "measurements.csv",
+        """
+        mp_id,density,volume,band_gap,label
+        mp-1,3.70701,181.766,0.3388,alpha
+        mp-2,7.31538,358.696,1.5511,beta
+        mp-3,5.12345,222.111,0.0000,gamma
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    candidates = _id_candidate_columns(ins.columns)
+    # the string id and the label stay; the three continuous columns do not
+    assert "mp_id" in candidates
+    for continuous in ("density", "volume", "band_gap"):
+        assert continuous not in candidates, f"{continuous} should not be an ID candidate"
+
+
+def test_uniqueness_table_stays_small_on_a_wide_table(tmp_path: Path) -> None:
+    """The composite search must not explode as columns are added.
+
+    Same regression as above, measured end to end: 30 float columns used to yield
+    thousands of composite keys. The count is what matters, not the exact number —
+    it should stay in the dozens, not the thousands.
+    """
+    cols = ["mp_id"] + [f"m{i}" for i in range(30)]
+    lines = [",".join(cols)]
+    for row in range(40):
+        vals = [f"mp-{row}"] + [f"{row * 1.7 + i * 0.31:.5f}" for i in range(30)]
+        lines.append(",".join(vals))
+    csv_path = tmp_path / "wide.csv"
+    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    ins = inspect_csv(csv_path)
+    assert len(ins.uniqueness_reports) < 60, (
+        f"{len(ins.uniqueness_reports)} composite keys from 31 columns — "
+        "the continuous-column guard is not holding"
+    )
 
 
 def test_json_mixed_falls_back_to_string(tmp_path: Path) -> None:
