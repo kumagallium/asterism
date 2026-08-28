@@ -110,6 +110,7 @@ from asterism_step0.staged_propose import (
     apply_column_meanings,
     apply_data_facts,
     propose_from_skeleton,
+    take_in_columns,
 )
 from asterism_step0.validate import SchemaBundle, validate_schema
 
@@ -1761,6 +1762,9 @@ def run_design_loop(
     schema_md = _overlay_data_facts(schema_md, *data_facts)
     schema_md = _overlay_column_meanings(schema_md, column_meanings)
     schema_md = _overlay_column_decisions(schema_md, column_decisions)
+    schema_md = _overlay_taken_in_columns(
+        schema_md, skeleton, column_meanings, column_decisions, *data_facts
+    )
 
     def _result(
         best_schema: str,
@@ -1932,6 +1936,9 @@ def run_design_loop(
         schema_md = _overlay_data_facts(schema_md, *data_facts)
         schema_md = _overlay_column_meanings(schema_md, column_meanings)
         schema_md = _overlay_column_decisions(schema_md, column_decisions)
+        schema_md = _overlay_taken_in_columns(
+            schema_md, skeleton, column_meanings, column_decisions, *data_facts
+        )
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
@@ -2042,6 +2049,84 @@ def _excluded_by_source(
         if source and column:
             out.setdefault(source, []).append(column)
     return out
+
+
+def _column_homes(
+    skeleton: Mapping[str, Any] | None, column_owners: Mapping[str, Mapping[str, str]] | None
+) -> dict[str, dict[str, str]]:
+    """``{source: {column: the map that owns it}}`` — read off the gate's verdict.
+
+    "peak must not write these 18 columns, crystal owns them" is exactly the
+    statement "those columns live on crystal". A source with a single map needs
+    no verdict at all — :func:`take_in_columns` answers that case itself.
+    """
+    maps = [m for m in ((skeleton or {}).get("maps") or []) if isinstance(m, Mapping)]
+    source_of = {str(m.get("name") or ""): str(m.get("source") or "") for m in maps}
+    homes: dict[str, dict[str, str]] = {}
+    for map_name, borrowed in (column_owners or {}).items():
+        source = source_of.get(str(map_name), "")
+        if not source:
+            continue
+        for column, owner in (borrowed or {}).items():
+            homes.setdefault(source, {})[str(column)] = str(owner)
+    return homes
+
+
+def _overlay_taken_in_columns(
+    schema_md: str,
+    skeleton: Mapping[str, Any] | None,
+    column_meanings: Sequence[Mapping[str, Any]] | None,
+    column_decisions: Sequence[Mapping[str, Any]] | None,
+    column_owners: Mapping[str, Mapping[str, str]] | None,
+    column_types: Mapping[str, Mapping[str, str]] | None,
+) -> str:
+    """Take in the columns the reader kept, without asking a second time.
+
+    On the meaning screen every column is taken in unless its checkbox is
+    cleared (ADR meaning-before-identity §3/§9), so a kept column the generated
+    design reads nowhere is not a question — it is a gap between the answer and
+    the design, and the machine closes it. Sibling of the other overlays: run
+    after every round, idempotent, byte-untouched when there is nothing to add.
+    """
+    kept = [
+        m
+        for m in (column_meanings or ())
+        if isinstance(m, Mapping) and str(m.get("source") or "") and str(m.get("column") or "")
+    ]
+    if not kept or not skeleton:
+        return schema_md
+    excluded = {
+        (str(d.get("source") or ""), str(d.get("column") or ""))
+        for d in column_decisions or ()
+        if str(d.get("action") or "") == "exclude"
+    }
+    wanted = [m for m in kept if (str(m["source"]), str(m["column"])) not in excluded]
+    if not wanted:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc, added = take_in_columns(
+        doc,
+        wanted,
+        homes=_column_homes(skeleton, column_owners),
+        column_types=column_types,
+    )
+    if not added:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
 
 
 def _overlay_column_decisions(

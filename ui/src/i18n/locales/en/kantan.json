@@ -405,7 +405,8 @@
     "traceNote": "Every number can be traced back to the row it came from. Once published, this ID opens as a web address.",
     "techSummary": "Details (technical)",
     "ok": "Looks right — on to publish",
-    "back": "Something is off — back to item meanings"
+    "back": "Something is off — back to item meanings",
+    "notTakenIn": "{{count}} column(s) are not in the dataset yet ({{list}} …). Give them a meaning on the meanings screen and the next pass takes them in."
   },
   "s8": {
     "title": "Publish",

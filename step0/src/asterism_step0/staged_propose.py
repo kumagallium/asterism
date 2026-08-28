@@ -77,6 +77,7 @@ __all__ = [
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "build_column_meanings_user",
+    "columns_in_use",
     "default_property_table",
     "default_skeleton",
     "drop_duplicate_properties",
@@ -99,6 +100,7 @@ __all__ = [
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
+    "take_in_columns",
     "twin_maps",
 ]
 
@@ -1771,6 +1773,135 @@ def _property_uses_column(prop: Mapping[str, Any], column: str) -> bool:
         or column in (prop.get("columns") or [])
         or _template_uses_column(prop.get("object_template"), column)
     )
+
+
+def columns_in_use(ir: Mapping[str, Any]) -> dict[str, set[str]]:
+    """Which source columns the spec actually READS, per source.
+
+    Everything counts: a plain property, a multi-input function, an IRI template
+    (the subject's or an object's), a ``transform`` key. A column that appears
+    nowhere here contributes nothing to the graph — which is exactly what the
+    question "did this column get taken in?" is asking.
+    """
+    out: dict[str, set[str]] = {}
+    for m in ir.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        source = str(m.get("source") or "")
+        if not source:
+            continue
+        used = out.setdefault(source, set())
+        subject = m.get("subject")
+        if isinstance(subject, Mapping):
+            used |= _template_placeholders(subject.get("template"))
+            transform = subject.get("transform")
+            if isinstance(transform, Mapping):
+                used |= {str(k) for k in transform}
+        for prop in m.get("properties") or []:
+            if not isinstance(prop, Mapping):
+                continue
+            column = str(prop.get("column") or "")
+            if column:
+                used.add(column)
+            for col in prop.get("columns") or []:
+                if str(col):
+                    used.add(str(col))
+            used |= _template_placeholders(prop.get("object_template"))
+            transform = prop.get("transform")
+            if isinstance(transform, Mapping):
+                used |= {str(k) for k in transform}
+    return out
+
+
+def take_in_columns(
+    ir: Mapping[str, Any],
+    wanted: Sequence[Mapping[str, Any]],
+    *,
+    homes: Mapping[str, Mapping[str, str]],
+    column_types: Mapping[str, Mapping[str, str]] | None = None,
+) -> tuple[dict, list[str]]:
+    """Put the columns the reader kept, but the design does not read, on the map
+    that owns them.
+
+    ADR ``meaning-before-identity.md`` §3: on the meaning screen every column is
+    taken in unless the reader clears its checkbox, so a column that survived
+    that screen and is nowhere in the spec is not a question to ask again — the
+    answer was already given. The row is the same plain, sourced, typed
+    passthrough :func:`default_property_table` writes; a meaning, when the
+    person gave one, rides along.
+
+    ``homes`` is ``{source: {column: map name}}`` — the ownership verdict, so
+    the value lands on the entity it actually describes rather than on whichever
+    map happens to read the file first. A source with exactly one map needs no
+    verdict; where several maps read one file and the verdict says nothing, the
+    column is left out — a fact on the wrong entity is worse than a missing one,
+    and the advisory still reports it.
+
+    Idempotent: a column already read anywhere in the spec is never added.
+    """
+    maps = ir.get("maps")
+    if not isinstance(maps, list) or not wanted:
+        return dict(ir), []
+    in_use = columns_in_use(ir)
+    types = {str(k): dict(v) for k, v in (column_types or {}).items()}
+    by_name: dict[str, int] = {}
+    for i, m in enumerate(maps):
+        if isinstance(m, Mapping):
+            by_name[str(m.get("name") or "")] = i
+    out_maps: list[Any] = [dict(m) if isinstance(m, Mapping) else m for m in maps]
+    added: list[str] = []
+    for entry in wanted:
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "")
+        column = str(entry.get("column") or "")
+        if not source or not column or column in in_use.get(source, set()):
+            continue
+        home = str((homes.get(source) or {}).get(column) or "")
+        if not home:
+            # 1 つのファイルに 1 つの種類しか無いなら、答えは 1 つしかない。
+            only = [
+                str(m.get("name") or "")
+                for m in out_maps
+                if isinstance(m, Mapping) and str(m.get("source") or "") == source
+            ]
+            home = only[0] if len(only) == 1 else ""
+        index = by_name.get(home, -1)
+        target = out_maps[index] if index >= 0 else None
+        if not isinstance(target, Mapping) or str(target.get("source") or "") != source:
+            continue
+        prefix = _ontology_prefix({"maps": [target], "prefixes": ir.get("prefixes") or {}})
+        if not prefix:
+            continue
+        existing = {
+            str(prop.get("predicate") or "")
+            for prop in target.get("properties") or []
+            if isinstance(prop, Mapping)
+        }
+        stem = f"{prefix}:{_identifier(column)}"
+        predicate, n = stem, 1
+        while predicate in existing:
+            n += 1
+            predicate = f"{stem}{n}"
+        row: dict[str, Any] = {"predicate": predicate, "column": column}
+        datatype = types.get(home, {}).get(column)
+        if datatype:
+            row["datatype"] = datatype
+        label = str(entry.get("label") or "").strip()
+        if label:
+            row["label"] = label
+        unit = str(entry.get("unit") or "").strip()
+        if unit:
+            row["unit"] = unit
+        out_maps[index] = {
+            **target,
+            "properties": [*(target.get("properties") or []), row],
+        }
+        in_use.setdefault(source, set()).add(column)
+        added.append(f"{source}:{column}")
+    if not added:
+        return dict(ir), []
+    return {**ir, "maps": out_maps}, added
 
 
 def _property_transcribes_column(prop: Mapping[str, Any], column: str) -> bool:

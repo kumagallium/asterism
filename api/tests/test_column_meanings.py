@@ -383,3 +383,63 @@ def test_only_exclude_is_a_pre_design_decision(tmp_path: Path, healthy_client) -
             files={"files": ("readings.csv", _READINGS, "text/csv")},
         )
         assert r.status_code == 422, r.text
+
+
+def _continue_with(client, *, meanings, decisions=None):
+    data = {"skeleton": json.dumps(_STAGED_SKELETON), "column_meanings": json.dumps(meanings)}
+    if decisions:
+        data["column_decisions"] = json.dumps(decisions)
+    r = client.post(
+        "/api/propose/continue",
+        data=data,
+        files={"files": ("readings.csv", _READINGS, "text/csv")},
+    )
+    assert r.status_code == 202, r.text
+    events = _parse_sse(client.get(f"/api/jobs/{r.json()['job_id']}/stream").text)
+    done = next(d for n, d in events if n == "done")["result"]
+    spec = yaml.safe_load(done["proposal_md"].split("```yaml\n")[-1].split("```")[0])
+    return {p.get("column"): p for p in spec["maps"][0]["properties"] if p.get("column")}
+
+
+def test_a_column_with_a_meaning_is_taken_in_without_asking_again(
+    tmp_path: Path, healthy_client
+) -> None:
+    """意味の画面では、外さないかぎり全列が「取り込む」。そこで答えたことを、
+    設計が落としたからといってもう一度聞かない（ADR §3 / §9）。"""
+    with TestClient(_app(tmp_path, healthy_client), headers=_AUTH) as client:
+        # モックの per-map は `unused` を書かない。意味は付いているので機械が拾う。
+        rows = _continue_with(
+            client,
+            meanings=[
+                {"source": "readings.csv", "column": "unused", "label": "備考", "unit": "mV"},
+            ],
+        )
+        assert "unused" in rows
+        assert rows["unused"]["label"] == "備考"
+        assert rows["unused"]["unit"] == "mV"
+
+
+def test_an_excluded_column_is_not_taken_back_in(tmp_path: Path, healthy_client) -> None:
+    with TestClient(_app(tmp_path, healthy_client), headers=_AUTH) as client:
+        rows = _continue_with(
+            client,
+            meanings=[{"source": "readings.csv", "column": "unused", "label": "備考"}],
+            decisions=[{"source": "readings.csv", "column": "unused", "action": "exclude"}],
+        )
+        assert "unused" not in rows
+
+
+def test_a_kept_column_with_no_meaning_is_still_taken_in(
+    tmp_path: Path, healthy_client
+) -> None:
+    """意味が空でも「取り込む」は取り込む — その 2 つは別の問い。意味の欄が
+    空なら項目名は列名のまま（機械が意味を発明したのではなく、まだ誰も
+    書いていないだけ・K22）。"""
+    with TestClient(_app(tmp_path, healthy_client), headers=_AUTH) as client:
+        rows = _continue_with(
+            client,
+            meanings=[{"source": "readings.csv", "column": "unused", "unit": "mV"}],
+        )
+        assert "unused" in rows
+        assert "label" not in rows["unused"]
+        assert rows["unused"]["unit"] == "mV"
