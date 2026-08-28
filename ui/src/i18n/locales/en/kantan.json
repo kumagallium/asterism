@@ -409,7 +409,8 @@
     "techSummary": "Details (technical)",
     "ok": "Looks right — on to publish",
     "back": "Something is off — back to item meanings",
-    "notTakenIn": "{{count}} column(s) are not in the dataset yet ({{list}} …). Give them a meaning on the meanings screen and the next pass takes them in."
+    "notTakenIn": "{{count}} column(s) are not in the dataset yet ({{list}} …). Give them a meaning on the meanings screen and the next pass takes them in.",
+    "diagramNote": "The shape this design produces. An arrow means “this kind points at that kind”."
   },
   "s8": {
     "title": "Publish",
