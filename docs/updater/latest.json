@@ -1,11 +1,11 @@
 {
-  "version": "0.22.4",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 13609bcb4eafedd5b591dce23d571e4f9020bc12 -->\n\n## What's Changed\n* fix(kantan): 公開後の「データの数えかたに戻る」を、行数を読めない画面でも出す by @kumagallium in https://github.com/kumagallium/asterism/pull/441\n* fix(step0): 連続値の列を ID 候補から外す — 幅広い表で構造解析が LLM に渡らなくなっていた by @kumagallium in https://github.com/kumagallium/asterism/pull/446\n* feat(datasets/mp): starrydata の母相を MP API で解決し 2,402 材料の実データに — 空間群を持つ唯一のソース by @kumagallium in https://github.com/kumagallium/asterism/pull/444\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.22.3...v0.22.4",
-  "pub_date": "2026-08-27T21:58:13Z",
+  "version": "0.23.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 713d3c9d8e544a02275941e48e1b2547ad7a857c -->\n\n## What's Changed\n* feat: アプリ本体が MCP を出す（/mcp）＋設定から各 AI へ配る by @kumagallium in https://github.com/kumagallium/asterism/pull/447\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.22.4...v0.23.0",
+  "pub_date": "2026-08-28T01:38:59Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVFuWjBWVkpzaUswN0NoU252d085ZmJuVHROeXVSM1pDa2p4VXVDUmhoRUxzWW9qUTBnb1psSHFmNUhoQ2M3QUlDVnFVQTZybmVOQ1ZheTRlaWt0YmdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3ODY3ODkyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClRLcEZmcVlGOFZxZXhFQmtLRjlrNTMvZGpPU3NMbjZpN08waHdDZ3lnZ1JiMC9sY0VBQndMT01SU0VFNVZCQ0Y4U3NEZVQwL3I4K25pYXR1eEJhTER3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.22.4/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVppc3pzWjQzMWRyQWV6dlA2cUp6WXZjZWZhU0QzRGcycG5PaFYvOU5PSS9ZMVNUTFdNTSttU3MzSmptNVoyRjdFRTNvbWZyS1hHQ0wwRGtybzBXRWdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3ODgxMTM5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CldONUNMZmpJSTFxSHAwaXZncEhLQStaQW9iYytEdTBnbVI3Vml1WFZFdzNYZjY4ekNNbU5CeGp5STJZZk9GdmtoUm83WGxaWEVDSUJvVWJqa2taMUNnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.23.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
