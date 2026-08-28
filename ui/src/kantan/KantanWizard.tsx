@@ -31,6 +31,7 @@ import {
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
+  type RethinkRequest,
   type SkeletonAnnotations,
   type SkeletonResult,
   type SourceDialect,
@@ -744,6 +745,11 @@ interface KantanSnapshot {
   /** The data-counting gate the human confirmed, kept so S6/S7 can go BACK to
    *  it when the counts look wrong (KZ-B-03 / DETAIL-GAP-08). */
   gateSkeleton?: MappingSkeleton | null
+  /** What the AI last returned, BEFORE any human edit. The difference between
+   *  this and `skeleton` is exactly what a person typed on S4, which is what
+   *  「AI にもう一度考えさせる」 pins through the round. Kept in the snapshot
+   *  so a reload does not turn the person's own words back into the AI's. */
+  aiSkeleton?: MappingSkeleton | null
   /** Set while the design is open in the detail tier: coming back must restore
    *  the same screen, and must adopt whatever the detail tier saved there
    *  (DETAIL-GAP-04 / DETAIL-GAP-05). */
@@ -977,6 +983,13 @@ export function KantanWizard({
   const [gateSkeleton, setGateSkeleton] = useState<MappingSkeleton | null>(
     snap.gateSkeleton ?? null,
   )
+  // 「AI にもう一度考えさせる」の控え: AI が最後に返した骨格。いまの `skeleton`
+  // との差が、人が S4 で打った値そのもの（N6 の 控え）。
+  const [aiSkeleton, setAiSkeleton] = useState<MappingSkeleton | null>(
+    snap.aiSkeleton ?? null,
+  )
+  // 機械が人の値を書き戻したときの報せ（黙って直さない）。
+  const [keptEdits, setKeptEdits] = useState<KeptEdit[]>([])
   const [annotations, setAnnotations] = useState<SkeletonAnnotations | null>(
     snap.annotations ?? null,
   )
@@ -1451,6 +1464,7 @@ export function KantanWizard({
       sourceNames,
       sourceColumns,
       gateSkeleton,
+      aiSkeleton,
       // Consumed at mount: the flag is re-armed by openDetail (which writes it
       // synchronously) and must not survive as a standing "we are in detail".
       handedToDetail: false,
@@ -1497,6 +1511,7 @@ export function KantanWizard({
     sourceNames,
     sourceColumns,
     gateSkeleton,
+    aiSkeleton,
   ])
 
   // Hand the design in hand to the detail tier: a WB_STORAGE-compatible
@@ -2413,23 +2428,26 @@ export function KantanWizard({
 
   // ---- S3: staged skeleton propose (always the staged path, never one-shot) --
 
-  // `rethinkNote` = the S4 "AI にもう一度考えさせる" note: a plain-language
-  // instruction (e.g. 「試料と測定値を別の種類に分けて」) folded into the
-  // domain hint, so the regeneration actually hears the human's objection —
-  // same generic human-hint channel the preset hints ride.
-  async function runSkeleton(rethinkNote?: string) {
+  // `rethink` = the S4 「AI にもう一度考えさせる」 request. It carries the design
+  // ON SCREEN, so this is a REPAIR of that design rather than a rebuild from S3:
+  // the note names what to change, everything else comes back as it was. Before
+  // (2026-08-27) the note rode the domain hint alone and the skeleton was thrown
+  // away — the S4 edits (kind names, ID recipes, deletions, splits) had nowhere
+  // to be saved, so a one-line objection cost the whole screen's work. Kept in a
+  // ref as well, because the retry button on S3 must re-send the SAME request
+  // (retrying a rethink as a rebuild is the very loss this fixes).
+  const rethinkRef = useRef<RethinkRequest | null>(null)
+
+  async function runSkeleton(rethink?: RethinkRequest) {
     setErrMsg('')
     setJobNotice('')
     setStatus('')
     setSkeletonBusy(true)
     setLastPulseAt(null)
+    setKeptEdits([])
+    rethinkRef.current = rethink ?? null
     jobRef.current?.close()
-    const domain = [
-      composedDomain(),
-      rethinkNote ? t('kantan:s4.rethinkWrap', { note: rethinkNote }) : '',
-    ]
-      .filter(Boolean)
-      .join('\n')
+    const domain = composedDomain()
     try {
       jobRef.current = await proposeSkeleton(
         files,
@@ -2442,6 +2460,11 @@ export function KantanWizard({
           onPulse: () => setLastPulseAt(Date.now()),
           onDone: (result) => {
             setSkeleton(result.skeleton)
+            // 次の「もう一度考えさせる」の基準線。AI + 機械が決めたところまでが
+            // ここに入り、人がこの先で打ち直した分だけが「人の値」になる。
+            setAiSkeleton(result.skeleton)
+            const kept = result.metadata?.kept_human_edits
+            setKeptEdits(Array.isArray(kept) ? (kept as KeptEdit[]) : [])
             setAnnotations(result.annotations ?? null)
             setInspectionMd(result.inspection_md)
             setStatus('')
@@ -2460,12 +2483,16 @@ export function KantanWizard({
             setStatus('')
             setSkeletonBusy(false)
             clearKantanJob()
-            setStep(2)
+            // 作り直しを止めたのなら、戻る先は読み取りの確認（S2）。作り直しでは
+            // なく修理を止めたのなら、直そうとしていた設計はまだ手元にあるので、
+            // 戻る先はその画面（S4）— 押しただけで設計が遠のいてはならない。
+            setStep(rethink ? 4 : 2)
           },
         },
         i18n.language,
         dialectOverrides,
         stagingId,
+        rethink,
       )
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
@@ -6694,13 +6721,21 @@ export function KantanWizard({
               <div className="kz-actions">
                 <button
                   type="button"
-                  onClick={() => void runSkeleton()}
+                  onClick={() => void runSkeleton(rethinkRef.current ?? undefined)}
                   disabled={!isReady || !hasSource || skeletonBusy}
                 >
                   {t('kantan:s3.retry')}
                 </button>
-                <button type="button" className="btn btn--ghost" onClick={() => setStep(2)}>
-                  {t('kantan:s3.back')}
+                {/* 修理の依頼が失敗しただけなら、直そうとしていた設計はまだ手元に
+                    ある。戻る先は読み取りの確認ではなく、その画面。 */}
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setStep(rethinkRef.current && skeleton ? 4 : 2)}
+                >
+                  {rethinkRef.current && skeleton
+                    ? t('kantan:s3.backToGate')
+                    : t('kantan:s3.back')}
                 </button>
               </div>
             </div>
@@ -6743,6 +6778,16 @@ export function KantanWizard({
                 </button>
               </div>
             </div>
+          )}
+          {/* 「もう一度考えさせる」の答えが、人が自分で打った値を書き換えて
+              いたので機械が戻した。直したことは必ず画面に出す（黙って直さない）。 */}
+          {skeleton && keptEdits.length > 0 && (
+            <p className="kz-note" role="status">
+              {t('kantan:s4.keptEdits', {
+                count: keptEdits.length,
+                list: keptEdits.map((e) => keptEditLabel(e, skeleton)).join(' / '),
+              })}
+            </p>
           )}
           {skeleton && (
             <>
@@ -6787,15 +6832,22 @@ export function KantanWizard({
                 setStep(hasSource ? 2 : 1)
               }}
               onRethink={
-                // A structural objection goes back to the AI (S3 rerun with the
-                // note folded into the hint). Needs the files — a restore lost
-                // them (the gate then keeps only the edit/discard exits).
+                // A structural objection goes back to the AI — carrying the
+                // design on screen, so it is repaired rather than rebuilt.
+                // Nothing is cleared: the edits made here (kind names, ID
+                // recipes, deletions, splits) ARE the starting point, and they
+                // are also what comes back if the answer is unreadable.
+                // Needs the files — a restore lost them (the gate then keeps
+                // only the edit/discard exits).
                 hasSource
                   ? (note) => {
-                      setSkeleton(null)
                       setAnnotations(null)
                       setStep(3)
-                      void runSkeleton(note || undefined)
+                      void runSkeleton({
+                        skeleton,
+                        baseline: aiSkeleton,
+                        note: note || undefined,
+                      })
                     }
                   : undefined
               }
@@ -7022,6 +7074,17 @@ function DropZone({
       <span className="kz-drop-sub">{t('kantan:s1.dropFormats')}</span>
     </label>
   )
+}
+
+/** One value the machine put back after a rethink (`kept_human_edits`). */
+type KeptEdit = { map: string; kind?: string }
+
+/** Name a restore the way the screen names it: by the KIND the person sees,
+ *  with the minted prefix stripped (K4 — no raw identifiers in this tier). The
+ *  map id is the last resort, for a kind that carries no class at all. */
+function keptEditLabel(edit: KeptEdit, skeleton: MappingSkeleton | null): string {
+  if (!edit.kind) return edit.map
+  return compactClass(edit.kind, skeleton ? detectDatasetNamespace(skeleton) : null)
 }
 
 // The S2/S3 preview block: a first-rows table per parsed file, a plain

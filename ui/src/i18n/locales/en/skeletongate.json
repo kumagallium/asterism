@@ -79,7 +79,6 @@
   "kindUnnamed": "Unnamed",
   "gateHowSummary": "How to proceed (when you see ⚠)",
   "gateHow": "⚠ marks something to check — usually IDs that overlap. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Make the AI think again”. When everything looks right, press “Continue with these IDs”.",
-  "rethinkResets": "Thinking again rebuilds the design from scratch. Edits made on this screen (kind names, ID recipes, deletions, splits) are not kept.",
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
   "zone": {
     "head": "Choose the values that will connect later",
@@ -97,5 +96,6 @@
   "kindNameRule": "This name cannot be used. Spaces and symbols are not allowed, and non-Latin names become unreadable in the diagram. Use letters and digits, starting with a letter.",
   "kindNameFix": "Use “{{name}}”",
   "removeRowKind": "This kind is where the per-row values ({{columns}}) live. Deleting it leaves them with nowhere to go. Afterwards an “Add the row-level kind” button appears on this screen to restore it, but you will have to name it again.",
-  "removeTitleRowKind": "Delete this kind from the design (the per-row values lose their home)"
+  "removeTitleRowKind": "Delete this kind from the design (the per-row values lose their home)",
+  "rethinkKeeps": "The design you see now is handed over as-is, and only what you ask for is changed. Edits made on this screen (kind names, ID recipes, deletions, splits) are kept."
 }

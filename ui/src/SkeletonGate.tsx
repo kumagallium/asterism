@@ -2489,12 +2489,11 @@ export function SkeletonGate({
           <summary id="skeleton-rethink-label">
             {t('workbench:skeleton.rethink.label')}
           </summary>
-          {/* 作り直しは骨格を丸ごと作り直す。この画面でやった編集（種類の名前・
-              ID の作り方・削除・切り出し）は残らない。押す前に言う。 */}
+          {/* いまの設計を渡して、注文の箇所だけ直させる。この画面でやった編集
+              （種類の名前・ID の作り方・削除・切り出し）は残る。かつては骨格ごと
+              作り直していたので ⚠ で「消えます」と断っていた（2026-08-27）。 */}
           {plain && (
-            <p className="skeleton-evidence-line skeleton-evidence-warn">
-              ⚠ {t('skeletongate:rethinkResets')}
-            </p>
+            <p className="skeleton-evidence-line">{t('skeletongate:rethinkKeeps')}</p>
           )}
           <textarea
             id="skeleton-rethink-note"

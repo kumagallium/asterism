@@ -456,6 +456,20 @@ export interface SkeletonHandlers {
 }
 
 /**
+ * S4 「AI にもう一度考えさせる」: repair the design already on screen instead of
+ * writing a new one. `skeleton` is what the person is looking at (their edits
+ * included — deletions and splits are already in it), `baseline` is what the AI
+ * last returned, and the difference between the two is what a person typed, so
+ * the server can pin it through the round. `note` is their request in their own
+ * words. Without this argument the call behaves exactly as before.
+ */
+export type RethinkRequest = {
+  skeleton: MappingSkeleton
+  baseline?: MappingSkeleton | null
+  note?: string
+}
+
+/**
  * Phase 2b job 1: generate the mapping SKELETON (which source → which class,
  * keyed how) for human review — no properties or prose yet. Same SSE machinery
  * as propose; the done payload carries the editable skeleton + inspection.
@@ -469,12 +483,18 @@ export async function proposeSkeleton(
   language?: string,
   dialects?: Record<string, SourceDialect>,
   stagingId?: string | null,
+  rethink?: RethinkRequest,
 ): Promise<JobHandle> {
   const form = new FormData()
   appendSources(form, files, stagingId)
   form.append('domain', domain)
   if (language) form.append('language', language)
   appendDialects(form, dialects)
+  if (rethink) {
+    form.append('skeleton', JSON.stringify(rethink.skeleton))
+    if (rethink.baseline) form.append('baseline_skeleton', JSON.stringify(rethink.baseline))
+    if (rethink.note) form.append('rethink', rethink.note)
+  }
   const params = new URLSearchParams()
   for (const fk of fks) params.append('fk', fk)
   const query = params.toString()

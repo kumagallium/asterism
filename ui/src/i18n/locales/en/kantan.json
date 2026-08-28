@@ -121,7 +121,8 @@
     "closeNote": "You can go look at other screens; this keeps running (just don’t close this tab).",
     "failed": "The AI could not read your data",
     "retry": "Ask the AI to read again",
-    "back": "Go back and retry"
+    "back": "Go back and retry",
+    "backToGate": "Back to how the data is counted"
   },
   "s4": {
     "gateTitle": "How IDs are given",
@@ -137,7 +138,8 @@
     "discard": "Go back and redo",
     "discardConfirm": "This goes back to the reading check. The current reading is discarded, but your files stay usable.",
     "discardConfirmNoFiles": "This goes back to the first screen. The current reading is discarded, so you will need to drop your files again.",
-    "rethinkWrap": "While checking how IDs are given, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
+    "rethinkWrap": "While checking how IDs are given, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}",
+    "keptEdits": "{{count}} value(s) you typed yourself ({{list}}) were kept as they were."
   },
   "s5": {
     "title": "Reading the item meanings and loading your draft",
