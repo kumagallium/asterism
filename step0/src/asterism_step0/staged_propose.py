@@ -24,6 +24,9 @@ The IR this module assembles goes through the SAME parse -> validate -> compile
 -> RML gates as any other round — guided decoding and staging narrow generation,
 they never replace validation.
 """
+# This module's prose is Japanese: full-width parentheses / slashes are
+# intentional, not ASCII look-alikes (same posture as describe.py).
+# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import hashlib
@@ -69,10 +72,8 @@ __all__ = [
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "default_property_table",
-    "drop_duplicate_properties",
-    "normalize_key_separators",
-    "twin_maps",
     "default_skeleton",
+    "drop_duplicate_properties",
     "fill_mapping_spec_block",
     "generate_document",
     "generate_label_fill",
@@ -80,11 +81,13 @@ __all__ = [
     "generate_skeleton",
     "mapping_ir_to_yaml",
     "menu_columns",
+    "normalize_key_separators",
     "propose_from_skeleton",
     "propose_skeleton",
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
+    "twin_maps",
 ]
 
 
@@ -357,7 +360,6 @@ def ensure_same_source_links(
     same component walk that decides whether to add one.
     """
     maps = [m for m in (ir.get("maps") or []) if isinstance(m, Mapping)]
-    by_name = {str(m.get("name")): m for m in maps}
     subject_of = {
         str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
     }

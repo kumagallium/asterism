@@ -6,9 +6,13 @@ orchestrators are driven by a scripted mock client. The headline test is
 EQUIVALENCE: a full IR split into a skeleton + per-map tables and reassembled
 must reproduce the exact same IR (ADR mapping-ir-phase2b-skeleton-wizard §10.1).
 """
+# This module's prose is Japanese: full-width parentheses / slashes are
+# intentional, not ASCII look-alikes (same posture as describe.py).
+# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -1309,8 +1313,18 @@ def test_links_never_cross_sources() -> None:
         "version": 1,
         "prefixes": {"o": "https://ex.invalid/o#"},
         "maps": [
-            {"name": "a", "source": "one.csv", "subject": {"template": "r:a/{k}"}, "properties": []},
-            {"name": "b", "source": "two.csv", "subject": {"template": "r:b/{k}/{j}"}, "properties": []},
+            {
+                "name": "a",
+                "source": "one.csv",
+                "subject": {"template": "r:a/{k}"},
+                "properties": [],
+            },
+            {
+                "name": "b",
+                "source": "two.csv",
+                "subject": {"template": "r:b/{k}/{j}"},
+                "properties": [],
+            },
         ],
     }
     _out, added = ensure_same_source_links(ir, ontology_prefix="o")

@@ -22,6 +22,9 @@ Scope: tabular sources (CSV/TSV and dialect-read instrument text). JSON and
 XML/document maps get an honest ``checkable: false`` note instead of a guess —
 never a silent pass.
 """
+# This module's prose is Japanese: full-width parentheses / slashes are
+# intentional, not ASCII look-alikes (same posture as describe.py).
+# ruff: noqa: RUF003
 
 from __future__ import annotations
 

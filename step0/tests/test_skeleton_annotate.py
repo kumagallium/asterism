@@ -1,4 +1,7 @@
 """Tests for skeleton_annotate — deterministic evidence for the skeleton gate."""
+# This module's prose is Japanese: full-width parentheses / slashes are
+# intentional, not ASCII look-alikes (same posture as describe.py).
+# ruff: noqa: RUF002, RUF003
 
 from __future__ import annotations
 

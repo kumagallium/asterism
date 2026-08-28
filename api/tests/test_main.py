@@ -4,6 +4,9 @@ We start the app with ``start_watcher=False`` and an injected mock
 OxigraphClient so the test stays inside a single process and doesn't touch
 the filesystem outside ``tmp_path``.
 """
+# This module's prose is Japanese: full-width parentheses / slashes are
+# intentional, not ASCII look-alikes (same posture as describe.py).
+# ruff: noqa: RUF003
 from __future__ import annotations
 
 import json
