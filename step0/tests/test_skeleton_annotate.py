@@ -1,4 +1,7 @@
 """Tests for skeleton_annotate — deterministic evidence for the skeleton gate."""
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF002, RUF003
 
 from __future__ import annotations
 
@@ -762,10 +765,12 @@ def test_no_safe_candidate_leaves_the_key_untouched(tmp_path: Path) -> None:
     assert fixed["maps"][0]["subject"]["template"] == "xr:pt/{field(T)}"
 
 
-def test_non_measurement_key_is_never_touched_even_with_scope_missing(tmp_path: Path) -> None:
-    """A text key is never rewritten — including when the ONLY risk showing is
-    scope-missing, which is a human call about how the dataset grows, not one
-    the machine gets to make for them."""
+def test_scope_missing_alone_is_now_fixed_by_the_machine(tmp_path: Path) -> None:
+    """C7-C11 revised (2026-08-27): a key that does not embed the file-scoped
+    parent's key is unique in THIS file only, so the next file can mint the
+    same IRI for a different parent's row. Prepending a proven parent key never
+    breaks a unique key, so there is no judgment left — the machine applies it
+    before the human sees the screen, and `applied_key_fix` offers the revert."""
     p = _write_reference_card(tmp_path)
     skeleton = _card_skeleton()
     skeleton["maps"][1]["subject"]["template"] = "xr:peak/{(hkl)}"  # text-ish key column
@@ -777,8 +782,15 @@ def test_non_measurement_key_is_never_touched_even_with_scope_missing(tmp_path: 
 
     fixed, fixes = apply_key_safety_fix(skeleton, out)
 
-    assert fixes == {}
-    assert fixed["maps"][1]["subject"]["template"] == "xr:peak/{(hkl)}"
+    assert fixes["peak"]["reason"] == "scope-missing"
+    assert fixes["peak"]["from"] == ["(hkl)"]
+    assert "No" in fixes["peak"]["to"]  # the parent's key is now inside the ID
+    assert fixed["maps"][1]["subject"]["template"].startswith("xr:peak/{No}")
+
+    # Second pass finds nothing: the key now embeds the parent's.
+    reann = annotate_skeleton(fixed, [p])
+    _again, fixes_again = apply_key_safety_fix(fixed, reann)
+    assert fixes_again == {}
 
 
 def test_apply_key_safety_fix_is_idempotent(tmp_path: Path) -> None:
@@ -838,3 +850,261 @@ def test_apply_key_safety_fix_only_touches_the_offending_map(tmp_path: Path) -> 
     # The untouched map's entry is shared (not deep-copied) — a light-weight
     # non-mutation guarantee is enough since it is never written to.
     assert fixed["maps"][1] is skeleton["maps"][1]
+
+
+def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
+    """ID の作り方が空でも、候補は出す — そこが行き止まりになっていた。"""
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id,alloy\nS-1,WC\nS-2,TiN\n", encoding="utf-8")
+    skeleton = _skeleton("xr:sample/{sample_id}", source="samples.csv")
+    skeleton["maps"][0]["subject"].pop("template")
+    ann = annotate_skeleton(skeleton, [p])["maps"]["point"]
+    assert ann["reason"] == "no-template"
+    assert ann["checkable"] is False
+    # 実データで一意と証明された組み合わせが、そのままワンタップの候補になる。
+    # 小さい鍵が先(1 列 → 複数列)で、件数も添う。
+    columns = [c["columns"] for c in ann["key_candidates"]]
+    assert ["sample_id"] in columns
+    assert all(len(c) == 1 for c in columns[:2])
+    assert ann["key_candidates"][0]["rows_considered"] == 2
+
+
+def test_no_template_without_the_file_is_still_answered(tmp_path: Path) -> None:
+    """ファイルが手元に無ければ候補は出せない — キーごと出さない(空配列でもない)。"""
+    skeleton = _skeleton("xr:sample/{sample_id}", source="gone.csv")
+    skeleton["maps"][0]["subject"].pop("template")
+    ann = annotate_skeleton(skeleton, [])["maps"]["point"]
+    assert ann["reason"] == "no-template"
+    assert "key_candidates" not in ann
+
+
+def _three_singleton_skeleton() -> dict:
+    """One file, THREE file-scoped kinds + one row kind — what the skeleton
+    stage produces once it promotes the things the outside world also names
+    (K26): the card itself, its registry code, and its citation."""
+    skeleton = _card_skeleton()
+    skeleton["maps"] += [
+        {
+            "name": "code",
+            "source": "card.csv",
+            "subject": {"template": "xr:code/{Name}", "classes": ["xo:Code"]},
+        },
+        {
+            "name": "citation",
+            "source": "card.csv",
+            "subject": {"template": "xr:citation/{d}", "classes": ["xo:Citation"]},
+        },
+    ]
+    return skeleton
+
+
+def test_several_singletons_do_not_silence_the_growth_offer(tmp_path: Path) -> None:
+    """G7 revised (2026-08-27): two-or-more singletons used to mean "ambiguous
+    parent — stay silent". K26 made three singletons on one file the ordinary
+    case, and the silence took the ONLY deterministic path to promoting a
+    column to its own kind (G15) down with it. Real data (XRD reference card):
+    `Chemical Formula` had no way to become a kind at all."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
+    # K44: 1 ファイルに 1 件の種類が複数あるとき、カードは 1 つ（`_parent_singleton`
+    # の選択）で、ほかは「その値の種類」として自分のキー列だけを持つ。だから
+    # 昇格の申し出（＝カードから切り出す提案）はカードにだけ出る。
+    assert "growth_preview" in out["sample"]
+    assert out["code"].get("value_catalog") is True
+    assert out["code"].get("owns_inferred") is True
+    assert "growth_preview" not in out["code"]
+    # A row-level map is not one-per-file and never claims to be.
+    assert "growth_preview" not in out["peak"]
+    # このフィクスチャのカードは No + Name しか持たず、Name は `code` が取ったので
+    # 切り出せる列は残らない。昇格の申し出は「出るが空」— 列が残る本物のカードは
+    # test_growth_preview_forecasts_the_next_file（singleton 1 つ）が押さえている。
+    assert out["sample"]["growth_preview"]["described_columns"] == []
+
+
+def test_several_singletons_still_scope_a_row_key(tmp_path: Path) -> None:
+    """The same silence hid a real ID collision: `peak/{2theta}` is unique in
+    THIS file only, so the next card can mint the same peak IRI for a different
+    pattern. With a parent chosen, the risk is stated and every proposed key
+    carries the parent's column."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
+    kinds = [r["kind"] for r in out["peak"].get("reference_risks") or []]
+    assert "scope-missing" in kinds
+    scoped = next(r for r in out["peak"]["reference_risks"] if r["kind"] == "scope-missing")
+    assert scoped["parent_map"] == "sample"
+    assert scoped["parent_columns"] == ["No"]
+    assert all("No" in c["columns"] for c in out["peak"]["key_candidates"])
+
+
+# --- 値のカタログ（K33）: 同じ値の行が 1 件にまとまるのは意図 ---
+
+def _catalog_skeleton() -> dict:
+    """The reference card + peaks + a human-declared value catalog: the human
+    checked `(hkl)` in the gate zone, so the map owns exactly its key column."""
+    skeleton = _card_skeleton()
+    skeleton["maps"][1]["subject"]["template"] = "xr:peak/{No}/{2theta}"
+    skeleton["maps"].append(
+        {
+            "name": "hkl",
+            "source": "card.csv",
+            "subject": {"template": "xr:hkl/{(hkl)}", "classes": ["xo:Hkl"]},
+            "owns": ["(hkl)"],
+        }
+    )
+    return skeleton
+
+
+def test_value_catalog_is_stamped_and_not_scoped(tmp_path: Path) -> None:
+    """A kind whose ID IS its value must not get the parent key prepended —
+    `hkl/{No}/{(hkl)}` could never merge across files, which is the whole
+    point of the catalog. The scope machinery therefore skips it."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_catalog_skeleton(), [p])["maps"]
+    hkl = out["hkl"]
+    assert hkl["value_catalog"] is True
+    kinds = [r["kind"] for r in hkl.get("reference_risks") or []]
+    assert "scope-missing" not in kinds
+    fixed, fixes = apply_key_safety_fix(_catalog_skeleton(), {"maps": out})
+    assert "hkl" not in fixes
+    assert fixed["maps"][2]["subject"]["template"] == "xr:hkl/{(hkl)}"
+    # The row kind itself is NOT a catalog and still gets its scope treatment.
+    assert "value_catalog" not in out["peak"]
+
+
+def test_value_catalog_does_not_count_as_the_row_home(tmp_path: Path) -> None:
+    """A catalog holds only its own value — deleting the row kind must still
+    surface `missing_row_kind` even though the catalog map remains."""
+    p = _write_reference_card(tmp_path)
+    skeleton = _catalog_skeleton()
+    del skeleton["maps"][1]  # remove peak: the measurements are now homeless
+    out = annotate_skeleton(skeleton, [p])["maps"]
+    assert out["sample"].get("missing_row_kind") is not None
+
+
+def test_card_names_identity_varying_columns_with_samples(tmp_path: Path) -> None:
+    """The zone's boundary is the VALUE's nature, not the column's position:
+    identity-like varying columns (promotable) are listed with real sample
+    values; measurement columns are not promotable."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    card = out["sample"]["entity_preview"]
+    assert "(hkl)" in card["varying_identity_columns"]
+    assert "2theta" not in card["varying_identity_columns"]
+    samples = {x["column"]: x["values"] for x in card["varying_samples"]}
+    assert samples["(hkl)"][0] == "(0,0,2)"
+
+
+def test_secondary_singletons_own_only_their_key(tmp_path: Path) -> None:
+    """K44: どの列がどの「1 件の種類」に属するかは、1 ファイルからは決まらない
+    （ヘッダ列は値が 1 種類なので、どのキーからでも関数従属が成立する）。だから
+    推測させない: カードは 1 つ、ほかの 1 件の種類は自分のキー列だけを持つ。"""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
+    # `code`（Name をキーにした 1 件の種類）は Name しか持たない。
+    code_own = [
+        prop["column"]
+        for prop in out["code"]["entity_preview"]["properties"]
+        if not prop.get("owner_map")
+    ]
+    assert "Name" in code_own
+    # カード側からは Name が去っている（二重記録が構造的に起きない）。
+    card_own = [
+        prop["column"]
+        for prop in out["sample"]["entity_preview"]["properties"]
+        if not prop.get("owner_map")
+    ]
+    assert "Name" not in card_own
+    # 人が宣言した owns は機械が上書きしない。
+    skeleton = _three_singleton_skeleton()
+    skeleton["maps"][2]["owns"] = ["Name", "No"]
+    declared = annotate_skeleton(skeleton, [p])["maps"]
+    assert declared["code"].get("owns_inferred") is None
+def test_key_safety_fix_leaves_a_key_the_person_wrote(tmp_path: Path) -> None:
+    """人が自分で書いた ID は機械が差し替えない (S4「AI にもう一度考えさせる」)。
+    「判断は残っていない」という前提は、誰も判断していない間だけ成り立つ。
+    一度人が打ったあとは、機械の証拠のほうが弱い主張になる (N6)。
+    """
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+    assert out["maps"]["point"]["key_measurement_caution"] is True
+    fixed, fixes = apply_key_safety_fix(skeleton, out, keep={"point"})
+    assert fixes == {}
+    assert fixed["maps"][0]["subject"]["template"] == "xr:point/{2θ (deg)}"
+    # keep に無い map は従来どおり差し替わる
+    _, fixes_open = apply_key_safety_fix(skeleton, out, keep={"somethingelse"})
+    assert fixes_open.keys() == {"point"}
+
+
+def test_row_data_card_names_its_promotable_columns(tmp_path: Path) -> None:
+    """1 件のカードが無い普通の行データでも、種類に昇格できる列は出る（K45）。
+
+    ゾーンは K32 の時点で「ヘッダ付きファイル」の形だけを見て書かれており、
+    singleton が無いファイルでは丸ごと消えていた。判定材料は行のカード自身が
+    持つ識別子型の列で、測定値（xsd:decimal 等）は入らない。
+    """
+    p = tmp_path / "elements.csv"
+    p.write_text(
+        "symbol,name,atomic_number,atomic_mass,discovered_by,category\n"
+        "H,Hydrogen,1,1.008,Henry Cavendish,Nonmetal\n"
+        "He,Helium,2,4.0026,Pierre Janssen,Noble gas\n"
+        "Li,Lithium,3,6.94,Johan August Arfwedson,Alkali metal\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "element",
+                "source": "elements.csv",
+                "subject": {"template": "xr:element/{symbol}", "classes": ["xo:Element"]},
+            }
+        ],
+    }
+    out = annotate_skeleton(skeleton, [p])["maps"]["element"]
+    # 1 件のカードではない = ゾーンの旧条件では何も出なかった形。
+    assert out["collapse_kind"] == "unique"
+    cols = out["entity_preview"]["identity_columns"]
+    assert "discovered_by" in cols
+    assert "category" in cols
+    # キーは既にこのカードの ID なので候補ではない。
+    assert "symbol" not in cols
+    # 測定値は「つなぐ手がかり」にならない。
+    assert "atomic_mass" not in cols
+
+
+def test_zone_values_are_not_truncated_by_the_card_cap(tmp_path: Path) -> None:
+    """ゾーン①が並べる列はカードの上限で切らない（K46）。
+
+    カードの上限（G13）はタブ②の読みやすさのためのもの。①は一覧そのものなので、
+    切れると**その先の列でできた種類をチェックで外せなくなる**（実データ:
+    Wikipage / BohrModelImage が 8 列の外にあり 🗑 でしか消せなかった）。
+    """
+    cols = [f"c{i}" for i in range(12)]
+    p = tmp_path / "wide.csv"
+    p.write_text(
+        ",".join(["key", *cols]) + "\n"
+        + "\n".join(",".join([f"k{r}", *[f"v{i}_{r}" for i in range(12)]]) for r in range(3))
+        + "\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "row",
+                "source": "wide.csv",
+                "subject": {"template": "xr:row/{key}", "classes": ["xo:Row"]},
+            }
+        ],
+    }
+    card = annotate_skeleton(skeleton, [p])["maps"]["row"]["entity_preview"]
+    # 表示は上限で切る（②のカードは読ませるもの）。
+    assert len(card["properties"]) <= 8
+    # ①が並べる値は全部（キー + 12 列）。
+    assert len(card["all_values"]) == 13
+    assert {v["column"] for v in card["all_values"]} == {"key", *cols}
+    # 候補も切らない（キーだけ除く）。
+    assert set(card["identity_columns"]) == set(cols)

@@ -311,6 +311,9 @@ export interface SkeletonMapAnnotation {
    *  metadata-block pattern — merging is the point, not the accident);
    *  `partial` = some rows merge, some don't (the overwrite accident). */
   collapse_kind?: 'singleton' | 'unique' | 'partial'
+  /** K33: この種類の ID は値そのもの（owns == キー列）。同じ値の行が 1 件に
+   *  まとまるのは意図なので、ID 重複は事故として扱わない。 */
+  value_catalog?: boolean
   /** Citation-consequence risks of this ID recipe (machine-readable kinds,
    *  copy lives in the UI): `measurement-id` — a corrected value mints a new
    *  ID and strands citations of the old one; `scope-missing` — unique in
@@ -342,6 +345,16 @@ export interface SkeletonMapAnnotation {
       owner_map?: string
     }[]
     varying_columns: string[]
+    /** `varying_columns` のうち識別子型（測定値でない）＝「値の種類」に昇格
+     *  できる候補（K33）。判断材料は値なので、実サンプルが並走する。 */
+    varying_identity_columns?: string[]
+    varying_samples?: { column: string; values: string[] }[]
+    /** このカード自身が持つ列のうち、識別子型（キーでない）＝種類に昇格できる
+     *  候補。1 件のカードが無い行データのファイルでは、ゾーンはこれを並べる。 */
+    identity_columns?: string[]
+    /** ゾーン①が並べる全列と代表行の値。カードの `properties` は読みやすさの
+     *  ために打ち切るが、①は一覧そのものなので打ち切らない。 */
+    all_values?: { column: string; value: string }[]
     omitted_columns: number
   } | null
   /** Columns this map would carry that another map OWNS (its key determines
@@ -362,6 +375,9 @@ export interface SkeletonMapAnnotation {
     source_count: number
     row_maps: string[]
     described_columns: string[]
+    /** `described_columns` with this file's own value for each — the human
+     *  decides from `Al3 V`, not from the words "Chemical Formula". */
+    described_values?: { column: string; value: string }[]
     shared_values?: { column: string; value: string; files: number }[]
     /** Pre-fill for the one-click split: the columns the sibling files already
      *  agree on (measured), and the identity-like one among them as the key.
@@ -446,6 +462,20 @@ export interface SkeletonHandlers {
 }
 
 /**
+ * S4 「AI にもう一度考えさせる」: repair the design already on screen instead of
+ * writing a new one. `skeleton` is what the person is looking at (their edits
+ * included — deletions and splits are already in it), `baseline` is what the AI
+ * last returned, and the difference between the two is what a person typed, so
+ * the server can pin it through the round. `note` is their request in their own
+ * words. Without this argument the call behaves exactly as before.
+ */
+export type RethinkRequest = {
+  skeleton: MappingSkeleton
+  baseline?: MappingSkeleton | null
+  note?: string
+}
+
+/**
  * Phase 2b job 1: generate the mapping SKELETON (which source → which class,
  * keyed how) for human review — no properties or prose yet. Same SSE machinery
  * as propose; the done payload carries the editable skeleton + inspection.
@@ -459,12 +489,18 @@ export async function proposeSkeleton(
   language?: string,
   dialects?: Record<string, SourceDialect>,
   stagingId?: string | null,
+  rethink?: RethinkRequest,
 ): Promise<JobHandle> {
   const form = new FormData()
   appendSources(form, files, stagingId)
   form.append('domain', domain)
   if (language) form.append('language', language)
   appendDialects(form, dialects)
+  if (rethink) {
+    form.append('skeleton', JSON.stringify(rethink.skeleton))
+    if (rethink.baseline) form.append('baseline_skeleton', JSON.stringify(rethink.baseline))
+    if (rethink.note) form.append('rethink', rethink.note)
+  }
   const params = new URLSearchParams()
   for (const fk of fks) params.append('fk', fk)
   const query = params.toString()
@@ -736,6 +772,23 @@ export interface DatasetMeta {
   advisories?: string[]
 }
 
+/** One source column that several maps record as a plain value, with what a
+ *  person needs to settle it: the candidate kinds, how many entities each of
+ *  them mints (the evidence that makes "which is this about" answerable), and
+ *  the owner the rows recommend — `null` when they tie and the call is entirely
+ *  the human's. `actionable: false` = one candidate is an anonymous map with no
+ *  handle to send back, so only the sentence can be shown. */
+export interface DuplicateColumnFinding {
+  source: string
+  column: string
+  maps: { map: string; label: string; entities: number | null }[]
+  owner: string | null
+  owner_label?: string
+  actionable: boolean
+  /** The English advisory this record stands for (same pass, same verdict). */
+  text: string
+}
+
 export interface MaterializeResult {
   artifacts: Record<string, string | null> // filename -> contents
   complete: boolean
@@ -752,6 +805,16 @@ export interface MaterializeResult {
    * is attached after materialize). The hard ingest gate still re-checks.
    */
   validation_issues?: string[]
+  /**
+   * The one weakness whose resolution is a CHOICE, not another AI round: a
+   * column two or more kinds both record as a plain value. Which of them the
+   * column is ABOUT is a design judgement the rows often cannot settle (ADR
+   * column-ownership-and-growth G1 leaves a tie unclaimed), so the person is
+   * handed the candidates instead of the English paragraph. The same finding's
+   * sentence is in `advisories` — these two never disagree; the api derives
+   * them from one pass.
+   */
+  duplicate_columns?: DuplicateColumnFinding[]
   /**
    * Design WEAKNESSES — the design is valid but weak: entities that never link
    * to each other, columns left unmapped. Separate from `validation_issues`
@@ -1147,9 +1210,12 @@ export async function saveDisplayMeta(
   return ((await res.json()) as { changed?: string[] }).changed ?? []
 }
 
-export type ColumnDecisionAction = 'include' | 'exclude'
+export type ColumnDecisionAction = 'include' | 'exclude' | 'own'
 
-/** A human decision about a source column the generated mapping left unused. */
+/** A human decision about one source column: whether it is mapped at all
+ *  (`include` / `exclude`), or — when several kinds record it — which one KEEPS
+ *  it (`own`, ADR column-ownership-and-growth G1). `map` names the owner for
+ *  both `include` and `own`. */
 export interface ColumnDecision {
   source: string
   column: string
@@ -1173,16 +1239,20 @@ export async function fetchColumnDecisions(datasetId: string): Promise<ColumnDec
   return ((await res.json()) as { decisions?: ColumnDecision[] }).decisions ?? []
 }
 
-/** Save all unresolved-column choices. Includes change the mapping deterministically;
- * exclusions only record the human's decision. No LLM is called. */
+/** Save all unresolved-column choices. Includes and owner verdicts change the
+ * mapping deterministically; exclusions only record the human's decision. No LLM
+ * is called. `stagingId` is the design-time source for a dataset whose own
+ * source is not attached yet — the wizard settles a duplicated column at S5,
+ * one step before the chain persists the files. */
 export async function saveColumnDecisions(
   datasetId: string,
   decisions: ColumnDecision[],
+  stagingId?: string | null,
 ): Promise<ColumnDecisionResult> {
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-decisions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ decisions }),
+    body: JSON.stringify(stagingId ? { decisions, staging_id: stagingId } : { decisions }),
   })
   if (!res.ok) await throwApiError(res, 'column decisions')
   return (await res.json()) as ColumnDecisionResult

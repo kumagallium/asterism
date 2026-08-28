@@ -133,15 +133,33 @@ def _dialects_schema() -> dict:
     }
 
 
-def _subject_schema(function_names: Sequence[str] | None) -> dict:
+def _subject_schema(
+    function_names: Sequence[str] | None, *, require_classes: bool = False
+) -> dict:
+    """``require_classes`` forces at least one class name.
+
+    Used by the SKELETON stage only. A subject with no class is legal RDF and
+    the compiler accepts it, but the human gate then has nothing to show for
+    「1 件が表すもの」 — it prints an empty box and asks the person to name a
+    kind the model was in the best position to name (live 2026-08-27: an XRD
+    file came back with a third map called ``dataset`` and no class at all, so
+    the gate asked for a name while the same screen quoted the machine's
+    internal map name back as if it were the answer). Naming is cheapest where
+    the columns are still in view, so the skeleton contract requires it.
+    The full IR keeps it optional: an already-saved design must not stop
+    parsing because of a rule added later.
+    """
     transform_obj = {"type": "object", "additionalProperties": _function_value(function_names)}
+    classes: dict = {"type": "array", "items": _string(_TERM_PATTERN)}
+    if require_classes:
+        classes["minItems"] = 1
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "template": _string(max_length=_LEN_TEMPLATE),
             "constant": _string(max_length=_LEN_TEMPLATE),
-            "classes": {"type": "array", "items": _string(_TERM_PATTERN)},
+            "classes": classes,
             "transform": transform_obj,
         },
     }
@@ -256,7 +274,7 @@ def skeleton_json_schema(function_names: Sequence[str] | None = None) -> dict:
                         "name": _string(_MAP_NAME_PATTERN),
                         "source": _string(),
                         "iterator": _string(),
-                        "subject": _subject_schema(function_names),
+                        "subject": _subject_schema(function_names, require_classes=True),
                         "note": _string(),
                     },
                 },

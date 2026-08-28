@@ -110,6 +110,14 @@ export function CitationCard({
               <TraceIcon size={13} /> {t('shared:citation.traceHint')}
             </span>
           </span>
+          {/* K23: 見出しは人間の言葉、ID は副情報。label があるときは ID が
+              どこにも出ておらず、「引用できる事実」の引用先そのものが画面から
+              消えていた（引くときに要るのはこの文字列）。 */}
+          {citation.label && iriTail(citation.iri) && (
+            <span className="citation-id" title={citation.iri}>
+              {iriTail(citation.iri)}
+            </span>
+          )}
           <span className="citation-fields">
             {/* Which dataset this row belongs to, first — read from the IRI the
                 citation already carries (no lookup, no guess). */}
@@ -129,10 +137,10 @@ export function CitationCard({
                   {/* The key is a WORD — either the plain-language name of a tool
                       output ("Maximum") or the column heading a person typed
                       themselves. ui-guidelines §5 reserves the mono face for
-                      numbers, IDs and code, so the key does not wear it; the
-                      inline token is a stopgap until App.css drops the
-                      `font-family` on `.citation-field-key` (handoff). */}
-                  <span className="citation-field-key" style={{ fontFamily: 'var(--font-ui)' }}>
+                      numbers, IDs and code, so the key does not wear it (App.css
+                      no longer sets `font-family` here — the inline stopgap the
+                      handoff left is gone). */}
+                  <span className="citation-field-key">
                     {KNOWN_FIELD_KEYS.has(k) ? t(`shared:field.${k}`) : k}
                   </span>
                   <span className="citation-field-val" title={String(v)}>

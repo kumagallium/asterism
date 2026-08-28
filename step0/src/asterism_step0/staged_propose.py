@@ -24,9 +24,13 @@ The IR this module assembles goes through the SAME parse -> validate -> compile
 -> RML gates as any other round — guided decoding and staging narrow generation,
 they never replace validation.
 """
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF003
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -36,6 +40,7 @@ from typing import Any
 from asterism_step0.inspect import SourceInspection, inspect_source_set, render_markdown
 from asterism_step0.instance_iri import (
     dataset_namespace_block,
+    dataset_namespace_info,
     derive_prefix_pair,
     normalize_dataset_namespace,
     normalize_iri_base,
@@ -58,6 +63,7 @@ from asterism_step0.mapping_ir_schema import (
 from asterism_step0.spec_yaml import dump_spec_yaml, load_spec_yaml
 
 __all__ = [
+    "COLUMN_DECISION_ACTIONS",
     "SkeletonProposal",
     "apply_column_decisions",
     "apply_column_decisions_to_document",
@@ -68,18 +74,25 @@ __all__ = [
     "assemble_mapping_ir",
     "default_property_table",
     "default_skeleton",
+    "drop_duplicate_properties",
     "fill_mapping_spec_block",
     "generate_document",
     "generate_label_fill",
     "generate_map_properties",
     "generate_skeleton",
+    "human_pinned_edits",
     "mapping_ir_to_yaml",
     "menu_columns",
+    "normalize_key_separators",
+    "pin_dataset_namespace",
     "propose_from_skeleton",
     "propose_skeleton",
+    "reassert_human_edits",
+    "render_rethink_request",
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
+    "twin_maps",
 ]
 
 
@@ -125,6 +138,19 @@ Rules:
 - ENTITY LINKING: design keys so entities can join later (a measurement carries
   the key of the thing it measures, a record carries its source key). Skeletons
   whose entities cannot reach each other cannot answer cross-entity questions.
+- PROMOTE THE THINGS THE OUTSIDE WORLD ALSO NAMES. When a column holds a value
+  that other files or other datasets would ALSO carry — a catalogue/accession
+  number, a DOI or other registered identifier, the name of a thing that exists
+  outside this file (a material, a species, an instrument, a place, a person, an
+  organisation), a standard classification code — give it its OWN map, even when
+  this file mentions it once. Those are the entities later files and later
+  datasets will be ABOUT: as a plain property the value can never carry its own
+  facts, be counted, or be cited, and two files naming the same thing never fold
+  into one record. A value that only means something inside THIS file (a
+  free-text note, a local serial, a comment) stays a property.
+  WHEN IN DOUBT, PROMOTE. An extra map the reader does not want is one click to
+  delete at the gate; a map that is missing cannot be added later without
+  redoing the design, and by then IDs may already have been handed out.
 - `note` (optional, free text) records the key/class rationale for the human who
   reviews this skeleton. It is dropped from the final mapping — put no data in it.
 """
@@ -292,6 +318,170 @@ def assemble_mapping_ir(
         properties = list(permap.get("properties") or [])
         maps_out.append(_clean_map(map_obj, properties))
     return {"version": 1, "prefixes": prefixes, "maps": maps_out}
+
+
+def _template_placeholders(template: Any) -> set[str]:
+    if not isinstance(template, str):
+        return set()
+    return set(re.findall(r"\{([^{}]+)\}", template))
+
+
+def _lower_camel(name: str) -> str:
+    parts = [w for w in re.split(r"[^0-9A-Za-z]+", str(name)) if w]
+    if not parts:
+        return ""
+    head, *rest = parts
+    return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
+
+
+def ensure_same_source_links(
+    ir: Mapping[str, Any], *, ontology_prefix: str = ""
+) -> tuple[dict, list[str]]:
+    """Guarantee the kinds from ONE file end up in ONE connected piece.
+
+    The per-map step is ASKED to link entities (ENTITY LINKING in its prompt),
+    and a weak model quietly skips it — the design then compiles, validates and
+    publishes as islands: "which pattern is this peak from" is structurally
+    unanswerable. The ingest-side ``_connectivity_advisories`` catches it, but
+    only after the human has already passed every gate.
+
+    Key containment is NOT a link. The skeleton gate's diagram draws an edge
+    when one ID embeds another's key, but RDF has no triple until a property
+    says so — the picture can look connected while the graph is not.
+
+    Two deterministic ways to add the missing edge, in order:
+
+    1. **containment** — map A's subject placeholders strictly contain map B's,
+       so every A is inside one B: ``dcterms:isPartOf`` from A to B's subject.
+    2. **a key column carried as a value** — B is keyed by ONE column and some
+       map A already records that column as a plain property, so A's row names
+       exactly one B: ``{ontology}:{bName}`` from A to B's subject. The literal
+       row is LEFT in place — the link is added, never a rewrite, so no value
+       the human confirmed disappears.
+
+    Silent when neither holds (two file-scoped kinds sharing no column and no
+    key): inventing a relationship is not the machine's call — the advisory
+    stays for the human. Idempotent: a link that already exists is found by the
+    same component walk that decides whether to add one.
+    """
+    maps = [m for m in (ir.get("maps") or []) if isinstance(m, Mapping)]
+    subject_of = {
+        str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
+    }
+    props: dict[str, list[dict]] = {
+        str(m.get("name")): [dict(p) for p in (m.get("properties") or []) if isinstance(p, Mapping)]
+        for m in maps
+    }
+    added: list[str] = []
+
+    by_source: dict[str, list[str]] = {}
+    for m in maps:
+        by_source.setdefault(str(m.get("source") or ""), []).append(str(m.get("name")))
+
+    def components(names: list[str]) -> list[list[str]]:
+        parent = {n: n for n in names}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        template_owner = {subject_of[n]: n for n in names if subject_of[n]}
+        for n in names:
+            for prop in props[n]:
+                target = template_owner.get(str(prop.get("object_template") or ""))
+                if target and target != n:
+                    parent[find(n)] = find(target)
+        groups: dict[str, list[str]] = {}
+        for n in names:
+            groups.setdefault(find(n), []).append(n)
+        return list(groups.values())
+
+    for _src, names in by_source.items():
+        if len(names) < 2:
+            continue
+        for _round in range(len(names)):
+            groups = components(names)
+            if len(groups) < 2:
+                break
+            linked = False
+            # The maps already joined to the biggest piece; everything else is
+            # what has to be reached.
+            groups.sort(key=len, reverse=True)
+            reached = set(groups[0])
+            for group in groups[1:]:
+                for b_name in group:
+                    b_vars = _template_placeholders(subject_of[b_name])
+                    # (1) containment, in whichever direction it holds: the map
+                    # whose ID EMBEDS the other's key is the child, and the
+                    # child is the side that carries the link (a parent's table
+                    # does not hold its children's keys).
+                    pair = next(
+                        (
+                            (b_name, a) if _template_placeholders(subject_of[a]) < b_vars
+                            else (a, b_name)
+                            for a in reached
+                            if (b_vars and _template_placeholders(subject_of[a]) < b_vars)
+                            or (
+                                _template_placeholders(subject_of[a])
+                                and b_vars < _template_placeholders(subject_of[a])
+                            )
+                        ),
+                        None,
+                    )
+                    if pair is not None:
+                        child, parent = pair
+                        props[child].append(
+                            {"predicate": "dcterms:isPartOf", "object_template": subject_of[parent]}
+                        )
+                        added.append(f"{child} → {parent}")
+                        linked = True
+                        break
+                    # (2) B's single key column is already a value on some map.
+                    if len(b_vars) != 1 or not ontology_prefix:
+                        continue
+                    key_col = next(iter(b_vars))
+                    holder = next(
+                        (
+                            a
+                            for a in reached
+                            if any(p.get("column") == key_col for p in props[a])
+                        ),
+                        None,
+                    )
+                    if holder is not None:
+                        local = _lower_camel(b_name) or "linkedEntity"
+                        props[holder].append(
+                            {
+                                "predicate": f"{ontology_prefix}:{local}",
+                                "object_template": subject_of[b_name],
+                            }
+                        )
+                        added.append(f"{holder} → {b_name}")
+                        linked = True
+                        break
+                if linked:
+                    break
+            if not linked:
+                break  # nothing provable left — leave it to the advisory
+
+    if not added:
+        return dict(ir), []
+    out = dict(ir)
+    # A predicate under an undeclared prefix is a fact with no home — and the
+    # compile rejects it. `dcterms` is only ever added by this function, so
+    # declaring it here (never overwriting an existing binding) is the whole
+    # obligation.
+    if any(p.get("predicate") == "dcterms:isPartOf" for rows in props.values() for p in rows):
+        prefixes = dict(out.get("prefixes") or {})
+        prefixes.setdefault("dcterms", "http://purl.org/dc/terms/")
+        out["prefixes"] = prefixes
+    out["maps"] = [
+        {**m, "properties": props[str(m.get("name"))]} if isinstance(m, Mapping) else m
+        for m in (ir.get("maps") or [])
+    ]
+    return out, added
 
 
 def skeleton_from_full_ir(ir: Mapping[str, Any]) -> tuple[dict, dict[str, dict]]:
@@ -557,6 +747,69 @@ def default_skeleton(
 # ---------------------------------------------------------------------------
 
 
+def render_rethink_request(
+    current_skeleton: Mapping[str, Any] | None,
+    request: str | None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
+    """The design already on the human's screen, plus the change they asked for.
+
+    S4 の「AI にもう一度考えさせる」は、これまで骨格を捨てて S3 から作り直して
+    いた。そこでやった編集 — 種類の名前・ID の作り方・種類の削除・列の切り出し —
+    は保存先が無いので全部消えていた(実測: XRD reference file・2026-08-27。S6 の
+    判断はデータセットに保存されているので残る)。注文は「この 1 か所を直して」
+    なのに、代金は毎回「全部」だった。
+
+    渡すのは**いま画面にある骨格**(人が編集したあとのもの)。だから種類の削除も
+    列の切り出しも、渡した時点で既に反映されている。文面は ADR「差し戻しは足すため。
+    削るために使わない」に従い、**残せ**としか言わない — 減らす指示は上限を持たず、
+    実測で map が 5 → 1 に潰れている。減らす判断は人が 🗑 で下したあとで渡る。
+
+    ``pinned`` は人が自分で打った値(:func:`human_pinned_edits`)。モデルの記憶より
+    人の手が勝つ、を先に言う — 守るのは決定論側(:func:`reassert_human_edits`)
+    だが、頼まずに黙って上書きを直すと、モデルは毎回同じ上書きを返してくる。
+    """
+    if not current_skeleton or not isinstance(current_skeleton.get("maps"), list):
+        return ""
+    parts = [
+        "# The design to START FROM (already reviewed by a person — do not rebuild it)",
+        "",
+        "```json",
+        json.dumps(current_skeleton, ensure_ascii=False, indent=2, sort_keys=False),
+        "```",
+        "",
+        "Keep EVERY map above. Keep its `name`, its `source` and its `prefixes`"
+        " exactly as written. Change ONLY what the request below asks for; a map"
+        " the request does not mention comes back byte-for-byte. Removing or"
+        " merging kinds is the person's decision, not yours — they have a delete"
+        " button and did not press it.",
+    ]
+    named = [
+        f"- map '{name}': " + ", ".join(
+            filter(
+                None,
+                [
+                    "kind name " + ", ".join(f"`{c}`" for c in edit["classes"])
+                    if edit.get("classes")
+                    else "",
+                    f"ID recipe `{edit['subject_id'][1]}`" if edit.get("subject_id") else "",
+                ],
+            )
+        )
+        for name, edit in sorted((pinned or {}).items())
+    ]
+    if named:
+        parts += [
+            "",
+            "# Typed by the person on that screen (keep these words unless the"
+            " request below changes them)",
+            *named,
+        ]
+    if request and request.strip():
+        parts += ["", "# What the person asked you to change", "", request.strip()]
+    return "\n".join(parts)
+
+
 def build_skeleton_user(
     inspection_md: str,
     domain_hint: str,
@@ -564,12 +817,18 @@ def build_skeleton_user(
     language: str | None = None,
     iri_base: str | None = None,
     issues: list[str] | None = None,
+    current_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
     msg = (
         f"# Source inspection\n\n{inspection_md}\n\n"
         f"# Domain context\n\n{domain_hint.strip()}\n\n"
         f"{dataset_namespace_block(iri_base)}\n"
     )
+    rethink = render_rethink_request(current_skeleton, request, pinned)
+    if rethink:
+        msg += f"{rethink}\n\n"
     if issues:
         msg += (
             "# Your previous answer could not be read (fix ONLY this)\n\n"
@@ -680,11 +939,26 @@ def generate_skeleton(
     language: str | None = None,
     iri_base: str | None = None,
     issues: list[str] | None = None,
+    current_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """One guided call -> the skeleton dict (subject-only maps). Parsed here;
-    structural/environment validation is the caller's gate."""
+    structural/environment validation is the caller's gate.
+
+    ``current_skeleton`` turns this from "design one" into "repair this one":
+    the design already on the gate screen goes in the message and the model is
+    asked to change only what ``request`` names (S4 「AI にもう一度考えさせる」).
+    """
     user = build_skeleton_user(
-        inspection_md, domain_hint, language=language, iri_base=iri_base, issues=issues
+        inspection_md,
+        domain_hint,
+        language=language,
+        iri_base=iri_base,
+        issues=issues,
+        current_skeleton=current_skeleton,
+        request=request,
+        pinned=pinned,
     )
     schema = skeleton_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, SKELETON_SYSTEM_PROMPT, user, schema))
@@ -717,6 +991,94 @@ def drop_borrowed_properties(
             dropped.append(col)
             continue
         kept.append(prop)
+    if not dropped:
+        return dict(result), []
+    return {**result, "properties": kept}, dropped
+
+
+def _same_column_signature(prop: Mapping[str, Any]) -> tuple | None:
+    """What makes two rows the SAME record of the same cell, or None if the row
+    is not a plain single-column transcription.
+
+    The signature deliberately includes the reshaping (``function``/``args``/
+    ``transform``) and the ``datatype``: the same column read twice with
+    DIFFERENT reshaping is a second, genuine view of that cell (a raw value and
+    a converted one), not a duplicate. Only rows that would record the same
+    value the same way collapse.
+    """
+    col = prop.get("column")
+    if not isinstance(col, str) or not col:
+        return None
+    if prop.get("columns") is not None or prop.get("object_template") is not None:
+        return None
+    if prop.get("constant") is not None:
+        return None
+    args = prop.get("args")
+    transform = prop.get("transform")
+    return (
+        col,
+        str(prop.get("function") or ""),
+        json.dumps(args, sort_keys=True, ensure_ascii=False) if isinstance(args, Mapping) else "",
+        json.dumps(transform, sort_keys=True, ensure_ascii=False)
+        if isinstance(transform, Mapping)
+        else "",
+        str(prop.get("datatype") or ""),
+    )
+
+
+def drop_duplicate_properties(result: Mapping[str, Any]) -> tuple[dict, list[str]]:
+    """Remove rows that record the SAME cell a second time inside ONE map.
+
+    Observed live (XRD reference file, 2026-08-27): the per-map stage returned
+    nine rows for five columns — ``2theta``, ``d``, ``I`` and ``(hkl)`` each
+    appeared twice, and the model labelled its own extras 「(重複)」. Two pairs
+    shared the predicate outright (identical triples); the other two invented a
+    second predicate for the same cell (``xrd:dSpacing`` AND ``xrd:d``), so the
+    value really was stored twice under two names. Nothing caught it: the
+    columns exist, the rows compile, T1-T9 pass, and the duplicate-column
+    advisory only looks BETWEEN maps.
+
+    The consequence is not cosmetic. 「d は?」 comes back with two answers per
+    peak, every count is doubled, and which of the two names Ask reaches for is
+    arbitrary — the two labels disagreed (「格子間隔 d」 vs 「d spacing (重複)」).
+
+    Same shape as :func:`drop_borrowed_properties`: the prompt already asks for
+    one row per cell; this is the guarantee. The FIRST row wins (it is the one
+    the model wrote while still following the column order), and ``unit`` /
+    ``label`` are carried over from a dropped twin only where the winner has
+    none — a later row must never overwrite an earlier answer. Returns the
+    cleaned result and the dropped column names so the caller reports them
+    (never a silent edit).
+    """
+    props = result.get("properties")
+    if not isinstance(props, list):
+        return dict(result), []
+    kept: list[Any] = []
+    seen: dict[tuple, int] = {}
+    dropped: list[str] = []
+    for prop in props:
+        if not isinstance(prop, Mapping):
+            kept.append(prop)
+            continue
+        sig = _same_column_signature(prop)
+        if sig is None:
+            kept.append(prop)
+            continue
+        first = seen.get(sig)
+        if first is None:
+            seen[sig] = len(kept)
+            kept.append(prop)
+            continue
+        winner = kept[first]
+        if isinstance(winner, Mapping):
+            carried = dict(winner)
+            for field_name in ("label", "unit"):
+                if not str(carried.get(field_name) or "").strip():
+                    value = str(prop.get(field_name) or "").strip()
+                    if value:
+                        carried[field_name] = value
+            kept[first] = carried
+        dropped.append(sig[0])
     if not dropped:
         return dict(result), []
     return {**result, "properties": kept}, dropped
@@ -775,17 +1137,21 @@ def apply_data_facts(
     column_owners: Mapping[str, Mapping[str, str]] | None = None,
     column_types: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[dict, dict[str, list[str]]]:
-    """Re-assert on a WHOLE IR what the data proved: ownership and numeric types.
+    """Re-assert on a WHOLE IR what the machine can see without the model:
+    ownership, numeric types, and one row per cell.
 
     ``drop_borrowed_properties`` and ``apply_numeric_datatypes`` ran on each map's
     round-0 table — and then a self-correction round handed §9 back to the model,
     which rewrote it from memory: the borrowed columns came back and every
     ``datatype`` was gone (live: a rebuilt XRD dataset, 2 autocorrect rounds, 0
     datatypes in the saved mapping). A fact the machine derived from the rows
-    must not depend on which LLM round happened to be last, so the SAME two
-    normalisations run on the assembled IR after every round. Idempotent; a map
-    with no verdict is untouched; anything not a plain ``column:`` binding is
-    left alone (see the two helpers for the exact rules).
+    must not depend on which LLM round happened to be last, so the SAME
+    normalisations run on the assembled IR after every round.
+    ``drop_duplicate_properties`` joins them for the same reason (2026-08-27):
+    round-0 dedup does not survive a round that rewrites §9 wholesale, and a
+    design that records one cell twice answers every question about it twice.
+    Idempotent; a map with no verdict is untouched; anything not a plain
+    ``column:`` binding is left alone (see the helpers for the exact rules).
 
     Returns the new IR and ``{map: [changed columns]}`` for reporting.
     """
@@ -801,9 +1167,10 @@ def apply_data_facts(
         name = str(m.get("name") or "")
         table: Mapping[str, Any] = {"properties": m["properties"]}
         table, dropped = drop_borrowed_properties(table, (column_owners or {}).get(name))
+        table, twins = drop_duplicate_properties(table)
         table, typed = apply_numeric_datatypes(table, (column_types or {}).get(name))
-        if dropped or typed:
-            changed[name] = [*dropped, *typed]
+        if dropped or twins or typed:
+            changed[name] = [*dropped, *twins, *typed]
         out_maps.append({**m, "properties": table["properties"]})
     if not changed:
         return dict(ir), {}
@@ -958,6 +1325,14 @@ _SAFE_COLUMN_DATATYPES = frozenset(
 )
 
 
+# What a human may say about one source column. ``include`` / ``exclude`` decide
+# WHETHER it is mapped; ``own`` decides WHICH entity records it when several do
+# (ADR column-ownership-and-growth G1 — the tie the rows could not break). The
+# api validates against this set, so the vocabulary is defined once.
+COLUMN_DECISION_ACTIONS = ("include", "exclude", "own")
+_COLUMN_DECISION_ACTIONS = frozenset(COLUMN_DECISION_ACTIONS)
+
+
 def _expanded_mapping_term(term: str, prefixes: Mapping[str, Any]) -> str:
     """Expand a CURIE for identity checks; absolute/unknown terms pass through."""
     head, separator, tail = term.partition(":")
@@ -1106,17 +1481,110 @@ def _property_uses_column(prop: Mapping[str, Any], column: str) -> bool:
     )
 
 
+def _property_transcribes_column(prop: Mapping[str, Any], column: str) -> bool:
+    """Is this row a plain RECORD of one source cell — the exact shape the
+    duplicate-column advisory counts (``asterism.rml_validate``)?
+
+    Same three exclusions as the advisory, so what a human settles here is what
+    the machine was complaining about: an ``object_template`` / ``object_type:
+    iri`` row is a LINK to another entity (that is how the join is declared, and
+    deleting it disconnects the design), and a ``columns:`` row reading SEVERAL
+    columns computes a value that belongs to none of its inputs alone. A single
+    ``columns: [X]`` and a reshaped ``column: X`` (``function`` / ``transform``)
+    are still X's value, just written differently — the advisory counts them, so
+    the fix must reach them.
+    """
+    if prop.get("object_template") is not None:
+        return False
+    if str(prop.get("object_type") or "") == "iri":
+        return False
+    if str(prop.get("column") or "") == column:
+        return True
+    cols = prop.get("columns")
+    return isinstance(cols, list) and [str(c) for c in cols] == [column]
+
+
+def _apply_column_owner(
+    out_maps: list[Any], ir: Mapping[str, Any], decision: Mapping[str, Any]
+) -> str | None:
+    """Keep a duplicated column on ONE map and delete it from the others.
+
+    The human half of ADR column-ownership G1: when the rows cannot adjudicate
+    which entity a column describes (a tie, or nothing determines it), the
+    advisory states the defect and makes no claim — and "which of these two
+    things is this column ABOUT" is world knowledge, not something another LLM
+    round can derive (ADR kantan K2 puts it on the person's side). This applies
+    that verdict deterministically: no model is asked, the owner's row is
+    untouched, and every OTHER map on the same source loses its transcription
+    of the column.
+
+    Fail-safe and idempotent, because it is re-asserted after every later round:
+    when the owner no longer carries the column at all — a structural rewrite
+    moved it — NOTHING is deleted. "Keep it here" must never decay into "delete
+    it everywhere"; the advisory simply comes back and the person is asked again.
+
+    Returns the column name when the IR changed, else None.
+    """
+    _map_obj, map_name, source, column = _decision_map(ir, decision)
+    owner = next(
+        (
+            m
+            for m in out_maps
+            if isinstance(m, Mapping) and str(m.get("name") or "") == map_name
+        ),
+        None,
+    )
+    if owner is None:
+        return None
+    owner_props = owner.get("properties")
+    if not isinstance(owner_props, list) or not any(
+        isinstance(prop, Mapping) and _property_transcribes_column(prop, column)
+        for prop in owner_props
+    ):
+        return None
+    changed = False
+    for other_i, current in enumerate(out_maps):
+        if (
+            not isinstance(current, Mapping)
+            or str(current.get("source") or "") != source
+            or str(current.get("name") or "") == map_name
+        ):
+            continue
+        properties = current.get("properties")
+        if not isinstance(properties, list):
+            continue
+        kept = [
+            prop
+            for prop in properties
+            if not (
+                isinstance(prop, Mapping) and _property_transcribes_column(prop, column)
+            )
+        ]
+        if len(kept) == len(properties):
+            continue
+        if not kept:
+            raise ValueError(
+                f"column {column!r} is the only property of map "
+                f"{str(current.get('name') or '')!r} and cannot be removed safely"
+            )
+        out_maps[other_i] = {**current, "properties": kept}
+        changed = True
+    return column if changed else None
+
+
 def apply_column_decisions(
     ir: Mapping[str, Any],
     decisions: Sequence[Mapping[str, Any]],
     *,
     source_columns: Mapping[str, Mapping[str, str] | Sequence[str]] | None = None,
 ) -> tuple[dict, list[str]]:
-    """Apply human include/exclude decisions to a Mapping IR.
+    """Apply human include/exclude/own decisions to a Mapping IR.
 
     Includes add a deliberately plain, raw-passthrough direct property. Excludes
     leave an already-unmapped IR untouched, but remove a later AI rewrite's use of
-    that column. The helper is idempotent so it can reassert both decisions.
+    that column. ``own`` settles a column two maps both record onto ONE of them
+    (:func:`_apply_column_owner`). The helper is idempotent so it can reassert
+    every decision.
     ``source_columns`` is an optional closed-set oracle (source -> columns, or
     source -> inferred datatype) used by the API before anything is persisted.
     """
@@ -1129,8 +1597,11 @@ def apply_column_decisions(
     changed: list[str] = []
     for decision in decisions:
         action = str(decision.get("action") or "").strip()
-        if action not in {"include", "exclude"}:
-            raise ValueError("column decision action must be 'include' or 'exclude'")
+        if action not in _COLUMN_DECISION_ACTIONS:
+            raise ValueError(
+                "column decision action must be one of: "
+                + ", ".join(f"{a!r}" for a in sorted(_COLUMN_DECISION_ACTIONS))
+            )
         source = str(decision.get("source") or "").strip()
         column = str(decision.get("column") or "").strip()
         if not source or not column:
@@ -1139,6 +1610,11 @@ def apply_column_decisions(
             known = source_columns.get(source)
             if known is None or column not in known:
                 raise ValueError(f"source {source!r} has no column {column!r}")
+        if action == "own":
+            owned = _apply_column_owner(out_maps, {**ir, "maps": out_maps}, decision)
+            if owned is not None and owned not in changed:
+                changed.append(owned)
+            continue
         if action == "exclude":
             for target_i, current in enumerate(out_maps):
                 if not isinstance(current, Mapping) or str(current.get("source") or "") != source:
@@ -1556,6 +2032,320 @@ the deterministic default — the retries stay bounded so a model that cannot
 produce JSON does not burn a job's worth of tokens proving it."""
 
 
+def _unnamed_kinds(skeleton: Mapping[str, Any]) -> list[str]:
+    """Maps whose subject carries no class — the human gate's 「1 件が表すもの」."""
+    out: list[str] = []
+    for m in skeleton.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        subject = m.get("subject")
+        classes = subject.get("classes") if isinstance(subject, Mapping) else None
+        if not (isinstance(classes, list) and any(str(c).strip() for c in classes)):
+            out.append(str(m.get("name") or ""))
+    return out
+
+
+def twin_maps(skeleton: Mapping[str, Any]) -> list[list[str]]:
+    """Maps that read the SAME source and count it the SAME way — one row type
+    described twice.
+
+    Observed live (XRD reference file, 2026-08-27): five maps for one file, of
+    which `Dataset` and `Sample` both keyed on ``{No}`` and both collapsed the
+    whole table to one record. The gate then showed two cards with the same
+    reading, the same count and the same example values — differing only in the
+    IRI segment. Nothing catches it: each map on its own is valid.
+
+    The signature is (source, iterator, the set of key columns, whether the
+    subject is a constant). Different key columns mean a genuinely different
+    grain — a parent and its rows share a source but not a key, so they never
+    collide here.
+
+    Reported, never merged: which of the two survives (and whether the answer is
+    actually "both, with different columns") is a design judgement, and K2 keeps
+    the counting with the human. The caller feeds this back to the model, whose
+    map names say what it thought each one was.
+    """
+    groups: dict[tuple, list[str]] = {}
+    for m in skeleton.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        subject = m.get("subject") if isinstance(m.get("subject"), Mapping) else {}
+        template = subject.get("template")
+        key = (
+            frozenset(re.findall(r"\{([^{}]+)\}", str(template))) if template else frozenset()
+        )
+        sig = (
+            str(m.get("source") or ""),
+            str(m.get("iterator") or ""),
+            key,
+            template is None,
+        )
+        groups.setdefault(sig, []).append(str(m.get("name") or ""))
+    return [names for names in groups.values() if len(names) > 1]
+
+
+def normalize_key_separators(skeleton: Mapping[str, Any]) -> tuple[dict, list[str]]:
+    """Put ``/`` between adjacent key columns in every subject template.
+
+    Observed live (2026-08-27): the model wrote ``peak/{No}_{2theta}``. Fusing
+    two key columns into ONE IRI segment makes the address ambiguous — a value
+    that itself contains the separator lets two different rows render the same
+    IRI (``a_b`` + ``c`` and ``a`` + ``b_c``), and nothing catches it: the
+    uniqueness check proves the COLUMN TUPLE unique, not the rendered string.
+    With ``/`` each column is its own path segment and the engine percent-encodes
+    any ``/`` inside a value, so the collision cannot happen.
+
+    Only the gap between two adjacent placeholders is touched, and only when it
+    carries no ``/`` of its own — a deliberate path like
+    ``sample/{id}/measurement/{t}`` is left exactly as written. Same convention
+    the machine's own rewrites use (:func:`skeleton_annotate._rewrite_key_template`).
+    """
+    maps = skeleton.get("maps")
+    if not isinstance(maps, list):
+        return dict(skeleton), []
+    changed: list[str] = []
+    out: list[Any] = []
+    for m in maps:
+        subject = m.get("subject") if isinstance(m, Mapping) else None
+        template = subject.get("template") if isinstance(subject, Mapping) else None
+        if not isinstance(template, str) or "}" not in template:
+            out.append(m)
+            continue
+        fixed = re.sub(r"\}([^/{}]*)\{", "}/{", template)
+        if fixed == template:
+            out.append(m)
+            continue
+        out.append({**m, "subject": {**subject, "template": fixed}})
+        changed.append(str(m.get("name") or ""))
+    if not changed:
+        return dict(skeleton), []
+    return {**skeleton, "maps": out}, changed
+
+
+def name_unnamed_kinds(
+    skeleton: Mapping[str, Any], *, ontology_prefix: str
+) -> tuple[dict, list[str]]:
+    """Give every kind a name, deterministically, when the model left it blank.
+
+    The gate asks 「1 件が表すもの」 and the answer decides what can ever be
+    counted or asked for by kind, so a blank is not a neutral default. The
+    JSON schema asks for one (``skeleton_json_schema``), and a retry asks again
+    with the omission named — but the schema only reaches providers that support
+    guided decoding (``AnthropicLLMClient`` has no ``response_schema`` at all),
+    so neither is a guarantee. This is.
+
+    The name comes from the MODEL's own map name (``peak`` → ``Peak``): a word
+    it chose while looking at the columns, not one invented here from nothing.
+    It is a proposal, not a verdict — the gate shows it in the editable field
+    with the same ⚠ it shows for anything the machine decided on the human's
+    behalf, and ``dropped``/``named`` is reported so the choice is never silent.
+    """
+    maps = skeleton.get("maps")
+    if not isinstance(maps, list):
+        return dict(skeleton), []
+    named: list[str] = []
+    out: list[Any] = []
+    for m in maps:
+        if not isinstance(m, Mapping):
+            out.append(m)
+            continue
+        subject = m.get("subject")
+        classes = subject.get("classes") if isinstance(subject, Mapping) else None
+        if isinstance(classes, list) and any(str(c).strip() for c in classes):
+            out.append(m)
+            continue
+        name = str(m.get("name") or "")
+        out.append(
+            {
+                **m,
+                "subject": {
+                    **(subject if isinstance(subject, Mapping) else {}),
+                    "classes": [f"{ontology_prefix}:{_class_name(name)}"],
+                },
+            }
+        )
+        named.append(name)
+    if not named:
+        return dict(skeleton), []
+    return {**skeleton, "maps": out}, named
+
+
+def pin_dataset_namespace(
+    answer: Mapping[str, Any], current: Mapping[str, Any], iri_base: str | None
+) -> dict:
+    """Keep a rethink inside the dataset namespace the person already has.
+
+    The mint prefix is machine-derived from the dataset name (K13) and nobody
+    picks it — so a rethink has no reason to land in a different one. It matters
+    because the slug is IN every IRI: change it and every ID the person just
+    checked on the gate becomes a different ID.
+
+    Rewrites the IRI the answer's own mint prefix points at, rather than adding
+    the current skeleton's prefixes alongside it. Merging the two was the first
+    attempt and it was wrong: both spellings then look canonical to
+    :func:`normalize_dataset_namespace`, it repairs the first and leaves the
+    second, and the gate ends up showing raw `xr:Sample` next to `Sample` (live,
+    2026-08-27). Prefix NAMES and the CURIEs that reference them are that
+    function's job; this only decides which namespace they end up in.
+    """
+    cur = dataset_namespace_info(current.get("prefixes") or {}, iri_base)
+    ans = dataset_namespace_info(answer.get("prefixes") or {}, iri_base)
+    if cur is None or ans is None or ans["slug"] == cur["slug"]:
+        return dict(answer)
+    prefixes = {str(k): str(v) for k, v in (answer.get("prefixes") or {}).items()}
+    stem = f"{cur['base']}/datasets/{cur['slug']}"
+    if ans["ontology_prefix"]:
+        prefixes[ans["ontology_prefix"]] = f"{stem}/ontology#"
+    if ans["resource_prefix"]:
+        prefixes[ans["resource_prefix"]] = f"{stem}/resource/"
+    return {**answer, "prefixes": prefixes}
+
+
+def _subject_id_form(subject: Any) -> tuple[str, str] | None:
+    """``(kind, value)`` for whichever ID form a subject uses, or None.
+
+    ``template`` and ``constant`` are alternatives, not variants of one field:
+    a map that switches from one to the other changed its ID recipe, so the
+    kind is part of the value being compared.
+    """
+    if not isinstance(subject, Mapping):
+        return None
+    for kind in ("template", "constant"):
+        value = subject.get(kind)
+        if isinstance(value, str) and value.strip():
+            return kind, value
+    return None
+
+
+def _subject_classes(subject: Any) -> list[str]:
+    if not isinstance(subject, Mapping):
+        return []
+    classes = subject.get("classes")
+    if not isinstance(classes, list):
+        return []
+    return [str(c) for c in classes if str(c).strip()]
+
+
+def human_pinned_edits(
+    baseline: Mapping[str, Any] | None, current: Mapping[str, Any] | None
+) -> dict[str, dict[str, Any]]:
+    """What the HUMAN typed on the gate screen, map by map.
+
+    Compares the skeleton the AI produced (``baseline``) against the one on the
+    screen now (``current``): the gate is the only thing between them, so a
+    field that differs was typed by a person. This is the 控え of ADR
+    data-facts-invariant N6 — a value a person asserted is not the model's to
+    forget on the next round, and 「AI にもう一度考えさせる」 IS a next round.
+
+    Only the two fields the gate lets a person edit are tracked: the kind name
+    (``subject.classes``) and the ID recipe (``subject.template`` /
+    ``subject.constant``). Deletions and splits need no record — they are
+    already IN ``current``, which is what the model is handed.
+
+    With no baseline (an older session, or a design restored from disk) the
+    answer is empty: nothing is claimed as human-typed that cannot be proven.
+    Being wrong in that direction costs one re-edit; the other direction pins a
+    machine guess as if a person had chosen it.
+    """
+    if not isinstance(baseline, Mapping) or not isinstance(current, Mapping):
+        return {}
+    before: dict[str, Mapping[str, Any]] = {
+        str(m.get("name") or ""): m
+        for m in (baseline.get("maps") or [])
+        if isinstance(m, Mapping)
+    }
+    pinned: dict[str, dict[str, Any]] = {}
+    for m in current.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        name = str(m.get("name") or "")
+        was = before.get(name)
+        edit: dict[str, Any] = {}
+        classes = _subject_classes(m.get("subject"))
+        if classes and (was is None or classes != _subject_classes(was.get("subject"))):
+            edit["classes"] = classes
+        subject_id = _subject_id_form(m.get("subject"))
+        if subject_id and (was is None or subject_id != _subject_id_form(was.get("subject"))):
+            edit["subject_id"] = subject_id
+        if edit:
+            pinned[name] = edit
+    return pinned
+
+
+def _restored_record(name: str, subject: Any) -> dict[str, str]:
+    """One restore, named the way the screen names it: by KIND, not by map id."""
+    classes = _subject_classes(subject)
+    return {"map": name, "kind": classes[0]} if classes else {"map": name}
+
+
+def reassert_human_edits(
+    answer: Mapping[str, Any],
+    current: Mapping[str, Any] | None,
+    pinned: Mapping[str, Mapping[str, Any]] | None,
+) -> tuple[dict, list[str]]:
+    """Put the person's own words back wherever the model wrote over them.
+
+    The request said "split samples from measurements", not "and while you are
+    there, rename the kind I named and rewrite the ID I wrote". A model handed a
+    whole design rewrites all of it — that is what asking a model to return JSON
+    does — so the prompt asking it to keep those two fields (:func:`render_rethink_request`)
+    is the request and this is the guarantee, the same pairing as
+    ``owned_elsewhere`` + :func:`drop_borrowed_properties`.
+
+    Also brings back a pinned map that vanished entirely: a kind the person had
+    already touched is one they know about, and dropping it is exactly the
+    over-reach ADR「差し戻しは足すため」 records (a rethink that came back with
+    5 maps folded into 1). Maps the person never touched are left to the model —
+    that is the restructuring they asked for.
+
+    Returns the repaired skeleton and one ``{map, kind}`` record per restore, so
+    the caller can say what it did. Structured rather than pre-formatted: the
+    kantan tier does not show raw identifiers (K4), and only the browser knows
+    the minted prefix to strip from the CURIE.  Never a silent edit.
+    """
+    if not pinned or not isinstance(answer.get("maps"), list):
+        return dict(answer), []
+    restored: list[dict[str, str]] = []
+    out: list[Any] = []
+    seen: set[str] = set()
+    for m in answer["maps"]:
+        if not isinstance(m, Mapping):
+            out.append(m)
+            continue
+        name = str(m.get("name") or "")
+        seen.add(name)
+        edit = pinned.get(name)
+        if not edit:
+            out.append(m)
+            continue
+        subject = dict(m.get("subject") or {}) if isinstance(m.get("subject"), Mapping) else {}
+        touched = False
+        classes = edit.get("classes")
+        if classes and _subject_classes(subject) != classes:
+            subject["classes"] = list(classes)
+            touched = True
+        subject_id = edit.get("subject_id")
+        if subject_id and _subject_id_form(subject) != tuple(subject_id):
+            form, value = subject_id
+            subject.pop("template", None)
+            subject.pop("constant", None)
+            subject[form] = value
+            touched = True
+        if touched:
+            restored.append(_restored_record(name, subject))
+        out.append({**m, "subject": subject})
+    for m in (current or {}).get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        name = str(m.get("name") or "")
+        if name in pinned and name not in seen:
+            out.append(dict(m))
+            restored.append(_restored_record(name, m.get("subject")))
+    if not restored:
+        return dict(answer), []
+    return {**answer, "maps": out}, restored
+
+
 def _generate_skeleton_gated(
     inspection_md: str,
     domain_hint: str,
@@ -1566,15 +2356,29 @@ def _generate_skeleton_gated(
     iri_base: str | None,
     inspections: Sequence[SourceInspection],
     dataset_name: str | None,
-) -> tuple[dict, bool]:
+    current_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[dict, bool, list[str]]:
     """The skeleton, with a bounded retry and a deterministic floor.
 
-    Returns ``(skeleton, used_fallback)``. Only an unusable ANSWER
+    Returns ``(skeleton, used_fallback, restored)``. Only an unusable ANSWER
     (:data:`_UNUSABLE_ANSWER`) reaches the floor: cancellation, a bad key and an
     unreachable provider propagate untouched, because a person who pressed stop
     — or whose AI never ran — must not be handed a design instead.
+
+    On a rethink (``current_skeleton``) the floor is that design, not the
+    deterministic default: a person who asked for one change and got an
+    unreadable answer must not also lose the design they had. For the same
+    reason the no-shrink guard starts at their map count rather than at zero.
     """
     issues: list[str] | None = None
+    previous: dict | None = (
+        dict(current_skeleton)
+        if isinstance(current_skeleton, Mapping) and current_skeleton.get("maps")
+        else None
+    )
+    restored: list[str] = []
     for attempt in range(_SKELETON_PARSE_ROUNDS + 1):
         try:
             skeleton = generate_skeleton(
@@ -1585,6 +2389,9 @@ def _generate_skeleton_gated(
                 language=language,
                 iri_base=iri_base,
                 issues=issues,
+                current_skeleton=current_skeleton,
+                request=request,
+                pinned=pinned,
             )
         except LLMCancelledError:
             raise
@@ -1593,15 +2400,54 @@ def _generate_skeleton_gated(
             if attempt >= _SKELETON_PARSE_ROUNDS:
                 break
             continue
+        # 人が自分で打った値は、モデルの記憶より強い(N6)。注文は「ここを直して」
+        # であって「ついでに私が付けた名前と書いた ID も書き換えて」ではない。
+        if pinned:
+            skeleton, back = reassert_human_edits(skeleton, current_skeleton, pinned)
+            restored = back
+        # 差し戻しは「抜けを足して」と頼むもの。返ってきた答えが前より種類を
+        # 減らしていたら、頼んだこと以上をやっている — 前の答えを採る。
+        # rethink では floor が「いま画面にある骨格」=人の編集そのもの。
+        if (
+            previous is not None
+            and isinstance(skeleton.get("maps"), list)
+            and len(skeleton["maps"]) < len(previous.get("maps") or [])
+        ):
+            skeleton = previous
+            restored = []
         if isinstance(skeleton.get("maps"), list) and skeleton["maps"]:
-            return skeleton, False
+            # 「1 件が表すもの」が空のまま返ることがある(guided decoding が届かない
+            # provider では schema の minItems が効かない)。人が答える前に、抜けを
+            # 名指しでもう一度頼む — 名前を付けるのに一番良い位置に居るのはモデル。
+            # 名前の抜けだけを差し戻す。**同じ鍵の重複は差し戻さない** — 実測
+            # (2026-08-27)で「keep one」と伝えたら、モデルは重複した 3 つの
+            # まとまりを全部落として map を 1 つにし、前置きの 14 列が 47 行
+            # すべてに写った。どちらを残すか(そもそも「両方、ただし列を分けて」
+            # が正解か)は設計の判断で、K2 は数えかたを人の側に置いている。
+            # 重複は画面に出して、人が消す。
+            blank = _unnamed_kinds(skeleton)
+            if not blank or attempt >= _SKELETON_PARSE_ROUNDS:
+                return skeleton, False, restored
+            issues = [
+                "every map's subject needs a non-empty `classes` (what ONE record of"
+                " that map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
+                + ". Keep every map you already have — only add the missing names."
+            ]
+            previous = skeleton
+            continue
         # Parsed, but says nothing — same dead end as a parse failure.
         issues = ["the JSON object had no `maps` entries; every source needs one map"]
         if attempt >= _SKELETON_PARSE_ROUNDS:
             break
+    # 作り直しの答えが読めなかった。持ち帰る先は、決定論の初期骨格ではなく
+    # 人がさっきまで見ていた骨格 — 注文が通らなかったことと、編集が消えることは
+    # 別の損失で、後者は起こしてよい理由が無い。
+    if isinstance(current_skeleton, Mapping) and current_skeleton.get("maps"):
+        return dict(current_skeleton), False, []
     return (
         default_skeleton(inspections, iri_base=iri_base, dataset_name=dataset_name),
         True,
+        [],
     )
 
 
@@ -1627,10 +2473,19 @@ def propose_skeleton(
     function_names: Sequence[str] | None = None,
     dialects: Mapping[str, Any] | None = None,
     iri_base: str | None = None,
+    current_skeleton: Mapping[str, Any] | None = None,
+    baseline_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
 ) -> SkeletonProposal:
     """Job 1: inspect the source(s) and generate the skeleton for human review.
     Does NOT generate properties or prose — that is :func:`propose_from_skeleton`,
     run after the human confirms/edits the skeleton.
+
+    ``current_skeleton`` + ``request`` make this a REPAIR instead of a rebuild
+    (S4 「AI にもう一度考えさせる」): the design on the gate screen goes to the
+    model and only what ``request`` names may change. ``baseline_skeleton`` is
+    what the AI last returned, so the difference between the two is exactly what
+    a person typed — pinned through the round (ADR data-facts-invariant N6).
 
     ``dialects`` (ADR source-dialect.md) is the effective per-source read dialect
     (detected ⊕ human override); forwarded to ``inspect_source_set`` so the
@@ -1648,7 +2503,8 @@ def propose_skeleton(
     )
     inspection_md = render_markdown(inspections, fks)
     names = _resolve_function_names(function_names)
-    skeleton, fallback = _generate_skeleton_gated(
+    pinned = human_pinned_edits(baseline_skeleton, current_skeleton)
+    skeleton, fallback, restored = _generate_skeleton_gated(
         inspection_md,
         domain_hint,
         llm=llm,
@@ -1657,7 +2513,12 @@ def propose_skeleton(
         iri_base=iri_base,
         inspections=inspections,
         dataset_name=Path(csv_paths[0]).stem if csv_paths else None,
+        current_skeleton=current_skeleton,
+        request=request,
+        pinned=pinned,
     )
+    if current_skeleton:
+        skeleton = pin_dataset_namespace(skeleton, current_skeleton, iri_base)
     # Canonical namespace shape is a machine requirement, not a model skill
     # (kantan ADR K13): repair base/shape drift and derive the prefix pair
     # deterministically from the minted slug, so the gate never asks a human
@@ -1667,7 +2528,21 @@ def propose_skeleton(
         iri_base,
         fallback_slug=slugify_dataset_name(Path(csv_paths[0]).stem) if csv_paths else None,
     )
+    # 名前の無い種類が残っていたら、機械が置く(正規化のあと=正しい prefix で)。
+    # ゲートは編集できる欄に ⚠ 付きで出すので、これは提案であって決定ではない。
+    skeleton, named = name_unnamed_kinds(skeleton, ontology_prefix=_ontology_prefix(skeleton))
+    # ID の区切りは機械の規約（`/`）に揃える。融合した区間は住所を曖昧にする。
+    skeleton, resep = normalize_key_separators(skeleton)
     metadata: dict[str, Any] = {"llm_class": type(llm).__name__}
+    if named:
+        metadata["named_kinds"] = named
+    if resep:
+        metadata["key_separators_fixed"] = resep
+    if current_skeleton:
+        metadata["rethink"] = True
+    # 機械が人の値を書き戻したことは、画面に出す(黙って直さない)。
+    if restored:
+        metadata["kept_human_edits"] = restored
     if fallback:
         metadata["fallback"] = True
     return SkeletonProposal(
@@ -1700,6 +2575,7 @@ def _generate_map_properties_gated(
     emit: Callable[..., None],
     record: Callable[[], None],
     owned_elsewhere: Mapping[str, str] | None = None,
+    owner_subjects: Mapping[str, str] | None = None,
     column_types: Mapping[str, str] | None = None,
     source_columns: Sequence[str] | None = None,
     ontology_prefix: str | None = None,
@@ -1805,6 +2681,44 @@ def _generate_map_properties_gated(
         _emit(
             f"map '{map_name}': 他のマップが持つ列を外しました - 重複記録の防止: "
             + ", ".join(sorted(set(dropped)))
+        )
+    # 所有者の subject がその列 1 つで立っている（＝値の種類・K33）とき、平文の
+    # 列を落とすだけでは辺が消える。「リンクとして使え」は指示（お願い）で、弱い
+    # モデルは黙って飛ばす — ここで決定論で足す。書き換えではなく追加。
+    if owned_elsewhere and owner_subjects:
+        rows = list(result.get("properties") or [])
+        existing_targets = {
+            str(prop.get("object_template"))
+            for prop in rows
+            if isinstance(prop, Mapping) and prop.get("object_template")
+        }
+        added_links: list[str] = []
+        for col, owner in owned_elsewhere.items():
+            subject = owner_subjects.get(str(owner))
+            if not subject or subject in existing_targets:
+                continue
+            if set(re.findall(r"\{([^{}]+)\}", subject)) != {str(col)}:
+                continue  # 所有者の ID がこの列そのもののときだけ、辺は自明
+            local = _lower_camel(str(owner)) or "linkedEntity"
+            predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
+            # label はゲートで人が見た種類の名前。決定論で付けておかないと、
+            # この機械の辺 1 本のために label-fill の LLM ラウンドが走る。
+            rows.append({"predicate": predicate, "object_template": subject, "label": str(owner)})
+            existing_targets.add(subject)
+            added_links.append(f"{col} → {owner}")
+        if added_links:
+            result = {**result, "properties": rows}
+            _emit(
+                f"map '{map_name}': 値の種類へのリンクを確定しました: "
+                + ", ".join(added_links)
+            )
+    # 同じ列を、同じ読み方で、この 1 つのマップの中に二度書いた行を外す。上の G6 が
+    # 「他のマップが持つ列」を見るのに対し、こちらは同じマップの中の二重記録。
+    result, twins = drop_duplicate_properties(result)
+    if twins:
+        _emit(
+            f"map '{map_name}': 同じ列を二度記録していた行を外しました: "
+            + ", ".join(sorted(set(twins)))
         )
     # Numeric columns get their datatype from the data, not from the model's
     # memory — an untyped number compares as a string in SPARQL.
@@ -1967,6 +2881,11 @@ def propose_from_skeleton(
             # Which of this map's columns another map owns (ADR
             # column-ownership G6) — the gate's verdict, carried into generation.
             owned_elsewhere=(column_owners or {}).get(str(name)),
+            owner_subjects={
+                str(mo.get("name")): str((mo.get("subject") or {}).get("template") or "")
+                for mo in maps
+                if isinstance(mo, Mapping)
+            },
             column_types=(column_types or {}).get(str(name)),
             source_columns=(
                 (map_columns or {}).get(str(name))
@@ -1977,6 +2896,17 @@ def propose_from_skeleton(
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
+    # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
+    # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
+    # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。
+    assembled, links_added = ensure_same_source_links(
+        assembled, ontology_prefix=ontology_prefix
+    )
+    if links_added:
+        emit(
+            phase="link",
+            message="種類どうしのつながりを足しました: " + ", ".join(links_added),
+        )
     ir_yaml = mapping_ir_to_yaml(assembled)
 
     emit(phase="document", message="設計文書を生成中")

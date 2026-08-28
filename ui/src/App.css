@@ -379,9 +379,10 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 
 /* Progress card for long LLM jobs (propose / refine). */
+/* 幅は置かれた場所が決める。32rem で止めていたころは、880px の列の中でこのカード
+   だけが 512px になり、右に説明のつかない空きが出ていた（K23 の行長は列で決める）。 */
 .job-progress {
   width: 100%;
-  max-width: 32rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -446,7 +447,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 /* Informational job outcome (e.g. user-cancelled) — neutral, not error-styled. */
 .job-cancelled-note {
   margin: 0;
-  max-width: 32rem;
   color: var(--body);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2408,7 +2408,8 @@ textarea:focus {
 
 .citation-field-key {
   color: var(--faint);
-  font-family: var(--font-mono);
+  /* 語であって識別子ではない — mono は数値・ID・コードのためのもの
+     （ui-guidelines §5）。TSX 側のインライン指定はこれに伴って外した。 */
   font-size: 0.8rem;
   flex: none;
 }
@@ -5923,26 +5924,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
 }
-.xw-participants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.xw-part-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--entity);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 0.35rem 0.65rem;
-  box-shadow: var(--shadow-soft);
-}
-.xw-part-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-}
 .xw-part-pred {
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -6097,9 +6078,11 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
   justify-content: center;
 }
+/* 候補カードは関係図を 1 枚抱えるようになったので、横並びに耐える下限を上げる
+   （320px だとノード 2 つとリンクが縦に折り返してしまう）。 */
 .xw-cand-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr));
   gap: var(--space-3);
 }
 .xw-cand-card {
@@ -6131,11 +6114,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   font-weight: 600;
   white-space: nowrap;
 }
-.xw-cand-sub {
-  margin: 0.3rem 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-}
 .xw-cand-vals {
   display: flex;
   flex-wrap: wrap;
@@ -6148,26 +6126,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.1rem 0.4rem;
-}
-.xw-cand-parts {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.xw-cand-part {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-  font-size: 0.875rem;
-  flex-wrap: wrap;
-}
-.xw-cand-part-name {
-  font-weight: 500;
-}
-.xw-cand-part-sample {
-  color: var(--body);
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
 }
 .xw-cand-note {
   margin: 0.3rem 0 0;
@@ -6759,12 +6717,12 @@ button.ds-artifact:disabled {
 .skeleton-entity-card {
   margin-top: 0.15rem;
 }
+/* 同上。2 枚並びのときは grid のトラックが幅を決める。 */
 .skeleton-entity-card-box {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--surface);
   padding: 0.45rem 0.6rem;
-  max-width: 34rem;
 }
 .skeleton-entity-card-head {
   display: flex;
@@ -6859,19 +6817,36 @@ button.ds-artifact:disabled {
   padding-top: 0.45rem;
   border-top: 1px dashed var(--border);
 }
+/* 候補は「名前の羅列」ではなく「値の一覧」。人が判断しているのは Chemical Formula
+   という語ではなく Al3 V という値なので、カードの表と同じ 2 段組で並べる
+   （利用者評価 2026-08-27）。折り返す chip 列だと値が入った瞬間に読めなくなる。 */
 .skeleton-split-cols {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.9rem;
-  margin: 0.3rem 0 0.45rem 1rem;
+  display: grid;
+  gap: 0;
+  margin: 0.3rem 0 0.6rem 0;
 }
 .skeleton-split-col {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+  display: grid;
+  grid-template-columns: auto minmax(6rem, 13rem) 1fr;
+  align-items: baseline;
+  gap: 0 0.9rem;
+  padding: 0.16rem 0.4rem;
+  border-radius: 6px;
   font-size: 0.875rem;
   color: var(--fg);
   cursor: pointer;
+}
+.skeleton-split-col:hover {
+  background: var(--surface-alt);
+}
+.skeleton-split-name {
+  color: var(--muted);
+  font-weight: 500;
+  word-break: break-word;
+}
+.skeleton-split-value {
+  color: var(--body);
+  word-break: break-word;
 }
 .skeleton-split-row {
   display: flex;
@@ -7068,10 +7043,24 @@ tr[data-map].skeleton-gate-row--added td {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  /* K23: 読み幅は**列**で決める。`.app-content` に max-width が無いため、この列だけが
+     画面幅いっぱいに伸びて 1 行 100 字超になっていた。
+     段落ごとに max-width を足す形は採らない: 表やカードは列の幅いっぱいに広がるので、
+     散文だけが細いと右側に説明のつかない空きができ、同じカードの中で左右の端が
+     揃わなくなる（ユーザー実評価 2026-08-27「謎の右側の余白」）。列を 1 つの幅に
+     閉じれば、その幅がそのまま行長になる。広い表は `.kz-preview-tablewrap` が
+     内側で横スクロールする（従来どおり）。 */
+  max-width: 880px;
+  margin-inline: auto;
+  width: 100%;
 }
 .kz-title {
   margin: 0;
-  font-size: 1.05rem;
+  /* K23: 見出し＝判断。0.875rem の注記が縦に並ぶ紙面では 1.05rem は「少し太い注記」
+     にしか見えず、目が優先順位を付けられなかった。 */
+  font-size: 1.25rem;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
   color: var(--fg);
 }
 .kz-note {
@@ -7172,15 +7161,17 @@ tr[data-map].skeleton-gate-row--added td {
   background: var(--surface-alt);
 }
 
-/* Generic kantan card (one per wizard screen). */
+/* Generic kantan card (one per wizard screen). K23: 詳細モードの `.card`
+   (--space-5 / ui-guidelines §4) とは別系統として、かんたん層だけ一段広い。
+   1 画面 1 判断の紙面では、行間より「かたまりの間」が優先順位を伝える。 */
 .kz-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--space-5);
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
   box-shadow: var(--shadow-soft);
 }
 .kz-warn {
@@ -7251,14 +7242,21 @@ tr[data-map].skeleton-gate-row--added td {
 .kz-preview-table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 .kz-preview-table th,
 .kz-preview-table td {
-  padding: 0.3rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
   text-align: left;
   white-space: nowrap;
+}
+/* 数値のセル/見出しは右寄せ + 桁揃え。どの列が数値かは CSS では分からないので
+   TSX 側（`isNumericColumn`）が列単位で判定してこのクラスを付ける。 */
+.kz-preview-table th.kz-num,
+.kz-preview-table td.kz-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .kz-preview-table th {
   background: var(--surface-sink);
@@ -7379,18 +7377,39 @@ tr[data-map].skeleton-gate-row--added td {
   padding: var(--space-3) var(--space-4);
   font-size: 0.88rem;
 }
-.kz-map-part {
-  font-weight: 600;
-}
 .kz-map-arrow {
   color: var(--muted);
+  font-size: 1.1rem;
 }
-.kz-map-class {
-  background: var(--primary-soft);
-  color: var(--primary);
-  border-radius: 999px;
-  padding: 0.15rem 0.7rem;
-  font-weight: 600;
+/* K23 / 採用デザイン: 「行の数」と「件の数」が合っているかを目で拾える形。
+   1 文（「元ファイル 20 行」）に埋めていたころは、比べたい 2 つの数が周りの
+   文字と同じ大きさで、読むのではなく数えないと見つからなかった。 */
+.kz-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.kz-stat-label {
+  font-size: 0.85rem;
+  color: var(--body);
+}
+.kz-stat-num {
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.kz-stat-unit {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+/* 取り込んだあとの件数は、元の行数と区別が付く色で（同じ濃さだと 2 つの数が
+   同じ種類の数に見え、突き合わせる気にならない）。 */
+.kz-stat--kind .kz-stat-num,
+.kz-stat--kind .kz-stat-unit {
+  color: var(--success-fg);
 }
 .kz-map-note {
   color: var(--body);
@@ -7526,6 +7545,10 @@ tr.kz-attn td {
   color: var(--body);
 }
 .kz-qa-a {
+  /* K23: 答えは、その画面でいちばん見たいもの。問いと同じ大きさだと、
+     3 問 3 答が 6 本の同じ行に見える。 */
+  font-size: 1.15rem;
+  line-height: 1.5;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -7725,9 +7748,6 @@ tr.kz-attn td {
   border: none;
   border-top: 1px solid var(--border);
   margin: var(--space-4) 0 var(--space-3);
-}
-.kz-grow-title {
-  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------
@@ -7950,4 +7970,852 @@ tr.kz-attn td {
    person caused: amber text on the ordinary note, no band. */
 .kz-warn-note {
   color: var(--warn-fg);
+}
+
+/* ==========================================================================
+   K23 — 読みやすさの強弱（ADR kantan-mode-two-tier-ux.md）
+
+   これまでかんたん層のほぼ全部の文が `.kz-note`（0.875rem / --body）という
+   ひとつの強さで縦に並んでいた。判断も、操作の説明も、補足も、警告も同じ強さ
+   なので、目が優先順位を付けられない（G9「常時見せるのは判断 1 行だけ」が
+   S5/S6 以外に効いていなかった）。ここで強さを 4 段に分ける:
+
+     判断 = 見出し（.kz-title）
+     その画面が何をする場か = 1 文（.kz-lead）
+     画面の中の区切り = ゾーン見出し（.kz-zone-label）
+     二次情報 = 従来どおり .kz-note（1 行まで。それ以上は details）
+
+   `.kz-note` のクラス名とスタイルは変えない（依存箇所が多い）。格上げしたい文
+   だけを上のクラスに置き換える。
+   ========================================================================== */
+
+/* カード冒頭の 1 文。見出しの直後に置き、「この画面は何をする場か」だけを言う。
+   色は --muted ではなく --body（ui-guidelines §1「本文は薄いグレーにしない」）。
+   注記より一段大きいのは、見出しとの間を埋めて視線をここへ落とすため。 */
+.kz-lead {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--body);
+}
+
+/* 画面の中のゾーン見出し（「① 数の確認」など）。見出し(--fg)でも本文(--body)でも
+   ない第三の声＝「ここから別の話」。小さい文字なので --accent ではなく
+   --accent-strong（小文字用の濃いアクセント）を使う。 */
+.kz-zone-label {
+  margin: var(--space-2) 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent-strong);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.kz-zone-label:first-child {
+  margin-top: 0;
+}
+/* いちばん強い境界（読み取り結果＝見るだけ／ここから先はあなたの判断）だけ、
+   ゾーン見出しを面ごと立てる。カードの padding を食い破って全幅に敷く。 */
+.kz-zone-label--band {
+  margin-inline: calc(var(--space-6) * -1);
+  padding: var(--space-2) var(--space-6);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+/* 帯の中に添える一言（ゾーン見出しほど強くない、ただの説明）。 */
+.kz-zone-label .kz-zone-why {
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--body);
+}
+
+/* 帰結を併記した選択肢。`.kz-pill` は短い二択のピルとして残し、こちらは
+   「答えるとどうなるか」を 1 行添える幅いっぱいのカード型。選択は枠と面で示し、
+   文字色は変えない（選択で色が動くと、読んでいる途中の行が飛ぶ）。
+   1px→2px の付け替えでレイアウトがずれないよう、太らせるのは inset shadow。 */
+.kz-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--fg);
+}
+.kz-choice:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.kz-choice.selected {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  background: var(--primary-soft);
+}
+.kz-choice:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.kz-choice-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+/* 「答えるとどうなるか」。注記と同じ大きさ＝二次情報の声で、選択肢そのものより
+   一段弱い。 */
+.kz-choice-why {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--body);
+}
+.kz-choice-why::before {
+  content: '→ ';
+}
+/* 帰結つきの選択肢は横並びにしない（2 行あるので、折り返すと読み順が壊れる）。 */
+.kz-q-options--stack {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+/* 散文であることの目印。行長は `.kz-wizard` の列幅が決めるので、ここでは幅を
+   足さない（段落だけを細くすると、隣の表と左右の端が揃わない）。折り返しの
+   基準を持たない要素（flex の子など）が列より広がらないことだけを保証する。 */
+.kz-prose {
+  min-width: 0;
+}
+
+/* 二次情報の落とし先（G9「理由・列名の羅列は details に畳む」）の共通の見た目。
+   これまで畳む場所ごとに summary を個別に書いていた（.kz-stop-detail / .kz-links /
+   .kz-words …）ので、K23 で畳む量が増えるぶんは 1 つに寄せる。 */
+.kz-fold > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.kz-fold > summary:hover {
+  color: var(--body);
+}
+.kz-fold[open] > summary {
+  margin-bottom: var(--space-2);
+}
+.kz-fold > *:not(summary) {
+  margin-top: var(--space-2);
+}
+
+/* --------------------------------------------------------------------------
+   S6 ③「取り込むかどうかの判断」— 1 判断 = 1 カード（K23）
+
+   表だったころは、その行が未判断かどうかも、取り込むと何を書くことになるのかも、
+   6 列を横に読まないと分からなかった。ここは S6 で唯一「人が決める」場所なので、
+   1 行 = 1 枚のカードにして、決めた後にだけ次の入力が現れる。
+
+   3 状態（未判断／取り込む／取り込まない）は K22 のまま保つ。どちらの radio も
+   checked でないことが「まだ決めていない」で、機械は既定を持たない。
+   -------------------------------------------------------------------------- */
+.kz-unmapped-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kz-unmapped-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+/* まだ決まっていない 1 枚。パネル全体の色ではなく行の側で言う — パネルだけが
+   黄色いと、10 件のうちどれが残っているのかが分からない。 */
+.kz-unmapped-row.kz-attn {
+  border-color: var(--warn-border);
+  box-shadow: inset 3px 0 0 var(--warn-fg);
+}
+.kz-unmapped-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.kz-unmapped-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+/* 実データ。判断の根拠なので消さないが、判断そのものより弱い声で、
+   カードを縦に伸ばさないよう 1 行に収める。 */
+.kz-unmapped-samples {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 2 つの選択肢。native の radio なので、矢印キーでの移動も「どちらも選ばれて
+   いない」の読み上げも素のまま効く。見た目だけをボタンに寄せる。 */
+.kz-decide {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.kz-decide-opt {
+  display: inline-flex;
+  cursor: pointer;
+}
+.kz-decide-opt input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.kz-decide-opt span {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--body);
+  background: var(--surface);
+}
+.kz-decide-opt:hover span {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.kz-decide-opt input:checked + span {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+/* キーボードだけで操作している人に、いまどちらに居るかを見せる（input は
+   視覚的に隠してあるので、フォーカスリングは span が代わりに描く）。 */
+.kz-decide-opt input:focus-visible + span {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.kz-decide-opt input:disabled + span {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 「取り込む」を選んだときだけ現れる欄。選ぶ前から disabled の空欄が並んでいると、
+   何を求められているのかが読めない。 */
+.kz-unmapped-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.kz-unmapped-form select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  background: var(--surface);
+  color: var(--body);
+}
+
+/* S8: 「中身 / ことば / あとから」= 公開すると何がどうなるか、への 3 つの答え。
+   1 つの表として読ませる（K23）。.kz-kv は S7 の引用詳細とも共有しているので、
+   幅を揃えるのはこの 3 行だけに閉じる。 */
+.kz-s8-later .kz-kv-key {
+  min-width: 3.5em;
+}
+.kz-promise {
+  color: var(--body);
+}
+
+/* S9:「次にできること」は並列な選択肢で、順番のある手順ではない。<hr> で縦に
+   積むと下にあるものほど弱く見え、実際いちばん下はスクロールの外に出ていた。 */
+.kz-next {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-3);
+}
+.kz-next-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.kz-next-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+/* 本文を持たないカード（育てかた）で見出しとボタンの間に穴が空くので、
+   下揃えにはしない。カードの高さは grid が揃える。 */
+.kz-next-card .kz-actions {
+  width: 100%;
+  padding-top: var(--space-1);
+}
+/* 3 列に割ると 1 枚は 15rem 前後しかない。ボタンのラベルはそれより長いことが
+   あるので、はみ出させずに折り返す（1 行に収める価値より、枠の中に居る方が
+   大事）。 */
+.kz-next-card .kz-actions > * {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+/* --------------------------------------------------------------------------
+   つながりの関係図（K23）— XwLinkDiagram.tsx
+
+   「つながり」は 3 つの事実の組（どのデータ同士が／どの値で／何を同じとみなして）
+   なのに、参加チップの行・件数バッジ・同一視の 1 文が画面の別々の場所に散って
+   いた。1 枚の絵に集める。
+   -------------------------------------------------------------------------- */
+.xw-diagram {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.xw-diagram-node {
+  flex: 1 1 9rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: center;
+}
+.xw-diagram-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+/* 項目名はファイル側の見出し＝人が書いた文字列なので、名前とは別の声で。 */
+.xw-diagram-field {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* 中央。線は飾りではなく「つながっている」ことそのものなので、色はつながりの
+   意味色（--link）を使う（ui-guidelines §1: 処理・つながり＝青）。 */
+.xw-diagram-link {
+  flex: 1 1 11rem;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.xw-diagram-line {
+  flex: 1 1 0.75rem;
+  height: 1px;
+  min-width: 0.75rem;
+  background: var(--link);
+}
+.xw-diagram-link-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
+  text-align: center;
+}
+.xw-diagram-head {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--link);
+}
+.xw-diagram-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* 3 つ以上つながる設計では横一列が崩れるので、ラベルを上に出してノードを並べる。 */
+.xw-diagram--stack {
+  flex-direction: column;
+  align-items: center;
+}
+.xw-diagram--stack .xw-diagram-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* つなぎ方の候補カード: 「つながるデータ / 両方にある値 / 同じとみなす」の 3 行。
+   同じ 3 つを毎回同じ順で言う（どのカードを見ても同じ場所に同じ種類の事実）。 */
+.xw-cand-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+/* 見出しは値の上。カードは grid のトラックの中に居るので、ビューポートの幅からは
+   カード自身の幅が読めない（container query が要る形）。2 段組にすると、狭い
+   トラックで値の側が潰れて関係図がデータ名の途中で折り返す。 */
+.xw-cand-rows > dt {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.xw-cand-rows > dd {
+  margin: 0 0 var(--space-2);
+  min-width: 0;
+}
+.xw-cand-rows > dd:last-child {
+  margin-bottom: 0;
+}
+
+/* 共通の言葉: その語が外の世界と共有されているかどうか。「まとめて質問しやすいか」
+   を決めるのはここなので、一覧の下の再利用表と読み合わせずに済むよう語に付ける。 */
+.vocab-origin {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  color: var(--muted);
+  background: var(--surface-alt);
+}
+.vocab-origin--std {
+  color: var(--success-fg);
+  background: var(--success-bg);
+}
+
+/* 引用カード: 見出しは人間の言葉、ID は副情報（引くときに要る文字列）。 */
+.citation-id {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   アクティビティ: 1 行 1 事実のカード（K23）
+
+   6 列の表は「どれが失敗したか」を横に読ませ、状態は 2 列目の色付き文字でしか
+   言っていなかった。状態を先頭のピルにして、1 件の顛末を 3 行で言い切る。
+   -------------------------------------------------------------------------- */
+.job-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.job-card--warn {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.job-card--bad {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+.job-card-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.job-card-head .job-file {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.job-card-head .job-kind {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.job-card-fact {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--body);
+  font-variant-numeric: tabular-nums;
+}
+.job-card-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   S4「データの数えかた」— 1 種類 = 1 枚（K23 / 採用デザイン 改善案A）
+
+   表の 3 列を横に読ませていたころは、1 つの種類について知りたい 3 つのこと
+   （これは何か / ID はどう決まるか / その証拠）が横 → 次の行の下、と折れて
+   並んでいた。カードにして上から下へ 1 本にする。詳細モードの表は不変。
+   -------------------------------------------------------------------------- */
+.skeleton-kind-card {
+  /* 中の実物カードは「カードの幅」で組み替える。カードの幅を決めるのは器であって
+     ビューポートではないので、media query では届かない。 */
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  /* K23: 1 枚であることは「面」で言う。線で囲うと、この画面だけで外枠・タブの
+     下線・カードの枠・証拠の縦線・実物カードの枠と 5 本が入れ子になり、どれが
+     1 枚の境目なのか読めなくなる（利用者評価 2026-08-27「線が多すぎてカード感が
+     ない」）。中に置くものは白い面にするので、地と図で分かれる。 */
+  background: var(--surface-alt);
+}
+/* 直前に足された種類。どれが増えたのかが分からないと、押した結果が読めない。 */
+.skeleton-kind-card--added {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+/* 見出し行 = 「1 件が表すもの」の入力（カードの題名）と、右上の削除。 */
+.skeleton-kind-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.skeleton-kind-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.skeleton-kind-name .skeleton-gate-input {
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 600;
+}
+/* 破壊的な操作はカードの右上に、アイコンで。文字で本文の流れの中に置くと、
+   読み終えるたびに目に入る。 */
+.skeleton-remove--icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.skeleton-remove--icon:hover:not(:disabled) {
+  color: var(--error-fg);
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+.skeleton-kind-head .skeleton-remove-confirm {
+  flex: none;
+}
+/* 2 つ以上のファイルを読んでいるときだけ出る出所。 */
+.skeleton-kind-source {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.skeleton-kind-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+/* 狭いカードの中では、実物カードの「項目名 / 値」を縦に積む。横 2 列のままだと
+   値の側が 250px ほどになり、⚠ の 1 文が 4 行に折れて読めなくなる。 */
+@container (max-width: 30rem) {
+  .skeleton-entity-props,
+  .skeleton-entity-props tbody,
+  .skeleton-entity-props tr {
+    display: block;
+  }
+  .skeleton-entity-props th,
+  .skeleton-entity-props td {
+    display: block;
+    padding-right: 0;
+  }
+  .skeleton-entity-props td {
+    padding: 0 0 0.3rem 0.4rem;
+  }
+  .skeleton-entity-props tr:last-child td {
+    padding-bottom: 0;
+  }
+}
+
+
+/* 食い違いの見出し（1 回だけ）。列ごとの繰り返しをやめた分、ここが本文になる。 */
+.skeleton-entity-conflict-head {
+  margin: 0 0 0.3rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--warn-fg);
+}
+
+/* S4: 種類ごとのタブ（利用者の選択 2026-08-27）。カードを縦に積むと、種類が
+   増えるほど「まだ答えていない種類」が下へ押し出されて見えなくなる。
+   ⚠ / ✓ はタブ自身が持つので、警告がタブの裏に隠れることはない。見比べたい数
+   （元の行数 ↔ 種類ごとの件数）はタブの上の帯が常に出している。 */
+.skeleton-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.skeleton-kind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.skeleton-kind-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.skeleton-kind-tab:hover {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.skeleton-kind-tab--on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.skeleton-kind-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* 印は色で意味を持つ（⚠ = まだ答えが要る / ✓ = もう待っていない）。選択中の
+   タブでも印の色は変えない — 「どこを見ているか」と「どこに用があるか」は
+   別の情報で、混ぜると残りの仕事が数えられなくなる。 */
+.skeleton-kind-tab-mark {
+  font-weight: 700;
+  line-height: 1;
+  color: var(--entity);
+}
+.skeleton-kind-tab-mark--todo {
+  color: var(--warn-fg);
+}
+
+/* かんたん層の種類カードの中では、線をもう一段減らす。カードが面になったので、
+   証拠の縦線も、成長フォールドの破線も、境目を言う仕事から降りてよい。
+   中に置く箱（実物カード・ID 入力）は白い面にして、地と図で分ける。 */
+.skeleton-kind-card .skeleton-evidence {
+  border-left: none;
+  padding-left: 0;
+}
+.skeleton-kind-card .skeleton-growth {
+  border-top: none;
+}
+.skeleton-kind-card .skeleton-entity-card-box,
+.skeleton-kind-card .skeleton-gate-input,
+.skeleton-kind-card textarea {
+  background: var(--surface);
+}
+.skeleton-kind-card .skeleton-entity-card-box {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+/* 見出しに見出しの顔をさせる。畳みの summary と地の文が同じ 0.82rem / --muted
+   だったので、「見取り図」も「進め方」も本文に埋もれていた（利用者評価
+   2026-08-27「見出し感がなくて区別がつきづらい」「コントラストが低い」）。 */
+.skeleton-section-head {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.skeleton-diagram-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+/* 畳みの見出しも本文と同じ濃さにする。--muted は「二次情報」の色だが、
+   summary は押す場所なので、押せると分かる濃さが要る。 */
+.kz-fold > summary,
+.skeleton-fold > summary,
+.kz-links summary,
+.kz-stop-detail summary {
+  color: var(--body);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.kz-fold > summary:hover,
+.skeleton-fold > summary:hover {
+  color: var(--fg);
+}
+/* 証拠の地の文。--muted のままだと、根拠として読ませたい行が
+   「読まなくていい行」の色になる。 */
+.skeleton-kind-card .skeleton-evidence-muted {
+  color: var(--body);
+}
+.skeleton-gate-hint {
+  color: var(--body);
+}
+
+/* カードの行そのものを「種類にする」選択欄にする（2026-08-27）。候補の一覧を
+   カードと別に並べると、同じ 17 行が値の一覧とチェックの一覧に二度出る。
+   判断材料は値なので、値のとなりにチェックを置く。 */
+.skeleton-entity-pick {
+  width: 1.6rem;
+  padding: 0.12rem 0.35rem 0.12rem 0;
+  vertical-align: top;
+}
+.skeleton-entity-pick input {
+  margin: 0.15rem 0 0;
+  cursor: pointer;
+}
+
+/* K32 種類の選別ゾーン: タブの前に、ヘッダ表の全列を値つきで 1 回だけ並べる。
+   チェック＝「この列をひとつの種類として数える」。AI の骨格は初期チェック。 */
+.skeleton-header-zone {
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-3) 0;
+}
+.skeleton-header-zone .skeleton-section-head {
+  margin-top: 0;
+}
+.skeleton-header-zone .skeleton-entity-props {
+  width: 100%;
+}
+.skeleton-zone-tag {
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding-left: 0.6rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ゾーンの補足行と、🗑 確認の帰結警告（K35） */
+.skeleton-zone-note {
+  margin-top: var(--space-2);
+}
+/* 帰結は head の外・幅いっぱい（K40）。head は「名前の欄 + 🗑」の 1 行なので、
+   ここに文章を混ぜると名前の欄が細く潰れる。 */
+.skeleton-remove-warn {
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--warn-fg);
+}
+
+/* 名前の書き方の直し（K38）: 警告文のすぐ後ろに置く。 */
+.skeleton-name-fix {
+  margin-left: 0.5rem;
+  vertical-align: baseline;
+}
+
+/* S6 の構造的な指摘（K43）。表を触る前に読ませる 1 行。 */
+.kz-note--warn {
+  color: var(--warn-fg);
+}
+
+/* 「どちらに残しますか」ゾーン（K44）。S5 の停止カードの中に置く、S4 のゾーン
+   （K32）と同じ「機械が候補・人が 1 クリック」の面。新しい色トークンは作らず、
+   ヘッダゾーンと同じ面（--surface-alt）と右タグの流儀に揃える。 */
+.kz-owner-zone {
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-3) 0;
+}
+.kz-owner-zone .kz-actions {
+  margin-top: var(--space-3);
+}
+.kz-owner-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+}
+.kz-owner-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0.2rem 0.9rem 0.2rem 0;
+  vertical-align: top;
+  /* 列名は原文のまま（利用者のファイルの綴り）。折り返さない。 */
+  white-space: nowrap;
+}
+.kz-owner-table td {
+  padding: 0.2rem 0;
+  word-break: break-word;
+}
+/* 選択肢は横並び。狭い画面では折り返して縦になる。 */
+.kz-owner-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+.kz-owner-pick {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+/* 件数は判断材料であって名前ではないので、名前より弱く出す。 */
+.kz-owner-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-left: 0.35rem;
+}
+.kz-owner-tag {
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding-left: 0.6rem;
+  text-align: right;
+  white-space: nowrap;
 }

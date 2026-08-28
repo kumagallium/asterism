@@ -34,7 +34,13 @@
     "rebuildSkipped": "{{names}} did not join this time (not published). Publish it again and it comes back the next time you rebuild.",
     "builtAt": "Last updated: {{at}}",
     "toolsHead": "Tools that work across data",
-    "toolsHint": "How many datasets report this value? and the like, answered on the spot (no AI involved)."
+    "toolsHint": "How many datasets report this value? and the like, answered on the spot (no AI involved).",
+    "diagram": {
+      "head": "Joined on a shared value",
+      "note": "e.g. when a sample name or composition appears in both, spelled the same",
+      "a": "Your data",
+      "b": "Other data"
+    }
   },
   "create": {
     "bandTitle": "Connect your data",
@@ -75,7 +81,10 @@
       "partField": "{{field}}: {{sample}}",
       "foldingGain": "Compared as written, {{strict}} match; with that, {{chosen}} do.",
       "pick": "Connect these",
-      "adjust": "Adjust this one myself"
+      "adjust": "Adjust this one myself",
+      "sameAsHead": "Counted as the same",
+      "rowLinks": "What gets connected",
+      "rowValues": "Values in both"
     },
     "sameAs": {
       "identity": "Only values written exactly the same are connected.",

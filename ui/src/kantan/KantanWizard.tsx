@@ -21,6 +21,7 @@ import {
   startIngestJob,
   validateSkeleton,
   type DraftStats,
+  type DuplicateColumnFinding,
   type IdMove,
   type IngestJobHandle,
   type IngestProgress,
@@ -30,13 +31,14 @@ import {
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
+  type RethinkRequest,
   type SkeletonAnnotations,
   type SkeletonResult,
   type SourceDialect,
   type TrialDetail,
   type TrialQueries,
 } from '../api'
-import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
+import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
@@ -86,6 +88,7 @@ import { termColumns, templateColumns, transcribedColumn } from '../ruleColumns'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
+import { requestConsult } from '../consult/consultOpen'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
@@ -171,6 +174,29 @@ interface StopCard {
    *  (ADR §5.1) — canonical one-liners for known trap ids, free-form issues
    *  folded into one count line. Display only; the AI fix gets fixLines. */
   plainLines?: string[]
+  /** 'weakness': the duplicated columns, in the shape a chooser needs (K44).
+   *  One of the advisories above is about these; unlike the others its fix is a
+   *  DECISION — which kind keeps the column — so the card offers it directly
+   *  instead of sending the reader to the detail tier. */
+  duplicateColumns?: DuplicateColumnFinding[]
+}
+
+/** The identity of one duplicated column: the physical source cell. Neither a
+ *  map name nor a term survives a structural rewrite; the file and the header
+ *  do. */
+function duplicateKey(d: DuplicateColumnFinding): string {
+  return `${d.source}\u0000${d.column}`
+}
+
+/** The machine's own verdicts, as the chooser's starting answer (K44). Only
+ *  where the rows DECIDED: a tie stays blank, because pre-selecting a coin flip
+ *  would put the machine's guess in the person's mouth (K32). */
+function seedOwnerPicks(card: StopCard | null): Record<string, string> {
+  return Object.fromEntries(
+    (card?.duplicateColumns ?? [])
+      .filter((d) => d.owner)
+      .map((d) => [duplicateKey(d), d.owner as string]),
+  )
 }
 
 /** One S7 question card / S9 chip: plain question, plain answer, and (when the
@@ -719,6 +745,11 @@ interface KantanSnapshot {
   /** The data-counting gate the human confirmed, kept so S6/S7 can go BACK to
    *  it when the counts look wrong (KZ-B-03 / DETAIL-GAP-08). */
   gateSkeleton?: MappingSkeleton | null
+  /** What the AI last returned, BEFORE any human edit. The difference between
+   *  this and `skeleton` is exactly what a person typed on S4, which is what
+   *  「AI にもう一度考えさせる」 pins through the round. Kept in the snapshot
+   *  so a reload does not turn the person's own words back into the AI's. */
+  aiSkeleton?: MappingSkeleton | null
   /** Set while the design is open in the detail tier: coming back must restore
    *  the same screen, and must adopt whatever the detail tier saved there
    *  (DETAIL-GAP-04 / DETAIL-GAP-05). */
@@ -952,6 +983,13 @@ export function KantanWizard({
   const [gateSkeleton, setGateSkeleton] = useState<MappingSkeleton | null>(
     snap.gateSkeleton ?? null,
   )
+  // 「AI にもう一度考えさせる」の控え: AI が最後に返した骨格。いまの `skeleton`
+  // との差が、人が S4 で打った値そのもの（N6 の 控え）。
+  const [aiSkeleton, setAiSkeleton] = useState<MappingSkeleton | null>(
+    snap.aiSkeleton ?? null,
+  )
+  // 機械が人の値を書き戻したときの報せ（黙って直さない）。
+  const [keptEdits, setKeptEdits] = useState<KeptEdit[]>([])
   const [annotations, setAnnotations] = useState<SkeletonAnnotations | null>(
     snap.annotations ?? null,
   )
@@ -1426,12 +1464,21 @@ export function KantanWizard({
       sourceNames,
       sourceColumns,
       gateSkeleton,
+      aiSkeleton,
       // Consumed at mount: the flag is re-armed by openDetail (which writes it
       // synchronously) and must not survive as a standing "we are in detail".
       handedToDetail: false,
     }
     try {
-      sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
+      // 公開まで行き着いた運びは「その場の結果」であって、次に来たときの続きでは
+      // ない。保存すると、あとで「データを追加」を押した人が前の完了カードに着地
+      // する（利用者報告 2026-08-27）。この画面を見ている間は React の state が
+      // 持っているので、消えるのは次に来たときだけ。
+      if (published && step === 9) {
+        sessionStorage.removeItem(KZ_STORAGE)
+      } else {
+        sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
+      }
     } catch {
       /* sessionStorage may be unavailable — non-fatal */
     }
@@ -1464,6 +1511,7 @@ export function KantanWizard({
     sourceNames,
     sourceColumns,
     gateSkeleton,
+    aiSkeleton,
   ])
 
   // Hand the design in hand to the detail tier: a WB_STORAGE-compatible
@@ -1830,6 +1878,10 @@ export function KantanWizard({
       return
     }
     if (step !== 5) return
+    // A card restored from the snapshot never passed through the weakness
+    // branch, so the kinds in the chooser would keep the mapping's English
+    // identifiers on a reload (K4). Enrichment only — a failure leaves them.
+    if ((stop?.duplicateColumns?.length ?? 0) > 0) ensureRules(kzDatasetId)
     const saved = loadIngestJob()
     if (!saved || saved.kind !== 'ingest' || saved.datasetId !== kzDatasetId) return
     const handle = resumeIngestJob(saved.jobId, kzDatasetId, setIngestProgress, () =>
@@ -1847,14 +1899,42 @@ export function KantanWizard({
   // an endless retry (WEAK-MODEL-24). One repeat of the SAME findings is
   // enough to say so and step the AI fix down to a secondary offer.
   const prevStopSig = useRef<string | null>(null)
+  const prevFixCount = useRef<number | null>(null)
   const [fixStuck, setFixStuck] = useState(false)
+  // K44: which kind the human picked for each duplicated column, keyed by
+  // `source\0column` (the physical cell, the one identity a redesign cannot
+  // rename). Seeded from the machine's own verdict where it HAS one, so the
+  // common case is a single confirming click; a tie starts empty, because
+  // pre-selecting a coin flip would put the machine's guess in the person's
+  // mouth (K32: the machine proposes, the person decides).
+  // Seeded HERE as well as in setDesignStop: a reload restores the card from
+  // the snapshot without ever passing through the raiser, and the restored
+  // screen then showed 「データからのおすすめ」 over three empty radios with the
+  // button dead (live 2026-08-28).
+  const [ownerPicks, setOwnerPicks] = useState<Record<string, string>>(() =>
+    seedOwnerPicks(snap.stop ?? null),
+  )
+  const [ownerBusy, setOwnerBusy] = useState(false)
+  const [ownerErr, setOwnerErr] = useState('')
 
-  /** Raise a findings card (design / weakness) and note whether it is the very
-   *  same one the last AI fix was asked to clear. */
+  /** Raise a findings card (design / weakness) and note whether the AI fix is
+   *  still getting anywhere. */
   function setDesignStop(card: StopCard) {
-    const sig = (card.plainLines ?? card.fixLines ?? []).join('\n')
-    setFixStuck(aiFixCount > 0 && prevStopSig.current === sig)
+    const lines = card.plainLines ?? card.fixLines ?? []
+    // 数を伏せた指紋で比べる。「同じ列が 2 つのものに二重に…（3 列）」が
+    // 「（2 列）」になっただけで別物と見なしていたため、1 件ずつしか直せない
+    // モデル相手にボタンが主役のまま残り、利用者は同じカードを 8 回見た
+    // （実機 2026-08-28）。**同じ指摘が減っただけ**は「解決した」ではない。
+    const sig = lines.join('\n').replace(/\d+/g, '#')
+    const count = (card.fixLines ?? lines).length
+    const sameFindings = prevStopSig.current === sig
+    // 件数が減らないなら、押しても前に進んでいない。
+    const noFewer = prevFixCount.current !== null && count >= prevFixCount.current
+    setFixStuck(aiFixCount > 0 && (sameFindings || noFewer))
     prevStopSig.current = sig
+    prevFixCount.current = count
+    setOwnerErr('')
+    setOwnerPicks(seedOwnerPicks(card))
     setStop(card)
   }
 
@@ -2348,23 +2428,26 @@ export function KantanWizard({
 
   // ---- S3: staged skeleton propose (always the staged path, never one-shot) --
 
-  // `rethinkNote` = the S4 "AI にもう一度考えさせる" note: a plain-language
-  // instruction (e.g. 「試料と測定値を別の種類に分けて」) folded into the
-  // domain hint, so the regeneration actually hears the human's objection —
-  // same generic human-hint channel the preset hints ride.
-  async function runSkeleton(rethinkNote?: string) {
+  // `rethink` = the S4 「AI にもう一度考えさせる」 request. It carries the design
+  // ON SCREEN, so this is a REPAIR of that design rather than a rebuild from S3:
+  // the note names what to change, everything else comes back as it was. Before
+  // (2026-08-27) the note rode the domain hint alone and the skeleton was thrown
+  // away — the S4 edits (kind names, ID recipes, deletions, splits) had nowhere
+  // to be saved, so a one-line objection cost the whole screen's work. Kept in a
+  // ref as well, because the retry button on S3 must re-send the SAME request
+  // (retrying a rethink as a rebuild is the very loss this fixes).
+  const rethinkRef = useRef<RethinkRequest | null>(null)
+
+  async function runSkeleton(rethink?: RethinkRequest) {
     setErrMsg('')
     setJobNotice('')
     setStatus('')
     setSkeletonBusy(true)
     setLastPulseAt(null)
+    setKeptEdits([])
+    rethinkRef.current = rethink ?? null
     jobRef.current?.close()
-    const domain = [
-      composedDomain(),
-      rethinkNote ? t('kantan:s4.rethinkWrap', { note: rethinkNote }) : '',
-    ]
-      .filter(Boolean)
-      .join('\n')
+    const domain = composedDomain()
     try {
       jobRef.current = await proposeSkeleton(
         files,
@@ -2377,6 +2460,11 @@ export function KantanWizard({
           onPulse: () => setLastPulseAt(Date.now()),
           onDone: (result) => {
             setSkeleton(result.skeleton)
+            // 次の「もう一度考えさせる」の基準線。AI + 機械が決めたところまでが
+            // ここに入り、人がこの先で打ち直した分だけが「人の値」になる。
+            setAiSkeleton(result.skeleton)
+            const kept = result.metadata?.kept_human_edits
+            setKeptEdits(Array.isArray(kept) ? (kept as KeptEdit[]) : [])
             setAnnotations(result.annotations ?? null)
             setInspectionMd(result.inspection_md)
             setStatus('')
@@ -2395,12 +2483,16 @@ export function KantanWizard({
             setStatus('')
             setSkeletonBusy(false)
             clearKantanJob()
-            setStep(2)
+            // 作り直しを止めたのなら、戻る先は読み取りの確認（S2）。作り直しでは
+            // なく修理を止めたのなら、直そうとしていた設計はまだ手元にあるので、
+            // 戻る先はその画面（S4）— 押しただけで設計が遠のいてはならない。
+            setStep(rethink ? 4 : 2)
           },
         },
         i18n.language,
         dialectOverrides,
         stagingId,
+        rethink,
       )
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
@@ -2774,7 +2866,14 @@ export function KantanWizard({
                 false,
               ),
             ],
+            // An anonymous map has no handle to send back, so it gets the
+            // sentence and no chooser (the fail-closed half of K44).
+            duplicateColumns: (result.duplicate_columns ?? []).filter((d) => d.actionable),
           })
+          // The chooser names the kinds the way the rest of the wizard names
+          // them (K4), and this is the first screen that needs those names —
+          // S6 has not run yet on a first pass.
+          if (datasetId) ensureRules(datasetId)
           return
         }
       }
@@ -3606,6 +3705,49 @@ export function KantanWizard({
     void startRefineChain([comment], 'fix', card)
   }
 
+  /** The duplicated columns this card can still offer a choice for, and whether
+   *  every one of them has an answer — the submit button's whole gate. */
+  const ownerFindings = stop?.duplicateColumns ?? []
+  const ownerAllPicked =
+    ownerFindings.length > 0 && ownerFindings.every((d) => ownerPicks[duplicateKey(d)])
+
+  /** Record the human's ownership verdicts and re-run the save (K44).
+   *
+   *  No LLM: the decisions go to the same durable column-decision store an
+   *  include/exclude goes to, the server deletes the duplicate rows from §9
+   *  deterministically, and the normal S5 chain re-checks. Durable is the point
+   *  — a later AI round rewriting §9 cannot take the verdict back, which is the
+   *  failure mode that made the same advisory come back eight times. */
+  async function applyColumnOwners() {
+    const datasetId = kzDatasetIdRef.current
+    if (!datasetId || ownerBusy || pipeBusy || !ownerAllPicked) return
+    setOwnerBusy(true)
+    setOwnerErr('')
+    try {
+      const result = await saveColumnDecisions(
+        datasetId,
+        ownerFindings.map((d) => ({
+          source: d.source,
+          column: d.column,
+          action: 'own' as const,
+          map: ownerPicks[duplicateKey(d)],
+        })),
+        stagingId,
+      )
+      setProposal(result.proposal_md)
+      // The findings are settled, so the "the AI handed the same thing back"
+      // memory is stale — the next card is about whatever is left, not this.
+      prevStopSig.current = null
+      prevFixCount.current = null
+      setStop(null)
+      await runPipeline('materialize', result.proposal_md)
+    } catch (e) {
+      setOwnerErr(errText(e))
+    } finally {
+      setOwnerBusy(false)
+    }
+  }
+
   /** The truncated-refine card's two exits: ask again with the same request, or
    *  go on with the design as it stood before the (lost) fix. */
   function retryLastRefine() {
@@ -3925,6 +4067,27 @@ export function KantanWizard({
       .filter((r): r is { prop: RuleProperty; column: string } => r.column !== null),
   }))
   const valueProps = new Set(valueRows.flatMap((g) => g.rows.map((r) => r.prop)))
+  /* 同じファイルの同じ列を、2 つ以上の種類が**値として**書いている（リンクは
+     `linkRows` に分けてあるので、ここに残るのは素の転記だけ）。1 ファイルきりの
+     ヘッダ列は値の種類数が 1 なので、どのキーからでも「決まる」ことになり、
+     G1 の関数従属の裁定は原理的に判別できない（実測 2026-08-28: Name /
+     Chemical Formula / Subfile / Space Group / Crystal System はいずれも
+     No・CSD・Reference・Radiation のどれからでも決まる）。つまり振り分けは
+     AI の推測で、外れると誤った事実を publish する。S5 の停止カードまで
+     気づけなかったものを、表を触る前のこの場所で言う。 */
+  const duplicateOwners = (() => {
+    const owners = new Map<string, { column: string; kinds: string[] }>()
+    for (const { map: m, rows } of valueRows) {
+      for (const { column } of rows) {
+        const key = `${sourceTail(m.source ?? '')}\u0000${column}`
+        const seen = owners.get(key) ?? { column, kinds: [] }
+        const label = mapCaption(m)
+        if (!seen.kinds.includes(label)) seen.kinds.push(label)
+        owners.set(key, seen)
+      }
+    }
+    return [...owners.values()].filter((v) => v.kinds.length > 1)
+  })()
   const linkRows = s6Maps.flatMap((m) =>
     m.properties.filter((p) => !valueProps.has(p)).map((p) => ({ map: m, prop: p })),
   )
@@ -4530,6 +4693,74 @@ export function KantanWizard({
                 ))}
               </ul>
             )}
+          {/* K44: the one finding on this card whose fix is a DECISION. The
+              machine found the candidates and — where the rows allow — says
+              which it would keep; the person answers with one click per column.
+              Same shape as the S4 zone (K32): machine proposes, human decides,
+              no model is asked. */}
+          {ownerFindings.length > 0 && (
+            <div className="kz-owner-zone">
+              <p className="kz-zone-label">{t('kantan:s5.owner.head')}</p>
+              <p className="kz-note kz-prose">{t('kantan:s5.owner.lead')}</p>
+              <table className="kz-owner-table">
+                <tbody>
+                  {ownerFindings.map((d) => {
+                    const key = duplicateKey(d)
+                    return (
+                      <tr key={key}>
+                        <th scope="row">{d.column}</th>
+                        <td className="kz-owner-choices">
+                          {d.maps.map((m) => (
+                            <label key={m.map} className="kz-owner-pick">
+                              <input
+                                type="radio"
+                                name={`kz-owner-${key}`}
+                                checked={ownerPicks[key] === m.map}
+                                disabled={ownerBusy || pipeBusy}
+                                onChange={() =>
+                                  setOwnerPicks((prev) => ({ ...prev, [key]: m.map }))
+                                }
+                              />
+                              <span>
+                                {advisoryLabel(m.label, rules?.labels)}
+                                {/* How many of that kind the file makes — the
+                                    evidence that makes "which is this column
+                                    about" answerable (G16: decide from values,
+                                    not from words). */}
+                                {m.entities !== null && (
+                                  <span className="kz-owner-count">
+                                    {t('kantan:s5.owner.entities', {
+                                      n: m.entities.toLocaleString(),
+                                    })}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          ))}
+                        </td>
+                        <td className="kz-owner-tag">
+                          {d.owner
+                            ? t('kantan:s5.owner.suggested')
+                            : t('kantan:s5.owner.undecided')}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  onClick={() => void applyColumnOwners()}
+                  disabled={!ownerAllPicked || ownerBusy || pipeBusy}
+                >
+                  {ownerBusy ? t('kantan:s5.owner.applying') : t('kantan:s5.owner.apply')}
+                </button>
+              </div>
+              {!ownerAllPicked && <p className="kz-note">{t('kantan:s5.owner.pickAll')}</p>}
+              {ownerErr && <p className="kz-note kz-pick-error">{plainBody(ownerErr)}</p>}
+            </div>
+          )}
           {stop.kind === 'interrupted' && (
             <p className="kz-note">{t('kantan:s5.stop.interruptedBody')}</p>
           )}
@@ -4577,7 +4808,11 @@ export function KantanWizard({
           {/* The same findings came back after an AI fix: saying so — and
               stepping the button down — is what stops the endless retry
               (WEAK-MODEL-24). */}
-          {aiFixable && fixStuck && <p className="kz-note">{t('kantan:s5.fix.stuck')}</p>}
+          {aiFixable && fixStuck && (
+            <p className="kz-note">
+              {t(ownerFindings.length > 0 ? 'kantan:s5.fix.stuckOwner' : 'kantan:s5.fix.stuck')}
+            </p>
+          )}
           <div className="kz-actions">
             {/* Primary action, one per card. design → AI fix; access code →
                 open settings; nothing ingested → item meanings; 404 → start
@@ -4589,7 +4824,11 @@ export function KantanWizard({
                 // Demoted once the AI has handed the same problem back: the
                 // remaining exits (weakness continue / detail mode / start
                 // over) are the ones that can still move (WEAK-MODEL-24).
-                className={fixStuck ? 'btn btn--ghost' : undefined}
+                // Demoted too while the card carries a decision only a person
+                // can make — the chooser above IS the primary action then, and
+                // this button is the one the machine already said cannot settle
+                // it (K44).
+                className={fixStuck || ownerFindings.length > 0 ? 'btn btn--ghost' : undefined}
                 onClick={runAiFix}
                 disabled={!isReady || !proposal}
               >
@@ -4791,7 +5030,10 @@ export function KantanWizard({
               {/* Only the INGEST runs on the server; the save before it is this
                   tab's own call. Say which of the two is true right now — and,
                   for the safe one, where to come back to (RESUME-05). */}
-              <p className="kz-note">
+              {/* K23: 「閉じてよい」と「閉じてしまったときの戻り方」は別の話。
+                  1 文に同居していたので、待つあいだに読む必要のない後半まで
+                  同じ強さで常時出ていた。戻り方は畳む。 */}
+              <p className="kz-lead">
                 {t(
                   pipePhase === 'ingest'
                     ? 'kantan:s5.closeNote'
@@ -4800,6 +5042,12 @@ export function KantanWizard({
                       : 'kantan:s5.savingNote',
                 )}
               </p>
+              {pipePhase === 'ingest' && (
+                <details className="kz-fold">
+                  <summary>{t('kantan:s5.reopenSummary')}</summary>
+                  <p className="kz-note kz-prose">{t('kantan:s5.reopenBody')}</p>
+                </details>
+              )}
             </>
           )}
           {jobNotice && (
@@ -5061,7 +5309,13 @@ export function KantanWizard({
               )}
             </div>
           )}
-          <p className="kz-note kz-promise">{t('kantan:s8.promise')}</p>
+          {/* K23: 「中身」「ことば」「あとから」は同じ問い — 公開すると何がどう
+              なるか — への 3 つの答えなので、1 つの表として読ませる。撤回の約束
+              だけ見出し語が無く、他の 2 行と揃っていなかった。 */}
+          <div className="kz-kv kz-s8-later">
+            <span className="kz-kv-key">{t('kantan:s8.laterLabel')}</span>
+            <span>{t('kantan:s8.promise')}</span>
+          </div>
           {pubErr && (
             <div role="alert">
               <p className="kz-note kz-pub-err">
@@ -5165,11 +5419,17 @@ export function KantanWizard({
               <p className="kz-note">{t('kantan:s9.askHint')}</p>
             </>
           )}
+          {/* K23: ここから先は「次に何ができるか」の並列な選択肢で、順番のある
+              手順ではない。<hr> で縦に積むと、下にあるものほど弱く見え、実際
+              スクロールの外に出ていた。並べて、どれも同じ強さで見せる。
+              モックは 3 枚だが「つながりを作る」を落とすと、2 件目以降を公開した
+              人から crosswalk の入口が消えるので 4 枚目として残す（条件つきなので
+              初回公開では 3 枚に見える）。 */}
+          <div className="kz-next">
           {onCreateCrosswalk && publishedCount !== null && publishedCount >= 2 && (
-            <>
-              <hr className="kz-divider" />
-              <p className="kz-note kz-grow-title">{t('kantan:s9.connectTitle')}</p>
-              <p className="kz-note">
+            <div className="kz-next-card">
+              <h4 className="kz-next-title">{t('kantan:s9.connectTitle')}</h4>
+              <p className="kz-note kz-prose">
                 {t('kantan:s9.connectBody', { count: publishedCount })}
               </p>
               <div className="kz-actions">
@@ -5177,7 +5437,7 @@ export function KantanWizard({
                   {t('kantan:s9.connectBtn')}
                 </button>
               </div>
-            </>
+            </div>
           )}
           {/* 外の世界とつなぐ導線。つながり (crosswalk) がデータセット同士を結ぶ
               のに対し、こちらは自分で作ったことばを既存の標準に結ぶ。どちらも
@@ -5186,27 +5446,25 @@ export function KantanWizard({
               (external-standard-alignment.md §8)。件数の条件は付けない —
               つなぐ相手が要る crosswalk と違い、1 件目から意味がある。 */}
           {kzDatasetId && (
-            <>
-              <hr className="kz-divider" />
-              <p className="kz-note kz-grow-title">{t('kantan:s9.groundTitle')}</p>
-              <p className="kz-note">{t('kantan:s9.groundBody')}</p>
+            <div className="kz-next-card">
+              <h4 className="kz-next-title">{t('kantan:s9.groundTitle')}</h4>
+              <p className="kz-note kz-prose">{t('kantan:s9.groundBody')}</p>
               <div className="kz-actions">
                 <button type="button" onClick={() => openGrow('structure', 'grounding')}>
                   {t('kantan:s9.groundBtn')}
                 </button>
               </div>
-              <p className="kz-note">{t('kantan:s9.groundHint')}</p>
-            </>
+              <p className="kz-note kz-prose">{t('kantan:s9.groundHint')}</p>
+            </div>
           )}
           {/* The last step of "a fact you can cite": handing someone the ID.
               Published data means the landing page answers, so here it IS a
               link — unlike S7, which runs on the unpublished draft
               (DEREF-LANDING-29). */}
           {shareIri && (
-            <>
-              <hr className="kz-divider" />
-              <p className="kz-note kz-grow-title">{t('kantan:s9.shareTitle')}</p>
-              <p className="kz-note">{t('kantan:s9.shareBody')}</p>
+            <div className="kz-next-card">
+              <h4 className="kz-next-title">{t('kantan:s9.shareTitle')}</h4>
+              <p className="kz-note kz-prose">{t('kantan:s9.shareBody')}</p>
               <div className="kz-actions">
                 {/* A button rather than an anchor: the page has no link style
                     of its own, and this belongs with the other actions. */}
@@ -5221,10 +5479,10 @@ export function KantanWizard({
                 </button>
                 <CopyIdButton iri={describeUrl(shareIri, true)} labelKey="kantan:s9.shareCopy" />
               </div>
-            </>
+            </div>
           )}
-          <hr className="kz-divider" />
-          <p className="kz-note kz-grow-title">{t('kantan:s9.growTitle')}</p>
+          <div className="kz-next-card">
+          <h4 className="kz-next-title">{t('kantan:s9.growTitle')}</h4>
           <div className="kz-actions">
             {/* Two different intents, two different landing spots: which one
                 was chosen travels with the click (KZ-B-02). */}
@@ -5243,7 +5501,10 @@ export function KantanWizard({
               {t('kantan:s9.replace')}
             </button>
           </div>
-          <p className="kz-note">{t('kantan:s9.growHint')}</p>
+          <p className="kz-note kz-prose">{t('kantan:s9.growHint')}</p>
+          </div>
+          </div>
+          {/* カードの外。これは「次にできること」ではなく、この画面から出る道。 */}
           <div className="kz-actions">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => openGrow()}>
               {t('kantan:s9.openDataset')}
@@ -5260,7 +5521,7 @@ export function KantanWizard({
           <h3 className="kz-title">
             {t(redesigning ? 'kantan:s6.titleReview' : 'kantan:s6.title')}
           </h3>
-          <p className="kz-note">{t('kantan:s6.lead')}</p>
+          <p className="kz-lead">{t('kantan:s6.lead')}</p>
           {/* The self-correction may have dropped mappings on its way to a
               clean design — say so where the columns are listed (DETAIL-GAP-22). */}
           {coverageDropped && <p className="kz-note">{t('kantan:s5.coverageDropped')}</p>}
@@ -5320,12 +5581,24 @@ export function KantanWizard({
               nothing to correspond TO, so the card stays away entirely rather
               than showing a row count next to a missing one (2026-08-19 review:
               「行数を数えていない段階では出さないで良い」). */}
+          {/* K23 zone ①. K12 の対応カードは「行がいくつの記録になったか」を
+              言う場所で、②の表とは別の話。区画の名前が無いと、同じカードの中で
+              話題が変わったことが分からない。 */}
+          {!s6Loading && !s6Err && (rules || stats) && stats?.counted !== false && (
+            <p className="kz-zone-label">{t('kantan:s6.zoneCount')}</p>
+          )}
           {!s6Loading && !s6Err && (rules || stats) && stats?.counted !== false && (
             <div className="kz-map-card">
+              {/* K23 / 採用デザイン: この区画で人が見るのは「行の数」と「件の数」が
+                  合っているかの 1 点なので、数だけを大きく置く。1 文に埋めていた
+                  ころは、比べたい 2 つの数が周りの文字と同じ大きさで、目で拾えな
+                  かった。ラベルと単位は数を読むための添え物なので小さいまま。 */}
               {totalSourceRows > 0 && (
                 <>
-                  <span className="kz-map-part">
-                    {t('kantan:s6.mapRows', { rows: totalSourceRows.toLocaleString() })}
+                  <span className="kz-stat">
+                    <span className="kz-stat-label">{t('kantan:s6.statSource')}</span>
+                    <span className="kz-stat-num">{totalSourceRows.toLocaleString()}</span>
+                    <span className="kz-stat-unit">{t('kantan:s6.statRowUnit')}</span>
                   </span>
                   <span className="kz-map-arrow" aria-hidden="true">
                     →
@@ -5334,24 +5607,22 @@ export function KantanWizard({
               )}
               {stats && stats.classes.length > 0 ? (
                 stats.classes.map((c) => (
-                  <span key={c.iri} className="kz-map-class">
-                    {t('kantan:s6.classCount', {
-                      label: classLabel(c.iri),
-                      n: c.n.toLocaleString(),
-                    })}
+                  <span key={c.iri} className="kz-stat kz-stat--kind">
+                    <span className="kz-stat-label">{classLabel(c.iri)}</span>
+                    <span className="kz-stat-num">{c.n.toLocaleString()}</span>
+                    <span className="kz-stat-unit">{t('kantan:s6.statKindUnit')}</span>
                   </span>
                 ))
               ) : draftEntityCount !== null ? (
-                <span className="kz-map-class">
-                  {t('kantan:s6.mapCountAny', { n: draftEntityCount.toLocaleString() })}
+                <span className="kz-stat kz-stat--kind">
+                  <span className="kz-stat-num">{draftEntityCount.toLocaleString()}</span>
+                  <span className="kz-stat-unit">{t('kantan:s6.statKindUnit')}</span>
                 </span>
               ) : (
                 /* Nothing taken in yet is not a failure: the count simply has
                    not happened. Only a count that was attempted and came back
                    empty is worth the alarming phrasing. */
-                <span className="kz-map-class">
-                  {t('kantan:s6.mapCountUnknown')}
-                </span>
+                <span className="kz-map-note">{t('kantan:s6.mapCountUnknown')}</span>
               )}
               <span className="kz-map-note">{t('kantan:s6.mapDraftNote')}</span>
             </div>
@@ -5359,8 +5630,13 @@ export function KantanWizard({
           {/* A count far below the row count means several rows became one
               record. That is sometimes right (one sample, many measurements)
               and sometimes a collapsed key — so name it (KZ-B-03). */}
+          {/* K23: 説明は畳む。「なぜ件数が行数より少ないのか」は読まなくても
+              進める。戻り口は畳まないが、件数の条件の中には入れない (下記)。 */}
           {stats && stats.classes.length > 0 && totalSourceRows > 0 && (
-            <p className="kz-note">{t('kantan:s6.mapRowsNote')}</p>
+            <details className="kz-fold">
+              <summary>{t('kantan:s6.mapRowsSummary')}</summary>
+              <p className="kz-note kz-prose">{t('kantan:s6.mapRowsNote')}</p>
+            </details>
           )}
           {/* The way back to where the counting was decided. NOT nested in the
               note above: a catalog review has no draft yet, so it knows no row
@@ -5369,7 +5645,11 @@ export function KantanWizard({
               (DETAIL-GAP-08 / ADR id-move-after-publish.md §9). */}
           {canBackToGate && (
             <div className="kz-actions">
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => void backToGate()}>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => void backToGate()}
+              >
                 {t('kantan:s6.backToGate')}
               </button>
             </div>
@@ -5386,6 +5666,46 @@ export function KantanWizard({
                   })
                 : t('kantan:s6.reflectNoChange', { note: reflectedNote })}
             </p>
+          )}
+          {/* K23 zone ②. ここから「ことばを与える」区画。①の件数の話とは別。 */}
+          {valueRows.some(({ rows }) => rows.length > 0) && (
+            <p className="kz-zone-label">
+              {t('kantan:s6.zoneMeaning')}
+              <span className="kz-zone-why">{t('kantan:s6.zoneMeaningWhy')}</span>
+            </p>
+          )}
+          {/* ⚠ の説明と「AI に相談して埋める」は**表の前**に置く。表の後ろに置いて
+              いたころは、全部手で埋め終えてから気づく形になっていた（利用者評価
+              2026-08-28「頑張って入力したあとに気づいたら辛い」）。手を動かす前に、
+              手を動かさずに済む道を見せる。
+              AI チャット → 空欄（一括反映）は既にある。その逆 — 空欄を見つけた
+              その場から相談を開ける導線。文面は入れるが送らない（相談は LLM を
+              呼ぶので、押したつもりのない課金を作らない）。 */}
+          {duplicateOwners.length > 0 && (
+            <p className="kz-note kz-prose kz-note--warn">
+              ⚠{' '}
+              {t('kantan:s6.duplicateOwner', {
+                list: duplicateOwners
+                  .slice(0, 4)
+                  .map((d) => `${d.column}（${d.kinds.join('・')}）`)
+                  .join('、'),
+                count: duplicateOwners.length,
+              })}
+            </p>
+          )}
+          {missingMeanings > 0 && (
+            <>
+              <p className="kz-note kz-prose">{t('kantan:s6.missingMeaning')}</p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => requestConsult(t('kantan:s6.askConsultPrefill'))}
+                >
+                  {t('kantan:s6.askConsultMeaning')}
+                </button>
+              </div>
+            </>
           )}
           {valueRows.map(({ map: m, rows }) => {
             if (rows.length === 0) return null
@@ -5542,8 +5862,15 @@ export function KantanWizard({
             )
           })}
           {/* Say the table is editable, then what happened when it was edited.
-              A save is seconds, so the states are: saving / saved / failed. */}
-          {s6Maps.length > 0 && <p className="kz-note">{t('kantan:s6.editHint')}</p>}
+              A save is seconds, so the states are: saving / saved / failed.
+              K23: 「直せます」は帯の一言に出し、Enter の挙動や空欄の埋め方といった
+              操作の細目は畳む。編集の結果（保存中/保存した/失敗）は畳まない。 */}
+          {s6Maps.length > 0 && (
+            <details className="kz-fold">
+              <summary>{t('kantan:s6.editHintSummary')}</summary>
+              <p className="kz-note kz-prose">{t('kantan:s6.editHint')}</p>
+            </details>
+          )}
           {metaPending > 0 && <p className="kz-note">{t('kantan:s6.editSaving')}</p>}
           {metaPending === 0 && metaSaved > 0 && (
             <p className="kz-note">{t('kantan:s6.editSaved', { n: metaSaved })}</p>
@@ -5559,9 +5886,6 @@ export function KantanWizard({
               <p className="kz-note">{plainBody(metaErr)}</p>
             </>
           )}
-          {/* Standing text, not a tooltip: whoever sees a ⚠ must be told what
-              it means and that they may continue (KZ-B-04). */}
-          {missingMeanings > 0 && <p className="kz-note">{t('kantan:s6.missingMeaning')}</p>}
           {/* Columns the generated mapping left unused are a HUMAN decision, not
               an invitation to run the same model again. Every physical
               source+column gets an explicit include/exclude choice. An include
@@ -5572,8 +5896,15 @@ export function KantanWizard({
             // row is settled it turns neutral, so a finished table stops
             // shouting at the person who just finished it.
             <div className={columnDecisionsIncomplete ? 'kz-unmapped' : 'kz-unmapped kz-unmapped--done'}>
-              <h4>{t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}</h4>
-              <p className="kz-note">
+              {/* K23 zone ③. これが S6 で唯一「人が決める」場所なので、②の表とは
+                  別の区画として名前を持たせる。 */}
+              <p className="kz-zone-label">
+                {t('kantan:s6.zoneDecide')}
+                <span className="kz-zone-why">
+                  {t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}
+                </span>
+              </p>
+              <p className="kz-note kz-prose">
                 {columnDecisionsIncomplete
                   ? t('kantan:s6.unmappedLead')
                   : t('kantan:s6.unmappedDone')}
@@ -5612,150 +5943,139 @@ export function KantanWizard({
                   </button>
                 </div>
               )}
-              <div className="kz-preview-tablewrap">
-               <table className="kz-preview-table kz-cols-table">
-                 <thead>
-                   <tr>
-                     <th>{t('kantan:s6.colDecision')}</th>
-                     <th>{t('kantan:s6.colColumn')}</th>
-                     <th>{t('kantan:s6.colMeaning')}</th>
-                     <th>{t('kantan:s6.colUnit')}</th>
-                     <th>{t('kantan:s6.colExamples')}</th>
-                     {multiMap && <th>{t('kantan:s6.colOwner')}</th>}
-                   </tr>
-                 </thead>
-                 <tbody>
-                   {droppedColumns.map(({ source, column, samples, maps }) => {
-                     const key = columnDecisionKey(source, column)
-                     const saved = columnDecisionDrafts[key]
-                     const draft: ColumnDecisionDraft = saved ?? {
-                       action: '',
-                       map: maps[0]?.id ?? '',
-                       label: '',
-                       unit: '',
-                     }
-                     const origin = columnOrigins[column]
-                     const invented = origin !== undefined && !origin.named
-                     return (
-                       <tr
-                         key={key}
-                         className={columnDecisionResolved(draft, maps) ? undefined : 'kz-attn'}
-                       >
-                         <td>
-                           <select
-                             value={draft.action}
-                             aria-label={t('kantan:s6.decisionAria', { column })}
-                             disabled={columnDecisionSaving}
-                             onChange={(e) =>
-                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                 action: e.target.value as ColumnDecisionDraft['action'],
-                               })
-                             }
-                           >
-                             <option value="">{t('kantan:s6.decisionPending')}</option>
-                             <option value="include" disabled={maps.length === 0}>
-                               {t('kantan:s6.decisionInclude')}
-                             </option>
-                             <option value="exclude">{t('kantan:s6.decisionExclude')}</option>
-                           </select>
-                         </td>
-                         <td className="kz-cols-name">
-                           {invented ? (
-                             <span className="kz-cols-origin">
-                               {t('kantan:s6.fromPreamble', { line: origin.line })}
-                             </span>
-                           ) : (
-                             <>
-                               {column}
-                               {Object.keys(sourceSamples).length > 1 && (
-                                 <span className="kz-cols-origin">{source}</span>
-                               )}
-                             </>
-                           )}
-                         </td>
-                         <td>
-                           <input
-                             type="text"
-                             className="kz-cols-input"
-                             value={draft.label}
-                             placeholder={t(
-                               invented
-                                 ? 'kantan:s6.meaningPlaceholderValue'
-                                 : 'kantan:s6.meaningPlaceholder',
-                             )}
-                             aria-label={t('kantan:s6.editAria', { column })}
-                             disabled={columnDecisionSaving || draft.action !== 'include'}
-                             onChange={(e) =>
-                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                 label: e.target.value,
-                               })
-                             }
-                           />
-                           {draft.action === 'include' && !draft.label.trim() && ' ⚠'}
-                           {draft.action === 'include' && !draft.label.trim() && !invented && (
-                             <button
-                               type="button"
-                               className="btn btn--ghost btn--sm kz-cols-usename"
-                               disabled={columnDecisionSaving}
-                               onClick={() =>
-                                 updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                   label: column,
-                                 })
-                               }
-                             >
-                               {t('kantan:s6.useColumnName')}
-                             </button>
-                           )}
-                           {consultAppliedColumns?.has(column) && (
-                             <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
-                           )}
-                         </td>
-                         <td>
-                           <input
-                             type="text"
-                             className="kz-cols-input kz-cols-input--unit"
-                             size={8}
-                             value={draft.unit}
-                             placeholder={t('kantan:s6.unitPlaceholder')}
-                             aria-label={t('kantan:s6.unitAria', { column })}
-                             disabled={columnDecisionSaving || draft.action !== 'include'}
-                             onChange={(e) =>
-                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                 unit: e.target.value,
-                               })
-                             }
-                           />
-                         </td>
-                         <td className="kz-cols-samples">{samples.join('、')}</td>
-                         {multiMap && (
-                           <td>
-                             {maps.length > 1 ? (
-                               <select
-                                 value={draft.map}
-                                 aria-label={t('kantan:s6.ownerAria', { column })}
-                                 disabled={columnDecisionSaving || draft.action !== 'include'}
-                                 onChange={(e) =>
-                                   updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                     map: e.target.value,
-                                   })
-                                 }
-                               >
-                                 {maps.map((m) => (
-                                   <option key={m.id} value={m.id}>
-                                     {mapLabel(m)}
-                                   </option>
-                                 ))}
-                               </select>
-                             ) : (
-                               maps[0] ? mapLabel(maps[0]) : t('kantan:s6.ownerUnknown')
-                             )}
-                           </td>
-                         )}
-                       </tr>
-                     )
-                   })}
-                 </tbody>
-               </table>
+              {/* K23: 1 判断 = 1 カード。表のままだと、その行が「未判断か」も、
+                  「取り込むと何を書くことになるか」も、6 列を横に読まないと分から
+                  なかった。意味・単位は取り込むを選んだときだけ現れる（それまでは
+                  disabled の空欄が並ぶだけで、何を求められているか読めない）。 */}
+              <div className="kz-unmapped-rows">
+                {droppedColumns.map(({ source, column, samples, maps }) => {
+                  const key = columnDecisionKey(source, column)
+                  const saved = columnDecisionDrafts[key]
+                  const draft: ColumnDecisionDraft = saved ?? {
+                    action: '',
+                    map: maps[0]?.id ?? '',
+                    label: '',
+                    unit: '',
+                  }
+                  const origin = columnOrigins[column]
+                  const invented = origin !== undefined && !origin.named
+                  const resolved = columnDecisionResolved(draft, maps)
+                  const set = (patch: Partial<ColumnDecisionDraft>) =>
+                    updateColumnDecision(source, column, maps[0]?.id ?? '', patch)
+                  return (
+                    <div key={key} className={`kz-unmapped-row${resolved ? '' : ' kz-attn'}`}>
+                      <div className="kz-unmapped-head">
+                        <span className="kz-unmapped-name">
+                          {invented ? (
+                            <span className="kz-cols-origin">
+                              {t('kantan:s6.fromPreamble', { line: origin.line })}
+                            </span>
+                          ) : (
+                            <>
+                              {column}
+                              {Object.keys(sourceSamples).length > 1 && (
+                                <span className="kz-cols-origin">{source}</span>
+                              )}
+                            </>
+                          )}
+                        </span>
+                        <span className="kz-unmapped-samples">{samples.join('、')}</span>
+                        {/* K22 は保つ: 3 つ目の状態（まだ決めていない）は、どちらの
+                            radio も checked でないことで表す。checked を既定に持つ
+                            部品（checkbox・既定選択つき select）にはしない。
+                            native radio なので矢印キー移動と読み上げは素のまま。 */}
+                        <div
+                          className="kz-decide"
+                          role="radiogroup"
+                          aria-label={t('kantan:s6.decisionAria', { column })}
+                        >
+                          <label className="kz-decide-opt">
+                            <input
+                              type="radio"
+                              name={`kz-decide-${key}`}
+                              checked={draft.action === 'include'}
+                              disabled={columnDecisionSaving || maps.length === 0}
+                              onChange={() => set({ action: 'include' })}
+                            />
+                            <span>{t('kantan:s6.decisionInclude')}</span>
+                          </label>
+                          <label className="kz-decide-opt">
+                            <input
+                              type="radio"
+                              name={`kz-decide-${key}`}
+                              checked={draft.action === 'exclude'}
+                              disabled={columnDecisionSaving}
+                              onChange={() => set({ action: 'exclude' })}
+                            />
+                            <span>{t('kantan:s6.decisionExclude')}</span>
+                          </label>
+                        </div>
+                      </div>
+                      {draft.action === 'include' && (
+                        <div className="kz-unmapped-form">
+                          <input
+                            type="text"
+                            className="kz-cols-input"
+                            value={draft.label}
+                            placeholder={t(
+                              invented
+                                ? 'kantan:s6.meaningPlaceholderValue'
+                                : 'kantan:s6.meaningPlaceholder',
+                            )}
+                            aria-label={t('kantan:s6.editAria', { column })}
+                            disabled={columnDecisionSaving}
+                            onChange={(e) => set({ label: e.target.value })}
+                          />
+                          <input
+                            type="text"
+                            className="kz-cols-input kz-cols-input--unit"
+                            size={8}
+                            value={draft.unit}
+                            placeholder={t('kantan:s6.unitPlaceholder')}
+                            aria-label={t('kantan:s6.unitAria', { column })}
+                            disabled={columnDecisionSaving}
+                            onChange={(e) => set({ unit: e.target.value })}
+                          />
+                          {multiMap && maps.length > 1 && (
+                            <select
+                              value={draft.map}
+                              aria-label={t('kantan:s6.ownerAria', { column })}
+                              disabled={columnDecisionSaving}
+                              onChange={(e) => set({ map: e.target.value })}
+                            >
+                              {maps.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {mapLabel(m)}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {/* 意味が空のままでは確定できないので、⚠ と同時に埋め方を
+                              出す。「AI の候補」は無い — この一覧は AI が使わなかった
+                              列そのものなので、機械が出せるのは元の列名だけ。 */}
+                          {!draft.label.trim() && !invented && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--sm kz-cols-usename"
+                              disabled={columnDecisionSaving}
+                              onClick={() => set({ label: column })}
+                            >
+                              {t('kantan:s6.useColumnName')}
+                            </button>
+                          )}
+                          {!draft.label.trim() && (
+                            <span className="kz-note kz-warn-note">
+                              ⚠ {t('kantan:s6.needMeaning')}
+                            </span>
+                          )}
+                          {consultAppliedColumns?.has(column) && (
+                            <span className="kz-map-note">{t('kantan:s6.updatedBadge')}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
               {droppedColumns.some((column) => column.maps.length === 0) && (
                <p className="kz-note" role="alert">
@@ -5763,7 +6083,18 @@ export function KantanWizard({
                </p>
               )}
               {columnDecisionsIncomplete && (
-               <p className="kz-note">{t('kantan:s6.unmappedIncomplete')}</p>
+               <>
+                 <p className="kz-note kz-prose">{t('kantan:s6.unmappedIncomplete')}</p>
+                 <div className="kz-actions">
+                   <button
+                     type="button"
+                     className="btn btn--ghost btn--sm"
+                     onClick={() => requestConsult(t('kantan:s6.askConsultUnmappedPrefill'))}
+                   >
+                     {t('kantan:s6.askConsultUnmapped')}
+                   </button>
+                 </div>
+               </>
               )}
               {columnDecisionSaving && (
                <p className="kz-note" role="status">
@@ -5945,24 +6276,22 @@ export function KantanWizard({
           )}
           <section className="kz-card">
             <h3 className="kz-title">{t('kantan:s1.title')}</h3>
+            {/* K23: 見出しの直後は 1 文だけ。ここで言うのは「置いても大丈夫か」への
+                答えだけで、途中で聞かれることも消し方も、読まなくても進める。 */}
+            <p className="kz-lead">{t('kantan:s1.privacy')}</p>
             <DropZone onFiles={onFilesChosen} />
-            <p className="kz-note">{t('kantan:s1.privacy')}</p>
             {/* Nobody can be walked through a flow they cannot start. Without a
                 file of their own, the first screen used to be a dead end
                 (KZ-A-39). */}
             {!inspecting && !restoring && (
-              <>
-                <div className="kz-actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={useSampleData}
-                  >
-                    {t('kantan:s1.trySample')}
-                  </button>
-                </div>
-                <p className="kz-note">{t('kantan:s1.trySampleNote')}</p>
-              </>
+              /* K23: 説明はボタンの隣に置く。行を分けると、読む物が 1 本増えるだけ
+                 で、その説明が何のボタンの話なのかは近さでしか伝わらない。 */
+              <div className="kz-actions">
+                <button type="button" className="btn btn--ghost btn--sm" onClick={useSampleData}>
+                  {t('kantan:s1.trySample')}
+                </button>
+                <span className="kz-note kz-prose">{t('kantan:s1.trySampleNote')}</span>
+              </div>
             )}
             {/* Not while the restore is still running — that would invite a
                 re-drop of files the machine is about to hand back (RESUME-01). */}
@@ -6029,6 +6358,11 @@ export function KantanWizard({
                 {jobNotice}
               </p>
             )}
+            {/* 二次情報の落とし先（G9）。開かなくても最後まで進める内容だけを入れる。 */}
+            <details className="kz-fold">
+              <summary>{t('kantan:s1.privacyMore')}</summary>
+              <p className="kz-note kz-prose">{t('kantan:s1.privacyMoreBody')}</p>
+            </details>
           </section>
           {kind === 'document' && (
             <section className="kz-card">
@@ -6049,11 +6383,13 @@ export function KantanWizard({
       ) : step === 2 ? (
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s2.title')}</h3>
-          <p className="kz-note">
-            {/* Say how many questions there actually are: promising "two" when
-                only one is on screen sends people hunting for a second (KZ-A-11).
-                The count picks the key by hand — Japanese has no plural form,
-                so i18next's own _one/_other split cannot carry it. */}
+          {/* K23: 見出しが「読み取り結果です」を言い、リードは残りの問い数だけを言う。
+              以前は 1 文に同居していたので、どちらも注記の強さに沈んでいた。
+              Say how many questions there actually are: promising "two" when
+              only one is on screen sends people hunting for a second (KZ-A-11).
+              The count picks the key by hand — Japanese has no plural form, so
+              i18next's own _one/_other split cannot carry it. */}
+          <p className="kz-lead">
             {askCount === 0
               ? t('kantan:s2.leadNoQuestions')
               : askCount === 1
@@ -6150,6 +6486,15 @@ export function KantanWizard({
               <p className="kz-note">{t('kantan:s2.fixNote')}</p>
             </details>
           )}
+          {/* K23: いちばん強い境界 — ここまでが機械の読み取り結果（見るだけ）、
+              ここから先が人の判断。ユーザー評価「どこが判断でどこが補足か区別
+              できない」への直接の答えなので、面ごと立てる。 */}
+          {askCount > 0 && (
+            <p className="kz-zone-label kz-zone-label--band">
+              {t('kantan:s2.zoneAsk')}
+              <span className="kz-zone-why">{t('kantan:s2.zoneAskWhy')}</span>
+            </p>
+          )}
           {q1Needed && (
             <div className="kz-q">
               <p className="kz-q-text">{t('kantan:s2.q1', { count: preambleRowCount })}</p>
@@ -6172,21 +6517,22 @@ export function KantanWizard({
                     </pre>
                   </div>
                 ))}
-              <div className="kz-q-options">
-                <button
-                  type="button"
-                  className={`kz-pill${q1 === 'keep' ? ' selected' : ''}`}
+              {/* K23: 選択肢に「答えるとどうなるか」を添える。用語を平易にしても、
+                  帰結が見えない選択は当てずっぽうにしかならない（G5「聞かずに
+                  見せる」の、聞かざるを得ない側での言い換え）。 */}
+              <div className="kz-q-options kz-q-options--stack">
+                <Choice
+                  selected={q1 === 'keep'}
+                  label={t('kantan:s2.q1Yes')}
+                  why={t('kantan:s2.q1YesWhy')}
                   onClick={() => answerQ1('keep')}
-                >
-                  {t('kantan:s2.q1Yes')}
-                </button>
-                <button
-                  type="button"
-                  className={`kz-pill${q1 === 'drop' ? ' selected' : ''}`}
+                />
+                <Choice
+                  selected={q1 === 'drop'}
+                  label={t('kantan:s2.q1No')}
+                  why={t('kantan:s2.q1NoWhy')}
                   onClick={() => answerQ1('drop')}
-                >
-                  {t('kantan:s2.q1No')}
-                </button>
+                />
               </div>
               {/* A preamble line with no `key:` of its own has no name, so the
                   reader invents one (`preamble_1`). Ask for the real one HERE,
@@ -6238,28 +6584,25 @@ export function KantanWizard({
                   {t('kantan:s2.q2Evidence', { values: q2Samples.join(t('kantan:s7.join')) })}
                 </div>
               )}
-              <div className="kz-q-options">
-                <button
-                  type="button"
-                  className={`kz-pill${q2 === 'only' ? ' selected' : ''}`}
+              <div className="kz-q-options kz-q-options--stack">
+                <Choice
+                  selected={q2 === 'only'}
+                  label={t('kantan:s2.q2Only')}
+                  why={t('kantan:s2.q2OnlyWhy')}
                   onClick={() => setQ2('only')}
-                >
-                  {t('kantan:s2.q2Only')}
-                </button>
-                <button
-                  type="button"
-                  className={`kz-pill${q2 === 'elsewhere' ? ' selected' : ''}`}
+                />
+                <Choice
+                  selected={q2 === 'elsewhere'}
+                  label={t('kantan:s2.q2Elsewhere')}
+                  why={t('kantan:s2.q2ElsewhereWhy')}
                   onClick={() => setQ2('elsewhere')}
-                >
-                  {t('kantan:s2.q2Elsewhere')}
-                </button>
-                <button
-                  type="button"
-                  className={`kz-pill${q2 === 'unknown' ? ' selected' : ''}`}
+                />
+                <Choice
+                  selected={q2 === 'unknown'}
+                  label={t('kantan:s2.q2Unknown')}
+                  why={t('kantan:s2.q2UnknownWhy')}
                   onClick={() => setQ2('unknown')}
-                >
-                  {t('kantan:s2.q2Unknown')}
-                </button>
+                />
               </div>
             </div>
           )}
@@ -6270,54 +6613,54 @@ export function KantanWizard({
                   ? t('kantan:s2.q3One', { column: sharedColumns[0] })
                   : t('kantan:s2.q3Many')}
               </p>
-              <div className="kz-q-options">
+              <div className="kz-q-options kz-q-options--stack">
                 {sharedColumns.length === 1 ? (
-                  <button
-                    type="button"
-                    className={`kz-pill${sharedKey === sharedColumns[0] ? ' selected' : ''}`}
+                  <Choice
+                    selected={sharedKey === sharedColumns[0]}
+                    label={t('kantan:s2.q3Yes')}
+                    why={t('kantan:s2.q3YesWhy')}
                     onClick={() => setSharedKey(sharedColumns[0])}
-                  >
-                    {t('kantan:s2.q3Yes')}
-                  </button>
+                  />
                 ) : (
+                  /* 選択肢そのものが利用者の列名なので、帰結も列名を差し込む。 */
                   sharedColumns.map((c) => (
-                    <button
+                    <Choice
                       key={c}
-                      type="button"
-                      className={`kz-pill${sharedKey === c ? ' selected' : ''}`}
+                      selected={sharedKey === c}
+                      label={c}
+                      why={t('kantan:s2.q3ColumnWhy', { column: c })}
                       onClick={() => setSharedKey(c)}
-                    >
-                      {c}
-                    </button>
+                    />
                   ))
                 )}
-                <button
-                  type="button"
-                  className={`kz-pill${sharedKey === '' ? ' selected' : ''}`}
+                <Choice
+                  selected={sharedKey === ''}
+                  label={t(sharedColumns.length === 1 ? 'kantan:s2.q3No' : 'kantan:s2.q3None')}
+                  why={t(sharedColumns.length === 1 ? 'kantan:s2.q3NoWhy' : 'kantan:s2.q3NoneWhy')}
                   onClick={() => setSharedKey('')}
-                >
-                  {t(sharedColumns.length === 1 ? 'kantan:s2.q3No' : 'kantan:s2.q3None')}
-                </button>
+                />
               </div>
             </div>
           )}
           {/* The abbreviations, units and intents only the person who made the
               measurements knows. Said here it shapes the FIRST design; said at
-              S6 it costs another AI round (DETAIL-GAP-11). Never a gate. */}
-          <div className="kz-q">
-            <label className="kz-q-text" htmlFor="kz-s2-hint">
-              {t('kantan:s2.hintLabel')}
-            </label>
+              S6 it costs another AI round (DETAIL-GAP-11). Never a gate.
+              K23: 任意の自由記述が、必須の問いと同じ強さで常時開いていたので畳む。
+              ただし畳むと入力率が落ちて AI ラウンドが増えうるので、summary 自身に
+              「書くと最初の設計が良くなる」という理由を持たせた（見出しが誘因）。 */}
+          <details className="kz-fold">
+            <summary id="kz-s2-hint-label">{t('kantan:s2.hintLabel')}</summary>
             <textarea
               id="kz-s2-hint"
               className="kz-s6-note"
               rows={2}
+              aria-labelledby="kz-s2-hint-label"
               placeholder={t('kantan:s6.notePlaceholder')}
               value={preHint}
               onChange={(e) => setPreHint(e.target.value)}
             />
-            <p className="kz-note">{t('kantan:s2.hintNote')}</p>
-          </div>
+            <p className="kz-note kz-prose">{t('kantan:s2.hintNote')}</p>
+          </details>
           <div className="kz-actions">
             <button
               type="button"
@@ -6337,7 +6680,11 @@ export function KantanWizard({
         </section>
       ) : step === 3 ? (
         <section className="kz-card">
-          <PreviewList previews={previews} />
+          {/* K23: 待っている画面で最初に読ませるのは「いま何が起きているか」と
+              「待たなくてよい」の 2 つ。読み取ったファイルの中身は、待つあいだの
+              参考であって、この画面の主題ではないので畳む。 */}
+          <h3 className="kz-title">{t('kantan:s3.title')}</h3>
+          <p className="kz-lead">{t('kantan:s3.closeNote')}</p>
           {skeletonBusy && (
             <JobProgress
               label={t('kantan:s3.jobLabel')}
@@ -6346,7 +6693,12 @@ export function KantanWizard({
               onCancel={() => jobRef.current?.cancel() ?? Promise.resolve()}
             />
           )}
-          <p className="kz-note">{t('kantan:s3.closeNote')}</p>
+          {previews.length > 0 && (
+            <details className="kz-fold">
+              <summary>{t('kantan:s3.previewSummary')}</summary>
+              <PreviewList previews={previews} />
+            </details>
+          )}
           {jobNotice && (
             <p className="job-cancelled-note" role="status">
               {jobNotice}
@@ -6369,13 +6721,21 @@ export function KantanWizard({
               <div className="kz-actions">
                 <button
                   type="button"
-                  onClick={() => void runSkeleton()}
+                  onClick={() => void runSkeleton(rethinkRef.current ?? undefined)}
                   disabled={!isReady || !hasSource || skeletonBusy}
                 >
                   {t('kantan:s3.retry')}
                 </button>
-                <button type="button" className="btn btn--ghost" onClick={() => setStep(2)}>
-                  {t('kantan:s3.back')}
+                {/* 修理の依頼が失敗しただけなら、直そうとしていた設計はまだ手元に
+                    ある。戻る先は読み取りの確認ではなく、その画面。 */}
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setStep(rethinkRef.current && skeleton ? 4 : 2)}
+                >
+                  {rethinkRef.current && skeleton
+                    ? t('kantan:s3.backToGate')
+                    : t('kantan:s3.back')}
                 </button>
               </div>
             </div>
@@ -6418,6 +6778,16 @@ export function KantanWizard({
                 </button>
               </div>
             </div>
+          )}
+          {/* 「もう一度考えさせる」の答えが、人が自分で打った値を書き換えて
+              いたので機械が戻した。直したことは必ず画面に出す（黙って直さない）。 */}
+          {skeleton && keptEdits.length > 0 && (
+            <p className="kz-note" role="status">
+              {t('kantan:s4.keptEdits', {
+                count: keptEdits.length,
+                list: keptEdits.map((e) => keptEditLabel(e, skeleton)).join(' / '),
+              })}
+            </p>
           )}
           {skeleton && (
             <>
@@ -6462,15 +6832,22 @@ export function KantanWizard({
                 setStep(hasSource ? 2 : 1)
               }}
               onRethink={
-                // A structural objection goes back to the AI (S3 rerun with the
-                // note folded into the hint). Needs the files — a restore lost
-                // them (the gate then keeps only the edit/discard exits).
+                // A structural objection goes back to the AI — carrying the
+                // design on screen, so it is repaired rather than rebuilt.
+                // Nothing is cleared: the edits made here (kind names, ID
+                // recipes, deletions, splits) ARE the starting point, and they
+                // are also what comes back if the answer is unreadable.
+                // Needs the files — a restore lost them (the gate then keeps
+                // only the edit/discard exits).
                 hasSource
                   ? (note) => {
-                      setSkeleton(null)
                       setAnnotations(null)
                       setStep(3)
-                      void runSkeleton(note || undefined)
+                      void runSkeleton({
+                        skeleton,
+                        baseline: aiSkeleton,
+                        note: note || undefined,
+                      })
                     }
                   : undefined
               }
@@ -6564,6 +6941,43 @@ function CopyIdButton({ iri, labelKey }: { iri: string; labelKey?: string }) {
       }}
     >
       {copied ? t('kantan:s7.citeCopied') : t(labelKey ?? 'kantan:s7.citeCopy')}
+    </button>
+  )
+}
+
+/** One answer, with its consequence written under it (K23).
+ *
+ *  `.kz-pill` stays for short either/or answers whose meaning is obvious from
+ *  the label alone. This is the other kind: the label names the answer, the
+ *  second line says what answering it does. Without the second line the person
+ *  is choosing between two phrasings, not between two outcomes — the plain
+ *  wording was already there and people still could not tell them apart.
+ *
+ *  The consequence is NOT a title/tooltip: it has to be readable without a
+ *  pointer, and it has to be read BEFORE the click, not after. */
+function Choice({
+  selected,
+  label,
+  why,
+  onClick,
+  disabled,
+}: {
+  selected: boolean
+  label: string
+  why: string
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`kz-choice${selected ? ' selected' : ''}`}
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="kz-choice-label">{label}</span>
+      <span className="kz-choice-why">{why}</span>
     </button>
   )
 }
@@ -6662,6 +7076,17 @@ function DropZone({
   )
 }
 
+/** One value the machine put back after a rethink (`kept_human_edits`). */
+type KeptEdit = { map: string; kind?: string }
+
+/** Name a restore the way the screen names it: by the KIND the person sees,
+ *  with the minted prefix stripped (K4 — no raw identifiers in this tier). The
+ *  map id is the last resort, for a kind that carries no class at all. */
+function keptEditLabel(edit: KeptEdit, skeleton: MappingSkeleton | null): string {
+  if (!edit.kind) return edit.map
+  return compactClass(edit.kind, skeleton ? detectDatasetNamespace(skeleton) : null)
+}
+
 // The S2/S3 preview block: a first-rows table per parsed file, a plain
 // file-name card for the rest (json / xlsx / unreadable).
 /** True when every heading in a header row reads as a number.
@@ -6681,6 +7106,26 @@ function headerLooksLikeData(header: readonly string[] | null | undefined): bool
   return names.every((n) => Number.isFinite(Number(n)))
 }
 
+/** Is this column of the preview a column of numbers? (K23)
+ *
+ *  Numbers that are not right-aligned are read digit by digit — the reader has
+ *  to line up 300 / 350 / 400 by eye. The server hands the preview back as
+ *  `string[][]` with no type per cell, so the judgement is made here, over the
+ *  five rows actually on screen, and only when EVERY non-empty cell parses. A
+ *  column of ID-looking strings (`S-01`) or of mixed values stays left, which
+ *  is the safe direction: a mis-aligned number is ugly, a right-aligned name is
+ *  wrong. */
+function isNumericColumn(rows: string[][], ci: number): boolean {
+  let seen = 0
+  for (const row of rows) {
+    const cell = (row[ci] ?? '').trim()
+    if (cell === '') continue
+    if (!Number.isFinite(Number(cell))) return false
+    seen++
+  }
+  return seen > 0
+}
+
 function PreviewList({ previews }: { previews: PreviewCard[] }) {
   const { t } = useTranslation()
   if (previews.length === 0) return null
@@ -6698,7 +7143,9 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                 <thead>
                   <tr>
                     {p.header.map((h, i) => (
-                      <th key={i}>{h}</th>
+                      <th key={i} className={isNumericColumn(p.rows, i) ? 'kz-num' : undefined}>
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -6706,7 +7153,9 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                   {p.rows.map((row, ri) => (
                     <tr key={ri}>
                       {p.header!.map((_, ci) => (
-                        <td key={ci}>{row[ci] ?? ''}</td>
+                        <td key={ci} className={isNumericColumn(p.rows, ci) ? 'kz-num' : undefined}>
+                          {row[ci] ?? ''}
+                        </td>
                       ))}
                     </tr>
                   ))}

@@ -33,7 +33,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 | 見出し・強調 | `--fg` | #16241a |
 | **本文（段落）** | `--body` | #33453a |
 | 補助テキスト | `--muted` | #54695b |
-| キャプション/プレースホルダ | `--faint` | #869a8c |
+| キャプション/プレースホルダ | `--faint` | #728579 |
 | ボーダー / 強ボーダー | `--border` / `--border-strong` | #dde6da / #c7d4c4 |
 | 主要アクション/選択 | `--primary` (+`-soft`/`-softer`/`-fg`) | #3f6f49 |
 | アクセント（注意/eyebrow） | `--accent` (+`-soft`) | #b3722b |
@@ -59,6 +59,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 - 影：`--shadow-soft`（カード常用）/ `--shadow`（浮かせる/選択）。
 - フォント：`--font-ui`（Hanken Grotesk＋Zen Kaku/Noto Sans JP のゴシック）。**数値・ID・コード・CURIE は `--font-mono`**（IBM Plex Mono）。明朝は使わない。
 - 実寸の目安：画面大見出し 1.5rem/700、セクション見出し 0.9rem/700(`--fg`)、本文 0.8–0.9rem(`--body`)、回答本文 1.12rem/1.85、キャプション 0.66–0.76rem、英語補助 0.62–0.66rem(mono/faint)。
+- **かんたん層（`.kz-*`）だけは強弱を 1 段ずつ上げる**：カード見出し 1.25rem/700、画面の 1 文 0.95rem(`--body`)、ゾーン見出し 0.8rem/700(`--accent-strong`)、注記 0.875rem。行長は列（880px）で決め、段落ごとの max-width は足さない。理由と全体像は ADR [`kantan-mode-two-tier-ux.md`](../architecture/kantan-mode-two-tier-ux.md) の K23。
 
 ## 6. コンポーネント / パターン
 

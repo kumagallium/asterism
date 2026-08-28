@@ -3,7 +3,10 @@
     "unique": "1 row = one “{{label}}”",
     "singleton": "the whole table = one “{{label}}”",
     "partial": "1 row should be one “{{label}}”, but some IDs repeat",
-    "plain": "Kind read: “{{label}}”"
+    "plain": "Kind read: “{{label}}”",
+    "unnamed": "What one row stands for is not decided yet",
+    "singletonUnnamed": "The whole table becomes one record (what it stands for is not decided yet)",
+    "catalog": "A value kind — equal values become one record ({{count}} distinct values)"
   },
   "col": {
     "source": "File",
@@ -13,18 +16,21 @@
   "noteSummary": "Show the AI's note",
   "diagram": {
     "summary": "See the sketch ({{count}} kinds)",
-    "linked": " · the IDs link to each other"
+    "notLinkedYet": "At this stage the edges are only what the ID shapes imply. The real links between kinds are decided on the next screen (item meanings)."
   },
   "key": {
     "from1": "The ID is decided by {{columns}}",
     "fromN": "The ID is decided by the combination of {{columns}}",
     "constant": "One ID per file",
     "none": "No ID recipe yet",
+    "noCandidates": "The original file is not at hand, so no candidates can be offered. Put the file back, or have the AI think again.",
+    "noneBlocks": "{{count}} kind(s) still have no way to build an ID. Pick one of the candidates above to continue.",
     "join": " + ",
     "editSummary": "Write the ID recipe yourself",
-    "containedIn": "Counted within {{parents}} (its ID includes {{columns}})",
+    "containedIn": "The ID contains {{columns}}, so it is counted as one record inside {{parents}}. Adding the next file cannot produce a duplicate ID.",
     "containedInUnknown": "Not confirmed to belong to any kind (re-attach the files to check the link)",
-    "listSeparator": ", "
+    "listSeparator": ", ",
+    "catalogRule": "This ID exists to connect, so it is made of the value alone. Adding a file name or card number would make a separate record per file — and it would no longer join anything."
   },
   "ns": {
     "shape": "ID shape",
@@ -47,7 +53,7 @@
   "suggestClass": "Use “{{suggested}}”",
   "missingColumns": "The columns the AI named are not in this table: {{columns}}",
   "fixColumn": "The column “{{wrong}}” the AI named is not in this table. Closest match: “{{suggestion}}” (tap to fix).",
-  "remove": "I don't need this kind",
+  "remove": "Delete",
   "confirm": {
     "head": "Please check these before continuing.",
     "collides": "“{{map}}” still gives several rows the same ID. If you continue, those rows are merged into one.",
@@ -63,5 +69,33 @@
     "cancel": "Cancel"
   },
   "kindMissing": "What one row of this table is has not been decided yet. Look at the example below and name it (e.g. sample, measurement, peak).",
-  "kindPlaceholder": "e.g. sample"
+  "kindPlaceholder": "e.g. sample",
+  "removeTitle": "Delete this kind from the design",
+  "counts": {
+    "source": "Source file",
+    "rowUnit": "rows",
+    "kindUnit": "records"
+  },
+  "kindUnnamed": "Unnamed",
+  "gateHowSummary": "How to proceed (when you see ⚠)",
+  "gateHow": "⚠ marks something to check — usually IDs that overlap. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Make the AI think again”. When everything looks right, press “Continue with these IDs”.",
+  "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
+  "zone": {
+    "head": "Choose the values that will connect later",
+    "lead": "A checked value becomes a record with its own ID. When the same value appears in another file or in outside data, this record is where they join. **The pre-checked ones are the AI’s recommendation** — unchecking one removes that kind. A row with no checkbox is either this table’s own ID, or a measured number (equal values there do not mean the same thing).",
+    "isCardId": "this table’s ID ({{name}})",
+    "isKind": "ID of the kind “{{name}}”",
+    "cardMoved": "This table’s values — and the connect checkboxes — are listed once above, under “Choose the values that will connect later”.",
+    "variesWith": "{{values}} … (varies per row)",
+    "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below."
+  },
+  "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
+  "kindsHead": "Check that each ID points at one thing",
+  "kindsLead": "For each kind you chose in ①, check its name and how its ID is built. Only the kinds marked ⚠ need your attention. Until you publish, you can change these as often as you like.",
+  "kindNameNote": "This name says WHAT each record is, and is what people search and cite by (the text inside the ID is set separately, under “Write the ID recipe yourself”). Write it in letters and digits, starting with a letter (e.g. ChemicalFormula). Until you publish, both the name and the ID can be changed as often as you like.",
+  "kindNameRule": "This name cannot be used. Spaces and symbols are not allowed, and non-Latin names become unreadable in the diagram. Use letters and digits, starting with a letter.",
+  "kindNameFix": "Use “{{name}}”",
+  "removeRowKind": "This kind is where the per-row values ({{columns}}) live. Deleting it leaves them with nowhere to go. Afterwards an “Add the row-level kind” button appears on this screen to restore it, but you will have to name it again.",
+  "removeTitleRowKind": "Delete this kind from the design (the per-row values lose their home)",
+  "rethinkKeeps": "The design you see now is handed over as-is, and only what you ask for is changed. Edits made on this screen (kind names, ID recipes, deletions, splits) are kept."
 }

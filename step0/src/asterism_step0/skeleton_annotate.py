@@ -22,13 +22,16 @@ Scope: tabular sources (CSV/TSV and dialect-read instrument text). JSON and
 XML/document maps get an honest ``checkable: false`` note instead of a guess —
 never a silent pass.
 """
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF003
 
 from __future__ import annotations
 
 import difflib
 import re
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -358,13 +361,58 @@ def _entity_preview(
         p["column"]: len({(row.get(p["column"]) or "").strip() for row in rows}) for p in rest
     }
     rest.sort(key=lambda p: file_wide[p["column"]] <= 1)
-    room = max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
+    # 1 件しかないカードは、そのカードが**この表そのもの**なので省略しない
+    # （2026-08-27 利用者評価「『ほか 10 列』と省略するのはどうですかね？ — ユーザーが
+    # これも入れてほしいと言えるように」）。上限は G13 の所見＝**行**のカードが
+    # ファイル水準のメタデータで埋まる事故に対する防御で、singleton には当たらない。
+    room = (
+        len(rest)
+        if distinct_ids <= 1
+        else max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
+    )
+    # 行ごとに変わる列のうち、識別子型（測定値でない）のものは「値の種類」に
+    # 昇格できる候補。判断材料は列名でなく値なので、実際の値を数個添える
+    # （2026-08-27 K33: 種類にできる/できないの境界は列の位置でなく値の性質）。
+    types = {c.name: c.inferred_type for c in inspection.columns}
+    varying_identity = [c for c in varying if types.get(c) not in _MEASUREMENT_TYPES]
+    varying_samples: list[dict[str, Any]] = []
+    for col in varying_identity:
+        seen: list[str] = []
+        for row in rows:
+            v = (row.get(col) or "").strip()
+            if v and v not in seen:
+                seen.append(v)
+            if len(seen) >= 3:
+                break
+        varying_samples.append({"column": col, "values": seen})
     return {
         "id": _render_template(template, rows[rep[0]], prefixes),
         "row_count": len(rep),
         "entity_count": distinct_ids,
         "properties": key_props + conflicts + rest[:room],
         "varying_columns": varying,
+        "varying_identity_columns": varying_identity,
+        "varying_samples": varying_samples,
+        # このカード自身が持つ列のうち、識別子型（測定値でない・キーでない）＝
+        # 「値の種類」に昇格できる候補。行データのファイル（1 件のカードが無い）
+        # では、ゾーンはこちらを並べる。K32 のゾーンは「ヘッダ付きファイル」の
+        # 形だけを見て書かれていて、普通の行データでは丸ごと消えていた
+        # （利用者の実データ・2026-08-28）。
+        # 候補と、ゾーンが並べる値は**打ち切らない**。カードの上限（G13）は
+        # タブ②の読みやすさのためのもので、①「あとでつなぐ値をえらぶ」は
+        # 一覧そのものなので、切れると**その先の列でできた種類をチェックで
+        # 外せなくなる**（利用者の実データ・2026-08-28: Wikipage や
+        # BohrModelImage が 8 列の外にあり 🗑 でしか消せなかった）。
+        "identity_columns": [
+            p["column"]
+            for p in (key_props + conflicts + rest)
+            if p["column"] not in key_set
+            and types.get(p["column"]) not in _MEASUREMENT_TYPES
+        ],
+        "all_values": [
+            {"column": p["column"], "value": p.get("value", "")}
+            for p in (key_props + conflicts + rest)
+        ],
         "omitted_columns": max(0, len(rest) - room),
     }
 
@@ -427,7 +475,21 @@ def _parent_singleton(
     if len(singletons) == 1:
         return singletons[0]
     originals = [n for n in singletons if n not in human_owns]
-    return originals[0] if len(originals) == 1 else None
+    if len(originals) == 1:
+        return originals[0]
+    # G7 の沈黙は「2 つ以上＝どれが親か推測になる」から来ていた。ところが K26
+    # (骨格が「外の世界も名前を持つもの」を種類に昇格する) で、1 ファイルから
+    # singleton が 3 つ出るのが普通になった。そこで黙ると、成長プレビューも
+    # 「別の種類に分ける」(G15) も、行マップの scope risk (K14 C6) も丸ごと
+    # 消える — 実データ(XRD 参考カード)で、化学組成を種類に昇格する唯一の
+    # 決定論的な導線と、`peak/{2theta}` が次のファイルで衝突する警告が、
+    # どちらも同時に沈黙した。
+    #
+    # ここで選んでいるのは「関係」ではなく「このファイルの名前空間はどれか」で、
+    # 同一ソースの singleton はどれも等しくファイル全体を指す = どれを選んでも
+    # 主張は真になる。関係の推測は依然しない。並びは骨格の順(設計は主役を先に
+    # 書く)。0 個のときだけ黙る。
+    return originals[0] if originals else None
 
 
 def _functional_dependencies(
@@ -627,10 +689,12 @@ def _missing_row_kind(
         if parent is None:
             continue
         # A row-level map already exists for this source: nothing is homeless.
+        # 値のカタログ（K33）は数えない: その map は自分の値 1 列しか持たず、
+        # 行の測定値の置き場にはならない。
         if any(
             annotations[n].get("collapse_kind") in ("unique", "partial")
             for n in names
-            if n != parent
+            if n != parent and not annotations[n].get("value_catalog")
         ):
             continue
         ann = annotations[parent]
@@ -766,12 +830,29 @@ def _growth_preview(
             signatures[src] = frozenset(c.name for c in ins.columns)
 
     for src, names in by_source.items():
-        parent = _parent_singleton(names, annotations, human_owns or {})
-        if parent is None:
-            continue  # G7: no parent, or ambiguous — stay silent
-        ann = annotations[parent]
+        # EVERY file-scoped map on this source, not just "the" parent
+        # (2026-08-27). The offer to split a column into its own kind (G15) is
+        # the only deterministic path a human has to promote one, and hanging
+        # it on ONE map put it on a different tab from the card the column is
+        # visible on — live: the reader was looking at `CrystalStructure`
+        # (whose card shows `Chemical Formula: Al3 V`) while the offer sat
+        # under `Sample`. Every singleton here is "one entity per file" and its
+        # key determines the same file-level columns, so the statement is true
+        # of each; the gate's tabs mean only one is ever on screen at a time.
+        # (`_parent_singleton` still picks ONE for the scope risk and the
+        # missing-row-kind repair — those DO name a specific other map.)
+        singletons = [
+            n
+            for n in names
+            if annotations[n].get("collapse_kind") == "singleton"
+            and annotations[n].get("key_columns")
+            # A map the human already split out (G15) is the RESULT of a split,
+            # not a card to split from — offering to break it up again reads as
+            # the machine second-guessing a decision that was just made.
+            and n not in (human_owns or {})
+        ]
         entry = inspections.get(src)
-        if entry is None or not ann.get("key_columns"):
+        if not singletons or entry is None:
             continue
         path, inspection = entry
         if inspection.source_kind != "csv":
@@ -780,51 +861,67 @@ def _growth_preview(
             rows = _read_rows(path, inspection.dialect)
         except OSError:
             continue
-        # Everything this file-scoped entity DESCRIBES: the non-key columns its
-        # key determines and that actually hold a value. Not the card's list —
-        # the card caps at _CARD_VALUE_COLUMNS, the forecast is about the whole
-        # entity (the real card has 18 such columns, the drawing shows 8).
         columns = [c.name for c in inspection.columns]
-        determined = _functional_dependencies(rows, list(ann["key_columns"]), columns)
-        # Columns another map already owns (a human split, or the machine's
-        # verdict) have LEFT this entity — the forecast is about what is still
-        # recorded per file here.
-        elsewhere = {b["column"] for b in ann.get("borrowed_columns") or []}
-        described = [
-            col
-            for col in columns
-            if col in determined
-            and col not in elsewhere
-            and any((r.get(col) or "").strip() for r in rows)
-        ]
         siblings = [
             other
             for other in signatures
             if other != src and signatures.get(other) == signatures.get(src)
         ]
-        preview: dict[str, Any] = {
-            "per_source_entities": 1,
-            "source_count": 1 + len(siblings),
-            "row_maps": [n for n in names if n != parent],
-            "described_columns": described,
-        }
-        shared: list[dict[str, Any]] = []
-        if siblings:
-            shared = _shared_column_values(src, siblings, described, inspections)
-            preview["shared_values"] = shared
-        # The one-click "split these into their own kind" (ADR G15): the human
-        # decides WHICH columns name one shared thing (world knowledge), the
-        # machine pre-fills what the files already agree on and picks the
-        # identity-like column as the key (a name/formula over a measured
-        # number). One file → no measured overlap → nothing pre-checked, only
-        # the offer.
         types = {c.name: c.inferred_type for c in inspection.columns}
-        shared_cols = [x["column"] for x in shared]
-        key = next((c for c in shared_cols if types.get(c) not in _MEASUREMENT_TYPES), None)
-        if key is None and shared_cols:
-            key = shared_cols[0]
-        preview["split_default"] = {"columns": shared_cols, "key": key}
-        ann["growth_preview"] = preview
+        row_maps = [
+            n for n in names if annotations[n].get("collapse_kind") != "singleton"
+        ]
+        for parent in singletons:
+            ann = annotations[parent]
+            # Everything this file-scoped entity DESCRIBES: the non-key columns
+            # its key determines and that actually hold a value. Not the card's
+            # list — the card caps at _CARD_VALUE_COLUMNS, the forecast is about
+            # the whole entity (the real card has 18 such columns, the drawing
+            # shows 8).
+            determined = _functional_dependencies(rows, list(ann["key_columns"]), columns)
+            # Columns another map already owns (a human split, or the machine's
+            # verdict) have LEFT this entity — the forecast is about what is
+            # still recorded per file here.
+            elsewhere = {b["column"] for b in ann.get("borrowed_columns") or []}
+            described = [
+                col
+                for col in columns
+                if col in determined
+                and col not in elsewhere
+                and any((r.get(col) or "").strip() for r in rows)
+            ]
+            # 列名だけでは「これは外のデータにも出てくる名前か」を判断できない
+            # （`Chemical Formula` ではなく `Al3 V` を見て人は決める）。この 1 件を
+            # 説明する値そのものを添える（2026-08-27）。
+            first = rows[0] if rows else {}
+            preview: dict[str, Any] = {
+                "per_source_entities": 1,
+                "source_count": 1 + len(siblings),
+                "row_maps": row_maps,
+                "described_columns": described,
+                "described_values": [
+                    {"column": col, "value": (first.get(col) or "").strip()[:80]}
+                    for col in described
+                ],
+            }
+            shared: list[dict[str, Any]] = []
+            if siblings:
+                shared = _shared_column_values(src, siblings, described, inspections)
+                preview["shared_values"] = shared
+            # The one-click "split these into their own kind" (ADR G15): the
+            # human decides WHICH columns name one shared thing (world
+            # knowledge), the machine pre-fills what the files already agree on
+            # and picks the identity-like column as the key (a name/formula over
+            # a measured number). One file → no measured overlap → nothing
+            # pre-checked, only the offer.
+            shared_cols = [x["column"] for x in shared]
+            key = next(
+                (c for c in shared_cols if types.get(c) not in _MEASUREMENT_TYPES), None
+            )
+            if key is None and shared_cols:
+                key = shared_cols[0]
+            preview["split_default"] = {"columns": shared_cols, "key": key}
+            ann["growth_preview"] = preview
 
 
 def _shared_column_values(
@@ -881,8 +978,10 @@ def _inject_scope_risks(
     that file's namespace. A row-level map on the same source whose key does
     not include them is unique only within THIS file: appending the next file
     can mint the same ID for a different parent's row. Flag it as a reference
-    risk and prepend the parent key to every proven candidate. Two singletons
-    would make the parent ambiguous — stay silent rather than guess.
+    risk and prepend the parent key to every proven candidate. Several
+    singletons on one source are all equally that file's namespace, so
+    ``_parent_singleton`` picks one by skeleton order rather than going silent
+    (staying silent hid a real cross-file ID collision — see its comment).
     """
     by_source: dict[str, list[str]] = defaultdict(list)
     for name, src in map_sources.items():
@@ -900,6 +999,10 @@ def _inject_scope_risks(
                 continue
             ann = annotations[name]
             if not ann.get("checkable") or ann.get("collapse_kind") != "unique":
+                continue
+            # 値のカタログ（K33）は除外: その ID は値そのもので、ファイルを跨いで
+            # 同じ値＝同じ 1 件になるのが目的。親キーを入れたら合流できなくなる。
+            if ann.get("value_catalog"):
                 continue
             key_cols = list(ann.get("key_columns") or [])
             if not key_cols or set(parent_cols) <= set(key_cols):
@@ -947,7 +1050,13 @@ def _annotate_map(
         return ann
 
     if not template:
+        # 「ID の作り方が決まっていない」— 潰れでも衝突でもなく、まだ何も決まって
+        # いない。ここまで候補は空で返していたので、画面は「決められませんでした」
+        # とだけ言って、行き止まりになっていた(K11「行き止まりを作らない」)。
+        # 候補は inspection がすでに証明済みなので、同じ one-tap チップを出す。
         ann["reason"] = "no-template"
+        if inspection is not None:
+            ann["key_candidates"] = _key_candidates(inspection, ())
         return ann
 
     ann["expanded_template"] = _expand_curie(str(template), prefixes)
@@ -1103,6 +1212,48 @@ def annotate_skeleton(
     # Second pass — needs every map's collapse verdict: the singleton map's
     # key is the file's namespace, and row-level keys missing it are unique
     # only until the next file is appended (see _inject_scope_risks).
+    # 値のカタログ（K33）: 人が「この列そのものを種類にする」と宣言した map は
+    # owns == キー列 ちょうどになる。その ID は値そのもの＝**同じ値の行が 1 件に
+    # まとまるのは意図**なので、①ID 重複を事故として言わない ②親キーの入れ子
+    # （scope）を要求しない ③「行の置き場」としては数えない、の 3 点で扱いが変わる。
+    # 押印は scope 検査より先（scope の除外がこの旗を見る）。
+    for name, ann in annotations.items():
+        owns_cols = set(human_owns.get(name) or [])
+        key_cols = set(ann.get("key_columns") or [])
+        if owns_cols and owns_cols == key_cols:
+            ann["value_catalog"] = True
+    # 1 ファイルにつき 1 件の種類が同じソースに 2 つ以上あるとき、**どの列がどれに
+    # 属するか**はデータからは決まらない: ヘッダ部の列は値の種類数が 1 なので、
+    # どのキーからでも関数従属が成立する（実測 2026-08-28: Name / Chemical Formula /
+    # Subfile / Space Group / Crystal System は No・CSD・Reference・Radiation の
+    # どれからでも「決まる」）。ここを AI に決めさせていたのが、誤った帰属と
+    # 重複列 advisory（S5 で永久に解けないループ）の発生源だった。
+    #
+    # モデルを 1 つに正す: **カードは 1 つ、ほかの 1 件の種類は「その値の種類」**。
+    # 昇格した種類は自分のキー列だけを持ち（`owns` = キー列）、残りの列は全部
+    # カードに残る。`_adjudicate_ownership` の「宣言リストに無い列のタイからは
+    # 宣言者が退く」（G15）で、タイは決定論的にカードへ落ちる。**推測が要る場面
+    # そのものを無くす。**
+    inferred_owns: dict[str, list[str]] = {}
+    by_src_names: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_src_names[src].append(name)
+    for _src, names in by_src_names.items():
+        card = _parent_singleton(names, annotations, human_owns)
+        if card is None:
+            continue
+        for name in names:
+            ann = annotations[name]
+            if name == card or ann.get("collapse_kind") != "singleton":
+                continue
+            if name in human_owns:
+                continue  # 人が宣言済み — 機械は上書きしない
+            key_cols = [str(c) for c in (ann.get("key_columns") or [])]
+            if key_cols:
+                inferred_owns[name] = key_cols
+                ann["value_catalog"] = True
+                ann["owns_inferred"] = True
+    human_owns = {**human_owns, **inferred_owns}
     _inject_scope_risks(annotations, map_sources, by_name, human_owns)
     # Third pass (ADR column-ownership-and-growth): who owns each column, and
     # what the next file does to this design. Both need every map's key and
@@ -1147,7 +1298,10 @@ def _rewrite_key_template(template: str, columns: Sequence[str]) -> str:
 
 
 def apply_key_safety_fix(
-    skeleton: Mapping[str, Any], annotations: Mapping[str, Any]
+    skeleton: Mapping[str, Any],
+    annotations: Mapping[str, Any],
+    *,
+    keep: Collection[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Swap an AI-chosen measurement-only key for the machine's own safe pick.
 
@@ -1158,14 +1312,29 @@ def apply_key_safety_fix(
     evidence already picked the safer ID, so a human should never have to see
     the caution before the machine has tried the fix it can already prove.
 
+    Fires on TWO risks (2026-08-27):
+
+    - ``key_measurement_caution`` (K7) — the AI keyed rows on a measured value;
+    - ``scope-missing`` (K14 C6) — the key does not embed the file-scoped
+      parent's key, so the ID is unique in THIS file only and the next file
+      can mint the same IRI for a different parent's row.
+
+    C7-C11 originally left ``scope-missing`` for the human ("whether to prepend
+    the parent key is a call about how the dataset is expected to grow"). Live
+    use showed that framing is wrong: the growth question is what the SCREEN
+    asks about (this dataset gets more files — that is what "add data" means),
+    and the fix is not a guess. Prepending a proven parent key never breaks a
+    unique key (a superset of a unique key stays unique) and it is the only way
+    the row can stay addressable once a second file arrives. Leaving it on a
+    button meant the risk survived every run where nobody pressed it, and the
+    reader could not tell the button apart from the ones that are real choices.
+    The escape stays: ``applied_key_fix`` renders the swap and a revert.
+
     Deliberately does nothing when:
     - no safe candidate exists (e.g. a numeric instrument sweep where every
       column is a measurement) — the caution is shown as-is, unresolved;
-    - the key is not measurement-only — a ``scope-missing``-only risk is never
-      auto-fixed here: whether to prepend the parent key is a call about how
-      the dataset is expected to grow, which is the human's to make, not the
-      machine's to guess (unlike K7, where the "no candidate has a choice"
-      case does not exist — a measurement-only key is never a safe identity);
+    - the pick would not change the key — idempotence, and a no-op record
+      would claim a fix that did not happen;
     - the candidate's ``columns`` is empty — defensive only (today's candidate
       generator never proves an empty key unique), but an empty key rewrites
       the template to a CONSTANT subject, collapsing every row onto one ID —
@@ -1183,6 +1352,13 @@ def apply_key_safety_fix(
     longer measurement-only (the candidate was proven non-measurement-only),
     so a second pass finds nothing to fix — proven by re-annotating and
     re-applying in the tests, not assumed.
+
+    ``keep`` names maps whose ID a PERSON wrote (S4 「AI にもう一度考えさせる」
+    hands the edited design back to the model, so this can run on a design that
+    has already been through a human). The reasoning above — "there is no
+    judgment left to make" — holds only while nobody has made one. Once somebody
+    has, the machine's own evidence is the weaker claim, and swapping their key
+    without asking is the silent overwrite ADR data-facts-invariant N6 forbids.
     """
     maps_ann = annotations.get("maps") if isinstance(annotations, Mapping) else None
     new_skeleton = dict(skeleton)
@@ -1196,12 +1372,20 @@ def apply_key_safety_fix(
             new_maps.append(map_entry)
             continue
         name = str(map_entry.get("name") or "")
+        if keep and name in keep:
+            new_maps.append(map_entry)
+            continue
         ann = maps_ann.get(name)
         subject = map_entry.get("subject")
         fixed_entry = None
+        measurement_risk = isinstance(ann, Mapping) and ann.get("key_measurement_caution") is True
+        scope_risk = isinstance(ann, Mapping) and any(
+            isinstance(r, Mapping) and r.get("kind") == "scope-missing"
+            for r in (ann.get("reference_risks") or [])
+        )
         if (
             isinstance(ann, Mapping)
-            and ann.get("key_measurement_caution") is True
+            and (measurement_risk or scope_risk)
             and isinstance(subject, Mapping)
             and subject.get("template")
         ):
@@ -1209,11 +1393,18 @@ def apply_key_safety_fix(
                 (
                     c
                     for c in ann.get("key_candidates") or []
-                    if isinstance(c, Mapping) and c.get("measurement_only") is False
+                    if isinstance(c, Mapping)
+                    and c.get("measurement_only") is False
+                    # A scope-only fix must actually gain the parent's columns;
+                    # an unscoped candidate would rewrite the key for nothing.
+                    and (measurement_risk or c.get("scoped") is True)
                 ),
                 None,
             )
             new_key = [str(c) for c in safe.get("columns") or []] if safe is not None else []
+            old_key_now = list(ann.get("key_columns") or [])
+            if new_key == old_key_now:
+                safe, new_key = None, []
             if safe is not None and new_key:
                 old_key = list(ann.get("key_columns") or [])
                 old_template = str(subject["template"])
@@ -1225,7 +1416,7 @@ def apply_key_safety_fix(
                 fixes[name] = {
                     "from": old_key,
                     "to": new_key,
-                    "reason": "measurement-id",
+                    "reason": "measurement-id" if measurement_risk else "scope-missing",
                     "template_from": old_template,
                     "template_to": new_template,
                 }

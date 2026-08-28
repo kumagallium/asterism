@@ -3,7 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
-import { deriveReuses, localName } from './vocab'
+import { deriveReuses, localName, knownVocabForIri } from './vocab'
 
 const STATUS_KEY: Record<CatalogDataset['statusKind'], string> = {
   pub: 'vocab:status.pub',
@@ -202,18 +202,23 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
               </>
             ) : (
               <>
-                <p className="vocab-live-note">
-                  <Trans i18nKey="vocab:classesCard.note1">
-                    右端の数字＝件数。<strong>データの種類は、その種類のものが何件あるか</strong>、
-                    <strong>項目は、何回使われているか</strong>。
-                  </Trans>
-                </p>
-                <p className="vocab-live-note">
-                  <Trans i18nKey="vocab:classesCard.note2">
-                    ※ 数えるのは <strong>公開済み（引用できる）データのみ</strong>。
-                    公開前の下書きは含みません ── 公開すると集計に入ります。
-                  </Trans>
-                </p>
+                {/* K23: 数字の読み方は、一覧を読むのに要らない。畳んで、常時
+                    見せるのは一覧そのものだけにする（G9）。 */}
+                <details className="kz-fold">
+                  <summary>{t('vocab:classesCard.notesSummary')}</summary>
+                  <p className="vocab-live-note">
+                    <Trans i18nKey="vocab:classesCard.note1">
+                      右端の数字＝件数。<strong>データの種類は、その種類のものが何件あるか</strong>、
+                      <strong>項目は、何回使われているか</strong>。
+                    </Trans>
+                  </p>
+                  <p className="vocab-live-note">
+                    <Trans i18nKey="vocab:classesCard.note2">
+                      ※ 数えるのは <strong>公開済み（引用できる）データのみ</strong>。
+                      公開前の下書きは含みません ── 公開すると集計に入ります。
+                    </Trans>
+                  </p>
+                </details>
                 <div className="ds-subhead">{t('vocab:classesCard.classesSubhead')}</div>
                 <LiveTermList title="" terms={schema.classes} owners={owners} />
                 <div className="ds-subhead">{t('vocab:classesCard.predicatesSubhead')}</div>
@@ -324,6 +329,20 @@ function LiveTermList({
               <span className="vocab-live-label">
                 {term.label || humanizeLocalName(localName(term.iri))}
               </span>
+              {/* K23: 「まとめて質問しやすいか」を決めるのは、その語が外の世界と
+                  共有されているかどうか。一覧の下の「再利用している語彙」表を
+                  読み合わせないと分からなかったので、語そのものに付ける。 */}
+              {(() => {
+                const std = knownVocabForIri(term.iri)
+                return (
+                  <span
+                    className={`vocab-origin${std ? ' vocab-origin--std' : ''}`}
+                    title={std ? std.ns : undefined}
+                  >
+                    {std ? t('vocab:termList.standard') : t('vocab:termList.own')}
+                  </span>
+                )
+              })()}
               {!term.label && (
                 <>
                   <span className="hint">{t('vocab:termList.unnamed')}</span>
