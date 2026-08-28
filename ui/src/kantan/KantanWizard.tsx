@@ -1833,14 +1833,25 @@ export function KantanWizard({
   // an endless retry (WEAK-MODEL-24). One repeat of the SAME findings is
   // enough to say so and step the AI fix down to a secondary offer.
   const prevStopSig = useRef<string | null>(null)
+  const prevFixCount = useRef<number | null>(null)
   const [fixStuck, setFixStuck] = useState(false)
 
-  /** Raise a findings card (design / weakness) and note whether it is the very
-   *  same one the last AI fix was asked to clear. */
+  /** Raise a findings card (design / weakness) and note whether the AI fix is
+   *  still getting anywhere. */
   function setDesignStop(card: StopCard) {
-    const sig = (card.plainLines ?? card.fixLines ?? []).join('\n')
-    setFixStuck(aiFixCount > 0 && prevStopSig.current === sig)
+    const lines = card.plainLines ?? card.fixLines ?? []
+    // 数を伏せた指紋で比べる。「同じ列が 2 つのものに二重に…（3 列）」が
+    // 「（2 列）」になっただけで別物と見なしていたため、1 件ずつしか直せない
+    // モデル相手にボタンが主役のまま残り、利用者は同じカードを 8 回見た
+    // （実機 2026-08-28）。**同じ指摘が減っただけ**は「解決した」ではない。
+    const sig = lines.join('\n').replace(/\d+/g, '#')
+    const count = (card.fixLines ?? lines).length
+    const sameFindings = prevStopSig.current === sig
+    // 件数が減らないなら、押しても前に進んでいない。
+    const noFewer = prevFixCount.current !== null && count >= prevFixCount.current
+    setFixStuck(aiFixCount > 0 && (sameFindings || noFewer))
     prevStopSig.current = sig
+    prevFixCount.current = count
     setStop(card)
   }
 

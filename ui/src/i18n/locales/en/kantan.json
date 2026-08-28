@@ -235,7 +235,7 @@
       "attempted": "AI fix attempts so far: {{n}}.",
       "attemptedHint": "If the same problem keeps coming back, check it in detail mode or review the AI setup (a stronger model).",
       "failed": "The AI fix didn't go through.",
-      "stuck": "The AI could not fix this — the same problem came back. Looking at it in detail mode, or starting over, is likely to be faster.",
+      "stuck": "The same findings came back — asking the AI again will most likely return them again. Which kind keeps the column is a human call: use “Check in detail mode” or go back and decide it yourself.",
       "autoProgress": "Fixing the design automatically (attempt {{n}} of {{max}})",
       "autoStuck": "Fixed automatically {{n}} time(s); from here the same problem keeps coming back."
     },
