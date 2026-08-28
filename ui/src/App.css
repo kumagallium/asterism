@@ -7485,6 +7485,22 @@ tr.kz-attn td {
   width: 100%;
   box-sizing: border-box;
 }
+/* ④ ①「どの種類に載せるか」。AI の薦めが初期値で、変えるとその場で検査が走る
+   （ADR meaning-before-identity §3 改訂: 帰属は機械が薦め、人が決める）。 */
+.skeleton-assign {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--body);
+  max-width: 14rem;
+}
+.skeleton-assign:disabled {
+  opacity: 0.65;
+}
+
 .kz-meaning-table .kz-cols-name,
 .kz-meaning-table .kz-cols-examples {
   /* .kz-preview-table td の nowrap を、この表だけ解く。列幅が決まっている以上、

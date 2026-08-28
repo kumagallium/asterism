@@ -1674,6 +1674,41 @@ export function SkeletonGate({
     return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
   })()
 
+  /** 列 → その列を持つと**宣言された**種類（`owns`）。宣言が無ければカード。
+   *
+   *  ヘッダ部の列はどのキーからでも関数従属が成立するので、どの種類に載るかは
+   *  データからは決まらない（実測 2026-08-28: Name / Chemical Formula / …は
+   *  No・CSD・Reference・Radiation のどれからでも「決まる」）。だから機械は
+   *  推測せず全部カードに残し、動かしたい人が動かす（ADR meaning-before-identity
+   *  §3 改訂 / G15 の `owns` はもともとそのための宣言）。 */
+  const ownerOf = new Map<string, string>()
+  for (const mm of skeleton.maps) {
+    if (zone && mm.source !== zone.host.source) continue
+    for (const c of mm.owns ?? []) ownerOf.set(String(c), mm.name)
+  }
+  /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。 */
+  const siblingKinds = zone ? [...new Set(zone.kindOf.values())] : []
+
+  /** 列を種類 `target` に載せ替える。他の種類の宣言からは外す（1 つの列が属性と
+   *  して載るのは 1 箇所だけ・G6）。カードを選ぶと宣言そのものが消える＝既定へ。 */
+  function assignColumn(col: string, target: string) {
+    if (!zone) return
+    const maps = skeleton.maps.map((mm) => {
+      if (mm.source !== zone.host.source) return mm
+      const before = (mm.owns ?? []).map(String)
+      const kept = before.filter((c) => c !== col)
+      const next = mm.name === target ? [...kept, col] : kept
+      if (next.length === before.length && next.every((c, i) => c === before[i])) return mm
+      if (next.length > 0) return { ...mm, owns: next }
+      // 宣言そのものを消す＝既定（カード）に戻す。`owns: []` は「何も持たない
+      // 宣言」として読まれてしまうので、キーごと落とす。
+      const rest = { ...mm }
+      delete rest.owns
+      return rest
+    })
+    onChange({ ...skeleton, maps })
+  }
+
   /** 3（項目の意味）で「取り込まない」と決めた列。ここは ID を決める画面なので、
    *  取り込まない列を並べると、成立しない選択肢を読ませることになる。 */
   const droppedSet = new Set(droppedColumns)
@@ -2279,34 +2314,51 @@ export function SkeletonGate({
                 const kindName = locked ? undefined : zone.kindOf.get(col)
                 return (
                   <tr key={col}>
-                    {/* ID に使われている列は「無効なチェックボックス」を出さない。
-                        灰色のチェックは「選べない、なぜ？」だけを残す（利用者評価
-                        2026-08-28）。印は右のタグ、外し方は表の下の一文が言う。 */}
-                    <td className="skeleton-entity-pick">
-                      {!locked && (
-                        <input
-                          type="checkbox"
-                          aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
-                          checked={!!kindName}
-                          disabled={!canRevalidate}
-                          onChange={(e) =>
-                            e.target.checked
-                              ? promoteColumn(zone.idx, col)
-                              : demoteColumn(col, kindName!)
-                          }
-                        />
-                      )}
-                    </td>
+                    <td className="skeleton-entity-pick" />
                     <th scope="row">{col}</th>
                     <td>{value}</td>
+                    {/* この列がどの種類に載るか。ID に使われている列は動かせない
+                        （動かすと ID の作り方が変わる — そこは「ID の作り方」欄）。
+                        それ以外は、同じファイルのカード側の種類から選ぶ。行ごとに
+                        変わる値の種類は選択肢に出さない: そこへ載せると同じ値が
+                        全行に写る（G6 の二重記録）。 */}
                     <td className="skeleton-zone-tag">
-                      {locked
-                        ? t('skeletongate:zone.isCardId', {
-                            name: displayMapName(zone.host.name),
-                          })
-                        : kindName
-                          ? t('skeletongate:zone.isKind', { name: displayMapName(kindName) })
-                          : null}
+                      {locked ? (
+                        t('skeletongate:zone.isCardId', {
+                          name: displayMapName(zone.host.name),
+                        })
+                      ) : (
+                        <select
+                          className="skeleton-assign"
+                          value={
+                            kindName ?? ownerOf.get(col) ?? zone.host.name
+                          }
+                          disabled={!canRevalidate}
+                          aria-label={t('skeletongate:zone.assignAria', { column: col })}
+                          onChange={(e) => {
+                            const target = e.target.value
+                            if (target === '__new__') {
+                              promoteColumn(zone.idx, col)
+                            } else if (kindName && target !== kindName) {
+                              // その列をキーにした種類をやめてから載せ替える。
+                              demoteColumn(col, kindName)
+                              if (target !== zone.host.name) assignColumn(col, target)
+                            } else {
+                              assignColumn(col, target)
+                            }
+                          }}
+                        >
+                          <option value={zone.host.name}>
+                            {displayMapName(zone.host.name)}
+                          </option>
+                          {siblingKinds.map((n) => (
+                            <option key={n} value={n}>
+                              {displayMapName(n)}
+                            </option>
+                          ))}
+                          <option value="__new__">{t('skeletongate:zone.newKind')}</option>
+                        </select>
+                      )}
                     </td>
                   </tr>
                 )

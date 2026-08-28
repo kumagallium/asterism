@@ -205,6 +205,25 @@ ID は公開したら動かせない側で、意味は後から直せる側で�
    「どの種類に載せるか」のセレクトに広げる。選択肢は同じ分散クラスの既存の種類
    ＋「新しい種類にする」（今のチェックと同じ操作がその 1 つになる）。ID に使われて
    いる列は動かせない（動かすと ID の作り方が変わる — そこは「ID の作り方」欄）。
+   ✅ **カード側は済**（実 XRD で確認・下記）。行ごとの値の側（Peak / Hkl のあいだ）は
+   まだチェックボックスのまま — そちらは種類が 1 つのことが多く、急がない。
+
+   仕組みは新設していない: 骨格の `owns`（G15 で人が宣言する「この種類はこの列を
+   持つ」）がもともとそのためのもので、UI が「新しい種類を作る」ときにしか
+   使っていなかった。セレクトはその宣言を書き換えるだけ。
+
+   実 XRD での確認（2026-08-28）— `Radiation` と `Reference` を種類にし、
+   `2theta range` を Radiation に載せ替えた結果:
+
+   ```
+   crystal   : No CSD Name Chemical Formula … Additional Patterns  → radiation / reference へリンク
+   radiation : Radiation 2theta range                              ← 人が載せ替えた列が入っている
+   reference : Reference
+   peak      : 2theta d I (hkl)                                    → crystal へリンク
+   ```
+
+   件数バンドも「Crystal 1 件 / Radiation 1 件 / Reference 1 件 / Peak 47 件」に
+   その場で追従する。
 
 各段で `step0` / `api` の全テストと、実 XRD ファイルでの一周を通す。
 
