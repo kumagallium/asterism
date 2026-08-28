@@ -33,7 +33,7 @@ Space Group: I4/mmm(139)
 03-065-2664 の (0,0,2) ピーク  ──[ 強度 ]──▶  5.0
 03-065-2664 の (0,0,2) ピーク  ──[ Miller 指数 ]──▶  (0,0,2)</code></pre>
 <p>1 行 4 列だった表が、事実 4 件になりました。Asterism の画面が「事実 188件」のように数えているのは、この 3 つ組の数です（47 行 × 4 項目 = 188）。</p>
-<figure><img src="../figures/triple.svg" alt="表の 1 行が、主語ひとつと 4 つの述語・値の組に展開される図"></figure>
+<figure><a href="../figures/triple.svg" title="原寸で開く"><img src="../figures/triple.svg" alt="表の 1 行が、主語ひとつと 4 つの述語・値の組に展開される図"></a></figure>
 <p class="caption">1 行 4 列の表が事実 4 件になる。主語は 1 つ、述語（項目）が 4 つ、目的語（値）が 4 つ。</p>
 <p>3 つ組の各部分には名前があります。</p>
 <div class="tablewrap"><table><thead><tr><th>位置</th><th>標準の用語</th><th>意味</th><th>上の例</th></tr></thead><tbody><tr><td>1 番目</td><td>主語（subject）</td><td>何についての事実か</td><td>03-065-2664 の (0,0,2) ピーク</td></tr><tr><td>2 番目</td><td>述語（predicate）</td><td>どの項目の話か</td><td>2θ</td></tr><tr><td>3 番目</td><td>目的語（object）</td><td>その値</td><td>21.34</td></tr></tbody></table></div>
@@ -41,7 +41,7 @@ Space Group: I4/mmm(139)
 <h2 id="IRI-世界でひとつの名前">IRI — 世界でひとつの名前</h2>
 <p>3 つ組の 1 番目（主語）と 2 番目（述語）は、ただの文字列ではいけません。「ピーク 1」という名前は、世界のあちこちの表に出てきてしまうからです。</p>
 <p>そこで、<strong>世界でひとつに決まる名前</strong>を使います。これが <strong>IRI</strong> です。見た目は URL とそっくりです。</p>
-<figure><img src="../figures/iri.svg" alt="IRI を、データの所在を表す部分・集まりを表す部分・1 件を指す部分に分解した図"></figure>
+<figure><a href="../figures/iri.svg" title="原寸で開く"><img src="../figures/iri.svg" alt="IRI を、データの所在を表す部分・集まりを表す部分・1 件を指す部分に分解した図"></a></figure>
 <p class="caption">IRI が同じなら同じもの、違えば違うもの。この一点だけで、別々の場所で作られたデータがあとから機械的につながる。</p>
 <p>ドメイン名の部分が世界で重ならないので、その先も重なりません。IRI が同じなら同じもの、違えば違うもの。これだけの決まりで、別々の場所で作られたデータが、あとから機械的につながります。</p>
 <p>IRI は 2 種類あります。</p>
@@ -56,7 +56,7 @@ Space Group: I4/mmm(139)
 <p><code>No</code> は表の列ではありません。<strong>ファイルの先頭に <code>No: 03-065-2664</code> と書かれていた行</strong>です。取り込みのとき、この先頭の条件は表の全行に配られます（「読み取りの確認」で見出し行の扱いを聞かれるのは、これを決めるためです）。結果、名前はこうなります。</p>
 <div class="tablewrap"><table><thead><tr><th>材料</th><th>(hkl)</th><th>できる ID</th></tr></thead><tbody><tr><td>Al3 V</td><td>(0,0,2)</td><td><code>peak/03-065-2664/(0,0,2)</code></td></tr><tr><td>別の材料</td><td>(0,0,2)</td><td><code>peak/03-065-5860/(0,0,2)</code></td></tr></tbody></table></div>
 <p><strong>同じ (0,0,2) でも、材料が違えば別の ID になります。</strong>もし <code>(hkl)</code> だけで名前を作っていたら、どの材料の (0,0,2) も <code>peak/(0,0,2)</code> という 1 つの名前になり、あとから取り込んだ材料の強度が前の材料を上書きしてしまいます。</p>
-<figure><img src="../figures/id-collision.svg" alt="材料 ID と hkl を組み合わせると別々の ID になるが、hkl だけだと 1 つに潰れることを示す図"></figure>
+<figure><a href="../figures/id-collision.svg" title="原寸で開く"><img src="../figures/id-collision.svg" alt="材料 ID と hkl を組み合わせると別々の ID になるが、hkl だけだと 1 つに潰れることを示す図"></a></figure>
 <p class="caption">ID の一意性は「どの範囲で一意か」で決まる。<code>(hkl)</code> は 1 つのファイルの中でしか一意ではないので、それだけでは名前にならない。</p>
 <p>これを人が確かめる場所が、かんたんモードの「ID のつけかた」の画面にある②「ID がひとつずつを指しているか確かめる」です。ID が重ならないか（✓ / ⚠）が表示され、⚠ が出たら組み合わせを選び直せます。</p>
 <p><strong>ID が重ならないことと、つながっていることは別です。</strong> 上の ID には材料の番号が文字として入っていますが、これは「材料という別のもの」への参照ではありません。「この材料のピークを全部」のような質問に答えられるようにするには、材料そのものをデータの種類として設計に足し、ピークからそこへの参照を持たせる必要があります（次の節）。</p>
@@ -76,6 +76,8 @@ Space Group: I4/mmm(139)
 <p>属性の値には 2 種類あります。この違いが「つながる／つながらない」を決めます。</p>
 <div class="tablewrap"><table><thead><tr><th>値の種類</th><th>中身</th><th>例</th></tr></thead><tbody><tr><td>値そのもの</td><td>数値・文字・日付</td><td>2θ = <code>21.34</code></td></tr><tr><td>別のものへの参照</td><td>相手の IRI</td><td>このピークは → あの試料のもの</td></tr></tbody></table></div>
 <p>後者があるから、データは網目状につながります。「この試料のピークを全部」のような質問に答えられるのは、参照でつながっているときだけです。Asterism が「つながっていません」と指摘するのは、この参照が無い状態のことです。</p>
+<figure><a href="../screenshots/dataset-structure.png" title="原寸で開く"><img src="../screenshots/dataset-structure.png" alt="「中身」タブ。このデータセットが持つ種類と、気になる点"></a></figure>
+<p class="caption">この例では「XRD測定の測定結果」と「XRDピーク値」の 2 種類があり、「気になる点」に「使われていない列があります（17 列）」と出ています。</p>
 <h2 id="オントロジー-共通の言葉">オントロジー — 共通の言葉</h2>
 <p>クラスと属性を決めて、名前（IRI）を与え、「このクラスはこの属性を持つ」「この属性の値は数値」といった決まりを書いたもの。それが<strong>オントロジー</strong>です。データそのものではなく、<strong>データを書くための語彙集</strong>だと考えるのがいちばん近いです。</p>
 <p>Asterism の画面では、これを<strong>共通の言葉</strong>と呼んでいます。メニューの「共通の言葉」に並んでいるのが、いま使われているクラスと属性の一覧です。</p>
@@ -88,9 +90,10 @@ Space Group: I4/mmm(139)
 }
 ORDER BY DESC(?angle) LIMIT 10</code></pre>
 <p>Asterism では、SPARQL を自分で書く必要はありません。メニューの「質問する」でふつうの言葉で聞けば、内部でこの問い合わせが組み立てられ、答えと一緒に出どころが返ります。SPARQL を直接書きたい場合の入口も、データセットの「ツール（開発者向け）」タブに用意されています。</p>
+<figure><a href="../screenshots/dataset-tools.png" title="原寸で開く"><img src="../screenshots/dataset-tools.png" alt="「ツール（開発者向け）」タブ。このデータで答えられる問い合わせの一覧"></a></figure>
 <h2 id="用語の関係">用語の関係</h2>
 <p>ここまでの言葉は、次の関係にあります。</p>
-<figure><img src="../figures/terms.svg" alt="書き方の決まりと語彙が合わさって実際のデータになり、そのデータに SPARQL で問う関係の図"></figure>
+<figure><a href="../figures/terms.svg" title="原寸で開く"><img src="../figures/terms.svg" alt="書き方の決まりと語彙が合わさって実際のデータになり、そのデータに SPARQL で問う関係の図"></a></figure>
 <p>読み下すとこうなります。</p>
 <ul><li><strong>RDF</strong> は書き方の決まり、<strong>IRI</strong> はそこで使う名前のつけかた</li><li><strong>オントロジー</strong>はどんな<strong>クラス</strong>と<strong>属性</strong>を使ってよいかの語彙</li><li>決まりに従って語彙で書いた<strong>事実</strong>の集まりが、実際のデータ</li><li>そのデータに問うための言葉が <strong>SPARQL</strong></li></ul>
 <h2 id="画面の言葉との対応">画面の言葉との対応</h2>

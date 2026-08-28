@@ -202,7 +202,10 @@ def convert(md: str) -> str:
             i += 1
         text = join_wrapped(para)
         if _IMG.fullmatch(text.strip()):
-            out.append(f'<figure>{inline(text)}</figure>')
+            # 画面写真は縮んで細部が読めなくなるので、原寸を開けるようにしておく
+            m = _IMG.fullmatch(text.strip())
+            src = html.escape(m.group(2), quote=True)
+            out.append(f'<figure><a href="{src}" title="原寸で開く">{inline(text)}</a></figure>')
         elif text.startswith("*") and text.endswith("*") and not text.startswith("**"):
             out.append(f'<p class="caption">{inline(text[1:-1])}</p>')
         else:
