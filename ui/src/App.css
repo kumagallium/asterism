@@ -8685,17 +8685,13 @@ tr.kz-attn td {
 .skeleton-zone-note {
   margin-top: var(--space-2);
 }
-.skeleton-remove-confirm {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.35rem;
-}
+/* 帰結は head の外・幅いっぱい（K40）。head は「名前の欄 + 🗑」の 1 行なので、
+   ここに文章を混ぜると名前の欄が細く潰れる。 */
 .skeleton-remove-warn {
-  flex-basis: 100%;
-  font-size: 0.8rem;
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
   color: var(--warn-fg);
-  text-align: right;
-  max-width: 30rem;
 }
 
 /* 名前の書き方の直し（K38）: 警告文のすぐ後ろに置く。 */

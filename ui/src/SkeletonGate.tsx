@@ -1801,24 +1801,25 @@ export function SkeletonGate({
       const cols = host ? annotations?.maps?.[host.name]?.entity_preview?.varying_columns : undefined
       return cols && cols.length > 0 ? cols : undefined
     })()
+    /* 消したときの帰結。head は「名前の欄 + 🗑」の 1 行なので、ここに文章を混ぜると
+       名前の欄が細く潰れる（実機 2026-08-28）。行の外に、幅いっぱいのブロックで置く。 */
+    const removeWarnings = confirmRemove === m.name && (
+      <>
+        {zone && zone.host.name === m.name && (
+          <p className="skeleton-remove-warn">{t('skeletongate:removeZoneHost')}</p>
+        )}
+        {homelessOnRemove && (
+          <p className="skeleton-remove-warn">
+            {t('skeletongate:removeRowKind', {
+              columns: homelessOnRemove.slice(0, 4).join(t('skeletongate:key.listSeparator')),
+            })}
+          </p>
+        )}
+      </>
+    )
     const removeControl = skeleton.maps.length > 1 &&
       (confirmRemove === m.name ? (
         <span className="skeleton-remove-confirm">
-          {/* この種類がゾーン（値の一覧）の台。消すと一覧ごと消えるのに、押した
-              人は「ID の列を空けたいだけ」かもしれない（実誤操作 2026-08-28）。
-              押す前に、帰結と本当にやりたいことへの道を言う。 */}
-          {zone && zone.host.name === m.name && (
-            <span className="skeleton-remove-warn">{t('skeletongate:removeZoneHost')}</span>
-          )}
-          {homelessOnRemove && (
-            <span className="skeleton-remove-warn">
-              {t('skeletongate:removeRowKind', {
-                columns: homelessOnRemove
-                  .slice(0, 4)
-                  .join(t('skeletongate:key.listSeparator')),
-              })}
-            </span>
-          )}
           <button
             type="button"
             className="skeleton-remove skeleton-remove--yes"
@@ -1841,10 +1842,18 @@ export function SkeletonGate({
           className={plain ? 'skeleton-remove skeleton-remove--icon' : 'skeleton-remove'}
           disabled={busy}
           title={
-            plain ? t('skeletongate:removeTitle') : t('workbench:skeleton.remove')
+            plain
+              ? homelessOnRemove
+                ? t('skeletongate:removeTitleRowKind')
+                : t('skeletongate:removeTitle')
+              : t('workbench:skeleton.remove')
           }
           aria-label={
-            plain ? t('skeletongate:removeTitle') : t('workbench:skeleton.remove')
+            plain
+              ? homelessOnRemove
+                ? t('skeletongate:removeTitleRowKind')
+                : t('skeletongate:removeTitle')
+              : t('workbench:skeleton.remove')
           }
           onClick={() => setConfirmRemove(m.name)}
         >
@@ -1987,7 +1996,11 @@ export function SkeletonGate({
             </p>
             {(() => {
               const shown = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
-              if (!shown || CLASS_NAME_OK.test(shown)) return null
+              // `:` を含むものは、宣言済みの語彙の語（`schema:Dataset` / まだ畳めて
+              // いない自分の語）。規則は「このデータセットが新しく作る名前」に
+              // だけ効く — 標準語彙を「使えない名前」と言ってはいけないし、
+              // `xr:Peak` に「XrPeak にする」を勧めるのは端的に間違い（実機で誤検知）。
+              if (!shown || shown.includes(':') || CLASS_NAME_OK.test(shown)) return null
               const fixed = sanitizeClassName(shown)
               return (
                 <p className="skeleton-evidence-line skeleton-evidence-warn">
@@ -2060,6 +2073,7 @@ export function SkeletonGate({
                 名前がまだ無いカードでは何を消すのか読めない）。 */}
             {removeControl}
           </div>
+          {removeWarnings}
           {multiSource && <p className="skeleton-kind-source">{m.source}</p>}
           <div className="skeleton-kind-key">{keyCell}</div>
           {evidenceBlock}
