@@ -69,10 +69,8 @@ __all__ = [
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "default_property_table",
-    "drop_duplicate_properties",
-    "normalize_key_separators",
-    "twin_maps",
     "default_skeleton",
+    "drop_duplicate_properties",
     "fill_mapping_spec_block",
     "generate_document",
     "generate_label_fill",
@@ -80,11 +78,13 @@ __all__ = [
     "generate_skeleton",
     "mapping_ir_to_yaml",
     "menu_columns",
+    "normalize_key_separators",
     "propose_from_skeleton",
     "propose_skeleton",
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
+    "twin_maps",
 ]
 
 
@@ -357,7 +357,6 @@ def ensure_same_source_links(
     same component walk that decides whether to add one.
     """
     maps = [m for m in (ir.get("maps") or []) if isinstance(m, Mapping)]
-    by_name = {str(m.get("name")): m for m in maps}
     subject_of = {
         str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
     }
@@ -947,7 +946,7 @@ def drop_duplicate_properties(result: Mapping[str, Any]) -> tuple[dict, list[str
     columns exist, the rows compile, T1-T9 pass, and the duplicate-column
     advisory only looks BETWEEN maps.
 
-    The consequence is not cosmetic. 「d は？」 comes back with two answers per
+    The consequence is not cosmetic. 「d は?」 comes back with two answers per
     peak, every count is doubled, and which of the two names Ask reaches for is
     arbitrary — the two labels disagreed (「格子間隔 d」 vs 「d spacing (重複)」).
 
@@ -2126,14 +2125,14 @@ def _generate_skeleton_gated(
         ):
             skeleton = previous
         if isinstance(skeleton.get("maps"), list) and skeleton["maps"]:
-            # 「1 件が表すもの」が空のまま返ることがある（guided decoding が届かない
-            # provider では schema の minItems が効かない）。人が答える前に、抜けを
+            # 「1 件が表すもの」が空のまま返ることがある (guided decoding が届かない
+            # provider では schema の minItems が効かない)。人が答える前に、抜けを
             # 名指しでもう一度頼む — 名前を付けるのに一番良い位置に居るのはモデル。
             # 名前の抜けだけを差し戻す。**同じ鍵の重複は差し戻さない** — 実測
-            # （2026-08-27）で「keep one」と伝えたら、モデルは重複した 3 つの
+            # (2026-08-27)で「keep one」と伝えたら、モデルは重複した 3 つの
             # まとまりを全部落として map を 1 つにし、前置きの 14 列が 47 行
-            # すべてに写った。どちらを残すか（そもそも「両方、ただし列を分けて」
-            # が正解か）は設計の判断で、K2 は数えかたを人の側に置いている。
+            # すべてに写った。どちらを残すか (そもそも「両方、ただし列を分けて」
+            # が正解か)は設計の判断で、K2 は数えかたを人の側に置いている。
             # 重複は画面に出して、人が消す。
             blank = _unnamed_kinds(skeleton)
             if not blank or attempt >= _SKELETON_PARSE_ROUNDS:
@@ -2217,10 +2216,10 @@ def propose_skeleton(
         iri_base,
         fallback_slug=slugify_dataset_name(Path(csv_paths[0]).stem) if csv_paths else None,
     )
-    # 名前の無い種類が残っていたら、機械が置く（正規化のあと＝正しい prefix で）。
+    # 名前の無い種類が残っていたら、機械が置く (正規化のあと=正しい prefix で)。
     # ゲートは編集できる欄に ⚠ 付きで出すので、これは提案であって決定ではない。
     skeleton, named = name_unnamed_kinds(skeleton, ontology_prefix=_ontology_prefix(skeleton))
-    # ID の区切りは機械の規約（`/`）に揃える。融合した区間は住所を曖昧にする。
+    # ID の区切りは機械の規約 (`/`)に揃える。融合した区間は住所を曖昧にする。
     skeleton, resep = normalize_key_separators(skeleton)
     metadata: dict[str, Any] = {"llm_class": type(llm).__name__}
     if named:
@@ -2366,8 +2365,8 @@ def _generate_map_properties_gated(
             f"map '{map_name}': 他のマップが持つ列を外しました - 重複記録の防止: "
             + ", ".join(sorted(set(dropped)))
         )
-    # 所有者の subject がその列 1 つで立っている（＝値の種類・K33）とき、平文の
-    # 列を落とすだけでは辺が消える。「リンクとして使え」は指示（お願い）で、弱い
+    # 所有者の subject がその列 1 つで立っている (=値の種類・K33)とき、平文の
+    # 列を落とすだけでは辺が消える。「リンクとして使え」は指示 (お願い)で、弱い
     # モデルは黙って飛ばす — ここで決定論で足す。書き換えではなく追加。
     if owned_elsewhere and owner_subjects:
         rows = list(result.get("properties") or [])
@@ -2581,8 +2580,8 @@ def propose_from_skeleton(
 
     assembled = assemble_mapping_ir(skeleton, permaps)
     # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
-    # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
-    # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。
+    # お願いで、これが保証。キーの入れ子は線であってリンクではない (RDF の辺は
+    # プロパティが書かれて初めて生まれる)ので、ここで足りない辺だけを決定論で足す。
     assembled, links_added = ensure_same_source_links(
         assembled, ontology_prefix=ontology_prefix
     )

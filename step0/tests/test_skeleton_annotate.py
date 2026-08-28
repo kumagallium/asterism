@@ -859,7 +859,7 @@ def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
     assert ann["reason"] == "no-template"
     assert ann["checkable"] is False
     # 実データで一意と証明された組み合わせが、そのままワンタップの候補になる。
-    # 小さい鍵が先（1 列 → 複数列）で、件数も添う。
+    # 小さい鍵が先 (1 列 → 複数列)で、件数も添う。
     columns = [c["columns"] for c in ann["key_candidates"]]
     assert ["sample_id"] in columns
     assert all(len(c) == 1 for c in columns[:2])
@@ -867,7 +867,7 @@ def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
 
 
 def test_no_template_without_the_file_is_still_answered(tmp_path: Path) -> None:
-    """ファイルが手元に無ければ候補は出せない — キーごと出さない（空配列でもない）。"""
+    """ファイルが手元に無ければ候補は出せない — キーごと出さない (空配列でもない)。"""
     skeleton = _skeleton("xr:sample/{sample_id}", source="gone.csv")
     skeleton["maps"][0]["subject"].pop("template")
     ann = annotate_skeleton(skeleton, [])["maps"]["point"]
@@ -903,9 +903,9 @@ def test_several_singletons_do_not_silence_the_growth_offer(tmp_path: Path) -> N
     `Chemical Formula` had no way to become a kind at all."""
     p = _write_reference_card(tmp_path)
     out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
-    # K44: 1 ファイルに 1 件の種類が複数あるとき、カードは 1 つ（`_parent_singleton`
-    # の選択）で、ほかは「その値の種類」として自分のキー列だけを持つ。だから
-    # 昇格の申し出（＝カードから切り出す提案）はカードにだけ出る。
+    # K44: 1 ファイルに 1 件の種類が複数あるとき、カードは 1 つ (`_parent_singleton`
+    # の選択)で、ほかは「その値の種類」として自分のキー列だけを持つ。だから
+    # 昇格の申し出 (=カードから切り出す提案)はカードにだけ出る。
     assert "growth_preview" in out["sample"]
     assert out["code"].get("value_catalog") is True
     assert out["code"].get("owns_inferred") is True
@@ -914,7 +914,7 @@ def test_several_singletons_do_not_silence_the_growth_offer(tmp_path: Path) -> N
     assert "growth_preview" not in out["peak"]
     # このフィクスチャのカードは No + Name しか持たず、Name は `code` が取ったので
     # 切り出せる列は残らない。昇格の申し出は「出るが空」— 列が残る本物のカードは
-    # test_growth_preview_forecasts_the_next_file（singleton 1 つ）が押さえている。
+    # test_growth_preview_forecasts_the_next_file (singleton 1 つ)が押さえている。
     assert out["sample"]["growth_preview"]["described_columns"] == []
 
 
@@ -933,7 +933,7 @@ def test_several_singletons_still_scope_a_row_key(tmp_path: Path) -> None:
     assert all("No" in c["columns"] for c in out["peak"]["key_candidates"])
 
 
-# --- 値のカタログ（K33）: 同じ値の行が 1 件にまとまるのは意図 ---
+# --- 値のカタログ (K33): 同じ値の行が 1 件にまとまるのは意図 ---
 
 def _catalog_skeleton() -> dict:
     """The reference card + peaks + a human-declared value catalog: the human
@@ -993,18 +993,18 @@ def test_card_names_identity_varying_columns_with_samples(tmp_path: Path) -> Non
 
 def test_secondary_singletons_own_only_their_key(tmp_path: Path) -> None:
     """K44: どの列がどの「1 件の種類」に属するかは、1 ファイルからは決まらない
-    （ヘッダ列は値が 1 種類なので、どのキーからでも関数従属が成立する）。だから
+ (ヘッダ列は値が 1 種類なので、どのキーからでも関数従属が成立する)。だから
     推測させない: カードは 1 つ、ほかの 1 件の種類は自分のキー列だけを持つ。"""
     p = _write_reference_card(tmp_path)
     out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
-    # `code`（Name をキーにした 1 件の種類）は Name しか持たない。
+    # `code` (Name をキーにした 1 件の種類)は Name しか持たない。
     code_own = [
         prop["column"]
         for prop in out["code"]["entity_preview"]["properties"]
         if not prop.get("owner_map")
     ]
     assert "Name" in code_own
-    # カード側からは Name が去っている（二重記録が構造的に起きない）。
+    # カード側からは Name が去っている (二重記録が構造的に起きない)。
     card_own = [
         prop["column"]
         for prop in out["sample"]["entity_preview"]["properties"]
