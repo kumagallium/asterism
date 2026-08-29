@@ -1,11 +1,11 @@
 {
-  "version": "0.24.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a3f12db03eb934825e0a0a267026b40f7788e6ba -->\n\n## What's Changed\n* feat(kantan): 重複列を「どちらに残しますか」でその場で決める — AI に投げても解けない判断を人に渡す by @kumagallium in https://github.com/kumagallium/asterism/pull/449\n* feat(kantan): 「AI にもう一度考えさせる」で S4 の編集を捨てない — 作り直しではなく修理にする by @kumagallium in https://github.com/kumagallium/asterism/pull/436\n* feat(ui): かんたん層の文に強弱をつける — 判断・操作・補足・警告を同じ声で並べない by @kumagallium in https://github.com/kumagallium/asterism/pull/429\n* refactor: 生成 ingester を撤去する — 実行しないコードは、書かせない by @kumagallium in https://github.com/kumagallium/asterism/pull/452\n* feat(kantan): 意味を先に、ID を後に — かんたんモードの順序を入れ替える by @kumagallium in https://github.com/kumagallium/asterism/pull/453\n* docs(manual): つながったデータの入門 2 章を足し、マニュアルを GitHub Pages で公開する by @kumagallium in https://github.com/kumagallium/asterism/pull/454\n* docs(manual): #453 のステップ入れ替えに追随する — 公開した順序が実装と逆だった by @kumagallium in https://github.com/kumagallium/asterism/pull/455\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.23.0...v0.24.0",
-  "pub_date": "2026-08-28T11:55:17Z",
+  "version": "0.25.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 70bfc73683f2aa97df401079dd0927cbdb375909 -->\n\n## What's Changed\n* docs(manual): 実画面のスクリーンショットを入れる — データ登録の流れが見えるように by @kumagallium in https://github.com/kumagallium/asterism/pull/456\n* feat(kantan): ⑤に「できあがった形」を出し、AI の名づけを標準の綴りに寄せる by @kumagallium in https://github.com/kumagallium/asterism/pull/458\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.24.0...v0.25.0",
+  "pub_date": "2026-08-29T03:03:10Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVV0QVBpWDFNcVBOL2VMS1cxUTM0QmFWKzhYb2FqZjBNMnZlZ01LWjJqRFhtTEdYTUY1MXpES1FnbFNvc1l6eUNCeEJuUm11bDFkdjhlWHk0QldIc1FRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTE4MTE2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClJqUFh4NW1wMWF2Z0Q2UTBNRFZvWFpqd09xOUQwVkp0NkJQWnRLVEM0MkVyYWNENUR4S1FDWjkra2VFRElwNERYeW11TUpzNUUrNEI2NW9PRVBvOEFRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.24.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVV5d0duWmVRSHJiMUdLUnNzMXVCU2NlNlVzay9aZTB0RlBlTk5pMGZzNUtnL3RTNzhqVXQ0d1BvY1VESm5UTW5Sd044NzNzaXBFL0tUbFdxNjBHbWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTcyNTkwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClFWTjN3TmFQRElkdGJYV0VObWVwUWpmbWdmM3BYNWlTZzlHZER6N0lTQ3l4dHdYVGtCUEk0S1V1MGVOR01wSWhURzY2UHVEUnFPWXJnL3ZBS1doYURRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.25.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
