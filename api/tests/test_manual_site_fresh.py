@@ -11,6 +11,7 @@ Actions run がスケジュールされない（ADR ``workflow-pr-ci-gating``）
 api ジョブに相乗りすれば、workflow を変えずに CI で回る。
 """
 
+# ruff: noqa: RUF002, RUF003 (日本語の文に全角の括弧・記号を使う)
 from __future__ import annotations
 
 import subprocess
