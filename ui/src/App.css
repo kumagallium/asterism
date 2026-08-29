@@ -5831,6 +5831,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   text-overflow: ellipsis;
   min-width: 0;
 }
+.ontomap-node--ds .ontomap-node-badge {
+  display: none;
+}
+.ontomap-node--ds:hover .ontomap-node-badge,
+.ontomap-node--ds:focus-visible .ontomap-node-badge {
+  display: inline;
+}
 .ontomap-node-badge {
   margin-left: auto;
   flex: none;
@@ -8960,6 +8967,14 @@ tr.kz-cols-dropped td {
 .shape-graph .react-flow__panel {
   display: none;
 }
+/* ⭐React Flow は「動かせない・選べない・つなげない・節のハンドラも無い」節に
+   **インラインで** `pointer-events: none` を書く。箱の中にボタン（項目の畳み・
+   データを開く）を置いていたり、触れたときの見た目を `:hover` でやっているので、
+   通し直す必要がある。インラインが相手なので `!important` でしか上書きできない
+   （実測 2026-08-30: 構造図の畳むボタンが押せず、全体像はデータを開けなかった）。 */
+.shape-graph .react-flow__node {
+  pointer-events: auto !important;
+}
 .shape-node {
   box-sizing: border-box;
   display: flex;
@@ -8991,13 +9006,12 @@ tr.kz-cols-dropped td {
 .shape-node.is-clickable {
   cursor: pointer;
 }
-.shape-node.is-hot {
+/* ⭐触れたときの見た目は **CSS だけ**でやる。React の state に持つと描き直しの
+   たびに `nodes` が作り直され、React Flow が節を採り直して 1 フレーム辺が消える
+   （＝チカチカする）。 */
+.shape-node:hover {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px var(--primary-soft);
-}
-/* 1 つに触れているあいだ、関係のない箱と線は引っ込む。 */
-.shape-node.is-dim {
-  opacity: 0.35;
 }
 .shape-graph .react-flow__handle {
   opacity: 0;
@@ -9010,9 +9024,6 @@ tr.kz-cols-dropped td {
 .shape-graph .shape-edge--pending .react-flow__edge-path {
   stroke: var(--accent);
   stroke-dasharray: 5 4;
-}
-.shape-graph .shape-edge.is-dim {
-  opacity: 0.25;
 }
 .shape-graph .react-flow__edge-text {
   font-size: 0.6875rem;
@@ -9111,6 +9122,10 @@ tr.kz-cols-dropped td {
 }
 .ontomap-flow .react-flow__panel {
   display: none;
+}
+/* 節の中身は押せるボタン（データを開く・つながりを開く）。上と同じ理由で通す。 */
+.ontomap-flow .react-flow__node {
+  pointer-events: auto !important;
 }
 /* ⭐handle は `display: none` にしない。寸法が測れなくなり、React Flow が辺を
    引けなくなる（箱は出るのに線が 1 本も出ない）。見せないのは opacity で。 */
