@@ -23,7 +23,7 @@ import {
   containmentParents,
   containmentParentsForColumns,
 } from './skeletonContainment'
-import { skeletonShape, type ShapeTone } from './shapeGraph'
+import { skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
 
 /** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
@@ -1681,77 +1681,6 @@ export function SkeletonGate({
     return { idx, host, ann: a, values, keyCols, kindOf, rowMap, pickable }
   })()
 
-  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
-  // that should be two is visible here before any table reading — but with a
-  // single kind the picture says nothing, and on the kantan tier it pushed the
-  // thing the human must actually confirm below the fold.
-  // 線が 1 本でも引けるか。図と同じ組み立てに聞く（別々に数えると食い違う）。
-  const diagramLinked = skeletonShape(skeleton, { label: (m) => m.name }).edges.length > 0
-  /** かんたん層の図の箱の呼び方 — ①のセレクトと同じ語彙。AI が付けた名前は
-   *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
-  const diagramLabel = (m: SkeletonMap): string => {
-    if (!zone) return m.name
-    if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
-    const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
-  }
-  /** 「このあと機械が引く」線。①で作った種類は「その値そのものが ID」なので、
-   *  設計を組むときに表全体から必ず辺が引かれる（per-map の決定論リンク）。
-   *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
-   *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
-  const pendingEdges: [string, string][] = zone
-    ? [...new Set(zone.kindOf.values())].map((n) => [zone.host.name, n])
-    : []
-  /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
-   *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
-  const diagramTone = (m: SkeletonMap): ShapeTone => {
-    if (!zone) return 'record'
-    if (m.name === zone.host.name) return 'whole'
-    return [...zone.kindOf.values()].includes(m.name) ? 'value' : 'record'
-  }
-  /** 詳細モードの箱の呼び方 — 従来の mermaid の既定と同じ「map 名（クラス名）」。 */
-  const detailLabel = (m: SkeletonMap): string => {
-    const cls = (m.subject.classes ?? [])[0]?.split(':').pop()
-    return cls && cls !== m.name ? `${m.name}（${cls}）` : m.name
-  }
-  const diagram = (
-    <div className="skeleton-diagram">
-      {/* 図はどの層でも同じ部品。かんたん層は①の語彙で短く呼び、詳細モードは
-          map 名（＋クラス名）で呼ぶ — 呼び方だけが違う。押して②の種類へ飛べる
-          のは両方で役に立つ（箱が増えるのはこの画面の操作の結果）。 */}
-      <ShapeGraph
-        shape={skeletonShape(skeleton, {
-          label: plain ? diagramLabel : detailLabel,
-          tone: diagramTone,
-          edgeLabel: t('workbench:skeleton.diagram.edge'),
-          pendingEdges: plain ? pendingEdges : undefined,
-          pendingLabel: t('skeletongate:zone.diagramPending'),
-        })}
-        ariaLabel={t('skeletongate:zone.diagramAria')}
-        onNodeClick={setOpenKind}
-        perRow={plain ? 2 : 3}
-        nodeWidth={plain ? undefined : 176}
-      />
-      <p className="skeleton-diagram-note">
-        {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
-      </p>
-      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
-          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
-          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
-          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
-      {!diagramLinked && skeleton.maps.length > 1 && (
-        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
-      )}
-    </div>
-  )
-  /* かんたん層のこの位置（カードの縦の流れ）には図を出さない（利用者評価
-     2026-08-27）。畳んでいたのを常時表示にした結果、線の有無が「この設計で良い
-     のか」という答えようのない問いになった ——「つながっていない」ではなく「この
-     段では分からない」なのに、絵は分からないことを描けない。
-     2026-08-28 追記: 図そのものは①の右に貼り付けた（`skeleton-zone-map`）。当時と
-     違うのは、この画面が「種類を作る画面」になったこと — 箱の増減はこの画面の
-     操作の結果で、答えようのない問いではない。線の話は図の下で今も断っている。 */
-  const diagramBlock = !plain ? diagram : null
 
   /** ①で使う、その種類の呼び方。**AI が付けた名前（Crystal）はここに出さない** —
    *  名前を確かめて直すのは②で、①の時点で読む人はその言葉に何も合意していない
@@ -1813,6 +1742,107 @@ export function SkeletonGate({
         ...(zone.ann.entity_preview?.varying_columns ?? []),
       ].filter(isDropped)
     : []
+
+  /* ⭐この塊は `zone` だけでなく `ownerOf` と `isDropped` も読む。上に置くと
+     TDZ で画面ごと落ちる（実測 2026-08-30「Cannot access before initialization」。
+     2026-08-28 にも同じ罠を `zone` で踏んでいる）。定義順が意味を持つ。 */
+  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
+  // that should be two is visible here before any table reading — but with a
+  // single kind the picture says nothing, and on the kantan tier it pushed the
+  // thing the human must actually confirm below the fold.
+  // 線が 1 本でも引けるか。図と同じ組み立てに聞く（別々に数えると食い違う）。
+  const diagramLinked = skeletonShape(skeleton, { label: (m) => m.name }).edges.length > 0
+  /** かんたん層の図の箱の呼び方 — ①のセレクトと同じ語彙。AI が付けた名前は
+   *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
+  const diagramLabel = (m: SkeletonMap): string => {
+    if (!zone) return m.name
+    if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
+    const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
+  }
+  /** ④の箱に並べる項目 — **図の隣の表と同じ計算**から出す。
+   *
+   *  ここはまだ設計の前なので `rules` は無い。誰がどの列を持つかは、表が読んで
+   *  いるのと同じ 3 つ（①で種類にした列 `kindOf` / 人が載せ替えた宣言 `ownerOf` /
+   *  既定はカード）に、行ごとに変わる列（帯の下）を足したもの。**同じことを絵と
+   *  表で別々に計算しない** — 食い違うと、どちらが本物か読めなくなる。 */
+  const zoneFields = (m: SkeletonMap): ShapeField[] => {
+    if (!zone || m.source !== zone.host.source) return []
+    const cols: string[] = []
+    for (const col of zone.values.keys()) {
+      if (isDropped(col)) continue
+      const owner = zone.kindOf.get(col) ?? ownerOf.get(col) ?? zone.host.name
+      if (owner === m.name) cols.push(col)
+    }
+    // 行ごとに変わる列は行の種類の領分（表では帯の下に並んでいる）。
+    if (zone.rowMap === m.name) {
+      for (const col of zone.ann.entity_preview?.varying_columns ?? []) {
+        if (!isDropped(col) && !zone.kindOf.has(col)) cols.push(col)
+      }
+    }
+    return cols.map((name) => ({ name }))
+  }
+  /** 「このあと機械が引く」線。①で作った種類は「その値そのものが ID」なので、
+   *  設計を組むときに表全体から必ず辺が引かれる（per-map の決定論リンク）。
+   *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
+   *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
+  const pendingEdges: [string, string][] = zone
+    ? [...new Set(zone.kindOf.values())].map((n) => [zone.host.name, n])
+    : []
+  /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
+   *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
+  const diagramTone = (m: SkeletonMap): ShapeTone => {
+    if (!zone) return 'record'
+    if (m.name === zone.host.name) return 'whole'
+    return [...zone.kindOf.values()].includes(m.name) ? 'value' : 'record'
+  }
+  /** 詳細モードの箱の呼び方 — 従来の mermaid の既定と同じ「map 名（クラス名）」。 */
+  const detailLabel = (m: SkeletonMap): string => {
+    const cls = (m.subject.classes ?? [])[0]?.split(':').pop()
+    return cls && cls !== m.name ? `${m.name}（${cls}）` : m.name
+  }
+  const diagram = (
+    <div className="skeleton-diagram">
+      {/* 図はどの層でも同じ部品。かんたん層は①の語彙で短く呼び、詳細モードは
+          map 名（＋クラス名）で呼ぶ — 呼び方だけが違う。押して②の種類へ飛べる
+          のは両方で役に立つ（箱が増えるのはこの画面の操作の結果）。 */}
+      <ShapeGraph
+        shape={skeletonShape(skeleton, {
+          label: plain ? diagramLabel : detailLabel,
+          tone: diagramTone,
+          // 項目はかんたん層だけ。詳細モードは同じ表を下に全部出している。
+          fields: plain ? zoneFields : undefined,
+          edgeLabel: t('workbench:skeleton.diagram.edge'),
+          pendingEdges: plain ? pendingEdges : undefined,
+          pendingLabel: t('skeletongate:zone.diagramPending'),
+        })}
+        ariaLabel={t('skeletongate:zone.diagramAria')}
+        onNodeClick={setOpenKind}
+        perRow={plain ? 1 : 3}
+        nodeWidth={176}
+        maxHeight={plain ? 620 : 440}
+        foldedByDefault={plain}
+      />
+      <p className="skeleton-diagram-note">
+        {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
+      </p>
+      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
+          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
+          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
+          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
+      {!diagramLinked && skeleton.maps.length > 1 && (
+        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
+      )}
+    </div>
+  )
+  /* かんたん層のこの位置（カードの縦の流れ）には図を出さない（利用者評価
+     2026-08-27）。畳んでいたのを常時表示にした結果、線の有無が「この設計で良い
+     のか」という答えようのない問いになった ——「つながっていない」ではなく「この
+     段では分からない」なのに、絵は分からないことを描けない。
+     2026-08-28 追記: 図そのものは①の右に貼り付けた（`skeleton-zone-map`）。当時と
+     違うのは、この画面が「種類を作る画面」になったこと — 箱の増減はこの画面の
+     操作の結果で、答えようのない問いではない。線の話は図の下で今も断っている。 */
+  const diagramBlock = !plain ? diagram : null
 
   /** ゾーンのチェック ON: 控えがあれば元通りに戻し、無ければその列をキーに
    *  1 つの種類を作る（G15 の split と同じ経路・owns はその列だけ）。 */

@@ -16,7 +16,12 @@
   "noteSummary": "Show the AI's note",
   "diagram": {
     "summary": "See the sketch ({{count}} kinds)",
-    "notLinkedYet": "At this stage the edges are only what the ID shapes imply. The real links between kinds are decided on the next screen (item meanings)."
+    "notLinkedYet": "At this stage the edges are only what the ID shapes imply. The real links between kinds are decided on the next screen (item meanings).",
+    "expand": "Open large",
+    "close": "Close",
+    "openFields": "Show this kind's items",
+    "closeFields": "Hide this kind's items",
+    "controls": "Diagram controls (zoom in, zoom out, fit)"
   },
   "key": {
     "from1": "The ID is decided by {{columns}}",

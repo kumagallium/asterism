@@ -4251,7 +4251,12 @@ export function KantanWizard({
 
   /** ⑤「ためす」の右に貼り付く、できあがった形。保存済みの取り込みルールから
    *  決定論で組む。種類が 1 つしか無いときは箱 1 つの絵で何も言わないので出さない。 */
-  const s7Shape = rules && rules.maps.length > 1 ? rulesShape(rules) : null
+  /** ⑤の図。**項目も持たせる** — ここは「何がどこに入ったか」を確かめる画面で、
+   *  形だけでは「その種類に何が載ったのか」が言えない（利用者評価 2026-08-30）。
+   *  ただし細い列に置くので**最初は畳んでおく**（Crystal 18 項目を開いたままだと
+   *  縦に伸びすぎて字が読めない）。全部を一度に見るのはデータセットの構造図。 */
+  const s7Shape =
+    rules && rules.maps.length > 1 ? rulesShape(rules, { withFields: true }) : null
   const s6Maps = rules?.maps ?? []
   // Does each unit on this screen actually land on a standard? Until now a person
   // could type any spelling here and nothing said whether it reached one — the QUDT
@@ -5387,7 +5392,16 @@ export function KantanWizard({
             {s7Shape && (
               <aside className="skeleton-zone-map">
                 <div className="skeleton-diagram">
-                  <ShapeGraph shape={s7Shape} ariaLabel={t('kantan:s7.diagramNote')} />
+                  <ShapeGraph
+                    shape={s7Shape}
+                    ariaLabel={t('kantan:s7.diagramNote')}
+                    nodeWidth={176}
+                    perRow={1}
+                    /* 開いたときに縦へ伸びる分の余地。ここが足りないと `fitView`
+                       が縮めて字が読めなくなる（実測: 18 項目で約 0.4 倍）。 */
+                    maxHeight={620}
+                    foldedByDefault
+                  />
                   <p className="skeleton-diagram-note">{t('kantan:s7.diagramNote')}</p>
                 </div>
               </aside>

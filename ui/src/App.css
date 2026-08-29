@@ -5831,6 +5831,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   text-overflow: ellipsis;
   min-width: 0;
 }
+.ontomap-node--ds .ontomap-node-badge {
+  display: none;
+}
+.ontomap-node--ds:hover .ontomap-node-badge,
+.ontomap-node--ds:focus-visible .ontomap-node-badge {
+  display: inline;
+}
 .ontomap-node-badge {
   margin-left: auto;
   flex: none;
@@ -7542,6 +7549,9 @@ tr.kz-attn td {
   width: 100%;
 }
 .skeleton-zone-map {
+  /* 左の帯（`.skeleton-header-zone`）は上に `--space-3` の余白を持つ。同じだけ
+     下げないと、2 つのカードの上端が揃わない（利用者評価 2026-08-30）。 */
+  margin-top: var(--space-3);
   position: sticky;
   /* 上端は画面ではなく **上部バーの下**。0 にすると、スクロールした図がバーの
      下へ潜り込む（実機 2026-08-28）。バーは `position: sticky` で高さが決まって
@@ -8957,8 +8967,13 @@ tr.kz-cols-dropped td {
 .shape-graph .react-flow__background circle {
   fill: var(--border);
 }
-.shape-graph .react-flow__panel {
-  display: none;
+/* ⭐React Flow は「動かせない・選べない・つなげない・節のハンドラも無い」節に
+   **インラインで** `pointer-events: none` を書く。箱の中にボタン（項目の畳み・
+   データを開く）を置いていたり、触れたときの見た目を `:hover` でやっているので、
+   通し直す必要がある。インラインが相手なので `!important` でしか上書きできない
+   （実測 2026-08-30: 構造図の畳むボタンが押せず、全体像はデータを開けなかった）。 */
+.shape-graph .react-flow__node {
+  pointer-events: auto !important;
 }
 .shape-node {
   box-sizing: border-box;
@@ -8991,13 +9006,12 @@ tr.kz-cols-dropped td {
 .shape-node.is-clickable {
   cursor: pointer;
 }
-.shape-node.is-hot {
+/* ⭐触れたときの見た目は **CSS だけ**でやる。React の state に持つと描き直しの
+   たびに `nodes` が作り直され、React Flow が節を採り直して 1 フレーム辺が消える
+   （＝チカチカする）。 */
+.shape-node:hover {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px var(--primary-soft);
-}
-/* 1 つに触れているあいだ、関係のない箱と線は引っ込む。 */
-.shape-node.is-dim {
-  opacity: 0.35;
 }
 .shape-graph .react-flow__handle {
   opacity: 0;
@@ -9010,9 +9024,6 @@ tr.kz-cols-dropped td {
 .shape-graph .shape-edge--pending .react-flow__edge-path {
   stroke: var(--accent);
   stroke-dasharray: 5 4;
-}
-.shape-graph .shape-edge.is-dim {
-  opacity: 0.25;
 }
 .shape-graph .react-flow__edge-text {
   font-size: 0.6875rem;
@@ -9040,16 +9051,25 @@ tr.kz-cols-dropped td {
 }
 .shape-node-fold {
   flex: none;
-  width: 1.1rem;
-  height: 1.1rem;
+  /* ⭐`display: block` のままだと字形の上下位置で中心がずれる（利用者評価
+     2026-08-30「丸の中心からズレてそう」）。中身は flex で真ん中に置く。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
   padding: 0;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   background: var(--surface-alt);
   color: var(--muted);
-  font-size: 0.75rem;
   line-height: 1;
   cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+/* 閉じているときは右向き、開いたら下向き。 */
+.shape-node-fold.is-open {
+  transform: rotate(90deg);
 }
 .shape-node-fold:hover {
   border-color: var(--primary);
@@ -9109,8 +9129,9 @@ tr.kz-cols-dropped td {
 .ontomap-flow .react-flow__background circle {
   fill: var(--border);
 }
-.ontomap-flow .react-flow__panel {
-  display: none;
+/* 節の中身は押せるボタン（データを開く・つながりを開く）。上と同じ理由で通す。 */
+.ontomap-flow .react-flow__node {
+  pointer-events: auto !important;
 }
 /* ⭐handle は `display: none` にしない。寸法が測れなくなり、React Flow が辺を
    引けなくなる（箱は出るのに線が 1 本も出ない）。見せないのは opacity で。 */
@@ -9139,4 +9160,110 @@ tr.kz-cols-dropped td {
 }
 .ontomap-flow .ontomap-edge.is-on .react-flow__edge-path {
   stroke-width: 2.4;
+}
+
+/* 図の右上「大きく見る」。細い列に貼り付いた図は、節が増えると読める大きさで
+   収まらない — 同じ図を画面いっぱいで開く（利用者評価 2026-08-30）。 */
+.shape-graph {
+  position: relative;
+}
+.shape-graph-expand {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.shape-graph-expand:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+.shape-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgb(22 36 26 / 45%);
+}
+.shape-overlay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* 幅の上限は置かない。横に長い形ほど広い画面を活かしたい（それが
+     「大きく見る」の目的）。 */
+  width: 98vw;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgb(22 36 26 / 25%);
+}
+.shape-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.875rem;
+  color: var(--body);
+}
+.shape-overlay-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.shape-overlay-close:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+
+/* React Flow のコントロール（拡大・縮小・画面ぴったり）をアプリの見た目に。
+   既定はダーク前提の白箱＋濃い影なので、全部トークンに置き換える。 */
+.react-flow__controls {
+  box-shadow: none;
+  gap: 2px;
+}
+.react-flow__controls-button {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0.28rem;
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+.react-flow__controls-button:hover {
+  background: var(--surface-alt);
+  border-color: var(--primary);
+  color: var(--fg);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 100%;
+  max-height: 100%;
+}
+/* 節と同じ理由: React Flow はインラインで `pointer-events` を切ることがある。 */
+.shape-graph .react-flow__controls,
+.ontomap-flow .react-flow__controls {
+  pointer-events: auto !important;
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
+  Controls,
   Handle,
   MarkerType,
   Position,
@@ -181,7 +182,6 @@ type DsData = {
   d: CatalogDataset
   w: number
   h: number
-  on: boolean
   words: { open: string; kinds: string; std: string; selected: string }
   onOpen: () => void
   onHot: (on: boolean) => void
@@ -208,7 +208,7 @@ function DsNode({ data }: NodeProps) {
       <Handle type="source" position={Position.Right} isConnectable={false} />
       <button
         type="button"
-        className={`ontomap-node ontomap-node--ds${n.on ? ' is-selected' : ''}`}
+        className="ontomap-node ontomap-node--ds"
         style={{ width: n.w, height: n.h }}
         title={n.words.open}
         onClick={n.onOpen}
@@ -222,7 +222,9 @@ function DsNode({ data }: NodeProps) {
             <DataIcon size={14} />
           </span>
           <span className="ontomap-node-name">{n.d.name}</span>
-          {n.on && <span className="ontomap-node-badge">{n.words.selected}</span>}
+          {/* 触れているしるしは CSS で出す。React の state に持つと節の配列が
+              作り直され、React Flow が節を採り直して辺が一瞬消える。 */}
+          <span className="ontomap-node-badge">{n.words.selected}</span>
         </span>
         {n.d.classes.length > 0 && (
           <>
@@ -409,7 +411,6 @@ export function OntologyMapView({
           d: n.d,
           w: n.w,
           h: n.h,
-          on: selected === n.d.id,
           words: {
             open: t('map:node.openDs', { name: n.d.name }),
             kinds: t('map:node.kindsHead'),
@@ -456,7 +457,9 @@ export function OntologyMapView({
       })
     }
     return out
-  }, [layout, selected, t, openDataset, openConnections])
+    // ⭐`selected` を deps に入れない。触れるたびに節の配列を作り直すと、React Flow
+    // が節を採り直して**辺が 1 フレーム消える**（＝チカチカする）。強調は辺だけの話。
+  }, [layout, t, openDataset, openConnections])
 
   const flowEdges: Edge2[] = useMemo(() => {
     if (!layout) return []
@@ -618,6 +621,7 @@ export function OntologyMapView({
               proOptions={{ hideAttribution: true }}
             >
               <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+              <Controls showInteractive={false} position="bottom-left" />
             </ReactFlow>
           </div>
         </div>
