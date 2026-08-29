@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.26.0](https://github.com/kumagallium/asterism/compare/v0.25.0...v0.26.0) - 2026-08-29
+
+- docs(manual): かんたんモードの 6 ステップを実 AI で一周して全画面を撮る by @kumagallium in https://github.com/kumagallium/asterism/pull/460
+- feat(kantan): 形の図を React Flow にする — 触れる図にして④と⑤で同じ部品を使う by @kumagallium in https://github.com/kumagallium/asterism/pull/459
+- test(manual): 画面名の陳腐化と生成物の未更新を、機械で捕まえる by @kumagallium in https://github.com/kumagallium/asterism/pull/462
+- feat(ui): 図をぜんぶ React Flow に揃える — 同じものを 2 つの絵の言葉で見せない by @kumagallium in https://github.com/kumagallium/asterism/pull/463
+
 ## [v0.25.0](https://github.com/kumagallium/asterism/compare/v0.24.0...v0.25.0) - 2026-08-29
 
 - docs(manual): 実画面のスクリーンショットを入れる — データ登録の流れが見えるように by @kumagallium in https://github.com/kumagallium/asterism/pull/456
