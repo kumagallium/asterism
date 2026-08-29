@@ -7,6 +7,15 @@
 - **開始時**: [`docs/ROADMAP.md`](docs/ROADMAP.md)（実行状態の単一ソース）と関連 ADR（`docs/architecture/`）を読む。
 - **作業後**: 進捗・新タスク・決定を `docs/ROADMAP.md` に反映する（状態列・直近の一手・更新 log）。
 - 役割分担: **決定は ADR**（`docs/architecture/*.md`）、**実行状態は ROADMAP**。
+- **UI を変えたら `manual/` も同じ PR で直す。** 画面の文言・手順・順序を変えたら、
+  [`manual/ja/`](manual/ja/) の該当章とスクリーンショットを更新し、
+  `python scripts/build_manual_site.py` で [`docs/manual/`](docs/manual/) を作り直してコミットする
+  （GitHub Pages で公開している実物: <https://kumagallium.github.io/asterism/manual/>）。
+  マニュアルは人間向けヘルプであると同時に**設計相談チャットに注入される知識**なので、
+  古いままだと AI が実在しない操作を案内する。照合テスト
+  （`api/tests/test_design_consult.py`）は UI 名の陳腐化を検出するが、
+  **手順の順序や説明文までは見ていない**（実例: #453 がステップを入れ替えたのに
+  `manual/` を更新せず、古い順序のまま公開された）。
 
 ## 不変条件（破らない）
 

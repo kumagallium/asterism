@@ -27,6 +27,11 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 # itself contains a literal 「文言」ボタン — is never mistaken for a real claim).
 _QUOTED_BUTTON_OR_TAB = re.compile(r"「([^」]+)」(?:ボタン|タブ)")
 _QUOTED_MENU = re.compile(r"メニューの「([^」]+)」")
+# 画面・欄の名前も UI の実文言でなければならない。ボタン/タブ/メニューだけを見て
+# いたときに、実在しない画面名 "ID を確かめる" [正しくは "ID のつけかた" の 2 番目]
+# がマニュアルに入り、検査を素通りした。文型を 「…」 + 画面/欄 に絞ってあるのは、
+# 比喩や例示の引用 ["わからないこと" など] まで拾わないため。
+_QUOTED_SCREEN = re.compile(r"「([^」]+)」(?:の)?(?:画面|欄)")
 
 
 def _settings(tmp: Path) -> Settings:
@@ -266,7 +271,8 @@ def test_consult_system_prompt_instructs_kinds_suggestions() -> None:
 def _manual_ui_phrases() -> list[tuple[str, str]]:
     """Every UI-name claim the manual makes — (phrase, source filename) —
     per the getting-started.md/screens.md header-comment convention: buttons
-    as 「文言」ボタン, tabs as 「文言」タブ, sidebar entries as メニューの「文言」.
+    as 「文言」ボタン, tabs as 「文言」タブ, sidebar entries as メニューの「文言」,
+    and screens/fields as 「文言」画面 / 「文言」欄.
     HTML comments are stripped first so the convention's own explanatory
     example (which necessarily contains a literal 「文言」ボタン) is never
     mistaken for a real navigation claim."""
@@ -276,6 +282,9 @@ def _manual_ui_phrases() -> list[tuple[str, str]]:
         for m in _QUOTED_BUTTON_OR_TAB.finditer(text):
             out.append((m.group(1), path.name))
         for m in _QUOTED_MENU.finditer(text):
+            out.append((m.group(1), path.name))
+        # 画面名は行またぎで折り返されることがあるので、改行を畳んでから探す。
+        for m in _QUOTED_SCREEN.finditer(text.replace("\n", "")):
             out.append((m.group(1), path.name))
     return out
 
