@@ -52,8 +52,9 @@ import {
 } from './galleryApi'
 import { ArrowIcon, ConnectIcon, DataIcon, FileIcon, LayersIcon, SearchIcon } from './icons'
 import { IngestProgressView } from './IngestProgressView'
-import { Mermaid } from './Mermaid'
 import { ToolsPanel } from './ToolsPanel'
+import { rulesShape } from './shapeGraph'
+import { ShapeGraph } from './kantan/ShapeGraph'
 import { localName } from './vocab'
 
 export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
@@ -1505,11 +1506,22 @@ function DatasetDetail({
             </>
           )}
 
-          {dataset.mermaid && (
+          {/* 構造図。⑤「ためす」で見た形と**同じ部品**で描く — 同じデータセットを
+              2 つの絵の言葉で見せない（利用者評価 2026-08-29）。ここだけは箱の中に
+              項目も並べる: このページは「何が入っているか」を見に来る場所で、
+              形だけでは足りない。図は AI の散文ではなく保存済みの取り込みルール
+              から組む。 */}
+          {rules && rules.maps.length > 0 && (
             <div className="ds-diagram-block">
               <div className="ds-subhead">{t('gallery:design.diagramSummary')}</div>
               <div className="onto-diagram">
-                <Mermaid chart={dataset.mermaid} />
+                <ShapeGraph
+                  shape={rulesShape(rules, { withFields: true })}
+                  ariaLabel={t('gallery:design.diagramSummary')}
+                  perRow={3}
+                  nodeWidth={248}
+                  maxHeight={720}
+                />
               </div>
             </div>
           )}
