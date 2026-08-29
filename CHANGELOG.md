@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.24.1](https://github.com/kumagallium/asterism/compare/v0.24.0...v0.24.1) - 2026-08-29
+## [v0.25.0](https://github.com/kumagallium/asterism/compare/v0.24.0...v0.25.0) - 2026-08-29
 
 - docs(manual): 実画面のスクリーンショットを入れる — データ登録の流れが見えるように by @kumagallium in https://github.com/kumagallium/asterism/pull/456
 - feat(kantan): ⑤に「できあがった形」を出し、AI の名づけを標準の綴りに寄せる by @kumagallium in https://github.com/kumagallium/asterism/pull/458
