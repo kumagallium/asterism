@@ -69,8 +69,9 @@ import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
-import { basename, rulesMermaid } from '../skeletonDiagram'
-import { Mermaid } from '../Mermaid'
+import { basename } from '../skeletonDiagram'
+import { rulesShape } from '../shapeGraph'
+import { ShapeGraph } from './ShapeGraph'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
 import {
   fetchDatasetProposal,
@@ -4250,8 +4251,7 @@ export function KantanWizard({
 
   /** ⑤「ためす」の右に貼り付く、できあがった形。保存済みの取り込みルールから
    *  決定論で組む。種類が 1 つしか無いときは箱 1 つの絵で何も言わないので出さない。 */
-  const s7Diagram =
-    rules && rules.maps.length > 1 ? rulesMermaid(rules, { direction: 'TD' }) : ''
+  const s7Shape = rules && rules.maps.length > 1 ? rulesShape(rules) : null
   const s6Maps = rules?.maps ?? []
   // Does each unit on this screen actually land on a standard? Until now a person
   // could type any spelling here and nothing said whether it reached one — the QUDT
@@ -5384,10 +5384,10 @@ export function KantanWizard({
                 したあとに「何ができたのか」を絵で確かめられる（利用者評価
                 2026-08-28）。図は AI が書いた §1 の散文ではなく**保存済みの
                 取り込みルール**から組む — 説明ではなく事実を描く。 */}
-            {s7Diagram && (
+            {s7Shape && (
               <aside className="skeleton-zone-map">
                 <div className="skeleton-diagram">
-                  <Mermaid chart={s7Diagram} />
+                  <ShapeGraph shape={s7Shape} ariaLabel={t('kantan:s7.diagramNote')} />
                   <p className="skeleton-diagram-note">{t('kantan:s7.diagramNote')}</p>
                 </div>
               </aside>
