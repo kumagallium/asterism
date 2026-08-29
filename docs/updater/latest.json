@@ -1,11 +1,11 @@
 {
-  "version": "0.26.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a473ae7cfb2fdc5bd8eb00545b54bcd2f962ba35 -->\n\n## What's Changed\n* docs(manual): かんたんモードの 6 ステップを実 AI で一周して全画面を撮る by @kumagallium in https://github.com/kumagallium/asterism/pull/460\n* feat(kantan): 形の図を React Flow にする — 触れる図にして④と⑤で同じ部品を使う by @kumagallium in https://github.com/kumagallium/asterism/pull/459\n* test(manual): 画面名の陳腐化と生成物の未更新を、機械で捕まえる by @kumagallium in https://github.com/kumagallium/asterism/pull/462\n* feat(ui): 図をぜんぶ React Flow に揃える — 同じものを 2 つの絵の言葉で見せない by @kumagallium in https://github.com/kumagallium/asterism/pull/463\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.25.0...v0.26.0",
-  "pub_date": "2026-08-29T06:58:32Z",
+  "version": "0.27.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ce1ba3934e886a0a021a4121dc88b68e819f0cce -->\n\n## What's Changed\n* fix(ui): 図に触ると揺れるのを直し、押せなくなっていた節を通す by @kumagallium in https://github.com/kumagallium/asterism/pull/464\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.26.0...v0.27.0",
+  "pub_date": "2026-08-29T23:01:03Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWVhZkxPM3FHTkZ5eFlBU2IzV0trbVk2cXRmVXFNSWNlR3UrUXE3K0l3bjJPVTJMZ0I4VGdwS0ZNaWxCd0w4NTA4QVBsb0ZtRVpFT3UwbnFBKzcweHc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTg2NzEyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjhzVEdGYnlKdlM3bnl6aUVDUVFmMU5FemU0OTQ2ejkzZU1uRmJMZTBsZEFuNUFOZ25CRmFQYWQxcFY1NktINWsyMWZObXJvYzgyeTBHS0ppZVdibERRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.26.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJRM0FHV2JPemtxbDh5MDh1K2dsa1lZNno5M2FlenRBT0NnRWpObmg1RlRUZ3ljcHByVExTV012cUFvRk1ZRlZmSkN3ZVVuYVcxdi96MHZ0UCt0VXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MDQ0NDYzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjBtcFVsUjV2d0h1Y015SGZ2SkY2T0xMY0ZQaXRaVEdSTDlRTnVPNmF3dGRJZjBMWGtnWlQwLzRxenNSTW5wdnl3VmxreVBJREYxZUxaRGdWbzJZSUR3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.27.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
