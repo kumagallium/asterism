@@ -109,7 +109,8 @@
     "colValue": "Value",
     "colCarrier": "Carried by",
     "idAria": "Give {{column}} its own ID",
-    "varies": "varies per record"
+    "varies": "varies per record",
+    "diagramAria": "A diagram of the shape this design makes. Boxes are kinds of data; arrows are the links between them."
   },
   "removeZoneHost": "This kind holds the file-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",

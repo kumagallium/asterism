@@ -7534,7 +7534,7 @@ tr.kz-attn td {
    セレクトの並ぶ表がつぶれる）。 */
 .skeleton-zone-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 15rem;
+  grid-template-columns: minmax(0, 1fr) 17rem;
   gap: var(--space-3);
   align-items: start;
 }
@@ -8944,4 +8944,97 @@ tr.kz-cols-dropped td {
   padding-left: 0.6rem;
   text-align: right;
   white-space: nowrap;
+}
+
+/* ── かんたん層の「形」の図（React Flow） ─────────────────────────────────
+   ④は予告、⑤は結果。同じ部品・同じ場所・同じ向きで描く。詳細モードは今も
+   mermaid（幅いっぱいの静止画）で、こちらは触れる図。 */
+.shape-graph {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+/* React Flow の既定色はダーク前提の灰色。全部アプリのトークンに置き換える。 */
+.shape-graph .react-flow__background path,
+.shape-graph .react-flow__background circle {
+  fill: var(--border);
+}
+.shape-graph .react-flow__panel {
+  display: none;
+}
+.shape-node {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-word;
+  transition:
+    opacity 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+/* 箱の性格は**役割**で塗る。ファイル全体で 1 件のものは、他と地色が違う。 */
+.shape-node--whole {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+.shape-node--value {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.shape-node.is-clickable {
+  cursor: pointer;
+}
+.shape-node.is-hot {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+/* 1 つに触れているあいだ、関係のない箱と線は引っ込む。 */
+.shape-node.is-dim {
+  opacity: 0.35;
+}
+.shape-graph .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.shape-graph .react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.shape-graph .react-flow__arrowhead polyline,
+.shape-graph .react-flow__arrowhead path {
+  stroke: var(--border-strong);
+  fill: var(--border-strong);
+}
+.shape-graph .shape-edge--pending .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-dasharray: 5 4;
+}
+.shape-graph .shape-edge--pending .react-flow__arrowhead polyline,
+.shape-graph .shape-edge--pending .react-flow__arrowhead path {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+.shape-graph .shape-edge.is-dim {
+  opacity: 0.25;
+}
+.shape-graph .react-flow__edge-text {
+  font-size: 0.6875rem;
+  fill: var(--muted);
+}
+.shape-graph .react-flow__edge-textbg {
+  fill: var(--surface-alt);
+}
+.shape-graph .shape-edge--pending .react-flow__edge-text {
+  fill: var(--accent-strong);
 }

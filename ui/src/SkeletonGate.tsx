@@ -25,6 +25,8 @@ import {
   containmentParentsForColumns,
   skeletonMermaid,
 } from './skeletonDiagram'
+import { skeletonShape, type ShapeTone } from './shapeGraph'
+import { ShapeGraph } from './kantan/ShapeGraph'
 
 /** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
 interface KindBlock {
@@ -1701,22 +1703,39 @@ export function SkeletonGate({
   const pendingEdges: [string, string][] = zone
     ? [...new Set(zone.kindOf.values())].map((n) => [zone.host.name, n])
     : []
+  /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
+   *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
+  const diagramTone = (m: SkeletonMap): ShapeTone => {
+    if (!zone) return 'record'
+    if (m.name === zone.host.name) return 'whole'
+    return [...zone.kindOf.values()].includes(m.name) ? 'value' : 'record'
+  }
   const diagram = (
     <div className="skeleton-diagram">
+      {plain ? (
+        /* かんたん層だけ触れる図にする。箱が増えるのも線が引かれるのもこの画面の
+           操作の結果なので、押して②の種類へ飛べると往復が減る。詳細モードは
+           mermaid のまま — あちらは幅いっぱいの静止画で、読む人も違う。 */
+        <ShapeGraph
+          shape={skeletonShape(skeleton, {
+            label: diagramLabel,
+            tone: diagramTone,
+            edgeLabel: t('workbench:skeleton.diagram.edge'),
+            pendingEdges,
+            pendingLabel: t('skeletongate:zone.diagramPending'),
+          })}
+          ariaLabel={t('skeletongate:zone.diagramAria')}
+          onNodeClick={setOpenKind}
+        />
+      ) : (
       <Mermaid
         chart={skeletonMermaid(
           skeleton,
           t('workbench:skeleton.diagram.edge'),
-          plain
-            ? {
-                direction: 'TD',
-                label: diagramLabel,
-                pendingEdges,
-                pendingLabel: t('skeletongate:zone.diagramPending'),
-              }
-            : {},
+          {},
         )}
       />
+      )}
       <p className="skeleton-diagram-note">
         {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
       </p>
