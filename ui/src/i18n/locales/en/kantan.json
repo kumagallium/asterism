@@ -409,7 +409,8 @@
     "techSummary": "Details (technical)",
     "ok": "Looks right — on to publish",
     "back": "Something is off — back to item meanings",
-    "notTakenIn": "{{count}} column(s) are not in the dataset yet ({{list}} …). Give them a meaning on the meanings screen and the next pass takes them in."
+    "notTakenIn": "{{count}} column(s) are not in the dataset yet ({{list}} …). Give them a meaning on the meanings screen and the next pass takes them in.",
+    "diagramNote": "The shape this design produces. An arrow means “this kind points at that kind”."
   },
   "s8": {
     "title": "Publish",
@@ -493,9 +494,9 @@
     "note": "The AI drafted these. Edit any cell directly (no AI runs here). To leave a column out, clear the checkbox on the right.",
     "noDraft": "No draft arrived from the AI. Fill the blanks in yourself and you can carry straight on.",
     "zone_preamble": "① Values for the whole file",
-    "zoneWhy_preamble": "{{count}} written once, at the top of the file",
-    "zone_table": "② Values per row",
-    "zoneWhy_table": "{{count}} laid out down the table",
+    "zoneWhy_preamble": "{{count}} column(s) written once, at the top of the file",
+    "zone_table": "② Values for one record",
+    "zoneWhy_table": "{{count}} column(s) written again for every record",
     "colColumn": "Column",
     "colMeaning": "What the value means",
     "colUnit": "Unit (if any)",

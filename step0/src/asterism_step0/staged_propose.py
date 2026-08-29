@@ -174,6 +174,13 @@ Rules:
 - classes are CURIEs; declare every prefix you use in `prefixes` (xsd: is
   builtin — never declare it). Reuse standard vocabularies (schema:, dcterms:,
   prov:, bibo:) rather than minting new classes when a standard fits.
+- SPELL A CLASS THE WAY THE STANDARD SPELLS IT. When a class you mint means the
+  same thing as one of the names under "# Standard class names", use that name
+  VERBATIM in your own prefix (`CrystalStructure`, not `Crystal`) — the exact
+  spelling is what lets a later step offer the standard term to the reviewer as
+  a one-click confirmation. This is a SPELLING preference, not a claim that the
+  two are the same thing: when nothing in that list means what your class means,
+  keep the word the data itself uses and do NOT force-fit a listed name.
 - source: copy the filename character-for-character from the inspection
   (`## CSV:` / `## JSON:` / `## XML:`). Never append/rename/invent a suffix.
 - XML/JATS sources add `iterator:` copied verbatim from the `## XML:` table and
@@ -954,6 +961,9 @@ def build_skeleton_user(
         f"# Domain context\n\n{domain_hint.strip()}\n\n"
         f"{dataset_namespace_block(iri_base)}\n"
     )
+    spellings = render_standard_class_names()
+    if spellings:
+        msg += f"\n{spellings}\n\n"
     rethink = render_rethink_request(current_skeleton, request, pinned)
     if rethink:
         msg += f"{rethink}\n\n"
@@ -966,6 +976,52 @@ def build_skeleton_user(
     msg += "Return the skeleton as a single JSON object."
     lang = language_instruction(language)
     return f"{msg}\n\n{lang}\n" if lang else msg
+
+
+def standard_class_names() -> list[tuple[str, str]]:
+    """The class spellings the curated external vocabularies already use.
+
+    A closed, curated set (~45 names) — small enough to hand the proposer whole,
+    unlike a ranked search that would need a query it does not have yet. The
+    catalog lives in the ingest package; when that is not importable (step0 is
+    installable on its own) the block simply does not appear, and naming falls
+    back to the data's own words.
+    """
+    try:  # pragma: no cover - exercised only where ingest is absent
+        from asterism.grounding import catalog_terms  # type: ignore[import-not-found]
+    except Exception:
+        return []
+    seen: dict[str, str] = {}
+    for term in catalog_terms(kind="class"):
+        # 同じ綴りが 2 つの語彙にあるとき（schema:Person / foaf:Person）は
+        # 綴りが同じなのだから 1 行でよい。ラベルは先勝ちで固定する。
+        seen.setdefault(term.name, term.label)
+    return sorted(seen.items())
+
+
+def render_standard_class_names() -> str:
+    """The spelling list as it rides the skeleton message (ADR external-standard §8).
+
+    Names only — no IRIs, no prefixes. Handing over CURIEs would invite the
+    model to WRITE `cmso:CrystalStructure` into the mapping, which claims an
+    identity nobody vetted; the alignment step exists to have a human confirm
+    that. What the model may take from here is the word.
+    """
+    names = standard_class_names()
+    if not names:
+        return ""
+    lines = [
+        "# Standard class names",
+        "Widely used vocabularies already spell these classes this way. When one"
+        " of them means the same thing as a class you are minting, mint it under"
+        " YOUR prefix with THIS spelling. When none of them fits, use the data's"
+        " own word — do not force-fit.",
+    ]
+    lines += [
+        f"- `{name}`" + (f" — {label}" if label and label != name else "")
+        for name, label in names
+    ]
+    return "\n".join(lines)
 
 
 def render_owned_elsewhere(owned_elsewhere: Mapping[str, str] | None) -> str:

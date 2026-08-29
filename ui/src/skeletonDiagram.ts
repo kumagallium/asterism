@@ -1,4 +1,5 @@
 import type { MappingSkeleton, SkeletonMap } from './api'
+import type { DatasetRules, RuleMap } from './galleryApi'
 
 /** The tail of a path, both slash styles — `m.source` and dropped `File`
  *  names are already bare filenames in practice, but this is a one-line
@@ -136,4 +137,58 @@ export function containmentParents(
   const self = skeleton.maps.find((m) => m.name === mapName)
   if (!self) return []
   return containmentParentsForColumns(skeleton, [...templateVars(self)], mapName)
+}
+
+/** ⑤で見せる「できあがった形」。骨格の図（`skeletonMermaid`）が **ID の入れ子だけ**
+ *  から線を推し量っていたのに対して、こちらは**保存済みの取り込みルールそのもの**
+ *  を読む。④で点線だった「このあと機械が引きます」が、実際に引かれた線として同じ
+ *  位置に出る — 同じ形が 2 度、予告と結果として並ぶのが狙い（利用者評価 2026-08-28
+ *  「最終的にできるクラス図がここにあると便利」）。
+ *
+ *  線を引くのは、ある種類の項目の**行き先が別の種類そのもの**になっているとき:
+ *  join（親マップ参照）・同じ ID の作り方を指すテンプレート・同じ定数 IRI の 3 通り。
+ *  値（リテラル）を書いている項目は形ではないので描かない。 */
+export function rulesMermaid(
+  rules: DatasetRules,
+  opts: {
+    direction?: 'LR' | 'TD'
+    /** 箱の呼び方。省略するとクラスの表示名（無ければマップ名）。 */
+    label?: (m: RuleMap) => string
+  } = {},
+): string {
+  const ids = new Map<string, string>()
+  rules.maps.forEach((m, i) => {
+    let id = m.id.replace(/[^A-Za-z0-9_]/g, '_') || 'map'
+    if ([...ids.values()].includes(id)) id = `${id}_${i}`
+    ids.set(m.id, id)
+  })
+  const defaultLabel = (m: RuleMap): string => {
+    const iri = (m.subject.class_iris ?? [])[0]
+    const named = iri ? rules.labels?.[iri] : undefined
+    return named || (m.subject.classes ?? [])[0]?.split(':').pop() || m.id
+  }
+  const lines = [`flowchart ${opts.direction ?? 'TD'}`]
+  for (const m of rules.maps) {
+    const label = (opts.label ?? defaultLabel)(m)
+    lines.push(`  ${ids.get(m.id)!}["${label.replace(/"/g, "'")}"]`)
+  }
+  const drawn = new Set<string>()
+  for (const a of rules.maps) {
+    for (const p of a.properties) {
+      const b = rules.maps.find(
+        (x) =>
+          x.id !== a.id &&
+          ((p.parent_map != null && p.parent_map === x.id) ||
+            (!!p.template && p.template === x.subject.template) ||
+            (!!p.constant && p.constant_is_iri === true && p.constant === x.subject.constant)),
+      )
+      if (!b) continue
+      const pair = `${a.id} ${b.id}`
+      if (drawn.has(pair)) continue
+      drawn.add(pair)
+      const edge = (p.label || p.predicate.split(/[:#/]/).pop() || '').replace(/[|"]/g, ' ')
+      lines.push(`  ${ids.get(a.id)!} -->${edge ? `|${edge}|` : ''} ${ids.get(b.id)!}`)
+    }
+  }
+  return lines.join('\n')
 }

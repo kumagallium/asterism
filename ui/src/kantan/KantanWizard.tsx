@@ -69,7 +69,8 @@ import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
-import { basename } from '../skeletonDiagram'
+import { basename, rulesMermaid } from '../skeletonDiagram'
+import { Mermaid } from '../Mermaid'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
 import {
   fetchDatasetProposal,
@@ -4247,6 +4248,10 @@ export function KantanWizard({
   const uploadPct =
     up?.phase === 'upload' && up.total ? Math.floor((100 * (up.done ?? 0)) / up.total) : null
 
+  /** ⑤「ためす」の右に貼り付く、できあがった形。保存済みの取り込みルールから
+   *  決定論で組む。種類が 1 つしか無いときは箱 1 つの絵で何も言わないので出さない。 */
+  const s7Diagram =
+    rules && rules.maps.length > 1 ? rulesMermaid(rules, { direction: 'TD' }) : ''
   const s6Maps = rules?.maps ?? []
   // Does each unit on this screen actually land on a standard? Until now a person
   // could type any spelling here and nothing said whether it reached one — the QUDT
@@ -5140,6 +5145,8 @@ export function KantanWizard({
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s7.title')}</h3>
           <p className="kz-note">{t('kantan:s7.lead')}</p>
+          <div className="skeleton-zone-layout">
+            <div>
           {trialLoading && (
             <p className="kz-note" role="status">
               <span className="spinner" />
@@ -5371,6 +5378,21 @@ export function KantanWizard({
               )}
             </div>
           </details>
+            </div>
+            {/* ④で点線だった「このあと機械が引きます」が、ここでは実線になって
+                同じ位置に出る。予告と結果が同じ形・同じ場所なので、設計を一周
+                したあとに「何ができたのか」を絵で確かめられる（利用者評価
+                2026-08-28）。図は AI が書いた §1 の散文ではなく**保存済みの
+                取り込みルール**から組む — 説明ではなく事実を描く。 */}
+            {s7Diagram && (
+              <aside className="skeleton-zone-map">
+                <div className="skeleton-diagram">
+                  <Mermaid chart={s7Diagram} />
+                  <p className="skeleton-diagram-note">{t('kantan:s7.diagramNote')}</p>
+                </div>
+              </aside>
+            )}
+          </div>
           <div className="kz-actions">
             <button
               type="button"

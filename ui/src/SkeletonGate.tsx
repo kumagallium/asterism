@@ -2534,7 +2534,9 @@ export function SkeletonGate({
                             ? t('skeletongate:zone.variesWith', {
                                 values: samples.join(t('skeletongate:key.listSeparator')),
                               })
-                            : t('workbench:skeleton.evidence.cardVaries')}
+                            : /* ゾーンはかんたん層専用なので、詳細モードの語彙
+                                 （「行ごと」）ではなく自分の言葉を持つ。 */
+                              t('skeletongate:zone.varies')}
                         </td>
                         <td className="skeleton-zone-tag">
                           {kindName
