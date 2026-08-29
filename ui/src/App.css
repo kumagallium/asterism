@@ -8416,20 +8416,25 @@ tr.kz-cols-dropped td {
    いた。1 枚の絵に集める。
    -------------------------------------------------------------------------- */
 .xw-diagram {
-  display: flex;
-  align-items: stretch;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-alt);
+  overflow: hidden;
+}
+.xw-diagram .react-flow__panel {
+  display: none;
+}
+.xw-diagram .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
 }
 .xw-diagram-node {
-  flex: 1 1 9rem;
-  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 0.1rem;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border-strong);
@@ -8441,37 +8446,40 @@ tr.kz-cols-dropped td {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--fg);
+  /* 名前の長さは読めない（利用者のデータ名）。2 行で省略し、全文は title に。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 /* 項目名はファイル側の見出し＝人が書いた文字列なので、名前とは別の声で。 */
 .xw-diagram-field {
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: 0.8rem;
   color: var(--muted);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 中央。線は飾りではなく「つながっている」ことそのものなので、色はつながりの
    意味色（--link）を使う（ui-guidelines §1: 処理・つながり＝青）。 */
-.xw-diagram-link {
-  flex: 1 1 11rem;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.xw-diagram-line {
-  flex: 1 1 0.75rem;
-  height: 1px;
-  min-width: 0.75rem;
-  background: var(--link);
-}
-.xw-diagram-link-text {
+.xw-diagram-hub {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.1rem;
-  min-width: 0;
+  padding: var(--space-2);
   text-align: center;
+}
+.xw-diagram .react-flow__edge-path {
+  stroke: var(--link);
+  stroke-width: 1.5;
+  fill: none;
 }
 .xw-diagram-head {
   font-size: 0.85rem;
@@ -8482,18 +8490,6 @@ tr.kz-cols-dropped td {
   font-size: 0.8rem;
   color: var(--muted);
   overflow-wrap: anywhere;
-}
-/* 3 つ以上つながる設計では横一列が崩れるので、ラベルを上に出してノードを並べる。 */
-.xw-diagram--stack {
-  flex-direction: column;
-  align-items: center;
-}
-.xw-diagram--stack .xw-diagram-nodes {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-  width: 100%;
 }
 
 /* つなぎ方の候補カード: 「つながるデータ / 両方にある値 / 同じとみなす」の 3 行。
@@ -9011,19 +9007,9 @@ tr.kz-cols-dropped td {
   stroke: var(--border-strong);
   stroke-width: 1.5;
 }
-.shape-graph .react-flow__arrowhead polyline,
-.shape-graph .react-flow__arrowhead path {
-  stroke: var(--border-strong);
-  fill: var(--border-strong);
-}
 .shape-graph .shape-edge--pending .react-flow__edge-path {
   stroke: var(--accent);
   stroke-dasharray: 5 4;
-}
-.shape-graph .shape-edge--pending .react-flow__arrowhead polyline,
-.shape-graph .shape-edge--pending .react-flow__arrowhead path {
-  stroke: var(--accent);
-  fill: var(--accent);
 }
 .shape-graph .shape-edge.is-dim {
   opacity: 0.25;
@@ -9037,4 +9023,120 @@ tr.kz-cols-dropped td {
 }
 .shape-graph .shape-edge--pending .react-flow__edge-text {
   fill: var(--accent-strong);
+}
+
+/* 項目つきの箱（データセット詳細の構造図）。見出しと項目の高さは
+   `shapeGraph.nodeHeight` と一致していること — 並べかたは自前の計算なので、
+   ずれると箱が重なる。 */
+.shape-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0 0.5rem;
+  box-sizing: border-box;
+  font-weight: 600;
+}
+.shape-node-fold {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.shape-node-fold:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+.shape-node-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.5rem 0.3rem;
+  width: 100%;
+  box-sizing: border-box;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+.shape-node-fields li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  overflow: hidden;
+}
+.shape-field-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--body);
+}
+.shape-field-unit,
+.shape-field-type {
+  flex: none;
+  font-size: 0.6875rem;
+  color: var(--faint);
+}
+.shape-field-unit {
+  color: var(--accent-strong);
+}
+/* 項目を並べる箱は、中身が上から積まれる（かんたん層の 1 行の箱は中央寄せ）。 */
+.shape-node:has(.shape-node-fields) {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+/* 全体像も React Flow で描く（レーンの座標は自前のまま）。 */
+.ontomap-flow {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+.ontomap-flow .react-flow__background path,
+.ontomap-flow .react-flow__background circle {
+  fill: var(--border);
+}
+.ontomap-flow .react-flow__panel {
+  display: none;
+}
+/* ⭐handle は `display: none` にしない。寸法が測れなくなり、React Flow が辺を
+   引けなくなる（箱は出るのに線が 1 本も出ない）。見せないのは opacity で。 */
+.ontomap-flow .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+/* 節の中身は従来のまま。位置決めだけ React Flow に渡したので、絶対配置は外す。 */
+.ontomap-flow .ontomap-node,
+.ontomap-flow .ontomap-lane-head {
+  position: static;
+}
+.ontomap-flow .react-flow__edge-path {
+  stroke: var(--link);
+  stroke-width: 1.6;
+  fill: none;
+}
+.ontomap-flow .ontomap-edge--dotted .react-flow__edge-path {
+  stroke: var(--faint);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 4;
+}
+/* 1 つのデータに触れているあいだ、関係のない線は引っ込む。 */
+.ontomap-flow .ontomap-edge.is-dim {
+  opacity: 0.25;
+}
+.ontomap-flow .ontomap-edge.is-on .react-flow__edge-path {
+  stroke-width: 2.4;
 }

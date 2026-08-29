@@ -18,13 +18,11 @@ import {
   STANDARD_VOCAB_IRIS,
 } from './datasetNamespace'
 import { TrashIcon } from './icons'
-import { Mermaid } from './Mermaid'
 import {
   basename,
   containmentParents,
   containmentParentsForColumns,
-  skeletonMermaid,
-} from './skeletonDiagram'
+} from './skeletonContainment'
 import { skeletonShape, type ShapeTone } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
 
@@ -1687,7 +1685,8 @@ export function SkeletonGate({
   // that should be two is visible here before any table reading — but with a
   // single kind the picture says nothing, and on the kantan tier it pushed the
   // thing the human must actually confirm below the fold.
-  const diagramLinked = skeletonMermaid(skeleton, '|').includes('-->')
+  // 線が 1 本でも引けるか。図と同じ組み立てに聞く（別々に数えると食い違う）。
+  const diagramLinked = skeletonShape(skeleton, { label: (m) => m.name }).edges.length > 0
   /** かんたん層の図の箱の呼び方 — ①のセレクトと同じ語彙。AI が付けた名前は
    *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
   const diagramLabel = (m: SkeletonMap): string => {
@@ -1710,32 +1709,29 @@ export function SkeletonGate({
     if (m.name === zone.host.name) return 'whole'
     return [...zone.kindOf.values()].includes(m.name) ? 'value' : 'record'
   }
+  /** 詳細モードの箱の呼び方 — 従来の mermaid の既定と同じ「map 名（クラス名）」。 */
+  const detailLabel = (m: SkeletonMap): string => {
+    const cls = (m.subject.classes ?? [])[0]?.split(':').pop()
+    return cls && cls !== m.name ? `${m.name}（${cls}）` : m.name
+  }
   const diagram = (
     <div className="skeleton-diagram">
-      {plain ? (
-        /* かんたん層だけ触れる図にする。箱が増えるのも線が引かれるのもこの画面の
-           操作の結果なので、押して②の種類へ飛べると往復が減る。詳細モードは
-           mermaid のまま — あちらは幅いっぱいの静止画で、読む人も違う。 */
-        <ShapeGraph
-          shape={skeletonShape(skeleton, {
-            label: diagramLabel,
-            tone: diagramTone,
-            edgeLabel: t('workbench:skeleton.diagram.edge'),
-            pendingEdges,
-            pendingLabel: t('skeletongate:zone.diagramPending'),
-          })}
-          ariaLabel={t('skeletongate:zone.diagramAria')}
-          onNodeClick={setOpenKind}
-        />
-      ) : (
-      <Mermaid
-        chart={skeletonMermaid(
-          skeleton,
-          t('workbench:skeleton.diagram.edge'),
-          {},
-        )}
+      {/* 図はどの層でも同じ部品。かんたん層は①の語彙で短く呼び、詳細モードは
+          map 名（＋クラス名）で呼ぶ — 呼び方だけが違う。押して②の種類へ飛べる
+          のは両方で役に立つ（箱が増えるのはこの画面の操作の結果）。 */}
+      <ShapeGraph
+        shape={skeletonShape(skeleton, {
+          label: plain ? diagramLabel : detailLabel,
+          tone: diagramTone,
+          edgeLabel: t('workbench:skeleton.diagram.edge'),
+          pendingEdges: plain ? pendingEdges : undefined,
+          pendingLabel: t('skeletongate:zone.diagramPending'),
+        })}
+        ariaLabel={t('skeletongate:zone.diagramAria')}
+        onNodeClick={setOpenKind}
+        perRow={plain ? 2 : 3}
+        nodeWidth={plain ? undefined : 176}
       />
-      )}
       <p className="skeleton-diagram-note">
         {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
       </p>
@@ -1900,7 +1896,7 @@ export function SkeletonGate({
     // positive fact, not just visible as a diagram edge or a
     // scope-missing WARNING (which only fires when the containment
     // is MISSING). Same containment rule as the diagram edge
-    // (`skeletonMermaid`'s edges), read from the LIVE skeleton (not
+    // (`skeletonShape`'s edges), read from the LIVE skeleton (not
     // `ann`, which lags a key edit by one re-check and would go
     // dark exactly when files are gone — the one moment structure
     // should still be visible). No parent (a lone map, or one whose

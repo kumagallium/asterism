@@ -1,4 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  Background,
+  BackgroundVariant,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  type Edge as Edge2,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   type Alignment,
@@ -37,7 +49,7 @@ type Box = { x: number; y: number; w: number; h: number }
 type DsBox = Box & { d: CatalogDataset }
 type HubBox = Box & { p: CrosswalkPerspective; name: string; concepts: string }
 type ExtBox = Box & { prefix: string; what: string }
-type Edge = { from: Box; to: Box; dsId?: string }
+type Edge = { fromId: string; toId: string; dsId?: string }
 
 type Layout = {
   ds: DsBox[]
@@ -115,7 +127,7 @@ function buildLayout(
         const key = `${dn.d.id}->${hn.p.perspective_id}`
         if (solidSeen.has(key)) continue
         solidSeen.add(key)
-        solid.push({ from: dn, to: hn, dsId: dn.d.id })
+        solid.push({ fromId: nodeId.ds(dn.d.id), toId: nodeId.hub(hn.p.perspective_id), dsId: dn.d.id })
       }
     }
   }
@@ -129,7 +141,7 @@ function buildLayout(
         const key = `${dn.d.id}->${r.prefix}`
         if (seen.has(key)) continue
         seen.add(key)
-        dotted.push({ from: dn, to: en, dsId: dn.d.id })
+        dotted.push({ fromId: nodeId.ds(dn.d.id), toId: nodeId.ext(r.prefix), dsId: dn.d.id })
       }
     }
   }
@@ -144,14 +156,12 @@ function buildLayout(
   return { ds, hubs, ext, solid, dotted, width: LANE_EXT.x + LANE_EXT.w, height }
 }
 
-// Cubic bezier from a box's right edge to another box's left edge.
-function edgePath(e: Edge): string {
-  const x1 = e.from.x + e.from.w
-  const y1 = e.from.y + e.from.h / 2
-  const x2 = e.to.x
-  const y2 = e.to.y + e.to.h / 2
-  const dx = Math.max(40, (x2 - x1) * 0.5)
-  return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`
+/** 節の id。3 つのレーンで名前がぶつからないように前置きを付ける。 */
+const nodeId = {
+  ds: (id: string) => `ds:${id}`,
+  hub: (id: string) => `hub:${id}`,
+  ext: (prefix: string) => `ext:${prefix}`,
+  lane: (key: string) => `lane:${key}`,
 }
 
 type MapData = {
@@ -160,27 +170,131 @@ type MapData = {
   alignments: Alignment[]
 }
 
-function LaneHead({
-  x,
-  w,
-  color,
-  label,
-  en,
-}: {
-  x: number
+/* ── 全体像の節（React Flow）─────────────────────────────────────────────────
+   図はどこも同じ engine で描く（利用者の指示 2026-08-29）。並べかたは
+   `buildLayout` のまま — 3 レーンの座標はこの画面の意味そのもので、自動整列に
+   任せると以前の「毛玉」に戻る。React Flow に任せるのは**描画と操作**（拡大・
+   移動・辺の経路）だけ。 */
+
+type LaneData = { color: string; label: string; en: string; w: number }
+type DsData = {
+  d: CatalogDataset
   w: number
-  color: string
-  label: string
-  en: string
-}) {
+  h: number
+  on: boolean
+  words: { open: string; kinds: string; std: string; selected: string }
+  onOpen: () => void
+  onHot: (on: boolean) => void
+}
+type HubData = { name: string; concepts: string; w: number; h: number; title: string; open: string; onOpen: () => void }
+type ExtData = { prefix: string; what: string; w: number; h: number }
+
+function LaneNode({ data }: NodeProps) {
+  const d = data as LaneData
   return (
-    <div className="ontomap-lane-head" style={{ left: x, width: w }}>
-      <span className="ontomap-lane-dot" style={{ background: color }} />
-      <span className="ontomap-lane-label">{label}</span>
-      <span className="ontomap-lane-en">{en}</span>
+    <div className="ontomap-lane-head" style={{ width: d.w }}>
+      <span className="ontomap-lane-dot" style={{ background: d.color }} />
+      <span className="ontomap-lane-label">{d.label}</span>
+      <span className="ontomap-lane-en">{d.en}</span>
     </div>
   )
 }
+
+function DsNode({ data }: NodeProps) {
+  const n = data as DsData
+  const std = [...new Set((n.d.reuses ?? []).map((r) => r.prefix))].slice(0, 3)
+  return (
+    <>
+      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <button
+        type="button"
+        className={`ontomap-node ontomap-node--ds${n.on ? ' is-selected' : ''}`}
+        style={{ width: n.w, height: n.h }}
+        title={n.words.open}
+        onClick={n.onOpen}
+        onMouseEnter={() => n.onHot(true)}
+        onMouseLeave={() => n.onHot(false)}
+        onFocus={() => n.onHot(true)}
+        onBlur={() => n.onHot(false)}
+      >
+        <span className="ontomap-node-head">
+          <span className="ontomap-node-chip ontomap-node-chip--ds">
+            <DataIcon size={14} />
+          </span>
+          <span className="ontomap-node-name">{n.d.name}</span>
+          {n.on && <span className="ontomap-node-badge">{n.words.selected}</span>}
+        </span>
+        {n.d.classes.length > 0 && (
+          <>
+            {/* The pills are the design's own English class names. They stay
+                as they are — they name what is in the data — but a heading
+                says WHAT they are, so they do not read as stray tokens. */}
+            <span className="ontomap-node-std-label">{n.words.kinds}</span>
+            <span className="ontomap-node-pills">
+              {n.d.classes.slice(0, 4).map((c) => (
+                <span key={c} className="ontomap-pill">
+                  {c}
+                </span>
+              ))}
+            </span>
+          </>
+        )}
+        {std.length > 0 && (
+          <span className="ontomap-node-std">
+            <span className="ontomap-node-std-label">{n.words.std}</span>
+            {std.map((x) => (
+              <span key={x} className="ontomap-node-std-tok">
+                {x}
+              </span>
+            ))}
+          </span>
+        )}
+      </button>
+    </>
+  )
+}
+
+function HubNode({ data }: NodeProps) {
+  const n = data as HubData
+  return (
+    <>
+      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <button
+        type="button"
+        className="ontomap-node ontomap-node--hub"
+        style={{ width: n.w, height: n.h, font: 'inherit', color: 'inherit' }}
+        title={n.open}
+        onClick={n.onOpen}
+      >
+        <span className="ontomap-node-head">
+          <span className="ontomap-node-chip ontomap-node-chip--hub">
+            <ConnectIcon size={14} />
+          </span>
+          <span className="ontomap-node-name" title={n.title}>
+            {n.name}
+          </span>
+        </span>
+        {n.concepts && <span className="ontomap-hub-key">{n.concepts}</span>}
+      </button>
+      <Handle type="source" position={Position.Right} isConnectable={false} />
+    </>
+  )
+}
+
+function ExtNode({ data }: NodeProps) {
+  const n = data as ExtData
+  return (
+    <>
+      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <div className="ontomap-node ontomap-node--ext" style={{ width: n.w, height: n.h }}>
+        <span className="ontomap-ext-tok">{n.prefix}</span>
+        <span className="ontomap-ext-what">{n.what}</span>
+      </div>
+    </>
+  )
+}
+
+const OM_NODE_TYPES = { omLane: LaneNode, omDs: DsNode, omHub: HubNode, omExt: ExtNode }
 
 export function OntologyMapView({
   onBack,
@@ -201,14 +315,23 @@ export function OntologyMapView({
   const { t } = useTranslation()
   const addData = onAddData ?? (() => (window.location.hash = '#/workbench'))
   const createConnection = onCreateConnection ?? (() => (window.location.hash = '#/crosswalk/new'))
-  const openDataset =
-    onOpenDataset ??
-    ((id: string) => (window.location.hash = `#/datasets/${encodeURIComponent(id)}`))
-  const openConnections =
-    onOpenConnections ??
-    ((id?: string) => {
-      window.location.hash = id ? `#/crosswalk/${encodeURIComponent(id)}` : '#/crosswalk'
-    })
+  /* 節の組み立て（`useMemo`）が毎回作り直されないよう、既定の行き先も固定する。 */
+  const openDataset = useMemo(
+    () =>
+      onOpenDataset ??
+      ((id: string) => {
+        window.location.hash = `#/datasets/${encodeURIComponent(id)}`
+      }),
+    [onOpenDataset],
+  )
+  const openConnections = useMemo(
+    () =>
+      onOpenConnections ??
+      ((id?: string) => {
+        window.location.hash = id ? `#/crosswalk/${encodeURIComponent(id)}` : '#/crosswalk'
+      }),
+    [onOpenConnections],
+  )
   const [data, setData] = useState<MapData | null>(null)
   const [showExternal, setShowExternal] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
@@ -254,6 +377,112 @@ export function OntologyMapView({
   )
 
   const empty = counts && counts.ds === 0 && counts.xw === 0
+
+  /* レイアウトの結果を React Flow の形に写す。座標は `buildLayout` のまま —
+     ここでやるのは「箱を節に、線を辺に」だけ。 */
+  const flowNodes: Node[] = useMemo(() => {
+    if (!layout) return []
+    const out: Node[] = []
+    const lane = (key: string, x: number, w: number, color: string, label: string, en: string) => {
+      out.push({
+        id: nodeId.lane(key),
+        type: 'omLane',
+        position: { x, y: 0 },
+        data: { color, label, en, w } satisfies LaneData,
+        draggable: false,
+        selectable: false,
+        connectable: false,
+        zIndex: 0,
+      })
+    }
+    lane('ds', LANE_DS.x, LANE_DS.w, 'var(--entity)', t('map:lane.datasets'), t('map:lane.datasetsEn'))
+    lane('hub', LANE_HUB.x, LANE_HUB.w, 'var(--link)', t('map:lane.bridges'), t('map:lane.bridgesEn'))
+    if (layout.ext.length > 0) {
+      lane('ext', LANE_EXT.x, LANE_EXT.w, 'var(--faint)', t('map:lane.external'), t('map:lane.externalEn'))
+    }
+    for (const n of layout.ds) {
+      out.push({
+        id: nodeId.ds(n.d.id),
+        type: 'omDs',
+        position: { x: n.x, y: n.y },
+        data: {
+          d: n.d,
+          w: n.w,
+          h: n.h,
+          on: selected === n.d.id,
+          words: {
+            open: t('map:node.openDs', { name: n.d.name }),
+            kinds: t('map:node.kindsHead'),
+            std: t('map:node.connectStd'),
+            selected: t('map:line.selected'),
+          },
+          onOpen: () => openDataset(n.d.id),
+          onHot: (on: boolean) =>
+            setSelected((cur) => (on ? n.d.id : cur === n.d.id ? null : cur)),
+        } satisfies DsData,
+        draggable: false,
+        selectable: false,
+        connectable: false,
+      })
+    }
+    for (const n of layout.hubs) {
+      out.push({
+        id: nodeId.hub(n.p.perspective_id),
+        type: 'omHub',
+        position: { x: n.x, y: n.y },
+        data: {
+          name: n.name,
+          concepts: n.concepts ? t('map:node.crossBy', { key: n.concepts }) : '',
+          w: n.w,
+          h: n.h,
+          title: n.p.perspective_id,
+          open: t('map:node.openHub'),
+          onOpen: () => openConnections(n.p.perspective_id),
+        } satisfies HubData,
+        draggable: false,
+        selectable: false,
+        connectable: false,
+      })
+    }
+    for (const n of layout.ext) {
+      out.push({
+        id: nodeId.ext(n.prefix),
+        type: 'omExt',
+        position: { x: n.x, y: n.y },
+        data: { prefix: n.prefix, what: t(n.what), w: n.w, h: n.h } satisfies ExtData,
+        draggable: false,
+        selectable: false,
+        connectable: false,
+      })
+    }
+    return out
+  }, [layout, selected, t, openDataset, openConnections])
+
+  const flowEdges: Edge2[] = useMemo(() => {
+    if (!layout) return []
+    const mk = (e: Edge, i: number, kind: 'solid' | 'dotted'): Edge2 => {
+      const on = selected != null && e.dsId === selected
+      return {
+        id: `${kind}-${e.fromId}-${e.toId}-${i}`,
+        source: e.fromId,
+        target: e.toId,
+        className: `ontomap-edge ontomap-edge--${kind}${on ? ' is-on' : ''}${
+          selected && !on ? ' is-dim' : ''
+        }`,
+        /* 矢じりの色は class では届かない（定義が共有される）ので、ここで渡す。 */
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 14,
+          height: 14,
+          color: kind === 'solid' ? 'var(--link)' : 'var(--faint)',
+        },
+      }
+    }
+    return [
+      ...layout.dotted.map((e, i) => mk(e, i, 'dotted')),
+      ...layout.solid.map((e, i) => mk(e, i, 'solid')),
+    ]
+  }, [layout, selected])
 
   return (
     <div className="ontomap-view">
@@ -371,190 +600,25 @@ export function OntologyMapView({
 
       {layout && !empty && (
         <div className="ontomap-card">
-          <div
-            className="ontomap-canvas"
-            style={{ width: layout.width, height: layout.height }}
-          >
-            <LaneHead
-              x={LANE_DS.x}
-              w={LANE_DS.w}
-              color="var(--entity)"
-              label={t('map:lane.datasets')}
-              en={t('map:lane.datasetsEn')}
-            />
-            <LaneHead
-              x={LANE_HUB.x}
-              w={LANE_HUB.w}
-              color="var(--link)"
-              label={t('map:lane.bridges')}
-              en={t('map:lane.bridgesEn')}
-            />
-            {layout.ext.length > 0 && (
-              <LaneHead
-                x={LANE_EXT.x}
-                w={LANE_EXT.w}
-                color="var(--faint)"
-                label={t('map:lane.external')}
-                en={t('map:lane.externalEn')}
-              />
-            )}
-
-            {/* edges */}
-            <svg
-              className="ontomap-edges"
-              width={layout.width}
-              height={layout.height}
-              aria-hidden="true"
+          <div className="ontomap-flow" style={{ height: Math.min(layout.height + 48, 760) }}>
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={OM_NODE_TYPES}
+              fitView
+              fitViewOptions={{ padding: 0.06, maxZoom: 1 }}
+              minZoom={0.3}
+              maxZoom={1.5}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              zoomOnScroll={false}
+              zoomOnDoubleClick={false}
+              preventScrolling={false}
+              proOptions={{ hideAttribution: true }}
             >
-              <defs>
-                <marker
-                  id="om-arrow"
-                  markerWidth="8"
-                  markerHeight="8"
-                  refX="6"
-                  refY="4"
-                  orient="auto"
-                >
-                  <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--link)" strokeWidth="1.6" />
-                </marker>
-                <marker
-                  id="om-arrow-faint"
-                  markerWidth="8"
-                  markerHeight="8"
-                  refX="6"
-                  refY="4"
-                  orient="auto"
-                >
-                  <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--faint)" strokeWidth="1.4" />
-                </marker>
-              </defs>
-              {layout.dotted.map((e, i) => (
-                <path
-                  key={`d${i}`}
-                  d={edgePath(e)}
-                  className="ontomap-edge ontomap-edge--dotted"
-                  markerEnd="url(#om-arrow-faint)"
-                  opacity={selected && e.dsId !== selected ? 0.25 : 0.8}
-                />
-              ))}
-              {layout.solid.map((e, i) => {
-                const on = selected != null && e.dsId === selected
-                return (
-                  <path
-                    key={`s${i}`}
-                    d={edgePath(e)}
-                    className={`ontomap-edge ontomap-edge--solid${on ? ' is-on' : ''}`}
-                    markerEnd="url(#om-arrow)"
-                    opacity={selected && !on ? 0.3 : 1}
-                  />
-                )
-              })}
-            </svg>
-
-            {/* dataset nodes — pointing at one lights up what it connects to; opening
-                one goes to that dataset, so the map stops being a dead end (the old
-                click-to-select is now hover/focus, which also works from the
-                keyboard). */}
-            {layout.ds.map((n) => {
-              const on = selected === n.d.id
-              const std = [...new Set((n.d.reuses ?? []).map((r) => r.prefix))].slice(0, 3)
-              return (
-                <button
-                  type="button"
-                  key={n.d.id}
-                  className={`ontomap-node ontomap-node--ds${on ? ' is-selected' : ''}`}
-                  style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
-                  title={t('map:node.openDs', { name: n.d.name })}
-                  onClick={() => openDataset(n.d.id)}
-                  onMouseEnter={() => setSelected(n.d.id)}
-                  onMouseLeave={() => setSelected((cur) => (cur === n.d.id ? null : cur))}
-                  onFocus={() => setSelected(n.d.id)}
-                  onBlur={() => setSelected((cur) => (cur === n.d.id ? null : cur))}
-                >
-                  <span className="ontomap-node-head">
-                    <span className="ontomap-node-chip ontomap-node-chip--ds">
-                      <DataIcon size={14} />
-                    </span>
-                    <span className="ontomap-node-name">{n.d.name}</span>
-                    {on && <span className="ontomap-node-badge">{t('map:line.selected')}</span>}
-                  </span>
-                  {n.d.classes.length > 0 && (
-                    <>
-                      {/* The pills are the design's own English class names. They stay
-                          as they are — they name what is in the data — but a heading
-                          says WHAT they are, so they do not read as stray tokens. */}
-                      <span className="ontomap-node-std-label">{t('map:node.kindsHead')}</span>
-                      <span className="ontomap-node-pills">
-                        {n.d.classes.slice(0, 4).map((c) => (
-                          <span key={c} className="ontomap-pill">
-                            {c}
-                          </span>
-                        ))}
-                      </span>
-                    </>
-                  )}
-                  {std.length > 0 && (
-                    <span className="ontomap-node-std">
-                      <span className="ontomap-node-std-label">{t('map:node.connectStd')}</span>
-                      {std.map((s) => (
-                        <span key={s} className="ontomap-node-std-tok">
-                          {s}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-
-            {/* crosswalk hubs — a connection on the map opens the connections screen ON
-                that connection, where it can actually be read and rebuilt.
-                `font`/`color: inherit` is the same reset `.ontomap-node--ds` carries in
-                App.css for being a <button> (index.css gives every button its own font
-                and colour). App.css belongs to no chain in this audit, so it lives
-                here until a `.ontomap-node--act` rule lands (see
-                audit/handoff-crosswalk.md). No colours or sizes are set here. */}
-            {layout.hubs.map((n) => (
-              <button
-                type="button"
-                key={n.p.perspective_id}
-                className="ontomap-node ontomap-node--hub"
-                style={{
-                  left: n.x,
-                  top: n.y,
-                  width: n.w,
-                  height: n.h,
-                  font: 'inherit',
-                  color: 'inherit',
-                }}
-                title={t('map:node.openHub')}
-                onClick={() => openConnections(n.p.perspective_id)}
-              >
-                <span className="ontomap-node-head">
-                  <span className="ontomap-node-chip ontomap-node-chip--hub">
-                    <ConnectIcon size={14} />
-                  </span>
-                  <span className="ontomap-node-name" title={n.p.perspective_id}>
-                    {n.name}
-                  </span>
-                </span>
-                {n.concepts && (
-                  <span className="ontomap-hub-key">{t('map:node.crossBy', { key: n.concepts })}</span>
-                )}
-              </button>
-            ))}
-
-            {/* external standards */}
-            {layout.ext.map((n) => (
-              <div
-                key={n.prefix}
-                className="ontomap-node ontomap-node--ext"
-                style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
-              >
-                <span className="ontomap-ext-tok">{n.prefix}</span>
-                <span className="ontomap-ext-what">{t(n.what)}</span>
-              </div>
-            ))}
+              <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            </ReactFlow>
           </div>
         </div>
       )}
