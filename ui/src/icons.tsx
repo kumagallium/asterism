@@ -137,6 +137,15 @@ export function ChevronIcon(p: IconProps) {
   )
 }
 
+/** Four corners pushing out — open the diagram at full size. */
+export function ExpandIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+    </Icon>
+  )
+}
+
 /** Up arrow in a circle-less stem — send a chat message. */
 export function SendIcon(p: IconProps) {
   return (

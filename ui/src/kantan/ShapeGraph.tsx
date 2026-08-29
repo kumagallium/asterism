@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
+import { ChevronIcon, CloseIcon, ExpandIcon } from '../icons'
 import {
   Background,
   BackgroundVariant,
@@ -44,6 +47,7 @@ type ShapeNodeData = {
   foldable: boolean
   folded: boolean
   onFold?: () => void
+  words: { open: string; close: string }
 }
 
 /** 箱ひとつ。React Flow の既定の箱は英字前提の余白なので、自前で描く。 */
@@ -59,16 +63,20 @@ function ShapeBox({ data }: NodeProps) {
       <div className="shape-node-head" style={{ height: NODE_H }}>
         <span>{d.label}</span>
         {d.foldable && (
+          /* ⭐`+` / `−` は「足す・消す」に読めた（利用者評価 2026-08-30）。
+             開き閉じは山形で言う — 閉じているときは右、開いたら下。 */
           <button
             type="button"
-            className="shape-node-fold"
+            className={d.folded ? 'shape-node-fold' : 'shape-node-fold is-open'}
             aria-expanded={!d.folded}
+            aria-label={d.folded ? d.words.open : d.words.close}
+            title={d.folded ? d.words.open : d.words.close}
             onClick={(e) => {
               e.stopPropagation()
               d.onFold?.()
             }}
           >
-            {d.folded ? '+' : '−'}
+            <ChevronIcon size={13} />
           </button>
         )}
       </div>
@@ -90,6 +98,9 @@ function ShapeBox({ data }: NodeProps) {
 
 const NODE_TYPES = { shape: ShapeBox }
 
+/** 段数の上限。これを超えたら横に広げる。 */
+const MAX_ROWS = 4
+
 function ShapeGraphInner({
   shape,
   ariaLabel,
@@ -98,6 +109,8 @@ function ShapeGraphInner({
   nodeWidth = NODE_W,
   maxHeight = 440,
   foldedByDefault = false,
+  expandable = true,
+  zoomable = false,
 }: {
   shape: Shape
   ariaLabel: string
@@ -110,6 +123,11 @@ function ShapeGraphInner({
   /** 項目を最初は畳んでおく。細い列に置く図（⑤）は、開いたままだと縦に
    *  伸びすぎて `fitView` が縮め、字が読めなくなる。 */
   foldedByDefault?: boolean
+  /** 「大きく見る」を出すか。全画面の中身自身は出さない。 */
+  expandable?: boolean
+  /** ホイールで拡大縮小できるか。ページの中に貼り付いた図で有効にすると
+   *  ページのスクロールを奪うので、全画面のときだけ。 */
+  zoomable?: boolean
 }) {
   /* ⭐**ホバーの見た目は CSS だけでやる。** 触れた箱を React の state に持つと、
      描き直しのたびに `nodes` の配列が作り直され、React Flow が節を採り直す ——
@@ -118,6 +136,7 @@ function ShapeGraphInner({
      `react-flow__edges` から辺が remove → add、ホバーを外すと DOM 変化 0 件）。
      関係のない箱を沈める演出はここで手放した。箱は 2〜6 個で矢印も見えている
      ので、触れた箱が浮くだけで足りる。 */
+  const { t } = useTranslation()
   /** 畳んだ箱。項目が多い種類は自分で畳める（構造図）。 */
   const [folded, setFolded] = useState<ReadonlySet<string>>(
     () => new Set(foldedByDefault ? shape.nodes.map((n) => n.id) : []),
@@ -127,9 +146,14 @@ function ShapeGraphInner({
       nodeHeight(n as Parameters<typeof nodeHeight>[0], folded.has(n.id)),
     [folded],
   )
+  /* ⭐節が増えても縦一列のままだと、細い列に収めるために `fitView` が縮め続け、
+     やがて `minZoom` で止まって**画面から溢れる**（利用者報告 2026-08-30
+     「ノード数を増やすとグラフが消えました」。実測: 10 個で 0.4 に張り付き、
+     11 個目から外に出ていた）。段数の上限を決めて、超えた分は横に広げる。 */
+  const cols = Math.max(perRow, Math.ceil(shape.nodes.length / MAX_ROWS))
   const pos = useMemo(
-    () => layout(shape, { perRow, nodeWidth, heightOf }),
-    [shape, perRow, nodeWidth, heightOf],
+    () => layout(shape, { perRow: cols, nodeWidth, heightOf }),
+    [shape, cols, nodeWidth, heightOf],
   )
   /* 高さは段数から決める。貼り付く細い列に置くので伸ばせる範囲には上限があり、
      それを超えた分は `fitView` が中で縮める。 */
@@ -155,6 +179,7 @@ function ShapeGraphInner({
           fields: folded.has(n.id) ? [] : (n.fields ?? []),
           foldable: (n.fields ?? []).length > 0,
           folded: folded.has(n.id),
+          words: { open: t('skeletongate:diagram.openFields'), close: t('skeletongate:diagram.closeFields') },
           onFold: (n.fields ?? []).length
             ? () =>
                 setFolded((prev) => {
@@ -169,7 +194,7 @@ function ShapeGraphInner({
         selectable: false,
         connectable: false,
       })),
-    [shape, pos, onNodeClick, nodeWidth, heightOf, folded],
+    [shape, pos, onNodeClick, nodeWidth, heightOf, folded, t],
   )
 
   const edges: Edge[] = useMemo(() => {
@@ -238,22 +263,84 @@ function ShapeGraphInner({
     // fitKey = 形の署名。同じ形で描き直しても測り直さない。
   }, [fitKey, rf, updateNodeInternals])
 
+  /** 大きく見る。細い列に貼り付いた図は、節が増えると読める大きさで収まらない
+   *  （利用者評価 2026-08-30）。同じ図を画面いっぱいで開く。 */
+  const [big, setBig] = useState(false)
+  useEffect(() => {
+    if (!big) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBig(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [big])
+
   return (
     <div className="shape-graph" style={{ height }} role="img" aria-label={ariaLabel}>
+      {expandable && (
+        <button
+          type="button"
+          className="shape-graph-expand"
+          onClick={() => setBig(true)}
+          aria-label={t('skeletongate:diagram.expand')}
+          title={t('skeletongate:diagram.expand')}
+        >
+          <ExpandIcon size={15} />
+        </button>
+      )}
+      {big &&
+        createPortal(
+          <div
+            className="shape-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label={ariaLabel}
+            onClick={() => setBig(false)}
+          >
+            <div className="shape-overlay-panel" onClick={(e) => e.stopPropagation()}>
+              <div className="shape-overlay-head">
+                <span>{ariaLabel}</span>
+                <button
+                  type="button"
+                  className="shape-overlay-close"
+                  onClick={() => setBig(false)}
+                  aria-label={t('skeletongate:diagram.close')}
+                >
+                  <CloseIcon size={18} />
+                </button>
+              </div>
+              {/* 中身は同じ部品。⭐広いほうでは**段を折り返さない** — 折り返すと
+                  同じ段の箱が上下に並び、親から下の段へ引かれた線が上の段の箱から
+                  出ているように見える（実測 2026-08-30: 10 個の兄弟が 3 段に割れて
+                  鎖のように読めた）。横に長くなった分はホイールと手で動かせる。 */}
+              <ShapeGraph
+                shape={shape}
+                ariaLabel={ariaLabel}
+                onNodeClick={onNodeClick}
+                perRow={Math.max(1, shape.nodes.length)}
+                nodeWidth={216}
+                maxHeight={Math.max(360, Math.round(window.innerHeight * 0.8))}
+                expandable={false}
+                zoomable
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
-        minZoom={0.4}
+        minZoom={0.08}
         maxZoom={1.6}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         panOnScroll={false}
-        zoomOnScroll={false}
-        zoomOnDoubleClick={false}
+        zoomOnScroll={zoomable}
+        zoomOnDoubleClick={zoomable}
         preventScrolling={false}
         proOptions={{ hideAttribution: true }}
         onNodeClick={onNodeClick ? handleClick : undefined}
@@ -274,6 +361,8 @@ export function ShapeGraph(props: {
   nodeWidth?: number
   maxHeight?: number
   foldedByDefault?: boolean
+  expandable?: boolean
+  zoomable?: boolean
 }) {
   return (
     <ReactFlowProvider>
