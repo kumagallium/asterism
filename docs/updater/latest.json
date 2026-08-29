@@ -1,11 +1,11 @@
 {
-  "version": "0.25.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 70bfc73683f2aa97df401079dd0927cbdb375909 -->\n\n## What's Changed\n* docs(manual): 実画面のスクリーンショットを入れる — データ登録の流れが見えるように by @kumagallium in https://github.com/kumagallium/asterism/pull/456\n* feat(kantan): ⑤に「できあがった形」を出し、AI の名づけを標準の綴りに寄せる by @kumagallium in https://github.com/kumagallium/asterism/pull/458\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.24.0...v0.25.0",
-  "pub_date": "2026-08-29T03:03:10Z",
+  "version": "0.26.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a473ae7cfb2fdc5bd8eb00545b54bcd2f962ba35 -->\n\n## What's Changed\n* docs(manual): かんたんモードの 6 ステップを実 AI で一周して全画面を撮る by @kumagallium in https://github.com/kumagallium/asterism/pull/460\n* feat(kantan): 形の図を React Flow にする — 触れる図にして④と⑤で同じ部品を使う by @kumagallium in https://github.com/kumagallium/asterism/pull/459\n* test(manual): 画面名の陳腐化と生成物の未更新を、機械で捕まえる by @kumagallium in https://github.com/kumagallium/asterism/pull/462\n* feat(ui): 図をぜんぶ React Flow に揃える — 同じものを 2 つの絵の言葉で見せない by @kumagallium in https://github.com/kumagallium/asterism/pull/463\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.25.0...v0.26.0",
+  "pub_date": "2026-08-29T06:58:32Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVV5d0duWmVRSHJiMUdLUnNzMXVCU2NlNlVzay9aZTB0RlBlTk5pMGZzNUtnL3RTNzhqVXQ0d1BvY1VESm5UTW5Sd044NzNzaXBFL0tUbFdxNjBHbWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTcyNTkwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClFWTjN3TmFQRElkdGJYV0VObWVwUWpmbWdmM3BYNWlTZzlHZER6N0lTQ3l4dHdYVGtCUEk0S1V1MGVOR01wSWhURzY2UHVEUnFPWXJnL3ZBS1doYURRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.25.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWVhZkxPM3FHTkZ5eFlBU2IzV0trbVk2cXRmVXFNSWNlR3UrUXE3K0l3bjJPVTJMZ0I4VGdwS0ZNaWxCd0w4NTA4QVBsb0ZtRVpFT3UwbnFBKzcweHc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3OTg2NzEyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjhzVEdGYnlKdlM3bnl6aUVDUVFmMU5FemU0OTQ2ejkzZU1uRmJMZTBsZEFuNUFOZ25CRmFQYWQxcFY1NktINWsyMWZObXJvYzgyeTBHS0ppZVdibERRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.26.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
