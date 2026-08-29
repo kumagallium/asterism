@@ -20,7 +20,8 @@
     "expand": "大きく見る",
     "close": "閉じる",
     "openFields": "この種類の項目を開く",
-    "closeFields": "この種類の項目を閉じる"
+    "closeFields": "この種類の項目を閉じる",
+    "controls": "図の操作（拡大・縮小・画面に合わせる）"
   },
   "key": {
     "from1": "ID は {{columns}} で決まります",

@@ -20,7 +20,8 @@
     "expand": "Open large",
     "close": "Close",
     "openFields": "Show this kind's items",
-    "closeFields": "Hide this kind's items"
+    "closeFields": "Hide this kind's items",
+    "controls": "Diagram controls (zoom in, zoom out, fit)"
   },
   "key": {
     "from1": "The ID is decided by {{columns}}",

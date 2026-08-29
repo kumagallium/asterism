@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
+  Controls,
   Handle,
   MarkerType,
   Position,
@@ -620,6 +621,7 @@ export function OntologyMapView({
               proOptions={{ hideAttribution: true }}
             >
               <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+              <Controls showInteractive={false} position="bottom-left" />
             </ReactFlow>
           </div>
         </div>

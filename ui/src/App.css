@@ -8967,9 +8967,6 @@ tr.kz-cols-dropped td {
 .shape-graph .react-flow__background circle {
   fill: var(--border);
 }
-.shape-graph .react-flow__panel {
-  display: none;
-}
 /* ⭐React Flow は「動かせない・選べない・つなげない・節のハンドラも無い」節に
    **インラインで** `pointer-events: none` を書く。箱の中にボタン（項目の畳み・
    データを開く）を置いていたり、触れたときの見た目を `:hover` でやっているので、
@@ -9132,9 +9129,6 @@ tr.kz-cols-dropped td {
 .ontomap-flow .react-flow__background circle {
   fill: var(--border);
 }
-.ontomap-flow .react-flow__panel {
-  display: none;
-}
 /* 節の中身は押せるボタン（データを開く・つながりを開く）。上と同じ理由で通す。 */
 .ontomap-flow .react-flow__node {
   pointer-events: auto !important;
@@ -9240,4 +9234,36 @@ tr.kz-cols-dropped td {
 .shape-overlay-close:hover {
   border-color: var(--primary);
   color: var(--fg);
+}
+
+/* React Flow のコントロール（拡大・縮小・画面ぴったり）をアプリの見た目に。
+   既定はダーク前提の白箱＋濃い影なので、全部トークンに置き換える。 */
+.react-flow__controls {
+  box-shadow: none;
+  gap: 2px;
+}
+.react-flow__controls-button {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0.28rem;
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+.react-flow__controls-button:hover {
+  background: var(--surface-alt);
+  border-color: var(--primary);
+  color: var(--fg);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 100%;
+  max-height: 100%;
+}
+/* 節と同じ理由: React Flow はインラインで `pointer-events` を切ることがある。 */
+.shape-graph .react-flow__controls,
+.ontomap-flow .react-flow__controls {
+  pointer-events: auto !important;
 }

@@ -5,6 +5,7 @@ import { ChevronIcon, CloseIcon, ExpandIcon } from '../icons'
 import {
   Background,
   BackgroundVariant,
+  Controls,
   Handle,
   MarkerType,
   Position,
@@ -334,7 +335,7 @@ function ShapeGraphInner({
         fitView
         fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
         minZoom={0.08}
-        maxZoom={1.6}
+        maxZoom={2.5}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
@@ -346,6 +347,13 @@ function ShapeGraphInner({
         onNodeClick={onNodeClick ? handleClick : undefined}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+        {/* 拡大・縮小・画面ぴったり。図が小さくなるほど要る（利用者評価
+            2026-08-30）。錠前は出さない — 節はもともと動かせない。 */}
+        <Controls
+          showInteractive={false}
+          position="bottom-left"
+          aria-label={t('skeletongate:diagram.controls')}
+        />
       </ReactFlow>
     </div>
   )
