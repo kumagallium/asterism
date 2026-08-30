@@ -123,9 +123,9 @@
     "askDup": "重複を AI に相談",
     "askDupPrefill": "同じものを二度書いている種類があります。どちらを残すべきですか",
     "addSameId": "＋ 同じ ID で種類を足す",
-    "addSameIdHint": "いまの「ファイル全体」と同じ ID で数える、別の種類を足します（例: カードと結晶は同じカード番号を使うが、別のもの）。足したあと、その種類に載せる項目は右の「載せる種類」で移してください。",
-    "addSameIdName": "新しい種類の名前",
-    "addSameIdPlaceholder": "例: 結晶",
+    "addSameIdHint": "いまの「ファイル全体」と同じ ID で数える、別の種類を足します（例: カードと結晶は同じカード番号を使うが、別のもの）。名前は②と同じ規則で、英字ではじまる英数字で書きます（例: Crystal）。足したあと、その種類に載せる項目は右の「載せる種類」で移してください。",
+    "addSameIdName": "新しい種類の名前（英字ではじまる英数字）",
+    "addSameIdPlaceholder": "例: Crystal",
     "addSameIdConfirm": "足す",
     "addSameIdCancel": "やめる"
   },

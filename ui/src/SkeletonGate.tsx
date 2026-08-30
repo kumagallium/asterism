@@ -26,6 +26,7 @@ import {
 import {
   assignColumnOwner,
   sameIdKind,
+  sameIdSiblings,
   slugMapName,
   splitSharedConcept,
   twinKindNames,
@@ -1227,7 +1228,10 @@ export function SkeletonGate({
     const idx = skeleton.maps.findIndex((m) => m.name === hostName)
     const parent = skeleton.maps[idx]
     if (!parent || !parent.subject.template) return
-    const name = rawName.trim()
+    /* ②の名前欄と**同じ規則**に通す。ここを素通しにしていたら、置いた例のとおり
+       「結晶」と打った人が、次の②で「この名前は使えません」と言われる入口に
+       なっていた（実機 2026-08-31）。`sanitizeClassName` は②の一発直しと同じ式。 */
+    const name = sanitizeClassName(rawName) || rawName.trim()
     const taken = new Set(skeleton.maps.map((m) => m.name))
     const mapName = slugMapName(name, taken)
     const added = sameIdKind(parent, mapName, name ? [expandClass(name, nsDetected)] : [])
@@ -1664,10 +1668,18 @@ export function SkeletonGate({
         ? a.growth_preview?.described_columns ?? []
         : a.entity_preview?.identity_columns ?? [],
     )
+    /* カードと**同じ鍵で数える**兄弟（D4 で足した種類・AI が出した二重記録の
+       片割れ）。式は `skeletonKinds.sameIdSiblings` に置いてある。⭐これを下の
+       `kindOf`（列 → その列をキーにした種類）に混ぜてはいけない: 登録先の列が
+       カードの鍵になり、同じ鍵の兄弟が 2 つあると後勝ちで片方が消える（実機
+       2026-08-31: D4 で足した種類が「載せる種類」の候補に出なかった）。 */
+    const sameIdKinds = sameIdSiblings(skeleton, host.name)
+    const sameIdSet = new Set(sameIdKinds)
     // 同じソースで、1 列だけをキーに持つ他の種類 — その列は「もう種類」。
     const kindOf = new Map<string, string>()
     for (const mm of skeleton.maps) {
       if (mm.name === host.name || mm.source !== host.source) continue
+      if (sameIdSet.has(mm.name)) continue
       const vars = [...(mm.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
       if (vars.length === 1) kindOf.set(vars[0], mm.name)
     }
@@ -1676,7 +1688,7 @@ export function SkeletonGate({
     const rowMap = (a.growth_preview?.row_maps ?? []).find(
       (n) => !annotations?.maps?.[n]?.value_catalog,
     )
-    return { idx, host, ann: a, values, keyCols, kindOf, rowMap, pickable }
+    return { idx, host, ann: a, values, keyCols, kindOf, sameIdKinds, rowMap, pickable }
   })()
 
 
@@ -1687,6 +1699,9 @@ export function SkeletonGate({
    *  1 件になるものは「その列名 ごと」。 */
   const zoneChoiceLabel = (name: string): string => {
     if (!zone || name === zone.host.name) return t('skeletongate:zone.wholeTable')
+    // カードと同じ鍵の兄弟は「その列 ごと」では呼べない（鍵はカードの鍵）。人が
+    // さっき自分で付けた名前なので、そのまま出す。
+    if (zone.sameIdKinds.includes(name)) return displayMapName(name)
     const m = skeleton.maps.find((x) => x.name === name)
     const vars = [...(m?.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     return vars.length === 1
@@ -1706,8 +1721,10 @@ export function SkeletonGate({
     if (zone && mm.source !== zone.host.source) continue
     for (const c of mm.owns ?? []) ownerOf.set(String(c), mm.name)
   }
-  /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。 */
-  const siblingKinds = zone ? [...new Set(zone.kindOf.values())] : []
+  /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。①で列から作った
+   *  種類（`kindOf`）と、カードと同じ鍵で数える兄弟（`sameIdKinds`・D4）の両方。
+   *  後者を落としていたので、足した種類に項目を移せなかった（実機 2026-08-31）。 */
+  const siblingKinds = zone ? [...zone.sameIdKinds, ...new Set(zone.kindOf.values())] : []
 
   /** 列を種類 `target` に載せ替える。他の種類の宣言からは外す（1 つの列が属性と
    *  して載るのは 1 箇所だけ・G6）。カードを選ぶと宣言そのものが消える＝既定へ。
@@ -1743,6 +1760,7 @@ export function SkeletonGate({
   const diagramLabel = (m: SkeletonMap): string => {
     if (!zone) return m.name
     if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
+    if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
   }
@@ -2486,6 +2504,10 @@ export function SkeletonGate({
                   aria-label={t('skeletongate:zone.addSameIdName')}
                   onChange={(e) => setAddingKind(e.target.value)}
                   onKeyDown={(e) => {
+                    // 変換中の Enter は IME の確定であって、送信ではない。この欄は
+                    // 日本語の種類名を入れる場所なので、素朴に拾うと「結晶」を確定
+                    // した瞬間に種類が増える（実機 2026-08-31）。
+                    if (e.nativeEvent.isComposing) return
                     if (e.key !== 'Enter' || !addingKind.trim()) return
                     e.preventDefault()
                     addSameIdKind(zone.host.name, addingKind)

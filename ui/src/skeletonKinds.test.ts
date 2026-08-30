@@ -12,6 +12,7 @@ import {
   keyColumnsOf,
   promoteColumnToKind,
   sameIdKind,
+  sameIdSiblings,
   slugMapName,
   twinKindNames,
 } from './skeletonKinds'
@@ -163,6 +164,32 @@ describe('sameIdKind — D4「同じ ID で種類を足す」', () => {
   })
 })
 
+describe('sameIdSiblings — 「載せる種類」の行き先', () => {
+  it('カードと同じ鍵で数える種類を全部返す（2 つあっても落とさない）', () => {
+    // 実機 2026-08-31: これを「列 → 種類」の対応表に混ぜていたため、同じ鍵の
+    // 兄弟が 2 つあると後勝ちで片方が消え、D4 で足した種類に項目を移せなかった。
+    const s = skeleton(
+      map('card', 'xrr:card/{No}'),
+      map('crystal', 'xrr:crystal/{No}', ['No']),
+      map('sample', 'xrr:sample/{No}'),
+      map('peak', 'xrr:peak/{No}-{hkl}'),
+    )
+    expect(sameIdSiblings(s, 'card').sort()).toEqual(['crystal', 'sample'])
+  })
+
+  it('鍵が違う種類・別ソースの種類は入らない', () => {
+    const s = skeleton(map('card', 'xrr:card/{No}'), map('csd', 'xrr:csd/{CSD}'), {
+      ...map('other', 'xrr:other/{No}'),
+      source: 'other.csv',
+    })
+    expect(sameIdSiblings(s, 'card')).toEqual([])
+  })
+
+  it('知らない種類には何も返さない', () => {
+    expect(sameIdSiblings(skeleton(map('card', 'xrr:card/{No}')), 'nope')).toEqual([])
+  })
+})
+
 describe('assignColumnOwner / currentOwnerOf — 載せる種類', () => {
   it('宣言の無い列は、そのソースのカードが持っている', () => {
     const s = skeleton(map('card', 'xrr:card/{No}'), map('crystal', 'xrr:crystal/{No}', ['No']))
@@ -184,12 +211,12 @@ describe('applySplits — D3 splits', () => {
   it('同じキーの新しい種類を作り、指定された列だけを移す', () => {
     const s = skeleton(map('card', 'xrr:card/{No}'), map('peak', 'xrr:peak/{No}-{hkl}'))
     const out = applySplits(s, [
-      { from: 'card', name: '結晶', columns: ['Cell', 'Volume', 'Z value'] },
+      { from: 'card', name: 'Crystal', columns: ['Cell', 'Volume', 'Z value'] },
     ])
     expect(out.applied).toBe(1)
-    const added = out.skeleton.maps.find((m) => m.name === 'kind')!
-    expect(added.subject.classes).toEqual(['結晶'])
-    expect(added.subject.template).toBe('xrr:kind/{No}')
+    const added = out.skeleton.maps.find((m) => m.name === 'crystal')!
+    expect(added.subject.classes).toEqual(['Crystal'])
+    expect(added.subject.template).toBe('xrr:crystal/{No}')
     expect(added.owns).toEqual(['No', 'Cell', 'Volume', 'Z value'])
     // 分けた結果に、二重記録の警告は出ない（完了条件 1）。
     expect(twinKindNames(out.skeleton).size).toBe(0)
@@ -197,8 +224,8 @@ describe('applySplits — D3 splits', () => {
 
   it('キー列は移さない（ID の作り方は変えない）', () => {
     const s = skeleton(map('card', 'xrr:card/{No}'))
-    const out = applySplits(s, [{ from: 'card', name: '結晶', columns: ['No', 'Cell'] }])
-    expect(out.skeleton.maps.find((m) => m.name === 'kind')!.owns).toEqual(['No', 'Cell'])
+    const out = applySplits(s, [{ from: 'card', name: 'Crystal', columns: ['No', 'Cell'] }])
+    expect(out.skeleton.maps.find((m) => m.name === 'crystal')!.owns).toEqual(['No', 'Cell'])
     // `No` が入っているのは兄弟のキーとしてであって、`card` の ID は変わらない。
     expect(out.skeleton.maps[0].subject.template).toBe('xrr:card/{No}')
   })

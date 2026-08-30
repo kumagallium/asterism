@@ -84,6 +84,27 @@ export function twinKindNames(skeleton: MappingSkeleton): Set<string> {
   return twins
 }
 
+/** `host` と**同じ鍵で数える**同じソースの兄弟（D4 で足した種類、AI が出した
+ *  二重記録の片割れ）。列を起点にした種類とは別の生きもので、①の表のどの行にも
+ *  属さない — 属さないからこそ「載せる種類」の行き先になる。
+ *
+ *  実機 2026-08-31: これを「列 → 種類」の対応表に混ぜていたため、登録先が
+ *  カードの鍵の列になり、同じ鍵の兄弟が 2 つあると後勝ちで片方が消えた
+ *  （D4 で足した種類が「載せる種類」の候補に出なかった）。 */
+export function sameIdSiblings(skeleton: MappingSkeleton, hostName: string): string[] {
+  const host = skeleton.maps.find((m) => m.name === hostName)
+  if (!host) return []
+  const key = keyColumnsOf(host).slice().sort().join('\u0000')
+  return skeleton.maps
+    .filter(
+      (m) =>
+        m.name !== host.name &&
+        m.source === host.source &&
+        keyColumnsOf(m).slice().sort().join('\u0000') === key,
+    )
+    .map((m) => m.name)
+}
+
 /** 新しい種類の住所の頭。親の下ではなくデータセットの根に置く — 最後の
  *  リテラル区間を 1 つ落として接頭辞（`xrr:` / `…/resource/`）まで戻す。
  *  （`SkeletonGate` の `splitConcept` から移設。つなぐための種類が「親の下」に
