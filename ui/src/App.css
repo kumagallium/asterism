@@ -6825,6 +6825,14 @@ button.ds-artifact:disabled {
   margin: 0 0 var(--space-3);
   gap: var(--space-2);
 }
+/* D4 の入口。相談の帯とは行を分ける — 「AI に頼む」の並びに人の操作が混ざると
+   意図が読めない（利用者指摘 2026-08-31）。1 行のリードが「いつ使うか」を言う。 */
+.skeleton-zone-addkind-entry {
+  margin: 0 0 var(--space-3);
+}
+.skeleton-zone-addkind-entry > .kz-note {
+  margin: 0 0 var(--space-1);
+}
 .skeleton-zone-addkind {
   margin: 0 0 var(--space-3);
   padding: var(--space-3);

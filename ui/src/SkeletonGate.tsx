@@ -2463,16 +2463,10 @@ export function SkeletonGate({
               スクロールしないと見えなかった（利用者指摘 2026-08-30）。S3 の「空欄
               の意味を AI に相談して埋める」と同じ `requestConsult` で、文面は入れる
               が送らない — 相談は LLM を呼ぶので、押したつもりのない課金を作らない。
-              D4 の「同じ ID で種類を足す」も同じ帯に置く: どちらも「この表をどう
-              分けるか」という 1 つの問いへの、頼む道と自分でやる道。 */}
+              並びは画面の読み順（利用者指摘 2026-08-31）: リード文もチェック列も
+              「ID にする」（つながり）が先、「載せる種類」（分け方）が後。直上の
+              3 行の基準も ID の話なので、つながりが先。 */}
           <div className="kz-actions skeleton-zone-actions">
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => requestConsult(t('skeletongate:zone.askSplitPrefill'))}
-            >
-              {t('skeletongate:zone.askSplit')}
-            </button>
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -2480,18 +2474,35 @@ export function SkeletonGate({
             >
               {t('skeletongate:zone.askLink')}
             </button>
-            {/* 列を起点にしない入口（D4）。ホストの ID がテンプレートで決まって
-                いるときだけ — 定数 ID の種類には「同じ ID」の兄弟が作れない。 */}
-            {canRevalidate && !!zone.host.subject.template && addingKind === null && (
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() => setAddingKind('')}
-              >
-                {t('skeletongate:zone.addSameId')}
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => requestConsult(t('skeletongate:zone.askSplitPrefill'))}
+            >
+              {t('skeletongate:zone.askSplit')}
+            </button>
           </div>
+          {/* 列を起点にしない入口（D4）。相談の 2 本と同じ帯に置いていたら
+              「AI に頼む」の並びに人の操作が 1 つ混ざり、意図が読めなかった
+              （利用者指摘 2026-08-31）。行を分け、いつ使うものかを 1 行で
+              先に言う。ホストの ID がテンプレートで決まっているときだけ —
+              定数 ID の種類には「同じ ID」の兄弟が作れない。 */}
+          {canRevalidate && !!zone.host.subject.template && (
+            <div className="skeleton-zone-addkind-entry">
+              <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdLead')}</p>
+              {addingKind === null && (
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => setAddingKind('')}
+                  >
+                    {t('skeletongate:zone.addSameId')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {addingKind !== null && (
             <div className="skeleton-zone-addkind">
               <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdHint')}</p>
