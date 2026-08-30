@@ -6819,6 +6819,25 @@ button.ds-artifact:disabled {
   font-size: 0.8125rem;
   line-height: 1.7;
 }
+/* ①の帯（ADR kind-splitting D2/D4）: 相談 2 本と「同じ ID で種類を足す」。
+   表のすぐ上に置く — 疑問が生まれる場所と、頼む場所を離さない。 */
+.skeleton-zone-actions {
+  margin: 0 0 var(--space-3);
+  gap: var(--space-2);
+}
+.skeleton-zone-addkind {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.skeleton-zone-addkind > .kz-note {
+  margin-top: 0;
+}
+.skeleton-addkind-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
 
 .skeleton-growth {
   padding-top: 0.45rem;

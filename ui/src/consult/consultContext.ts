@@ -48,6 +48,11 @@ export interface ConsultKind {
   keyColumns: string[]
   /** Absent/undefined when the kind-name cell is empty. */
   kindName?: string
+  /** ADR kind-splitting-and-consult-suggestions D3: この種類がいま**項目として**
+   *  持つ列。`splits`（どの列を新しい種類へ）と `owners`（どの列を載せ替えるか）
+   *  は列名を名指すので、これが無いと相談は「どの列があるのか教えてください」と
+   *  聞き返すしかない（`suggestions` で塞いだのと同じ欠落）。 */
+  columns?: string[]
 }
 
 export interface ConsultContextState {

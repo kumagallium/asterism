@@ -268,6 +268,51 @@ def test_consult_system_prompt_instructs_kinds_suggestions() -> None:
     assert "取り込む/取り込まないの裁定" in CONSULT_SYSTEM_PROMPT
 
 
+def test_consult_weaves_kind_columns_into_prompt(tmp_path: Path) -> None:
+    """ADR kind-splitting-and-consult-suggestions D3: ``splits``/``owners`` name
+    COLUMNS, so each kind's carried items have to reach the prompt — otherwise
+    the model can only ask "which columns?" (the same gap ``suggestions``
+    closed for S6)."""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [{"role": "user", "content": "この表をどう分けるとよいですか"}],
+                "context": {
+                    "step": "ID のつけかた",
+                    "kinds": [
+                        {
+                            "map": "card",
+                            "source": "xrd.txt",
+                            "key_columns": ["No"],
+                            "columns": ["Name", "Cell", "Volume"],
+                        }
+                    ],
+                },
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "card (ID: No, 種類名: 未入力, 項目: Name・Cell・Volume)" in user_message
+
+
+def test_consult_system_prompt_instructs_structural_suggestions() -> None:
+    """ADR kind-splitting-and-consult-suggestions D3: the model is told it may
+    offer ``splits`` / ``owners`` / ``identifiers``, that ``identifiers``
+    REQUIRES a ``reason`` (K22 — give the human something to decide from, do
+    not just make them press a button), that an owner move is limited to kinds
+    counted the same way (`meaning-before-identity.md`), and that the ID recipe
+    itself stays off the table (非目標: it cannot be moved after publication)."""
+    for key in ('"splits"', '"owners"', '"identifiers"', '"reason"', '"from"'):
+        assert key in CONSULT_SYSTEM_PROMPT, key
+    assert "`reason` は必須" in CONSULT_SYSTEM_PROMPT
+    assert "1 件の数えかたが同じ種類どうしでしか動かせません" in CONSULT_SYSTEM_PROMPT
+    assert "ID の作り方(IRI の形・どの列で数えるか)は提案しません" in CONSULT_SYSTEM_PROMPT
+
+
 def _manual_ui_phrases() -> list[tuple[str, str]]:
     """Every UI-name claim the manual makes — (phrase, source filename) —
     per the getting-started.md/screens.md header-comment convention: buttons

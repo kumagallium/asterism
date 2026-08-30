@@ -20,8 +20,11 @@
     "apply_other": "Apply these suggestions to the table ({{count}})",
     "applied_one": "Applied {{count}} suggestion.",
     "applied_other": "Applied {{count}} suggestions.",
-    "appliedWithSkipped": "Applied {{applied}} (skipped {{skipped}} — already filled in).",
-    "noApplier": "Can't apply suggestions from this screen."
+    "appliedWithSkipped": "Applied {{applied}} (skipped {{skipped}} — already filled in, or not movable).",
+    "noApplier": "Can't apply suggestions from this screen.",
+    "previewSplit": "Add a kind “{{name}}” with the same ID as “{{from}}” and move {{columns}} onto it",
+    "previewOwner": "Carry {{column}} on “{{map}}” instead",
+    "previewIdentifier": "Give {{column}} its own ID — {{reason}}"
   },
   "list": {
     "newChat": "+ New chat",

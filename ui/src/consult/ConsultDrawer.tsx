@@ -87,6 +87,11 @@ export function ConsultDrawer() {
   const emptyKindMaps = new Set<string>(
     (ctx.kinds ?? []).filter((k) => !k.kindName).map((k) => k.map),
   )
+  // ADR kind-splitting D3: S4 に実在するマップ名と、そこに載っている列名。
+  // `splits`/`owners` はこの 2 つを名指すので、画面に無い名前は反映の前に落とす
+  // （画面外の名前を機械が動かすと、人が見ていない所で設計が変わる）。
+  const screenMapNames = new Set<string>((ctx.kinds ?? []).map((k) => k.map))
+  for (const k of ctx.kinds ?? []) for (const c of k.columns ?? []) screenColumnNames.add(c)
 
   const threads = useConsultThreads()
   // Which thread is open — the user's own choice (D2 revised): whatever was
@@ -281,6 +286,7 @@ export function ConsultDrawer() {
                         editing={editingTurnId === tn.id}
                         screenColumnNames={screenColumnNames}
                         emptyKindMaps={emptyKindMaps}
+                        screenMapNames={screenMapNames}
                         onStartEdit={() => setEditingTurnId(tn.id)}
                         onCancelEdit={() => setEditingTurnId(null)}
                         onEditResend={(text) => editResend(tn.id, text)}
@@ -450,6 +456,7 @@ function ConsultBubble({
   editing,
   screenColumnNames,
   emptyKindMaps,
+  screenMapNames,
   onStartEdit,
   onCancelEdit,
   onEditResend,
@@ -465,6 +472,9 @@ function ConsultBubble({
   /** D10 extension (B): S4 map names whose kind-name cell is empty right
    *  now — a kind candidate for any other map is dropped the same way. */
   emptyKindMaps: Set<string>
+  /** ADR kind-splitting D3: S4 に実在する全マップ名（空欄かどうかは問わない）。
+   *  `splits.from` / `owners.map` の受け口。 */
+  screenMapNames: Set<string>
   onStartEdit: () => void
   onCancelEdit: () => void
   onEditResend: (text: string) => void
@@ -563,15 +573,33 @@ function ConsultBubble({
   // dropped before the button's own count (and before it ever reaches
   // applySuggestions). The two never both match on the same screen — S6 and
   // S4 populate mutually exclusive parts of the context.
-  const { displayText, suggestions, kinds } = parseSuggestionsBlock(turn.result ?? '')
+  const { displayText, suggestions, kinds, splits, owners, identifiers } = parseSuggestionsBlock(
+    turn.result ?? '',
+  )
   const matchedSuggestions = suggestions.filter((s) => screenColumnNames.has(s.column))
   const matchedKinds = kinds.filter((k) => emptyKindMaps.has(k.map))
-  const matchedCount = matchedSuggestions.length + matchedKinds.length
+  // ADR kind-splitting D3: 構造の提案は S4 の「データの種類」に実在するマップ名・
+  // 列名だけを通す。どれも**採用と確定は人**（提案は候補）で、動かせるかどうか
+  // （同じ分散クラスか・キー列でないか）の最終判定は反映側の決定論が持つ。
+  const matchedSplits = splits.filter((s) => screenMapNames.has(s.from))
+  const matchedOwners = owners.filter(
+    (o) => screenMapNames.has(o.map) && screenColumnNames.has(o.column),
+  )
+  const matchedIdentifiers = identifiers.filter((i) => screenColumnNames.has(i.column))
+  const matchedCount =
+    matchedSuggestions.length +
+    matchedKinds.length +
+    matchedSplits.length +
+    matchedOwners.length +
+    matchedIdentifiers.length
 
   function applyMatched() {
     const result: ApplySuggestionsResult | null = applySuggestions({
       suggestions: matchedSuggestions,
       kinds: matchedKinds,
+      splits: matchedSplits,
+      owners: matchedOwners,
+      identifiers: matchedIdentifiers,
     })
     setApplyResult(
       result === null
@@ -588,6 +616,32 @@ function ConsultBubble({
         <div className="consult-bubble consult-bubble--markdown">
           <ConsultMarkdown text={displayText} />
         </div>
+        {/* D3: 構造を変える提案は、押す前に何が起きるかを 1 行ずつ出す。件数だけの
+            ボタンでは「押させる」形になり、K22（人が判断できる材料を出す）を満たさ
+            ない — とくに `identifiers` は理由を読んで選ぶためのもの。 */}
+        {matchedSplits.length + matchedOwners.length + matchedIdentifiers.length > 0 && (
+          <ul className="consult-apply-preview">
+            {matchedSplits.map((s) => (
+              <li key={`split:${s.from}:${s.name}`}>
+                {t('suggestions.previewSplit', {
+                  name: s.name,
+                  from: s.from,
+                  columns: s.columns.join('、'),
+                })}
+              </li>
+            ))}
+            {matchedOwners.map((o) => (
+              <li key={`owner:${o.column}`}>
+                {t('suggestions.previewOwner', { column: o.column, map: o.map })}
+              </li>
+            ))}
+            {matchedIdentifiers.map((i) => (
+              <li key={`id:${i.column}`}>
+                {t('suggestions.previewIdentifier', { column: i.column, reason: i.reason })}
+              </li>
+            ))}
+          </ul>
+        )}
         {matchedCount > 0 && (
           <button
             type="button"

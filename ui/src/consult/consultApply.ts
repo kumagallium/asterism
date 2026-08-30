@@ -13,6 +13,8 @@
 // built, and never overwrites something the human already typed. The human
 // still has to look at what landed and decide whether to keep it.
 
+import type { ColumnOwner, IdentifierPick, KindSplit } from '../skeletonKinds'
+
 export interface ConsultSuggestion {
   column: string
   meaning?: string
@@ -45,6 +47,26 @@ export interface ParsedSuggestions {
   suggestions: ConsultSuggestion[]
   /** Parsed kind-name candidates (S4), same never-an-error posture. */
   kinds: ConsultKindSuggestion[]
+  /** ADR kind-splitting D3: 同じキーから種類を分ける提案。 */
+  splits: KindSplit[]
+  /** D3: 帰属の移動（S4 の「載せる種類」と同じ操作）。 */
+  owners: ColumnOwner[]
+  /** D3: ID を与える候補。`reason` の無いものは**捨てる** — K22 は人が判断
+   *  できる材料を出すことを求めていて、理由の無い候補はただ押させるだけ。 */
+  identifiers: IdentifierPick[]
+}
+
+const EMPTY_SUGGESTIONS: Omit<ParsedSuggestions, 'displayText'> = {
+  suggestions: [],
+  kinds: [],
+  splits: [],
+  owners: [],
+  identifiers: [],
+}
+
+/** 提案ブロックの中の文字列。空文字・非文字列は落とす。 */
+function str(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 /** Find and parse an `asterism-suggestions` block in an assistant reply. A
@@ -53,45 +75,72 @@ export interface ParsedSuggestions {
  *  to "just show the reply", never to a broken bubble. */
 export function parseSuggestionsBlock(text: string): ParsedSuggestions {
   const m = text.match(SUGGESTIONS_BLOCK_RE)
-  if (!m || m.index === undefined) return { displayText: text, suggestions: [], kinds: [] }
+  if (!m || m.index === undefined) return { displayText: text, ...EMPTY_SUGGESTIONS }
   const displayText = (text.slice(0, m.index) + text.slice(m.index + m[0].length)).trim()
   try {
-    const parsed = JSON.parse(m[1]) as { suggestions?: unknown; kinds?: unknown }
+    const parsed = JSON.parse(m[1]) as Record<string, unknown>
+    const rows = (key: string): Record<string, unknown>[] =>
+      Array.isArray(parsed[key])
+        ? (parsed[key] as unknown[]).filter(
+            (r): r is Record<string, unknown> => !!r && typeof r === 'object',
+          )
+        : []
+
     const suggestions: ConsultSuggestion[] = []
-    if (Array.isArray(parsed.suggestions)) {
-      for (const raw of parsed.suggestions) {
-        if (!raw || typeof raw !== 'object') continue
-        const r = raw as Record<string, unknown>
-        const column = typeof r.column === 'string' ? r.column.trim() : ''
-        if (!column) continue
-        suggestions.push({
-          column,
-          meaning:
-            typeof r.meaning === 'string' && r.meaning.trim() ? r.meaning.trim() : undefined,
-          unit: typeof r.unit === 'string' && r.unit.trim() ? r.unit.trim() : undefined,
-        })
-      }
+    for (const r of rows('suggestions')) {
+      const column = str(r.column)
+      if (!column) continue
+      suggestions.push({
+        column,
+        meaning: str(r.meaning) || undefined,
+        unit: str(r.unit) || undefined,
+      })
     }
     const kinds: ConsultKindSuggestion[] = []
-    if (Array.isArray(parsed.kinds)) {
-      for (const raw of parsed.kinds) {
-        if (!raw || typeof raw !== 'object') continue
-        const r = raw as Record<string, unknown>
-        const map = typeof r.map === 'string' ? r.map.trim() : ''
-        const name = typeof r.name === 'string' ? r.name.trim() : ''
-        if (!map || !name) continue
-        kinds.push({ map, name })
-      }
+    for (const r of rows('kinds')) {
+      const map = str(r.map)
+      const name = str(r.name)
+      if (!map || !name) continue
+      kinds.push({ map, name })
     }
-    return { displayText, suggestions, kinds }
+    const splits: KindSplit[] = []
+    for (const r of rows('splits')) {
+      const from = str(r.from)
+      const name = str(r.name)
+      const columns = Array.isArray(r.columns) ? r.columns.map(str).filter(Boolean) : []
+      if (!from || !name || columns.length === 0) continue
+      splits.push({ from, name, columns })
+    }
+    const owners: ColumnOwner[] = []
+    for (const r of rows('owners')) {
+      const column = str(r.column)
+      const map = str(r.map)
+      if (!column || !map) continue
+      owners.push({ column, map })
+    }
+    const identifiers: IdentifierPick[] = []
+    for (const r of rows('identifiers')) {
+      const column = str(r.column)
+      // 理由の無い候補は捨てる（K22: 押させるのではなく、選ばせる）。ID を配った
+      // あとは動かせないので、根拠なしに 1 押しで足せる形にはしない。
+      const reason = str(r.reason)
+      if (!column || !reason) continue
+      identifiers.push({ column, reason })
+    }
+    return { displayText, suggestions, kinds, splits, owners, identifiers }
   } catch {
-    return { displayText, suggestions: [], kinds: [] }
+    return { displayText, ...EMPTY_SUGGESTIONS }
   }
 }
 
 export interface ApplyPayload {
   suggestions: ConsultSuggestion[]
   kinds: ConsultKindSuggestion[]
+  /** D3 の 3 型。適用は決定論（UI のチェック／ドロップダウンを機械が動かすのと
+   *  同じ）で、LLM の再実行は要らない。S6 の applier はこれらを無視する。 */
+  splits: KindSplit[]
+  owners: ColumnOwner[]
+  identifiers: IdentifierPick[]
 }
 
 export interface ApplySuggestionsResult {

@@ -263,6 +263,15 @@
   align-self: flex-start;
 }
 
+/* D3: 構造を変える提案の、押す前の下見。件数だけでは「押させる」形になるので、
+   何が起きるかを 1 行ずつ出す（K22: 人が判断できる材料を出す）。 */
+.consult-apply-preview {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
 .consult-apply-result {
   margin: 0;
   font-size: 0.74rem;

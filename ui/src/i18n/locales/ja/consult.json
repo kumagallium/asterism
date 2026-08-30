@@ -18,8 +18,11 @@
   "suggestions": {
     "apply": "この候補を表に反映 ({{count}} 件)",
     "applied": "{{count}} 件を反映しました。",
-    "appliedWithSkipped": "{{applied}} 件を反映しました ({{skipped}} 件は入力済みのためスキップ)。",
-    "noApplier": "この画面では反映できません。"
+    "appliedWithSkipped": "{{applied}} 件を反映しました ({{skipped}} 件は入力済み、または動かせないためスキップ)。",
+    "noApplier": "この画面では反映できません。",
+    "previewSplit": "新しい種類「{{name}}」を「{{from}}」と同じ ID で作り、{{columns}} を移す",
+    "previewOwner": "{{column}} を「{{map}}」に載せ替える",
+    "previewIdentifier": "{{column}} に ID を与える — {{reason}}"
   },
   "list": {
     "newChat": "+ 新しいチャット",
