@@ -40,7 +40,7 @@
   "crosswalkBand": {
     "title": "Connections",
     "en": "crosswalk",
-    "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>one connection</1>. It can answer \"how many datasets report this value?\" across datasets.",
+    "sub": "Connect datasets that share the same concept (a sample name, an author, an instrument…) with <1>one connection</1>. It can answer \"how many datasets report this value?\" across datasets.",
     "users": "<0>{{n}}</0> datasets connected",
     "open": "Open"
   },

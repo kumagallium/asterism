@@ -58,7 +58,7 @@
     "apiKeyLabel": "Anthropic API key (sk-…)",
     "hintsLegend": "Hints (optional — checking the ones that apply improves accuracy)",
     "domainFreeLabel": "Other notes (free text, optional)",
-    "domainFreePlaceholder": "e.g. Seebeck = thermopower. Figures were read with WebPlotDigitizer.",
+    "domainFreePlaceholder": "e.g. In this field A and B are two names for the same quantity. Figure values were read with WebPlotDigitizer.",
     "propose": "Propose schema",
     "proposing": "Proposing…",
     "jobLabel": "AI is designing the schema…",
@@ -307,7 +307,7 @@
       "keyvalue": "Key: value → columns",
       "keyvalue_cells": "Delimited key=value cells → columns (instrument meta line)",
       "lines": "Each line → a column",
-      "hint": "Ingest the preamble metadata as columns broadcast onto every data row (so sample name, space group, etc. can be queried alongside the measurements)."
+      "hint": "Ingest the preamble metadata as columns broadcast onto every data row (so a sample name, a measurement date, etc. can be queried alongside the measurements)."
     }
   }
 }

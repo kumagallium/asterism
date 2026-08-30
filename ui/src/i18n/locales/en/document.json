@@ -10,7 +10,7 @@
   "noFile": "No file selected",
   "nFiles": "{{n}} documents",
   "nameLabel": "Document name (optional)",
-  "namePlaceholder": "e.g. Half-Heusler thermoelectrics / Service agreement",
+  "namePlaceholder": "e.g. Measurement report 2026 / Service agreement",
   "convertHint": "Word (.docx) and PDF (.pdf) are read for you on the server — nothing to do. A PDF can take a few minutes because the layout is read too. What tool read it, and its version, are kept in this data's history.",
   "convertHintPlain": "Word and PDF can be dropped in as they are. A PDF can take a few minutes to read.",
   "submit": "Take in the document",

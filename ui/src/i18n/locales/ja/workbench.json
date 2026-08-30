@@ -58,7 +58,7 @@
     "apiKeyLabel": "Anthropic API キー (sk-…)",
     "hintsLegend": "ヒント (任意・当てはまるものにチェックすると精度が上がります)",
     "domainFreeLabel": "その他の補足 (自由記入・任意)",
-    "domainFreePlaceholder": "例: Seebeck = thermopower = 熱起電力。図は WebPlotDigitizer で読み取った。",
+    "domainFreePlaceholder": "例: この分野では A と B は同じ量の別名。図の値は WebPlotDigitizer で読み取った。",
     "propose": "設計図を提案",
     "proposing": "提案中…",
     "jobLabel": "AI が設計図を設計中…",
@@ -307,7 +307,7 @@
       "keyvalue": "Key: value を列にする",
       "keyvalue_cells": "区切られた key=value を列にする（装置メタ行）",
       "lines": "各行を列にする",
-      "hint": "見出し前のメタ情報を列として、データの各行に横付けして取り込みます（試料名・空間群などを測定値と一緒に問い合わせできます）。"
+      "hint": "見出し前のメタ情報を列として、データの各行に横付けして取り込みます（試料名・測定日などを測定値と一緒に問い合わせできます）。"
     }
   }
 }
