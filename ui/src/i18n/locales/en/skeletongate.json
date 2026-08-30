@@ -123,9 +123,9 @@
     "askDup": "Ask the AI about the duplicate",
     "askDupPrefill": "Two kinds record the same thing twice. Which one should I keep?",
     "addSameId": "+ Add a kind with the same ID",
-    "addSameIdHint": "Adds another kind counted by the SAME ID as “the whole file” (a card and its crystal share one card number but are not the same thing). The name follows the same rule as ②: letters and digits, starting with a letter (e.g. Crystal). After adding it, move items onto it with the “Carried by” picker on the right.",
+    "addSameIdHint": "Adds another kind counted by the SAME ID as “the whole file”. Use it when one number stands for two different things (a record and the thing it describes; an application and the person who applied). The name follows the same rule as ②: letters and digits, starting with a letter. After adding it, move items onto it with the “Carried by” picker on the right.",
     "addSameIdName": "Name of the new kind (letters and digits, starting with a letter)",
-    "addSameIdPlaceholder": "e.g. Crystal",
+    "addSameIdPlaceholder": "letters and digits, starting with a letter",
     "addSameIdConfirm": "Add",
     "addSameIdCancel": "Cancel"
   },

@@ -313,6 +313,19 @@ def test_consult_system_prompt_instructs_structural_suggestions() -> None:
     assert "ID の作り方(IRI の形・どの列で数えるか)は提案しません" in CONSULT_SYSTEM_PROMPT
 
 
+def test_consult_structural_example_is_domain_free() -> None:
+    """ADR ask-quality-and-generality (「材料科学への言及を機構に入れない」):
+    D3 の提案ブロックの雛形は**形だけ**を示し、分野の語で例示しない。ここに
+    結晶学の例を置くと、どの分野の利用者の相談にも同じ偏りが混ざる。"""
+    marker = '"splits": [{"from": "<分け元のマップ名>"'
+    assert marker in CONSULT_SYSTEM_PROMPT
+    # 雛形の直後、`identifiers` の説明までの区間に分野語が無いこと。
+    start = CONSULT_SYSTEM_PROMPT.index(marker)
+    block = CONSULT_SYSTEM_PROMPT[start : start + 1200]
+    for word in ("結晶", "Crystal", "SpaceGroup", "空間群", "XRD", "回折"):
+        assert word not in block, word
+
+
 def _manual_ui_phrases() -> list[tuple[str, str]]:
     """Every UI-name claim the manual makes — (phrase, source filename) —
     per the getting-started.md/screens.md header-comment convention: buttons
