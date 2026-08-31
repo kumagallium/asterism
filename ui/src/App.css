@@ -6875,24 +6875,52 @@ button.ds-artifact:disabled {
   table-layout: fixed;
   width: 100%;
 }
-.kz-links-table th,
-.kz-links-table td {
+/* ⭐.kz-preview-table td { white-space: nowrap } が後方（cascade で勝つ位置）に
+   あるため、同詳細度の .kz-links-table td では解けない — 複合クラスで上げる。
+   nowrap のままだと意味の長文がセルからあふれ、外側の tablewrap（overflow-x:
+   auto）に横スクロールを作る（本番実測 2026-09-01）。 */
+.kz-preview-table.kz-links-table th,
+.kz-preview-table.kz-links-table td {
   white-space: normal;
+  overflow-wrap: anywhere;
 }
-.kz-links-table th[scope='row'] {
+.kz-preview-table.kz-links-table th[scope='row'] {
   white-space: nowrap;
   width: 8.5rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.kz-links-table td.kz-links-value {
+.kz-preview-table.kz-links-table td.kz-links-value {
   max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kz-links-table thead th:nth-child(4) {
+.kz-preview-table.kz-links-table thead th:nth-child(4) {
   width: 10rem;
+}
+/* ☑ の当たり判定はセル全体（利用者指摘 2026-09-01: 素の checkbox は狭すぎる）。
+   label がセルを満たし、どこを押しても toggle。箱自体も少し大きく。 */
+.kz-preview-table.kz-links-table td.kz-links-checkcell {
+  padding: 0;
+}
+.kz-links-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5rem 0.75rem;
+  min-height: 2.4rem;
+  cursor: pointer;
+}
+.kz-links-check input[type='checkbox'] {
+  width: 1.15rem;
+  height: 1.15rem;
+  cursor: pointer;
+  flex: none;
+}
+.kz-links-nomeasure {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 .kz-links-meaning {
   color: var(--muted);

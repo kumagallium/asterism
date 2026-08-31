@@ -130,8 +130,8 @@
   },
   "s4": {
     "gateTitle": "Confirm the shape",
-    "gateHint": "The machine assembled this shape from your answers in ③/④ and the file inspection. Check the kinds, the items each carries, and the counts. If they match, you are done.",
-    "continue": "Continue with these IDs",
+    "gateHint": "From your answers in ③④ and the file inspection, the machine assembled this shape. There are three things to check.",
+    "continue": "Continue with this shape",
     "continuing": "Writing down what each column means…",
     "needFiles": "The files are missing. Drop the same files in the box below to continue where you left off.",
     "evidenceFailed": "The per-row ID check could not run. You can keep editing the table.",
@@ -532,8 +532,6 @@
     "whenYes": "Tick — words and numbers that appear elsewhere with the same spelling: names of substances, products or places, fixed notations such as chemical formulas, official numbers such as DOIs or catalogue numbers.",
     "whenNo": "Do not tick — serial numbers that exist only inside this file, free-text notes. Ticking a measured number has no effect (it is dropped automatically).",
     "whenSafe": "Ticking never removes the item (it becomes a reference). You can change your picks any time before publishing.",
-    "zoneWhole": "Values written once per file",
-    "zoneRows": "Per-row values",
     "colColumn": "Column",
     "colValue": "Value",
     "colMeaning": "Meaning",
@@ -545,6 +543,8 @@
     "askConsult": "Ask the AI if unsure",
     "askConsultPrefill": "Which values in this table are likely to appear in other data with the same spelling (values worth giving an ID)? Look at the columns and real values.",
     "assembling": "Assembling the shape…",
-    "assembleFailed": "Could not assemble the shape"
+    "assembleFailed": "Could not assemble the shape",
+    "valueVaries": "(varies per row)",
+    "noMeasure": "Measured values can't be picked"
   }
 }
