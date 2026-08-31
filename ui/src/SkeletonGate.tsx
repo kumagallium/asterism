@@ -2457,42 +2457,6 @@ export function SkeletonGate({
         </p>
       )}
       {!plain && nsCard}
-      {plain && twinNames.size > 0 && (
-        <>
-          <p className="skeleton-evidence-line skeleton-evidence-warn">
-            ⚠{' '}
-            {t('skeletongate:twinKinds', {
-              names: skeleton.maps
-                .filter((m) => twinNames.has(m.name))
-                .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
-                .join(t('skeletongate:key.listSeparator')),
-            })}
-          </p>
-          {/* D2: どちらを残すかは人の裁定（G18）だが、判断の材料は聞ける。
-              相談は警告のすぐ隣に置く — 疑問が生まれる場所と、頼む場所を離さない。
-              ⭐prefill には**双子の実名**を入れる（実測 2026-08-31: 一般文で聞くと、
-              AI はマニュアル由来の導線知識で「重複を AI に相談ボタンを押すのが
-              安全」と、いま押したボタンを勧め返した）。 */}
-          <div className="kz-actions">
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() =>
-                requestConsult(
-                  t('skeletongate:zone.askDupPrefill', {
-                    names: skeleton.maps
-                      .filter((m) => twinNames.has(m.name))
-                      .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
-                      .join(t('skeletongate:key.listSeparator')),
-                  }),
-                )
-              }
-            >
-              {t('skeletongate:zone.askDup')}
-            </button>
-          </div>
-        </>
-      )}
       {zone && (
         <>
           {/* この画面には仕事が 2 つある（値をえらぶ / ID を確かめる）。番号を
@@ -2526,6 +2490,14 @@ export function SkeletonGate({
             <li>{t('skeletongate:zone.chooseYes2')}</li>
             <li>{t('skeletongate:zone.chooseYes3')}</li>
           </ul>
+          {/* 迷った人の逃げ道（利用者提案 2026-08-31）。かつての「迷ったら種類に」は
+              足りない種類を後から足せなかった時代の助言で、D4 とカード修理が入った
+              いまは「一旦そのままで OK・公開までは何度でも直せる」が正しい。
+              `chooseDoubt` は 3 行への圧縮時に描画から落ちて死に文言になっていた —
+              書き直して復帰。 */}
+          <p className="kz-note kz-prose skeleton-choose-doubt">
+            {t('skeletongate:zone.chooseDoubt')}
+          </p>
           {/* D2: 相談は**疑問が生まれる場所**に置く。「AI にもう一度考えさせる」は
               ①の表・②の確認・データセット名の後ろにあり、`.app-main` を下まで
               スクロールしないと見えなかった（利用者指摘 2026-08-30）。S3 の「空欄
@@ -2557,7 +2529,13 @@ export function SkeletonGate({
               定数 ID の種類には「同じ ID」の兄弟が作れない。 */}
           {canRevalidate && !!zone.host.subject.template && (
             <div className="skeleton-zone-addkind-entry">
-              <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdLead')}</p>
+              <p className="kz-note kz-prose">
+            {t('skeletongate:zone.addSameIdLead', {
+              key: [...(zone.host.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)]
+                .map((x) => x[1])
+                .join(t('skeletongate:key.join')),
+            })}
+          </p>
               {addingKind === null && (
                 <div className="kz-actions">
                   <button
@@ -2813,6 +2791,46 @@ export function SkeletonGate({
             {t('skeletongate:kindsHead')}
           </p>
           <p className="kz-note kz-prose">{t('skeletongate:kindsLead')}</p>
+          {/* 双子の警告は②に置く（利用者指摘 2026-08-31: 実際に ⚠ が出るのは
+              種類のタブ＝ここで、勧めている 🗑 もここにある）。かつては①より
+              前に出ていて、注意と出口が別の場所に割れていた。prefill には双子の
+              実名を入れる — 一般文で聞くと、AI はマニュアル由来の導線知識で
+              「重複を AI に相談ボタンを押すのが安全」と押したボタンを勧め返した
+              （実測 2026-08-31）。 */}
+          {twinNames.size > 0 && (
+            <>
+              <p className="skeleton-evidence-line skeleton-evidence-warn">
+                ⚠{' '}
+                {t('skeletongate:twinKinds', {
+                  names: skeleton.maps
+                    .filter((m) => twinNames.has(m.name))
+                    .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+                    .join(t('skeletongate:key.listSeparator')),
+                })}
+              </p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() =>
+                    requestConsult(
+                      t('skeletongate:zone.askDupPrefill', {
+                        names: skeleton.maps
+                          .filter((m) => twinNames.has(m.name))
+                          .map(
+                            (m) =>
+                              compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name,
+                          )
+                          .join(t('skeletongate:key.listSeparator')),
+                      }),
+                    )
+                  }
+                >
+                  {t('skeletongate:zone.askDup')}
+                </button>
+              </div>
+            </>
+          )}
           {/* 件数は①の選択の**結果**（チェックを付けると件数が増える）。①の前に
               置くと、番号の付いていない帯が説明と①の間に挟まって順序が読めない。
               ②の開き＝「いまある種類とその件数」として置く（利用者評価
