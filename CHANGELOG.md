@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.30.1](https://github.com/kumagallium/asterism/compare/v0.30.0...v0.30.1) - 2026-08-31
+
+- docs: ADR local-first-distribution §7 を完了状態に更新 — 署名/公証/updater は完了済 by @kumagallium in https://github.com/kumagallium/asterism/pull/472
+
 ## [v0.30.0](https://github.com/kumagallium/asterism/compare/v0.29.0...v0.30.0) - 2026-08-31
 
 - fix(step0/ui): 行の種類しか無い骨格を、言う・直せるようにする（missing_card_kind） by @kumagallium in https://github.com/kumagallium/asterism/pull/471
