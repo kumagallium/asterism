@@ -126,6 +126,15 @@ export function ConsultDrawer() {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
+  // 横幅に余裕がある画面では、開いている間 `.app-main` に右マージンを空けて
+  // **重ねずに横へ並べる**（CSS 側 `body.consult-open`）。AI の答えを見ながら
+  // 表を操作したいのに、被せる形では表の右側が隠れ、backdrop が外側クリックを
+  // 「閉じる」に食っていた（利用者指摘 2026-08-31）。
+  useEffect(() => {
+    document.body.classList.toggle('consult-open', open)
+    return () => document.body.classList.remove('consult-open')
+  }, [open])
+
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
   }, [thread?.turns.length, open, view])
