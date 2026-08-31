@@ -92,6 +92,11 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          # version ラベル: `docker inspect` でどのリリースかを判別できるようにする
+          # （副次効果として同一ソースの再タグでも digest が変わり、Dewy の更新検出が確実になる）
+          labels: |
+            org.opencontainers.image.version=${{ steps.tag.outputs.tag }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           # GHA キャッシュで 2 回目以降の pip 層を再利用する（PoC のイテレーション短縮）
           cache-from: type=gha
           cache-to: type=gha,mode=max

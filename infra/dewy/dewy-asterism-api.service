@@ -1,0 +1,46 @@
+# Dewy — asterism-api のプル型自動デプロイ（PoC・compose 本体と並行稼働）
+#
+# サーバ側 agent（このユニット）が GHCR をポーリングし、新しい semver タグの
+# イメージを検出すると pull → 起動 → /health 合格 → 内蔵プロキシ(:18080)の
+# バックエンド切替 → 旧コンテナ drain → 停止、まで全自動で行う。
+# health 不合格の新イメージは昇格されず破棄される（fail-closed）。
+#
+# 配置: sudo cp infra/dewy/dewy-asterism-api.service /etc/systemd/system/
+# 手順: infra/dewy/README.md
+#
+# 設計メモ:
+# - inbound 接続（SSH 鍵・deploy 鍵・webhook）は一切増やさない。通信は
+#   サーバ → GHCR への outbound pull のみ（プル型の要・ADR production-deployment.md）。
+# - 既存 compose スタック（asterism-prod_*）には触れない。コンテナは専用の
+#   dewy-poc ネットワークに入り、使い捨て oxigraph とだけ通信する。
+# - :18080 は Dewy 内蔵プロキシ。PoC では caddy に配線しない（本配線は次段）。
+
+[Unit]
+Description=Dewy pull-based deployer for asterism-api (PoC)
+Documentation=https://github.com/linyows/dewy
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# docker グループ所属の運用ユーザー（docker.sock を叩くのに必要）
+User=m-kumagai
+# Dewy はここにキャッシュ等の作業ファイルを置く
+WorkingDirectory=/opt/dewy/asterism-api
+ExecStart=/usr/local/bin/dewy container \
+  --registry img://ghcr.io/kumagallium/asterism-api \
+  --port 18080:8080 \
+  --health-path /health \
+  --interval 30 \
+  --name asterism-api \
+  -l info \
+  -- --network dewy-poc --user=0:0 -e CSV2RDF_OXIGRAPH_URL=http://dewy-poc-oxigraph:7878
+# --user=0:0: Dewy は既定で実行ユーザーの UID を注入するが、この api イメージは
+#   root 前提（/data/sources を image 内に持つ・WORKDIR /root）。compose 本番も root
+#   実行で同一条件（非 root 化は production-deployment.md の既知 TODO）。
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
