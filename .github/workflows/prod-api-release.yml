@@ -1,0 +1,95 @@
+# [prod-api] 本番 api イメージを GHCR へ発行する（Dewy プル型デプロイの供給側）
+#
+# Dewy PoC（docs/reports/dewy-pull-deploy-poc.md）のリリース経路:
+#   このワークフローが ghcr.io/<owner>/asterism-api:vX.Y.Z を push する
+#   → asterism-prod 上の `dewy container` がタグを semver 検出して自動デプロイする。
+# サーバへの inbound 接続（SSH 鍵・deploy 鍵）は一切増やさない＝プル型の要。
+#
+# 使い方:
+#   通常リリース: tag=v0.0.2 を入力 → infra/upload-api/Dockerfile をビルドして push
+#   ロールバック: tag=v0.0.3 + source_tag=v0.0.1 → ビルドせず旧イメージを re-tag
+#     （Dewy は「最新 semver」を追うため、巻き戻しも前進タグで表現する = roll-forward）
+#
+# イメージは linux/amd64 のみ（asterism-prod = x86_64。amd64 wheel を焼く既存方針
+# docs/architecture/production-deployment.md と同じ理由で multi-arch にしない）。
+
+name: prod-api-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "発行するイメージタグ（例 v0.0.2・semver 必須 — Dewy が semver で最新を判定する）"
+        required: true
+        type: string
+      source_tag:
+        description: "ロールバック用: 指定すると、そのタグの既存イメージを tag へ re-tag するだけ（ビルドしない）"
+        required: false
+        type: string
+
+# 規約（github-flow §5）: 権限は既定で落とし、job 単位で必要分だけ足す。
+permissions: {}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/asterism-api
+
+jobs:
+  publish:
+    name: "[prod-api] build & push image"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # タグの打ち間違いは「Dewy に検出されない」という無言の失敗になるので、
+      # 供給側で fail-closed にする（v プレフィクス付き semver のみ通す）。
+      - name: Validate tag is semver
+        run: |
+          for t in "${{ inputs.tag }}" "${{ inputs.source_tag }}"; do
+            [ -z "$t" ] && continue
+            echo "$t" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+              || { echo "::error::'$t' は vX.Y.Z 形式ではありません"; exit 1; }
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- 通常リリース経路（source_tag 未指定）---
+      - name: Checkout
+        if: ${{ inputs.source_tag == '' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Buildx
+        if: ${{ inputs.source_tag == '' }}
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and push (linux/amd64)
+        if: ${{ inputs.source_tag == '' }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/upload-api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ inputs.tag }}
+          # GHA キャッシュで 2 回目以降の pip 層を再利用する（PoC のイテレーション短縮）
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --- ロールバック経路（source_tag 指定時）---
+      # レジストリ上の manifest を付け替えるだけ。イメージ本体は不変＝
+      # 「ロールバック = 検証済み旧バイトへの前進タグ」を数秒で発行できる。
+      - name: Re-tag existing image (rollback)
+        if: ${{ inputs.source_tag != '' }}
+        run: |
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ inputs.tag }}" \
+            "$IMAGE:${{ inputs.source_tag }}"
+
+      - name: Show published tag
+        run: |
+          docker buildx imagetools inspect "$IMAGE:${{ inputs.tag }}" | head -20
