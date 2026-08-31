@@ -399,6 +399,10 @@ class ConsultKind(BaseModel):
     # 持つ列。`splits`(どの列を新しい種類へ)・`owners`(どの列を載せ替えるか)は、
     # これが無いと「どの列があるのか教えてください」と聞き返すしかない。
     columns: list[str] = []
+    # 列名 → 代表値。identifiers の裁定は列名でなく**値**でする(K33 と同じ姿勢)。
+    # 実測 2026-08-31: 名前だけ渡していたら、AI はカタログ番号(No/CSD)しか
+    # 選ばず、実値 "Al3 V" を持つ組成の列を落とした。
+    column_values: dict[str, str] = {}
 
 
 class ConsultContext(BaseModel):
@@ -986,6 +990,13 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
   **1 件の数えかたが同じ種類どうしでしか動かせません**(ファイル全体で 1 件の値を
   行ごとの種類へ移すと、同じ値が全行に写ってしまいます)。
   `identifiers` は「その値自体に ID を与えると、外のデータとつながる」列の候補です。
+  画面が人に見せているのと同じ基準で選んでください:
+  (a) 外の世界も同じ名前で呼ぶ値 — DOI・カタログ番号・標準の分類コード・装置名・
+  人名・機関名・地点名・物質名など (b) その値そのものについて後から何か言いたく
+  なる値 (c) 2 つ以上の種類から参照したい値。列名だけで判断せず、添えられた実データの
+  値を見てください。**カタログ番号のような分かりやすい候補だけで止まらず**、(a)〜(c) に
+  当てはまる列は全部挙げてください。同じ意味の列が複数あるとき(例: 詳細表記と簡易表記)は
+  代表 1 つを選び、reason にそう書いてください。
   **`reason` は必須**で、なぜその値が外の世界でも名前を持つのかを一言で書いてください
   (理由の無い候補は捨てられます)。人が読んで選ぶための材料なので、押させる書き方では
   なく、判断できる書き方にしてください。
@@ -1104,8 +1115,12 @@ def _render_kinds(kinds: list[ConsultKind]) -> str:
         kind_desc = _clip(k.kind_name, 30) if k.kind_name and k.kind_name.strip() else "未入力"
         entry = f"{_clip(k.map, 30)} (ID: {id_desc}, 種類名: {kind_desc}"
         if k.columns:
-            carried = "・".join(_clip(c, 30) for c in k.columns[:_CONSULT_MAX_COLUMNS])
-            entry += f", 項目: {carried}"
+            values = k.column_values or {}
+            parts = []
+            for c in k.columns[:_CONSULT_MAX_COLUMNS]:
+                v = values.get(c, "").strip()
+                parts.append(f"{_clip(c, 30)}={_clip(v, 40)}" if v else _clip(c, 30))
+            entry += ", 項目: " + "・".join(parts)
         entries.append(entry + ")")
     if not entries:
         return ""

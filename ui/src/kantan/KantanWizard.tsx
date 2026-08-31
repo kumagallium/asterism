@@ -1337,24 +1337,40 @@ export function KantanWizard({
       return
     }
     const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
+    // 列名 → 代表値（ソース横断）。identifiers の裁定は列名でなく**値**でする —
+    // 名前だけ渡していたら、AI はカタログ番号しか選ばず、実値 "Al3 V" を持つ
+    // 組成の列を落とした（実測 2026-08-31）。
+    const valueOf = new Map<string, string>()
+    for (const m of skeleton.maps) {
+      for (const v of annotations?.maps?.[m.name]?.entity_preview?.all_values ?? []) {
+        if (v.value && !valueOf.has(v.column)) valueOf.set(v.column, v.value)
+      }
+    }
     const kinds = skeleton.maps.map((m) => {
       const keyValue = m.subject.template ?? m.subject.constant ?? ''
       const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
       const ann = annotations?.maps?.[m.name]
       const keyColumns = templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
       const classes = (m.subject.classes ?? []).map((c) => compactClass(c, nsDetected))
+      // ADR kind-splitting D3: この種類がいま持つ項目。人が宣言していれば
+      // (`owns`) その列、していなければカードが並べている全列（S4 の①がその
+      // まま出しているもの）。相談は「Cell と Volume を結晶へ」のように**列名で**
+      // 提案するので、名前が渡っていないと候補そのものが出せない。
+      const columns = (m.owns ?? []).map(String).length
+        ? (m.owns ?? []).map(String)
+        : (ann?.entity_preview?.all_values ?? []).map((v) => v.column)
+      const columnValues: Record<string, string> = {}
+      for (const c of columns) {
+        const v = valueOf.get(c)
+        if (v) columnValues[c] = v
+      }
       return {
         map: m.name,
         source: basename(m.source ?? ''),
         keyColumns,
         kindName: classes.length > 0 ? classes.join('、') : undefined,
-        // ADR kind-splitting D3: この種類がいま持つ項目。人が宣言していれば
-        // (`owns`) その列、していなければカードが並べている全列（S4 の①がその
-        // まま出しているもの）。相談は「Cell と Volume を結晶へ」のように**列名で**
-        // 提案するので、名前が渡っていないと候補そのものが出せない。
-        columns: (m.owns ?? []).map(String).length
-          ? (m.owns ?? []).map(String)
-          : (ann?.entity_preview?.all_values ?? []).map((v) => v.column),
+        columns,
+        columnValues,
       }
     })
     setConsultContext({ kinds })

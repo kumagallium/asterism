@@ -299,6 +299,51 @@ def test_consult_weaves_kind_columns_into_prompt(tmp_path: Path) -> None:
         assert "card (ID: No, 種類名: 未入力, 項目: Name・Cell・Volume)" in user_message
 
 
+def test_consult_weaves_kind_column_values_into_prompt(tmp_path: Path) -> None:
+    """identifiers の裁定は列名でなく値でする [実測 2026-08-31: 名前だけだと
+    AI はカタログ番号しか選ばず、実値 "Al3 V" を持つ組成の列を落とした]。
+    `column_values` が「列名=値」で織り込まれることを固定する。"""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [{"role": "user", "content": "ID を与えるべき項目は?"}],
+                "context": {
+                    "step": "ID のつけかた",
+                    "kinds": [
+                        {
+                            "map": "card",
+                            "source": "xrd.txt",
+                            "key_columns": ["No"],
+                            "columns": ["Name", "Chemical Formula"],
+                            "column_values": {
+                                "Name": "Aluminum Vanadium",
+                                "Chemical Formula": "Al3 V",
+                            },
+                        }
+                    ],
+                },
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "Name=Aluminum Vanadium" in user_message
+        assert "Chemical Formula=Al3 V" in user_message
+
+
+def test_consult_system_prompt_gives_identifier_criteria() -> None:
+    """identifiers の指示に、①が人に見せているのと同じ選定基準 [外の世界も同じ
+    名前で呼ぶ・後から何か言いたくなる・複数の種類から参照したい] が入っている。
+    基準なしだと、モデルはカタログ番号のような分かりやすい候補で止まる。"""
+    assert "外の世界も同じ名前で呼ぶ値" in CONSULT_SYSTEM_PROMPT
+    assert "後から何か言いたく" in CONSULT_SYSTEM_PROMPT
+    assert "2 つ以上の種類から参照したい値" in CONSULT_SYSTEM_PROMPT
+    assert "分かりやすい候補だけで止まらず" in CONSULT_SYSTEM_PROMPT
+
+
 def test_consult_system_prompt_instructs_structural_suggestions() -> None:
     """ADR kind-splitting-and-consult-suggestions D3: the model is told it may
     offer ``splits`` / ``owners`` / ``identifiers``, that ``identifiers``

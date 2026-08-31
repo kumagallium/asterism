@@ -53,6 +53,10 @@ export interface ConsultKind {
    *  は列名を名指すので、これが無いと相談は「どの列があるのか教えてください」と
    *  聞き返すしかない（`suggestions` で塞いだのと同じ欠落）。 */
   columns?: string[]
+  /** 列名 → 代表値。`identifiers` の裁定は列名でなく**値**でする（K33 と同じ
+   *  姿勢）。名前だけだと、AI はカタログ番号しか選ばない（実測 2026-08-31:
+   *  実値 "Al3 V" を持つ組成の列が候補から落ちた）。 */
+  columnValues?: Record<string, string>
 }
 
 export interface ConsultContextState {
