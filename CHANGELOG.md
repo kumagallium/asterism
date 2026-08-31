@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.28.0](https://github.com/kumagallium/asterism/compare/v0.27.0...v0.28.0) - 2026-08-31
+
+- docs(adr): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案 by @kumagallium in https://github.com/kumagallium/asterism/pull/466
+- feat(ui/api): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案（D1〜D4） by @kumagallium in https://github.com/kumagallium/asterism/pull/467
+
 ## [v0.27.0](https://github.com/kumagallium/asterism/compare/v0.26.0...v0.27.0) - 2026-08-29
 
 - fix(ui): 図に触ると揺れるのを直し、押せなくなっていた節を通す by @kumagallium in https://github.com/kumagallium/asterism/pull/464
