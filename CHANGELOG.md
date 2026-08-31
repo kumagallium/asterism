@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.29.0](https://github.com/kumagallium/asterism/compare/v0.28.0...v0.29.0) - 2026-08-31
+
+- chore(ui/api): 材料科学固有の例を抜き、分野特化の境界を ADR にする by @kumagallium in https://github.com/kumagallium/asterism/pull/469
+
 ## [v0.28.0](https://github.com/kumagallium/asterism/compare/v0.27.0...v0.28.0) - 2026-08-31
 
 - docs(adr): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案 by @kumagallium in https://github.com/kumagallium/asterism/pull/466
