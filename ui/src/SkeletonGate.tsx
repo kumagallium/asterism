@@ -1073,9 +1073,6 @@ export function SkeletonGate({
       .join('')
     return /^[A-Za-z]/.test(ascii) ? ascii : ''
   }
-  // K32: ゾーンのチェックを外して消した種類の控え。もう一度チェックしたとき、
-  // AI が付けた名前・クラスごと元通りに戻す（作り直しでは名前が変わってしまう）。
-  const [kindStash, setKindStash] = useState<Record<string, SkeletonMap>>({})
   const [addedMap, setAddedMap] = useState<string | null>(null)
   // D4「同じ ID で種類を足す」の名前欄。`null` は閉じている状態（入口のボタン
   // だけが見えている）。名前を最初に聞くのは、種類の名前がそのまま住所の区間に
@@ -1085,7 +1082,7 @@ export function SkeletonGate({
      開かない = グラフを読むだけ。names = ②のタブ（名前と ID）、split = 同じ ID の
      種類を足す、move = ①の表（載せる種類）。ADR の 4 カードのうち rename と
      rekey は、両方の家である②のタブに 1 枚で相乗りする。 */
-  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | 'rekey' | null>(null)
+  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | null>(null)
   // A dataset name that cleans away to nothing (a Japanese one) used to do
   // NOTHING at all — the field kept the typed text and the ID kept the old
   // slug. Say what an ID may contain, right under the field.
@@ -1970,28 +1967,10 @@ export function SkeletonGate({
      操作の結果で、答えようのない問いではない。線の話は図の下で今も断っている。 */
   const diagramBlock = !plain ? diagram : null
 
-  /** ゾーンのチェック ON: 控えがあれば元通りに戻し、無ければその列をキーに
-   *  1 つの種類を作る（G15 の split と同じ経路・owns はその列だけ）。 */
-  function promoteColumn(hostIdx: number, col: string) {
-    const stashed = kindStash[col]
-    if (stashed && !skeleton.maps.some((mm) => mm.name === stashed.name)) {
-      onChange({
-        ...skeleton,
-        maps: [...skeleton.maps.slice(0, hostIdx + 1), stashed, ...skeleton.maps.slice(hostIdx + 1)],
-      })
-      return
-    }
-    splitConcept(hostIdx, [col], col, false)
-  }
-
-  /** ゾーンのチェック OFF: その種類を外す（控えに取ってから）。チェックし直せば
-   *  そのまま戻るので、🗑 と違って確認は挟まない — 可逆な編集は問い詰めない。 */
-  function demoteColumn(col: string, kindName: string) {
-    const i = skeleton.maps.findIndex((mm) => mm.name === kindName)
-    if (i < 0) return
-    setKindStash((prev) => ({ ...prev, [col]: skeleton.maps[i] }))
-    onChange({ ...skeleton, maps: skeleton.maps.filter((_, j) => j !== i) })
-  }
+  /* かつてこの面に「ID にする」チェック（promote/demote）があったが、その判断は
+     ④「外とのつながり」の ☑ に一本化した（利用者指摘 2026-09-01: 同じ判断の UI が
+     2 か所にあると、どちらが本物か読めない）。☑ を変える道は「← ④に戻って ☑ を
+     変える」。 */
   // 元の行数はリード文の「（元ファイル n 行）」に出す。種類ごとの件数は図の
   // 箱ラベル（「カード · 1 件」）が持つ — 帯での二重表示は 2026-09-01 に廃止。
   const sourceRows = multiSource
@@ -2766,9 +2745,33 @@ export function SkeletonGate({
               ),
             )
             .map(([source, column]) => (
-              <p key={source} className="skeleton-evidence-line skeleton-evidence-warn">
-                ⚠ {t('skeletongate:provisionalKey', { column })}
-              </p>
+              <div key={source} className="skeleton-zone-addkind-entry">
+                <p className="skeleton-evidence-line skeleton-evidence-warn">
+                  ⚠ {t('skeletongate:provisionalKey', { column })}
+                </p>
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => {
+                      // 仮の ID を持つ種類そのものを開く（候補が無い形も
+                      // あるので「候補から選び直す」とは呼ばない —
+                      // 利用者指摘 2026-09-01）。
+                      const holder = skeleton.maps.find(
+                        (m) =>
+                          m.source === source &&
+                          [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].some(
+                            (x) => x[1] === column,
+                          ),
+                      )
+                      setPlainFix('names')
+                      if (holder) setOpenKind(holder.name)
+                    }}
+                  >
+                    {t('skeletongate:fixNames')}
+                  </button>
+                </div>
+              </div>
             ))}
         </>
       )}
@@ -2815,11 +2818,11 @@ export function SkeletonGate({
           {/* 承認モックの読み順: 図 → ⚠ → 「この形で進む」。合っていれば
               ここで終わり（直しの一覧はこの下 — 使うときだけ）。 */}
           {confirmCluster}
-          {/* 「形が違うとき（直す）」— 切り替え式（ADR D4・承認モックの 4 枚）。
-              既定はどれも開かず、画面は 3 点の確認 + 図だけ。names = 種類ごとの
-              タブ（名前と ID の家）、split = 同じ ID の種類を足す、move = 載せる
-              種類の表、rekey = names と同じ面を仮 ID の種類を開いて出す（仮 ⚠
-              からの導線）。 */}
+          {/* 「形が違うとき（直す）」— 切り替え式（ADR D4）。既定はどれも開かず、
+              画面は 3 点の確認 + 図だけ。names = 種類ごとのタブ（名前と ID の家。
+              ID の直しもここ — 「ID を候補から選び直す」を別タブにしたら names と
+              同じ面を開くだけの重複だった・利用者指摘 2026-09-01）、split = 同じ
+              ID の種類を足す、move = 載せる種類の表。 */}
           <p className="kz-zone-label skeleton-fix-head">{t('skeletongate:fixHead')}</p>
           <div className="kz-actions">
             {(
@@ -2827,7 +2830,6 @@ export function SkeletonGate({
                 ['names', 'fixNames'],
                 ['split', 'fixSplit'],
                 ['move', 'fixMove'],
-                ['rekey', 'fixRekey'],
               ] as const
             ).map(([id, key]) => (
               <button
@@ -2835,18 +2837,14 @@ export function SkeletonGate({
                 type="button"
                 className={plainFix === id ? 'btn btn--sm' : 'btn btn--ghost btn--sm'}
                 disabled={id !== 'names' && !zone}
-                onClick={() => {
-                  if (plainFix === id) return setPlainFix(null)
-                  setPlainFix(id)
-                  if (id === 'rekey' && zone) setOpenKind(zone.host.name)
-                }}
+                onClick={() => setPlainFix(plainFix === id ? null : id)}
               >
                 {t(`skeletongate:${key}`)}
               </button>
             ))}
           </div>
 
-          {(plainFix === 'names' || plainFix === 'rekey') && kindBlocks.length > 1 && (
+          {plainFix === 'names' && kindBlocks.length > 1 && (
             /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
                答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
                2026-08-27）。⚠ はタブ自身が持つので、裏に隠れることはない。
@@ -2892,7 +2890,7 @@ export function SkeletonGate({
               ))}
             </div>
           )}
-          {(plainFix === 'names' || plainFix === 'rekey') && (
+          {plainFix === 'names' && (
             <div
               role={kindBlocks.length > 1 ? 'tabpanel' : undefined}
               id={active ? `kind-panel-${active.name}` : undefined}
@@ -2974,6 +2972,10 @@ export function SkeletonGate({
               {basename(zone.host.source)}
             </p>
           )}
+          {/* この面は「どの種類に載せるか」（帰属）だけ。「ID にするか」は④
+              「外とのつながり」の ☑ に一本化した — 同じ判断の UI が 2 か所に
+              あると、どちらが本物か読めない（利用者指摘 2026-09-01）。☑ を
+              変えたいときの道は「← ④に戻って ☑ を変える」。 */}
           <p className="kz-note kz-prose">
             {t('skeletongate:zone.lead')
               .split('**')
@@ -2984,21 +2986,6 @@ export function SkeletonGate({
               {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
             </p>
           )}
-          {/* 「どれを ID にするか」の判断基準は、これまで AI の骨格プロンプトに
-              しか書かれていなかった（PROMOTE THE THINGS THE OUTSIDE WORLD ALSO
-              NAMES / WHEN IN DOUBT, PROMOTE）。決めるのは人なので、人にも渡す。
-              畳まない（利用者評価 2026-08-28）— 代わりに 3 行に絞る。読ませたい
-              のは「どういうときに ID にするか」だけで、その理由づけではない。 */}
-          <ul className="kz-stop-plainlist skeleton-choose-hints">
-            <li>{t('skeletongate:zone.chooseYes1')}</li>
-            <li>{t('skeletongate:zone.chooseYes2')}</li>
-            <li>{t('skeletongate:zone.chooseYes3')}</li>
-          </ul>
-          {/* 迷った人の逃げ道（利用者提案 2026-08-31）。かつての「迷ったら種類に」は
-              足りない種類を後から足せなかった時代の助言で、D4 とカード修理が入った
-              いまは「一旦そのままで OK・公開までは何度でも直せる」が正しい。
-              `chooseDoubt` は 3 行への圧縮時に描画から落ちて死に文言になっていた —
-              書き直して復帰。 */}
           <p className="kz-note kz-prose skeleton-choose-doubt">
             {t('skeletongate:zone.chooseDoubt')}
           </p>
@@ -3008,13 +2995,8 @@ export function SkeletonGate({
           <div className="skeleton-zone-layout">
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
-            {/* 2 つの判断は 2 つの列に分ける。「この値自体を ID にする」と「この項目を
-                どの種類に載せる」は別のことで、1 つのセレクトに混ぜると、選択肢の
-                どれが「作る」でどれが「載せる」なのか読めなかった（利用者評価
-                2026-08-28）。 */}
             <thead>
               <tr>
-                <th scope="col">{t('skeletongate:zone.colId')}</th>
                 <th scope="col">{t('skeletongate:zone.colColumn')}</th>
                 <th scope="col">{t('skeletongate:zone.colValue')}</th>
                 <th scope="col">{t('skeletongate:zone.colCarrier')}</th>
@@ -3026,24 +3008,6 @@ export function SkeletonGate({
                 const kindName = locked ? undefined : zone.kindOf.get(col)
                 return (
                   <tr key={col}>
-                    {/* ID にするかどうか。ID に使われている列（表全体のキー）は
-                        外せない — 外すと ID の作り方そのものが変わるので、そこは
-                        「ID の作り方を自分で書く」の領分。 */}
-                    <td className="skeleton-entity-pick">
-                      {!locked && (zone.pickable.has(col) || !!kindName) && (
-                        <input
-                          type="checkbox"
-                          aria-label={t('skeletongate:zone.idAria', { column: col })}
-                          checked={!!kindName}
-                          disabled={!canRevalidate}
-                          onChange={(e) =>
-                            e.target.checked
-                              ? promoteColumn(zone.idx, col)
-                              : demoteColumn(col, kindName!)
-                          }
-                        />
-                      )}
-                    </td>
                     <th scope="row">{col}</th>
                     <td>{value}</td>
                     {/* この列がどの種類に載るか。ID に使われている列は動かせない
@@ -3086,7 +3050,7 @@ export function SkeletonGate({
               {(zone.ann.entity_preview!.varying_columns?.length ?? 0) > 0 && (
                 <>
                   <tr className="skeleton-entity-band">
-                    <td colSpan={4}>
+                    <td colSpan={3}>
                       ↓{' '}
                       {zone.rowMap
                         ? t('workbench:skeleton.evidence.cardDelegatedBand', {
@@ -3111,23 +3075,6 @@ export function SkeletonGate({
                     )?.values
                     return (
                       <tr key={col} className="skeleton-entity-delegated">
-                        <td className="skeleton-entity-pick">
-                          {identity && (
-                            <input
-                              type="checkbox"
-                              aria-label={t('workbench:skeleton.evidence.splitPick', {
-                                column: col,
-                              })}
-                              checked={!!kindName}
-                              disabled={!canRevalidate}
-                              onChange={(e) =>
-                                e.target.checked
-                                  ? promoteColumn(zone.idx, col)
-                                  : demoteColumn(col, kindName!)
-                              }
-                            />
-                          )}
-                        </td>
                         <th scope="row">{col}</th>
                         <td className="skeleton-entity-ghost-value">
                           {identity && samples && samples.length > 0
