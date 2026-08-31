@@ -358,17 +358,63 @@ def _column_owners(
     Reuses the skeleton gate's own annotation pass, so the constraint fed to
     generation is EXACTLY the verdict the human just approved on screen —
     "these 17 columns belong to sample" becomes "do not write them on peak".
-    Best-effort: any failure yields ``{}`` and generation proceeds as before.
+    Best-effort: any failure yields the deterministic overlay alone and
+    generation proceeds as before.
+
+    On top of the annotation verdict, two facts the skeleton itself states are
+    overlaid deterministically (same-source maps only):
+
+    - a column a map DECLARES in ``owns`` belongs to that map;
+    - a map's subject-template key columns belong to that map (first declarer
+      wins — the skeleton orders parents first, so ``No`` goes to the card and
+      ``(hkl)`` to the record).
+
+    Without the key rule, key columns belonged to NOBODY, so the generation
+    model could transcribe them as plain properties of any other map — observed
+    live 2026-09-01 (XRD reference card: the model wrote ``(hkl)``/``No`` onto
+    the SpaceGroup and CrystalSystem catalogs but not ChemicalFormula, i.e.
+    nondeterministically), and every guard downstream was blind to it because
+    ``drop_borrowed_properties`` only strips columns listed here. Joins are
+    untouched: the guard and the drop both leave ``object_template`` (the link
+    form) alone — G6 keys stay usable as keys everywhere.
     """
+    owners: dict[str, dict[str, str]] = {}
     try:
         annotations = annotate_skeleton(skeleton, paths, dialects=dialects)
     except Exception:  # evidence is advisory; never block generation on it
-        return {}
-    owners: dict[str, dict[str, str]] = {}
+        annotations = {}
     for name, ann in (annotations.get("maps") or {}).items():
         borrowed = ann.get("borrowed_columns") or []
         if borrowed:
             owners[str(name)] = {b["column"]: b["owner_map"] for b in borrowed}
+
+    maps = [m for m in (skeleton.get("maps") or []) if isinstance(m, Mapping)]
+    declared: dict[tuple[str, str], str] = {}  # (source, column) -> owner map
+    for m in maps:
+        src = str(m.get("source") or "")
+        mname = str(m.get("name") or "")
+        for col in m.get("owns") or []:
+            declared.setdefault((src, str(col)), mname)
+    for m in maps:  # skeleton order = parents first, so the card claims No
+        src = str(m.get("source") or "")
+        mname = str(m.get("name") or "")
+        template = str((m.get("subject") or {}).get("template") or "")
+        for match in re.finditer(r"\{([^{}]+)\}", template):
+            declared.setdefault((src, match.group(1)), mname)
+    for m in maps:
+        src = str(m.get("source") or "")
+        mname = str(m.get("name") or "")
+        own_keys = {
+            match.group(1)
+            for match in re.finditer(
+                r"\{([^{}]+)\}", str((m.get("subject") or {}).get("template") or "")
+            )
+        }
+        for (osrc, col), owner in declared.items():
+            # A key that sits in THIS map's own template is its identity (the
+            # nested join), not a borrowed value — the peak keeps its No.
+            if osrc == src and owner != mname and col not in own_keys:
+                owners.setdefault(mname, {}).setdefault(col, owner)
     return owners
 
 

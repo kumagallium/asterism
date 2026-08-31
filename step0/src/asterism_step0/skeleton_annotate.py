@@ -1544,7 +1544,14 @@ def assemble_skeleton_from_judgments(
                 )
                 key = [*parent, first_identity]
             name = _ascii_map_name("record", taken, "record")
-            add_map(name, src, key, _pascal(name) or "Record")
+            # 行の種類は自分の持ち物 [キー以外の変動列。☑ の受け口列は受け口の
+            # 持ち物] を**宣言**する。宣言が無いと、キーでも受け口でもない列は
+            # 誰の持ち物でもなく、設計の続き [LLM] が他の種類へ自由に転記できて
+            # しまう [実測 2026-09-01: 測定値が受け口のカタログに乗り得る]。
+            # record は singleton ではないので、owns を宣言しても
+            # _parent_singleton の親判定 [originals] には影響しない。
+            record_owns = [c for c in varying if c not in key and c not in links]
+            add_map(name, src, key, _pascal(name) or "Record", owns=record_owns)
 
         # ---- つながる受け口（値のカタログ）----
         for col in links:

@@ -414,10 +414,72 @@ def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> No
     }
     owners = design_loop._column_owners(skeleton, [card], {})
     # The card's constant column belongs to the card, not to each of its peaks;
-    # the parent KEY stays available to the peak (that is the join).
-    assert owners == {"peak": {"Name": "sample"}}
-    # An unreadable source never blocks generation — it just yields no constraint.
-    assert design_loop._column_owners(skeleton, [tmp_path / "missing.csv"], {}) == {}
+    # the parent KEY stays available to the peak (that is the join — the key
+    # sits in the peak's own template, so the overlay leaves it alone). The
+    # peak-only key conversely belongs to the peak: the sample may join on it
+    # but not transcribe it as a plain property.
+    assert owners == {"peak": {"Name": "sample"}, "sample": {"(hkl)": "peak"}}
+    # An unreadable source yields no annotation, but the skeleton's own facts
+    # (template keys) still constrain: the sample must not transcribe the
+    # peak-only key as a plain property.
+    assert design_loop._column_owners(skeleton, [tmp_path / "missing.csv"], {}) == {
+        "sample": {"(hkl)": "peak"}
+    }
+
+
+def test_column_owners_pin_keys_and_declared_owns_deterministically(tmp_path: Path) -> None:
+    """Live 2026-09-01 (XRD reference card): key columns belonged to NOBODY, so
+    the generation model transcribed ``No``/``(hkl)`` as plain properties of the
+    SpaceGroup/CrystalSystem catalogs (but not ChemicalFormula — i.e. it was
+    chance). The overlay states the skeleton's own facts: template keys belong
+    to their first declarer (parents first), declared ``owns`` to the declarer —
+    so `drop_borrowed_properties` strips such transcriptions wherever the model
+    puts them."""
+    card = tmp_path / "card.csv"
+    card.write_text(
+        "No,Space Group,2theta,(hkl)\n"
+        '03-1,I4/mmm(139),21.34,"(0,0,2)"\n'
+        '03-1,I4/mmm(139),25.87,"(1,0,1)"\n',
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {
+                "name": "card",
+                "source": "card.csv",
+                "subject": {"template": "xr:card/{No}", "classes": ["xo:Card"]},
+            },
+            {
+                "name": "record",
+                "source": "card.csv",
+                "subject": {"template": "xr:record/{No}/{(hkl)}", "classes": ["xo:Record"]},
+                "owns": ["2theta"],
+            },
+            {
+                "name": "space_group",
+                "source": "card.csv",
+                "subject": {
+                    "template": "xr:space_group/{Space Group}",
+                    "classes": ["xo:SpaceGroup"],
+                },
+                "owns": ["Space Group"],
+            },
+        ],
+    }
+    owners = design_loop._column_owners(skeleton, [card], {})
+    got = owners["space_group"]
+    # The catalog may not transcribe anyone's key or owned column as data.
+    assert got["No"] == "card"
+    assert got["(hkl)"] == "record"
+    assert got["2theta"] == "record"
+    # The record keeps its own keys (identity, not borrowing) …
+    assert "No" not in owners.get("record", {})
+    assert "(hkl)" not in owners.get("record", {})
+    # … but may not copy the catalog's value as a plain property.
+    assert owners["record"]["Space Group"] == "space_group"
+    assert owners["card"]["Space Group"] == "space_group"
 
 
 def test_overlay_data_facts_survives_a_round_that_dropped_them() -> None:

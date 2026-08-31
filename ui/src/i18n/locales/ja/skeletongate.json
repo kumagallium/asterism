@@ -129,7 +129,8 @@
     "missingCard": "この表には「ファイル全体で 1 件」の種類がまだありません。ファイルに一度だけ書かれている {{count}} 列（{{first}} など）は、いまの設計ではすべての記録に写ります。下のボタンで {{key}} を ID にした 1 件に分けられます。",
     "missingCardFix": "＋ ファイル全体の種類を作る",
     "perValueNamed": "{{column}} ごと（{{name}}）",
-    "diagramCard": "カード"
+    "diagramCard": "カード",
+    "diagramRecord": "レコード"
   },
   "removeZoneHost": "この種類はファイル全体の値を持っています。消すと「どの種類が、どの項目を持つか」の一覧も消えます。ID の列を変えたいだけなら「ID の作り方を自分で書く」へ。",
   "kindsHead": "ID がひとつずつを指しているか確かめる",
