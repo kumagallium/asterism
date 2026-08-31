@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.2](https://github.com/kumagallium/asterism/compare/v0.31.1...v0.31.2) - 2026-08-31
+
+- fix(ui): ⑤の直しから判断の二重を除去 — 「ID にする」列と rekey タブを削除 by @kumagallium in https://github.com/kumagallium/asterism/pull/492
+
 ## [v0.31.1](https://github.com/kumagallium/asterism/compare/v0.31.0...v0.31.1) - 2026-08-31
 
 - fix(ui): ④⑤を承認モックへ完全整合 — ID 行・種類名ラベル・CTA 位置・④へ戻る道 by @kumagallium in https://github.com/kumagallium/asterism/pull/490
