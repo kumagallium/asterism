@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
 
 // The always-visible "recipe" of the kantan tier (ADR kantan-mode-two-tier-ux.md):
-// ① put data in → ② AI reads it → ③ what one row is → ④ what the columns mean →
-// ⑤ try it (S7) → ⑥ publish (S8/S9). `current` lights the step the wizard is on
+// ① put data in → ② AI reads it → ③ what the columns mean → ④ which values link
+// outside → ⑤ confirm the shape → ⑥ try it (S7) → ⑦ publish (S8/S9)
+// (ADR skeleton-from-easy-judgments). `current` lights the step the wizard is on
 // (1-based); `currentDone` renders it as ✓ instead — the S9 完了 state.
 //
 // ③ and ④ were one step ("確かめる") until a run showed why they cannot be: they
@@ -16,9 +17,10 @@ const STEP_KEYS = [
   'kantan:recipe.step4',
   'kantan:recipe.step5',
   'kantan:recipe.step6',
+  'kantan:recipe.step7',
 ] as const
 
-export type RecipeStep = 1 | 2 | 3 | 4 | 5 | 6
+export type RecipeStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 export function RecipeCard({
   current,

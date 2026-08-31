@@ -43,7 +43,13 @@ from .inspect import (
     _stream_rows,
     inspect_source_set,
 )
-from .instance_iri import dataset_namespace_info, placeholder_prefix_issue
+from .instance_iri import (
+    dataset_namespace_info,
+    derive_prefix_pair,
+    normalize_iri_base,
+    placeholder_prefix_issue,
+    slugify_dataset_name,
+)
 
 __all__ = ["annotate_skeleton", "apply_key_safety_fix"]
 
@@ -1378,6 +1384,184 @@ def _rewrite_key_template(template: str, columns: Sequence[str]) -> str:
     idx = template.find("{")
     head = template[:idx] if idx >= 0 else template + "/"
     return head + "/".join(f"{{{c}}}" for c in columns)
+
+
+def _ascii_map_name(raw: str, taken: set[str], fallback: str) -> str:
+    """骨格スキーマの map 名 [^A-Za-z][\\w-]* に収まる機械名。"""
+    ascii_ = re.sub(r"[^0-9a-z]+", "_", raw.lower()).strip("_")
+    ascii_ = re.sub(r"^[^a-z]+", "", ascii_)
+    base = ascii_ or fallback
+    name = base
+    i = 2
+    while name in taken:
+        name = f"{base}{i}"
+        i += 1
+    taken.add(name)
+    return name
+
+
+def _pascal(name: str) -> str:
+    parts = [p for p in re.split(r"[^0-9A-Za-z]+", name) if p]
+    return "".join(p[:1].upper() + p[1:] for p in parts)
+
+
+def assemble_skeleton_from_judgments(
+    paths: Sequence[Path | str],
+    *,
+    linkable: Sequence[Mapping[str, str]] = (),
+    card_keys: Mapping[str, str] | None = None,
+    excluded: Sequence[Mapping[str, str]] = (),
+    dataset_name: str | None = None,
+    dialects: Mapping[str, Any] | None = None,
+    record_path: str | None = None,
+    iri_base: str | None = None,
+) -> dict[str, Any]:
+    """③④の答えとファイルの検査から骨格を**組み立てる** [決定論・LLM 0]。
+
+    ADR ``skeleton-from-easy-judgments.md`` D5。round-0 の LLM 提案を、かんたん
+    モードでは置き換える。入力は人の判断 2 つだけ:
+
+    - ``linkable``: ④「他のデータにも出てくる?」で ☑ した (source, column)
+    - ``card_keys``: ④末尾の名指し {source: column}。無ければ機械が仮置きし、
+      metadata の ``provisional_card_keys`` で明示する [利用者裁定 2026-08-31]
+
+    導出はすべて検査の事実から: 放送列 [全行同値] = カードの項目、変動列 =
+    行の種類、キーは一意性の実測から。☑ した値がその種類の ID になったときは
+    受け口の種類を作らない — 種類自身が受け口。
+
+    Returns ``{"skeleton": ..., "metadata": {...}}``。annotation は呼び出し側が
+    :func:`annotate_skeleton` でいつもどおり計算する [式を二重に持たない]。
+    """
+    resolved = [Path(p) for p in paths]
+    inspections, _fks = inspect_source_set(resolved, record_path=record_path, dialects=dialects)
+    by_name = {path.name: (path, ins) for path, ins in zip(resolved, inspections, strict=True)}
+
+    slug = slugify_dataset_name(dataset_name or (resolved[0].stem if resolved else None))
+    onto, res = derive_prefix_pair(slug)
+    base = normalize_iri_base(iri_base)
+    prefixes = {
+        onto: f"{base}/datasets/{slug}/ontology#",
+        res: f"{base}/datasets/{slug}/resource/",
+    }
+
+    linkable_by_source: dict[str, list[str]] = defaultdict(list)
+    for entry in linkable:
+        src = Path(str(entry.get("source") or "")).name
+        col = str(entry.get("column") or "")
+        if col and col not in linkable_by_source[src]:
+            linkable_by_source[src].append(col)
+    excluded_by_source: dict[str, set[str]] = defaultdict(set)
+    for entry in excluded:
+        excluded_by_source[Path(str(entry.get("source") or "")).name].add(
+            str(entry.get("column") or "")
+        )
+
+    maps: list[dict[str, Any]] = []
+    taken: set[str] = set()
+    provisional: dict[str, str] = {}
+
+    def template(name: str, key: Sequence[str]) -> str:
+        return f"{res}:{name}/" + "/".join("{" + c + "}" for c in key)
+
+    def add_map(
+        name: str, source: str, key: Sequence[str], cls: str, owns: Sequence[str] = ()
+    ) -> None:
+        m: dict[str, Any] = {
+            "name": name,
+            "source": source,
+            "subject": {"template": template(name, key), "classes": [f"{onto}:{cls}"]},
+        }
+        if owns:
+            m["owns"] = list(owns)
+        maps.append(m)
+
+    for path in resolved:
+        src = path.name
+        _p, ins = by_name[src]
+        drop = excluded_by_source.get(src, set())
+        links = [c for c in linkable_by_source.get(src, []) if c not in drop]
+        types = {c.name: c.inferred_type for c in ins.columns}
+        columns = [c.name for c in ins.columns if c.name not in drop]
+
+        broadcast: list[str] = []
+        varying: list[str] = []
+        if ins.source_kind == "csv":
+            try:
+                rows = _read_rows(path, ins.dialect)
+            except OSError:
+                rows = []
+            for c in columns:
+                distinct = {v for row in rows if (v := (row.get(c) or "").strip())}
+                (broadcast if len(distinct) <= 1 else varying).append(c)
+        else:
+            varying = list(columns)
+
+        # ---- カード（ファイル全体で 1 件）----
+        card_key: str | None = None
+        if broadcast:
+            wanted = (card_keys or {}).get(src)
+            identity_bc = [c for c in broadcast if types.get(c) not in _MEASUREMENT_TYPES]
+            link_bc = [c for c in links if c in broadcast]
+            if wanted and wanted in broadcast:
+                card_key = wanted
+            elif len(link_bc) == 1:
+                # ④で ☑ したファイル単位の値が 1 つ → それが名指し（人の選択）。
+                card_key = link_bc[0]
+            else:
+                card_key = (identity_bc or broadcast)[0]
+                provisional[src] = card_key
+            name = _ascii_map_name("card", taken, "card")
+            add_map(name, src, [card_key], _pascal(name) or "Card")
+
+        # ---- 行の種類 ----
+        if varying:
+            parent = [card_key] if card_key else []
+            candidates = _key_candidates(ins, tuple(parent))
+            key: list[str] | None = None
+            if parent:
+                scoped = [
+                    c
+                    for c in _scoped_candidates(parent, (), candidates, None, ins)
+                    if len(c["columns"]) > len(parent)
+                ]
+                best = next((c for c in scoped if not c.get("measurement_only")), None) or (
+                    scoped[0] if scoped else None
+                )
+                if best:
+                    key = list(best["columns"])
+            if key is None:
+                best = next((c for c in candidates if not c.get("measurement_only")), None) or (
+                    candidates[0] if candidates else None
+                )
+                if best:
+                    cols = list(best["columns"])
+                    key = [*parent, *(c for c in cols if c not in parent)] if parent else cols
+            if key is None:
+                # 一意の証明が無い — 最有力の識別子列で仮組みし、ゲートの ⚠ に任せる。
+                first_identity = next(
+                    (c for c in varying if types.get(c) not in _MEASUREMENT_TYPES),
+                    varying[0],
+                )
+                key = [*parent, first_identity]
+            name = _ascii_map_name("record", taken, "record")
+            add_map(name, src, key, _pascal(name) or "Record")
+
+        # ---- つながる受け口（値のカタログ）----
+        for col in links:
+            if col == card_key:
+                continue  # 種類自身が受け口 — 別の受け口は作らない
+            if types.get(col) in _MEASUREMENT_TYPES:
+                continue  # 測定値は ID にしない（K7/K33）
+            if col not in columns:
+                continue
+            name = _ascii_map_name(col, taken, "value")
+            add_map(name, src, [col], _pascal(name) or "Value", owns=[col])
+
+    skeleton = {"version": 1, "prefixes": prefixes, "maps": maps}
+    return {
+        "skeleton": skeleton,
+        "metadata": {"provisional_card_keys": provisional, "dataset_slug": slug},
+    }
 
 
 def fold_twin_kinds(skeleton: Mapping[str, Any]) -> tuple[dict, list[str]]:

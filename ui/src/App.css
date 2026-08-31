@@ -6819,8 +6819,107 @@ button.ds-artifact:disabled {
   font-size: 0.8125rem;
   line-height: 1.7;
 }
+/* ④「外とのつながり」(ADR skeleton-from-easy-judgments D2): レシピ×価格表の
+   連結例と、☑ の表。例は分野を跨ぐ教科書例 — この画面の唯一の判断を、身近な
+   ジョインの絵で先に見せる。 */
+.kz-links-example {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: var(--space-2) 0;
+  flex-wrap: wrap;
+}
+.kz-links-mini {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  background: var(--surface);
+}
+.kz-links-mini-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.kz-links-mini table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.kz-links-mini td {
+  padding: 0.12rem 0.55rem;
+  border-top: 1px solid var(--border);
+}
+.kz-links-hl {
+  color: var(--primary);
+  font-weight: 700;
+}
+.kz-links-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+.kz-links-word {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--primary);
+  border: 1.5px dashed var(--primary);
+  border-radius: 999px;
+  padding: 0.1em 0.8em;
+}
+.kz-links-note {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.kz-links-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.kz-links-table th,
+.kz-links-table td {
+  white-space: normal;
+}
+.kz-links-table th[scope='row'] {
+  white-space: nowrap;
+  width: 8.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kz-links-table td.kz-links-value {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kz-links-table thead th:nth-child(4) {
+  width: 10rem;
+}
+.kz-links-meaning {
+  color: var(--muted);
+}
+.kz-links-keyq {
+  margin-top: 0.8rem;
+  padding: 0.9rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.kz-links-pick {
+  display: inline-flex;
+  gap: 0.45em;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
 /* ①の帯（ADR kind-splitting D2/D4）: 相談 2 本と「同じ ID で種類を足す」。
    表のすぐ上に置く — 疑問が生まれる場所と、頼む場所を離さない。 */
+.skeleton-zone-graph {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin: var(--space-2) 0;
+}
+.skeleton-fix-head {
+  margin-top: var(--space-4);
+}
 .skeleton-zone-actions {
   margin: 0 0 var(--space-3);
   gap: var(--space-2);

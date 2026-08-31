@@ -99,6 +99,7 @@ from asterism_step0.refine import refine_schema
 from asterism_step0.skeleton_annotate import (
     annotate_skeleton,
     apply_key_safety_fix,
+    assemble_skeleton_from_judgments,
     fold_twin_kinds,
 )
 from asterism_step0.staged_propose import (
@@ -5347,6 +5348,89 @@ def build_app(
         jobs: JobManager = app.state.jobs
         job_id = jobs.start_coro(skeleton_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/propose/skeleton/assemble")
+    async def assemble_skeleton_endpoint(
+        files: list[UploadFile] = File(
+            default=[], description="Source file(s) — the same set the wizard read"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
+        ),
+        linkable: str = Form(
+            default="[]",
+            description='④「他のデータにも出てくる?」の ☑ as JSON [{source, column}]',
+        ),
+        card_keys: str = Form(
+            default="{}",
+            description="④末尾の名指し as JSON {source: column}. 無ければ機械が仮置き。",
+        ),
+        excluded: str = Form(
+            default="[]",
+            description="③で取り込まないと決めた列 as JSON [{source, column}]",
+        ),
+        dataset_name: str = Form(default="", description="データセット名 [IRI の slug 用]"),
+        dialects: str = Form(
+            default="",
+            description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
+        ),
+    ) -> dict[str, object]:
+        """③④の答えから骨格を組み立てる [決定論・LLM 0・ジョブなし]。
+
+        ADR skeleton-from-easy-judgments D5: かんたんモードの骨格は LLM の提案で
+        はなく、人の判断 2 つ [☑ と名指し] + 検査の事実からの組み立てになる。
+        /validate と同じ形の同期エンドポイント — 数秒で返り、annotation も同じ
+        計算で同梱する。"""
+
+        def _parse_json(raw: str, name: str, expect: type) -> object:
+            try:
+                obj = json.loads(raw or ("{}" if expect is dict else "[]"))
+            except json.JSONDecodeError as exc:
+                raise HTTPException(400, f"{name} is not valid JSON: {exc}") from exc
+            if not isinstance(obj, expect):
+                raise HTTPException(400, f"{name} must be a JSON {expect.__name__}")
+            return obj
+
+        linkable_obj = _parse_json(linkable, "linkable", list)
+        card_keys_obj = _parse_json(card_keys, "card_keys", dict)
+        excluded_obj = _parse_json(excluded, "excluded", list)
+        dialect_overrides = _parse_dialect_overrides(dialects)
+
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-assemble-"
+        )
+        try:
+            effective = await asyncio.to_thread(
+                _effective_dialects, list(paths), dialect_overrides
+            )
+            result = await asyncio.to_thread(
+                partial(
+                    assemble_skeleton_from_judgments,
+                    linkable=[e for e in linkable_obj if isinstance(e, dict)],
+                    card_keys={str(k): str(v) for k, v in card_keys_obj.items()},
+                    excluded=[e for e in excluded_obj if isinstance(e, dict)],
+                    dataset_name=dataset_name or None,
+                    dialects=effective,
+                    iri_base=cfg.iri_base,
+                ),
+                list(paths),
+            )
+            annotations = await asyncio.to_thread(
+                annotate_skeleton,
+                result["skeleton"],
+                list(paths),
+                dialects=effective,
+                iri_base=cfg.iri_base,
+            )
+        finally:
+            if owned:
+                shutil.rmtree(work, ignore_errors=True)
+        return {
+            "skeleton": result["skeleton"],
+            "annotations": annotations,
+            "metadata": result["metadata"],
+        }
 
     @app.post("/api/propose/skeleton/validate")
     async def validate_skeleton_endpoint(

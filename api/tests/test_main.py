@@ -649,6 +649,65 @@ def test_propose_skeleton_rejects_a_malformed_rethink_skeleton(
         assert "skeleton" in r.json()["detail"]
 
 
+def test_skeleton_assemble_builds_from_judgments(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """ADR skeleton-from-easy-judgments D5: ③④の答えから決定論で骨格を組み立てる
+    同期エンドポイント。LLM もジョブも使わない。annotation を同梱して返す。"""
+    csv = (
+        "No,Name,temp,val\n"
+        "C-1,Alpha,300,1.2\n"
+        "C-1,Alpha,310,1.4\n"
+        "C-1,Alpha,320,1.9\n"
+    )
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton/assemble",
+            data={
+                "linkable": json.dumps(
+                    [
+                        {"source": "cards.csv", "column": "No"},
+                        {"source": "cards.csv", "column": "Name"},
+                    ]
+                ),
+                "card_keys": json.dumps({"cards.csv": "No"}),
+                "dataset_name": "assemble demo",
+            },
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        names = {m["name"]: m for m in body["skeleton"]["maps"]}
+        assert set(names) == {"card", "record", "name"}
+        assert names["card"]["subject"]["template"].endswith(":card/{No}")
+        assert names["name"]["owns"] == ["Name"]
+        assert body["metadata"]["provisional_card_keys"] == {}
+        # annotation は同じ計算で同梱される — カードは singleton、行は unique。
+        ann = body["annotations"]["maps"]
+        assert ann["card"]["collapse_kind"] == "singleton"
+        assert ann["record"]["collapse_kind"] == "unique"
+
+        # 名指しなし → 機械の仮置きが metadata で明示される（利用者裁定）。
+        r2 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"linkable": "[]"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r2.status_code == 200
+        assert r2.json()["metadata"]["provisional_card_keys"] == {"cards.csv": "No"}
+
+        # 壊れた JSON は 400。
+        r3 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"linkable": "{not json"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r3.status_code == 400
+
+
 def test_skeleton_validate_recomputes_evidence_for_edits(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
