@@ -1,11 +1,11 @@
 {
-  "version": "0.30.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b8f9c589442f2c76ec42bc3ee8ab945cca5acdd5 -->\n\n## What's Changed\n* fix(step0/ui): 行の種類しか無い骨格を、言う・直せるようにする（missing_card_kind） by @kumagallium in https://github.com/kumagallium/asterism/pull/471\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.29.0...v0.30.0",
-  "pub_date": "2026-08-31T04:26:33Z",
+  "version": "0.30.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at d449d710f637bb39250daecb5e1a7128046406f4 -->\n\n## What's Changed\n* docs: ADR local-first-distribution §7 を完了状態に更新 — 署名/公証/updater は完了済 by @kumagallium in https://github.com/kumagallium/asterism/pull/472\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.30.0...v0.30.1",
+  "pub_date": "2026-08-31T04:59:52Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVFXYzVUTjhuVVljbnVXMHU1eWtWMlNNSjJKNm5zZERJTmhuVmtvbExLckkwNEVwUnQ0T2JqMm1aazlYSldialA2cEVYaFhFUDhoTEpQYVBNUUhQUndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTUwMzkzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjZxU0s0bWVrZTNoN3lEcjF6VG5KeUhsN1EyMjhiUmpzRkZtSjJxTThNbTFGSEo4aC82Z051YnB3SXVxcWFwY1FlblFhTktDVFZaY3ZaUEpuSHl6M0RRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVlwdjBzdUM3K1NUNkVwZk5Mc2Zhc2o3QWxKV3I4eFJ3R2J5K1hYQ0dUN3IxcVhPbEVBU1ZjTkZEeFFPTUZzNDZCbjhmMzJNSm0rZHkvdjhGQktHVUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTUyMzkyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmZGQ2s0M25YdjFyLzI3aUgxUkkyN0M1MTlBSDZvTnBUQ2tTQkNnOS9Gd0RDOGhFcWFZRjVNNlNSVXFObGFTSkdJaTh1NE45RDNObUY5Z3FvWnZlNUNRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
