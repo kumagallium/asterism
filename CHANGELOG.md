@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.31.0](https://github.com/kumagallium/asterism/compare/v0.30.3...v0.31.0) - 2026-08-31
+
+- docs(adr): 骨格は、簡単な判断から導く — ④外とのつながり新設と⑤グラフ確認 by @kumagallium in https://github.com/kumagallium/asterism/pull/487
+- feat: 骨格は簡単な判断から導く — ④外とのつながり新設・⑤グラフ確認・骨格 LLM 廃止 by @kumagallium in https://github.com/kumagallium/asterism/pull/489
+
 ## [v0.30.3](https://github.com/kumagallium/asterism/compare/v0.30.2...v0.30.3) - 2026-08-31
 
 - chore(ci): tagpr ブランチの PR では run を作らない by @kumagallium in https://github.com/kumagallium/asterism/pull/478
