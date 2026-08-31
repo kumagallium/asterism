@@ -1,11 +1,11 @@
 {
-  "version": "0.29.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 8dd964eed62240c7e66fd1cf7e44dd8b574f9e12 -->\n\n## What's Changed\n* chore(ui/api): 材料科学固有の例を抜き、分野特化の境界を ADR にする by @kumagallium in https://github.com/kumagallium/asterism/pull/469\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.28.0...v0.29.0",
-  "pub_date": "2026-08-31T02:52:51Z",
+  "version": "0.30.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b8f9c589442f2c76ec42bc3ee8ab945cca5acdd5 -->\n\n## What's Changed\n* fix(step0/ui): 行の種類しか無い骨格を、言う・直せるようにする（missing_card_kind） by @kumagallium in https://github.com/kumagallium/asterism/pull/471\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.29.0...v0.30.0",
+  "pub_date": "2026-08-31T04:26:33Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJJc0had090T3BTSXlwTGdtNWxvWHFoNmw0YkFYNzI1QlZ6MTVtSHU0VUFYYjBCKzcrcUFiUmwyNGtxQWN2UnRuZUVBQkZJK0V2a2NuaU5aRUFIbWdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTQ0NzcwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmxGVCtxU0QySzBBNzM3aWx0cjVZNGJ2azdlNFZyZHo2d1Y1aTFDUkRxNVgvQ0JicCt4aW1sZTNCTm54clpFWDVlUEsrdVhEbE1zWGpBL1lzNGtFd0FBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.29.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVFXYzVUTjhuVVljbnVXMHU1eWtWMlNNSjJKNm5zZERJTmhuVmtvbExLckkwNEVwUnQ0T2JqMm1aazlYSldialA2cEVYaFhFUDhoTEpQYVBNUUhQUndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTUwMzkzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjZxU0s0bWVrZTNoN3lEcjF6VG5KeUhsN1EyMjhiUmpzRkZtSjJxTThNbTFGSEo4aC82Z051YnB3SXVxcWFwY1FlblFhTktDVFZaY3ZaUEpuSHl6M0RRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
