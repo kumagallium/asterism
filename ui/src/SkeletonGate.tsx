@@ -1697,19 +1697,27 @@ export function SkeletonGate({
     const sameIdKinds = sameIdSiblings(skeleton, host.name)
     const sameIdSet = new Set(sameIdKinds)
     // 同じソースで、1 列だけをキーに持つ他の種類 — その列は「もう種類」。
+    // ⭐同じ列をキーにした種類が 2 つあるとき（実機 2026-08-31: AI 案の
+    // CrystalStructure と SpaceGroup が同じ {Space Group}）、1:1 の Map だと
+    // 後勝ちで片方が消え、負けた方は図の点線・琥珀・「載せる種類」の候補から
+    // 漏れて**白い孤立ノード**に見える。全員を `columnKinds` に持ち、チェック
+    // ボックスの相方（kindOf）だけ先勝ちの 1 つにする。
     const kindOf = new Map<string, string>()
+    const columnKinds = new Map<string, string[]>()
     for (const mm of skeleton.maps) {
       if (mm.name === host.name || mm.source !== host.source) continue
       if (sameIdSet.has(mm.name)) continue
       const vars = [...(mm.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-      if (vars.length === 1) kindOf.set(vars[0], mm.name)
+      if (vars.length !== 1) continue
+      if (!kindOf.has(vars[0])) kindOf.set(vars[0], mm.name)
+      columnKinds.set(vars[0], [...(columnKinds.get(vars[0]) ?? []), mm.name])
     }
     // ゴースト帯の帰属名。値のカタログ（K33）は行の置き場ではないので飛ばす —
     // (hkl) を昇格した直後に 2theta の帯が「xr:Hkl の領分」と誤記された。
     const rowMap = (a.growth_preview?.row_maps ?? []).find(
       (n) => !annotations?.maps?.[n]?.value_catalog,
     )
-    return { idx, host, ann: a, values, keyCols, kindOf, sameIdKinds, rowMap, pickable }
+    return { idx, host, ann: a, values, keyCols, kindOf, columnKinds, sameIdKinds, rowMap, pickable }
   })()
 
 
@@ -1744,9 +1752,12 @@ export function SkeletonGate({
     if (zone.sameIdKinds.includes(name)) return displayMapName(name)
     const m = skeleton.maps.find((x) => x.name === name)
     const vars = [...(m?.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    return vars.length === 1
-      ? t('skeletongate:zone.perValue', { column: vars[0] })
-      : displayMapName(name)
+    if (vars.length !== 1) return displayMapName(name)
+    // 同じ列をキーにした種類が 2 つあると「Space Group ごと」が 2 択に並ぶ。
+    // 名前で区別する（⚠ の文と同じ呼び方）。
+    return (zone.columnKinds.get(vars[0])?.length ?? 0) > 1
+      ? t('skeletongate:zone.perValueNamed', { column: vars[0], name: displayMapName(name) })
+      : t('skeletongate:zone.perValue', { column: vars[0] })
   }
 
   /** 列 → その列を持つと**宣言された**種類（`owns`）。宣言が無ければカード。
@@ -1764,7 +1775,9 @@ export function SkeletonGate({
   /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。①で列から作った
    *  種類（`kindOf`）と、カードと同じ鍵で数える兄弟（`sameIdKinds`・D4）の両方。
    *  後者を落としていたので、足した種類に項目を移せなかった（実機 2026-08-31）。 */
-  const siblingKinds = zone ? [...zone.sameIdKinds, ...new Set(zone.kindOf.values())] : []
+  const siblingKinds = zone
+    ? [...zone.sameIdKinds, ...new Set([...zone.columnKinds.values()].flat())]
+    : []
 
   /** 列を種類 `target` に載せ替える。他の種類の宣言からは外す（1 つの列が属性と
    *  して載るのは 1 箇所だけ・G6）。カードを選ぶと宣言そのものが消える＝既定へ。
@@ -1803,7 +1816,9 @@ export function SkeletonGate({
       return hostIsWhole ? t('skeletongate:zone.diagramWhole') : t('skeletongate:zone.diagramRows')
     if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
+    if (vars.length !== 1) return t('skeletongate:zone.diagramRows')
+    // 同じ列の種類が 2 つあると箱のラベルが同名で並ぶ — 名前で見分ける（⚠ と同じ呼び方）。
+    return (zone.columnKinds.get(vars[0])?.length ?? 0) > 1 ? displayMapName(m.name) : vars[0]
   }
   /** ④の箱に並べる項目 — **図の隣の表と同じ計算**から出す。
    *
@@ -1832,14 +1847,14 @@ export function SkeletonGate({
    *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
    *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
   const pendingEdges: [string, string][] = zone
-    ? [...new Set(zone.kindOf.values())].map((n) => [zone.host.name, n])
+    ? [...new Set([...zone.columnKinds.values()].flat())].map((n) => [zone.host.name, n])
     : []
   /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
    *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
   const diagramTone = (m: SkeletonMap): ShapeTone => {
     if (!zone) return 'record'
     if (m.name === zone.host.name) return 'whole'
-    return [...zone.kindOf.values()].includes(m.name) ? 'value' : 'record'
+    return [...zone.columnKinds.values()].flat().includes(m.name) ? 'value' : 'record'
   }
   /** 詳細モードの箱の呼び方 — 従来の mermaid の既定と同じ「map 名（クラス名）」。 */
   const detailLabel = (m: SkeletonMap): string => {
@@ -2442,30 +2457,6 @@ export function SkeletonGate({
         </p>
       )}
       {!plain && nsCard}
-      {plain && twinNames.size > 0 && (
-        <>
-          <p className="skeleton-evidence-line skeleton-evidence-warn">
-            ⚠{' '}
-            {t('skeletongate:twinKinds', {
-              names: skeleton.maps
-                .filter((m) => twinNames.has(m.name))
-                .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
-                .join(t('skeletongate:key.listSeparator')),
-            })}
-          </p>
-          {/* D2: どちらを残すかは人の裁定（G18）だが、判断の材料は聞ける。
-              相談は警告のすぐ隣に置く — 疑問が生まれる場所と、頼む場所を離さない。 */}
-          <div className="kz-actions">
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => requestConsult(t('skeletongate:zone.askDupPrefill'))}
-            >
-              {t('skeletongate:zone.askDup')}
-            </button>
-          </div>
-        </>
-      )}
       {zone && (
         <>
           {/* この画面には仕事が 2 つある（値をえらぶ / ID を確かめる）。番号を
@@ -2499,6 +2490,14 @@ export function SkeletonGate({
             <li>{t('skeletongate:zone.chooseYes2')}</li>
             <li>{t('skeletongate:zone.chooseYes3')}</li>
           </ul>
+          {/* 迷った人の逃げ道（利用者提案 2026-08-31）。かつての「迷ったら種類に」は
+              足りない種類を後から足せなかった時代の助言で、D4 とカード修理が入った
+              いまは「一旦そのままで OK・公開までは何度でも直せる」が正しい。
+              `chooseDoubt` は 3 行への圧縮時に描画から落ちて死に文言になっていた —
+              書き直して復帰。 */}
+          <p className="kz-note kz-prose skeleton-choose-doubt">
+            {t('skeletongate:zone.chooseDoubt')}
+          </p>
           {/* D2: 相談は**疑問が生まれる場所**に置く。「AI にもう一度考えさせる」は
               ①の表・②の確認・データセット名の後ろにあり、`.app-main` を下まで
               スクロールしないと見えなかった（利用者指摘 2026-08-30）。S3 の「空欄
@@ -2530,7 +2529,13 @@ export function SkeletonGate({
               定数 ID の種類には「同じ ID」の兄弟が作れない。 */}
           {canRevalidate && !!zone.host.subject.template && (
             <div className="skeleton-zone-addkind-entry">
-              <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdLead')}</p>
+              <p className="kz-note kz-prose">
+            {t('skeletongate:zone.addSameIdLead', {
+              key: [...(zone.host.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)]
+                .map((x) => x[1])
+                .join(t('skeletongate:key.join')),
+            })}
+          </p>
               {addingKind === null && (
                 <div className="kz-actions">
                   <button
@@ -2786,6 +2791,46 @@ export function SkeletonGate({
             {t('skeletongate:kindsHead')}
           </p>
           <p className="kz-note kz-prose">{t('skeletongate:kindsLead')}</p>
+          {/* 双子の警告は②に置く（利用者指摘 2026-08-31: 実際に ⚠ が出るのは
+              種類のタブ＝ここで、勧めている 🗑 もここにある）。かつては①より
+              前に出ていて、注意と出口が別の場所に割れていた。prefill には双子の
+              実名を入れる — 一般文で聞くと、AI はマニュアル由来の導線知識で
+              「重複を AI に相談ボタンを押すのが安全」と押したボタンを勧め返した
+              （実測 2026-08-31）。 */}
+          {twinNames.size > 0 && (
+            <>
+              <p className="skeleton-evidence-line skeleton-evidence-warn">
+                ⚠{' '}
+                {t('skeletongate:twinKinds', {
+                  names: skeleton.maps
+                    .filter((m) => twinNames.has(m.name))
+                    .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+                    .join(t('skeletongate:key.listSeparator')),
+                })}
+              </p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() =>
+                    requestConsult(
+                      t('skeletongate:zone.askDupPrefill', {
+                        names: skeleton.maps
+                          .filter((m) => twinNames.has(m.name))
+                          .map(
+                            (m) =>
+                              compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name,
+                          )
+                          .join(t('skeletongate:key.listSeparator')),
+                      }),
+                    )
+                  }
+                >
+                  {t('skeletongate:zone.askDup')}
+                </button>
+              </div>
+            </>
+          )}
           {/* 件数は①の選択の**結果**（チェックを付けると件数が増える）。①の前に
               置くと、番号の付いていない帯が説明と①の間に挟まって順序が読めない。
               ②の開き＝「いまある種類とその件数」として置く（利用者評価

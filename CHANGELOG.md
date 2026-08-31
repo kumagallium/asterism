@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.30.2](https://github.com/kumagallium/asterism/compare/v0.30.1...v0.30.2) - 2026-08-31
+
+- fix(ui): 同じ列をキーにした双子の種類を、図と選択肢から消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/476
+
 ## [v0.30.1](https://github.com/kumagallium/asterism/compare/v0.30.0...v0.30.1) - 2026-08-31
 
 - docs: ADR local-first-distribution §7 を完了状態に更新 — 署名/公証/updater は完了済 by @kumagallium in https://github.com/kumagallium/asterism/pull/472
