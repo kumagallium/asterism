@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.1](https://github.com/kumagallium/asterism/compare/v0.31.0...v0.31.1) - 2026-08-31
+
+- fix(ui): ④⑤を承認モックへ完全整合 — ID 行・種類名ラベル・CTA 位置・④へ戻る道 by @kumagallium in https://github.com/kumagallium/asterism/pull/490
+
 ## [v0.31.0](https://github.com/kumagallium/asterism/compare/v0.30.3...v0.31.0) - 2026-08-31
 
 - docs(adr): 骨格は、簡単な判断から導く — ④外とのつながり新設と⑤グラフ確認 by @kumagallium in https://github.com/kumagallium/asterism/pull/487
