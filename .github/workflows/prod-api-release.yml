@@ -6,8 +6,10 @@
 # サーバへの inbound 接続（SSH 鍵・deploy 鍵）は一切増やさない＝プル型の要。
 #
 # 使い方:
-#   通常リリース: tag=v0.0.2 を入力 → infra/upload-api/Dockerfile をビルドして push
-#   ロールバック: tag=v0.0.3 + source_tag=v0.0.1 → ビルドせず旧イメージを re-tag
+#   通常リリース: `git tag api-v0.0.2 && git push origin api-v0.0.2`
+#     （または workflow_dispatch で tag=v0.0.2 — dispatch はこのファイルが main に
+#       入ってから使える。タグ push はタグ先コミットの workflow で動くため即使える）
+#   ロールバック: dispatch で tag=v0.0.3 + source_tag=v0.0.1 → ビルドせず re-tag
 #     （Dewy は「最新 semver」を追うため、巻き戻しも前進タグで表現する = roll-forward）
 #
 # イメージは linux/amd64 のみ（asterism-prod = x86_64。amd64 wheel を焼く既存方針
@@ -16,6 +18,8 @@
 name: prod-api-release
 
 on:
+  push:
+    tags: ["api-v*"] # api-v0.0.2 → イメージタグ v0.0.2（本体リリース vX.Y.Z とは別空間）
   workflow_dispatch:
     inputs:
       tag:
@@ -41,11 +45,23 @@ jobs:
       contents: read
       packages: write
     steps:
+      # トリガ 2 系統からイメージタグを 1 つに解決する:
+      #   タグ push  → refs/tags/api-v0.0.2 の "api-" を剥いで v0.0.2
+      #   dispatch  → inputs.tag をそのまま
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME#api-}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
       # タグの打ち間違いは「Dewy に検出されない」という無言の失敗になるので、
       # 供給側で fail-closed にする（v プレフィクス付き semver のみ通す）。
       - name: Validate tag is semver
         run: |
-          for t in "${{ inputs.tag }}" "${{ inputs.source_tag }}"; do
+          for t in "${{ steps.tag.outputs.tag }}" "${{ inputs.source_tag }}"; do
             [ -z "$t" ] && continue
             echo "$t" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
               || { echo "::error::'$t' は vX.Y.Z 形式ではありません"; exit 1; }
@@ -75,7 +91,7 @@ jobs:
           file: infra/upload-api/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ env.IMAGE }}:${{ inputs.tag }}
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
           # GHA キャッシュで 2 回目以降の pip 層を再利用する（PoC のイテレーション短縮）
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -87,9 +103,9 @@ jobs:
         if: ${{ inputs.source_tag != '' }}
         run: |
           docker buildx imagetools create \
-            -t "$IMAGE:${{ inputs.tag }}" \
+            -t "$IMAGE:${{ steps.tag.outputs.tag }}" \
             "$IMAGE:${{ inputs.source_tag }}"
 
       - name: Show published tag
         run: |
-          docker buildx imagetools inspect "$IMAGE:${{ inputs.tag }}" | head -20
+          docker buildx imagetools inspect "$IMAGE:${{ steps.tag.outputs.tag }}" | head -20
