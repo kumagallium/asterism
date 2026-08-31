@@ -750,6 +750,86 @@ def _missing_row_kind(
         }
 
 
+def _missing_card_kind(
+    annotations: dict[str, Any],
+    map_sources: Mapping[str, str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+    templates: Mapping[str, str],
+    prefixes: Mapping[str, str],
+    human_owns: Mapping[str, Sequence[str]] | None = None,
+) -> None:
+    """``_missing_row_kind`` の逆: 行の種類はあるが、ファイル全体のカードが無い。
+
+    実測 [本番 v0.28.0・2026-08-31]: round-0 が XRD 参考カードに **行ごとの
+    種類 1 つだけ** [``{(hkl)}`` キー・47 件] を返した。ヘッダの 17 列は全行で
+    同じ値のまま各記録に写り、画面はそれを黙って表として並べるだけ — 人は
+    「行ごとのデータが読まれていない」と読み違えた [実際は逆で、無いのは
+    カードの方]。欠けているものは沈黙ではなく、修理つきで言う [K7 と同じ
+    姿勢・``missing_row_kind`` と対称]。
+
+    判定は決定論: ファイル全体で値が 1 つしかない列 [ヘッダ由来の放送列] の
+    うち識別子型のものが 1 つでもあれば、その先頭列をキーに 1 件のカードを
+    提案する。素朴な行テーブル [放送列なし、または測定値だけ] は黙る。
+    """
+    by_source: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_source[src].append(name)
+    taken = set(map_sources)
+    for src, names in by_source.items():
+        # カード（singleton）が 1 つでもあれば、この修理の出る幕はない。
+        if any(annotations[n].get("collapse_kind") == "singleton" for n in names):
+            continue
+        hosts = [
+            n
+            for n in names
+            if annotations[n].get("collapse_kind") in ("unique", "partial")
+            and not annotations[n].get("value_catalog")
+            and annotations[n].get("key_columns")
+        ]
+        if not hosts:
+            continue
+        host = max(hosts, key=lambda n: int(annotations[n].get("distinct_ids") or 0))
+        ann = annotations[host]
+        entry = inspections.get(src)
+        if entry is None:
+            continue
+        path, inspection = entry
+        if inspection.source_kind != "csv":
+            continue
+        try:
+            rows = _read_rows(path, inspection.dialect)
+        except OSError:
+            continue
+        if not rows:
+            continue
+        key_set = set(ann.get("key_columns") or [])
+        types = {c.name: c.inferred_type for c in inspection.columns}
+        file_wide = [
+            c.name
+            for c in inspection.columns
+            if c.name not in key_set
+            and len({v for row in rows if (v := (row.get(c.name) or "").strip())}) == 1
+        ]
+        identity_wide = [c for c in file_wide if types.get(c) not in _MEASUREMENT_TYPES]
+        # 放送列が識別子型を 1 つも含まないなら黙る — 単位や定数の測定条件が
+        # 1 列あるだけの普通の行テーブルにまで「カードが無い」と言わない。
+        if not identity_wide:
+            continue
+        key = identity_wide[0]
+        name = "card" if "card" not in taken else _free_map_name("card", taken)
+        taken.add(name)
+        template = _sibling_template(templates.get(host, ""), host, name, [key])
+        host_classes = [c["curie"] for c in ann.get("expanded_classes") or []]
+        ann["missing_card_kind"] = {
+            "columns": file_wide,
+            "suggested_name": name,
+            "suggested_key": [key],
+            "suggested_template": template,
+            "suggested_classes": _sibling_classes(host_classes, prefixes, name),
+            "entity_count": 1,
+        }
+
+
 def _free_map_name(parent: str, taken: set[str]) -> str:
     """A machine-safe name for the missing map; the human names the CLASS."""
     base = f"{parent}_detail"
@@ -1263,6 +1343,9 @@ def annotate_skeleton(
     # A source whose per-row values have no map at all — the gap round-0 can
     # leave, stated with its one-click repair.
     _missing_row_kind(annotations, map_sources, by_name, raw_templates, prefixes, human_owns)
+    # …and the mirror image: a row-level map with NO file-scoped card, so the
+    # header block silently broadcasts onto every record (observed live).
+    _missing_card_kind(annotations, map_sources, by_name, raw_templates, prefixes, human_owns)
     # Skeleton-level (not per-map): namespaces minted on a placeholder domain
     # (ADR instance-iri-base.md). The design loop would catch this after the
     # (paid, minutes-long) continue run — the gate shows it in milliseconds,

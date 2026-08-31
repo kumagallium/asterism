@@ -397,6 +397,17 @@ export interface SkeletonMapAnnotation {
     suggested_classes?: string[]
     entity_count: number
   }
+  /** ``missing_row_kind`` の逆（実測・本番 v0.28.0）: 行の種類はあるが、ファイル
+   *  全体のカードが無い。ヘッダ由来の放送列（全行同値）が全記録に写っている
+   *  状態を、1 押しの修理つきで言う。 */
+  missing_card_kind?: {
+    columns: string[]
+    suggested_name: string
+    suggested_key: string[]
+    suggested_template: string
+    suggested_classes?: string[]
+    entity_count: number
+  }
   /** Real IDs minted from the first rows (prefix-expanded). */
   id_previews?: string[]
   /** Proven-unique column combinations (one-click fix candidates). `scoped`

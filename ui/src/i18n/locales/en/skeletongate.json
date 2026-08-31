@@ -92,7 +92,7 @@
     "isKind": "ID of the kind “{{name}}”",
     "cardMoved": "This file's contents, and the choice of which values get an ID, are listed together above under “Which kind carries which item”.",
     "variesWith": "{{values}} … (varies per record)",
-    "keyNote": "A column marked “The ID for the whole file” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below.",
+    "keyNote": "A column marked “{{label}}” is already in use as that kind's ID. To use a different column, open “Write the ID recipe yourself” in the tabs below.",
     "droppedNote": "{{count}} column(s) you chose not to take in on the meanings screen are not listed here (go back to change that).",
     "newKind": "+ Make this value a kind",
     "assignAria": "Which kind carries {{column}}",
@@ -128,7 +128,11 @@
     "addSameIdPlaceholder": "letters and digits, starting with a letter",
     "addSameIdConfirm": "Add",
     "addSameIdCancel": "Cancel",
-    "addSameIdLead": "When one number stands for two different things (a record and the thing it describes), you can add a kind yourself and split the items."
+    "addSameIdLead": "When one number stands for two different things (a record and the thing it describes), you can add a kind yourself and split the items.",
+    "isRowId": "This record's ID",
+    "perRow": "One per row",
+    "missingCard": "This table has no “one per file” kind yet. The {{count}} column(s) written once per file ({{first}}, …) are copied onto every record as designed now. The button below splits them into one entity keyed by {{key}}.",
+    "missingCardFix": "+ Add the file-wide kind"
   },
   "removeZoneHost": "This kind holds the file-wide values. Deleting it also removes the “Which kind carries which item” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",
