@@ -391,6 +391,10 @@ class ConsultKind(BaseModel):
     source: str = ""
     key_columns: list[str] = []
     kind_name: str | None = None
+    # ADR kind-splitting-and-consult-suggestions D3: この種類がいま**項目として**
+    # 持つ列。`splits`(どの列を新しい種類へ)・`owners`(どの列を載せ替えるか)は、
+    # これが無いと「どの列があるのか教えてください」と聞き返すしかない。
+    columns: list[str] = []
 
 
 class ConsultContext(BaseModel):
@@ -960,6 +964,29 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
   (どの列で数えるか)や、取り込む/取り込まないの裁定はここでは提案しません——種類名だけ
   です。`suggestions`・`kinds` はどちらも省略可能で、何も具体的に提案していない応答には
   このブロック自体を付けないでください。
+- 「ID のつけかた」の画面で**種類の分け方・帰属・ID を与える候補**を尋ねられたときは、
+  同じブロックに次の 3 つも入れられます(いずれも省略可能):
+  ```{CONSULT_SUGGESTIONS_FENCE}
+  {{"splits": [{{"from": "<分け元のマップ名>", "name": "<新しい種類の名前>",
+               "columns": ["<この種類に移す列名>", "<列名>"]}}],
+   "owners": [{{"column": "<列名>", "map": "<載せ替え先のマップ名>"}}],
+   "identifiers": [{{"column": "<列名>", "reason": "<なぜ外の世界でも名前を持つのか>"}}]}}
+  ```
+  `splits` は「同じ ID で数えるが別のもの」を分ける提案です。`from` は分け元のマップ名
+  (画面に書かれているものを一字一句そのまま)、`name` は新しい種類の短い名前、`columns`
+  はその種類に移す列名です。**`name` はそのまま公開される語彙のクラス名になるので、
+  英字ではじまる英数字・大文字はじまりの短い語で書いてください**(日本語は図の中で
+  読めなくなります)。**同じ表を 2 つの種類が二重に記録している**とき、および
+  **1 つの種類が別々のものの項目を混ぜて持っている**ときに使ってください。
+  `owners` はある列を載せる種類を変える提案で、`map` は載せ替え先のマップ名です。
+  **1 件の数えかたが同じ種類どうしでしか動かせません**(ファイル全体で 1 件の値を
+  行ごとの種類へ移すと、同じ値が全行に写ってしまいます)。
+  `identifiers` は「その値自体に ID を与えると、外のデータとつながる」列の候補です。
+  **`reason` は必須**で、なぜその値が外の世界でも名前を持つのかを一言で書いてください
+  (理由の無い候補は捨てられます)。人が読んで選ぶための材料なので、押させる書き方では
+  なく、判断できる書き方にしてください。
+  この 3 つでも **ID の作り方(IRI の形・どの列で数えるか)は提案しません**。ID は公開後に
+  動かせず、引用が壊れるためです。
 - 操作の案内は、上の「{CONSULT_MANUAL_HEADING.removeprefix("## ")}」と「## いま見ている画面」
   に書かれている名前だけを使ってください。そこに無いボタン・メニュー・画面名を発明しては
   いけません。該当する導線が無い/分からないとき、あるいはマニュアルの記載が見当たらない
@@ -1060,15 +1087,22 @@ def _render_missing_meaning_columns(columns: list[ConsultColumn]) -> str:
 
 
 def _render_kinds(kinds: list[ConsultKind]) -> str:
-    """"データの種類" — S4 gate's per-map key columns + kind name, verbatim
-    from the same data SkeletonGate renders (D10 extension B)."""
+    """"データの種類" — S4 gate's per-map key columns, kind name and the items
+    it carries, verbatim from the same data SkeletonGate renders (D10 extension
+    B; ``columns`` added by ADR kind-splitting-and-consult-suggestions D3 —
+    ``splits``/``owners`` name columns, so the model has to see which are on
+    which kind)."""
     entries = []
     for k in kinds[:_CONSULT_MAX_COLUMNS]:
         if not k.map:
             continue
         id_desc = "+".join(_clip(c, 30) for c in k.key_columns) or "なし"
         kind_desc = _clip(k.kind_name, 30) if k.kind_name and k.kind_name.strip() else "未入力"
-        entries.append(f"{_clip(k.map, 30)} (ID: {id_desc}, 種類名: {kind_desc})")
+        entry = f"{_clip(k.map, 30)} (ID: {id_desc}, 種類名: {kind_desc}"
+        if k.columns:
+            carried = "・".join(_clip(c, 30) for c in k.columns[:_CONSULT_MAX_COLUMNS])
+            entry += f", 項目: {carried}"
+        entries.append(entry + ")")
     if not entries:
         return ""
     return "データの種類: " + ", ".join(entries)

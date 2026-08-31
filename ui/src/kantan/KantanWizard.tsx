@@ -70,6 +70,12 @@ import { useLlmSettings } from '../settings/context'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { basename } from '../skeletonContainment'
+import {
+  applyIdentifiers,
+  applyOwners,
+  applySplits,
+  currentOwnerOf,
+} from '../skeletonKinds'
 import { rulesShape } from '../shapeGraph'
 import { ShapeGraph } from './ShapeGraph'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
@@ -1342,6 +1348,13 @@ export function KantanWizard({
         source: basename(m.source ?? ''),
         keyColumns,
         kindName: classes.length > 0 ? classes.join('、') : undefined,
+        // ADR kind-splitting D3: この種類がいま持つ項目。人が宣言していれば
+        // (`owns`) その列、していなければカードが並べている全列（S4 の①がその
+        // まま出しているもの）。相談は「Cell と Volume を結晶へ」のように**列名で**
+        // 提案するので、名前が渡っていないと候補そのものが出せない。
+        columns: (m.owns ?? []).map(String).length
+          ? (m.owns ?? []).map(String)
+          : (ann?.entity_preview?.all_values ?? []).map((v) => v.column),
       }
     })
     setConsultContext({ kinds })
@@ -1358,29 +1371,85 @@ export function KantanWizard({
   // function only ever registers the SUGGESTIONS applier, it never calls
   // SkeletonGate's own internal `updateSubject`. `payload.suggestions`
   // (S6's own shape) is ignored here for the same reason S6 ignores `kinds`.
+  //
+  // ADR kind-splitting-and-consult-suggestions D3: ここに `splits`（同じキーで
+  // 種類を分ける）・`owners`（帰属の移動）・`identifiers`（ID を与える候補）が
+  // 加わる。適用は全部**決定論** — UI のチェック／ドロップダウンを機械が動かすの
+  // と同じで、LLM の再実行は要らない（`own` を決定論化した G18 と同じ筋）。
+  // 式そのものは `skeletonKinds.ts` にあり、この画面の手作業と同じ 1 本を通る。
   useEffect(() => {
     if (step !== 4 || !skeleton) return
-    const unregister = registerSuggestionApplier(({ kinds }) => {
+    const unregister = registerSuggestionApplier(({ kinds, splits, owners, identifiers }) => {
       let applied = 0
       let skipped = 0
-      if (kinds.length === 0) return { applied, skipped }
       const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
+      let next = skeleton
       let changed = false
-      const nextMaps = skeleton.maps.map((m) => {
-        const suggestion = kinds.find((k) => k.map === m.name)
-        if (!suggestion || !suggestion.name) return m
-        if ((m.subject.classes ?? []).length > 0) {
-          skipped += 1
-          return m
+
+      if (kinds.length > 0) {
+        const nextMaps = next.maps.map((m) => {
+          const suggestion = kinds.find((k) => k.map === m.name)
+          if (!suggestion || !suggestion.name) return m
+          if ((m.subject.classes ?? []).length > 0) {
+            skipped += 1
+            return m
+          }
+          applied += 1
+          changed = true
+          return {
+            ...m,
+            subject: { ...m.subject, classes: [expandClass(suggestion.name, nsDetected)] },
+          }
+        })
+        next = { ...next, maps: nextMaps }
+      }
+
+      // 分ける → 載せ替える → ID を与える の順。分けてできた種類を、同じ反映の
+      // 中で `owners` の行き先にできる（AI は 1 回の応答で両方を出す）。
+      if (splits.length > 0) {
+        const out = applySplits(next, splits, nsDetected)
+        next = out.skeleton
+        applied += out.applied
+        skipped += out.skipped
+        changed = changed || out.applied > 0
+      }
+      if (owners.length > 0) {
+        // 同じ分散クラス内に限る（`meaning-before-identity.md`）。分散クラスは
+        // サーバの決定論的な読み（`collapse_kind`）— 分からない map へは動かさない。
+        const out = applyOwners(next, owners, (name) => annotations?.maps?.[name]?.collapse_kind)
+        next = out.skeleton
+        applied += out.applied
+        skipped += out.skipped
+        changed = changed || out.applied > 0
+      }
+      if (identifiers.length > 0) {
+        /** 昇格の親は、その列をいま持っている種類（①のチェックと同じ起点）。
+         *  宣言があればその種類、無ければその列を並べているカード。 */
+        const hostFor = (sk: MappingSkeleton, column: string): string | null => {
+          const declared = sk.maps.find((m) => (m.owns ?? []).map(String).includes(column))
+          if (declared) return declared.name
+          const carrier = sk.maps.find((m) =>
+            (annotations?.maps?.[m.name]?.entity_preview?.all_values ?? []).some(
+              (v) => v.column === column,
+            ),
+          )
+          return carrier ? currentOwnerOf(sk, carrier.source, column) : null
         }
-        applied += 1
-        changed = true
-        return {
-          ...m,
-          subject: { ...m.subject, classes: [expandClass(suggestion.name, nsDetected)] },
+        for (const pick of identifiers) {
+          const host = hostFor(next, pick.column)
+          if (!host) {
+            skipped += 1
+            continue
+          }
+          const out = applyIdentifiers(next, [pick], host)
+          next = out.skeleton
+          applied += out.applied
+          skipped += out.skipped
+          changed = changed || out.applied > 0
         }
-      })
-      if (changed) onSkeletonEdited({ ...skeleton, maps: nextMaps })
+      }
+
+      if (changed) onSkeletonEdited(next)
       return { applied, skipped }
     })
     return unregister

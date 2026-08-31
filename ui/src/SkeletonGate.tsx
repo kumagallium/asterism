@@ -23,8 +23,17 @@ import {
   containmentParents,
   containmentParentsForColumns,
 } from './skeletonContainment'
+import {
+  assignColumnOwner,
+  sameIdKind,
+  sameIdSiblings,
+  slugMapName,
+  splitSharedConcept,
+  twinKindNames,
+} from './skeletonKinds'
 import { skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
+import { requestConsult } from './consult/consultOpen'
 
 /** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
 interface KindBlock {
@@ -1057,6 +1066,10 @@ export function SkeletonGate({
   // AI が付けた名前・クラスごと元通りに戻す（作り直しでは名前が変わってしまう）。
   const [kindStash, setKindStash] = useState<Record<string, SkeletonMap>>({})
   const [addedMap, setAddedMap] = useState<string | null>(null)
+  // D4「同じ ID で種類を足す」の名前欄。`null` は閉じている状態（入口のボタン
+  // だけが見えている）。名前を最初に聞くのは、種類の名前がそのまま住所の区間に
+  // なるため — 後から付け直しても、配ったあとの ID は動かせない。
+  const [addingKind, setAddingKind] = useState<string | null>(null)
   // A dataset name that cleans away to nothing (a Japanese one) used to do
   // NOTHING at all — the field kept the typed text and the ID kept the old
   // slug. Say what an ID may contain, right under the field.
@@ -1192,43 +1205,41 @@ export function SkeletonGate({
    *  is; a starter class in the parent's vocabulary (renamable, like the rest). */
   function splitConcept(idx: number, columns: string[], key: string, jump = true) {
     const parent = skeleton.maps[idx]
-    if (!parent || columns.length === 0 || !key) return
-    const template = parent.subject.template ?? ''
-    /* 新しい種類の住所は、親の下ではなくデータセットの根に置く。元の実装は
-       `template.indexOf(parent.name)` で親の名前の区間を削っていたが、map の名前が
-       テンプレートの語と違う（AI が `xrd_pattern` と名付けて住所は `…/pattern/{No}`）
-       と -1 に落ち、`{` の手前すべて＝`xrr:pattern/` が head になっていた。結果、
-       つなぐための種類が `pattern/hkl/(0,0,2)` という「親の下」に見える住所を持つ
-       （実害はないが、橋渡しの受け口が特定の親に属して見える）。最後のリテラル
-       区間を 1 つ落として、接頭辞（`xrr:` / `…/resource/`）まで戻す。 */
-    const beforeSlot = template.includes('{') ? template.slice(0, template.indexOf('{')) : template
-    const trimmed = beforeSlot.replace(/\/$/, '')
-    const cutAt = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf(':'))
-    const head = cutAt >= 0 ? trimmed.slice(0, cutAt + 1) : ''
-    const base = key.toLowerCase().replace(/[^0-9a-z]+/g, '_').replace(/^_+|_+$/g, '') || 'shared'
-    let name = base
-    for (let i = 2; skeleton.maps.some((m) => m.name === name); i += 1) name = `${base}${i}`
-    const pascal = name
-      .split('_')
-      .filter(Boolean)
-      .map((w) => w[0].toUpperCase() + w.slice(1))
-      .join('')
-    const parentClass = parent.subject.classes?.[0] ?? ''
-    const clsPrefix = parentClass.includes(':') ? parentClass.slice(0, parentClass.indexOf(':') + 1) : ''
-    const added: SkeletonMap = {
-      name,
-      source: parent.source,
-      subject: { template: `${head}${name}/{${key}}`, classes: clsPrefix ? [`${clsPrefix}${pascal}`] : [] },
-      owns: columns,
-    }
-    onChange({
-      ...skeleton,
-      maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
-    })
+    if (!parent) return
+    /* 住所の組み立て・名前の付け方は `skeletonKinds.splitSharedConcept` に 1 つ
+       だけ置いてある。相談チャットの `identifiers` 提案（D3）もこの画面のチェック
+       も同じ 1 本を通す — 2 か所に書くと、片方だけ直った設計ができる。 */
+    const { skeleton: next, added } = splitSharedConcept(skeleton, parent.name, columns, key)
+    if (!added) return
+    onChange(next)
     // ①で続けてチェックを付けたいのに、1 つ押すたび②へスクロールして戻される
     // のは邪魔（利用者評価 2026-08-28）。①からの昇格は、その場（件数バンドと
     // 右のタグ）が即時に変わるので、飛ばす必要がない。
     if (jump) setAddedMap(added.name)
+  }
+
+  /** D4「同じ ID で種類を足す」— 列を起点にしない入口。
+   *
+   *  S4 の操作は 3 つとも列を起点で（値を種類にする / 載せる種類を変える / 消す）、
+   *  「カードと結晶は**同じ `No` を使うが別のもの**」という 1 つのキーから 2 つの
+   *  種類を作る操作が無かった（ADR D4・実測 2026-08-30）。足した後の項目の移動は
+   *  「載せる種類」のドロップダウンで足りるので、足すのは入口だけ。 */
+  function addSameIdKind(hostName: string, rawName: string) {
+    const idx = skeleton.maps.findIndex((m) => m.name === hostName)
+    const parent = skeleton.maps[idx]
+    if (!parent || !parent.subject.template) return
+    /* ②の名前欄と**同じ規則**に通す。ここを素通しにしていたら、置いた例のとおり
+       「結晶」と打った人が、次の②で「この名前は使えません」と言われる入口に
+       なっていた（実機 2026-08-31）。`sanitizeClassName` は②の一発直しと同じ式。 */
+    const name = sanitizeClassName(rawName) || rawName.trim()
+    const taken = new Set(skeleton.maps.map((m) => m.name))
+    const mapName = slugMapName(name, taken)
+    const added = sameIdKind(parent, mapName, name ? [expandClass(name, nsDetected)] : [])
+    onChange({
+      ...skeleton,
+      maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
+    })
+    setAddedMap(added.name)
   }
 
   /** Remove a map. Being able to add but not remove made the gate a one-way
@@ -1583,26 +1594,17 @@ export function SkeletonGate({
     </details>
   )
 
-  // 同じソースを同じ鍵で数える種類は、1 つの種類を二度書いたもの（実測
-  // 2026-08-27: `Dataset` と `Sample` がどちらも `{No}` を鍵に、表全体を 1 件に
-  // 潰していた）。**機械は統合しない** — どちらを残すか、そもそも「両方、ただし
-  // 列を分けて」が正解かは設計の判断で、K2 は数えかたを人の側に置いている。
-  // 見えるようにして、要らない方を人が消す。
-  const twinNames = new Set<string>()
-  {
-    const groups = new Map<string, string[]>()
-    for (const m of skeleton.maps) {
-      const template = m.subject.template
-      const key = template
-        ? [...template.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1]).sort().join('\u0000')
-        : ''
-      const sig = [m.source, m.iterator ?? '', key, template === undefined].join('\u0001')
-      groups.set(sig, [...(groups.get(sig) ?? []), m.name])
-    }
-    for (const names of groups.values()) {
-      if (names.length > 1) names.forEach((n) => twinNames.add(n))
-    }
-  }
+  // 同じソースを同じ鍵で数え、**かつ持つ項目が重なる**種類は、1 つの種類を二度
+  // 書いたもの（実測 2026-08-27: `Dataset` と `Sample` がどちらも `{No}` を鍵に、
+  // 表全体を 1 件に潰していた）。**機械は統合しない** — どちらを残すかは設計の
+  // 判断で、K2 は数えかたを人の側に置いている。見えるようにして、要らない方を
+  // 人が消す。
+  //
+  // 「項目が重なるか」まで見るのが D1（ADR kind-splitting-and-consult-suggestions）。
+  // かつてはキーの同一性だけを見ていて、カード（No・Name・化学式…）と結晶
+  // （Cell・Volume・Z value）のように**同じ `No` を使うが別のもの**という正当な
+  // 分割まで塞いでいた。式は `skeletonKinds.ts` に 1 つだけ置いてある。
+  const twinNames = twinKindNames(skeleton)
   // どの種類を開いているか。既定は「まだ答えを待っている最初の種類」— 開いた
   // 瞬間に、やることのある場所に居る。設計が入れ替わっても消えた種類に留まら
   // ないよう、実在する名前だけを採る。
@@ -1666,10 +1668,18 @@ export function SkeletonGate({
         ? a.growth_preview?.described_columns ?? []
         : a.entity_preview?.identity_columns ?? [],
     )
+    /* カードと**同じ鍵で数える**兄弟（D4 で足した種類・AI が出した二重記録の
+       片割れ）。式は `skeletonKinds.sameIdSiblings` に置いてある。⭐これを下の
+       `kindOf`（列 → その列をキーにした種類）に混ぜてはいけない: 登録先の列が
+       カードの鍵になり、同じ鍵の兄弟が 2 つあると後勝ちで片方が消える（実機
+       2026-08-31: D4 で足した種類が「載せる種類」の候補に出なかった）。 */
+    const sameIdKinds = sameIdSiblings(skeleton, host.name)
+    const sameIdSet = new Set(sameIdKinds)
     // 同じソースで、1 列だけをキーに持つ他の種類 — その列は「もう種類」。
     const kindOf = new Map<string, string>()
     for (const mm of skeleton.maps) {
       if (mm.name === host.name || mm.source !== host.source) continue
+      if (sameIdSet.has(mm.name)) continue
       const vars = [...(mm.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
       if (vars.length === 1) kindOf.set(vars[0], mm.name)
     }
@@ -1678,7 +1688,7 @@ export function SkeletonGate({
     const rowMap = (a.growth_preview?.row_maps ?? []).find(
       (n) => !annotations?.maps?.[n]?.value_catalog,
     )
-    return { idx, host, ann: a, values, keyCols, kindOf, rowMap, pickable }
+    return { idx, host, ann: a, values, keyCols, kindOf, sameIdKinds, rowMap, pickable }
   })()
 
 
@@ -1689,6 +1699,9 @@ export function SkeletonGate({
    *  1 件になるものは「その列名 ごと」。 */
   const zoneChoiceLabel = (name: string): string => {
     if (!zone || name === zone.host.name) return t('skeletongate:zone.wholeTable')
+    // カードと同じ鍵の兄弟は「その列 ごと」では呼べない（鍵はカードの鍵）。人が
+    // さっき自分で付けた名前なので、そのまま出す。
+    if (zone.sameIdKinds.includes(name)) return displayMapName(name)
     const m = skeleton.maps.find((x) => x.name === name)
     const vars = [...(m?.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     return vars.length === 1
@@ -1708,27 +1721,17 @@ export function SkeletonGate({
     if (zone && mm.source !== zone.host.source) continue
     for (const c of mm.owns ?? []) ownerOf.set(String(c), mm.name)
   }
-  /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。 */
-  const siblingKinds = zone ? [...new Set(zone.kindOf.values())] : []
+  /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。①で列から作った
+   *  種類（`kindOf`）と、カードと同じ鍵で数える兄弟（`sameIdKinds`・D4）の両方。
+   *  後者を落としていたので、足した種類に項目を移せなかった（実機 2026-08-31）。 */
+  const siblingKinds = zone ? [...zone.sameIdKinds, ...new Set(zone.kindOf.values())] : []
 
   /** 列を種類 `target` に載せ替える。他の種類の宣言からは外す（1 つの列が属性と
-   *  して載るのは 1 箇所だけ・G6）。カードを選ぶと宣言そのものが消える＝既定へ。 */
+   *  して載るのは 1 箇所だけ・G6）。カードを選ぶと宣言そのものが消える＝既定へ。
+   *  相談チャットの `owners` 提案（D3）も同じ 1 本を通る。 */
   function assignColumn(col: string, target: string) {
     if (!zone) return
-    const maps = skeleton.maps.map((mm) => {
-      if (mm.source !== zone.host.source) return mm
-      const before = (mm.owns ?? []).map(String)
-      const kept = before.filter((c) => c !== col)
-      const next = mm.name === target ? [...kept, col] : kept
-      if (next.length === before.length && next.every((c, i) => c === before[i])) return mm
-      if (next.length > 0) return { ...mm, owns: next }
-      // 宣言そのものを消す＝既定（カード）に戻す。`owns: []` は「何も持たない
-      // 宣言」として読まれてしまうので、キーごと落とす。
-      const rest = { ...mm }
-      delete rest.owns
-      return rest
-    })
-    onChange({ ...skeleton, maps })
+    onChange(assignColumnOwner(skeleton, zone.host.source, col, target))
   }
 
   /** 3（項目の意味）で「取り込まない」と決めた列。ここは ID を決める画面なので、
@@ -1757,6 +1760,7 @@ export function SkeletonGate({
   const diagramLabel = (m: SkeletonMap): string => {
     if (!zone) return m.name
     if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
+    if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
   }
@@ -2398,15 +2402,28 @@ export function SkeletonGate({
       )}
       {!plain && nsCard}
       {plain && twinNames.size > 0 && (
-        <p className="skeleton-evidence-line skeleton-evidence-warn">
-          ⚠{' '}
-          {t('skeletongate:twinKinds', {
-            names: skeleton.maps
-              .filter((m) => twinNames.has(m.name))
-              .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
-              .join(t('skeletongate:key.listSeparator')),
-          })}
-        </p>
+        <>
+          <p className="skeleton-evidence-line skeleton-evidence-warn">
+            ⚠{' '}
+            {t('skeletongate:twinKinds', {
+              names: skeleton.maps
+                .filter((m) => twinNames.has(m.name))
+                .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+                .join(t('skeletongate:key.listSeparator')),
+            })}
+          </p>
+          {/* D2: どちらを残すかは人の裁定（G18）だが、判断の材料は聞ける。
+              相談は警告のすぐ隣に置く — 疑問が生まれる場所と、頼む場所を離さない。 */}
+          <div className="kz-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => requestConsult(t('skeletongate:zone.askDupPrefill'))}
+            >
+              {t('skeletongate:zone.askDup')}
+            </button>
+          </div>
+        </>
       )}
       {zone && (
         <>
@@ -2441,6 +2458,94 @@ export function SkeletonGate({
             <li>{t('skeletongate:zone.chooseYes2')}</li>
             <li>{t('skeletongate:zone.chooseYes3')}</li>
           </ul>
+          {/* D2: 相談は**疑問が生まれる場所**に置く。「AI にもう一度考えさせる」は
+              ①の表・②の確認・データセット名の後ろにあり、`.app-main` を下まで
+              スクロールしないと見えなかった（利用者指摘 2026-08-30）。S3 の「空欄
+              の意味を AI に相談して埋める」と同じ `requestConsult` で、文面は入れる
+              が送らない — 相談は LLM を呼ぶので、押したつもりのない課金を作らない。
+              並びは画面の読み順（利用者指摘 2026-08-31）: リード文もチェック列も
+              「ID にする」（つながり）が先、「載せる種類」（分け方）が後。直上の
+              3 行の基準も ID の話なので、つながりが先。 */}
+          <div className="kz-actions skeleton-zone-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => requestConsult(t('skeletongate:zone.askLinkPrefill'))}
+            >
+              {t('skeletongate:zone.askLink')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => requestConsult(t('skeletongate:zone.askSplitPrefill'))}
+            >
+              {t('skeletongate:zone.askSplit')}
+            </button>
+          </div>
+          {/* 列を起点にしない入口（D4）。相談の 2 本と同じ帯に置いていたら
+              「AI に頼む」の並びに人の操作が 1 つ混ざり、意図が読めなかった
+              （利用者指摘 2026-08-31）。行を分け、いつ使うものかを 1 行で
+              先に言う。ホストの ID がテンプレートで決まっているときだけ —
+              定数 ID の種類には「同じ ID」の兄弟が作れない。 */}
+          {canRevalidate && !!zone.host.subject.template && (
+            <div className="skeleton-zone-addkind-entry">
+              <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdLead')}</p>
+              {addingKind === null && (
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => setAddingKind('')}
+                  >
+                    {t('skeletongate:zone.addSameId')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {addingKind !== null && (
+            <div className="skeleton-zone-addkind">
+              <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdHint')}</p>
+              <div className="kz-actions">
+                <input
+                  className="skeleton-gate-input skeleton-addkind-input"
+                  autoFocus
+                  value={addingKind}
+                  placeholder={t('skeletongate:zone.addSameIdPlaceholder')}
+                  aria-label={t('skeletongate:zone.addSameIdName')}
+                  onChange={(e) => setAddingKind(e.target.value)}
+                  onKeyDown={(e) => {
+                    // 変換中の Enter は IME の確定であって、送信ではない。この欄は
+                    // 日本語の種類名を入れる場所なので、素朴に拾うと「結晶」を確定
+                    // した瞬間に種類が増える（実機 2026-08-31）。
+                    if (e.nativeEvent.isComposing) return
+                    if (e.key !== 'Enter' || !addingKind.trim()) return
+                    e.preventDefault()
+                    addSameIdKind(zone.host.name, addingKind)
+                    setAddingKind(null)
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  disabled={!addingKind.trim()}
+                  onClick={() => {
+                    addSameIdKind(zone.host.name, addingKind)
+                    setAddingKind(null)
+                  }}
+                >
+                  {t('skeletongate:zone.addSameIdConfirm')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => setAddingKind(null)}
+                >
+                  {t('skeletongate:zone.addSameIdCancel')}
+                </button>
+              </div>
+            </div>
+          )}
           {/* 図はここ（①の右）に貼り付ける。種類を足した瞬間に箱が増えるのが
               見えるのは、この画面でいちばん強い手応え。表が長いのでスクロールに
               追従させる（`position: sticky`）。

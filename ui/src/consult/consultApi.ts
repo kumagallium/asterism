@@ -51,6 +51,7 @@ export async function consult(
                   source: k.source,
                   key_columns: k.keyColumns,
                   kind_name: k.kindName,
+                  columns: k.columns,
                 }))
               : undefined,
           }
