@@ -1838,11 +1838,11 @@ export function SkeletonGate({
     if (m.name === zone.host.name)
       return (
         named(m.name) ??
-        t(hostIsWhole ? 'skeletongate:zone.diagramCard' : 'skeletongate:zone.diagramRows')
+        t(hostIsWhole ? 'skeletongate:zone.diagramCard' : 'skeletongate:zone.diagramRecord')
       )
     if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    if (vars.length !== 1) return named(m.name) ?? t('skeletongate:zone.diagramRows')
+    if (vars.length !== 1) return named(m.name) ?? t('skeletongate:zone.diagramRecord')
     // 同じ列の種類が 2 つあると呼び名が同名で並ぶ — 名前で見分ける（⚠ と同じ呼び方）。
     return (zone.columnKinds.get(vars[0])?.length ?? 0) > 1 ? displayMapName(m.name) : vars[0]
   }
@@ -2418,9 +2418,8 @@ export function SkeletonGate({
   const active = kindBlocks.find((b) => b.name === activeKind) ?? null
   const setActiveKind = setOpenKind
 
-  /* 進む一式（確認パネル・締めの ⚠・ボタン行）。かんたん層は図の直後 = 承認
-     モックの位置（「合っていれば 1 押し」を既定路にする）、詳細モードは従来
-     どおり最下部。同じ JSX を場所だけ変えて使う — 二重定義しない。 */
+  /* 進む一式（確認パネル・締めの ⚠・ボタン行）。どの層でも最下部 —
+     「一番下＝次へ」を全段で揃える（利用者指摘 2026-09-01）。 */
   const confirmCluster = (
     <>
       {/* "Are you sure?" where the answer can be "no, fix it": every item names
@@ -2815,9 +2814,6 @@ export function SkeletonGate({
               </div>
             </>
           )}
-          {/* 承認モックの読み順: 図 → ⚠ → 「この形で進む」。合っていれば
-              ここで終わり（直しの一覧はこの下 — 使うときだけ）。 */}
-          {confirmCluster}
           {/* 「形が違うとき（直す）」— 切り替え式（ADR D4）。既定はどれも開かず、
               画面は 3 点の確認 + 図だけ。names = 種類ごとのタブ（名前と ID の家。
               ID の直しもここ — 「ID を候補から選び直す」を別タブにしたら names と
@@ -3178,7 +3174,9 @@ export function SkeletonGate({
           </div>
         </div>
       )}
-      {!plain && confirmCluster}
+      {/* 進む一式は他の段と同じく最下部（「一番下＝次へ」の一貫・利用者指摘
+          2026-09-01。図の直後に置く案は段間の不整合になった）。 */}
+      {confirmCluster}
     </section>
   )
 }

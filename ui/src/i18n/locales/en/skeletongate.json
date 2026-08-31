@@ -129,7 +129,8 @@
     "missingCard": "This table has no “one per file” kind yet. The {{count}} column(s) written once per file ({{first}}, …) are copied onto every record as designed now. The button below splits them into one entity keyed by {{key}}.",
     "missingCardFix": "+ Add the file-wide kind",
     "perValueNamed": "One per {{column}} ({{name}})",
-    "diagramCard": "Card"
+    "diagramCard": "Card",
+    "diagramRecord": "Record"
   },
   "removeZoneHost": "This kind holds the file-wide values. Deleting it also removes the “Which kind carries which item” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",

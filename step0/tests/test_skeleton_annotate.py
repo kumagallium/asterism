@@ -613,6 +613,10 @@ def test_assemble_builds_card_record_and_receptacles(tmp_path: Path) -> None:
     assert names["card"]["subject"]["template"].endswith(":card/{No}")
     assert names["record"]["subject"]["template"].endswith(":record/{No}/{(hkl)}")
     assert names["name"]["owns"] == ["Name"]
+    # 行の種類は自分の持ち物を宣言する（キーと ☑ の受け口列は除く）。宣言が
+    # 無いと、設計の続き（LLM）が測定値を他の種類へ転記できてしまう
+    # （実測 2026-09-01）。
+    assert names["record"]["owns"] == ["2theta", "d", "I"]
     assert out["metadata"]["provisional_card_keys"] == {}
     # 組み立て結果は annotate の検査をそのまま通る（カード singleton・行 unique）。
     ann = annotate_skeleton(sk, [p])["maps"]
