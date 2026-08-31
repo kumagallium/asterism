@@ -3,7 +3,7 @@
     "back": "Back",
     "seeMap": "View overview",
     "bannerTitle": "Connections",
-    "bannerSub": "When two datasets hold the same value (a sample name, a composition…), you can use it to <0>ask questions across both</0>. There is more than one way to connect, and you can keep each as <1>its own connection</1>.",
+    "bannerSub": "When two datasets hold the same value (a sample name, an author…), you can use it to <0>ask questions across both</0>. There is more than one way to connect, and you can keep each as <1>its own connection</1>.",
     "loading": "Loading…",
     "empty": {
       "title": "No connections yet",
@@ -37,7 +37,7 @@
     "toolsHint": "How many datasets report this value? and the like, answered on the spot (no AI involved).",
     "diagram": {
       "head": "Joined on a shared value",
-      "note": "e.g. when a sample name or composition appears in both, spelled the same",
+      "note": "e.g. when a sample name or an author appears in both, spelled the same",
       "a": "Your data",
       "b": "Other data"
     }
@@ -115,7 +115,7 @@
       "onHead": "Connected on",
       "matchHead": "Values found in both",
       "nameLabel": "Name for this connection",
-      "namePlaceholder": "e.g. connect on composition",
+      "namePlaceholder": "e.g. connect on sample name",
       "nameHint": "It will appear under \"your connections\" with this name. You can rebuild it later.",
       "idTaken": "A connection on the same thing already exists. Yours is kept as it is and this is added alongside it.",
       "promise": "You can rebuild it later. Your original data does not change.",
@@ -189,7 +189,7 @@
     }
   },
   "builder": {
-    "subtitle": "Pick <0>two or more existing datasets</0>, declare the <1>concept to connect</1> (composition, crystal system, author…) and the column that represents it, and you can build a <2>bridge that connects across datasets (a crosswalk)</2> on the shared value. It is an ontology built <3>from data you already have</3>, not from a new CSV.",
+    "subtitle": "Pick <0>two or more existing datasets</0>, declare the <1>concept to connect</1> (a sample name, an author, an instrument…) and the column that represents it, and you can build a <2>bridge that connects across datasets (a crosswalk)</2> on the shared value. It is an ontology built <3>from data you already have</3>, not from a new CSV.",
     "loading": "Loading datasets…",
     "tooFew": {
       "title": "Fewer than two shared datasets to connect",
@@ -233,7 +233,7 @@
     },
     "normHint": {
       "identity": "Joins only values that match exactly (the default usable for any concept).",
-      "casefold": "Ignores only upper/lower case differences (e.g. FeO = feo). Not for compositions (Co ≠ CO).",
+      "casefold": "Ignores case differences only (e.g. FeO = feo). Not for values where case carries meaning (e.g. Co ≠ CO).",
       "whitespace": "Ignores only leading/trailing and repeated whitespace differences.",
       "nfkc": "Normalizes full-width and compatibility characters (e.g. half-width kana) before matching.",
       "loose_text": "Loose match ignoring case, whitespace and width together (does not reorder).",
@@ -257,14 +257,14 @@
     "recipePreviewLabel": "Preview",
     "recipeSamplePlaceholder": "Sample value",
     "extraCond": "Extra match conditions (all must match = AND)",
-    "extraCondHint": "e.g. composition <0>and</0> crystal system. Leave empty to match on a single value.",
+    "extraCondHint": "e.g. sample name <0>and</0> measurement date. Leave empty to match on a single value.",
     "condNamePlaceholder": "Condition name (alphanumeric, e.g. crystal_system)",
     "condDelete": "Remove this condition",
     "addCond": "+ Add a condition",
     "extraCondIncomplete": "Give each condition a unique name (distinct from the concept) and a field per dataset.",
     "step5": "5. This perspective's name",
     "step5Hint": "You can keep multiple \"perspectives (ways to connect)\" distinct",
-    "perspectivePlaceholder": "e.g. Connect by composition (blank = named automatically)",
+    "perspectivePlaceholder": "e.g. Connect by sample name (blank = named automatically)",
     "perspectiveNamed": "Creates a new independent perspective (its own data, listed with your datasets).",
     "perspectiveDefault": "When blank, it is created as a new connection named \"{{name}}\".",
     "perspectiveReplace": "Replace the standard connection instead",

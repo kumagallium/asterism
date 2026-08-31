@@ -313,6 +313,16 @@ def test_consult_system_prompt_instructs_structural_suggestions() -> None:
     assert "ID の作り方(IRI の形・どの列で数えるか)は提案しません" in CONSULT_SYSTEM_PROMPT
 
 
+def test_consult_prompt_template_is_domain_free() -> None:
+    """利用者指摘 2026-08-31「材料科学に特化したハードコーディングの説明にしない」。
+    プロンプトの地の文 [マニュアル注入部を除く] は全分野の利用者に届くので、
+    例示も含めて分野の語を持たない。マニュアル部はスクリーンショット等の実例を
+    含む文書なので対象外 [除外して比較する]。"""
+    template = CONSULT_SYSTEM_PROMPT.replace(CONSULT_MANUAL_TEXT, "")
+    for word in ("XRD", "結晶", "ピーク", "CSD", "空間群", "回折", "組成", "熱電"):
+        assert word not in template, word
+
+
 def test_consult_structural_example_is_domain_free() -> None:
     """ADR ask-quality-and-generality (「材料科学への言及を機構に入れない」):
     D3 の提案ブロックの雛形は**形だけ**を示し、分野の語で例示しない。ここに

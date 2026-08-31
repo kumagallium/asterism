@@ -73,7 +73,7 @@
     "proceed": "Continue anyway",
     "cancel": "Cancel"
   },
-  "kindMissing": "What one row of this table is has not been decided yet. Look at the example below and name it (e.g. sample, measurement, peak).",
+  "kindMissing": "What one row of this table is has not been decided yet. Look at the example below and name it (e.g. sample, measurement, observation).",
   "kindPlaceholder": "e.g. sample",
   "removeTitle": "Delete this kind from the design",
   "counts": {
@@ -98,7 +98,7 @@
     "assignAria": "Which kind carries {{column}}",
     "chooseSummary": "More — which ones should be kinds? what if ⚠ appears?",
     "chooseYes": "If any of these fit, making it a kind will save you later:",
-    "chooseYes1": "The outside world calls it by the same name — a material, a composition, a space group, a radiation source, a DOI, a catalogue number, an instrument, a person, an organisation, a standard classification code",
+    "chooseYes1": "The outside world calls it by the same name — a DOI, a catalogue number, a standard classification code, an instrument, a person, an organisation, a place, a material",
     "chooseYes2": "You will want to say something about the value itself — as a plain item it can never carry facts of its own",
     "chooseYes3": "Two or more kinds need to refer to it — as a plain item only one of them can have it (writing it on both puts the same fact in two places)",
     "chooseNo": "Values that only mean something inside this file (a free-text note, a local serial) and measured numbers themselves are fine as plain items.",

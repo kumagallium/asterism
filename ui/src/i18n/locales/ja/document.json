@@ -10,7 +10,7 @@
   "noFile": "ファイル未選択",
   "nFiles": "{{n}} 個の文書",
   "nameLabel": "文書名（任意）",
-  "namePlaceholder": "例: 半ホイスラー熱電 / サービス契約",
+  "namePlaceholder": "例: 2026 年度 測定報告 / サービス契約",
   "convertHint": "Word(.docx)・PDF(.pdf) は自動で読み取ります（あなたの操作は要りません）。PDF はレイアウトも読むため、数分かかることがあります。どのツールの何版で読み取ったかは、このデータの来歴に残ります。",
   "convertHintPlain": "Word・PDF はそのまま置けます。PDF は読み取りに数分かかることがあります。",
   "submit": "文書を取り込む",

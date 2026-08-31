@@ -10,7 +10,7 @@
       "summary": "自分で操作を作る（開発者向け）",
       "subhead": "AI で下書き（やりたいことから 1 つ作る）",
       "hint": "「やりたいこと」を書くと、このデータのことばをもとに AI が読み取り専用の検索（SPARQL）を下書きします。下書きはその場で編集でき、保存して初めて確定します。",
-      "intentPlaceholder": "例: 組成を渡すと結晶構造（空間群・結晶系）を返す",
+      "intentPlaceholder": "例: 試料名を渡すと、その試料の測定条件を返す",
       "proposing": "下書き中…",
       "propose": "AI で下書き",
       "startEmpty": "手で一から作る",
@@ -112,8 +112,14 @@
       "title": "文書の全文検索",
       "description": "取り込んだ文書の文章を、ことばで検索します。見つかった文はそのまま引用できます。",
       "params": {
-        "query": { "label": "探すことば", "placeholder": "例: アルゴン雰囲気" },
-        "limit": { "label": "最大件数", "placeholder": "例: 20" }
+        "query": {
+          "label": "探すことば",
+          "placeholder": "例: 測定条件"
+        },
+        "limit": {
+          "label": "最大件数",
+          "placeholder": "例: 20"
+        }
       },
       "columns": {
         "text": "文",
@@ -129,7 +135,10 @@
       "title": "文を出典つきで引用",
       "description": "1 つの文を、本文と出どころ（文書・節・読み取りの記録）ごと取り出します。",
       "params": {
-        "node": { "label": "文の ID", "placeholder": "全文検索の結果からコピーした ID" }
+        "node": {
+          "label": "文の ID",
+          "placeholder": "全文検索の結果からコピーした ID"
+        }
       },
       "columns": {
         "verbatim": "本文",
@@ -151,8 +160,14 @@
       "title": "節をまとめて読む",
       "description": "文書の中の節を選んで、段落の本文をまとめて読みます。段落ごとに引用できます。",
       "params": {
-        "paper": { "label": "文書", "placeholder": "文書の ID、または PMCID（例: PMC5951533）" },
-        "section": { "label": "節（任意）", "placeholder": "例: 4 や 2-1" }
+        "paper": {
+          "label": "文書",
+          "placeholder": "文書の ID、または PMCID（例: PMC5951533）"
+        },
+        "section": {
+          "label": "節（任意）",
+          "placeholder": "例: 4 や 2-1"
+        }
       },
       "columns": {
         "text": "本文",
@@ -166,7 +181,10 @@
       "title": "測った値を、図と測定条件の文につなぐ",
       "description": "図から読み取った値について、元になった図と、測定条件を書いた文をいっしょに返します。",
       "params": {
-        "composition": { "label": "組成（任意）", "placeholder": "例: Ti0.5Zr0.25Hf0.25NiSn" }
+        "composition": {
+          "label": "組成（任意）",
+          "placeholder": "例: Ti0.5Zr0.25Hf0.25NiSn"
+        }
       },
       "columns": {
         "composition": "組成",
