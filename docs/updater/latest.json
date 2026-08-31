@@ -1,11 +1,11 @@
 {
-  "version": "0.30.1",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at d449d710f637bb39250daecb5e1a7128046406f4 -->\n\n## What's Changed\n* docs: ADR local-first-distribution §7 を完了状態に更新 — 署名/公証/updater は完了済 by @kumagallium in https://github.com/kumagallium/asterism/pull/472\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.30.0...v0.30.1",
-  "pub_date": "2026-08-31T04:59:52Z",
+  "version": "0.30.2",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at befa09d828c73cae256994365f5a6e9290bd8bb6 -->\n\n## What's Changed\n* fix(ui): 同じ列をキーにした双子の種類を、図と選択肢から消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/476\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.30.1...v0.30.2",
+  "pub_date": "2026-08-31T07:47:08Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVlwdjBzdUM3K1NUNkVwZk5Mc2Zhc2o3QWxKV3I4eFJ3R2J5K1hYQ0dUN3IxcVhPbEVBU1ZjTkZEeFFPTUZzNDZCbjhmMzJNSm0rZHkvdjhGQktHVUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTUyMzkyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmZGQ2s0M25YdjFyLzI3aUgxUkkyN0M1MTlBSDZvTnBUQ2tTQkNnOS9Gd0RDOGhFcWFZRjVNNlNSVXFObGFTSkdJaTh1NE45RDNObUY5Z3FvWnZlNUNRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.1/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJQVDlrSjBrc1d0UDhQV1Y4Y050QUsrRllzbEhKYm5mOGlIMWtuUVRiRVVNMDNmR1ZUQlUvaFZOdE5lVExmSlRDM0hXcExidVpnQjhkWWJRUUJwUEFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTYyNDI4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ck5BWHlBNWV2azlqamFFNUVNVkhGQ2FEeXlyeFRpUXR4aHVJcnJQUGRKYTVrdXN1RnNIUCtFVmZEam44K2o0OXVFVk42ZkowOHBReFRaWm5yeDdsMURBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.2/Asterism_aarch64.app.tar.gz"
     }
   }
 }
