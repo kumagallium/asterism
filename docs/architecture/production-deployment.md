@@ -151,6 +151,30 @@ PY
 4. Ask（Anthropic キー入力）で接地回答＋使用 SPARQL 開示。
 5. `docker compose restart` 後もデータ（昇格済み・証明書）が残ること。
 
+## プル型自動デプロイ（Dewy・api で PoC 稼働中）
+
+**決定（2026-08-31）**: 上記の手動デプロイ（SSH → `git pull` → `compose build`）は、
+**プル型の宣言的デプロイ**（[Dewy](https://github.com/linyows/dewy)・MIT・OSS）へ段階移行する。
+
+- **なぜプル型か**: サーバへの inbound 経路（CI 用 SSH 鍵・deploy 鍵・webhook）を
+  **1 つも増やさない**。通信はサーバ → GHCR への outbound pull のみ。CI が本番の鍵を
+  持つ push 型の逆で、リリース権限は「レジストリに書ける人」に一元化される。
+- **なぜ宣言的か**: 望ましい状態 = 「レジストリ上の最新 semver タグ」という宣言。
+  サーバ側 agent（`dewy container`・systemd 常駐）が 30 秒間隔で収束させる。
+  デプロイ手順書は「タグを push する」1 行になり、health ゲート付きゼロダウンタイム
+  切替・drain・7 世代保持・数秒ロールバック（旧イメージへの前進 re-tag）が標準で付く。
+- **供給側** = `.github/workflows/prod-api-release.yml`（`api-vX.Y.Z` タグ push →
+  linux/amd64 ビルド → `ghcr.io/kumagallium/asterism-api` へ push・public で認証レス）。
+- **サーバ側** = `infra/dewy/`（systemd unit と運用手順）。
+
+**現状**: api 1 サービスで PoC が**実機稼働中**（既存 compose と並行・非破壊。
+実証の全記録 = [`reports/dewy-pull-deploy-poc.md`](../reports/dewy-pull-deploy-poc.md)
+＝検出→自動デプロイ→無断絶切替→digest 同一ロールバックまで実測済み）。
+本節より上の手動手順は**残り 5 サービスの現行運用**として当面有効。
+次段 = caddy upstream の切替（compose api の退役）→ demo-agent/docling への横展開 →
+レジストリのさくらオブジェクトストレージ（S3 互換）代替の検討（`infra/dewy/README.md` §次段）。
+なお TODO 節の「イメージのタグ固定」は、この経路では semver タグ運用として構造的に解消される。
+
 ## Private Crucible（次フェーズ）
 
 製品が回ってから、**同一ホスト上で Crucible 自前 compose を隣接起動**（別プロダクトなので
