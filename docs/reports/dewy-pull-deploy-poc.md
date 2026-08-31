@@ -122,3 +122,32 @@ gh workflow run prod-api-release.yml -f tag=v0.0.3 -f source_tag=v0.0.1
 
 Actions 実測 run: [v0.0.1 (71s)](https://github.com/kumagallium/asterism/actions/runs/33359851055)・
 [v0.0.2 (90s)](https://github.com/kumagallium/asterism/actions/runs/33360587523)
+
+## Addendum（2026-08-31 同日）— サプライチェーン対策の実装と実証
+
+**契機**: 「デプロイ構成を公開リポジトリに書いてよいか」の検討。分析の結論=構成の
+公開自体は攻撃面を増やさない（ドメイン・ホスト構成は既に ROADMAP で公開済み・
+GitOps の標準実践）が、プル型の本質として**「レジストリに書ける権限 = 本番実行
+権限」**が単一信頼点になる。その直接の手当てとして以下を実装・実機実証した。
+
+**実装**（詳細 = [`infra/dewy/README.md`](../../infra/dewy/README.md) §セキュリティ）:
+①タグ Ruleset `protect-api-release-tags`（`api-v*` の作成/変更/削除を admin のみに。
+v0.0.9 push 時の `remote: Bypassed rule violations` でルール発動と admin bypass 双方を
+実地確認）②全ビルドへの **cosign keyless 署名**（GitHub OIDC・Rekor 記録・秘密鍵レス。
+署名は digest に紐づくため re-tag ロールバックも検証を通る）③サーバ `verify-latest.sh`
+を before-deploy-hook に配線 ④Dependabot（SHA 固定 action の更新）⑤systemd
+ハードニング（NoNewPrivileges/PrivateTmp）。
+
+**実証（本番 journal・2026-08-31）**: 未署名の最新（v0.0.8）に対し hook が
+`SIGNATURE VERIFICATION FAILED` → `ERROR Before deploy hook failure` を記録。
+署名付き v0.0.9 の検出時は `signature OK` → デプロイ成功。**A/B 両方が実ログで確認できた**。
+
+**発見（upstream 制約）**: Dewy v2.20.0 の container 経路は **before-hook 失敗でも
+デプロイを続行する**（`lifecycle.go` `applyContainerDeployment` — エラーをログするのみ。
+docs の「before 失敗で中止」は server/assets 経路の動作）。実際、未署名 v0.0.8 の
+検証失敗後もデプロイは続行された（上記ログ）。したがって現状の署名検証は
+**強制ゲートでなく検知**である。upstream が container 経路でも中止するよう修正すれば、
+同じ配線のまま fail-closed になる（issue 報告は別途判断）。
+
+**残（ユーザー操作 or 判断待ち)**: 専用実行ユーザーへの切替（`useradd` 1 行）・
+`--notifier`（Slack webhook 提供時に 1 行）・upstream issue。
