@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.3](https://github.com/kumagallium/asterism/compare/v0.31.2...v0.31.3) - 2026-08-31
+
+- fix: 持ち物の決定論的強制 — ☑ していない種類へ AI が列を転記できる穴を塞ぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/494
+
 ## [v0.31.2](https://github.com/kumagallium/asterism/compare/v0.31.1...v0.31.2) - 2026-08-31
 
 - fix(ui): ⑤の直しから判断の二重を除去 — 「ID にする」列と rekey タブを削除 by @kumagallium in https://github.com/kumagallium/asterism/pull/492
