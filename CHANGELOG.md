@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.30.3](https://github.com/kumagallium/asterism/compare/v0.30.2...v0.30.3) - 2026-08-31
+
+- chore(ci): tagpr ブランチの PR では run を作らない by @kumagallium in https://github.com/kumagallium/asterism/pull/478
+- feat: 本番デプロイをプル型（Dewy）で自動化する PoC — api 実機一周 by @kumagallium in https://github.com/kumagallium/asterism/pull/475
+
 ## [v0.30.2](https://github.com/kumagallium/asterism/compare/v0.30.1...v0.30.2) - 2026-08-31
 
 - fix(ui): 同じ列をキーにした双子の種類を、図と選択肢から消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/476
