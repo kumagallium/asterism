@@ -2,6 +2,10 @@ name: ci
 
 on:
   pull_request:
+    # tagpr の Release PR では run を作らない。マージの数秒後にブランチが消える
+    # ため起動失敗の ✗（ジョブ 0 件）だけが残り、毎リリース「失敗した」ように
+    # 見えていた（実測 v0.30.0 / v0.30.2）。同じ差分は main への push CI が検査する。
+    branches-ignore: ["tagpr-from-*"]
   push:
     branches: [main]
 
