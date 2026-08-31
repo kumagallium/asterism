@@ -1,11 +1,11 @@
 {
-  "version": "0.31.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b70e7354d45c140933d42e25f9beb0445050db1f -->\n\n## What's Changed\n* docs(adr): 骨格は、簡単な判断から導く — ④外とのつながり新設と⑤グラフ確認 by @kumagallium in https://github.com/kumagallium/asterism/pull/487\n* feat: 骨格は簡単な判断から導く — ④外とのつながり新設・⑤グラフ確認・骨格 LLM 廃止 by @kumagallium in https://github.com/kumagallium/asterism/pull/489\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.30.3...v0.31.0",
-  "pub_date": "2026-08-31T10:39:03Z",
+  "version": "0.31.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 1061ff175a677ee8113cbcbe2472adc34abcf6f6 -->\n\n## What's Changed\n* fix(ui): ④⑤を承認モックへ完全整合 — ID 行・種類名ラベル・CTA 位置・④へ戻る道 by @kumagallium in https://github.com/kumagallium/asterism/pull/490\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.0...v0.31.1",
+  "pub_date": "2026-08-31T22:01:31Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWQzTjErRlpCSzBiaEJnWisrMjQ0WHhaTGhKTm0rUWcwVmFEYi96NncxZU5SMlNuNGVuZ0s2UVlrQUQvZHcwb1EvaUZWOEZXWDFSRXZDZmJvN0JKRWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTcyNzQyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmhRYVZlTE55K1dMcnFvS3RrQUllMkg4cUZreE8rWmdpM043blNybEVaT3lEOGxOQjF5R3J3WXBlVWQ2SFk0L3dpLzdoWjVnU3lvWTZ4eUlFbEl5NkJBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVcraDJsdU11aUhhUlV2MjI3K0I2ckM4Z1dnK2xXUmwwckUyYllEaWxoS1RYWG1iZlpmdEZjZGx1NjF3ZmpoZjkzZmN3TW5jd0xNM3dvOUZVRHJ3NVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjEzNjkxCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmFBVlZ5VVpIYVFqdi9HUjBGN1hPaU9wMDMxWXd1SEhmY3VRcVZJR1gzK1hhN2dEUnlPcU9IUjFYZ1JZbmM4R2lHYjkxTUFJVUN5OFVtSWp3VlZCMkNRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
