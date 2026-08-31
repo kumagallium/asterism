@@ -1380,6 +1380,47 @@ def _rewrite_key_template(template: str, columns: Sequence[str]) -> str:
     return head + "/".join(f"{{{c}}}" for c in columns)
 
 
+def fold_twin_kinds(skeleton: Mapping[str, Any]) -> tuple[dict, list[str]]:
+    """機械の下書きから、**まったく同じ受け口**を畳む [利用者問い 2026-08-31
+    「AI の最初の提案時点で、そもそも重複させないのはだめなのか」への答え]。
+
+    同じソース・同じイテレータ・同じ鍵集合で、どのマップも ``owns`` を持たない
+    組は、名前が違うだけの同じ受け口 — D1 の双子警告がそのまま当たる形を、人に
+    見せる前に先頭の 1 つへ畳む。骨格の順は「主役が先」[``_parent_singleton``
+    と同じ読み] なので、残すのは先頭。
+
+    G18 [どちらを残すかは人の裁定] に反しない理由: ここで消えるのは**人がまだ
+    見ていない機械の下書き**の中の、持ち物の割り当てが一切ない完全な写しだけ。
+    ``owns`` を 1 つでも持つマップが混ざる組 [人の分割・D4 の兄弟・値のカタログ]
+    には触らない。ゲートの警告は人が作った双子のために残る。
+
+    Returns (folded_skeleton, dropped_map_names)。畳むものが無ければ入力を
+    そのまま [コピーして] 返す。
+    """
+    maps = [dict(m) for m in (skeleton.get("maps") or []) if isinstance(m, Mapping)]
+    groups: dict[tuple, list[int]] = defaultdict(list)
+    for i, m in enumerate(maps):
+        subject = m.get("subject") if isinstance(m.get("subject"), Mapping) else {}
+        template = subject.get("template")
+        key = tuple(sorted(re.findall(r"\{([^{}]+)\}", str(template or ""))))
+        sig = (str(m.get("source") or ""), str(m.get("iterator") or ""), key, template is None)
+        groups[sig].append(i)
+    dropped: set[int] = set()
+    dropped_names: list[str] = []
+    for idxs in groups.values():
+        if len(idxs) < 2:
+            continue
+        if any(maps[i].get("owns") for i in idxs):
+            continue  # 持ち物の宣言がある＝写しではない。人の領分。
+        for i in idxs[1:]:
+            dropped.add(i)
+            dropped_names.append(str(maps[i].get("name") or f"map-{i + 1}"))
+    if not dropped:
+        return {**dict(skeleton), "maps": maps}, []
+    kept = [m for i, m in enumerate(maps) if i not in dropped]
+    return {**dict(skeleton), "maps": kept}, dropped_names
+
+
 def apply_key_safety_fix(
     skeleton: Mapping[str, Any],
     annotations: Mapping[str, Any],

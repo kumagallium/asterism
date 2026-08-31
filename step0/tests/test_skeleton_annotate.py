@@ -8,7 +8,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from asterism_step0.dialect import SourceDialect
-from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety_fix
+from asterism_step0.skeleton_annotate import (
+    annotate_skeleton,
+    apply_key_safety_fix,
+    fold_twin_kinds,
+)
 
 _PREFIXES = {
     "xr": "https://example.org/xrd/resource/",
@@ -586,6 +590,45 @@ def test_missing_row_kind_offers_the_map_that_does_not_exist(tmp_path: Path) -> 
     # A starter class in the parent's own vocabulary — an empty "what is this
     # row?" column is what makes a machine-added map meaningless.
     assert gap["suggested_classes"] == ["xo:SampleDetail"]
+
+
+def test_fold_twin_kinds_folds_rest_only_duplicates() -> None:
+    """機械の下書きで、同じ鍵・owns なしの組は先頭の 1 つに畳まれる（残りの
+    名前が返る）。鍵が違う組・owns を持つマップが混ざる組は触らない。"""
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xr": "https://x.invalid/r/"},
+        "maps": [
+            {"name": "pattern", "source": "a.csv", "subject": {"template": "xr:pattern/{No}"}},
+            {"name": "sample", "source": "a.csv", "subject": {"template": "xr:sample/{No}"}},
+            {"name": "peak", "source": "a.csv", "subject": {"template": "xr:peak/{No}/{(hkl)}"}},
+        ],
+    }
+    folded, dropped = fold_twin_kinds(skeleton)
+    assert dropped == ["sample"]
+    assert [m["name"] for m in folded["maps"]] == ["pattern", "peak"]
+
+
+def test_fold_twin_kinds_spares_declared_and_distinct_groups() -> None:
+    """owns の宣言がある組（人の分割・D4 の兄弟・値のカタログ）は写しではない
+    ので畳まない。ソースが違えばそもそも同じ組にならない。"""
+    skeleton = {
+        "version": 1,
+        "prefixes": {},
+        "maps": [
+            {"name": "card", "source": "a.csv", "subject": {"template": "xr:card/{No}"}},
+            {
+                "name": "crystal",
+                "source": "a.csv",
+                "subject": {"template": "xr:crystal/{No}"},
+                "owns": ["No", "Cell"],
+            },
+            {"name": "other", "source": "b.csv", "subject": {"template": "xr:other/{No}"}},
+        ],
+    }
+    folded, dropped = fold_twin_kinds(skeleton)
+    assert dropped == []
+    assert [m["name"] for m in folded["maps"]] == ["card", "crystal", "other"]
 
 
 def test_missing_card_kind_offers_the_card_that_does_not_exist(tmp_path: Path) -> None:

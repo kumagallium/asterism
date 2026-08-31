@@ -96,7 +96,11 @@ from asterism_step0.materialize import (
 )
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
-from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety_fix
+from asterism_step0.skeleton_annotate import (
+    annotate_skeleton,
+    apply_key_safety_fix,
+    fold_twin_kinds,
+)
 from asterism_step0.staged_propose import (
     COLUMN_DECISION_ACTIONS,
     apply_column_decisions_to_document,
@@ -5275,6 +5279,16 @@ def build_app(
                 # computed against the SAME dialect-read sources. Best-effort —
                 # a failure here must never cost the (paid) skeleton itself.
                 skeleton = result.skeleton
+                # 機械の下書きの中の「名前が違うだけの同じ受け口」[同じ鍵・
+                # owns なしの組] は、人に見せる前に先頭の 1 つへ畳む。人の編集や
+                # 宣言つきの種類には触らない — ゲートの双子警告はそちらのために
+                # 残る [利用者問い 2026-08-31]。
+                skeleton, folded = fold_twin_kinds(skeleton)
+                if folded:
+                    emit(
+                        phase="skeleton",
+                        message=f"同じ鍵の重複した種類を畳みました: {', '.join(folded)}",
+                    )
                 try:
                     annotations = await asyncio.to_thread(
                         annotate_skeleton,
@@ -5316,8 +5330,8 @@ def build_app(
                     # already hold the SWAPPED key while `annotations` (and the
                     # `applied_key_fix` record inside it) is about to be
                     # dropped below. Never ship an unexplained key change —
-                    # fall back to the AI's original skeleton.
-                    skeleton = result.skeleton
+                    # fall back to the AI's original (twin-folded) skeleton.
+                    skeleton, _refolded = fold_twin_kinds(result.skeleton)
                     annotations = None
             finally:
                 if owned:
