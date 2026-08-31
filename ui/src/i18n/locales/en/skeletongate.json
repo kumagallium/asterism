@@ -84,7 +84,7 @@
   "kindUnnamed": "Unnamed",
   "gateHowSummary": "How to proceed (when you see ⚠)",
   "gateHow": "⚠ marks something to check — usually IDs that overlap. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Make the AI think again”. When everything looks right, press “Continue with these IDs”.",
-  "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
+  "twinKinds": "{{names}} currently write the same record twice from the same columns. If they are copies of one thing, delete the one you do not need (🗑). If they are different things, that is fine — split the items with the “Carried by” picker and this notice goes away. Which it is, only you can decide.",
   "zone": {
     "head": "Which kind carries which item",
     "lead": "The checkbox on the left gives that value its own ID — the place where the same value in another file or in outside data joins. The picker on the right changes which kind carries the item. The AI's recommendation is filled in.",
@@ -121,7 +121,7 @@
     "askLink": "Ask the AI about links",
     "askLinkPrefill": "Which values would join with outside data? Which items should get an ID?",
     "askDup": "Ask the AI about the duplicate",
-    "askDupPrefill": "Two kinds record the same thing twice. Which one should I keep?",
+    "askDupPrefill": "The gate says {{names}} build the same record from the same columns. I want to judge whether they are copies of one thing or different things. Looking at the columns of this table, tell me concretely which to keep — or whether to split the items instead",
     "addSameId": "+ Add a kind with the same ID",
     "addSameIdHint": "Adds a kind counted by the same ID as “the whole file”. The name follows the same rule as ②: letters and digits, starting with a letter. After adding it, move items onto it with the “Carried by” picker on the right.",
     "addSameIdName": "Name of the new kind (letters and digits, starting with a letter)",
@@ -132,7 +132,8 @@
     "isRowId": "This record's ID",
     "perRow": "One per row",
     "missingCard": "This table has no “one per file” kind yet. The {{count}} column(s) written once per file ({{first}}, …) are copied onto every record as designed now. The button below splits them into one entity keyed by {{key}}.",
-    "missingCardFix": "+ Add the file-wide kind"
+    "missingCardFix": "+ Add the file-wide kind",
+    "perValueNamed": "One per {{column}} ({{name}})"
   },
   "removeZoneHost": "This kind holds the file-wide values. Deleting it also removes the “Which kind carries which item” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",
