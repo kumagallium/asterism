@@ -1,11 +1,11 @@
 {
-  "version": "0.28.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at dc93dd11687a2195b2a3dad06a465de0a7fb4a32 -->\n\n## What's Changed\n* docs(adr): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案 by @kumagallium in https://github.com/kumagallium/asterism/pull/466\n* feat(ui/api): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案（D1〜D4） by @kumagallium in https://github.com/kumagallium/asterism/pull/467\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.27.0...v0.28.0",
-  "pub_date": "2026-08-31T01:38:19Z",
+  "version": "0.29.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 8dd964eed62240c7e66fd1cf7e44dd8b574f9e12 -->\n\n## What's Changed\n* chore(ui/api): 材料科学固有の例を抜き、分野特化の境界を ADR にする by @kumagallium in https://github.com/kumagallium/asterism/pull/469\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.28.0...v0.29.0",
+  "pub_date": "2026-08-31T02:52:51Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVFzYWpkWFA2aE5MQm5OVklER0ZLWUtxb0gwWTA0TWZxL3lKcDB4WkN2VjduaG13VEpNQlBJajRwdkliTUZkcURRTWdjM2hRY0ZxcGtvTkROeUdycUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTQwMjk5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnVDVUxiMXFOTEZpUFFSaDRBeWdmNzltZ0lqcmIxbk1oWG0yaTd0TzVHU29jNFJmblBQNEpya0xFU2tOb2ZWem83WXhyVTcyNC9mdDJweHVCQ0E4d0RRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.28.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJJc0had090T3BTSXlwTGdtNWxvWHFoNmw0YkFYNzI1QlZ6MTVtSHU0VUFYYjBCKzcrcUFiUmwyNGtxQWN2UnRuZUVBQkZJK0V2a2NuaU5aRUFIbWdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTQ0NzcwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmxGVCtxU0QySzBBNzM3aWx0cjVZNGJ2azdlNFZyZHo2d1Y1aTFDUkRxNVgvQ0JicCt4aW1sZTNCTm54clpFWDVlUEsrdVhEbE1zWGpBL1lzNGtFd0FBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.29.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
