@@ -1,11 +1,11 @@
 {
-  "version": "0.27.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ce1ba3934e886a0a021a4121dc88b68e819f0cce -->\n\n## What's Changed\n* fix(ui): 図に触ると揺れるのを直し、押せなくなっていた節を通す by @kumagallium in https://github.com/kumagallium/asterism/pull/464\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.26.0...v0.27.0",
-  "pub_date": "2026-08-29T23:01:03Z",
+  "version": "0.28.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at dc93dd11687a2195b2a3dad06a465de0a7fb4a32 -->\n\n## What's Changed\n* docs(adr): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案 by @kumagallium in https://github.com/kumagallium/asterism/pull/466\n* feat(ui/api): 種類を分ける — 重複判定の絞り込みと、相談チャットからの提案（D1〜D4） by @kumagallium in https://github.com/kumagallium/asterism/pull/467\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.27.0...v0.28.0",
+  "pub_date": "2026-08-31T01:38:19Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJRM0FHV2JPemtxbDh5MDh1K2dsa1lZNno5M2FlenRBT0NnRWpObmg1RlRUZ3ljcHByVExTV012cUFvRk1ZRlZmSkN3ZVVuYVcxdi96MHZ0UCt0VXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MDQ0NDYzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjBtcFVsUjV2d0h1Y015SGZ2SkY2T0xMY0ZQaXRaVEdSTDlRTnVPNmF3dGRJZjBMWGtnWlQwLzRxenNSTW5wdnl3VmxreVBJREYxZUxaRGdWbzJZSUR3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.27.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVFzYWpkWFA2aE5MQm5OVklER0ZLWUtxb0gwWTA0TWZxL3lKcDB4WkN2VjduaG13VEpNQlBJajRwdkliTUZkcURRTWdjM2hRY0ZxcGtvTkROeUdycUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTQwMjk5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnVDVUxiMXFOTEZpUFFSaDRBeWdmNzltZ0lqcmIxbk1oWG0yaTd0TzVHU29jNFJmblBQNEpya0xFU2tOb2ZWem83WXhyVTcyNC9mdDJweHVCQ0E4d0RRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.28.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
