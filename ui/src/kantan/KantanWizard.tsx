@@ -1312,6 +1312,15 @@ export function KantanWizard({
     onBusyChange(busy)
   }, [busy, onBusyChange])
 
+  // 段が替わったら先頭へ。③→④のように前の画面で下までスクロールしていると、
+  // 次の画面の途中から見えて「切り替わったこと」自体を見落とす（利用者指摘
+  // 2026-09-01）。スクロールの持ち主は window（.app-main は overflow を持たない）
+  // だが、環境差に備えて両方リセットする。
+  useEffect(() => {
+    window.scrollTo(0, 0)
+    document.querySelector('.app-main')?.scrollTo?.(0, 0)
+  }, [step])
+
   // design-consult-chat.md D4: keep the drawer's "what screen is the user
   // looking at" store in sync with the wizard's own state. A one-way push —
   // nothing here reads the store back, so this cannot affect the wizard's own
@@ -1324,7 +1333,9 @@ export function KantanWizard({
           ? 'kantan:s4.gateTitle'
           : step === 10
             ? 'kantan:meanings.title'
-            : `kantan:s${step}.title`
+            : step === 11
+              ? 'kantan:links.title'
+              : `kantan:s${step}.title`
     setConsultContext({
       step: t(stepTitleKey),
       dataset: kzDatasetName ?? undefined,
@@ -6553,18 +6564,32 @@ export function KantanWizard({
             <li>{t('kantan:links.whenNo')}</li>
             <li>{t('kantan:links.whenSafe')}</li>
           </ul>
-          {(['preamble', 'table'] as const).map((origin) => {
+          {/* 表は 1 枚（承認モックどおり）。行ごとの値は「（行ごとに変わる）」と
+              書けば見出しで分けなくても読める。測定値（小数を含む数値だけの列）は
+              サーバの組み立てが黙って無視するので、UI でも最初から選べなくする —
+              押せたのに何も起きない、を作らない。判定はサーバの型スニッフの近似
+              （例が全部数値で、どれかに小数点/指数がある）: サーバ側の防御は残る
+              ので、まれに取りこぼしても受け口が黙って増えることはない。 */}
+          {[...new Set(meaningRows().map((r) => r.source))].map((source) => {
             const rows = meaningRows().filter(
               (r) =>
-                r.origin === origin &&
+                r.source === source &&
                 !excludedColumns.includes(meaningKey(r.source, r.column)),
             )
             if (rows.length === 0) return null
+            const isMeasurement = (examples: string[]) => {
+              const vals = examples.filter((e) => e.trim() !== '')
+              return (
+                vals.length > 0 &&
+                vals.every((e) => Number.isFinite(Number(e))) &&
+                vals.some((e) => /[.eE]/.test(e))
+              )
+            }
             return (
-              <div key={origin}>
-                <p className="kz-zone-label">
-                  {t(origin === 'preamble' ? 'kantan:links.zoneWhole' : 'kantan:links.zoneRows')}
-                </p>
+              <div key={source}>
+                {new Set(meaningRows().map((r) => r.source)).size > 1 && (
+                  <p className="kz-zone-label">{basename(source)}</p>
+                )}
                 <div className="kz-preview-tablewrap">
                   <table className="kz-preview-table kz-links-table">
                     <thead>
@@ -6578,38 +6603,53 @@ export function KantanWizard({
                     <tbody>
                       {rows.map((r) => {
                         const key = meaningKey(r.source, r.column)
+                        const measured = isMeasurement(r.examples)
                         return (
                           <tr key={key}>
                             <th scope="row">{r.column}</th>
-                            <td className="kz-links-value">{r.examples[0] ?? ''}</td>
+                            <td className="kz-links-value">
+                              {r.origin === 'table'
+                                ? t('kantan:links.valueVaries')
+                                : (r.examples[0] ?? '')}
+                            </td>
                             <td className="kz-links-meaning">
                               {meaningFor(r.source, r.column)?.label || '—'}
                             </td>
-                            <td>
-                              <input
-                                type="checkbox"
-                                aria-label={t('kantan:links.colLink')}
-                                checked={linkChecked.has(key)}
-                                onChange={() => {
-                                  const off = linkChecked.has(key)
-                                  setLinkChecked((prev) => {
-                                    const next = new Set(prev)
-                                    if (off) next.delete(key)
-                                    else next.add(key)
-                                    return next
-                                  })
-                                  // ☑ を外した列が名指しに選ばれたままだと、
-                                  // 選んでいない列が ID として送られる。
-                                  if (off)
-                                    setLinkKeyPick((picks) =>
-                                      picks[r.source] === r.column
-                                        ? Object.fromEntries(
-                                            Object.entries(picks).filter(([s]) => s !== r.source),
-                                          )
-                                        : picks,
-                                    )
-                                }}
-                              />
+                            <td className="kz-links-checkcell">
+                              {measured ? (
+                                <span className="kz-links-check kz-links-nomeasure">
+                                  {t('kantan:links.noMeasure')}
+                                </span>
+                              ) : (
+                                <label className="kz-links-check">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={t('kantan:links.colLink')}
+                                    checked={linkChecked.has(key)}
+                                    onChange={() => {
+                                      const off = linkChecked.has(key)
+                                      setLinkChecked((prev) => {
+                                        const next = new Set(prev)
+                                        if (off) next.delete(key)
+                                        else next.add(key)
+                                        return next
+                                      })
+                                      // ☑ を外した列が名指しに選ばれたままだと、
+                                      // 選んでいない列が ID として送られる。
+                                      if (off)
+                                        setLinkKeyPick((picks) =>
+                                          picks[r.source] === r.column
+                                            ? Object.fromEntries(
+                                                Object.entries(picks).filter(
+                                                  ([s]) => s !== r.source,
+                                                ),
+                                              )
+                                            : picks,
+                                        )
+                                    }}
+                                  />
+                                </label>
+                              )}
                             </td>
                           </tr>
                         )
@@ -6857,6 +6897,10 @@ export function KantanWizard({
                 busy={continuing}
                 plain
                 provisionalCardKeys={provisionalKeys}
+                onBackToLinks={() => {
+                  setAssembleErr('')
+                  setStep(11)
+                }}
                 // The provisional-issuer note is otherwise a dead end here: this
                 // tier has no settings tab of its own to point at (GATE-13).
                 onOpenSettings={() => openSettings('server-instance')}

@@ -948,6 +948,7 @@ function SkeletonEvidence({
   // above ("ファイル / ID の決まりかた / 1 行が表すもの") carries too little to
   // judge with, so "確かめる" has nothing to confirm. K7 asks that a green map may
   // fold; the reading line alone turned out not to be enough to act on.
+
   return (
     <div className="skeleton-evidence">
       {headLines}
@@ -979,6 +980,7 @@ export function SkeletonGate({
   onAdoptRename,
   droppedColumns = [],
   provisionalCardKeys = {},
+  onBackToLinks,
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -1018,8 +1020,12 @@ export function SkeletonGate({
   droppedColumns?: string[]
   /** ④「外とのつながり」で名指しが選ばれず、機械が仮置きしたカードの ID
    *  （source → column・ADR skeleton-from-easy-judgments D3）。⑤は ⚠ で明示し、
-   *  「名前・ID を直す」へ誘導する — 機械の推測は黙って残さない。 */
+   *  「ID を候補から選び直す」へ誘導する — 機械の推測は黙って残さない。 */
   provisionalCardKeys?: Record<string, string>
+  /** ⑤から④「外とのつながり」へ戻る道（承認モックの「← ④に戻って ☑ を
+   *  変える」）。骨格は捨てない — 戻って ☑ を変えれば組み立て直しになる。
+   *  かんたん層のウィザードだけが渡す。 */
+  onBackToLinks?: () => void
   /** When set, offered as the in-place way back wherever the gate says a
    *  source could not be checked — the caller returns to the file-drop step
    *  WITHOUT discarding the draft skeleton (unlike `onDiscard`, which starts
@@ -1079,7 +1085,7 @@ export function SkeletonGate({
      開かない = グラフを読むだけ。names = ②のタブ（名前と ID）、split = 同じ ID の
      種類を足す、move = ①の表（載せる種類）。ADR の 4 カードのうち rename と
      rekey は、両方の家である②のタブに 1 枚で相乗りする。 */
-  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | null>(null)
+  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | 'rekey' | null>(null)
   // A dataset name that cleans away to nothing (a Japanese one) used to do
   // NOTHING at all — the field kept the typed text and the ID kept the old
   // slug. Say what an ID may contain, right under the field.
@@ -1820,27 +1826,37 @@ export function SkeletonGate({
   const diagramLinked = skeletonShape(skeleton, { label: (m) => m.name }).edges.length > 0
   /** かんたん層の図の箱の呼び方 — ①のセレクトと同じ語彙。AI が付けた名前は
    *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
-  const diagramLabel = (m: SkeletonMap): string => {
-    if (!zone) return m.name
-    /* 件数はラベルに入れる（ADR D4: 「n 件」が数えかたを語る — 色で二重に
-       言わない）。annotation が無いあいだは名前だけ。 */
-    const withCount = (label: string): string => {
-      const n = annotations?.maps?.[m.name]?.distinct_ids
-      return n === undefined
-        ? label
-        : t('skeletongate:countLabel', { label, count: n.toLocaleString() })
+  /* 種類の呼び名（かんたん層）— 図の箱と②のタブで**同じ**呼び名を使う（用語の
+     一貫・利用者要請）。名前を付けたらそれ、まだなら既定の呼び名（カード /
+     1 件ごと）。機械が map 名から起こしたクラス（card → Card）は「名前」では
+     ないので、記号を落として同綴りなら未命名とみなす（承認モック:
+     「カード · 1 件」「ピーク · 47 件」）。 */
+  const plainKindLabel = (m: SkeletonMap): string => {
+    if (!zone) return compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name
+    const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const named = (name: string): string | null => {
+      const d = displayMapName(name)
+      return d && norm(d) !== norm(name) ? d : null
     }
     if (m.name === zone.host.name)
-      return withCount(
-        hostIsWhole ? t('skeletongate:zone.diagramWhole') : t('skeletongate:zone.diagramRows'),
+      return (
+        named(m.name) ??
+        t(hostIsWhole ? 'skeletongate:zone.diagramCard' : 'skeletongate:zone.diagramRows')
       )
-    if (zone.sameIdKinds.includes(m.name)) return withCount(displayMapName(m.name))
+    if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    if (vars.length !== 1) return withCount(t('skeletongate:zone.diagramRows'))
-    // 同じ列の種類が 2 つあると箱のラベルが同名で並ぶ — 名前で見分ける（⚠ と同じ呼び方）。
-    return withCount(
-      (zone.columnKinds.get(vars[0])?.length ?? 0) > 1 ? displayMapName(m.name) : vars[0],
-    )
+    if (vars.length !== 1) return named(m.name) ?? t('skeletongate:zone.diagramRows')
+    // 同じ列の種類が 2 つあると呼び名が同名で並ぶ — 名前で見分ける（⚠ と同じ呼び方）。
+    return (zone.columnKinds.get(vars[0])?.length ?? 0) > 1 ? displayMapName(m.name) : vars[0]
+  }
+  const diagramLabel = (m: SkeletonMap): string => {
+    /* 件数はラベルに入れる（ADR D4: 「n 件」が数えかたを語る — 色で二重に
+       言わない）。annotation が無いあいだは名前だけ。 */
+    const n = annotations?.maps?.[m.name]?.distinct_ids
+    const label = plainKindLabel(m)
+    return n === undefined
+      ? label
+      : t('skeletongate:countLabel', { label, count: n.toLocaleString() })
   }
   /** ④の箱に並べる項目 — **図の隣の表と同じ計算**から出す。
    *
@@ -1871,6 +1887,28 @@ export function SkeletonGate({
   const pendingEdges: [string, string][] = zone
     ? [...new Set([...zone.columnKinds.values()].flat())].map((n) => [zone.host.name, n])
     : []
+  /** 箱の 1 行目 = その種類の ID の作り方（承認モック「ID: No + (hkl)」）。
+   *  ④で選ばれず機械が仮置きした ID は、その場で（仮・機械の推定）と書く —
+   *  図だけ見ても仮だと分かるように（下の ⚠ と同じ事実の 2 つの置き場）。 */
+  const fieldsWithId = (m: SkeletonMap): ShapeField[] => {
+    const keys = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    const base = zoneFields(m)
+    if (keys.length === 0) return base
+    const provisional =
+      m.name === zone?.host.name &&
+      keys.length === 1 &&
+      provisionalCardKeys[m.source] === keys[0]
+    return [
+      {
+        name: t(provisional ? 'skeletongate:idLineProvisional' : 'skeletongate:idLine', {
+          keys: keys.join(' + '),
+        }),
+      },
+      // ID 行が言った列を項目にも並べない（承認モック: カードの箱に「ID: No」と
+      // 「No」を二重に出さない）。
+      ...base.filter((f) => !keys.includes(f.name)),
+    ]
+  }
   /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
    *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
   const diagramTone = (m: SkeletonMap): ShapeTone => {
@@ -1895,7 +1933,7 @@ export function SkeletonGate({
           label: plain ? diagramLabel : detailLabel,
           tone: diagramTone,
           // 項目はかんたん層だけ。詳細モードは同じ表を下に全部出している。
-          fields: plain ? zoneFields : undefined,
+          fields: plain ? fieldsWithId : undefined,
           edgeLabel: t('workbench:skeleton.diagram.edge'),
           pendingEdges: plain ? pendingEdges : undefined,
           pendingLabel: t('skeletongate:zone.diagramPending'),
@@ -1954,18 +1992,8 @@ export function SkeletonGate({
     setKindStash((prev) => ({ ...prev, [col]: skeleton.maps[i] }))
     onChange({ ...skeleton, maps: skeleton.maps.filter((_, j) => j !== i) })
   }
-  // この画面で人が確かめるのは「元の行数」と「種類ごとの件数」が意図と合っている
-  // かの 1 点。ところがその数は各カードの証拠の奥（「この ID でできるもの: … 5 件」）
-  // にしか無く、種類が増えるほど突き合わせが難しくなっていた。並べ方をどう変えても
-  // 解けない — 見比べる材料が 1 か所に無いのが原因なので、S6 ①「数の確認」と同じ
-  // 帯をここにも出す。カードを畳もうがタブにしようが、この行は常に見えている。
-  const kindCounts = skeleton.maps
-    .map((m) => {
-      const a = annotations?.maps?.[m.name]
-      const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
-      return label && a?.distinct_ids !== undefined ? { label, n: a.distinct_ids } : null
-    })
-    .filter((x): x is { label: string; n: number } => x !== null)
+  // 元の行数はリード文の「（元ファイル n 行）」に出す。種類ごとの件数は図の
+  // 箱ラベル（「カード · 1 件」）が持つ — 帯での二重表示は 2026-09-01 に廃止。
   const sourceRows = multiSource
     ? 0
     : Math.max(
@@ -2353,7 +2381,7 @@ export function SkeletonGate({
         : 'skeleton-kind-card'
       return {
         name: m.name,
-        label: compactClass(m.subject.classes?.[0] ?? '', nsDetected),
+        label: plain ? plainKindLabel(m) : compactClass(m.subject.classes?.[0] ?? '', nsDetected),
         attention: needsAttention,
         reading: readingFor(m, ann),
         node: (
@@ -2365,7 +2393,7 @@ export function SkeletonGate({
     }
     return {
       name: m.name,
-      label: compactClass(m.subject.classes?.[0] ?? '', nsDetected),
+      label: plain ? plainKindLabel(m) : compactClass(m.subject.classes?.[0] ?? '', nsDetected),
       attention: needsAttention,
       reading: readingFor(m, ann),
       node: (
@@ -2411,10 +2439,204 @@ export function SkeletonGate({
   const active = kindBlocks.find((b) => b.name === activeKind) ?? null
   const setActiveKind = setOpenKind
 
+  /* 進む一式（確認パネル・締めの ⚠・ボタン行）。かんたん層は図の直後 = 承認
+     モックの位置（「合っていれば 1 押し」を既定路にする）、詳細モードは従来
+     どおり最下部。同じ JSX を場所だけ変えて使う — 二重定義しない。 */
+  const confirmCluster = (
+    <>
+      {/* "Are you sure?" where the answer can be "no, fix it": every item names
+          what continuing costs and carries the repair as its own button. The
+          native confirm this replaces had OK/Cancel only — and its Enter-key
+          default was "proceed with the collision" (K7 forbids exactly that). */}
+      {/* Fixing every item from inside the block empties it: close it then, so
+          the normal continue button comes back instead of an empty alert. */}
+      {confirming && blockers > 0 && (
+        <div className="wb-fix-box" role="alert">
+          <p className="skeleton-evidence-line">
+            <strong>{t('skeletongate:confirm.head')}</strong>
+          </p>
+          {missingCols.map((m) => (
+            <div key={`missing:${m.name}`} className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠{' '}
+                {t('skeletongate:confirm.missing', {
+                  map: displayMapName(m.name),
+                  columns: (annotations?.maps?.[m.name]?.missing_columns ?? []).join(', '),
+                })}
+              </p>
+              <button
+                type="button"
+                className="skeleton-gap-add"
+                onClick={() => focusRow(m.name)}
+              >
+                {hasOneTapFix(m.name)
+                  ? t('skeletongate:confirm.missingFix')
+                  : t('skeletongate:confirm.showRow')}
+              </button>
+            </div>
+          ))}
+          {gapping.map((m) => {
+            const gapColumns = annotations?.maps?.[m.name]?.missing_row_kind?.columns ?? []
+            return (
+              <div key={`gap:${m.name}`} className="skeleton-gap">
+                {/* Name a few, COUNT the rest: this is where the human accepts
+                    the loss, so "5 columns" must not stand in for 40. */}
+                <p
+                  className="skeleton-evidence-line skeleton-evidence-bad"
+                  title={gapColumns.join(', ')}
+                >
+                  ⚠{' '}
+                  {t('skeletongate:confirm.gap', {
+                    columns: columnsSummary(gapColumns, (count) =>
+                      t('workbench:skeleton.evidence.cardOmitted', { count }),
+                    ),
+                  })}
+                </p>
+                <button
+                  type="button"
+                  className="skeleton-gap-add"
+                  disabled={!canRevalidate || busy}
+                  onClick={() => {
+                    setConfirming(false)
+                    addRowKind(skeleton.maps.findIndex((x) => x.name === m.name))
+                  }}
+                >
+                  {t('skeletongate:confirm.gapFix')}
+                </button>
+                {!canRevalidate && (
+                  <p className="skeleton-evidence-line skeleton-evidence-muted">
+                    {filesGoneText ?? t('workbench:skeleton.evidence.gapNeedsFiles')}
+                  </p>
+                )}
+              </div>
+            )
+          })}
+          {collapsing.map((m) => (
+            <div key={`collides:${m.name}`} className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠{' '}
+                {plain
+                  ? t('skeletongate:confirm.collides', { map: displayMapName(m.name) })
+                  : t('workbench:skeleton.confirmCollides', { maps: m.name })}
+              </p>
+              <button type="button" className="skeleton-gap-add" onClick={() => focusRow(m.name)}>
+                {hasOneTapFix(m.name)
+                  ? t('skeletongate:confirm.collidesFix')
+                  : t('skeletongate:confirm.showRow')}
+              </button>
+            </div>
+          ))}
+          {plain && undeclared.length > 0 && (
+            <div className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠ {t('skeletongate:vocab.unresolved', { names: undeclared.join(', ') })}
+              </p>
+              {vocabFixable && (
+                <button
+                  type="button"
+                  className="skeleton-gap-add"
+                  disabled={busy}
+                  onClick={() => {
+                    setConfirming(false)
+                    repairVocabulary()
+                  }}
+                >
+                  {t('skeletongate:vocab.fix')}
+                </button>
+              )}
+            </div>
+          )}
+          {placeholderPrefixes.length > 0 && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              {/* K13: the machine-derived shorthand is not the human's to know,
+                  so the kantan copy names neither the prefixes nor Settings. */}
+              {plain
+                ? t('skeletongate:confirm.placeholder')
+                : t('workbench:skeleton.ns.confirmPlaceholder', {
+                    prefixes: placeholderPrefixes.map((p) => p.prefix).join(', '),
+                  })}
+            </p>
+          )}
+          <div className="skeleton-gate-actions">
+            {onRethink && (
+              <button
+                type="button"
+                className="skeleton-gap-add"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(false)
+                  onRethink(rethinkNote.trim())
+                }}
+              >
+                {t('skeletongate:confirm.rethinkFix')}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+            >
+              {t('skeletongate:confirm.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={continueAnyway}
+            >
+              {t('skeletongate:confirm.proceed')}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 締めたなら、締めた理由と次の一手をボタンの隣に置く（G11）。 */}
+      {noRecipe.length > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-bad" role="alert">
+          ⚠ {t('skeletongate:key.noneBlocks', { count: noRecipe.length })}
+        </p>
+      )}
+      <div className="skeleton-gate-actions">
+        <button
+          onClick={onContinueGuarded}
+          disabled={busy || noRecipe.length > 0 || (confirming && blockers > 0)}
+        >
+          {busy ? (
+            <>
+              <span className="spinner" />
+              {t(continuingKey)}
+            </>
+          ) : (
+            t(continueKey)
+          )}
+        </button>
+        {plain && onBackToLinks && (
+          <button type="button" className="btn btn--ghost" onClick={onBackToLinks} disabled={busy}>
+            {t('skeletongate:backToLinks')}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => {
+            if (window.confirm(t(discardConfirmKey))) onDiscard()
+          }}
+          disabled={busy}
+        >
+          {t(discardKey)}
+        </button>
+      </div>
+    </>
+  )
+
   return (
     <section className="skeleton-gate">
       <h4>{t(titleKey)}</h4>
-      <p className="skeleton-gate-hint">{t(hintKey)}</p>
+      <p className="skeleton-gate-hint">
+        {t(hintKey)}
+        {plain && sourceRows > 0 &&
+          t('skeletongate:sourceRowsNote', { rows: sourceRows.toLocaleString() })}
+      </p>
       {plain && (
         /* ⑤で確かめることの明文化（ADR skeleton-from-easy-judgments D4:
            「形が合っていれば」とだけ書かない — 利用者評価 2026-08-31）。 */
@@ -2496,26 +2718,6 @@ export function SkeletonGate({
       {!plain && nsCard}
       {zone && (
         <>
-          {/* 相談は疑問が生まれる場所（確認 3 点の直後）に置く。S3 と同じ
-              `requestConsult` で、文面は入れるが送らない — 相談は LLM を呼ぶので、
-              押したつもりのない課金を作らない。並びは確認 3 点の読み順どおり
-              「つながり」が先、「分け方」が後。 */}
-          <div className="kz-actions skeleton-zone-actions">
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => requestConsult(t('skeletongate:zone.askLinkPrefill'))}
-            >
-              {t('skeletongate:zone.askLink')}
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => requestConsult(t('skeletongate:zone.askSplitPrefill'))}
-            >
-              {t('skeletongate:zone.askSplit')}
-            </button>
-          </div>
           {/* 行の種類しか無い骨格（missing_card_kind・実測 2026-08-31 本番）。
               ヘッダの列が全記録に写っている事実と、1 押しの直しを、表を読む前に
               言う。取り込みが失敗するわけではないので confirm の blocker には
@@ -2610,36 +2812,14 @@ export function SkeletonGate({
               </div>
             </>
           )}
-          {/* 件数は①の選択の**結果**（チェックを付けると件数が増える）。①の前に
-              置くと、番号の付いていない帯が説明と①の間に挟まって順序が読めない。
-              ②の開き＝「いまある種類とその件数」として置く（利用者評価
-              2026-08-28）。 */}
-      {plain && kindCounts.length > 0 && (
-            <div className="kz-map-card">
-              {sourceRows > 0 && (
-                <>
-                  <span className="kz-stat">
-                    <span className="kz-stat-label">{t('skeletongate:counts.source')}</span>
-                    <span className="kz-stat-num">{sourceRows.toLocaleString()}</span>
-                    <span className="kz-stat-unit">{t('skeletongate:counts.rowUnit')}</span>
-                  </span>
-                  <span className="kz-map-arrow" aria-hidden="true">
-                    →
-                  </span>
-                </>
-              )}
-              {kindCounts.map((c) => (
-                <span key={c.label} className="kz-stat kz-stat--kind">
-                  <span className="kz-stat-label">{c.label}</span>
-                  <span className="kz-stat-num">{c.n.toLocaleString()}</span>
-                  <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
-                </span>
-              ))}
-            </div>
-          )}
-          {/* 「形が違うとき（直す）」— 切り替え式（ADR D4）。既定はどれも開かず、
-              画面は 3 点の確認 + 図だけ。names = ②のタブ（名前と ID の家）、
-              split = 同じ ID の種類を足す、move = 載せる種類の表。 */}
+          {/* 承認モックの読み順: 図 → ⚠ → 「この形で進む」。合っていれば
+              ここで終わり（直しの一覧はこの下 — 使うときだけ）。 */}
+          {confirmCluster}
+          {/* 「形が違うとき（直す）」— 切り替え式（ADR D4・承認モックの 4 枚）。
+              既定はどれも開かず、画面は 3 点の確認 + 図だけ。names = 種類ごとの
+              タブ（名前と ID の家）、split = 同じ ID の種類を足す、move = 載せる
+              種類の表、rekey = names と同じ面を仮 ID の種類を開いて出す（仮 ⚠
+              からの導線）。 */}
           <p className="kz-zone-label skeleton-fix-head">{t('skeletongate:fixHead')}</p>
           <div className="kz-actions">
             {(
@@ -2647,6 +2827,7 @@ export function SkeletonGate({
                 ['names', 'fixNames'],
                 ['split', 'fixSplit'],
                 ['move', 'fixMove'],
+                ['rekey', 'fixRekey'],
               ] as const
             ).map(([id, key]) => (
               <button
@@ -2654,14 +2835,18 @@ export function SkeletonGate({
                 type="button"
                 className={plainFix === id ? 'btn btn--sm' : 'btn btn--ghost btn--sm'}
                 disabled={id !== 'names' && !zone}
-                onClick={() => setPlainFix(plainFix === id ? null : id)}
+                onClick={() => {
+                  if (plainFix === id) return setPlainFix(null)
+                  setPlainFix(id)
+                  if (id === 'rekey' && zone) setOpenKind(zone.host.name)
+                }}
               >
                 {t(`skeletongate:${key}`)}
               </button>
             ))}
           </div>
 
-          {plainFix === 'names' && kindBlocks.length > 1 && (
+          {(plainFix === 'names' || plainFix === 'rekey') && kindBlocks.length > 1 && (
             /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
                答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
                2026-08-27）。⚠ はタブ自身が持つので、裏に隠れることはない。
@@ -2707,7 +2892,7 @@ export function SkeletonGate({
               ))}
             </div>
           )}
-          {plainFix === 'names' && (
+          {(plainFix === 'names' || plainFix === 'rekey') && (
             <div
               role={kindBlocks.length > 1 ? 'tabpanel' : undefined}
               id={active ? `kind-panel-${active.name}` : undefined}
@@ -3046,183 +3231,7 @@ export function SkeletonGate({
           </div>
         </div>
       )}
-      {/* "Are you sure?" where the answer can be "no, fix it": every item names
-          what continuing costs and carries the repair as its own button. The
-          native confirm this replaces had OK/Cancel only — and its Enter-key
-          default was "proceed with the collision" (K7 forbids exactly that). */}
-      {/* Fixing every item from inside the block empties it: close it then, so
-          the normal continue button comes back instead of an empty alert. */}
-      {confirming && blockers > 0 && (
-        <div className="wb-fix-box" role="alert">
-          <p className="skeleton-evidence-line">
-            <strong>{t('skeletongate:confirm.head')}</strong>
-          </p>
-          {missingCols.map((m) => (
-            <div key={`missing:${m.name}`} className="skeleton-gap">
-              <p className="skeleton-evidence-line skeleton-evidence-bad">
-                ⚠{' '}
-                {t('skeletongate:confirm.missing', {
-                  map: displayMapName(m.name),
-                  columns: (annotations?.maps?.[m.name]?.missing_columns ?? []).join(', '),
-                })}
-              </p>
-              <button
-                type="button"
-                className="skeleton-gap-add"
-                onClick={() => focusRow(m.name)}
-              >
-                {hasOneTapFix(m.name)
-                  ? t('skeletongate:confirm.missingFix')
-                  : t('skeletongate:confirm.showRow')}
-              </button>
-            </div>
-          ))}
-          {gapping.map((m) => {
-            const gapColumns = annotations?.maps?.[m.name]?.missing_row_kind?.columns ?? []
-            return (
-              <div key={`gap:${m.name}`} className="skeleton-gap">
-                {/* Name a few, COUNT the rest: this is where the human accepts
-                    the loss, so "5 columns" must not stand in for 40. */}
-                <p
-                  className="skeleton-evidence-line skeleton-evidence-bad"
-                  title={gapColumns.join(', ')}
-                >
-                  ⚠{' '}
-                  {t('skeletongate:confirm.gap', {
-                    columns: columnsSummary(gapColumns, (count) =>
-                      t('workbench:skeleton.evidence.cardOmitted', { count }),
-                    ),
-                  })}
-                </p>
-                <button
-                  type="button"
-                  className="skeleton-gap-add"
-                  disabled={!canRevalidate || busy}
-                  onClick={() => {
-                    setConfirming(false)
-                    addRowKind(skeleton.maps.findIndex((x) => x.name === m.name))
-                  }}
-                >
-                  {t('skeletongate:confirm.gapFix')}
-                </button>
-                {!canRevalidate && (
-                  <p className="skeleton-evidence-line skeleton-evidence-muted">
-                    {filesGoneText ?? t('workbench:skeleton.evidence.gapNeedsFiles')}
-                  </p>
-                )}
-              </div>
-            )
-          })}
-          {collapsing.map((m) => (
-            <div key={`collides:${m.name}`} className="skeleton-gap">
-              <p className="skeleton-evidence-line skeleton-evidence-bad">
-                ⚠{' '}
-                {plain
-                  ? t('skeletongate:confirm.collides', { map: displayMapName(m.name) })
-                  : t('workbench:skeleton.confirmCollides', { maps: m.name })}
-              </p>
-              <button type="button" className="skeleton-gap-add" onClick={() => focusRow(m.name)}>
-                {hasOneTapFix(m.name)
-                  ? t('skeletongate:confirm.collidesFix')
-                  : t('skeletongate:confirm.showRow')}
-              </button>
-            </div>
-          ))}
-          {plain && undeclared.length > 0 && (
-            <div className="skeleton-gap">
-              <p className="skeleton-evidence-line skeleton-evidence-bad">
-                ⚠ {t('skeletongate:vocab.unresolved', { names: undeclared.join(', ') })}
-              </p>
-              {vocabFixable && (
-                <button
-                  type="button"
-                  className="skeleton-gap-add"
-                  disabled={busy}
-                  onClick={() => {
-                    setConfirming(false)
-                    repairVocabulary()
-                  }}
-                >
-                  {t('skeletongate:vocab.fix')}
-                </button>
-              )}
-            </div>
-          )}
-          {placeholderPrefixes.length > 0 && (
-            <p className="skeleton-evidence-line skeleton-evidence-warn">
-              {/* K13: the machine-derived shorthand is not the human's to know,
-                  so the kantan copy names neither the prefixes nor Settings. */}
-              {plain
-                ? t('skeletongate:confirm.placeholder')
-                : t('workbench:skeleton.ns.confirmPlaceholder', {
-                    prefixes: placeholderPrefixes.map((p) => p.prefix).join(', '),
-                  })}
-            </p>
-          )}
-          <div className="skeleton-gate-actions">
-            {onRethink && (
-              <button
-                type="button"
-                className="skeleton-gap-add"
-                disabled={busy}
-                onClick={() => {
-                  setConfirming(false)
-                  onRethink(rethinkNote.trim())
-                }}
-              >
-                {t('skeletongate:confirm.rethinkFix')}
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => setConfirming(false)}
-            >
-              {t('skeletongate:confirm.cancel')}
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={continueAnyway}
-            >
-              {t('skeletongate:confirm.proceed')}
-            </button>
-          </div>
-        </div>
-      )}
-      {/* 締めたなら、締めた理由と次の一手をボタンの隣に置く（G11）。 */}
-      {noRecipe.length > 0 && (
-        <p className="skeleton-evidence-line skeleton-evidence-bad" role="alert">
-          ⚠ {t('skeletongate:key.noneBlocks', { count: noRecipe.length })}
-        </p>
-      )}
-      <div className="skeleton-gate-actions">
-        <button
-          onClick={onContinueGuarded}
-          disabled={busy || noRecipe.length > 0 || (confirming && blockers > 0)}
-        >
-          {busy ? (
-            <>
-              <span className="spinner" />
-              {t(continuingKey)}
-            </>
-          ) : (
-            t(continueKey)
-          )}
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          onClick={() => {
-            if (window.confirm(t(discardConfirmKey))) onDiscard()
-          }}
-          disabled={busy}
-        >
-          {t(discardKey)}
-        </button>
-      </div>
+      {!plain && confirmCluster}
     </section>
   )
 }

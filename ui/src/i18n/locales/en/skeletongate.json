@@ -133,7 +133,8 @@
     "perRow": "One per row",
     "missingCard": "This table has no “one per file” kind yet. The {{count}} column(s) written once per file ({{first}}, …) are copied onto every record as designed now. The button below splits them into one entity keyed by {{key}}.",
     "missingCardFix": "+ Add the file-wide kind",
-    "perValueNamed": "One per {{column}} ({{name}})"
+    "perValueNamed": "One per {{column}} ({{name}})",
+    "diagramCard": "Card"
   },
   "removeZoneHost": "This kind holds the file-wide values. Deleting it also removes the “Which kind carries which item” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",
@@ -149,10 +150,15 @@
   "check2": "The items on each — the lists inside the boxes. Is each item on the right kind?",
   "check3": "The counts — the “n 件” on each box. Is that how you meant to count?",
   "graphLegend": "Boxes = kinds of data (items and counts inside). Amber = link receptacles you ticked in “Links to the outside”. Solid lines = ID nesting (the child’s ID contains the parent’s). Dotted = references the machine adds on ingest (ticked items stay on their kind, carried as references).",
-  "provisionalKey": "“{{column}}” is a provisional ID (nothing was named in “Links to the outside”, so the machine guessed). You can proceed as is — if it is wrong, pick another under “Fix names & IDs”.",
+  "provisionalKey": "“{{column}}” is a provisional ID (no naming value was picked in “Links to the outside”, so the machine guessed). You can continue as is — if it is wrong, fix it below with “Re-pick the ID from candidates”.",
   "fixHead": "When the shape is wrong (fix it)",
   "fixNames": "Fix names & IDs",
   "fixSplit": "Split one kind into two",
   "fixMove": "Move items",
-  "countLabel": "{{label}} · {{count}}"
+  "countLabel": "{{label}} · {{count}}",
+  "idLine": "ID: {{keys}}",
+  "idLineProvisional": "ID: {{keys}} (provisional — machine guess)",
+  "fixRekey": "Re-pick the ID from candidates",
+  "backToLinks": "← Back to ④ to change the ☑",
+  "sourceRowsNote": " (source file: {{rows}} rows)"
 }
