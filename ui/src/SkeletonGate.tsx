@@ -1242,6 +1242,27 @@ export function SkeletonGate({
     setAddedMap(added.name)
   }
 
+  /** missing_card_kind（行の種類だけでカードが無い・実測 2026-08-31 本番）の
+   *  1 押し修理。サーバが全項目（名前・キー・テンプレート・移す列）を決定論で
+   *  提案済みなので、これは純粋な状態編集 — addRowKind の鏡像。カードは host の
+   *  前に入れる（図で「入れ物」が先に読める）。 */
+  function addCardKind(hostIdx: number) {
+    const host = skeleton.maps[hostIdx]
+    const gap = annotations?.maps?.[host?.name]?.missing_card_kind
+    if (!host || !gap) return
+    const added: SkeletonMap = {
+      name: gap.suggested_name,
+      source: host.source,
+      subject: { template: gap.suggested_template, classes: gap.suggested_classes ?? [] },
+      owns: gap.columns,
+    }
+    onChange({
+      ...skeleton,
+      maps: [...skeleton.maps.slice(0, hostIdx), added, ...skeleton.maps.slice(hostIdx)],
+    })
+    setAddedMap(added.name)
+  }
+
   /** Remove a map. Being able to add but not remove made the gate a one-way
    *  door: a wrong split — the AI's or the one-click one — could not be taken
    *  back. Two-step like the other destructive controls, and never the last map
@@ -1697,8 +1718,27 @@ export function SkeletonGate({
    *  （利用者評価 2026-08-28「①に出てくると『何？』となりそう」）。データその
    *  ままの呼び方だけを使う: 表全体で 1 件のものは「この表全体」、ある値ごとに
    *  1 件になるものは「その列名 ごと」。 */
+  /** host が本当に「ファイル全体で 1 件」か。行ごとの種類しか無い骨格（実測
+   *  2026-08-31 本番: round-0 が {(hkl)} キーの 1 種類だけを返した）では、host は
+   *  47 件の行の種類 — それを「ファイル全体」と呼ぶと、人は「行ごとのデータが
+   *  読まれていない」と読み違える。呼び方は数えかた（collapse_kind）に従う。 */
+  const hostIsWhole =
+    !zone || (zone.ann.collapse_kind !== 'unique' && zone.ann.collapse_kind !== 'partial')
+  /** ロックされたキー列・keyNote が host の ID をどう呼ぶか。 */
+  const hostIdLabel = hostIsWhole
+    ? t('skeletongate:zone.isCardId')
+    : t('skeletongate:zone.isRowId')
   const zoneChoiceLabel = (name: string): string => {
-    if (!zone || name === zone.host.name) return t('skeletongate:zone.wholeTable')
+    if (!zone) return t('skeletongate:zone.wholeTable')
+    if (name === zone.host.name) {
+      if (hostIsWhole) return t('skeletongate:zone.wholeTable')
+      const vars = [...(zone.host.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map(
+        (x) => x[1],
+      )
+      return vars.length === 1
+        ? t('skeletongate:zone.perValue', { column: vars[0] })
+        : t('skeletongate:zone.perRow')
+    }
     // カードと同じ鍵の兄弟は「その列 ごと」では呼べない（鍵はカードの鍵）。人が
     // さっき自分で付けた名前なので、そのまま出す。
     if (zone.sameIdKinds.includes(name)) return displayMapName(name)
@@ -1759,7 +1799,8 @@ export function SkeletonGate({
    *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
   const diagramLabel = (m: SkeletonMap): string => {
     if (!zone) return m.name
-    if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
+    if (m.name === zone.host.name)
+      return hostIsWhole ? t('skeletongate:zone.diagramWhole') : t('skeletongate:zone.diagramRows')
     if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
@@ -2503,6 +2544,36 @@ export function SkeletonGate({
               )}
             </div>
           )}
+          {/* 行の種類しか無い骨格（missing_card_kind・実測 2026-08-31 本番）。
+              ヘッダの列が全記録に写っている事実と、1 押しの直しを、表を読む前に
+              言う。取り込みが失敗するわけではないので confirm の blocker には
+              しない — 二重記録の予防で、裁定は人（K7/K22 と同じ姿勢）。 */}
+          {zone.ann.missing_card_kind &&
+            canRevalidate &&
+            /* 押した直後〜再検査が終わるまでの間、annotation は古いまま。提案名の
+               map が骨格に既にあるなら、修理は済んでいる（二度押しで card2 を
+               作らない）。 */
+            !skeleton.maps.some((m) => m.name === zone.ann.missing_card_kind!.suggested_name) && (
+            <div className="skeleton-zone-addkind-entry">
+              <p className="skeleton-evidence-line skeleton-evidence-warn">
+                ⚠{' '}
+                {t('skeletongate:zone.missingCard', {
+                  count: zone.ann.missing_card_kind.columns.length,
+                  first: zone.ann.missing_card_kind.columns[0],
+                  key: zone.ann.missing_card_kind.suggested_key.join('、'),
+                })}
+              </p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => addCardKind(zone.idx)}
+                >
+                  {t('skeletongate:zone.missingCardFix')}
+                </button>
+              </div>
+            </div>
+          )}
           {addingKind !== null && (
             <div className="skeleton-zone-addkind">
               <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdHint')}</p>
@@ -2603,7 +2674,7 @@ export function SkeletonGate({
                         全行に写る（G6 の二重記録）。 */}
                     <td className="skeleton-zone-tag">
                       {locked ? (
-                        t('skeletongate:zone.isCardId')
+                        hostIdLabel
                       ) : (
                         // ID にした列の載せ先は、その種類自身のほかにない（自分の
                         // ID なのだから）。選ばせず、そう見えるだけにする。
@@ -2701,7 +2772,7 @@ export function SkeletonGate({
             </tbody>
           </table>
           <p className="skeleton-evidence-line skeleton-evidence-muted skeleton-zone-note">
-            {t('skeletongate:zone.keyNote')}
+            {t('skeletongate:zone.keyNote', { label: hostIdLabel })}
           </p>
           </div>
           <aside className="skeleton-zone-map">{diagram}</aside>

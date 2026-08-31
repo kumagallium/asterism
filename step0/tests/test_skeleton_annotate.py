@@ -588,6 +588,40 @@ def test_missing_row_kind_offers_the_map_that_does_not_exist(tmp_path: Path) -> 
     assert gap["suggested_classes"] == ["xo:SampleDetail"]
 
 
+def test_missing_card_kind_offers_the_card_that_does_not_exist(tmp_path: Path) -> None:
+    """The mirror image (observed live, prod v0.28.0): round-0 returned ONE
+    row-level map for a reference card, so the header block silently broadcast
+    onto every record. The gate names the missing CARD and hands over the
+    one-click repair, keyed by the first file-wide identity column."""
+    p = _write_reference_card(tmp_path)
+    skeleton = _card_skeleton()
+    peak = next(m for m in skeleton["maps"] if m["name"] == "peak")
+    skeleton["maps"] = [peak]  # only the row kind — the observed round-0
+    ann = annotate_skeleton(skeleton, [p])["maps"]["peak"]
+    gap = ann["missing_card_kind"]
+    assert gap["columns"] == ["No", "Name"]
+    assert gap["suggested_key"] == ["No"]
+    assert gap["entity_count"] == 1
+    assert gap["suggested_name"] == "card"
+    # Minted in the row map's namespace, as a CURIE (goes back into the skeleton).
+    assert gap["suggested_template"] == "xr:card/{No}"
+    assert gap["suggested_classes"] == ["xo:Card"]
+
+
+def test_no_missing_card_kind_once_a_singleton_exists(tmp_path: Path) -> None:
+    """With the card present nothing is broadcast-homeless — silence. And a
+    plain row table (no file-wide identity column) never nags."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    assert "missing_card_kind" not in out["sample"]
+    assert "missing_card_kind" not in out["peak"]
+    q = _write_xrd(tmp_path)  # plain per-row table: scan_id varies, no header block
+    ann = annotate_skeleton(
+        _skeleton("xr:point/{2θ (deg)}/{scan_id}", source="xrd.csv"), [q]
+    )["maps"]["point"]
+    assert "missing_card_kind" not in ann
+
+
 def test_no_missing_row_kind_once_a_row_level_map_exists(tmp_path: Path) -> None:
     """With both maps present nothing is homeless — the gate stays silent."""
     p = _write_reference_card(tmp_path)
