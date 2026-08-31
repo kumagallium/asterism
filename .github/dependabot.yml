@@ -7,3 +7,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # ラベルを明示して Dependabot の自動付与を止める。既定のままだと semver-major な
+    # 更新 PR に「major」が付き、.tagpr の majorLabels=major と衝突して、マージしただけで
+    # 次リリースが v1.0.0 に昇格してしまう（2026-08-31 に #481-485 で実際に付いた）。
+    labels: [dependencies, github_actions]
