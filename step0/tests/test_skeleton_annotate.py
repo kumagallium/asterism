@@ -11,6 +11,7 @@ from asterism_step0.dialect import SourceDialect
 from asterism_step0.skeleton_annotate import (
     annotate_skeleton,
     apply_key_safety_fix,
+    assemble_skeleton_from_judgments,
     fold_twin_kinds,
 )
 
@@ -590,6 +591,79 @@ def test_missing_row_kind_offers_the_map_that_does_not_exist(tmp_path: Path) -> 
     # A starter class in the parent's own vocabulary — an empty "what is this
     # row?" column is what makes a machine-added map meaningless.
     assert gap["suggested_classes"] == ["xo:SampleDetail"]
+
+
+def test_assemble_builds_card_record_and_receptacles(tmp_path: Path) -> None:
+    """ADR skeleton-from-easy-judgments D5: ③④の答え + 検査から決定論で組み立てる。
+    ☑ = CSD/No のうち No を名指し → カードは {No}（仮ではない）、CSD は受け口、
+    行の種類は親スコープの一意キー。No 自身の受け口は作らない。"""
+    p = _write_reference_card(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[
+            {"source": "card.csv", "column": "No"},
+            {"source": "card.csv", "column": "Name"},
+        ],
+        card_keys={"card.csv": "No"},
+        dataset_name="xrd refs",
+    )
+    sk = out["skeleton"]
+    names = {m["name"]: m for m in sk["maps"]}
+    assert set(names) == {"card", "record", "name"}
+    assert names["card"]["subject"]["template"].endswith(":card/{No}")
+    assert names["record"]["subject"]["template"].endswith(":record/{No}/{(hkl)}")
+    assert names["name"]["owns"] == ["Name"]
+    assert out["metadata"]["provisional_card_keys"] == {}
+    # 組み立て結果は annotate の検査をそのまま通る（カード singleton・行 unique）。
+    ann = annotate_skeleton(sk, [p])["maps"]
+    assert ann["card"]["collapse_kind"] == "singleton"
+    assert ann["record"]["collapse_kind"] == "unique"
+    assert "missing_card_kind" not in ann["record"]
+    assert "missing_row_kind" not in ann["card"]
+
+
+def _write_card_with_csd(tmp_path: Path) -> Path:
+    p = tmp_path / "card.csv"
+    p.write_text(
+        "No,CSD,Name,2theta,(hkl)\n"
+        '03-1,N1,Al V,21.34,"(0,0,2)"\n'
+        '03-1,N1,Al V,25.87,"(1,0,1)"\n',
+        encoding="utf-8",
+    )
+    return p
+
+
+def test_assemble_marks_provisional_key_when_nothing_named(tmp_path: Path) -> None:
+    """④で何も ☑ しない → 機械が仮置きし、metadata で明示（利用者裁定）。"""
+    p = _write_reference_card(tmp_path)
+    out = assemble_skeleton_from_judgments([p])
+    assert out["metadata"]["provisional_card_keys"] == {"card.csv": "No"}
+    names = {m["name"] for m in out["skeleton"]["maps"]}
+    assert names == {"card", "record"}
+
+
+def test_assemble_single_checked_broadcast_becomes_the_key(tmp_path: Path) -> None:
+    """☑ したファイル単位の値が 1 つ → 名指しの質問なしでそれが ID（人の選択）。"""
+    p = _write_card_with_csd(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        [p], linkable=[{"source": "card.csv", "column": "CSD"}]
+    )
+    names = {m["name"]: m for m in out["skeleton"]["maps"]}
+    assert names["card"]["subject"]["template"].endswith(":card/{CSD}")
+    assert out["metadata"]["provisional_card_keys"] == {}
+    assert "csd" not in names  # ID になった値の受け口は作らない
+
+
+def test_assemble_plain_row_table_has_no_card(tmp_path: Path) -> None:
+    """放送列の無い素の行テーブル → カードなし・行の種類だけ。測定値の ☑ は無視。"""
+    p = _write_xrd(tmp_path)  # 2θ/intensity/scan_id — 放送列なし
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[{"source": "xrd.csv", "column": "2θ (deg)"}],  # 測定値（double）→ 無視
+    )
+    names = {m["name"]: m for m in out["skeleton"]["maps"]}
+    assert set(names) == {"record"}
+    assert out["metadata"]["provisional_card_keys"] == {}
 
 
 def test_fold_twin_kinds_folds_rest_only_duplicates() -> None:

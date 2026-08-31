@@ -638,6 +638,47 @@ export async function proposeContinue(
  * No LLM, no job — a plain synchronous call (typically <1s), so the gate can
  * re-check a hand-edited key/class while the human is still looking at it.
  */
+/** ④「外とのつながり」の ☑ と名指しの (source, column)。 */
+export interface LinkableColumn {
+  source: string
+  column: string
+}
+
+/** ③④の答えから骨格を組み立てる（ADR skeleton-from-easy-judgments D5）。
+ *  決定論・LLM 0・ジョブなし — /validate と同じ同期の呼び出しで、annotation を
+ *  同梱して返す。metadata.provisional_card_keys が空でなければ、カードの ID は
+ *  機械の仮置き（⑤で ⚠ として明示する）。 */
+export async function assembleSkeleton(
+  files: File[],
+  opts: {
+    linkable: LinkableColumn[]
+    cardKeys: Record<string, string>
+    excluded: LinkableColumn[]
+    datasetName?: string
+    dialects?: Record<string, SourceDialect>
+    stagingId?: string | null
+  },
+): Promise<{
+  skeleton: MappingSkeleton
+  annotations: SkeletonAnnotations
+  metadata: { provisional_card_keys: Record<string, string>; dataset_slug: string }
+}> {
+  const form = new FormData()
+  appendSources(form, files, opts.stagingId)
+  form.append('linkable', JSON.stringify(opts.linkable))
+  form.append('card_keys', JSON.stringify(opts.cardKeys))
+  form.append('excluded', JSON.stringify(opts.excluded))
+  if (opts.datasetName) form.append('dataset_name', opts.datasetName)
+  appendDialects(form, opts.dialects)
+  const res = await fetch('/api/propose/skeleton/assemble', { method: 'POST', body: form })
+  if (!res.ok) await throwApiError(res, 'assemble')
+  return (await res.json()) as {
+    skeleton: MappingSkeleton
+    annotations: SkeletonAnnotations
+    metadata: { provisional_card_keys: Record<string, string>; dataset_slug: string }
+  }
+}
+
 export async function validateSkeleton(
   files: File[],
   skeleton: MappingSkeleton,

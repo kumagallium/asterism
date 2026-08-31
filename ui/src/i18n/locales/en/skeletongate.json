@@ -144,5 +144,15 @@
   "removeRowKind": "This kind is where the per-record values ({{columns}}) live. Deleting it leaves them with nowhere to go. Afterwards an “Add the record-level kind” button appears on this screen to restore it, but you will have to name it again.",
   "removeTitleRowKind": "Delete this kind from the design (the per-record values lose their home)",
   "rethinkKeeps": "The design you see now is handed over as-is, and only what you ask for is changed. Edits made on this screen (kind names, ID recipes, deletions, splits) are kept.",
-  "rethinkResets": "Thinking again rebuilds the design from scratch. Edits made on this screen (kind names, ID recipes, deletions, splits) are not kept."
+  "rethinkResets": "Thinking again rebuilds the design from scratch. Edits made on this screen (kind names, ID recipes, deletions, splits) are not kept.",
+  "check1": "How it splits into kinds — the boxes. Is this the right split for this table?",
+  "check2": "The items on each — the lists inside the boxes. Is each item on the right kind?",
+  "check3": "The counts — the “n 件” on each box. Is that how you meant to count?",
+  "graphLegend": "Boxes = kinds of data (items and counts inside). Amber = link receptacles you ticked in “Links to the outside”. Solid lines = ID nesting (the child’s ID contains the parent’s). Dotted = references the machine adds on ingest (ticked items stay on their kind, carried as references).",
+  "provisionalKey": "“{{column}}” is a provisional ID (nothing was named in “Links to the outside”, so the machine guessed). You can proceed as is — if it is wrong, pick another under “Fix names & IDs”.",
+  "fixHead": "When the shape is wrong (fix it)",
+  "fixNames": "Fix names & IDs",
+  "fixSplit": "Split one kind into two",
+  "fixMove": "Move items",
+  "countLabel": "{{label}} · {{count}}"
 }

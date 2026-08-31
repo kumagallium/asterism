@@ -978,6 +978,7 @@ export function SkeletonGate({
   presentFileNames,
   onAdoptRename,
   droppedColumns = [],
+  provisionalCardKeys = {},
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -1015,6 +1016,10 @@ export function SkeletonGate({
    *  exist (ADR meaning-before-identity §9). A one-line note says how many, so
    *  the decision stays visible instead of silently shrinking the list. */
   droppedColumns?: string[]
+  /** ④「外とのつながり」で名指しが選ばれず、機械が仮置きしたカードの ID
+   *  （source → column・ADR skeleton-from-easy-judgments D3）。⑤は ⚠ で明示し、
+   *  「名前・ID を直す」へ誘導する — 機械の推測は黙って残さない。 */
+  provisionalCardKeys?: Record<string, string>
   /** When set, offered as the in-place way back wherever the gate says a
    *  source could not be checked — the caller returns to the file-drop step
    *  WITHOUT discarding the draft skeleton (unlike `onDiscard`, which starts
@@ -1070,6 +1075,11 @@ export function SkeletonGate({
   // だけが見えている）。名前を最初に聞くのは、種類の名前がそのまま住所の区間に
   // なるため — 後から付け直しても、配ったあとの ID は動かせない。
   const [addingKind, setAddingKind] = useState<string | null>(null)
+  /* ⑤の「直す」切り替え（ADR skeleton-from-easy-judgments D4）: 既定は何も
+     開かない = グラフを読むだけ。names = ②のタブ（名前と ID）、split = 同じ ID の
+     種類を足す、move = ①の表（載せる種類）。ADR の 4 カードのうち rename と
+     rekey は、両方の家である②のタブに 1 枚で相乗りする。 */
+  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | null>(null)
   // A dataset name that cleans away to nothing (a Japanese one) used to do
   // NOTHING at all — the field kept the typed text and the ID kept the old
   // slug. Say what an ID may contain, right under the field.
@@ -1812,13 +1822,25 @@ export function SkeletonGate({
    *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
   const diagramLabel = (m: SkeletonMap): string => {
     if (!zone) return m.name
+    /* 件数はラベルに入れる（ADR D4: 「n 件」が数えかたを語る — 色で二重に
+       言わない）。annotation が無いあいだは名前だけ。 */
+    const withCount = (label: string): string => {
+      const n = annotations?.maps?.[m.name]?.distinct_ids
+      return n === undefined
+        ? label
+        : t('skeletongate:countLabel', { label, count: n.toLocaleString() })
+    }
     if (m.name === zone.host.name)
-      return hostIsWhole ? t('skeletongate:zone.diagramWhole') : t('skeletongate:zone.diagramRows')
-    if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
+      return withCount(
+        hostIsWhole ? t('skeletongate:zone.diagramWhole') : t('skeletongate:zone.diagramRows'),
+      )
+    if (zone.sameIdKinds.includes(m.name)) return withCount(displayMapName(m.name))
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    if (vars.length !== 1) return t('skeletongate:zone.diagramRows')
+    if (vars.length !== 1) return withCount(t('skeletongate:zone.diagramRows'))
     // 同じ列の種類が 2 つあると箱のラベルが同名で並ぶ — 名前で見分ける（⚠ と同じ呼び方）。
-    return (zone.columnKinds.get(vars[0])?.length ?? 0) > 1 ? displayMapName(m.name) : vars[0]
+    return withCount(
+      (zone.columnKinds.get(vars[0])?.length ?? 0) > 1 ? displayMapName(m.name) : vars[0],
+    )
   }
   /** ④の箱に並べる項目 — **図の隣の表と同じ計算**から出す。
    *
@@ -1853,7 +1875,9 @@ export function SkeletonGate({
    *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
   const diagramTone = (m: SkeletonMap): ShapeTone => {
     if (!zone) return 'record'
-    if (m.name === zone.host.name) return 'whole'
+    /* 緑（ファイル全体）の特別扱いは廃止 — その情報はラベルの「1 件」が語る。
+       残す色は 1 つ: 琥珀 = ④で ☑ した「つながる受け口」（利用者指摘 2026-08-31:
+       件数で伝わる情報を色で重複させない）。 */
     return [...zone.columnKinds.values()].flat().includes(m.name) ? 'value' : 'record'
   }
   /** 詳細モードの箱の呼び方 — 従来の mermaid の既定と同じ「map 名（クラス名）」。 */
@@ -1877,20 +1901,24 @@ export function SkeletonGate({
           pendingLabel: t('skeletongate:zone.diagramPending'),
         })}
         ariaLabel={t('skeletongate:zone.diagramAria')}
-        onNodeClick={setOpenKind}
+        onNodeClick={(id) => {
+          setOpenKind(id)
+          if (plain) setPlainFix('names')
+        }}
         perRow={plain ? 1 : 3}
         nodeWidth={176}
-        maxHeight={plain ? 620 : 440}
-        foldedByDefault={plain}
+        maxHeight={plain ? 640 : 440}
+        /* 項目は既定で全部見せる（ADR D4: 省略したら確かめられない）。畳むのは
+           人の操作だけ。 */
+        foldedByDefault={false}
       />
-      <p className="skeleton-diagram-note">
-        {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
-      </p>
+      {/* かんたん層の凡例は図の外の `graphLegend` に一本化（二重に説明しない） */}
+      {!plain && <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>}
       {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
           この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
           (object_template) は次の段で決まる。「まだ分からない」と「無い」は
           別のことなので、そう書く（利用者評価 2026-08-27）。 */}
-      {!diagramLinked && skeleton.maps.length > 1 && (
+      {!plain && !diagramLinked && skeleton.maps.length > 1 && (
         <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
       )}
     </div>
@@ -2387,6 +2415,15 @@ export function SkeletonGate({
     <section className="skeleton-gate">
       <h4>{t(titleKey)}</h4>
       <p className="skeleton-gate-hint">{t(hintKey)}</p>
+      {plain && (
+        /* ⑤で確かめることの明文化（ADR skeleton-from-easy-judgments D4:
+           「形が合っていれば」とだけ書かない — 利用者評価 2026-08-31）。 */
+        <ul className="kz-stop-plainlist skeleton-choose-hints">
+          <li>{t('skeletongate:check1')}</li>
+          <li>{t('skeletongate:check2')}</li>
+          <li>{t('skeletongate:check3')}</li>
+        </ul>
+      )}
       {/* 手順（⚠ の直し方・進み方）は、この画面で人が決めることではない。決める
           のは「何を種類にするか」なので、常時見せるのは上の 1 文だけにして、
           操作の細目は畳む（G9）。 */}
@@ -2459,53 +2496,10 @@ export function SkeletonGate({
       {!plain && nsCard}
       {zone && (
         <>
-          {/* この画面には仕事が 2 つある（値をえらぶ / ID を確かめる）。番号を
-              振らないと「なぜ 2 つに分かれているか」が読めない — S6 の ①②③ と
-              同じ流儀に揃える。見出しとリードは②と同じくカードの外に置く：
-              中に入れると「この面の一部」に見え、②との対称が崩れる（利用者評価
-              2026-08-28）。 */}
-          <p className="kz-zone-label">① {t('skeletongate:zone.head')}</p>
-          {multiSource && (
-            <p className="skeleton-evidence-line skeleton-evidence-muted">
-              {basename(zone.host.source)}
-            </p>
-          )}
-          <p className="kz-note kz-prose">
-            {t('skeletongate:zone.lead')
-              .split('**')
-              .map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part))}
-          </p>
-          {droppedHere.length > 0 && (
-            <p className="kz-note kz-prose">
-              {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
-            </p>
-          )}
-          {/* 「どれを ID にするか」の判断基準は、これまで AI の骨格プロンプトに
-              しか書かれていなかった（PROMOTE THE THINGS THE OUTSIDE WORLD ALSO
-              NAMES / WHEN IN DOUBT, PROMOTE）。決めるのは人なので、人にも渡す。
-              畳まない（利用者評価 2026-08-28）— 代わりに 3 行に絞る。読ませたい
-              のは「どういうときに ID にするか」だけで、その理由づけではない。 */}
-          <ul className="kz-stop-plainlist skeleton-choose-hints">
-            <li>{t('skeletongate:zone.chooseYes1')}</li>
-            <li>{t('skeletongate:zone.chooseYes2')}</li>
-            <li>{t('skeletongate:zone.chooseYes3')}</li>
-          </ul>
-          {/* 迷った人の逃げ道（利用者提案 2026-08-31）。かつての「迷ったら種類に」は
-              足りない種類を後から足せなかった時代の助言で、D4 とカード修理が入った
-              いまは「一旦そのままで OK・公開までは何度でも直せる」が正しい。
-              `chooseDoubt` は 3 行への圧縮時に描画から落ちて死に文言になっていた —
-              書き直して復帰。 */}
-          <p className="kz-note kz-prose skeleton-choose-doubt">
-            {t('skeletongate:zone.chooseDoubt')}
-          </p>
-          {/* D2: 相談は**疑問が生まれる場所**に置く。「AI にもう一度考えさせる」は
-              ①の表・②の確認・データセット名の後ろにあり、`.app-main` を下まで
-              スクロールしないと見えなかった（利用者指摘 2026-08-30）。S3 の「空欄
-              の意味を AI に相談して埋める」と同じ `requestConsult` で、文面は入れる
-              が送らない — 相談は LLM を呼ぶので、押したつもりのない課金を作らない。
-              並びは画面の読み順（利用者指摘 2026-08-31）: リード文もチェック列も
-              「ID にする」（つながり）が先、「載せる種類」（分け方）が後。直上の
-              3 行の基準も ID の話なので、つながりが先。 */}
+          {/* 相談は疑問が生まれる場所（確認 3 点の直後）に置く。S3 と同じ
+              `requestConsult` で、文面は入れるが送らない — 相談は LLM を呼ぶので、
+              押したつもりのない課金を作らない。並びは確認 3 点の読み順どおり
+              「つながり」が先、「分け方」が後。 */}
           <div className="kz-actions skeleton-zone-actions">
             <button
               type="button"
@@ -2522,33 +2516,6 @@ export function SkeletonGate({
               {t('skeletongate:zone.askSplit')}
             </button>
           </div>
-          {/* 列を起点にしない入口（D4）。相談の 2 本と同じ帯に置いていたら
-              「AI に頼む」の並びに人の操作が 1 つ混ざり、意図が読めなかった
-              （利用者指摘 2026-08-31）。行を分け、いつ使うものかを 1 行で
-              先に言う。ホストの ID がテンプレートで決まっているときだけ —
-              定数 ID の種類には「同じ ID」の兄弟が作れない。 */}
-          {canRevalidate && !!zone.host.subject.template && (
-            <div className="skeleton-zone-addkind-entry">
-              <p className="kz-note kz-prose">
-            {t('skeletongate:zone.addSameIdLead', {
-              key: [...(zone.host.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)]
-                .map((x) => x[1])
-                .join(t('skeletongate:key.join')),
-            })}
-          </p>
-              {addingKind === null && (
-                <div className="kz-actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => setAddingKind('')}
-                  >
-                    {t('skeletongate:zone.addSameId')}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
           {/* 行の種類しか無い骨格（missing_card_kind・実測 2026-08-31 本番）。
               ヘッダの列が全記録に写っている事実と、1 押しの直しを、表を読む前に
               言う。取り込みが失敗するわけではないので confirm の blocker には
@@ -2579,7 +2546,199 @@ export function SkeletonGate({
               </div>
             </div>
           )}
-          {addingKind !== null && (
+          {/* 図が主役（ADR skeleton-from-easy-judgments D4）。全幅で貼り、
+              確認 3 点（分かれ方・項目・件数）を図だけで確かめられるようにする。
+              種類を足す・項目を移すと箱が即座に変わるのが、この画面でいちばん
+              強い手応え。 */}
+          <div className="skeleton-zone-graph">{diagram}</div>
+          <p className="kz-note kz-prose">{t('skeletongate:graphLegend')}</p>
+          {/* ④で名指しが選ばれず、機械が仮置きした ID（ADR D3）。推測は黙って
+              残さない — このままでも進めるが、⚠ で言い、直しへ誘導する。列が
+              もうどの種類のキーでもなくなっていたら（人が直した後）出さない。 */}
+          {Object.entries(provisionalCardKeys)
+            .filter(([, column]) =>
+              skeleton.maps.some((m) =>
+                [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].some(
+                  (x) => x[1] === column,
+                ),
+              ),
+            )
+            .map(([source, column]) => (
+              <p key={source} className="skeleton-evidence-line skeleton-evidence-warn">
+                ⚠ {t('skeletongate:provisionalKey', { column })}
+              </p>
+            ))}
+        </>
+      )}
+      {plain ? (
+        <div className="skeleton-kinds">
+          {/* 双子の警告は常時見せる（直しの一覧の外 — 警告は畳まない）。prefill
+              には双子の実名を入れる — 一般文で聞くと、AI はマニュアル由来の導線
+              知識で「重複を AI に相談ボタンを押すのが安全」と押したボタンを勧め
+              返した（実測 2026-08-31）。 */}
+          {twinNames.size > 0 && (
+            <>
+              <p className="skeleton-evidence-line skeleton-evidence-warn">
+                ⚠{' '}
+                {t('skeletongate:twinKinds', {
+                  names: skeleton.maps
+                    .filter((m) => twinNames.has(m.name))
+                    .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+                    .join(t('skeletongate:key.listSeparator')),
+                })}
+              </p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() =>
+                    requestConsult(
+                      t('skeletongate:zone.askDupPrefill', {
+                        names: skeleton.maps
+                          .filter((m) => twinNames.has(m.name))
+                          .map(
+                            (m) =>
+                              compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name,
+                          )
+                          .join(t('skeletongate:key.listSeparator')),
+                      }),
+                    )
+                  }
+                >
+                  {t('skeletongate:zone.askDup')}
+                </button>
+              </div>
+            </>
+          )}
+          {/* 件数は①の選択の**結果**（チェックを付けると件数が増える）。①の前に
+              置くと、番号の付いていない帯が説明と①の間に挟まって順序が読めない。
+              ②の開き＝「いまある種類とその件数」として置く（利用者評価
+              2026-08-28）。 */}
+      {plain && kindCounts.length > 0 && (
+            <div className="kz-map-card">
+              {sourceRows > 0 && (
+                <>
+                  <span className="kz-stat">
+                    <span className="kz-stat-label">{t('skeletongate:counts.source')}</span>
+                    <span className="kz-stat-num">{sourceRows.toLocaleString()}</span>
+                    <span className="kz-stat-unit">{t('skeletongate:counts.rowUnit')}</span>
+                  </span>
+                  <span className="kz-map-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </>
+              )}
+              {kindCounts.map((c) => (
+                <span key={c.label} className="kz-stat kz-stat--kind">
+                  <span className="kz-stat-label">{c.label}</span>
+                  <span className="kz-stat-num">{c.n.toLocaleString()}</span>
+                  <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {/* 「形が違うとき（直す）」— 切り替え式（ADR D4）。既定はどれも開かず、
+              画面は 3 点の確認 + 図だけ。names = ②のタブ（名前と ID の家）、
+              split = 同じ ID の種類を足す、move = 載せる種類の表。 */}
+          <p className="kz-zone-label skeleton-fix-head">{t('skeletongate:fixHead')}</p>
+          <div className="kz-actions">
+            {(
+              [
+                ['names', 'fixNames'],
+                ['split', 'fixSplit'],
+                ['move', 'fixMove'],
+              ] as const
+            ).map(([id, key]) => (
+              <button
+                key={id}
+                type="button"
+                className={plainFix === id ? 'btn btn--sm' : 'btn btn--ghost btn--sm'}
+                disabled={id !== 'names' && !zone}
+                onClick={() => setPlainFix(plainFix === id ? null : id)}
+              >
+                {t(`skeletongate:${key}`)}
+              </button>
+            ))}
+          </div>
+
+          {plainFix === 'names' && kindBlocks.length > 1 && (
+            /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
+               答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
+               2026-08-27）。⚠ はタブ自身が持つので、裏に隠れることはない。
+               見比べたい数（元の行数 ↔ 種類ごとの件数）はタブの上の帯が常に
+               出しているので、切り替えても比較は失われない。 */
+            <div className="skeleton-kind-tabs" role="tablist" aria-label={t(titleKey)}>
+              {kindBlocks.map((b, i) => (
+                <button
+                  key={b.name}
+                  type="button"
+                  role="tab"
+                  id={`kind-tab-${b.name}`}
+                  aria-selected={b.name === activeKind}
+                  aria-controls={`kind-panel-${b.name}`}
+                  tabIndex={b.name === activeKind ? 0 : -1}
+                  className={
+                    b.name === activeKind
+                      ? 'skeleton-kind-tab skeleton-kind-tab--on'
+                      : 'skeleton-kind-tab'
+                  }
+                  onKeyDown={(e) => {
+                    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+                    if (!d) return
+                    e.preventDefault()
+                    const next = kindBlocks[(i + d + kindBlocks.length) % kindBlocks.length]
+                    setActiveKind(next.name)
+                    document.getElementById(`kind-tab-${next.name}`)?.focus()
+                  }}
+                  onClick={() => setActiveKind(b.name)}
+                >
+                  <span
+                    className={
+                      b.attention
+                        ? 'skeleton-kind-tab-mark skeleton-kind-tab-mark--todo'
+                        : 'skeleton-kind-tab-mark'
+                    }
+                    aria-hidden="true"
+                  >
+                    {b.attention ? '⚠' : '✓'}
+                  </span>
+                  {b.label || t('skeletongate:kindUnnamed')}
+                </button>
+              ))}
+            </div>
+          )}
+          {plainFix === 'names' && (
+            <div
+              role={kindBlocks.length > 1 ? 'tabpanel' : undefined}
+              id={active ? `kind-panel-${active.name}` : undefined}
+              aria-labelledby={active ? `kind-tab-${active.name}` : undefined}
+            >
+              {active?.node}
+            </div>
+          )}
+          {zone && plainFix === 'split' && canRevalidate && !!zone.host.subject.template && (
+            <div className="skeleton-zone-addkind-entry">
+              <p className="kz-note kz-prose">
+            {t('skeletongate:zone.addSameIdLead', {
+              key: [...(zone.host.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)]
+                .map((x) => x[1])
+                .join(t('skeletongate:key.join')),
+            })}
+          </p>
+              {addingKind === null && (
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => setAddingKind('')}
+                  >
+                    {t('skeletongate:zone.addSameId')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {zone && plainFix === 'split' && addingKind !== null && (
             <div className="skeleton-zone-addkind">
               <p className="kz-note kz-prose">{t('skeletongate:zone.addSameIdHint')}</p>
               <div className="kz-actions">
@@ -2622,15 +2781,45 @@ export function SkeletonGate({
               </div>
             </div>
           )}
-          {/* 図はここ（①の右）に貼り付ける。種類を足した瞬間に箱が増えるのが
-              見えるのは、この画面でいちばん強い手応え。表が長いのでスクロールに
-              追従させる（`position: sticky`）。
-              2026-08-27 に一度かんたん層から外している — そのときの理由は「線の
-              有無が『この設計で良いのか』という答えようのない問いになった」で、
-              いまも骨格の段では種類どうしのつながりは決まっていない。だから
-              図の下でそう言う（`notLinkedYet`）。当時と違うのは、この画面が
-              「種類を作る画面」になったこと: 箱の増減はこの画面の操作の結果で、
-              答えようのない問いではない。 */}
+          {zone && plainFix === 'move' && (
+            <>
+          <p className="kz-zone-label">{t('skeletongate:zone.head')}</p>
+          {multiSource && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {basename(zone.host.source)}
+            </p>
+          )}
+          <p className="kz-note kz-prose">
+            {t('skeletongate:zone.lead')
+              .split('**')
+              .map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part))}
+          </p>
+          {droppedHere.length > 0 && (
+            <p className="kz-note kz-prose">
+              {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
+            </p>
+          )}
+          {/* 「どれを ID にするか」の判断基準は、これまで AI の骨格プロンプトに
+              しか書かれていなかった（PROMOTE THE THINGS THE OUTSIDE WORLD ALSO
+              NAMES / WHEN IN DOUBT, PROMOTE）。決めるのは人なので、人にも渡す。
+              畳まない（利用者評価 2026-08-28）— 代わりに 3 行に絞る。読ませたい
+              のは「どういうときに ID にするか」だけで、その理由づけではない。 */}
+          <ul className="kz-stop-plainlist skeleton-choose-hints">
+            <li>{t('skeletongate:zone.chooseYes1')}</li>
+            <li>{t('skeletongate:zone.chooseYes2')}</li>
+            <li>{t('skeletongate:zone.chooseYes3')}</li>
+          </ul>
+          {/* 迷った人の逃げ道（利用者提案 2026-08-31）。かつての「迷ったら種類に」は
+              足りない種類を後から足せなかった時代の助言で、D4 とカード修理が入った
+              いまは「一旦そのままで OK・公開までは何度でも直せる」が正しい。
+              `chooseDoubt` は 3 行への圧縮時に描画から落ちて死に文言になっていた —
+              書き直して復帰。 */}
+          <p className="kz-note kz-prose skeleton-choose-doubt">
+            {t('skeletongate:zone.chooseDoubt')}
+          </p>
+            </>
+          )}
+          {zone && plainFix === 'move' && (
           <div className="skeleton-zone-layout">
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
@@ -2780,138 +2969,8 @@ export function SkeletonGate({
             {t('skeletongate:zone.keyNote', { label: hostIdLabel })}
           </p>
           </div>
-          <aside className="skeleton-zone-map">{diagram}</aside>
           </div>
-        </>
-      )}
-      {plain ? (
-        <div className="skeleton-kinds">
-          <p className="kz-zone-label">
-            {zone ? '② ' : ''}
-            {t('skeletongate:kindsHead')}
-          </p>
-          <p className="kz-note kz-prose">{t('skeletongate:kindsLead')}</p>
-          {/* 双子の警告は②に置く（利用者指摘 2026-08-31: 実際に ⚠ が出るのは
-              種類のタブ＝ここで、勧めている 🗑 もここにある）。かつては①より
-              前に出ていて、注意と出口が別の場所に割れていた。prefill には双子の
-              実名を入れる — 一般文で聞くと、AI はマニュアル由来の導線知識で
-              「重複を AI に相談ボタンを押すのが安全」と押したボタンを勧め返した
-              （実測 2026-08-31）。 */}
-          {twinNames.size > 0 && (
-            <>
-              <p className="skeleton-evidence-line skeleton-evidence-warn">
-                ⚠{' '}
-                {t('skeletongate:twinKinds', {
-                  names: skeleton.maps
-                    .filter((m) => twinNames.has(m.name))
-                    .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
-                    .join(t('skeletongate:key.listSeparator')),
-                })}
-              </p>
-              <div className="kz-actions">
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={() =>
-                    requestConsult(
-                      t('skeletongate:zone.askDupPrefill', {
-                        names: skeleton.maps
-                          .filter((m) => twinNames.has(m.name))
-                          .map(
-                            (m) =>
-                              compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name,
-                          )
-                          .join(t('skeletongate:key.listSeparator')),
-                      }),
-                    )
-                  }
-                >
-                  {t('skeletongate:zone.askDup')}
-                </button>
-              </div>
-            </>
           )}
-          {/* 件数は①の選択の**結果**（チェックを付けると件数が増える）。①の前に
-              置くと、番号の付いていない帯が説明と①の間に挟まって順序が読めない。
-              ②の開き＝「いまある種類とその件数」として置く（利用者評価
-              2026-08-28）。 */}
-      {plain && kindCounts.length > 0 && (
-            <div className="kz-map-card">
-              {sourceRows > 0 && (
-                <>
-                  <span className="kz-stat">
-                    <span className="kz-stat-label">{t('skeletongate:counts.source')}</span>
-                    <span className="kz-stat-num">{sourceRows.toLocaleString()}</span>
-                    <span className="kz-stat-unit">{t('skeletongate:counts.rowUnit')}</span>
-                  </span>
-                  <span className="kz-map-arrow" aria-hidden="true">
-                    →
-                  </span>
-                </>
-              )}
-              {kindCounts.map((c) => (
-                <span key={c.label} className="kz-stat kz-stat--kind">
-                  <span className="kz-stat-label">{c.label}</span>
-                  <span className="kz-stat-num">{c.n.toLocaleString()}</span>
-                  <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {kindBlocks.length > 1 && (
-            /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
-               答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
-               2026-08-27）。⚠ はタブ自身が持つので、裏に隠れることはない。
-               見比べたい数（元の行数 ↔ 種類ごとの件数）はタブの上の帯が常に
-               出しているので、切り替えても比較は失われない。 */
-            <div className="skeleton-kind-tabs" role="tablist" aria-label={t(titleKey)}>
-              {kindBlocks.map((b, i) => (
-                <button
-                  key={b.name}
-                  type="button"
-                  role="tab"
-                  id={`kind-tab-${b.name}`}
-                  aria-selected={b.name === activeKind}
-                  aria-controls={`kind-panel-${b.name}`}
-                  tabIndex={b.name === activeKind ? 0 : -1}
-                  className={
-                    b.name === activeKind
-                      ? 'skeleton-kind-tab skeleton-kind-tab--on'
-                      : 'skeleton-kind-tab'
-                  }
-                  onKeyDown={(e) => {
-                    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
-                    if (!d) return
-                    e.preventDefault()
-                    const next = kindBlocks[(i + d + kindBlocks.length) % kindBlocks.length]
-                    setActiveKind(next.name)
-                    document.getElementById(`kind-tab-${next.name}`)?.focus()
-                  }}
-                  onClick={() => setActiveKind(b.name)}
-                >
-                  <span
-                    className={
-                      b.attention
-                        ? 'skeleton-kind-tab-mark skeleton-kind-tab-mark--todo'
-                        : 'skeleton-kind-tab-mark'
-                    }
-                    aria-hidden="true"
-                  >
-                    {b.attention ? '⚠' : '✓'}
-                  </span>
-                  {b.label || t('skeletongate:kindUnnamed')}
-                </button>
-              ))}
-            </div>
-          )}
-          <div
-            role={kindBlocks.length > 1 ? 'tabpanel' : undefined}
-            id={active ? `kind-panel-${active.name}` : undefined}
-            aria-labelledby={active ? `kind-tab-${active.name}` : undefined}
-          >
-            {active?.node}
-          </div>
         </div>
       ) : (
         <div className="skeleton-gate-table-wrap">
