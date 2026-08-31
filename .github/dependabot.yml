@@ -1,0 +1,9 @@
+# SHA 固定した GitHub Actions の更新を PR で提案させる（github-flow §5/§6）。
+# タグ参照と違い SHA 固定は上書き攻撃に強い代わりに手動更新が要る — その手間を
+# Dependabot に肩代わりさせる。提案 PR はレビューして通常どおりマージする。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

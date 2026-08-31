@@ -44,6 +44,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # cosign keyless 署名（GitHub OIDC）。値の入った secret は一切持たない
     steps:
       # トリガ 2 系統からイメージタグを 1 つに解決する:
       #   タグ push  → refs/tags/api-v0.0.2 の "api-" を剥いで v0.0.2
@@ -85,6 +86,7 @@ jobs:
 
       - name: Build and push (linux/amd64)
         if: ${{ inputs.source_tag == '' }}
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -101,9 +103,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # イメージの出所証明: digest に対する keyless 署名（Sigstore/Rekor 記録）。
+      # 「この digest はこのリポジトリのこの workflow が作った」を第三者が検証できる。
+      # サーバ側は infra/dewy/verify-latest.sh が before-deploy-hook で検証する。
+      - name: Install cosign
+        if: ${{ inputs.source_tag == '' }}
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Sign image (keyless, OIDC)
+        if: ${{ inputs.source_tag == '' }}
+        run: cosign sign --yes "$IMAGE@${{ steps.build.outputs.digest }}"
+
       # --- ロールバック経路（source_tag 指定時）---
       # レジストリ上の manifest を付け替えるだけ。イメージ本体は不変＝
       # 「ロールバック = 検証済み旧バイトへの前進タグ」を数秒で発行できる。
+      # 署名は digest に紐づくため、署名済みイメージの re-tag は再署名不要で検証も通る。
       - name: Re-tag existing image (rollback)
         if: ${{ inputs.source_tag != '' }}
         run: |

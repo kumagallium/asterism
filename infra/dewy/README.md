@@ -92,6 +92,35 @@ docker volume rm dewy-poc-oxigraph-data
 
 既存の compose スタックには最初から触れていないため、影響はない。
 
+## セキュリティ（サプライチェーン対策）
+
+プル型の構造上、**「レジストリに書ける権限 = 本番実行権限」**になる。これが唯一の
+守るべき点で、以下を実装済み（構成の公開自体は防壁ではない — 仕組みが知られても
+破れない状態を防壁にする）:
+
+| 層 | 対策 | 状態 |
+|---|---|---|
+| GitHub アカウント | 2FA | ✅ 有効 |
+| タグ | Repository Ruleset `protect-api-release-tags`＝`api-v*` の作成/変更/削除を admin のみに | ✅ 稼働中 |
+| workflow | fork PR から `packages:write` に到達不可（トリガ = tag push / dispatch のみ・`pull_request_target` 不使用）・action は SHA 固定＋Dependabot | ✅ |
+| イメージ | **cosign keyless 署名**（GitHub OIDC・Rekor 透明性ログ）を全ビルドに付与。「この digest はこのリポジトリのこの workflow が作った」を第三者検証できる | ✅ v0.0.9 以降 |
+| サーバ | `verify-latest.sh` が before-deploy-hook で最新タグの署名を検証 | ✅ 検知（下記制約） |
+
+**既知の制約（正直に）**: Dewy v2.20.0 の container 経路は **before-hook が失敗しても
+デプロイを続行する**（`lifecycle.go` — docs の「失敗で中止」は server/assets 経路のみ）。
+このため署名検証は現状**強制ゲートではなく検知**（未署名が来ると journal に ERROR）。
+upstream が修正されれば同じ配線のまま fail-closed になる。また v0.0.8 以前の
+イメージは署名前なので、それらへのロールバックは検証 ERROR を伴う（正常な仕様）。
+
+手動検証（いつでも・どこでも可能）:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/kumagallium/asterism/\.github/workflows/prod-api-release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/kumagallium/asterism-api:v0.0.9
+```
+
 ## 次段（PoC の外・計画）
 
 - caddy の `/api` upstream を Dewy プロキシ（`host.docker.internal:18080`）へ向け、
