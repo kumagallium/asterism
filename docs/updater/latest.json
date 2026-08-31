@@ -1,11 +1,11 @@
 {
-  "version": "0.30.2",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at befa09d828c73cae256994365f5a6e9290bd8bb6 -->\n\n## What's Changed\n* fix(ui): 同じ列をキーにした双子の種類を、図と選択肢から消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/476\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.30.1...v0.30.2",
-  "pub_date": "2026-08-31T07:47:08Z",
+  "version": "0.30.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b071c22c464118c9287bbbc58737c5900a946e9d -->\n\n## What's Changed\n* chore(ci): tagpr ブランチの PR では run を作らない by @kumagallium in https://github.com/kumagallium/asterism/pull/478\n* feat: 本番デプロイをプル型（Dewy）で自動化する PoC — api 実機一周 by @kumagallium in https://github.com/kumagallium/asterism/pull/475\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.30.2...v0.30.3",
+  "pub_date": "2026-08-31T09:29:55Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJQVDlrSjBrc1d0UDhQV1Y4Y050QUsrRllzbEhKYm5mOGlIMWtuUVRiRVVNMDNmR1ZUQlUvaFZOdE5lVExmSlRDM0hXcExidVpnQjhkWWJRUUJwUEFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTYyNDI4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ck5BWHlBNWV2azlqamFFNUVNVkhGQ2FEeXlyeFRpUXR4aHVJcnJQUGRKYTVrdXN1RnNIUCtFVmZEam44K2o0OXVFVk42ZkowOHBReFRaWm5yeDdsMURBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.2/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWV1TlRXVWgySmdweW43Sm4yamRNcHo5N0tuc2RJcHdSNmNzM3duVXB0cFI4SGRQQ2VVbGJNUUVRVUt6dkQwYWFMQlVaV0xiQ285YTA0d21MbUljS2dFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTY4NTk1CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnJpTCtBL0FQa0x0UDNkVHlzTkRUaW9vbHhma0xsd3Y0THM2SFJSQWQvZzI4SmhiZGNKRU1wc2diY1VqbUxMUGwvY0VQS1FnRlNrR3UvRUd6QTRPWkRBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.30.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
