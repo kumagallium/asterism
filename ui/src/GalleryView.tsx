@@ -50,7 +50,7 @@ import {
   renameDataset,
   retractDataset,
 } from './galleryApi'
-import { ArrowIcon, ConnectIcon, DataIcon, FileIcon, LayersIcon, SearchIcon } from './icons'
+import { ArrowIcon, ConnectIcon, DataIcon, FileIcon, SearchIcon } from './icons'
 import { IngestProgressView } from './IngestProgressView'
 import { ToolsPanel } from './ToolsPanel'
 import { rulesShape } from './shapeGraph'
@@ -1467,53 +1467,15 @@ function DatasetDetail({
             <span className="ds-section-title">{t('gallery:design.title')}</span>
             <span className="ds-section-note">{t('gallery:design.classCount', { n: dataset.classes.length })}</span>
           </div>
-          {dataset.classes.length > 0 ? (
-            <>
-              <div className="ds-subhead">{t('gallery:design.classesHead')}</div>
-              <div className="ds-classes">
-                {dataset.classes.map((c) => (
-                  <span
-                    key={c}
-                    className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
-                  >
-                    {termLabels[c] && <span>{termLabels[c]}</span>}
-                    <code className="class-chip-en">{c}</code>
-                  </span>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="ds-empty-note">{t('gallery:design.noClasses')}</p>
-          )}
-
-          {dataset.predicates.length > 0 && (
-            <>
-              <div className="ds-subhead">{t('gallery:design.predicatesHead')}</div>
-              <div className="ds-classes">
-                {dataset.predicates.map((p) => {
-                  const local = localName(p)
-                  const label = termLabels[p] ?? termLabels[local]
-                  const unit = termUnits[p] ?? termUnits[local]
-                  return (
-                    <span key={p} className="class-chip" title={p}>
-                      {label && <span>{label}</span>}
-                      <code className="class-chip-en">{local}</code>
-                      {unit && <code className="class-chip-en">{unit}</code>}
-                    </span>
-                  )
-                })}
-              </div>
-            </>
-          )}
-
-          {/* 構造図。⑤「ためす」で見た形と**同じ部品**で描く — 同じデータセットを
-              2 つの絵の言葉で見せない（利用者評価 2026-08-29）。ここだけは箱の中に
-              項目も並べる: このページは「何が入っているか」を見に来る場所で、
-              形だけでは足りない。図は AI の散文ではなく保存済みの取り込みルール
-              から組む。 */}
+          {/* 構造図が主役 — チップ 2 群（種類/項目）は図が持つ情報の劣化コピーで、
+              図より先に置くと意味の薄い羅列で場所を取っていた（利用者指摘
+              2026-09-02）。⑤「ためす」で見た形と**同じ部品**で描く — 同じデータ
+              セットを 2 つの絵の言葉で見せない（利用者評価 2026-08-29）。ここだけ
+              は箱の中に項目も並べる: このページは「何が入っているか」を見に来る
+              場所で、形だけでは足りない。図は AI の散文ではなく保存済みの
+              取り込みルールから組む。 */}
           {rules && rules.maps.length > 0 && (
             <div className="ds-diagram-block">
-              <div className="ds-subhead">{t('gallery:design.diagramSummary')}</div>
               <div className="onto-diagram">
                 <ShapeGraph
                   shape={rulesShape(rules, { withFields: true })}
@@ -1524,6 +1486,62 @@ function DatasetDetail({
                 />
               </div>
             </div>
+          )}
+          {/* 「設計を見直す」は設計図に対する第一の操作 — 最下部では、大きい
+              データセットほどスクロールの底に沈む（利用者指摘 2026-09-02）。
+              advisory の有無で 2 箇所に出し分けていた呼び出しをここに 1 本化。 */}
+          {onRedesign && dataset.live && (
+            <RedesignControl
+              meta={dataset.live.meta}
+              onRedesign={onRedesign}
+              onAddData={onAddData}
+              advisories={advisories.length > 0 ? advisories : undefined}
+            />
+          )}
+          {/* IRI の一覧は技術情報 — 図が名前と項目を語るので、正式 IRI・単位
+              だけを畳んで残す。 */}
+          {(dataset.classes.length > 0 || dataset.predicates.length > 0) && (
+            <details className="ds-advisory-raw">
+              <summary>{t('gallery:design.iriListSummary')}</summary>
+              {dataset.classes.length > 0 && (
+                <>
+                  <div className="ds-subhead">{t('gallery:design.classesHead')}</div>
+                  <div className="ds-classes">
+                    {dataset.classes.map((c) => (
+                      <span
+                        key={c}
+                        className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
+                      >
+                        {termLabels[c] && <span>{termLabels[c]}</span>}
+                        <code className="class-chip-en">{c}</code>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+              {dataset.predicates.length > 0 && (
+                <>
+                  <div className="ds-subhead">{t('gallery:design.predicatesHead')}</div>
+                  <div className="ds-classes">
+                    {dataset.predicates.map((p) => {
+                      const local = localName(p)
+                      const label = termLabels[p] ?? termLabels[local]
+                      const unit = termUnits[p] ?? termUnits[local]
+                      return (
+                        <span key={p} className="class-chip" title={p}>
+                          {label && <span>{label}</span>}
+                          <code className="class-chip-en">{local}</code>
+                          {unit && <code className="class-chip-en">{unit}</code>}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </details>
+          )}
+          {dataset.classes.length === 0 && (
+            <p className="ds-empty-note">{t('gallery:design.noClasses')}</p>
           )}
 
           {/* Sits directly under the diagram on purpose: "why are there no
@@ -1551,17 +1569,6 @@ function DatasetDetail({
                   ))}
                 </ul>
               </details>
-              {/* The same control the 設計を見直す tab offers — reused whole so
-                  the "no stored design" case and the proposal fetch behave
-                  identically here. */}
-              {onRedesign && dataset.live && (
-                <RedesignControl
-                  meta={dataset.live.meta}
-                  onRedesign={onRedesign}
-                  onAddData={onAddData}
-                  advisories={advisories}
-                />
-              )}
             </div>
           )}
 
@@ -1573,18 +1580,6 @@ function DatasetDetail({
             <div ref={groundingRef}>
               <DatasetGrounding dataset={dataset} />
             </div>
-          )}
-
-          {/* "The column means something else" is realised long after publishing,
-              and on a dataset with nothing worth flagging the only way back used
-              to be a tab labelled 技術情報. The way to fix a design belongs with
-              the design. */}
-          {advisories.length === 0 && onRedesign && dataset.live && (
-            <RedesignControl
-              meta={dataset.live.meta}
-              onRedesign={onRedesign}
-              onAddData={onAddData}
-            />
           )}
 
           {/* 中身を見たあとに聞く、が自然な順。公開済みのときだけ（下書きに質問して
@@ -1750,11 +1745,10 @@ function DatasetDetail({
                 <ConnectIcon size={14} /> {t('gallery:connect.seeAll')}
               </button>
             )}
-            {onOpenMap && (
-              <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenMap}>
-                <LayersIcon size={14} /> {t('gallery:connect.seeMap')}
-              </button>
-            )}
+            {void onOpenMap /* 導線は廃止 — 図はつながりページに常時埋め込み */}
+            {/* 「全体像を見る」はここから削除 — つながりページに図が常時
+                埋め込まれ、同じ行き先のボタンが 2 段重ねになっていた
+                （利用者指摘 2026-09-02: リンクボタンの付けすぎが混乱の原因）。 */}
           </div>
         </div>
       )}

@@ -1,15 +1,15 @@
 {
   "panel": {
-    "count": "{{n}} operations",
-    "count_one": "{{n}} operation",
-    "count_other": "{{n}} operations",
-    "intro": "The operations here pull answers straight from this data without AI, each with its source. The same question always returns the same answer, and Ask uses them automatically.",
+    "count": "{{n}} tools",
+    "count_one": "{{n}} tool",
+    "count_other": "{{n}} tools",
+    "intro": "The tools here pull answers straight from this data without AI, each with its source. The same question always returns the same answer, and Ask uses them automatically.",
     "loading": "Loading…",
-    "emptyList": "There are no operations for this kind of data yet. You can ask anything in Ask.",
+    "emptyList": "There are no tools for this kind of data yet. You can ask anything in Ask.",
     "openAsk": "Open Ask",
-    "errHead": "The list of operations could not be loaded.",
+    "errHead": "The list of tools could not be loaded.",
     "author": {
-      "summary": "Build your own operation (for developers)",
+      "summary": "Build your own tool (for developers)",
       "subhead": "Draft with AI (build one from what you want)",
       "hint": "Describe what you want and the AI drafts a read-only search (SPARQL) grounded in this data's words. The draft is editable in place, and nothing is final until you save it.",
       "intentPlaceholder": "e.g. given a sample name, return the conditions it was measured under",

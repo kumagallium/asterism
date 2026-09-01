@@ -48,7 +48,7 @@
     "structure": "Contents",
     "files": "Load & publish",
     "connect": "Connections",
-    "tools": "Tools (developer)",
+    "tools": "Tools",
     "design": "Where it came from (technical)"
   },
   "grid": {
@@ -125,7 +125,8 @@
     "predicatesHead": "Fields in use (from the actual data)",
     "diagramSummary": "Structure diagram",
     "advisoryHead": "Worth knowing",
-    "advisoryNote": "Use “review the design” below to have the AI add the links."
+    "advisoryNote": "Use “review the design” below to have the AI add the links.",
+    "iriListSummary": "IRI list (technical)"
   },
   "rules": {
     "title": "Transformation rules — how each column is recorded",

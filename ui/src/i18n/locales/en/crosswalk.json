@@ -1,7 +1,6 @@
 {
   "view": {
     "back": "Back",
-    "seeMap": "View overview",
     "bannerTitle": "Connections",
     "bannerSub": "When two datasets hold the same value (a sample name, an author…), you can use it to <0>ask questions across both</0>. There is more than one way to connect, and you can keep each as <1>its own connection</1>.",
     "loading": "Loading…",
@@ -35,6 +34,7 @@
     "builtAt": "Last updated: {{at}}",
     "toolsHead": "Tools that work across data",
     "toolsHint": "How many datasets report this value? and the like, answered on the spot (no AI involved).",
+    "mapHead": "Overview",
     "diagram": {
       "head": "Joined on a shared value",
       "note": "e.g. when a sample name or an author appears in both, spelled the same",

@@ -8,7 +8,12 @@
     "computed": "(computed value)",
     "fixed": "(fixed value)",
     "linked": "(a link to another kind of data)",
-    "unreadable": "(could not be read out here)"
+    "unreadable": "(could not be read out here)",
+    "unconfirmedLabel": "(unconfirmed — same as the column name)",
+    "meaningEdit": "Fix the meaning",
+    "meaningSave": "Save",
+    "meaningSaving": "Saving…",
+    "meaningCancel": "Cancel"
   },
   "techSummary": "Technical details: the transformation rules, read out",
   "artifactsSummary": "Technical details: the transformation rules (RML) and related files",
