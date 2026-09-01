@@ -1,11 +1,11 @@
 {
-  "version": "0.31.10",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f66037e32af8380c22f1a0df5fa3c3bdd0fc4f86 -->\n\n## What's Changed\n* fix(step0): 受け口のラベルを決定論で保証 — 助言と持ち物強制の板挟みを解く by @kumagallium in https://github.com/kumagallium/asterism/pull/514\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.9...v0.31.10",
-  "pub_date": "2026-09-01T16:27:37Z",
+  "version": "0.32.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f13a6289a67961f9449db79bce8b68b18b2d28d7 -->\n\n## What's Changed\n* feat: かんたん経路の §9 を決定論で組む — D5 の完成形 by @kumagallium in https://github.com/kumagallium/asterism/pull/516\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.10...v0.32.0",
+  "pub_date": "2026-09-01T16:45:24Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWRMTkVkam1tbWhzSWR1KzBpY0tuTWZCVjZ6WWhJbHJhenVBNGhsKzIvamdhbDFIbGRlWDFBUTR0K1RFbjI0SWpJT2NhS2lTczZmZjQzRnplVEJGY2c0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjgwMDU2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cjh0L1BZTVpDOUhiek9JVWpUZHF6SDNIRXVTbDBsNzdnaDJmQjRvQk5tdzlTNXdzdDFLeEpKbEYwbEJDTnJtdExVTTg4bDdzanZ3NWpZWHhnWTkrM0NRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.10/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVZiNURuNWU5dGxoUWJaV1ZScm55RGMvTnM3OW1sK1M0QkhUdStrWnNCQ1pTWW9Rd1FGWnVoRm9yVjJFeWtrRVdyQzhzM291TXNQNmRWL3p1QWJFOFFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjgxMTIzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkRaOStSSDA1T1NMMUdzZTZGRnRDWC9NVHIwTTBTelhnOUNjVzZKdXQ2RDlLYzdicFVqVVRLdW5uKzlTeVV5eWVQdm9rSkNiMFI4ajNaNkNJVk1OaENnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.32.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
