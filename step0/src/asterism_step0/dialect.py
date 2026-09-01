@@ -752,6 +752,19 @@ def _overlay(
     merged: dict[str, Any] = {}
     if isinstance(existing, Mapping):
         merged = {str(k): (dict(v) if isinstance(v, Mapping) else v) for k, v in existing.items()}
+    if authoritative:
+        # 権威は双方向: 正しいものを書き込むだけでなく、壊れたものを消す。
+        # LLM が書いた「dialects: {encoding: utf-8-sig}」のようなフラット形
+        # [ソース名なし] や、表形式でないソース名のエントリは、コンパイラが
+        # 必ず拒否する — 残すと修理ラウンドがそこで空転する [実測 2026-09-01:
+        # 元素表 JSON。JSON の dialect を差し込まなくした結果、モデルの書いた
+        # ゴミを上書きする者もいなくなっていた]。
+        tabular = {".asc", ".csv", ".dat", ".tsv", ".txt"}
+        merged = {
+            k: v
+            for k, v in merged.items()
+            if isinstance(v, Mapping) and Path(k).suffix.lower() in tabular
+        }
     for name, dialect in detected.items():
         if name not in sources or is_default(dialect):
             continue
@@ -776,6 +789,10 @@ def _overlay(
     out = dict(ir_dict)
     if merged:
         out["dialects"] = merged
+    elif authoritative and "dialects" in out:
+        # 掃除の結果すべて消えたら、空ブロックを残さない [空 mapping も
+        # コンパイラの検証対象]。
+        del out["dialects"]
     return out
 
 
