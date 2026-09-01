@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.32.1](https://github.com/kumagallium/asterism/compare/v0.32.0...v0.32.1) - 2026-09-01
+
+- fix(api): IR 環境検証にも JSON→CSV の別名を教える — 決定論 §9 を差し戻さない by @kumagallium in https://github.com/kumagallium/asterism/pull/518
+
 ## [v0.32.0](https://github.com/kumagallium/asterism/compare/v0.31.10...v0.32.0) - 2026-09-01
 
 - feat: かんたん経路の §9 を決定論で組む — D5 の完成形 by @kumagallium in https://github.com/kumagallium/asterism/pull/516
