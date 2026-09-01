@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Asterism",
-  "version": "0.31.4",
+  "version": "0.31.5",
   "identifier": "com.kumagallium.asterism",
   "build": {
     "frontendDist": "../splash",
