@@ -1245,6 +1245,82 @@ def test_normalize_key_separators_puts_a_slash_between_key_columns() -> None:
     ]
 
 
+# --- propose_from_skeleton(deterministic=True): §9 は判断から機械で組む（2026-09-02） ---
+
+
+def test_propose_from_skeleton_deterministic_uses_no_llm() -> None:
+    """かんたん経路の設計の続き（ADR deterministic-design-assembly）: 性質表も
+    文書も決定論で組み、LLM を一切呼ばない。今日までの失敗（ファイル名・列名・
+    dialects・IRI 化の発明）は全部この段の自由度から来た。"""
+
+    class Boom:
+        def complete(self, *args: object, **kwargs: object) -> str:
+            raise AssertionError("deterministic path must not call the LLM")
+
+    skeleton = {
+        "version": 1,
+        "prefixes": {
+            "el": "https://example.org/datasets/elements/ontology#",
+            "elr": "https://example.org/datasets/elements/resource/",
+        },
+        "maps": [
+            {
+                "name": "record",
+                "source": "elements.csv",
+                "subject": {"template": "elr:record/{name}", "classes": ["el:Record"]},
+                "owns": ["atomic_mass"],
+            },
+            {
+                "name": "symbol",
+                "source": "elements.csv",
+                "subject": {"template": "elr:symbol/{symbol}", "classes": ["el:Symbol"]},
+                "owns": ["symbol"],
+            },
+        ],
+    }
+    md = propose_from_skeleton(
+        skeleton,
+        "",
+        "",
+        llm=Boom(),  # type: ignore[arg-type]
+        deterministic=True,
+        map_columns={
+            "record": ["name", "atomic_mass", "symbol", "junk"],
+            "symbol": ["name", "atomic_mass", "symbol", "junk"],
+        },
+        column_owners={
+            "record": {"symbol": "symbol"},
+            "symbol": {"name": "record", "atomic_mass": "record"},
+        },
+        column_types={"record": {"atomic_mass": "xsd:double"}},
+        column_meanings=[
+            {"source": "elements.csv", "column": "atomic_mass", "label": "原子量", "unit": "u"}
+        ],
+        excluded_columns={"elements.csv": ["junk"]},
+        dataset_name="elements",
+    )
+    from asterism_step0.materialize import materialize_schema
+
+    ir_yaml = materialize_schema(md, ".", "t", write=False).mapping_ir_yaml
+    assert ir_yaml is not None
+    import yaml
+
+    ir = yaml.safe_load(ir_yaml)
+    by_name = {m["name"]: m for m in ir["maps"]}
+    rec_props = {p["column"]: p for p in by_name["record"]["properties"]}
+    # 除外列は載らない・他の持ち物（symbol）も載らない
+    assert "junk" not in rec_props and "symbol" not in rec_props
+    # 型は検査から・意味は人の確定が勝つ
+    assert rec_props["atomic_mass"]["datatype"] == "xsd:double"
+    assert rec_props["atomic_mass"]["label"] == "原子量"
+    assert rec_props["atomic_mass"]["unit"] == "u"
+    # 受け口は自分の値のリテラル（ラベル保証パス）を持つ
+    sym_props = [p for p in by_name["symbol"]["properties"] if p.get("column") == "symbol"]
+    assert any(p.get("predicate") == "rdfs:label" or "label" in p for p in sym_props)
+    # 文書は合成（§ 見出しがある = doc_synth 経路）
+    assert "### 9." in md
+
+
 # --- ensure_value_catalog_labels: 受け口は自分の値をリテラルで持つ（2026-09-02） ---
 
 
