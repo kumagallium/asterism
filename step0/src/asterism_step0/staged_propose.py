@@ -3519,6 +3519,7 @@ def propose_from_skeleton(
     on_fallback: Callable[[str], None] | None = None,
     column_meanings: Sequence[Mapping[str, Any]] | None = None,
     excluded_columns: Mapping[str, Sequence[str]] | None = None,
+    deterministic: bool = False,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -3584,6 +3585,30 @@ def propose_from_skeleton(
     permaps: dict[str, dict] = {}
     for i, map_obj in enumerate(maps):
         name = map_obj.get("name")
+        if deterministic:
+            # かんたん経路 [ADR deterministic-design-assembly]: 性質表は判断済みの
+            # 材料 [owns/型/意味/除外] から機械的に組む。LLM は呼ばない — 今日まで
+            # の失敗 [ファイル名・列名・dialects・IRI 化の発明] は全部この段の
+            # 自由度から来た。意味は下の apply_column_meanings が上書きする。
+            emit(
+                phase=f"map:{name}",
+                index=i,
+                total=len(maps),
+                message=f"プロパティ表を組み立て中: {name}",
+            )
+            cols_all = list(
+                (map_columns or {}).get(str(name))
+                or by_source.get(str(map_obj.get("source") or ""))
+                or []
+            )
+            excl = set((excluded_columns or {}).get(str(map_obj.get("source") or "")) or ())
+            permaps[name] = default_property_table(
+                [c for c in cols_all if c not in excl],
+                ontology_prefix=ontology_prefix,
+                owned_elsewhere=(column_owners or {}).get(str(name)),
+                column_types=(column_types or {}).get(str(name)),
+            )
+            continue
         emit(phase=f"map:{name}", index=i, total=len(maps), message=f"プロパティ表を生成中: {name}")
         # Generate this map's properties + a bounded per-map structural repair
         # (object-form-none / transform misuse etc.). Truncated output degrades to
@@ -3651,6 +3676,14 @@ def propose_from_skeleton(
         )
     ir_yaml = mapping_ir_to_yaml(assembled)
 
+    if deterministic:
+        # 文書も決定論で書く [既存の doc_synth — LLM 落ち時のフォールバックと
+        # 同じ経路なので下流のゲートは通る]。パースできない spec だけ LLM に
+        # 落ちる [起きない想定・保険]。
+        emit(phase="document", message="設計文書を組み立て中")
+        synthesized = _synthesize_document(ir_yaml, dataset_name=dataset_name)
+        if synthesized is not None:
+            return synthesized
     emit(phase="document", message="設計文書を生成中")
     try:
         document_md = generate_document(

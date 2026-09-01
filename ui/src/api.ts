@@ -608,10 +608,14 @@ export async function proposeContinue(
   stagingId?: string | null,
   columnMeanings?: ColumnMeaning[],
   columnDecisions?: PreDesignColumnDecision[],
+  deterministicRules?: boolean,
 ): Promise<JobHandle> {
   const form = new FormData()
   appendSources(form, files, stagingId)
   form.append('skeleton', JSON.stringify(skeleton))
+  // かんたん経路 (ADR deterministic-design-assembly): §9 と文書を決定論で組む。
+  // LLM は検証エラー時の refine と相談だけ。
+  if (deterministicRules) form.append('deterministic_rules', '1')
   // The meanings and the keep/drop calls settled on the meaning screen. Sent
   // even when empty is pointless, so only a non-empty list rides along —
   // a design with neither is byte-identical to one made before this existed.

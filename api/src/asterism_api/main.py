@@ -5512,6 +5512,15 @@ def build_app(
                 "[{source, column, action: 'exclude'}]. Re-asserted every round."
             ),
         ),
+        deterministic_rules: str = Form(
+            default="",
+            description=(
+                "'1'/'true' = assemble the §9 property rules and the document "
+                "deterministically from the settled judgments (kantan tier, ADR "
+                "deterministic-design-assembly); the LLM is used only by the "
+                "refine rounds when validation finds issues."
+            ),
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         autocorrect: int | None = Query(
             default=None,
@@ -5591,6 +5600,8 @@ def build_app(
                     iri_base=cfg.iri_base,
                     column_meanings=settled_meanings,
                     column_decisions=settled_decisions,
+                    deterministic_rules=deterministic_rules.strip().lower()
+                    in ("1", "true", "yes"),
                 )
             finally:
                 if owned:

@@ -1683,6 +1683,7 @@ def run_design_loop(
     iri_base: str | None = None,
     column_meanings: Sequence[Mapping[str, Any]] | None = None,
     column_decisions: Sequence[Mapping[str, Any]] | None = None,
+    deterministic_rules: bool = False,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -1789,8 +1790,15 @@ def run_design_loop(
             column_types=column_datatypes,
             column_meanings=column_meanings,
             excluded_columns=_excluded_by_source(column_decisions),
+            # かんたん経路 (ADR deterministic-design-assembly): §9 と文書を
+            # 決定論で組む。LLM は refine (検証エラー時のみ) と相談に残る。
+            deterministic=deterministic_rules,
         )
-        metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
+        metadata: dict[str, Any] = {
+            "llm_class": type(llm).__name__,
+            "staged": True,
+            "deterministic_rules": deterministic_rules,
+        }
     else:
         _emit(on_progress, phase="propose", round=0, message="初期設計を生成中")
         proposal = propose_schema(

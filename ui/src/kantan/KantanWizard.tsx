@@ -3085,6 +3085,9 @@ export function KantanWizard({
         stagingId,
         settledMeanings,
         excludedDecisions(),
+        // かんたん経路は §9 と文書を決定論で組む (ADR
+        // deterministic-design-assembly)。LLM は検証エラー時の refine だけ。
+        true,
       )
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
