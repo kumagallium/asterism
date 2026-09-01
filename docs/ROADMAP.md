@@ -71,6 +71,8 @@
 
 ## 更新 log
 
+- 2026-09-02: **JSON 由来 CSV の実列名を設計時に与える（v0.31.9・branch `fix/json-backed-header-at-design-time`）**。元素表 JSON、設計保存には到達（dialects 掃除が効いた）が、取り込みで**モデルが発明した camelCase の幻列名**（atomicMass/boilingPoint/…）が爆発。⭐設計時は表化 CSV がまだ実在せず「ヘッダを読めない → 列検査スキップ」、閉メニューも `.csv` 名だけ列一覧が空 — **列名の真実を誰もモデルに渡していなかった**。修正=①rml_validate の `header_for`: `.csv` が無く sibling `.json/.geojson` があれば **temp に表化してヘッダを導出**（幻列は設計時に did-you-mean 付きで検出）②閉メニュー: 同じ表化でヘッダを列挙（モデルが発明する余地を消す）。`{"elements": [...]}` 形は `tabularize_json_to_csv` の自動 record 検出で正しく表化される（materialize の実績と同一経路）。テスト=幻列 atomicMass→atomic_mass の did-you-mean を設計時に検出。これで JSON かんたん経路の既知の関門は全通過（骨格の参照名→dialects→列名）: 失敗が配管を単調に下流へ進んでいたのが収束の証拠。残る未知は入れ子配列の質（native-json ADR・別件）。
+
 - 2026-09-02: **dialects の権威 overlay を双方向に（v0.31.8・branch `fix/sanitize-authored-dialects`）**。元素表 JSON のやり直しランがまだ空転（5/8）— 参照名は `.csv` に収束済みで、今度は **LLM が書いたフラット形 `dialects: {encoding: utf-8-sig}`**（ソース名なし）が唯一の敵。⭐v0.31.7 で「JSON に dialect を差し込まない」ようにした副作用で、**以前は権威 overlay が毎ラウンド上書きして消していたゴミを、消す者がいなくなっていた**（差し込み対象ゼロ → overlay 早期 return）。修正=`apply_detected_dialects(authoritative=True)` を双方向の権威に: 正しい検出値を書き込むだけでなく、**値が mapping でないエントリと表形式でないソース名のエントリを削除**（全部消えたらブロックごと削除）。api 側は detected が空でも overlay を通す（掃除だけでも走る・対象が無ければ byte 同一）。非権威（artifact re-pin）は従来どおり触らない。教訓=**機械が必ず拒否するものを LLM ラウンドに直させない** — 決定論で入口を塞ぐか出口で掃除する。
 
 - 2026-09-01: **⑤の情報ダイエット + 表の読み順統一（branch `fix/gate-info-diet`）**。利用者の実使用フィードバック 5 点。①**表の列順を全段で「列名 → 値 → 意味 → …」に統一**（③が 列名→意味→単位→値 で、②④と突き合わせで迷う）②④のにんじん図解を中央揃え ③**⑤の図を同深度 perRow=2 に**（受け口 2 つが縦の直列に見え、どの箱からの線か読めなかった — layout は深さ別折り返しなので親子が横に並ぶことはない）④**データセットの名前を「名前・ID を直す」の中へ** ⑤**「AI にもう一度考えさせる」を直しタブの 4 つ目に**（常時表示のリード＋テキストエリアが画面の情報量を膨らませていた）。結果、⑤の既定表示は「リード・3 点・図・凡例・直し 4 ボタン・進む」だけで 1 画面に収まる。manual 追随。

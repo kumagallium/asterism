@@ -333,7 +333,29 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
             path = csv_dir / raw
         key = str(path)
         if key not in headers:
-            headers[key] = read_csv_header(path, dialects.get(path.name))
+            header = read_csv_header(path, dialects.get(path.name))
+            if not header and path.suffix.lower() == ".csv" and not path.exists():
+                # A ``.csv`` reference backed by a sibling JSON (ingest tabularizes
+                # it on the fly). Derive the tabularized header HERE so phantom
+                # column names are caught at DESIGN time with a did-you-mean —
+                # skipping let the model invent camelCase columns that only
+                # exploded at materialize (live 2026-09-02, periodic-table JSON).
+                for sfx in (".json", ".geojson"):
+                    json_src = path.with_suffix(sfx)
+                    if json_src.exists():
+                        import tempfile
+
+                        from asterism.tabularize import tabularize_json_to_csv
+
+                        try:
+                            with tempfile.TemporaryDirectory() as td:
+                                header = tabularize_json_to_csv(
+                                    json_src, Path(td) / path.name
+                                )
+                        except Exception:
+                            header = []  # unreadable JSON: leave to the engine
+                        break
+            headers[key] = header
         return headers[key] or None
 
     sub_pred = rdflib.URIRef

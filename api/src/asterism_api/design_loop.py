@@ -498,6 +498,24 @@ def build_oracle(
         return f"{q.stem}.csv" if q.suffix.lower() in (".json", ".geojson") else q.name
 
     names = sorted({_referable(p) for p in csv_paths})
+
+    def _json_backed_header(csv_name: str) -> list[str]:
+        # 表化名の実列を JSON から導出してメニューに載せる。名前だけ列挙して
+        # 列一覧が空だと、モデルが camelCase の幻の列名を発明し、設計時は
+        # 素通り・取り込みで爆発した (実測 2026-09-02、元素表 JSON)。
+        for sfx in (".json", ".geojson"):
+            json_src = base / (Path(csv_name).stem + sfx)
+            if json_src.exists():
+                import tempfile
+
+                from asterism.tabularize import tabularize_json_to_csv
+
+                try:
+                    with tempfile.TemporaryDirectory() as td:
+                        return tabularize_json_to_csv(json_src, Path(td) / csv_name)
+                except Exception:
+                    return []
+        return []
     lines: list[str] = [
         "── Reference (closed menu — use ONLY these names; do NOT invent or rename) ──",
         "Source files (use the filename EXACTLY as written):",
@@ -507,6 +525,8 @@ def build_oracle(
         cols = (
             _read_header(p, (dialects or {}).get(name))
             if p.suffix.lower() in _TABULAR_SUFFIXES and p.exists()
+            else _json_backed_header(name)
+            if p.suffix.lower() == ".csv"
             else []
         )
         if cols:

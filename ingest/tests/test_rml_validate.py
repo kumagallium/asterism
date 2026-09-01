@@ -293,6 +293,31 @@ def test_csv_reference_backed_by_sibling_json_is_not_flagged(tmp_path: Path) -> 
     validate_rml_design(rml, tmp_path)  # no raise
 
 
+def test_json_backed_csv_phantom_column_is_caught_at_design_time(tmp_path: Path) -> None:
+    """A ``.csv`` backed only by a sibling JSON now yields its TABULARIZED header,
+    so a phantom column the model invented (camelCase of a real one) is flagged at
+    design time with a did-you-mean — before (no file, no header) the check was
+    skipped and the phantom only exploded at materialize (live 2026-09-02,
+    periodic-table JSON: 'atomicMass' for 'atomic_mass')."""
+    (tmp_path / "elements.json").write_text(
+        '{"elements": [{"name": "H", "atomic_mass": 1.008}]}', encoding="utf-8"
+    )
+    rml = _PREFIXES + (
+        '<#M> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "elements.csv" ; '
+        'rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/{name}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
+        '    rr:objectMap [ rml:reference "atomicMass" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    issues = exc.value.issues
+    assert any(
+        "'atomicMass'" in m and "atomic_mass" in m and "Did you mean" in m for m in issues
+    )
+
+
 def test_missing_source_lists_available_files_when_no_close_match(tmp_path: Path) -> None:
     # When no real filename is similar, the available files are listed so the AI can
     # pick the right one rather than guessing again.
