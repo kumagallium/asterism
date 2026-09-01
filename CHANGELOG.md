@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.32.0](https://github.com/kumagallium/asterism/compare/v0.31.10...v0.32.0) - 2026-09-01
+
+- feat: かんたん経路の §9 を決定論で組む — D5 の完成形 by @kumagallium in https://github.com/kumagallium/asterism/pull/516
+
 ## [v0.31.10](https://github.com/kumagallium/asterism/compare/v0.31.9...v0.31.10) - 2026-09-01
 
 - fix(step0): 受け口のラベルを決定論で保証 — 助言と持ち物強制の板挟みを解く by @kumagallium in https://github.com/kumagallium/asterism/pull/514
