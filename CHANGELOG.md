@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.10](https://github.com/kumagallium/asterism/compare/v0.31.9...v0.31.10) - 2026-09-01
+
+- fix(step0): 受け口のラベルを決定論で保証 — 助言と持ち物強制の板挟みを解く by @kumagallium in https://github.com/kumagallium/asterism/pull/514
+
 ## [v0.31.9](https://github.com/kumagallium/asterism/compare/v0.31.8...v0.31.9) - 2026-09-01
 
 - fix: JSON 由来 CSV の実列名を設計時に与える — 幻の列名を入口で止める by @kumagallium in https://github.com/kumagallium/asterism/pull/512
