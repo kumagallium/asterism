@@ -106,7 +106,7 @@ jobs:
       # compromised branch could sign malware with the project's identity. The
       # unsigned .dmg here is a developer-only CI artifact, not a user download.
       - name: Build Tauri app (unsigned — verification only)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
