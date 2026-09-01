@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.5](https://github.com/kumagallium/asterism/compare/v0.31.4...v0.31.5) - 2026-09-01
+
+- fix(ui): ⑤の図を annotations 非依存に — カード無し・検査前でも図を消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/498
+
 ## [v0.31.4](https://github.com/kumagallium/asterism/compare/v0.31.3...v0.31.4) - 2026-09-01
 
 - fix(ui): ④で実物の値を見せる — 「列に ☑・つながるのは値」を明確に by @kumagallium in https://github.com/kumagallium/asterism/pull/496
