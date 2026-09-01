@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.31.7](https://github.com/kumagallium/asterism/compare/v0.31.6...v0.31.7) - 2026-09-01
+
+- fix: JSON ソースの参照名を全経路で収束 — 修理ループの決定論矛盾を解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/507
+- fix(ui): ⑤の情報ダイエットと表の読み順統一 — 実使用フィードバック 5 点 by @kumagallium in https://github.com/kumagallium/asterism/pull/508
+
 ## [v0.31.6](https://github.com/kumagallium/asterism/compare/v0.31.5...v0.31.6) - 2026-09-01
 
 - fix(ci): dependabot の自動 major ラベルを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/486
