@@ -450,8 +450,9 @@ def _overlay_detected_dialects(
         for k, v in (detected or {}).items()
         if Path(k).suffix.lower() not in (".json", ".geojson")
     }
-    if not detected:
-        return schema_md
+    # detected が空でも進む: authoritative の overlay は「壊れた dialects を消す」
+    # 掃除も担う (LLM が書いたフラット形などをコンパイラの前に除去 — 実測
+    # 2026-09-01: 元素表 JSON がこれで空転)。掃除対象が無ければ byte 同一で返る。
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md

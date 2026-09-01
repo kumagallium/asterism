@@ -314,6 +314,29 @@ def test_dialect_ir_fields_full_emits_all_four_fields() -> None:
     }
 
 
+def test_authoritative_overlay_sanitizes_authored_dialects() -> None:
+    """権威の overlay は双方向: LLM が書いたフラット形 (ソース名なし) や表形式で
+    ないソース名のエントリを消す。実測 2026-09-01: 元素表 JSON で
+    「dialects: {encoding: utf-8-sig}」が残り、修理ラウンドが空転した。"""
+    ir = {
+        "version": 1,
+        "maps": [{"name": "record", "source": "PeriodicTableJSON.csv", "subject": {}}],
+        "dialects": {
+            "encoding": "utf-8-sig",  # フラット形 = 値が mapping でない
+            "PeriodicTableJSON.json": {"encoding": "utf-8-sig"},  # 表形式でない
+        },
+    }
+    out = apply_detected_dialects(ir, {}, authoritative=True)
+    assert "dialects" not in out
+    # 正しい表形式のエントリは残る
+    ir2 = dict(ir, dialects={**ir["dialects"], "data.csv": {"encoding": "cp932"}})
+    out2 = apply_detected_dialects(ir2, {}, authoritative=True)
+    assert out2["dialects"] == {"data.csv": {"encoding": "cp932"}}
+    # 非権威 (artifact の re-pin) は掃除しない — 触らないのが契約
+    out3 = apply_detected_dialects(ir, {}, authoritative=False)
+    assert out3["dialects"] == ir["dialects"]
+
+
 def test_apply_detected_dialects_full_fields_survives_repin() -> None:
     """FIX2 end-to-end at the pure-function seam: an override source keeps cp932/tab but
     corrects skip_rows 1→0. With ``full_fields`` the §9 entry pins skip_rows:0 explicitly,
