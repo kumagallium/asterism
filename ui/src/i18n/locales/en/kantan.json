@@ -523,7 +523,7 @@
   },
   "links": {
     "title": "Links to the outside",
-    "lead": "Which values also appear, spelled the same, in other files or other people's data? Tick those values and equal values will connect automatically.",
+    "lead": "Which values also appear, spelled the same way, in other files or other people’s data? Tick the COLUMN those values live in and equal values connect automatically (in the carrot example, the ☑ goes on the “ingredient” column).",
     "exampleA": "Recipe table",
     "exampleB": "Supermarket prices",
     "exampleWord": "carrot",
@@ -545,6 +545,7 @@
     "assembling": "Assembling the shape…",
     "assembleFailed": "Could not assemble the shape",
     "valueVaries": "(varies per row)",
-    "noMeasure": "Measured values can't be picked"
+    "noMeasure": "Measured values can't be picked",
+    "valueSamples": "{{values}} … (varies per row)"
   }
 }

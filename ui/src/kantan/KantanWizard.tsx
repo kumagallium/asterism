@@ -6608,8 +6608,17 @@ export function KantanWizard({
                           <tr key={key}>
                             <th scope="row">{r.column}</th>
                             <td className="kz-links-value">
+                              {/* 行ごとの値も実物を見せる — 「同じ表記で他にも
+                                  出てくるか」は値の見た目で判断する（利用者指摘
+                                  2026-09-01: 値が見えないと判断できない）。 */}
                               {r.origin === 'table'
-                                ? t('kantan:links.valueVaries')
+                                ? r.examples.length > 0
+                                  ? t('kantan:links.valueSamples', {
+                                      values: r.examples
+                                        .slice(0, 3)
+                                        .join(t('skeletongate:key.listSeparator')),
+                                    })
+                                  : t('kantan:links.valueVaries')
                                 : (r.examples[0] ?? '')}
                             </td>
                             <td className="kz-links-meaning">
