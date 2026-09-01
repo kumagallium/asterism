@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.31.6](https://github.com/kumagallium/asterism/compare/v0.31.5...v0.31.6) - 2026-09-01
+
+- fix(ci): dependabot の自動 major ラベルを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/486
+- chore(deps): bump actions/github-script from 7 to 9 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/481
+- chore(deps): bump docker/setup-buildx-action from 3.12.0 to 4.3.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/482
+- chore(deps): bump actions/checkout from 4 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/483
+- chore(deps): bump docker/login-action from 3.7.0 to 4.6.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/485
+- chore(deps): bump docker/build-push-action from 6.19.2 to 7.3.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/501
+- chore(deps): bump tauri-apps/tauri-action from 0 to 1 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/484
+- feat(ui): ④の相談に列の実値を渡す — #480 の作り直し（新設計前提） by @kumagallium in https://github.com/kumagallium/asterism/pull/506
+
 ## [v0.31.5](https://github.com/kumagallium/asterism/compare/v0.31.4...v0.31.5) - 2026-09-01
 
 - fix(ui): ⑤の図を annotations 非依存に — カード無し・検査前でも図を消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/498
