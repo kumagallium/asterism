@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.8](https://github.com/kumagallium/asterism/compare/v0.31.7...v0.31.8) - 2026-09-01
+
+- fix: dialects の権威 overlay を双方向に — LLM の不正な形を決定論で掃除 by @kumagallium in https://github.com/kumagallium/asterism/pull/510
+
 ## [v0.31.7](https://github.com/kumagallium/asterism/compare/v0.31.6...v0.31.7) - 2026-09-01
 
 - fix: JSON ソースの参照名を全経路で収束 — 修理ループの決定論矛盾を解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/507
