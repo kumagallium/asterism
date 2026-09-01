@@ -7,7 +7,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # ラベルを明示して Dependabot の自動付与を止める。既定のままだと semver-major な
-    # 更新 PR に「major」が付き、.tagpr の majorLabels=major と衝突して、マージしただけで
-    # 次リリースが v1.0.0 に昇格してしまう（2026-08-31 に #481-485 で実際に付いた）。
+    # 注意: この labels: では Dependabot の semver ラベル（major / minor）は止まらない。
+    # labels: が差し替えるのは既定ラベル（dependencies と ecosystem 名）だけで、
+    # 「同名ラベルがリポジトリに在れば semver bump 種別のラベルも付ける」挙動は別経路。
+    # 実際 #502 / #503 / #505（この設定を入れた 2026-08-31 より後の作成）にも major が付いた。
+    # 恒久対策は .tagpr 側の名前空間分離（majorLabels = bump:major）— 2026-09-02。
+    # ここの labels: は dependencies / github_actions を安定して付けるために残す。
     labels: [dependencies, github_actions]

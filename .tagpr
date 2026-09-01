@@ -9,7 +9,15 @@ releaseBranch = main
 vPrefix = true
 changelog = true
 # Version bump is decided per merged PR via labels (default is patch). Apply the
-# "minor" label to a feature/breaking PR to bump the minor version; "major" for major.
+# "bump:minor" label to a feature/breaking PR to bump the minor version; "bump:major"
+# for major. tagpr はこのラベルを「前回リリース以降にマージされた PR」から読み、
+# リリース PR 側には自分の印として tagpr:major / tagpr:minor を付ける。
+#
+# 名前空間を bump: にしてあるのは事故防止。既定名の major/minor は Dependabot が
+# semver-major/minor な更新 PR へ自動付与する名前と衝突し、actions の major 更新を
+# マージしただけで次リリースが v1.0.0 に昇格する（2026-09-01 #501/#504 でヒヤリ）。
+# tagpr:major / tagpr:minor も入力には使わない — tagpr 自身がリリース PR に付ける印なので
+# 入力と出力が同名になり自己参照になりうる。
 # NOTE: .tagpr is git-config (INI) format — values are bare strings, NOT arrays.
-majorLabels = major
-minorLabels = minor
+majorLabels = bump:major
+minorLabels = bump:minor
