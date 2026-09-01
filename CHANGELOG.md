@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.4](https://github.com/kumagallium/asterism/compare/v0.31.3...v0.31.4) - 2026-09-01
+
+- fix(ui): ④で実物の値を見せる — 「列に ☑・つながるのは値」を明確に by @kumagallium in https://github.com/kumagallium/asterism/pull/496
+
 ## [v0.31.3](https://github.com/kumagallium/asterism/compare/v0.31.2...v0.31.3) - 2026-08-31
 
 - fix: 持ち物の決定論的強制 — ☑ していない種類へ AI が列を転記できる穴を塞ぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/494
