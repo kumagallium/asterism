@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.33.0](https://github.com/kumagallium/asterism/compare/v0.32.1...v0.33.0) - 2026-09-01
+
+- chore(deps): bump sigstore/cosign-installer from 3.9.1 to 4.1.2 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/504
+- feat(ux): Phase 1 一括 — 図が主役・通常チャット化・全体像の常時埋め込み・動詞形ステップ名 by @kumagallium in https://github.com/kumagallium/asterism/pull/522
+
 ## [v0.32.1](https://github.com/kumagallium/asterism/compare/v0.32.0...v0.32.1) - 2026-09-01
 
 - fix(api): IR 環境検証にも JSON→CSV の別名を教える — 決定論 §9 を差し戻さない by @kumagallium in https://github.com/kumagallium/asterism/pull/518
