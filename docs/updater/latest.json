@@ -1,11 +1,11 @@
 {
-  "version": "0.32.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f13a6289a67961f9449db79bce8b68b18b2d28d7 -->\n\n## What's Changed\n* feat: かんたん経路の §9 を決定論で組む — D5 の完成形 by @kumagallium in https://github.com/kumagallium/asterism/pull/516\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.10...v0.32.0",
-  "pub_date": "2026-09-01T16:45:24Z",
+  "version": "0.32.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 9f07585eb082e010435675df8149bf631a2074e6 -->\n\n## What's Changed\n* fix(api): IR 環境検証にも JSON→CSV の別名を教える — 決定論 §9 を差し戻さない by @kumagallium in https://github.com/kumagallium/asterism/pull/518\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.32.0...v0.32.1",
+  "pub_date": "2026-09-01T17:28:01Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVZiNURuNWU5dGxoUWJaV1ZScm55RGMvTnM3OW1sK1M0QkhUdStrWnNCQ1pTWW9Rd1FGWnVoRm9yVjJFeWtrRVdyQzhzM291TXNQNmRWL3p1QWJFOFFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjgxMTIzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkRaOStSSDA1T1NMMUdzZTZGRnRDWC9NVHIwTTBTelhnOUNjVzZKdXQ2RDlLYzdicFVqVVRLdW5uKzlTeVV5eWVQdm9rSkNiMFI4ajNaNkNJVk1OaENnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.32.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWUxZHBOK0FiQU1FY25ORU03L3R0WDVKWVlpU2dpK1pKU2hpVVBIOEh2NEpYVytBMTk4NGFucUNzQmdHeEIxWVFFS3JzYUoxcUpYZng1U1FJb3Y1YlFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjgzNjgwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkpZbkRsUUdIQ1Yrem5aL1MwZ2ZZZXllTDFDUUxQZUNZVEFQRUdOR01vRURzT003dDhQYjFIRmttQnpsQVFheUJ2MlorQVZoVUJDcEI1L0xBM0xHSURRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.32.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
