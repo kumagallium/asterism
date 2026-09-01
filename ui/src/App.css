@@ -6828,6 +6828,7 @@ button.ds-artifact:disabled {
   gap: var(--space-4);
   margin: var(--space-2) 0;
   flex-wrap: wrap;
+  justify-content: center;
 }
 .kz-links-mini {
   border: 1px solid var(--border);

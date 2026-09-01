@@ -155,5 +155,6 @@
   "idLine": "ID: {{keys}}",
   "idLineProvisional": "ID: {{keys}} (provisional — machine guess)",
   "backToLinks": "← Back to ④ to change the ☑",
-  "sourceRowsNote": " (source file: {{rows}} rows)"
+  "sourceRowsNote": " (source file: {{rows}} rows)",
+  "fixRethink": "Let the AI rethink"
 }

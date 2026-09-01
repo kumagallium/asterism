@@ -1082,7 +1082,7 @@ export function SkeletonGate({
      開かない = グラフを読むだけ。names = ②のタブ（名前と ID）、split = 同じ ID の
      種類を足す、move = ①の表（載せる種類）。ADR の 4 カードのうち rename と
      rekey は、両方の家である②のタブに 1 枚で相乗りする。 */
-  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | null>(null)
+  const [plainFix, setPlainFix] = useState<'names' | 'split' | 'move' | 'rethink' | null>(null)
   // A dataset name that cleans away to nothing (a Japanese one) used to do
   // NOTHING at all — the field kept the typed text and the ID kept the old
   // slug. Say what an ID may contain, right under the field.
@@ -1963,7 +1963,10 @@ export function SkeletonGate({
           setOpenKind(id)
           if (plain) setPlainFix('names')
         }}
-        perRow={plain ? 1 : 3}
+        /* 同じ深さの受け口が 2 つ以上あるとき、1 列だと縦に直列に見えて
+           「どの箱からの線か」が読めない（利用者指摘 2026-09-01）。layout は
+           深さ別に折り返すので、2 にしても親子が横に並ぶことはない。 */
+        perRow={plain ? 2 : 3}
         nodeWidth={176}
         maxHeight={plain ? 640 : 440}
         /* 項目は既定で全部見せる（ADR D4: 省略したら確かめられない）。畳むのは
@@ -2849,13 +2852,16 @@ export function SkeletonGate({
                 ['names', 'fixNames'],
                 ['split', 'fixSplit'],
                 ['move', 'fixMove'],
+                ['rethink', 'fixRethink'],
               ] as const
             ).map(([id, key]) => (
               <button
                 key={id}
                 type="button"
                 className={plainFix === id ? 'btn btn--sm' : 'btn btn--ghost btn--sm'}
-                disabled={id !== 'names' && !zone}
+                disabled={
+                  id === 'rethink' ? !onRethink : id !== 'names' ? !zone : false
+                }
                 onClick={() => setPlainFix(plainFix === id ? null : id)}
               >
                 {t(`skeletongate:${key}`)}
@@ -2863,6 +2869,10 @@ export function SkeletonGate({
             ))}
           </div>
 
+          {/* データセットの名前（ID の接頭）も「名前・ID」の一部 — 既定画面
+              には出さない（利用者指摘 2026-09-01: 直しの見出しの中に常設情報が
+              あるように見える）。 */}
+          {plainFix === 'names' && nsCard}
           {plainFix === 'names' && kindBlocks.length > 1 && (
             /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
                答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
@@ -3144,7 +3154,6 @@ export function SkeletonGate({
       {/* The kantan tier reads the table FIRST (that is the one question this
           screen asks) and meets the naming card after — settled, one line, on
           the way out. The detail tier keeps the card above the table. */}
-      {plain && nsCard}
       {/* AI-redo exit: when the skeleton is STRUCTURALLY wrong (wrong split
           into kinds, wrong key idea), editing cells is the wrong tool — hand
           a plain-language note back to the generation instead. */}
@@ -3164,7 +3173,7 @@ export function SkeletonGate({
           候補チップを主導線として残す。詳細モードは onRethink を渡していないので
           今は plain にしか出ないが、将来渡されたときに詳細モードまで畳まれない
           よう、ガードを明示しておく。 */}
-      {plain && onRethink && (
+      {plain && onRethink && plainFix === 'rethink' && (
         <div className="skeleton-rethink">
           <p className="skeleton-evidence-label" id="skeleton-rethink-label">
             {t('workbench:skeleton.rethink.label')}
