@@ -1651,6 +1651,17 @@ export function SkeletonGate({
      全列を値つきで一度だけ並べ、各行のチェックそのものが「この列を 1 つの種類
      として数える」という宣言になる。AI の骨格は初期チェック（推薦）にすぎない。
      タブはその下＝「えらんだ種類をたしかめる」に格下げされる。 */
+  /** 骨格だけで分かる「値のカタログ」判定 — owns がテンプレートの単独キーと
+   *  一致する種類（assemble が④の ☑ から作る形）。annotations が無い場面
+   *  （設計の見直しで元ファイルが無い・検査前）でも図の琥珀と点線を消さない
+   *  ための、zone 非依存の判定。 */
+  const templateKeys = (m: SkeletonMap): string[] =>
+    [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+  const isValueCatalog = (m: SkeletonMap): boolean => {
+    const keys = templateKeys(m)
+    const owns = m.owns ?? []
+    return keys.length === 1 && owns.length === 1 && owns[0] === keys[0]
+  }
   const zone = (() => {
     if (!plain) return null
     /* 宿主は「1 ファイル＝1 件のカード」が第一候補。無ければ**いちばん件数の
@@ -1829,11 +1840,16 @@ export function SkeletonGate({
      ないので、記号を落として同綴りなら未命名とみなす（承認モック:
      「カード · 1 件」「ピーク · 47 件」）。 */
   const plainKindLabel = (m: SkeletonMap): string => {
-    if (!zone) return compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name
     const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
     const named = (name: string): string | null => {
       const d = displayMapName(name)
       return d && norm(d) !== norm(name) ? d : null
+    }
+    if (!zone) {
+      /* annotations が無い場面でも図は出す（設計の見直し・検査前）。骨格だけで
+         分かる範囲で同じ呼び名を使う: カタログ = その列名、他 = 名前 ?? レコード。 */
+      if (isValueCatalog(m)) return templateKeys(m)[0]
+      return named(m.name) ?? t('skeletongate:zone.diagramRecord')
     }
     if (m.name === zone.host.name)
       return (
@@ -1883,13 +1899,20 @@ export function SkeletonGate({
    *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
   const pendingEdges: [string, string][] = zone
     ? [...new Set([...zone.columnKinds.values()].flat())].map((n) => [zone.host.name, n])
-    : []
+    : skeleton.maps.flatMap((m): [string, string][] => {
+        if (!isValueCatalog(m)) return []
+        const holder = skeleton.maps.find((o) => o.source === m.source && !isValueCatalog(o))
+        return holder ? [[holder.name, m.name]] : []
+      })
   /** 箱の 1 行目 = その種類の ID の作り方（承認モック「ID: No + (hkl)」）。
    *  ④で選ばれず機械が仮置きした ID は、その場で（仮・機械の推定）と書く —
    *  図だけ見ても仮だと分かるように（下の ⚠ と同じ事実の 2 つの置き場）。 */
   const fieldsWithId = (m: SkeletonMap): ShapeField[] => {
     const keys = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-    const base = zoneFields(m)
+    const zoned = zoneFields(m)
+    /* zone（annotations 依存）が無い場面は、骨格の owns 宣言をそのまま項目に。
+       assemble 由来の骨格は全種類が owns を持つので、図の中身は消えない。 */
+    const base = zoned.length > 0 ? zoned : (m.owns ?? []).map((name) => ({ name }))
     if (keys.length === 0) return base
     const provisional =
       m.name === zone?.host.name &&
@@ -1909,7 +1932,7 @@ export function SkeletonGate({
   /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
    *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
   const diagramTone = (m: SkeletonMap): ShapeTone => {
-    if (!zone) return 'record'
+    if (!zone) return isValueCatalog(m) ? 'value' : 'record'
     /* 緑（ファイル全体）の特別扱いは廃止 — その情報はラベルの「1 件」が語る。
        残す色は 1 つ: 琥珀 = ④で ☑ した「つながる受け口」（利用者指摘 2026-08-31:
        件数で伝わる情報を色で重複させない）。 */
@@ -2694,13 +2717,13 @@ export function SkeletonGate({
         </p>
       )}
       {!plain && nsCard}
-      {zone && (
+      {plain && skeleton.maps.length > 0 && (
         <>
           {/* 行の種類しか無い骨格（missing_card_kind・実測 2026-08-31 本番）。
               ヘッダの列が全記録に写っている事実と、1 押しの直しを、表を読む前に
               言う。取り込みが失敗するわけではないので confirm の blocker には
               しない — 二重記録の予防で、裁定は人（K7/K22 と同じ姿勢）。 */}
-          {zone.ann.missing_card_kind &&
+          {zone?.ann.missing_card_kind &&
             canRevalidate &&
             /* 押した直後〜再検査が終わるまでの間、annotation は古いまま。提案名の
                map が骨格に既にあるなら、修理は済んでいる（二度押しで card2 を
