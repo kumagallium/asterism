@@ -155,5 +155,6 @@
   "idLine": "ID: {{keys}}",
   "idLineProvisional": "ID: {{keys}}（仮・機械の推定）",
   "backToLinks": "← ④に戻って ☑ を変える",
-  "sourceRowsNote": "（元ファイル {{rows}} 行）"
+  "sourceRowsNote": "（元ファイル {{rows}} 行）",
+  "fixRethink": "AI にもう一度考えさせる"
 }

@@ -6383,10 +6383,13 @@ export function KantanWizard({
                   <table className="kz-preview-table kz-cols-table kz-meaning-table">
                     <thead>
                       <tr>
+                        {/* 並びは全段共通の「列名 → 値 → 意味 → …」（②の
+                            プレビュー・④のつながり表と同じ読み順 — 利用者指摘
+                            2026-09-01: 段ごとに順番が違うと突き合わせで迷う）。 */}
                         <th>{t('kantan:meanings.colColumn')}</th>
+                        <th>{t('kantan:meanings.colExamples')}</th>
                         <th>{t('kantan:meanings.colMeaning')}</th>
                         <th>{t('kantan:meanings.colUnit')}</th>
-                        <th>{t('kantan:meanings.colExamples')}</th>
                         <th>{t('kantan:meanings.colKeep')}</th>
                       </tr>
                     </thead>
@@ -6419,6 +6422,15 @@ export function KantanWizard({
                                   )}
                                 </>
                               )}
+                            </td>
+                            <td className="kz-cols-examples">
+                              {/* 実データは「見分けがつく」ところまでで十分。1 つの長い
+                                  値（この XRD カードなら注記の行）で表が横に伸び、右端の
+                                  「取り込む」が画面の外へ出た（実機 2026-08-28）。 */}
+                              {row.examples
+                                .slice(0, 3)
+                                .map((v) => (v.length > 44 ? `${v.slice(0, 44)}…` : v))
+                                .join(' / ') || '—'}
                             </td>
                             <td>
                               <input
@@ -6462,15 +6474,6 @@ export function KantanWizard({
                               {/* 書いた単位が標準（QUDT）に届いたか。届かない綴りを
                                   黙って受けると、単位の三つ組だけが出ない (ADR §3)。 */}
                               <UnitBadge info={unitInfo[(current?.unit ?? '').trim()]} />
-                            </td>
-                            <td className="kz-cols-examples">
-                              {/* 実データは「見分けがつく」ところまでで十分。1 つの長い
-                                  値（この XRD カードなら注記の行）で表が横に伸び、右端の
-                                  「取り込む」が画面の外へ出た（実機 2026-08-28）。 */}
-                              {row.examples
-                                .slice(0, 3)
-                                .map((v) => (v.length > 44 ? `${v.slice(0, 44)}…` : v))
-                                .join(' / ') || '—'}
                             </td>
                             <td>
                               {/* 既定は「取り込む」。外すのは必ず人の操作なので、
