@@ -1266,6 +1266,11 @@ def annotate_skeleton(
     by_name: dict[str, tuple[Path, SourceInspection]] = {}
     for path, ins in zip(resolved, inspections, strict=True):
         by_name[path.name] = (path, ins)
+        if ins.source_kind == "json":
+            # 設計は JSON を表化名 [<stem>.csv] で参照する [規約]。骨格の source が
+            # その名前でも、証拠 [annotation] を物理ファイルへ解決する。実在の
+            # 同名 CSV があるときはそちらが勝つ [setdefault]。
+            by_name.setdefault(f"{path.stem}.csv", (path, ins))
 
     prefixes_raw = skeleton.get("prefixes")
     prefixes: dict[str, str] = (
@@ -1478,6 +1483,12 @@ def assemble_skeleton_from_judgments(
     for path in resolved:
         src = path.name
         _p, ins = by_name[src]
+        # JSON は取り込み時に表化される [asterism.tabularize] ため、設計が参照する
+        # 名前は物理名でなく「<stem>.csv」[検査プロンプト・rml_compile と同じ規約]。
+        # 物理名 .json を書くと、コンパイラ [「表形式のみ」] と存在検証 [「実在名
+        # のみ」] が互いに矛盾する要求を出し、修理ループが収束しない
+        # [実測 2026-09-01: 元素表 JSON が 8 ラウンド全敗]。
+        design_src = f"{path.stem}.csv" if ins.source_kind == "json" else src
         drop = excluded_by_source.get(src, set())
         links = [c for c in linkable_by_source.get(src, []) if c not in drop]
         types = {c.name: c.inferred_type for c in ins.columns}
@@ -1511,7 +1522,7 @@ def assemble_skeleton_from_judgments(
                 card_key = (identity_bc or broadcast)[0]
                 provisional[src] = card_key
             name = _ascii_map_name("card", taken, "card")
-            add_map(name, src, [card_key], _pascal(name) or "Card")
+            add_map(name, design_src, [card_key], _pascal(name) or "Card")
 
         # ---- 行の種類 ----
         if varying:
@@ -1551,18 +1562,22 @@ def assemble_skeleton_from_judgments(
             # record は singleton ではないので、owns を宣言しても
             # _parent_singleton の親判定 [originals] には影響しない。
             record_owns = [c for c in varying if c not in key and c not in links]
-            add_map(name, src, key, _pascal(name) or "Record", owns=record_owns)
+            add_map(name, design_src, key, _pascal(name) or "Record", owns=record_owns)
 
         # ---- つながる受け口（値のカタログ）----
+        record_key = set(key or []) if varying else set()
         for col in links:
-            if col == card_key:
-                continue  # 種類自身が受け口 — 別の受け口は作らない
+            if col == card_key or col in record_key:
+                # ☑ した値がその種類の ID になったときは受け口を作らない —
+                # 種類自身が受け口 [ADR D3]。カードだけでなく行の種類のキーも
+                # 同じ [実測 2026-09-01: record/{name} と name/{name} の二重]。
+                continue
             if types.get(col) in _MEASUREMENT_TYPES:
                 continue  # 測定値は ID にしない（K7/K33）
             if col not in columns:
                 continue
             name = _ascii_map_name(col, taken, "value")
-            add_map(name, src, [col], _pascal(name) or "Value", owns=[col])
+            add_map(name, design_src, [col], _pascal(name) or "Value", owns=[col])
 
     skeleton = {"version": 1, "prefixes": prefixes, "maps": maps}
     return {

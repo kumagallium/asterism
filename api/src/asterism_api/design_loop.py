@@ -442,6 +442,14 @@ def _overlay_detected_dialects(
     detected, the schema has no §9 spec (legacy raw-RML proposals), or the block
     cannot be spliced — the design is then byte-untouched.
     """
+    # dialect は表形式ソース専用 [mapping_ir の検証]。JSON の読み設定
+    # [record_path 等] は staging meta 経由で別に運ばれる — ここで押し込むと
+    # §9 が検証で落ち続ける [実測 2026-09-01]。
+    detected = {
+        k: v
+        for k, v in (detected or {}).items()
+        if Path(k).suffix.lower() not in (".json", ".geojson")
+    }
     if not detected:
         return schema_md
     ir_yaml, _ = _extract_design(schema_md)
@@ -480,7 +488,15 @@ def build_oracle(
     column read match what ingest will normalize to. Pure + LLM-free.
     """
     base = Path(source_dir)
-    names = sorted({Path(p).name for p in csv_paths})
+    # A JSON source is REFERENCED by its tabularized ``<stem>.csv`` name (the
+    # inspection prompt and the compiler both enforce it) — listing the physical
+    # ``.json`` here made the menu contradict the compiler and the repair loop
+    # could not converge (live 2026-09-01, periodic-table JSON, 8 rounds).
+    def _referable(p: Path | str) -> str:
+        q = Path(p)
+        return f"{q.stem}.csv" if q.suffix.lower() in (".json", ".geojson") else q.name
+
+    names = sorted({_referable(p) for p in csv_paths})
     lines: list[str] = [
         "── Reference (closed menu — use ONLY these names; do NOT invent or rename) ──",
         "Source files (use the filename EXACTLY as written):",
@@ -489,7 +505,7 @@ def build_oracle(
         p = base / name
         cols = (
             _read_header(p, (dialects or {}).get(name))
-            if p.suffix.lower() in _TABULAR_SUFFIXES
+            if p.suffix.lower() in _TABULAR_SUFFIXES and p.exists()
             else []
         )
         if cols:
