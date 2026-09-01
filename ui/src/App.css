@@ -6842,6 +6842,14 @@ button.ds-artifact:disabled {
   color: var(--muted);
   font-weight: 600;
 }
+.kz-links-mini th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
 .kz-links-mini table {
   border-collapse: collapse;
   font-size: 0.8rem;

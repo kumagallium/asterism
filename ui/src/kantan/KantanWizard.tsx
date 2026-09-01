@@ -6545,9 +6545,18 @@ export function KantanWizard({
           <h3 className="kz-title">{t('kantan:links.title')}</h3>
           <p className="kz-lead">{t('kantan:links.lead')}</p>
           <div className="kz-links-example" aria-hidden="true">
+            {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを持つのに
+                図解に列名（食材名）が無く、構造が対応して見えなかった（利用者指摘
+                2026-09-02）。☑ を付ける単位＝列、を絵でも言う。 */}
             <div className="kz-links-mini">
               <p className="kz-links-mini-title">{t('kantan:links.exampleA')}</p>
               <table>
+                <thead>
+                  <tr>
+                    <th>{t('kantan:links.exampleColDish')}</th>
+                    <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr><td>カレー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
                   <tr><td>シチュー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
@@ -6561,6 +6570,12 @@ export function KantanWizard({
             <div className="kz-links-mini">
               <p className="kz-links-mini-title">{t('kantan:links.exampleB')}</p>
               <table>
+                <thead>
+                  <tr>
+                    <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
+                    <th>{t('kantan:links.exampleColPrice')}</th>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td><td>¥120</td></tr>
                   <tr><td>じゃがいも</td><td>¥98</td></tr>

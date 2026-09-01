@@ -69,13 +69,13 @@
     "unverifiedSparql": "AI が組み立てた調べ方（未検証）",
     "grounded": "根拠つきの回答",
     "plusUnverifiedSparql": "＋ AI が組み立てた調べ方（未検証）",
-    "noSources": "出どころのない答え（AI の説明のみ）"
+    "noSources": "AI の一般知識による回答（データの裏付けなし）"
   },
   "headNote": {
     "verified": "人が確認ずみの調べ方 · 出どころつき",
     "unverified": "人の確認前 · 数字を使う前に出どころで確かめてください",
     "grounded": "公開したデータに基づく",
-    "noSources": "数字として使わないでください。言い方を変えて聞き直せます"
+    "noSources": "公開データからは確認できていません。データに基づく質問なら、根拠つきで答えます"
   },
   "citations": {
     "heading": "出どころ（引用）",

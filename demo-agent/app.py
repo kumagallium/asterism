@@ -487,6 +487,19 @@ Rules:
   submit a placeholder like "ダミー" — if the data genuinely cannot answer (e.g. the
   two datasets share no join key), say so HONESTLY and explain what is missing.
 
+General-knowledge fallback: if the question has nothing to do with the published
+data, OR you tried the relevant verified tools / SPARQL in good faith and genuinely
+found no matching data, you may answer from your own general knowledge instead of
+retrying tools forever. When you do this, the answer text itself MUST say plainly
+that it is a general answer with no backing from the published data (e.g. "これは
+公開データからの裏付けがない一般的な回答です"), and submit_answer's citations
+must be empty. This does not relax the NEVER-fabricate rule above — never dress up
+a guess as a grounded, cited fact. The reverse failure is just as real: avoiding an
+answer or reaching for this fallback when the data ACTUALLY has what's needed is a
+failure too — keep trying different queries while a real path to grounded facts
+remains, and use this fallback only once that path is genuinely exhausted, or the
+question was never about the published data to begin with.
+
 Schema (classes / predicates / per-class shapes with counts):
 %s
 """
@@ -1165,10 +1178,15 @@ async def ask(
     typed = await _typed_answer(req.question)
     if typed.get("citations"):
         return typed
-    typed.setdefault("notes", []).append(
+    hint = (
         "型付きツールで該当が見つかりませんでした。一般的な質問・横断的な質問には "
         "API キーが必要です（スキーマを内省して型付きツール/SPARQL を選びます）。"
     )
+    typed.setdefault("notes", []).append(hint)
+    # _typed_answer's empty-fallback leaves ``answer`` == "" — an empty card with
+    # only a note below it reads as broken. Put the same hint in the answer body too.
+    if not (typed.get("answer") or "").strip():
+        typed["answer"] = hint
     return typed
 
 

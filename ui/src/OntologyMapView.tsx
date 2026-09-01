@@ -304,6 +304,7 @@ export function OntologyMapView({
   onCreateConnection,
   onOpenDataset,
   onOpenConnections,
+  embedded = false,
 }: {
   onBack?: () => void
   /** Where the empty states and the nodes send people. All default to the hash routes
@@ -313,6 +314,10 @@ export function OntologyMapView({
   onOpenDataset?: (datasetId: string) => void
   /** Given a connection's id when a connection node was the thing pressed. */
   onOpenConnections?: (perspectiveId?: string) => void
+  /** つながりページ（CrosswalkView）の最下部に常時埋め込むときは true。単独ページの
+   * 見出し（バナー）は埋め込み先が自前の見出しを持つため二重になるので隠す。地図
+   * そのもの・凡例・状態表示は埋め込みでも単独でも同じものを見せる。 */
+  embedded?: boolean
 }) {
   const { t } = useTranslation()
   const addData = onAddData ?? (() => (window.location.hash = '#/workbench'))
@@ -489,23 +494,27 @@ export function OntologyMapView({
 
   return (
     <div className="ontomap-view">
-      {onBack && (
+      {!embedded && onBack && (
         <button type="button" className="vocab-back" onClick={onBack}>
           <ArrowIcon size={14} className="vocab-back-arrow" /> {t('map:back')}
         </button>
       )}
 
-      <div className="vocab-banner">
-        <span className="vocab-banner-icon">
-          <LayersIcon size={22} />
-        </span>
-        <div>
-          <h2 className="vocab-banner-title">{t('map:title')}</h2>
-          <p className="vocab-banner-sub">
-            <Trans i18nKey="map:bannerSub" components={[<strong />, <strong />]} />
-          </p>
+      {/* 埋め込み文脈（つながりページ最下部）では呼び出し側が見出しを持つため、
+          ここで二重に出さない。地図・凡例・状態表示は単独表示と同じもの。 */}
+      {!embedded && (
+        <div className="vocab-banner">
+          <span className="vocab-banner-icon">
+            <LayersIcon size={22} />
+          </span>
+          <div>
+            <h2 className="vocab-banner-title">{t('map:title')}</h2>
+            <p className="vocab-banner-sub">
+              <Trans i18nKey="map:bannerSub" components={[<strong />, <strong />]} />
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {counts && (
         <div className="ontomap-legend">

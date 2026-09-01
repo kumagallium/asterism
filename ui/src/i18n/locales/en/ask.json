@@ -70,13 +70,13 @@
     "unverifiedSparql": "AI-built query (not verified)",
     "grounded": "Grounded answer",
     "plusUnverifiedSparql": "+ AI-built query (not verified)",
-    "noSources": "Answer without sources (AI explanation only)"
+    "noSources": "AI's general knowledge (no data backing)"
   },
   "headNote": {
     "verified": "A lookup a person checked · comes with sources",
     "unverified": "Not checked by a person · verify the sources before using these numbers",
     "grounded": "Based on your published data",
-    "noSources": "Don't rely on these numbers — try rephrasing"
+    "noSources": "Not confirmed from your published data. Ask about your data and you'll get an answer with sources."
   },
   "citations": {
     "heading": "Sources (citations)",

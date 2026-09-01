@@ -21,7 +21,8 @@ import {
   sameAsKey,
 } from './crosswalkLabels'
 import { getCatalogDatasets } from './galleryApi'
-import { ArrowIcon, ConnectIcon, LayersIcon, LinkIcon } from './icons'
+import { ArrowIcon, ConnectIcon, LinkIcon } from './icons'
+import { OntologyMapView } from './OntologyMapView'
 import { ToolsPanel } from './ToolsPanel'
 import { knownVocabForIri, localName } from './vocab'
 import { XwLinkDiagram } from './XwLinkDiagram'
@@ -49,13 +50,14 @@ function perspectiveIdFromHash(): string | null {
  */
 export function CrosswalkView({
   onBack,
-  onOpenMap,
   createMode = false,
   onCreateMode,
   onAddData,
   onOpenAsk,
 }: {
   onBack?: () => void
+  // 全体像は本画面の最下部に常時埋め込むようになったため、開くボタンは削除した
+  // （呼び出し側との互換のため型には残し、受け取っても使わない）。
   onOpenMap?: () => void
   /** Route-driven: `#/crosswalk/new` opens straight into the guided flow. */
   createMode?: boolean
@@ -259,11 +261,6 @@ export function CrosswalkView({
             <Trans i18nKey="crosswalk:view.bannerSub" components={[<strong />, <strong />]} />
           </p>
         </div>
-        {onOpenMap && (
-          <button type="button" className="btn btn--ghost btn--sm crosswalk-map-btn" onClick={onOpenMap}>
-            <LayersIcon size={14} /> {t('crosswalk:view.seeMap')}
-          </button>
-        )}
       </div>
 
       {/* A failure on the shared screen says what happened and what to do; the raw
@@ -547,6 +544,23 @@ export function CrosswalkView({
           <PerspectiveAlignment perspectives={list} />
         </details>
       )}
+
+      {/* 全体像（データ・つながり・外部標準の 3 レーン図）を常時ここに埋め込む
+          （旧「全体像を見る」ボタンは廃止 — 別画面へ移らせず、同じページの
+          下にスクロールすれば見える）。データ取得は OntologyMapView 側で
+          独自に行う（この段では二重取得を許容 — 別途キャッシュ化を検討）。 */}
+      <div className="ds-subhead">{t('crosswalk:view.mapHead')}</div>
+      <OntologyMapView
+        embedded
+        onAddData={onAddData}
+        onCreateConnection={() => onCreateMode?.(true)}
+        // ハブ節のクリックは別画面へ飛ばさず、同じ画面内の選択を更新して
+        // 先頭へ戻す（アドレスバー直書きの既定動作には落とさない）。
+        onOpenConnections={(perspectiveId) => {
+          setSelectedId(perspectiveId ?? null)
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+        }}
+      />
     </div>
   )
 }

@@ -14,9 +14,9 @@
     "backToStart": "Back to ① Put data in (start over)",
     "backToStartShort": "Start over",
     "step1": "Put it in",
-    "step2": "The AI reads it",
-    "step3": "Column meanings",
-    "step4": "Links to the outside",
+    "step2": "Let the AI read",
+    "step3": "Give meanings",
+    "step4": "Pick the links",
     "step5": "Confirm the shape",
     "step6": "Try it",
     "step7": "Publish"
@@ -522,7 +522,7 @@
     "askConsultPrefill": "Please fill in the meanings that are still blank"
   },
   "links": {
-    "title": "Links to the outside",
+    "title": "Pick the links",
     "lead": "Which values also appear, spelled the same way, in other files or other people’s data? Tick the COLUMN those values live in and equal values connect automatically (in the carrot example, the ☑ goes on the “ingredient” column).",
     "exampleA": "Recipe table",
     "exampleB": "Supermarket prices",
@@ -546,6 +546,9 @@
     "assembleFailed": "Could not assemble the shape",
     "valueVaries": "(varies per row)",
     "noMeasure": "Measured values can't be picked",
-    "valueSamples": "{{values}} … (varies per row)"
+    "valueSamples": "{{values}} … (varies per row)",
+    "exampleColDish": "Dish",
+    "exampleColFood": "Ingredient",
+    "exampleColPrice": "Price"
   }
 }

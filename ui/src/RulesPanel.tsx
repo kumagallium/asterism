@@ -22,6 +22,7 @@ import {
   type DatasetHistoryEntry,
   type DatasetHistorySnapshot,
   type DatasetRules,
+  type RuleMap,
   type RuleProperty,
   type RuleTerm,
   getDatasetArtifactContents,
@@ -29,6 +30,7 @@ import {
   getDatasetHistorySnapshot,
   getDatasetRules,
 } from './galleryApi'
+import { saveColumnMeanings } from './api'
 import { copyText } from './clipboard'
 import { labelFor, tailOf } from './termLabels'
 import { termColumns } from './ruleColumns'
@@ -45,6 +47,24 @@ import { termColumns } from './ruleColumns'
 function sourceColumns(term: RuleTerm): string | null {
   const cols = termColumns(term)
   return cols.length ? cols.join(' + ') : null
+}
+
+/** Case/区切り記号-insensitive identifier form, so 'Sample Name' と 'sample_name'
+ *  は同一と判定できる（step0 の `_norm_ident` と同じ考え方 — 「意味」欄が列名の
+ *  写しでしかない行を機械的に見つけるための正規化）。空白・アンダースコア・
+ *  ハイフン・ドット・丸括弧のような区切りだけを対象にし、文字そのものは
+ *  変えない（日本語ラベルを ASCII だけに絞ると別物になってしまうため）。 */
+function normIdent(text: string): string {
+  return text.toLowerCase().replace(/[\s_.()-]+/gu, '')
+}
+
+/** 「意味」欄が、元の列名を（大小文字・区切り記号を無視して）そのまま書き写した
+ *  だけかどうか。複数列から作られた値は「元の列名」が一つに定まらないので対象
+ *  外 — 未確認マーカーは「1 列の写し」だけに立てる。 */
+function isUnconfirmedLabel(p: RuleProperty): string | null {
+  const cols = termColumns(p)
+  if (cols.length !== 1 || !p.label) return null
+  return normIdent(p.label) === normIdent(cols[0]) ? cols[0] : null
 }
 
 /** What to say in the 元の列 cell when a value is not read from a column. A
@@ -322,6 +342,13 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
   const [snapshot, setSnapshot] = useState<(DatasetHistorySnapshot & { openErr?: string }) | null>(null)
   const [busy, setBusy] = useState('')
 
+  // 「意味を直す」インライン編集の状態。一度に開けるのは 1 行だけでよい
+  // （複数行を同時に編集する UI にする理由がない）。
+  const [editKey, setEditKey] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [meaningBusy, setMeaningBusy] = useState(false)
+  const [meaningErr, setMeaningErr] = useState('')
+
   // No state resets here: DatasetDetail is keyed by the selected dataset id,
   // so this section remounts (fresh state) whenever the dataset changes.
   useEffect(() => {
@@ -339,6 +366,36 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
       alive = false
     }
   }, [datasetId])
+
+  /** 保存後の再取得。既存の読み込み useEffect と同じ呼び出しを、保存完了後に
+   *  もう一度実行するだけ（新しいエンドポイントは作らない）。 */
+  async function reloadRules() {
+    if (!datasetId) return
+    try {
+      setRules(await getDatasetRules(datasetId))
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** 「意味を直す」の保存。source は列が属するマップの source（= 取り込み元
+   *  ファイル）。保存後は rules を再取得して、直した意味を表に反映する。 */
+  async function commitMeaningEdit(map: RuleMap, column: string) {
+    if (!datasetId || !map.source) return
+    const label = editValue.trim()
+    if (!label) return
+    setMeaningBusy(true)
+    setMeaningErr('')
+    try {
+      await saveColumnMeanings(datasetId, [{ source: map.source, column, label }])
+      setEditKey(null)
+      await reloadRules()
+    } catch (e) {
+      setMeaningErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setMeaningBusy(false)
+    }
+  }
 
   const labels = useMemo(() => rules?.labels ?? {}, [rules])
 
@@ -419,8 +476,14 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                             p.label ??
                             labelFor(labels, p.predicate_iri, p.predicate) ??
                             tailOf(p.predicate)
+                          // 「意味」が元の列名の写しでしかない行だけ、控えめな注記＋
+                          // その場編集を出す。unconfirmedCol は保存 API に渡す列名。
+                          const unconfirmedCol = isUnconfirmedLabel(p)
+                          const rowKey = `plain-${m.id}-${i}`
+                          const canEditMeaning = !!(datasetId && m.source && unconfirmedCol)
+                          const editingThisRow = editKey === rowKey
                           return (
-                            <tr key={`plain-${p.predicate}-${i}`}>
+                            <tr key={rowKey}>
                               <td>
                                 {from ?? (
                                   <span className="rules-plain-none">
@@ -428,7 +491,75 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                                   </span>
                                 )}
                               </td>
-                              <td title={p.predicate_iri}>{meaning}</td>
+                              <td title={p.predicate_iri}>
+                                {editingThisRow ? (
+                                  <span className="rules-meaning-edit">
+                                    <input
+                                      type="text"
+                                      value={editValue}
+                                      autoFocus
+                                      disabled={meaningBusy}
+                                      style={{ minWidth: '10rem' }}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault()
+                                          void commitMeaningEdit(m, unconfirmedCol!)
+                                        } else if (e.key === 'Escape') {
+                                          e.preventDefault()
+                                          setEditKey(null)
+                                        }
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="btn btn--ghost btn--sm"
+                                      disabled={meaningBusy || !editValue.trim()}
+                                      onClick={() => void commitMeaningEdit(m, unconfirmedCol!)}
+                                    >
+                                      {t(
+                                        meaningBusy
+                                          ? 'rules:plain.meaningSaving'
+                                          : 'rules:plain.meaningSave',
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn--ghost btn--sm"
+                                      disabled={meaningBusy}
+                                      onClick={() => setEditKey(null)}
+                                    >
+                                      {t('rules:plain.meaningCancel')}
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <>
+                                    {meaning}
+                                    {unconfirmedCol && (
+                                      <span className="rules-plain-none">
+                                        {' '}
+                                        {t('rules:plain.unconfirmedLabel')}
+                                      </span>
+                                    )}
+                                    {canEditMeaning && (
+                                      <button
+                                        type="button"
+                                        className="btn btn--ghost btn--sm"
+                                        onClick={() => {
+                                          setMeaningErr('')
+                                          setEditValue('')
+                                          setEditKey(rowKey)
+                                        }}
+                                      >
+                                        {t('rules:plain.meaningEdit')}
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                                {editingThisRow && meaningErr && (
+                                  <p className="ds-card-err">{meaningErr}</p>
+                                )}
+                              </td>
                               <td>{p.unit ?? ''}</td>
                             </tr>
                           )

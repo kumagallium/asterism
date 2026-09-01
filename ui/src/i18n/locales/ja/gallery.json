@@ -48,7 +48,7 @@
     "structure": "中身",
     "files": "取り込み・公開",
     "connect": "つながり",
-    "tools": "ツール（開発者向け）",
+    "tools": "ツール",
     "design": "元のファイルとの対応（技術情報）"
   },
   "grid": {
@@ -125,7 +125,8 @@
     "predicatesHead": "使っている項目（実データから）",
     "diagramSummary": "構造図",
     "advisoryHead": "気になる点",
-    "advisoryNote": "下の「設計を見直す」から、AI につながりを足してもらえます。"
+    "advisoryNote": "下の「設計を見直す」から、AI につながりを足してもらえます。",
+    "iriListSummary": "IRI の一覧（技術情報）"
   },
   "rules": {
     "title": "変換ルール — 列がどう記録されるか",

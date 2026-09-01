@@ -8,7 +8,12 @@
     "computed": "（計算して作った値）",
     "fixed": "（決まった値）",
     "linked": "（ほかの種類のデータとのつながり）",
-    "unreadable": "（この表では読み取れませんでした）"
+    "unreadable": "（この表では読み取れませんでした）",
+    "unconfirmedLabel": "（未確認 — 列名のまま）",
+    "meaningEdit": "意味を直す",
+    "meaningSave": "保存",
+    "meaningSaving": "保存中…",
+    "meaningCancel": "取り消し"
   },
   "techSummary": "詳しい内容（技術情報）: 変換ルールの読み下し",
   "artifactsSummary": "詳しい内容（技術情報）: 変換ルール（RML）と関連ファイル",
