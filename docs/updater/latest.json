@@ -1,11 +1,11 @@
 {
-  "version": "0.31.5",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b4c4268d241e709ce7e4d0532a8512755ebf65cb -->\n\n## What's Changed\n* fix(ui): ⑤の図を annotations 非依存に — カード無し・検査前でも図を消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/498\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.4...v0.31.5",
-  "pub_date": "2026-09-01T07:41:49Z",
+  "version": "0.31.6",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at bd41121c49fde4f587a870aa3e9fbf2efb8d8098 -->\n\n## What's Changed\n* fix(ci): dependabot の自動 major ラベルを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/486\n* chore(deps): bump actions/github-script from 7 to 9 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/481\n* chore(deps): bump docker/setup-buildx-action from 3.12.0 to 4.3.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/482\n* chore(deps): bump actions/checkout from 4 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/483\n* chore(deps): bump docker/login-action from 3.7.0 to 4.6.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/485\n* chore(deps): bump docker/build-push-action from 6.19.2 to 7.3.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/501\n* chore(deps): bump tauri-apps/tauri-action from 0 to 1 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/484\n* feat(ui): ④の相談に列の実値を渡す — #480 の作り直し（新設計前提） by @kumagallium in https://github.com/kumagallium/asterism/pull/506\n\n## New Contributors\n* @dependabot[bot] made their first contribution in https://github.com/kumagallium/asterism/pull/481\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.5...v0.31.6",
+  "pub_date": "2026-09-01T08:35:57Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZOUFd1Q0lsb0dGelovZ2ZpZWxvSEtQak1mV0FFTy82bjFJZitFalhwOTVUWWpYeXhVa2JCWi8xMWd2b3JLbHlzSUdYWGRDOC94alZxS3UzV0trdHd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjQ4NTA5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cm5MK21qNHVEYWVMU095TXBYdTltSWZIbld0WkQxWE9DRmFQRHc3MTVJdWdseVFKdEkzWUUxZEZ5LzdyNXhYUnpLUWtYVHc5WEZTS0xkUmYyQ3E3R0NRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.5/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWIvcjNoeDk2MEEwME5TQnpKVHk4bTNpM0V0a3hTWmdmNnhZcCtETXRyaEF4Y25FNXZoOEUxdVJnL0dER3dMbENFWU9TbFhERXV3aVBLV3ZaWExjRmcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjUxNzU2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CklaYkFPQ2ttajR5dVdHdkRYSzBJODh0MlNNaUlySmZBQm1TV25vZTU2b2pmYktjc2lvQzdnQTIrMSs4OWFvSkZGMWkvS1kvZTF5N0s2elJDczNhbkF3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.6/Asterism_aarch64.app.tar.gz"
     }
   }
 }
