@@ -1,11 +1,11 @@
 {
-  "version": "0.31.9",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at da903315c5e684de67fec038d3ec7c579549288d -->\n\n## What's Changed\n* fix: JSON 由来 CSV の実列名を設計時に与える — 幻の列名を入口で止める by @kumagallium in https://github.com/kumagallium/asterism/pull/512\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.8...v0.31.9",
-  "pub_date": "2026-09-01T16:00:56Z",
+  "version": "0.31.10",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f66037e32af8380c22f1a0df5fa3c3bdd0fc4f86 -->\n\n## What's Changed\n* fix(step0): 受け口のラベルを決定論で保証 — 助言と持ち物強制の板挟みを解く by @kumagallium in https://github.com/kumagallium/asterism/pull/514\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.9...v0.31.10",
+  "pub_date": "2026-09-01T16:27:37Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVdPaGY5TzEzcThFcXovTlJYNXBwRzQ3bVQrRGRTVGhNNWt0bnNUVXZheXJGN2pzdnNMUGNRRGw1L1NxVXpFTWc1ZHZNdnR2emxOVzEvcjBTRkZ4V1FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4Mjc4NDU2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjBaMjFJRXkyTlVuNlBKSndYeXpUSGd3WnUra3I2dElmS3VxRTd0aTdxZ0drd0M2Q1dPc2k5VnNsdkhtd09ibGJhUkFqYmhWYnJXZVdTYXBtaDFqOEJRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.9/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWRMTkVkam1tbWhzSWR1KzBpY0tuTWZCVjZ6WWhJbHJhenVBNGhsKzIvamdhbDFIbGRlWDFBUTR0K1RFbjI0SWpJT2NhS2lTczZmZjQzRnplVEJGY2c0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjgwMDU2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cjh0L1BZTVpDOUhiek9JVWpUZHF6SDNIRXVTbDBsNzdnaDJmQjRvQk5tdzlTNXdzdDFLeEpKbEYwbEJDTnJtdExVTTg4bDdzanZ3NWpZWHhnWTkrM0NRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.10/Asterism_aarch64.app.tar.gz"
     }
   }
 }
