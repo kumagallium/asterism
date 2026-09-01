@@ -1,11 +1,11 @@
 {
-  "version": "0.31.4",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 94bd4c5008262f3d6ee37fce9a3a974de90f0279 -->\n\n## What's Changed\n* fix(ui): ④で実物の値を見せる — 「列に ☑・つながるのは値」を明確に by @kumagallium in https://github.com/kumagallium/asterism/pull/496\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.3...v0.31.4",
-  "pub_date": "2026-09-01T07:03:26Z",
+  "version": "0.31.5",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b4c4268d241e709ce7e4d0532a8512755ebf65cb -->\n\n## What's Changed\n* fix(ui): ⑤の図を annotations 非依存に — カード無し・検査前でも図を消さない by @kumagallium in https://github.com/kumagallium/asterism/pull/498\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.4...v0.31.5",
+  "pub_date": "2026-09-01T07:41:49Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJqbmFNVSszeEpMN2xNenhDRnpMdDIraWNzTnRubnFOaSsyL3pPMkF6MHBWVkt3S3R0WVhzb0tUckNkd3krRUtESEZQYnlzTHo0VXFua20yMWZKVWdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjQ2MjA1CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjJQM1pPNHRadmp6Z3htV2cycVc1N1B6U1ZTZktmWHBKQmRoVitodm1VTURtMjFsUkVuUi9ybTVWWDFsclE5ekg2aW9BMENwNmptMTFDNXZRbHdqRkFRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.4/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZOUFd1Q0lsb0dGelovZ2ZpZWxvSEtQak1mV0FFTy82bjFJZitFalhwOTVUWWpYeXhVa2JCWi8xMWd2b3JLbHlzSUdYWGRDOC94alZxS3UzV0trdHd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjQ4NTA5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cm5MK21qNHVEYWVMU095TXBYdTltSWZIbld0WkQxWE9DRmFQRHc3MTVJdWdseVFKdEkzWUUxZEZ5LzdyNXhYUnpLUWtYVHc5WEZTS0xkUmYyQ3E3R0NRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.5/Asterism_aarch64.app.tar.gz"
     }
   }
 }
