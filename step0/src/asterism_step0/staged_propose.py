@@ -383,6 +383,51 @@ def _lower_camel(name: str) -> str:
     return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
 
 
+def ensure_value_catalog_labels(ir: Mapping[str, Any]) -> tuple[dict, list[str]]:
+    """値のカタログ [owns がテンプレートの単独キーと一致する種類] に、その値の
+    **リテラル**を最低 1 つ保証する [rdfs:label]。
+
+    カタログの実体は「値そのもの」で、ラベルが無いと IRI だけの空の入れ物になる。
+    空の入れ物への助言は「行ごとに変わる列を足せ」と言うが、行の列の持ち物は
+    record 側に固定してある [column-ownership の強制] ため、モデルはその助言を
+    **実行できない** — 助言と持ち物制約の板挟みで修理ラウンドが空転する
+    [実測 2026-09-02: 元素表 JSON の Number が 4 ラウンド不動]。書くべき直しは
+    列の追加ではなくラベルのリテラル化で、それは決定論で書ける — ここで書く。
+
+    既に自分のキー列をリテラルで持つカタログには何もしない [冪等]。IRI 化された
+    もの [object_type: iri / object_template] はリテラルと数えない — その形が
+    まさに空の入れ物を作った実測の形。
+    """
+    maps = [m for m in (ir.get("maps") or []) if isinstance(m, Mapping)]
+    out_maps: list[dict] = []
+    added: list[str] = []
+    for m in maps:
+        mm = dict(m)
+        keys = re.findall(r"\{([^{}]+)\}", str((m.get("subject") or {}).get("template") or ""))
+        owns = [str(c) for c in (m.get("owns") or [])]
+        if len(keys) == 1 and owns == keys:
+            col = keys[0]
+            props = [dict(p) for p in (m.get("properties") or []) if isinstance(p, Mapping)]
+            has_literal = any(
+                str(p.get("column") or "") == col
+                and p.get("object_template") is None
+                and str(p.get("object_type") or "") != "iri"
+                for p in props
+            )
+            if not has_literal:
+                props.append({"column": col, "predicate": "rdfs:label"})
+                mm["properties"] = props
+                added.append(str(m.get("name")))
+        out_maps.append(mm)
+    if not added:
+        return dict(ir), []
+    out = {**ir, "maps": out_maps}
+    prefixes = dict(out.get("prefixes") or {})
+    prefixes.setdefault("rdfs", "http://www.w3.org/2000/01/rdf-schema#")
+    out["prefixes"] = prefixes
+    return out, added
+
+
 def ensure_same_source_links(
     ir: Mapping[str, Any], *, ontology_prefix: str = ""
 ) -> tuple[dict, list[str]]:
@@ -3590,6 +3635,12 @@ def propose_from_skeleton(
     # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
     # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
     # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。
+    assembled, labeled = ensure_value_catalog_labels(assembled)
+    if labeled:
+        emit(
+            phase="label",
+            message="受け口にラベルを足しました: " + ", ".join(labeled),
+        )
     assembled, links_added = ensure_same_source_links(
         assembled, ontology_prefix=ontology_prefix
     )

@@ -40,6 +40,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     build_skeleton_user,
     drop_borrowed_properties,
     ensure_same_source_links,
+    ensure_value_catalog_labels,
     fill_mapping_spec_block,
     generate_column_meanings,
     generate_map_properties,
@@ -1242,6 +1243,46 @@ def test_normalize_key_separators_puts_a_slash_between_key_columns() -> None:
         "xr:sample/{id}/measurement/{t}",
         "xr:one/{id}",
     ]
+
+
+# --- ensure_value_catalog_labels: 受け口は自分の値をリテラルで持つ（2026-09-02） ---
+
+
+def test_value_catalog_gets_its_label_literal() -> None:
+    """空の入れ物への助言（行の列を足せ）は持ち物の強制と板挟みでモデルには
+    実行できない（実測: 元素表 JSON の Number が 4 ラウンド不動）。書くべき直しは
+    ラベルのリテラル化で、決定論で書く。IRI 化された自分の値はリテラルと
+    数えない。"""
+    ir = {
+        "version": 1,
+        "prefixes": {"x": "https://example.org/x#"},
+        "maps": [
+            {
+                "name": "number",
+                "source": "elements.csv",
+                "subject": {"template": "xr:number/{number}"},
+                "owns": ["number"],
+                "properties": [
+                    {"column": "number", "predicate": "x:sameAs", "object_type": "iri"}
+                ],
+            },
+            {
+                "name": "record",
+                "source": "elements.csv",
+                "subject": {"template": "xr:record/{name}"},
+                "properties": [{"column": "name", "predicate": "rdfs:label"}],
+            },
+        ],
+    }
+    out, added = ensure_value_catalog_labels(ir)
+    assert added == ["number"]
+    number = next(m for m in out["maps"] if m["name"] == "number")
+    assert {"column": "number", "predicate": "rdfs:label"} in number["properties"]
+    assert out["prefixes"]["rdfs"] == "http://www.w3.org/2000/01/rdf-schema#"
+    # record（カタログでない）は触らない・冪等
+    out2, added2 = ensure_value_catalog_labels(out)
+    assert added2 == []
+    assert out2 == out
 
 
 # --- ensure_same_source_links: 1 ファイルの種類は 1 つにつながる（2026-08-27） ---
