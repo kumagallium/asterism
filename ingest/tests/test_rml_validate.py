@@ -273,6 +273,26 @@ def test_missing_source_file_is_flagged_with_suggestion(tmp_path: Path) -> None:
     assert not any("title" in m and "is not in" in m for m in issues)
 
 
+def test_csv_reference_backed_by_sibling_json_is_not_flagged(tmp_path: Path) -> None:
+    """A ``.csv`` source backed only by a sibling ``.json`` is legal: ingest
+    tabularizes it on the fly (``substrate.tabularize_json_sources``). Flagging
+    it made the design-time check contradict the compiler's own demand for the
+    tabularized name, so a JSON design's repair loop could never converge
+    (live 2026-09-01, periodic-table JSON)."""
+    (tmp_path / "elements.json").write_text(
+        '[{"name": "H", "atomic_mass": 1.008}]', encoding="utf-8"
+    )
+    rml = _PREFIXES + (
+        '<#M> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "elements.csv" ; '
+        'rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/{name}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
+        '    rr:objectMap [ rml:reference "atomic_mass" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
+
+
 def test_missing_source_lists_available_files_when_no_close_match(tmp_path: Path) -> None:
     # When no real filename is similar, the available files are listed so the AI can
     # pick the right one rather than guessing again.

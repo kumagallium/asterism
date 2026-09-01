@@ -637,6 +637,39 @@ def _write_card_with_csd(tmp_path: Path) -> Path:
     return p
 
 
+def test_assemble_json_uses_tabularized_source_name(tmp_path: Path) -> None:
+    """JSON は設計上「<stem>.csv」で参照する（検査プロンプト・rml_compile の規約）。
+    物理名 .json を書くと、コンパイラと存在検証が矛盾する要求を出して修理ループが
+    収束しない（実測 2026-09-01: 元素表 JSON が 8 ラウンド全敗）。annotate は
+    表化名の別名でも同じ検査を返す。"""
+    p = tmp_path / "elements.json"
+    p.write_text(
+        '[{"name": "Hydrogen", "symbol": "H", "atomic_mass": 1.008},'
+        ' {"name": "Helium", "symbol": "He", "atomic_mass": 4.0026}]',
+        encoding="utf-8",
+    )
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[
+            {"source": "elements.json", "column": "symbol"},
+            {"source": "elements.json", "column": "name"},
+        ],
+    )
+    sk = out["skeleton"]
+    assert all(m["source"] == "elements.csv" for m in sk["maps"])
+    names = {m["name"]: m for m in sk["maps"]}
+    assert names["symbol"]["owns"] == ["symbol"]
+    # 行の種類のキー列 (name) に ☑ しても別の受け口は作らない — 種類自身が
+    # 受け口 (ADR D3。record/{name} と name/{name} の二重を作らない)。
+    assert set(names) == {"record", "symbol"}
+    # 表化名の骨格でも、物理の .json から検査が引ける（別名解決）。JSON は
+    # 行ベース検査の対象外（既存挙動）だが、reason が「ソース不明」ではなく
+    # 「JSON だから」なら、解決は成功している。
+    ann = annotate_skeleton(sk, [p])["maps"]
+    assert ann["record"]["reason"] == "unsupported-source-kind:json"
+    assert ann["record"]["key_columns"] == ["name"]
+
+
 def test_assemble_marks_provisional_key_when_nothing_named(tmp_path: Path) -> None:
     """④で何も ☑ しない → 機械が仮置きし、metadata で明示（利用者裁定）。"""
     p = _write_reference_card(tmp_path)

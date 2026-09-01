@@ -252,6 +252,15 @@ def _check_sources(graph, csv_dir: Path) -> list[str]:
             if path.exists():
                 continue
             name = path.name
+            # A ``.csv`` reference backed by a sibling JSON is legal: ingest
+            # tabularizes it on the fly (``substrate.tabularize_json_sources``).
+            # Without this alias the design-time check and the compiler demand
+            # contradictory names for a JSON source and the repair loop cannot
+            # converge (live 2026-09-01).
+            if path.suffix.lower() == ".csv" and any(
+                path.with_suffix(sfx).exists() for sfx in (".json", ".geojson")
+            ):
+                continue
             if name in seen:
                 continue
             seen.add(name)
