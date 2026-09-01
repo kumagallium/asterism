@@ -8,9 +8,6 @@ display metadata on the §9 spec, so the correction is deterministic: set the
 field, splice the block, re-project. These tests pin that it changes ONLY that,
 and that a later AI round cannot take it back (the re-assertion path).
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
-# ruff: noqa: RUF002
 from __future__ import annotations
 
 import pytest

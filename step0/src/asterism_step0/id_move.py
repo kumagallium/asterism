@@ -26,9 +26,6 @@
 
 Pure: I/O も乱数も時刻も無い。同じ 2 つの設計からは常に同じ計画が出る。
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
-# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import re

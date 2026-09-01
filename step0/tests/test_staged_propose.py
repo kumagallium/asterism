@@ -6,9 +6,6 @@ orchestrators are driven by a scripted mock client. The headline test is
 EQUIVALENCE: a full IR split into a skeleton + per-map tables and reassembled
 must reproduce the exact same IR (ADR mapping-ir-phase2b-skeleton-wizard §10.1).
 """
-# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
-# 見間違いではない（id_move.py / describe.py と同じ流儀）。
-# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import json

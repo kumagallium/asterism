@@ -24,9 +24,6 @@ The IR this module assembles goes through the SAME parse -> validate -> compile
 -> RML gates as any other round — guided decoding and staging narrow generation,
 they never replace validation.
 """
-# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
-# 見間違いではない（id_move.py / describe.py と同じ流儀）。
-# ruff: noqa: RUF003
 from __future__ import annotations
 
 import hashlib
