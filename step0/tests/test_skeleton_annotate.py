@@ -649,12 +649,19 @@ def test_assemble_json_uses_tabularized_source_name(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     out = assemble_skeleton_from_judgments(
-        [p], linkable=[{"source": "elements.json", "column": "symbol"}]
+        [p],
+        linkable=[
+            {"source": "elements.json", "column": "symbol"},
+            {"source": "elements.json", "column": "name"},
+        ],
     )
     sk = out["skeleton"]
     assert all(m["source"] == "elements.csv" for m in sk["maps"])
     names = {m["name"]: m for m in sk["maps"]}
     assert names["symbol"]["owns"] == ["symbol"]
+    # 行の種類のキー列 (name) に ☑ しても別の受け口は作らない — 種類自身が
+    # 受け口 (ADR D3。record/{name} と name/{name} の二重を作らない)。
+    assert set(names) == {"record", "symbol"}
     # 表化名の骨格でも、物理の .json から検査が引ける（別名解決）。JSON は
     # 行ベース検査の対象外（既存挙動）だが、reason が「ソース不明」ではなく
     # 「JSON だから」なら、解決は成功している。

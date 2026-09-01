@@ -1565,9 +1565,13 @@ def assemble_skeleton_from_judgments(
             add_map(name, design_src, key, _pascal(name) or "Record", owns=record_owns)
 
         # ---- つながる受け口（値のカタログ）----
+        record_key = set(key or []) if varying else set()
         for col in links:
-            if col == card_key:
-                continue  # 種類自身が受け口 — 別の受け口は作らない
+            if col == card_key or col in record_key:
+                # ☑ した値がその種類の ID になったときは受け口を作らない —
+                # 種類自身が受け口 [ADR D3]。カードだけでなく行の種類のキーも
+                # 同じ [実測 2026-09-01: record/{name} と name/{name} の二重]。
+                continue
             if types.get(col) in _MEASUREMENT_TYPES:
                 continue  # 測定値は ID にしない（K7/K33）
             if col not in columns:
