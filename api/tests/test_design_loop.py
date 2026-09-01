@@ -427,6 +427,35 @@ def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> No
     }
 
 
+def test_ir_env_check_accepts_json_backed_csv_with_tabularized_header(tmp_path: Path) -> None:
+    """設計時の IR 環境検証も JSON→CSV の別名規約を知る。知らないと、決定論で
+    組んだ正しい §9（source: <stem>.csv）を「存在しない」と差し戻し、LLM refine
+    を誘発する（実測 2026-09-02: 元素表 JSON — refine が dialects の junk まで
+    書いた）。列は表化ヘッダで検証され、幻列は did-you-mean 付きで挙がる。"""
+    (tmp_path / "elements.json").write_text(
+        '{"elements": [{"name": "H", "atomic_mass": 1.008}]}', encoding="utf-8"
+    )
+    ok_yaml = """
+version: 1
+prefixes:
+  el: https://example.org/datasets/e/ontology#
+  elr: https://example.org/datasets/e/resource/
+maps:
+- name: record
+  source: elements.csv
+  subject:
+    template: elr:record/{name}
+    classes: [el:Record]
+  properties:
+  - {column: atomic_mass, predicate: el:atomicMass}
+"""
+    issues = design_loop._collect_ir_issues(ok_yaml, tmp_path)
+    assert not any("does not exist" in i.message for i in issues)
+    bad_yaml = ok_yaml.replace("column: atomic_mass", "column: atomicMass")
+    issues = design_loop._collect_ir_issues(bad_yaml, tmp_path)
+    assert any("atomicMass" in i.message and "atomic_mass" in i.message for i in issues)
+
+
 def test_column_owners_pin_keys_and_declared_owns_deterministically(tmp_path: Path) -> None:
     """Live 2026-09-01 (XRD reference card): key columns belonged to NOBODY, so
     the generation model transcribed ``No``/``(hkl)`` as plain properties of the
