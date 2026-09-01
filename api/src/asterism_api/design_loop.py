@@ -350,6 +350,28 @@ def _column_datatypes(
     return out
 
 
+def _json_backed_header_for(base: Path, csv_name: str) -> list[str]:
+    """表化名 ``<stem>.csv`` の実列を、sibling の JSON から導出する。
+
+    メニューの列挙と IR の環境検証の両方が同じ導出を使う — 名前だけ知らせて
+    列一覧が空だと、モデルが camelCase の幻の列名を発明し、設計時は素通り・
+    取り込みで爆発した (実測 2026-09-02、元素表 JSON)。
+    """
+    for sfx in (".json", ".geojson"):
+        json_src = base / (Path(csv_name).stem + sfx)
+        if json_src.exists():
+            import tempfile
+
+            from asterism.tabularize import tabularize_json_to_csv
+
+            try:
+                with tempfile.TemporaryDirectory() as td:
+                    return tabularize_json_to_csv(json_src, Path(td) / csv_name)
+            except Exception:
+                return []
+    return []
+
+
 def _column_owners(
     skeleton: Mapping[str, Any], paths: list[Path], dialects: Mapping[str, Any]
 ) -> dict[str, dict[str, str]]:
@@ -500,22 +522,7 @@ def build_oracle(
     names = sorted({_referable(p) for p in csv_paths})
 
     def _json_backed_header(csv_name: str) -> list[str]:
-        # 表化名の実列を JSON から導出してメニューに載せる。名前だけ列挙して
-        # 列一覧が空だと、モデルが camelCase の幻の列名を発明し、設計時は
-        # 素通り・取り込みで爆発した (実測 2026-09-02、元素表 JSON)。
-        for sfx in (".json", ".geojson"):
-            json_src = base / (Path(csv_name).stem + sfx)
-            if json_src.exists():
-                import tempfile
-
-                from asterism.tabularize import tabularize_json_to_csv
-
-                try:
-                    with tempfile.TemporaryDirectory() as td:
-                        return tabularize_json_to_csv(json_src, Path(td) / csv_name)
-                except Exception:
-                    return []
-        return []
+        return _json_backed_header_for(base, csv_name)
     lines: list[str] = [
         "── Reference (closed menu — use ONLY these names; do NOT invent or rename) ──",
         "Source files (use the filename EXACTLY as written):",
@@ -659,6 +666,18 @@ def _collect_ir_issues(ir_yaml: str, source_dir: Path) -> list[Issue]:
         for f in files
         if Path(f).suffix.lower() in _TABULAR_SUFFIXES
     }
+    # JSON は取り込みで表化されるため、設計は <stem>.csv 名で参照する（規約）。
+    # 別名の実在 + 表化ヘッダをここでも提示しないと、この存在チェックだけが
+    # 規約を知らず、決定論組みの §9 を差し戻して LLM refine を誘発する
+    # （実測 2026-09-02: 元素表 JSON — refine が dialects の junk まで書いた）。
+    for f in list(files):
+        q = Path(f)
+        if q.suffix.lower() in (".json", ".geojson"):
+            alias = f"{q.stem}.csv"
+            if alias not in files:
+                files.append(alias)
+                headers[alias] = _json_backed_header_for(Path(source_dir), alias) or None
+    files = sorted(files)
     messages = validate_mapping_ir(ir, files=files, headers=headers, catalog=catalog)
     # Policy gate (ADR instance-iri-base.md): placeholder namespaces (example.org
     # & co) identify nothing — the design must re-mint under the instance IRI
