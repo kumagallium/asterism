@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.31.9](https://github.com/kumagallium/asterism/compare/v0.31.8...v0.31.9) - 2026-09-01
+
+- fix: JSON 由来 CSV の実列名を設計時に与える — 幻の列名を入口で止める by @kumagallium in https://github.com/kumagallium/asterism/pull/512
+
 ## [v0.31.8](https://github.com/kumagallium/asterism/compare/v0.31.7...v0.31.8) - 2026-09-01
 
 - fix: dialects の権威 overlay を双方向に — LLM の不正な形を決定論で掃除 by @kumagallium in https://github.com/kumagallium/asterism/pull/510
