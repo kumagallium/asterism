@@ -1,11 +1,11 @@
 {
-  "version": "0.31.3",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at fcf55799970edd410e8aa809dfd14c2ef064e87d -->\n\n## What's Changed\n* fix: 持ち物の決定論的強制 — ☑ していない種類へ AI が列を転記できる穴を塞ぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/494\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.2...v0.31.3",
-  "pub_date": "2026-08-31T23:37:17Z",
+  "version": "0.31.4",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 94bd4c5008262f3d6ee37fce9a3a974de90f0279 -->\n\n## What's Changed\n* fix(ui): ④で実物の値を見せる — 「列に ☑・つながるのは値」を明確に by @kumagallium in https://github.com/kumagallium/asterism/pull/496\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.31.3...v0.31.4",
+  "pub_date": "2026-09-01T07:03:26Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWF3SjUvaXY2QWV6V3JMRHA1NStEa0dRSUU5MS8vcE5pRDlXVlV0bEF4TU5IbG1OQ0NTa0dZQ1hlVDFCRzV1MVVKSjdNNHdyOUhqSXRjUERVSDZFV0FNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjE5NDM3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ck5XMy96UFlFWkdVUDFPNHA3Y0lkNk42aGtlSzdNcHN1bVcyZFcxLzZVZSs4SkU0UWNLVTlraVR6cDY2OWI1WFlXeHF3dVQrbTN6ZlhTcFF6UVRyZEFnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.3/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJqbmFNVSszeEpMN2xNenhDRnpMdDIraWNzTnRubnFOaSsyL3pPMkF6MHBWVkt3S3R0WVhzb0tUckNkd3krRUtESEZQYnlzTHo0VXFua20yMWZKVWdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjQ2MjA1CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjJQM1pPNHRadmp6Z3htV2cycVc1N1B6U1ZTZktmWHBKQmRoVitodm1VTURtMjFsUkVuUi9ybTVWWDFsclE5ekg2aW9BMENwNmptMTFDNXZRbHdqRkFRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.31.4/Asterism_aarch64.app.tar.gz"
     }
   }
 }
