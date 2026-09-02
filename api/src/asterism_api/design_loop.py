@@ -109,6 +109,7 @@ from asterism_step0.staged_propose import (
     ensure_same_source_links,
     ensure_value_catalog_labels,
     propose_from_skeleton,
+    skeleton_from_full_ir,
     take_in_columns,
 )
 from asterism_step0.validate import SchemaBundle, validate_schema
@@ -1834,13 +1835,14 @@ def run_design_loop(
         schema_md = proposal.proposal_md
         inspection_md = proposal.csv_inspection_md
         metadata = dict(proposal.metadata)
-    schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
-    schema_md = _overlay_data_facts(schema_md, *data_facts)
-    schema_md = _overlay_column_meanings(schema_md, column_meanings)
-    schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
-    schema_md = _overlay_column_decisions(schema_md, column_decisions)
-    schema_md = _overlay_taken_in_columns(
-        schema_md, skeleton, column_meanings, column_decisions, *data_facts
+    schema_md = _reassert_invariants(
+        schema_md,
+        effective=effective,
+        override_names=override_names,
+        data_facts=data_facts,
+        column_meanings=column_meanings,
+        column_decisions=column_decisions,
+        skeleton=skeleton,
     )
 
     def _result(
@@ -2026,13 +2028,14 @@ def run_design_loop(
 
         # Re-pin the effective dialects (a repair round could have dropped the
         # section; explicit values the round kept still win). Idempotent.
-        schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
-        schema_md = _overlay_data_facts(schema_md, *data_facts)
-        schema_md = _overlay_column_meanings(schema_md, column_meanings)
-        schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
-        schema_md = _overlay_column_decisions(schema_md, column_decisions)
-        schema_md = _overlay_taken_in_columns(
-            schema_md, skeleton, column_meanings, column_decisions, *data_facts
+        schema_md = _reassert_invariants(
+            schema_md,
+            effective=effective,
+            override_names=override_names,
+            data_facts=data_facts,
+            column_meanings=column_meanings,
+            column_decisions=column_decisions,
+            skeleton=skeleton,
         )
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
@@ -2129,6 +2132,36 @@ def _overlay_column_meanings(
         return replace_mapping_spec_block(schema_md, new_yaml)
     except ValueError:
         return schema_md
+
+
+def _reassert_invariants(
+    schema_md: str,
+    *,
+    effective: Mapping[str, SourceDialect],
+    override_names: frozenset[str],
+    data_facts: tuple[Mapping[str, Mapping[str, str]], Mapping[str, Mapping[str, str]]],
+    column_meanings: Sequence[Mapping[str, Any]] | None,
+    column_decisions: Sequence[Mapping[str, Any]] | None,
+    skeleton: Mapping[str, Any] | None,
+) -> str:
+    """機械の不変条件を §9 に言い直す — **唯一の**再主張スタック。
+
+    2026-09-02 の教訓: 再主張が run_design_loop の round-0 / 毎ラウンド /
+    repair_after_refine の 3 箇所に手書きで分散し、片方に足した保証が他方に
+    無い（受け口ラベル・持ち物）ままドリフトした。古い助言文に従った LLM が
+    Record の 9 列を Number へ複写できたのは、第 3 経路に持ち物の再主張が
+    無かったから。以後、再主張はこの関数だけに書く — 追加する不変条件は
+    ここに 1 行足せば全経路に配られる。順序は従来の round-0 と同一。
+    """
+    schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
+    schema_md = _overlay_data_facts(schema_md, *data_facts)
+    schema_md = _overlay_column_meanings(schema_md, column_meanings)
+    schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
+    schema_md = _overlay_column_decisions(schema_md, column_decisions)
+    schema_md = _overlay_taken_in_columns(
+        schema_md, skeleton, column_meanings, column_decisions, *data_facts
+    )
+    return schema_md
 
 
 def _overlay_catalog_guarantees(
@@ -2432,12 +2465,31 @@ def repair_after_refine(
         }
 
     effective = _detect_source_dialects(paths)
-    schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
-    # 受け口ラベルと接続線の再保証は run_design_loop の再主張スタックに入れたが、
-    # 「AI に直してもらう」はこの**第 3 の経路**を通る — ここに無いと、旧下書きの
-    # 空の入れ物助言が押しても消えない（実測 2026-09-02: 利用者の 3 件が残存）。
-    # 骨格は届かないため owns 無しの空シェル救済側の条件で効く。
-    schema_md = _overlay_catalog_guarantees(schema_md, None)
+    # 第 3 の経路にも**同じ**再主張スタックを使う（一本化 2026-09-02 — この経路
+    # に持ち物の再主張が無く、古い助言に従った LLM が列を複写できた）。骨格は
+    # 届かないので §9 から復元し、持ち物・型は実データから測り直す。失敗は
+    # 空 = 従来挙動（保証は素通り、dialects と受け口保証だけでも効く）。
+    skeleton_hint: dict[str, Any] | None = None
+    facts: tuple[Mapping[str, Mapping[str, str]], Mapping[str, Mapping[str, str]]] = ({}, {})
+    try:
+        ir_yaml0, _ = _extract_design(schema_md)
+        if ir_yaml0 and ir_yaml0.strip():
+            skeleton_hint, _permaps = skeleton_from_full_ir(load_spec_yaml(ir_yaml0))
+            facts = (
+                _column_owners(skeleton_hint, paths, effective),
+                _column_datatypes(skeleton_hint, paths, effective),
+            )
+    except Exception:
+        skeleton_hint, facts = None, ({}, {})
+    schema_md = _reassert_invariants(
+        schema_md,
+        effective=effective,
+        override_names=frozenset(),
+        data_facts=facts,
+        column_meanings=None,
+        column_decisions=None,
+        skeleton=skeleton_hint,
+    )
     try:
         schema_md, ir_yaml, issues = _evaluate(schema_md, base)
     except _LoopEnvError as exc:
@@ -2496,10 +2548,15 @@ def repair_after_refine(
             )
         if on_llm_call is not None:
             on_llm_call("refine.autocorrect")
-        schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
-        # LLM ラウンドの後も毎回言い直す — 機械の保証は 1 回書くのではなく
-        # ラウンドごとに（run_design_loop と同じ規律）。
-        schema_md = _overlay_catalog_guarantees(schema_md, None)
+        schema_md = _reassert_invariants(
+            schema_md,
+            effective=effective,
+            override_names=frozenset(),
+            data_facts=facts,
+            column_meanings=None,
+            column_decisions=None,
+            skeleton=skeleton_hint,
+        )
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
