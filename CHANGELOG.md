@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.40.0](https://github.com/kumagallium/asterism/compare/v0.39.1...v0.40.0) - 2026-09-02
+
+- fix(ui): ことばの地図が空だった id 取り違え + 中身タブに実データの例（Phase 2-2） by @kumagallium in https://github.com/kumagallium/asterism/pull/559
+
 ## [v0.39.1](https://github.com/kumagallium/asterism/compare/v0.39.0...v0.39.1) - 2026-09-02
 
 - fix(step0): 見直しで組み直した骨格に値のカタログの owns を読み戻す — ⑤の「複数の行が同じ ID」誤警告の再発 by @kumagallium in https://github.com/kumagallium/asterism/pull/557
