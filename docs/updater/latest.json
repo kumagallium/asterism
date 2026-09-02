@@ -1,11 +1,11 @@
 {
-  "version": "0.37.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 14b094cc7b27f4e0b375a447233cc6cde36c6ee7 -->\n\n## What's Changed\n* fix(prod): Ask に run_sparql を渡す（集計・横断質問を可能に） by @kumagallium in https://github.com/kumagallium/asterism/pull/549\n* feat(design): セル内 JSON（配列・辞書）を決定論設計が自動で展開する by @kumagallium in https://github.com/kumagallium/asterism/pull/551\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.36.0...v0.37.0",
-  "pub_date": "2026-09-02T07:14:22Z",
+  "version": "0.38.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 57a80b366b8e98ce9bd1eefa6a0c126236c5e783 -->\n\n## What's Changed\n* fix(design): 入れ子辞書は 1 階層降りて dotted パスで展開する by @kumagallium in https://github.com/kumagallium/asterism/pull/552\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.37.0...v0.38.0",
+  "pub_date": "2026-09-02T07:48:00Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVpnR2xJM2NKOVdtZ3ZnYzcrZmJDV0ZXZ2psM296YVV1aHFvdWxQaVlKR0JMODZjMTBGdjFONWNQQTYxUkVLQXkzNkt3UXRhMkowS0t3MGdvR1JOS0FvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzMzMjYyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjZyaFA5T1VsUkJXakJYbGkvNkZycU4zSkxBN1g2dVJ6YmRHVnNWNHMvNVJZV2lpdVdrSUgxSENVb2EwWFpzSnM4WTNESEJxWC9VZDQ2YkxYQi9iK0RnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.37.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVhaTHV6MjdBblUySGhwKzNOSGRGN2NkYUdkOVBoSDNxUEtDT29qakdyRmd0S21JNW1aS1Y3YWl6Rzg2Uk1FQWxOSUQ1V1J3Nkhnclo4MEhnbHpkMEFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzM1MjgwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjkvRzlMSU03eFp5UXVPb1Jud2taVXhrY3Y5OHNZU1ZRVCthYnJmTmRQUncycjFZTGVEcTdMSEpnUlJ5SjdYMExoSUl5cGZjVFVJcmtQRFpKakt6TURnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.38.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
