@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.33.7](https://github.com/kumagallium/asterism/compare/v0.33.6...v0.33.7) - 2026-09-02
+
+- chore(ci): setup-uv v7 でキャッシュが既定 ON になった ci.yml の注記修正 ＋ actions v7 更新 3 本の記録 by @kumagallium in https://github.com/kumagallium/asterism/pull/532
+- chore(ci): setup-uv を SHA 固定（v7.6.0）— v8 以降はメジャータグが無く Dependabot が追えないため by @kumagallium in https://github.com/kumagallium/asterism/pull/537
+
 ## [v0.33.6](https://github.com/kumagallium/asterism/compare/v0.33.5...v0.33.6) - 2026-09-02
 
 - fix(api): 「AI に直してもらう」経路にも受け口保証を — 第 3 の再主張スタック by @kumagallium in https://github.com/kumagallium/asterism/pull/534
