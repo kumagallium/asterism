@@ -5,6 +5,7 @@ import {
   type Alignment,
   type AlignmentsResult,
   buildPerspective,
+  deletePerspective,
   type CrosswalkPerspective,
   type DiscoverCandidate,
   getAlignments,
@@ -78,6 +79,7 @@ export function CrosswalkView({
   // overview lands ON that connection instead of on whichever one happens to be first.
   const [selectedId, setSelectedId] = useState<string | null>(perspectiveIdFromHash)
   const [rebuilding, setRebuilding] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [rebuildErr, setRebuildErr] = useState('')
   const [note, setNote] = useState('')
   const [skippedNote, setSkippedNote] = useState('')
@@ -168,14 +170,28 @@ export function CrosswalkView({
     }
   }
 
-  // NO "stop this connection" button yet, on purpose. `POST /api/datasets/{id}/retract`
-  // looks like the wiring for it, but for a crosswalk it retracts the WRONG graph:
-  // the registry id is `crosswalk-bridge` while the data lives in
-  // `…/canonical/crosswalk`, so the marker lands on a graph that does not exist —
-  // and `list_perspectives` does not filter on status, so the "stopped" connection
-  // would still be listed AND still answer questions. A button that promises removal
-  // and delivers neither is worse than saying what is true today, so the confirm
-  // screen now promises a rebuild instead (see audit/handoff-crosswalk.md).
+  /** つながりの削除（利用者要望 2026-09-02）。retract の流用は誤りだった
+   *  （registry id と hub グラフがずれ、消えたふりだけになる — 旧コメント参照）。
+   *  DELETE /api/crosswalk/{id} は hub グラフと登録を本当に消す。元のデータ
+   *  セットには触れず、同じ設定でいつでも作り直せる可逆な操作。 */
+  async function onDelete() {
+    if (!selected) return
+    if (!window.confirm(t('crosswalk:view.deleteConfirm', { name: pname(selected) }))) return
+    setDeleting(true)
+    setRebuildErr('')
+    setNote('')
+    setSkippedNote('')
+    try {
+      await deletePerspective(selected.perspective_id)
+      setSelectedId(null)
+      setNote(t('crosswalk:view.deleted'))
+      load()
+    } catch (e) {
+      setRebuildErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const concepts = selected?.config?.concepts ?? []
   const participants = concepts.flatMap((c) => c.participants)
@@ -482,6 +498,14 @@ export function CrosswalkView({
                   onClick={onRebuild}
                 >
                   {rebuilding ? t('crosswalk:view.rebuilding') : t('crosswalk:view.rebuild')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm xw-delete-btn"
+                  disabled={rebuilding || deleting}
+                  onClick={onDelete}
+                >
+                  {deleting ? t('crosswalk:view.deleting') : t('crosswalk:view.delete')}
                 </button>
                 {selected.dataset?.crosswalk_built_at && (
                   <span className="xw-built-at">
