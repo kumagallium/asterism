@@ -383,9 +383,11 @@ def _lower_camel(name: str) -> str:
     return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
 
 
-def ensure_value_catalog_labels(ir: Mapping[str, Any]) -> tuple[dict, list[str]]:
-    """値のカタログ [owns がテンプレートの単独キーと一致する種類] に、その値の
-    **リテラル**を最低 1 つ保証する [rdfs:label]。
+def ensure_value_catalog_labels(
+    ir: Mapping[str, Any],
+    owns_by_map: Mapping[str, Sequence[str]] | None = None,
+) -> tuple[dict, list[str]]:
+    """値のカタログに、その値の**リテラル**を最低 1 つ保証する [rdfs:label]。
 
     カタログの実体は「値そのもの」で、ラベルが無いと IRI だけの空の入れ物になる。
     空の入れ物への助言は「行ごとに変わる列を足せ」と言うが、行の列の持ち物は
@@ -394,30 +396,49 @@ def ensure_value_catalog_labels(ir: Mapping[str, Any]) -> tuple[dict, list[str]]
     [実測 2026-09-02: 元素表 JSON の Number が 4 ラウンド不動]。書くべき直しは
     列の追加ではなくラベルのリテラル化で、それは決定論で書ける — ここで書く。
 
-    既に自分のキー列をリテラルで持つカタログには何もしない [冪等]。IRI 化された
+    ⭐``owns`` は IR には乗らない [parse_mapping_ir が unknown field として拒む
+    厳格設計で、``_clean_map`` が意図的に落とす]。だから骨格の owns は
+    **引数 ``owns_by_map`` [map 名 → owns] で別渡し**する — 最初の実装は IR 側の
+    owns を読んでいて、実パイプラインでは一度も発火しない no-op だった
+    [実測 2026-09-02: 修正後も空の入れ物助言が再発]。
+
+    カタログ判定は 2 系統 [単独キーのテンプレートが前提]:
+    1. 骨格が owns==keys を宣言している [決定論組み・D4 の兄弟]
+    2. owns が無くても、**リテラルを 1 つも出さない**単独キー map
+       [LLM/旧経路の空シェルそのもの — 助言が言う形を先に直す]
+
+    既に自分のキー列をリテラルで持つものには何もしない [冪等]。IRI 化された
     もの [object_type: iri / object_template] はリテラルと数えない — その形が
     まさに空の入れ物を作った実測の形。
     """
+    owns_of = {str(k): [str(c) for c in v or []] for k, v in (owns_by_map or {}).items()}
     maps = [m for m in (ir.get("maps") or []) if isinstance(m, Mapping)]
     out_maps: list[dict] = []
     added: list[str] = []
     for m in maps:
         mm = dict(m)
+        name = str(m.get("name"))
         keys = re.findall(r"\{([^{}]+)\}", str((m.get("subject") or {}).get("template") or ""))
-        owns = [str(c) for c in (m.get("owns") or [])]
-        if len(keys) == 1 and owns == keys:
+        owns = owns_of.get(name, [str(c) for c in (m.get("owns") or [])])
+        if len(keys) == 1:
             col = keys[0]
             props = [dict(p) for p in (m.get("properties") or []) if isinstance(p, Mapping)]
-            has_literal = any(
-                str(p.get("column") or "") == col
-                and p.get("object_template") is None
-                and str(p.get("object_type") or "") != "iri"
-                for p in props
+
+            def _is_literal(p: Mapping[str, Any]) -> bool:
+                return (
+                    p.get("object_template") is None
+                    and str(p.get("object_type") or "") != "iri"
+                    and bool(str(p.get("column") or "") or p.get("columns"))
+                )
+
+            has_key_literal = any(
+                _is_literal(p) and str(p.get("column") or "") == col for p in props
             )
-            if not has_literal:
+            is_catalog = owns == keys or not any(_is_literal(p) for p in props)
+            if is_catalog and not has_key_literal:
                 props.append({"column": col, "predicate": "rdfs:label"})
                 mm["properties"] = props
-                added.append(str(m.get("name")))
+                added.append(name)
         out_maps.append(mm)
     if not added:
         return dict(ir), []
@@ -3660,7 +3681,14 @@ def propose_from_skeleton(
     # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
     # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
     # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。
-    assembled, labeled = ensure_value_catalog_labels(assembled)
+    assembled, labeled = ensure_value_catalog_labels(
+        assembled,
+        {
+            str(m.get("name")): list(m.get("owns") or [])
+            for m in maps
+            if isinstance(m, Mapping)
+        },
+    )
     if labeled:
         emit(
             phase="label",

@@ -7265,8 +7265,11 @@ tr[data-map].skeleton-gate-row--added td {
 
 /* Always-visible 5-step recipe (①入れる → … → ⑤公開する) with 現在地. */
 .kz-recipe {
-  display: flex;
-  flex-wrap: wrap;
+  /* 全ピル同幅の 3 列グリッド。flex の折返しだと「現在地」チップの付く段が
+     変わるたびに折返し位置が動いた（利用者指摘 2026-09-02）。カード内側
+     848px では ⑤+チップ（実測 242px）の 4 列は入らないため 3 列で固定。 */
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   align-items: center;
   gap: var(--space-2);
   list-style: none;
@@ -7280,6 +7283,7 @@ tr[data-map].skeleton-gate-row--added td {
 .kz-recipe-step {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
