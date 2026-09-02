@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.42.0](https://github.com/kumagallium/asterism/compare/v0.41.0...v0.42.0) - 2026-09-02
+
+- feat: Phase 2 残タスク — D3 行版（同格の ID をそう言う）+ 語彙カタログ 111→596 語 by @kumagallium in https://github.com/kumagallium/asterism/pull/563
+
 ## [v0.41.0](https://github.com/kumagallium/asterism/compare/v0.40.0...v0.41.0) - 2026-09-02
 
 - feat(crosswalk): つながりの参加者を (データセット, 種類, 述語) 単位へ — 「label」候補を「Composition › 試料化学組成」と呼ぶ by @kumagallium in https://github.com/kumagallium/asterism/pull/561
