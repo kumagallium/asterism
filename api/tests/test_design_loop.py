@@ -636,3 +636,23 @@ def test_overlay_data_facts_survives_a_round_that_dropped_them() -> None:
     # Idempotent, and a no-verdict call is a no-op.
     assert design_loop._overlay_data_facts(fixed, owners, types) == fixed
     assert design_loop._overlay_data_facts(schema_md, {}, {}) == schema_md
+
+
+def test_json_expansion_plans_key_by_map_name(tmp_path: Path) -> None:
+    """セル内 JSON の展開計画は map 名で引ける形になる（決定論・LLM 0 —
+    ADR native-json-denormalization・利用者承認 2026-09-02）。読み方は
+    `_column_datatypes` と同じ dialect-aware の実行行。"""
+    p = tmp_path / "curves.csv"
+    p.write_text(
+        "id,y,info\n"
+        'a,"[0.1, 0.2]","{""weight"": 1.2}"\n'
+        'b,"[1.5]","{""weight"": 2.5, ""note"": ""x""}"\n',
+        encoding="utf-8",
+    )
+    skeleton = {
+        "maps": [{"name": "record", "source": "curves.csv"}],
+    }
+    plans = design_loop._json_expansion_plans(skeleton, [p], {})
+    assert plans["record"]["y"] == {"kind": "array", "numeric": True}
+    keys = {k["key"]: k["numeric"] for k in plans["record"]["info"]["keys"]}
+    assert keys["weight"] is True

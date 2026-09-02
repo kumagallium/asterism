@@ -108,6 +108,7 @@ from asterism_step0.staged_propose import (
     apply_data_facts,
     ensure_same_source_links,
     ensure_value_catalog_labels,
+    json_expansion_plan,
     propose_from_skeleton,
     skeleton_from_full_ir,
     take_in_columns,
@@ -299,6 +300,41 @@ def merge_dialect_overrides(
         key = str(name)
         base = out.get(key) or SourceDialect()
         out[key] = replace(base, **dict(fields))
+    return out
+
+
+def _json_expansion_plans(
+    skeleton: Mapping[str, Any], paths: list[Path], dialects: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Per map, セル内 JSON（配列・辞書）の展開計画（ADR native-json-denormalization）.
+
+    ``_column_datatypes`` と同じ読み方（dialect-aware の実際の行）で
+    :func:`json_expansion_plan` を回し、map 名で引ける形にする。展開の機構
+    （Tier0 json_array / json_get / json_pluck）は既存 — これはどの列に
+    それを書くかの決定論の指示書。Best-effort（失敗は ``{}``）。
+    """
+    try:
+        inspections, _fks = inspect_source_set(paths, dialects=dialects)
+    except Exception:
+        return {}
+    by_source: dict[str, dict[str, Any]] = {}
+    for path, ins in zip(paths, inspections, strict=False):
+        if path.suffix.lower() not in _TABULAR_SUFFIXES:
+            continue
+        try:
+            rows = _dialect_rows(path, ins.dialect) if ins.dialect else list(_stream_rows(path))
+        except Exception:
+            continue
+        if not rows:
+            continue
+        by_source[path.name] = json_expansion_plan(rows, list(rows[0].keys()))
+    out: dict[str, dict[str, Any]] = {}
+    for map_entry in skeleton.get("maps") or []:
+        if not isinstance(map_entry, Mapping):
+            continue
+        plan = by_source.get(Path(str(map_entry.get("source") or "")).name)
+        if plan:
+            out[str(map_entry.get("name"))] = plan
     return out
 
 
@@ -1794,6 +1830,11 @@ def run_design_loop(
         # number is compared lexically by SPARQL — a silent wrong answer.
         column_datatypes = _column_datatypes(skeleton, paths, effective)
         data_facts = (column_owners, column_datatypes)
+        # セル内 JSON の展開計画（配列→json_array・辞書→json_get・辞書の配列→
+        # json_pluck）。決定論経路だけが読む（ADR native-json-denormalization）。
+        json_plans = (
+            _json_expansion_plans(skeleton, paths, effective) if deterministic_rules else {}
+        )
         _emit(on_progress, phase="propose", round=0, message="骨格から設計を生成中")
         schema_md = propose_from_skeleton(
             skeleton,
@@ -1812,6 +1853,7 @@ def run_design_loop(
             # かんたん経路 (ADR deterministic-design-assembly): §9 と文書を
             # 決定論で組む。LLM は refine (検証エラー時のみ) と相談に残る。
             deterministic=deterministic_rules,
+            json_plans=json_plans,
         )
         metadata: dict[str, Any] = {
             "llm_class": type(llm).__name__,

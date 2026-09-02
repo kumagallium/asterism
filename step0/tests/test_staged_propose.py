@@ -35,6 +35,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     assemble_mapping_ir,
     build_permap_user,
     build_skeleton_user,
+    default_property_table,
     drop_borrowed_properties,
     ensure_same_source_links,
     ensure_value_catalog_labels,
@@ -42,6 +43,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     generate_column_meanings,
     generate_map_properties,
     generate_skeleton,
+    json_expansion_plan,
     mapping_ir_to_yaml,
     merge_label_fill,
     missing_label_rows,
@@ -2035,3 +2037,158 @@ def test_build_skeleton_user_carries_the_spellings() -> None:
     assert "`CrystalStructure`" in msg
     # 検査の本文より後ろに出さない（材料が先、薦めがあと）。
     assert msg.index("# Source inspection") < msg.index("# Standard class names")
+
+
+# --- セル内 JSON の展開（ADR native-json-denormalization・利用者承認 2026-09-02）---
+
+
+def test_json_expansion_plan_classifies_arrays_dicts_and_object_arrays() -> None:
+    """実データの標本から決定論で分類する。9 割未満しか揃わない列・素の文字列
+    列は対象外（1 セルの偶然で列全体の形を変えない）。"""
+    rows = [
+        {
+            "y": "[0.1, 0.2]",
+            "tags": '["a", "b"]',
+            "info": '{"crystallinity": "single", "weight": 1.2}',
+            "authors": '[{"family": "Kim", "given": "A"}]',
+            "plain": "hello",
+            "mostly": "not json",
+        },
+        {
+            "y": "[1.5]",
+            "tags": '["c"]',
+            "info": "{'crystallinity': 'poly', 'weight': 2.5}",
+            "authors": '[{"family": "Sato"}]',
+            "plain": "world",
+            "mostly": "[1,2]",
+        },
+    ]
+    plan = json_expansion_plan(rows, list(rows[0].keys()))
+    assert plan["y"] == {"kind": "array", "numeric": True}
+    assert plan["tags"] == {"kind": "array", "numeric": False}
+    assert plan["info"]["kind"] == "object"
+    keys = {k["key"]: k["numeric"] for k in plan["info"]["keys"]}
+    assert keys == {"crystallinity": False, "weight": True}
+    assert plan["authors"] == {"kind": "array_object", "keys": ["family", "given"]}
+    assert "plain" not in plan
+    assert "mostly" not in plan  # 1/2 しか JSON でない → 9 割に届かず対象外
+
+
+def test_default_property_table_expands_json_cells() -> None:
+    """配列は json_array（数なら xsd:double）、辞書はキーごとに json_get、
+    辞書の配列はキーごとに json_pluck。すべて既存 Tier0 — 新関数ゼロ。"""
+    table = default_property_table(
+        ["y", "info", "authors", "name"],
+        ontology_prefix="ex",
+        json_plan={
+            "y": {"kind": "array", "numeric": True},
+            "info": {
+                "kind": "object",
+                "keys": [{"key": "weight", "numeric": True}, {"key": "note", "numeric": False}],
+            },
+            "authors": {"kind": "array_object", "keys": ["family"]},
+        },
+    )
+    props = {(p["column"], p.get("args", {}).get("path") or p.get("args", {}).get("field")): p
+             for p in table["properties"]}
+    y = props[("y", None)]
+    assert y["function"] == "json_array" and y["datatype"] == "xsd:double"
+    weight = props[("info", "weight")]
+    assert weight["function"] == "json_get"
+    assert weight["datatype"] == "xsd:double"
+    assert weight["label"] == "info.weight"
+    note = props[("info", "note")]
+    assert "datatype" not in note
+    fam = props[("authors", "family")]
+    assert fam["function"] == "json_pluck" and fam["args"] == {"field": "family"}
+    # 素の列は従来どおり
+    assert props[("name", None)] == {"predicate": "ex:name", "column": "name", "label": "name"}
+
+
+def test_column_meaning_does_not_clobber_per_key_projections() -> None:
+    """列の意味は列と 1:1 の行にだけ写す。引数つき関数（json_get/json_pluck）は
+    セルの一部分を名指す投影で、列の意味をそのまま塗ると全キー行が同名になる
+    （sampleInfo の意味が crystallinity にも weight にも付く）。"""
+    ir = {
+        "maps": [
+            {
+                "name": "record",
+                "source": "s.csv",
+                "properties": [
+                    {"predicate": "ex:y", "column": "y", "function": "json_array", "label": "y"},
+                    {
+                        "predicate": "ex:infoWeight",
+                        "column": "info",
+                        "function": "json_get",
+                        "args": {"path": "weight"},
+                        "label": "info.weight",
+                    },
+                ],
+            }
+        ]
+    }
+    out, changed = apply_column_meanings(
+        ir,
+        [
+            {"source": "s.csv", "column": "y", "label": "測定値の並び"},
+            {"source": "s.csv", "column": "info", "label": "試料情報"},
+        ],
+    )
+    props = {p["predicate"]: p for p in out["maps"][0]["properties"]}
+    # 1:1 の json_array 行は意味を受け取る
+    assert props["ex:y"]["label"] == "測定値の並び"
+    # 部分投影はそのまま（表示メタの per-predicate 編集で直す）
+    assert props["ex:infoWeight"]["label"] == "info.weight"
+    assert changed == ["s.csv:y"]
+
+
+def test_deterministic_propose_wires_json_plans_to_the_assembled_ir() -> None:
+    """実配線（propose_from_skeleton → assemble → parse）で関数行が §9 に残り、
+    パーサに拒まれないことを固定する（保証パスのテストは実配線で書く）。"""
+
+    class Boom:
+        def complete(self, *args: object, **kwargs: object) -> str:
+            raise AssertionError("deterministic path must not call the LLM")
+
+    skeleton = {
+        "version": 1,
+        "prefixes": {
+            "sd": "https://example.org/datasets/curves/ontology#",
+            "sdr": "https://example.org/datasets/curves/resource/",
+        },
+        "maps": [
+            {
+                "name": "record",
+                "source": "curves.csv",
+                "subject": {"template": "sdr:record/{id}", "classes": ["sd:Record"]},
+                "owns": ["y", "info"],
+            }
+        ],
+    }
+    md = propose_from_skeleton(
+        skeleton,
+        "",
+        "",
+        llm=Boom(),  # type: ignore[arg-type]
+        deterministic=True,
+        map_columns={"record": ["id", "y", "info"]},
+        json_plans={
+            "record": {
+                "y": {"kind": "array", "numeric": True},
+                "info": {"kind": "object", "keys": [{"key": "weight", "numeric": True}]},
+            }
+        },
+        dataset_name="curves",
+    )
+    from asterism_step0.materialize import materialize_schema
+
+    ir_yaml = materialize_schema(md, ".", "t", write=False).mapping_ir_yaml
+    assert ir_yaml is not None
+    import yaml
+
+    ir = yaml.safe_load(ir_yaml)
+    props = ir["maps"][0]["properties"]
+    y = next(p for p in props if p.get("column") == "y")
+    assert y["function"] == "json_array" and y["datatype"] == "xsd:double"
+    info = next(p for p in props if p.get("column") == "info")
+    assert info["function"] == "json_get" and info["args"] == {"path": "weight"}

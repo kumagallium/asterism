@@ -208,6 +208,33 @@ tabularize する（formulation 解析不要・宣言的シグナル）。既存
 
 ---
 
+## 8.9 設計時の自動展開（2026-09-02・利用者承認）
+
+§8 は**機構**（tabularize＋Tier0 explode）を着地させたが、設計がそれを書くのは
+LLM/人任せのままだった。実運用（starrydata）で、かんたんの決定論設計（D5）が
+セル内 JSON を素のリテラルとして束縛し、`x`/`y` 配列が**配列まるごと 1 文字列**で
+グラフに入った（数値比較不能 = 「ZT が最大の組成」に答えられない）。`sampleInfo` の
+辞書も同様に生文字列。利用者の裁定は「**配列も辞書も基本は展開**」。
+
+決定論の追補（LLM 0・新関数 0）:
+
+- `json_expansion_plan(rows, columns)`（step0・stdlib のみ）— 非空セルの標本
+  （200 件・9 割一致で採用）から列を分類: スカラ配列 / 単一辞書（スカラキー・
+  頻度 1 割以上・最大 16）/ 辞書の配列（最大 12 キー）。
+- `default_property_table(json_plan=…)` — 配列→`json_array`（全要素が数なら
+  `xsd:double`）、辞書→キーごと `json_get(path)`、辞書の配列→キーごと
+  `json_pluck(field)`。predicate は `列名+キー` の lowerCamel、label は `列.キー`。
+- `apply_column_meanings` — **引数つき関数の行（部分投影）には列の意味を塗らない**
+  （sampleInfo の意味が全キー行を同名にする巻き添えの防止）。1:1 の行
+  （素の column・`json_array`）は従来どおり意味を受け取る。
+- 配線: design_loop が `_column_datatypes` と同じ行読みで per-map の計画を作り、
+  `propose_from_skeleton(json_plans=…)` 経由で決定論分岐だけが読む。
+
+既知の限界は §5 のまま（`x`/`y` の**並行配列の対応**（x_i, y_i）は保てない —
+点の順序相関が要るときは side-table の別 ADR）。規模の実測（starrydata）:
+曲線 23.6 万本 × 平均 ~12 点 × 2 列 ≈ **+約 600 万トリプル**、`sampleInfo`
+7.2 万件 × ~15 キー ≈ **+約 130 万** — Oxigraph の実用域内。
+
 ## 9. 残課題 / 未決
 
 - **相関エンティティ再構成（side-table・案D）** は将来要件が出たら別 ADR（§5）。

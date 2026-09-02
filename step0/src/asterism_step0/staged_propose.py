@@ -86,6 +86,7 @@ __all__ = [
     "generate_map_properties",
     "generate_skeleton",
     "human_pinned_edits",
+    "json_expansion_plan",
     "mapping_ir_to_yaml",
     "menu_columns",
     "normalize_column_meanings",
@@ -738,12 +739,137 @@ def menu_columns(menu: str) -> dict[str, list[str]]:
     return out
 
 
+def _parse_json_cell(value: str) -> Any:
+    """1 セルの JSON（緩い形も）を読む。読めなければ None。
+
+    厳格 JSON → Python リテラル（``{'a': 1}`` の一重引用符形）の順で試す。
+    ingest の ``loads_relaxed`` と同じ寛容さだが、step0 は stdlib のみの設計
+    （native-json-denormalization.md §8.8）なので、ここに軽量な写しを持つ。
+    """
+    import ast
+
+    text = (value or "").strip()
+    if not text or text[0] not in "[{":
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        try:
+            return ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            return None
+
+
+def _is_scalar(v: Any) -> bool:
+    return v is not None and not isinstance(v, (list, dict))
+
+
+def _all_numeric(values: Sequence[Any]) -> bool:
+    if not values:
+        return False
+    for v in values:
+        if isinstance(v, bool):
+            return False
+        if isinstance(v, (int, float)):
+            continue
+        try:
+            float(str(v))
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def json_expansion_plan(
+    rows: Sequence[Mapping[str, str]],
+    columns: Sequence[str],
+    *,
+    sample: int = 200,
+) -> dict[str, dict[str, Any]]:
+    """セルの中の JSON（配列・辞書）を**実データから**分類する [決定論・stdlib のみ]。
+
+    ADR native-json-denormalization: 展開の**機構**（tabularize + Tier0 の
+    json_array / json_pluck / json_get）は着地済みで、欠けていたのは設計が
+    それを自動で書くこと（利用者要望 2026-09-02: starrydata の x/y 配列と
+    sampleInfo 辞書が生文字列のまま入り、数値比較も中身の検索もできない）。
+
+    返り値は ``{column: plan}``。plan は次のいずれか:
+
+    - ``{"kind": "array", "numeric": bool}`` — スカラ配列（``json_array`` で展開。
+      全要素が数なら xsd:double を刻む）
+    - ``{"kind": "object", "keys": [{"key", "numeric"}, …]}`` — 単一辞書
+      （キーごとに ``json_get``）
+    - ``{"kind": "array_object", "keys": [str, …]}`` — 辞書の配列
+      （キーごとに ``json_pluck``。要素間の相関は保てない — ADR §5 の既知の限界）
+
+    判定は非空セルの標本（既定 200）で行い、**9 割以上**が同じ形に読めた列だけを
+    展開対象にする — 1 セルの偶然の ``[]`` で列全体の形を変えない。キーは出現頻度
+    1 割以上・スカラ値のものだけ、頻度降順→名前順で最大 16 個（決定論）。
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for col in columns:
+        vals: list[Any] = []
+        for row in rows:
+            cell = (row.get(col) or "").strip()
+            if not cell:
+                continue
+            vals.append(_parse_json_cell(cell))
+            if len(vals) >= sample:
+                break
+        if not vals:
+            continue
+        parsed = [v for v in vals if v is not None]
+        # 9 割は切り上げで数える — 2 標本中 1 件（5 割）を「ほぼ全部」と読まない。
+        if len(parsed) < -(-len(vals) * 9 // 10):
+            continue
+        scalars = [v for v in parsed if isinstance(v, list) and all(_is_scalar(e) for e in v)]
+        objects = [v for v in parsed if isinstance(v, dict)]
+        obj_arrays = [
+            v for v in parsed if isinstance(v, list) and v and all(isinstance(e, dict) for e in v)
+        ]
+        threshold = -(-len(parsed) * 9 // 10)
+        if len(scalars) >= threshold:
+            elements = [e for v in scalars for e in v if e is not None]
+            out[col] = {"kind": "array", "numeric": _all_numeric(elements)}
+        elif len(objects) >= threshold:
+            counts: dict[str, int] = {}
+            numeric_ok: dict[str, bool] = {}
+            for obj in objects:
+                for k, v in obj.items():
+                    if not _is_scalar(v):
+                        continue
+                    key = str(k)
+                    counts[key] = counts.get(key, 0) + 1
+                    numeric_ok[key] = numeric_ok.get(key, True) and _all_numeric([v])
+            floor = max(1, int(len(objects) * 0.1))
+            keys = sorted(
+                (k for k, n in counts.items() if n >= floor),
+                key=lambda k: (-counts[k], k),
+            )[:16]
+            if keys:
+                out[col] = {
+                    "kind": "object",
+                    "keys": [{"key": k, "numeric": numeric_ok.get(k, False)} for k in keys],
+                }
+        elif len(obj_arrays) >= threshold:
+            counts = {}
+            for arr in obj_arrays:
+                for obj in arr:
+                    for k, v in obj.items():
+                        if _is_scalar(v):
+                            counts[str(k)] = counts.get(str(k), 0) + 1
+            keys = sorted(counts, key=lambda k: (-counts[k], k))[:12]
+            if keys:
+                out[col] = {"kind": "array_object", "keys": keys}
+    return out
+
+
 def default_property_table(
     columns: Sequence[str],
     *,
     ontology_prefix: str,
     owned_elsewhere: Mapping[str, str] | None = None,
     column_types: Mapping[str, str] | None = None,
+    json_plan: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """A property row per column this map owns — column name as the meaning.
 
@@ -762,20 +888,70 @@ def default_property_table(
 
     owned = dict(owned_elsewhere or {})
     types = dict(column_types or {})
+    plans = dict(json_plan or {})
     properties: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for column in columns:
-        name = str(column)
-        if not name or name in owned:
-            continue  # another map owns this value; a copy here is the same fact twice
-        stem = f"{ontology_prefix}:{_identifier(name)}"
+
+    def mint(name_for_slug: str) -> str:
+        stem = f"{ontology_prefix}:{_identifier(name_for_slug)}"
         predicate = stem
         n = 1
         while predicate in seen:
             n += 1
             predicate = f"{stem}{n}"
         seen.add(predicate)
-        row: dict[str, Any] = {"predicate": predicate, "column": name}
+        return predicate
+
+    for column in columns:
+        name = str(column)
+        if not name or name in owned:
+            continue  # another map owns this value; a copy here is the same fact twice
+        plan = plans.get(name)
+        # セルの中の JSON は生文字列で終わらせず、既存の Tier0 で展開する
+        # （json_expansion_plan・ADR native-json-denormalization）。配列は
+        # json_array（全要素が数なら xsd:double）、単一辞書はキーごとに
+        # json_get、辞書の配列はキーごとに json_pluck。標本から決めた決定論。
+        if plan and plan.get("kind") == "array":
+            row = {
+                "predicate": mint(name),
+                "column": name,
+                "function": "json_array",
+                "label": name,
+            }
+            if plan.get("numeric"):
+                row["datatype"] = "xsd:double"
+            properties.append(row)
+            continue
+        if plan and plan.get("kind") == "object" and plan.get("keys"):
+            for entry in plan["keys"]:
+                key = str(entry.get("key") or "")
+                if not key:
+                    continue
+                row = {
+                    "predicate": mint(f"{name} {key}"),
+                    "column": name,
+                    "function": "json_get",
+                    "args": {"path": key},
+                    "label": f"{name}.{key}",
+                }
+                if entry.get("numeric"):
+                    row["datatype"] = "xsd:double"
+                properties.append(row)
+            continue
+        if plan and plan.get("kind") == "array_object" and plan.get("keys"):
+            for key in plan["keys"]:
+                properties.append(
+                    {
+                        "predicate": mint(f"{name} {key}"),
+                        "column": name,
+                        "function": "json_pluck",
+                        "args": {"field": str(key)},
+                        "label": f"{name}.{key}",
+                    }
+                )
+            continue
+        predicate = mint(name)
+        row = {"predicate": predicate, "column": name}
         datatype = types.get(name)
         if datatype:
             row["datatype"] = datatype
@@ -1782,6 +1958,14 @@ def apply_column_meanings(
             column = str(prop.get("column") or "")
             entry = wanted.get((source, column)) if column else None
             if entry is None:
+                props.append(prop)
+                continue
+            # 引数つき関数（json_get の path・json_pluck の field）は、セルの
+            # **一部分**を名指す投影 — 1 列に複数行が並ぶ。列の意味をそのまま
+            # 塗ると全キー行が同名になる（sampleInfo の意味が crystallinity にも
+            # weight にも付く）。列と 1:1 の行（素の column・引数なし関数）だけが
+            # 列の意味を受け取り、部分投影の名前は表示メタの per-predicate 編集で。
+            if prop.get("function") and prop.get("args"):
                 props.append(prop)
                 continue
             row = dict(prop)
@@ -3538,6 +3722,7 @@ def propose_from_skeleton(
     column_meanings: Sequence[Mapping[str, Any]] | None = None,
     excluded_columns: Mapping[str, Sequence[str]] | None = None,
     deterministic: bool = False,
+    json_plans: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -3575,7 +3760,11 @@ def propose_from_skeleton(
 
     ``excluded_columns`` (``{source: [column, …]}``) are the columns the person
     decided not to take in. Named per map so the stage does not write rows that
-    the deterministic pass would remove."""
+    the deterministic pass would remove.
+
+    ``json_plans`` maps a map name to :func:`json_expansion_plan` の結果 —
+    セル内 JSON（配列・辞書）を既存 Tier0（json_array / json_get / json_pluck）で
+    展開する決定論の指示。かんたん経路（``deterministic=True``）だけが使う。"""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -3625,6 +3814,7 @@ def propose_from_skeleton(
                 ontology_prefix=ontology_prefix,
                 owned_elsewhere=(column_owners or {}).get(str(name)),
                 column_types=(column_types or {}).get(str(name)),
+                json_plan=(json_plans or {}).get(str(name)),
             )
             continue
         emit(phase=f"map:{name}", index=i, total=len(maps), message=f"プロパティ表を生成中: {name}")
