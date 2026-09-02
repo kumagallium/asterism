@@ -934,3 +934,60 @@ def test_an_ordinary_answer_is_left_alone() -> None:
     assert demo._answer_payload('{"foo": 1}') is None  # an object, but no answer
     assert demo._answer_payload("{not json") is None
     assert demo._answer_payload("") is None
+
+
+def test_empty_reply_is_nudged_not_terminal(monkeypatch) -> None:
+    """ツールも本文も無い空返答で打ち切らない（利用者報告 2026-09-02）。
+
+    弱いモデルはツール呼び出しの構文を落とすことがある。促し（_NUDGE_PROMPT）を
+    足して続きを回し、次の返答が答えならそれが届く。
+    """
+    fake = _FakeAnthropic(
+        [
+            _block(content=[]),  # 空返答 — 以前はここで「答えられませんでした」
+            _block(
+                content=[
+                    _block(
+                        type="tool_use",
+                        id="t1",
+                        name="submit_answer",
+                        input={"answer": "Widget は 2 件です。", "citations": []},
+                    )
+                ]
+            ),
+        ]
+    )
+    client = _custom_schema_client(monkeypatch, fake)
+    body = client.post(
+        "/demo/ask", json={"question": "Widget は何件？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+    assert body["answered"] is True
+    assert "2 件" in body["answer"]
+    nudged = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert demo._NUDGE_PROMPT in nudged
+
+
+def test_exhausted_loop_falls_back_to_a_best_effort_answer(monkeypatch) -> None:
+    """打ち切りは「答えられませんでした」ではなく、ツール無しの最終呼び出しで
+    「ここまでで言えること＋一般知識（裏付けなし明言）」を返す（利用者要望
+    2026-09-02「分かりませんではなく、データから頑張り、無ければ LLM の知識で」）。
+    citations は空のまま — UI の「データの裏付けなし」バッジがそのまま効く。
+    """
+    empties = [_block(content=[]) for _ in range(demo._ASK_MAX_STEPS)]
+    last_resort = _block(
+        content=[_block(type="text", text="データでは確認できませんでしたが、一般に ZT が高い材料は…")]
+    )
+    fake = _FakeAnthropic([*empties, last_resort])
+    client = _custom_schema_client(monkeypatch, fake)
+    body = client.post(
+        "/demo/ask", json={"question": "ZT が最も高い材料は？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+    assert body["answered"] is True
+    assert "一般に" in body["answer"]
+    assert body["citations"] == []
+    # 最後の呼び出しはツールを使わせない（tool_choice none）＋打ち切りの指示文。
+    final = fake.calls[-1]
+    assert final.get("tool_choice") == {"type": "none"}
+    assert demo._LAST_RESORT_PROMPT in json.dumps(final["messages"], ensure_ascii=False)

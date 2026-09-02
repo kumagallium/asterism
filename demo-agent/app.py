@@ -55,7 +55,21 @@ _ASK_MODEL = os.environ.get("ASTERISM_ASK_MODEL", "claude-sonnet-4-6")
 # but pins no model id (the UI normally sends the active model's id via header).
 _OPENAI_ASK_MODEL = os.environ.get("ASTERISM_OPENAI_ASK_MODEL", "gpt-4o")
 _OPENAI_PROVIDERS = frozenset({"openai", "openai-compatible", "openai_compatible", "sakura"})
-_ASK_MAX_STEPS = 5  # max run_sparql tool calls before we force an answer
+# 打ち切りまでのツール往復数。5 では足りない実例が出た（ZT 最大値のような集計は
+# スキーマ内省 → 述語特定 → 集計 → 結合で 4〜6 クエリかかり、弱いモデルほど
+# やり直しも挟む — 利用者報告 2026-09-02）。最終ステップは submit_answer を強制。
+_ASK_MAX_STEPS = 7
+
+# 空返答（ツール呼び出しも本文も無い）への促し。弱いモデルはツール呼び出しの
+# 構文を落とすことがあり、そこで打ち切ると「答えられませんでした」だけが残る。
+_NUDGE_PROMPT = "返答が空でした。ツールを使って調べを進めるか、submit_answer で答えを提出してください。"
+
+# 打ち切り時の最後の一手: ツール無しで「ここまでで言えること」を書かせる。
+# データの裏付けが無い部分の明言義務は system プロンプト側の規律がそのまま効く。
+_LAST_RESORT_PROMPT = (
+    "調査はここまでです。これまでのツール結果から言えることを答えてください。"
+    "データの裏付けが足りない部分は、その旨をはっきり書いたうえで、一般知識で補ってください。"
+)
 
 # Where to report Ask token usage (the api owns the ledger; demo-agent runs in a
 # separate process). Best-effort: if unset, usage simply isn't recorded.
@@ -936,7 +950,11 @@ async def _anthropic_agent_loop(
             return finalize(submit.input or {})
         if not tool_uses:
             text = " ".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-            return finalize_text(text)
+            if text.strip():
+                return finalize_text(text)
+            # 空返答は打ち切りにしない — 促して続きを回す（連続 user メッセージは合法）。
+            messages.append({"role": "user", "content": _NUDGE_PROMPT})
+            continue
 
         messages.append({"role": "assistant", "content": _blocks_to_dicts(resp.content)})
         tool_results: list[dict] = []
@@ -951,9 +969,25 @@ async def _anthropic_agent_loop(
             )
         messages.append({"role": "user", "content": tool_results})
 
-    # Attempts exhausted: no answer was produced, and saying so is the honest
-    # (and actionable) result — see ``finalize``.
-    return finalize_text("")
+    # 打ち切り: 「答えられませんでした」で終わらせる前に、ツール無しの最終呼び出しで
+    # ここまでの調査から言えること＋一般知識の最善解を書かせる（裏付けの無い部分の
+    # 明言義務は system プロンプトの規律のまま。利用者要望 2026-09-02「分かりません
+    # ではなく、データから頑張り、無ければ LLM の知識で」）。それでも空なら従来の文言。
+    try:
+        resp = await asyncio.to_thread(
+            anthropic.messages.create,
+            model=model,
+            max_tokens=2000,
+            system=system,
+            tools=tools,
+            tool_choice={"type": "none"},
+            messages=[*messages, {"role": "user", "content": _LAST_RESORT_PROMPT}],
+        )
+        _add_anthropic_usage(usage, getattr(resp, "usage", None))
+        text = " ".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+        return finalize_text(text)
+    except Exception:
+        return finalize_text("")
 
 
 async def _openai_agent_loop(
@@ -995,7 +1029,12 @@ async def _openai_agent_loop(
         if submit is not None:
             return finalize(_parse_json_args(submit.function.arguments))
         if not tool_calls:
-            return finalize_text(msg.content or "")
+            if (msg.content or "").strip():
+                return finalize_text(msg.content or "")
+            # 空返答は打ち切りにしない — 促して続きを回す（弱いモデルはツール
+            # 呼び出しの構文を落とすことがある。利用者報告 2026-09-02）。
+            messages.append({"role": "user", "content": _NUDGE_PROMPT})
+            continue
 
         messages.append(
             {
@@ -1024,9 +1063,21 @@ async def _openai_agent_loop(
                 }
             )
 
-    # Attempts exhausted: no answer was produced, and saying so is the honest
-    # (and actionable) result — see ``finalize``.
-    return finalize_text("")
+    # 打ち切り: Anthropic 側と同じ最後の一手 — ツール無しで「ここまでで言えること」
+    # を書かせる（裏付けの無い部分は明言・一般知識で補完）。それでも空なら従来の文言。
+    try:
+        resp = await asyncio.to_thread(
+            openai.chat.completions.create,
+            model=model,
+            max_tokens=2000,
+            messages=[*messages, {"role": "user", "content": _LAST_RESORT_PROMPT}],
+            tools=oai_tools,
+            tool_choice="none",
+        )
+        _add_openai_usage(usage, getattr(resp, "usage", None))
+        return finalize_text(resp.choices[0].message.content or "")
+    except Exception:
+        return finalize_text("")
 
 
 # ---------------------------------------------------------------------------
