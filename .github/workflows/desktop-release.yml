@@ -255,7 +255,7 @@ jobs:
           exit 1
 
       - name: Upload build artifacts (always, for inspection)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Asterism-release-${{ steps.tag.outputs.tag }}
           path: |
