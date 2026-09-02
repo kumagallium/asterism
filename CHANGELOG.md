@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.38.0](https://github.com/kumagallium/asterism/compare/v0.37.0...v0.38.0) - 2026-09-02
+
+- fix(design): 入れ子辞書は 1 階層降りて dotted パスで展開する by @kumagallium in https://github.com/kumagallium/asterism/pull/552
+
 ## [v0.37.0](https://github.com/kumagallium/asterism/compare/v0.36.0...v0.37.0) - 2026-09-02
 
 - fix(prod): Ask に run_sparql を渡す（集計・横断質問を可能に） by @kumagallium in https://github.com/kumagallium/asterism/pull/549
