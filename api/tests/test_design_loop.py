@@ -385,6 +385,47 @@ def test_disconnected_entities_surface_as_loop_issues(tmp_path) -> None:
     assert not any("DISCONNECTED" in i.message for i in _collect_rml_issues(joined, tmp_path))
 
 
+def test_repair_after_refine_fixes_empty_shells_without_llm(tmp_path: Path) -> None:
+    """「AI に直してもらう」経路（repair_after_refine）でも受け口保証が効く。
+    ここに無かったため、旧下書きの空の入れ物助言が押しても消えなかった
+    （実測 2026-09-02）。保証だけで issue ゼロになる設計は LLM 無しで収束する。"""
+    (tmp_path / "elements.csv").write_text(
+        "name,symbol,atomic_mass\nHydrogen,H,1.008\n", encoding="utf-8"
+    )
+    schema_md = """# design
+
+### 9. Declarative mapping spec
+
+```yaml
+version: 1
+prefixes:
+  el: https://asterism.invalid/datasets/e/ontology#
+  elr: https://asterism.invalid/datasets/e/resource/
+maps:
+- name: record
+  source: elements.csv
+  subject:
+    template: elr:record/{name}
+    classes: [el:Record]
+  properties:
+  - {column: atomic_mass, predicate: el:atomicMass, datatype: xsd:double}
+- name: symbol
+  source: elements.csv
+  subject:
+    template: elr:symbol/{symbol}
+    classes: [el:Symbol]
+  properties:
+  - predicate: el:of
+    object_template: "elr:record/{name}"
+```
+"""
+    out_md, summary = design_loop.repair_after_refine(
+        schema_md, [tmp_path / "elements.csv"], tmp_path, llm=None
+    )
+    assert "rdfs:label" in out_md
+    assert summary["converged"] is True and summary["final_issue_count"] == 0
+
+
 def test_catalog_guarantees_are_reasserted_on_schema_md() -> None:
     """修正ラウンドが §9 を書き直すと、round-0 で機械が足した受け口の
     rdfs:label と接続線が消えたまま戻らなかった（実測 2026-09-02: 修正 1 回の
