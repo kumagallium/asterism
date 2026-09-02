@@ -1,11 +1,11 @@
 {
-  "version": "0.39.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at db0d95dcfeeca06dcb5b15728091f78203405155 -->\n\n## What's Changed\n* fix(api): 同じ述語を複数の map が束縛しても表示名を取り違えない（全部の ID が「縦軸単位」） by @kumagallium in https://github.com/kumagallium/asterism/pull/554\n* fix(api/ingest): 述語衝突の残り 2 か所 — TBox 投影と③列見出し fallback（#554 の追補） by @kumagallium in https://github.com/kumagallium/asterism/pull/556\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.38.0...v0.39.0",
-  "pub_date": "2026-09-02T14:39:10Z",
+  "version": "0.39.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 16fe15c29c297b43387ddb2f0fa9e560e1bf576f -->\n\n## What's Changed\n* fix(step0): 見直しで組み直した骨格に値のカタログの owns を読み戻す — ⑤の「複数の行が同じ ID」誤警告の再発 by @kumagallium in https://github.com/kumagallium/asterism/pull/557\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.39.0...v0.39.1",
+  "pub_date": "2026-09-02T23:08:34Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWQwckliYXlhSTlmZTZHaDFQbC9yQVM0L3JEZXc4K1RqWkxxelRoZCtpcjRBbmp1NGtjajk1K3hvM094Qm5YTXYrTmREcU1FaUNOazRya0kycno3V0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzU5OTUwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVwTEJNWnJwYk40K2hBZ0hpMGJxUk9EWGhLU3ozTjdFcHVFQVJ0U2M5RXFobHBZanlVMThGdlBVdWFQYWlyQzRHdnUxSVZ4UE9COGc1a2QrZEhzVURRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.39.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWErSVF1cTIyTjh1Z1luOFY5ZndQNXFKenZhajlHcU0rT3RPWllKOGJmRGhnd0YveWZUZ2hwM1NEOXpTU3hDVVR4amQ1UkMxZGtSaWRPZVc4NzJJZ2dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzkwNTEzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClBqd0xFYWRoQ0l5ckpTdlN3TEd4ZFh2bHhEdGdhQ2dRSDN3QmN4blhoU2pBTWE0U2RZbG4rS3VRejU1dnNmV2pFUDlHcjJqYi9neFJnK1pkMTVLVURnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.39.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
