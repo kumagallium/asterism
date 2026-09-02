@@ -8,10 +8,22 @@
 # (retrieved on `retrieved`). The grounding search only ever returns IRIs from this
 # closed set, so the LLM/UI never invents an IRI (the human still vets the choice).
 #
-# CURATION, not mirroring. This grows by hand — the famous / foundational vocabularies
-# per ACTIVE domain (like QUDT units or the Tier-0 function library), NOT by importing
-# all of LOV (~700) / BioPortal. To add a term: confirm its localname exists in the
-# vocabulary's `source` RDF, then append `{ name, kind, label }` (kind = class | property).
+# CURATION, not mirroring. The list of VOCABULARIES grows by hand — the famous /
+# foundational ones per ACTIVE domain (like QUDT units or the Tier-0 function library),
+# NOT by importing all of LOV (~700) / BioPortal. Once a vocabulary IS in, carrying its
+# whole term set is fine: choosing the standard is the curation, thinning the inside of
+# a chosen standard is not (2026-09-03: the 8 scoped vocabularies below were filled from
+# their own `source` RDF — 111 -> 596 terms).
+#
+# Terms are NEVER typed from memory. Use the importer, which reads the vocabulary's own
+# `source` RDF and only ever writes IRIs that file actually contains:
+#
+#     python scripts/import_vocab_terms.py --verify              # 収録語が実在するか
+#     python scripts/import_vocab_terms.py --prefix dcat         # 未収録の候補を見る
+#     python scripts/import_vocab_terms.py --prefix dcat --add all --write
+#
+# `--verify` is also the drift check: it reports any recorded term the source no longer
+# has (last run 2026-09-03: 0 across all 11 vocabularies).
 #
 # `iri` of a term = `namespace` + `name`. Keep names verbatim from the source.
 
@@ -64,6 +76,65 @@ vocabularies:
       - { name: hasNumberOfAtoms, kind: property, label: has number of atoms }
       - { name: hasBravaisLattice, kind: property, label: has Bravais lattice }
       - { name: hasVolume, kind: property, label: has volume }
+      - { name: Angle, kind: class, label: Angle }
+      - { name: AtomAttribute, kind: class, label: Atom Attribute }
+      - { name: AtomicForce, kind: class, label: Atomic Force }
+      - { name: AtomicPosition, kind: class, label: Atomic Position }
+      - { name: AtomicVelocity, kind: class, label: Atomic Velocity }
+      - { name: Basis, kind: class, label: Basis }
+      - { name: Bicrystal, kind: class, label: Bicrystal }
+      - { name: CoordinationNumber, kind: class, label: Coordination Number }
+      - { name: LatticeAngle, kind: class, label: Lattice Angle }
+      - { name: LatticePlane, kind: class, label: Lattice Plane }
+      - { name: LatticeVector, kind: class, label: Lattice Vector }
+      - { name: MesoscaleSample, kind: class, label: Mesoscale Sample }
+      - { name: MicroscaleSample, kind: class, label: Microscale Sample }
+      - { name: NanoscaleSample, kind: class, label: Nanoscale Sample }
+      - { name: NormalVector, kind: class, label: Normal Vector }
+      - { name: Occupancy, kind: class, label: Occupancy }
+      - { name: Plane, kind: class, label: Plane }
+      - { name: SimulationCellAngle, kind: class, label: Simulation Cell Angle }
+      - { name: SimulationCellLength, kind: class, label: Simulation Cell Length }
+      - { name: SimulationCellVector, kind: class, label: Simulation Cell Vector }
+      - { name: SimulationCellVolume, kind: class, label: Simulation Cell Volume }
+      - { name: Vector, kind: class, label: Vector }
+      - { name: hasAltName, kind: property, label: has alternative name }
+      - { name: hasAngle, kind: property, label: has angle }
+      - { name: hasAngle_alpha, kind: property, label: has angle alpha }
+      - { name: hasAngle_beta, kind: property, label: has angle beta }
+      - { name: hasAngle_gamma, kind: property, label: has angle gamma }
+      - { name: hasAtomicPercent, kind: property, label: has atomic percent }
+      - { name: hasAttribute, kind: property, label: has attribute }
+      - { name: hasBasis, kind: property, label: has basis }
+      - { name: hasComponent_x, kind: property, label: has component x }
+      - { name: hasComponent_y, kind: property, label: has component y }
+      - { name: hasComponent_z, kind: property, label: has component z }
+      - { name: hasDistanceFromOrigin, kind: property, label: has distance from origin }
+      - { name: hasGrainSize, kind: property, label: has grain size }
+      - { name: hasIdentifier, kind: property, label: has identifier }
+      - { name: hasLength, kind: property, label: has simulation cell length }
+      - { name: hasLength_x, kind: property, label: has length x }
+      - { name: hasLength_y, kind: property, label: has length y }
+      - { name: hasLength_z, kind: property, label: has length z }
+      - { name: hasName, kind: property, label: has name }
+      - { name: hasNormalVector, kind: property, label: has normal vector }
+      - { name: hasNumberOfGrains, kind: property, label: has number of grains }
+      - { name: hasPath, kind: property, label: has path }
+      - { name: hasReference, kind: property, label: has reference }
+      - { name: hasRepetition_x, kind: property, label: has repetition x }
+      - { name: hasRepetition_y, kind: property, label: has repetition y }
+      - { name: hasRepetition_z, kind: property, label: has repetition z }
+      - { name: hasSimulationCellVolume, kind: property, label: has simulation cell volume }
+      - { name: hasSymbol, kind: property, label: has symbol }
+      - { name: hasUnit, kind: property, label: has unit }
+      - { name: hasVacuumDirection, kind: property, label: has vacuum direction }
+      - { name: hasVacuumLength, kind: property, label: has vacuum length }
+      - { name: hasValue, kind: property, label: has value }
+      - { name: hasVector, kind: property, label: has vector }
+      - { name: hasWeightPercent, kind: property, label: has weight percent }
+      - { name: isCalculatedPropertyOf, kind: property, label: is calculated property of }
+      - { name: isDefectOf, kind: property, label: is defect of }
+      - { name: isMaterialOf, kind: property, label: is material of }
 
   - prefix: qudt
     title: QUDT — Quantities, Units, Dimensions and Types
@@ -138,6 +209,92 @@ vocabularies:
       - { name: wasAttributedTo, kind: property, label: was attributed to }
       - { name: generatedAtTime, kind: property, label: generated at time }
       - { name: wasInformedBy, kind: property, label: was informed by }
+      - { name: ActivityInfluence, kind: class, label: ActivityInfluence }
+      - { name: AgentInfluence, kind: class, label: AgentInfluence }
+      - { name: Association, kind: class, label: Association }
+      - { name: Attribution, kind: class, label: Attribution }
+      - { name: Bundle, kind: class, label: Bundle }
+      - { name: Collection, kind: class, label: Collection }
+      - { name: Communication, kind: class, label: Communication }
+      - { name: Delegation, kind: class, label: Delegation }
+      - { name: Derivation, kind: class, label: Derivation }
+      - { name: EmptyCollection, kind: class, label: EmptyCollection }
+      - { name: End, kind: class, label: End }
+      - { name: EntityInfluence, kind: class, label: EntityInfluence }
+      - { name: Generation, kind: class, label: Generation }
+      - { name: Influence, kind: class, label: Influence }
+      - { name: InstantaneousEvent, kind: class, label: InstantaneousEvent }
+      - { name: Invalidation, kind: class, label: Invalidation }
+      - { name: Location, kind: class, label: Location }
+      - { name: Organization, kind: class, label: Organization }
+      - { name: Person, kind: class, label: Person }
+      - { name: Plan, kind: class, label: Plan }
+      - { name: PrimarySource, kind: class, label: PrimarySource }
+      - { name: Quotation, kind: class, label: Quotation }
+      - { name: Revision, kind: class, label: Revision }
+      - { name: Role, kind: class, label: Role }
+      - { name: SoftwareAgent, kind: class, label: SoftwareAgent }
+      - { name: Start, kind: class, label: Start }
+      - { name: Usage, kind: class, label: Usage }
+      - { name: actedOnBehalfOf, kind: property, label: actedOnBehalfOf }
+      - { name: activity, kind: property, label: activity }
+      - { name: agent, kind: property, label: agent }
+      - { name: alternateOf, kind: property, label: alternateOf }
+      - { name: aq, kind: property, label: aq }
+      - { name: atLocation, kind: property, label: atLocation }
+      - { name: atTime, kind: property, label: atTime }
+      - { name: category, kind: property, label: category }
+      - { name: component, kind: property, label: component }
+      - { name: constraints, kind: property, label: constraints }
+      - { name: definition, kind: property, label: definition }
+      - { name: dm, kind: property, label: dm }
+      - { name: editorialNote, kind: property, label: editorialNote }
+      - { name: editorsDefinition, kind: property, label: editorsDefinition }
+      - { name: endedAtTime, kind: property, label: endedAtTime }
+      - { name: entity, kind: property, label: entity }
+      - { name: generated, kind: property, label: generated }
+      - { name: hadActivity, kind: property, label: hadActivity }
+      - { name: hadGeneration, kind: property, label: hadGeneration }
+      - { name: hadMember, kind: property, label: hadMember }
+      - { name: hadPlan, kind: property, label: hadPlan }
+      - { name: hadPrimarySource, kind: property, label: hadPrimarySource }
+      - { name: hadRole, kind: property, label: hadRole }
+      - { name: hadUsage, kind: property, label: hadUsage }
+      - { name: influenced, kind: property, label: influenced }
+      - { name: influencer, kind: property, label: influencer }
+      - { name: invalidated, kind: property, label: invalidated }
+      - { name: invalidatedAtTime, kind: property, label: invalidatedAtTime }
+      - { name: inverse, kind: property, label: inverse }
+      - { name: n, kind: property, label: n }
+      - { name: order, kind: property, label: order }
+      - { name: qualifiedAssociation, kind: property, label: qualifiedAssociation }
+      - { name: qualifiedAttribution, kind: property, label: qualifiedAttribution }
+      - { name: qualifiedCommunication, kind: property, label: qualifiedCommunication }
+      - { name: qualifiedDelegation, kind: property, label: qualifiedDelegation }
+      - { name: qualifiedDerivation, kind: property, label: qualifiedDerivation }
+      - { name: qualifiedEnd, kind: property, label: qualifiedEnd }
+      - { name: qualifiedForm, kind: property, label: qualifiedForm }
+      - { name: qualifiedGeneration, kind: property, label: qualifiedGeneration }
+      - { name: qualifiedInfluence, kind: property, label: qualifiedInfluence }
+      - { name: qualifiedInvalidation, kind: property, label: qualifiedInvalidation }
+      - { name: qualifiedPrimarySource, kind: property, label: qualifiedPrimarySource }
+      - { name: qualifiedQuotation, kind: property, label: qualifiedQuotation }
+      - { name: qualifiedRevision, kind: property, label: qualifiedRevision }
+      - { name: qualifiedStart, kind: property, label: qualifiedStart }
+      - { name: qualifiedUsage, kind: property, label: qualifiedUsage }
+      - { name: sharesDefinitionWith, kind: property, label: sharesDefinitionWith }
+      - { name: specializationOf, kind: property, label: specializationOf }
+      - { name: startedAtTime, kind: property, label: startedAtTime }
+      - { name: todo, kind: property, label: todo }
+      - { name: unqualifiedForm, kind: property, label: unqualifiedForm }
+      - { name: value, kind: property, label: value }
+      - { name: wasAssociatedWith, kind: property, label: wasAssociatedWith }
+      - { name: wasEndedBy, kind: property, label: wasEndedBy }
+      - { name: wasInfluencedBy, kind: property, label: wasInfluencedBy }
+      - { name: wasInvalidatedBy, kind: property, label: wasInvalidatedBy }
+      - { name: wasQuotedFrom, kind: property, label: wasQuotedFrom }
+      - { name: wasRevisionOf, kind: property, label: wasRevisionOf }
+      - { name: wasStartedBy, kind: property, label: wasStartedBy }
 
   - prefix: dcterms
     title: Dublin Core Terms
@@ -157,6 +314,73 @@ vocabularies:
       - { name: license, kind: property, label: license }
       - { name: hasPart, kind: property, label: has part }
       - { name: references, kind: property, label: references }
+      - { name: Agent, kind: class, label: Agent }
+      - { name: AgentClass, kind: class, label: Agent Class }
+      - { name: BibliographicResource, kind: class, label: Bibliographic Resource }
+      - { name: FileFormat, kind: class, label: File Format }
+      - { name: Frequency, kind: class, label: Frequency }
+      - { name: Jurisdiction, kind: class, label: Jurisdiction }
+      - { name: LicenseDocument, kind: class, label: License Document }
+      - { name: LinguisticSystem, kind: class, label: Linguistic System }
+      - { name: Location, kind: class, label: Location }
+      - { name: LocationPeriodOrJurisdiction, kind: class, label: Location, Period, or Jurisdiction }
+      - { name: MediaType, kind: class, label: Media Type }
+      - { name: MediaTypeOrExtent, kind: class, label: Media Type or Extent }
+      - { name: MethodOfAccrual, kind: class, label: Method of Accrual }
+      - { name: MethodOfInstruction, kind: class, label: Method of Instruction }
+      - { name: PeriodOfTime, kind: class, label: Period of Time }
+      - { name: PhysicalMedium, kind: class, label: Physical Medium }
+      - { name: PhysicalResource, kind: class, label: Physical Resource }
+      - { name: Policy, kind: class, label: Policy }
+      - { name: ProvenanceStatement, kind: class, label: Provenance Statement }
+      - { name: RightsStatement, kind: class, label: Rights Statement }
+      - { name: SizeOrDuration, kind: class, label: Size or Duration }
+      - { name: Standard, kind: class, label: Standard }
+      - { name: abstract, kind: property, label: Abstract }
+      - { name: accessRights, kind: property, label: Access Rights }
+      - { name: accrualMethod, kind: property, label: Accrual Method }
+      - { name: accrualPeriodicity, kind: property, label: Accrual Periodicity }
+      - { name: accrualPolicy, kind: property, label: Accrual Policy }
+      - { name: alternative, kind: property, label: Alternative Title }
+      - { name: audience, kind: property, label: Audience }
+      - { name: available, kind: property, label: Date Available }
+      - { name: bibliographicCitation, kind: property, label: Bibliographic Citation }
+      - { name: conformsTo, kind: property, label: Conforms To }
+      - { name: contributor, kind: property, label: Contributor }
+      - { name: coverage, kind: property, label: Coverage }
+      - { name: date, kind: property, label: Date }
+      - { name: dateAccepted, kind: property, label: Date Accepted }
+      - { name: dateCopyrighted, kind: property, label: Date Copyrighted }
+      - { name: dateSubmitted, kind: property, label: Date Submitted }
+      - { name: educationLevel, kind: property, label: Audience Education Level }
+      - { name: extent, kind: property, label: Extent }
+      - { name: format, kind: property, label: Format }
+      - { name: hasFormat, kind: property, label: Has Format }
+      - { name: hasVersion, kind: property, label: Has Version }
+      - { name: instructionalMethod, kind: property, label: Instructional Method }
+      - { name: isFormatOf, kind: property, label: Is Format Of }
+      - { name: isPartOf, kind: property, label: Is Part Of }
+      - { name: isReferencedBy, kind: property, label: Is Referenced By }
+      - { name: isReplacedBy, kind: property, label: Is Replaced By }
+      - { name: isRequiredBy, kind: property, label: Is Required By }
+      - { name: isVersionOf, kind: property, label: Is Version Of }
+      - { name: issued, kind: property, label: Date Issued }
+      - { name: language, kind: property, label: Language }
+      - { name: mediator, kind: property, label: Mediator }
+      - { name: medium, kind: property, label: Medium }
+      - { name: modified, kind: property, label: Date Modified }
+      - { name: provenance, kind: property, label: Provenance }
+      - { name: publisher, kind: property, label: Publisher }
+      - { name: relation, kind: property, label: Relation }
+      - { name: replaces, kind: property, label: Replaces }
+      - { name: requires, kind: property, label: Requires }
+      - { name: rights, kind: property, label: Rights }
+      - { name: rightsHolder, kind: property, label: Rights Holder }
+      - { name: spatial, kind: property, label: Spatial Coverage }
+      - { name: tableOfContents, kind: property, label: Table Of Contents }
+      - { name: temporal, kind: property, label: Temporal Coverage }
+      - { name: type, kind: property, label: Type }
+      - { name: valid, kind: property, label: Date Valid }
 
   - prefix: skos
     title: SKOS — Simple Knowledge Organization System
@@ -174,6 +398,30 @@ vocabularies:
       - { name: narrower, kind: property, label: has narrower }
       - { name: related, kind: property, label: has related }
       - { name: notation, kind: property, label: notation }
+      - { name: Collection, kind: class, label: Collection }
+      - { name: OrderedCollection, kind: class, label: Ordered Collection }
+      - { name: broadMatch, kind: property, label: has broader match }
+      - { name: broaderTransitive, kind: property, label: has broader transitive }
+      - { name: changeNote, kind: property, label: change note }
+      - { name: closeMatch, kind: property, label: has close match }
+      - { name: definition, kind: property, label: definition }
+      - { name: editorialNote, kind: property, label: editorial note }
+      - { name: exactMatch, kind: property, label: has exact match }
+      - { name: example, kind: property, label: example }
+      - { name: hasTopConcept, kind: property, label: has top concept }
+      - { name: hiddenLabel, kind: property, label: hidden label }
+      - { name: historyNote, kind: property, label: history note }
+      - { name: inScheme, kind: property, label: is in scheme }
+      - { name: mappingRelation, kind: property, label: is in mapping relation with }
+      - { name: member, kind: property, label: has member }
+      - { name: memberList, kind: property, label: has member list }
+      - { name: narrowMatch, kind: property, label: has narrower match }
+      - { name: narrowerTransitive, kind: property, label: has narrower transitive }
+      - { name: note, kind: property, label: note }
+      - { name: relatedMatch, kind: property, label: has related match }
+      - { name: scopeNote, kind: property, label: scope note }
+      - { name: semanticRelation, kind: property, label: is in semantic relation with }
+      - { name: topConceptOf, kind: property, label: is top concept in scheme }
 
   - prefix: foaf
     title: FOAF — Friend of a Friend
@@ -189,6 +437,75 @@ vocabularies:
       - { name: name, kind: property, label: name }
       - { name: mbox, kind: property, label: personal mailbox }
       - { name: homepage, kind: property, label: homepage }
+      - { name: Document, kind: class, label: Document }
+      - { name: Group, kind: class, label: Group }
+      - { name: Image, kind: class, label: Image }
+      - { name: LabelProperty, kind: class, label: Label Property }
+      - { name: OnlineAccount, kind: class, label: Online Account }
+      - { name: OnlineChatAccount, kind: class, label: Online Chat Account }
+      - { name: OnlineEcommerceAccount, kind: class, label: Online E-commerce Account }
+      - { name: OnlineGamingAccount, kind: class, label: Online Gaming Account }
+      - { name: PersonalProfileDocument, kind: class, label: PersonalProfileDocument }
+      - { name: Project, kind: class, label: Project }
+      - { name: account, kind: property, label: account }
+      - { name: accountName, kind: property, label: account name }
+      - { name: accountServiceHomepage, kind: property, label: account service homepage }
+      - { name: age, kind: property, label: age }
+      - { name: aimChatID, kind: property, label: AIM chat ID }
+      - { name: based_near, kind: property, label: based near }
+      - { name: birthday, kind: property, label: birthday }
+      - { name: currentProject, kind: property, label: current project }
+      - { name: depiction, kind: property, label: depiction }
+      - { name: depicts, kind: property, label: depicts }
+      - { name: dnaChecksum, kind: property, label: DNA checksum }
+      - { name: familyName, kind: property, label: familyName }
+      - { name: family_name, kind: property, label: family_name }
+      - { name: firstName, kind: property, label: firstName }
+      - { name: focus, kind: property, label: focus }
+      - { name: fundedBy, kind: property, label: funded by }
+      - { name: geekcode, kind: property, label: geekcode }
+      - { name: gender, kind: property, label: gender }
+      - { name: givenName, kind: property, label: Given name }
+      - { name: givenname, kind: property, label: Given name }
+      - { name: holdsAccount, kind: property, label: account }
+      - { name: icqChatID, kind: property, label: ICQ chat ID }
+      - { name: img, kind: property, label: image }
+      - { name: interest, kind: property, label: interest }
+      - { name: isPrimaryTopicOf, kind: property, label: is primary topic of }
+      - { name: jabberID, kind: property, label: jabber ID }
+      - { name: knows, kind: property, label: knows }
+      - { name: lastName, kind: property, label: lastName }
+      - { name: logo, kind: property, label: logo }
+      - { name: made, kind: property, label: made }
+      - { name: maker, kind: property, label: maker }
+      - { name: mbox_sha1sum, kind: property, label: sha1sum of a personal mailbox URI name }
+      - { name: member, kind: property, label: member }
+      - { name: membershipClass, kind: property, label: membershipClass }
+      - { name: msnChatID, kind: property, label: MSN chat ID }
+      - { name: myersBriggs, kind: property, label: myersBriggs }
+      - { name: nick, kind: property, label: nickname }
+      - { name: openid, kind: property, label: openid }
+      - { name: page, kind: property, label: page }
+      - { name: pastProject, kind: property, label: past project }
+      - { name: phone, kind: property, label: phone }
+      - { name: plan, kind: property, label: plan }
+      - { name: primaryTopic, kind: property, label: primary topic }
+      - { name: publications, kind: property, label: publications }
+      - { name: schoolHomepage, kind: property, label: schoolHomepage }
+      - { name: sha1, kind: property, label: sha1sum (hex) }
+      - { name: skypeID, kind: property, label: Skype ID }
+      - { name: status, kind: property, label: status }
+      - { name: surname, kind: property, label: Surname }
+      - { name: theme, kind: property, label: theme }
+      - { name: thumbnail, kind: property, label: thumbnail }
+      - { name: tipjar, kind: property, label: tipjar }
+      - { name: title, kind: property, label: title }
+      - { name: topic, kind: property, label: topic }
+      - { name: topic_interest, kind: property, label: topic_interest }
+      - { name: weblog, kind: property, label: weblog }
+      - { name: workInfoHomepage, kind: property, label: work info homepage }
+      - { name: workplaceHomepage, kind: property, label: workplace homepage }
+      - { name: yahooChatID, kind: property, label: Yahoo chat ID }
 
   - prefix: dcat
     title: DCAT — Data Catalog Vocabulary
@@ -204,6 +521,36 @@ vocabularies:
       - { name: distribution, kind: property, label: distribution }
       - { name: downloadURL, kind: property, label: download URL }
       - { name: keyword, kind: property, label: keyword }
+      - { name: CatalogRecord, kind: class, label: Catalog Record }
+      - { name: DataService, kind: class, label: Data service }
+      - { name: Relationship, kind: class, label: Relationship }
+      - { name: Resource, kind: class, label: Catalogued resource }
+      - { name: Role, kind: class, label: Role }
+      - { name: accessService, kind: property, label: data access service }
+      - { name: accessURL, kind: property, label: access address }
+      - { name: bbox, kind: property, label: bounding box }
+      - { name: byteSize, kind: property, label: byte size }
+      - { name: catalog, kind: property, label: catalog }
+      - { name: centroid, kind: property, label: centroid }
+      - { name: compressFormat, kind: property, label: compression format }
+      - { name: contactPoint, kind: property, label: contact point }
+      - { name: dataset, kind: property, label: dataset }
+      - { name: endDate, kind: property, label: end date }
+      - { name: endpointDescription, kind: property, label: description of service end-point }
+      - { name: endpointURL, kind: property, label: service end-point }
+      - { name: hadRole, kind: property, label: hadRole }
+      - { name: landingPage, kind: property, label: landing page }
+      - { name: mediaType, kind: property, label: media type }
+      - { name: packageFormat, kind: property, label: packaging format }
+      - { name: qualifiedRelation, kind: property, label: qualified relation }
+      - { name: record, kind: property, label: record }
+      - { name: servesDataset, kind: property, label: serves dataset }
+      - { name: service, kind: property, label: service }
+      - { name: spatialResolutionInMeters, kind: property, label: spatial resolution (meters) }
+      - { name: startDate, kind: property, label: start date }
+      - { name: temporalResolution, kind: property, label: temporal resolution }
+      - { name: theme, kind: property, label: theme }
+      - { name: themeTaxonomy, kind: property, label: theme taxonomy }
 
   - prefix: sosa
     title: SOSA — Sensor, Observation, Sample, and Actuator
@@ -219,6 +566,36 @@ vocabularies:
       - { name: observedProperty, kind: property, label: observed property }
       - { name: hasResult, kind: property, label: has result }
       - { name: madeObservation, kind: property, label: made observation }
+      - { name: ActuatableProperty, kind: class, label: Actuatable Property }
+      - { name: Actuation, kind: class, label: Actuation }
+      - { name: Actuator, kind: class, label: Actuator }
+      - { name: ObservableProperty, kind: class, label: Observable Property }
+      - { name: Platform, kind: class, label: Platform }
+      - { name: Procedure, kind: class, label: Procedure }
+      - { name: Result, kind: class, label: Result }
+      - { name: Sample, kind: class, label: Sample }
+      - { name: Sampler, kind: class, label: Sampler }
+      - { name: Sampling, kind: class, label: Sampling }
+      - { name: actsOnProperty, kind: property, label: acts on property }
+      - { name: hasFeatureOfInterest, kind: property, label: has feature of interest }
+      - { name: hasSample, kind: property, label: has sample }
+      - { name: hasSimpleResult, kind: property, label: has simple result }
+      - { name: hosts, kind: property, label: hosts }
+      - { name: isActedOnBy, kind: property, label: is acted on by }
+      - { name: isFeatureOfInterestOf, kind: property, label: is feature of interest of }
+      - { name: isHostedBy, kind: property, label: is hosted by }
+      - { name: isObservedBy, kind: property, label: is observed by }
+      - { name: isResultOf, kind: property, label: is result of }
+      - { name: isSampleOf, kind: property, label: is sample of }
+      - { name: madeActuation, kind: property, label: made actuation }
+      - { name: madeByActuator, kind: property, label: made by actuator }
+      - { name: madeBySampler, kind: property, label: made by sampler }
+      - { name: madeBySensor, kind: property, label: made by sensor }
+      - { name: madeSampling, kind: property, label: made sampling }
+      - { name: observes, kind: property, label: observes }
+      - { name: phenomenonTime, kind: property, label: phenomenon time }
+      - { name: resultTime, kind: property, label: result time }
+      - { name: usedProcedure, kind: property, label: used procedure }
 
   - prefix: bibo
     title: BIBO — The Bibliographic Ontology
@@ -234,3 +611,123 @@ vocabularies:
       - { name: doi, kind: property, label: doi }
       - { name: volume, kind: property, label: volume }
       - { name: issue, kind: property, label: issue }
+      - { name: AudioDocument, kind: class, label: audio document }
+      - { name: AudioVisualDocument, kind: class, label: audio-visual document }
+      - { name: Bill, kind: class, label: Bill }
+      - { name: Book, kind: class, label: Book }
+      - { name: BookSection, kind: class, label: Book Section }
+      - { name: Brief, kind: class, label: Brief }
+      - { name: Chapter, kind: class, label: Chapter }
+      - { name: Code, kind: class, label: Code }
+      - { name: CollectedDocument, kind: class, label: Collected Document }
+      - { name: Collection, kind: class, label: Collection }
+      - { name: Conference, kind: class, label: Conference }
+      - { name: CourtReporter, kind: class, label: Court Reporter }
+      - { name: DocumentPart, kind: class, label: document part }
+      - { name: DocumentStatus, kind: class, label: Document Status }
+      - { name: EditedBook, kind: class, label: Edited Book }
+      - { name: Email, kind: class, label: EMail }
+      - { name: Event, kind: class, label: Event }
+      - { name: Excerpt, kind: class, label: Excerpt }
+      - { name: Film, kind: class, label: Film }
+      - { name: Hearing, kind: class, label: Hearing }
+      - { name: Image, kind: class, label: Image }
+      - { name: Interview, kind: class, label: Interview }
+      - { name: Issue, kind: class, label: Issue }
+      - { name: Journal, kind: class, label: Journal }
+      - { name: LegalCaseDocument, kind: class, label: Legal Case Document }
+      - { name: LegalDecision, kind: class, label: Decision }
+      - { name: LegalDocument, kind: class, label: Legal Document }
+      - { name: Legislation, kind: class, label: Legislation }
+      - { name: Letter, kind: class, label: Letter }
+      - { name: Magazine, kind: class, label: Magazine }
+      - { name: Manual, kind: class, label: Manual }
+      - { name: Manuscript, kind: class, label: Manuscript }
+      - { name: Map, kind: class, label: Map }
+      - { name: MultiVolumeBook, kind: class, label: Multivolume Book }
+      - { name: Newspaper, kind: class, label: Newspaper }
+      - { name: Note, kind: class, label: Note }
+      - { name: Patent, kind: class, label: Patent }
+      - { name: Performance, kind: class, label: Performance }
+      - { name: Periodical, kind: class, label: Periodical }
+      - { name: PersonalCommunication, kind: class, label: Personal Communication }
+      - { name: PersonalCommunicationDocument, kind: class, label: Personal Communication Document }
+      - { name: Proceedings, kind: class, label: Proceedings }
+      - { name: Quote, kind: class, label: Quote }
+      - { name: ReferenceSource, kind: class, label: Reference Source }
+      - { name: Report, kind: class, label: Report }
+      - { name: Series, kind: class, label: Series }
+      - { name: Slide, kind: class, label: Slide }
+      - { name: Slideshow, kind: class, label: Slideshow }
+      - { name: Specification, kind: class, label: Specification }
+      - { name: Standard, kind: class, label: Standard }
+      - { name: Statute, kind: class, label: Statute }
+      - { name: Thesis, kind: class, label: Thesis }
+      - { name: ThesisDegree, kind: class, label: Thesis degree }
+      - { name: Webpage, kind: class, label: Webpage }
+      - { name: Website, kind: class, label: Website }
+      - { name: Workshop, kind: class, label: Workshop }
+      - { name: abstract, kind: property, label: abstract }
+      - { name: affirmedBy, kind: property, label: affirmedBy }
+      - { name: annotates, kind: property, label: annotates }
+      - { name: argued, kind: property, label: date argued }
+      - { name: asin, kind: property, label: asin }
+      - { name: authorList, kind: property, label: list of authors }
+      - { name: chapter, kind: property, label: chapter }
+      - { name: citedBy, kind: property, label: cited by }
+      - { name: cites, kind: property, label: cites }
+      - { name: coden, kind: property, label: coden }
+      - { name: content, kind: property, label: content }
+      - { name: contributorList, kind: property, label: list of contributors }
+      - { name: court, kind: property, label: court }
+      - { name: degree, kind: property, label: degree }
+      - { name: director, kind: property, label: director }
+      - { name: distributor, kind: property, label: distributor }
+      - { name: eanucc13, kind: property, label: eanucc13 }
+      - { name: edition, kind: property, label: edition }
+      - { name: editor, kind: property, label: editor }
+      - { name: editorList, kind: property, label: list of editors }
+      - { name: eissn, kind: property, label: eissn }
+      - { name: gtin14, kind: property, label: gtin14 }
+      - { name: handle, kind: property, label: handle }
+      - { name: identifier, kind: property, label: identifier }
+      - { name: interviewee, kind: property, label: interviewee }
+      - { name: interviewer, kind: property, label: interviewer }
+      - { name: isbn, kind: property, label: isbn }
+      - { name: isbn10, kind: property, label: isbn10 }
+      - { name: isbn13, kind: property, label: isbn13 }
+      - { name: issn, kind: property, label: issn }
+      - { name: issuer, kind: property, label: issuer }
+      - { name: lccn, kind: property, label: lccn }
+      - { name: locator, kind: property, label: locator }
+      - { name: numPages, kind: property, label: number of pages }
+      - { name: numVolumes, kind: property, label: number of volumes }
+      - { name: number, kind: property, label: number }
+      - { name: oclcnum, kind: property, label: oclcnum }
+      - { name: organizer, kind: property, label: organizer }
+      - { name: owner, kind: property, label: owner }
+      - { name: pageEnd, kind: property, label: page end }
+      - { name: pageStart, kind: property, label: page start }
+      - { name: pages, kind: property, label: pages }
+      - { name: performer, kind: property, label: performer }
+      - { name: pmid, kind: property, label: pmid }
+      - { name: prefixName, kind: property, label: prefix name }
+      - { name: presentedAt, kind: property, label: presented at }
+      - { name: presents, kind: property, label: presents }
+      - { name: producer, kind: property, label: producer }
+      - { name: recipient, kind: property, label: recipient }
+      - { name: reproducedIn, kind: property, label: reproducedIn }
+      - { name: reversedBy, kind: property, label: reversedBy }
+      - { name: reviewOf, kind: property, label: review of }
+      - { name: section, kind: property, label: section }
+      - { name: shortDescription, kind: property, label: shortDescription }
+      - { name: shortTitle, kind: property, label: short title }
+      - { name: sici, kind: property, label: sici }
+      - { name: status, kind: property, label: status }
+      - { name: subsequentLegalDecision, kind: property, label: subsequentLegalDecision }
+      - { name: suffixName, kind: property, label: suffix name }
+      - { name: transcriptOf, kind: property, label: transcript of }
+      - { name: translationOf, kind: property, label: translation of }
+      - { name: translator, kind: property, label: translator }
+      - { name: upc, kind: property, label: upc }
+      - { name: uri, kind: property, label: uri }

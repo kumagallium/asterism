@@ -115,6 +115,7 @@ function isValueCatalog(m: SkeletonMap): boolean {
 function SkeletonEvidence({
   ann,
   valueCatalog = false,
+  keyColumns = [],
   onApplyCandidate,
   onAddRowKind,
   onSplit,
@@ -140,6 +141,9 @@ function SkeletonEvidence({
   /** 値そのものが ID の受け口（カタログ）: まとまるのが仕事なので、衝突事故の
    *  ⚠（collides）を出さない（利用者報告 2026-09-02）。 */
   valueCatalog?: boolean
+  /** この種類の ID が名指している列（テンプレートの変数）。**同格の候補**
+   *  （同じ列数・測定値でない）が他にもあるかの判定に使う — ADR D3 の行版。 */
+  keyColumns?: string[]
   onApplyCandidate: (columns: string[]) => void
   /** Add the row-level map this source is missing (one click, server-suggested). */
   onAddRowKind?: () => void
@@ -439,6 +443,23 @@ function SkeletonEvidence({
   // risk). Singleton: merging is normal, so the chips fold behind the explicit
   // "should this be one record per row?" question instead.
   const showCandidates = !singleton && (collides || caution || risks.length > 0) && candidateChips
+  /* ADR D3 の行版: 採用した ID と**同格**（同じ列数・測定値でない）の候補。
+     実データで測ると「候補が複数」は常に真（元素表で 376 件）なので、それを
+     質問にすると使い物にならない。人の選択が本当に効くのは、機械が同点の中から
+     任意に 1 つ選んだときだけ（実測: 元素表 name/number/source、starrydata
+     SID/DOI/figure_name — いずれも 3 択）。新しい操作は足さず、既にある
+     折り畳みチップの見出しだけを「同格がある」ことを言う文に差し替える
+     （利用者裁定 2026-09-03「推奨で良いが UI はシンプルなまま」）。 */
+  const tiedKeyCount = (() => {
+    if (singleton || collides || keyColumns.length === 0) return 0
+    const current = [...keyColumns].sort().join(' ')
+    return (ann.key_candidates ?? []).filter(
+      (c) =>
+        !c.measurement_only &&
+        c.columns.length === keyColumns.length &&
+        [...c.columns].sort().join(' ') !== current,
+    ).length
+  })()
   // The card's three ownership blocks (G12): what it carries, what another map
   // owns, and what it cannot carry at all.
   const cardProps = card?.properties ?? []
@@ -952,7 +973,9 @@ function SkeletonEvidence({
            folded, so the green path stays quiet (2026-08-19 review). */
         <div className="skeleton-evidence-candidates">
           <p className="skeleton-evidence-label">
-            {t('workbench:skeleton.evidence.candidatesQuietHead')}
+            {tiedKeyCount > 0
+              ? t('workbench:skeleton.evidence.candidatesTiedHead', { count: tiedKeyCount })
+              : t('workbench:skeleton.evidence.candidatesQuietHead')}
           </p>
           {candidateChips}
         </div>
@@ -2344,6 +2367,7 @@ export function SkeletonGate({
         <SkeletonEvidence
           ann={ann}
           valueCatalog={isValueCatalog(m)}
+          keyColumns={templateKeys(m)}
           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
           onAddRowKind={() => addRowKind(idx)}
           onSplit={(cols, key) => splitConcept(idx, cols, key)}
