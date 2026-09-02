@@ -8,6 +8,31 @@
     "fixLink": "Open the dataset list"
   },
   "loading": "Loading…",
+  "map": {
+    "title": "Map of shared words",
+    "lead": "Your datasets' kinds and fields become one map. The more datasets connect, the more this map grows. The band at the bottom holds the world's standard vocabularies — the more lines gather there, the better your data speaks with the world.",
+    "aria": "Map of words across datasets",
+    "statsAria": "Map totals",
+    "bandTitle": "Standard words (shared with the world)",
+    "bandHint": "The more lines gather here, the more your words connect with the world",
+    "moreFields": "…{{n}} more fields",
+    "count": "{{n}}",
+    "aligned": "aligned",
+    "stats": {
+      "datasets": "datasets",
+      "kinds": "kinds",
+      "items": "fields",
+      "used": "standard words in use",
+      "candidates": "grounding candidates",
+      "alignments": "alignments"
+    },
+    "legend": {
+      "link": "connection inside the data",
+      "used": "uses a standard word",
+      "candidate": "grounding candidate (not yet confirmed)",
+      "alignment": "alignment between datasets"
+    }
+  },
   "schemaError": "Couldn't load the list of words. Wait a moment, then press \"Reload\". If it keeps happening, tell whoever set this server up.",
   "reload": "Reload",
   "classesCard": {

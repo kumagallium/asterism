@@ -491,6 +491,16 @@ class GroundSchemaBody(BaseModel):
     model_yaml: str = ""
 
 
+class GroundTermsBody(BaseModel):
+    """Body for POST /api/ground/terms: batch-ground a list of term names（共通の言葉の
+    地図が 1 往復で全語の接地候補を得るため — 1 語ずつの GET /api/ground では語数分の
+    往復になる）. Read-only + deterministic; same closed catalog as GET /api/ground."""
+
+    terms: list[dict[str, str]] = []
+    limit_per_term: int = 1
+    min_score: int = 90
+
+
 class UsageEventBody(BaseModel):
     """Body for POST /api/usage: one LLM-usage event (token counts only — no cost).
 
@@ -8941,6 +8951,30 @@ def build_app(
         except ValueError as exc:  # bad kind
             raise HTTPException(400, str(exc)) from exc
         return JSONResponse({"query": q, "candidates": [c.to_dict() for c in cands]})
+
+    @app.post("/api/ground/terms")
+    async def grounding_search_batch(body: GroundTermsBody) -> JSONResponse:
+        """Ground MANY term names in one round trip（共通の言葉の地図用）.
+
+        Each entry is ``{"name": ..., "kind": "class"|"property"(optional)}``; the reply
+        maps each name to its best candidates. ``min_score``（既定 90 = exact 級）で
+        弱い一致を落とす — 地図に自動で描く線は名前がほぼ一致する語だけにする。
+        Closed-set + deterministic + read-only（GET /api/ground と同じカタログ）。"""
+        limit = max(1, min(5, body.limit_per_term))
+        out: dict[str, list[dict[str, object]]] = {}
+        for entry in body.terms[:500]:
+            name = (entry.get("name") or "").strip()
+            if not name or name in out:
+                continue
+            kind = entry.get("kind") or None
+            try:
+                cands = grounding.ground_terms(name, kind=kind, limit=limit)
+            except ValueError as exc:  # bad kind
+                raise HTTPException(400, str(exc)) from exc
+            kept = [c.to_dict() for c in cands if c.score >= body.min_score]
+            if kept:
+                out[name] = kept
+        return JSONResponse({"terms": out})
 
     @app.get("/api/units/resolve")
     async def units_resolve(

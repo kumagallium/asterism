@@ -36,7 +36,7 @@ import {
  *  ④⑤（かんたん層）・詳細モードの骨格図・データセット詳細の構造図は、すべて
  *  この 1 つの部品で描く。違うのは箱の呼び方と、項目を並べるかどうかだけ。 */
 
-type ShapeNodeData = {
+export type ShapeNodeData = {
   label: string
   tone: string
   clickable: boolean
@@ -51,8 +51,10 @@ type ShapeNodeData = {
   words: { open: string; close: string }
 }
 
-/** 箱ひとつ。React Flow の既定の箱は英字前提の余白なので、自前で描く。 */
-function ShapeBox({ data }: NodeProps) {
+/** 箱ひとつ。React Flow の既定の箱は英字前提の余白なので、自前で描く。
+ *  「共通のことば」の地図（VocabGraph）も同じ箱を使う — 同じ種類は
+ *  どの画面でも同じ見た目であってほしい。 */
+export function ShapeBox({ data }: NodeProps) {
   const d = data as ShapeNodeData
   const cls = ['shape-node', `shape-node--${d.tone}`, d.clickable ? 'is-clickable' : '']
     .filter(Boolean)
