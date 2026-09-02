@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         # NOTE: setup-uv >= v5 turns the Actions cache ON by default (hosted
         # runners). No uv.lock yet, so the key comes from **/pyproject.toml
         # (v6+ default glob) — the v3-era "no lockfile" failure is gone. Jobs
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -153,7 +153,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -180,7 +180,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         # NOTE: setup-uv >= v5 turns the Actions cache ON by default (hosted
         # runners). No uv.lock yet, so the key comes from **/pyproject.toml
         # (v6+ default glob) — the v3-era "no lockfile" failure is gone. Jobs
