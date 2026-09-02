@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.33.6](https://github.com/kumagallium/asterism/compare/v0.33.5...v0.33.6) - 2026-09-02
+
+- fix(api): 「AI に直してもらう」経路にも受け口保証を — 第 3 の再主張スタック by @kumagallium in https://github.com/kumagallium/asterism/pull/534
+
 ## [v0.33.5](https://github.com/kumagallium/asterism/compare/v0.33.4...v0.33.5) - 2026-09-02
 
 - chore(deps): bump astral-sh/setup-uv from 3 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/502
