@@ -1293,3 +1293,45 @@ def test_zone_values_are_not_truncated_by_the_card_cap(tmp_path: Path) -> None:
     assert {v["column"] for v in card["all_values"]} == {"key", *cols}
     # 候補も切らない（キーだけ除く）。
     assert set(card["identity_columns"]) == set(cols)
+
+
+def test_order_key_coarse_first_sorts_by_distinct_count() -> None:
+    """ID の並びは「粗いもの → 細かいもの」[利用者報告 2026-09-02: Starrydata で
+    record/{sample_id}/{figure_id}/{SID} と真逆に並んだ]。同一性は列の集合で
+    決まるので並べ替えは安全。親は常に先頭・未計測 [0] は最後尾・同数は入力順。"""
+    from asterism_step0.skeleton_annotate import _order_key_coarse_first
+
+    counts = {"sample_id": 120, "figure_id": 30, "SID": 8}
+    assert _order_key_coarse_first(["sample_id", "figure_id", "SID"], [], counts) == [
+        "SID",
+        "figure_id",
+        "sample_id",
+    ]
+    # 親（カードのキー）は粗さに関係なく先頭のまま。
+    assert _order_key_coarse_first(["fine", "No"], ["No"], {"fine": 5, "No": 99}) == [
+        "No",
+        "fine",
+    ]
+    # 未計測（unique_count 0 = 高カーディナリティ）は最も細かい扱い。
+    assert _order_key_coarse_first(["a", "b"], [], {"a": 0, "b": 3}) == ["b", "a"]
+    # 同数は入力順（決定論 — 同じ入力は同じ絵）。
+    assert _order_key_coarse_first(["x", "y"], [], {"x": 2, "y": 2}) == ["x", "y"]
+
+
+def test_assemble_orders_record_key_coarse_to_fine(tmp_path: Path) -> None:
+    """組み立ての実配線でも粗→細になる [ヘルパ単体でなく assemble 経由 —
+    保証パスのテストは実配線で書く（ROADMAP ⭐ 2026-09-02）]。Starrydata の実例:
+    番号が入れ子の中で再利用される（figure 1,2,3 は各論文に・sample 1..4 は各図に）
+    ため一意キーは 3 列。列見出しは細→粗の順に並んでいても、ID は粗→細で出す。"""
+    p = tmp_path / "curves.csv"
+    rows = ["sample_id,figure_id,SID,val"]
+    for paper in ("A", "B"):
+        for fig in ("1", "2", "3"):
+            for sample in ("1", "2", "3", "4"):
+                rows.append(f"{sample},{fig},{paper},0.{len(rows)}")
+    p.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    out = assemble_skeleton_from_judgments([p], dataset_name="curves")
+    record = next(m for m in out["skeleton"]["maps"] if m["name"] == "record")
+    tpl = record["subject"]["template"]
+    # 異なり数 SID(2) < figure_id(3) < sample_id(4) → 粗 → 細。
+    assert tpl.endswith(":record/{SID}/{figure_id}/{sample_id}")

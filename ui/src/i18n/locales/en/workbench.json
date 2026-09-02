@@ -273,7 +273,7 @@
       "placeholderWarn": "This is a placeholder domain (example.org etc.) — it can never become a citable identifier. Edit the namespace.",
       "placeholderWarnPlain": "Still a placeholder address (example.org etc.) — it cannot become a citable ID. Have the AI think again, or fix it in Detail mode.",
       "confirmPlaceholder": "Some namespaces still point at a placeholder domain ({{prefixes}}). Continue anyway? (The self-correction pass will try to re-mint, but fixing it here is the sure path.)",
-      "nameLabel": "Dataset name (used in the IDs)",
+      "nameLabel": "The name inside the permanent ID (the display name is given separately at “Publish”)",
       "nameHint": "The name inside the ID (letters, digits and hyphens only). The display name shown in the catalog is given separately at the last step, “Publish”. Pick a name that still fits data you will add later (e.g. the kind of measurement rather than one material).",
       "baseUnconfigured": "The ID issuer is still a provisional address ({{base}}). That is fine for trying things out. To keep IDs citable after publishing, set the issuer address under Settings → “This server” (on a shared server, this is set once for everyone).",
       "openSettings": "Open settings",

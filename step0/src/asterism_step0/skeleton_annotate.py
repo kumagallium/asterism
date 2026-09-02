@@ -1407,6 +1407,24 @@ def _pascal(name: str) -> str:
     return "".join(p[:1].upper() + p[1:] for p in parts)
 
 
+def _order_key_coarse_first(
+    key: Sequence[str], parent: Sequence[str], unique_counts: Mapping[str, int]
+) -> list[str]:
+    """複合キーの並びを「粗いもの → 細かいもの」にする [決定論]。
+
+    識別子の同一性は列の**集合**で決まり [入れ子判定 embedsKey も集合比較]、
+    並びは可読性だけの問題 — だが逆順の IRI [record/{sample}/{figure}/{paper}]
+    は引用時に人を迷わせる [利用者報告 2026-09-02: Starrydata]。粗さは検査の
+    実測 [異なり数の昇順 = 論文 < 図 < サンプル]。親 [カードのキー] は常に先頭、
+    未計測 [unique_count 0 = 高カーディナリティ] は最も細かいとみなして最後尾、
+    同数は入力順のまま [安定・同じ入力は同じ絵]。
+    """
+    rest = [c for c in key if c not in parent]
+    order = {c: i for i, c in enumerate(rest)}
+    rest.sort(key=lambda c: (unique_counts.get(c) or float("inf"), order[c]))
+    return [*parent, *rest]
+
+
 def assemble_skeleton_from_judgments(
     paths: Sequence[Path | str],
     *,
@@ -1551,6 +1569,9 @@ def assemble_skeleton_from_judgments(
                     varying[0],
                 )
                 key = [*parent, first_identity]
+            key = _order_key_coarse_first(
+                key, parent, {c.name: c.unique_count for c in ins.columns}
+            )
             name = _ascii_map_name("record", taken, "record")
             # 行の種類は自分の持ち物 [キー以外の変動列。☑ の受け口列は受け口の
             # 持ち物] を**宣言**する。宣言が無いと、キーでも受け口でもない列は
