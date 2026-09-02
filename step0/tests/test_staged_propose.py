@@ -1329,7 +1329,10 @@ def test_value_catalog_gets_its_label_literal() -> None:
     実行できない（実測: 元素表 JSON の Number が 4 ラウンド不動）。書くべき直しは
     ラベルのリテラル化で、決定論で書く。IRI 化された自分の値はリテラルと
     数えない。"""
-    ir = {
+    # ⭐実配線と同じ形: owns は assemble_mapping_ir(_clean_map) で IR から落ちる
+    #   [parse_mapping_ir が unknown field を拒む] ので、骨格側から owns_by_map で
+    #   渡す。最初の実装は IR の owns を読んで no-op だった [実測 2026-09-02]。
+    skeleton = {
         "version": 1,
         "prefixes": {"x": "https://example.org/x#"},
         "maps": [
@@ -1338,27 +1341,51 @@ def test_value_catalog_gets_its_label_literal() -> None:
                 "source": "elements.csv",
                 "subject": {"template": "xr:number/{number}"},
                 "owns": ["number"],
-                "properties": [
-                    {"column": "number", "predicate": "x:sameAs", "object_type": "iri"}
-                ],
             },
             {
                 "name": "record",
                 "source": "elements.csv",
                 "subject": {"template": "xr:record/{name}"},
-                "properties": [{"column": "name", "predicate": "rdfs:label"}],
             },
         ],
     }
-    out, added = ensure_value_catalog_labels(ir)
+    permaps = {
+        "number": {
+            "properties": [
+                {"column": "number", "predicate": "x:sameAs", "object_type": "iri"}
+            ]
+        },
+        "record": {"properties": [{"column": "name", "predicate": "rdfs:label"}]},
+    }
+    ir = assemble_mapping_ir(skeleton, permaps)
+    assert "owns" not in ir["maps"][0]  # _clean_map が落とす — この前提が破れたら設計変更
+    owns_by_map = {m["name"]: list(m.get("owns") or []) for m in skeleton["maps"]}
+    out, added = ensure_value_catalog_labels(ir, owns_by_map)
     assert added == ["number"]
     number = next(m for m in out["maps"] if m["name"] == "number")
     assert {"column": "number", "predicate": "rdfs:label"} in number["properties"]
     assert out["prefixes"]["rdfs"] == "http://www.w3.org/2000/01/rdf-schema#"
-    # record（カタログでない）は触らない・冪等
-    out2, added2 = ensure_value_catalog_labels(out)
+    # record [カタログでない — name 直参照のリテラルを持つ] は触らない・冪等
+    out2, added2 = ensure_value_catalog_labels(out, owns_by_map)
     assert added2 == []
     assert out2 == out
+    # owns の無い空シェル [LLM/旧経路] も救済: リテラル皆無の単独キー map
+    shell = {
+        "version": 1,
+        "prefixes": {},
+        "maps": [
+            {
+                "name": "Phase",
+                "source": "elements.csv",
+                "subject": {"template": "xr:phase/{phase}"},
+                "properties": [
+                    {"predicate": "x:of", "object_template": "xr:record/{name}"}
+                ],
+            }
+        ],
+    }
+    _out3, added3 = ensure_value_catalog_labels(shell)
+    assert added3 == ["Phase"]
 
 
 # --- ensure_same_source_links: 1 ファイルの種類は 1 つにつながる（2026-08-27） ---

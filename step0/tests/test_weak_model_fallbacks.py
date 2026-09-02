@@ -280,7 +280,12 @@ def test_fallback_is_skipped_when_the_design_has_no_namespace_of_its_own() -> No
 
     md = propose_from_skeleton(skeleton, "# insp", "demo", llm=_Mock(handler), menu=_MENU)
     spec = yaml.safe_load(md.split("```yaml")[-1].split("```")[0])
-    assert spec["maps"][0]["properties"] == []
+    # 既定表は名前空間が無く鋳造できないので空 — だが空シェル救済
+    # (ensure_value_catalog_labels) が rdfs:label だけは付ける。rdfs は鋳造不要
+    # (setdefault で宣言) なので、この最低 1 リテラルは名前空間の有無に依らず
+    # 正当 (2026-09-02: 空の入れ物助言の恒久解)。
+    assert spec["maps"][0]["properties"] == [{"column": "id", "predicate": "rdfs:label"}]
+    assert spec["prefixes"]["rdfs"] == "http://www.w3.org/2000/01/rdf-schema#"
 
 
 def _write_sources(tmp_path: Path) -> list[Path]:
