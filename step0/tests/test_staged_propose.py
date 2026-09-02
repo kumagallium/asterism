@@ -2192,3 +2192,24 @@ def test_deterministic_propose_wires_json_plans_to_the_assembled_ir() -> None:
     assert y["function"] == "json_array" and y["datatype"] == "xsd:double"
     info = next(p for p in props if p.get("column") == "info")
     assert info["function"] == "json_get" and info["args"] == {"path": "weight"}
+
+
+def test_json_expansion_plan_descends_one_level_into_nested_dicts() -> None:
+    """辞書の値がさらに辞書（starrydata の sample_info）のときは 1 階層降りて
+    `キー.サブキー` の dotted パスを拾う。数えるのは空でないスカラだけ —
+    空文字ばかりのパスに述語を鋳造しない。`.` 入りキーはパス衝突なので対象外。"""
+    info = (
+        '{"FabricationProcess": {"category": "SoftChemical", "comment": ""},'
+        ' "Form": {"category": "Film"},'
+        ' "weird.key": {"category": "x"},'
+        ' "note": "plain"}'
+    )
+    rows = [{"sample_info": info}, {"sample_info": '{"Form": {"category": "Bulk"}}'}]
+    plan = json_expansion_plan(rows, ["sample_info"])
+    keys = {k["key"] for k in plan["sample_info"]["keys"]}
+    assert "Form.category" in keys
+    assert "FabricationProcess.category" in keys
+    assert "note" in keys  # 直下のスカラも従来どおり
+    # 空文字しか無いパス・`.` 入りキー由来のパスは鋳造しない
+    assert "FabricationProcess.comment" not in keys
+    assert not any(k.startswith("weird") for k in keys)

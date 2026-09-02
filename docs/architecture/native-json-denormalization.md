@@ -219,8 +219,13 @@ LLM/人任せのままだった。実運用（starrydata）で、かんたんの
 決定論の追補（LLM 0・新関数 0）:
 
 - `json_expansion_plan(rows, columns)`（step0・stdlib のみ）— 非空セルの標本
-  （200 件・9 割一致で採用）から列を分類: スカラ配列 / 単一辞書（スカラキー・
-  頻度 1 割以上・最大 16）/ 辞書の配列（最大 12 キー）。
+  （200 件・9 割一致＝**切り上げ**で採用）から列を分類: スカラ配列 / 単一辞書
+  （頻度 1 割以上・最大 16）/ 辞書の配列（最大 12 キー）。辞書の値がさらに
+  辞書のとき（starrydata `sample_info`: `{"FabricationProcess": {"category": …}}`）
+  は **1 階層だけ降り**、`キー.サブキー` の dotted パス（json_get のパスと同形）
+  として拾う。数えるのは**空でない**スカラだけ — 空文字ばかりのパスに述語を
+  鋳造しない。取り込み時の空値は **morph-kgc が自然に落とす**（実 morph で実証:
+  `category:"Film"` は 1 トリプル・`""`/欠損は 0）。`.` 入りキーはパス衝突で対象外。
 - `default_property_table(json_plan=…)` — 配列→`json_array`（全要素が数なら
   `xsd:double`）、辞書→キーごと `json_get(path)`、辞書の配列→キーごと
   `json_pluck(field)`。predicate は `列名+キー` の lowerCamel、label は `列.キー`。
