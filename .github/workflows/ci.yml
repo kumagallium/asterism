@@ -18,8 +18,11 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
-        # NOTE: caching disabled until we ship uv.lock — setup-uv v3 with
-        # enable-cache=true errors out when no lockfile matches.
+        # NOTE: setup-uv >= v5 turns the Actions cache ON by default (hosted
+        # runners). No uv.lock yet, so the key comes from **/pyproject.toml
+        # (v6+ default glob) — the v3-era "no lockfile" failure is gone. Jobs
+        # share one key: on a miss, all but the first saver log a benign
+        # "Unable to reserve cache" warning.
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -178,8 +181,11 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
-        # NOTE: caching disabled until we ship uv.lock — setup-uv v3 with
-        # enable-cache=true errors out when no lockfile matches.
+        # NOTE: setup-uv >= v5 turns the Actions cache ON by default (hosted
+        # runners). No uv.lock yet, so the key comes from **/pyproject.toml
+        # (v6+ default glob) — the v3-era "no lockfile" failure is gone. Jobs
+        # share one key: on a miss, all but the first saver log a benign
+        # "Unable to reserve cache" warning.
 
       - name: Set up Python 3.11
         run: uv python install 3.11
