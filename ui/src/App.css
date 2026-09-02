@@ -7279,15 +7279,13 @@ tr[data-map].skeleton-gate-row--added td {
 
 /* Always-visible 5-step recipe (①入れる → … → ⑤公開する) with 現在地. */
 .kz-recipe {
-  /* 1 行に全 7 段（利用者要望 2026-09-02「横幅を広げて 1 行に」）。列は 880px
-     だが手順バーだけ width:max-content + align-self:center で列の外へ対称に
-     はみ出す（flex の子は親の幅にクリップされない）。ビューポートが足りない
-     ときだけ中央揃えで折り返すフォールバック。 */
+  /* 1 行に全 7 段（利用者要望 2026-09-02）。列は 1080px（バーとカードの同幅）。
+     ビューポートが足りないときだけ中央揃えで折り返すフォールバック。 */
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: var(--space-2);
+  gap: 0.35rem;
   list-style: none;
   margin: 0;
   padding: var(--space-3) var(--space-4);
@@ -7299,12 +7297,15 @@ tr[data-map].skeleton-gate-row--added td {
 .kz-recipe-step {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  /* どのページ・どの現在地でも 1 行に収める（利用者要望 2026-09-02）。最悪
+     ケース = 「最初から」チップ + 「現在地」チップが同時に付く行。列内側
+     1048px に収まるよう、間隔と余白を絞る。 */
+  gap: 0.3rem;
   white-space: nowrap;
-  padding: 0.2rem 0.65rem;
+  padding: 0.2rem 0.45rem;
   border-radius: 999px;
   color: var(--body);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 .kz-recipe-step.active {
   background: var(--primary-soft);
