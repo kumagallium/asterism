@@ -80,6 +80,23 @@ export async function groundTerms(
   return ((await res.json()) as { candidates?: GroundCandidate[] }).candidates ?? []
 }
 
+/** Batch grounding for the 共通のことばの地図: many term names, ONE round trip
+ *  (`POST /api/ground/terms`). The reply maps each sent name to its near-exact
+ *  candidates (score >= 90 server-side) — names with no strong match are absent.
+ *  Same closed catalog + determinism as `groundTerms`. Read-only. */
+export async function groundTermsBatch(
+  terms: { name: string; kind?: 'class' | 'property' }[],
+): Promise<Record<string, GroundCandidate[]>> {
+  if (terms.length === 0) return {}
+  const res = await fetch(`${API_BASE}/api/ground/terms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terms }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('grounding:op.search'))
+  return ((await res.json()) as { terms?: Record<string, GroundCandidate[]> }).terms ?? {}
+}
+
 /**
  * Propose-time grounding: for each class/predicate the proposed schema would MINT, the
  * matching standard candidates — so AI-assisted design surfaces "your data could lean on

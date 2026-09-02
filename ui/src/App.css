@@ -9451,3 +9451,125 @@ tr.kz-cols-dropped td {
 .ontomap-flow .react-flow__controls {
   pointer-events: auto !important;
 }
+
+/* ── 共通のことばの育つ地図（shared-vocab-graph.md） ─────────────────────────
+   `.vocab-map` は `.shape-graph` を併用する: 箱・手すり（handle 非表示）・既定の
+   灰の辺はそのまま貰い、ここでは横断図だけの概念（クラスタ・標準の帯・辺の
+   性格 3 色）を足す。緑=標準語の使用（確定）/ 琥珀点線=接地の候補 /
+   青点線=対応（crosswalk の既存色）。 */
+.vocab-map-card {
+  margin-bottom: 1.1rem;
+}
+.vocab-map-lead {
+  margin: 0.2rem 0 0.7rem;
+  font-size: 0.875rem;
+  color: var(--body);
+}
+.vocab-map-stats {
+  display: flex;
+  gap: 1.3rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.7rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 0.5rem 0.85rem;
+}
+.vocab-map-stats strong {
+  color: var(--fg);
+  font-size: 1rem;
+  margin-right: 0.15em;
+}
+.vocab-map-cluster {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-alt) 55%, transparent);
+  padding: 0.5rem 0.8rem;
+}
+.vocab-map-cluster-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fg);
+  margin-right: 0.8rem;
+}
+.vocab-map-band {
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+}
+.vocab-map-band-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.vocab-map-std {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.05rem;
+  padding: 0 0.75rem;
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.vocab-map-std-term {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vocab-map-std-vocab {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+.vocab-map .vocab-map-edge--used .react-flow__edge-path {
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+.vocab-map .vocab-map-edge--used .react-flow__edge-text {
+  fill: var(--primary);
+}
+.vocab-map .vocab-map-edge--candidate .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-dasharray: 5 4;
+}
+.vocab-map .vocab-map-edge--candidate .react-flow__edge-text {
+  fill: var(--accent-strong);
+}
+.vocab-map .vocab-map-edge--alignment .react-flow__edge-path {
+  stroke: var(--activity);
+  stroke-dasharray: 5 4;
+}
+.vocab-map .vocab-map-edge--alignment .react-flow__edge-text {
+  fill: var(--activity);
+}
+.vocab-map-legend {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-top: 0.55rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.vocab-map-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.vocab-map-leg-line--link {
+  stroke: var(--border-strong);
+}
+.vocab-map-leg-line--used {
+  stroke: var(--primary);
+}
+.vocab-map-leg-line--candidate {
+  stroke: var(--accent);
+}
+.vocab-map-leg-line--alignment {
+  stroke: var(--activity);
+}

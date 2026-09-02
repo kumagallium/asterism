@@ -4,6 +4,7 @@ import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 import { deriveReuses, localName, knownVocabForIri } from './vocab'
+import { VocabMapSection } from './VocabMapSection'
 
 const STATUS_KEY: Record<CatalogDataset['statusKind'], string> = {
   pub: 'vocab:status.pub',
@@ -169,6 +170,16 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
             </button>
           </p>
         </>
+      )}
+
+      {/* 育つ地図（グラフが主役・リストは下に残す — shared-vocab-graph.md §1）。
+          設計のあるデータセットが無ければ節ごと出ない。 */}
+      {schemaTried && loaded && (
+        <VocabMapSection
+          datasets={datasets}
+          schema={schema}
+          onOpenDataset={(id) => goTo(`#/datasets/${encodeURIComponent(id)}`)}
+        />
       )}
 
       {schema && (
