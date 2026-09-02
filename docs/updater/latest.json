@@ -1,11 +1,11 @@
 {
-  "version": "0.36.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 6fb5530c074e1795b1603e9ac2b5af89ddf35380 -->\n\n## What's Changed\n* fix(ask): 打ち切りを「分かりません」で終わらせない（促し継続＋ツール無し最終回答） by @kumagallium in https://github.com/kumagallium/asterism/pull/546\n* feat(crosswalk): つながりを削除できるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/548\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.35.0...v0.36.0",
-  "pub_date": "2026-09-02T06:32:28Z",
+  "version": "0.37.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 14b094cc7b27f4e0b375a447233cc6cde36c6ee7 -->\n\n## What's Changed\n* fix(prod): Ask に run_sparql を渡す（集計・横断質問を可能に） by @kumagallium in https://github.com/kumagallium/asterism/pull/549\n* feat(design): セル内 JSON（配列・辞書）を決定論設計が自動で展開する by @kumagallium in https://github.com/kumagallium/asterism/pull/551\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.36.0...v0.37.0",
+  "pub_date": "2026-09-02T07:14:22Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVJ2WVRycnlvUDNtS0NDem4wRkIyQmxKdUdLbEd4dEhIT1RCc2c2eiszZnRUd0ZOY0xHcXZGSEVVbVluanJ5UVlWK01iUG00cDZTc3E2TmJBMUlDT0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzMwNzQ3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjVxS3VMMVFhV0JVOWdlblNxeGN4b3hkN1RoS3Vsbkp5M0g3SFRFZEhNRVBjZTZSVW5mSlZadElvdG8rRFNCeEh3cE9nS1U3b2xiMW5uUEtWZ0VWSUF3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.36.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVpnR2xJM2NKOVdtZ3ZnYzcrZmJDV0ZXZ2psM296YVV1aHFvdWxQaVlKR0JMODZjMTBGdjFONWNQQTYxUkVLQXkzNkt3UXRhMkowS0t3MGdvR1JOS0FvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzMzMjYyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjZyaFA5T1VsUkJXakJYbGkvNkZycU4zSkxBN1g2dVJ6YmRHVnNWNHMvNVJZV2lpdVdrSUgxSENVb2EwWFpzSnM4WTNESEJxWC9VZDQ2YkxYQi9iK0RnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.37.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
