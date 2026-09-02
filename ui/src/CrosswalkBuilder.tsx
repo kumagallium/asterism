@@ -5,6 +5,7 @@ import {
   buildPerspective,
   type BuildResult,
   type CrosswalkConfig,
+  getCrosswalkFields,
   getCrosswalks,
   type PredicateCandidate,
   previewNormalizer,
@@ -17,7 +18,7 @@ import {
   perspectiveIdFromName,
   uniqueCrosswalkId,
 } from './crosswalkMint'
-import { conceptLabel } from './crosswalkLabels'
+import { conceptLabel, fieldDisplay } from './crosswalkLabels'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { LinkIcon } from './icons'
 import { useLlmSettings } from './settings/context'
@@ -73,6 +74,8 @@ const XW_STORAGE = 'asterism.workbench.crosswalk'
 interface XwSnapshot {
   selected: string[]
   predicate: Record<string, string>
+  /** dataset_id -> the kind (class IRI) the chosen field sits on, when it has one. */
+  subjectClass: Record<string, string>
   candidates: Record<string, PredicateCandidate[]>
   concept: string
   normalizer: string
@@ -100,6 +103,8 @@ export interface CrosswalkSeed {
   selected: string[]
   /** dataset id -> the concept-bearing predicate IRI. */
   predicate: Record<string, string>
+  /** dataset id -> the kind (class IRI) that predicate is read on, when scoped. */
+  subjectClass?: Record<string, string>
   /** dataset id -> dropdown options (with a real sample value). */
   candidates?: Record<string, PredicateCandidate[]>
   concept: string
@@ -113,6 +118,7 @@ function seedToSnapshot(seed: CrosswalkSeed): Partial<XwSnapshot> {
   return {
     selected: seed.selected,
     predicate: seed.predicate,
+    subjectClass: seed.subjectClass ?? {},
     candidates: seed.candidates ?? {},
     concept: seed.concept,
     normalizer: seed.normalizer,
@@ -141,6 +147,15 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(xw.selected ?? []))
   // dataset_id -> chosen predicate IRI (the concept-bearing predicate).
   const [predicate, setPredicate] = useState<Record<string, string>>(xw.predicate ?? {})
+  // dataset_id -> the kind (class IRI) the chosen field is read on; absent = any
+  // subject. A shared naming predicate (rdfs:label on every value catalog) is only
+  // a field once its kind is named (crosswalk-kind-scoped-fields.md).
+  const [subjectClass, setSubjectClass] = useState<Record<string, string>>(
+    xw.subjectClass ?? {},
+  )
+  // dataset_id -> the store-sampled fields per kind (the dropdown without an AI).
+  // Re-fetched, never persisted.
+  const [fields, setFields] = useState<Record<string, PredicateCandidate[]>>({})
   // dataset_id -> AI-sampled candidates (iri + sample value), populated by propose.
   const [candidates, setCandidates] = useState<Record<string, PredicateCandidate[]>>(
     xw.candidates ?? {},
@@ -215,6 +230,7 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
     const snap: XwSnapshot = {
       selected: [...selected],
       predicate,
+      subjectClass,
       candidates,
       concept,
       normalizer,
@@ -233,6 +249,7 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   }, [
     selected,
     predicate,
+    subjectClass,
     candidates,
     concept,
     normalizer,
@@ -263,6 +280,26 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   }
 
   const chosen = (datasets ?? []).filter((d) => selected.has(datasetId(d)))
+  // Each chosen dataset's fields, per kind, sampled from the store — so the dropdown
+  // can say 「Composition › 試料化学組成」 without an AI. Best-effort: a failure leaves
+  // the dataset's plain predicate list in place.
+  const chosenIds = chosen.map(datasetId).join(' ')
+  useEffect(() => {
+    let off = false
+    for (const id of chosenIds.split(' ').filter(Boolean)) {
+      if (fields[id]) continue
+      getCrosswalkFields(id)
+        .then((got) => {
+          if (!off && got.length) setFields((prev) => ({ ...prev, [id]: got }))
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      off = true
+    }
+    // `fields` is the cache this effect fills; re-running on it would refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenIds])
   const readyCount = chosen.filter((d) => predicate[datasetId(d)]).length
   const conceptKey = concept.trim() || 'composition'
   // The name an unnamed crosswalk is given — derived from what it joins on, so
@@ -324,7 +361,25 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   function optionsFor(d: CatalogDataset): PredicateCandidate[] {
     const id = datasetId(d)
     if (candidates[id]?.length) return candidates[id]
+    if (fields[id]?.length) return fields[id]
     return d.predicates.map((iri) => ({ iri, sample: '' }))
+  }
+
+  /** A dropdown value: the predicate, plus the kind when the field is kind-scoped
+   *  (IRIs never contain a space, so one space separates the two). */
+  function optionKey(o: { iri: string; subject_class?: string | null }): string {
+    return o.subject_class ? `${o.iri} ${o.subject_class}` : o.iri
+  }
+
+  function pickField(id: string, key: string) {
+    const [iri, kind] = key.split(' ')
+    setPredicate((prev) => ({ ...prev, [id]: iri ?? '' }))
+    setSubjectClass((prev) => {
+      const next = { ...prev }
+      if (kind) next[id] = kind
+      else delete next[id]
+      return next
+    })
   }
 
   async function onPropose() {
@@ -338,8 +393,17 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
       for (const c of r.candidates) cand[c.dataset_id] = c.predicates
       setCandidates((prev) => ({ ...prev, ...cand }))
       const picks: Record<string, string> = {}
-      for (const p of r.participants) picks[p.dataset_id] = p.predicate
+      const kinds: Record<string, string> = {}
+      for (const p of r.participants) {
+        picks[p.dataset_id] = p.predicate
+        if (p.subject_class) kinds[p.dataset_id] = p.subject_class
+      }
       setPredicate((prev) => ({ ...prev, ...picks }))
+      setSubjectClass((prev) => {
+        const next = { ...prev }
+        for (const id of Object.keys(picks)) delete next[id]
+        return { ...next, ...kinds }
+      })
       const n = r.participants.length
       setProposeNote(
         n
@@ -393,6 +457,7 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
             participants: readyDatasets.map((d) => ({
               dataset_id: datasetId(d),
               label: labelFor(d),
+              ...(subjectClass[datasetId(d)] ? { subject_class: subjectClass[datasetId(d)] } : {}),
               predicates: {
                 [conceptKey]: predicate[datasetId(d)],
                 ...Object.fromEntries(
@@ -413,6 +478,7 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
               dataset_id: datasetId(d),
               label: labelFor(d),
               predicate: predicate[datasetId(d)],
+              ...(subjectClass[datasetId(d)] ? { subject_class: subjectClass[datasetId(d)] } : {}),
             })),
           }
       const config: CrosswalkConfig = { min_datasets: 2, concepts: [concept0] }
@@ -548,21 +614,26 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
                   const id = datasetId(d)
                   const opts = optionsFor(d)
                   const sel = predicate[id] ?? ''
-                  const sample = opts.find((o) => o.iri === sel)?.sample
+                  const selKey = sel ? optionKey({ iri: sel, subject_class: subjectClass[id] }) : ''
+                  const sample = (
+                    opts.find((o) => optionKey(o) === selKey) ?? opts.find((o) => o.iri === sel)
+                  )?.sample
                   return (
                     <div className="xw-map-row" key={id}>
                       <span className="xw-map-ds">{d.name}</span>
                       <select
                         className="xw-map-select"
-                        value={sel}
-                        onChange={(e) =>
-                          setPredicate((prev) => ({ ...prev, [id]: e.target.value }))
-                        }
+                        value={selKey}
+                        onChange={(e) => pickField(id, e.target.value)}
                       >
                         <option value="">{t('crosswalk:builder.selectPredicate')}</option>
                         {opts.map((o) => (
-                          <option key={o.iri} value={o.iri}>
-                            {localName(o.iri)}
+                          <option key={optionKey(o)} value={optionKey(o)}>
+                            {fieldDisplay({
+                              predicate: o.iri,
+                              predicate_label: o.label,
+                              subject_class_label: o.subject_class_label,
+                            })}
                             {o.sample ? t('crosswalk:builder.predicateSample', { sample: o.sample }) : ''}
                           </option>
                         ))}

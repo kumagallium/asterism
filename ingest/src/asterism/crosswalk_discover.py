@@ -101,6 +101,24 @@ _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
 _PERSPECTIVE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
+# Naming predicates whose local name says nothing about WHAT is named. Every value
+# catalog carries its value under ``rdfs:label`` (the design's label guarantee), so a
+# concept derived from the predicate alone would be called "label" whether it joins
+# compositions, DOIs or units; the kind (subject class) is the word that says which
+# (crosswalk-kind-scoped-fields.md).
+GENERIC_NAME_PREDICATES = frozenset(
+    {
+        "http://www.w3.org/2000/01/rdf-schema#label",
+        "http://www.w3.org/2004/02/skos/core#prefLabel",
+        "http://www.w3.org/2004/02/skos/core#altLabel",
+        "http://schema.org/name",
+        "https://schema.org/name",
+        "http://purl.org/dc/terms/title",
+        "http://purl.org/dc/elements/1.1/title",
+        "http://xmlns.com/foaf/0.1/name",
+    }
+)
+
 
 @dataclass(frozen=True)
 class DiscoverLimits:
@@ -158,13 +176,15 @@ class PredicateProfile:
     iri: str
     statements: int
     sample: str
+    # The kind (rdf:type) of the subjects carrying the value; None = untyped subjects.
+    subject_class: str | None = None
 
 
 @dataclass
 class Slot:
-    """One (dataset, predicate) pair that survived the exclusion rules — a possible
-    participant. A dataset contributes at most one slot to any candidate, because a
-    crosswalk participant declares exactly one predicate per concept."""
+    """One (dataset, kind, predicate) triple that survived the exclusion rules — a
+    possible participant. A dataset contributes at most one slot to any candidate,
+    because a crosswalk participant declares exactly one field per concept."""
 
     ds_index: int
     dataset: DiscoverDataset
@@ -173,6 +193,9 @@ class Slot:
     distinct: int
     values: list[str]
     values_truncated: bool
+    # The kind whose entities carry the value (None = untyped subjects) — what turns
+    # a shared naming predicate into a field (crosswalk-kind-scoped-fields.md).
+    subject_class: str | None = None
     # rung -> the normalized keys this slot reports (interned to ints; see `discover`).
     keys: dict[str, frozenset[int]] = field(default_factory=dict)
     # rung -> normalized key -> a raw spelling that produced it (evidence).
@@ -341,6 +364,15 @@ def derive_concept_name(predicates: Sequence[str], *, taken: Iterable[str], rank
 
 def _pascal(name: str) -> str:
     return "".join(w[:1].upper() + w[1:] for w in name.split("_") if w)
+
+
+def naming_term(predicate: str, subject_class: str | None) -> str:
+    """The IRI whose local name should name a concept for one slot: the KIND when the
+    predicate is a generic naming one (``rdfs:label`` on ``Composition`` entities is
+    about compositions, not labels), else the predicate itself."""
+    if subject_class and predicate in GENERIC_NAME_PREDICATES:
+        return subject_class
+    return predicate
 
 
 def concept_terms(name: str) -> tuple[str, str]:
@@ -558,6 +590,11 @@ def build_config_of(
                         "dataset_id": slots[m].dataset.dataset_id,
                         "label": slots[m].dataset.label,
                         "predicate": slots[m].predicate,
+                        **(
+                            {"subject_class": slots[m].subject_class}
+                            if slots[m].subject_class
+                            else {}
+                        ),
                     }
                     for m in cluster.slots
                 ],
@@ -587,9 +624,14 @@ async def profile_literal_predicates(
     distinct count comes from the value read that follows. ``LIMIT n+1`` is how
     truncation is detected rather than guessed.
     """
+    # Grouped by (kind, predicate): a naming predicate every value catalog shares
+    # (``rdfs:label``) is one field per kind, not one field carrying DOIs,
+    # compositions and units at once (crosswalk-kind-scoped-fields.md). An untyped
+    # subject profiles with no kind — the legacy shape, byte-for-byte.
     q = (
-        f"SELECT ?p (COUNT(*) AS ?n) (SAMPLE(?v) AS ?ex) WHERE {{ GRAPH <{graph}> {{ "
-        f"?e ?p ?v FILTER(isLiteral(?v)) }} }} GROUP BY ?p ORDER BY DESC(?n) LIMIT {limit + 1}"
+        f"SELECT ?c ?p (COUNT(*) AS ?n) (SAMPLE(?v) AS ?ex) WHERE {{ GRAPH <{graph}> {{ "
+        f"?e ?p ?v FILTER(isLiteral(?v)) OPTIONAL {{ ?e a ?c }} }} }} "
+        f"GROUP BY ?c ?p ORDER BY DESC(?n) LIMIT {limit + 1}"
     )
     rows = await _select_bindings(client, q)
     out: list[PredicateProfile] = []
@@ -601,22 +643,30 @@ async def profile_literal_predicates(
             n = int(b.get("n", {}).get("value", "0"))
         except (TypeError, ValueError):
             n = 0
+        c = b.get("c", {})
         out.append(
-            PredicateProfile(iri=p["value"], statements=n, sample=b.get("ex", {}).get("value", ""))
+            PredicateProfile(
+                iri=p["value"],
+                statements=n,
+                sample=b.get("ex", {}).get("value", ""),
+                subject_class=c["value"] if c.get("type") == "uri" else None,
+            )
         )
     return out[:limit], len(out) > limit
 
 
 async def fetch_distinct_values(
-    client, graph: str, predicate: str, *, limit: int
+    client, graph: str, predicate: str, *, limit: int, subject_class: str | None = None
 ) -> tuple[list[str], frozenset[str], bool]:
-    """Distinct literal values of one predicate, plus the datatypes seen.
+    """Distinct literal values of one predicate (of one kind's entities when
+    ``subject_class`` is given), plus the datatypes seen.
 
     ``?p`` is bound, so this walks one predicate's slice and stops as soon as the cap
     is reached — a per-row unique id costs the cap, not the graph.
     """
+    scope = f"?e a <{subject_class}> . " if subject_class else ""
     q = (
-        f"SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ ?e <{predicate}> ?v "
+        f"SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ {scope}?e <{predicate}> ?v "
         f"FILTER(isLiteral(?v)) }} }} LIMIT {limit + 1}"
     )
     rows = await _select_bindings(client, q)
@@ -648,6 +698,8 @@ async def discover(
     progress: Callable[[str, dict], None] | None = None,
     should_cancel: Callable[[], bool] | Callable[[], Awaitable[bool]] | None = None,
     predicate_label_of: Callable[[str, str], str | None] | None = None,
+    field_label_of: Callable[[str, str, str | None], str | None] | None = None,
+    class_label_of: Callable[[str, str], str | None] | None = None,
 ) -> dict:
     """Scan the promoted graphs and rank the joins that actually exist.
 
@@ -662,6 +714,12 @@ async def discover(
     behavior. Each candidate's ``concept_label`` is the participants' resolved
     labels when they agree (or their ``" / "``-joined disagreement); empty when
     none resolved — the caller then falls back to the ascii concept key.
+
+    ``field_label_of`` — ``(dataset_id, predicate_iri, subject_class|None) ->
+    label`` — is asked FIRST when a slot has a kind: the design's word for that
+    kind's own field (a shared ``rdfs:label`` has no single word, the Composition
+    kind's does). ``class_label_of`` — ``(dataset_id, class_iri) -> label`` — names
+    the kind itself (``subject_class_label``); absent, the class local name is used.
     """
     lim = limits or DiscoverLimits()
     cancelled = False
@@ -709,7 +767,11 @@ async def discover(
 
         for profile in profiles:
             raw_values, datatypes, values_truncated = await fetch_distinct_values(
-                client, live_graph, profile.iri, limit=lim.max_values_per_predicate
+                client,
+                live_graph,
+                profile.iri,
+                limit=lim.max_values_per_predicate,
+                subject_class=profile.subject_class,
             )
             queries += 1
             values, too_long = filter_values(raw_values, max_length=lim.max_value_length)
@@ -718,6 +780,7 @@ async def discover(
                 excluded.append(
                     {
                         "iri": profile.iri,
+                        "subject_class": profile.subject_class,
                         "reason": reason,
                         "sample": profile.sample,
                         "distinct": len(set(values)),
@@ -733,6 +796,7 @@ async def discover(
                     distinct=len(set(values)),
                     values=values,
                     values_truncated=values_truncated,
+                    subject_class=profile.subject_class,
                 )
             )
 
@@ -786,25 +850,42 @@ async def discover(
     candidates_truncated = len(clusters) > lim.max_candidates
     clusters = clusters[: lim.max_candidates]
 
+    def label_for(slot: Slot) -> str | None:
+        """The design's word for this slot's field: the kind-scoped one first (a
+        shared naming predicate has no single word; one kind's field does), then
+        the predicate-only resolver, else None."""
+        got: str | None = None
+        if field_label_of is not None:
+            got = field_label_of(slot.dataset.dataset_id, slot.predicate, slot.subject_class)
+        if not got and predicate_label_of is not None:
+            got = predicate_label_of(slot.dataset.dataset_id, slot.predicate)
+        got = (got or "").strip()
+        return got or None
+
+    def kind_label_for(slot: Slot) -> str | None:
+        if slot.subject_class is None:
+            return None
+        got: str | None = None
+        if class_label_of is not None:
+            got = class_label_of(slot.dataset.dataset_id, slot.subject_class)
+        return (got or "").strip() or local_name(slot.subject_class)
+
     taken: list[str] = []
     out: list[dict] = []
     for rank, cluster in enumerate(clusters):
-        preds = [slots[m].predicate for m in cluster.slots]
+        # A generic naming predicate names the concept after the KIND it sits on
+        # (rdfs:label on Composition -> "composition"), never after itself.
+        preds = [naming_term(slots[m].predicate, slots[m].subject_class) for m in cluster.slots]
         name = derive_concept_name(preds, taken=taken, rank=rank)
         taken.append(name)
         class_iri, link_predicate = concept_terms(name)
-        # XW-01: the DESIGN's own word for each participant's predicate, when one
-        # is resolvable — never the raw ascii ``predicate_label`` alone (that is
-        # kept as the display fallback and the concept-key derivation input;
-        # neither is affected by this).
+        # XW-01: the DESIGN's own word for each participant's field, when one is
+        # resolvable — never the raw ascii ``predicate_label`` alone (that is kept
+        # as the display fallback and the concept-key derivation input; neither is
+        # affected by this).
         resolved: list[str] = []
         for m in cluster.slots:
-            got = (
-                predicate_label_of(slots[m].dataset.dataset_id, slots[m].predicate)
-                if predicate_label_of is not None
-                else None
-            )
-            got = (got or "").strip()
+            got = label_for(slots[m])
             if got and got not in resolved:
                 resolved.append(got)
         concept_label = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
@@ -830,12 +911,9 @@ async def discover(
                         "label": slots[m].dataset.label,
                         "name": slots[m].dataset.name,
                         "predicate": slots[m].predicate,
-                        "predicate_label": (
-                            predicate_label_of(slots[m].dataset.dataset_id, slots[m].predicate)
-                            if predicate_label_of is not None
-                            else None
-                        )
-                        or local_name(slots[m].predicate),
+                        "predicate_label": label_for(slots[m]) or local_name(slots[m].predicate),
+                        "subject_class": slots[m].subject_class,
+                        "subject_class_label": kind_label_for(slots[m]),
                         "distinct_values": slots[m].distinct,
                         "matched": len(cluster.shared & slots[m].keys[cluster.normalizer]),
                         "coverage": round(

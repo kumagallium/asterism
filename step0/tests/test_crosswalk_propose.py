@@ -87,3 +87,46 @@ def test_no_language_keeps_legacy_message() -> None:
     llm = _FakeLLM('{"participants": []}')
     propose_crosswalk_mapping(llm, concept="composition", datasets=_DATASETS)
     assert "# Output language" not in llm.calls[0][1]
+
+
+def test_propose_keeps_the_kind_the_candidate_was_listed_under() -> None:
+    """The same predicate can carry different things on different kinds (rdfs:label
+    on Composition vs on Doi), so a pick is a (predicate, kind): the kind the model
+    copied back, or — when it omitted one — the first kind the predicate was listed
+    under; an untyped listing keeps no kind (crosswalk-kind-scoped-fields.md)."""
+    rdfs_label = "http://www.w3.org/2000/01/rdf-schema#label"
+    comp, doi = "https://x.invalid/o#Composition", "https://x.invalid/o#Doi"
+    datasets = [
+        {
+            "dataset_id": "ds-k",
+            "label": "k",
+            "predicates": [
+                {"iri": rdfs_label, "sample": "Bi2Te3", "subject_class": comp},
+                {"iri": rdfs_label, "sample": "10.1000/x", "subject_class": doi},
+            ],
+        },
+        {
+            "dataset_id": "ds-b",
+            "label": "b",
+            "predicates": [{"iri": "https://x.invalid/o#comp", "sample": "Bi2Te3"}],
+        },
+    ]
+    answer = (
+        '{"participants": ['
+        f'{{"dataset_id": "ds-k", "predicate": "{rdfs_label}", "subject_class": "{doi}", '
+        '"why": "x"}, {"dataset_id": "ds-b", "predicate": "https://x.invalid/o#comp", "why": "y"}]}'
+    )
+    out = propose_crosswalk_mapping(_FakeLLM(answer), concept="composition", datasets=datasets)
+    by_id = {p["dataset_id"]: p for p in out}
+    assert by_id["ds-k"]["subject_class"] == doi  # the model's (listed) kind is kept
+    assert "subject_class" not in by_id["ds-b"]
+    # Omitted kind -> the first kind listed for that predicate (the busiest).
+    answer2 = (
+        f'{{"participants": [{{"dataset_id": "ds-k", "predicate": "{rdfs_label}", "why": "x"}}]}}'
+    )
+    out2 = propose_crosswalk_mapping(_FakeLLM(answer2), concept="composition", datasets=datasets)
+    assert out2[0]["subject_class"] == comp
+    # The prompt shows the kind beside the predicate so it CAN be copied verbatim.
+    llm = _FakeLLM('{"participants": []}')
+    propose_crosswalk_mapping(llm, concept="composition", datasets=datasets)
+    assert f"kind: {comp}" in llm.calls[0][1]

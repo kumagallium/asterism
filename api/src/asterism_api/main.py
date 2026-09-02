@@ -1553,6 +1553,121 @@ def _crosswalk_predicate_labels(registry_root: Path, dataset_id: str) -> dict[st
     return labels
 
 
+def _iri_local_name(iri: str) -> str:
+    """The tail of an IRI after its last ``#`` or ``/`` (a kind's box name on ⑤)."""
+    return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
+
+
+def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    """``({(class_iri, predicate_iri): label}, {class_iri: kind label})`` from the
+    reviewed Mapping IR — the design's word for each KIND's field.
+
+    Per map (= per kind): the authored ``label`` (K8), else the source column
+    heading the property reads. With the kind known there is nothing to mistake the
+    column heading for, so it counts as the design's word here (the predicate-only
+    resolver refuses it — it cannot tell whose column it is). A predicate several
+    kinds share (``rdfs:label``) yields one entry per kind, which is the point
+    (crosswalk-kind-scoped-fields.md). Kind labels are the class local names —
+    the words the counting gate wrote on the boxes. Raises on an unparsable IR.
+    """
+    from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
+
+    ir = parse_mapping_ir(mapping_ir_yaml)
+    prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
+
+    def expand(term: str) -> str:
+        prefix, sep, rest = term.partition(":")
+        if sep and prefix in prefixes:
+            return prefixes[prefix] + rest
+        return term
+
+    fields: dict[tuple[str, str], str] = {}
+    kinds: dict[str, str] = {}
+    for tm in ir.maps:
+        classes = [expand(c) for c in tm.subject.classes]
+        for cls in classes:
+            kinds.setdefault(cls, _iri_local_name(cls))
+        for prop in tm.properties:
+            word = (prop.label or "").strip() or (_label_from_column(prop.column) or "")
+            if not word:
+                continue
+            pred = expand(prop.predicate)
+            for cls in classes:
+                fields.setdefault((cls, pred), word)
+    return fields, kinds
+
+
+def _crosswalk_label_resolvers(
+    registry_root: Path,
+) -> tuple[
+    Callable[[str, str], str | None],
+    Callable[[str, str, str | None], str | None],
+    Callable[[str, str], str | None],
+]:
+    """``(predicate_label_of, field_label_of, class_label_of)`` for the crosswalk
+    screens, sharing one registry read per dataset touched.
+
+    ``predicate_label_of(dataset_id, predicate)`` is the kind-agnostic word
+    (:func:`_crosswalk_predicate_labels` — silent where kinds disagree);
+    ``field_label_of(dataset_id, predicate, subject_class)`` the word for ONE kind's
+    field (:func:`_ir_field_labels`); ``class_label_of(dataset_id, class_iri)`` the
+    kind's own name. Best-effort throughout: an unreadable design contributes nothing.
+    """
+    pred_cache: dict[str, dict[str, str]] = {}
+    field_cache: dict[str, tuple[dict[tuple[str, str], str], dict[str, str]]] = {}
+
+    def preds(dataset_id: str) -> dict[str, str]:
+        got = pred_cache.get(dataset_id)
+        if got is None:
+            got = _crosswalk_predicate_labels(registry_root, dataset_id)
+            pred_cache[dataset_id] = got
+        return got
+
+    def fields(dataset_id: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+        got = field_cache.get(dataset_id)
+        if got is None:
+            data = registry.load_dataset(registry_root, dataset_id)
+            text = str(((data or {}).get("artifacts") or {}).get("mapping.yaml") or "")
+            try:
+                got = _ir_field_labels(text) if text.strip() else ({}, {})
+            except Exception:
+                got = ({}, {})
+            field_cache[dataset_id] = got
+        return got
+
+    def predicate_label_of(dataset_id: str, predicate_iri: str) -> str | None:
+        return preds(dataset_id).get(predicate_iri)
+
+    def field_label_of(
+        dataset_id: str, predicate_iri: str, subject_class: str | None
+    ) -> str | None:
+        if not subject_class:
+            return None
+        return fields(dataset_id)[0].get((subject_class, predicate_iri))
+
+    def class_label_of(dataset_id: str, class_iri: str) -> str | None:
+        return fields(dataset_id)[1].get(class_iri)
+
+    return predicate_label_of, field_label_of, class_label_of
+
+
+def _label_crosswalk_fields(registry_root: Path, datasets: list[dict]) -> None:
+    """Give each sampled field (``{iri, sample, subject_class}``) the design's words:
+    ``label`` for the field, ``subject_class_label`` for its kind — so a dropdown can
+    say 「Composition › 試料化学組成」 instead of ``label``. In place, best-effort."""
+    predicate_label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(registry_root)
+    for d in datasets:
+        dsid = str(d.get("dataset_id") or "")
+        for f in d.get("predicates") or []:
+            iri = str(f.get("iri") or "")
+            kind = f.get("subject_class") or None
+            label = field_label_of(dsid, iri, kind) or predicate_label_of(dsid, iri)
+            if label:
+                f["label"] = label
+            if kind:
+                f["subject_class_label"] = class_label_of(dsid, kind) or _iri_local_name(kind)
+
+
 def _crosswalk_predicate_label_resolver(
     registry_root: Path,
 ) -> Callable[[str, str], str | None]:
@@ -1577,17 +1692,30 @@ async def _literal_predicates(client: OxigraphClient, graph_iri: str) -> list[di
     usage count (most-used first). The crosswalk AI-assist offers these as candidates
     for the concept-bearing predicate; ``isLiteral`` drops ``rdf:type`` / object links
     (a composition is a literal), and the sample lets the model judge by VALUES."""
+    # Grouped by (kind, predicate): every value catalog stores its value under the
+    # same ``rdfs:label``, so the predicate alone is DOIs + compositions + units at
+    # once; the kind (``subject_class``) is what makes it a field a person can pick
+    # (crosswalk-kind-scoped-fields.md). Untyped subjects profile with no kind.
     q = (
-        f"SELECT ?p (SAMPLE(?v) AS ?ex) (COUNT(*) AS ?n) WHERE {{ GRAPH <{graph_iri}> {{ "
-        f"?e ?p ?v FILTER(isLiteral(?v)) }} }} GROUP BY ?p ORDER BY DESC(?n) LIMIT 40"
+        f"SELECT ?c ?p (SAMPLE(?v) AS ?ex) (COUNT(*) AS ?n) WHERE {{ GRAPH <{graph_iri}> {{ "
+        f"?e ?p ?v FILTER(isLiteral(?v)) OPTIONAL {{ ?e a ?c }} }} }} "
+        f"GROUP BY ?c ?p ORDER BY DESC(?n) LIMIT 40"
     )
     data = await client.sparql_select(q)
     results = data.get("results", {}) if isinstance(data, dict) else {}
     out: list[dict] = []
     for b in results.get("bindings", []):
         p = b.get("p", {})
-        if p.get("type") == "uri":
-            out.append({"iri": p["value"], "sample": b.get("ex", {}).get("value", "")})
+        if p.get("type") != "uri":
+            continue
+        c = b.get("c", {})
+        out.append(
+            {
+                "iri": p["value"],
+                "sample": b.get("ex", {}).get("value", ""),
+                "subject_class": c["value"] if c.get("type") == "uri" else None,
+            }
+        )
     return out
 
 
@@ -8805,7 +8933,9 @@ def build_app(
             str(m.get("id")): str(m.get("name") or m.get("id"))
             for m in registry.list_datasets(cfg.registry_root)
         }
-        label_of = _crosswalk_predicate_label_resolver(cfg.registry_root)
+        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(
+            cfg.registry_root
+        )
         for concept in config_dict.get("concepts") or []:
             resolved: list[str] = []
             for p in concept.get("participants") or []:
@@ -8817,8 +8947,18 @@ def build_app(
                     if p.get("predicate")
                     else list((p.get("predicates") or {}).values())
                 )
+                # A kind-scoped participant gets ITS kind's word first — a shared
+                # naming predicate has none of its own (crosswalk-kind-scoped-fields.md).
+                kind = str(p.get("subject_class") or "") or None
+                if kind:
+                    p["subject_class_label"] = class_label_of(ds_id, kind) or _iri_local_name(kind)
                 label = next(
-                    (got for pred in preds if (got := label_of(ds_id, pred))), None
+                    (
+                        got
+                        for pred in preds
+                        if (got := (field_label_of(ds_id, pred, kind) or label_of(ds_id, pred)))
+                    ),
+                    None,
                 )
                 if label:
                     p["predicate_label"] = label
@@ -8956,6 +9096,10 @@ def build_app(
             for meta in crosswalk_runtime.list_perspectives(cfg.registry_root)
         }
 
+        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(
+            cfg.registry_root
+        )
+
         async def discover_job(emit, should_cancel):
             result = await crosswalk_discover.discover(
                 client,
@@ -8965,7 +9109,9 @@ def build_app(
                 skipped_datasets=skipped,
                 progress=lambda phase, payload: emit(phase=phase, **payload),
                 should_cancel=should_cancel,
-                predicate_label_of=_crosswalk_predicate_label_resolver(cfg.registry_root),
+                predicate_label_of=label_of,
+                field_label_of=field_label_of,
+                class_label_of=class_label_of,
             )
             # Building a candidate whose id already exists REPLACES that crosswalk —
             # the UI has to be able to warn before that happens.
@@ -9032,6 +9178,9 @@ def build_app(
             )
         if not datasets:
             raise HTTPException(400, "none of dataset_ids is a promoted, sampleable dataset")
+        # The design's words ride along with the samples, so the dropdown the
+        # candidates populate can say the kind and the field, not a local name.
+        await asyncio.to_thread(_label_crosswalk_fields, cfg.registry_root, datasets)
 
         def run() -> list[dict]:
             return propose_crosswalk_mapping(
@@ -9051,6 +9200,28 @@ def build_app(
             "candidates": datasets,
             "skipped": skipped,
         }
+
+    @app.get("/api/crosswalk/fields/{dataset_id}")
+    async def crosswalk_fields(dataset_id: str) -> dict[str, object]:
+        """The fields one promoted dataset can connect on, per kind — what the
+        authoring dropdown lists WITHOUT an AI (crosswalk-kind-scoped-fields.md).
+
+        Each field is ``{iri, sample, subject_class, subject_class_label?, label?}``:
+        the store-sampled (kind, predicate) pairs of the live graph, named with the
+        design's own words where the reviewed Mapping IR has them. A dataset that is
+        not promoted has no live data to sample and returns ``fields: []``.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not data["meta"].get("promoted"):
+            return {"dataset_id": dataset_id, "promoted": False, "fields": []}
+        client: OxigraphClient = app.state.client
+        key = substrate.canonical_graph_iri(dataset_id)
+        live = await substrate.live_graph_of(client, key) or key
+        entry = {"dataset_id": dataset_id, "predicates": await _literal_predicates(client, live)}
+        await asyncio.to_thread(_label_crosswalk_fields, cfg.registry_root, [entry])
+        return {"dataset_id": dataset_id, "promoted": True, "fields": entry["predicates"]}
 
     @app.get("/api/crosswalk/alignments")
     async def crosswalk_alignments() -> JSONResponse:

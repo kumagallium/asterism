@@ -203,6 +203,171 @@ def test_get_crosswalk_enriches_participant_and_concept_labels(tmp_path: Path) -
         assert default["config"]["concepts"][0]["concept_label"] == "組成"
 
 
+_RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+_X = "https://kumagallium.github.io/asterism/x/ontology#"
+
+# A design whose value catalogs all store their value under rdfs:label (the label
+# guarantee): the predicate alone has no single word, each KIND's field does.
+_KINDS_IR = (
+    "version: 1\n"
+    "prefixes:\n"
+    f'  x: "{_X}"\n'
+    '  rdfs: "http://www.w3.org/2000/01/rdf-schema#"\n'
+    "maps:\n"
+    "  - name: composition\n"
+    "    source: records.csv\n"
+    "    subject:\n"
+    '      template: "x:composition/{composition}"\n'
+    "      classes: [x:Composition]\n"
+    "    properties:\n"
+    "      - predicate: rdfs:label\n"
+    "        column: composition\n"
+    '        label: "試料化学組成"\n'
+    "  - name: doi\n"
+    "    source: records.csv\n"
+    "    subject:\n"
+    '      template: "x:doi/{DOI}"\n'
+    "      classes: [x:Doi]\n"
+    "    properties:\n"
+    "      - predicate: rdfs:label\n"
+    "        column: DOI\n"  # no authored label: the column heading is the word
+)
+
+
+def test_ir_field_labels_name_each_kinds_own_field() -> None:
+    from asterism_api.main import _crosswalk_predicate_labels, _ir_field_labels
+
+    fields, kinds = _ir_field_labels(_KINDS_IR)
+    assert fields[(f"{_X}Composition", _RDFS_LABEL)] == "試料化学組成"
+    assert fields[(f"{_X}Doi", _RDFS_LABEL)] == "DOI"  # the column heading, kind known
+    assert kinds == {f"{_X}Composition": "Composition", f"{_X}Doi": "Doi"}
+    # The kind-agnostic resolver stays silent on the shared predicate — that is
+    # exactly why the kind-scoped one exists.
+    root = Path(__file__).parent / "_nonexistent"
+    assert _crosswalk_predicate_labels(root, "nope") == {}
+
+
+def _seed_kinds(ds: rdflib.Dataset, registry_root: Path, dataset_id: str, ir: str) -> None:
+    """A promoted dataset with a Composition and a Doi kind, both labelled with
+    rdfs:label, plus the design (mapping.yaml) that names each kind's field."""
+    key = substrate.canonical_graph_iri(dataset_id)
+    g = ds.graph(rdflib.URIRef(key))
+    for i, (kind, raw) in enumerate(
+        [("Composition", "Bi2Te3"), ("Composition", "PbTe"), ("Doi", "10.1000/x1")]
+    ):
+        e = rdflib.URIRef(f"urn:{dataset_id}:{i}")
+        g.add((e, rdflib.RDF.type, rdflib.URIRef(f"{_X}{kind}")))
+        g.add((e, rdflib.URIRef(_RDFS_LABEL), rdflib.Literal(raw)))
+    ds.update(
+        f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
+        f'<{key}> <{substrate.STATUS_PREDICATE}> "promoted" }} }}'
+    )
+    d = registry_root / dataset_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": dataset_id,
+                "name": dataset_id,
+                "created_at": "2026-09-03T00:00:00+00:00",
+                "promoted": True,
+                "status": "active",
+                "canonical_graph": key,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (d / "mapping.yaml").write_text(ir, encoding="utf-8")
+
+
+def test_crosswalk_fields_lists_each_kinds_field_with_the_designs_words(tmp_path: Path) -> None:
+    """The dropdown without an AI: (kind, predicate) pairs sampled from the live
+    graph, named with the design's words — 「Composition › 試料化学組成」 rather than
+    a bare `label` (利用者報告 2026-09-03「データにそんなのない」)."""
+    ds = rdflib.Dataset()
+    _seed_kinds(ds, tmp_path / "registry", "ds-k", _KINDS_IR)
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/crosswalk/fields/ds-k")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["promoted"] is True
+        by_kind = {f["subject_class"]: f for f in body["fields"]}
+        comp = by_kind[f"{_X}Composition"]
+        assert comp["iri"] == _RDFS_LABEL
+        assert comp["label"] == "試料化学組成"
+        assert comp["subject_class_label"] == "Composition"
+        assert comp["sample"] in {"Bi2Te3", "PbTe"}
+        assert by_kind[f"{_X}Doi"]["label"] == "DOI"
+        assert client.get("/api/crosswalk/fields/nope").status_code == 404
+
+
+def test_propose_carries_the_kind_and_the_get_names_it(tmp_path: Path) -> None:
+    """The AI is shown each candidate's kind and hands it back; a config built from
+    that pick is read back with the kind's name and the kind's own field label."""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", _KINDS_IR)
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    resp = (
+        '{"participants": ['
+        f'{{"dataset_id": "ds-k", "predicate": "{_RDFS_LABEL}", '
+        f'"subject_class": "{_X}Composition", "why": "formula"}},'
+        f'{{"dataset_id": "ds-b", "predicate": "{PRED}", "why": "formula"}}]}}'
+    )
+    llm = _MockLLM(resp)
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=_DatasetClient(ds),
+        start_watcher=False,
+        llm_factory=lambda key: llm,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/crosswalk/propose",
+            json={"dataset_ids": ["ds-k", "ds-b"], "concept": "composition"},
+            headers={"X-API-Key": "sk-test"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        picks = {p["dataset_id"]: p for p in body["participants"]}
+        assert picks["ds-k"]["subject_class"] == f"{_X}Composition"
+        assert "subject_class" not in picks["ds-b"]  # untyped subjects: no kind
+        # The prompt showed the kind next to the predicate, so it could be copied.
+        _system, user = llm.calls[0]
+        assert f"kind: {_X}Composition" in user
+        # The candidates that fill the dropdown carry the design's words per kind.
+        cand = next(c for c in body["candidates"] if c["dataset_id"] == "ds-k")
+        comp = next(p for p in cand["predicates"] if p.get("subject_class") == f"{_X}Composition")
+        assert comp["label"] == "試料化学組成" and comp["subject_class_label"] == "Composition"
+
+        config = {
+            "concepts": [
+                {
+                    "name": "composition",
+                    "participants": [
+                        {
+                            "dataset_id": "ds-k",
+                            "label": "k",
+                            "predicate": _RDFS_LABEL,
+                            "subject_class": f"{_X}Composition",
+                        },
+                        {"dataset_id": "ds-b", "label": "b", "predicate": PRED},
+                    ],
+                }
+            ]
+        }
+        b = client.post("/api/crosswalk/build", json={"config": config})
+        assert b.status_code == 200, b.text
+        assert b.json()["shared_total"] == 1  # Bi2Te3; the DOI never joined
+        got = client.get("/api/crosswalk").json()["config"]["concepts"][0]
+        by_id = {p["dataset_id"]: p for p in got["participants"]}
+        assert by_id["ds-k"]["subject_class"] == f"{_X}Composition"
+        assert by_id["ds-k"]["subject_class_label"] == "Composition"
+        assert by_id["ds-k"]["predicate_label"] == "試料化学組成"
+        assert got["concept_label"] == "試料化学組成"
+
+
 def test_build_without_config_uses_persisted(tmp_path: Path) -> None:
     ds = rdflib.Dataset()
     _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])

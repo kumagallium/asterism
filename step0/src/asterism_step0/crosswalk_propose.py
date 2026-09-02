@@ -27,11 +27,15 @@ composition string like "Bi2Te3", "Ba8Ga16Ge30", "ZnFe2O4").
 
 Output ONLY a single JSON object (no prose, no markdown fence):
   {"participants": [{"dataset_id": "<id>", "predicate": "<full IRI>",
+                     "subject_class": "<the kind IRI shown on that candidate line, if any>",
                      "why": "<short reason, <=12 words>"}, ...]}
 
 Hard rules:
 - Use ONLY a predicate IRI that appears in that dataset's candidate list — copy it
   verbatim. NEVER invent or guess an IRI (an invented IRI joins nothing).
+- A candidate line may show "kind: <IRI>": the same predicate can carry different
+  things on different kinds (rdfs:label on a Composition vs on a Doi). Copy that
+  kind IRI verbatim into "subject_class"; omit the key when the line shows no kind.
 - Choose by the SAMPLE VALUES, not just the name: the values must look like the
   concept (e.g. a composition string), not an id, a number, a date, or a URL.
 - If NO candidate predicate plausibly carries the concept for a dataset, OMIT that
@@ -51,7 +55,9 @@ def _user_message(concept: str, datasets: list[dict]) -> str:
             sample = str(p.get("sample", ""))
             if len(sample) > 60:
                 sample = sample[:57] + "…"
-            parts.append(f"  - {p.get('iri')}   e.g. {sample!r}")
+            kind = p.get("subject_class")
+            kind_note = f"   kind: {kind}" if kind else ""
+            parts.append(f"  - {p.get('iri')}{kind_note}   e.g. {sample!r}")
         parts.append("")
     return "\n".join(parts)
 
@@ -95,10 +101,16 @@ def propose_crosswalk_mapping(
     """
     if not datasets:
         return []
-    candidates = {
-        str(d.get("dataset_id")): {str(p.get("iri")) for p in (d.get("predicates") or [])}
-        for d in datasets
-    }
+    # dataset -> predicate -> the kinds it was listed under (in list order; ``None``
+    # for an untyped listing). A pick is valid only for a listed (predicate, kind).
+    candidates: dict[str, dict[str, list[str | None]]] = {}
+    for d in datasets:
+        per_pred = candidates.setdefault(str(d.get("dataset_id")), {})
+        for p in d.get("predicates") or []:
+            kinds = per_pred.setdefault(str(p.get("iri")), [])
+            kind = str(p.get("subject_class") or "").strip() or None
+            if kind not in kinds:
+                kinds.append(kind)
     user_message = _user_message(concept, datasets)
     lang_block = language_instruction(language)
     if lang_block:
@@ -116,6 +128,16 @@ def propose_crosswalk_mapping(
             continue
         dsid = str(entry.get("dataset_id") or "")
         pred = str(entry.get("predicate") or "")
-        if dsid in candidates and pred in candidates[dsid]:
-            out.append({"dataset_id": dsid, "predicate": pred, "why": str(entry.get("why") or "")})
+        kinds = candidates.get(dsid, {}).get(pred)
+        if kinds is None:
+            continue
+        kind = str(entry.get("subject_class") or "").strip() or None
+        if kind not in kinds:
+            # A kind the list never showed (or none given): the first kind this
+            # predicate was listed under — the busiest — or no kind when untyped.
+            kind = kinds[0]
+        item: dict = {"dataset_id": dsid, "predicate": pred, "why": str(entry.get("why") or "")}
+        if kind:
+            item["subject_class"] = kind
+        out.append(item)
     return out

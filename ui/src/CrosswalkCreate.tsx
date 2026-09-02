@@ -14,6 +14,7 @@ import {
   conceptDisplay,
   conceptSentenceLabel,
   crosswalkError,
+  fieldDisplay,
   flagKey,
   foldingGain,
   sameAsKey,
@@ -289,7 +290,7 @@ export function CrosswalkCreate({
                   p.predicate_label
                     ? t('crosswalk:create.confirm.partField', {
                         name: p.name,
-                        field: p.predicate_label,
+                        field: fieldDisplay(p),
                       })
                     : p.name,
                 )
@@ -546,7 +547,7 @@ function CandidateCard({
               // WHICH field, and the same value as each side actually spells it — the
               // moment the candidate becomes obvious (Bi₂Te₃ here, Bi2Te3 there), and
               // the only way to notice the wrong column was picked.
-              field: p.predicate_label ?? undefined,
+              field: fieldDisplay(p),
               title: p.predicate,
             }))}
           />
