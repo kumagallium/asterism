@@ -1,11 +1,11 @@
 {
-  "version": "0.40.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 75906862deff6977e3ad89fbd0b28131940bef01 -->\n\n## What's Changed\n* fix(ui): ことばの地図が空だった id 取り違え + 中身タブに実データの例（Phase 2-2） by @kumagallium in https://github.com/kumagallium/asterism/pull/559\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.39.1...v0.40.0",
-  "pub_date": "2026-09-02T23:27:28Z",
+  "version": "0.41.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ee8c7325c8526e3ebaffa54416278910dac80a3c -->\n\n## What's Changed\n* feat(crosswalk): つながりの参加者を (データセット, 種類, 述語) 単位へ — 「label」候補を「Composition › 試料化学組成」と呼ぶ by @kumagallium in https://github.com/kumagallium/asterism/pull/561\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.40.0...v0.41.0",
+  "pub_date": "2026-09-02T23:33:47Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZ5RTNjMGJKZDZ2RmtXL3RCYndlQU42TnlKN3hsbSsyYThoYnR5MjlTcGNQeVpGTi9ENVg3MEFXa2h1eUZhLzJ4SkVyaGYrQjZSaU1QTWhkVkFneVFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzkxNjQ4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnNGdXl3bThrdUdaSGJnckd5WlU4K1RQU1JCOVRqVFlEUC9zOHJoMjJIYlVlWFl3NDVyNFh5Y0MycWgxenpsb3VKcS9JNVhqcWRlNWRSWnpJQWhGYkNnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.40.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVpYU3o0SVFMVWJnWEhTRGpCbWFoWWE5dVJ1RjZUNlRGWkxoVkZLMkExVldKU0dpRzY0T1VVbXZRV1M3R1NJYlNCNEpOeWFJMUo0OWg2UHFrZ3FvdlFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzkyMDI2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cjh5dTYwbUZNWmRuRlZ5Mk1YRDNwQ3RCZFg5d2ZHRjVscHllYjNvd1lzbEtHMUhtajRzb3NiaGdPMzA3UWJ5NzVYRjJLdTg2dXdBZ2ptQ0hUdGk5Q0F3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.41.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
