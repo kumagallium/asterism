@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
-import { composeVocabGraph } from './vocabGraph'
+import { composeVocabGraph, datasetApiId } from './vocabGraph'
 
 /** 地図の約束: 1 データセット分は ⑤ と同じ判定で組まれ、標準語彙の節は語 IRI で
  *  1 つに**合流**し、確定（使用）と候補は混ざらず、両端の解けない対応は描かない。 */
@@ -189,5 +189,18 @@ describe('composeVocabGraph', () => {
     expect(fields).toHaveLength(7)
     expect(fields[6].name).toBe('…ほか 3 項目')
     expect(shape.stats.items).toBe(9)
+  })
+})
+
+describe('datasetApiId', () => {
+  it('カタログの表示用 id ではなく登録 id を返す', () => {
+    // ⭐これを取り違えて `live-…` を API に投げていたため、地図は出荷後ずっと
+    // 空だった（404 → catch → 対象 0 件 → 節が消える）。
+    expect(datasetApiId({ id: 'live-starrydata-curves-13f12e94', live: { meta: { id: 'starrydata-curves-13f12e94' } } }))
+      .toBe('starrydata-curves-13f12e94')
+    // live が無い場合も表示用の接頭辞は落とす（API に live- は通らない）
+    expect(datasetApiId({ id: 'live-xrd-1' })).toBe('xrd-1')
+    // 既に登録 id ならそのまま
+    expect(datasetApiId({ id: 'xrd-1' })).toBe('xrd-1')
   })
 })

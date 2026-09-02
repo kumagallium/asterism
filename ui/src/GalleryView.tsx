@@ -3,12 +3,13 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   ApiError,
   fetchProposal,
+  fetchSourceSamples,
   fetchTrialQueries,
   IngestCancelledError,
   type IngestJobHandle,
@@ -17,6 +18,7 @@ import {
   IngestValidationError,
   resumeIngestJob,
   StaleIngestJobError,
+  type SourceSamples,
   startIngestJob,
 } from './api'
 import { plainAdvisories, type TermLabels } from './advisoryPlain'
@@ -1186,6 +1188,36 @@ function DatasetDetail({
       cancelled = true
     }
   }, [meta?.id])
+  /* 中身タブの構造図に添える「実データの例」（Phase 2）。項目名と型だけでは
+     「何が入っているか」は分からない — ④で実値を出したのと同じ理由。読むのは
+     このデータセット自身の永続ソースなので、設計中でも下書きでも公開後でも
+     同じように出る。付加情報なので、取れなければ図は従来どおり出る。 */
+  const [samples, setSamples] = useState<SourceSamples | null>(null)
+  useEffect(() => {
+    const id = meta?.id
+    if (!id) return
+    let cancelled = false
+    fetchSourceSamples(id)
+      .then((s) => {
+        if (!cancelled) setSamples(s)
+      })
+      .catch(() => {
+        /* 例は付加情報 — 無くても図はそのまま */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meta?.id])
+  /* `(source, column)` で引く: 同じ列名が別ファイルにあり得るので、まずその
+     ファイルの列、無ければ全体の列（1 ファイル目が勝つ既存の約束）。 */
+  const exampleOf = useCallback(
+    (source: string, column: string): string | undefined => {
+      if (!samples) return undefined
+      const values = samples.sources?.[source]?.[column] ?? samples.columns?.[column]
+      return values?.[0]
+    },
+    [samples],
+  )
   // The dataset's own words (model.yaml labels + the Mapping IR units), so the
   // 設計図 tab can say 「測定 Measurement」 instead of a bare English identifier
   // (K8): the label is what the wizard's 項目の意味 table and the rules tab already
@@ -1478,7 +1510,7 @@ function DatasetDetail({
             <div className="ds-diagram-block">
               <div className="onto-diagram">
                 <ShapeGraph
-                  shape={rulesShape(rules, { withFields: true })}
+                  shape={rulesShape(rules, { withFields: true, exampleOf })}
                   ariaLabel={t('gallery:design.diagramSummary')}
                   perRow={3}
                   nodeWidth={248}

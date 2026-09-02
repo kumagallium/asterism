@@ -88,6 +88,14 @@ export function ShapeBox({ data }: NodeProps) {
           {d.fields.map((f, i) => (
             <li key={i} style={{ height: FIELD_H }}>
               <span className="shape-field-name">{f.name}</span>
+              {/* 実データの例。項目名と型だけでは「何が入っているか」は分からない
+                  （Phase 2・中身タブ）。型/単位より前に置くのは、読み手が見に
+                  来たのが中身のほうだから。 */}
+              {f.example && (
+                <span className="shape-field-example" title={f.example}>
+                  {f.example}
+                </span>
+              )}
               {f.unit && <code className="shape-field-unit">{f.unit}</code>}
               {f.type && <code className="shape-field-type">{f.type}</code>}
             </li>

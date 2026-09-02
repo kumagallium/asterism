@@ -16,12 +16,15 @@ import type { GroundCandidate } from './groundingApi'
 import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
 import { VocabMap } from './VocabMap'
-import { collectMintedTermQueries, composeVocabGraph } from './vocabGraph'
+import { collectMintedTermQueries, composeVocabGraph, datasetApiId } from './vocabGraph'
 
 interface Loaded {
   datasets: { id: string; name: string; rules: DatasetRules }[]
   alignments: Alignment[]
   candidates: Record<string, GroundCandidate[]>
+  /** 取り込みルールを読みに行ったデータセットの数。0 件なら地図は出さない、
+   *  1 件以上あって 1 つも読めなかったならその事実を出す（黙って消えない）。 */
+  attempted: number
 }
 
 export function VocabMapSection({
@@ -46,7 +49,10 @@ export function VocabMapSection({
         await Promise.all(
           targets.map(async (d) => {
             try {
-              const rules = await getDatasetRules(d.id)
+              // API は登録 id を取る。カタログの `d.id` は `live-…` の表示用で、
+              // そのまま投げると 404 → 地図が丸ごと消える（datasetApiId 参照）。
+              // 節の id は表示用のまま（画面遷移がそれで動く）。
+              const rules = await getDatasetRules(datasetApiId(d))
               return rules.maps.length > 0 ? { id: d.id, name: d.name, rules } : null
             } catch {
               return null // 設計前のデータセットに取り込みルールは無い — 図から抜くだけ
@@ -62,7 +68,8 @@ export function VocabMapSection({
           () => ({}) as Record<string, GroundCandidate[]>,
         ),
       ])
-      if (!cancelled) setLoaded({ datasets: withRules, alignments, candidates })
+      if (!cancelled)
+        setLoaded({ datasets: withRules, alignments, candidates, attempted: targets.length })
     })()
     return () => {
       cancelled = true
@@ -90,7 +97,21 @@ export function VocabMapSection({
     })
   }, [loaded, classCounts, t])
 
-  if (!shape || shape.nodes.length === 0) return null
+  // ⭐取れなかったときに**黙って消えない**。設計のあるデータセットが 1 つも
+  // 読めなかったのに節ごと消すと、画面から機能が丸ごと無くなったように見える
+  // （実際そう見えていた — 利用者報告 2026-09-03「グラフがないのですが」）。
+  // データセット自体が無いときだけ、従来どおり何も出さない。
+  if (!shape || shape.nodes.length === 0) {
+    if (!loaded || loaded.attempted === 0) return null
+    return (
+      <div className="card vocab-map-card">
+        <div className="vocab-card-head">
+          <h3 className="card-h">{t('vocab:map.title')}</h3>
+        </div>
+        <p className="kz-note kz-prose">{t('vocab:map.unavailable')}</p>
+      </div>
+    )
+  }
 
   const legend = [
     { kind: 'link', dashed: false, text: t('vocab:map.legend.link') },
