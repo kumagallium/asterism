@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.37.0](https://github.com/kumagallium/asterism/compare/v0.36.0...v0.37.0) - 2026-09-02
+
+- fix(prod): Ask に run_sparql を渡す（集計・横断質問を可能に） by @kumagallium in https://github.com/kumagallium/asterism/pull/549
+- feat(design): セル内 JSON（配列・辞書）を決定論設計が自動で展開する by @kumagallium in https://github.com/kumagallium/asterism/pull/551
+
 ## [v0.36.0](https://github.com/kumagallium/asterism/compare/v0.35.0...v0.36.0) - 2026-09-02
 
 - fix(ask): 打ち切りを「分かりません」で終わらせない（促し継続＋ツール無し最終回答） by @kumagallium in https://github.com/kumagallium/asterism/pull/546
