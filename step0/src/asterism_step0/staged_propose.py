@@ -831,15 +831,38 @@ def json_expansion_plan(
             elements = [e for v in scalars for e in v if e is not None]
             out[col] = {"kind": "array", "numeric": _all_numeric(elements)}
         elif len(objects) >= threshold:
+            # 辞書の値がさらに辞書のとき（starrydata の sample_info:
+            # {"FabricationProcess": {"category": …}}）は 1 階層だけ降り、
+            # `キー.サブキー` の dotted パスとして拾う — json_get のパスと同じ形。
+            # 数えるのは**空でない**スカラだけ（空文字ばかりのパスに述語を
+            # 鋳造しない。取り込み時の空値は morph-kgc が落とすことを実証済み）。
+            # `.` を含むキーはパス区切りと衝突するので対象外。
             counts: dict[str, int] = {}
             numeric_ok: dict[str, bool] = {}
+
+            def note(
+                path: str,
+                v: Any,
+                counts: dict[str, int] = counts,
+                numeric_ok: dict[str, bool] = numeric_ok,
+            ) -> None:
+                if not _is_scalar(v) or not str(v).strip():
+                    return
+                counts[path] = counts.get(path, 0) + 1
+                numeric_ok[path] = numeric_ok.get(path, True) and _all_numeric([v])
+
             for obj in objects:
                 for k, v in obj.items():
-                    if not _is_scalar(v):
-                        continue
                     key = str(k)
-                    counts[key] = counts.get(key, 0) + 1
-                    numeric_ok[key] = numeric_ok.get(key, True) and _all_numeric([v])
+                    if "." in key:
+                        continue
+                    if isinstance(v, dict):
+                        for sk, sv in v.items():
+                            sub = str(sk)
+                            if "." not in sub:
+                                note(f"{key}.{sub}", sv)
+                    else:
+                        note(key, v)
             floor = max(1, int(len(objects) * 0.1))
             keys = sorted(
                 (k for k, n in counts.items() if n >= floor),
