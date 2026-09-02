@@ -2433,6 +2433,11 @@ def repair_after_refine(
 
     effective = _detect_source_dialects(paths)
     schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
+    # 受け口ラベルと接続線の再保証は run_design_loop の再主張スタックに入れたが、
+    # 「AI に直してもらう」はこの**第 3 の経路**を通る — ここに無いと、旧下書きの
+    # 空の入れ物助言が押しても消えない（実測 2026-09-02: 利用者の 3 件が残存）。
+    # 骨格は届かないため owns 無しの空シェル救済側の条件で効く。
+    schema_md = _overlay_catalog_guarantees(schema_md, None)
     try:
         schema_md, ir_yaml, issues = _evaluate(schema_md, base)
     except _LoopEnvError as exc:
@@ -2492,6 +2497,9 @@ def repair_after_refine(
         if on_llm_call is not None:
             on_llm_call("refine.autocorrect")
         schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
+        # LLM ラウンドの後も毎回言い直す — 機械の保証は 1 回書くのではなく
+        # ラウンドごとに（run_design_loop と同じ規律）。
+        schema_md = _overlay_catalog_guarantees(schema_md, None)
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
