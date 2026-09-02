@@ -521,16 +521,22 @@ def pick_samples(
     """Shared values as evidence, spellings that DISAGREE first: seeing ``Bi₂Te₃`` and
     ``Bi2Te3`` side by side is what makes the candidate obvious to a human."""
     members = [slots[m] for m in cluster.slots]
-    rows: list[tuple[int, str, dict[str, str]]] = []
+    rows: list[tuple[int, int, str, dict[str, str]]] = []
     for key in cluster.shared:
         raw: dict[str, str] = {}
         for s in members:
             spelling = s.raw_by_key.get(cluster.normalizer, {}).get(key)
             if spelling is not None:
                 raw[s.dataset.dataset_id] = spelling
-        rows.append((-len(set(raw.values())), intern.get(key, ""), raw))
-    rows.sort(key=lambda r: (r[0], r[1]))
-    return [{"key": key, "raw": raw} for _, key, raw in rows[:limit]]
+        interned = intern.get(key, "")
+        # 記号始まりは同点の最後尾。素の辞書順昇順だと `!` (0x21) が英数字より
+        # 先に来て、データ入力の削除標識（starrydata の「!!! Delete」「!!! del 0」…）
+        # ばかりが証拠チップに並んだ（利用者報告 2026-09-02: composition の候補
+        # なのに化学組成が 1 つも見えない）。結合や件数は変えない — 見せる順だけ。
+        junk = 0 if interned[:1].isalnum() else 1
+        rows.append((-len(set(raw.values())), junk, interned, raw))
+    rows.sort(key=lambda r: (r[0], r[1], r[2]))
+    return [{"key": key, "raw": raw} for _, _, key, raw in rows[:limit]]
 
 
 def build_config_of(
