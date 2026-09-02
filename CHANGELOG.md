@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.33.8](https://github.com/kumagallium/asterism/compare/v0.33.7...v0.33.8) - 2026-09-02
+
+- refactor(api): 再主張スタックの一本化 + 手順バー全状態 1 行保証 by @kumagallium in https://github.com/kumagallium/asterism/pull/538
+
 ## [v0.33.7](https://github.com/kumagallium/asterism/compare/v0.33.6...v0.33.7) - 2026-09-02
 
 - chore(ci): setup-uv v7 でキャッシュが既定 ON になった ci.yml の注記修正 ＋ actions v7 更新 3 本の記録 by @kumagallium in https://github.com/kumagallium/asterism/pull/532
