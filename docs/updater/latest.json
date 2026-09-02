@@ -1,11 +1,11 @@
 {
-  "version": "0.38.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 57a80b366b8e98ce9bd1eefa6a0c126236c5e783 -->\n\n## What's Changed\n* fix(design): 入れ子辞書は 1 階層降りて dotted パスで展開する by @kumagallium in https://github.com/kumagallium/asterism/pull/552\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.37.0...v0.38.0",
-  "pub_date": "2026-09-02T07:48:00Z",
+  "version": "0.39.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at db0d95dcfeeca06dcb5b15728091f78203405155 -->\n\n## What's Changed\n* fix(api): 同じ述語を複数の map が束縛しても表示名を取り違えない（全部の ID が「縦軸単位」） by @kumagallium in https://github.com/kumagallium/asterism/pull/554\n* fix(api/ingest): 述語衝突の残り 2 か所 — TBox 投影と③列見出し fallback（#554 の追補） by @kumagallium in https://github.com/kumagallium/asterism/pull/556\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.38.0...v0.39.0",
+  "pub_date": "2026-09-02T14:39:10Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVhaTHV6MjdBblUySGhwKzNOSGRGN2NkYUdkOVBoSDNxUEtDT29qakdyRmd0S21JNW1aS1Y3YWl6Rzg2Uk1FQWxOSUQ1V1J3Nkhnclo4MEhnbHpkMEFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzM1MjgwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjkvRzlMSU03eFp5UXVPb1Jud2taVXhrY3Y5OHNZU1ZRVCthYnJmTmRQUncycjFZTGVEcTdMSEpnUlJ5SjdYMExoSUl5cGZjVFVJcmtQRFpKakt6TURnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.38.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWQwckliYXlhSTlmZTZHaDFQbC9yQVM0L3JEZXc4K1RqWkxxelRoZCtpcjRBbmp1NGtjajk1K3hvM094Qm5YTXYrTmREcU1FaUNOazRya0kycno3V0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzU5OTUwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVwTEJNWnJwYk40K2hBZ0hpMGJxUk9EWGhLU3ozTjdFcHVFQVJ0U2M5RXFobHBZanlVMThGdlBVdWFQYWlyQzRHdnUxSVZ4UE9COGc1a2QrZEhzVURRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.39.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
