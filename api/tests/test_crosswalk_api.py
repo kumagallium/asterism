@@ -627,3 +627,59 @@ def test_delete_perspective_removes_hub_and_registry(tmp_path: Path) -> None:
     assert len(hub) == 0
     key_a = ds.graph(rdflib.URIRef(substrate.canonical_graph_iri("ds-a")))
     assert len(key_a) > 0
+
+
+def test_predicate_labels_stay_silent_when_one_predicate_has_two_labels(
+    tmp_path: Path,
+) -> None:
+    """同じ述語に別々のラベルが付いていたら、どれか 1 つを名乗らない。
+
+    ⭐値のカタログはどれも `rdfs:label` を束縛する（ensure_value_catalog_labels）。
+    述語だけで引くと「化学組成」の候補が『縦軸単位』と名乗った（利用者報告
+    2026-09-02）。この経路の約束は「設計が選んだ言葉を言う、さもなくば黙る」。
+    """
+    from asterism_api.main import _crosswalk_predicate_labels
+
+    registry_root = tmp_path / "registry"
+    (registry_root / "ds-a").mkdir(parents=True)
+    (registry_root / "ds-a" / "meta.json").write_text(
+        json.dumps({"id": "ds-a", "created_at": "2026-06-11T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    (registry_root / "ds-a" / "mapping.yaml").write_text(
+        "version: 1\n"
+        "prefixes:\n"
+        '  x: "https://kumagallium.github.io/asterism/x/ontology#"\n'
+        '  rdfs: "http://www.w3.org/2000/01/rdf-schema#"\n'
+        "maps:\n"
+        "  - name: composition\n"
+        "    source: c.csv\n"
+        "    subject:\n"
+        '      template: "x:composition/{composition}"\n'
+        "    properties:\n"
+        "      - predicate: rdfs:label\n"
+        "        column: composition\n"
+        '        label: "化学組成"\n'
+        "  - name: unit_y\n"
+        "    source: c.csv\n"
+        "    subject:\n"
+        '      template: "x:unit_y/{unit_y}"\n'
+        "    properties:\n"
+        "      - predicate: rdfs:label\n"
+        "        column: unit_y\n"
+        '        label: "縦軸単位"\n'
+        "  - name: record\n"
+        "    source: c.csv\n"
+        "    subject:\n"
+        '      template: "x:record/{id}"\n'
+        "    properties:\n"
+        "      - predicate: x:comp\n"
+        "        column: comp\n"
+        '        label: "試料組成"\n',
+        encoding="utf-8",
+    )
+    labels = _crosswalk_predicate_labels(registry_root, "ds-a")
+    # 曖昧な述語は名乗らない（どちらか一方を返すのが今回のバグだった）
+    assert "http://www.w3.org/2000/01/rdf-schema#label" not in labels
+    # 一意な述語は従来どおり設計のラベルを名乗る
+    assert labels["https://kumagallium.github.io/asterism/x/ontology#comp"] == "試料組成"
