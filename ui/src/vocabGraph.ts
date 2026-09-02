@@ -10,6 +10,20 @@ import type { GroundCandidate } from './groundingApi'
 import type { ShapeEdge, ShapeField, ShapeNode } from './shapeGraph'
 import { knownVocabForIri, localName } from './vocab'
 
+/** カタログの `id` は表示用（`live-<登録 id>`）で、API が受け取る登録 id とは**違う**。
+ *
+ *  ⭐この取り違えで「ことばの地図」は出荷後ずっと空だった: `getDatasetRules(d.id)`
+ *  が `live-…` を投げて 404 → catch → 対象 0 件 → 節が `null` を返す（＝画面から
+ *  丸ごと消える）ので、エラーも空状態も出ないまま「地図が無い」に見えていた
+ *  （利用者報告 2026-09-03・v0.39.0）。ハーネスは API を通らないので気付けない。
+ *  API を呼ぶときは必ずこれを通す。 */
+export function datasetApiId(dataset: {
+  id: string
+  live?: { meta: { id: string } } | null
+}): string {
+  return dataset.live?.meta.id ?? dataset.id.replace(/^live-/, '')
+}
+
 /** RDF の配管（rdf/rdfs/owl）。項目としては描くが、「標準語の使用」の線にはしない —
  *  すべてのカタログが rdfs:label で RDFS に繋がる絵は、地図ではなくノイズ。 */
 export const PLUMBING_NS = [

@@ -9583,3 +9583,19 @@ tr.kz-cols-dropped td {
   background: var(--error-bg);
   border-color: var(--error-fg);
 }
+
+/* 構造図の項目に添える「実データの例」（Phase 2・中身タブ）。名前が主役なので
+   例は縮む側に置き、長い値は省略する — 中身が「ある」ことが分かれば足りる。 */
+.shape-field-example {
+  flex: 0 1 auto;
+  /* 名前が主役。上限を切らないと、長い実値が項目名まで省略させる
+     （実測: 「化学式（別表記）」が「化学式…」に潰れた）。 */
+  max-width: 45%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}

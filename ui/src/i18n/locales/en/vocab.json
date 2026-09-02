@@ -31,7 +31,8 @@
       "used": "uses a standard word",
       "candidate": "grounding candidate (not yet confirmed)",
       "alignment": "alignment between datasets"
-    }
+    },
+    "unavailable": "Couldn't draw the map right now — the datasets' ingest rules could not be read. Wait a moment and reload the page."
   },
   "schemaError": "Couldn't load the list of words. Wait a moment, then press \"Reload\". If it keeps happening, tell whoever set this server up.",
   "reload": "Reload",

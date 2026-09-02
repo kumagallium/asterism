@@ -175,3 +175,36 @@ describe('layout', () => {
     expect([...layout(s).entries()]).toEqual([...layout(s).entries()])
   })
 })
+
+describe('rulesShape: 実データの例（Phase 2・中身タブ）', () => {
+  it('項目が読んでいる列の実値を (source, column) で引いて添える', () => {
+    const r = rules([
+      rmap('record', {
+        source: 'a.csv',
+        properties: [
+          { predicate: 'xrd:mass', predicate_iri: `${NS}mass`, reference: 'atomic_mass' },
+          { predicate: 'xrd:note', predicate_iri: `${NS}note`, reference: 'note' },
+          // 列を読まない項目（定数など）には例が付かない
+          { predicate: 'xrd:kind', predicate_iri: `${NS}kind`, constant: 'x' },
+        ],
+      }),
+    ])
+    const shape = rulesShape(r, {
+      withFields: true,
+      exampleOf: (source, column) =>
+        source === 'a.csv' && column === 'atomic_mass' ? '1.008' : undefined,
+    })
+    const fields = shape.nodes[0].fields!
+    expect(fields.map((f) => f.example)).toEqual(['1.008', undefined, undefined])
+  })
+
+  it('exampleOf を渡さなければ例は出ない（従来どおり）', () => {
+    const r = rules([
+      rmap('record', {
+        source: 'a.csv',
+        properties: [{ predicate: 'xrd:mass', predicate_iri: `${NS}mass`, reference: 'atomic_mass' }],
+      }),
+    ])
+    expect(rulesShape(r, { withFields: true }).nodes[0].fields![0].example).toBeUndefined()
+  })
+})
