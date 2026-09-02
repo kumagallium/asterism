@@ -66,7 +66,6 @@ services:
       # 開発者向け SPARQL ページが POST /api/sparql を叩くため、既定の「閉」のままだと
       # 403 になり「事実の数」が出ない。全サイトがセッションゲートの裏なので外には出ない。
       # 外向きに publish する MCP フロントは別プロセスで false のまま (compose.mcp-front.yaml)。
-      # demo-agent には意図的に渡さない (Ask は typed tools のみ) ため env_file ではなくここ。
       ASTERISM_EXPOSE_RAW_SPARQL: "1"
     volumes:
       - asterism-data:/data/sources    # registry + sources + jobs + append inbox
@@ -75,9 +74,9 @@ services:
     restart: unless-stopped
 
   demo-agent:
-    # Grounded Ask (LLM routing over the typed tools). Reads the same registry the
-    # api writes, so it sees promoted datasets. The user's Anthropic key is sent
-    # per request (X-API-Key) — never baked in.
+    # Grounded Ask (LLM routing over the typed tools + raw SPARQL). Reads the same
+    # registry the api writes, so it sees promoted datasets. The user's Anthropic
+    # key is sent per request (X-API-Key) — never baked in.
     build:
       context: .
       dockerfile: demo-agent/Dockerfile
@@ -86,6 +85,15 @@ services:
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
       CSV2RDF_REGISTRY_ROOT: /data/sources/registry
+      # かつては「Ask は typed tools のみ」と意図的に渡していなかった（無認証の
+      # 公開デモを想定した安全側）。このサイトは全体がセッションゲートの裏で、
+      # store は internal ネットワークの読み取りのみ — そして run_sparql が無いと
+      # 「ZT が最大の組成は？」のような集計・横断質問に**構造的に**答えられない
+      # （typed tools は各データセットの定型質問だけ。実測 2026-09-02: agent が
+      # 「ツールに機能がない」と正しく降参した）。ローカル（デスクトップ）の
+      # single-user 起動は最初から "1"（asterism_api.local）— 本番だけが閉じて
+      # いた非対称を解消する。外向き MCP フロントは今までどおり false。
+      ASTERISM_EXPOSE_RAW_SPARQL: "1"
     volumes:
       - asterism-data:/data/sources:ro
     depends_on: [oxigraph]
