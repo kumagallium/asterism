@@ -1850,6 +1850,21 @@ def run_design_loop(
         initial: int,
         base_refs: int,
     ) -> DesignLoopResult:
+        # 可観測性 (2026-09-02): 「なぜ修正ラウンドが回ったか」を事後に docker logs
+        # から読めるようにする。round 0 の issue はループ内でしか見えず、保存後の
+        # meta には残らない — 利用者の「まだ回る」報告のたびに再現待ちになっていた。
+        first = (
+            best_issues[0].message[:200]
+            if best_issues
+            else (rounds[0].categories if rounds else None)
+        )
+        print(
+            f"[design-loop] rounds={len(rounds)} converged={converged} "
+            f"reason={reason} deterministic={metadata.get('deterministic_rules')} "
+            f"initial_issues={initial} remaining={len(best_issues)} "
+            f"first_issue={first!r}",
+            flush=True,
+        )
         return DesignLoopResult(
             proposal_md=best_schema,
             csv_inspection_md=inspection_md,
