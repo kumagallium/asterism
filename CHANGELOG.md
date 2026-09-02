@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.36.0](https://github.com/kumagallium/asterism/compare/v0.35.0...v0.36.0) - 2026-09-02
+
+- fix(ask): 打ち切りを「分かりません」で終わらせない（促し継続＋ツール無し最終回答） by @kumagallium in https://github.com/kumagallium/asterism/pull/546
+- feat(crosswalk): つながりを削除できるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/548
+
 ## [v0.35.0](https://github.com/kumagallium/asterism/compare/v0.34.0...v0.35.0) - 2026-09-02
 
 - fix(kantan): Phase 1 取りこぼし 4 件（カタログ誤警告・Q2 撤去・⑤名前欄・ID の並び） by @kumagallium in https://github.com/kumagallium/asterism/pull/543
