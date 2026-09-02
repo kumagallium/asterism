@@ -1,11 +1,11 @@
 {
-  "version": "0.33.2",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f108dcfcdd6cec17dc76cfb967495c652a9bf2c4 -->\n\n## What's Changed\n* fix: 日本語の散文で RUF002/RUF003 が出るのを ruff 設定で止める — main の赤を解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/523\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.1...v0.33.2",
-  "pub_date": "2026-09-02T01:28:52Z",
+  "version": "0.33.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 5477779b7837083b3512f4fd8e5fd06402fe1641 -->\n\n## What's Changed\n* fix(ux): 手順バー 1 行化・④行ホバー・⑤体裁統一・ラウンド可観測化 by @kumagallium in https://github.com/kumagallium/asterism/pull/527\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.2...v0.33.3",
+  "pub_date": "2026-09-02T01:29:53Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVMzaDBOSjR4V2tWelNTZEtGUkNEbndMOFhGcnpudUZ1ZW14bU5qZXFmb2l0T3RORDh1ODBodTlnSW5VYjRIMVV1L0NHa1E1U0prSXRaeDAxM3AxRWdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzEyNTMyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmZMOHFhaVhRK0NZZnNZcHkrRHhyMnN4eFlISzRlR3M5NjdDZmp6Rlk1NWd6b0ZXVGNLYWRRZmFSbFRUTEZML3hGWHY2OWxxdWc4RlRINTJIc2VNekFRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.2/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVUvYjNtYUwzbjBydGt3bVpIVFZPY0QrT0RBOVpyV2lmWitSZ3Z3MHRlQXYxTGtZeVZ0SzlwQzJ1UnkvODZvaWR1VDFPek5kZ2NsdURkYUFHclJXSEF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzEyNTkzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjV4TW1rR29DZVFHWDBqbnJuOG9XUUhpRWRIalUvOGFjdFpmNlBnWjhldGMzSlBwNUhzeWZaMkFCWEN2UnBxazhES3JwakR3QjJwL2tDK3JidkFFR0JBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
