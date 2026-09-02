@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.34.0](https://github.com/kumagallium/asterism/compare/v0.33.8...v0.34.0) - 2026-09-02
+
+- chore(ci): 残りの actions も SHA 固定に揃える（checkout / setup-node / upload-artifact / github-script / tauri-action / tagpr / rust-toolchain） by @kumagallium in https://github.com/kumagallium/asterism/pull/540
+- feat(vocab): 共通のことばを育つ地図にする（Phase 2-1） by @kumagallium in https://github.com/kumagallium/asterism/pull/542
+
 ## [v0.33.8](https://github.com/kumagallium/asterism/compare/v0.33.7...v0.33.8) - 2026-09-02
 
 - refactor(api): 再主張スタックの一本化 + 手順バー全状態 1 行保証 by @kumagallium in https://github.com/kumagallium/asterism/pull/538
