@@ -262,6 +262,48 @@ maps:
     assert (prop, RDFS.label, rdflib.Literal("noLabelHere")) in g
 
 
+def test_mapping_ir_conflicting_labels_for_one_predicate_fall_back_to_local_name() -> None:
+    """One term, one label. Every value catalog carries its value as
+    ``rdfs:label`` (step0 ``ensure_value_catalog_labels``), so several kinds
+    author different words for the SAME predicate — and the first map's word
+    is not the term's (2026-09-02: Ask called every kind's ID 「DOI」).
+    Agreement still yields the word; disagreement the local-name fallback."""
+    ir = f"""
+prefixes:
+  xrd: {SD}
+maps:
+- name: doi
+  source: x.csv
+  subject:
+    template: xrd:doi/{{doi}}
+    classes: [xrd:Doi]
+  properties:
+  - column: doi
+    predicate: xrd:name
+    label: DOI
+  - column: doi
+    predicate: xrd:key
+    label: 鍵
+- name: unit
+  source: x.csv
+  subject:
+    template: xrd:unit/{{unit}}
+    classes: [xrd:Unit]
+  properties:
+  - column: unit
+    predicate: xrd:name
+    label: 縦軸単位
+  - column: unit
+    predicate: xrd:key
+    label: 鍵
+"""
+    g = project_mapping_ir(ir, STANDARD_PREFIXES)
+    name = rdflib.URIRef(SD + "name")
+    assert set(g.objects(name, RDFS.label)) == {rdflib.Literal("name")}
+    key = rdflib.URIRef(SD + "key")
+    assert set(g.objects(key, RDFS.label)) == {rdflib.Literal("鍵")}
+
+
 def test_mapping_ir_domain_single_map_emitted_multi_map_omitted() -> None:
     g = project_mapping_ir(_MAPPING_IR, STANDARD_PREFIXES)
     # dcterms:identifier only appears in the "sample" map -> domain emitted

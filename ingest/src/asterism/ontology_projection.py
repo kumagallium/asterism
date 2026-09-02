@@ -294,7 +294,11 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
     "used for search and citation" — which the legacy ``model.yaml`` shapes
     never have. A property without an authored ``label`` falls back to its
     predicate's local name (same fallback :func:`project_model_yaml` always
-    uses), so every property still gets *some* readable label.
+    uses), so every property still gets *some* readable label. A predicate
+    whose maps authored DIFFERENT labels (every value catalog carries its value
+    as ``rdfs:label``: the DOI of one kind, the composition of another) takes
+    the same fallback — one term has one label, and the first map's word is
+    not the term's (live 2026-09-02: Ask called every kind's ID 「DOI」).
 
     Parses the IR's own YAML shape directly (``prefixes:`` / ``maps:`` /
     per-map ``subject.classes`` / ``properties[].{predicate,label}``) rather
@@ -336,7 +340,9 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
 
     emitted_classes: set[str] = set()
     pred_domains: dict[str, set[str]] = {}
-    pred_authored_label: dict[str, str] = {}
+    # Every DISTINCT authored label per predicate, in IR order — agreement
+    # yields the word, disagreement the local-name fallback (see docstring).
+    pred_authored_labels: dict[str, list[str]] = {}
     pred_fallback_label: dict[str, str] = {}
 
     for tm in maps:
@@ -377,14 +383,17 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
                 pred_domains.setdefault(pred_iri, set()).add(cls_iri)
             label = prop.get("label")
             if isinstance(label, str) and label.strip():
-                pred_authored_label.setdefault(pred_iri, label.strip())
+                authored = pred_authored_labels.setdefault(pred_iri, [])
+                if label.strip() not in authored:
+                    authored.append(label.strip())
             else:
                 pred_fallback_label.setdefault(pred_iri, _local_name(pred_token))
 
-    all_predicates = set(pred_authored_label) | set(pred_fallback_label) | set(pred_domains)
+    all_predicates = set(pred_authored_labels) | set(pred_fallback_label) | set(pred_domains)
     for pred_iri in all_predicates:
+        authored = pred_authored_labels.get(pred_iri) or []
         label = (
-            pred_authored_label.get(pred_iri)
+            (authored[0] if len(authored) == 1 else None)
             or pred_fallback_label.get(pred_iri)
             or _local_name(pred_iri)
         )

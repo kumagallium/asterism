@@ -499,3 +499,74 @@ maps:
     assert summary["maps"][0]["properties"][0].get("label") is None
     # 一意な述語: 従来どおり落ちる
     assert summary["maps"][1]["properties"][0].get("label") == "唯一の項目"
+
+
+def test_column_heading_fallback_is_each_maps_own_column(
+    tmp_path: Path, healthy_client
+) -> None:
+    """③（列見出しの fallback）も行の列で引く。
+
+    #554 が直したのは①（authored label）の取り違え。ラベルを書いていない値の
+    カタログ（`ensure_value_catalog_labels` が書く `{column, predicate: rdfs:label}`
+    そのもの）は③に落ちる — そこが述語だけの辞書のままだと、最後のカタログの
+    列見出しが全部の行に乗る（同じ事故の残り半分）。"""
+    from asterism_step0.mapping_ir import parse_mapping_ir
+    from asterism_step0.rml_compile import compile_mapping_ir
+
+    ir = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+  rdfs: "http://www.w3.org/2000/01/rdf-schema#"
+maps:
+  - name: doi
+    source: records.csv
+    subject:
+      template: "exr:doi/{文献DOI}"
+      classes: [ex:Doi]
+    properties:
+      - predicate: rdfs:label
+        column: 文献DOI
+  - name: unit_y
+    source: records.csv
+    subject:
+      template: "exr:unit/{縦軸単位}"
+      classes: [ex:UnitY]
+    properties:
+      - predicate: rdfs:label
+        column: 縦軸単位
+"""
+    artifacts = dict(
+        _ARTIFACTS,
+        **{
+            "mapping.rml.ttl": compile_mapping_ir(parse_mapping_ir(ir)),
+            "mapping.yaml": ir,
+            "model.yaml": "",  # ② が無い設計: ③ が実際に効く経路
+        },
+    )
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Records",
+        artifacts,
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-09-02T00:00:00+00:00",
+        proposal_md="",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get(f"/api/datasets/{meta['id']}/rules")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["warnings"] == []
+        rdfs_label = "http://www.w3.org/2000/01/rdf-schema#label"
+        got = {
+            m["id"]: next(
+                row["label"] for row in m["properties"] if row["predicate_iri"] == rdfs_label
+            )
+            for m in body["maps"]
+        }
+        assert got == {"DoiMap": "文献DOI", "UnitYMap": "縦軸単位"}
