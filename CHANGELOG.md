@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.41.0](https://github.com/kumagallium/asterism/compare/v0.40.0...v0.41.0) - 2026-09-02
+
+- feat(crosswalk): つながりの参加者を (データセット, 種類, 述語) 単位へ — 「label」候補を「Composition › 試料化学組成」と呼ぶ by @kumagallium in https://github.com/kumagallium/asterism/pull/561
+
 ## [v0.40.0](https://github.com/kumagallium/asterism/compare/v0.39.1...v0.40.0) - 2026-09-02
 
 - fix(ui): ことばの地図が空だった id 取り違え + 中身タブに実データの例（Phase 2-2） by @kumagallium in https://github.com/kumagallium/asterism/pull/559
