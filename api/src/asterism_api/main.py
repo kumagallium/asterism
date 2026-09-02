@@ -5682,6 +5682,41 @@ def build_app(
             comments = [*comments[:-1], f"{comments[-1]}\n\n{oracle}"]
 
         def work(should_cancel: Callable[[], bool]) -> dict[str, object]:
+            # 決定論プレパス (2026-09-02): 受け口ラベル・接続線の保証だけで
+            # 指摘が全部消えるなら、LLM を呼ばずに直して返す。旧サーバで保存
+            # された「空の入れ物」残存が典型 — 機械で書ける直しに 1 ラウンド分の
+            # 課金と待ち時間を使わない。検証まで通ることを確認できたときだけ
+            # 採用し、それ以外は従来どおり LLM に渡す。
+            if body.dataset_id:
+                pre_md = design_loop._overlay_catalog_guarantees(body.schema_md, None)
+                if pre_md != body.schema_md:
+                    pre_sources = _design_source_files(cfg.registry_root, body.dataset_id)
+                    if pre_sources:
+                        try:
+                            pre_ir, pre_rml = design_loop._extract_design(pre_md)
+                            pre_issues = design_loop.collect_issues(
+                                pre_ir, pre_rml, pre_sources[0].parent
+                            )
+                        except Exception:
+                            pre_issues = None
+                        if pre_issues is not None and not pre_issues:
+                            return {
+                                "refined_md": pre_md,
+                                "effective_schema_md": pre_md,
+                                "complete": True,
+                                "missing_artifacts": [],
+                                "warnings": [],
+                                "metadata": {"deterministic_prepass": True},
+                                "autocorrect": {
+                                    "enabled": True,
+                                    "converged": True,
+                                    "terminal_reason": "deterministic_prepass",
+                                    "initial_issue_count": 0,
+                                    "final_issue_count": 0,
+                                    "rounds": [],
+                                    "remaining_issues": [],
+                                },
+                            }
             # Cooperative cancel only (jobs.start has no emit to bridge progress
             # through): the client checks it before each generation.
             _arm_llm_callbacks(llm, should_cancel=should_cancel)

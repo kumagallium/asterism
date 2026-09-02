@@ -2860,7 +2860,7 @@ export function SkeletonGate({
                 type="button"
                 className={plainFix === id ? 'btn btn--sm' : 'btn btn--ghost btn--sm'}
                 disabled={
-                  id === 'rethink' ? !onRethink : id !== 'names' ? !zone : false
+                  busy || (id === 'rethink' ? !onRethink : id !== 'names' ? !zone : false)
                 }
                 onClick={() => setPlainFix(plainFix === id ? null : id)}
               >

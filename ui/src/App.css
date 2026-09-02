@@ -6927,6 +6927,11 @@ button.ds-artifact:disabled {
   cursor: pointer;
   flex: none;
 }
+/* ③「意味をつける」の表にも同じ行ホバー（利用者要望 2026-09-02）。 */
+.kz-meaning-table tbody tr:hover td,
+.kz-meaning-table tbody tr:hover th {
+  background: var(--surface-sink);
+}
 /* ☑ と列名が横に離れているので、いまマウスの乗っている行を薄く示す
    （利用者要望 2026-09-02）。 */
 .kz-preview-table.kz-links-table tbody tr:hover th,
@@ -7236,7 +7241,10 @@ tr[data-map].skeleton-gate-row--added td {
      揃わなくなる（ユーザー実評価 2026-08-27「謎の右側の余白」）。列を 1 つの幅に
      閉じれば、その幅がそのまま行長になる。広い表は `.kz-preview-tablewrap` が
      内側で横スクロールする（従来どおり）。 */
-  max-width: 880px;
+  /* 2026-09-02: 手順バーを 1 行にした結果、バーだけ列の外へはみ出して下の
+     カードと幅が揃わなくなった（利用者指摘）。行長より整列を取り、列ごと
+     バーの必要幅（≒1030px）まで広げて両者を同幅にする。 */
+  max-width: 1080px;
   margin-inline: auto;
   width: 100%;
 }
@@ -7278,9 +7286,6 @@ tr[data-map].skeleton-gate-row--added td {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  align-self: center;
-  width: max-content;
-  max-width: calc(100vw - 380px);
   align-items: center;
   gap: var(--space-2);
   list-style: none;
