@@ -440,3 +440,55 @@ def test_a_kept_column_with_no_meaning_is_still_taken_in(
         assert "unused" in rows
         assert "label" not in rows["unused"]
         assert rows["unused"]["unit"] == "mV"
+
+
+def test_design_labels_are_readable_without_the_store(
+    tmp_path: Path, healthy_client
+) -> None:
+    """設計に写った意味は、store（column-meanings.json）が無くても読める。
+
+    store は明示保存の経路しか書かないため、過去に設計まで到達したデータセット
+    でも空のことがある — そのとき設計のやり直しが③「意味をつける」を全欄空欄で
+    開いていた（利用者報告 2026-09-02: Starrydata）。GET は設計（mapping.yaml）
+    からの投影を既定層に持つ。
+    """
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _attached_dataset(client)
+        r = client.post(
+            f"/api/datasets/{ds_id}/column-meanings",
+            json={
+                "meanings": [
+                    {"source": "readings.csv", "column": "amplitude", "label": "振幅", "unit": "mV"}
+                ]
+            },
+        )
+        assert r.status_code == 200, r.text
+        # store を消す — 意味は設計（mapping.yaml）に写っているので、読み取りは
+        # そこから立ち直る（= 明示保存を経ていないデータセットの姿）。
+        (tmp_path / "registry" / ds_id / "column-meanings.json").unlink()
+        meanings = client.get(f"/api/datasets/{ds_id}/column-meanings").json()["meanings"]
+        assert {
+            "source": "readings.csv",
+            "column": "amplitude",
+            "label": "振幅",
+            "unit": "mV",
+        } in meanings
+
+
+def test_store_wins_over_the_design_projection(tmp_path: Path, healthy_client) -> None:
+    """明示 store は投影より強い — 直したそばから設計の古い値に戻されない。"""
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _attached_dataset(client)
+        client.post(
+            f"/api/datasets/{ds_id}/column-meanings",
+            json={"meanings": [{"source": "readings.csv", "column": "amplitude", "label": "振幅"}]},
+        )
+        # store だけを書き換える（設計の投影は「振幅」のまま）— 実運用では起きない
+        # 順序だが、層の勝敗をこれ以上直接に固定する書き方は無い。
+        path = tmp_path / "registry" / ds_id / "column-meanings.json"
+        stored = json.loads(path.read_text())
+        stored["meanings"][0]["label"] = "振幅の言い直し"
+        path.write_text(json.dumps(stored, ensure_ascii=False), "utf-8")
+        meanings = client.get(f"/api/datasets/{ds_id}/column-meanings").json()["meanings"]
+        row = next(m for m in meanings if m["column"] == "amplitude")
+        assert row["label"] == "振幅の言い直し"

@@ -3802,6 +3802,47 @@ def _column_meaning_key(meaning: Mapping[str, object]) -> tuple[str, str]:
     return str(meaning.get("source") or ""), str(meaning.get("column") or "")
 
 
+def _column_meanings_from_design(registry_root: Path, dataset_id: str) -> list[dict]:
+    """設計（mapping.yaml）の label/unit を ``(source, column)`` の意味として投影する。
+
+    読み取り時の**既定層**。store（column-meanings.json）は明示保存の経路しか
+    書かないため、過去に設計まで到達したデータセットでも store が空のことがある —
+    そのとき設計のやり直しが③「意味をつける」を全欄空欄で開いていた（利用者報告
+    2026-09-02: Starrydata のやり直しで 9 列が空欄）。意味の真実は §9 に写って
+    いるので、そこから読む。明示 store が常に勝つ（呼び出し側が上に重ねる）。
+    Best-effort（``[]``・never raises）— 意味の欠けは空欄であって障害ではない。
+    """
+    data = registry.load_dataset(registry_root, dataset_id) or {}
+    text = str((data.get("artifacts") or {}).get("mapping.yaml") or "")
+    if not text.strip():
+        return []
+    try:
+        from asterism_step0.mapping_ir import parse_mapping_ir
+
+        ir = parse_mapping_ir(text)
+    except Exception:
+        return []
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for tm in ir.maps:
+        source = str(tm.source or "")
+        if not source:
+            continue
+        for prop in tm.properties:
+            column = str(prop.column or "")
+            if not column or (source, column) in seen:
+                continue
+            row: dict = {"source": source, "column": column}
+            if prop.label:
+                row["label"] = str(prop.label)
+            if getattr(prop, "unit", None):
+                row["unit"] = str(prop.unit)
+            if len(row) > 2:
+                seen.add((source, column))
+                out.append(row)
+    return out
+
+
 def _merge_column_meanings(existing: list[dict], incoming: list[dict]) -> list[dict]:
     """Upsert by physical source column; the latest statement about a field wins.
 
@@ -6801,12 +6842,21 @@ def build_app(
 
     @app.get("/api/datasets/{dataset_id}/column-meanings")
     async def get_dataset_column_meanings(dataset_id: str) -> dict[str, object]:
-        """Return the settled ``(source, column)`` meanings for this dataset."""
+        """Return the settled ``(source, column)`` meanings for this dataset.
+
+        設計（mapping.yaml）に写っている label/unit を既定層に、明示 store を
+        上に重ねる — POST は store→設計へ投影するので、設計は常に store を含む
+        上位集合。store だけを返すと、明示保存を経ていないデータセットの
+        やり直しが③を空欄で開く（``_column_meanings_from_design``）。
+        """
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return {
             "dataset_id": dataset_id,
-            "meanings": _load_column_meanings(cfg.registry_root, dataset_id),
+            "meanings": _merge_column_meanings(
+                _column_meanings_from_design(cfg.registry_root, dataset_id),
+                _load_column_meanings(cfg.registry_root, dataset_id),
+            ),
         }
 
     @app.post("/api/datasets/{dataset_id}/column-meanings", dependencies=_write_auth)

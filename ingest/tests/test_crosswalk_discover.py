@@ -260,6 +260,33 @@ def test_samples_show_the_disagreeing_spellings_first() -> None:
     assert set(samples[0]["raw"].values()) == {"Bi₂Te₃", "Bi2Te3"}
 
 
+def test_samples_put_punctuation_led_values_last() -> None:
+    """記号始まりの値（データ入力の削除標識など）は同点の最後尾。
+
+    素の辞書順昇順では `!` が英数字より先に来て、starrydata の「!!! Delete」
+    「!!! del 0」…ばかりが証拠チップに並んだ（利用者報告 2026-09-02:
+    composition の候補なのに化学組成が 1 つも見えない）。結合や件数は不変 —
+    見せる順だけの規則。
+    """
+    junk = ["!!! Delete", "!!! del 0", "!!! del 1"]
+    real = ["Bi2Te3", "PbTe"]
+    slots = [
+        _slot(0, "a", f"{NS}comp", junk + real),
+        _slot(1, "b", f"{NS}formula", junk + real),
+    ]
+    clusters, _ = cluster_candidates(slots, limits=LIMITS)
+    cluster = clusters[0]
+    intern = {}
+    for slot in slots:
+        for kid, raw in slot.raw_by_key[cluster.normalizer].items():
+            intern.setdefault(kid, raw)
+    samples = pick_samples(cluster, slots, intern, limit=3)
+    shown = [next(iter(s["raw"].values())) for s in samples]
+    assert shown[:2] == ["Bi2Te3", "PbTe"]
+    # 記号始まりも消えはしない（実データ）— 後ろに並ぶだけ。
+    assert shown[2].startswith("!!!")
+
+
 # ---------------------------------------------------------------------------
 # I/O: the scan against a real rdflib store
 # ---------------------------------------------------------------------------
