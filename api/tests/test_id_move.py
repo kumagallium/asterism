@@ -346,6 +346,46 @@ def test_recount_hands_back_the_skeleton_and_a_readable_source(tmp_path: Path) -
     assert body["sources"] == [{"name": "s.csv", "size": len(b"sid,name\n1,Bi2Te3\n")}]
 
 
+_SPEC_WITH_CATALOG = """version: 1
+prefixes:
+  ex: "https://e.invalid/ns#"
+  exr: "https://e.invalid/r/"
+maps:
+  - name: sample
+    source: s.csv
+    subject:
+      template: "exr:sample/{sid}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:name
+        column: name
+  - name: composition
+    source: s.csv
+    subject:
+      template: "exr:composition/{name}"
+      classes: [ex:Composition]
+    properties:
+      - predicate: ex:composition
+        column: name
+      - predicate: ex:sample
+        object_template: "exr:sample/{sid}"
+"""
+
+
+def test_recount_gives_a_value_catalog_its_owns_back(tmp_path: Path) -> None:
+    """⑤（数えかたのゲート）は owns == キー列 で「値のカタログ」を見分け、同じ値の
+    行がまとまることを事故として言わない（K33）。見直しで組み直した骨格に owns が
+    無いと、カタログ全部に「複数の行が同じ ID」が並ぶ（利用者報告 2026-09-03）。"""
+    _seed_with_design(tmp_path, spec=_SPEC_WITH_CATALOG)
+    oxi, _ = _mock_client()
+    with _app_client(tmp_path, oxi) as client:
+        res = client.post("/api/datasets/dataset-x/recount", headers=_AUTH)
+    assert res.status_code == 200, res.text
+    by_name = {m["name"]: m for m in res.json()["skeleton"]["maps"]}
+    assert by_name["composition"]["owns"] == ["name"]
+    assert "owns" not in by_name["sample"]
+
+
 def test_recount_refuses_a_design_with_no_mapping_spec(tmp_path: Path) -> None:
     """生 Turtle しか無い古い設計は、構造の作り直しが詳細モードの担当のまま。"""
     _seed_with_design(tmp_path, spec=None)

@@ -597,12 +597,47 @@ def ensure_same_source_links(
     return out, added
 
 
+def value_catalog_owns(map_obj: Mapping[str, Any]) -> list[str] | None:
+    """The ``owns`` declaration a value catalog carried before it became an IR.
+
+    K33: a value catalog is the map that owns exactly its single key column —
+    its ID *is* the value, so rows with the same value merging into one entity
+    is the point, not an accident. The gate (``assemble_skeleton_from_judgments``)
+    writes that as ``owns == [key]`` on the skeleton, but the IR has no ``owns``
+    field (:func:`assemble_mapping_ir` consumes it), so a skeleton rebuilt FROM
+    the IR lost the declaration — and every catalog re-opened through
+    「設計を見直す」/recount was shown the collision warning again
+    (「複数の行が同じ ID になったままです」× Doi / Composition / PropX …,
+    利用者報告 2026-09-03, v0.39.0). Read it back from the shape instead: one
+    placeholder in the subject template, and no property reading any OTHER
+    column directly (``column`` / ``columns``; a link's ``object_template``
+    names another map's key, not a column this map owns). ``None`` for
+    anything else — records, cards, entities with attributes.
+    """
+    subject = map_obj.get("subject") or {}
+    keys = _COLUMN_PLACEHOLDER.findall(str(subject.get("template") or ""))
+    if len(keys) != 1:
+        return None
+    key = keys[0]
+    for prop in map_obj.get("properties") or []:
+        if not isinstance(prop, Mapping):
+            continue
+        direct = [prop.get("column")] if prop.get("column") else []
+        direct += list(prop.get("columns") or [])
+        if any(str(c) != key for c in direct):
+            return None
+    return [key]
+
+
 def skeleton_from_full_ir(ir: Mapping[str, Any]) -> tuple[dict, dict[str, dict]]:
     """Inverse of :func:`assemble_mapping_ir`: split a full IR dict into
     ``(skeleton, permaps)``. Lets a single-shot proposal be re-expressed in the
     staged shape (equivalence tests; a "regenerate one map" path over an existing
     design). ``skeleton`` carries subject-only maps; ``permaps`` maps each name to
-    its ``{properties: [...]}``."""
+    its ``{properties: [...]}``. A value catalog gets its ``owns == [key]``
+    declaration back (:func:`value_catalog_owns`) — the one skeleton fact the IR
+    does not store, and the one the counting gate reads to know that merging is
+    this kind's job rather than an accident."""
     sk_maps: list[dict] = []
     permaps: dict[str, dict] = {}
     for map_obj in ir.get("maps") or []:
@@ -611,6 +646,9 @@ def skeleton_from_full_ir(ir: Mapping[str, Any]) -> tuple[dict, dict[str, dict]]
         if map_obj.get("iterator") is not None:
             sk_map["iterator"] = map_obj["iterator"]
         sk_map["subject"] = dict(map_obj.get("subject") or {})
+        owns = value_catalog_owns(map_obj)
+        if owns:
+            sk_map["owns"] = owns
         sk_maps.append(sk_map)
         permaps[name] = {"properties": list(map_obj.get("properties") or [])}
     skeleton = {

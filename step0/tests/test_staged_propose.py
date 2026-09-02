@@ -110,6 +110,54 @@ def test_skeleton_schema_accepts_subject_only_map_and_rejects_properties() -> No
     assert list(v.iter_errors(with_props)) != []
 
 
+def test_skeleton_from_full_ir_restores_a_value_catalogs_owns() -> None:
+    """IR には owns が無い（assemble_mapping_ir が消費する）ので、§9 から組み直した
+    骨格は値のカタログの宣言を失っていた — 「設計を見直す」で⑤へ戻ると Doi /
+    Composition / PropX … 全部に「複数の行が同じ ID」の誤警告（利用者報告
+    2026-09-03・v0.39.0）。形から読み戻す: 単独キー + 他の列を直接読まない map。"""
+    ir = {
+        "version": 1,
+        "prefixes": {"x": "https://example.org/x#", "xr": "https://example.org/r/"},
+        "maps": [
+            {   # 行の種類: 複合キー → カタログではない
+                "name": "record",
+                "source": "curves.csv",
+                "subject": {"template": "xr:record/{sample_id}/{figure_id}"},
+                "properties": [{"predicate": "x:x", "column": "x"}],
+            },
+            {   # 値のカタログ: 自分の値のリテラル + record への参照（object_template は
+                # 他 map のキーを名指すだけで、この map が持つ列ではない）
+                "name": "composition",
+                "source": "curves.csv",
+                "subject": {"template": "xr:composition/{composition}"},
+                "properties": [
+                    {"predicate": "x:composition", "column": "composition"},
+                    {
+                        "predicate": "x:record",
+                        "object_template": "xr:record/{sample_id}/{figure_id}",
+                    },
+                ],
+            },
+            {   # 単独キーでも他の列を持つ = 属性つきの実体（カード）→ カタログではない
+                "name": "paper",
+                "source": "papers.csv",
+                "subject": {"template": "xr:paper/{doi}"},
+                "properties": [
+                    {"predicate": "x:doi", "column": "doi"},
+                    {"predicate": "x:title", "column": "title"},
+                ],
+            },
+        ],
+    }
+    skeleton, _ = skeleton_from_full_ir(ir)
+    by_name = {m["name"]: m for m in skeleton["maps"]}
+    assert by_name["composition"]["owns"] == ["composition"]
+    assert "owns" not in by_name["record"]
+    assert "owns" not in by_name["paper"]
+    # 既存の同値テストの前提: properties は骨格に持ち込まない
+    assert all("properties" not in m for m in skeleton["maps"])
+
+
 def test_skeleton_schema_allows_note_and_iterator() -> None:
     v = jsonschema.Draft202012Validator(skeleton_json_schema(FN_NAMES))
     doc = {

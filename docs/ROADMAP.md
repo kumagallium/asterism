@@ -4,7 +4,7 @@
 >
 > **このリポジトリで作業するセッション（Claude Code / Cowork / 人）は、開始時に本書を読み、作業後に状態を更新すること。** 手順は [`CLAUDE.md`](../CLAUDE.md) 参照。
 
-最終更新: 2026-08-31
+最終更新: 2026-09-03
 
 ## 北極星
 
@@ -71,6 +71,7 @@
 
 ## 更新 log
 
+- 2026-09-03: **見直しで⑤へ戻ると、値のカタログ全部に「複数の行が同じ ID」（branch `fix/recount-restores-catalog-owns`・利用者報告 v0.39.0）**。v0.35.0（bf5b86f）で「カタログには出さない」と決めて実装済みなのに再発。⭐根因: ⑤は `owns == キー列` でカタログを見分ける（K33）が、**IR（mapping.yaml）には owns が無い**（`assemble_mapping_ir` が消費して書かない）。「設計を見直す」→ `/recount` は `skeleton_from_full_ir` で §9 から骨格を組み直すので、そこで宣言が落ちて全カタログが「事故」に見える（新規④→⑤の経路は無事）。直し=`value_catalog_owns()`（step0）: 単独キー + 他の列を直接読まない map（`object_template` は他 map のキーの名指しで持ち物ではない）に `owns=[key]` を読み戻す。テスト=step0 1 本 + api `/recount` 1 本。⭐同報告の「つなぐ時に **label** という候補が出る」=値のカタログが自分の値を持つ `rdfs:label`（v0.31.10 の保証）の局所名で、列名ではない。DOI・組成・単位が 1 つの述語に同居するため設計の言葉も付けられず（#554/#556 の規則で「黙る」）、素の `label` が見える。**次の一手=つながりを (class, 述語) 単位へ**（候補・参加者・SPARQL に class を持たせ、画面は「Composition の値」と呼ぶ）。
 - 2026-09-02: **同上の追補（branch `fix/tbox-label-conflict`）**。#554 の後に残っていた同じ衝突 2 か所。①**promote 時の TBox 投影**（ingest `project_mapping_ir`）は述語ごとに**最初の map の言葉**を `rdfs:label` にしていた（`setdefault`）＝ Ask・共通の言葉が「DOI」と呼ぶ経路（「DOI になる時もある」の片方）。1 語彙 1 ラベルなので、複数 map が別ラベルを付けた述語は局所名 fallback に落とす。**既存データセットは再 promote で語彙ラベルが更新**される。②/rules の③列見出し fallback（`_fill_missing_labels`）も述語だけの辞書で引いていた — ラベルを書いていない値のカタログ（`{column, predicate: rdfs:label}` そのもの）はここに落ちるので、最後のカタログの列見出しが全部に乗る。(述語, 列) で引き、述語だけの辞書は束縛列が 1 つのときだけ信じる（#554 と同じ規則）。⭐**本番反映は手動デプロイ**（Dewy は api の PoC 並行稼働で caddy 未切替）— SSH → `git pull --ff-only origin main && docker compose -f compose.prod.yaml up -d --build`。残=つながりの発見は (dataset, 述語) 単位なので、`rdfs:label` を共有する種類では DOI・組成・単位の値が 1 つの述語に混ざる → **次の一手=発見を (class, 述語) 単位へ**（`profile_literal_predicates` に `?e a ?class` を足し、参加者に class を持たせる）。テスト=api 1 本（③の列見出し per 列）+ ingest 1 本（TBox 投影の食い違い）。
 - 2026-09-02: **「全部の ID が縦軸単位」= 表示メタの述語衝突（branch `fix/label-collision-per-column`・利用者報告）**。⭐真因は**表示メタを述語 IRI だけで引いていたこと**。`ensure_value_catalog_labels` は値のカタログ**全部**に `rdfs:label` を書くので、`_ir_predicate_display`（`meta.setdefault(iri, {}).update(extra)` ＝述語ごとの**最後の勝ち**）で引くと、化学組成・DOI・PropX… すべてが最後の 1 つ（unit_y＝縦軸単位）の名前を名乗る。「DOIになる時もあります」＝ IR の並び順で勝者が変わる。**局所再現に成功**（2 カタログ・別ラベル → 両方 `縦軸単位`）。修正 2 箇所: ①`_ir_display_entries` に 1 パス化し、行の表示は **(述語, 列)** で引く（map 名も subject テンプレートも RML 化で書き換わるが、列の参照名は残る＝命名規約に依存しない結合鍵）。述語ごとの全体像に落ちてよいのは**その述語の束縛列が 1 つだけ**のときに限る ②つながり画面の `_crosswalk_predicate_labels` は、同じ述語に別ラベルが複数あれば**黙る**（この関数の約束は「設計が選んだ言葉を言う、さもなくば黙る」— 借りた言葉はその約束を破る。実機で候補が『縦軸単位 / 化学組成…』と名乗った）。**実データ 3 件で前後不変を確認**（curves 2 版・元素表 — 既に正しかったものは 1 文字も変わらない）。api 601 passed（新 3 本）。⭐**副産物の確認**: 利用者の最新設計 `starrydata-curves-9ee6477e` は x/y=`json_array`+`xsd:double`・project_names=`json_array` で **v0.37/38 の JSON 展開が実配線で作動**、列の重複束縛もゼロ（スクショの「横軸データ ×2」は当該版より前の下書きと見られる）。
 
