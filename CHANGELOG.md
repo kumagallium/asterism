@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.33.5](https://github.com/kumagallium/asterism/compare/v0.33.4...v0.33.5) - 2026-09-02
+
+- chore(deps): bump astral-sh/setup-uv from 3 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/502
+- chore(deps): bump actions/setup-node from 4 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/505
+- chore(deps): bump actions/upload-artifact from 4 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/503
+- fix(ux): refine の決定論プレパス・列幅 1080 統一・実行中タブ無効化・③行ホバー by @kumagallium in https://github.com/kumagallium/asterism/pull/533
+
 ## [v0.33.4](https://github.com/kumagallium/asterism/compare/v0.33.3...v0.33.4) - 2026-09-02
 
 - fix(api): 受け口ラベルと接続線を毎ラウンド再主張 — 修正ラウンドが消しても戻す by @kumagallium in https://github.com/kumagallium/asterism/pull/529
