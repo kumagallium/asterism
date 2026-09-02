@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.33.2](https://github.com/kumagallium/asterism/compare/v0.33.1...v0.33.2) - 2026-09-02
+
+- fix: 日本語の散文で RUF002/RUF003 が出るのを ruff 設定で止める — main の赤を解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/523
+
 ## [v0.33.1](https://github.com/kumagallium/asterism/compare/v0.33.0...v0.33.1) - 2026-09-02
 
 - fix(ci): tagpr の bump ラベルを bump: 名前空間へ隔離 — Dependabot の自動 major と衝突して v1.0.0 になる by @kumagallium in https://github.com/kumagallium/asterism/pull/521
