@@ -1,11 +1,11 @@
 {
-  "version": "0.33.5",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 15fd90dc119150598f9ef839e8db513e5fb6f3ab -->\n\n## What's Changed\n* chore(deps): bump astral-sh/setup-uv from 3 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/502\n* chore(deps): bump actions/setup-node from 4 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/505\n* chore(deps): bump actions/upload-artifact from 4 to 7 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/503\n* fix(ux): refine の決定論プレパス・列幅 1080 統一・実行中タブ無効化・③行ホバー by @kumagallium in https://github.com/kumagallium/asterism/pull/533\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.4...v0.33.5",
-  "pub_date": "2026-09-02T02:15:00Z",
+  "version": "0.33.6",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 32ac4912a6c83df81cec4f6f09401f1a2c727df8 -->\n\n## What's Changed\n* fix(api): 「AI に直してもらう」経路にも受け口保証を — 第 3 の再主張スタック by @kumagallium in https://github.com/kumagallium/asterism/pull/534\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.5...v0.33.6",
+  "pub_date": "2026-09-02T02:21:08Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZ6QkF6TnBVc0VxZWFJN2wvampRQWhZOUJMNWRUMG1kU0VmWVdIYWdoOXMzcW0zWmZnUm1wTEVHVWZDcEtxbnF4SXpNYlQ5cEhiYU9kbWhOT0VSUkF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzE1Mjk5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmtJN0hpT3d1QWpQTWI3RGpqMmxuVFdEekFFcW5meTZpdHZtaWFhVmtYQllEZW9DZVhJck1RVFBONXJVdkl1QmlZTVUyblRsSUs0a3ZGdXhPNDhPOEJRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.5/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWRTTlh2Q20rVTBFOS9VajdmV1FJTVEyMkhBcHZadnVITi9EeHV6L1B3N3NPK3VIUWVMMEppRDNsZm1DQnNQUTIzcXlIemt4OExHbzlYRGxJbGNqdHdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzE1NjY4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkMzUnlydUhlWEFDZ1BWR25LYkYzNGtFV0J5eTVlWmQ4VDZLNUZtM1Q5SjdacWd1NmowbkQrTVlOTVNnZjh2RHp5MGtSVnQ5bXRQelZ2Q1d3V2QwUUN3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.6/Asterism_aarch64.app.tar.gz"
     }
   }
 }
