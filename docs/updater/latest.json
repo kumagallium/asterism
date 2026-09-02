@@ -1,11 +1,11 @@
 {
-  "version": "0.33.3",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 5477779b7837083b3512f4fd8e5fd06402fe1641 -->\n\n## What's Changed\n* fix(ux): 手順バー 1 行化・④行ホバー・⑤体裁統一・ラウンド可観測化 by @kumagallium in https://github.com/kumagallium/asterism/pull/527\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.2...v0.33.3",
-  "pub_date": "2026-09-02T01:29:53Z",
+  "version": "0.33.4",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 2611d831f6b0293128a1268c87f863cdc98d3229 -->\n\n## What's Changed\n* fix(api): 受け口ラベルと接続線を毎ラウンド再主張 — 修正ラウンドが消しても戻す by @kumagallium in https://github.com/kumagallium/asterism/pull/529\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.3...v0.33.4",
+  "pub_date": "2026-09-02T01:39:48Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVUvYjNtYUwzbjBydGt3bVpIVFZPY0QrT0RBOVpyV2lmWitSZ3Z3MHRlQXYxTGtZeVZ0SzlwQzJ1UnkvODZvaWR1VDFPek5kZ2NsdURkYUFHclJXSEF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzEyNTkzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjV4TW1rR29DZVFHWDBqbnJuOG9XUUhpRWRIalUvOGFjdFpmNlBnWjhldGMzSlBwNUhzeWZaMkFCWEN2UnBxazhES3JwakR3QjJwL2tDK3JidkFFR0JBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.3/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVZEUVlvTHcrTzcwY2ZZek5UOU52SUw2dXNQUGFkaDZ1T1pRMWU4SUsweVpoYXZvUEMxV2Z2NTZlMEdzNzBsYThPckNOc0dxZ2k1UFlMcy9lQWR6L0FZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzEzMTg3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClN0OTU2b0I5WlBFaEF4TjVZdll2Q01mdGVSQTFjdnRnTXZvU2FYS0Z2Zi9oV1lpWkV1aHNlQmpiZGJpb3R6dkJTZWUyNDFiYWFwYitpZmxPRmgvQUJnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.4/Asterism_aarch64.app.tar.gz"
     }
   }
 }
