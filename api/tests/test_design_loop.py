@@ -385,6 +385,48 @@ def test_disconnected_entities_surface_as_loop_issues(tmp_path) -> None:
     assert not any("DISCONNECTED" in i.message for i in _collect_rml_issues(joined, tmp_path))
 
 
+def test_catalog_guarantees_are_reasserted_on_schema_md() -> None:
+    """修正ラウンドが §9 を書き直すと、round-0 で機械が足した受け口の
+    rdfs:label と接続線が消えたまま戻らなかった（実測 2026-09-02: 修正 1 回の
+    あと空の入れ物助言が復活）。意味・型と同じ姿勢で毎ラウンド言い直す。"""
+    schema_md = """# design
+
+### 9. Declarative mapping spec
+
+```yaml
+version: 1
+prefixes:
+  el: https://example.org/datasets/e/ontology#
+  elr: https://example.org/datasets/e/resource/
+maps:
+- name: record
+  source: elements.csv
+  subject:
+    template: elr:record/{name}
+    classes: [el:Record]
+  properties:
+  - {column: atomic_mass, predicate: el:atomicMass}
+- name: symbol
+  source: elements.csv
+  subject:
+    template: elr:symbol/{symbol}
+    classes: [el:Symbol]
+  properties: []
+```
+"""
+    skeleton = {
+        "maps": [
+            {"name": "record", "source": "elements.csv"},
+            {"name": "symbol", "source": "elements.csv", "owns": ["symbol"]},
+        ]
+    }
+    out = design_loop._overlay_catalog_guarantees(schema_md, skeleton)
+    assert "rdfs:label" in out  # 受け口 symbol にラベルが戻る
+    assert "elr:record/{name}" in out
+    # 冪等
+    assert design_loop._overlay_catalog_guarantees(out, skeleton) == out
+
+
 def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> None:
     """ADR column-ownership-and-growth G6: the constraint handed to per-map
     generation is the skeleton gate's own verdict, recomputed on the CONFIRMED
