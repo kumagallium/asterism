@@ -380,3 +380,122 @@ maps:
     # column's own parentheses.
     assert meta[f"{ex}temperature"]["unit"] == "C"
     assert meta[f"{ex}pressure"]["unit"] == "kPa"
+
+
+def test_same_predicate_in_two_maps_keeps_each_row_its_own_label() -> None:
+    """同じ述語を複数の map が束縛しても、行のラベルは取り違えない。
+
+    ⭐値のカタログには `ensure_value_catalog_labels` が**全部に** `rdfs:label` を
+    書く。表示メタを述語 IRI だけで引いていたため、最後の 1 つが全部を塗り、
+    実機で「化学組成」「DOI」など 6 つのカタログが揃って『縦軸単位』と表示された
+    （利用者報告 2026-09-02）。行は (述語, 列) で引く。
+    """
+    from asterism_api.main import _merge_ir_display_metadata
+
+    ir = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+  rdfs: "http://www.w3.org/2000/01/rdf-schema#"
+maps:
+  - name: composition
+    source: c.csv
+    subject:
+      template: "exr:composition/{composition}"
+      classes: [ex:Composition]
+    properties:
+      - predicate: rdfs:label
+        column: composition
+        label: "化学組成"
+  - name: unit_y
+    source: c.csv
+    subject:
+      template: "exr:unit_y/{unit_y}"
+      classes: [ex:UnitY]
+    properties:
+      - predicate: rdfs:label
+        column: unit_y
+        label: "縦軸単位"
+"""
+    rdfs_label = "http://www.w3.org/2000/01/rdf-schema#label"
+    summary = {
+        "maps": [
+            {
+                "id": "CompositionMap",
+                "properties": [
+                    {"predicate": "rdfs:label", "predicate_iri": rdfs_label,
+                     "reference": "composition"}
+                ],
+            },
+            {
+                "id": "UnitYMap",
+                "properties": [
+                    {"predicate": "rdfs:label", "predicate_iri": rdfs_label,
+                     "reference": "unit_y"}
+                ],
+            },
+        ]
+    }
+    _merge_ir_display_metadata(ir, summary)
+    labels = {m["id"]: m["properties"][0].get("label") for m in summary["maps"]}
+    assert labels == {"CompositionMap": "化学組成", "UnitYMap": "縦軸単位"}
+
+
+def test_ambiguous_predicate_never_borrows_another_maps_label() -> None:
+    """列で引けなかった行は、その述語が**複数列**に束縛されているなら
+    述語ごとの全体像に落ちない（落とすと他の map のラベルを借りてしまう）。
+    束縛が 1 列だけの述語は従来どおり落ちる（取り違えようがない）。"""
+    from asterism_api.main import _merge_ir_display_metadata
+
+    ir = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+  rdfs: "http://www.w3.org/2000/01/rdf-schema#"
+maps:
+  - name: a
+    source: c.csv
+    subject:
+      template: "exr:a/{a}"
+      classes: [ex:A]
+    properties:
+      - predicate: rdfs:label
+        column: a
+        label: "Aの名前"
+  - name: b
+    source: c.csv
+    subject:
+      template: "exr:b/{b}"
+      classes: [ex:B]
+    properties:
+      - predicate: rdfs:label
+        column: b
+        label: "Bの名前"
+  - name: rec
+    source: c.csv
+    subject:
+      template: "exr:rec/{id}"
+      classes: [ex:Rec]
+    properties:
+      - predicate: ex:only
+        column: only
+        label: "唯一の項目"
+"""
+    rdfs_label = "http://www.w3.org/2000/01/rdf-schema#label"
+    summary = {
+        "maps": [
+            # 列が読めない行（関数・定数など）を模す: reference なし
+            {"id": "AMap", "properties": [
+                {"predicate": "rdfs:label", "predicate_iri": rdfs_label}]},
+            {"id": "RecMap", "properties": [
+                {"predicate": "ex:only",
+                 "predicate_iri": "https://example.org/onto#only"}]},
+        ]
+    }
+    _merge_ir_display_metadata(ir, summary)
+    # 曖昧な述語: 借りない（ラベル無し → 後段の _fill_missing_labels に任せる）
+    assert summary["maps"][0]["properties"][0].get("label") is None
+    # 一意な述語: 従来どおり落ちる
+    assert summary["maps"][1]["properties"][0].get("label") == "唯一の項目"

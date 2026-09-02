@@ -612,15 +612,11 @@ def _humanize_term_iri(iri: str) -> str | None:
     return words if words and words != tail else None
 
 
-def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
-    """The Mapping IR's reviewer-facing display metadata per expanded predicate IRI.
+def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, str]]]:
+    """``(predicate_iri, column, display metadata)`` — one entry per property row.
 
-    Returns ``{predicate_iri: {"label": …?, "unit": …?}}`` from the reviewed
-    ``mapping.yaml`` (the design SSOT — kantan-mode ADR K8). A missing authored
-    unit falls back to the bracketed-column-name extraction the materialize
-    chokepoint persists (task #10), so an IR saved without it still shows the
-    unit. Raises on an unparsable IR — callers pick their own degradation
-    (a warning on /rules, silence on /trial-queries).
+    The single pass both keyed views below are built from, so the per-row rules
+    (authored label → column heading → unit fallbacks) live in exactly one place.
     """
     from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
     from asterism_step0.units import extract_unit_from_label
@@ -634,7 +630,7 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
             return prefixes[prefix] + rest
         return term
 
-    meta: dict[str, dict[str, str]] = {}
+    entries: list[tuple[str, str, dict[str, str]]] = []
     for tm in ir.maps:
         for prop in tm.properties:
             extra: dict[str, str] = {}
@@ -661,8 +657,49 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
                 if derived:
                     extra["unit"] = derived
             if extra:
-                meta.setdefault(expand(prop.predicate), {}).update(extra)
+                entries.append((expand(prop.predicate), str(prop.column or ""), extra))
+    return entries
+
+
+def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
+    """The Mapping IR's reviewer-facing display metadata per expanded predicate IRI.
+
+    Returns ``{predicate_iri: {"label": …?, "unit": …?}}`` from the reviewed
+    ``mapping.yaml`` (the design SSOT — kantan-mode ADR K8). A missing authored
+    unit falls back to the bracketed-column-name extraction the materialize
+    chokepoint persists (task #10), so an IR saved without it still shows the
+    unit. Raises on an unparsable IR — callers pick their own degradation
+    (a warning on /rules, silence on /trial-queries).
+
+    ⚠ Predicate-only: when several maps bind the SAME predicate, the last one
+    wins. Row-level display must use :func:`_ir_display_by_column`; this view is
+    for the whole-design fallbacks that have no row to scope by.
+    """
+    meta: dict[str, dict[str, str]] = {}
+    for iri, _column, extra in _ir_display_entries(mapping_ir_yaml):
+        meta.setdefault(iri, {}).update(extra)
     return meta
+
+
+def _ir_display_by_column(mapping_ir_yaml: str) -> dict[tuple[str, str], dict[str, str]]:
+    """Same display metadata, keyed by ``(predicate_iri, column)``.
+
+    ⭐述語 IRI **だけ**を鍵にすると、同じ述語を複数の map が束縛したときに
+    最後の 1 つが全部を塗りつぶす。値のカタログは
+    :func:`ensure_value_catalog_labels` が全部に ``rdfs:label`` を書くので、
+    これは例外ではなく**既定**で起きる — 実機で「化学組成」「DOI」など 6 つの
+    カタログが揃って『縦軸単位』と表示された（利用者報告 2026-09-02）。
+
+    列まで鍵に含めれば同じ述語でも別行として引ける。map 名ではなく列で照合
+    するのは、RML に落ちた時点で map 名（``CompositionMap``）も subject
+    テンプレート（CURIE→展開 IRI）も書き換わるのに対し、列の参照名は
+    そのまま残るため（命名規約に依存しない結合鍵）。
+    """
+    out: dict[tuple[str, str], dict[str, str]] = {}
+    for iri, column, extra in _ir_display_entries(mapping_ir_yaml):
+        if column:
+            out.setdefault((iri, column), {}).update(extra)
+    return out
 
 
 def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str, str]:
@@ -698,11 +735,25 @@ def _merge_ir_display_metadata(
         meta = _ir_predicate_display(mapping_ir_yaml)
         if not meta:
             return meta
+        # 行の表示は (述語, 列) で引く。述語だけだと、同じ述語を複数の map が
+        # 束縛したとき最後の 1 つが全部を塗る（値のカタログの rdfs:label が
+        # まさにその形 — 利用者報告 2026-09-02「全部のIDが縦軸単位」）。
+        by_column = _ir_display_by_column(mapping_ir_yaml)
+        # 述語ごとの全体像に落ちてよいのは、その述語を束縛する列が 1 つしか
+        # 無いとき（＝取り違えようがないとき）だけ。複数列に束縛された述語で
+        # 落とすと、まさに他の map のラベルを借りてくることになる。
+        columns_per_iri: dict[str, set[str]] = {}
+        for cached_iri, cached_col in by_column:
+            columns_per_iri.setdefault(cached_iri, set()).add(cached_col)
         for entry in summary.get("maps") or []:
             if not isinstance(entry, dict):
                 continue
             for row in entry.get("properties") or []:
-                extra = meta.get(str(row.get("predicate_iri") or ""))
+                iri = str(row.get("predicate_iri") or "")
+                column = str(row.get("reference") or "")
+                extra = by_column.get((iri, column)) if column else None
+                if extra is None and len(columns_per_iri.get(iri, ())) <= 1:
+                    extra = meta.get(iri)
                 if extra:
                     # ``column_label`` is a FALLBACK, resolved in
                     # :func:`_fill_missing_labels` after model.yaml has had its
@@ -1462,13 +1513,24 @@ def _crosswalk_predicate_labels(registry_root: Path, dataset_id: str) -> dict[st
             )
         )
     try:
-        ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
+        entries = _ir_display_entries(str(artifacts.get("mapping.yaml") or ""))
     except Exception:
-        ir_meta = {}
-    for iri, meta in ir_meta.items():
+        entries = []
+    # ⭐同じ述語に**別々のラベル**が付いていたら、どれか 1 つを名乗らない。
+    # 値のカタログはどれも `rdfs:label` を束縛するので（ensure_value_catalog_labels）、
+    # 述語だけで引くと「化学組成」の候補が『縦軸単位』と名乗る — 実機で発生
+    # （利用者報告 2026-09-02）。この関数の約束は「設計が選んだ言葉を言う、
+    # さもなくば黙る」で、取り違えた言葉はその約束を破る。
+    authored: dict[str, set[str]] = {}
+    for iri, _column, meta in entries:
         lbl = meta.get("label")
-        if lbl:  # the authored label wins over the model.yaml projection
-            labels[iri] = lbl
+        if lbl:
+            authored.setdefault(iri, set()).add(lbl)
+    for iri, names in authored.items():
+        if len(names) == 1:  # the authored label wins over the model.yaml projection
+            labels[iri] = next(iter(names))
+        else:
+            labels.pop(iri, None)  # 曖昧: 黙る（呼ぶ側は述語をそのまま見せる）
     return labels
 
 
