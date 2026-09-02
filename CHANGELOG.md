@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.33.1](https://github.com/kumagallium/asterism/compare/v0.33.0...v0.33.1) - 2026-09-02
+
+- fix(ci): tagpr の bump ラベルを bump: 名前空間へ隔離 — Dependabot の自動 major と衝突して v1.0.0 になる by @kumagallium in https://github.com/kumagallium/asterism/pull/521
+- fix: ラベル保証パスを実発火させる — owns は骨格から別渡し + 空シェル救済 by @kumagallium in https://github.com/kumagallium/asterism/pull/525
+
 ## [v0.33.0](https://github.com/kumagallium/asterism/compare/v0.32.1...v0.33.0) - 2026-09-01
 
 - chore(deps): bump sigstore/cosign-installer from 3.9.1 to 4.1.2 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/504
