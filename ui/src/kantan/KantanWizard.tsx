@@ -346,48 +346,6 @@ S-005,Mg2Si,500,-204.6,3.15
 S-005,Mg2Si,600,-216.3,3.71
 `
 
-// Columns that look like a per-file serial ID (the Q2 trigger). The heading is
-// tokenised first, so `Sample ID`, `SampleNo` and `sample_no` are all read the
-// same way — a bare `/(^|[_-])(id|no|code)$/` missed the two spellings a
-// spreadsheet actually contains, and Q2 (the one question only the human can
-// answer) was then never asked (KZ-A-13).
-const ID_TOKEN_RE = /^(id|no\.?|number|code)$/i
-// `code` is a row ID only when nothing in front of it says otherwise: an
-// `error_code` / `status code` / `zip code` column names something else.
-const NOT_AN_ID_BEFORE_CODE = new Set([
-  'error',
-  'status',
-  'zip',
-  'postal',
-  'http',
-  'country',
-  'area',
-  'colour',
-  'color',
-])
-
-function idColumnTokens(name: string): string[] {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2') // camelCase → separate words
-    .split(/[\s_.-]+/)
-    .filter(Boolean)
-}
-
-function looksLikeIdColumn(name: string): boolean {
-  const trimmed = name.trim()
-  if (trimmed === '') return false
-  // Japanese headings carry no separator: 「試料番号」 is one word.
-  if (/番号$/.test(trimmed)) return true
-  const tokens = idColumnTokens(trimmed)
-  const last = tokens[tokens.length - 1]
-  if (!last || !ID_TOKEN_RE.test(last)) return false
-  if (/^code$/i.test(last)) {
-    const prev = tokens[tokens.length - 2]?.toLowerCase()
-    if (prev && NOT_AN_ID_BEFORE_CODE.has(prev)) return false
-  }
-  return true
-}
-
 // The S2 "the table is not being read right" corrections. Values are the
 // canonical tokens the server pins (never localized text); the labels are what
 // a person calls them. Same tokens the detail tier's read-settings panel uses.
@@ -1650,7 +1608,7 @@ export function KantanWizard({
       domainFree: preHint.trim(),
       // Q2 said the ID recurs elsewhere (or unknown = safe side): the detail
       // tier shows the same composite-key hint pre-ticked.
-      presetIds: q2 === 'elsewhere' || q2 === 'unknown' ? ['composite-key'] : [],
+      presetIds: q2 !== 'only' ? ['composite-key'] : [],
       materialized: null,
       dialectOverrides,
       // The server-side copy of the source: without it, "fix it yourself in
@@ -2162,7 +2120,7 @@ export function KantanWizard({
   // (DETAIL-GAP-11).
   function composedDomain(): string {
     const lines: string[] = []
-    if (q2 === 'elsewhere' || q2 === 'unknown') {
+    if (q2 !== 'only') {
       const preset = PRESET_HINTS.find((h) => h.id === 'composite-key')?.text
       if (preset) lines.push(preset)
     }
@@ -2396,14 +2354,11 @@ export function KantanWizard({
   const q1Needed = preambleSources.length > 0
   const preambleRowCount = preambleSources.reduce((acc, [, d]) => acc + d.skip_rows, 0)
 
-  // Q2 applies when a header column looks like a serial-number ID.
-  const idColumn = previews.flatMap((p) => p.header ?? []).find((c) => looksLikeIdColumn(c)) ?? null
-  const q2Needed = idColumn !== null
-  // The first values of that column, read from the file this browser holds:
-  // the evidence the question is unanswerable without (KZ-A-12). Distinct ones
-  // — a column whose first rows repeat («S-001, S-001, S-001») shows nothing
-  // about how the numbering runs.
-  const q2Samples = [...new Set(idColumn ? (columnSamples[idColumn] ?? []) : [])].slice(0, 3)
+  // Q2（「この通し番号は他のファイルにも出てくるか」）は聞かない。④「つながりを
+  // 選ぶ」の ☑ が同じ情報をもっと分かりやすい形で集めるうえ（利用者指摘
+  // 2026-09-02）、決定論の組み立て（D5）は答えを使わない。未回答（null）は
+  // 従来の「わからない」と同じ安全側として下流（詳細ティアへの複合キーヒント）に
+  // 渡る — 古いスナップショットの回答はそのまま尊重される。
 
   // Q3 applies when several tables were dropped and they share a column name.
   // Whether the same value means the same thing across files is knowledge only
@@ -2421,10 +2376,10 @@ export function KantanWizard({
       : []
   const q3Needed = sharedColumns.length > 0
 
-  const questionsAnswered = (!q1Needed || q1 !== null) && (!q2Needed || q2 !== null)
-  // How many of the two S2 questions this file actually raises — the lead line
+  const questionsAnswered = !q1Needed || q1 !== null
+  // How many of the S2 questions this file actually raises — the lead line
   // states this number instead of always promising two (KZ-A-11).
-  const askCount = (q1Needed ? 1 : 0) + (q2Needed ? 1 : 0) + (q3Needed ? 1 : 0)
+  const askCount = (q1Needed ? 1 : 0) + (q3Needed ? 1 : 0)
 
   /** Preamble lines the reader would have to NAME itself, per source — the ones
    *  with no `key:` of their own. Asked here, at the moment the column is
@@ -6063,7 +6018,7 @@ export function KantanWizard({
           </p>
           {/* Resumed with the previous answers still in place: the two questions
               are the human's own knowledge and must not be asked twice (RESUME-09). */}
-          {keptAnswers && (q1Needed || q2Needed) && (
+          {keptAnswers && q1Needed && (
             <p className="kz-note">{t('kantan:s2.keptAnswers')}</p>
           )}
           {/* One workbook, several sheets: the chart sheet and the notes sheet
@@ -6236,39 +6191,6 @@ export function KantanWizard({
                   ))}
                 </div>
               )}
-            </div>
-          )}
-          {q2Needed && (
-            <div className="kz-q">
-              <p className="kz-q-text">{t('kantan:s2.q2', { column: idColumn })}</p>
-              {/* The values themselves, from the reader's own file: "1, 2, 3"
-                  and "S-2024-001" call for different answers, and neither is
-                  guessable from the column name (KZ-A-12). */}
-              {q2Samples.length > 0 && (
-                <div className="kz-preamble-name">
-                  {t('kantan:s2.q2Evidence', { values: q2Samples.join(t('kantan:s7.join')) })}
-                </div>
-              )}
-              <div className="kz-q-options kz-q-options--stack">
-                <Choice
-                  selected={q2 === 'only'}
-                  label={t('kantan:s2.q2Only')}
-                  why={t('kantan:s2.q2OnlyWhy')}
-                  onClick={() => setQ2('only')}
-                />
-                <Choice
-                  selected={q2 === 'elsewhere'}
-                  label={t('kantan:s2.q2Elsewhere')}
-                  why={t('kantan:s2.q2ElsewhereWhy')}
-                  onClick={() => setQ2('elsewhere')}
-                />
-                <Choice
-                  selected={q2 === 'unknown'}
-                  label={t('kantan:s2.q2Unknown')}
-                  why={t('kantan:s2.q2UnknownWhy')}
-                  onClick={() => setQ2('unknown')}
-                />
-              </div>
             </div>
           )}
           {q3Needed && (

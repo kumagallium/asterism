@@ -95,11 +95,26 @@ function evidenceReasonKey(reason: string | undefined): string {
   return 'workbench:skeleton.evidence.notChecked'
 }
 
+/** ID の作り方が名指す列（テンプレート変数）。 */
+function templateKeys(m: SkeletonMap): string[] {
+  return [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+}
+
+/** 値そのものが ID の受け口（カタログ）: ID もただ 1 つの持ち物も同じ 1 列。
+ *  同じ値の行が 1 件にまとまるのが**仕事**なので、「まとまってしまう」系の
+ *  警告の対象から外す（図の呼び名と同じ判定を全画面で共有する）。 */
+function isValueCatalog(m: SkeletonMap): boolean {
+  const keys = templateKeys(m)
+  const owns = m.owns ?? []
+  return keys.length === 1 && owns.length === 1 && owns[0] === keys[0]
+}
+
 // The per-map evidence block: is the key REALLY unique, shown with the data
 // (real example IDs, concrete colliding rows, proven fix candidates) — so a
 // domain expert can judge the skeleton without knowing what an IRI is.
 function SkeletonEvidence({
   ann,
+  valueCatalog = false,
   onApplyCandidate,
   onAddRowKind,
   onSplit,
@@ -122,6 +137,9 @@ function SkeletonEvidence({
   onAdoptRename,
 }: {
   ann: SkeletonMapAnnotation
+  /** 値そのものが ID の受け口（カタログ）: まとまるのが仕事なので、衝突事故の
+   *  ⚠（collides）を出さない（利用者報告 2026-09-02）。 */
+  valueCatalog?: boolean
   onApplyCandidate: (columns: string[]) => void
   /** Add the row-level map this source is missing (one click, server-suggested). */
   onAddRowKind?: () => void
@@ -390,9 +408,9 @@ function SkeletonEvidence({
   // accident. Only a PARTIAL collapse is the accident. Older servers don't
   // send collapse_kind; fall back to the raw is_unique reading.
   const singleton = ann.collapse_kind === 'singleton'
-  const collides = ann.collapse_kind
-    ? ann.collapse_kind === 'partial'
-    : ann.is_unique === false
+  const collides =
+    !valueCatalog &&
+    (ann.collapse_kind ? ann.collapse_kind === 'partial' : ann.is_unique === false)
   // K7: a key that is unique TODAY but built only from measurement values gets
   // an amber caution under the green band, and the proven candidates still show
   // (the green band alone let a semantically wrong ID through in real dogfood).
@@ -1447,9 +1465,12 @@ export function SkeletonGate({
   // e.g. deliberate dedup), but never unknowingly. A SINGLETON map (all rows →
   // one file-scoped entity) is the normal metadata pattern, not the accident —
   // it must not trip this confirm (older servers: fall back to is_unique).
+  // 値そのものが ID の受け口（カタログ）も同じ理由で外す: 同じ値の行が 1 件に
+  // まとまるのが**仕事**で、事故ではない（利用者報告 2026-09-02: Starrydata の
+  // Doi / Composition / PropX / PropY で「まとまってしまいます」が 4 連発）。
   const collapsing = skeleton.maps.filter((m) => {
     const a = annotations?.maps?.[m.name]
-    if (!a) return false
+    if (!a || isValueCatalog(m)) return false
     return a.collapse_kind ? a.collapse_kind === 'partial' : a.is_unique === false
   })
   // Values that would be dropped whole (no kind to put a row's columns in) and
@@ -1655,13 +1676,6 @@ export function SkeletonGate({
    *  一致する種類（assemble が④の ☑ から作る形）。annotations が無い場面
    *  （設計の見直しで元ファイルが無い・検査前）でも図の琥珀と点線を消さない
    *  ための、zone 非依存の判定。 */
-  const templateKeys = (m: SkeletonMap): string[] =>
-    [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-  const isValueCatalog = (m: SkeletonMap): boolean => {
-    const keys = templateKeys(m)
-    const owns = m.owns ?? []
-    return keys.length === 1 && owns.length === 1 && owns[0] === keys[0]
-  }
   const zone = (() => {
     if (!plain) return null
     /* 宿主は「1 ファイル＝1 件のカード」が第一候補。無ければ**いちばん件数の
@@ -2329,6 +2343,7 @@ export function SkeletonGate({
     const evidenceBlock = ann ? (
         <SkeletonEvidence
           ann={ann}
+          valueCatalog={isValueCatalog(m)}
           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
           onAddRowKind={() => addRowKind(idx)}
           onSplit={(cols, key) => splitConcept(idx, cols, key)}
