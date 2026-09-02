@@ -1,11 +1,11 @@
 {
-  "version": "0.33.6",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 32ac4912a6c83df81cec4f6f09401f1a2c727df8 -->\n\n## What's Changed\n* fix(api): 「AI に直してもらう」経路にも受け口保証を — 第 3 の再主張スタック by @kumagallium in https://github.com/kumagallium/asterism/pull/534\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.5...v0.33.6",
-  "pub_date": "2026-09-02T02:21:08Z",
+  "version": "0.33.7",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a29330476089fe92267cf3491ea8901209cc8c0f -->\n\n## What's Changed\n* chore(ci): setup-uv v7 でキャッシュが既定 ON になった ci.yml の注記修正 ＋ actions v7 更新 3 本の記録 by @kumagallium in https://github.com/kumagallium/asterism/pull/532\n* chore(ci): setup-uv を SHA 固定（v7.6.0）— v8 以降はメジャータグが無く Dependabot が追えないため by @kumagallium in https://github.com/kumagallium/asterism/pull/537\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.33.6...v0.33.7",
+  "pub_date": "2026-09-02T02:39:47Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWRTTlh2Q20rVTBFOS9VajdmV1FJTVEyMkhBcHZadnVITi9EeHV6L1B3N3NPK3VIUWVMMEppRDNsZm1DQnNQUTIzcXlIemt4OExHbzlYRGxJbGNqdHdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzE1NjY4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkMzUnlydUhlWEFDZ1BWR25LYkYzNGtFV0J5eTVlWmQ4VDZLNUZtM1Q5SjdacWd1NmowbkQrTVlOTVNnZjh2RHp5MGtSVnQ5bXRQelZ2Q1d3V2QwUUN3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.6/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVprZys4LzhINkx5YTZJb1dXTEcvZHhpeUh1RlVyRTJUSUlHTTErOGh3cVdqbVlDZGN0emcrMzY1THd4U2doTm5wYTdpSTdTQ1NVU2Z6ek1qYmE5SWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzE2Nzg2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnFXVnVOdUw5ZG1VRlh1eVEyQ3drQWFNb1p2TjlCdEJuOFRjT3hPbU1EcnZJeFZxdUhKMWVJWjlEWWx6Tm83a1dMbDRJSmZtNUhMYytlUXA1ZHlMeURBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.33.7/Asterism_aarch64.app.tar.gz"
     }
   }
 }
