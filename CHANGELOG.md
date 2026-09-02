@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.39.1](https://github.com/kumagallium/asterism/compare/v0.39.0...v0.39.1) - 2026-09-02
+
+- fix(step0): 見直しで組み直した骨格に値のカタログの owns を読み戻す — ⑤の「複数の行が同じ ID」誤警告の再発 by @kumagallium in https://github.com/kumagallium/asterism/pull/557
+
 ## [v0.39.0](https://github.com/kumagallium/asterism/compare/v0.38.0...v0.39.0) - 2026-09-02
 
 - fix(api): 同じ述語を複数の map が束縛しても表示名を取り違えない（全部の ID が「縦軸単位」） by @kumagallium in https://github.com/kumagallium/asterism/pull/554
