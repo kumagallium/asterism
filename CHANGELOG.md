@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.33.4](https://github.com/kumagallium/asterism/compare/v0.33.3...v0.33.4) - 2026-09-02
+
+- fix(api): 受け口ラベルと接続線を毎ラウンド再主張 — 修正ラウンドが消しても戻す by @kumagallium in https://github.com/kumagallium/asterism/pull/529
+
 ## [v0.33.3](https://github.com/kumagallium/asterism/compare/v0.33.2...v0.33.3) - 2026-09-02
 
 - fix(ux): 手順バー 1 行化・④行ホバー・⑤体裁統一・ラウンド可観測化 by @kumagallium in https://github.com/kumagallium/asterism/pull/527
