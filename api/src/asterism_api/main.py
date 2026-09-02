@@ -773,7 +773,10 @@ def _merge_ir_display_metadata(
 
 
 def _fill_missing_labels(
-    summary: dict, labels: dict[str, str], ir_meta: dict[str, dict[str, str]]
+    summary: dict,
+    labels: dict[str, str],
+    ir_meta: dict[str, dict[str, str]],
+    by_column: Mapping[tuple[str, str], Mapping[str, str]] | None = None,
 ) -> None:
     """Give every rule row a readable name, deterministically.
 
@@ -783,7 +786,19 @@ def _fill_missing_labels(
     this, a design whose weak model skipped ① and ② left the reader looking at
     ``hasSeebeckCoefficient`` — while the server was holding the very column
     heading that person typed. Display only; the stored data is untouched.
+
+    ③ is looked up by (predicate, column) — ``by_column`` from
+    :func:`_ir_display_by_column` — before the predicate-only ``ir_meta``, and
+    the predicate-only entry is trusted only when that predicate binds a single
+    column: every value catalog binds ``rdfs:label`` (and the ones without an
+    authored label are exactly the rows that land here), so the predicate-only
+    ``column_label`` is the LAST catalog's heading — the same collision #554
+    fixed for ① (利用者報告 2026-09-02「全部の ID が縦軸単位」).
     """
+    scoped_meta = by_column or {}
+    columns_per_iri: dict[str, set[str]] = {}
+    for cached_iri, cached_col in scoped_meta:
+        columns_per_iri.setdefault(cached_iri, set()).add(cached_col)
     for entry in summary.get("maps") or []:
         if not isinstance(entry, dict):
             continue
@@ -800,7 +815,11 @@ def _fill_missing_labels(
             # raw reference in its own cell, so only the IR's cleaned form is
             # used here) ④ the term IRI read as words, and only when that
             # actually reads better than the local name.
-            fallback = (ir_meta.get(iri) or {}).get("column_label") or _humanize_term_iri(iri)
+            column = str(row.get("reference") or "")
+            scoped = scoped_meta.get((iri, column)) if column else None
+            if scoped is None and len(columns_per_iri.get(iri, ())) <= 1:
+                scoped = ir_meta.get(iri)
+            fallback = (scoped or {}).get("column_label") or _humanize_term_iri(iri)
             if fallback:
                 row["label"] = fallback
 
@@ -6377,11 +6396,16 @@ def build_app(
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
             ir_meta: dict[str, dict[str, str]] = {}
+            by_column: dict[tuple[str, str], dict[str, str]] = {}
             if mapping_ir_yaml.strip():
                 ir_meta = _merge_ir_display_metadata(mapping_ir_yaml, summary)
+                # Best-effort like the merge: an unparsable IR already added
+                # its warning there; ③ then simply has no per-column entries.
+                with contextlib.suppress(Exception):
+                    by_column = _ir_display_by_column(mapping_ir_yaml)
             # Deterministic last resorts (source column, then the term IRI read
             # as words) so a design that skipped K8's labels still reads.
-            _fill_missing_labels(summary, labels, ir_meta)
+            _fill_missing_labels(summary, labels, ir_meta, by_column)
             return {"dataset_id": dataset_id, **summary, "labels": labels}
 
         return await asyncio.to_thread(run)
