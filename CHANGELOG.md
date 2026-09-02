@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.33.3](https://github.com/kumagallium/asterism/compare/v0.33.2...v0.33.3) - 2026-09-02
+
+- fix(ux): 手順バー 1 行化・④行ホバー・⑤体裁統一・ラウンド可観測化 by @kumagallium in https://github.com/kumagallium/asterism/pull/527
+
 ## [v0.33.2](https://github.com/kumagallium/asterism/compare/v0.33.1...v0.33.2) - 2026-09-02
 
 - fix: 日本語の散文で RUF002/RUF003 が出るのを ruff 設定で止める — main の赤を解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/523
