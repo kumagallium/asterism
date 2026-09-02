@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.35.0](https://github.com/kumagallium/asterism/compare/v0.34.0...v0.35.0) - 2026-09-02
+
+- fix(kantan): Phase 1 取りこぼし 4 件（カタログ誤警告・Q2 撤去・⑤名前欄・ID の並び） by @kumagallium in https://github.com/kumagallium/asterism/pull/543
+- fix(api,ingest): やり直しの③空欄 + つながり候補のゴミ標識チップ by @kumagallium in https://github.com/kumagallium/asterism/pull/545
+
 ## [v0.34.0](https://github.com/kumagallium/asterism/compare/v0.33.8...v0.34.0) - 2026-09-02
 
 - chore(ci): 残りの actions も SHA 固定に揃える（checkout / setup-node / upload-artifact / github-script / tauri-action / tagpr / rust-toolchain） by @kumagallium in https://github.com/kumagallium/asterism/pull/540
