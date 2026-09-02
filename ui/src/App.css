@@ -6927,6 +6927,12 @@ button.ds-artifact:disabled {
   cursor: pointer;
   flex: none;
 }
+/* ☑ と列名が横に離れているので、いまマウスの乗っている行を薄く示す
+   （利用者要望 2026-09-02）。 */
+.kz-preview-table.kz-links-table tbody tr:hover th,
+.kz-preview-table.kz-links-table tbody tr:hover td {
+  background: var(--surface-sink);
+}
 .kz-links-nomeasure {
   color: var(--muted);
   font-size: 0.8rem;
@@ -7265,11 +7271,16 @@ tr[data-map].skeleton-gate-row--added td {
 
 /* Always-visible 5-step recipe (①入れる → … → ⑤公開する) with 現在地. */
 .kz-recipe {
-  /* 全ピル同幅の 3 列グリッド。flex の折返しだと「現在地」チップの付く段が
-     変わるたびに折返し位置が動いた（利用者指摘 2026-09-02）。カード内側
-     848px では ⑤+チップ（実測 242px）の 4 列は入らないため 3 列で固定。 */
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* 1 行に全 7 段（利用者要望 2026-09-02「横幅を広げて 1 行に」）。列は 880px
+     だが手順バーだけ width:max-content + align-self:center で列の外へ対称に
+     はみ出す（flex の子は親の幅にクリップされない）。ビューポートが足りない
+     ときだけ中央揃えで折り返すフォールバック。 */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-self: center;
+  width: max-content;
+  max-width: calc(100vw - 380px);
   align-items: center;
   gap: var(--space-2);
   list-style: none;
@@ -7283,8 +7294,8 @@ tr[data-map].skeleton-gate-row--added td {
 .kz-recipe-step {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: var(--space-2);
+  white-space: nowrap;
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
   color: var(--body);

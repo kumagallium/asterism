@@ -5182,18 +5182,23 @@ export function KantanWizard({
             )}
           </h3>
           {refining ? (
-            <JobProgress
-              label={
-                refining === 'fix'
-                  ? autoFixing > 0
-                    ? t('kantan:s5.fix.autoProgress', { n: autoFixing, max: AUTO_FIX_MAX })
-                    : t('kantan:s5.fix.progress', { n: aiFixCount })
-                  : t('kantan:s6.reflecting')
-              }
-              status={status}
-              lastPulseAt={lastPulseAt}
-              onCancel={() => jobRef.current?.cancel() ?? Promise.resolve()}
-            />
+            <>
+              <JobProgress
+                label={
+                  refining === 'fix'
+                    ? autoFixing > 0
+                      ? t('kantan:s5.fix.autoProgress', { n: autoFixing, max: AUTO_FIX_MAX })
+                      : t('kantan:s5.fix.progress', { n: aiFixCount })
+                    : t('kantan:s6.reflecting')
+                }
+                status={status}
+                lastPulseAt={lastPulseAt}
+                onCancel={() => jobRef.current?.cancel() ?? Promise.resolve()}
+              />
+              {/* ②「AI に読ませる」と同じ進捗専用ページの体裁に揃える
+                  （利用者要望 2026-09-02）— 同じ待ちには同じ注意書き。 */}
+              <p className="kz-note">{t('kantan:s3.closeNote')}</p>
+            </>
           ) : (
             <>
               <div className="kz-live" role="status" aria-live="polite">
