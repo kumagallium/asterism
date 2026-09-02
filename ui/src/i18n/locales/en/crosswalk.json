@@ -40,7 +40,11 @@
       "note": "e.g. when a sample name or an author appears in both, spelled the same",
       "a": "Your data",
       "b": "Other data"
-    }
+    },
+    "delete": "Delete this connection",
+    "deleting": "Deleting…",
+    "deleteConfirm": "Delete \"{{name}}\"? Only the connection itself (its join graph and settings) is removed — the source datasets are untouched, and you can rebuild it any time with the same settings.",
+    "deleted": "The connection was deleted."
   },
   "create": {
     "bandTitle": "Connect your data",
@@ -305,7 +309,8 @@
       "align": "Matching up two connections",
       "unalign": "Undoing the match",
       "previewNormalizer": "Checking what counts as the same value",
-      "discover": "Looking for pairs that could connect"
+      "discover": "Looking for pairs that could connect",
+      "delete": "delete the connection"
     }
   }
 }

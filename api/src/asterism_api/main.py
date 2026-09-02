@@ -9164,6 +9164,26 @@ def build_app(
         Each perspective is its own crosswalk graph; the FROM-merge unions them."""
         return await _do_crosswalk_build(_validated_perspective_id(perspective_id), body)
 
+    @app.delete("/api/crosswalk/{perspective_id}", dependencies=_write_auth)
+    async def crosswalk_delete_one(perspective_id: str) -> JSONResponse:
+        """つながり（perspective）を削除する（利用者要望 2026-09-02 — 従来は
+        「作り直す」による上書きしか無かった）。
+
+        消えるのは hub グラフ（参加データからの**投影**）と登録（config +
+        scaffold）だけ。元のデータセットの三つ組には 1 バイトも触れないので、
+        同じ設定でいつでも作り直せる（可逆）。視点間の対応（alignment）は
+        別グラフの独立した・日付つきの事実なので**残す** — 削除したければ
+        「視点をつなぐ」の解除がその場所。
+        """
+        pid = _validated_perspective_id(perspective_id)
+        rid = crosswalk_runtime.crosswalk_registry_id(pid)
+        if registry.load_dataset(cfg.registry_root, rid) is None:
+            raise HTTPException(404, f"crosswalk perspective {pid!r} not found")
+        client: OxigraphClient = app.state.client
+        await crosswalk_runtime.remove_hub(client, pid)
+        await asyncio.to_thread(registry.delete_dataset, cfg.registry_root, rid)
+        return JSONResponse({"deleted": True, "perspective_id": pid, "dataset_id": rid})
+
     @app.post("/api/sparql", dependencies=_write_auth)
     async def sparql(body: SparqlRequest) -> JSONResponse:
         """Read-only SPARQL relay to Oxigraph (advanced escape hatch, ADR §5).

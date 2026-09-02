@@ -9573,3 +9573,13 @@ tr.kz-cols-dropped td {
 .vocab-map-leg-line--alignment {
   stroke: var(--activity);
 }
+
+/* つながりの削除 — 押し間違いを誘わない控えめな危険ボタン（confirm が本丸）。 */
+.xw-delete-btn {
+  color: var(--error-fg);
+  border-color: var(--error-border);
+}
+.xw-delete-btn:hover:not(:disabled) {
+  background: var(--error-bg);
+  border-color: var(--error-fg);
+}

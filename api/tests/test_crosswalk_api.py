@@ -590,3 +590,40 @@ def test_discover_warns_when_a_candidate_would_replace_an_existing_crosswalk(
         again = _discover(client)["candidates"][0]
 
     assert again["perspective_exists"] is True
+
+
+def test_delete_perspective_removes_hub_and_registry(tmp_path: Path) -> None:
+    """つながりの削除: hub グラフと登録が消え、一覧からも消える。元データセットの
+    三つ組には触れない（hub は投影 — 同じ設定で作り直せる可逆な操作）。"""
+    ds = rdflib.Dataset()
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, tmp_path / "registry", "ds-b", [("urn:b1", "Bi2Te3")])
+    client_obj = _DatasetClient(ds)
+    app = build_app(_settings(tmp_path), oxigraph_client=client_obj, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "結晶構造"},
+        )
+        assert r.status_code == 200, r.text
+
+        d = client.delete("/api/crosswalk/crystal")
+        assert d.status_code == 200, d.text
+        assert d.json() == {
+            "deleted": True,
+            "perspective_id": "crystal",
+            "dataset_id": "crosswalk-crystal",
+        }
+        # 一覧から消え、登録ディレクトリも無い。
+        ids = {p["perspective_id"] for p in client.get("/api/crosswalks").json()["perspectives"]}
+        assert "crystal" not in ids
+        assert not (tmp_path / "registry" / "crosswalk-crystal").exists()
+        # 2 度目は 404（冪等な成功を装わない）。
+        assert client.delete("/api/crosswalk/crystal").status_code == 404
+    # hub グラフは実際に空（DROP 済み）。元データセットの三つ組は無傷。
+    hub = ds.graph(
+        rdflib.URIRef("https://kumagallium.github.io/asterism/graph/canonical/crosswalk/crystal")
+    )
+    assert len(hub) == 0
+    key_a = ds.graph(rdflib.URIRef(substrate.canonical_graph_iri("ds-a")))
+    assert len(key_a) > 0

@@ -198,6 +198,17 @@ export async function buildPerspective(
   return (await res.json()) as BuildResult
 }
 
+/** つながり（perspective）を削除する。消えるのは hub グラフ（参加データの投影）と
+ *  登録だけで、元のデータセットには触れない — 同じ設定でいつでも作り直せる。
+ *  視点間の対応（alignment）は独立した事実なので残る。 */
+export async function deletePerspective(perspectiveId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/${encodeURIComponent(perspectiveId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.delete'))
+}
+
 /**
  * AI-assist: suggest each selected dataset's concept-bearing predicate (a DRAFT for
  * human review, never built). Needs the Anthropic key (LLM) + the write-auth token.
