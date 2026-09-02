@@ -6,6 +6,7 @@
 // column names, and the only domain words on screen are the values themselves.
 import type { DiscoverCandidate } from './crosswalkApi'
 import { plainError } from './kantan/errorMessages'
+import { localName } from './vocab'
 
 /** Explanations for the closed normalizer set. An unknown id (a server newer than
  * this build) falls back rather than showing a raw identifier. */
@@ -74,6 +75,21 @@ export function conceptDisplay(
     if (!PLACEHOLDER_KEY.test(only)) return conceptLabel(only)
   }
   return PLACEHOLDER_KEY.test(candidate.concept) ? undefined : conceptLabel(candidate.concept)
+}
+
+/** What to call one participant's FIELD on screen: the kind it sits on, then the
+ * design's word for the field (or the predicate's local name when the design has
+ * none) — 「Composition › 試料化学組成」. Every value catalog stores its value under
+ * the same `rdfs:label`, so that predicate is only a field once its kind is named;
+ * without a kind (an untyped subject, an old server) the word stands alone. */
+export function fieldDisplay(f: {
+  predicate: string
+  predicate_label?: string | null
+  subject_class_label?: string | null
+}): string {
+  const word = (f.predicate_label ?? '').trim() || localName(f.predicate)
+  const kind = (f.subject_class_label ?? '').trim()
+  return kind ? `${kind} › ${word}` : word
 }
 
 /** Names older servers minted for a crosswalk nobody named ("crosswalk hub (…)",

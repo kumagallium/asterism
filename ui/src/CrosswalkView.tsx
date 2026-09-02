@@ -18,6 +18,7 @@ import {
   conceptName,
   conceptSentenceLabel,
   crosswalkError,
+  fieldDisplay,
   perspectiveDisplayName,
   sameAsKey,
 } from './crosswalkLabels'
@@ -461,7 +462,13 @@ export function CrosswalkView({
                       return {
                         key: p.dataset_id,
                         name: dsName(p.dataset_id, p.name || p.label),
-                        field: p.predicate_label ?? undefined,
+                        field: p.predicate_label
+                          ? fieldDisplay({
+                              predicate: preds[0] ?? '',
+                              predicate_label: p.predicate_label,
+                              subject_class_label: p.subject_class_label,
+                            })
+                          : undefined,
                         title: [...preds, ...preds.map(localName)].join(', '),
                       }
                     })}
@@ -596,10 +603,21 @@ function seedFromCandidate(c: DiscoverCandidate): CrosswalkSeed {
   return {
     selected: c.participants.map((p) => p.dataset_id),
     predicate: Object.fromEntries(c.participants.map((p) => [p.dataset_id, p.predicate])),
+    subjectClass: Object.fromEntries(
+      c.participants.filter((p) => p.subject_class).map((p) => [p.dataset_id, p.subject_class!]),
+    ),
     candidates: Object.fromEntries(
       c.participants.map((p) => [
         p.dataset_id,
-        [{ iri: p.predicate, sample: c.samples[0]?.raw[p.dataset_id] ?? '' }],
+        [
+          {
+            iri: p.predicate,
+            sample: c.samples[0]?.raw[p.dataset_id] ?? '',
+            subject_class: p.subject_class ?? null,
+            subject_class_label: p.subject_class_label ?? null,
+            label: p.predicate_label,
+          },
+        ],
       ]),
     ),
     concept: c.concept,

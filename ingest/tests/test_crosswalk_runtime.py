@@ -136,6 +136,82 @@ async def test_build_hub_joins_shared_across_promoted_graphs() -> None:
     assert set(raws) == {"Bi₂Te₃", "Bi2Te3"}
 
 
+RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+
+
+async def test_build_hub_scopes_a_participant_to_its_kind() -> None:
+    """Every value catalog stores its value under the same ``rdfs:label``, so a
+    participant that names only the predicate joins DOIs and units along with the
+    compositions. ``subject_class`` pins the claim to one kind's entities
+    (crosswalk-kind-scoped-fields.md); a participant without it keeps the legacy
+    any-subject reading."""
+    ds = rdflib.Dataset()
+    key_a = substrate.canonical_graph_iri("ds-a")
+    g = ds.graph(rdflib.URIRef(key_a))
+    comp, doi = rdflib.URIRef(f"{PRED}/Composition"), rdflib.URIRef(f"{PRED}/Doi")
+    # ds-a: a composition AND a DOI catalog, both labelled with rdfs:label; the DOI
+    # value happens to be spelled like a composition in ds-b.
+    g.add((rdflib.URIRef("urn:a:comp1"), rdflib.RDF.type, comp))
+    g.add((rdflib.URIRef("urn:a:comp1"), rdflib.RDFS.label, rdflib.Literal("Bi2Te3")))
+    g.add((rdflib.URIRef("urn:a:doi1"), rdflib.RDF.type, doi))
+    g.add((rdflib.URIRef("urn:a:doi1"), rdflib.RDFS.label, rdflib.Literal("PbTe")))
+    _mark_promoted(ds, key_a)
+    _seed_dataset(ds, "ds-b", [("urn:b1", "Bi2Te3"), ("urn:b2", "PbTe")])
+    client = _DatasetClient(ds)
+
+    def cfg(subject_class: str | None) -> RuntimeCrosswalkConfig:
+        return RuntimeCrosswalkConfig(
+            concepts=(
+                RuntimeConcept(
+                    name="composition",
+                    class_iri=f"{XW}Composition",
+                    link_predicate=f"{XW}hasComposition",
+                    normalizer="identity",
+                    participants=(
+                        RuntimeParticipant(
+                            dataset_id="ds-a",
+                            label="a",
+                            predicate=RDFS_LABEL,
+                            subject_class=subject_class,
+                        ),
+                        RuntimeParticipant(dataset_id="ds-b", label="b", predicate=PRED),
+                    ),
+                ),
+            )
+        )
+
+    scoped = await build_hub(client, cfg(str(comp)), built_at="2026-09-03T00:00:00+00:00")
+    assert scoped.shared["composition"] == ["Bi2Te3"]  # the DOI never entered
+    assert scoped.links["composition"] == {"a": 1, "b": 1}
+    legacy = await build_hub(client, cfg(None), built_at="2026-09-03T00:00:00+00:00")
+    assert legacy.shared["composition"] == ["Bi2Te3", "PbTe"]  # any subject: the DOI too
+
+
+def test_config_round_trips_subject_class_and_omits_it_when_absent() -> None:
+    raw = {
+        "concepts": [
+            {
+                "name": "composition",
+                "participants": [
+                    {
+                        "dataset_id": "ds-a",
+                        "predicate": RDFS_LABEL,
+                        "subject_class": f"{PRED}/Composition",
+                    },
+                    {"dataset_id": "ds-b", "predicate": PRED},
+                ],
+            }
+        ]
+    }
+    cfg = parse_config(raw)
+    a, b = cfg.concepts[0].participants
+    assert a.subject_class == f"{PRED}/Composition"
+    assert b.subject_class is None
+    out = config_to_dict(cfg)["concepts"][0]["participants"]
+    assert out[0]["subject_class"] == f"{PRED}/Composition"
+    assert "subject_class" not in out[1]  # a legacy participant serializes as before
+
+
 async def test_build_hub_skips_unpromoted_participant() -> None:
     ds = rdflib.Dataset()
     _seed_dataset(ds, "ds-a", [("urn:a1", "Bi2Te3")])

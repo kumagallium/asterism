@@ -124,12 +124,20 @@ class RuntimeParticipant:
 
     For a COMPOUND-key concept (``key_parts``), ``predicates`` carries one predicate per
     part (aligned with the concept's key-part order); ``predicate`` stays the single-part
-    case (crosswalk-compound-keys.md)."""
+    case (crosswalk-compound-keys.md).
+
+    ``subject_class`` (crosswalk-kind-scoped-fields.md) narrows the claim to the
+    entities of ONE kind: "my ``Composition`` entities carry the value under
+    ``rdfs:label``". Every value catalog stores its value under the same generic
+    predicate, so a predicate alone names DOIs, compositions and units at once; the
+    kind is what makes the field a field. ``None`` keeps the legacy any-subject
+    reading (configs written before the field exists)."""
 
     dataset_id: str
     label: str
     predicate: str
     predicates: tuple[str, ...] = ()
+    subject_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -261,6 +269,7 @@ def parse_config(data: dict) -> RuntimeCrosswalkConfig:
                     label=str(p.get("label") or dsid),
                     predicate=single_pred,
                     predicates=predicates,
+                    subject_class=str(p.get("subject_class") or "").strip() or None,
                 )
             )
         concepts.append(
@@ -303,18 +312,24 @@ def _concept_to_dict(c: RuntimeConcept) -> dict:
             for kp in c.key_parts
         ]
         d["participants"] = [
-            {
-                "dataset_id": p.dataset_id,
-                "label": p.label,
-                "predicates": {n: p.predicates[i] for i, n in enumerate(part_names)},
-            }
+            _participant_to_dict(
+                p, {"predicates": {n: p.predicates[i] for i, n in enumerate(part_names)}}
+            )
             for p in c.participants
         ]
     else:
         d["participants"] = [
-            {"dataset_id": p.dataset_id, "label": p.label, "predicate": p.predicate}
-            for p in c.participants
+            _participant_to_dict(p, {"predicate": p.predicate}) for p in c.participants
         ]
+    return d
+
+
+def _participant_to_dict(p: RuntimeParticipant, fields: dict) -> dict:
+    """``subject_class`` rides along only when set — a legacy config round-trips
+    byte-identically, and a reader that predates the field sees nothing new."""
+    d = {"dataset_id": p.dataset_id, "label": p.label, **fields}
+    if p.subject_class:
+        d["subject_class"] = p.subject_class
     return d
 
 
@@ -381,18 +396,31 @@ async def _select_bindings(client, query: str) -> list[dict]:
     return results.get("bindings", []) if isinstance(results, dict) else []
 
 
-async def _distinct_values(client, graph: str, predicate: str) -> list[str]:
+def _kind_scope(subject_class: str | None) -> str:
+    """The triple pattern that pins ``?e`` to one kind, or nothing (any subject)."""
+    return f"?e a <{subject_class}> . " if subject_class else ""
+
+
+async def _distinct_values(
+    client, graph: str, predicate: str, subject_class: str | None = None
+) -> list[str]:
     """Pass 1: every distinct raw value of ``?e <predicate> ?v`` in ``graph`` (bounded
-    by the number of distinct values, not entities)."""
+    by the number of distinct values, not entities), for entities of ``subject_class``
+    when given."""
     rows = await _select_bindings(
         client,
-        f"SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ ?e <{predicate}> ?v }} }}",
+        f"SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ "
+        f"{_kind_scope(subject_class)}?e <{predicate}> ?v }} }}",
     )
     return _literal_values(rows, "v")
 
 
 async def _entities_for_values(
-    client, graph: str, predicate: str, values: list[str]
+    client,
+    graph: str,
+    predicate: str,
+    values: list[str],
+    subject_class: str | None = None,
 ) -> list[tuple[str, str]]:
     """Pass 2: ``(entity, raw)`` pairs whose raw value is in ``values`` — bounded to
     the SHARED set, so the read is O(#shared-entities), not O(#entities)."""
@@ -401,7 +429,8 @@ async def _entities_for_values(
     vals = " ".join(f'"{_sparql_str(v)}"' for v in values)
     rows = await _select_bindings(
         client,
-        f"SELECT ?e ?v WHERE {{ GRAPH <{graph}> {{ ?e <{predicate}> ?v }} "
+        f"SELECT ?e ?v WHERE {{ GRAPH <{graph}> {{ "
+        f"{_kind_scope(subject_class)}?e <{predicate}> ?v }} "
         f"VALUES ?v {{ {vals} }} }}",
     )
     out: list[tuple[str, str]] = []
@@ -419,14 +448,16 @@ _COMPOUND_TUPLE_CAP = 256
 
 
 async def _entity_tuples(
-    client, graph: str, predicates: tuple[str, ...]
+    client, graph: str, predicates: tuple[str, ...], subject_class: str | None = None
 ) -> list[tuple[str, tuple[str, ...]]]:
     """Compound gather (crosswalk-compound-keys.md): ``(entity, raw_tuple)`` for entities
     that have a value for EVERY part predicate — an inner join over the part predicates,
     so an entity missing any part never enters (no half-join). Multi-valued parts produce
     the cross product (SPARQL natural join); per-entity tuples are capped (logged)."""
     sel = " ".join(f"?v{i}" for i in range(len(predicates)))
-    where = " ".join(f"?e <{p}> ?v{i} ." for i, p in enumerate(predicates))
+    where = _kind_scope(subject_class) + " ".join(
+        f"?e <{p}> ?v{i} ." for i, p in enumerate(predicates)
+    )
     rows = await _select_bindings(
         client, f"SELECT ?e {sel} WHERE {{ GRAPH <{graph}> {{ {where} }} }}"
     )
@@ -526,7 +557,9 @@ async def build_hub(
             rows_by_label: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
             key_sets_t: list[set[tuple[str, ...]]] = []
             for p in active:
-                rows = await _entity_tuples(client, live[p.label], p.predicates)
+                rows = await _entity_tuples(
+                    client, live[p.label], p.predicates, subject_class=p.subject_class
+                )
                 rows_by_label[p.label] = rows
                 key_sets_t.append({_norm_tuple(part_norms, rt) for _, rt in rows})
             shared_t = shared_keys(key_sets_t, min_datasets=config.min_datasets)
@@ -545,7 +578,9 @@ async def build_hub(
         per_label_raws: dict[str, list[str]] = {}
         key_sets: list[set[str]] = []
         for p in active:
-            raws = await _distinct_values(client, live[p.label], p.predicate)
+            raws = await _distinct_values(
+                client, live[p.label], p.predicate, subject_class=p.subject_class
+            )
             per_label_raws[p.label] = raws
             key_sets.append({normalize(r) for r in raws})
         shared = shared_keys(key_sets, min_datasets=config.min_datasets)
@@ -556,7 +591,7 @@ async def build_hub(
         for p in active:
             shared_raws = [r for r in per_label_raws[p.label] if normalize(r) in shared]
             observations[(concept.name, p.label)] = await _entities_for_values(
-                client, live[p.label], p.predicate, shared_raws
+                client, live[p.label], p.predicate, shared_raws, subject_class=p.subject_class
             )
 
     # Delegate Turtle construction to the tested pure library (multi-concept,

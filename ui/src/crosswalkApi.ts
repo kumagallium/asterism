@@ -26,6 +26,12 @@ export interface CrosswalkParticipant {
    * saved claim is the id + the predicate IRI. */
   name?: string
   predicate_label?: string
+  /** The kind (class IRI) whose entities carry the value — what makes a shared
+   * naming predicate (rdfs:label on every value catalog) a field of ONE kind
+   * (crosswalk-kind-scoped-fields.md). Absent = any subject (legacy). */
+  subject_class?: string
+  /** Read-time enrichment: the kind's own name, for 「Composition › 試料化学組成」. */
+  subject_class_label?: string
 }
 
 /** One part of a (possibly compound) join key: a name + its normalizer (named or a
@@ -103,6 +109,11 @@ export interface BuildResult {
 export interface PredicateCandidate {
   iri: string
   sample: string
+  /** The kind the sampled values sit on; null/absent for untyped subjects. */
+  subject_class?: string | null
+  subject_class_label?: string | null
+  /** The design's word for this kind's field (K8), when it has one. */
+  label?: string | null
 }
 
 export interface ProposeCandidate {
@@ -113,7 +124,7 @@ export interface ProposeCandidate {
 
 export interface ProposeResult {
   concept: string
-  participants: { dataset_id: string; predicate: string; why: string }[]
+  participants: { dataset_id: string; predicate: string; subject_class?: string; why: string }[]
   candidates: ProposeCandidate[]
   skipped: { dataset_id: string; reason: string }[]
 }
@@ -228,6 +239,15 @@ export async function proposeCrosswalkMapping(
   return (await res.json()) as ProposeResult
 }
 
+/** The fields one promoted dataset can connect on, per kind, sampled from the store
+ * and named with the design's words — the dropdown's options without an AI
+ * (crosswalk-kind-scoped-fields.md). Empty for a dataset that is not promoted. */
+export async function getCrosswalkFields(datasetId: string): Promise<PredicateCandidate[]> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/fields/${encodeURIComponent(datasetId)}`)
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.fetch'))
+  return ((await res.json()) as { fields?: PredicateCandidate[] }).fields ?? []
+}
+
 // --- Discovery: the crosswalks that COULD exist, found in the data itself ---------
 
 /** How many values each rung of the normalizer ladder matched — the evidence behind
@@ -245,6 +265,9 @@ export interface DiscoverParticipant {
   name: string
   predicate: string
   predicate_label: string
+  /** The kind this field sits on (null for untyped subjects) and its name. */
+  subject_class?: string | null
+  subject_class_label?: string | null
   distinct_values: number
   matched: number
   coverage: number

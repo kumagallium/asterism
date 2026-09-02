@@ -428,6 +428,96 @@ async def test_discover_folds_spelling_differences_and_shows_them_as_evidence() 
     assert set(cand["samples"][0]["raw"].values()) == {"Bi₂Te₃", "Bi2Te3"}
 
 
+RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+
+
+def _seed_kinds(ds: rdflib.Dataset, dataset_id: str, rows: list[tuple[str, str, str]]) -> None:
+    """``(kind local name, predicate, value)`` rows, one typed entity each."""
+    key = substrate.canonical_graph_iri(dataset_id)
+    g = ds.graph(rdflib.URIRef(key))
+    for i, (kind, predicate, raw) in enumerate(rows):
+        e = rdflib.URIRef(f"urn:{dataset_id}:{i}")
+        g.add((e, rdflib.RDF.type, rdflib.URIRef(f"{NS}{kind}")))
+        g.add((e, rdflib.URIRef(predicate), rdflib.Literal(raw)))
+    ds.update(
+        f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
+        f'<{key}> <{substrate.STATUS_PREDICATE}> "promoted" }} }}'
+    )
+
+
+async def test_discover_profiles_a_shared_naming_predicate_per_kind() -> None:
+    """Every value catalog of a design stores its value under ``rdfs:label``. Read
+    per predicate, that field is DOIs + compositions + units at once and the concept
+    gets called "label"; read per (kind, predicate) it is the Composition kind's own
+    field, named after the kind and joined only on that kind's entities
+    (crosswalk-kind-scoped-fields.md)."""
+    store = rdflib.Dataset()
+    _seed_kinds(
+        store,
+        "ds-a",
+        [
+            ("Composition", RDFS_LABEL, "Bi2Te3"),
+            ("Composition", RDFS_LABEL, "PbTe"),
+            ("Composition", RDFS_LABEL, "SnSe"),
+            ("Doi", RDFS_LABEL, "10.1000/x1"),
+            ("Doi", RDFS_LABEL, "10.1000/x2"),
+        ],
+    )
+    _seed_kinds(
+        store,
+        "ds-b",
+        [
+            ("Sample", f"{NS}composition", "Bi2Te3"),
+            ("Sample", f"{NS}composition", "PbTe"),
+            ("Sample", f"{NS}composition", "ZnO"),
+        ],
+    )
+    seen: list[tuple[str, str, str | None]] = []
+
+    def field_label_of(dataset_id: str, predicate: str, subject_class: str | None) -> str | None:
+        seen.append((dataset_id, predicate, subject_class))
+        if subject_class == f"{NS}Composition":
+            return "試料化学組成"
+        return None
+
+    result = await discover(
+        _DatasetClient(store),
+        _ds("ds-a", "ds-b"),
+        field_label_of=field_label_of,
+        class_label_of=lambda _ds, cls: "組成" if cls.endswith("Composition") else None,
+    )
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    assert cand["concept"] == "composition"  # the kind's word, never "label"
+    by_ds = {p["dataset_id"]: p for p in cand["participants"]}
+    a = by_ds["ds-a"]
+    assert a["predicate"] == RDFS_LABEL
+    assert a["subject_class"] == f"{NS}Composition"
+    assert a["subject_class_label"] == "組成"
+    assert a["predicate_label"] == "試料化学組成"  # resolved for THIS kind's field
+    assert a["distinct_values"] == 3  # the Doi kind's labels never entered the slot
+    assert by_ds["ds-b"]["subject_class"] == f"{NS}Sample"
+    assert ("ds-a", RDFS_LABEL, f"{NS}Composition") in seen
+    # The buildable config carries the kind, so the hub joins only that kind.
+    parts = cand["build_config"]["concepts"][0]["participants"]
+    assert {p["dataset_id"]: p.get("subject_class") for p in parts} == {
+        "ds-a": f"{NS}Composition",
+        "ds-b": f"{NS}Sample",
+    }
+    parse_config(cand["build_config"])  # still a valid config
+
+
+async def test_discover_keeps_untyped_subjects_as_kindless_slots() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe"])
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+    cand = result["candidates"][0]
+    assert all(p["subject_class"] is None for p in cand["participants"])
+    assert all(p["subject_class_label"] is None for p in cand["participants"])
+    assert "subject_class" not in cand["build_config"]["concepts"][0]["participants"][0]
+
+
 async def test_discover_skips_datasets_that_are_not_promoted() -> None:
     store = rdflib.Dataset()
     _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
