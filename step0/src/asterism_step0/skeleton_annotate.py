@@ -22,9 +22,6 @@ Scope: tabular sources (CSV/TSV and dialect-read instrument text). JSON and
 XML/document maps get an honest ``checkable: false`` note instead of a guess —
 never a silent pass.
 """
-# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
-# 見間違いではない（id_move.py / describe.py と同じ流儀）。
-# ruff: noqa: RUF003
 
 from __future__ import annotations
 

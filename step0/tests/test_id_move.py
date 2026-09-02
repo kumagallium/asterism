@@ -8,9 +8,6 @@
 * 「引っ越せない」が黙って消えない —— 前の住所が開けなくなる事実は結果に残る。
 * prefix 名が設計をやり直して変わっても、記録した住所は動かない。
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
-# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import pytest

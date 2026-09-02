@@ -1,7 +1,4 @@
 """Tests for skeleton_annotate — deterministic evidence for the skeleton gate."""
-# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
-# 見間違いではない（id_move.py / describe.py と同じ流儀）。
-# ruff: noqa: RUF002, RUF003
 
 from __future__ import annotations
 

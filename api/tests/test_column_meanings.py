@@ -11,9 +11,6 @@
 * 確定した意味が設計に写ること（`/api/propose/continue` の `column_meanings`）
 * データセットができたあとの保管と投影（`/api/datasets/{id}/column-meanings`）
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
-# ruff: noqa: RUF002, RUF003
 
 from __future__ import annotations
 

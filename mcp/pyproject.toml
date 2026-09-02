@@ -37,6 +37,13 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# Prose in this repo is Japanese, where full-width punctuation（）「」／ is correct
+# typography — not an ASCII look-alike. RUF002 (docstrings) / RUF003 (comments) flag
+# every one, so each Japanese file had to carry its own `# ruff: noqa` pragma; missing
+# one on a new docstring turned main red (#518, v0.32.1). Ignore them once here.
+# RUF001 stays ON: an ambiguous character in a *string literal* can silently corrupt an
+# IRI, a prefix or a SPARQL match, so those keep a per-site noqa with a stated reason.
+ignore = ["RUF002", "RUF003"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

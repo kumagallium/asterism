@@ -56,9 +56,6 @@ JSON/XML sources get no column-level feedback (tabular-only validator); un-iri_s
 from existing columns are caught by no static validator; a cornered weak model can erase
 mappings to reach zero issues (surfaced as ``coverage_dropped``, not blocked).
 """
-# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
-# 見間違いではない（id_move.py / describe.py と同じ流儀）。
-# ruff: noqa: RUF003
 from __future__ import annotations
 
 import contextlib

@@ -4,9 +4,6 @@
 Oxigraph 側は httpx.MockTransport の台本: 転送台帳グラフ・公開スコープ・説明クエリに
 それぞれ答えるので、実ストアなしで **本物のクエリの組み立て** を固定できる。
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
-# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import json
