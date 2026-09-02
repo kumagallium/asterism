@@ -106,6 +106,8 @@ from asterism_step0.staged_propose import (
     apply_column_decisions,
     apply_column_meanings,
     apply_data_facts,
+    ensure_same_source_links,
+    ensure_value_catalog_labels,
     propose_from_skeleton,
     take_in_columns,
 )
@@ -1835,6 +1837,7 @@ def run_design_loop(
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
     schema_md = _overlay_data_facts(schema_md, *data_facts)
     schema_md = _overlay_column_meanings(schema_md, column_meanings)
+    schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
     schema_md = _overlay_column_decisions(schema_md, column_decisions)
     schema_md = _overlay_taken_in_columns(
         schema_md, skeleton, column_meanings, column_decisions, *data_facts
@@ -2026,6 +2029,7 @@ def run_design_loop(
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         schema_md = _overlay_data_facts(schema_md, *data_facts)
         schema_md = _overlay_column_meanings(schema_md, column_meanings)
+        schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
         schema_md = _overlay_column_decisions(schema_md, column_decisions)
         schema_md = _overlay_taken_in_columns(
             schema_md, skeleton, column_meanings, column_decisions, *data_facts
@@ -2119,6 +2123,53 @@ def _overlay_column_meanings(
         return schema_md
     new_doc, changed = apply_column_meanings(doc, column_meanings)
     if not changed:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+def _overlay_catalog_guarantees(
+    schema_md: str, skeleton: Mapping[str, Any] | None
+) -> str:
+    """受け口ラベルと同一ソースの接続線を §9 に再保証する [毎ラウンド]。
+
+    :func:`_overlay_column_meanings` の兄弟。ラベル保証と接続線は round-0 の
+    組み立て [propose_from_skeleton] にしか無く、修正ラウンドが §9 を書き直すと
+    機械が足した rdfs:label や dcterms:isPartOf が消えたまま再保証されなかった
+    [実測 2026-09-02: 修正 1 回のあと Number/Phase/Symbol の空の入れ物助言が復活]。
+    意味・型・持ち物・dialect と同じ姿勢で、ラウンドの後に毎回言い直す。
+    冪等・§9 が無い/差し替え不能ならバイト不変。
+    """
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    owns_by_map = {
+        str(mp.get("name")): list(mp.get("owns") or [])
+        for mp in ((skeleton or {}).get("maps") or [])
+        if isinstance(mp, Mapping)
+    }
+    onto = next(
+        (
+            str(name)
+            for name, iri in (doc.get("prefixes") or {}).items()
+            if str(iri).endswith("ontology#")
+        ),
+        "",
+    )
+    new_doc, labeled = ensure_value_catalog_labels(doc, owns_by_map)
+    new_doc, linked = ensure_same_source_links(new_doc, ontology_prefix=onto)
+    if not labeled and not linked:
         return schema_md
     new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
     try:
