@@ -3,19 +3,40 @@ import { useTranslation } from 'react-i18next'
 import type {
   ReshapeExplodeOp,
   ReshapeFlattenOp,
+  ReshapeOp,
   ReshapeOpCounts,
   ReshapePivotOp,
   ReshapeSpec,
 } from '../api'
 import {
   adoptOtherUnit,
+  groupDisplayRows,
+  groupIsZeroAfterApply,
   mergeGroupInto,
   opSummary,
   setCarry,
+  spellingDisplay,
   toggleGroup,
   toggleWideKey,
   totalSummary,
 } from './reshapeSpec'
+
+/** タブの名前に添える「対象の列名」（人が付けた名前・K4 が禁じる機械の識別子
+ *  ではない）。explode は並行列をまとめて示す。 */
+function tabTargetColumn(op: ReshapeOp): string {
+  if (op.kind === 'explode') return op.arrays.join(', ')
+  if (op.kind === 'pivot') return op.label
+  return op.column
+}
+
+/** タブの表示名: 「種類 — 列名」。同じ種類の op が複数の元表にまたがるとき
+ *  だけ、列名の前に元の表名（ユーザーが付けたファイル名。機械の派生表名では
+ *  ない）を添えて区別する（例: comments の flatten と sample_info の flatten
+ *  が両方 curves.csv/samples.csv にあると同じ列名でも表が違いうる）。 */
+function tabColumnLabel(op: ReshapeOp, multiSource: boolean): string {
+  const column = tabTargetColumn(op)
+  return multiSource ? `${op.source}: ${column}` : column
+}
 
 // 「表の形」画面（ADR source-reshape.md R12・KantanWizard の step 12）。
 //
@@ -57,12 +78,17 @@ export function ReshapeGate({
   const ops = spec.ops
   const activeOp = ops[Math.min(tab, ops.length - 1)]
   const activeIndex = Math.min(tab, ops.length - 1)
+  const multiSource = new Set(ops.map((op) => op.source)).size > 1
 
   if (!activeOp) return null
 
   function tabWarn(opIndex: number): boolean {
     const s = opSummary(spec, opIndex, counts)
-    return (s.unresolvedOtherUnits ?? 0) > 0 || (s.disabledGroups ?? 0) > 0
+    return (
+      (s.unresolvedOtherUnits ?? 0) > 0 ||
+      (s.disabledGroups ?? 0) > 0 ||
+      (s.zeroRowGroups ?? 0) > 0
+    )
   }
 
   return (
@@ -98,7 +124,9 @@ export function ReshapeGate({
       <div className="kz-q-options" role="tablist" aria-label={t('kantan:s12.tabsLabel')}>
         {ops.map((op, i) => {
           const warn = tabWarn(i)
-          const kindLabel = t(`kantan:s12.tabKind.${op.kind}`)
+          const kindLabel = t(`kantan:s12.tabKind.${op.kind}`, {
+            column: tabColumnLabel(op, multiSource),
+          })
           return (
             <button
               key={i}
@@ -123,6 +151,7 @@ export function ReshapeGate({
           spec={spec}
           op={activeOp}
           opIndex={activeIndex}
+          counts={counts}
           sourceColumns={sourceColumns}
           busy={busy}
           onChange={onChange}
@@ -139,7 +168,14 @@ export function ReshapeGate({
         />
       )}
       {activeOp.kind === 'flatten' && (
+        // key=activeIndex: 2 つ以上の flatten op（例: comments と sample_info）を
+        // タブで切り替えても、React が同じ位置の同じコンポーネント型とみなして
+        // FlattenTab を使い回してしまうと、内部の `useState(op.wide.keys)` の
+        // 初期化が再実行されず、前の op の候補（少ないほう）が残ったままになる
+        // （実機: samples タブに wide キーのチェックが出なかった）。key を変えて
+        // op ごとに確実に作り直す。
         <FlattenTab
+          key={activeIndex}
           op={activeOp}
           opIndex={activeIndex}
           sourceColumns={sourceColumns}
@@ -223,6 +259,7 @@ function PivotTab({
   spec,
   op,
   opIndex,
+  counts,
   sourceColumns,
   busy,
   onChange,
@@ -230,6 +267,8 @@ function PivotTab({
   spec: ReshapeSpec
   op: ReshapePivotOp
   opIndex: number
+  /** 適用後の実測（R11）。0 行になった群を見分けるために使う。 */
+  counts: Record<string, ReshapeOpCounts>
   sourceColumns: string[]
   busy: boolean
   onChange: (next: ReshapeSpec) => void
@@ -245,7 +284,7 @@ function PivotTab({
     <>
       <p className="kz-note">{t('kantan:s12.pivotIntro')}</p>
       <div className="kz-preview-tablewrap">
-        <table className="kz-preview-table kz-cols-table">
+        <table className="kz-preview-table kz-cols-table kz-reshape-groups">
           <thead>
             <tr>
               <th>{t('kantan:s12.colUse')}</th>
@@ -266,6 +305,8 @@ function PivotTab({
               // toggleGroup がサーバ呼び出し以前に拒むが、押せてしまうこと
               // 自体を避ける）。
               const mergedAway = !enabled && g.members.length === 0
+              const displayRows = groupDisplayRows(g, opIndex, counts)
+              const zeroAfterApply = groupIsZeroAfterApply(g, opIndex, counts)
               return (
                 <tr key={g.slug} className={enabled ? undefined : 'kz-cols-dropped'}>
                   <td>
@@ -280,10 +321,17 @@ function PivotTab({
                   </td>
                   <td>{g.label}</td>
                   <td>{g.unit}</td>
-                  <td>{(g.rows ?? 0).toLocaleString()}</td>
+                  <td>
+                    {displayRows.toLocaleString()}
+                    {zeroAfterApply && (
+                      <span className="kz-note" role="alert" style={{ display: 'block' }}>
+                        ⚠ {t('kantan:s12.groupZeroRows')}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     {g.members.length > 1
-                      ? g.members.map((m) => m.label).join(', ')
+                      ? g.members.map((m) => spellingDisplay(m, g.unit)).join(', ')
                       : t('kantan:s12.singleSpelling')}
                   </td>
                   <td>
@@ -291,7 +339,7 @@ function PivotTab({
                       <div className="kz-q-options">
                         {g.other_units.map((o) => (
                           <button
-                            key={`${o.label} ${o.unit}`}
+                            key={`${o.label} ${o.unit}`}
                             type="button"
                             className="btn btn--ghost btn--sm"
                             disabled={busy}

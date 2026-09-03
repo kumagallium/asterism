@@ -172,10 +172,14 @@ export interface ReshapeOpSummary {
   sourceRows?: number
   /** この op が生む行の合計（pivot は有効な群の表を合算）。 */
   rowsOut?: number
-  /** 捨てた要素（数値でない・空だった）。 */
+  /** 捨てた要素（explode/pivot: 数値でなかった）。flatten の空項目は含まない
+   *  （空は「捨てた」ではない — `emptyEntries` を見る）。 */
   dropped?: number
   /** 切った要素（並行する配列の長さが食い違い、短い方に切った）。 */
   truncated?: number
+  /** flatten のみ: 値が空だった項目数（`entries_empty`）。「捨てた要素」には
+   *  数えない。 */
+  emptyEntries?: number
   /** いま生成する派生表の枚数。 */
   tableCount: number
   /** pivot のみ: 有効にした群の数。 */
@@ -185,13 +189,20 @@ export interface ReshapeOpSummary {
   /** pivot のみ: まだ `members` に移していない「同じとみなす」候補の総数
    *  （0 でも構わない判断だが、タブの ⚠ 表示の材料になる）。 */
   unresolvedOtherUnits?: number
+  /** pivot のみ: 適用後（`counts` が付いた後）に 0 行になった有効な群の数。
+   *  提案時の `groups[].rows` は partner を見ていないので、partner の綴りが
+   *  合わず適用後に 0 行になる群がある — 適用前（`counts` 無し）は判定できない
+   *  ので `undefined`。 */
+  zeroRowGroups?: number
 }
 
 /**
  * `opIndex` 番目の op の要約。`counts` に実測（R11、適用後）があればそれを使い、
- * 無ければ pivot の既定判断表が持つ `groups[].rows`（全行走査の一致行数、
- * propose() が埋める）から見積もる。explode・flatten は適用してみないと行数が
- * 分からないので、未適用のときは `rowsOut` を返さない。
+ * 無ければ入力行数は `op.source_rows`（propose() が全行走査で数えて埋める。無ければ
+ * undefined）にフォールバックする — 適用前の見積もりで入力行数を 0 と誤表示しない
+ * ため（R12）。pivot の生成行数はさらに既定判断表が持つ `groups[].rows`（全行走査の
+ * 一致行数、propose() が埋める）から見積もる。explode・flatten は生成行数だけは
+ * 適用してみないと分からないので、未適用のときは `rowsOut` を返さない。
  */
 export function opSummary(
   spec: ReshapeSpec,
@@ -201,11 +212,12 @@ export function opSummary(
   const op = spec.ops[opIndex]
   if (!op) return { kind: 'explode', tableCount: 0 }
   const c = counts[String(opIndex)]
+  const sourceRows = c?.source_rows ?? op.source_rows
 
   if (op.kind === 'explode') {
     return {
       kind: 'explode',
-      sourceRows: c?.source_rows,
+      sourceRows,
       rowsOut: c?.rows_out,
       dropped: c?.dropped_non_numeric,
       truncated: c?.truncated_length_mismatch,
@@ -220,9 +232,12 @@ export function opSummary(
     const rowsOut = c?.tables
       ? Object.values(c.tables).reduce((a, b) => a + b, 0)
       : enabled.reduce((a, g) => a + (g.rows ?? 0), 0) || undefined
+    const zeroRowGroups = c?.tables
+      ? enabled.filter((g) => (c.tables?.[g.table] ?? 0) === 0).length
+      : undefined
     return {
       kind: 'pivot',
-      sourceRows: c?.source_rows,
+      sourceRows,
       rowsOut,
       dropped: c?.dropped_non_numeric,
       truncated: c?.truncated_length_mismatch,
@@ -230,15 +245,18 @@ export function opSummary(
       enabledGroups: enabled.length,
       disabledGroups: disabled.length,
       unresolvedOtherUnits,
+      zeroRowGroups,
     }
   }
 
   // flatten
   return {
     kind: 'flatten',
-    sourceRows: c?.source_rows,
+    sourceRows,
     rowsOut: c?.rows_out,
-    dropped: c?.entries_empty,
+    // R11: entries_empty は「空の項目」であって「捨てた要素」（数値でない・
+    // 長さ食い違いで切った）とは別物 — dropped/truncated には数えない。
+    emptyEntries: c?.entries_empty,
     tableCount: 2,
   }
 }
@@ -281,4 +299,42 @@ export function totalSummary(
     dropped,
     truncated,
   }
+}
+
+/**
+ * 1 群（pivot の1行）の「行数」表示値。適用後（`counts.tables` がある）は
+ * その群の実際の派生表行数（partner の不一致で 0 になりうる）を、未適用は
+ * 提案時の一致行数（`g.rows`。partner を見ていない見積もり）を返す。
+ */
+export function groupDisplayRows(
+  g: ReshapeGroup,
+  opIndex: number,
+  counts: Record<string, ReshapeOpCounts>,
+): number {
+  const c = counts[String(opIndex)]
+  if (c?.tables) return c.tables[g.table] ?? 0
+  return g.rows ?? 0
+}
+
+/** 適用後に 0 行になった群かどうか（適用前は判定できないので false）。 */
+export function groupIsZeroAfterApply(
+  g: ReshapeGroup,
+  opIndex: number,
+  counts: Record<string, ReshapeOpCounts>,
+): boolean {
+  const c = counts[String(opIndex)]
+  if (!c?.tables) return false
+  if (g.enabled === false) return false
+  return (c.tables[g.table] ?? 0) === 0
+}
+
+/**
+ * 「まとめた表記」列の1件ぶんの表示文字列。`adoptOtherUnit`（R5/R6「同じ単位と
+ * みなす」）で移した member は、群の代表単位（`groupUnit`）と違う単位を持ちうる
+ * — 表記の綴りだけが同じ／似ていて区別がつかない事故（例:「Seebeck coefficient,
+ * Seebeck coefficient」— 2件目は二重空白の綴り違い＋単位が V/K）を防ぐため、
+ * 単位が違う member だけ単位を括弧で添える（同じ単位なら従来どおり表記のみ）。
+ */
+export function spellingDisplay(m: ReshapeSpelling, groupUnit: string): string {
+  return m.unit === groupUnit ? m.label : `${m.label} (${m.unit})`
 }

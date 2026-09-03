@@ -748,6 +748,7 @@ def _propose_explode(
         "arrays": list(arrays),
         "index": "point_index",
         "carry": carry,
+        "source_rows": len(rows),
     }
 
 
@@ -952,6 +953,7 @@ def _propose_pivot(
         "unit": unit_col,
         "value": value_col,
         "groups": groups,
+        "source_rows": len(rows),
     }
     if _col_is_numeric_array(value_col, rows):
         arrays = [value_col] + ([partner_cfg["value"]] if partner_cfg else [])
@@ -1084,6 +1086,7 @@ def _propose_flatten(
         "carry": carry,
         "long": {"table": table_long, "fields": long_fields},
         "wide": {"table": table_wide, "keys": wide_keys, "fields": wide_fields},
+        "source_rows": len(rows),
     }
 
 

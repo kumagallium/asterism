@@ -7442,6 +7442,12 @@ tr[data-map].skeleton-gate-row--added td {
 }
 .kz-preview-tablewrap {
   overflow-x: auto;
+  /* K23/flex 列の中で、内側の表が横スクロールせず親カードごと右へはみ出す事故
+     （実機 1280px・表の形画面の「別の表に合流」列で発生）を防ぐ。flex column の
+     子は cross 軸（幅）で stretch されるはずだが、select や nowrap セルが多い
+     表では実測でカードの外へ広がることがあった — 明示的に max-width:100% で
+     頭を押さえ、はみ出し分をこの箱の内側だけでスクロールさせる。 */
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
@@ -7667,6 +7673,17 @@ tr[data-map].skeleton-gate-row--added td {
   font: inherit;
   background: var(--surface);
   color: var(--body);
+}
+/* 表の形（S12）の判断表: 7 列と多く、既定の 10rem select だと 1280px 幅でも
+   「別の表に合流」列まで収まらない。この表だけ詰めて、収まる場合は横スクロール
+   自体を要らなくする（それでも収まらなければ `.kz-preview-tablewrap` が
+   横スクロールする）。 */
+.kz-reshape-groups.kz-cols-table select {
+  min-width: 8rem;
+}
+.kz-reshape-groups.kz-cols-table th,
+.kz-reshape-groups.kz-cols-table td {
+  padding: 0.4rem 0.5rem;
 }
 .kz-cols-input--unit {
   min-width: 6rem;

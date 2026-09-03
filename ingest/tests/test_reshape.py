@@ -472,6 +472,17 @@ def test_propose_pivot_group_has_enabled_and_rows() -> None:
     assert all("rows" in m for m in zt["members"])
 
 
+def test_propose_ops_carry_source_rows_matching_fixture() -> None:
+    """propose() が返す各 op には ``source_rows``（全行走査で数えた入力行数）が付き、
+    フィクスチャの実行数と一致する（適用前の見積もりで入力行数を 0 にしないため）。"""
+    n = sum(1 for _ in read_rows(CURVES, DEFAULT_DIALECT))
+    dets = detect(CURVES)
+    ops = propose(CURVES, dets)
+    assert ops, "CURVES からは explode/pivot 等の op が出るはず"
+    for op in ops:
+        assert op["source_rows"] == n, f"{op['kind']} の source_rows: {op['source_rows']} != {n}"
+
+
 def test_propose_pivot_enables_only_top_12_groups_by_rows(tmp_path: Path) -> None:
     """R5/R7: 13 群以上あると行数上位12群だけ enabled になり、残りは無効化される。"""
     csv_path = tmp_path / "many_groups.csv"

@@ -1807,6 +1807,8 @@ export interface ReshapeExplodeOp {
   arrays: string[]
   index?: string
   carry: string[]
+  /** propose() が全行走査で数えた入力行数（適用前の見積もり用。R12）。 */
+  source_rows?: number
 }
 
 export interface ReshapePivotOp {
@@ -1820,6 +1822,8 @@ export interface ReshapePivotOp {
   value: string
   partner?: ReshapePivotPartnerSpec
   groups: ReshapeGroup[]
+  /** propose() が全行走査で数えた入力行数（適用前の見積もり用。R12）。 */
+  source_rows?: number
 }
 
 export interface ReshapeFlattenLong {
@@ -1841,6 +1845,8 @@ export interface ReshapeFlattenOp {
   carry: string[]
   long: ReshapeFlattenLong
   wide: ReshapeFlattenWide
+  /** propose() が全行走査で数えた入力行数（適用前の見積もり用。R12）。 */
+  source_rows?: number
 }
 
 export type ReshapeOp = ReshapeExplodeOp | ReshapePivotOp | ReshapeFlattenOp
