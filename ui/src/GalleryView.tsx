@@ -30,6 +30,7 @@ import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { conceptLabel } from './crosswalkLabels'
 import { DatasetGrounding } from './DatasetGrounding'
+import { DatasetReshapeSummary } from './DatasetReshapeSummary'
 import { RulesSection } from './RulesPanel'
 import { TABULAR_ACCEPT } from './datasetsApi'
 import {
@@ -1687,6 +1688,11 @@ function DatasetDetail({
           )}
           {/* A roadmap footnote about content hashes used to sit here on every
               visit; what the reader can act on is already in the note above. */}
+
+          {/* 表の形（ADR source-reshape.md R19・最小段）: 台帳を通ったデータ
+              セットだけに出る（getDatasetReshape が 404 なら何も描かない）。
+              編集はまだ無い（PUT は次の段）。 */}
+          {meta && <DatasetReshapeSummary key={meta.id} datasetId={meta.id} />}
 
           {/* Operations on this dataset's ingested data live here (the natural home
               for ingest / append / re-ingest / promote / lifecycle). State-gated, so

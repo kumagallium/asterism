@@ -3,11 +3,14 @@ import { shouldAutoFix } from './autoFix'
 import { useTranslation } from 'react-i18next'
 import {
   ApiError,
+  applyStagingReshape,
   attachSource,
+  clearStagingReshape,
   fetchDraftStats,
   generateColumnMeanings,
   fetchIdMove,
   fetchTrialQueries,
+  getStagingReshape,
   recountDataset,
   IngestCancelledError,
   IngestValidationError,
@@ -34,6 +37,9 @@ import {
   type PreDesignColumnDecision,
   type ProposeResult,
   type RefineResult,
+  type ReshapeOpCounts,
+  type ReshapeSpec,
+  type ReshapeTableMeta,
   type RethinkRequest,
   type SkeletonAnnotations,
   type SkeletonResult,
@@ -100,6 +106,7 @@ import { termColumns, templateColumns, transcribedColumn } from '../ruleColumns'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
+import { ReshapeGate } from './ReshapeGate'
 import { requestConsult } from '../consult/consultOpen'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
@@ -138,8 +145,10 @@ type Q2Answer = 'only' | 'elsewhere' | 'unknown'
 // card. 10 is the meaning screen (ADR meaning-before-identity): it is visited
 // BETWEEN 3 and 4, and it took a new id rather than renumbering because every
 // stored snapshot, every resume path and every "…に戻る" button in this file
-// speaks in these numbers.
-type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11
+// speaks in these numbers. 12 is 「表の形」（ADR source-reshape.md R12）: visited
+// between 2 and 3, only when detection found something to reshape — same reason
+// for the new (non-sequential) id.
+type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
 
 /** One row of the meaning screen: a physical column, where in the file it came
  *  from, and what it actually holds. */
@@ -751,6 +760,12 @@ interface KantanSnapshot {
    *  the same screen, and must adopt whatever the detail tier saved there
    *  (DETAIL-GAP-04 / DETAIL-GAP-05). */
   handedToDetail?: boolean
+  /** 「表の形」（ADR source-reshape.md R12/R17）の判断表。判断だけを持つ —
+   *  派生表そのものはサーバの staging にある。`null` = まだ何も判断していない
+   *  （機械の既定提案のまま）。 */
+  reshapeSpec?: ReshapeSpec | null
+  /** 判断表を staging に適用済みか（「ととのえて進む」を通ったか）。 */
+  reshapeApplied?: boolean
 }
 
 function loadSnapshot(): Partial<KantanSnapshot> {
@@ -904,8 +919,14 @@ export function KantanWizard({
     }
     if (snap.skeleton && loadSavedJob()?.kind === 'propose') return 4
     // A skeleton job that was still running when the screen was left comes back
-    // as S3 (the mount effect below re-attaches to its stream).
+    // as S3 (the mount effect below re-attaches to its stream) — this must win
+    // over a lingering step 12: reaching a meanings job means 「表の形」 was
+    // already left behind (applied or skipped) before the job started.
     if (loadKantanJob()?.kind === 'skeleton' || loadKantanJob()?.kind === 'meanings') return 3
+    // 「表の形」（R17）は判断表だけを持つ — 派生表はサーバの staging にある。
+    // stagingId が無ければ確かめようがないので、その場合は S1（下の mount
+    // effect が stagingAlive で確かめ、無ければここへ）。
+    if (snap.step === 12 && snap.stagingId) return 12
     return 1
   })
   const [files, setFiles] = useState<File[]>([])
@@ -972,6 +993,34 @@ export function KantanWizard({
   const [dialectOverrides, setDialectOverrides] = useState<Record<string, SourceDialect>>(
     snap.dialectOverrides ?? {},
   )
+
+  // 「表の形」（ADR source-reshape.md R12・step 12）。判断表（reshapeSpec /
+  // reshapeApplied）だけが snapshot に残る（R17）— 検出・派生表・実測は
+  // サーバの staging にしか無いので、画面を開くたびに読み直す。
+  const [reshapeSpec, setReshapeSpec] = useState<ReshapeSpec | null>(snap.reshapeSpec ?? null)
+  const [reshapeApplied, setReshapeApplied] = useState(snap.reshapeApplied ?? false)
+  const [reshapeTables, setReshapeTables] = useState<Record<string, ReshapeTableMeta>>({})
+  const [reshapeCounts, setReshapeCounts] = useState<Record<string, ReshapeOpCounts>>({})
+  // 直前の判断をサーバへ再適用している間 — 連打対策（R12）。
+  const [reshapeBusy, setReshapeBusy] = useState(false)
+  const [reshapeErr, setReshapeErr] = useState('')
+  // S2「進む」を押してから、検出があるか確かめている間（step 12 に行くかどうか
+  // 自体が確定していない一瞬）。
+  const [reshapeChecking, setReshapeChecking] = useState(false)
+  const reshapeLoadedForRef = useRef<string | null>(null)
+  // サーバが最後に確認した（＝ staging の実体と一致している）spec/applied の
+  // 控え。reapplyReshape は次の判断へ進む前に楽観的に state を書き換えるので、
+  // POST が失敗したときはここへ巻き戻す — 巻き戻さないと reshapeApplied が
+  // true のまま古い（サーバには無い）spec を指し、proceedPastReshape の
+  // 「適用済みなら再適用しない」ガードが誤って通ってしまう（レビュー指摘）。
+  const reshapeGoodRef = useRef<{ spec: ReshapeSpec | null; applied: boolean }>({
+    spec: snap.reshapeSpec ?? null,
+    applied: snap.reshapeApplied ?? false,
+  })
+  // backToPick など、進行中の非同期処理を無効化したい操作のたびに増やす世代
+  // カウンタ。onProceed の「表の形」検出は await を挟むので、待っている間に
+  // やり直された（stagingId が変わった／消えた）ら、戻ってきた結果を捨てる。
+  const wizardGenerationRef = useRef(0)
 
   // S3/S4: staged skeleton → gate → continue.
   const [skeleton, setSkeleton] = useState<MappingSkeleton | null>(snap.skeleton ?? null)
@@ -1539,6 +1588,8 @@ export function KantanWizard({
       sourceColumns,
       gateSkeleton,
       aiSkeleton,
+      reshapeSpec,
+      reshapeApplied,
       // Consumed at mount: the flag is re-armed by openDetail (which writes it
       // synchronously) and must not survive as a standing "we are in detail".
       handedToDetail: false,
@@ -1588,6 +1639,8 @@ export function KantanWizard({
     sourceColumns,
     gateSkeleton,
     aiSkeleton,
+    reshapeSpec,
+    reshapeApplied,
   ])
 
   // Hand the design in hand to the detail tier: a WB_STORAGE-compatible
@@ -1861,7 +1914,12 @@ export function KantanWizard({
       // permanent, and the server's copy (7 days) becomes unreachable for a
       // browser that has no local copy of its own (RESUME-20).
       const sid = live === 'gone' ? null : remembered
-      if (live === 'gone') setStagingId(null)
+      if (live === 'gone') {
+        setStagingId(null)
+        // R17: 「表の形」の判断表は staging あってこそ意味を持つ（派生表は
+        // サーバの staging にしか無い）。生きていなければ S1 まで戻す。
+        if (step === 12) setStep(1)
+      }
       if (restored.length === 0 && !sid) return
       setResumed(true)
       if (step !== 1) {
@@ -1900,6 +1958,44 @@ export function KantanWizard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 「表の形」（step 12）を開いている／開き直したとき、検出・派生表・実測を
+  // 読み直す（R17: snapshot は判断表だけを持つ）。同じ staging id では 1 回しか
+  // 読まない（onProceed が先に読んでいれば、そちらが ref を立てて二重読みを
+  // 避ける）。適用済みなら server の spec を信じ、未適用ならこの場でまだ誰も
+  // 上書きしていない控え（reshapeSpec state — snapshot 復元 or onProceed の
+  // 直前の読み込み）を優先する。GET は「まだ何も判断していないときの既定」しか
+  // 返さないので、控えのほうが人の判断に近い。
+  useEffect(() => {
+    if (step !== 12 || !stagingId) return
+    if (reshapeLoadedForRef.current === stagingId) return
+    reshapeLoadedForRef.current = stagingId
+    let cancelled = false
+    void getStagingReshape(stagingId)
+      .then((r) => {
+        if (cancelled) return
+        setReshapeTables(r.tables)
+        setReshapeCounts(r.counts)
+        if (r.applied) {
+          setReshapeSpec(r.spec)
+          setReshapeApplied(true)
+          reshapeGoodRef.current = { spec: r.spec, applied: true }
+        } else {
+          setReshapeSpec((cur) => {
+            const next = cur ?? r.spec
+            reshapeGoodRef.current = { spec: next, applied: false }
+            return next
+          })
+          setReshapeApplied(false)
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setReshapeErr(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [step, stagingId])
 
   // Coming back from the detail tier, the SERVER settles which design is
   // current: this tier's snapshot copy is only as new as the last time it
@@ -2223,6 +2319,15 @@ export function KantanWizard({
     setAnnotations(null)
     setProposal('')
     setInspectionMd('')
+    // 前のファイルの「表の形」判断は、この新しいファイルには意味を持たない。
+    wizardGenerationRef.current += 1
+    setReshapeSpec(null)
+    setReshapeApplied(false)
+    setReshapeTables({})
+    setReshapeCounts({})
+    setReshapeErr('')
+    reshapeLoadedForRef.current = null
+    reshapeGoodRef.current = { spec: null, applied: false }
     resetPipelineState()
     void runInspect(arr)
   }
@@ -2472,9 +2577,48 @@ export function KantanWizard({
     })
   }
 
-  function onProceed() {
+  /** ①「入れる」の最後の一歩。表の形の検出（R4）が staging にあれば S12
+   *  「表の形」へ、無ければ従来どおり意味づけ（S3 → S10）へ。detect() は
+   *  staging を経由してしか呼べない（legacy な直アップロードのみの run では
+   *  スキップし、これまでの流れのまま進む）。 */
+  async function onProceed() {
     if (!isReady || !hasSource || writeBlocked) return
     setResumed(false)
+    if (stagingId) {
+      // 待っている間に「csv を選び直す」などでやり直されたら、戻ってきた結果を
+      // 捨てる（レビュー指摘: cancel ガードが無いと、選び直した後にこの結果で
+      // 勝手に S12 へ引き戻されうる）。
+      const gen = wizardGenerationRef.current
+      setReshapeChecking(true)
+      setReshapeErr('')
+      try {
+        const r = await getStagingReshape(stagingId)
+        if (wizardGenerationRef.current !== gen) return
+        reshapeLoadedForRef.current = stagingId
+        setReshapeTables(r.tables)
+        setReshapeCounts(r.counts)
+        setReshapeApplied(r.applied)
+        setReshapeSpec(r.spec)
+        reshapeGoodRef.current = { spec: r.spec, applied: r.applied }
+        setReshapeChecking(false)
+        const found = Object.values(r.detections).some((list) => list.length > 0)
+        if (found) {
+          setStep(12)
+          return
+        }
+      } catch {
+        if (wizardGenerationRef.current !== gen) return
+        // 確認そのものに失敗しても、これまでどおり進める — 表の形は上乗せの
+        // 機能であって、無ければ従来の流れがそのまま使える。
+        setReshapeChecking(false)
+      }
+    }
+    proceedToMeanings()
+  }
+
+  /** ③（意味づけ）へ進む — 表の形を経由しない run の onProceed の本体そのもの、
+   *  経由した run では「ととのえて進む」／「このまま進む」の末尾から呼ぶ。 */
+  function proceedToMeanings() {
     setStep(3)
     // 意味が先、ID があと（ADR meaning-before-identity）。列が何を表すかは
     // データを見れば決まる — どんな設計にしても同じなので、設計の判断より前に
@@ -2482,7 +2626,90 @@ export function KantanWizard({
     void runMeanings()
   }
 
+  /** step 12「ととのえて進む」／「このまま進む」。適用／取り消しが要るときだけ
+   *  サーバを呼び、そのあと③が読む inspection（samples）を今の staging の中身
+   *  （派生表を含む／含まない）で読み直してから進む — 読み直さないと、③の表が
+   *  古いまま raw の列（`prop_y` など）を見せてしまう。 */
+  async function proceedPastReshape(applyFirst: boolean) {
+    if (!stagingId || !reshapeSpec) {
+      proceedToMeanings()
+      return
+    }
+    setReshapeBusy(true)
+    setReshapeErr('')
+    try {
+      if (applyFirst && !reshapeApplied) {
+        const r = await applyStagingReshape(stagingId, reshapeSpec)
+        setReshapeSpec(r.spec)
+        setReshapeTables(r.tables)
+        setReshapeCounts(r.counts)
+        setReshapeApplied(true)
+        reshapeGoodRef.current = { spec: r.spec, applied: true }
+      } else if (!applyFirst && reshapeApplied) {
+        await clearStagingReshape(stagingId)
+        setReshapeApplied(false)
+        setReshapeTables({})
+        setReshapeCounts({})
+        reshapeGoodRef.current = { spec: reshapeGoodRef.current.spec, applied: false }
+      }
+      const result = await inspectCsvs(files, [], stagingId)
+      setInspection(result)
+      setInspectionMd(result.markdown)
+      const cards = await buildPreviews(files, result, dialectOverrides)
+      const nextSourceColumns = deriveSourceColumns(cards)
+      // files=[]（reload 後、File は保存できず復元できない）で、かつサーバの
+      // サンプルヘッダも空 = ③の項目の意味づけが無言で空欄になる（レビュー
+      // 指摘）。進めず、ファイルの選び直しを促す。
+      if (files.length === 0 && nextSourceColumns.length === 0) {
+        setReshapeErr(t('kantan:s12.samplesLost'))
+        setReshapeBusy(false)
+        return
+      }
+      setPreviews(cards)
+      setColumnSamples(deriveColumnSamples(cards))
+      setSourceColumns(nextSourceColumns)
+    } catch (e) {
+      setReshapeErr(e instanceof Error ? e.message : String(e))
+      setReshapeBusy(false)
+      return
+    }
+    setReshapeBusy(false)
+    proceedToMeanings()
+  }
+
+  /** 判断表を 1 つ変えるたびに ReshapeGate から呼ばれる。楽観的に state を
+   *  更新してから即座に再適用する（R12: 「判断表を変えると同じ画面で再適用」）。
+   *  連打は busy ガードで防ぐ（ReshapeGate 側も busy の間は操作を disable する）。 */
+  async function reapplyReshape(next: ReshapeSpec) {
+    if (!stagingId || reshapeBusy) return
+    setReshapeSpec(next)
+    setReshapeBusy(true)
+    setReshapeErr('')
+    try {
+      const r = await applyStagingReshape(stagingId, next)
+      setReshapeSpec(r.spec)
+      setReshapeTables(r.tables)
+      setReshapeCounts(r.counts)
+      setReshapeApplied(true)
+      reshapeGoodRef.current = { spec: r.spec, applied: true }
+    } catch (e) {
+      setReshapeErr(e instanceof Error ? e.message : String(e))
+      // サーバは new spec を受け付けていない — 楽観的に書き換えた
+      // reshapeSpec/reshapeApplied を、最後にサーバと一致していた状態へ
+      // 巻き戻す。巻き戻さないと reshapeApplied が true のまま古い spec を
+      // 指し、「ととのえて進む」が再適用をスキップして古い派生表のまま
+      // 静かに進んでしまう（レビュー指摘）。
+      setReshapeSpec(reshapeGoodRef.current.spec)
+      setReshapeApplied(reshapeGoodRef.current.applied)
+    } finally {
+      setReshapeBusy(false)
+    }
+  }
+
   function backToPick() {
+    // 効き目待ちの onProceed（表の形の検出確認）を無効化する — 待っている間に
+    // ここへ来られたら、戻ってきた結果は捨てる（レビュー指摘）。
+    wizardGenerationRef.current += 1
     setFiles([])
     void clearSourceFiles()
     if (stagingId) void unstageSources(stagingId)
@@ -2498,6 +2725,13 @@ export function KantanWizard({
     setDialectOverrides({})
     setErrMsg('')
     setJobNotice('')
+    setReshapeSpec(null)
+    setReshapeApplied(false)
+    setReshapeTables({})
+    setReshapeCounts({})
+    setReshapeErr('')
+    reshapeLoadedForRef.current = null
+    reshapeGoodRef.current = { spec: null, applied: false }
     resetPipelineState()
     setStep(1)
   }
@@ -2602,6 +2836,16 @@ export function KantanWizard({
       }
     }
     return rows
+  }
+
+  /** K20: この列が「表の形」（ADR source-reshape.md R9）で作られた派生表の列
+   *  なら、その出自を1文で返す（例「もとの表で prop_y = "ZT" だった行から」）。
+   *  機械が付けた列名を人に問うときは出自を必ず示す — 派生表でなければ
+   *  `undefined`（この行は普通の列で、出自を言う必要が無い）。 */
+  function reshapeOriginFor(source: string, column: string): string | undefined {
+    const meta = reshapeTables[source]?.columns.find((c) => c.name === column)
+    if (!meta?.origin) return undefined
+    return t('kantan:meanings.reshapeOrigin', { origin: meta.origin })
   }
 
   /** A preamble line as the VALUE it carries. The read check (S2) shows the raw
@@ -4221,7 +4465,7 @@ export function KantanWizard({
   // the gate and on ⑤, and what was left of it moved to ⑤.
   // S7 = ⑤ ためす, S8/S9 = ⑥ 公開する (S9 renders it done).
   const recipePos: RecipeStep =
-    step <= 2
+    step <= 2 || step === 12 // 12 = 「表の形」— ①「入れる」の内側（R12）
       ? 1
       : step === 3
         ? 2
@@ -6251,19 +6495,54 @@ export function KantanWizard({
           <div className="kz-actions">
             <button
               type="button"
-              onClick={onProceed}
-              disabled={!questionsAnswered || !isReady || writeBlocked}
+              onClick={() => void onProceed()}
+              disabled={!questionsAnswered || !isReady || writeBlocked || reshapeChecking}
             >
               {t('kantan:s2.proceed')}
             </button>
             <button type="button" className="btn btn--ghost btn--sm" onClick={backToPick}>
               {t('kantan:s2.repick')}
             </button>
+            {reshapeChecking && (
+              <span className="kz-note" role="status">
+                <span className="spinner" />
+                {t('kantan:s12.checking')}
+              </span>
+            )}
           </div>
           {!questionsAnswered && <p className="kz-note">{t('kantan:s2.needAnswers')}</p>}
           {/* The primary button above is dead without an AI: the sentence needs
               the screen that fixes it next to it (KZ-A-15). */}
           {!isReady && <AiNotReadyNote onConnect={() => openSettings('ai')} />}
+        </section>
+      ) : step === 12 ? (
+        <section className="kz-card">
+          {/* ①「入れる」の内側 — 表の形をととのえる（ADR source-reshape.md R12）。
+              検出があるときだけこの画面が出る（onProceed）。 */}
+          <h3 className="kz-title">{t('kantan:s12.title')}</h3>
+          {reshapeSpec ? (
+            <ReshapeGate
+              spec={reshapeSpec}
+              counts={reshapeCounts}
+              sourceColumns={sourceColumns}
+              busy={reshapeBusy}
+              errorText={reshapeErr ? plainBody(reshapeErr) : undefined}
+              onChange={(next) => void reapplyReshape(next)}
+              onProceedApply={() => void proceedPastReshape(true)}
+              onProceedSkip={() => void proceedPastReshape(false)}
+            />
+          ) : (
+            <p className="kz-note" role="status">
+              <span className="spinner" />
+              {t('kantan:s12.checking')}
+            </p>
+          )}
+          {/* 再読み込み直後は File が復元できず（reshapeErr の samplesLost
+              など）この画面から先へ進めないことがある — その場合の逃げ道
+              （レビュー指摘。s2 の同名ボタンと同じ導線）。 */}
+          <button type="button" className="btn btn--ghost btn--sm" onClick={backToPick}>
+            {t('kantan:s2.repick')}
+          </button>
         </section>
       ) : step === 10 ? (
         <section className="kz-card">
@@ -6351,6 +6630,11 @@ export function KantanWizard({
                                     </span>
                                   )}
                                 </>
+                              )}
+                              {reshapeOriginFor(row.source, row.column) && (
+                                <span className="kz-cols-origin">
+                                  {reshapeOriginFor(row.source, row.column)}
+                                </span>
                               )}
                             </td>
                             <td className="kz-cols-examples">

@@ -1753,3 +1753,237 @@ export async function unstageSources(stagingId: string): Promise<void> {
     /* best-effort */
   }
 }
+
+// ---------------------------------------------------------------------------
+// 表の形（reshape, ADR source-reshape.md §4.0） — 判断表そのものが宣言
+// ---------------------------------------------------------------------------
+
+/** ひとつの綴り（表記・単位）— pivot の群のメンバー、または群に入らなかった
+ *  「同じ単位とみなす」候補（`other_units`）。`rows` は全行走査の一致行数
+ *  （ゲートの表示用、GET でのみ埋まる）。 */
+export interface ReshapeSpelling {
+  label: string
+  unit: string
+  rows?: number
+}
+
+/** pivot の partner（もう1組の「ラベル＋値」— x 軸のような値）。群ごとに畳んだ
+ *  表記の一覧を持つ。 */
+export interface ReshapeGroupPartner {
+  slug: string
+  label: string
+  unit: string
+  members: ReshapeSpelling[]
+}
+
+/** pivot の判断表の1行 = 1群。`enabled` 省略時は既定で有効（R5）。 */
+export interface ReshapeGroup {
+  slug: string
+  label: string
+  unit: string
+  table: string
+  enabled?: boolean
+  rows?: number
+  members: ReshapeSpelling[]
+  /** 畳まれなかった同じ物性の別単位・別綴り。人が `members` へ移して初めて畳まれる。 */
+  other_units?: ReshapeSpelling[]
+  partner?: ReshapeGroupPartner
+}
+
+export interface ReshapePivotPartnerSpec {
+  label: string
+  unit: string
+  value: string
+}
+
+/** op ごとの読み方（source-dialect.md の6フィールド）。UI は編集しない。 */
+export type ReshapeOpDialect = Partial<SourceDialect>
+
+export interface ReshapeExplodeOp {
+  kind: 'explode'
+  source: string
+  dialect?: ReshapeOpDialect
+  table: string
+  arrays: string[]
+  index?: string
+  carry: string[]
+}
+
+export interface ReshapePivotOp {
+  kind: 'pivot'
+  source: string
+  dialect?: ReshapeOpDialect
+  explode?: { arrays: string[]; index?: string }
+  carry: string[]
+  label: string
+  unit: string
+  value: string
+  partner?: ReshapePivotPartnerSpec
+  groups: ReshapeGroup[]
+}
+
+export interface ReshapeFlattenLong {
+  table: string
+  fields: string[]
+}
+
+export interface ReshapeFlattenWide {
+  table: string
+  keys: string[]
+  fields?: string[]
+}
+
+export interface ReshapeFlattenOp {
+  kind: 'flatten'
+  source: string
+  dialect?: ReshapeOpDialect
+  column: string
+  carry: string[]
+  long: ReshapeFlattenLong
+  wide: ReshapeFlattenWide
+}
+
+export type ReshapeOp = ReshapeExplodeOp | ReshapePivotOp | ReshapeFlattenOp
+
+/** 派生表 1 枚の列メタ — `origin` が K20 の出自（例:「もとの表で prop_y = "ZT"
+ *  だった行から」）。適用（apply）が書く。 */
+export interface ReshapeTableColumn {
+  name: string
+  unit?: string
+  origin?: string
+}
+
+export interface ReshapeTableMeta {
+  from: string
+  op: number
+  columns: ReshapeTableColumn[]
+}
+
+/** 保存則の実測（R11）。kind ごとにフィールドが違うので緩く持つ。 */
+export interface ReshapeOpCounts {
+  source_rows?: number
+  elements_in?: number
+  rows_out?: number
+  dropped_non_numeric?: number
+  truncated_length_mismatch?: number
+  /** pivot のみ: 群の slug → 一致行数（サーバは Counter をそのまま JSON にする
+   *  ので、スカラではなく群ごとの内訳）。 */
+  rows_matched?: Record<string, number>
+  rows_unmatched?: number
+  elements_matched?: number
+  tables?: Record<string, number>
+  entries_in?: number
+  entries_empty?: number
+  wide_rows_out?: number
+  wide_key_collisions?: number
+}
+
+/** ReshapeSpec（ADR §4.0）— `ops` の判断表だけが人の編集対象。`tables` と
+ *  `counts` は適用のたびにサーバが書く。 */
+export interface ReshapeSpec {
+  version: number
+  ops: ReshapeOp[]
+  tables?: Record<string, ReshapeTableMeta>
+  counts?: Record<string, ReshapeOpCounts>
+}
+
+/** detect() が返す1件の検出（R4）。`columns`/`evidence` は kind ごとに形が
+ *  違う自由形（表の形画面は kind と source だけで足りる）。 */
+export interface ReshapeDetection {
+  kind: 'explode' | 'pivot' | 'flatten'
+  source: string
+  columns: Record<string, unknown>
+  evidence: Record<string, unknown>
+}
+
+export interface StagingReshape {
+  staging_id: string
+  /** ソースごとの検出（見出し・帯の「ある/ない」判定に使う）。 */
+  detections: Record<string, ReshapeDetection[]>
+  /** 人がすでに適用した spec（`applied` = true のとき）、なければ機械の既定提案。 */
+  spec: ReshapeSpec
+  applied: boolean
+  tables: Record<string, ReshapeTableMeta>
+  counts: Record<string, ReshapeOpCounts>
+}
+
+export interface AppliedStagingReshape {
+  staging_id: string
+  spec: ReshapeSpec
+  applied: true
+  tables: Record<string, ReshapeTableMeta>
+  counts: Record<string, ReshapeOpCounts>
+  /** staging の sources 全体（raw ∪ 派生、R7）— そのまま `sources` state に使える。 */
+  sources: string[]
+}
+
+export interface ClearedStagingReshape {
+  staging_id: string
+  /** 消えた派生表名。 */
+  removed: string[]
+  sources: string[]
+}
+
+export interface DatasetReshapeLedger {
+  dataset_id: string
+  spec: ReshapeSpec
+  /** R14 で無効化された op の理由（`reshape.op_stale: …`）。 */
+  stale: string[]
+  counts: Record<string, ReshapeOpCounts>
+}
+
+/** GET /api/staging/{id}/reshape — 表の形画面が開くたびに読む（R12）。 */
+export async function getStagingReshape(stagingId: string): Promise<StagingReshape> {
+  const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}/reshape`)
+  if (!res.ok) await throwApiError(res, 'reshape')
+  return (await res.json()) as StagingReshape
+}
+
+/** POST /api/staging/{id}/reshape — 「ととのえて進む」／判断表を変えての再適用。
+ *  422（`reshape.invalid_spec` / `reshape.conservation`）は {@link ApiError} として
+ *  投げる。 */
+export async function applyStagingReshape(
+  stagingId: string,
+  spec: ReshapeSpec,
+): Promise<AppliedStagingReshape> {
+  const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}/reshape`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ spec }),
+  })
+  if (!res.ok) await throwApiError(res, 'reshape')
+  return (await res.json()) as AppliedStagingReshape
+}
+
+/** DELETE /api/staging/{id}/reshape — 「このまま進む」。適用済みの派生表を
+ *  取り消し、raw だけに戻す。 */
+export async function clearStagingReshape(stagingId: string): Promise<ClearedStagingReshape> {
+  const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}/reshape`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'reshape')
+  return (await res.json()) as ClearedStagingReshape
+}
+
+/** GET /api/datasets/{id}/reshape — 公開後の見直し台帳（R18/R19）。台帳を
+ *  一度も通らなかったデータセットは 404（呼び出し側で拾う）。 */
+export async function getDatasetReshape(datasetId: string): Promise<DatasetReshapeLedger> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/reshape`)
+  if (!res.ok) await throwApiError(res, 'reshape')
+  return (await res.json()) as DatasetReshapeLedger
+}
+
+/** PUT /api/datasets/{id}/reshape — 台帳を編集して再生成（R18/R21）。 */
+export async function putDatasetReshape(
+  datasetId: string,
+  spec: ReshapeSpec,
+): Promise<DatasetReshapeLedger> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/reshape`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ spec }),
+  })
+  if (!res.ok) await throwApiError(res, 'reshape')
+  return (await res.json()) as DatasetReshapeLedger
+}
