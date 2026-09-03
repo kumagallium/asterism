@@ -63,7 +63,18 @@ class Vocabulary:
 
 @dataclass(frozen=True)
 class VocabTerm:
-    """One real term in a curated vocabulary. ``iri == namespace + name``."""
+    """One real term in a curated vocabulary. ``iri == namespace + name`` unless the
+    vocabulary mints OPAQUE identifiers, in which case the real IRI is carried
+    explicitly (``explicit_iri``) and ``name`` holds the term's own ``skos:prefLabel``.
+
+    ⭐なぜ名前と IRI を分けられるようにするか: EMMO は語を
+    ``https://w3id.org/emmo#EMMO_4f2a...`` のような不透明 IRI で鋳造し、読める名前は
+    ``skos:prefLabel`` にしか無い（実測 2026-09-03: emmo# の 2,631 語中 1,967 語が
+    不透明）。名前＝IRI の末尾に固定したままでは、**照合できる語**（人も AI も
+    「Crystal」で探す）と**実在する IRI**（引用の同一性）のどちらかを諦めることに
+    なる。捏造しないという不変条件は IRI 側の話なので、そこは実ファイルの値を
+    そのまま持ち、照合は prefLabel でやる。
+    """
 
     prefix: str
     namespace: str
@@ -72,10 +83,12 @@ class VocabTerm:
     label: str
     vocab_title: str
     domain: str
+    #: 不透明 IRI の語彙だけが持つ。空なら ``namespace + name``（従来どおり）。
+    explicit_iri: str = ""
 
     @property
     def iri(self) -> str:
-        return self.namespace + self.name
+        return self.explicit_iri or (self.namespace + self.name)
 
     @property
     def curie(self) -> str:
@@ -134,6 +147,8 @@ class _Indexed:
     # leading has/is/was dropped (so "structure" can match "hasStructure").
     tokens: frozenset[str]
     core_norm: str  # name_norm with a leading has/is/was prefix removed
+    #: 語彙がカタログに並んでいる順。同点のときの優先順位に使う（下記 ``ground_terms``）。
+    vocab_rank: int = 0
 
 
 @functools.lru_cache(maxsize=1)
@@ -185,6 +200,7 @@ def _all_terms() -> tuple[VocabTerm, ...]:
                     label=str(t.get("label", t["name"])),
                     vocab_title=title,
                     domain=domain,
+                    explicit_iri=str(t.get("iri", "")),
                 )
             )
     return tuple(out)
@@ -193,6 +209,8 @@ def _all_terms() -> tuple[VocabTerm, ...]:
 @functools.lru_cache(maxsize=1)
 def _index() -> tuple[_Indexed, ...]:
     idx: list[_Indexed] = []
+    # カタログに並んでいる順＝「その分野で当てにする順」。同点の決着に使う。
+    rank_of = {v.prefix: i for i, v in enumerate(load_catalog())}
     for term in _all_terms():
         name_tokens = _split(term.name)
         label_tokens = _split(term.label)
@@ -208,6 +226,7 @@ def _index() -> tuple[_Indexed, ...]:
                 label_norm=_norm(term.label),
                 tokens=frozenset(tokens),
                 core_norm="".join(core_tokens),
+                vocab_rank=rank_of.get(term.prefix, len(rank_of)),
             )
         )
     return tuple(idx)
@@ -258,8 +277,23 @@ def ground_terms(
         score, match = _score(q_norm, q_tokens, ix)
         if score > 0:
             scored.append((score, match, ix))
-    # Deterministic ordering: score desc, then shortest name, then prefix, then name.
-    scored.sort(key=lambda s: (-s[0], len(s[2].term.name), s[2].term.prefix, s[2].term.name))
+    # Deterministic ordering: score desc, then the CATALOG's own vocabulary order,
+    # then shortest name, then prefix, then name.
+    #
+    # ⭐同点のときにアルファベット順で決めると、優先されるべき標準が押しのけられる
+    # （実測 2026-09-03: EMMO を入れた直後、"quantity" が qudt:Quantity ではなく
+    # emmo:Quantity を先頭にした — 'emmo' < 'qudt' というだけの理由で）。この
+    # カタログは既に「その分野で当てにする順」に並べてある（材料 → 汎用）ので、
+    # 並び順そのものを優先順位として使う。curation の判断を 1 か所に保てる。
+    scored.sort(
+        key=lambda s: (
+            -s[0],
+            s[2].vocab_rank,
+            len(s[2].term.name),
+            s[2].term.prefix,
+            s[2].term.name,
+        )
+    )
     return [
         Candidate(
             iri=ix.term.iri,

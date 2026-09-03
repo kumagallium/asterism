@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -104,6 +105,40 @@ def _label_of(g: rdflib.Graph, subject: rdflib.term.Node) -> str:
     return ""
 
 
+def extract_terms_by_label(g: rdflib.Graph, namespace: str) -> list[dict]:
+    """不透明 IRI の語彙用: 照合名は ``skos:prefLabel``、IRI は実ファイルの値そのまま。
+
+    EMMO のように ``…#EMMO_4f2a…`` で語を鋳造する語彙は、局所名では誰も探せない
+    （人も AI も「Crystal」で探す）。名前は prefLabel を採り、``iri`` を明示して
+    実在する識別子を保つ — 捏造しないという不変条件は IRI 側の話。
+    """
+    found: dict[str, dict] = {}
+    for kinds, kind in ((_CLASS_TYPES, "class"), (_PROPERTY_TYPES, "property")):
+        for rdf_type in kinds:
+            for subject in g.subjects(_RDF.type, rdf_type):
+                if not isinstance(subject, rdflib.URIRef):
+                    continue
+                iri = str(subject)
+                if not iri.startswith(namespace):
+                    continue
+                name = next(
+                    (str(o) for o in g.objects(subject, _SKOS.prefLabel) if isinstance(o, rdflib.Literal)),
+                    "",
+                ).strip()
+                # 照合に使えない名前（空・空白入り）は採らない
+                if not name or " " in name:
+                    continue
+                if name in found and found[name]["kind"] == "class":
+                    continue
+                found[name] = {
+                    "name": name,
+                    "kind": kind,
+                    "label": _label_of(g, subject) or name,
+                    "iri": iri,
+                }
+    return sorted(found.values(), key=lambda t: t["name"])
+
+
 def extract_terms(g: rdflib.Graph, namespace: str) -> list[dict]:
     """``namespace`` 直下にあり ``iri == namespace + name`` を満たす語だけ。
 
@@ -160,22 +195,31 @@ def _append_terms(prefix: str, terms: list[dict]) -> int:
         len(lines),
     )
     terms_at = next(
-        (i for i in range(start, end) if lines[i].strip() == "terms:"),
+        (i for i in range(start, end) if lines[i].strip() in ("terms:", "terms: []")),
         -1,
     )
     if terms_at < 0:
         raise SystemExit(f"{prefix} has no `terms:` block")
-    insert_at = end
-    for i in range(terms_at + 1, end):
-        if lines[i].strip() and not lines[i].lstrip().startswith(("-", "#")):
-            insert_at = i
-            break
-    else:
-        insert_at = end
-    while insert_at > terms_at + 1 and not lines[insert_at - 1].strip():
-        insert_at -= 1
+    # まだ語が 1 つも無い語彙は `terms: []`（インラインの空リスト）で書かれている。
+    # 下にぶら下げるためにブロック形式へ開く。
+    if lines[terms_at].strip() == "terms: []":
+        lines[terms_at] = lines[terms_at].replace("terms: []", "terms:")
+    # 既存の語がある場合はその最後の行の直後、無ければ `terms:` の直後に入れる。
+    # ⭐後者を「ブロックの終わり」にすると、**次の節の見出しコメントの後ろ**に
+    # 潜り込む（実測: emmo の初回取り込みで「Generic / cross-domain」の見出しの
+    # 下に材料語彙の語が並んだ）。
+    last_item = max(
+        (i for i in range(terms_at + 1, end) if lines[i].lstrip().startswith("- ")),
+        default=-1,
+    )
+    insert_at = last_item + 1 if last_item >= 0 else terms_at + 1
     block = [
-        f"      - {{ name: {t['name']}, kind: {t['kind']}, label: {_yaml_scalar(t['label'])} }}\n"
+        (
+            f"      - {{ name: {t['name']}, kind: {t['kind']}, "
+            f"label: {_yaml_scalar(t['label'])}"
+            + (f", iri: {t['iri']}" if t.get("iri") else "")
+            + " }\n"
+        )
         for t in terms
     ]
     lines[insert_at:insert_at] = block
@@ -190,6 +234,24 @@ def main() -> int:
     ap.add_argument("--verify", action="store_true", help="収録済みの語が実ファイルに在るか確かめる")
     ap.add_argument("--add", default="", help="追記する語の name（カンマ区切り）")
     ap.add_argument("--write", action="store_true", help="--add を実際に書き込む")
+    ap.add_argument(
+        "--label-names",
+        action="store_true",
+        help="不透明 IRI の語彙: 照合名に skos:prefLabel を使い、iri を明示して書く",
+    )
+    ap.add_argument(
+        "--exclude",
+        default="",
+        help="この正規表現に当たる名前は採らない（機械的な分類の除外用）",
+    )
+    ap.add_argument(
+        "--exclude-under",
+        default="",
+        help=(
+            "この名前の下位クラスを採らない（カンマ区切り）。名前の形ではなく"
+            "オントロジー自身の階層で外すので、'Ampere' のような語も正しく落ちる"
+        ),
+    )
     args = ap.parse_args()
 
     prefixes = [args.prefix] if args.prefix else [v["prefix"] for v in _catalog()["vocabularies"]]
@@ -209,7 +271,42 @@ def main() -> int:
             print(f"{prefix}: 取得/解析できず ({exc})")
             exit_code = 1
             continue
-        terms = extract_terms(g, namespace)
+        terms = (
+            extract_terms_by_label(g, namespace)
+            if args.label_names
+            else extract_terms(g, namespace)
+        )
+        if args.exclude_under:
+            roots = {r.strip() for r in args.exclude_under.split(",") if r.strip()}
+            by_name = {t["name"]: t for t in terms}
+            root_iris = {
+                rdflib.URIRef(by_name[r]["iri"]) for r in roots if r in by_name and by_name[r].get("iri")
+            }
+            if not root_iris:
+                print(f"{prefix}: --exclude-under の根が見つからない: {sorted(roots)}")
+            else:
+                def _under(iri: str, g: rdflib.Graph = g, root_iris: set = root_iris) -> bool:
+                    seen: set = set()
+                    stack = [rdflib.URIRef(iri)]
+                    while stack:
+                        node = stack.pop()
+                        for parent in g.objects(node, _RDFS.subClassOf):
+                            if not isinstance(parent, rdflib.URIRef) or parent in seen:
+                                continue
+                            if parent in root_iris:
+                                return True
+                            seen.add(parent)
+                            stack.append(parent)
+                    return False
+
+                before = len(terms)
+                terms = [t for t in terms if not (t.get("iri") and _under(t["iri"]))]
+                print(f"{prefix}: 除外 {before - len(terms)} 語（{', '.join(sorted(roots))} の下位）")
+        if args.exclude:
+            drop = re.compile(args.exclude)
+            before = len(terms)
+            terms = [t for t in terms if not drop.search(t["name"])]
+            print(f"{prefix}: 除外 {before - len(terms)} 語（--exclude {args.exclude}）")
         names = {t["name"] for t in terms}
         missing = sorted(have - names)
         new = [t for t in terms if t["name"] not in have]
