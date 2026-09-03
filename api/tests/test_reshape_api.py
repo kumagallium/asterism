@@ -736,3 +736,107 @@ def test_reshape_reads_staged_source_through_detected_dialect(
         rows = list(csv.DictReader(table_bytes.decode("utf-8").splitlines()))
         assert rows
         assert {"id", "x", "y"} <= set(rows[0].keys())
+
+
+# ===========================================================================
+# 8. R22 — derived tables get an inspect row cap, raw sources do not
+# ===========================================================================
+
+
+def test_inspect_staging_caps_derived_tables_not_raw(
+    tmp_path: Path, healthy_client, monkeypatch
+) -> None:
+    """After a staging round applies reshape, ``/api/inspect`` must pass
+    ``max_rows_by_name`` for exactly the derived tables (never the raw
+    sources) to :func:`inspect_source_set` (ADR source-reshape.md R22)."""
+    import asterism_api.main as main_mod
+
+    calls: list[dict] = []
+    orig = main_mod.inspect_source_set
+
+    def capturing(*args, **kwargs):
+        calls.append(kwargs)
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(main_mod, "inspect_source_set", capturing)
+
+    with _client(tmp_path, healthy_client) as client:
+        sid = _stage_three(client)
+        raw_sources = set(client.get(f"/api/staging/{sid}").json()["sources"])
+        spec = client.get(f"/api/staging/{sid}/reshape").json()["spec"]
+        applied = client.post(f"/api/staging/{sid}/reshape", json={"spec": spec})
+        assert applied.status_code == 200, applied.text
+        derived = set(applied.json()["sources"]) - raw_sources
+        assert derived
+
+        calls.clear()
+        r = client.post("/api/inspect", data={"staging_id": sid})
+        assert r.status_code == 200, r.text
+        assert calls, "inspect_source_set was not called"
+        max_rows_by_name = calls[0]["max_rows_by_name"]
+        assert set(max_rows_by_name) == derived
+        assert all(v == main_mod._RESHAPE_INSPECT_MAX_ROWS for v in max_rows_by_name.values())
+        assert not raw_sources & set(max_rows_by_name)
+
+
+def test_inspect_staging_before_reshape_applied_has_no_cap(
+    tmp_path: Path, healthy_client, monkeypatch
+) -> None:
+    """No reshape spec has been applied this staging round yet -> no derived
+    tables -> ``max_rows_by_name`` is empty (byte-identical to before R22)."""
+    import asterism_api.main as main_mod
+
+    calls: list[dict] = []
+    orig = main_mod.inspect_source_set
+
+    def capturing(*args, **kwargs):
+        calls.append(kwargs)
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(main_mod, "inspect_source_set", capturing)
+
+    with _client(tmp_path, healthy_client) as client:
+        sid = _stage_three(client)
+        r = client.post("/api/inspect", data={"staging_id": sid})
+        assert r.status_code == 200, r.text
+        assert calls[0]["max_rows_by_name"] == {}
+
+
+def test_reshape_derived_names_for_staging_reads_applied_spec(
+    tmp_path: Path, healthy_client
+) -> None:
+    """Unit test for the helper itself: reads the applied spec off the staged
+    record's ``meta.json``, empty before apply."""
+    import asterism_api.main as main_mod
+
+    with _client(tmp_path, healthy_client) as client:
+        sid = _stage_three(client)
+        sdir = staging.dir_for(tmp_path / "registry", sid)
+        assert main_mod._reshape_derived_names_for_staging(sdir) == set()
+
+        spec = client.get(f"/api/staging/{sid}/reshape").json()["spec"]
+        client.post(f"/api/staging/{sid}/reshape", json={"spec": spec})
+        names = main_mod._reshape_derived_names_for_staging(sdir)
+        assert "starrydata_curves__zt.csv" in names
+
+
+def test_reshape_derived_names_for_dataset_reads_ledger(
+    tmp_path: Path, healthy_client
+) -> None:
+    """Unit test for the dataset-side helper: reads ``<id>/reshape.json``,
+    empty before any reshape ledger exists."""
+    import asterism_api.main as main_mod
+
+    with _client(tmp_path, healthy_client) as client:
+        dataset_id = _save_dataset_with_rml(tmp_path)
+        registry_root = tmp_path / "registry"
+        assert main_mod._reshape_derived_names_for_dataset(registry_root, dataset_id) == set()
+
+        sid = _stage_three(client)
+        spec = client.get(f"/api/staging/{sid}/reshape").json()["spec"]
+        client.post(f"/api/staging/{sid}/reshape", json={"spec": spec})
+        r = client.post(f"/api/datasets/{dataset_id}/source", data={"staging_id": sid})
+        assert r.status_code == 200, r.text
+
+        names = main_mod._reshape_derived_names_for_dataset(registry_root, dataset_id)
+        assert "starrydata_curves__zt.csv" in names

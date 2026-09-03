@@ -2841,6 +2841,47 @@ def _delete_reshape_ledger(registry_root: Path, dataset_id: str) -> bool:
     return True
 
 
+# R22: a derived table (reshape's explode/pivot/flatten output) is a
+# MACHINE-GENERATED table — every column's type is uniform by construction —
+# so inspection can decide it from a head sample instead of a full scan. A
+# raw source keeps NO cap (a human's own file may be irregular). Measured on
+# Starrydata's 1.2M-row long table: 94s -> a few seconds.
+_RESHAPE_INSPECT_MAX_ROWS = 50_000
+
+
+def _reshape_derived_names_for_dataset(registry_root: Path, dataset_id: str) -> set[str]:
+    """The dataset's OWN derived-table basenames (its ``reshape.json`` ledger's
+    applied spec), or the empty set when there is no reshape ledger (never
+    raises)."""
+    ledger = _load_reshape_ledger(registry_root, dataset_id)
+    spec = ledger.get("spec") if isinstance(ledger, dict) else None
+    if not isinstance(spec, dict):
+        return set()
+    return set(reshape.derived_tables(spec))
+
+
+def _reshape_derived_names_for_staging(sdir: Path) -> set[str]:
+    """A staged record's derived-table basenames (its APPLIED reshape spec,
+    ``meta["reshape"]["spec"]``), or the empty set when reshape was never
+    applied this round (never raises)."""
+    try:
+        meta = _staging_meta(sdir)
+    except Exception:
+        return set()
+    reshape_meta = meta.get("reshape") if isinstance(meta.get("reshape"), dict) else {}
+    spec = reshape_meta.get("spec") if isinstance(reshape_meta, dict) else None
+    if not isinstance(spec, dict):
+        return set()
+    return set(reshape.derived_tables(spec))
+
+
+def _reshape_inspect_max_rows_by_name(derived_names: Collection[str]) -> dict[str, int]:
+    """``inspect_source_set``'s ``max_rows_by_name`` for a set of derived-table
+    basenames — every name capped at :data:`_RESHAPE_INSPECT_MAX_ROWS`, a raw
+    source (not in ``derived_names``) untouched."""
+    return {name: _RESHAPE_INSPECT_MAX_ROWS for name in derived_names}
+
+
 def _reshape_header(path: Path, op: dict) -> list[str] | None:
     """The header row of ``path`` read under the dialect ``op`` pins (R14/R15).
     ``None`` when the file is missing or unreadable — :func:`check_op_against_header`
@@ -4279,12 +4320,17 @@ def _display_meta_path(registry_root: Path, dataset_id: str) -> Path | None:
 
 
 def _source_column_names(
-    paths: list[Path], rml_ttl: str | None
+    paths: list[Path],
+    rml_ttl: str | None,
+    max_rows_by_name: Mapping[str, int] | None = None,
 ) -> dict[str, set[str]]:
     """Read exact current headers for decision reconciliation.
 
     A source absent from the result was not inspectable and must not cause a
-    persisted decision to be discarded.
+    persisted decision to be discarded. ``max_rows_by_name`` (R22) caps a
+    derived table's column profile — this only reads names, but inspection
+    still scans the whole file for uniqueness otherwise, so a reshape-produced
+    table benefits the same way the other design entrances do.
     """
     try:
         dialects = _dialected_sources(str(rml_ttl or ""))
@@ -4295,7 +4341,9 @@ def _source_column_names(
         if path.suffix.lower() not in _SAMPLEABLE_SUFFIXES:
             continue
         try:
-            inspections, _ = inspect_source_set([path], dialects=dialects or None)
+            inspections, _ = inspect_source_set(
+                [path], dialects=dialects or None, max_rows_by_name=max_rows_by_name
+            )
         except Exception:
             logger.warning("decision reconciliation: %s could not be read", path.name)
             continue
@@ -5595,9 +5643,18 @@ def build_app(
             prefix="asterism-inspect-",
             sheets_out=sheets,
         )
+        # R22: derived tables (this staging round's reshape output) get a
+        # row cap — they are machine-generated, so a head sample decides
+        # their type as well as a full scan does. Raw sources (no reshape,
+        # or files-only with no staging_id) keep no cap.
+        derived_names = _reshape_derived_names_for_staging(work) if staging_id else set()
         try:
             try:
-                inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
+                inspections, fks = inspect_source_set(
+                    paths,
+                    fk_hint_columns=fk or None,
+                    max_rows_by_name=_reshape_inspect_max_rows_by_name(derived_names),
+                )
             except UnicodeDecodeError as exc:
                 raise HTTPException(
                     422,
@@ -7143,6 +7200,9 @@ def build_app(
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         rml_ttl = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
         paths = _design_source_files(cfg.registry_root, dataset_id)
+        # R22: cap the derived tables this dataset's reshape ledger produced.
+        derived_names = _reshape_derived_names_for_dataset(cfg.registry_root, dataset_id)
+        max_rows_by_name = _reshape_inspect_max_rows_by_name(derived_names)
 
         def run() -> dict[str, object]:
             if not paths:
@@ -7166,7 +7226,9 @@ def build_app(
                 if path.suffix.lower() not in _SAMPLEABLE_SUFFIXES:
                     continue
                 try:
-                    inspections, _fks = inspect_source_set([path], dialects=dialects or None)
+                    inspections, _fks = inspect_source_set(
+                        [path], dialects=dialects or None, max_rows_by_name=max_rows_by_name
+                    )
                 except Exception:
                     logger.warning("source samples: %s could not be read", path.name)
                     continue
@@ -7469,6 +7531,15 @@ def build_app(
             # accepted as a browser assertion.
             decision.pop("datatype", None)
 
+        # R22: the derived tables in play here — the dataset's own reshape
+        # ledger (persisted source), plus the staged round's applied spec
+        # when this call is reading a staged copy instead (see ``source_paths``
+        # below: persisted wins, staged is the fallback).
+        derived_names = _reshape_derived_names_for_dataset(cfg.registry_root, dataset_id)
+        if body.staging_id:
+            derived_names |= _reshape_derived_names_for_staging(source_dir)
+        max_rows_by_name = _reshape_inspect_max_rows_by_name(derived_names)
+
         def run() -> dict[str, object]:
             merged_decisions = _merge_column_decisions(existing_decisions, incoming)
             persisted = registry.list_source_files(cfg.registry_root, dataset_id)
@@ -7489,6 +7560,7 @@ def build_app(
                 inspections, _ = inspect_source_set(
                     [source_paths[name] for name in sorted(requested_sources)],
                     dialects=mapping_ir.dialects or None,
+                    max_rows_by_name=max_rows_by_name,
                 )
             except (OSError, UnicodeError, ValueError) as exc:
                 raise HTTPException(422, f"could not inspect dataset source: {exc}") from exc
@@ -8656,7 +8728,15 @@ def build_app(
         if decisions:
             paths = registry.list_source_files(cfg.registry_root, dataset_id)
             source_names = {path.name for path in paths}
-            source_columns = await asyncio.to_thread(_source_column_names, paths, rml_ttl)
+            # R22: this attach just (re)generated the derived tables above —
+            # cap their column profile the same as every other design entrance.
+            derived_names = _reshape_derived_names_for_dataset(cfg.registry_root, dataset_id)
+            source_columns = await asyncio.to_thread(
+                _source_column_names,
+                paths,
+                rml_ttl,
+                _reshape_inspect_max_rows_by_name(derived_names),
+            )
             kept_decisions = [
                 decision
                 for decision in decisions
