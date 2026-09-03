@@ -1,11 +1,11 @@
 {
-  "version": "0.42.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 38a135da7750a2ccd1a1eb551193bd973d932f74 -->\n\n## What's Changed\n* feat: Phase 2 残タスク — D3 行版（同格の ID をそう言う）+ 語彙カタログ 111→596 語 by @kumagallium in https://github.com/kumagallium/asterism/pull/563\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.41.0...v0.42.0",
-  "pub_date": "2026-09-03T00:02:23Z",
+  "version": "0.43.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 8cfe052666ef3806cae3a223595c7e2f9955ccee -->\n\n## What's Changed\n* feat(grounding): 語彙カタログ 596→2,398 語（EMMO 収録・不透明 IRI 対応・同点の決着） by @kumagallium in https://github.com/kumagallium/asterism/pull/565\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.42.0...v0.43.0",
+  "pub_date": "2026-09-03T05:16:38Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWFWNXYvNkhaVlVTdXIyVGRDa2hTa3g4akgva2ZFbmtaWVNZRGc3M0xITnFRTVk4MTAxRnFpeGZmS0lMdTFpUFNlNVlkWTR0MWMxV0pzTXBUL00xaXdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MzkzNzQyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmYvSzh0MXhhQzFPVUlHcTNwZThTTkl4c0tTOG1kNmltU2U4SVdPbVFBUk85RmNHM0ZXMHJub3VqeThoVCtZRUtrTDNudHlkdmVldjJLd0t1aWhTTkFBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.42.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVZLR3FMaEg5K3RlbnplR2xVQlVZVU9vNGZFaEFmTDh4aXJhb0NENEtoU0RPWDBnaEhMYldUYmxxRHJBVTV5aDY3R1BzUUJSTWs0dWhBM3Z0R2ExSWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDEyNTk3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkRETFZER2MwaDUwWDUvMlp5MU05WlVYbnFpcXZOWFlSTEU2SHdxanJpODd6bXYwWGY4OW9wS1B6alIvb3NLa3JEd0lVYWZaa2R0MktpZThvUStnMENBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.43.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
