@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.43.0](https://github.com/kumagallium/asterism/compare/v0.42.0...v0.43.0) - 2026-09-03
+
+- feat(grounding): 語彙カタログ 596→2,398 語（EMMO 収録・不透明 IRI 対応・同点の決着） by @kumagallium in https://github.com/kumagallium/asterism/pull/565
+
 ## [v0.42.0](https://github.com/kumagallium/asterism/compare/v0.41.0...v0.42.0) - 2026-09-02
 
 - feat: Phase 2 残タスク — D3 行版（同格の ID をそう言う）+ 語彙カタログ 111→596 語 by @kumagallium in https://github.com/kumagallium/asterism/pull/563
