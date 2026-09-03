@@ -43,11 +43,11 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 | R1 | 層の位置 | `ingest/src/asterism/reshape.py` に**検出・提案・適用・保存則**を持つ決定論の純関数群を置く。api が staging（①）・attach・append で呼ぶ。step0 には依存させない | tabularize.py（xlsx→CSV）と同じ層・同じ呼ばれ方 |
 | R2 | 操作の閉集合 | `explode`・`pivot`・`flatten` の **3 つだけ**。新しい操作は人が vet して足す | `ingestion-execution-safety.md` §3 option 2（固定関数の閉集合＋宣言データ）。Tier 0 がセル変換、reshape は行×列の再構成 |
 | R3 | 宣言の形 | `ReshapeSpec`（JSON, §4.0）。op ごとに入力表・出力表名・列名・判断表（別名・単位・持ち回り列・凍結したフィールド）・読み方（dialect）を持つ。適用のたびに `counts` を記録 | 判断表がそのまま宣言＝K44 と同じ「人の宣言が台帳」 |
-| R4 | 検出は沈黙が既定 | 証拠が揃ったときだけ提案する。判定は**ファイル先頭 20,000 行**（決定論の接頭辞）で行う。**配列セル**: 非空セルの全部が JSON の数値配列。並行列は行ごとの長さが 95% 以上一致。**値としての物性名**: 文字列列の distinct が 2〜200 かつユニーク率 ≤ 60% で、**単位らしき列がラベルに関数従属**（ラベルの 90% 以上が単位 1 つ）。distinct が 200 を超えたら「多すぎる」として黙る。**入れ子 JSON**: 非空セルの全部が JSON オブジェクト（JSON 文字列を 2 段までほどく） | G7「証拠が無ければ黙る」。単位列の従属を要求するのは、測定の long 表には必ず単位列があり、ただのカテゴリ列（`category` + 数値列）を誤爆しないため |
-| R5 | 既定の提案は綴りだけ畳む | 既定の判断表は**全行**のラベル・単位列を走査して作る。群は**空白正規化＋大文字小文字**の同一視だけで作り、群の代表表記は最頻の綴り、群の単位は最頻の単位 1 つ。同数の tie は**ファイル内で先に現れた方**。`thermopower`→Seebeck のような語の同一視、`ohm^(-1)*m^(-1)`＝`S/m` のような単位の同一視は**人が足す**。人が編集した判断表は機械の既定を**置き換える**（既定は種にすぎない） | 語の同一視は curation（§1）。tie-break と母集団を決めないと決定論にならない |
+| R4 | 検出は沈黙が既定 | 証拠が揃ったときだけ提案する。判定は**ファイル全体から等間隔に取った 20,000 行**（行数を数えてから stride = ⌈行数/20,000⌉ で拾う。決定論）で行う。**配列セル**: 非空セルの全部が JSON の数値配列。並行列は行ごとの長さが 95% 以上一致。**値としての物性名**: 文字列列の distinct が 2〜200 かつ 1 回しか現れない値の行が 60% 以下で、**単位らしき列がラベルに関数従属**（ラベルの 90% 以上が単位 1 つ）し、値列（配列または数値）が同じ行にある。partner（もう 1 組のラベル＋単位＋値）は distinct が 1 でもよい（x 軸が全部 Temperature でも partner）。distinct が 200 を超えたら「多すぎる」として黙る。**入れ子 JSON**: 非空セルの 90% 以上が JSON オブジェクト（JSON 文字列を 2 段までほどく）。キーが 1 種類だけで値がスカラでもオブジェクトでもない（配列だけ）なら黙る | G7「証拠が無ければ黙る」。先頭だけの接頭辞は分布が偏る（Starrydata は先頭 20,000 行が熱電だけで `prop_x` が 1 種）。単位列の従属を要求するのは、測定の long 表には必ず単位列があり、ただのカテゴリ列（`category` + 数値列）を誤爆しないため |
+| R5 | 既定の提案は綴りだけ畳む | 既定の判断表は**全行**のラベル・単位列を走査して作る。群は**空白正規化＋大文字小文字**の同一視だけで作り、群の代表表記は最頻の綴り、群の単位は最頻の単位 1 つ。同数の tie は**ファイル内で先に現れた方**。`thermopower`→Seebeck のような語の同一視、`ohm^(-1)*m^(-1)`＝`S/m` のような単位の同一視、`T`→Temperature のような略記は**人が足す**。群には `enabled` があり、既定で有効なのは**行数上位 12 群**（同数は初出順）。残りは判断表に載るが表は作らず元表に残る。人が編集した判断表は機械の既定を**置き換える**（既定は種にすぎない） | 語の同一視は curation（§1）。169 種すべてに表を作ると裾野の表が 5 行単位で 150 枚並ぶ。tie-break と母集団を決めないと決定論にならない |
 | R6 | 単位が違う行は畳まない | 群に入る行は（ラベル, 単位）の対が判断表にあるものだけ。**同じ (ラベル, 単位) は高々 1 つの群にしか属せない**（読み込み時に重複を拒否）。単位の違う行は元表に残るだけで、型付き表には入らない | 値を変えない。二重計上を許すと保存則が壊れる |
-| R7 | 裾野は元表に残す | pivot は選ばれた群の表だけ作る。どの群にも入らない行は元表に残り、消えない。全ラベルを 1 つの long 表に展開するのは人のオプトイン | 電池・磁性など 84,000 曲線を EAV で展開しても「値としての物性名」が復活するだけ |
-| R8 | 持ち回り列 | 派生表は入力の **ID らしい列**（名前が `id` / `sid` / `key` / `index` / `no` で終わる）と、**決まった書き方の列**（文字列列で、非空値の 90% 以上が空白を含まず 40 文字以内。組成・DOI・図番号がこれ）を持ち回る。op が消費する列（配列・ラベル・単位・値・JSON）は除く。合計が 12 列を超えたら ID らしい列だけにして助言を出す。判断表に「追加で持ち回る列」を専用の行として出す | ④「外とのつながり」（D2）は組成のような決まった書き方の列を候補に見る。派生表にその列が無ければ判断のしようがない |
+| R7 | 裾野は元表に残す | pivot は `enabled` な群の表だけ作る。どの群にも入らない行・無効な群の行は元表に残り、消えない。全ラベルを 1 つの long 表に展開する単独の `explode` は、同じ配列を pivot が使うときは提案しない（人のオプトイン） | 電池・磁性など 84,000 曲線を EAV で展開しても「値としての物性名」が復活するだけ。480 万行の表を黙って作らない |
+| R8 | 持ち回り列 | 派生表は入力の **ID らしい列**（名前が `id` / `sid` / `key` / `index` / `no` で終わる）と、**決まった書き方の列**（文字列列で、非空値の 90% 以上が空白を含まず 40 文字以内。組成・DOI・図番号がこれ）を持ち回る。op が消費する列（配列・ラベル・単位・値・JSON）と、JSON の配列・オブジェクトが入った列（`project_names` のような `["…"]`）は除く。合計が 12 列を超えたら ID らしい列だけにして助言を出す。判断表に「追加で持ち回る列」を専用の行として出す | ④「外とのつながり」（D2）は組成のような決まった書き方の列を候補に見る。派生表にその列が無ければ判断のしようがない |
 | R9 | 列名と出自 | pivot の値列はラベルの slug（`zt`, `seebeck_coefficient`）、partner 列は partner ラベルの slug（`temperature`）。単位は列名に入れず、派生表の**列メタ**（`columns[].unit`）に残す。列メタには**出自**（`origin`: 「もとの表で prop_y = "ZT" だった行から」＋畳んだ表記の一覧）も必ず持ち、③項目の意味の当該行に 1 行で添える | K13 の「名前は機械が導く」。K20: 機械が付けた名前を人に問うときは出自を必ず示す |
 | R10 | 表名 | `<stem>__<slug>.csv`（xlsx の `<stem>__<sheetslug>.csv` と同じ）。flatten の wide は `<stem>__<colslug>-wide.csv`。衝突は名前のハッシュで解く | 既存の命名規約を増やさない |
 | R11 | 保存則 | 適用のたびに op ごとの `counts` を計算し、次の式を検査する。崩れたら 422 で何も書かない。**explode**: `elements_in = rows_out + dropped_non_numeric + truncated_length_mismatch`、`parent_rows_in = source_rows`。**pivot**: `source_rows = Σ群 rows_matched + rows_unmatched`、`elements_matched = Σ表 rows_out + dropped_non_numeric + truncated_length_mismatch`。**flatten(long)**: `entries_in = rows_out + entries_empty`。**flatten(wide)**: `rows_out = source_rows`、`wide_key_collisions` を数える（黙って上書きしない） | reshape のバグは行を落とす／二重にする形で出る。式が op ごとに無いと検査できない |
@@ -78,10 +78,17 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
      "label": "prop_y", "unit": "unit_y", "value": "y",
      "partner": {"label": "prop_x", "unit": "unit_x", "value": "x"},
      "groups": [
-       {"slug": "zt", "label": "ZT", "unit": "-", "table": "curves__zt.csv",
-        "members": [{"label": "ZT", "unit": "-"}],
+       {"slug": "zt", "label": "ZT", "unit": "-", "table": "curves__zt.csv", "enabled": true, "rows": 20684,
+        "members": [{"label": "ZT", "unit": "-", "rows": 20684}],
+        "other_units": [],
         "partner": {"slug": "temperature", "label": "Temperature", "unit": "K",
-                    "members": [{"label": "Temperature", "unit": "K"}, {"label": "T", "unit": "K"}]}}
+                    "members": [{"label": "Temperature", "unit": "K"}, {"label": "T", "unit": "K"}]}},
+       {"slug": "electrical-conductivity", "label": "Electrical conductivity", "unit": "ohm^(-1)*m^(-1)",
+        "table": "curves__electrical-conductivity.csv", "enabled": true, "rows": 13871,
+        "members": [{"label": "Electrical conductivity", "unit": "ohm^(-1)*m^(-1)", "rows": 13871}],
+        "other_units": [{"label": "Electrical conductivity", "unit": "S*m^(-1)", "rows": 7214}],
+        "partner": {"slug": "temperature", "label": "Temperature", "unit": "K",
+                    "members": [{"label": "Temperature", "unit": "K"}]}}
      ]},
     {"kind": "flatten", "source": "samples.csv", "dialect": {}, "column": "sample_info",
      "carry": ["SID", "sample_id"],
@@ -101,7 +108,7 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 }
 ```
 
-`dialect` は op が読む raw の読み方（`source-dialect.md` の 6 フィールド。既定は `{}`）。`tables` と `counts` は適用が書く。判断表（`carry` / `groups` / `long.fields` / `wide.keys`）だけが人の編集対象。
+`dialect` は op が読む raw の読み方（`source-dialect.md` の 6 フィールド。既定は `{}`）。`tables` と `counts` は適用が書く。判断表（`carry` / `groups` の `enabled`・`members`・`partner.members` / `long.fields` / `wide.keys`）だけが人の編集対象。`other_units` は同じ物性で単位の綴りが違う行（R6 で畳まれなかったもの）を人に見せるための候補で、人が `members` に移して初めて畳まれる。`rows` は全行走査の一致行数（ゲートの表示用）。
 
 ### 4.1 explode
 
@@ -116,11 +123,11 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 ### 4.3 flatten
 
 入力: 表 T、JSON オブジェクト列 J（JSON 文字列を 2 段までほどく）、持ち回り列 C、long（表名・凍結フィールド F）、wide（表名・凍結キー K・凍結フィールド F′）。
-出力（long）: (C…, key, key_raw, value, F の各列, value_json)。`key` は空白正規化（前後を落とし、連続空白を 1 つに）、`key_raw` は元。値がスカラなら `value`、オブジェクトなら F にある field を列に、F に無い field は `value_json` に JSON のまま。値が空（"", "{}", "[]", null）のエントリは `entries_empty`。スカラ値・field 値も R16 と同じく元トークンのまま（オブジェクトも `parse_int=str, parse_float=str` で読む）。
+出力（long）: (C…, key, key_raw, value, F の各列, value_json)。`key` は空白正規化（前後を落とし、連続空白を 1 つに。**大文字小文字は変えない**＝人の付けたキーの綴りを保つ）、`key_raw` は元。値がスカラなら `value`、オブジェクトなら F にある field を列に、F に無い field は `value_json` に JSON のまま。値が空（"", "{}", "[]", null）のエントリは `entries_empty`。スカラ値・field 値も R16 と同じく元トークンのまま（オブジェクトも `parse_int=str, parse_float=str` で読む）。
 出力（wide）: T の写し + K の各キーについて、スカラなら `<key>`、オブジェクトなら F′ の各 field を `<key>__<field>`。K に無いキーは列を作らない。K の選定と列名は long と同じ空白正規化を通した `key` で行う。正規化後に同じ `key` になる生キーが複数あれば（`" coercivity"` と `"coercivity"`）同じ列に入り、1 行の中で 2 つの生キーが同じ列を取り合ったら**初出の生キーが勝ち**、負けた側は long にだけ残して `wide_key_collisions` に数える。列名が既存列（T の列）と衝突したら `<key>__1` のように連番で逃がす。
 既定: long は常に（F = 先頭 20,000 行で見えた field の充足率順・上位 8）、wide は充足率 25% 以上のキー上位 12 個（F′ = 各キーで最頻の field 1 つ）。充足率・頻度の同数 tie は**先頭 20,000 行の中での初出順**（R5 と同じ）。F・K・F′ は提案時に一度だけ計算して spec に**凍結**する（A6）。F′ を 1 つに絞るのはトレードオフで、選ばれなかった field は wide 表には現れない（long と raw には残るので保存則は破れない）。
 
-母集団の使い分け: **検出（R4）と flatten の既定（F・K・F′）は先頭 20,000 行**（提案は速く、どのキーが落ちても long と raw に残る）。**pivot の既定の群（R5）は全行**（稀な綴りも判断表に載せないと人は畳めない）。**適用（R11）は常に全行**。
+母集団の使い分け: **検出（R4）と flatten の既定（F・K・F′）は等間隔の 20,000 行**（提案は速く、どのキーが落ちても long と raw に残る）。F′ は選ばれたキー全体で最頻の field 1 つ（キーごとに変えない。spec の `wide.fields` は 1 本のリスト）。**pivot の既定の群（R5）は全行**（稀な綴りも判断表に載せないと人は畳めない）。**適用（R11）は常に全行**。
 
 ## 5. 段階と受け入れ条件
 
