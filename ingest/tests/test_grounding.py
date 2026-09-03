@@ -28,10 +28,19 @@ def test_catalog_loads_and_is_nonempty() -> None:
         assert p in prefixes
 
 
-def test_every_term_iri_is_namespace_plus_name() -> None:
-    """Integrity: a term's IRI is exactly namespace + name (no drift / typo splits)."""
+def test_every_term_iri_is_namespace_plus_name_or_explicit() -> None:
+    """Integrity: 語の IRI は namespace + name。ただし不透明 IRI の語彙（EMMO）は
+    実 IRI を明示して持つ — その場合も **その語彙の名前空間の下**であること。
+
+    名前と IRI を分けられるようにしたのは照合のためだが、名前空間の外を指せると
+    「どの語彙の語か」が嘘になる（カタログの帰属がそのまま画面と引用に出る）ので、
+    そこは緩めない。
+    """
     for term in _all_terms():
-        assert term.iri == term.namespace + term.name
+        if term.explicit_iri:
+            assert term.explicit_iri.startswith(term.namespace), term.curie
+        else:
+            assert term.iri == term.namespace + term.name
         assert term.kind in {"class", "property"}
         assert term.iri.startswith(("http://", "https://"))
 
@@ -132,3 +141,28 @@ def test_catalog_terms_filters_by_kind_and_domain() -> None:
 def test_catalog_terms_rejects_an_unknown_kind() -> None:
     with pytest.raises(ValueError):
         catalog_terms(kind="klass")
+
+
+def test_an_opaque_iri_vocabulary_keeps_its_real_identifier() -> None:
+    """不透明 IRI の語彙（EMMO）は、照合名に prefLabel を使いつつ **実在する IRI**
+    をそのまま名乗る。
+
+    ⭐EMMO は語を ``…#EMMO_0bb3b434_…`` で鋳造し、読める名前は skos:prefLabel に
+    しか無い（実測 2026-09-03: emmo# の 2,631 語中 1,967 語が不透明）。名前＝IRI の
+    末尾に固定したままだと、照合できる語と実在する IRI のどちらかを諦めることに
+    なる — 捏造しないという不変条件は IRI 側の話なので、そこは実ファイルの値を持つ。
+    """
+    hits = [c for c in ground_terms("Crystal", kind="class", limit=5) if c.prefix == "emmo"]
+    assert hits, "EMMO の語が接地候補に出ること"
+    top = hits[0]
+    # 名前は人が探せる語、IRI は EMMO 本体の不透明識別子
+    assert top.name == "Crystal"
+    assert top.iri.startswith("https://w3id.org/emmo#EMMO_")
+    # CURIE は名前側（画面に出る）
+    assert top.curie == "emmo:Crystal"
+
+
+def test_terms_without_an_explicit_iri_still_concatenate() -> None:
+    """明示 IRI を持たない語（大多数）は従来どおり namespace + name。"""
+    hits = [c for c in ground_terms("title", kind="property", limit=5) if c.prefix == "dcterms"]
+    assert hits and hits[0].iri == "http://purl.org/dc/terms/title"
