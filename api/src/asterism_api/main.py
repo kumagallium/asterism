@@ -48,6 +48,7 @@ from asterism import (
     crosswalk_runtime,
     documents,
     grounding,
+    reshape,
     shapes,
     substrate,
 )
@@ -215,6 +216,15 @@ class StagingSourcesBody(BaseModel):
     """
 
     sources: list[str] = []
+
+
+class ReshapeSpecBody(BaseModel):
+    """Body for POST /api/staging/{id}/reshape and PUT /api/datasets/{id}/reshape:
+    the human-judged ReshapeSpec (ADR source-reshape.md §4.0) to apply. Whatever
+    the default proposal was, this REPLACES it outright — the machine's default
+    is only ever a seed (R5)."""
+
+    spec: dict[str, object]
 
 
 class DisplayMetaEdit(BaseModel):
@@ -2780,6 +2790,264 @@ def _accumulate_batch_sources(
         _accumulate_source_batch(sdir, name, content, dialects.get(name))
 
 
+# ----------------------------------------------------------------------------
+# Reshape (ADR source-reshape.md): the judged ReshapeSpec ledger + the R14
+# stale-check/regenerate step shared by attach (R13/R21) and the dataset PUT
+# below. detect()/propose()/apply() live entirely in asterism.reshape (§1: the
+# engine is generic and LLM-free); everything here is wiring — where the
+# ledger lives, when to re-run it, and how its findings become advisories.
+# ----------------------------------------------------------------------------
+
+_RESHAPE_LEDGER_FILE = "reshape.json"
+# R18: "群に入らない行の割合" above this fraction of a BATCH's own rows earns an
+# advisory (never a silent group). Pivot-only — explode/flatten have no
+# unmatched concept.
+_RESHAPE_UNMATCHED_GROWTH_THRESHOLD = 0.05
+
+
+def _reshape_ledger_path(registry_root: Path, dataset_id: str) -> Path | None:
+    """``<root>/<id>/reshape.json`` — beside ``column-decisions.json``, outside
+    ``source/`` so ``_persist_source_uploads``'s ``rmtree`` never touches it."""
+    sdir = registry.source_dir(registry_root, dataset_id)
+    return None if sdir is None else sdir.parent / _RESHAPE_LEDGER_FILE
+
+
+def _load_reshape_ledger(registry_root: Path, dataset_id: str) -> dict | None:
+    """The durable judged ``{spec, stale, attached_at}`` for a dataset, or
+    ``None`` when there is none (never raises)."""
+    path = _reshape_ledger_path(registry_root, dataset_id)
+    if path is None or not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        logger.warning("reshape ledger for %s is unreadable (ignoring)", dataset_id)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_reshape_ledger(registry_root: Path, dataset_id: str, ledger: dict) -> None:
+    path = _reshape_ledger_path(registry_root, dataset_id)
+    if path is None:
+        raise ValueError(f"dataset {dataset_id!r} not found")
+    path.write_text(json.dumps(ledger, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _delete_reshape_ledger(registry_root: Path, dataset_id: str) -> bool:
+    path = _reshape_ledger_path(registry_root, dataset_id)
+    if path is None or not path.is_file():
+        return False
+    path.unlink()
+    return True
+
+
+def _reshape_header(path: Path, op: dict) -> list[str] | None:
+    """The header row of ``path`` read under the dialect ``op`` pins (R14/R15).
+    ``None`` when the file is missing or unreadable — :func:`check_op_against_header`
+    then reports it stale (a column can't be found in a header that doesn't
+    exist)."""
+    from asterism.dialect import DEFAULT_DIALECT, SourceDialect
+
+    if not path.is_file():
+        return None
+    raw = op.get("dialect") or {}
+    try:
+        dialect = SourceDialect(**raw) if raw else DEFAULT_DIALECT
+        first = next(reshape.read_rows(path, dialect), None)
+    except (OSError, UnicodeDecodeError, csv.Error, TypeError, ValueError):
+        return None
+    return list(first.keys()) if first is not None else []
+
+
+def _reshape_table_name_unsafe(name: object) -> bool:
+    """True when ``name`` is not a safe bare filename for a derived table.
+
+    ``reshape.apply()`` joins ``dest_dir / name`` verbatim — every machine-derived
+    name the ADR anticipates (R9/R10) already looks like this, but the wire format
+    (``ReshapeSpecBody``) accepts arbitrary client JSON with no such guarantee, so
+    an absolute path or a ``..`` component would otherwise write outside the
+    staging/dataset sandbox ``apply()`` is meant to be confined to."""
+    if not isinstance(name, str) or not name or name in (".", ".."):
+        return True
+    if "/" in name or "\\" in name or "\x00" in name:
+        return True
+    return Path(name).name != name
+
+
+def _reshape_spec_safety_errors(spec: dict, protected: Collection[str] = ()) -> list[str]:
+    """Table-name safety :func:`reshape.validate_spec` doesn't check: every declared
+    table name must be a bare filename (no path traversal / absolute path — see
+    :func:`_reshape_table_name_unsafe`), and must not collide with a name in
+    ``protected`` — the record's EXISTING raw sources, which R7 promises stay
+    untouched (``reshape.apply()`` would otherwise silently overwrite one with
+    derived content, since it just ``shutil.move``s into ``dest_dir/table_name``)."""
+    try:
+        names = reshape.derived_tables(spec)
+    except (KeyError, TypeError, AttributeError):
+        # A malformed op (e.g. a pivot group with no "table") — validate_spec()
+        # is expected to have already rejected a spec shaped like that; nothing
+        # more this function can check.
+        return []
+    protected_set = set(protected)
+    errors: list[str] = []
+    for name in names:
+        if _reshape_table_name_unsafe(name):
+            errors.append(f"reshape.invalid_spec: unsafe table name {name!r}")
+        elif name in protected_set:
+            errors.append(
+                f"reshape.invalid_spec: table {name!r} collides with an existing raw source"
+            )
+    return errors
+
+
+# Any failure reshape.apply() can raise from a client-shaped spec that isn't already
+# reshape.ReshapeError — a malformed op reaching engine internals (KeyError/TypeError),
+# a bad dialect/encoding (UnicodeDecodeError/csv.Error), or disk trouble (OSError) —
+# degrades to the same coded 422 the design promises, never an uncaught 500 traceback.
+_RESHAPE_APPLY_ERRORS = (
+    reshape.ReshapeError,
+    OSError,
+    UnicodeDecodeError,
+    csv.Error,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+
+
+async def _reshape_regenerate(
+    registry_root: Path, dataset_id: str, spec: dict | None
+) -> tuple[dict | None, list[dict]]:
+    """R13/R14/R21: filter ``spec``'s ops against the dataset's CURRENT persisted
+    raw (never trust an old derived file), apply what survives, and return the
+    ledger to persist plus the stale entries. ``(None, [])`` when there is no
+    spec to apply at all (``spec is None`` — the common case, most datasets
+    never touch this layer) or the dataset has no source directory yet.
+
+    Always regenerates from raw when there IS a spec — even an op that stayed
+    live produces a fresh derived file, because R13 does not trust whatever
+    was on disk before this attach/edit.
+    """
+    if spec is None:
+        return None, []
+    source_dir = registry.source_dir(registry_root, dataset_id)
+    if source_dir is None:
+        return None, []
+    # R7/R9/R10: table names must be bare filenames and must never collide with a
+    # currently-persisted RAW source. Both callers have already made sure
+    # ``source_dir`` holds only raw at this point (PUT .../reshape unlinks the
+    # prior ledger's derived tables first; attach re-persists raw from scratch) —
+    # a plain directory listing IS the raw-source set to protect.
+    protected = {p.name for p in source_dir.iterdir() if p.is_file()}
+    ops = spec.get("ops") or []
+    live_ops: list[dict] = []
+    stale: list[dict] = []
+    for idx, op in enumerate(ops):
+        source_name = op.get("source")
+        header = (
+            await asyncio.to_thread(_reshape_header, source_dir / str(source_name), op)
+            if source_name
+            else None
+        )
+        if header is None:
+            stale.append(
+                {
+                    "op": idx,
+                    "reason": f"reshape.op_stale: source {source_name} missing from "
+                    f"dataset (ops[{idx}])",
+                }
+            )
+            continue
+        reason = reshape.check_op_against_header(op, header)
+        if reason:
+            stale.append({"op": idx, "reason": reason})
+        else:
+            live_ops.append(op)
+    live_spec = {**spec, "ops": live_ops}
+    live_spec.pop("tables", None)
+    live_spec.pop("counts", None)
+    safety_errors = _reshape_spec_safety_errors(live_spec, protected)
+    if safety_errors:
+        raise _coded_error(422, "reshape.invalid_spec", "; ".join(safety_errors))
+    if live_ops:
+        try:
+            applied = await asyncio.to_thread(reshape.apply, live_spec, source_dir, source_dir)
+        except _RESHAPE_APPLY_ERRORS as exc:
+            raise _coded_error(422, "reshape.conservation", str(exc)) from exc
+    else:
+        applied = {**live_spec, "tables": {}, "counts": {}}
+    ledger = {"spec": applied, "stale": stale, "attached_at": datetime.now(UTC).isoformat()}
+    return ledger, [s["reason"] for s in stale]
+
+
+def _reshape_apply_batch(
+    spec: dict, source_name: str, content: bytes
+) -> tuple[list[tuple[str, bytes]], dict[str, dict]]:
+    """R13 (append): derive ONE append batch's rows through whatever ``spec``
+    ops read ``source_name`` — ``only_sources`` scopes ``apply()`` to just this
+    batch, so ``counts`` describe the BATCH, not the whole feed (R18 needs the
+    batch's own unmatched rate). Returns ``([(table_name, bytes), …], counts)``
+    — the derived files this batch produced and the counts of the ops that
+    actually ran (keyed by their index in ``spec['ops']``, same as ``apply()``)."""
+    with tempfile.TemporaryDirectory(prefix="asterism-reshape-batch-") as tmp:
+        tmp_path = Path(tmp)
+        (tmp_path / source_name).write_bytes(content)
+        dest = tmp_path / "_out"
+        applied = reshape.apply(spec, tmp_path, dest, only_sources={source_name})
+        entries: list[tuple[str, bytes]] = []
+        for table_name in reshape.derived_tables(applied):
+            table_path = dest / table_name
+            if table_path.is_file():
+                entries.append((table_name, table_path.read_bytes()))
+        counts = applied.get("counts") or {}
+        touched = {
+            str(idx): counts[str(idx)]
+            for idx, op in enumerate(spec.get("ops") or [])
+            if op.get("source") == source_name and str(idx) in counts
+        }
+        return entries, touched
+
+
+def _reshape_batch_op_staleness(ops: list[dict], content: bytes) -> list[str]:
+    """R14, applied to ONE append batch instead of the persisted raw: a source-name
+    match (``reshape_matches`` at the call site) is not a shape match — a renamed or
+    rearranged column would otherwise reach ``_apply_explode``/``_apply_flatten``
+    silently and degrade to zero derived rows with no error at all (0 == 0 conserves
+    trivially, so R11's own check stays quiet). Reuses the exact same staleness rule
+    attach/PUT already run against the persisted raw (:func:`check_op_against_header`),
+    against THIS BATCH's own header instead. Returns the stale reasons (empty = every
+    op in ``ops`` is still live for this batch)."""
+    from asterism.dialect import DEFAULT_DIALECT, SourceDialect
+
+    reasons: list[str] = []
+    for op in ops:
+        raw = op.get("dialect") or {}
+        try:
+            dialect = SourceDialect(**raw) if raw else DEFAULT_DIALECT
+        except TypeError:
+            dialect = DEFAULT_DIALECT
+        header = sorted(_batch_header_columns(content, dialect))
+        if not header:
+            reasons.append(
+                f"reshape.op_stale: could not read a header from this batch for "
+                f"{op.get('source')}"
+            )
+            continue
+        reason = reshape.check_op_against_header(op, header)
+        if reason:
+            reasons.append(reason)
+    return reasons
+
+
+def _reshape_csv_header(content: bytes) -> list[str]:
+    """The header row of a derived-table CSV payload (R15: derived tables are
+    always UTF-8 comma CSV) — the append-time schema-drift check."""
+    import io
+
+    text = content.decode("utf-8", errors="replace")
+    return next(csv.reader(io.StringIO(text)), [])
+
+
 def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
     if not path.exists():
         return []
@@ -3029,6 +3297,92 @@ def _write_staging_meta(sdir: Path, meta: dict) -> None:
     (sdir / "meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def _reshape_dialect_for(path: Path) -> SourceDialect | None:
+    """R15: the dialect a reshape source must be READ through — sniffed once
+    with :func:`asterism_step0.dialect.detect_dialect` (the same detector
+    ``/api/inspect`` uses), then translated into ingest's twin dataclass
+    (same six fields, different module — design and engine communicate via
+    data, not imports, same boundary as the IR compiler). ``None`` for an
+    already-default dialect, matching :func:`reshape.detect`/``propose``'s own
+    "no dialect means plain UTF-8 comma CSV" convention.
+    """
+    from asterism.dialect import SourceDialect
+    from asterism_step0.dialect import detect_dialect, is_default
+
+    detected = detect_dialect(path)
+    if is_default(detected):
+        return None
+    return SourceDialect(
+        encoding=detected.encoding,
+        delimiter=detected.delimiter,
+        collapse=detected.collapse,
+        skip_rows=detected.skip_rows,
+        preamble=detected.preamble,
+        preamble_names=detected.preamble_names,
+    )
+
+
+def _compute_reshape_detections(paths: list[Path]) -> dict[str, list[dict]]:
+    """R4: :func:`reshape.detect` per tabular source — best-effort (an
+    unreadable/binary source is silently skipped, matching detect's own
+    G7 "no evidence → no candidate"). Non-tabular sources (.xlsx originals,
+    .json, documents) are not reshape inputs and are skipped outright.
+
+    R15: reads through the source's own detected dialect (CP932/tab-separated/
+    preamble raw would otherwise be read as plain UTF-8 comma and produce
+    nonsense or no detections at all).
+    """
+    out: dict[str, list[dict]] = {}
+    for p in paths:
+        if p.suffix.lower() not in _APPENDABLE_TABULAR:
+            continue
+        try:
+            dialect = _reshape_dialect_for(p)
+            dets = reshape.detect(p, dialect=dialect)
+        except (OSError, UnicodeDecodeError, csv.Error):
+            continue
+        if dets:
+            out[p.name] = dets
+    return out
+
+
+def _compute_reshape_proposal(sdir: Path, sources: list[str]) -> tuple[dict[str, list[dict]], dict]:
+    """R4/R5: detections + the default judged spec for a staged source set —
+    pure and synchronous, and potentially SLOW (a 155MB production CSV takes
+    ~40s), so every caller runs this through ``asyncio.to_thread`` and caches
+    the result rather than calling it inline."""
+    paths = [sdir / name for name in sources]
+    detections = _compute_reshape_detections(paths)
+    ops: list[dict] = []
+    for name in sources:
+        dets = detections.get(name)
+        if not dets:
+            continue
+        ops.extend(reshape.propose(sdir / name, dets, dialect=_reshape_dialect_for(sdir / name)))
+    return detections, {"version": 1, "ops": ops}
+
+
+async def _reshape_proposal_for_staging(sdir: Path, meta: dict, sources: list[str]) -> dict:
+    """The staging record's reshape detections + default spec (R12's "表の形"
+    screen), computed once and cached on ``meta['reshape']['proposal']`` —
+    detect()/propose() are deterministic (R4/R5: same input, same output), so a
+    cache keyed on the exact source list is always safe, and it is REQUIRED:
+    both ``GET /api/staging/{id}/reshape`` and ``/api/inspect`` need this, and
+    recomputing it every call would mean running detect() twice per screen.
+    """
+    reshape_meta = meta.get("reshape") if isinstance(meta.get("reshape"), dict) else {}
+    cached = reshape_meta.get("proposal") if isinstance(reshape_meta, dict) else None
+    if isinstance(cached, dict) and cached.get("sources") == sources:
+        return cached
+    detections, spec = await asyncio.to_thread(_compute_reshape_proposal, sdir, sources)
+    proposal = {"sources": sources, "detections": detections, "spec": spec}
+    reshape_meta = dict(reshape_meta) if isinstance(reshape_meta, dict) else {}
+    reshape_meta["proposal"] = proposal
+    meta["reshape"] = reshape_meta
+    _write_staging_meta(sdir, meta)
+    return proposal
 
 
 def _parse_column_meanings(raw: str) -> list[dict[str, str]]:
@@ -3390,6 +3744,16 @@ async def _append_batch_to_dataset(
             "batch cannot be safely accumulated — use a snapshot re-ingest "
             "(再取り込み) instead",
         ) from exc
+    sdir = registry.source_dir(registry_root, dataset_id)
+    # Reshape (ADR source-reshape.md R13): the ledger's spec ALREADY holds only
+    # LIVE ops (R14's stale check ran at the last attach/PUT) — a batch whose
+    # raw name matches one of them gets derived through it before the normal
+    # rml:source check runs, since a reshape RAW source is routinely not an
+    # rml:source itself (only its derived tables are).
+    reshape_ledger = _load_reshape_ledger(registry_root, dataset_id)
+    reshape_spec = reshape_ledger.get("spec") if reshape_ledger else None
+    reshape_ops = (reshape_spec.get("ops") if isinstance(reshape_spec, dict) else None) or []
+    reshape_batch_counts: dict[str, dict] = {}
     canonical: list[tuple[str, bytes]] = []
     # GAL-A-40: the design-source rename below changes what materialization sees,
     # but the "取り込んだファイル" history must keep showing the file the instrument
@@ -3422,6 +3786,57 @@ async def _append_batch_to_dataset(
                 )
             cname, content = derived[0]
         provenance_names.append(cname)  # pre-rename: what the instrument actually named it
+        reshape_matches = [op for op in reshape_ops if op.get("source") == cname]
+        if not reshape_matches and reshape_ops:
+            # GAL-A-40 for a reshape RAW source: substrate.rml_source_names(rml_ttl)
+            # names the DERIVED tables for a reshape-backed dataset, so a dated
+            # instrument export that never matches op.source by exact filename would
+            # otherwise fall to the generic single-source check below and be compared
+            # against a derived table's schema — a comparison a raw file can never
+            # pass. Scoped exactly like that check: only when reshape reads from a
+            # single distinct raw name, and only when this batch's own header proves
+            # (by content, not by name) every op reading it is still live for it.
+            raw_names = {op.get("source") for op in reshape_ops if op.get("source")}
+            if len(raw_names) == 1:
+                candidate = next(iter(raw_names))
+                candidate_ops = [op for op in reshape_ops if op.get("source") == candidate]
+                if not await asyncio.to_thread(
+                    _reshape_batch_op_staleness, candidate_ops, content
+                ):
+                    cname = candidate
+                    reshape_matches = candidate_ops
+        if reshape_matches:
+            # R14 per batch: a name match (by original OR GAL-A-40-resolved name) is
+            # not yet a shape match — reject rather than silently apply an op whose
+            # referenced columns are missing from this batch (explode/flatten would
+            # otherwise degrade to zero derived rows with no error, see above).
+            stale = await asyncio.to_thread(_reshape_batch_op_staleness, reshape_matches, content)
+            if stale:
+                raise AppendError(422, "reshape.op_stale: " + "; ".join(stale))
+            try:
+                derived_entries, batch_counts = await asyncio.to_thread(
+                    _reshape_apply_batch, reshape_spec, cname, content
+                )
+            except _RESHAPE_APPLY_ERRORS as exc:
+                raise AppendError(422, f"reshape.conservation: {exc}") from exc
+            for table_name, table_bytes in derived_entries:
+                persisted = sdir / table_name if sdir else None
+                if (
+                    persisted is not None
+                    and persisted.is_file()
+                    and _reshape_csv_header(persisted.read_bytes())
+                    != _reshape_csv_header(table_bytes)
+                ):
+                    raise AppendError(
+                        422,
+                        f"reshape.schema_changed: {table_name} の列が台帳の派生表と"
+                        "食い違います(設計が変わった可能性があります。表の形を"
+                        "見直してください)",
+                    )
+                canonical.append((table_name, table_bytes))
+            reshape_batch_counts.update(batch_counts)
+            canonical.append((cname, content))  # A7: raw is always accumulated too
+            continue
         if sources and cname not in sources:
             # GAL-A-40: an instrument names each export differently (dates,
             # run numbers, …) — S9 promises "the same device's files, as-is",
@@ -3457,12 +3872,29 @@ async def _append_batch_to_dataset(
                 )
         canonical.append((cname, content))
     batch = canonical
+    # R18: "群に入らない行の割合" — computed on THIS BATCH's own rows (never the
+    # whole feed), pivot ops only. An advisory, never a silent group: a batch
+    # that starts drifting away from the judged groups says so instead of just
+    # quietly padding the raw/wide table nobody reads.
+    reshape_advisories: list[str] = []
+    reshape_ops_by_index = dict(enumerate(reshape_ops))
+    for idx_str, counts in reshape_batch_counts.items():
+        op = reshape_ops_by_index.get(int(idx_str))
+        if not op or op.get("kind") != "pivot":
+            continue
+        source_rows = counts.get("source_rows") or 0
+        unmatched = counts.get("rows_unmatched") or 0
+        if source_rows > 0 and unmatched / source_rows > _RESHAPE_UNMATCHED_GROWTH_THRESHOLD:
+            reshape_advisories.append(
+                f"reshape.unmatched_growth: {op.get('source')} の新着行 "
+                f"{unmatched}/{source_rows} 件が判断表の群に入りませんでした"
+                "(表の形を見直す価値があります)"
+            )
 
     dataset_key = substrate.canonical_graph_iri(dataset_id)
     # The live (citable) graph to grow: the version graph liveGraph points at, or the
     # key graph for a dataset promoted before part5's versioned graphs.
     live_graph = await substrate.live_graph_of(client, dataset_key) or dataset_key
-    sdir = registry.source_dir(registry_root, dataset_id)
 
     # Idempotency (ADR incremental-ingest §3 / A3): identify the batch by its content
     # fingerprint. A re-delivered batch — a retry after the server applied it but the
@@ -3482,6 +3914,7 @@ async def _append_batch_to_dataset(
             "crosswalk_stale": False,
             "dataset": meta,
             "idempotent_replay": True,
+            "advisories": [],
         }
 
     work = Path(tempfile.mkdtemp(prefix="asterism-append-"))
@@ -3566,6 +3999,7 @@ async def _append_batch_to_dataset(
         "crosswalk_stale": crosswalk_stale,
         "dataset": new_meta,
         "idempotent_replay": False,
+        "advisories": reshape_advisories,
     }
 
 
@@ -4874,6 +5308,127 @@ def build_app(
         """Forget a record (a fresh start). Idempotent."""
         return {"deleted": staging.delete(cfg.registry_root, staging_id)}
 
+    @app.get("/api/staging/{staging_id}/reshape")
+    async def get_staging_reshape(staging_id: str) -> dict[str, object]:
+        """The "表の形" screen's data (ADR source-reshape.md R4/R12): every
+        source's detections, plus a spec — the human's already-applied one
+        (with ``tables``/``counts``, R11) when this staging round has one,
+        the machine's default judged proposal otherwise. detect()/propose()
+        are deterministic but can be slow (R4) — cached on the record after
+        the first call, so a second GET is instant.
+        """
+        try:
+            sdir, paths = staging.load(cfg.registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, "staging not found") from exc
+        meta = _staging_meta(sdir)
+        sources = [p.name for p in paths]
+        proposal = await _reshape_proposal_for_staging(sdir, meta, sources)
+        reshape_meta = meta.get("reshape") if isinstance(meta.get("reshape"), dict) else {}
+        applied = reshape_meta.get("spec") if isinstance(reshape_meta, dict) else None
+        spec = applied if isinstance(applied, dict) else proposal["spec"]
+        return {
+            "staging_id": staging_id,
+            "detections": proposal["detections"],
+            "spec": spec,
+            "applied": bool(applied),
+            "tables": (spec.get("tables") if applied else None) or {},
+            "counts": (spec.get("counts") if applied else None) or {},
+        }
+
+    @app.post("/api/staging/{staging_id}/reshape", dependencies=_write_auth)
+    async def apply_staging_reshape(
+        staging_id: str, body: ReshapeSpecBody
+    ) -> dict[str, object]:
+        """"ととのえて進む" (R12): validate the judged spec (R6), apply it, and
+        make the derived tables ordinary staged sources (R7: raw ∪ derived, raw
+        first). A re-POST (the human edited the 判断表 and re-applied) drops the
+        PRIOR round's derived files first, so a group they just disabled does
+        not leave its old file lying around as a phantom source.
+        """
+        try:
+            sdir, _paths = staging.load(cfg.registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, "staging not found") from exc
+        errors = reshape.validate_spec(body.spec)
+        if errors:
+            raise _coded_error(422, "reshape.invalid_spec", "; ".join(errors))
+        # R19 (GET→edit→POST re-apply loop): drop the request's own echoed
+        # tables/counts before this round's apply() — otherwise a table this
+        # round no longer produces (a disabled pivot group) seeds tables_out/
+        # counts_out from the stale entry and survives as a phantom, even
+        # though prior_derived below just deleted its file.
+        spec = {**body.spec}
+        spec.pop("tables", None)
+        spec.pop("counts", None)
+        meta = _staging_meta(sdir)
+        reshape_meta = meta.get("reshape") if isinstance(meta.get("reshape"), dict) else {}
+        prior_spec = reshape_meta.get("spec") if isinstance(reshape_meta, dict) else None
+        prior_derived = (
+            set(reshape.derived_tables(prior_spec)) if isinstance(prior_spec, dict) else set()
+        )
+        # R3/R7/R9/R10: table names must be bare filenames and must never collide
+        # with a RAW source already staged here (the prior round's OWN derived
+        # output doesn't count — this re-apply is about to replace it) — checked
+        # BEFORE anything is deleted, so a rejected spec leaves the record untouched.
+        raw_sources = [s for s in (meta.get("sources") or []) if s not in prior_derived]
+        safety_errors = _reshape_spec_safety_errors(spec, raw_sources)
+        if safety_errors:
+            raise _coded_error(422, "reshape.invalid_spec", "; ".join(safety_errors))
+        for name in prior_derived:
+            (sdir / name).unlink(missing_ok=True)
+        try:
+            applied = await asyncio.to_thread(reshape.apply, spec, sdir, sdir)
+        except _RESHAPE_APPLY_ERRORS as exc:
+            raise _coded_error(422, "reshape.conservation", str(exc)) from exc
+        reshape_meta = dict(reshape_meta) if isinstance(reshape_meta, dict) else {}
+        reshape_meta["spec"] = applied
+        reshape_meta["applied_at"] = datetime.now(UTC).isoformat()
+        meta["reshape"] = reshape_meta
+        meta["sources"] = list(dict.fromkeys([*raw_sources, *reshape.derived_tables(applied)]))
+        _write_staging_meta(sdir, meta)
+        return {
+            "staging_id": staging_id,
+            "spec": applied,
+            "applied": True,
+            "tables": applied.get("tables", {}),
+            "counts": applied.get("counts", {}),
+            "sources": meta["sources"],
+        }
+
+    @app.delete("/api/staging/{staging_id}/reshape", dependencies=_write_auth)
+    async def delete_staging_reshape(staging_id: str) -> dict[str, object]:
+        """"このまま進む": drop the applied spec + its derived tables; the raw
+        tables stay exactly as staged before reshape ran. The cached detection
+        proposal is kept (the raw files it describes are unchanged) so a later
+        re-entry to the screen does not re-pay the detect() cost.
+        """
+        try:
+            sdir, _paths = staging.load(cfg.registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, "staging not found") from exc
+        meta = _staging_meta(sdir)
+        reshape_meta = meta.get("reshape") if isinstance(meta.get("reshape"), dict) else None
+        applied_spec = reshape_meta.get("spec") if isinstance(reshape_meta, dict) else None
+        removed: list[str] = []
+        if isinstance(applied_spec, dict):
+            derived = reshape.derived_tables(applied_spec)
+            for name in derived:
+                (sdir / name).unlink(missing_ok=True)
+            removed = derived
+            derived_set = set(derived)
+            meta["sources"] = [s for s in (meta.get("sources") or []) if s not in derived_set]
+        if isinstance(reshape_meta, dict) and "spec" in reshape_meta:
+            reshape_meta = dict(reshape_meta)
+            reshape_meta.pop("spec", None)
+            reshape_meta.pop("applied_at", None)
+            if reshape_meta:
+                meta["reshape"] = reshape_meta
+            else:
+                meta.pop("reshape", None)
+        _write_staging_meta(sdir, meta)
+        return {"staging_id": staging_id, "removed": removed, "sources": meta.get("sources") or []}
+
     # ------------------------------------------------------------------
     # Single-user on-disk appdata (ADR app-data-on-disk.md): Ask
     # chat threads + app settings, for asterism-local only. Everything but
@@ -5061,6 +5616,21 @@ def build_app(
             # Computed here (inside the try, before the temp dir is removed
             # below) because it re-reads each source's own preamble lines.
             preamble_header = _preamble_header_json(inspections, paths)
+            # {source: [detection, …]} for the "表の形" screen's entry point
+            # (ADR source-reshape.md R4/R12/R19) — detections only, small;
+            # the default judged spec is its own call (GET
+            # /api/staging/{id}/reshape). A staged source set reuses the SAME
+            # cache that screen fills — a 155MB source's detect() takes ~40s,
+            # so this call must not pay it a second time. A files= (legacy, no
+            # staging_id) call has nowhere to cache it and recomputes every time.
+            if staging_id:
+                reshape_staging_meta = _staging_meta(work)
+                reshape_proposal = await _reshape_proposal_for_staging(
+                    work, reshape_staging_meta, [p.name for p in paths]
+                )
+                reshape_detections = reshape_proposal["detections"]
+            else:
+                reshape_detections = await asyncio.to_thread(_compute_reshape_detections, paths)
         finally:
             if owned:
                 shutil.rmtree(work, ignore_errors=True)
@@ -5075,6 +5645,9 @@ def build_app(
             "X-Asterism-Samples": _samples_header_json(inspections),
             "X-Asterism-Preamble": preamble_header,
         }
+        reshape_encoded = json.dumps(reshape_detections, separators=(",", ":"))
+        if len(reshape_encoded) <= _SAMPLES_HEADER_BUDGET:
+            headers["X-Asterism-Reshape"] = reshape_encoded
         if sheets:
             # {derived csv: {from, sheet}} — only for workbooks that produced more
             # than one table, i.e. exactly when K6 says to ask which one to use.
@@ -7054,6 +7627,57 @@ def build_app(
 
         return await asyncio.to_thread(run)
 
+    @app.get("/api/datasets/{dataset_id}/reshape")
+    async def get_dataset_reshape(dataset_id: str) -> dict[str, object]:
+        """The dataset's reshape ledger (ADR source-reshape.md R13/R19) — the
+        Workbench "見直す" entry point. 404 when the dataset never went through
+        reshape (most datasets)."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        ledger = _load_reshape_ledger(cfg.registry_root, dataset_id)
+        if ledger is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} has no reshape ledger")
+        return {
+            "dataset_id": dataset_id,
+            "spec": ledger.get("spec") or {},
+            "stale": ledger.get("stale") or [],
+            "counts": (ledger.get("spec") or {}).get("counts") or {},
+        }
+
+    @app.put("/api/datasets/{dataset_id}/reshape", dependencies=_write_auth)
+    async def put_dataset_reshape(
+        dataset_id: str, body: ReshapeSpecBody
+    ) -> dict[str, object]:
+        """Edit the judged 判断表 after publish (R18/R19/R21): validate (R6),
+        re-check every op against the CURRENTLY persisted raw (R14), and
+        regenerate the derived tables in place. Disabling a group here removes
+        its file — the PRIOR ledger's derived tables are dropped before the new
+        ones are written, exactly like the staging POST.
+        """
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        errors = reshape.validate_spec(body.spec)
+        if errors:
+            raise _coded_error(422, "reshape.invalid_spec", "; ".join(errors))
+        source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+        if source_dir is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        prior = _load_reshape_ledger(cfg.registry_root, dataset_id)
+        prior_spec = prior.get("spec") if prior else None
+        if isinstance(prior_spec, dict):
+            for name in reshape.derived_tables(prior_spec):
+                (source_dir / name).unlink(missing_ok=True)
+        ledger, _reasons = await _reshape_regenerate(cfg.registry_root, dataset_id, body.spec)
+        if ledger is None:  # unreachable (body.spec is always given) — defensive
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        _write_reshape_ledger(cfg.registry_root, dataset_id, ledger)
+        return {
+            "dataset_id": dataset_id,
+            "spec": ledger["spec"],
+            "stale": ledger["stale"],
+            "counts": ledger["spec"].get("counts") or {},
+        }
+
     @app.get("/api/datasets/{dataset_id}/column-meanings")
     async def get_dataset_column_meanings(dataset_id: str) -> dict[str, object]:
         """Return the settled ``(source, column)`` meanings for this dataset.
@@ -7957,6 +8581,7 @@ def build_app(
         existing = registry.load_dataset(cfg.registry_root, dataset_id)
         if existing is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        staged_reshape_spec: dict | None = None
         if staging_id:
             try:
                 sdir, _paths = staging.load(cfg.registry_root, staging_id)
@@ -7965,11 +8590,18 @@ def build_app(
             raw = staging.raw_paths(sdir)
             if not raw:
                 raise HTTPException(404, f"staging {staging_id!r} holds no sources")
+            smeta = _staging_meta(sdir)
+            # The judged spec from the "表の形" screen (R13), read BEFORE the
+            # record below is consumed — this round's spec wins outright over
+            # whatever the dataset's own reshape.json ledger already held.
+            smeta_reshape = smeta.get("reshape")
+            if isinstance(smeta_reshape, dict) and isinstance(smeta_reshape.get("spec"), dict):
+                staged_reshape_spec = smeta_reshape["spec"]
             uploads = _uploads_from_dir(sdir / "raw")
             # The raw workbook is re-converted here, so the sheet choice made at
             # S2 has to be re-applied — otherwise the design maps three sheets
             # and the dataset persists all seven (K6 / KZ-A-09).
-            keep = {str(n) for n in (_staging_meta(sdir).get("sources") or [])} or None
+            keep = {str(n) for n in (smeta.get("sources") or [])} or None
             try:
                 saved, meta = await _persist_source_uploads(
                     cfg.registry_root, dataset_id, uploads, keep
@@ -7983,6 +8615,41 @@ def build_app(
             if not files:
                 raise HTTPException(400, "no source files uploaded")
             saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
+        # Reshape (R13/R14/R21): raw was just (re)persisted above — regenerate
+        # its derived tables from THIS raw, never trust whatever the old ones
+        # said. The staged spec (a fresh design round) wins outright; otherwise
+        # fall back to whatever this dataset's own ledger already held (a
+        # redesign / re-attach with no reshape screen this round, R21).
+        reshape_spec_to_apply = staged_reshape_spec
+        if reshape_spec_to_apply is None:
+            existing_reshape_ledger = _load_reshape_ledger(cfg.registry_root, dataset_id)
+            if existing_reshape_ledger is not None:
+                reshape_spec_to_apply = existing_reshape_ledger.get("spec")
+        reshape_advisories: list[str] = []
+        if reshape_spec_to_apply is not None:
+            reshape_ledger, reshape_advisories = await _reshape_regenerate(
+                cfg.registry_root, dataset_id, reshape_spec_to_apply
+            )
+            if reshape_ledger is not None:
+                _write_reshape_ledger(cfg.registry_root, dataset_id, reshape_ledger)
+                # F: the derived tables just written are ordinary source files
+                # too (registry.list_source_files already sees them — it scans
+                # the directory) — refresh the persisted ``source_files`` list
+                # the same way append already does, so the catalog/detail view
+                # shows them from this attach on, not only after the first
+                # append. The prior conversion sidecar record is preserved.
+                refreshed = await asyncio.to_thread(
+                    registry.list_source_files, cfg.registry_root, dataset_id
+                )
+                meta = (
+                    registry.mark_source_saved(
+                        cfg.registry_root,
+                        dataset_id,
+                        [p.name for p in refreshed],
+                        conversion=meta.get("conversion"),
+                    )
+                    or meta
+                )
         current = registry.load_dataset(cfg.registry_root, dataset_id) or existing
         rml_ttl = str((current.get("artifacts") or {}).get("mapping.rml.ttl") or "")
         decisions = _load_column_decisions(cfg.registry_root, dataset_id)
@@ -8050,6 +8717,10 @@ def build_app(
         except Exception:  # advice must never fail an otherwise-successful attach
             logger.exception("design checks after source attach failed (continuing)")
             issues, advisories = [], []
+        # R14: an invalidated reshape op is exactly the kind of thing a human
+        # attaching a source needs to see — folded into the same advisories
+        # list the design checks already answer here.
+        advisories = [*advisories, *reshape_advisories]
         return JSONResponse(
             {
                 "dataset_id": dataset_id,
