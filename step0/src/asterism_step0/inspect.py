@@ -426,6 +426,15 @@ class SourceInspection:
     # block was detected but is still dropped — advises opt-in header-metadata
     # ingestion (ADR source-dialect.md). None when there is no preamble to advise on.
     preamble_hint: str | None = None
+    # How many data rows the column profile (type / samples / distinct / grid)
+    # was actually built from. Equal to ``total_rows`` for an unbounded CSV
+    # inspection (the default); smaller than it only when ``inspect_csv`` was
+    # given a ``max_rows`` cap (ADR source-reshape.md R22) — a machine-generated
+    # derived table is column-uniform, so a head sample decides its type just as
+    # well as a full scan, at a fraction of the cost. ``total_rows`` itself is
+    # always the EXACT row count regardless of the cap. 0 for JSON/XML sources
+    # (no cap support there) and for an empty CSV.
+    sampled_rows: int = 0
 
     def column(self, name: str) -> ColumnSummary | None:
         return next((c for c in self.columns if c.name == name), None)
@@ -456,6 +465,27 @@ def _stream_rows(path: Path) -> Iterator[dict[str, str]]:
     """Open a CSV with BOM-tolerant encoding and yield each row as a dict."""
     with path.open(encoding="utf-8-sig", newline="") as fh:
         yield from csv.DictReader(fh)
+
+
+def _count_data_rows(path: Path, dialect: SourceDialect | None) -> int:
+    """Count data rows (excluding the header) EXACTLY, without materialising them.
+
+    Used when ``inspect_csv`` is given ``max_rows``: the column profile is
+    built from a head slice, but ``total_rows`` still has to be the true count
+    (ADR source-reshape.md R22). ``csv.reader`` (not a line count) is what
+    handles a cell with an embedded newline correctly — a naive
+    ``sum(1 for _ in fh)`` would over-count those rows.
+    """
+    if dialect is not None:
+        rows_iter = iter_rows(path, dialect)
+        next(rows_iter, None)  # header
+        return sum(1 for _ in rows_iter)
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, None)
+        if header is None:
+            return 0
+        return sum(1 for _ in reader)
 
 
 def _dialect_rows(path: Path, dialect: SourceDialect) -> list[dict[str, str]]:
@@ -581,10 +611,19 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
 
 
 def _build_column_summaries(
-    path: Path, dialect: SourceDialect | None = None
-) -> tuple[list[ColumnSummary], int, list[dict[str, str]]]:
-    """Stream the CSV once; return per-column summaries, row count, and a
-    bounded slice of materialised rows for downstream uniqueness checks.
+    path: Path, dialect: SourceDialect | None = None, max_rows: int | None = None
+) -> tuple[list[ColumnSummary], int, list[dict[str, str]], int]:
+    """Stream the CSV once; return per-column summaries, the EXACT row count,
+    a bounded slice of materialised rows for downstream uniqueness checks, and
+    how many rows that slice holds (``sampled_rows``).
+
+    ``max_rows`` (ADR source-reshape.md R22): when given, only the first
+    ``max_rows`` data rows are materialised and profiled — a machine-generated
+    derived table (reshape's explode/pivot/flatten output) is column-uniform,
+    so a head sample decides its type as well as a full scan does, at a
+    fraction of the cost. The row COUNT is still exact: a second, much
+    cheaper pass (:func:`_count_data_rows`, no dict-building) counts the rest
+    — skipped entirely when the head slice already exhausted the file.
     """
     # We need:
     #  - non_null_count per column
@@ -594,10 +633,21 @@ def _build_column_summaries(
     # For uniqueness analysis, we ALSO need every row materialised — that means
     # we hold the whole CSV in memory. For starrydata's largest file
     # (curves.csv, 233k rows) this is acceptable; users with multi-million-row
-    # CSVs should use a streaming variant (future work).
-    rows = _dialect_rows(path, dialect) if dialect is not None else list(_stream_rows(path))
+    # CSVs should use a streaming variant (future work), or the ``max_rows``
+    # cap above for a table already known to be machine-uniform.
+    if dialect is not None:
+        rows = _dialect_rows(path, dialect)
+        total = len(rows)
+        if max_rows is not None and total > max_rows:
+            rows = rows[:max_rows]
+    elif max_rows is None:
+        rows = list(_stream_rows(path))
+        total = len(rows)
+    else:
+        rows = list(itertools.islice(_stream_rows(path), max_rows))
+        total = len(rows) if len(rows) < max_rows else _count_data_rows(path, None)
     if not rows:
-        return [], 0, []
+        return [], total, [], 0
 
     # Rename Morph-KGC's reserved columns (subject / predicate) so the proposed
     # rml:reference matches the CSV the substrate feeds Morph-KGC — substrate
@@ -606,7 +656,7 @@ def _build_column_summaries(
     if any(k in _RESERVED_SOURCE_COLUMNS for k in rows[0]):
         rows = [{_safe_column(k): v for k, v in row.items()} for row in rows]
     columns = list(rows[0].keys())
-    return _summarize_rows(rows, columns), len(rows), rows
+    return _summarize_rows(rows, columns), total, rows, len(rows)
 
 
 def _check_uniqueness(rows: list[dict[str, str]], key: tuple[str, ...]) -> UniquenessReport:
@@ -745,6 +795,7 @@ def inspect_csv(
     *,
     fk_hint_columns: Sequence[str] | None = None,
     dialect: SourceDialect | None = None,
+    max_rows: int | None = None,
 ) -> CSVInspection:
     """Inspect a single CSV.
 
@@ -757,6 +808,12 @@ def inspect_csv(
         dialect: explicit source dialect (CLI/API override). When omitted the
             dialect is auto-detected (``detect_dialect``); a default dialect —
             detected or given — keeps the original read path byte-identical.
+        max_rows: cap the number of data rows the column profile (type /
+            samples / distinct / uniqueness) is built from (ADR
+            source-reshape.md R22). ``None`` (default) inspects every row,
+            unchanged from before this argument existed. ``total_rows`` is
+            always the exact row count regardless of the cap; the count
+            actually used for profiling is reported on ``sampled_rows``.
     """
     p = Path(path)
     origin = "specified" if dialect is not None else "detected"
@@ -780,17 +837,20 @@ def inspect_csv(
         and read_dialect.preamble == "drop"
         else None
     )
-    summaries, row_count, rows = _build_column_summaries(p, dialect=read_dialect)
+    summaries, row_count, rows, sampled_rows = _build_column_summaries(
+        p, dialect=read_dialect, max_rows=max_rows
+    )
     if not rows:
         return CSVInspection(
             path=str(p),
             name=p.name,
-            total_rows=0,
+            total_rows=row_count,
             columns=[],
             uniqueness_reports=[],
             dialect=effective,
             dialect_origin=origin if effective is not None else None,
             preamble_hint=preamble_hint,
+            sampled_rows=0,
         )
 
     id_candidates = _id_candidate_columns(summaries)
@@ -810,6 +870,7 @@ def inspect_csv(
         dialect=effective,
         dialect_origin=origin if effective is not None else None,
         preamble_hint=preamble_hint,
+        sampled_rows=sampled_rows,
     )
 
 
@@ -1050,13 +1111,23 @@ def inspect_csv_set(
     paths: Sequence[Path | str],
     *,
     fk_hint_columns: Sequence[str] | None = None,
+    max_rows_by_name: Mapping[str, int] | None = None,
 ) -> tuple[list[CSVInspection], list[ForeignKeyCandidate]]:
     """Inspect a coordinated set of CSVs and report cross-file foreign keys.
 
     The same ``fk_hint_columns`` is applied to each CSV — this matches the
     starrydata case where ``SID`` joins papers / samples / curves.
+    ``max_rows_by_name`` (ADR source-reshape.md R22) maps a source's
+    basename to a row cap for :func:`inspect_csv`; a source not listed is
+    inspected in full (unchanged from before this argument existed).
     """
-    inspections = [inspect_csv(p, fk_hint_columns=fk_hint_columns) for p in paths]
+    max_rows_by_name = max_rows_by_name or {}
+    inspections = [
+        inspect_csv(
+            p, fk_hint_columns=fk_hint_columns, max_rows=max_rows_by_name.get(Path(p).name)
+        )
+        for p in paths
+    ]
     fks = _detect_foreign_keys(inspections)
     return inspections, fks
 
@@ -1147,12 +1218,13 @@ def _inspect_one(
     fk_hint_columns: Sequence[str] | None,
     record_path: str | None,
     dialect: SourceDialect | None = None,
+    max_rows: int | None = None,
 ) -> SourceInspection:
     if _is_json_path(p):
         return inspect_json(p, fk_hint_columns=fk_hint_columns, record_path=record_path)
     if _is_xml_path(p):
         return inspect_xml(p)
-    return inspect_csv(p, fk_hint_columns=fk_hint_columns, dialect=dialect)
+    return inspect_csv(p, fk_hint_columns=fk_hint_columns, dialect=dialect, max_rows=max_rows)
 
 
 def inspect_source_set(
@@ -1161,6 +1233,7 @@ def inspect_source_set(
     fk_hint_columns: Sequence[str] | None = None,
     record_path: str | None = None,
     dialects: Mapping[str, SourceDialect] | None = None,
+    max_rows_by_name: Mapping[str, int] | None = None,
 ) -> tuple[list[SourceInspection], list[ForeignKeyCandidate]]:
     """Inspect a set of sources, dispatching per file by extension.
 
@@ -1170,15 +1243,20 @@ def inspect_source_set(
     the API/CLI use; the per-kind ``inspect_csv_set`` / ``inspect_json_set`` remain
     for callers that know the kind up front. ``dialects`` maps a source basename
     to an explicit dialect override (tabular sources only); sources not listed
-    are auto-detected.
+    are auto-detected. ``max_rows_by_name`` (ADR source-reshape.md R22) maps a
+    CSV source's basename to a row cap for its column profile; a source not
+    listed (and JSON/XML sources, which do not support a cap) are inspected
+    in full — unchanged from before this argument existed.
     """
     dialects = dialects or {}
+    max_rows_by_name = max_rows_by_name or {}
     inspections = [
         _inspect_one(
             p,
             fk_hint_columns=fk_hint_columns,
             record_path=record_path,
             dialect=dialects.get(Path(p).name),
+            max_rows=max_rows_by_name.get(Path(p).name),
         )
         for p in paths
     ]
@@ -1254,6 +1332,11 @@ def render_markdown(
             buf.write(f"## CSV: {ins.name}\n\n")
             buf.write(f"- Total rows: {ins.total_rows:,}\n")
             buf.write(f"- Path: `{ins.path}`\n")
+            if ins.sampled_rows and ins.sampled_rows < ins.total_rows:
+                buf.write(
+                    f"- Column profile (type / samples / distinct) built from the "
+                    f"first {ins.sampled_rows:,} rows; row count above is exact.\n"
+                )
             if ins.dialect is not None:
                 origin = "specified" if ins.dialect_origin == "specified" else "auto-detected"
                 buf.write(f"- Dialect: {describe_dialect(ins.dialect)} ({origin})\n")

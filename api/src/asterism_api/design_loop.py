@@ -59,6 +59,7 @@ mappings to reach zero issues (surfaced as ``coverage_dropped``, not blocked).
 from __future__ import annotations
 
 import contextlib
+import json
 import re
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -66,7 +67,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from asterism import substrate
+from asterism import reshape, substrate
 from asterism.rml_validate import read_csv_header
 from asterism_step0.dialect import (
     SourceDialect,
@@ -257,6 +258,53 @@ def _read_header(path: Path, dialect: Any | None) -> list[str]:
         return read_csv_header(path)
     except UnicodeDecodeError:
         return []
+
+
+# R22 (ADR source-reshape.md): a derived table (reshape's explode/pivot/
+# flatten output) is machine-generated — column-uniform by construction — so
+# the design loop's own inspections can profile a head sample instead of a
+# full scan. Measured on Starrydata's 1.2M-row long table: 94s -> a few
+# seconds. A raw source keeps no cap.
+_RESHAPE_INSPECT_MAX_ROWS = 50_000
+
+
+def _reshape_derived_names_for_dir(base: Path) -> set[str]:
+    """The derived-table basenames the design loop's own ``base`` source
+    directory holds (R22), or the empty set (never raises).
+
+    ``base`` is either a dataset's persisted ``<id>/source/`` dir — its
+    reshape ledger lives one level up at ``<id>/reshape.json`` — or a staged
+    record's own directory, which carries the applied spec on its
+    ``meta.json`` under ``reshape.spec`` (ADR source-staging.md /
+    source-reshape.md). Both are tried; whichever is absent contributes
+    nothing.
+    """
+    names: set[str] = set()
+    for meta_path, key in (
+        (base.parent / "reshape.json", "spec"),
+        (base / "meta.json", "reshape"),
+    ):
+        if not meta_path.is_file():
+            continue
+        try:
+            data = json.loads(meta_path.read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        spec = data.get(key)
+        if key == "reshape":
+            spec = spec.get("spec") if isinstance(spec, dict) else None
+        if isinstance(spec, dict):
+            names.update(reshape.derived_tables(spec))
+    return names
+
+
+def _reshape_inspect_max_rows_by_name(base: Path) -> dict[str, int]:
+    """``inspect_source_set``'s ``max_rows_by_name`` for every derived table
+    under ``base`` (R22); ``{}`` when there is none (byte-identical to before
+    this cap existed)."""
+    return {name: _RESHAPE_INSPECT_MAX_ROWS for name in _reshape_derived_names_for_dir(base)}
 
 
 def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:
@@ -1819,6 +1867,7 @@ def run_design_loop(
         inspections, fks = inspect_source_set(
             paths, fk_hint_columns=fk_hint_columns, record_path=record_path,
             dialects=effective,
+            max_rows_by_name=_reshape_inspect_max_rows_by_name(base),
         )
         inspection_md = render_markdown(inspections, fks)
         # Column ownership on the CONFIRMED skeleton (ADR

@@ -383,7 +383,7 @@ def test_inspect_decode_failure_is_readable_422(tmp_path: Path, monkeypatch) -> 
     # The safety net: whatever the inspector raises while decoding surfaces as a
     # 422 with a readable message, never a 500 traceback. (With dialect detection
     # in step0 this should be rare — a CP932 file normally just inspects.)
-    def boom(paths, *, fk_hint_columns=None):
+    def boom(paths, *, fk_hint_columns=None, max_rows_by_name=None):
         raise UnicodeDecodeError("utf-8", b"\x88\xea", 0, 1, "invalid start byte")
 
     monkeypatch.setattr(api_main, "inspect_source_set", boom)
@@ -397,7 +397,7 @@ def test_inspect_decode_failure_is_readable_422(tmp_path: Path, monkeypatch) -> 
 
 
 def test_inspect_csv_parse_failure_is_readable_422(tmp_path: Path, monkeypatch) -> None:
-    def boom(paths, *, fk_hint_columns=None):
+    def boom(paths, *, fk_hint_columns=None, max_rows_by_name=None):
         raise csv.Error("line contains NUL")
 
     monkeypatch.setattr(api_main, "inspect_source_set", boom)
