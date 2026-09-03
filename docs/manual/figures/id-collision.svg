@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 330" role="img" aria-label="材料IDとhklを組み合わせるとファイルごとに別のIDになるが、hklだけで作ると2つの材料が1つのIDに潰れることを示す図">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 330" role="img" aria-label="食材名だけでは1件に潰れるが、料理名と組み合わせると別々のIDになることを示す図">
 <style>
   :root{
     --ink:#16241a; --body:#33453a; --muted:#54695b; --faint:#84987f;
@@ -43,45 +43,44 @@
   .head-lnk{fill:var(--link)}
   .head-ent{fill:var(--entity)}
 </style>
-
-  <text x="16" y="18" class="xs t-fnt">材料 A のファイル</text>
+  <text x="16" y="18" class="xs t-fnt">レシピ表の 1 行目</text>
   <rect class="box" x="16" y="26" width="300" height="76" rx="8"/>
   <rect class="box-acc" x="30" y="38" width="180" height="24" rx="4"/>
-  <text x="40" y="55" class="m xs t-acc">No: 03-065-2664</text>
-  <text x="220" y="55" class="xs t-fnt">表の外</text>
+  <text x="40" y="55" class="m xs t-acc">料理名 = カレー</text>
+  <text x="220" y="55" class="xs t-fnt">その行の料理</text>
   <rect class="box-alt" x="30" y="68" width="180" height="24" rx="4"/>
-  <text x="40" y="85" class="m xs">(hkl) = (0,0,2)</text>
-  <text x="220" y="85" class="xs t-fnt">表の中</text>
+  <text x="40" y="85" class="m xs">食材名 = にんじん</text>
+  <text x="220" y="85" class="xs t-fnt">その行の食材</text>
   <path class="ln-ent" d="M316 64 H364" marker-end="url(#b1)"/>
   <rect class="box-ent" x="374" y="42" width="316" height="44" rx="8"/>
-  <text x="532" y="70" class="m sm b t-ent" text-anchor="middle">peak/03-065-2664/(0,0,2)</text>
+  <text x="532" y="70" class="m sm b t-ent" text-anchor="middle">使用量/カレー/にんじん</text>
 
-  <text x="16" y="138" class="xs t-fnt">材料 B のファイル</text>
+  <text x="16" y="138" class="xs t-fnt">レシピ表の 4 行目</text>
   <rect class="box" x="16" y="146" width="300" height="76" rx="8"/>
   <rect class="box-acc" x="30" y="158" width="180" height="24" rx="4"/>
-  <text x="40" y="175" class="m xs t-acc">No: 03-065-5860</text>
-  <text x="220" y="175" class="xs t-fnt">表の外</text>
+  <text x="40" y="175" class="m xs t-acc">料理名 = 肉じゃが</text>
+  <text x="220" y="175" class="xs t-fnt">その行の料理</text>
   <rect class="box-alt" x="30" y="188" width="180" height="24" rx="4"/>
-  <text x="40" y="205" class="m xs">(hkl) = (0,0,2)</text>
-  <text x="220" y="205" class="xs t-fnt">表の中</text>
+  <text x="40" y="205" class="m xs">食材名 = にんじん</text>
+  <text x="220" y="205" class="xs t-fnt">その行の食材</text>
   <path class="ln-ent" d="M316 184 H364" marker-end="url(#b1)"/>
   <rect class="box-ent" x="374" y="162" width="316" height="44" rx="8"/>
-  <text x="532" y="190" class="m sm b t-ent" text-anchor="middle">peak/03-065-5860/(0,0,2)</text>
+  <text x="532" y="190" class="m sm b t-ent" text-anchor="middle">使用量/肉じゃが/にんじん</text>
 
   <text x="710" y="100" class="sm b t-ent">別の名前になる</text>
-  <text x="710" y="122" class="xs t-mut">同じ (0,0,2) でも、</text>
-  <text x="710" y="140" class="xs t-mut">材料 ID が違うので</text>
+  <text x="710" y="122" class="xs t-mut">同じ「にんじん」でも、</text>
+  <text x="710" y="140" class="xs t-mut">料理が違うので</text>
   <text x="710" y="158" class="xs t-mut">混ざらない。</text>
   <path class="ln-ent" d="M700 64 H730 V88" marker-end="url(#b1)"/>
   <path class="ln-ent" d="M700 184 H730 V172" marker-end="url(#b1)"/>
 
   <line class="ln-thin" x1="16" y1="248" x2="924" y2="248"/>
   <rect class="box-alt" x="16" y="264" width="674" height="52" rx="8" stroke-dasharray="5 4"/>
-  <text x="32" y="286" class="sm t-acc b">もし (hkl) だけで名前を作っていたら</text>
-  <text x="32" y="306" class="xs t-mut">どちらの材料の (0,0,2) も同じ名前になる →</text>
-  <text x="300" y="306" class="m xs t-acc">peak/(0,0,2)</text>
-  <text x="710" y="286" class="xs t-mut">2 つの材料が 1 件に潰れ、</text>
-  <text x="710" y="304" class="xs t-mut">あとの強度が前を上書きする。</text>
+  <text x="32" y="286" class="sm t-acc b">もし 食材名 だけで名前を作っていたら</text>
+  <text x="32" y="306" class="xs t-mut">どちらの行も同じ名前になる →</text>
+  <text x="272" y="306" class="m xs t-acc">使用量/にんじん</text>
+  <text x="710" y="286" class="xs t-mut">カレーの 2 本と肉じゃがの 1 本が</text>
+  <text x="710" y="304" class="xs t-mut">1 件に潰れ、あとの分量が前を上書きする。</text>
 
   <defs>
     <marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
