@@ -74,8 +74,6 @@
 <p>属性の値には 2 種類あり、この違いが「つながる／つながらない」を決めます。</p>
 <div class="tablewrap"><table><thead><tr><th>値の種類</th><th>中身</th><th>例</th><th>できること</th></tr></thead><tbody><tr><td>値そのもの</td><td>数値・文字・日付</td><td>分量 = <code>2</code></td><td>大小をくらべる、絞り込む</td></tr><tr><td>別のものへの参照</td><td>相手の IRI</td><td>この使用量 → にんじん</td><td>またいでたどる</td></tr></tbody></table></div>
 <p>後者があるから、データは網目状につながります。「にんじんを使う料理を全部」のような質問に答えられるのは、参照でつながっているときだけです。Asterism が「つながっていません」と指摘するのは、この参照が無い状態のことです。</p>
-<figure><a href="../screenshots/dataset-structure.png" title="原寸で開く"><img src="../screenshots/dataset-structure.png" alt="「中身」タブ。このデータセットが持つ種類と、気になる点"></a></figure>
-<p class="caption">このデータセットには 2 種類があり、「気になる点」に「使われていない列があります」と出ています。取り込まれていない列は、質問にも出てきません。</p>
 <h2 id="オントロジー-共通の言葉">オントロジー — 共通の言葉</h2>
 <p>クラスと属性を決めて、名前（IRI）を与え、「このクラスはこの属性を持つ」「この属性の値は数値」といった決まりを書いたもの。それが<strong>オントロジー</strong>です。データそのものではなく、<strong>データを書くための語彙集</strong>だと考えるのがいちばん近いです。</p>
 <p>Asterism の画面では、これを<strong>共通の言葉</strong>と呼んでいます。メニューの「共通の言葉」に並んでいるのが、いま使われているクラスと属性の一覧です。</p>
@@ -90,7 +88,6 @@
 }
 ORDER BY DESC(?分量)</code></pre>
 <p>Asterism では、SPARQL を自分で書く必要はありません。メニューの「質問する」でふつうの言葉で聞けば、内部でこの問い合わせが組み立てられ、答えと一緒に出どころが返ります。SPARQL を直接書きたい場合の入口も、データセットの「ツール」タブに用意されています。</p>
-<figure><a href="../screenshots/dataset-tools.png" title="原寸で開く"><img src="../screenshots/dataset-tools.png" alt="「ツール」タブ。このデータで答えられる問い合わせの一覧"></a></figure>
 <h2 id="用語の関係">用語の関係</h2>
 <p>ここまでの言葉は、次の関係にあります。</p>
 <figure><a href="../figures/terms.svg" title="原寸で開く"><img src="../figures/terms.svg" alt="書き方の決まりと語彙が合わさって実際のデータになり、そのデータに SPARQL で問う関係の図"></a></figure>
