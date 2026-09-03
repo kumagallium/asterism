@@ -14,81 +14,81 @@
 <h1 id="つながったデータの基礎-RDF-オントロジー-SPARQL">つながったデータの基礎 — RDF・オントロジー・SPARQL</h1>
 <p>Asterism は、表を「つながったデータ」に変える道具です。この章では、その裏側にある考え方を、はじめての人向けに説明します。操作はありません。読むだけの章です。</p>
 <h2 id="表のままだと何が困るか">表のままだと何が困るか</h2>
-<p>Excel の表は、人が見れば意味がわかります。しかし機械にとっては、ただの文字が並んだ格子です。</p>
-<pre><code>No: 03-065-2664                     ← 表の外（ファイルの先頭に条件が並ぶ）
-Name: Aluminum Vanadium
-Space Group: I4/mmm(139)
-   …
-   2theta     d        I      (hkl)  ← ここから下が表
-  21.34   4.161     5.0  (0,0,2)
-  25.87   3.441    11.5  (1,0,1)</code></pre>
-<p>この形だけからは、次のことがわかりません。</p>
-<ul><li><code>2theta</code> は角度なのか、それとも別のなにかなのか</li><li>表の各行が、先頭の <code>No: 03-065-2664</code> の材料のものだということ</li><li>隣の研究室の表にある <code>2θ</code> と、この <code>2theta</code> は同じものなのか</li></ul>
-<p><strong>つながったデータ</strong>とは、この「わからないこと」を、機械が読める形で明記したデータのことです。</p>
+<p>料理のレシピを書きためた表です。</p>
+<pre><code>作成者: 山田                          ← 表の外（ファイルの先頭に書かれている）
+作成日: 2026-09-01
+出典: 家庭料理の記録
+----------------
+料理名,食材名,分量,単位              ← ここから下が表
+カレー,にんじん,2,本
+カレー,じゃがいも,3,個
+肉じゃが,にんじん,1,本</code></pre>
+<p>人が見ればわかりますが、機械にとっては文字が並んだ格子です。この形だけからは、次のことがわかりません。</p>
+<ul><li><code>分量</code> の <code>2</code> が何の 2 なのか（本数なのか、人前なのか）</li><li>1 行目と 3 行目の「にんじん」が、<strong>同じにんじんのこと</strong>なのか</li><li>隣の人が作った価格表の「にんじん」と、この「にんじん」は同じものなのか</li></ul>
+<p><strong>つながったデータ</strong>とは、この「わからないこと」を機械が読める形で明記したデータのことです。人が毎回説明しなくても、機械が正しく解釈できます。</p>
 <h2 id="事実は-3-つ組で書く">事実は 3 つ組で書く</h2>
 <p>つながったデータでは、すべてを「<strong>なにが</strong> — <strong>どんな項目で</strong> — <strong>どんな値か</strong>」という 3 つ組で書きます。この 3 つ組ひとつが、<strong>事実 1 件</strong>です。標準の用語では<strong>トリプル</strong>（triple）と呼びます。</p>
-<p>上の表の 1 行目は、こう書き換わります。主語の名前に材料の <code>No</code> が入っていることに注目してください（理由は次の節）。</p>
-<pre><code>03-065-2664 の (0,0,2) ピーク  ──[ 2θ ]──▶  21.34
-03-065-2664 の (0,0,2) ピーク  ──[ d 値 ]──▶  4.161
-03-065-2664 の (0,0,2) ピーク  ──[ 強度 ]──▶  5.0
-03-065-2664 の (0,0,2) ピーク  ──[ Miller 指数 ]──▶  (0,0,2)</code></pre>
-<p>1 行 4 列だった表が、事実 4 件になりました。Asterism の画面が「事実 188件」のように数えているのは、この 3 つ組の数です（47 行 × 4 項目 = 188）。</p>
-<figure><a href="../figures/triple.svg" title="原寸で開く"><img src="../figures/triple.svg" alt="表の 1 行が、主語ひとつと 4 つの述語・値の組に展開される図"></a></figure>
-<p class="caption">1 行 4 列の表が事実 4 件になる。主語は 1 つ、述語（項目）が 4 つ、目的語（値）が 4 つ。</p>
+<p>上の表の 1 行目は、こう書き換わります。主語の名前に料理名が入っていることに注目してください（理由は次の節）。</p>
+<pre><code>カレーのにんじん  ──[ 分量 ]──▶  2
+カレーのにんじん  ──[ 単位 ]──▶  本
+カレーのにんじん  ──[ 食材 ]──▶  にんじん</code></pre>
+<p>1 行 3 列だった表が、事実 3 件になりました。Asterism の画面が「事実 33 件」のように数えているのは、この 3 つ組の数です（11 行 × 3 項目 = 33）。</p>
+<figure><a href="../figures/triple.svg" title="原寸で開く"><img src="../figures/triple.svg" alt="表の 1 行が、主語ひとつと 3 つの述語・値の組に展開される図"></a></figure>
+<p class="caption">1 行が事実 3 件になる。主語は 1 つ、述語（項目）が 3 つ、目的語（値）が 3 つ。</p>
 <p>3 つ組の各部分には名前があります。</p>
-<div class="tablewrap"><table><thead><tr><th>位置</th><th>標準の用語</th><th>意味</th><th>上の例</th></tr></thead><tbody><tr><td>1 番目</td><td>主語（subject）</td><td>何についての事実か</td><td>03-065-2664 の (0,0,2) ピーク</td></tr><tr><td>2 番目</td><td>述語（predicate）</td><td>どの項目の話か</td><td>2θ</td></tr><tr><td>3 番目</td><td>目的語（object）</td><td>その値</td><td>21.34</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>位置</th><th>標準の用語</th><th>意味</th><th>上の例</th></tr></thead><tbody><tr><td>1 番目</td><td>主語（subject）</td><td>何についての事実か</td><td>カレーのにんじん</td></tr><tr><td>2 番目</td><td>述語（predicate）</td><td>どの項目の話か</td><td>分量</td></tr><tr><td>3 番目</td><td>目的語（object）</td><td>その値</td><td>2</td></tr></tbody></table></div>
 <p><strong>RDF</strong> とは、この「事実は 3 つ組で書く」という決まりごとの名前です。特別なソフトではなく、書き方の約束です。</p>
 <h2 id="IRI-世界でひとつの名前">IRI — 世界でひとつの名前</h2>
-<p>3 つ組の 1 番目（主語）と 2 番目（述語）は、ただの文字列ではいけません。「ピーク 1」という名前は、世界のあちこちの表に出てきてしまうからです。</p>
-<p>そこで、<strong>世界でひとつに決まる名前</strong>を使います。これが <strong>IRI</strong> です。見た目は URL とそっくりです。</p>
+<p>3 つ組の主語と述語は、ただの文字列ではいけません。「にんじん」という名前は、世界のあちこちの表に出てくるからです。そこで<strong>世界でひとつに決まる名前</strong>を使います。これが <strong>IRI</strong> です。見た目は URL とそっくりです。</p>
 <figure><a href="../figures/iri.svg" title="原寸で開く"><img src="../figures/iri.svg" alt="IRI を、データの所在を表す部分・集まりを表す部分・1 件を指す部分に分解した図"></a></figure>
 <p class="caption">IRI が同じなら同じもの、違えば違うもの。この一点だけで、別々の場所で作られたデータがあとから機械的につながる。</p>
-<p>ドメイン名の部分が世界で重ならないので、その先も重なりません。IRI が同じなら同じもの、違えば違うもの。これだけの決まりで、別々の場所で作られたデータが、あとから機械的につながります。</p>
 <p>IRI は 2 種類あります。</p>
-<div class="tablewrap"><table><thead><tr><th>種類</th><th>何につける名前</th><th>例</th></tr></thead><tbody><tr><td>実体（データ）の IRI</td><td>実際のもの 1 件ずつ</td><td><code>.../resource/peak/03-065-2664/(0,0,2)</code></td></tr><tr><td>語彙（項目）の IRI</td><td>項目や種類そのもの</td><td><code>.../ontology#twoTheta</code></td></tr></tbody></table></div>
-<p>Asterism が「できた形をたしかめる」で ID の形を必ず人に確認するのは、この実体の IRI をどの列から組み立てるかを決めるためです。ここを間違えると、別々のピークが同じ名前になってしまい、あとから直すのが大変になります。</p>
-<p>長い IRI を毎回書くのは大変なので、先頭部分に短い別名（<strong>接頭辞</strong>、prefix）を付けて <code>xrd:twoTheta</code> のように略記します。<code>xrd:</code> が<code>https://例.org/.../ontology#</code> の代わりです。</p>
+<div class="tablewrap"><table><thead><tr><th>種類</th><th>何につける名前</th><th>例</th></tr></thead><tbody><tr><td>実体（データ）の IRI</td><td>実際のもの 1 件ずつ</td><td><code>.../resource/使用量/カレー/にんじん</code></td></tr><tr><td>語彙（項目）の IRI</td><td>項目や種類そのもの</td><td><code>.../ontology#分量</code></td></tr></tbody></table></div>
+<p>Asterism が「ID のつけかた」を必ず人に確認するのは、この 1 件を指す部分をどの列から組み立てるかを決めるためです。ここを間違えると、別々のものが同じ名前になってしまい、あとから直すのが大変になります。</p>
+<p>長い IRI を毎回書くのは大変なので、先頭部分に短い別名（<strong>接頭辞</strong>、prefix）を付けて <code>recipe:分量</code> のように略記します。ファイルの先頭に並ぶ <code>prefixes:</code> は、この対応表です。</p>
 <h2 id="ID-が衝突しないとはどういうことか">ID が衝突しないとはどういうことか</h2>
-<p>ここが設計でいちばん間違えやすいところなので、実例で説明します。上のピークのID は、こう組み立てられています。</p>
-<pre><code>xrdr:peak/{No}/{(hkl)}
-           │      └─ 表の中の列。ピークごとに変わる
-           └──────── 表の外の値。材料ごとに変わる（PDF カード番号）</code></pre>
-<p><code>No</code> は表の列ではありません。<strong>ファイルの先頭に <code>No: 03-065-2664</code> と書かれていた行</strong>です。取り込みのとき、この先頭の条件は表の全行に配られます（「読み取りの確認」で見出し行の扱いを聞かれるのは、これを決めるためです）。結果、名前はこうなります。</p>
-<div class="tablewrap"><table><thead><tr><th>材料</th><th>(hkl)</th><th>できる ID</th></tr></thead><tbody><tr><td>Al3 V</td><td>(0,0,2)</td><td><code>peak/03-065-2664/(0,0,2)</code></td></tr><tr><td>別の材料</td><td>(0,0,2)</td><td><code>peak/03-065-5860/(0,0,2)</code></td></tr></tbody></table></div>
-<p><strong>同じ (0,0,2) でも、材料が違えば別の ID になります。</strong>もし <code>(hkl)</code> だけで名前を作っていたら、どの材料の (0,0,2) も <code>peak/(0,0,2)</code> という 1 つの名前になり、あとから取り込んだ材料の強度が前の材料を上書きしてしまいます。</p>
-<figure><a href="../figures/id-collision.svg" title="原寸で開く"><img src="../figures/id-collision.svg" alt="材料 ID と hkl を組み合わせると別々の ID になるが、hkl だけだと 1 つに潰れることを示す図"></a></figure>
-<p class="caption">ID の一意性は「どの範囲で一意か」で決まる。<code>(hkl)</code> は 1 つのファイルの中でしか一意ではないので、それだけでは名前にならない。</p>
+<p>ここが設計でいちばん間違えやすいところなので、実例で説明します。上の使用量のID は、こう組み立てられています。</p>
+<pre><code>recipe:使用量/{料理名}/{食材名}
+                │        └─ その行の食材
+                └────────── その行の料理</code></pre>
+<p>もし <code>食材名</code> だけで名前を作ると、こうなります。</p>
+<div class="tablewrap"><table><thead><tr><th>行</th><th>料理</th><th>食材</th><th>食材名だけの ID</th><th>料理名も使った ID</th></tr></thead><tbody><tr><td>1</td><td>カレー</td><td>にんじん</td><td><code>使用量/にんじん</code></td><td><code>使用量/カレー/にんじん</code></td></tr><tr><td>4</td><td>肉じゃが</td><td>にんじん</td><td><code>使用量/にんじん</code> ← <strong>同じ</strong></td><td><code>使用量/肉じゃが/にんじん</code></td></tr></tbody></table></div>
+<p><strong>食材名だけだと、カレーのにんじん（2 本）と肉じゃがのにんじん（1 本）が同じ 1 件に潰れます。</strong>あとから取り込んだ方が前の分量を上書きしてしまいます。</p>
+<figure><a href="../figures/id-collision.svg" title="原寸で開く"><img src="../figures/id-collision.svg" alt="食材名だけだと 1 件に潰れるが、料理名と組み合わせると別々の ID になることを示す図"></a></figure>
+<p class="caption">ID の一意性は「どの範囲で一意か」で決まる。<code>食材名</code> はこの表の中で何度も出てくるので、それだけでは名前にならない。</p>
+<p><strong>表の外の値も ID に使えます。</strong> このファイルの先頭にある <code>作成者: 山田</code> は表の列ではありませんが、取り込みのとき表の全行に配られるので、ID の材料にできます（「読み取りの確認」で表の外の行の扱いを聞かれるのは、これを決めるためです）。別の人が作った同じ形のレシピ表と混ざらないようにしたいなら、作成者を ID に加えます。</p>
 <p>これを人が確かめる場所が、かんたんモードの「できた形をたしかめる」の画面にある②「ID がひとつずつを指しているか確かめる」です。ID が重ならないか（✓ / ⚠）が表示され、⚠ が出たら組み合わせを選び直せます。</p>
-<p><strong>ID が重ならないことと、つながっていることは別です。</strong> 上の ID には材料の番号が文字として入っていますが、これは「材料という別のもの」への参照ではありません。「この材料のピークを全部」のような質問に答えられるようにするには、材料そのものをデータの種類として設計に足し、ピークからそこへの参照を持たせる必要があります（次の節）。</p>
+<p><strong>ID が重ならないことと、つながっていることは別です。</strong> 上の ID には料理名が文字として入っていますが、これは「料理という別のもの」への参照ではありません。「カレーに使う食材を全部」のような質問に答えられるようにするには、料理そのものをデータの種類として設計に足し、使用量からそこへの参照を持たせる必要があります（次の節）。</p>
 <h2 id="クラスと属性">クラスと属性</h2>
 <p>事実をたくさん集めると、同じ形のものが繰り返し現れます。</p>
-<ul><li>ピークは、どれも 2θ・d 値・強度・Miller 指数を持つ</li><li>試料は、どれも試料番号・組成・空間群を持つ</li></ul>
-<p>この「ピーク」「試料」という<strong>種類</strong>が<strong>クラス</strong>（class）です。そして、その種類が持つ<strong>項目</strong>が<strong>属性</strong>（プロパティ、property）です。3 つ組の 2 番目（述語）に来るのが属性だと考えてください。</p>
-<pre><code>クラス「XRD ピーク値」
- ├ 属性 2θ            （値は数値）
- ├ 属性 d 値          （値は数値）
- ├ 属性 強度          （値は数値）
- └ 属性 Miller 指数   （値は文字）
+<ul><li>使用量は、どれも料理・食材・分量・単位を持つ</li><li>食材は、どれも名前を持ち、店ごとの価格を持つ</li></ul>
+<p>この「使用量」「食材」という<strong>種類</strong>が<strong>クラス</strong>（class）です。そして、その種類が持つ<strong>項目</strong>が<strong>属性</strong>（プロパティ）です。3 つ組の述語に来るのが属性だと考えてください。</p>
+<pre><code>クラス「使用量」
+ ├ 属性 分量        （値は数値）
+ ├ 属性 単位        （値は文字）
+ ├──▶ 料理         （別のものへの参照）
+ └──▶ 食材         （別のものへの参照）
 
-クラス「XRD 測定の測定結果」
- ├ 属性 試料番号
- └ 属性 組成 …</code></pre>
-<p>属性の値には 2 種類あります。この違いが「つながる／つながらない」を決めます。</p>
-<div class="tablewrap"><table><thead><tr><th>値の種類</th><th>中身</th><th>例</th></tr></thead><tbody><tr><td>値そのもの</td><td>数値・文字・日付</td><td>2θ = <code>21.34</code></td></tr><tr><td>別のものへの参照</td><td>相手の IRI</td><td>このピークは → あの試料のもの</td></tr></tbody></table></div>
-<p>後者があるから、データは網目状につながります。「この試料のピークを全部」のような質問に答えられるのは、参照でつながっているときだけです。Asterism が「つながっていません」と指摘するのは、この参照が無い状態のことです。</p>
+クラス「食材」
+ └ 属性 名前        （値は文字）</code></pre>
+<p>属性の値には 2 種類あり、この違いが「つながる／つながらない」を決めます。</p>
+<div class="tablewrap"><table><thead><tr><th>値の種類</th><th>中身</th><th>例</th><th>できること</th></tr></thead><tbody><tr><td>値そのもの</td><td>数値・文字・日付</td><td>分量 = <code>2</code></td><td>大小をくらべる、絞り込む</td></tr><tr><td>別のものへの参照</td><td>相手の IRI</td><td>この使用量 → にんじん</td><td>またいでたどる</td></tr></tbody></table></div>
+<p>後者があるから、データは網目状につながります。「にんじんを使う料理を全部」のような質問に答えられるのは、参照でつながっているときだけです。Asterism が「つながっていません」と指摘するのは、この参照が無い状態のことです。</p>
 <figure><a href="../screenshots/dataset-structure.png" title="原寸で開く"><img src="../screenshots/dataset-structure.png" alt="「中身」タブ。このデータセットが持つ種類と、気になる点"></a></figure>
-<p class="caption">この例では「XRD測定の測定結果」と「XRDピーク値」の 2 種類があり、「気になる点」に「使われていない列があります（17 列）」と出ています。</p>
+<p class="caption">このデータセットには 2 種類があり、「気になる点」に「使われていない列があります」と出ています。取り込まれていない列は、質問にも出てきません。</p>
 <h2 id="オントロジー-共通の言葉">オントロジー — 共通の言葉</h2>
 <p>クラスと属性を決めて、名前（IRI）を与え、「このクラスはこの属性を持つ」「この属性の値は数値」といった決まりを書いたもの。それが<strong>オントロジー</strong>です。データそのものではなく、<strong>データを書くための語彙集</strong>だと考えるのがいちばん近いです。</p>
 <p>Asterism の画面では、これを<strong>共通の言葉</strong>と呼んでいます。メニューの「共通の言葉」に並んでいるのが、いま使われているクラスと属性の一覧です。</p>
 <p>語彙を他の人と揃えるほど、データはつながります。だから Asterism には、自分のデータ専用の言葉を、世界で使われている標準の語彙（QUDT・schema.org など）に結びつける機能があります（<a href="./vocab-and-grounding.html">vocab-and-grounding.md</a>）。</p>
 <h2 id="SPARQL-つながったデータへの問い方">SPARQL — つながったデータへの問い方</h2>
 <p>Excel に対する検索やフィルタにあたるものが、つながったデータにもあります。それが <strong>SPARQL</strong> です。3 つ組の「わからないところ」を <code>?名前</code> にして書くと、あてはまる組み合わせを全部返してくれます。</p>
-<pre><code class="lang-sparql">SELECT ?peak ?angle WHERE {
-  ?peak  a          xrd:XRDピーク値 .   # 種類がピークであるものを ?peak と呼ぶ
-  ?peak  xrd:twoTheta  ?angle .        # その 2θ の値を ?angle と呼ぶ
+<pre><code class="lang-sparql">SELECT ?料理 ?分量 WHERE {
+  ?使用量  recipe:食材   ?食材 .        # 食材が
+  ?食材    schema:name  &quot;にんじん&quot; .    # にんじん であるものを探し
+  ?使用量  recipe:料理   ?料理 ;        # その料理と
+           recipe:分量   ?分量 .        # 分量を返す
 }
-ORDER BY DESC(?angle) LIMIT 10</code></pre>
+ORDER BY DESC(?分量)</code></pre>
 <p>Asterism では、SPARQL を自分で書く必要はありません。メニューの「質問する」でふつうの言葉で聞けば、内部でこの問い合わせが組み立てられ、答えと一緒に出どころが返ります。SPARQL を直接書きたい場合の入口も、データセットの「ツール」タブに用意されています。</p>
 <figure><a href="../screenshots/dataset-tools.png" title="原寸で開く"><img src="../screenshots/dataset-tools.png" alt="「ツール」タブ。このデータで答えられる問い合わせの一覧"></a></figure>
 <h2 id="用語の関係">用語の関係</h2>
@@ -98,7 +98,7 @@ ORDER BY DESC(?angle) LIMIT 10</code></pre>
 <ul><li><strong>RDF</strong> は書き方の決まり、<strong>IRI</strong> はそこで使う名前のつけかた</li><li><strong>オントロジー</strong>はどんな<strong>クラス</strong>と<strong>属性</strong>を使ってよいかの語彙</li><li>決まりに従って語彙で書いた<strong>事実</strong>の集まりが、実際のデータ</li><li>そのデータに問うための言葉が <strong>SPARQL</strong></li></ul>
 <h2 id="画面の言葉との対応">画面の言葉との対応</h2>
 <p>Asterism はこれらの用語を、なるべくやさしい言葉に置き換えて表示しています。文献や他のツールを読むときのために、対応を挙げておきます。</p>
-<div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>ピーク・試料などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID のつけかた</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>共通の言葉</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>料理・食材などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID のつけかた</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>共通の言葉</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
 <h2 id="関連">関連</h2>
 <ul><li>各ファイルが何をしているかは <a href="./dataset-files.html">dataset-files.md</a> を参照してください。</li><li>語彙を標準に合わせる話は<a href="./vocab-and-grounding.html">vocab-and-grounding.md</a> を参照してください。</li><li>データどうしをつなぐ話は <a href="./crosswalk.html">crosswalk.md</a> を参照してください。</li></ul>
 <footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
