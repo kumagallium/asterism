@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 340" role="img" aria-label="IRI を土台に RDF が乗り、その上に SPARQL が乗る。クラスと属性も IRI を使い、オントロジーがそれを束ねる依存関係の図">
+<style>
+  :root{
+    --ink:#16241a; --body:#33453a; --muted:#54695b; --faint:#84987f;
+    --surface:#ffffff; --surface-alt:#f5f9f3; --sink:#e5ede3;
+    --line:#d5e0d2; --line-strong:#bccdb9;
+    --entity:#2f6b41; --entity-soft:#dcebe0;
+    --link:#2d5c86; --link-soft:#dae7f3;
+    --accent:#a3661f; --accent-soft:#f4e6d4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:#e9f1e8; --body:#c3d3c5; --muted:#98ab9a; --faint:#748a76;
+      --surface:#18211a; --surface-alt:#1d2820; --sink:#131c15;
+      --line:#2b382c; --line-strong:#3f4f40;
+      --entity:#7cc491; --entity-soft:#1d3626;
+      --link:#88b6e0; --link-soft:#16293b;
+      --accent:#e0a862; --accent-soft:#33261a;
+    }
+  }
+  text{font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif; font-size:13px; fill:var(--ink)}
+  .m{font-family:"SF Mono",Menlo,Consolas,"IBM Plex Mono",monospace}
+  .sm{font-size:11.5px}
+  .xs{font-size:10.5px; letter-spacing:.06em}
+  .t-mut{fill:var(--muted)}
+  .t-fnt{fill:var(--faint)}
+  .t-ent{fill:var(--entity)}
+  .t-lnk{fill:var(--link)}
+  .t-acc{fill:var(--accent)}
+  .b{font-weight:700}
+  .box{fill:var(--surface); stroke:var(--line-strong); stroke-width:1.25}
+  .box-alt{fill:var(--surface-alt); stroke:var(--line-strong); stroke-width:1.25}
+  .box-sink{fill:var(--sink); stroke:var(--line-strong); stroke-width:1.25}
+  .box-ent{fill:var(--entity-soft); stroke:var(--entity); stroke-width:1.5}
+  .box-lnk{fill:var(--link-soft); stroke:var(--link); stroke-width:1.5}
+  .box-acc{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5}
+  .ln{stroke:var(--line-strong); stroke-width:1.5; fill:none}
+  .ln-lnk{stroke:var(--link); stroke-width:1.5; fill:none}
+  .ln-ent{stroke:var(--entity); stroke-width:1.5; fill:none}
+  .ln-dash{stroke:var(--line-strong); stroke-width:1.5; fill:none; stroke-dasharray:5 4}
+  .ln-thin{stroke:var(--line); stroke-width:1; fill:none}
+  .head{fill:var(--line-strong)}
+  .head-lnk{fill:var(--link)}
+  .ln-acc{stroke:var(--accent); stroke-width:1.5; fill:none}
+  .head-acc{fill:var(--accent)}
+  .head-ent{fill:var(--entity)}
+</style>
+  <text x="16" y="22" class="xs t-fnt">↑ 上のものは、下のものが無いと成り立たない</text>
+
+  <rect class="box-sink" x="16" y="266" width="908" height="56" rx="8"/>
+  <text x="40" y="290" class="b">IRI</text>
+  <text x="40" y="310" class="sm t-mut">世界でひとつの名前。<tspan class="t-acc b">何も必要としない</tspan> — ただの文字列の規則</text>
+  <text x="908" y="299" class="xs t-fnt" text-anchor="end">最下層</text>
+
+  <rect class="box-ent" x="16" y="186" width="440" height="60" rx="8"/>
+  <text x="40" y="210" class="b t-ent">RDF</text>
+  <text x="40" y="230" class="sm t-mut">事実を 3 つ組で書く決まり。主語と述語は<tspan class="b"> IRI でなければならない</tspan></text>
+
+  <rect class="box-lnk" x="484" y="186" width="440" height="60" rx="8"/>
+  <text x="508" y="210" class="b t-lnk">クラス・属性</text>
+  <text x="508" y="230" class="sm t-mut">種類と項目。<tspan class="b">それ自身が IRI</tspan>で名指しされる</text>
+
+  <rect class="box" x="16" y="106" width="440" height="60" rx="8"/>
+  <text x="40" y="130" class="b">SPARQL</text>
+  <text x="40" y="150" class="sm t-mut">問い方。<tspan class="b">RDF の形</tspan>にパターンを当て、<tspan class="b">IRI</tspan> で名前を書く</text>
+
+  <rect class="box" x="484" y="106" width="440" height="60" rx="8"/>
+  <text x="508" y="130" class="b">オントロジー</text>
+  <text x="508" y="150" class="sm t-mut"><tspan class="b">クラスと属性</tspan>を集めて、決まりごとを書いたもの</text>
+
+  <path class="ln-ent" d="M236 266 V252" marker-end="url(#u1)"/>
+  <path class="ln-lnk" d="M704 266 V252" marker-end="url(#u2)"/>
+  <path class="ln" d="M140 186 V172" marker-end="url(#u3)"/>
+  <path class="ln" d="M608 186 V172" marker-end="url(#u3)"/>
+  <path class="ln" d="M340 266 C 340 220, 380 200, 380 172" marker-end="url(#u3)"/>
+
+  <text x="248" y="262" class="xs t-ent">名前を使う</text>
+  <text x="716" y="262" class="xs t-lnk">名前を使う</text>
+  <text x="152" y="182" class="xs t-fnt">この形に問う</text>
+  <text x="620" y="182" class="xs t-fnt">これを束ねる</text>
+  <text x="392" y="214" class="xs t-fnt">名前も書く</text>
+
+  <line class="ln-thin" x1="470" y1="96" x2="470" y2="256"/>
+  <text x="470" y="86" class="xs t-fnt" text-anchor="middle">事実を扱う側　／　語彙を決める側</text>
+
+  <defs>
+    <marker id="u1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head-ent" d="M0 0 L10 5 L0 10 z"/></marker>
+    <marker id="u2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head-lnk" d="M0 0 L10 5 L0 10 z"/></marker>
+    <marker id="u3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head" d="M0 0 L10 5 L0 10 z"/></marker>
+  </defs>
+</svg>
