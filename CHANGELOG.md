@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.43.1](https://github.com/kumagallium/asterism/compare/v0.43.0...v0.43.1) - 2026-09-04
+
+- docs(manual): 入門章の例題を XRD からレシピ表へ — 分野を問わない題材にする by @kumagallium in https://github.com/kumagallium/asterism/pull/567
+- docs(manual): 入門章から XRD の画面写真を外す by @kumagallium in https://github.com/kumagallium/asterism/pull/569
+- chore(manual): 参照の切れた画像を消し、孤児を機械で見張る by @kumagallium in https://github.com/kumagallium/asterism/pull/570
+- docs(manual): 入門章に依存の向き・三つの空間・種類の決め方・重複の扱いを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/572
+
 ## [v0.43.0](https://github.com/kumagallium/asterism/compare/v0.42.0...v0.43.0) - 2026-09-03
 
 - feat(grounding): 語彙カタログ 596→2,398 語（EMMO 収録・不透明 IRI 対応・同点の決着） by @kumagallium in https://github.com/kumagallium/asterism/pull/565
