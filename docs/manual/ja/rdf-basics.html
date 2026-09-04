@@ -46,6 +46,9 @@
 <div class="tablewrap"><table><thead><tr><th>種類</th><th>何につける名前</th><th>例</th></tr></thead><tbody><tr><td>実体（データ）の IRI</td><td>実際のもの 1 件ずつ</td><td><code>.../resource/使用量/カレー/にんじん</code></td></tr><tr><td>語彙（項目）の IRI</td><td>項目や種類そのもの</td><td><code>.../ontology#分量</code></td></tr></tbody></table></div>
 <p>Asterism が「ID のつけかた」を必ず人に確認するのは、この 1 件を指す部分をどの列から組み立てるかを決めるためです。ここを間違えると、別々のものが同じ名前になってしまい、あとから直すのが大変になります。</p>
 <p>長い IRI を毎回書くのは大変なので、先頭部分に短い別名（<strong>接頭辞</strong>、prefix）を付けて <code>recipe:分量</code> のように略記します。ファイルの先頭に並ぶ <code>prefixes:</code> は、この対応表です。</p>
+<p><strong>スラッシュは区切りで、階層ではありません。</strong> <code>使用量/カレー/にんじん</code> は「使用量の下にカレーがある」という意味ではなく、ただの一意な文字列です。並べ方に決まりもないので、<code>カレー/使用量/にんじん</code> でも動きます。</p>
+<p>それでも<strong>種類の名前を先に置く</strong>のが慣習です。理由は 2 つあります。</p>
+<ul><li>IRI の頭を見れば、それが何の IRI か分かる</li><li><strong>同じキーで別の種類があっても衝突しない</strong>（<code>料理/カレー</code> と <code>使用量/カレー/にんじん</code>）</li></ul>
 <h2 id="ID-が衝突しないとはどういうことか">ID が衝突しないとはどういうことか</h2>
 <p>ここが設計でいちばん間違えやすいところなので、実例で説明します。上の使用量のID は、こう組み立てられています。</p>
 <pre><code>recipe:使用量/{料理名}/{食材名}
@@ -74,6 +77,21 @@
 <p>属性の値には 2 種類あり、この違いが「つながる／つながらない」を決めます。</p>
 <div class="tablewrap"><table><thead><tr><th>値の種類</th><th>中身</th><th>例</th><th>できること</th></tr></thead><tbody><tr><td>値そのもの</td><td>数値・文字・日付</td><td>分量 = <code>2</code></td><td>大小をくらべる、絞り込む</td></tr><tr><td>別のものへの参照</td><td>相手の IRI</td><td>この使用量 → にんじん</td><td>またいでたどる</td></tr></tbody></table></div>
 <p>後者があるから、データは網目状につながります。「にんじんを使う料理を全部」のような質問に答えられるのは、参照でつながっているときだけです。Asterism が「つながっていません」と指摘するのは、この参照が無い状態のことです。</p>
+<h2 id="何を種類にするか-問いたいことが決める">何を種類にするか — 問いたいことが決める</h2>
+<p>ここに決まった正解はありません。ただし実用的な指針が 1 つあります。<strong>その値自身が、何かを持つ必要があるか</strong>です。</p>
+<p>同じレシピ表でも、聞きたいことが違えば、種類にすべきものが変わります。</p>
+<div class="tablewrap"><table><thead><tr><th>聞きたいこと</th><th>種類にする</th><th>なぜ</th></tr></thead><tbody><tr><td>にんじんはどの店が安い？</td><td><strong>食材</strong></td><td>にんじん自身が価格を持つ必要がある</td></tr><tr><td>カレーの材料を全部</td><td><strong>料理</strong></td><td>カレー自身が材料を持つ必要がある</td></tr><tr><td>カレーのにんじんは何本？</td><td><strong>使用量</strong></td><td>料理と食材の組み合わせ自身が分量を持つ</td></tr></tbody></table></div>
+<p>かんたんモードの「ID のつけかた」に出てくる 3 つの目安も、同じことを別の言い方にしたものです。</p>
+<ul><li>外の世界も同じ名前で呼ぶ値（食材名・組成・空間群・DOI…）</li><li>その値そのものについて、後から何か言いたくなる値</li><li>2 つ以上の種類から参照したい値</li></ul>
+<p>そして<strong>迷ったら種類にしてください</strong>。余分な種類はあとで消せますが、足りない種類は設計をやり直さないと足せず、公開したあとは動かせません。判断が非対称なので、多いほうに倒すのが安全です。</p>
+<h2 id="同じ項目を-2-か所に書きたくなったら">同じ項目を 2 か所に書きたくなったら</h2>
+<p>種類を増やすと「この項目は両方に要るのでは」と感じることがあります。ほとんどは次の 3 つに分かれ、<strong>うち 2 つは書かずに済みます</strong>。</p>
+<p><strong>① 参照で足ります。</strong> 「にんじんを使う料理」を引きたいから食材の側にも料理を持たせたい、と感じる場面です。要りません。SPARQL は矢印を逆にもたどれるので、片方に 1 本あれば十分です。</p>
+<p><strong>② 「何の性質か」を突き詰めると 1 か所に決まります。</strong> 価格表の「調査日」を店にも価格にも付けたくなりますが、よく考えると「その価格がいつ調べられたか」なので、価格の性質です。店は日付を持ちません。</p>
+<p><strong>③ 数えれば分かる値は、持たせません。</strong> 「カレーの材料数は 3」を料理に持たせると、材料を 1 つ足したときに直し忘れて矛盾します。問うときに数えるのが原則です。</p>
+<p>なお、<strong>同じ列が複数の役割で現れるのは重複ではありません</strong>。</p>
+<div class="tablewrap"><table><thead><tr><th>役割</th><th>例（<code>料理名</code> の列）</th></tr></thead><tbody><tr><td>属性として</td><td>料理の名前 ← ここだけが「属性」</td></tr><tr><td>ID の材料として</td><td><code>使用量/カレー/にんじん</code></td></tr><tr><td>参照のキーとして</td><td>使用量 → 料理 のつながり</td></tr></tbody></table></div>
+<p>禁じられているのは「<strong>同じ事実を 2 か所に書くこと</strong>」だけです。片方だけ直したときに、どちらが正しいか決められなくなるからです。</p>
 <h2 id="オントロジー-共通の言葉">オントロジー — 共通の言葉</h2>
 <p>クラスと属性を決めて、名前（IRI）を与え、「このクラスはこの属性を持つ」「この属性の値は数値」といった決まりを書いたもの。それが<strong>オントロジー</strong>です。データそのものではなく、<strong>データを書くための語彙集</strong>だと考えるのがいちばん近いです。</p>
 <p>Asterism の画面では、これを<strong>共通の言葉</strong>と呼んでいます。メニューの「共通の言葉」に並んでいるのが、いま使われているクラスと属性の一覧です。</p>
@@ -88,11 +106,25 @@
 }
 ORDER BY DESC(?分量)</code></pre>
 <p>Asterism では、SPARQL を自分で書く必要はありません。メニューの「質問する」でふつうの言葉で聞けば、内部でこの問い合わせが組み立てられ、答えと一緒に出どころが返ります。SPARQL を直接書きたい場合の入口も、データセットの「ツール」タブに用意されています。</p>
-<h2 id="用語の関係">用語の関係</h2>
-<p>ここまでの言葉は、次の関係にあります。</p>
-<figure><a href="../figures/terms.svg" title="原寸で開く"><img src="../figures/terms.svg" alt="書き方の決まりと語彙が合わさって実際のデータになり、そのデータに SPARQL で問う関係の図"></a></figure>
-<p>読み下すとこうなります。</p>
-<ul><li><strong>RDF</strong> は書き方の決まり、<strong>IRI</strong> はそこで使う名前のつけかた</li><li><strong>オントロジー</strong>はどんな<strong>クラス</strong>と<strong>属性</strong>を使ってよいかの語彙</li><li>決まりに従って語彙で書いた<strong>事実</strong>の集まりが、実際のデータ</li><li>そのデータに問うための言葉が <strong>SPARQL</strong></li></ul>
+<h2 id="用語の関係-何が何を必要とするか">用語の関係 — 何が何を必要とするか</h2>
+<p>ここまでの 6 つの言葉は、並べると同じ層のように見えますが、<strong>層が違い、必要とする向きが決まっています</strong>。</p>
+<figure><a href="../figures/dependency.svg" title="原寸で開く"><img src="../figures/dependency.svg" alt="IRI を土台に RDF が乗り、その上に SPARQL が乗る。クラスと属性も IRI を使い、オントロジーがそれを束ねる依存関係の図"></a></figure>
+<p class="caption">矢印は「必要とする」向き。逆向きの依存はない。</p>
+<div class="tablewrap"><table><thead><tr><th>これを使うには</th><th>IRI</th><th>RDF</th><th>クラス・属性</th><th>オントロジー</th></tr></thead><tbody><tr><td><strong>IRI</strong> を作る</td><td>—</td><td>不要</td><td>不要</td><td>不要</td></tr><tr><td><strong>RDF</strong> で事実を書く</td><td>必須</td><td>—</td><td>不要</td><td>不要</td></tr><tr><td><strong>クラス・属性</strong>を定める</td><td>必須</td><td>必須</td><td>—</td><td>不要</td></tr><tr><td><strong>オントロジー</strong>を作る</td><td>必須</td><td>必須</td><td>必須</td><td>—</td></tr><tr><td><strong>SPARQL</strong> で問う</td><td>必須</td><td>必須</td><td>任意</td><td>任意</td></tr></tbody></table></div>
+<p><strong>IRI だけが何も必要としません。</strong>ただの名前の規則なので、クラスも属性も要りません。逆に、クラスと属性のほうが IRI を必要とします。IRI が根っこにあるのは、<strong>一度公開したら動かせない</strong>からでもあります。名前は動かせず、意味は後から直せます。</p>
+<p>そして <strong>SPARQL にクラスもオントロジーも必須ではありません</strong>。次の問いは、何も知らなくても動きます。</p>
+<pre><code class="lang-sparql">SELECT * WHERE { ?s ?p ?o } LIMIT 10</code></pre>
+<h2 id="三つの空間-交わっていそうで-疎">三つの空間 — 交わっていそうで、疎</h2>
+<p>もう一つの見方があります。<strong>名前の空間・事実の空間・語彙の空間</strong>の 3 つで、後ろの2 つは<strong>同じ名前を使っているという事実だけ</strong>でつながっています。</p>
+<figure><a href="../figures/three-spaces.svg" title="原寸で開く"><img src="../figures/three-spaces.svg" alt="事実の空間と語彙の空間が別々にあり、両者は同じ IRI を使うことだけでつながっている図"></a></figure>
+<p class="caption">事実の空間と語彙の空間の間にあるのは、点線 1 本だけ。</p>
+<p>RDF は「この項目は定義済みか」を確かめません。だから次のことが起きます。</p>
+<ul><li>語彙を決めずに、いきなり事実を書ける</li><li>あとから語彙を足しても、事実は書き換えなくてよい</li><li>語彙の間違いが、事実を壊さない</li></ul>
+<p>裏を返せば、<strong>放っておくと何も結びつきません</strong>。結びつけるには、形の検査・推論・人のいずれかが要ります。</p>
+<h3 id="どれが-SPARQL-で引けるか">どれが SPARQL で引けるか</h3>
+<p>Asterism では、この疎結合が保存場所にも現れています。</p>
+<div class="tablewrap"><table><thead><tr><th></th><th>どこにあるか</th><th>SPARQL で引けるか</th></tr></thead><tbody><tr><td>事実（<code>使用量 分量 2</code>）</td><td>グラフの中</td><td><strong>引ける</strong></td></tr><tr><td>型付け（<code>使用量 a 使用量クラス</code>）</td><td>グラフの中</td><td><strong>引ける</strong></td></tr><tr><td>外の標準に合わせた対応</td><td>専用のグラフ</td><td><strong>引ける</strong></td></tr><tr><td>種類と項目の細かい定義</td><td>ファイル（<code>model.yaml</code>）</td><td>引けない</td></tr></tbody></table></div>
+<p>メニューの「共通の言葉」に並ぶ一覧は、<strong>公開済みの事実から逆算</strong>して作られます（実際に使われている種類と項目を数える）。だから定義を書かなくても動く一方、「この種類は、あの種類の一種である」といった<strong>用語どうしの関係は、書いて公開しないかぎり質問には効きません</strong>。</p>
 <h2 id="画面の言葉との対応">画面の言葉との対応</h2>
 <p>Asterism はこれらの用語を、なるべくやさしい言葉に置き換えて表示しています。文献や他のツールを読むときのために、対応を挙げておきます。</p>
 <div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>料理・食材などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID のつけかた</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>共通の言葉</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
