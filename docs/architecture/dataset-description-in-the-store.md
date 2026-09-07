@@ -75,13 +75,19 @@ LLM が書く §7（散文・キーワード・落とし穴）
 | `schema_info.base_uri` | `void:uriSpace` | **リテラル**（`xsd:string`。IRI 型で書くのは VoID の誤用） | VoID |
 | `schema_info.endpoint` | `void:sparqlEndpoint` | IRI | VoID |
 | `schema_info.graphs[]` | `ast:namedGraph` | IRI（複数） | **独自**（`sd:namedGraph` は空ノードの入れ物を要求する。本リポジトリの RDF は空ノードを作らない — TBox は T3 が禁じ、実体はすべてテンプレート鋳造の IRI） |
-| （RML から導いた shape） | `ast:hasShape <shape IRI>` ＋ 行き先に `sh:NodeShape` 一式 | IRI | リンク述語は**独自**、shape 本体は SHACL（`ingest/src/asterism/shapes.py:523` `shapes_to_shacl` の出力をそのまま） |
+| （RML から導いた shape） | `ast:hasShape <shape IRI>` ＋ 行き先に `sh:NodeShape` 一式 | IRI | リンク述語は**独自**、shape 本体は SHACL（`ingest/src/asterism/shapes.py:523` `shapes_to_shacl` の出力）。`base` は `…/dataset/{id}/shape/` にする — 既定の `urn:asterism:shape:` はクラスのローカル名だけで IRI を作るので、2 つのデータセットの `Sample` が同じ IRI を持ってしまう |
 | `shape_expressions` | `ast:shapeExpressions` | リテラル | **独自**。手書き ShEx の保存用（§7.2） |
 | `sparql_query_examples[]` | `ast:hasQueryExample <…/dataset/{id}/query/{n}>`、行き先に `a sh:SPARQLSelectExecutable ; sh:select "…" ; dcterms:title ; rdfs:comment` | IRI | リンク述語は**独自**、行き先は **SHACL の実行可能クエリ語彙**。DBCLS/SIB の sparql-examples が同じ形なので、外の資産と同じ棚に載る |
 | `anti_patterns` | `ast:antiPattern` | リテラル | **独自**（標準が無い） |
 | `architectural_notes` | `ast:architecturalNote` | リテラル | **独自**（同上） |
 | `sample_rdf_entries[]` | `ast:hasSampleEntry <…/dataset/{id}/sample/{n}>`、行き先に `dcterms:identifier` ＋ `ast:turtle` | IRI | **独自** |
 | 上記以外の未知キー | `ast:hasExtraSection <…/dataset/{id}/section/{key}>`、行き先に `ast:sectionName` ＋ `ast:sectionValue`（YAML リテラル） | IRI | **独自**。往復を無損失にするための逃がし口（§9） |
+
+持ち出し（exchange）は `.ttl` / `.yaml` の中の実体 IRI base を置換する
+（`exchange.py:53` `_TEXT_SUFFIXES`）。`metadata.ttl` と `mie.yaml` は同じ規則で
+揃って置換されるので、例クエリの中の IRI と `void:uriSpace` がずれることはない。
+データセット IRI（`…/asterism/dataset/{id}`）は実体 IRI base ではないので置換されず、
+インスタンス間で同じ ID は同じ主語を指す。
 
 **件数・統計は三つ組にしない。** 「何件あるか」「どのクラスがあるか」は
 `schema_summary` が実測で答える。説明の側に写しを持つと、それが古くなる —
@@ -126,7 +132,13 @@ LLM が書く §7（散文・キーワード・落とし穴）
 | 再開（reinstate） | 触らない | 触らない | 同上（`project_mie` の再配信は現行どおり） |
 | 削除（delete） | ディレクトリごと消える | **落とす** | `to_drop` に `meta_graph_iri` を明示的に加える。現行の `to_drop`（`main.py:8877`）は live / staged / 全 version だけを列挙しており、**`ontology_graph_iri` も落としていない**。同じ穴なので同時に塞ぐ |
 | 持ち出し（exchange）の import | `metadata.ttl` を運ぶ | import 先の promote で書かれる | ストアが空の環境でも説明が復元できる |
+| 表示名の変更（rename） | 触らない | 触らない | 表示名（`meta.name`）と説明の題（`dcterms:title`）は別物。前者の正本は `meta.json` のまま。現行も `mie.yaml` に触れていない |
+| 文書データセット（`POST /api/documents`） | 書かない | 書かない | materialize を通らず `mie.yaml` を持たない（`main.py:8092`）。説明が無いものに説明を発明しない |
 
+`metadata.ttl` を組むのは **`registry.save_dataset` / `update_dataset_artifacts` の中**である。
+新規データセットの `id` は `save_dataset` が採番する（`{slug}-{uuid8}`）ので、主語 IRI が
+決まるのはそこが最初であり、呼び出し側（`main.py` の 3 箇所の artifacts 組み立て）は
+触らない。同じ場所で `mie.yaml` も投影結果に差し替える。
 `metadata.ttl` は「メタグラフのシリアライズ」であって正本ではない。`mie.yaml` も
 従来どおり同じディレクトリに置くが、**投影結果を置くだけ**になる（人が手で直す
 場所ではなくなる）。
@@ -181,6 +193,9 @@ doc_synth の機械文が既定。言葉の仕事は LLM と人に残る」と�
 `OxigraphClient` のメソッドはすべて `async def` なので、`catalog.py` の中から
 呼ぶと「走っているループの中で同期ブロック」になる。
 
+取り込む前の下書きにはメタグラフが無い（§4）。その説明は registry の `metadata.ttl`
+（三つ組のファイル形）から読む。`mie.yaml` は読まない。
+
 したがって**解決は呼び出し側に置く**: MCP のツール本体（`async`）が
 1 往復で `{dataset_id: description}` を引き、それを
 `find_datasets(..., descriptions=mapping)` に渡す。`catalog.py` は同期のまま、
@@ -189,10 +204,11 @@ doc_synth の機械文が既定。言葉の仕事は LLM と人に残る」と�
 
 ### 7.2 `validate._load_mie_yaml`（T1/T4/T6/T7/T10）
 
-**変えない。** 検査は materialize が書いた `mie.yaml` を今までどおり読み、
-`OxigraphClient` を 1 度も触らない。変わるのはその `mie.yaml` の出どころだけで、
-LLM の §7 を再シリアライズしたものから、**三つ組からの投影**になる。
-投影が壊れた YAML を出せば T4 が落ちる — つまり検査は投影自体の回帰テストになる。
+**変えない。** 検査は materialize が書いた §7 を今までどおり読み、
+`OxigraphClient` を 1 度も触らない。step0 は ingest（`asterism`）に依存しないので、
+三つ組への変換は step0 の中ではなく**保存の瞬間**（§4）に起きる。検査が読んだ
+文書と保存された投影は意味的に等価（§9）であり、保存後の `mie.yaml` が
+パースできることは api 側のテストで守る。
 
 `shape_expressions` は T1 が複合 IRI テンプレートを拾う材料でもある。手書きの
 ShEx（`data/togomcp/mie/starrydata.yaml` の約 90 行）は `ast:shapeExpressions` として
