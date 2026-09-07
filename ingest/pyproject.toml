@@ -48,6 +48,7 @@ asterism-starrydata-papers = "asterism.starrydata:_main"
 asterism-starrydata-samples = "asterism.starrydata:_main_samples"
 asterism-starrydata-curves = "asterism.starrydata:_main_curves"
 asterism-watcher = "asterism.watcher:_main"
+asterism-metadata = "asterism.metadata_cli:_main"
 
 [build-system]
 requires = ["hatchling"]

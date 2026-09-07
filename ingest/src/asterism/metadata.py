@@ -759,6 +759,24 @@ async def fetch_metadata_graph(client: SupportsMetadataStore, dataset_id: str) -
     return graph_from_turtle(turtle)
 
 
+class MetadataGraphWriteError(RuntimeError):
+    """The POST half of :func:`write_metadata_graph` failed *after* its DROP
+    already succeeded: ``graph_iri`` is now empty in the store (neither the
+    old nor the new description survives), not merely unreachable/unchanged.
+    Distinct from a plain exception out of the DROP itself (store down,
+    non-2xx, ...) — there the graph is untouched and a retry is just a retry,
+    not a repair of a now-empty graph. Callers (the migrate CLI) use this to
+    tell an operator which case they are in."""
+
+    def __init__(self, dataset_id: str, graph_iri: str, cause: BaseException) -> None:
+        super().__init__(
+            f"{dataset_id}: POST failed after DROP <{graph_iri}> already succeeded "
+            f"— that graph is now empty in the store ({cause})"
+        )
+        self.dataset_id = dataset_id
+        self.graph_iri = graph_iri
+
+
 async def write_metadata_graph(
     client: SupportsMetadataStore, dataset_id: str, graph: rdflib.Graph
 ) -> int:
@@ -766,9 +784,19 @@ async def write_metadata_graph(
 
     Replace, not append (ADR §4: "追記ではなく置き換え") — a description is the
     current say-so, not a history. Returns the number of triples written.
+
+    DROP and POST are two separate store requests, not one transaction: if the
+    POST fails after the DROP already went through, ``graph_iri`` is left
+    empty in the store rather than holding the old or the new description.
+    That case is re-raised as :class:`MetadataGraphWriteError` so a caller can
+    say so, rather than as whatever bare exception ``post_turtle_bytes`` threw
+    (indistinguishable, on its own, from "the DROP never happened").
     """
     iri = substrate.meta_graph_iri(dataset_id)
     await substrate.drop_graph(client, iri)
     payload = metadata_turtle(graph).encode("utf-8")
-    await client.post_turtle_bytes(payload, graph_iri=iri)
+    try:
+        await client.post_turtle_bytes(payload, graph_iri=iri)
+    except Exception as exc:
+        raise MetadataGraphWriteError(dataset_id, iri, exc) from exc
     return len(graph)
