@@ -190,8 +190,10 @@ def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monke
         assert any(
             d.get("phase") == "upload" and d.get("done") == d.get("total") for d in running
         )
-    # chunk(s) POSTed to the canonical named graph; meta on disk updated.
-    assert oxi.store_calls == [graph_iri]
+    # chunk(s) POSTed to the canonical named graph, then the description graph
+    # (ADR dataset-description-in-the-store.md §4: an unpublished dataset's
+    # ingest projects metadata.ttl too); meta on disk updated.
+    assert oxi.store_calls == [graph_iri, substrate.meta_graph_iri(dataset_id)]
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["ingested"] is True
     assert meta["triple_count"] == 1
@@ -871,7 +873,12 @@ def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch
         result = next(d for n, d in events if n == "done")["result"]
         assert result["triple_count"] == 1
         assert result["graph_kind"] == "staged"
-    assert oxi.store_calls == [substrate.versioned_graph_iri(dataset_id, 1)]
+    # ADR dataset-description-in-the-store.md §4: same trailing meta-graph
+    # write as the happy-path test above.
+    assert oxi.store_calls == [
+        substrate.versioned_graph_iri(dataset_id, 1),
+        substrate.meta_graph_iri(dataset_id),
+    ]
 
 
 def test_ingest_upload_persists_source_for_reuse(tmp_path: Path, monkeypatch) -> None:
@@ -1241,6 +1248,183 @@ def test_promote_projects_tbox_into_ontology_graph(tmp_path: Path) -> None:
     assert ontology_iri in oxi.stores
 
 
+# ----------------------------------------------------------------------------
+# Description graph (ADR dataset-description-in-the-store.md §4)
+# ----------------------------------------------------------------------------
+
+
+def test_ingest_of_unpublished_dataset_writes_meta_graph(tmp_path: Path, monkeypatch) -> None:
+    # _save_dataset_with_rml's mie.yaml ("schema_info: title: x") is non-blank,
+    # so metadata.ttl is non-empty and an ingest of a never-promoted dataset
+    # must project it into the store's description graph.
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "done" in [n for n, _ in events], events
+    # POSTed to the meta IRI, replaced (not merged) — a DROP precedes the load.
+    assert meta_iri in oxi.store_calls
+    assert any(f"DROP SILENT GRAPH <{meta_iri}>" in u for u in oxi.updates)
+
+
+def test_ingest_of_already_promoted_dataset_does_not_rewrite_meta(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # ADR §4: a re-ingest layered on an ALREADY-PUBLISHED dataset must leave the
+    # street's description alone — only the next promote may swap it (§1's
+    # "見直し中に公開中の説明が化ける" failure this ADR closes).
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    root = tmp_path / "registry"
+    align = {"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}}
+    registry.mark_promoted(
+        root, dataset_id, triples_promoted=1, alignment=align, promoted_at="2026-01-01T00:00:00"
+    )
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "done" in [n for n, _ in events], events
+    assert meta_iri not in oxi.store_calls
+    assert all("DROP" in u for u in oxi.updates if meta_iri in u)
+
+
+def test_ingest_racing_a_concurrent_promote_does_not_rewrite_meta(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The `promoted` check ingest_job makes before writing the meta graph
+    must be re-read FRESH right before the write, not taken from the request-
+    start ``data`` snapshot: a background ingest job can run for minutes, and
+    a POST /promote landing WHILE it runs must still win (its ontology/meta
+    projection is the one that should stand) — the same "見直し中に公開中の
+    説明が化ける" failure §1 names, reached via a race instead of a stale
+    snapshot at request start.
+
+    Simulated by flipping ``promoted`` on disk (``registry.mark_promoted``,
+    bypassing the store entirely) from inside the fake materializer — i.e.
+    mid-``run_pipeline``, well after ``data`` was already read at the top of
+    the ``/ingest`` request.
+    """
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    root = tmp_path / "registry"
+
+    def _materialize(
+        rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None, should_cancel=None
+    ) -> Path:
+        align = {"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}}
+        registry.mark_promoted(
+            root, dataset_id, triples_promoted=1, alignment=align,
+            promoted_at="2026-01-01T00:00:00",
+        )
+        out = Path(work_dir) / "out.nt"
+        out.write_bytes(b'<https://ex/paper/1> <https://schema.org/name> "p1" .\n')
+        return out
+
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _materialize)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "done" in [n for n, _ in events], events
+    # `data["meta"]["promoted"]` was False when the request started, but the
+    # dataset was promoted (by the fake materializer, standing in for a
+    # concurrent request) before this job reached the meta-graph write — a
+    # fresh re-read must see that and skip it, exactly as the already-
+    # promoted-at-request-start case above does.
+    assert meta_iri not in oxi.store_calls
+    assert all("DROP" in u for u in oxi.updates if meta_iri in u)
+
+
+def test_promote_projects_meta_graph_and_reports_it_in_payload(tmp_path: Path) -> None:
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    registry.mark_ingested(
+        tmp_path / "registry",
+        dataset_id,
+        graph_iri=substrate.versioned_graph_iri(dataset_id, 1),
+        triple_count=1,
+        ingested_at="2026-06-05T00:10:00+00:00",
+        data_seq=1,
+    )
+    oxi = _ProjectOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(f"/api/datasets/{dataset_id}/promote")
+        assert r.status_code == 200, r.text
+        body = r.json()
+    assert body["meta_graph"] == meta_iri
+    assert body["meta_triples"] > 0
+    assert meta_iri in oxi.stores
+    assert any("DROP" in u and meta_iri in u for u in oxi.updates)
+
+
+def test_delete_promoted_with_force_drops_meta_and_ontology_graphs(tmp_path: Path) -> None:
+    dataset_id = _ingested_dataset(tmp_path)
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    ontology_iri = substrate.ontology_graph_iri(dataset_id)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
+        r = client.delete(f"/api/datasets/{dataset_id}?force=true")
+        assert r.status_code == 200, r.text
+    assert any(f"DROP SILENT GRAPH <{meta_iri}>" in u for u in oxi.updates)
+    assert any(f"DROP SILENT GRAPH <{ontology_iri}>" in u for u in oxi.updates)
+
+
+def test_document_dataset_without_metadata_ttl_never_writes_meta_graph(tmp_path: Path) -> None:
+    # A document dataset (no mie.yaml at all -> metadata.ttl is empty) must
+    # LOAD the meta graph on NO path, and none of them may fail. A DROP SILENT
+    # is allowed (and expected): "always re-write" (ADR §4) means an absent
+    # description clears whatever the store held, so nothing stale is served.
+    dataset_id = _save_document_dataset(tmp_path, "docmeta")
+    root = tmp_path / "registry"
+    loaded = registry.load_dataset(root, dataset_id)
+    assert loaded is not None
+    assert (loaded["artifacts"].get("metadata.ttl") or "") == ""
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(client, dataset_id)  # reuses persisted .xml source
+        assert status == 202, events
+        assert "done" in [n for n, _ in events], events
+    assert meta_iri not in oxi.store_calls
+    assert all("DROP" in u for u in oxi.updates if meta_iri in u)
+
+    oxi2 = _ProjectOxi()
+    app2 = build_app(_settings(tmp_path), oxigraph_client=oxi2.client, start_watcher=False)
+    with TestClient(app2, headers=_AUTH) as client2:
+        r = client2.post(f"/api/datasets/{dataset_id}/promote")
+        assert r.status_code == 200, r.text
+        body = r.json()
+    assert body["meta_triples"] == 0
+    assert meta_iri not in oxi2.stores
+
+    # delete ?force still succeeds — DROP SILENT is a no-op on a graph that was
+    # never written, not a failure.
+    oxi3 = _PromoteOxi()
+    app3 = build_app(_settings(tmp_path), oxigraph_client=oxi3.client, start_watcher=False)
+    with TestClient(app3, headers=_AUTH) as client3:
+        r3 = client3.delete(f"/api/datasets/{dataset_id}?force=true")
+        assert r3.status_code == 200, r3.text
+
+
 def test_alignment_preview_classifies_draft(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
@@ -1409,16 +1593,49 @@ def test_delete_staged_only_dataset_no_force(tmp_path: Path) -> None:
     assert not (tmp_path / "registry" / dataset_id).exists()
 
 
+def test_delete_staged_only_dataset_drops_meta_graph(tmp_path: Path, monkeypatch) -> None:
+    """ADR dataset-description-in-the-store.md §4: ingest writes the meta graph
+    even for a never-promoted (staged-only) dataset — so its delete must clean
+    that graph up too, same as the promoted+force case already covers for
+    both meta and ontology. Drives the REAL ingest endpoint (not the
+    ``registry.mark_ingested`` shortcut ``_ingested_dataset`` uses) so the meta
+    graph is actually written to the (fake) store before delete runs.
+    """
+    dataset_id = _save_dataset_with_rml(tmp_path)  # mie.yaml non-blank -> metadata.ttl non-empty
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "done" in [n for n, _ in events], events
+        # never promoted: the ingest above wrote the meta graph once already.
+        assert meta_iri in oxi.store_calls
+        r = client.delete(f"/api/datasets/{dataset_id}")  # no force needed (never promoted)
+        assert r.status_code == 200, r.text
+        assert r.json()["was_promoted"] is False
+    assert any(f"DROP SILENT GRAPH <{meta_iri}>" in u for u in oxi.updates)
+    assert not (tmp_path / "registry" / dataset_id).exists()
+
+
 def test_delete_promoted_requires_force(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
+        # promote itself legitimately (re-)writes the meta graph (DROP + load —
+        # ADR dataset-description-in-the-store.md §4), so the "delete drops
+        # nothing" check below must be scoped to what DELETE adds, not the
+        # whole session's updates.
+        before = list(oxi.updates)
         r = client.delete(f"/api/datasets/{dataset_id}")  # no force
         assert r.status_code == 409
-    # nothing dropped, registry dir still present
-    assert not any("DROP SILENT GRAPH" in u for u in oxi.updates)
+    # the rejected delete appended nothing — registry dir still present
+    assert oxi.updates == before
     assert (tmp_path / "registry" / dataset_id).exists()
 
 

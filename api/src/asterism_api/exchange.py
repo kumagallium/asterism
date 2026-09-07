@@ -6,6 +6,7 @@ dataset VERSION, exported as an immutable ``.tar.gz`` snapshot::
     manifest.json          format/id/name/origin iri_base/counts/hashes
     graphs/canonical.ttl   the citable live graph (Turtle dump)
     graphs/ontology.ttl    TBox projection (reference only — import re-projects)
+    graphs/meta.ttl        description projection (reference only — import re-projects)
     registry/**            the whole registry dataset dir (meta, artifacts,
                            accumulated source/, history/, query_tools.yaml)
 
@@ -130,6 +131,16 @@ async def build_snapshot(cfg: Any, client: Any, dataset_id: str) -> tuple[bytes,
     if await substrate.graph_has_triples(client, ontology_iri):
         ontology_ttl = (await _dump_graph(client, ontology_iri)).encode("utf-8")
 
+    # ADR dataset-description-in-the-store.md §4/§7.4: reference only, same as
+    # ontology.ttl above — import re-projects the description at its own
+    # promote (from registry/metadata.ttl, which the whole-dir copy below
+    # already carries). Carried so a third party (or a store-less receiver)
+    # can read the description without a store.
+    meta_ttl: bytes | None = None
+    meta_iri = substrate.meta_graph_iri(dataset_id)
+    if await substrate.graph_has_triples(client, meta_iri):
+        meta_ttl = (await _dump_graph(client, meta_iri)).encode("utf-8")
+
     manifest = {
         "format": SNAPSHOT_FORMAT,
         "format_version": SNAPSHOT_FORMAT_VERSION,
@@ -143,6 +154,9 @@ async def build_snapshot(cfg: Any, client: Any, dataset_id: str) -> tuple[bytes,
         "ontology_included": ontology_ttl is not None,
         # The importer re-projects the TBox from model.yaml at promote;
         # graphs/ontology.ttl is carried for third-party consumers only.
+        "meta_included": meta_ttl is not None,
+        # Same story as ontology_included: the importer re-projects the
+        # description from registry/metadata.ttl at its own promote.
     }
 
     buf = io.BytesIO()
@@ -155,6 +169,8 @@ async def build_snapshot(cfg: Any, client: Any, dataset_id: str) -> tuple[bytes,
         _add_bytes(tar, "graphs/canonical.ttl", canonical_ttl)
         if ontology_ttl is not None:
             _add_bytes(tar, "graphs/ontology.ttl", ontology_ttl)
+        if meta_ttl is not None:
+            _add_bytes(tar, "graphs/meta.ttl", meta_ttl)
         dataset_dir = cfg.registry_root / dataset_id
         for path in sorted(dataset_dir.rglob("*")):
             if not path.is_file():
