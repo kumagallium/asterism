@@ -81,7 +81,7 @@ LLM が書く §7（散文・キーワード・落とし穴）
 | `anti_patterns` | `ast:antiPattern` | リテラル | **独自**（標準が無い） |
 | `architectural_notes` | `ast:architecturalNote` | リテラル | **独自**（同上） |
 | `sample_rdf_entries[]` | `ast:hasSampleEntry <…/dataset/{id}/sample/{n}>`、行き先に `dcterms:identifier` ＋ `ast:turtle` | IRI | **独自** |
-| 上記以外の未知キー | `ast:hasExtraSection <…/dataset/{id}/section/{key}>`、行き先に `ast:sectionName` ＋ `ast:sectionValue`（YAML リテラル） | IRI | **独自**。往復を無損失にするための逃がし口（§9） |
+| 上記以外の未知キー | `ast:hasExtraSection <…/dataset/{id}/section/{key}>`、行き先に `ast:sectionName` ＋ `ast:yaml`（YAML リテラル） | IRI | **独自**。往復を無損失にするための逃がし口（§9）。既知の節の中の未知キーも同じ形（`ast:extra`）で逃がす |
 
 持ち出し（exchange）は `.ttl` / `.yaml` の中の実体 IRI base を置換する
 （`exchange.py:53` `_TEXT_SUFFIXES`）。`metadata.ttl` と `mie.yaml` は同じ規則で
@@ -249,6 +249,7 @@ ShEx（`data/togomcp/mie/starrydata.yaml` の約 90 行）は `ast:shapeExpressi
 |---|---|
 | 往復 | 既存 `mie.yaml` → 三つ組 → 投影 `mie.yaml` が**意味的に一致**（YAML のキー順・引用符・行折りは問わない）。対象は `step0/tests/fixtures/starrydata_min/mie.yaml` と `data/togomcp/mie/starrydata.yaml`（手書きの実物・528 行） |
 | 無損失 | 上の 2 本に加え、モデル化していないキーを持つ文書で往復が壊れないこと（`ast:hasExtraSection` の逃がし口） |
+| 等価関係の定義 | 「意味的に一致」は次の 2 つの正規化だけを許す: ① `None` / 空文字 / 空 list / 空 dict のキーは落ちる ② `schema_info.keywords` / `categories` / `graphs` は**集合**として比べる（順序と重複を問わない — RDF 上で `dcat:keyword` の直付けは集合なので、順序と重複は原理的に保てない。検索語に順序と重複の意味は無い）。それ以外の list（例クエリ・落とし穴・sample・未知節）は `ast:index` で順序も重複も厳密に復元する |
 | 実エンジン | メタグラフに対するクエリを**実 pyoxigraph に流す**。`data-shape-checks.md` の教訓（best-effort な `except` が壊れたクエリを無言で無効化する）をここでも封じる |
 | 配信互換 | `project_mie` の出力が移行前後で**バイト一致**（既存 `api/tests/test_togomcp_sync.py` の fixture で） |
 | 件数不変 | メタグラフ投入の前後で `schema_summary` の `classes` / `predicates` の件数が変わらない |
