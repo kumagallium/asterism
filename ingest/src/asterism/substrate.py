@@ -244,6 +244,29 @@ def dataset_iri(dataset_id: str) -> str:
     return f"{DATASET_IRI_BASE}{dataset_id}"
 
 
+#: A versioned canonical graph's trailing segment (part5: ``canonical/{id}/v{n}``).
+_CANONICAL_VERSION_SUFFIX = re.compile(r"/v\d+$")
+
+
+def dataset_id_of_canonical_graph(iri: str) -> str | None:
+    """Recover a dataset id from one of the IRIs :func:`canonical_graphs` returns
+    — the KEY graph (``…/canonical/{id}``) or a versioned data graph (part5:
+    ``…/canonical/{id}/v{n}``) — or ``None`` for any IRI under a different base
+    (ontology / meta / control graphs are never canonical).
+
+    Used by ``schema_summary``'s ``VALUES ?g { … }`` limiting (ADR
+    dataset-description-in-the-store.md §6): each promoted dataset's canonical
+    IRI is turned back into an id, then into that dataset's
+    :func:`meta_graph_iri`, so the description query only ever names graphs a
+    promote actually wrote — never an unpublished dataset's.
+    """
+    if not iri.startswith(CANONICAL_GRAPH_BASE):
+        return None
+    rest = iri[len(CANONICAL_GRAPH_BASE) :]
+    rest = _CANONICAL_VERSION_SUFFIX.sub("", rest)
+    return rest or None
+
+
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
     """Rewrite relative ``rml:source "name"`` to absolute paths under ``csv_dir``.
 

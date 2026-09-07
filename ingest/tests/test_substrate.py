@@ -29,6 +29,7 @@ from asterism.substrate import (
     canonical_graph_iri,
     classify_alignment,
     count_nt_lines,
+    dataset_id_of_canonical_graph,
     draft_graph_iri,
     ingest_graph_to_oxigraph,
     materialize_to_graph,
@@ -81,6 +82,25 @@ def test_canonical_and_draft_graphs_are_distinguishable_by_prefix() -> None:
     # prefix to exclude draft graphs from Ask.
     assert canonical_graph_iri("ds1").startswith(CANONICAL_GRAPH_BASE)
     assert not draft_graph_iri("ds1").startswith(CANONICAL_GRAPH_BASE)
+
+
+def test_dataset_id_of_canonical_graph_key_graph() -> None:
+    assert dataset_id_of_canonical_graph(CANONICAL_GRAPH_BASE + "x-1") == "x-1"
+
+
+def test_dataset_id_of_canonical_graph_versioned_graph() -> None:
+    # part5: a promoted dataset's liveGraph is a versioned data graph — the
+    # version suffix must not leak into the id.
+    assert dataset_id_of_canonical_graph(CANONICAL_GRAPH_BASE + "x-1/v12") == "x-1"
+
+
+def test_dataset_id_of_canonical_graph_other_base_is_none() -> None:
+    for iri in (
+        ONTOLOGY_GRAPH_BASE + "x-1",
+        "https://example.com/graph/canonical/x-1",  # right shape, wrong host
+        "",
+    ):
+        assert dataset_id_of_canonical_graph(iri) is None
 
 
 # ---- rml:source absolutization (thread-safe alternative to chdir) -----------
