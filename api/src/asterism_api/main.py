@@ -53,6 +53,12 @@ from asterism import (
 )
 from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
+from asterism.metadata import (
+    fetch_metadata_graph,
+    graph_from_turtle,
+    project_mie_yaml,
+    write_metadata_graph,
+)
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
@@ -2039,6 +2045,73 @@ async def _project_ontology_graph(
     await substrate.drop_graph(client, ontology_iri)  # replace, not merge
     await client.post_turtle_bytes(payload, graph_iri=ontology_iri)
     return len(graph)
+
+
+async def _project_meta_graph(
+    client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
+) -> int:
+    """ADR dataset-description-in-the-store.md §4: replace the dataset's
+    description named graph (``meta/{id}``) with its registry ``metadata.ttl``.
+
+    Same best-effort contract as :func:`_project_ontology_graph`: the
+    description is a side channel (Ask's canonical scope never includes it —
+    ADR §6), so a bad/unparseable ``metadata.ttl`` must never fail the
+    ingest/promote it is called from. Returns the triple count written (0 for
+    an absent/blank artifact OR a caught failure — the caller cannot tell
+    those apart from the count alone, which is fine: both mean "nothing to
+    show", and a failure is separately logged here).
+    """
+    turtle = artifacts.get("metadata.ttl") or ""
+    try:
+        if not turtle.strip():
+            # "必ず書き直す" (ADR §4) includes the case where the description
+            # went away (a redesign dropped §7, a document dataset never had
+            # one): the store must not keep serving a description the registry
+            # no longer carries. DROP SILENT is a no-op when nothing is there.
+            await substrate.drop_graph(client, substrate.meta_graph_iri(dataset_id))
+            return 0
+        graph = graph_from_turtle(turtle)
+        return await write_metadata_graph(client, dataset_id, graph)
+    except Exception:
+        logger.warning(
+            "dataset %s: metadata.ttl present but failed to project into the "
+            "meta graph (continuing)",
+            dataset_id,
+            exc_info=True,
+        )
+        return 0
+
+
+async def _mie_text_for_publish(
+    client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
+) -> str:
+    """ADR dataset-description-in-the-store.md §7.3: the MIE text to hand
+    ``togomcp_sync.publish_dataset`` — read fresh from the store's meta graph
+    rather than the registry's ``mie.yaml``, so a promote always republishes
+    the description that is CURRENTLY the street's say-so, not whatever a
+    later (still unpromoted) design save may have overwritten ``mie.yaml``
+    with in the meantime (ADR §1's "公開中の mie.yaml を即座に上書きする" trap).
+
+    Best-effort: a store read/parse failure (or the meta graph simply not
+    existing yet — a pre-migration dataset, or a promote racing a first-ever
+    ingest) degrades to the registry's ``mie.yaml`` rather than failing the
+    promote/reinstate this is called from. That fallback is not stale data —
+    per ADR §4 the registry's ``mie.yaml`` is itself a deterministic
+    projection of the same triples as of the last save, so both sides carry
+    the same content when they diverge only in "where it is read from".
+    """
+    try:
+        graph = await fetch_metadata_graph(client, dataset_id)
+        if graph is not None and len(graph) > 0:
+            return project_mie_yaml(graph, dataset_id)
+    except Exception:
+        logger.warning(
+            "dataset %s: failed to fetch/project the meta graph for togomcp "
+            "publish (falling back to the registry's mie.yaml)",
+            dataset_id,
+            exc_info=True,
+        )
+    return str(artifacts.get("mie.yaml") or "")
 
 
 # #20 P2-2b: starrydata's identity (ontology / resource IRIs) is content declared
@@ -8498,6 +8571,29 @@ def build_app(
                 finally:
                     shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs
 
+                # ADR dataset-description-in-the-store.md §4: an ingest writes the
+                # meta graph too — a design-stage dataset needs a description in
+                # the catalog before it is ever promoted. But `data["meta"]` (read
+                # at the START of this request, BEFORE this ingest ran) is the
+                # publication state this re-ingest is layering ON TOP of: if the
+                # dataset was already citable, the street's description must stay
+                # whatever the last promote said until the NEXT promote — a
+                # re-ingest alone must never swap it out from under a live
+                # citation (the exact "見直し中に公開中の説明が化ける" failure §1
+                # names). `data` itself, though, can have gone stale by now: this
+                # is the tail of a background job that may have run for minutes,
+                # and a concurrent POST /promote could have flipped
+                # promoted=False -> True while it ran — relying on the
+                # request-start snapshot here would replay the exact same failure
+                # the paragraph above guards against, just via a race instead of
+                # a stale request snapshot. Re-read the flag fresh, right before
+                # `mark_ingested` below (whose OWN write unconditionally resets
+                # promoted=False on disk — see its docstring — so this is the
+                # last point at which the on-disk flag still answers "was this
+                # promoted before THIS job's own ingest superseded it", and the
+                # read must happen before that write, not after it).
+                current = registry.load_dataset(cfg.registry_root, dataset_id)
+                already_promoted = bool(((current or {}).get("meta") or {}).get("promoted"))
                 # Record the staged version graph as the dataset's pending ingest.
                 await substrate.set_staged_graph(client, dataset_key, staged_iri)
                 meta = registry.mark_ingested(
@@ -8508,6 +8604,11 @@ def build_app(
                     ingested_at=datetime.now(UTC).isoformat(),
                     data_seq=data_seq,
                 )
+                if not already_promoted:
+                    # Same freshness argument for the artifacts: a redesign saved
+                    # while this job ran must be what the catalog describes.
+                    fresh = (current or data).get("artifacts") or {}
+                    await _project_meta_graph(client, dataset_id, fresh)
                 # Does the graph we just built say what the design said it would?
                 # (ADR data-shape-checks.md) The existing gates stop at the design
                 # boundary — columns exist, functions type-check — so a predicate
@@ -8700,6 +8801,11 @@ def build_app(
             )
         except Exception:  # never block a promote on TBox projection
             logger.exception("ontology projection failed for %s (continuing)", dataset_id)
+        # ADR dataset-description-in-the-store.md §4: promote is the ONE writer
+        # that always (re-)writes the meta graph — the street's description is
+        # confirmed at the moment of publication, same as published_subjects
+        # below. Best-effort, same as the ontology projection above.
+        meta_triples = await _project_meta_graph(client, dataset_id, data.get("artifacts", {}))
         meta = registry.mark_promoted(
             cfg.registry_root,
             dataset_id,
@@ -8737,11 +8843,14 @@ def build_app(
         # data is ever published; the projection pins the CURRENT live graph.
         togomcp: dict[str, object] | None = None
         if cfg.togomcp_dir is not None:
+            mie_text = await _mie_text_for_publish(
+                client, dataset_id, data.get("artifacts", {})
+            )
             togomcp = await asyncio.to_thread(
                 togomcp_sync.publish_dataset,
                 cfg.togomcp_dir,
                 dataset_id,
-                str((data.get("artifacts") or {}).get("mie.yaml") or ""),
+                mie_text,
                 staged_iri,
                 endpoint_url=cfg.togomcp_endpoint_url,
                 endpoint_name=cfg.togomcp_endpoint_name,
@@ -8756,6 +8865,10 @@ def build_app(
             # #20 step5: TBox triples projected into the ontology graph.
             "ontology_graph": substrate.ontology_graph_iri(dataset_id),
             "ontology_triples": ontology_triples,
+            # ADR dataset-description-in-the-store.md §4: the description graph
+            # this promote (re-)confirmed as the street's current say-so.
+            "meta_graph": substrate.meta_graph_iri(dataset_id),
+            "meta_triples": meta_triples,
             "alignment": alignment,
             # #20 P3: monotonic dataset version (bumped on each re-promote).
             "version": meta.get("version") if meta else None,
@@ -8814,11 +8927,14 @@ def build_app(
         # graph that just came back into scope (best-effort).
         if cfg.togomcp_dir is not None:
             live = await substrate.live_graph_of(client, canonical_iri) or canonical_iri
+            mie_text = await _mie_text_for_publish(
+                client, dataset_id, data.get("artifacts", {})
+            )
             await asyncio.to_thread(
                 togomcp_sync.publish_dataset,
                 cfg.togomcp_dir,
                 dataset_id,
-                str((data.get("artifacts") or {}).get("mie.yaml") or ""),
+                mie_text,
                 live,
                 endpoint_url=cfg.togomcp_endpoint_url,
                 endpoint_name=cfg.togomcp_endpoint_name,
@@ -8896,6 +9012,14 @@ def build_app(
         else:
             # Never citable — just drop its staged pointer (no tombstone needed).
             await substrate.clear_staged_graph(client, dataset_key)
+        # ADR dataset-description-in-the-store.md §4: these two are small
+        # control/enrichment graphs (a description, a projected TBox) — unlike
+        # the (possibly huge) data graphs above, they are dropped directly
+        # rather than riding the pendingDrop background sweep. The ontology
+        # graph was NOT being dropped here before this change (a pre-existing
+        # leak the ADR names and this closes alongside the new meta graph).
+        await substrate.drop_graph(client, substrate.meta_graph_iri(dataset_id))
+        await substrate.drop_graph(client, substrate.ontology_graph_iri(dataset_id))
         registry.delete_dataset(cfg.registry_root, dataset_id)
         # A deleted dataset must not linger in the togomcp catalog (best-effort).
         if cfg.togomcp_dir is not None:

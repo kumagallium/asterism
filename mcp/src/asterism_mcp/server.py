@@ -39,6 +39,7 @@ from pydantic import Field
 from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
+    dataset_descriptions,
     provenance_of,
     schema_summary,
     sparql_query,
@@ -219,7 +220,24 @@ def build_server(
             int, Field(description="Maximum datasets to return.", ge=1, le=500)
         ] = 50,
     ) -> dict[str, object]:
-        return find_datasets(keywords, include_drafts=include_drafts, limit=limit)
+        # ADR dataset-description-in-the-store.md §7.1: catalog.py stays
+        # synchronous and store-free, so the store read happens here and is
+        # handed in. Best-effort: a store failure degrades to no descriptions
+        # (empty-string, same as an absent metadata.ttl) rather than losing the
+        # whole discovery call — one bad store round trip must not hide every
+        # dataset (the same "1 つの不良が全部を隠さない" contract catalog.py
+        # already keeps for a malformed on-disk artifact).
+        try:
+            descriptions = await dataset_descriptions(get_client())
+        except Exception:
+            logger.warning("find_datasets: dataset_descriptions failed (continuing)", exc_info=True)
+            descriptions = {}
+        return find_datasets(
+            keywords,
+            include_drafts=include_drafts,
+            limit=limit,
+            descriptions=descriptions,
+        )
 
     # The arbitrary-SPARQL escape hatch is gated by the deployment exposure
     # profile: a sensitive store (topology B) sets ASTERISM_EXPOSE_RAW_SPARQL=0

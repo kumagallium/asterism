@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -63,11 +64,11 @@ RESERVED_TOOL_NAMES: tuple[str, ...] = (
 ENV_REGISTRY_ROOT = "CSV2RDF_REGISTRY_ROOT"
 
 _META_FILE = "meta.json"
-_MIE_FILE = "mie.yaml"
+_META_TTL_FILE = "metadata.ttl"
 _SAFE_ID = re.compile(r"[a-z0-9-]{1,128}")
-#: A MIE is authored content, not a data file; anything larger is not a MIE and
-#: is not worth parsing on a discovery call.
-_MAX_MIE_BYTES = 512 * 1024
+#: A description graph is authored content, not a data file; anything larger is
+#: not a description and is not worth parsing on a discovery call.
+_MAX_META_BYTES = 512 * 1024
 _DEFAULT_LIMIT = 50
 
 
@@ -123,29 +124,50 @@ def resolve_tool_names(
     return out
 
 
-def _mie_description(dataset_dir: Path) -> str:
-    """``schema_info.description`` from the dataset's vetted MIE, or ``""``.
+def _ttl_description(dataset_dir: Path) -> str:
+    """The dataset's ``dcterms:description``, read from its registry
+    ``metadata.ttl`` (ADR dataset-description-in-the-store.md §7.1), or ``""``.
 
-    Best-effort by contract: a missing / oversized / malformed MIE degrades to no
-    description rather than failing the whole discovery call.
+    ``mie.yaml`` is no longer read here: per the ADR it is a deterministic
+    PROJECTION of the same triples (written by ``registry.save_dataset``), not
+    a place a human edits — reading it too would just be a second, possibly
+    stale copy of what ``metadata.ttl`` already says. A pre-migration design
+    (``mie.yaml`` with no ``metadata.ttl`` written alongside it yet) simply has
+    no description here; nothing falls back to the old file.
+
+    Best-effort by contract: a missing / oversized / unparseable
+    ``metadata.ttl`` degrades to no description rather than failing the whole
+    discovery call.
     """
-    path = dataset_dir / _MIE_FILE
+    path = dataset_dir / _META_TTL_FILE
     try:
-        if not path.is_file() or path.stat().st_size > _MAX_MIE_BYTES:
+        if not path.is_file() or path.stat().st_size > _MAX_META_BYTES:
             return ""
-        import yaml  # local import: discovery must not cost a yaml import when unused
+        import rdflib  # local import: discovery must not cost an rdflib import when unused
 
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        info = doc.get("schema_info") if isinstance(doc, dict) else None
-        if isinstance(info, dict):
-            return str(info.get("description", "") or "").strip()
+        from asterism.substrate import dataset_iri
+
+        graph = rdflib.Graph()
+        graph.parse(data=path.read_text(encoding="utf-8"), format="turtle")
+        subject = rdflib.URIRef(dataset_iri(dataset_dir.name))
+        value = graph.value(subject, rdflib.URIRef("http://purl.org/dc/terms/description"))
+        return str(value).strip() if value is not None else ""
     except Exception:  # never let one bad artifact hide every dataset
-        logger.debug("unreadable MIE at %s", path, exc_info=True)
+        logger.debug("unreadable metadata.ttl at %s", path, exc_info=True)
     return ""
 
 
-def _registry_entries(reg: Path) -> list[dict[str, Any]]:
-    """One record per registry dataset, built from its ``meta.json``."""
+def _registry_entries(
+    reg: Path, descriptions: Mapping[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """One record per registry dataset, built from its ``meta.json``.
+
+    ``descriptions`` is an optional ``{dataset_id: description}`` the caller
+    already resolved (the MCP server's store read — ADR
+    dataset-description-in-the-store.md §7.1); when it names this dataset it
+    wins over ``metadata.ttl``, since it reflects the STORE's current say-so
+    for a promoted dataset, one step fresher than the registry file.
+    """
     entries: list[dict[str, Any]] = []
     for child in sorted(reg.iterdir()):
         if not child.is_dir() or not _SAFE_ID.fullmatch(child.name):
@@ -157,11 +179,13 @@ def _registry_entries(reg: Path) -> list[dict[str, Any]]:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        dataset_id = str(meta.get("id") or child.name)
+        description = (descriptions or {}).get(dataset_id) or _ttl_description(child)
         entries.append(
             {
-                "id": str(meta.get("id") or child.name),
+                "id": dataset_id,
                 "name": str(meta.get("name") or child.name),
-                "description": _mie_description(child),
+                "description": description,
                 "source": "registry",
                 "promoted": bool(meta.get("promoted")),
                 "status": str(meta.get("status") or "active"),
@@ -229,14 +253,23 @@ def find_datasets(
     root: Path | str | None = None,
     include_drafts: bool = False,
     limit: int = _DEFAULT_LIMIT,
+    descriptions: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Discover the datasets this deployment serves, with the tools each carries.
 
     ``keywords`` narrows by case-insensitive substring over the dataset's id,
-    name, MIE description, declared classes, and its tools' names/descriptions.
-    **All** keywords must match (AND) — an OR over several terms floods the
-    result with near-misses, which is the failure mode a discovery call exists to
-    avoid. No keywords lists everything (bounded by ``limit``).
+    name, dataset description (store / metadata.ttl), declared classes, and its
+    tools' names/descriptions. **All** keywords must match (AND) — an OR over
+    several terms floods the result with near-misses, which is the failure mode
+    a discovery call exists to avoid. No keywords lists everything (bounded by
+    ``limit``).
+
+    ``descriptions`` is an optional ``{dataset_id: description}`` a caller with
+    store access already resolved (ADR dataset-description-in-the-store.md
+    §7.1) — this module stays synchronous and store-free (:func:`find_datasets`
+    is called un-awaited from the MCP server), so the store read, when wanted,
+    happens on the caller's side and is handed in here. A dataset absent from
+    the mapping falls back to its registry ``metadata.ttl``.
 
     Returns ``{"datasets": [...], "count": n, "truncated": bool}``; each dataset
     carries ``tools[].name`` as the name the caller must actually send.
@@ -250,7 +283,7 @@ def find_datasets(
     if bundled_tools_enabled():
         entries.extend(_bundled_entries())
     if reg is not None:
-        entries.extend(_registry_entries(reg))
+        entries.extend(_registry_entries(reg, descriptions))
 
     sources = tool_sources(root)
     served = resolve_tool_names(sources)
