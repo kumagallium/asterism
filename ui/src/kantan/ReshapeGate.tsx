@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   ReshapeExplodeOp,
@@ -10,8 +10,9 @@ import type {
 } from '../api'
 import {
   adoptOtherUnit,
-  groupDisplayRows,
+  groupDerivedRows,
   groupIsZeroAfterApply,
+  groupSourceRows,
   mergeGroupInto,
   opSummary,
   setCarry,
@@ -61,8 +62,9 @@ export function ReshapeGate({
   spec: ReshapeSpec
   /** 適用後の実測（R11）。まだ適用していなければ空。 */
   counts: Record<string, ReshapeOpCounts>
-  /** 持ち回り列の候補（元の表の列名、R8）。 */
-  sourceColumns: string[]
+  /** 持ち回り列の候補（R8）: 生ソース名 → その列名一覧（サーバが自分の
+   *  ソースだけを読んで返す、他ファイルの列は絶対に混ざらない）。 */
+  sourceColumns: Record<string, string[]>
   /** 直前の判断（toggle/merge/…）をサーバへ再適用している間。 */
   busy: boolean
   /** 422 の平易文（呼び出し側が `plainError` で組み立て済み）。 */
@@ -203,13 +205,15 @@ export function ReshapeGate({
   )
 }
 
-/** 持ち回る列（R8）: op が自分で消費する列を除いた元の表の列名から選ぶ。 */
+/** 持ち回る列（R8）: op が自分で消費する列を除いた「op 自身のソース」の列名
+ *  から選ぶ — 他ファイルの列は決して候補に出さない（選ぶと reshape.apply は
+ *  そのソースしか読まないので、選んだ列は黙って全行空のまま足される）。 */
 function CarryPicker({
   spec,
   opIndex,
   carry,
   consumed,
-  sourceColumns,
+  columns,
   busy,
   onChange,
 }: {
@@ -217,14 +221,18 @@ function CarryPicker({
   opIndex: number
   carry: string[]
   consumed: Set<string>
-  sourceColumns: string[]
+  /** この op 自身のソースの列名（サーバの `source_columns[op.source]`）。
+   *  まだ取得できていない／読めなかった場合は空 — そのときは現在の carry に
+   *  入っている列だけを出す（他ファイルの列を出すくらいなら何も出さない）。 */
+  columns: string[]
   busy: boolean
   onChange: (next: ReshapeSpec) => void
 }) {
   const { t } = useTranslation()
-  // 候補 = 元の表の列名から、この op 自身が使う列を除いたもの。すでに carry に
-  // 入っている列（機械の既定）は候補に無くても必ず出す — 判断表を裏切らない。
-  const candidates = [...new Set([...carry, ...sourceColumns.filter((c) => !consumed.has(c))])]
+  // 候補 = op 自身のソースの列名から、この op 自身が使う列を除いたもの。すでに
+  // carry に入っている列（機械の既定）は候補に無くても必ず出す — 判断表を
+  // 裏切らない。columns が空（未取得／読めない）なら carry だけを出す。
+  const candidates = [...new Set([...carry, ...columns.filter((c) => !consumed.has(c))])]
   if (candidates.length === 0) return null
   return (
     <div className="kz-q">
@@ -269,7 +277,7 @@ function PivotTab({
   opIndex: number
   /** 適用後の実測（R11）。0 行になった群を見分けるために使う。 */
   counts: Record<string, ReshapeOpCounts>
-  sourceColumns: string[]
+  sourceColumns: Record<string, string[]>
   busy: boolean
   onChange: (next: ReshapeSpec) => void
 }) {
@@ -305,10 +313,15 @@ function PivotTab({
               // toggleGroup がサーバ呼び出し以前に拒むが、押せてしまうこと
               // 自体を避ける）。
               const mergedAway = !enabled && g.members.length === 0
-              const displayRows = groupDisplayRows(g, opIndex, counts)
+              // 「行数」セルは常に元の表で一致した行数（全群で同じ意味）。
+              // 派生表の実際の行数（展開後の点の数、単位が違う）は求まる
+              // ときだけ小さく添える — 同じセルに単位の違う数を混在させない。
+              const sourceRows = groupSourceRows(g)
+              const derivedRows = groupDerivedRows(g, opIndex, counts)
               const zeroAfterApply = groupIsZeroAfterApply(g, opIndex, counts)
               return (
-                <tr key={g.slug} className={enabled ? undefined : 'kz-cols-dropped'}>
+                <Fragment key={g.slug}>
+                <tr className={enabled ? undefined : 'kz-cols-dropped'}>
                   <td>
                     <label className="kz-cols-keep" title={mergedAway ? t('kantan:s12.mergedAwayTitle') : undefined}>
                       <input
@@ -322,10 +335,10 @@ function PivotTab({
                   <td>{g.label}</td>
                   <td>{g.unit}</td>
                   <td>
-                    {displayRows.toLocaleString()}
-                    {zeroAfterApply && (
-                      <span className="kz-note" role="alert" style={{ display: 'block' }}>
-                        ⚠ {t('kantan:s12.groupZeroRows')}
+                    {sourceRows.toLocaleString()}
+                    {derivedRows !== undefined && (
+                      <span className="kz-note" style={{ display: 'block' }}>
+                        {t('kantan:s12.derivedRowsNote', { count: derivedRows })}
                       </span>
                     )}
                   </td>
@@ -381,6 +394,16 @@ function PivotTab({
                     )}
                   </td>
                 </tr>
+                {zeroAfterApply && (
+                  <tr className="kz-cols-dropped">
+                    <td colSpan={7}>
+                      <span className="kz-note" role="alert">
+                        ⚠ {t('kantan:s12.groupZeroRows')}
+                      </span>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
           </tbody>
@@ -396,7 +419,7 @@ function PivotTab({
         opIndex={opIndex}
         carry={op.carry}
         consumed={consumed}
-        sourceColumns={sourceColumns}
+        columns={sourceColumns[op.source] ?? []}
         busy={busy}
         onChange={onChange}
       />
@@ -415,7 +438,7 @@ function ExplodeTab({
   spec: ReshapeSpec
   op: ReshapeExplodeOp
   opIndex: number
-  sourceColumns: string[]
+  sourceColumns: Record<string, string[]>
   busy: boolean
   onChange: (next: ReshapeSpec) => void
 }) {
@@ -429,7 +452,7 @@ function ExplodeTab({
         opIndex={opIndex}
         carry={op.carry}
         consumed={consumed}
-        sourceColumns={sourceColumns}
+        columns={sourceColumns[op.source] ?? []}
         busy={busy}
         onChange={onChange}
       />
@@ -448,7 +471,7 @@ function FlattenTab({
   spec: ReshapeSpec
   op: ReshapeFlattenOp
   opIndex: number
-  sourceColumns: string[]
+  sourceColumns: Record<string, string[]>
   busy: boolean
   onChange: (next: ReshapeSpec) => void
 }) {
@@ -486,7 +509,7 @@ function FlattenTab({
         opIndex={opIndex}
         carry={op.carry}
         consumed={consumed}
-        sourceColumns={sourceColumns}
+        columns={sourceColumns[op.source] ?? []}
         busy={busy}
         onChange={onChange}
       />

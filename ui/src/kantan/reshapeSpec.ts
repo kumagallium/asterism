@@ -302,18 +302,30 @@ export function totalSummary(
 }
 
 /**
- * 1 群（pivot の1行）の「行数」表示値。適用後（`counts.tables` がある）は
- * その群の実際の派生表行数（partner の不一致で 0 になりうる）を、未適用は
- * 提案時の一致行数（`g.rows`。partner を見ていない見積もり）を返す。
+ * 1 群（pivot の1行）の「元の表で一致した行数」。有効・無効に関わらず常に
+ * 同じ意味の数（提案時の見積もり、partner を見ていない） — 派生表行数
+ * （展開後の点の数、単位が違う）とは混ぜない。無効な群には派生表が無いので
+ * これが唯一の「行数」になる。
  */
-export function groupDisplayRows(
+export function groupSourceRows(g: ReshapeGroup): number {
+  return g.rows ?? 0
+}
+
+/**
+ * 1 群（pivot の1行）の「派生表の実際の行数」（展開後の点の数）。有効な群で
+ * 適用後（`counts.tables` がある）だけ求まる — 無効な群は派生表を作らない
+ * ので `undefined`、未適用も実測が無いので `undefined`（見積もりで代用しない
+ * — `groupSourceRows` と同じ数を二重に見せないため）。
+ */
+export function groupDerivedRows(
   g: ReshapeGroup,
   opIndex: number,
   counts: Record<string, ReshapeOpCounts>,
-): number {
+): number | undefined {
+  if (g.enabled === false) return undefined
   const c = counts[String(opIndex)]
-  if (c?.tables) return c.tables[g.table] ?? 0
-  return g.rows ?? 0
+  if (!c?.tables) return undefined
+  return c.tables[g.table] ?? 0
 }
 
 /** 適用後に 0 行になった群かどうか（適用前は判定できないので false）。 */

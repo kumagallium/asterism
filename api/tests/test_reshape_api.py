@@ -231,6 +231,72 @@ def test_apply_staging_reshape_rejects_invalid_spec(tmp_path: Path, healthy_clie
 
 
 # ===========================================================================
+# 3b. source_columns（R8 の carry ピッカーの候補） — 生ソースごと、混ざらない
+# ===========================================================================
+
+
+def test_reshape_source_columns_per_raw_source_no_cross_contamination(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        sid = _stage_three(client)
+
+        got = client.get(f"/api/staging/{sid}/reshape").json()
+        cols = got["source_columns"]
+        assert set(cols) == {
+            "starrydata_curves.csv",
+            "starrydata_samples.csv",
+            "starrydata_papers.csv",
+        }
+        # curves.csv の候補に papers.csv 専用の列（title/author/ISSN）が
+        # 混ざっていない。samples.csv 専用の列（sample_info）も同様。
+        assert "title" not in cols["starrydata_curves.csv"]
+        assert "author" not in cols["starrydata_curves.csv"]
+        assert "ISSN" not in cols["starrydata_curves.csv"]
+        assert "sample_info" not in cols["starrydata_curves.csv"]
+        assert "SID" in cols["starrydata_curves.csv"]  # curves 自身の列は出る
+        assert "sample_info" in cols["starrydata_samples.csv"]
+        assert "title" in cols["starrydata_papers.csv"]
+
+        spec = got["spec"]
+        posted = client.post(f"/api/staging/{sid}/reshape", json={"spec": spec})
+        assert posted.status_code == 200, posted.text
+        post_cols = posted.json()["source_columns"]
+        assert "title" not in post_cols["starrydata_curves.csv"]
+        assert "sample_info" in post_cols["starrydata_samples.csv"]
+
+
+# ===========================================================================
+# 3c. POST with carry からの別ファイル列（R14 の staging 版） — 422、何も書かない
+# ===========================================================================
+
+
+def test_apply_staging_reshape_rejects_carry_from_other_source(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        sid = _stage_three(client)
+        before = client.get(f"/api/staging/{sid}").json()["sources"]
+        spec = client.get(f"/api/staging/{sid}/reshape").json()["spec"]
+        pivot = next(
+            op
+            for op in spec["ops"]
+            if op["kind"] == "pivot" and op["source"] == "starrydata_curves.csv"
+        )
+        # papers.csv 専用の列を curves.csv を読む op の carry に紛れ込ませる —
+        # UI の罠と同じ形（別ファイルの列を選んでしまった状態）。
+        pivot["carry"].append("title")
+
+        r = client.post(f"/api/staging/{sid}/reshape", json={"spec": spec})
+        assert r.status_code == 422, r.text
+        assert r.json()["detail"]["code"] == "reshape.op_stale"
+
+        after = client.get(f"/api/staging/{sid}").json()["sources"]
+        assert after == before  # 派生表は書かれていない
+        assert client.get(f"/api/staging/{sid}/reshape").json()["applied"] is False
+
+
+# ===========================================================================
 # 4. /api/inspect X-Asterism-Reshape header (staged)
 # ===========================================================================
 

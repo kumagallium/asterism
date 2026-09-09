@@ -1911,6 +1911,10 @@ export interface StagingReshape {
   applied: boolean
   tables: Record<string, ReshapeTableMeta>
   counts: Record<string, ReshapeOpCounts>
+  /** R8「追加で持ち回る列」の候補: 生ソース（派生表を除く）名 → その列名一覧。
+   *  carry ピッカーはこれだけを候補にする — 全ソースの和集合を使うと、別ファイル
+   *  の列を選べてしまい、選ぶと黙って全行空のまま派生表に足される事故になる。 */
+  sourceColumns: Record<string, string[]>
 }
 
 export interface AppliedStagingReshape {
@@ -1921,6 +1925,8 @@ export interface AppliedStagingReshape {
   counts: Record<string, ReshapeOpCounts>
   /** staging の sources 全体（raw ∪ 派生、R7）— そのまま `sources` state に使える。 */
   sources: string[]
+  /** {@link StagingReshape.sourceColumns} と同じ。 */
+  sourceColumns: Record<string, string[]>
 }
 
 export interface ClearedStagingReshape {
@@ -1942,7 +1948,8 @@ export interface DatasetReshapeLedger {
 export async function getStagingReshape(stagingId: string): Promise<StagingReshape> {
   const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}/reshape`)
   if (!res.ok) await throwApiError(res, 'reshape')
-  return (await res.json()) as StagingReshape
+  const body = (await res.json()) as StagingReshape & { source_columns?: Record<string, string[]> }
+  return { ...body, sourceColumns: body.source_columns ?? {} }
 }
 
 /** POST /api/staging/{id}/reshape — 「ととのえて進む」／判断表を変えての再適用。
@@ -1958,7 +1965,10 @@ export async function applyStagingReshape(
     body: JSON.stringify({ spec }),
   })
   if (!res.ok) await throwApiError(res, 'reshape')
-  return (await res.json()) as AppliedStagingReshape
+  const body = (await res.json()) as AppliedStagingReshape & {
+    source_columns?: Record<string, string[]>
+  }
+  return { ...body, sourceColumns: body.source_columns ?? {} }
 }
 
 /** DELETE /api/staging/{id}/reshape — 「このまま進む」。適用済みの派生表を

@@ -2900,6 +2900,29 @@ def _reshape_header(path: Path, op: dict) -> list[str] | None:
     return list(first.keys()) if first is not None else []
 
 
+def _reshape_source_columns(
+    sdir: Path, spec: dict, raw_sources: Collection[str]
+) -> dict[str, list[str]]:
+    """R8「追加で持ち回る列」の候補: ``raw_sources``（派生表を除く生ソース名）
+    ごとのヘッダ。その名前を ``source`` に持つ op が spec にあれば、その op の
+    dialect で読む（R14/R15 のピン留め済み方言を尊重） — 無ければ既定 dialect
+    （``{}``）で読む。読めない（欠落・壊れた）ファイルは黙って省く — 候補が
+    無いだけで、ここではエラーにしない（呼び出し側は表示専用）。返り値の集合
+    が UI の carry ピッカーの唯一の材料になる: これを op のソース以外の列で
+    汚すと、選んだ列が黙って全行空のまま派生表に足される事故になる。"""
+    ops_by_source: dict[str, dict] = {}
+    for op in spec.get("ops") or []:
+        source = op.get("source")
+        if isinstance(source, str) and source not in ops_by_source:
+            ops_by_source[source] = op
+    columns: dict[str, list[str]] = {}
+    for name in raw_sources:
+        header = _reshape_header(sdir / name, ops_by_source.get(name, {}))
+        if header is not None:
+            columns[name] = header
+    return columns
+
+
 def _reshape_table_name_unsafe(name: object) -> bool:
     """True when ``name`` is not a safe bare filename for a derived table.
 
@@ -5375,6 +5398,13 @@ def build_app(
         reshape_meta = meta.get("reshape") if isinstance(meta.get("reshape"), dict) else {}
         applied = reshape_meta.get("spec") if isinstance(reshape_meta, dict) else None
         spec = applied if isinstance(applied, dict) else proposal["spec"]
+        # R8: carry ピッカーの候補は生ソース（派生表を除く）だけ — applied 済みなら
+        # meta['sources'] にその派生表名が混ざっているので取り除く。
+        applied_derived = (
+            set(reshape.derived_tables(applied)) if isinstance(applied, dict) else set()
+        )
+        raw_sources = [s for s in sources if s not in applied_derived]
+        source_columns = await asyncio.to_thread(_reshape_source_columns, sdir, spec, raw_sources)
         return {
             "staging_id": staging_id,
             "detections": proposal["detections"],
@@ -5382,6 +5412,7 @@ def build_app(
             "applied": bool(applied),
             "tables": (spec.get("tables") if applied else None) or {},
             "counts": (spec.get("counts") if applied else None) or {},
+            "source_columns": source_columns,
         }
 
     @app.post("/api/staging/{staging_id}/reshape", dependencies=_write_auth)
@@ -5423,6 +5454,26 @@ def build_app(
         safety_errors = _reshape_spec_safety_errors(spec, raw_sources)
         if safety_errors:
             raise _coded_error(422, "reshape.invalid_spec", "; ".join(safety_errors))
+        # R14 の staging 版: 人が編集した spec が、いま持っている生ソースのヘッダに
+        # 対してまだ通るかを apply() の前に確かめる — 例えば carry に別ソースの
+        # 列を紛れ込ませた op は自分のソースのヘッダに無い列を参照していて失効
+        # している。ここで拒めば、何も削除・書き込みしないまま 422 で返せる。
+        for idx, op in enumerate(spec.get("ops") or []):
+            source_name = op.get("source")
+            header = (
+                await asyncio.to_thread(_reshape_header, sdir / str(source_name), op)
+                if source_name
+                else None
+            )
+            if header is None:
+                raise _coded_error(
+                    422,
+                    "reshape.op_stale",
+                    f"reshape.op_stale: source {source_name!r} missing (ops[{idx}])",
+                )
+            reason = reshape.check_op_against_header(op, header)
+            if reason:
+                raise _coded_error(422, "reshape.op_stale", reason)
         for name in prior_derived:
             (sdir / name).unlink(missing_ok=True)
         try:
@@ -5435,6 +5486,9 @@ def build_app(
         meta["reshape"] = reshape_meta
         meta["sources"] = list(dict.fromkeys([*raw_sources, *reshape.derived_tables(applied)]))
         _write_staging_meta(sdir, meta)
+        source_columns = await asyncio.to_thread(
+            _reshape_source_columns, sdir, applied, raw_sources
+        )
         return {
             "staging_id": staging_id,
             "spec": applied,
@@ -5442,6 +5496,7 @@ def build_app(
             "tables": applied.get("tables", {}),
             "counts": applied.get("counts", {}),
             "sources": meta["sources"],
+            "source_columns": source_columns,
         }
 
     @app.delete("/api/staging/{staging_id}/reshape", dependencies=_write_auth)

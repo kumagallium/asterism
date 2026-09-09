@@ -12,8 +12,9 @@ import type {
 import {
   adoptOtherUnit,
   derivedTables,
-  groupDisplayRows,
+  groupDerivedRows,
   groupIsZeroAfterApply,
+  groupSourceRows,
   mergeGroupInto,
   opSummary,
   setCarry,
@@ -311,30 +312,40 @@ describe('flatten の entries_empty — 空の項目は「捨てた要素」に�
   })
 })
 
-describe('groupDisplayRows / groupIsZeroAfterApply — 適用後に 0 行になった群の検出', () => {
-  it('未適用: 提案時の見積もり rows をそのまま返し、0 行判定はしない', () => {
-    const spec = pivotSpec([group('thermopower', { rows: 20 })])
-    const g = (spec.ops[0] as ReshapePivotOp).groups[0]
-    expect(groupDisplayRows(g, 0, {})).toBe(20)
-    expect(groupIsZeroAfterApply(g, 0, {})).toBe(false)
+describe('groupSourceRows / groupDerivedRows / groupIsZeroAfterApply — 「行数」の二重の意味を混ぜない', () => {
+  it('groupSourceRows: 有効・無効どちらでも常に g.rows（元の表で一致した行数）を返す', () => {
+    const enabledSpec = pivotSpec([group('zt', { rows: 100 })])
+    const enabledGroup = (enabledSpec.ops[0] as ReshapePivotOp).groups[0]
+    expect(groupSourceRows(enabledGroup)).toBe(100)
+
+    const disabledSpec = pivotSpec([group('thermopower', { rows: 20, enabled: false })])
+    const disabledGroup = (disabledSpec.ops[0] as ReshapePivotOp).groups[0]
+    expect(groupSourceRows(disabledGroup)).toBe(20)
   })
 
-  it('適用済み: counts.tables の実測行数を返し、0 行なら警告フラグが立つ', () => {
-    const spec = pivotSpec([group('thermopower', { rows: 20 })])
-    const g = (spec.ops[0] as ReshapePivotOp).groups[0]
+  it('groupDerivedRows: 無効な群は counts があっても undefined（派生表を作らない）、有効な群は実測を返す', () => {
+    const spec = pivotSpec([
+      group('zt', { rows: 100 }),
+      group('thermopower', { rows: 20, enabled: false }),
+    ])
+    const [enabledGroup, disabledGroup] = (spec.ops[0] as ReshapePivotOp).groups
     const counts: Record<string, ReshapeOpCounts> = {
       '0': {
-        source_rows: 46,
-        rows_unmatched: 46,
-        rows_matched: {},
-        tables: { 'curves__thermopower.csv': 0 },
+        source_rows: 120,
+        rows_unmatched: 20,
+        rows_matched: { zt: 100 },
+        tables: { 'curves__zt.csv': 95, 'curves__thermopower.csv': 0 },
         dropped_non_numeric: 0,
         truncated_length_mismatch: 0,
-        elements_matched: 0,
+        elements_matched: 95,
       },
     }
-    expect(groupDisplayRows(g, 0, counts)).toBe(0)
-    expect(groupIsZeroAfterApply(g, 0, counts)).toBe(true)
+    // 未適用（counts 無し）は有効な群でも undefined — 見積もりで代用しない。
+    expect(groupDerivedRows(enabledGroup, 0, {})).toBeUndefined()
+    // 無効な群は counts があっても常に undefined。
+    expect(groupDerivedRows(disabledGroup, 0, counts)).toBeUndefined()
+    // 有効な群は counts があれば実測（source_rows の一致数とは別の数）を返す。
+    expect(groupDerivedRows(enabledGroup, 0, counts)).toBe(95)
   })
 
   it('無効化した群は 0 行でも警告しない', () => {
@@ -352,6 +363,23 @@ describe('groupDisplayRows / groupIsZeroAfterApply — 適用後に 0 行にな�
       },
     }
     expect(groupIsZeroAfterApply(g, 0, counts)).toBe(false)
+  })
+
+  it('有効な群は適用後に 0 行なら警告フラグが立つ', () => {
+    const spec = pivotSpec([group('thermopower', { rows: 20 })])
+    const g = (spec.ops[0] as ReshapePivotOp).groups[0]
+    const counts: Record<string, ReshapeOpCounts> = {
+      '0': {
+        source_rows: 46,
+        rows_unmatched: 46,
+        rows_matched: {},
+        tables: { 'curves__thermopower.csv': 0 },
+        dropped_non_numeric: 0,
+        truncated_length_mismatch: 0,
+        elements_matched: 0,
+      },
+    }
+    expect(groupIsZeroAfterApply(g, 0, counts)).toBe(true)
   })
 
   it('opSummary(pivot).zeroRowGroups: 適用後に 0 行の有効な群の数を数える', () => {

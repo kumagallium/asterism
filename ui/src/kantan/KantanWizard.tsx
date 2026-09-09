@@ -1001,6 +1001,10 @@ export function KantanWizard({
   const [reshapeApplied, setReshapeApplied] = useState(snap.reshapeApplied ?? false)
   const [reshapeTables, setReshapeTables] = useState<Record<string, ReshapeTableMeta>>({})
   const [reshapeCounts, setReshapeCounts] = useState<Record<string, ReshapeOpCounts>>({})
+  // R8「追加で持ち回る列」の候補: 生ソース名 → その列名一覧。サーバからしか
+  // 正しい集合を作れない（op が自分のソースだけを読む）ので snapshot には
+  // 入れない — 復元直後は {} で始まり、GET が返り次第埋まる。
+  const [reshapeSourceColumns, setReshapeSourceColumns] = useState<Record<string, string[]>>({})
   // 直前の判断をサーバへ再適用している間 — 連打対策（R12）。
   const [reshapeBusy, setReshapeBusy] = useState(false)
   const [reshapeErr, setReshapeErr] = useState('')
@@ -1976,6 +1980,7 @@ export function KantanWizard({
         if (cancelled) return
         setReshapeTables(r.tables)
         setReshapeCounts(r.counts)
+        setReshapeSourceColumns(r.sourceColumns)
         if (r.applied) {
           setReshapeSpec(r.spec)
           setReshapeApplied(true)
@@ -2325,6 +2330,7 @@ export function KantanWizard({
     setReshapeApplied(false)
     setReshapeTables({})
     setReshapeCounts({})
+    setReshapeSourceColumns({})
     setReshapeErr('')
     reshapeLoadedForRef.current = null
     reshapeGoodRef.current = { spec: null, applied: false }
@@ -2597,6 +2603,7 @@ export function KantanWizard({
         reshapeLoadedForRef.current = stagingId
         setReshapeTables(r.tables)
         setReshapeCounts(r.counts)
+        setReshapeSourceColumns(r.sourceColumns)
         setReshapeApplied(r.applied)
         setReshapeSpec(r.spec)
         reshapeGoodRef.current = { spec: r.spec, applied: r.applied }
@@ -2643,6 +2650,7 @@ export function KantanWizard({
         setReshapeSpec(r.spec)
         setReshapeTables(r.tables)
         setReshapeCounts(r.counts)
+        setReshapeSourceColumns(r.sourceColumns)
         setReshapeApplied(true)
         reshapeGoodRef.current = { spec: r.spec, applied: true }
       } else if (!applyFirst && reshapeApplied) {
@@ -2690,6 +2698,7 @@ export function KantanWizard({
       setReshapeSpec(r.spec)
       setReshapeTables(r.tables)
       setReshapeCounts(r.counts)
+      setReshapeSourceColumns(r.sourceColumns)
       setReshapeApplied(true)
       reshapeGoodRef.current = { spec: r.spec, applied: true }
     } catch (e) {
@@ -2729,6 +2738,7 @@ export function KantanWizard({
     setReshapeApplied(false)
     setReshapeTables({})
     setReshapeCounts({})
+    setReshapeSourceColumns({})
     setReshapeErr('')
     reshapeLoadedForRef.current = null
     reshapeGoodRef.current = { spec: null, applied: false }
@@ -6524,7 +6534,7 @@ export function KantanWizard({
             <ReshapeGate
               spec={reshapeSpec}
               counts={reshapeCounts}
-              sourceColumns={sourceColumns}
+              sourceColumns={reshapeSourceColumns}
               busy={reshapeBusy}
               errorText={reshapeErr ? plainBody(reshapeErr) : undefined}
               onChange={(next) => void reapplyReshape(next)}
