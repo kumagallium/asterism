@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.44.0](https://github.com/kumagallium/asterism/compare/v0.43.0...v0.44.0) - 2026-09-23
+
+- docs(manual): 入門章の例題を XRD からレシピ表へ — 分野を問わない題材にする by @kumagallium in https://github.com/kumagallium/asterism/pull/567
+- docs(manual): 入門章から XRD の画面写真を外す by @kumagallium in https://github.com/kumagallium/asterism/pull/569
+- chore(manual): 参照の切れた画像を消し、孤児を機械で見張る by @kumagallium in https://github.com/kumagallium/asterism/pull/570
+- docs(manual): 入門章に依存の向き・三つの空間・種類の決め方・重複の扱いを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/572
+- docs(manual): 種類・1 件・絞り込みは別のもの、を入門章に足す by @kumagallium in https://github.com/kumagallium/asterism/pull/573
+- docs(architecture): データセットの説明の正本をストアに移す — mie.yaml を投影に降格する by @kumagallium in https://github.com/kumagallium/asterism/pull/574
+- feat(ingest): データセットの説明を三つ組にするビルダと投影 — mie.yaml ↔ メタグラフの決定論往復 by @kumagallium in https://github.com/kumagallium/asterism/pull/575
+- feat(api): 説明の書き手をストアへ切り替える — 保存で metadata.ttl、取り込み/公開でメタグラフ、削除で落とす by @kumagallium in https://github.com/kumagallium/asterism/pull/577
+- feat: 説明の読み手をストアへ切り替える — togomcp 配信はメタグラフから投影、find_datasets と schema_summary に説明を添える by @kumagallium in https://github.com/kumagallium/asterism/pull/578
+- feat(ingest): asterism-metadata migrate — 既存データセットの説明を三つ組へ一度きりで移す by @kumagallium in https://github.com/kumagallium/asterism/pull/576
+- fix(ingest): schema_summary が crosswalk のグラフ IRI で落ちる — dataset id の切り出しを検証つきにする by @kumagallium in https://github.com/kumagallium/asterism/pull/584
+- fix(experiments): smoke test の togomcp-data に skills/public を追加 — togomcp v2.18.0 が import 時に必須化した by @kumagallium in https://github.com/kumagallium/asterism/pull/587
+
 ## [v0.43.0](https://github.com/kumagallium/asterism/compare/v0.42.0...v0.43.0) - 2026-09-03
 
 - feat(grounding): 語彙カタログ 596→2,398 語（EMMO 収録・不透明 IRI 対応・同点の決着） by @kumagallium in https://github.com/kumagallium/asterism/pull/565
