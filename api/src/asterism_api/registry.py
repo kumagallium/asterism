@@ -19,6 +19,7 @@ records that outcome on the dataset's meta.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import uuid
@@ -26,6 +27,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
+from asterism.metadata import (
+    build_metadata_graph,
+    metadata_turtle,
+    parse_mie_yaml,
+    project_mie_yaml,
+)
+
+logger = logging.getLogger(__name__)
 
 # Files written per dataset (artifact key -> filename on disk).
 _ARTIFACT_FILES = {
@@ -40,6 +49,12 @@ _ARTIFACT_FILES = {
     # rules. Persisted so the catalog's rules viewer can show the spec a
     # reviewer actually vetted (absent on legacy raw-Turtle designs).
     "mapping.yaml": "mapping.yaml",
+    # The dataset's description as a triple serialization (ADR
+    # dataset-description-in-the-store.md): the deterministic compile of
+    # mie.yaml, and — once the store carries a meta graph — the exact
+    # payload that graph was loaded from. mie.yaml itself is downgraded to a
+    # PROJECTION of this (see _project_description); this file is the source.
+    "metadata.ttl": "metadata.ttl",
 }
 def artifact_names() -> frozenset[str]:
     """The artifact filenames a dataset carries TODAY.
@@ -122,7 +137,7 @@ def mermaid_of(diagram_md: str) -> str:
 
 # The propose/refine Markdown the bundle was materialized from. Persisted so a
 # dataset's design can be RE-OPENED in the workbench (refine/edit → re-materialize)
-# without losing the dataset — the "見直す" (redesign) flow. It is the source the 4
+# without losing the dataset — the "見直す" (redesign) flow. It is the source the
 # artifacts are extracted from, so it round-trips a full re-design.
 _PROPOSAL_FILE = "proposal.md"
 
@@ -135,6 +150,61 @@ _PROPOSAL_FILE = "proposal.md"
 _HISTORY_DIR = "history"
 _SNAPSHOT_META_FILE = "snapshot.json"
 _SNAPSHOT_ID_RE = re.compile(r"[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?")
+
+
+def _project_description(artifacts: dict[str, str], dataset_id: str) -> dict[str, str]:
+    """ADR dataset-description-in-the-store.md §4: compile ``mie.yaml`` into a
+    triple serialization and write BOTH back — ``metadata.ttl`` becomes the
+    source, ``mie.yaml`` is downgraded to a deterministic projection of it.
+
+    Pure function: returns a NEW dict (a shallow copy of ``artifacts`` with
+    ``mie.yaml`` / ``metadata.ttl`` possibly replaced); the caller decides when
+    to call it (design-save time — before the store is ever touched, per the
+    ADR's §4 table). An absent/blank ``mie.yaml`` projects to an empty
+    ``metadata.ttl`` — a description is never invented for a dataset that
+    carries none (a document dataset with no §7, e.g.). A ``mie.yaml`` that
+    fails to parse (not YAML, or not a mapping) is left exactly as stored —
+    materialize should never hand this function a broken document, but if one
+    reaches here anyway the broken text must not be silently discarded. The
+    compile itself (``build_metadata_graph`` / ``metadata_turtle`` /
+    ``project_mie_yaml``) is wrapped the same way: a syntactically-valid
+    ``mie.yaml`` can still carry shapes ``build_metadata_graph`` does not
+    expect (e.g. a non-string top-level key), and the ADR is explicit that a
+    projection failure must never take the design save down with it (§4:
+    "書くのは best-effort") — the same broad catch already used for the
+    store-side projection (``main.py::_project_meta_graph``) and inside
+    ``build_metadata_graph`` itself for a bad RML shape compile.
+    """
+    out = dict(artifacts)
+    mie_text = out.get("mie.yaml") or ""
+    if not mie_text.strip():
+        out["metadata.ttl"] = ""
+        return out
+    try:
+        document = parse_mie_yaml(mie_text)
+    except (yaml.YAMLError, ValueError):
+        logger.warning(
+            "dataset %s: mie.yaml did not parse (kept verbatim, metadata.ttl left empty)",
+            dataset_id,
+            exc_info=True,
+        )
+        out["metadata.ttl"] = ""
+        return out
+    try:
+        graph = build_metadata_graph(
+            document, dataset_id, rml_ttl=out.get("mapping.rml.ttl") or None
+        )
+        out["metadata.ttl"] = metadata_turtle(graph)
+        out["mie.yaml"] = project_mie_yaml(graph, dataset_id)
+    except Exception:
+        logger.warning(
+            "dataset %s: mie.yaml compiled to an unsupported shape "
+            "(kept verbatim, metadata.ttl left empty)",
+            dataset_id,
+            exc_info=True,
+        )
+        out["metadata.ttl"] = ""
+    return out
 
 
 def save_dataset(
@@ -152,8 +222,11 @@ def save_dataset(
 ) -> dict:
     """Persist a materialized bundle under ``root/<id>/``; return its meta dict.
 
-    ``artifacts`` maps the 3 logical names (diagram.md / model.yaml / mie.yaml)
-    to their text contents. A ``meta.json`` summary (name, time,
+    ``artifacts`` maps the logical artifact names (diagram.md / model.yaml /
+    mie.yaml / mapping.rml.ttl / mapping.yaml — see ``_ARTIFACT_FILES``) to
+    their text contents; ``mie.yaml`` is projected into ``metadata.ttl`` (and
+    re-projected from it) before any of them are written — see
+    :func:`_project_description`. A ``meta.json`` summary (name, time,
     validation outcome, extracted class list) is written alongside so the
     listing endpoint stays cheap (no re-parsing of artifacts). ``proposal_md``
     (the design source) is persisted so the dataset can later be re-opened in the
@@ -162,6 +235,13 @@ def save_dataset(
     dataset_id = f"{_slug(name)}-{uuid.uuid4().hex[:8]}"
     dest = root / dataset_id
     dest.mkdir(parents=True, exist_ok=True)
+
+    # ADR dataset-description-in-the-store.md §4: the subject IRI is
+    # `.../dataset/{id}`, so the description can only be compiled once the id
+    # exists — this is the first point in the dataset's life that is true.
+    # Design-save time never touches the store (§4's table): only the files
+    # below are written here.
+    artifacts = _project_description(artifacts, dataset_id)
 
     for key, filename in _ARTIFACT_FILES.items():
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
@@ -235,11 +315,13 @@ def update_dataset_artifacts(
     The redesign counterpart of :func:`save_dataset`: the user reopened an existing
     dataset's design in the workbench, refined/edited it, and re-materialized. We must
     update the SAME registry record (so IRIs / graphs / lifecycle / source are
-    preserved) rather than mint a duplicate. Overwrites the 4 artifact files + the
-    stored ``proposal_md`` and refreshes the design-derived meta (classes, has_rml, …)
-    while leaving identity + lifecycle/source fields (``id`` / ``promoted`` /
-    ``ingested`` / ``has_source`` / ``version`` / …) untouched. Re-design changes the
-    MAPPING only; the user re-applies data via the existing re-ingest controls.
+    preserved) rather than mint a duplicate. Overwrites the artifact files (``mie.yaml``
+    re-projected from ``metadata.ttl``, same as :func:`save_dataset` — see
+    :func:`_project_description`) + the stored ``proposal_md`` and refreshes the
+    design-derived meta (classes, has_rml, …) while leaving identity + lifecycle/source
+    fields (``id`` / ``promoted`` / ``ingested`` / ``has_source`` / ``version`` / …)
+    untouched. Re-design changes the MAPPING only; the user re-applies data via the
+    existing re-ingest controls.
 
     Returns the new meta, or ``None`` if the id is unsafe / absent.
     """
@@ -250,6 +332,11 @@ def update_dataset_artifacts(
     if not meta_path.is_file():
         return None
 
+    # Project BEFORE the snapshot so the comparison inside
+    # _snapshot_before_overwrite is projected-vs-projected: an unchanged
+    # re-save (mie.yaml text identical) must not pile up a history entry just
+    # because the projection step re-serializes it (ADR §4, idempotency).
+    artifacts = _project_description(artifacts, dataset_id)
     _snapshot_before_overwrite(dest, artifacts, proposal_md)
     for key, filename in _ARTIFACT_FILES.items():
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")

@@ -169,6 +169,52 @@ def test_export_contains_manifest_graph_and_registry(tmp_path: Path) -> None:
     assert "registry/query_tools.yaml" in names
 
 
+def test_export_includes_meta_graph_when_present(tmp_path: Path) -> None:
+    # ADR dataset-description-in-the-store.md §4/§7.4: same "reference only"
+    # treatment as graphs/ontology.ttl — carried for third-party consumers /
+    # store-less receivers; import re-projects it at its own promote.
+    a_dir = tmp_path / "a"
+    a_dir.mkdir()
+    ds = rdflib.Dataset()
+    _seed_promoted(a_dir, ds, "zem-11112222", base=_INVALID_BASE)
+    meta_iri = substrate.meta_graph_iri("zem-11112222")
+    ds.graph(rdflib.URIRef(meta_iri)).parse(
+        data=(
+            "@prefix dcterms: <http://purl.org/dc/terms/> .\n"
+            f"<{substrate.dataset_iri('zem-11112222')}> dcterms:title \"ZEM\" .\n"
+        ),
+        format="turtle",
+    )
+    app = build_app(
+        _settings(a_dir, iri_base=_INVALID_BASE),
+        oxigraph_client=_DatasetClient(ds),
+        start_watcher=False,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/datasets/zem-11112222/snapshot")
+        assert r.status_code == 200, r.text
+        payload = r.content
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+        names = tar.getnames()
+        manifest = json.loads(tar.extractfile("manifest.json").read())
+        ttl = tar.extractfile("graphs/meta.ttl").read().decode()
+    assert manifest["meta_included"] is True
+    assert "graphs/meta.ttl" in names
+    assert "ZEM" in ttl
+
+
+def test_export_omits_meta_graph_when_absent(tmp_path: Path) -> None:
+    # No meta graph was ever written for this dataset (a design that has never
+    # been ingested/promoted through the §4 writers) — the manifest says so and
+    # no graphs/meta.ttl member is added.
+    payload = _export_snapshot(tmp_path)
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+        names = tar.getnames()
+        manifest = json.loads(tar.extractfile("manifest.json").read())
+    assert manifest["meta_included"] is False
+    assert "graphs/meta.ttl" not in names
+
+
 def test_export_refuses_unpromoted(tmp_path: Path) -> None:
     a_dir = tmp_path / "a"
     a_dir.mkdir()
