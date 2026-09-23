@@ -150,16 +150,21 @@ from asterism_api import describe as describe_mod
 from asterism_api import usage as usage_ledger
 from asterism_api.cards_routes import register_cards
 from asterism_api.class_schema_routes import register_class_schema
+from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
 
-# asterism_api.place_routes は意図的にここで import しない: そのモジュールは
-# `from asterism_api.main import Settings, _write_credential_ok` を実行時に
-# 必要とし（object-cards-ui.md 契約 §4.3 実装時の記述）、この位置（`Settings`
-# クラス定義より前・本ファイルの import ブロック）でトップレベル import する
-# と "partially initialized module" の循環 import で必ず落ちる。build_app 内、
-# `Settings`/`_write_credential_ok` が既に定義された後の呼び出し時 import に
-# 遅延させている（下の register_place(app, cfg) の直前を参照）。
+# asterism_api.place_routes / asterism_api.license_routes は意図的にここで
+# import しない: どちらのモジュールも `from asterism_api.main import
+# Settings, ...` を実行時に必要とし（object-cards-ui.md 契約 §4.3・
+# contract_pr_d.md §1 実装時の記述）、この位置（`Settings` クラス定義より
+# 前・本ファイルの import ブロック）でトップレベル import すると
+# "partially initialized module" の循環 import で必ず落ちる。build_app 内、
+# `Settings`/`_write_credential_ok`/`_project_meta_graph` が既に定義された
+# 後の呼び出し時 import に遅延させている（下の register_place(app, cfg)・
+# register_license(app, cfg) の直前を参照）。``asterism_api.export_routes``
+# は ``Settings`` を ``TYPE_CHECKING`` でしか参照しないため、この制約を
+# 受けずトップレベル import できる。
 
 if TYPE_CHECKING:
     from asterism.dialect import SourceDialect
@@ -9691,11 +9696,14 @@ def build_app(
     # asterism_api/<name>_routes.py に register_<name>(app, cfg) の型で
     # 用意したルートを、統合段としてここでまとめて配線する。
     # ------------------------------------------------------------------
+    from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
 
     register_class_schema(app, cfg)
     register_cards(app, cfg)
     register_place(app, cfg)
+    register_license(app, cfg)
+    register_export(app, cfg)
 
     return app
 

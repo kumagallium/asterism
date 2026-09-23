@@ -226,6 +226,10 @@ def _sanitized_meta(raw: bytes, manifest: dict[str, Any], rebased: bool) -> dict
     meta.setdefault("created_at", manifest.get("exported_at") or _utcnow())
     meta["ingested"] = False
     meta["promoted"] = False
+    # 契約メモ contract_pr_d.md §1: 取り込んだのは他インスタンスの材料 - 「自分
+    # のデータ」(own) ではない。配れる判定 (O13) の出どころ根拠
+    # (registry.dataset_origin が読む)。
+    meta["origin"] = "open"
     meta["imported"] = {
         "origin_iri_base": manifest.get("origin_iri_base"),
         "exported_at": manifest.get("exported_at"),
