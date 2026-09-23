@@ -492,6 +492,59 @@ async def test_write_metadata_graph_drops_then_posts() -> None:
     assert projected == document
 
 
+class _DropOkPostFailsClient(_FakeClient):
+    """DROP succeeds, then POST fails — the non-atomic window where the
+    store's meta/{id} graph ends up empty (neither old nor new content)."""
+
+    async def post_turtle_bytes(self, payload: bytes, graph_iri: str | None = None) -> int:
+        raise ConnectionError("simulated: connection dropped mid-POST")
+
+
+async def test_write_metadata_graph_wraps_post_failure_after_drop_succeeded() -> None:
+    """A POST failure that comes *after* the DROP already went through must be
+    reported as :class:`m.MetadataGraphWriteError` — distinguishable from a
+    DROP-side failure (store unreachable, graph untouched) — so a caller can
+    tell an operator the store-side graph is now empty, not just stale."""
+    document = {"schema_info": {"title": "Write Me"}}
+    dataset_id = "write-ds"
+    graph = m.build_metadata_graph(document, dataset_id)
+    client = _DropOkPostFailsClient()
+
+    with pytest.raises(m.MetadataGraphWriteError) as excinfo:
+        await m.write_metadata_graph(client, dataset_id, graph)
+
+    # The DROP itself did happen (that's exactly the dangerous case).
+    assert len(client.updates) == 1
+    err = excinfo.value
+    assert err.dataset_id == dataset_id
+    assert err.graph_iri == substrate.meta_graph_iri(dataset_id)
+    assert "now empty" in str(err)
+    assert isinstance(err.__cause__, ConnectionError)
+
+
+class _DropFailsClient(_FakeClient):
+    """The DROP itself fails (store unreachable) — post_turtle_bytes must
+    never even be attempted, and the raised exception must NOT be
+    MetadataGraphWriteError (the graph was never touched)."""
+
+    async def sparql_update(self, update: str) -> None:
+        raise ConnectionError("simulated: store unreachable")
+
+    async def post_turtle_bytes(self, payload: bytes, graph_iri: str | None = None) -> int:
+        raise AssertionError("post_turtle_bytes must not be reached when DROP itself fails")
+
+
+async def test_write_metadata_graph_drop_failure_is_not_wrapped() -> None:
+    document = {"schema_info": {"title": "Write Me"}}
+    dataset_id = "write-ds"
+    graph = m.build_metadata_graph(document, dataset_id)
+    client = _DropFailsClient()
+
+    with pytest.raises(ConnectionError) as excinfo:
+        await m.write_metadata_graph(client, dataset_id, graph)
+    assert not isinstance(excinfo.value, m.MetadataGraphWriteError)
+
+
 async def test_fetch_metadata_graph_construct_shape_and_roundtrip() -> None:
     document = {"schema_info": {"title": "Fetch Me"}, "anti_patterns": "avoid Y"}
     dataset_id = "fetch-ds"
