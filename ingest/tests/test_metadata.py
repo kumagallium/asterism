@@ -107,6 +107,29 @@ def test_roundtrip_sample_entries_subject_triples_shape() -> None:
     _assert_roundtrip(document)
 
 
+def test_roundtrip_schema_info_license_spdx_id() -> None:
+    """ADR §3: an SPDX identifier is not a valid IRI, so it must round-trip as
+    a Literal (asterism.licenses builds on this - it never sees a URIRef for
+    a plain SPDX id)."""
+    document = {"schema_info": {"license": "CC-BY-4.0"}}
+    graph = m.build_metadata_graph(document, "license-spdx-ds")
+    d = rdflib.URIRef(substrate.dataset_iri("license-spdx-ds"))
+    assert graph.value(d, m.DCTERMS.license) == rdflib.Literal("CC-BY-4.0")
+    _assert_roundtrip(document, "license-spdx-ds")
+
+
+def test_roundtrip_schema_info_license_url() -> None:
+    """A license given as a URL becomes a real IRI (dcterms:license's usual
+    range), not a Literal - and still round-trips to the same string."""
+    document = {"schema_info": {"license": "https://creativecommons.org/licenses/by/4.0/"}}
+    graph = m.build_metadata_graph(document, "license-url-ds")
+    d = rdflib.URIRef(substrate.dataset_iri("license-url-ds"))
+    license_obj = graph.value(d, m.DCTERMS.license)
+    assert isinstance(license_obj, rdflib.URIRef)
+    assert str(license_obj) == "https://creativecommons.org/licenses/by/4.0/"
+    _assert_roundtrip(document, "license-url-ds")
+
+
 def test_roundtrip_sparql_key_and_schema_info_unknown_keys() -> None:
     document = {
         "schema_info": {

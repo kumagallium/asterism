@@ -272,16 +272,21 @@ async def test_subject_facts_dedupes_same_triple_across_two_canonical_graphs() -
 async def test_subject_facts_shape_carries_item_and_materials() -> None:
     out = await subject_facts(_client(), CHECKOUT_1)
     assert set(out["item"]) == {"property_iri", "property", "value", "value_iri"}
+    # registry_root=None (既定) なので出どころ・ライセンスは引けず「不明」側に
+    # 倒れる（保守側）— materials.py の遅延 import が失敗したときと同じ既定値。
     assert out["materials"] == [
         {
-            "dataset_id": LIB_DATASET,
-            "snapshot": "v1",
             "kind": "unknown",
+            "dataset_id": LIB_DATASET,
+            "dataset_label": LIB_DATASET,
+            "snapshot": "v1",
             "license": None,
+            "redistributable": None,
             "count": out["materials"][0]["count"],
         }
     ]
-    assert out["shareable"] is None
+    assert out["shareable"] is False
+    assert out["shareable_reasons"] == ["unknown_origin", "unknown_license"]
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +320,32 @@ async def test_subject_flow_found_true_when_edges_exist() -> None:
     assert out["found"] is True
     assert out["count"] >= 1
     assert out["output_kind"] == "flow"
+
+
+async def test_subject_flow_shape_carries_material_form_materials(tmp_path: Path) -> None:
+    """flow の materials は prov_graph 生の ``{dataset_id, snapshot, graph}``
+    ではなく、他の built-in と同じ Material 形（§3.3）でなければならない —
+    さもないと ui の材料タブ（dataset_label/kind/license/redistributable/
+    count 前提）が flow カードだけ壊れる。"""
+    _write_registry(tmp_path)
+    out = await subject_flow(_client(), CHECKOUT_1, registry_root=tmp_path)
+    assert out["found"] is True
+    assert out["materials"]
+    mat = out["materials"][0]
+    assert set(mat) == {
+        "kind",
+        "dataset_id",
+        "dataset_label",
+        "snapshot",
+        "license",
+        "redistributable",
+        "count",
+    }
+    assert mat["dataset_id"] == LIB_DATASET
+    assert mat["dataset_label"] == "貸出記録"
+    assert isinstance(mat["count"], int) and mat["count"] > 0
+    assert isinstance(out["shareable"], bool)
+    assert isinstance(out["shareable_reasons"], list)
 
 
 async def test_subject_flow_found_false_with_zero_edges() -> None:
@@ -756,7 +787,9 @@ async def test_pick_class_iri_falls_back_to_first_when_none_is_an_ontology_class
 
 
 # ---------------------------------------------------------------------------
-# materials_for_subject — shape only (§3.3; license/shareable stay null).
+# materials_for_subject — §3.3. registry の meta.json だけでは出どころ／
+# ライセンスは引けない（asterism.licenses / asterism_api.registry.dataset_origin
+# は D1-license の持ち場 — ここでは「不明」側に倒れることだけを固定する）。
 # ---------------------------------------------------------------------------
 
 
@@ -765,11 +798,13 @@ async def test_materials_for_subject_shape(tmp_path: Path) -> None:
     materials = await materials_for_subject(_client(), CHECKOUT_1, registry_root=tmp_path)
     assert len(materials) == 1
     entry = materials[0]
-    assert entry["dataset_id"] == LIB_DATASET
-    assert entry["snapshot"] == "v1"
-    assert entry["license"] is None
-    assert entry["kind"] == "unknown"
-    assert entry["count"] > 0
+    assert entry.dataset_id == LIB_DATASET
+    assert entry.dataset_label == "貸出記録"
+    assert entry.snapshot == "v1"
+    assert entry.license is None
+    assert entry.redistributable is None
+    assert entry.kind == "unknown"
+    assert entry.count > 0
 
 
 async def test_materials_for_subject_empty_for_absent_iri(tmp_path: Path) -> None:

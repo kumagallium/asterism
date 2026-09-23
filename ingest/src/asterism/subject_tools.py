@@ -7,8 +7,8 @@ tools that back the "絞り込み" (set) page.
 Every function here returns the SAME shape ``run_query_tool`` returns
 (``{tool, count, items, truncated, sparql}``) plus ``output_kind`` / ``item``
 (the PR A ``ItemSpec`` map — see ``ui/src/cards/viewSpec.ts``) / ``materials``
-/ ``shareable`` (§3.3 — PR D fills materials in for real; here it is shaped
-but ``license``/``shareable`` stay ``null``).
+/ ``shareable`` / ``shareable_reasons`` (§3.3 — filled in for real by
+:mod:`asterism.materials`, contract §2).
 
 No LLM, no generated code, no domain vocabulary. Every literal a caller
 supplies is escaped via :func:`asterism.query_tools._escape_literal`; every
@@ -26,6 +26,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from asterism.materials import Material
+from asterism.materials import materials_for as _materials_for
+from asterism.materials import shareable as _shareable
+from asterism.materials import shareable_reasons as _shareable_reasons
 from asterism.prov_graph import prov_graph as _prov_graph
 from asterism.query_tools import (
     QueryTool,
@@ -285,15 +289,21 @@ def _finalize(
     *,
     output_kind: str,
     item: dict[str, dict[str, Any]],
-    materials: list[dict[str, Any]],
+    materials: list[Material],
 ) -> dict[str, Any]:
-    """Splice the object-cards-ui §3 contract fields onto a base result."""
+    """Splice the object-cards-ui §3 contract fields onto a base result.
+
+    ``shareable``/``shareable_reasons`` are :mod:`asterism.materials`'
+    real (保守側) verdict over ``materials`` — never a placeholder ``None``
+    (契約メモ §2)."""
+    mats = list(materials)
     return {
         **result,
         "output_kind": output_kind,
         "item": item,
-        "materials": materials,
-        "shareable": None,
+        "materials": [m.to_dict() for m in mats],
+        "shareable": _shareable(mats),
+        "shareable_reasons": _shareable_reasons(mats),
     }
 
 
@@ -458,26 +468,37 @@ async def subject_facts(
         "truncated": truncated,
         "sparql": query,
     }
-    materials = await materials_for_subject(client, iri)
+    materials = await materials_for_subject(client, iri, registry_root=registry_root)
     return _finalize(base, output_kind="facts", item=item, materials=materials)
 
 
-async def _graph_counts_for_subject(client: SupportsSparql, iri: str) -> list[tuple[str, int]]:
-    """``[(graph_iri, triple_count)]`` where ``iri`` is subject or object
-    (canonical scope), sorted by graph IRI — the shared aggregation behind
-    both :func:`subject_sources` and :func:`materials_for_subject` (§3.3:
-    "1件向けは subject_sources と同じ集計から")."""
-    graphs = await canonical_graphs(client)
-    if not graphs:
-        return []
+def _graph_counts_query(iri: str, graphs: list[str]) -> str:
+    """The bare (FROM-NAMED-annotated) SPARQL text behind
+    :func:`_graph_counts_for_subject_with_query` — split out so a caller that
+    already has ``graphs`` (agent_bundle 束の再現用) never needs to duplicate
+    this string by hand."""
     named = canonical_from_clauses(graphs, named=True)
     ref = _ref(iri)
-    query = (
+    return (
         f"SELECT ?g (COUNT(*) AS ?cnt)\n{named}"
         "WHERE { GRAPH ?g { "
         f"{{ {ref} ?__sp ?__so }} UNION {{ ?__os ?__op {ref} }} "
         "} } GROUP BY ?g ORDER BY ?g"
     )
+
+
+async def _graph_counts_for_subject_with_query(
+    client: SupportsSparql, iri: str
+) -> tuple[list[tuple[str, int]], str | None]:
+    """``([(graph_iri, triple_count)], sparql)`` where ``iri`` is subject or
+    object (canonical scope), sorted by graph IRI — the shared aggregation
+    behind both :func:`subject_sources` and :func:`materials_for_subject`
+    (§3.3: "1件向けは subject_sources と同じ集計から"). ``sparql`` is
+    ``None`` when there are no canonical graphs to read (nothing ran)."""
+    graphs = await canonical_graphs(client)
+    if not graphs:
+        return [], None
+    query = _graph_counts_query(iri, graphs)
     out: list[tuple[str, int]] = []
     for row in _rows(await client.sparql_select(query)):
         g = _cell(row, "g")
@@ -485,14 +506,22 @@ async def _graph_counts_for_subject(client: SupportsSparql, iri: str) -> list[tu
         if g is not None and cnt is not None:
             with contextlib.suppress(ValueError):
                 out.append((g, int(float(cnt))))
-    return out
+    return out, query
+
+
+async def _graph_counts_for_subject(client: SupportsSparql, iri: str) -> list[tuple[str, int]]:
+    """``[(graph_iri, triple_count)]`` — thin wrapper over
+    :func:`_graph_counts_for_subject_with_query` for callers (e.g.
+    :func:`materials_for_subject`) that only need the counts."""
+    counts, _query = await _graph_counts_for_subject_with_query(client, iri)
+    return counts
 
 
 async def subject_sources(
     client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
 ) -> dict[str, Any]:
     """Which dataset(s) recorded facts about ``iri``, and how many (§3.1)."""
-    counts = await _graph_counts_for_subject(client, iri)
+    counts, sparql = await _graph_counts_for_subject_with_query(client, iri)
     labels = _dataset_labels(registry_root)
     # dataset_id -> (label, snapshot, count)
     per_dataset: dict[str, tuple[str, str | None, int]] = {}
@@ -520,7 +549,7 @@ async def subject_sources(
         "count": len(items),
         "items": items,
         "truncated": False,
-        "sparql": None,
+        "sparql": sparql,
     }
     materials = await materials_for_subject(
         client, iri, registry_root=registry_root, _counts=counts
@@ -528,29 +557,50 @@ async def subject_sources(
     return _finalize(base, output_kind="breakdown", item=item_spec, materials=materials)
 
 
-async def subject_flow(client: SupportsSparql, iri: str) -> dict[str, Any]:
+async def subject_flow(
+    client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
+) -> dict[str, Any]:
     """The generic PROV-O flow around ``iri``, wrapped in the §3 contract shape.
 
     A node that IS found but has zero PROV edges reads ``found: false`` here
     (the flow card has nothing to draw, so the UI must not render it) even
     though ``prov_graph`` itself would say ``found: true`` for that node.
+
+    ``prov_graph``'s own ``materials`` list is shaped for the flow diagram
+    (``{dataset_id, snapshot, graph}`` — one row per graph the drawn nodes
+    came from, no license/redistributable/count). §3 requires every tool's
+    ``materials`` to be the real :mod:`asterism.materials` verdict, so this
+    counts each drawn node's ``props.dataset_id``/``props.snapshot`` into a
+    contribution and runs it through the same :func:`_materials_for` (and
+    ``_finalize``) every other built-in uses.
     """
     result = await _prov_graph(client, iri)
     graph = result.get("graph") or {"nodes": [], "edges": []}
     edges = graph.get("edges") or []
-    return {
+    nodes = graph.get("nodes") or []
+    per_dataset: dict[str, tuple[str | None, int]] = {}
+    for node in nodes:
+        props = node.get("props") if isinstance(node, dict) else None
+        dataset_id = (props or {}).get("dataset_id")
+        if not dataset_id:
+            continue
+        snapshot = (props or {}).get("snapshot")
+        prior_snapshot, prior_count = per_dataset.get(dataset_id, (snapshot, 0))
+        per_dataset[dataset_id] = (prior_snapshot or snapshot, prior_count + 1)
+    contributions = [
+        (dataset_id, snapshot, cnt) for dataset_id, (snapshot, cnt) in sorted(per_dataset.items())
+    ]
+    materials = _materials_for(registry_root, contributions)
+    base = {
         "tool": "subject_flow",
         "count": len(edges),
         "items": [],
         "truncated": bool(graph.get("truncated", False)),
         "sparql": None,
-        "output_kind": "flow",
-        "item": {},
-        "materials": result.get("materials") or [],
-        "shareable": None,
         "graph": graph,
         "found": bool(result.get("found")) and len(edges) > 0,
     }
+    return _finalize(base, output_kind="flow", item={}, materials=materials)
 
 
 def iri_param_of(tool: QueryTool) -> ToolParam | None:
@@ -591,7 +641,7 @@ async def run_iri_bound_tool(
 
 
 # ----------------------------------------------------------------------------
-# §3.3 — materials (shape only; PR D fills license/kind/shareable)
+# §3.3 — materials (real kind/license/redistributable via asterism.materials)
 # ----------------------------------------------------------------------------
 
 
@@ -601,11 +651,13 @@ async def materials_for_subject(
     *,
     registry_root: Path | str | None = None,
     _counts: list[tuple[str, int]] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[Material]:
     """Per-dataset contribution counts for ``iri`` (§3.3), from the same
-    per-graph aggregation :func:`subject_sources` uses. ``_counts`` lets
-    :func:`subject_sources` pass its already-fetched rows through instead of
-    re-querying (private — not part of the public contract)."""
+    per-graph aggregation :func:`subject_sources` uses, turned into
+    :class:`asterism.materials.Material` (kind/license/redistributable —
+    契約メモ §2). ``_counts`` lets :func:`subject_sources` pass its
+    already-fetched rows through instead of re-querying (private — not part
+    of the public contract)."""
     counts = _counts if _counts is not None else await _graph_counts_for_subject(client, iri)
     per_dataset: dict[str, tuple[str | None, int]] = {}
     for g, cnt in counts:
@@ -616,23 +668,18 @@ async def materials_for_subject(
         snapshot = tail if tail.startswith("v") and tail[1:].isdigit() else None
         prior_snapshot, prior_count = per_dataset.get(dataset_id, (snapshot, 0))
         per_dataset[dataset_id] = (prior_snapshot or snapshot, prior_count + cnt)
-    return [
-        {
-            "dataset_id": dataset_id,
-            "snapshot": snapshot,
-            "kind": "unknown",
-            "license": None,
-            "count": cnt,
-        }
-        for dataset_id, (snapshot, cnt) in sorted(per_dataset.items())
+    contributions = [
+        (dataset_id, snapshot, cnt) for dataset_id, (snapshot, cnt) in sorted(per_dataset.items())
     ]
+    return _materials_for(registry_root, contributions)
 
 
 async def materials_for_set(
     client: SupportsSparql, spec: dict[str, Any], *, registry_root: Path | str | None = None
-) -> list[dict[str, Any]]:
+) -> list[Material]:
     """Per-dataset contribution counts for a set's matching subjects (§3.3):
-    ``COUNT(DISTINCT ?s)`` of matching subjects, grouped by graph."""
+    ``COUNT(DISTINCT ?s)`` of matching subjects, grouped by graph, turned into
+    :class:`asterism.materials.Material` (契約メモ §2)."""
     spec = normalize_set_spec(spec)
     graphs = await _scoped_graphs(client, registry_root, spec["source_scope"])
     if not graphs:
@@ -662,16 +709,10 @@ async def materials_for_set(
         with contextlib.suppress(ValueError):
             prior_snapshot, prior_count = per_dataset.get(dataset_id, (snapshot, 0))
             per_dataset[dataset_id] = (prior_snapshot or snapshot, prior_count + int(float(cnt)))
-    return [
-        {
-            "dataset_id": dataset_id,
-            "snapshot": snapshot,
-            "kind": "unknown",
-            "license": None,
-            "count": cnt,
-        }
-        for dataset_id, (snapshot, cnt) in sorted(per_dataset.items())
+    contributions = [
+        (dataset_id, snapshot, cnt) for dataset_id, (snapshot, cnt) in sorted(per_dataset.items())
     ]
+    return _materials_for(registry_root, contributions)
 
 
 # ----------------------------------------------------------------------------
@@ -1082,7 +1123,7 @@ async def default_cards_for_subject(
         },
     ]
 
-    flow = await subject_flow(client, iri)
+    flow = await subject_flow(client, iri, registry_root=registry_root)
     if flow.get("found"):
         cards.append(
             {
@@ -1210,7 +1251,7 @@ async def run_subject_tool(
         if tool == "subject_sources":
             return await subject_sources(client, iri, registry_root=registry_root)
         if tool == "subject_flow":
-            return await subject_flow(client, iri)
+            return await subject_flow(client, iri, registry_root=registry_root)
         if tool in SET_BUILTIN_TOOLS:
             raise SubjectKindMismatchError(f"tool {tool!r} needs a set subject, got an individual")
         if "/" not in tool:
