@@ -1,0 +1,17 @@
+{
+  "empty": "Nothing yet",
+  "render_error": "Could not draw the figure",
+  "materials": "Materials",
+  "recipe": "How it was made",
+  "ask_placeholder": "Ask this page",
+  "demo_note": "A sample. The data is fictional",
+  "kind": {
+    "quantity": "Quantity",
+    "series": "Condition and quantity",
+    "pairs": "Quantity vs quantity",
+    "ranked": "Ranking",
+    "breakdown": "Breakdown",
+    "facts": "Facts",
+    "flow": "Steps"
+  }
+}
