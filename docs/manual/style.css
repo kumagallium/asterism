@@ -110,3 +110,17 @@ footer{
   margin-top:64px; padding-top:24px; border-top:1px solid var(--line);
   font-size:.78rem; color:var(--faint);
 }
+
+/* --- 「vX.Y.Z で追加」バッジ（<Badge text="…" /> を build_manual_site.py が変換） --- */
+.badge{
+  display:inline-block; vertical-align:middle; margin-left:.45em;
+  padding:.05em .6em; border-radius:999px; white-space:nowrap;
+  font-size:.68rem; font-weight:600; line-height:1.65; letter-spacing:.01em;
+  color:var(--entity); background:var(--surface-alt); border:1px solid var(--line-strong);
+}
+h1 .badge{font-size:.72rem; vertical-align:.35em}
+h2 .badge,h3 .badge{font-size:.64rem; vertical-align:.25em}
+td .badge,li .badge{margin-left:.35em}
+
+/* --- 機能ロードマップ: 版と日付の列は折り返さない（本文の列に幅を渡す） --- */
+.page-roadmap td:nth-child(1),.page-roadmap td:nth-child(2){white-space:nowrap}

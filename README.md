@@ -40,7 +40,7 @@ In progress (see ROADMAP): a declarative substrate that generalizes ingestion fr
 
 ## Roadmap
 
-The living roadmap is **[`docs/ROADMAP.md`](docs/ROADMAP.md)**. In short: ingestion is generalizing to *structured source → RDF* (CSV today, JSON/API proven), with a schema-aware query/Ask layer and a source-onboarding UI ahead.
+What shipped, release by release, is in the manual: the **[feature roadmap](https://kumagallium.github.io/asterism/manual/ja/roadmap.html)** (only the milestones that changed what you can do, linked into the manual) and the **[release history](https://kumagallium.github.io/asterism/manual/ja/release-history.html)** (every release, generated from `CHANGELOG.md`). The living *execution state* is **[`docs/ROADMAP.md`](docs/ROADMAP.md)**. In short: ingestion is generalizing to *structured source → RDF* (CSV today, JSON/API proven), with a schema-aware query/Ask layer and a source-onboarding UI ahead.
 
 ## Quickstart
 

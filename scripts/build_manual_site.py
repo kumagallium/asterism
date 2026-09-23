@@ -20,9 +20,22 @@ Relative links survive the projection unchanged: ``manual/ja/x.md`` refers to
 ``docs/manual/ja/x.html`` sits at the same depth over copies of those directories.
 Only ``.md`` link targets are rewritten to ``.html``.
 
+Two small extensions serve the "what changed" pages (both borrowed from Graphium's
+manual, which uses VitePress for the same job):
+
+* ``<!--@include: ../../CHANGELOG.md{3,}-->`` splices another file in at build
+  time (1-based inclusive line range, either end optional). Bare URLs in the
+  spliced text become links, and pull-request URLs are shown as ``#123``. This is
+  how ``release-history.md`` carries the whole CHANGELOG without anyone copying it.
+* ``<Badge type="tip" text="v0.23.0 (2026-08-28) で追加" />`` renders as a small
+  pill and is dropped from heading anchors. ``scripts/check_manual.py`` verifies
+  every badge against the CHANGELOG, so a badge can never name a version or date
+  that was not released.
+
 Usage:
     python scripts/build_manual_site.py            # write docs/manual/
     python scripts/build_manual_site.py --check    # fail if the output is stale
+                                                   #   (release-history.html: only if missing)
 """
 
 # ruff: noqa: RUF001 (日本語のメッセージに全角の括弧・記号を使う)
@@ -55,6 +68,8 @@ ORDER = [
     "settings.md",
     "desktop.md",
     "screens.md",
+    "roadmap.md",
+    "release-history.md",
 ]
 GROUPS = [
     ("はじめに", ["getting-started.md"]),
@@ -63,15 +78,125 @@ GROUPS = [
     ("しくみを知る", ["rdf-basics.md", "dataset-files.md"]),
     ("そばに置く", ["consult.md", "settings.md", "desktop.md"]),
     ("困ったときは", ["screens.md"]),
+    ("更新を知る", ["roadmap.md", "release-history.md"]),
 ]
 
+# Output that is a function of CHANGELOG.md, not of manual/. tagpr rewrites the
+# CHANGELOG on every release, and the tagpr job regenerates these on main right
+# after the tag (ADR manual-roadmap-and-release-history.md D4) — but the CI run on
+# the release PR's merge commit sees the new CHANGELOG before that regeneration
+# lands. So `--check` reports these as stale only when they are MISSING, never for
+# content drift; a human build still rewrites them every time.
+CHANGELOG_DERIVED = frozenset({"ja/release-history.html"})
+
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
+_INCLUDE = re.compile(r"<!--\s*@include:\s*(\S+?)(?:\{(\d*),(\d*)\})?\s*-->")
+# text 属性は任意にしておき、無いものは本文から落とす（生タグを漏らさない）。
+# 版と日付の形は scripts/check_manual.py が別途検査する。
+_BADGE = re.compile(r'<Badge\b(?:[^>]*?\btext="([^"]*)")?[^>]*?/?>')
+_INCLUDE_LEFTOVER = re.compile(r"<!--\s*@include")  # コメント先頭の @include だけ（本文の言及は可）
+_TRAILING_PUNCT = re.compile(r"[.,;:、。]+$")
+# 裸の URL（既にリンク・コード・括弧の中にあるものは除く）。include した文にだけ使う。
+_BARE_URL = re.compile(r'(?<![(\["<`])https?://[^\s<>()\[\]]+')
+_PR_URL = re.compile(r"^https://github\.com/[^/]+/[^/]+/pull/(\d+)$")
 _IMG = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _CODE = re.compile(r"`([^`]+)`")
 _BOLD = re.compile(r"\*\*([^*]+)\*\*")
 _ASCII_EDGE = re.compile(r"[0-9A-Za-z),.;:!?\"']$")
 _ASCII_HEAD = re.compile(r"^[0-9A-Za-z(\"']")
+
+
+def expand_includes(md: str, base: Path) -> str:
+    """Resolve ``<!--@include: path{start,end}-->`` against ``base`` (the chapter's
+    own directory). The spliced text is markdown, so it goes through the same
+    converter afterwards; the only rewrite here is turning bare URLs into links
+    (tagpr writes the CHANGELOG with raw ``https://…/pull/123`` URLs)."""
+
+    def autolink(m: re.Match[str]) -> str:
+        url = m.group(0)
+        tail = _TRAILING_PUNCT.search(url)  # 文末の句読点は URL に含めない
+        if tail:
+            url = url[: tail.start()]
+        pr = _PR_URL.match(url)
+        label = f"#{pr.group(1)}" if pr else url
+        return f"[{label}]({url}){tail.group(0) if tail else ''}"
+
+    def autolink_outside_code(text: str) -> str:
+        spans: list[str] = []
+
+        def stash(m: re.Match[str]) -> str:
+            spans.append(m.group(0))
+            return f"\x00{len(spans) - 1}\x00"
+
+        text = _BARE_URL.sub(autolink, _CODE.sub(stash, text))
+        return re.sub(r"\x00(\d+)\x00", lambda m: spans[int(m.group(1))], text)
+
+    def splice(m: re.Match[str]) -> str:
+        target = (base / m.group(1)).resolve()
+        if REPO not in target.parents:
+            raise SystemExit(f"@include はリポジトリの外を指せません: {m.group(1)}")
+        if not target.is_file():
+            raise SystemExit(f"@include の対象がありません: {m.group(1)}")
+        lines = target.read_text(encoding="utf-8").split("\n")
+        start = int(m.group(2)) if m.group(2) else 1
+        end = int(m.group(3)) if m.group(3) else len(lines)
+        if start < 1 or end < start:
+            raise SystemExit(f"@include の行範囲が不正です（1 始まり・両端含む）: {m.group(0)}")
+        return autolink_outside_code("\n".join(lines[start - 1 : end]))
+
+    # フェンスの中は逐語表示なので触らない（@include の書き方を説明する章が書けるように）
+    out: list[str] = []
+    segment: list[str] = []
+    in_fence = False
+
+    def flush() -> None:
+        text = _INCLUDE.sub(splice, "\n".join(segment))
+        leftover = _INCLUDE_LEFTOVER.search(text)
+        if leftover:  # 構文がわずかに違う @include は、黙ってコメントとして消えてしまう
+            raise SystemExit(
+                f"@include の書き方が違います（例: <!--@include: ../../X.md{{3,}}-->）: "
+                f"{leftover.group(0)}…"
+            )
+        out.append(text)
+        segment.clear()
+
+    for line in md.split("\n"):
+        if line.strip().startswith("```"):
+            if not in_fence:
+                flush()
+            in_fence = not in_fence
+            segment.append(line)
+            if not in_fence:
+                out.append("\n".join(segment))
+                segment.clear()
+            continue
+        segment.append(line)
+    flush()
+    return "\n".join(out)
+
+
+def strip_badges(text: str) -> str:
+    """Heading text without its ``<Badge … />`` tags (for anchors and titles).
+    Code spans are left alone, as ``inline()`` leaves them alone."""
+    spans: list[str] = []
+
+    def stash(m: re.Match[str]) -> str:
+        spans.append(m.group(0))
+        return f"\x00{len(spans) - 1}\x00"
+
+    text = _BADGE.sub("", _CODE.sub(stash, text))
+    text = re.sub(r"\x00(\d+)\x00", lambda m: spans[int(m.group(1))], text)
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+def heading_slug(text: str) -> str:
+    """Anchor id of a heading. Badges and link markup are dropped first so
+    ``## 追記する <Badge … />`` and ``## [v0.44.0](…) - 2026-09-23`` get stable,
+    readable ids. ``scripts/check_manual.py`` imports this to resolve ``#anchor``
+    links exactly the way the site does."""
+    plain = _LINK.sub(r"\1", strip_badges(text))
+    return re.sub(r"[^\w一-龯ぁ-んァ-ヶー]+", "-", plain).strip("-")
 
 
 def join_wrapped(lines: list[str]) -> str:
@@ -100,6 +225,14 @@ def inline(text: str) -> str:
         return f"\x00{len(spans) - 1}\x00"
 
     text = _CODE.sub(stash, text)
+
+    def badge(m: re.Match[str]) -> str:
+        if not m.group(1):
+            return ""  # text の無い Badge は出さない（check_manual.py が別途落とす）
+        spans.append(f'<span class="badge">{html.escape(m.group(1))}</span>')
+        return f"\x00{len(spans) - 1}\x00"
+
+    text = _BADGE.sub(badge, text)
     text = html.escape(text, quote=False)
     def image(m: re.Match[str]) -> str:
         src = html.escape(m.group(2), quote=True)
@@ -110,8 +243,9 @@ def inline(text: str) -> str:
 
     def link(m: re.Match[str]) -> str:
         href = m.group(2)
-        if href.endswith(".md"):
-            href = href[:-3] + ".html"
+        path, hash_, anchor = href.partition("#")
+        if path.endswith(".md"):
+            href = path[:-3] + ".html" + hash_ + anchor
         return f'<a href="{html.escape(href, quote=True)}">{m.group(1)}</a>'
 
     text = _LINK.sub(link, text)
@@ -152,7 +286,7 @@ def convert(md: str) -> str:
         if stripped.startswith("#"):
             level = len(stripped) - len(stripped.lstrip("#"))
             text = stripped[level:].strip()
-            slug = re.sub(r"[^\w一-龯ぁ-んァ-ヶー]+", "-", text).strip("-")
+            slug = heading_slug(text)
             out.append(f'<h{level} id="{html.escape(slug, quote=True)}">{inline(text)}</h{level}>')
             i += 1
             continue
@@ -216,7 +350,7 @@ def convert(md: str) -> str:
 def title_of(md: str) -> str:
     for line in _COMMENT.sub("", md).split("\n"):
         if line.startswith("# "):
-            return line[2:].strip()
+            return strip_badges(line[2:])
     return "Asterism マニュアル"
 
 
@@ -243,7 +377,7 @@ PAGE = """<!DOCTYPE html>
 <title>{title} — Asterism マニュアル</title>
 <link rel="stylesheet" href="../style.css">
 </head>
-<body>
+<body class="page-{page}">
 <div class="wrap">
 <div class="cols">
 {sidebar}
@@ -270,9 +404,10 @@ def build() -> dict[Path, str | bytes]:
 
     for name, text in srcs.items():
         files[OUT / "ja" / (name[:-3] + ".html")] = PAGE.format(
+            page=html.escape(name[:-3], quote=True),  # ページ固有の CSS の足がかり
             title=html.escape(titles[name]),
             sidebar=sidebar(name, titles),
-            body=convert(text),
+            body=convert(expand_includes(text, SRC / "ja")),
             source=name,
         )
 
@@ -300,7 +435,11 @@ def main() -> int:
         stale = []
         for path, content in files.items():
             data = content.encode("utf-8") if isinstance(content, str) else content
-            if not path.exists() or path.read_bytes() != data:
+            if not path.exists():
+                stale.append(path.relative_to(REPO))
+            elif path.relative_to(OUT).as_posix() in CHANGELOG_DERIVED:
+                continue  # CHANGELOG の関数。リリース直後に機械が作り直す（上の注記）
+            elif path.read_bytes() != data:
                 stale.append(path.relative_to(REPO))
         extra = [
             p.relative_to(REPO)
