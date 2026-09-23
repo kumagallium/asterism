@@ -111,6 +111,19 @@ async def test_declared_query_tools_registered_with_typed_schema(monkeypatch) ->
     assert "max_plausible" in schema["properties"]  # optional param present
 
 
+async def test_declared_query_tool_description_carries_output_kind(monkeypatch) -> None:
+    # object-cards-ui.md §3: an AI calling a declared tool should learn its
+    # answer's shape without parsing column names — the shipped starrydata
+    # bundle declares property_ranking's output_kind as "ranked" explicitly.
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"]))
+    )
+    tools = {t.name: t for t in await mcp.list_tools()}
+    assert tools["property_ranking"].description is not None
+    assert "Result kind: ranked." in tools["property_ranking"].description
+
+
 async def test_declared_property_ranking_call_round_trip(monkeypatch) -> None:
     monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     def handler(request: httpx.Request) -> httpx.Response:

@@ -16,6 +16,8 @@
 #   {{name}}            scalar, replaced by the type-safe serialization of the arg
 #   {{#name}}...{{/name}}   kept only when the arg is provided (optional block)
 #   {{^name}}...{{/name}}   kept only when the arg is NOT provided (inverse)
+#
+# output_kind は出口の意味型（ADR object-cards-ui.md）
 
 tools:
   - name: property_ranking
@@ -54,12 +56,13 @@ tools:
       }
       ORDER BY DESC(?ymax)
       LIMIT {{top_n}}
+    output_kind: ranked
     result:
       item:
-        curve_iri: curve
-        value: { var: ymax, number: true }
+        curve_iri: { var: curve, role: subject }
+        value: { var: ymax, number: true, role: value }
         sample_iri: s
-        composition: comp
+        composition: { var: comp, role: label }
         paper_iri: p
         title: title
 
