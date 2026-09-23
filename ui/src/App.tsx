@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import './App.css'
 import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
+import { CardsGallery } from './cards/CardsGallery'
 import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
@@ -40,6 +41,8 @@ type Tab =
   | 'map'
   | 'jobs'
   | 'sparql'
+  /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
+  | 'cardsdemo'
 
 // ---- hash ルーティング -------------------------------------------------------
 // リロードで常にホームへ戻る／ディープリンク不可だった問題への最小のルータ。
@@ -71,6 +74,7 @@ const TABS: readonly Tab[] = [
   'map',
   'jobs',
   'sparql',
+  'cardsdemo',
 ]
 const DETAIL_TABS: readonly DetailTab[] = ['structure', 'tools', 'files', 'connect', 'design']
 
@@ -486,6 +490,7 @@ function App() {
             {tab === 'map' && <OntologyMapView onBack={() => navigate(mapReturn)} />}
             {tab === 'jobs' && <JobsView />}
             {tab === 'sparql' && <SparqlView />}
+            {tab === 'cardsdemo' && <CardsGallery />}
           </main>
         </div>
       </div>
