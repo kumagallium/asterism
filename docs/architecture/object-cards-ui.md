@@ -338,6 +338,68 @@ facts**（判断が要るものは保守側に倒す）。
 直書きで汎用ではないが、既存の利用箇所（表示ラベル特化含む）を壊さないため今回は
 改修しない。汎用化は `prov_graph`（O29）を新設することで別経路として満たす。
 
+### O31. ライセンスの持ち場
+
+正本はストア（`metadata.ttl` の `dcterms:license` — ADR
+dataset-description-in-the-store.md §3。SPDX 識別子はリテラル、URL は IRI）。
+`mie.yaml` の `schema_info.license` はそこからの投影で、`PUT
+/api/datasets/{id}/license` が書き手（公開済みなら既存 `_project_meta_graph` で
+ストアも書き直す）。読み手 `asterism.licenses` は決定論・LLM ゼロの純粋関数
+（`normalize_license`/`redistributable`/`dataset_license`）: 許可リスト
+`KNOWN_LICENSES` に無い値・空・不明はすべて `None`（再配布可否「不明」）— O13
+「配れる判定は保守側」の実装そのもの。NC/ND 系（`CC-BY-NC-4.0` 等）は明示的に
+`False`（配る相手の用途が分からないので、たとえ緩いライセンスの派生でも保守側に
+倒す）。
+
+### O32. `meta.origin`
+
+データセットが「自分のデータ」か「よそから来た材料」かを machine-readable に持つ
+1 フィールド（`own` | `open` | それ以外は全部 `unknown`）。書くのは 2 箇所だけ:
+「データを置く」の `place/commit`（`own`）と snapshot の取り込み
+`exchange.import_snapshot`（`open`）。読み手 `registry.dataset_origin(root, id)`
+は id が不正・データセット不在・値が上の 2 つ以外のときも `unknown` を返す（O13
+と同じ保守側則 — 「置いた」でも「取り込んだ」でもないデータセットの出どころを
+機械が勝手に推測しない）。材料表（`materials.py`、契約 PR D §2）はこの `kind` を
+`shareable` 判定の一部にする。
+
+### O33. 束の中身と `_builtin` の焼き込み
+
+持ち帰るエージェント束（O12・O23）は `facts/`（版グラフごとの GRAPH ブロックで
+TriG）・`tools/<dataset_id>/`（このページのカードが使った宣言ツールだけの部分集
+合）・`tools/_builtin/`（組み込み 5 ツール `subject_facts` などを、subject を
+パラメータではなく**焼き込んだ**パラメータ無し宣言ツールに落としたもの — 束の
+中では「このページの」ツールとして振る舞う）・`cards/`（CardSpec + view。graph は
+Mermaid テキスト）・`AGENT.md`（答えを作らずツールを選ぶ規律・答えられないこと・
+出典の出しかた）・`mcp.json`・`materials.json`（材料表 + `shareable` + 生成時
+刻・版）。`share: 'shareable'` を選ぶと own のデータセットの facts グラフ・
+own 依存カードが束から落ちる（全部 own なら 409）。
+
+### O34. `asterism-agent serve` の起動順とポート
+
+1 コマンド（`asterism-agent serve <束のフォルダ>`）が: ①束の最低限の形（
+`materials.json`・`facts/facts.trig`・`tools/`）を確認 → ②oxigraph バイナリを
+探す（`PATH` → `ASTERISM_OXIGRAPH_BIN` → 同梱パス）→ ③`oxigraph serve
+--location <束>/.store --bind 127.0.0.1:<空きポート>` を子プロセスで起動し ready
+を待つ → ④初回だけ `facts/*.trig` を Graph Store Protocol で投入（`.loaded`
+マーカー）→ ⑤`CSV2RDF_OXIGRAPH_URL`・`CSV2RDF_REGISTRY_ROOT=<束>/tools` などを
+env に置いて同一プロセスで既存 `asterism_mcp.server._main` を stdio で呼ぶ。
+**api パッケージを import しない**（O23 の「Asterism への HTTP 依存を持たない」
+の実装 — 自分で立てた oxigraph 以外どこにも httpx で問い合わせない）。終了時は
+oxigraph を SIGTERM → 5 秒で SIGKILL。
+
+### O35. `default_view`/`mermaid_flow` は ui と Python で二重実装するが、共有
+フィクスチャで同一に保つ
+
+持ち帰った束は Python 単独（ui を持たない）で `cards/<id>.json` の
+`view`（既定ビュー）と `cards/<id>.mmd`（Mermaid）を書く必要があるため、
+`ui/src/cards/defaultView.ts`/`toMermaidFlowchart` と同じロジックを
+`ingest/src/asterism/default_view.py`/`mermaid_flow.py` に**決定論で**再実装
+する（実行系を共有できない ui/Python 間の唯一の選択）。2 つの実装が黙って食い
+違わないよう、テストケース（入力 → 期待 JSON/Mermaid テキスト）を
+`ui/src/cards/fixtures/default_view_cases.json`・`mermaid_cases.json` に 1 箇所
+だけ持ち、ui 側テストと Python 側テストが同じフィクスチャファイルを読んで両方
+とも固定する（どちらかを直し忘れたら、直していない側のテストが赤くなる）。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。
@@ -375,6 +437,18 @@ facts**（判断が要るものは保守側に倒す）。
 - 並べる: 設計を一致列だけに刈り込み（落とした 28 列は `pruned_columns` として返す）、materialize→ingest→promote が LLM ゼロで完走。own データセット（92 三つ組・`meta.origin = own`）と、ファイル全件の絞り込み（`source_scope: own`）ができた。
 - ページ: 既定カード（事実・出典・（辺があれば）手順）が決定論で並び、絞り込みのページは一覧・内訳（distinct が最小の分類プロパティ）・件数。クラススキーマの kind はストアの実データで決めた（Mapping IR 上は定数 IRI の行でも、実データが IRI なら link）。
 - 見つけて直した穴: ingest→step0 の逆依存／IRIREF 禁止文字の素通し／commit が CURIE テンプレートを展開せず再特定に失敗／設計の刈り込み漏れ／facts の重複（own と open の両方にある 1 件）。
+
+### PR D: 束を書き出して Asterism 本体と独立に動かす（2026-09-23）
+
+PR C の隔離 HOME（周期表を公開済み・置いた own データセットあり）で、周期表の 1 件のページから「エージェントを持ち帰る」を API で実行した。
+
+- 材料表: 事実カードの材料は own（my-elements v1・ライセンス不明・23 件）と open（periodic-table v3・`PUT /api/datasets/{id}/license` で CC-BY-4.0・51 件）。判定は「手元限り」（理由 `own_data` と `unknown_license`）。手順（flow）カードの材料も同じ形で返る。
+- 配れる版: own を抜いた**あと**の材料で判定し 200（shareable true・材料は open 1 つ）。全部版は shareable false と理由つき。own しか無い 1 件は 409（`no_materials`）。
+- 束の中身: `AGENT.md`（7 節・ja）・`README.md`・`mcp.json`・`materials.json`・`facts/facts.trig`（版グラフごとの GRAPH）・`facts/control.trig`（`ast:liveGraph`）・`tools/_builtin/query_tools.yaml`（`page_facts`／`page_sources`。**FROM 句を持たない素の SPARQL** と、射影変数に合わせた `result.item`）・`cards/*.json`。`asterism-agent serve <dir> --check` は ok。
+- 実行: `asterism-agent serve <dir>` が `.app` 同梱の oxigraph を自前で起動して TriG を投入し、同一プロセスで stdio MCP を出す。MCP クライアント（Python SDK）から `page_facts` を呼ぶと **51 件（カードと同じ数）が IRI 付き**で、`page_sources` が出どころ 1 件（periodic-table v3・51）を返した。Asterism の api には一切アクセスしない。
+- 見つけて直した穴: 束の組み込みツールに書き出し時の FROM 句（束に無い他データセットの版グラフ）が残り、実行時の許可リスト検査で拒否されて 0 件になった／`result.item` が加工後のキー名で射影変数と合わず全列 null になった／配れる版の判定を own を抜く前にしていた／手順カードの材料が別形のままだった。
+- 残: `page_sources` の `category` は束では版グラフの生 IRI（ラベルは射影に無い）。Claude Desktop／ローカル LLM からの対話は本体の手元確認（MCP クライアントでの機械確認まで）。
+＋ D2-ui の並列段の検査結果はそれぞれの PR の `notes` を参照）
 
 ## 残課題
 

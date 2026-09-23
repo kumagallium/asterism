@@ -21,6 +21,7 @@
 
 name = "papers"
 description = "Structured full text of research papers (section/paragraph/sentence/figure) as resolvable, citable IRIs — the document-ontology layer. Seeded with the real CC-BY JATS of PMC5951533, an n-type half-Heusler thermoelectric paper."
+license = "CC-BY-4.0"
 
 ontology_iri = "https://kumagallium.github.io/asterism/papers/ontology#"
 resource_iri = "https://kumagallium.github.io/asterism/papers/resource/"

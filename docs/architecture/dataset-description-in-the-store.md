@@ -70,6 +70,7 @@ LLM が書く §7（散文・キーワード・落とし穴）
 | （主語の型） | `a dcat:Dataset, void:Dataset` | — | DCAT / VoID |
 | `schema_info.title` | `dcterms:title` | リテラル | DCAT |
 | `schema_info.description` | `dcterms:description` | リテラル | DCAT |
+| `schema_info.license` | `dcterms:license` | **リテラルか IRI**（SPDX 識別子 `CC-BY-4.0` はリテラル、URL は IRI — `_is_valid_iri` で判定。契約 PR D §1: 読み手 `asterism.licenses` が SPDX id / URL / 別名を正規化し、許可リストで再配布可否を判定する） | DCAT |
 | `schema_info.keywords[]` | `dcat:keyword` | リテラル（複数） | DCAT |
 | `schema_info.categories[]` | `dcat:theme <…/theme/{slug}>` ＋ 行き先に `a skos:Concept ; skos:prefLabel` | **IRI**（`dcat:theme` の値域が `skos:Concept` なので概念を鋳造する） | DCAT |
 | `schema_info.base_uri` | `void:uriSpace` | **リテラル**（`xsd:string`。IRI 型で書くのは VoID の誤用） | VoID |
