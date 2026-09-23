@@ -456,6 +456,7 @@
     "growHint": "Add = your earlier data stays; replace = everything is swapped for the new file.",
     "openDataset": "View the dataset page",
     "startNew": "Add different new data",
+    "returnToPage": "Back to the page",
     "connectTitle": "Connect it to your other data",
     "connectBody": "You now have {{count}} published datasets. Connect them on a shared value and questions can span both.",
     "connectBtn": "Connect your data",

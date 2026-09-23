@@ -1,0 +1,103 @@
+/* 見本ページ（CardsGallery・裏タブ #/cardsdemo）だけの見た目。カードの箱組み
+ * 自体は既存 .card / .card-h を再利用し（App.css は触らない）、ここには格子・
+ * output_kind のピル・カード下の静かなリンク・最下部の 1 行入力だけを置く。
+ * 色は必ず index.css のトークンから（生の値を書かない）。 */
+
+.cardview-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cardview-gallery-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.cardview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+}
+
+.cardview-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* 手順（flow）カードは節が横に並ぶので格子 2 列ぶんを使う。1 列しか
+ * 入らない幅では auto-fill が 1 列に畳むので span も 1 に戻す。 */
+.cardview-card--wide {
+  grid-column: span 2;
+}
+@media (max-width: 720px) {
+  .cardview-card--wide {
+    grid-column: span 1;
+  }
+}
+
+.cardview-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* output_kind のピル。試作 .pill.kind の流儀（activity の柔らかい面・mono）。 */
+.cardview-kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--activity-soft);
+  color: var(--activity);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.cardview-card-body {
+  min-width: 0;
+}
+
+.cardview-card-foot {
+  margin-top: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: var(--space-4);
+}
+
+/* 静かなテキストリンク（ui-guidelines §6）。押しても何もしない見本（Phase 1 の
+ * C で結線）なので、実リンクの --accent-strong ではなく控えめな --muted に。 */
+.cardview-card-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cardview-card-link:hover:not(:disabled) {
+  background: none;
+  color: var(--fg);
+}
+
+/* ページ最下部の「このページに聞く」。見た目だけ（機能は結線しない）ので、
+ * 本物の入力欄に見えすぎないよう非活性な箱として置く。 */
+.cardview-ask {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+}
+
+.cardview-ask-input {
+  color: var(--faint);
+  font-size: 0.86rem;
+}

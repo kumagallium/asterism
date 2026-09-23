@@ -476,3 +476,93 @@ def test_save_dry_run_skipped_for_required_param_without_default(tmp_path: Path)
     r = client.post(f"/api/datasets/{ds}/tools", json=VALID_TOOL)
     assert r.status_code == 200, r.text
     assert r.json()["dry_run"] is None
+
+
+# --- output_kind (object-cards-ui.md §3) ------------------------------------
+
+_QUANTITY_TOOL = {
+    "name": "latest_reading",
+    "title": "Latest reading",
+    "description": "The most recent single reading.",
+    "output_kind": "quantity",
+    "parameters": [],
+    "query": "SELECT ?station_iri ?v WHERE { ?station_iri <http://example.org/reads> ?v } LIMIT 1",
+    "result": {
+        "item": {
+            "station_iri": {"var": "station_iri", "role": "subject"},
+            "v": {"var": "v", "number": True, "role": "value"},
+        }
+    },
+}
+
+
+def test_list_tools_annotates_output_kind(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    # VALID_TOOL declares no output_kind and matches none of infer_output_kind's
+    # patterns (no numeric column at all) — it must come back annotated "facts",
+    # marked as an inference rather than an authored fact.
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    client.post(f"/api/datasets/{ds}/tools", json=VALID_TOOL)
+    tool = client.get(f"/api/datasets/{ds}/tools").json()["tools"][0]
+    assert tool["output_kind"] == "facts"
+    assert tool["output_kind_inferred"] is True
+
+
+def test_get_single_tool_annotated(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    client.post(f"/api/datasets/{ds}/tools", json=_QUANTITY_TOOL)
+    r = client.get(f"/api/datasets/{ds}/tools/latest_reading")
+    assert r.status_code == 200, r.text
+    tool = r.json()["tool"]
+    assert tool["name"] == "latest_reading"
+    assert tool["output_kind"] == "quantity"
+    assert tool["output_kind_inferred"] is False
+
+
+def test_get_single_tool_404(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    assert client.get(f"/api/datasets/{ds}/tools/nope").status_code == 404
+
+
+def test_get_single_tool_unknown_dataset_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    client = _client(tmp_path, healthy_client)
+    assert client.get("/api/datasets/nope-00000000/tools/nope").status_code == 404
+
+
+def test_save_and_reload_output_kind_roundtrips(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(f"/api/datasets/{ds}/tools", json=_QUANTITY_TOOL)
+    assert r.status_code == 200, r.text
+    assert r.json()["saved"] == "latest_reading"
+    tools = client.get(f"/api/datasets/{ds}/tools").json()["tools"]
+    assert tools[0]["output_kind"] == "quantity"
+
+
+def test_save_invalid_output_kind_is_400(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    bad = {**_QUANTITY_TOOL, "name": "bad_kind", "output_kind": "not-a-kind"}
+    r = client.post(f"/api/datasets/{ds}/tools", json=bad)
+    assert r.status_code == 400
+    assert client.get(f"/api/datasets/{ds}/tools").json()["tools"] == []
+
+
+def test_save_without_output_kind_omits_it_from_stored_yaml(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    # QueryToolBody.output_kind defaults to None and must be stripped before
+    # persisting — a legacy tool round-trips with no output_kind key at all
+    # (only the read-time annotate step adds one).
+    client = _client(tmp_path, healthy_client)
+    reg = tmp_path / "registry"
+    ds = _seed_dataset(reg)
+    client.post(f"/api/datasets/{ds}/tools", json=VALID_TOOL)
+    raw = registry.list_query_tools(reg, ds)
+    assert "output_kind" not in raw[0]

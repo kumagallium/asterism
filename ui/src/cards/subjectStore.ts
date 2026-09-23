@@ -1,0 +1,183 @@
+// 私の一覧（SubjectItem[]）の読み書き（契約メモ §6.1）。
+//
+// 永続化先はサーバが決める（`ui/src/appdata.ts` と同じ規律 — ADR
+// app-data-on-disk.md D1）: `/api/appdata/info` が単一ユーザーを名乗れば
+// `/api/appdata/subjects` に PUT/DELETE、そうでなければ（またはまだ 404 の間は）
+// `localStorage['asterism.cards.subjects']`。ロード直後は同期的に localStorage を
+// 読んで即描画し（ちらつき防止）、appdata が使えると分かった時点でサーバの内容に
+// 差し替える — `threadStore.ts` の bootstrap と同じ形。
+//
+// 純関数（`addSubject`/`removeSubject`/`sortSubjects`）はテスト対象
+// （`subjectStore.test.ts`）。ミューテーション API（`*AndPersist`）は永続化つきの
+// 薄いラッパで、こちらはテストしない。
+
+import { useSyncExternalStore } from 'react'
+import { initAppData } from '../appdata'
+import {
+  deleteAppDataSubject,
+  fetchAppDataSubjects,
+  putAppDataSubject,
+  type SubjectItem,
+} from './cardsApi'
+
+const STORAGE_KEY = 'asterism.cards.subjects'
+
+// ---- 純関数（テスト対象） ---------------------------------------------------
+
+/** own → open の順、各グループの中は created_at 降順（新しい方が上）。
+ *  ISO 8601 文字列前提（辞書順 = 時系列順）。 */
+export function sortSubjects(items: SubjectItem[]): SubjectItem[] {
+  const rank = (source: SubjectItem['source']): number => (source === 'own' ? 0 : 1)
+  return [...items].sort((a, b) => {
+    const bySource = rank(a.source) - rank(b.source)
+    if (bySource !== 0) return bySource
+    return b.created_at.localeCompare(a.created_at)
+  })
+}
+
+/** 追加（純粋）。同じ `subject_key` が既にあれば置き換える（重複させない）。
+ *  並びは呼び出し側が {@link sortSubjects} で作る — この関数は差し込みだけ。 */
+export function addSubject(items: SubjectItem[], item: SubjectItem): SubjectItem[] {
+  return [...items.filter((i) => i.subject_key !== item.subject_key), item]
+}
+
+/** 削除（純粋）。`id` に一致するものを 1 件取り除く。 */
+export function removeSubject(items: SubjectItem[], id: string): SubjectItem[] {
+  return items.filter((i) => i.id !== id)
+}
+
+// ---- 新規 id ------------------------------------------------------------------
+
+/** appdata の thread_id と同じ規律（uuid4）— サーバ側のバリデータが要求する形。 */
+export function newSubjectId(): string {
+  const c = globalThis.crypto as Crypto | undefined
+  if (c?.randomUUID) return c.randomUUID()
+  // crypto.randomUUID が無い環境向けの保険（appdata 保存は使えないが localStorage
+  // 運用は壊れない）。
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+// ---- 永続化つき状態（React の外の単一ストア。threadStore.ts と同じ形） -------
+
+let items: SubjectItem[] = load()
+let loaded = false
+let serverMode = false
+const listeners = new Set<() => void>()
+
+function emit(): void {
+  for (const l of listeners) l()
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function getSnapshot(): SubjectItem[] {
+  return items
+}
+
+function getLoadedSnapshot(): boolean {
+  return loaded
+}
+
+export function useSubjects(): SubjectItem[] {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+/** appdata かどうかの判定が終わったか（サーバの内容で置き換わる前に一覧が空に
+ *  見えて「まだありません」が一瞬出る、を避けたい呼び出し側向け）。 */
+export function useSubjectsLoaded(): boolean {
+  return useSyncExternalStore(subscribe, getLoadedSnapshot, getLoadedSnapshot)
+}
+
+/** React の外から一度だけ読む（購読しない）。 */
+export function getAllSubjects(): SubjectItem[] {
+  return items
+}
+
+/** localStorage の生の値 → SubjectItem[]（純粋・テスト対象）。無い／壊れている／
+ *  形が違う場合は空配列に倒す — これが「フォールバック」の中身。 */
+export function parseStoredSubjects(raw: string | null): SubjectItem[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as { v?: number; items?: unknown }
+    return Array.isArray(parsed.items) ? (parsed.items as SubjectItem[]) : []
+  } catch {
+    return []
+  }
+}
+
+/** SubjectItem[] → localStorage に積む文字列（純粋・{@link parseStoredSubjects}
+ *  と対の往復）。 */
+export function serializeSubjects(items: SubjectItem[]): string {
+  return JSON.stringify({ v: 1, items })
+}
+
+function load(): SubjectItem[] {
+  if (typeof localStorage === 'undefined') return []
+  try {
+    return parseStoredSubjects(localStorage.getItem(STORAGE_KEY))
+  } catch {
+    return []
+  }
+}
+
+function saveLocal(): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, serializeSubjects(items))
+  } catch {
+    /* private mode 等 — 書けないなら諦める（メモリ上の状態はそのまま使える） */
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (serverMode || e.key !== STORAGE_KEY) return
+    items = load()
+    emit()
+  })
+  void bootstrap()
+}
+
+async function bootstrap(): Promise<void> {
+  try {
+    const info = await initAppData()
+    if (!info.singleUser) return
+    const serverItems = await fetchAppDataSubjects()
+    serverMode = true
+    items = serverItems
+  } catch {
+    // `/api/appdata/subjects` がまだ無い（404）／単一ユーザーでない — localStorage
+    // のまま運用する（§5: 「単一ユーザーでないサーバでは 404 のまま → ui は
+    // localStorage に落とす」）。
+  } finally {
+    loaded = true
+    emit()
+  }
+}
+
+// ---- ミューテーション（コンポーネントから呼ぶ） -------------------------------
+
+/** 追加して永続化する。同じ `subject_key` の既存項目は置き換える。appdata 運用
+ *  では保存キー（`thread_id`・uuid4）が無ければここで採番する — `id`
+ *  （IRI/set_id）はファイル名として使えないため（cardsApi.ts の SubjectItem 参照）。 */
+export function addSubjectAndPersist(item: SubjectItem): void {
+  const toStore = serverMode && !item.thread_id ? { ...item, thread_id: newSubjectId() } : item
+  items = addSubject(items, toStore)
+  emit()
+  if (serverMode && toStore.thread_id) void putAppDataSubject(toStore.thread_id, toStore)
+  else if (!serverMode) saveLocal()
+}
+
+export function removeSubjectAndPersist(id: string): void {
+  const existing = items.find((i) => i.id === id)
+  items = removeSubject(items, id)
+  emit()
+  if (!existing) return
+  if (serverMode && existing.thread_id) void deleteAppDataSubject(existing.thread_id)
+  else if (!serverMode) saveLocal()
+}
