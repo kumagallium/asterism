@@ -53,7 +53,12 @@ from asterism import (
 )
 from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
-from asterism.metadata import graph_from_turtle, write_metadata_graph
+from asterism.metadata import (
+    fetch_metadata_graph,
+    graph_from_turtle,
+    project_mie_yaml,
+    write_metadata_graph,
+)
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
@@ -2075,6 +2080,38 @@ async def _project_meta_graph(
             exc_info=True,
         )
         return 0
+
+
+async def _mie_text_for_publish(
+    client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
+) -> str:
+    """ADR dataset-description-in-the-store.md §7.3: the MIE text to hand
+    ``togomcp_sync.publish_dataset`` — read fresh from the store's meta graph
+    rather than the registry's ``mie.yaml``, so a promote always republishes
+    the description that is CURRENTLY the street's say-so, not whatever a
+    later (still unpromoted) design save may have overwritten ``mie.yaml``
+    with in the meantime (ADR §1's "公開中の mie.yaml を即座に上書きする" trap).
+
+    Best-effort: a store read/parse failure (or the meta graph simply not
+    existing yet — a pre-migration dataset, or a promote racing a first-ever
+    ingest) degrades to the registry's ``mie.yaml`` rather than failing the
+    promote/reinstate this is called from. That fallback is not stale data —
+    per ADR §4 the registry's ``mie.yaml`` is itself a deterministic
+    projection of the same triples as of the last save, so both sides carry
+    the same content when they diverge only in "where it is read from".
+    """
+    try:
+        graph = await fetch_metadata_graph(client, dataset_id)
+        if graph is not None and len(graph) > 0:
+            return project_mie_yaml(graph, dataset_id)
+    except Exception:
+        logger.warning(
+            "dataset %s: failed to fetch/project the meta graph for togomcp "
+            "publish (falling back to the registry's mie.yaml)",
+            dataset_id,
+            exc_info=True,
+        )
+    return str(artifacts.get("mie.yaml") or "")
 
 
 # #20 P2-2b: starrydata's identity (ontology / resource IRIs) is content declared
@@ -8806,11 +8843,14 @@ def build_app(
         # data is ever published; the projection pins the CURRENT live graph.
         togomcp: dict[str, object] | None = None
         if cfg.togomcp_dir is not None:
+            mie_text = await _mie_text_for_publish(
+                client, dataset_id, data.get("artifacts", {})
+            )
             togomcp = await asyncio.to_thread(
                 togomcp_sync.publish_dataset,
                 cfg.togomcp_dir,
                 dataset_id,
-                str((data.get("artifacts") or {}).get("mie.yaml") or ""),
+                mie_text,
                 staged_iri,
                 endpoint_url=cfg.togomcp_endpoint_url,
                 endpoint_name=cfg.togomcp_endpoint_name,
@@ -8887,11 +8927,14 @@ def build_app(
         # graph that just came back into scope (best-effort).
         if cfg.togomcp_dir is not None:
             live = await substrate.live_graph_of(client, canonical_iri) or canonical_iri
+            mie_text = await _mie_text_for_publish(
+                client, dataset_id, data.get("artifacts", {})
+            )
             await asyncio.to_thread(
                 togomcp_sync.publish_dataset,
                 cfg.togomcp_dir,
                 dataset_id,
-                str((data.get("artifacts") or {}).get("mie.yaml") or ""),
+                mie_text,
                 live,
                 endpoint_url=cfg.togomcp_endpoint_url,
                 endpoint_name=cfg.togomcp_endpoint_name,

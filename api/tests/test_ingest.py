@@ -21,6 +21,7 @@ import httpx
 import pytest
 from asterism import substrate
 from asterism.documents import pandoc_version
+from asterism.metadata import build_metadata_graph, metadata_turtle, project_mie_yaml
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
 from watchfiles import Change
@@ -2095,6 +2096,125 @@ def test_promote_publishes_projected_mie_to_togomcp(tmp_path: Path) -> None:
     # ...and the endpoints.csv row routes the database to the raw store endpoint.
     rows = (tmp_path / "togomcp" / "resources" / "endpoints.csv").read_text(encoding="utf-8")
     assert f"{database},http://oxigraph:7878/query,oxigraph,sparql" in rows
+
+
+class _PromoteWithMetaOxi:
+    """Like ``_PromoteOxi``, but a CONSTRUCT issued with ``Accept: text/turtle``
+    (:func:`asterism.metadata.fetch_metadata_graph`) returns a real description
+    graph instead of falling through to the alignment-SELECT fallback rows —
+    exercises the store-read branch of ``_mie_text_for_publish`` (ADR
+    dataset-description-in-the-store.md §7.3), not just its fallback.
+    """
+
+    def __init__(self, meta_turtle: str) -> None:
+        self.updates: list[str] = []
+        self.stores: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/update":
+                self.updates.append(request.content.decode())
+                return httpx.Response(204)
+            if request.url.path == "/store":
+                self.stores.append(request.url.params.get("graph"))
+                return httpx.Response(204)
+            if request.headers.get("accept") == "text/turtle":
+                return httpx.Response(
+                    200, text=meta_turtle, headers={"content-type": "text/turtle"}
+                )
+            q = request.content.decode()
+            if "COUNT" in q and "GRAPH" not in q:
+                rows = [{"c": {"value": "0"}}]
+            elif "COUNT" in q:
+                rows = [{"c": {"value": "1640"}}]
+            elif "?__cg" in q:
+                rows = []
+            elif "GRAPH <" in q:
+                rows = [{"x": {"type": "uri", "value": "https://ex#draftProp"}}]
+            else:
+                rows = []
+            return httpx.Response(
+                200,
+                text=json.dumps({"results": {"bindings": rows}}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+
+        inner = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="http://test"
+        )
+        self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def test_promote_publishes_meta_graph_projection_byte_for_byte(tmp_path: Path) -> None:
+    """ADR §7.3: when the store already holds a (non-empty) description graph,
+    promote publishes THAT to togomcp — not the registry ``mie.yaml`` — and the
+    published document is byte-identical to projecting the fetched graph
+    directly (``project_mie_yaml`` then ``togomcp_sync.project_mie``)."""
+    dataset_id = _ingested_dataset(tmp_path)
+    graph = build_metadata_graph(
+        {
+            "schema_info": {
+                "title": "Store Title",
+                "description": "from the store, not mie.yaml",
+            }
+        },
+        dataset_id,
+    )
+    meta_turtle = metadata_turtle(graph)
+    oxi = _PromoteWithMetaOxi(meta_turtle)
+    app = build_app(_togomcp_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    live = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}/v1"
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.post(f"/api/datasets/{dataset_id}/promote").json()
+    database = togomcp_sync.togomcp_database(dataset_id)
+    assert body["togomcp"] == {"published": True, "database": database}
+    published_text = (tmp_path / "togomcp" / "mie" / f"{database}.yaml").read_text(
+        encoding="utf-8"
+    )
+    expected = togomcp_sync.project_mie(
+        project_mie_yaml(graph, dataset_id),
+        endpoint_url="http://oxigraph:7878/query",
+        live_graph=live,
+    )
+    assert published_text == expected
+    # ...and it is NOT the registry mie.yaml's title (proof the store won, not
+    # the file the ADR demotes to a projection).
+    assert "Store Title" in published_text
+    assert "schema_info:\n  title: x" not in published_text
+
+
+def test_promote_falls_back_to_registry_mie_when_meta_graph_fails_to_project(
+    tmp_path: Path,
+) -> None:
+    """``_mie_text_for_publish``'s docstring promises that a store read/parse
+    failure degrades to the registry's ``mie.yaml`` rather than failing the
+    promote. A non-empty but malformed meta graph (a ``ast:index`` literal
+    that is not an int, so ``project_mie_yaml`` raises ``ValueError`` inside
+    ``_extra_sections``) must hit that same fallback — not bubble a 500 out
+    of an already-committed promote."""
+    dataset_id = _ingested_dataset(tmp_path)
+    subject = f"{substrate.DATASET_IRI_BASE}{dataset_id}"
+    meta_turtle = (
+        "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        f"<{subject}> ast:hasExtraSection <{subject}#extra1> .\n"
+        f"<{subject}#extra1> ast:sectionName \"x\" ;\n"
+        '    ast:index "not-an-int" ;\n'
+        '    ast:yaml "not valid" .\n'
+    )
+    oxi = _PromoteWithMetaOxi(meta_turtle)
+    app = build_app(_togomcp_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        response = client.post(f"/api/datasets/{dataset_id}/promote")
+    # The malformed graph must not turn an already-committed promote into a 500.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["promoted"] is True
+    database = togomcp_sync.togomcp_database(dataset_id)
+    assert body["togomcp"] == {"published": True, "database": database}
+    # ...and it published the registry's mie.yaml, not a half-formed projection.
+    published_text = (tmp_path / "togomcp" / "mie" / f"{database}.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "schema_info:\n  title: x" in published_text
 
 
 def test_promote_without_togomcp_config_stays_silent(tmp_path: Path) -> None:

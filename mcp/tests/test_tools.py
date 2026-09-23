@@ -18,6 +18,7 @@ from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
     _decode_array,
+    dataset_descriptions,
     property_ranking,
     provenance_of,
     sample_search,
@@ -649,6 +650,203 @@ async def test_schema_summary_no_ontology_graph_is_no_regression() -> None:
 
     assert out["classes"] == [{"iri": cls_a, "count": 3}]
     assert out["class_shapes"] == [{"class": cls_a, "predicates": []}]
+
+
+# ----------------------------------------------------------------------------
+# schema_summary — datasets (ADR dataset-description-in-the-store.md §6)
+# ----------------------------------------------------------------------------
+
+
+async def test_schema_summary_includes_promoted_dataset_descriptions() -> None:
+    from asterism.substrate import canonical_graph_iri, dataset_iri, meta_graph_iri
+
+    canon = canonical_graph_iri("ds1")
+    meta_iri = meta_graph_iri("ds1")
+    d_iri = dataset_iri("ds1")
+    captured: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        captured.append(body)
+        if "VALUES ?g" in body:
+            return _rows(
+                [
+                    {
+                        "g": _u(meta_iri),
+                        "d": _u(d_iri),
+                        "title": _l("Demo Title"),
+                        "desc": _l("Demo description"),
+                    }
+                ],
+                ["g", "d", "title", "desc"],
+            )
+        return _rows([], ["cls", "n"])
+
+    async with _make_client(handler, canonical_graphs=[canon]) as client:
+        out = await schema_summary(client)
+
+    assert out["datasets"] == [
+        {
+            "iri": d_iri,
+            "dataset_id": "ds1",
+            "title": "Demo Title",
+            "description": "Demo description",
+        }
+    ]
+    # Limited by an explicit VALUES list ("列挙して許す"), never a STRSTARTS scan
+    # of the whole meta-graph base — an unpublished dataset's meta graph must
+    # never be swept in just because it shares the prefix (ADR §6).
+    assert any(f"VALUES ?g {{ <{meta_iri}> }}" in q for q in captured)
+
+
+async def test_schema_summary_no_promoted_datasets_skips_meta_query() -> None:
+    captured: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request.content.decode())
+        return _rows([], ["cls", "n"])
+
+    async with _make_client(handler) as client:  # default canonical_graphs=[]
+        out = await schema_summary(client)
+
+    assert out["datasets"] == []
+    assert not any("VALUES ?g" in q for q in captured)
+
+
+async def test_schema_summary_dedups_dataset_with_multiple_title_desc_pairs() -> None:
+    """``build_metadata_graph`` writes exactly one title/one description per
+    dataset, but the two OPTIONALs in ``ds_q`` Cartesian-multiply if a meta graph
+    ever holds more than one of either -- ``schema_summary`` must still surface
+    exactly one entry per dataset (its own docstring contract: "one entry per
+    PROMOTED dataset"), the same as ``dataset_descriptions()`` already does."""
+    from asterism.substrate import canonical_graph_iri, dataset_iri, meta_graph_iri
+
+    canon = canonical_graph_iri("ds1")
+    meta_iri = meta_graph_iri("ds1")
+    d_iri = dataset_iri("ds1")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        if "VALUES ?g" in body:
+            return _rows(
+                [
+                    {"g": _u(meta_iri), "d": _u(d_iri), "title": _l("T1"), "desc": _l("D1")},
+                    {"g": _u(meta_iri), "d": _u(d_iri), "title": _l("T2"), "desc": _l("D1")},
+                ],
+                ["g", "d", "title", "desc"],
+            )
+        return _rows([], ["cls", "n"])
+
+    async with _make_client(handler, canonical_graphs=[canon]) as client:
+        out = await schema_summary(client)
+
+    assert [d["dataset_id"] for d in out["datasets"]] == ["ds1"]
+    # ORDER BY ?d ?title ?desc: the lexicographically smallest title wins, same
+    # first-row-wins determinism as dataset_descriptions()/_ontology_labels().
+    assert out["datasets"][0]["title"] == "T1"
+
+
+async def test_schema_summary_drops_dataset_subject_outside_iri_base() -> None:
+    """A ``?d`` binding outside ``DATASET_IRI_BASE`` must be dropped entirely, not
+    surfaced with an empty ``dataset_id`` -- mirrors ``dataset_descriptions()``'s
+    own ``if not subject.startswith(DATASET_IRI_BASE): continue`` guard."""
+    from asterism.substrate import canonical_graph_iri, meta_graph_iri
+
+    canon = canonical_graph_iri("ds1")
+    meta_iri = meta_graph_iri("ds1")
+    off_base = "https://example.com/not-the-dataset-base/ds1"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        if "VALUES ?g" in body:
+            return _rows(
+                [{"g": _u(meta_iri), "d": _u(off_base), "title": _l("T"), "desc": _l("D")}],
+                ["g", "d", "title", "desc"],
+            )
+        return _rows([], ["cls", "n"])
+
+    async with _make_client(handler, canonical_graphs=[canon]) as client:
+        out = await schema_summary(client)
+
+    assert out["datasets"] == []
+
+
+async def test_schema_summary_enumerates_canonical_graphs_once_when_graph_is_none() -> None:
+    """``graph=None`` used to call ``canonical_graphs()`` twice (once inside
+    ``_from_merge`` for the FROM block, once more for the ``datasets`` block) --
+    one extra control-graph round trip per call. The promoted list must now be
+    fetched once and reused for both."""
+    from asterism.substrate import canonical_graph_iri, dataset_iri, meta_graph_iri
+
+    canon = canonical_graph_iri("ds1")
+    meta_iri = meta_graph_iri("ds1")
+    d_iri = dataset_iri("ds1")
+    enum_calls = 0
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        nonlocal enum_calls
+        body = request.content.decode()
+        if _is_canonical_enum(body):
+            enum_calls += 1
+            return httpx.Response(
+                200,
+                text=json.dumps(
+                    {
+                        "head": {"vars": ["g"]},
+                        "results": {"bindings": [{"g": {"type": "uri", "value": canon}}]},
+                    }
+                ),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+        if "VALUES ?g" in body:
+            return _rows(
+                [{"g": _u(meta_iri), "d": _u(d_iri), "title": _l("T"), "desc": _l("D")}],
+                ["g", "d", "title", "desc"],
+            )
+        return _rows([], ["cls", "n"])
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(wrapped), base_url="http://test")
+    async with OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner) as client:
+        out = await schema_summary(client)
+
+    assert out["datasets"][0]["dataset_id"] == "ds1"
+    assert enum_calls == 1
+
+
+async def test_schema_summary_datasets_absent_for_explicit_graph() -> None:
+    from asterism.substrate import canonical_graph_iri
+
+    graph = canonical_graph_iri("d1")
+
+    async with _make_client(lambda r: _rows([], ["cls", "n"]), canonical_graphs=[graph]) as client:
+        out = await schema_summary(client, graph=graph)
+
+    assert "datasets" not in out
+
+
+# ----------------------------------------------------------------------------
+# dataset_descriptions (ADR dataset-description-in-the-store.md §7.1)
+# ----------------------------------------------------------------------------
+
+
+async def test_dataset_descriptions_maps_bindings_to_ids() -> None:
+    from asterism.substrate import dataset_iri
+
+    d1 = dataset_iri("ds1")
+    d2 = dataset_iri("ds2")
+
+    async with _make_client(
+        lambda r: _rows(
+            [
+                {"d": _u(d1), "desc": _l("first dataset")},
+                {"d": _u(d2), "desc": _l("second dataset")},
+            ],
+            ["d", "desc"],
+        )
+    ) as client:
+        out = await dataset_descriptions(client)
+
+    assert out == {"ds1": "first dataset", "ds2": "second dataset"}
 
 
 # ----------------------------------------------------------------------------
