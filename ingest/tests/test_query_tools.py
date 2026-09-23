@@ -617,7 +617,11 @@ def test_synthesize_from_trial_queries_full() -> None:
 
     top_value = tools[2]
     assert "<https://ex/my-dataset#seebeck>" in top_value["query"]
-    assert top_value["result"]["item"]["subject_iri"] == "s"
+    # (object-cards-ui PR A) subject_iri now carries role=subject, so it is no
+    # longer the bare shorthand string — check the var it still resolves to.
+    assert top_value["result"]["item"]["subject_iri"]["var"] == "s"
+    assert top_value["result"]["item"]["subject_iri"]["role"] == "subject"
+    assert top_value["output_kind"] == "quantity"
 
     # Every synthesized tool must itself parse+lint clean (round-trips as an
     # ordinary declared tool — no special-casing at load/run time).

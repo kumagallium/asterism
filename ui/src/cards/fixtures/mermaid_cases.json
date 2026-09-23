@@ -1,0 +1,52 @@
+[
+  {
+    "name": "empty graph",
+    "graph": { "direction": "LR", "nodes": [], "edges": [] },
+    "expected": "graph LR"
+  },
+  {
+    "name": "two nodes, one unlabeled edge",
+    "graph": {
+      "direction": "LR",
+      "nodes": [
+        { "id": "book", "label": "Book", "kind": "entity" },
+        { "id": "patron", "label": "Patron", "kind": "entity" }
+      ],
+      "edges": [ { "from": "book", "to": "patron" } ]
+    },
+    "expected": "graph LR\n  book[\"Book\"]:::entity\n  patron[\"Patron\"]:::entity\n  book --> patron"
+  },
+  {
+    "name": "labeled edge and an activity-kind node, TD direction",
+    "graph": {
+      "direction": "TD",
+      "nodes": [
+        { "id": "station", "label": "Station", "kind": "entity" },
+        { "id": "reading", "label": "Reading Taken", "kind": "activity" },
+        { "id": "sensor", "label": "Sensor", "kind": "entity" }
+      ],
+      "edges": [
+        { "from": "station", "to": "reading", "label": "recorded by" },
+        { "from": "reading", "to": "sensor" }
+      ]
+    },
+    "expected": "graph TD\n  station[\"Station\"]:::entity\n  reading[\"Reading Taken\"]:::activity\n  sensor[\"Sensor\"]:::entity\n  station -->|recorded by| reading\n  reading --> sensor"
+  },
+  {
+    "name": "a quote in a label is escaped as #quot;",
+    "graph": {
+      "direction": "LR",
+      "nodes": [ { "id": "n1", "label": "Weekly \"Loan\"", "kind": "other" } ],
+      "edges": []
+    },
+    "expected": "graph LR\n  n1[\"Weekly #quot;Loan#quot;\"]:::other"
+  },
+  {
+    "name": "missing direction defaults to LR",
+    "graph": {
+      "nodes": [ { "id": "a", "label": "A", "kind": "entity" }, { "id": "b", "label": "B", "kind": "entity" } ],
+      "edges": [ { "from": "a", "to": "b", "label": "next" } ]
+    },
+    "expected": "graph LR\n  a[\"A\"]:::entity\n  b[\"B\"]:::entity\n  a -->|next| b"
+  }
+]

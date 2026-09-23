@@ -17,6 +17,7 @@
 
 name = "materials_project"
 description = "Idealized crystal structures (space group / crystal system) from the Materials Project, keyed by reduced host formula — the structure dimension Starrydata lacks."
+license = "CC-BY-4.0"
 
 ontology_iri = "https://kumagallium.github.io/asterism/materials_project/ontology#"
 resource_iri = "https://kumagallium.github.io/asterism/materials_project/resource/"

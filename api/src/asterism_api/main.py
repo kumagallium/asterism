@@ -66,8 +66,10 @@ from asterism.ontology_projection import (
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.prov_graph import prov_graph
 from asterism.query_tools import (
     QueryToolError,
+    annotate_output_kind,
     lint_query_tool,
     parse_query_tools,
     run_query_tool,
@@ -146,8 +148,23 @@ from asterism_api import (
 )
 from asterism_api import describe as describe_mod
 from asterism_api import usage as usage_ledger
+from asterism_api.cards_routes import register_cards
+from asterism_api.class_schema_routes import register_class_schema
+from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
+
+# asterism_api.place_routes / asterism_api.license_routes は意図的にここで
+# import しない: どちらのモジュールも `from asterism_api.main import
+# Settings, ...` を実行時に必要とし（object-cards-ui.md 契約 §4.3・
+# contract_pr_d.md §1 実装時の記述）、この位置（`Settings` クラス定義より
+# 前・本ファイルの import ブロック）でトップレベル import すると
+# "partially initialized module" の循環 import で必ず落ちる。build_app 内、
+# `Settings`/`_write_credential_ok`/`_project_meta_graph` が既に定義された
+# 後の呼び出し時 import に遅延させている（下の register_place(app, cfg)・
+# register_license(app, cfg) の直前を参照）。``asterism_api.export_routes``
+# は ``Settings`` を ``TYPE_CHECKING`` でしか参照しないため、この制約を
+# 受けずトップレベル import できる。
 
 if TYPE_CHECKING:
     from asterism.dialect import SourceDialect
@@ -319,6 +336,10 @@ class QueryToolBody(BaseModel):
     description: str = ""
     parameters: list[dict] = []
     result: dict = {}
+    # object-cards-ui.md §3: the answer's shape (asterism.query_tools.OUTPUT_KINDS).
+    # None = omitted = "facts" (backward compat) — stripped before persisting so
+    # a legacy declaration's YAML never grows an ``output_kind: null`` line.
+    output_kind: str | None = None
 
 
 class ToolProposeBody(BaseModel):
@@ -7783,7 +7804,20 @@ def build_app(
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tools = registry.list_query_tools(cfg.registry_root, dataset_id)
-        return {"dataset_id": dataset_id, "tools": tools}
+        return {"dataset_id": dataset_id, "tools": [annotate_output_kind(t) for t in tools]}
+
+    @app.get("/api/datasets/{dataset_id}/tools/{tool_name}")
+    async def get_dataset_tool(dataset_id: str, tool_name: str) -> dict[str, object]:
+        """One declared query tool, in the same annotated shape as the list route
+        (§3: a renderer picking a single tool should not have to re-fetch the
+        whole list to learn its ``output_kind``)."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        tools = registry.list_query_tools(cfg.registry_root, dataset_id)
+        tool = next((t for t in tools if str(t.get("name")) == tool_name), None)
+        if tool is None:
+            raise HTTPException(404, f"tool {tool_name!r} not found")
+        return {"dataset_id": dataset_id, "tool": annotate_output_kind(tool)}
 
     @app.post("/api/datasets/{dataset_id}/tools", dependencies=_write_auth)
     async def save_dataset_tool(dataset_id: str, body: QueryToolBody) -> dict[str, object]:
@@ -7810,6 +7844,8 @@ def build_app(
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tool = body.model_dump()
+        if tool.get("output_kind") is None:
+            tool.pop("output_kind", None)
         try:
             parsed = parse_query_tools({"tools": [tool]})
         except QueryToolError as exc:
@@ -9454,6 +9490,24 @@ def build_app(
             }
         )
 
+    @app.get("/api/prov/graph")
+    async def prov_graph_route(
+        iri: str = Query(description="a full http(s) IRI to trace provenance from"),
+    ) -> dict[str, object]:
+        """Generic PROV-O provenance graph for one IRI (object-cards-ui.md §4).
+
+        Delegates to ``asterism.prov_graph.prov_graph`` — a renderer can draw the
+        returned ``{iri, found, graph, materials}`` without knowing any dataset's
+        own vocabulary. An IRI that is not ``http(s)://`` (or otherwise malformed)
+        is a 400; an IRI that IS well-formed but absent from the citable scope
+        still comes back 200 with ``found: false`` (not-yet-promoted data is a
+        legitimate answer, not an error)."""
+        client: OxigraphClient = app.state.client
+        try:
+            return await prov_graph(client, iri)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/ground/schema")
     async def grounding_for_schema(body: GroundSchemaBody) -> JSONResponse:
         """External-standard candidates for the MINTED class/predicate of a PROPOSED schema
@@ -9636,6 +9690,20 @@ def build_app(
         if not jobs.cancel(job_id):
             raise HTTPException(404, "unknown job_id")
         return JSONResponse({"status": "cancelled"})
+
+    # ------------------------------------------------------------------
+    # object-cards-ui.md（契約 contract_pr_c.md §0.1）— 並列段が
+    # asterism_api/<name>_routes.py に register_<name>(app, cfg) の型で
+    # 用意したルートを、統合段としてここでまとめて配線する。
+    # ------------------------------------------------------------------
+    from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
+    from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
+
+    register_class_schema(app, cfg)
+    register_cards(app, cfg)
+    register_place(app, cfg)
+    register_license(app, cfg)
+    register_export(app, cfg)
 
     return app
 

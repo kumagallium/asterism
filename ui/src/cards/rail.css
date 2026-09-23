@@ -1,0 +1,157 @@
+/* SubjectRail — 契約メモ §6.3。サイドバー（.sidebar, 248px）の中で
+   .side-nav の中身を丸ごと差し替える（App.tsx）。トークンのみ、house style。 */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.rail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.rail-section-title {
+  margin: 0;
+  padding: 0 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rail-empty {
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg);
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.rail-item:hover {
+  background: var(--surface-alt);
+}
+
+.rail-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-item-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+.rail-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+.rail-dot--link {
+  background: var(--entity);
+}
+.rail-dot--own {
+  background: var(--accent);
+}
+.rail-dot--amb {
+  background: var(--warn-border);
+}
+.rail-dot--set {
+  border-radius: 2px;
+  background: var(--activity);
+}
+
+.rail-add {
+  align-self: flex-start;
+  margin: 0.2rem 0.7rem 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+.rail-add:hover {
+  background: var(--surface-alt);
+}
+
+.rail-search {
+  padding: 0 0.7rem;
+}
+.rail-search-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+  font-size: 0.82rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.rail-condition-link {
+  align-self: flex-start;
+  margin: 0 0.7rem;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.1rem 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.rail-search-results {
+  padding-top: 0.1rem;
+}
+
+.rail-legend {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.7rem;
+  padding: 0.6rem 0.7rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.rail-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}

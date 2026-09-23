@@ -20,6 +20,7 @@ dev = [
 
 [project.scripts]
 asterism = "asterism_mcp.server:_main"
+asterism-agent = "asterism_mcp.agent_cli:main"
 
 [build-system]
 requires = ["hatchling"]
