@@ -87,6 +87,11 @@
       "eyebrow": "Developer",
       "title": "SPARQL",
       "sub": "Write read-only queries directly. For everyday questions, use Ask"
+    },
+    "cardsdemo": {
+      "eyebrow": "Sample",
+      "title": "Cards",
+      "sub": "The seven default cards, one per output kind"
     }
   }
 }
