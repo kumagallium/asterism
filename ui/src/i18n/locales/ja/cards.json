@@ -132,6 +132,16 @@
     "materials_table_license": "ライセンス",
     "materials_row_count": "{{count}} 件",
     "materials_table_link": "出典を見る",
+    "materials_kind_own": "自分のデータ",
+    "materials_kind_open": "オープンデータ",
+    "materials_kind_unknown": "不明",
+    "verdict_ok": "配れます — 自分のデータを含まず、材料はすべて再配布できます",
+    "verdict_no": "手元限りです — {{reasons}}",
+    "reason_own_data": "自分のデータを含む",
+    "reason_unknown_origin": "出どころが自分のデータかどうか分からない",
+    "reason_unknown_license": "ライセンスが分からない材料がある",
+    "reason_not_redistributable": "再配布できないライセンスの材料がある",
+    "reason_no_materials": "材料がまだありません",
     "recipe_tech_info": "技術情報",
     "recipe_tool": "使ったツール",
     "recipe_sparql": "実行した SPARQL",
@@ -140,6 +150,35 @@
     "edit_definition": "定義を直す",
     "not_found": "見つかりませんでした",
     "back": "戻る"
+  },
+  "bundle": {
+    "title": "持ち帰るとこうなります",
+    "facts": "facts/ — このページが使った事実",
+    "tools": "tools/ — このページが使った道具",
+    "cards": "cards/ — 見えているカードの記録",
+    "agent_md": "AGENT.md — 何ができる／できないかの説明",
+    "mcp_json": "mcp.json — Claude などへの起動の設定"
+  },
+  "license": {
+    "unknown": "不明",
+    "write_label": "ライセンスを書く",
+    "write_placeholder": "SPDX 識別子（例: CC-BY-4.0）",
+    "write_submit": "保存",
+    "write_error": "保存できませんでした"
+  },
+  "export": {
+    "title": "エージェントを持ち帰る",
+    "share_label": "配る範囲",
+    "share_shareable": "配れる版（自分のデータを抜く）",
+    "share_full": "全部（手元限り）",
+    "lang_label": "言語",
+    "lang_ja": "日本語",
+    "lang_en": "English",
+    "cancel": "やめる",
+    "submit": "作る",
+    "building": "作っています…",
+    "not_shareable": "配れませんでした — {{reasons}}",
+    "error": "作れませんでした"
   },
   "builtin": {
     "subject_facts": "事実",

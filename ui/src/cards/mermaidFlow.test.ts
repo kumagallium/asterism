@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseMermaidFlowchart, toMermaidFlowchart } from './mermaidFlow'
 import type { GraphSpec } from './viewSpec'
+import mermaidCases from './fixtures/mermaid_cases.json'
 
 /** 受け付ける構文の部分集合だけを読めること・部分集合の外は行ごと捨てること・
  *  GraphSpec → Mermaid → GraphSpec の往復で意味が保たれることを確かめる。
@@ -264,5 +265,27 @@ describe('parseMermaidFlowchart: 引用ラベル内の矢印と本物の辺の�
       { id: 'patron', label: 'c --- d', kind: 'entity' },
     ])
     expect(graph.edges).toEqual([{ from: 'book', to: 'patron', label: undefined }])
+  })
+})
+
+// 契約メモ §3（PR D・D1-export）: `ingest/src/asterism/mermaid_flow.to_mermaid`
+// が ui の `toMermaidFlowchart` と同じ書式（graph LR / id["label"]:::kind /
+// A -->|label| B）で書くことを、共有フィクスチャ（`fixtures/mermaid_cases.json`）
+// で固定する（往路のみ — Python 側は parse を持たない）。
+interface MermaidCase {
+  name: string
+  graph: GraphSpec
+  expected: string
+}
+
+describe('toMermaidFlowchart: 共有フィクスチャ（ui/Python 一致・PR D §3）', () => {
+  const cases = mermaidCases as MermaidCase[]
+
+  it('フィクスチャが空でない（取り違え防止）', () => {
+    expect(cases.length).toBeGreaterThan(0)
+  })
+
+  it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    expect(toMermaidFlowchart(c.graph)).toBe(c.expected)
   })
 })

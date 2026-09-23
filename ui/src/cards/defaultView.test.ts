@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultViewFor } from './defaultView'
 import type { ItemSpec, ToolContract, VegaLiteSpec, TableSpec, Row } from './viewSpec'
+import defaultViewCases from './fixtures/default_view_cases.json'
 
 // 架空の 2 分野（図書館の貸出／気象観測）で 7 種の既定ビューを確かめる。
 // defaultViewFor は分野語の辞書を持たない — 見出しはキーの機械整形だけで作る。
@@ -231,5 +232,31 @@ describe('defaultViewFor', () => {
     const b = defaultViewFor(t, rows)
     expect(a).toEqual(b)
     expect(rows).toEqual(before)
+  })
+})
+
+// 契約メモ §3（PR D・D1-export）: `ingest/src/asterism/default_view.py` が
+// ui 側と同じ既定ビューを Python 側でも決定論で作る — 同じ入力から同じ JSON
+// になることを、両側が読む共有フィクスチャ（`fixtures/default_view_cases.json`。
+// 上の各 it() と同じケースを英語題材で移したもの）で固定する。
+interface DefaultViewCase {
+  name: string
+  tool: ToolContract
+  rows: Row[]
+  expected: { lang: string; spec: unknown }
+}
+
+describe('defaultViewFor: 共有フィクスチャ（ui/Python 一致・PR D §3）', () => {
+  // json の型は narrow すぎる union になるので unknown を経由する（値そのもの
+  // は Python 側と共有のフィクスチャで、ここでは形を信頼するだけ）。
+  const cases = defaultViewCases as unknown as DefaultViewCase[]
+
+  it('フィクスチャが空でない（取り違え防止）', () => {
+    expect(cases.length).toBeGreaterThan(0)
+  })
+
+  it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    const view = defaultViewFor(c.tool, c.rows)
+    expect(view).toEqual(c.expected)
   })
 })

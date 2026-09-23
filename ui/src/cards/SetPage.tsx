@@ -8,6 +8,7 @@ import { defaultCardsForSet, resolveSet, runCard } from './cardsApi'
 import type { CardRef, SetResolveResult, SetSpec } from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
+import { ExportDialog } from './ExportDialog'
 import './pages.css'
 import { SetForm } from './SetForm'
 import { formatSetSubtitle, formatSetTitle } from './setTitle'
@@ -57,6 +58,7 @@ export function SetPage({
     total: null,
   })
   const [askText, setAskText] = useState('')
+  const [exporting, setExporting] = useState(false)
   const specKey = JSON.stringify(spec)
 
   // specKey が変わったら「条件を変える」フォームを閉じる（React の「prop が
@@ -158,9 +160,19 @@ export function SetPage({
             <small className="cardpage-subhead">{formatSetSubtitle(resolved.title.class_label, total, t)}</small>
           </h2>
         </div>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing((v) => !v)}>
-          {t('set.edit_filters_button')}
-        </button>
+        <div className="cardpage-head-actions">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={cards.length === 0}
+            onClick={() => setExporting(true)}
+          >
+            {t('page.export_button')}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing((v) => !v)}>
+            {t('set.edit_filters_button')}
+          </button>
+        </div>
       </div>
       {editing && (
         <SetForm
@@ -184,6 +196,7 @@ export function SetPage({
           />
         ))}
       </div>
+      {exporting && <ExportDialog subject={subjectKey} cards={cards} onClose={() => setExporting(false)} />}
       <div className="cardpage-bar">
         <span className="cardpage-bar-who">{t('page.ask_who', { label })}</span>
         <input

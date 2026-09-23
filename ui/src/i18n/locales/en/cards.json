@@ -132,6 +132,16 @@
     "materials_table_license": "License",
     "materials_row_count": "{{count}}",
     "materials_table_link": "View source",
+    "materials_kind_own": "My data",
+    "materials_kind_open": "Open data",
+    "materials_kind_unknown": "Unknown",
+    "verdict_ok": "Shareable — it does not include your own data, and every material can be redistributed",
+    "verdict_no": "Local only — {{reasons}}",
+    "reason_own_data": "includes your own data",
+    "reason_unknown_origin": "some material's origin (yours or not) is unknown",
+    "reason_unknown_license": "some material has an unknown license",
+    "reason_not_redistributable": "some material has a license that cannot be redistributed",
+    "reason_no_materials": "no materials yet",
     "recipe_tech_info": "Technical details",
     "recipe_tool": "Tool used",
     "recipe_sparql": "SPARQL run",
@@ -140,6 +150,35 @@
     "edit_definition": "Edit the definition",
     "not_found": "Not found",
     "back": "Back"
+  },
+  "bundle": {
+    "title": "What you take with you",
+    "facts": "facts/ — the facts this page used",
+    "tools": "tools/ — the tools this page used",
+    "cards": "cards/ — a record of the cards on screen",
+    "agent_md": "AGENT.md — what it can and cannot answer",
+    "mcp_json": "mcp.json — startup config for Claude and friends"
+  },
+  "license": {
+    "unknown": "Unknown",
+    "write_label": "Write the license",
+    "write_placeholder": "SPDX identifier (e.g. CC-BY-4.0)",
+    "write_submit": "Save",
+    "write_error": "Could not save"
+  },
+  "export": {
+    "title": "Take the agent with you",
+    "share_label": "What to share",
+    "share_shareable": "Shareable version (leaves your own data out)",
+    "share_full": "Everything (local only)",
+    "lang_label": "Language",
+    "lang_ja": "日本語",
+    "lang_en": "English",
+    "cancel": "Cancel",
+    "submit": "Build it",
+    "building": "Building…",
+    "not_shareable": "Could not share it — {{reasons}}",
+    "error": "Could not build it"
   },
   "builtin": {
     "subject_facts": "Facts",

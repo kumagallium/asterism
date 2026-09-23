@@ -85,17 +85,26 @@ export function subjectKeyToString(key: SubjectKey): string {
 // §3.4 カード実行・主語の解決／検索／既定カード
 // ---------------------------------------------------------------------------
 
-/** §3.3 材料（PR D まで license/own/shareable は空のまま・形だけ）。 */
+/** §3.3 材料（PR D の D1-materials でフル形になった — `kind` は
+ *  'own' | 'open' | 'unknown'）。 */
 export interface CardMaterial {
-  dataset_id: string
-  snapshot: string | null
   kind: string
+  dataset_id: string
+  dataset_label: string
+  snapshot: string | null
   license: string | null
+  redistributable: boolean | null
   count: number
 }
 
 /** §3 共通の戻り値: `run_query_tool` と同じ形 + `output_kind`・`item`・`materials`。
- *  `graph`/`found` は `subject_flow`（output_kind: 'flow'）だけが持つ。 */
+ *  `graph`/`found` は `subject_flow`（output_kind: 'flow'）だけが持つ。
+ *
+ *  PR D（D1-materials）で `materials` がフル形（`kind`/`dataset_label`/
+ *  `redistributable` を持つ）になり、`shareable_reasons` が新設された —
+ *  ただし `tool: 'subject_flow'` のレスポンスだけは従来どおり
+ *  `{dataset_id, snapshot, graph}` の別形・`shareable` は null 固定・
+ *  `shareable_reasons` キー自体が無い（D1-materials の報告どおり）ので任意。 */
 export interface CardToolResult {
   tool: string
   count: number
@@ -105,8 +114,11 @@ export interface CardToolResult {
   output_kind: OutputKind
   item: Record<string, ItemSpec>
   materials: CardMaterial[]
-  /** PR D まで常に null（配れる判定は Step 6）。 */
+  /** materials が空、または subject_flow のときは null。 */
   shareable: boolean | null
+  /** `shareable` が false の理由（固定語彙・固定順 — 契約メモ §2）。
+   *  `subject_flow` のレスポンスには無い。 */
+  shareable_reasons?: string[]
   /** `subject_flow` だけ: `prov_graph.graph` をそのまま。 */
   graph?: { nodes: unknown[]; edges: unknown[] }
   /** `subject_flow` だけ: 辺が 0 なら false（UI はカードを出さない）。 */
@@ -407,4 +419,130 @@ export async function deleteAppDataSubject(id: string): Promise<void> {
     headers: authHeaders(),
   })
   if (!res.ok && res.status !== 404) await throwApiError(res, 'appdata subject delete')
+}
+
+// ---------------------------------------------------------------------------
+// PR D §1: ライセンスを書く（`ingest/src/asterism/licenses.KNOWN_LICENSES` と
+// 同じ SPDX 識別子一覧・`PUT /api/datasets/{id}/license`）
+// ---------------------------------------------------------------------------
+
+/** `asterism.licenses.KNOWN_LICENSES`（ingest/src/asterism/licenses.py）の
+ *  キーをそのまま写した一覧。「ライセンスを書く」の入力の datalist 候補に
+ *  使うだけ — 再配布可否の判定そのものはサーバ（`licenses.redistributable`）
+ *  がする。並び順もサーバの辞書定義順（再配布可 12 件・不可 6 件）のまま。 */
+export const KNOWN_LICENSE_IDS: readonly string[] = [
+  'CC0-1.0',
+  'CC-BY-4.0',
+  'CC-BY-3.0',
+  'CC-BY-SA-4.0',
+  'CC-BY-SA-3.0',
+  'ODbL-1.0',
+  'ODC-By-1.0',
+  'PDDL-1.0',
+  'MIT',
+  'Apache-2.0',
+  'BSD-2-Clause',
+  'BSD-3-Clause',
+  'CC-BY-NC-4.0',
+  'CC-BY-ND-4.0',
+  'CC-BY-NC-SA-4.0',
+  'CC-BY-NC-ND-4.0',
+  'proprietary',
+  'all-rights-reserved',
+]
+
+export interface DatasetLicenseResult {
+  dataset_id: string
+  license: string | null
+  redistributable: boolean | null
+}
+
+/** `PUT /api/datasets/{dataset_id}/license`（契約メモ §1・書き込みトークン
+ *  必須）。`license: null` はライセンスの消去。 */
+export async function putDatasetLicense(
+  datasetId: string,
+  license: string | null,
+): Promise<DatasetLicenseResult> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/license`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ license }),
+  })
+  if (!res.ok) await throwApiError(res, 'dataset license')
+  return (await res.json()) as DatasetLicenseResult
+}
+
+// ---------------------------------------------------------------------------
+// PR D §3: エージェント束の書き出し（`POST /api/subjects/export`）
+// ---------------------------------------------------------------------------
+
+export type ExportShareMode = 'full' | 'shareable'
+export type ExportLang = 'ja' | 'en'
+
+/** body の `cards[]`（契約メモ §3）。`CardRef` は `title`/`output_kind` も
+ *  持つが、api が読むのはこの 3 つだけ — 呼び出し側は `CardRef` をそのまま
+ *  渡してよい（余分なフィールドは JSON.stringify で自然に落ちない為、
+ *  呼び出し側で詰め替える）。 */
+export interface ExportCardRef {
+  card_id: string
+  tool: string
+  params: Record<string, unknown>
+}
+
+/** `share: 'shareable'` で配れるカードが 1 枚も無いときの 409（契約メモ §3）。
+ *  `reasons` は `materials.shareable_reasons` と同じ固定語彙。 */
+export class NotShareableExportError extends Error {
+  readonly reasons: string[]
+  constructor(reasons: string[]) {
+    super('subjects export: not shareable')
+    this.name = 'NotShareableExportError'
+    this.reasons = reasons
+  }
+}
+
+export interface ExportedAgentBundle {
+  blob: Blob
+  filename: string
+}
+
+/** `Content-Disposition: attachment; filename="<slug>-agent.zip"` からファイル
+ *  名を取り出す（引用符の有無どちらでも）。取れなければ既定名に倒す。 */
+function filenameFromContentDisposition(header: string | null): string {
+  if (!header) return 'agent.zip'
+  const match = /filename\*?=(?:UTF-8''|")?([^";\n]+)"?/i.exec(header)
+  return match ? decodeURIComponent(match[1]) : 'agent.zip'
+}
+
+/** `POST /api/subjects/export` → zip の Blob（契約メモ §3）。呼び出し側が
+ *  `<a download>` 相当で保存する（ここでは保存しない）。 */
+export async function exportSubjectAgent(
+  subject: CardRunSubject,
+  cards: ExportCardRef[],
+  share: ExportShareMode,
+  lang: ExportLang,
+): Promise<ExportedAgentBundle> {
+  const res = await fetch('/api/subjects/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ subject, cards, share, lang }),
+  })
+  if (!res.ok) {
+    if (res.status === 409) {
+      const body = await res.text().catch(() => '')
+      let reasons: string[] = []
+      try {
+        const parsed = JSON.parse(body) as { detail?: { reasons?: unknown } }
+        if (Array.isArray(parsed.detail?.reasons)) {
+          reasons = parsed.detail.reasons.filter((r): r is string => typeof r === 'string')
+        }
+      } catch {
+        // 本文が JSON でなければ理由なしで扱う — ダイアログは汎用文言に倒れる。
+      }
+      throw new NotShareableExportError(reasons)
+    }
+    await throwApiError(res, 'subjects export')
+  }
+  const filename = filenameFromContentDisposition(res.headers.get('content-disposition'))
+  const blob = await res.blob()
+  return { blob, filename }
 }
