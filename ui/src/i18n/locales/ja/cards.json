@@ -1,0 +1,17 @@
+{
+  "empty": "まだありません",
+  "render_error": "図を描けませんでした",
+  "materials": "材料",
+  "recipe": "作りかた",
+  "ask_placeholder": "このページに聞く",
+  "demo_note": "見本です。データは架空です",
+  "kind": {
+    "quantity": "量",
+    "series": "条件と量",
+    "pairs": "量と量",
+    "ranked": "順位",
+    "breakdown": "内訳",
+    "facts": "事実",
+    "flow": "手順"
+  }
+}
