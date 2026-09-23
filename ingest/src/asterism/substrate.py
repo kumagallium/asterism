@@ -142,6 +142,22 @@ CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
 # still resolve a v1 id). Never in the Ask/FROM-merge scope: forwarding is how
 # the data was re-shaped, not a fact anyone asked about.
 MOVED_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "moved/"
+# Per-dataset *description* named graph (ADR dataset-description-in-the-store.md):
+# holds the DCAT/VoID/ast: triples projected from a dataset's §7 (mie.yaml). Same
+# layer as ONTOLOGY_GRAPH_BASE, for the same reason — it is best-effort metadata
+# about a dataset, not data anyone asked a citable question about, so it stays
+# outside the version graph (a promote must not take the description down with the
+# version it supersedes) and outside canonical scope (§6 of the ADR).
+META_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "meta/"
+# Dataset *description* subject IRI base. NOT a graph container — an entity IRI,
+# stable across re-ingests/re-designs because ``dataset_id`` never changes (rename
+# only changes the display name). Distinct from CANONICAL_GRAPH_BASE on purpose
+# (ADR §3: "グラフ IRI は入れ物であって同一性ではない").
+DATASET_IRI_BASE: str = "https://kumagallium.github.io/asterism/dataset/"
+# ``schema_info.categories[]`` values are minted as skos:Concept IRIs under this
+# base (ADR §3: dcat:theme's range is skos:Concept, so a bare string cannot fill
+# it — a concept must be cast).
+THEME_IRI_BASE: str = "https://kumagallium.github.io/asterism/theme/"
 
 # Control vocabulary (asterism: namespace) for the lifecycle status of a dataset.
 ASTERISM_NS: str = "https://kumagallium.github.io/asterism/vocab#"
@@ -207,6 +223,25 @@ def moved_graph_iri(dataset_id: str) -> str:
     if not _DATASET_ID.match(dataset_id):
         raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
     return f"{MOVED_GRAPH_BASE}{dataset_id}"
+
+
+def meta_graph_iri(dataset_id: str) -> str:
+    """Per-dataset description (projected §7) named graph IRI (ADR
+    dataset-description-in-the-store.md §4)."""
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{META_GRAPH_BASE}{dataset_id}"
+
+
+def dataset_iri(dataset_id: str) -> str:
+    """Dataset description subject IRI (ADR dataset-description-in-the-store.md §3).
+
+    Distinct from any graph IRI: this is the entity ``asterism.metadata`` builds
+    triples about (``D a dcat:Dataset``), not a storage container.
+    """
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{DATASET_IRI_BASE}{dataset_id}"
 
 
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
@@ -1457,6 +1492,33 @@ async def ontology_graphs(client: SupportsSparql) -> list[str]:
         "SELECT DISTINCT ?g WHERE { "
         "GRAPH ?g {} "
         f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) '
+        "} ORDER BY ?g"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+async def meta_graphs(client: SupportsSparql) -> list[str]:
+    """List the per-dataset description named graphs, sorted (ADR
+    dataset-description-in-the-store.md §4).
+
+    Enumerated by graph name (not a triple scan), same as :func:`ontology_graphs`.
+    A dataset's description graph exists whether or not the dataset is promoted
+    (§4 of the ADR: ingest writes it for unpublished datasets too), so — same
+    caveat as the ADR's §6 warns against for ``schema_summary`` — this listing
+    must NOT be used to answer "what is citable"; callers that need only
+    *published* descriptions must intersect with :func:`canonical_graphs`.
+    """
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        "GRAPH ?g {} "
+        f'FILTER(STRSTARTS(STR(?g), "{META_GRAPH_BASE}")) '
         "} ORDER BY ?g"
     )
     data = await client.sparql_select(q)
