@@ -105,6 +105,17 @@ describe('defaultViewFor', () => {
     expect(spec.sort).toEqual({ field: 'rainfall_mm', dir: 'desc' })
   })
 
+  it('ranked: role が無く var 名が subject_iri のときも subject_field へ回す（組み込みツールのフォールバック）', () => {
+    const t = tool('ranked', {
+      label: { var: 'label', role: 'label' },
+      subject_iri: { var: 'subject_iri' },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.subject_field).toBe('subject_iri')
+    expect(spec.columns.some((c) => c.field === 'subject_iri')).toBe(false)
+  })
+
   it('breakdown: 図書館の貸出 — category(nominal, sort -x) と count(quantitative) の横棒', () => {
     const t = tool('breakdown', {
       genre: { var: 'genre', role: 'category' },
@@ -116,8 +127,8 @@ describe('defaultViewFor', () => {
     const spec = view.spec as VegaLiteSpec
     expect(spec.mark).toBe('bar')
     expect(spec.encoding).toEqual({
-      y: { field: 'genre', type: 'nominal', sort: '-x', title: 'genre' },
-      x: { field: 'title_count', type: 'quantitative', title: 'title count' },
+      y: { field: 'genre', type: 'nominal', sort: '-x', axis: { title: null } },
+      x: { field: 'title_count', type: 'quantitative', title: 'title count', axis: { tickMinStep: 1, format: 'd' } },
     })
   })
 
@@ -133,6 +144,74 @@ describe('defaultViewFor', () => {
     expect(spec.variant).toBe('grid')
     expect(spec.columns.map((c) => c.field)).toEqual(['station_name', 'humidity_pct', 'station_iri'])
     expect(spec.columns.find((c) => c.field === 'station_iri')?.format).toBe('iri')
+  })
+
+  it('facts: item.label があればキーの機械整形より優先する（組み込みツールの表示名を呼び側が焼き込む想定）', () => {
+    const t = tool('facts', {
+      property: { var: 'property', label: '項目' },
+      value: { var: 'value', label: '値' },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.columns).toEqual([
+      { field: 'property', label: '項目', format: 'text' },
+      { field: 'value', label: '値', format: 'text' },
+    ])
+  })
+
+  it('breakdown: item.label があれば軸タイトルにもそのまま使う', () => {
+    const t = tool('breakdown', {
+      category: { var: 'category', role: 'category', label: '分類' },
+      count: { var: 'count', role: 'count', number: true, label: '件数' },
+    })
+    const rows: Row[] = [{ category: 'fiction', count: 5 }]
+    const view = defaultViewFor(t, rows)
+    const spec = view.spec as VegaLiteSpec
+    expect(spec.encoding).toEqual({
+      y: { field: 'category', type: 'nominal', sort: '-x', axis: { title: null } },
+      x: { field: 'count', type: 'quantitative', title: '件数', axis: { tickMinStep: 1, format: 'd' } },
+    })
+  })
+
+  it('facts: 項目/値の組に property_iri/value_iri があれば列にせず、兄弟列へ href_field として付ける（K4）', () => {
+    const t = tool('facts', {
+      property: { var: 'property', label: '項目' },
+      value: { var: 'value', label: '値' },
+      property_iri: { var: 'property_iri' },
+      value_iri: { var: 'value_iri' },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.columns).toEqual([
+      { field: 'property', label: '項目', format: 'text', href_field: 'property_iri' },
+      { field: 'value', label: '値', format: 'text', href_field: 'value_iri' },
+    ])
+    // `_iri` はそれ自体としては列に出ない（K4）。
+    expect(spec.columns.some((c) => c.field === 'property_iri' || c.field === 'value_iri')).toBe(false)
+  })
+
+  it('facts: set_members のような subject_iri（role 無しでも）は列にせず subject_field へ（K4・行クリックで 1 件のページへ）', () => {
+    const t = tool('facts', {
+      label: { var: 'label' },
+      subject_iri: { var: 'subject_iri' },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.columns).toEqual([{ field: 'label', label: 'label', format: 'text' }])
+    expect(spec.subject_field).toBe('subject_iri')
+  })
+
+  it('facts: 兄弟の無い _iri 列（宣言ツールの sample_iri 等）は従来どおり短い名前の列として残す', () => {
+    const t = tool('facts', {
+      sample_iri: { var: 'sample_iri' },
+      ingredients: { var: 'ingredients' },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.columns).toEqual([
+      { field: 'ingredients', label: 'ingredients', format: 'text' },
+      { field: 'sample_iri', label: 'sample', format: 'iri' },
+    ])
   })
 
   it('flow: rows を使わず、空の graph を返す（呼び側が差し替える）', () => {

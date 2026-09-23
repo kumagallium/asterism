@@ -130,12 +130,25 @@ export function TableView({ spec, rows, ariaLabel, onRowClick }: TableViewProps)
         <tbody>
           {prepared.map((row, i) => {
             const style = highlightStyleFor(row, spec.highlight)
+            // `subject_field`（K4: 生の IRI を列に出さない）があれば行の
+            // title と data-clickable に渡す — ranked と同じ流儀。
+            const subject = spec.subject_field ? row[spec.subject_field] : undefined
             return (
-              <tr key={i} onClick={onRowClick ? () => onRowClick(row) : undefined}>
+              <tr
+                key={i}
+                title={typeof subject === 'string' ? subject : undefined}
+                data-clickable={onRowClick ? '' : undefined}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
                 {spec.columns.map((col) => {
                   const cell = formatCell(row[col.field], col)
                   const isNum = col.format === 'number' || col.format === 'integer'
                   const isIri = col.format === 'iri'
+                  // 兄弟の IRI 列（K4: 列としては出さない）の値があれば、
+                  // このセルを `/describe` へのリンクにする（新しいタブ）。
+                  const hrefIriRaw = col.href_field ? row[col.href_field] : undefined
+                  const hrefIri = typeof hrefIriRaw === 'string' && hrefIriRaw ? hrefIriRaw : undefined
+                  const href = hrefIri ? `/describe?iri=${encodeURIComponent(hrefIri)}` : undefined
                   return (
                     <td
                       key={col.field}
@@ -144,9 +157,15 @@ export function TableView({ spec, rows, ariaLabel, onRowClick }: TableViewProps)
                         (isIri ? 'cardview-cell-iri ' : '') +
                         (style ? `cardview-highlight--${style}` : '')
                       }
-                      title={cell.title}
+                      title={href ? hrefIri : cell.title}
                     >
-                      {cell.text}
+                      {href ? (
+                        <a className="cardview-cell-link" href={href} target="_blank" rel="noreferrer">
+                          {cell.text}
+                        </a>
+                      ) : (
+                        cell.text
+                      )}
                     </td>
                   )
                 })}

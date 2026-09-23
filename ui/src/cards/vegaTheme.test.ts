@@ -92,4 +92,14 @@ describe('houseConfig', () => {
     expect((config.bar as Record<string, unknown>).fill).toBe(HOUSE_TOKENS.activity)
     expect((config.area as Record<string, unknown>).fill).toBe(HOUSE_TOKENS.activitySoft)
   })
+
+  it('軸ラベルは長すぎると省略する（内訳の y 軸が図の幅を押し広げない）', () => {
+    const config = houseConfig()
+    expect((config.axis as Record<string, unknown>).labelLimit).toBe(160)
+  })
+
+  it('y 軸タイトルとラベルの間を空ける（単一バーでタイトルと重ならない）', () => {
+    const config = houseConfig()
+    expect((config.axisY as Record<string, unknown>).titlePadding).toBeGreaterThan(0)
+  })
 })

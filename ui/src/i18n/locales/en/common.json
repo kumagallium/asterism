@@ -9,6 +9,11 @@
     "ja": "日本語",
     "en": "English"
   },
+  "mode": {
+    "label": "Switch between use and build",
+    "use": "Use",
+    "build": "Build"
+  },
   "nav": {
     "home": "Home",
     "gallery": "Datasets",
@@ -92,6 +97,11 @@
       "eyebrow": "Sample",
       "title": "Cards",
       "sub": "The seven default cards, one per output kind"
+    },
+    "cards": {
+      "eyebrow": "Use",
+      "title": "Pages",
+      "sub": "See individuals and sets as cards, with their sources"
     }
   }
 }

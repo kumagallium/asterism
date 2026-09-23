@@ -751,6 +751,13 @@ interface KantanSnapshot {
    *  the same screen, and must adopt whatever the detail tier saved there
    *  (DETAIL-GAP-04 / DETAIL-GAP-05). */
   handedToDetail?: boolean
+  /** 「データを置く」（PlaceView）から渡された、staging から即座に inspect を
+   *  起動する指示（契約メモ §6.3）。ローカルの File が無くても `stagingId` だ
+   *  けで S2 まで進める。 */
+  autoInspect?: boolean
+  /** `autoInspect` と対の戻り先。S9（できあがり）で「ページに戻る」リンクの
+   *  宛先になる（末尾に発行された dataset id を足す）。 */
+  returnTo?: string
 }
 
 function loadSnapshot(): Partial<KantanSnapshot> {
@@ -1862,6 +1869,19 @@ export function KantanWizard({
       // browser that has no local copy of its own (RESUME-20).
       const sid = live === 'gone' ? null : remembered
       if (live === 'gone') setStagingId(null)
+      // 「データを置く」（PlaceView）からの引き継ぎ（契約メモ §6.3）: この
+      // タブに File はまだ無い（IndexedDB は空）が、サーバ側の staging は
+      // 生きている——ファイルの再ドロップを待たず、staging_id だけで inspect
+      // を起動する（既存の runInspect 相当）。
+      if (restored.length === 0 && sid && snap.autoInspect) {
+        setResumed(false)
+        setStagingId(sid)
+        setSourceNames(snap.sourceNames ?? [])
+        const guessedKind = snap.sourceNames?.map((f) => kindOf(f.name)).find((k) => k) ?? 'tabular'
+        setKind(guessedKind)
+        void runInspect([], sid)
+        return
+      }
       if (restored.length === 0 && !sid) return
       setResumed(true)
       if (step !== 1) {
@@ -5857,6 +5877,16 @@ export function KantanWizard({
             <button type="button" className="btn btn--ghost btn--sm" onClick={startFresh}>
               {t('kantan:s9.startNew')}
             </button>
+            {/* 「データを置く」（PlaceView）から来た人だけ: 元のページへ戻る道
+                （契約メモ §6.3）。dataset id が付くまでは出さない。 */}
+            {snap.returnTo && kzDatasetId && (
+              <a
+                className="link-btn"
+                href={`${snap.returnTo}${encodeURIComponent(kzDatasetId)}`}
+              >
+                {t('kantan:s9.returnToPage')}
+              </a>
+            )}
           </div>
         </section>
       ) : step === 1 ? (
