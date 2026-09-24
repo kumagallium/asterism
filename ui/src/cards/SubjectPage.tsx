@@ -68,10 +68,13 @@ export interface SubjectPageProps {
   onOpenSubject: (iri: string) => void
   onAsk: (question: string) => void
   onEditDefinition: (datasetId: string) => void
-  /** パンくずの「<データセットの名前>」から（契約メモ §2.3）。`dataset_label`
-   *  が無ければパンくず自体を出さない（K4: dataset_id からは組み立てない）ので
-   *  呼ばれない。 */
-  onOpenDataset?: (datasetId: string) => void
+  /** パンくずの「<種類の名前>」から（契約メモ contract_pr_f9.md §1 決定 5・
+   *  §5 実装順(3)「パンくずを『種類 › 名前』に」）。`class_label` が無ければ
+   *  パンくず自体を出さない（K4: class_iri からは組み立てない）ので呼ばれない。
+   *  旧「<データセットの名前>」パンくず（`onOpenDataset`）はこの画面からは
+   *  撤去した（データセットのページは子ナビから外れ、種類のページの「データの
+   *  定義を見る・直す」からだけ入る枠になったため — 決定 9）。 */
+  onOpenClass?: (classIri: string) => void
 }
 
 interface FactsSummary {
@@ -103,7 +106,7 @@ export function SubjectPage({
   onOpenSubject,
   onAsk,
   onEditDefinition,
-  onOpenDataset,
+  onOpenClass,
 }: SubjectPageProps) {
   const { t } = useTranslation('cards')
   const [loaded, setLoaded] = useState<SubjectLoadState>(EMPTY_LOAD)
@@ -285,14 +288,14 @@ export function SubjectPage({
     <div className="cardpage-body">
       <div className="cardpage-head">
         <div>
-          {resolved.dataset_label && resolved.dataset_id && (
+          {resolved.class_label && resolved.class_iri && (
             <div className="cardpage-crumb">
               <button
                 type="button"
                 className="link-btn"
-                onClick={() => onOpenDataset?.(resolved.dataset_id as string)}
+                onClick={() => onOpenClass?.(resolved.class_iri as string)}
               >
-                {resolved.dataset_label}
+                {resolved.class_label}
               </button>
               {' › '}
               {label}

@@ -2,9 +2,11 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatSetTitle } from './setTitle'
 import type { Route } from '../App'
+import { buildRailTree } from './railTree'
 import { addSubjectAndPersist, useSubjects } from './subjectStore'
+import { AddObjectView } from './AddObjectView'
+import { ClassPage } from './ClassPage'
 import { DatasetPage } from './DatasetPage'
-import { FirstScreen } from './FirstScreen'
 import { SetPage } from './SetPage'
 import { SubjectPage } from './SubjectPage'
 
@@ -41,15 +43,23 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
   // 代わりに使う（notes 参照: 絞り込みの「条件の要約」は現状 class_label 止まり）。
   // データセットのページ（`datasetPageId`）は DatasetPage 自身が summary の
   // label を `onLabel` へ上げる（契約メモ §2.2）ので、ここでは何もしない。
+  // 種類のページ（`classPageIri`）は ClassPage 自身が種類の名前を `onLabel` へ
+  // 上げる（契約メモ contract_pr_f9.md §1-7）ので、ここでは一旦 null に戻す
+  // だけ（App.tsx の topbar は未取得のあいだ `topbar.unselected` に倒れる）。
+  // 追加画面（`add`）は未選択のまま（見出しは App.tsx が `topbar.add` で出す）。
   useEffect(() => {
     if (route.datasetPageId) return
+    if (route.classPageIri || route.add) {
+      onLabel(null)
+      return
+    }
     if (!route.subjectKey) {
       onLabel(null)
       return
     }
     const stored = subjects.find((s) => s.subject_key === route.subjectKey)
     onLabel(stored?.label ?? null)
-  }, [route.datasetPageId, route.subjectKey, subjects, onLabel])
+  }, [route.datasetPageId, route.classPageIri, route.add, route.subjectKey, subjects, onLabel])
 
   if (route.datasetPageId) {
     // datasetSub（`.../define`・`.../details[/…]`）は App.tsx が WorkbenchTier/
@@ -69,6 +79,27 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
     )
   }
 
+  // `#/cards/add` — オブジェクトを追加（契約メモ contract_pr_f9.md §1-3）。
+  // AddObjectView.tsx（ui-page）の navigate は汎用型
+  // `(route: {tab:string, ...}) => void` を受ける（DatasetPage.tsx と同じ理由 —
+  // 並行実装の間は実 Route 型に依存しない）。ここで実 Route にブリッジする。
+  if (route.add) {
+    return <AddObjectView navigate={(r) => navigate(r as unknown as Route)} initialClassIri={route.addClassIri} />
+  }
+
+  // `#/cards/k/<class_iri>` — 種類のページ（契約メモ §1-4）。ClassPage.tsx も
+  // 同じ汎用 navigate 型。
+  if (route.classPageIri) {
+    return (
+      <ClassPage
+        classIri={route.classPageIri}
+        navigate={(r) => navigate(r as unknown as Route)}
+        onLabel={onLabel}
+        onDefine={onDefine}
+      />
+    )
+  }
+
   if (route.setNew) {
     if (!route.setDatasetId) return <p className="subtitle">{t('page.pick_hint')}</p>
     // SetPage.tsx（ui-page）の新規作成モード（契約メモ §2.4）— 既存の SetForm/
@@ -84,10 +115,10 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
         onOpenSubject={(iri) => navigate({ tab: 'cards', subjectKey: `i:${iri}` })}
         onFiltersChanged={() => {}}
         onAsk={onAsk}
-        onEditDefinition={(datasetId) =>
+        onEditDefinition={(datasetId: string) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
         }
-        onOpenDataset={(datasetId) => navigate({ tab: 'cards', datasetPageId: datasetId })}
+        onOpenClass={(classIri) => navigate({ tab: 'cards', classPageIri: classIri })}
       />
     )
   }
@@ -108,10 +139,10 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
         onCloseCard={() => navigate({ tab: 'cards', subjectKey: route.subjectKey })}
         onOpenSubject={(nextIri) => navigate({ tab: 'cards', subjectKey: `i:${nextIri}` })}
         onAsk={onAsk}
-        onEditDefinition={(datasetId) =>
+        onEditDefinition={(datasetId: string) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
         }
-        onOpenDataset={(datasetId) => navigate({ tab: 'cards', datasetPageId: datasetId })}
+        onOpenClass={(classIri) => navigate({ tab: 'cards', classPageIri: classIri })}
       />
     )
   }
@@ -152,16 +183,41 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
           navigate({ tab: 'cards', subjectKey: `s:${result.set_id}` })
         }}
         onAsk={onAsk}
-        onEditDefinition={(datasetId) =>
+        onEditDefinition={(datasetId: string) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
         }
-        onOpenDataset={(datasetId: string) => navigate({ tab: 'cards', datasetPageId: datasetId })}
+        onOpenClass={(classIri: string) => navigate({ tab: 'cards', classPageIri: classIri })}
       />
     )
   }
 
-  // #/cards だけ（まだ何も選んでいない）。初回の入口 2 つ＋見本（契約メモ §3）。
-  return <FirstScreen navigate={navigate} onAsk={onAsk} />
+  // #/cards だけ（まだ何も選んでいない）。オブジェクトがあれば先頭のページへ
+  // replace navigate、無ければ追加画面（契約メモ contract_pr_f9.md §1-6）。
+  return <DefaultLanding subjects={subjects} navigate={navigate} />
+}
+
+/** 既定ルート（`#/`・`#/cards`）の着地先を決める（契約メモ §1-6）。「先頭」は
+ *  レールに並ぶ順（`railTree.ts` の種類ごとの木・名前順→各グループ内は新しい
+ *  方が上）と同じ — `isSample` はここでは要らないので `datasets: []` で組む
+ *  （並びは `class_iri`/`class_label`/`created_at` だけで決まる）。レンダー中に
+ *  他コンポーネントの state を更新できないため effect で navigate する
+ *  （`PlaceRedirect` と同じ形）。 */
+function DefaultLanding({
+  subjects,
+  navigate,
+}: {
+  subjects: ReturnType<typeof useSubjects>
+  navigate: (route: Route, opts?: { replace?: boolean }) => void
+}) {
+  const tree = buildRailTree({ datasets: [], subjects })
+  const first = tree.kinds[0]?.children[0] ?? tree.other[0] ?? null
+
+  useEffect(() => {
+    if (first) navigate({ tab: 'cards', subjectKey: first.subjectKey }, { replace: true })
+  }, [first, navigate])
+
+  if (first) return null
+  return <AddObjectView navigate={(r) => navigate(r as unknown as Route)} />
 }
 
 /** `#/cards/place`（旧 URL）→ `#/datasets/add`（データが入る唯一の入口）への

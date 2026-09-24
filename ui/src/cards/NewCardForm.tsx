@@ -219,6 +219,9 @@ export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreate
 
   return (
     <div className="cardpage-setform newcard-form">
+      {/* 契約メモ contract_pr_f9.md §1 決定 5・§5 実装順(4): フォームの先頭に
+          「この種類の観点として足す」ことを 1 行で示す。 */}
+      <p className="newcard-lead">{t('newcard.lead')}</p>
       <div className="newcard-step">
         <div className="cardpage-setform-label">{t('newcard.step_shape')}</div>
         <div className="newcard-shapes">

@@ -69,8 +69,17 @@ export interface Route {
   place?: boolean
   /** `#/datasets/add`（`tab: 'gallery'`）— データが入る唯一の入口「作る ›
    *  データセット › データを追加」（契約メモ contract_pr_f8.md §1.1）。中身は
-   *  PlaceView（判定は変えない: 形が一致→そのまま追加／不一致→ウィザード）。 */
+   *  PlaceView（判定は変えない: 形が一致→そのまま追加／不一致→ウィザード）。
+   *  `tab: 'cards'` のときは `#/cards/add`（オブジェクトを追加・契約メモ
+   *  contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに読み替える
+   *  （`datasetId`/`subjectKey` 等と同じ流儀）。 */
   add?: boolean
+  /** `#/cards/add?kind=<class_iri>` — 種類のページの「＋ 追加」から、その種類を
+   *  開いた状態で追加画面に入る（PR F9）。 */
+  addClassIri?: string
+  /** `#/cards/k/<encoded class_iri>` — 種類のページ（契約メモ
+   *  contract_pr_f9.md §1-4）。 */
+  classPageIri?: string
   /** `#/cards/place?dataset=<id>` | `#/datasets/add?dataset=<id>` — かんたん
    *  ウィザードから「ページに戻る」で入ってきたときの、既に棚にあるデータセット
    *  （契約メモ §6.3 の `KantanWizard.tsx` の `returnTo + datasetId`）。`place`
@@ -158,6 +167,19 @@ export function parseHash(hash: string): Route {
     return returnTo ? { tab: 'workbench', returnTo: decodeURIComponent(returnTo) } : { tab: 'workbench' }
   }
   if (parts[0] === 'cards') {
+    // `#/cards/add` — オブジェクトを追加する唯一の入口（契約メモ
+    // contract_pr_f9.md §1-3）。`add`/`k` は予約語として `<class_iri>` の一般形
+    // より先に見る（`add`・`k` という主語は実在しないが、`place`・`d`・`s/new`
+    // と同じ流儀で明示的に区別する）。
+    if (parts[1] === 'add') return { tab: 'cards', add: true }
+    if (parts[1]?.startsWith('add?')) {
+      const kind = new URLSearchParams(parts[1].slice('add?'.length)).get('kind')
+      return kind ? { tab: 'cards', add: true, addClassIri: kind } : { tab: 'cards', add: true }
+    }
+    // `#/cards/k/<encoded class_iri>` — 種類のページ（契約メモ §1-4）。
+    if (parts[1] === 'k' && parts[2]) {
+      return { tab: 'cards', classPageIri: decodeURIComponent(parts[2]) }
+    }
     if (parts[1] === 'place') return { tab: 'cards', place: true }
     // `#/cards/place?dataset=<id>` — parts は '/' でしか割っていないので
     // クエリ文字列は parts[1] の末尾にくっついたまま届く（`place?dataset=…`）。
@@ -216,6 +238,8 @@ export function routeToHash(r: Route): string {
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
   if (r.tab === 'workbench' && r.returnTo) return `#/workbench?returnTo=${encodeURIComponent(r.returnTo)}`
   if (r.tab === 'cards') {
+    if (r.add) return r.addClassIri ? `#/cards/add?kind=${encodeURIComponent(r.addClassIri)}` : '#/cards/add'
+    if (r.classPageIri) return `#/cards/k/${encodeURIComponent(r.classPageIri)}`
     if (r.place) {
       return r.placeDatasetId
         ? `#/cards/place?dataset=${encodeURIComponent(r.placeDatasetId)}`
@@ -726,19 +750,22 @@ function App() {
               >
                 {/* datasetSub（定義を直す／詳しい情報）中はパンくずに差し替える
                     （契約メモ contract_pr_f5.md §1.2）: 「<データセット名> ›
-                    データの意味を定義する／詳しい情報」。 */}
+                    データの意味を定義する／詳しい情報」。未選択の既定文言は
+                    「ワークスペース」（契約メモ contract_pr_f9.md §1-7）。 */}
                 {tab === 'cards' && route.datasetSub
-                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '探す' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
+                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: 'ワークスペース' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
                   : t(`view.${tab}.eyebrow`)}
               </span>
               <h1 className="topbar-title">
-                {/* cards タブだけ見出しが動く: 対象を選んでいればそのラベル、
-                    未選択（`#/cards`・`#/cards/place`）なら「探す」（契約メモ §3・
-                    §5: 「ページ（見出し）→ 対象のラベル／未選択は『探す』」）。
-                    datasetSub 中も見出しはデータセットの名前のまま（§1.2）。
-                    `cards:topbar.unselected` は新設キー（notes 参照）。 */}
+                {/* cards タブだけ見出しが動く（契約メモ contract_pr_f9.md §1-7）:
+                    追加画面（`#/cards/add`）は「オブジェクトを追加」、種類の
+                    ページ・オブジェクトのページは onLabel が上げた名前
+                    （cardsLabel）、未選択は「ワークスペース」。datasetSub 中も
+                    見出しはデータセットの名前のまま（§1.2）。 */}
                 {tab === 'cards'
-                  ? cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '探す' })
+                  ? route.add
+                    ? t('cards:topbar.add', { defaultValue: 'オブジェクトを追加' })
+                    : (cardsLabel ?? t('cards:topbar.unselected', { defaultValue: 'ワークスペース' }))
                   : t(`view.${tab}.title`)}
               </h1>
             </div>

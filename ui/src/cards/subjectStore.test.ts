@@ -205,4 +205,107 @@ describe('backfillDatasetIds（appdata への書き戻しを伴う移行ロジ�
     const updated = getAllSubjects().find((i) => i.id === 'loan-d')
     expect(updated?.dataset_id).toBeUndefined()
   })
+
+  it('個体は class_iri が無ければ resolveSubject の class_iri/class_label でも埋める（契約メモ contract_pr_f9.md §1-2）', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-e',
+      found: true,
+      label: null,
+      class_iri: 'https://example.org/class/loan',
+      class_label: '貸出',
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist(item({ id: 'loan-e', created_at: '2026-08-01T00:00:00Z' }))
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-e')
+    expect(updated?.class_iri).toBe('https://example.org/class/loan')
+    expect(updated?.class_label).toBe('貸出')
+  })
+
+  it('絞り込みは class_iri を spec.class からその場で埋め、class_label は classSchema(spec.class).label で埋める', async () => {
+    vi.mocked(classSchema).mockResolvedValue({
+      class_iri: 'https://example.org/class/observation',
+      label: '観測',
+      dataset_id: 'observation',
+      snapshot: null,
+      properties: [],
+      tools: [],
+      dataset_label: '気象観測',
+    })
+    const spec: SubjectItem['spec'] = {
+      class: 'https://example.org/class/observation',
+      where: [],
+      order_by: null,
+      limit: 50,
+      source_scope: 'all',
+    }
+    addSubjectAndPersist({
+      ...item({ id: 'set-b', created_at: '2026-08-01T00:00:00Z' }),
+      kind: 'set',
+      spec,
+      subject_key: 's:set-b',
+    })
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'set-b')
+    expect(updated?.class_iri).toBe('https://example.org/class/observation')
+    expect(updated?.class_label).toBe('観測')
+  })
+
+  it('rdf:type を持たない個体（class_iri が恒久的に無い）は空文字で確定させ、次回は再フェッチしない', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-g',
+      found: true,
+      label: null,
+      class_iri: null,
+      class_label: null,
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist(item({ id: 'loan-g', created_at: '2026-08-01T00:00:00Z' }))
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-g')
+    // undefined（未試行）のままだと backfill が毎回この項目を対象にしてしまう
+    // ため、空文字（「確認済み・無し」）で確定させる。
+    expect(updated?.class_iri).toBe('')
+    expect(resolveSubject).toHaveBeenCalledTimes(1)
+
+    await backfillDatasetIds()
+
+    // dataset_id/class_iri とも定義済み（空文字は undefined でない）ので、
+    // 2 回目の呼び出しでは対象から外れ再フェッチされない。
+    expect(resolveSubject).toHaveBeenCalledTimes(1)
+  })
+
+  it('dataset_id は既にあり class_iri だけ無い項目も対象になる', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-f',
+      found: true,
+      label: null,
+      class_iri: 'https://example.org/class/loan',
+      class_label: '貸出',
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist({
+      ...item({ id: 'loan-f', created_at: '2026-08-01T00:00:00Z' }),
+      dataset_id: 'library',
+      dataset_label: '図書館',
+    })
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-f')
+    expect(updated?.class_iri).toBe('https://example.org/class/loan')
+    expect(resolveSubject).toHaveBeenCalledWith('loan-f')
+  })
 })

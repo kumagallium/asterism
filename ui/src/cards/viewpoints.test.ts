@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { CardSpec, LinkingKind, MeasureCardParams } from './cardsApi'
+import type { CardSpec, ClassSchema, LinkingKind, MeasureCardParams } from './cardsApi'
 import { buildMeasureCard, cardId } from './measureCardFields'
-import { applicableViewpoints, paramsForPage, viewpointId, viewpointsFrom, viewpointTitle, type ViewpointPage } from './viewpoints'
+import {
+  applicableViewpoints,
+  declaredViewpoints,
+  paramsForPage,
+  viewpointId,
+  viewpointsFrom,
+  viewpointTitle,
+  type ViewpointPage,
+} from './viewpoints'
 
 // 架空の分野（観測記録・観測所）で確かめる。viewpoints.ts は params の形と
 // class_iri しか見ない決定論関数 — 分野語の辞書は持たない。
@@ -202,6 +210,40 @@ describe('viewpointTitle', () => {
   it('カードの題名そのまま', () => {
     const vp = viewpointsFrom([card({ subject_key: 's:x', params: seriesParams([]), title: '降水量の推移' })])[0]
     expect(viewpointTitle(vp, t)).toBe('降水量の推移')
+  })
+})
+
+function schema(tools: unknown[]): ClassSchema {
+  return {
+    class_iri: OBS_CLASS,
+    label: '観測記録',
+    dataset_id: 'ds-1',
+    snapshot: null,
+    properties: [],
+    tools,
+  }
+}
+
+describe('declaredViewpoints', () => {
+  it('name/title/output_kind から同梱の観点を作る（宣言順のまま）', () => {
+    const s = schema([
+      { name: 'rainfall_by_year', title: '降水量の推移', output_kind: 'series' },
+      { name: 'counts_by_kind', title: '種類別の件数', output_kind: 'breakdown' },
+    ])
+    expect(declaredViewpoints(s)).toEqual([
+      { id: 'rainfall_by_year', title: '降水量の推移', shape: 'series', bundled: true },
+      { id: 'counts_by_kind', title: '種類別の件数', shape: 'breakdown', bundled: true },
+    ])
+  })
+
+  it('name/title が文字列でない項目は落とす', () => {
+    const s = schema([{ name: 'ok_tool', title: '使える', output_kind: 'facts' }, { title: '名前なし' }, { name: 123, title: '数字の名前' }])
+    expect(declaredViewpoints(s).map((v) => v.id)).toEqual(['ok_tool'])
+  })
+
+  it('output_kind が既知の見せ方でなければ shape を省く', () => {
+    const s = schema([{ name: 'flow_tool', title: '手順', output_kind: 'flow' }])
+    expect(declaredViewpoints(s)[0].shape).toBeUndefined()
   })
 })
 

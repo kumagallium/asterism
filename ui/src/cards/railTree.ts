@@ -1,130 +1,92 @@
-// 左レールの木を組む純関数（契約メモ §2.1・§5: ui-rail 担当）。入力は
-// `listDatasets()`（`cardsApi.ts`）と `useSubjects()`（`subjectStore.ts`）の結果
-// だけ — fetch もレンダリングもしない（`railTree.test.ts` がここを検証する）。
+// 左レールの木を組む純関数（契約メモ contract_pr_f9.md §1-2・§5: ui-rail 担当）。
+// 入力は `listDatasets()`（`cardsApi.ts`）と `useSubjects()`（`subjectStore.ts`）の
+// 結果だけ — fetch もレンダリングもしない（`railTree.test.ts` がここを検証する）。
 //
-// 節の割り当て:
-//   - データセットは `origin` で振り分ける（own/unknown → 自分のデータ、
-//     open → オープンデータ）。
-//   - 主語（1 件・条件で集めた一覧）はその `dataset_id` が一致するデータセット
-//     の子になる。`dataset_id` が無い、または既知のどのデータセットとも一致
-//     しない主語は「その他」節に落ちる（subjectStore.ts の埋め戻しが 1 回だけ
-//     試みるが、失敗した主語はここで拾われる）。
-//   - 見本の印はデータセット行にだけ出す（`is_demo`）。子には出さない。
+// 節の割り当て（旧: データセットごと own/open → 新: 種類ごと・区切り無し）:
+//   - 主語（1 件・条件で集めた一覧）は `class_iri` でグループ化する
+//     （データセットではない。オープンデータ／自分のデータの区切りも無い）。
+//   - グループの並びは名前順（`class_label` の決定論の辞書順・localeCompare は
+//     使わない — ICU の版で結果が揺れるため）。
+//   - `class_iri` が無い主語は「その他」節に落ちる（subjectStore.ts の埋め戻しが
+//     1 回だけ試みるが、失敗した主語はここで拾われる）。
+//   - 見本の印は、見本のデータセット（`is_demo`）由来の主語（子）にだけ付ける
+//     （契約メモ §1-2: グループの見出し行には出さない）。
 
-import type { CardsDatasetSummary } from './cardsApi'
-import type { SubjectItem } from './cardsApi'
+import type { CardsDatasetSummary, SubjectItem } from './cardsApi'
 
 export interface RailChild {
   subjectKey: string
   label: string
   kind: 'individual' | 'set'
-  /** 個体は class_label、絞り込みは持たない（呼び出し側が固定語「一覧」を出す）。 */
-  kindLabel: string | null
   /** 個体の 3 状態（凡例の点の色）。絞り込みは常に `null`（呼び出し側は
    *  `kind === 'set'` を先に見る）。 */
   match: SubjectItem['match']
+  /** 見本のデータセット（`is_demo`）由来か（契約メモ §1-2）。 */
+  isSample: boolean
 }
 
-/** データセットの取り込み状況（契約メモ §2.1 の行右の小さな状態）。
- *  `null` は公開済み（状態は出さない）。 */
-export type RailDatasetState = 'draft' | 'ingesting' | null
-
-export interface RailDatasetNode {
-  datasetId: string
+export interface RailKindNode {
+  classIri: string
   label: string
-  origin: 'own' | 'open' | 'unknown'
-  isSample: boolean
-  state: RailDatasetState
-  expanded: boolean
   children: RailChild[]
 }
 
 export interface RailTree {
-  own: RailDatasetNode[]
-  open: RailDatasetNode[]
-  /** dataset_id が無い、または既知のデータセットと一致しない主語（契約メモ
-   *  §2.1・rail.other_section）。 */
+  kinds: RailKindNode[]
+  /** `class_iri` が無い主語（契約メモ §1-2）。 */
   other: RailChild[]
 }
 
-function toChild(item: SubjectItem): RailChild {
+/** 新しい方が上（`subjectStore.ts` の `sortSubjects` と同じ並び）。 */
+function byCreatedDesc(items: SubjectItem[]): SubjectItem[] {
+  return [...items].sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+function toChild(item: SubjectItem, sampleDatasets: Set<string>): RailChild {
   return {
     subjectKey: item.subject_key,
     label: item.label ?? '',
     kind: item.kind,
-    kindLabel: item.kind === 'set' ? null : item.class_label,
     match: item.kind === 'set' ? null : item.match,
+    isSample: item.dataset_id != null && sampleDatasets.has(item.dataset_id),
   }
-}
-
-function toState(stage: CardsDatasetSummary['stage']): RailDatasetState {
-  if (stage === 'design') return 'draft'
-  if (stage === 'ingested') return 'ingesting'
-  return null
-}
-
-/** 新しい方が上（`subjectStore.ts` の `sortSubjects` と同じ並び）。純粋に
- *  ここだけで並べる — グループが既にデータセット単位に割れているため
- *  own/open の順位づけは不要。 */
-function byCreatedDesc(items: SubjectItem[]): SubjectItem[] {
-  return [...items].sort((a, b) => b.created_at.localeCompare(a.created_at))
 }
 
 export interface BuildRailTreeInput {
   datasets: CardsDatasetSummary[]
   subjects: SubjectItem[]
-  /** いま開いているページのデータセット（あれば）。展開の既定を決める
-   *  （契約メモ §2.1: 4 つ以上は現在地だけ展開）。 */
-  currentDatasetId?: string | null
-  /** localStorage に控えた「人が明示的に開閉した」上書き（try/catch は
-   *  呼び出し側の責務 — ここは純粋なマップとして受け取るだけ）。 */
-  expandedOverrides?: Record<string, boolean>
 }
 
-/** 左レールの木を組む（契約メモ §2.1）。 */
-export function buildRailTree({
-  datasets,
-  subjects,
-  currentDatasetId,
-  expandedOverrides,
-}: BuildRailTreeInput): RailTree {
-  const known = new Set(datasets.map((d) => d.id))
-  const byDataset = new Map<string, SubjectItem[]>()
-  const other: RailChild[] = []
+/** 左レールの木を組む（契約メモ §1-2）。 */
+export function buildRailTree({ datasets, subjects }: BuildRailTreeInput): RailTree {
+  const sampleDatasets = new Set(datasets.filter((d) => d.is_demo).map((d) => d.id))
+
+  const groups = new Map<string, { label: string; items: SubjectItem[] }>()
+  const otherItems: SubjectItem[] = []
 
   for (const s of subjects) {
-    if (s.dataset_id && known.has(s.dataset_id)) {
-      const list = byDataset.get(s.dataset_id)
-      if (list) list.push(s)
-      else byDataset.set(s.dataset_id, [s])
+    if (!s.class_iri) {
+      otherItems.push(s)
+      continue
+    }
+    const existing = groups.get(s.class_iri)
+    if (existing) {
+      existing.items.push(s)
+      if (!existing.label && s.class_label) existing.label = s.class_label
     } else {
-      other.push(toChild(s))
+      groups.set(s.class_iri, { label: s.class_label ?? '', items: [s] })
     }
   }
 
-  // 展開の既定（契約メモ §2.1）: データセットが 3 つ以下なら全部展開。
-  // 4 つ以上なら「いま開いているページのデータセット」だけ展開。
-  const expandAllByDefault = datasets.length <= 3
+  const kinds: RailKindNode[] = [...groups.entries()]
+    .map(([classIri, g]) => ({
+      classIri,
+      label: g.label,
+      children: byCreatedDesc(g.items).map((i) => toChild(i, sampleDatasets)),
+    }))
+    .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0))
 
-  const own: RailDatasetNode[] = []
-  const open: RailDatasetNode[] = []
+  const other = byCreatedDesc(otherItems).map((i) => toChild(i, sampleDatasets))
 
-  for (const d of datasets) {
-    const children = byCreatedDesc(byDataset.get(d.id) ?? []).map(toChild)
-    const defaultExpanded = expandAllByDefault || d.id === currentDatasetId
-    const expanded = expandedOverrides?.[d.id] ?? defaultExpanded
-    const node: RailDatasetNode = {
-      datasetId: d.id,
-      label: d.name,
-      origin: d.origin,
-      isSample: d.is_demo,
-      state: toState(d.stage),
-      expanded,
-      children,
-    }
-    if (d.origin === 'open') open.push(node)
-    else own.push(node)
-  }
-
-  return { own, open, other }
+  return { kinds, other }
 }
