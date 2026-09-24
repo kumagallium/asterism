@@ -57,9 +57,20 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
   const [searchError, setSearchError] = useState(false)
   const [dragOver, setDragOver] = useState(false)
 
+  // データが入る唯一の入口（契約メモ contract_pr_f8.md §1.2）: 「作る ›
+  // データセット › データを追加」と同じ画面（`#/datasets/add`）へ。
   function goPlace() {
-    navigate({ tab: 'cards', place: true })
+    navigate({ tab: 'gallery', add: true })
   }
+
+  // 「見本: <データセット名>。あなたのデータを追加すると、同じ形で並びます」
+  // — {{name}} の部分だけデータセットへのリンクにしたいので、区切り文字
+  // （表示に出ない制御文字）で前後半に割ってから間にリンクを差し込む。
+  const SAMPLE_NOTE_SPLIT = '\u0000'
+  const [sampleNoteBefore, sampleNoteAfter] = t('firstScreen.sample_note', {
+    name: SAMPLE_NOTE_SPLIT,
+    defaultValue: `見本: ${SAMPLE_NOTE_SPLIT}。あなたのデータを追加すると、同じ形で並びます`,
+  }).split(SAMPLE_NOTE_SPLIT)
 
   async function onSearchSubmit(e: FormEvent) {
     e.preventDefault()
@@ -116,10 +127,10 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
         >
           <AddIcon className="first-entry-icon" />
           <span className="kz-drop-main">
-            {t('firstScreen.placeTitle', { defaultValue: 'あなたのデータを置く' })}
+            {t('firstScreen.place_title', { defaultValue: 'あなたのデータを追加する' })}
           </span>
           <span className="kz-drop-sub">
-            {t('firstScreen.placeHint', { defaultValue: 'ここに置くか、クリックして進みます' })}
+            {t('firstScreen.placeHint', { defaultValue: 'ここにドラッグするか、クリックして進みます' })}
           </span>
         </button>
 
@@ -163,7 +174,7 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
       {sample ? (
         <div className="first-sample">
           <p className="first-sample-note">
-            {t('firstScreen.samplePrefix', { defaultValue: '見本: ' })}
+            {sampleNoteBefore}
             {sample.dataset_id ? (
               <button
                 type="button"
@@ -177,9 +188,7 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
               (sample.dataset_label ??
                 t('firstScreen.sampleLinkLabel', { defaultValue: '世界の国（Gapminder）' }))
             )}
-            {t('firstScreen.sampleSuffix', {
-              defaultValue: '。あなたのファイルを置くと同じ形で並びます',
-            })}
+            {sampleNoteAfter}
           </p>
           <SubjectPage
             iri={sample.id}

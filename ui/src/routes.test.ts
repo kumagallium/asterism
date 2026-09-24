@@ -207,6 +207,36 @@ describe('parseHash / routeToHash — workbench の returnTo（契約メモ §2.
   })
 })
 
+describe('parseHash / routeToHash — cards/add（データを追加・唯一の入口・契約メモ contract_pr_f8.md §1.1）', () => {
+  it('#/datasets/add は gallery タブ + add', () => {
+    expect(parseHash('#/datasets/add')).toEqual<Route>({ tab: 'gallery', add: true })
+    expect(roundTrip('#/datasets/add')).toBe('#/datasets/add')
+  })
+
+  it('#/datasets/add?dataset=<id> は placeDatasetId も持つ', () => {
+    const hash = '#/datasets/add?dataset=ds-42'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', add: true, placeDatasetId: 'ds-42' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('id に記号が入っていても往復する', () => {
+    const hash = `#/datasets/add?dataset=${encodeURIComponent('ds/中央 42')}`
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', add: true, placeDatasetId: 'ds/中央 42' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('`add` は予約語 — 実在のデータセット id と誤検出しない', () => {
+    const hash = '#/datasets/addendum-42'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', datasetId: 'addendum-42', detailTab: undefined })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('#/cards/place は旧 URL のまま往復する（置き換えは CardsView が担う）', () => {
+    expect(parseHash('#/cards/place')).toEqual<Route>({ tab: 'cards', place: true })
+    expect(roundTrip('#/cards/place')).toBe('#/cards/place')
+  })
+})
+
 describe('parseHash / routeToHash — 既存の route を壊さない', () => {
   it('#/home', () => {
     expect(roundTrip('#/home')).toBe('#/home')

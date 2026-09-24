@@ -175,6 +175,10 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
       stagingId: staging.stagingId,
       sourceNames: staging.sourceNames.map((name) => ({ name, size: 0 })),
       autoInspect: true,
+      // KantanWizard.tsx 内部の「ページに戻る」リンク用（S9・snap.returnTo）。
+      // App.tsx の Route.returnTo（下の navigate 呼び出し）とは別物 — こちらは
+      // 旧 URL 互換の `#/cards/place` 経由でも CardsView が `#/datasets/add` へ
+      // 置き換える（契約メモ contract_pr_f8.md §1.2）ので、そのまま残す。
       returnTo: '#/cards/place?dataset=',
     }
     try {
@@ -182,7 +186,11 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
     } catch {
       /* best-effort: セッションストレージが無くても遷移だけは通す */
     }
-    navigate({ tab: 'workbench' })
+    // ウィザードを完了・中止したらワークスペース（`#/cards`）へ戻れるように
+    // Route.returnTo を立てる（契約メモ contract_pr_f8.md §1.3）。App.tsx の
+    // onWorkbenchDone がこれを見て、そのデータセットのページ
+    // （`#/cards/d/<id>`）に着地させる。
+    navigate({ tab: 'workbench', returnTo: '#/cards' })
   }
 
   function chooseCandidate(value: string, iri: string | null) {
@@ -202,7 +210,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
         name,
       })
       onPlaced(result.subjects, result.set)
-      navigate({ tab: 'cards' })
+      // 追加が終わったら回答へ（契約メモ contract_pr_f8.md §1.3）: そのデータ
+      // セットのワークスペースのページへ。
+      navigate({ tab: 'cards', datasetPageId: result.dataset_id })
     } catch (e) {
       setCommitErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -242,7 +252,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
           created_at: now,
         }))
       onPlaced(subjectItems, { set_id, spec })
-      navigate({ tab: 'cards' })
+      // 追加が終わったら回答へ（契約メモ contract_pr_f8.md §1.3）: そのデータ
+      // セットのワークスペースのページへ。
+      navigate({ tab: 'cards', datasetPageId: datasetId })
     } catch (e) {
       setCommitErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -252,6 +264,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
 
   return (
     <section className="place-view">
+      {/* 「作る › データセット › データを追加」— データが入る唯一の入口の見出し
+       *  （契約メモ contract_pr_f8.md §1.1・§3）。 */}
+      <h2 className="place-heading">{t('cards:place.title', { defaultValue: 'データを追加' })}</h2>
       {!datasetId && !inspectResult && (
         <label
           className={`kz-drop${dragOver ? ' drag' : ''}`}
