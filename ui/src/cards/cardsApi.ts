@@ -641,3 +641,112 @@ export async function exportSubjectAgent(
   const blob = await res.blob()
   return { blob, filename }
 }
+
+// ---------------------------------------------------------------------------
+// PR F4 §1-2〜§1-5: グラフを足す（set_measure の型・「この 1 件」条件・保存）
+// ---------------------------------------------------------------------------
+
+/** ①見せ方＝出口の型（契約メモ §1-2 の表・6 種）。`OutputKind` から来歴専用の
+ *  `flow` を除いたもの — `set_measure` は来歴を返さない。`params.shape` と
+ *  戻り値の `output_kind` は同じ語彙。 */
+export type MeasureShape = Exclude<OutputKind, 'flow'>
+
+/** ②「数字 1 つ」だけが持つ集計（class_schema からの候補ではない固定 5 択・
+ *  契約メモ §3 の newcard.agg_*）。 */
+export type MeasureAgg = 'avg' | 'max' | 'min' | 'sum' | 'count'
+
+/** ③条件の「この 1 件」形（契約メモ §1-3）:「?p = この 1 件」を where に足す。
+ *  既存の値条件（`op`/`value` を持つ {@link SetWhereClause}）とは別の形なので、
+ *  そちらを書き換えず独立の型として持つ（ingest 側 `normalize_set_spec` への
+ *  この形の追加は tool 担当の範囲・`ingest/src/asterism/subjects.py`）。 */
+export interface MeasureLinkClause {
+  /** この 1 件を目的語に持つ関係の述語（`linkingKinds` の候補から選ぶ）。 */
+  property: string
+  /** 指す先 = いまの 1 件の IRI。 */
+  iri: string
+}
+
+/** `set_measure` の `where` は既存の値条件（{@link SetWhereClause} と同じ形）と
+ *  {@link MeasureLinkClause}（「この 1 件」）のどちらも受ける。 */
+export type MeasureWhereClause = SetWhereClause | MeasureLinkClause
+
+/** `set_measure` の params（契約メモ §1-4・`ingest/src/asterism/measure_spec.py`
+ *  の `validate_measure` と揃えてある）。②の「項目」（比べる=ranked・数字 1 つ
+ *  =quantity）は `item` キー（`measure_spec.py` 側は `x` もフォールバックとして
+ *  受けるが、こちらが正）。 */
+export interface MeasureCardParams {
+  class: string
+  where: MeasureWhereClause[]
+  shape: MeasureShape
+  x?: string
+  y?: string
+  item?: string
+  category?: string
+  items?: string[]
+  agg?: MeasureAgg
+  order?: 'asc' | 'desc'
+  // `CardRef.params`/`runCard` の params は汎用の `Record<string, unknown>`
+  // （組み込み/宣言のあらゆるツールを受ける契約）。`CardSpec.params` を
+  // そのまま `CardRef.params` に代入できるよう（`cardSpecToCardRef` —
+  // ui-page 側）、既知のフィールドに加えてインデックスシグネチャも持たせる。
+  [key: string]: unknown
+}
+
+/** 保存された 1 枚の「足したカード」（契約メモ §1-5・ADR O19 CardSpec）。
+ *  `card_id` は params の決定論ハッシュ（`measureCardFields.ts` の `cardId`）
+ *  — 同じ params からは常に同じ `card_id`。 */
+export interface CardSpec {
+  card_id: string
+  subject_key: string
+  tool: 'set_measure'
+  params: MeasureCardParams
+  title: string
+  output_kind: MeasureShape
+  created_at: string
+}
+
+/** `GET /api/subjects/linking-kinds?iri=…` の 1 候補（契約メモ §1-3・
+ *  `ingest/src/asterism/subject_tools.py` の `linking_kinds` と揃えてある）。
+ *  この IRI を目的語に持つ実例の種類と述語（来歴のクラスは api 側で除外済み）。 */
+export interface LinkingKind {
+  class_iri: string
+  class_label: string
+  property: string
+  property_label: string
+  count: number
+}
+
+export async function linkingKinds(iri: string): Promise<LinkingKind[]> {
+  const res = await fetch(`/api/subjects/linking-kinds?iri=${encodeURIComponent(iri)}`)
+  if (!res.ok) await throwApiError(res, 'linking kinds')
+  const data = (await res.json()) as { kinds?: LinkingKind[] }
+  return data.kinds ?? []
+}
+
+// ---- appdata cards（namespace "cards"・subjects と同じ流儀 — 単一ユーザーで
+// ないサーバでは 404 のまま。呼び出し側 cardStore.ts が localStorage に
+// フォールバックする） ---------------------------------------------------------
+
+export async function fetchAppDataCards(): Promise<CardSpec[]> {
+  const res = await fetch('/api/appdata/cards', { headers: authHeaders() })
+  if (!res.ok) await throwApiError(res, 'appdata cards')
+  const data = (await res.json()) as { cards?: CardSpec[] }
+  return data.cards ?? []
+}
+
+export async function putAppDataCard(cardId: string, item: CardSpec): Promise<void> {
+  const res = await fetch(`/api/appdata/cards/${encodeURIComponent(cardId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(item),
+  })
+  if (!res.ok) await throwApiError(res, 'appdata card put')
+}
+
+export async function deleteAppDataCard(cardId: string): Promise<void> {
+  const res = await fetch(`/api/appdata/cards/${encodeURIComponent(cardId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok && res.status !== 404) await throwApiError(res, 'appdata card delete')
+}

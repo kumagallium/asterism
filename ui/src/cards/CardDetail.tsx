@@ -33,12 +33,28 @@ export interface CardDetailProps {
   onAsk: (question: string) => void
   /** 材料タブの「定義を直す」→ `#/datasets/<dataset_id>/design`。 */
   onEditDefinition: (datasetId: string) => void
+  /** このカードが cardStore にある「足したカード」かどうか（PR F4 §1-5）。
+   *  true かつ {@link onRemoveCard} が渡されているときだけ、タブの下部に
+   *  「このカードを消す」を出す。既定カードは消せない。 */
+  isAddedCard?: boolean
+  /** 「このカードを消す」を押したときに呼ぶ（cardStore からの削除は呼び出し側
+   *  の責務）。押下後は自動で {@link onBack} も呼ぶ。 */
+  onRemoveCard?: () => void
 }
 
 type DetailTabId = 'result' | 'materials' | 'recipe'
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
-export function CardDetail({ subject, breadcrumbLabel, card, onBack, onAsk, onEditDefinition }: CardDetailProps) {
+export function CardDetail({
+  subject,
+  breadcrumbLabel,
+  card,
+  onBack,
+  onAsk,
+  onEditDefinition,
+  isAddedCard,
+  onRemoveCard,
+}: CardDetailProps) {
   const { t } = useTranslation('cards')
   const depKey = JSON.stringify({ subject, tool: card.tool, params: card.params })
   // 結果は depKey で紐づけ、then/catch でだけ書き込む — effect の本体で同期的に
@@ -188,6 +204,20 @@ export function CardDetail({ subject, breadcrumbLabel, card, onBack, onAsk, onEd
           </div>
         )}
       </div>
+      {isAddedCard && onRemoveCard && (
+        <div className="cardpage-materials-actions">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => {
+              onRemoveCard()
+              onBack()
+            }}
+          >
+            {t('detail.delete_card')}
+          </button>
+        </div>
+      )}
       <div className="cardpage-bar">
         <span className="cardpage-bar-who">{t('page.ask_who', { label: breadcrumbLabel })}</span>
         <input

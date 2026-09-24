@@ -203,7 +203,8 @@
     "technical_info": "ふだんは見なくてよい技術情報",
     "edit_definition": "定義を直す",
     "not_found": "見つかりませんでした",
-    "back": "戻る"
+    "back": "戻る",
+    "delete_card": "このカードを消す"
   },
   "bundle": {
     "title": "AI に渡す一式はこうなります",
@@ -268,5 +269,39 @@
   "graph": {
     "prop_type": "種類",
     "prop_snapshot": "版"
+  },
+  "newcard": {
+    "button": "＋ グラフを足す",
+    "title": "グラフを足す",
+    "step_shape": "① 見せ方",
+    "step_items": "② 項目",
+    "step_where": "③ 条件",
+    "shape_series": "推移",
+    "shape_ranked": "比べる",
+    "shape_breakdown": "内訳",
+    "shape_pairs": "散らばり",
+    "shape_quantity": "数字 1 つ",
+    "shape_facts": "表",
+    "axis_x": "横軸",
+    "axis_y": "縦軸",
+    "item": "項目",
+    "category": "分類",
+    "items": "項目（複数可）",
+    "agg_avg": "平均",
+    "agg_max": "最大",
+    "agg_min": "最小",
+    "agg_sum": "合計",
+    "agg_count": "件数",
+    "where_this_page": "このページの条件",
+    "where_this_one": "この 1 件",
+    "kind_pick": "どの種類の記録から作りますか",
+    "submit": "作る",
+    "cancel": "やめる",
+    "title_series": "{{y}}の推移",
+    "title_ranked": "{{item}}が多い順",
+    "title_breakdown": "{{category}}ごとの件数",
+    "title_pairs": "{{x}}と{{y}}",
+    "title_quantity": "{{item}}の{{agg}}",
+    "title_facts": "{{items}}"
   }
 }

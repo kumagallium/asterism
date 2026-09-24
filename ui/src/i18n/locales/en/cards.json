@@ -203,7 +203,8 @@
     "technical_info": "Technical details (not usually needed)",
     "edit_definition": "Edit the definition",
     "not_found": "Not found",
-    "back": "Back"
+    "back": "Back",
+    "delete_card": "Remove this card"
   },
   "bundle": {
     "title": "Here's what the AI bundle looks like",
@@ -268,5 +269,39 @@
   "graph": {
     "prop_type": "Kind",
     "prop_snapshot": "Version"
+  },
+  "newcard": {
+    "button": "+ Add a graph",
+    "title": "Add a graph",
+    "step_shape": "① How to show it",
+    "step_items": "② Items",
+    "step_where": "③ Condition",
+    "shape_series": "Trend",
+    "shape_ranked": "Compare",
+    "shape_breakdown": "Breakdown",
+    "shape_pairs": "Scatter",
+    "shape_quantity": "Single number",
+    "shape_facts": "Table",
+    "axis_x": "X axis",
+    "axis_y": "Y axis",
+    "item": "Item",
+    "category": "Category",
+    "items": "Items (multiple allowed)",
+    "agg_avg": "Average",
+    "agg_max": "Maximum",
+    "agg_min": "Minimum",
+    "agg_sum": "Sum",
+    "agg_count": "Count",
+    "where_this_page": "This page's condition",
+    "where_this_one": "This one",
+    "kind_pick": "Which kind of record should it come from?",
+    "submit": "Create",
+    "cancel": "Cancel",
+    "title_series": "{{y}} over time",
+    "title_ranked": "{{item}}, highest first",
+    "title_breakdown": "Count by {{category}}",
+    "title_pairs": "{{x}} vs {{y}}",
+    "title_quantity": "{{agg}} of {{item}}",
+    "title_facts": "{{items}}"
   }
 }
