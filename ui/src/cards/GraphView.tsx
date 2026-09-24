@@ -14,9 +14,11 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react'
+import { useTranslation } from 'react-i18next'
 import '@xyflow/react/dist/style.css'
 import './graph.css'
 import { layoutGraph } from './graphLayout'
+import { nodePropLines } from './graphProps'
 import type { GraphNodeKind, GraphSpec } from './viewSpec'
 
 /** GraphSpec を React Flow で描く。`ui/src/kantan/ShapeGraph.tsx` の
@@ -62,6 +64,7 @@ function FlowBox({ data }: NodeProps) {
 
 const NODE_TYPES = { flowbox: FlowBox }
 const NODE_W = 168
+const COMPACT_NODE_W = 120
 const NODE_H = 46
 
 function GraphViewInner({
@@ -77,11 +80,13 @@ function GraphViewInner({
   maxHeight?: number
   compact?: boolean
 }) {
+  const { t } = useTranslation('cards')
   const horizontal = (graph.direction ?? 'LR') === 'LR'
+  const nodeW = compact ? COMPACT_NODE_W : NODE_W
 
   const { positions, height } = useMemo(
-    () => layoutGraph(graph, { nodeWidth: NODE_W, nodeHeight: NODE_H }),
-    [graph],
+    () => layoutGraph(graph, { nodeWidth: nodeW, nodeHeight: NODE_H }),
+    [graph, nodeW],
   )
 
   const nodes: Node[] = useMemo(
@@ -90,15 +95,11 @@ function GraphViewInner({
         id: n.id,
         type: 'flowbox',
         position: positions.get(n.id) ?? { x: 0, y: 0 },
+        style: { width: nodeW },
         data: {
           label: n.label,
           kind: n.kind,
-          propLines:
-            n.props && !compact
-              ? Object.entries(n.props)
-                  .slice(0, 2)
-                  .map(([k, v]) => `${k}: ${v}`)
-              : [],
+          propLines: compact ? [] : nodePropLines(n.props, t),
           horizontal,
           clickable: !!onNodeClick,
         } satisfies FlowBoxData,
@@ -106,7 +107,7 @@ function GraphViewInner({
         selectable: false,
         connectable: false,
       })),
-    [graph, positions, horizontal, onNodeClick, compact],
+    [graph, positions, horizontal, onNodeClick, compact, nodeW, t],
   )
 
   const edges: Edge[] = useMemo(

@@ -43,7 +43,7 @@
     "legend_own_only": "自分のデータだけ",
     "legend_ambiguous": "まだ同じものか確かめていない",
     "legend_set": "条件で集めた一覧",
-    "advancedSettings": "詳しい設定（データを整える）",
+    "advancedSettings": "データの意味を定義する（列・単位・名前）",
     "kindSet": "一覧",
     "sampleBadge": "見本"
   },
@@ -88,7 +88,7 @@
     "pick_hint": "この一覧は、左のレールからもう一度開いてください。",
     "summary": "{{dataset}}・読み取った値 {{facts}}・出どころ {{sources}}",
     "subject_meta": "{{dataset}}・読み取った値 {{facts}}・出どころ {{sources}}",
-    "take_agent": "結果を持ち出す",
+    "take_agent": "AI に渡す一式を作る",
     "agent_soon": "準備中",
     "ask_button": "聞く",
     "ask_who": "{{label}} に聞く",
@@ -96,7 +96,7 @@
     "loading": "読み込み中…",
     "subject_not_found": "見つかりませんでした",
     "export_soon": "準備中（次の版で）",
-    "export_button": "結果を持ち出す",
+    "export_button": "AI に渡す一式を作る",
     "shareable_yes": "人に渡せる",
     "shareable_no": "自分だけ"
   },
@@ -175,7 +175,7 @@
     "back": "戻る"
   },
   "bundle": {
-    "title": "持ち出すとこうなります",
+    "title": "AI に渡す一式はこうなります",
     "facts": "facts/ — このページが読み取った値",
     "tools": "tools/ — このページが使った道具",
     "cards": "cards/ — 見えているカードの記録",
@@ -190,11 +190,11 @@
     "write_error": "保存できませんでした"
   },
   "export": {
-    "title": "結果を持ち出す",
-    "intro": "読み取った値と道具のフォルダになります。Claude などの AI にそのまま渡せます",
-    "share_label": "配る範囲",
-    "share_shareable": "人に渡せる版（自分のデータを抜く）",
-    "share_full": "全部（自分だけ）",
+    "title": "AI に渡す一式を作る",
+    "intro": "表・グラフ・出どころをまとめたフォルダです。Claude などの AI に渡すと、この内容をもとに答えてくれます",
+    "share_label": "自分のデータの扱い",
+    "share_shareable": "自分のデータを除く（外に配れる）",
+    "share_full": "自分のデータを含む（研究室内向け）",
     "lang_label": "言語",
     "lang_ja": "日本語",
     "lang_en": "English",
@@ -233,5 +233,9 @@
   },
   "ask": {
     "compose": "{{label}} について: {{text}}"
+  },
+  "graph": {
+    "prop_type": "種類",
+    "prop_snapshot": "版"
   }
 }

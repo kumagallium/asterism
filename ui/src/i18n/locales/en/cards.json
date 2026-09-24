@@ -43,7 +43,7 @@
     "legend_own_only": "My data only",
     "legend_ambiguous": "Not checked yet",
     "legend_set": "A condition-based list",
-    "advancedSettings": "Detailed setup (organize the data)",
+    "advancedSettings": "Define what the data means (columns, units, names)",
     "kindSet": "List",
     "sampleBadge": "Sample"
   },
@@ -88,7 +88,7 @@
     "pick_hint": "Please reopen this list from the rail on the left.",
     "summary": "{{dataset}} · {{facts}} values read · {{sources}} sources",
     "subject_meta": "{{dataset}} · {{facts}} values read · {{sources}} sources",
-    "take_agent": "Take the results with you",
+    "take_agent": "Make a bundle for an AI",
     "agent_soon": "Coming soon",
     "ask_button": "Ask",
     "ask_who": "Ask {{label}}",
@@ -96,7 +96,7 @@
     "loading": "Loading…",
     "subject_not_found": "Not found",
     "export_soon": "Coming in the next version",
-    "export_button": "Take the results with you",
+    "export_button": "Make a bundle for an AI",
     "shareable_yes": "Can share",
     "shareable_no": "Just yours"
   },
@@ -175,7 +175,7 @@
     "back": "Back"
   },
   "bundle": {
-    "title": "What you take with you",
+    "title": "Here's what the AI bundle looks like",
     "facts": "facts/ — the values this page read",
     "tools": "tools/ — the tools this page used",
     "cards": "cards/ — a record of the cards on screen",
@@ -190,11 +190,11 @@
     "write_error": "Could not save"
   },
   "export": {
-    "title": "Take the results with you",
-    "intro": "A folder of the values read and the tools used. You can hand it to an AI such as Claude as is.",
-    "share_label": "What to share",
-    "share_shareable": "Shareable version (leaves your own data out)",
-    "share_full": "Everything (just yours)",
+    "title": "Make a bundle for an AI",
+    "intro": "A folder that bundles the tables, charts, and provenance. Hand it to an AI such as Claude and it can answer from this content.",
+    "share_label": "Your own data",
+    "share_shareable": "Leave out my own data (can be shared outside)",
+    "share_full": "Include my own data (for your own group)",
     "lang_label": "Language",
     "lang_ja": "日本語",
     "lang_en": "English",
@@ -233,5 +233,9 @@
   },
   "ask": {
     "compose": "About {{label}}: {{text}}"
+  },
+  "graph": {
+    "prop_type": "Kind",
+    "prop_snapshot": "Version"
   }
 }

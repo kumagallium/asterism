@@ -227,7 +227,7 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
           className="rail-foot-link"
           onClick={() => navigate({ tab: 'home' })}
         >
-          {t('rail.advancedSettings', { defaultValue: '詳しい設定（データを整える）' })}
+          {t('rail.advancedSettings', { defaultValue: 'データの意味を定義する（列・単位・名前）' })}
         </button>
       </div>
     </div>
