@@ -409,6 +409,29 @@ oxigraph を SIGTERM → 5 秒で SIGKILL。
 だけ持ち、ui 側テストと Python 側テストが同じフィクスチャファイルを読んで両方
 とも固定する（どちらかを直し忘れたら、直していない側のテストが赤くなる）。
 
+### O36. 見せ方を変える（`presentation`）— 契約層は不変、選ぶだけ
+
+O9 の「①選ぶ」を実装した（PR F3）。`presentation.ts` の
+`Presentation`（`{ mark?, swapXY?, colorBy? }`）は `output_kind` ごとの固定表
+（`allowedPresentations`）の外に出られない小さな値で、`viewFor(tool, rows,
+presentation?)` が「同じ役割（x/y/category/count/value 等）から別の
+`ViewSpec` を決定論で組む」。`ViewSpec` の型・`OutputKind`・role は一切変えず、
+mark と encoding だけを差し替える。`defaultViewFor` は
+`viewFor(tool, rows, undefined)` に委ねる（presentation 未指定 = 既存の既定
+ビューと同じ結果）。表に無い組み合わせ（例: series に `swapXY: true`）は
+黙って既定に戻す — 部分的に採用しない。返り値に `custom` は付けない（人が
+選んだ見せ方は事実の絵であり、O11「生成コードを実行しない」の LLM が書いた
+ものではない）。
+
+保存は**閲覧者の手元だけ**（`cardPresentation.ts` の localStorage
+`asterism.cardView.<card_id>`。読めない／壊れていれば既定に倒れる）。サーバ・
+appdata には書かない — カードの定義そのもの（tool/params）を appdata に持つ
+後続 PR（F4）で、presentation もそこへ移す候補になる。カード一覧のタイル
+（`CardTile.tsx`）も同じキーで読むだけ（切替 UI は出さない）で、カード詳細
+（`CardDetail.tsx`）で変えると一覧も揃って変わる。
+
+候補の並びの先頭が既定（ranked は表が既定 — PR B の決定を引き継ぐ）。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。
