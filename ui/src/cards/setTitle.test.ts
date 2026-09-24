@@ -64,6 +64,18 @@ describe('formatSetTitle', () => {
     expect(out).toContain('cards:set.op.gt')
     expect(out).toContain('cards:set.op.in')
   })
+
+  it('同じ class_label でも clauses が違えば区別できる（レールの項目 label に使う値）', () => {
+    const a: SetResolveResult['title'] = {
+      class_label: '観測記録',
+      clauses: [{ property_label: '降水量', op: 'gt', value: 100, unit: 'mm' }],
+    }
+    const b: SetResolveResult['title'] = {
+      class_label: '観測記録',
+      clauses: [{ property_label: '降水量', op: 'lt', value: 10, unit: 'mm' }],
+    }
+    expect(formatSetTitle(a, t)).not.toBe(formatSetTitle(b, t))
+  })
 })
 
 describe('formatSetSubtitle', () => {

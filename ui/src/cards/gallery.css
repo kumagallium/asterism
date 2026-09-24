@@ -72,8 +72,9 @@
   gap: var(--space-4);
 }
 
-/* 静かなテキストリンク（ui-guidelines §6）。押しても何もしない見本（Phase 1 の
- * C で結線）なので、実リンクの --accent-strong ではなく控えめな --muted に。 */
+/* 静かなテキストリンク（ui-guidelines §6）。見本では disabled（押せない見た目・
+ * `.btn:disabled` と同じ opacity）にする。実リンクの --accent-strong ではなく
+ * 控えめな --muted に。 */
 .cardview-card-link {
   background: none;
   border: none;
@@ -86,6 +87,10 @@
 .cardview-card-link:hover:not(:disabled) {
   background: none;
   color: var(--fg);
+}
+.cardview-card-link:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* ページ最下部の「このページに聞く」。見た目だけ（機能は結線しない）ので、

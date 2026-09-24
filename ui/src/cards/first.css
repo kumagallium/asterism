@@ -1,0 +1,100 @@
+/* FirstScreen — 契約メモ §3。#/cards で何も選んでいないときの入口。
+   トークンのみ（house style）。「データを置く」入口は App.css の
+   .kz-drop/.kz-drop-main/.kz-drop-sub をそのまま再利用する（かんたんの
+   置く画面と見た目をそろえる・新規に定義し直さない）。 */
+
+.first-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.first-entries {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: var(--space-4);
+  align-items: stretch;
+}
+@media (max-width: 720px) {
+  .first-entries {
+    grid-template-columns: 1fr;
+  }
+}
+
+.first-entry-icon {
+  color: var(--muted);
+}
+
+.first-entry--search {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+}
+
+.first-entry-title {
+  font-weight: 600;
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.first-search-input {
+  width: 100%;
+  max-width: 320px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.first-search-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--faint);
+}
+
+.first-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  max-width: 320px;
+}
+.first-search-result {
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+}
+.first-search-result:hover {
+  background: var(--surface-sink);
+}
+
+.first-sample {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.first-sample-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.first-empty {
+  padding-top: var(--space-4);
+}

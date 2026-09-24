@@ -118,7 +118,7 @@ const FLOW_TITLE = '貸出の手順'
 const FLOW_TEXT = `graph LR
   request[予約]:::entity --> lend[貸出]:::activity
   lend --> give_back[返却]:::activity
-  give_back --> reshelve[棚に戻す]:::entity`
+  give_back --> reshelve[戻す]:::entity`
 
 // ── 部品 ─────────────────────────────────────────────────────────────────
 
@@ -143,11 +143,22 @@ function CardShell({
       </div>
       <div className="cardview-card-body">{children}</div>
       <div className="cardview-card-foot">
-        {/* 見た目だけ（押しても何もしない）。Phase 1 の C で結線する。 */}
-        <button type="button" className="cardview-card-link">
+        {/* 見た目だけ（押しても何もしない）。見本では disabled にして押せない見た目
+            にする（チェッカー指摘: 押せそうに見えて何もしないのは K39 違反）。 */}
+        <button
+          type="button"
+          className="cardview-card-link"
+          disabled
+          title={t('gallery.linkDisabled')}
+        >
           {t('materials')}
         </button>
-        <button type="button" className="cardview-card-link">
+        <button
+          type="button"
+          className="cardview-card-link"
+          disabled
+          title={t('gallery.linkDisabled')}
+        >
           {t('recipe')}
         </button>
       </div>

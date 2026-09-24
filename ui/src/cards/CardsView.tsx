@@ -1,6 +1,9 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { formatSetTitle } from './setTitle'
 import type { Route } from '../App'
 import { addSubjectAndPersist, useSubjects } from './subjectStore'
+import { FirstScreen } from './FirstScreen'
 import { PlaceView } from './PlaceView'
 import { SetPage } from './SetPage'
 import { SubjectPage } from './SubjectPage'
@@ -10,6 +13,10 @@ export interface CardsViewProps {
   navigate: (route: Route, opts?: { replace?: boolean }) => void
   /** ページ最下部の 1 行「<label> に聞く」から Ask へ（契約メモ §6.3）。 */
   onAsk: (question: string) => void
+  /** topbar の見出しに使う「選んだ対象のラベル」を App へ上げる（契約メモ §3:
+   *  「CardsView/SubjectPage が持つ resolved label を App に上げる」）。1 件・
+   *  絞り込みのどちらも未選択（`#/cards`・`#/cards/place`）のときは null。 */
+  onLabel: (label: string | null) => void
 }
 
 /**
@@ -22,9 +29,22 @@ export interface CardsViewProps {
  * 並行実装したファイルを import するだけ。Props の実際の形は各ファイルが
  * 実在してから判明したため、ここでの配線はその実物に合わせてある（notes 参照）。
  */
-export function CardsView({ route, navigate, onAsk }: CardsViewProps) {
+export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
   const { t } = useTranslation('cards')
   const subjects = useSubjects()
+
+  // 今どの対象を見ているかのラベル（topbar 用）。ここで一元管理する — 各画面
+  // （SubjectPage/SetPage）はサーバから改めて解決した名前を持つが、担当外
+  // ファイルにつき触れない。rail に載せたときに控えた label（subjectStore）を
+  // 代わりに使う（notes 参照: 絞り込みの「条件の要約」は現状 class_label 止まり）。
+  useEffect(() => {
+    if (!route.subjectKey) {
+      onLabel(null)
+      return
+    }
+    const stored = subjects.find((s) => s.subject_key === route.subjectKey)
+    onLabel(stored?.label ?? null)
+  }, [route.subjectKey, subjects, onLabel])
 
   if (route.place) {
     return (
@@ -95,7 +115,7 @@ export function CardsView({ route, navigate, onAsk }: CardsViewProps) {
           addSubjectAndPersist({
             kind: 'set',
             id: result.set_id,
-            label: result.title.class_label,
+            label: formatSetTitle(result.title, t),
             class_label: result.title.class_label,
             source: 'open',
             card_count: null,
@@ -114,6 +134,6 @@ export function CardsView({ route, navigate, onAsk }: CardsViewProps) {
     )
   }
 
-  // #/cards だけ（左の一覧からまだ何も選んでいない）。
-  return <p className="subtitle">{t('page.pick_hint')}</p>
+  // #/cards だけ（まだ何も選んでいない）。初回の入口 2 つ＋見本（契約メモ §3）。
+  return <FirstScreen navigate={navigate} onAsk={onAsk} />
 }

@@ -19,10 +19,19 @@ import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
+import { isDefinitionGapValue } from './placeShape'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
 import './pages.css'
+
+/** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
+ *  （契約 §4「事実の表」）。行そのものを書き換えず、新しい配列を返す。 */
+function maskDefinitionGapValues(rows: Record<string, unknown>[], placeholder: string): Record<string, unknown>[] {
+  return rows.map((row) =>
+    isDefinitionGapValue(row.value_iri, row.property_iri) ? { ...row, value_iri: undefined, value: placeholder } : row,
+  )
+}
 
 /** ページ上のカードで `facts` 表を切る行数。カード詳細（`CardDetail.tsx`）は
  *  切らずに全件出す — §2(a)。 */
@@ -88,11 +97,15 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
   const titleInfo = resolveCardTitle(card.title)
   const titleText = titleInfo.isKey ? t(titleInfo.value) : titleInfo.value
 
+  // 定義不備の定数（value_iri === property_iri）は表示前に「（値なし）」へ
+  // 落とす（契約 §4「事実の表」）。ここで一度だけ変換し、以降はこの rows を使う。
+  const rows = result ? maskDefinitionGapValues(result.items, t('builtin.value_missing')) : []
+
   const view =
     result && card.output_kind !== 'flow'
       ? defaultViewFor(
           { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-          result.items,
+          rows,
         )
       : null
   const rankedSpec = view && view.lang === 'table' ? (view.spec as TableSpec) : null
@@ -101,7 +114,7 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
   // facts 表はページ上では 12 行に切る（超えるときはカード下部に「すべて見る」
   // リンク）。defaultView.ts の決定論は変えず、CardTile 側で TableSpec.limit
   // を上書きする（§2(a)）。
-  const factsTotal = result ? result.items.length : 0
+  const factsTotal = rows.length
   const isFactsTable = card.output_kind === 'facts' && view && view.lang === 'table'
   const factsTruncated = isFactsTable && factsTotal > FACTS_TILE_LIMIT
   const tileView =
@@ -161,7 +174,7 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
         {!error && result && card.output_kind !== 'flow' && tileView && (
           <CardTileBody
             view={tileView}
-            rows={result.items}
+            rows={rows}
             ariaLabel={titleText}
             onOpenSubject={onOpenSubject}
             emptyText={t('empty')}

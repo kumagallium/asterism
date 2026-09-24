@@ -10,35 +10,45 @@ function humanizeKey(key: string): string {
   return stripped.replace(/_/g, ' ')
 }
 
-function allByRole(item: Record<string, ItemSpec>, role: ItemRole): ItemSpec[] {
-  return Object.values(item).filter((i) => i.role === role)
+// 行（items の 1 件）のキーは `result.item` の**キー名**であって、`ItemSpec.var`
+// （SPARQL 側の変数名）ではない — 宣言ツールでは両者が異なりうる（例: 出口キー
+// `life_expectancy` ← SPARQL 変数 `lifeExpectancy`）。以降は必ずキー名で行を
+// 参照する（`KeyedItem.key`）。`var` は行には現れないので使わない。
+type KeyedItem = ItemSpec & { key: string }
+
+function keyedEntries(item: Record<string, ItemSpec>): KeyedItem[] {
+  return Object.entries(item).map(([key, spec]) => ({ ...spec, key }))
 }
 
-function findRole(item: Record<string, ItemSpec>, role: ItemRole): ItemSpec | undefined {
+function allByRole(item: Record<string, ItemSpec>, role: ItemRole): KeyedItem[] {
+  return keyedEntries(item).filter((i) => i.role === role)
+}
+
+function findRole(item: Record<string, ItemSpec>, role: ItemRole): KeyedItem | undefined {
   return allByRole(item, role)[0]
 }
 
 /** 1 件のページを指す IRI 列（K4: 列としては出さず行クリックの遷移先にする）。
  *  `role: 'subject'` を優先し、組み込みツールの契約キー `subject_iri`
  *  （`builtinFields.ts` のコメント参照）へフォールバックする。 */
-function findSubject(item: Record<string, ItemSpec>): ItemSpec | undefined {
-  return findRole(item, 'subject') ?? Object.values(item).find((i) => i.var === 'subject_iri')
+function findSubject(item: Record<string, ItemSpec>): KeyedItem | undefined {
+  return findRole(item, 'subject') ?? keyedEntries(item).find((i) => i.key === 'subject_iri')
 }
 
 /** 見出し（＋単位があれば `[単位]` を添える。表の列見出しと Vega-Lite の軸タイトルで共通）。
  *  `item.label` があればそれを使い（呼び側が組み込みツールの表示名を焼き込む —
  *  `builtinFields.ts`）、無ければキーの機械整形にフォールバックする。 */
-function fieldTitle(item: ItemSpec): string {
-  const label = item.label ?? humanizeKey(item.var)
+function fieldTitle(item: KeyedItem): string {
+  const label = item.label ?? humanizeKey(item.key)
   return item.unit != null ? `${label} [${unitLabel(item.unit)}]` : label
 }
 
-/** 表の 1 列。`role: 'subject'` または `_iri` で終わる変数名は IRI 列とみなす。 */
-function columnFor(item: ItemSpec): TableColumn {
-  const isIri = item.var.endsWith('_iri') || item.role === 'subject'
+/** 表の 1 列。`role: 'subject'` または `_iri` で終わるキーは IRI 列とみなす。 */
+function columnFor(item: KeyedItem): TableColumn {
+  const isIri = item.key.endsWith('_iri') || item.role === 'subject'
   const col: TableColumn = {
-    field: item.var,
-    label: item.label ?? humanizeKey(item.var),
+    field: item.key,
+    label: item.label ?? humanizeKey(item.key),
     format: isIri ? 'iri' : item.number ? 'number' : 'text',
   }
   if (item.unit != null) col.unit = unitLabel(item.unit)
@@ -47,13 +57,13 @@ function columnFor(item: ItemSpec): TableColumn {
 }
 
 /** x 軸の encoding。`number: false` の項目だけ ordinal にする（契約 §5）。 */
-function xEncoding(item: ItemSpec): Record<string, unknown> {
-  return { field: item.var, type: item.number === false ? 'ordinal' : 'quantitative', title: fieldTitle(item) }
+function xEncoding(item: KeyedItem): Record<string, unknown> {
+  return { field: item.key, type: item.number === false ? 'ordinal' : 'quantitative', title: fieldTitle(item) }
 }
 
 /** y 軸の encoding。x と違い、`number: false` でも常に quantitative（契約 §5）。 */
-function yEncoding(item: ItemSpec): Record<string, unknown> {
-  return { field: item.var, type: 'quantitative', title: fieldTitle(item) }
+function yEncoding(item: KeyedItem): Record<string, unknown> {
+  return { field: item.key, type: 'quantitative', title: fieldTitle(item) }
 }
 
 function quantityView(tool: ToolContract): ViewSpec {
@@ -74,7 +84,7 @@ function seriesView(tool: ToolContract, rows: Row[]): ViewSpec {
   const encoding: Record<string, unknown> = {}
   if (x) encoding.x = xEncoding(x)
   if (y) encoding.y = yEncoding(y)
-  if (series) encoding.color = { field: series.var, type: 'nominal', title: fieldTitle(series) }
+  if (series) encoding.color = { field: series.key, type: 'nominal', title: fieldTitle(series) }
   const spec: VegaLiteSpec = { mark: { type: 'line', point: true }, encoding, data: { values: rows } }
   return { lang: 'vega-lite', spec }
 }
@@ -83,8 +93,8 @@ function pairsView(tool: ToolContract, rows: Row[]): ViewSpec {
   const x = findRole(tool.item, 'x')
   const y = findRole(tool.item, 'y')
   const encoding: Record<string, unknown> = {}
-  if (x) encoding.x = { field: x.var, type: 'quantitative', title: fieldTitle(x) }
-  if (y) encoding.y = { field: y.var, type: 'quantitative', title: fieldTitle(y) }
+  if (x) encoding.x = { field: x.key, type: 'quantitative', title: fieldTitle(x) }
+  if (y) encoding.y = { field: y.key, type: 'quantitative', title: fieldTitle(y) }
   const spec: VegaLiteSpec = { mark: 'point', encoding, data: { values: rows } }
   return { lang: 'vega-lite', spec }
 }
@@ -99,8 +109,8 @@ function rankedView(tool: ToolContract): ViewSpec {
   if (value) columns.push(columnFor(value))
   const subject = findSubject(tool.item)
   const spec: TableSpec = { variant: 'ranked', columns }
-  if (subject) spec.subject_field = subject.var
-  if (value) spec.sort = { field: value.var, dir: 'desc' }
+  if (subject) spec.subject_field = subject.key
+  if (value) spec.sort = { field: value.key, dir: 'desc' }
   return { lang: 'table', spec }
 }
 
@@ -110,11 +120,11 @@ function breakdownView(tool: ToolContract, rows: Row[]): ViewSpec {
   const encoding: Record<string, unknown> = {}
   // y 軸（出どころ等）の title は出さない（縦書きで軸ラベルに重なる・カードの
   // 見出しと列のラベルで意味は足りている）。x 軸の title はそのまま出す。
-  if (category) encoding.y = { field: category.var, type: 'nominal', sort: '-x', axis: { title: null } }
+  if (category) encoding.y = { field: category.key, type: 'nominal', sort: '-x', axis: { title: null } }
   // 件数は整数（0.0〜1.0 のような小数目盛にしない）。
   if (count)
     encoding.x = {
-      field: count.var,
+      field: count.key,
       type: 'quantitative',
       title: fieldTitle(count),
       axis: { tickMinStep: 1, format: 'd' },
@@ -124,27 +134,29 @@ function breakdownView(tool: ToolContract, rows: Row[]): ViewSpec {
 }
 
 function factsView(tool: ToolContract): ViewSpec {
-  const allEntries = Object.values(tool.item)
-  const byVar = new Map(allEntries.map((e) => [e.var, e]))
+  const allEntries = keyedEntries(tool.item)
+  const byKey = new Map(allEntries.map((e) => [e.key, e]))
   // 1 件のページを指す列（K4: 列にせず行クリックの遷移先へ・ranked と同じ
   // 扱い）。組み込みツール（例: set_members）の `subject_iri` はここで除く。
   const subject = findSubject(tool.item)
-  const entries = subject ? allEntries.filter((i) => i !== subject) : allEntries
-  const normal = entries.filter((i) => !i.var.endsWith('_iri'))
+  // `keyedEntries` は呼ぶたびに新しいオブジェクトを作るので参照比較はできない
+  // （`===` ではなくキーで同一性を見る）。
+  const entries = subject ? allEntries.filter((i) => i.key !== subject.key) : allEntries
+  const normal = entries.filter((i) => !i.key.endsWith('_iri'))
   // `_iri` で終わる列のうち、兄弟のラベル列（`X_iri` に対する `X`）が無い
   // ものだけ列として残す（例: 宣言ツールの `sample_iri`）。兄弟があるものは
   // 列を作らず、下で兄弟列の `href_field` として付ける（K4）。
-  const orphanIri = entries.filter((i) => i.var.endsWith('_iri') && !byVar.has(i.var.slice(0, -4)))
+  const orphanIri = entries.filter((i) => i.key.endsWith('_iri') && !byKey.has(i.key.slice(0, -4)))
   const columns = [...normal, ...orphanIri].map((entry) => {
     const col = columnFor(entry)
-    if (!entry.var.endsWith('_iri')) {
-      const sibling = byVar.get(`${entry.var}_iri`)
-      if (sibling && sibling !== subject) col.href_field = sibling.var
+    if (!entry.key.endsWith('_iri')) {
+      const sibling = byKey.get(`${entry.key}_iri`)
+      if (sibling && sibling.key !== subject?.key) col.href_field = sibling.key
     }
     return col
   })
   const spec: TableSpec = { variant: 'grid', columns }
-  if (subject) spec.subject_field = subject.var
+  if (subject) spec.subject_field = subject.key
   return { lang: 'table', spec }
 }
 

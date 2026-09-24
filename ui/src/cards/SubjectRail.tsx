@@ -7,9 +7,11 @@ import {
   type SubjectSearchItem,
   searchSubjects,
 } from './cardsApi'
+import { pickSampleSubjects } from './FirstScreen'
 import './rail.css'
 import { SetForm } from './SetForm'
 import { subjectDisplayLabel } from './subjectLabel'
+import { formatSetTitle } from './setTitle'
 import { addSubjectAndPersist, sortSubjects, useSubjects } from './subjectStore'
 
 export interface SubjectRailProps {
@@ -23,6 +25,10 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
   const all = useSubjects()
   const own = sortSubjects(all.filter((i) => i.source === 'own'))
   const open = sortSubjects(all.filter((i) => i.source === 'open'))
+  // 見本の主語には小さく「見本」の印を出す（契約メモ §3）。
+  const sample = pickSampleSubjects(all)
+  const isSample = (item: SubjectItem): boolean =>
+    item.subject_key === sample.individual?.subject_key || item.subject_key === sample.set?.subject_key
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SubjectSearchItem[] | null>(null)
@@ -77,10 +83,14 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
   }
 
   function onSetSubmit(result: SetResolveResult) {
+    // label は種類名だけでなく条件も含めた要約にする（同じ種類の絞り込みを
+    // 見分けられるように・チェッカー指摘）。純関数 setTitle.ts の
+    // formatSetTitle を使う（class_label と clauses から
+    // 「国: 人口 が 1,000 万 より大きい」のような文を組む）。
     const item: SubjectItem = {
       kind: 'set',
       id: result.set_id,
-      label: result.title.class_label,
+      label: formatSetTitle(result.title, t),
       class_label: result.title.class_label,
       source: 'open',
       card_count: null,
@@ -110,7 +120,12 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
         ) : (
           <div className="rail-list">
             {own.map((item) => (
-              <RailButton key={item.subject_key} item={item} onClick={() => openSubject(item)} />
+              <RailButton
+                key={item.subject_key}
+                item={item}
+                isSample={isSample(item)}
+                onClick={() => openSubject(item)}
+              />
             ))}
           </div>
         )}
@@ -174,7 +189,12 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
         {open.length > 0 && (
           <div className="rail-list">
             {open.map((item) => (
-              <RailButton key={item.subject_key} item={item} onClick={() => openSubject(item)} />
+              <RailButton
+                key={item.subject_key}
+                item={item}
+                isSample={isSample(item)}
+                onClick={() => openSubject(item)}
+              />
             ))}
           </div>
         )}
@@ -198,6 +218,18 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
           {t('rail.legend_set')}
         </span>
       </div>
+
+      {/* 戻り道: 棚を作る側へ静かに（契約メモ §3・§5: 「使う｜棚を作る」ピルの
+          代わり）。 */}
+      <div className="rail-foot">
+        <button
+          type="button"
+          className="rail-foot-link"
+          onClick={() => navigate({ tab: 'home' })}
+        >
+          {t('rail.advancedSettings', { defaultValue: '詳しい設定（データを整える）' })}
+        </button>
+      </div>
     </div>
   )
 }
@@ -209,12 +241,29 @@ function dotVariant(item: SubjectItem): 'link' | 'own' | 'amb' | 'set' {
   return 'link'
 }
 
-function RailButton({ item, onClick }: { item: SubjectItem; onClick: () => void }) {
+function RailButton({
+  item,
+  isSample,
+  onClick,
+}: {
+  item: SubjectItem
+  /** 見本（boot 仕込み）の主語かどうか — 小さく「見本」の印を出す（契約メモ §3）。 */
+  isSample: boolean
+  onClick: () => void
+}) {
   const { t } = useTranslation('cards')
+  // 項目に種類を小さく併記（「日本 · 国」「東アジア・太平洋の国 · 一覧」）。
+  // 個体は既に持っている class_label（例: 「国」）、絞り込みは種類を持たない
+  // ため固定語「一覧」。
+  const kindLabel = item.kind === 'set' ? t('rail.kindSet', { defaultValue: '一覧' }) : item.class_label
   return (
     <button type="button" className="rail-item" onClick={onClick}>
       <span className={`rail-dot rail-dot--${dotVariant(item)}`} aria-hidden="true" />
       <span className="rail-item-label">{item.label ?? t('rail.unlabeled')}</span>
+      {kindLabel && <span className="rail-item-kind">・{kindLabel}</span>}
+      {isSample && (
+        <span className="rail-item-sample">{t('rail.sampleBadge', { defaultValue: '見本' })}</span>
+      )}
       {item.card_count != null && <span className="rail-item-count">{item.card_count}</span>}
     </button>
   )

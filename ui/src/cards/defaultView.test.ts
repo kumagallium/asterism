@@ -14,6 +14,20 @@ const tool = (output_kind: ToolContract['output_kind'], item: Record<string, Ite
 })
 
 describe('defaultViewFor', () => {
+  it('series: キー ≠ var（宣言ツールの出口キー） — field には ItemSpec.var でなくキーを使う', () => {
+    const t = tool('series', {
+      year: { var: 'year', role: 'x', number: true, unit: 'unit:YR' },
+      life_expectancy: { var: 'lifeExpectancy', role: 'y', number: true, unit: 'unit:YR' },
+    })
+    const rows: Row[] = [{ year: 1955, life_expectancy: 66.12 }]
+    const view = defaultViewFor(t, rows)
+    const spec = view.spec as VegaLiteSpec
+    expect(spec.encoding).toEqual({
+      x: { field: 'year', type: 'quantitative', title: 'year [YR]' },
+      y: { field: 'life_expectancy', type: 'quantitative', title: 'life expectancy [YR]' },
+    })
+  })
+
   it('quantity: 図書館の貸出 — value を先頭に、at → label → subject の順で並べる', () => {
     const t = tool('quantity', {
       checkout_count: { var: 'checkout_count', role: 'value', number: true, unit: 'unit:CT' },
@@ -85,6 +99,69 @@ describe('defaultViewFor', () => {
       x: { field: 'pages', type: 'quantitative', title: 'pages' },
       y: { field: 'loan_days', type: 'quantitative', title: 'loan days' },
     })
+  })
+
+  it('pairs: キー ≠ var — field にはキーを使う', () => {
+    const t = tool('pairs', {
+      page_count: { var: 'pages', role: 'x', number: true },
+      days_out: { var: 'loanDays', role: 'y', number: true },
+    })
+    const rows: Row[] = [{ page_count: 100, days_out: 14 }]
+    const view = defaultViewFor(t, rows)
+    const spec = view.spec as VegaLiteSpec
+    expect(spec.encoding).toEqual({
+      x: { field: 'page_count', type: 'quantitative', title: 'page count' },
+      y: { field: 'days_out', type: 'quantitative', title: 'days out' },
+    })
+  })
+
+  it('ranked: キー ≠ var — columns/sort/subject_field はどれもキーを使う', () => {
+    const t = tool('ranked', {
+      name: { var: 'stationName', role: 'label' },
+      rainfall: { var: 'rainfallMm', role: 'value', number: true, unit: 'unit:MM' },
+      subject_iri: { var: 'station', role: 'subject' },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.columns).toEqual([
+      { field: 'name', label: 'name', format: 'text' },
+      { field: 'rainfall', label: 'rainfall', unit: 'MM', format: 'number', align: 'right' },
+    ])
+    expect(spec.subject_field).toBe('subject_iri')
+    expect(spec.sort).toEqual({ field: 'rainfall', dir: 'desc' })
+  })
+
+  it('breakdown: キー ≠ var — encoding.field はキーを使う', () => {
+    const t = tool('breakdown', {
+      book_genre: { var: 'genre', role: 'category' },
+      total_titles: { var: 'titleCount', role: 'count', number: true },
+    })
+    const rows: Row[] = [{ book_genre: 'fiction', total_titles: 5 }]
+    const view = defaultViewFor(t, rows)
+    const spec = view.spec as VegaLiteSpec
+    expect(spec.encoding).toEqual({
+      y: { field: 'book_genre', type: 'nominal', sort: '-x', axis: { title: null } },
+      x: {
+        field: 'total_titles',
+        type: 'quantitative',
+        title: 'total titles',
+        axis: { tickMinStep: 1, format: 'd' },
+      },
+    })
+  })
+
+  it('facts: キー ≠ var — 兄弟の href_field・単独列とも field はキーで揃う', () => {
+    const t = tool('facts', {
+      title: { var: 'stationName' },
+      title_iri: { var: 'stationIri' },
+      humidity: { var: 'humidityPct', number: true },
+    })
+    const view = defaultViewFor(t, [])
+    const spec = view.spec as TableSpec
+    expect(spec.columns).toEqual([
+      { field: 'title', label: 'title', format: 'text', href_field: 'title_iri' },
+      { field: 'humidity', label: 'humidity', format: 'number', align: 'right' },
+    ])
   })
 
   it('ranked: 気象観測 — 見えるのは label, value だけ（subject は subject_field へ・K4）・sort は value desc', () => {
