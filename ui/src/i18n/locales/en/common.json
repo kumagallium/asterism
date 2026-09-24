@@ -10,7 +10,11 @@
     "en": "English"
   },
   "nav": {
-    "cards": "View",
+    "group_build": "Build",
+    "group_use": "Use",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "cards": "Workspace",
     "home": "Home",
     "gallery": "Datasets",
     "crosswalk": "Connections",
@@ -95,7 +99,7 @@
       "sub": "The seven default cards, one per output kind"
     },
     "cards": {
-      "eyebrow": "View",
+      "eyebrow": "Workspace",
       "title": "Search",
       "sub": "See a single item or a condition-based list as cards, with their sources"
     }

@@ -16,20 +16,10 @@ import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
-import {
-  ActivityIcon,
-  AskIcon,
-  BrandMark,
-  CodeIcon,
-  ConnectIcon,
-  DataIcon,
-  GearIcon,
-  HomeIcon,
-  LayersIcon,
-  TermsIcon,
-} from './icons'
+import { BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
 import { JobsView } from './JobsView'
 import { WorkbenchTier } from './kantan/WorkbenchTier'
+import { NAV_GROUPS } from './navGroups'
 import { OntologyMapView } from './OntologyMapView'
 import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
@@ -46,10 +36,11 @@ type Tab =
   | 'map'
   | 'jobs'
   | 'sparql'
-  /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
+  /** 裏タブ（NAV_GROUPS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
   | 'cardsdemo'
   /** 「1 件／絞り込み × カード」の使う画面（object-cards-ui.md）。既定ルート
-   *  （契約メモ contract_pr_e.md §3）— NAV_ITEMS の先頭（「見る」）から入る。 */
+   *  （契約メモ contract_pr_e.md §3）— 左ナビ「使う」見出しの「ワークスペース」
+   *  （旧「見る」・契約メモ contract_pr_f7.md §1）から入る。 */
   | 'cards'
 
 // ---- hash ルーティング -------------------------------------------------------
@@ -236,22 +227,33 @@ export function routeToHash(r: Route): string {
 // terms (共通の言葉) are promoted to first-class places; the ontology map (全体像)
 // is reached from つながり. SPARQL sits apart at the foot as a developer escape
 // hatch. Labels are resolved via i18n (common.nav.*).
-interface NavItem {
-  id: Tab
-  icon: typeof HomeIcon
+//
+// 左ナビは 1 本・常に同じ（契約メモ contract_pr_f7.md §1）: 見出し「作る」
+// 「使う」＋項目は navGroups.ts の NAV_GROUPS（純データ）から。かつては
+// `tab === 'cards'` のあいだこの一覧ごと SubjectRail に差し替えていたが、
+// それだと旧ナビが消えて戻り道が「見る」1 行しか無かった（ユーザー指摘・O52）。
+
+/** 左ナビの「たたむ」状態を保つキー（契約メモ §1-2）。既定は開いている。 */
+const NAV_COLLAPSE_STORAGE = 'asterism.nav.collapsed'
+/** 「本文の最小幅を割る画面幅」（契約メモ §1-6）。 */
+const NAV_AUTO_COLLAPSE_QUERY = '(max-width: 1099px)'
+
+function loadNavCollapsed(): boolean | null {
+  try {
+    const raw = localStorage.getItem(NAV_COLLAPSE_STORAGE)
+    return raw === null ? null : raw === '1'
+  } catch {
+    return null
+  }
 }
-const NAV_ITEMS: NavItem[] = [
-  // 「見る」（cards）を先頭に（契約メモ §3: 裏タブでなくする）。tab === 'cards'
-  // の間はこの一覧自体が SubjectRail に差し替わるため、ここから他画面にいる
-  // ときの戻り道として働く。
-  { id: 'cards', icon: LayersIcon },
-  { id: 'home', icon: HomeIcon },
-  { id: 'gallery', icon: DataIcon },
-  { id: 'crosswalk', icon: ConnectIcon },
-  { id: 'ask', icon: AskIcon },
-  { id: 'vocab', icon: TermsIcon },
-  { id: 'jobs', icon: ActivityIcon },
-]
+
+function saveNavCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(NAV_COLLAPSE_STORAGE, collapsed ? '1' : '0')
+  } catch {
+    /* private mode 等 — 今回のセッションだけ効く */
+  }
+}
 
 /**
  * The desktop shell adds `?port_fallback=1` to the window URL when its usual
@@ -371,6 +373,42 @@ function App() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+
+  // 左ナビの「たたむ」（契約メモ §1-2・§1-6）。localStorage に値があれば
+  // それが唯一の真実源（ユーザーの明示操作が優先＝以後この画面幅監視は無視）。
+  // 無ければ、狭い画面幅では最初から自動でたたんだ状態にする。
+  const navCollapsedExplicit = useRef(loadNavCollapsed() !== null)
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    const stored = loadNavCollapsed()
+    if (stored !== null) return stored
+    try {
+      return window.matchMedia(NAV_AUTO_COLLAPSE_QUERY).matches
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    if (navCollapsedExplicit.current) return
+    let mq: MediaQueryList
+    try {
+      mq = window.matchMedia(NAV_AUTO_COLLAPSE_QUERY)
+    } catch {
+      return
+    }
+    const onChange = () => setNavCollapsed(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  function toggleNavCollapsed() {
+    setNavCollapsed((cur) => {
+      const next = !cur
+      navCollapsedExplicit.current = true
+      saveNavCollapsed(next)
+      return next
+    })
+  }
 
   /** 画面遷移の唯一の入口。pushState/replaceState で hash を書き、state を同期する
    *  （push/replace は hashchange を発火しないため手で set。hashchange リスナは
@@ -529,7 +567,7 @@ function App() {
       <UpdateBanner />
       <BackendDownBanner />
       <div className="app-shell">
-        <aside className="sidebar">
+        <aside className={`sidebar${navCollapsed ? ' sidebar--collapsed' : ''}`}>
           <div className="brand">
             <span className="brand-mark">
               <BrandMark />
@@ -540,20 +578,17 @@ function App() {
             </span>
           </div>
 
-          <nav className="side-nav">
-            {tab === 'cards' ? (
-              <SubjectRail route={route} navigate={navigate} />
-            ) : (
-              <div className="side-nav-group">
-                {NAV_ITEMS.map((it) => {
+          {/* 左ナビは 1 本・常に同じ（契約メモ §1・O52）: 見出し「作る」「使う」
+              ＋ navGroups.ts の NAV_GROUPS。tab === 'cards' でも差し替えない
+              ——「使う」の「ワークスペース」がここへの戻り道を兼ねる。 */}
+          <nav className="side-nav" id="app-side-nav">
+            {NAV_GROUPS.map((group) => (
+              <div className="side-nav-group" key={group.key}>
+                <h2 className="side-nav-group-title">{t(`nav.group_${group.key}`)}</h2>
+                {group.items.map((it) => {
                   const Icon = it.icon
-                  // `nav.cards` は新設キー（契約メモ §3）— ui-words が common.json
-                  // に足すまでの仮置き（notes 参照）。
-                  const navLabel = t(`nav.${it.id}`, it.id === 'cards' ? { defaultValue: '見る' } : undefined)
-                  const navGloss = glossT(
-                    `nav.${it.id}`,
-                    it.id === 'cards' ? { defaultValue: 'View' } : undefined,
-                  )
+                  const navLabel = t(`nav.${it.id}`)
+                  const navGloss = glossT(`nav.${it.id}`)
                   return (
                     <button
                       key={it.id}
@@ -561,8 +596,9 @@ function App() {
                       className={`side-nav-item${tab === it.id ? ' active' : ''}`}
                       onClick={() => navTo(it.id)}
                       aria-current={tab === it.id ? 'page' : undefined}
-                      // 860px 以下でラベルが display:none になるアイコンレールでも
-                      // 名前が残るように（ツールチップ兼スクリーンリーダー名）
+                      // たたんだ状態・860px 以下でラベルが display:none になる
+                      // アイコンレールでも名前が残るように（ツールチップ兼
+                      // スクリーンリーダー名・契約メモ §1-2）。
                       aria-label={navLabel}
                       title={navLabel}
                     >
@@ -573,10 +609,24 @@ function App() {
                   )
                 })}
               </div>
-            )}
+            ))}
           </nav>
 
           <div className="sidebar-foot">
+            {/* たたむ／ひろげる（契約メモ §1-2）。たたんだ状態でも設定／開発者向け
+                は下に残る（アイコンのみ・title/aria-label で名前は引ける）。 */}
+            <button
+              type="button"
+              className="side-nav-item side-nav-collapse"
+              onClick={toggleNavCollapsed}
+              aria-expanded={!navCollapsed}
+              aria-controls="app-side-nav"
+              aria-label={t(navCollapsed ? 'nav.expand' : 'nav.collapse')}
+              title={t(navCollapsed ? 'nav.expand' : 'nav.collapse')}
+            >
+              <ChevronIcon className={`side-nav-icon side-nav-collapse-icon${navCollapsed ? '' : ' side-nav-collapse-icon--open'}`} />
+              <span className="side-nav-text">{t(navCollapsed ? 'nav.expand' : 'nav.collapse')}</span>
+            </button>
             <button
               type="button"
               className="side-nav-item side-nav-settings"
@@ -618,7 +668,14 @@ function App() {
           </div>
         </aside>
 
-        <div className="app-main" ref={mainRef}>
+        <div className="app-main">
+          {/* ワークスペース（cards）の子ナビ＝第 2 列（契約メモ §1-3・O52）。
+              左ナビと本文のあいだ。F5 の /define・/details のあいだも出たまま
+              （route.datasetSub があっても tab は 'cards' のまま）。 */}
+          {tab === 'cards' && (
+            <SubjectRail route={route} navigate={navigate} />
+          )}
+          <div className="app-main-body" ref={mainRef}>
           <header className="topbar">
             <div className="topbar-titles">
               <span
@@ -661,7 +718,7 @@ function App() {
 
           {/* 質問する（チャット）は画面の残り高さを使い切り、各列が内側でスクロール
               する（メッセージ一覧はスクロール・入力欄は下に固定）。他画面は従来通り
-              .app-main がスクロールコンテナ。 */}
+              .app-main-body がスクロールコンテナ。 */}
           <main className={`app-content${tab === 'ask' ? ' app-content--chat' : ''}`}>
             {tab === 'home' && (
               <HomeView
@@ -797,6 +854,7 @@ function App() {
               />
             )}
           </main>
+          </div>
         </div>
       </div>
       {/* Global right-drawer AI consult (ADR design-consult-chat.md D1): available

@@ -124,6 +124,17 @@
   flex-direction: column;
   gap: 0.15rem;
 }
+/* 見出し「作る」「使う」（契約メモ contract_pr_f7.md §1）。rail-section-title
+   と同じ house style（トークンのみ）。 */
+.side-nav-group-title {
+  margin: 0.2rem 0 0.1rem;
+  padding: 0 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 .side-nav-item {
   display: flex;
   align-items: center;
@@ -194,6 +205,19 @@ button.side-nav-item.active:hover:not(:disabled) {
   gap: 0.5rem;
   padding-top: 0.5rem;
 }
+/* たたむ／ひろげる（契約メモ §1-2）。sidebar-foot の一番上・設定/開発者向けの
+   上に置く（区切り線で分ける）。 */
+.side-nav-collapse {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.7rem;
+  margin-bottom: 0.1rem;
+}
+.side-nav-collapse-icon {
+  transition: transform 0.15s ease;
+}
+.side-nav-collapse-icon--open {
+  transform: rotate(180deg);
+}
 .side-nav-dev {
   border: 1px solid var(--border);
 }
@@ -221,7 +245,20 @@ button.side-nav-item.active:hover:not(:disabled) {
   background: var(--entity);
 }
 
+/* ワークスペース（cards）の子ナビ（SubjectRail・rail.css の `.rail` が第 2 列
+   としての幅と境界線を持つ）＋本文（.app-main-body）を横に並べる列（契約メモ
+   contract_pr_f7.md §1-3・O52）。子ナビが無い画面では .app-main-body だけの
+   1 列になる。 */
 .app-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.app-main-body {
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -567,6 +604,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
     padding: 1rem 0.4rem;
   }
   .brand-text,
+  .side-nav-group-title,
   .side-nav-text,
   .side-nav-en,
   .graph-status {
@@ -580,10 +618,39 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
     justify-content: center;
     padding: 0.6rem 0;
   }
-  .side-nav-dev {
+  .side-nav-dev,
+  .side-nav-collapse {
     border: none;
   }
 }
+
+/* たたむ（契約メモ §1-2）: JS 側の state（asterism.nav.collapsed・自動判定は
+   1100px 未満）が付ける明示クラス。860px 未満の自動アイコン化（上の @media）
+   とは独立の仕組みで、どの画面幅でも効く。 */
+.sidebar--collapsed {
+  width: 56px;
+  padding: 1.1rem 0.4rem;
+}
+.sidebar--collapsed .brand-text,
+.sidebar--collapsed .side-nav-group-title,
+.sidebar--collapsed .side-nav-text,
+.sidebar--collapsed .side-nav-en,
+.sidebar--collapsed .graph-status {
+  display: none;
+}
+.sidebar--collapsed .brand {
+  justify-content: center;
+  padding: 0.3rem 0 0.6rem;
+}
+.sidebar--collapsed .side-nav-item {
+  justify-content: center;
+  padding: 0.6rem 0;
+}
+.sidebar--collapsed .side-nav-dev,
+.sidebar--collapsed .side-nav-collapse {
+  border: none;
+}
+
 @media (max-width: 640px) {
   .topbar {
     padding: 0.9rem 1.1rem;

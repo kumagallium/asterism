@@ -1,12 +1,20 @@
-/* SubjectRail — 契約メモ §6.3。サイドバー（.sidebar, 248px）の中で
-   .side-nav の中身を丸ごと差し替える（App.tsx）。トークンのみ、house style。 */
+/* SubjectRail — 契約メモ contract_pr_f7.md §1-3（旧 contract_pr_f2.md §6.3）。
+   左ナビ（.sidebar, 220px・たたむと 56px）とは別の第 2 列として
+   `.app-main`（App.tsx）の左に出る。左ナビと違い、tab === 'cards' の
+   あいだ常に出る（旧: sidebar の中身を丸ごと差し替えていた）。トークンのみ、
+   house style。 */
 
 .rail {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  width: 240px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 1.1rem 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 
