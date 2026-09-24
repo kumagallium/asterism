@@ -26,6 +26,7 @@ D1-serve）が own の Oxigraph を起動して読む。ここで書き出す SP
 LLM 呼び出しは無い（``AGENT.md`` も :mod:`asterism.agent_doc` の決定論
 テンプレート）。分野固有の名詞はここに書かない。
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -89,7 +90,17 @@ _BUILTIN_TOOL_NAMES: dict[str, str] = {
     "set_count": "page_count",
 }
 
+#: 契約メモ contract_pr_f4.md §1-6「束への凍結」対象の、appdata cards が持つ
+#: 組み込みツール名（＝「足したカード」1 枚ごとに人がグラフを組んで保存した
+#: もの）。上の :data:`_BUILTIN_TOOL_NAMES` と違い、束での名前は固定 1 つ
+#: ではなく足したカードの数だけ生える（card_id ごとに :func:`_added_card_bundle_name`
+#: で名前を作る）— 対応表 :data:`_BUILTIN_ITEM_OVERRIDES` も持たない
+#: （カードごとに射影する列が違うため、``result["item"]`` をそのまま使う。
+#: :func:`_added_card_tool_raw` 参照）。
+_ADDED_CARD_TOOL_NAME = "set_measure"
+
 _UNSAFE_SLUG_CHARS = re.compile(r"[^a-z0-9]+")
+_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_]+")
 
 
 class ExportError(Exception):
@@ -339,8 +350,7 @@ async def _describe_one_hop(
     named = substrate.canonical_from_clauses(allowed_graphs, named=True)
     values = " ".join(f"<{i}>" for i in safe_iris)
     query = (
-        f"SELECT ?g ?s ?p ?o\n{named}"
-        f"WHERE {{ GRAPH ?g {{ VALUES ?s {{ {values} }} ?s ?p ?o }} }}"
+        f"SELECT ?g ?s ?p ?o\n{named}WHERE {{ GRAPH ?g {{ VALUES ?s {{ {values} }} ?s ?p ?o }} }}"
     )
     raw = await client.sparql_select(query)
     out: list[tuple[str, str, str, dict[str, Any]]] = []
@@ -443,7 +453,7 @@ def _render_control_trig(control: dict[str, dict[str, str | None]]) -> str:
         key = subjects_mod.safe_iri(info["canonical_graph"])
         if key is None:
             continue
-        lines.append(f"  <{key}> <{substrate.STATUS_PREDICATE}> \"{substrate.STATUS_PROMOTED}\" .")
+        lines.append(f'  <{key}> <{substrate.STATUS_PREDICATE}> "{substrate.STATUS_PROMOTED}" .')
         live = subjects_mod.safe_iri(info.get("live_graph"))
         if live is not None:
             lines.append(f"  <{key}> <{substrate.LIVE_GRAPH_PREDICATE}> <{live}> .")
@@ -560,9 +570,7 @@ def _builtin_tool_raw(bundle_name: str, result: dict[str, Any]) -> dict[str, Any
         return None
     sparql = _strip_from_clauses(sparql)
     projected = _select_projected_vars(sparql)
-    item = {
-        key: dict(spec) for key, spec in overrides.items() if spec.get("var") in projected
-    }
+    item = {key: dict(spec) for key, spec in overrides.items() if spec.get("var") in projected}
     if not item:
         return None
     raw: dict[str, Any] = {
@@ -583,6 +591,103 @@ def _builtin_tool_raw(bundle_name: str, result: dict[str, Any]) -> dict[str, Any
     if lint.errors:
         logger.debug(
             "agent_bundle: builtin tool %r failed lint (%s), skipping", bundle_name, lint.errors
+        )
+        return None
+    return raw
+
+
+def _added_card_bundle_name(card_id: str) -> str:
+    """足したカード 1 枚を束の ``tools/_builtin/`` に凍結するときの宣言ツール
+    名。``card_id``（決定論ハッシュ・``appdata_cards_routes.py`` が形を検証
+    済み・常に ``"card-"`` で始まる）を ``query_tools.parse_query_tools`` の
+    ツール名規則（``^[A-Za-z_]\\w*$``）が通る形に畳む — 英数字/アンダース
+    コア以外は ``_`` に、必ず文字で始まる名前にする。``card_id`` が既に
+    ``card`` で始まるので、ここでさらに ``card_`` を前置すると
+    ``card_card_…`` と二重になる（そのまま畳むだけでよい）。"""
+    cleaned = _UNSAFE_NAME_CHARS.sub("_", card_id).strip("_")
+    return cleaned if cleaned else "card_0"
+
+
+#: ``asterism.subject_tools`` の ``set_measure``（shape ごとの ``_measure_*``
+#: ヘルパー・``shape == "breakdown"`` の委譲先 ``set_breakdown``）が実際に
+#: 組む生 SPARQL の SELECT 射影変数名への対応表 —
+#: :data:`_BUILTIN_ITEM_OVERRIDES` と同じ理由（result["item"] の役割キーは
+#: 「加工後」の名前で、生クエリの変数名とは食い違うことがある。例:
+#: series の ``x`` は item 上 ``"x"`` だが生クエリは ``BIND(... AS ?xn)``
+#: なので射影は ``?xn``）。相違点は、足したカードは card_id ごとに別の束
+#: ツール名を持つため対応表を bundle_name でなく output_kind（＝shape）で
+#: 引くこと。表に無いキー（例: ranked の ``label`` — Python 側の後付け
+#: ラベルで生クエリに射影が無い）は落とす。"facts" だけは shape の中で
+#: 唯一 item キーが params の項目数だけ動的に増える形（``value<N>``）なの
+#: で、``_measure_facts`` の命名規則（``v<N>``）から機械的に導く。
+_MEASURE_RAW_VAR: dict[str, dict[str, str]] = {
+    "series": {"x": "xn", "y": "y"},
+    "pairs": {"x": "x", "y": "y"},
+    "ranked": {"subject_iri": "s", "value": "value"},
+    "quantity": {"value": "value"},
+    "breakdown": {"category": "cat", "count": "cnt"},
+}
+_FACTS_VALUE_KEY_RE = re.compile(r"^value(\d+)$")
+
+
+def _measure_raw_var(output_kind: str, key: str) -> str | None:
+    table = _MEASURE_RAW_VAR.get(output_kind)
+    if table is not None:
+        return table.get(key)
+    if output_kind == "facts":
+        m = _FACTS_VALUE_KEY_RE.match(key)
+        return f"v{m.group(1)}" if m else None
+    return None
+
+
+def _added_card_tool_raw(
+    bundle_name: str, result: dict[str, Any], *, title: str | None = None
+) -> dict[str, Any] | None:
+    """appdata の「足したカード」（``set_measure``）1 枚分の raw YAML エント
+    リ、または ``None``（最終 SPARQL が無い・item が無い・lint が通らない
+    ときは書かない — :func:`_builtin_tool_raw` と同じ保守側の規律: 壊れた
+    ツールを束に入れるより、そのツールを省く）。
+
+    :func:`_measure_raw_var` で item の各キーを生クエリの実際の変数名に
+    差し替えてから、生クエリの SELECT 射影に無いものは落とす（安全側 —
+    ロジックは :func:`_builtin_tool_raw` と同じ）。"""
+    sparql = result.get("sparql")
+    output_kind = result.get("output_kind") or "facts"
+    raw_item = result.get("item")
+    if not sparql or not isinstance(raw_item, dict) or not raw_item:
+        return None
+    sparql = _strip_from_clauses(sparql)
+    projected = _select_projected_vars(sparql)
+    item: dict[str, Any] = {}
+    for key, spec in raw_item.items():
+        if not isinstance(spec, dict):
+            continue
+        raw_var = _measure_raw_var(output_kind, key)
+        if raw_var is None or raw_var not in projected:
+            continue
+        entry = dict(spec)
+        entry["var"] = raw_var
+        item[key] = entry
+    if not item:
+        return None
+    raw: dict[str, Any] = {
+        "name": bundle_name,
+        "title": (title or "").strip() or bundle_name,
+        "query": sparql,
+        "output_kind": output_kind,
+        "result": {"item": item},
+    }
+    try:
+        tools = parse_query_tools({"tools": [raw]})
+    except QueryToolError:
+        logger.debug("agent_bundle: added card %r failed to parse, skipping", bundle_name)
+        return None
+    if not tools:
+        return None
+    lint = lint_query_tool(tools[0])
+    if lint.errors:
+        logger.debug(
+            "agent_bundle: added card %r failed lint (%s), skipping", bundle_name, lint.errors
         )
         return None
     return raw
@@ -746,6 +851,7 @@ def _dedup_reasons(per_card_reasons: list[list[str]]) -> list[str]:
 # AGENT.md / mcp.json / README.md
 # ----------------------------------------------------------------------------
 
+
 def _render_readme(*, slug: str, lang: str) -> str:
     if lang == "en":
         return (
@@ -758,7 +864,7 @@ def _render_readme(*, slug: str, lang: str) -> str:
             f"`mcpServers`, replacing `.` with the absolute path to this `{slug}` folder.\n\n"
             "## A local LLM (any MCP-compatible client)\n\n"
             f"    asterism-agent serve /abs/path/to/{slug}\n\n"
-            "If a tool call comes back `{\"error\": ...}`, the bundle's `tools/` and "
+            'If a tool call comes back `{"error": ...}`, the bundle\'s `tools/` and '
             "`facts/` may be out of sync — re-export this bundle rather than editing "
             "the files by hand.\n"
         )
@@ -772,7 +878,7 @@ def _render_readme(*, slug: str, lang: str) -> str:
         f"`.` をこの `{slug}` フォルダの絶対パスに書き換える。\n\n"
         "## ローカル LLM(MCP 対応クライアント全般)\n\n"
         f"    asterism-agent serve /abs/path/to/{slug}\n\n"
-        "ツール呼び出しが `{\"error\": ...}` を返したときは、`tools/` と `facts/` の"
+        'ツール呼び出しが `{"error": ...}` を返したときは、`tools/` と `facts/` の'
         "整合が崩れている疑いがある(手で編集せず、束を作り直すこと)。\n"
     )
 
@@ -819,6 +925,10 @@ async def build_export_bundle(
     if subject.get("kind") not in SUBJECT_KINDS:
         raise ValueError(f"subject.kind must be one of {SUBJECT_KINDS}")
 
+    # 足したカードの題名（card_id → title）: 凍結ツールと AGENT.md の見出しに使う
+    card_titles: dict[str, str] = {
+        str(card.get("card_id")): str(card.get("title") or "") for card in cards
+    }
     ran: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
     for card in cards:
         card_id = str(card["card_id"])
@@ -896,7 +1006,7 @@ async def build_export_bundle(
     builtin_raws: dict[str, dict[str, Any]] = {}
     per_dataset_tools: dict[str, dict[str, dict[str, Any]]] = {}
     materials_by_dataset: dict[str, Material] = {}
-    for _cid, tool, _params, result in ran:
+    for card_id, tool, _params, result in ran:
         for raw_mat in result.get("materials") or []:
             if not isinstance(raw_mat, dict):
                 continue
@@ -917,6 +1027,15 @@ async def build_export_bundle(
             raw = _builtin_tool_raw(builtin_bundle_name, result)
             if raw is not None:
                 builtin_raws[builtin_bundle_name] = raw
+            continue
+        if tool == _ADDED_CARD_TOOL_NAME:
+            # 契約メモ contract_pr_f4.md §1-6: 足したカードは card_id ごとに
+            # 別の静的ツールとして凍結する（既定カードの固定 1 バケットとは
+            # 違い、カードの数だけ tools/_builtin/ に増える）。
+            added_bundle_name = _added_card_bundle_name(card_id)
+            raw = _added_card_tool_raw(added_bundle_name, result, title=card_titles.get(card_id))
+            if raw is not None:
+                builtin_raws[added_bundle_name] = raw
             continue
         if "/" in tool:
             dataset_id, tool_name = tool.split("/", 1)
@@ -994,11 +1113,20 @@ async def build_export_bundle(
         if spec["view"]["lang"] == "graph":
             safe_graph = _safe_mermaid_graph(spec["view"]["spec"])
             card_files[f"cards/{card_id}.mmd"] = to_mermaid(safe_graph)
+        # AGENT.md の「答えられること」に出すツール名は、
+        # tools/_builtin/query_tools.yaml に実際に書かれる名前と一致させる
+        # （見つけた磨き #4）。足したカード（``_ADDED_CARD_TOOL_NAME`` ＝
+        # ``set_measure``）は呼び出し時の名前が全カード共通なので、そのまま
+        # 出すと束に何枚あっても "set_measure" 1 行にしか見えず、実際に
+        # 凍結された ``card_<hash>`` という名前がどこにも現れない
+        # （ユーザー報告どおり）。凍結名 (:func:`_added_card_bundle_name`)
+        # に解決してから渡す。
+        doc_tool = _added_card_bundle_name(card_id) if tool == _ADDED_CARD_TOOL_NAME else tool
         doc_cards.append(
             AgentDocCard(
-                title=str(spec.get("tool")),
+                title=card_titles.get(card_id) or str(spec.get("tool")),
                 output_kind=result.get("output_kind") or "facts",
-                tool=tool,
+                tool=doc_tool,
             )
         )
 

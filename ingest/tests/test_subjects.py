@@ -12,13 +12,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from asterism.subjects import (
     LABEL_PREDICATES,
+    SetSpecError,
     label_union_clause,
+    normalize_set_spec,
     pick_label,
     resolve_dataset_label,
     valid_dataset_id,
 )
+
+EX = "https://ex/o#"
+CLASS_IRI = EX + "Thing"
+LINK_PRED = EX + "pointsAt"
+TARGET_IRI = "https://ex/o/resource/target-1"
 
 
 def test_label_predicates_priority_order() -> None:
@@ -153,3 +162,108 @@ def test_resolve_dataset_label_ignores_an_empty_metadata_ttl(tmp_path: Path) -> 
     )
     (dataset_dir / "metadata.ttl").write_text("", encoding="utf-8")
     assert resolve_dataset_label(tmp_path, dataset_id) == "種苗カタログ"
+
+
+# ----------------------------------------------------------------------------
+# normalize_set_spec's ``link`` where clause (契約メモ contract_pr_f4.md
+# §1-3・ADR O46): 「この 1 件を指す種類」の where 条件 — ``op``/``value`` を
+# 持つ値条件とは別の形で、``?s <property> <iri>`` の存在チェックだけ。
+# ----------------------------------------------------------------------------
+
+
+def test_normalize_set_spec_accepts_a_link_clause() -> None:
+    spec = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    assert spec["where"] == [{"property": LINK_PRED, "iri": TARGET_IRI}]
+
+
+def test_normalize_set_spec_link_clause_has_no_op_or_value_keys() -> None:
+    spec = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    clause = spec["where"][0]
+    assert "op" not in clause
+    assert "value" not in clause
+
+
+def test_normalize_set_spec_link_clause_rejects_mixing_op() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [{"property": LINK_PRED, "iri": TARGET_IRI, "op": "eq", "value": "x"}],
+            }
+        )
+
+
+def test_normalize_set_spec_link_clause_rejects_mixing_value_only() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [{"property": LINK_PRED, "iri": TARGET_IRI, "value": 1}],
+            }
+        )
+
+
+def test_normalize_set_spec_link_clause_requires_a_well_formed_iri() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": "not an iri"}]}
+        )
+
+
+def test_normalize_set_spec_link_clause_requires_a_well_formed_property() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {"class": CLASS_IRI, "where": [{"property": "not an iri", "iri": TARGET_IRI}]}
+        )
+
+
+def test_normalize_set_spec_link_clause_rejects_at_escape_hatch() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "iri": TARGET_IRI,
+                        "at": {"property": "x", "value": 1},
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_link_and_value_clauses_can_coexist() -> None:
+    spec = normalize_set_spec(
+        {
+            "class": CLASS_IRI,
+            "where": [
+                {"property": LINK_PRED, "iri": TARGET_IRI},
+                {"property": EX + "count", "op": "gt", "value": 1},
+            ],
+        }
+    )
+    assert spec["where"] == [
+        {"property": LINK_PRED, "iri": TARGET_IRI},
+        {"property": EX + "count", "op": "gt", "value": 1},
+    ]
+
+
+def test_normalize_set_spec_link_clause_participates_in_set_id_determinism() -> None:
+    from asterism.subjects import set_id_of
+
+    spec_a = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    spec_b = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    other = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI + "-other"}]}
+    )
+    assert set_id_of(spec_a) == set_id_of(spec_b)
+    assert set_id_of(spec_a) != set_id_of(other)

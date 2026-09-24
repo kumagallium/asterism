@@ -297,6 +297,15 @@ def _normalize_clause(raw: Any, *, index: int) -> dict[str, Any]:
         # caller that relies on it fails loudly instead of getting a
         # differently-scoped answer.
         raise SetSpecError(f"where[{index}].at is not supported yet (Phase 1)")
+    if "iri" in raw and raw["iri"] is not None:
+        # link 形（PR F4 契約メモ §1-3 / ADR O46）: 「この 1 件を指す種類」の
+        # where 条件 — ``?s <property> <iri>`` の存在チェックのみで、op/value
+        # を持つ値条件とは別物（混ぜて送るのは呼び出し側のバグなので拒否）。
+        if "op" in raw or "value" in raw:
+            raise SetSpecError(f"where[{index}] cannot mix a link clause (iri) with op/value")
+        prop = _require_iri(raw.get("property"), f"where[{index}].property")
+        target = _require_iri(raw.get("iri"), f"where[{index}].iri")
+        return {"property": prop, "iri": target}
     prop = _require_iri(raw.get("property"), f"where[{index}].property")
     op = raw.get("op")
     if op not in ALLOWED_OPS:
@@ -335,7 +344,9 @@ def normalize_set_spec(raw: Any) -> dict[str, Any]:
     Raises :class:`SetSpecError` for anything malformed, including a Phase-1
     ``at`` clause (the api boundary maps this to 400). Returns a NEW dict
     holding only the recognized fields, in a fixed shape — ``class`` (str),
-    ``where`` (list of ``{property, op, value}``), ``order_by``
+    ``where`` (list of ``{property, op, value}`` value clauses, or
+    ``{property, iri}`` link clauses — PR F4 §1-3: 「この 1 件を指す種類」の
+    where 条件, no ``op``/``value``), ``order_by``
     (``{property, dir}`` or None), ``limit`` (int, 1..:data:`MAX_LIMIT`,
     default 20), ``source_scope`` (one of :data:`ALLOWED_SOURCE_SCOPES`,
     default ``"all"``) — so :func:`set_id_of` always hashes the same shape
