@@ -3,6 +3,10 @@
 // （`_iri` を落とす・`_` を空白に）。LLM は呼ばない。
 import type { ItemRole, ItemSpec, Row, TableColumn, TableSpec, ToolContract, VegaLiteSpec, ViewSpec } from './viewSpec'
 import { unitLabel } from './unitLabel'
+// `presentation.ts` は defaultViewFor と同じ既定を「別の mark/encoding」で
+// 組み直すため、ここのヘルパと per-kind ビルダーを再利用する（循環 import —
+// 関数の呼び出しはどちらも実行時にしか起きないので安全）。
+import { viewFor } from './presentation'
 
 /** キーを人が読める見出しにする決定論（分野語の辞書は持たない）。 */
 function humanizeKey(key: string): string {
@@ -24,7 +28,7 @@ function allByRole(item: Record<string, ItemSpec>, role: ItemRole): KeyedItem[] 
   return keyedEntries(item).filter((i) => i.role === role)
 }
 
-function findRole(item: Record<string, ItemSpec>, role: ItemRole): KeyedItem | undefined {
+export function findRole(item: Record<string, ItemSpec>, role: ItemRole): KeyedItem | undefined {
   return allByRole(item, role)[0]
 }
 
@@ -38,13 +42,13 @@ function findSubject(item: Record<string, ItemSpec>): KeyedItem | undefined {
 /** 見出し（＋単位があれば `[単位]` を添える。表の列見出しと Vega-Lite の軸タイトルで共通）。
  *  `item.label` があればそれを使い（呼び側が組み込みツールの表示名を焼き込む —
  *  `builtinFields.ts`）、無ければキーの機械整形にフォールバックする。 */
-function fieldTitle(item: KeyedItem): string {
+export function fieldTitle(item: KeyedItem): string {
   const label = item.label ?? humanizeKey(item.key)
   return item.unit != null ? `${label} [${unitLabel(item.unit)}]` : label
 }
 
 /** 表の 1 列。`role: 'subject'` または `_iri` で終わるキーは IRI 列とみなす。 */
-function columnFor(item: KeyedItem): TableColumn {
+export function columnFor(item: KeyedItem): TableColumn {
   const isIri = item.key.endsWith('_iri') || item.role === 'subject'
   const col: TableColumn = {
     field: item.key,
@@ -57,16 +61,16 @@ function columnFor(item: KeyedItem): TableColumn {
 }
 
 /** x 軸の encoding。`number: false` の項目だけ ordinal にする（契約 §5）。 */
-function xEncoding(item: KeyedItem): Record<string, unknown> {
+export function xEncoding(item: KeyedItem): Record<string, unknown> {
   return { field: item.key, type: item.number === false ? 'ordinal' : 'quantitative', title: fieldTitle(item) }
 }
 
 /** y 軸の encoding。x と違い、`number: false` でも常に quantitative（契約 §5）。 */
-function yEncoding(item: KeyedItem): Record<string, unknown> {
+export function yEncoding(item: KeyedItem): Record<string, unknown> {
   return { field: item.key, type: 'quantitative', title: fieldTitle(item) }
 }
 
-function quantityView(tool: ToolContract): ViewSpec {
+export function quantityView(tool: ToolContract): ViewSpec {
   const columns: TableColumn[] = []
   const value = findRole(tool.item, 'value')
   if (value) columns.push(columnFor(value))
@@ -77,7 +81,7 @@ function quantityView(tool: ToolContract): ViewSpec {
   return { lang: 'table', spec }
 }
 
-function seriesView(tool: ToolContract, rows: Row[]): ViewSpec {
+export function seriesView(tool: ToolContract, rows: Row[]): ViewSpec {
   const x = findRole(tool.item, 'x')
   const y = findRole(tool.item, 'y')
   const series = findRole(tool.item, 'series')
@@ -89,7 +93,7 @@ function seriesView(tool: ToolContract, rows: Row[]): ViewSpec {
   return { lang: 'vega-lite', spec }
 }
 
-function pairsView(tool: ToolContract, rows: Row[]): ViewSpec {
+export function pairsView(tool: ToolContract, rows: Row[]): ViewSpec {
   const x = findRole(tool.item, 'x')
   const y = findRole(tool.item, 'y')
   const encoding: Record<string, unknown> = {}
@@ -99,7 +103,7 @@ function pairsView(tool: ToolContract, rows: Row[]): ViewSpec {
   return { lang: 'vega-lite', spec }
 }
 
-function rankedView(tool: ToolContract): ViewSpec {
+export function rankedView(tool: ToolContract): ViewSpec {
   // 生の IRI（subject）はセルとして描かない（K4）── 行の title / onRowClick に
   // 渡すためだけに `subject_field` へ持たせ、columns には入れない。
   const columns: TableColumn[] = []
@@ -114,7 +118,7 @@ function rankedView(tool: ToolContract): ViewSpec {
   return { lang: 'table', spec }
 }
 
-function breakdownView(tool: ToolContract, rows: Row[]): ViewSpec {
+export function breakdownView(tool: ToolContract, rows: Row[]): ViewSpec {
   const category = findRole(tool.item, 'category')
   const count = findRole(tool.item, 'count')
   const encoding: Record<string, unknown> = {}
@@ -133,7 +137,7 @@ function breakdownView(tool: ToolContract, rows: Row[]): ViewSpec {
   return { lang: 'vega-lite', spec }
 }
 
-function factsView(tool: ToolContract): ViewSpec {
+export function factsView(tool: ToolContract): ViewSpec {
   const allEntries = keyedEntries(tool.item)
   const byKey = new Map(allEntries.map((e) => [e.key, e]))
   // 1 件のページを指す列（K4: 列にせず行クリックの遷移先へ・ranked と同じ
@@ -162,27 +166,15 @@ function factsView(tool: ToolContract): ViewSpec {
 
 /** `flow` は rows を使わない（呼び側が provenance から得た GraphSpec を持つ）。
  *  ここでは空の graph を返し、呼び側が差し替える。 */
-function flowView(): ViewSpec {
+export function flowView(): ViewSpec {
   return { lang: 'graph', spec: { nodes: [], edges: [] } }
 }
 
 /** 型 → 既定ビュー。同じ `tool`/`rows` に対して常に同じ `ViewSpec` を返す（決定論）。
- *  分野語の辞書は持たない。返り値に `custom` は付かない（LLM が書いたものではない）。 */
+ *  分野語の辞書は持たない。返り値に `custom` は付かない（LLM が書いたものではない）。
+ *  実体は `presentation.ts` の `viewFor(tool, rows, undefined)`（見せ方が
+ *  無指定のときの既定）に委ねる — PR F3 で presentation を導入した後も、
+ *  この関数の呼び出し元・結果は無改修で通る。 */
 export function defaultViewFor(tool: ToolContract, rows: Row[]): ViewSpec {
-  switch (tool.output_kind) {
-    case 'quantity':
-      return quantityView(tool)
-    case 'series':
-      return seriesView(tool, rows)
-    case 'pairs':
-      return pairsView(tool, rows)
-    case 'ranked':
-      return rankedView(tool)
-    case 'breakdown':
-      return breakdownView(tool, rows)
-    case 'facts':
-      return factsView(tool)
-    case 'flow':
-      return flowView()
-  }
+  return viewFor(tool, rows, undefined)
 }

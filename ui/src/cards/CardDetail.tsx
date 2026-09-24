@@ -6,14 +6,17 @@ import { KNOWN_LICENSE_IDS, putDatasetLicense, runCard } from './cardsApi'
 import type { CardRef, CardMaterial, CardToolResult, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
-import { defaultViewFor } from './defaultView'
+import { useCardPresentation } from './cardPresentation'
 import { GraphView } from './GraphView'
 import { isDefinitionGapValue } from './placeShape'
+import type { Presentation } from './presentation'
+import { viewFor } from './presentation'
 import './pages.css'
 import { formatShareReasons } from './shareReasons'
 import { TableView } from './TableView'
-import type { GraphSpec, TableSpec, VegaLiteSpec } from './viewSpec'
+import type { GraphSpec, TableSpec, ToolContract, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
+import { ViewSwitcher } from './ViewSwitcher'
 
 /** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
  *  （契約 §4「事実の表」）。CardTile.tsx と同じ判定・同じ流儀。 */
@@ -40,6 +43,10 @@ type Translate = (key: string, options?: Record<string, unknown>) => string
 
 export function CardDetail({ subject, breadcrumbLabel, card, onBack, onAsk, onEditDefinition }: CardDetailProps) {
   const { t } = useTranslation('cards')
+  // 見せ方（presentation）はカード単位・閲覧者の手元だけに保存する（契約メモ
+  // §1.5）。一覧のタイル（`CardTile.tsx`）も同じキーで読むので、詳細で変える
+  // と一覧も変わる。
+  const { presentation, setPresentation, reset: resetPresentation } = useCardPresentation(card.card_id)
   const depKey = JSON.stringify({ subject, tool: card.tool, params: card.params })
   // 結果は depKey で紐づけ、then/catch でだけ書き込む — effect の本体で同期的に
   // setState しない（react-hooks/set-state-in-effect。ProvenanceTrace.tsx／
@@ -144,7 +151,16 @@ export function CardDetail({ subject, breadcrumbLabel, card, onBack, onAsk, onEd
       <div className="cardpage-tab-body">
         {error && <p className="ds-empty-note">{t('render_error')}</p>}
         {!error && !result && <p className="ds-empty-note">{t('page.loading')}</p>}
-        {!error && result && tab === 'result' && renderResultTab(card, result, titleText, t)}
+        {!error && result && tab === 'result' && card.output_kind !== 'flow' && (
+          <ViewSwitcher
+            tool={toolContractFor(card, result, t)}
+            rows={result.items}
+            presentation={presentation}
+            onChange={setPresentation}
+            onReset={resetPresentation}
+          />
+        )}
+        {!error && result && tab === 'result' && renderResultTab(card, result, titleText, t, presentation)}
         {!error && result && tab === 'materials' && renderMaterialsTab(subject, result, t)}
         {!error && result && tab === 'recipe' && renderRecipeTab(card, result, t)}
         {!error && result && tab === 'materials' && editDatasetId && (
@@ -212,7 +228,25 @@ export function CardDetail({ subject, breadcrumbLabel, card, onBack, onAsk, onEd
   )
 }
 
-function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: string, t: Translate) {
+/** 結果タブ・`ViewSwitcher` の両方が読む `ToolContract`（見出しの表示名を
+ *  組み込みツールぶん焼き込んだもの）。同じ `card`/`result` からは常に同じ
+ *  値になる（純関数）。 */
+function toolContractFor(card: CardRef, result: CardToolResult, t: Translate): ToolContract {
+  return {
+    name: card.tool,
+    title: card.title,
+    output_kind: result.output_kind,
+    item: withFieldLabels(card.tool, result.item, t),
+  }
+}
+
+function renderResultTab(
+  card: CardRef,
+  result: CardToolResult,
+  ariaLabel: string,
+  t: Translate,
+  presentation: Presentation | undefined,
+) {
   if (card.output_kind === 'flow') {
     // `result.graph` は cardsApi.ts の CardToolResult に合わせて緩い型
     // （nodes/edges: unknown[]）— subject_flow は prov_graph.graph をそのまま
@@ -224,10 +258,7 @@ function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: strin
   // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
   // §2(a)）— その全件に対して行う。
   const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
-  const view = defaultViewFor(
-    { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-    rows,
-  )
+  const view = viewFor(toolContractFor(card, result, t), rows, presentation)
   if (view.lang === 'vega-lite') {
     return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
   }

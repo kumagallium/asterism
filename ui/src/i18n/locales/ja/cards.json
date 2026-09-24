@@ -236,6 +236,26 @@
   },
   "graph": {
     "prop_type": "種類",
-    "prop_snapshot": "版"
+    "prop_snapshot": "版",
+    "edge": {
+      "used": "使った",
+      "wasGeneratedBy": "生成した",
+      "wasAssociatedWith": "担当",
+      "wasDerivedFrom": "もとにした",
+      "wasAttributedTo": "帰属",
+      "wasInformedBy": "受けて",
+      "wasQuotedFrom": "引用"
+    }
+  },
+  "view": {
+    "label": "見せ方",
+    "line": "折れ線",
+    "bar": "棒",
+    "point": "点",
+    "table": "表",
+    "swap": "縦横を入れ替える",
+    "color_by": "色分け",
+    "color_none": "なし",
+    "reset": "元に戻す"
   }
 }

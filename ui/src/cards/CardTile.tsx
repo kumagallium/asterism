@@ -17,8 +17,9 @@ import { runCard } from './cardsApi'
 import type { CardRef, CardToolResult, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
-import { defaultViewFor } from './defaultView'
+import { useCardPresentation } from './cardPresentation'
 import { GraphView } from './GraphView'
+import { viewFor } from './presentation'
 import { isDefinitionGapValue } from './placeShape'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
@@ -54,6 +55,10 @@ export interface CardTileProps {
 
 export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide }: CardTileProps) {
   const { t } = useTranslation('cards')
+  // カード詳細（`CardDetail.tsx`）で選んだ見せ方を、同じキー
+  // （`asterism.cardView.<card_id>`）で読むだけ（一覧側に切替 UI は出さない —
+  // 契約メモ §1.4）。
+  const { presentation } = useCardPresentation(card.card_id)
   // 呼び出しの実体（subject + tool + params）を文字列化して依存キーにする —
   // 親が `subject={{kind:'individual', iri}}` のようにインライン literal を渡す
   // と毎レンダリングで参照が変わるため、オブジェクト参照そのものを依存にすると
@@ -103,9 +108,10 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
 
   const view =
     result && card.output_kind !== 'flow'
-      ? defaultViewFor(
+      ? viewFor(
           { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
           rows,
+          presentation,
         )
       : null
   const rankedSpec = view && view.lang === 'table' ? (view.spec as TableSpec) : null
