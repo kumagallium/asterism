@@ -129,6 +129,67 @@
   background: var(--surface-alt);
 }
 
+/* データセット行 + 子（契約メモ contract_pr_f2.md §2.1）。 */
+.rail-datasets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rail-dataset-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.rail-dataset-toggle {
+  flex: none;
+  width: 1.1rem;
+  border: none;
+  background: none;
+  color: var(--faint);
+  font-size: 0.7rem;
+  padding: 0;
+  cursor: pointer;
+}
+.rail-dataset-toggle--empty {
+  cursor: default;
+}
+
+.rail-dataset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.2rem 0;
+  cursor: pointer;
+}
+.rail-dataset-name:hover {
+  text-decoration: underline;
+}
+
+.rail-dataset-state {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.rail-dataset-children {
+  padding-left: 1.5rem;
+}
+
+.rail-collect-link {
+  margin-left: 1.5rem;
+}
+
 .rail-search {
   padding: 0 0.7rem;
 }
@@ -173,21 +234,4 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-}
-
-/* 戻り道: 「詳しい設定（データを整える）」。静かに、最下部に。 */
-.rail-foot {
-  padding: 0.3rem 0.7rem 0.1rem;
-}
-.rail-foot-link {
-  border: none;
-  background: none;
-  color: var(--faint);
-  font-size: 0.75rem;
-  padding: 0.1rem 0;
-  cursor: pointer;
-  text-decoration: underline;
-}
-.rail-foot-link:hover {
-  color: var(--muted);
 }

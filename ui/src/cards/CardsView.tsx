@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { formatSetTitle } from './setTitle'
 import type { Route } from '../App'
 import { addSubjectAndPersist, useSubjects } from './subjectStore'
+import { DatasetPage } from './DatasetPage'
 import { FirstScreen } from './FirstScreen'
 import { PlaceView } from './PlaceView'
 import { SetPage } from './SetPage'
@@ -17,6 +18,8 @@ export interface CardsViewProps {
    *  「CardsView/SubjectPage が持つ resolved label を App に上げる」）。1 件・
    *  絞り込みのどちらも未選択（`#/cards`・`#/cards/place`）のときは null。 */
   onLabel: (label: string | null) => void
+  /** データセットのページの「定義を直す」「続きから」（契約メモ §2.2・§2.6）。 */
+  onDefine: (datasetId: string) => void
 }
 
 /**
@@ -29,7 +32,7 @@ export interface CardsViewProps {
  * 並行実装したファイルを import するだけ。Props の実際の形は各ファイルが
  * 実在してから判明したため、ここでの配線はその実物に合わせてある（notes 参照）。
  */
-export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
+export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsViewProps) {
   const { t } = useTranslation('cards')
   const subjects = useSubjects()
 
@@ -37,14 +40,54 @@ export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
   // （SubjectPage/SetPage）はサーバから改めて解決した名前を持つが、担当外
   // ファイルにつき触れない。rail に載せたときに控えた label（subjectStore）を
   // 代わりに使う（notes 参照: 絞り込みの「条件の要約」は現状 class_label 止まり）。
+  // データセットのページ（`datasetPageId`）は DatasetPage 自身が summary の
+  // label を `onLabel` へ上げる（契約メモ §2.2）ので、ここでは何もしない。
   useEffect(() => {
+    if (route.datasetPageId) return
     if (!route.subjectKey) {
       onLabel(null)
       return
     }
     const stored = subjects.find((s) => s.subject_key === route.subjectKey)
     onLabel(stored?.label ?? null)
-  }, [route.subjectKey, subjects, onLabel])
+  }, [route.datasetPageId, route.subjectKey, subjects, onLabel])
+
+  if (route.datasetPageId) {
+    return (
+      <DatasetPage
+        datasetId={route.datasetPageId}
+        // DatasetPage.tsx の navigate は汎用型 `(route: {tab:string, ...}) => void`
+        // を受ける（PlaceView.tsx と同じ理由 — 並行実装の間は実 Route 型に
+        // 依存しない）。ここで実 Route にブリッジする。
+        navigate={(r) => navigate(r as unknown as Route)}
+        onDefine={onDefine}
+        onLabel={onLabel}
+      />
+    )
+  }
+
+  if (route.setNew) {
+    if (!route.setDatasetId) return <p className="subtitle">{t('page.pick_hint')}</p>
+    // SetPage.tsx（ui-page）の新規作成モード（契約メモ §2.4）— 既存の SetForm/
+    // SetPage の作成経路をそのまま再利用する。カード関連の props はこのモードで
+    // は呼ばれない（作成が終わるまで `spec` が無く、カード一覧の分岐に届かない）
+    // が、SetPageProps では必須のまま — 空振りの no-op を渡す。
+    return (
+      <SetPage
+        newFor={{ datasetId: route.setDatasetId, classIri: route.setClassIri }}
+        navigate={(r: { tab: string; [key: string]: unknown }) => navigate(r as unknown as Route)}
+        onSelectCard={() => {}}
+        onCloseCard={() => {}}
+        onOpenSubject={(iri) => navigate({ tab: 'cards', subjectKey: `i:${iri}` })}
+        onFiltersChanged={() => {}}
+        onAsk={onAsk}
+        onEditDefinition={(datasetId) =>
+          navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
+        }
+        onOpenDataset={(datasetId) => navigate({ tab: 'cards', datasetPageId: datasetId })}
+      />
+    )
+  }
 
   if (route.place) {
     return (
@@ -91,6 +134,7 @@ export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
         onEditDefinition={(datasetId) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
         }
+        onOpenDataset={(datasetId) => navigate({ tab: 'cards', datasetPageId: datasetId })}
       />
     )
   }
@@ -123,6 +167,10 @@ export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
             subject_key: `s:${result.set_id}`,
             spec: result.spec,
             created_at: new Date().toISOString(),
+            // 条件を変えても種類（class）は同じ（SetForm は classIri を固定で
+            // 受ける）— 親のデータセットは元の項目からそのまま引き継ぐ。
+            dataset_id: stored.dataset_id,
+            dataset_label: stored.dataset_label,
           })
           navigate({ tab: 'cards', subjectKey: `s:${result.set_id}` })
         }}
@@ -130,6 +178,7 @@ export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
         onEditDefinition={(datasetId) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
         }
+        onOpenDataset={(datasetId: string) => navigate({ tab: 'cards', datasetPageId: datasetId })}
       />
     )
   }
@@ -137,3 +186,4 @@ export function CardsView({ route, navigate, onAsk, onLabel }: CardsViewProps) {
   // #/cards だけ（まだ何も選んでいない）。初回の入口 2 つ＋見本（契約メモ §3）。
   return <FirstScreen navigate={navigate} onAsk={onAsk} />
 }
+

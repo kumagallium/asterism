@@ -100,6 +100,68 @@ describe('parseHash / routeToHash — cards（object-cards-ui）', () => {
   })
 })
 
+describe('parseHash / routeToHash — cards/d（データセットのページ・契約メモ contract_pr_f2.md §2.2）', () => {
+  it('#/cards/d/<id> はデータセットのページ', () => {
+    const hash = '#/cards/d/ds-1'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'cards', datasetPageId: 'ds-1' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('id に記号が入っていても往復する', () => {
+    const hash = `#/cards/d/${encodeURIComponent('ds/中央 42')}`
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'cards', datasetPageId: 'ds/中央 42' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+})
+
+describe('parseHash / routeToHash — cards/s/new（条件で集める・新規作成・契約メモ §2.4）', () => {
+  it('#/cards/s/new?dataset=<id> は setNew + setDatasetId', () => {
+    const hash = '#/cards/s/new?dataset=ds-1'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'cards', setNew: true, setDatasetId: 'ds-1' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('#/cards/s/new?dataset=<id>&class=<iri> は setClassIri も持つ', () => {
+    const iri = 'https://example.org/class/loan'
+    const hash = `#/cards/s/new?dataset=ds-1&class=${encodeURIComponent(iri)}`
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      setNew: true,
+      setDatasetId: 'ds-1',
+      setClassIri: iri,
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('#/cards/s/new（クエリ無し）も setNew だけは立つ', () => {
+    const route = parseHash('#/cards/s/new')
+    expect(route).toEqual<Route>({ tab: 'cards', setNew: true, setDatasetId: undefined, setClassIri: undefined })
+  })
+
+  it('`new` で始まらない set_id は従来どおり subjectKey（誤検出しない）', () => {
+    const hash = '#/cards/s/newton-station-9'
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      subjectKey: 's:newton-station-9',
+      cardId: undefined,
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+})
+
+describe('parseHash / routeToHash — workbench の returnTo（契約メモ §2.6）', () => {
+  it('#/workbench はクエリ無しのまま往復する', () => {
+    expect(parseHash('#/workbench')).toEqual<Route>({ tab: 'workbench' })
+    expect(roundTrip('#/workbench')).toBe('#/workbench')
+  })
+
+  it('#/workbench?returnTo=<encoded hash> が往復する', () => {
+    const hash = `#/workbench?returnTo=${encodeURIComponent('#/cards/d/ds-1')}`
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'workbench', returnTo: '#/cards/d/ds-1' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+})
+
 describe('parseHash / routeToHash — 既存の route を壊さない', () => {
   it('#/home', () => {
     expect(roundTrip('#/home')).toBe('#/home')

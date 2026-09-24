@@ -88,6 +88,7 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
       match: null,
       subject_key: `i:${result.iri}`,
       created_at: new Date().toISOString(),
+      dataset_id: result.dataset_id ?? undefined,
     }
     addSubjectAndPersist(item)
     setResults(null)
@@ -162,8 +163,22 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
       {sample ? (
         <div className="first-sample">
           <p className="first-sample-note">
-            {t('firstScreen.sampleIntro', {
-              defaultValue: '見本: 世界の国（Gapminder）。あなたのファイルを置くと同じ形で並びます',
+            {t('firstScreen.samplePrefix', { defaultValue: '見本: ' })}
+            {sample.dataset_id ? (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => navigate({ tab: 'cards', datasetPageId: sample.dataset_id })}
+              >
+                {sample.dataset_label ??
+                  t('firstScreen.sampleLinkLabel', { defaultValue: '世界の国（Gapminder）' })}
+              </button>
+            ) : (
+              (sample.dataset_label ??
+                t('firstScreen.sampleLinkLabel', { defaultValue: '世界の国（Gapminder）' }))
+            )}
+            {t('firstScreen.sampleSuffix', {
+              defaultValue: '。あなたのファイルを置くと同じ形で並びます',
             })}
           </p>
           <SubjectPage
@@ -177,6 +192,7 @@ export function FirstScreen({ navigate, onAsk }: FirstScreenProps) {
             onEditDefinition={(datasetId) =>
               navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
             }
+            onOpenDataset={(datasetId) => navigate({ tab: 'cards', datasetPageId: datasetId })}
           />
         </div>
       ) : (

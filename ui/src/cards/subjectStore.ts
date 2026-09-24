@@ -9,14 +9,18 @@
 //
 // 純関数（`addSubject`/`removeSubject`/`sortSubjects`）はテスト対象
 // （`subjectStore.test.ts`）。ミューテーション API（`*AndPersist`）は永続化つきの
-// 薄いラッパで、こちらはテストしない。
+// 薄いラッパで、こちらはテストしない。`backfillDatasetIds`（appdata への書き戻しを
+// 伴う移行ロジック）は例外的に export し、`cardsApi.ts` の `resolveSubject`/
+// `classSchema` をモックしてテストする（埋め戻しの成否とフォールバックが対象）。
 
 import { useSyncExternalStore } from 'react'
 import { initAppData } from '../appdata'
 import {
+  classSchema,
   deleteAppDataSubject,
   fetchAppDataSubjects,
   putAppDataSubject,
+  resolveSubject,
   type SubjectItem,
 } from './cardsApi'
 
@@ -140,7 +144,7 @@ if (typeof window !== 'undefined') {
     items = load()
     emit()
   })
-  void bootstrap()
+  void bootstrap().then(() => backfillDatasetIds())
 }
 
 async function bootstrap(): Promise<void> {
@@ -158,6 +162,41 @@ async function bootstrap(): Promise<void> {
     loaded = true
     emit()
   }
+}
+
+/** 既存の保存済み項目には `dataset_id` が無いことがある（契約メモ §2.1）。
+ * 読み込み直後に 1 回だけ、無いものだけを埋め戻す（個体は `resolveSubject`、
+ * 絞り込みは `classSchema(spec.class)` から）。失敗した項目は諦める —
+ * `dataset_id` が無いままレールの「その他」節に出るだけで、致命的にはしない。 */
+export async function backfillDatasetIds(): Promise<void> {
+  const targets = items.filter((i) => i.dataset_id === undefined)
+  for (const target of targets) {
+    try {
+      let datasetId: string | null | undefined
+      let datasetLabel: string | null | undefined
+      if (target.kind === 'individual') {
+        const resolved = await resolveSubject(target.id)
+        datasetId = resolved.dataset_id
+        datasetLabel = resolved.dataset_label
+      } else if (target.spec) {
+        const schema = await classSchema(target.spec.class)
+        datasetId = schema?.dataset_id
+        datasetLabel = schema?.dataset_label
+      }
+      if (!datasetId) continue
+      const updated: SubjectItem = {
+        ...target,
+        dataset_id: datasetId,
+        dataset_label: datasetLabel ?? undefined,
+      }
+      items = items.map((i) => (i.subject_key === target.subject_key ? updated : i))
+      if (serverMode && updated.thread_id) void putAppDataSubject(updated.thread_id, updated)
+      else if (!serverMode) saveLocal()
+    } catch {
+      // best-effort: この項目はこの回だけ「その他」節に出る。
+    }
+  }
+  emit()
 }
 
 // ---- ミューテーション（コンポーネントから呼ぶ） -------------------------------
