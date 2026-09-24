@@ -21,7 +21,10 @@ jobs:
   tagpr:
     runs-on: ubuntu-latest
     steps:
+      # ロードマップ nudge が「前回タグ以降」の履歴を読むので全履歴を取る（Graphium と同じ）。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - id: tagpr
         uses: Songmu/tagpr@242e22916eb775d6e359959fe3ba5c497de4a01a # v1.20.2
         env:
@@ -37,3 +40,121 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run desktop-release.yml -f tag=${{ steps.tagpr.outputs.tag }}
+
+      # ── マニュアルの「更新を知る」（ADR manual-roadmap-and-release-history.md） ──
+      #
+      # 1. タグを切った run: manual/ja/release-history.md は CHANGELOG.md をビルド時に
+      #    取り込むので、tagpr が CHANGELOG を書いた直後に docs/manual/ を作り直して
+      #    main へ commit する。docs/updater/latest.json（desktop-release.yml）と同じ形。
+      #    リリース PR ブランチ上で作り直さないのは、tagpr が rc ブランチ上の自分以外の
+      #    コミットを次回 cherry-pick で再適用するため（別の docs PR と衝突しうる）。
+      #    生成器の --check は release-history.html の内容のズレを見ないので、この
+      #    commit が届く前の CI（マージ push の run）は赤くならない。
+      - name: Regenerate the manual's release history on main
+        if: steps.tagpr.outputs.tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tagpr.outputs.tag }}
+        run: |
+          set -euo pipefail
+          WORKDIR="$(mktemp -d)"
+          git clone --depth=1 --branch main \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "$WORKDIR/repo"
+          cd "$WORKDIR/repo"
+          python3 scripts/build_manual_site.py
+          git add -A docs/manual
+          if git diff --cached --quiet; then
+            echo "docs/manual already up to date — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "[chore] manual: リリース履歴を ${TAG} で作り直す"
+          # main は動く（latest.json の publish・次のマージ）。押し合いは rebase で吸収する。
+          for i in 1 2 3; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "regenerated docs/manual for ${TAG}."
+              exit 0
+            fi
+            echo "push race (attempt $i) — retrying"
+            sleep 5
+          done
+          echo "::error::could not push the regenerated manual after 3 attempts"
+          exit 1
+
+      # 2. リリース PR がある run: 「この中にマニュアルの機能ロードマップへ載せる節目はあるか」を
+      #    PR に聞く。ロードマップは自動生成しない — 節目を選ぶ編集判断がページの価値なので、
+      #    機械は材料（前回タグ以降にマージされた PR）を出すだけ。
+      #    コメント先の PR 番号と前回タグは steps.tagpr.outputs からしか取れず、同一 job 内でしか
+      #    参照できないので、ここに置く。リリース PR は main への push のたびに更新されるので、
+      #    コメントは 1 本を書き換える。
+      - name: Nudge the roadmap on the release PR
+        if: steps.tagpr.outputs.pull_request != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.tagpr.outputs.pull_request }}
+          BASE_TAG: ${{ steps.tagpr.outputs.base_tag }}
+        run: |
+          set -euo pipefail
+          pr=$(jq -r '.number // empty' <<<"$PR_JSON")
+          if [ -z "$pr" ]; then
+            echo "release PR number not found in tagpr output; skipping"
+            exit 0
+          fi
+
+          range="HEAD"
+          [ -n "$BASE_TAG" ] && range="$BASE_TAG..HEAD"
+          # asterism は PR を merge commit で取り込む（squash ではない）ので、PR 番号は
+          # merge commit の件名から拾う。squash された場合の末尾 "(#N)" も念のため拾う。
+          # リリース PR 自身（tagpr-from-*）は除く。題名は PR から引く（コミット件名ではない）。
+          {
+            git log "$range" --merges --pretty=format:'%s' \
+              | grep -E '^Merge pull request #[0-9]+ from ' \
+              | grep -v '/tagpr-from-' \
+              | sed -E 's/^Merge pull request #([0-9]+) from .*/\1/'
+            git log "$range" --no-merges --pretty=format:'%s' \
+              | grep -oE '\(#[0-9]+\)$' | tr -d '(#)'
+          } | sort -n -u > /tmp/pr_numbers.txt || true
+          : > /tmp/prs.txt
+          while read -r n; do
+            [ -z "$n" ] && continue
+            title=$(gh pr view "$n" --repo "$GITHUB_REPOSITORY" --json title --jq .title 2>/dev/null \
+              || echo "(題名を取得できませんでした)")
+            echo "- $title (#$n)" >> /tmp/prs.txt
+          done < /tmp/pr_numbers.txt
+
+          if [ ! -s /tmp/prs.txt ]; then
+            echo "no merged PRs since ${BASE_TAG:-the beginning}; skipping"
+            exit 0
+          fi
+
+          {
+            echo "<!-- roadmap-nudge -->"
+            echo "### マニュアルの機能ロードマップ"
+            echo
+            echo "${BASE_TAG:-最初} 以降にマージされた変更です。**「できること」が変わったものがあれば**、"
+            echo "リリース後に別の PR で \`manual/ja/roadmap.md\` に 1 行足してください"
+            echo "（該当する章の見出しに \`<Badge type=\"tip\" text=\"vX.Y.Z (YYYY-MM-DD) で追加\" />\` も。"
+            echo "版と日付は \`CHANGELOG.md\` に合わせます）。無ければこのコメントは無視して構いません。"
+            echo "この PR のブランチには足さないでください — tagpr が次の push で作り直します。"
+            echo
+            cat /tmp/prs.txt
+            echo
+            echo
+            echo "---"
+            echo "全変更の記録は CHANGELOG から自動で[リリース履歴](https://kumagallium.github.io/asterism/manual/ja/release-history.html)に載ります（タグを切った直後に機械が作り直します）。"
+            echo "ここで拾うのは節目だけです。ズレの検査は \`python scripts/check_manual.py\`（節目を足したら \`python scripts/build_manual_site.py\` も）。"
+            echo "最新の節目より新しいリリースの日付が 3 日分を超えると、この検査が CI で落ちます。"
+          } > /tmp/comment.md
+
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" \
+            --jq '[.[] | select(.body | startswith("<!-- roadmap-nudge -->")) | .id] | first // empty')
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" \
+              -F body=@/tmp/comment.md > /dev/null
+            echo "updated comment $existing on PR #$pr"
+          else
+            gh pr comment "$pr" --body-file /tmp/comment.md --repo "$GITHUB_REPOSITORY"
+            echo "created comment on PR #$pr"
+          fi
