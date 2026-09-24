@@ -1,0 +1,28 @@
+# Declared identity of the **world** example dataset (object-cards-ui PR E,
+# 契約メモ contract_pr_e.md §1).
+#
+# This is the FIRST example dataset that is deliberately NOT materials-science
+# domain vocabulary: every other bundled dataset (starrydata / materials_project
+# / papers) speaks thermoelectrics or document structure, which is exactly the
+# thing a first-time visitor (student / PI / operator, none of them materials
+# scientists) cannot judge at a glance. "world" is Gapminder's country-year
+# statistics (population / life expectancy / fertility / region) — a shape
+# every visitor already understands — so the FIRST screen can embed a real,
+# citable subject page instead of an empty catalog.
+#
+# Real data, real ingest: source/gapminder.json is vega-datasets' unmodified
+# extract of Gapminder Foundation figures; source/world.csv, mapping.rml.ttl and
+# snapshot.tar are all produced by scripts/build_world_demo.py through the same
+# Mapping IR -> RML -> Morph-KGC -> canonical path every onboarded dataset uses
+# (see README.md). No hand-written Turtle, no invented numbers.
+#
+# IRIs are data identity: do not rename casually (前提 ADR / IRI 不変).
+
+name = "world"
+description = "世界の国ごとの人口・平均寿命・出生率（Gapminder、vega-datasets 経由）。分野を選ばない誰でも分かる見本データ。"
+license = "BSD-3-Clause"
+
+ontology_iri = "https://kumagallium.github.io/asterism/world/ontology#"
+resource_iri = "https://kumagallium.github.io/asterism/world/resource/"
+graph_base = "https://kumagallium.github.io/asterism/world/graph/"
+software_agent_iri = "https://github.com/kumagallium/asterism"

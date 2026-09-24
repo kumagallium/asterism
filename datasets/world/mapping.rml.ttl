@@ -1,0 +1,110 @@
+# Compiled by the Asterism mapping-spec compiler — do not edit by hand;
+# edit the mapping spec (YAML) and re-materialize instead.
+
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn: <https://kumagallium.github.io/asterism/fn/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <https://schema.org/> .
+@prefix world: <https://kumagallium.github.io/asterism/world/ontology#> .
+@prefix wr: <https://kumagallium.github.io/asterism/world/resource/> .
+
+<#ActivityMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "activity.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/world/resource/activity/{activity_id}" ;
+    rr:class prov:Activity, world:IngestionActivity ] ;
+  rr:predicateObjectMap [ rr:predicate prov:used ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:iri_safe ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "source_url" ] ] ] ;
+      rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:endedAtTime ;
+    rr:objectMap [ rml:reference "retrieved_at" ;
+      rr:datatype xsd:dateTime ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:wasAssociatedWith ;
+    rr:objectMap [ rr:constant <https://github.com/kumagallium/asterism> ] ] ;
+  rr:predicateObjectMap [ rr:predicate rdfs:label ;
+    rr:objectMap [ rr:constant "Gapminder の表を取り込んだ" ] ] .
+
+<#CountryMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "world.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [
+    rmlf:functionExecution [
+      rmlf:function fn:template ;
+      rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_field1> ;
+                   rmlf:inputValueMap [ rmlf:functionExecution [
+              rmlf:function fn:slug ;
+              rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                           rmlf:inputValueMap [ rml:reference "country" ] ] ] ] ] ;
+      rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_template> ;
+                   rmlf:inputValueMap [ rmlf:constant "https://kumagallium.github.io/asterism/world/resource/country/{1}" ] ] ] ;
+    rr:termType rr:IRI ;
+    rr:class world:Country ] ;
+  rr:predicateObjectMap [ rr:predicate rdfs:label ;
+    rr:objectMap [ rml:reference "country_ja" ;
+      rr:language "ja" ] ] ;
+  rr:predicateObjectMap [ rr:predicate rdfs:label ;
+    rr:objectMap [ rml:reference "country" ;
+      rr:language "en" ] ] ;
+  rr:predicateObjectMap [ rr:predicate schema:name ;
+    rr:objectMap [ rml:reference "country" ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:nameJa ;
+    rr:objectMap [ rml:reference "country_ja" ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:regionJa ;
+    rr:objectMap [ rml:reference "region_ja" ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:region ;
+    rr:objectMap [ rml:reference "region" ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:wasGeneratedBy ;
+    rr:objectMap [ rr:constant <https://kumagallium.github.io/asterism/world/resource/activity/ingest-world-v1> ] ] .
+
+<#ObservationMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "world.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [
+    rmlf:functionExecution [
+      rmlf:function fn:template ;
+      rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_field1> ;
+                   rmlf:inputValueMap [ rmlf:functionExecution [
+              rmlf:function fn:slug ;
+              rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                           rmlf:inputValueMap [ rml:reference "country" ] ] ] ] ] ;
+      rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_field2> ;
+                   rmlf:inputValueMap [ rml:reference "year" ] ] ;
+      rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_template> ;
+                   rmlf:inputValueMap [ rmlf:constant "https://kumagallium.github.io/asterism/world/resource/observation/{1}-{2}" ] ] ] ;
+    rr:termType rr:IRI ;
+    rr:class world:Observation ] ;
+  rr:predicateObjectMap [ rr:predicate rdfs:label ;
+    rr:objectMap [ rr:template "{country_ja} {year}" ;
+      rr:termType rr:Literal ;
+      rr:language "ja" ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:year ;
+    rr:objectMap [ rml:reference "year" ;
+      rr:datatype xsd:integer ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:population ;
+    rr:objectMap [ rml:reference "population" ;
+      rr:datatype xsd:integer ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:lifeExpectancy ;
+    rr:objectMap [ rml:reference "life_expectancy" ;
+      rr:datatype xsd:double ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:fertility ;
+    rr:objectMap [ rml:reference "fertility" ;
+      rr:datatype xsd:double ] ] ;
+  rr:predicateObjectMap [ rr:predicate world:ofCountry ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:template ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_field1> ;
+                       rmlf:inputValueMap [ rmlf:functionExecution [
+                  rmlf:function fn:slug ;
+                  rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                               rmlf:inputValueMap [ rml:reference "country" ] ] ] ] ] ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_template> ;
+                       rmlf:inputValueMap [ rmlf:constant "https://kumagallium.github.io/asterism/world/resource/country/{1}" ] ] ] ;
+      rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:wasGeneratedBy ;
+    rr:objectMap [ rr:constant <https://kumagallium.github.io/asterism/world/resource/activity/ingest-world-v1> ] ] .

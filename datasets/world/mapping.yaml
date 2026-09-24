@@ -1,0 +1,134 @@
+# Mapping IR (asterism_step0.mapping_ir / step0-rml-emission.md) for the
+# **world** example dataset (契約メモ contract_pr_e.md §1). Reviewed content —
+# scripts/build_world_demo.py compiles this deterministically to
+# mapping.rml.ttl (asterism_step0.rml_compile.compile_mapping_ir), which is
+# what Morph-KGC actually reads. No hand-written RML/Turtle.
+#
+# One source (source/world.csv, 62 countries x 11 years = 682 rows) feeds two
+# TriplesMaps:
+#   - country     : keyed by the country name alone -> the SAME 62 subjects
+#                   repeat once per year and collapse to 62 distinct nodes
+#                   (RDF set semantics — the reason `country` carries no
+#                   composite key, unlike `observation`).
+#   - observation : keyed by (country, year) -> 682 distinct nodes, one per
+#                   row, each linked back to its country via world:ofCountry.
+#
+# `country` values contain characters that are not IRI-segment-safe verbatim
+# ("Hong Kong, China" has a comma and a space), so every subject/object
+# template placeholder built from it goes through the Tier-0 `slug` transform
+# (asterism.functions.slug) for a stable, readable IRI segment — never the
+# engine's raw percent-encoding fallback.
+#
+# `activity` (checker blocker fix): the take-in's own provenance — ONE PROV-O
+# activity, declared here and compiled through the same Mapping IR -> RML ->
+# Morph-KGC path as everything else, never hand-written Turtle. Keyed by a
+# single-row `source/activity.csv` (deterministic, written by
+# scripts/build_world_demo.py), it carries what was fetched (`prov:used` ->
+# the retrieval URL), when the ingest ran (`prov:endedAtTime`) and which tool
+# ran it (`prov:wasAssociatedWith` -> `dataset.toml`'s `software_agent_iri`, a
+# fixed constant, not a per-row column). `country` and `observation` each link
+# every one of their instances back to it with `prov:wasGeneratedBy` — also a
+# constant object (the activity's IRI is fixed; there is only ever one), so
+# every citable fact this dataset emits has a "how did this number get here"
+# flow behind it.
+version: 1
+prefixes:
+  world: "https://kumagallium.github.io/asterism/world/ontology#"
+  wr: "https://kumagallium.github.io/asterism/world/resource/"
+  schema: "https://schema.org/"
+  prov: "http://www.w3.org/ns/prov#"
+  rdfs: "http://www.w3.org/2000/01/rdf-schema#"
+maps:
+  - name: activity
+    source: activity.csv
+    subject:
+      template: "wr:activity/{activity_id}"
+      classes: [prov:Activity, world:IngestionActivity]
+    properties:
+      - predicate: prov:used
+        function: iri_safe
+        column: source_url
+        object_type: iri
+        label: "取得元"
+      - predicate: prov:endedAtTime
+        column: retrieved_at
+        datatype: xsd:dateTime
+        label: "取り込んだ日時"
+      - predicate: prov:wasAssociatedWith
+        constant: "https://github.com/kumagallium/asterism"
+        object_type: iri
+        label: "取り込みの道具"
+      - predicate: rdfs:label
+        constant: "Gapminder の表を取り込んだ"
+        label: "説明"
+  - name: country
+    source: world.csv
+    subject:
+      template: "wr:country/{country}"
+      classes: [world:Country]
+      transform:
+        country: slug
+    properties:
+      - predicate: rdfs:label
+        column: country_ja
+        language: ja
+        label: "見出し"
+      - predicate: rdfs:label
+        column: country
+        language: en
+        label: "見出し"
+      - predicate: schema:name
+        column: country
+        label: "国名（英語）"
+      - predicate: world:nameJa
+        column: country_ja
+        label: "国名"
+      - predicate: world:regionJa
+        column: region_ja
+        label: "地域"
+      - predicate: world:region
+        column: region
+        label: "地域（英語）"
+      - predicate: prov:wasGeneratedBy
+        constant: "wr:activity/ingest-world-v1"
+        object_type: iri
+        label: "取り込み"
+  - name: observation
+    source: world.csv
+    subject:
+      template: "wr:observation/{country}-{year}"
+      classes: [world:Observation]
+      transform:
+        country: slug
+    properties:
+      - predicate: rdfs:label
+        object_template: "{country_ja} {year}"
+        object_type: literal
+        language: ja
+        label: "見出し（日本語）"
+      - predicate: world:year
+        column: year
+        datatype: xsd:integer
+        label: "年"
+      - predicate: world:population
+        column: population
+        datatype: xsd:integer
+        label: "人口"
+      - predicate: world:lifeExpectancy
+        column: life_expectancy
+        datatype: xsd:double
+        label: "平均寿命"
+        unit: "YR"
+      - predicate: world:fertility
+        column: fertility
+        datatype: xsd:double
+        label: "出生率"
+      - predicate: world:ofCountry
+        object_template: "wr:country/{country}"
+        transform:
+          country: slug
+        label: "国"
+      - predicate: prov:wasGeneratedBy
+        constant: "wr:activity/ingest-world-v1"
+        object_type: iri
+        label: "取り込み"

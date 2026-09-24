@@ -1,0 +1,48 @@
+# world model — plain `classes:`/`properties:` form (the OTHER shape
+# ingest/src/asterism/ontology_projection.py's module docstring says
+# `project_model_yaml` accepts, alongside the rdf-config example-list shape).
+#
+# This shape is also the FIRST-choice source `asterism.class_schema.class_label`
+# reads (`classes.<curie>.label`, ahead of the promote-time ontology graph's
+# projected `rdfs:label` — which is always a term's local name — and the
+# local-name-humanized fallback). mapping.yaml's authored `label:` fields
+# already carry the Japanese name for every PROPERTY; this file is what
+# carries it for the two CLASSES themselves (a class has no `label:` slot in
+# the Mapping IR).
+#
+# Two classes:
+#   - world:Country     (「国」)          : 62 countries, one row per country.
+#   - world:Observation (「年ごとの記録」): 682 rows (62 countries x 11 years),
+#                                          world:ofCountry -> world:Country.
+#
+# `properties:` domain/range entries mirror mapping.yaml's own shape (needed
+# so `_range_is_class_set` still marks `world:ofCountry` as a link property —
+# same signal the rdf-config example-list shape used to carry via a nested
+# class reference in its one representative instance).
+
+classes:
+  world:Country:
+    label: "国"
+  world:Observation:
+    label: "年ごとの記録"
+
+properties:
+  schema:name:
+    domain: world:Country
+  world:nameJa:
+    domain: world:Country
+  world:region:
+    domain: world:Country
+  world:regionJa:
+    domain: world:Country
+  world:year:
+    domain: world:Observation
+  world:population:
+    domain: world:Observation
+  world:lifeExpectancy:
+    domain: world:Observation
+  world:fertility:
+    domain: world:Observation
+  world:ofCountry:
+    domain: world:Observation
+    range: world:Country
