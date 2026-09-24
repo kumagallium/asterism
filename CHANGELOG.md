@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.45.0](https://github.com/kumagallium/asterism/compare/v0.44.0...v0.45.0) - 2026-09-24
+
+- docs(manual): 「更新を知る」— 機能ロードマップ・リリース履歴・追加バッジと、CHANGELOG とのズレ検査 by @kumagallium in https://github.com/kumagallium/asterism/pull/590
+- ci(tagpr): リリース時にマニュアルの更新を確認する — ロードマップ nudge と release-history の再生成 by @kumagallium in https://github.com/kumagallium/asterism/pull/591
+
 ## [v0.44.0](https://github.com/kumagallium/asterism/compare/v0.43.0...v0.44.0) - 2026-09-23
 
 - docs(manual): 入門章の例題を XRD からレシピ表へ — 分野を問わない題材にする by @kumagallium in https://github.com/kumagallium/asterism/pull/567
