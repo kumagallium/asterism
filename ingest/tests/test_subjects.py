@@ -17,6 +17,7 @@ import pytest
 from asterism.subjects import (
     LABEL_PREDICATES,
     SetSpecError,
+    class_type_clause,
     label_union_clause,
     normalize_set_spec,
     pick_label,
@@ -78,6 +79,26 @@ def test_pick_label_schema_org_name_only_resource_is_not_dropped() -> None:
     # local-name フォールバックへ落ちずに schema:name の値を選ぶ。
     candidates = [("Hydrogen", 1, None)]
     assert pick_label(candidates) == "Hydrogen"
+
+
+# ----------------------------------------------------------------------------
+# class_type_clause (契約メモ contract_pr_f9.md §2.2: subjects/search の
+# class_iri 限定)
+# ----------------------------------------------------------------------------
+
+
+def test_class_type_clause_embeds_a_safe_class_iri() -> None:
+    assert class_type_clause(CLASS_IRI) == f"?s a <{CLASS_IRI}> . "
+
+
+def test_class_type_clause_honours_a_custom_subject_term() -> None:
+    assert class_type_clause(CLASS_IRI, subject_term="?x") == f"?x a <{CLASS_IRI}> . "
+
+
+def test_class_type_clause_none_for_an_unsafe_iri() -> None:
+    assert class_type_clause("not an iri") is None
+    assert class_type_clause("") is None
+    assert class_type_clause(None) is None
 
 
 # ----------------------------------------------------------------------------

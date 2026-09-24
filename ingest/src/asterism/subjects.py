@@ -37,6 +37,7 @@ __all__ = [
     "MAX_LIMIT",
     "SetSpecError",
     "SubjectKeyError",
+    "class_type_clause",
     "label_union_clause",
     "normalize_set_spec",
     "pick_label",
@@ -87,6 +88,19 @@ def label_union_clause(
         f"OPTIONAL {{ VALUES ({predicate_var} {rank_var}) {{ {pairs} }} "
         f"{subject_term} {predicate_var} {label_var} . FILTER(isLiteral({label_var})) }}"
     )
+
+
+def class_type_clause(class_iri: Any, *, subject_term: str = "?s") -> str | None:
+    """``"{subject_term} a <class_iri> . "``, or ``None`` when ``class_iri``
+    fails :func:`safe_iri` — the ONE way a caller-supplied class IRI is
+    embedded into a ``rdf:type`` scoping pattern (契約メモ contract_pr_f9.md
+    §2.2: ``subjects/search``'s ``class_iri`` — ``?s a <class>`` を組む唯一の
+    場所)。文字安全性のみを見る（``safe_iri`` と同じ — スキーム要件は課さ
+    ない）。"""
+    safe = safe_iri(class_iri)
+    if safe is None:
+        return None
+    return f"{subject_term} a <{safe}> . "
 
 
 def pick_label(candidates: list[tuple[str | None, int | None, str | None]]) -> str | None:
