@@ -623,6 +623,80 @@ def test_sets_default_cards_is_a_bare_list(tmp_path: Path) -> None:
         assert [c["tool"] for c in body] == ["set_members", "set_count"]
 
 
+def _client_with_declared_tool_class_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> TestClient:
+    """A client whose ``_load_class_schema`` seam is patched to report
+    ``overdue_days`` as ``CHECKOUT_CLASS``'s one declared, iri-bound tool —
+    same fixture-driven fake ``ingest/tests/test_subject_tools.py`` uses,
+    isolating the dispatch contract from ``class_schema``'s own (parallel-
+    authored) mapping.yaml-matching logic."""
+    import asterism.subject_tools as subject_tools_mod
+    from asterism.query_tools import load_query_tools
+
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    tools = load_query_tools(LIB_DATASET, root=settings.registry_root)
+    raw_tools = [
+        {
+            "name": t.name,
+            "title": t.title,
+            "output_kind": t.output_kind,
+            "parameters": [{"name": p.name, "type": p.type} for p in t.params],
+        }
+        for t in tools
+    ]
+
+    async def _fake_class_schema(client, registry_root, class_iri):
+        return {"class_iri": class_iri, "dataset_id": LIB_DATASET, "tools": raw_tools}
+
+    monkeypatch.setattr(subject_tools_mod, "_load_class_schema", lambda: _fake_class_schema)
+
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    return TestClient(app, headers=_AUTH)
+
+
+def test_subjects_default_cards_tool_name_works_as_is_in_cards_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """default-cards が返す ``tool`` は、加工なしで cards/run にそのまま
+    渡せる（§ dispatch contract）— 宣言ツールのカードは dataset_id 接頭つき
+    で返り、その文字列がそのまま cards/run を通る。"""
+    with _client_with_declared_tool_class_schema(tmp_path, monkeypatch) as client:
+        r = client.get("/api/subjects/default-cards", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        cards = r.json()
+        declared = next(
+            c
+            for c in cards
+            if c["tool"] not in {"subject_facts", "subject_sources", "subject_flow"}
+        )
+        assert declared["tool"] == f"{LIB_DATASET}/overdue_days"
+
+        run = client.post(
+            "/api/cards/run",
+            json={"subject": {"kind": "individual", "iri": CHECKOUT_1}, "tool": declared["tool"]},
+        )
+        assert run.status_code == 200, run.text
+        assert run.json()["items"] == [{"value": 3.0}]
+
+
+def test_cards_run_resolves_bare_declared_tool_name_for_back_compat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """接頭 (``dataset_id/``) の付かない宣言ツール名でも、その主語自身の
+    クラスから解決できれば通る（§ dispatch back-compat）。"""
+    with _client_with_declared_tool_class_schema(tmp_path, monkeypatch) as client:
+        r = client.post(
+            "/api/cards/run",
+            json={"subject": {"kind": "individual", "iri": CHECKOUT_1}, "tool": "overdue_days"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["items"] == [{"value": 3.0}]
+
+
 def test_sets_default_cards_bad_json_is_400(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         r = client.get("/api/sets/default-cards", params={"spec": "{not json"})
@@ -650,6 +724,36 @@ def test_sets_resolve_returns_set_id_and_title(tmp_path: Path) -> None:
         assert body["title"]["clauses"] == [
             {"property_label": "branch", "op": "eq", "value": "north", "unit": None}
         ]
+
+
+def test_sets_resolve_class_label_uses_model_yaml_over_ontology_local_name(
+    tmp_path: Path,
+) -> None:
+    """実機所見: 絞り込みページの見出しが「Country」（オントロジー投影の
+    rdfs:label はローカル名）になっていた。``class_schema_mod.class_label``
+    は既に呼ばれているが、それが最優先で読む ``model.yaml`` の
+    ``classes.<curie>.label`` を宣言した種類なら、その日本語ラベルを返す
+    （物の domain もどちらでもよい — ここでは stall だけの架空データ、§0）。
+    """
+    stall_class = "https://ex/market#Stall"
+    dataset_id = "market-fair"
+    settings = _settings(tmp_path)
+    dest = settings.registry_root / dataset_id
+    dest.mkdir(parents=True)
+    meta = {"id": dataset_id, "name": "青空市", "promoted": True, "promoted_at": "2024-01-01"}
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (dest / "model.yaml").write_text(
+        f'classes:\n  "{stall_class}":\n    label: "屋台"\n', encoding="utf-8"
+    )
+    store_client = _pyoxi_client({})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/sets/resolve", json={"spec": {"class": stall_class, "where": []}}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["title"]["class_label"] == "屋台"
 
 
 def test_sets_resolve_at_clause_is_400(tmp_path: Path) -> None:
