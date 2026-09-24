@@ -6,10 +6,10 @@
 <title>データセットの中のファイル — どれが何をしているか — Asterism マニュアル</title>
 <link rel="stylesheet" href="../style.css">
 </head>
-<body>
+<body class="page-dataset-files">
 <div class="wrap">
 <div class="cols">
-<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a class="here" href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a class="here" href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
 <main>
 <h1 id="データセットの中のファイル-どれが何をしているか">データセットの中のファイル — どれが何をしているか</h1>
 <p>データセットを 1 つ作ると、いくつかのファイルが一緒に保存されます。この章では、それぞれが何のためにあり、いつ使われるのかを説明します。用語（RDF・IRI・クラス・属性・SPARQL）は <a href="./rdf-basics.html">rdf-basics.md</a> で説明しています。</p>
@@ -37,7 +37,7 @@
   1 行につき 1 件、名前は .../peak/{No}/{(hkl)} の形で作る
   列 2theta の値を、項目 twoTheta として、数値で記録する</code></pre>
 <p>このファイルだけが実際に実行されます。ただし実行前に安全確認があり、許可された操作しか含まれていないことを毎回確かめてから動きます。<strong>手で書き換えないでください</strong>。次に説明する仕様から機械が作り直すため、直接の修正は上書きされます（ファイルの先頭にも同じ注意が書かれています）。</p>
-<h3 id="仕様-mapping-yaml">仕様（<code>mapping.yaml</code>）</h3>
+<h3 id="仕様-mapping-yaml">仕様（<code>mapping.yaml</code>） <span class="badge">v0.7.0 (2026-07-14) で追加</span></h3>
 <p>変換ルールと同じ内容を、人が読める形で書いたものです。実際に人がレビューするのはこちらで、変換ルールはここから機械的に作られます。AI は関与しません。</p>
 <pre><code class="lang-yaml">maps:
 - name: peak
@@ -72,7 +72,7 @@
 <h2 id="直したいときにどれを触るか">直したいときにどれを触るか</h2>
 <div class="tablewrap"><table><thead><tr><th>やりたいこと</th><th>触るもの</th><th>操作</th></tr></thead><tbody><tr><td>項目の名前・単位・数値かどうかを直す</td><td>仕様</td><td>「設計を見直す」ボタン</td></tr><tr><td>ID のつけかたを変える</td><td>仕様</td><td>「設計を見直す」ボタン</td></tr><tr><td>使っていない列を足す</td><td>仕様</td><td>「設計を見直す」ボタン</td></tr><tr><td>探すときの言葉を足す</td><td>検索タグ</td><td>「設計を見直す」ボタン</td></tr><tr><td>変換ルールを直接直す</td><td>—</td><td>しません（仕様から作り直されます）</td></tr></tbody></table></div>
 <p>いずれの場合も、直したあとに取り込みからやり直します。公開済みのデータは、新しい下書きができるまで置き換わらないので、その間も質問には答えられます。</p>
-<h2 id="過去の版">過去の版</h2>
+<h2 id="過去の版">過去の版 <span class="badge">v0.7.0 (2026-07-14) で追加</span></h2>
 <p>設計を見直すたび、その時点のファイル一式が履歴として残ります。「いつ・何が変わったのか」は、詳細画面の技術情報から差分として確認できます。</p>
 <h2 id="関連">関連</h2>
 <ul><li>用語の説明は <a href="./rdf-basics.html">rdf-basics.md</a> を参照してください。</li><li>取り込み・公開・見直しの操作は <a href="./datasets.html">datasets.md</a> を参照してください。</li><li>元のファイルの読み取り（文字コード・見出し行）は<a href="./add-data.html">add-data.md</a> を参照してください。</li></ul>
