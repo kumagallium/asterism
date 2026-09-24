@@ -16,16 +16,23 @@ priority rule every read path in this codebase composes into its own query
 own ad-hoc predicate list, which is how a resource with only
 ``<http://schema.org/name>`` ended up displaying its IRI's tail instead).
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+from pathlib import Path
 from typing import Any
+
+import rdflib
+
+from asterism import substrate
 
 __all__ = [
     "ALLOWED_OPS",
     "ALLOWED_SOURCE_SCOPES",
+    "DATASET_ID_RE",
     "LABEL_PREDICATES",
     "MAX_LIMIT",
     "SetSpecError",
@@ -33,10 +40,12 @@ __all__ = [
     "label_union_clause",
     "normalize_set_spec",
     "pick_label",
+    "resolve_dataset_label",
     "safe_http_iri",
     "safe_iri",
     "set_id_of",
     "subject_key_string",
+    "valid_dataset_id",
     "validate_subject_key",
 ]
 
@@ -104,6 +113,7 @@ def pick_label(candidates: list[tuple[str | None, int | None, str | None]]) -> s
             return by_lang[lang]
     return sorted(v for v, _lang in at_best)[0]
 
+
 #: SPARQL 1.1 の IRIREF 文法 (``<...>``) が一切許さない文字 — ``<``/``>``/``"``/
 #: ``{``/``}``/``|``/``^``/`` ` ``/``\`` に加えて空白・制御文字（0x00-0x20）。この
 #: どれか 1 文字でも生きたまま ``<...>`` に文字列連結で埋めれば、IRIREF を早期に
@@ -120,6 +130,115 @@ ALLOWED_SOURCE_SCOPES: tuple[str, ...] = ("all", "own", "open")
 
 _DEFAULT_LIMIT = 20
 MAX_LIMIT = 200
+
+#: The dataset-id shape every registry writer already enforces (``registry.py``'s
+#: ``_ID_RE``, ``class_schema.py``'s ``_ID_RE``, ``licenses.py``'s
+#: ``_DATASET_ID_RE`` — each module keeps its own copy rather than importing this
+#: one, same reasoning as :data:`_UNSAFE_IRI_CHARS` above: those are api/ingest
+#: modules this PR does not own). This copy is the ONE new call sites this PR adds
+#: (``subjects/search``'s ``dataset_id`` query param, ``dataset_summary``) share,
+#: so a caller-supplied dataset_id is checked the same way everywhere new code in
+#: this PR touches it.
+DATASET_ID_RE: re.Pattern[str] = re.compile(r"[a-z0-9-]{1,128}")
+
+
+def valid_dataset_id(value: Any) -> str | None:
+    """``value`` if it is a non-empty string matching :data:`DATASET_ID_RE`
+    (a bare slug — no path separators, no SPARQL-unsafe characters), else
+    ``None``. A caller-supplied ``dataset_id`` (a query param, a path
+    segment) must pass this before being embedded in a filesystem path or a
+    SPARQL graph filter."""
+    if not isinstance(value, str) or not value:
+        return None
+    return value if DATASET_ID_RE.fullmatch(value) else None
+
+
+#: ``dcterms:title`` — the predicate :mod:`asterism.metadata` projects a
+#: dataset's ``mie.yaml``/``schema_info.title`` into (§3.1's "dataset の
+#: rdfs:label" tier is this triple in practice: a dataset has no
+#: ``rdfs:label`` of its own, ``dcterms:title`` is the one human-facing name
+#: the description graph actually carries).
+_DCTERMS_TITLE = rdflib.URIRef("http://purl.org/dc/terms/title")
+
+
+def _title_from_metadata_ttl(registry_root: Path, dataset_id: str) -> str | None:
+    """The dataset's own ``dcterms:title`` literal(s), read straight out of
+    the registry's projected ``metadata.ttl`` (no store round trip — the same
+    file :func:`asterism.licenses._license_from_store` already reads for
+    ``dcterms:license``). ``ja`` wins over ``en`` wins over untagged wins over
+    the lexicographically-first tagged value (deterministic, never
+    store/file-iteration-order dependent — the same tie-break shape as
+    :func:`pick_label`). ``None`` if the file is absent/empty/unparsable or
+    carries no title."""
+    path = registry_root / dataset_id / "metadata.ttl"
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        return None
+    try:
+        graph = rdflib.Graph()
+        graph.parse(data=text, format="turtle")
+        subject = rdflib.URIRef(substrate.dataset_iri(dataset_id))
+    except Exception:  # best-effort: a malformed metadata.ttl must not break
+        # label resolution (mirrors asterism.metadata's own best-effort style).
+        return None
+    by_lang: dict[str, str] = {}
+    for obj in graph.objects(subject, _DCTERMS_TITLE):
+        if not isinstance(obj, rdflib.Literal):
+            continue
+        lang = str(obj.language) if obj.language else ""
+        value = str(obj)
+        if not value:
+            continue
+        if lang not in by_lang or value < by_lang[lang]:
+            by_lang[lang] = value
+    for lang in ("ja", "en", ""):
+        if lang in by_lang:
+            return by_lang[lang]
+    return sorted(by_lang.values())[0] if by_lang else None
+
+
+def _name_from_meta_json(registry_root: Path, dataset_id: str) -> str | None:
+    """``meta.json``'s ``name`` field — the same rule
+    :func:`asterism.subject_tools.dataset_labels` and
+    :func:`asterism.materials._dataset_label` each keep their own copy of
+    (§0 of this codebase: duplicating this tiny file read avoids a circular
+    import — ``subject_tools`` already imports THIS module)."""
+    meta_path = registry_root / dataset_id / "meta.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    name = meta.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def resolve_dataset_label(registry_root: Path | str | None, dataset_id: str) -> str:
+    """The ONE dataset-display-name resolution every read path that names a
+    dataset shares (契約メモ §3.1): ``metadata.ttl``'s ``dcterms:title``
+    (``ja`` → ``en`` → untagged) → the registry's ``meta.json`` ``name`` →
+    ``dataset_id`` itself (K4: never a bare id when a real name exists, but
+    never nothing either). Pure filesystem reads, no store access — callers
+    that already have a store client (``dataset_summary``) still call this
+    for the parts a store query cannot answer (the registry's own metadata),
+    same layering as :mod:`asterism.licenses`.
+    """
+    safe_id = valid_dataset_id(dataset_id)
+    if safe_id is None or registry_root is None:
+        return dataset_id
+    root = Path(registry_root)
+    title = _title_from_metadata_ttl(root, safe_id)
+    if title:
+        return title
+    name = _name_from_meta_json(root, safe_id)
+    if name:
+        return name
+    return dataset_id
 
 
 class SetSpecError(ValueError):
@@ -240,9 +359,7 @@ def normalize_set_spec(raw: Any) -> dict[str, Any]:
     limit = min(limit, MAX_LIMIT)
     scope = raw.get("source_scope") or "all"
     if scope not in ALLOWED_SOURCE_SCOPES:
-        raise SetSpecError(
-            f"source_scope must be one of {ALLOWED_SOURCE_SCOPES}, got {scope!r}"
-        )
+        raise SetSpecError(f"source_scope must be one of {ALLOWED_SOURCE_SCOPES}, got {scope!r}")
     return {
         "class": class_iri,
         "where": where,

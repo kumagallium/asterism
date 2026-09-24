@@ -244,9 +244,20 @@ def _dataset_metas(registry_root: Path | str | None) -> list[dict[str, Any]]:
     return metas
 
 
-def _dataset_labels(registry_root: Path | str | None) -> dict[str, str]:
+def dataset_labels(registry_root: Path | str | None) -> dict[str, str]:
     """``{dataset_id: display name}`` from the registry (meta.name, falling
-    back to the id itself — subject_sources' "無ければ dataset_id")."""
+    back to the id itself — subject_sources' "無ければ dataset_id").
+
+    Public (契約メモ contract_pr_f2.md §5): this bulk, meta.json-only lookup
+    (every dataset at once) is deliberately NOT the same function as
+    :func:`asterism.subjects.resolve_dataset_label` (one dataset, also reads
+    ``metadata.ttl``'s ``dcterms:title`` first) — this module already reads
+    every dataset's ``meta.json`` for :func:`_dataset_metas`'s other callers,
+    and ``asterism.subjects`` cannot import this module back (this module
+    already imports ``asterism.subjects`` — a cycle), so the two stay
+    separate, each duplicating the small "meta.json name" read (§0 of this
+    codebase's established shape, see ``asterism.materials._dataset_label``).
+    """
     return {
         str(m.get("id")): str(m.get("name") or m.get("id"))
         for m in _dataset_metas(registry_root)
@@ -522,7 +533,7 @@ async def subject_sources(
 ) -> dict[str, Any]:
     """Which dataset(s) recorded facts about ``iri``, and how many (§3.1)."""
     counts, sparql = await _graph_counts_for_subject_with_query(client, iri)
-    labels = _dataset_labels(registry_root)
+    labels = dataset_labels(registry_root)
     # dataset_id -> (label, snapshot, count)
     per_dataset: dict[str, tuple[str, str | None, int]] = {}
     for g, cnt in counts:
