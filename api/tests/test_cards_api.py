@@ -558,6 +558,37 @@ def test_subjects_resolve_bad_iri_is_400(tmp_path: Path) -> None:
         assert r.status_code == 400
 
 
+# ---------------------------------------------------------------------------
+# GET /api/subjects/linking-kinds（契約メモ contract_pr_f4.md §1-3）— この
+# ファイルは「呼ぶだけ」（担当 tool の asterism.subject_tools.linking_kinds を
+# そのまま呼んで {"kinds": ...} に包む）なので、ここでは配線だけを固定する:
+# 呼ばれる・iri を渡す・戻り値をそのまま運ぶ・不正な iri は 400。
+# ---------------------------------------------------------------------------
+
+
+def test_subjects_linking_kinds_calls_the_tool_and_wraps_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[object, str]] = []
+
+    async def fake_linking_kinds(client, iri, *, registry_root=None):
+        calls.append((client, iri))
+        return [{"class": CHECKOUT_CLASS, "property": BORROWER_PRED}]
+
+    monkeypatch.setattr(cards_routes.subject_tools, "linking_kinds", fake_linking_kinds)
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/linking-kinds", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"kinds": [{"class": CHECKOUT_CLASS, "property": BORROWER_PRED}]}
+        assert calls and calls[0][1] == CHECKOUT_1
+
+
+def test_subjects_linking_kinds_bad_iri_is_400(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/linking-kinds", params={"iri": "not-an-iri"})
+        assert r.status_code == 400
+
+
 def test_subjects_resolve_store_syntax_error_is_400(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

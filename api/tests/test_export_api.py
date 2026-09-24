@@ -12,6 +12,7 @@ bundle's ``facts/control.trig`` has a real pointer. Fixture data spans two
 unrelated fictional domains (library checkouts / a field log) — no
 materials-science noun anywhere (§0).
 """
+
 from __future__ import annotations
 
 import json
@@ -261,3 +262,104 @@ def test_export_shareable_all_open_succeeds(
         with zipfile.ZipFile(BytesIO(r.content)) as zf:
             names = zf.namelist()
         assert any(n.endswith("cards/card-1.json") for n in names)
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_pr_f4.md §1-6 — appdata の「足したカード」がこの
+# subject_key のとき自動で束に合流する（body の cards に列挙し忘れても
+# 漏れない）。
+# ---------------------------------------------------------------------------
+
+
+def _client_app_single_user(tmp_path: Path) -> tuple[TestClient, Path]:
+    settings = _settings(tmp_path)
+    settings.single_user = True
+    settings.appdata_root = tmp_path / "appdata"
+    _write_registry(settings.registry_root)
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL}, promote={LIB_DATASET: LIB_GRAPH})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_export(app, settings)
+    return TestClient(app, headers=_AUTH), settings.appdata_root
+
+
+def test_export_merges_in_matching_appdata_card_not_listed_in_the_body(
+    tmp_path: Path,
+) -> None:
+    from asterism_api import appdata
+
+    client, appdata_root = _client_app_single_user(tmp_path)
+    appdata.write_thread(
+        appdata_root,
+        "card-added00000001",
+        {
+            "card_id": "card-added00000001",
+            "subject_key": f"i:{CHECKOUT_1}",
+            "tool": "subject_facts",
+            "params": {"iri": CHECKOUT_1},
+            "title": "件数",
+            "output_kind": "facts",
+            "created_at": "2026-09-24T00:00:00Z",
+        },
+        namespace="cards",
+    )
+    with client:
+        r = client.post("/api/subjects/export", json=_export_body())
+        assert r.status_code == 200, r.text
+        with zipfile.ZipFile(BytesIO(r.content)) as zf:
+            names = zf.namelist()
+        assert any(n.endswith("cards/card-1.json") for n in names)
+        assert any(n.endswith("cards/card-added00000001.json") for n in names)
+
+
+def test_export_body_card_wins_over_appdata_card_with_same_id(tmp_path: Path) -> None:
+    """同じ ``card_id`` が body と appdata の両方にあれば body 側を残す。"""
+    from asterism_api import appdata
+
+    shared_id = "card-00000000000000f1"
+    client, appdata_root = _client_app_single_user(tmp_path)
+    appdata.write_thread(
+        appdata_root,
+        shared_id,
+        {
+            "card_id": shared_id,
+            "subject_key": f"i:{CHECKOUT_1}",
+            "tool": "no_such_tool",  # body 側が勝てば、これは決して呼ばれない
+            "params": {},
+            "title": "x",
+            "output_kind": "facts",
+            "created_at": "2026-09-24T00:00:00Z",
+        },
+        namespace="cards",
+    )
+    with client:
+        body = _export_body(
+            cards=[{"card_id": shared_id, "tool": "subject_facts", "params": {"iri": CHECKOUT_1}}]
+        )
+        r = client.post("/api/subjects/export", json=body)
+        assert r.status_code == 200, r.text
+
+
+def test_export_ignores_appdata_card_for_a_different_subject(tmp_path: Path) -> None:
+    from asterism_api import appdata
+
+    client, appdata_root = _client_app_single_user(tmp_path)
+    appdata.write_thread(
+        appdata_root,
+        "card-0ff1ce00000002",
+        {
+            "card_id": "card-0ff1ce00000002",
+            "subject_key": "i:https://ex/library/resource/checkout-2",
+            "tool": "subject_facts",
+            "params": {"iri": CHECKOUT_1},
+            "title": "x",
+            "output_kind": "facts",
+            "created_at": "2026-09-24T00:00:00Z",
+        },
+        namespace="cards",
+    )
+    with client:
+        r = client.post("/api/subjects/export", json=_export_body())
+        assert r.status_code == 200, r.text
+        with zipfile.ZipFile(BytesIO(r.content)) as zf:
+            names = zf.namelist()
+        assert not any(n.endswith("cards/card-0ff1ce00000002.json") for n in names)
