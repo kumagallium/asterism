@@ -1,7 +1,7 @@
 // データセットのページ（決定 2・契約メモ §2.2・担当 ui-page）。「作る」と「使う」
 // の合流点: 見出し（App の cardsLabel と同じ経路 — `onLabel` で上げる）／
 // 「データの意味を定義する」の帯／「この中のもの」。
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Route } from '../App'
 import {
@@ -11,8 +11,11 @@ import {
   type SubjectItem,
   type SubjectSearchItem,
 } from './cardsApi'
+import { useAllCards } from './cardStore'
 import './dataset.css'
+import './viewpoints.css'
 import { addSubjectAndPersist, useSubjects } from './subjectStore'
+import { viewpointsFrom, type Viewpoint } from './viewpoints'
 
 export type Translate = (key: string, options?: Record<string, unknown>) => string
 
@@ -70,6 +73,32 @@ export function subjectsForDataset(subjects: SubjectItem[], datasetId: string): 
   return subjects.filter((s) => s.dataset_id === datasetId)
 }
 
+/** 「使われている観点」の 1 行（PR F6・契約メモ contract_pr_f6.md §1-2）。 */
+export interface DatasetViewpointRow {
+  id: string
+  title: string
+  classLabel: string
+  usedOn: number
+}
+
+/** 観点の集合（`viewpointsFrom` の全件）のうち、この `summary` の種類
+ *  （`classes[].class_iri`）に属するものだけを、表示に要る形にする。K4:
+ *  種類の名前は必ず `summary.classes` の `label` から引く（生の class_iri は
+ *  出さない）— この `dataset_id` の種類一覧に無い class（他のデータセット
+ *  由来の観点）は出さない。順は `viewpointsFrom` が決めた順（使用数の多い順→
+ *  題名順）のまま。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（FirstScreen.tsx と同じ理由）
+export function datasetViewpointRows(viewpoints: Viewpoint[], summary: DatasetSummary): DatasetViewpointRow[] {
+  const labelByClass = new Map(summary.classes.map((c) => [c.class_iri, c.label]))
+  const rows: DatasetViewpointRow[] = []
+  for (const v of viewpoints) {
+    const classLabel = labelByClass.get(v.class)
+    if (classLabel === undefined) continue
+    rows.push({ id: v.id, title: v.title, classLabel, usedOn: v.usedOn })
+  }
+  return rows
+}
+
 // ---------------------------------------------------------------------------
 // 画面
 // ---------------------------------------------------------------------------
@@ -94,6 +123,7 @@ const EMPTY_SUMMARY_LOAD: SummaryLoadState = { datasetId: '', summary: null, err
 export function DatasetPage({ datasetId, navigate, onDefine, onLabel }: DatasetPageProps) {
   const { t } = useTranslation('cards')
   const subjects = useSubjects()
+  const allCards = useAllCards()
   const [loaded, setLoaded] = useState<SummaryLoadState>(EMPTY_SUMMARY_LOAD)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -135,6 +165,12 @@ export function DatasetPage({ datasetId, navigate, onDefine, onLabel }: DatasetP
     setResults(null)
     setSearchError(false)
   }
+
+  const viewpoints = useMemo(() => viewpointsFrom(allCards), [allCards])
+  const viewpointRows = useMemo(
+    () => (summary ? datasetViewpointRows(viewpoints, summary) : []),
+    [viewpoints, summary],
+  )
 
   if (loadError) return <p className="ds-empty-note">{t('render_error')}</p>
   if (!summary) return <p className="ds-empty-note">{t('page.loading')}</p>
@@ -302,6 +338,25 @@ export function DatasetPage({ datasetId, navigate, onDefine, onLabel }: DatasetP
               </span>
               {item.card_count != null && <span className="dataset-content-count">{item.card_count}</span>}
             </button>
+          ))}
+        </div>
+      )}
+
+      {viewpointRows.length > 0 && (
+        <div className="cardpage-head">
+          <h2 className="cardpage-title">{t('viewpoints.section_title')}</h2>
+        </div>
+      )}
+      {viewpointRows.length > 0 && (
+        <div className="dataset-viewpoints-list">
+          {viewpointRows.map((row) => (
+            // 見た目だけ（押しても何もしない・K30: 押せる見た目にしない —
+            // ボタンにせず、ただの行として置く）。
+            <div key={row.id} className="dataset-viewpoint-item">
+              <span className="dataset-viewpoint-title">{row.title}</span>
+              <span className="dataset-viewpoint-kind">{row.classLabel}</span>
+              <span className="dataset-viewpoint-count">{t('viewpoints.used_on', { count: row.usedOn })}</span>
+            </div>
           ))}
         </div>
       )}

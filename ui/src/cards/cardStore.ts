@@ -99,6 +99,13 @@ export function getAllCards(): CardSpec[] {
   return items
 }
 
+/** 全主語ぶんの「足したカード」を購読する（PR F6・`viewpoints.ts` の
+ *  `viewpointsFrom` の入力）。`useCards` と違い絞り込まないので、全件ストア
+ *  のスナップショットをそのまま返せる（`useMemo` は不要）。 */
+export function useAllCards(): CardSpec[] {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
 function load(): CardSpec[] {
   if (typeof localStorage === 'undefined') return []
   try {

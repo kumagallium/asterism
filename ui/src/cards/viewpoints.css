@@ -1,0 +1,86 @@
+/* 「同じデータで使われている観点」の帯（ViewpointStrip.tsx・契約メモ
+ * contract_pr_f6.md §1-2）とデータセットのページの「使われている観点」
+ * （DatasetPage.tsx）。色は必ず index.css のトークンから（生の値を書かない）。 */
+
+.viewpoint-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+
+.viewpoint-strip-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.viewpoint-strip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.viewpoint-chip {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.viewpoint-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.viewpoint-chip:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* ---- データセットのページの「使われている観点」（見た目だけ・押せない —
+ * K30） ---- */
+
+.dataset-viewpoints-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.dataset-viewpoint-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.88rem;
+  color: var(--fg);
+}
+
+.dataset-viewpoint-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataset-viewpoint-kind {
+  flex: none;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.dataset-viewpoint-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--faint);
+}

@@ -5,8 +5,8 @@
 // Ask へ渡す（新規の会話機構は作らない）。
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { defaultCardsForSubject, resolveSubject, runCard, subjectKeyToString } from './cardsApi'
-import type { CardRef, CardToolResult, SubjectResolveResult } from './cardsApi'
+import { defaultCardsForSubject, linkingKinds, resolveSubject, runCard, subjectKeyToString } from './cardsApi'
+import type { CardRef, CardToolResult, LinkingKind, SubjectResolveResult } from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
@@ -17,6 +17,7 @@ import { NewCardForm } from './NewCardForm'
 import { removeCard, useCards } from './cardStore'
 import type { CardSpec } from './cardStore'
 import { subjectDisplayLabel } from './subjectLabel'
+import { ViewpointStrip } from './ViewpointStrip'
 import './pages.css'
 
 /** ui-form の `cardStore.useCards` が返す 1 件（O19 CardSpec）を、既定カードと
@@ -131,6 +132,30 @@ export function SubjectPage({
     setAddingCard(false)
   }
 
+  // 「観点」の帯（PR F6・ViewpointStrip）が使う `linkingKinds`（この 1 件を
+  // 指す種類の候補）— 1 回だけ取る（契約メモ §5 実装順(4)「1 件のページは
+  // linkingKinds を 1 回取って渡す」）。`NewCardForm` も同じ API を独自に
+  // 叩くが、`NewCardForm` は F4（担当外・変更しない）のため、ここでは共有せず
+  // 独立に取る — deviations 参照。
+  const [linkingKindsState, setLinkingKindsState] = useState<{ iri: string; items: LinkingKind[] }>({
+    iri: '',
+    items: [],
+  })
+  useEffect(() => {
+    let cancelled = false
+    linkingKinds(iri)
+      .then((items) => {
+        if (!cancelled) setLinkingKindsState({ iri, items })
+      })
+      .catch(() => {
+        if (!cancelled) setLinkingKindsState({ iri, items: [] })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [iri])
+  const linkingKindsForIri = linkingKindsState.iri === iri ? linkingKindsState.items : []
+
   useEffect(() => {
     let cancelled = false
     Promise.all([resolveSubject(iri), defaultCardsForSubject(iri)])
@@ -192,6 +217,18 @@ export function SubjectPage({
   const visibleCards = useMemo(
     () => (allCards ?? []).filter((c) => !hiddenCardIds.has(c.card_id)),
     [allCards, hiddenCardIds],
+  )
+  // ViewpointStrip（PR F6）を既定カードと足したカードのあいだに置くため、
+  // `visibleCards` を並び順のまま二分する（`allCards` は `appendAddedCards`
+  // が既定を先頭に、重複しない足したカードを後ろに並べたもの）。
+  const defaultCardIds = useMemo(() => new Set((cards ?? []).map((c) => c.card_id)), [cards])
+  const visibleDefaultCards = useMemo(
+    () => visibleCards.filter((c) => defaultCardIds.has(c.card_id)),
+    [visibleCards, defaultCardIds],
+  )
+  const visibleAddedCards = useMemo(
+    () => visibleCards.filter((c) => !defaultCardIds.has(c.card_id)),
+    [visibleCards, defaultCardIds],
   )
 
   function hideCard(id: string) {
@@ -296,7 +333,7 @@ export function SubjectPage({
         />
       )}
       <div className="cardpage-grid">
-        {visibleCards.map((card) => (
+        {visibleDefaultCards.map((card) => (
           <CardTile
             key={card.card_id}
             subject={{ kind: 'individual', iri }}
@@ -309,6 +346,30 @@ export function SubjectPage({
           />
         ))}
       </div>
+      <ViewpointStrip
+        subject={subjectRef}
+        subjectKey={subjectKeyStr}
+        kind="individual"
+        classIri={resolved.class_iri}
+        iri={iri}
+        linkingKinds={linkingKindsForIri}
+      />
+      {visibleAddedCards.length > 0 && (
+        <div className="cardpage-grid">
+          {visibleAddedCards.map((card) => (
+            <CardTile
+              key={card.card_id}
+              subject={{ kind: 'individual', iri }}
+              card={card}
+              onOpenDetail={onSelectCard}
+              onOpenSubject={onOpenSubject}
+              onFoundChange={(id, found) => {
+                if (!found) hideCard(id)
+              }}
+            />
+          ))}
+        </div>
+      )}
       {exporting && (
         <ExportDialog
           subject={{ kind: 'individual', iri }}
