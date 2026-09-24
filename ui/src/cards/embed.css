@@ -1,0 +1,24 @@
+/* 「意味を定義する」「詳しい情報」を見るの枠の中で開くときの包み
+ * （契約メモ contract_pr_f5.md §1.1・§1.6・担当 ui-embed）。中身
+ * （WorkbenchTier/GalleryView）のスタイルは触らない — ここでは外側の余白を
+ * 「見る」の他のページ（DatasetPage 等・.cardpage-body の gap）と揃えるだけ。
+ * 幅は .app-content にすでに no max-width で揃っているので、ここは付け足さない。
+ */
+.cards-embed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* proposal の無いデータセットで「定義を直す」が詳しい情報（設計タブ）へ倒した
+ * ときの読み取り専用の 1 行（dataset.meaning_readonly・契約メモ §1.3）。
+ * DatasetPage.tsx の .dataset-band と同じ見た目の帯にする。 */
+.cards-meaning-readonly {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 0.85rem;
+}

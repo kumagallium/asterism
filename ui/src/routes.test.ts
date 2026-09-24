@@ -114,6 +114,51 @@ describe('parseHash / routeToHash — cards/d（データセットのページ�
   })
 })
 
+describe('parseHash / routeToHash — cards/d/<id>/define,details（見るの枠の中で開く子ルート・契約メモ contract_pr_f5.md §1.1）', () => {
+  it('#/cards/d/<id>/define はウィザードを見るの枠の中で開く', () => {
+    const hash = '#/cards/d/ds-1/define'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'cards', datasetPageId: 'ds-1', datasetSub: 'define' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('#/cards/d/<id>/details は詳しい情報を見るの枠の中で開く', () => {
+    const hash = '#/cards/d/ds-1/details'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'cards', datasetPageId: 'ds-1', datasetSub: 'details' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('#/cards/d/<id>/details/<detailTab> は詳細内タブも往復する', () => {
+    const hash = '#/cards/d/ds-1/details/tools'
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      datasetPageId: 'ds-1',
+      datasetSub: 'details',
+      detailTab: 'tools',
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('details/structure（既定タブ）は短い形に丸まる', () => {
+    expect(roundTrip('#/cards/d/ds-1/details/structure')).toBe('#/cards/d/ds-1/details')
+  })
+
+  it('既存の #/cards/d/<id>（子ルート無し）は今までどおり', () => {
+    const hash = '#/cards/d/ds-1'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'cards', datasetPageId: 'ds-1' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('id に記号が入っていても /define が往復する', () => {
+    const hash = `#/cards/d/${encodeURIComponent('ds/中央 42')}/define`
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      datasetPageId: 'ds/中央 42',
+      datasetSub: 'define',
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+})
+
 describe('parseHash / routeToHash — cards/s/new（条件で集める・新規作成・契約メモ §2.4）', () => {
   it('#/cards/s/new?dataset=<id> は setNew + setDatasetId', () => {
     const hash = '#/cards/s/new?dataset=ds-1'

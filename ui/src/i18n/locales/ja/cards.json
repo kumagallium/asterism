@@ -18,7 +18,10 @@
     "flow": "手順"
   },
   "topbar": {
-    "unselected": "探す"
+    "unselected": "探す",
+    "back": "戻る",
+    "define": "データの意味を定義する",
+    "details": "詳しい情報"
   },
   "firstScreen": {
     "placeTitle": "あなたのデータを置く",
@@ -60,6 +63,7 @@
     "section_meaning": "データの意味を定義する",
     "meaning_ok": "種類 {{classes}} ・ 項目 {{properties}}（名前あり {{withLabel}} ・ 単位あり {{withUnit}}）",
     "meaning_pending": "まだ取り込んでいません",
+    "meaning_readonly": "このデータは取り込み済みです。列の意味はここで確かめられます",
     "define": "定義を直す",
     "resume": "続きから",
     "details": "詳しい情報",

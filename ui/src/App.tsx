@@ -6,6 +6,7 @@ import { AskView } from './AskView'
 import { fetchProposal } from './api'
 import { CardsGallery } from './cards/CardsGallery'
 import { CardsView } from './cards/CardsView'
+import './cards/embed.css'
 import { SubjectRail } from './cards/SubjectRail'
 import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
@@ -84,6 +85,11 @@ export interface Route {
   /** `#/cards/d/<dataset_id>` — データセットのページ（契約メモ contract_pr_f2.md
    *  §2.2・§2.4）。「作る」と「使う」の合流点。 */
   datasetPageId?: string
+  /** `#/cards/d/<dataset_id>/define` | `#/cards/d/<dataset_id>/details[/<detailTab>]`
+   *  — 「意味を定義する」「詳しい情報」を見るの枠（SubjectRail・topbar）の中で
+   *  開く子ルート（契約メモ contract_pr_f5.md §1.1）。無ければ従来どおり
+   *  データセットのページだけ。 */
+  datasetSub?: 'define' | 'details'
   /** `#/cards/s/new?dataset=<id>&class=<iri>` — 「条件で集める」の新規作成
    *  （契約メモ §2.4）。`setDatasetId`/`setClassIri` と組で使う。 */
   setNew?: boolean
@@ -149,8 +155,16 @@ export function parseHash(hash: string): Route {
       return datasetId ? { tab: 'cards', place: true, placeDatasetId: datasetId } : { tab: 'cards', place: true }
     }
     // `#/cards/d/<id>` — データセットのページ（契約メモ §2.2）。
+    // `.../define` | `.../details[/<detailTab>]` — 見るの枠の中で開く子ルート
+    // （契約メモ contract_pr_f5.md §1.1）。
     if (parts[1] === 'd' && parts[2]) {
-      return { tab: 'cards', datasetPageId: decodeURIComponent(parts[2]) }
+      const datasetPageId = decodeURIComponent(parts[2])
+      if (parts[3] === 'define') return { tab: 'cards', datasetPageId, datasetSub: 'define' }
+      if (parts[3] === 'details') {
+        const detailTab = DETAIL_TABS.includes(parts[4] as DetailTab) ? (parts[4] as DetailTab) : undefined
+        return { tab: 'cards', datasetPageId, datasetSub: 'details', detailTab }
+      }
+      return { tab: 'cards', datasetPageId }
     }
     // `#/cards/s/new?dataset=<id>&class=<iri>` — 「条件で集める」の新規作成
     // （契約メモ §2.4）。`s/<set_id>` の一般形より先に見る（`new` という set_id
@@ -190,7 +204,14 @@ export function routeToHash(r: Route): string {
         ? `#/cards/place?dataset=${encodeURIComponent(r.placeDatasetId)}`
         : '#/cards/place'
     }
-    if (r.datasetPageId) return `#/cards/d/${encodeURIComponent(r.datasetPageId)}`
+    if (r.datasetPageId) {
+      const base = `#/cards/d/${encodeURIComponent(r.datasetPageId)}`
+      if (r.datasetSub === 'define') return `${base}/define`
+      if (r.datasetSub === 'details') {
+        return r.detailTab && r.detailTab !== 'structure' ? `${base}/details/${r.detailTab}` : `${base}/details`
+      }
+      return base
+    }
     if (r.setNew) {
       const params = new URLSearchParams()
       if (r.setDatasetId) params.set('dataset', r.setDatasetId)
@@ -386,6 +407,11 @@ function App() {
   // App はすでに全画面の状態を持つ器なので、ここに足すだけで十分）。
   const [cardsLabel, setCardsLabel] = useState<string | null>(null)
 
+  // 「定義を直す」が proposal 無しで詳しい情報（設計タブ）へ倒したデータセット
+  // （契約メモ contract_pr_f5.md §1.3）。読み取り専用の 1 行はそのデータセットの
+  // details/design に着地したときだけ帯の下に出す。
+  const [meaningReadonlyFor, setMeaningReadonlyFor] = useState<string | null>(null)
+
   // 全体像（map）の「戻る」を入ってきた画面へ返す（従来は常に crosswalk 固定で、
   // データセット詳細の「全体像を見る」から入ると戻り先で現在地を見失っていた）。
   const [mapReturn, setMapReturn] = useState<Route>({ tab: 'crosswalk' })
@@ -407,32 +433,45 @@ function App() {
   // `returnTo` (契約メモ §2.6) は「データセットのページから入ったとき」だけ
   // 呼び出し側が立てる — 置く画面から入る既存の経路（GalleryView の「見直す」）は
   // 渡さないので、そちらの戻り先（カタログの当該データセット詳細）は変わらない。
-  function redesignDataset(target: RedesignTarget, returnTo?: string) {
+  // WorkbenchTier が消費する redesignTarget の state だけを立てる（ナビゲーション
+  // はしない）。旧ナビの「見直す」（redesignDataset・下）と、見るの枠の中で開く
+  // 「定義を直す」（onDefine・下）の両方がこれを共有する（契約メモ
+  // contract_pr_f5.md §1.4）。
+  function setRedesignState(target: RedesignTarget) {
     setGalleryFocus(null)
     setRedesignTarget(target)
+  }
+
+  // Gallery→Workbench redesign link（旧ナビの「見直す」・置く画面から入る既存の
+  // 経路）: state を立てたうえで、従来どおり workbench タブへ移る。
+  function redesignDataset(target: RedesignTarget, returnTo?: string) {
+    setRedesignState(target)
     navigate({ tab: 'workbench', returnTo })
   }
 
-  // データセットのページの「定義を直す」「続きから」（契約メモ §2.2・§2.6）。
-  // 既存の「見直す」経路（fetchProposal → redesignDataset → WorkbenchView が消費）
-  // をそのまま流用し、完了・中止のどちらでも呼び出し元のデータセットのページへ
-  // 戻す（`returnTo` を workbench の Route に載せる）。
+  // データセットのページの「定義を直す」「続きから」（契約メモ §2.2・§2.6・
+  // contract_pr_f5.md §1.4）。proposal があれば見るの枠の中の子ルート
+  // （`#/cards/d/<id>/define`）でウィザードを開く（旧ナビの workbench タブへは
+  // 移らない）。無ければ黙って止まらず（K39）、同じ枠の中の詳しい情報（設計
+  // タブ）で定義を見せる。
   async function onDefine(datasetId: string) {
     try {
       const p = await fetchProposal(datasetId)
       if (!p.has_proposal || !p.proposal_md.trim()) {
         // 設計の下書き（proposal）が無いデータセット（同梱の見本・exchange で
-        // 受け取ったもの）はウィザードで直せない。黙って止まらず（K39）、
-        // 既存の設計画面（カタログ詳細の「設計」タブ）で定義を見せる。
-        openDataset(datasetId, 'design')
+        // 受け取ったもの）はウィザードで直せない。
+        setMeaningReadonlyFor(datasetId)
+        navigate({ tab: 'cards', datasetPageId: datasetId, datasetSub: 'details', detailTab: 'design' })
         return
       }
-      redesignDataset(
+      setRedesignState({
         // K4: 生の id を人向けの文言に出さない — フォールバックはトップバーに
         // 既に出ているデータセットのページの見出し（cardsLabel）。
-        { datasetId, datasetName: p.dataset_name || cardsLabel || datasetId, proposalMd: p.proposal_md },
-        routeToHash({ tab: 'cards', datasetPageId: datasetId }),
-      )
+        datasetId,
+        datasetName: p.dataset_name || cardsLabel || datasetId,
+        proposalMd: p.proposal_md,
+      })
+      navigate({ tab: 'cards', datasetPageId: datasetId, datasetSub: 'define' })
     } catch {
       // best-effort: 開けなくても致命的にしない（データセットのページに留まる）。
     }
@@ -440,11 +479,17 @@ function App() {
 
   // WorkbenchTier/KantanWizard の唯一の「戻る」出口（完了の grow 導線・見直しの
   // やめる/この単位でよい、両方がここを通る）。`route.returnTo` が立っていれば
-  // そこへ（データセットのページから入った見直し）、無ければ従来どおりカタログの
-  // 当該データセット詳細へ（置く画面・カタログから入った既存の経路）。
+  // そこへ（旧ナビ「見直す」からデータセットのページ経由で入ったとき）。無くても
+  // 見るの枠の中（`#/cards/d/<id>/define`）で開いていれば、そのデータセットの
+  // ページへ戻す（契約メモ contract_pr_f5.md §1.1・注意書き）。それ以外は従来
+  // どおりカタログの当該データセット詳細へ（置く画面・カタログから入った経路）。
   function onWorkbenchDone(id: string, tab?: DetailTab, focus?: DetailFocus) {
     if (route.returnTo) {
       navigate(parseHash(route.returnTo))
+      return
+    }
+    if (route.tab === 'cards' && route.datasetPageId) {
+      navigate({ tab: 'cards', datasetPageId: route.datasetPageId })
       return
     }
     openDataset(id, tab, focus)
@@ -576,11 +621,23 @@ function App() {
         <div className="app-main" ref={mainRef}>
           <header className="topbar">
             <div className="topbar-titles">
-              <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
+              <span
+                className={
+                  tab === 'cards' && route.datasetSub ? 'topbar-eyebrow topbar-eyebrow--crumb' : 'topbar-eyebrow'
+                }
+              >
+                {/* datasetSub（定義を直す／詳しい情報）中はパンくずに差し替える
+                    （契約メモ contract_pr_f5.md §1.2）: 「<データセット名> ›
+                    データの意味を定義する／詳しい情報」。 */}
+                {tab === 'cards' && route.datasetSub
+                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '探す' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
+                  : t(`view.${tab}.eyebrow`)}
+              </span>
               <h1 className="topbar-title">
                 {/* cards タブだけ見出しが動く: 対象を選んでいればそのラベル、
                     未選択（`#/cards`・`#/cards/place`）なら「探す」（契約メモ §3・
                     §5: 「ページ（見出し）→ 対象のラベル／未選択は『探す』」）。
+                    datasetSub 中も見出しはデータセットの名前のまま（§1.2）。
                     `cards:topbar.unselected` は新設キー（notes 参照）。 */}
                 {tab === 'cards'
                   ? cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '探す' })
@@ -589,6 +646,16 @@ function App() {
             </div>
             {/* cards タブは sub を出さない（契約メモ §3）。 */}
             {tab !== 'cards' && <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>}
+            {/* datasetSub 中だけ「戻る」（データセットのページへ・契約メモ §1.2）。 */}
+            {tab === 'cards' && route.datasetSub && route.datasetPageId && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm topbar-back"
+                onClick={() => navigate({ tab: 'cards', datasetPageId: route.datasetPageId })}
+              >
+                {t('cards:topbar.back')}
+              </button>
+            )}
             <LanguageToggle />
           </header>
 
@@ -663,7 +730,64 @@ function App() {
             {tab === 'jobs' && <JobsView />}
             {tab === 'sparql' && <SparqlView />}
             {tab === 'cardsdemo' && <CardsGallery />}
-            {tab === 'cards' && (
+            {/* 「意味を定義する」「詳しい情報」も見るの枠（SubjectRail・topbar）の
+                中で開く（契約メモ contract_pr_f5.md §1.1）— tab は 'cards' の
+                まま、中身だけ WorkbenchTier/GalleryView に差し替える。 */}
+            {tab === 'cards' && route.datasetPageId && route.datasetSub === 'define' && (
+              <div className="cards-embed">
+                <WorkbenchTier
+                  redesignTarget={redesignTarget}
+                  onRedesignConsumed={() => setRedesignTarget(null)}
+                  onOpenDataset={onWorkbenchDone}
+                  onOpenAsk={openAsk}
+                  onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                />
+              </div>
+            )}
+            {tab === 'cards' && route.datasetPageId && route.datasetSub === 'details' && (
+              <>
+                {meaningReadonlyFor === route.datasetPageId && route.detailTab === 'design' && (
+                  <p className="cards-meaning-readonly">{t('cards:dataset.meaning_readonly')}</p>
+                )}
+                <div className="cards-embed">
+                  <GalleryView
+                    focusClass={null}
+                    selectedId={route.datasetPageId}
+                    detailTab={route.detailTab ?? 'structure'}
+                    onSelect={(id) =>
+                      navigate(
+                        id
+                          ? { tab: 'cards', datasetPageId: id, datasetSub: 'details' }
+                          : { tab: 'cards', datasetPageId: route.datasetPageId },
+                      )
+                    }
+                    onDetailTab={(dt) =>
+                      navigate(
+                        { tab: 'cards', datasetPageId: route.datasetPageId, datasetSub: 'details', detailTab: dt },
+                        { replace: true },
+                      )
+                    }
+                    onOpenCrosswalk={() => navTo('crosswalk')}
+                    onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                    onOpenMap={() => {
+                      setMapReturn(route)
+                      navTo('map')
+                    }}
+                    onAddData={() => navTo('workbench')}
+                    // 詳しい情報（見るの枠に埋め込み）からの「見直す」は旧ナビの
+                    // workbench タブへ切り替えない — 見るの枠（SubjectRail・
+                    // topbar）のまま子ルート #/cards/d/<id>/define に留める
+                    // （契約メモ contract_pr_f5.md §1.1・チェッカー指摘 blocker）。
+                    // onDefine と同じ形: state だけ立てて cards タブの中で navigate。
+                    onRedesign={(target) => {
+                      setRedesignState(target)
+                      navigate({ tab: 'cards', datasetPageId: route.datasetPageId, datasetSub: 'define' })
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {tab === 'cards' && !(route.datasetPageId && route.datasetSub) && (
               <CardsView
                 route={route}
                 navigate={navigate}

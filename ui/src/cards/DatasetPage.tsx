@@ -206,7 +206,9 @@ export function DatasetPage({ datasetId, navigate, onDefine, onLabel }: DatasetP
               <button
                 type="button"
                 className="btn btn--ghost btn--sm"
-                onClick={() => navigate({ tab: 'gallery', datasetId })}
+                // 見るの枠の中の子ルート（契約メモ contract_pr_f5.md §1.1・§1.5）
+                // — 旧ナビの gallery タブへは飛ばさない。
+                onClick={() => navigate({ tab: 'cards', datasetPageId: datasetId, datasetSub: 'details' })}
               >
                 {t('dataset.details')}
               </button>

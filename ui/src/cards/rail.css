@@ -235,3 +235,10 @@
   align-items: center;
   gap: 0.3rem;
 }
+
+/* いま開いているデータセットの行（`aria-current="page"`。F5: 意味を定義する／
+   詳しい情報のあいだもこの行が選ばれたまま＝木の中の現在地） */
+.rail-dataset-name[aria-current='page'] {
+  font-weight: 600;
+  color: var(--accent, #1d5f3f);
+}

@@ -251,6 +251,12 @@ button.side-nav-item.active:hover:not(:disabled) {
   color: var(--accent);
   margin-bottom: 0.1rem;
 }
+
+/* パンくず（データセット名 › 定義する／詳しい情報）は固有名なので大文字化しない */
+.topbar-eyebrow--crumb {
+  text-transform: none;
+  letter-spacing: normal;
+}
 .topbar-titles {
   flex: none;
 }
@@ -267,6 +273,13 @@ button.side-nav-item.active:hover:not(:disabled) {
   min-width: 0;
   font-size: 0.9rem;
   color: var(--body);
+}
+
+/* 見るの枠の中で開いた「定義を直す」「詳しい情報」からデータセットのページへ
+ * 戻る（topbar 右上・契約メモ contract_pr_f5.md §1.2・担当 ui-embed）。見た目は
+ * 既存の .btn--ghost のまま、言語トグルと同じ「右へ寄せる」だけを足す。 */
+.topbar-back {
+  margin-left: auto;
 }
 
 /* 言語トグル: トップバー右端。ja/en の2値セグメント。 */

@@ -18,7 +18,10 @@
     "flow": "Steps"
   },
   "topbar": {
-    "unselected": "Search"
+    "unselected": "Search",
+    "back": "Back",
+    "define": "Define what the data means",
+    "details": "More details"
   },
   "firstScreen": {
     "placeTitle": "Place your data",
@@ -60,6 +63,7 @@
     "section_meaning": "Define what the data means",
     "meaning_ok": "{{classes}} kinds · {{properties}} properties ({{withLabel}} named · {{withUnit}} with units)",
     "meaning_pending": "Not ingested yet",
+    "meaning_readonly": "This data is already ingested. You can check what the columns mean here",
     "define": "Edit the definition",
     "resume": "Resume",
     "details": "More details",
