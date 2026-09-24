@@ -396,7 +396,12 @@ function App() {
     } catch {
       return
     }
-    const onChange = () => setNavCollapsed(mq.matches)
+    // 手動でたたんだ／ひろげた後は、画面幅が変わっても（ヘッドレスの撮影や
+    // ウィンドウのリサイズを含む）その選択を上書きしない。
+    const onChange = () => {
+      if (navCollapsedExplicit.current) return
+      setNavCollapsed(mq.matches)
+    }
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
