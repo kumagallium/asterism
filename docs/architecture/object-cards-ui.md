@@ -256,7 +256,8 @@ optional は除く）。
 としているが、単位がパラメータで決まるツール（例: 同梱の `property_ranking` は
 `property_y` 引数で量が変わる）が実在するため、本実装では**任意**とし、lint が
 warning を出すに留める。値の検証（QUDT カタログに存在するか）も Phase 1 ではしない
-（文字列を素通しする）。
+（文字列を素通しする）。`series` の `x` は年や日付などの座標であることが多く物理量の
+単位を持たないため、warning の対象からも外す（`y` のみを見る）。
 
 ### O26. 推定規則（`infer_output_kind`）
 
@@ -309,9 +310,17 @@ facts**（判断が要るものは保守側に倒す）。
 | `?a2 prov:wasInformedBy ?a1` | a1 → a2, `informed` |
 | `?e prov:wasQuotedFrom ?src` | src → e, `quoted` |
 
-起点 IRI から上の 7 述語を**両方向**（主語としても目的語としても）に BFS。
-`max_depth` 段まで、`max_nodes` 個まで（超えたら `graph.truncated: true`）。1 段
-ごとに 1 回の SPARQL（`VALUES ?n { ... }` で前段の節をまとめて問う）。
+探索は起点 IRI の**系譜**（上流全部＋起点の下流 1 hop）に限る。同じ activity の
+他の出力は辿らない（実機で 1 activity が数百件の実体を生成するとき、両方向 BFS
+だと起点の系譜に辿り着く前に無関係な兄弟の壁で `max_nodes` を使い切ってしまうた
+め）。上流（起点から離れる向き。`max_depth` 段まで）は起点から実体側の 4 述語
+（`wasGeneratedBy`/`wasDerivedFrom`/`wasAttributedTo`/`wasQuotedFrom`）と
+activity 側の 3 述語（`used`/`wasAssociatedWith`/`wasInformedBy`）を**主語役の
+み**で繰り返し辿る。下流（起点を使ったもの）は起点自身から
+`wasDerivedFrom`/`used`/`wasQuotedFrom` で**目的語役として起点を指すものだけ**
+1 hop 辿り、そこから先へは展開しない。`max_nodes` 個まで（超えたら
+`graph.truncated: true`）。1 段ごとに 1 回の SPARQL（`VALUES ?n { ... }` で前段の
+節をまとめて問う）。
 
 **kind** の決めかた（型 IRI から。分野語なし）: `a prov:Activity` があるか、型 IRI
 のローカル名が `Activity` で終わる → `activity`。`a prov:Agent`（または
