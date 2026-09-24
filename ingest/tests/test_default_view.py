@@ -50,6 +50,26 @@ def test_default_view_is_deterministic_and_does_not_mutate_rows() -> None:
     assert rows == before
 
 
+def test_default_view_ranked_uses_item_key_not_var() -> None:
+    """``item`` の**キー**が var と異なる宣言ツールでも、``field``/``subject_field``/
+    ``sort.field`` は行のキー（＝item のキー）を指すこと（var を指すとバグ）。"""
+    tool = {
+        "name": "t",
+        "title": "test",
+        "output_kind": "ranked",
+        "item": {
+            "checkout_count": {"var": "checkoutCount", "role": "value", "number": True},
+            "branch_name": {"var": "branchName", "role": "label"},
+            "branch_page": {"var": "branchPage", "role": "subject"},
+        },
+    }
+    view = default_view_for(tool, [])
+    assert view["spec"]["columns"][0]["field"] == "branch_name"
+    assert view["spec"]["columns"][1]["field"] == "checkout_count"
+    assert view["spec"]["subject_field"] == "branch_page"
+    assert view["spec"]["sort"] == {"field": "checkout_count", "dir": "desc"}
+
+
 def test_default_view_no_custom_key() -> None:
     """The default view never carries a ``custom`` key (that marker is only
     for LLM-written view specs — Phase 2, out of scope here)."""

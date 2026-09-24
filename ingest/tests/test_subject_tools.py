@@ -376,6 +376,19 @@ async def test_run_subject_tool_binds_declared_tool_to_the_subject(tmp_path: Pat
     assert out["materials"][0]["dataset_id"] == LIB_DATASET
 
 
+async def test_run_subject_tool_resolves_bare_declared_tool_name_via_subject_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """後方互換: 接頭 (dataset_id/) の付かない宣言ツール名でも、その主語自身の
+    クラスから解決できれば通る（§ dispatch back-compat）。"""
+    _write_registry(tmp_path)
+    _patch_class_schema_from_fixture_tools(monkeypatch, tmp_path)
+    subject = validate_subject_key({"kind": "individual", "iri": CHECKOUT_1})
+    out = await run_subject_tool(_client(), tmp_path, subject, "overdue_days", {})
+    assert out["output_kind"] == "quantity"
+    assert out["items"] == [{"value": 3.0}]
+
+
 async def test_run_subject_tool_unknown_declared_tool_is_unknown_tool_error(
     tmp_path: Path,
 ) -> None:
@@ -630,7 +643,7 @@ def _patch_class_schema_from_fixture_tools(
     ]
 
     async def _fake_class_schema(client, registry_root, class_iri):
-        return {"class_iri": class_iri, "tools": raw_tools}
+        return {"class_iri": class_iri, "dataset_id": LIB_DATASET, "tools": raw_tools}
 
     monkeypatch.setattr(subject_tools_mod, "_load_class_schema", lambda: _fake_class_schema)
 
@@ -643,8 +656,13 @@ async def test_default_cards_for_subject_excludes_multi_iri_and_facts_declared_t
     cards = await default_cards_for_subject(_client(), tmp_path, CHECKOUT_2)
     tools = [c["tool"] for c in cards]
     assert "needs_two_iris" not in tools  # 2 iri params -> never bindable to 1 subject
+    assert f"{LIB_DATASET}/needs_two_iris" not in tools
     assert "plain_facts_tool" not in tools  # facts output_kind is excluded by rule
-    assert "overdue_days" in tools  # exactly 1 iri param, quantity kind
+    assert f"{LIB_DATASET}/plain_facts_tool" not in tools
+    # default-cards returns a name cards/run can be called with as-is: the
+    # dataset-prefixed form (§ dispatch contract), not the bare tool name.
+    assert f"{LIB_DATASET}/overdue_days" in tools  # exactly 1 iri param, quantity kind
+    assert "overdue_days" not in tools
 
 
 async def test_default_cards_for_subject_card_ids_are_deterministic(tmp_path: Path) -> None:
@@ -672,6 +690,7 @@ async def test_default_cards_for_subject_class_schema_seam_can_be_monkeypatched(
         assert class_iri == CHECKOUT_CLASS
         return {
             "class_iri": class_iri,
+            "dataset_id": LIB_DATASET,
             "tools": [
                 {
                     "name": "fake_tool",
@@ -684,7 +703,7 @@ async def test_default_cards_for_subject_class_schema_seam_can_be_monkeypatched(
 
     monkeypatch.setattr(subject_tools_mod, "_load_class_schema", lambda: _fake_class_schema)
     cards = await default_cards_for_subject(_client(), tmp_path, CHECKOUT_2)
-    assert "fake_tool" in [c["tool"] for c in cards]
+    assert f"{LIB_DATASET}/fake_tool" in [c["tool"] for c in cards]
 
 
 # ---------------------------------------------------------------------------

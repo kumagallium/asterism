@@ -261,6 +261,8 @@ def _parse_item_map(raw: Any) -> dict[str, dict[str, Any]]:
                 entry["quantity_kind"] = spec["quantity_kind"]
             if "unit" in spec:
                 entry["unit"] = spec["unit"]
+            if isinstance(spec.get("label"), str):
+                entry["label"] = spec["label"]
             out[str(key)] = entry
         else:
             raise QueryToolError(f"result.item[{key!r}] must be a var name or a mapping")
@@ -1162,14 +1164,19 @@ def lint_query_tool(tool: QueryTool, vocabulary: dict[str, Any] | None = None) -
 # object-cards-ui.md).
 _UNIT_ROLES_BY_KIND: dict[str, tuple[str, ...]] = {
     "quantity": ("value",),
-    "series": ("x", "y"),
+    "series": ("y",),
     "pairs": ("x", "y"),
 }
 
 
 def _output_kind_unit_warnings(tool: QueryTool) -> list[str]:
     """Warn (never error) when a quantity/series/pairs value/x/y column has
-    neither ``quantity_kind`` nor ``unit`` declared."""
+    neither ``quantity_kind`` nor ``unit`` declared.
+
+    ``series``'s ``x`` role is exempt: it is often a coordinate (e.g. a year
+    or date) rather than a physical quantity, so it is not checked here — see
+    ADR object-cards-ui.md O25.
+    """
     target_roles = _UNIT_ROLES_BY_KIND.get(tool.output_kind)
     if not target_roles:
         return []
