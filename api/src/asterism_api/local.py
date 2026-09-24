@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from asterism import subjects as subjects_mod
 from asterism import substrate
+from asterism.dataset_summary import DEMO_DATASET_ID
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi import APIRouter, Request
 from starlette.exceptions import HTTPException
@@ -216,9 +217,7 @@ class LoopbackTokenInjector:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in ("http", "websocket") and _is_loopback(scope.get("client")):
             headers = [
-                (name, value)
-                for name, value in scope["headers"]
-                if name.lower() not in self._STRIP
+                (name, value) for name, value in scope["headers"] if name.lower() not in self._STRIP
             ]
             headers.append((b"x-asterism-token", self._token))
             scope = dict(scope, headers=headers)
@@ -394,10 +393,7 @@ def ask_dependencies_available() -> bool:
 
     Neither is a base api dependency — the ``[local]`` extra installs them.
     """
-    return all(
-        importlib.util.find_spec(name) is not None
-        for name in ("asterism_mcp", "fastmcp")
-    )
+    return all(importlib.util.find_spec(name) is not None for name in ("asterism_mcp", "fastmcp"))
 
 
 def spawn_demo_agent(
@@ -447,9 +443,7 @@ def wait_demo_agent_ready(
     return False
 
 
-def create_demo_relay(
-    demo_base_url: str, client: httpx.AsyncClient | None = None
-) -> APIRouter:
+def create_demo_relay(demo_base_url: str, client: httpx.AsyncClient | None = None) -> APIRouter:
     """Same-origin ``/demo/*`` relay — the in-process equivalent of prod caddy's
     ``reverse_proxy /demo/* demo-agent:8090`` (no prefix strip).
 
@@ -483,9 +477,7 @@ def create_demo_relay(
                 headers=headers,
             )
         except httpx.HTTPError as exc:
-            return JSONResponse(
-                {"error": f"demo-agent unreachable: {exc}"}, status_code=502
-            )
+            return JSONResponse({"error": f"demo-agent unreachable: {exc}"}, status_code=502)
         return Response(
             content=upstream.content,
             status_code=upstream.status_code,
@@ -529,18 +521,13 @@ def _bundled_world_snapshot_candidates() -> list[Path]:
     バンドルの正確な深さをハードコードしない。
     """
     exe = Path(sys.executable).resolve()
-    return [
-        ancestor / "datasets" / "world" / "snapshot.tar"
-        for ancestor in list(exe.parents)[:6]
-    ]
+    return [ancestor / "datasets" / "world" / "snapshot.tar" for ancestor in list(exe.parents)[:6]]
 
 
 def find_world_snapshot() -> Path | None:
     """見本 snapshot の在り処: repo チェックアウト → 同梱 ``.app`` → 環境変数
     ``ASTERISM_DEMO_SNAPSHOT``（契約メモ §2 の 3 候補、この順）。"""
-    repo_relative = (
-        Path(__file__).resolve().parents[3] / "datasets" / "world" / "snapshot.tar"
-    )
+    repo_relative = Path(__file__).resolve().parents[3] / "datasets" / "world" / "snapshot.tar"
     if repo_relative.is_file():
         return repo_relative
     for candidate in _bundled_world_snapshot_candidates():
@@ -554,9 +541,7 @@ def find_world_snapshot() -> Path | None:
     return None
 
 
-async def _find_demo_japan_subject(
-    client: Any, graph_iri: str
-) -> tuple[str, str, str] | None:
+async def _find_demo_japan_subject(client: Any, graph_iri: str) -> tuple[str, str, str] | None:
     """見本の 2 主語を組み立てるのに要る 3 つ組
     ``(japan_iri, country_class_iri, region_property_iri)`` を、1 本の SPARQL で
     引く。IRI を直書きしない（契約メモ §2）— 日本の IRI・国クラスの IRI・
@@ -574,11 +559,7 @@ async def _find_demo_japan_subject(
         f"}} }} LIMIT 1"
     )
     result = await client.sparql_select(query)
-    bindings = (
-        result.get("results", {}).get("bindings", [])
-        if isinstance(result, dict)
-        else []
-    )
+    bindings = result.get("results", {}).get("bindings", []) if isinstance(result, dict) else []
     if not bindings:
         return None
     row = bindings[0]
@@ -589,11 +570,20 @@ async def _find_demo_japan_subject(
 
 
 def _demo_subject_items(
-    japan_iri: str, country_class_iri: str, region_property_iri: str
+    japan_iri: str,
+    country_class_iri: str,
+    region_property_iri: str,
+    *,
+    dataset_id: str,
+    dataset_label: str,
 ) -> list[dict[str, Any]]:
     """見本の 2 主語（``ui/src/cards/cardsApi.ts`` の ``SubjectItem`` の形）を
     組み立てる。``thread_id`` は appdata のファイル名（uuid4）— ``SubjectItem.id``
-    （IRI/set_id）とは別に持つ規律（契約メモ §5.4）。
+    （IRI/set_id）とは別に持つ規律（契約メモ §5.4）。``dataset_id``/
+    ``dataset_label`` は object-cards-ui PR F2 契約メモ §2.1・§3.1: 左レールが
+    データセットごとに子を束ねるための紐付け（呼び出し元が :data:`DEMO_DATASET_ID`
+    と :func:`asterism.subjects.resolve_dataset_label` で決める——ここでは
+    直書きしない）。
     """
     now = datetime.now(UTC).isoformat()
     individual = {
@@ -602,11 +592,11 @@ def _demo_subject_items(
         "label": _DEMO_JAPAN_LABEL_JA,
         "class_label": _DEMO_COUNTRY_LABEL_JA,
         "source": "open",
+        "dataset_id": dataset_id,
+        "dataset_label": dataset_label,
         "card_count": None,
         "match": None,
-        "subject_key": subjects_mod.subject_key_string(
-            {"kind": "individual", "iri": japan_iri}
-        ),
+        "subject_key": subjects_mod.subject_key_string({"kind": "individual", "iri": japan_iri}),
         "created_at": now,
         "thread_id": str(uuid.uuid4()),
     }
@@ -632,6 +622,8 @@ def _demo_subject_items(
         "label": _DEMO_SET_LABEL_JA,
         "class_label": _DEMO_COUNTRY_LABEL_JA,
         "source": "open",
+        "dataset_id": dataset_id,
+        "dataset_label": dataset_label,
         "card_count": None,
         "match": None,
         "subject_key": subjects_mod.subject_key_string(
@@ -658,7 +650,10 @@ async def _seed_demo_subjects(cfg: Settings, client: Any, graph_iri: str) -> Non
             "graph — skipping the 2 starter subjects"
         )
         return
-    for item in _demo_subject_items(*found):
+    dataset_label = subjects_mod.resolve_dataset_label(cfg.registry_root, DEMO_DATASET_ID)
+    for item in _demo_subject_items(
+        *found, dataset_id=DEMO_DATASET_ID, dataset_label=dataset_label
+    ):
         appdata.write_thread(
             cfg.appdata_root,
             item["thread_id"],
@@ -773,9 +768,7 @@ def build_local_app(
     """
     from asterism_api.main import build_app
 
-    app = build_app(
-        settings, oxigraph_client=oxigraph_client, start_watcher=start_watcher
-    )
+    app = build_app(settings, oxigraph_client=oxigraph_client, start_watcher=start_watcher)
     if demo_agent_url is not None:
         app.include_router(create_demo_relay(demo_agent_url, demo_relay_client))
     if mcp:
@@ -845,8 +838,7 @@ def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> 
             # step with whatever signal set upstream decides to handle
             # (SIGINT/SIGTERM today, plus SIGBREAK on Windows).
             original_handlers = {
-                sig: signal.signal(sig, _handle_and_log)
-                for sig in uvicorn.server.HANDLED_SIGNALS
+                sig: signal.signal(sig, _handle_and_log) for sig in uvicorn.server.HANDLED_SIGNALS
             }
             try:
                 yield
@@ -872,11 +864,7 @@ def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> 
     server = _Server(config)
 
     async def _run() -> None:
-        opener = (
-            asyncio.create_task(_open_when_ready(server, open_url))
-            if open_url
-            else None
-        )
+        opener = asyncio.create_task(_open_when_ready(server, open_url)) if open_url else None
         try:
             await server.serve()
         finally:
@@ -915,8 +903,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--demo-agent-url",
         default=None,
-        help="relay /demo/* to an already-running demo-agent instead of "
-        "spawning one",
+        help="relay /demo/* to an already-running demo-agent instead of spawning one",
     )
     parser.add_argument(
         "--no-ask",
@@ -950,9 +937,7 @@ def main(argv: list[str] | None = None) -> int:
     ).expanduser()
     home.mkdir(parents=True, exist_ok=True)
 
-    token = (os.environ.get("ASTERISM_API_TOKEN") or "").strip() or ensure_write_token(
-        home
-    )
+    token = (os.environ.get("ASTERISM_API_TOKEN") or "").strip() or ensure_write_token(home)
 
     oxigraph_url = args.oxigraph_url or os.environ.get("CSV2RDF_OXIGRAPH_URL")
     child: subprocess.Popen[bytes] | None = None
@@ -1016,9 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
                     home / "logs" / "demo-agent.log",
                 )
             else:
-                logger.info(
-                    "demo-agent: %s (pid %d)", demo_url, demo_child.pid
-                )
+                logger.info("demo-agent: %s (pid %d)", demo_url, demo_child.pid)
 
     try:
         # Import AFTER the env defaults: asterism_api.main reads
