@@ -16,6 +16,7 @@ IRI is validated before it is embedded. Reads are scoped to the citable
 canonical (+ ontology, for labels) graphs only — the same scope every other
 read path in this codebase uses (:mod:`asterism.substrate`).
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -319,8 +320,7 @@ async def subject_types(client: SupportsSparql, iri: str) -> list[str]:
         return []
     from_clause = canonical_from_clauses(graphs)
     query = (
-        f"SELECT DISTINCT ?t\n{from_clause}"
-        f"WHERE {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?t }} ORDER BY ?t"
+        f"SELECT DISTINCT ?t\n{from_clause}WHERE {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?t }} ORDER BY ?t"
     )
     return [t for row in _rows(await client.sparql_select(query)) if (t := _cell(row, "t"))]
 
@@ -557,6 +557,35 @@ async def subject_sources(
     return _finalize(base, output_kind="breakdown", item=item_spec, materials=materials)
 
 
+async def _label_node_types(
+    client: SupportsSparql, registry_root: Path | str | None, nodes: list[Any]
+) -> None:
+    """Give every flow node whose ``props.type`` is a class IRI the same
+    display name the rest of the UI uses for that class (registry
+    ``model.yaml`` label → ontology ``rdfs:label`` → local name), via
+    :func:`asterism.class_schema.class_label`. ``prov_graph`` already fills
+    ``type_label`` from the version graph alone; this only *upgrades* it so
+    a node reads 「国」 where the rail and the set title say 「国」 (K4: one
+    name per thing). Best-effort: a failure leaves ``prov_graph``'s value."""
+    try:
+        from asterism.class_schema import class_label
+    except ImportError:  # authored in parallel — keep prov_graph's fallback
+        return
+    root = Path(registry_root) if registry_root is not None else None
+    cache: dict[str, str] = {}
+    for node in nodes:
+        props = node.get("props") if isinstance(node, dict) else None
+        type_iri = (props or {}).get("type")
+        if not isinstance(type_iri, str) or not type_iri:
+            continue
+        if type_iri not in cache:
+            try:
+                cache[type_iri] = await class_label(client, root, type_iri)
+            except Exception:  # best-effort: a label must never break the flow card
+                continue
+        props["type_label"] = cache[type_iri]
+
+
 async def subject_flow(
     client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
 ) -> dict[str, Any]:
@@ -578,6 +607,7 @@ async def subject_flow(
     graph = result.get("graph") or {"nodes": [], "edges": []}
     edges = graph.get("edges") or []
     nodes = graph.get("nodes") or []
+    await _label_node_types(client, registry_root, nodes)
     per_dataset: dict[str, tuple[str | None, int]] = {}
     for node in nodes:
         props = node.get("props") if isinstance(node, dict) else None
@@ -764,9 +794,7 @@ def _numeric_literal(value: Any, *, index: int) -> str:
     try:
         return repr(float(value))
     except (TypeError, ValueError) as exc:
-        raise SetSpecError(
-            f"where[{index}].value must be numeric for this op"
-        ) from exc
+        raise SetSpecError(f"where[{index}].value must be numeric for this op") from exc
 
 
 def _clause_pattern(clause: dict[str, Any], *, index: int) -> str:
@@ -809,9 +837,7 @@ def _clause_pattern(clause: dict[str, Any], *, index: int) -> str:
         )
     if op == "eq":
         return f'{pattern} FILTER(STR({var}) = "{_escape_literal(str(value))}")'
-    raise SetSpecError(
-        f"where[{index}].op {op!r} needs a numeric value"
-    )
+    raise SetSpecError(f"where[{index}].op {op!r} needs a numeric value")
 
 
 async def _resolve_order_unit(
@@ -887,13 +913,7 @@ async def set_members(
         lines.append(f"OPTIONAL {{ ?s {_ref(order_by['property'])} ?value }}")
         select_vars += " ?value"
 
-    query = (
-        _XSD_PREFIX
-        + f"SELECT {select_vars}\n{named}"
-        + "WHERE { "
-        + " ".join(lines)
-        + " }"
-    )
+    query = _XSD_PREFIX + f"SELECT {select_vars}\n{named}" + "WHERE { " + " ".join(lines) + " }"
     if order_by is not None:
         direction = "DESC" if order_by["dir"] == "desc" else "ASC"
         query += f" ORDER BY {direction}(?value) ?s"
@@ -1322,9 +1342,7 @@ async def run_subject_tool(
             if qt is None:
                 raise UnknownSubjectToolError(f"unknown tool {tool!r}")
         try:
-            return await run_iri_bound_tool(
-                client, qt, iri, params, registry_root=registry_root
-            )
+            return await run_iri_bound_tool(client, qt, iri, params, registry_root=registry_root)
         except QueryToolError as exc:
             raise SubjectToolError(str(exc)) from exc
 

@@ -7,6 +7,7 @@ unrelated field-log) with a registry (meta.json + query_tools.yaml) for one
 of them, so no test asserts on a single domain's shape or a domain-specific
 noun (§0).
 """
+
 from __future__ import annotations
 
 import json
@@ -368,9 +369,7 @@ async def test_subject_flow_found_false_for_absent_iri() -> None:
 async def test_run_subject_tool_binds_declared_tool_to_the_subject(tmp_path: Path) -> None:
     _write_registry(tmp_path)
     subject = validate_subject_key({"kind": "individual", "iri": CHECKOUT_1})
-    out = await run_subject_tool(
-        _client(), tmp_path, subject, f"{LIB_DATASET}/overdue_days", {}
-    )
+    out = await run_subject_tool(_client(), tmp_path, subject, f"{LIB_DATASET}/overdue_days", {})
     assert out["output_kind"] == "quantity"
     assert out["items"] == [{"value": 3.0}]
     assert out["materials"][0]["dataset_id"] == LIB_DATASET
@@ -411,9 +410,7 @@ async def test_run_subject_tool_set_tool_on_individual_is_kind_mismatch() -> Non
 
 
 async def test_run_subject_tool_individual_tool_on_set_is_kind_mismatch() -> None:
-    subject = validate_subject_key(
-        {"kind": "set", "spec": {"class": CHECKOUT_CLASS, "where": []}}
-    )
+    subject = validate_subject_key({"kind": "set", "spec": {"class": CHECKOUT_CLASS, "where": []}})
     with pytest.raises(SubjectKindMismatchError):
         await run_subject_tool(_client(), None, subject, "subject_facts", {})
 
@@ -622,9 +619,7 @@ async def test_default_cards_for_subject_includes_flow_only_with_edges(
     assert "subject_flow" not in [c["tool"] for c in without_flow]
 
 
-def _patch_class_schema_from_fixture_tools(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def _patch_class_schema_from_fixture_tools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Point ``_load_class_schema`` at a fake whose ``tools`` are exactly this
     fixture's ``query_tools.yaml`` (real class_schema's OWN dataset-matching
     logic — needing a mapping.yaml — is c1-schema's to test, not ours; this
@@ -1028,3 +1023,23 @@ async def test_set_members_label_uses_schema_name_when_no_rdfs_label() -> None:
     out = await set_members(client, spec)
     item = next(i for i in out["items"] if i["subject_iri"] == CRATE_1)
     assert item["label"] == "Crate One"
+
+
+@pytest.mark.asyncio
+async def test_subject_flow_type_label_uses_class_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The flow card names a node's kind the way the rail does (registry label),
+    not by the class IRI's local name (K4: one name per thing)."""
+    import asterism.class_schema as cs
+
+    async def fake_label(client: object, root: object, class_iri: str) -> str:
+        return "貸出" if "Checkout" in class_iri else class_iri.rsplit("#", 1)[-1]
+
+    monkeypatch.setattr(cs, "class_label", fake_label)
+    out = await subject_flow(_client(), CHECKOUT_1)
+    labels = {
+        n["props"].get("type"): n["props"].get("type_label")
+        for n in out["graph"]["nodes"]
+        if n.get("props", {}).get("type")
+    }
+    assert any(v == "貸出" for v in labels.values()), labels
+    assert all("://" not in (v or "") for v in labels.values())

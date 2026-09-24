@@ -255,6 +255,44 @@ def _info_query(from_clause: str, nodes: list[str]) -> str:
     )
 
 
+def _type_label_query(from_clause: str, type_iris: list[str]) -> str:
+    """``rdfs:label`` candidates for a set of ``rdf:type`` IRIs themselves
+    (not the instances) — same version-graph scope as :func:`_info_query`, a
+    separate round trip because the values being labelled are different
+    (class IRIs, not instance IRIs)."""
+    values = " ".join(f"<{_safe_iri(t)}>" for t in type_iris)
+    return (
+        "SELECT ?t ?val ?lang\n"
+        f"{from_clause}"
+        "WHERE {\n"
+        f"  VALUES ?t {{ {values} }}\n"
+        f"  ?t <{_RDFS_LABEL}> ?val .\n"
+        "  BIND(LANG(?val) AS ?lang)\n"
+        "}\n"
+        "ORDER BY ?t ?val ?lang\n"
+    )
+
+
+def _group_type_labels(rows: list[dict[str, dict[str, Any]]]) -> dict[str, str]:
+    """Group :func:`_type_label_query` rows into ``{type_iri: label}``, using
+    the same ja > en > lexicographic tie-break as :func:`_pick_label`."""
+    candidates: dict[str, list[tuple[str, str]]] = {}
+    for row in rows:
+        t = _cell(row, "t")
+        val = _cell(row, "val")
+        if t is None or val is None:
+            continue
+        lang = _cell(row, "lang") or ""
+        candidates.setdefault(t, []).append((val, lang))
+    return {t: label for t, vals in candidates.items() if (label := _pick_label(vals))}
+
+
+def _type_label_of(type_iri: str, type_labels: dict[str, str]) -> str:
+    """A type's display label (K4: never the raw IRI) — the version graph's
+    own ``rdfs:label`` for that class if any, else the IRI's local name."""
+    return type_labels.get(type_iri) or _local_name(type_iri)
+
+
 def _kind_of(type_iris: list[str]) -> str:
     """Coarse node shape from ``rdf:type`` alone — never a dataset vocabulary."""
     for t in type_iris:
@@ -301,6 +339,7 @@ def _node_entry(
     node_iri: str,
     info: dict[str, list[tuple[str, str]]],
     graph_iri: str | None,
+    type_labels: dict[str, str],
 ) -> dict[str, Any]:
     types = sorted({v for v, _ in info.get("type", [])})
     rep_type = types[0] if types else None
@@ -314,6 +353,8 @@ def _node_entry(
     props: dict[str, str] = {}
     if rep_type:
         props["type"] = rep_type
+        # 人向けの見出し（K4: 生の IRI を画面に出さない） — object-cards-ui.md §4。
+        props["type_label"] = _type_label_of(rep_type, type_labels)
     if graph_iri:
         dataset_id = dataset_id_of_canonical_graph(graph_iri)
         if dataset_id:
@@ -458,8 +499,15 @@ async def prov_graph(
 
     info_rows = await _run_select(client, _info_query(plain_from, list(node_graph)))
     info = _group_info(info_rows)
+
+    all_types = sorted({v for node_info in info.values() for v, _ in node_info.get("type", [])})
+    type_labels: dict[str, str] = {}
+    if all_types:
+        type_label_rows = await _run_select(client, _type_label_query(plain_from, all_types))
+        type_labels = _group_type_labels(type_label_rows)
+
     nodes = [
-        _node_entry(node_iri, info.get(node_iri, {}), graph_iri)
+        _node_entry(node_iri, info.get(node_iri, {}), graph_iri, type_labels)
         for node_iri, graph_iri in node_graph.items()
     ]
     nodes.sort(key=lambda n: n["id"])

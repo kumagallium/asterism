@@ -268,6 +268,31 @@ async def test_label_falls_back_to_iri_local_name_never_raw_iri() -> None:
 
 
 # ---------------------------------------------------------------------------
+# type_label — human heading for props["type"] (K4: never the raw IRI).
+# ---------------------------------------------------------------------------
+
+
+async def test_type_label_uses_rdfs_label_of_the_class_when_present() -> None:
+    # ex2:Manuscript itself carries an rdfs:label in the version graph.
+    ttl = (
+        _MANUSCRIPTS_TTL
+        + '\nex2:Manuscript <http://www.w3.org/2000/01/rdf-schema#label> "写本"@ja .\n'
+    )
+    client = _pyoxi_client({MANUSCRIPTS_GRAPH: ttl})
+    out = await prov_graph(client, SENTENCE)
+    props = _node_by_id(out, MANUSCRIPT)["props"]
+    assert props["type"] == EX_M + "Manuscript"
+    assert props["type_label"] == "写本"
+
+
+async def test_type_label_falls_back_to_local_name_when_class_has_no_label() -> None:
+    out = await prov_graph(_client(), SENTENCE)
+    props = _node_by_id(out, MANUSCRIPT)["props"]
+    assert props["type_label"] == "Manuscript"
+    assert props["type_label"] != EX_M + "Manuscript"  # K4: no raw IRI
+
+
+# ---------------------------------------------------------------------------
 # dataset_id / snapshot attribution.
 # ---------------------------------------------------------------------------
 
