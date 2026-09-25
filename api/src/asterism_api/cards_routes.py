@@ -27,9 +27,10 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
 from asterism import class_schema as class_schema_mod
+from asterism import crosswalk_runtime, subject_tools, substrate
 from asterism import query_tools as query_tools_mod
-from asterism import subject_tools, substrate
 from asterism import subjects as subjects_mod
+from asterism.crosswalk import XW as _XW_NS
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -81,11 +82,19 @@ async def _dataset_ranking_for_subject(
     """``iri`` の三つ組を持つデータセットを、三つ組が多い順（同数は ``dataset_id``
     辞書順）に並べる（§resolve: 1 件を持つデータセットが複数あるときの裁定 —
     :func:`asterism.subject_tools.subject_sources` と同じ ``GRAPH`` 集計を再利用
-    し、別のクエリを新設しない）。"""
+    し、別のクエリを新設しない）。
+
+    契約メモ contract_pr_f16.md §1.4: ハブの graph（:func:`asterism.substrate.is_hub_graph`）
+    は「主語がどのデータセットに属するか」の答えに数えない — ハブ graph の
+    リンク三つ組（メンバー→ハブ）まで数えると、ハブのメンバー自身の
+    dataset_id/label が本来のデータセットでなくハブの graph の id（実データ
+    と食い違う; §0 背景）に化けてしまう。"""
     counts = await subject_tools._graph_counts_for_subject(client, iri)
     labels = subject_tools.dataset_labels(registry_root)
     per_dataset: dict[str, tuple[str | None, int]] = {}
     for g, cnt in counts:
+        if substrate.is_hub_graph(g):
+            continue
         dataset_id = substrate.dataset_id_of_canonical_graph(g)
         if dataset_id is None:
             continue
@@ -126,6 +135,109 @@ async def _entity_label(client: Any, iri: str) -> str:
     graphs = sorted(set(canon) | set(onto))
     labels = await subject_tools._label_lookup(client, graphs, {iri})
     return labels.get(iri) or subject_tools._local_name(iri)
+
+
+#: 契約メモ contract_pr_f16.md §1.4: ハブのページの「同じものとして束ねた
+#: もの」に載せるメンバーの上限。
+_HUB_MEMBERS_LIMIT = 50
+
+
+def _ref_or_none(iri: str) -> str | None:
+    """SPARQL の IRIREF として安全なら ``<iri>``、そうでなければ ``None``
+    （契約メモ §3.2「IRI は ``_ref``」— ここでは ingest 由来・呼び出し元
+    検証済みの IRI しか渡さないが、埋め込む前にもう一段確かめる）。"""
+    checked = subjects_mod.safe_iri(iri)
+    return f"<{checked}>" if checked else None
+
+
+async def _hub_of_or_none(client: Any, iri: str) -> dict[str, Any] | None:
+    """``asterism.subject_tools.hub_of_subject`` の薄いラッパー。契約メモ
+    contract_pr_f16.md §0「並列中の仮置き」: ingest 側にまだこの関数が無い
+    間は常に ``None``（=ハブ関連なし）として扱う。"""
+    hub_of_subject = getattr(subject_tools, "hub_of_subject", None)
+    if hub_of_subject is None:
+        return None
+    result = await hub_of_subject(client, iri)
+    return result if isinstance(result, dict) else None
+
+
+def _hub_perspective_name(registry_root: Any, perspective_id: str) -> str:
+    """perspective の表示名 — registry meta の ``name``（無ければ
+    ``perspective_id``。契約メモ §1.4）。ハブの registry id と graph の id が
+    食い違う（§0 背景）ため、:func:`asterism.crosswalk_runtime.crosswalk_registry_id`
+    で registry id に変換してから :func:`asterism.subject_tools.dataset_labels`
+    を引く。"""
+    registry_id = crosswalk_runtime.crosswalk_registry_id(perspective_id)
+    return subject_tools.dataset_labels(registry_root).get(registry_id, perspective_id)
+
+
+async def _hub_member_iris(client: Any, hub_graph: str, hub_iri: str) -> list[str]:
+    """``hub_iri`` を指す実体（``hub_graph`` 内）の IRI を辞書順・重複無しで
+    全件返す（契約メモ §1.4 の ``hub.members``／``hub_of.member_count``・
+    ``dataset_labels`` の共通の材料）。"""
+    hub_graph_ref = _ref_or_none(hub_graph)
+    hub_iri_ref = _ref_or_none(hub_iri)
+    if hub_graph_ref is None or hub_iri_ref is None:
+        return []
+    # per-link の来歴（xw:CrosswalkLink）もハブを指すが、メンバーではない
+    # （subject_tools._hub_members と同じ除外）。
+    query = (
+        f"SELECT DISTINCT ?m WHERE {{ GRAPH {hub_graph_ref} {{ ?m ?p {hub_iri_ref} "
+        f'FILTER NOT EXISTS {{ ?m a ?mt FILTER(STRSTARTS(STR(?mt), "{_XW_NS}")) }} }} }} '
+        "ORDER BY ?m"
+    )
+    rows = _rows(await client.sparql_select(query))
+    return [m for m in (_cell(r, "m") for r in rows) if m]
+
+
+async def _hub_members(
+    client: Any, registry_root: Any, hub_graph: str, hub_iri: str, limit: int
+) -> list[dict[str, Any]]:
+    """ハブのページの「同じものとして束ねたもの」の行（契約メモ §1.4の
+    ``hub.members``）。IRI 辞書順の先頭 ``limit`` 件だけ、ラベル・データ
+    セット・種類を添えて返す。"""
+    members: list[dict[str, Any]] = []
+    for m in (await _hub_member_iris(client, hub_graph, hub_iri))[:limit]:
+        label = await _entity_label(client, m)
+        ranking = await _dataset_ranking_for_subject(client, registry_root, m)
+        top = ranking[0] if ranking else None
+        types = await subject_tools.subject_types(client, m)
+        class_iri = await subject_tools.pick_class_iri(client, types)
+        class_label = (
+            await class_schema_mod.class_label(client, registry_root, class_iri)
+            if class_iri
+            else None
+        )
+        members.append(
+            {
+                "iri": m,
+                "label": label,
+                "dataset_id": top["dataset_id"] if top else None,
+                "dataset_label": top["label"] if top else None,
+                "class_label": class_label,
+            }
+        )
+    return members
+
+
+async def _hub_of_summary(
+    client: Any, registry_root: Any, hub_graph: str, hub_iri: str
+) -> tuple[int, list[str]]:
+    """``hub_of`` の ``member_count``（ハブを指す実体の数）と
+    ``dataset_labels``（それらのデータセット名の重複なし一覧・登場順）。
+    契約メモ §1.4。"""
+    member_iris = await _hub_member_iris(client, hub_graph, hub_iri)
+    dataset_labels: list[str] = []
+    seen: set[str] = set()
+    for m in member_iris:
+        ranking = await _dataset_ranking_for_subject(client, registry_root, m)
+        if not ranking:
+            continue
+        label = ranking[0]["label"]
+        if label not in seen:
+            seen.add(label)
+            dataset_labels.append(label)
+    return len(member_iris), dataset_labels
 
 
 async def _class_schema_or_none(
@@ -312,6 +424,9 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
                 "dataset_label": None,
                 "dataset_labels": [],
                 "dataset_ids": [],
+                "is_hub": False,
+                "hub": None,
+                "hub_of": None,
             }
         types = list(description.get("types") or [])
         class_iri = await subject_tools.pick_class_iri(client, types)
@@ -334,6 +449,54 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
         # 「1」/「119」のような取り違いを起こしていた）— 共通の優先順位
         # 関数で改めて引く。
         label = await _entity_label(client, iri)
+
+        # 契約メモ contract_pr_f16.md §1.4: 主語がハブ本体か、ハブを指す実体
+        # （またはその親）かを添える。ingest 側の hub_of_subject がまだ無い
+        # 並列期間は「どちらでもない」（§0 並列中の仮置き）。
+        is_hub = False
+        hub: dict[str, Any] | None = None
+        hub_of: dict[str, Any] | None = None
+        hub_info = await _hub_of_or_none(client, iri)
+        if hub_info is not None:
+            perspective_id = hub_info.get("perspective_id")
+            hub_iri = hub_info.get("hub_iri")
+            if isinstance(perspective_id, str) and isinstance(hub_iri, str):
+                perspective_name = _hub_perspective_name(cfg.registry_root, perspective_id)
+                if hub_iri == iri:
+                    is_hub = True
+                    dataset_label = perspective_name
+                    graph = hub_info.get("graph")
+                    hub_graph = (
+                        graph
+                        if isinstance(graph, str)
+                        else crosswalk_runtime.crosswalk_graph_iri(perspective_id)
+                    )
+                    members = await _hub_members(
+                        client, cfg.registry_root, hub_graph, hub_iri, _HUB_MEMBERS_LIMIT
+                    )
+                    hub = {
+                        "perspective_id": perspective_id,
+                        "name": perspective_name,
+                        "members": members,
+                    }
+                else:
+                    hub_graph = crosswalk_runtime.crosswalk_graph_iri(perspective_id)
+                    member_count, hub_dataset_labels = await _hub_of_summary(
+                        client, cfg.registry_root, hub_graph, hub_iri
+                    )
+                    hub_label = hub_info.get("hub_label")
+                    hub_of = {
+                        "iri": hub_iri,
+                        "label": (
+                            hub_label
+                            if isinstance(hub_label, str)
+                            else await _entity_label(client, hub_iri)
+                        ),
+                        "perspective_name": perspective_name,
+                        "member_count": member_count,
+                        "dataset_labels": hub_dataset_labels,
+                    }
+
         return {
             "iri": iri,
             "found": True,
@@ -345,6 +508,9 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             "dataset_label": dataset_label,
             "dataset_labels": [r["label"] for r in ranking],
             "dataset_ids": [r["dataset_id"] for r in ranking],
+            "is_hub": is_hub,
+            "hub": hub,
+            "hub_of": hub_of,
         }
 
     # ------------------------------------------------------------------

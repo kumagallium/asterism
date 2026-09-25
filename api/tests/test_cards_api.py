@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import pytest
+from asterism import crosswalk_runtime
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
     CONTROL_GRAPH_IRI,
@@ -477,6 +478,12 @@ def test_subjects_resolve_found(tmp_path: Path) -> None:
         assert body["dataset_label"] == "貸出記録"
         assert body["dataset_labels"] == ["貸出記録"]
         assert body["dataset_ids"] == [LIB_DATASET]
+        # 契約メモ contract_pr_f16.md §1.4: ハブ関連なし（ingest の
+        # hub_of_subject がまだ無い並列期間・並列期間の外でも通常の主語なら
+        # 常にこの形）。
+        assert body["is_hub"] is False
+        assert body["hub"] is None
+        assert body["hub_of"] is None
 
 
 def test_subjects_resolve_not_found(tmp_path: Path) -> None:
@@ -488,6 +495,9 @@ def test_subjects_resolve_not_found(tmp_path: Path) -> None:
         assert body["dataset_label"] is None
         assert body["dataset_labels"] == []
         assert body["dataset_ids"] == []
+        assert body["is_hub"] is False
+        assert body["hub"] is None
+        assert body["hub_of"] is None
 
 
 def test_subjects_resolve_picks_dataset_with_more_triples_when_iri_is_shared(
@@ -556,6 +566,205 @@ def test_subjects_resolve_bad_iri_is_400(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         r = client.get("/api/subjects/resolve", params={"iri": "not-an-iri"})
         assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /api/subjects/resolve — ハブ／ハブを指す実体（契約メモ
+# contract_pr_f16.md §1.4）。ingest 側の ``hub_of_subject`` はまだ無いので
+# （§0 並列中の仮置き）テストでスタブ差し替えする。
+# ---------------------------------------------------------------------------
+
+PERSPECTIVE_ID = "shared-items"
+HUB_IRI = "https://ex/shared/resource/hub-1"
+OTHER_DATASET = "other-shelf"
+OTHER_GRAPH = canonical_graph_iri(OTHER_DATASET) + "/v1"
+OTHER_MEMBER = "https://ex/other/resource/item-1"
+
+_OTHER_TTL = f"""
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<{OTHER_MEMBER}> rdfs:label "Other Item" .
+"""
+
+
+def _hub_graph_ttl(hub_iri: str, members: list[str]) -> str:
+    links = "\n".join(f"<{m}> <{EX_LIB}linksTo> <{hub_iri}> ." for m in members)
+    return links
+
+
+def _hub_registry_meta(registry_root: Path, *, name: str = "共有たな") -> None:
+    dest = registry_root / crosswalk_runtime.crosswalk_registry_id(PERSPECTIVE_ID)
+    dest.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "id": crosswalk_runtime.crosswalk_registry_id(PERSPECTIVE_ID),
+        "name": name,
+        "promoted": True,
+        "promoted_at": "2024-01-03",
+        "crosswalk_perspective_id": PERSPECTIVE_ID,
+    }
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _hub_client(tmp_path: Path, *, members: list[str]) -> TestClient:
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    other_dest = settings.registry_root / OTHER_DATASET
+    other_dest.mkdir(parents=True)
+    other_meta = {
+        "id": OTHER_DATASET,
+        "name": "別のたな",
+        "promoted": True,
+        "promoted_at": "2024-01-02",
+    }
+    (other_dest / "meta.json").write_text(json.dumps(other_meta), encoding="utf-8")
+    _hub_registry_meta(settings.registry_root)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    store_client = _pyoxi_client(
+        {
+            LIB_GRAPH: _LIB_TTL,
+            OTHER_GRAPH: _OTHER_TTL,
+            hub_graph: _hub_graph_ttl(HUB_IRI, members),
+        }
+    )
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    return TestClient(app, headers=_AUTH)
+
+
+def test_subjects_resolve_hub_subject_lists_members_from_both_datasets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_hub_of_subject(client, iri):
+        if iri != HUB_IRI:
+            return None
+        return {
+            "hub_iri": HUB_IRI,
+            "graph": crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID),
+            "perspective_id": PERSPECTIVE_ID,
+        }
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools, "hub_of_subject", fake_hub_of_subject, raising=False
+    )
+    with _hub_client(tmp_path, members=[CHECKOUT_1, OTHER_MEMBER]) as client:
+        r = client.get("/api/subjects/resolve", params={"iri": HUB_IRI})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["found"] is True
+        assert body["is_hub"] is True
+        # §1.4: dataset_label は perspective の名前（registry meta の name）。
+        assert body["dataset_label"] == "共有たな"
+        assert body["hub"]["perspective_id"] == PERSPECTIVE_ID
+        assert body["hub"]["name"] == "共有たな"
+        member_iris = {m["iri"] for m in body["hub"]["members"]}
+        assert member_iris == {CHECKOUT_1, OTHER_MEMBER}
+        by_iri = {m["iri"]: m for m in body["hub"]["members"]}
+        assert by_iri[CHECKOUT_1]["label"] == "Checkout One"
+        assert by_iri[CHECKOUT_1]["dataset_id"] == LIB_DATASET
+        assert by_iri[CHECKOUT_1]["dataset_label"] == "貸出記録"
+        assert by_iri[OTHER_MEMBER]["label"] == "Other Item"
+        assert by_iri[OTHER_MEMBER]["dataset_id"] == OTHER_DATASET
+        assert by_iri[OTHER_MEMBER]["dataset_label"] == "別のたな"
+        assert body["hub_of"] is None
+
+
+def test_subjects_resolve_member_subject_gets_hub_of_band(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_hub_of_subject(client, iri):
+        if iri != CHECKOUT_1:
+            return None
+        return {
+            "hub_iri": HUB_IRI,
+            "hub_label": "共有アイテム",
+            "perspective_id": PERSPECTIVE_ID,
+            "via_parent": None,
+        }
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools, "hub_of_subject", fake_hub_of_subject, raising=False
+    )
+    with _hub_client(tmp_path, members=[CHECKOUT_1, OTHER_MEMBER]) as client:
+        r = client.get("/api/subjects/resolve", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["found"] is True
+        assert body["is_hub"] is False
+        assert body["hub"] is None
+        hub_of = body["hub_of"]
+        assert hub_of["iri"] == HUB_IRI
+        assert hub_of["label"] == "共有アイテム"
+        assert hub_of["perspective_name"] == "共有たな"
+        assert hub_of["member_count"] == 2
+        assert set(hub_of["dataset_labels"]) == {"貸出記録", "別のたな"}
+
+
+def test_subjects_resolve_hub_of_is_none_when_hub_of_subject_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_hub_of_subject(client, iri):
+        return None
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools, "hub_of_subject", fake_hub_of_subject, raising=False
+    )
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/resolve", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["is_hub"] is False
+        assert body["hub"] is None
+        assert body["hub_of"] is None
+
+
+def test_subjects_resolve_hub_wiring_with_the_real_hub_of_subject(tmp_path: Path) -> None:
+    """スタブなしの結線確認 — 実 ``asterism.subject_tools.hub_of_subject``
+    が付いた実データで、is_hub 側（主語自身がハブ）と hub_of 側（メンバー
+    → ハブの 1 段・親経由の 2 段）の両方がこのモジュール自身の実装で正しく
+    引けること。
+
+    ``CHECKOUT_1`` はハブへ直接リンク（1 段）。``CHECKOUT_2`` は
+    ``CHECKOUT_1`` へリンクし、ハブへは ``CHECKOUT_1`` 経由（2 段）。
+    """
+    hub_ttl = f"""
+    @prefix ex: <{EX_LIB}> .
+    <{HUB_IRI}> a ex:SharedThing .
+    <{CHECKOUT_1}> ex:linksTo <{HUB_IRI}> .
+    <{OTHER_MEMBER}> ex:linksTo <{HUB_IRI}> .
+    """
+    lib_ttl = _LIB_TTL + f"\n<{CHECKOUT_2}> ex:derivedFrom <{CHECKOUT_1}> .\n"
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    other_dest = settings.registry_root / OTHER_DATASET
+    other_dest.mkdir(parents=True)
+    (other_dest / "meta.json").write_text(
+        json.dumps({"id": OTHER_DATASET, "name": "別のたな", "promoted": True}),
+        encoding="utf-8",
+    )
+    _hub_registry_meta(settings.registry_root)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    store_client = _pyoxi_client({LIB_GRAPH: lib_ttl, OTHER_GRAPH: _OTHER_TTL, hub_graph: hub_ttl})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        hub_body = client.get("/api/subjects/resolve", params={"iri": HUB_IRI}).json()
+        assert hub_body["is_hub"] is True
+        assert hub_body["hub"]["perspective_id"] == PERSPECTIVE_ID
+        assert {m["iri"] for m in hub_body["hub"]["members"]} == {CHECKOUT_1, OTHER_MEMBER}
+
+        # hub_of・1 段（メンバーが直接ハブを指す）。
+        one_hop = client.get("/api/subjects/resolve", params={"iri": CHECKOUT_1}).json()
+        assert one_hop["is_hub"] is False
+        assert one_hop["hub_of"]["iri"] == HUB_IRI
+        assert one_hop["hub_of"]["perspective_name"] == "共有たな"
+        assert one_hop["hub_of"]["member_count"] == 2
+        assert set(one_hop["hub_of"]["dataset_labels"]) == {"貸出記録", "別のたな"}
+
+        # hub_of・親経由の 2 段（CHECKOUT_2 → CHECKOUT_1 → ハブ）。
+        two_hop = client.get("/api/subjects/resolve", params={"iri": CHECKOUT_2}).json()
+        assert two_hop["is_hub"] is False
+        assert two_hop["hub_of"]["iri"] == HUB_IRI
+        assert two_hop["hub_of"]["member_count"] == 2
 
 
 # ---------------------------------------------------------------------------

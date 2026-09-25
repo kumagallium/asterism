@@ -117,6 +117,14 @@ _PATH_DESC: dict[str, dict[str, str]] = {
 #: 種類（同じ class は 1 回）」）。
 _MAX_LINKING_CANDIDATE_CLASSES = 8
 
+#: 契約メモ contract_pr_f16.md §1.4: ``via_member`` を持つ行（ハブのページの
+#: 候補＝メンバー起点）の道の説明を、従来の道の説明の外側から包むテンプレート。
+#: ``{dataset}``/``{member}``/``{path}`` を差し込む。
+_VIA_MEMBER_DESC: dict[str, str] = {
+    "ja": "{dataset}の「{member}」から: {path}",
+    "en": "from {member} in {dataset}: {path}",
+}
+
 
 def _path_description(kind: dict[str, Any], lang: str) -> str:
     lk = lang if lang in _PATH_DESC else "ja"
@@ -130,7 +138,14 @@ def _path_description(kind: dict[str, Any], lang: str) -> str:
     anchor = kind.get("anchor_label") or kind.get("anchor_class_label") or ""
     via = kind.get("via")
     via_label = via.get("class_label", "") if isinstance(via, dict) else ""
-    return template.format(anchor=anchor, via=via_label)
+    base = template.format(anchor=anchor, via=via_label)
+    via_member = kind.get("via_member")
+    if isinstance(via_member, dict):
+        member_label = via_member.get("label") or ""
+        dataset_label = via_member.get("dataset_label") or ""
+        wrapper = _VIA_MEMBER_DESC.get(lk, _VIA_MEMBER_DESC["ja"])
+        return wrapper.format(dataset=dataset_label, member=member_label, path=base)
+    return base
 
 
 def top_linking_kind_classes(
