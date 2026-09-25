@@ -17,6 +17,7 @@
 
 import { throwApiError } from '../api'
 import { authHeaders } from '../authToken'
+import { llmHeaders, type LlmCredentials } from '../settings/store'
 import type { ItemSpec, OutputKind, Row } from './viewSpec'
 
 // ---------------------------------------------------------------------------
@@ -827,4 +828,116 @@ export async function deleteAppDataCard(cardId: string): Promise<void> {
     headers: authHeaders(),
   })
   if (!res.ok && res.status !== 404) await throwApiError(res, 'appdata card delete')
+}
+
+// ---------------------------------------------------------------------------
+// PR F12 §1-3: ページの中で AI と会話しながら観点を作る（POST /api/cards/converse）
+// ---------------------------------------------------------------------------
+
+export interface ConverseMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** `converse` の `subject`（契約メモ §1-3）。`CardRunSubject` の 2 種に加え、
+ *  種類のページ（`k:<class_iri>`）ぶんの `class` を持つ — こちらは会話と要約の
+ *  ためだけの形で、`runCard`/`NewCardForm` にはそのまま渡さない（`class` は
+ *  `set`（`where: []`）に変換してから渡す。`PageChatDrawer.tsx` 参照）。 */
+export type ConverseSubject = CardRunSubject | { kind: 'class'; class_iri: string }
+
+/** ドロワーが持つ「直前の提案」— 次の送信の `draft` としてそのままサーバへ渡す
+ *  （契約メモ §1-3「直す」）。`presentation` は任意（F3 の見せ方切替と同じ語彙、
+ *  例 `{ mark: 'bar' }`）。 */
+export interface ConverseDraft {
+  params: Record<string, unknown>
+  presentation: Record<string, unknown> | null
+}
+
+/** ページの要約の 1 件の事実（契約メモ §1-3 の `page.facts`）。 */
+export interface ConversePageFact {
+  label: string
+  value: string
+}
+
+/** ページの要約の 1 枚のカード（契約メモ §1-3 の `page.cards`）。`rows` は
+ *  呼び出し側が間引く（`pageChatThreads.ts` の `summarizeCardRows`）。 */
+export interface ConversePageCard {
+  title: string
+  output_kind: string
+  rows: Row[]
+}
+
+export interface ConversePageSummary {
+  facts: ConversePageFact[]
+  cards: ConversePageCard[]
+}
+
+/** AI の提案（契約メモ §1-3）。`params` はサーバが `validate_measure` を
+ *  通したもの — `set_measure` の params と同じ形（`MeasureCardParams` 互換）。 */
+export interface ConverseProposal {
+  params: Record<string, unknown>
+  presentation: Record<string, unknown> | null
+  output_kind: string
+  title: string
+}
+
+export interface ConverseResponse {
+  reply: string
+  proposal: ConverseProposal | null
+}
+
+/** サーバが LLM を解決できないとき（キー未設定・consult と同じ 502 契約 —
+ *  契約メモ §1-3・§4「キーが無いとき」）。呼び出し側（`PageChatDrawer.tsx`）は
+ *  これを捕まえてフォームに倒す。 */
+export class NoLlmKeyError extends Error {
+  constructor() {
+    super('converse: no llm key configured')
+    this.name = 'NoLlmKeyError'
+  }
+}
+
+function normalizeConverseProposal(raw: unknown): ConverseProposal | null {
+  if (raw === null || raw === undefined || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  if (r.params === null || typeof r.params !== 'object') return null
+  if (typeof r.output_kind !== 'string' || typeof r.title !== 'string') return null
+  const presentation =
+    r.presentation !== null && r.presentation !== undefined && typeof r.presentation === 'object'
+      ? (r.presentation as Record<string, unknown>)
+      : null
+  return { params: r.params as Record<string, unknown>, presentation, output_kind: r.output_kind, title: r.title }
+}
+
+/** `POST /api/cards/converse`（契約メモ §1-3）。ヘッダは consult と同じ
+ *  `llmHeaders`（`X-API-Key`/`X-LLM-Provider`/`X-LLM-Model`/`X-LLM-Api-Base`）。
+ *  502（キー未解決）は {@link NoLlmKeyError} で区別できるようにする（consult の
+ *  `consult()` はここを区別しないが、こちらはドロワーがフォームに倒れる分岐に
+ *  使う）。 */
+export async function converse(
+  body: {
+    subject: ConverseSubject
+    messages: ConverseMessage[]
+    draft: ConverseDraft | null
+    page: ConversePageSummary
+    lang: 'ja' | 'en'
+  },
+  creds: LlmCredentials | null,
+  signal?: AbortSignal,
+): Promise<ConverseResponse> {
+  const res = await fetch('/api/cards/converse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(creds) },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (res.status === 502) throw new NoLlmKeyError()
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`converse failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  const data = (await res.json()) as { reply?: unknown; proposal?: unknown }
+  return {
+    reply: typeof data.reply === 'string' ? data.reply : '',
+    proposal: normalizeConverseProposal(data.proposal),
+  }
 }

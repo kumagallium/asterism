@@ -1,0 +1,275 @@
+/* ページの中の会話ドロワー（契約メモ contract_pr_f12.md §1）。開閉・見た目の
+   流儀は `consult/ConsultDrawer.css` に揃える（色・余白・角丸は Asterism 自身の
+   デザイントークン — consult 側のクラスはそのまま使い回さず、専用のクラス名
+   （`pagechat-*`）を持つ。呼び出し側が `open` で完全に制御するので、このファイル
+   には FAB のスタイルは無い）。 */
+
+.pagechat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(22, 36, 26, 0.12);
+}
+
+@media (min-width: 1100px) {
+  .pagechat-backdrop {
+    display: none;
+  }
+}
+
+.pagechat-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 46;
+  width: 380px;
+  max-width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+@media (max-width: 480px) {
+  .pagechat-drawer {
+    width: 100vw;
+  }
+}
+
+.pagechat-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.pagechat-head-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.pagechat-icon-btn {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.2em 0.5em;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pagechat-icon-btn:hover {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+
+.pagechat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pagechat-empty {
+  margin: auto 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pagechat-msg {
+  display: flex;
+  align-items: flex-end;
+}
+
+.pagechat-msg--user {
+  justify-content: flex-end;
+}
+
+.pagechat-msg--assistant {
+  justify-content: flex-start;
+}
+
+.pagechat-msg-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pagechat-bubble {
+  max-width: 88%;
+  padding: 0.5em 0.75em;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pagechat-msg--user .pagechat-bubble {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-bottom-right-radius: 4px;
+}
+
+.pagechat-msg--assistant .pagechat-bubble {
+  background: var(--surface-alt);
+  color: var(--fg);
+  border-bottom-left-radius: 4px;
+}
+
+.pagechat-bubble--pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.pagechat-bubble--error {
+  background: var(--error-bg);
+  color: var(--error-fg);
+  border: 1px solid var(--error-border);
+}
+
+.pagechat-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--primary);
+  animation: pagechat-spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes pagechat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- 提案プレビュー（「この観点を足しますか？」） ------------------------- */
+
+.pagechat-proposal {
+  width: 100%;
+  max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.pagechat-proposal-title {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pagechat-proposal-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pagechat-proposal-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
+.pagechat-added-note {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* ---- フッター（入力欄 / no-key フォールバック） --------------------------- */
+
+.pagechat-foot {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pagechat-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.pagechat-input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.6em;
+  font-size: 0.84rem;
+  font-family: inherit;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.pagechat-input:focus {
+  outline: 2px solid var(--primary-soft);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+.pagechat-send {
+  flex: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.9em;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--primary);
+  color: var(--primary-fg);
+  cursor: pointer;
+}
+
+.pagechat-send:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pagechat-open-form {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2em 0;
+}
+
+.pagechat-open-form:hover {
+  color: var(--fg);
+}
+
+.pagechat-nokey {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pagechat-nokey-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}

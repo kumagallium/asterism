@@ -40,6 +40,11 @@ export interface NewCardFormProps {
   datasetId: string
   onCancel: () => void
   onCreated: (card: CardSpec) => void
+  /** ドロワー（`PageChatDrawer.tsx`・PR F12）に埋め込むとき true。見出し
+   *  （`newcard.lead`）を省き、余白を詰めた見た目にする（契約メモ PR F12
+   *  §1-4「フォーム（NewCardForm）をドロワーの中に埋め込む」）。ロジックは
+   *  変えない — 見た目だけの分岐。 */
+  embedded?: boolean
 }
 
 interface FieldValues {
@@ -81,7 +86,7 @@ function labelsFrom(values: FieldValues, agg: MeasureAgg | null): MeasureCardLab
   }
 }
 
-export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreated }: NewCardFormProps) {
+export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreated, embedded }: NewCardFormProps) {
   const { t } = useTranslation('cards')
   // 呼び出し側の型と揃えるためだけに受け取る（上記コメント参照 — 現時点では
   // ui-form 側のロジックは使わない）。
@@ -218,10 +223,11 @@ export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreate
   const canSubmit = complete && !editingWhere && !submitting && !!targetClassIri
 
   return (
-    <div className="cardpage-setform newcard-form">
+    <div className={embedded ? 'cardpage-setform newcard-form newcard-form--embedded' : 'cardpage-setform newcard-form'}>
       {/* 契約メモ contract_pr_f9.md §1 決定 5・§5 実装順(4): フォームの先頭に
-          「この種類の観点として足す」ことを 1 行で示す。 */}
-      <p className="newcard-lead">{t('newcard.lead')}</p>
+          「この種類の観点として足す」ことを 1 行で示す。ドロワーに埋め込む
+          ときは、ドロワー側の案内文と重複するので省く（PR F12 §1-4）。 */}
+      {!embedded && <p className="newcard-lead">{t('newcard.lead')}</p>}
       <div className="newcard-step">
         <div className="cardpage-setform-label">{t('newcard.step_shape')}</div>
         <div className="newcard-shapes">

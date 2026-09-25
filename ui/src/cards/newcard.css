@@ -45,3 +45,18 @@
   color: var(--accent-strong);
   font-weight: 500;
 }
+
+/* ドロワーの中に埋め込むとき（F12: キーが無いとき／「詳しく指定」）は外枠の
+   余白と影を詰めて、ドロワーの幅に収める。見出しは NewCardForm 側で省く。 */
+.newcard-form--embedded {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.newcard-form--embedded .newcard-steps,
+.newcard-form--embedded fieldset {
+  padding-left: 0;
+  padding-right: 0;
+}

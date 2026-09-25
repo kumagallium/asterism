@@ -11,9 +11,14 @@ import { useAllCards } from './cardStore'
 import type { CardSpec } from './cardStore'
 import './dataset.css'
 import './classPage.css'
+import './pages.css'
 import { useSubjects } from './subjectStore'
 import './viewpoints.css'
 import { declaredViewpoints, viewpointsFrom } from './viewpoints'
+// PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
+// だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
+import { PageChatDrawer } from './PageChatDrawer'
+import type { PageChatSummary } from './SubjectPage'
 
 // ---------------------------------------------------------------------------
 // 純関数（classPage.test.ts で検証）
@@ -98,6 +103,20 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
   const allCards = useAllCards()
   const [entryState, setEntryState] = useState<EntryLoadState>(EMPTY_ENTRY)
   const [schemaState, setSchemaState] = useState<SchemaLoadState>(EMPTY_SCHEMA)
+  // 下の入力欄・「＋ 観点を足す」はどちらも会話ドロワー（PageChatDrawer・
+  // PR F12）を開く（契約メモ §1 決定 1・6）。
+  const [askText, setAskText] = useState('')
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
+  // classIri が変わったらドロワーを閉じる（SubjectPage.tsx と同じ「prop が
+  // 変わったら state を調整する」パターン）。
+  const [chatFor, setChatFor] = useState(classIri)
+  if (chatFor !== classIri) {
+    setChatFor(classIri)
+    setChatOpen(false)
+    setChatInitialMessage(undefined)
+    setAskText('')
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -141,6 +160,20 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
   const objects = useMemo(() => subjectsForClass(subjects, classIri), [subjects, classIri])
   const viewpointRows = useMemo(() => (schema ? classViewpointRows(schema, allCards) : []), [schema, allCards])
 
+  // ドロワー（PageChatDrawer）へ渡す要約。この画面は個々のカードを実行
+  // していない（出どころ・観点一覧・オブジェクト一覧という「見出し」だけの
+  // 画面）ため、`cards` は空のまま — `facts` だけで答える（deviations 参照）。
+  const pageSummary: PageChatSummary = useMemo(() => {
+    if (!entry) return { facts: [], cards: [] }
+    return {
+      facts: [
+        { label: t('pagechat.summary_dataset'), value: entry.dataset_label },
+        { label: t('pagechat.summary_total'), value: String(entry.count) },
+      ],
+      cards: [],
+    }
+  }, [entry, t])
+
   function goAdd() {
     // `#/cards/add?kind=<class_iri>` — この種類を選んだ状態で追加画面へ（PR F9）。
     navigate({ tab: 'cards', add: true, addClassIri: classIri })
@@ -179,6 +212,18 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
 
       <div className="cardpage-head">
         <h3 className="cardpage-title classpage-subtitle">{t('classpage.viewpoints')}</h3>
+        <div className="cardpage-head-actions">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => {
+              setChatInitialMessage(undefined)
+              setChatOpen(true)
+            }}
+          >
+            {t('newcard.button')}
+          </button>
+        </div>
       </div>
       {viewpointRows.length === 0 ? (
         <p className="ds-empty-note">{t('empty')}</p>
@@ -235,6 +280,39 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
           </button>
         )}
       </div>
+      <div className="cardpage-bar">
+        <span className="cardpage-bar-who">{t('page.ask_who', { label: entry.label })}</span>
+        <input
+          className="cardpage-bar-input"
+          value={askText}
+          onChange={(e) => setAskText(e.target.value)}
+          placeholder={t('page.ask_placeholder')}
+        />
+        <button
+          type="button"
+          className="btn btn--soft btn--sm"
+          disabled={!askText.trim()}
+          onClick={() => {
+            // 契約メモ PR F12 §1 決定 1: 下の入力欄はページを離れずドロワーを開く。
+            setChatInitialMessage(askText)
+            setChatOpen(true)
+            setAskText('')
+          }}
+        >
+          {t('page.ask_submit')}
+        </button>
+      </div>
+      <PageChatDrawer
+        subject={{ kind: 'class', class_iri: classIri }}
+        subjectKey={`k:${classIri}`}
+        classIri={classIri}
+        datasetId={entry.dataset_id}
+        pageSummary={pageSummary}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        initialMessage={chatInitialMessage}
+        onCardAdded={() => {}}
+      />
     </div>
   )
 }
