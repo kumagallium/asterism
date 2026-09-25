@@ -14,16 +14,40 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { runCard } from './cardsApi'
-import type { CardRef, CardToolResult, SubjectKey } from './cardsApi'
+import type { CardRef, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
+import { parseMermaidFlowchart } from './mermaidFlow'
 import { isDefinitionGapValue } from './placeShape'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
 import './pages.css'
+
+/** `card.view`（AI が書いた見せ方。`cardsApi.ts` の {@link CardView}）を
+ *  描画できる形に変換する（純粋）。Vega-Lite は `data.values` にカードの結果
+ *  `rows` を差し込む（契約 F13 §1「データは AI の JSON に書かせない」）。
+ *  Mermaid はソーステキスト（`view.text`）を `mermaidFlow.ts` の同じ部分集合の
+ *  パーサで `GraphSpec` に変換する。読めない形は無視して既定描画に落とす。 */
+function renderableCustomView(
+  view: CardView | undefined,
+  rows: Record<string, unknown>[],
+): { view: ViewSpec } | { graph: GraphSpec } | null {
+  if (!view) return null
+  if (view.lang === 'vega-lite' && view.spec && typeof view.spec === 'object') {
+    const spec = { ...view.spec, data: { values: rows } }
+    return { view: { lang: 'vega-lite', spec: spec as VegaLiteSpec, custom: true } }
+  }
+  if (view.lang === 'table' && view.spec && typeof view.spec === 'object') {
+    return { view: { lang: 'table', spec: view.spec as unknown as TableSpec, custom: true } }
+  }
+  if (view.lang === 'mermaid' && typeof view.text === 'string') {
+    return { graph: parseMermaidFlowchart(view.text).graph }
+  }
+  return null
+}
 
 /** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
  *  （契約 §4「事実の表」）。行そのものを書き換えず、新しい配列を返す。 */
@@ -101,13 +125,22 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
   // 落とす（契約 §4「事実の表」）。ここで一度だけ変換し、以降はこの rows を使う。
   const rows = result ? maskDefinitionGapValues(result.items, t('builtin.value_missing')) : []
 
+  // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
+  // 使う。Mermaid は表／グラフの `ViewSpec` の型に収まらないので別枠
+  // （`customGraph`）で持つ。
+  const customRendered = result ? renderableCustomView(card.view, rows) : null
+  const customGraph = customRendered && 'graph' in customRendered ? customRendered.graph : null
+
   const view =
-    result && card.output_kind !== 'flow'
-      ? defaultViewFor(
-          { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-          rows,
-        )
-      : null
+    customRendered && 'view' in customRendered
+      ? customRendered.view
+      : result && card.output_kind !== 'flow'
+        ? defaultViewFor(
+            { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+            rows,
+          )
+        : null
+  const isCustomView = !!(view?.custom || customGraph)
   const rankedSpec = view && view.lang === 'table' ? (view.spec as TableSpec) : null
   const isRankedWithSubject = !!rankedSpec && rankedSpec.variant === 'ranked' && !!rankedSpec.subject_field
 
@@ -154,6 +187,7 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
         </button>
         <span className="cardpage-tile-pills">
           <span className="cardpage-kind">{t(`kind.${card.output_kind}`)}</span>
+          {isCustomView && <span className="cardpage-kind">{t('tile.custom_view')}</span>}
           {result && result.shareable !== null && (
             <span className={result.shareable ? 'pill-share pill-share--ok' : 'pill-share pill-share--warn'}>
               {t(result.shareable ? 'page.shareable_yes' : 'page.shareable_no')}
@@ -164,14 +198,17 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
       <div className="cardpage-tile-body">
         {error && <p className="ds-empty-note">{t('render_error')}</p>}
         {!error && !result && <p className="ds-empty-note">{t('page.loading')}</p>}
-        {!error && result && card.output_kind === 'flow' && (
+        {!error && result && customGraph && (
+          <GraphView graph={customGraph} ariaLabel={titleText} maxHeight={200} />
+        )}
+        {!error && result && !customGraph && card.output_kind === 'flow' && (
           <GraphView
             graph={(result.graph ?? { nodes: [], edges: [] }) as GraphSpec}
             ariaLabel={titleText}
             maxHeight={200}
           />
         )}
-        {!error && result && card.output_kind !== 'flow' && tileView && (
+        {!error && result && !customGraph && card.output_kind !== 'flow' && tileView && (
           <CardTileBody
             view={tileView}
             rows={rows}

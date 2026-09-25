@@ -281,9 +281,13 @@ export function SetPage({
   // 開いているときだけ取りに行く（SubjectPage.tsx と同じ理由 — CardTile が
   // 独立に取る結果と二重になるが、CardTile（担当外）に結果を上げる経路が
   // 無いためここでは割り切る）。
+  const cardResultsKey = useMemo(
+    () => (displayCards && spec ? `${specKey}\u0000${displayCards.map((c) => c.card_id).join(',')}` : null),
+    [displayCards, spec, specKey],
+  )
   useEffect(() => {
-    if (!chatOpen || !displayCards || !spec) return
-    const key = `${specKey}\u0000${displayCards.map((c) => c.card_id).join(',')}`
+    if (!chatOpen || !displayCards || !spec || !cardResultsKey) return
+    const key = cardResultsKey
     if (cardResultsState.key === key) return
     let cancelled = false
     Promise.all(
@@ -302,7 +306,12 @@ export function SetPage({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatOpen, displayCards, specKey, cardResultsState.key])
+  }, [chatOpen, displayCards, specKey, cardResultsKey, cardResultsState.key])
+  // 下の入力欄からの 1 通目は、並んでいるカードの結果を取り込んでから送る
+  // （SubjectPage.tsx と同じ競合の対策）。
+  // key が null なのはカード一覧が読めなかったとき（ページ自体が誤り表示）
+  // だけなので、そのときは待たずに送る（永久に送れない穴を作らない）。
+  const cardResultsReady = cardResultsKey === null || cardResultsState.key === cardResultsKey
 
   const pageSummary: PageChatSummary = useMemo(() => {
     const facts: PageChatFact[] = []
@@ -310,7 +319,7 @@ export function SetPage({
     if (total !== null) facts.push({ label: t('pagechat.summary_total'), value: String(total) })
     const cardsSummary = (displayCards ?? []).flatMap((c) => {
       const r = cardResultsState.results[c.card_id]
-      return r ? [summarizeCardForChat(c.title, r)] : []
+      return r ? [summarizeCardForChat(c, r)] : []
     })
     return { facts, cards: cardsSummary }
   }, [resolved, total, displayCards, cardResultsState, t])
@@ -543,7 +552,7 @@ export function SetPage({
         pageSummary={pageSummary}
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        initialMessage={chatInitialMessage}
+        initialMessage={cardResultsReady ? chatInitialMessage : undefined}
         // cardStore.useCards の購読で一覧は自動更新される（SubjectPage.tsx と
         // 同じ理由）。
         onCardAdded={() => {}}
