@@ -549,6 +549,7 @@
     "valueSamples": "{{values}} …（行ごとに変わる）",
     "exampleColDish": "料理名",
     "exampleColFood": "食材名",
-    "exampleColPrice": "価格"
+    "exampleColPrice": "価格",
+    "step2TitleSolo": "他のデータとつながる手がかりはどれ？"
   }
 }

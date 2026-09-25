@@ -6687,10 +6687,14 @@ export function KantanWizard({
             const missingKeySources = sources.filter(
               (s) => keyCandidates(s).length >= 2 && !linkKeyPick[s],
             )
+            // ① は「ファイル全体の値（preamble）」に番号の候補が 2 つ以上あるとき
+            // だけ出す。普通の 1 枚の表（先頭のメタ行が無い）では 1 行ごとの番号は
+            // 次の段（形をたしかめる）で決まるので、空の ① を見せて迷わせない。
+            const showKeyStep = sources.some((s) => keyCandidates(s).length >= 2)
             return (
               <>
-                <h4 className="kz-next-title">{t('kantan:links.step1Title')}</h4>
-                <p className="kz-lead">{t('kantan:links.keyLead')}</p>
+                {showKeyStep && <h4 className="kz-next-title">{t('kantan:links.step1Title')}</h4>}
+                {showKeyStep && <p className="kz-lead">{t('kantan:links.keyLead')}</p>}
                 {sources.map((source) => {
                   const candidates = keyCandidates(source)
                   if (candidates.length < 2) return null
@@ -6723,7 +6727,9 @@ export function KantanWizard({
                     {t('kantan:links.keyMissing')}
                   </p>
                 )}
-                <h4 className="kz-next-title">{t('kantan:links.step2Title')}</h4>
+                <h4 className="kz-next-title">
+                  {t(showKeyStep ? 'kantan:links.step2Title' : 'kantan:links.step2TitleSolo')}
+                </h4>
                 <p className="kz-lead">{t('kantan:links.lead')}</p>
                 <div className="kz-links-example" aria-hidden="true">
                   {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを

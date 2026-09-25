@@ -549,6 +549,7 @@
     "valueSamples": "{{values}} … (varies per row)",
     "exampleColDish": "Dish",
     "exampleColFood": "Ingredient",
-    "exampleColPrice": "Price"
+    "exampleColPrice": "Price",
+    "step2TitleSolo": "Which values are links to other data?"
   }
 }
