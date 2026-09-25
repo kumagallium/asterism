@@ -279,7 +279,9 @@
       "count": "Count",
       "label": "Name",
       "source": "Source",
-      "subject_iri": "Subject"
+      "subject_iri": "Subject",
+      "dataset_label": "Dataset",
+      "class_label": "Kind"
     },
     "subject_hub_members": "Bundled as the same thing"
   },

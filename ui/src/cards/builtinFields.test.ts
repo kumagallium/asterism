@@ -76,3 +76,14 @@ describe('withFieldLabels', () => {
     expect(withFieldLabels('set_breakdown', item, t)).toEqual(withFieldLabels('set_breakdown', item, t))
   })
 })
+
+describe('subject_hub_members (PR F16)', () => {
+  it('is a builtin whose columns get the translated headings', () => {
+    const t = (key: string) =>
+      ({ 'cards:builtin.fields.dataset_label': 'データセット', 'cards:builtin.fields.class_label': '種類', 'cards:builtin.fields.label': '名前' })[key] ?? key
+    expect(isBuiltinTool('subject_hub_members')).toBe(true)
+    expect(fieldLabel('subject_hub_members', 'dataset_label', t)).toBe('データセット')
+    expect(fieldLabel('subject_hub_members', 'class_label', t)).toBe('種類')
+    expect(fieldLabel('subject_hub_members', 'label', t)).toBe('名前')
+  })
+})

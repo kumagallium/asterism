@@ -1420,3 +1420,15 @@ async def test_default_cards_for_subject_unaffected_for_a_non_hub_subject(
     cards = await default_cards_for_subject(_hub_client(), tmp_path, HUB_RECORD_1)
     assert cards[0]["tool"] == "subject_facts"
     assert "subject_hub_members" not in [c["tool"] for c in cards]
+
+
+async def test_run_subject_tool_dispatches_subject_hub_members(tmp_path: Path) -> None:
+    """既定カードが名指す組み込み名は run_subject_tool で実行できる（実機
+    2026-09-25: 既定カードに載るのに run が「unknown tool」を返し、ハブのページの
+    表が「図を描けませんでした」になった）。"""
+    _write_hub_registry(tmp_path)
+    out = await run_subject_tool(
+        _hub_client(), tmp_path, {"kind": "individual", "iri": HUB_IRI}, "subject_hub_members", {}
+    )
+    assert out["output_kind"] == "facts"
+    assert out["count"] == 2

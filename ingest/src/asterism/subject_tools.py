@@ -107,7 +107,12 @@ class SubjectKindMismatchError(SubjectToolError):
 
 
 #: Built-in tool names that take ``{kind: "individual", iri}`` (§3.1).
-INDIVIDUAL_BUILTIN_TOOLS: tuple[str, ...] = ("subject_facts", "subject_sources", "subject_flow")
+INDIVIDUAL_BUILTIN_TOOLS: tuple[str, ...] = (
+    "subject_facts",
+    "subject_sources",
+    "subject_flow",
+    "subject_hub_members",
+)
 #: Built-in tool names that take ``{kind: "set", spec}`` (§3.2) — EXCEPT
 #: ``set_measure`` (PR F4 §1-4), which reads its ``class``/``where`` from
 #: ``params`` instead and so runs for either subject kind (see
@@ -565,6 +570,11 @@ async def subject_sources(
     per_dataset: dict[str, tuple[str, str | None, int]] = {}
     for g, cnt in counts:
         dataset_id = dataset_id_of_canonical_graph(g)
+        if dataset_id is not None and is_hub_graph(g):
+            # ハブ graph の id（crosswalk/<pid>）は registry の id
+            # （crosswalk-<pid>）と食い違うので、perspective の名前を引けるよう
+            # registry の id に読み替える（実機 2026-09-25: 出どころに graph id）。
+            dataset_id = crosswalk_registry_id_of_hub_graph(g) or dataset_id
         if dataset_id is None:
             continue
         tail = g.rsplit("/", 1)[-1]
@@ -986,6 +996,20 @@ def _hub_entity_ask(hub_graph: str, iri: str) -> str:
         f'FILTER(!STRSTARTS(STR(?c), "{_PROV_NS}") '
         f'&& STR(?c) != "{_XW_NS}CrosswalkLink") }} }}'
     )
+
+
+def crosswalk_registry_id_of_hub_graph(graph_iri: str) -> str | None:
+    """ハブ graph の IRI → その perspective の registry id（``crosswalk-bridge``／
+    ``crosswalk-<pid>``）。ハブ graph でなければ None。"""
+    if not is_hub_graph(graph_iri):
+        return None
+    from asterism import crosswalk_runtime as _xw_rt
+
+    pid = _perspective_id_of_hub_graph(graph_iri)
+    try:
+        return _xw_rt.crosswalk_registry_id(pid or _xw_rt.DEFAULT_PERSPECTIVE_ID)
+    except ValueError:
+        return None
 
 
 def _not_prov_class(var: str) -> str:
@@ -2597,6 +2621,8 @@ async def run_subject_tool(
             return await subject_sources(client, iri, registry_root=registry_root)
         if tool == "subject_flow":
             return await subject_flow(client, iri, registry_root=registry_root)
+        if tool == "subject_hub_members":
+            return await subject_hub_members(client, iri, registry_root=registry_root)
         if tool in SET_BUILTIN_TOOLS:
             raise SubjectKindMismatchError(f"tool {tool!r} needs a set subject, got an individual")
         if "/" in tool:

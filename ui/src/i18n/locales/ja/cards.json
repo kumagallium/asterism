@@ -279,7 +279,9 @@
       "count": "件数",
       "label": "名前",
       "source": "出どころ",
-      "subject_iri": "対象"
+      "subject_iri": "対象",
+      "dataset_label": "データセット",
+      "class_label": "種類"
     },
     "subject_hub_members": "同じものとして束ねたもの"
   },
