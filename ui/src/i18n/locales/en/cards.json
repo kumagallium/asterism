@@ -319,6 +319,10 @@
     "where_this_page": "This page's condition",
     "where_this_one": "This one",
     "kind_pick": "Which kind of record should it come from?",
+    "path_direct": "Records pointing to this one",
+    "path_child_child": "Records pointing to a {{via}} that points to this one",
+    "path_sibling": "Records that share the same \"{{anchor}}\"",
+    "path_sibling_child": "Records pointing to a {{via}} that shares the same \"{{anchor}}\"",
     "submit": "Create",
     "cancel": "Cancel",
     "title_series": "{{y}} over time",
@@ -356,6 +360,8 @@
     "summary_total": "Count",
     "view_preview_title": "Add this view?",
     "view_source": "Original card: {{title}}",
-    "view_source_missing": "Couldn't find the original card (add that card first, then try again)"
+    "view_source_missing": "Couldn't find the original card (add that card first, then try again)",
+    "reask_note": "Answering again using the results of the card \"{{title}}\" you added",
+    "reask_waiting": "Waiting for the added card's results…"
   }
 }

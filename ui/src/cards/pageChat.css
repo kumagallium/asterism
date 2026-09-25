@@ -273,3 +273,17 @@
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+/* ---- 足したカードの結果を待つ間・もう一度答え始めた明示（PR F14 §1.5） --- */
+
+.pagechat-reask-waiting {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
+.pagechat-reask-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}

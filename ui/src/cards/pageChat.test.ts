@@ -3,7 +3,16 @@ import type { CardSpec, CardView, SchemaProperty } from './cardsApi'
 import type { ConverseProposal } from './cardsApi'
 import { normalizeCardView, normalizeConverseProposal, normalizeConverseProposalView } from './cardsApi'
 import { cardId, toCardSpec, type MeasureSchemaLike } from './measureCardFields'
-import { injectVegaLiteData, resolveViewSourceCard, viewCardId, type PageChatPageSummary } from './PageChatDrawer'
+import {
+  buildReaskText,
+  injectVegaLiteData,
+  precedingUserText,
+  reaskCardReady,
+  reaskQuestionFor,
+  resolveViewSourceCard,
+  viewCardId,
+  type PageChatPageSummary,
+} from './PageChatDrawer'
 import {
   buildPageSummary,
   labelsFromSchema,
@@ -326,6 +335,72 @@ describe('normalizeConverseProposalView', () => {
 
   it('不正な lang は捨てる', () => {
     expect(normalizeConverseProposalView({ lang: 'sql', spec: {}, source_card_id: 'card-x' })).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR F14 §1.5: 足したら、もう一度答える（answers: true の再送）
+// ---------------------------------------------------------------------------
+
+describe('precedingUserText', () => {
+  it('応答の 1 つ手前が質問なら、その文面を返す', () => {
+    const turns: PageChatTurn[] = [userTurn('u1', '一番多い月は？'), assistantTurn('a1', null)]
+    expect(precedingUserText(turns, 'a1')).toBe('一番多い月は？')
+  })
+
+  it('先頭（手前が無い）なら undefined', () => {
+    const turns: PageChatTurn[] = [assistantTurn('a1', null)]
+    expect(precedingUserText(turns, 'a1')).toBeUndefined()
+  })
+
+  it('1 つ手前が assistant（質問の直後ではない）なら undefined', () => {
+    const turns: PageChatTurn[] = [userTurn('u1', '推移を出して'), assistantTurn('a1', null), assistantTurn('a2', null)]
+    expect(precedingUserText(turns, 'a2')).toBeUndefined()
+  })
+
+  it('該当する turn が無ければ undefined', () => {
+    expect(precedingUserText([], 'a1')).toBeUndefined()
+  })
+})
+
+describe('buildReaskText', () => {
+  it('契約メモの文面どおりに組む', () => {
+    expect(buildReaskText('一番多い月', '一番多い月は？')).toBe('（足したカード「一番多い月」を使って）一番多い月は？')
+  })
+})
+
+describe('reaskCardReady', () => {
+  const cards: PageChatPageSummary['cards'] = [
+    { card_id: 'card-1', title: '一番多い月', output_kind: 'facts', rows: [] },
+  ]
+
+  it('その card_id の結果が pageSummary.cards に載っていれば true', () => {
+    expect(reaskCardReady(cards, 'card-1')).toBe(true)
+  })
+
+  it('まだ載っていなければ false', () => {
+    expect(reaskCardReady(cards, 'card-2')).toBe(false)
+  })
+
+  it('card_id を持たない行は無視する（既定カード未実行の穴埋めと同じ扱い）', () => {
+    const noId: PageChatPageSummary['cards'] = [{ title: 'x', output_kind: 'facts', rows: [] }]
+    expect(reaskCardReady(noId, 'card-1')).toBe(false)
+  })
+})
+
+describe('reaskQuestionFor', () => {
+  it('answers: true かつ直前の質問があれば、その質問を返す', () => {
+    const proposal = { ...PROPOSAL_A, answers: true } as ConverseProposal
+    expect(reaskQuestionFor(proposal, '一番多い月は？')).toBe('一番多い月は？')
+  })
+
+  it('answers が無い（既定 false）提案なら undefined', () => {
+    expect(reaskQuestionFor(PROPOSAL_A, '一番多い月は？')).toBeUndefined()
+  })
+
+  it('answers: true でも直前の質問が分からなければ undefined', () => {
+    const proposal = { ...PROPOSAL_A, answers: true } as ConverseProposal
+    expect(reaskQuestionFor(proposal, undefined)).toBeUndefined()
   })
 })
 

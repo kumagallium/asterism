@@ -21,6 +21,7 @@ import {
   type MeasureCardLabels,
   type MeasureSchemaLike,
 } from './measureCardFields'
+import { pathLabel } from './viewpoints'
 import './pages.css'
 import './newcard.css'
 import { SetForm } from './SetForm'
@@ -118,10 +119,14 @@ export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isIndividual, isIndividual ? subject.iri : ''])
   const kinds = isIndividual && kindsState.iri === subject.iri ? kindsState.items : isIndividual ? null : []
-  // `linking_kinds` は (class, property) の組を返す — 同じ class に 2 つの
-  // 述語で辿り着けることがあるので、選択のキーは組み合わせで持つ（class_iri
-  // だけだと衝突する）。
-  const kindKey = (k: LinkingKind) => `${k.class_iri}\u0000${k.property}`
+  // `linking_kinds`（PR F14 §1.1）は同じ `class_iri`+`property` でも `anchor`
+  // （親）が異なる行を複数返しうる（`sibling`/`sibling_child` は親ごとに別行 —
+  // ingest 側の重複排除キーは `(class_iri, where)`）。キーを `class_iri`+
+  // `property` だけで組むと、そういう行が同じキーに潰れて React の `key` が
+  // 重複し、かつ `chosenKind` の検索が常に先頭の行を返す（=2 つ目以降のラジオ
+  // を選んでも先頭の `where` が使われる）。`where` は行ごとに完成形で一意に
+  // 決まる（サーバの重複排除と同じ粒度）ので、これを含めてキーにする。
+  const kindKey = (k: LinkingKind) => `${k.class_iri}\u0000${k.property}\u0000${JSON.stringify(k.where)}`
   const [chosenKindKey, setChosenKindKey] = useState<string | null>(null)
   const chosenKind = kinds?.find((k) => kindKey(k) === chosenKindKey) ?? (kinds?.length === 1 ? kinds[0] : null)
 
@@ -168,7 +173,9 @@ export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreate
   // ---- ③条件 ---------------------------------------------------------------
   const defaultWhere: MeasureWhereClause[] = useMemo(() => {
     if (subject.kind === 'set') return subject.spec.where
-    if (chosenKind) return [{ property: chosenKind.property, iri: subject.iri }]
+    // PR F14 §1.3: 組み立て直さず、サーバが完成形で返した `where` をそのまま使う
+    // （`direct`/`child_child`/`sibling`/`sibling_child` のどの形でも同じ扱い）。
+    if (chosenKind) return chosenKind.where
     return []
   }, [subject, chosenKind])
   // `SetForm.onSubmit` は常に既存の値条件（`SetWhereClause[]`）しか返さない
@@ -259,6 +266,7 @@ export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreate
                   onChange={() => setChosenKindKey(kindKey(k))}
                 />
                 {k.class_label}
+                {pathLabel(k, t) ? `（${pathLabel(k, t)}）` : ''}
               </label>
             ))}
           </div>

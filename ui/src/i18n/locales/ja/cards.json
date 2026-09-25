@@ -319,6 +319,10 @@
     "where_this_page": "このページの条件",
     "where_this_one": "この 1 件",
     "kind_pick": "どの種類の記録から作りますか",
+    "path_direct": "この 1 件を指す記録",
+    "path_child_child": "この 1 件を指す{{via}}を、さらに指す記録",
+    "path_sibling": "同じ「{{anchor}}」を持つ記録",
+    "path_sibling_child": "同じ「{{anchor}}」を持つ{{via}}を指す記録",
     "submit": "作る",
     "cancel": "やめる",
     "title_series": "{{y}}の推移",
@@ -356,6 +360,8 @@
     "summary_total": "件数",
     "view_preview_title": "この見せ方を足しますか？",
     "view_source": "元のカード: {{title}}",
-    "view_source_missing": "元になるカードが見つかりませんでした（先にそのカードを足してから頼んでください）"
+    "view_source_missing": "元になるカードが見つかりませんでした（先にそのカードを足してから頼んでください）",
+    "reask_note": "足したカード「{{title}}」の結果をもとに、もう一度答えます",
+    "reask_waiting": "足したカードの結果を待っています…"
   }
 }
