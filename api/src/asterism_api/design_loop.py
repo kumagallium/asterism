@@ -112,6 +112,7 @@ from asterism_step0.staged_propose import (
     propose_from_skeleton,
     skeleton_from_full_ir,
     take_in_columns,
+    value_catalog_owns,
 )
 from asterism_step0.validate import SchemaBundle, validate_schema
 
@@ -1545,6 +1546,153 @@ def _move_xsd_unit_to_datatype(schema_md: str, base: Path, issues: list[Issue]) 
         return None
 
 
+_PASCAL_WORD_RE = re.compile(r"[^0-9A-Za-z]+")
+
+
+def _pascal(name: str) -> str:
+    """``book_title`` → ``BookTitle`` (PascalCase, ASCII-safe).
+
+    A local helper rather than reaching into ``asterism_step0.staged_propose``'s
+    private ``_class_name``/``_lower_camel`` — this repair needs the UPPER-first
+    form for a predicate local name (``has`` + PascalCase), not either of those.
+    """
+    parts = [w for w in _PASCAL_WORD_RE.split(str(name)) if w]
+    return "".join(w[:1].upper() + w[1:] for w in parts) or "Value"
+
+
+def _link_isolated_value_catalogs(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """K49: link a ☑ value catalog the LLM left unreferenced.
+
+    Kantan S4 turns a checked column into its own map — a "value catalog"
+    (K33, :func:`value_catalog_owns`): subject keyed on that ONE column, no
+    property of its own reading any OTHER column. Whether the record kind
+    actually LINKS to it (an ``object_template`` pointing at the catalog's
+    subject) is left to the per-map LLM round, and a weak/stub model
+    routinely skips it — the design then compiles and validates, and only
+    the RML-level connectivity check (``DISCONNECTED groups``) ever
+    complains. Live 2026-09-25: four automatic rounds could not clear it
+    because nothing in :data:`_REPAIRS` before this one looks at value
+    catalogs at all, so "no_progress" ended the loop with the catalog still
+    an island — published, but unreachable from the crosswalk hub.
+
+    The edit is knowable without a model: the skeleton ALREADY proves the
+    catalog's key column sits on the same source as some other (non-catalog)
+    map, so a property naming it is exactly the missing edge. Deliberately
+    narrow — only maps :func:`value_catalog_owns` recognizes, and only when
+    genuinely isolated (no map points AT it, and it points at nothing
+    itself); a catalog the model DID link is left untouched.
+    """
+    if not any("DISCONNECTED groups" in iss.message for iss in issues):
+        return None
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-link-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+    maps = [m for m in spec["maps"] if isinstance(m, dict)]
+    if len(maps) < 2:
+        return None
+
+    subject_tpl = {
+        str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
+    }
+    catalogs = {str(m.get("name")): m for m in maps if value_catalog_owns(m)}
+    if not catalogs:
+        return None
+
+    def points_out(map_entry: dict) -> bool:
+        return any(
+            isinstance(p, dict) and p.get("object_template")
+            for p in map_entry.get("properties") or []
+        )
+
+    def points_in(template: str, owner_name: str) -> bool:
+        return any(
+            isinstance(p, dict) and str(p.get("object_template") or "") == template
+            for other in maps
+            if str(other.get("name")) != owner_name
+            for p in other.get("properties") or []
+        )
+
+    dialects: Mapping[str, Any] = getattr(ir, "dialects", None) or {}
+    header_cache: dict[str, list[str]] = {}
+
+    def header_of(source: str) -> list[str]:
+        if source not in header_cache:
+            try:
+                header_cache[source] = _read_header(Path(base) / source, dialects.get(source)) or []
+            except Exception:
+                header_cache[source] = []
+        return header_cache[source]
+
+    linked = 0
+    for cat_name, cat_map in catalogs.items():
+        cat_tpl = subject_tpl.get(cat_name, "")
+        if not cat_tpl or points_out(cat_map) or points_in(cat_tpl, cat_name):
+            continue  # already connected — the model did its job
+        keys = _placeholders(cat_tpl)
+        if len(keys) != 1:
+            continue
+        key_col = keys[0]
+        source = str(cat_map.get("source") or "")
+        if not source or key_col not in header_of(source):
+            continue  # the pinned dialect never exposes this column — leave it
+        siblings = [
+            m
+            for m in maps
+            if str(m.get("name")) != cat_name
+            and str(m.get("source") or "") == source
+            and str(m.get("name")) not in catalogs
+        ]
+        if not siblings:
+            continue
+        # Most properties wins; ties keep the FIRST (spec/IR order) — `max`
+        # returns the first item on a tie.
+        record = max(siblings, key=lambda m: len(m.get("properties") or []))
+        subject = record.get("subject")
+        classes = [
+            c
+            for c in ((subject or {}).get("classes") if isinstance(subject, dict) else None) or []
+            if isinstance(c, str) and ":" in c
+        ]
+        if not classes:
+            continue  # no class CURIE to derive the predicate's prefix from
+        onto = classes[0].split(":", 1)[0]
+        record_props = record.setdefault("properties", [])
+        if any(
+            isinstance(p, dict) and str(p.get("object_template") or "") == cat_tpl
+            for p in record_props
+        ):
+            continue  # some OTHER property already links here
+        local = f"has{_pascal(cat_name)}"
+        predicate = f"{onto}:{local}"
+        existing = {str(p.get("predicate")) for p in record_props if isinstance(p, dict)}
+        if predicate in existing:
+            predicate = f"{onto}:{local}2"
+            if predicate in existing:
+                continue  # both candidate names taken — leave it for a person
+        record_props.append({"predicate": predicate, "object_template": cat_tpl})
+        linked += 1
+
+    if not linked:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
 # Deterministic repairs, in order. Each sees the CURRENT document + its issues
 # and returns a repaired document or None; each is kept only if the re-verdict
 # has strictly fewer issues (see _evaluate).
@@ -1553,6 +1701,7 @@ _REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
     _move_xsd_unit_to_datatype,  # a misfiled datatype, before typing is judged
     _place_row_values_on_their_own_map,  # before typing: it relocates the rows
     _stamp_numeric_datatypes,
+    _link_isolated_value_catalogs,  # after rows are placed: it reads real maps
 )
 
 
