@@ -98,6 +98,11 @@ STATION_B = "https://ex/obs/resource/station-b"
 ACTIVITY_1 = "https://ex/obs/resource/activity-1"
 OBS = [f"https://ex/obs/resource/obs-{n}" for n in range(1, 7)]
 
+# 2 段 via clause（契約メモ contract_pr_f14.md §1.2・ADR O59）の実クエリテスト
+# 用: station-a だけが region-a に属する（station-b は属さない）。
+REGION_PRED = EX + "region"
+REGION_A = "https://ex/obs/resource/region-a"
+
 _ONTOLOGY_TTL = f"""
 @prefix ex: <{EX}> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
@@ -131,6 +136,8 @@ _OBS_TTL = f"""
 @prefix prov: <http://www.w3.org/ns/prov#> .
 
 ex:station rdfs:label "観測局" .
+
+<{STATION_A}> ex:region <{REGION_A}> .
 
 <{OBS[0]}> a <{OBS_CLASS}> ; rdfs:label "Obs One" ;
     ex:day "1"^^xsd:integer ; ex:value "10"^^xsd:double ; ex:site "north" ;
@@ -300,6 +307,24 @@ async def test_set_measure_link_where_clause_narrows_to_the_pointed_at_record() 
         _client(), spec, params={"shape": "quantity", "item": VALUE_PRED, "agg": "count"}
     )
     assert out["items"] == [{"value": 5.0}]  # excludes obs-6 (station-b)
+
+
+async def test_set_measure_via_where_clause_narrows_two_hops() -> None:
+    """2 段 via clause（契約メモ §1.2）: ``?s <station> ?wl . ?wl <region>
+    <region-a>`` — station-a は region-a に属するが station-b は属さないので
+    station-b の obs-6 だけ除外される（実 pyoxigraph クエリで確かめる）。"""
+    spec = normalize_set_spec(
+        {
+            "class": OBS_CLASS,
+            "where": [
+                {"property": STATION_PRED, "via": {"property": REGION_PRED, "iri": REGION_A}}
+            ],
+        }
+    )
+    out = await set_measure(
+        _client(), spec, params={"shape": "quantity", "item": VALUE_PRED, "agg": "count"}
+    )
+    assert out["items"] == [{"value": 5.0}]  # excludes obs-6 (station-b, no region-a link)
 
 
 async def test_set_measure_link_where_clause_rejects_mixed_op_and_iri() -> None:

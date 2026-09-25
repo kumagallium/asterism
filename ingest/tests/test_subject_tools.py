@@ -1053,3 +1053,163 @@ def test_local_name_decodes_percent_encoding() -> None:
     assert _local_name("https://ex/onto/resource/record/%280%2C0%2C10%29") == "(0,0,10)"
     assert _local_name("https://ex/onto#hasCount") == "hasCount"
     assert _local_name("https://ex/onto/resource/plain") == "plain"
+
+
+# ----------------------------------------------------------------------------
+# linking_kinds — 近傍（上に 1 段・下に 2 段・4 形）（契約メモ
+# contract_pr_f14.md §1.1・ADR O59）。架空データ:
+#   item-1 → parent-1 ← sibling-{1,2,3}（3 件・sibling） ; sibling-1 ← detail-
+#   {1,2}（2 件・sibling_child） ; child-a → item-1（direct） ; grandchild-1 →
+#   child-a（child_child）; 別の親 (unrelated-parent) を持つ無関係な記録も
+#   置いて混ざらないことを見る。
+# ----------------------------------------------------------------------------
+
+from asterism.subject_tools import linking_kinds  # noqa: E402
+
+EX_NBH = "https://ex/neighborhood#"
+NBH_RECORD_CLASS = EX_NBH + "Record"
+NBH_GROUP_CLASS = EX_NBH + "Group"
+NBH_PART_OF = EX_NBH + "partOf"
+NBH_REFERS_TO = EX_NBH + "refersTo"
+
+NBH_DATASET = "neighborhood-log"
+NBH_GRAPH = canonical_graph_iri(NBH_DATASET) + "/v1"
+
+NBH_ITEM = "https://ex/neighborhood/resource/item-1"
+NBH_PARENT = "https://ex/neighborhood/resource/parent-1"
+NBH_SIBLINGS = [f"https://ex/neighborhood/resource/sibling-{n}" for n in (1, 2, 3)]
+NBH_DETAILS = [f"https://ex/neighborhood/resource/detail-{n}" for n in (1, 2)]
+NBH_CHILD_A = "https://ex/neighborhood/resource/child-a"
+NBH_GRANDCHILD = "https://ex/neighborhood/resource/grandchild-1"
+NBH_UNRELATED_PARENT = "https://ex/neighborhood/resource/unrelated-parent"
+NBH_UNRELATED_SIBLING = "https://ex/neighborhood/resource/unrelated-sibling"
+NBH_UNRELATED_DIRECT = "https://ex/neighborhood/resource/unrelated-direct"
+
+_NBH_TTL = f"""
+@prefix ex: <{EX_NBH}> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+<{NBH_ITEM}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+<{NBH_PARENT}> a <{NBH_GROUP_CLASS}> .
+
+<{NBH_SIBLINGS[0]}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+<{NBH_SIBLINGS[1]}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+<{NBH_SIBLINGS[2]}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+
+<{NBH_DETAILS[0]}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_SIBLINGS[0]}> .
+<{NBH_DETAILS[1]}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_SIBLINGS[0]}> .
+
+<{NBH_CHILD_A}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_ITEM}> .
+<{NBH_GRANDCHILD}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_CHILD_A}> .
+
+<{NBH_UNRELATED_PARENT}> a <{NBH_GROUP_CLASS}> .
+<{NBH_UNRELATED_SIBLING}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_UNRELATED_PARENT}> .
+<{NBH_UNRELATED_DIRECT}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_UNRELATED_PARENT}> .
+"""
+
+
+def _nbh_client() -> object:
+    return _pyoxi_client({NBH_GRAPH: _NBH_TTL})
+
+
+async def test_linking_kinds_direct_counts_records_pointing_directly_at_the_item() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    direct = [r for r in out if r["path_kind"] == "direct"]
+    assert len(direct) == 1
+    row = direct[0]
+    assert row["class_iri"] == NBH_RECORD_CLASS
+    assert row["property"] == NBH_REFERS_TO
+    assert row["count"] == 1  # only child-a; unrelated-direct points elsewhere
+    assert row["hops"] == 1
+    assert row["where"] == [{"property": NBH_REFERS_TO, "iri": NBH_ITEM}]
+
+
+async def test_linking_kinds_child_child_counts_a_grandchild_of_the_item() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    child_child = [r for r in out if r["path_kind"] == "child_child"]
+    assert len(child_child) == 1
+    row = child_child[0]
+    assert row["count"] == 1  # grandchild-1, via child-a
+    assert row["hops"] == 2
+    assert row["via"]["property"] == NBH_REFERS_TO
+    assert row["where"] == [
+        {"property": NBH_REFERS_TO, "via": {"property": NBH_REFERS_TO, "iri": NBH_ITEM}}
+    ]
+
+
+async def test_linking_kinds_sibling_counts_records_sharing_the_same_parent() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    sibling = [r for r in out if r["path_kind"] == "sibling"]
+    assert len(sibling) == 1
+    row = sibling[0]
+    assert row["count"] == 3  # sibling-{1,2,3}; item-1 itself excluded
+    assert row["hops"] == 2
+    assert row["anchor_iri"] == NBH_PARENT
+    assert row["anchor_property"] == NBH_PART_OF
+    assert row["where"] == [{"property": NBH_PART_OF, "iri": NBH_PARENT}]
+
+
+async def test_linking_kinds_sibling_child_counts_records_pointing_at_a_sibling() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    sibling_child = [r for r in out if r["path_kind"] == "sibling_child"]
+    assert len(sibling_child) == 1
+    row = sibling_child[0]
+    assert row["count"] == 2  # detail-{1,2}, both pointing at sibling-1
+    assert row["hops"] == 3
+    assert row["anchor_iri"] == NBH_PARENT
+    assert row["where"] == [
+        {"property": NBH_REFERS_TO, "via": {"property": NBH_PART_OF, "iri": NBH_PARENT}}
+    ]
+
+
+async def test_linking_kinds_unrelated_parent_does_not_mix_in() -> None:
+    """A sibling sharing an unrelated parent (not item-1's) never appears —
+    and a direct record pointing elsewhere doesn't count toward item-1."""
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    for row in out:
+        assert row["anchor_iri"] != NBH_UNRELATED_PARENT
+    direct = next(r for r in out if r["path_kind"] == "direct")
+    assert direct["count"] == 1  # not 2 (would be 2 if unrelated-direct leaked in)
+
+
+async def test_linking_kinds_sorted_by_hops_then_count_descending() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    hops = [r["hops"] for r in out]
+    assert hops == sorted(hops)
+    # within hops == 2: sibling (count 3) sorts before child_child (count 1).
+    same_hops = [r for r in out if r["hops"] == 2]
+    assert [r["path_kind"] for r in same_hops] == ["sibling", "child_child"]
+
+
+async def test_linking_kinds_direct_existing_keys_are_unchanged() -> None:
+    """The pre-existing (ADR O46) fields on the direct row are untouched —
+    only new fields are added (契約メモ §0: 既存の返り値のフィールドは削らな
+    い)."""
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    row = next(r for r in out if r["path_kind"] == "direct")
+    assert row["class_iri"] == NBH_RECORD_CLASS
+    assert isinstance(row["class_label"], str)
+    assert row["property"] == NBH_REFERS_TO
+    assert isinstance(row["property_label"], str)
+    assert row["count"] == 1
+
+
+async def test_linking_kinds_empty_for_a_record_nothing_points_at() -> None:
+    out = await linking_kinds(_nbh_client(), "https://ex/neighborhood/resource/does-not-exist")
+    assert out == []
+
+
+async def test_linking_kinds_respects_the_parent_member_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parent whose member count exceeds the cap is not a neighborhood
+    (契約メモ §1.1) — lower the cap to below parent-1's 3 siblings and see
+    the sibling/sibling_child forms disappear."""
+    import asterism.subject_tools as st
+
+    monkeypatch.setattr(st, "_NEIGHBORHOOD_MAX_PARENT_MEMBERS", 2)
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    assert not any(r["path_kind"] in ("sibling", "sibling_child") for r in out)
+    # direct/child_child are unaffected by the parent cap.
+    assert any(r["path_kind"] == "direct" for r in out)
+    assert any(r["path_kind"] == "child_child" for r in out)

@@ -820,35 +820,200 @@ async def materials_for_set(
 
 # ----------------------------------------------------------------------------
 # §1-3 (PR F4 / ADR O46) — 「この 1 件を指す種類」を実データの形から求める。
+# §1.1/§1.2 (PR F14 / ADR O59) — 届く範囲を近傍（上に 1 段・下に 2 段）へ。
 # ----------------------------------------------------------------------------
+
+#: 親の共有先が大きすぎるときは近傍として数えない（契約メモ §1.1）。
+_NEIGHBORHOOD_MAX_PARENT_MEMBERS = 5000
+#: linking_kinds が返す行の上限（契約メモ §1.1）。
+_NEIGHBORHOOD_LIMIT = 24
+
+
+def _not_prov_class(var: str) -> str:
+    return f'FILTER(!STRSTARTS(STR({var}), "{_PROV_NS}"))'
 
 
 async def linking_kinds(
     client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
 ) -> list[dict[str, Any]]:
-    """Which ``(class, property)`` pairs point AT ``iri`` in the citable
-    canonical scope (契約メモ §1-3・ADR O46): 「この IRI を目的語に持つ実例の
-    種類と述語」— 1 件のページに絞り込みの条件が無いとき、「この 1 件に関する
-    記録」を集める set の ``class``/``where`` を機械が探すための材料（宣言
-    不要、実データの形からだけ求める — O16 の汎用性方針。データセットごとに
-    語彙が違っても新しいデータセットにそのまま効く）。
+    """4 つの形で「この 1 件」の近傍（届く範囲）を求める（契約メモ §1.1・ADR
+    O46/O59）: 「この 1 件から上に 1 段（この 1 件が指す先＝親）、そこから下に
+    2 段（親を指す記録＝兄弟、兄弟を指す記録）」。
 
-    来歴のクラス（PROV 名前空間 — 実例は典型的に ``prov:Activity``/
-    ``prov:Agent``）は除く: その種類を選ばせても人には意味が無い（来歴は
-    :func:`subject_flow` の役目）。行は
-    ``{class_iri, class_label, property, property_label, count}`` —
-    ``count`` はその ``(class, property)`` の組で ``iri`` を指す実例
-    （``DISTINCT ?rec``）の数。候補が無ければ空リスト（「数字 1 つ」「表」で
-    しか測定を作れない、O46 の最後の段落）。ソートは ``class_iri``・
-    ``property`` の辞書順 — store の反復順に依存しない。"""
+    - ``direct``（従来）: ``?rec <p> <iri>`` — この 1 件を直接指す記録。
+    - ``child_child``: ``?a <p2> <iri> . ?rec <p3> ?a`` — この 1 件を指す何か
+      を、さらに指す記録。
+    - ``sibling``: ``<iri> <p1> ?parent . ?rec <p2> ?parent`` — 同じ親を持つ
+      記録（兄弟）。
+    - ``sibling_child``: ``<iri> <p1> ?parent . ?sib <p2> ?parent . ?rec <p3>
+      ?sib`` — 兄弟を指す記録。
+
+    宣言不要、実データの形からだけ求める（O16 の汎用性方針）。来歴のクラス
+    （PROV 名前空間）・リテラルの親・メンバー数が
+    :data:`_NEIGHBORHOOD_MAX_PARENT_MEMBERS` を超える親は除く。行は 1 件の
+    ページに「絞り込みの where」を機械が探すための材料 —
+    :func:`asterism.subjects.normalize_set_spec` がそのまま受け取れる
+    ``where``（1 段の link 形／2 段の via 形）を完成形で返す。候補が無ければ
+    空リスト。ソートは ``hops`` 昇順→``count`` 降順→``class_iri``・
+    ``property`` の辞書順（決定論）。上限 :data:`_NEIGHBORHOOD_LIMIT` 件。"""
     graphs = await canonical_graphs(client)
     if not graphs:
         return []
     from_clause = canonical_from_clauses(graphs)
+
+    direct_pairs = await _direct_linking_pairs(client, iri, from_clause)
+    child_child_rows = await _child_child_linking_rows(client, iri, from_clause)
+    parent_candidates = await _neighborhood_parents(client, iri, from_clause)
+    sibling_rows = await _sibling_linking_rows(client, iri, from_clause, parent_candidates)
+    sibling_child_rows = await _sibling_child_linking_rows(
+        client, iri, from_clause, parent_candidates
+    )
+
+    raw_rows: list[dict[str, Any]] = []
+    for cls, p, cnt in direct_pairs:
+        raw_rows.append(
+            {
+                "class_iri": cls,
+                "property": p,
+                "count": cnt,
+                "hops": 1,
+                "path_kind": "direct",
+                "anchor_iri": iri,
+                "anchor_class_iri": None,
+                "anchor_property": None,
+                "via_property": None,
+                "via_class_iri": None,
+                "where": [{"property": p, "iri": iri}],
+            }
+        )
+    for cls, p3, p2, acls, cnt in child_child_rows:
+        raw_rows.append(
+            {
+                "class_iri": cls,
+                "property": p3,
+                "count": cnt,
+                "hops": 2,
+                "path_kind": "child_child",
+                "anchor_iri": iri,
+                "anchor_class_iri": None,
+                "anchor_property": None,
+                "via_property": p2,
+                "via_class_iri": acls,
+                "where": [{"property": p3, "via": {"property": p2, "iri": iri}}],
+            }
+        )
+    for cls, p2, p1, parent, pcls, cnt in sibling_rows:
+        raw_rows.append(
+            {
+                "class_iri": cls,
+                "property": p2,
+                "count": cnt,
+                "hops": 2,
+                "path_kind": "sibling",
+                "anchor_iri": parent,
+                "anchor_class_iri": pcls,
+                "anchor_property": p1,
+                "via_property": None,
+                "via_class_iri": None,
+                "where": [{"property": p2, "iri": parent}],
+            }
+        )
+    for cls, p3, p2, p1, parent, pcls, sibcls, cnt in sibling_child_rows:
+        raw_rows.append(
+            {
+                "class_iri": cls,
+                "property": p3,
+                "count": cnt,
+                "hops": 3,
+                "path_kind": "sibling_child",
+                "anchor_iri": parent,
+                "anchor_class_iri": pcls,
+                "anchor_property": p1,
+                "via_property": p2,
+                "via_class_iri": sibcls,
+                "where": [{"property": p3, "via": {"property": p2, "iri": parent}}],
+            }
+        )
+    if not raw_rows:
+        return []
+
+    class_iris = {r["class_iri"] for r in raw_rows}
+    class_iris |= {r["anchor_class_iri"] for r in raw_rows if r["anchor_class_iri"]}
+    class_iris |= {r["via_class_iri"] for r in raw_rows if r["via_class_iri"]}
+    property_iris = {r["property"] for r in raw_rows}
+    property_iris |= {r["anchor_property"] for r in raw_rows if r["anchor_property"]}
+    property_iris |= {r["via_property"] for r in raw_rows if r["via_property"]}
+    entity_iris = {r["anchor_iri"] for r in raw_rows}
+
+    class_labels = await _class_labels(client, registry_root, class_iris)
+    property_scope = sorted(await readable_graph_iris(client))
+    property_labels = await _label_lookup(
+        client, property_scope, property_iris, fallback=_fallback_label
+    )
+    entity_labels = await _label_lookup(
+        client, property_scope, entity_iris, fallback=_fallback_label
+    )
+
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for r in raw_rows:
+        dedupe_key = json.dumps({"class_iri": r["class_iri"], "where": r["where"]}, sort_keys=True)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        via = None
+        if r["via_property"] is not None:
+            via = {
+                "property": r["via_property"],
+                "property_label": property_labels.get(
+                    r["via_property"], _fallback_label(r["via_property"])
+                ),
+                "class_label": class_labels.get(
+                    r["via_class_iri"], _fallback_label(r["via_class_iri"])
+                ),
+            }
+        rows.append(
+            {
+                "class_iri": r["class_iri"],
+                "class_label": class_labels.get(r["class_iri"], _fallback_label(r["class_iri"])),
+                "property": r["property"],
+                "property_label": property_labels.get(
+                    r["property"], _fallback_label(r["property"])
+                ),
+                "count": r["count"],
+                "hops": r["hops"],
+                "path_kind": r["path_kind"],
+                "anchor_iri": r["anchor_iri"],
+                "anchor_label": entity_labels.get(
+                    r["anchor_iri"], _fallback_label(r["anchor_iri"])
+                ),
+                "anchor_class_label": (
+                    class_labels.get(r["anchor_class_iri"], _fallback_label(r["anchor_class_iri"]))
+                    if r["anchor_class_iri"]
+                    else None
+                ),
+                "anchor_property": r["anchor_property"],
+                "anchor_property_label": (
+                    property_labels.get(r["anchor_property"], _fallback_label(r["anchor_property"]))
+                    if r["anchor_property"]
+                    else None
+                ),
+                "via": via,
+                "where": r["where"],
+            }
+        )
+    rows.sort(key=lambda r: (r["hops"], -r["count"], r["class_iri"], r["property"]))
+    return rows[:_NEIGHBORHOOD_LIMIT]
+
+
+async def _direct_linking_pairs(
+    client: SupportsSparql, iri: str, from_clause: str
+) -> list[tuple[str, str, int]]:
+    """``direct``（従来のクエリ・キー不変）: ``?rec <p> <iri>``。"""
     query = (
         f"SELECT ?cls ?p (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
         f"WHERE {{ ?rec ?p {_ref(iri)} ; {_ref(_RDF_TYPE)} ?cls . "
-        f'FILTER(!STRSTARTS(STR(?cls), "{_PROV_NS}")) }} '
+        f"{_not_prov_class('?cls')} }} "
         "GROUP BY ?cls ?p ORDER BY ?cls ?p"
     )
     pairs: list[tuple[str, str, int]] = []
@@ -860,26 +1025,156 @@ async def linking_kinds(
             continue
         with contextlib.suppress(ValueError):
             pairs.append((cls, p, int(float(cnt))))
-    if not pairs:
-        return []
+    return pairs
 
-    class_iris = {cls for cls, _p, _cnt in pairs}
-    property_iris = {p for _cls, p, _cnt in pairs}
-    class_labels = await _class_labels(client, registry_root, class_iris)
-    property_scope = sorted(await readable_graph_iris(client))
-    property_labels = await _label_lookup(
-        client, property_scope, property_iris, fallback=_fallback_label
+
+async def _child_child_linking_rows(
+    client: SupportsSparql, iri: str, from_clause: str
+) -> list[tuple[str, str, str, str, int]]:
+    """``child_child``: ``?a <p2> <iri> . ?rec <p3> ?a`` — この 1 件を指す
+    何か（``?a``）を、さらに指す記録。"""
+    ref_iri = _ref(iri)
+    rdf_type = _ref(_RDF_TYPE)
+    query = (
+        f"SELECT ?cls ?p3 ?p2 ?acls (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
+        f"WHERE {{ ?a ?p2 {ref_iri} ; {rdf_type} ?acls . ?rec ?p3 ?a ; {rdf_type} ?cls . "
+        f"FILTER(?p2 != {rdf_type}) FILTER(?p3 != {rdf_type}) "
+        f"{_not_prov_class('?cls')} {_not_prov_class('?acls')} }} "
+        "GROUP BY ?cls ?p3 ?p2 ?acls ORDER BY ?cls ?p3 ?p2 ?acls"
     )
+    rows: list[tuple[str, str, str, str, int]] = []
+    for row in _rows(await client.sparql_select(query)):
+        cls, p3, p2, acls, cnt = (
+            _cell(row, "cls"),
+            _cell(row, "p3"),
+            _cell(row, "p2"),
+            _cell(row, "acls"),
+            _cell(row, "cnt"),
+        )
+        if None in (cls, p3, p2, acls, cnt):
+            continue
+        with contextlib.suppress(ValueError):
+            rows.append((cls, p3, p2, acls, int(float(cnt))))
+    return rows
+
+
+async def _neighborhood_parents(
+    client: SupportsSparql, iri: str, from_clause: str
+) -> list[tuple[str, str, str]]:
+    """``(p1, parent, pcls)`` candidates for ``<iri> <p1> ?parent`` — typed
+    IRI parents only, PROV classes excluded, and parents whose total member
+    count exceeds :data:`_NEIGHBORHOOD_MAX_PARENT_MEMBERS` dropped (too big a
+    shared target is not a neighborhood, 契約メモ §1.1)."""
+    ref_iri = _ref(iri)
+    rdf_type = _ref(_RDF_TYPE)
+    query = (
+        f"SELECT DISTINCT ?p1 ?parent ?pcls\n{from_clause}"
+        f"WHERE {{ {ref_iri} ?p1 ?parent . FILTER(isIRI(?parent)) FILTER(?p1 != {rdf_type}) "
+        f"?parent {rdf_type} ?pcls . {_not_prov_class('?pcls')} }} "
+        "ORDER BY ?parent ?p1 ?pcls"
+    )
+    candidates: list[tuple[str, str, str]] = []
+    for row in _rows(await client.sparql_select(query)):
+        p1, parent, pcls = _cell(row, "p1"), _cell(row, "parent"), _cell(row, "pcls")
+        if None in (p1, parent, pcls):
+            continue
+        candidates.append((p1, parent, pcls))
+    if not candidates:
+        return []
+    parents = sorted({parent for _p1, parent, _pcls in candidates})
+    members_query = (
+        f"SELECT ?parent (COUNT(DISTINCT ?x) AS ?members)\n{from_clause}"
+        f"WHERE {{ VALUES ?parent {{ {' '.join(_ref(p) for p in parents)} }} "
+        "?x ?anyp ?parent . } GROUP BY ?parent"
+    )
+    member_counts: dict[str, int] = {}
+    for row in _rows(await client.sparql_select(members_query)):
+        parent, members = _cell(row, "parent"), _cell(row, "members")
+        if parent is None or members is None:
+            continue
+        with contextlib.suppress(ValueError):
+            member_counts[parent] = int(float(members))
     return [
-        {
-            "class_iri": cls,
-            "class_label": class_labels.get(cls, _fallback_label(cls)),
-            "property": p,
-            "property_label": property_labels.get(p, _fallback_label(p)),
-            "count": cnt,
-        }
-        for cls, p, cnt in pairs
+        (p1, parent, pcls)
+        for p1, parent, pcls in candidates
+        if member_counts.get(parent, 0) <= _NEIGHBORHOOD_MAX_PARENT_MEMBERS
     ]
+
+
+async def _sibling_linking_rows(
+    client: SupportsSparql, iri: str, from_clause: str, parents: list[tuple[str, str, str]]
+) -> list[tuple[str, str, str, str, str, int]]:
+    """``sibling``: ``<iri> <p1> ?parent . ?rec <p2> ?parent`` (``?rec !=
+    <iri>``) — records sharing the same parent as ``iri``."""
+    if not parents:
+        return []
+    ref_iri = _ref(iri)
+    rdf_type = _ref(_RDF_TYPE)
+    values = " ".join(f"({_ref(p1)} {_ref(parent)})" for p1, parent, _pcls in parents)
+    query = (
+        f"SELECT ?cls ?p2 ?p1 ?parent ?pcls (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
+        f"WHERE {{ VALUES (?p1 ?parent) {{ {values} }} {ref_iri} ?p1 ?parent . "
+        f"?parent {rdf_type} ?pcls . ?rec ?p2 ?parent ; {rdf_type} ?cls . "
+        f"FILTER(?rec != {ref_iri}) FILTER(?p2 != {rdf_type}) "
+        f"{_not_prov_class('?cls')} {_not_prov_class('?pcls')} }} "
+        "GROUP BY ?cls ?p2 ?p1 ?parent ?pcls ORDER BY ?parent ?cls ?p2 ?p1"
+    )
+    rows: list[tuple[str, str, str, str, str, int]] = []
+    for row in _rows(await client.sparql_select(query)):
+        cls, p2, p1, parent, pcls, cnt = (
+            _cell(row, "cls"),
+            _cell(row, "p2"),
+            _cell(row, "p1"),
+            _cell(row, "parent"),
+            _cell(row, "pcls"),
+            _cell(row, "cnt"),
+        )
+        if None in (cls, p2, p1, parent, pcls, cnt):
+            continue
+        with contextlib.suppress(ValueError):
+            rows.append((cls, p2, p1, parent, pcls, int(float(cnt))))
+    return rows
+
+
+async def _sibling_child_linking_rows(
+    client: SupportsSparql, iri: str, from_clause: str, parents: list[tuple[str, str, str]]
+) -> list[tuple[str, str, str, str, str, str, str, int]]:
+    """``sibling_child``: ``<iri> <p1> ?parent . ?sib <p2> ?parent . ?rec <p3>
+    ?sib`` (``?sib != <iri>``・``?rec != <iri>``) — records pointing at a
+    sibling of ``iri``."""
+    if not parents:
+        return []
+    ref_iri = _ref(iri)
+    rdf_type = _ref(_RDF_TYPE)
+    values = " ".join(f"({_ref(p1)} {_ref(parent)})" for p1, parent, _pcls in parents)
+    query = (
+        f"SELECT ?cls ?p3 ?p2 ?p1 ?parent ?pcls ?sibcls\n"
+        f"  (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
+        f"WHERE {{ VALUES (?p1 ?parent) {{ {values} }} {ref_iri} ?p1 ?parent . "
+        f"?parent {rdf_type} ?pcls . ?sib ?p2 ?parent ; {rdf_type} ?sibcls . "
+        f"FILTER(?sib != {ref_iri}) FILTER(?p2 != {rdf_type}) "
+        f"?rec ?p3 ?sib ; {rdf_type} ?cls . "
+        f"FILTER(?rec != {ref_iri}) FILTER(?p3 != {rdf_type}) "
+        f"{_not_prov_class('?cls')} {_not_prov_class('?pcls')} {_not_prov_class('?sibcls')} }} "
+        "GROUP BY ?cls ?p3 ?p2 ?p1 ?parent ?pcls ?sibcls ORDER BY ?parent ?cls ?p3 ?p2 ?p1"
+    )
+    rows: list[tuple[str, str, str, str, str, str, str, int]] = []
+    for row in _rows(await client.sparql_select(query)):
+        cls, p3, p2, p1, parent, pcls, sibcls, cnt = (
+            _cell(row, "cls"),
+            _cell(row, "p3"),
+            _cell(row, "p2"),
+            _cell(row, "p1"),
+            _cell(row, "parent"),
+            _cell(row, "pcls"),
+            _cell(row, "sibcls"),
+            _cell(row, "cnt"),
+        )
+        if None in (cls, p3, p2, p1, parent, pcls, sibcls, cnt):
+            continue
+        with contextlib.suppress(ValueError):
+            rows.append((cls, p3, p2, p1, parent, pcls, sibcls, int(float(cnt))))
+    return rows
 
 
 async def _class_labels(
@@ -924,11 +1219,23 @@ def _clause_pattern(clause: dict[str, Any], *, index: int) -> str:
     existence triple ``?s <property> <iri>``, embedded via the same ``_ref``
     (→ ``safe_iri``) gate every other IRI in this module goes through.
 
+    A 2 段 link clause (``{property, via: {property, iri}}`` — PR F14 §1-2)
+    is the same existence check one hop further out: ``?s <property> ?wl{i}
+    . ?wl{i} <via.property> <via.iri> .`` — the intermediate variable is
+    named with ``index`` so two where clauses never collide.
+
     Numeric ops cast the bound value to ``xsd:double`` (mirrors
     ``query_tools``'s own ``value_range``/``top_value`` synthesis) so a
     literal without an explicit numeric datatype still compares correctly.
     Every string value is escaped via ``_escape_literal`` — never
     concatenated raw (§0)."""
+    if "via" in clause:
+        via = clause["via"]
+        wlvar = f"?wl{index}"
+        return (
+            f"?s {_ref(clause['property'])} {wlvar} . "
+            f"{wlvar} {_ref(via['property'])} {_ref(via['iri'])} ."
+        )
     if "iri" in clause:
         return f"?s {_ref(clause['property'])} {_ref(clause['iri'])} ."
     var = f"?wv{index}"
