@@ -5,6 +5,7 @@ import {
   ApiError,
   attachSource,
   fetchDraftStats,
+  fetchDatasetHandles,
   generateColumnMeanings,
   fetchIdMove,
   fetchTrialQueries,
@@ -30,6 +31,7 @@ import {
   type InspectResult,
   type JobHandle,
   type MappingSkeleton,
+  type MaterializeHandle,
   type MaterializeResult,
   type PreDesignColumnDecision,
   type ProposeResult,
@@ -1032,6 +1034,13 @@ export function KantanWizard({
   // と、名指し（この表 1 枚を名指す値）。ここが骨格の唯一の人間入力になる。
   const [linkChecked, setLinkChecked] = useState<Set<string>>(new Set())
   const [linkKeyPick, setLinkKeyPick] = useState<Record<string, string>>({})
+  // 見直し（redesign）で開き直したとき、既存の ☑ handles.json を linkChecked
+  // に読み戻せたか（F15 契約メモ §1.1）。読み戻す前 / 読み戻しに失敗したまま
+  // 人も触っていない状態で materialize すると、空の配列が「新しい値」として
+  // 送られ既存の ☑ を消してしまう — その事故を避けるための帳簿。
+  const [linkTouched, setLinkTouched] = useState(false)
+  const linkHandlesHydratedFor = useRef<string | null>(null)
+  const redesignOpenedDatasetIdRef = useRef<string | null>(null)
   const [assembleBusy, setAssembleBusy] = useState(false)
   const [assembleErr, setAssembleErr] = useState('')
   // 機械が仮置きしたカードの ID（source → column）。⑤で ⚠ として明示する。
@@ -1281,6 +1290,13 @@ export function KantanWizard({
     setCarriedAdvisories(
       (redesignTarget.advisories ?? []).filter((advisory) => !isMeaningReviewAdvisory(advisory)),
     )
+    // ④の ☑（linkChecked）は、この見直しぶんを読み戻すまで「まだ分からない」
+    // 扱いにする（F15 契約メモ §1.1 — 見直しで ☑ を消さないため）。
+    setLinkChecked(new Set())
+    setLinkTouched(false)
+    linkHandlesHydratedFor.current = null
+    redesignOpenedDatasetIdRef.current = redesignTarget.datasetId
+    void hydrateLinkedHandles(redesignTarget.datasetId)
     // 見直しは「意味から」入る。順序が意味 → ID になった以上、戻ってくる場所も
     // その先頭でなければ、読む順と直す順が食い違う（ADR meaning-before-identity）。
     setStep(10)
@@ -2727,6 +2743,23 @@ export function KantanWizard({
     return `${source}\u0000${column}`
   }
 
+  /** 見直し（redesign）でウィザードを開いたとき、既存の ☑ handles.json を
+   *  linkChecked に読み戻す（F15 契約メモ §1.1）。取得できなくても致命的
+   *  ではない — materialize 側が handles を省略してサーバの「既存を引き継ぐ」
+   *  経路に委ねる（下記 runAssemble）。 */
+  async function hydrateLinkedHandles(datasetId: string) {
+    try {
+      const handles = await fetchDatasetHandles(datasetId)
+      // 読み込み中に別のデータセットへ切り替わっていたら捨てる。
+      if (redesignOpenedDatasetIdRef.current !== datasetId) return
+      setLinkChecked(new Set(handles.map((h) => meaningKey(h.source, h.column))))
+      linkHandlesHydratedFor.current = datasetId
+    } catch {
+      // 読めなかった場合は linkHandlesHydratedFor を立てない — 送信側が
+      // 「まだ読めていない」とみなして handles を省略する。
+    }
+  }
+
   function meaningFor(source: string, column: string): ColumnMeaning | undefined {
     return settledMeanings.find((m) => m.source === source && m.column === column)
   }
@@ -3199,6 +3232,26 @@ export function KantanWizard({
         // A draft the user can recognise in the catalog list: the literal name
         // "dataset" made every abandoned run indistinguishable (KZ-A-28).
         const draftName = kzDatasetName ?? defaultDraftName(fs)
+        // ☑「他のデータとつながる手がかり」(linkChecked) の (source, column) — F15:
+        // 公開時に機械が値の重なりを探してハブへつなぐための材料。key の形は
+        // runAssemble の pair と同じ（"\0" 区切りの source/column）。
+        const linkedHandles: MaterializeHandle[] = [...linkChecked].map((key) => {
+          const at = key.indexOf('\u0000')
+          return { source: key.slice(0, at), column: key.slice(at + 1) }
+        })
+        // 見直し（redesign）で開いたのと同じデータセットに対し、既存の ☑ を
+        // まだ読み戻せておらず（GET 未完了・失敗）、かつ人もこの回では ☑ に
+        // 触っていないなら、handles を省略してサーバの「既存を引き継ぐ」経路
+        // （契約メモ §1.1）に譲る — 空配列を「新しい値」として送って既存の
+        // ☑ を消してしまわないように。
+        const isUnhydratedRedesign =
+          datasetId !== null &&
+          datasetId === redesignOpenedDatasetIdRef.current &&
+          linkHandlesHydratedFor.current !== datasetId &&
+          !linkTouched
+        const handles: MaterializeHandle[] | undefined = isUnhydratedRedesign
+          ? undefined
+          : linkedHandles
         try {
           try {
             result = await materializeSchema(
@@ -3206,6 +3259,7 @@ export function KantanWizard({
               draftName,
               datasetId ?? undefined,
               stagingId,
+              handles,
             )
           } catch (e) {
             // The adopted record vanished (deleted in the catalog meanwhile) —
@@ -3215,7 +3269,7 @@ export function KantanWizard({
             attached = false
             setKzDatasetId(null)
             setSourceAttached(false)
-            result = await materializeSchema(md, draftName, undefined, stagingId)
+            result = await materializeSchema(md, draftName, undefined, stagingId, handles)
           }
         } catch (e) {
           setStop({ kind: 'materialize', detail: errText(e), retryFrom: 'materialize' })
@@ -6735,6 +6789,7 @@ export function KantanWizard({
                                     aria-label={t('kantan:links.colLink')}
                                     checked={linkChecked.has(key)}
                                     onChange={() => {
+                                      setLinkTouched(true)
                                       const off = linkChecked.has(key)
                                       setLinkChecked((prev) => {
                                         const next = new Set(prev)

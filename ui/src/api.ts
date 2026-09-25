@@ -1199,6 +1199,13 @@ function attachIngestJob(
   return { jobId, result, cancel: handle.cancel, close: handle.close }
 }
 
+/** ☑ で拾った手がかり（S4「他のデータとつながる手がかり」）: どの列を材料に
+ *  他データとつなげてよいか（F15）。 */
+export interface MaterializeHandle {
+  source: string
+  column: string
+}
+
 /**
  * Split a proposal Markdown into the 4 artifacts and run the 8-trap validator.
  * Synchronous on the server (no LLM); returns artifact contents + trap report.
@@ -1206,12 +1213,18 @@ function attachIngestJob(
  * `datasetId` (the redesign path) re-materializes that EXISTING dataset in place
  * — same id / graphs / lifecycle / source preserved — instead of minting a new
  * one. Omit it for the normal new-design flow.
+ *
+ * `handles` carries the S4 ☑ ticks so the server can remember them past this
+ * round (F15) and, on publish, use them to auto-link this dataset to others
+ * that ticked the same kind of column. Omit on a redesign to keep the
+ * dataset's existing ticks (the server carries them forward when absent).
  */
 export async function materializeSchema(
   proposalMd: string,
   datasetName = 'dataset',
   datasetId?: string,
   stagingId?: string | null,
+  handles?: MaterializeHandle[],
 ): Promise<MaterializeResult> {
   const body: Record<string, unknown> = {
     proposal_md: proposalMd,
@@ -1222,6 +1235,7 @@ export async function materializeSchema(
   // existence with did-you-mean, dialect re-pin, numeric typing — run against
   // real data on a brand-new design instead of being skipped until attach.
   if (stagingId) body.staging_id = stagingId
+  if (handles) body.handles = handles
   const res = await fetch('/api/materialize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -1229,6 +1243,17 @@ export async function materializeSchema(
   })
   if (!res.ok) await throwApiError(res, 'materialize')
   return (await res.json()) as MaterializeResult
+}
+
+/** 見直し（redesign）でウィザードを開いたとき、その回で ☑ を打ち直させる前に、
+ *  既に取り込み済みの ☑ handles を読み戻すための入口（F15・§1.1 の
+ *  `GET /api/datasets/{dataset_id}/handles`）。読み取り専用（トークン不要）。 */
+export async function fetchDatasetHandles(datasetId: string): Promise<MaterializeHandle[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/handles`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'handles')
+  return ((await res.json()) as { handles?: MaterializeHandle[] }).handles ?? []
 }
 
 /** Per-class entity counts of a dataset's draft graph + per-file source data

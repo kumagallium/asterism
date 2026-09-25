@@ -387,7 +387,15 @@ export function CrosswalkView({
                 className={`xw-persp-tab${p.perspective_id === selected?.perspective_id ? ' active' : ''}`}
                 onClick={() => setSelectedId(p.perspective_id)}
               >
-                <span className="xw-persp-name">{pname(p)}</span>
+                <span className="xw-persp-name">
+                  {pname(p)}
+                  {p.dataset?.auto_linked && (
+                    <span className="xw-auto-linked-mark" title={t('crosswalk:auto_linked')}>
+                      {' '}
+                      ☑
+                    </span>
+                  )}
+                </span>
                 <span className="xw-persp-meta">
                   {t('crosswalk:view.perspMeta', {
                     shared: p.dataset?.crosswalk_shared_compositions ?? '—',
@@ -520,6 +528,9 @@ export function CrosswalkView({
                       at: selected.dataset.crosswalk_built_at.slice(0, 19).replace('T', ' '),
                     })}
                   </span>
+                )}
+                {selected.dataset?.auto_linked && (
+                  <span className="xw-auto-linked-mark">☑ {t('crosswalk:auto_linked')}</span>
                 )}
               </div>
               {note && <p className="lifecycle-ok">{note}</p>}
