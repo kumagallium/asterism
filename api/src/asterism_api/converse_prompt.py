@@ -165,7 +165,9 @@ def build_system_prompt(
             "ユーザーの質問に答えたり、新しい観点（グラフ）を提案したりします。",
             "答えの最後には必ず根拠を書いてください"
             "（例:「『国の人口の推移』の2005年の値」のように、どのカードのどの値を見て"
-            "答えたかを示す）。",
+            "答えたかを示す）。根拠にはカードの題名を書き、id（[id: …] の中身）は"
+            "人には見せないので書かないでください。",
+            "文章は Markdown を使わず平文で書いてください（** や # で飾らない）。",
             "プログラムのコードや SPARQL クエリは書かないでください。",
             "",
             "観点（グラフ）を提案したいときだけ、文章の後に <proposal> タグで囲んだ JSON を"
@@ -232,7 +234,10 @@ def build_system_prompt(
             "Answer the user's questions using the values shown on this page and the results "
             "of the cards already on it, and — only when asked — propose a new view (chart).",
             'Always end your answer with your evidence (e.g. "the 2005 value from '
-            "'Population over time'\"), naming which card and which value you read it from.",
+            "'Population over time'\"), naming which card and which value you read it from. "
+            "Name cards by their title; never write a card id ([id: ...]) — ids are not "
+            "shown to people.",
+            "Write plain text without Markdown (no ** or # decoration).",
             "Never write program code or a SPARQL query.",
             "",
             "Only when you want to propose a view, write exactly one JSON object wrapped in a "

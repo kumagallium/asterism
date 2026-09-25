@@ -528,3 +528,19 @@ def test_converse_view_proposal_rejects_an_ambiguous_card_title(tmp_path: Path) 
         # 同じ題名が 2 枚あると曖昧なので引かない（1 回直させても同じなら提案なし）。
         assert r.json()["proposal"] is None
         assert len(llm.calls) == 2
+
+
+def test_system_prompt_tells_the_ai_to_cite_titles_not_ids_in_plain_text() -> None:
+    """[id: …] をプロンプトに出したら実 LLM が根拠に生の id と Markdown を書いた
+    （K4 違反・ドロワーは平文表示）ので、両方を系統プロンプトで禁じる。"""
+    from asterism_api.converse_prompt import build_system_prompt
+
+    for lang, needle_id, needle_md in (
+        ("ja", "id（[id: …] の中身）は", "Markdown を使わず"),
+        ("en", "never write a card id", "without Markdown"),
+    ):
+        text = build_system_prompt(
+            lang=lang, schema_properties={}, linking_kinds=[], existing_titles=[], draft=None
+        )
+        assert needle_id in text
+        assert needle_md in text
