@@ -589,6 +589,40 @@ def test_subjects_linking_kinds_bad_iri_is_400(tmp_path: Path) -> None:
         assert r.status_code == 400
 
 
+def test_subjects_linking_kinds_passes_through_the_neighborhood_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """契約メモ contract_pr_f14.md §1.1 — このルートは ``linking_kinds`` の
+    戻り値をそのまま運ぶだけなので、近傍の新フィールド（``hops``・
+    ``path_kind``・``anchor_*``・``via``・``where``）も無加工で通ることを
+    確かめる（この module 自身は新フィールドを一切知らない）。"""
+    sibling_row = {
+        "class_iri": CHECKOUT_CLASS,
+        "class_label": "貸出",
+        "property": BORROWER_PRED,
+        "property_label": "借り手",
+        "count": 2,
+        "hops": 2,
+        "path_kind": "sibling",
+        "anchor_iri": "https://ex/lib/resource/borrower-1",
+        "anchor_label": "利用者 1",
+        "anchor_class_label": "利用者",
+        "anchor_property": BORROWER_PRED,
+        "anchor_property_label": "借り手",
+        "via": None,
+        "where": [{"property": BORROWER_PRED, "iri": "https://ex/lib/resource/borrower-1"}],
+    }
+
+    async def fake_linking_kinds(client, iri, *, registry_root=None):
+        return [sibling_row]
+
+    monkeypatch.setattr(cards_routes.subject_tools, "linking_kinds", fake_linking_kinds)
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/linking-kinds", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"kinds": [sibling_row]}
+
+
 def test_subjects_resolve_store_syntax_error_is_400(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

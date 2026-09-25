@@ -45,6 +45,7 @@ __all__ = [
     "extract_proposal",
     "render_retry_message",
     "render_user_prompt",
+    "top_linking_kind_classes",
     "validate_proposal",
     "with_cannot_build_note",
 ]
@@ -88,6 +89,76 @@ _AGG_LABELS: dict[str, dict[str, str]] = {
 }
 
 _ITEMS_JOIN = {"ja": "・", "en": ", "}
+
+#: 候補の種類の「道の説明」テンプレート（契約 F14 §1.3・ui-form の
+#: ``ui/src/i18n/locales/{ja,en}/cards.json`` の ``newcard.path_*`` と同じ文の
+#: サーバ側複製 — この api モジュールは ui の i18n ファイルを読めない・触れない
+#: ので、系統プロンプトに載せる分だけここに持つ。``{anchor}``/``{via}`` は
+#: ``linking_kinds`` の行の ``anchor_label``（無ければ ``anchor_class_label``）／
+#: ``via.class_label`` を差し込む。``path_kind`` が無い行（ingest 側の新
+#: フィールドがまだ無い移行期）は ``"direct"`` として扱う。
+_PATH_DESC: dict[str, dict[str, str]] = {
+    "ja": {
+        "direct": "この 1 件を指す記録",
+        "child_child": "この 1 件を指す{via}を、さらに指す記録",
+        "sibling": "同じ「{anchor}」を持つ記録",
+        "sibling_child": "同じ「{anchor}」を持つ{via}を指す記録",
+    },
+    "en": {
+        "direct": "records that point at this one",
+        "child_child": "records that point at a {via} that points at this one",
+        "sibling": "records that share the same {anchor}",
+        "sibling_child": "records that point at a {via} that shares the same {anchor}",
+    },
+}
+
+#: 観点を作れる候補として ``build_system_prompt`` に渡す ``schema_properties``
+#: に採る ``linking_kinds`` の種類の上限（契約 F14 §1.4「hops 昇順で先頭 8
+#: 種類（同じ class は 1 回）」）。
+_MAX_LINKING_CANDIDATE_CLASSES = 8
+
+
+def _path_description(kind: dict[str, Any], lang: str) -> str:
+    lk = lang if lang in _PATH_DESC else "ja"
+    path_kind = kind.get("path_kind")
+    templates = _PATH_DESC[lk]
+    template = (
+        templates.get(path_kind, templates["direct"])
+        if isinstance(path_kind, str)
+        else (templates["direct"])
+    )
+    anchor = kind.get("anchor_label") or kind.get("anchor_class_label") or ""
+    via = kind.get("via")
+    via_label = via.get("class_label", "") if isinstance(via, dict) else ""
+    return template.format(anchor=anchor, via=via_label)
+
+
+def top_linking_kind_classes(
+    linking_kinds: list[dict[str, Any]], *, limit: int = _MAX_LINKING_CANDIDATE_CLASSES
+) -> list[str]:
+    """``linking_kinds`` を ``hops`` 昇順に並べ替え、重複を除いた先頭 ``limit``
+    件の ``class_iri`` を返す（契約 F14 §1.4）。``hops`` を持たない行（移行期の
+    行）は ``1`` として扱う。並べ替えは安定ソート——同じ ``hops`` の中では
+    ``linking_kinds`` が既に決定論の順（ingest 側の並び）で来ている前提を保つ。
+    """
+
+    def hops_of(k: dict[str, Any]) -> int:
+        hops = k.get("hops")
+        return hops if isinstance(hops, int) else 1
+
+    ordered = sorted(
+        (k for k in linking_kinds if isinstance(k, dict)),
+        key=hops_of,
+    )
+    out: list[str] = []
+    for k in ordered:
+        cls = k.get("class_iri")
+        if isinstance(cls, str) and cls not in out:
+            out.append(cls)
+        if len(out) >= limit:
+            break
+    return out
+
 
 #: 検証を 2 回とも通らなかったときに ``reply`` へ添える定型文（K4: 生の
 #: MeasureSpecError の文面には property IRI が入るので、人向けの reply には
@@ -170,6 +241,12 @@ def build_system_prompt(
             "文章は Markdown を使わず平文で書いてください（** や # で飾らない）。",
             "プログラムのコードや SPARQL クエリは書かないでください。",
             "",
+            "質問の答えが、このページの値にも並んでいるカードの結果にも無く、下に挙げる"
+            "候補の種類の項目で答えられそうなときは、推測で答えず、その観点"
+            "（例: 強度の高い順）を提案してください。文章には「足すと答えられます」の"
+            'ように書き、<proposal> の JSON に "answers": true を付け加えてください。'
+            "答えが本当にどこにも無いときだけ、「このデータには無い」と伝えてください。",
+            "",
             "観点（グラフ）を提案したいときだけ、文章の後に <proposal> タグで囲んだ JSON を"
             "1 つだけ書いてください（他の場所に JSON を書かない）。",
             "JSON の形: "
@@ -218,9 +295,9 @@ def build_system_prompt(
                 "質問に答えるだけにしてください（<proposal> は書かない）。"
             )
         if linking_kinds:
-            lines.append("この 1 件を指している記録の種類（参考情報）:")
+            lines.append("この 1 件から届く候補の種類（参考情報・道の説明つき）:")
             for k in linking_kinds:
-                lines.append(f"- {k.get('class_label')}（{k.get('property_label')} で指している）")
+                lines.append(f"- {k.get('class_label')}（{_path_description(k, lk)}）")
         if existing_titles:
             lines.append("すでにこのページにある観点: " + "、".join(existing_titles))
         if draft:
@@ -239,6 +316,12 @@ def build_system_prompt(
             "shown to people.",
             "Write plain text without Markdown (no ** or # decoration).",
             "Never write program code or a SPARQL query.",
+            "",
+            "If the answer isn't in this page's values or in the cards' results, but it could "
+            "be answered from one of the candidate kinds listed below, don't guess — propose "
+            "that view instead (e.g. highest intensity first). Say in your text that adding it "
+            'will answer the question, and add "answers": true to the <proposal> JSON. Only '
+            "say the data doesn't have the answer when it truly cannot be found anywhere.",
             "",
             "Only when you want to propose a view, write exactly one JSON object wrapped in a "
             "<proposal> tag after your text (never place JSON anywhere else).",
@@ -289,9 +372,9 @@ def build_system_prompt(
                 "Only answer questions (do not write a <proposal>)."
             )
         if linking_kinds:
-            lines.append("Kinds of records that point at this one (for context):")
+            lines.append("Candidate kinds reachable from this one (for context, with the path):")
             for k in linking_kinds:
-                lines.append(f"- {k.get('class_label')} (via {k.get('property_label')})")
+                lines.append(f"- {k.get('class_label')} ({_path_description(k, lk)})")
         if existing_titles:
             lines.append("Views already on this page: " + ", ".join(existing_titles))
         if draft:
@@ -435,14 +518,49 @@ def _resolve_source_card_id(page: dict[str, Any] | None, ref: str) -> str | None
     return None
 
 
+def _extract_answers(proposal: dict[str, Any]) -> bool:
+    """``proposal.answers`` は ``bool`` のときだけ通す（既定 ``False`` —
+    契約 F14 §1.4「answers は bool のときだけ通す」）。"""
+    value = proposal.get("answers")
+    return value if isinstance(value, bool) else False
+
+
+def _linking_kind_where(subject: dict[str, Any], class_iri: str) -> list[dict[str, Any]]:
+    """``class_iri`` に一致する ``subject["linking_kinds"]`` の行から ``where``
+    を決める（契約 F14 §1.4）。同じ class の行が複数あれば **hops が最小 →
+    count が最大** の行を選ぶ（決定論・同点は ``linking_kinds`` の元の順を
+    保つ安定ソート）。行が ``where`` を持っていれば（ingest の新フィールド）
+    それをそのまま使い、まだ持たない移行期の行は従来どおり
+    ``[{"property": ..., "iri": individual_iri}]`` を組み立てる。"""
+    matches = [k for k in (subject.get("linking_kinds") or []) if k.get("class_iri") == class_iri]
+    individual_iri = subject.get("individual_iri")
+    if not matches or not individual_iri:
+        raise MeasureSpecError(
+            "proposal.params.class must be this page's own kind or one of the linking kinds"
+        )
+
+    def sort_key(k: dict[str, Any]) -> tuple[int, int]:
+        hops = k.get("hops")
+        hops = hops if isinstance(hops, int) else 1
+        count = k.get("count")
+        count = count if isinstance(count, int) else 0
+        return (hops, -count)
+
+    chosen = sorted(matches, key=sort_key)[0]
+    where = chosen.get("where")
+    if isinstance(where, list) and where:
+        return where
+    return [{"property": chosen["property"], "iri": individual_iri}]
+
+
 def _validate_view_proposal(
     proposal: dict[str, Any], page: dict[str, Any] | None
 ) -> dict[str, Any]:
     """``kind: "view"`` の提案（契約 F13 §1-2）を検証する。``view.lang`` ごと
     に ``asterism.view_spec_check`` の該当する許可リストへ委ね、
     ``source_card_id`` は ``page.cards`` に実在するものだけを通す。返り値は
-    ``{"kind": "view", "view": {"lang", "spec"|"text", "source_card_id"}}``
-    ——``data`` は AI にも呼び出し側にも書かせず／持たせない。"""
+    ``{"kind": "view", "view": {"lang", "spec"|"text", "source_card_id"},
+    "answers"}``——``data`` は AI にも呼び出し側にも書かせず／持たせない。"""
     view_in = proposal.get("view")
     if not isinstance(view_in, dict):
         raise MeasureSpecError("proposal.view must be an object")
@@ -456,6 +574,7 @@ def _validate_view_proposal(
     if resolved is None:
         raise MeasureSpecError("proposal.view.source_card_id must be a card already on this page")
     source_card_id = resolved
+    answers = _extract_answers(proposal)
     if lang_in == "mermaid":
         text = view_in.get("text")
         ok, reason = view_spec_check.check_mermaid(text)
@@ -464,6 +583,7 @@ def _validate_view_proposal(
         return {
             "kind": "view",
             "view": {"lang": lang_in, "text": text, "source_card_id": source_card_id},
+            "answers": answers,
         }
     spec = view_in.get("spec")
     checker = (
@@ -475,6 +595,7 @@ def _validate_view_proposal(
     return {
         "kind": "view",
         "view": {"lang": lang_in, "spec": spec, "source_card_id": source_card_id},
+        "answers": answers,
     }
 
 
@@ -490,7 +611,7 @@ def validate_proposal(
     F13 §1-2）なら :func:`_validate_view_proposal` に委ね、それ以外（従来の
     観点の指定・``kind`` を書かない F12 の形も含む）は §1-2/§1-3 の妥当性表
     に照らして検証し、正規化した ``{"kind": "measure", "params",
-    "presentation", "output_kind", "title"}`` を返す（表の外は
+    "presentation", "output_kind", "title", "answers"}`` を返す（表の外は
     ``MeasureSpecError``）。
 
     - ``class`` は ``subject`` の種類（``own_class`` — set のページなら
@@ -499,12 +620,15 @@ def validate_proposal(
     - ``where`` は AI の出力を一切信用せず、常にこの関数が補う: ``class`` が
       ``own_class`` と一致すれば ``subject["own_where"]``（絞り込みページの
       いまの条件・種類のページなら全件）、そうでなければ
-      ``linking_kinds`` から一意に決まる ``(property, iri)`` の link 条件
-      （1 件のページでだけ成立する — 契約メモ §1-3「where は 1 件なら link
-      条件を機械が補う」）。
+      :func:`_linking_kind_where` が ``linking_kinds`` の該当行の ``where``
+      をそのまま使う（同じ class が複数行あれば hops 最小 → count 最大の行
+      ——契約 F14 §1.4）。
     - ``title`` はここで（Python 側のテンプレートで）計算する — AI が
       ``proposal.title`` に何を書いても採用しない（モジュール docstring
       参照）。
+    - ``answers`` は ``proposal.answers`` が ``bool`` のときだけ通す（既定
+      ``False``——契約 F14 §1.4「提案してから答える」）。返り値の
+      ``proposal`` に必ず含める（``kind: "view"`` も同様）。
     """
     if not isinstance(proposal, dict):
         raise MeasureSpecError("proposal must be an object")
@@ -523,15 +647,7 @@ def validate_proposal(
     if class_iri == own_class and own_where is not None:
         where = own_where
     else:
-        matches = [
-            k for k in (subject.get("linking_kinds") or []) if k.get("class_iri") == class_iri
-        ]
-        individual_iri = subject.get("individual_iri")
-        if len(matches) != 1 or not individual_iri:
-            raise MeasureSpecError(
-                "proposal.params.class must be this page's own kind or one of the linking kinds"
-            )
-        where = [{"property": matches[0]["property"], "iri": individual_iri}]
+        where = _linking_kind_where(subject, class_iri)
 
     measure_params = {k: v for k, v in params_in.items() if k not in ("class", "where")}
     properties = schema_properties[class_iri]
@@ -547,6 +663,7 @@ def validate_proposal(
         "presentation": presentation,
         "output_kind": output_kind,
         "title": title,
+        "answers": _extract_answers(proposal),
     }
 
 

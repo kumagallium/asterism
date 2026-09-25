@@ -43,6 +43,7 @@ from asterism_api.converse_prompt import (
     extract_proposal,
     render_retry_message,
     render_user_prompt,
+    top_linking_kind_classes,
     validate_proposal,
     with_cannot_build_note,
 )
@@ -271,17 +272,17 @@ async def _class_properties_map(
 ) -> dict[str, list[dict[str, Any]]]:
     """観点を作れる候補の種類ぶんの ``class_schema(...)['properties']``
     （``{class_iri: [property, ...]}``）——``own_class`` と、個体のページなら
-    ``linking_kinds`` に出てくる種類すべて。schema が引けなかった種類は候補
-    から静かに落とす（``validate_proposal`` はこの dict に無い class を
-    「妥当性表の外」として弾くので、それだけで安全側に倒れる）。"""
+    ``linking_kinds`` に出てくる種類のうち先頭 8 種類（契約 F14 §1.4「hops
+    昇順で先頭 8 種類（同じ class は 1 回）」——選定は
+    ``converse_prompt.top_linking_kind_classes`` に委ねる）。schema が
+    引けなかった種類は候補から静かに落とす（``validate_proposal`` はこの
+    dict に無い class を「妥当性表の外」として弾くので、それだけで安全側に
+    倒れる）。"""
     candidate_classes: set[str] = set()
     own_class = resolved_subject.get("own_class")
     if isinstance(own_class, str):
         candidate_classes.add(own_class)
-    for k in resolved_subject.get("linking_kinds") or []:
-        cls = k.get("class_iri") if isinstance(k, dict) else None
-        if isinstance(cls, str):
-            candidate_classes.add(cls)
+    candidate_classes.update(top_linking_kind_classes(resolved_subject.get("linking_kinds") or []))
     out: dict[str, list[dict[str, Any]]] = {}
     for class_iri in sorted(candidate_classes):
         schema = await _class_schema_or_none(client, registry_root, class_iri)
@@ -291,6 +292,28 @@ async def _class_properties_map(
         if isinstance(properties, list):
             out[class_iri] = properties
     return out
+
+
+def _prompt_linking_kinds(
+    linking_kinds: list[dict[str, Any]], class_properties: dict[str, list[dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """系統プロンプトに列挙する候補の種類を、実際に ``schema_properties``
+    （``class_properties``）に載っている ``class_iri`` だけに絞る。
+
+    ``resolved_subject["linking_kinds"]`` は最大 24 件・9 種類以上の
+    class を含み得るが、``schema_properties`` は
+    ``top_linking_kind_classes`` で hops 昇順の先頭 8 種類に絞られる
+    （契約 F14 §1.4）。絞らずにそのままプロンプトへ渡すと、9 種類目以降の
+    class をプロンプトが「候補」として提示してしまい、AI がそれを選ぶと
+    ``validate_proposal`` が必ず拒否する（``schema_properties`` に無い
+    class は妥当性表の外）——それを防ぐため、プロンプトの参考情報リストは
+    ``validate_proposal`` が実際に通す class の集合と同じものに揃える。
+    ``subject["linking_kinds"]`` 自体（``validate_proposal`` の
+    ``_linking_kind_where`` が使う where の出どころ）は絞らない。
+    """
+    return [
+        k for k in linking_kinds if isinstance(k, dict) and k.get("class_iri") in class_properties
+    ]
 
 
 def _existing_titles(page: dict[str, Any] | None) -> list[str]:
@@ -349,7 +372,7 @@ def register_converse(app: FastAPI, cfg: Settings, resolve_llm: Any) -> None:
         system_prompt = build_system_prompt(
             lang,
             class_properties,
-            resolved_subject["linking_kinds"],
+            _prompt_linking_kinds(resolved_subject["linking_kinds"], class_properties),
             _existing_titles(page),
             draft,
         )
