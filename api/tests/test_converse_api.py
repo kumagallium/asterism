@@ -276,6 +276,125 @@ def test_converse_gives_up_after_one_retry_and_hides_the_raw_reason(tmp_path: Pa
         assert len(llm.calls) == 2
 
 
+# ---------------------------------------------------------------------------
+# kind: "view"（契約メモ contract_pr_f13.md §1-2）— AI が Vega-Lite/表仕様/
+# Mermaid を「書く」方の経路。
+# ---------------------------------------------------------------------------
+
+
+def _page_with_card(card_id: str = "card-1") -> dict[str, Any]:
+    return {
+        "facts": [],
+        "cards": [
+            {
+                "card_id": card_id,
+                "title": "値の推移",
+                "output_kind": "series",
+                "rows": [{"x": 1, "y": 10}, {"x": 2, "y": 20}],
+            }
+        ],
+    }
+
+
+def test_converse_returns_a_view_proposal_when_the_spec_is_in_the_allow_list(
+    tmp_path: Path,
+) -> None:
+    llm = _ScriptedLLM(
+        [
+            "2 系列を重ねて描きます。"
+            "<proposal>"
+            '{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+            '{"mark": "line", "encoding": {'
+            '"x": {"field": "x", "type": "quantitative"}, '
+            '"y": {"field": "y", "type": "quantitative"}}}, '
+            '"source_card_id": "card-1"}}'
+            "</proposal>"
+        ]
+    )
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body(page=_page_with_card()))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        proposal = body["proposal"]
+        assert proposal is not None
+        assert proposal["kind"] == "view"
+        assert proposal["view"]["lang"] == "vega-lite"
+        assert proposal["view"]["source_card_id"] == "card-1"
+        assert "data" not in proposal["view"]["spec"]
+        assert len(llm.calls) == 1
+
+
+def test_converse_view_proposal_retries_once_when_the_spec_has_data_then_succeeds(
+    tmp_path: Path,
+) -> None:
+    """契約 §1-2 の許可リストの外（``data``）は必ず落ち、1 回だけ言い直させる。"""
+    with_data = (
+        "描きます。<proposal>"
+        '{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+        '{"mark": "line", "data": {"values": [{"x": 1}]}}, '
+        '"source_card_id": "card-1"}}'
+        "</proposal>"
+    )
+    without_data = (
+        "描きます。<proposal>"
+        '{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+        '{"mark": "line", "encoding": {"x": {"field": "x", "type": "quantitative"}}}, '
+        '"source_card_id": "card-1"}}'
+        "</proposal>"
+    )
+    llm = _ScriptedLLM([with_data, without_data])
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body(page=_page_with_card()))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        proposal = body["proposal"]
+        assert proposal is not None
+        assert proposal["kind"] == "view"
+        assert "data" not in proposal["view"]["spec"]
+        assert len(llm.calls) == 2
+        assert "通りませんでした" in llm.calls[1]["user"]
+
+
+def test_converse_view_proposal_rejects_an_unknown_source_card_id(tmp_path: Path) -> None:
+    """``source_card_id`` が ``page.cards`` に無ければ、2 回とも通らず
+    proposal は null（K4: 生の理由は reply に出さない）。"""
+    always_unknown = (
+        "描きます。<proposal>"
+        '{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+        '{"mark": "line"}, "source_card_id": "card-does-not-exist"}}'
+        "</proposal>"
+    )
+    llm = _ScriptedLLM([always_unknown, always_unknown])
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body(page=_page_with_card()))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["proposal"] is None
+        assert "card-does-not-exist" not in body["reply"]
+        assert len(llm.calls) == 2
+
+
+def test_converse_view_proposal_rejects_a_mermaid_click_directive(tmp_path: Path) -> None:
+    always_bad = (
+        "描きます。<proposal>"
+        '{"kind": "view", "view": {"lang": "mermaid", '
+        '"text": "flowchart LR\\n  a[A] --> b[B]\\n  click a \\"https://ex/leak\\"", '
+        '"source_card_id": "card-1"}}'
+        "</proposal>"
+    )
+    llm = _ScriptedLLM([always_bad, always_bad])
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body(page=_page_with_card()))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["proposal"] is None
+        assert len(llm.calls) == 2
+
+
 def test_converse_without_a_key_is_502(tmp_path: Path) -> None:
     app = build_app(
         _settings(tmp_path),
@@ -347,3 +466,65 @@ def test_appdata_pagechat_round_trip(tmp_path: Path) -> None:
         assert r.status_code == 200
         assert r.json() == {"deleted": True}
         assert client.get("/api/appdata/pagechat/threads").json()["threads"] == []
+
+
+# ---------------------------------------------------------------------------
+# source_card_id の手がかり — 実機で「プロンプトが card_id を AI に一切見せて
+# いない」穴が見つかったので、各行の先頭に [id: …] を出し、題名でも引けるように
+# する（弱い LLM の救済）。
+# ---------------------------------------------------------------------------
+
+
+def test_render_user_prompt_shows_each_card_id_as_a_hint_for_source_card_id() -> None:
+    from asterism_api.converse_prompt import render_user_prompt
+
+    page = _page_with_card("card-1")
+    page["cards"].append({"title": "id の無いカード", "output_kind": "quantity", "rows": []})
+    text = render_user_prompt([{"role": "user", "content": "面グラフにして"}], page)
+    assert "- [id: card-1] 値の推移 (series):" in text
+    assert "- id の無いカード (quantity):" in text
+    assert text.count("[id:") == 1
+
+
+def test_converse_view_proposal_accepts_the_exact_card_title_as_source(tmp_path: Path) -> None:
+    llm = _ScriptedLLM(
+        [
+            "面グラフにします。"
+            "<proposal>"
+            '{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+            '{"mark": "area", "encoding": {'
+            '"x": {"field": "x", "type": "quantitative"}, '
+            '"y": {"field": "y", "type": "quantitative"}}}, '
+            '"source_card_id": "値の推移"}}'
+            "</proposal>"
+        ]
+    )
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body(page=_page_with_card()))
+        assert r.status_code == 200, r.text
+        proposal = r.json()["proposal"]
+        assert proposal is not None and proposal["kind"] == "view"
+        # 題名は id に引き直されて返る（UI は id でしか元カードを探さない）。
+        assert proposal["view"]["source_card_id"] == "card-1"
+        assert len(llm.calls) == 1
+
+
+def test_converse_view_proposal_rejects_an_ambiguous_card_title(tmp_path: Path) -> None:
+    reply = (
+        "面グラフにします。"
+        "<proposal>"
+        '{"kind": "view", "view": {"lang": "vega-lite", "spec": {"mark": "area"}, '
+        '"source_card_id": "値の推移"}}'
+        "</proposal>"
+    )
+    llm = _ScriptedLLM([reply, reply])
+    page = _page_with_card("card-1")
+    page["cards"].append(dict(page["cards"][0], card_id="card-2"))
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body(page=page))
+        assert r.status_code == 200, r.text
+        # 同じ題名が 2 枚あると曖昧なので引かない（1 回直させても同じなら提案なし）。
+        assert r.json()["proposal"] is None
+        assert len(llm.calls) == 2

@@ -363,3 +363,49 @@ def test_export_ignores_appdata_card_for_a_different_subject(tmp_path: Path) -> 
         with zipfile.ZipFile(BytesIO(r.content)) as zf:
             names = zf.namelist()
         assert not any(n.endswith("cards/card-0ff1ce00000002.json") for n in names)
+
+
+def test_view_field_keeps_only_well_formed_ai_views() -> None:
+    """CardSpec.view（AI が書いた見せ方・F13）は形が正しいときだけ束へ運ぶ:
+    lang は 3 つのどれか・source_card_id は文字列・本文は lang に応じて
+    spec（vega-lite / table）か text（mermaid）。違えば None（元のカードだけ）。"""
+    from asterism_api.export_routes import _view_field
+
+    ok = _view_field({"lang": "vega-lite", "spec": {"mark": "area"}, "source_card_id": "card-1"})
+    assert ok == {
+        "lang": "vega-lite",
+        "spec": {"mark": "area"},
+        "source_card_id": "card-1",
+        "custom": True,
+    }
+    mermaid = _view_field(
+        {"lang": "mermaid", "text": "flowchart LR\n a --> b", "source_card_id": "card-1"}
+    )
+    assert mermaid is not None and mermaid["text"].startswith("flowchart")
+    assert _view_field({"lang": "svg", "spec": {}, "source_card_id": "card-1"}) is None
+    assert _view_field({"lang": "vega-lite", "spec": {}, "source_card_id": ""}) is None
+    assert _view_field({"lang": "mermaid", "spec": "flowchart LR", "source_card_id": "c"}) is None
+    assert _view_field("not a dict") is None
+
+
+def test_normalize_cards_carries_the_view(tmp_path: Path) -> None:
+    from asterism_api.export_routes import _normalize_cards
+
+    cards = _normalize_cards(
+        [
+            {
+                "card_id": "card-1",
+                "tool": "set_measure",
+                "params": {"shape": "series"},
+                "view": {"lang": "table", "spec": {"columns": []}, "source_card_id": "card-0"},
+            },
+            {"card_id": "card-2", "tool": "subject_facts", "view": {"lang": "nope"}},
+        ]
+    )
+    assert cards[0]["view"] == {
+        "lang": "table",
+        "spec": {"columns": []},
+        "source_card_id": "card-0",
+        "custom": True,
+    }
+    assert "view" not in cards[1]

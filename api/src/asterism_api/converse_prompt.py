@@ -1,9 +1,14 @@
-"""ページの会話（契約メモ contract_pr_f12.md §1-2/§1-3）の純関数群 — 系統
-プロンプトの組み立て・``<proposal>`` タグの取り出し・提案の検証。
+"""ページの会話（契約メモ contract_pr_f12.md §1-2/§1-3、契約メモ
+contract_pr_f13.md §1-2/§1-6）の純関数群 — 系統プロンプトの組み立て・
+``<proposal>`` タグの取り出し・提案の検証。
 
 store にもレジストリにも触れない（I/O なし）。``asterism.measure_spec`` の
 ``validate_measure``/``output_kind_for``/``title_parts`` に検証を委ねる
-（O44: この module は自分では新しい妥当性表を持たない）。
+（O44: この module は自分では新しい妥当性表を持たない）。同様に
+``kind: "view"`` の提案（AI が Vega-Lite/表仕様/Mermaid を書く方の経路、契約
+F13 §1-1）は ``asterism.view_spec_check`` の許可リストに検証を委ねる——この
+module はどちらの検証器にも独自ルールを足さない、単なる呼び出しと
+「どちらの kind か」の振り分け役。
 
 題名テンプレート（``_TITLE_TEMPLATES``/``_AGG_LABELS``）は
 ``ui/src/i18n/locales/{ja,en}/cards.json`` の ``newcard.title_*``/
@@ -25,6 +30,7 @@ import json
 import re
 from typing import Any
 
+from asterism import view_spec_check
 from asterism.measure_spec import (
     AGGS,
     SHAPES,
@@ -50,6 +56,12 @@ _PROPOSAL_TAG_RE = re.compile(r"<proposal>(.*?)</proposal>", re.DOTALL)
 #: `ui/src/cards/defaultView.ts` が実際に使っている Vega-Lite の mark 語彙
 #: （line/bar/point）をそのまま閉じた集合として使う — deviations 参照。
 _VALID_MARKS: tuple[str, ...] = ("line", "bar", "point")
+
+#: 「書く」（契約 F13 §1-1）で AI が選べる言語。``ui/src/cards/viewSpec.ts``
+#: の ``ViewLang`` とは語彙が違う点に注意（``mermaid`` は AI がテキストとして
+#: 書く入力形式であって、UI が保存する ``ViewSpec.lang`` は解析後の
+#: ``"graph"`` — その変換は ui-drawer 側、契約 F13 §2 の担当外）。
+_VIEW_LANGS: tuple[str, ...] = ("vega-lite", "table", "mermaid")
 
 _TITLE_TEMPLATES: dict[str, dict[str, str]] = {
     "ja": {
@@ -163,6 +175,34 @@ def build_system_prompt(
             '"items"?, "agg"?}, "presentation": {"mark": "line"|"bar"|"point"} または '
             'null, "title": "..."}',
             "params.where は書かなくてよい（どの記録を対象にするかはサーバー側が自動的に補う）。",
+            "",
+            "まず、この観点の指定（params）だけで表せないか考えてください。表せるなら"
+            "それを使ってください。",
+            "指定では表せない特殊な見せ方（例: 複数系列を重ねて描く・注釈を添える・軸を"
+            "作り込む）のときだけ、代わりに次の形の JSON を書いてください:",
+            '{"kind": "view", "view": {"lang": "vega-lite"|"table"|"mermaid", '
+            '"spec": {...}（vega-lite/table のとき）または "text": "..."（mermaidのとき）, '
+            '"source_card_id": "..."}}',
+            "view.spec/view.text の中に、データそのもの（Vega-Lite の data など）・URL・"
+            "コードとして評価される式は絶対に書かないでください"
+            "（データはページに並んでいるカードの結果から画面側が差し込みます）。",
+            "source_card_id には、[並んでいるカード] の各行の先頭にある [id: …] の id を"
+            "そのまま写してください（id が分からなければ、そのカードの題名を"
+            "そのまま書いてもかまいません）。",
+            "例1（指定で表せる — view は書かない）:",
+            '<proposal>{"params": {"class": "' + "<class IRI>" + '", "shape": "series", '
+            '"x": "<property IRI>", "y": "<property IRI>"}, "presentation": null, '
+            '"title": "推移"}</proposal>',
+            "例2（指定では表せない — 2 つの量を 1 つの図に重ねて描きたいので view を書く）:",
+            '<proposal>{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+            '{"layer": ['
+            '{"mark": "line", "encoding": {'
+            '"x": {"field": "x", "type": "quantitative"}, '
+            '"y": {"field": "y1", "type": "quantitative"}}}, '
+            '{"mark": "line", "encoding": {'
+            '"x": {"field": "x", "type": "quantitative"}, '
+            '"y": {"field": "y2", "type": "quantitative"}}}'
+            ']}, "source_card_id": "<既存のカードの id>"}}</proposal>',
         ]
         lines += _shape_fields_line(lk)
         if schema_properties:
@@ -203,6 +243,34 @@ def build_system_prompt(
             '"title": "..."}',
             "You do not need to set params.where — the server fills in which records to use "
             "automatically.",
+            "",
+            "First consider whether this view spec (params) alone can express what is "
+            "wanted, and use it if it can.",
+            "Only when it cannot (e.g. overlaying two series in one chart, an annotation, a "
+            "custom axis), write this JSON shape instead:",
+            '{"kind": "view", "view": {"lang": "vega-lite"|"table"|"mermaid", '
+            '"spec": {...} (for vega-lite/table) or "text": "..." (for mermaid), '
+            '"source_card_id": "..."}}',
+            "Never put the data itself (e.g. Vega-Lite's data), a URL, or code that gets "
+            "evaluated as an expression inside view.spec/view.text — the data is spliced in "
+            "by the screen from the results of a card already on this page.",
+            "For source_card_id, copy the id shown as [id: …] at the start of a card line "
+            "in the page summary (if unsure, the card's exact title is also accepted).",
+            "Example 1 (the spec suffices — no view):",
+            '<proposal>{"params": {"class": "<class IRI>", "shape": "series", '
+            '"x": "<property IRI>", "y": "<property IRI>"}, "presentation": null, '
+            '"title": "Trend"}</proposal>',
+            "Example 2 (the spec cannot express it — overlaying two quantities in one "
+            "chart, so a view is written):",
+            '<proposal>{"kind": "view", "view": {"lang": "vega-lite", "spec": '
+            '{"layer": ['
+            '{"mark": "line", "encoding": {'
+            '"x": {"field": "x", "type": "quantitative"}, '
+            '"y": {"field": "y1", "type": "quantitative"}}}, '
+            '{"mark": "line", "encoding": {'
+            '"x": {"field": "x", "type": "quantitative"}, '
+            '"y": {"field": "y2", "type": "quantitative"}}}'
+            ']}, "source_card_id": "<id of an existing card>"}}</proposal>',
         ]
         lines += _shape_fields_line(lk)
         if schema_properties:
@@ -250,7 +318,12 @@ def render_user_prompt(messages: list[dict[str, str]], page: dict[str, Any] | No
                     continue
                 rows = c.get("rows")
                 rows_json = json.dumps(rows, ensure_ascii=False) if rows is not None else "[]"
-                lines.append(f"- {c.get('title')} ({c.get('output_kind')}): {rows_json}")
+                # card_id は AI が view の source_card_id に写すための手がかり
+                # （実機で「AI に id を一切見せていない」穴が見つかった — 人向けの
+                # 文ではなく AI 向けの材料なので生の id を出してよい）。
+                card_id = c.get("card_id")
+                head = f"[id: {card_id}] " if isinstance(card_id, str) and card_id else ""
+                lines.append(f"- {head}{c.get('title')} ({c.get('output_kind')}): {rows_json}")
     lines.append("[会話]")
     for m in messages:
         lines.append(f"{m.get('role')}: {m.get('content')}")
@@ -266,7 +339,9 @@ def extract_proposal(reply_text: str) -> tuple[str, dict[str, Any] | None]:
     """返事から ``<proposal>...</proposal>`` を取り出す。タグが無い／中身が
     JSON として読めない／オブジェクトでない、のいずれも「提案なし」（``None``）
     として扱う（AI がタグの書式を間違えても壊れず、文章だけの返事に倒れる）。
-    返す文字列はタグを取り除いた地の文（前後の空白は詰める）。"""
+    返す文字列はタグを取り除いた地の文（前後の空白は詰める）。``kind: "view"``
+    （契約 F13 §1-2）かどうかはここでは見ない——ただの dict として返し、
+    :func:`validate_proposal` が ``kind`` で振り分ける。"""
     match = _PROPOSAL_TAG_RE.search(reply_text)
     if match is None:
         return reply_text.strip(), None
@@ -311,16 +386,107 @@ def _render_title(shape: str, parts: dict[str, Any], lang: str) -> str:
     return template.format(**{k: (v if v is not None else "") for k, v in data.items()})
 
 
+def _page_card_ids(page: dict[str, Any] | None) -> set[str]:
+    """``page.cards`` に載っている ``card_id`` の集合（契約 F13 §1-2
+    「source_card_id が page.cards の card_id にあることを確かめる」）。
+    ``card_id`` を持たないエントリ（F12 時点の ``{title, output_kind,
+    rows}`` — ui 側がまだ ``card_id`` を積んでいない場合を含む）は無視する
+    ので、ui がこのフィールドを送るまでは view 提案は「見つからない」側に
+    安全に倒れる（fail-closed）。"""
+    if not isinstance(page, dict):
+        return set()
+    cards = page.get("cards")
+    if not isinstance(cards, list):
+        return set()
+    out: set[str] = set()
+    for c in cards:
+        if isinstance(c, dict):
+            card_id = c.get("card_id")
+            if isinstance(card_id, str) and card_id:
+                out.add(card_id)
+    return out
+
+
+def _resolve_source_card_id(page: dict[str, Any] | None, ref: str) -> str | None:
+    """``source_card_id`` を ``page.cards`` の ``card_id`` で引き、無ければ題名の
+    **完全一致** で引く（弱い LLM が id を写し損ねて題名を書いたときの救済。
+    プロンプトでも「id が分からなければ題名でもよい」と言っている）。題名が
+    2 枚以上に一致するときは曖昧なので引かない（fail-closed）。"""
+    if ref in _page_card_ids(page):
+        return ref
+    cards = page.get("cards") if isinstance(page, dict) else None
+    if not isinstance(cards, list):
+        return None
+    matches = [
+        c.get("card_id")
+        for c in cards
+        if isinstance(c, dict)
+        and c.get("title") == ref
+        and isinstance(c.get("card_id"), str)
+        and c.get("card_id")
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _validate_view_proposal(
+    proposal: dict[str, Any], page: dict[str, Any] | None
+) -> dict[str, Any]:
+    """``kind: "view"`` の提案（契約 F13 §1-2）を検証する。``view.lang`` ごと
+    に ``asterism.view_spec_check`` の該当する許可リストへ委ね、
+    ``source_card_id`` は ``page.cards`` に実在するものだけを通す。返り値は
+    ``{"kind": "view", "view": {"lang", "spec"|"text", "source_card_id"}}``
+    ——``data`` は AI にも呼び出し側にも書かせず／持たせない。"""
+    view_in = proposal.get("view")
+    if not isinstance(view_in, dict):
+        raise MeasureSpecError("proposal.view must be an object")
+    lang_in = view_in.get("lang")
+    if lang_in not in _VIEW_LANGS:
+        raise MeasureSpecError(f"proposal.view.lang must be one of {_VIEW_LANGS}")
+    source_card_id = view_in.get("source_card_id")
+    if not isinstance(source_card_id, str) or not source_card_id:
+        raise MeasureSpecError("proposal.view.source_card_id must be a non-empty string")
+    resolved = _resolve_source_card_id(page, source_card_id)
+    if resolved is None:
+        raise MeasureSpecError("proposal.view.source_card_id must be a card already on this page")
+    source_card_id = resolved
+    if lang_in == "mermaid":
+        text = view_in.get("text")
+        ok, reason = view_spec_check.check_mermaid(text)
+        if not ok:
+            raise MeasureSpecError(f"proposal.view.text: {reason}")
+        return {
+            "kind": "view",
+            "view": {"lang": lang_in, "text": text, "source_card_id": source_card_id},
+        }
+    spec = view_in.get("spec")
+    checker = (
+        view_spec_check.check_vega_lite if lang_in == "vega-lite" else view_spec_check.check_table
+    )
+    ok, reason = checker(spec)
+    if not ok:
+        raise MeasureSpecError(f"proposal.view.spec: {reason}")
+    return {
+        "kind": "view",
+        "view": {"lang": lang_in, "spec": spec, "source_card_id": source_card_id},
+    }
+
+
 def validate_proposal(
     proposal: Any,
     schema_properties: dict[str, list[dict[str, Any]]],
     subject: dict[str, Any],
     *,
     lang: str = "ja",
+    page: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """AI の ``<proposal>`` を §1-2/§1-3 の妥当性表に照らして検証し、正規化
-    した ``{"params", "presentation", "output_kind", "title"}`` を返す（表の
-    外は ``MeasureSpecError``）。
+    """AI の ``<proposal>`` を検証する。``proposal.kind == "view"``（契約
+    F13 §1-2）なら :func:`_validate_view_proposal` に委ね、それ以外（従来の
+    観点の指定・``kind`` を書かない F12 の形も含む）は §1-2/§1-3 の妥当性表
+    に照らして検証し、正規化した ``{"kind": "measure", "params",
+    "presentation", "output_kind", "title"}`` を返す（表の外は
+    ``MeasureSpecError``）。
 
     - ``class`` は ``subject`` の種類（``own_class`` — set のページなら
       ``spec.class``、種類のページなら ``class_iri``）か、``linking_kinds``
@@ -337,6 +503,8 @@ def validate_proposal(
     """
     if not isinstance(proposal, dict):
         raise MeasureSpecError("proposal must be an object")
+    if proposal.get("kind") == "view":
+        return _validate_view_proposal(proposal, page)
     params_in = proposal.get("params")
     if not isinstance(params_in, dict):
         raise MeasureSpecError("proposal.params must be an object")
@@ -369,6 +537,7 @@ def validate_proposal(
     parts = title_parts(normalized, properties)
     title = _render_title(normalized["shape"], parts, lang)
     return {
+        "kind": "measure",
         "params": full_params,
         "presentation": presentation,
         "output_kind": output_kind,
