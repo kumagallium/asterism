@@ -53,6 +53,7 @@ export function WorkbenchTier({
   onOpenDataset,
   onOpenAsk,
   onCreateCrosswalk,
+  onShortcutDone,
 }: {
   redesignTarget?: RedesignTarget | null
   onRedesignConsumed?: () => void
@@ -63,6 +64,12 @@ export function WorkbenchTier({
   onOpenAsk?: (question: string) => void
   /** Opens the guided "connect your data" flow (offered on S9). */
   onCreateCrosswalk?: () => void
+  /** S1 の「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+   *  §1.2-2）が「そのまま追加」で完了したときの着地先。渡さなければ帯は
+   *  出ない（かんたんウィザードは他の入口——`#/workbench` の見直す等——でも
+   *  この Tier をそのまま使うため、対応する完了経路が無い呼び出し元では帯を
+   *  一切出さない）。 */
+  onShortcutDone?: (target: { datasetId: string; classIri?: string }) => void
 }) {
   const { t } = useTranslation()
   const [tier, setTier] = useState<Tier>(loadTier)
@@ -181,6 +188,7 @@ export function WorkbenchTier({
           onRedesignConsumed={onRedesignConsumed}
           onRedesignDetail={reopenInDetail}
           onCreateCrosswalk={onCreateCrosswalk}
+          onShortcutDone={onShortcutDone}
         />
       ) : (
         <WorkbenchView

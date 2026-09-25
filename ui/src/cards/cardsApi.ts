@@ -185,6 +185,48 @@ export async function searchSubjects(
   return data.items ?? []
 }
 
+/** `searchSubjects` の続き取り（offset）つき版（契約メモ contract_pr_f10.md
+ *  §1.1・§2）。追加画面の「もっと見る」専用 — 既存の呼び出し元
+ *  （`DatasetPage.tsx`）は `items` だけを使うので `searchSubjects` の形は
+ *  変えず、こちらを新設した。`total`（`limit`/`offset` に関係ない件数）と
+ *  `totalIsLowerBound`（サーバ側の走査上限に当たって `total` が下限になって
+ *  いるときだけ true）を返す。 */
+export interface SubjectSearchPage {
+  items: SubjectSearchItem[]
+  total: number
+  offset: number
+  limit: number
+  totalIsLowerBound: boolean
+}
+
+export async function searchSubjectsPage(
+  q: string,
+  limit: number,
+  offset: number,
+  classIri?: string,
+  datasetId?: string,
+): Promise<SubjectSearchPage> {
+  const params = new URLSearchParams({ q, limit: String(limit), offset: String(offset) })
+  if (datasetId) params.set('dataset_id', datasetId)
+  if (classIri) params.set('class_iri', classIri)
+  const res = await fetch(`/api/subjects/search?${params.toString()}`)
+  if (!res.ok) await throwApiError(res, 'subject search')
+  const data = (await res.json()) as {
+    items?: SubjectSearchItem[]
+    total?: number
+    offset?: number
+    limit?: number
+    total_is_lower_bound?: boolean
+  }
+  return {
+    items: data.items ?? [],
+    total: data.total ?? 0,
+    offset: data.offset ?? offset,
+    limit: data.limit ?? limit,
+    totalIsLowerBound: data.total_is_lower_bound ?? false,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // PR F9 §2.1: 種類の一覧（追加画面の左・契約メモ contract_pr_f9.md §3）
 // ---------------------------------------------------------------------------

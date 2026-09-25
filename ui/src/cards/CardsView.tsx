@@ -222,7 +222,8 @@ function DefaultLanding({
 
 /** `#/cards/place`（旧 URL）→ `#/datasets/add`（データが入る唯一の入口）への
  *  置き換え（契約メモ contract_pr_f8.md §1.2）。何も描かない — 着地先は
- *  App.tsx の PlaceView（gallery タブ）。 */
+ *  App.tsx の gallery タブの中身（かんたんウィザードの S1。契約メモ
+ *  contract_pr_f10.md §1.2 で PlaceView から差し替え済み）。 */
 function PlaceRedirect({
   placeDatasetId,
   navigate,

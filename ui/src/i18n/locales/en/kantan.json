@@ -21,6 +21,10 @@
     "step6": "Try it",
     "step7": "Publish"
   },
+  "shortcut_title": "This matches the shape of \"{{kind}}\", which you already have",
+  "shortcut_body": "You can add it as-is, with no design step",
+  "shortcut_add": "Add it as-is",
+  "shortcut_review": "Review the design first",
   "s1": {
     "title": "Drop a file and the AI starts reading it",
     "dropTitle": "Drag your measurement-data or document files here, or click to choose them",

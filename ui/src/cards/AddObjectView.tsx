@@ -12,9 +12,19 @@
 // 一本化」）。
 import { type FormEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { listClasses, searchSubjects, type ClassEntry, type SubjectItem, type SubjectSearchItem } from './cardsApi'
+import {
+  listClasses,
+  searchSubjectsPage,
+  type ClassEntry,
+  type SubjectItem,
+  type SubjectSearchItem,
+} from './cardsApi'
 import { addSubjectAndPersist } from './subjectStore'
 import './addObject.css'
+
+// 契約メモ contract_pr_f10.md §1.1: 一覧は「全部か一部か」を必ず言う＋カードの
+// 格子＋「もっと見る」で続きを取る。1 ページの件数（先頭・「もっと見る」とも
+// この件数）。
 
 /** 種類の並び（純関数・addObject.test.ts）。サーバは「件数の多い順→名前順」
  *  で返す契約（契約メモ §2.1）だが、描画側でも同じ規則を掛け直して安全側に
@@ -56,6 +66,40 @@ export function resolveInitialClassIri(explicit: string | undefined, stored: str
   return explicit ?? stored ?? undefined
 }
 
+/** 一覧の件数の行（純関数・addObject.test.ts）。3 態（契約メモ §1.1.1・§4）:
+ *  検索中は必ず `count_search`。検索していないとき、表示中がすべてなら
+ *  `count_all`、まだ隠れているものがあれば `count_partial`。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 上と同じ理由
+export function countLineParams(
+  query: string,
+  shown: number,
+  total: number,
+): { key: 'add.count_search' | 'add.count_all' | 'add.count_partial'; params: Record<string, unknown> } {
+  if (query) return { key: 'add.count_search', params: { q: query, shown } }
+  if (shown >= total) return { key: 'add.count_all', params: { total } }
+  return { key: 'add.count_partial', params: { total, shown } }
+}
+
+/** 「もっと見る」ボタンの表示（純関数・addObject.test.ts）。まだ隠れている
+ *  ものが無ければ `null`（ボタンを出さない）。あれば、次に取ってくる件数
+ *  `n`（ページ分か残りの小さいほう）と、残り総数 `rest` を返す。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 上と同じ理由
+export function moreButtonParams(shown: number, total: number, pageSize: number): { n: number; rest: number } | null {
+  const rest = total - shown
+  if (rest <= 0) return null
+  return { n: Math.min(pageSize, rest), rest }
+}
+
+/** 「もっと見る」で取ってきたページを既存の一覧に足す（純関数・
+ *  addObject.test.ts）。同じ主語が既にあれば足さない（offset のずれで二重に
+ *  出るのを防ぐ安全側）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 上と同じ理由
+export function appendResultsPage(existing: SubjectSearchItem[], page: SubjectSearchItem[]): SubjectSearchItem[] {
+  const seen = new Set(existing.map((item) => item.iri))
+  const appended = page.filter((item) => !seen.has(item.iri))
+  return [...existing, ...appended]
+}
+
 export interface AddObjectViewProps {
   navigate: AddObjectNavigateFn
   /** 種類のページ「＋ 追加」から、その種類を開いた状態で入る（契約メモ §3・
@@ -75,10 +119,14 @@ interface ResultsLoadState {
   classIri: string
   query: string
   items: SubjectSearchItem[] | null
+  total: number
   error: boolean
 }
 
-const EMPTY_RESULTS: ResultsLoadState = { classIri: '', query: '', items: null, error: false }
+const EMPTY_RESULTS: ResultsLoadState = { classIri: '', query: '', items: null, total: 0, error: false }
+
+/** 一覧の 1 ページの件数（先頭・「もっと見る」とも）契約メモ §1.1.3。 */
+const PAGE_SIZE = 60
 
 export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps) {
   const { t } = useTranslation('cards')
@@ -98,6 +146,7 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
   const [query, setQuery] = useState('')
   const [committedQuery, setCommittedQuery] = useState('')
   const [results, setResults] = useState<ResultsLoadState>(EMPTY_RESULTS)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -120,22 +169,27 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
     setResetFor(selectedClassIri)
     setQuery('')
     setCommittedQuery('')
+    setLoadingMore(false)
   }
 
   // 種類を選んだ直後・検索を確定したときに読む。`committedQuery` が空でも
-  // 読む（契約メモ §2.2・§3「空の検索＝先頭 50 件」）。「読み込み中」は専用の
-  // state を持たず、下の `showingResults`（結果が今の選択・確定検索語と一致
-  // するか）だけで判定する（DatasetPage.tsx/SetPage.tsx と同じ流儀 —
+  // 読む（契約メモ §2.2・§3「空の検索＝先頭 PAGE_SIZE 件」）。「読み込み中」は
+  // 専用の state を持たず、下の `showingResults`（結果が今の選択・確定検索語
+  // と一致するか）だけで判定する（DatasetPage.tsx/SetPage.tsx と同じ流儀 —
   // set-state-in-effect を避ける）。
   useEffect(() => {
     if (!selectedClassIri) return
     let cancelled = false
-    searchSubjects(committedQuery, 50, undefined, selectedClassIri)
-      .then((items) => {
-        if (!cancelled) setResults({ classIri: selectedClassIri, query: committedQuery, items, error: false })
+    searchSubjectsPage(committedQuery, PAGE_SIZE, 0, selectedClassIri)
+      .then((page) => {
+        if (!cancelled) {
+          setResults({ classIri: selectedClassIri, query: committedQuery, items: page.items, total: page.total, error: false })
+        }
       })
       .catch(() => {
-        if (!cancelled) setResults({ classIri: selectedClassIri, query: committedQuery, items: null, error: true })
+        if (!cancelled) {
+          setResults({ classIri: selectedClassIri, query: committedQuery, items: null, total: 0, error: true })
+        }
       })
     return () => {
       cancelled = true
@@ -145,6 +199,28 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
   function onSearchSubmit(e: FormEvent) {
     e.preventDefault()
     setCommittedQuery(normalizeSearchQuery(query))
+  }
+
+  /** 「さらに N 件」（契約メモ §1.1.3）。今の一覧の末尾から `offset` で続きを
+   *  取り、二重に出ないよう `appendResultsPage` で足す。 */
+  async function loadMore() {
+    if (!selectedClassIri || !results.items || loadingMore) return
+    const classIri = selectedClassIri
+    const query = committedQuery
+    const offset = results.items.length
+    setLoadingMore(true)
+    try {
+      const page = await searchSubjectsPage(query, PAGE_SIZE, offset, classIri)
+      setResults((prev) =>
+        prev.classIri === classIri && prev.query === query && prev.items
+          ? { ...prev, items: appendResultsPage(prev.items, page.items), total: page.total }
+          : prev,
+      )
+    } catch {
+      // 一覧はそのまま残す — もう一度「さらに」を押せば再試行できる。
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   /** 1 件を押す（契約メモ §3「1 件を押すと子ナビに加わり、そのページへ」）。 */
@@ -209,42 +285,67 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
           {!selectedEntry && classesState.classes && <p className="ds-empty-note">{t('add.pick_kind_first')}</p>}
           {selectedEntry && (
             <>
-              <form className="addobject-search-form" onSubmit={onSearchSubmit}>
-                <input
-                  type="search"
-                  className="addobject-search-input"
-                  value={query}
-                  placeholder={t('add.search_placeholder')}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </form>
+              <div className="addobject-search-row">
+                <form className="addobject-search-form" onSubmit={onSearchSubmit}>
+                  <input
+                    type="search"
+                    className="addobject-search-input"
+                    value={query}
+                    placeholder={t('add.search_placeholder', { total: selectedEntry.count })}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </form>
+                <button
+                  type="button"
+                  className="btn btn--soft btn--sm addobject-collect"
+                  onClick={() => goCollect(selectedEntry)}
+                >
+                  {t('add.collect')}
+                </button>
+              </div>
               {!showingResults && <p className="ds-empty-note">{t('page.loading')}</p>}
               {showingResults && results.error && <p className="ds-empty-note">{t('render_error')}</p>}
               {showingResults && !results.error && results.items && results.items.length === 0 && (
                 <p className="ds-empty-note">{t('add.empty')}</p>
               )}
               {showingResults && !results.error && results.items && results.items.length > 0 && (
-                <div className="dataset-contents-list">
-                  {results.items.map((item) => (
-                    <button
-                      key={item.iri}
-                      type="button"
-                      className="dataset-content-item"
-                      onClick={() => pickResult(selectedEntry, item)}
-                    >
-                      <span className="dataset-dot dataset-dot--individual" aria-hidden="true" />
-                      <span className="dataset-content-label">{item.label}</span>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  {(() => {
+                    const line = countLineParams(committedQuery, results.items.length, results.total)
+                    return <p className="addobject-count">{t(line.key, line.params)}</p>
+                  })()}
+                  <div className="addobject-grid">
+                    {results.items.map((item) => (
+                      <button
+                        key={item.iri}
+                        type="button"
+                        className="addobject-card"
+                        onClick={() => pickResult(selectedEntry, item)}
+                      >
+                        <span className="dataset-dot dataset-dot--individual" aria-hidden="true" />
+                        <span className="addobject-card-body">
+                          <span className="addobject-card-label">{item.label}</span>
+                          <span className="addobject-card-sub">{selectedEntry.dataset_label}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {(() => {
+                    const more = moreButtonParams(results.items.length, results.total, PAGE_SIZE)
+                    if (!more) return null
+                    return (
+                      <button
+                        type="button"
+                        className="btn btn--soft btn--sm addobject-more"
+                        onClick={loadMore}
+                        disabled={loadingMore}
+                      >
+                        {t('add.more', { n: more.n, rest: more.rest })}
+                      </button>
+                    )
+                  })()}
+                </>
               )}
-              <button
-                type="button"
-                className="btn btn--soft btn--sm addobject-collect"
-                onClick={() => goCollect(selectedEntry)}
-              >
-                {t('add.collect')}
-              </button>
             </>
           )}
         </div>
