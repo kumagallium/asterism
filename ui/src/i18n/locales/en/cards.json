@@ -45,6 +45,7 @@
     "advancedSettings": "Define what the data means (columns, units, names)",
     "kindSet": "List",
     "sampleBadge": "Sample",
+    "hub_pill": "Linked",
     "state_draft": "Not defined yet",
     "state_ingesting": "Ingesting",
     "other_section": "Other",
@@ -151,7 +152,10 @@
     "export_button": "Make a bundle for an AI",
     "shareable_yes": "Can share",
     "shareable_no": "Just yours",
-    "ask_placeholder": "Ask this page or request a chart"
+    "ask_placeholder": "Ask this page or request a chart",
+    "hub_eyebrow": "Linked: {{name}}",
+    "hub_band": "Another dataset has the same \"{{label}}\" ({{n}})",
+    "hub_band_link": "See them together"
   },
   "set": {
     "change_condition": "Change the condition",
@@ -276,7 +280,8 @@
       "label": "Name",
       "source": "Source",
       "subject_iri": "Subject"
-    }
+    },
+    "subject_hub_members": "Bundled as the same thing"
   },
   "tile": {
     "show_all": "See all ({{n}})",
@@ -323,6 +328,7 @@
     "path_child_child": "Records pointing to a {{via}} that points to this one",
     "path_sibling": "Records that share the same \"{{anchor}}\"",
     "path_sibling_child": "Records pointing to a {{via}} that shares the same \"{{anchor}}\"",
+    "path_via_member": "from {{member}} in {{dataset}}: {{rest}}",
     "submit": "Create",
     "cancel": "Cancel",
     "title_series": "{{y}} over time",
@@ -330,7 +336,8 @@
     "title_breakdown": "Count by {{category}}",
     "title_pairs": "{{x}} vs {{y}}",
     "title_quantity": "{{agg}} of {{item}}",
-    "title_facts": "{{items}}"
+    "title_facts": "{{items}}",
+    "path_direct_in_dataset": "records in {{dataset}} that point at this one"
   },
   "viewpoints": {
     "strip_title": "Viewpoints used on this data",

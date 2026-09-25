@@ -409,4 +409,31 @@ describe('pathLabel', () => {
     })
     expect(pathLabel(k, echoT)).toBe('cards:newcard.path_sibling_child:{"anchor":"観測所A","via":"観測明細"}')
   })
+
+  it('via_member があれば従来の道の説明を外側から包む（PR F16）', () => {
+    const k = kind({
+      path_kind: 'direct',
+      via_member: {
+        iri: 'https://example.org/data/member-1',
+        label: '記録A',
+        dataset_id: 'ds-a',
+        dataset_label: 'データセットA',
+      },
+    })
+    expect(pathLabel(k, echoT)).toBe(
+      'cards:newcard.path_via_member:{"dataset":"データセットA","member":"記録A","rest":"cards:newcard.path_direct:{}"}',
+    )
+  })
+
+  it('via_member はあるが path_kind が無ければ rest は空文字', () => {
+    const k = kind({
+      via_member: {
+        iri: 'https://example.org/data/member-1',
+        label: '記録A',
+        dataset_id: 'ds-a',
+        dataset_label: 'データセットA',
+      },
+    })
+    expect(pathLabel(k, echoT)).toBe('cards:newcard.path_via_member:{"dataset":"データセットA","member":"記録A","rest":""}')
+  })
 })

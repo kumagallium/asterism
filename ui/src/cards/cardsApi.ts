@@ -140,6 +140,33 @@ export async function runCard(
   return (await res.json()) as CardToolResult
 }
 
+/** PR F16 §1.4:「同じものとして束ねたもの」ハブの 1 メンバー（`resolveSubject`
+ *  の `hub.members` 1 件）。 */
+export interface SubjectHubMember {
+  iri: string
+  label: string
+  dataset_id: string | null
+  dataset_label: string | null
+  class_label: string | null
+}
+
+/** PR F16 §1.4: 主語がハブ自身のときの詳細（`resolveSubject` の `hub`）。 */
+export interface SubjectHubInfo {
+  perspective_id: string
+  name: string
+  members: SubjectHubMember[]
+}
+
+/** PR F16 §1.4: 主語がハブのメンバー（または親がメンバー）のときの帯用情報
+ *  （`resolveSubject` の `hub_of`）。 */
+export interface SubjectHubOf {
+  iri: string
+  label: string
+  perspective_name: string
+  member_count: number
+  dataset_labels: string[]
+}
+
 export interface SubjectResolveResult {
   iri: string
   found: boolean
@@ -150,6 +177,13 @@ export interface SubjectResolveResult {
   /** registry の表示名（meta.name）。人に見せるのはこちら（K4: id は見せない）。 */
   dataset_label?: string | null
   snapshot: string | null
+  /** PR F16 §1.4: 主語がハブ自身なら true。api がまだ返さない間は任意として
+   *  読む（無ければ false 相当）。 */
+  is_hub?: boolean
+  /** PR F16 §1.4: `is_hub` のときだけ。 */
+  hub?: SubjectHubInfo | null
+  /** PR F16 §1.4: 主語がハブのメンバー（または親がメンバー）のときだけ。 */
+  hub_of?: SubjectHubOf | null
 }
 
 export async function resolveSubject(iri: string): Promise<SubjectResolveResult> {
@@ -243,6 +277,11 @@ export interface ClassEntry {
   properties: number
   with_label: number
   with_unit: number
+  /** PR F16 §1.2: 共有ハブ（同じものの 1 つのページ）としての種類なら true。 */
+  is_hub?: boolean
+  /** PR F16 §1.2: `is_hub` のときの perspective id（レールの印の判定にだけ使う。
+   *  人向け文言には出さない — K4）。 */
+  hub_perspective_id?: string
 }
 
 /** 件数の多い順→名前順（api 側で確定した並びをそのまま返す）。 */
@@ -898,6 +937,8 @@ export interface LinkingKind {
   /** 段数（1=direct、2=child_child/sibling、3=sibling_child）。 */
   hops?: 1 | 2 | 3
   path_kind?: 'direct' | 'child_child' | 'sibling' | 'sibling_child'
+  /** PR F16: ハブのページの direct 行で、その種類が属するデータセットの名前。 */
+  class_dataset_label?: string | null
   /** `where` が指す IRI（direct/child_child はこの 1 件、sibling 系は親）。 */
   anchor_iri?: string
   anchor_label?: string | null
@@ -908,6 +949,10 @@ export interface LinkingKind {
   anchor_property_label?: string | null
   /** 2 段目（child_child/sibling_child だけ）。 */
   via?: LinkingKindVia | null
+  /** PR F16 §1.3: ハブ（同じものの 1 つのページ）から見たときだけ — どの
+   *  メンバー（ハブを指す実体）を経由してこの候補に届くか。ハブでない主語では
+   *  無い。 */
+  via_member?: { iri: string; label: string; dataset_id: string; dataset_label: string }
   /** 完成形の条件。消費側（NewCardForm/viewpoints）はこれをそのまま
    *  `set_measure` の `where` に使う — 自前で組み立てない（PR F14 §1.3）。 */
   where: MeasureWhereClause[]

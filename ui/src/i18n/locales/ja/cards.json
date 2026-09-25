@@ -45,6 +45,7 @@
     "advancedSettings": "データの意味を定義する（列・単位・名前）",
     "kindSet": "一覧",
     "sampleBadge": "見本",
+    "hub_pill": "つながり",
     "state_draft": "まだ意味を定義していません",
     "state_ingesting": "取り込み中",
     "other_section": "その他",
@@ -151,7 +152,10 @@
     "export_button": "AI に渡す一式を作る",
     "shareable_yes": "人に渡せる",
     "shareable_no": "自分だけ",
-    "ask_placeholder": "このページに聞く・グラフを頼む"
+    "ask_placeholder": "このページに聞く・グラフを頼む",
+    "hub_eyebrow": "つながり: {{name}}",
+    "hub_band": "別のデータセットにも同じもの「{{label}}」があります（{{n}} 件）",
+    "hub_band_link": "まとめて見る"
   },
   "set": {
     "change_condition": "条件を変える",
@@ -276,7 +280,8 @@
       "label": "名前",
       "source": "出どころ",
       "subject_iri": "対象"
-    }
+    },
+    "subject_hub_members": "同じものとして束ねたもの"
   },
   "tile": {
     "show_all": "すべて見る（{{n}} 件）",
@@ -323,6 +328,7 @@
     "path_child_child": "この 1 件を指す{{via}}を、さらに指す記録",
     "path_sibling": "同じ「{{anchor}}」を持つ記録",
     "path_sibling_child": "同じ「{{anchor}}」を持つ{{via}}を指す記録",
+    "path_via_member": "{{dataset}}の「{{member}}」から: {{rest}}",
     "submit": "作る",
     "cancel": "やめる",
     "title_series": "{{y}}の推移",
@@ -330,7 +336,8 @@
     "title_breakdown": "{{category}}ごとの件数",
     "title_pairs": "{{x}}と{{y}}",
     "title_quantity": "{{item}}の{{agg}}",
-    "title_facts": "{{items}}"
+    "title_facts": "{{items}}",
+    "path_direct_in_dataset": "{{dataset}}の、この 1 件を指す記録"
   },
   "viewpoints": {
     "strip_title": "同じデータで使われている観点",

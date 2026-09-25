@@ -198,3 +198,16 @@
   font-weight: 600;
   color: var(--accent, #1d5f3f);
 }
+
+/* PR F16 §1.5: 共有ハブ（同じものの 1 つのページ）の種類の見出しに付ける
+   小さな印「つながり」。`.rail-item-sample` と同じ見た目の流儀。 */
+.rail-hub-pill {
+  flex: none;
+  border-radius: 999px;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
+}
