@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from asterism import crosswalk_runtime as crosswalk_runtime_mod
+from asterism.crosswalk import XW as _XW_NS
 from asterism.materials import Material
 from asterism.materials import materials_for as _materials_for
 from asterism.materials import shareable as _shareable
@@ -57,6 +59,7 @@ from asterism.substrate import (
     canonical_from_clauses,
     canonical_graphs,
     dataset_id_of_canonical_graph,
+    is_hub_graph,
     readable_graph_iris,
 )
 
@@ -71,6 +74,7 @@ __all__ = [
     "card_id_of",
     "default_cards_for_set",
     "default_cards_for_subject",
+    "hub_of_subject",
     "iri_param_of",
     "linking_kinds",
     "materials_for_set",
@@ -84,6 +88,7 @@ __all__ = [
     "set_members",
     "subject_facts",
     "subject_flow",
+    "subject_hub_members",
     "subject_sources",
     "subject_types",
 ]
@@ -821,7 +826,149 @@ async def materials_for_set(
 # ----------------------------------------------------------------------------
 # §1-3 (PR F4 / ADR O46) — 「この 1 件を指す種類」を実データの形から求める。
 # §1.1/§1.2 (PR F14 / ADR O59) — 届く範囲を近傍（上に 1 段・下に 2 段）へ。
+# O60 (PR F16 / 契約メモ §1.1/§1.3) — 共有ハブ（xw: の共有実体）を「同じもの
+# の 1 つのページ」として扱う: 主語がハブそのものか、ハブへの道
+# （:func:`hub_of_subject`）を持つか、あるいは何も変わらないか。
 # ----------------------------------------------------------------------------
+
+
+def _perspective_id_of_hub_graph(hub_graph: str) -> str | None:
+    """``hub_graph``（``…/canonical/crosswalk`` か ``…/canonical/crosswalk/<id>``）
+    から perspective id を戻す — :func:`asterism.crosswalk_runtime.crosswalk_graph_iri`
+    の逆写像（レガシーの無名 perspective は ``DEFAULT_PERSPECTIVE_ID``）。"""
+    dataset_id = dataset_id_of_canonical_graph(hub_graph)
+    if dataset_id is None:
+        return None
+    if dataset_id == "crosswalk":
+        return crosswalk_runtime_mod.DEFAULT_PERSPECTIVE_ID
+    prefix = "crosswalk/"
+    if dataset_id.startswith(prefix):
+        rest = dataset_id[len(prefix) :]
+        return rest or None
+    return None
+
+
+async def hub_of_subject(client: SupportsSparql, iri: str) -> dict[str, Any] | None:
+    """契約メモ §1.1: 主語からハブへの道。
+
+    - 主語がハブそのもの（ハブ graph に ``?s a ?c`` で載っている）なら
+      ``{"hub_iri": iri, "graph": g, "perspective_id": pid}``。
+    - そうでなければ、ハブ graph の中で主語が直接ハブを指す 1 段
+      （``GRAPH <hub graph> { <s> ?p ?hub }``）、または主語の親（canonical
+      graph 群で引く）がハブを指す 2 段
+      （``<s> ?q ?parent . GRAPH <hub graph> { ?parent ?p ?hub }``）を探し、
+      見つかれば ``{"hub_iri", "hub_label", "perspective_id", "via_parent"}``
+      （1 段なら ``via_parent`` は ``None``）。
+    - どちらも見つからなければ ``None``。
+
+    ハブ graph は canonical graph 群のうち :func:`asterism.substrate.is_hub_graph`
+    のもの（複数 perspective があれば辞書順に試す・決定論）。
+    """
+    graphs = await canonical_graphs(client)
+    hub_graphs = sorted(g for g in graphs if is_hub_graph(g))
+    if not hub_graphs:
+        return None
+    ref = _ref(iri)
+
+    for hub_graph in hub_graphs:
+        raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
+        if isinstance(raw, dict) and raw.get("boolean"):
+            return {
+                "hub_iri": iri,
+                "graph": hub_graph,
+                "perspective_id": _perspective_id_of_hub_graph(hub_graph),
+            }
+
+    for hub_graph in hub_graphs:
+        rows = _rows(
+            await client.sparql_select(
+                f"SELECT ?hub\nWHERE {{ GRAPH {_ref(hub_graph)} {{ {ref} ?p ?hub }} "
+                # 同じ主語が 2 つ以上のハブを指し得る（1 perspective に複数 concept）
+                # ので、ORDER BY で決定論に 1 件を選ぶ（checker の指摘）。
+                "FILTER(isIRI(?hub)) } ORDER BY ?hub LIMIT 1"
+            )
+        )
+        hub = _cell(rows[0], "hub") if rows else None
+        if hub:
+            label = (await _label_lookup(client, [hub_graph], {hub}, fallback=_fallback_label)).get(
+                hub, _fallback_label(hub)
+            )
+            return {
+                "hub_iri": hub,
+                "hub_label": label,
+                "perspective_id": _perspective_id_of_hub_graph(hub_graph),
+                "via_parent": None,
+            }
+
+    if not graphs:
+        return None
+    from_clause = canonical_from_clauses(graphs)
+    for hub_graph in hub_graphs:
+        # ``GRAPH <hub_graph> { ... }`` needs the hub graph declared ``FROM
+        # NAMED`` too (SPARQL: a query with a ``FROM`` clause but no matching
+        # ``FROM NAMED`` has an EMPTY named-graph set, so ``GRAPH <iri>``
+        # matches nothing — 実機所見). Only the hub graph itself needs it; the
+        # ``<s> ?q ?parent`` half stays a plain default-graph (FROM-merge) read.
+        rows = _rows(
+            await client.sparql_select(
+                f"SELECT ?parent ?hub\n{from_clause}FROM NAMED {_ref(hub_graph)}\n"
+                f"WHERE {{ {ref} ?q ?parent . FILTER(isIRI(?parent)) "
+                f"GRAPH {_ref(hub_graph)} {{ ?parent ?p ?hub }} FILTER(isIRI(?hub)) }} "
+                "ORDER BY ?parent ?hub LIMIT 1"
+            )
+        )
+        parent = _cell(rows[0], "parent") if rows else None
+        hub = _cell(rows[0], "hub") if rows else None
+        if parent and hub:
+            label = (await _label_lookup(client, [hub_graph], {hub}, fallback=_fallback_label)).get(
+                hub, _fallback_label(hub)
+            )
+            return {
+                "hub_iri": hub,
+                "hub_label": label,
+                "perspective_id": _perspective_id_of_hub_graph(hub_graph),
+                "via_parent": parent,
+            }
+    return None
+
+
+#: ハブのメンバー（ハブを指す実体）の上限（契約メモ §1.3・最大 8・IRI 辞書順）。
+_HUB_MEMBER_LIMIT = 8
+#: ハブ主語の候補行の上限（契約メモ §1.3 — 通常主語の :data:`_NEIGHBORHOOD_LIMIT`
+#: 24 より広い。メンバーごとの近傍の和なので候補が増えやすい）。
+_HUB_LINKING_LIMIT = 40
+
+
+async def _hub_members(client: SupportsSparql, hub_graph: str, hub_iri: str) -> list[str]:
+    """このハブを指す実体（``GRAPH <hub graph> { ?m ?p <hub> }``）— 最大
+    :data:`_HUB_MEMBER_LIMIT`・IRI 辞書順（契約メモ §1.3）。"""
+    ref = _ref(hub_iri)
+    rows = _rows(
+        await client.sparql_select(
+            f"SELECT DISTINCT ?m\nWHERE {{ GRAPH {_ref(hub_graph)} {{ ?m ?p {ref} "
+            # per-link の来歴（xw:CrosswalkLink）もハブを指すが、メンバーではない
+            f"FILTER NOT EXISTS {{ ?m {_ref(_RDF_TYPE)} ?mt "
+            f'FILTER(STRSTARTS(STR(?mt), "{_XW_NS}")) }} '
+            "} FILTER(isIRI(?m)) } ORDER BY ?m"
+        )
+    )
+    members = [m for row in rows if (m := _cell(row, "m"))]
+    return members[:_HUB_MEMBER_LIMIT]
+
+
+async def _member_dataset(
+    client: SupportsSparql, dataset_labels_by_id: dict[str, str], member: str
+) -> tuple[str | None, str | None]:
+    """メンバー 1 件の ``(dataset_id, dataset_label)`` — メンバーが事実を持つ
+    graph のうち、ハブ graph 自身ではない最初のもの（``_graph_counts_for_subject``
+    が graph IRI の辞書順で返すので決定論）。見つからなければ
+    ``(None, None)``。"""
+    for g, _cnt in await _graph_counts_for_subject(client, member):
+        dataset_id = dataset_id_of_canonical_graph(g)
+        if dataset_id is not None and not is_hub_graph(g):
+            return dataset_id, dataset_labels_by_id.get(dataset_id, dataset_id)
+    return None, None
+
 
 #: 親の共有先が大きすぎるときは近傍として数えない（契約メモ §1.1）。
 _NEIGHBORHOOD_MAX_PARENT_MEMBERS = 5000
@@ -829,8 +976,29 @@ _NEIGHBORHOOD_MAX_PARENT_MEMBERS = 5000
 _NEIGHBORHOOD_LIMIT = 24
 
 
+def _hub_entity_ask(hub_graph: str, iri: str) -> str:
+    """``iri`` がハブ**実体**（concept の class で型付けされた主語）か。ハブの
+    graph には per-link の来歴（xw:CrosswalkLink）と build の prov:Activity も
+    載るので、それらは実体ではない（実機 2026-09-25: リンクの節が「ハブ」と
+    判定され、メンバー 0・候補 0 のページになった）。"""
+    return (
+        f"ASK {{ GRAPH {_ref(hub_graph)} {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?c "
+        f'FILTER(!STRSTARTS(STR(?c), "{_PROV_NS}") '
+        f'&& STR(?c) != "{_XW_NS}CrosswalkLink") }} }}'
+    )
+
+
 def _not_prov_class(var: str) -> str:
     return f'FILTER(!STRSTARTS(STR({var}), "{_PROV_NS}"))'
+
+
+def _not_link_class(var: str) -> str:
+    """候補の「記録の種類」から来歴（PROV）と、クロスウォークの節（``xw:``
+    ＝ハブ実体・per-link の ``CrosswalkLink``）を除く。ハブは**親**としては
+    正しい（sibling の anchor になる）ので、親の種類には :func:`_not_prov_class`
+    だけを掛ける。実機 2026-09-25: ハブができると「Crosswalk Link（この 1 件を
+    指す記録）」が候補に混ざった。"""
+    return f'FILTER(!STRSTARTS(STR({var}), "{_PROV_NS}") && !STRSTARTS(STR({var}), "{_XW_NS}"))'
 
 
 async def linking_kinds(
@@ -860,6 +1028,19 @@ async def linking_kinds(
     if not graphs:
         return []
     from_clause = canonical_from_clauses(graphs)
+
+    hub_graphs = sorted(g for g in graphs if is_hub_graph(g))
+    for hub_graph in hub_graphs:
+        raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
+        if isinstance(raw, dict) and raw.get("boolean"):
+            return await _hub_linking_kinds(
+                client, iri, hub_graph, from_clause, registry_root=registry_root
+            )
+
+    # ハブの graph も近傍に含める: 主語がハブを指していれば、ハブは「親」で、
+    # 同じハブを指す別データセットの実体は「兄弟」＝同じもの（ユーザーの狙い:
+    # 別データセットの同じ対象を 1 ページで扱う）。per-link の来歴
+    # （xw:CrosswalkLink）は :func:`_not_link_class` が記録の種類から除く。
 
     direct_pairs = await _direct_linking_pairs(client, iri, from_clause)
     child_child_rows = await _child_child_linking_rows(client, iri, from_clause)
@@ -936,7 +1117,22 @@ async def linking_kinds(
         )
     if not raw_rows:
         return []
+    return await _finalize_linking_rows(client, registry_root, raw_rows, limit=_NEIGHBORHOOD_LIMIT)
 
+
+async def _finalize_linking_rows(
+    client: SupportsSparql,
+    registry_root: Path | str | None,
+    raw_rows: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """label 解決・重複排除（``(class_iri, where)`` が同じ行は 1 つ）・並べ替え
+    （``hops`` 昇順→``count`` 降順→``class_iri``・``property`` の辞書順）・上限
+    ``limit`` 件への切り詰め — :func:`linking_kinds` の生の行の共通後処理
+    （契約メモ §1.3: ハブの合成行にも同じ規則を適用するため分離した）。"""
+    if not raw_rows:
+        return []
     class_iris = {r["class_iri"] for r in raw_rows}
     class_iris |= {r["anchor_class_iri"] for r in raw_rows if r["anchor_class_iri"]}
     class_iris |= {r["via_class_iri"] for r in raw_rows if r["via_class_iri"]}
@@ -1003,7 +1199,110 @@ async def linking_kinds(
             }
         )
     rows.sort(key=lambda r: (r["hops"], -r["count"], r["class_iri"], r["property"]))
-    return rows[:_NEIGHBORHOOD_LIMIT]
+    return rows[:limit]
+
+
+async def _hub_linking_kinds(
+    client: SupportsSparql,
+    hub_iri: str,
+    hub_graph: str,
+    from_clause: str,
+    *,
+    registry_root: Path | str | None,
+) -> list[dict[str, Any]]:
+    """契約メモ §1.3: ハブ主語の候補＝メンバーごとの :func:`linking_kinds` の和
+    ＋ハブ自身の direct 行。
+
+    メンバー（``GRAPH <hub graph> { ?m ?p <hub> }``・最大
+    :data:`_HUB_MEMBER_LIMIT`・IRI 辞書順）ごとに、そのメンバー自身の
+    ``linking_kinds`` をそのまま呼ぶ（``where`` はメンバー起点の絶対 IRI なので
+    そのまま使える）— 各行に ``via_member`` を足し、``hops`` を 1 つ足す。ハブ
+    自身の direct 行（``?rec ?p <hub>``。メンバー自身がこれに当たる）は通常の
+    :func:`_direct_linking_pairs` から作る（メンバーの canonical graph の
+    データが hub graph 自身に載っている記録の形と同じ）。重複排除・並べ替えは
+    :func:`_finalize_linking_rows` と同じ規則、上限は :data:`_HUB_LINKING_LIMIT`。
+    """
+    direct_pairs = await _direct_linking_pairs(client, hub_iri, from_clause)
+    hub_raw_rows: list[dict[str, Any]] = []
+    for cls, p, cnt in direct_pairs:
+        hub_raw_rows.append(
+            {
+                "class_iri": cls,
+                "property": p,
+                "count": cnt,
+                "hops": 1,
+                "path_kind": "direct",
+                "anchor_iri": hub_iri,
+                "anchor_class_iri": None,
+                "anchor_property": None,
+                "via_property": None,
+                "via_class_iri": None,
+                "where": [{"property": p, "iri": hub_iri}],
+            }
+        )
+    finalized: list[dict[str, Any]] = list(
+        await _finalize_linking_rows(client, registry_root, hub_raw_rows, limit=_HUB_LINKING_LIMIT)
+    )
+
+    members = await _hub_members(client, hub_graph, hub_iri)
+    if members:
+        member_labels = await _label_lookup(
+            client,
+            [hub_graph, *await canonical_graphs(client)],
+            set(members),
+            fallback=_fallback_label,
+        )
+        dataset_labels_by_id = dataset_labels(registry_root)
+        # ハブを指す実体の種類は、別データセットどうしで同じ名前になりがち
+        # （実機 2026-09-25: 「ChemicalFormula」が 2 行）。direct 行にその種類が
+        # 属するデータセットの名前を添えて、人が見分けられるようにする。
+        class_dataset_label: dict[str, str] = {}
+        for member in members:
+            member_rows = await linking_kinds(client, member, registry_root=registry_root)
+            member_dataset_id, member_dataset_label = await _member_dataset(
+                client, dataset_labels_by_id, member
+            )
+            if member_dataset_label:
+                for cls in await subject_types(client, member):
+                    class_dataset_label.setdefault(cls, member_dataset_label)
+            for row in member_rows:
+                # メンバーの近傍のうち「ハブを親にした行」（別のメンバー＝兄弟と、
+                # 兄弟を指す記録）は、ハブ自身の direct／child_child 行と同じもの
+                # なので、ここでは足さない（二重・member cap の意味が崩れる）。
+                if row.get("anchor_iri") == hub_iri:
+                    continue
+                finalized.append(
+                    {
+                        **row,
+                        "hops": row["hops"] + 1,
+                        "via_member": {
+                            "iri": member,
+                            "label": member_labels.get(member, _fallback_label(member)),
+                            "dataset_id": member_dataset_id,
+                            "dataset_label": member_dataset_label,
+                        },
+                    }
+                )
+
+    if members:
+        for row in finalized:
+            if row.get("path_kind") == "direct" and "via_member" not in row:
+                label = class_dataset_label.get(str(row.get("class_iri")))
+                if label:
+                    row["class_dataset_label"] = label
+
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for row in finalized:
+        dedupe_key = json.dumps(
+            {"class_iri": row["class_iri"], "where": row["where"]}, sort_keys=True
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        deduped.append(row)
+    deduped.sort(key=lambda r: (r["hops"], -r["count"], r["class_iri"], r["property"]))
+    return deduped[:_HUB_LINKING_LIMIT]
 
 
 async def _direct_linking_pairs(
@@ -1013,7 +1312,7 @@ async def _direct_linking_pairs(
     query = (
         f"SELECT ?cls ?p (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
         f"WHERE {{ ?rec ?p {_ref(iri)} ; {_ref(_RDF_TYPE)} ?cls . "
-        f"{_not_prov_class('?cls')} }} "
+        f"{_not_link_class('?cls')} }} "
         "GROUP BY ?cls ?p ORDER BY ?cls ?p"
     )
     pairs: list[tuple[str, str, int]] = []
@@ -1039,7 +1338,7 @@ async def _child_child_linking_rows(
         f"SELECT ?cls ?p3 ?p2 ?acls (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
         f"WHERE {{ ?a ?p2 {ref_iri} ; {rdf_type} ?acls . ?rec ?p3 ?a ; {rdf_type} ?cls . "
         f"FILTER(?p2 != {rdf_type}) FILTER(?p3 != {rdf_type}) "
-        f"{_not_prov_class('?cls')} {_not_prov_class('?acls')} }} "
+        f"{_not_link_class('?cls')} {_not_link_class('?acls')} }} "
         "GROUP BY ?cls ?p3 ?p2 ?acls ORDER BY ?cls ?p3 ?p2 ?acls"
     )
     rows: list[tuple[str, str, str, str, int]] = []
@@ -1116,7 +1415,7 @@ async def _sibling_linking_rows(
         f"WHERE {{ VALUES (?p1 ?parent) {{ {values} }} {ref_iri} ?p1 ?parent . "
         f"?parent {rdf_type} ?pcls . ?rec ?p2 ?parent ; {rdf_type} ?cls . "
         f"FILTER(?rec != {ref_iri}) FILTER(?p2 != {rdf_type}) "
-        f"{_not_prov_class('?cls')} {_not_prov_class('?pcls')} }} "
+        f"{_not_link_class('?cls')} {_not_prov_class('?pcls')} }} "
         "GROUP BY ?cls ?p2 ?p1 ?parent ?pcls ORDER BY ?parent ?cls ?p2 ?p1"
     )
     rows: list[tuple[str, str, str, str, str, int]] = []
@@ -1155,7 +1454,7 @@ async def _sibling_child_linking_rows(
         f"FILTER(?sib != {ref_iri}) FILTER(?p2 != {rdf_type}) "
         f"?rec ?p3 ?sib ; {rdf_type} ?cls . "
         f"FILTER(?rec != {ref_iri}) FILTER(?p3 != {rdf_type}) "
-        f"{_not_prov_class('?cls')} {_not_prov_class('?pcls')} {_not_prov_class('?sibcls')} }} "
+        f"{_not_link_class('?cls')} {_not_prov_class('?pcls')} {_not_link_class('?sibcls')} }} "
         "GROUP BY ?cls ?p3 ?p2 ?p1 ?parent ?pcls ?sibcls ORDER BY ?parent ?cls ?p3 ?p2 ?p1"
     )
     rows: list[tuple[str, str, str, str, str, str, str, int]] = []
@@ -1976,6 +2275,74 @@ async def _measure_facts(
 # ----------------------------------------------------------------------------
 
 
+async def subject_hub_members(
+    client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
+) -> dict[str, Any]:
+    """ハブ 1 件の「同じものとして束ねたもの」（契約メモ §1.3）: メンバー
+    （ハブを指す実体・最大 :data:`_HUB_MEMBER_LIMIT`・IRI 辞書順）ごとに、
+    データセット・種類・名前の 1 行。``subject_iri`` を持たせて UI がそのまま
+    そのメンバーのページへリンクできるようにする。``iri`` がハブでなければ
+    （通常主語なら）0 件。"""
+    item = {
+        "dataset_label": {"var": "dataset_label", "number": False, "role": "category"},
+        "class_label": {"var": "class_label", "number": False, "role": "category"},
+        "subject_iri": {"var": "subject_iri", "number": False, "role": "subject"},
+        "label": {"var": "label", "number": False, "role": "label"},
+    }
+    empty_base = {
+        "tool": "subject_hub_members",
+        "count": 0,
+        "items": [],
+        "truncated": False,
+        "sparql": None,
+    }
+
+    graphs = await canonical_graphs(client)
+    hub_graph = next((g for g in graphs if is_hub_graph(g)), None)
+    if hub_graph is None:
+        return _finalize(empty_base, output_kind="facts", item=item, materials=[])
+
+    raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
+    if not (isinstance(raw, dict) and raw.get("boolean")):
+        return _finalize(empty_base, output_kind="facts", item=item, materials=[])
+
+    members = await _hub_members(client, hub_graph, iri)
+    if not members:
+        return _finalize(empty_base, output_kind="facts", item=item, materials=[])
+
+    labels = await _label_lookup(
+        client, [hub_graph, *graphs], set(members), fallback=_fallback_label
+    )
+    dataset_labels_by_id = dataset_labels(registry_root)
+    items: list[dict[str, Any]] = []
+    for member in members:
+        types = await subject_types(client, member)
+        class_iri = await pick_class_iri(client, types)
+        class_label: str | None = None
+        if class_iri is not None:
+            class_labels_map = await _class_labels(client, registry_root, {class_iri})
+            class_label = class_labels_map.get(class_iri, _fallback_label(class_iri))
+        _member_dataset_id, member_dataset_label = await _member_dataset(
+            client, dataset_labels_by_id, member
+        )
+        items.append(
+            {
+                "dataset_label": member_dataset_label,
+                "class_label": class_label,
+                "subject_iri": member,
+                "label": labels.get(member, _fallback_label(member)),
+            }
+        )
+    base = {
+        "tool": "subject_hub_members",
+        "count": len(items),
+        "items": items,
+        "truncated": False,
+        "sparql": None,
+    }
+    return _finalize(base, output_kind="facts", item=item, materials=[])
+
+
 def card_id_of(subject_key: str, tool: str, params: dict[str, Any]) -> str:
     """``"card-" + sha256(subject_key ␟ tool ␟ canonical(params))[:12]`` (§3.4)
     — deterministic for the same (subject, tool, params) triple."""
@@ -2043,22 +2410,38 @@ async def default_cards_for_subject(
     title is the tool's own authored title.
     """
     subject_key = f"i:{iri}"
-    cards: list[dict[str, Any]] = [
-        {
-            "card_id": card_id_of(subject_key, "subject_facts", {"iri": iri}),
-            "title": "cards:builtin.subject_facts",
-            "tool": "subject_facts",
-            "params": {"iri": iri},
-            "output_kind": "facts",
-        },
-        {
-            "card_id": card_id_of(subject_key, "subject_sources", {"iri": iri}),
-            "title": "cards:builtin.subject_sources",
-            "tool": "subject_sources",
-            "params": {"iri": iri},
-            "output_kind": "breakdown",
-        },
-    ]
+    cards: list[dict[str, Any]] = []
+    hub = await hub_of_subject(client, iri)
+    if hub is not None and "graph" in hub:
+        # 主語がハブそのもの（契約メモ §1.3）— 「同じものとして束ねたもの」を
+        # 既定カードの先頭に。
+        cards.append(
+            {
+                "card_id": card_id_of(subject_key, "subject_hub_members", {"iri": iri}),
+                "title": "cards:builtin.subject_hub_members",
+                "tool": "subject_hub_members",
+                "params": {"iri": iri},
+                "output_kind": "facts",
+            }
+        )
+    cards.extend(
+        [
+            {
+                "card_id": card_id_of(subject_key, "subject_facts", {"iri": iri}),
+                "title": "cards:builtin.subject_facts",
+                "tool": "subject_facts",
+                "params": {"iri": iri},
+                "output_kind": "facts",
+            },
+            {
+                "card_id": card_id_of(subject_key, "subject_sources", {"iri": iri}),
+                "title": "cards:builtin.subject_sources",
+                "tool": "subject_sources",
+                "params": {"iri": iri},
+                "output_kind": "breakdown",
+            },
+        ]
+    )
 
     flow = await subject_flow(client, iri, registry_root=registry_root)
     if flow.get("found"):

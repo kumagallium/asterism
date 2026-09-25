@@ -267,6 +267,24 @@ def dataset_id_of_canonical_graph(iri: str) -> str | None:
     return rest or None
 
 
+def is_hub_graph(graph_iri: str) -> bool:
+    """True when ``graph_iri`` is a crosswalk HUB graph (the legacy composition
+    perspective at ``…/canonical/crosswalk`` or any named perspective at
+    ``…/canonical/crosswalk/<id>``) rather than an ordinary dataset's canonical
+    graph.
+
+    Pure and decoupled from :mod:`asterism.crosswalk_runtime` on purpose (ADR
+    object-cards-ui.md O60): the runtime module knows how to *build* the graph
+    IRI for a given perspective id; this function only needs to recognise one
+    once handed an arbitrary canonical graph IRI, e.g. while walking the
+    FROM-merge graph set.
+    """
+    dataset_id = dataset_id_of_canonical_graph(graph_iri)
+    return dataset_id is not None and (
+        dataset_id == "crosswalk" or dataset_id.startswith("crosswalk/")
+    )
+
+
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
     """Rewrite relative ``rml:source "name"`` to absolute paths under ``csv_dir``.
 
