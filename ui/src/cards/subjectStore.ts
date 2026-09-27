@@ -24,6 +24,84 @@ import {
   type SubjectItem,
 } from './cardsApi'
 
+// ---- ハブへの読み替え（契約メモ contract_pr_f19.md §1.4） ----------------------
+//
+// 「直接のメンバー」（`hub_of.direct`）を選ぶ／既にレールにある場合、オブジェクト
+// を唯一にするためハブの行に読み替える。`hub_of` はハブの `iri`/`label` しか
+// 運ばないため、ハブ自身をもう一度 `resolveSubject` して `class_iri`/
+// `class_label`/`dataset_label` を取る（2 段階）。
+
+/** ハブへの読み替えに要る値（契約メモ §1.4「resolved は subject_key →
+ *  {hubIri, hubLabel, classIri, classLabel, datasetLabel} | null の写像」）。 */
+export interface CanonicalHubResolution {
+  hubIri: string
+  hubLabel: string | null
+  classIri: string | null
+  classLabel: string | null
+  datasetLabel: string | null
+}
+
+/** api がまだ `hub_of.direct` を返さない間の読み方（並列実装の仮置き・契約メモ
+ *  §2 末尾）。 */
+function isDirectMember(hubOf: { direct?: boolean } | null | undefined): boolean {
+  return (hubOf as { direct?: boolean } | null)?.direct === true
+}
+
+/** `iri` を resolve し、直接のメンバーならハブへの読み替え値を返す。ハブ自身・
+ *  2 段のメンバー・非メンバーは `null`。resolve が例外を投げたら呼び出し側に
+ *  そのまま伝える（フォールバックの判断は呼び出し側が持つ）。 */
+export async function resolveHubReplacement(iri: string): Promise<CanonicalHubResolution | null> {
+  const resolved = await resolveSubject(iri)
+  if (!resolved.hub_of || !isDirectMember(resolved.hub_of)) return null
+  const hub = await resolveSubject(resolved.hub_of.iri)
+  return {
+    hubIri: resolved.hub_of.iri,
+    hubLabel: resolved.hub_of.label,
+    classIri: hub.class_iri,
+    classLabel: hub.class_label,
+    datasetLabel: hub.dataset_label ?? null,
+  }
+}
+
+/** 個体の行をハブの行に読み替え、同じ `subject_key` を 1 行に畳む（純粋・
+ *  subjectStore.test.ts 対象）。`resolved` に載っていない・`null` の行、
+ *  `set` の行は触らない。畳むときは古い（小さい）`created_at` を保つ —
+ *  他のフィールドは先に現れた行のものを使う（決定論）。 */
+export function canonicalizeSubjects(
+  items: SubjectItem[],
+  resolved: Map<string, CanonicalHubResolution | null>,
+): SubjectItem[] {
+  const rewritten = items.map((item) => {
+    if (item.kind !== 'individual') return item
+    const hub = resolved.get(item.subject_key)
+    if (!hub) return item
+    return {
+      ...item,
+      id: hub.hubIri,
+      subject_key: `i:${hub.hubIri}`,
+      label: hub.hubLabel,
+      class_iri: hub.classIri ?? undefined,
+      class_label: hub.classLabel,
+      dataset_label: hub.datasetLabel ?? undefined,
+    }
+  })
+
+  const merged = new Map<string, SubjectItem>()
+  const order: string[] = []
+  for (const item of rewritten) {
+    const existing = merged.get(item.subject_key)
+    if (!existing) {
+      merged.set(item.subject_key, item)
+      order.push(item.subject_key)
+      continue
+    }
+    const olderCreatedAt =
+      item.created_at.localeCompare(existing.created_at) < 0 ? item.created_at : existing.created_at
+    merged.set(item.subject_key, { ...existing, created_at: olderCreatedAt })
+  }
+  return order.map((key) => merged.get(key) as SubjectItem)
+}
+
 const STORAGE_KEY = 'asterism.cards.subjects'
 
 // ---- 純関数（テスト対象） ---------------------------------------------------
@@ -144,7 +222,9 @@ if (typeof window !== 'undefined') {
     items = load()
     emit()
   })
-  void bootstrap().then(() => backfillDatasetIds())
+  void bootstrap()
+    .then(() => backfillDatasetIds())
+    .then(() => canonicalizeMembersToHubs())
 }
 
 async function bootstrap(): Promise<void> {
@@ -228,6 +308,39 @@ export async function backfillDatasetIds(): Promise<void> {
     }
   }
   emit()
+}
+
+/** 読み込み後に 1 回だけ走る、個体の行 → ハブの行への取り込み（契約メモ
+ *  §1.4）。直接のメンバーの行を寄せ、寄せた結果を保存する。同じデータセットで
+ *  重複していた行はここで 1 行に畳まれる。resolve に失敗した行は次回また
+ *  試す（`resolved` map に載せないので {@link canonicalizeSubjects} は触らない）。 */
+export async function canonicalizeMembersToHubs(): Promise<void> {
+  const candidates = items.filter((i) => i.kind === 'individual')
+  if (candidates.length === 0) return
+  const resolved = new Map<string, CanonicalHubResolution | null>()
+  for (const item of candidates) {
+    try {
+      resolved.set(item.subject_key, await resolveHubReplacement(item.id))
+    } catch {
+      // best-effort: 通信エラー等は次回また対象になる。
+    }
+  }
+  const previous = items
+  const next = canonicalizeSubjects(previous, resolved)
+  if (JSON.stringify(next) === JSON.stringify(previous)) return
+  items = next
+  emit()
+  if (serverMode) {
+    const keptThreadIds = new Set(next.map((i) => i.thread_id).filter((id): id is string => Boolean(id)))
+    for (const old of previous) {
+      if (old.thread_id && !keptThreadIds.has(old.thread_id)) void deleteAppDataSubject(old.thread_id)
+    }
+    for (const item of next) {
+      if (item.thread_id) void putAppDataSubject(item.thread_id, item)
+    }
+  } else {
+    saveLocal()
+  }
 }
 
 // ---- ミューテーション（コンポーネントから呼ぶ） -------------------------------

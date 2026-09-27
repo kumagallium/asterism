@@ -3,6 +3,8 @@ import {
   addSubject,
   addSubjectAndPersist,
   backfillDatasetIds,
+  canonicalizeSubjects,
+  type CanonicalHubResolution,
   getAllSubjects,
   parseStoredSubjects,
   removeSubject,
@@ -130,6 +132,90 @@ describe('localStorage フォールバック（parseStoredSubjects / serializeSu
       item({ id: 'station-a', source: 'open', created_at: '2026-09-01T00:00:00Z' }),
     ]
     expect(parseStoredSubjects(serializeSubjects(items))).toEqual(items)
+  })
+})
+
+describe('canonicalizeSubjects（メンバー→ハブの読み替え・契約メモ contract_pr_f19.md §1.4）', () => {
+  const hub: CanonicalHubResolution = {
+    hubIri: 'https://example.org/hub/al3v',
+    hubLabel: '束ねた実体',
+    classIri: 'https://example.org/class/composition',
+    classLabel: '組成',
+    datasetLabel: '結晶データベース',
+  }
+
+  it('直接のメンバーの行はハブの行に置き換える', () => {
+    const member = item({
+      id: 'member-a',
+      created_at: '2026-08-01T00:00:00Z',
+      label: '旧ラベル',
+      class_iri: 'https://example.org/class/member',
+      class_label: '個体',
+      dataset_label: '実験データ',
+    })
+    const resolved = new Map([[member.subject_key, hub]])
+    const result = canonicalizeSubjects([member], resolved)
+    expect(result).toEqual([
+      {
+        ...member,
+        id: hub.hubIri,
+        subject_key: `i:${hub.hubIri}`,
+        label: hub.hubLabel,
+        class_iri: hub.classIri,
+        class_label: hub.classLabel,
+        dataset_label: hub.datasetLabel,
+      },
+    ])
+  })
+
+  it('複数のメンバーが同じハブに読み替えられたら 1 行に畳み、古い created_at を保つ', () => {
+    const older = item({ id: 'member-a', created_at: '2026-07-01T00:00:00Z' })
+    const newer = item({ id: 'member-b', created_at: '2026-09-01T00:00:00Z' })
+    const resolved = new Map([
+      [older.subject_key, hub],
+      [newer.subject_key, hub],
+    ])
+    const result = canonicalizeSubjects([older, newer], resolved)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.subject_key).toBe(`i:${hub.hubIri}`)
+    expect(result[0]?.created_at).toBe('2026-07-01T00:00:00Z')
+  })
+
+  it('resolve できなかった行（map に無い）はそのまま触らない', () => {
+    const untouched = item({ id: 'member-x', created_at: '2026-08-01T00:00:00Z' })
+    expect(canonicalizeSubjects([untouched], new Map())).toEqual([untouched])
+  })
+
+  it('map の値が null（ハブ自身・非メンバー）の行はそのまま触らない', () => {
+    const notMember = item({ id: 'member-y', created_at: '2026-08-01T00:00:00Z' })
+    const resolved = new Map([[notMember.subject_key, null]])
+    expect(canonicalizeSubjects([notMember], resolved)).toEqual([notMember])
+  })
+
+  it('set の行は resolved に載っていても触らない', () => {
+    const spec: SubjectItem['spec'] = {
+      class: 'https://example.org/class/observation',
+      where: [],
+      order_by: null,
+      limit: 50,
+      source_scope: 'all',
+    }
+    const setItem: SubjectItem = {
+      ...item({ id: 'set-a', created_at: '2026-08-01T00:00:00Z' }),
+      kind: 'set',
+      spec,
+      subject_key: 's:set-a',
+    }
+    const resolved = new Map([[setItem.subject_key, hub]])
+    expect(canonicalizeSubjects([setItem], resolved)).toEqual([setItem])
+  })
+
+  it('入力配列を書き換えない（純粋）', () => {
+    const member = item({ id: 'member-a', created_at: '2026-08-01T00:00:00Z' })
+    const input = [member]
+    const copy = [...input]
+    canonicalizeSubjects(input, new Map([[member.subject_key, hub]]))
+    expect(input).toEqual(copy)
   })
 })
 

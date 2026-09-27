@@ -169,6 +169,22 @@
   white-space: nowrap;
 }
 
+/* 格子の項目がハブの直接のメンバーであることを伝える小さな印（契約メモ
+   contract_pr_f19.md §1.4「格子では、メンバーの項目に小さな印」）。
+   `.rail-hub-pill`（rail.css）と同じ見た目の流儀。 */
+.addobject-member-pill {
+  flex: none;
+  align-self: flex-start;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
+}
+
 /* 「さらに N 件」（契約メモ §1.1.3）。 */
 .addobject-more {
   align-self: flex-start;
