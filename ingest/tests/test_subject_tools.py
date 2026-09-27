@@ -33,6 +33,7 @@ from asterism.subject_tools import (
     subject_facts,
     subject_flow,
     subject_hub_members,
+    subject_member_facts,
     subject_sources,
     subject_types,
 )
@@ -1266,12 +1267,18 @@ EX_HUB = "https://ex/hub#"
 HUB_CLASS = EX_HUB + "Shared"
 HUB_LINK_PREDICATE = EX_HUB + "hasShared"
 HUB_IRI = "https://ex/hub/resource/shared-1"
+# ハブ実体でない主語（build activity）— crosswalk.build_turtle が実運用で
+# ハブ graph に載せる prov:wasGeneratedBy の宛先。member_facts の iri 検証が
+# _hub_entity_ask を通っているかの反証に使う（契約メモ §1.2 blocker）。
+HUB_BUILD_ACTIVITY_IRI = "https://ex/hub/activity/build-1"
 HUB_GRAPH = canonical_graph_iri("crosswalk")  # legacy (composition) perspective
 _HUB_GRAPH_TTL = f"""
 @prefix ex: <{EX_HUB}> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
 
-<{HUB_IRI}> a <{HUB_CLASS}> ; rdfs:label "共有された1件" .
+<{HUB_IRI}> a <{HUB_CLASS}> ; rdfs:label "共有された1件" ;
+    prov:wasGeneratedBy <{HUB_BUILD_ACTIVITY_IRI}> .
 <{HUB_MEMBER_1}> <{HUB_LINK_PREDICATE}> <{HUB_IRI}> .
 <{HUB_MEMBER_2}> <{HUB_LINK_PREDICATE}> <{HUB_IRI}> .
 """
@@ -1406,10 +1413,21 @@ async def test_subject_hub_members_empty_for_a_non_hub_subject() -> None:
 async def test_default_cards_for_subject_leads_with_hub_members_for_a_hub(
     tmp_path: Path,
 ) -> None:
+    """契約メモ §1.2: ハブなら subject_hub_members の次にメンバーごと（IRI 辞書
+    順）の subject_member_facts が並び、ハブ自身の subject_facts は最後へ回る。"""
     _write_hub_registry(tmp_path)
     cards = await default_cards_for_subject(_hub_client(), tmp_path, HUB_IRI)
-    assert cards[0]["tool"] == "subject_hub_members"
-    assert cards[1]["tool"] == "subject_facts"
+    tools = [c["tool"] for c in cards]
+    assert tools[0] == "subject_hub_members"
+    member_cards = [c for c in cards if c["tool"] == "subject_member_facts"]
+    assert [c["params"]["member"] for c in member_cards] == [HUB_MEMBER_1, HUB_MEMBER_2]
+    for card in member_cards:
+        assert card["title"] == "cards:builtin.subject_member_facts"
+    by_member = {c["params"]["member"]: c for c in member_cards}
+    assert by_member[HUB_MEMBER_1]["title_params"] == {"dataset": "台帳A"}
+    assert by_member[HUB_MEMBER_2]["title_params"] == {"dataset": "台帳B"}
+    assert tools.index("subject_facts") == len(tools) - 1
+    assert tools.index("subject_sources") > tools.index("subject_hub_members")
 
 
 async def test_default_cards_for_subject_unaffected_for_a_non_hub_subject(
@@ -1432,3 +1450,74 @@ async def test_run_subject_tool_dispatches_subject_hub_members(tmp_path: Path) -
     )
     assert out["output_kind"] == "facts"
     assert out["count"] == 2
+
+
+# ----------------------------------------------------------------------------
+# subject_member_facts / subject_sources(hub) — 契約メモ contract_pr_f19.md
+# §1.2: ハブのページにデータセットごとの節。
+# ----------------------------------------------------------------------------
+
+
+async def test_subject_member_facts_matches_subject_facts_for_a_real_member() -> None:
+    out = await subject_member_facts(_hub_client(), HUB_IRI, HUB_MEMBER_1)
+    expected = await subject_facts(_hub_client(), HUB_MEMBER_1)
+    assert out["output_kind"] == "facts"
+    assert out["items"] == expected["items"]
+    assert out["count"] == expected["count"]
+
+
+async def test_subject_member_facts_rejects_a_non_member_iri() -> None:
+    """member が渡された IRI のメンバーでなければ SubjectToolError（→ 400）—
+    ハブでない主語・別のハブのメンバー・実在しない IRI のいずれも拒む。"""
+    with pytest.raises(SubjectToolError):
+        await subject_member_facts(_hub_client(), HUB_IRI, HUB_RECORD_1)
+    with pytest.raises(SubjectToolError):
+        # HUB_RECORD_1 はハブでない — 「メンバー」という概念自体が無い。
+        await subject_member_facts(_hub_client(), HUB_RECORD_1, HUB_MEMBER_1)
+
+
+async def test_subject_member_facts_rejects_a_non_hub_entity_that_hub_members_points_to() -> (
+    None
+):
+    """iri がハブ graph 内で何かに指されている（＝ ``_hub_members`` が非空を
+    返す）だけでは足りない。build activity（``prov:wasGeneratedBy`` の宛先）は
+    ハブ自身に指されるが実体ではない — ``_hub_entity_ask`` に照らして拒む。"""
+    with pytest.raises(SubjectToolError):
+        await subject_member_facts(_hub_client(), HUB_BUILD_ACTIVITY_IRI, HUB_IRI)
+
+
+async def test_run_subject_tool_dispatches_subject_member_facts(tmp_path: Path) -> None:
+    _write_hub_registry(tmp_path)
+    out = await run_subject_tool(
+        _hub_client(),
+        tmp_path,
+        {"kind": "individual", "iri": HUB_IRI},
+        "subject_member_facts",
+        {"member": HUB_MEMBER_1},
+    )
+    assert out["output_kind"] == "facts"
+
+    with pytest.raises(SubjectToolError):
+        await run_subject_tool(
+            _hub_client(),
+            tmp_path,
+            {"kind": "individual", "iri": HUB_IRI},
+            "subject_member_facts",
+            {},
+        )
+
+
+async def test_subject_sources_for_a_hub_sums_the_members_origins(tmp_path: Path) -> None:
+    """ハブの subject_sources はハブ graph 自身の件数に加え、メンバーごとの
+    出どころ（同じデータセットは足し合わせる）を返す（契約メモ §1.2）。"""
+    _write_hub_registry(tmp_path)
+    out = await subject_sources(_hub_client(), HUB_IRI, registry_root=tmp_path)
+    categories = {i["category"] for i in out["items"]}
+    assert any("台帳A" in c for c in categories)
+    assert any("台帳B" in c for c in categories)
+
+
+async def test_subject_sources_for_a_non_hub_subject_is_unaffected() -> None:
+    """ハブでない主語では subject_sources も何も変わらない。"""
+    out = await subject_sources(_hub_client(), HUB_RECORD_1)
+    assert out["count"] == 1

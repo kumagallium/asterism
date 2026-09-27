@@ -89,6 +89,7 @@ __all__ = [
     "subject_facts",
     "subject_flow",
     "subject_hub_members",
+    "subject_member_facts",
     "subject_sources",
     "subject_types",
 ]
@@ -112,6 +113,7 @@ INDIVIDUAL_BUILTIN_TOOLS: tuple[str, ...] = (
     "subject_sources",
     "subject_flow",
     "subject_hub_members",
+    "subject_member_facts",
 )
 #: Built-in tool names that take ``{kind: "set", spec}`` (§3.2) — EXCEPT
 #: ``set_measure`` (PR F4 §1-4), which reads its ``class``/``where`` from
@@ -515,6 +517,32 @@ async def subject_facts(
     return _finalize(base, output_kind="facts", item=item, materials=materials)
 
 
+async def subject_member_facts(
+    client: SupportsSparql,
+    iri: str,
+    member: str,
+    *,
+    max_rows: int = 200,
+    registry_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """ハブのページに出す、データセットごとの節（契約メモ §1.2）:
+    ``iri``（ハブ）のメンバーである ``member`` について :func:`subject_facts`
+    と全く同じ内容を返す。``member`` が ``iri`` のメンバー（:func:`_hub_members`）
+    でなければ :class:`SubjectToolError`（→ 400）— ハブでない主語に対して
+    呼んでも、他のハブのメンバーを指しても拒む。"""
+    graphs = await canonical_graphs(client)
+    hub_graph = next((g for g in graphs if is_hub_graph(g)), None)
+    if hub_graph is None:
+        raise SubjectToolError(f"{iri!r} is not a hub (no hub graph in this store)")
+    raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
+    if not (isinstance(raw, dict) and raw.get("boolean")):
+        raise SubjectToolError(f"{iri!r} is not a hub (no hub graph in this store)")
+    members = await _hub_members(client, hub_graph, iri)
+    if member not in members:
+        raise SubjectToolError(f"{member!r} is not a member of hub {iri!r}")
+    return await subject_facts(client, member, max_rows=max_rows, registry_root=registry_root)
+
+
 def _graph_counts_query(iri: str, graphs: list[str]) -> str:
     """The bare (FROM-NAMED-annotated) SPARQL text behind
     :func:`_graph_counts_for_subject_with_query` — split out so a caller that
@@ -563,25 +591,44 @@ async def _graph_counts_for_subject(client: SupportsSparql, iri: str) -> list[tu
 async def subject_sources(
     client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
 ) -> dict[str, Any]:
-    """Which dataset(s) recorded facts about ``iri``, and how many (§3.1)."""
+    """Which dataset(s) recorded facts about ``iri``, and how many (§3.1).
+
+    ``iri`` がハブ（契約メモ §1.2）なら、ハブ graph 自身の件数に加えて、
+    メンバー（:func:`_hub_members`）それぞれの出どころ（同じデータセットは
+    足し合わせる）も返す — ハブのページで「どのデータセットから来たか」を
+    見たとき、束ねられた実体全体の由来が見えるように。"""
     counts, sparql = await _graph_counts_for_subject_with_query(client, iri)
     labels = dataset_labels(registry_root)
     # dataset_id -> (label, snapshot, count)
     per_dataset: dict[str, tuple[str, str | None, int]] = {}
-    for g, cnt in counts:
-        dataset_id = dataset_id_of_canonical_graph(g)
-        if dataset_id is not None and is_hub_graph(g):
-            # ハブ graph の id（crosswalk/<pid>）は registry の id
-            # （crosswalk-<pid>）と食い違うので、perspective の名前を引けるよう
-            # registry の id に読み替える（実機 2026-09-25: 出どころに graph id）。
-            dataset_id = crosswalk_registry_id_of_hub_graph(g) or dataset_id
-        if dataset_id is None:
-            continue
-        tail = g.rsplit("/", 1)[-1]
-        snapshot = tail if tail.startswith("v") and tail[1:].isdigit() else None
-        label = labels.get(dataset_id, dataset_id)
-        prior_label, prior_snapshot, prior_count = per_dataset.get(dataset_id, (label, snapshot, 0))
-        per_dataset[dataset_id] = (prior_label, prior_snapshot or snapshot, prior_count + cnt)
+
+    def _accumulate(graph_counts: list[tuple[str, int]]) -> None:
+        for g, cnt in graph_counts:
+            dataset_id = dataset_id_of_canonical_graph(g)
+            if dataset_id is not None and is_hub_graph(g):
+                # ハブ graph の id（crosswalk/<pid>）は registry の id
+                # （crosswalk-<pid>）と食い違うので、perspective の名前を引けるよう
+                # registry の id に読み替える（実機 2026-09-25: 出どころに graph id）。
+                dataset_id = crosswalk_registry_id_of_hub_graph(g) or dataset_id
+            if dataset_id is None:
+                continue
+            tail = g.rsplit("/", 1)[-1]
+            snapshot = tail if tail.startswith("v") and tail[1:].isdigit() else None
+            label = labels.get(dataset_id, dataset_id)
+            prior_label, prior_snapshot, prior_count = per_dataset.get(
+                dataset_id, (label, snapshot, 0)
+            )
+            per_dataset[dataset_id] = (prior_label, prior_snapshot or snapshot, prior_count + cnt)
+
+    _accumulate(counts)
+
+    graphs = await canonical_graphs(client)
+    hub_graph = next((g for g in graphs if is_hub_graph(g)), None)
+    if hub_graph is not None:
+        raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
+        if isinstance(raw, dict) and raw.get("boolean"):
+            for member in await _hub_members(client, hub_graph, iri):
+                _accumulate(await _graph_counts_for_subject(client, member))
 
     items = []
     for dataset_id in sorted(per_dataset):
@@ -2432,13 +2479,28 @@ async def default_cards_for_subject(
     ``title`` for the two/three built-ins is the i18n key
     ``"cards:builtin.<tool>"`` (the ui translates it); a declared tool's
     title is the tool's own authored title.
+
+    ``iri`` がハブ（契約メモ §1.2）なら: ``subject_hub_members`` の次に、
+    メンバーごと（最大 :data:`_HUB_MEMBER_LIMIT`・IRI 辞書順）の
+    ``subject_member_facts`` カード（``title_params: {"dataset": ...}`` 付き）
+    を並べ、ハブ自身の ``subject_facts``（type・label・wasGeneratedBy）は
+    このカードリストの最後へ回す。
     """
     subject_key = f"i:{iri}"
     cards: list[dict[str, Any]] = []
     hub = await hub_of_subject(client, iri)
-    if hub is not None and "graph" in hub:
+    is_hub = hub is not None and "graph" in hub
+    own_facts_card = {
+        "card_id": card_id_of(subject_key, "subject_facts", {"iri": iri}),
+        "title": "cards:builtin.subject_facts",
+        "tool": "subject_facts",
+        "params": {"iri": iri},
+        "output_kind": "facts",
+    }
+    if is_hub:
         # 主語がハブそのもの（契約メモ §1.3）— 「同じものとして束ねたもの」を
-        # 既定カードの先頭に。
+        # 既定カードの先頭に、続けてメンバーごとの節（契約メモ §1.2）。
+        hub_graph = hub["graph"]
         cards.append(
             {
                 "card_id": card_id_of(subject_key, "subject_hub_members", {"iri": iri}),
@@ -2448,23 +2510,33 @@ async def default_cards_for_subject(
                 "output_kind": "facts",
             }
         )
-    cards.extend(
-        [
-            {
-                "card_id": card_id_of(subject_key, "subject_facts", {"iri": iri}),
-                "title": "cards:builtin.subject_facts",
-                "tool": "subject_facts",
-                "params": {"iri": iri},
-                "output_kind": "facts",
-            },
-            {
-                "card_id": card_id_of(subject_key, "subject_sources", {"iri": iri}),
-                "title": "cards:builtin.subject_sources",
-                "tool": "subject_sources",
-                "params": {"iri": iri},
-                "output_kind": "breakdown",
-            },
-        ]
+        dataset_labels_by_id = dataset_labels(registry_root)
+        for member in await _hub_members(client, hub_graph, iri):
+            _member_dataset_id, member_dataset_label = await _member_dataset(
+                client, dataset_labels_by_id, member
+            )
+            dataset_name = member_dataset_label or _fallback_label(member)
+            member_params = {"member": member}
+            cards.append(
+                {
+                    "card_id": card_id_of(subject_key, "subject_member_facts", member_params),
+                    "title": "cards:builtin.subject_member_facts",
+                    "title_params": {"dataset": dataset_name},
+                    "tool": "subject_member_facts",
+                    "params": member_params,
+                    "output_kind": "facts",
+                }
+            )
+    else:
+        cards.append(own_facts_card)
+    cards.append(
+        {
+            "card_id": card_id_of(subject_key, "subject_sources", {"iri": iri}),
+            "title": "cards:builtin.subject_sources",
+            "tool": "subject_sources",
+            "params": {"iri": iri},
+            "output_kind": "breakdown",
+        }
     )
 
     flow = await subject_flow(client, iri, registry_root=registry_root)
@@ -2499,6 +2571,10 @@ async def default_cards_for_subject(
                 for card in declared_tools:
                     card["card_id"] = card_id_of(subject_key, card["tool"], card["params"])
                     cards.append(card)
+    if is_hub:
+        # ハブ自身の subject_facts（type・label・wasGeneratedBy）はメンバーごと
+        # の節の後、リストの最後へ（契約メモ §1.2）。
+        cards.append(own_facts_card)
     return cards
 
 
@@ -2623,6 +2699,11 @@ async def run_subject_tool(
             return await subject_flow(client, iri, registry_root=registry_root)
         if tool == "subject_hub_members":
             return await subject_hub_members(client, iri, registry_root=registry_root)
+        if tool == "subject_member_facts":
+            member = params.get("member")
+            if not member:
+                raise SubjectToolError("subject_member_facts requires params.member")
+            return await subject_member_facts(client, iri, member, registry_root=registry_root)
         if tool in SET_BUILTIN_TOOLS:
             raise SubjectKindMismatchError(f"tool {tool!r} needs a set subject, got an individual")
         if "/" in tool:
