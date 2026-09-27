@@ -189,6 +189,54 @@ def _lang_key(lang: str | None) -> str:
     return lang if lang in _TITLE_TEMPLATES else "ja"
 
 
+def _validate_draft_view(view: Any) -> dict[str, Any] | None:
+    """``draft.view``（契約 F18 §1.4「draft に任意の view を受け、系統プロンプ
+    トの『いまの下書き』に含める」）を検証する。``asterism.view_spec_check``
+    の許可リストに通らないものは ``None``（呼び出し側が黙って落とす——プロンプ
+    トには出さない）。``_validate_view_proposal`` と違い、``source_card_id`` が
+    このページに実在するカードかどうかまでは確かめない（draft はカードを
+    生成した時点のスナップショットであって、AI への提案として今から検証される
+    ものではない——ここでの目的は spec/text 自体の安全性だけ）。"""
+    if not isinstance(view, dict):
+        return None
+    lang_in = view.get("lang")
+    if lang_in not in _VIEW_LANGS:
+        return None
+    source_card_id = view.get("source_card_id")
+    if not isinstance(source_card_id, str) or not source_card_id:
+        return None
+    if lang_in == "mermaid":
+        text = view.get("text")
+        ok, _reason = view_spec_check.check_mermaid(text)
+        if not ok:
+            return None
+        return {"lang": lang_in, "text": text, "source_card_id": source_card_id}
+    spec = view.get("spec")
+    checker = (
+        view_spec_check.check_vega_lite if lang_in == "vega-lite" else view_spec_check.check_table
+    )
+    ok, _reason = checker(spec)
+    if not ok:
+        return None
+    return {"lang": lang_in, "spec": spec, "source_card_id": source_card_id}
+
+
+def _sanitize_draft(draft: dict[str, Any] | None) -> dict[str, Any] | None:
+    """``draft.view`` を検証し、通らなければその ``view`` キーだけを落とす
+    （既存の ``params``/``presentation`` の扱いは不変——契約 F18 §1.4）。"""
+    if not draft:
+        return None
+    sanitized = dict(draft)
+    view_in = sanitized.get("view")
+    if view_in is not None:
+        validated_view = _validate_draft_view(view_in)
+        if validated_view is not None:
+            sanitized["view"] = validated_view
+        else:
+            sanitized.pop("view", None)
+    return sanitized or None
+
+
 # ----------------------------------------------------------------------------
 # 系統プロンプト
 # ----------------------------------------------------------------------------
@@ -241,8 +289,15 @@ def build_system_prompt(
     個体のページでは linking_kinds の候補ぶん複数になり得る（1 件のページで
     候補が複数あるとき、AI にはどちらの種類で作るか選ばせる）。空 dict なら
     「このページでは観点を新しく作れない」と明示し、聞くことだけを促す。
+
+    ``draft`` は ``params``/``presentation`` に加えて任意の ``view``
+    （``{lang, spec|text, source_card_id}``）を持ち得る（契約 F18 §1.4）。
+    ``view`` は :func:`_sanitize_draft` が ``asterism.view_spec_check`` の
+    許可リストで検証し、通らないものは黙って落とす（プロンプトには出さない
+    ——``view`` 以外の ``draft`` の扱いは変えない）。
     """
     lk = _lang_key(lang)
+    draft = _sanitize_draft(draft)
     lines: list[str]
     if lk == "ja":
         lines = [
