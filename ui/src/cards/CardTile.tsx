@@ -13,6 +13,7 @@
 // ための設計）。
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { applyPresentation } from './applyPresentation'
 import { runCard } from './cardsApi'
 import type { CardRef, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
@@ -74,9 +75,17 @@ export interface CardTileProps {
   /** 格子で 2 列ぶんを占めるか。無指定なら output_kind から決める
    *  （flow／facts は既定で wide・§2(b)）。 */
   wide?: boolean
+  /** このカードが cardStore にある「足したカード」かどうか（PR F18 §1.3）。
+   *  true かつ {@link onFixCard} が渡されているときだけ、印の列の最後に
+   *  小さな「直す」ボタンを出す。既定カード（組み込み・宣言ツール）には
+   *  出さない。 */
+  isAddedCard?: boolean
+  /** 「直す」を押したときに呼ぶ（会話ドロワーをこのカードの会話で開くのは
+   *  呼び出し側 — SubjectPage/SetPage — の責務）。 */
+  onFixCard?: (cardId: string) => void
 }
 
-export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide }: CardTileProps) {
+export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide, isAddedCard, onFixCard }: CardTileProps) {
   const { t } = useTranslation('cards')
   // 呼び出しの実体（subject + tool + params）を文字列化して依存キーにする —
   // 親が `subject={{kind:'individual', iri}}` のようにインライン literal を渡す
@@ -135,9 +144,12 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
     customRendered && 'view' in customRendered
       ? customRendered.view
       : result && card.output_kind !== 'flow'
-        ? defaultViewFor(
-            { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-            rows,
+        ? applyPresentation(
+            defaultViewFor(
+              { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+              rows,
+            ),
+            card.presentation,
           )
         : null
   const isCustomView = !!(view?.custom || customGraph)
@@ -192,6 +204,18 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
             <span className={result.shareable ? 'pill-share pill-share--ok' : 'pill-share pill-share--warn'}>
               {t(result.shareable ? 'page.shareable_yes' : 'page.shareable_no')}
             </span>
+          )}
+          {isAddedCard && onFixCard && (
+            <button
+              type="button"
+              className="cardpage-tile-fix"
+              onClick={(e) => {
+                e.stopPropagation()
+                onFixCard(card.card_id)
+              }}
+            >
+              {t('tile.fix')}
+            </button>
           )}
         </span>
       </div>

@@ -302,6 +302,9 @@ export interface CardRef {
   /** PR F13 §1: AI が書いた見せ方があるときだけ（`CardTile.tsx`/`CardDetail.tsx`
    *  の `renderableCustomView` が読む形と揃えてある）。 */
   view?: CardView
+  /** PR F18 §1.2: 会話で決めた見せ方（`CardSpec.presentation` と同じ語彙）。
+   *  `view` があるカードには適用しない。 */
+  presentation?: Record<string, unknown> | null
 }
 
 /** `GET /api/subjects/default-cards?iri=…` → 既定カードの並び（裸の配列）。 */
@@ -840,6 +843,11 @@ export interface CardSpec {
    *  乗っているときだけ（`presentation` — F3・この作業ツリーにはまだ無い — と
    *  同居する想定の場所）。既定ビューのカードには無い。 */
   view?: CardView
+  /** PR F18 §1.2: 会話で決めた見せ方（`{mark: "line"|"bar"|"point"}`。
+   *  `ConverseDraft`/`ConverseProposal.presentation` と同じ語彙・
+   *  `applyPresentation.ts` が読む）。`view`（AI が書いた見せ方）があるカード
+   *  には適用しない — `view` を優先する。 */
+  presentation?: Record<string, unknown> | null
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,10 +1018,16 @@ export type ConverseSubject = CardRunSubject | { kind: 'class'; class_iri: strin
 
 /** ドロワーが持つ「直前の提案」— 次の送信の `draft` としてそのままサーバへ渡す
  *  （契約メモ §1-3「直す」）。`presentation` は任意（F3 の見せ方切替と同じ語彙、
- *  例 `{ mark: 'bar' }`）。 */
+ *  例 `{ mark: 'bar' }`）。
+ *
+ *  PR F18 §1.2: 未決着の提案が無く、会話がカードに結びついているときは、
+ *  そのカードの見せ方（AI が書いた Vega-Lite／表仕様／Mermaid）も「いまの
+ *  下書き」として送る。ワイヤ形は {@link ConverseProposalView} と同じ
+ *  （`custom` は持たない — 保存形 {@link CardView} から剥がして渡す）。 */
 export interface ConverseDraft {
   params: Record<string, unknown>
   presentation: Record<string, unknown> | null
+  view?: { lang: CardViewLang; spec?: Record<string, unknown>; text?: string; source_card_id: string }
 }
 
 /** ページの要約の 1 件の事実（契約メモ §1-3 の `page.facts`）。 */
