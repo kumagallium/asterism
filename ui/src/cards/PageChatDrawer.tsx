@@ -306,8 +306,11 @@ export function PageChatDrawer({
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
+    // `showForm` も依存に含める — 「詳しく指定」で開いたフォームは会話の
+    // 最後の塊として `.pagechat-scroll` の末尾に出るので（PR F17 §1 決定
+    // 4）、開いた直後は末尾（＝フォーム）まで見える位置にスクロールする。
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
-  }, [thread?.turns.length, open])
+  }, [thread?.turns.length, open, showForm])
 
   useEffect(() => {
     if (!open) return
@@ -317,6 +320,22 @@ export function PageChatDrawer({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  // 開いたら入力欄にフォーカス（PR F17 §1 決定 6）。noKey のときは composer
+  // 自体が無いので何も起きない。
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    if (open) inputRef.current?.focus()
+  }, [open])
+
+  // 横幅に余裕がある画面では、開いている間 `.app-main` に右マージンを空けて
+  // 重ねずに横へ並べる（CSS 側 `body.pagechat-open` — `ConsultDrawer.tsx` の
+  // 同名 effect と同じ流儀。PR F17 §1 決定 2）。閉じる・アンマウントの両方で
+  // 外す。
+  useEffect(() => {
+    document.body.classList.toggle('pagechat-open', open)
+    return () => document.body.classList.remove('pagechat-open')
+  }, [open])
 
   async function send(overrideText?: string) {
     const text = (overrideText ?? draftText).trim()
@@ -428,34 +447,9 @@ export function PageChatDrawer({
         </div>
 
         <div className="pagechat-scroll" ref={scrollRef}>
-          {!thread || thread.turns.length === 0 ? (
-            <p className="pagechat-empty">
-              {t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
-            </p>
-          ) : (
-            thread.turns.map((turn) => (
-              <PageChatBubble
-                key={turn.id}
-                turn={turn}
-                subject={runSubject}
-                subjectKey={subjectKey}
-                pageSummary={pageSummary}
-                precedingQuestion={precedingUserText(thread.turns, turn.id)}
-                decision={decidedTurnIds[turn.id]}
-                t={t}
-                onAdd={(card, reaskQuestion) => {
-                  decide(turn.id, 'added')
-                  onCardAdded(card)
-                  if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
-                }}
-                onDiscard={() => decide(turn.id, 'discarded')}
-              />
-            ))
-          )}
-        </div>
-
-        <div className="pagechat-foot">
           {noKey ? (
+            // 鍵が無いとき: 案内の 1 文とフォームは会話の領域の中に置く
+            // （`.pagechat-foot` は出さない・PR F17 §1 決定 4）。
             <div className="pagechat-nokey">
               <p className="pagechat-nokey-note">{t('pagechat.no_key', { defaultValue: NO_KEY_TEXT })}</p>
               <NewCardForm
@@ -469,6 +463,54 @@ export function PageChatDrawer({
             </div>
           ) : (
             <>
+              {!thread || thread.turns.length === 0 ? (
+                <p className="pagechat-empty">
+                  {t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
+                </p>
+              ) : (
+                thread.turns.map((turn) => (
+                  <PageChatBubble
+                    key={turn.id}
+                    turn={turn}
+                    subject={runSubject}
+                    subjectKey={subjectKey}
+                    pageSummary={pageSummary}
+                    precedingQuestion={precedingUserText(thread.turns, turn.id)}
+                    decision={decidedTurnIds[turn.id]}
+                    t={t}
+                    onAdd={(card, reaskQuestion) => {
+                      decide(turn.id, 'added')
+                      onCardAdded(card)
+                      if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
+                    }}
+                    onDiscard={() => decide(turn.id, 'discarded')}
+                  />
+                ))
+              )}
+              {/* 「詳しく指定」で開いたフォームは会話の最後の塊として出す
+                  （PR F17 §1 決定 4）。 */}
+              {showForm && (
+                <div className="pagechat-form-block">
+                  <NewCardForm
+                    subject={runSubject}
+                    subjectKey={subjectKey}
+                    datasetId={datasetId ?? ''}
+                    onCancel={() => setShowForm(false)}
+                    onCreated={(card) => {
+                      onCardAdded(card)
+                      setShowForm(false)
+                    }}
+                    embedded
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {!noKey && (
+          <div className="pagechat-foot">
+            <div className="pagechat-tools">
               {reaskPending && (
                 <p className="pagechat-reask-waiting">{t('pagechat.reask_waiting', { defaultValue: REASK_WAITING_TEXT })}</p>
               )}
@@ -477,55 +519,44 @@ export function PageChatDrawer({
                   {t('pagechat.reask_note', { defaultValue: REASK_NOTE_TEXT, title: reaskNoteTitle })}
                 </p>
               )}
-              <form
-                className="pagechat-composer"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  void send()
-                }}
-              >
-                <textarea
-                  className="pagechat-input"
-                  rows={2}
-                  value={draftText}
-                  placeholder={t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
-                  aria-label={t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
-                  onChange={(e) => setDraftText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
-                      e.preventDefault()
-                      void send()
-                    }
-                  }}
-                />
-                <button
-                  type="submit"
-                  className="pagechat-send"
-                  disabled={busy || !draftText.trim()}
-                  aria-label={t('pagechat.send', { defaultValue: '送る' })}
-                >
-                  {busy ? t('pagechat.thinking', { defaultValue: '考えています…' }) : t('pagechat.send', { defaultValue: '送る' })}
-                </button>
-              </form>
               <button type="button" className="pagechat-open-form" onClick={() => setShowForm((v) => !v)}>
                 {t('pagechat.open_form', { defaultValue: '詳しく指定' })}
               </button>
-              {showForm && (
-                <NewCardForm
-                  subject={runSubject}
-                  subjectKey={subjectKey}
-                  datasetId={datasetId ?? ''}
-                  onCancel={() => setShowForm(false)}
-                  onCreated={(card) => {
-                    onCardAdded(card)
-                    setShowForm(false)
-                  }}
-                  embedded
-                />
-              )}
-            </>
-          )}
-        </div>
+            </div>
+            {/* `.pagechat-foot` の最後の子は必ず composer（PR F17 §1 決定 4）。 */}
+            <form
+              className="pagechat-composer"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void send()
+              }}
+            >
+              <textarea
+                ref={inputRef}
+                className="pagechat-input"
+                rows={2}
+                value={draftText}
+                placeholder={t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
+                aria-label={t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
+                onChange={(e) => setDraftText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    void send()
+                  }
+                }}
+              />
+              <button
+                type="submit"
+                className="pagechat-send"
+                disabled={busy || !draftText.trim()}
+                aria-label={t('pagechat.send', { defaultValue: '送る' })}
+              >
+                {busy ? t('pagechat.thinking', { defaultValue: '考えています…' }) : t('pagechat.send', { defaultValue: '送る' })}
+              </button>
+            </form>
+          </div>
+        )}
       </aside>
     </>
   )
