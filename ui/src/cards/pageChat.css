@@ -21,7 +21,9 @@
   body.pagechat-open .app-main {
     margin-right: var(--side-panel-width);
   }
-  .pagechat-drawer {
+  /* 基底の `.pagechat-drawer`（影つき）がこの後ろに書かれているので、詳細度を
+     上げて勝たせる（実機で影が残っていた）。 */
+  body.pagechat-open .pagechat-drawer {
     box-shadow: none;
   }
   /* パネルが並んでいる間、入力欄はパネルの一番下にあるので、ページ下部の
