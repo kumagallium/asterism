@@ -230,7 +230,16 @@
     "edit_definition": "Edit the definition",
     "not_found": "Not found",
     "back": "Back",
-    "delete_card": "Remove this card"
+    "delete_card": "Remove this card",
+    "fix": "Adjust",
+    "conversation": "Conversation",
+    "conversation_you": "You",
+    "conversation_ai": "AI",
+    "conversation_proposal": "Proposal: {{title}} ({{outcome}})",
+    "conversation_proposal_undecided": "Proposal: {{title}}",
+    "conversation_outcome_added": "added",
+    "conversation_outcome_replaced": "replaced",
+    "conversation_outcome_discarded": "discarded"
   },
   "bundle": {
     "title": "Here's what the AI bundle looks like",
@@ -287,7 +296,8 @@
   },
   "tile": {
     "show_all": "See all ({{n}})",
-    "custom_view": "AI-written view"
+    "custom_view": "AI-written view",
+    "fix": "Adjust"
   },
   "share": {
     "shareable": "Can share",
@@ -354,6 +364,7 @@
     "placeholder": "What to ask or what chart to make (e.g. show population over time)",
     "send": "Send",
     "proposal_title": "Add this viewpoint?",
+    "proposal_title_replace": "Replace the viewpoint with this?",
     "proposal_add": "Add",
     "proposal_discard": "Discard",
     "proposal_adjust_hint": "You can keep typing to adjust it (e.g. put year on the x-axis, make it a bar chart)",
@@ -371,6 +382,15 @@
     "view_source": "Original card: {{title}}",
     "view_source_missing": "Couldn't find the original card (add that card first, then try again)",
     "reask_note": "Answering again using the results of the card \"{{title}}\" you added",
-    "reask_waiting": "Waiting for the added card's results…"
+    "reask_waiting": "Waiting for the added card's results…",
+    "threads_viewpoints": "Viewpoints",
+    "threads_questions": "Questions",
+    "thread_new": "+ New conversation",
+    "thread_untitled": "New conversation",
+    "fix_intro": "Adjusting \"{{title}}\". What should change?",
+    "proposal_replace": "Replace",
+    "proposal_add_as_new": "Add as a new card",
+    "replaced": "Replaced",
+    "discarded": "Discarded"
   }
 }

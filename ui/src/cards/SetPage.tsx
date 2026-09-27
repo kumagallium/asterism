@@ -24,8 +24,13 @@ import { formatSetSubtitle, formatSetTitle } from './setTitle'
 import { addSubjectAndPersist } from './subjectStore'
 // PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
 // だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
-import { PageChatDrawer } from './PageChatDrawer'
+// PR F18: `target`/`subjectKeys`/`onCardReplaced`（契約メモ §1.2）もこの
+// モジュールに足される。
+import { PageChatDrawer, type PageChatTarget } from './PageChatDrawer'
 import { removeCard, useCards } from './cardStore'
+// PR F18（ui-store 担当）が新設する関数。まだ存在しない間も import だけ書いて
+// おく（契約メモ §1 の並列中の仮置きと同じ流儀）。
+import { pageChatThreadForCard } from './pageChatThreads'
 import { appendAddedCards, cardSpecToCardRef, summarizeCardForChat } from './SubjectPage'
 import type { PageChatFact, PageChatSummary } from './SubjectPage'
 import { ViewpointStrip } from './ViewpointStrip'
@@ -121,10 +126,14 @@ export function SetPage({
   const [chatFor, setChatFor] = useState(specKey)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
+  // どの会話を開くか（契約メモ PR F18 §1.2「開き方」・SubjectPage.tsx と同じ
+  // 理由）。
+  const [chatTarget, setChatTarget] = useState<PageChatTarget | undefined>(undefined)
   if (chatFor !== specKey) {
     setChatFor(specKey)
     setChatOpen(false)
     setChatInitialMessage(undefined)
+    setChatTarget(undefined)
   }
   const [cardResultsState, setCardResultsState] = useState<{ key: string; results: Record<string, CardToolResult> }>({
     key: '',
@@ -409,16 +418,40 @@ export function SetPage({
     }
     const isAddedCard = addedCardRefs.some((c) => c.card_id === selectedCard.card_id)
     return (
-      <CardDetail
-        subject={subjectKey}
-        breadcrumbLabel={title ?? resolved?.title.class_label ?? setId ?? ''}
-        card={selectedCard}
-        onBack={onCloseCard}
-        onAsk={onAsk}
-        onEditDefinition={onEditDefinition}
-        isAddedCard={isAddedCard}
-        onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
-      />
+      <>
+        <CardDetail
+          subject={subjectKey}
+          breadcrumbLabel={title ?? resolved?.title.class_label ?? setId ?? ''}
+          card={selectedCard}
+          onBack={onCloseCard}
+          onAsk={onAsk}
+          onEditDefinition={onEditDefinition}
+          isAddedCard={isAddedCard}
+          onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
+          onFixCard={
+            isAddedCard
+              ? () => {
+                  setChatTarget({ kind: 'card', cardId: selectedCard.card_id })
+                  setChatOpen(true)
+                }
+              : undefined
+          }
+          conversation={pageChatThreadForCard([subjectKeyStr], selectedCard.card_id)?.turns}
+        />
+        <PageChatDrawer
+          subject={{ kind: 'set', spec: spec as SetSpec }}
+          subjectKey={subjectKeyStr}
+          subjectKeys={[subjectKeyStr]}
+          classIri={spec?.class}
+          datasetId={breadcrumbDatasetId ?? undefined}
+          pageSummary={pageSummary}
+          target={chatTarget}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          onCardAdded={() => {}}
+          onCardReplaced={() => {}}
+        />
+      </>
     )
   }
 
@@ -456,6 +489,7 @@ export function SetPage({
               className="btn btn--ghost btn--sm"
               onClick={() => {
                 setChatInitialMessage(undefined)
+                setChatTarget({ kind: 'new' })
                 setChatOpen(true)
               }}
             >
@@ -514,6 +548,11 @@ export function SetPage({
               card={card}
               onOpenDetail={onSelectCard}
               onOpenSubject={onOpenSubject}
+              isAddedCard
+              onFixCard={(cardId) => {
+                setChatTarget({ kind: 'card', cardId })
+                setChatOpen(true)
+              }}
             />
           ))}
         </div>
@@ -535,8 +574,10 @@ export function SetPage({
           disabled={!askText.trim()}
           onClick={() => {
             // 契約メモ PR F12 §1 決定 1: 下の入力欄はページを離れずドロワーを
-            // 開く（旧: `onAsk` で `#/ask` へ遷移）。
+            // 開く（旧: `onAsk` で `#/ask` へ遷移）。PR F18: 下の欄からの
+            // 1 通目は新しい会話として始まるので target は指定しない。
             setChatInitialMessage(askText)
+            setChatTarget(undefined)
             setChatOpen(true)
             setAskText('')
           }}
@@ -547,15 +588,18 @@ export function SetPage({
       <PageChatDrawer
         subject={{ kind: 'set', spec }}
         subjectKey={subjectKeyStr}
+        subjectKeys={[subjectKeyStr]}
         classIri={spec.class}
         datasetId={breadcrumbDatasetId ?? undefined}
         pageSummary={pageSummary}
+        target={chatTarget}
         open={chatOpen}
         onClose={() => setChatOpen(false)}
         initialMessage={cardResultsReady ? chatInitialMessage : undefined}
         // cardStore.useCards の購読で一覧は自動更新される（SubjectPage.tsx と
         // 同じ理由）。
         onCardAdded={() => {}}
+        onCardReplaced={() => {}}
       />
     </div>
   )

@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import type { CardSpec, CardView, SchemaProperty } from './cardsApi'
+import type { CardSpec, CardView, ConverseDraft, SchemaProperty } from './cardsApi'
 import type { ConverseProposal } from './cardsApi'
 import { normalizeCardView, normalizeConverseProposal, normalizeConverseProposalView } from './cardsApi'
 import { cardId, toCardSpec, type MeasureSchemaLike } from './measureCardFields'
 import {
   buildReaskText,
+  draftViewFromCardView,
   injectVegaLiteData,
+  nextTargetChangeCounter,
   precedingUserText,
+  proposalButtonsFor,
+  proposalOutcomeKey,
   reaskCardReady,
   reaskQuestionFor,
+  resolveChatTarget,
+  resolveSendDraft,
   resolveViewSourceCard,
   viewCardId,
   type PageChatPageSummary,
+  type PageChatTarget,
 } from './PageChatDrawer'
 import {
   buildPageSummary,
@@ -427,5 +434,116 @@ describe('normalizeConverseProposal', () => {
   it('kind 省略（measure）は従来どおり params/output_kind/title が必須', () => {
     expect(normalizeConverseProposal({ params: { class: 'x' }, output_kind: 'measure', title: 'a' })?.kind).toBe('measure')
     expect(normalizeConverseProposal({ output_kind: 'measure', title: 'a' })).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR F18 §1.2: 開き方の決定・draft の決定・決着のボタンの出し分け（純関数）
+// ---------------------------------------------------------------------------
+
+describe('resolveChatTarget', () => {
+  it('target が指定されていればそのまま返す', () => {
+    const target: PageChatTarget = { kind: 'card', cardId: 'card-1' }
+    expect(resolveChatTarget(target, 'thread-recent')).toBe(target)
+  })
+
+  it('target が無く、直近に触った会話があればその会話', () => {
+    expect(resolveChatTarget(undefined, 'thread-recent')).toEqual({ kind: 'thread', threadId: 'thread-recent' })
+  })
+
+  it('target も直近の会話も無ければ新しい会話', () => {
+    expect(resolveChatTarget(undefined, null)).toEqual({ kind: 'new' })
+  })
+})
+
+describe('nextTargetChangeCounter', () => {
+  it('内容が同じ target でも、参照が違えば数え上げる（2 回目以降の「＋ 観点を足す」の再現）', () => {
+    const first: PageChatTarget = { kind: 'new' }
+    const second: PageChatTarget = { kind: 'new' }
+    const afterFirst = nextTargetChangeCounter(undefined, first, 0)
+    expect(afterFirst).toBe(1)
+    const afterSecond = nextTargetChangeCounter(first, second, afterFirst)
+    expect(afterSecond).toBe(2)
+  })
+
+  it('同じ参照のまま（再レンダーだけ）なら数えない', () => {
+    const target: PageChatTarget = { kind: 'card', cardId: 'card-1' }
+    expect(nextTargetChangeCounter(target, target, 3)).toBe(3)
+  })
+})
+
+describe('draftViewFromCardView', () => {
+  it('CardView（保存形）から custom を落として draft の view 形にする', () => {
+    const view: CardView = { lang: 'vega-lite', spec: { mark: 'bar' }, source_card_id: 'card-1', custom: true }
+    expect(draftViewFromCardView(view)).toEqual({ lang: 'vega-lite', spec: { mark: 'bar' }, text: undefined, source_card_id: 'card-1' })
+  })
+
+  it('view が無ければ undefined', () => {
+    expect(draftViewFromCardView(undefined)).toBeUndefined()
+  })
+})
+
+describe('resolveSendDraft', () => {
+  const boundCard: CardSpec = {
+    card_id: 'card-1',
+    subject_key: 'k:x',
+    tool: 'set_measure',
+    params: { class: 'https://example.org/onto/Observation', where: [], shape: 'series' },
+    title: '観測記録の推移',
+    output_kind: 'series',
+    created_at: '2026-01-01T00:00:00Z',
+  }
+
+  it('未決着の直近の提案があればそれを優先する', () => {
+    const draft = resolveSendDraft(PROPOSAL_A, boundCard)
+    expect(draft).toEqual({ params: PROPOSAL_A.params, presentation: PROPOSAL_A.presentation })
+  })
+
+  it('提案が無く会話がカードに結びついていれば、そのカードの params/presentation/view', () => {
+    const withView: CardSpec = { ...boundCard, view: { lang: 'table', spec: { columns: [] }, source_card_id: 'card-0', custom: true } }
+    const draft = resolveSendDraft(null, withView)
+    expect(draft).toEqual<ConverseDraft>({
+      params: boundCard.params,
+      presentation: null,
+      view: { lang: 'table', spec: { columns: [] }, text: undefined, source_card_id: 'card-0' },
+    })
+  })
+
+  it('提案も結びついたカードも無ければ null', () => {
+    expect(resolveSendDraft(null, undefined)).toBeNull()
+  })
+})
+
+describe('proposalButtonsFor', () => {
+  it('会話がカードに結びついていなければ主ボタンは足すだけ', () => {
+    expect(proposalButtonsFor(null)).toEqual({ primary: 'add' })
+    expect(proposalButtonsFor(undefined)).toEqual({ primary: 'add' })
+  })
+
+  it('会話がカードに結びついていれば主=差し替える・副=別のカードとして足す', () => {
+    expect(proposalButtonsFor('card-1')).toEqual({ primary: 'replace', secondary: 'add_as_new' })
+  })
+
+  it('decision が付いていれば（開き直しても）ボタンを出さない', () => {
+    expect(proposalButtonsFor(null, 'added')).toBeNull()
+    expect(proposalButtonsFor('card-1', 'replaced')).toBeNull()
+    expect(proposalButtonsFor(null, 'added_as_new')).toBeNull()
+    expect(proposalButtonsFor('card-1', 'discarded')).toBeNull()
+  })
+})
+
+describe('proposalOutcomeKey', () => {
+  it('added / added_as_new はどちらも「足しました」のキー', () => {
+    expect(proposalOutcomeKey('added')).toBe('pagechat.added')
+    expect(proposalOutcomeKey('added_as_new')).toBe('pagechat.added')
+  })
+
+  it('replaced は「差し替えました」、discarded は「やめました」のキー', () => {
+    expect(proposalOutcomeKey('replaced')).toBe('pagechat.replaced')
+    expect(proposalOutcomeKey('discarded')).toBe('pagechat.discarded')
+  })
+
+  it('未決着（undefined）は null', () => {
+    expect(proposalOutcomeKey(undefined)).toBeNull()
   })
 })
