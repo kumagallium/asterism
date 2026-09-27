@@ -142,9 +142,15 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
       <SubjectPage
         iri={iri}
         cardId={route.cardId}
-        onSelectCard={(cardId) => navigate({ tab: 'cards', subjectKey: route.subjectKey, cardId })}
-        onCloseCard={() => navigate({ tab: 'cards', subjectKey: route.subjectKey })}
-        onOpenSubject={(nextIri) => navigate({ tab: 'cards', subjectKey: `i:${nextIri}` })}
+        solo={route.solo}
+        onSelectCard={(cardId) => navigate({ tab: 'cards', subjectKey: route.subjectKey, cardId, solo: route.solo })}
+        onCloseCard={() => navigate({ tab: 'cards', subjectKey: route.subjectKey, solo: route.solo })}
+        onOpenSubject={(nextIri, opts) =>
+          navigate({ tab: 'cards', subjectKey: `i:${nextIri}`, solo: opts?.solo })
+        }
+        // PR F19 §1.3: 直接のメンバーを solo なしで開いたときの寄せ替え —
+        // 履歴を汚さない置き換え遷移（`{replace: true}`）。
+        onRedirectToHub={(hubIri) => navigate({ tab: 'cards', subjectKey: `i:${hubIri}` }, { replace: true })}
         onAsk={onAsk}
         onEditDefinition={(datasetId: string) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })

@@ -87,3 +87,11 @@ describe('subject_hub_members (PR F16)', () => {
     expect(fieldLabel('subject_hub_members', 'label', t)).toBe('名前')
   })
 })
+
+describe('subject_member_facts (PR F19)', () => {
+  it('is a builtin whose columns are the same as subject_facts', () => {
+    expect(isBuiltinTool('subject_member_facts')).toBe(true)
+    expect(fieldLabel('subject_member_facts', 'property', t)).toBe('項目')
+    expect(fieldLabel('subject_member_facts', 'value', t)).toBe('値')
+  })
+})

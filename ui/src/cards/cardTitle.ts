@@ -20,6 +20,9 @@ export interface ResolvedCardTitle {
   /** isKey なら i18n キー（"cards:builtin.subject_facts" の形、namespace 込み）。
    *  isKey でなければ、そのまま画面に出す文字列（宣言ツールの title）。 */
   value: string
+  /** PR F19 §1.6: 題名に差し込む値（例: `{"dataset": "…"}`）。isKey のとき
+   *  `t(value, params)` にそのまま渡す。isKey でなければ使わない。 */
+  params?: Record<string, string>
 }
 
 /** 組み込みツール名から、api が返すはずの i18n キーを組み立てる
@@ -35,9 +38,9 @@ export function builtinTitleKey(tool: string): string {
  * 決定論・副作用なし・同じ入力には常に同じ結果（分野語を判定条件にしていない
  * ので、宣言ツールの title に日本語・英語どちらが来ても正しく判定できる）。
  */
-export function resolveCardTitle(title: string): ResolvedCardTitle {
+export function resolveCardTitle(title: string, titleParams?: Record<string, string>): ResolvedCardTitle {
   if (title.startsWith(BUILTIN_TITLE_PREFIX)) {
-    return { isKey: true, value: title }
+    return titleParams ? { isKey: true, value: title, params: titleParams } : { isKey: true, value: title }
   }
   return { isKey: false, value: title }
 }

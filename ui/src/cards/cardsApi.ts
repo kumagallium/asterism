@@ -165,6 +165,10 @@ export interface SubjectHubOf {
   perspective_name: string
   member_count: number
   dataset_labels: string[]
+  /** PR F19 §1.1: この主語が直接のメンバーなら true（親がメンバーの 2 段なら
+   *  false）。直接のときだけハブへ寄せる。api がまだ返さない間は任意として読む
+   *  （無ければ 2 段扱い＝寄せない）。 */
+  direct?: boolean
 }
 
 export interface SubjectResolveResult {
@@ -305,6 +309,9 @@ export interface CardRef {
   /** PR F18 §1.2: 会話で決めた見せ方（`CardSpec.presentation` と同じ語彙）。
    *  `view` があるカードには適用しない。 */
   presentation?: Record<string, unknown> | null
+  /** PR F19 §1.6: 題名に値を差し込む（例: `{"dataset": "…"}`）。
+   *  `cardTitle.ts`/`CardTile.tsx`/`CardDetail.tsx` の `t()` に渡す。 */
+  title_params?: Record<string, string>
 }
 
 /** `GET /api/subjects/default-cards?iri=…` → 既定カードの並び（裸の配列）。 */

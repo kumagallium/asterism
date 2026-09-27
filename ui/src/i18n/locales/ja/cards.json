@@ -87,7 +87,8 @@
     "count_partial": "{{total}} 件のうち {{shown}} 件を表示（名前順）",
     "count_all": "{{total}} 件（全部）",
     "count_search": "「{{q}}」に一致 {{shown}} 件",
-    "more": "さらに {{n}} 件（残り {{rest}} 件）"
+    "more": "さらに {{n}} 件（残り {{rest}} 件）",
+    "member_pill": "つながり"
   },
   "classpage": {
     "source": "出どころ: {{dataset}}",
@@ -155,7 +156,8 @@
     "ask_placeholder": "このページに聞く・グラフを頼む",
     "hub_eyebrow": "つながり: {{name}}",
     "hub_band": "別のデータセットにも同じもの「{{label}}」があります（{{n}} 件）",
-    "hub_band_link": "まとめて見る"
+    "hub_band_link": "まとめて見る",
+    "hub_band_solo": "これは {{dataset}} 側の実体です。同じものの 1 つのページ"
   },
   "set": {
     "change_condition": "条件を変える",
@@ -292,7 +294,8 @@
       "dataset_label": "データセット",
       "class_label": "種類"
     },
-    "subject_hub_members": "同じものとして束ねたもの"
+    "subject_hub_members": "同じものとして束ねたもの",
+    "subject_member_facts": "{{dataset}} での値"
   },
   "tile": {
     "show_all": "すべて見る（{{n}} 件）",

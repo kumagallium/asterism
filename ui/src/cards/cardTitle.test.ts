@@ -49,4 +49,19 @@ describe('resolveCardTitle', () => {
       expect(resolveCardTitle(key)).toEqual({ isKey: true, value: key })
     }
   })
+
+  it('PR F19 §1.6: title_params を渡すと params に載る（i18n キーのときだけ）', () => {
+    expect(resolveCardTitle('cards:builtin.subject_member_facts', { dataset: '観測 A' })).toEqual({
+      isKey: true,
+      value: 'cards:builtin.subject_member_facts',
+      params: { dataset: '観測 A' },
+    })
+  })
+
+  it('宣言ツールの title に title_params が付いていても無視する（そのまま表示）', () => {
+    expect(resolveCardTitle('今月の貸出冊数', { dataset: '観測 A' })).toEqual({
+      isKey: false,
+      value: '今月の貸出冊数',
+    })
+  })
 })

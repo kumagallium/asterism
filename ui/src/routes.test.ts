@@ -100,6 +100,47 @@ describe('parseHash / routeToHash — cards（object-cards-ui）', () => {
   })
 })
 
+describe('parseHash / routeToHash — cards/i/<iri>?solo=1（束ねずに単独で見る・契約メモ contract_pr_f19.md §1.3）', () => {
+  it('#/cards/i/<iri>?solo=1 は solo: true', () => {
+    const hash = `#/cards/i/${encodeURIComponent('https://example.org/loan/42')}?solo=1`
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      subjectKey: 'i:https://example.org/loan/42',
+      cardId: undefined,
+      solo: true,
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('.../c/<card_id>?solo=1 — c/<cardId> の後ろに付いても solo: true', () => {
+    const hash = `#/cards/i/${encodeURIComponent('https://example.org/station/north')}/c/card-deadbeef0000?solo=1`
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      subjectKey: 'i:https://example.org/station/north',
+      cardId: 'card-deadbeef0000',
+      solo: true,
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('solo が無ければ従来どおり（solo は undefined）', () => {
+    const hash = `#/cards/i/${encodeURIComponent('https://example.org/loan/42')}`
+    expect(parseHash(hash).solo).toBeUndefined()
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('s:<set_id> にも solo が付けられる', () => {
+    const hash = '#/cards/s/set-abc123def456?solo=1'
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      subjectKey: 's:set-abc123def456',
+      cardId: undefined,
+      solo: true,
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+})
+
 describe('parseHash / routeToHash — cards/add（オブジェクトを追加・契約メモ contract_pr_f9.md §1-3）', () => {
   it('#/cards/add は cards タブ + add', () => {
     expect(parseHash('#/cards/add')).toEqual<Route>({ tab: 'cards', add: true })
