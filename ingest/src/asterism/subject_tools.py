@@ -532,11 +532,8 @@ async def subject_member_facts(
     でなければ :class:`SubjectToolError`（→ 400）— ハブでない主語に対して
     呼んでも、他のハブのメンバーを指しても拒む。"""
     graphs = await canonical_graphs(client)
-    hub_graph = next((g for g in graphs if is_hub_graph(g)), None)
+    hub_graph = await _hub_graph_holding(client, graphs, iri)
     if hub_graph is None:
-        raise SubjectToolError(f"{iri!r} is not a hub (no hub graph in this store)")
-    raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
-    if not (isinstance(raw, dict) and raw.get("boolean")):
         raise SubjectToolError(f"{iri!r} is not a hub (no hub graph in this store)")
     members = await _hub_members(client, hub_graph, iri)
     if member not in members:
@@ -626,12 +623,10 @@ async def subject_sources(
     _accumulate(counts)
 
     graphs = await canonical_graphs(client)
-    hub_graph = next((g for g in graphs if is_hub_graph(g)), None)
+    hub_graph = await _hub_graph_holding(client, graphs, iri)
     if hub_graph is not None:
-        raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
-        if isinstance(raw, dict) and raw.get("boolean"):
-            for member in await _hub_members(client, hub_graph, iri):
-                _accumulate(await _graph_counts_for_subject(client, member))
+        for member in await _hub_members(client, hub_graph, iri):
+            _accumulate(await _graph_counts_for_subject(client, member))
 
     items = []
     for dataset_id in sorted(per_dataset):
@@ -1040,6 +1035,20 @@ def _hub_entity_ask(hub_graph: str, iri: str) -> str:
         f'FILTER(!STRSTARTS(STR(?c), "{_PROV_NS}") '
         f'&& STR(?c) != "{_XW_NS}CrosswalkLink") }} }}'
     )
+
+
+async def _hub_graph_holding(client: SupportsSparql, graphs: list[str], iri: str) -> str | None:
+    """``graphs`` のうちハブ graph（:func:`is_hub_graph`）を IRI の辞書順に
+    回し、``iri`` がハブ実体として載っている最初の graph を返す（契約メモ
+    §1）。ハブ graph が複数（☑ から perspective ごとに 1 つずつ作られると
+    2 つ以上になる）と、最初の 1 つだけを見る呼び出しは主語のハブ実体が
+    2 つ目以降の graph にあるとき「ハブではない」と誤判定する。見つからな
+    ければ ``None``。ハブ graph が 0 個なら問い合わせを 1 回も投げない。"""
+    for hub_graph in sorted(g for g in graphs if is_hub_graph(g)):
+        raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
+        if isinstance(raw, dict) and raw.get("boolean"):
+            return hub_graph
+    return None
 
 
 def crosswalk_registry_id_of_hub_graph(graph_iri: str) -> str | None:
@@ -2366,12 +2375,8 @@ async def subject_hub_members(
     }
 
     graphs = await canonical_graphs(client)
-    hub_graph = next((g for g in graphs if is_hub_graph(g)), None)
+    hub_graph = await _hub_graph_holding(client, graphs, iri)
     if hub_graph is None:
-        return _finalize(empty_base, output_kind="facts", item=item, materials=[])
-
-    raw = await client.sparql_select(_hub_entity_ask(hub_graph, iri))
-    if not (isinstance(raw, dict) and raw.get("boolean")):
         return _finalize(empty_base, output_kind="facts", item=item, materials=[])
 
     members = await _hub_members(client, hub_graph, iri)
