@@ -19,6 +19,7 @@ via the FastAPI ``lifespan`` callback. We deliberately keep both surfaces in
 the same process so they share an OxigraphClient pool and a single jsonl
 log writer.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -142,6 +143,7 @@ from pydantic import BaseModel, Field
 
 from asterism_api import (
     appdata,
+    autolink,
     design_loop,
     exchange,
     registry,
@@ -226,6 +228,14 @@ class MaterializeRequest(BaseModel):
     # (live 2026-08-18). With the staging id the same checks run against the
     # staged copy. The dataset's own persisted source still wins when present.
     staging_id: str | None = None
+    # S4's ☑「他のデータとつながる手がかり」(契約メモ contract_pr_f15.md §1.1):
+    # the (source, column) pairs the human opted into as a cross-dataset join
+    # key. Persisted verbatim to the registry's ``handles.json`` so autolink
+    # (§1.4) can read them back after promote. ``None`` on a redesign means
+    # "unchanged" — the existing handles.json is carried forward rather than
+    # wiped, so a re-materialize can never silently drop a ☑ the human already
+    # made.
+    handles: list[dict] | None = None
 
 
 class SparqlRequest(BaseModel):
@@ -754,9 +764,7 @@ def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str
     return labels
 
 
-def _merge_ir_display_metadata(
-    mapping_ir_yaml: str, summary: dict
-) -> dict[str, dict[str, str]]:
+def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str, dict[str, str]]:
     """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
 
     Matching is by expanded predicate IRI so the compiled RML stays the single
@@ -799,8 +807,7 @@ def _merge_ir_display_metadata(
         warnings = summary.setdefault("warnings", [])
         if isinstance(warnings, list):
             warnings.append(
-                "mapping.yaml (Mapping IR) could not be parsed; "
-                "label/unit enrichment was skipped."
+                "mapping.yaml (Mapping IR) could not be parsed; label/unit enrichment was skipped."
             )
         return {}
     return meta
@@ -1046,9 +1053,7 @@ def _build_consult_system_prompt(manual_text: str) -> str:
     not in the manual, since it doubles as this prompt's own outline) + the
     manual's real-navigation text (D8, absent when no manual dir was found)
     + the guardrails (D5 判断は代行しない)."""
-    manual_block = (
-        f"\n\n{CONSULT_MANUAL_HEADING}\n\n{manual_text}\n" if manual_text else ""
-    )
+    manual_block = f"\n\n{CONSULT_MANUAL_HEADING}\n\n{manual_text}\n" if manual_text else ""
     return f"""あなたは Asterism の設計相談役です。研究者がデータを Asterism に取り込む
 とき、隣に座って質問に答える専門家として振る舞ってください。
 
@@ -1161,7 +1166,7 @@ def _render_name_and_samples(name: str, samples: list[str]) -> str:
 
 
 def _render_pending_columns(columns: list[ConsultPendingColumn]) -> str:
-    """"まだ取り込んでいない項目" — S6's droppedColumns table, verbatim."""
+    """ "まだ取り込んでいない項目" — S6's droppedColumns table, verbatim."""
     entries = [
         _render_name_and_samples(c.name, c.samples)
         for c in columns[:_CONSULT_MAX_COLUMNS]
@@ -1173,7 +1178,7 @@ def _render_pending_columns(columns: list[ConsultPendingColumn]) -> str:
 
 
 def _render_confirmed_columns(columns: list[ConsultColumn]) -> str:
-    """"意味が確定している項目" — S6's meaning table, only the rows that
+    """ "意味が確定している項目" — S6's meaning table, only the rows that
     already have a meaning (a blank one is not "確定")."""
     entries = []
     for c in columns[:_CONSULT_MAX_COLUMNS]:
@@ -1189,7 +1194,7 @@ def _render_confirmed_columns(columns: list[ConsultColumn]) -> str:
 
 
 def _render_missing_meaning_columns(columns: list[ConsultColumn]) -> str:
-    """"意味が未入力の項目" — the SAME S6 meaning table as
+    """ "意味が未入力の項目" — the SAME S6 meaning table as
     `_render_confirmed_columns`, but the complementary rows: already-mapped
     columns whose meaning cell is still blank. Without this line the model
     only ever saw columns that already had a meaning, so "propose meanings
@@ -1206,7 +1211,7 @@ def _render_missing_meaning_columns(columns: list[ConsultColumn]) -> str:
 
 
 def _render_kinds(kinds: list[ConsultKind]) -> str:
-    """"データの種類" — S4 gate's per-map key columns, kind name and the items
+    """ "データの種類" — S4 gate's per-map key columns, kind name and the items
     it carries, verbatim from the same data SkeletonGate renders (D10 extension
     B; ``columns`` added by ADR kind-splitting-and-consult-suggestions D3 —
     ``splits``/``owners`` name columns, so the model has to see which are on
@@ -1816,7 +1821,7 @@ def _curie_of(iri: str, prefixes: Mapping[str, str]) -> str | None:
 
 
 def _subjects_of_design(artifacts: dict[str, str] | None) -> list[dict] | None:
-    """"How ids are made" of a STORED design, as the JSON kept on the dataset's meta.
+    """ "How ids are made" of a STORED design, as the JSON kept on the dataset's meta.
 
     ``None`` when the design has no Mapping IR (legacy raw-Turtle designs) or it
     no longer parses — an unreadable record must degrade to "cannot plan a move",
@@ -1882,17 +1887,13 @@ def _plan_id_move(
         old = [x for x in (PublishedSubject.from_json(r) for r in raw) if x is not None]
         if not old:
             return None
-        return plan_id_move(
-            old, parse_mapping_ir(text), available_columns=available_columns
-        )
+        return plan_id_move(old, parse_mapping_ir(text), available_columns=available_columns)
     except Exception:
         logger.exception("could not plan the id move")
         return None
 
 
-async def _resolve_id_move(
-    client: OxigraphClient, iri: str
-) -> substrate.IdMoveResolution:
+async def _resolve_id_move(client: OxigraphClient, iri: str) -> substrate.IdMoveResolution:
     """Where an old id leads today, over the published scope.
 
     The single resolution both views use: a reader and a machine following the
@@ -2195,6 +2196,7 @@ def _version_tuple(version: str) -> tuple[int, int, int]:
     nums += [0] * (3 - len(nums))
     return (nums[0], nums[1], nums[2])
 
+
 # Restrict uploaded filenames to a safe subset to avoid directory traversal
 # (``..`` segments, absolute paths, NULs). We also reject names without a
 # ``.csv`` suffix so the watcher's ``_classify`` actually fires.
@@ -2253,18 +2255,12 @@ class Settings:
     def __init__(self, env: dict[str, str] | None = None) -> None:
         e = env if env is not None else os.environ
         self.drop_root = Path(e.get("CSV2RDF_DROP_ROOT", "/data/sources/csv"))
-        self.rdf_root = Path(
-            e.get("CSV2RDF_RDF_ROOT", "/data/sources/rdf/starrydata")
-        )
-        self.error_root = Path(
-            e.get("CSV2RDF_ERROR_ROOT", "/data/sources/errors/starrydata")
-        )
+        self.rdf_root = Path(e.get("CSV2RDF_RDF_ROOT", "/data/sources/rdf/starrydata"))
+        self.error_root = Path(e.get("CSV2RDF_ERROR_ROOT", "/data/sources/errors/starrydata"))
         self.jobs_log = Path(e.get("CSV2RDF_JOBS_LOG", "/data/sources/jobs.jsonl"))
         # Where materialized schema bundles are persisted so the Gallery can
         # list what has been built (authoring→catalog half of the lifecycle).
-        self.registry_root = Path(
-            e.get("CSV2RDF_REGISTRY_ROOT", "/data/sources/registry")
-        )
+        self.registry_root = Path(e.get("CSV2RDF_REGISTRY_ROOT", "/data/sources/registry"))
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
         # Docling PDF→structure sidecar (ADR pdf-docling-conversion.md). The ONE place
         # the document layer runs ML, isolated out of this image. Unset → PDF ingest
@@ -2283,9 +2279,11 @@ class Settings:
         self.graph_prefix = e.get("CSV2RDF_GRAPH_PREFIX", DEFAULT_GRAPH_PREFIX)
         # Default-graph load keeps GRAPH-less SPARQL (MIE examples) working.
         # Set CSV2RDF_USE_DEFAULT_GRAPH=0 to opt back into per-kind named graphs.
-        self.use_default_graph = e.get(
-            "CSV2RDF_USE_DEFAULT_GRAPH", "1"
-        ).strip().lower() not in ("0", "false", "no")
+        self.use_default_graph = e.get("CSV2RDF_USE_DEFAULT_GRAPH", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
         self.ontology_iri = e.get("CSV2RDF_ONTOLOGY_IRI", _DEFAULT_ONTOLOGY)
         self.resource_iri = e.get("CSV2RDF_RESOURCE_IRI", _DEFAULT_RESOURCE)
         # Instance-owned IRI base for NEWLY designed datasets (ADR
@@ -2305,9 +2303,7 @@ class Settings:
         self.app_version = (e.get("ASTERISM_APP_VERSION") or "").strip() or None
         # Release feed the desktop update check reads — the same single endpoint
         # the native updater installs from (tauri.conf.json plugins.updater).
-        self.updater_feed = (
-            e.get("ASTERISM_UPDATER_FEED") or DEFAULT_UPDATER_FEED
-        ).strip()
+        self.updater_feed = (e.get("ASTERISM_UPDATER_FEED") or DEFAULT_UPDATER_FEED).strip()
         # togomcp auto-publish (ADR togomcp-auto-publish.md): promote projects the
         # dataset's MIE into this togomcp TOGOMCP_DIR (mie/<id>.yaml + an
         # endpoints.csv row) so promoted datasets appear in the DBCLS togomcp
@@ -2331,9 +2327,11 @@ class Settings:
         self.append_drop_root = Path(
             e.get("ASTERISM_APPEND_DROP_ROOT", str(self.drop_root.parent / "append"))
         )
-        self.append_watcher = e.get(
-            "ASTERISM_APPEND_WATCHER", "1"
-        ).strip().lower() not in ("0", "false", "no")
+        self.append_watcher = e.get("ASTERISM_APPEND_WATCHER", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
         # Propose self-correction loop (ADR propose-self-correction-loop.md, TODO ④):
         # how many refine rounds propose may run to auto-fix a design against the real
         # source + Tier-0 signatures before returning. 0 disables the loop (plain
@@ -2361,7 +2359,9 @@ class Settings:
         # disk instead of the browser's localStorage. Unset (the shared/hosted
         # api) → the /api/appdata/* routes stay 404 except GET .../info.
         self.single_user = (e.get("ASTERISM_SINGLE_USER") or "").strip().lower() in (
-            "1", "true", "yes",
+            "1",
+            "true",
+            "yes",
         )
         appdata_raw = (e.get("ASTERISM_APPDATA_ROOT") or "").strip()
         self.appdata_root = Path(appdata_raw) if appdata_raw else None
@@ -2489,9 +2489,7 @@ async def _save_upload(
                 break
             total += len(chunk)
             if cap and total > cap:
-                raise HTTPException(
-                    413, f"upload exceeds the {cap // (1 << 20) or 1} MiB limit"
-                )
+                raise HTTPException(413, f"upload exceeds the {cap // (1 << 20) or 1} MiB limit")
             await asyncio.to_thread(fh.write, chunk)
     except BaseException:
         # Clean the partial so a rejected/aborted upload cannot fill the volume.
@@ -2520,9 +2518,7 @@ async def _read_upload_bounded(upload: UploadFile, cap: int) -> bytes:
     return b"".join(chunks)
 
 
-async def _persist_converted_docx(
-    upload: UploadFile, sdir: Path, name: str
-) -> tuple[str, dict]:
+async def _persist_converted_docx(upload: UploadFile, sdir: Path, name: str) -> tuple[str, dict]:
     """Convert a Word ``.docx`` upload to JATS (pandoc) and persist it as the source.
 
     Returns ``(jats_filename, conversion_record)``. The converted ``.jats.xml`` is the
@@ -2600,9 +2596,7 @@ def _expand_xlsx_sheets(name: str, data: bytes) -> list[tuple[str, str, bytes]]:
         ) from exc
     except Exception as exc:
         logger.warning("xlsx could not be read: %r: %s", name, exc, exc_info=True)
-        raise _coded_error(
-            422, "xlsx.unreadable", "the Excel workbook could not be read"
-        ) from exc
+        raise _coded_error(422, "xlsx.unreadable", "the Excel workbook could not be read") from exc
 
 
 async def _persist_converted_xlsx(
@@ -3197,11 +3191,11 @@ def _parse_design_column_decisions(raw: str) -> list[dict[str, str]]:
         if not source or not column:
             raise HTTPException(422, "each column decision needs a source and a column")
         if action != "exclude":
-            raise HTTPException(
-                422, "before a design exists the only column decision is 'exclude'"
-            )
+            raise HTTPException(422, "before a design exists the only column decision is 'exclude'")
         out.append({"source": source, "column": column, "action": action})
     return out
+
+
 def _optional_json_object(raw: str, field: str) -> dict[str, Any] | None:
     """A JSON-object form field that may be absent — ``None`` when it is.
 
@@ -3347,10 +3341,7 @@ def _dialected_sources(rml_ttl: str) -> dict[str, SourceDialect]:
 
         graph = rdflib.Graph()
         graph.parse(data=substrate.substitute_run_id(rml_ttl), format="turtle")
-        return {
-            Path(name).name: dialect
-            for name, dialect in dialects_from_mapping(graph).items()
-        }
+        return {Path(name).name: dialect for name, dialect in dialects_from_mapping(graph).items()}
     except Exception as exc:
         logger.exception("could not read source-dialect annotations (failing closed)")
         raise _DialectReadError(str(exc)) from exc
@@ -3394,9 +3385,7 @@ def _batch_header_columns(content: bytes, dialect: SourceDialect | None) -> set[
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _expected_columns_for_single_source(
-    mapping_ir_yaml: str, source_name: str
-) -> set[str] | None:
+def _expected_columns_for_single_source(mapping_ir_yaml: str, source_name: str) -> set[str] | None:
     """The Mapping IR's referenced columns for the dataset's single ``rml:source``.
 
     GAL-A-40: before a mismatched batch filename is machine-renamed to the pinned
@@ -3470,9 +3459,7 @@ async def _append_batch_to_dataset(
             "first (append grows an already-citable feed in place)",
         )
     if meta.get("status") in ("retracted", "deleted"):
-        raise AppendError(
-            409, f"dataset is {meta.get('status')}; reinstate it before appending"
-        )
+        raise AppendError(409, f"dataset is {meta.get('status')}; reinstate it before appending")
     if not batch:
         raise AppendError(400, "append requires at least one batch source file")
 
@@ -3705,9 +3692,7 @@ async def _append_document_to_dataset(
             "document before adding more (append grows an already-citable feed)",
         )
     if meta.get("status") in ("retracted", "deleted"):
-        raise AppendError(
-            409, f"dataset is {meta.get('status')}; reinstate it before appending"
-        )
+        raise AppendError(409, f"dataset is {meta.get('status')}; reinstate it before appending")
     if upload.filename is None:
         raise AppendError(400, "missing filename")
     if Path(upload.filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
@@ -3945,9 +3930,7 @@ def _display_meta_path(registry_root: Path, dataset_id: str) -> Path | None:
     return None if sdir is None else sdir.parent / _DISPLAY_META_FILE
 
 
-def _source_column_names(
-    paths: list[Path], rml_ttl: str | None
-) -> dict[str, set[str]]:
+def _source_column_names(paths: list[Path], rml_ttl: str | None) -> dict[str, set[str]]:
     """Read exact current headers for decision reconciliation.
 
     A source absent from the result was not inspectable and must not cause a
@@ -4059,9 +4042,7 @@ def _column_decision_key(decision: Mapping[str, object]) -> tuple[str, str]:
     return str(decision.get("source") or ""), str(decision.get("column") or "")
 
 
-def _merge_column_decisions(
-    existing: list[dict], incoming: list[dict]
-) -> list[dict]:
+def _merge_column_decisions(existing: list[dict], incoming: list[dict]) -> list[dict]:
     """Upsert by physical source column; the latest human statement wins."""
     merged = {_column_decision_key(d): d for d in existing}
     for decision in incoming:
@@ -4069,9 +4050,7 @@ def _merge_column_decisions(
     return list(merged.values())
 
 
-def _remember_column_decisions(
-    registry_root: Path, dataset_id: str, decisions: list[dict]
-) -> None:
+def _remember_column_decisions(registry_root: Path, dataset_id: str, decisions: list[dict]) -> None:
     """Persist the complete upserted decision set after a successful edit."""
     path = _column_decisions_path(registry_root, dataset_id)
     if path is None:
@@ -4102,9 +4081,7 @@ def _load_column_meanings(registry_root: Path, dataset_id: str | None) -> list[d
         return []
     meanings = data.get("meanings") if isinstance(data, dict) else None
     return [
-        m
-        for m in meanings or []
-        if isinstance(m, dict) and m.get("source") and m.get("column")
+        m for m in meanings or [] if isinstance(m, dict) and m.get("source") and m.get("column")
     ]
 
 
@@ -4181,9 +4158,7 @@ def _merge_column_meanings(existing: list[dict], incoming: list[dict]) -> list[d
     return [m for m in merged.values() if m.get("label") or m.get("unit")]
 
 
-def _remember_column_meanings(
-    registry_root: Path, dataset_id: str, meanings: list[dict]
-) -> None:
+def _remember_column_meanings(registry_root: Path, dataset_id: str, meanings: list[dict]) -> None:
     """Persist the complete upserted meaning set after a successful edit."""
     path = _column_meanings_path(registry_root, dataset_id)
     if path is None:
@@ -4200,9 +4175,7 @@ _UNMAPPED_ADVISORY = re.compile(
 )
 
 
-def _columns_are_confirmed_excluded(
-    shown: str, count: int, candidates: set[str]
-) -> bool:
+def _columns_are_confirmed_excluded(shown: str, count: int, candidates: set[str]) -> bool:
     """Parse a comma-joined advisory against exact headers, including commas."""
 
     def match(offset: int, remaining: int, used: frozenset[str]) -> bool:
@@ -4242,13 +4215,8 @@ def _without_confirmed_exclusion_advisories(
         shown = match.group("columns")
         source = match.group("source")
         count = int(match.group("count"))
-        candidates = {
-            column for candidate_source, column in excluded if candidate_source == source
-        }
-        if (
-            "…" in shown
-            or not _columns_are_confirmed_excluded(shown, count, candidates)
-        ):
+        candidates = {column for candidate_source, column in excluded if candidate_source == source}
+        if "…" in shown or not _columns_are_confirmed_excluded(shown, count, candidates):
             kept.append(advisory)
     return kept
 
@@ -4419,9 +4387,7 @@ async def _record_shape_findings(
         compiled = await asyncio.to_thread(shapes.compile_shapes, rml_ttl)
         if not compiled:
             return []
-        findings = await shapes.run_shape_checks(
-            compiled, graph_iri, client.sparql_select
-        )
+        findings = await shapes.run_shape_checks(compiled, graph_iri, client.sparql_select)
         messages = [f.message for f in findings]
         registry.record_shape_findings(registry_root, dataset_id, messages)
         return messages
@@ -4483,9 +4449,13 @@ def build_app(
             max_tokens: int | None = None,
         ) -> LLMClient:
             return build_llm_client(
-                provider, model=model, api_base=api_base, api_key=api_key,
+                provider,
+                model=model,
+                api_base=api_base,
+                api_key=api_key,
                 max_tokens=max_tokens,
             )
+
     watcher_cfg = WatcherConfig(
         drop_root=cfg.drop_root,
         rdf_root=cfg.rdf_root,
@@ -4503,9 +4473,7 @@ def build_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         watcher_cfg.ensure_dirs()
-        client = oxigraph_client or OxigraphClient(
-            OxigraphConfig(base_url=cfg.oxigraph_url)
-        )
+        client = oxigraph_client or OxigraphClient(OxigraphConfig(base_url=cfg.oxigraph_url))
         # #20 FROM-merge: Ask reads a cross-dataset FROM-merge over the canonical
         # graphs, which excludes the raw default graph. Relocate any pre-existing
         # default-graph data (legacy / seed loaded before this change) into
@@ -4531,9 +4499,7 @@ def build_app(
                 await substrate.mark_graph_promoted(client, legacy_iri)
             for meta in registry.list_datasets(cfg.registry_root):
                 if meta.get("promoted") and meta.get("status") != "retracted":
-                    cg = meta.get("canonical_graph") or substrate.canonical_graph_iri(
-                        meta["id"]
-                    )
+                    cg = meta.get("canonical_graph") or substrate.canonical_graph_iri(meta["id"])
                     # part5: restore the live version pointer too (a dataset promoted
                     # before part5 has no live_graph -> falls back to the key graph).
                     await substrate.mark_graph_promoted(
@@ -4549,9 +4515,7 @@ def build_app(
             # the sweeper drops the enqueued graphs off the request path.
             orphans = await substrate.reconcile_orphan_versions(client)
             if orphans:
-                logger.info(
-                    "enqueued %d orphaned version graph(s) for reclaim", len(orphans)
-                )
+                logger.info("enqueued %d orphaned version graph(s) for reclaim", len(orphans))
         except Exception:  # never block startup on the migration / backfill
             logger.exception(
                 "default->canonical/legacy migration or promote-flag backfill failed (continuing)"
@@ -4583,9 +4547,7 @@ def build_app(
         if start_watcher and cfg.append_watcher:
             cfg.append_drop_root.mkdir(parents=True, exist_ok=True)
             append_watcher = asyncio.create_task(
-                _append_watch_loop(
-                    cfg, client, stop, crosswalk_rebuilder=crosswalk_rebuilder
-                ),
+                _append_watch_loop(cfg, client, stop, crosswalk_rebuilder=crosswalk_rebuilder),
                 name="asterism-append-watcher",
             )
         app.state.client = client
@@ -4642,8 +4604,7 @@ def build_app(
             )
             raise HTTPException(
                 503,
-                "利用許可コード (管理者が設定する API token) が未設定のため、"
-                "この操作はできません",
+                "利用許可コード (管理者が設定する API token) が未設定のため、この操作はできません",
             )
         if not _write_credential_ok(cfg, authorization, x_asterism_token):
             raise HTTPException(401, "利用許可コードが違います")
@@ -4751,9 +4712,7 @@ def build_app(
             logger.exception("describe error")
             if wants_turtle:
                 raise HTTPException(502, "upstream SPARQL error") from exc
-            return HTMLResponse(
-                describe_mod.render_upstream_error(lang=page_lang), status_code=502
-            )
+            return HTMLResponse(describe_mod.render_upstream_error(lang=page_lang), status_code=502)
         moved_from: str | None = None
         if data is None:
             # The id is not published under this spelling. Before answering "not
@@ -4963,9 +4922,7 @@ def build_app(
         known = {p.name for p in sdir.iterdir() if p.is_file() and p.name != "meta.json"}
         chosen = [n for n in dict.fromkeys(body.sources) if n in known]
         if not chosen:
-            raise HTTPException(
-                422, "none of the requested sources belong to this staged record"
-            )
+            raise HTTPException(422, "none of the requested sources belong to this staged record")
         meta["sources"] = chosen
         _write_staging_meta(sdir, meta)
         return {"staging_id": staging_id, "sources": chosen}
@@ -5109,7 +5066,8 @@ def build_app(
     @app.post("/api/inspect")
     async def inspect_csvs(
         files: list[UploadFile] = File(
-            default=[], description="Source file(s) to inspect (CSV or JSON)"),
+            default=[], description="Source file(s) to inspect (CSV or JSON)"
+        ),
         staging_id: str = Form(
             default="",
             description="A staged source (POST /api/staging) to read INSTEAD of files.",
@@ -5151,9 +5109,7 @@ def build_app(
                     f"デコード不能)。エンコーディングが異なる可能性があります: {exc}",
                 ) from exc
             except csv.Error as exc:
-                raise HTTPException(
-                    422, f"ソースを表として解析できませんでした: {exc}"
-                ) from exc
+                raise HTTPException(422, f"ソースを表として解析できませんでした: {exc}") from exc
             markdown = render_markdown(inspections, fks)
             # {source: [{name, line, text, named}]} for a source with a
             # still-dropped preamble the wizard's "record it" answer would
@@ -5275,9 +5231,7 @@ def build_app(
             server_keys.set_server_key(cfg.registry_root, provider, key, base)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return JSONResponse(
-            {"providers": server_keys.configured_providers(cfg.registry_root)}
-        )
+        return JSONResponse({"providers": server_keys.configured_providers(cfg.registry_root)})
 
     @app.post("/api/propose")
     async def propose(
@@ -5507,9 +5461,7 @@ def build_app(
             _arm_llm_callbacks(
                 llm, should_cancel=should_cancel, on_generation=on_generation, on_note=on_note
             )
-            effective = await asyncio.to_thread(
-                _effective_dialects, list(paths), dialect_overrides
-            )
+            effective = await asyncio.to_thread(_effective_dialects, list(paths), dialect_overrides)
             emit(phase="meanings", message="項目の意味を読み取り中")
             try:
                 result = await asyncio.to_thread(
@@ -5617,9 +5569,7 @@ def build_app(
             # Detection + the human's corrections, field by field. The overrides alone
             # are NOT the read rules: they carry only what the person edited, so
             # passing them raw made this stage read a cp932 source as utf-8-sig.
-            effective = await asyncio.to_thread(
-                _effective_dialects, list(paths), dialect_overrides
-            )
+            effective = await asyncio.to_thread(_effective_dialects, list(paths), dialect_overrides)
             emit(phase="skeleton", message="骨格を生成中")
             try:
                 result = await asyncio.to_thread(
@@ -5721,7 +5671,7 @@ def build_app(
         ),
         linkable: str = Form(
             default="[]",
-            description='④「他のデータにも出てくる?」の ☑ as JSON [{source, column}]',
+            description="④「他のデータにも出てくる?」の ☑ as JSON [{source, column}]",
         ),
         card_keys: str = Form(
             default="{}",
@@ -5762,9 +5712,7 @@ def build_app(
             cfg.registry_root, files, staging_id or None, prefix="asterism-assemble-"
         )
         try:
-            effective = await asyncio.to_thread(
-                _effective_dialects, list(paths), dialect_overrides
-            )
+            effective = await asyncio.to_thread(_effective_dialects, list(paths), dialect_overrides)
             result = await asyncio.to_thread(
                 partial(
                     assemble_skeleton_from_judgments,
@@ -5827,9 +5775,7 @@ def build_app(
             cfg.registry_root, files, staging_id or None, prefix="asterism-skelcheck-"
         )
         try:
-            effective = await asyncio.to_thread(
-                _effective_dialects, list(paths), dialect_overrides
-            )
+            effective = await asyncio.to_thread(_effective_dialects, list(paths), dialect_overrides)
             annotations = await asyncio.to_thread(
                 annotate_skeleton,
                 skeleton_obj,
@@ -5961,8 +5907,7 @@ def build_app(
                     iri_base=cfg.iri_base,
                     column_meanings=settled_meanings,
                     column_decisions=settled_decisions,
-                    deterministic_rules=deterministic_rules.strip().lower()
-                    in ("1", "true", "yes"),
+                    deterministic_rules=deterministic_rules.strip().lower() in ("1", "true", "yes"),
                 )
             finally:
                 if owned:
@@ -6294,9 +6239,7 @@ def build_app(
                     )
                 human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
                 if human_meta:
-                    proposal_md, _restored = apply_display_meta_to_document(
-                        proposal_md, human_meta
-                    )
+                    proposal_md, _restored = apply_display_meta_to_document(proposal_md, human_meta)
                 settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
                 if settled_meanings:
                     proposal_md, _restored = apply_column_meanings_to_document(
@@ -6422,6 +6365,24 @@ def build_app(
                     result["proposal_md"] = proposal_md
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:
+                    # S4's ☑ handles (契約メモ contract_pr_f15.md §1.1): when the
+                    # client sends them, they win outright. When it sends nothing
+                    # (None) on a REDESIGN, carry the dataset's existing
+                    # handles.json forward — a re-materialize must not silently
+                    # erase a ☑ the human already made in an earlier round.
+                    if body.handles is not None:
+                        artifacts["handles.json"] = json.dumps(
+                            {"version": 1, "handles": body.handles}, ensure_ascii=False
+                        )
+                    elif body.dataset_id:
+                        _existing_for_handles = registry.load_dataset(
+                            cfg.registry_root, body.dataset_id
+                        )
+                        _existing_handles_json = (
+                            (_existing_for_handles or {}).get("artifacts", {}).get("handles.json")
+                        )
+                        if _existing_handles_json:
+                            artifacts["handles.json"] = _existing_handles_json
                     if body.dataset_id:
                         # Redesign: re-materialize the SAME dataset in place (keep its
                         # id / graphs / lifecycle / source). Re-design changes only the
@@ -6504,9 +6465,7 @@ def build_app(
         Token-gated like /api/sparql: the archive carries the full registry
         dir including accumulated source data, which is a sensitive read.
         """
-        payload, filename = await exchange.build_snapshot(
-            cfg, app.state.client, dataset_id
-        )
+        payload, filename = await exchange.build_snapshot(cfg, app.state.client, dataset_id)
         return Response(
             content=payload,
             media_type="application/gzip",
@@ -6553,9 +6512,7 @@ def build_app(
         # them here means no new UI surface, no second fetch, no second empty
         # state. Design advisories come first: they are about the design the user
         # can still edit, while a shape finding describes data already ingested.
-        shape_findings = [
-            str(f) for f in ((data.get("meta") or {}).get("shape_findings") or [])
-        ]
+        shape_findings = [str(f) for f in ((data.get("meta") or {}).get("shape_findings") or [])]
         return {
             "dataset_id": dataset_id,
             "validation_issues": issues,
@@ -6583,9 +6540,7 @@ def build_app(
         return Response(
             content=shapes.shapes_to_shacl(compiled),
             media_type="text/turtle",
-            headers={
-                "Content-Disposition": f'attachment; filename="{dataset_id}-shapes.ttl"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="{dataset_id}-shapes.ttl"'},
         )
 
     @app.get("/api/datasets/{dataset_id}/proposal")
@@ -6715,9 +6670,7 @@ def build_app(
                         try:
                             found = _preamble_column_origins(path, dialect, cols)
                         except Exception:
-                            logger.warning(
-                                "source origins: %s could not be attributed", path.name
-                            )
+                            logger.warning("source origins: %s could not be attributed", path.name)
                             continue
                         for name, info in found.items():
                             origins.setdefault(name, info)
@@ -6738,9 +6691,7 @@ def build_app(
         return await asyncio.to_thread(run)
 
     @app.post("/api/datasets/{dataset_id}/display-meta", dependencies=_write_auth)
-    async def set_dataset_display_meta(
-        dataset_id: str, body: DisplayMetaBody
-    ) -> dict[str, object]:
+    async def set_dataset_display_meta(dataset_id: str, body: DisplayMetaBody) -> dict[str, object]:
         """Correct a column's MEANING / UNIT in place — deterministic, no LLM (K8).
 
         The meaning of a column and the unit it is in are the two things only the
@@ -6768,9 +6719,7 @@ def build_app(
             raise HTTPException(422, "at least one edit is required")
         proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
         if not proposal_md.strip():
-            raise HTTPException(
-                409, f"dataset {dataset_id!r} has no stored design to edit"
-            )
+            raise HTTPException(409, f"dataset {dataset_id!r} has no stored design to edit")
         source_dir = registry.source_dir(cfg.registry_root, dataset_id)
         # /rules exposes the compiled TriplesMap id (e.g. ``PatternMap``), while
         # §9 stores the authored map name (``pattern``) that `_display_meta_matches`
@@ -6870,9 +6819,10 @@ def build_app(
                 raise HTTPException(422, "a column decision requires a source")
             if not str(decision.get("column") or "").strip():
                 raise HTTPException(422, "a column decision requires a column")
-            if decision["action"] in {"include", "own"} and not str(
-                decision.get("map") or ""
-            ).strip():
+            if (
+                decision["action"] in {"include", "own"}
+                and not str(decision.get("map") or "").strip()
+            ):
                 raise HTTPException(422, "a column decision requires a map")
             if decision["action"] == "include" and not str(decision.get("label") or "").strip():
                 raise HTTPException(422, "an include decision requires a label")
@@ -6888,9 +6838,7 @@ def build_app(
             source_dir = None
             if body.staging_id:
                 with contextlib.suppress(staging.StagingNotFound, ValueError):
-                    source_dir, staged_paths = staging.load(
-                        cfg.registry_root, body.staging_id
-                    )
+                    source_dir, staged_paths = staging.load(cfg.registry_root, body.staging_id)
         if source_dir is None or not source_dir.is_dir():
             raise HTTPException(409, f"dataset {dataset_id!r} has no persisted source to inspect")
         mapping_ir_yaml = str((data.get("artifacts") or {}).get("mapping.yaml") or "")
@@ -6938,9 +6886,7 @@ def build_app(
                 requested_map = str(decision["map"])
                 canonical_map = canonical_maps.get(requested_map)
                 if canonical_map is None:
-                    raise HTTPException(
-                        422, f"column decision names unknown map {requested_map!r}"
-                    )
+                    raise HTTPException(422, f"column decision names unknown map {requested_map!r}")
                 selected_map = mappings_by_name[canonical_map]
                 if selected_map.source != str(decision["source"]):
                     raise HTTPException(
@@ -6966,9 +6912,7 @@ def build_app(
             )
             previous_map = str(previous.get("map") or "") if previous else ""
             source_maps = [
-                mapping
-                for mapping in mapping_ir.maps
-                if mapping.source == str(decision["source"])
+                mapping for mapping in mapping_ir.maps if mapping.source == str(decision["source"])
             ]
             class_maps = []
             if previous_class and requested_map == previous_map:
@@ -6976,8 +6920,7 @@ def build_app(
                 class_maps = [
                     mapping
                     for mapping in source_maps
-                    if wanted_class
-                    in {expanded_class(value) for value in mapping.subject.classes}
+                    if wanted_class in {expanded_class(value) for value in mapping.subject.classes}
                 ]
             restoring_owner = bool(previous_class and requested_map == previous_map)
             if restoring_owner and len(class_maps) == 1:
@@ -7013,13 +6956,9 @@ def build_app(
             incoming_sources = {str(d["source"]) for d in incoming}
             missing_sources = sorted(incoming_sources - set(source_paths))
             if missing_sources:
-                raise HTTPException(
-                    422, f"dataset source does not contain {missing_sources[0]!r}"
-                )
+                raise HTTPException(422, f"dataset source does not contain {missing_sources[0]!r}")
             current_decisions = [
-                decision
-                for decision in merged_decisions
-                if str(decision["source"]) in source_paths
+                decision for decision in merged_decisions if str(decision["source"]) in source_paths
             ]
             requested_sources = {str(d["source"]) for d in current_decisions}
             try:
@@ -7046,16 +6985,14 @@ def build_app(
             for decision in current_decisions:
                 source = str(decision["source"])
                 column = str(decision["column"])
-                if (
-                    _column_decision_key(decision) in incoming_keys
-                    and column not in source_columns.get(source, {})
-                ):
+                if _column_decision_key(
+                    decision
+                ) in incoming_keys and column not in source_columns.get(source, {}):
                     raise HTTPException(422, f"source {source!r} has no column {column!r}")
             decisions = [
                 decision
                 for decision in current_decisions
-                if str(decision["column"])
-                in source_columns.get(str(decision["source"]), {})
+                if str(decision["column"]) in source_columns.get(str(decision["source"]), {})
             ]
             for decision in decisions:
                 if decision.get("action") != "include":
@@ -7074,9 +7011,7 @@ def build_app(
                     new_md, _restored = apply_display_meta_to_document(new_md, human_meta)
                 settled_meanings = _load_column_meanings(cfg.registry_root, dataset_id)
                 if settled_meanings:
-                    new_md, _restored = apply_column_meanings_to_document(
-                        new_md, settled_meanings
-                    )
+                    new_md, _restored = apply_column_meanings_to_document(new_md, settled_meanings)
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
             requires_reingest = False
@@ -7121,9 +7056,8 @@ def build_app(
                 )
                 if meta is None:
                     raise HTTPException(404, f"dataset {dataset_id!r} not found")
-                requires_reingest = (
-                    artifacts["mapping.rml.ttl"]
-                    != str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+                requires_reingest = artifacts["mapping.rml.ttl"] != str(
+                    (data.get("artifacts") or {}).get("mapping.rml.ttl") or ""
                 )
             else:
                 # A decision that changes no mapping artifact can still resolve a
@@ -7131,8 +7065,7 @@ def build_app(
                 # dataset's persisted meta stops repeating only that confirmed
                 # notice (the filter is fail-closed for any unlisted column).
                 artifacts = {
-                    key: str(value or "")
-                    for key, value in (data.get("artifacts") or {}).items()
+                    key: str(value or "") for key, value in (data.get("artifacts") or {}).items()
                 }
                 _issues, advisories, _dups = _design_checks_at_materialize(
                     cfg.registry_root,
@@ -7223,9 +7156,7 @@ def build_app(
             raise HTTPException(422, "at least one column meaning is required")
         proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
         if not proposal_md.strip():
-            raise HTTPException(
-                409, f"dataset {dataset_id!r} has no stored design to edit"
-            )
+            raise HTTPException(409, f"dataset {dataset_id!r} has no stored design to edit")
         source_dir = registry.source_dir(cfg.registry_root, dataset_id)
 
         def run() -> dict[str, object]:
@@ -7354,9 +7285,7 @@ def build_app(
                     entry["curie"] = curie
                 classes.append(entry)
 
-        source_rows = await asyncio.to_thread(
-            _count_source_rows, cfg.registry_root, dataset_id
-        )
+        source_rows = await asyncio.to_thread(_count_source_rows, cfg.registry_root, dataset_id)
         # `counted` separates "nothing has been taken in yet" from "the count
         # failed": without it the UI said the latter for both, which reads as an
         # error on a screen where nothing is wrong (2026-08-19 review).
@@ -7440,9 +7369,7 @@ def build_app(
                 "staging_id": sid,
                 # name + size, the shape the wizard already keeps for a dropped
                 # file — so "is this the same source?" compares like with like.
-                "sources": [
-                    {"name": p.name, "size": p.stat().st_size} for p in source_paths
-                ],
+                "sources": [{"name": p.name, "size": p.stat().st_size} for p in source_paths],
                 "expires_at": staging.expires_at(sdir),
             }
         )
@@ -7611,8 +7538,7 @@ def build_app(
         #     plain entity count so the screen never opens empty-handed.
         if not classes:
             ent_q = (
-                f"SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE {{ "
-                f"GRAPH <{staged_iri}> {{ ?s ?p ?o }} }}"
+                f"SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE {{ GRAPH <{staged_iri}> {{ ?s ?p ?o }} }}"
             )
             ent_rows = await select(ent_q) or []
             ent_raw = (ent_rows[0].get("n") or {}).get("value") if ent_rows else None
@@ -7754,9 +7680,7 @@ def build_app(
         return {"dataset_id": dataset_id, "count": len(snapshots), "snapshots": snapshots}
 
     @app.get("/api/datasets/{dataset_id}/history/{snapshot_id}")
-    async def get_dataset_history_snapshot(
-        dataset_id: str, snapshot_id: str
-    ) -> dict[str, object]:
+    async def get_dataset_history_snapshot(dataset_id: str, snapshot_id: str) -> dict[str, object]:
         """One redesign snapshot's stored artifacts + unified diffs vs the CURRENT set.
 
         The diff answers the reviewer's actual question — "what did this redesign
@@ -8024,8 +7948,11 @@ def build_app(
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         match = next(
-            (t for t in registry.list_query_tools(cfg.registry_root, dataset_id)
-             if t.get("name") == tool_name),
+            (
+                t
+                for t in registry.list_query_tools(cfg.registry_root, dataset_id)
+                if t.get("name") == tool_name
+            ),
             None,
         )
         if match is None:
@@ -8121,17 +8048,12 @@ def build_app(
                 if str(decision["source"]) in source_names
                 and (
                     str(decision["source"]) not in source_columns
-                    or str(decision["column"])
-                    in source_columns[str(decision["source"])]
+                    or str(decision["column"]) in source_columns[str(decision["source"])]
                 )
             ]
-            stale_decisions = [
-                decision for decision in decisions if decision not in kept_decisions
-            ]
+            stale_decisions = [decision for decision in decisions if decision not in kept_decisions]
             stale_includes = [
-                decision
-                for decision in stale_decisions
-                if decision.get("action") == "include"
+                decision for decision in stale_decisions if decision.get("action") == "include"
             ]
             if stale_includes:
                 proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
@@ -8165,9 +8087,7 @@ def build_app(
                     meta = updated
                     rml_ttl = artifacts["mapping.rml.ttl"]
             if stale_decisions:
-                _remember_column_decisions(
-                    cfg.registry_root, dataset_id, kept_decisions
-                )
+                _remember_column_decisions(cfg.registry_root, dataset_id, kept_decisions)
         try:
             issues, advisories, _dups = await asyncio.to_thread(
                 _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
@@ -8391,9 +8311,7 @@ def build_app(
                 # live dead-end, 2026-07-23) — the wizard additionally stops
                 # this state at the design step now, making this the fallback
                 # gate for older registries / direct API calls.
-                meta_warnings = [
-                    str(w) for w in ((data.get("meta") or {}).get("warnings") or [])
-                ]
+                meta_warnings = [str(w) for w in ((data.get("meta") or {}).get("warnings") or [])]
                 raise HTTPException(
                     422,
                     detail={
@@ -8425,9 +8343,7 @@ def build_app(
             # CSV column) is never flagged. The substrate re-validates the prepared RML
             # before Morph-KGC as defense in depth.
             try:
-                substrate.validate_rml_design(
-                    substrate.substitute_run_id(rml_ttl), source_dir
-                )
+                substrate.validate_rml_design(substrate.substitute_run_id(rml_ttl), source_dir)
             except substrate.RmlValidationError as exc:
                 raise HTTPException(
                     422,
@@ -8803,9 +8719,7 @@ def build_app(
         client: OxigraphClient = app.state.client
         # part5: align the *staged version graph* (recorded at ingest) against the
         # citable corpus — it is not promoted yet, so it is not part of that scope.
-        staged_iri = data["meta"].get("graph_iri") or substrate.canonical_graph_iri(
-            dataset_id
-        )
+        staged_iri = data["meta"].get("graph_iri") or substrate.canonical_graph_iri(dataset_id)
         report = await substrate.alignment_report(client, staged_iri)
         return JSONResponse({"dataset_id": dataset_id, "alignment": report})
 
@@ -8871,6 +8785,14 @@ def build_app(
             # then (ADR id-move-after-publish.md).
             published_subjects=_subjects_of_design(data.get("artifacts", {})),
         )
+        # 契約メモ contract_pr_f15.md §1.4: before rebuilding whatever hub this
+        # dataset already participates in, see whether its ☑ handles newly join
+        # ANOTHER promoted dataset's ☑ handles and, if so, join the hub
+        # automatically ("取り込むだけでつながります" made real). Best-effort —
+        # never raises.
+        autolink_report = await autolink.maybe_autolink_handles(
+            client, cfg.registry_root, dataset_id
+        )
         # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
         # the hub now (inline best-effort) so its newly-citable values are joined.
         await _maybe_rebuild_crosswalk(client, cfg.registry_root, dataset_id)
@@ -8895,9 +8817,7 @@ def build_app(
         # data is ever published; the projection pins the CURRENT live graph.
         togomcp: dict[str, object] | None = None
         if cfg.togomcp_dir is not None:
-            mie_text = await _mie_text_for_publish(
-                client, dataset_id, data.get("artifacts", {})
-            )
+            mie_text = await _mie_text_for_publish(client, dataset_id, data.get("artifacts", {}))
             togomcp = await asyncio.to_thread(
                 togomcp_sync.publish_dataset,
                 cfg.togomcp_dir,
@@ -8925,6 +8845,9 @@ def build_app(
             # #20 P3: monotonic dataset version (bumped on each re-promote).
             "version": meta.get("version") if meta else None,
             "dataset": meta,
+            # 契約メモ contract_pr_f15.md §1.4: the ☑ handles auto-link report
+            # (which perspectives were created/joined, or why none were).
+            "autolink": autolink_report,
         }
         if togomcp is not None:
             payload["togomcp"] = togomcp
@@ -8956,12 +8879,8 @@ def build_app(
         # A retracted dataset leaves the Ask scope — unlist it from the togomcp
         # catalog too (best-effort; reversed by /reinstate).
         if cfg.togomcp_dir is not None:
-            await asyncio.to_thread(
-                togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id
-            )
-        return JSONResponse(
-            {"dataset_id": dataset_id, "status": "retracted", "dataset": meta}
-        )
+            await asyncio.to_thread(togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id)
+        return JSONResponse({"dataset_id": dataset_id, "status": "retracted", "dataset": meta})
 
     @app.post("/api/datasets/{dataset_id}/reinstate", dependencies=_write_auth)
     async def reinstate_dataset(dataset_id: str) -> JSONResponse:
@@ -8979,9 +8898,7 @@ def build_app(
         # graph that just came back into scope (best-effort).
         if cfg.togomcp_dir is not None:
             live = await substrate.live_graph_of(client, canonical_iri) or canonical_iri
-            mie_text = await _mie_text_for_publish(
-                client, dataset_id, data.get("artifacts", {})
-            )
+            mie_text = await _mie_text_for_publish(client, dataset_id, data.get("artifacts", {}))
             await asyncio.to_thread(
                 togomcp_sync.publish_dataset,
                 cfg.togomcp_dir,
@@ -8991,9 +8908,7 @@ def build_app(
                 endpoint_url=cfg.togomcp_endpoint_url,
                 endpoint_name=cfg.togomcp_endpoint_name,
             )
-        return JSONResponse(
-            {"dataset_id": dataset_id, "status": "active", "dataset": meta}
-        )
+        return JSONResponse({"dataset_id": dataset_id, "status": "active", "dataset": meta})
 
     @app.post("/api/datasets/{dataset_id}/rename", dependencies=_write_auth)
     async def rename_dataset_endpoint(dataset_id: str, body: RenameRequest) -> JSONResponse:
@@ -9011,9 +8926,7 @@ def build_app(
         return JSONResponse({"dataset_id": dataset_id, "dataset": meta})
 
     @app.delete("/api/datasets/{dataset_id}", dependencies=_write_auth)
-    async def delete_dataset_endpoint(
-        dataset_id: str, force: bool = Query(False)
-    ) -> JSONResponse:
+    async def delete_dataset_endpoint(dataset_id: str, force: bool = Query(False)) -> JSONResponse:
         """#20 P3 step4: hard-delete a dataset (registry + its graphs).
 
         A *promoted* dataset has citable canonical data, so deleting it can break
@@ -9075,14 +8988,10 @@ def build_app(
         registry.delete_dataset(cfg.registry_root, dataset_id)
         # A deleted dataset must not linger in the togomcp catalog (best-effort).
         if cfg.togomcp_dir is not None:
-            await asyncio.to_thread(
-                togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id
-            )
+            await asyncio.to_thread(togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id)
         # The data graphs are enqueued for a background drop; the periodic sweeper
         # reclaims them off the request path (so delete never blocks on a large DROP).
-        return JSONResponse(
-            {"dataset_id": dataset_id, "deleted": True, "was_promoted": promoted}
-        )
+        return JSONResponse({"dataset_id": dataset_id, "deleted": True, "was_promoted": promoted})
 
     # ----------------------------------------------------------------------
     # Crosswalk hub (crosswalk-hub.md productize ①④) — author / build / view
@@ -9109,9 +9018,7 @@ def build_app(
             str(m.get("id")): str(m.get("name") or m.get("id"))
             for m in registry.list_datasets(cfg.registry_root)
         }
-        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(
-            cfg.registry_root
-        )
+        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         for concept in config_dict.get("concepts") or []:
             resolved: list[str] = []
             for p in concept.get("participants") or []:
@@ -9157,9 +9064,7 @@ def build_app(
             "dataset": data["meta"] if data else None,
         }
 
-    async def _do_crosswalk_build(
-        perspective_id: str, body: CrosswalkBuildBody
-    ) -> JSONResponse:
+    async def _do_crosswalk_build(perspective_id: str, body: CrosswalkBuildBody) -> JSONResponse:
         """Build (or rebuild) ONE perspective. ``config`` in the body (the authoring
         flow) is validated + persisted, then built; omit it to rebuild from the
         persisted config. Each perspective is its own graph; the FROM-merge unions
@@ -9213,10 +9118,7 @@ def build_app(
         ontology is plural (multi-perspective ADR)."""
         out = []
         for meta in crosswalk_runtime.list_perspectives(cfg.registry_root):
-            pid = (
-                meta.get("crosswalk_perspective_id")
-                or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
-            )
+            pid = meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
             config = crosswalk_runtime.load_config(cfg.registry_root, pid)
             out.append(
                 {
@@ -9225,6 +9127,10 @@ def build_app(
                         crosswalk_runtime.config_to_dict(config) if config else None
                     ),
                     "dataset": meta,
+                    # 契約メモ contract_pr_f15.md §1.4: whether this perspective was
+                    # created/joined by the ☑ handles auto-link (vs a human-built one).
+                    "auto_linked": bool(meta.get("auto_linked")),
+                    "auto_linked_from": list(meta.get("auto_linked_from") or []),
                 }
             )
         return JSONResponse({"perspectives": out})
@@ -9272,9 +9178,7 @@ def build_app(
             for meta in crosswalk_runtime.list_perspectives(cfg.registry_root)
         }
 
-        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(
-            cfg.registry_root
-        )
+        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
 
         async def discover_job(emit, should_cancel):
             result = await crosswalk_discover.discover(
@@ -9328,7 +9232,10 @@ def build_app(
                 "operator configure a server-side key (ASTERISM_LLM_KEY_<PROVIDER>)",
             )
         llm = _resolve_llm(
-            provider, model, api_base, api_key_val,
+            provider,
+            model,
+            api_base,
+            api_key_val,
             max_tokens=_llm_max_tokens(x_llm_max_tokens),
         )
         client: OxigraphClient = app.state.client
@@ -9592,8 +9499,7 @@ def build_app(
         so a human can vet a normalizer before authoring it. Pure compute, no store."""
         try:
             results = [
-                {"input": s, "output": crosswalk.apply_recipe(body.recipe, s)}
-                for s in body.samples
+                {"input": s, "output": crosswalk.apply_recipe(body.recipe, s)} for s in body.samples
             ]
         except ValueError as exc:  # unknown primitive (closed-set gate)
             raise HTTPException(400, str(exc)) from exc
@@ -9608,9 +9514,7 @@ def build_app(
         return JSONResponse(_crosswalk_view(_validated_perspective_id(perspective_id)))
 
     @app.post("/api/crosswalk/{perspective_id}/build", dependencies=_write_auth)
-    async def crosswalk_build_one(
-        perspective_id: str, body: CrosswalkBuildBody
-    ) -> JSONResponse:
+    async def crosswalk_build_one(perspective_id: str, body: CrosswalkBuildBody) -> JSONResponse:
         """Build (or rebuild) a NAMED perspective — author a new lens or refresh one.
         Each perspective is its own crosswalk graph; the FROM-merge unions them."""
         return await _do_crosswalk_build(_validated_perspective_id(perspective_id), body)
@@ -9712,6 +9616,8 @@ def build_app(
     # asterism_api/<name>_routes.py に register_<name>(app, cfg) の型で
     # 用意したルートを、統合段としてここでまとめて配線する。
     # ------------------------------------------------------------------
+    # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
+    from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
 
@@ -9720,6 +9626,7 @@ def build_app(
     register_place(app, cfg)
     register_license(app, cfg)
     register_export(app, cfg)
+    register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）
     register_appdata_cards(app, cfg)  # 契約メモ contract_pr_f4.md §1-5（担当 api）
     register_classes(app, cfg)  # 契約メモ contract_pr_f9.md §3（担当 api）
