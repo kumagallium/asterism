@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import './App.css'
 import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
+import { fetchProposal } from './api'
 import { CardsGallery } from './cards/CardsGallery'
 import { CardsView } from './cards/CardsView'
 import { SubjectRail } from './cards/SubjectRail'
@@ -80,6 +81,20 @@ export interface Route {
   subjectKey?: string
   /** `.../c/<card_id>` — カード詳細。subjectKey と組み合わせて使う。 */
   cardId?: string
+  /** `#/cards/d/<dataset_id>` — データセットのページ（契約メモ contract_pr_f2.md
+   *  §2.2・§2.4）。「作る」と「使う」の合流点。 */
+  datasetPageId?: string
+  /** `#/cards/s/new?dataset=<id>&class=<iri>` — 「条件で集める」の新規作成
+   *  （契約メモ §2.4）。`setDatasetId`/`setClassIri` と組で使う。 */
+  setNew?: boolean
+  setDatasetId?: string
+  setClassIri?: string
+  /** `#/workbench?returnTo=<hash>` — かんたんウィザードの完了・中止の戻り先
+   *  （契約メモ §2.6: 「returnTo をルートで持つ」）。データセットのページから
+   *  「定義を直す」で入ったときだけ立てる — 置く画面から入る既存の経路
+   *  （`goBuildShelf`/`autoInspect`）はウィザード内部の別の returnTo をそのまま
+   *  使うので触らない。 */
+  returnTo?: string
 }
 
 const TABS: readonly Tab[] = [
@@ -116,6 +131,14 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'datasets') return { tab: 'gallery' }
   if (parts[0] === 'crosswalk' && parts[1] === 'new') return { tab: 'crosswalk', create: true }
   if (parts[0] === 'ask' && parts[1]) return { tab: 'ask', threadId: decodeURIComponent(parts[1]) }
+  // `#/workbench?returnTo=<encoded hash>` — かんたんウィザードの完了・中止の
+  // 戻り先（契約メモ §2.6）。クエリ無しの `#/workbench` は下の TABS.includes に
+  // そのまま落ちる。
+  if (parts[0]?.startsWith('workbench?')) {
+    const query = parts[0].slice('workbench?'.length)
+    const returnTo = new URLSearchParams(query).get('returnTo')
+    return returnTo ? { tab: 'workbench', returnTo: decodeURIComponent(returnTo) } : { tab: 'workbench' }
+  }
   if (parts[0] === 'cards') {
     if (parts[1] === 'place') return { tab: 'cards', place: true }
     // `#/cards/place?dataset=<id>` — parts は '/' でしか割っていないので
@@ -124,6 +147,21 @@ export function parseHash(hash: string): Route {
       const query = parts[1].slice('place?'.length)
       const datasetId = new URLSearchParams(query).get('dataset')
       return datasetId ? { tab: 'cards', place: true, placeDatasetId: datasetId } : { tab: 'cards', place: true }
+    }
+    // `#/cards/d/<id>` — データセットのページ（契約メモ §2.2）。
+    if (parts[1] === 'd' && parts[2]) {
+      return { tab: 'cards', datasetPageId: decodeURIComponent(parts[2]) }
+    }
+    // `#/cards/s/new?dataset=<id>&class=<iri>` — 「条件で集める」の新規作成
+    // （契約メモ §2.4）。`s/<set_id>` の一般形より先に見る（`new` という set_id
+    // は実在しないが、`place` と同じ流儀で明示的に区別する）。
+    if (parts[1] === 's' && (parts[2] === 'new' || parts[2]?.startsWith('new?'))) {
+      const qIdx = parts[2].indexOf('?')
+      const query = qIdx === -1 ? '' : parts[2].slice(qIdx + 1)
+      const params = new URLSearchParams(query)
+      const setDatasetId = params.get('dataset') ?? undefined
+      const setClassIri = params.get('class') ?? undefined
+      return { tab: 'cards', setNew: true, setDatasetId, setClassIri }
     }
     if ((parts[1] === 'i' || parts[1] === 's') && parts[2]) {
       const subjectKey = `${parts[1]}:${decodeURIComponent(parts[2])}`
@@ -145,11 +183,20 @@ export function routeToHash(r: Route): string {
   if (r.tab === 'gallery') return '#/datasets'
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
+  if (r.tab === 'workbench' && r.returnTo) return `#/workbench?returnTo=${encodeURIComponent(r.returnTo)}`
   if (r.tab === 'cards') {
     if (r.place) {
       return r.placeDatasetId
         ? `#/cards/place?dataset=${encodeURIComponent(r.placeDatasetId)}`
         : '#/cards/place'
+    }
+    if (r.datasetPageId) return `#/cards/d/${encodeURIComponent(r.datasetPageId)}`
+    if (r.setNew) {
+      const params = new URLSearchParams()
+      if (r.setDatasetId) params.set('dataset', r.setDatasetId)
+      if (r.setClassIri) params.set('class', r.setClassIri)
+      const qs = params.toString()
+      return qs ? `#/cards/s/new?${qs}` : '#/cards/s/new'
     }
     if (r.subjectKey) {
       const kind = r.subjectKey.startsWith('s:') ? 's' : 'i'
@@ -357,10 +404,50 @@ function App() {
   }
 
   // Open the workbench on an existing dataset's design (the catalog "見直す" action).
-  function redesignDataset(target: RedesignTarget) {
+  // `returnTo` (契約メモ §2.6) は「データセットのページから入ったとき」だけ
+  // 呼び出し側が立てる — 置く画面から入る既存の経路（GalleryView の「見直す」）は
+  // 渡さないので、そちらの戻り先（カタログの当該データセット詳細）は変わらない。
+  function redesignDataset(target: RedesignTarget, returnTo?: string) {
     setGalleryFocus(null)
     setRedesignTarget(target)
-    navigate({ tab: 'workbench' })
+    navigate({ tab: 'workbench', returnTo })
+  }
+
+  // データセットのページの「定義を直す」「続きから」（契約メモ §2.2・§2.6）。
+  // 既存の「見直す」経路（fetchProposal → redesignDataset → WorkbenchView が消費）
+  // をそのまま流用し、完了・中止のどちらでも呼び出し元のデータセットのページへ
+  // 戻す（`returnTo` を workbench の Route に載せる）。
+  async function onDefine(datasetId: string) {
+    try {
+      const p = await fetchProposal(datasetId)
+      if (!p.has_proposal || !p.proposal_md.trim()) {
+        // 設計の下書き（proposal）が無いデータセット（同梱の見本・exchange で
+        // 受け取ったもの）はウィザードで直せない。黙って止まらず（K39）、
+        // 既存の設計画面（カタログ詳細の「設計」タブ）で定義を見せる。
+        openDataset(datasetId, 'design')
+        return
+      }
+      redesignDataset(
+        // K4: 生の id を人向けの文言に出さない — フォールバックはトップバーに
+        // 既に出ているデータセットのページの見出し（cardsLabel）。
+        { datasetId, datasetName: p.dataset_name || cardsLabel || datasetId, proposalMd: p.proposal_md },
+        routeToHash({ tab: 'cards', datasetPageId: datasetId }),
+      )
+    } catch {
+      // best-effort: 開けなくても致命的にしない（データセットのページに留まる）。
+    }
+  }
+
+  // WorkbenchTier/KantanWizard の唯一の「戻る」出口（完了の grow 導線・見直しの
+  // やめる/この単位でよい、両方がここを通る）。`route.returnTo` が立っていれば
+  // そこへ（データセットのページから入った見直し）、無ければ従来どおりカタログの
+  // 当該データセット詳細へ（置く画面・カタログから入った既存の経路）。
+  function onWorkbenchDone(id: string, tab?: DetailTab, focus?: DetailFocus) {
+    if (route.returnTo) {
+      navigate(parseHash(route.returnTo))
+      return
+    }
+    openDataset(id, tab, focus)
   }
 
   // Manual nav clears any pending vocabulary focus.
@@ -410,7 +497,7 @@ function App() {
 
           <nav className="side-nav">
             {tab === 'cards' ? (
-              <SubjectRail navigate={navigate} />
+              <SubjectRail route={route} navigate={navigate} />
             ) : (
               <div className="side-nav-group">
                 {NAV_ITEMS.map((it) => {
@@ -520,7 +607,7 @@ function App() {
               <WorkbenchTier
                 redesignTarget={redesignTarget}
                 onRedesignConsumed={() => setRedesignTarget(null)}
-                onOpenDataset={openDataset}
+                onOpenDataset={onWorkbenchDone}
                 onOpenAsk={openAsk}
                 onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
               />
@@ -577,7 +664,13 @@ function App() {
             {tab === 'sparql' && <SparqlView />}
             {tab === 'cardsdemo' && <CardsGallery />}
             {tab === 'cards' && (
-              <CardsView route={route} navigate={navigate} onAsk={openAsk} onLabel={setCardsLabel} />
+              <CardsView
+                route={route}
+                navigate={navigate}
+                onAsk={openAsk}
+                onLabel={setCardsLabel}
+                onDefine={onDefine}
+              />
             )}
           </main>
         </div>

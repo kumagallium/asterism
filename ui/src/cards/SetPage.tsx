@@ -4,18 +4,39 @@
 // 画面に開く。
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { defaultCardsForSet, resolveSet, runCard } from './cardsApi'
-import type { CardRef, CardToolResult, SetResolveResult, SetSpec } from './cardsApi'
+import { classSchema, datasetSummary, defaultCardsForSet, resolveSet, runCard } from './cardsApi'
+import type {
+  CardRef,
+  ClassSchema,
+  CardToolResult,
+  DatasetSummary,
+  SetResolveResult,
+  SetSpec,
+  SubjectItem,
+  SubjectKey,
+} from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
 import './pages.css'
 import { SetForm } from './SetForm'
 import { formatSetSubtitle, formatSetTitle } from './setTitle'
+import { addSubjectAndPersist } from './subjectStore'
+
+/** `App.tsx`（ui-rail）の実 `navigate` を汎用に受ける（`PlaceView.tsx` の
+ *  `PlaceNavigateFn` と同じ理由 — `Route` を直接 import すると循環になる）。 */
+export type DatasetNavigateFn = (route: { tab: string; [key: string]: unknown }) => void
 
 export interface SetPageProps {
-  setId: string
-  spec: SetSpec
+  /** 既存の絞り込みを開くとき（`spec`/`setId` が揃っている通常モード）。 */
+  setId?: string
+  spec?: SetSpec | null
+  /** 新規作成モード（契約メモ §2.3・§2.4「条件で集める」）。`spec` がまだ無い —
+   *  `class` が無ければ `datasetSummary` の種類から選ばせる 1 段を先に出す。 */
+  newFor?: { datasetId: string; classIri?: string }
+  /** `newFor` のときの画面遷移。`App.tsx`（ui-rail）の実 `navigate` を汎用に
+   *  受ける（`PlaceView.tsx`/`DatasetPage.tsx` と同じ理由）。 */
+  navigate?: DatasetNavigateFn
   /** URL の `…/c/<card_id>` — 指定があればカード詳細を表示する。 */
   cardId?: string
   onSelectCard: (cardId: string) => void
@@ -26,6 +47,8 @@ export interface SetPageProps {
   onFiltersChanged: (result: SetResolveResult) => void
   onAsk: (question: string) => void
   onEditDefinition: (datasetId: string) => void
+  /** パンくずの「<データセットの名前>」から（契約メモ §2.3）。 */
+  onOpenDataset?: (datasetId: string) => void
 }
 
 /** 絞り込みの読み込み結果。`specKey` で紐づけ、then/catch でだけ書き込む —
@@ -53,6 +76,8 @@ export function valueFromCountResult(result: CardToolResult): number | null {
 export function SetPage({
   setId,
   spec,
+  newFor,
+  navigate,
   cardId,
   onSelectCard,
   onCloseCard,
@@ -60,6 +85,7 @@ export function SetPage({
   onFiltersChanged,
   onAsk,
   onEditDefinition,
+  onOpenDataset,
 }: SetPageProps) {
   const { t } = useTranslation('cards')
   const [loaded, setLoaded] = useState<SetLoadState>(EMPTY_SET_LOAD)
@@ -69,7 +95,7 @@ export function SetPage({
   })
   const [askText, setAskText] = useState('')
   const [exporting, setExporting] = useState(false)
-  const specKey = JSON.stringify(spec)
+  const specKey = spec ? JSON.stringify(spec) : ''
 
   // specKey が変わったら「条件を変える」フォームを閉じる（React の「prop が
   // 変わったら state を調整する」パターン — effect を使わない）。
@@ -80,7 +106,73 @@ export function SetPage({
     setEditing(false)
   }
 
+  // 新規作成モード（契約メモ §2.3・§2.4）専用の状態: class を選ぶ段・作成後の
+  // dataset_label/origin 用にデータセット要約を読む。
+  const [newSummaryState, setNewSummaryState] = useState<{ datasetId: string; summary: DatasetSummary | null }>({
+    datasetId: '',
+    summary: null,
+  })
+  const [newClassIri, setNewClassIri] = useState<string | undefined>(newFor?.classIri)
+  // newFor.classIri が prop 側で変わったら追随する（同じく「prop が変わったら
+  // state を調整する」パターン）。
+  const [newClassFor, setNewClassFor] = useState(newFor?.classIri)
+  if (newClassFor !== newFor?.classIri) {
+    setNewClassFor(newFor?.classIri)
+    setNewClassIri(newFor?.classIri)
+  }
+
   useEffect(() => {
+    if (!newFor) return
+    let cancelled = false
+    datasetSummary(newFor.datasetId)
+      .then((s) => {
+        if (!cancelled) setNewSummaryState({ datasetId: newFor.datasetId, summary: s })
+      })
+      .catch(() => {
+        if (!cancelled) setNewSummaryState({ datasetId: newFor.datasetId, summary: null })
+      })
+    return () => {
+      cancelled = true
+    }
+    // newFor.classIri は class 選択の結果でしかない — 要約の再取得は datasetId
+    // が変わったときだけでよい。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newFor?.datasetId])
+
+  // パンくず「<データセットの名前>」用（契約メモ §2.3）: class_schema から
+  // dataset_id・dataset_label を引く。`dataset_label` はまだ cardsApi.ts の
+  // 型に無いため、ローカルに拡張して読む（統合段で api が足す・契約メモ §3.3）。
+  const [datasetRef, setDatasetRef] = useState<{
+    classIri: string
+    datasetId: string | null
+    datasetLabel: string | null
+  }>({ classIri: '', datasetId: null, datasetLabel: null })
+
+  useEffect(() => {
+    if (!spec) return
+    let cancelled = false
+    classSchema(spec.class)
+      .then((schema) => {
+        if (cancelled || !schema) return
+        const withLabel = schema as ClassSchema & { dataset_label?: string | null }
+        setDatasetRef({
+          classIri: spec.class,
+          datasetId: withLabel.dataset_id,
+          datasetLabel: withLabel.dataset_label ?? null,
+        })
+      })
+      .catch(() => {
+        // パンくずの補助情報 — 読めなくても本文の表示は変えない。
+      })
+    return () => {
+      cancelled = true
+    }
+    // spec の中身は spec.class（この effect が使う唯一の値）で表せる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec?.class])
+
+  useEffect(() => {
+    if (!spec) return
     let cancelled = false
     Promise.all([resolveSet(spec), defaultCardsForSet(spec)])
       .then(([r, c]) => {
@@ -103,7 +195,7 @@ export function SetPage({
 
   // 見出しの「N 件から」— set_count は必ず含まれる既定カード。
   useEffect(() => {
-    if (!cards) return
+    if (!cards || !spec) return
     const countCard = cards.find((c) => c.tool === 'set_count')
     if (!countCard) return
     let cancelled = false
@@ -125,9 +217,77 @@ export function SetPage({
 
   // spec の中身は specKey（JSON 文字列）で表せる — spec 自体はレンダリングの
   // たびに参照が変わりうるので依存に入れない（specKey が同じなら中身も同じ）。
+  // `newFor` モード（spec がまだ無い）では subjectKey は描画に使わず下で
+  // return するため、ここでの `as SetSpec` は安全（SubjectKey.spec は必須）。
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const subjectKey = useMemo(() => ({ kind: 'set' as const, set_id: setId, spec }), [setId, specKey])
+  const subjectKey: SubjectKey = useMemo(() => ({ kind: 'set' as const, set_id: setId ?? '', spec: (spec ?? undefined) as SetSpec }), [setId, specKey])
   const title = useMemo(() => (resolved ? formatSetTitle(resolved.title, t) : null), [resolved, t])
+
+  // ---- 新規作成モード（契約メモ §2.3・§2.4）: spec がまだ無い ----------------
+  if (newFor && !spec) {
+    const summaryForNew = newSummaryState.datasetId === newFor.datasetId ? newSummaryState.summary : null
+    if (!newClassIri) {
+      if (!summaryForNew) return <p className="ds-empty-note">{t('page.loading')}</p>
+      return (
+        <div className="cardpage-body">
+          <h2 className="cardpage-title">{t('dataset.collect')}</h2>
+          <div className="cardpage-setform">
+            <p className="cardpage-setform-label">{t('dataset.by_kind')}</p>
+            <div className="cardpage-setform-choices">
+              {summaryForNew.classes.map((c) => (
+                <button
+                  key={c.class_iri}
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => setNewClassIri(c.class_iri)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <div className="cardpage-setform-actions">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => navigate?.({ tab: 'cards', datasetPageId: newFor.datasetId })}
+              >
+                {t('setform.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="cardpage-body">
+        <h2 className="cardpage-title">{t('dataset.collect')}</h2>
+        <SetForm
+          classIri={newClassIri}
+          onCancel={() => navigate?.({ tab: 'cards', datasetPageId: newFor.datasetId })}
+          onSubmit={(result) => {
+            const item: SubjectItem = {
+              kind: 'set',
+              id: result.set_id,
+              label: formatSetTitle(result.title, t),
+              class_label: result.title.class_label,
+              source: summaryForNew?.origin === 'own' ? 'own' : 'open',
+              card_count: null,
+              match: null,
+              subject_key: `s:${result.set_id}`,
+              spec: result.spec,
+              created_at: new Date().toISOString(),
+              ...(summaryForNew ? { dataset_id: newFor.datasetId, dataset_label: summaryForNew.label } : {}),
+            } as SubjectItem
+            addSubjectAndPersist(item)
+            navigate?.({ tab: 'cards', subjectKey: `s:${result.set_id}` })
+          }}
+        />
+      </div>
+    )
+  }
+
+  const breadcrumbDatasetLabel = spec && datasetRef.classIri === spec.class ? datasetRef.datasetLabel : null
+  const breadcrumbDatasetId = spec && datasetRef.classIri === spec.class ? datasetRef.datasetId : null
 
   if (cardId) {
     if (!cards) return <p className="ds-empty-note">{t('page.loading')}</p>
@@ -145,7 +305,7 @@ export function SetPage({
     return (
       <CardDetail
         subject={subjectKey}
-        breadcrumbLabel={title ?? resolved?.title.class_label ?? setId}
+        breadcrumbLabel={title ?? resolved?.title.class_label ?? setId ?? ''}
         card={selectedCard}
         onBack={onCloseCard}
         onAsk={onAsk}
@@ -155,7 +315,7 @@ export function SetPage({
   }
 
   if (loadError) return <p className="ds-empty-note">{t('render_error')}</p>
-  if (!resolved || !cards) return <p className="ds-empty-note">{t('page.loading')}</p>
+  if (!resolved || !cards || !spec) return <p className="ds-empty-note">{t('page.loading')}</p>
 
   const label = title ?? resolved.title.class_label
 
@@ -163,6 +323,19 @@ export function SetPage({
     <div className="cardpage-body">
       <div className="cardpage-head">
         <div>
+          {breadcrumbDatasetLabel && breadcrumbDatasetId && (
+            <div className="cardpage-crumb">
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => onOpenDataset?.(breadcrumbDatasetId)}
+              >
+                {breadcrumbDatasetLabel}
+              </button>
+              {' › '}
+              {label}
+            </div>
+          )}
           <h2 className="cardpage-title">
             {label}
             <small className="cardpage-subhead">{formatSetSubtitle(resolved.title.class_label, total, t)}</small>

@@ -51,6 +51,9 @@ from asterism import (
     shapes,
     substrate,
 )
+from asterism import (
+    dataset_summary as dataset_summary_mod,
+)
 from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.metadata import (
@@ -150,6 +153,7 @@ from asterism_api import describe as describe_mod
 from asterism_api import usage as usage_ledger
 from asterism_api.cards_routes import register_cards
 from asterism_api.class_schema_routes import register_class_schema
+from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
@@ -6465,9 +6469,18 @@ def build_app(
 
     @app.get("/api/datasets")
     async def list_datasets() -> dict[str, object]:
-        """List materialized datasets (newest first) for the Gallery."""
+        """List materialized datasets (newest first) for the Gallery.
+
+        Each item also carries ``origin``/``stage``/``is_demo``
+        (契約メモ contract_pr_f2.md §3.4) via
+        :func:`asterism.dataset_summary.list_entry_extras` — existing fields
+        are never dropped.
+        """
         items = registry.list_datasets(cfg.registry_root)
-        return {"count": len(items), "datasets": items}
+        return {
+            "count": len(items),
+            "datasets": [{**item, **dataset_summary_mod.list_entry_extras(item)} for item in items],
+        }
 
     @app.get("/api/datasets/{dataset_id}")
     async def get_dataset(dataset_id: str) -> dict[str, object]:
@@ -9704,6 +9717,7 @@ def build_app(
     register_place(app, cfg)
     register_license(app, cfg)
     register_export(app, cfg)
+    register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）
 
     return app
 

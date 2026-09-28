@@ -10,6 +10,7 @@ tiny fake that exposes only the async methods ``build_app``'s lifespan and
 these routes actually call — real end-to-end SPARQL, no httpx body-matching
 per query shape. Fixture data spans two unrelated fictional domains (§0).
 """
+
 from __future__ import annotations
 
 import json
@@ -601,6 +602,44 @@ def test_subjects_search_empty_query_returns_empty(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/subjects/search?dataset_id=... (契約メモ contract_pr_f2.md §3.2)
+# ---------------------------------------------------------------------------
+
+
+def test_subjects_search_dataset_id_matching_dataset_still_finds_results(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"q": "checkout", "dataset_id": LIB_DATASET})
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert {i["iri"] for i in items} == {CHECKOUT_1, CHECKOUT_2}
+
+
+def test_subjects_search_dataset_id_scoped_to_a_different_dataset_finds_nothing(
+    tmp_path: Path,
+) -> None:
+    # 形は正しいが、この checkout データはそのデータセットの版グラフに無い
+    # （§3.2: dataset_id 指定時は FROM をそのデータセットに限定する）。
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={"q": "checkout", "dataset_id": "some-other-dataset"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"items": []}
+
+
+def test_subjects_search_malformed_dataset_id_is_400(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={"q": "checkout", "dataset_id": "Not/A-Valid Id"},
+        )
+        assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # GET /api/subjects/default-cards / GET /api/sets/default-cards
 # ---------------------------------------------------------------------------
 
@@ -724,6 +763,11 @@ def test_sets_resolve_returns_set_id_and_title(tmp_path: Path) -> None:
         assert body["title"]["clauses"] == [
             {"property_label": "branch", "op": "eq", "value": "north", "unit": None}
         ]
+        # 契約メモ contract_pr_f2.md §3.3: 既存フィールドは削らず dataset_label
+        # を足す。この fixture の CHECKOUT_CLASS はどの mapping.yaml にも
+        # 宣言が無いので class_schema は所有データセットを見つけられず null
+        # （値そのものの解決は ingest/tests/test_subjects.py が担う）。
+        assert body["dataset_label"] is None
 
 
 def test_sets_resolve_class_label_uses_model_yaml_over_ontology_local_name(
@@ -749,9 +793,7 @@ def test_sets_resolve_class_label_uses_model_yaml_over_ontology_local_name(
     app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
     register_cards(app, settings)
     with TestClient(app, headers=_AUTH) as client:
-        r = client.post(
-            "/api/sets/resolve", json={"spec": {"class": stall_class, "where": []}}
-        )
+        r = client.post("/api/sets/resolve", json={"spec": {"class": stall_class, "where": []}})
         assert r.status_code == 200, r.text
         assert r.json()["title"]["class_label"] == "屋台"
 

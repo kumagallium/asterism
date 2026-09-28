@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from asterism.class_schema import class_schema
+from asterism.subjects import resolve_dataset_label
 from fastapi import FastAPI, HTTPException, Query
 
 from asterism_api.cards_routes import _run_read
@@ -43,4 +44,12 @@ def register_class_schema(app: FastAPI, cfg: Settings) -> None:
         schema = await class_schema(client, cfg.registry_root, class_iri)
         if schema is None:
             raise HTTPException(404, f"unknown class_iri: {class_iri}")
+        # 契約メモ contract_pr_f2.md §3.3: dataset_label を §3.1 と同じ解決で足す
+        # （既存フィールドは削らない・無ければ null）。
+        dataset_id = schema.get("dataset_id")
+        schema["dataset_label"] = (
+            resolve_dataset_label(cfg.registry_root, dataset_id)
+            if isinstance(dataset_id, str) and dataset_id
+            else None
+        )
         return schema

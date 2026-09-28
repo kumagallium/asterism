@@ -26,6 +26,9 @@
     "searchTitle": "Search open data by name",
     "searchButton": "Search",
     "sampleIntro": "Sample: Countries of the world (Gapminder). Drop your own file and it lines up the same way",
+    "samplePrefix": "Sample: ",
+    "sampleLinkLabel": "Countries of the world (Gapminder)",
+    "sampleSuffix": ". Drop your own file and it lines up the same way",
     "viewSampleGallery": "See the sample"
   },
   "rail": {
@@ -45,7 +48,35 @@
     "legend_set": "A condition-based list",
     "advancedSettings": "Define what the data means (columns, units, names)",
     "kindSet": "List",
-    "sampleBadge": "Sample"
+    "sampleBadge": "Sample",
+    "state_draft": "Not defined yet",
+    "state_ingesting": "Ingesting",
+    "other_section": "Other",
+    "collect": "+ Make a condition-based list",
+    "collapse": "Collapse",
+    "expand": "Expand"
+  },
+  "dataset": {
+    "section_meaning": "Define what the data means",
+    "meaning_ok": "{{classes}} kinds · {{properties}} properties ({{withLabel}} named · {{withUnit}} with units)",
+    "meaning_pending": "Not ingested yet",
+    "define": "Edit the definition",
+    "resume": "Resume",
+    "details": "More details",
+    "contents": "What's inside",
+    "open_one": "Open one",
+    "collect": "Make a condition-based list",
+    "by_kind": "By kind",
+    "count": "{{count}}",
+    "kind_row": "{{label}} ({{count}})",
+    "empty": "\"Open one\" or \"Make a condition-based list\" will fill this in",
+    "origin_own": "My data",
+    "origin_open": "Open data",
+    "origin_unknown": "Origin not checked yet",
+    "origin_with_note": "{{origin}} ({{note}})",
+    "license": "License {{license}}",
+    "version": "Version {{snapshot}}",
+    "join": " · "
   },
   "place": {
     "reading": "Read {{name}}",

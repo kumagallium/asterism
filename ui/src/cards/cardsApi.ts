@@ -165,8 +165,15 @@ export interface SubjectSearchItem {
   dataset_id: string | null
 }
 
-export async function searchSubjects(q: string, limit = 20): Promise<SubjectSearchItem[]> {
+/** `dataset_id` を渡すとそのデータセットの version graph に限定する（契約メモ
+ *  §3.2・データセットのページの「1 件を開く」）。無指定は今までどおり全体から。 */
+export async function searchSubjects(
+  q: string,
+  limit = 20,
+  datasetId?: string,
+): Promise<SubjectSearchItem[]> {
   const params = new URLSearchParams({ q, limit: String(limit) })
+  if (datasetId) params.set('dataset_id', datasetId)
   const res = await fetch(`/api/subjects/search?${params.toString()}`)
   if (!res.ok) await throwApiError(res, 'subject search')
   const data = (await res.json()) as { items?: SubjectSearchItem[] }
@@ -210,6 +217,9 @@ export interface SetResolveResult {
   spec: SetSpec
   /** i18n は ui 側でやる — api は構造だけ返す。 */
   title: { class_label: string; clauses: SetResolveClause[] }
+  /** データセットのページのパンくず用（契約メモ §3.3・データセットの表示名）。
+   *  api がまだ返さない間は `undefined` のまま。 */
+  dataset_label?: string | null
 }
 
 export async function resolveSet(spec: SetSpec): Promise<SetResolveResult> {
@@ -249,6 +259,10 @@ export interface ClassSchema {
   snapshot: string | null
   properties: SchemaProperty[]
   tools: unknown[]
+  /** 契約メモ §3.3。データセットの表示名（subjectStore.ts の埋め戻し・
+   *  データセットのページのパンくずで使う）。api がまだ返さない間は
+   *  `undefined` のまま。 */
+  dataset_label?: string | null
 }
 
 /** `GET /api/classes/schema?class_iri=…`。無ければ 404 → null（例外にしない —
@@ -359,6 +373,12 @@ export interface SubjectItem {
   subject_key: string
   /** kind === 'set' のときの絞り込み仕様。 */
   spec?: SetSpec
+  /** 親のデータセット（契約メモ §2.1・左レールの木の枝分け）。既存の保存済み
+   *  項目には無いことがある — subjectStore.ts が読み込み時に 1 回だけ埋め戻す
+   *  （`resolveSubject`/`classSchema` から）。無ければレールの「その他」節。 */
+  dataset_id?: string
+  /** データセットの表示名（人向け・K4: dataset_id そのものは出さない）。 */
+  dataset_label?: string
   created_at: string
   /** appdata 保存だけで使う uuid4（§5: 「1 ファイル = SubjectItem 1 つ、
    *  thread_id = uuid4」）。`id`（IRI/set_id）は appdata のファイル名として使えない
@@ -470,6 +490,81 @@ export async function putDatasetLicense(
   })
   if (!res.ok) await throwApiError(res, 'dataset license')
   return (await res.json()) as DatasetLicenseResult
+}
+
+// ---------------------------------------------------------------------------
+// PR F2 §2.1・§2.2・§3.1・§3.4: 左レールの木・データセットのページ
+// ---------------------------------------------------------------------------
+
+/** `GET /api/datasets` の一覧（契約メモ §3.4）。カタログの重い形
+ *  （`galleryApi.ts` の `CatalogDataset` — mermaid・alignment 込み）とは別の、
+ *  レールの木を組むためだけの薄い形。`origin`/`is_demo`/`stage` は api がまだ
+ *  返さない間はここで安全側に倒す（`unknown`/`false`/`ingested|promoted` から
+ *  推定）。 */
+export interface CardsDatasetSummary {
+  id: string
+  name: string
+  origin: 'own' | 'open' | 'unknown'
+  is_demo: boolean
+  stage: 'design' | 'ingested' | 'promoted'
+}
+
+function toDatasetOrigin(value: unknown): 'own' | 'open' | 'unknown' {
+  return value === 'own' || value === 'open' ? value : 'unknown'
+}
+
+function toDatasetStage(raw: Record<string, unknown>): 'design' | 'ingested' | 'promoted' {
+  const stage = raw.stage
+  if (stage === 'design' || stage === 'ingested' || stage === 'promoted') return stage
+  // api がまだ `stage` を返さない間の後方互換（`ingested`/`promoted` 既存フラグから）。
+  if (raw.promoted === true) return 'promoted'
+  if (raw.ingested === true) return 'ingested'
+  return 'design'
+}
+
+export async function listDatasets(): Promise<CardsDatasetSummary[]> {
+  const res = await fetch('/api/datasets')
+  if (!res.ok) await throwApiError(res, 'datasets list')
+  const body = (await res.json()) as { datasets?: Record<string, unknown>[] }
+  const list = Array.isArray(body.datasets) ? body.datasets : []
+  return list.map((raw) => ({
+    id: String(raw.id ?? ''),
+    name: typeof raw.name === 'string' && raw.name ? raw.name : String(raw.id ?? ''),
+    origin: toDatasetOrigin(raw.origin),
+    is_demo: raw.is_demo === true,
+    stage: toDatasetStage(raw),
+  }))
+}
+
+/** `GET /api/datasets/{id}/summary`（契約メモ §3.1）の 1 種類分の内訳。 */
+export interface DatasetSummaryClass {
+  class_iri: string
+  label: string
+  count: number
+  properties: number
+  with_label: number
+  with_unit: number
+}
+
+/** データセットのページ（`DatasetPage.tsx`・ui-page 担当）が読む形。 */
+export interface DatasetSummary {
+  dataset_id: string
+  label: string
+  origin: 'own' | 'open' | 'unknown'
+  stage: string
+  license: string | null
+  snapshot: string | null
+  source_note: string | null
+  classes: DatasetSummaryClass[]
+  is_demo: boolean
+}
+
+export async function datasetSummary(datasetId: string): Promise<DatasetSummary> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/summary`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'dataset summary')
+  return (await res.json()) as DatasetSummary
 }
 
 // ---------------------------------------------------------------------------

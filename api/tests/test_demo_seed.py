@@ -85,9 +85,7 @@ def _patch_success_pipeline(
         assert staged_iri == _STAGED_IRI
         return {"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}}
 
-    async def fake_promote_to_canonical(
-        client: Any, dataset_key: str, staged_graph: str
-    ) -> None:
+    async def fake_promote_to_canonical(client: Any, dataset_key: str, staged_graph: str) -> None:
         recorder.calls.append("promote_to_canonical")
         assert staged_graph == _STAGED_IRI
 
@@ -155,6 +153,11 @@ def test_seed_runs_import_then_promote_internals_in_order(
     assert individual["class_label"] == "国"
     assert individual["source"] == "open"
     assert individual["subject_key"] == f"i:{_JAPAN_IRI}"
+    # 契約メモ contract_pr_f2.md §2.1: 左レールがデータセットごとに子を束ねる
+    # ための紐付け（レジストリに何も無い状態なので dataset_label は id への
+    # フォールバック — 実際の見本ファイルがある起動では表示名になる）。
+    assert individual["dataset_id"] == _DATASET_ID
+    assert individual["dataset_label"] == _DATASET_ID
     the_set = next(item for item in written if item["kind"] == "set")
     assert the_set["label"] == "東アジア・太平洋の国"
     assert the_set["spec"]["class"] == _COUNTRY_CLASS_IRI
@@ -163,6 +166,31 @@ def test_seed_runs_import_then_promote_internals_in_order(
     ]
     assert the_set["spec"]["source_scope"] == "open"
     assert the_set["subject_key"] == f"s:{the_set['id']}"
+    assert the_set["dataset_id"] == _DATASET_ID
+    assert the_set["dataset_label"] == _DATASET_ID
+
+
+def test_seed_dataset_label_resolves_from_the_registry_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``dataset_id`` は常に ``world`` 固定だが、``dataset_label`` はレジストリ
+    の表示名を引く（契約メモ §2.1 の ``resolve_dataset_label`` 再利用）— 実際の
+    起動では ``import_snapshot`` が書いた ``meta.json`` がここに乗る。"""
+    home = tmp_path / "home"
+    home.mkdir()
+    cfg = _settings(tmp_path)
+    dataset_dir = cfg.registry_root / _DATASET_ID
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "meta.json").write_text(
+        '{"id": "world", "name": "世界の国 (Gapminder)"}', encoding="utf-8"
+    )
+    recorder = _Recorder()
+    written = _patch_success_pipeline(monkeypatch, recorder)
+    monkeypatch.setattr(local, "find_world_snapshot", lambda: _fake_snapshot(tmp_path))
+
+    asyncio.run(local.seed_demo_dataset(home, cfg, client=object()))
+
+    assert all(item["dataset_label"] == "世界の国 (Gapminder)" for item in written)
 
 
 def test_second_run_is_a_no_op(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,9 +218,7 @@ def test_skips_when_registry_already_has_a_dataset(
     recorder = _Recorder()
     _patch_success_pipeline(monkeypatch, recorder)
     monkeypatch.setattr(local, "find_world_snapshot", lambda: _fake_snapshot(tmp_path))
-    monkeypatch.setattr(
-        local.registry, "list_datasets", lambda root: [{"id": "already-here"}]
-    )
+    monkeypatch.setattr(local.registry, "list_datasets", lambda root: [{"id": "already-here"}])
 
     asyncio.run(local.seed_demo_dataset(home, cfg, client=object()))
 
@@ -200,9 +226,7 @@ def test_skips_when_registry_already_has_a_dataset(
     assert not (home / "demo-seeded").is_file()
 
 
-def test_skips_when_env_disables_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_skips_when_env_disables_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     cfg = _settings(tmp_path)
@@ -217,9 +241,7 @@ def test_skips_when_env_disables_it(
     assert not (home / "demo-seeded").is_file()
 
 
-def test_skips_when_not_single_user(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_skips_when_not_single_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     cfg = _settings(tmp_path, single_user=False)
@@ -256,9 +278,7 @@ def test_survives_import_exception_and_does_not_mark(
     assert not (home / "demo-seeded").is_file()  # 次回起動でやり直せる
 
 
-def test_skips_when_no_snapshot_is_found(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_skips_when_no_snapshot_is_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     cfg = _settings(tmp_path)
@@ -303,7 +323,11 @@ def test_missing_japan_skips_starter_subjects_but_still_marks(
 
 def test_demo_subject_items_shape() -> None:
     items = local._demo_subject_items(
-        _JAPAN_IRI, _COUNTRY_CLASS_IRI, _REGION_PROP_IRI
+        _JAPAN_IRI,
+        _COUNTRY_CLASS_IRI,
+        _REGION_PROP_IRI,
+        dataset_id=_DATASET_ID,
+        dataset_label="世界の国 (Gapminder)",
     )
     assert [item["kind"] for item in items] == ["individual", "set"]
     individual, region_set = items
@@ -311,9 +335,18 @@ def test_demo_subject_items_shape() -> None:
     assert individual["thread_id"] != region_set["thread_id"]  # 別ファイル
     assert region_set["spec"]["limit"] == 20
     assert region_set["spec"]["order_by"] is None
+    # 契約メモ contract_pr_f2.md §2.1: レールが子を束ねるための紐付け。
+    assert individual["dataset_id"] == _DATASET_ID
+    assert individual["dataset_label"] == "世界の国 (Gapminder)"
+    assert region_set["dataset_id"] == _DATASET_ID
+    assert region_set["dataset_label"] == "世界の国 (Gapminder)"
     # set_id は spec の決定論ハッシュ — 同じ入力なら毎回同じ id になる。
     again = local._demo_subject_items(
-        _JAPAN_IRI, _COUNTRY_CLASS_IRI, _REGION_PROP_IRI
+        _JAPAN_IRI,
+        _COUNTRY_CLASS_IRI,
+        _REGION_PROP_IRI,
+        dataset_id=_DATASET_ID,
+        dataset_label="世界の国 (Gapminder)",
     )
     assert again[1]["id"] == region_set["id"]
 
@@ -335,9 +368,7 @@ def test_find_demo_japan_subject_parses_sparql_bindings() -> None:
                 }
             }
 
-    found = asyncio.run(
-        local._find_demo_japan_subject(_FakeClient(), _STAGED_IRI)
-    )
+    found = asyncio.run(local._find_demo_japan_subject(_FakeClient(), _STAGED_IRI))
     assert found == (_JAPAN_IRI, _COUNTRY_CLASS_IRI, _REGION_PROP_IRI)
 
 
@@ -346,9 +377,7 @@ def test_find_demo_japan_subject_returns_none_when_absent() -> None:
         async def sparql_select(self, query: str) -> dict[str, Any]:
             return {"results": {"bindings": []}}
 
-    found = asyncio.run(
-        local._find_demo_japan_subject(_EmptyClient(), _STAGED_IRI)
-    )
+    found = asyncio.run(local._find_demo_japan_subject(_EmptyClient(), _STAGED_IRI))
     assert found is None
 
 
@@ -362,9 +391,7 @@ def _fake_repo_layout(tmp_path: Path) -> tuple[Path, Path]:
     fake_file = tmp_path / "api" / "src" / "asterism_api" / "local.py"
     fake_file.parent.mkdir(parents=True)
     fake_file.write_text("# stand-in for local.py's own path", encoding="utf-8")
-    repo_snapshot = (
-        fake_file.resolve().parents[3] / "datasets" / "world" / "snapshot.tar"
-    )
+    repo_snapshot = fake_file.resolve().parents[3] / "datasets" / "world" / "snapshot.tar"
     return fake_file, repo_snapshot
 
 

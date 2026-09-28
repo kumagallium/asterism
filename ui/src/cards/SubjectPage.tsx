@@ -38,6 +38,10 @@ export interface SubjectPageProps {
   onOpenSubject: (iri: string) => void
   onAsk: (question: string) => void
   onEditDefinition: (datasetId: string) => void
+  /** パンくずの「<データセットの名前>」から（契約メモ §2.3）。`dataset_label`
+   *  が無ければパンくず自体を出さない（K4: dataset_id からは組み立てない）ので
+   *  呼ばれない。 */
+  onOpenDataset?: (datasetId: string) => void
 }
 
 interface FactsSummary {
@@ -69,6 +73,7 @@ export function SubjectPage({
   onOpenSubject,
   onAsk,
   onEditDefinition,
+  onOpenDataset,
 }: SubjectPageProps) {
   const { t } = useTranslation('cards')
   const [loaded, setLoaded] = useState<SubjectLoadState>(EMPTY_LOAD)
@@ -195,6 +200,19 @@ export function SubjectPage({
     <div className="cardpage-body">
       <div className="cardpage-head">
         <div>
+          {resolved.dataset_label && resolved.dataset_id && (
+            <div className="cardpage-crumb">
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => onOpenDataset?.(resolved.dataset_id as string)}
+              >
+                {resolved.dataset_label}
+              </button>
+              {' › '}
+              {label}
+            </div>
+          )}
           <h2 className="cardpage-title">
             {label}
             <small className="cardpage-subhead">

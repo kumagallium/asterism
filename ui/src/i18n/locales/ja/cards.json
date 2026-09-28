@@ -26,6 +26,9 @@
     "searchTitle": "公開データを名前でさがす",
     "searchButton": "さがす",
     "sampleIntro": "見本: 世界の国（Gapminder）。あなたのファイルを置くと同じ形で並びます",
+    "samplePrefix": "見本: ",
+    "sampleLinkLabel": "世界の国（Gapminder）",
+    "sampleSuffix": "。あなたのファイルを置くと同じ形で並びます",
     "viewSampleGallery": "見本を見る"
   },
   "rail": {
@@ -45,7 +48,35 @@
     "legend_set": "条件で集めた一覧",
     "advancedSettings": "データの意味を定義する（列・単位・名前）",
     "kindSet": "一覧",
-    "sampleBadge": "見本"
+    "sampleBadge": "見本",
+    "state_draft": "まだ意味を定義していません",
+    "state_ingesting": "取り込み中",
+    "other_section": "その他",
+    "collect": "＋ 条件で集める",
+    "collapse": "たたむ",
+    "expand": "ひらく"
+  },
+  "dataset": {
+    "section_meaning": "データの意味を定義する",
+    "meaning_ok": "種類 {{classes}} ・ 項目 {{properties}}（名前あり {{withLabel}} ・ 単位あり {{withUnit}}）",
+    "meaning_pending": "まだ取り込んでいません",
+    "define": "定義を直す",
+    "resume": "続きから",
+    "details": "詳しい情報",
+    "contents": "この中のもの",
+    "open_one": "1 件を開く",
+    "collect": "条件で集める",
+    "by_kind": "種類ごと",
+    "count": "{{count}} 件",
+    "kind_row": "{{label}}（{{count}} 件）",
+    "empty": "「1 件を開く」か「条件で集める」で、ここに並びます",
+    "origin_own": "自分のデータ",
+    "origin_open": "公開データ",
+    "origin_unknown": "出どころを確かめていない",
+    "origin_with_note": "{{origin}}（{{note}}）",
+    "license": "ライセンス {{license}}",
+    "version": "版 {{snapshot}}",
+    "join": "・"
   },
   "place": {
     "reading": "{{name}} を読みました",

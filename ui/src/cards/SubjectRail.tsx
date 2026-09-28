@@ -1,34 +1,100 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Route } from '../App'
 import {
+  classSchema,
+  listDatasets,
+  type CardsDatasetSummary,
   type SetResolveResult,
   type SubjectItem,
   type SubjectSearchItem,
   searchSubjects,
 } from './cardsApi'
-import { pickSampleSubjects } from './FirstScreen'
+import { buildRailTree, type RailChild, type RailDatasetNode } from './railTree'
 import './rail.css'
 import { SetForm } from './SetForm'
 import { subjectDisplayLabel } from './subjectLabel'
 import { formatSetTitle } from './setTitle'
-import { addSubjectAndPersist, sortSubjects, useSubjects } from './subjectStore'
+import { addSubjectAndPersist, useSubjects } from './subjectStore'
 
 export interface SubjectRailProps {
+  /** 展開の既定（契約メモ §2.1: 4 つ以上は「いま開いているページのデータセット」
+   *  だけ展開）を決めるために現在地を見る。 */
+  route: Route
   navigate: (route: Route, opts?: { replace?: boolean }) => void
 }
 
-/** 左の一覧（契約メモ §6.3）。自分のデータ（置いたファイル由来）とオープンデータ
- *  （さがして開いたもの）の 2 セクション。1 件は ●、絞り込みは ■（凡例参照）。 */
-export function SubjectRail({ navigate }: SubjectRailProps) {
+const EXPANDED_STORAGE = 'asterism.rail.expanded'
+
+function loadExpandedOverrides(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_STORAGE)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveExpandedOverrides(overrides: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(EXPANDED_STORAGE, JSON.stringify(overrides))
+  } catch {
+    /* private mode 等 — 表示は今回のセッションだけ効く */
+  }
+}
+
+/** いま開いているページのデータセット（契約メモ §2.1 の展開の既定）。 */
+function currentDatasetId(route: Route, subjects: SubjectItem[]): string | null {
+  if (route.datasetPageId) return route.datasetPageId
+  if (route.setDatasetId) return route.setDatasetId
+  if (route.subjectKey) {
+    return subjects.find((s) => s.subject_key === route.subjectKey)?.dataset_id ?? null
+  }
+  return null
+}
+
+/** 左の一覧（契約メモ contract_pr_f2.md §2.1）。親＝データセット、子＝その中の
+ *  1 件・条件で集めた一覧。データセットの出どころ（`GET /api/datasets`）で
+ *  「自分のデータ」「オープンデータ」に振り分け、appdata の主語をその
+ *  `dataset_id` で子として吊るす（木の組み立ては `railTree.ts` の純関数）。 */
+export function SubjectRail({ route, navigate }: SubjectRailProps) {
   const { t } = useTranslation('cards')
   const all = useSubjects()
-  const own = sortSubjects(all.filter((i) => i.source === 'own'))
-  const open = sortSubjects(all.filter((i) => i.source === 'open'))
-  // 見本の主語には小さく「見本」の印を出す（契約メモ §3）。
-  const sample = pickSampleSubjects(all)
-  const isSample = (item: SubjectItem): boolean =>
-    item.subject_key === sample.individual?.subject_key || item.subject_key === sample.set?.subject_key
+  const [datasets, setDatasets] = useState<CardsDatasetSummary[]>([])
+  const [expandedOverrides, setExpandedOverrides] = useState<Record<string, boolean>>(
+    loadExpandedOverrides,
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    listDatasets()
+      .then((d) => {
+        if (!cancelled) setDatasets(d)
+      })
+      .catch(() => {
+        /* best-effort: 取れなければ「自分のデータ」「オープンデータ」が空のまま */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const tree = buildRailTree({
+    datasets,
+    subjects: all,
+    currentDatasetId: currentDatasetId(route, all),
+    expandedOverrides,
+  })
+
+  function toggleExpanded(datasetId: string, expandedNow: boolean) {
+    setExpandedOverrides((cur) => {
+      const next = { ...cur, [datasetId]: !expandedNow }
+      saveExpandedOverrides(next)
+      return next
+    })
+  }
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SubjectSearchItem[] | null>(null)
@@ -42,6 +108,10 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
 
   function openSubject(item: SubjectItem) {
     navigate({ tab: 'cards', subjectKey: item.subject_key })
+  }
+
+  function openChild(child: RailChild) {
+    navigate({ tab: 'cards', subjectKey: child.subjectKey })
   }
 
   async function onSearchSubmit(e: FormEvent) {
@@ -75,6 +145,7 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
       match: null,
       subject_key: `i:${result.iri}`,
       created_at: new Date().toISOString(),
+      dataset_id: result.dataset_id ?? undefined,
     }
     addSubjectAndPersist(item)
     setResults(null)
@@ -82,7 +153,17 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
     openSubject(item)
   }
 
-  function onSetSubmit(result: SetResolveResult) {
+  async function onSetSubmit(result: SetResolveResult) {
+    // 種類（class）から親のデータセットを引く（契約メモ §2.1: 新しく保存する
+    // ときは classSchema(spec.class).dataset_id から埋める）。取れなくても
+    // 致命的にしない — その場合はレールの「その他」節に出る。
+    let datasetId: string | undefined
+    try {
+      const schema = await classSchema(result.spec.class)
+      datasetId = schema?.dataset_id ?? undefined
+    } catch {
+      /* best-effort */
+    }
     // label は種類名だけでなく条件も含めた要約にする（同じ種類の絞り込みを
     // 見分けられるように・チェッカー指摘）。純関数 setTitle.ts の
     // formatSetTitle を使う（class_label と clauses から
@@ -98,6 +179,7 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
       subject_key: `s:${result.set_id}`,
       spec: result.spec,
       created_at: new Date().toISOString(),
+      dataset_id: datasetId,
     }
     addSubjectAndPersist(item)
     setFilterClass(null)
@@ -115,16 +197,20 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
     <div className="rail">
       <div className="rail-section">
         <h4 className="rail-section-title">{t('rail.own_title')}</h4>
-        {own.length === 0 ? (
+        {tree.own.length === 0 ? (
           <p className="rail-empty">{t('rail.own_empty')}</p>
         ) : (
-          <div className="rail-list">
-            {own.map((item) => (
-              <RailButton
-                key={item.subject_key}
-                item={item}
-                isSample={isSample(item)}
-                onClick={() => openSubject(item)}
+          <div className="rail-datasets">
+            {tree.own.map((node) => (
+              <DatasetRow
+                key={node.datasetId}
+                node={node}
+                onToggle={() => toggleExpanded(node.datasetId, node.expanded)}
+                onOpenDataset={() => navigate({ tab: 'cards', datasetPageId: node.datasetId })}
+                onOpenChild={openChild}
+                onCollect={() =>
+                  navigate({ tab: 'cards', setNew: true, setDatasetId: node.datasetId })
+                }
               />
             ))}
           </div>
@@ -186,19 +272,34 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
             onCancel={() => setFilterClass(null)}
           />
         )}
-        {open.length > 0 && (
-          <div className="rail-list">
-            {open.map((item) => (
-              <RailButton
-                key={item.subject_key}
-                item={item}
-                isSample={isSample(item)}
-                onClick={() => openSubject(item)}
+        {tree.open.length > 0 && (
+          <div className="rail-datasets">
+            {tree.open.map((node) => (
+              <DatasetRow
+                key={node.datasetId}
+                node={node}
+                onToggle={() => toggleExpanded(node.datasetId, node.expanded)}
+                onOpenDataset={() => navigate({ tab: 'cards', datasetPageId: node.datasetId })}
+                onOpenChild={openChild}
+                onCollect={() =>
+                  navigate({ tab: 'cards', setNew: true, setDatasetId: node.datasetId })
+                }
               />
             ))}
           </div>
         )}
       </div>
+
+      {tree.other.length > 0 && (
+        <div className="rail-section">
+          <h4 className="rail-section-title">{t('rail.other_section', { defaultValue: 'その他' })}</h4>
+          <div className="rail-list">
+            {tree.other.map((child) => (
+              <RailChildButton key={child.subjectKey} child={child} onClick={() => openChild(child)} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="rail-legend">
         <span className="rail-legend-item">
@@ -218,53 +319,87 @@ export function SubjectRail({ navigate }: SubjectRailProps) {
           {t('rail.legend_set')}
         </span>
       </div>
-
-      {/* 戻り道: 棚を作る側へ静かに（契約メモ §3・§5: 「使う｜棚を作る」ピルの
-          代わり）。 */}
-      <div className="rail-foot">
-        <button
-          type="button"
-          className="rail-foot-link"
-          onClick={() => navigate({ tab: 'home' })}
-        >
-          {t('rail.advancedSettings', { defaultValue: 'データの意味を定義する（列・単位・名前）' })}
-        </button>
-      </div>
     </div>
   )
 }
 
-function dotVariant(item: SubjectItem): 'link' | 'own' | 'amb' | 'set' {
-  if (item.kind === 'set') return 'set'
-  if (item.match === 'ambiguous') return 'amb'
-  if (item.match === 'own_only') return 'own'
+function dotVariantForChild(child: RailChild): 'link' | 'own' | 'amb' | 'set' {
+  if (child.kind === 'set') return 'set'
+  if (child.match === 'ambiguous') return 'amb'
+  if (child.match === 'own_only') return 'own'
   return 'link'
 }
 
-function RailButton({
-  item,
-  isSample,
-  onClick,
-}: {
-  item: SubjectItem
-  /** 見本（boot 仕込み）の主語かどうか — 小さく「見本」の印を出す（契約メモ §3）。 */
-  isSample: boolean
-  onClick: () => void
-}) {
+function RailChildButton({ child, onClick }: { child: RailChild; onClick: () => void }) {
   const { t } = useTranslation('cards')
-  // 項目に種類を小さく併記（「日本 · 国」「東アジア・太平洋の国 · 一覧」）。
-  // 個体は既に持っている class_label（例: 「国」）、絞り込みは種類を持たない
-  // ため固定語「一覧」。
-  const kindLabel = item.kind === 'set' ? t('rail.kindSet', { defaultValue: '一覧' }) : item.class_label
+  const kindLabel = child.kind === 'set' ? t('rail.kindSet', { defaultValue: '一覧' }) : child.kindLabel
   return (
     <button type="button" className="rail-item" onClick={onClick}>
-      <span className={`rail-dot rail-dot--${dotVariant(item)}`} aria-hidden="true" />
-      <span className="rail-item-label">{item.label ?? t('rail.unlabeled')}</span>
+      <span className={`rail-dot rail-dot--${dotVariantForChild(child)}`} aria-hidden="true" />
+      <span className="rail-item-label">{child.label || t('rail.unlabeled')}</span>
       {kindLabel && <span className="rail-item-kind">・{kindLabel}</span>}
-      {isSample && (
-        <span className="rail-item-sample">{t('rail.sampleBadge', { defaultValue: '見本' })}</span>
-      )}
-      {item.card_count != null && <span className="rail-item-count">{item.card_count}</span>}
     </button>
+  )
+}
+
+/** 1 データセット行 + 展開時の子（契約メモ §2.1）。行クリック＝データセットの
+ *  ページ、先頭のトグルは開閉だけ（ナビゲーションしない）。 */
+function DatasetRow({
+  node,
+  onToggle,
+  onOpenDataset,
+  onOpenChild,
+  onCollect,
+}: {
+  node: RailDatasetNode
+  onToggle: () => void
+  onOpenDataset: () => void
+  onOpenChild: (child: RailChild) => void
+  onCollect: () => void
+}) {
+  const { t } = useTranslation('cards')
+  const stateLabel =
+    node.state === 'draft'
+      ? t('rail.state_draft', { defaultValue: 'まだ意味を定義していません' })
+      : node.state === 'ingesting'
+        ? t('rail.state_ingesting', { defaultValue: '取り込み中' })
+        : null
+  const hasChildren = node.children.length > 0
+  return (
+    <div className="rail-dataset">
+      <div className="rail-dataset-row">
+        {hasChildren ? (
+          <button
+            type="button"
+            className="rail-dataset-toggle"
+            onClick={onToggle}
+            aria-label={node.expanded ? t('rail.collapse', { defaultValue: 'たたむ' }) : t('rail.expand', { defaultValue: 'ひらく' })}
+          >
+            {node.expanded ? '▾' : '▸'}
+          </button>
+        ) : (
+          <span className="rail-dataset-toggle rail-dataset-toggle--empty" aria-hidden="true" />
+        )}
+        <button type="button" className="rail-dataset-name" onClick={onOpenDataset}>
+          {node.label}
+        </button>
+        {node.isSample && (
+          <span className="rail-item-sample">{t('rail.sampleBadge', { defaultValue: '見本' })}</span>
+        )}
+        {stateLabel && <span className="rail-dataset-state">{stateLabel}</span>}
+      </div>
+      {hasChildren && node.expanded && (
+        <div className="rail-list rail-dataset-children">
+          {node.children.map((child) => (
+            <RailChildButton key={child.subjectKey} child={child} onClick={() => onOpenChild(child)} />
+          ))}
+        </div>
+      )}
+      {node.expanded && (
+        <button type="button" className="rail-condition-link rail-collect-link" onClick={onCollect}>
+          {t('rail.collect', { defaultValue: '＋ 条件で集める' })}
+        </button>
+      )}
+    </div>
   )
 }

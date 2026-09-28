@@ -16,6 +16,7 @@ imports ``register_cards`` from this module. Instead, :func:`_require_write_auth
 below reproduces the exact same fail-closed check (same messages, same
 constant-time comparison) against the ``cfg`` this module already receives.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -75,7 +76,7 @@ async def _dataset_ranking_for_subject(
     :func:`asterism.subject_tools.subject_sources` と同じ ``GRAPH`` 集計を再利用
     し、別のクエリを新設しない）。"""
     counts = await subject_tools._graph_counts_for_subject(client, iri)
-    labels = subject_tools._dataset_labels(registry_root)
+    labels = subject_tools.dataset_labels(registry_root)
     per_dataset: dict[str, tuple[str | None, int]] = {}
     for g, cnt in counts:
         dataset_id = substrate.dataset_id_of_canonical_graph(g)
@@ -120,11 +121,14 @@ async def _entity_label(client: Any, iri: str) -> str:
     return labels.get(iri) or subject_tools._local_name(iri)
 
 
-async def _class_properties(
+async def _class_schema_or_none(
     client: Any, registry_root: Any, class_iri: str
-) -> list[dict[str, Any]] | None:
-    """``class_schema(...)['properties']``, or ``None`` when the (parallel-
-    authored) class_schema module is unavailable or the lookup fails."""
+) -> dict[str, Any] | None:
+    """``class_schema(...)`` そのもの、または (並列担当の) class_schema モジュール
+    が使えない／失敗したときの ``None``。もともと :func:`_class_properties` の
+    中身だった best-effort ロードを、``properties`` 以外（``dataset_id`` 等）も
+    要る呼び出し元（契約メモ contract_pr_f2.md §3.3 の ``sets/resolve`` への
+    ``dataset_label`` 追加）のために切り出したもの。"""
     schema_fn = subject_tools._load_class_schema()
     if schema_fn is None:
         return None
@@ -133,7 +137,16 @@ async def _class_properties(
     except Exception:  # best-effort: class_schema is owned by a parallel PR
         logger.debug("cards_routes: class_schema lookup failed", exc_info=True)
         return None
-    if not isinstance(schema, dict):
+    return schema if isinstance(schema, dict) else None
+
+
+async def _class_properties(
+    client: Any, registry_root: Any, class_iri: str
+) -> list[dict[str, Any]] | None:
+    """``class_schema(...)['properties']``, or ``None`` when the (parallel-
+    authored) class_schema module is unavailable or the lookup fails."""
+    schema = await _class_schema_or_none(client, registry_root, class_iri)
+    if schema is None:
         return None
     properties = schema.get("properties")
     return list(properties) if isinstance(properties, list) else None
@@ -157,8 +170,7 @@ def _require_write_auth(cfg: Settings):
             )
             raise HTTPException(
                 503,
-                "利用許可コード (管理者が設定する API token) が未設定のため、"
-                "この操作はできません",
+                "利用許可コード (管理者が設定する API token) が未設定のため、この操作はできません",
             )
         presented: str | None = None
         if authorization and authorization.startswith("Bearer "):
@@ -334,16 +346,30 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
 
     @app.get("/api/subjects/search")
     async def subjects_search(
-        q: str = Query(default=""), limit: int = Query(default=20, ge=1, le=_MAX_SEARCH_LIMIT)
+        q: str = Query(default=""),
+        limit: int = Query(default=20, ge=1, le=_MAX_SEARCH_LIMIT),
+        dataset_id: str | None = Query(default=None),
     ) -> dict[str, Any]:
-        return await _run_read(_subjects_search_impl(q, limit))
+        return await _run_read(_subjects_search_impl(q, limit, dataset_id))
 
-    async def _subjects_search_impl(q: str, limit: int) -> dict[str, Any]:
+    async def _subjects_search_impl(q: str, limit: int, dataset_id: str | None) -> dict[str, Any]:
         client: OxigraphClient = app.state.client
+        # §3.2: dataset_id は任意 — 指定時はそのデータセットの版グラフに限定
+        # する（不正な形は 400。既存の subjects/resolve の subject.iri と同じ
+        # 「呼び出し境界で 1 度だけ検証する」流儀）。
+        scoped_dataset_id: str | None = None
+        if dataset_id is not None:
+            scoped_dataset_id = subjects_mod.valid_dataset_id(dataset_id)
+            if scoped_dataset_id is None:
+                raise HTTPException(400, f"invalid dataset_id: {dataset_id!r}")
         needle = q.strip().lower()
         if not needle:
             return {"items": []}
         graphs = await substrate.canonical_graphs(client)
+        if scoped_dataset_id is not None:
+            graphs = [
+                g for g in graphs if substrate.dataset_id_of_canonical_graph(g) == scoped_dataset_id
+            ]
         if not graphs:
             return {"items": []}
         named = substrate.canonical_from_clauses(graphs, named=True)
@@ -358,7 +384,7 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
         query = (
             f"SELECT ?s ?label ?__rank (LANG(?label) AS ?__lang) ?g\n{named}"
             f"WHERE {{ GRAPH ?g {{ VALUES (?__lp ?__rank) {{ {pairs} }} "
-            f"?s ?__lp ?label FILTER(CONTAINS(LCASE(STR(?label)), \"{escaped}\")) }} }} "
+            f'?s ?__lp ?label FILTER(CONTAINS(LCASE(STR(?label)), "{escaped}")) }} }} '
             f"ORDER BY ?s ?__rank ?label ?g LIMIT {raw_limit}"
         )
         rows = _rows(await client.sparql_select(query))
@@ -450,7 +476,18 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             raise HTTPException(400, str(exc)) from exc
         set_id = subjects_mod.set_id_of(spec)
         class_label = await class_schema_mod.class_label(client, cfg.registry_root, spec["class"])
-        properties = await _class_properties(client, cfg.registry_root, spec["class"])
+        # §3.3: dataset_label は §3.1 と同じ解決 — class_schema がこの class を
+        # 所有すると判定したデータセット（無ければ null）。properties も同じ
+        # schema から取るので、schema_fn の呼び出しは 1 回で済ませる。
+        schema = await _class_schema_or_none(client, cfg.registry_root, spec["class"])
+        properties = schema.get("properties") if schema else None
+        properties = list(properties) if isinstance(properties, list) else None
+        dataset_id = schema.get("dataset_id") if schema else None
+        dataset_label = (
+            subjects_mod.resolve_dataset_label(cfg.registry_root, dataset_id)
+            if isinstance(dataset_id, str) and dataset_id
+            else None
+        )
         prop_meta = {
             p["iri"]: p for p in (properties or []) if isinstance(p, dict) and p.get("iri")
         }
@@ -470,6 +507,7 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             "set_id": set_id,
             "spec": spec,
             "title": {"class_label": class_label, "clauses": clauses},
+            "dataset_label": dataset_label,
         }
 
     # ------------------------------------------------------------------
