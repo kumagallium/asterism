@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseStoredPresentation, readCardPresentation, serializePresentation } from './cardPresentation'
+import {
+  clearCardPresentation,
+  parseStoredPresentation,
+  readCardPresentation,
+  serializePresentation,
+  writeCardPresentation,
+} from './cardPresentation'
 
 describe('parseStoredPresentation: localStorage が無い／壊れているときに既定（undefined）に戻る', () => {
   it('null（キーが無い）は既定', () => {
@@ -33,5 +39,20 @@ describe('readCardPresentation: localStorage 自体が無い環境（このテ�
 
   it('例外を投げず undefined を返す', () => {
     expect(readCardPresentation('any-card-id')).toBeUndefined()
+  })
+})
+
+describe('localStorage が無くても、このタブの中では選んだ見せ方が効く', () => {
+  it('書いたものを読める・消すと既定に戻る', () => {
+    writeCardPresentation('card-in-session', { mark: 'bar', swapXY: false, colorBy: null })
+    expect(readCardPresentation('card-in-session')).toEqual({ mark: 'bar', swapXY: false, colorBy: null })
+    clearCardPresentation('card-in-session')
+    expect(readCardPresentation('card-in-session')).toBeUndefined()
+  })
+
+  it('別のカードには及ばない', () => {
+    writeCardPresentation('card-a', { mark: 'point' })
+    expect(readCardPresentation('card-b')).toBeUndefined()
+    clearCardPresentation('card-a')
   })
 })

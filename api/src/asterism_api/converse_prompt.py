@@ -52,10 +52,9 @@ __all__ = [
 
 _PROPOSAL_TAG_RE = re.compile(r"<proposal>(.*?)</proposal>", re.DOTALL)
 
-#: プレビューの見せ方の切替（presentation.mark）が受け付ける値。この worktree
-#: の時点では F3（切替コンポーネント）がまだ無いので、既存の
-#: `ui/src/cards/defaultView.ts` が実際に使っている Vega-Lite の mark 語彙
-#: （line/bar/point）をそのまま閉じた集合として使う — deviations 参照。
+#: 会話が出せる見せ方（presentation.mark）の値。UI の切替（`presentation.ts`・
+#: ADR O36）はこれより広い語彙（表・縦横の入れ替え・色分け）を持つが、会話が
+#: 出すのはグラフの形（line/bar/point）だけ — UI は同じ固定表に照らして描く。
 _VALID_MARKS: tuple[str, ...] = ("line", "bar", "point")
 
 #: 「書く」（契約 F13 §1-1）で AI が選べる言語。``ui/src/cards/viewSpec.ts``

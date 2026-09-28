@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allowedPresentations, viewFor } from './presentation'
+import { allowedPresentations, coercePresentation, effectivePresentation, viewFor } from './presentation'
 import { defaultViewFor } from './defaultView'
 import type { ItemSpec, Row, TableSpec, ToolContract, VegaLiteSpec } from './viewSpec'
 import defaultViewCases from './fixtures/default_view_cases.json'
@@ -186,5 +186,82 @@ describe('defaultViewFor と viewFor(…, undefined) が deepEqual（既存 fixt
 
   it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
     expect(viewFor(c.tool, c.rows, undefined)).toEqual(defaultViewFor(c.tool, c.rows))
+  })
+})
+
+describe('coercePresentation: 保存・伝送された緩い形から読めるところだけ拾う', () => {
+  it('無い・オブジェクトでない値は指定なし（undefined）', () => {
+    expect(coercePresentation(null)).toBeUndefined()
+    expect(coercePresentation(undefined)).toBeUndefined()
+    expect(coercePresentation('bar')).toBeUndefined()
+    expect(coercePresentation(['bar'])).toBeUndefined()
+    expect(coercePresentation({})).toBeUndefined()
+  })
+
+  it('会話で決めた形（mark だけ）を読む', () => {
+    expect(coercePresentation({ mark: 'bar' })).toEqual({ mark: 'bar' })
+    expect(coercePresentation({ mark: 'table' })).toEqual({ mark: 'table' })
+  })
+
+  it('知らない mark・型の違う値・知らないキーは捨てる', () => {
+    expect(coercePresentation({ mark: 'area' })).toBeUndefined()
+    expect(coercePresentation({ mark: 123 })).toBeUndefined()
+    expect(coercePresentation({ mark: 'bar', swapXY: 'yes', extra: 1 })).toEqual({ mark: 'bar' })
+  })
+
+  it('切替 UI が書く 3 つ組も読む（colorBy の null は「色分けなし」の指定）', () => {
+    expect(coercePresentation({ mark: 'point', swapXY: true, colorBy: null })).toEqual({
+      mark: 'point',
+      swapXY: true,
+      colorBy: null,
+    })
+  })
+})
+
+describe('effectivePresentation: 手元で選んだもの → カードに保存されたもの → 既定', () => {
+  it('手元で選んだものが丸ごと勝つ（フィールドごとに混ぜない）', () => {
+    expect(effectivePresentation({ mark: 'point' }, { mark: 'bar', swapXY: true })).toEqual({ mark: 'point' })
+  })
+
+  it('選んでいなければカードに保存されたもの', () => {
+    expect(effectivePresentation(undefined, { mark: 'bar' })).toEqual({ mark: 'bar' })
+  })
+
+  it('どちらも無ければ指定なし（＝既定ビュー）', () => {
+    expect(effectivePresentation(undefined, null)).toBeUndefined()
+    expect(effectivePresentation(undefined, undefined)).toBeUndefined()
+  })
+})
+
+describe('カードに保存された見せ方（会話で決めたもの）も、切替と同じ固定表を通る', () => {
+  const series = tool('series', {
+    observed_at: { var: 'observed_at', role: 'x', number: false },
+    humidity_pct: { var: 'humidity_pct', role: 'y', number: true },
+  })
+  const rows: Row[] = [
+    { observed_at: '2024-01-01', humidity_pct: 40 },
+    { observed_at: '2024-01-02', humidity_pct: 55 },
+  ]
+
+  it('series に「棒」→ 棒になる', () => {
+    const view = viewFor(series, rows, effectivePresentation(undefined, { mark: 'bar' }))
+    expect(view.lang).toBe('vega-lite')
+    expect((view.spec as VegaLiteSpec).mark).toBe('bar')
+  })
+
+  it('手元で「点」を選んでいれば、保存された「棒」より優先する', () => {
+    const view = viewFor(series, rows, effectivePresentation({ mark: 'point' }, { mark: 'bar' }))
+    expect((view.spec as VegaLiteSpec).mark).toBe('point')
+  })
+
+  it('固定表に無い組み合わせ（散らばりに棒）は既定に戻る — プレビューも同じ規則', () => {
+    const pairs = tool('pairs', {
+      pages: { var: 'pages', role: 'x', number: true },
+      loan_days: { var: 'loan_days', role: 'y', number: true },
+    })
+    const pairRows: Row[] = [{ pages: 120, loan_days: 7 }]
+    expect(viewFor(pairs, pairRows, effectivePresentation(undefined, { mark: 'bar' }))).toEqual(
+      defaultViewFor(pairs, pairRows),
+    )
   })
 })

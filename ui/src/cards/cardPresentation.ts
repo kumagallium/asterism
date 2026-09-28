@@ -3,7 +3,12 @@
 // のみ（try/catch。読めない／壊れているときは既定 = `undefined` に倒れる）。
 // `subjectStore.ts` の永続化と同じ流儀（純関数は export してテスト、実行時の
 // 読み書きは `typeof localStorage` を確かめてから）。
-import { useCallback, useState } from 'react'
+//
+// 同じカードのタイルと詳細、会話のパネル（並んで開いたまま — ADR O61）が同時に
+// 画面にあるので、書き込みは購読者に知らせる（`useSyncExternalStore`）。
+// localStorage が使えない環境でも、その場の切替は効くように手元の控え
+// （`session`）を先に見る。
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import type { Presentation } from './presentation'
 
 function keyFor(cardId: string): string {
@@ -29,33 +34,66 @@ export function serializePresentation(presentation: Presentation): string {
   return JSON.stringify(presentation)
 }
 
+// このタブの中での最新の値（card_id → 生の文字列。`null` は「消した」）。
+// localStorage に書けない環境（private mode 等）でも切替がその場で効くように、
+// 読むときはここを先に見る。
+const session = new Map<string, string | null>()
+const listeners = new Set<() => void>()
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function emit(): void {
+  for (const listener of [...listeners]) listener()
+}
+
+function readRaw(cardId: string): string | null {
+  if (session.has(cardId)) return session.get(cardId) ?? null
+  if (typeof localStorage === 'undefined') return null
+  try {
+    return localStorage.getItem(keyFor(cardId))
+  } catch {
+    return null
+  }
+}
+
 /** 実行時の読み出し。`localStorage` が無い環境（テストランタイム・private
- *  mode 等）では常に既定（`undefined`）。 */
+ *  mode 等）では、このタブで選んだものが無いかぎり既定（`undefined`）。 */
 export function readCardPresentation(cardId: string): Presentation | undefined {
-  if (typeof localStorage === 'undefined') return undefined
-  try {
-    return parseStoredPresentation(localStorage.getItem(keyFor(cardId)))
-  } catch {
-    return undefined
-  }
+  return parseStoredPresentation(readRaw(cardId))
 }
 
-function writeCardPresentation(cardId: string, presentation: Presentation): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(keyFor(cardId), serializePresentation(presentation))
-  } catch {
-    /* private mode 等 — 書けないなら諦める（描画は既定に倒れるだけ）。 */
+/** 手元の選択を書く（同じカードを描いている全ての部品に届く）。 */
+export function writeCardPresentation(cardId: string, presentation: Presentation): void {
+  const raw = serializePresentation(presentation)
+  session.set(cardId, raw)
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(keyFor(cardId), raw)
+    } catch {
+      /* private mode 等 — 書けなくても、このタブの中では `session` が効く。 */
+    }
   }
+  emit()
 }
 
-function clearCardPresentation(cardId: string): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.removeItem(keyFor(cardId))
-  } catch {
-    /* 同上。 */
+/** 手元の選択を消す（＝カードに保存された見せ方、無ければ既定に戻る）。
+ *  会話でカードの見せ方を決め直したとき（差し替え）にも呼ぶ — 古い手元の
+ *  選択が残っていると、決め直した見せ方が画面に出ない。 */
+export function clearCardPresentation(cardId: string): void {
+  session.set(cardId, null)
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.removeItem(keyFor(cardId))
+    } catch {
+      /* 同上。 */
+    }
   }
+  emit()
 }
 
 export interface CardPresentationHook {
@@ -66,30 +104,18 @@ export interface CardPresentationHook {
 
 /** 1 カードぶんの「見せ方」の読み書き。閲覧者の手元だけに保存する
  *  （契約メモ §1.5）。`presentation` が `undefined` のときは呼び出し側が
- *  `viewFor(tool, rows, undefined)`（＝既定ビュー）を使う。 */
+ *  カードに保存された見せ方 → 既定の順に倒す（`effectivePresentation`）。 */
 export function useCardPresentation(cardId: string): CardPresentationHook {
-  const [presentation, setPresentationState] = useState<Presentation | undefined>(() => readCardPresentation(cardId))
-  // card_id が変わったら、その card の保存値を読み直す（`CardDetail.tsx` の
-  // `tabFor` と同じ「prop が変わったら state を調整する」パターン — effect
-  // を使わない）。
-  const [cardFor, setCardFor] = useState(cardId)
-  if (cardFor !== cardId) {
-    setCardFor(cardId)
-    setPresentationState(readCardPresentation(cardId))
-  }
-
-  const setPresentation = useCallback(
-    (next: Presentation) => {
-      writeCardPresentation(cardId, next)
-      setPresentationState(next)
-    },
-    [cardId],
+  // スナップショットは生の文字列（プリミティブ）— 同じ値なら再描画しない。
+  const raw = useSyncExternalStore(
+    subscribe,
+    () => readRaw(cardId),
+    () => null,
   )
+  const presentation = useMemo(() => parseStoredPresentation(raw), [raw])
 
-  const reset = useCallback(() => {
-    clearCardPresentation(cardId)
-    setPresentationState(undefined)
-  }, [cardId])
+  const setPresentation = useCallback((next: Presentation) => writeCardPresentation(cardId, next), [cardId])
+  const reset = useCallback(() => clearCardPresentation(cardId), [cardId])
 
   return { presentation, setPresentation, reset }
 }

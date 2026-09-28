@@ -95,7 +95,8 @@ export function cardSpecToCardRef(spec: CardSpec): CardRef {
     // まま＝従来どおり defaultViewFor にフォールバックする。
     view: spec.view,
     // PR F18: 会話で決めた見せ方（`CardSpec.presentation`）も運ぶ（CardTile.tsx/
-    // CardDetail.tsx が `applyPresentation` で既定ビューへ適用する）。
+    // CardDetail.tsx が `effectivePresentation` → `viewFor` で描く。見ている人が
+    // 手元で選んだ見せ方があればそちらが勝つ — ADR O36）。
     presentation: spec.presentation,
   }
 }

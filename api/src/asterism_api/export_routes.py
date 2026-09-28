@@ -128,7 +128,8 @@ _PRESENTATION_MARKS = ("line", "bar", "point")
 def _presentation_field(raw: Any) -> dict[str, Any] | None:
     """CardSpec.presentation（会話で決めた見せ方・F18）を束まで運ぶ。
     `{"mark": "line"|"bar"|"point"}` の形だけを通し、それ以外は黙って落とす
-    （`applyPresentation.ts` と同じ許可リスト）。"""
+    （会話が出せる語彙と同じ許可リスト。UI の `presentation.ts` はこれより
+    広い語彙——表・縦横・色分け——を読めるが、束へ運ぶのは会話で決めた分だけ）。"""
     if not isinstance(raw, dict):
         return None
     mark = raw.get("mark")

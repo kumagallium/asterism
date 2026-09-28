@@ -847,13 +847,13 @@ export interface CardSpec {
   output_kind: MeasureShape
   created_at: string
   /** PR F13 §1 決定 3・4: AI が Vega-Lite／表仕様／Mermaid で「書いた」見せ方が
-   *  乗っているときだけ（`presentation` — F3・この作業ツリーにはまだ無い — と
-   *  同居する想定の場所）。既定ビューのカードには無い。 */
+   *  乗っているときだけ。既定ビューのカードには無い。 */
   view?: CardView
   /** PR F18 §1.2: 会話で決めた見せ方（`{mark: "line"|"bar"|"point"}`。
    *  `ConverseDraft`/`ConverseProposal.presentation` と同じ語彙・
-   *  `applyPresentation.ts` が読む）。`view`（AI が書いた見せ方）があるカード
-   *  には適用しない — `view` を優先する。 */
+   *  `presentation.ts` の `coercePresentation` が読み、見ている人が手元で
+   *  選んだ見せ方が無いときに効く — ADR O36）。`view`（AI が書いた見せ方）が
+   *  あるカードには適用しない — `view` を優先する。 */
   presentation?: Record<string, unknown> | null
 }
 
