@@ -15,7 +15,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from '../settings/context'
-import { applyPresentation } from './applyPresentation'
 import { withFieldLabels } from './builtinFields'
 import type {
   CardRunSubject,
@@ -30,9 +29,9 @@ import type {
   MeasureCardParams,
   MeasureShape,
 } from './cardsApi'
+import { clearCardPresentation } from './cardPresentation'
 import { classSchema, converse, NoLlmKeyError, runCard } from './cardsApi'
 import { addCard, replaceCard, useCards } from './cardStore'
-import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
 import { canonicalJson, MEASURE_SHAPES, sha256Hex, type MeasureSchemaLike, type Translate } from './measureCardFields'
 import { parseMermaidFlowchart } from './mermaidFlow'
@@ -56,6 +55,7 @@ import {
   type PageChatThread,
   type PageChatTurn,
 } from './pageChatThreads'
+import { coercePresentation, viewFor } from './presentation'
 import { TableView } from './TableView'
 import type { GraphSpec, Row, TableSpec, VegaLiteSpec, ViewSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
@@ -741,6 +741,10 @@ export function PageChatDrawer({
                       if (!boundCardId || !threadId) return
                       decide(turn.id, 'replaced')
                       replaceCard(subjectKey, boundCardId, card)
+                      // 会話で見せ方を決め直したので、このカードで手元に選んで
+                      // あった見せ方は消す（残すと、決め直した絵が出ない — O36）。
+                      clearCardPresentation(boundCardId)
+                      clearCardPresentation(card.card_id)
                       bindPageChatThreadToCard(threadId, { card_id: card.card_id, title: card.title })
                       onCardReplaced?.(boundCardId, card)
                       if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
@@ -1065,12 +1069,12 @@ function ProposalPreview({
 
 function ProposalView({ proposal, result, t }: { proposal: ConverseProposal; result: CardToolResult; t: Translate }) {
   const rows = result.items
-  const view = applyPresentation(
-    defaultViewFor(
-      { name: 'set_measure', title: proposal.title, output_kind: result.output_kind, item: withFieldLabels('set_measure', result.item, t) },
-      rows,
-    ),
-    proposal.presentation,
+  // ページのカード（`CardTile.tsx`/`CardDetail.tsx`）と同じ規則で描く —
+  // プレビューで見えた絵が、足したあとのカードの絵になる（ADR O36）。
+  const view = viewFor(
+    { name: 'set_measure', title: proposal.title, output_kind: result.output_kind, item: withFieldLabels('set_measure', result.item, t) },
+    rows,
+    coercePresentation(proposal.presentation),
   )
   if (view.lang === 'vega-lite') return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={proposal.title} height={220} />
   if (view.lang === 'table') return <TableView spec={view.spec as TableSpec} rows={rows} ariaLabel={proposal.title} />

@@ -2,12 +2,11 @@
 // 見出し（カード title）→ タブ「結果／材料／作りかた」。契約メモ §6.3。
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { applyPresentation } from './applyPresentation'
 import { KNOWN_LICENSE_IDS, putDatasetLicense, runCard } from './cardsApi'
 import type { CardRef, CardMaterial, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
-import { defaultViewFor } from './defaultView'
+import { useCardPresentation } from './cardPresentation'
 import { GraphView } from './GraphView'
 import { parseMermaidFlowchart } from './mermaidFlow'
 // PR F18（ui-store 担当）が新設する型。まだ存在しない間もこの担当（ui-page）は
@@ -15,11 +14,14 @@ import { parseMermaidFlowchart } from './mermaidFlow'
 // 「並列中の仮置き」と同じ流儀）。
 import type { PageChatTurn } from './pageChatThreads'
 import { isDefinitionGapValue } from './placeShape'
+import type { Presentation } from './presentation'
+import { effectivePresentation, viewFor } from './presentation'
 import './pages.css'
 import { formatShareReasons } from './shareReasons'
 import { TableView } from './TableView'
-import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
+import type { GraphSpec, TableSpec, ToolContract, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
+import { ViewSwitcher } from './ViewSwitcher'
 
 // PR F13: AI が Vega-Lite／表仕様／Mermaid で「書いた」見せ方（`card.view`。
 // `cardsApi.ts` の {@link CardView}）。CardTile.tsx と同じ変換。
@@ -91,6 +93,18 @@ export function CardDetail({
   conversation,
 }: CardDetailProps) {
   const { t } = useTranslation('cards')
+  // 見せ方（presentation）はカード単位・閲覧者の手元だけに保存する（契約メモ
+  // §1.5）。一覧のタイル（`CardTile.tsx`）も同じキーで読むので、詳細で変える
+  // と一覧も変わる。
+  // 選んでいなければ、カードに保存された見せ方（`card.presentation`・会話で
+  // 決めたもの）→ 既定、の順に倒れる。「元に戻す」は手元の選択だけを消すので、
+  // カードに保存された見せ方へ戻る（ADR O36）。
+  const {
+    presentation: chosenPresentation,
+    setPresentation,
+    reset: resetPresentation,
+  } = useCardPresentation(card.card_id)
+  const presentation = effectivePresentation(chosenPresentation, card.presentation)
   const depKey = JSON.stringify({ subject, tool: card.tool, params: card.params })
   // 結果は depKey で紐づけ、then/catch でだけ書き込む — effect の本体で同期的に
   // setState しない（react-hooks/set-state-in-effect。ProvenanceTrace.tsx／
@@ -197,7 +211,16 @@ export function CardDetail({
       <div className="cardpage-tab-body">
         {error && <p className="ds-empty-note">{t('render_error')}</p>}
         {!error && !result && <p className="ds-empty-note">{t('page.loading')}</p>}
-        {!error && result && tab === 'result' && renderResultTab(card, result, titleText, t)}
+        {!error && result && tab === 'result' && card.output_kind !== 'flow' && !card.view && (
+          <ViewSwitcher
+            tool={toolContractFor(card, result, t)}
+            rows={result.items}
+            presentation={presentation}
+            onChange={setPresentation}
+            onReset={resetPresentation}
+          />
+        )}
+        {!error && result && tab === 'result' && renderResultTab(card, result, titleText, t, presentation)}
         {!error && result && tab === 'materials' && renderMaterialsTab(subject, result, t)}
         {!error && result && tab === 'recipe' && renderRecipeTab(card, result, t, conversation)}
         {!error && result && tab === 'materials' && editDatasetId && (
@@ -286,7 +309,25 @@ export function CardDetail({
   )
 }
 
-function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: string, t: Translate) {
+/** 結果タブ・`ViewSwitcher` の両方が読む `ToolContract`（見出しの表示名を
+ *  組み込みツールぶん焼き込んだもの）。同じ `card`/`result` からは常に同じ
+ *  値になる（純関数）。 */
+function toolContractFor(card: CardRef, result: CardToolResult, t: Translate): ToolContract {
+  return {
+    name: card.tool,
+    title: card.title,
+    output_kind: result.output_kind,
+    item: withFieldLabels(card.tool, result.item, t),
+  }
+}
+
+function renderResultTab(
+  card: CardRef,
+  result: CardToolResult,
+  ariaLabel: string,
+  t: Translate,
+  presentation: Presentation | undefined,
+) {
   // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
   // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
   // §2(a)）— その全件に対して行う。
@@ -309,13 +350,7 @@ function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: strin
   const view =
     customRendered && 'view' in customRendered
       ? customRendered.view
-      : applyPresentation(
-          defaultViewFor(
-            { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-            rows,
-          ),
-          card.presentation,
-        )
+      : viewFor(toolContractFor(card, result, t), rows, presentation)
   if (view.lang === 'vega-lite') {
     return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
   }

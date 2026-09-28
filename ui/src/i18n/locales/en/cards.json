@@ -311,7 +311,16 @@
   },
   "graph": {
     "prop_type": "Kind",
-    "prop_snapshot": "Version"
+    "prop_snapshot": "Version",
+    "edge": {
+      "used": "used",
+      "wasGeneratedBy": "generated",
+      "wasAssociatedWith": "handled by",
+      "wasDerivedFrom": "based on",
+      "wasAttributedTo": "attributed to",
+      "wasInformedBy": "informed by",
+      "wasQuotedFrom": "quoted from"
+    }
   },
   "newcard": {
     "button": "+ Add a viewpoint",
@@ -395,5 +404,16 @@
     "proposal_add_as_new": "Add as a new card",
     "replaced": "Replaced",
     "discarded": "Discarded"
+  },
+  "view": {
+    "label": "View",
+    "line": "Line",
+    "bar": "Bar",
+    "point": "Points",
+    "table": "Table",
+    "swap": "Swap axes",
+    "color_by": "Color by",
+    "color_none": "None",
+    "reset": "Reset"
   }
 }

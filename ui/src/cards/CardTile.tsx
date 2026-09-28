@@ -1,6 +1,7 @@
 // 1 件のページ／絞り込みページの格子に並ぶ 1 カード。`defaultCardsForSubject`/
 // `defaultCardsForSet` が返す 1 件（tool + params）を `runCard` で実行し、
-// `defaultViewFor` → PR B の描画器（VegaLiteView/TableView/GraphView）に渡す。
+// `viewFor`（見せ方つきの既定ビュー）→ PR B の描画器（VegaLiteView/TableView/
+// GraphView）に渡す。
 //
 // SubjectPage.tsx と SetPage.tsx の両方が使うので共通化した（新設・c2-pages の
 // 担当外だが、両ページで同じ 80 行ほどを重複させないための追加。notes に記載）。
@@ -13,14 +14,14 @@
 // ための設計）。
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { applyPresentation } from './applyPresentation'
 import { runCard } from './cardsApi'
 import type { CardRef, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
-import { defaultViewFor } from './defaultView'
+import { useCardPresentation } from './cardPresentation'
 import { GraphView } from './GraphView'
 import { parseMermaidFlowchart } from './mermaidFlow'
+import { effectivePresentation, viewFor } from './presentation'
 import { isDefinitionGapValue } from './placeShape'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
@@ -89,6 +90,12 @@ export interface CardTileProps {
 
 export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide, isAddedCard, onFixCard }: CardTileProps) {
   const { t } = useTranslation('cards')
+  // カード詳細（`CardDetail.tsx`）で選んだ見せ方を、同じキー
+  // （`asterism.cardView.<card_id>`）で読むだけ（一覧側に切替 UI は出さない —
+  // 契約メモ §1.4）。選んでいなければ、カードに保存された見せ方
+  // （`card.presentation`・会話で決めたもの）→ 既定、の順に倒れる（ADR O36）。
+  const { presentation: chosenPresentation } = useCardPresentation(card.card_id)
+  const presentation = effectivePresentation(chosenPresentation, card.presentation)
   // 呼び出しの実体（subject + tool + params）を文字列化して依存キーにする —
   // 親が `subject={{kind:'individual', iri}}` のようにインライン literal を渡す
   // と毎レンダリングで参照が変わるため、オブジェクト参照そのものを依存にすると
@@ -146,12 +153,10 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
     customRendered && 'view' in customRendered
       ? customRendered.view
       : result && card.output_kind !== 'flow'
-        ? applyPresentation(
-            defaultViewFor(
-              { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-              rows,
-            ),
-            card.presentation,
+        ? viewFor(
+            { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+            rows,
+            presentation,
           )
         : null
   const isCustomView = !!(view?.custom || customGraph)

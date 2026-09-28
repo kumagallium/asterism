@@ -1,0 +1,54 @@
+/* 見せ方の切替（ViewSwitcher）。既存 .btn／.cardpage-tab と同じトーン
+   （セグメント＝枠付きボタン列、選択中は --primary-soft の塗り）。 */
+.view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.view-switch-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.view-switch-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.view-switch-group {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.view-switch-btn {
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border-strong);
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.view-switch-btn:last-child {
+  border-right: none;
+}
+.view-switch-btn:hover:not(.view-switch-btn--on) {
+  background: var(--surface-alt);
+}
+.view-switch-btn--on {
+  background: var(--primary-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.view-switch-reset {
+  margin-left: auto;
+}

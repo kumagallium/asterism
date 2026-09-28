@@ -409,6 +409,51 @@ oxigraph を SIGTERM → 5 秒で SIGKILL。
 だけ持ち、ui 側テストと Python 側テストが同じフィクスチャファイルを読んで両方
 とも固定する（どちらかを直し忘れたら、直していない側のテストが赤くなる）。
 
+### O36. 見せ方を変える（`presentation`）— 契約層は不変、選ぶだけ
+
+O9 の「①選ぶ」を実装した（PR F3）。`presentation.ts` の
+`Presentation`（`{ mark?, swapXY?, colorBy? }`）は `output_kind` ごとの固定表
+（`allowedPresentations`）の外に出られない小さな値で、`viewFor(tool, rows,
+presentation?)` が「同じ役割（x/y/category/count/value 等）から別の
+`ViewSpec` を決定論で組む」。`ViewSpec` の型・`OutputKind`・role は一切変えず、
+mark と encoding だけを差し替える。`defaultViewFor` は
+`viewFor(tool, rows, undefined)` に委ねる（presentation 未指定 = 既存の既定
+ビューと同じ結果）。表に無い組み合わせ（例: series に `swapXY: true`）は
+黙って既定に戻す — 部分的に採用しない。返り値に `custom` は付けない（人が
+選んだ見せ方は事実の絵であり、O11「生成コードを実行しない」の LLM が書いた
+ものではない）。
+
+保存は**閲覧者の手元だけ**（`cardPresentation.ts` の localStorage
+`asterism.cardView.<card_id>`。読めない／壊れていれば既定に倒れる）。サーバ・
+appdata には書かない — カードの定義そのもの（tool/params）を appdata に持つ
+後続 PR（F4）で、presentation もそこへ移す候補になる。カード一覧のタイル
+（`CardTile.tsx`）も同じキーで読むだけ（切替 UI は出さない）で、カード詳細
+（`CardDetail.tsx`）で変えると一覧も揃って変わる。
+
+候補の並びの先頭が既定（ranked は表が既定 — PR B の決定を引き継ぐ）。
+
+**会話で決めた見せ方（O62 の `CardSpec.presentation`）との合流（2026-09-29）。**
+F3 と F18 は別の枝で同じ概念を作っていた（F18 は `applyPresentation.ts` で
+Vega-Lite の `mark` だけを上書きしていた）。main に入れるときに 1 本にした。
+
+| 順 | 何が効くか | どこにあるか |
+|---|---|---|
+| 1 | AI が書いた見せ方（O58 の `CardSpec.view`） | カードの定義（appdata）。切替 UI は出さない |
+| 2 | 見ている人がこのカードで選んだ見せ方 | 手元（localStorage） |
+| 3 | カードに保存された見せ方（会話で決めたもの） | カードの定義（appdata） |
+| 4 | 既定ビュー | — |
+
+2 と 3 は `effectivePresentation(chosen, saved)` が 1 つに決め、`viewFor` が同じ
+固定表に照らして描く（フィールドごとに混ぜない — 選んだものが丸ごと勝つ）。
+会話の提案のプレビューも同じ `viewFor` を通すので、**プレビューで見えた絵が、
+足したあとのカードの絵になる**（固定表に無い組み合わせは、プレビューの時点で
+既定に戻って見える）。「元に戻す」は手元の選択だけを消す＝カードに保存された
+見せ方へ戻る。会話でカードを差し替えたときは、そのカードの手元の選択を消す
+（残すと、決め直した見せ方が画面に出ない）。会話のパネルは並んで開いたまま
+（O61）なので、手元の選択の変更は開いているタイルにも届ける
+（`useSyncExternalStore`）。会話が出せる語彙は `mark` の line/bar/point のまま
+（表にしたいときは切替か、O58 の「書く」）。
+
 ### O37. 親＝データセット・子＝1 件と条件で集めた一覧・孫＝カード（PR F2、2026-09-24）
 
 木の単位を 1 段追加する。**親 = データセット**（O4 の「自分のデータ／オープンデータ」

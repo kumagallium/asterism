@@ -62,6 +62,27 @@ function FlowBox({ data }: NodeProps) {
   )
 }
 
+/** `ingest/src/asterism/prov_graph.py` の `_EDGE_LABELS` が辺に付ける短い英語
+ *  （例: `generated`）→ 契約メモ §1.6 の i18n ローカル名（`graph.edge.<局所名>`）。
+ *  知らないラベル（マップに無い）はそのまま素通しする（`defaultValue` と同じ
+ *  考え方）。 */
+const EDGE_LABEL_LOCAL_NAME: Record<string, string> = {
+  used: 'used',
+  generated: 'wasGeneratedBy',
+  derived: 'wasDerivedFrom',
+  attributed: 'wasAttributedTo',
+  associated: 'wasAssociatedWith',
+  informed: 'wasInformedBy',
+  quoted: 'wasQuotedFrom',
+}
+
+function translateEdgeLabel(t: (key: string, options?: Record<string, unknown>) => string, label?: string): string | undefined {
+  if (!label) return label
+  const localName = EDGE_LABEL_LOCAL_NAME[label]
+  if (!localName) return label
+  return t(`graph.edge.${localName}`, { defaultValue: label })
+}
+
 const NODE_TYPES = { flowbox: FlowBox }
 const NODE_W = 168
 const COMPACT_NODE_W = 120
@@ -116,7 +137,7 @@ function GraphViewInner({
         id: `${e.from}->${e.to}-${i}`,
         source: e.from,
         target: e.to,
-        label: e.label,
+        label: translateEdgeLabel(t, e.label),
         // ⭐矢じりの色は markerEnd.color（辺の className から CSS では届かない）。
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -125,7 +146,7 @@ function GraphViewInner({
           color: 'var(--border-strong)',
         },
       })),
-    [graph],
+    [graph, t],
   )
 
   const handleClick = useCallback((_: unknown, node: Node) => onNodeClick?.(node.id), [onNodeClick])
