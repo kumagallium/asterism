@@ -59,6 +59,7 @@ from asterism.substrate import (
     canonical_from_clauses,
     canonical_graphs,
     dataset_id_of_canonical_graph,
+    hub_perspective_name,
     is_hub_graph,
     readable_graph_iris,
 )
@@ -604,12 +605,14 @@ async def subject_sources(
 
     def _accumulate(graph_counts: list[tuple[str, int]]) -> None:
         for g, cnt in graph_counts:
-            dataset_id = dataset_id_of_canonical_graph(g)
-            if dataset_id is not None and is_hub_graph(g):
-                # ハブ graph の id（crosswalk/<pid>）は registry の id
-                # （crosswalk-<pid>）と食い違うので、perspective の名前を引けるよう
-                # registry の id に読み替える（実機 2026-09-25: 出どころに graph id）。
-                dataset_id = crosswalk_registry_id_of_hub_graph(g) or dataset_id
+            if is_hub_graph(g):
+                # ハブ graph は registry のデータセットではない（graph の名前
+                # crosswalk/<pid> は dataset id として読めない）。perspective の
+                # 名前を引けるよう registry の id（crosswalk-<pid>）に読み替える
+                # （実機 2026-09-25: 出どころに graph id）。
+                dataset_id = crosswalk_registry_id_of_hub_graph(g)
+            else:
+                dataset_id = dataset_id_of_canonical_graph(g)
             if dataset_id is None:
                 continue
             tail = g.rsplit("/", 1)[-1]
@@ -893,16 +896,10 @@ def _perspective_id_of_hub_graph(hub_graph: str) -> str | None:
     """``hub_graph``（``…/canonical/crosswalk`` か ``…/canonical/crosswalk/<id>``）
     から perspective id を戻す — :func:`asterism.crosswalk_runtime.crosswalk_graph_iri`
     の逆写像（レガシーの無名 perspective は ``DEFAULT_PERSPECTIVE_ID``）。"""
-    dataset_id = dataset_id_of_canonical_graph(hub_graph)
-    if dataset_id is None:
+    name = hub_perspective_name(hub_graph)
+    if name is None:
         return None
-    if dataset_id == "crosswalk":
-        return crosswalk_runtime_mod.DEFAULT_PERSPECTIVE_ID
-    prefix = "crosswalk/"
-    if dataset_id.startswith(prefix):
-        rest = dataset_id[len(prefix) :]
-        return rest or None
-    return None
+    return name or crosswalk_runtime_mod.DEFAULT_PERSPECTIVE_ID
 
 
 async def hub_of_subject(client: SupportsSparql, iri: str) -> dict[str, Any] | None:
