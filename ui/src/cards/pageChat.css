@@ -11,8 +11,24 @@
   background: rgba(22, 36, 26, 0.12);
 }
 
+/* 横幅に余裕があるときは重ねずに横へ並べる（docked）。幕（backdrop）も影も
+   消す — `consult/ConsultDrawer.css` の docked スタイルと揃える（PR F17
+   O61）。並べる場所が無い狭い画面はこれまでどおり被せる（幕あり）。 */
 @media (min-width: 1100px) {
   .pagechat-backdrop {
+    display: none;
+  }
+  body.pagechat-open .app-main {
+    margin-right: var(--side-panel-width);
+  }
+  /* 基底の `.pagechat-drawer`（影つき）がこの後ろに書かれているので、詳細度を
+     上げて勝たせる（実機で影が残っていた）。 */
+  body.pagechat-open .pagechat-drawer {
+    box-shadow: none;
+  }
+  /* パネルが並んでいる間、入力欄はパネルの一番下にあるので、ページ下部の
+     入力欄（`.cardpage-bar`）は隠す（PR F17 §1 決定 5）。 */
+  body.pagechat-open .cardpage-bar {
     display: none;
   }
 }
@@ -23,7 +39,7 @@
   right: 0;
   bottom: 0;
   z-index: 46;
-  width: 380px;
+  width: var(--side-panel-width);
   max-width: 100vw;
   display: flex;
   flex-direction: column;
@@ -195,7 +211,16 @@
   color: var(--muted);
 }
 
+/* 「詳しく指定」で開いたフォームは会話の最後の塊として `.pagechat-scroll`
+   の中に出す（PR F17 §1 決定 4）。 */
+.pagechat-form-block {
+  width: 100%;
+}
+
 /* ---- フッター（入力欄 / no-key フォールバック） --------------------------- */
+/* `.pagechat-foot` の最後の子は必ず `.pagechat-composer`（PR F17 §1 決定
+   4）— 小さな道具の行（`.pagechat-tools`: 詳しく指定の開閉リンク・再送待ちの
+   案内）はその上に置く。 */
 
 .pagechat-foot {
   border-top: 1px solid var(--border);
@@ -203,6 +228,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.pagechat-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
 }
 
 .pagechat-composer {
