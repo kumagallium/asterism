@@ -5,7 +5,6 @@ import type { Route } from '../App'
 import { addSubjectAndPersist, useSubjects } from './subjectStore'
 import { DatasetPage } from './DatasetPage'
 import { FirstScreen } from './FirstScreen'
-import { PlaceView } from './PlaceView'
 import { SetPage } from './SetPage'
 import { SubjectPage } from './SubjectPage'
 
@@ -93,37 +92,11 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
     )
   }
 
-  if (route.place) {
-    return (
-      <PlaceView
-        // KantanWizard から「ページに戻る」で入ってきたときの、既に棚にある
-        // データセット（契約メモ §6.3・App.tsx parseHash の placeDatasetId）。
-        datasetId={route.placeDatasetId}
-        // PlaceView.tsx の navigate は汎用型 `(route: {tab:string, ...}) => void`
-        // を受ける（統合の疎結合のため）。ここで実 Route にブリッジする。
-        navigate={(r) => navigate(r as unknown as Route)}
-        onPlaced={(placedSubjects, placedSet) => {
-          // place/commit は個体側をすでに完全な SubjectItem（label/class_label/
-          // card_count/subject_key/created_at 込み）で返す（c1-place notes 参照）
-          // — そのまま積む。絞り込み側（set）はこのレスポンスに SubjectItem の
-          // 形が無い（set_id/spec だけ）ため、ここで組み立てる。
-          for (const s of placedSubjects) addSubjectAndPersist(s)
-          addSubjectAndPersist({
-            kind: 'set',
-            id: placedSet.set_id,
-            label: null,
-            class_label: null,
-            source: 'own',
-            card_count: null,
-            match: null,
-            subject_key: `s:${placedSet.set_id}`,
-            spec: placedSet.spec,
-            created_at: new Date().toISOString(),
-          })
-        }}
-      />
-    )
-  }
+  // `#/cards/place` は旧 URL 互換のためだけに残す — データが入る唯一の入口は
+  // `#/datasets/add`（契約メモ contract_pr_f8.md §1.2）。開いたらそちらへ
+  // 置き換える（replace: 履歴を汚さない）。レンダー中に navigate を呼ぶと
+  // 「レンダー中に他コンポーネントの state を更新した」警告になるため effect で。
+  if (route.place) return <PlaceRedirect placeDatasetId={route.placeDatasetId} navigate={navigate} />
 
   if (route.subjectKey?.startsWith('i:')) {
     const iri = route.subjectKey.slice(2)
@@ -191,3 +164,18 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
   return <FirstScreen navigate={navigate} onAsk={onAsk} />
 }
 
+/** `#/cards/place`（旧 URL）→ `#/datasets/add`（データが入る唯一の入口）への
+ *  置き換え（契約メモ contract_pr_f8.md §1.2）。何も描かない — 着地先は
+ *  App.tsx の PlaceView（gallery タブ）。 */
+function PlaceRedirect({
+  placeDatasetId,
+  navigate,
+}: {
+  placeDatasetId?: string
+  navigate: (route: Route, opts?: { replace?: boolean }) => void
+}) {
+  useEffect(() => {
+    navigate({ tab: 'gallery', add: true, placeDatasetId }, { replace: true })
+  }, [placeDatasetId, navigate])
+  return null
+}

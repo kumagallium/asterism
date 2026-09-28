@@ -24,20 +24,19 @@
     "details": "More details"
   },
   "firstScreen": {
-    "placeTitle": "Place your data",
-    "placeHint": "Drop it here, or click to continue",
+    "place_title": "Add your data",
+    "placeHint": "Drag it here, or click to continue",
     "searchTitle": "Search open data by name",
     "searchButton": "Search",
     "sampleIntro": "Sample: Countries of the world (Gapminder). Drop your own file and it lines up the same way",
-    "samplePrefix": "Sample: ",
+    "sample_note": "Sample: {{name}}. Add your data and it lines up the same way",
     "sampleLinkLabel": "Countries of the world (Gapminder)",
-    "sampleSuffix": ". Drop your own file and it lines up the same way",
     "viewSampleGallery": "See the sample"
   },
   "rail": {
     "own_title": "My data",
-    "own_empty": "Nothing yet. Drop a file and what it names will appear here.",
-    "add": "+ Place data",
+    "own_empty": "Nothing yet. Add data under Build › Datasets and it will appear here",
+    "own_empty_link": "Go to Datasets",
     "open_title": "Open data",
     "search_placeholder": "Search by name or condition",
     "filter_by_class": "Make a list filtered by \"{{label}}\"",
@@ -83,6 +82,7 @@
     "join": " · "
   },
   "place": {
+    "title": "Add data",
     "reading": "Read {{name}}",
     "rows_cols": "{{rows}} rows · {{cols}} columns",
     "matched_type": "Shape matches the \"{{type}}\" type ({{matched}}/{{total}} columns)",

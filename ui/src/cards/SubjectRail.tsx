@@ -203,7 +203,16 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
       <div className="rail-section">
         <h4 className="rail-section-title">{t('rail.own_title')}</h4>
         {tree.own.length === 0 ? (
-          <p className="rail-empty">{t('rail.own_empty')}</p>
+          <p className="rail-empty">
+            {t('rail.own_empty')}{' '}
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => navigate({ tab: 'gallery' })}
+            >
+              {t('rail.own_empty_link')}
+            </button>
+          </p>
         ) : (
           <div className="rail-datasets">
             {tree.own.map((node) => (
@@ -221,13 +230,6 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
             ))}
           </div>
         )}
-        <button
-          type="button"
-          className="rail-add"
-          onClick={() => navigate({ tab: 'cards', place: true })}
-        >
-          {t('rail.add')}
-        </button>
       </div>
 
       <div className="rail-section">

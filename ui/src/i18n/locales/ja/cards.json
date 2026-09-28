@@ -24,20 +24,19 @@
     "details": "詳しい情報"
   },
   "firstScreen": {
-    "placeTitle": "あなたのデータを置く",
-    "placeHint": "ここに置くか、クリックして進みます",
+    "place_title": "あなたのデータを追加する",
+    "placeHint": "ここにドラッグするか、クリックして進みます",
     "searchTitle": "公開データを名前でさがす",
     "searchButton": "さがす",
     "sampleIntro": "見本: 世界の国（Gapminder）。あなたのファイルを置くと同じ形で並びます",
-    "samplePrefix": "見本: ",
+    "sample_note": "見本: {{name}}。あなたのデータを追加すると、同じ形で並びます",
     "sampleLinkLabel": "世界の国（Gapminder）",
-    "sampleSuffix": "。あなたのファイルを置くと同じ形で並びます",
     "viewSampleGallery": "見本を見る"
   },
   "rail": {
     "own_title": "自分のデータ",
-    "own_empty": "まだありません。ファイルを置くと、ここに出てきたものが並びます。",
-    "add": "＋ データを置く",
+    "own_empty": "まだありません。作る › データセットで追加すると、ここに並びます",
+    "own_empty_link": "データセットへ",
     "open_title": "オープンデータ",
     "search_placeholder": "名前か条件でさがす",
     "filter_by_class": "「{{label}}」の条件で一覧を作る",
@@ -83,6 +82,7 @@
     "join": "・"
   },
   "place": {
+    "title": "データを追加",
     "reading": "{{name}} を読みました",
     "rows_cols": "{{rows}} 行・{{cols}} 列",
     "matched_type": "形は「{{type}}」型と一致（{{matched}}/{{total}} 列）",

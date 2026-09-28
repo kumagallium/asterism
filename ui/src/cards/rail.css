@@ -121,22 +121,6 @@
   background: var(--activity);
 }
 
-.rail-add {
-  align-self: flex-start;
-  margin: 0.2rem 0.7rem 0;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 0.4rem 0.7rem;
-  cursor: pointer;
-}
-.rail-add:hover {
-  background: var(--surface-alt);
-}
-
 /* データセット行 + 子（契約メモ contract_pr_f2.md §2.1）。 */
 .rail-datasets {
   display: flex;
