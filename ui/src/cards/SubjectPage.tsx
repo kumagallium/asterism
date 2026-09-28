@@ -12,9 +12,14 @@ import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
 // PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
 // だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
-import { PageChatDrawer } from './PageChatDrawer'
+// PR F18: `target`/`subjectKeys`/`onCardReplaced`（契約メモ §1.2）もこの
+// モジュールに足される。
+import { PageChatDrawer, type PageChatTarget } from './PageChatDrawer'
 import { removeCard, useCards } from './cardStore'
 import type { CardSpec } from './cardStore'
+// PR F18（ui-store 担当）が新設する関数。まだ存在しない間も import だけ書いて
+// おく（契約メモ §1 の並列中の仮置きと同じ流儀）。
+import { pageChatThreadForCard } from './pageChatThreads'
 import { subjectDisplayLabel } from './subjectLabel'
 import { ViewpointStrip } from './ViewpointStrip'
 import './pages.css'
@@ -89,6 +94,9 @@ export function cardSpecToCardRef(spec: CardSpec): CardRef {
     // CardDetail.tsx の renderableCustomView が読む）。無ければ undefined の
     // まま＝従来どおり defaultViewFor にフォールバックする。
     view: spec.view,
+    // PR F18: 会話で決めた見せ方（`CardSpec.presentation`）も運ぶ（CardTile.tsx/
+    // CardDetail.tsx が `applyPresentation` で既定ビューへ適用する）。
+    presentation: spec.presentation,
   }
 }
 
@@ -180,6 +188,10 @@ export function SubjectPage({
   // 埋め込む（ui-drawer 担当）ので、このページ自身はもう開閉を持たない。
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
+  // どの会話を開くか（契約メモ PR F18 §1.2「開き方」）。「直す」→ そのカードの
+  // 会話、「＋ 観点を足す」→ 新しい会話、下の入力欄からは指定しない（初回送信は
+  // ドロワー側が常に新しい会話として扱う）。
+  const [chatTarget, setChatTarget] = useState<PageChatTarget | undefined>(undefined)
   const [cardResultsState, setCardResultsState] = useState<{ key: string; results: Record<string, CardToolResult> }>({
     key: '',
     results: {},
@@ -200,6 +212,7 @@ export function SubjectPage({
     setHiddenCardIds(new Set())
     setChatOpen(false)
     setChatInitialMessage(undefined)
+    setChatTarget(undefined)
   }
 
   // 「観点」の帯（PR F6・ViewpointStrip）が使う `linkingKinds`（この 1 件を
@@ -379,16 +392,40 @@ export function SubjectPage({
     }
     const isAddedCard = addedCardRefs.some((c) => c.card_id === selectedCard.card_id)
     return (
-      <CardDetail
-        subject={{ kind: 'individual', iri }}
-        breadcrumbLabel={label}
-        card={selectedCard}
-        onBack={onCloseCard}
-        onAsk={onAsk}
-        onEditDefinition={onEditDefinition}
-        isAddedCard={isAddedCard}
-        onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
-      />
+      <>
+        <CardDetail
+          subject={{ kind: 'individual', iri }}
+          breadcrumbLabel={label}
+          card={selectedCard}
+          onBack={onCloseCard}
+          onAsk={onAsk}
+          onEditDefinition={onEditDefinition}
+          isAddedCard={isAddedCard}
+          onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
+          onFixCard={
+            isAddedCard
+              ? () => {
+                  setChatTarget({ kind: 'card', cardId: selectedCard.card_id })
+                  setChatOpen(true)
+                }
+              : undefined
+          }
+          conversation={pageChatThreadForCard([subjectKeyStr], selectedCard.card_id)?.turns}
+        />
+        <PageChatDrawer
+          subject={subjectRef}
+          subjectKey={subjectKeyStr}
+          subjectKeys={[subjectKeyStr]}
+          classIri={resolved?.class_iri ?? undefined}
+          datasetId={resolved?.dataset_id ?? undefined}
+          pageSummary={pageSummary}
+          target={chatTarget}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          onCardAdded={() => {}}
+          onCardReplaced={() => {}}
+        />
+      </>
     )
   }
 
@@ -447,6 +484,7 @@ export function SubjectPage({
             className="btn btn--ghost btn--sm"
             onClick={() => {
               setChatInitialMessage(undefined)
+              setChatTarget({ kind: 'new' })
               setChatOpen(true)
             }}
           >
@@ -496,6 +534,11 @@ export function SubjectPage({
               onFoundChange={(id, found) => {
                 if (!found) hideCard(id)
               }}
+              isAddedCard
+              onFixCard={(cardId) => {
+                setChatTarget({ kind: 'card', cardId })
+                setChatOpen(true)
+              }}
             />
           ))}
         </div>
@@ -521,8 +564,11 @@ export function SubjectPage({
           disabled={!askText.trim()}
           onClick={() => {
             // 契約メモ PR F12 §1 決定 1: 下の入力欄はページを離れずドロワーを
-            // 開く（旧: `onAsk` で `#/ask` へ遷移）。
+            // 開く（旧: `onAsk` で `#/ask` へ遷移）。PR F18: 下の欄からの
+            // 1 通目は新しい会話として始まる（ドロワー側の決定）ので、
+            // target は指定しない（直前の「直す」の指定を持ち越さない）。
             setChatInitialMessage(askText)
+            setChatTarget(undefined)
             setChatOpen(true)
             setAskText('')
           }}
@@ -533,18 +579,21 @@ export function SubjectPage({
       <PageChatDrawer
         subject={subjectRef}
         subjectKey={subjectKeyStr}
+        subjectKeys={[subjectKeyStr]}
         classIri={resolved.class_iri ?? undefined}
         datasetId={resolved.dataset_id ?? undefined}
         pageSummary={pageSummary}
+        target={chatTarget}
         open={chatOpen}
         onClose={() => setChatOpen(false)}
         initialMessage={cardResultsReady ? chatInitialMessage : undefined}
         // `cardStore.useCards` は `useSyncExternalStore` 購読なので、ドロワーが
-        // 内部で `addCard` を呼べば `addedCardRefs` は自動で更新される
-        // （契約メモ PR F12 §5 実装順(1)「onCardAdded で足したカードの一覧を
-        // 更新」は cardStore 側の購読で自動的に満たされる）。ここでは通知を
-        // 受けるだけでよい。
+        // 内部で `addCard`/`replaceCard` を呼べば `addedCardRefs` は自動で
+        // 更新される（契約メモ PR F12 §5 実装順(1)「onCardAdded で足したカード
+        // の一覧を更新」は cardStore 側の購読で自動的に満たされる）。ここでは
+        // 通知を受けるだけでよい。
         onCardAdded={() => {}}
+        onCardReplaced={() => {}}
       />
     </div>
   )

@@ -409,3 +409,35 @@ def test_normalize_cards_carries_the_view(tmp_path: Path) -> None:
         "custom": True,
     }
     assert "view" not in cards[1]
+
+
+def test_presentation_field_keeps_only_well_formed_marks() -> None:
+    """CardSpec.presentation（会話で決めた見せ方・F18）は
+    `{"mark": "line"|"bar"|"point"}` の形だけを束へ運ぶ。違えば None。"""
+    from asterism_api.export_routes import _presentation_field
+
+    assert _presentation_field({"mark": "bar"}) == {"mark": "bar"}
+    assert _presentation_field({"mark": "line"}) == {"mark": "line"}
+    assert _presentation_field({"mark": "point"}) == {"mark": "point"}
+    assert _presentation_field({"mark": "area"}) is None
+    assert _presentation_field({}) is None
+    assert _presentation_field(None) is None
+    assert _presentation_field("bar") is None
+
+
+def test_normalize_cards_carries_the_presentation() -> None:
+    from asterism_api.export_routes import _normalize_cards
+
+    cards = _normalize_cards(
+        [
+            {
+                "card_id": "card-1",
+                "tool": "set_measure",
+                "params": {"shape": "series"},
+                "presentation": {"mark": "bar"},
+            },
+            {"card_id": "card-2", "tool": "subject_facts", "presentation": {"mark": "area"}},
+        ]
+    )
+    assert cards[0]["presentation"] == {"mark": "bar"}
+    assert "presentation" not in cards[1]

@@ -17,7 +17,10 @@ import './viewpoints.css'
 import { declaredViewpoints, viewpointsFrom } from './viewpoints'
 // PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
 // だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
-import { PageChatDrawer } from './PageChatDrawer'
+// PR F18: `target`（契約メモ §1.2）もこのモジュールに足される。この画面は
+// カードを実行していないため「直す」は無く、「＋ 観点を足す」から
+// `{kind:'new'}` を渡すだけ（`subjectKeys`/`onCardReplaced` は使わない）。
+import { PageChatDrawer, type PageChatTarget } from './PageChatDrawer'
 import type { PageChatSummary } from './SubjectPage'
 
 // ---------------------------------------------------------------------------
@@ -108,6 +111,9 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
   const [askText, setAskText] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
+  // どの会話を開くか（契約メモ PR F18 §1.2）。この画面の「＋ 観点を足す」は
+  // 常に新しい会話。
+  const [chatTarget, setChatTarget] = useState<PageChatTarget | undefined>(undefined)
   // classIri が変わったらドロワーを閉じる（SubjectPage.tsx と同じ「prop が
   // 変わったら state を調整する」パターン）。
   const [chatFor, setChatFor] = useState(classIri)
@@ -115,6 +121,7 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
     setChatFor(classIri)
     setChatOpen(false)
     setChatInitialMessage(undefined)
+    setChatTarget(undefined)
     setAskText('')
   }
 
@@ -218,6 +225,7 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
             className="btn btn--ghost btn--sm"
             onClick={() => {
               setChatInitialMessage(undefined)
+              setChatTarget({ kind: 'new' })
               setChatOpen(true)
             }}
           >
@@ -294,7 +302,10 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
           disabled={!askText.trim()}
           onClick={() => {
             // 契約メモ PR F12 §1 決定 1: 下の入力欄はページを離れずドロワーを開く。
+            // PR F18: 下の欄からの 1 通目は新しい会話として始まるので target
+            // は指定しない。
             setChatInitialMessage(askText)
+            setChatTarget(undefined)
             setChatOpen(true)
             setAskText('')
           }}
@@ -308,6 +319,7 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
         classIri={classIri}
         datasetId={entry.dataset_id}
         pageSummary={pageSummary}
+        target={chatTarget}
         open={chatOpen}
         onClose={() => setChatOpen(false)}
         initialMessage={chatInitialMessage}

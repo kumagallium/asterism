@@ -40,6 +40,30 @@ export function addCardItem(items: CardSpec[], item: CardSpec): CardSpec[] {
   return [...items.filter((i) => i.card_id !== item.card_id), item]
 }
 
+/** 差し替え（純粋・契約メモ §1.1「直す」）。`oldCardId` の**位置と `created_at`
+ *  を保って** `newItem` に差し替える。3 態:
+ *  1. `oldCardId` が見つかり、`newItem.card_id` が他のどのカードとも被らない
+ *     → その位置のまま、`created_at` は元のカードのものを保って差し替える
+ *     （`newItem.card_id` が `oldCardId` と同じでも違っても、ここに入る）。
+ *  2. `oldCardId` が見つかり、`newItem.card_id` が**別の既存カード**と同じ
+ *     （見せ方だけの変更で params が変わらず、結果として元からあった別の
+ *     カードと同じ id に着地した）→ そのカードは触らずそのまま残し、
+ *     `oldCardId` の項目だけを消す（二重には並べない）。
+ *  3. `oldCardId` が見当たらない → `newItem` を（`addCardItem` と同じ規則で）
+ *     末尾に足す。 */
+export function replaceCardItem(items: CardSpec[], oldCardId: string, newItem: CardSpec): CardSpec[] {
+  const oldIndex = items.findIndex((i) => i.card_id === oldCardId)
+  if (oldIndex < 0) return addCardItem(items, newItem)
+  if (newItem.card_id !== oldCardId) {
+    const collisionIndex = items.findIndex((i) => i.card_id === newItem.card_id)
+    if (collisionIndex >= 0 && collisionIndex !== oldIndex) {
+      return items.filter((i) => i.card_id !== oldCardId)
+    }
+  }
+  const preserved: CardSpec = { ...newItem, created_at: items[oldIndex].created_at }
+  return items.map((i, idx) => (idx === oldIndex ? preserved : i))
+}
+
 /** 削除（純粋）。`subjectKey` も合わせて見る — card_id は params の決定論
  *  ハッシュだけで作られるので理論上は主語を跨いで一意とは限らない
  *  （実務上は where にその主語の条件が必ず含まれるので衝突しない想定だが、
@@ -174,4 +198,26 @@ export function removeCard(subjectKey: string, cardId: string): void {
   emit()
   if (serverMode) void deleteAppDataCard(cardId)
   else saveLocal()
+}
+
+/** 差し替えて永続化する（契約メモ §1.1「直す」）。`subjectKey` は今のところ
+ *  `replaceCardItem` 自体には使わない（`card_id` は主語を跨いで一意という
+ *  実務上の前提のため — `removeCardItem` のコメント参照）が、呼び出し側の
+ *  意図を残す・将来の安全化のために引数として持たせる。 */
+export function replaceCard(_subjectKey: string, oldCardId: string, newSpec: CardSpec): void {
+  const before = items
+  items = replaceCardItem(before, oldCardId, newSpec)
+  emit()
+  if (serverMode) {
+    const beforeById = new Map(before.map((i) => [i.card_id, i]))
+    const afterIds = new Set(items.map((i) => i.card_id))
+    for (const id of beforeById.keys()) {
+      if (!afterIds.has(id)) void deleteAppDataCard(id)
+    }
+    for (const item of items) {
+      if (beforeById.get(item.card_id) !== item) void putAppDataCard(item.card_id, item)
+    }
+  } else {
+    saveLocal()
+  }
 }

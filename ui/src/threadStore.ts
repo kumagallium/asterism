@@ -57,9 +57,24 @@ export interface AssistantTurn<TResult> {
   interrupted?: boolean
   /** The user stopped waiting (retry-able). */
   stopped?: boolean
+  /** Outcome of a proposal carried by this turn's `result` (PR F18 §1.2 —
+   *  page-chat only; other namespaces never set this). Persisted so a
+   *  decided proposal stays decided across a reload/re-open (no in-memory
+   *  guess). */
+  decision?: 'added' | 'replaced' | 'added_as_new' | 'discarded'
 }
 
 export type Turn<TResult> = UserTurn | AssistantTurn<TResult>
+
+/** Optional per-thread metadata (PR F18 §1.1). Only the page-chat namespace
+ *  writes this today (a thread tied to a card's viewpoint vs. a free-form
+ *  question), but it lives on the shared `Thread` shape so every namespace's
+ *  persistence (localStorage <-> appdata) carries it through untouched. */
+export interface ThreadMeta {
+  subject_key?: string
+  card_id?: string | null
+  kind?: 'viewpoint' | 'question'
+}
 
 export interface Thread<TResult> {
   id: string
@@ -69,6 +84,9 @@ export interface Thread<TResult> {
   createdAt: number
   updatedAt: number
   turns: Turn<TResult>[]
+  /** Absent for threads that predate PR F18 (and for namespaces that never
+   *  set it) — callers must treat a missing `meta` as "unknown". */
+  meta?: ThreadMeta
 }
 
 export interface Attempt {
@@ -109,7 +127,11 @@ export interface ThreadStore<TResult> {
    *  one-shot "what's the latest one" computation outside render). */
   getAllThreads: () => Thread<TResult>[]
   titleFrom: (turns: Turn<TResult>[]) => string
-  startThread: (message: string) => Attempt & { thread: Thread<TResult> }
+  startThread: (message: string, meta?: ThreadMeta) => Attempt & { thread: Thread<TResult> }
+  /** A thread with zero turns (no user message yet) — for a conversation that
+   *  starts life bound to something (e.g. a card) rather than to a first
+   *  question. */
+  createEmptyThread: (title: string, meta?: ThreadMeta) => Thread<TResult>
   appendMessage: (threadId: string, message: string) => Attempt | null
   resolveAnswer: (
     threadId: string,
@@ -140,6 +162,19 @@ export interface ThreadStore<TResult> {
    *  re-asked. Null if `assistantTurnId` doesn't name an assistant turn. */
   regenerateFrom: (threadId: string, assistantTurnId: string) => RegenAttempt | null
   renameThread: (threadId: string, title: string) => void
+  /** Alias of `renameThread` under the F18 name (kept separate in the type
+   *  so call sites can read either name for what they mean). */
+  setThreadTitle: (threadId: string, title: string) => void
+  /** Shallow-merge `patch` into the thread's `meta` (creating it if absent).
+   *  No-op if `threadId` doesn't name a thread. */
+  setThreadMeta: (threadId: string, patch: ThreadMeta) => void
+  /** Record a proposal's outcome on an assistant turn (PR F18 §1.2). No-op if
+   *  `threadId`/`turnId` doesn't name an assistant turn in this store. */
+  setTurnDecision: (
+    threadId: string,
+    turnId: string,
+    decision: 'added' | 'replaced' | 'added_as_new' | 'discarded',
+  ) => void
   deleteThread: (threadId: string) => void
   isThreadBusy: (thread: Thread<TResult> | undefined) => boolean
 }
@@ -294,17 +329,40 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
           error: typeof o.error === 'string' && o.error ? o.error : undefined,
           interrupted: interrupted || undefined,
           stopped: o.stopped === true && !interrupted ? true : undefined,
+          decision: normalizeDecision(o.decision),
         })
       }
     }
     const createdAt = typeof r.createdAt === 'number' ? r.createdAt : 0
+    const meta = normalizeThreadMeta(r.meta)
     return {
       id: r.id,
       title: typeof r.title === 'string' && r.title ? r.title : titleFrom(turns),
       createdAt,
       updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : createdAt,
       turns,
+      ...(meta ? { meta } : {}),
     }
+  }
+
+  /** Unknown values are dropped (not thrown) — same "best-effort read" stance
+   *  as the rest of this file. */
+  function normalizeDecision(raw: unknown): AssistantTurn<TResult>['decision'] {
+    return raw === 'added' || raw === 'replaced' || raw === 'added_as_new' || raw === 'discarded' ? raw : undefined
+  }
+
+  /** Unknown shapes are dropped (not thrown) — same "best-effort read" stance
+   *  as the rest of this file. A thread that predates PR F18, or was written
+   *  by a namespace that never sets `meta`, simply comes back with no `meta`
+   *  at all. */
+  function normalizeThreadMeta(raw: unknown): ThreadMeta | undefined {
+    if (raw === null || raw === undefined || typeof raw !== 'object') return undefined
+    const r = raw as Record<string, unknown>
+    const meta: ThreadMeta = {}
+    if (typeof r.subject_key === 'string') meta.subject_key = r.subject_key
+    if (typeof r.card_id === 'string' || r.card_id === null) meta.card_id = r.card_id
+    if (r.kind === 'viewpoint' || r.kind === 'question') meta.kind = r.kind
+    return Object.keys(meta).length > 0 ? meta : undefined
   }
 
   function serializeThread(t: Thread<TResult>): Thread<TResult> & { id: string } {
@@ -458,7 +516,7 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     }
   }
 
-  function startThread(message: string): Attempt & { thread: Thread<TResult> } {
+  function startThread(message: string, meta?: ThreadMeta): Attempt & { thread: Thread<TResult> } {
     const now = Date.now()
     const user: UserTurn = { id: newId(), role: 'user', text: message, at: now }
     const assistant = pendingSlot()
@@ -468,6 +526,7 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
       createdAt: now,
       updatedAt: now,
       turns: [user, assistant],
+      ...(meta ? { meta } : {}),
     }
     commit([thread, ...threads])
     return {
@@ -476,6 +535,20 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
       assistantTurnId: assistant.id,
       attempt: assistant.attempt!,
     }
+  }
+
+  function createEmptyThread(title: string, meta?: ThreadMeta): Thread<TResult> {
+    const now = Date.now()
+    const thread: Thread<TResult> = {
+      id: newId(),
+      title: clipTitle(title),
+      createdAt: now,
+      updatedAt: now,
+      turns: [],
+      ...(meta ? { meta } : {}),
+    }
+    commit([thread, ...threads])
+    return thread
   }
 
   function appendMessage(threadId: string, message: string): Attempt | null {
@@ -640,6 +713,27 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     }))
   }
 
+  function setThreadMeta(threadId: string, patch: ThreadMeta) {
+    updateThread(threadId, (t) => ({
+      ...t,
+      meta: { ...t.meta, ...patch },
+    }))
+  }
+
+  function setTurnDecision(
+    threadId: string,
+    turnId: string,
+    decision: 'added' | 'replaced' | 'added_as_new' | 'discarded',
+  ) {
+    const thread = getThread(threadId)
+    const turn = thread?.turns.find((t) => t.id === turnId)
+    if (!thread || !turn || turn.role !== 'assistant') return
+    updateThread(threadId, (t) => ({
+      ...t,
+      turns: t.turns.map((turn) => (turn.id === turnId && turn.role === 'assistant' ? { ...turn, decision } : turn)),
+    }))
+  }
+
   function deleteThread(threadId: string) {
     const thread = threads.find((t) => t.id === threadId)
     if (!thread) return
@@ -665,6 +759,7 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     getAllThreads,
     titleFrom,
     startThread,
+    createEmptyThread,
     appendMessage,
     resolveAnswer,
     failAnswer,
@@ -675,6 +770,9 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     editUserTurn,
     regenerateFrom,
     renameThread,
+    setThreadTitle: renameThread,
+    setThreadMeta,
+    setTurnDecision,
     deleteThread,
     isThreadBusy,
   }

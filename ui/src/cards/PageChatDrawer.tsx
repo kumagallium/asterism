@@ -5,16 +5,24 @@
 //
 // consult と違い、このドロワーは呼び出し側（SubjectPage/SetPage/ClassPage —
 // ui-page）に完全に制御される: 自分の FAB や履歴一覧は持たない
-// （`open`/`onClose` の外部制御・スレッドは `subjectKey` ごとに 1 本）。
+// （`open`/`onClose` の外部制御・`target` で開き方を指示される）。
+//
+// PR F18（contract_pr_f18.md §1.2）: 会話の単位を「観点（カード）ごと＋自由な
+// 質問」の複数本にする。見出しの下に会話の切り替え（`.pagechat-threads`）を
+// 持ち、`target` で「そのカードの会話」「特定の会話」「新しい会話」のどれを
+// 開くかを外から指示できる。提案の決着は、会話がカードに結びついているかで
+// 「足す」（結びつけ）／「差し替える」（主）・「別のカードとして足す」に分かれる。
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from '../settings/context'
+import { applyPresentation } from './applyPresentation'
 import { withFieldLabels } from './builtinFields'
 import type {
   CardRunSubject,
   CardSpec,
   CardToolResult,
   CardView,
+  ConverseDraft,
   ConverseMessage,
   ConverseProposal,
   ConverseProposalView,
@@ -23,7 +31,7 @@ import type {
   MeasureShape,
 } from './cardsApi'
 import { classSchema, converse, NoLlmKeyError, runCard } from './cardsApi'
-import { addCard, useCards } from './cardStore'
+import { addCard, replaceCard, useCards } from './cardStore'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
 import { canonicalJson, MEASURE_SHAPES, sha256Hex, type MeasureSchemaLike, type Translate } from './measureCardFields'
@@ -32,14 +40,17 @@ import { NewCardForm } from './NewCardForm'
 import './pageChat.css'
 import {
   appendPageChatMessage,
+  bindPageChatThreadToCard,
+  createPageChatThreadForCard,
   failPageChatAnswer,
   isPageChatThreadBusy,
   labelsFromSchema,
   latestDraft,
-  pageChatThreadIdFor,
+  pageChatThreadForCard,
+  pageChatThreadsFor,
   proposalCardSpec,
-  rememberPageChatThread,
   resolvePageChatAnswer,
+  setPageChatTurnDecision,
   startPageChatThread,
   usePageChatThreads,
   type PageChatThread,
@@ -64,6 +75,16 @@ const REASK_WAITING_TEXT = '足したカードの結果を待っています…'
 const REASK_NOTE_TEXT = '足したカード「{{title}}」の結果をもとに、もう一度答えます'
 // 待ちの上限（契約メモ §1.5「最長 15 秒。過ぎたら送る」）。
 const REASK_WAIT_MS = 15000
+// PR F18 §1.2（cards.json は ui-page 担当・統合段で追加される想定）。
+const THREAD_NEW_TEXT = '＋ 新しい会話'
+const THREAD_UNTITLED_TEXT = '新しい会話'
+const THREADS_VIEWPOINTS_TEXT = '観点'
+const THREADS_QUESTIONS_TEXT = '質問'
+const FIX_INTRO_TEXT = '「{{title}}」を直します。どう変えますか？'
+const PROPOSAL_REPLACE_TEXT = '差し替える'
+const PROPOSAL_ADD_AS_NEW_TEXT = '別のカードとして足す'
+const REPLACED_TEXT = '差し替えました'
+const DISCARDED_TEXT = 'やめました'
 
 export interface PageChatPageSummary {
   facts: { label: string; value: string }[]
@@ -76,13 +97,32 @@ export interface PageChatPageSummary {
   cards: { card_id?: string; title: string; output_kind: string; rows: Record<string, unknown>[]; tool?: string; params?: Record<string, unknown> }[]
 }
 
+/** PR F18 契約メモ §1.2: ドロワーの「開き方」の指示。`kind: 'card'` はそのカード
+ *  の会話（無ければ新設）、`'thread'` は特定の会話、`'new'` は空の新しい会話。
+ *  無指定（`undefined`）は「直近に触った会話（無ければ新しい会話）」
+ *  （{@link resolveChatTarget} 参照）。 */
+export type PageChatTarget = { kind: 'card'; cardId: string } | { kind: 'thread'; threadId: string } | { kind: 'new' }
+
+/** 提案の決着（契約メモ §1.2・`threadStore.ts` の `AssistantTurn.decision` と
+ *  同じ語彙）。`added_as_new` は「結びついていない別のカードとして足す」
+ *  （表示上は `added` と同じ「足しました」）。 */
+export type ProposalDecision = 'added' | 'replaced' | 'added_as_new' | 'discarded'
+
 export interface PageChatDrawerProps {
   /** `converse`/表示に使う主語。種類のページ（`kind: 'class'`）は会話専用の
    *  形で、`runCard`/`NewCardForm` に渡す前に {@link toRunSubject} が
    *  `set`（`where: []`）へ変換する。 */
   subject: ConverseSubject
-  /** 契約メモ §1-1 の文字列表現。種類のページは `k:<class_iri>`。 */
+  /** 契約メモ §1-1 の文字列表現。種類のページは `k:<class_iri>`。新しい会話・
+   *  そのページの既定の会話の結びつけ先（`bindPageChatThreadToCard`/
+   *  `createPageChatThreadForCard`/`startPageChatThread` の第 1 引数）はこちら。 */
   subjectKey: string
+  /** PR F18 §1.2: 会話の一覧（`.pagechat-threads`）・「そのカードの会話を探す」
+   *  が見る主語の集合。無ければ `[subjectKey]`（F19 でハブがメンバーのキーも
+   *  渡す）。 */
+  subjectKeys?: string[]
+  /** PR F18 §1.2: ドロワーの開き方（{@link PageChatTarget}）。 */
+  target?: PageChatTarget
   classIri?: string
   /** `NewCardForm` の型合わせ用（現時点ではフォーム内部で使わない — 詳細は
    *  `NewCardForm.tsx` のコメント参照）。無指定は空文字で渡す。 */
@@ -91,9 +131,14 @@ export interface PageChatDrawerProps {
   open: boolean
   onClose: () => void
   /** ページ下部の入力欄から送られた文面。ドロワーが開いた時点で 1 度だけ
-   *  自動送信する。 */
+   *  自動送信する。契約メモ §1.2「新しい会話として始める（結びついた会話を
+   *  汚さない）」— `target` が指す会話がどれであっても新しい会話で始まる。 */
   initialMessage?: string
   onCardAdded: (card: CardSpec) => void
+  /** PR F18 §1.2: 結びついている会話で「差し替える」が決着したときに呼ぶ
+   *  （`replaceCard` 後）。cardStore の購読で表示は自動反映されるので、
+   *  呼び出し側は通知として受け取るだけでよい。 */
+  onCardReplaced?: (oldCardId: string, card: CardSpec) => void
 }
 
 /** 会話専用の `class` 主語を、`runCard`/`NewCardForm` が読める形へ落とす:
@@ -122,6 +167,91 @@ function historyOf(thread: PageChatThread | undefined): ConverseMessage[] {
     out.push({ role: 'assistant', content: answer.result.reply })
   }
   return out.slice(-MAX_HISTORY_TURNS)
+}
+
+// ---------------------------------------------------------------------------
+// PR F18 §1.2: 開き方の決定・下書きの決定・決着のボタンの出し分け（純関数）
+// ---------------------------------------------------------------------------
+
+/** `target` が指定されていればそのまま、無ければ「直近に触った会話」
+ *  （`recentThreadId`）、それも無ければ新しい会話（契約メモ §1.2「`target` が
+ *  無いとき → 直近に触った会話（無ければ新しい会話）」）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同ファイル既存の純関数群と同じ理由）
+export function resolveChatTarget(target: PageChatTarget | undefined, recentThreadId: string | null): PageChatTarget {
+  if (target) return target
+  return recentThreadId ? { kind: 'thread', threadId: recentThreadId } : { kind: 'new' }
+}
+
+/** `CardSpec.view`（保存形・`custom` 付き）を `ConverseDraft.view`（ワイヤ形）へ
+ *  剥がす。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function draftViewFromCardView(view: CardView | undefined): ConverseDraft['view'] {
+  if (!view) return undefined
+  return { lang: view.lang, spec: view.spec, text: view.text, source_card_id: view.source_card_id }
+}
+
+/** 送るときの `draft`（契約メモ §1.2「draft」）: 未決着の直近の提案があれば
+ *  それ、無く会話がカードに結びついていればそのカードの
+ *  `{params, presentation, view}`。どちらも無ければ `null`。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function resolveSendDraft(pendingProposal: ConverseProposal | null, boundCard: CardSpec | undefined): ConverseDraft | null {
+  if (pendingProposal) return { params: pendingProposal.params, presentation: pendingProposal.presentation }
+  if (boundCard) return { params: boundCard.params, presentation: boundCard.presentation ?? null, view: draftViewFromCardView(boundCard.view) }
+  return null
+}
+
+/** 提案の決着ボタンの出し分け（契約メモ §1.2）: すでに決着している（`decision`
+ *  が付いている — ローカルでたった今決着したか、スレッドに永続化済みか、
+ *  どちらでも）提案は `null`（ボタンを出さない・呼び出し側は決着の表示に
+ *  回す）。未決着なら、会話がカードに結びついていなければ主ボタンは「足す」
+ *  だけ、結びついていれば主ボタンは「差し替える」で副ボタン「別のカードと
+ *  して足す」も出す。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function proposalButtonsFor(
+  boundCardId: string | null | undefined,
+  decision?: ProposalDecision,
+): { primary: 'add' } | { primary: 'replace'; secondary: 'add_as_new' } | null {
+  if (decision) return null
+  return boundCardId ? { primary: 'replace', secondary: 'add_as_new' } : { primary: 'add' }
+}
+
+/** 決着（{@link ProposalDecision}）に対応する表示文言の i18n キー（契約メモ
+ *  §1.2「決着の表示は「差し替えました」「足しました」「やめました」」）。
+ *  `added`／`added_as_new` はどちらも「足しました」——結びつけの有無は
+ *  ユーザーへの見せ方としては区別しない。未決着なら `null`。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function proposalOutcomeKey(decision: ProposalDecision | undefined): 'pagechat.added' | 'pagechat.replaced' | 'pagechat.discarded' | null {
+  if (decision === 'added' || decision === 'added_as_new') return 'pagechat.added'
+  if (decision === 'replaced') return 'pagechat.replaced'
+  if (decision === 'discarded') return 'pagechat.discarded'
+  return null
+}
+
+const OUTCOME_FALLBACK_TEXT: Record<'pagechat.added' | 'pagechat.replaced' | 'pagechat.discarded', string> = {
+  'pagechat.added': '足しました',
+  'pagechat.replaced': REPLACED_TEXT,
+  'pagechat.discarded': DISCARDED_TEXT,
+}
+
+/** 決着の 1 行（{@link proposalOutcomeKey} 参照）。未決着なら何も出さない。 */
+function renderOutcomeNote(decision: ProposalDecision | undefined, t: Translate) {
+  const key = proposalOutcomeKey(decision)
+  if (!key) return null
+  return <p className="pagechat-added-note">{t(key, { defaultValue: OUTCOME_FALLBACK_TEXT[key] })}</p>
+}
+
+/** `target` の識別用カウンタを 1 つ進める（参照が変わったときだけ）。純関数。
+ *  内容が同じ `target`（例: 2 回連続の `{kind:'new'}`）でも、呼び出し元が
+ *  毎回新しいオブジェクトを渡す限り参照は変わる — 内容の文字列化だけを
+ *  署名にすると区別が付かず、2 回目以降の「＋ 観点を足す」で前回（すでに
+ *  カードへ結びついた）会話が開いたままになる。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function nextTargetChangeCounter(
+  prevTarget: PageChatTarget | undefined,
+  target: PageChatTarget | undefined,
+  counter: number,
+): number {
+  return target !== prevTarget ? counter + 1 : counter
 }
 
 // ---------------------------------------------------------------------------
@@ -159,17 +289,6 @@ export function reaskQuestionFor(proposal: ConverseProposal, precedingQuestion: 
   const answers = proposal.answers
   if (answers !== true) return undefined
   return precedingQuestion
-}
-
-/** presentation（F3 の見せ方切替と同じ語彙）の `mark` だけを既定ビューへ
- *  上書きする最小の適用。F3 の `viewFor`/`presentation.ts` はこの作業ツリーに
- *  まだ無い（deviations 参照）— この場しのぎの局所実装で、共有モジュールが
- *  入り次第そちらに差し替える。 */
-function applyPresentation(view: ViewSpec, presentation: Record<string, unknown> | null): ViewSpec {
-  if (!presentation || view.lang !== 'vega-lite') return view
-  const mark = presentation.mark
-  if (mark === undefined) return view
-  return { ...view, spec: { ...(view.spec as VegaLiteSpec), mark } }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,31 +378,45 @@ function renderCustomView(
 export function PageChatDrawer({
   subject,
   subjectKey,
+  subjectKeys,
+  target,
   datasetId,
   pageSummary,
   open,
   onClose,
   initialMessage,
   onCardAdded,
+  onCardReplaced,
 }: PageChatDrawerProps) {
   const { t, i18n } = useTranslation('cards')
   const { isReady, getActiveCredentials } = useLlmSettings()
   const runSubject = toRunSubject(subject)
+  const subjKeys = subjectKeys ?? [subjectKey]
+  // 依存配列に配列そのものを使うと（呼び出し側が毎レンダー新しい配列を渡し
+  // うるため）無限に再実行しかねない — 内容を文字列化したものだけを比較する。
+  const subjKeysSig = subjKeys.join('\u0000')
 
   const threads = usePageChatThreads()
-  const [threadId, setThreadId] = useState<string | null>(() => pageChatThreadIdFor(subjectKey))
+  const addedCards = useCards(subjectKey)
+
+  const [threadId, setThreadId] = useState<string | null>(null)
   // 主語が変わったら（ドロワーが同じインスタンスのまま別のページに使い回され
-  // ることは想定していないが、安全側に倒す）その主語のスレッドへ切り替え、
-  // 決着（足す/やめる）の記録も忘れる。
+  // ることは想定していないが、安全側に倒す）会話の切り替えを忘れ、開き方の
+  // 再解決（下の effect）に委ねる。提案の決着（`AssistantTurn.decision`）は
+  // スレッド自身の turn に永続化されている（`setPageChatTurnDecision`）ので、
+  // ここで別途忘れさせる state は持たない。
   const [threadForKey, setThreadForKey] = useState(subjectKey)
-  const [decidedTurnIds, setDecidedTurnIds] = useState<Record<string, 'added' | 'discarded'>>({})
+  const [showThreadList, setShowThreadList] = useState(false)
   if (threadForKey !== subjectKey) {
     setThreadForKey(subjectKey)
-    setThreadId(pageChatThreadIdFor(subjectKey))
-    setDecidedTurnIds({})
+    setThreadId(null)
+    setShowThreadList(false)
   }
   const thread = threads.find((th) => th.id === threadId)
   const busy = isPageChatThreadBusy(thread)
+  // このカードに結びついた会話か（`bindPageChatThreadToCard`/
+  // `createPageChatThreadForCard` が立てる `meta.card_id`）。
+  const boundCardId = thread?.meta?.card_id ?? null
 
   const [draftText, setDraftText] = useState('')
   const [noKeyForced, setNoKeyForced] = useState(false)
@@ -301,8 +434,9 @@ export function PageChatDrawer({
   // 届いて busy が false に戻れば自然に消える（クリアの effect は持たない）。
   const [reaskNoteTitle, setReaskNoteTitle] = useState<string | null>(null)
 
-  const decidedSet = new Set(Object.keys(decidedTurnIds))
-  const currentDraft = latestDraft(thread?.turns ?? [], decidedSet)
+  const currentProposalDraft = latestDraft(thread?.turns ?? [])
+  const boundCard = boundCardId ? addedCards.find((c) => c.card_id === boundCardId) : undefined
+  const sendDraft = resolveSendDraft(currentProposalDraft, boundCard)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -337,22 +471,67 @@ export function PageChatDrawer({
     return () => document.body.classList.remove('pagechat-open')
   }, [open])
 
-  async function send(overrideText?: string) {
+  // PR F18 §1.2: 開き方（`target`）の解決。`subjectKey`／`target` の組が
+  // 変わったときだけ 1 度解決する — render の中で（effect にしない。
+  // `threadForKey` と同じ「prop が変わったら state を作り直す」流儀。
+  // react-hooks/set-state-in-effect: effect の本体で同期的に setState
+  // しない、が守れない相談だったので、既存の CardTile.tsx／SubjectPage.tsx
+  // と同じくこちらへ倒した）。ユーザーが会話一覧から手で別の会話へ切り替えた
+  // ぶんは、この組が変わらない限り上書きしない。
+  // 内容が同じ `target`（例: 2 回目以降の「＋ 観点を足す」はどちらも
+  // `{kind:'new'}`）でも、呼び出し元が渡すオブジェクトの参照が変わって
+  // いれば別のクリックとして扱う — 内容の文字列化だけだと `kind:'new'` が
+  // 何度クリックされても同じ署名になり、前回の会話（すでにカードへ結びついた
+  // もの）が開いたままになる事故を防ぐ。
+  const [prevTarget, setPrevTarget] = useState<PageChatTarget | undefined>(undefined)
+  const [targetChangeCounter, setTargetChangeCounter] = useState(0)
+  if (target !== prevTarget) {
+    setPrevTarget(target)
+    setTargetChangeCounter((c) => nextTargetChangeCounter(prevTarget, target, c))
+  }
+  const targetSig = target ? `${targetChangeCounter}:${JSON.stringify(target)}` : 'none'
+  const resolveSig = open ? `${subjectKey}\u0000${targetSig}\u0000${subjKeysSig}` : ''
+  const [resolvedSig, setResolvedSig] = useState('')
+  if (open && resolvedSig !== resolveSig) {
+    setResolvedSig(resolveSig)
+    const recentThreadId = pageChatThreadsFor(subjKeys)[0]?.id ?? null
+    const resolved = resolveChatTarget(target, recentThreadId)
+    if (resolved.kind === 'new') {
+      setThreadId(null)
+    } else if (resolved.kind === 'thread') {
+      setThreadId(resolved.threadId)
+    } else {
+      const existing = pageChatThreadForCard(subjKeys, resolved.cardId)
+      if (existing) {
+        setThreadId(existing.id)
+      } else {
+        const cardTitle = pageSummary.cards.find((c) => c.card_id === resolved.cardId)?.title ?? ''
+        const created = createPageChatThreadForCard(subjectKey, { card_id: resolved.cardId, title: cardTitle })
+        setThreadId(created.id)
+      }
+    }
+    setShowThreadList(false)
+  }
+
+  async function send(overrideText?: string, forceNewThread?: boolean): Promise<void> {
     const text = (overrideText ?? draftText).trim()
     if (!text || busy || noKey) return
     if (overrideText === undefined) setDraftText('')
-    const priorMessages = historyOf(thread)
-    let activeId = threadId
+    // 契約メモ §1.2: ページ下部の入力欄からの 1 通目は必ず新しい会話（結びつ
+    // いた会話を汚さない）。
+    const useExisting = !forceNewThread && !!threadId
+    const priorMessages = useExisting ? historyOf(thread) : []
+    let activeId: string | null = useExisting ? threadId : null
     let assistantTurnId: string | undefined
+    const draftForSend = useExisting ? sendDraft : null
     if (activeId) {
       const appended = appendPageChatMessage(activeId, text)
       assistantTurnId = appended?.assistantTurnId
     } else {
-      const started = startPageChatThread(text)
+      const started = startPageChatThread(subjectKey, text)
       activeId = started.thread.id
       assistantTurnId = started.assistantTurnId
       setThreadId(activeId)
-      rememberPageChatThread(subjectKey, activeId)
     }
     if (!activeId || !assistantTurnId) return
     try {
@@ -360,7 +539,7 @@ export function PageChatDrawer({
         {
           subject,
           messages: [...priorMessages, { role: 'user', content: text }],
-          draft: currentDraft ? { params: currentDraft.params, presentation: currentDraft.presentation } : null,
+          draft: draftForSend,
           page: pageSummary,
           lang: i18n.language.startsWith('en') ? 'en' : 'ja',
         },
@@ -378,21 +557,26 @@ export function PageChatDrawer({
   }
 
   // ページ下部の入力欄からの文面は、ドロワーが開いた瞬間に 1 度だけ送る
-  // （契約メモ §1-1「その質問がスレッドの 1 通目になる」）。
+  // （契約メモ §1-1「その質問がスレッドの 1 通目になる」・§1.2「新しい会話と
+  // して始める」）。
   const sentInitialRef = useRef<string | null>(null)
   useEffect(() => {
     if (!open || !initialMessage || noKey) return
     if (sentInitialRef.current === initialMessage) return
     sentInitialRef.current = initialMessage
-    void send(initialMessage)
+    void send(initialMessage, true)
     // send は draftText/thread など毎レンダー変わる値を読むので、依存は
     // 「いつ 1 回だけ送るか」を決める open/initialMessage/noKey だけに絞る
     // （NewCardForm.tsx の linkingKinds 取得 effect と同じ流儀）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialMessage, noKey])
 
-  function decide(turnId: string, outcome: 'added' | 'discarded') {
-    setDecidedTurnIds((prev) => ({ ...prev, [turnId]: outcome }))
+  /** 提案の決着をスレッド自身の turn に永続化する（PR F18 §1.2）。パネルを
+   *  開き直しても・ページを再読み込みしても、決着済みの提案はもう「足す／
+   *  差し替える」を出さない — `threadId` が必要なので、決着はいつも「いま
+   *  開いている会話」に対して起きる（提案はその会話の中にしかない）。 */
+  function decide(turnId: string, outcome: ProposalDecision) {
+    if (threadId) setPageChatTurnDecision(threadId, turnId, outcome)
   }
 
   /** 「足す」で answers: true の提案が確定したときに呼ぶ（`question` は
@@ -431,6 +615,27 @@ export function PageChatDrawer({
 
   if (!open) return null
 
+  // PR F18 §1.2: 会話の切り替え一覧（観点＝カードに結びついた会話・質問＝
+  // その他）。`updatedAt` 降順は `pageChatThreadsFor` が保証する。
+  const chatThreads = pageChatThreadsFor(subjKeys)
+  const viewpointThreads = chatThreads.filter((th) => th.meta?.kind === 'viewpoint')
+  const questionThreads = chatThreads.filter((th) => th.meta?.kind !== 'viewpoint')
+
+  function openThread(id: string) {
+    setThreadId(id)
+    setShowThreadList(false)
+  }
+
+  function openNewThread() {
+    setThreadId(null)
+    setShowThreadList(false)
+  }
+
+  // 会話がカードに結びついていて、まだターンが 0（`createPageChatThreadForCard`
+  // で作ったばかり）のときの案内（契約メモ §1.2「「<題名>」を直します。どう
+  // 変えますか？」）。
+  const fixIntroTitle = thread && thread.turns.length === 0 && boundCardId ? thread.title : null
+
   return (
     <>
       <div className="pagechat-backdrop" onClick={onClose} />
@@ -445,6 +650,41 @@ export function PageChatDrawer({
             ×
           </button>
         </div>
+
+        {!noKey && (
+          <div className="pagechat-threads">
+            <button type="button" className="pagechat-threads-current" onClick={() => setShowThreadList((v) => !v)}>
+              {thread?.title || t('pagechat.thread_new', { defaultValue: THREAD_NEW_TEXT })}
+            </button>
+            {showThreadList && (
+              <div className="pagechat-threads-list" role="menu">
+                {viewpointThreads.length > 0 && (
+                  <div className="pagechat-threads-group">
+                    <p className="pagechat-threads-group-label">{t('pagechat.threads_viewpoints', { defaultValue: THREADS_VIEWPOINTS_TEXT })}</p>
+                    {viewpointThreads.map((th) => (
+                      <button key={th.id} type="button" className="pagechat-threads-item" onClick={() => openThread(th.id)}>
+                        {th.title || t('pagechat.thread_untitled', { defaultValue: THREAD_UNTITLED_TEXT })}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {questionThreads.length > 0 && (
+                  <div className="pagechat-threads-group">
+                    <p className="pagechat-threads-group-label">{t('pagechat.threads_questions', { defaultValue: THREADS_QUESTIONS_TEXT })}</p>
+                    {questionThreads.map((th) => (
+                      <button key={th.id} type="button" className="pagechat-threads-item" onClick={() => openThread(th.id)}>
+                        {th.title || t('pagechat.thread_untitled', { defaultValue: THREAD_UNTITLED_TEXT })}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button type="button" className="pagechat-threads-new" onClick={openNewThread}>
+                  {t('pagechat.thread_new', { defaultValue: THREAD_NEW_TEXT })}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="pagechat-scroll" ref={scrollRef}>
           {noKey ? (
@@ -463,10 +703,15 @@ export function PageChatDrawer({
             </div>
           ) : (
             <>
+              {fixIntroTitle && (
+                <p className="pagechat-fix-intro">{t('pagechat.fix_intro', { defaultValue: FIX_INTRO_TEXT, title: fixIntroTitle })}</p>
+              )}
               {!thread || thread.turns.length === 0 ? (
-                <p className="pagechat-empty">
-                  {t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
-                </p>
+                !fixIntroTitle && (
+                  <p className="pagechat-empty">
+                    {t('pagechat.placeholder', { defaultValue: '聞きたいこと、出したいグラフ（例: 人口の推移を出して）' })}
+                  </p>
+                )
               ) : (
                 thread.turns.map((turn) => (
                   <PageChatBubble
@@ -476,11 +721,28 @@ export function PageChatDrawer({
                     subjectKey={subjectKey}
                     pageSummary={pageSummary}
                     precedingQuestion={precedingUserText(thread.turns, turn.id)}
-                    decision={decidedTurnIds[turn.id]}
+                    decision={turn.role === 'assistant' ? turn.decision : undefined}
+                    boundCardId={boundCardId}
                     t={t}
                     onAdd={(card, reaskQuestion) => {
                       decide(turn.id, 'added')
+                      addCard(card)
+                      if (threadId) bindPageChatThreadToCard(threadId, { card_id: card.card_id, title: card.title })
                       onCardAdded(card)
+                      if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
+                    }}
+                    onAddAsNew={(card, reaskQuestion) => {
+                      decide(turn.id, 'added_as_new')
+                      addCard(card)
+                      onCardAdded(card)
+                      if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
+                    }}
+                    onReplace={(card, reaskQuestion) => {
+                      if (!boundCardId || !threadId) return
+                      decide(turn.id, 'replaced')
+                      replaceCard(subjectKey, boundCardId, card)
+                      bindPageChatThreadToCard(threadId, { card_id: card.card_id, title: card.title })
+                      onCardReplaced?.(boundCardId, card)
                       if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
                     }}
                     onDiscard={() => decide(turn.id, 'discarded')}
@@ -569,8 +831,11 @@ function PageChatBubble({
   pageSummary,
   precedingQuestion,
   decision,
+  boundCardId,
   t,
   onAdd,
+  onAddAsNew,
+  onReplace,
   onDiscard,
 }: {
   turn: PageChatTurn
@@ -580,9 +845,14 @@ function PageChatBubble({
   /** この応答の直前に置かれたユーザーの質問（`precedingUserText`）。
    *  提案の `answers: true` のとき、「足す」後の再送に使う（契約メモ §1.5）。 */
   precedingQuestion: string | undefined
-  decision: 'added' | 'discarded' | undefined
+  decision: ProposalDecision | undefined
+  /** 会話が結びついているカードの id（PR F18 §1.2）。あれば主ボタンは
+   *  「差し替える」になる。 */
+  boundCardId: string | null
   t: Translate
   onAdd: (card: CardSpec, reaskQuestion?: string) => void
+  onAddAsNew: (card: CardSpec, reaskQuestion?: string) => void
+  onReplace: (card: CardSpec, reaskQuestion?: string) => void
   onDiscard: () => void
 }) {
   if (turn.role === 'user') {
@@ -624,8 +894,12 @@ function PageChatBubble({
             pageSummary={pageSummary}
             proposal={proposal}
             precedingQuestion={precedingQuestion}
+            boundCardId={boundCardId}
+            decision={decision}
             t={t}
             onAdd={onAdd}
+            onAddAsNew={onAddAsNew}
+            onReplace={onReplace}
             onDiscard={onDiscard}
           />
         )}
@@ -635,14 +909,16 @@ function PageChatBubble({
             subjectKey={subjectKey}
             proposal={proposal}
             precedingQuestion={precedingQuestion}
+            boundCardId={boundCardId}
+            decision={decision}
             t={t}
             onAdd={onAdd}
+            onAddAsNew={onAddAsNew}
+            onReplace={onReplace}
             onDiscard={onDiscard}
           />
         )}
-        {proposal && decision === 'added' && (
-          <p className="pagechat-added-note">{t('pagechat.added', { defaultValue: '足しました' })}</p>
-        )}
+        {proposal && renderOutcomeNote(decision, t)}
       </div>
     </div>
   )
@@ -653,16 +929,28 @@ function ProposalPreview({
   subjectKey,
   proposal,
   precedingQuestion,
+  boundCardId,
+  decision,
   t,
   onAdd,
+  onAddAsNew,
+  onReplace,
   onDiscard,
 }: {
   subject: CardRunSubject
   subjectKey: string
   proposal: ConverseProposal
   precedingQuestion: string | undefined
+  boundCardId: string | null
+  /** 呼び出し側（`PageChatBubble`）はすでに決着済みのときこの component
+   *  自体を描画しない — ここに来る値は常に `undefined` だが、
+   *  {@link proposalButtonsFor} の唯一の決着チェック経路として素通しする
+   *  （ボタンの出し分けが decision を二重に判定しない・契約メモ §1.2）。 */
+  decision: ProposalDecision | undefined
   t: Translate
   onAdd: (card: CardSpec, reaskQuestion?: string) => void
+  onAddAsNew: (card: CardSpec, reaskQuestion?: string) => void
+  onReplace: (card: CardSpec, reaskQuestion?: string) => void
   onDiscard: () => void
 }) {
   const shapeOk = MEASURE_SHAPE_SET.has(proposal.output_kind)
@@ -720,18 +1008,36 @@ function ProposalPreview({
   const schema = schemaState.classIri === classIri ? schemaState.schema : null
   const ready = !!result && !schemaPending
 
-  function handleAdd() {
-    if (!ready || !result) return
+  function buildSpec(): CardSpec | null {
+    if (!ready || !result) return null
     const labels = labelsFromSchema(schema, proposal.params)
-    const spec = proposalCardSpec(proposal, labels, subjectKey, t)
-    if (!spec) return
-    addCard(spec)
-    onAdd(spec, reaskQuestionFor(proposal, precedingQuestion))
+    return proposalCardSpec(proposal, labels, subjectKey, t)
   }
+
+  function handlePrimary() {
+    const spec = buildSpec()
+    if (!spec) return
+    const reask = reaskQuestionFor(proposal, precedingQuestion)
+    if (boundCardId) onReplace(spec, reask)
+    else onAdd(spec, reask)
+  }
+
+  function handleAddAsNew() {
+    const spec = buildSpec()
+    if (!spec) return
+    onAddAsNew(spec, reaskQuestionFor(proposal, precedingQuestion))
+  }
+
+  const buttons = proposalButtonsFor(boundCardId, decision)
+  if (!buttons) return renderOutcomeNote(decision, t)
 
   return (
     <div className="pagechat-proposal">
-      <p className="pagechat-proposal-title">{t('pagechat.proposal_title', { defaultValue: 'この観点を足しますか？' })}</p>
+      <p className="pagechat-proposal-title">
+        {buttons.primary === 'replace'
+          ? t('pagechat.proposal_title_replace', { defaultValue: 'この観点に差し替えますか？' })
+          : t('pagechat.proposal_title', { defaultValue: 'この観点を足しますか？' })}
+      </p>
       {error && <p className="ds-empty-note">{t('render_error')}</p>}
       {!error && !ready && <p className="ds-empty-note">{t('page.loading')}</p>}
       {result && ready && <ProposalView proposal={proposal} result={result} t={t} />}
@@ -739,8 +1045,15 @@ function ProposalPreview({
         <button type="button" className="btn btn--ghost btn--sm" onClick={onDiscard}>
           {t('pagechat.proposal_discard', { defaultValue: 'やめる' })}
         </button>
-        <button type="button" className="btn btn--soft btn--sm" disabled={!ready} onClick={handleAdd}>
-          {t('pagechat.proposal_add', { defaultValue: '足す' })}
+        {buttons.primary === 'replace' && (
+          <button type="button" className="btn btn--ghost btn--sm" disabled={!ready} onClick={handleAddAsNew}>
+            {t('pagechat.proposal_add_as_new', { defaultValue: PROPOSAL_ADD_AS_NEW_TEXT })}
+          </button>
+        )}
+        <button type="button" className="btn btn--soft btn--sm" disabled={!ready} onClick={handlePrimary}>
+          {buttons.primary === 'replace'
+            ? t('pagechat.proposal_replace', { defaultValue: PROPOSAL_REPLACE_TEXT })
+            : t('pagechat.proposal_add', { defaultValue: '足す' })}
         </button>
       </div>
       <p className="pagechat-proposal-hint">
@@ -775,8 +1088,12 @@ function ViewProposalPreview({
   pageSummary,
   proposal,
   precedingQuestion,
+  boundCardId,
+  decision,
   t,
   onAdd,
+  onAddAsNew,
+  onReplace,
   onDiscard,
 }: {
   subject: CardRunSubject
@@ -784,8 +1101,15 @@ function ViewProposalPreview({
   pageSummary: PageChatPageSummary
   proposal: ConverseProposal
   precedingQuestion: string | undefined
+  boundCardId: string | null
+  /** {@link ProposalPreview} と同じ — 呼び出し側がすでに `!decision` で
+   *  ガードしているので常に `undefined` だが、`proposalButtonsFor` の唯一の
+   *  決着チェック経路として素通しする。 */
+  decision: ProposalDecision | undefined
   t: Translate
   onAdd: (card: CardSpec, reaskQuestion?: string) => void
+  onAddAsNew: (card: CardSpec, reaskQuestion?: string) => void
+  onReplace: (card: CardSpec, reaskQuestion?: string) => void
   onDiscard: () => void
 }) {
   const view = proposal.view
@@ -834,8 +1158,8 @@ function ViewProposalPreview({
   const rendered = result ? renderCustomView(view, rows) : null
   const ready = !!result && !!rendered
 
-  function handleAdd() {
-    if (!ready || !sourceCard || !view) return
+  function buildSpec(): CardSpec | null {
+    if (!ready || !sourceCard || !view) return null
     // `custom: true` はここで初めて立てる — サーバの `<proposal>` の `view`
     // （{@link ConverseProposalView}）自体は持たない（契約メモ §1 決定 3・4）。
     const savedView: CardView = { ...view, custom: true }
@@ -844,7 +1168,7 @@ function ViewProposalPreview({
     // 限らない（宣言ツール／組み込みツールの汎用の形）— `CardSpec` はどんな
     // `tool` の元カードも保存できる契約（穴埋め §1・cardsApi.ts の CardSpec.tool
     // コメント参照）なので、ここでその形へ素通しする。
-    const spec: CardSpec = {
+    return {
       card_id: viewCardId(sourceCard.card_id, savedView),
       subject_key: subjectKey,
       tool: sourceCard.tool,
@@ -854,9 +1178,24 @@ function ViewProposalPreview({
       created_at: new Date().toISOString(),
       view: savedView,
     }
-    addCard(spec)
-    onAdd(spec, reaskQuestionFor(proposal, precedingQuestion))
   }
+
+  function handlePrimary() {
+    const spec = buildSpec()
+    if (!spec) return
+    const reask = reaskQuestionFor(proposal, precedingQuestion)
+    if (boundCardId) onReplace(spec, reask)
+    else onAdd(spec, reask)
+  }
+
+  function handleAddAsNew() {
+    const spec = buildSpec()
+    if (!spec) return
+    onAddAsNew(spec, reaskQuestionFor(proposal, precedingQuestion))
+  }
+
+  const buttons = proposalButtonsFor(boundCardId, decision)
+  if (!buttons) return renderOutcomeNote(decision, t)
 
   return (
     <div className="pagechat-proposal">
@@ -870,8 +1209,15 @@ function ViewProposalPreview({
         <button type="button" className="btn btn--ghost btn--sm" onClick={onDiscard}>
           {t('pagechat.proposal_discard', { defaultValue: 'やめる' })}
         </button>
-        <button type="button" className="btn btn--soft btn--sm" disabled={!ready} onClick={handleAdd}>
-          {t('pagechat.proposal_add', { defaultValue: '足す' })}
+        {buttons.primary === 'replace' && (
+          <button type="button" className="btn btn--ghost btn--sm" disabled={!ready} onClick={handleAddAsNew}>
+            {t('pagechat.proposal_add_as_new', { defaultValue: PROPOSAL_ADD_AS_NEW_TEXT })}
+          </button>
+        )}
+        <button type="button" className="btn btn--soft btn--sm" disabled={!ready} onClick={handlePrimary}>
+          {buttons.primary === 'replace'
+            ? t('pagechat.proposal_replace', { defaultValue: PROPOSAL_REPLACE_TEXT })
+            : t('pagechat.proposal_add', { defaultValue: '足す' })}
         </button>
       </div>
     </div>

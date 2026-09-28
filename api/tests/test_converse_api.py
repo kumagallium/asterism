@@ -583,6 +583,65 @@ def test_system_prompt_tells_the_ai_to_propose_before_it_gives_up() -> None:
         assert needle in text
 
 
+# draft.view（契約メモ contract_pr_f18.md §1.4）——view_spec_check の許可
+# リストを通る view だけがプロンプトの「いまの下書き」に載る。既存の
+# params/presentation の扱いは変わらない。
+# ----------------------------------------------------------------------------
+
+
+def test_system_prompt_includes_a_valid_draft_view() -> None:
+    from asterism_api.converse_prompt import build_system_prompt
+
+    draft = {
+        "params": {"class": READING_CLASS, "shape": "series"},
+        "presentation": None,
+        "view": {
+            "lang": "vega-lite",
+            "spec": {"mark": "line", "encoding": {"x": {"field": "x"}, "y": {"field": "y"}}},
+            "source_card_id": "card-1",
+        },
+    }
+    for lang, needle in (("ja", "いまの下書き"), ("en", "Current draft")):
+        text = build_system_prompt(
+            lang=lang, schema_properties={}, linking_kinds=[], existing_titles=[], draft=draft
+        )
+        assert needle in text
+        assert "vega-lite" in text
+        assert "card-1" in text
+
+
+def test_system_prompt_drops_an_invalid_draft_view_but_keeps_the_rest() -> None:
+    """``view`` が許可リストを通らなければ黙って落とす——``params`` は残る
+    （プロンプトに ``card-1``/``vega-lite`` は出ない）。"""
+    from asterism_api.converse_prompt import build_system_prompt
+
+    draft = {
+        "params": {"class": READING_CLASS, "shape": "series"},
+        "presentation": None,
+        "view": {
+            "lang": "vega-lite",
+            "spec": {"mark": "line", "data": {"values": []}},
+            "source_card_id": "card-1",
+        },
+    }
+    text = build_system_prompt(
+        lang="ja", schema_properties={}, linking_kinds=[], existing_titles=[], draft=draft
+    )
+    assert "いまの下書き" in text
+    assert READING_CLASS in text
+    assert "card-1" not in text
+
+
+def test_system_prompt_omits_the_draft_line_when_only_the_view_was_present_and_invalid() -> None:
+    from asterism_api.converse_prompt import build_system_prompt
+
+    draft = {"view": {"lang": "mermaid", "text": "flowchart LR\nA --> B click A href"}}
+    text = build_system_prompt(
+        lang="ja", schema_properties={}, linking_kinds=[], existing_titles=[], draft=draft
+    )
+    assert "いまの下書き" not in text
+
+
 def test_converse_resolves_where_from_a_sibling_linking_kind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

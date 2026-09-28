@@ -15,7 +15,7 @@
 // 同じ params からは常に同じ id になる、という保証はハッシュ関数を共有する
 // ことそのものから来る（再実装しない）。
 
-import { createThreadStore, type Thread, type Turn } from '../threadStore'
+import { createThreadStore, type Thread, type ThreadMeta, type Turn } from '../threadStore'
 import type { CardSpec, ConverseProposal, ConverseResponse, MeasureAgg, MeasureCardParams, MeasureShape } from './cardsApi'
 import { cardId, MEASURE_AGGS, MEASURE_SHAPES, titleFor, type MeasureCardLabels, type MeasureSchemaLike, type Translate } from './measureCardFields'
 import type { Row } from './viewSpec'
@@ -57,8 +57,8 @@ export const getPageChatThread = store.getThread
 export const isPageChatThreadBusy = store.isThreadBusy
 export const resolvePageChatAnswer = store.resolveAnswer
 export const failPageChatAnswer = store.failAnswer
-export const startPageChatThread = store.startThread
 export const appendPageChatMessage = store.appendMessage
+export const setPageChatTurnDecision = store.setTurnDecision
 
 export type PageChatThread = Thread<ConverseResponse>
 export type PageChatTurn = Turn<ConverseResponse>
@@ -103,17 +103,118 @@ export function rememberPageChatThread(subjectKey: string, threadId: string): vo
 }
 
 // ---------------------------------------------------------------------------
+// 会話の単位＝観点（カード）ごと＋自由な質問（契約メモ §1.1・PR F18）
+//
+// `meta` を持つスレッドが正本。`meta` の無いスレッドは F18 より前の保存形 —
+// 旧索引（上の `subjectKey → threadId`）に載っているものだけを、その
+// `subjectKey` の `kind: 'question'` として一覧に混ぜる（読むだけ。実体の
+// スレッドの `meta` はここでは書き換えない — 次に何か送る／結びつけるときに
+// 初めて `meta` が付く）。
+// ---------------------------------------------------------------------------
+
+/** `subjectKeys` のどれかに属する会話の一覧（`updatedAt` 降順）。旧索引だけに
+ *  載っていて `meta` が無いスレッドも、その `subjectKey` の `kind: 'question'`
+ *  として混ぜる（表示専用の合成 `meta` — 保存はしない）。 */
+export function pageChatThreadsFor(subjectKeys: string[]): PageChatThread[] {
+  const keys = new Set(subjectKeys)
+  const seen = new Set<string>()
+  const result: PageChatThread[] = []
+  for (const t of store.getAllThreads()) {
+    const subjectKey = t.meta?.subject_key
+    if (subjectKey && keys.has(subjectKey)) {
+      result.push(t)
+      seen.add(t.id)
+    }
+  }
+  const index = loadIndex()
+  for (const [subjectKey, threadId] of Object.entries(index)) {
+    if (!keys.has(subjectKey) || seen.has(threadId)) continue
+    const t = store.getThread(threadId)
+    if (!t || t.meta) continue
+    result.push({ ...t, meta: { subject_key: subjectKey, kind: 'question' } })
+    seen.add(t.id)
+  }
+  return result.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/** `subjectKeys` のどれかに属する、`cardId` に結びついた会話（無ければ
+ *  `null`）。結びつき（`kind: 'viewpoint'`）は `bindPageChatThreadToCard` が
+ *  作る。 */
+export function pageChatThreadForCard(subjectKeys: string[], cardId: string): PageChatThread | null {
+  const keys = new Set(subjectKeys)
+  const found = store
+    .getAllThreads()
+    .find((t) => t.meta?.card_id === cardId && t.meta?.subject_key && keys.has(t.meta.subject_key))
+  return found ?? null
+}
+
+/** `subjectKey` の自由な質問として新しい会話を始める（既定 `kind: 'question'`
+ *  — `meta` で上書き可）。 */
+export function startPageChatThread(
+  subjectKey: string,
+  message: string,
+  meta?: Partial<ThreadMeta>,
+): ReturnType<typeof store.startThread> {
+  return store.startThread(message, { kind: 'question', ...meta, subject_key: subjectKey })
+}
+
+/** カードに結びついた、ターン 0 の会話を作る（契約メモ §1.2 のケース
+ *  `target.kind === 'card'` で会話がまだ無いとき）。 */
+export function createPageChatThreadForCard(
+  subjectKey: string,
+  card: { card_id: string; title: string },
+): PageChatThread {
+  return store.createEmptyThread(card.title, {
+    subject_key: subjectKey,
+    card_id: card.card_id,
+    kind: 'viewpoint',
+  })
+}
+
+/** この `threadId` に結びついた `subjectKey`。`meta.subject_key` があれば
+ *  それ、無ければ旧索引（`subjectKey → threadId`）から引く — F18 より前に
+ *  作られたスレッド（`meta` 自体が無い）を後から結びつけても
+ *  `subject_key` を失わないため（`pageChatThreadsFor`／`pageChatThreadForCard`
+ *  が読むのに必須）。 */
+function subjectKeyForThread(threadId: string): string | undefined {
+  const existing = store.getThread(threadId)?.meta?.subject_key
+  if (existing) return existing
+  for (const [subjectKey, id] of Object.entries(loadIndex())) {
+    if (id === threadId) return subjectKey
+  }
+  return undefined
+}
+
+/** 既存の会話をカードに結びつける（契約メモ §1.2「足す」の決着）。題名を
+ *  カードの題名に揃え、`meta.card_id`／`kind: 'viewpoint'` を立てる。旧索引
+ *  にしか `subject_key` が無いスレッド（`meta` 無し）を結びつけるときは、
+ *  ここで拾って一緒に書き込む — 書かないと結びついた直後から
+ *  `pageChatThreadsFor`／`pageChatThreadForCard` に出てこなくなる。 */
+export function bindPageChatThreadToCard(threadId: string, card: { card_id: string; title: string }): void {
+  const subjectKey = subjectKeyForThread(threadId)
+  store.setThreadMeta(threadId, {
+    card_id: card.card_id,
+    kind: 'viewpoint',
+    ...(subjectKey ? { subject_key: subjectKey } : {}),
+  })
+  store.setThreadTitle(threadId, card.title)
+}
+
+// ---------------------------------------------------------------------------
 // 下書き（直前の提案・契約メモ §1-3「直す」）
 // ---------------------------------------------------------------------------
 
 /** スレッドの中で一番あたらしい「まだ決着していない」提案。`decidedTurnIds`
- *  （「足す」または「やめる」を押した assistant turn の id）に載っている turn
- *  は数えない — 決着済みの提案を下書きとして次の送信に持ち越さない。 */
-export function latestDraft(turns: PageChatTurn[], decidedTurnIds: ReadonlySet<string>): ConverseProposal | null {
+ *  （呼び出し側がその場で決着させた assistant turn の id — 通常はターン自体の
+ *  `decision` で足りるが、保存が反映される前の 1 レンダーぶんの遅れを吸収する
+ *  ために引数として残す）に載っている turn、または turn 自体に `decision` が
+ *  付いている turn は数えない — 決着済みの提案を下書きとして次の送信に持ち
+ *  越さない（開き直し・再読み込み後も同じ）。 */
+export function latestDraft(turns: PageChatTurn[], decidedTurnIds: ReadonlySet<string> = new Set()): ConverseProposal | null {
   for (let i = turns.length - 1; i >= 0; i--) {
     const turn = turns[i]
     if (turn.role !== 'assistant' || !turn.result?.proposal) continue
-    if (decidedTurnIds.has(turn.id)) continue
+    if (decidedTurnIds.has(turn.id) || turn.decision) continue
     return turn.result.proposal
   }
   return null
@@ -211,5 +312,6 @@ export function proposalCardSpec(
     title: titleFor(proposal.output_kind, labels, t),
     output_kind: proposal.output_kind,
     created_at: new Date().toISOString(),
+    presentation: proposal.presentation ?? null,
   }
 }

@@ -122,6 +122,19 @@ def _reject_if_content_length_exceeds(request: Request, limit: int) -> None:
 
 
 _VIEW_LANGS = ("vega-lite", "table", "mermaid")
+_PRESENTATION_MARKS = ("line", "bar", "point")
+
+
+def _presentation_field(raw: Any) -> dict[str, Any] | None:
+    """CardSpec.presentation（会話で決めた見せ方・F18）を束まで運ぶ。
+    `{"mark": "line"|"bar"|"point"}` の形だけを通し、それ以外は黙って落とす
+    （`applyPresentation.ts` と同じ許可リスト）。"""
+    if not isinstance(raw, dict):
+        return None
+    mark = raw.get("mark")
+    if mark not in _PRESENTATION_MARKS:
+        return None
+    return {"mark": mark}
 
 
 def _view_field(raw: Any) -> dict[str, Any] | None:
@@ -165,6 +178,9 @@ def _normalize_cards(raw_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         view = _view_field(raw.get("view"))
         if view is not None:
             entry["view"] = view
+        presentation = _presentation_field(raw.get("presentation"))
+        if presentation is not None:
+            entry["presentation"] = presentation
         out.append(entry)
     return out
 
@@ -193,6 +209,9 @@ def _appdata_cards_for_subject(cfg: Settings, subject_key: str) -> list[dict[str
         view = _view_field(raw.get("view"))
         if view is not None:
             entry["view"] = view  # AI が書いた見せ方（F13）も束へ
+        presentation = _presentation_field(raw.get("presentation"))
+        if presentation is not None:
+            entry["presentation"] = presentation  # 会話で決めた見せ方（F18）も束へ
         out.append(entry)
     return out
 

@@ -85,6 +85,102 @@
   color: var(--fg);
 }
 
+/* ---- 会話の切り替え（PR F18 §1.2「観点」「質問」「＋ 新しい会話」） -------- */
+
+.pagechat-threads {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+}
+
+.pagechat-threads-current {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2em 0;
+}
+
+.pagechat-threads-current:hover {
+  color: var(--primary);
+}
+
+.pagechat-threads-list {
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  top: 100%;
+  z-index: 1;
+  margin-top: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.pagechat-threads-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.pagechat-threads-group-label {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.pagechat-threads-item {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.3em 0.4em;
+  border-radius: var(--radius-sm);
+}
+
+.pagechat-threads-item:hover {
+  background: var(--surface-alt);
+}
+
+.pagechat-threads-new {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3em 0.4em;
+}
+
+.pagechat-threads-new:hover {
+  text-decoration: underline;
+}
+
+/* ---- 「直す」で開いたときの案内（PR F18 §1.2） ----------------------------- */
+
+.pagechat-fix-intro {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .pagechat-scroll {
   flex: 1;
   overflow-y: auto;
