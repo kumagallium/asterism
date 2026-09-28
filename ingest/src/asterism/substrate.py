@@ -264,7 +264,16 @@ def dataset_id_of_canonical_graph(iri: str) -> str | None:
         return None
     rest = iri[len(CANONICAL_GRAPH_BASE) :]
     rest = _CANONICAL_VERSION_SUFFIX.sub("", rest)
-    return rest or None
+    # Not every promoted canonical graph belongs to a registry dataset: the
+    # crosswalk hub publishes ``…/canonical/crosswalk`` and
+    # ``…/canonical/crosswalk/alignment`` (ADR crosswalk-hub.md) — the latter
+    # keeps a ``/`` after the version strip and is no dataset id at all.
+    # Returning it would make ``meta_graph_iri`` raise and take the whole
+    # ``schema_summary`` call down (observed live 2026-09-23). Only a value
+    # that IS a valid dataset id is one; everything else has no meta graph.
+    if not rest or not _DATASET_ID.match(rest):
+        return None
+    return rest
 
 
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
