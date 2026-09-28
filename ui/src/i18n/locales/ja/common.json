@@ -10,7 +10,11 @@
     "en": "English"
   },
   "nav": {
-    "cards": "見る",
+    "group_build": "作る",
+    "group_use": "使う",
+    "collapse": "たたむ",
+    "expand": "ひろげる",
+    "cards": "ワークスペース",
     "home": "ホーム",
     "gallery": "データセット",
     "crosswalk": "つながり",
@@ -95,7 +99,7 @@
       "sub": "型から決まる既定のカード 7 種"
     },
     "cards": {
-      "eyebrow": "見る",
+      "eyebrow": "ワークスペース",
       "title": "探す",
       "sub": "1 つのデータ・条件で集めた一覧を、出どころつきのカードで見る"
     }
