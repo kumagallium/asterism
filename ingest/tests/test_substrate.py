@@ -94,6 +94,17 @@ def test_dataset_id_of_canonical_graph_versioned_graph() -> None:
     assert dataset_id_of_canonical_graph(CANONICAL_GRAPH_BASE + "x-1/v12") == "x-1"
 
 
+def test_dataset_id_of_canonical_graph_crosswalk_hub_graphs_are_none() -> None:
+    """The crosswalk hub's canonical graphs are promoted but are not datasets:
+    ``crosswalk/alignment`` keeps a slash after the version strip, and feeding
+    it to ``meta_graph_iri`` raised — which took schema_summary down in prod."""
+    assert dataset_id_of_canonical_graph(CANONICAL_GRAPH_BASE + "crosswalk/alignment") is None
+    # The bare hub graph IS a syntactically valid id; nothing breaks if it is
+    # named — its meta graph simply does not exist and the VALUES row is empty.
+    assert dataset_id_of_canonical_graph(CANONICAL_GRAPH_BASE + "crosswalk") == "crosswalk"
+    assert dataset_id_of_canonical_graph(CANONICAL_GRAPH_BASE + "bad id/v1") is None
+
+
 def test_dataset_id_of_canonical_graph_other_base_is_none() -> None:
     for iri in (
         ONTOLOGY_GRAPH_BASE + "x-1",
