@@ -699,6 +699,39 @@ async def test_schema_summary_includes_promoted_dataset_descriptions() -> None:
     assert any(f"VALUES ?g {{ <{meta_iri}> }}" in q for q in captured)
 
 
+async def test_schema_summary_survives_crosswalk_hub_canonical_graphs() -> None:
+    """Regression (observed in prod 2026-09-23): the crosswalk hub's promoted
+    graphs ``…/canonical/crosswalk`` and ``…/canonical/crosswalk/alignment``
+    are canonical but are NOT datasets. The latter used to be turned into the
+    "dataset id" ``crosswalk/alignment``, ``meta_graph_iri`` raised on it, and
+    the WHOLE schema_summary call died — Ask lost its vocabulary overview."""
+    from asterism.substrate import CANONICAL_GRAPH_BASE, canonical_graph_iri, meta_graph_iri
+
+    canon = [
+        CANONICAL_GRAPH_BASE + "crosswalk",
+        CANONICAL_GRAPH_BASE + "crosswalk/alignment",
+        canonical_graph_iri("ds1") + "/v1",
+    ]
+    captured: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        captured.append(body)
+        if "VALUES ?g" in body:
+            return _rows([], ["g", "d", "title", "desc"])
+        return _rows([], ["cls", "n"])
+
+    async with _make_client(handler, canonical_graphs=canon) as client:
+        out = await schema_summary(client)  # must not raise
+
+    assert out["datasets"] == []
+    values = [q for q in captured if "VALUES ?g" in q]
+    assert len(values) == 1
+    # ds1 (a real dataset) is named; the hub graph with a slash never is.
+    assert meta_graph_iri("ds1") in values[0]
+    assert "crosswalk/alignment" not in values[0]
+
+
 async def test_schema_summary_no_promoted_datasets_skips_meta_query() -> None:
     captured: list[str] = []
 
