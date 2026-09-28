@@ -697,6 +697,8 @@ def test_subjects_resolve_member_subject_gets_hub_of_band(
         assert hub_of["perspective_name"] == "共有たな"
         assert hub_of["member_count"] == 2
         assert set(hub_of["dataset_labels"]) == {"貸出記録", "別のたな"}
+        # 契約メモ contract_pr_f19.md §1.1: via_parent が None ＝直接のメンバー。
+        assert hub_of["direct"] is True
 
 
 def test_subjects_resolve_hub_of_is_none_when_hub_of_subject_returns_none(
@@ -759,12 +761,16 @@ def test_subjects_resolve_hub_wiring_with_the_real_hub_of_subject(tmp_path: Path
         assert one_hop["hub_of"]["perspective_name"] == "共有たな"
         assert one_hop["hub_of"]["member_count"] == 2
         assert set(one_hop["hub_of"]["dataset_labels"]) == {"貸出記録", "別のたな"}
+        # 契約メモ contract_pr_f19.md §1.1: 1 段（直接のメンバー）は direct: true。
+        assert one_hop["hub_of"]["direct"] is True
 
         # hub_of・親経由の 2 段（CHECKOUT_2 → CHECKOUT_1 → ハブ）。
         two_hop = client.get("/api/subjects/resolve", params={"iri": CHECKOUT_2}).json()
         assert two_hop["is_hub"] is False
         assert two_hop["hub_of"]["iri"] == HUB_IRI
         assert two_hop["hub_of"]["member_count"] == 2
+        # 契約メモ contract_pr_f19.md §1.1: 親経由の 2 段は direct: false。
+        assert two_hop["hub_of"]["direct"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -1120,6 +1126,40 @@ def test_sets_default_cards_is_a_bare_list(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert [c["tool"] for c in body] == ["set_members", "set_count"]
+
+
+def test_subjects_default_cards_passes_through_title_params(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """契約メモ contract_pr_f19.md §1.2: ``default_cards_for_subject`` が
+    返すカードの ``title_params``（題名に差し込む値。例:
+    ``{"dataset": "..."}``）を、ルートは削らずそのまま返す。"""
+
+    async def fake_default_cards_for_subject(client, registry_root, iri):
+        return [
+            {
+                "tool": "subject_facts",
+                "title": "cards:builtin.subject_facts",
+            },
+            {
+                "tool": "subject_member_facts",
+                "title": "cards:builtin.subject_member_facts",
+                "title_params": {"dataset": "別のたな"},
+                "params": {"member": OTHER_MEMBER},
+            },
+        ]
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools,
+        "default_cards_for_subject",
+        fake_default_cards_for_subject,
+    )
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/default-cards", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        member_card = next(c for c in body if c["tool"] == "subject_member_facts")
+        assert member_card["title_params"] == {"dataset": "別のたな"}
 
 
 def _client_with_declared_tool_class_schema(

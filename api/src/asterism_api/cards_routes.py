@@ -495,6 +495,10 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
                         "perspective_name": perspective_name,
                         "member_count": member_count,
                         "dataset_labels": hub_dataset_labels,
+                        # 契約メモ contract_pr_f19.md §1.1: 直接のメンバー
+                        # （``via_parent`` が None）かどうか。2 段（親経由）
+                        # は寄せない判断に使う。
+                        "direct": hub_info.get("via_parent") is None,
                     }
 
         return {

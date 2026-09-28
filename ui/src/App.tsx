@@ -90,6 +90,9 @@ export interface Route {
   subjectKey?: string
   /** `.../c/<card_id>` — カード詳細。subjectKey と組み合わせて使う。 */
   cardId?: string
+  /** `#/cards/i/<iri>?solo=1` — 束ねずに単独のページを見る逃げ道（契約メモ
+   *  §1.3）。`?` は `i/<iri>` の直後にも `c/<cardId>` の後ろにも付けられる。 */
+  solo?: boolean
   /** `#/cards/d/<dataset_id>` — データセットのページ（契約メモ contract_pr_f2.md
    *  §2.2・§2.4）。「作る」と「使う」の合流点。 */
   datasetPageId?: string
@@ -211,9 +214,23 @@ export function parseHash(hash: string): Route {
       return { tab: 'cards', setNew: true, setDatasetId, setClassIri }
     }
     if ((parts[1] === 'i' || parts[1] === 's') && parts[2]) {
-      const subjectKey = `${parts[1]}:${decodeURIComponent(parts[2])}`
-      const cardId = parts[3] === 'c' && parts[4] ? decodeURIComponent(parts[4]) : undefined
-      return { tab: 'cards', subjectKey, cardId }
+      // `?solo=1` — 束ねずに単独のページを見る逃げ道（契約メモ §1.3）。
+      // encodeURIComponent された IRI 自体には生の `?` は現れないので、
+      // 見つかった `?` はこのクエリのもの（`c/<cardId>` の後ろに付くこともある）。
+      const iriRaw = parts[2]
+      const iriQIdx = iriRaw.indexOf('?')
+      const iriPart = iriQIdx === -1 ? iriRaw : iriRaw.slice(0, iriQIdx)
+      const subjectKey = `${parts[1]}:${decodeURIComponent(iriPart)}`
+      let queryStr = iriQIdx === -1 ? undefined : iriRaw.slice(iriQIdx + 1)
+      let cardId: string | undefined
+      if (parts[3] === 'c' && parts[4]) {
+        const cardRaw = parts[4]
+        const cardQIdx = cardRaw.indexOf('?')
+        cardId = decodeURIComponent(cardQIdx === -1 ? cardRaw : cardRaw.slice(0, cardQIdx))
+        if (cardQIdx !== -1) queryStr = cardRaw.slice(cardQIdx + 1)
+      }
+      const solo = queryStr ? new URLSearchParams(queryStr).get('solo') === '1' || undefined : undefined
+      return { tab: 'cards', subjectKey, cardId, solo }
     }
     return { tab: 'cards' }
   }
@@ -262,7 +279,8 @@ export function routeToHash(r: Route): string {
     if (r.subjectKey) {
       const kind = r.subjectKey.startsWith('s:') ? 's' : 'i'
       const base = `#/cards/${kind}/${encodeURIComponent(r.subjectKey.slice(2))}`
-      return r.cardId ? `${base}/c/${encodeURIComponent(r.cardId)}` : base
+      const withCard = r.cardId ? `${base}/c/${encodeURIComponent(r.cardId)}` : base
+      return r.solo ? `${withCard}?solo=1` : withCard
     }
     return '#/cards'
   }

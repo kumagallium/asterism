@@ -66,8 +66,10 @@ export interface CardTileProps {
   subject: SubjectKey
   card: CardRef
   onOpenDetail: (cardId: string) => void
-  /** 順位表の行を押したときに、その行の主語（IRI）の 1 件ページへ。 */
-  onOpenSubject: (iri: string) => void
+  /** 順位表の行を押したときに、その行の主語（IRI）の 1 件ページへ。PR F19 §1.3:
+   *  「同じものとして束ねたもの」（`subject_hub_members`）の行はハブへ寄せ
+   *  戻されないよう `{ solo: true }` を付けて開く（このカード自身が判定する）。 */
+  onOpenSubject: (iri: string, opts?: { solo?: boolean }) => void
   /** `subject_flow` が `found: false` を返したとき、親にグリッドから外すよう
    *  知らせる（契約メモ §3.1「辺が 0 なら found: false を返し、UI はカードを
    *  出さない」）。 */
@@ -127,8 +129,8 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
   const result = loaded ? fetched.result : null
   const error = loaded && fetched.error
 
-  const titleInfo = resolveCardTitle(card.title)
-  const titleText = titleInfo.isKey ? t(titleInfo.value) : titleInfo.value
+  const titleInfo = resolveCardTitle(card.title, card.title_params)
+  const titleText = titleInfo.isKey ? t(titleInfo.value, titleInfo.params) : titleInfo.value
 
   // 定義不備の定数（value_iri === property_iri）は表示前に「（値なし）」へ
   // 落とす（契約 §4「事実の表」）。ここで一度だけ変換し、以降はこの rows を使う。
@@ -237,7 +239,9 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
             view={tileView}
             rows={rows}
             ariaLabel={titleText}
-            onOpenSubject={onOpenSubject}
+            onOpenSubject={(iri) =>
+              onOpenSubject(iri, card.tool === 'subject_hub_members' ? { solo: true } : undefined)
+            }
             emptyText={t('empty')}
           />
         )}

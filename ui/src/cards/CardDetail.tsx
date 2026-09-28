@@ -134,8 +134,8 @@ export function CardDetail({
   const result = loaded ? fetched.result : null
   const error = loaded && fetched.error
 
-  const titleInfo = resolveCardTitle(card.title)
-  const titleText = titleInfo.isKey ? t(titleInfo.value) : titleInfo.value
+  const titleInfo = resolveCardTitle(card.title, card.title_params)
+  const titleText = titleInfo.isKey ? t(titleInfo.value, titleInfo.params) : titleInfo.value
   const hasCustomView = !!card.view
   const editMaterial: CardMaterial | undefined = result?.materials[0]
   const editDatasetId = editMaterial?.dataset_id

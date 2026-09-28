@@ -15,7 +15,7 @@ import { ExportDialog } from './ExportDialog'
 // PR F18: `target`/`subjectKeys`/`onCardReplaced`（契約メモ §1.2）もこの
 // モジュールに足される。
 import { PageChatDrawer, type PageChatTarget } from './PageChatDrawer'
-import { removeCard, useCards } from './cardStore'
+import { removeCard, useAllCards } from './cardStore'
 import type { CardSpec } from './cardStore'
 // PR F18（ui-store 担当）が新設する関数。まだ存在しない間も import だけ書いて
 // おく（契約メモ §1 の並列中の仮置きと同じ流儀）。
@@ -129,9 +129,18 @@ export interface SubjectPageProps {
   iri: string
   /** URL の `…/c/<card_id>` — 指定があればカード詳細を表示する。 */
   cardId?: string
+  /** `#/cards/i/<iri>?solo=1`（契約メモ contract_pr_f19.md §1.3）— 束ねずに
+   *  単独のページを見る逃げ道。true のときは直接のメンバーでもハブへ寄せない。 */
+  solo?: boolean
   onSelectCard: (cardId: string) => void
   onCloseCard: () => void
-  onOpenSubject: (iri: string) => void
+  /** 主語を開く。`opts.solo` は「同じものとして束ねたもの」の表の行など、
+   *  ハブへ寄せ戻されたくない開き方のとき true（契約メモ §1.3）。 */
+  onOpenSubject: (iri: string, opts?: { solo?: boolean }) => void
+  /** 直接のメンバーを solo なしで開いたとき、ハブのページへ履歴を汚さず
+   *  置き換え遷移する（契約メモ §1.3。カードの詳細を開いていた場合も詳細を
+   *  閉じてハブのページへ着地する — この effect は `cardId` の有無を見ない）。 */
+  onRedirectToHub: (hubIri: string) => void
   onAsk: (question: string) => void
   onEditDefinition: (datasetId: string) => void
   /** パンくずの「<種類の名前>」から（契約メモ contract_pr_f9.md §1 決定 5・
@@ -167,9 +176,11 @@ const EMPTY_SUMMARY: FactsSummary = { factsCount: null, sourcesCount: null, sour
 export function SubjectPage({
   iri,
   cardId,
+  solo,
   onSelectCard,
   onCloseCard,
   onOpenSubject,
+  onRedirectToHub,
   onAsk,
   onEditDefinition,
   onOpenClass,
@@ -197,12 +208,8 @@ export function SubjectPage({
     results: {},
   })
 
-  // 足したカード（cardStore・PR F4）。既定カードとは独立に持ち、描画のたびに
-  // 既定の後ろへ並べる（`appendAddedCards`）。
   const subjectRef = { kind: 'individual' as const, iri }
   const subjectKeyStr = subjectKeyToString(subjectRef)
-  const addedCardSpecs = useCards(subjectKeyStr)
-  const addedCardRefs = useMemo(() => addedCardSpecs.map(cardSpecToCardRef), [addedCardSpecs])
 
   // iri が変わったら「隠したカード」を描画時に忘れる（React の「prop が変わった
   // ら state を調整する」パターン — effect を使わない）。
@@ -258,6 +265,55 @@ export function SubjectPage({
   const resolved = isCurrent ? loaded.resolved : null
   const cards = isCurrent ? loaded.cards : null
   const loadError = isCurrent && loaded.error
+
+  // PR F19 §1.3: 直接のメンバーを solo なしで開いたら、ハブのページへ履歴を
+  // 汚さず置き換え遷移する（`solo`・2 段（`direct` が false）なら寄せない）。
+  // カードの詳細を開いていたかどうかはここでは見ない — 呼び出し元
+  // （CardsView.tsx）がハブの素のページへ replace navigate するので、
+  // 開いていたカード詳細は自然に閉じる。
+  useEffect(() => {
+    if (!resolved || solo) return
+    if (resolved.hub_of?.direct) onRedirectToHub(resolved.hub_of.iri)
+  }, [resolved, solo, onRedirectToHub])
+
+  // 足したカード（cardStore・PR F4）＋PR F19 §1.5: ハブのページでは
+  // subjectKeys = ハブ自身＋メンバー。足したカードは全キーの和
+  // （`card_id` で重複なし・`created_at` 昇順）。どのキーに保存されている
+  // カードかは `ownerKey` に控え、消す・差し替えるときはそのキーに対して
+  // 行う（`removeCardItem` は `subject_key` の一致も見るため、ページ自身の
+  // キーを渡すと保存キーと食い違って消えない）。
+  const memberKeys = useMemo(
+    () => (resolved?.is_hub ? (resolved.hub?.members ?? []).map((m) => `i:${m.iri}`) : []),
+    [resolved],
+  )
+  const subjectKeys = useMemo(() => [subjectKeyStr, ...memberKeys], [subjectKeyStr, memberKeys])
+  const allCardSpecs = useAllCards()
+  const addedCardEntries = useMemo(() => {
+    const keySet = new Set(subjectKeys)
+    const matched = allCardSpecs
+      .filter((c) => keySet.has(c.subject_key))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const seen = new Set<string>()
+    const out: { ref: CardRef; ownerKey: string }[] = []
+    for (const spec of matched) {
+      if (seen.has(spec.card_id)) continue
+      seen.add(spec.card_id)
+      out.push({ ref: cardSpecToCardRef(spec), ownerKey: spec.subject_key })
+    }
+    return out
+  }, [allCardSpecs, subjectKeys])
+  const addedCardRefs = useMemo(() => addedCardEntries.map((e) => e.ref), [addedCardEntries])
+  function ownerKeyForCard(cardId: string): string {
+    return addedCardEntries.find((e) => e.ref.card_id === cardId)?.ownerKey ?? subjectKeyStr
+  }
+  // PR F19 §1.5: ドロワー（会話・「直す」）に渡す保存キー。「直す」
+  // （chatTarget.kind === 'card'）は既存カードの実際の保存キー
+  // （`ownerKeyForCard`）へ差し替える — メンバーのキーで保存されたカードを
+  // 直すとき、ドロワーがハブのキー固定で新しい CardSpec を組むと
+  // `replaceCard` が同じ `card_id` へ上書きし、保存キーがハブへ書き換わって
+  // しまう（保存済みデータの書き換え・K0 違反）。新しく足す・下の入力欄
+  // （target 未指定 = 'new' 扱い）はハブのキーのまま（契約メモの決定どおり）。
+  const chatSubjectKey = chatTarget?.kind === 'card' ? ownerKeyForCard(chatTarget.cardId) : subjectKeyStr
 
   // 見出しの「事実 N 件・出典 M 報」— facts/sources は必ず含まれる既定カード
   // （決定 7）なので、その 2 本だけ個別に実行して数だけ拾う。カード本体の実行
@@ -401,7 +457,9 @@ export function SubjectPage({
           onAsk={onAsk}
           onEditDefinition={onEditDefinition}
           isAddedCard={isAddedCard}
-          onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
+          onRemoveCard={
+            isAddedCard ? () => removeCard(ownerKeyForCard(selectedCard.card_id), selectedCard.card_id) : undefined
+          }
           onFixCard={
             isAddedCard
               ? () => {
@@ -410,12 +468,12 @@ export function SubjectPage({
                 }
               : undefined
           }
-          conversation={pageChatThreadForCard([subjectKeyStr], selectedCard.card_id)?.turns}
+          conversation={pageChatThreadForCard(subjectKeys, selectedCard.card_id)?.turns}
         />
         <PageChatDrawer
           subject={subjectRef}
-          subjectKey={subjectKeyStr}
-          subjectKeys={[subjectKeyStr]}
+          subjectKey={chatSubjectKey}
+          subjectKeys={subjectKeys}
           classIri={resolved?.class_iri ?? undefined}
           datasetId={resolved?.dataset_id ?? undefined}
           pageSummary={pageSummary}
@@ -469,7 +527,18 @@ export function SubjectPage({
                   })}
             </small>
           </h2>
-          {hubOf && (
+          {/* PR F19 §1.3: solo（直接のメンバーを ?solo=1 で開いた）ときだけ
+              「これは <データセット> 側の実体です」の帯。2 段（`direct` が
+              false）は寄せないので F16 の帯のまま。 */}
+          {hubOf && hubOf.direct && solo && (
+            <div className="hub-band">
+              <span className="hub-band-text">{t('page.hub_band_solo', { dataset: datasetLabel })}</span>
+              <button type="button" className="link-btn" onClick={() => onOpenSubject(hubOf.iri)}>
+                {t('page.hub_band_link')}
+              </button>
+            </div>
+          )}
+          {hubOf && !hubOf.direct && (
             <div className="hub-band">
               <span className="hub-band-text">{t('page.hub_band', { label: hubOf.label, n: hubOf.member_count })}</span>
               <button type="button" className="link-btn" onClick={() => onOpenSubject(hubOf.iri)}>
@@ -578,8 +647,8 @@ export function SubjectPage({
       </div>
       <PageChatDrawer
         subject={subjectRef}
-        subjectKey={subjectKeyStr}
-        subjectKeys={[subjectKeyStr]}
+        subjectKey={chatSubjectKey}
+        subjectKeys={subjectKeys}
         classIri={resolved.class_iri ?? undefined}
         datasetId={resolved.dataset_id ?? undefined}
         pageSummary={pageSummary}
