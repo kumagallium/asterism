@@ -66,8 +66,10 @@ from asterism.ontology_projection import (
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.prov_graph import prov_graph
 from asterism.query_tools import (
     QueryToolError,
+    annotate_output_kind,
     lint_query_tool,
     parse_query_tools,
     run_query_tool,
@@ -319,6 +321,10 @@ class QueryToolBody(BaseModel):
     description: str = ""
     parameters: list[dict] = []
     result: dict = {}
+    # object-cards-ui.md §3: the answer's shape (asterism.query_tools.OUTPUT_KINDS).
+    # None = omitted = "facts" (backward compat) — stripped before persisting so
+    # a legacy declaration's YAML never grows an ``output_kind: null`` line.
+    output_kind: str | None = None
 
 
 class ToolProposeBody(BaseModel):
@@ -7783,7 +7789,20 @@ def build_app(
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tools = registry.list_query_tools(cfg.registry_root, dataset_id)
-        return {"dataset_id": dataset_id, "tools": tools}
+        return {"dataset_id": dataset_id, "tools": [annotate_output_kind(t) for t in tools]}
+
+    @app.get("/api/datasets/{dataset_id}/tools/{tool_name}")
+    async def get_dataset_tool(dataset_id: str, tool_name: str) -> dict[str, object]:
+        """One declared query tool, in the same annotated shape as the list route
+        (§3: a renderer picking a single tool should not have to re-fetch the
+        whole list to learn its ``output_kind``)."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        tools = registry.list_query_tools(cfg.registry_root, dataset_id)
+        tool = next((t for t in tools if str(t.get("name")) == tool_name), None)
+        if tool is None:
+            raise HTTPException(404, f"tool {tool_name!r} not found")
+        return {"dataset_id": dataset_id, "tool": annotate_output_kind(tool)}
 
     @app.post("/api/datasets/{dataset_id}/tools", dependencies=_write_auth)
     async def save_dataset_tool(dataset_id: str, body: QueryToolBody) -> dict[str, object]:
@@ -7810,6 +7829,8 @@ def build_app(
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tool = body.model_dump()
+        if tool.get("output_kind") is None:
+            tool.pop("output_kind", None)
         try:
             parsed = parse_query_tools({"tools": [tool]})
         except QueryToolError as exc:
@@ -9453,6 +9474,24 @@ def build_app(
                 "catalog": grounding.quantity_kind_catalog_meta(),
             }
         )
+
+    @app.get("/api/prov/graph")
+    async def prov_graph_route(
+        iri: str = Query(description="a full http(s) IRI to trace provenance from"),
+    ) -> dict[str, object]:
+        """Generic PROV-O provenance graph for one IRI (object-cards-ui.md §4).
+
+        Delegates to ``asterism.prov_graph.prov_graph`` — a renderer can draw the
+        returned ``{iri, found, graph, materials}`` without knowing any dataset's
+        own vocabulary. An IRI that is not ``http(s)://`` (or otherwise malformed)
+        is a 400; an IRI that IS well-formed but absent from the citable scope
+        still comes back 200 with ``found: false`` (not-yet-promoted data is a
+        legitimate answer, not an error)."""
+        client: OxigraphClient = app.state.client
+        try:
+            return await prov_graph(client, iri)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/ground/schema")
     async def grounding_for_schema(body: GroundSchemaBody) -> JSONResponse:

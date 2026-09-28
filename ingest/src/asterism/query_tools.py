@@ -88,6 +88,57 @@ class QueryToolError(Exception):
     """A declared tool is malformed, or a call violates its parameter contract."""
 
 
+# ----------------------------------------------------------------------------
+# Output contract (#object-cards-ui PR A): what SHAPE a tool's answer has, and
+# what each result.item column MEANS, so a downstream renderer can pick a card
+# type without parsing column names for domain vocabulary (K4/product_direction:
+# the engine and its contract stay schema-agnostic). Declaring these is OPTIONAL
+# — a tool that omits ``output_kind`` behaves exactly as before (= "facts"),
+# so every existing declaration and test stays valid unchanged.
+# ----------------------------------------------------------------------------
+
+#: The vocabulary of answer shapes a tool's result can have.
+OUTPUT_KINDS: tuple[str, ...] = (
+    "quantity",
+    "series",
+    "pairs",
+    "ranked",
+    "breakdown",
+    "facts",
+    "flow",
+)
+
+#: ``flow`` cannot be *declared* in a query_tools.yaml (Phase 1): it is only
+#: produced by converting a provenance graph (:func:`asterism.prov_graph.prov_graph`),
+#: never by a hand-written SPARQL template. Declaring it is a parse-time error.
+DECLARABLE_OUTPUT_KINDS: tuple[str, ...] = OUTPUT_KINDS[:-1]
+
+#: The vocabulary of roles a ``result.item`` column can be tagged with.
+ITEM_ROLES: tuple[str, ...] = (
+    "subject",
+    "label",
+    "value",
+    "x",
+    "y",
+    "series",
+    "category",
+    "count",
+    "at",
+)
+
+#: Per ``output_kind``, which roles a declaration MUST carry (each exactly
+#: once) and which it MAY carry. ``facts`` is intentionally unrestricted (a
+#: role, if any, may be anything) — see :func:`validate_roles`.
+ROLE_RULES: dict[str, dict[str, tuple[str, ...]]] = {
+    "quantity": {"required": ("value",), "optional": ("subject", "label", "at")},
+    "series": {"required": ("x", "y"), "optional": ("series", "subject", "label")},
+    "pairs": {"required": ("x", "y"), "optional": ("subject", "label")},
+    "ranked": {"required": ("subject", "value"), "optional": ("label", "at")},
+    "breakdown": {"required": ("category", "count"), "optional": ()},
+    "facts": {"required": (), "optional": ITEM_ROLES},
+}
+
+
 @dataclass(frozen=True)
 class ToolParam:
     """One declared parameter of a query tool."""
@@ -111,8 +162,13 @@ class QueryTool:
     description: str
     params: tuple[ToolParam, ...]
     query: str
-    # output_key -> {"var": <sparql var>, "number": bool}
+    # output_key -> {"var": <sparql var>, "number": bool, [role], [quantity_kind], [unit]}
+    # (the three bracketed keys are present only when the declaration set them —
+    # never defaulted in, so the pre-existing ``{"var", "number"}`` shape of a
+    # plain declaration is unchanged.)
     item: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: The answer's shape (:data:`OUTPUT_KINDS`); "facts" when not declared.
+    output_kind: str = "facts"
 
     def param(self, name: str) -> ToolParam | None:
         return next((p for p in self.params if p.name == name), None)
@@ -176,7 +232,13 @@ def _validate_template(tool_name: str, query: str, params: tuple[ToolParam, ...]
 
 
 def _parse_item_map(raw: Any) -> dict[str, dict[str, Any]]:
-    """Parse the ``result.item`` mapping (output_key -> var / {var, number})."""
+    """Parse the ``result.item`` mapping (output_key -> var / {var, number, ...}).
+
+    ``role`` / ``quantity_kind`` / ``unit`` are copied through ONLY when the
+    declaration actually sets them — a bare ``{"var": ..., "number": ...}``
+    entry (the pre-existing shape) must come out unchanged, or every strict
+    dict-equality test written against it before this contract existed breaks.
+    """
     if not raw:
         return {}
     out: dict[str, dict[str, Any]] = {}
@@ -184,9 +246,179 @@ def _parse_item_map(raw: Any) -> dict[str, dict[str, Any]]:
         if isinstance(spec, str):
             out[str(key)] = {"var": spec, "number": False}
         elif isinstance(spec, dict):
-            out[str(key)] = {"var": str(spec["var"]), "number": bool(spec.get("number", False))}
+            entry: dict[str, Any] = {
+                "var": str(spec["var"]),
+                "number": bool(spec.get("number", False)),
+            }
+            if "role" in spec:
+                role = spec["role"]
+                if role not in ITEM_ROLES:
+                    raise QueryToolError(
+                        f"result.item[{key!r}]: unknown role {role!r} (must be one of {ITEM_ROLES})"
+                    )
+                entry["role"] = role
+            if "quantity_kind" in spec:
+                entry["quantity_kind"] = spec["quantity_kind"]
+            if "unit" in spec:
+                entry["unit"] = spec["unit"]
+            out[str(key)] = entry
         else:
             raise QueryToolError(f"result.item[{key!r}] must be a var name or a mapping")
+    return out
+
+
+def validate_roles(output_kind: str, item: dict[str, dict[str, Any]]) -> list[str]:
+    """Check ``item``'s declared roles against §1's per-``output_kind`` rules.
+
+    Returns human-readable violation messages (empty = OK). ``facts`` is
+    unrestricted by design (the table's "どれでも" row) and always returns no
+    errors — callers only need to invoke this for a tool that EXPLICITLY
+    declares a non-default ``output_kind`` (an omitted declaration defaults to
+    facts and is never role-checked at all, see :func:`parse_query_tools`).
+    """
+    if output_kind == "facts":
+        return []
+    rules = ROLE_RULES.get(output_kind)
+    if rules is None:
+        return []
+    required = rules.get("required", ())
+    allowed = set(required) | set(rules.get("optional", ()))
+    counts: dict[str, int] = {}
+    errors: list[str] = []
+    for key, spec in item.items():
+        role = spec.get("role")
+        if role is None:
+            continue
+        if role not in allowed:
+            errors.append(
+                f"item {key!r}: role {role!r} is not valid for output_kind {output_kind!r} "
+                f"(allowed: {sorted(allowed)})"
+            )
+            continue
+        counts[role] = counts.get(role, 0) + 1
+    for role in required:
+        count = counts.get(role, 0)
+        if count == 0:
+            errors.append(
+                f"output_kind {output_kind!r} requires exactly one item with "
+                f"role {role!r}, found none"
+            )
+        elif count > 1:
+            errors.append(
+                f"output_kind {output_kind!r} requires exactly one item with "
+                f"role {role!r}, found {count}"
+            )
+    for role, count in counts.items():
+        if role in required or role == "series":
+            continue  # required roles already checked above; 'series' may repeat
+        if count > 1:
+            errors.append(f"role {role!r} appears on {count} items — it must appear at most once")
+    return errors
+
+
+# The item-key suffix that marks an "IRI column" for :func:`infer_output_kind`
+# (structural, not vocabulary: the same convention every shipped dataset uses).
+_IRI_KEY_SUFFIX = "_iri"
+
+
+def _raw_item_columns(raw_tool: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """``{item_key: {"var": ..., "number": bool}}`` read straight off a RAW
+    (unparsed) tool dict — :func:`infer_output_kind` runs before validation,
+    on content that may not even be well-formed yet."""
+    result = raw_tool.get("result") if isinstance(raw_tool, dict) else None
+    item = (result or {}).get("item") if isinstance(result, dict) else None
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(item, dict):
+        return out
+    for key, spec in item.items():
+        if isinstance(spec, str):
+            out[str(key)] = {"var": spec, "number": False}
+        elif isinstance(spec, dict) and "var" in spec:
+            out[str(key)] = {"var": str(spec["var"]), "number": bool(spec.get("number", False))}
+    return out
+
+
+def infer_output_kind(raw_tool: dict[str, Any]) -> tuple[str, dict[str, str]]:
+    """Guess ``(output_kind, {item_key: role})`` for a declaration that does not
+    set ``output_kind`` itself, from RAW YAML content (``dict``, pre-parse).
+
+    Structural only — never looks at what a column name or var MEANS (no
+    vocabulary). Uses exactly three signals: which columns are declared
+    ``number: true``, whether the query's shape matches a COUNT-aggregate /
+    ``LIMIT 1`` / ``ORDER BY DESC|ASC(?numvar)`` pattern, and which item keys
+    end in ``_iri``. Rules apply in order, first match wins; anything that
+    does not cleanly match one of the first three stays ``facts`` with no
+    roles — a tool whose shape is ambiguous (e.g. two numeric columns) is
+    deliberately left unclassified rather than guessed at.
+    """
+    item = _raw_item_columns(raw_tool)
+    query = str(raw_tool.get("query", "") if isinstance(raw_tool, dict) else "")
+    numeric = [(k, v) for k, v in item.items() if v["number"]]
+    iri_keys = [k for k in item if k.endswith(_IRI_KEY_SUFFIX)]
+
+    if len(numeric) == 1:
+        num_key, num_spec = numeric[0]
+        num_var = num_spec["var"]
+        # 1. breakdown: exactly 1 numeric + 1 non-numeric column, and the
+        #    numeric column is a ``(COUNT(...) AS ?var)`` aggregate target.
+        count_pattern = re.compile(
+            r"\(\s*COUNT\s*\(.*?\)\s+AS\s+\?" + re.escape(num_var) + r"\s*\)",
+            re.IGNORECASE | re.DOTALL,
+        )
+        if len(item) == 2 and count_pattern.search(query):
+            category_key = next(k for k in item if k != num_key)
+            return "breakdown", {category_key: "category", num_key: "count"}
+        # 2. quantity: the query ends in a literal ``LIMIT 1``.
+        if query.strip().upper().endswith("LIMIT 1"):
+            roles = {num_key: "value"}
+            if iri_keys:
+                roles[iri_keys[0]] = "subject"
+            return "quantity", roles
+        # 3. ranked: ``ORDER BY DESC|ASC(?numvar)`` and at least one IRI column.
+        order_pattern = re.compile(
+            r"ORDER\s+BY\s+(?:DESC|ASC)\s*\(\s*\?" + re.escape(num_var) + r"\s*\)",
+            re.IGNORECASE,
+        )
+        if iri_keys and order_pattern.search(query):
+            return "ranked", {iri_keys[0]: "subject", num_key: "value"}
+    # 4. everything else (0 numeric columns, or 2+ — judgment calls stay conservative).
+    return "facts", {}
+
+
+def annotate_output_kind(raw_tool: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a RAW tool dict with ``output_kind`` always present.
+
+    A declaration that already sets ``output_kind`` comes back unchanged plus
+    ``output_kind_inferred: False``. One that omits it gets
+    :func:`infer_output_kind`'s guess written in (``output_kind_inferred: True``)
+    and, for any item column the guess assigned a role to, that role spliced
+    into ``result.item`` (a bare shorthand string is expanded to
+    ``{"var": ..., "number": False, "role": ...}`` to carry it). Never mutates
+    ``raw_tool`` itself, and never rewrites the dataset's YAML on disk — this
+    is a read-time presentation step (Phase 1's ``output_kind_inferred`` flag
+    is precisely so a caller can tell a guess from an authored fact).
+    """
+    out = dict(raw_tool)
+    if raw_tool.get("output_kind"):
+        out["output_kind_inferred"] = False
+        return out
+    kind, roles = infer_output_kind(raw_tool)
+    out["output_kind"] = kind
+    out["output_kind_inferred"] = True
+    if roles:
+        result = dict(raw_tool.get("result") or {})
+        item_raw = dict(result.get("item") or {})
+        new_item = dict(item_raw)
+        for key, role in roles.items():
+            spec = item_raw.get(key)
+            if isinstance(spec, str):
+                new_item[key] = {"var": spec, "number": False, "role": role}
+            elif isinstance(spec, dict):
+                entry = dict(spec)
+                entry["role"] = role
+                new_item[key] = entry
+        result["item"] = new_item
+        out["result"] = result
     return out
 
 
@@ -206,6 +438,22 @@ def parse_query_tools(data: Any) -> list[QueryTool]:
         query = str(raw.get("query", ""))
         _validate_template(name, query, params)
         result = raw.get("result") or {}
+        item = _parse_item_map(result.get("item"))
+        # output_kind is OPTIONAL and defaults to "facts" (backward compat: a
+        # pre-existing declaration that never mentions it parses exactly as
+        # before). Only a tool that EXPLICITLY sets it is role-checked — an
+        # omitted declaration (= facts) is never inspected (§1).
+        explicit_kind = "output_kind" in raw
+        output_kind = str(raw.get("output_kind") or "facts")
+        if output_kind not in DECLARABLE_OUTPUT_KINDS:
+            raise QueryToolError(
+                f"tool {name!r}: invalid output_kind {output_kind!r} "
+                f"(must be one of {DECLARABLE_OUTPUT_KINDS})"
+            )
+        if explicit_kind:
+            role_errors = validate_roles(output_kind, item)
+            if role_errors:
+                raise QueryToolError(f"tool {name!r}: {'; '.join(role_errors)}")
         tools.append(
             QueryTool(
                 name=name,
@@ -213,7 +461,8 @@ def parse_query_tools(data: Any) -> list[QueryTool]:
                 description=str(raw.get("description", "")),
                 params=params,
                 query=query,
-                item=_parse_item_map(result.get("item")),
+                item=item,
+                output_kind=output_kind,
             )
         )
     return tools
@@ -377,8 +626,12 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
                     f"VALUES ?class {{ {values} }} ?s a ?class "
                     "} GROUP BY ?class ORDER BY DESC(?n) ?class"
                 ),
+                "output_kind": "breakdown",
                 "result": {
-                    "item": {"class_iri": "class", "count": {"var": "n", "number": True}}
+                    "item": {
+                        "class_iri": {"var": "class", "number": False, "role": "category"},
+                        "count": {"var": "n", "number": True, "role": "count"},
+                    }
                 },
             }
         )
@@ -418,6 +671,10 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
                     f"{{ ?maxSubject {filt} }} ORDER BY DESC(?num) ASC(?maxSubject) LIMIT 1 }} "
                     "}"
                 ),
+                # facts: min AND max are both numeric "value"-shaped columns, so
+                # no single role fits (§1: an aggregate range has no one
+                # subject/value — role-tagging it would misrepresent the shape).
+                "output_kind": "facts",
                 "result": {
                     "item": {
                         "count": {"var": "n", "number": True},
@@ -433,6 +690,14 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
     top_info = trial.get("top")
     if isinstance(top_info, dict) and (p_iri := _safe_iri(top_info.get("predicate_iri"))):
         label = str(top_info.get("label") or p_iri)
+        value_spec: dict[str, Any] = {"var": "v", "number": True, "role": "value"}
+        # trial-queries' display enrichment (K8) carries a unit when the
+        # reviewed Mapping IR authored one; quantity_kind is not produced
+        # there today but is copied through the same way if a future trial
+        # payload adds it — never invented here.
+        for key in ("unit", "quantity_kind"):
+            if top_info.get(key):
+                value_spec[key] = top_info[key]
         tools.append(
             {
                 "name": "top_value",
@@ -448,7 +713,13 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
                     "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) "
                     "} ORDER BY DESC(?num) ?s LIMIT 1"
                 ),
-                "result": {"item": {"subject_iri": "s", "value": {"var": "v", "number": True}}},
+                "output_kind": "quantity",
+                "result": {
+                    "item": {
+                        "subject_iri": {"var": "s", "number": False, "role": "subject"},
+                        "value": value_spec,
+                    }
+                },
             }
         )
     return tools
@@ -877,7 +1148,42 @@ def lint_query_tool(tool: QueryTool, vocabulary: dict[str, Any] | None = None) -
             for msg in _vocabulary_issues(rendered, vocabulary):
                 if msg not in warnings:
                     warnings.append(msg)
+    for msg in _output_kind_unit_warnings(tool):
+        if msg not in warnings:
+            warnings.append(msg)
     return QueryToolLint(errors=tuple(errors), warnings=tuple(warnings))
+
+
+# output_kind values whose numeric-role columns SHOULD carry a quantity_kind or
+# unit to be legible to a downstream renderer — but a tool where the unit is
+# itself parameter-dependent (e.g. property_ranking's value changes meaning
+# with property_y) legitimately has neither, so this is a warning, not an
+# error (§1's intentional deviation from the handoff's "must" — see ADR
+# object-cards-ui.md).
+_UNIT_ROLES_BY_KIND: dict[str, tuple[str, ...]] = {
+    "quantity": ("value",),
+    "series": ("x", "y"),
+    "pairs": ("x", "y"),
+}
+
+
+def _output_kind_unit_warnings(tool: QueryTool) -> list[str]:
+    """Warn (never error) when a quantity/series/pairs value/x/y column has
+    neither ``quantity_kind`` nor ``unit`` declared."""
+    target_roles = _UNIT_ROLES_BY_KIND.get(tool.output_kind)
+    if not target_roles:
+        return []
+    warnings: list[str] = []
+    for key, spec in tool.item.items():
+        role = spec.get("role")
+        if role not in target_roles:
+            continue
+        if not spec.get("quantity_kind") and not spec.get("unit"):
+            warnings.append(
+                f"item {key!r} (role {role!r}, output_kind {tool.output_kind!r}) has "
+                "neither quantity_kind nor unit declared"
+            )
+    return warnings
 
 
 # ----------------------------------------------------------------------------

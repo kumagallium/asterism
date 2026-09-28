@@ -323,7 +323,9 @@ def _make_query_tool_handler(tool: QueryTool, get_client):
     handler.__signature__ = inspect.Signature(sig_params)  # type: ignore[attr-defined]
     handler.__annotations__ = annotations
     handler.__name__ = tool.name
-    handler.__doc__ = tool.description or tool.title
+    # object-cards-ui.md §3: the answer's shape, so an AI calling this tool
+    # knows what to do with the result without parsing column names.
+    handler.__doc__ = f"{tool.description or tool.title}\n\nResult kind: {tool.output_kind}."
     return handler
 
 
@@ -346,11 +348,16 @@ def _register_declared_query_tools(mcp: FastMCP, get_client) -> None:
     for dataset, tools in sources.items():
         for tool in tools:
             name = served[dataset][tool.name]
+            handler = _make_query_tool_handler(tool, get_client)
             mcp.add_tool(
                 Tool.from_function(
-                    _make_query_tool_handler(tool, get_client),
+                    handler,
                     name=name,
-                    description=tool.description or tool.title,
+                    # FunctionTool.from_function keeps an explicit ``description``
+                    # verbatim over the wrapped function's docstring, so the
+                    # "Result kind" line handler.__doc__ carries has to be
+                    # repeated here too or a caller listing tools never sees it.
+                    description=handler.__doc__,
                 )
             )
 
