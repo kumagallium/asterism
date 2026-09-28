@@ -81,10 +81,15 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
     }
   }, [])
 
+  // /define・/details のあいだもレールでそのデータセット行が選択状態のまま
+  // （契約メモ contract_pr_f5.md §1.4）。展開の既定と同じ値をそのまま
+  // 「選択中」の判定にも使う — 現在地は 1 つしかない。
+  const currentId = currentDatasetId(route, all)
+
   const tree = buildRailTree({
     datasets,
     subjects: all,
-    currentDatasetId: currentDatasetId(route, all),
+    currentDatasetId: currentId,
     expandedOverrides,
   })
 
@@ -205,6 +210,7 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
               <DatasetRow
                 key={node.datasetId}
                 node={node}
+                isCurrent={node.datasetId === currentId}
                 onToggle={() => toggleExpanded(node.datasetId, node.expanded)}
                 onOpenDataset={() => navigate({ tab: 'cards', datasetPageId: node.datasetId })}
                 onOpenChild={openChild}
@@ -278,6 +284,7 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
               <DatasetRow
                 key={node.datasetId}
                 node={node}
+                isCurrent={node.datasetId === currentId}
                 onToggle={() => toggleExpanded(node.datasetId, node.expanded)}
                 onOpenDataset={() => navigate({ tab: 'cards', datasetPageId: node.datasetId })}
                 onOpenChild={openChild}
@@ -346,12 +353,17 @@ function RailChildButton({ child, onClick }: { child: RailChild; onClick: () => 
  *  ページ、先頭のトグルは開閉だけ（ナビゲーションしない）。 */
 function DatasetRow({
   node,
+  isCurrent,
   onToggle,
   onOpenDataset,
   onOpenChild,
   onCollect,
 }: {
   node: RailDatasetNode
+  /** いま開いているページのデータセットか（契約メモ contract_pr_f5.md §1.4:
+   *  `/define`・`/details` のあいだもレールで選択状態を保つ）。rail.css は
+   *  担当外のため見た目の強調は加えず、属性のみ付与する。 */
+  isCurrent: boolean
   onToggle: () => void
   onOpenDataset: () => void
   onOpenChild: (child: RailChild) => void
@@ -380,7 +392,12 @@ function DatasetRow({
         ) : (
           <span className="rail-dataset-toggle rail-dataset-toggle--empty" aria-hidden="true" />
         )}
-        <button type="button" className="rail-dataset-name" onClick={onOpenDataset}>
+        <button
+          type="button"
+          className="rail-dataset-name"
+          onClick={onOpenDataset}
+          aria-current={isCurrent ? 'page' : undefined}
+        >
           {node.label}
         </button>
         {node.isSample && (

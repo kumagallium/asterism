@@ -53,6 +53,10 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
   }, [route.datasetPageId, route.subjectKey, subjects, onLabel])
 
   if (route.datasetPageId) {
+    // datasetSub（`.../define`・`.../details[/…]`）は App.tsx が WorkbenchTier/
+    // GalleryView を直接 mount する（契約メモ contract_pr_f5.md §1.1）。ここは
+    // データセットのページ単体（子ルート無し）だけを受け持つ。
+    if (route.datasetSub) return null
     return (
       <DatasetPage
         datasetId={route.datasetPageId}
