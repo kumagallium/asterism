@@ -5,6 +5,7 @@ import {
   applicableViewpoints,
   declaredViewpoints,
   paramsForPage,
+  pathLabel,
   viewpointId,
   viewpointsFrom,
   viewpointTitle,
@@ -136,7 +137,14 @@ describe('applicableViewpoints', () => {
 
   it('1 件のページ: linkingKinds に含まれる種類は見せ方を問わず通す', () => {
     const linking: LinkingKind[] = [
-      { class_iri: OBS_CLASS, class_label: '観測記録', property: STATION_PROP, property_label: '観測所', count: 3 },
+      {
+        class_iri: OBS_CLASS,
+        class_label: '観測記録',
+        property: STATION_PROP,
+        property_label: '観測所',
+        count: 3,
+        where: [{ property: STATION_PROP, iri: 'https://example.org/data/station-1' }],
+      },
     ]
     const page: ViewpointPage = { kind: 'individual', classIri: STATION_CLASS, linkingKinds: linking, existingViewpointIds: [] }
     expect(applicableViewpoints([seriesVp, quantityVp, factsVp], page).map((v) => v.id).sort()).toEqual(
@@ -161,9 +169,16 @@ describe('paramsForPage', () => {
     expect(params?.source_scope).toBe('own')
   })
 
-  it('1 件のページ: linkingKinds の該当する種類の {property, iri} を付ける', () => {
+  it('1 件のページ: linkingKinds の該当する種類の where（完成形）をそのまま付ける', () => {
     const linking: LinkingKind[] = [
-      { class_iri: OBS_CLASS, class_label: '観測記録', property: STATION_PROP, property_label: '観測所', count: 3 },
+      {
+        class_iri: OBS_CLASS,
+        class_label: '観測記録',
+        property: STATION_PROP,
+        property_label: '観測所',
+        count: 3,
+        where: [{ property: STATION_PROP, iri: 'https://example.org/data/station-1' }],
+      },
     ]
     const page: ViewpointPage = {
       kind: 'individual',
@@ -174,6 +189,39 @@ describe('paramsForPage', () => {
     }
     const params = paramsForPage(seriesVp, page)
     expect(params?.where).toEqual([{ property: STATION_PROP, iri: 'https://example.org/data/station-1' }])
+  })
+
+  it('1 件のページ: 2 段の where（via）もそのまま付ける', () => {
+    const linking: LinkingKind[] = [
+      {
+        class_iri: OBS_CLASS,
+        class_label: '観測記録',
+        property: 'https://example.org/onto/measuredBy',
+        property_label: '計測',
+        count: 4,
+        path_kind: 'sibling_child',
+        where: [
+          {
+            property: 'https://example.org/onto/measuredBy',
+            via: { property: STATION_PROP, iri: 'https://example.org/data/station-1' },
+          },
+        ],
+      },
+    ]
+    const page: ViewpointPage = {
+      kind: 'individual',
+      classIri: STATION_CLASS,
+      linkingKinds: linking,
+      iri: 'https://example.org/data/station-1',
+      existingViewpointIds: [],
+    }
+    const params = paramsForPage(seriesVp, page)
+    expect(params?.where).toEqual([
+      {
+        property: 'https://example.org/onto/measuredBy',
+        via: { property: STATION_PROP, iri: 'https://example.org/data/station-1' },
+      },
+    ])
   })
 
   it('1 件のページ: 観点の class が自身の種類と一致し linkingKinds に候補が無いときは null（無条件の全体集計を装わない）', () => {
@@ -191,8 +239,22 @@ describe('paramsForPage', () => {
 
   it('1 件のページ: 候補が複数あるときは最初の 1 つ', () => {
     const linking: LinkingKind[] = [
-      { class_iri: OBS_CLASS, class_label: '観測記録', property: 'https://example.org/onto/observedAt', property_label: '観測日', count: 5 },
-      { class_iri: OBS_CLASS, class_label: '観測記録', property: STATION_PROP, property_label: '観測所', count: 3 },
+      {
+        class_iri: OBS_CLASS,
+        class_label: '観測記録',
+        property: 'https://example.org/onto/observedAt',
+        property_label: '観測日',
+        count: 5,
+        where: [{ property: 'https://example.org/onto/observedAt', iri: 'https://example.org/data/station-1' }],
+      },
+      {
+        class_iri: OBS_CLASS,
+        class_label: '観測記録',
+        property: STATION_PROP,
+        property_label: '観測所',
+        count: 3,
+        where: [{ property: STATION_PROP, iri: 'https://example.org/data/station-1' }],
+      },
     ]
     const page: ViewpointPage = {
       kind: 'individual',
@@ -267,7 +329,14 @@ describe('cardId の一致（F4 のフォームと同じ規則）', () => {
       }),
     ])[0]
     const linking: LinkingKind[] = [
-      { class_iri: OBS_CLASS, class_label: '観測記録', property: STATION_PROP, property_label: '観測所', count: 3 },
+      {
+        class_iri: OBS_CLASS,
+        class_label: '観測記録',
+        property: STATION_PROP,
+        property_label: '観測所',
+        count: 3,
+        where: [{ property: STATION_PROP, iri: 'https://example.org/data/station-1' }],
+      },
     ]
     const page: ViewpointPage = {
       kind: 'individual',
@@ -285,5 +354,59 @@ describe('cardId の一致（F4 のフォームと同じ規則）', () => {
     }).params
     expect(viaViewpoint).not.toBeNull()
     expect(cardId(viaViewpoint as MeasureCardParams)).toBe(cardId(viaForm))
+  })
+})
+
+describe('pathLabel', () => {
+  // 呼ばれた i18n キーと変数をそのまま確かめられるよう、翻訳文そのものではなく
+  // `key:{"var":"val"}` の形で返すだけの t（describe 冒頭の `t` は defaultValue
+  // をそのまま通すだけで、ここでの検証には使えない）。
+  const echoT = (key: string, options?: Record<string, unknown>) => `${key}:${JSON.stringify(options ?? {})}`
+
+  function kind(over: Partial<LinkingKind>): LinkingKind {
+    return {
+      class_iri: OBS_CLASS,
+      class_label: '観測記録',
+      property: STATION_PROP,
+      property_label: '観測所',
+      count: 1,
+      where: [{ property: STATION_PROP, iri: 'https://example.org/data/station-1' }],
+      ...over,
+    }
+  }
+
+  it('path_kind が無ければ何も添えない', () => {
+    expect(pathLabel(kind({}), echoT)).toBeUndefined()
+  })
+
+  it('direct: 変数なしのキー', () => {
+    expect(pathLabel(kind({ path_kind: 'direct' }), echoT)).toBe('cards:newcard.path_direct:{}')
+  })
+
+  it('child_child: via.class_label を渡す', () => {
+    const k = kind({
+      path_kind: 'child_child',
+      via: { property: 'https://example.org/onto/detail', property_label: '詳細', class_label: '観測明細' },
+    })
+    expect(pathLabel(k, echoT)).toBe('cards:newcard.path_child_child:{"via":"観測明細"}')
+  })
+
+  it('sibling: anchor_label があればそれを使う', () => {
+    const k = kind({ path_kind: 'sibling', anchor_label: '観測所A', anchor_class_label: '観測所' })
+    expect(pathLabel(k, echoT)).toBe('cards:newcard.path_sibling:{"anchor":"観測所A"}')
+  })
+
+  it('sibling: anchor_label が無ければ anchor_class_label に落ちる', () => {
+    const k = kind({ path_kind: 'sibling', anchor_label: null, anchor_class_label: '観測所' })
+    expect(pathLabel(k, echoT)).toBe('cards:newcard.path_sibling:{"anchor":"観測所"}')
+  })
+
+  it('sibling_child: anchor と via の両方を渡す', () => {
+    const k = kind({
+      path_kind: 'sibling_child',
+      anchor_label: '観測所A',
+      via: { property: 'https://example.org/onto/detail', property_label: '詳細', class_label: '観測明細' },
+    })
+    expect(pathLabel(k, echoT)).toBe('cards:newcard.path_sibling_child:{"anchor":"観測所A","via":"観測明細"}')
   })
 })

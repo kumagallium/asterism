@@ -153,14 +153,15 @@ export function applicableViewpoints(viewpoints: Viewpoint[], page: ViewpointPag
 
 /** 観点にこのページの条件を付けた `set_measure` の params。一覧のページは
  *  `spec.where`（`source_scope` も同じ）、1 件のページは `linkingKinds` の
- *  該当する種類の `{ property, iri }`（候補が複数なら最初の 1 つ — 契約メモ
- *  §1-4）。条件が組めない（一覧なのに `where` が無い・1 件なのに `iri` が
- *  無い・1 件なのに `linkingKinds` に観点の class と一致する候補が無い）
- *  ときは `null`。最後のケースは、観点の class が「この 1 件自身の種類」と
- *  一致するとき（`applicableViewpoints` の own-class-match）に起こる —
- *  `linkingKinds` はこの 1 件を**指す**種類の一覧であり、1 件自身の種類は
- *  含まれないため、`{ property, iri }` を組む材料が無い。ここで無条件の
- *  params を返すと「この 1 件のカード」を装った全体集計になってしまう。 */
+ *  該当する種類の `where`（サーバが完成形で返したものをそのまま使う —
+ *  PR F14 §1.3。組み立て直さない）。候補が複数なら最初の 1 つ（契約メモ
+ *  §1-4）。条件が組めない（一覧なのに `where` が無い・1 件なのに
+ *  `linkingKinds` に観点の class と一致する候補が無い）ときは `null`。
+ *  後者は、観点の class が「この 1 件自身の種類」と一致するとき
+ *  （`applicableViewpoints` の own-class-match）に起こる — `linkingKinds` は
+ *  この 1 件から届く近傍の種類の一覧であり、1 件自身の種類は含まれないため、
+ *  条件を組む材料が無い。ここで無条件の params を返すと「この 1 件のカード」
+ *  を装った全体集計になってしまう。 */
 export function paramsForPage(viewpoint: Viewpoint, page: ViewpointPage): MeasureCardParams | null {
   if (page.kind === 'set') {
     if (page.where === undefined) return null
@@ -168,14 +169,41 @@ export function paramsForPage(viewpoint: Viewpoint, page: ViewpointPage): Measur
     if (page.sourceScope) params.source_scope = page.sourceScope
     return params
   }
-  if (page.iri === undefined) return null
   // `linkingKinds` は class_iri・property の辞書順で届く（サーバ側の並び —
   // `subject_tools.linking_kinds`）ので、同じ class の候補のうち最初に見つかる
   // ものが「最初の 1 つ」になる（決定論）。
   const candidate = (page.linkingKinds ?? []).find((k) => k.class_iri === viewpoint.class)
   if (!candidate) return null
-  const where: MeasureWhereClause[] = [{ property: candidate.property, iri: page.iri }]
+  const where: MeasureWhereClause[] = candidate.where
   return { ...viewpoint.params, where }
+}
+
+// ---------------------------------------------------------------------------
+// 種類の選択肢に添える「道の説明」（契約メモ contract_pr_f14.md §1.3）
+// ---------------------------------------------------------------------------
+
+/** `LinkingKind.path_kind` から、選択肢に添える小さな道の説明を作る純関数。
+ *  `path_kind` が無い（api がまだ返さない・古い形の 1 行）ときは `undefined`
+ *  （呼び出し側は何も添えない）。呼び出し元（`NewCardForm.tsx`）は
+ *  `useTranslation('cards')` の `t` を渡すが、このファイル自身は名前空間を
+ *  持たないため、キーは `cards:` を明示する（`lint:i18n` の静的チェックは
+ *  ファイル内の `useTranslation` から名前空間を推定するため、明示しないと
+ *  `common` 名前空間で探して誤検出する）。 */
+export function pathLabel(kind: LinkingKind, t: Translate): string | undefined {
+  const anchor = kind.anchor_label ?? kind.anchor_class_label ?? undefined
+  const via = kind.via?.class_label
+  switch (kind.path_kind) {
+    case 'direct':
+      return t('cards:newcard.path_direct')
+    case 'child_child':
+      return t('cards:newcard.path_child_child', { via })
+    case 'sibling':
+      return t('cards:newcard.path_sibling', { anchor })
+    case 'sibling_child':
+      return t('cards:newcard.path_sibling_child', { anchor, via })
+    default:
+      return undefined
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -55,6 +55,15 @@ const NO_KEY_TEXT = 'AI を使うには 設定 › AI でキーを入れます�
 // PR F13: `pagechat.view_source_missing`（統合段で ui/src/i18n/locales/{ja,en}/cards.json
 // に追加済み）。NO_KEY_TEXT と同じ流儀で defaultValue に持たせる。
 const VIEW_SOURCE_MISSING_TEXT = '元になるカードが見つかりませんでした（先にそのカードを足してから頼んでください）'
+// PR F14 §1.5: `pagechat.reask_waiting`・`pagechat.reask_note`（cards.json は
+// ui-form が唯一の担当・統合段で追加される想定）。ui-drawer は defaultValue で
+// 仮置きする。
+const REASK_WAITING_TEXT = '足したカードの結果を待っています…'
+// もう一度答え始めたことを示す文面（§1.5「足したら、もう一度答える」の
+// 明示）。`{{title}}` は足したカードの見出し。
+const REASK_NOTE_TEXT = '足したカード「{{title}}」の結果をもとに、もう一度答えます'
+// 待ちの上限（契約メモ §1.5「最長 15 秒。過ぎたら送る」）。
+const REASK_WAIT_MS = 15000
 
 export interface PageChatPageSummary {
   facts: { label: string; value: string }[]
@@ -113,6 +122,43 @@ function historyOf(thread: PageChatThread | undefined): ConverseMessage[] {
     out.push({ role: 'assistant', content: answer.result.reply })
   }
   return out.slice(-MAX_HISTORY_TURNS)
+}
+
+// ---------------------------------------------------------------------------
+// PR F14 §1.5: 「足したら、もう一度答える」（提案の `answers: true`）
+// ---------------------------------------------------------------------------
+
+/** `assistantTurnId` の応答の直前に置かれた、ユーザーの質問の文面。会話の
+ *  turn は「user → assistant」の組で並ぶ（`historyOf` と同じ前提）ので、
+ *  1 つ手前が user turn であればその文面、そうでなければ見つからない
+ *  （純関数・pageChat.test.ts で確認）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function precedingUserText(turns: PageChatTurn[], assistantTurnId: string): string | undefined {
+  const idx = turns.findIndex((turn) => turn.id === assistantTurnId)
+  if (idx <= 0) return undefined
+  const prior = turns[idx - 1]
+  return prior.role === 'user' ? prior.text : undefined
+}
+
+/** 契約メモ §1.5 の再送の文面: `（足したカード「<title>」を使って）<質問>`。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function buildReaskText(cardTitle: string, question: string): string {
+  return `（足したカード「${cardTitle}」を使って）${question}`
+}
+
+/** `pageSummary.cards` にその `cardId` の結果が載っているか（待ちの判定・純関数）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function reaskCardReady(cards: PageChatPageSummary['cards'], cardId: string): boolean {
+  return cards.some((c) => c.card_id === cardId)
+}
+
+/** 提案の `answers: true` かつ直前の質問が分かるときだけ、再送するべき質問を
+ *  返す（契約メモ PR F14 §1.5）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
+export function reaskQuestionFor(proposal: ConverseProposal, precedingQuestion: string | undefined): string | undefined {
+  const answers = proposal.answers
+  if (answers !== true) return undefined
+  return precedingQuestion
 }
 
 /** presentation（F3 の見せ方切替と同じ語彙）の `mark` だけを既定ビューへ
@@ -244,6 +290,17 @@ export function PageChatDrawer({
   const [showForm, setShowForm] = useState(false)
   const noKey = !isReady || noKeyForced
 
+  // PR F14 §1.5: 「足す」で answers: true の提案を確定したあと、その結果が
+  // pageSummary.cards に載るのを待ってから、直前の質問をもう一度送る。
+  // `reaskFiredRef` は「待ち・再送は 1 回だけ」の番人 — 結果到着とタイムアウトの
+  // 2 つの経路が同時に候補になり得るので、実際に送るのはどちらか早い方の 1 回だけ。
+  const [reaskPending, setReaskPending] = useState<{ cardId: string; text: string; title: string } | null>(null)
+  const reaskFiredRef = useRef(false)
+  // 「もう一度答えます」の明示（§1.5）。再送を実際に送った直後の title を
+  // 覚えておくだけ — 表示は `reaskNoteTitle && busy` で判定するので、応答が
+  // 届いて busy が false に戻れば自然に消える（クリアの effect は持たない）。
+  const [reaskNoteTitle, setReaskNoteTitle] = useState<string | null>(null)
+
   const decidedSet = new Set(Object.keys(decidedTurnIds))
   const currentDraft = latestDraft(thread?.turns ?? [], decidedSet)
 
@@ -319,6 +376,40 @@ export function PageChatDrawer({
     setDecidedTurnIds((prev) => ({ ...prev, [turnId]: outcome }))
   }
 
+  /** 「足す」で answers: true の提案が確定したときに呼ぶ（`question` は
+   *  直前のユーザーの質問・`reaskQuestionFor` が既に answers を確かめている）。 */
+  function startReask(cardTitle: string, cardId: string, question: string) {
+    reaskFiredRef.current = false
+    setReaskPending({ cardId, text: buildReaskText(cardTitle, question), title: cardTitle })
+  }
+
+  function fireReask(pending: { text: string; title: string }) {
+    if (reaskFiredRef.current) return
+    reaskFiredRef.current = true
+    setReaskPending(null)
+    setReaskNoteTitle(pending.title)
+    void send(pending.text)
+  }
+
+  // 結果到着の判定: pageSummary（呼び出し側の再実行で更新される）にその
+  // card_id の結果が載ったら送る。
+  useEffect(() => {
+    if (!reaskPending) return
+    if (reaskCardReady(pageSummary.cards, reaskPending.cardId)) {
+      fireReask(reaskPending)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reaskPending, pageSummary.cards])
+
+  // タイムアウト: 15 秒待っても結果が載らなければ、そのまま送る。
+  useEffect(() => {
+    if (!reaskPending) return
+    const pending = reaskPending
+    const timer = window.setTimeout(() => fireReask(pending), REASK_WAIT_MS)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reaskPending?.cardId])
+
   if (!open) return null
 
   return (
@@ -349,11 +440,13 @@ export function PageChatDrawer({
                 subject={runSubject}
                 subjectKey={subjectKey}
                 pageSummary={pageSummary}
+                precedingQuestion={precedingUserText(thread.turns, turn.id)}
                 decision={decidedTurnIds[turn.id]}
                 t={t}
-                onAdd={(card) => {
+                onAdd={(card, reaskQuestion) => {
                   decide(turn.id, 'added')
                   onCardAdded(card)
+                  if (reaskQuestion) startReask(card.title, card.card_id, reaskQuestion)
                 }}
                 onDiscard={() => decide(turn.id, 'discarded')}
               />
@@ -376,6 +469,14 @@ export function PageChatDrawer({
             </div>
           ) : (
             <>
+              {reaskPending && (
+                <p className="pagechat-reask-waiting">{t('pagechat.reask_waiting', { defaultValue: REASK_WAITING_TEXT })}</p>
+              )}
+              {reaskNoteTitle && busy && (
+                <p className="pagechat-reask-note">
+                  {t('pagechat.reask_note', { defaultValue: REASK_NOTE_TEXT, title: reaskNoteTitle })}
+                </p>
+              )}
               <form
                 className="pagechat-composer"
                 onSubmit={(e) => {
@@ -435,6 +536,7 @@ function PageChatBubble({
   subject,
   subjectKey,
   pageSummary,
+  precedingQuestion,
   decision,
   t,
   onAdd,
@@ -444,9 +546,12 @@ function PageChatBubble({
   subject: CardRunSubject
   subjectKey: string
   pageSummary: PageChatPageSummary
+  /** この応答の直前に置かれたユーザーの質問（`precedingUserText`）。
+   *  提案の `answers: true` のとき、「足す」後の再送に使う（契約メモ §1.5）。 */
+  precedingQuestion: string | undefined
   decision: 'added' | 'discarded' | undefined
   t: Translate
-  onAdd: (card: CardSpec) => void
+  onAdd: (card: CardSpec, reaskQuestion?: string) => void
   onDiscard: () => void
 }) {
   if (turn.role === 'user') {
@@ -487,13 +592,22 @@ function PageChatBubble({
             subjectKey={subjectKey}
             pageSummary={pageSummary}
             proposal={proposal}
+            precedingQuestion={precedingQuestion}
             t={t}
             onAdd={onAdd}
             onDiscard={onDiscard}
           />
         )}
         {proposal && !decision && !isViewProposal && (
-          <ProposalPreview subject={subject} subjectKey={subjectKey} proposal={proposal} t={t} onAdd={onAdd} onDiscard={onDiscard} />
+          <ProposalPreview
+            subject={subject}
+            subjectKey={subjectKey}
+            proposal={proposal}
+            precedingQuestion={precedingQuestion}
+            t={t}
+            onAdd={onAdd}
+            onDiscard={onDiscard}
+          />
         )}
         {proposal && decision === 'added' && (
           <p className="pagechat-added-note">{t('pagechat.added', { defaultValue: '足しました' })}</p>
@@ -507,6 +621,7 @@ function ProposalPreview({
   subject,
   subjectKey,
   proposal,
+  precedingQuestion,
   t,
   onAdd,
   onDiscard,
@@ -514,8 +629,9 @@ function ProposalPreview({
   subject: CardRunSubject
   subjectKey: string
   proposal: ConverseProposal
+  precedingQuestion: string | undefined
   t: Translate
-  onAdd: (card: CardSpec) => void
+  onAdd: (card: CardSpec, reaskQuestion?: string) => void
   onDiscard: () => void
 }) {
   const shapeOk = MEASURE_SHAPE_SET.has(proposal.output_kind)
@@ -579,7 +695,7 @@ function ProposalPreview({
     const spec = proposalCardSpec(proposal, labels, subjectKey, t)
     if (!spec) return
     addCard(spec)
-    onAdd(spec)
+    onAdd(spec, reaskQuestionFor(proposal, precedingQuestion))
   }
 
   return (
@@ -627,6 +743,7 @@ function ViewProposalPreview({
   subjectKey,
   pageSummary,
   proposal,
+  precedingQuestion,
   t,
   onAdd,
   onDiscard,
@@ -635,8 +752,9 @@ function ViewProposalPreview({
   subjectKey: string
   pageSummary: PageChatPageSummary
   proposal: ConverseProposal
+  precedingQuestion: string | undefined
   t: Translate
-  onAdd: (card: CardSpec) => void
+  onAdd: (card: CardSpec, reaskQuestion?: string) => void
   onDiscard: () => void
 }) {
   const view = proposal.view
@@ -706,7 +824,7 @@ function ViewProposalPreview({
       view: savedView,
     }
     addCard(spec)
-    onAdd(spec)
+    onAdd(spec, reaskQuestionFor(proposal, precedingQuestion))
   }
 
   return (

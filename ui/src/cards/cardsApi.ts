@@ -748,9 +748,17 @@ export interface MeasureLinkClause {
   iri: string
 }
 
+/** PR F14 §1.2: 2 段の where（`child_child`/`sibling_child` 形）。`via` は
+ *  1 段だけ（サーバ側 `_normalize_clause` と同じ制約）。 */
+export interface MeasureLinkViaClause {
+  property: string
+  via: { property: string; iri: string }
+}
+
 /** `set_measure` の `where` は既存の値条件（{@link SetWhereClause} と同じ形）と
- *  {@link MeasureLinkClause}（「この 1 件」）のどちらも受ける。 */
-export type MeasureWhereClause = SetWhereClause | MeasureLinkClause
+ *  {@link MeasureLinkClause}（「この 1 件」）・{@link MeasureLinkViaClause}
+ *  （2 段の「この 1 件」）のどれかを受ける。 */
+export type MeasureWhereClause = SetWhereClause | MeasureLinkClause | MeasureLinkViaClause
 
 /** `set_measure` の params（契約メモ §1-4・`ingest/src/asterism/measure_spec.py`
  *  の `validate_measure` と揃えてある）。②の「項目」（比べる=ranked・数字 1 つ
@@ -868,15 +876,41 @@ export function normalizeCardView(raw: unknown): CardView | undefined {
   return base ? { ...base, custom: true } : undefined
 }
 
-/** `GET /api/subjects/linking-kinds?iri=…` の 1 候補（契約メモ §1-3・
- *  `ingest/src/asterism/subject_tools.py` の `linking_kinds` と揃えてある）。
- *  この IRI を目的語に持つ実例の種類と述語（来歴のクラスは api 側で除外済み）。 */
+/** PR F14 §1.1: `child_child`/`sibling_child` の 2 段目（via）。 */
+export interface LinkingKindVia {
+  property: string
+  property_label: string
+  class_label: string
+}
+
+/** `GET /api/subjects/linking-kinds?iri=…` の 1 候補（契約メモ §1-3・PR F14
+ *  §1.1・`ingest/src/asterism/subject_tools.py` の `linking_kinds` と揃えて
+ *  ある）。この IRI から届く範囲（近傍）の種類と述語（来歴のクラスは api 側で
+ *  除外済み）。従来の `direct`（この 1 件を直接指す）に加え、`child_child`・
+ *  `sibling`・`sibling_child` の 3 形が増える（PR F14）。`where` 以外は
+ *  api がまだ返さない実装途中でも安全に読めるよう任意にしてある。 */
 export interface LinkingKind {
   class_iri: string
   class_label: string
   property: string
   property_label: string
   count: number
+  /** 段数（1=direct、2=child_child/sibling、3=sibling_child）。 */
+  hops?: 1 | 2 | 3
+  path_kind?: 'direct' | 'child_child' | 'sibling' | 'sibling_child'
+  /** `where` が指す IRI（direct/child_child はこの 1 件、sibling 系は親）。 */
+  anchor_iri?: string
+  anchor_label?: string | null
+  /** 親の種類の名前（sibling 系だけ。direct 系は null）。 */
+  anchor_class_label?: string | null
+  /** この 1 件 → 親 の述語（sibling 系だけ。direct 系は null）。 */
+  anchor_property?: string | null
+  anchor_property_label?: string | null
+  /** 2 段目（child_child/sibling_child だけ）。 */
+  via?: LinkingKindVia | null
+  /** 完成形の条件。消費側（NewCardForm/viewpoints）はこれをそのまま
+   *  `set_measure` の `where` に使う — 自前で組み立てない（PR F14 §1.3）。 */
+  where: MeasureWhereClause[]
 }
 
 export async function linkingKinds(iri: string): Promise<LinkingKind[]> {
@@ -983,6 +1017,10 @@ export interface ConverseProposal {
   title: string
   kind?: 'measure' | 'view'
   view?: ConverseProposalView
+  /** PR F14 §1.4:「提案してから答える」の印。true のときだけ、この提案を
+   *  足すと会話の質問に答えられる（サーバの返信文が「足すと答えられます」と
+   *  案内している）。既定 false 相当（未指定は false として扱う）。 */
+  answers?: boolean
 }
 
 export interface ConverseResponse {
@@ -1020,11 +1058,19 @@ export function normalizeConverseProposal(raw: unknown): ConverseProposal | null
     // `params`/`output_kind`/`title` はサーバの view 応答に無い。ViewProposalPreview
     // は `proposal.view.source_card_id` から解決した既存カードの title/params/tool
     // を使うのでこれらは参照されない（未使用の穴埋め）。
-    return { params: {}, presentation, output_kind: '', title: '', kind: 'view', view }
+    return { params: {}, presentation, output_kind: '', title: '', kind: 'view', view, answers: r.answers === true }
   }
   if (r.params === null || typeof r.params !== 'object') return null
   if (typeof r.output_kind !== 'string' || typeof r.title !== 'string') return null
-  return { params: r.params as Record<string, unknown>, presentation, output_kind: r.output_kind, title: r.title, kind: 'measure' }
+  // PR F14 §1.5: `answers: true`（答えを出すための提案）はそのまま運ぶ（bool 以外は false）。
+  return {
+    params: r.params as Record<string, unknown>,
+    presentation,
+    output_kind: r.output_kind,
+    title: r.title,
+    kind: 'measure',
+    answers: r.answers === true,
+  }
 }
 
 /** `POST /api/cards/converse`（契約メモ §1-3）。ヘッダは consult と同じ

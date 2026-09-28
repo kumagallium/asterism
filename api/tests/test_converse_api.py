@@ -530,6 +530,186 @@ def test_converse_view_proposal_rejects_an_ambiguous_card_title(tmp_path: Path) 
         assert len(llm.calls) == 2
 
 
+# ---------------------------------------------------------------------------
+# 契約メモ contract_pr_f14.md §1.4 — 届く範囲（近傍）と「提案してから答える」。
+# ingest の新フィールド（hops/path_kind/anchor_*/via/where）はまだ無いので、
+# ``linking_kinds`` をスタブ差し替えして「新フィールドを持つ行」を作る。
+# ---------------------------------------------------------------------------
+
+
+def _sibling_kind(**overrides: Any) -> dict[str, Any]:
+    kind = {
+        "class_iri": READING_CLASS,
+        "class_label": "観測記録",
+        "property": STATION_PRED,
+        "property_label": "観測局",
+        "count": 3,
+        "hops": 2,
+        "path_kind": "sibling",
+        "anchor_iri": STATION_A,
+        "anchor_label": "Station A",
+        "anchor_class_label": "観測局",
+        "anchor_property": None,
+        "anchor_property_label": None,
+        "via": None,
+        "where": [{"property": STATION_PRED, "iri": STATION_A}],
+    }
+    kind.update(overrides)
+    return kind
+
+
+def test_system_prompt_lists_candidate_kinds_with_a_path_description() -> None:
+    from asterism_api.converse_prompt import build_system_prompt
+
+    kind = _sibling_kind()
+    for lang, needle in (("ja", "同じ「Station A」を持つ記録"), ("en", "share the same Station A")):
+        text = build_system_prompt(
+            lang=lang,
+            schema_properties={READING_CLASS: []},
+            linking_kinds=[kind],
+            existing_titles=[],
+            draft=None,
+        )
+        assert needle in text
+
+
+def test_system_prompt_tells_the_ai_to_propose_before_it_gives_up() -> None:
+    from asterism_api.converse_prompt import build_system_prompt
+
+    for lang, needle in (("ja", "answers"), ("en", "answers")):
+        text = build_system_prompt(
+            lang=lang, schema_properties={}, linking_kinds=[], existing_titles=[], draft=None
+        )
+        assert needle in text
+
+
+def test_converse_resolves_where_from_a_sibling_linking_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """sibling 形（親を介した兄弟）の行で来た ``where`` をそのまま使う——
+    従来の ``{property, iri: individual_iri}`` の組み立てには戻らない。"""
+
+    async def fake_linking_kinds(client, iri, *, registry_root=None):
+        return [_sibling_kind()]
+
+    monkeypatch.setattr(
+        "asterism_api.converse_routes.subject_tools.linking_kinds", fake_linking_kinds
+    )
+    llm = _ScriptedLLM(
+        [
+            "いちばん高い値を答えます。"
+            "<proposal>"
+            '{"params": {"class": "' + READING_CLASS + '", "shape": "ranked", '
+            '"item": "' + VALUE_PRED + '"}, "presentation": null, "title": "順位"}'
+            "</proposal>"
+        ]
+    )
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body())
+        assert r.status_code == 200, r.text
+        proposal = r.json()["proposal"]
+        assert proposal is not None
+        assert proposal["params"]["where"] == [{"property": STATION_PRED, "iri": STATION_A}]
+        assert proposal["answers"] is False
+
+
+def test_converse_picks_the_row_with_fewest_hops_then_most_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同じ class の行が複数あれば hops が最小 → count が最大の行を選ぶ。"""
+    direct_row = {
+        "class_iri": READING_CLASS,
+        "class_label": "観測記録",
+        "property": STATION_PRED,
+        "property_label": "観測局",
+        "count": 1,
+        "hops": 1,
+        "path_kind": "direct",
+        "anchor_iri": STATION_A,
+        "anchor_label": "Station A",
+        "anchor_class_label": None,
+        "anchor_property": None,
+        "anchor_property_label": None,
+        "via": None,
+        "where": [{"property": STATION_PRED, "iri": STATION_A}],
+    }
+    sibling_row = _sibling_kind(count=99)
+
+    async def fake_linking_kinds(client, iri, *, registry_root=None):
+        return [sibling_row, direct_row]
+
+    monkeypatch.setattr(
+        "asterism_api.converse_routes.subject_tools.linking_kinds", fake_linking_kinds
+    )
+    llm = _ScriptedLLM(
+        [
+            "答えます。"
+            "<proposal>"
+            '{"params": {"class": "' + READING_CLASS + '", "shape": "ranked", '
+            '"item": "' + VALUE_PRED + '"}, "presentation": null, "title": "順位", '
+            '"answers": true}'
+            "</proposal>"
+        ]
+    )
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body())
+        assert r.status_code == 200, r.text
+        proposal = r.json()["proposal"]
+        assert proposal is not None
+        # hops=1 (direct_row) が hops=2 (sibling_row, count=99) より優先される。
+        assert proposal["params"]["where"] == direct_row["where"]
+        assert proposal["answers"] is True
+
+
+def test_prompt_linking_kinds_drops_rows_whose_class_has_no_schema() -> None:
+    """検証者所見: ``linking_kinds`` は最大 24 件・9 種類以上の class を含み
+    得るが、``schema_properties``（``class_properties``）は
+    ``top_linking_kind_classes`` で hops 昇順の先頭 8 種類に絞られる（契約
+    F14 §1.4）。系統プロンプトの「候補の種類」欄をそのまま絞らずに渡すと、
+    9 種類目以降を候補として提示してしまい、AI がそれを選ぶと
+    ``validate_proposal`` が必ず拒否する——``_prompt_linking_kinds`` は
+    プロンプトに載せる行を ``schema_properties`` にある class だけに絞り、
+    この不整合を防ぐ。"""
+    from asterism_api.converse_routes import _prompt_linking_kinds
+
+    kept = _sibling_kind(class_iri=READING_CLASS, class_label="観測記録")
+    dropped = _sibling_kind(class_iri=EX + "NinthKind", class_label="9番目の種類")
+    class_properties = {READING_CLASS: []}  # 先頭 8 種類に絞られた後の形を模す
+
+    out = _prompt_linking_kinds([kept, dropped], class_properties)
+
+    assert out == [kept]
+
+
+def test_converse_prompt_omits_candidate_kinds_dropped_from_schema_properties(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ルート経由でも同じ絞り込みが効くことを確認する（schema が引けない
+    class は ``_class_properties_map`` で自然に落ちるので、その class の
+    行が系統プロンプトの「候補の種類」欄に出ないことを ``_ScriptedLLM`` が
+    記録した system prompt で確かめる）。"""
+    missing_kind = _sibling_kind(
+        class_iri=EX + "GhostKind", class_label="幽霊の種類", property=EX + "ghost"
+    )
+
+    async def fake_linking_kinds(client, iri, *, registry_root=None):
+        return [_sibling_kind(), missing_kind]
+
+    monkeypatch.setattr(
+        "asterism_api.converse_routes.subject_tools.linking_kinds", fake_linking_kinds
+    )
+    llm = _ScriptedLLM(["観測記録は 2 件あります。"])
+    app = _app(tmp_path, lambda key: llm)
+    with TestClient(app, headers=_HEADERS) as client:
+        r = client.post("/api/cards/converse", json=_body())
+        assert r.status_code == 200, r.text
+        system_prompt = llm.calls[0]["system"]
+        assert "観測記録" in system_prompt
+        assert "幽霊の種類" not in system_prompt
+
+
 def test_system_prompt_tells_the_ai_to_cite_titles_not_ids_in_plain_text() -> None:
     """[id: …] をプロンプトに出したら実 LLM が根拠に生の id と Markdown を書いた
     （K4 違反・ドロワーは平文表示）ので、両方を系統プロンプトで禁じる。"""
