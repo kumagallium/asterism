@@ -276,6 +276,40 @@ def dataset_id_of_canonical_graph(iri: str) -> str | None:
     return rest
 
 
+#: Names under ``…/canonical/crosswalk/`` that are NOT a perspective's hub graph.
+#: ``alignment`` is :data:`asterism.crosswalk_runtime.ALIGNMENT_GRAPH` (schema
+#: alignments between perspectives) — promoted like a hub graph, but it holds no
+#: shared entities. Kept here as a literal so this module stays decoupled from
+#: ``crosswalk_runtime`` (a test pins the two together).
+_HUB_RESERVED_NAMES = frozenset({"alignment"})
+_HUB_PERSPECTIVE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def hub_perspective_name(graph_iri: str) -> str | None:
+    """The perspective name when ``graph_iri`` is a crosswalk HUB graph, else
+    ``None``. The legacy composition hub at ``…/canonical/crosswalk`` has no
+    name of its own and yields ``""``; a named perspective at
+    ``…/canonical/crosswalk/<name>`` yields ``<name>``.
+
+    Reads the IRI itself rather than going through
+    :func:`dataset_id_of_canonical_graph`: a hub graph is *not* a registry
+    dataset, and that function (rightly) answers ``None`` for
+    ``crosswalk/<name>`` because the slash makes it no dataset id at all.
+    """
+    if not graph_iri.startswith(CANONICAL_GRAPH_BASE):
+        return None
+    rest = _CANONICAL_VERSION_SUFFIX.sub("", graph_iri[len(CANONICAL_GRAPH_BASE) :])
+    if rest == "crosswalk":
+        return ""
+    prefix = "crosswalk/"
+    if not rest.startswith(prefix):
+        return None
+    name = rest[len(prefix) :]
+    if name in _HUB_RESERVED_NAMES or not _HUB_PERSPECTIVE_NAME.match(name):
+        return None
+    return name
+
+
 def is_hub_graph(graph_iri: str) -> bool:
     """True when ``graph_iri`` is a crosswalk HUB graph (the legacy composition
     perspective at ``…/canonical/crosswalk`` or any named perspective at
@@ -288,10 +322,7 @@ def is_hub_graph(graph_iri: str) -> bool:
     once handed an arbitrary canonical graph IRI, e.g. while walking the
     FROM-merge graph set.
     """
-    dataset_id = dataset_id_of_canonical_graph(graph_iri)
-    return dataset_id is not None and (
-        dataset_id == "crosswalk" or dataset_id.startswith("crosswalk/")
-    )
+    return hub_perspective_name(graph_iri) is not None
 
 
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
