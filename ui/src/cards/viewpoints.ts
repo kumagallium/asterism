@@ -8,7 +8,7 @@
 // `canonicalJson`/`sha256Hex` をそのまま再利用する。
 
 import type { CardSpec } from './cardsApi'
-import type { LinkingKind, MeasureCardParams, MeasureShape, MeasureWhereClause, SetSpec } from './cardsApi'
+import type { ClassSchema, LinkingKind, MeasureCardParams, MeasureShape, MeasureWhereClause, SetSpec } from './cardsApi'
 import { canonicalJson, sha256Hex, type Translate } from './measureCardFields'
 
 export type { Translate } from './measureCardFields'
@@ -190,4 +190,41 @@ export function paramsForPage(viewpoint: Viewpoint, page: ViewpointPage): Measur
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- `_t` は `titleFor` 系と API を揃えるためだけの引数（契約メモ §1-1 のシグネチャ）。
 export function viewpointTitle(viewpoint: Viewpoint, _t: Translate): string {
   return viewpoint.title
+}
+
+// ---------------------------------------------------------------------------
+// 同梱の観点（契約メモ contract_pr_f9.md §1-4「種類のページ」・§5 実装順(5)・
+// ClassPage.tsx が使う）
+// ---------------------------------------------------------------------------
+
+/** `classSchema.tools`（宣言ツール・query_tools.yaml）1 件から作る、種類の
+ *  ページの「同梱」チップ 1 個ぶん。カードから派生する {@link Viewpoint} とは
+ *  別の型 — id の名前空間が違う（宣言ツールの `name` そのまま。`vp-` 接頭辞は
+ *  付かない）ため、`bundled: true` を目印に区別する。 */
+export interface DeclaredViewpoint {
+  id: string
+  title: string
+  /** `output_kind` が既知の見せ方でなければ省く（形が分からない宣言は
+   *  見せ方を決められない — 呼び出し側は無くても題名だけで表示できる）。 */
+  shape?: MeasureShape
+  bundled: true
+}
+
+const MEASURE_SHAPES: ReadonlySet<string> = new Set(['series', 'pairs', 'ranked', 'breakdown', 'quantity', 'facts'])
+
+/** `classSchema.tools` → 種類のページの「同梱」観点（契約メモ §5 実装順(5)）。
+ *  `name`/`title` が文字列でない項目は黙って落とす（壊れた宣言を描画側に
+ *  混ぜない — K39 と同じ考え方）。順は `tools` の宣言順のまま（決定論）。 */
+export function declaredViewpoints(schema: ClassSchema): DeclaredViewpoint[] {
+  const result: DeclaredViewpoint[] = []
+  for (const raw of schema.tools) {
+    const tool = raw as { name?: unknown; title?: unknown; output_kind?: unknown }
+    if (typeof tool.name !== 'string' || typeof tool.title !== 'string') continue
+    const shape =
+      typeof tool.output_kind === 'string' && MEASURE_SHAPES.has(tool.output_kind)
+        ? (tool.output_kind as MeasureShape)
+        : undefined
+    result.push({ id: tool.name, title: tool.title, shape, bundled: true })
+  }
+  return result
 }

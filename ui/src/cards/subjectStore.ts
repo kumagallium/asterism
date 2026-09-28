@@ -164,36 +164,67 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-/** 既存の保存済み項目には `dataset_id` が無いことがある（契約メモ §2.1）。
- * 読み込み直後に 1 回だけ、無いものだけを埋め戻す（個体は `resolveSubject`、
- * 絞り込みは `classSchema(spec.class)` から）。失敗した項目は諦める —
- * `dataset_id` が無いままレールの「その他」節に出るだけで、致命的にはしない。 */
+/** `class_iri` を「まだ試していない」(undefined) と区別するための、
+ *  「確認済み・rdf:type が無く恒久的に class_iri が無い」印（空文字）。
+ *  個体の `resolveSubject` 呼び出しが例外を投げずに完了し、かつ `class_iri: null`
+ *  が返ってきた場合に使う。空文字は `railTree.ts` の `!s.class_iri` 判定では
+ *  undefined と同じ「その他」節に落ちるが、{@link backfillDatasetIds} の対象
+ *  フィルタ（`=== undefined`）からは外れるため、起動のたびに同じ個体を
+ *  再フェッチし続ける非収束を防げる（checker 指摘: rdf:type を持たない個体は
+ *  `pick_class_iri` が常に None を返すため、undefined のまま据え置くと収束しない）。 */
+const CLASS_IRI_UNRESOLVABLE = ''
+
+/** 既存の保存済み項目には `dataset_id`/`class_iri` が無いことがある（契約メモ
+ * contract_pr_f9.md §1-2）。読み込み直後に 1 回だけ、無いものだけを埋め戻す
+ * （個体は `resolveSubject` の `dataset_id`/`class_iri`/`class_label`、絞り込みは
+ * `spec.class`（＝`class_iri` そのもの）と `classSchema(spec.class)` の
+ * `dataset_id`/`dataset_label`/`label` から）。追加の fetch は増やさない —
+ * 既存の `dataset_id` 埋め戻しと同じ 1 回の呼び出しで両方を埋める。失敗した
+ * 項目は諦める — `class_iri` が無いままレールの「その他」節に出るだけで、
+ * 致命的にはしない（ただし通信エラー等で呼び出し自体が例外を投げた場合のみ
+ * 次回また対象になる。呼び出しが成功したのに rdf:type が無い個体は
+ * {@link CLASS_IRI_UNRESOLVABLE} を書き戻し、二度と再フェッチしない）。 */
 export async function backfillDatasetIds(): Promise<void> {
-  const targets = items.filter((i) => i.dataset_id === undefined)
+  const targets = items.filter((i) => i.dataset_id === undefined || i.class_iri === undefined)
   for (const target of targets) {
     try {
       let datasetId: string | null | undefined
       let datasetLabel: string | null | undefined
+      let classIri: string | undefined
+      let classLabel: string | null | undefined
       if (target.kind === 'individual') {
         const resolved = await resolveSubject(target.id)
         datasetId = resolved.dataset_id
         datasetLabel = resolved.dataset_label
+        // 呼び出しは成功した — `class_iri: null`（rdf:type 無し）は「まだ試して
+        // いない」(undefined) と取り違えない。
+        classIri = resolved.class_iri ?? CLASS_IRI_UNRESOLVABLE
+        classLabel = resolved.class_label
       } else if (target.spec) {
+        classIri = target.spec.class
         const schema = await classSchema(target.spec.class)
         datasetId = schema?.dataset_id
         datasetLabel = schema?.dataset_label
+        classLabel = schema?.label
       }
-      if (!datasetId) continue
+      if (!datasetId && !classIri) continue
       const updated: SubjectItem = {
         ...target,
-        dataset_id: datasetId,
-        dataset_label: datasetLabel ?? undefined,
+        dataset_id: datasetId ?? target.dataset_id,
+        dataset_label: (datasetLabel ?? target.dataset_label) ?? undefined,
+        // classIri は今回試みたなら（個体・絞り込みどちらの分岐でも）確定値
+        // （実 IRI か {@link CLASS_IRI_UNRESOLVABLE}）を持つ — undefined
+        // に巻き戻さない。分岐に入らなかった（想定外の形の項目）ときだけ
+        // 既存値を保つ。
+        class_iri: classIri !== undefined ? classIri : target.class_iri,
+        class_label: classLabel ?? target.class_label,
       }
       items = items.map((i) => (i.subject_key === target.subject_key ? updated : i))
       if (serverMode && updated.thread_id) void putAppDataSubject(updated.thread_id, updated)
       else if (!serverMode) saveLocal()
     } catch {
-      // best-effort: この項目はこの回だけ「その他」節に出る。
+      // best-effort: この項目はこの回だけ「その他」節に出る（通信エラー等は
+      // 次回また対象になる）。
     }
   }
   emit()

@@ -671,6 +671,84 @@ def test_subjects_search_malformed_dataset_id_is_400(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/subjects/search?class_iri=... (契約メモ contract_pr_f9.md §2.2)
+# ---------------------------------------------------------------------------
+
+
+def test_subjects_search_class_iri_scopes_to_that_class(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search", params={"q": "checkout", "class_iri": CHECKOUT_CLASS}
+        )
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert {i["iri"] for i in items} == {CHECKOUT_1, CHECKOUT_2}
+
+
+def test_subjects_search_class_iri_excludes_other_classes(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={"q": "borrower", "class_iri": CHECKOUT_CLASS},
+        )
+        assert r.status_code == 200, r.text
+        # "Borrower A" (rdfs:label に "borrower" を含む) は CHECKOUT_CLASS の
+        # 実例ではない（型を持たない）ので、class_iri の限定で出ない。
+        assert r.json()["items"] == []
+
+
+def test_subjects_search_empty_q_with_class_iri_lists_first_limit_by_name(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"class_iri": CHECKOUT_CLASS})
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        # 名前順: "Checkout One" < "Checkout Two"。
+        assert [i["iri"] for i in items] == [CHECKOUT_1, CHECKOUT_2]
+
+
+def test_subjects_search_empty_q_with_class_iri_respects_limit(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"class_iri": CHECKOUT_CLASS, "limit": 1})
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert [i["iri"] for i in items] == [CHECKOUT_1]
+
+
+def test_subjects_search_empty_q_without_class_iri_is_still_empty(tmp_path: Path) -> None:
+    # class_iri が無い空 q は、契約が「その種類の一覧」を保証しない従来どおり
+    # の空振り。
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search")
+        assert r.status_code == 200, r.text
+        assert r.json() == {"items": []}
+
+
+def test_subjects_search_malformed_class_iri_is_400(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={"q": "checkout", "class_iri": "not an iri"},
+        )
+        assert r.status_code == 400
+
+
+def test_subjects_search_class_iri_and_dataset_id_can_combine(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={
+                "q": "checkout",
+                "class_iri": CHECKOUT_CLASS,
+                "dataset_id": LIB_DATASET,
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert {i["iri"] for i in r.json()["items"]} == {CHECKOUT_1, CHECKOUT_2}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/subjects/default-cards / GET /api/sets/default-cards
 # ---------------------------------------------------------------------------
 

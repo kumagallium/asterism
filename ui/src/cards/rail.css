@@ -1,7 +1,7 @@
-/* SubjectRail — 契約メモ contract_pr_f7.md §1-3（旧 contract_pr_f2.md §6.3）。
-   左ナビ（.sidebar, 220px・たたむと 56px）とは別の第 2 列として
-   `.app-main`（App.tsx）の左に出る。左ナビと違い、tab === 'cards' の
-   あいだ常に出る（旧: sidebar の中身を丸ごと差し替えていた）。トークンのみ、
+/* SubjectRail — 契約メモ contract_pr_f9.md §1-2（旧 contract_pr_f7.md §1-3・
+   contract_pr_f2.md §6.3）。左ナビ（.sidebar, 220px・たたむと 56px）とは別の
+   第 2 列として `.app-main`（App.tsx）の左に出る。左ナビと違い、tab === 'cards'
+   のあいだ常に出る（旧: sidebar の中身を丸ごと差し替えていた）。トークンのみ、
    house style。 */
 
 .rail {
@@ -121,7 +121,9 @@
   background: var(--activity);
 }
 
-/* データセット行 + 子（契約メモ contract_pr_f2.md §2.1）。 */
+/* 種類の行 + 子（契約メモ contract_pr_f9.md §1-2）。旧名 `.rail-datasets` を
+   種類の木にもそのまま流用（クラス名は変えない — 中身だけ差し替え）。折りたたみ
+   は無い（種類の数は通常少ない）。 */
 .rail-datasets {
   display: flex;
   flex-direction: column;
@@ -133,20 +135,6 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.2rem 0.4rem;
-}
-
-.rail-dataset-toggle {
-  flex: none;
-  width: 1.1rem;
-  border: none;
-  background: none;
-  color: var(--faint);
-  font-size: 0.7rem;
-  padding: 0;
-  cursor: pointer;
-}
-.rail-dataset-toggle--empty {
-  cursor: default;
 }
 
 .rail-dataset-name {
@@ -168,48 +156,24 @@
   text-decoration: underline;
 }
 
-.rail-dataset-state {
-  flex: none;
-  font-size: 0.7rem;
-  color: var(--muted);
-}
-
 .rail-dataset-children {
   padding-left: 1.5rem;
 }
 
-.rail-collect-link {
-  margin-left: 1.5rem;
-}
-
-.rail-search {
-  padding: 0 0.7rem;
-}
-.rail-search-input {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  color: var(--fg);
-  font-size: 0.82rem;
-  padding: 0.4rem 0.6rem;
-}
-
-.rail-condition-link {
+/* 「＋ オブジェクトを追加」（契約メモ §1-2・#/cards/add）。 */
+.rail-add-object {
   align-self: flex-start;
   margin: 0 0.7rem;
   border: none;
   background: none;
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  padding: 0.1rem 0;
+  padding: 0.35rem 0;
   cursor: pointer;
-  text-decoration: underline;
 }
-
-.rail-search-results {
-  padding-top: 0.1rem;
+.rail-add-object:hover {
+  text-decoration: underline;
 }
 
 .rail-legend {
@@ -228,8 +192,8 @@
   gap: 0.3rem;
 }
 
-/* いま開いているデータセットの行（`aria-current="page"`。F5: 意味を定義する／
-   詳しい情報のあいだもこの行が選ばれたまま＝木の中の現在地） */
+/* いま開いている種類の行（`aria-current="page"`・契約メモ §1-4: 種類のページ
+   を開いているあいだ、この行が選ばれたまま＝木の中の現在地） */
 .rail-dataset-name[aria-current='page'] {
   font-weight: 600;
   color: var(--accent, #1d5f3f);

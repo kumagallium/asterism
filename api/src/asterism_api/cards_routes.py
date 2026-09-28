@@ -46,7 +46,14 @@ _T = TypeVar("_T")
 
 _SUBJECTS_NAMESPACE = "subjects"
 
-_MAX_SEARCH_LIMIT = 50
+#: 契約メモ contract_pr_f9.md §2.2: 「上限 200」——
+#: :data:`asterism.subjects.MAX_LIMIT` と同じ値を、意味も同じ「呼び出し境界の
+#: 上限」として再利用する（別の数を持たない）。
+_MAX_SEARCH_LIMIT = subjects_mod.MAX_LIMIT
+# 空 q（種類の一覧）で読むラベル行の上限。1 主語あたりラベル数件なので、
+# 数千件の種類まで名前順の先頭 limit 件を正しく選べる。それより大きい種類は
+# 先頭の行だけで近似する（検索欄で絞れば正確）。
+_EMPTY_QUERY_MAX_ROWS = 5000
 
 
 class CardsRunBody(BaseModel):
@@ -373,10 +380,13 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
         q: str = Query(default=""),
         limit: int = Query(default=20, ge=1, le=_MAX_SEARCH_LIMIT),
         dataset_id: str | None = Query(default=None),
+        class_iri: str | None = Query(default=None),
     ) -> dict[str, Any]:
-        return await _run_read(_subjects_search_impl(q, limit, dataset_id))
+        return await _run_read(_subjects_search_impl(q, limit, dataset_id, class_iri))
 
-    async def _subjects_search_impl(q: str, limit: int, dataset_id: str | None) -> dict[str, Any]:
+    async def _subjects_search_impl(
+        q: str, limit: int, dataset_id: str | None, class_iri: str | None
+    ) -> dict[str, Any]:
         client: OxigraphClient = app.state.client
         # §3.2: dataset_id は任意 — 指定時はそのデータセットの版グラフに限定
         # する（不正な形は 400。既存の subjects/resolve の subject.iri と同じ
@@ -386,8 +396,19 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             scoped_dataset_id = subjects_mod.valid_dataset_id(dataset_id)
             if scoped_dataset_id is None:
                 raise HTTPException(400, f"invalid dataset_id: {dataset_id!r}")
+        # 契約メモ contract_pr_f9.md §2.2: class_iri は任意 — 指定時は
+        # ``?s a <class_iri>`` で種類に限定する（不正な形は 400）。
+        class_pattern = ""
+        if class_iri is not None:
+            clause = subjects_mod.class_type_clause(class_iri)
+            if clause is None:
+                raise HTTPException(400, f"invalid class_iri: {class_iri!r}")
+            class_pattern = clause
         needle = q.strip().lower()
-        if not needle:
+        # §2.2: q が空でもよいのは class_iri で種類が決まっているとき（その
+        # 種類の名前順の先頭 limit 件 = 一覧表示用）。class_iri も無い空 q は
+        # 従来どおり空振り。
+        if not needle and not class_pattern:
             return {"items": []}
         graphs = await substrate.canonical_graphs(client)
         if scoped_dataset_id is not None:
@@ -397,19 +418,40 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
         if not graphs:
             return {"items": []}
         named = substrate.canonical_from_clauses(graphs, named=True)
-        escaped = query_tools_mod._escape_literal(needle)
         # §2: 述語の優先順位は共通の LABEL_PREDICATES（rdfs:label が最優先）—
         # 以前はこの検索専用の別リストを持っていて、他の read path と食い違って
         # いた。
         pairs = " ".join(f"(<{p}> {i})" for i, p in enumerate(subjects_mod.LABEL_PREDICATES))
-        # Over-fetch (bounded) so a subject matched via several labels/graphs
-        # still yields exactly `limit` DISTINCT subjects, picked deterministically.
-        raw_limit = min(limit * 4, 400)
+        if needle:
+            escaped = query_tools_mod._escape_literal(needle)
+            # Over-fetch (bounded) so a subject matched via several
+            # labels/graphs still yields exactly `limit` DISTINCT subjects,
+            # picked deterministically.
+            raw_limit = min(limit * 4, 400)
+            where = (
+                f"GRAPH ?g {{ {class_pattern}VALUES (?__lp ?__rank) {{ {pairs} }} "
+                f'?s ?__lp ?label FILTER(CONTAINS(LCASE(STR(?label)), "{escaped}")) }}'
+            )
+            order_clause = "?s ?__rank ?label ?g"
+        else:
+            # §2.2: 空 q（ここに来るのは class_iri 指定時のみ）— その種類の
+            # 全実例を、ラベルを主キーに並べ、先頭 limit 件だけ Python 側で
+            # 数える（CONTAINS 絞り込みが無いぶん多めに行を読む必要がある）。
+            # ラベルの生の行で ORDER BY すると、英語のラベルが先に並ぶ主語だけ
+            # が先頭に来て、その主語の日本語ラベルの行は raw_limit の外に落ちる
+            # （実機所見: 「Afghanistan」…が並び、日本語の見出しが選ばれない）。
+            # 種類の全実例のラベル行を読み（上限つき）、Python 側で主語ごとに
+            # pick_label してから名前順に並べ、先頭 limit 件を返す。
+            raw_limit = _EMPTY_QUERY_MAX_ROWS
+            where = (
+                f"GRAPH ?g {{ {class_pattern}"
+                f"OPTIONAL {{ VALUES (?__lp ?__rank) {{ {pairs} }} ?s ?__lp ?label }} }}"
+            )
+            order_clause = "?s ?__rank ?g"
         query = (
             f"SELECT ?s ?label ?__rank (LANG(?label) AS ?__lang) ?g\n{named}"
-            f"WHERE {{ GRAPH ?g {{ VALUES (?__lp ?__rank) {{ {pairs} }} "
-            f'?s ?__lp ?label FILTER(CONTAINS(LCASE(STR(?label)), "{escaped}")) }} }} '
-            f"ORDER BY ?s ?__rank ?label ?g LIMIT {raw_limit}"
+            f"WHERE {{ {where} }} "
+            f"ORDER BY {order_clause} LIMIT {raw_limit}"
         )
         rows = _rows(await client.sparql_select(query))
         candidates: dict[str, list[tuple[str | None, int | None, str | None]]] = {}
@@ -420,7 +462,7 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             if not s:
                 continue
             if s not in candidates:
-                if len(order) >= limit:
+                if needle and len(order) >= limit:
                     continue
                 order.append(s)
                 candidates[s] = []
@@ -428,6 +470,14 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             rank_raw = _cell(row, "__rank")
             rank = int(rank_raw) if rank_raw is not None else None
             candidates[s].append((_cell(row, "label"), rank, _cell(row, "__lang")))
+        if not needle:
+            # 空 q: 主語ごとの見出し（pick_label）で名前順に並べて先頭 limit 件。
+            # 文字列の比較は Python のコードポイント順（決定論・ロケール非依存）。
+            def _sort_key(subject: str) -> tuple[str, str]:
+                picked = subjects_mod.pick_label(candidates[subject])
+                return (picked or subject_tools._local_name(subject), subject)
+
+            order = sorted(order, key=_sort_key)[:limit]
         items: list[dict[str, Any]] = []
         for s in order:
             label = subjects_mod.pick_label(candidates[s]) or subject_tools._local_name(s)

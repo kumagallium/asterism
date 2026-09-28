@@ -1,0 +1,93 @@
+/* 追加画面（AddObjectView.tsx・契約メモ contract_pr_f9.md §3）。左に種類の
+ * 一覧、右に検索＋一覧。`.dataset-content-item`/`.dataset-dot`（dataset.css）
+ * は右側のオブジェクト一覧にそのまま流用する。色は必ずトークンから。 */
+
+.addobject-layout {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.addobject-kinds {
+  flex: none;
+  width: 15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-right: 1px solid var(--border);
+  padding-right: var(--space-4);
+}
+
+.addobject-kind-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg);
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.addobject-kind-item:hover {
+  background: var(--surface-alt);
+}
+.addobject-kind-item--active {
+  border-color: var(--accent);
+  background: var(--surface-alt);
+}
+
+.addobject-kind-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.addobject-kind-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.addobject-kind-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+.addobject-kind-source {
+  font-size: 0.76rem;
+  color: var(--faint);
+}
+
+.addobject-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.addobject-search-form {
+  display: flex;
+}
+
+.addobject-search-input {
+  width: 100%;
+  max-width: 24em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--fg);
+}
+
+.addobject-collect {
+  align-self: flex-start;
+}

@@ -166,18 +166,48 @@ export interface SubjectSearchItem {
 }
 
 /** `dataset_id` を渡すとそのデータセットの version graph に限定する（契約メモ
- *  §3.2・データセットのページの「1 件を開く」）。無指定は今までどおり全体から。 */
+ *  §3.2・データセットのページの「1 件を開く」）。`class_iri` を渡すとその種類に
+ *  限定する（契約メモ contract_pr_f9.md §2.2・追加画面）。`q` は空でもよい
+ *  （その種類の名前順の先頭 `limit` 件を返す一覧表示用）。無指定は今までどおり
+ *  全体から。 */
 export async function searchSubjects(
   q: string,
   limit = 20,
   datasetId?: string,
+  classIri?: string,
 ): Promise<SubjectSearchItem[]> {
   const params = new URLSearchParams({ q, limit: String(limit) })
   if (datasetId) params.set('dataset_id', datasetId)
+  if (classIri) params.set('class_iri', classIri)
   const res = await fetch(`/api/subjects/search?${params.toString()}`)
   if (!res.ok) await throwApiError(res, 'subject search')
   const data = (await res.json()) as { items?: SubjectSearchItem[] }
   return data.items ?? []
+}
+
+// ---------------------------------------------------------------------------
+// PR F9 §2.1: 種類の一覧（追加画面の左・契約メモ contract_pr_f9.md §3）
+// ---------------------------------------------------------------------------
+
+/** `GET /api/classes` の 1 種類分（契約メモ contract_pr_f9.md §2.1）。 */
+export interface ClassEntry {
+  class_iri: string
+  label: string
+  count: number
+  dataset_id: string
+  dataset_label: string
+  is_demo: boolean
+  properties: number
+  with_label: number
+  with_unit: number
+}
+
+/** 件数の多い順→名前順（api 側で確定した並びをそのまま返す）。 */
+export async function listClasses(): Promise<ClassEntry[]> {
+  const res = await fetch('/api/classes')
+  if (!res.ok) await throwApiError(res, 'classes list')
+  const body = (await res.json()) as { classes?: ClassEntry[] }
+  return body.classes ?? []
 }
 
 /** 既定カード 1 件の並び項目（契約メモ §3.4）。 */
@@ -371,6 +401,12 @@ export interface SubjectItem {
   match: SubjectRowMatch | null
   /** 契約メモ §1 の文字列表現: `i:<iri>` | `s:<set_id>`。 */
   subject_key: string
+  /** 種類（class）の IRI（契約メモ contract_pr_f9.md §1-2・左レールの木は
+   *  データセットでなくこれでグループ化する）。individual は `resolveSubject`
+   *  の `class_iri`、set は `spec.class` から。既存の保存済み項目には無いことが
+   *  あり、subjectStore.ts が読み込み時に 1 回だけ埋め戻す。無ければレールの
+   *  「その他」節。 */
+  class_iri?: string
   /** kind === 'set' のときの絞り込み仕様。 */
   spec?: SetSpec
   /** 親のデータセット（契約メモ §2.1・左レールの木の枝分け）。既存の保存済み

@@ -100,6 +100,36 @@ describe('parseHash / routeToHash — cards（object-cards-ui）', () => {
   })
 })
 
+describe('parseHash / routeToHash — cards/add（オブジェクトを追加・契約メモ contract_pr_f9.md §1-3）', () => {
+  it('#/cards/add は cards タブ + add', () => {
+    expect(parseHash('#/cards/add')).toEqual<Route>({ tab: 'cards', add: true })
+    expect(roundTrip('#/cards/add')).toBe('#/cards/add')
+  })
+
+  it('`add` は予約語 — 実在の主語（i:/s:）とは別の接頭辞なので誤検出しない', () => {
+    // `#/cards/add` は `#/cards/i/<iri>`・`#/cards/s/<set_id>` とは parts[1] の
+    // 語彙が違う（add vs i/s）ため、実在の subject_key と衝突しない。
+    expect(parseHash('#/cards/add').subjectKey).toBeUndefined()
+  })
+})
+
+describe('parseHash / routeToHash — cards/k（種類のページ・契約メモ contract_pr_f9.md §1-4）', () => {
+  it('#/cards/k/<class_iri> は cards タブ + classPageIri', () => {
+    const hash = `#/cards/k/${encodeURIComponent('https://example.org/class/loan')}`
+    expect(parseHash(hash)).toEqual<Route>({
+      tab: 'cards',
+      classPageIri: 'https://example.org/class/loan',
+    })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('class_iri に記号が入っていても往復する', () => {
+    const hash = `#/cards/k/${encodeURIComponent('https://example.org/class/loan?id=42&branch=中央')}`
+    expect(parseHash(hash).classPageIri).toBe('https://example.org/class/loan?id=42&branch=中央')
+    expect(roundTrip(hash)).toBe(hash)
+  })
+})
+
 describe('parseHash / routeToHash — cards/d（データセットのページ・契約メモ contract_pr_f2.md §2.2）', () => {
   it('#/cards/d/<id> はデータセットのページ', () => {
     const hash = '#/cards/d/ds-1'

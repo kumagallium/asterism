@@ -154,6 +154,7 @@ from asterism_api import usage as usage_ledger
 from asterism_api.appdata_cards_routes import register_appdata_cards
 from asterism_api.cards_routes import register_cards
 from asterism_api.class_schema_routes import register_class_schema
+from asterism_api.classes_routes import register_classes
 from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
@@ -9720,6 +9721,7 @@ def build_app(
     register_export(app, cfg)
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）
     register_appdata_cards(app, cfg)  # 契約メモ contract_pr_f4.md §1-5（担当 api）
+    register_classes(app, cfg)  # 契約メモ contract_pr_f9.md §3（担当 api）
 
     return app
 

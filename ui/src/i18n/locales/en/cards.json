@@ -18,22 +18,16 @@
     "flow": "Steps"
   },
   "topbar": {
-    "unselected": "Search",
+    "unselected": "Workspace",
+    "add": "Add an object",
     "back": "Back",
     "define": "Define what the data means",
     "details": "More details"
   },
-  "firstScreen": {
-    "place_title": "Add your data",
-    "placeHint": "Drag it here, or click to continue",
-    "searchTitle": "Search open data by name",
-    "searchButton": "Search",
-    "sampleIntro": "Sample: Countries of the world (Gapminder). Drop your own file and it lines up the same way",
-    "sample_note": "Sample: {{name}}. Add your data and it lines up the same way",
-    "sampleLinkLabel": "Countries of the world (Gapminder)",
-    "viewSampleGallery": "See the sample"
-  },
   "rail": {
+    "objects_title": "Objects",
+    "add_object": "+ Add an object",
+    "objects_empty": "Nothing yet. Choose one from \"+ Add an object\"",
     "own_title": "My data",
     "own_empty": "Nothing yet. Add data under Build › Datasets and it will appear here",
     "own_empty_link": "Go to Datasets",
@@ -80,6 +74,25 @@
     "license": "License {{license}}",
     "version": "Version {{snapshot}}",
     "join": " · "
+  },
+  "add": {
+    "title": "Add an object",
+    "kinds": "Kinds",
+    "kind_count": "{{count}}",
+    "search_placeholder": "Search by name",
+    "collect": "Make a condition-based list",
+    "pick_kind_first": "Choose a kind on the left to see its objects",
+    "empty": "No results"
+  },
+  "classpage": {
+    "source": "Source: {{dataset}}",
+    "viewpoints": "Viewpoints for this kind",
+    "viewpoint_bundled": "Built in",
+    "viewpoint_used": "Used on {{count}} pages",
+    "objects": "Objects of this kind",
+    "add_object": "+ Add",
+    "definition": "View the definition",
+    "define": "Fix the definition"
   },
   "place": {
     "title": "Add data",
@@ -275,8 +288,9 @@
     "prop_snapshot": "Version"
   },
   "newcard": {
-    "button": "+ Add a graph",
-    "title": "Add a graph",
+    "button": "+ Add a viewpoint",
+    "title": "Add a viewpoint",
+    "lead": "Add a chart or table as a viewpoint for this kind",
     "step_shape": "① How to show it",
     "step_items": "② Items",
     "step_where": "③ Condition",

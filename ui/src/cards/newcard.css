@@ -8,6 +8,12 @@
   margin-bottom: var(--space-4);
 }
 
+.newcard-lead {
+  margin: 0 0 var(--space-1);
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
 .newcard-step + .newcard-step {
   margin-top: var(--space-3);
   padding-top: var(--space-3);

@@ -54,8 +54,10 @@ export interface SetPageProps {
   onFiltersChanged: (result: SetResolveResult) => void
   onAsk: (question: string) => void
   onEditDefinition: (datasetId: string) => void
-  /** パンくずの「<データセットの名前>」から（契約メモ §2.3）。 */
-  onOpenDataset?: (datasetId: string) => void
+  /** パンくずの「<種類の名前>」から（契約メモ contract_pr_f9.md §1 決定 5・
+   *  §5 実装順(3)）。旧「<データセットの名前>」パンくず（`onOpenDataset`）は
+   *  この画面からは撤去した（SubjectPage.tsx と同じ理由 — 決定 9）。 */
+  onOpenClass?: (classIri: string) => void
 }
 
 /** 絞り込みの読み込み結果。`specKey` で紐づけ、then/catch でだけ書き込む —
@@ -92,7 +94,7 @@ export function SetPage({
   onFiltersChanged,
   onAsk,
   onEditDefinition,
-  onOpenDataset,
+  onOpenClass,
 }: SetPageProps) {
   const { t } = useTranslation('cards')
   const [loaded, setLoaded] = useState<SetLoadState>(EMPTY_SET_LOAD)
@@ -155,14 +157,18 @@ export function SetPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newFor?.datasetId])
 
-  // パンくず「<データセットの名前>」用（契約メモ §2.3）: class_schema から
-  // dataset_id・dataset_label を引く。`dataset_label` はまだ cardsApi.ts の
-  // 型に無いため、ローカルに拡張して読む（統合段で api が足す・契約メモ §3.3）。
+  // パンくず「<種類の名前>」用（契約メモ contract_pr_f9.md §1 決定 5）:
+  // class_schema から種類のラベル（`schema.label`）・dataset_id・dataset_label
+  // を引く。`dataset_label` はまだ cardsApi.ts の型に無いため、ローカルに拡張
+  // して読む（統合段で api が足す・契約メモ §3.3）。`datasetId`/`datasetLabel`
+  // は「データの定義を見る・直す」を持つ画面が無いこのページでは今のところ
+  // パンくず自体には使わないが、他の呼び出し元が要る可能性を潰さないため残す。
   const [datasetRef, setDatasetRef] = useState<{
     classIri: string
+    classLabel: string | null
     datasetId: string | null
     datasetLabel: string | null
-  }>({ classIri: '', datasetId: null, datasetLabel: null })
+  }>({ classIri: '', classLabel: null, datasetId: null, datasetLabel: null })
 
   useEffect(() => {
     if (!spec) return
@@ -173,6 +179,7 @@ export function SetPage({
         const withLabel = schema as ClassSchema & { dataset_label?: string | null }
         setDatasetRef({
           classIri: spec.class,
+          classLabel: withLabel.label ?? null,
           datasetId: withLabel.dataset_id,
           datasetLabel: withLabel.dataset_label ?? null,
         })
@@ -326,8 +333,12 @@ export function SetPage({
     )
   }
 
-  const breadcrumbDatasetLabel = spec && datasetRef.classIri === spec.class ? datasetRef.datasetLabel : null
+  // `breadcrumbDatasetId` は表示用ではなく、NewCardForm が要る `datasetId`
+  // prop の出所（この 1 段下の「＋ 観点を足す」の描画ゲート）としてだけ残る
+  // ——パンくずの表示自体は種類（`breadcrumbClassLabel`）に置き換えた
+  // （契約メモ contract_pr_f9.md §1 決定 5）。
   const breadcrumbDatasetId = spec && datasetRef.classIri === spec.class ? datasetRef.datasetId : null
+  const breadcrumbClassLabel = spec && datasetRef.classIri === spec.class ? datasetRef.classLabel : null
 
   if (cardId) {
     if (!displayCards) return <p className="ds-empty-note">{t('page.loading')}</p>
@@ -366,14 +377,14 @@ export function SetPage({
     <div className="cardpage-body">
       <div className="cardpage-head">
         <div>
-          {breadcrumbDatasetLabel && breadcrumbDatasetId && (
+          {breadcrumbClassLabel && (
             <div className="cardpage-crumb">
               <button
                 type="button"
                 className="link-btn"
-                onClick={() => onOpenDataset?.(breadcrumbDatasetId)}
+                onClick={() => onOpenClass?.(spec.class)}
               >
-                {breadcrumbDatasetLabel}
+                {breadcrumbClassLabel}
               </button>
               {' › '}
               {label}

@@ -18,22 +18,16 @@
     "flow": "手順"
   },
   "topbar": {
-    "unselected": "探す",
+    "unselected": "ワークスペース",
+    "add": "オブジェクトを追加",
     "back": "戻る",
     "define": "データの意味を定義する",
     "details": "詳しい情報"
   },
-  "firstScreen": {
-    "place_title": "あなたのデータを追加する",
-    "placeHint": "ここにドラッグするか、クリックして進みます",
-    "searchTitle": "公開データを名前でさがす",
-    "searchButton": "さがす",
-    "sampleIntro": "見本: 世界の国（Gapminder）。あなたのファイルを置くと同じ形で並びます",
-    "sample_note": "見本: {{name}}。あなたのデータを追加すると、同じ形で並びます",
-    "sampleLinkLabel": "世界の国（Gapminder）",
-    "viewSampleGallery": "見本を見る"
-  },
   "rail": {
+    "objects_title": "オブジェクト",
+    "add_object": "＋ オブジェクトを追加",
+    "objects_empty": "まだありません。「＋ オブジェクトを追加」から選びます",
     "own_title": "自分のデータ",
     "own_empty": "まだありません。作る › データセットで追加すると、ここに並びます",
     "own_empty_link": "データセットへ",
@@ -80,6 +74,25 @@
     "license": "ライセンス {{license}}",
     "version": "版 {{snapshot}}",
     "join": "・"
+  },
+  "add": {
+    "title": "オブジェクトを追加",
+    "kinds": "種類",
+    "kind_count": "{{count}} 件",
+    "search_placeholder": "名前でさがす",
+    "collect": "条件で集める",
+    "pick_kind_first": "左で種類を選ぶと、その中のオブジェクトが並びます",
+    "empty": "見つかりませんでした"
+  },
+  "classpage": {
+    "source": "出どころ: {{dataset}}",
+    "viewpoints": "この種類の観点",
+    "viewpoint_bundled": "同梱",
+    "viewpoint_used": "{{count}} ページで使用",
+    "objects": "この種類のオブジェクト",
+    "add_object": "＋ 追加",
+    "definition": "データの定義を見る",
+    "define": "定義を直す"
   },
   "place": {
     "title": "データを追加",
@@ -275,8 +288,9 @@
     "prop_snapshot": "版"
   },
   "newcard": {
-    "button": "＋ グラフを足す",
-    "title": "グラフを足す",
+    "button": "＋ 観点を足す",
+    "title": "観点を足す",
+    "lead": "グラフや表を、この種類の観点として足します",
     "step_shape": "① 見せ方",
     "step_items": "② 項目",
     "step_where": "③ 条件",
