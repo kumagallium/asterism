@@ -260,6 +260,9 @@ export interface CardRef {
   tool: string
   params: Record<string, unknown>
   output_kind: OutputKind
+  /** PR F13 §1: AI が書いた見せ方があるときだけ（`CardTile.tsx`/`CardDetail.tsx`
+   *  の `renderableCustomView` が読む形と揃えてある）。 */
+  view?: CardView
 }
 
 /** `GET /api/subjects/default-cards?iri=…` → 既定カードの並び（裸の配列）。 */
@@ -777,11 +780,92 @@ export interface MeasureCardParams {
 export interface CardSpec {
   card_id: string
   subject_key: string
-  tool: 'set_measure'
+  // PR F13 穴埋め: 既定カード（`defaultCardsForSubject`/`defaultCardsForSet`）を
+  // 元にした view 提案の「足す」も同じ `CardSpec` として保存する必要があり、
+  // 既定カードの `tool` は `set_measure` に限らない（宣言ツール名・
+  // `subject_facts` 等の組み込みもありうる — `CardRef.tool` と同じ `string`）。
+  tool: string
   params: MeasureCardParams
   title: string
   output_kind: MeasureShape
   created_at: string
+  /** PR F13 §1 決定 3・4: AI が Vega-Lite／表仕様／Mermaid で「書いた」見せ方が
+   *  乗っているときだけ（`presentation` — F3・この作業ツリーにはまだ無い — と
+   *  同居する想定の場所）。既定ビューのカードには無い。 */
+  view?: CardView
+}
+
+// ---------------------------------------------------------------------------
+// PR F13 §1: AI が書いた見せ方（Vega-Lite／表仕様／Mermaid）
+//
+// ワイヤ形（サーバの `<proposal>` の `view` — `converse_prompt.py` の
+// `_validate_view_proposal` が実際に返す形）と保存形（`CardSpec.view`）は
+// 別の型: ワイヤ形は `custom` を持たない（「AI が書いた」の印は保存する瞬間に
+// client が必ず立てるものなので、サーバの応答自体には無い）。mermaid は
+// `spec`（object）ではなく `text`（ソーステキストの string）— サーバ実装
+// （`converse_prompt.py`）と揃えた。
+// ---------------------------------------------------------------------------
+
+export type CardViewLang = 'vega-lite' | 'table' | 'mermaid'
+
+/** サーバの `<proposal>` の `view`（契約メモ §1-2 のワイヤ形）。データは
+ *  含まない — vega-lite の `spec.data.values` は描画の直前に rows を差し込む
+ *  だけで、AI の JSON 自体には書かせない（サーバの許可リスト検証＝
+ *  `view_spec_check.py`・api 担当が別途検証する）。 */
+export interface ConverseProposalView {
+  lang: CardViewLang
+  /** vega-lite・table のとき。 */
+  spec?: Record<string, unknown>
+  /** mermaid のとき（flowchart のソーステキスト）。 */
+  text?: string
+  /** このページに並んでいる、元にしたカードの `card_id`。 */
+  source_card_id: string
+}
+
+/** `CardSpec.view`（保存形。契約メモ §1 決定 3・4）。`custom: true` は
+ *  固定 — 「足す」で保存する瞬間に必ず立てる（サーバの応答自体には無い —
+ *  {@link ConverseProposalView} 参照）。この形の view は必ず「AI が書いた」
+ *  印を持つ（既定ビューには `view` 自体が無い）。 */
+export interface CardView extends ConverseProposalView {
+  custom: true
+}
+
+const CARD_VIEW_LANGS = new Set<string>(['vega-lite', 'table', 'mermaid'])
+
+/** `raw` が {@link ConverseProposalView} の形をしているかを見る共通の下請け
+ *  （`custom` の有無は見ない — 呼び出し側がワイヤ形／保存形のどちらを期待
+ *  するかで分ける）。`spec`/`text` の中身（許可リストの検証）はここでは
+ *  見ない — それはサーバ側 `view_spec_check.py` の仕事で、ここは伝送・保存の
+ *  形だけを見る。 */
+function parseProposalViewShape(raw: unknown): ConverseProposalView | undefined {
+  if (raw === null || raw === undefined || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  if (typeof r.lang !== 'string' || !CARD_VIEW_LANGS.has(r.lang)) return undefined
+  if (typeof r.source_card_id !== 'string' || !r.source_card_id) return undefined
+  const lang = r.lang as CardViewLang
+  if (lang === 'mermaid') {
+    if (typeof r.text !== 'string') return undefined
+    return { lang, text: r.text, source_card_id: r.source_card_id }
+  }
+  if (r.spec === null || typeof r.spec !== 'object') return undefined
+  return { lang, spec: r.spec as Record<string, unknown>, source_card_id: r.source_card_id }
+}
+
+/** サーバの `<proposal>` から来た `view` を検証する（`custom` は見ない・
+ *  持っていても無視する）。形が違えば `undefined`（提案全体を落とす —
+ *  呼び出し側 `normalizeConverseProposal` 参照）。 */
+export function normalizeConverseProposalView(raw: unknown): ConverseProposalView | undefined {
+  return parseProposalViewShape(raw)
+}
+
+/** 保存／appdata から来た値が {@link CardView}（`custom: true` 込みの保存形）
+ *  の形をしているかを検証する。形が違えば `undefined`（呼び出し側は view
+ *  なしとして扱う＝既定ビューへ安全側に倒す — 契約メモ §1 実装 (3)「違えば
+ *  捨てる」）。 */
+export function normalizeCardView(raw: unknown): CardView | undefined {
+  if (raw === null || typeof raw !== 'object' || (raw as Record<string, unknown>).custom !== true) return undefined
+  const base = parseProposalViewShape(raw)
+  return base ? { ...base, custom: true } : undefined
 }
 
 /** `GET /api/subjects/linking-kinds?iri=…` の 1 候補（契約メモ §1-3・
@@ -860,11 +944,26 @@ export interface ConversePageFact {
 }
 
 /** ページの要約の 1 枚のカード（契約メモ §1-3 の `page.cards`）。`rows` は
- *  呼び出し側が間引く（`pageChatThreads.ts` の `summarizeCardRows`）。 */
+ *  呼び出し側が間引く（`pageChatThreads.ts` の `summarizeCardRows`）。
+ *
+ *  `card_id` は任意（PR F13・missing 参照）: `kind: 'view'` の提案が
+ *  `source_card_id` でこのページの 1 枚を指すには、AI がその id を読める
+ *  必要がある — ui-page 側（`SubjectPage.tsx`/`SetPage.tsx`/`ClassPage.tsx`）が
+ *  `PageChatSummary`/`summarizeCardForChat` にこの列を足して初めて機能する
+ *  （現時点ではまだ渡っていないので、常に `undefined` のまま送られる）。 */
 export interface ConversePageCard {
+  card_id?: string
   title: string
   output_kind: string
   rows: Row[]
+  /** PR F13 穴埋め: `kind: 'view'` の提案が `source_card_id` で指す元のカードを
+   *  再実行するために要る（既定カード＝まだ「足す」を押していないカードは
+   *  `cardStore` に無いため、ここに乗せて初めて解決できる — `PageChatDrawer.tsx`
+   *  の `resolveViewSourceCard` 参照）。`params` は body が大きくなりすぎない
+   *  よう、JSON で 2KB を超える場合は省く（`SubjectPage.tsx`/`SetPage.tsx` の
+   *  `summarizeCardForChat` が判断する）。 */
+  tool?: string
+  params?: Record<string, unknown>
 }
 
 export interface ConversePageSummary {
@@ -872,13 +971,18 @@ export interface ConversePageSummary {
   cards: ConversePageCard[]
 }
 
-/** AI の提案（契約メモ §1-3）。`params` はサーバが `validate_measure` を
- *  通したもの — `set_measure` の params と同じ形（`MeasureCardParams` 互換）。 */
+/** AI の提案（契約メモ §1-3・PR F13 §1）。`params` はサーバが `validate_measure`
+ *  を通したもの — `set_measure` の params と同じ形（`MeasureCardParams` 互換）。
+ *  `kind` 省略時は `'measure'`（F12 までの観点の指定）。`'view'` は AI が
+ *  Vega-Lite／表仕様／Mermaid を「書いた」見せ方（PR F13）— このときだけ
+ *  {@link ConverseProposalView} を持つ（ワイヤ形・`custom` は無い）。 */
 export interface ConverseProposal {
   params: Record<string, unknown>
   presentation: Record<string, unknown> | null
   output_kind: string
   title: string
+  kind?: 'measure' | 'view'
+  view?: ConverseProposalView
 }
 
 export interface ConverseResponse {
@@ -896,16 +1000,31 @@ export class NoLlmKeyError extends Error {
   }
 }
 
-function normalizeConverseProposal(raw: unknown): ConverseProposal | null {
+/** {@link ConverseProposal} の伝送形チェック（`converse()` から呼ぶ・pageChat.test.ts
+ *  から直接も呼ぶので export）。**`kind: 'view'` を最初に分岐する** — サーバの
+ *  `converse_prompt.py` の `_validate_view_proposal` は `kind: 'view'` のとき
+ *  `{kind, view}` だけを返し `params`/`output_kind`/`title` を持たない
+ *  （PR F13 §1）。これらの必須チェックを先に置くと view 提案は毎回ここで
+ *  `undefined` に当たって null に潰れ、「書く」機能が UI 上で一度も発火し
+ *  なくなる（checker 指摘・修正前の実装バグ）。 */
+export function normalizeConverseProposal(raw: unknown): ConverseProposal | null {
   if (raw === null || raw === undefined || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
-  if (r.params === null || typeof r.params !== 'object') return null
-  if (typeof r.output_kind !== 'string' || typeof r.title !== 'string') return null
   const presentation =
     r.presentation !== null && r.presentation !== undefined && typeof r.presentation === 'object'
       ? (r.presentation as Record<string, unknown>)
       : null
-  return { params: r.params as Record<string, unknown>, presentation, output_kind: r.output_kind, title: r.title }
+  if (r.kind === 'view') {
+    const view = normalizeConverseProposalView(r.view)
+    if (!view) return null
+    // `params`/`output_kind`/`title` はサーバの view 応答に無い。ViewProposalPreview
+    // は `proposal.view.source_card_id` から解決した既存カードの title/params/tool
+    // を使うのでこれらは参照されない（未使用の穴埋め）。
+    return { params: {}, presentation, output_kind: '', title: '', kind: 'view', view }
+  }
+  if (r.params === null || typeof r.params !== 'object') return null
+  if (typeof r.output_kind !== 'string' || typeof r.title !== 'string') return null
+  return { params: r.params as Record<string, unknown>, presentation, output_kind: r.output_kind, title: r.title, kind: 'measure' }
 }
 
 /** `POST /api/cards/converse`（契約メモ §1-3）。ヘッダは consult と同じ

@@ -28,12 +28,24 @@ export interface PageChatFact {
 }
 
 /** ドロワーへ渡す 1 カードぶんの要約（契約メモ PR F12 §3 API `page.cards`）。
- *  `rows` は「先頭 20 行・series は先頭と末尾」（契約メモ PR F12 §5 実装順(1)）。 */
+ *  `rows` は「先頭 20 行・series は先頭と末尾」（契約メモ PR F12 §5 実装順(1)）。
+ *  `card_id`（PR F13）は `kind: 'view'` の提案が `source_card_id` でこの
+ *  ページの 1 枚を指すために要る（`cardsApi.ts` の `ConversePageCard` 参照）。 */
 export interface PageChatCardSummary {
+  card_id: string
   title: string
   output_kind: CardToolResult['output_kind']
   rows: CardToolResult['items']
+  /** PR F13 穴埋め: `kind: 'view'` の提案が既定カード（まだ「足す」を押して
+   *  いないカード）を元にできるよう、そのカードの作り方も運ぶ（`cardsApi.ts`
+   *  の `ConversePageCard` 参照）。`params` は 2KB を超えたら省く。 */
+  tool: string
+  params?: Record<string, unknown>
 }
+
+/** `params` を JSON にしたときの概算バイト数（UTF-16 文字数で近似 — 判定の
+ *  閾値そのものが厳密でなくてよい用途なので十分）。 */
+const MAX_PAGE_CHAT_PARAMS_JSON_CHARS = 2000
 
 export interface PageChatSummary {
   facts: PageChatFact[]
@@ -44,17 +56,27 @@ export interface PageChatSummary {
  *  折れ線の全点を送る意味が薄い一方、両端（開始/終了）は根拠として要る
  *  ことが多いため先頭と末尾の 2 行だけに絞る。それ以外の出口は先頭 20 行。 */
 // eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（sourceLabelsFrom と同じ理由）
-export function summarizeCardForChat(title: string, result: CardToolResult): PageChatCardSummary {
+export function summarizeCardForChat(
+  card: Pick<CardRef, 'card_id' | 'title' | 'tool' | 'params'>,
+  result: CardToolResult,
+): PageChatCardSummary {
   const rows =
     result.output_kind === 'series' && result.items.length > 2
       ? [result.items[0], result.items[result.items.length - 1]]
       : result.items.slice(0, 20)
-  return { title, output_kind: result.output_kind, rows }
+  // PR F13 穴埋め: params が大きすぎるとサーバへ送る body が膨らむため省く
+  // （AI 側は「見せ方を書く」ときにこのカードを再実行できなくなるだけで、
+  // 会話自体は続けられる — `ViewProposalPreview` は params 無しの場合
+  // `cardStore` 側の解決にフォールバックする）。
+  const paramsJson = JSON.stringify(card.params)
+  const params = paramsJson.length <= MAX_PAGE_CHAT_PARAMS_JSON_CHARS ? card.params : undefined
+  return { card_id: card.card_id, title: card.title, output_kind: result.output_kind, rows, tool: card.tool, params }
 }
 
 /** ui-form の `cardStore.useCards` が返す 1 件（O19 CardSpec）を、既定カードと
  *  同じ並び物（`CardRef`）に変換する。契約メモ PR F4 §1-5「card_id / title /
- *  tool / params / output_kind をそのまま」。 */
+ *  tool / params / output_kind をそのまま」。PR F13: `view`（AI が書いた見せ方）
+ *  もそのまま運ぶ — 落とすと CardTile/CardDetail で custom view が描画されない。 */
 // eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（sourceLabelsFrom と同じ理由）
 export function cardSpecToCardRef(spec: CardSpec): CardRef {
   return {
@@ -63,6 +85,10 @@ export function cardSpecToCardRef(spec: CardSpec): CardRef {
     tool: spec.tool,
     params: spec.params,
     output_kind: spec.output_kind,
+    // PR F13: AI が書いた見せ方（`CardSpec.view`）があれば運ぶ（CardTile.tsx/
+    // CardDetail.tsx の renderableCustomView が読む）。無ければ undefined の
+    // まま＝従来どおり defaultViewFor にフォールバックする。
+    view: spec.view,
   }
 }
 
@@ -264,9 +290,13 @@ export function SubjectPage({
   // 結果」）— CardTile も同じ結果を独立に取るため二重に呼ぶことになるが、
   // CardTile（担当外）に結果を上げる経路が無いためここでは割り切る
   // （deviations 参照）。
+  const cardResultsKey = useMemo(
+    () => (allCards ? `${iri}\u0000${allCards.map((c) => c.card_id).join(',')}` : null),
+    [allCards, iri],
+  )
   useEffect(() => {
-    if (!chatOpen || !allCards) return
-    const key = `${iri}\u0000${allCards.map((c) => c.card_id).join(',')}`
+    if (!chatOpen || !allCards || !cardResultsKey) return
+    const key = cardResultsKey
     if (cardResultsState.key === key) return
     let cancelled = false
     Promise.all(
@@ -284,7 +314,13 @@ export function SubjectPage({
     return () => {
       cancelled = true
     }
-  }, [chatOpen, allCards, iri, cardResultsState.key])
+  }, [chatOpen, allCards, iri, cardResultsKey, cardResultsState.key])
+  // 下の入力欄からの 1 通目は、並んでいるカードの結果を取り込んでから送る
+  // （実機で、取り込む前に送られて AI が「並んでいるカード」を見られない
+  // 競合が見つかった）。取り込みが済むまで initialMessage を渡さない。
+  // key が null なのはカード一覧が読めなかったとき（ページ自体が誤り表示）
+  // だけなので、そのときは待たずに送る（永久に送れない穴を作らない）。
+  const cardResultsReady = cardResultsKey === null || cardResultsState.key === cardResultsKey
 
   const pageSummary: PageChatSummary = useMemo(() => {
     const facts: PageChatFact[] = []
@@ -293,7 +329,7 @@ export function SubjectPage({
     if (summary.sourcesCount !== null) facts.push({ label: t('pagechat.summary_sources'), value: String(summary.sourcesCount) })
     const cardsSummary = (allCards ?? []).flatMap((c) => {
       const r = cardResultsState.results[c.card_id]
-      return r ? [summarizeCardForChat(c.title, r)] : []
+      return r ? [summarizeCardForChat(c, r)] : []
     })
     return { facts, cards: cardsSummary }
   }, [resolved, summary, allCards, cardResultsState, t])
@@ -490,7 +526,7 @@ export function SubjectPage({
         pageSummary={pageSummary}
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        initialMessage={chatInitialMessage}
+        initialMessage={cardResultsReady ? chatInitialMessage : undefined}
         // `cardStore.useCards` は `useSyncExternalStore` 購読なので、ドロワーが
         // 内部で `addCard` を呼べば `addedCardRefs` は自動で更新される
         // （契約メモ PR F12 §5 実装順(1)「onCardAdded で足したカードの一覧を

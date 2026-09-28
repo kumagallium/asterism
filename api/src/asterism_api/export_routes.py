@@ -121,6 +121,25 @@ def _reject_if_content_length_exceeds(request: Request, limit: int) -> None:
         raise HTTPException(413, f"body is {declared} bytes, over the {limit} limit")
 
 
+_VIEW_LANGS = ("vega-lite", "table", "mermaid")
+
+
+def _view_field(raw: Any) -> dict[str, Any] | None:
+    """CardSpec.view（AI が書いた見せ方・F13）を束まで運ぶ。形が違えば黙って落とす
+    （束に壊れた view を入れるより、元のカードだけ入れる方が安全側）。"""
+    if not isinstance(raw, dict):
+        return None
+    lang = raw.get("lang")
+    source = raw.get("source_card_id")
+    if lang not in _VIEW_LANGS or not isinstance(source, str) or not source:
+        return None
+    body_key = "text" if lang == "mermaid" else "spec"
+    body = raw.get(body_key)
+    if body is None:
+        return None
+    return {"lang": lang, body_key: body, "source_card_id": source, "custom": True}
+
+
 def _normalize_cards(raw_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not raw_cards:
         raise HTTPException(400, "cards must be a non-empty list")
@@ -143,6 +162,9 @@ def _normalize_cards(raw_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         title = raw.get("title")
         if isinstance(title, str) and title.strip():
             entry["title"] = title.strip()
+        view = _view_field(raw.get("view"))
+        if view is not None:
+            entry["view"] = view
         out.append(entry)
     return out
 
@@ -168,6 +190,9 @@ def _appdata_cards_for_subject(cfg: Settings, subject_key: str) -> list[dict[str
         title = raw.get("title")
         if isinstance(title, str) and title.strip():
             entry["title"] = title.strip()  # 凍結ツールと AGENT.md の見出しに使う
+        view = _view_field(raw.get("view"))
+        if view is not None:
+            entry["view"] = view  # AI が書いた見せ方（F13）も束へ
         out.append(entry)
     return out
 

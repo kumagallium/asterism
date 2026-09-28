@@ -75,12 +75,18 @@
 
 .cardpage-tile-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: var(--space-2);
 }
 
 .cardpage-tile-title {
+  /* 印が 3 つ並ぶと題名が 1 文字幅に潰れる（実機で確認）ので、題名には
+     最小幅を持たせ、印の列はそれでも入り切らないときだけ次の行へ落とす
+     （印が 2 つまでの普段の見た目＝同じ行、は変えない）。 */
+  flex: 1 1 0;
+  min-width: 4rem;
   background: none;
   border: none;
   padding: 0;
@@ -97,7 +103,7 @@
 }
 
 .cardpage-tile-pills {
-  flex: none;
+  flex: 0 1 auto;
   display: flex;
   gap: 0.3rem;
   flex-wrap: wrap;

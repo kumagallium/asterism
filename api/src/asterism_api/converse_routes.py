@@ -1,6 +1,10 @@
 """``register_converse(app, cfg, resolve_llm)`` — 契約メモ contract_pr_f12.md
 §1-3 の ``POST /api/cards/converse`` と、appdata namespace ``pagechat`` の
-3 ルート（担当 api・§2）。
+3 ルート（担当 api・§2）。契約メモ contract_pr_f13.md §1-2 の ``kind: "view"``
+（AI が Vega-Lite/表仕様/Mermaid を書く方の経路）も同じルートの中で検証する
+——``converse_prompt.validate_proposal`` が ``proposal.kind`` で振り分ける
+ので、このモジュール自体は「検証に落ちたら 1 回だけ言い直させる」という
+制御フローを 1 つ持つだけで、kind ごとの分岐は持たない。
 
 ``cards_routes.py``/``appdata_cards_routes.py`` と同じ規律で、このモジュールが
 own の ``@app.get``/``@app.post``/``@app.put``/``@app.delete`` を own で登録し、
@@ -374,7 +378,7 @@ def register_converse(app: FastAPI, cfg: Settings, resolve_llm: Any) -> None:
             return {"reply": text, "proposal": None}
         try:
             validated = validate_proposal(
-                raw_proposal, class_properties, resolved_subject, lang=lang
+                raw_proposal, class_properties, resolved_subject, lang=lang, page=page
             )
             return {"reply": text, "proposal": validated}
         except MeasureSpecError as exc:
@@ -398,7 +402,7 @@ def register_converse(app: FastAPI, cfg: Settings, resolve_llm: Any) -> None:
         if raw_proposal2 is not None:
             try:
                 validated2 = validate_proposal(
-                    raw_proposal2, class_properties, resolved_subject, lang=lang
+                    raw_proposal2, class_properties, resolved_subject, lang=lang, page=page
                 )
                 return {"reply": text2, "proposal": validated2}
             except MeasureSpecError:

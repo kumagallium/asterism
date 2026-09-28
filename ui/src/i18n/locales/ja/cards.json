@@ -279,7 +279,8 @@
     }
   },
   "tile": {
-    "show_all": "すべて見る（{{n}} 件）"
+    "show_all": "すべて見る（{{n}} 件）",
+    "custom_view": "AI が書いた見せ方"
   },
   "share": {
     "shareable": "人に渡せる",
@@ -352,6 +353,9 @@
     "summary_sources": "出典の数",
     "summary_class": "種類",
     "summary_dataset": "データセット",
-    "summary_total": "件数"
+    "summary_total": "件数",
+    "view_preview_title": "この見せ方を足しますか？",
+    "view_source": "元のカード: {{title}}",
+    "view_source_missing": "元になるカードが見つかりませんでした（先にそのカードを足してから頼んでください）"
   }
 }

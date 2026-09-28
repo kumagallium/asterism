@@ -13,7 +13,7 @@
 
 import { useMemo, useSyncExternalStore } from 'react'
 import { initAppData } from '../appdata'
-import { deleteAppDataCard, fetchAppDataCards, putAppDataCard } from './cardsApi'
+import { deleteAppDataCard, fetchAppDataCards, normalizeCardView, putAppDataCard } from './cardsApi'
 import type { CardSpec } from './cardsApi'
 
 // ui-page（SubjectPage.tsx/SetPage.tsx）は `CardSpec` をこのストアの入口
@@ -48,6 +48,18 @@ export function removeCardItem(items: CardSpec[], subjectKey: string, cardId: st
   return items.filter((i) => !(i.card_id === cardId && i.subject_key === subjectKey))
 }
 
+/** PR F13 §1 実装 (3): `item.view` の形を検証し、違えば `view` だけを落として
+ *  既定ビューへ安全側に倒す（カード自体は残す — 他のフィールドはこのファイルの
+ *  従来どおり検証しない）。 */
+function sanitizeCardView(item: CardSpec): CardSpec {
+  if (item.view === undefined) return item
+  const view = normalizeCardView(item.view)
+  if (view) return view === item.view ? item : { ...item, view }
+  const rest: CardSpec = { ...item }
+  delete rest.view
+  return rest
+}
+
 /** localStorage の生の値 → CardSpec[]（純粋）。無い／壊れている／形が違う
  *  場合は空配列に倒す（`subjectStore.ts` の `parseStoredSubjects` と同じ
  *  流儀）。 */
@@ -55,7 +67,7 @@ export function parseStoredCards(raw: string | null): CardSpec[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw) as { v?: number; items?: unknown }
-    return Array.isArray(parsed.items) ? (parsed.items as CardSpec[]) : []
+    return Array.isArray(parsed.items) ? (parsed.items as CardSpec[]).map(sanitizeCardView) : []
   } catch {
     return []
   }
@@ -139,7 +151,7 @@ async function bootstrap(): Promise<void> {
     if (!info.singleUser) return
     const serverItems = await fetchAppDataCards()
     serverMode = true
-    items = serverItems
+    items = serverItems.map(sanitizeCardView)
     emit()
   } catch {
     // `/api/appdata/cards` がまだ無い（404）／単一ユーザーでない — localStorage

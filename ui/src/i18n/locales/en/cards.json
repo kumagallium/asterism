@@ -279,7 +279,8 @@
     }
   },
   "tile": {
-    "show_all": "See all ({{n}})"
+    "show_all": "See all ({{n}})",
+    "custom_view": "AI-written view"
   },
   "share": {
     "shareable": "Can share",
@@ -352,6 +353,9 @@
     "summary_sources": "Number of sources",
     "summary_class": "Kind",
     "summary_dataset": "Dataset",
-    "summary_total": "Count"
+    "summary_total": "Count",
+    "view_preview_title": "Add this view?",
+    "view_source": "Original card: {{title}}",
+    "view_source_missing": "Couldn't find the original card (add that card first, then try again)"
   }
 }

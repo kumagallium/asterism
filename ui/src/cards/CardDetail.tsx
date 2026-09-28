@@ -3,17 +3,38 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KNOWN_LICENSE_IDS, putDatasetLicense, runCard } from './cardsApi'
-import type { CardRef, CardMaterial, CardToolResult, SubjectKey } from './cardsApi'
+import type { CardRef, CardMaterial, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
+import { parseMermaidFlowchart } from './mermaidFlow'
 import { isDefinitionGapValue } from './placeShape'
 import './pages.css'
 import { formatShareReasons } from './shareReasons'
 import { TableView } from './TableView'
-import type { GraphSpec, TableSpec, VegaLiteSpec } from './viewSpec'
+import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
+
+// PR F13: AI が Vega-Lite／表仕様／Mermaid で「書いた」見せ方（`card.view`。
+// `cardsApi.ts` の {@link CardView}）。CardTile.tsx と同じ変換。
+function renderableCustomView(
+  view: CardView | undefined,
+  rows: Record<string, unknown>[],
+): { view: ViewSpec } | { graph: GraphSpec } | null {
+  if (!view) return null
+  if (view.lang === 'vega-lite' && view.spec && typeof view.spec === 'object') {
+    const spec = { ...view.spec, data: { values: rows } }
+    return { view: { lang: 'vega-lite', spec: spec as VegaLiteSpec, custom: true } }
+  }
+  if (view.lang === 'table' && view.spec && typeof view.spec === 'object') {
+    return { view: { lang: 'table', spec: view.spec as unknown as TableSpec, custom: true } }
+  }
+  if (view.lang === 'mermaid' && typeof view.text === 'string') {
+    return { graph: parseMermaidFlowchart(view.text).graph }
+  }
+  return null
+}
 
 /** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
  *  （契約 §4「事実の表」）。CardTile.tsx と同じ判定・同じ流儀。 */
@@ -101,6 +122,7 @@ export function CardDetail({
 
   const titleInfo = resolveCardTitle(card.title)
   const titleText = titleInfo.isKey ? t(titleInfo.value) : titleInfo.value
+  const hasCustomView = !!card.view
   const editMaterial: CardMaterial | undefined = result?.materials[0]
   const editDatasetId = editMaterial?.dataset_id
   const licenseUnknown = !!editMaterial && editMaterial.license == null
@@ -137,6 +159,7 @@ export function CardDetail({
           </div>
           <h2 className="cardpage-title">{titleText}</h2>
         </div>
+        {hasCustomView && <span className="cardpage-kind">{t('tile.custom_view')}</span>}
         {result && result.shareable !== null && (
           <span className={result.shareable ? 'pill-share pill-share--ok' : 'pill-share pill-share--warn'}>
             {t(result.shareable ? 'page.shareable_yes' : 'page.shareable_no')}
@@ -243,6 +266,18 @@ export function CardDetail({
 }
 
 function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: string, t: Translate) {
+  // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
+  // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
+  // §2(a)）— その全件に対して行う。
+  const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
+
+  // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
+  // 使う（Mermaid は GraphSpec に変換して flow と同じ GraphView で描く）。
+  const customRendered = renderableCustomView(card.view, rows)
+  if (customRendered && 'graph' in customRendered) {
+    return <GraphView graph={customRendered.graph} ariaLabel={ariaLabel} maxHeight={360} />
+  }
+
   if (card.output_kind === 'flow') {
     // `result.graph` は cardsApi.ts の CardToolResult に合わせて緩い型
     // （nodes/edges: unknown[]）— subject_flow は prov_graph.graph をそのまま
@@ -250,14 +285,13 @@ function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: strin
     const graph = (result.graph ?? { nodes: [], edges: [] }) as GraphSpec
     return <GraphView graph={graph} ariaLabel={ariaLabel} maxHeight={360} />
   }
-  // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
-  // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
-  // §2(a)）— その全件に対して行う。
-  const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
-  const view = defaultViewFor(
-    { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-    rows,
-  )
+  const view =
+    customRendered && 'view' in customRendered
+      ? customRendered.view
+      : defaultViewFor(
+          { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+          rows,
+        )
   if (view.lang === 'vega-lite') {
     return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
   }
