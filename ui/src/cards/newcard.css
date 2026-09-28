@@ -1,0 +1,41 @@
+/* NewCardForm.tsx の見た目（契約メモ §1-1・分担 §2 ui-form）。フィールドの
+ * 行・チェックボックス・数値入力など、絞り込みフォーム（SetForm.tsx）と
+ * 共通の部分は pages.css の `.cardpage-setform-*` をそのまま使う（重複させ
+ * ない） — ここに置くのは①のタイル選び・段の見出しなど、このフォームだけの
+ * ものだけ。色は必ず index.css のトークンから（生の値を書かない）。 */
+
+.newcard-form {
+  margin-bottom: var(--space-4);
+}
+
+.newcard-step + .newcard-step {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.newcard-shapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.newcard-shape-tile {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.newcard-shape-tile:hover {
+  border-color: var(--accent);
+}
+.newcard-shape-tile--active {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  font-weight: 500;
+}

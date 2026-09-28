@@ -341,6 +341,30 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
         }
 
     # ------------------------------------------------------------------
+    # 契約メモ contract_pr_f4.md §1-3 — GET /api/subjects/linking-kinds
+    #
+    # この 1 件を目的語に持つ実例の「種類と述語」（グラフを足すフォームの
+    # ③条件で「この 1 件を指す種類」を機械が探すのに使う）。担当 tool が
+    # 作る asterism.subject_tools.linking_kinds をそのまま呼ぶだけ — ここで
+    # は形を作らない（並列作業中は linking_kinds がまだ無いこともあるが、
+    # モジュール自体（subject_tools）は既に import 済みなのでこのファイルの
+    # import 自体は失敗しない。呼び出し時にのみ解決される）。
+    # ------------------------------------------------------------------
+
+    @app.get("/api/subjects/linking-kinds")
+    async def subjects_linking_kinds(iri: str = Query(...)) -> dict[str, Any]:
+        return await _run_read(_subjects_linking_kinds_impl(iri))
+
+    async def _subjects_linking_kinds_impl(iri: str) -> dict[str, Any]:
+        client: OxigraphClient = app.state.client
+        try:
+            subjects_mod.validate_subject_key({"kind": "individual", "iri": iri})
+        except (subjects_mod.SubjectKeyError, subjects_mod.SetSpecError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        kinds = await subject_tools.linking_kinds(client, iri, registry_root=cfg.registry_root)
+        return {"kinds": kinds}
+
+    # ------------------------------------------------------------------
     # §3.4 — GET /api/subjects/search
     # ------------------------------------------------------------------
 

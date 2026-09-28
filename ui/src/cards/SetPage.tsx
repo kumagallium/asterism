@@ -4,7 +4,7 @@
 // 画面に開く。
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { classSchema, datasetSummary, defaultCardsForSet, resolveSet, runCard } from './cardsApi'
+import { classSchema, datasetSummary, defaultCardsForSet, resolveSet, runCard, subjectKeyToString } from './cardsApi'
 import type {
   CardRef,
   ClassSchema,
@@ -22,6 +22,12 @@ import './pages.css'
 import { SetForm } from './SetForm'
 import { formatSetSubtitle, formatSetTitle } from './setTitle'
 import { addSubjectAndPersist } from './subjectStore'
+// PR F4（ui-form 担当）が新設するモジュール。まだ存在しない間は import だけ
+// 書いておき、統合段で繋ぐ（契約メモ PR F4 §2「無い間は import だけ書いて
+// 統合で繋ぐ」）。
+import { NewCardForm } from './NewCardForm'
+import { removeCard, useCards } from './cardStore'
+import { appendAddedCards, cardSpecToCardRef } from './SubjectPage'
 
 /** `App.tsx`（ui-rail）の実 `navigate` を汎用に受ける（`PlaceView.tsx` の
  *  `PlaceNavigateFn` と同じ理由 — `Route` を直接 import すると循環になる）。 */
@@ -104,6 +110,15 @@ export function SetPage({
   if (editingFor !== specKey) {
     setEditingFor(specKey)
     setEditing(false)
+  }
+
+  // specKey が変わったら「グラフを足す」フォームも閉じる（同じ「prop が
+  // 変わったら state を調整する」パターン）。
+  const [addingCardFor, setAddingCardFor] = useState(specKey)
+  const [addingCard, setAddingCard] = useState(false)
+  if (addingCardFor !== specKey) {
+    setAddingCardFor(specKey)
+    setAddingCard(false)
   }
 
   // 新規作成モード（契約メモ §2.3・§2.4）専用の状態: class を選ぶ段・作成後の
@@ -223,6 +238,18 @@ export function SetPage({
   const subjectKey: SubjectKey = useMemo(() => ({ kind: 'set' as const, set_id: setId ?? '', spec: (spec ?? undefined) as SetSpec }), [setId, specKey])
   const title = useMemo(() => (resolved ? formatSetTitle(resolved.title, t) : null), [resolved, t])
 
+  // 足したカード（cardStore・PR F4）。既定カードとは独立に持ち、描画のたびに
+  // 既定の後ろへ並べる（`appendAddedCards`）。newFor モード（spec がまだ無い）
+  // では subjectKey の set_id が空文字のままだが、cards は使わない画面なので
+  // 実害はない。
+  const subjectKeyStr = subjectKeyToString(subjectKey)
+  const addedCardSpecs = useCards(subjectKeyStr)
+  const addedCardRefs = useMemo(() => addedCardSpecs.map(cardSpecToCardRef), [addedCardSpecs])
+  const displayCards = useMemo(
+    () => (cards ? appendAddedCards(cards, addedCardRefs) : null),
+    [cards, addedCardRefs],
+  )
+
   // ---- 新規作成モード（契約メモ §2.3・§2.4）: spec がまだ無い ----------------
   if (newFor && !spec) {
     const summaryForNew = newSummaryState.datasetId === newFor.datasetId ? newSummaryState.summary : null
@@ -290,8 +317,8 @@ export function SetPage({
   const breadcrumbDatasetId = spec && datasetRef.classIri === spec.class ? datasetRef.datasetId : null
 
   if (cardId) {
-    if (!cards) return <p className="ds-empty-note">{t('page.loading')}</p>
-    const selectedCard = cards.find((c) => c.card_id === cardId)
+    if (!displayCards) return <p className="ds-empty-note">{t('page.loading')}</p>
+    const selectedCard = displayCards.find((c) => c.card_id === cardId)
     if (!selectedCard) {
       return (
         <div className="cardpage-body">
@@ -302,6 +329,7 @@ export function SetPage({
         </div>
       )
     }
+    const isAddedCard = addedCardRefs.some((c) => c.card_id === selectedCard.card_id)
     return (
       <CardDetail
         subject={subjectKey}
@@ -310,6 +338,8 @@ export function SetPage({
         onBack={onCloseCard}
         onAsk={onAsk}
         onEditDefinition={onEditDefinition}
+        isAddedCard={isAddedCard}
+        onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
       />
     )
   }
@@ -342,10 +372,15 @@ export function SetPage({
           </h2>
         </div>
         <div className="cardpage-head-actions">
+          {breadcrumbDatasetId && (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddingCard((v) => !v)}>
+              {t('newcard.button')}
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            disabled={cards.length === 0}
+            disabled={(displayCards ?? cards).length === 0}
             onClick={() => setExporting(true)}
           >
             {t('page.export_button')}
@@ -355,6 +390,15 @@ export function SetPage({
           </button>
         </div>
       </div>
+      {addingCard && breadcrumbDatasetId && (
+        <NewCardForm
+          subject={{ kind: 'set', spec }}
+          subjectKey={subjectKeyStr}
+          datasetId={breadcrumbDatasetId}
+          onCreated={() => setAddingCard(false)}
+          onCancel={() => setAddingCard(false)}
+        />
+      )}
       {editing && (
         <SetForm
           classIri={spec.class}
@@ -367,7 +411,7 @@ export function SetPage({
         />
       )}
       <div className="cardpage-grid">
-        {cards.map((card) => (
+        {(displayCards ?? cards).map((card) => (
           <CardTile
             key={card.card_id}
             subject={subjectKey}
@@ -377,7 +421,9 @@ export function SetPage({
           />
         ))}
       </div>
-      {exporting && <ExportDialog subject={subjectKey} cards={cards} onClose={() => setExporting(false)} />}
+      {exporting && (
+        <ExportDialog subject={subjectKey} cards={displayCards ?? cards} onClose={() => setExporting(false)} />
+      )}
       <div className="cardpage-bar">
         <span className="cardpage-bar-who">{t('page.ask_who', { label })}</span>
         <input

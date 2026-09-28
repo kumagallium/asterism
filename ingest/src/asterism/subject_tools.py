@@ -31,6 +31,8 @@ from asterism.materials import Material
 from asterism.materials import materials_for as _materials_for
 from asterism.materials import shareable as _shareable
 from asterism.materials import shareable_reasons as _shareable_reasons
+from asterism.measure_spec import MeasureSpecError, output_kind_for, validate_measure
+from asterism.prov_graph import PROV as _PROV_NS
 from asterism.prov_graph import prov_graph as _prov_graph
 from asterism.query_tools import (
     QueryTool,
@@ -69,6 +71,7 @@ __all__ = [
     "default_cards_for_set",
     "default_cards_for_subject",
     "iri_param_of",
+    "linking_kinds",
     "materials_for_set",
     "materials_for_subject",
     "pick_class_iri",
@@ -76,6 +79,7 @@ __all__ = [
     "run_subject_tool",
     "set_breakdown",
     "set_count",
+    "set_measure",
     "set_members",
     "subject_facts",
     "subject_flow",
@@ -98,8 +102,13 @@ class SubjectKindMismatchError(SubjectToolError):
 
 #: Built-in tool names that take ``{kind: "individual", iri}`` (§3.1).
 INDIVIDUAL_BUILTIN_TOOLS: tuple[str, ...] = ("subject_facts", "subject_sources", "subject_flow")
-#: Built-in tool names that take ``{kind: "set", spec}`` (§3.2).
-SET_BUILTIN_TOOLS: tuple[str, ...] = ("set_members", "set_breakdown", "set_count")
+#: Built-in tool names that take ``{kind: "set", spec}`` (§3.2) — EXCEPT
+#: ``set_measure`` (PR F4 §1-4), which reads its ``class``/``where`` from
+#: ``params`` instead and so runs for either subject kind (see
+#: :func:`run_subject_tool`'s docstring). Still listed here: it is the
+#: seam ``default_cards_for_set``/"which tool names never bind an iri"
+#: callers use, not a promise every entry needs ``subject.spec``.
+SET_BUILTIN_TOOLS: tuple[str, ...] = ("set_members", "set_breakdown", "set_count", "set_measure")
 
 #: Declared-tool ``output_kind``s default cards for a subject include, and the
 #: order groups appear in (§3.4 — deliberately excludes ``facts``/``flow``:
@@ -797,6 +806,92 @@ async def materials_for_set(
 
 
 # ----------------------------------------------------------------------------
+# §1-3 (PR F4 / ADR O46) — 「この 1 件を指す種類」を実データの形から求める。
+# ----------------------------------------------------------------------------
+
+
+async def linking_kinds(
+    client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
+) -> list[dict[str, Any]]:
+    """Which ``(class, property)`` pairs point AT ``iri`` in the citable
+    canonical scope (契約メモ §1-3・ADR O46): 「この IRI を目的語に持つ実例の
+    種類と述語」— 1 件のページに絞り込みの条件が無いとき、「この 1 件に関する
+    記録」を集める set の ``class``/``where`` を機械が探すための材料（宣言
+    不要、実データの形からだけ求める — O16 の汎用性方針。データセットごとに
+    語彙が違っても新しいデータセットにそのまま効く）。
+
+    来歴のクラス（PROV 名前空間 — 実例は典型的に ``prov:Activity``/
+    ``prov:Agent``）は除く: その種類を選ばせても人には意味が無い（来歴は
+    :func:`subject_flow` の役目）。行は
+    ``{class_iri, class_label, property, property_label, count}`` —
+    ``count`` はその ``(class, property)`` の組で ``iri`` を指す実例
+    （``DISTINCT ?rec``）の数。候補が無ければ空リスト（「数字 1 つ」「表」で
+    しか測定を作れない、O46 の最後の段落）。ソートは ``class_iri``・
+    ``property`` の辞書順 — store の反復順に依存しない。"""
+    graphs = await canonical_graphs(client)
+    if not graphs:
+        return []
+    from_clause = canonical_from_clauses(graphs)
+    query = (
+        f"SELECT ?cls ?p (COUNT(DISTINCT ?rec) AS ?cnt)\n{from_clause}"
+        f"WHERE {{ ?rec ?p {_ref(iri)} ; {_ref(_RDF_TYPE)} ?cls . "
+        f'FILTER(!STRSTARTS(STR(?cls), "{_PROV_NS}")) }} '
+        "GROUP BY ?cls ?p ORDER BY ?cls ?p"
+    )
+    pairs: list[tuple[str, str, int]] = []
+    for row in _rows(await client.sparql_select(query)):
+        cls = _cell(row, "cls")
+        p = _cell(row, "p")
+        cnt = _cell(row, "cnt")
+        if cls is None or p is None or cnt is None:
+            continue
+        with contextlib.suppress(ValueError):
+            pairs.append((cls, p, int(float(cnt))))
+    if not pairs:
+        return []
+
+    class_iris = {cls for cls, _p, _cnt in pairs}
+    property_iris = {p for _cls, p, _cnt in pairs}
+    class_labels = await _class_labels(client, registry_root, class_iris)
+    property_scope = sorted(await readable_graph_iris(client))
+    property_labels = await _label_lookup(
+        client, property_scope, property_iris, fallback=_fallback_label
+    )
+    return [
+        {
+            "class_iri": cls,
+            "class_label": class_labels.get(cls, _fallback_label(cls)),
+            "property": p,
+            "property_label": property_labels.get(p, _fallback_label(p)),
+            "count": cnt,
+        }
+        for cls, p, cnt in pairs
+    ]
+
+
+async def _class_labels(
+    client: SupportsSparql, registry_root: Path | str | None, class_iris: set[str]
+) -> dict[str, str]:
+    """§3 の class_label 優先順位（registry の model.yaml → ontology
+    rdfs:label → humanize）で ``class_iris`` を引く — :func:`_label_node_types`
+    と同じ遅延 import・best-effort（``class_schema`` は並行担当ファイルなので
+    無いことがある）。"""
+    try:
+        from asterism.class_schema import class_label
+    except ImportError:
+        return {c: _fallback_label(c) for c in class_iris}
+    root = Path(registry_root) if registry_root is not None else None
+    out: dict[str, str] = {}
+    for c in class_iris:
+        try:
+            out[c] = await class_label(client, root, c)
+        except Exception:  # best-effort: class_schema is owned by a parallel PR
+            logger.debug("linking_kinds: class_label lookup failed", exc_info=True)
+            out[c] = _fallback_label(c)
+    return out
+
+
+# ----------------------------------------------------------------------------
 # §3.2 — set (絞り込み) built-ins
 # ----------------------------------------------------------------------------
 
@@ -811,11 +906,18 @@ def _numeric_literal(value: Any, *, index: int) -> str:
 def _clause_pattern(clause: dict[str, Any], *, index: int) -> str:
     """One normalized where clause -> SPARQL pattern lines (triple + FILTER).
 
+    A link clause (``{property, iri}`` — PR F4 §1-3, ``asterism.subjects``'s
+    ``_normalize_clause``) has no ``op``/``value`` at all: it is a plain
+    existence triple ``?s <property> <iri>``, embedded via the same ``_ref``
+    (→ ``safe_iri``) gate every other IRI in this module goes through.
+
     Numeric ops cast the bound value to ``xsd:double`` (mirrors
     ``query_tools``'s own ``value_range``/``top_value`` synthesis) so a
     literal without an explicit numeric datatype still compares correctly.
     Every string value is escaped via ``_escape_literal`` — never
     concatenated raw (§0)."""
+    if "iri" in clause:
+        return f"?s {_ref(clause['property'])} {_ref(clause['iri'])} ."
     var = f"?wv{index}"
     pattern = f"?s {_ref(clause['property'])} {var} ."
     op = clause["op"]
@@ -1115,6 +1217,441 @@ async def set_count(
 
 
 # ----------------------------------------------------------------------------
+# §1-2/§1-4 (PR F4 / ADR O43-O45) — set_measure: 「見せ方 → 項目」の 1 builtin
+# ----------------------------------------------------------------------------
+
+#: SPARQL の集計関数名（測定 spec の ``agg`` 語彙 → SPARQL、契約メモ §3 言葉の
+#: 平均/最大/最小/合計/件数の順と揃えてある）。
+_AGG_SPARQL: dict[str, str] = {
+    "avg": "AVG",
+    "max": "MAX",
+    "min": "MIN",
+    "sum": "SUM",
+    "count": "COUNT",
+}
+
+
+async def _schema_properties_for(
+    client: SupportsSparql, registry_root: Path | str | None, class_iri: str
+) -> list[dict[str, Any]] | None:
+    """``class_schema(...)['properties']`` for ``class_iri``, or ``None`` when
+    the (parallel-authored) ``class_schema`` module is absent or the lookup
+    fails — best-effort, same seam as :func:`_resolve_order_unit`."""
+    schema_fn = _load_class_schema()
+    if schema_fn is None:
+        return None
+    try:
+        schema = await schema_fn(client, registry_root, class_iri)
+    except Exception:  # best-effort: class_schema is owned by a parallel PR
+        logger.debug("set_measure: class_schema lookup failed", exc_info=True)
+        return None
+    if not isinstance(schema, dict):
+        return None
+    return list(schema.get("properties") or [])
+
+
+def _property_meta(schema_properties: list[dict[str, Any]] | None, iri: str) -> dict[str, Any]:
+    """The one ``class_schema`` property row for ``iri`` (``label``/``kind``/
+    ``unit``), or ``{}`` when ``schema_properties`` is ``None``/lacks it —
+    :func:`validate_measure` already rejected any ``iri`` that is not on the
+    schema when a schema was available, so this only ever comes up empty in
+    the best-effort "no schema at all" path."""
+    for prop in schema_properties or []:
+        if isinstance(prop, dict) and prop.get("iri") == iri:
+            return prop
+    return {}
+
+
+async def set_measure(
+    client: SupportsSparql,
+    spec: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    registry_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """The one generic builtin behind every 「＋ グラフを足す」card (契約メモ
+    §1-2/§1-4、ADR O43-O45): 見せ方（``params["shape"]``）ごとに違う SPARQL を
+    組むが、どれも既存の ``_scoped_graphs``/``canonical_from_clauses``/
+    ``_clause_pattern``/``_numeric_literal``/``_label_lookup`` の組み合わせで
+    しか組まない（O45 — 見せ方が増えるたびに新しいエスケープ経路を増やさな
+    い）。
+
+    ``params`` は :func:`asterism.measure_spec.validate_measure` の入力その
+    もの — §1-2 の妥当性表の外（例: category 列の平均）は
+    :class:`SubjectToolError`（→ api 400）。UI をバイパスした呼び出しに対する
+    「最後の砦」（ADR O44 — UI 側の同じ表は「迷わせない先回り」という別の役
+    目）。数値化できない値は既存の
+    ``BIND(xsd:double(str(...))) FILTER(BOUND(...))`` の流儀（``query_tools``
+    の ``top_value``/``value_range`` と同じ、§0）で捨てる。"""
+    spec = normalize_set_spec(spec)
+    schema_properties = await _schema_properties_for(client, registry_root, spec["class"])
+    try:
+        measure = validate_measure(params, schema_properties)
+    except MeasureSpecError as exc:
+        raise SubjectToolError(str(exc)) from exc
+    shape = measure["shape"]
+    # ``output_kind_for`` は shape の語彙が :data:`asterism.query_tools.OUTPUT_KINDS`
+    # と 1 対 1 であることの唯一の確認経路 — 各 ``_measure_*`` ヘルパーは
+    # ``shape`` 文字列をそのまま ``_finalize`` の ``output_kind`` に渡すので
+    # ここで（有効な shape であることは既に ``validate_measure`` が保証済み
+    # だが）呼んでおくことで、その等価性が測定 spec 側でも一度は検証される。
+    output_kind_for(shape)
+
+    if shape == "breakdown":
+        return await set_breakdown(client, spec, measure["category"], registry_root=registry_root)
+
+    graphs = await _scoped_graphs(client, registry_root, spec["source_scope"])
+    if shape == "series":
+        return await _measure_series(
+            client, spec, measure, graphs, schema_properties, registry_root=registry_root
+        )
+    if shape == "pairs":
+        return await _measure_pairs(
+            client, spec, measure, graphs, schema_properties, registry_root=registry_root
+        )
+    if shape == "ranked":
+        return await _measure_ranked(
+            client, spec, measure, graphs, schema_properties, registry_root=registry_root
+        )
+    if shape == "quantity":
+        return await _measure_quantity(
+            client, spec, measure, graphs, schema_properties, registry_root=registry_root
+        )
+    return await _measure_facts(
+        client, spec, measure, graphs, schema_properties, registry_root=registry_root
+    )
+
+
+async def _measure_series(
+    client: SupportsSparql,
+    spec: dict[str, Any],
+    measure: dict[str, Any],
+    graphs: list[str],
+    schema_properties: list[dict[str, Any]] | None,
+    *,
+    registry_root: Path | str | None,
+) -> dict[str, Any]:
+    """「推移」— ``x`` で ``GROUP BY`` した ``y`` の平均、``x`` の昇順（同じ
+    ``x`` が複数行のときも 1 点に畳む。1 行しか無ければ平均はその値そのも
+    の）。``output_kind`` の役割どおり ``x``/``y`` とも quantity（series の
+    ``x`` に単位を求めないのは query_tools の lint 規則の話であって、ここでは
+    schema に unit があれば普通に転記する）。"""
+    x_iri, y_iri = measure["x"], measure["y"]
+    item: dict[str, dict[str, Any]] = {
+        "x": {"var": "x", "number": True, "role": "x"},
+        "y": {"var": "y", "number": True, "role": "y"},
+    }
+    x_meta = _property_meta(schema_properties, x_iri)
+    y_meta = _property_meta(schema_properties, y_iri)
+    if unit := x_meta.get("unit"):
+        item["x"]["unit"] = unit
+    if unit := y_meta.get("unit"):
+        item["y"]["unit"] = unit
+    if label := x_meta.get("label"):
+        item["x"]["label"] = label
+    if label := y_meta.get("label"):
+        item["y"]["label"] = label
+    if not graphs:
+        base = {"tool": "set_measure", "count": 0, "items": [], "truncated": False, "sparql": None}
+        return _finalize(base, output_kind="series", item=item, materials=[])
+
+    named = canonical_from_clauses(graphs, named=True)
+    lines = [
+        f"?s a {_ref(spec['class'])} .",
+        f"?s {_ref(x_iri)} ?xr . BIND(xsd:double(str(?xr)) AS ?xn) FILTER(BOUND(?xn))",
+        f"?s {_ref(y_iri)} ?yr . BIND(xsd:double(str(?yr)) AS ?yn) FILTER(BOUND(?yn))",
+    ]
+    for i, clause in enumerate(spec["where"]):
+        lines.append(_clause_pattern(clause, index=i))
+    limit = spec["limit"]
+    query = (
+        _XSD_PREFIX
+        + f"SELECT ?xn (AVG(?yn) AS ?y)\n{named}"
+        + "WHERE { "
+        + " ".join(lines)
+        + " }"
+        + f" GROUP BY ?xn ORDER BY ?xn LIMIT {limit + 1}"
+    )
+    rows = _rows(await client.sparql_select(query))
+    truncated = len(rows) > limit
+    rows = rows[:limit]
+    items = [{"x": _as_number(_cell(row, "xn")), "y": _as_number(_cell(row, "y"))} for row in rows]
+    base = {
+        "tool": "set_measure",
+        "count": len(items),
+        "items": items,
+        "truncated": truncated,
+        "sparql": query,
+    }
+    materials = await materials_for_set(client, spec, registry_root=registry_root)
+    return _finalize(base, output_kind="series", item=item, materials=materials)
+
+
+async def _measure_pairs(
+    client: SupportsSparql,
+    spec: dict[str, Any],
+    measure: dict[str, Any],
+    graphs: list[str],
+    schema_properties: list[dict[str, Any]] | None,
+    *,
+    registry_root: Path | str | None,
+) -> dict[str, Any]:
+    """「散らばり」— ``(x, y)`` の ``DISTINCT`` 組（§1-2: 集約しない生の散布
+    図の点）。"""
+    x_iri, y_iri = measure["x"], measure["y"]
+    item: dict[str, dict[str, Any]] = {
+        "x": {"var": "x", "number": True, "role": "x"},
+        "y": {"var": "y", "number": True, "role": "y"},
+    }
+    x_meta = _property_meta(schema_properties, x_iri)
+    y_meta = _property_meta(schema_properties, y_iri)
+    if unit := x_meta.get("unit"):
+        item["x"]["unit"] = unit
+    if unit := y_meta.get("unit"):
+        item["y"]["unit"] = unit
+    if label := x_meta.get("label"):
+        item["x"]["label"] = label
+    if label := y_meta.get("label"):
+        item["y"]["label"] = label
+    if not graphs:
+        base = {"tool": "set_measure", "count": 0, "items": [], "truncated": False, "sparql": None}
+        return _finalize(base, output_kind="pairs", item=item, materials=[])
+
+    named = canonical_from_clauses(graphs, named=True)
+    lines = [
+        f"?s a {_ref(spec['class'])} .",
+        f"?s {_ref(x_iri)} ?xr . BIND(xsd:double(str(?xr)) AS ?x) FILTER(BOUND(?x))",
+        f"?s {_ref(y_iri)} ?yr . BIND(xsd:double(str(?yr)) AS ?y) FILTER(BOUND(?y))",
+    ]
+    for i, clause in enumerate(spec["where"]):
+        lines.append(_clause_pattern(clause, index=i))
+    limit = spec["limit"]
+    query = (
+        _XSD_PREFIX
+        + f"SELECT DISTINCT ?x ?y\n{named}"
+        + "WHERE { "
+        + " ".join(lines)
+        + " }"
+        + f" ORDER BY ?x ?y LIMIT {limit + 1}"
+    )
+    rows = _rows(await client.sparql_select(query))
+    truncated = len(rows) > limit
+    rows = rows[:limit]
+    items = [{"x": _as_number(_cell(row, "x")), "y": _as_number(_cell(row, "y"))} for row in rows]
+    base = {
+        "tool": "set_measure",
+        "count": len(items),
+        "items": items,
+        "truncated": truncated,
+        "sparql": query,
+    }
+    materials = await materials_for_set(client, spec, registry_root=registry_root)
+    return _finalize(base, output_kind="pairs", item=item, materials=materials)
+
+
+async def _measure_ranked(
+    client: SupportsSparql,
+    spec: dict[str, Any],
+    measure: dict[str, Any],
+    graphs: list[str],
+    schema_properties: list[dict[str, Any]] | None,
+    *,
+    registry_root: Path | str | None,
+) -> dict[str, Any]:
+    """「比べる」— 1 件ごとの label と value を ``ORDER BY`` ``value``
+    （既定 desc）``LIMIT``（``set_members``の``order_by``と同じ形だが、
+    ``item`` が quantity であることは既に :func:`validate_measure` が保証
+    済みなので ``output_kind`` は常に ``"ranked"``）。"""
+    item_iri, order = measure["item"], measure["order"]
+    item: dict[str, dict[str, Any]] = {
+        "subject_iri": {"var": "subject_iri", "number": False, "role": "subject"},
+        "label": {"var": "label", "number": False, "role": "label"},
+        "value": {"var": "value", "number": True, "role": "value"},
+    }
+    value_meta = _property_meta(schema_properties, item_iri)
+    if unit := value_meta.get("unit"):
+        item["value"]["unit"] = unit
+    if label := value_meta.get("label"):
+        item["value"]["label"] = label
+    limit = spec["limit"]
+    if not graphs:
+        base = {"tool": "set_measure", "count": 0, "items": [], "truncated": False, "sparql": None}
+        return _finalize(base, output_kind="ranked", item=item, materials=[])
+
+    named = canonical_from_clauses(graphs, named=True)
+    lines = [
+        f"?s a {_ref(spec['class'])} .",
+        f"?s {_ref(item_iri)} ?vr . BIND(xsd:double(str(?vr)) AS ?value) FILTER(BOUND(?value))",
+    ]
+    for i, clause in enumerate(spec["where"]):
+        lines.append(_clause_pattern(clause, index=i))
+    direction = "DESC" if order == "desc" else "ASC"
+    query = (
+        _XSD_PREFIX
+        + f"SELECT ?s ?value\n{named}"
+        + "WHERE { "
+        + " ".join(lines)
+        + " }"
+        + f" ORDER BY {direction}(?value) ?s LIMIT {limit + 1}"
+    )
+    rows = _rows(await client.sparql_select(query))
+    truncated = len(rows) > limit
+    rows = rows[:limit]
+    subjects = {s for row in rows if (s := _cell(row, "s"))}
+    labels = await _label_lookup(client, graphs, subjects, fallback=_fallback_label)
+    items = []
+    for row in rows:
+        s = _cell(row, "s") or ""
+        items.append(
+            {
+                "subject_iri": s,
+                "label": labels.get(s, _fallback_label(s)),
+                "value": _as_number(_cell(row, "value")),
+            }
+        )
+    base = {
+        "tool": "set_measure",
+        "count": len(items),
+        "items": items,
+        "truncated": truncated,
+        "sparql": query,
+    }
+    materials = await materials_for_set(client, spec, registry_root=registry_root)
+    return _finalize(base, output_kind="ranked", item=item, materials=materials)
+
+
+async def _measure_quantity(
+    client: SupportsSparql,
+    spec: dict[str, Any],
+    measure: dict[str, Any],
+    graphs: list[str],
+    schema_properties: list[dict[str, Any]] | None,
+    *,
+    registry_root: Path | str | None,
+) -> dict[str, Any]:
+    """「数字 1 つ」— ``AVG``/``MAX``/``MIN``/``SUM``/``COUNT`` のどれか 1 つを
+    ``item`` に適用した単一の値（``set_count``と同じ形の 1 行結果）。"""
+    item_iri, agg = measure["item"], measure["agg"]
+    item: dict[str, dict[str, Any]] = {"value": {"var": "value", "number": True, "role": "value"}}
+    value_meta = _property_meta(schema_properties, item_iri)
+    unit = value_meta.get("unit")
+    if unit and agg != "count":  # 件数に単位は付かない
+        item["value"]["unit"] = unit
+    if agg != "count" and (label := value_meta.get("label")):
+        item["value"]["label"] = label
+    if not graphs:
+        base = {
+            "tool": "set_measure",
+            "count": 1,
+            "items": [{"value": 0}],
+            "truncated": False,
+            "sparql": None,
+        }
+        return _finalize(base, output_kind="quantity", item=item, materials=[])
+
+    named = canonical_from_clauses(graphs, named=True)
+    lines = [
+        f"?s a {_ref(spec['class'])} .",
+        f"?s {_ref(item_iri)} ?vr . BIND(xsd:double(str(?vr)) AS ?vn) FILTER(BOUND(?vn))",
+    ]
+    for i, clause in enumerate(spec["where"]):
+        lines.append(_clause_pattern(clause, index=i))
+    agg_fn = _AGG_SPARQL[agg]
+    query = (
+        _XSD_PREFIX
+        + f"SELECT ({agg_fn}(?vn) AS ?value)\n{named}"
+        + "WHERE { "
+        + " ".join(lines)
+        + " }"
+    )
+    rows = _rows(await client.sparql_select(query))
+    value: float | str = 0
+    if rows:
+        raw = _cell(rows[0], "value")
+        if raw is not None:
+            value = _as_number(raw)
+    base = {
+        "tool": "set_measure",
+        "count": 1,
+        "items": [{"value": value if value is not None else 0}],
+        "truncated": False,
+        "sparql": query,
+    }
+    materials = await materials_for_set(client, spec, registry_root=registry_root)
+    return _finalize(base, output_kind="quantity", item=item, materials=materials)
+
+
+async def _measure_facts(
+    client: SupportsSparql,
+    spec: dict[str, Any],
+    measure: dict[str, Any],
+    graphs: list[str],
+    schema_properties: list[dict[str, Any]] | None,
+    *,
+    registry_root: Path | str | None,
+) -> dict[str, Any]:
+    """「表」— ``items`` の列を並べた表（1 件 1 行、値が無い列は ``OPTIONAL``
+    で欠けたセルになる）。``item`` の ``role``/``label``/``unit`` は
+    class_schema からそのまま転記する（quantity 列は ``role: "value"``、
+    category 列は ``role: "category"`` — §1-4 の「item の role/label/unit を
+    class_schema から転記」）。"""
+    item_iris = measure["items"]
+    item: dict[str, dict[str, Any]] = {}
+    for idx, iri in enumerate(item_iris):
+        meta = _property_meta(schema_properties, iri)
+        key = f"value{idx}"
+        is_quantity = meta.get("kind") == "quantity"
+        entry: dict[str, Any] = {
+            "var": key,
+            "number": is_quantity,
+            "role": "value" if is_quantity else "category",
+        }
+        if label := meta.get("label"):
+            entry["label"] = label
+        if is_quantity and (unit := meta.get("unit")):
+            entry["unit"] = unit
+        item[key] = entry
+    if not graphs:
+        base = {"tool": "set_measure", "count": 0, "items": [], "truncated": False, "sparql": None}
+        return _finalize(base, output_kind="facts", item=item, materials=[])
+
+    named = canonical_from_clauses(graphs, named=True)
+    lines = [f"?s a {_ref(spec['class'])} ."]
+    for i, clause in enumerate(spec["where"]):
+        lines.append(_clause_pattern(clause, index=i))
+    select_vars = ["?s"]
+    for idx, iri in enumerate(item_iris):
+        var = f"?v{idx}"
+        lines.append(f"OPTIONAL {{ ?s {_ref(iri)} {var} }}")
+        select_vars.append(var)
+    limit = spec["limit"]
+    query = (
+        _XSD_PREFIX
+        + f"SELECT {' '.join(select_vars)}\n{named}"
+        + "WHERE { "
+        + " ".join(lines)
+        + " }"
+        + f" ORDER BY ?s LIMIT {limit + 1}"
+    )
+    rows = _rows(await client.sparql_select(query))
+    truncated = len(rows) > limit
+    rows = rows[:limit]
+    items = []
+    for row in rows:
+        entry = {f"value{idx}": _as_number(_cell(row, f"v{idx}")) for idx in range(len(item_iris))}
+        items.append(entry)
+    base = {
+        "tool": "set_measure",
+        "count": len(items),
+        "items": items,
+        "truncated": truncated,
+        "sparql": query,
+    }
+    materials = await materials_for_set(client, spec, registry_root=registry_root)
+    return _finalize(base, output_kind="facts", item=item, materials=materials)
+
+
+# ----------------------------------------------------------------------------
 # §3.4 (default-cards halves) — pure/near-pure card-list builders
 # ----------------------------------------------------------------------------
 
@@ -1326,8 +1863,27 @@ async def run_subject_tool(
     unsupported ``at`` clause deeper in the spec (already caught by
     ``validate_subject_key`` in the normal case, but ``set_breakdown``'s
     ``property`` param is validated here too).
-    """
+
+    ``set_measure`` (契約メモ contract_pr_f4.md §1-4) is dispatched BEFORE the
+    individual/set kind gates below, unlike every other
+    :data:`SET_BUILTIN_TOOLS` entry: its ``class``/``where`` travel inside
+    ``params`` itself, not ``subject["spec"]`` — a card added from a 1 件の
+    ページ also sends ``subject={"kind": "individual", ...}`` (the picked
+    「この 1 件を指す種類」becomes ``params.where``'s link clause, built
+    client-side from :func:`linking_kinds`), so gating ``set_measure`` on
+    ``kind == "set"`` would reject every measure card added from an
+    individual subject's page (実機所見: the ui always populates
+    ``params.class``/``params.where`` itself, regardless of the page's own
+    subject kind — see ``ui/src/cards/NewCardForm.tsx``'s
+    ``defaultWhere``/``handleSubmit``)."""
     params = dict(params or {})
+    if tool == "set_measure":
+        try:
+            measure_spec = normalize_set_spec(params)
+        except SetSpecError as exc:
+            raise SubjectToolError(str(exc)) from exc
+        return await set_measure(client, measure_spec, params=params, registry_root=registry_root)
+
     kind = subject.get("kind")
 
     if kind == "individual":
@@ -1368,6 +1924,8 @@ async def run_subject_tool(
             return await set_breakdown(client, spec, property_iri, registry_root=registry_root)
         if tool == "set_count":
             return await set_count(client, spec, registry_root=registry_root)
+        # ``set_measure`` is intercepted above (before this kind gate) — it
+        # never reaches here.
         if tool in INDIVIDUAL_BUILTIN_TOOLS or "/" in tool:
             raise SubjectKindMismatchError(f"tool {tool!r} needs an individual subject, got a set")
         raise UnknownSubjectToolError(f"unknown tool {tool!r}")

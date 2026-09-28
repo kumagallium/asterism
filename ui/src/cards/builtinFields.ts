@@ -1,7 +1,10 @@
 // 組み込みツール（subject_facts／subject_sources／subject_flow／set_members／
-// set_breakdown／set_count）が返す `result.item` のキーの表示名。契約メモの
-// item キー: property / value / value_iri / property_iri / category / count /
-// label / source / subject_iri。宣言ツールの列はこれまでどおりキーの人間化
+// set_breakdown／set_count／set_measure）が返す `result.item` のキーの表示名。
+// 契約メモの item キー: property / value / value_iri / property_iri /
+// category / count / label / source / subject_iri。set_measure の x/y/value
+// 役は class_schema の label がサーバ側 item.label に入る（`withFieldLabels`
+// は `spec.label` を優先するのでここには足さない）。宣言ツールの列はこれ
+// までどおりキーの人間化
 // （`defaultView.ts` の `humanizeKey`）のまま — ここでは「組み込みツールか
 // どうか」だけを判定する（分野語を判定条件に含まない・LLM を呼ばない）。
 //
@@ -21,6 +24,7 @@ const BUILTIN_TOOLS = new Set([
   'set_members',
   'set_breakdown',
   'set_count',
+  'set_measure',
 ])
 
 /** ツール名が組み込みツールかどうか（宣言ツールは `<dataset_id>/<tool_name>` の形）。 */

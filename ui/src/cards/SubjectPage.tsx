@@ -5,14 +5,43 @@
 // Ask へ渡す（新規の会話機構は作らない）。
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { defaultCardsForSubject, resolveSubject, runCard } from './cardsApi'
+import { defaultCardsForSubject, resolveSubject, runCard, subjectKeyToString } from './cardsApi'
 import type { CardRef, CardToolResult, SubjectResolveResult } from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
+// PR F4（ui-form 担当）が新設するモジュール。まだ存在しない間は import だけ
+// 書いておき、統合段で繋ぐ（契約メモ PR F4 §2「無い間は import だけ書いて
+// 統合で繋ぐ」）。
+import { NewCardForm } from './NewCardForm'
+import { removeCard, useCards } from './cardStore'
+import type { CardSpec } from './cardStore'
 import { subjectDisplayLabel } from './subjectLabel'
 import './pages.css'
 
+/** ui-form の `cardStore.useCards` が返す 1 件（O19 CardSpec）を、既定カードと
+ *  同じ並び物（`CardRef`）に変換する。契約メモ PR F4 §1-5「card_id / title /
+ *  tool / params / output_kind をそのまま」。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（sourceLabelsFrom と同じ理由）
+export function cardSpecToCardRef(spec: CardSpec): CardRef {
+  return {
+    card_id: spec.card_id,
+    title: spec.title,
+    tool: spec.tool,
+    params: spec.params,
+    output_kind: spec.output_kind,
+  }
+}
+
+/** 既定カードの後ろに、足したカードを並べる（契約メモ PR F4 §1-5）。同じ
+ *  card_id が既定側にすでにあれば足した方を捨てる（決定論の card_id が衝突
+ *  するのは既定と同じ操作を再現したときだけなので、既定を優先して二重表示を
+ *  防ぐ）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（sourceLabelsFrom と同じ理由）
+export function appendAddedCards(defaultCards: CardRef[], addedCards: CardRef[]): CardRef[] {
+  const defaultIds = new Set(defaultCards.map((c) => c.card_id))
+  return [...defaultCards, ...addedCards.filter((c) => !defaultIds.has(c.card_id))]
+}
 
 /** `subject_sources`（output_kind: breakdown）の `category`（= データセット名
  *  ＋版）を出どころのラベルとして拾う。件数は使わない — 見出しの「出典 N 報」
@@ -84,6 +113,14 @@ export function SubjectPage({
   })
   const [askText, setAskText] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [addingCard, setAddingCard] = useState(false)
+
+  // 足したカード（cardStore・PR F4）。既定カードとは独立に持ち、描画のたびに
+  // 既定の後ろへ並べる（`appendAddedCards`）。
+  const subjectRef = { kind: 'individual' as const, iri }
+  const subjectKeyStr = subjectKeyToString(subjectRef)
+  const addedCardSpecs = useCards(subjectKeyStr)
+  const addedCardRefs = useMemo(() => addedCardSpecs.map(cardSpecToCardRef), [addedCardSpecs])
 
   // iri が変わったら「隠したカード」を描画時に忘れる（React の「prop が変わった
   // ら state を調整する」パターン — effect を使わない）。
@@ -91,6 +128,7 @@ export function SubjectPage({
   if (hiddenFor !== iri) {
     setHiddenFor(iri)
     setHiddenCardIds(new Set())
+    setAddingCard(false)
   }
 
   useEffect(() => {
@@ -147,7 +185,14 @@ export function SubjectPage({
 
   const summary = summaryState.iri === iri ? summaryState.summary : EMPTY_SUMMARY
 
-  const visibleCards = useMemo(() => (cards ?? []).filter((c) => !hiddenCardIds.has(c.card_id)), [cards, hiddenCardIds])
+  const allCards = useMemo(
+    () => (cards ? appendAddedCards(cards, addedCardRefs) : null),
+    [cards, addedCardRefs],
+  )
+  const visibleCards = useMemo(
+    () => (allCards ?? []).filter((c) => !hiddenCardIds.has(c.card_id)),
+    [allCards, hiddenCardIds],
+  )
 
   function hideCard(id: string) {
     setHiddenCardIds((prev) => {
@@ -163,8 +208,8 @@ export function SubjectPage({
   const label = subjectDisplayLabel(resolved?.label, iri)
 
   if (cardId) {
-    if (!cards) return <p className="ds-empty-note">{t('page.loading')}</p>
-    const selectedCard = cards.find((c) => c.card_id === cardId)
+    if (!allCards) return <p className="ds-empty-note">{t('page.loading')}</p>
+    const selectedCard = allCards.find((c) => c.card_id === cardId)
     if (!selectedCard) {
       return (
         <div className="cardpage-body">
@@ -175,6 +220,7 @@ export function SubjectPage({
         </div>
       )
     }
+    const isAddedCard = addedCardRefs.some((c) => c.card_id === selectedCard.card_id)
     return (
       <CardDetail
         subject={{ kind: 'individual', iri }}
@@ -183,6 +229,8 @@ export function SubjectPage({
         onBack={onCloseCard}
         onAsk={onAsk}
         onEditDefinition={onEditDefinition}
+        isAddedCard={isAddedCard}
+        onRemoveCard={isAddedCard ? () => removeCard(subjectKeyStr, selectedCard.card_id) : undefined}
       />
     )
   }
@@ -224,15 +272,29 @@ export function SubjectPage({
             </small>
           </h2>
         </div>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={visibleCards.length === 0}
-          onClick={() => setExporting(true)}
-        >
-          {t('page.export_button')}
-        </button>
+        <div className="cardpage-head-actions">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddingCard((v) => !v)}>
+            {t('newcard.button')}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={visibleCards.length === 0}
+            onClick={() => setExporting(true)}
+          >
+            {t('page.export_button')}
+          </button>
+        </div>
       </div>
+      {addingCard && (
+        <NewCardForm
+          subject={subjectRef}
+          subjectKey={subjectKeyStr}
+          datasetId={resolved.dataset_id ?? ''}
+          onCreated={() => setAddingCard(false)}
+          onCancel={() => setAddingCard(false)}
+        />
+      )}
       <div className="cardpage-grid">
         {visibleCards.map((card) => (
           <CardTile
