@@ -33,6 +33,12 @@
   color: var(--muted);
 }
 
+.cardpage-head-actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+}
+
 /* ---- カード格子（1 件・絞り込みで共通） ---- */
 
 .cardpage-grid {
@@ -218,6 +224,29 @@
   gap: var(--space-3);
 }
 
+.cardpage-materials {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.cardpage-materials-count {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.cardpage-recipe-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cardpage-materials-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
 .cardpage-edit-definition {
   align-self: flex-start;
 }
@@ -244,6 +273,152 @@
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ---- 材料タブ: 配れる／手元限りの verdict 行（O13・契約メモ §6） ---- */
+
+.cardview-verdict {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  font-size: 0.86rem;
+}
+.cardview-verdict--ok {
+  background: var(--success-bg);
+  color: var(--success-fg);
+  border-color: var(--success-border);
+}
+.cardview-verdict--warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+
+/* ---- 材料タブ: 「ライセンスを書く」（ライセンス不明のときだけ出す） ---- */
+
+.cardpage-license-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.cardpage-license-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.cardpage-license-input {
+  min-width: 12em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.35rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+.cardpage-license-error {
+  font-size: 0.78rem;
+  color: var(--warn-fg);
+}
+
+/* ---- 作りかたタブ: 束の説明（試作の .tree・契約メモ §6） ---- */
+
+.cardpage-bundle-title {
+  margin: 0 0 var(--space-2);
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+.tree {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--body);
+}
+
+/* ---- 「エージェントを持ち帰る」ダイアログ（ExportDialog） ---- */
+
+.export-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 35, 22, 0.32);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 16px 16px;
+  z-index: 100;
+  overflow-y: auto;
+}
+.export-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(420px, 100%);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+}
+.export-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.export-modal-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--fg);
+}
+.export-modal-close {
+  border: none;
+  background: transparent;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
+.export-modal-close:hover {
+  color: var(--fg);
+}
+.export-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.export-modal-field legend {
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.export-modal-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.86rem;
+  color: var(--body);
+  cursor: pointer;
+}
+.export-modal-error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--warn-fg);
+}
+.export-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 /* ---- 絞り込みフォーム（SetForm） ---- */

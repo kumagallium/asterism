@@ -923,6 +923,28 @@ def load_dataset(root: Path, dataset_id: str) -> dict | None:
     return {"meta": meta, "artifacts": artifacts}
 
 
+def dataset_origin(root: Path, dataset_id: str) -> str:
+    """``meta.origin`` の読み手（契約メモ contract_pr_d.md §1）。
+
+    ``"own"``（「データを置く」経由 — ``place_routes.place_commit`` が書く）/
+    ``"open"``（``exchange.import_snapshot`` が書く）/ それ以外は全部
+    ``"unknown"``（O13: 配れる判定は保守側に倒す — 出どころが分からない材料は
+    ``materials_for`` が「手元限り」の理由にする）。id が不正・データセットが
+    存在しない場合も ``"unknown"``。
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return "unknown"
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return "unknown"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "unknown"
+    origin = meta.get("origin")
+    return origin if origin in ("own", "open") else "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Per-dataset query tools (the "grow verified tools" store, P1).
 # ---------------------------------------------------------------------------

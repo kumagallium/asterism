@@ -1,0 +1,331 @@
+[
+  {
+    "name": "quantity: library checkout — value first, then at, label, subject",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "quantity",
+      "item": {
+        "checkout_count": { "var": "checkout_count", "role": "value", "number": true, "unit": "unit:CT" },
+        "checked_out_at": { "var": "checked_out_at", "role": "at" },
+        "book_title": { "var": "book_title", "role": "label" },
+        "branch_iri": { "var": "branch_iri", "role": "subject" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "figure",
+        "columns": [
+          { "field": "checkout_count", "label": "checkout count", "unit": "CT", "format": "number", "align": "right" },
+          { "field": "checked_out_at", "label": "checked out at", "format": "text" },
+          { "field": "book_title", "label": "book title", "format": "text" },
+          { "field": "branch_iri", "label": "branch", "format": "iri" }
+        ]
+      }
+    }
+  },
+  {
+    "name": "series: weather station — x/y/series roles build the line encoding",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "series",
+      "item": {
+        "observed_at": { "var": "observed_at", "role": "x", "number": false },
+        "humidity_pct": { "var": "humidity_pct", "role": "y", "number": true, "unit": "unit:PERCENT" },
+        "station_name": { "var": "station_name", "role": "series" }
+      }
+    },
+    "rows": [
+      { "observed_at": "2020-01-01", "humidity_pct": 40, "station_name": "north" },
+      { "observed_at": "2020-01-02", "humidity_pct": 55, "station_name": "south" }
+    ],
+    "expected": {
+      "lang": "vega-lite",
+      "spec": {
+        "mark": { "type": "line", "point": true },
+        "encoding": {
+          "x": { "field": "observed_at", "type": "ordinal", "title": "observed at" },
+          "y": { "field": "humidity_pct", "type": "quantitative", "title": "humidity pct [PERCENT]" },
+          "color": { "field": "station_name", "type": "nominal", "title": "station name" }
+        },
+        "data": { "values": [
+          { "observed_at": "2020-01-01", "humidity_pct": 40, "station_name": "north" },
+          { "observed_at": "2020-01-02", "humidity_pct": 55, "station_name": "south" }
+        ] }
+      }
+    }
+  },
+  {
+    "name": "series: y with number:false stays quantitative (only x gets ordinal'd)",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "series",
+      "item": {
+        "observed_at": { "var": "observed_at", "role": "x", "number": true },
+        "station_name": { "var": "station_name", "role": "y", "number": false }
+      }
+    },
+    "rows": [ { "observed_at": 1, "station_name": "north" } ],
+    "expected": {
+      "lang": "vega-lite",
+      "spec": {
+        "mark": { "type": "line", "point": true },
+        "encoding": {
+          "x": { "field": "observed_at", "type": "quantitative", "title": "observed at" },
+          "y": { "field": "station_name", "type": "quantitative", "title": "station name" }
+        },
+        "data": { "values": [ { "observed_at": 1, "station_name": "north" } ] }
+      }
+    }
+  },
+  {
+    "name": "pairs: library checkout — x/y are both quantitative",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "pairs",
+      "item": {
+        "pages": { "var": "pages", "role": "x", "number": true },
+        "loan_days": { "var": "loan_days", "role": "y", "number": true }
+      }
+    },
+    "rows": [ { "pages": 100, "loan_days": 14 } ],
+    "expected": {
+      "lang": "vega-lite",
+      "spec": {
+        "mark": "point",
+        "encoding": {
+          "x": { "field": "pages", "type": "quantitative", "title": "pages" },
+          "y": { "field": "loan_days", "type": "quantitative", "title": "loan days" }
+        },
+        "data": { "values": [ { "pages": 100, "loan_days": 14 } ] }
+      }
+    }
+  },
+  {
+    "name": "ranked: weather station — only label/value are visible (subject goes to subject_field, K4); sort is value desc",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "ranked",
+      "item": {
+        "station_name": { "var": "station_name", "role": "label" },
+        "rainfall_mm": { "var": "rainfall_mm", "role": "value", "number": true, "unit": "unit:MM" },
+        "station_iri": { "var": "station_iri", "role": "subject" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "ranked",
+        "columns": [
+          { "field": "station_name", "label": "station name", "format": "text" },
+          { "field": "rainfall_mm", "label": "rainfall mm", "unit": "MM", "format": "number", "align": "right" }
+        ],
+        "subject_field": "station_iri",
+        "sort": { "field": "rainfall_mm", "dir": "desc" }
+      }
+    }
+  },
+  {
+    "name": "ranked: no role but var name subject_iri also routes to subject_field (built-in tool fallback)",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "ranked",
+      "item": {
+        "label": { "var": "label", "role": "label" },
+        "subject_iri": { "var": "subject_iri" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "ranked",
+        "columns": [
+          { "field": "label", "label": "label", "format": "text" }
+        ],
+        "subject_field": "subject_iri"
+      }
+    }
+  },
+  {
+    "name": "breakdown: library checkout — category(nominal, sort -x) and count(quantitative) bars",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "breakdown",
+      "item": {
+        "genre": { "var": "genre", "role": "category" },
+        "title_count": { "var": "title_count", "role": "count", "number": true }
+      }
+    },
+    "rows": [ { "genre": "fiction", "title_count": 5 } ],
+    "expected": {
+      "lang": "vega-lite",
+      "spec": {
+        "mark": "bar",
+        "encoding": {
+          "y": { "field": "genre", "type": "nominal", "sort": "-x", "axis": { "title": null } },
+          "x": { "field": "title_count", "type": "quantitative", "title": "title count", "axis": { "tickMinStep": 1, "format": "d" } }
+        },
+        "data": { "values": [ { "genre": "fiction", "title_count": 5 } ] }
+      }
+    }
+  },
+  {
+    "name": "breakdown: item.label is used verbatim for the axis title too",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "breakdown",
+      "item": {
+        "category": { "var": "category", "role": "category", "label": "分類" },
+        "count": { "var": "count", "role": "count", "number": true, "label": "件数" }
+      }
+    },
+    "rows": [ { "category": "fiction", "count": 5 } ],
+    "expected": {
+      "lang": "vega-lite",
+      "spec": {
+        "mark": "bar",
+        "encoding": {
+          "y": { "field": "category", "type": "nominal", "sort": "-x", "axis": { "title": null } },
+          "x": { "field": "count", "type": "quantitative", "title": "件数", "axis": { "tickMinStep": 1, "format": "d" } }
+        },
+        "data": { "values": [ { "category": "fiction", "count": 5 } ] }
+      }
+    }
+  },
+  {
+    "name": "facts: weather station — _iri-suffixed columns move to the end (original order has one in the middle)",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "facts",
+      "item": {
+        "station_iri": { "var": "station_iri" },
+        "station_name": { "var": "station_name" },
+        "humidity_pct": { "var": "humidity_pct", "number": true }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "grid",
+        "columns": [
+          { "field": "station_name", "label": "station name", "format": "text" },
+          { "field": "humidity_pct", "label": "humidity pct", "format": "number", "align": "right" },
+          { "field": "station_iri", "label": "station", "format": "iri" }
+        ]
+      }
+    }
+  },
+  {
+    "name": "facts: item.label wins over key-humanizing when present (built-in tool display names)",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "facts",
+      "item": {
+        "property": { "var": "property", "label": "項目" },
+        "value": { "var": "value", "label": "値" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "grid",
+        "columns": [
+          { "field": "property", "label": "項目", "format": "text" },
+          { "field": "value", "label": "値", "format": "text" }
+        ]
+      }
+    }
+  },
+  {
+    "name": "facts: property/value pairs with property_iri/value_iri become href_field on the sibling column, not their own column (K4)",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "facts",
+      "item": {
+        "property": { "var": "property", "label": "項目" },
+        "value": { "var": "value", "label": "値" },
+        "property_iri": { "var": "property_iri" },
+        "value_iri": { "var": "value_iri" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "grid",
+        "columns": [
+          { "field": "property", "label": "項目", "format": "text", "href_field": "property_iri" },
+          { "field": "value", "label": "値", "format": "text", "href_field": "value_iri" }
+        ]
+      }
+    }
+  },
+  {
+    "name": "facts: a set_members-style subject_iri (even without a role) is not a column but the subject_field (K4)",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "facts",
+      "item": {
+        "label": { "var": "label" },
+        "subject_iri": { "var": "subject_iri" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "grid",
+        "columns": [
+          { "field": "label", "label": "label", "format": "text" }
+        ],
+        "subject_field": "subject_iri"
+      }
+    }
+  },
+  {
+    "name": "facts: an orphan _iri column with no sibling (e.g. a declared tool's sample_iri) stays as its own short-named column",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "facts",
+      "item": {
+        "sample_iri": { "var": "sample_iri" },
+        "ingredients": { "var": "ingredients" }
+      }
+    },
+    "rows": [],
+    "expected": {
+      "lang": "table",
+      "spec": {
+        "variant": "grid",
+        "columns": [
+          { "field": "ingredients", "label": "ingredients", "format": "text" },
+          { "field": "sample_iri", "label": "sample", "format": "iri" }
+        ]
+      }
+    }
+  },
+  {
+    "name": "flow: rows are ignored, an empty graph is returned (the caller substitutes the real one)",
+    "tool": { "name": "t", "title": "test", "output_kind": "flow", "item": {} },
+    "rows": [ { "anything": "ignored" } ],
+    "expected": { "lang": "graph", "spec": { "nodes": [], "edges": [] } }
+  }
+]

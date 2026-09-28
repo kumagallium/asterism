@@ -178,7 +178,58 @@ def test_cards_run_subject_facts(tmp_path: Path) -> None:
         body = r.json()
         assert body["output_kind"] == "facts"
         assert body["count"] >= 1
-        assert body["shareable"] is None
+        # registry の meta.json に origin/license を書いていない（既定の
+        # フィクスチャ）ので、出どころ・ライセンスとも「不明」側に倒れて
+        # shareable は real な False になる（保守側・契約メモ §2）— None は
+        # もう返らない。
+        assert body["shareable"] is False
+        assert body["shareable_reasons"] == ["unknown_origin", "unknown_license"]
+
+
+def test_cards_run_shareable_true_when_all_materials_are_open_and_redistributable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("asterism.materials._lookup_origin", lambda root, dataset_id: "open")
+    monkeypatch.setattr(
+        "asterism.materials._lookup_license",
+        lambda root, dataset_id: ("CC-BY-4.0", True),
+    )
+    with _client(tmp_path) as client:
+        r = client.post(
+            "/api/cards/run",
+            json={"subject": {"kind": "individual", "iri": CHECKOUT_1}, "tool": "subject_facts"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["shareable"] is True
+        assert body["shareable_reasons"] == []
+        assert body["materials"] == [
+            {
+                "kind": "open",
+                "dataset_id": LIB_DATASET,
+                "dataset_label": "貸出記録",
+                "snapshot": "v1",
+                "license": "CC-BY-4.0",
+                "redistributable": True,
+                "count": body["materials"][0]["count"],
+            }
+        ]
+
+
+def test_cards_run_shareable_false_reasons_when_material_is_own_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("asterism.materials._lookup_origin", lambda root, dataset_id: "own")
+    monkeypatch.setattr("asterism.materials._lookup_license", lambda root, dataset_id: None)
+    with _client(tmp_path) as client:
+        r = client.post(
+            "/api/cards/run",
+            json={"subject": {"kind": "individual", "iri": CHECKOUT_1}, "tool": "subject_facts"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["shareable"] is False
+        assert body["shareable_reasons"] == ["own_data", "unknown_license"]
 
 
 def test_cards_run_subject_sources(tmp_path: Path) -> None:
@@ -201,6 +252,33 @@ def test_cards_run_subject_flow_not_found_with_no_prov_edges(tmp_path: Path) -> 
         )
         assert r.status_code == 200, r.text
         assert r.json()["found"] is False
+
+
+def test_cards_run_subject_flow_materials_are_material_shaped(tmp_path: Path) -> None:
+    """subject_flow の ``materials`` は他の built-in と同じ Material 形
+    （dataset_label/kind/license/redistributable/count 込み）でなければなら
+    ない — prov_graph の生の ``{dataset_id, snapshot, graph}`` のままだと ui
+    の材料タブが flow カードだけ壊れる。"""
+    with _client(tmp_path) as client:
+        r = client.post(
+            "/api/cards/run",
+            json={"subject": {"kind": "individual", "iri": CHECKOUT_1}, "tool": "subject_flow"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["materials"] == [
+            {
+                "kind": "unknown",
+                "dataset_id": LIB_DATASET,
+                "dataset_label": "貸出記録",
+                "snapshot": "v1",
+                "license": None,
+                "redistributable": None,
+                "count": body["materials"][0]["count"],
+            }
+        ]
+        assert isinstance(body["shareable"], bool)
+        assert isinstance(body["shareable_reasons"], list)
 
 
 def test_cards_run_declared_tool_binds_the_iri(tmp_path: Path) -> None:

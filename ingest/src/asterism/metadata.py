@@ -255,6 +255,16 @@ def _build_schema_info(
             graph.add((d, DCTERMS.title, Literal(v)))
         elif key == "description" and isinstance(v, str):
             graph.add((d, DCTERMS.description, Literal(v)))
+        elif key == "license" and isinstance(v, str):
+            # ADR dataset-description-in-the-store.md §3: an SPDX identifier
+            # (e.g. "CC-BY-4.0") is not itself a valid IRI - only a license
+            # given as a URL becomes one (asterism.licenses.normalize_license
+            # is the reader-side counterpart that turns either back into the
+            # same SPDX id).
+            if _is_valid_iri(v):
+                graph.add((d, DCTERMS.license, URIRef(v)))
+            else:
+                graph.add((d, DCTERMS.license, Literal(v)))
         elif key == "keywords" and isinstance(v, list) and all(isinstance(x, str) for x in v):
             for kw in v:
                 if _is_droppable(kw):  # e.g. a stray "" element - never a triple (spec §3.7)
@@ -556,6 +566,11 @@ def _project_schema_info(
     desc = _lit_str(graph.value(d, DCTERMS.description))
     if desc is not None:
         info["description"] = desc
+    # dcterms:license's object is a Literal (SPDX id) OR a URIRef (URL) -
+    # _lit_str just stringifies either, same as the endpoint/base_uri readers.
+    license_value = _lit_str(graph.value(d, DCTERMS.license))
+    if license_value is not None:
+        info["license"] = license_value
     base_uri = _lit_str(graph.value(d, VOID.uriSpace))
     if base_uri is not None:
         info["base_uri"] = base_uri

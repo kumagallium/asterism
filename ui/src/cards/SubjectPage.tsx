@@ -9,6 +9,7 @@ import { defaultCardsForSubject, resolveSubject, runCard } from './cardsApi'
 import type { CardRef, CardToolResult, SubjectResolveResult } from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
+import { ExportDialog } from './ExportDialog'
 import { subjectDisplayLabel } from './subjectLabel'
 import './pages.css'
 
@@ -73,6 +74,7 @@ export function SubjectPage({
     summary: EMPTY_SUMMARY,
   })
   const [askText, setAskText] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   // iri が変わったら「隠したカード」を描画時に忘れる（React の「prop が変わった
   // ら state を調整する」パターン — effect を使わない）。
@@ -200,7 +202,12 @@ export function SubjectPage({
             </small>
           </h2>
         </div>
-        <button type="button" className="btn btn--ghost btn--sm" disabled title={t('page.export_soon')}>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={visibleCards.length === 0}
+          onClick={() => setExporting(true)}
+        >
           {t('page.export_button')}
         </button>
       </div>
@@ -218,6 +225,13 @@ export function SubjectPage({
           />
         ))}
       </div>
+      {exporting && (
+        <ExportDialog
+          subject={{ kind: 'individual', iri }}
+          cards={visibleCards}
+          onClose={() => setExporting(false)}
+        />
+      )}
       <div className="cardpage-bar">
         <span className="cardpage-bar-who">{t('page.ask_who', { label })}</span>
         <input
