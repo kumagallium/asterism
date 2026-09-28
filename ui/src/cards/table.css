@@ -75,6 +75,10 @@
   background: var(--surface-sink);
 }
 
+.cardview-table-wrap tr[data-clickable] {
+  cursor: pointer;
+}
+
 /* ---- grid: 追加の書式のみ（枠組みは jobs-table / sparql-table） ---- */
 .cardview-cell-num {
   text-align: right;
@@ -84,6 +88,13 @@
 .cardview-cell-iri {
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+.cardview-cell-link {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+.cardview-cell-link:hover {
+  text-decoration: underline;
 }
 .cardview-unit-suffix,
 th .cardview-unit-suffix {

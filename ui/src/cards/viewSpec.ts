@@ -15,6 +15,10 @@ export interface ItemSpec {
   role?: ItemRole
   quantity_kind?: string | null
   unit?: string | null
+  /** 見出し／軸タイトルに使う表示名。無ければ `var` の機械整形にフォールバック
+   *  する（`defaultView.ts` の `humanizeKey`）。組み込みツールの item は呼び側
+   *  （`builtinFields.ts` の `withFieldLabels`）がここへ焼き込む。 */
+  label?: string
 }
 
 /** 契約層（PR A）が返す 1 ツールの宣言。 */
@@ -63,6 +67,10 @@ export interface TableColumn {
   unit?: string | null
   format?: 'number' | 'integer' | 'text' | 'iri'
   align?: 'left' | 'right'
+  /** この列の値が IRI に由来するとき、その IRI を持つ**兄弟**フィールド名
+   *  （K4: 生の IRI は列として見せず、`/describe?iri=…` へのリンクにする —
+   *  `TableView` の grid variant が読む）。 */
+  href_field?: string
 }
 export interface TableHighlight {
   when: { field: string; op: 'gt' | 'lt' | 'eq'; value: number | string }
@@ -76,8 +84,8 @@ export interface TableSpec {
   group_by?: string
   limit?: number
   highlight?: TableHighlight[]
-  /** ranked 専用（K4）: 生の IRI を列として見せず、行の `title` と
-   *  `onRowClick` に渡すためだけに持つ行のキー。 */
+  /** grid・ranked 共通（K4）: 生の IRI を列として見せず、行の `title` と
+   *  `onRowClick` に渡すためだけに持つ行のキー（1 件のページへの遷移用）。 */
   subject_field?: string
 }
 

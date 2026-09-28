@@ -365,6 +365,17 @@ facts**（判断が要るものは保守側に倒す）。
 - 同梱 3 データセットの 10 ツールは `ingest/tests/test_output_kind.py` で推定結果を固定（ranked 1・facts 9。人が vet した明示は ranked 2）。
 - `prov_graph` は pyoxigraph 実 store の架空 2 分野（気象観測ログ／原稿解析）で 23 件のテストが緑。公開済み版グラフが 0 件のときは SPARQL を発行せず `found: false`（draft 隔離の不変条件）。
 
+
+### PR C: 実データで「置く→照合→並べる→ページ」を一周（2026-09-23）
+
+手元の実 registry（周期表データセットを公開済み）を隔離 HOME にコピーし、その元 CSV から 7 列・4 行（うち 1 行は棚に無い架空の行）を切り出したファイルを「データを置く」に通した。
+
+- 形の一致: 既存の型（29 列）に対し 6/7 列一致（confidence 0.86）。ID 列（subject template の列）が一致したので `type_id` あり＝設計なしで置ける。
+- 1 件の照合: 3 件が `linked`（棚の IRI に同定）、1 件が `own_only`。
+- 並べる: 設計を一致列だけに刈り込み（落とした 28 列は `pruned_columns` として返す）、materialize→ingest→promote が LLM ゼロで完走。own データセット（92 三つ組・`meta.origin = own`）と、ファイル全件の絞り込み（`source_scope: own`）ができた。
+- ページ: 既定カード（事実・出典・（辺があれば）手順）が決定論で並び、絞り込みのページは一覧・内訳（distinct が最小の分類プロパティ）・件数。クラススキーマの kind はストアの実データで決めた（Mapping IR 上は定数 IRI の行でも、実データが IRI なら link）。
+- 見つけて直した穴: ingest→step0 の逆依存／IRIREF 禁止文字の素通し／commit が CURIE テンプレートを展開せず再特定に失敗／設計の刈り込み漏れ／facts の重複（own と open の両方にある 1 件）。
+
 ## 残課題
 
 - 見せ方の「書く」（LLM が Vega-Lite／Mermaid／表仕様を書く）と「角度を足す」（1 行

@@ -18,9 +18,18 @@ function findRole(item: Record<string, ItemSpec>, role: ItemRole): ItemSpec | un
   return allByRole(item, role)[0]
 }
 
-/** 見出し（＋単位があれば `[単位]` を添える。表の列見出しと Vega-Lite の軸タイトルで共通）。 */
+/** 1 件のページを指す IRI 列（K4: 列としては出さず行クリックの遷移先にする）。
+ *  `role: 'subject'` を優先し、組み込みツールの契約キー `subject_iri`
+ *  （`builtinFields.ts` のコメント参照）へフォールバックする。 */
+function findSubject(item: Record<string, ItemSpec>): ItemSpec | undefined {
+  return findRole(item, 'subject') ?? Object.values(item).find((i) => i.var === 'subject_iri')
+}
+
+/** 見出し（＋単位があれば `[単位]` を添える。表の列見出しと Vega-Lite の軸タイトルで共通）。
+ *  `item.label` があればそれを使い（呼び側が組み込みツールの表示名を焼き込む —
+ *  `builtinFields.ts`）、無ければキーの機械整形にフォールバックする。 */
 function fieldTitle(item: ItemSpec): string {
-  const label = humanizeKey(item.var)
+  const label = item.label ?? humanizeKey(item.var)
   return item.unit != null ? `${label} [${unitLabel(item.unit)}]` : label
 }
 
@@ -29,7 +38,7 @@ function columnFor(item: ItemSpec): TableColumn {
   const isIri = item.var.endsWith('_iri') || item.role === 'subject'
   const col: TableColumn = {
     field: item.var,
-    label: humanizeKey(item.var),
+    label: item.label ?? humanizeKey(item.var),
     format: isIri ? 'iri' : item.number ? 'number' : 'text',
   }
   if (item.unit != null) col.unit = unitLabel(item.unit)
@@ -88,7 +97,7 @@ function rankedView(tool: ToolContract): ViewSpec {
   if (label) columns.push(columnFor(label))
   const value = findRole(tool.item, 'value')
   if (value) columns.push(columnFor(value))
-  const subject = findRole(tool.item, 'subject')
+  const subject = findSubject(tool.item)
   const spec: TableSpec = { variant: 'ranked', columns }
   if (subject) spec.subject_field = subject.var
   if (value) spec.sort = { field: value.var, dir: 'desc' }
@@ -99,18 +108,43 @@ function breakdownView(tool: ToolContract, rows: Row[]): ViewSpec {
   const category = findRole(tool.item, 'category')
   const count = findRole(tool.item, 'count')
   const encoding: Record<string, unknown> = {}
-  if (category) encoding.y = { field: category.var, type: 'nominal', sort: '-x', title: fieldTitle(category) }
-  if (count) encoding.x = { field: count.var, type: 'quantitative', title: fieldTitle(count) }
+  // y 軸（出どころ等）の title は出さない（縦書きで軸ラベルに重なる・カードの
+  // 見出しと列のラベルで意味は足りている）。x 軸の title はそのまま出す。
+  if (category) encoding.y = { field: category.var, type: 'nominal', sort: '-x', axis: { title: null } }
+  // 件数は整数（0.0〜1.0 のような小数目盛にしない）。
+  if (count)
+    encoding.x = {
+      field: count.var,
+      type: 'quantitative',
+      title: fieldTitle(count),
+      axis: { tickMinStep: 1, format: 'd' },
+    }
   const spec: VegaLiteSpec = { mark: 'bar', encoding, data: { values: rows } }
   return { lang: 'vega-lite', spec }
 }
 
 function factsView(tool: ToolContract): ViewSpec {
-  const entries = Object.values(tool.item)
+  const allEntries = Object.values(tool.item)
+  const byVar = new Map(allEntries.map((e) => [e.var, e]))
+  // 1 件のページを指す列（K4: 列にせず行クリックの遷移先へ・ranked と同じ
+  // 扱い）。組み込みツール（例: set_members）の `subject_iri` はここで除く。
+  const subject = findSubject(tool.item)
+  const entries = subject ? allEntries.filter((i) => i !== subject) : allEntries
   const normal = entries.filter((i) => !i.var.endsWith('_iri'))
-  const iri = entries.filter((i) => i.var.endsWith('_iri'))
-  const columns = [...normal, ...iri].map(columnFor)
+  // `_iri` で終わる列のうち、兄弟のラベル列（`X_iri` に対する `X`）が無い
+  // ものだけ列として残す（例: 宣言ツールの `sample_iri`）。兄弟があるものは
+  // 列を作らず、下で兄弟列の `href_field` として付ける（K4）。
+  const orphanIri = entries.filter((i) => i.var.endsWith('_iri') && !byVar.has(i.var.slice(0, -4)))
+  const columns = [...normal, ...orphanIri].map((entry) => {
+    const col = columnFor(entry)
+    if (!entry.var.endsWith('_iri')) {
+      const sibling = byVar.get(`${entry.var}_iri`)
+      if (sibling && sibling !== subject) col.href_field = sibling.var
+    }
+    return col
+  })
   const spec: TableSpec = { variant: 'grid', columns }
+  if (subject) spec.subject_field = subject.var
   return { lang: 'table', spec }
 }
 

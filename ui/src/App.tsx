@@ -4,6 +4,8 @@ import './App.css'
 import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
 import { CardsGallery } from './cards/CardsGallery'
+import { CardsView } from './cards/CardsView'
+import { SubjectRail } from './cards/SubjectRail'
 import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
@@ -43,6 +45,9 @@ type Tab =
   | 'sparql'
   /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
   | 'cardsdemo'
+  /** 「1 件／絞り込み × カード」の使う画面（object-cards-ui.md）。NAV_ITEMS には
+   *  出さない — topbar 右の「使う｜棚を作る」ピルから入る。 */
+  | 'cards'
 
 // ---- hash ルーティング -------------------------------------------------------
 // リロードで常にホームへ戻る／ディープリンク不可だった問題への最小のルータ。
@@ -53,7 +58,7 @@ type Tab =
 // hash が唯一の真実源: 画面遷移は navigate() が hash を書き、hashchange で state
 // に反映する（ブラウザの戻る/進むもそのまま効く）。
 
-interface Route {
+export interface Route {
   tab: Tab
   datasetId?: string
   detailTab?: DetailTab
@@ -62,6 +67,18 @@ interface Route {
   create?: boolean
   /** `#/ask/<id>` — the open chat thread (reload / back / forward keep it). */
   threadId?: string
+  /** `#/cards/place` — 「データを置く」（object-cards-ui.md 契約メモ §6.2）。 */
+  place?: boolean
+  /** `#/cards/place?dataset=<id>` — かんたんウィザードから「ページに戻る」で
+   *  入ってきたときの、既に棚にあるデータセット（契約メモ §6.3 の
+   *  `KantanWizard.tsx` の `returnTo + datasetId`）。`place` と組で使う。 */
+  placeDatasetId?: string
+  /** `#/cards/i/<encoded iri>` | `#/cards/s/<set_id>` — 契約メモ §1 の subject_key
+   *  文字列表現をそのまま持つ（`i:<iri>` | `s:<set_id>`）。URL 変換は
+   *  parseHash/routeToHash が担う。 */
+  subjectKey?: string
+  /** `.../c/<card_id>` — カード詳細。subjectKey と組み合わせて使う。 */
+  cardId?: string
 }
 
 const TABS: readonly Tab[] = [
@@ -75,10 +92,15 @@ const TABS: readonly Tab[] = [
   'jobs',
   'sparql',
   'cardsdemo',
+  'cards',
 ]
 const DETAIL_TABS: readonly DetailTab[] = ['structure', 'tools', 'files', 'connect', 'design']
 
-function parseHash(hash: string): Route {
+// parseHash/routeToHash は App.tsx から export して routes.test.ts が単体テストする
+// （契約メモ §6.4）。react-refresh の「コンポーネントだけ export しろ」規約とは
+// ぶつかるが、テスト容易性のため意図して許容する。
+// eslint-disable-next-line react-refresh/only-export-components
+export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
   if (parts[0] === 'datasets' && parts[1]) {
     const detailTab = DETAIL_TABS.includes(parts[2] as DetailTab)
@@ -90,11 +112,28 @@ function parseHash(hash: string): Route {
   if (parts[0] === 'datasets') return { tab: 'gallery' }
   if (parts[0] === 'crosswalk' && parts[1] === 'new') return { tab: 'crosswalk', create: true }
   if (parts[0] === 'ask' && parts[1]) return { tab: 'ask', threadId: decodeURIComponent(parts[1]) }
+  if (parts[0] === 'cards') {
+    if (parts[1] === 'place') return { tab: 'cards', place: true }
+    // `#/cards/place?dataset=<id>` — parts は '/' でしか割っていないので
+    // クエリ文字列は parts[1] の末尾にくっついたまま届く（`place?dataset=…`）。
+    if (parts[1]?.startsWith('place?')) {
+      const query = parts[1].slice('place?'.length)
+      const datasetId = new URLSearchParams(query).get('dataset')
+      return datasetId ? { tab: 'cards', place: true, placeDatasetId: datasetId } : { tab: 'cards', place: true }
+    }
+    if ((parts[1] === 'i' || parts[1] === 's') && parts[2]) {
+      const subjectKey = `${parts[1]}:${decodeURIComponent(parts[2])}`
+      const cardId = parts[3] === 'c' && parts[4] ? decodeURIComponent(parts[4]) : undefined
+      return { tab: 'cards', subjectKey, cardId }
+    }
+    return { tab: 'cards' }
+  }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
 }
 
-function routeToHash(r: Route): string {
+// eslint-disable-next-line react-refresh/only-export-components
+export function routeToHash(r: Route): string {
   if (r.tab === 'gallery' && r.datasetId) {
     const base = `#/datasets/${encodeURIComponent(r.datasetId)}`
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
@@ -102,6 +141,19 @@ function routeToHash(r: Route): string {
   if (r.tab === 'gallery') return '#/datasets'
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
+  if (r.tab === 'cards') {
+    if (r.place) {
+      return r.placeDatasetId
+        ? `#/cards/place?dataset=${encodeURIComponent(r.placeDatasetId)}`
+        : '#/cards/place'
+    }
+    if (r.subjectKey) {
+      const kind = r.subjectKey.startsWith('s:') ? 's' : 'i'
+      const base = `#/cards/${kind}/${encodeURIComponent(r.subjectKey.slice(2))}`
+      return r.cardId ? `${base}/c/${encodeURIComponent(r.cardId)}` : base
+    }
+    return '#/cards'
+  }
   return `#/${r.tab}`
 }
 
@@ -344,28 +396,32 @@ function App() {
           </div>
 
           <nav className="side-nav">
-            <div className="side-nav-group">
-              {NAV_ITEMS.map((it) => {
-                const Icon = it.icon
-                return (
-                  <button
-                    key={it.id}
-                    type="button"
-                    className={`side-nav-item${tab === it.id ? ' active' : ''}`}
-                    onClick={() => navTo(it.id)}
-                    aria-current={tab === it.id ? 'page' : undefined}
-                    // 860px 以下でラベルが display:none になるアイコンレールでも
-                    // 名前が残るように（ツールチップ兼スクリーンリーダー名）
-                    aria-label={t(`nav.${it.id}`)}
-                    title={t(`nav.${it.id}`)}
-                  >
-                    <Icon className="side-nav-icon" />
-                    <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
-                    <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
-                  </button>
-                )
-              })}
-            </div>
+            {tab === 'cards' ? (
+              <SubjectRail navigate={navigate} />
+            ) : (
+              <div className="side-nav-group">
+                {NAV_ITEMS.map((it) => {
+                  const Icon = it.icon
+                  return (
+                    <button
+                      key={it.id}
+                      type="button"
+                      className={`side-nav-item${tab === it.id ? ' active' : ''}`}
+                      onClick={() => navTo(it.id)}
+                      aria-current={tab === it.id ? 'page' : undefined}
+                      // 860px 以下でラベルが display:none になるアイコンレールでも
+                      // 名前が残るように（ツールチップ兼スクリーンリーダー名）
+                      aria-label={t(`nav.${it.id}`)}
+                      title={t(`nav.${it.id}`)}
+                    >
+                      <Icon className="side-nav-icon" />
+                      <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
+                      <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </nav>
 
           <div className="sidebar-foot">
@@ -417,6 +473,24 @@ function App() {
               <h1 className="topbar-title">{t(`view.${tab}.title`)}</h1>
             </div>
             <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>
+            <div className="mode-toggle" role="group" aria-label={t('mode.label')}>
+              <button
+                type="button"
+                className={`mode-toggle-btn${tab === 'cards' ? ' active' : ''}`}
+                aria-pressed={tab === 'cards'}
+                onClick={() => navTo('cards')}
+              >
+                {t('mode.use')}
+              </button>
+              <button
+                type="button"
+                className={`mode-toggle-btn${tab === 'cards' ? '' : ' active'}`}
+                aria-pressed={tab !== 'cards'}
+                onClick={() => navTo('home')}
+              >
+                {t('mode.build')}
+              </button>
+            </div>
             <LanguageToggle />
           </header>
 
@@ -491,6 +565,7 @@ function App() {
             {tab === 'jobs' && <JobsView />}
             {tab === 'sparql' && <SparqlView />}
             {tab === 'cardsdemo' && <CardsGallery />}
+            {tab === 'cards' && <CardsView route={route} navigate={navigate} onAsk={openAsk} />}
           </main>
         </div>
       </div>

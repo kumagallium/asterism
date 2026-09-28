@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyTableSpec, highlightStyleFor, matchesHighlight, type Row, type TableSpec } from './tableSpec'
+import { applyTableSpec, highlightStyleFor, matchesHighlight, type Row, type TableColumn, type TableSpec } from './tableSpec'
 
 // 架空データ（2 分野）: 図書館の貸出件数、気象観測の月間降水量。分野固有名詞は書かない。
 
@@ -58,6 +58,19 @@ describe('applyTableSpec — does not mutate input', () => {
     applyTableSpec(spec, loanRows)
     expect(loanRows).toEqual(rowsCopy)
     expect(spec).toEqual(specCopy)
+  })
+})
+
+describe('applyTableSpec — href_field を素通しする（sort/limit の対象にしない）', () => {
+  it('列に href_field があっても行データはそのまま渡る', () => {
+    const columns: TableColumn[] = [
+      { field: 'value', label: '値', format: 'text', href_field: 'value_iri' },
+    ]
+    const rows: Row[] = [{ value: 'ZEM', value_iri: 'https://example.org/zem' }]
+    const spec: TableSpec = { columns, variant: 'grid' }
+    const out = applyTableSpec(spec, rows)
+    expect(out).toEqual(rows)
+    expect(spec.columns[0].href_field).toBe('value_iri')
   })
 })
 

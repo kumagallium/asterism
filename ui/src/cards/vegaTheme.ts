@@ -40,6 +40,14 @@ export function houseConfig(): Record<string, unknown> {
       tickColor: HOUSE_TOKENS.borderStrong,
       labelFont: HOUSE_TOKENS.fontUi,
       titleFont: HOUSE_TOKENS.fontUi,
+      // 内訳（breakdown）の y 軸ラベル（分類名）が長いカードの幅を超えて図を
+      // 押し広げないよう省略する（Vega-Lite が自動で「…」を付ける）。
+      labelLimit: 160,
+    },
+    // y 軸タイトルとラベルの間を空ける — 内訳が 1 本のバーだけのとき、タイトル
+    // とラベルが重なって読めなくなるのを防ぐ。
+    axisY: {
+      titlePadding: 12,
     },
     // カード内の限られた高さでも軸タイトルまで収まるよう、凡例は右ではなく
     // 下に横並びで小さく出す（右に出すと図が縦に伸びてカードからはみ出す）。
