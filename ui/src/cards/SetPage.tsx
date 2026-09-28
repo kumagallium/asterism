@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { defaultCardsForSet, resolveSet, runCard } from './cardsApi'
-import type { CardRef, SetResolveResult, SetSpec } from './cardsApi'
+import type { CardRef, CardToolResult, SetResolveResult, SetSpec } from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
@@ -39,6 +39,16 @@ interface SetLoadState {
 }
 
 const EMPTY_SET_LOAD: SetLoadState = { specKey: '', resolved: null, cards: null, error: false }
+
+/** `set_count` の結果から件数（role: 'value'）を拾う。行のキーは `result.item`
+ *  の**キー名**であって `ItemSpec.var` ではない（`defaultView.ts` の
+ *  KeyedItem コメント参照）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（FirstScreen.tsx と同じ理由）
+export function valueFromCountResult(result: CardToolResult): number | null {
+  const valueKey = Object.entries(result.item).find(([, spec]) => spec.role === 'value')?.[0]
+  const value = valueKey ? result.items[0]?.[valueKey] : undefined
+  return typeof value === 'number' ? value : null
+}
 
 export function SetPage({
   setId,
@@ -100,9 +110,7 @@ export function SetPage({
     runCard({ kind: 'set', spec }, countCard.tool, countCard.params)
       .then((r) => {
         if (cancelled) return
-        const valueVar = Object.values(r.item).find((i) => i.role === 'value')?.var
-        const value = valueVar ? r.items[0]?.[valueVar] : undefined
-        setTotalState({ specKey, total: typeof value === 'number' ? value : null })
+        setTotalState({ specKey, total: valueFromCountResult(r) })
       })
       .catch(() => {
         // 見出しの補助数値なのでエラーは静かに無視する。

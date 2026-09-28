@@ -89,6 +89,8 @@
 }
 
 .flow-node-props code {
+  display: block;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: 0.66rem;
   color: var(--faint);

@@ -45,7 +45,11 @@ export function VegaLiteView({
           return
         }
         finalize = () => result.finalize()
-      } catch {
+      } catch (err) {
+        // vega-embed の失敗理由（例: encoding.field が行に存在しない）を
+        // 開発者コンソールに出す ── 画面には「図を描けませんでした」としか
+        // 出ないため、原因追跡に本文が必須。
+        console.error('VegaLiteView: failed to render spec', err, spec)
         if (!cancelled) setFailed(true)
       }
     })()
@@ -56,7 +60,11 @@ export function VegaLiteView({
   }, [spec])
 
   return (
-    <div className="cardview-vega-wrap" style={{ overflow: 'hidden' }}>
+    // 埋め込み先の div は幅・高さとも `container`（`withHouseStyle`）に
+    // 追従する ── レイアウト前の初期描画でラップ自身の高さが 0 だと
+    // vega-embed が「取り直す土台」を持てないため、下の `cardview-vega`
+    // の明示 height に加えてここにも min-height を持たせておく。
+    <div className="cardview-vega-wrap" style={{ overflow: 'hidden', minHeight: height }}>
       <div
         ref={containerRef}
         className="cardview-vega"

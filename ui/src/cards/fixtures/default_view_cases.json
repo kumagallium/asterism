@@ -59,6 +59,30 @@
     }
   },
   {
+    "name": "series: item key differs from ItemSpec.var (declared tool exit key) — field must follow the key, not var",
+    "tool": {
+      "name": "t",
+      "title": "test",
+      "output_kind": "series",
+      "item": {
+        "year": { "var": "year", "role": "x", "number": true, "unit": "unit:YR" },
+        "life_expectancy": { "var": "lifeExpectancy", "role": "y", "number": true, "unit": "unit:YR" }
+      }
+    },
+    "rows": [ { "year": 1955, "life_expectancy": 66.12 } ],
+    "expected": {
+      "lang": "vega-lite",
+      "spec": {
+        "mark": { "type": "line", "point": true },
+        "encoding": {
+          "x": { "field": "year", "type": "quantitative", "title": "year [YR]" },
+          "y": { "field": "life_expectancy", "type": "quantitative", "title": "life expectancy [YR]" }
+        },
+        "data": { "values": [ { "year": 1955, "life_expectancy": 66.12 } ] }
+      }
+    }
+  },
+  {
     "name": "series: y with number:false stays quantitative (only x gets ordinal'd)",
     "tool": {
       "name": "t",

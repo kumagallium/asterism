@@ -13,6 +13,8 @@ import { classSchema, resolveSet, runCard } from './cardsApi'
 import type { CardToolResult, SetResolveResult, SetSpec, SetWhereClause } from './cardsApi'
 import {
   buildSetFormSpec,
+  CATEGORY_VISIBLE_LIMIT,
+  categoryOptionsView,
   type CategoryFilterField,
   type QuantityFilterField,
   type SetFilterOp,
@@ -58,15 +60,19 @@ function initialCategoryState(field: CategoryFilterField, spec?: SetSpec | null)
   return { selected: new Set(values) }
 }
 
-/** `set_breakdown` の結果から、role: 'category' の列の値を最大 12 件拾う。 */
-function categoryValuesFrom(result: CardToolResult): string[] {
-  const categoryVar = Object.values(result.item).find((i) => i.role === 'category')?.var
-  if (!categoryVar) return []
+/** `set_breakdown` の結果から、role: 'category' の列の distinct 値を全件拾う
+ *  （どれだけ見せるかは `categoryOptionsView`（setFormFields.ts・契約 §4）が
+ *  検索欄／「さらに表示」込みで決める — ここでは切り詰めない）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（FirstScreen.tsx と同じ理由）
+export function categoryValuesFrom(result: CardToolResult): string[] {
+  // 行のキーは `result.item` の**キー名**であって `ItemSpec.var` ではない
+  // （`defaultView.ts` の KeyedItem コメント参照）。
+  const categoryKey = Object.entries(result.item).find(([, spec]) => spec.role === 'category')?.[0]
+  if (!categoryKey) return []
   const values: string[] = []
   for (const row of result.items) {
-    const v = row[categoryVar]
+    const v = row[categoryKey]
     if (typeof v === 'string' && !values.includes(v)) values.push(v)
-    if (values.length >= 12) break
   }
   return values
 }
@@ -88,6 +94,9 @@ export function SetForm({ classIri, initialSpec, onCancel, onSubmit }: SetFormPr
   const [categoryOptions, setCategoryOptions] = useState<Record<string, string[]>>({})
   const [quantityState, setQuantityState] = useState<Record<string, QuantityFieldState>>({})
   const [categoryState, setCategoryState] = useState<Record<string, CategoryFieldState>>({})
+  // 分類ごとの「見せかた」だけの状態（選択そのものではない — 契約 §4「12 を
+  // 超えるときは検索欄つきの一覧にし、上位 12 だけ見せて『さらに表示』」）。
+  const [categoryUi, setCategoryUi] = useState<Record<string, { search: string; showAll: boolean }>>({})
   const [orderProperty, setOrderProperty] = useState('')
   const [orderDir, setOrderDir] = useState<'desc' | 'asc'>('desc')
   const [limit, setLimit] = useState(initialSpec?.limit ?? 20)
@@ -113,6 +122,7 @@ export function SetForm({ classIri, initialSpec, onCancel, onSubmit }: SetFormPr
         }
         setQuantityState(nextQuantity)
         setCategoryState(nextCategory)
+        setCategoryUi({})
         if (initialSpec?.order_by) {
           setOrderProperty(initialSpec.order_by.property)
           setOrderDir(initialSpec.order_by.dir)
@@ -283,12 +293,31 @@ export function SetForm({ classIri, initialSpec, onCancel, onSubmit }: SetFormPr
       {categoryFields.map((field) => {
         const options = categoryOptions[field.property] ?? []
         const state = categoryState[field.property] ?? { selected: new Set<string>() }
+        const ui = categoryUi[field.property] ?? { search: '', showAll: false }
+        const view = categoryOptionsView(options, ui)
+        // 検索欄は「12 を超えるとき」だけ出す（契約 §4） — 元の総数（検索前）で
+        // 判定する。件数が少ないうちは無音のまま。
+        const showSearch = options.length > CATEGORY_VISIBLE_LIMIT
         return (
           <div className="cardpage-setform-row" key={field.property}>
-            <div className="cardpage-setform-label">{field.label}</div>
+            <div className="cardpage-setform-label-col">
+              <div className="cardpage-setform-label">{field.label}</div>
+              {options.length > 0 && <p className="cardpage-setform-hint">{t('setform.add_condition_hint')}</p>}
+              {showSearch && (
+                <input
+                  type="search"
+                  className="cardpage-setform-search"
+                  value={ui.search}
+                  placeholder={t('setform.search_placeholder')}
+                  onChange={(e) =>
+                    setCategoryUi((prev) => ({ ...prev, [field.property]: { ...ui, search: e.target.value } }))
+                  }
+                />
+              )}
+            </div>
             <div className="cardpage-setform-choices">
               {options.length === 0 && <span className="cardpage-setform-empty">{t('empty')}</span>}
-              {options.map((value) => (
+              {view.visible.map((value) => (
                 <label className="cardpage-setform-check" key={value}>
                   <input
                     type="checkbox"
@@ -303,6 +332,17 @@ export function SetForm({ classIri, initialSpec, onCancel, onSubmit }: SetFormPr
                   {value}
                 </label>
               ))}
+              {view.hasMore && (
+                <button
+                  type="button"
+                  className="link-btn cardpage-setform-more"
+                  onClick={() =>
+                    setCategoryUi((prev) => ({ ...prev, [field.property]: { ...ui, showAll: true } }))
+                  }
+                >
+                  {t('setform.show_more')}
+                </button>
+              )}
             </div>
           </div>
         )

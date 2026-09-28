@@ -1,0 +1,163 @@
+# Typed query tools for the **world** example dataset, declared as CONTENT
+# (same contract as datasets/{starrydata,materials_project,papers}/query_tools.yaml
+# — see ingest/src/asterism/query_tools.py). Each entry is a named,
+# parameterized, read-only SPARQL operation; asterism.query_tools binds
+# caller arguments type-safely and runs the result through the canonical
+# FROM-merge. `output_kind` / `role` follow ADR object-cards-ui.md §O24 so a
+# card renderer can pick a visualization without parsing predicate names.
+#
+# All six tools are vetted (lint_query_tool-clean) against
+# datasets/world/mapping.rml.ttl's real predicates — no invented vocabulary.
+
+tools:
+  - name: life_expectancy_by_year
+    title: "国の平均寿命の推移"
+    description: >
+      1 か国の年ごとの平均寿命を年順に返す（Gapminder, 1955-2005, 5 年刻み）。
+    output_kind: series
+    parameters:
+      - name: country
+        type: iri
+        required: true
+        description: "対象の world:Country の IRI"
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?year ?lifeExpectancy WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry {{country}} ;
+             world:year ?year ;
+             world:lifeExpectancy ?lifeExpectancy .
+      }
+      ORDER BY ?year
+    result:
+      item:
+        year: { var: year, number: true, role: x, label: "年" }
+        life_expectancy: { var: lifeExpectancy, number: true, role: y, label: "平均寿命", unit: "YR" }
+
+  - name: population_by_year
+    title: "国の人口の推移"
+    description: >
+      1 か国の年ごとの人口を年順に返す（Gapminder, 1955-2005, 5 年刻み）。
+    output_kind: series
+    parameters:
+      - name: country
+        type: iri
+        required: true
+        description: "対象の world:Country の IRI"
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?year ?population WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry {{country}} ;
+             world:year ?year ;
+             world:population ?population .
+      }
+      ORDER BY ?year
+    result:
+      item:
+        year: { var: year, number: true, role: x, label: "年" }
+        population: { var: population, number: true, role: y, label: "人口", unit: "人" }
+
+  - name: population_vs_life_expectancy
+    title: "人口と平均寿命の関係（1 か国、年ごと）"
+    description: >
+      1 か国の各年の記録を、人口 x 平均寿命の点として返す（同じ国の年次推移
+      を散布図で見るための対）。
+    output_kind: pairs
+    parameters:
+      - name: country
+        type: iri
+        required: true
+        description: "対象の world:Country の IRI"
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?population ?lifeExpectancy WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry {{country}} ;
+             world:population ?population ;
+             world:lifeExpectancy ?lifeExpectancy .
+      }
+      ORDER BY ?population
+    result:
+      item:
+        population: { var: population, number: true, role: x, label: "人口", unit: "人" }
+        life_expectancy: { var: lifeExpectancy, number: true, role: y, label: "平均寿命", unit: "YR" }
+
+  - name: countries_by_population
+    title: "人口が多い国の一覧（ある年）"
+    description: >
+      指定した年の人口上位の国を多い順に返す（既定 2005 年、上位 20 か国）。
+    output_kind: ranked
+    parameters:
+      - name: year
+        type: integer
+        required: false
+        default: 2005
+        description: "対象年（1955-2005、5 年刻み）"
+      - name: top_n
+        type: integer
+        required: false
+        default: 20
+        minimum: 1
+        maximum: 62
+        description: "返す件数"
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?country ?countryJa ?population WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry ?country ;
+             world:year {{year}} ;
+             world:population ?population .
+        ?country world:nameJa ?countryJa .
+      }
+      ORDER BY DESC(?population)
+      LIMIT {{top_n}}
+    result:
+      item:
+        country_iri: { var: country, number: false, role: subject }
+        country_ja: { var: countryJa, number: false, role: label, label: "国名" }
+        population: { var: population, number: true, role: value, label: "人口", unit: "人" }
+
+  - name: countries_by_region
+    title: "地域ごとの国の数（ある年）"
+    description: >
+      指定した年に記録がある国を地域（regionJa）ごとに数える（既定 2005 年）。
+    output_kind: breakdown
+    parameters:
+      - name: year
+        type: integer
+        required: false
+        default: 2005
+        description: "対象年（1955-2005、5 年刻み）"
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?regionJa (COUNT(DISTINCT ?country) AS ?n) WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry ?country ;
+             world:year {{year}} .
+        ?country world:regionJa ?regionJa .
+      }
+      GROUP BY ?regionJa
+      ORDER BY DESC(?n)
+    result:
+      item:
+        region_ja: { var: regionJa, number: false, role: category, label: "地域" }
+        count: { var: n, number: true, role: count }
+
+  - name: counts_by_kind
+    title: "種類別の件数"
+    description: "このデータセットの実体を、種類（Country / Observation）ごとに数える。"
+    output_kind: breakdown
+    parameters: []
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE {
+        VALUES ?class { world:Country world:Observation }
+        ?s a ?class .
+      }
+      GROUP BY ?class
+      ORDER BY DESC(?n) ?class
+    result:
+      item:
+        class_iri: { var: class, number: false, role: category }
+        count: { var: n, number: true, role: count }

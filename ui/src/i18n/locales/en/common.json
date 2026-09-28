@@ -9,12 +9,8 @@
     "ja": "日本語",
     "en": "English"
   },
-  "mode": {
-    "label": "Switch between use and build",
-    "use": "Use",
-    "build": "Build"
-  },
   "nav": {
+    "cards": "View",
     "home": "Home",
     "gallery": "Datasets",
     "crosswalk": "Connections",
@@ -99,9 +95,9 @@
       "sub": "The seven default cards, one per output kind"
     },
     "cards": {
-      "eyebrow": "Use",
-      "title": "Pages",
-      "sub": "See individuals and sets as cards, with their sources"
+      "eyebrow": "View",
+      "title": "Search",
+      "sub": "See a single item or a condition-based list as cards, with their sources"
     }
   }
 }

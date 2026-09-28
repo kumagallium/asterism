@@ -80,6 +80,7 @@ export function ExportDialog({ subject, cards, onClose }: ExportDialogProps) {
             ×
           </button>
         </div>
+        <p className="export-modal-intro">{t('export.intro')}</p>
         <fieldset className="export-modal-field">
           <legend>{t('export.share_label')}</legend>
           <label className="export-modal-radio">

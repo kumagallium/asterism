@@ -1,0 +1,683 @@
+country,country_ja,region,region_ja,year,population,life_expectancy,fertility
+Afghanistan,アフガニスタン,South Asia,南アジア,1955,7971931,43.88,7.42
+Afghanistan,アフガニスタン,South Asia,南アジア,1960,8622466,45.03,7.38
+Afghanistan,アフガニスタン,South Asia,南アジア,1965,9565147,46.13,7.35
+Afghanistan,アフガニスタン,South Asia,南アジア,1970,10752971,47.08,7.4
+Afghanistan,アフガニスタン,South Asia,南アジア,1975,12157386,47.55,7.54
+Afghanistan,アフガニスタン,South Asia,南アジア,1980,12486631,43.68,7.59
+Afghanistan,アフガニスタン,South Asia,南アジア,1985,10512221,42.03,7.52
+Afghanistan,アフガニスタン,South Asia,南アジア,1990,10694796,53.83,7.57
+Afghanistan,アフガニスタン,South Asia,南アジア,1995,16418912,54.33,7.71
+Afghanistan,アフガニスタン,South Asia,南アジア,2000,19542982,54.73,7.53
+Afghanistan,アフガニスタン,South Asia,南アジア,2005,24411191,57.63,6.91
+Argentina,アルゼンチン,America,アメリカ大陸,1955,18700686,64.51,3.14
+Argentina,アルゼンチン,America,アメリカ大陸,1960,20349744,65.26,3.08
+Argentina,アルゼンチン,America,アメリカ大陸,1965,22053661,66.13,3.06
+Argentina,アルゼンチン,America,アメリカ大陸,1970,23842803,66.13,3.09
+Argentina,アルゼンチン,America,アメリカ大陸,1975,25875558,68.03,3.3
+Argentina,アルゼンチン,America,アメリカ大陸,1980,28024803,70.23,3.3
+Argentina,アルゼンチン,America,アメリカ大陸,1985,30287112,71.73,3.1
+Argentina,アルゼンチン,America,アメリカ大陸,1990,32637657,72.47,3.03
+Argentina,アルゼンチン,America,アメリカ大陸,1995,34946110,73.44,2.86
+Argentina,アルゼンチン,America,アメリカ大陸,2000,37070774,74.22,2.59
+Argentina,アルゼンチン,America,アメリカ大陸,2005,39070501,75.28,2.43
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1955,9209844,70.34,3.27
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1960,10286647,71.11,3.45
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1965,11359442,71.1,2.98
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1970,12595034,71.15,2.86
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1975,13886854,72.51,2.16
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1980,14706322,74.51,1.9
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1985,15785682,75.59,1.92
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1990,17048003,77.0,1.9
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,1995,18002999,78.29,1.83
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,2000,19017963,79.72,1.77
+Australia,オーストラリア,East Asia & Pacific,東アジア・太平洋,2005,20171731,81.24,1.84
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1955,6946260,67.68,2.29
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1960,7046553,68.96,2.7
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1965,7269888,70.09,2.7
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1970,7465301,70.21,2.3
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1975,7576926,71.44,1.82
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1980,7547561,72.84,1.65
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1985,7562114,74.26,1.48
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1990,7678729,75.97,1.46
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,1995,7947296,77.03,1.44
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,2000,8010428,78.49,1.36
+Austria,オーストリア,Europe & Central Asia,ヨーロッパ・中央アジア,2005,8227034,79.75,1.41
+Bahamas,バハマ,America,アメリカ大陸,1955,92444,60.03,4.5
+Bahamas,バハマ,America,アメリカ大陸,1960,114500,61.93,4.74
+Bahamas,バハマ,America,アメリカ大陸,1965,144849,63.28,4.48
+Bahamas,バハマ,America,アメリカ大陸,1970,179129,65.4,4.07
+Bahamas,バハマ,America,アメリカ大陸,1975,201881,68.21,3.26
+Bahamas,バハマ,America,アメリカ大陸,1980,223752,68.62,2.9
+Bahamas,バハマ,America,アメリカ大陸,1985,245935,70.21,2.63
+Bahamas,バハマ,America,アメリカ大陸,1990,270679,70.86,2.53
+Bahamas,バハマ,America,アメリカ大陸,1995,299554,70.77,2.5
+Bahamas,バハマ,America,アメリカ大陸,2000,325014,71.25,2.1
+Bahamas,バハマ,America,アメリカ大陸,2005,347804,73.18,2.05
+Bangladesh,バングラデシュ,South Asia,南アジア,1955,44315548,41.87,6.49
+Bangladesh,バングラデシュ,South Asia,南アジア,1960,50396429,43.82,6.77
+Bangladesh,バングラデシュ,South Asia,南アジア,1965,58500159,45.87,6.84
+Bangladesh,バングラデシュ,South Asia,南アジア,1970,67541860,42.2,6.88
+Bangladesh,バングラデシュ,South Asia,南アジア,1975,74700345,50.62,6.74
+Bangladesh,バングラデシュ,South Asia,南アジア,1980,83929765,53.22,6.32
+Bangladesh,バングラデシュ,South Asia,南アジア,1985,95959099,53.75,5.54
+Bangladesh,バングラデシュ,South Asia,南アジア,1990,107147651,58.19,4.48
+Bangladesh,バングラデシュ,South Asia,南アジア,1995,117793338,62.24,3.61
+Bangladesh,バングラデシュ,South Asia,南アジア,2000,129193327,65.47,3.22
+Bangladesh,バングラデシュ,South Asia,南アジア,2005,140912590,67.44,2.81
+Barbados,バルバドス,America,アメリカ大陸,1955,227320,62.11,4.34
+Barbados,バルバドス,America,アメリカ大陸,1960,232550,66.14,4.33
+Barbados,バルバドス,America,アメリカ大陸,1965,237694,68.23,3.96
+Barbados,バルバドス,America,アメリカ大陸,1970,241397,69.18,3.11
+Barbados,バルバドス,America,アメリカ大陸,1975,247090,70.33,2.39
+Barbados,バルバドス,America,アメリカ大陸,1980,253575,72.96,2.0
+Barbados,バルバドス,America,アメリカ大陸,1985,257911,73.95,1.83
+Barbados,バルバドス,America,アメリカ大陸,1990,258868,73.86,1.74
+Barbados,バルバドス,America,アメリカ大陸,1995,262303,73.9,1.73
+Barbados,バルバドス,America,アメリカ大陸,2000,264657,74.74,1.78
+Barbados,バルバドス,America,アメリカ大陸,2005,269477,75.24,1.79
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1955,8834526,68.8,2.4
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1960,9108724,70.07,2.56
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1965,9412087,70.76,2.61
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1970,9629376,71.1,2.25
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1975,9763430,72.15,1.74
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1980,9828986,73.33,1.68
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1985,9880534,74.61,1.51
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1990,9959560,76.15,1.62
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,1995,10095198,77.01,1.56
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,2000,10264343,78.04,1.66
+Belgium,ベルギー,Europe & Central Asia,ヨーロッパ・中央アジア,2005,10516978,79.32,1.76
+Bolivia,ボリビア,America,アメリカ大陸,1955,3357923,40.53,6.47
+Bolivia,ボリビア,America,アメリカ大陸,1960,3707515,43.0,6.44
+Bolivia,ボリビア,America,アメリカ大陸,1965,4115511,46.17,6.26
+Bolivia,ボリビア,America,アメリカ大陸,1970,4585693,50.09,6.0
+Bolivia,ボリビア,America,アメリカ大陸,1975,5127776,53.66,5.79
+Bolivia,ボリビア,America,アメリカ大陸,1980,5736088,56.76,5.47
+Bolivia,ボリビア,America,アメリカ大陸,1985,6385630,59.14,5.19
+Bolivia,ボリビア,America,アメリカ大陸,1990,7096194,61.69,4.89
+Bolivia,ボリビア,America,アメリカ大陸,1995,7841471,64.02,4.41
+Bolivia,ボリビア,America,アメリカ大陸,2000,8592656,66.53,3.99
+Bolivia,ボリビア,America,アメリカ大陸,2005,9377388,68.97,3.56
+Brazil,ブラジル,America,アメリカ大陸,1955,62701031,49.94,6.11
+Brazil,ブラジル,America,アメリカ大陸,1960,73092515,52.44,6.1
+Brazil,ブラジル,America,アメリカ大陸,1965,84623747,54.83,5.69
+Brazil,ブラジル,America,アメリカ大陸,1970,96369875,56.94,4.97
+Brazil,ブラジル,America,アメリカ大陸,1975,108700515,59.78,4.42
+Brazil,ブラジル,America,アメリカ大陸,1980,122288383,62.74,4.04
+Brazil,ブラジル,America,アメリカ大陸,1985,136783180,64.61,3.47
+Brazil,ブラジル,America,アメリカ大陸,1990,150706446,67.29,2.91
+Brazil,ブラジル,America,アメリカ大陸,1995,163515328,69.17,2.58
+Brazil,ブラジル,America,アメリカ大陸,2000,175873720,71.18,2.26
+Brazil,ブラジル,America,アメリカ大陸,2005,186797334,72.81,1.97
+Canada,カナダ,America,アメリカ大陸,1955,15733923,70.33,3.82
+Canada,カナダ,America,アメリカ大陸,1960,17909356,71.15,3.9
+Canada,カナダ,America,アメリカ大陸,1965,19688805,71.9,3.14
+Canada,カナダ,America,アメリカ大陸,1970,21434577,72.76,2.33
+Canada,カナダ,America,アメリカ大陸,1975,23136252,73.63,1.85
+Canada,カナダ,America,アメリカ大陸,1980,24511510,75.21,1.74
+Canada,カナダ,America,アメリカ大陸,1985,25843922,76.38,1.67
+Canada,カナダ,America,アメリカ大陸,1990,27657204,77.43,1.81
+Canada,カナダ,America,アメリカ大陸,1995,29289423,78.12,1.68
+Canada,カナダ,America,アメリカ大陸,2000,30683313,79.36,1.49
+Canada,カナダ,America,アメリカ大陸,2005,32215916,80.43,1.54
+Chile,チリ,America,アメリカ大陸,1955,7323194,54.83,4.97
+Chile,チリ,America,アメリカ大陸,1960,8141820,54.2,4.92
+Chile,チリ,America,アメリカ大陸,1965,8994936,58.7,4.44
+Chile,チリ,America,アメリカ大陸,1970,9820481,61.99,3.78
+Chile,チリ,America,アメリカ大陸,1975,10639531,66.15,3.18
+Chile,チリ,America,アメリカ大陸,1980,11469828,69.44,2.74
+Chile,チリ,America,アメリカ大陸,1985,12326396,71.95,2.59
+Chile,チリ,America,アメリカ大陸,1990,13342868,73.43,2.58
+Chile,チリ,America,アメリカ大陸,1995,14416796,75.28,2.3
+Chile,チリ,America,アメリカ大陸,2000,15351799,76.93,1.99
+Chile,チリ,America,アメリカ大陸,2005,16175311,77.89,1.8
+China,中国,East Asia & Pacific,東アジア・太平洋,1955,603320147,53.92,6.16
+China,中国,East Asia & Pacific,東アジア・太平洋,1960,654170692,27.79,4.33
+China,中国,East Asia & Pacific,東アジア・太平洋,1965,723846349,58.47,6.53
+China,中国,East Asia & Pacific,東アジア・太平洋,1970,822534450,60.88,6.09
+China,中国,East Asia & Pacific,東アジア・太平洋,1975,915124661,62.81,3.57
+China,中国,East Asia & Pacific,東アジア・太平洋,1980,982372466,64.41,2.74
+China,中国,East Asia & Pacific,東アジア・太平洋,1985,1060239979,66.59,2.63
+China,中国,East Asia & Pacific,東アジア・太平洋,1990,1153704252,68.09,2.51
+China,中国,East Asia & Pacific,東アジア・太平洋,1995,1218144426,69.75,1.59
+China,中国,East Asia & Pacific,東アジア・太平洋,2000,1264099069,71.33,1.63
+China,中国,East Asia & Pacific,東アジア・太平洋,2005,1304887562,72.98,1.62
+Colombia,コロンビア,America,アメリカ大陸,1955,13512612,57.49,6.67
+Colombia,コロンビア,America,アメリカ大陸,1960,15687688,59.26,6.75
+Colombia,コロンビア,America,アメリカ大陸,1965,18275814,61.58,6.36
+Colombia,コロンビア,America,アメリカ大陸,1970,20905254,65.93,5.28
+Colombia,コロンビア,America,アメリカ大陸,1975,23403731,66.27,4.4
+Colombia,コロンビア,America,アメリカ大陸,1980,26176195,68.92,3.86
+Colombia,コロンビア,America,アメリカ大陸,1985,29326260,67.21,3.34
+Colombia,コロンビア,America,アメリカ大陸,1990,32601393,71.45,3.08
+Colombia,コロンビア,America,アメリカ大陸,1995,35970101,72.55,2.86
+Colombia,コロンビア,America,アメリカ大陸,2000,39215135,74.23,2.57
+Colombia,コロンビア,America,アメリカ大陸,2005,42220940,76.52,2.26
+Costa Rica,コスタリカ,America,アメリカ大陸,1955,1123982,61.93,6.71
+Costa Rica,コスタリカ,America,アメリカ大陸,1960,1346302,65.35,6.86
+Costa Rica,コスタリカ,America,アメリカ大陸,1965,1602736,65.49,6.04
+Costa Rica,コスタリカ,America,アメリカ大陸,1970,1855697,67.04,4.59
+Costa Rica,コスタリカ,America,アメリカ大陸,1975,2111850,71.6,3.8
+Costa Rica,コスタリカ,America,アメリカ大陸,1980,2414303,74.68,3.59
+Costa Rica,コスタリカ,America,アメリカ大陸,1985,2771463,75.71,3.51
+Costa Rica,コスタリカ,America,アメリカ大陸,1990,3158253,76.94,3.21
+Costa Rica,コスタリカ,America,アメリカ大陸,1995,3572856,76.53,2.8
+Costa Rica,コスタリカ,America,アメリカ大陸,2000,3979193,77.9,2.41
+Costa Rica,コスタリカ,America,アメリカ大陸,2005,4315887,79.44,2.04
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1955,4049659,60.23,2.57
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1960,4215324,64.71,2.26
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1965,4371381,67.64,2.21
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1970,4492638,68.67,1.92
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1975,4579428,70.58,1.96
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1980,4680144,70.67,1.92
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1985,4803325,71.32,1.82
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1990,4873707,72.46,1.63
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,1995,4807100,73.01,1.63
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,2000,4548434,74.65,1.47
+Croatia,クロアチア,Europe & Central Asia,ヨーロッパ・中央アジア,2005,4429681,75.57,1.5
+Cuba,キューバ,America,アメリカ大陸,1955,6559586,67.12,3.82
+Cuba,キューバ,America,アメリカ大陸,1960,7267395,69.27,4.14
+Cuba,キューバ,America,アメリカ大陸,1965,8067651,69.81,4.48
+Cuba,キューバ,America,アメリカ大陸,1970,8869636,70.78,4.0
+Cuba,キューバ,America,アメリカ大陸,1975,9514305,73.15,2.85
+Cuba,キューバ,America,アメリカ大陸,1980,9809107,73.57,1.62
+Cuba,キューバ,America,アメリカ大陸,1985,10149044,74.15,1.76
+Cuba,キューバ,America,アメリカ大陸,1990,10626680,75.01,1.8
+Cuba,キューバ,America,アメリカ大陸,1995,10926703,75.39,1.47
+Cuba,キューバ,America,アメリカ大陸,2000,11105791,77.01,1.58
+Cuba,キューバ,America,アメリカ大陸,2005,11246114,77.68,1.47
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1955,2791108,60.36,7.67
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1960,3298021,61.92,7.56
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1965,3868712,61.62,7.05
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1970,4475871,64.88,6.18
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1975,5106453,67.18,5.24
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1980,5755800,69.25,4.3
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1985,6417798,70.24,3.69
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1990,7129004,71.97,3.41
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,1995,7869753,73.71,3.1
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,2000,8540791,73.66,2.86
+Dominican Republic,ドミニカ共和国,America,アメリカ大陸,2005,9164768,72.56,2.61
+Ecuador,エクアドル,America,アメリカ大陸,1955,4022378,53.94,6.75
+Ecuador,エクアドル,America,アメリカ大陸,1960,4618158,56.1,6.71
+Ecuador,エクアドル,America,アメリカ大陸,1965,5337351,59.75,6.56
+Ecuador,エクアドル,America,アメリカ大陸,1970,6172215,61.35,6.14
+Ecuador,エクアドル,America,アメリカ大陸,1975,7105786,64.09,5.43
+Ecuador,エクアドル,America,アメリカ大陸,1980,8135845,67.01,4.73
+Ecuador,エクアドル,America,アメリカ大陸,1985,9254311,69.88,4.2
+Ecuador,エクアドル,America,アメリカ大陸,1990,10449837,71.95,3.74
+Ecuador,エクアドル,America,アメリカ大陸,1995,11561683,73.63,3.4
+Ecuador,エクアドル,America,アメリカ大陸,2000,12626507,74.46,3.1
+Ecuador,エクアドル,America,アメリカ大陸,2005,13770012,73.61,2.8
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1955,23841701,43.8,6.83
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1960,27034499,46.87,6.75
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1965,30818469,50.67,6.5
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1970,34781986,51.25,6.12
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1975,38775584,54.43,5.8
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1980,43748556,58.48,5.58
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1985,50035843,60.12,5.16
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1990,57214630,63.92,4.48
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,1995,64166908,66.38,3.84
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,2000,71371371,68.54,3.44
+Egypt,エジプト,Middle East & North Africa,中東・北アフリカ,2005,79075310,68.78,3.15
+El Salvador,エルサルバドル,America,アメリカ大陸,1955,2448633,48.83,6.47
+El Salvador,エルサルバドル,America,アメリカ大陸,1960,2779327,53.46,6.66
+El Salvador,エルサルバドル,America,アメリカ大陸,1965,3179506,56.44,6.65
+El Salvador,エルサルバドル,America,アメリカ大陸,1970,3619090,57.81,6.18
+El Salvador,エルサルバドル,America,アメリカ大陸,1975,4076751,62.42,5.68
+El Salvador,エルサルバドル,America,アメリカ大陸,1980,4508992,63.81,5.11
+El Salvador,エルサルバドル,America,アメリカ大陸,1985,4876757,65.59,4.35
+El Salvador,エルサルバドル,America,アメリカ大陸,1990,5367179,69.8,3.95
+El Salvador,エルサルバドル,America,アメリカ大陸,1995,5748195,71.59,3.58
+El Salvador,エルサルバドル,America,アメリカ大陸,2000,5958482,73.07,3.14
+El Salvador,エルサルバドル,America,アメリカ大陸,2005,6037817,73.58,2.46
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1955,4235413,67.73,2.93
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1960,4430173,69.22,2.72
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1965,4564583,69.56,2.47
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1970,4606621,70.66,1.82
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1975,4711368,72.17,1.68
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1980,4779418,74.01,1.63
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1985,4902175,74.88,1.64
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1990,4986545,75.43,1.78
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,1995,5107943,76.94,1.81
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,2000,5176209,78.04,1.73
+Finland,フィンランド,Europe & Central Asia,ヨーロッパ・中央アジア,2005,5246071,79.32,1.8
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1955,43593851,69.33,2.7
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1960,45659575,71.19,2.74
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1965,48168804,71.83,2.82
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1970,50523586,72.6,2.5
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1975,52450030,73.34,1.95
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1980,53713830,74.68,1.96
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1985,55108106,75.77,1.82
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1990,56412897,77.21,1.78
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,1995,57420354,78.19,1.71
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,2000,58665453,79.19,1.88
+France,フランス,Europe & Central Asia,ヨーロッパ・中央アジア,2005,60510079,80.56,1.92
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1955,3738231,54.29,2.88
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1960,4051492,59.25,2.95
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1965,4418592,62.95,2.78
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1970,4800426,65.36,2.67
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1975,4970320,66.74,2.53
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1980,5145843,68.54,2.33
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1985,5338867,69.06,2.34
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1990,5391636,68.53,2.31
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,1995,4877676,69.98,1.85
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,2000,4265172,70.68,1.6
+Georgia,ジョージア,Europe & Central Asia,ヨーロッパ・中央アジア,2005,3961182,71.05,1.61
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1955,71222628,68.53,2.18
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1960,73063695,69.41,2.39
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1965,76037469,70.68,2.49
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1970,78294583,70.61,2.04
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1975,78513511,71.67,1.48
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1980,77786703,73.26,1.54
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1985,77638808,74.83,1.39
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1990,79370196,75.66,1.44
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,1995,81123262,76.87,1.25
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,2000,81551677,78.39,1.38
+Germany,ドイツ,Europe & Central Asia,ヨーロッパ・中央アジア,2005,81212168,79.64,1.34
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1955,8146022,71.5,2.38
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1960,8495415,72.43,2.29
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1965,8526254,73.01,2.34
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1970,8544873,73.82,2.47
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1975,8805415,74.63,2.44
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1980,9307148,75.3,2.32
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1985,9840141,75.86,1.78
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1990,10302255,77.23,1.49
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,1995,10727927,77.75,1.39
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,2000,11038109,78.44,1.33
+Greece,ギリシャ,Europe & Central Asia,ヨーロッパ・中央アジア,2005,11113448,79.43,1.35
+Grenada,グレナダ,America,アメリカ大陸,1955,82656,61.2,6.43
+Grenada,グレナダ,America,アメリカ大陸,1960,93772,64.11,6.74
+Grenada,グレナダ,America,アメリカ大陸,1965,98226,65.58,5.6
+Grenada,グレナダ,America,アメリカ大陸,1970,98794,66.98,4.52
+Grenada,グレナダ,America,アメリカ大陸,1975,97165,69.02,4.02
+Grenada,グレナダ,America,アメリカ大陸,1980,94838,69.31,3.63
+Grenada,グレナダ,America,アメリカ大陸,1985,100576,69.55,3.54
+Grenada,グレナダ,America,アメリカ大陸,1990,99047,69.21,3.49
+Grenada,グレナダ,America,アメリカ大陸,1995,104060,70.7,2.99
+Grenada,グレナダ,America,アメリカ大陸,2000,107432,71.97,2.58
+Grenada,グレナダ,America,アメリカ大陸,2005,110254,72.38,2.34
+Haiti,ハイチ,America,アメリカ大陸,1955,3545999,43.97,6.26
+Haiti,ハイチ,America,アメリカ大陸,1960,3901139,45.41,6.24
+Haiti,ハイチ,America,アメリカ大陸,1965,4274348,46.51,6.13
+Haiti,ハイチ,America,アメリカ大陸,1970,4680812,47.96,5.87
+Haiti,ハイチ,America,アメリカ大陸,1975,5124560,49.73,5.69
+Haiti,ハイチ,America,アメリカ大陸,1980,5646676,51.28,5.65
+Haiti,ハイチ,America,アメリカ大陸,1985,6245539,53.05,5.62
+Haiti,ハイチ,America,アメリカ大陸,1990,6925331,54.57,5.48
+Haiti,ハイチ,America,アメリカ大陸,1995,7627316,55.35,4.88
+Haiti,ハイチ,America,アメリカ大陸,2000,8360225,57.43,4.39
+Haiti,ハイチ,America,アメリカ大陸,2005,9111900,59.05,3.83
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1955,2490487,62.97,4.5
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1960,3114671,66.24,5.09
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1965,3602029,69.63,4.87
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1970,3955072,71.31,3.49
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1975,4451220,73.61,2.7
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1980,4978544,74.85,1.86
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1985,5411680,76.6,1.5
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1990,5838574,77.47,1.29
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,1995,6243859,79.15,1.3
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,2000,6731195,80.75,1.03
+"Hong Kong, China",香港,East Asia & Pacific,東アジア・太平洋,2005,6936874,81.77,0.96
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1955,157735,72.71,4.08
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1960,175566,73.38,4.23
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1965,192309,73.72,3.71
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1970,204468,73.93,2.82
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1975,218070,75.67,2.64
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1980,228263,76.49,2.48
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1985,241577,77.26,1.94
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1990,255019,78.11,2.29
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,1995,267681,78.38,2.08
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,2000,281462,80.35,2.07
+Iceland,アイスランド,Europe & Central Asia,ヨーロッパ・中央アジア,2005,297029,81.61,2.05
+India,インド,South Asia,南アジア,1955,398577992,45.84,5.91
+India,インド,South Asia,南アジア,1960,445954579,45.75,5.91
+India,インド,South Asia,南アジア,1965,500114346,45.71,5.92
+India,インド,South Asia,南アジア,1970,557501301,49.33,5.62
+India,インド,South Asia,南アジア,1975,623524219,51.59,5.2
+India,インド,South Asia,南アジア,1980,696828385,55.17,4.78
+India,インド,South Asia,南アジア,1985,780242084,57.3,4.43
+India,インド,South Asia,南アジア,1990,870452165,59.58,4.05
+India,インド,South Asia,南アジア,1995,964279129,61.74,3.65
+India,インド,South Asia,南アジア,2000,1059633675,62.94,3.35
+India,インド,South Asia,南アジア,2005,1154638713,65.39,2.96
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1955,77741502,45.7,5.46
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1960,88382881,48.63,5.58
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1965,101157868,51.24,5.62
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1970,115228394,54.09,5.45
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1975,131213215,56.92,5.04
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1980,148177096,59.71,4.49
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1985,165791694,62.11,3.71
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1990,182159874,64.05,3.1
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,1995,198140162,66.04,2.8
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,2000,214072421,67.24,2.54
+Indonesia,インドネシア,East Asia & Pacific,東アジア・太平洋,2005,228805144,68.26,2.43
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1955,18873864,41.21,6.99
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1960,21388806,44.48,7.21
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1965,24667026,48.71,7.07
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1970,28449705,54.51,6.71
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1975,32856976,61.47,6.01
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1980,38520664,64.7,6.58
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1985,47266160,66.31,6.26
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1990,55793629,66.68,4.86
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,1995,60794809,70.37,2.89
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,2000,65544383,71.94,2.02
+Iran,イラン,Middle East & North Africa,中東・北アフリカ,2005,70182594,73.55,1.78
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1955,6405686,58.52,6.19
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1960,7084678,60.49,5.54
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1965,8270544,61.13,6.96
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1970,9811347,62.78,7.08
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1975,11617622,64.23,6.88
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1980,13653369,64.51,6.57
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1985,15753856,62.73,6.25
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1990,17658381,67.0,5.88
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,1995,20948858,67.16,5.4
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,2000,24628858,68.64,4.95
+Iraq,イラク,Middle East & North Africa,中東・北アフリカ,2005,28698684,67.68,4.48
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1955,2886368,68.52,3.41
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1960,2811067,70.12,3.8
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1965,2852401,70.75,4.02
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1970,2937637,71.23,3.85
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1975,3157919,71.74,3.37
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1980,3391387,72.69,3.2
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1985,3505769,73.8,2.48
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1990,3485374,74.98,2.11
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,1995,3579482,75.74,1.85
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,2000,3768950,76.77,1.89
+Ireland,アイルランド,Europe & Central Asia,ヨーロッパ・中央アジア,2005,4121216,79.1,1.87
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1955,1564960,70.25,4.06
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1960,1902247,71.82,4.0
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1965,2361088,71.68,4.02
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1970,2907307,71.7,4.11
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1975,3388086,72.4,3.84
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1980,3744608,74.16,3.3
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1985,4182681,75.58,3.27
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1990,4803254,77.31,3.18
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,1995,5478734,77.8,2.94
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,2000,6116958,78.87,2.95
+Israel,イスラエル,Middle East & North Africa,中東・北アフリカ,2005,6714124,80.27,2.84
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1955,48130728,68.43,2.31
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1960,49517707,69.86,2.38
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1965,51452854,70.87,2.59
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1970,53324036,71.81,2.39
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1975,55093989,72.86,2.17
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1980,56329482,74.2,1.64
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1985,56636465,75.79,1.42
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1990,56756561,77.16,1.33
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,1995,56885126,78.22,1.19
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,2000,56966397,79.64,1.25
+Italy,イタリア,Europe & Central Asia,ヨーロッパ・中央アジア,2005,58199876,80.99,1.34
+Jamaica,ジャマイカ,America,アメリカ大陸,1955,1552883,62.15,4.6
+Jamaica,ジャマイカ,America,アメリカ大陸,1960,1642331,65.14,5.54
+Jamaica,ジャマイカ,America,アメリカ大陸,1965,1746977,66.84,5.76
+Jamaica,ジャマイカ,America,アメリカ大陸,1970,1859091,68.87,5.64
+Jamaica,ジャマイカ,America,アメリカ大陸,1975,2003094,71.03,4.5
+Jamaica,ジャマイカ,America,アメリカ大陸,1980,2135546,73.82,3.73
+Jamaica,ジャマイカ,America,アメリカ大陸,1985,2292030,73.07,3.31
+Jamaica,ジャマイカ,America,アメリカ大陸,1990,2392030,75.32,2.85
+Jamaica,ジャマイカ,America,アメリカ大陸,1995,2509372,75.28,2.88
+Jamaica,ジャマイカ,America,アメリカ大陸,2000,2612205,74.64,2.21
+Jamaica,ジャマイカ,America,アメリカ大陸,2005,2676863,77.42,2.06
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1955,90090281,66.12,2.41
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1960,94464839,68.31,2.01
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1965,99468746,70.86,2.12
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1970,105416839,72.65,2.09
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1975,112411640,74.77,1.94
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1980,117624196,76.57,1.75
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1985,121119031,78.16,1.74
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1990,123686321,79.41,1.53
+Japan,日本,East Asia & Pacific,東アジア・太平洋,1995,125433969,80.24,1.42
+Japan,日本,East Asia & Pacific,東アジア・太平洋,2000,126803861,81.57,1.37
+Japan,日本,East Asia & Pacific,東アジア・太平洋,2005,127798373,82.5,1.27
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1955,6558870,50.93,7.54
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1960,7751435,54.29,7.71
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1965,9417207,56.31,8.04
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1970,11473087,58.15,8.02
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1975,13651908,60.24,7.88
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1980,16187124,62.21,7.6
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1985,19452161,63.39,6.98
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1990,23162269,62.12,6.13
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,1995,26878347,57.04,5.37
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,2000,30851606,54.83,5.14
+Kenya,ケニア,Sub-Saharan Africa,サブサハラアフリカ,2005,35843010,56.51,4.78
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1955,1556327,62.08,5.78
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1960,1798092,64.87,5.8
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1965,2087445,66.56,5.63
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1970,2381791,67.59,5.17
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1975,2691586,62.04,4.56
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1980,2963702,69.41,4.03
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1985,3226750,65.13,3.59
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1990,3593700,69.92,3.3
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,1995,3959640,73.15,2.78
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,2000,4320642,74.82,2.5
+Lebanon,レバノン,Middle East & North Africa,中東・北アフリカ,2005,4643044,75.44,2.2
+Mexico,メキシコ,America,アメリカ大陸,1955,31452141,53.59,6.75
+Mexico,メキシコ,America,アメリカ大陸,1960,36268055,57.15,6.77
+Mexico,メキシコ,America,アメリカ大陸,1965,42737991,59.87,6.81
+Mexico,メキシコ,America,アメリカ大陸,1970,50289306,61.44,6.55
+Mexico,メキシコ,America,アメリカ大陸,1975,58691882,64.21,5.79
+Mexico,メキシコ,America,アメリカ大陸,1980,67705186,66.19,4.78
+Mexico,メキシコ,America,アメリカ大陸,1985,74872006,68.62,4.09
+Mexico,メキシコ,America,アメリカ大陸,1990,81720428,70.85,3.45
+Mexico,メキシコ,America,アメリカ大陸,1995,89969572,72.35,3.04
+Mexico,メキシコ,America,アメリカ大陸,2000,97873442,74.21,2.72
+Mexico,メキシコ,America,アメリカ大陸,2005,105442402,75.01,2.5
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1955,10767906,72.62,3.04
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1960,11493117,73.5,3.12
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1965,12275791,73.69,3.02
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1970,13037686,73.73,2.57
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1975,13663969,74.68,1.67
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1980,14130387,75.88,1.6
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1985,14515704,76.49,1.51
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1990,14944548,77.16,1.61
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,1995,15446668,77.69,1.54
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,2000,15899135,78.28,1.72
+Netherlands,オランダ,Europe & Central Asia,ヨーロッパ・中央アジア,2005,16261831,79.63,1.71
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1955,2140976,70.62,3.73
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1960,2381189,71.22,4.06
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1965,2638316,71.46,3.48
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1970,2824061,71.64,3.17
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1975,3095428,72.39,2.37
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1980,3147168,73.37,2.03
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1985,3268356,74.22,1.93
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1990,3397389,75.55,2.17
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,1995,3673893,76.75,1.98
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,2000,3855266,78.39,1.98
+New Zealand,ニュージーランド,East Asia & Pacific,東アジア・太平洋,2005,4132781,79.8,1.96
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1955,40839223,45.86,6.38
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1960,44928342,46.81,6.36
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1965,49925799,48.15,6.36
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1970,55569264,49.05,6.47
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1975,62851312,52.01,6.77
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1980,72951439,54.06,6.85
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1985,83585251,54.91,6.62
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1990,95214257,54.69,6.46
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,1995,108187610,54.63,6.27
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,2000,122851984,54.63,6.12
+Nigeria,ナイジェリア,Sub-Saharan Africa,サブサハラアフリカ,2005,140490722,56.63,6.07
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1955,10360269,43.46,4.09
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1960,11655666,47.62,3.82
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1965,13105946,52.29,3.62
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1970,14996879,57.11,3.85
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1975,16723252,61.11,3.05
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1980,17973650,64.05,2.84
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1985,19325487,66.17,2.58
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1990,20799523,67.97,2.35
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,1995,22385536,61.83,2.16
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,2000,23367059,63.9,1.97
+North Korea,北朝鮮,East Asia & Pacific,東アジア・太平洋,2005,24100982,70.01,1.96
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1955,3429090,73.21,2.77
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1960,3581520,73.4,2.87
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1965,3723510,73.64,2.94
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1970,3875546,74.25,2.52
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1975,4007466,75.12,1.98
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1980,4085776,75.96,1.72
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1985,4152637,76.35,1.68
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1990,4241636,76.86,1.93
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,1995,4359333,78.04,1.87
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,2000,4491202,78.9,1.85
+Norway,ノルウェー,Europe & Central Asia,ヨーロッパ・中央アジア,2005,4623689,80.37,1.84
+Pakistan,パキスタン,South Asia,南アジア,1955,41023128,48.64,6.73
+Pakistan,パキスタン,South Asia,南アジア,1960,45954226,51.32,6.75
+Pakistan,パキスタン,South Asia,南アジア,1965,51841626,54.62,6.78
+Pakistan,パキスタン,South Asia,南アジア,1970,59290872,57.08,6.8
+Pakistan,パキスタン,South Asia,南アジア,1975,68126999,59.03,6.81
+Pakistan,パキスタン,South Asia,南アジア,1980,80624057,60.24,6.73
+Pakistan,パキスタン,South Asia,南アジア,1985,97121552,60.88,6.59
+Pakistan,パキスタン,South Asia,南アジア,1990,115414069,61.05,6.36
+Pakistan,パキスタン,South Asia,南アジア,1995,133117476,60.34,5.89
+Pakistan,パキスタン,South Asia,南アジア,2000,154369924,61.04,5.26
+Pakistan,パキスタン,South Asia,南アジア,2005,174372098,61.05,4.64
+Peru,ペルー,America,アメリカ大陸,1955,8825897,43.67,6.92
+Peru,ペルー,America,アメリカ大陸,1960,10172207,47.26,6.92
+Peru,ペルー,America,アメリカ大陸,1965,11781581,54.12,6.75
+Peru,ペルー,America,アメリカ大陸,1970,13562371,48.63,6.32
+Peru,ペルー,America,アメリカ大陸,1975,15441497,63.4,5.71
+Peru,ペルー,America,アメリカ大陸,1980,17492406,65.1,5.04
+Peru,ペルー,America,アメリカ大陸,1985,19746610,65.94,4.46
+Peru,ペルー,America,アメリカ大陸,1990,22109099,69.24,3.91
+Peru,ペルー,America,アメリカ大陸,1995,24449055,71.49,3.32
+Peru,ペルー,America,アメリカ大陸,2000,26654439,74.61,2.85
+Peru,ペルー,America,アメリカ大陸,2005,28147267,77.16,2.69
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1955,23027910,58.15,7.37
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1960,28486871,61.26,7.15
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1965,32805538,62.55,6.78
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1970,37435586,62.69,6.2
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1975,42394433,64.11,5.6
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1980,48419546,65.74,5.11
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1985,54812660,66.51,4.65
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1990,61558898,68.41,4.35
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,1995,69250468,69.77,4.04
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,2000,77958223,70.31,3.71
+Philippines,フィリピン,East Asia & Pacific,東アジア・太平洋,2005,86261250,70.31,3.49
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1955,27099199,63.42,3.55
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1960,29509903,67.9,3.02
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1965,31224081,69.66,2.51
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1970,32482943,70.17,2.26
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1975,33899770,71.14,2.28
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1980,35521429,70.54,2.25
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1985,37179160,70.8,2.32
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1990,38064255,71.08,2.05
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,1995,38401978,72.0,1.63
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,2000,38504431,73.9,1.37
+Poland,ポーランド,Europe & Central Asia,ヨーロッパ・中央アジア,2005,38575911,75.19,1.24
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1955,8665451,61.43,3.13
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1960,8882469,64.73,3.16
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1965,8899092,65.9,3.16
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1970,8683631,67.39,3.01
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1975,9202709,69.32,2.75
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1980,9785252,71.75,2.24
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1985,9996896,73.26,1.73
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1990,10007346,74.28,1.56
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,1995,10051248,75.47,1.41
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,2000,10300626,76.84,1.54
+Portugal,ポルトガル,Europe & Central Asia,ヨーロッパ・中央アジア,2005,10523315,78.75,1.41
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1955,2537919,38.94,8.09
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1960,2966162,42.24,8.19
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1965,3348631,42.85,8.2
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1970,3896367,43.58,8.23
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1975,4515756,45.02,8.22
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1980,5247532,48.43,8.19
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1985,6266752,51.49,7.73
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1990,7319962,50.01,6.87
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,1995,5686897,46.41,6.32
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,2000,8109989,50.51,5.92
+Rwanda,ルワンダ,Sub-Saharan Africa,サブサハラアフリカ,2005,9026299,58.22,5.44
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1955,3581910,52.56,7.43
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1960,4165563,54.34,7.52
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1965,4978922,56.93,7.61
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1970,6106191,59.81,7.58
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1975,7897544,63.63,7.37
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1980,10171710,66.06,7.19
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1985,12890245,67.54,6.7
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1990,16004763,68.08,5.83
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,1995,18888857,69.4,4.95
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,2000,21547390,70.37,4.12
+Saudi Arabia,サウジアラビア,Middle East & North Africa,中東・北アフリカ,2005,24397644,71.16,3.24
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1955,14594129,53.04,6.2
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1960,16520441,53.93,6.16
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1965,19187194,55.19,5.96
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1970,22368306,56.69,5.63
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1975,25777964,58.3,5.19
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1980,29463549,59.52,4.78
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1985,33752964,61.92,4.5
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1990,39877570,64.18,3.72
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,1995,43986084,62.93,3.17
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,2000,46813266,55.58,2.41
+South Africa,南アフリカ,Sub-Saharan Africa,サブサハラアフリカ,2005,49017147,52.1,2.51
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1955,22075008,55.9,6.07
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1960,25817529,59.11,6.0
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1965,29179407,61.36,5.02
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1970,32601143,63.57,4.41
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1975,35930694,65.73,3.41
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1980,38170501,67.33,2.72
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1985,41232709,69.87,1.75
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1990,44120039,72.13,1.6
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,1995,45393418,74.34,1.63
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,2000,46788591,76.34,1.42
+South Korea,韓国,East Asia & Pacific,東アジア・太平洋,2005,47889573,78.78,1.1
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1955,29095374,66.66,2.56
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1960,30415591,69.45,2.78
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1965,32112015,70.94,2.88
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1970,33792617,72.02,2.83
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1975,35760431,73.59,2.77
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1980,37491666,75.51,2.21
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1985,38471920,76.45,1.64
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1990,38889889,76.96,1.36
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,1995,39814573,78.09,1.16
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,2000,40741651,79.47,1.22
+Spain,スペイン,Europe & Central Asia,ヨーロッパ・中央アジア,2005,43685374,80.58,1.33
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1955,5002410,70.3,2.31
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1960,5328273,71.76,2.46
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1965,5857047,72.51,2.58
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1970,6181227,73.34,2.1
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1975,6338267,74.98,1.62
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1980,6319113,75.97,1.55
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1985,6469824,77.22,1.52
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1990,6711693,77.94,1.58
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,1995,7038297,78.91,1.48
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,2000,7182059,80.3,1.49
+Switzerland,スイス,Europe & Central Asia,ヨーロッパ・中央アジア,2005,7428435,81.69,1.42
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1955,23821353,47.32,6.49
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1960,27510980,49.53,6.36
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1965,31374536,53.39,6.02
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1970,35540990,57.13,5.63
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1975,39673590,60.74,5.07
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1980,44089069,64.06,4.43
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1985,49175673,66.65,3.76
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1990,54324142,68.75,3.13
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,1995,59305490,70.85,2.79
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,2000,64113547,74.73,2.51
+Turkey,トルコ,Europe & Central Asia,ヨーロッパ・中央アジア,2005,68704715,76.81,2.22
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1955,51193266,70.46,2.3
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1960,52543017,71.17,2.73
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1965,54229565,71.65,2.88
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1970,55650166,72.08,2.44
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1975,56266842,72.78,1.81
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1980,56326328,73.79,1.89
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1985,56643045,74.81,1.79
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1990,57210442,75.85,1.83
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,1995,57930364,76.84,1.71
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,2000,58850043,77.97,1.64
+United Kingdom,イギリス,Europe & Central Asia,ヨーロッパ・中央アジア,2005,60383741,79.33,1.76
+United States,アメリカ合衆国,America,アメリカ大陸,1955,161136449,69.86,3.47
+United States,アメリカ合衆国,America,アメリカ大陸,1960,176188578,70.06,3.58
+United States,アメリカ合衆国,America,アメリカ大陸,1965,189703283,70.37,2.87
+United States,アメリカ合衆国,America,アメリカ大陸,1970,200328340,70.93,2.47
+United States,アメリカ合衆国,America,アメリカ大陸,1975,211274535,72.73,1.77
+United States,アメリカ合衆国,America,アメリカ大陸,1980,223140018,73.96,1.83
+United States,アメリカ合衆国,America,アメリカ大陸,1985,235146182,74.91,1.84
+United States,アメリカ合衆国,America,アメリカ大陸,1990,248083732,75.72,2.07
+United States,アメリカ合衆国,America,アメリカ大陸,1995,265660556,76.08,1.97
+United States,アメリカ合衆国,America,アメリカ大陸,2000,282398554,77.03,2.05
+United States,アメリカ合衆国,America,アメリカ大陸,2005,296842670,77.73,2.06
+Venezuela,ベネズエラ,America,アメリカ大陸,1955,6752139,61.16,6.53
+Venezuela,ベネズエラ,America,アメリカ大陸,1960,8156937,65.17,6.42
+Venezuela,ベネズエラ,America,アメリカ大陸,1965,9688138,66.03,6.03
+Venezuela,ベネズエラ,America,アメリカ大陸,1970,11355475,66.51,5.32
+Venezuela,ベネズエラ,America,アメリカ大陸,1975,13176387,67.6,4.69
+Venezuela,ベネズエラ,America,アメリカ大陸,1980,15210443,69.66,4.2
+Venezuela,ベネズエラ,America,アメリカ大陸,1985,17402304,71.56,3.79
+Venezuela,ベネズエラ,America,アメリカ大陸,1990,19750579,72.44,3.45
+Venezuela,ベネズエラ,America,アメリカ大陸,1995,22107286,72.61,3.08
+Venezuela,ベネズエラ,America,アメリカ大陸,2000,24427729,74.17,2.82
+Venezuela,ベネズエラ,America,アメリカ大陸,2005,26668785,75.01,2.63

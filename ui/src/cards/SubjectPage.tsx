@@ -17,11 +17,15 @@ import './pages.css'
 /** `subject_sources`（output_kind: breakdown）の `category`（= データセット名
  *  ＋版）を出どころのラベルとして拾う。件数は使わない — 見出しの「出典 N 報」
  *  は出どころの**数**（items 件数）であって三つ組数ではない（§1(b)）。 */
-function sourceLabelsFrom(result: CardToolResult): string[] {
-  const categoryVar = Object.values(result.item).find((i) => i.role === 'category')?.var
-  if (!categoryVar) return []
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（FirstScreen.tsx と同じ理由）
+export function sourceLabelsFrom(result: CardToolResult): string[] {
+  // 行（`result.items` の 1 件）のキーは `result.item` の**キー名**であって
+  // `ItemSpec.var`（SPARQL 側の変数名）ではない — 宣言ツールでは両者が
+  // 異なりうる（`defaultView.ts` の KeyedItem コメント参照）。
+  const categoryKey = Object.entries(result.item).find(([, spec]) => spec.role === 'category')?.[0]
+  if (!categoryKey) return []
   return result.items
-    .map((row) => row[categoryVar])
+    .map((row) => row[categoryKey])
     .filter((v): v is string => typeof v === 'string' && v.length > 0)
 }
 

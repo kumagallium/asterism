@@ -23,6 +23,7 @@ import {
   DataIcon,
   GearIcon,
   HomeIcon,
+  LayersIcon,
   TermsIcon,
 } from './icons'
 import { JobsView } from './JobsView'
@@ -45,8 +46,8 @@ type Tab =
   | 'sparql'
   /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
   | 'cardsdemo'
-  /** 「1 件／絞り込み × カード」の使う画面（object-cards-ui.md）。NAV_ITEMS には
-   *  出さない — topbar 右の「使う｜棚を作る」ピルから入る。 */
+  /** 「1 件／絞り込み × カード」の使う画面（object-cards-ui.md）。既定ルート
+   *  （契約メモ contract_pr_e.md §3）— NAV_ITEMS の先頭（「見る」）から入る。 */
   | 'cards'
 
 // ---- hash ルーティング -------------------------------------------------------
@@ -102,6 +103,9 @@ const DETAIL_TABS: readonly DetailTab[] = ['structure', 'tools', 'files', 'conne
 // eslint-disable-next-line react-refresh/only-export-components
 export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
+  // 既定ルート（`''`・`#/`）は「見る」（cards）— ユーザー指示。既存の各画面
+  // （`#/home` 等）を明示した場合はそのまま尊重し、これは hash が空のときだけ効く。
+  if (parts.length === 0) return { tab: 'cards' }
   if (parts[0] === 'datasets' && parts[1]) {
     const detailTab = DETAIL_TABS.includes(parts[2] as DetailTab)
       ? (parts[2] as DetailTab)
@@ -169,6 +173,10 @@ interface NavItem {
   icon: typeof HomeIcon
 }
 const NAV_ITEMS: NavItem[] = [
+  // 「見る」（cards）を先頭に（契約メモ §3: 裏タブでなくする）。tab === 'cards'
+  // の間はこの一覧自体が SubjectRail に差し替わるため、ここから他画面にいる
+  // ときの戻り道として働く。
+  { id: 'cards', icon: LayersIcon },
   { id: 'home', icon: HomeIcon },
   { id: 'gallery', icon: DataIcon },
   { id: 'crosswalk', icon: ConnectIcon },
@@ -326,6 +334,11 @@ function App() {
   // workbench should reopen for a revision. Cleared once the workbench consumes it.
   const [redesignTarget, setRedesignTarget] = useState<RedesignTarget | null>(null)
 
+  // cards タブの topbar 見出し = 選んだ対象のラベル（契約メモ §3）。CardsView が
+  // route の変化を見て上げてくる（props 経由・「小さな store」は使わない —
+  // App はすでに全画面の状態を持つ器なので、ここに足すだけで十分）。
+  const [cardsLabel, setCardsLabel] = useState<string | null>(null)
+
   // 全体像（map）の「戻る」を入ってきた画面へ返す（従来は常に crosswalk 固定で、
   // データセット詳細の「全体像を見る」から入ると戻り先で現在地を見失っていた）。
   const [mapReturn, setMapReturn] = useState<Route>({ tab: 'crosswalk' })
@@ -402,6 +415,13 @@ function App() {
               <div className="side-nav-group">
                 {NAV_ITEMS.map((it) => {
                   const Icon = it.icon
+                  // `nav.cards` は新設キー（契約メモ §3）— ui-words が common.json
+                  // に足すまでの仮置き（notes 参照）。
+                  const navLabel = t(`nav.${it.id}`, it.id === 'cards' ? { defaultValue: '見る' } : undefined)
+                  const navGloss = glossT(
+                    `nav.${it.id}`,
+                    it.id === 'cards' ? { defaultValue: 'View' } : undefined,
+                  )
                   return (
                     <button
                       key={it.id}
@@ -411,12 +431,12 @@ function App() {
                       aria-current={tab === it.id ? 'page' : undefined}
                       // 860px 以下でラベルが display:none になるアイコンレールでも
                       // 名前が残るように（ツールチップ兼スクリーンリーダー名）
-                      aria-label={t(`nav.${it.id}`)}
-                      title={t(`nav.${it.id}`)}
+                      aria-label={navLabel}
+                      title={navLabel}
                     >
                       <Icon className="side-nav-icon" />
-                      <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
-                      <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
+                      <span className="side-nav-text">{navLabel}</span>
+                      <span className="side-nav-en">{navGloss}</span>
                     </button>
                   )
                 })}
@@ -470,27 +490,18 @@ function App() {
           <header className="topbar">
             <div className="topbar-titles">
               <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
-              <h1 className="topbar-title">{t(`view.${tab}.title`)}</h1>
+              <h1 className="topbar-title">
+                {/* cards タブだけ見出しが動く: 対象を選んでいればそのラベル、
+                    未選択（`#/cards`・`#/cards/place`）なら「探す」（契約メモ §3・
+                    §5: 「ページ（見出し）→ 対象のラベル／未選択は『探す』」）。
+                    `cards:topbar.unselected` は新設キー（notes 参照）。 */}
+                {tab === 'cards'
+                  ? cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '探す' })
+                  : t(`view.${tab}.title`)}
+              </h1>
             </div>
-            <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>
-            <div className="mode-toggle" role="group" aria-label={t('mode.label')}>
-              <button
-                type="button"
-                className={`mode-toggle-btn${tab === 'cards' ? ' active' : ''}`}
-                aria-pressed={tab === 'cards'}
-                onClick={() => navTo('cards')}
-              >
-                {t('mode.use')}
-              </button>
-              <button
-                type="button"
-                className={`mode-toggle-btn${tab === 'cards' ? '' : ' active'}`}
-                aria-pressed={tab !== 'cards'}
-                onClick={() => navTo('home')}
-              >
-                {t('mode.build')}
-              </button>
-            </div>
+            {/* cards タブは sub を出さない（契約メモ §3）。 */}
+            {tab !== 'cards' && <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>}
             <LanguageToggle />
           </header>
 
@@ -565,14 +576,17 @@ function App() {
             {tab === 'jobs' && <JobsView />}
             {tab === 'sparql' && <SparqlView />}
             {tab === 'cardsdemo' && <CardsGallery />}
-            {tab === 'cards' && <CardsView route={route} navigate={navigate} onAsk={openAsk} />}
+            {tab === 'cards' && (
+              <CardsView route={route} navigate={navigate} onAsk={openAsk} onLabel={setCardsLabel} />
+            )}
           </main>
         </div>
       </div>
       {/* Global right-drawer AI consult (ADR design-consult-chat.md D1): available
           on every screen, not just the かんたん wizard — a domain expert can also
-          ask "what does this column mean" from the Gallery or Ask. */}
-      <ConsultDrawer />
+          ask "what does this column mean" from the Gallery or Ask. cards タブ
+          （見る）だけは出さない（契約メモ §3: 質問窓口を 1 つにする §7）。 */}
+      {tab !== 'cards' && <ConsultDrawer />}
     </div>
   )
 }

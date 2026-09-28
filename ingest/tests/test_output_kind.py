@@ -119,6 +119,29 @@ def test_item_map_carries_role_quantity_kind_unit_when_declared() -> None:
     }
 
 
+def test_item_map_carries_label_when_declared() -> None:
+    # ``label`` is a human-facing column name (ui's ItemSpec has an optional
+    # ``label?: string``) and must be copied through when present.
+    doc = _doc(
+        "SELECT ?s ?n WHERE { ?s ?p ?n }",
+        result={"item": {"loan_count": {"var": "n", "number": True, "label": "Loans"}}},
+    )
+    tool = parse_query_tools(doc)[0]
+    assert tool.item["loan_count"] == {"var": "n", "number": True, "label": "Loans"}
+
+
+def test_item_map_without_label_gains_no_extra_keys() -> None:
+    # Same guarantee as test_item_map_without_new_keys_gains_no_extra_keys,
+    # specifically for the new ``label`` passthrough.
+    doc = _doc(
+        "SELECT ?s ?n WHERE { ?s ?p ?n }",
+        result={"item": {"book_iri": "s", "loan_count": {"var": "n", "number": True}}},
+    )
+    tool = parse_query_tools(doc)[0]
+    assert tool.item["book_iri"] == {"var": "s", "number": False}
+    assert tool.item["loan_count"] == {"var": "n", "number": True}
+
+
 # ---------------------------------------------------------------------------
 # invalid output_kind / flow / invalid role -> QueryToolError (§1)
 # ---------------------------------------------------------------------------
@@ -562,6 +585,46 @@ def test_lint_silent_when_quantity_kind_declared() -> None:
     tool = parse_query_tools(doc)[0]
     lint = lint_query_tool(tool)
     assert lint.ok and not lint.warnings
+
+
+def test_lint_silent_when_series_x_has_no_unit() -> None:
+    # series's x is often a coordinate (e.g. a year), not a physical
+    # quantity — no unit/quantity_kind is expected of it (ADR O25).
+    doc = _doc(
+        "SELECT ?x ?n WHERE { ?s ?p ?x ; ?p2 ?n }",
+        output_kind="series",
+        result={
+            "item": {
+                "year": {"var": "x", "role": "x"},
+                "reading": {
+                    "var": "n",
+                    "number": True,
+                    "role": "y",
+                    "unit": "unit:KiloGM",
+                },
+            }
+        },
+    )
+    tool = parse_query_tools(doc)[0]
+    lint = lint_query_tool(tool)
+    assert lint.ok and not lint.warnings
+
+
+def test_lint_warns_when_series_y_has_no_unit() -> None:
+    doc = _doc(
+        "SELECT ?x ?n WHERE { ?s ?p ?x ; ?p2 ?n }",
+        output_kind="series",
+        result={
+            "item": {
+                "year": {"var": "x", "role": "x"},
+                "reading": {"var": "n", "number": True, "role": "y"},
+            }
+        },
+    )
+    tool = parse_query_tools(doc)[0]
+    lint = lint_query_tool(tool)
+    assert lint.ok  # a warning, never an error
+    assert any("quantity_kind" in w or "unit" in w for w in lint.warnings)
 
 
 def test_lint_does_not_warn_for_ranked_or_facts() -> None:

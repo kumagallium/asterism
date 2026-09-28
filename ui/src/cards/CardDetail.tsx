@@ -8,11 +8,20 @@ import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
+import { isDefinitionGapValue } from './placeShape'
 import './pages.css'
 import { formatShareReasons } from './shareReasons'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
+
+/** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
+ *  （契約 §4「事実の表」）。CardTile.tsx と同じ判定・同じ流儀。 */
+function maskDefinitionGapValues(rows: Record<string, unknown>[], placeholder: string): Record<string, unknown>[] {
+  return rows.map((row) =>
+    isDefinitionGapValue(row.value_iri, row.property_iri) ? { ...row, value_iri: undefined, value: placeholder } : row,
+  )
+}
 
 export interface CardDetailProps {
   subject: SubjectKey
@@ -211,16 +220,19 @@ function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: strin
     const graph = (result.graph ?? { nodes: [], edges: [] }) as GraphSpec
     return <GraphView graph={graph} ariaLabel={ariaLabel} maxHeight={360} />
   }
-  // カード詳細は事実カードでも件数を切らない（全件・§2(a)）。
+  // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
+  // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
+  // §2(a)）— その全件に対して行う。
+  const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
   const view = defaultViewFor(
     { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-    result.items,
+    rows,
   )
   if (view.lang === 'vega-lite') {
     return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
   }
   if (view.lang === 'table') {
-    return <TableView spec={view.spec as TableSpec} rows={result.items} ariaLabel={ariaLabel} />
+    return <TableView spec={view.spec as TableSpec} rows={rows} ariaLabel={ariaLabel} />
   }
   return null
 }

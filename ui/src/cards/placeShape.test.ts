@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { footerSummary, pillFor, readHeading, readSummary, type PlaceSubjectItem, type ShapeMatch } from './placeShape'
+import {
+  buildShapePreview,
+  footerSummary,
+  isDefinitionGapValue,
+  pillFor,
+  readHeading,
+  readSummary,
+  type PlaceSubjectItem,
+  type ShapeMatch,
+} from './placeShape'
 
 describe('pillFor', () => {
   it('linked → ok', () => {
@@ -85,5 +94,72 @@ describe('footerSummary', () => {
       key: 'place.footer_summary',
       vars: { total: 0, linked: 0, facts: 0 },
     })
+  })
+})
+
+describe('buildShapePreview (PR E §4: shape-mismatch preview)', () => {
+  it('splits a comma header + first N rows, trimming cells', () => {
+    const text = 'country, year, population\nJapan, 2005, 127773000\nBrazil, 2005, 186830000\n'
+    expect(buildShapePreview(text)).toEqual({
+      columns: ['country', 'year', 'population'],
+      rows: [
+        ['Japan', '2005', '127773000'],
+        ['Brazil', '2005', '186830000'],
+      ],
+    })
+  })
+
+  it('caps at maxRows even when the file has more data rows', () => {
+    const text = 'a,b\n1,2\n3,4\n5,6\n7,8\n'
+    const preview = buildShapePreview(text, 2)
+    expect(preview.columns).toEqual(['a', 'b'])
+    expect(preview.rows).toEqual([
+      ['1', '2'],
+      ['3', '4'],
+    ])
+  })
+
+  it('detects tab as the delimiter when it dominates the header', () => {
+    const text = 'name\tcity\nAlice\tKyoto\n'
+    expect(buildShapePreview(text)).toEqual({ columns: ['name', 'city'], rows: [['Alice', 'Kyoto']] })
+  })
+
+  it('ignores blank lines', () => {
+    const text = 'a,b\n\n1,2\n\n'
+    expect(buildShapePreview(text)).toEqual({ columns: ['a', 'b'], rows: [['1', '2']] })
+  })
+
+  it('returns empty columns/rows for empty text', () => {
+    expect(buildShapePreview('')).toEqual({ columns: [], rows: [] })
+  })
+
+  it('returns an empty rows array when only a header line exists', () => {
+    expect(buildShapePreview('a,b,c')).toEqual({ columns: ['a', 'b', 'c'], rows: [] })
+  })
+})
+
+describe('isDefinitionGapValue (PR E §4: 事実の表の値なし判定)', () => {
+  it('is true when value_iri equals property_iri (a definition gap constant)', () => {
+    expect(isDefinitionGapValue('https://example.org/onto/rainfall', 'https://example.org/onto/rainfall')).toBe(
+      true,
+    )
+  })
+
+  it('is false when value_iri differs from property_iri (a real linked value)', () => {
+    expect(isDefinitionGapValue('https://example.org/loanBranch/kyoto', 'https://example.org/onto/branch')).toBe(
+      false,
+    )
+  })
+
+  it('is false when value_iri is absent (a plain literal value, not an IRI)', () => {
+    expect(isDefinitionGapValue(undefined, 'https://example.org/onto/rainfall')).toBe(false)
+  })
+
+  it('is false when value_iri is an empty string', () => {
+    expect(isDefinitionGapValue('', '')).toBe(false)
+  })
+
+  it('is false when value_iri is not a string (defensive: unexpected shapes never mask real data)', () => {
+    expect(isDefinitionGapValue(42, 42)).toBe(false)
   })
 })

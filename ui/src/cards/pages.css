@@ -388,6 +388,11 @@
 .export-modal-close:hover {
   color: var(--fg);
 }
+.export-modal-intro {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
 .export-modal-field {
   display: flex;
   flex-direction: column;
@@ -443,6 +448,45 @@
   font-weight: 500;
   color: var(--fg);
   min-width: 8em;
+}
+/* ---- 分類フィルタ: 見出し・「この値を条件に足す」・検索欄をまとめた列
+ * （契約 §4「12 を超えるときは検索欄つきの一覧」） ---- */
+.cardpage-setform-label-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 8em;
+}
+.cardpage-setform-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.cardpage-setform-search {
+  width: 100%;
+  max-width: 12em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+.cardpage-setform-more {
+  align-self: center;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+}
+.cardpage-setform-more:hover {
+  color: var(--accent-strong);
 }
 .cardpage-setform-check {
   display: inline-flex;

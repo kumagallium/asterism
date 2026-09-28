@@ -74,6 +74,25 @@
   color: var(--faint);
 }
 
+/* 種類の併記（「日本 ・国」）。ラベルの後ろ、件数の前に小さく。 */
+.rail-item-kind {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+/* 見本（boot 仕込みの主語）の印。 */
+.rail-item-sample {
+  flex: none;
+  border-radius: 999px;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
+}
+
 .rail-dot {
   flex: none;
   width: 0.5rem;
@@ -154,4 +173,21 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+}
+
+/* 戻り道: 「詳しい設定（データを整える）」。静かに、最下部に。 */
+.rail-foot {
+  padding: 0.3rem 0.7rem 0.1rem;
+}
+.rail-foot-link {
+  border: none;
+  background: none;
+  color: var(--faint);
+  font-size: 0.75rem;
+  padding: 0.1rem 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.rail-foot-link:hover {
+  color: var(--muted);
 }

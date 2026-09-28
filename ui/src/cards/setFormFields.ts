@@ -74,6 +74,46 @@ export const SET_FORM_MAX_LIMIT = 20
  * 同じ schema には常に同じ `SetFormSpec` を返す（副作用なし・入力を書き換え
  * ない）。
  */
+// ---------------------------------------------------------------------------
+// PR E 契約メモ §4「条件を変える」— 分類の値が 12 を超えるときは検索欄つきの
+// 一覧にし、上位 12 だけ見せて「さらに表示」。ここは「何を見せるか」の決定論
+// だけを持つ純関数 — 実際の選択肢の取得（set_breakdown 呼び出し）は
+// SetForm.tsx の責任。
+// ---------------------------------------------------------------------------
+
+/** SetForm.tsx が見せる分類の選択肢の上限（超えたら「さらに表示」）。 */
+export const CATEGORY_VISIBLE_LIMIT = 12
+
+export interface CategoryOptionsView {
+  /** 実際に描画する選択肢。 */
+  visible: string[]
+  /** 「さらに表示」を出すべきか（検索中・showAll のときは出さない）。 */
+  hasMore: boolean
+  /** 検索後（検索が無ければ全件）の件数。 */
+  total: number
+}
+
+/**
+ * 分類の選択肢（`values`）から、実際に見せる範囲を決定論で決める。`search` が
+ * あれば大小文字を無視した部分一致でまず絞り込み、その後 `showAll` が立って
+ * いない限り上位 `CATEGORY_VISIBLE_LIMIT` 件だけを見せる。検索中は既に絞り込ま
+ * れているので「さらに表示」は出さない（`hasMore` は立てない）。同じ入力には
+ * 常に同じ結果（副作用なし・入力を書き換えない）。
+ */
+export function categoryOptionsView(
+  values: string[],
+  opts: { search?: string; showAll?: boolean } = {},
+): CategoryOptionsView {
+  const query = (opts.search ?? '').trim().toLowerCase()
+  const filtered = query ? values.filter((v) => v.toLowerCase().includes(query)) : values
+  const capped = !query && !opts.showAll
+  return {
+    visible: capped ? filtered.slice(0, CATEGORY_VISIBLE_LIMIT) : filtered,
+    hasMore: capped && filtered.length > CATEGORY_VISIBLE_LIMIT,
+    total: filtered.length,
+  }
+}
+
 export function buildSetFormSpec(schema: ClassSchemaLike): SetFormSpec {
   const filters: SetFilterField[] = []
   const orderOptions: SetOrderOption[] = []

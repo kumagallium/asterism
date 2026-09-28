@@ -9,6 +9,20 @@ function roundTrip(hash: string): string {
   return routeToHash(parseHash(hash))
 }
 
+describe('parseHash / routeToHash — 既定ルート（契約メモ contract_pr_e.md §3）', () => {
+  it('空文字は cards タブ（見る）', () => {
+    expect(parseHash('')).toEqual<Route>({ tab: 'cards' })
+  })
+
+  it('#/ も cards タブ', () => {
+    expect(parseHash('#/')).toEqual<Route>({ tab: 'cards' })
+  })
+
+  it('# だけ（末尾スラッシュ無し）も cards タブ', () => {
+    expect(parseHash('#')).toEqual<Route>({ tab: 'cards' })
+  })
+})
+
 describe('parseHash / routeToHash — cards（object-cards-ui）', () => {
   it('#/cards は素の cards タブ', () => {
     expect(parseHash('#/cards')).toEqual<Route>({ tab: 'cards' })

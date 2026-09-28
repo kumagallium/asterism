@@ -38,22 +38,27 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 import webbrowser
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from asterism import subjects as subjects_mod
+from asterism import substrate
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi import APIRouter, Request
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from asterism_api import appdata, exchange, registry
 from asterism_api.mcp_mount import MCP_PATH, attach_mcp
 
 if TYPE_CHECKING:
-    from asterism.oxigraph_client import OxigraphClient
     from fastapi import FastAPI
 
     from asterism_api.main import Settings
@@ -491,6 +496,257 @@ def create_demo_relay(
 
 
 # ---------------------------------------------------------------------------
+# demo dataset seed（契約メモ contract_pr_e.md §2）
+#
+# 初回起動で見本データセット「世界の国」を自動で載せる。「本物の取り込み経路」の
+# 最後の 2 段（snapshot import → promote）を、main.py の HTTP ルートを経由せず、
+# そのルートが呼ぶのと同じ内部関数を直接呼んで行う。
+
+_DEMO_SEED_MARKER = "demo-seeded"
+_DEMO_SNAPSHOT_ENV = "ASTERISM_DEMO_SNAPSHOT"
+_DEMO_DATASET_ENV = "ASTERISM_DEMO_DATASET"
+# api/src/asterism_api/cards_routes.py の _SUBJECTS_NAMESPACE と同じ文字列
+# （appdata 上のディレクトリ名）。cards_routes.py は担当外なので値だけ揃える。
+_DEMO_SUBJECTS_NAMESPACE = "subjects"
+
+# 見本データ（datasets/world/、契約メモ §1）の中身に依存する値。分野固有名詞では
+# なく見本データそのものの中身なので、コードに書いてよい（契約メモ §0）。
+_DEMO_JAPAN_NAME = "Japan"  # world.csv の schema:name（英語国名）
+_DEMO_JAPAN_LABEL_JA = "日本"
+_DEMO_COUNTRY_LABEL_JA = "国"
+_DEMO_REGION_JA_VALUE = "東アジア・太平洋"
+_DEMO_SET_LABEL_JA = "東アジア・太平洋の国"
+_DEMO_SET_LIMIT = 20
+
+_SCHEMA_NAME_PREDICATES = ("http://schema.org/name", "https://schema.org/name")
+
+
+def _bundled_world_snapshot_candidates() -> list[Path]:
+    """``.app`` 同梱時、見本 snapshot がこのインタプリタの近くに来る場所。
+
+    ``mcp/src/asterism_mcp/agent_cli.py`` の ``_bundled_oxigraph_candidates`` と
+    同じ考え方: ``sys.executable`` の祖先ディレクトリを一定数だけ辿って探す —
+    バンドルの正確な深さをハードコードしない。
+    """
+    exe = Path(sys.executable).resolve()
+    return [
+        ancestor / "datasets" / "world" / "snapshot.tar"
+        for ancestor in list(exe.parents)[:6]
+    ]
+
+
+def find_world_snapshot() -> Path | None:
+    """見本 snapshot の在り処: repo チェックアウト → 同梱 ``.app`` → 環境変数
+    ``ASTERISM_DEMO_SNAPSHOT``（契約メモ §2 の 3 候補、この順）。"""
+    repo_relative = (
+        Path(__file__).resolve().parents[3] / "datasets" / "world" / "snapshot.tar"
+    )
+    if repo_relative.is_file():
+        return repo_relative
+    for candidate in _bundled_world_snapshot_candidates():
+        if candidate.is_file():
+            return candidate
+    override = (os.environ.get(_DEMO_SNAPSHOT_ENV) or "").strip()
+    if override:
+        path = Path(override).expanduser()
+        if path.is_file():
+            return path
+    return None
+
+
+async def _find_demo_japan_subject(
+    client: Any, graph_iri: str
+) -> tuple[str, str, str] | None:
+    """見本の 2 主語を組み立てるのに要る 3 つ組
+    ``(japan_iri, country_class_iri, region_property_iri)`` を、1 本の SPARQL で
+    引く。IRI を直書きしない（契約メモ §2）— 日本の IRI・国クラスの IRI・
+    「地域（日本語）」述語の IRI は、すべてこの関数がストアに聞いて答える。
+    見つからなければ ``None``。
+    """
+    names = " ".join(f"<{p}>" for p in _SCHEMA_NAME_PREDICATES)
+    query = (
+        f"SELECT ?japan ?class ?regionProp WHERE {{ "
+        f"GRAPH <{graph_iri}> {{ "
+        f"VALUES ?nameProp {{ {names} }} "
+        f'?japan ?nameProp "{_DEMO_JAPAN_NAME}" . '
+        f"?japan a ?class . "
+        f'?japan ?regionProp "{_DEMO_REGION_JA_VALUE}" . '
+        f"}} }} LIMIT 1"
+    )
+    result = await client.sparql_select(query)
+    bindings = (
+        result.get("results", {}).get("bindings", [])
+        if isinstance(result, dict)
+        else []
+    )
+    if not bindings:
+        return None
+    row = bindings[0]
+    try:
+        return (row["japan"]["value"], row["class"]["value"], row["regionProp"]["value"])
+    except (KeyError, TypeError):
+        return None
+
+
+def _demo_subject_items(
+    japan_iri: str, country_class_iri: str, region_property_iri: str
+) -> list[dict[str, Any]]:
+    """見本の 2 主語（``ui/src/cards/cardsApi.ts`` の ``SubjectItem`` の形）を
+    組み立てる。``thread_id`` は appdata のファイル名（uuid4）— ``SubjectItem.id``
+    （IRI/set_id）とは別に持つ規律（契約メモ §5.4）。
+    """
+    now = datetime.now(UTC).isoformat()
+    individual = {
+        "kind": "individual",
+        "id": japan_iri,
+        "label": _DEMO_JAPAN_LABEL_JA,
+        "class_label": _DEMO_COUNTRY_LABEL_JA,
+        "source": "open",
+        "card_count": None,
+        "match": None,
+        "subject_key": subjects_mod.subject_key_string(
+            {"kind": "individual", "iri": japan_iri}
+        ),
+        "created_at": now,
+        "thread_id": str(uuid.uuid4()),
+    }
+    spec = subjects_mod.normalize_set_spec(
+        {
+            "class": country_class_iri,
+            "where": [
+                {
+                    "property": region_property_iri,
+                    "op": "in",
+                    "value": [_DEMO_REGION_JA_VALUE],
+                }
+            ],
+            "order_by": None,
+            "limit": _DEMO_SET_LIMIT,
+            "source_scope": "open",
+        }
+    )
+    set_id = subjects_mod.set_id_of(spec)
+    region_set = {
+        "kind": "set",
+        "id": set_id,
+        "label": _DEMO_SET_LABEL_JA,
+        "class_label": _DEMO_COUNTRY_LABEL_JA,
+        "source": "open",
+        "card_count": None,
+        "match": None,
+        "subject_key": subjects_mod.subject_key_string(
+            {"kind": "set", "set_id": set_id, "spec": spec}
+        ),
+        "spec": spec,
+        "created_at": now,
+        "thread_id": str(uuid.uuid4()),
+    }
+    return [individual, region_set]
+
+
+async def _seed_demo_subjects(cfg: Settings, client: Any, graph_iri: str) -> None:
+    """appdata の ``subjects`` に見本 2 件を書く（best-effort）。日本が見つから
+    なければ 2 件とも書かない（契約メモ §2 の逃げ道 — IRI を直書きしない代わり
+    に、引けなかったときは書かない）。
+    """
+    if cfg.appdata_root is None:
+        return
+    found = await _find_demo_japan_subject(client, graph_iri)
+    if found is None:
+        logger.warning(
+            'seed_demo_dataset: schema:name "Japan" not found in the seeded '
+            "graph — skipping the 2 starter subjects"
+        )
+        return
+    for item in _demo_subject_items(*found):
+        appdata.write_thread(
+            cfg.appdata_root,
+            item["thread_id"],
+            item,
+            namespace=_DEMO_SUBJECTS_NAMESPACE,
+        )
+
+
+async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
+    """初回起動で見本データセット「世界の国」を自動で載せる（契約メモ §2）。
+
+    ``asterism-local`` の起動後（oxigraph ready・app 構築後）、ブラウザを開く前に
+    一度だけ呼ぶ（``main()``）。条件: 単一ユーザー ∧ registry が空 ∧
+    ``home/demo-seeded`` マーカーが無い ∧ ``ASTERISM_DEMO_DATASET`` が ``"0"``
+    でない。中身は ``datasets/world/snapshot.tar`` を ``exchange.import_snapshot``
+    で取り込み、``main.py`` の ``POST /api/datasets/{id}/promote`` ルートが呼ぶ
+    のと同じ内部関数（``registry.load_dataset``・``substrate.alignment_report``・
+    ``substrate.promote_to_canonical``・``registry.mark_promoted``）を HTTP を
+    経由せず直接呼んで公開する。全体 best-effort — どこで失敗しても
+    ``log.warning`` するだけで起動は止めない。
+    """
+    if not cfg.single_user:
+        return
+    if (os.environ.get(_DEMO_DATASET_ENV) or "").strip() == "0":
+        return
+    marker = home / _DEMO_SEED_MARKER
+    if marker.is_file():
+        return
+    if registry.list_datasets(cfg.registry_root):
+        return
+
+    snapshot_path = find_world_snapshot()
+    if snapshot_path is None:
+        logger.warning("seed_demo_dataset: no bundled world snapshot found — skipping")
+        return
+
+    try:
+        payload = snapshot_path.read_bytes()
+        # main.py の POST /api/datasets/import ルートと同じ内部関数（HTTP は
+        # 叩かない）。
+        from asterism_api.main import _MAX_UPLOAD_BYTES, _subjects_of_design
+
+        imported = await exchange.import_snapshot(
+            cfg, client, payload, max_extracted_bytes=_MAX_UPLOAD_BYTES
+        )
+        dataset_id = imported["dataset_id"]
+        staged_iri = imported["staged_graph"]
+
+        # main.py の POST /api/datasets/{id}/promote ルートが呼ぶのと同じ内部
+        # 関数、同じ順番（HTTP は叩かない）。ontology/meta グラフ投影・クエリ
+        # ツール合成・crosswalk 再構築・togomcp 配信は促進の副作用であり公開に
+        # 必須ではないので呼ばない — クエリツールは見本の query_tools.yaml
+        # （人が vet 済み、契約メモ §1）をそのまま使う。
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        dataset_key = substrate.canonical_graph_iri(dataset_id)
+        alignment = await substrate.alignment_report(client, staged_iri)
+        await substrate.promote_to_canonical(client, dataset_key, staged_iri)
+        triples_promoted = int((data or {}).get("meta", {}).get("triple_count") or 0)
+        registry.mark_promoted(
+            cfg.registry_root,
+            dataset_id,
+            triples_promoted=triples_promoted,
+            alignment=alignment,
+            promoted_at=datetime.now(UTC).isoformat(),
+            canonical_graph=dataset_key,
+            live_graph=staged_iri,
+            published_subjects=_subjects_of_design((data or {}).get("artifacts", {})),
+        )
+    except Exception:
+        logger.warning(
+            "seed_demo_dataset: snapshot import/promote failed (continuing)",
+            exc_info=True,
+        )
+        return
+
+    try:
+        await _seed_demo_subjects(cfg, client, staged_iri)
+    except Exception:
+        logger.warning(
+            "seed_demo_dataset: writing the starter subjects failed (continuing)",
+            exc_info=True,
+        )
+
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+
+
+# ---------------------------------------------------------------------------
 # app assembly + entrypoint
 
 
@@ -769,10 +1025,11 @@ def main(argv: list[str] | None = None) -> int:
         # ASTERISM_MAX_UPLOAD_BYTES at module import time.
         from asterism_api.main import Settings
 
+        settings = Settings()
         app = build_local_app(
             token=token,
             ui_dist=ui_dist,
-            settings=Settings(),
+            settings=settings,
             demo_agent_url=demo_url,
             mcp=not args.no_mcp,
         )
@@ -781,6 +1038,25 @@ def main(argv: list[str] | None = None) -> int:
         if mcp_url:
             # The literal string a person registers in their AI client.
             logger.info("MCP endpoint: %s", mcp_url)
+
+        # 見本データセット「世界の国」の初回自動取り込み（契約メモ
+        # contract_pr_e.md §2）: oxigraph ready・app 構築後、ブラウザを開く前に
+        # 一度だけ。app.state.client は ASGI lifespan の startup で初めて生える
+        # ため、ここでは同じ oxigraph へ向けた別クライアントを使う。best-effort
+        # — 失敗しても起動は止めない（seed_demo_dataset 自身が既に best-effort
+        # だが、クライアントの生成・破棄まわりの不測の失敗もここで飲み込む）。
+        async def _run_demo_seed() -> None:
+            seed_client = OxigraphClient(OxigraphConfig(base_url=oxigraph_url))
+            try:
+                await seed_demo_dataset(home, settings, seed_client)
+            finally:
+                await seed_client.aclose()
+
+        try:
+            asyncio.run(_run_demo_seed())
+        except Exception:
+            logger.warning("seed_demo_dataset: setup failed (continuing)", exc_info=True)
+
         _serve(
             app,
             port=args.port,

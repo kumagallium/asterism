@@ -16,6 +16,7 @@ IRI is validated before it is embedded. Reads are scoped to the citable
 canonical (+ ontology, for labels) graphs only — the same scope every other
 read path in this codebase uses (:mod:`asterism.substrate`).
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -319,8 +320,7 @@ async def subject_types(client: SupportsSparql, iri: str) -> list[str]:
         return []
     from_clause = canonical_from_clauses(graphs)
     query = (
-        f"SELECT DISTINCT ?t\n{from_clause}"
-        f"WHERE {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?t }} ORDER BY ?t"
+        f"SELECT DISTINCT ?t\n{from_clause}WHERE {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?t }} ORDER BY ?t"
     )
     return [t for row in _rows(await client.sparql_select(query)) if (t := _cell(row, "t"))]
 
@@ -557,6 +557,35 @@ async def subject_sources(
     return _finalize(base, output_kind="breakdown", item=item_spec, materials=materials)
 
 
+async def _label_node_types(
+    client: SupportsSparql, registry_root: Path | str | None, nodes: list[Any]
+) -> None:
+    """Give every flow node whose ``props.type`` is a class IRI the same
+    display name the rest of the UI uses for that class (registry
+    ``model.yaml`` label → ontology ``rdfs:label`` → local name), via
+    :func:`asterism.class_schema.class_label`. ``prov_graph`` already fills
+    ``type_label`` from the version graph alone; this only *upgrades* it so
+    a node reads 「国」 where the rail and the set title say 「国」 (K4: one
+    name per thing). Best-effort: a failure leaves ``prov_graph``'s value."""
+    try:
+        from asterism.class_schema import class_label
+    except ImportError:  # authored in parallel — keep prov_graph's fallback
+        return
+    root = Path(registry_root) if registry_root is not None else None
+    cache: dict[str, str] = {}
+    for node in nodes:
+        props = node.get("props") if isinstance(node, dict) else None
+        type_iri = (props or {}).get("type")
+        if not isinstance(type_iri, str) or not type_iri:
+            continue
+        if type_iri not in cache:
+            try:
+                cache[type_iri] = await class_label(client, root, type_iri)
+            except Exception:  # best-effort: a label must never break the flow card
+                continue
+        props["type_label"] = cache[type_iri]
+
+
 async def subject_flow(
     client: SupportsSparql, iri: str, *, registry_root: Path | str | None = None
 ) -> dict[str, Any]:
@@ -578,6 +607,7 @@ async def subject_flow(
     graph = result.get("graph") or {"nodes": [], "edges": []}
     edges = graph.get("edges") or []
     nodes = graph.get("nodes") or []
+    await _label_node_types(client, registry_root, nodes)
     per_dataset: dict[str, tuple[str | None, int]] = {}
     for node in nodes:
         props = node.get("props") if isinstance(node, dict) else None
@@ -601,6 +631,46 @@ async def subject_flow(
         "found": bool(result.get("found")) and len(edges) > 0,
     }
     return _finalize(base, output_kind="flow", item={}, materials=materials)
+
+
+async def _resolve_bare_declared_tool(
+    client: SupportsSparql,
+    registry_root: Path | str | None,
+    iri: str,
+    tool_name: str,
+) -> QueryTool | None:
+    """Back-compat resolution for a bare (no ``dataset_id/`` prefix) declared
+    tool name against ``iri``'s own class (dispatch §3.4 back-compat): the
+    canonical name ``POST /api/cards/run`` accepts for a declared tool is
+    ``f"{dataset_id}/{name}"`` (what ``default_cards_for_subject`` now
+    returns), but a caller that only has the bare ``name`` (an older
+    default-cards response, a hand-typed tool name) must still resolve —
+    via the subject's own class schema, exactly the same class/dataset this
+    subject's default cards would use. Returns ``None`` (→ 404 upstream) when
+    no class, no schema, no matching tool, or the match does not have
+    exactly one ``iri`` parameter (cannot bind a subject)."""
+    types = await subject_types(client, iri)
+    class_iri = await pick_class_iri(client, types)
+    if class_iri is None:
+        return None
+    schema_fn = _load_class_schema()
+    if schema_fn is None:
+        return None
+    try:
+        schema = await schema_fn(client, registry_root, class_iri)
+    except Exception:  # best-effort: class_schema is owned by a parallel PR
+        logger.debug("run_subject_tool: class_schema lookup failed", exc_info=True)
+        return None
+    if not isinstance(schema, dict):
+        return None
+    dataset_id = schema.get("dataset_id")
+    if not dataset_id:
+        return None
+    declared = {t.name: t for t in load_query_tools(str(dataset_id), root=registry_root)}
+    qt = declared.get(tool_name)
+    if qt is None or iri_param_of(qt) is None:
+        return None
+    return qt
 
 
 def iri_param_of(tool: QueryTool) -> ToolParam | None:
@@ -724,9 +794,7 @@ def _numeric_literal(value: Any, *, index: int) -> str:
     try:
         return repr(float(value))
     except (TypeError, ValueError) as exc:
-        raise SetSpecError(
-            f"where[{index}].value must be numeric for this op"
-        ) from exc
+        raise SetSpecError(f"where[{index}].value must be numeric for this op") from exc
 
 
 def _clause_pattern(clause: dict[str, Any], *, index: int) -> str:
@@ -769,9 +837,7 @@ def _clause_pattern(clause: dict[str, Any], *, index: int) -> str:
         )
     if op == "eq":
         return f'{pattern} FILTER(STR({var}) = "{_escape_literal(str(value))}")'
-    raise SetSpecError(
-        f"where[{index}].op {op!r} needs a numeric value"
-    )
+    raise SetSpecError(f"where[{index}].op {op!r} needs a numeric value")
 
 
 async def _resolve_order_unit(
@@ -847,13 +913,7 @@ async def set_members(
         lines.append(f"OPTIONAL {{ ?s {_ref(order_by['property'])} ?value }}")
         select_vars += " ?value"
 
-    query = (
-        _XSD_PREFIX
-        + f"SELECT {select_vars}\n{named}"
-        + "WHERE { "
-        + " ".join(lines)
-        + " }"
-    )
+    query = _XSD_PREFIX + f"SELECT {select_vars}\n{named}" + "WHERE { " + " ".join(lines) + " }"
     if order_by is not None:
         direction = "DESC" if order_by["dir"] == "desc" else "ASC"
         query += f" ORDER BY {direction}(?value) ?s"
@@ -1060,11 +1120,19 @@ def card_id_of(subject_key: str, tool: str, params: dict[str, Any]) -> str:
 
 
 def _declared_tool_cards(
-    tools: list[dict[str, Any]], iri: str
+    tools: list[dict[str, Any]], iri: str, *, dataset_id: str | None
 ) -> list[dict[str, Any]]:
     """Declared-tool default cards for one subject: only tools with exactly
     one ``iri`` parameter, grouped/ordered by :data:`_DEFAULT_CARD_KIND_ORDER`
-    (declaration order within a group) — §3.4's rule."""
+    (declaration order within a group) — §3.4's rule.
+
+    ``tool`` is the name ``POST /api/cards/run`` accepts as-is:
+    ``f"{dataset_id}/{name}"`` when ``dataset_id`` is known (the normal case
+    — a declared tool always belongs to exactly one dataset, and
+    ``run_subject_tool`` only accepts a bare declared-tool name via its
+    back-compat resolution path), else the bare ``name`` (``dataset_id``
+    unavailable — e.g. a monkeypatched schema in a caller that has no
+    dataset to attribute the tool to)."""
     by_kind: dict[str, list[dict[str, Any]]] = {k: [] for k in _DEFAULT_CARD_KIND_ORDER}
     for tool in tools:
         if not isinstance(tool, dict):
@@ -1079,9 +1147,10 @@ def _declared_tool_cards(
         name = str(tool.get("name") or "")
         if not name:
             continue
+        full_name = f"{dataset_id}/{name}" if dataset_id else name
         by_kind[kind].append(
             {
-                "tool": name,
+                "tool": full_name,
                 "title": str(tool.get("title") or name),
                 "params": {str(iri_params[0].get("name")): iri},
                 "output_kind": kind,
@@ -1146,7 +1215,13 @@ async def default_cards_for_subject(
                 logger.debug("default_cards_for_subject: class_schema lookup failed", exc_info=True)
                 schema = None
             if isinstance(schema, dict):
-                for card in _declared_tool_cards(list(schema.get("tools") or []), iri):
+                dataset_id = schema.get("dataset_id")
+                declared_tools = _declared_tool_cards(
+                    list(schema.get("tools") or []),
+                    iri,
+                    dataset_id=str(dataset_id) if dataset_id else None,
+                )
+                for card in declared_tools:
                     card["card_id"] = card_id_of(subject_key, card["tool"], card["params"])
                     cards.append(card)
     return cards
@@ -1254,17 +1329,20 @@ async def run_subject_tool(
             return await subject_flow(client, iri, registry_root=registry_root)
         if tool in SET_BUILTIN_TOOLS:
             raise SubjectKindMismatchError(f"tool {tool!r} needs a set subject, got an individual")
-        if "/" not in tool:
-            raise UnknownSubjectToolError(f"unknown tool {tool!r}")
-        dataset_id, tool_name = tool.split("/", 1)
-        declared = {t.name: t for t in load_query_tools(dataset_id, root=registry_root)}
-        qt = declared.get(tool_name)
-        if qt is None:
-            raise UnknownSubjectToolError(f"unknown tool {tool!r}")
+        if "/" in tool:
+            dataset_id, tool_name = tool.split("/", 1)
+            declared = {t.name: t for t in load_query_tools(dataset_id, root=registry_root)}
+            qt = declared.get(tool_name)
+            if qt is None:
+                raise UnknownSubjectToolError(f"unknown tool {tool!r}")
+        else:
+            # 後方互換: 接頭なしの宣言ツール名も、この主語自身のクラスから解決
+            # できれば通す（§ dispatch back-compat — 上の _resolve_bare_declared_tool）。
+            qt = await _resolve_bare_declared_tool(client, registry_root, iri, tool)
+            if qt is None:
+                raise UnknownSubjectToolError(f"unknown tool {tool!r}")
         try:
-            return await run_iri_bound_tool(
-                client, qt, iri, params, registry_root=registry_root
-            )
+            return await run_iri_bound_tool(client, qt, iri, params, registry_root=registry_root)
         except QueryToolError as exc:
             raise SubjectToolError(str(exc)) from exc
 

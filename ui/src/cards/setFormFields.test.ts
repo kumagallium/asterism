@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { ClassSchemaLike } from './setFormFields'
-import { buildSetFormSpec, SET_FORM_DEFAULT_LIMIT, SET_FORM_MAX_LIMIT } from './setFormFields'
+import {
+  buildSetFormSpec,
+  CATEGORY_VISIBLE_LIMIT,
+  categoryOptionsView,
+  SET_FORM_DEFAULT_LIMIT,
+  SET_FORM_MAX_LIMIT,
+} from './setFormFields'
 import type { SchemaProperty } from './cardsApi'
 
 // 架空の 2 分野（図書館の貸出／気象観測）で確かめる。buildSetFormSpec は
@@ -119,5 +125,52 @@ describe('buildSetFormSpec', () => {
     expect(spec1).toEqual({ filters: [], orderOptions: [], defaultLimit: 20, maxLimit: 20 })
     expect(spec1).toEqual(spec2)
     expect(empty.properties).toEqual([])
+  })
+})
+
+describe('categoryOptionsView (PR E §4: 条件を変える — 12 超の切り詰め)', () => {
+  const FEW = ['Europe', 'Asia', 'Africa']
+  const MANY = Array.from({ length: 20 }, (_, i) => `Region ${i}`)
+
+  it('shows everything with no hasMore when the list is at or under the limit', () => {
+    expect(categoryOptionsView(FEW)).toEqual({ visible: FEW, hasMore: false, total: FEW.length })
+    expect(CATEGORY_VISIBLE_LIMIT).toBe(12)
+  })
+
+  it('caps to the top 12 and flags hasMore when the list exceeds the limit', () => {
+    const view = categoryOptionsView(MANY)
+    expect(view.visible).toEqual(MANY.slice(0, 12))
+    expect(view.hasMore).toBe(true)
+    expect(view.total).toBe(20)
+  })
+
+  it('showAll reveals everything and turns hasMore off', () => {
+    const view = categoryOptionsView(MANY, { showAll: true })
+    expect(view.visible).toEqual(MANY)
+    expect(view.hasMore).toBe(false)
+    expect(view.total).toBe(20)
+  })
+
+  it('search filters case-insensitively and never sets hasMore (already narrowed)', () => {
+    const view = categoryOptionsView(MANY, { search: 'REGION 1' })
+    // Region 1, 10-19 (case-insensitive substring match)
+    expect(view.visible).toEqual(['Region 1', 'Region 10', 'Region 11', 'Region 12', 'Region 13', 'Region 14', 'Region 15', 'Region 16', 'Region 17', 'Region 18', 'Region 19'])
+    expect(view.hasMore).toBe(false)
+    expect(view.total).toBe(view.visible.length)
+  })
+
+  it('search + showAll behaves the same as search alone (nothing left to cap)', () => {
+    const withShowAll = categoryOptionsView(MANY, { search: 'region 2', showAll: true })
+    const withoutShowAll = categoryOptionsView(MANY, { search: 'region 2' })
+    expect(withShowAll).toEqual(withoutShowAll)
+  })
+
+  it('is 0/empty for an empty list, and does not mutate the input', () => {
+    const input: string[] = []
+    expect(categoryOptionsView(input)).toEqual({ visible: [], hasMore: false, total: 0 })
+    expect(input).toEqual([])
+    const many = [...MANY]
+    categoryOptionsView(many, { search: 'nope' })
+    expect(many).toEqual(MANY)
   })
 })

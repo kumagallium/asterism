@@ -20,6 +20,17 @@ __all__ = ["default_view_for", "unit_label"]
 ItemMap = dict[str, dict[str, Any]]
 Row = dict[str, Any]
 
+# 行（items の 1 件）のキーは ``result.item`` の**キー名**であって、``var``
+# （SPARQL 側の変数名）ではない — 宣言ツールでは両者が異なりうる（例: 出口キー
+# ``life_expectancy`` <- SPARQL 変数 ``lifeExpectancy``）。以降は必ずキー名で
+# 行を参照する（``KeyedItem`` は ``item_spec`` に ``"key"`` を足したもの）。
+# ``var`` は行には現れないので使わない
+# （``ui/src/cards/defaultView.ts`` の ``KeyedItem`` に対応）。
+
+
+def _keyed_entries(item: ItemMap) -> list[dict[str, Any]]:
+    return [{**spec, "key": key} for key, spec in item.items()]
+
 
 def unit_label(unit: str | None) -> str:
     """``unit:K`` -> ``K``、フル IRI は末尾の局所名。値が無ければ空文字
@@ -40,7 +51,7 @@ def _humanize_key(key: str) -> str:
 
 
 def _all_by_role(item: ItemMap, role: str) -> list[dict[str, Any]]:
-    return [spec for spec in item.values() if spec.get("role") == role]
+    return [spec for spec in _keyed_entries(item) if spec.get("role") == role]
 
 
 def _find_role(item: ItemMap, role: str) -> dict[str, Any] | None:
@@ -55,8 +66,8 @@ def _find_subject(item: ItemMap) -> dict[str, Any] | None:
     role_hit = _find_role(item, "subject")
     if role_hit is not None:
         return role_hit
-    for spec in item.values():
-        if spec.get("var") == "subject_iri":
+    for spec in _keyed_entries(item):
+        if spec["key"] == "subject_iri":
             return spec
     return None
 
@@ -64,7 +75,7 @@ def _find_subject(item: ItemMap) -> dict[str, Any] | None:
 def _field_title(item_spec: dict[str, Any]) -> str:
     label = item_spec.get("label")
     if label is None:
-        label = _humanize_key(item_spec["var"])
+        label = _humanize_key(item_spec["key"])
     unit = item_spec.get("unit")
     if unit is not None:
         return f"{label} [{unit_label(unit)}]"
@@ -72,13 +83,13 @@ def _field_title(item_spec: dict[str, Any]) -> str:
 
 
 def _column_for(item_spec: dict[str, Any]) -> dict[str, Any]:
-    var = item_spec["var"]
-    is_iri = var.endswith("_iri") or item_spec.get("role") == "subject"
+    key = item_spec["key"]
+    is_iri = key.endswith("_iri") or item_spec.get("role") == "subject"
     label = item_spec.get("label")
     if label is None:
-        label = _humanize_key(var)
+        label = _humanize_key(key)
     col: dict[str, Any] = {
-        "field": var,
+        "field": key,
         "label": label,
         "format": "iri" if is_iri else ("number" if item_spec.get("number") else "text"),
     }
@@ -92,14 +103,14 @@ def _column_for(item_spec: dict[str, Any]) -> dict[str, Any]:
 
 def _x_encoding(item_spec: dict[str, Any]) -> dict[str, Any]:
     return {
-        "field": item_spec["var"],
+        "field": item_spec["key"],
         "type": "ordinal" if item_spec.get("number") is False else "quantitative",
         "title": _field_title(item_spec),
     }
 
 
 def _y_encoding(item_spec: dict[str, Any]) -> dict[str, Any]:
-    return {"field": item_spec["var"], "type": "quantitative", "title": _field_title(item_spec)}
+    return {"field": item_spec["key"], "type": "quantitative", "title": _field_title(item_spec)}
 
 
 def _quantity_view(tool: dict[str, Any]) -> dict[str, Any]:
@@ -126,7 +137,7 @@ def _series_view(tool: dict[str, Any], rows: list[Row]) -> dict[str, Any]:
         encoding["y"] = _y_encoding(y)
     if series is not None:
         encoding["color"] = {
-            "field": series["var"],
+            "field": series["key"],
             "type": "nominal",
             "title": _field_title(series),
         }
@@ -140,9 +151,9 @@ def _pairs_view(tool: dict[str, Any], rows: list[Row]) -> dict[str, Any]:
     y = _find_role(item, "y")
     encoding: dict[str, Any] = {}
     if x is not None:
-        encoding["x"] = {"field": x["var"], "type": "quantitative", "title": _field_title(x)}
+        encoding["x"] = {"field": x["key"], "type": "quantitative", "title": _field_title(x)}
     if y is not None:
-        encoding["y"] = {"field": y["var"], "type": "quantitative", "title": _field_title(y)}
+        encoding["y"] = {"field": y["key"], "type": "quantitative", "title": _field_title(y)}
     spec = {"mark": "point", "encoding": encoding, "data": {"values": rows}}
     return {"lang": "vega-lite", "spec": spec}
 
@@ -159,9 +170,9 @@ def _ranked_view(tool: dict[str, Any]) -> dict[str, Any]:
     subject = _find_subject(item)
     spec: dict[str, Any] = {"variant": "ranked", "columns": columns}
     if subject is not None:
-        spec["subject_field"] = subject["var"]
+        spec["subject_field"] = subject["key"]
     if value is not None:
-        spec["sort"] = {"field": value["var"], "dir": "desc"}
+        spec["sort"] = {"field": value["key"], "dir": "desc"}
     return {"lang": "table", "spec": spec}
 
 
@@ -172,14 +183,14 @@ def _breakdown_view(tool: dict[str, Any], rows: list[Row]) -> dict[str, Any]:
     encoding: dict[str, Any] = {}
     if category is not None:
         encoding["y"] = {
-            "field": category["var"],
+            "field": category["key"],
             "type": "nominal",
             "sort": "-x",
             "axis": {"title": None},
         }
     if count is not None:
         encoding["x"] = {
-            "field": count["var"],
+            "field": count["key"],
             "type": "quantitative",
             "title": _field_title(count),
             "axis": {"tickMinStep": 1, "format": "d"},
@@ -190,27 +201,33 @@ def _breakdown_view(tool: dict[str, Any], rows: list[Row]) -> dict[str, Any]:
 
 def _facts_view(tool: dict[str, Any]) -> dict[str, Any]:
     item: ItemMap = tool["item"]
-    all_entries = list(item.values())
-    by_var = {entry["var"]: entry for entry in all_entries}
+    all_entries = _keyed_entries(item)
+    by_key = {entry["key"]: entry for entry in all_entries}
     subject = _find_subject(item)
-    entries = [e for e in all_entries if e is not subject] if subject is not None else all_entries
-    normal = [e for e in entries if not e["var"].endswith("_iri")]
+    # ``_keyed_entries`` は呼ぶたびに新しい dict を作るので参照比較はできない
+    # （``is`` ではなくキーで同一性を見る）。
+    entries = (
+        [e for e in all_entries if e["key"] != subject["key"]]
+        if subject is not None
+        else all_entries
+    )
+    normal = [e for e in entries if not e["key"].endswith("_iri")]
     orphan_iri = [
         e
         for e in entries
-        if e["var"].endswith("_iri") and e["var"][:-4] not in by_var
+        if e["key"].endswith("_iri") and e["key"][:-4] not in by_key
     ]
     columns: list[dict[str, Any]] = []
     for entry in [*normal, *orphan_iri]:
         col = _column_for(entry)
-        if not entry["var"].endswith("_iri"):
-            sibling = by_var.get(f"{entry['var']}_iri")
-            if sibling is not None and sibling is not subject:
-                col["href_field"] = sibling["var"]
+        if not entry["key"].endswith("_iri"):
+            sibling = by_key.get(f"{entry['key']}_iri")
+            if sibling is not None and (subject is None or sibling["key"] != subject["key"]):
+                col["href_field"] = sibling["key"]
         columns.append(col)
     spec: dict[str, Any] = {"variant": "grid", "columns": columns}
     if subject is not None:
-        spec["subject_field"] = subject["var"]
+        spec["subject_field"] = subject["key"]
     return {"lang": "table", "spec": spec}
 
 

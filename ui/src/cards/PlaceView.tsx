@@ -3,7 +3,15 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './place.css'
-import { footerSummary, pillFor, readHeading, readSummary, type TextFragment } from './placeShape'
+import {
+  buildShapePreview,
+  footerSummary,
+  pillFor,
+  readHeading,
+  readSummary,
+  type ShapePreview,
+  type TextFragment,
+} from './placeShape'
 import {
   commitPlace,
   createStaging,
@@ -61,6 +69,12 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
   const [inspectErr, setInspectErr] = useState('')
   const [subjects, setSubjects] = useState<PlaceSubjectRow[] | null>(null)
   const [subjectsErr, setSubjectsErr] = useState('')
+  // 形が合わなかったときのプレビュー（列名と先頭 3 行・契約 §4）。ドロップされた
+  // ファイルそのものから決定論で切り出す（見本や生成データは混ぜない）— File
+  // オブジェクトが手元にある「ファイルを置く」経路だけで作れる。既に棚にある
+  // データセットの経路（`datasetId`）は File が無いので null のまま
+  // （列名だけは `inspectResult.files[0].columns` から出す）。
+  const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null)
   const [choices, setChoices] = useState<Record<string, string | null>>({})
   const [committing, setCommitting] = useState(false)
   const [commitErr, setCommitErr] = useState('')
@@ -81,6 +95,7 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
       setSubjects(null)
       setChoices({})
       setInspectResult(null)
+      setShapePreview(null)
       setInspecting(true)
       try {
         const result = await inspectPlace({ dataset_id: datasetId })
@@ -114,6 +129,7 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
     setSubjects(null)
     setChoices({})
     setInspectResult(null)
+    setShapePreview(null)
     setInspecting(true)
     try {
       const st = await createStaging(files)
@@ -129,6 +145,20 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
           setSubjectsErr(e instanceof Error ? e.message : String(e))
         }
         return
+      }
+      // 形が合わなかった（type_id: null）— 列名と先頭 3 行のプレビューを見せる
+      // （契約 §4）。テキスト系（csv/tsv/txt）だけ実際の中身を読む。それ以外
+      // （.xlsx 等）はサーバがすでに解いた列名（file.columns）だけ見せる —
+      // ブラウザで生バイト列を読んでも文字化けするだけで、実物のプレビューに
+      // ならないため。ベストエフォート: 読めなくても致命的にしない。
+      const first = files[0]
+      if (first && /\.(csv|tsv|txt)$/i.test(first.name)) {
+        try {
+          const text = await first.text()
+          setShapePreview(buildShapePreview(text))
+        } catch {
+          /* best-effort: プレビューが作れなくても列名だけの表示にフォールバック */
+        }
       }
     } catch (e) {
       setInspectErr(e instanceof Error ? e.message : String(e))
@@ -269,7 +299,14 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
               .join(' ・ ')}
           </p>
           {!datasetId && (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setInspectResult(null)}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setInspectResult(null)
+                setShapePreview(null)
+              }}
+            >
               {t('cards:place.anotherFile', { defaultValue: '別のファイル' })}
             </button>
           )}
@@ -278,12 +315,57 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
 
       {inspectResult && !inspectResult.match.type_id && (
         <div className="place-noshelf card">
-          <p className="card-h">
-            {t('cards:place.noShelf', { defaultValue: 'この形は棚にまだありません' })}
-          </p>
-          <button type="button" className="btn btn--accent" onClick={goBuildShelf}>
-            {t('cards:place.buildShelf', { defaultValue: '棚を作る（かんたんウィザードへ）' })}
-          </button>
+          {shapePreview && shapePreview.columns.length > 0 ? (
+            <>
+              <p className="kz-note">
+                {t('cards:place.previewLead', {
+                  defaultValue: 'この中にある列と、先頭 {{count}} 行です',
+                  count: shapePreview.rows.length,
+                })}
+              </p>
+              <div className="table-wrap place-preview-table">
+                <table className="jobs-table">
+                  <thead>
+                    <tr>
+                      {shapePreview.columns.map((col, i) => (
+                        <th key={`${col}-${i}`}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shapePreview.rows.map((row, ri) => (
+                      <tr key={ri}>
+                        {shapePreview.columns.map((_, ci) => (
+                          <td key={ci}>{row[ci] ?? ''}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="kz-note">
+                {t('cards:place.previewColumnsOnly', { defaultValue: 'この中にある列です' })}
+              </p>
+              <div className="place-preview-columns">
+                {(file?.columns ?? []).map((col) => (
+                  <span className="place-preview-col-chip" key={col}>
+                    {col}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          <div className="place-preview-actions">
+            <button type="button" className="btn btn--accent" onClick={goBuildShelf}>
+              {t('cards:place.buildShelf', { defaultValue: '設定の手順へ（順番に質問します）' })}
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => navigate({ tab: 'cards' })}>
+              {t('cards:place.tryDemo', { defaultValue: '見本で試す' })}
+            </button>
+          </div>
         </div>
       )}
 
@@ -310,7 +392,7 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
                     <span className={`place-pill place-pill--${pill.tone}`}>
                       {pill.tone === 'ok' &&
                         t('cards:place.pillLinked', {
-                          defaultValue: '棚とつながった ・ {{count}} 件',
+                          defaultValue: '公開データと同じ ・ {{count}} 件',
                           count: item.rows,
                         })}
                       {pill.tone === 'warn' &&
