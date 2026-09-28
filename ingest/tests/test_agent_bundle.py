@@ -8,6 +8,7 @@ control-graph triples set up explicitly (``<canonical/id>`` promoted +
 fictional domains (library checkouts / a field-log) — no materials-science
 noun anywhere (§0).
 """
+
 from __future__ import annotations
 
 import json
@@ -434,9 +435,7 @@ async def test_builtin_page_facts_query_returns_rows_once_from_is_reinjected(
     tools = {t.name: t for t in parse_query_tools(doc)}
     tool = tools["page_facts"]
     bare = render_query(tool, {})
-    reinjected = bare.replace(
-        "WHERE {", canonical_from_clauses([LIB_GRAPH]) + "WHERE {", 1
-    )
+    reinjected = bare.replace("WHERE {", canonical_from_clauses([LIB_GRAPH]) + "WHERE {", 1)
 
     store = pyoxigraph.Store()
     store.load(
@@ -515,9 +514,7 @@ async def test_builtin_page_facts_shapes_rows_with_non_none_values(tmp_path: Pat
     tools = {t.name: t for t in parse_query_tools(doc)}
     tool = tools["page_facts"]
     bare = render_query(tool, {})
-    reinjected = bare.replace(
-        "WHERE {", canonical_from_clauses([LIB_GRAPH]) + "WHERE {", 1
-    )
+    reinjected = bare.replace("WHERE {", canonical_from_clauses([LIB_GRAPH]) + "WHERE {", 1)
 
     facts_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL}, promote={})
     raw = await facts_client.sparql_select(reinjected)
@@ -556,9 +553,7 @@ async def test_agent_md_has_seven_sections_ja_and_en(tmp_path: Path) -> None:
             _client(),
             tmp_path,
             subject={"kind": "individual", "iri": CHECKOUT_1},
-            cards=[
-                {"card_id": "card-1", "tool": "subject_facts", "params": {"iri": CHECKOUT_1}}
-            ],
+            cards=[{"card_id": "card-1", "tool": "subject_facts", "params": {"iri": CHECKOUT_1}}],
             share="full",
             lang=lang,
         )
@@ -580,6 +575,423 @@ async def test_mcp_json_shape(tmp_path: Path) -> None:
     doc = json.loads(_zip_read(bundle.zip_bytes, f"{bundle.slug}/mcp.json"))
     slug = bundle.slug
     assert doc == {"mcpServers": {slug: {"command": "asterism-agent", "args": ["serve", "."]}}}
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_pr_f4.md §1-6 — 足したカード（appdata cards の
+# ``set_measure``）は card_id ごとに束の tools/_builtin/ に個別に凍結され、
+# cards/ にも載る。``set_measure`` はまだ他担当（tool）の並行作業なので、
+# ``subject_tools.run_subject_tool`` を差し替えて結果を固定する（このファイル
+# が書く凍結ロジックそのものの検証 — 実際の SPARQL 組み立ての正しさは
+# tool 側の test_set_measure.py の担当）。
+# ---------------------------------------------------------------------------
+
+
+async def test_added_card_is_frozen_into_its_own_builtin_tool_and_card_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_registry(tmp_path)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        assert tool == "set_measure"
+        # ``_measure_quantity`` と同じ形: raw SPARQL は ``?value`` を直接
+        # 射影する（quantity は数少ない「item のロールキーと生クエリの変数
+        # 名が一致する」shape — :data:`agent_bundle._MEASURE_RAW_VAR` 参照）。
+        return {
+            "tool": tool,
+            "count": 1,
+            "items": [{"value": 3}],
+            "truncated": False,
+            "sparql": "SELECT (COUNT(?s) AS ?value) WHERE { ?s a <https://ex/lib#R> }",
+            "output_kind": "quantity",
+            "item": {"value": {"var": "value", "role": "value", "number": True}},
+            "materials": [],
+            "shareable": False,
+            "shareable_reasons": ["no_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[{"card_id": "card-added-1", "tool": "set_measure", "params": {"agg": "count"}}],
+        share="full",
+        lang="ja",
+    )
+    names = _zip_names(bundle.zip_bytes)
+    slug = bundle.slug
+    assert f"{slug}/cards/card-added-1.json" in names
+    assert f"{slug}/tools/_builtin/query_tools.yaml" in names
+
+    import yaml as yaml_mod
+
+    doc = yaml_mod.safe_load(_zip_read(bundle.zip_bytes, f"{slug}/tools/_builtin/query_tools.yaml"))
+    tool_names = [t["name"] for t in doc["tools"]]
+    assert tool_names == ["card_added_1"]
+    frozen = doc["tools"][0]
+    assert frozen["output_kind"] == "quantity"
+    assert "FROM <" not in frozen["query"]
+    assert set(frozen["result"]["item"]) == {"value"}
+
+    spec = json.loads(_zip_read(bundle.zip_bytes, f"{slug}/cards/card-added-1.json"))
+    assert spec["tool"] == "set_measure"
+    assert spec["params"] == {"agg": "count"}
+
+    # 見つけた磨き #4: AGENT.md の一覧には呼び出し時の共通名
+    # "set_measure" ではなく、query_tools.yaml に実際に書かれた凍結名が
+    # 出る（複数枚あっても "set_measure" 1 行に潰れて実体が見えない、
+    # という実機所見の再現・回帰防止）。
+    agent_md = _zip_read(bundle.zip_bytes, f"{slug}/AGENT.md")
+    assert "card_added_1" in agent_md
+
+
+async def test_two_added_cards_freeze_into_two_distinct_builtin_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_registry(tmp_path)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        return {
+            "tool": tool,
+            "count": 1,
+            "items": [{"value": 1}],
+            "truncated": False,
+            "sparql": "SELECT (COUNT(?s) AS ?value) WHERE { ?s a <https://ex/lib#R> }",
+            "output_kind": "quantity",
+            "item": {"value": {"var": "value", "role": "value", "number": True}},
+            "materials": [],
+            "shareable": False,
+            "shareable_reasons": ["no_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[
+            {"card_id": "card-a", "tool": "set_measure", "params": {"agg": "count"}},
+            {"card_id": "card-b", "tool": "set_measure", "params": {"agg": "sum"}},
+        ],
+        share="full",
+        lang="ja",
+    )
+    import yaml as yaml_mod
+
+    doc = yaml_mod.safe_load(
+        _zip_read(bundle.zip_bytes, f"{bundle.slug}/tools/_builtin/query_tools.yaml")
+    )
+    assert {t["name"] for t in doc["tools"]} == {"card_a", "card_b"}
+
+
+async def test_added_card_series_shape_renames_x_to_the_raw_query_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """固定テスト: ``asterism.subject_tools._measure_series`` は item 上
+    ``x`` の値を実際には ``BIND(... AS ?xn)`` で ``?xn`` に射影する（``y`` は
+    たまたま ``?y`` のまま一致するが、``x`` は一致しない）。対応表
+    （:data:`agent_bundle._MEASURE_RAW_VAR`）で var を差し替えないと、束の
+    ``page`` 相当ツールが SELECT に無い ``?x`` を指す壊れた宣言になり
+    （またはロール `x` が丸ごと消えて ``series`` の role 必須チェックに
+    落ちて凍結自体がスキップされ）、"推移" カードが AI に渡せない。"""
+    _write_registry(tmp_path)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        return {
+            "tool": tool,
+            "count": 1,
+            "items": [{"x": 2020, "y": 3.5}],
+            "truncated": False,
+            "sparql": (
+                "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                "SELECT ?xn (AVG(?yn) AS ?y) WHERE { "
+                "?s <https://ex/library#year> ?xr . BIND(xsd:double(str(?xr)) AS ?xn) "
+                "?s <https://ex/library#count> ?yr . BIND(xsd:double(str(?yr)) AS ?yn) "
+                "} GROUP BY ?xn"
+            ),
+            "output_kind": "series",
+            "item": {
+                "x": {"var": "x", "role": "x", "number": True},
+                "y": {"var": "y", "role": "y", "number": True},
+            },
+            "materials": [],
+            "shareable": False,
+            "shareable_reasons": ["no_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[{"card_id": "card-series", "tool": "set_measure", "params": {"shape": "series"}}],
+        share="full",
+        lang="ja",
+    )
+    import yaml as yaml_mod
+
+    from asterism.query_tools import lint_query_tool, parse_query_tools
+
+    doc = yaml_mod.safe_load(
+        _zip_read(bundle.zip_bytes, f"{bundle.slug}/tools/_builtin/query_tools.yaml")
+    )
+    frozen = next(t for t in doc["tools"] if t["name"] == "card_series")
+    assert frozen["result"]["item"]["x"]["var"] == "xn"
+    assert frozen["result"]["item"]["y"]["var"] == "y"
+    tools = parse_query_tools(doc)
+    lint = lint_query_tool(tools[0])
+    assert not lint.errors, lint.errors
+
+
+async def test_added_card_with_no_sparql_is_skipped_from_tools_but_keeps_card_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """安全側: ``sparql``/``item`` が無ければツールとしては凍結しない（壊れた
+    ツールを束に入れるより省く — :func:`_builtin_tool_raw` と同じ規律）。ただ
+    し ``cards/`` の JSON は既存のカード書き出しがそのまま担うので残る。"""
+    _write_registry(tmp_path)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        return {
+            "tool": tool,
+            "count": 0,
+            "items": [],
+            "truncated": False,
+            "sparql": None,
+            "output_kind": "quantity",
+            "item": {},
+            "materials": [],
+            "shareable": False,
+            "shareable_reasons": ["no_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[{"card_id": "card-broken", "tool": "set_measure", "params": {}}],
+        share="full",
+        lang="ja",
+    )
+    names = _zip_names(bundle.zip_bytes)
+    slug = bundle.slug
+    assert f"{slug}/cards/card-broken.json" in names
+    assert f"{slug}/tools/" in names  # 空でもディレクトリ印は残る
+    assert f"{slug}/tools/_builtin/query_tools.yaml" not in names
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_pr_f13.md §1-3/§3(4) — AI が「書いた」見せ方(custom view)
+# を持つカードは、元のカード(source_card_id)と同じ tool/params を実行するが、
+# 自前のツールは tools/ に凍結しない(「view は実行物でない」)。
+# ---------------------------------------------------------------------------
+
+
+async def test_custom_view_card_freezes_only_the_source_cards_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_registry(tmp_path)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        assert tool == "set_measure"
+        return {
+            "tool": tool,
+            "count": 1,
+            "items": [{"x": 2020, "y": 3.5}],
+            "truncated": False,
+            "sparql": (
+                "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                "SELECT ?xn (AVG(?yn) AS ?y) WHERE { "
+                "?s <https://ex/library#year> ?xr . BIND(xsd:double(str(?xr)) AS ?xn) "
+                "?s <https://ex/library#count> ?yr . BIND(xsd:double(str(?yr)) AS ?yn) "
+                "} GROUP BY ?xn"
+            ),
+            "output_kind": "series",
+            "item": {
+                "x": {"var": "x", "role": "x", "number": True},
+                "y": {"var": "y", "role": "y", "number": True},
+            },
+            "materials": [],
+            "shareable": False,
+            "shareable_reasons": ["no_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    ai_spec = {"mark": "line", "encoding": {"x": {"field": "x", "type": "quantitative"}}}
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[
+            {
+                "card_id": "card-source",
+                "tool": "set_measure",
+                "params": {"shape": "series"},
+                "title": "推移",
+            },
+            {
+                "card_id": "card-view",
+                "tool": "set_measure",
+                "params": {"shape": "series"},
+                "title": "推移(見せ方違い)",
+                "view": {
+                    "lang": "vega-lite",
+                    "spec": ai_spec,
+                    "custom": True,
+                    "source_card_id": "card-source",
+                },
+            },
+        ],
+        share="full",
+        lang="ja",
+    )
+    names = _zip_names(bundle.zip_bytes)
+    slug = bundle.slug
+
+    # tools/ には元のカード(card-source)のツールしか凍結されない。
+    import yaml as yaml_mod
+
+    doc = yaml_mod.safe_load(_zip_read(bundle.zip_bytes, f"{slug}/tools/_builtin/query_tools.yaml"))
+    assert {t["name"] for t in doc["tools"]} == {"card_source"}
+
+    # cards/card-view.json には AI の spec と source_card_id が一緒に残る。
+    assert f"{slug}/cards/card-view.json" in names
+    view_spec = json.loads(_zip_read(bundle.zip_bytes, f"{slug}/cards/card-view.json"))
+    assert view_spec["view"] == {"lang": "vega-lite", "spec": ai_spec, "custom": True}
+    assert view_spec["source_card_id"] == "card-source"
+    assert view_spec["tool"] == "set_measure"
+
+    # AGENT.md に「AI が書いた見せ方」の印が残り、ツール名は source 側の
+    # 凍結名(card_source)を指す(card-view 自身の凍結名ではない)。
+    agent_md = _zip_read(bundle.zip_bytes, f"{slug}/AGENT.md")
+    assert "推移(見せ方違い)" in agent_md
+    assert "AIが書いた見せ方" in agent_md
+    assert "card_source" in agent_md
+
+
+async def test_custom_view_card_does_not_double_count_materials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """view カードは source_card_id の結果の複製でしかないので、
+    materials.json の集計 count が二重に数えられてはいけない。"""
+    _write_registry(tmp_path, with_tools=True)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        return {
+            "tool": tool,
+            "count": 1,
+            "items": [{"value": "north"}],
+            "truncated": False,
+            "materials": [
+                {
+                    "kind": "own",
+                    "dataset_id": LIB_DATASET,
+                    "dataset_label": "Library",
+                    "snapshot": "v1",
+                    "license": None,
+                    "redistributable": None,
+                    "count": 1,
+                }
+            ],
+            "shareable": False,
+            "shareable_reasons": ["own_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[
+            {"card_id": "card-source", "tool": "library-checkouts/branch_of", "params": {}},
+            {
+                "card_id": "card-view",
+                "tool": "library-checkouts/branch_of",
+                "params": {},
+                "view": {
+                    "lang": "table",
+                    "spec": {"columns": [{"key": "value", "label": "値"}]},
+                    "custom": True,
+                    "source_card_id": "card-source",
+                },
+            },
+        ],
+        share="full",
+        lang="ja",
+    )
+    materials_doc = json.loads(_zip_read(bundle.zip_bytes, f"{bundle.slug}/materials.json"))
+    assert len(materials_doc["materials"]) == 1
+    assert materials_doc["materials"][0]["count"] == 1
+
+
+async def test_custom_mermaid_view_card_writes_the_source_text_as_mmd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``lang == "mermaid"`` の custom view は ``spec`` でなく ``text``
+    （``ui/src/cards/cardsApi.ts`` の ``CardView`` と同じ形）を持つ —
+    ``cards/<id>.mmd`` にはそのテキストをそのまま書く（解析済み ``GraphSpec``
+    経由の既定ビュー ``lang: "graph"`` とは別経路）。"""
+    _write_registry(tmp_path)
+
+    async def fake_run_subject_tool(client, registry_root, subject, tool, params):
+        return {
+            "tool": tool,
+            "count": 1,
+            "items": [{"value": 1}],
+            "truncated": False,
+            "sparql": "SELECT (COUNT(?s) AS ?value) WHERE { ?s a <https://ex/lib#R> }",
+            "output_kind": "quantity",
+            "item": {"value": {"var": "value", "role": "value", "number": True}},
+            "materials": [],
+            "shareable": False,
+            "shareable_reasons": ["no_materials"],
+        }
+
+    monkeypatch.setattr(
+        "asterism.agent_bundle.subject_tools.run_subject_tool", fake_run_subject_tool
+    )
+    mermaid_text = "flowchart LR\n  a[A] --> b[B]"
+    bundle = await build_export_bundle(
+        _client(),
+        tmp_path,
+        subject={"kind": "individual", "iri": CHECKOUT_1},
+        cards=[
+            {"card_id": "card-source", "tool": "set_measure", "params": {"agg": "count"}},
+            {
+                "card_id": "card-view",
+                "tool": "set_measure",
+                "params": {"agg": "count"},
+                "view": {
+                    "lang": "mermaid",
+                    "text": mermaid_text,
+                    "custom": True,
+                    "source_card_id": "card-source",
+                },
+            },
+        ],
+        share="full",
+        lang="ja",
+    )
+    names = _zip_names(bundle.zip_bytes)
+    slug = bundle.slug
+    assert f"{slug}/cards/card-view.mmd" in names
+    assert _zip_read(bundle.zip_bytes, f"{slug}/cards/card-view.mmd") == mermaid_text
+    view_spec = json.loads(_zip_read(bundle.zip_bytes, f"{slug}/cards/card-view.json"))
+    assert view_spec["view"] == {"lang": "mermaid", "text": mermaid_text, "custom": True}
 
 
 # ---------------------------------------------------------------------------
@@ -693,9 +1105,7 @@ async def test_share_shareable_all_own_raises_not_shareable(
             _client(),
             tmp_path,
             subject={"kind": "individual", "iri": CHECKOUT_1},
-            cards=[
-                {"card_id": "card-1", "tool": "subject_facts", "params": {"iri": CHECKOUT_1}}
-            ],
+            cards=[{"card_id": "card-1", "tool": "subject_facts", "params": {"iri": CHECKOUT_1}}],
             share="shareable",
             lang="ja",
         )

@@ -26,6 +26,36 @@ export interface Presentation {
   colorBy?: string | null
 }
 
+const PRESENTATION_MARKS: readonly PresentationMark[] = ['line', 'bar', 'point', 'table']
+
+/** 保存・伝送された緩い形（`CardSpec.presentation`／会話の提案の
+ *  `presentation`＝`Record<string, unknown> | null`）→ {@link Presentation}。
+ *  読めるフィールドだけを拾う（知らないキー・型の違う値は捨てる）。1 つも
+ *  拾えなければ `undefined`（＝指定なし）。固定表に照らした妥当性はここでは
+ *  見ない — {@link viewFor} が `output_kind` ごとに照らす。 */
+export function coercePresentation(raw: unknown): Presentation | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const source = raw as Record<string, unknown>
+  const out: Presentation = {}
+  if (typeof source.mark === 'string' && (PRESENTATION_MARKS as readonly string[]).includes(source.mark)) {
+    out.mark = source.mark as PresentationMark
+  }
+  if (typeof source.swapXY === 'boolean') out.swapXY = source.swapXY
+  if (typeof source.colorBy === 'string' || source.colorBy === null) out.colorBy = source.colorBy
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** 実際に効かせる見せ方を 1 つに決める（ADR O36）。
+ *    1. 見ている人がこのカードで選んだもの（手元・`cardPresentation.ts`）
+ *    2. カードに保存されたもの（会話で決めた見せ方・`CardSpec.presentation`）
+ *    3. どちらも無ければ `undefined`（＝既定ビュー）
+ *  フィールドごとに混ぜない — 選んだものは丸ごと勝つ（切替 UI は常に
+ *  mark/swapXY/colorBy の 3 つを揃えて書くため）。AI が書いた見せ方
+ *  （`CardSpec.view`）を持つカードは、呼び出し側がこの関数より先に分ける。 */
+export function effectivePresentation(chosen: Presentation | undefined, saved: unknown): Presentation | undefined {
+  return chosen ?? coercePresentation(saved)
+}
+
 /** 色分けの候補（1 つだけ — role が高々 1 列にしか付かないため）。 */
 export interface ColorByCandidate {
   key: string

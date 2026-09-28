@@ -23,7 +23,16 @@ unauthenticated) but gated behind the write token anyway, per contract §3:
 building a bundle re-runs every card and walks a 1-hop describe over
 possibly many IRIs, so it is throttled like a write instead of left open
 like the cheap reads.
+
+契約メモ contract_pr_f4.md §1-6 (このファイルの追記分): 束を作るとき、
+呼び出し側が渡した ``cards`` に加えて、appdata の ``cards`` namespace に
+保存済みの「足したカード」のうちこの ``subject`` のもの
+（``subject_key`` 一致）も自動で合流させる — フロントが列挙し忘れても
+束から漏れないようにするための下支え（重複 ``card_id`` は呼び出し側の
+ものを優先）。単一ユーザーでない/appdata 未設定なら何も足さない
+（hosted は appdata 自体が無い）。
 """
+
 from __future__ import annotations
 
 import hmac
@@ -37,6 +46,9 @@ from asterism.agent_bundle import ExportError, NotShareableError, build_export_b
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from asterism_api import appdata
+from asterism_api.appdata_cards_routes import CARDS_NAMESPACE
 
 if TYPE_CHECKING:  # pragma: no cover - type-checking only, avoids a runtime cycle
     from asterism.oxigraph_client import OxigraphClient
@@ -82,8 +94,7 @@ def _require_write_auth(cfg: Settings):
             )
             raise HTTPException(
                 503,
-                "利用許可コード (管理者が設定する API token) が未設定のため、"
-                "この操作はできません",
+                "利用許可コード (管理者が設定する API token) が未設定のため、この操作はできません",
             )
         presented: str | None = None
         if authorization and authorization.startswith("Bearer "):
@@ -110,6 +121,38 @@ def _reject_if_content_length_exceeds(request: Request, limit: int) -> None:
         raise HTTPException(413, f"body is {declared} bytes, over the {limit} limit")
 
 
+_VIEW_LANGS = ("vega-lite", "table", "mermaid")
+_PRESENTATION_MARKS = ("line", "bar", "point")
+
+
+def _presentation_field(raw: Any) -> dict[str, Any] | None:
+    """CardSpec.presentation（会話で決めた見せ方・F18）を束まで運ぶ。
+    `{"mark": "line"|"bar"|"point"}` の形だけを通し、それ以外は黙って落とす
+    （`applyPresentation.ts` と同じ許可リスト）。"""
+    if not isinstance(raw, dict):
+        return None
+    mark = raw.get("mark")
+    if mark not in _PRESENTATION_MARKS:
+        return None
+    return {"mark": mark}
+
+
+def _view_field(raw: Any) -> dict[str, Any] | None:
+    """CardSpec.view（AI が書いた見せ方・F13）を束まで運ぶ。形が違えば黙って落とす
+    （束に壊れた view を入れるより、元のカードだけ入れる方が安全側）。"""
+    if not isinstance(raw, dict):
+        return None
+    lang = raw.get("lang")
+    source = raw.get("source_card_id")
+    if lang not in _VIEW_LANGS or not isinstance(source, str) or not source:
+        return None
+    body_key = "text" if lang == "mermaid" else "spec"
+    body = raw.get(body_key)
+    if body is None:
+        return None
+    return {"lang": lang, body_key: body, "source_card_id": source, "custom": True}
+
+
 def _normalize_cards(raw_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not raw_cards:
         raise HTTPException(400, "cards must be a non-empty list")
@@ -128,8 +171,64 @@ def _normalize_cards(raw_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         params = raw.get("params")
         if params is not None and not isinstance(params, dict):
             raise HTTPException(400, f"cards[{i}].params must be an object")
-        out.append({"card_id": card_id, "tool": tool, "params": dict(params or {})})
+        entry: dict[str, Any] = {"card_id": card_id, "tool": tool, "params": dict(params or {})}
+        title = raw.get("title")
+        if isinstance(title, str) and title.strip():
+            entry["title"] = title.strip()
+        view = _view_field(raw.get("view"))
+        if view is not None:
+            entry["view"] = view
+        presentation = _presentation_field(raw.get("presentation"))
+        if presentation is not None:
+            entry["presentation"] = presentation
+        out.append(entry)
     return out
+
+
+def _appdata_cards_for_subject(cfg: Settings, subject_key: str) -> list[dict[str, Any]]:
+    """appdata の ``cards`` namespace のうち ``subject_key`` が一致する
+    「足したカード」を ``{card_id, tool, params}`` の形で返す（契約メモ
+    contract_pr_f4.md §1-6）。単一ユーザーでない/appdata 未設定/壊れた
+    エントリは黙って除く（材料が壊れているより 1 枚欠けるほうが安全側）。
+    """
+    if not cfg.single_user or cfg.appdata_root is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for raw in appdata.read_threads(cfg.appdata_root, namespace=CARDS_NAMESPACE):
+        if not isinstance(raw, dict) or raw.get("subject_key") != subject_key:
+            continue
+        card_id = raw.get("card_id")
+        tool = raw.get("tool")
+        if not isinstance(card_id, str) or not card_id or not isinstance(tool, str) or not tool:
+            continue
+        params = raw.get("params")
+        entry: dict[str, Any] = {"card_id": card_id, "tool": tool, "params": dict(params or {})}
+        title = raw.get("title")
+        if isinstance(title, str) and title.strip():
+            entry["title"] = title.strip()  # 凍結ツールと AGENT.md の見出しに使う
+        view = _view_field(raw.get("view"))
+        if view is not None:
+            entry["view"] = view  # AI が書いた見せ方（F13）も束へ
+        presentation = _presentation_field(raw.get("presentation"))
+        if presentation is not None:
+            entry["presentation"] = presentation  # 会話で決めた見せ方（F18）も束へ
+        out.append(entry)
+    return out
+
+
+def _merge_cards(
+    body_cards: list[dict[str, Any]], appdata_cards: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """``body_cards`` を優先し（同じ ``card_id`` はそちらを残す）、appdata の
+    足したカードのうち未出のものだけ末尾に足す。"""
+    merged = list(body_cards)
+    seen = {c["card_id"] for c in merged}
+    for card in appdata_cards:
+        if card["card_id"] in seen:
+            continue
+        merged.append(card)
+        seen.add(card["card_id"])
+    return merged
 
 
 def register_export(app: FastAPI, cfg: Settings) -> None:
@@ -154,6 +253,10 @@ def register_export(app: FastAPI, cfg: Settings) -> None:
         if body.lang not in _LANGS:
             raise HTTPException(400, f"lang must be one of {_LANGS}, got {body.lang!r}")
         cards = _normalize_cards(body.cards)
+        subject_key = subjects_mod.subject_key_string(subject)
+        cards = _merge_cards(cards, _appdata_cards_for_subject(cfg, subject_key))
+        if len(cards) > _MAX_CARDS:
+            raise HTTPException(400, f"too many cards (max {_MAX_CARDS})")
 
         try:
             bundle = await build_export_bundle(

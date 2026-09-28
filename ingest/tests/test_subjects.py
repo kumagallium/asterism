@@ -6,9 +6,29 @@
 test_shape_match.py / test_subject_tools.py / test_class_schema.py の実
 pyoxigraph 経由の呼び出し側テストで検証する — ここは純関数のみ。
 """
+
 from __future__ import annotations
 
-from asterism.subjects import LABEL_PREDICATES, label_union_clause, pick_label
+import json
+from pathlib import Path
+
+import pytest
+
+from asterism.subjects import (
+    LABEL_PREDICATES,
+    SetSpecError,
+    class_type_clause,
+    label_union_clause,
+    normalize_set_spec,
+    pick_label,
+    resolve_dataset_label,
+    valid_dataset_id,
+)
+
+EX = "https://ex/o#"
+CLASS_IRI = EX + "Thing"
+LINK_PRED = EX + "pointsAt"
+TARGET_IRI = "https://ex/o/resource/target-1"
 
 
 def test_label_predicates_priority_order() -> None:
@@ -59,3 +79,310 @@ def test_pick_label_schema_org_name_only_resource_is_not_dropped() -> None:
     # local-name フォールバックへ落ちずに schema:name の値を選ぶ。
     candidates = [("Hydrogen", 1, None)]
     assert pick_label(candidates) == "Hydrogen"
+
+
+# ----------------------------------------------------------------------------
+# class_type_clause (契約メモ contract_pr_f9.md §2.2: subjects/search の
+# class_iri 限定)
+# ----------------------------------------------------------------------------
+
+
+def test_class_type_clause_embeds_a_safe_class_iri() -> None:
+    assert class_type_clause(CLASS_IRI) == f"?s a <{CLASS_IRI}> . "
+
+
+def test_class_type_clause_honours_a_custom_subject_term() -> None:
+    assert class_type_clause(CLASS_IRI, subject_term="?x") == f"?x a <{CLASS_IRI}> . "
+
+
+def test_class_type_clause_none_for_an_unsafe_iri() -> None:
+    assert class_type_clause("not an iri") is None
+    assert class_type_clause("") is None
+    assert class_type_clause(None) is None
+
+
+# ----------------------------------------------------------------------------
+# valid_dataset_id / resolve_dataset_label (契約メモ contract_pr_f2.md §3.1/§3.2)
+# ----------------------------------------------------------------------------
+
+
+def test_valid_dataset_id_accepts_the_registry_slug_shape() -> None:
+    assert valid_dataset_id("seed-catalogue-aaaa") == "seed-catalogue-aaaa"
+
+
+def test_valid_dataset_id_rejects_anything_else() -> None:
+    assert valid_dataset_id("") is None
+    assert valid_dataset_id(None) is None
+    assert valid_dataset_id(123) is None
+    assert valid_dataset_id("Has-Upper-Case") is None
+    assert valid_dataset_id("has/slash") is None
+    assert valid_dataset_id("has space") is None
+
+
+def test_resolve_dataset_label_none_registry_root_is_the_id_itself() -> None:
+    assert resolve_dataset_label(None, "seed-catalogue-aaaa") == "seed-catalogue-aaaa"
+
+
+def test_resolve_dataset_label_unsafe_id_is_the_input_verbatim(tmp_path: Path) -> None:
+    # 不正な形は空振り（呼び出し境界の 400/404 判定はここの責務ではない —
+    # ここは「表示名を 1 つ選ぶ」だけの純関数）。
+    assert resolve_dataset_label(tmp_path, "not a slug") == "not a slug"
+
+
+def test_resolve_dataset_label_falls_back_to_meta_json_name(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "seed-catalogue-aaaa"
+    dataset_dir.mkdir()
+    (dataset_dir / "meta.json").write_text(
+        json.dumps({"id": "seed-catalogue-aaaa", "name": "種苗カタログ"}),
+        encoding="utf-8",
+    )
+    assert resolve_dataset_label(tmp_path, "seed-catalogue-aaaa") == "種苗カタログ"
+
+
+def test_resolve_dataset_label_falls_back_to_id_when_nothing_is_recorded(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "seed-catalogue-aaaa"
+    dataset_dir.mkdir()
+    assert resolve_dataset_label(tmp_path, "seed-catalogue-aaaa") == "seed-catalogue-aaaa"
+
+
+def test_resolve_dataset_label_prefers_metadata_ttl_title_over_meta_json_name(
+    tmp_path: Path,
+) -> None:
+    from asterism import substrate
+
+    dataset_id = "seed-catalogue-aaaa"
+    dataset_dir = tmp_path / dataset_id
+    dataset_dir.mkdir()
+    (dataset_dir / "meta.json").write_text(
+        json.dumps({"id": dataset_id, "name": "旧い名前"}), encoding="utf-8"
+    )
+    subject = substrate.dataset_iri(dataset_id)
+    (dataset_dir / "metadata.ttl").write_text(
+        "\n".join(
+            [
+                "@prefix dcterms: <http://purl.org/dc/terms/> .",
+                f'<{subject}> dcterms:title "Seed catalogue"@en, "種苗カタログ"@ja .',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert resolve_dataset_label(tmp_path, dataset_id) == "種苗カタログ"
+
+
+def test_resolve_dataset_label_ignores_an_empty_metadata_ttl(tmp_path: Path) -> None:
+    # 契約メモの見本データセット（world）は登録時点で ``metadata.ttl`` が
+    # 空ファイルのまま — 空文字列は「タイトルが無い」と同じに扱い、
+    # meta.json の name へ落ちる（例外を投げてはいけない）。
+    dataset_id = "seed-catalogue-aaaa"
+    dataset_dir = tmp_path / dataset_id
+    dataset_dir.mkdir()
+    (dataset_dir / "meta.json").write_text(
+        json.dumps({"id": dataset_id, "name": "種苗カタログ"}), encoding="utf-8"
+    )
+    (dataset_dir / "metadata.ttl").write_text("", encoding="utf-8")
+    assert resolve_dataset_label(tmp_path, dataset_id) == "種苗カタログ"
+
+
+# ----------------------------------------------------------------------------
+# normalize_set_spec's ``link`` where clause (契約メモ contract_pr_f4.md
+# §1-3・ADR O46): 「この 1 件を指す種類」の where 条件 — ``op``/``value`` を
+# 持つ値条件とは別の形で、``?s <property> <iri>`` の存在チェックだけ。
+# ----------------------------------------------------------------------------
+
+
+def test_normalize_set_spec_accepts_a_link_clause() -> None:
+    spec = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    assert spec["where"] == [{"property": LINK_PRED, "iri": TARGET_IRI}]
+
+
+def test_normalize_set_spec_link_clause_has_no_op_or_value_keys() -> None:
+    spec = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    clause = spec["where"][0]
+    assert "op" not in clause
+    assert "value" not in clause
+
+
+def test_normalize_set_spec_link_clause_rejects_mixing_op() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [{"property": LINK_PRED, "iri": TARGET_IRI, "op": "eq", "value": "x"}],
+            }
+        )
+
+
+def test_normalize_set_spec_link_clause_rejects_mixing_value_only() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [{"property": LINK_PRED, "iri": TARGET_IRI, "value": 1}],
+            }
+        )
+
+
+def test_normalize_set_spec_link_clause_requires_a_well_formed_iri() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": "not an iri"}]}
+        )
+
+
+def test_normalize_set_spec_link_clause_requires_a_well_formed_property() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {"class": CLASS_IRI, "where": [{"property": "not an iri", "iri": TARGET_IRI}]}
+        )
+
+
+def test_normalize_set_spec_link_clause_rejects_at_escape_hatch() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "iri": TARGET_IRI,
+                        "at": {"property": "x", "value": 1},
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_link_and_value_clauses_can_coexist() -> None:
+    spec = normalize_set_spec(
+        {
+            "class": CLASS_IRI,
+            "where": [
+                {"property": LINK_PRED, "iri": TARGET_IRI},
+                {"property": EX + "count", "op": "gt", "value": 1},
+            ],
+        }
+    )
+    assert spec["where"] == [
+        {"property": LINK_PRED, "iri": TARGET_IRI},
+        {"property": EX + "count", "op": "gt", "value": 1},
+    ]
+
+
+def test_normalize_set_spec_link_clause_participates_in_set_id_determinism() -> None:
+    from asterism.subjects import set_id_of
+
+    spec_a = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    spec_b = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI}]}
+    )
+    other = normalize_set_spec(
+        {"class": CLASS_IRI, "where": [{"property": LINK_PRED, "iri": TARGET_IRI + "-other"}]}
+    )
+    assert set_id_of(spec_a) == set_id_of(spec_b)
+    assert set_id_of(spec_a) != set_id_of(other)
+
+
+# ----------------------------------------------------------------------------
+# normalize_set_spec's ``via`` (2 段) link where clause (契約メモ
+# contract_pr_f14.md §1.2・ADR O59): 1 段先の存在チェック
+# ``?s <property> ?wl . ?wl <via.property> <via.iri>``。1 段だけ・op/value・
+# iri のいずれとも同居不可。
+# ----------------------------------------------------------------------------
+
+VIA_PRED = EX + "viaPred"
+
+
+def test_normalize_set_spec_accepts_a_via_clause() -> None:
+    spec = normalize_set_spec(
+        {
+            "class": CLASS_IRI,
+            "where": [{"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": TARGET_IRI}}],
+        }
+    )
+    assert spec["where"] == [
+        {"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": TARGET_IRI}}
+    ]
+
+
+def test_normalize_set_spec_via_clause_has_no_op_or_value_keys() -> None:
+    spec = normalize_set_spec(
+        {
+            "class": CLASS_IRI,
+            "where": [{"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": TARGET_IRI}}],
+        }
+    )
+    clause = spec["where"][0]
+    assert "op" not in clause
+    assert "value" not in clause
+    assert "iri" not in clause
+
+
+def test_normalize_set_spec_via_clause_rejects_mixing_op() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "via": {"property": VIA_PRED, "iri": TARGET_IRI},
+                        "op": "eq",
+                        "value": "x",
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_via_clause_rejects_mixing_iri() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "iri": TARGET_IRI,
+                        "via": {"property": VIA_PRED, "iri": TARGET_IRI},
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_via_clause_rejects_nested_via() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "via": {
+                            "property": VIA_PRED,
+                            "via": {"property": VIA_PRED, "iri": TARGET_IRI},
+                        },
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_via_clause_requires_well_formed_iris() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": "not an iri"}}
+                ],
+            }
+        )

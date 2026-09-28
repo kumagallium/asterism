@@ -23,11 +23,76 @@ import {
   type SetSpec,
   type SubjectItem,
 } from './cardsApi'
+import { addSubjectAndPersist } from './subjectStore'
 
 /** `App.tsx`（c2-shell）の実 `navigate`/`Route` を汎用に受ける。統合段で実
  *  型に差し替わる想定（このファイル自体は `{tab:'workbench'|'cards', …}` の
  *  形さえ渡せればよい）。 */
 export type PlaceNavigateFn = (route: { tab: string; [key: string]: unknown }) => void
+
+// ---------------------------------------------------------------------------
+// KantanWizard.tsx（S1）の帯が使う判定・commit（契約メモ contract_pr_f10.md
+// §1.2-2）。この画面（PlaceView 本体・default export）はもう `#/datasets/add`
+// からは呼ばれないが、判定と commit のロジックはここに残し、薄い関数として
+// 公開する — 実データ・API 契約は 1 か所（このファイル）のまま。
+// ---------------------------------------------------------------------------
+
+/** S1 が読んだファイルが、既にある形と一致するか（帯を出すかどうか）の判定
+ *  結果。`kind_label` は帯の文言（K4: `class_iri` そのものは出さない）、
+ *  `class_iri` は「そのまま追加」後にどの種類のページへ着地するか、
+ *  `dataset_id` は一致した既存データセット（参考情報・未使用でもよい）。 */
+export interface KnownShapeMatch {
+  kind_label: string
+  class_iri: string
+  dataset_id: string | null
+}
+
+/** 一致しなければ `null`（帯を出さない）。判定そのものが失敗しても `null`
+ *  を返す（§1.2-2「判定の失敗は黙って何も出さない」）— ウィザードを止めない。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export async function matchKnownShape(stagingId: string): Promise<KnownShapeMatch | null> {
+  try {
+    const result = await inspectPlace({ staging_id: stagingId })
+    if (!result.match.type_id) return null
+    return {
+      kind_label: result.signature_label ?? '',
+      class_iri: result.match.type_id,
+      dataset_id: result.signature_dataset_id,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 「そのまま追加」— 今の `handleCommit`（下）と同じ形（commit → 私の一覧に
+ *  積む）を、S1 の帯からも呼べる薄い関数にしたもの。候補の裁定（`choices`）は
+ *  帯には出さない（S1 の即決な近道という契約のため）— 未確定はそのまま
+ *  `own_only` として commit される（`handleCommit` の初期状態と同じ）。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export async function commitAsKnownShape(
+  stagingId: string,
+  classIri: string,
+  sourceName: string,
+): Promise<{ dataset_id: string; class_iri: string }> {
+  const name = sourceName.replace(/\.[^./\\]+$/, '') || 'dataset'
+  const result = await commitPlace({ staging_id: stagingId, type_id: classIri, choices: {}, name })
+  // App.tsx の onPlaced と同じ組み立て（契約メモ §1.1: 追加された個体・
+  // 絞り込みを私の一覧に積む）。
+  for (const s of result.subjects) addSubjectAndPersist(s)
+  addSubjectAndPersist({
+    kind: 'set',
+    id: result.set.set_id,
+    label: null,
+    class_label: null,
+    source: 'own',
+    card_count: null,
+    match: null,
+    subject_key: `s:${result.set.set_id}`,
+    spec: result.set.spec,
+    created_at: new Date().toISOString(),
+  })
+  return { dataset_id: result.dataset_id, class_iri: result.set.spec.class }
+}
 
 export interface PlaceViewProps {
   navigate: PlaceNavigateFn
@@ -175,6 +240,10 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
       stagingId: staging.stagingId,
       sourceNames: staging.sourceNames.map((name) => ({ name, size: 0 })),
       autoInspect: true,
+      // KantanWizard.tsx 内部の「ページに戻る」リンク用（S9・snap.returnTo）。
+      // App.tsx の Route.returnTo（下の navigate 呼び出し）とは別物 — こちらは
+      // 旧 URL 互換の `#/cards/place` 経由でも CardsView が `#/datasets/add` へ
+      // 置き換える（契約メモ contract_pr_f8.md §1.2）ので、そのまま残す。
       returnTo: '#/cards/place?dataset=',
     }
     try {
@@ -182,7 +251,11 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
     } catch {
       /* best-effort: セッションストレージが無くても遷移だけは通す */
     }
-    navigate({ tab: 'workbench' })
+    // ウィザードを完了・中止したらワークスペース（`#/cards`）へ戻れるように
+    // Route.returnTo を立てる（契約メモ contract_pr_f8.md §1.3）。App.tsx の
+    // onWorkbenchDone がこれを見て、そのデータセットのページ
+    // （`#/cards/d/<id>`）に着地させる。
+    navigate({ tab: 'workbench', returnTo: '#/cards' })
   }
 
   function chooseCandidate(value: string, iri: string | null) {
@@ -202,7 +275,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
         name,
       })
       onPlaced(result.subjects, result.set)
-      navigate({ tab: 'cards' })
+      // 追加が終わったら回答へ（契約メモ contract_pr_f8.md §1.3）: そのデータ
+      // セットのワークスペースのページへ。
+      navigate({ tab: 'cards', datasetPageId: result.dataset_id })
     } catch (e) {
       setCommitErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -242,7 +317,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
           created_at: now,
         }))
       onPlaced(subjectItems, { set_id, spec })
-      navigate({ tab: 'cards' })
+      // 追加が終わったら回答へ（契約メモ contract_pr_f8.md §1.3）: そのデータ
+      // セットのワークスペースのページへ。
+      navigate({ tab: 'cards', datasetPageId: datasetId })
     } catch (e) {
       setCommitErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -252,6 +329,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
 
   return (
     <section className="place-view">
+      {/* 「作る › データセット › データを追加」— データが入る唯一の入口の見出し
+       *  （契約メモ contract_pr_f8.md §1.1・§3）。 */}
+      <h2 className="place-heading">{t('cards:place.title', { defaultValue: 'データを追加' })}</h2>
       {!datasetId && !inspectResult && (
         <label
           className={`kz-drop${dragOver ? ' drag' : ''}`}

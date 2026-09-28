@@ -84,6 +84,10 @@
   --space-8: 2rem;
   --space-12: 3rem;
 
+  /* 右パネル（会話ドロワー）の共通幅。ConsultDrawer/PageChatDrawer が並ぶ
+   * ときの本文の右余白も同じ値を使う（PR F17, O61）。 */
+  --side-panel-width: 400px;
+
   /* Shape */
   --radius: 12px; /* cards */
   --radius-sm: 8px; /* buttons / inputs / small cards */

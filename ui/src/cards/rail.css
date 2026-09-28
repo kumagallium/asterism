@@ -1,12 +1,20 @@
-/* SubjectRail — 契約メモ §6.3。サイドバー（.sidebar, 248px）の中で
-   .side-nav の中身を丸ごと差し替える（App.tsx）。トークンのみ、house style。 */
+/* SubjectRail — 契約メモ contract_pr_f9.md §1-2（旧 contract_pr_f7.md §1-3・
+   contract_pr_f2.md §6.3）。左ナビ（.sidebar, 220px・たたむと 56px）とは別の
+   第 2 列として `.app-main`（App.tsx）の左に出る。左ナビと違い、tab === 'cards'
+   のあいだ常に出る（旧: sidebar の中身を丸ごと差し替えていた）。トークンのみ、
+   house style。 */
 
 .rail {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  width: 240px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 1.1rem 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 
@@ -113,50 +121,59 @@
   background: var(--activity);
 }
 
-.rail-add {
-  align-self: flex-start;
-  margin: 0.2rem 0.7rem 0;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
+/* 種類の行 + 子（契約メモ contract_pr_f9.md §1-2）。旧名 `.rail-datasets` を
+   種類の木にもそのまま流用（クラス名は変えない — 中身だけ差し替え）。折りたたみ
+   は無い（種類の数は通常少ない）。 */
+.rail-datasets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rail-dataset-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.rail-dataset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  border: none;
   background: none;
-  color: var(--accent);
-  font-size: 0.8rem;
+  color: var(--fg);
+  font-size: 0.85rem;
   font-weight: 600;
-  padding: 0.4rem 0.7rem;
+  padding: 0.2rem 0;
   cursor: pointer;
 }
-.rail-add:hover {
-  background: var(--surface-alt);
+.rail-dataset-name:hover {
+  text-decoration: underline;
 }
 
-.rail-search {
-  padding: 0 0.7rem;
-}
-.rail-search-input {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  color: var(--fg);
-  font-size: 0.82rem;
-  padding: 0.4rem 0.6rem;
+.rail-dataset-children {
+  padding-left: 1.5rem;
 }
 
-.rail-condition-link {
+/* 「＋ オブジェクトを追加」（契約メモ §1-2・#/cards/add）。 */
+.rail-add-object {
   align-self: flex-start;
   margin: 0 0.7rem;
   border: none;
   background: none;
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  padding: 0.1rem 0;
+  padding: 0.35rem 0;
   cursor: pointer;
-  text-decoration: underline;
 }
-
-.rail-search-results {
-  padding-top: 0.1rem;
+.rail-add-object:hover {
+  text-decoration: underline;
 }
 
 .rail-legend {
@@ -175,19 +192,22 @@
   gap: 0.3rem;
 }
 
-/* 戻り道: 「詳しい設定（データを整える）」。静かに、最下部に。 */
-.rail-foot {
-  padding: 0.3rem 0.7rem 0.1rem;
+/* いま開いている種類の行（`aria-current="page"`・契約メモ §1-4: 種類のページ
+   を開いているあいだ、この行が選ばれたまま＝木の中の現在地） */
+.rail-dataset-name[aria-current='page'] {
+  font-weight: 600;
+  color: var(--accent, #1d5f3f);
 }
-.rail-foot-link {
-  border: none;
-  background: none;
-  color: var(--faint);
-  font-size: 0.75rem;
-  padding: 0.1rem 0;
-  cursor: pointer;
-  text-decoration: underline;
-}
-.rail-foot-link:hover {
+
+/* PR F16 §1.5: 共有ハブ（同じものの 1 つのページ）の種類の見出しに付ける
+   小さな印「つながり」。`.rail-item-sample` と同じ見た目の流儀。 */
+.rail-hub-pill {
+  flex: none;
+  border-radius: 999px;
+  background: var(--surface-sink);
   color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
 }

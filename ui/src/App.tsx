@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next'
 import './App.css'
 import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
+import { fetchProposal } from './api'
 import { CardsGallery } from './cards/CardsGallery'
 import { CardsView } from './cards/CardsView'
+import './cards/embed.css'
 import { SubjectRail } from './cards/SubjectRail'
 import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
@@ -14,20 +16,10 @@ import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
-import {
-  ActivityIcon,
-  AskIcon,
-  BrandMark,
-  CodeIcon,
-  ConnectIcon,
-  DataIcon,
-  GearIcon,
-  HomeIcon,
-  LayersIcon,
-  TermsIcon,
-} from './icons'
+import { BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
 import { JobsView } from './JobsView'
 import { WorkbenchTier } from './kantan/WorkbenchTier'
+import { NAV_GROUPS } from './navGroups'
 import { OntologyMapView } from './OntologyMapView'
 import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
@@ -44,10 +36,11 @@ type Tab =
   | 'map'
   | 'jobs'
   | 'sparql'
-  /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
+  /** 裏タブ（NAV_GROUPS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
   | 'cardsdemo'
   /** 「1 件／絞り込み × カード」の使う画面（object-cards-ui.md）。既定ルート
-   *  （契約メモ contract_pr_e.md §3）— NAV_ITEMS の先頭（「見る」）から入る。 */
+   *  （契約メモ contract_pr_e.md §3）— 左ナビ「使う」見出しの「ワークスペース」
+   *  （旧「見る」・契約メモ contract_pr_f7.md §1）から入る。 */
   | 'cards'
 
 // ---- hash ルーティング -------------------------------------------------------
@@ -68,11 +61,28 @@ export interface Route {
   create?: boolean
   /** `#/ask/<id>` — the open chat thread (reload / back / forward keep it). */
   threadId?: string
-  /** `#/cards/place` — 「データを置く」（object-cards-ui.md 契約メモ §6.2）。 */
+  /** `#/cards/place` — 「データを置く」（object-cards-ui.md 契約メモ §6.2）。
+   *  旧 URL 互換のためだけに残す — 開いたら `#/datasets/add` に置き換える
+   *  （契約メモ contract_pr_f8.md §1.2）。新しい入口は下の `add`。 */
   place?: boolean
-  /** `#/cards/place?dataset=<id>` — かんたんウィザードから「ページに戻る」で
-   *  入ってきたときの、既に棚にあるデータセット（契約メモ §6.3 の
-   *  `KantanWizard.tsx` の `returnTo + datasetId`）。`place` と組で使う。 */
+  /** `#/datasets/add`（`tab: 'gallery'`）— データが入る唯一の入口「作る ›
+   *  データセット › データを追加」。中身はかんたんウィザードの S1（ファイルを
+   *  置く）を直接出す `WorkbenchTier`（契約メモ contract_pr_f10.md §1.2 —
+   *  旧 PlaceView の中間画面は撤去。「同じ形なら設計なしで追加」の近道は S1 の
+   *  帯が担う）。`tab: 'cards'` のときは `#/cards/add`（オブジェクトを追加・
+   *  契約メモ contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに
+   *  読み替える（`datasetId`/`subjectKey` 等と同じ流儀）。 */
+  add?: boolean
+  /** `#/cards/add?kind=<class_iri>` — 種類のページの「＋ 追加」から、その種類を
+   *  開いた状態で追加画面に入る（PR F9）。 */
+  addClassIri?: string
+  /** `#/cards/k/<encoded class_iri>` — 種類のページ（契約メモ
+   *  contract_pr_f9.md §1-4）。 */
+  classPageIri?: string
+  /** `#/cards/place?dataset=<id>` | `#/datasets/add?dataset=<id>` — かんたん
+   *  ウィザードから「ページに戻る」で入ってきたときの、既に棚にあるデータセット
+   *  （契約メモ §6.3 の `KantanWizard.tsx` の `returnTo + datasetId`）。`place`
+   *  または `add` と組で使う。 */
   placeDatasetId?: string
   /** `#/cards/i/<encoded iri>` | `#/cards/s/<set_id>` — 契約メモ §1 の subject_key
    *  文字列表現をそのまま持つ（`i:<iri>` | `s:<set_id>`）。URL 変換は
@@ -80,6 +90,28 @@ export interface Route {
   subjectKey?: string
   /** `.../c/<card_id>` — カード詳細。subjectKey と組み合わせて使う。 */
   cardId?: string
+  /** `#/cards/i/<iri>?solo=1` — 束ねずに単独のページを見る逃げ道（契約メモ
+   *  §1.3）。`?` は `i/<iri>` の直後にも `c/<cardId>` の後ろにも付けられる。 */
+  solo?: boolean
+  /** `#/cards/d/<dataset_id>` — データセットのページ（契約メモ contract_pr_f2.md
+   *  §2.2・§2.4）。「作る」と「使う」の合流点。 */
+  datasetPageId?: string
+  /** `#/cards/d/<dataset_id>/define` | `#/cards/d/<dataset_id>/details[/<detailTab>]`
+   *  — 「意味を定義する」「詳しい情報」を見るの枠（SubjectRail・topbar）の中で
+   *  開く子ルート（契約メモ contract_pr_f5.md §1.1）。無ければ従来どおり
+   *  データセットのページだけ。 */
+  datasetSub?: 'define' | 'details'
+  /** `#/cards/s/new?dataset=<id>&class=<iri>` — 「条件で集める」の新規作成
+   *  （契約メモ §2.4）。`setDatasetId`/`setClassIri` と組で使う。 */
+  setNew?: boolean
+  setDatasetId?: string
+  setClassIri?: string
+  /** `#/workbench?returnTo=<hash>` — かんたんウィザードの完了・中止の戻り先
+   *  （契約メモ §2.6: 「returnTo をルートで持つ」）。データセットのページから
+   *  「定義を直す」で入ったときだけ立てる — 置く画面から入る既存の経路
+   *  （`goBuildShelf`/`autoInspect`）はウィザード内部の別の returnTo をそのまま
+   *  使うので触らない。 */
+  returnTo?: string
 }
 
 const TABS: readonly Tab[] = [
@@ -107,6 +139,18 @@ export function parseHash(hash: string): Route {
   // （`#/home` 等）を明示した場合はそのまま尊重し、これは hash が空のときだけ効く。
   if (parts.length === 0) return { tab: 'cards' }
   if (parts[0] === 'datasets' && parts[1]) {
+    // `#/datasets/add[?dataset=<id>]` — データが入る唯一の入口（契約メモ
+    // contract_pr_f8.md §1.1）。`add` は予約語として `<id>` の一般形より先に見る
+    // （`add` という id は実在しないが、`cards/place`・`cards/s/new` と同じ流儀で
+    // 明示的に区別する）。
+    if (parts[1] === 'add') return { tab: 'gallery', add: true }
+    if (parts[1].startsWith('add?')) {
+      const query = parts[1].slice('add?'.length)
+      const placeDatasetId = new URLSearchParams(query).get('dataset')
+      return placeDatasetId
+        ? { tab: 'gallery', add: true, placeDatasetId }
+        : { tab: 'gallery', add: true }
+    }
     const detailTab = DETAIL_TABS.includes(parts[2] as DetailTab)
       ? (parts[2] as DetailTab)
       : undefined
@@ -116,7 +160,28 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'datasets') return { tab: 'gallery' }
   if (parts[0] === 'crosswalk' && parts[1] === 'new') return { tab: 'crosswalk', create: true }
   if (parts[0] === 'ask' && parts[1]) return { tab: 'ask', threadId: decodeURIComponent(parts[1]) }
+  // `#/workbench?returnTo=<encoded hash>` — かんたんウィザードの完了・中止の
+  // 戻り先（契約メモ §2.6）。クエリ無しの `#/workbench` は下の TABS.includes に
+  // そのまま落ちる。
+  if (parts[0]?.startsWith('workbench?')) {
+    const query = parts[0].slice('workbench?'.length)
+    const returnTo = new URLSearchParams(query).get('returnTo')
+    return returnTo ? { tab: 'workbench', returnTo: decodeURIComponent(returnTo) } : { tab: 'workbench' }
+  }
   if (parts[0] === 'cards') {
+    // `#/cards/add` — オブジェクトを追加する唯一の入口（契約メモ
+    // contract_pr_f9.md §1-3）。`add`/`k` は予約語として `<class_iri>` の一般形
+    // より先に見る（`add`・`k` という主語は実在しないが、`place`・`d`・`s/new`
+    // と同じ流儀で明示的に区別する）。
+    if (parts[1] === 'add') return { tab: 'cards', add: true }
+    if (parts[1]?.startsWith('add?')) {
+      const kind = new URLSearchParams(parts[1].slice('add?'.length)).get('kind')
+      return kind ? { tab: 'cards', add: true, addClassIri: kind } : { tab: 'cards', add: true }
+    }
+    // `#/cards/k/<encoded class_iri>` — 種類のページ（契約メモ §1-4）。
+    if (parts[1] === 'k' && parts[2]) {
+      return { tab: 'cards', classPageIri: decodeURIComponent(parts[2]) }
+    }
     if (parts[1] === 'place') return { tab: 'cards', place: true }
     // `#/cards/place?dataset=<id>` — parts は '/' でしか割っていないので
     // クエリ文字列は parts[1] の末尾にくっついたまま届く（`place?dataset=…`）。
@@ -125,10 +190,47 @@ export function parseHash(hash: string): Route {
       const datasetId = new URLSearchParams(query).get('dataset')
       return datasetId ? { tab: 'cards', place: true, placeDatasetId: datasetId } : { tab: 'cards', place: true }
     }
+    // `#/cards/d/<id>` — データセットのページ（契約メモ §2.2）。
+    // `.../define` | `.../details[/<detailTab>]` — 見るの枠の中で開く子ルート
+    // （契約メモ contract_pr_f5.md §1.1）。
+    if (parts[1] === 'd' && parts[2]) {
+      const datasetPageId = decodeURIComponent(parts[2])
+      if (parts[3] === 'define') return { tab: 'cards', datasetPageId, datasetSub: 'define' }
+      if (parts[3] === 'details') {
+        const detailTab = DETAIL_TABS.includes(parts[4] as DetailTab) ? (parts[4] as DetailTab) : undefined
+        return { tab: 'cards', datasetPageId, datasetSub: 'details', detailTab }
+      }
+      return { tab: 'cards', datasetPageId }
+    }
+    // `#/cards/s/new?dataset=<id>&class=<iri>` — 「条件で集める」の新規作成
+    // （契約メモ §2.4）。`s/<set_id>` の一般形より先に見る（`new` という set_id
+    // は実在しないが、`place` と同じ流儀で明示的に区別する）。
+    if (parts[1] === 's' && (parts[2] === 'new' || parts[2]?.startsWith('new?'))) {
+      const qIdx = parts[2].indexOf('?')
+      const query = qIdx === -1 ? '' : parts[2].slice(qIdx + 1)
+      const params = new URLSearchParams(query)
+      const setDatasetId = params.get('dataset') ?? undefined
+      const setClassIri = params.get('class') ?? undefined
+      return { tab: 'cards', setNew: true, setDatasetId, setClassIri }
+    }
     if ((parts[1] === 'i' || parts[1] === 's') && parts[2]) {
-      const subjectKey = `${parts[1]}:${decodeURIComponent(parts[2])}`
-      const cardId = parts[3] === 'c' && parts[4] ? decodeURIComponent(parts[4]) : undefined
-      return { tab: 'cards', subjectKey, cardId }
+      // `?solo=1` — 束ねずに単独のページを見る逃げ道（契約メモ §1.3）。
+      // encodeURIComponent された IRI 自体には生の `?` は現れないので、
+      // 見つかった `?` はこのクエリのもの（`c/<cardId>` の後ろに付くこともある）。
+      const iriRaw = parts[2]
+      const iriQIdx = iriRaw.indexOf('?')
+      const iriPart = iriQIdx === -1 ? iriRaw : iriRaw.slice(0, iriQIdx)
+      const subjectKey = `${parts[1]}:${decodeURIComponent(iriPart)}`
+      let queryStr = iriQIdx === -1 ? undefined : iriRaw.slice(iriQIdx + 1)
+      let cardId: string | undefined
+      if (parts[3] === 'c' && parts[4]) {
+        const cardRaw = parts[4]
+        const cardQIdx = cardRaw.indexOf('?')
+        cardId = decodeURIComponent(cardQIdx === -1 ? cardRaw : cardRaw.slice(0, cardQIdx))
+        if (cardQIdx !== -1) queryStr = cardRaw.slice(cardQIdx + 1)
+      }
+      const solo = queryStr ? new URLSearchParams(queryStr).get('solo') === '1' || undefined : undefined
+      return { tab: 'cards', subjectKey, cardId, solo }
     }
     return { tab: 'cards' }
   }
@@ -138,6 +240,11 @@ export function parseHash(hash: string): Route {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function routeToHash(r: Route): string {
+  if (r.tab === 'gallery' && r.add) {
+    return r.placeDatasetId
+      ? `#/datasets/add?dataset=${encodeURIComponent(r.placeDatasetId)}`
+      : '#/datasets/add'
+  }
   if (r.tab === 'gallery' && r.datasetId) {
     const base = `#/datasets/${encodeURIComponent(r.datasetId)}`
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
@@ -145,16 +252,35 @@ export function routeToHash(r: Route): string {
   if (r.tab === 'gallery') return '#/datasets'
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
+  if (r.tab === 'workbench' && r.returnTo) return `#/workbench?returnTo=${encodeURIComponent(r.returnTo)}`
   if (r.tab === 'cards') {
+    if (r.add) return r.addClassIri ? `#/cards/add?kind=${encodeURIComponent(r.addClassIri)}` : '#/cards/add'
+    if (r.classPageIri) return `#/cards/k/${encodeURIComponent(r.classPageIri)}`
     if (r.place) {
       return r.placeDatasetId
         ? `#/cards/place?dataset=${encodeURIComponent(r.placeDatasetId)}`
         : '#/cards/place'
     }
+    if (r.datasetPageId) {
+      const base = `#/cards/d/${encodeURIComponent(r.datasetPageId)}`
+      if (r.datasetSub === 'define') return `${base}/define`
+      if (r.datasetSub === 'details') {
+        return r.detailTab && r.detailTab !== 'structure' ? `${base}/details/${r.detailTab}` : `${base}/details`
+      }
+      return base
+    }
+    if (r.setNew) {
+      const params = new URLSearchParams()
+      if (r.setDatasetId) params.set('dataset', r.setDatasetId)
+      if (r.setClassIri) params.set('class', r.setClassIri)
+      const qs = params.toString()
+      return qs ? `#/cards/s/new?${qs}` : '#/cards/s/new'
+    }
     if (r.subjectKey) {
       const kind = r.subjectKey.startsWith('s:') ? 's' : 'i'
       const base = `#/cards/${kind}/${encodeURIComponent(r.subjectKey.slice(2))}`
-      return r.cardId ? `${base}/c/${encodeURIComponent(r.cardId)}` : base
+      const withCard = r.cardId ? `${base}/c/${encodeURIComponent(r.cardId)}` : base
+      return r.solo ? `${withCard}?solo=1` : withCard
     }
     return '#/cards'
   }
@@ -168,22 +294,33 @@ export function routeToHash(r: Route): string {
 // terms (共通の言葉) are promoted to first-class places; the ontology map (全体像)
 // is reached from つながり. SPARQL sits apart at the foot as a developer escape
 // hatch. Labels are resolved via i18n (common.nav.*).
-interface NavItem {
-  id: Tab
-  icon: typeof HomeIcon
+//
+// 左ナビは 1 本・常に同じ（契約メモ contract_pr_f7.md §1）: 見出し「作る」
+// 「使う」＋項目は navGroups.ts の NAV_GROUPS（純データ）から。かつては
+// `tab === 'cards'` のあいだこの一覧ごと SubjectRail に差し替えていたが、
+// それだと旧ナビが消えて戻り道が「見る」1 行しか無かった（ユーザー指摘・O52）。
+
+/** 左ナビの「たたむ」状態を保つキー（契約メモ §1-2）。既定は開いている。 */
+const NAV_COLLAPSE_STORAGE = 'asterism.nav.collapsed'
+/** 「本文の最小幅を割る画面幅」（契約メモ §1-6）。 */
+const NAV_AUTO_COLLAPSE_QUERY = '(max-width: 1099px)'
+
+function loadNavCollapsed(): boolean | null {
+  try {
+    const raw = localStorage.getItem(NAV_COLLAPSE_STORAGE)
+    return raw === null ? null : raw === '1'
+  } catch {
+    return null
+  }
 }
-const NAV_ITEMS: NavItem[] = [
-  // 「見る」（cards）を先頭に（契約メモ §3: 裏タブでなくする）。tab === 'cards'
-  // の間はこの一覧自体が SubjectRail に差し替わるため、ここから他画面にいる
-  // ときの戻り道として働く。
-  { id: 'cards', icon: LayersIcon },
-  { id: 'home', icon: HomeIcon },
-  { id: 'gallery', icon: DataIcon },
-  { id: 'crosswalk', icon: ConnectIcon },
-  { id: 'ask', icon: AskIcon },
-  { id: 'vocab', icon: TermsIcon },
-  { id: 'jobs', icon: ActivityIcon },
-]
+
+function saveNavCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(NAV_COLLAPSE_STORAGE, collapsed ? '1' : '0')
+  } catch {
+    /* private mode 等 — 今回のセッションだけ効く */
+  }
+}
 
 /**
  * The desktop shell adds `?port_fallback=1` to the window URL when its usual
@@ -304,6 +441,47 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
+  // 左ナビの「たたむ」（契約メモ §1-2・§1-6）。localStorage に値があれば
+  // それが唯一の真実源（ユーザーの明示操作が優先＝以後この画面幅監視は無視）。
+  // 無ければ、狭い画面幅では最初から自動でたたんだ状態にする。
+  const navCollapsedExplicit = useRef(loadNavCollapsed() !== null)
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    const stored = loadNavCollapsed()
+    if (stored !== null) return stored
+    try {
+      return window.matchMedia(NAV_AUTO_COLLAPSE_QUERY).matches
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    if (navCollapsedExplicit.current) return
+    let mq: MediaQueryList
+    try {
+      mq = window.matchMedia(NAV_AUTO_COLLAPSE_QUERY)
+    } catch {
+      return
+    }
+    // 手動でたたんだ／ひろげた後は、画面幅が変わっても（ヘッドレスの撮影や
+    // ウィンドウのリサイズを含む）その選択を上書きしない。
+    const onChange = () => {
+      if (navCollapsedExplicit.current) return
+      setNavCollapsed(mq.matches)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  function toggleNavCollapsed() {
+    setNavCollapsed((cur) => {
+      const next = !cur
+      navCollapsedExplicit.current = true
+      saveNavCollapsed(next)
+      return next
+    })
+  }
+
   /** 画面遷移の唯一の入口。pushState/replaceState で hash を書き、state を同期する
    *  （push/replace は hashchange を発火しないため手で set。hashchange リスナは
    *  ブラウザの戻る/進む・手入力 URL 用）。replace=true は履歴を積まない
@@ -339,6 +517,11 @@ function App() {
   // App はすでに全画面の状態を持つ器なので、ここに足すだけで十分）。
   const [cardsLabel, setCardsLabel] = useState<string | null>(null)
 
+  // 「定義を直す」が proposal 無しで詳しい情報（設計タブ）へ倒したデータセット
+  // （契約メモ contract_pr_f5.md §1.3）。読み取り専用の 1 行はそのデータセットの
+  // details/design に着地したときだけ帯の下に出す。
+  const [meaningReadonlyFor, setMeaningReadonlyFor] = useState<string | null>(null)
+
   // 全体像（map）の「戻る」を入ってきた画面へ返す（従来は常に crosswalk 固定で、
   // データセット詳細の「全体像を見る」から入ると戻り先で現在地を見失っていた）。
   const [mapReturn, setMapReturn] = useState<Route>({ tab: 'crosswalk' })
@@ -357,10 +540,79 @@ function App() {
   }
 
   // Open the workbench on an existing dataset's design (the catalog "見直す" action).
-  function redesignDataset(target: RedesignTarget) {
+  // `returnTo` (契約メモ §2.6) は「データセットのページから入ったとき」だけ
+  // 呼び出し側が立てる — 置く画面から入る既存の経路（GalleryView の「見直す」）は
+  // 渡さないので、そちらの戻り先（カタログの当該データセット詳細）は変わらない。
+  // WorkbenchTier が消費する redesignTarget の state だけを立てる（ナビゲーション
+  // はしない）。旧ナビの「見直す」（redesignDataset・下）と、見るの枠の中で開く
+  // 「定義を直す」（onDefine・下）の両方がこれを共有する（契約メモ
+  // contract_pr_f5.md §1.4）。
+  function setRedesignState(target: RedesignTarget) {
     setGalleryFocus(null)
     setRedesignTarget(target)
-    navigate({ tab: 'workbench' })
+  }
+
+  // Gallery→Workbench redesign link（旧ナビの「見直す」・置く画面から入る既存の
+  // 経路）: state を立てたうえで、従来どおり workbench タブへ移る。
+  function redesignDataset(target: RedesignTarget, returnTo?: string) {
+    setRedesignState(target)
+    navigate({ tab: 'workbench', returnTo })
+  }
+
+  // データセットのページの「定義を直す」「続きから」（契約メモ §2.2・§2.6・
+  // contract_pr_f5.md §1.4）。proposal があれば見るの枠の中の子ルート
+  // （`#/cards/d/<id>/define`）でウィザードを開く（旧ナビの workbench タブへは
+  // 移らない）。無ければ黙って止まらず（K39）、同じ枠の中の詳しい情報（設計
+  // タブ）で定義を見せる。
+  async function onDefine(datasetId: string) {
+    try {
+      const p = await fetchProposal(datasetId)
+      if (!p.has_proposal || !p.proposal_md.trim()) {
+        // 設計の下書き（proposal）が無いデータセット（同梱の見本・exchange で
+        // 受け取ったもの）はウィザードで直せない。
+        setMeaningReadonlyFor(datasetId)
+        navigate({ tab: 'cards', datasetPageId: datasetId, datasetSub: 'details', detailTab: 'design' })
+        return
+      }
+      setRedesignState({
+        // K4: 生の id を人向けの文言に出さない — フォールバックはトップバーに
+        // 既に出ているデータセットのページの見出し（cardsLabel）。
+        datasetId,
+        datasetName: p.dataset_name || cardsLabel || datasetId,
+        proposalMd: p.proposal_md,
+      })
+      navigate({ tab: 'cards', datasetPageId: datasetId, datasetSub: 'define' })
+    } catch {
+      // best-effort: 開けなくても致命的にしない（データセットのページに留まる）。
+    }
+  }
+
+  // WorkbenchTier/KantanWizard の唯一の「戻る」出口（完了の grow 導線・見直しの
+  // やめる/この単位でよい、両方がここを通る）。`route.returnTo` が立っていれば
+  // そこへ（旧ナビ「見直す」からデータセットのページ経由で入ったとき／
+  // `#/datasets/add` の「設定の手順へ」から入ったとき）。無くても見るの枠の中
+  // （`#/cards/d/<id>/define`）で開いていれば、そのデータセットのページへ戻す
+  // （契約メモ contract_pr_f5.md §1.1・注意書き）。それ以外は従来どおりカタログの
+  // 当該データセット詳細へ（カタログから入った経路）。
+  function onWorkbenchDone(id: string, tab?: DetailTab, focus?: DetailFocus) {
+    if (route.returnTo) {
+      const target = parseHash(route.returnTo)
+      // 「データを追加」（`#/datasets/add`）の「設定の手順へ」はワークスペース
+      // （`#/cards`）を returnTo に持つ — ウィザード完了は素のワークスペースでは
+      // なく、追加が終わったそのデータセットのページに着地させる（契約メモ
+      // contract_pr_f8.md §1.3: 「作る → 使う の一本道」）。
+      if (target.tab === 'cards' && !target.datasetPageId && !target.subjectKey && !target.place) {
+        navigate({ tab: 'cards', datasetPageId: id })
+        return
+      }
+      navigate(target)
+      return
+    }
+    if (route.tab === 'cards' && route.datasetPageId) {
+      navigate({ tab: 'cards', datasetPageId: route.datasetPageId })
+      return
+    }
+    openDataset(id, tab, focus)
   }
 
   // Manual nav clears any pending vocabulary focus.
@@ -397,7 +649,7 @@ function App() {
       <UpdateBanner />
       <BackendDownBanner />
       <div className="app-shell">
-        <aside className="sidebar">
+        <aside className={`sidebar${navCollapsed ? ' sidebar--collapsed' : ''}`}>
           <div className="brand">
             <span className="brand-mark">
               <BrandMark />
@@ -408,20 +660,17 @@ function App() {
             </span>
           </div>
 
-          <nav className="side-nav">
-            {tab === 'cards' ? (
-              <SubjectRail navigate={navigate} />
-            ) : (
-              <div className="side-nav-group">
-                {NAV_ITEMS.map((it) => {
+          {/* 左ナビは 1 本・常に同じ（契約メモ §1・O52）: 見出し「作る」「使う」
+              ＋ navGroups.ts の NAV_GROUPS。tab === 'cards' でも差し替えない
+              ——「使う」の「ワークスペース」がここへの戻り道を兼ねる。 */}
+          <nav className="side-nav" id="app-side-nav">
+            {NAV_GROUPS.map((group) => (
+              <div className="side-nav-group" key={group.key}>
+                <h2 className="side-nav-group-title">{t(`nav.group_${group.key}`)}</h2>
+                {group.items.map((it) => {
                   const Icon = it.icon
-                  // `nav.cards` は新設キー（契約メモ §3）— ui-words が common.json
-                  // に足すまでの仮置き（notes 参照）。
-                  const navLabel = t(`nav.${it.id}`, it.id === 'cards' ? { defaultValue: '見る' } : undefined)
-                  const navGloss = glossT(
-                    `nav.${it.id}`,
-                    it.id === 'cards' ? { defaultValue: 'View' } : undefined,
-                  )
+                  const navLabel = t(`nav.${it.id}`)
+                  const navGloss = glossT(`nav.${it.id}`)
                   return (
                     <button
                       key={it.id}
@@ -429,8 +678,9 @@ function App() {
                       className={`side-nav-item${tab === it.id ? ' active' : ''}`}
                       onClick={() => navTo(it.id)}
                       aria-current={tab === it.id ? 'page' : undefined}
-                      // 860px 以下でラベルが display:none になるアイコンレールでも
-                      // 名前が残るように（ツールチップ兼スクリーンリーダー名）
+                      // たたんだ状態・860px 以下でラベルが display:none になる
+                      // アイコンレールでも名前が残るように（ツールチップ兼
+                      // スクリーンリーダー名・契約メモ §1-2）。
                       aria-label={navLabel}
                       title={navLabel}
                     >
@@ -441,10 +691,24 @@ function App() {
                   )
                 })}
               </div>
-            )}
+            ))}
           </nav>
 
           <div className="sidebar-foot">
+            {/* たたむ／ひろげる（契約メモ §1-2）。たたんだ状態でも設定／開発者向け
+                は下に残る（アイコンのみ・title/aria-label で名前は引ける）。 */}
+            <button
+              type="button"
+              className="side-nav-item side-nav-collapse"
+              onClick={toggleNavCollapsed}
+              aria-expanded={!navCollapsed}
+              aria-controls="app-side-nav"
+              aria-label={t(navCollapsed ? 'nav.expand' : 'nav.collapse')}
+              title={t(navCollapsed ? 'nav.expand' : 'nav.collapse')}
+            >
+              <ChevronIcon className={`side-nav-icon side-nav-collapse-icon${navCollapsed ? '' : ' side-nav-collapse-icon--open'}`} />
+              <span className="side-nav-text">{t(navCollapsed ? 'nav.expand' : 'nav.collapse')}</span>
+            </button>
             <button
               type="button"
               className="side-nav-item side-nav-settings"
@@ -486,28 +750,60 @@ function App() {
           </div>
         </aside>
 
-        <div className="app-main" ref={mainRef}>
+        <div className="app-main">
+          {/* ワークスペース（cards）の子ナビ＝第 2 列（契約メモ §1-3・O52）。
+              左ナビと本文のあいだ。F5 の /define・/details のあいだも出たまま
+              （route.datasetSub があっても tab は 'cards' のまま）。 */}
+          {tab === 'cards' && (
+            <SubjectRail route={route} navigate={navigate} />
+          )}
+          <div className="app-main-body" ref={mainRef}>
           <header className="topbar">
             <div className="topbar-titles">
-              <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
+              <span
+                className={
+                  tab === 'cards' && route.datasetSub ? 'topbar-eyebrow topbar-eyebrow--crumb' : 'topbar-eyebrow'
+                }
+              >
+                {/* datasetSub（定義を直す／詳しい情報）中はパンくずに差し替える
+                    （契約メモ contract_pr_f5.md §1.2）: 「<データセット名> ›
+                    データの意味を定義する／詳しい情報」。未選択の既定文言は
+                    「ワークスペース」（契約メモ contract_pr_f9.md §1-7）。 */}
+                {tab === 'cards' && route.datasetSub
+                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: 'ワークスペース' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
+                  : t(`view.${tab}.eyebrow`)}
+              </span>
               <h1 className="topbar-title">
-                {/* cards タブだけ見出しが動く: 対象を選んでいればそのラベル、
-                    未選択（`#/cards`・`#/cards/place`）なら「探す」（契約メモ §3・
-                    §5: 「ページ（見出し）→ 対象のラベル／未選択は『探す』」）。
-                    `cards:topbar.unselected` は新設キー（notes 参照）。 */}
+                {/* cards タブだけ見出しが動く（契約メモ contract_pr_f9.md §1-7）:
+                    追加画面（`#/cards/add`）は「オブジェクトを追加」、種類の
+                    ページ・オブジェクトのページは onLabel が上げた名前
+                    （cardsLabel）、未選択は「ワークスペース」。datasetSub 中も
+                    見出しはデータセットの名前のまま（§1.2）。 */}
                 {tab === 'cards'
-                  ? cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '探す' })
+                  ? route.add
+                    ? t('cards:topbar.add', { defaultValue: 'オブジェクトを追加' })
+                    : (cardsLabel ?? t('cards:topbar.unselected', { defaultValue: 'ワークスペース' }))
                   : t(`view.${tab}.title`)}
               </h1>
             </div>
             {/* cards タブは sub を出さない（契約メモ §3）。 */}
             {tab !== 'cards' && <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>}
+            {/* datasetSub 中だけ「戻る」（データセットのページへ・契約メモ §1.2）。 */}
+            {tab === 'cards' && route.datasetSub && route.datasetPageId && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm topbar-back"
+                onClick={() => navigate({ tab: 'cards', datasetPageId: route.datasetPageId })}
+              >
+                {t('cards:topbar.back')}
+              </button>
+            )}
             <LanguageToggle />
           </header>
 
           {/* 質問する（チャット）は画面の残り高さを使い切り、各列が内側でスクロール
               する（メッセージ一覧はスクロール・入力欄は下に固定）。他画面は従来通り
-              .app-main がスクロールコンテナ。 */}
+              .app-main-body がスクロールコンテナ。 */}
           <main className={`app-content${tab === 'ask' ? ' app-content--chat' : ''}`}>
             {tab === 'home' && (
               <HomeView
@@ -520,7 +816,7 @@ function App() {
               <WorkbenchTier
                 redesignTarget={redesignTarget}
                 onRedesignConsumed={() => setRedesignTarget(null)}
-                onOpenDataset={openDataset}
+                onOpenDataset={onWorkbenchDone}
                 onOpenAsk={openAsk}
                 onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
               />
@@ -532,11 +828,33 @@ function App() {
                 onSelectThread={(id, opts) =>
                   navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
                 }
-                onAddData={() => navTo('workbench')}
+                onAddData={() => navigate({ tab: 'gallery', add: true })}
                 onOpenDataset={openDataset}
               />
             )}
-            {tab === 'gallery' && (
+            {/* `#/datasets/add` — データが入る唯一の入口（契約メモ
+                contract_pr_f10.md §1.2）。PlaceView（形の一致の判定だけを先に
+                見せる中間画面）はもう出さず、かんたんウィザードの S1（ファイル
+                を置く）を直に出す。「同じ形なら設計なしで追加」の近道は S1 の
+                帯（KantanWizard.tsx）が担い、完了は `onShortcutDone` で
+                その種類のページへ着地する。 */}
+            {tab === 'gallery' && route.add && (
+              <WorkbenchTier
+                redesignTarget={redesignTarget}
+                onRedesignConsumed={() => setRedesignTarget(null)}
+                onOpenDataset={onWorkbenchDone}
+                onOpenAsk={openAsk}
+                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                onShortcutDone={(target) => {
+                  navigate(
+                    target.classIri
+                      ? { tab: 'cards', classPageIri: target.classIri }
+                      : { tab: 'cards', datasetPageId: target.datasetId },
+                  )
+                }}
+              />
+            )}
+            {tab === 'gallery' && !route.add && (
               <GalleryView
                 focusClass={galleryFocus}
                 selectedId={route.datasetId ?? null}
@@ -553,7 +871,7 @@ function App() {
                   setMapReturn(route)
                   navTo('map')
                 }}
-                onAddData={() => navTo('workbench')}
+                onAddData={() => navigate({ tab: 'gallery', add: true })}
                 onRedesign={redesignDataset}
                 detailFocus={detailFocus}
                 onDetailFocusConsumed={() => setDetailFocus(null)}
@@ -564,7 +882,7 @@ function App() {
               <CrosswalkView
                 createMode={!!route.create}
                 onCreateMode={(on) => navigate({ tab: 'crosswalk', create: on })}
-                onAddData={() => navTo('workbench')}
+                onAddData={() => navigate({ tab: 'gallery', add: true })}
                 onOpenAsk={openAsk}
                 onOpenMap={() => {
                   setMapReturn({ tab: 'crosswalk' })
@@ -576,10 +894,74 @@ function App() {
             {tab === 'jobs' && <JobsView />}
             {tab === 'sparql' && <SparqlView />}
             {tab === 'cardsdemo' && <CardsGallery />}
-            {tab === 'cards' && (
-              <CardsView route={route} navigate={navigate} onAsk={openAsk} onLabel={setCardsLabel} />
+            {/* 「意味を定義する」「詳しい情報」も見るの枠（SubjectRail・topbar）の
+                中で開く（契約メモ contract_pr_f5.md §1.1）— tab は 'cards' の
+                まま、中身だけ WorkbenchTier/GalleryView に差し替える。 */}
+            {tab === 'cards' && route.datasetPageId && route.datasetSub === 'define' && (
+              <div className="cards-embed">
+                <WorkbenchTier
+                  redesignTarget={redesignTarget}
+                  onRedesignConsumed={() => setRedesignTarget(null)}
+                  onOpenDataset={onWorkbenchDone}
+                  onOpenAsk={openAsk}
+                  onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                />
+              </div>
+            )}
+            {tab === 'cards' && route.datasetPageId && route.datasetSub === 'details' && (
+              <>
+                {meaningReadonlyFor === route.datasetPageId && route.detailTab === 'design' && (
+                  <p className="cards-meaning-readonly">{t('cards:dataset.meaning_readonly')}</p>
+                )}
+                <div className="cards-embed">
+                  <GalleryView
+                    focusClass={null}
+                    selectedId={route.datasetPageId}
+                    detailTab={route.detailTab ?? 'structure'}
+                    onSelect={(id) =>
+                      navigate(
+                        id
+                          ? { tab: 'cards', datasetPageId: id, datasetSub: 'details' }
+                          : { tab: 'cards', datasetPageId: route.datasetPageId },
+                      )
+                    }
+                    onDetailTab={(dt) =>
+                      navigate(
+                        { tab: 'cards', datasetPageId: route.datasetPageId, datasetSub: 'details', detailTab: dt },
+                        { replace: true },
+                      )
+                    }
+                    onOpenCrosswalk={() => navTo('crosswalk')}
+                    onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                    onOpenMap={() => {
+                      setMapReturn(route)
+                      navTo('map')
+                    }}
+                    onAddData={() => navigate({ tab: 'gallery', add: true })}
+                    // 詳しい情報（見るの枠に埋め込み）からの「見直す」は旧ナビの
+                    // workbench タブへ切り替えない — 見るの枠（SubjectRail・
+                    // topbar）のまま子ルート #/cards/d/<id>/define に留める
+                    // （契約メモ contract_pr_f5.md §1.1・チェッカー指摘 blocker）。
+                    // onDefine と同じ形: state だけ立てて cards タブの中で navigate。
+                    onRedesign={(target) => {
+                      setRedesignState(target)
+                      navigate({ tab: 'cards', datasetPageId: route.datasetPageId, datasetSub: 'define' })
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {tab === 'cards' && !(route.datasetPageId && route.datasetSub) && (
+              <CardsView
+                route={route}
+                navigate={navigate}
+                onAsk={openAsk}
+                onLabel={setCardsLabel}
+                onDefine={onDefine}
+              />
             )}
           </main>
+          </div>
         </div>
       </div>
       {/* Global right-drawer AI consult (ADR design-consult-chat.md D1): available

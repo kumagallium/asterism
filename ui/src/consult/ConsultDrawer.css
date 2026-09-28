@@ -51,7 +51,12 @@
     display: none;
   }
   body.consult-open .app-main {
-    margin-right: 380px;
+    margin-right: var(--side-panel-width);
+  }
+  /* 並んでいる間は幕も影も無い（PageChatDrawer と同じ見た目に揃える、PR F17
+     O61）— 左の境界線だけで隣のパネルだと分かれば十分。 */
+  .consult-drawer {
+    box-shadow: none;
   }
 }
 
@@ -61,7 +66,7 @@
   right: 0;
   bottom: 0;
   z-index: 46;
-  width: 380px;
+  width: var(--side-panel-width);
   max-width: 100vw;
   display: flex;
   flex-direction: column;

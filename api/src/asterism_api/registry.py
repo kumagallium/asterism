@@ -55,7 +55,14 @@ _ARTIFACT_FILES = {
     # payload that graph was loaded from. mie.yaml itself is downgraded to a
     # PROJECTION of this (see _project_description); this file is the source.
     "metadata.ttl": "metadata.ttl",
+    # F15 (crosswalk-hub.md §Auto-link from handles): the S4 ☑「他のデータと
+    # つながる手がかり」で人が opt-in した (source, column) の一覧。materialize
+    # (api-autolink) と PUT /api/datasets/{id}/handles (handles_routes.py) の
+    # 2 経路だけが書く。読み手は asterism_api.handles.load_handles。
+    "handles.json": "handles.json",
 }
+
+
 def artifact_names() -> frozenset[str]:
     """The artifact filenames a dataset carries TODAY.
 
@@ -82,7 +89,16 @@ _SOURCE_DIR = "source"
 # api-side conversion (K6) — the persisted source the RML maps is the derived
 # .csv set kept alongside it.
 _SOURCE_SUFFIXES = (
-    ".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson", ".xml", ".pdf", ".xlsx"
+    ".csv",
+    ".tsv",
+    ".txt",
+    ".dat",
+    ".asc",
+    ".json",
+    ".geojson",
+    ".xml",
+    ".pdf",
+    ".xlsx",
 )
 
 
@@ -101,6 +117,7 @@ def source_kind_of(filenames: list[str]) -> str:
     if any(Path(n).suffix.lower() in (".json", ".geojson") for n in filenames):
         return "json"
     return "csv"
+
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ID_RE = re.compile(r"[a-z0-9-]{1,128}")
@@ -338,7 +355,15 @@ def update_dataset_artifacts(
     # because the projection step re-serializes it (ADR §4, idempotency).
     artifacts = _project_description(artifacts, dataset_id)
     _snapshot_before_overwrite(dest, artifacts, proposal_md)
+    # A key the caller did not include is not a caller decision to CLEAR that
+    # artifact — it means the caller does not manage it (e.g. a display-meta /
+    # column-decision / column-meaning / stale-include edit rebuilds only the
+    # design-document-derived artifacts and never mentions handles.json). Only
+    # overwrite the artifacts the caller actually passed; leave everything else
+    # (on-disk) untouched, so an unrelated edit cannot silently wipe it.
     for key, filename in _ARTIFACT_FILES.items():
+        if key not in artifacts:
+            continue
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
     (dest / _PROPOSAL_FILE).write_text(proposal_md or "", encoding="utf-8")
 
@@ -382,14 +407,21 @@ def _snapshot_before_overwrite(
         if path.is_file():
             current[key] = path.read_text(encoding="utf-8")
     proposal_path = dest / _PROPOSAL_FILE
-    current_proposal = (
-        proposal_path.read_text(encoding="utf-8") if proposal_path.is_file() else ""
-    )
+    current_proposal = proposal_path.read_text(encoding="utf-8") if proposal_path.is_file() else ""
 
-    changed = any(
-        (new_artifacts.get(key, "") or "") != current.get(key, "")
-        for key in _ARTIFACT_FILES
-    ) or (new_proposal_md or "") != current_proposal
+    # A key absent from ``new_artifacts`` is left untouched by the overwrite
+    # below (see ``update_dataset_artifacts``), so it must not count as a
+    # change here either — otherwise every unrelated edit that never mentions
+    # e.g. handles.json would pile up a history snapshot for a file nothing
+    # actually modified.
+    changed = (
+        any(
+            (new_artifacts.get(key, "") or "") != current.get(key, "")
+            for key in _ARTIFACT_FILES
+            if key in new_artifacts
+        )
+        or (new_proposal_md or "") != current_proposal
+    )
     if not changed:
         return
 
@@ -446,9 +478,7 @@ def list_dataset_history(root: Path, dataset_id: str) -> list[dict]:
             except (OSError, json.JSONDecodeError):
                 saved_at = ""
         files = sorted(
-            p.name
-            for p in child.iterdir()
-            if p.is_file() and p.name != _SNAPSHOT_META_FILE
+            p.name for p in child.iterdir() if p.is_file() and p.name != _SNAPSHOT_META_FILE
         )
         entries.append({"id": child.name, "saved_at": saved_at, "artifacts": files})
     entries.sort(key=lambda e: str(e["id"]), reverse=True)
@@ -470,9 +500,7 @@ def load_dataset_history(root: Path, dataset_id: str, snapshot_id: str) -> dict 
     meta_path = snap_dir / _SNAPSHOT_META_FILE
     if meta_path.is_file():
         try:
-            saved_at = str(
-                json.loads(meta_path.read_text(encoding="utf-8")).get("saved_at", "")
-            )
+            saved_at = str(json.loads(meta_path.read_text(encoding="utf-8")).get("saved_at", ""))
         except (OSError, json.JSONDecodeError):
             saved_at = ""
     artifacts = {
@@ -505,9 +533,7 @@ def list_source_files(root: Path, dataset_id: str) -> list[Path]:
     sdir = source_dir(root, dataset_id)
     if sdir is None or not sdir.is_dir():
         return []
-    return sorted(
-        p for p in sdir.iterdir() if p.is_file() and p.suffix.lower() in _SOURCE_SUFFIXES
-    )
+    return sorted(p for p in sdir.iterdir() if p.is_file() and p.suffix.lower() in _SOURCE_SUFFIXES)
 
 
 def mark_source_saved(
@@ -673,9 +699,7 @@ def mark_appended(
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["feed"] = True
     meta["append_seq"] = int(append_seq)
-    meta["triples_appended"] = int(meta.get("triples_appended", 0) or 0) + int(
-        triples_in_batch
-    )
+    meta["triples_appended"] = int(meta.get("triples_appended", 0) or 0) + int(triples_in_batch)
     meta["triple_count"] = int(meta.get("triple_count", 0) or 0) + int(triples_in_batch)
     meta["source_files"] = sorted(source_files)
     meta["source_kind"] = source_kind_of(source_files)
@@ -689,9 +713,7 @@ def mark_appended(
             "batch_id": batch_id,
         }
     )
-    meta_path.write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
 
 
@@ -779,9 +801,7 @@ def mark_promoted(
     return meta
 
 
-def backfill_published_subjects(
-    root: Path, dataset_id: str, subjects: list[dict]
-) -> dict | None:
+def backfill_published_subjects(root: Path, dataset_id: str, subjects: list[dict]) -> dict | None:
     """Record "how ids are made" for a dataset promoted BEFORE this was tracked.
 
     Called just once, immediately before a re-design overwrites the artifacts of an
@@ -837,9 +857,7 @@ def record_shape_findings(root: Path, dataset_id: str, findings: list[str]) -> d
     re-ingest CLEARS the previous round's findings (a stale "dangling link" on a
     dataset the user just fixed is worse than no advice at all).
     """
-    return _update_meta(
-        root, dataset_id, {"shape_findings": [str(f) for f in findings]}
-    )
+    return _update_meta(root, dataset_id, {"shape_findings": [str(f) for f in findings]})
 
 
 def rename_dataset(root: Path, dataset_id: str, name: str) -> dict | None:
@@ -858,16 +876,12 @@ def mark_retracted(root: Path, dataset_id: str, *, retracted_at: str) -> dict | 
     Tombstone semantics: the data stays (IRIs keep resolving) but it leaves the
     citable corpus until reinstated. Returns the new meta, or None if absent.
     """
-    return _update_meta(
-        root, dataset_id, {"status": "retracted", "retracted_at": retracted_at}
-    )
+    return _update_meta(root, dataset_id, {"status": "retracted", "retracted_at": retracted_at})
 
 
 def mark_reinstated(root: Path, dataset_id: str, *, reinstated_at: str) -> dict | None:
     """Clear a retract tombstone: the dataset is canonical (active) again."""
-    return _update_meta(
-        root, dataset_id, {"status": "active", "reinstated_at": reinstated_at}
-    )
+    return _update_meta(root, dataset_id, {"status": "active", "reinstated_at": reinstated_at})
 
 
 def delete_dataset(root: Path, dataset_id: str) -> bool:

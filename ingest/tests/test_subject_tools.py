@@ -23,6 +23,7 @@ from asterism.subject_tools import (
     card_id_of,
     default_cards_for_set,
     default_cards_for_subject,
+    hub_of_subject,
     materials_for_subject,
     pick_class_iri,
     run_subject_tool,
@@ -31,6 +32,8 @@ from asterism.subject_tools import (
     set_members,
     subject_facts,
     subject_flow,
+    subject_hub_members,
+    subject_member_facts,
     subject_sources,
     subject_types,
 )
@@ -69,6 +72,8 @@ def _pyoxi_client(graphs: dict[str, str]):
     class _C:
         async def sparql_select(self, query: str) -> dict:
             result = store.query(query)
+            if isinstance(result, bool):
+                return {"head": {}, "boolean": result}
             names = [v.value for v in result.variables]
             bindings = []
             for solution in result:
@@ -1043,3 +1048,476 @@ async def test_subject_flow_type_label_uses_class_label(monkeypatch: pytest.Monk
     }
     assert any(v == "貸出" for v in labels.values()), labels
     assert all("://" not in (v or "") for v in labels.values())
+
+
+def test_local_name_decodes_percent_encoding() -> None:
+    """A subject minted from a key value keeps the value URL-encoded in its
+    IRI; the heading fallback must show the value, not ``%28…%29`` (K4)."""
+    from asterism.subject_tools import _local_name
+
+    assert _local_name("https://ex/onto/resource/record/%280%2C0%2C10%29") == "(0,0,10)"
+    assert _local_name("https://ex/onto#hasCount") == "hasCount"
+    assert _local_name("https://ex/onto/resource/plain") == "plain"
+
+
+# ----------------------------------------------------------------------------
+# linking_kinds — 近傍（上に 1 段・下に 2 段・4 形）（契約メモ
+# contract_pr_f14.md §1.1・ADR O59）。架空データ:
+#   item-1 → parent-1 ← sibling-{1,2,3}（3 件・sibling） ; sibling-1 ← detail-
+#   {1,2}（2 件・sibling_child） ; child-a → item-1（direct） ; grandchild-1 →
+#   child-a（child_child）; 別の親 (unrelated-parent) を持つ無関係な記録も
+#   置いて混ざらないことを見る。
+# ----------------------------------------------------------------------------
+
+from asterism.subject_tools import linking_kinds  # noqa: E402
+
+EX_NBH = "https://ex/neighborhood#"
+NBH_RECORD_CLASS = EX_NBH + "Record"
+NBH_GROUP_CLASS = EX_NBH + "Group"
+NBH_PART_OF = EX_NBH + "partOf"
+NBH_REFERS_TO = EX_NBH + "refersTo"
+
+NBH_DATASET = "neighborhood-log"
+NBH_GRAPH = canonical_graph_iri(NBH_DATASET) + "/v1"
+
+NBH_ITEM = "https://ex/neighborhood/resource/item-1"
+NBH_PARENT = "https://ex/neighborhood/resource/parent-1"
+NBH_SIBLINGS = [f"https://ex/neighborhood/resource/sibling-{n}" for n in (1, 2, 3)]
+NBH_DETAILS = [f"https://ex/neighborhood/resource/detail-{n}" for n in (1, 2)]
+NBH_CHILD_A = "https://ex/neighborhood/resource/child-a"
+NBH_GRANDCHILD = "https://ex/neighborhood/resource/grandchild-1"
+NBH_UNRELATED_PARENT = "https://ex/neighborhood/resource/unrelated-parent"
+NBH_UNRELATED_SIBLING = "https://ex/neighborhood/resource/unrelated-sibling"
+NBH_UNRELATED_DIRECT = "https://ex/neighborhood/resource/unrelated-direct"
+
+_NBH_TTL = f"""
+@prefix ex: <{EX_NBH}> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+<{NBH_ITEM}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+<{NBH_PARENT}> a <{NBH_GROUP_CLASS}> .
+
+<{NBH_SIBLINGS[0]}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+<{NBH_SIBLINGS[1]}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+<{NBH_SIBLINGS[2]}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_PARENT}> .
+
+<{NBH_DETAILS[0]}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_SIBLINGS[0]}> .
+<{NBH_DETAILS[1]}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_SIBLINGS[0]}> .
+
+<{NBH_CHILD_A}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_ITEM}> .
+<{NBH_GRANDCHILD}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_CHILD_A}> .
+
+<{NBH_UNRELATED_PARENT}> a <{NBH_GROUP_CLASS}> .
+<{NBH_UNRELATED_SIBLING}> a <{NBH_RECORD_CLASS}> ; ex:partOf <{NBH_UNRELATED_PARENT}> .
+<{NBH_UNRELATED_DIRECT}> a <{NBH_RECORD_CLASS}> ; ex:refersTo <{NBH_UNRELATED_PARENT}> .
+"""
+
+
+def _nbh_client() -> object:
+    return _pyoxi_client({NBH_GRAPH: _NBH_TTL})
+
+
+async def test_linking_kinds_direct_counts_records_pointing_directly_at_the_item() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    direct = [r for r in out if r["path_kind"] == "direct"]
+    assert len(direct) == 1
+    row = direct[0]
+    assert row["class_iri"] == NBH_RECORD_CLASS
+    assert row["property"] == NBH_REFERS_TO
+    assert row["count"] == 1  # only child-a; unrelated-direct points elsewhere
+    assert row["hops"] == 1
+    assert row["where"] == [{"property": NBH_REFERS_TO, "iri": NBH_ITEM}]
+
+
+async def test_linking_kinds_child_child_counts_a_grandchild_of_the_item() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    child_child = [r for r in out if r["path_kind"] == "child_child"]
+    assert len(child_child) == 1
+    row = child_child[0]
+    assert row["count"] == 1  # grandchild-1, via child-a
+    assert row["hops"] == 2
+    assert row["via"]["property"] == NBH_REFERS_TO
+    assert row["where"] == [
+        {"property": NBH_REFERS_TO, "via": {"property": NBH_REFERS_TO, "iri": NBH_ITEM}}
+    ]
+
+
+async def test_linking_kinds_sibling_counts_records_sharing_the_same_parent() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    sibling = [r for r in out if r["path_kind"] == "sibling"]
+    assert len(sibling) == 1
+    row = sibling[0]
+    assert row["count"] == 3  # sibling-{1,2,3}; item-1 itself excluded
+    assert row["hops"] == 2
+    assert row["anchor_iri"] == NBH_PARENT
+    assert row["anchor_property"] == NBH_PART_OF
+    assert row["where"] == [{"property": NBH_PART_OF, "iri": NBH_PARENT}]
+
+
+async def test_linking_kinds_sibling_child_counts_records_pointing_at_a_sibling() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    sibling_child = [r for r in out if r["path_kind"] == "sibling_child"]
+    assert len(sibling_child) == 1
+    row = sibling_child[0]
+    assert row["count"] == 2  # detail-{1,2}, both pointing at sibling-1
+    assert row["hops"] == 3
+    assert row["anchor_iri"] == NBH_PARENT
+    assert row["where"] == [
+        {"property": NBH_REFERS_TO, "via": {"property": NBH_PART_OF, "iri": NBH_PARENT}}
+    ]
+
+
+async def test_linking_kinds_unrelated_parent_does_not_mix_in() -> None:
+    """A sibling sharing an unrelated parent (not item-1's) never appears —
+    and a direct record pointing elsewhere doesn't count toward item-1."""
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    for row in out:
+        assert row["anchor_iri"] != NBH_UNRELATED_PARENT
+    direct = next(r for r in out if r["path_kind"] == "direct")
+    assert direct["count"] == 1  # not 2 (would be 2 if unrelated-direct leaked in)
+
+
+async def test_linking_kinds_sorted_by_hops_then_count_descending() -> None:
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    hops = [r["hops"] for r in out]
+    assert hops == sorted(hops)
+    # within hops == 2: sibling (count 3) sorts before child_child (count 1).
+    same_hops = [r for r in out if r["hops"] == 2]
+    assert [r["path_kind"] for r in same_hops] == ["sibling", "child_child"]
+
+
+async def test_linking_kinds_direct_existing_keys_are_unchanged() -> None:
+    """The pre-existing (ADR O46) fields on the direct row are untouched —
+    only new fields are added (契約メモ §0: 既存の返り値のフィールドは削らな
+    い)."""
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    row = next(r for r in out if r["path_kind"] == "direct")
+    assert row["class_iri"] == NBH_RECORD_CLASS
+    assert isinstance(row["class_label"], str)
+    assert row["property"] == NBH_REFERS_TO
+    assert isinstance(row["property_label"], str)
+    assert row["count"] == 1
+
+
+async def test_linking_kinds_empty_for_a_record_nothing_points_at() -> None:
+    out = await linking_kinds(_nbh_client(), "https://ex/neighborhood/resource/does-not-exist")
+    assert out == []
+
+
+async def test_linking_kinds_respects_the_parent_member_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parent whose member count exceeds the cap is not a neighborhood
+    (契約メモ §1.1) — lower the cap to below parent-1's 3 siblings and see
+    the sibling/sibling_child forms disappear."""
+    import asterism.subject_tools as st
+
+    monkeypatch.setattr(st, "_NEIGHBORHOOD_MAX_PARENT_MEMBERS", 2)
+    out = await linking_kinds(_nbh_client(), NBH_ITEM)
+    assert not any(r["path_kind"] in ("sibling", "sibling_child") for r in out)
+    # direct/child_child are unaffected by the parent cap.
+    assert any(r["path_kind"] == "direct" for r in out)
+    assert any(r["path_kind"] == "child_child" for r in out)
+
+
+# ----------------------------------------------------------------------------
+# hub_of_subject / linking_kinds(hub) / subject_hub_members / default_cards_
+# for_subject(hub) — 共有ハブ（xw: の共有実体）を「同じものの 1 つのページ」
+# として扱う（契約メモ contract_pr_f16.md §1.1/§1.3・ADR O60）。架空データ:
+# 2 データセット（hub-catalogue-a/b）＋ハブ graph。member-1 はハブへ直接
+# （1 段）・record-1 は member-1 を親に持つ（member-1 経由の 2 段）。
+# member-2/record-2 も同じ形（データセットが違う２件目のメンバー）。
+# ----------------------------------------------------------------------------
+
+EX_HUB_A = "https://ex/hub-a#"
+HUB_A_MEMBER_CLASS = EX_HUB_A + "Member"
+HUB_A_RECORD_CLASS = EX_HUB_A + "Record"
+HUB_A_REFERS_TO = EX_HUB_A + "refersTo"
+
+HUB_DATASET_A = "hub-catalogue-a"
+HUB_A_GRAPH = canonical_graph_iri(HUB_DATASET_A) + "/v1"
+HUB_MEMBER_1 = "https://ex/hub-a/resource/member-1"
+HUB_RECORD_1 = "https://ex/hub-a/resource/record-1"
+
+_HUB_A_TTL = f"""
+@prefix ex: <{EX_HUB_A}> .
+
+<{HUB_MEMBER_1}> a <{HUB_A_MEMBER_CLASS}> .
+<{HUB_RECORD_1}> a <{HUB_A_RECORD_CLASS}> ; <{HUB_A_REFERS_TO}> <{HUB_MEMBER_1}> .
+"""
+
+EX_HUB_B = "https://ex/hub-b#"
+HUB_B_MEMBER_CLASS = EX_HUB_B + "Member"
+HUB_B_RECORD_CLASS = EX_HUB_B + "Record"
+HUB_B_REFERS_TO = EX_HUB_B + "refersTo"
+
+HUB_DATASET_B = "hub-catalogue-b"
+HUB_B_GRAPH = canonical_graph_iri(HUB_DATASET_B) + "/v1"
+HUB_MEMBER_2 = "https://ex/hub-b/resource/member-2"
+HUB_RECORD_2 = "https://ex/hub-b/resource/record-2"
+
+_HUB_B_TTL = f"""
+@prefix ex: <{EX_HUB_B}> .
+
+<{HUB_MEMBER_2}> a <{HUB_B_MEMBER_CLASS}> .
+<{HUB_RECORD_2}> a <{HUB_B_RECORD_CLASS}> ; <{HUB_B_REFERS_TO}> <{HUB_MEMBER_2}> .
+"""
+
+EX_HUB = "https://ex/hub#"
+HUB_CLASS = EX_HUB + "Shared"
+HUB_LINK_PREDICATE = EX_HUB + "hasShared"
+HUB_IRI = "https://ex/hub/resource/shared-1"
+# ハブ実体でない主語（build activity）— crosswalk.build_turtle が実運用で
+# ハブ graph に載せる prov:wasGeneratedBy の宛先。member_facts の iri 検証が
+# _hub_entity_ask を通っているかの反証に使う（契約メモ §1.2 blocker）。
+HUB_BUILD_ACTIVITY_IRI = "https://ex/hub/activity/build-1"
+HUB_GRAPH = canonical_graph_iri("crosswalk")  # legacy (composition) perspective
+_HUB_GRAPH_TTL = f"""
+@prefix ex: <{EX_HUB}> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<{HUB_IRI}> a <{HUB_CLASS}> ; rdfs:label "共有された1件" ;
+    prov:wasGeneratedBy <{HUB_BUILD_ACTIVITY_IRI}> .
+<{HUB_MEMBER_1}> <{HUB_LINK_PREDICATE}> <{HUB_IRI}> .
+<{HUB_MEMBER_2}> <{HUB_LINK_PREDICATE}> <{HUB_IRI}> .
+"""
+
+
+def _hub_client() -> object:
+    return _pyoxi_client(
+        {HUB_A_GRAPH: _HUB_A_TTL, HUB_B_GRAPH: _HUB_B_TTL, HUB_GRAPH: _HUB_GRAPH_TTL}
+    )
+
+
+def _write_hub_registry(root: Path) -> None:
+    for dataset_id, name in ((HUB_DATASET_A, "台帳A"), (HUB_DATASET_B, "台帳B")):
+        dest = root / dataset_id
+        dest.mkdir(parents=True)
+        meta = {"id": dataset_id, "name": name, "promoted": True, "version": 1}
+        (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+async def test_hub_of_subject_true_for_the_hub_itself() -> None:
+    out = await hub_of_subject(_hub_client(), HUB_IRI)
+    assert out == {"hub_iri": HUB_IRI, "graph": HUB_GRAPH, "perspective_id": "composition"}
+
+
+async def test_hub_of_subject_one_hop_for_a_direct_member() -> None:
+    out = await hub_of_subject(_hub_client(), HUB_MEMBER_1)
+    assert out is not None
+    assert out["hub_iri"] == HUB_IRI
+    assert out["hub_label"] == "共有された1件"
+    assert out["perspective_id"] == "composition"
+    assert out["via_parent"] is None
+
+
+async def test_hub_of_subject_two_hops_via_parent() -> None:
+    """record-1 → member-1（親）→（hub graph 内）hub — メンバー自身が親として
+    記録から指されている 2 段の形（契約メモ §1.1: 「メンバー → 親 ← 記録」）。"""
+    out = await hub_of_subject(_hub_client(), HUB_RECORD_1)
+    assert out is not None
+    assert out["hub_iri"] == HUB_IRI
+    assert out["via_parent"] == HUB_MEMBER_1
+
+    out2 = await hub_of_subject(_hub_client(), HUB_RECORD_2)
+    assert out2 is not None
+    assert out2["hub_iri"] == HUB_IRI
+    assert out2["via_parent"] == HUB_MEMBER_2
+
+
+async def test_hub_of_subject_none_when_no_path_to_a_hub() -> None:
+    """ハブでない主語では何も変わらない（契約メモ §3 の検証観点）— ハブ graph
+    が全く無いストアでも通常主語には安全に ``None``。"""
+    assert await hub_of_subject(_nbh_client(), NBH_ITEM) is None
+    assert await hub_of_subject(_hub_client(), "https://ex/hub-a/resource/does-not-exist") is None
+
+
+async def test_linking_kinds_hub_unions_each_members_neighborhood() -> None:
+    """契約メモ §1.3: ハブ主語の候補はメンバーごとの ``linking_kinds`` の和 —
+    どちらのデータセットの記録の種類も出て、``where`` はメンバー起点の絶対 IRI
+    のまま、``hops`` はメンバー自身の近傍より 1 つ多い。"""
+    out = await linking_kinds(_hub_client(), HUB_IRI)
+
+    row_a = next(r for r in out if r["class_iri"] == HUB_A_RECORD_CLASS)
+    assert row_a["hops"] == 2  # member-1 の direct (hops=1) + 1
+    assert row_a["where"] == [{"property": HUB_A_REFERS_TO, "iri": HUB_MEMBER_1}]
+    assert row_a["via_member"]["iri"] == HUB_MEMBER_1
+    assert row_a["via_member"]["dataset_id"] == HUB_DATASET_A
+
+    row_b = next(r for r in out if r["class_iri"] == HUB_B_RECORD_CLASS)
+    assert row_b["hops"] == 2
+    assert row_b["where"] == [{"property": HUB_B_REFERS_TO, "iri": HUB_MEMBER_2}]
+    assert row_b["via_member"]["iri"] == HUB_MEMBER_2
+    assert row_b["via_member"]["dataset_id"] == HUB_DATASET_B
+
+
+async def test_linking_kinds_hub_respects_the_member_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """メンバーは最大 8・IRI 辞書順（契約メモ §1.3） — cap を 1 に下げると
+    辞書順で先の member-1 しか union されない。"""
+    import asterism.subject_tools as st
+
+    monkeypatch.setattr(st, "_HUB_MEMBER_LIMIT", 1)
+    out = await linking_kinds(_hub_client(), HUB_IRI)
+    assert not any(r["class_iri"] == HUB_B_RECORD_CLASS for r in out)
+    assert any(r["class_iri"] == HUB_A_RECORD_CLASS for r in out)
+
+
+async def test_linking_kinds_non_hub_subject_is_unaffected_by_hub_branch() -> None:
+    """record-1 はハブでない（record-1 → member-1 だけで、record-1 を指す記録
+    は無い）— ハブ graph がストアにあっても F14 までの挙動から何も変わらず、
+    候補は空のまま。"""
+    out = await linking_kinds(_hub_client(), HUB_RECORD_1)
+    assert out == []
+
+
+async def test_linking_kinds_member_page_reaches_the_other_member_via_the_hub() -> None:
+    """メンバー自身のページでは、ハブが「親」になる（member-1 → hub ← member-2）
+    ので、別データセットの同じもの（member-2）が兄弟として、member-2 を指す
+    記録が兄弟を指す記録として出る — 別データセットの同じ対象を 1 ページで
+    扱う、というユーザーの狙いそのもの。per-link の来歴（xw:CrosswalkLink）は
+    記録の種類に混ざらない。"""
+    out = await linking_kinds(_hub_client(), HUB_MEMBER_1)
+    sibling = next(r for r in out if r["class_iri"] == HUB_B_MEMBER_CLASS)
+    assert sibling["path_kind"] == "sibling"
+    assert sibling["anchor_iri"] == HUB_IRI
+    assert sibling["where"] == [{"property": sibling["property"], "iri": HUB_IRI}]
+    sibling_child = next(r for r in out if r["class_iri"] == HUB_B_RECORD_CLASS)
+    assert sibling_child["path_kind"] == "sibling_child"
+    assert sibling_child["where"][0]["via"]["iri"] == HUB_IRI
+    assert all("via_member" not in r for r in out)
+    assert not any("CrosswalkLink" in r["class_iri"] for r in out)
+    direct = next(r for r in out if r["path_kind"] == "direct")
+    assert direct["class_iri"] == HUB_A_RECORD_CLASS
+    assert direct["count"] == 1
+
+
+async def test_subject_hub_members_lists_each_member_with_its_dataset(tmp_path: Path) -> None:
+    _write_hub_registry(tmp_path)
+    out = await subject_hub_members(_hub_client(), HUB_IRI, registry_root=tmp_path)
+    assert out["output_kind"] == "facts"
+    assert out["count"] == 2
+    by_iri = {i["subject_iri"]: i for i in out["items"]}
+    assert set(by_iri) == {HUB_MEMBER_1, HUB_MEMBER_2}
+    assert by_iri[HUB_MEMBER_1]["dataset_label"] == "台帳A"
+    assert by_iri[HUB_MEMBER_2]["dataset_label"] == "台帳B"
+    assert by_iri[HUB_MEMBER_1]["class_label"] is not None
+
+
+async def test_subject_hub_members_empty_for_a_non_hub_subject() -> None:
+    out = await subject_hub_members(_hub_client(), HUB_RECORD_1)
+    assert out["count"] == 0
+    assert out["items"] == []
+
+
+async def test_default_cards_for_subject_leads_with_hub_members_for_a_hub(
+    tmp_path: Path,
+) -> None:
+    """契約メモ §1.2: ハブなら subject_hub_members の次にメンバーごと（IRI 辞書
+    順）の subject_member_facts が並び、ハブ自身の subject_facts は最後へ回る。"""
+    _write_hub_registry(tmp_path)
+    cards = await default_cards_for_subject(_hub_client(), tmp_path, HUB_IRI)
+    tools = [c["tool"] for c in cards]
+    assert tools[0] == "subject_hub_members"
+    member_cards = [c for c in cards if c["tool"] == "subject_member_facts"]
+    assert [c["params"]["member"] for c in member_cards] == [HUB_MEMBER_1, HUB_MEMBER_2]
+    for card in member_cards:
+        assert card["title"] == "cards:builtin.subject_member_facts"
+    by_member = {c["params"]["member"]: c for c in member_cards}
+    assert by_member[HUB_MEMBER_1]["title_params"] == {"dataset": "台帳A"}
+    assert by_member[HUB_MEMBER_2]["title_params"] == {"dataset": "台帳B"}
+    assert tools.index("subject_facts") == len(tools) - 1
+    assert tools.index("subject_sources") > tools.index("subject_hub_members")
+
+
+async def test_default_cards_for_subject_unaffected_for_a_non_hub_subject(
+    tmp_path: Path,
+) -> None:
+    """ハブでない主語では既定カードの並びも変わらない。"""
+    _write_hub_registry(tmp_path)
+    cards = await default_cards_for_subject(_hub_client(), tmp_path, HUB_RECORD_1)
+    assert cards[0]["tool"] == "subject_facts"
+    assert "subject_hub_members" not in [c["tool"] for c in cards]
+
+
+async def test_run_subject_tool_dispatches_subject_hub_members(tmp_path: Path) -> None:
+    """既定カードが名指す組み込み名は run_subject_tool で実行できる（実機
+    2026-09-25: 既定カードに載るのに run が「unknown tool」を返し、ハブのページの
+    表が「図を描けませんでした」になった）。"""
+    _write_hub_registry(tmp_path)
+    out = await run_subject_tool(
+        _hub_client(), tmp_path, {"kind": "individual", "iri": HUB_IRI}, "subject_hub_members", {}
+    )
+    assert out["output_kind"] == "facts"
+    assert out["count"] == 2
+
+
+# ----------------------------------------------------------------------------
+# subject_member_facts / subject_sources(hub) — 契約メモ contract_pr_f19.md
+# §1.2: ハブのページにデータセットごとの節。
+# ----------------------------------------------------------------------------
+
+
+async def test_subject_member_facts_matches_subject_facts_for_a_real_member() -> None:
+    out = await subject_member_facts(_hub_client(), HUB_IRI, HUB_MEMBER_1)
+    expected = await subject_facts(_hub_client(), HUB_MEMBER_1)
+    assert out["output_kind"] == "facts"
+    assert out["items"] == expected["items"]
+    assert out["count"] == expected["count"]
+
+
+async def test_subject_member_facts_rejects_a_non_member_iri() -> None:
+    """member が渡された IRI のメンバーでなければ SubjectToolError（→ 400）—
+    ハブでない主語・別のハブのメンバー・実在しない IRI のいずれも拒む。"""
+    with pytest.raises(SubjectToolError):
+        await subject_member_facts(_hub_client(), HUB_IRI, HUB_RECORD_1)
+    with pytest.raises(SubjectToolError):
+        # HUB_RECORD_1 はハブでない — 「メンバー」という概念自体が無い。
+        await subject_member_facts(_hub_client(), HUB_RECORD_1, HUB_MEMBER_1)
+
+
+async def test_subject_member_facts_rejects_a_non_hub_entity_that_hub_members_points_to() -> (
+    None
+):
+    """iri がハブ graph 内で何かに指されている（＝ ``_hub_members`` が非空を
+    返す）だけでは足りない。build activity（``prov:wasGeneratedBy`` の宛先）は
+    ハブ自身に指されるが実体ではない — ``_hub_entity_ask`` に照らして拒む。"""
+    with pytest.raises(SubjectToolError):
+        await subject_member_facts(_hub_client(), HUB_BUILD_ACTIVITY_IRI, HUB_IRI)
+
+
+async def test_run_subject_tool_dispatches_subject_member_facts(tmp_path: Path) -> None:
+    _write_hub_registry(tmp_path)
+    out = await run_subject_tool(
+        _hub_client(),
+        tmp_path,
+        {"kind": "individual", "iri": HUB_IRI},
+        "subject_member_facts",
+        {"member": HUB_MEMBER_1},
+    )
+    assert out["output_kind"] == "facts"
+
+    with pytest.raises(SubjectToolError):
+        await run_subject_tool(
+            _hub_client(),
+            tmp_path,
+            {"kind": "individual", "iri": HUB_IRI},
+            "subject_member_facts",
+            {},
+        )
+
+
+async def test_subject_sources_for_a_hub_sums_the_members_origins(tmp_path: Path) -> None:
+    """ハブの subject_sources はハブ graph 自身の件数に加え、メンバーごとの
+    出どころ（同じデータセットは足し合わせる）を返す（契約メモ §1.2）。"""
+    _write_hub_registry(tmp_path)
+    out = await subject_sources(_hub_client(), HUB_IRI, registry_root=tmp_path)
+    categories = {i["category"] for i in out["items"]}
+    assert any("台帳A" in c for c in categories)
+    assert any("台帳B" in c for c in categories)
+
+
+async def test_subject_sources_for_a_non_hub_subject_is_unaffected() -> None:
+    """ハブでない主語では subject_sources も何も変わらない。"""
+    out = await subject_sources(_hub_client(), HUB_RECORD_1)
+    assert out["count"] == 1

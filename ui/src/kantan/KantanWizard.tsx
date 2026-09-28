@@ -5,6 +5,7 @@ import {
   ApiError,
   attachSource,
   fetchDraftStats,
+  fetchDatasetHandles,
   generateColumnMeanings,
   fetchIdMove,
   fetchTrialQueries,
@@ -30,6 +31,7 @@ import {
   type InspectResult,
   type JobHandle,
   type MappingSkeleton,
+  type MaterializeHandle,
   type MaterializeResult,
   type PreDesignColumnDecision,
   type ProposeResult,
@@ -43,6 +45,7 @@ import {
 } from '../api'
 import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
 import { assembleSkeleton } from '../api'
+import { commitAsKnownShape, matchKnownShape, type KnownShapeMatch } from '../cards/PlaceView'
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
@@ -123,6 +126,12 @@ const KZ_STORAGE = 'asterism.kantan'
 // JOB_STORAGE so the detail tier never adopts a job of a kind it cannot finish
 // (WorkbenchTier's toggle lock reads BOTH keys).
 const KZ_JOB_STORAGE = 'asterism.kantan.job'
+// 「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md §1.2-2）の判定
+// を待つ上限。判定はステージング→形の一致確認の2往復かかるので、S2 への遷移
+// （runInspect、通常は1往復）の方が先に終わりうる。判定が終わる（またはこの
+// 時間が経つ）までだけ S2 進行を止める — 大きいファイルで判定が長引いても、
+// 無期限に足止めはしない。
+const SHORTCUT_CHECK_TIMEOUT_MS = 4000
 
 type KantanKind = 'tabular' | 'json' | 'document'
 /** Which of the two "grow this dataset" intents S9 was clicked with: add the
@@ -857,6 +866,7 @@ export function KantanWizard({
   onRedesignConsumed,
   onRedesignDetail,
   onCreateCrosswalk,
+  onShortcutDone,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
@@ -885,6 +895,10 @@ export function KantanWizard({
    *  dataset is published — that is the moment connecting first becomes possible,
    *  and the moment the value of it is easiest to see. */
   onCreateCrosswalk?: () => void
+  /** S1 の「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+   *  §1.2-2）が「そのまま追加」で完了したときの着地先。渡されたときだけ帯を
+   *  出す（`#/datasets/add` から来たときだけ — 見直す等の他の入口では出さない）。 */
+  onShortcutDone?: (target: { datasetId: string; classIri?: string }) => void
 }) {
   const { t, i18n } = useTranslation()
   const { isReady, getActiveCredentials, openSettings, activeUsesServerKey } = useLlmSettings()
@@ -923,6 +937,14 @@ export function KantanWizard({
   // this tab are the only copy, exactly the legacy path.
   const [stagingId, setStagingId] = useState<string | null>(snap.stagingId ?? null)
   const hasSource = files.length > 0 || !!stagingId
+  // S1 の「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+  // §1.2-2）。`onShortcutDone` が無い呼び出し元（見直す等）では判定そのものを
+  // 走らせない — 帯は決して出ない。restore からの再表示では判定しない
+  // （新しく置いたファイルのときだけの近道）。
+  const [shortcutMatch, setShortcutMatch] = useState<KnownShapeMatch | null>(null)
+  const [shortcutDismissed, setShortcutDismissed] = useState(false)
+  const [shortcutBusy, setShortcutBusy] = useState(false)
+  const [shortcutErr, setShortcutErr] = useState('')
   const [kind, setKind] = useState<KantanKind | null>(
     snap.kind === 'json'
       ? 'json'
@@ -1012,6 +1034,13 @@ export function KantanWizard({
   // と、名指し（この表 1 枚を名指す値）。ここが骨格の唯一の人間入力になる。
   const [linkChecked, setLinkChecked] = useState<Set<string>>(new Set())
   const [linkKeyPick, setLinkKeyPick] = useState<Record<string, string>>({})
+  // 見直し（redesign）で開き直したとき、既存の ☑ handles.json を linkChecked
+  // に読み戻せたか（F15 契約メモ §1.1）。読み戻す前 / 読み戻しに失敗したまま
+  // 人も触っていない状態で materialize すると、空の配列が「新しい値」として
+  // 送られ既存の ☑ を消してしまう — その事故を避けるための帳簿。
+  const [linkTouched, setLinkTouched] = useState(false)
+  const linkHandlesHydratedFor = useRef<string | null>(null)
+  const redesignOpenedDatasetIdRef = useRef<string | null>(null)
   const [assembleBusy, setAssembleBusy] = useState(false)
   const [assembleErr, setAssembleErr] = useState('')
   // 機械が仮置きしたカードの ID（source → column）。⑤で ⚠ として明示する。
@@ -1261,6 +1290,13 @@ export function KantanWizard({
     setCarriedAdvisories(
       (redesignTarget.advisories ?? []).filter((advisory) => !isMeaningReviewAdvisory(advisory)),
     )
+    // ④の ☑（linkChecked）は、この見直しぶんを読み戻すまで「まだ分からない」
+    // 扱いにする（F15 契約メモ §1.1 — 見直しで ☑ を消さないため）。
+    setLinkChecked(new Set())
+    setLinkTouched(false)
+    linkHandlesHydratedFor.current = null
+    redesignOpenedDatasetIdRef.current = redesignTarget.datasetId
+    void hydrateLinkedHandles(redesignTarget.datasetId)
     // 見直しは「意味から」入る。順序が意味 → ID になった以上、戻ってくる場所も
     // その先頭でなければ、読む順と直す順が食い違う（ADR meaning-before-identity）。
     setStep(10)
@@ -2191,11 +2227,30 @@ export function KantanWizard({
     // "drop the same file again" is only answerable if we can name it.
     setSourceNames(arr.map((f) => ({ name: f.name, size: f.size })))
     void saveSourceFiles(arr) // survive a reload (sessionStorage cannot hold a File)
+    // 帯（契約メモ contract_pr_f10.md §1.2-2）は新しく置いたファイルだけの近道
+    // — 復元（`opts?.restored`）では判定しない・前回の帯は閉じておく。
+    if (!opts?.restored) {
+      setShortcutMatch(null)
+      setShortcutDismissed(false)
+      setShortcutErr('')
+    }
     // And give them a server-side home right away (ADR source-staging.md).
     // Later calls prefer the id; until it lands (or if it never does) they
     // upload the files as before, so nothing waits on this.
-    stageSources(arr)
-      .then((r) => setStagingId(r.stagingId))
+    //
+    // `onShortcutDone` が無い呼び出し元（見直す等）では判定そのものを走らせ
+    // ない — 帯は決して出ない。文書は判定の対象外（S1 の帯は表のファイル
+    // だけの近道）。
+    const willCheckShortcut = Boolean(onShortcutDone) && !opts?.restored && k !== 'document'
+    const stagePromise = stageSources(arr)
+      .then((r) => {
+        setStagingId(r.stagingId)
+        if (willCheckShortcut) {
+          return matchKnownShape(r.stagingId)
+            .then((m) => setShortcutMatch(m))
+            .catch(() => setShortcutMatch(null))
+        }
+      })
       .catch((e) => {
         setStagingId(null)
         // A closed write gate reaches us here first — say so now rather than
@@ -2204,6 +2259,16 @@ export function KantanWizard({
           setWriteGate('token_required')
         }
       })
+    // S2 への遷移（runInspect の末尾）は、この判定が終わる（または
+    // SHORTCUT_CHECK_TIMEOUT_MS 経っても終わらない）まで待つ — 判定は
+    // ステージング＋形の一致確認の2往復、S2 側は通常1往復なので、待たせない
+    // と判定より先に段が進み帯が出せなくなる。
+    const shortcutGate: Promise<void> | undefined = willCheckShortcut
+      ? Promise.race([
+          stagePromise,
+          new Promise<void>((resolve) => window.setTimeout(resolve, SHORTCUT_CHECK_TIMEOUT_MS)),
+        ])
+      : undefined
 
     if (k === 'document') {
       // Documents need no AI design — the existing panel handles the whole
@@ -2244,7 +2309,34 @@ export function KantanWizard({
     setProposal('')
     setInspectionMd('')
     resetPipelineState()
-    void runInspect(arr)
+    void runInspect(arr, undefined, shortcutGate)
+  }
+
+  /** 帯の「そのまま追加」（契約メモ contract_pr_f10.md §1.2-2）。今の
+   *  PlaceView の commit をそのまま呼ぶ（`commitAsKnownShape`）— 候補の裁定は
+   *  帯には出さない即決の近道。完了したら `onShortcutDone` へ渡す（ウィザード
+   *  自身の S2 以降には進まない）。 */
+  async function acceptShortcut() {
+    if (!stagingId || !shortcutMatch) return
+    setShortcutBusy(true)
+    setShortcutErr('')
+    try {
+      const sourceName = sourceNames[0]?.name ?? files[0]?.name ?? ''
+      const done = await commitAsKnownShape(stagingId, shortcutMatch.class_iri, sourceName)
+      onShortcutDone?.({ datasetId: done.dataset_id, classIri: done.class_iri })
+    } catch (e) {
+      setShortcutErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setShortcutBusy(false)
+    }
+  }
+
+  /** 帯の「設計を見直してから」— 帯を閉じるだけ。裏で進んでいる通常の読み取り
+   *  （S2 への遷移）はそのまま続く（契約メモ §1.2-2「帯を閉じて通常の S1 の
+   *  まま」）。 */
+  function declineShortcut() {
+    setShortcutMatch(null)
+    setShortcutDismissed(true)
   }
 
   /** Whether the registered draft in hand was minted by THIS run — the only
@@ -2287,7 +2379,7 @@ export function KantanWizard({
     setReingested(true)
   }
 
-  async function runInspect(arr: File[], staged?: string | null) {
+  async function runInspect(arr: File[], staged?: string | null, shortcutGate?: Promise<void>) {
     setInspecting(true)
     setInspectErr('')
     try {
@@ -2300,6 +2392,10 @@ export function KantanWizard({
       setPreviews(cards)
       setColumnSamples(deriveColumnSamples(cards))
       setSourceColumns(deriveSourceColumns(cards))
+      // 「同じ形なら設計なしで追加」の帯の判定（shortcutGate）が終わる（か
+      // タイムアウトする）まで S2 へは進まない — 判定より先に段を進めると
+      // 帯を出す機会そのものが失われる（指摘対応）。
+      if (shortcutGate) await shortcutGate
       setStep(2)
     } catch (e) {
       setInspectErr(e instanceof Error ? e.message : String(e))
@@ -2519,6 +2615,12 @@ export function KantanWizard({
     setErrMsg('')
     setJobNotice('')
     resetPipelineState()
+    // stagingId を捨てるので、それに紐づく帯（契約メモ contract_pr_f10.md
+    // §1.2-2）の判定結果も一緒に捨てる — 古い staging_id を指したまま S1 に
+    // 戻ると、押しても何も起きないボタンになる。
+    setShortcutMatch(null)
+    setShortcutDismissed(false)
+    setShortcutErr('')
     setStep(1)
   }
 
@@ -2641,6 +2743,23 @@ export function KantanWizard({
     return `${source}\u0000${column}`
   }
 
+  /** 見直し（redesign）でウィザードを開いたとき、既存の ☑ handles.json を
+   *  linkChecked に読み戻す（F15 契約メモ §1.1）。取得できなくても致命的
+   *  ではない — materialize 側が handles を省略してサーバの「既存を引き継ぐ」
+   *  経路に委ねる（下記 runAssemble）。 */
+  async function hydrateLinkedHandles(datasetId: string) {
+    try {
+      const handles = await fetchDatasetHandles(datasetId)
+      // 読み込み中に別のデータセットへ切り替わっていたら捨てる。
+      if (redesignOpenedDatasetIdRef.current !== datasetId) return
+      setLinkChecked(new Set(handles.map((h) => meaningKey(h.source, h.column))))
+      linkHandlesHydratedFor.current = datasetId
+    } catch {
+      // 読めなかった場合は linkHandlesHydratedFor を立てない — 送信側が
+      // 「まだ読めていない」とみなして handles を省略する。
+    }
+  }
+
   function meaningFor(source: string, column: string): ColumnMeaning | undefined {
     return settledMeanings.find((m) => m.source === source && m.column === column)
   }
@@ -2744,8 +2863,39 @@ export function KantanWizard({
         const at = key.indexOf('\u0000')
         return { source: key.slice(0, at), column: key.slice(at + 1) }
       }
+      // K47: ①（この 1 件を名指す番号）は他からこの 1 件を指す手がかりでも
+      // あるので、②で ☑ していなくても linkable に必ず含める（重複除去）。
+      // 候補が 1 つしかないソース（選ぶ余地が無く①に radio を出していない）も
+      // 同じ扱い — UI で ☑ 済み・外せないと見せている列と実際に送る内容を
+      // 一致させる。
+      const isMeasurementForAssemble = (examples: string[]) => {
+        const vals = examples.filter((e) => e.trim() !== '')
+        return (
+          vals.length > 0 &&
+          vals.every((e) => Number.isFinite(Number(e))) &&
+          vals.some((e) => /[.eE]/.test(e))
+        )
+      }
+      const linkableKeys = new Set(linkChecked)
+      for (const source of new Set(meaningRows().map((r) => r.source))) {
+        const picked = linkKeyPick[source]
+        if (picked) {
+          linkableKeys.add(meaningKey(source, picked))
+          continue
+        }
+        const soleCandidates = meaningRows().filter(
+          (r) =>
+            r.source === source &&
+            r.origin === 'preamble' &&
+            !excludedColumns.includes(meaningKey(r.source, r.column)) &&
+            !isMeasurementForAssemble(r.examples),
+        )
+        if (soleCandidates.length === 1) {
+          linkableKeys.add(meaningKey(source, soleCandidates[0].column))
+        }
+      }
       const result = await assembleSkeleton(files, {
-        linkable: [...linkChecked].map(pair),
+        linkable: [...linkableKeys].map(pair),
         cardKeys: linkKeyPick,
         excluded: excludedColumns.map(pair),
         datasetName: kzDatasetName ?? undefined,
@@ -3113,6 +3263,29 @@ export function KantanWizard({
         // A draft the user can recognise in the catalog list: the literal name
         // "dataset" made every abandoned run indistinguishable (KZ-A-28).
         const draftName = kzDatasetName ?? defaultDraftName(fs)
+        // ☑「他のデータとつながる手がかり」(linkChecked) の (source, column) — F15:
+        // 公開時に機械が値の重なりを探してハブへつなぐための材料。key の形は
+        // runAssemble の pair と同じ（"\0" 区切りの source/column）。
+        // ここに入れるのは人が②で自分で付けた ☑ だけ — ①の番号（画面では
+        // ☑ 済み・外せない）は runAssemble の linkable には入るが、自動でつなぐ
+        // 材料にはしない（ADR meaning-before-identity §11・K48 との関係）。
+        const linkedHandles: MaterializeHandle[] = [...linkChecked].map((key) => {
+          const at = key.indexOf('\u0000')
+          return { source: key.slice(0, at), column: key.slice(at + 1) }
+        })
+        // 見直し（redesign）で開いたのと同じデータセットに対し、既存の ☑ を
+        // まだ読み戻せておらず（GET 未完了・失敗）、かつ人もこの回では ☑ に
+        // 触っていないなら、handles を省略してサーバの「既存を引き継ぐ」経路
+        // （契約メモ §1.1）に譲る — 空配列を「新しい値」として送って既存の
+        // ☑ を消してしまわないように。
+        const isUnhydratedRedesign =
+          datasetId !== null &&
+          datasetId === redesignOpenedDatasetIdRef.current &&
+          linkHandlesHydratedFor.current !== datasetId &&
+          !linkTouched
+        const handles: MaterializeHandle[] | undefined = isUnhydratedRedesign
+          ? undefined
+          : linkedHandles
         try {
           try {
             result = await materializeSchema(
@@ -3120,6 +3293,7 @@ export function KantanWizard({
               draftName,
               datasetId ?? undefined,
               stagingId,
+              handles,
             )
           } catch (e) {
             // The adopted record vanished (deleted in the catalog meanwhile) —
@@ -3129,7 +3303,7 @@ export function KantanWizard({
             attached = false
             setKzDatasetId(null)
             setSourceAttached(false)
-            result = await materializeSchema(md, draftName, undefined, stagingId)
+            result = await materializeSchema(md, draftName, undefined, stagingId, handles)
           }
         } catch (e) {
           setStop({ kind: 'materialize', detail: errText(e), retryFrom: 'materialize' })
@@ -4167,6 +4341,11 @@ export function KantanWizard({
     // Re-arm the redesign seed: a LATER 見直す on the same dataset must seed
     // again (the id-equality guard would otherwise swallow it).
     setSeededRedesign(null)
+    // stagingId を捨てるので帯（契約メモ contract_pr_f10.md §1.2-2）の判定
+    // 結果も一緒に捨てる（backToPick と同じ理由）。
+    setShortcutMatch(null)
+    setShortcutDismissed(false)
+    setShortcutErr('')
     setStep(1)
   }
 
@@ -5924,6 +6103,32 @@ export function KantanWizard({
               </div>
             </section>
           )}
+          {/* 「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+              §1.2-2）。S1 が読んだファイルが既にある形と一致したときだけ、S1
+              の画面の一番上に出す。`onShortcutDone` を渡していない呼び出し元
+              （見直す等）では `shortcutMatch` が立たないので出ない。 */}
+          {shortcutMatch && !shortcutDismissed && (
+            <section className="kz-card kz-warn" role="status">
+              <h3 className="kz-title">
+                {t('kantan:shortcut_title', { kind: shortcutMatch.kind_label })}
+              </h3>
+              <p className="kz-note">{t('kantan:shortcut_body')}</p>
+              {shortcutErr && <p className="kz-note kz-note--warn">{shortcutErr}</p>}
+              <div className="kz-actions">
+                <button type="button" disabled={shortcutBusy} onClick={() => void acceptShortcut()}>
+                  {t('kantan:shortcut_add')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={shortcutBusy}
+                  onClick={declineShortcut}
+                >
+                  {t('kantan:shortcut_review')}
+                </button>
+              </div>
+            </section>
+          )}
           <section className="kz-card">
             <h3 className="kz-title">{t('kantan:s1.title')}</h3>
             {/* K23: 見出しの直後は 1 文だけ。ここで言うのは「置いても大丈夫か」への
@@ -6495,70 +6700,18 @@ export function KantanWizard({
         </section>
       ) : step === 11 ? (
         <section className="kz-card">
-          {/* 4 — 外とのつながり（ADR skeleton-from-easy-judgments D2）。
-              1 画面 1 判断:「他のデータにも同じ表記で出てくる値はどれ？」。
-              AI の事前チェックは置かない（利用者裁定 — 精度が悪いと惑わすだけ）。
-              測定値の ☑ はサーバの組み立てが決定論で無視する。 */}
+          {/* 4 — ID のつけかた（ADR meaning-before-identity K47 /
+              skeleton-from-easy-judgments D2〜D5）。2 問に分け、順を入れ替えた:
+              ①「この 1 件を名指す番号はどれ？」→②「他のデータとつながる手がかり
+              はどれ？」。旧版は②（他にも出てくる？の ☑）を先に聞き、その中から
+              名指しを選ばせていたが、利用者指摘（2026-09-25・XRD の例）「『他の
+              データにも出てくる？』で選ぶことと、最後の『名指すのはどれ』が
+              なんとなく一致しない」を受けて分離・入れ替えた。①で選んだ番号は
+              「他からこの 1 件を指す手がかり」でもあるので②で ☑ 済み・外せない
+              にする。AI の事前チェックは置かない（利用者裁定 — 精度が悪いと
+              惑わすだけ）。測定値は①②のどちらにも選べない。 */}
           <h3 className="kz-title">{t('kantan:links.title')}</h3>
-          <p className="kz-lead">{t('kantan:links.lead')}</p>
-          <div className="kz-links-example" aria-hidden="true">
-            {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを持つのに
-                図解に列名（食材名）が無く、構造が対応して見えなかった（利用者指摘
-                2026-09-02）。☑ を付ける単位＝列、を絵でも言う。 */}
-            <div className="kz-links-mini">
-              <p className="kz-links-mini-title">{t('kantan:links.exampleA')}</p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t('kantan:links.exampleColDish')}</th>
-                    <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td>カレー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
-                  <tr><td>シチュー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div className="kz-links-mid">
-              <span className="kz-links-word">{t('kantan:links.exampleWord')}</span>
-              <span className="kz-links-note">{t('kantan:links.exampleNote')}</span>
-            </div>
-            <div className="kz-links-mini">
-              <p className="kz-links-mini-title">{t('kantan:links.exampleB')}</p>
-              <table>
-                <thead>
-                  <tr>
-                    <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
-                    <th>{t('kantan:links.exampleColPrice')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td><td>¥120</td></tr>
-                  <tr><td>じゃがいも</td><td>¥98</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p className="kz-note kz-prose">{t('kantan:links.exampleCaption')}</p>
-          <ul className="kz-stop-plainlist skeleton-choose-hints">
-            <li>{t('kantan:links.whenYes')}</li>
-            <li>{t('kantan:links.whenNo')}</li>
-            <li>{t('kantan:links.whenSafe')}</li>
-          </ul>
-          {/* 表は 1 枚（承認モックどおり）。行ごとの値は「（行ごとに変わる）」と
-              書けば見出しで分けなくても読める。測定値（小数を含む数値だけの列）は
-              サーバの組み立てが黙って無視するので、UI でも最初から選べなくする —
-              押せたのに何も起きない、を作らない。判定はサーバの型スニッフの近似
-              （例が全部数値で、どれかに小数点/指数がある）: サーバ側の防御は残る
-              ので、まれに取りこぼしても受け口が黙って増えることはない。 */}
-          {[...new Set(meaningRows().map((r) => r.source))].map((source) => {
-            const rows = meaningRows().filter(
-              (r) =>
-                r.source === source &&
-                !excludedColumns.includes(meaningKey(r.source, r.column)),
-            )
-            if (rows.length === 0) return null
+          {(() => {
             const isMeasurement = (examples: string[]) => {
               const vals = examples.filter((e) => e.trim() !== '')
               return (
@@ -6567,163 +6720,252 @@ export function KantanWizard({
                 vals.some((e) => /[.eE]/.test(e))
               )
             }
+            const sources = [...new Set(meaningRows().map((r) => r.source))]
+            // ①の候補規則（測定値は除く preamble 列）— 旧 keyQuestion と同じ規則
+            // だが、②の ☑ がまだ無いのでその部分集合には縛られない。
+            const keyCandidates = (source: string) =>
+              meaningRows()
+                .filter(
+                  (r) =>
+                    r.source === source &&
+                    r.origin === 'preamble' &&
+                    !excludedColumns.includes(meaningKey(r.source, r.column)) &&
+                    !isMeasurement(r.examples),
+                )
+                .map((r) => r.column)
+            // 候補が 1 つしかなければ選びようがない＝機械が決める（D3 と同じ
+            // 「1 つならそれが ID」）。0 なら⑤で ⚠ になる従来どおりの仮置き。
+            const effectiveKey = (source: string) => {
+              const picked = linkKeyPick[source]
+              if (picked) return picked
+              const candidates = keyCandidates(source)
+              return candidates.length === 1 ? candidates[0] : undefined
+            }
+            const missingKeySources = sources.filter(
+              (s) => keyCandidates(s).length >= 2 && !linkKeyPick[s],
+            )
+            // ① は「ファイル全体の値（preamble）」に番号の候補が 2 つ以上あるとき
+            // だけ出す。普通の 1 枚の表（先頭のメタ行が無い）では 1 行ごとの番号は
+            // 次の段（形をたしかめる）で決まるので、空の ① を見せて迷わせない。
+            const showKeyStep = sources.some((s) => keyCandidates(s).length >= 2)
             return (
-              <div key={source}>
-                {new Set(meaningRows().map((r) => r.source)).size > 1 && (
-                  <p className="kz-zone-label">{basename(source)}</p>
+              <>
+                {showKeyStep && <h4 className="kz-next-title">{t('kantan:links.step1Title')}</h4>}
+                {showKeyStep && <p className="kz-lead">{t('kantan:links.keyLead')}</p>}
+                {sources.map((source) => {
+                  const candidates = keyCandidates(source)
+                  if (candidates.length < 2) return null
+                  return (
+                    <div key={source} className="kz-links-keyq">
+                      {sources.length > 1 && (
+                        <p className="kz-zone-label">{basename(source)}</p>
+                      )}
+                      <p className="kz-note kz-prose">{t('kantan:links.keyQuestion')}</p>
+                      <div className="kz-actions">
+                        {candidates.map((c) => (
+                          <label key={c} className="kz-links-pick">
+                            <input
+                              type="radio"
+                              name={`keypick-${source}`}
+                              checked={linkKeyPick[source] === c}
+                              onChange={() =>
+                                setLinkKeyPick((prev) => ({ ...prev, [source]: c }))
+                              }
+                            />
+                            {c}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+                {missingKeySources.length > 0 && (
+                  <p className="kz-note" role="alert">
+                    {t('kantan:links.keyMissing')}
+                  </p>
                 )}
-                <div className="kz-preview-tablewrap">
-                  <table className="kz-preview-table kz-links-table">
-                    <thead>
-                      <tr>
-                        <th>{t('kantan:links.colColumn')}</th>
-                        <th>{t('kantan:links.colValue')}</th>
-                        <th>{t('kantan:links.colMeaning')}</th>
-                        <th>{t('kantan:links.colLink')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r) => {
-                        const key = meaningKey(r.source, r.column)
-                        const measured = isMeasurement(r.examples)
-                        return (
-                          <tr key={key}>
-                            <th scope="row">{r.column}</th>
-                            <td className="kz-links-value">
-                              {/* 行ごとの値も実物を見せる — 「同じ表記で他にも
-                                  出てくるか」は値の見た目で判断する（利用者指摘
-                                  2026-09-01: 値が見えないと判断できない）。 */}
-                              {r.origin === 'table'
-                                ? r.examples.length > 0
-                                  ? t('kantan:links.valueSamples', {
-                                      values: r.examples
-                                        .slice(0, 3)
-                                        .join(t('skeletongate:key.listSeparator')),
-                                    })
-                                  : t('kantan:links.valueVaries')
-                                : (r.examples[0] ?? '')}
-                            </td>
-                            <td className="kz-links-meaning">
-                              {meaningFor(r.source, r.column)?.label || '—'}
-                            </td>
-                            <td className="kz-links-checkcell">
-                              {measured ? (
-                                <span className="kz-links-check kz-links-nomeasure">
-                                  {t('kantan:links.noMeasure')}
-                                </span>
-                              ) : (
-                                <label className="kz-links-check">
-                                  <input
-                                    type="checkbox"
-                                    aria-label={t('kantan:links.colLink')}
-                                    checked={linkChecked.has(key)}
-                                    onChange={() => {
-                                      const off = linkChecked.has(key)
-                                      setLinkChecked((prev) => {
-                                        const next = new Set(prev)
-                                        if (off) next.delete(key)
-                                        else next.add(key)
-                                        return next
-                                      })
-                                      // ☑ を外した列が名指しに選ばれたままだと、
-                                      // 選んでいない列が ID として送られる。
-                                      if (off)
-                                        setLinkKeyPick((picks) =>
-                                          picks[r.source] === r.column
-                                            ? Object.fromEntries(
-                                                Object.entries(picks).filter(
-                                                  ([s]) => s !== r.source,
-                                                ),
-                                              )
-                                            : picks,
-                                        )
-                                    }}
-                                  />
-                                </label>
-                              )}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                <h4 className="kz-next-title">
+                  {t(showKeyStep ? 'kantan:links.step2Title' : 'kantan:links.step2TitleSolo')}
+                </h4>
+                <p className="kz-lead">{t('kantan:links.lead')}</p>
+                <div className="kz-links-example" aria-hidden="true">
+                  {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを
+                      持つのに図解に列名（食材名）が無く、構造が対応して見えな
+                      かった（利用者指摘 2026-09-02）。☑ を付ける単位＝列、を絵
+                      でも言う。 */}
+                  <div className="kz-links-mini">
+                    <p className="kz-links-mini-title">{t('kantan:links.exampleA')}</p>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>{t('kantan:links.exampleColDish')}</th>
+                          <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr><td>カレー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
+                        <tr><td>シチュー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="kz-links-mid">
+                    <span className="kz-links-word">{t('kantan:links.exampleWord')}</span>
+                    <span className="kz-links-note">{t('kantan:links.exampleNote')}</span>
+                  </div>
+                  <div className="kz-links-mini">
+                    <p className="kz-links-mini-title">{t('kantan:links.exampleB')}</p>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
+                          <th>{t('kantan:links.exampleColPrice')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td><td>¥120</td></tr>
+                        <tr><td>じゃがいも</td><td>¥98</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-          {/* 名指しの追い質問（D3）: ☑ したファイル単位の値が 2 つ以上あるソース
-              にだけ出す。1 つならそれが ID（人の選択）、0 なら機械が仮置きして
-              ⑤で ⚠ と明示する — どの枝でも機械の推測が黙って残らない。 */}
-          {[...new Set(meaningRows().map((r) => r.source))].map((source) => {
-            const checkedWhole = meaningRows()
-              .filter(
-                (r) =>
-                  r.source === source &&
-                  r.origin === 'preamble' &&
-                  linkChecked.has(meaningKey(r.source, r.column)),
-              )
-              .map((r) => r.column)
-            if (checkedWhole.length < 2) return null
-            return (
-              <div key={source} className="kz-links-keyq">
-                <p className="kz-note kz-prose">{t('kantan:links.keyQuestion')}</p>
-                <div className="kz-actions">
-                  {checkedWhole.map((c) => (
-                    <label key={c} className="kz-links-pick">
-                      <input
-                        type="radio"
-                        name={`keypick-${source}`}
-                        checked={linkKeyPick[source] === c}
-                        onChange={() => setLinkKeyPick((prev) => ({ ...prev, [source]: c }))}
-                      />
-                      {c}
-                    </label>
-                  ))}
-                  <label className="kz-links-pick">
-                    <input
-                      type="radio"
-                      name={`keypick-${source}`}
-                      checked={!(source in linkKeyPick)}
-                      onChange={() =>
-                        setLinkKeyPick((prev) => {
-                          const next = { ...prev }
-                          delete next[source]
-                          return next
-                        })
-                      }
-                    />
-                    {t('kantan:links.keyAuto')}
-                  </label>
+                <p className="kz-note kz-prose">{t('kantan:links.exampleCaption')}</p>
+                <ul className="kz-stop-plainlist skeleton-choose-hints">
+                  <li>{t('kantan:links.whenYes')}</li>
+                  <li>{t('kantan:links.whenNo')}</li>
+                  <li>{t('kantan:links.whenSafe')}</li>
+                </ul>
+                {/* 表は 1 枚（承認モックどおり）。行ごとの値は「（行ごとに変わる）」
+                    と書けば見出しで分けなくても読める。測定値（小数を含む数値だけ
+                    の列）はサーバの組み立てが黙って無視するので、UI でも最初から
+                    選べなくする — 押せたのに何も起きない、を作らない。判定はサー
+                    バの型スニッフの近似（例が全部数値で、どれかに小数点/指数があ
+                    る）: サーバ側の防御は残るので、まれに取りこぼしても受け口が
+                    黙って増えることはない。①で名指しに決まった列は、その番号自体
+                    が他からこの 1 件を指す手がかりでもあるため ☑ 済み・外せない
+                    にする（K47）。 */}
+                {sources.map((source) => {
+                  const rows = meaningRows().filter(
+                    (r) =>
+                      r.source === source &&
+                      !excludedColumns.includes(meaningKey(r.source, r.column)),
+                  )
+                  if (rows.length === 0) return null
+                  const keyForSource = effectiveKey(source)
+                  return (
+                    <div key={source}>
+                      {sources.length > 1 && (
+                        <p className="kz-zone-label">{basename(source)}</p>
+                      )}
+                      <div className="kz-preview-tablewrap">
+                        <table className="kz-preview-table kz-links-table">
+                          <thead>
+                            <tr>
+                              <th>{t('kantan:links.colColumn')}</th>
+                              <th>{t('kantan:links.colValue')}</th>
+                              <th>{t('kantan:links.colMeaning')}</th>
+                              <th>{t('kantan:links.colLink')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r) => {
+                              const key = meaningKey(r.source, r.column)
+                              const measured = isMeasurement(r.examples)
+                              const isKeyCol =
+                                r.origin === 'preamble' && r.column === keyForSource
+                              return (
+                                <tr key={key}>
+                                  <th scope="row">{r.column}</th>
+                                  <td className="kz-links-value">
+                                    {/* 行ごとの値も実物を見せる — 「同じ表記で
+                                        他にも出てくるか」は値の見た目で判断する
+                                        （利用者指摘 2026-09-01: 値が見えないと
+                                        判断できない）。 */}
+                                    {r.origin === 'table'
+                                      ? r.examples.length > 0
+                                        ? t('kantan:links.valueSamples', {
+                                            values: r.examples
+                                              .slice(0, 3)
+                                              .join(t('skeletongate:key.listSeparator')),
+                                          })
+                                        : t('kantan:links.valueVaries')
+                                      : (r.examples[0] ?? '')}
+                                  </td>
+                                  <td className="kz-links-meaning">
+                                    {meaningFor(r.source, r.column)?.label || '—'}
+                                  </td>
+                                  <td className="kz-links-checkcell">
+                                    {measured ? (
+                                      <span className="kz-links-check kz-links-nomeasure">
+                                        {t('kantan:links.noMeasure')}
+                                      </span>
+                                    ) : (
+                                      <label className="kz-links-check">
+                                        <input
+                                          type="checkbox"
+                                          aria-label={t('kantan:links.colLink')}
+                                          checked={isKeyCol || linkChecked.has(key)}
+                                          disabled={isKeyCol}
+                                          onChange={() => {
+                                            if (isKeyCol) return
+                                            // 人が自分で ☑ を動かした印（K48 —
+                                            // 見直しで既存の ☑ を空で上書きしない
+                                            // ための帳簿。①の番号は機械が付けた
+                                            // ☑ なのでここを通らない）。
+                                            setLinkTouched(true)
+                                            const off = linkChecked.has(key)
+                                            setLinkChecked((prev) => {
+                                              const next = new Set(prev)
+                                              if (off) next.delete(key)
+                                              else next.add(key)
+                                              return next
+                                            })
+                                          }}
+                                        />
+                                      </label>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )
+                })}
+                {assembleErr && (
+                  <div role="alert">
+                    <p className="kz-note">{t('kantan:links.assembleFailed')}</p>
+                    <p className="kz-note">{plainBody(assembleErr)}</p>
+                  </div>
+                )}
+                <div className="kz-actions" style={{ marginTop: '1rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => void runAssemble()}
+                    disabled={assembleBusy || missingKeySources.length > 0}
+                  >
+                    {t(assembleBusy ? 'kantan:links.assembling' : 'kantan:links.proceed')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => setStep(10)}
+                    disabled={assembleBusy}
+                  >
+                    {t('kantan:links.back')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => requestConsult(t('kantan:links.askConsultPrefill'))}
+                  >
+                    {t('kantan:links.askConsult')}
+                  </button>
                 </div>
-              </div>
+              </>
             )
-          })}
-          {assembleErr && (
-            <div role="alert">
-              <p className="kz-note">{t('kantan:links.assembleFailed')}</p>
-              <p className="kz-note">{plainBody(assembleErr)}</p>
-            </div>
-          )}
-          <div className="kz-actions" style={{ marginTop: '1rem' }}>
-            <button type="button" onClick={() => void runAssemble()} disabled={assembleBusy}>
-              {t(assembleBusy ? 'kantan:links.assembling' : 'kantan:links.proceed')}
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => setStep(10)}
-              disabled={assembleBusy}
-            >
-              {t('kantan:links.back')}
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => requestConsult(t('kantan:links.askConsultPrefill'))}
-            >
-              {t('kantan:links.askConsult')}
-            </button>
-          </div>
+          })()}
         </section>
       ) : step === 3 ? (
         <section className="kz-card">

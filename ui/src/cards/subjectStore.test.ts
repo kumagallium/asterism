@@ -1,12 +1,30 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   addSubject,
+  addSubjectAndPersist,
+  backfillDatasetIds,
+  canonicalizeSubjects,
+  type CanonicalHubResolution,
+  getAllSubjects,
   parseStoredSubjects,
   removeSubject,
+  removeSubjectAndPersist,
   serializeSubjects,
   sortSubjects,
 } from './subjectStore'
+import { classSchema, resolveSubject } from './cardsApi'
 import type { SubjectItem } from './cardsApi'
+
+// `backfillDatasetIds`（appdata への書き戻しを伴う移行ロジック）のテストのため
+// `cardsApi.ts` の呼び出し先だけモックする（他の純関数のテストには影響しない —
+// このファイル内でのみ有効）。
+vi.mock('./cardsApi', () => ({
+  resolveSubject: vi.fn(),
+  classSchema: vi.fn(),
+  putAppDataSubject: vi.fn(),
+  deleteAppDataSubject: vi.fn(),
+  fetchAppDataSubjects: vi.fn(),
+}))
 
 // 分野語ゼロ（契約メモ §0）: テストデータは架空の 2 分野（図書館の貸出・気象観測）。
 
@@ -114,5 +132,266 @@ describe('localStorage フォールバック（parseStoredSubjects / serializeSu
       item({ id: 'station-a', source: 'open', created_at: '2026-09-01T00:00:00Z' }),
     ]
     expect(parseStoredSubjects(serializeSubjects(items))).toEqual(items)
+  })
+})
+
+describe('canonicalizeSubjects（メンバー→ハブの読み替え・契約メモ contract_pr_f19.md §1.4）', () => {
+  const hub: CanonicalHubResolution = {
+    hubIri: 'https://example.org/hub/al3v',
+    hubLabel: '束ねた実体',
+    classIri: 'https://example.org/class/composition',
+    classLabel: '組成',
+    datasetLabel: '結晶データベース',
+  }
+
+  it('直接のメンバーの行はハブの行に置き換える', () => {
+    const member = item({
+      id: 'member-a',
+      created_at: '2026-08-01T00:00:00Z',
+      label: '旧ラベル',
+      class_iri: 'https://example.org/class/member',
+      class_label: '個体',
+      dataset_label: '実験データ',
+    })
+    const resolved = new Map([[member.subject_key, hub]])
+    const result = canonicalizeSubjects([member], resolved)
+    expect(result).toEqual([
+      {
+        ...member,
+        id: hub.hubIri,
+        subject_key: `i:${hub.hubIri}`,
+        label: hub.hubLabel,
+        class_iri: hub.classIri,
+        class_label: hub.classLabel,
+        dataset_label: hub.datasetLabel,
+      },
+    ])
+  })
+
+  it('複数のメンバーが同じハブに読み替えられたら 1 行に畳み、古い created_at を保つ', () => {
+    const older = item({ id: 'member-a', created_at: '2026-07-01T00:00:00Z' })
+    const newer = item({ id: 'member-b', created_at: '2026-09-01T00:00:00Z' })
+    const resolved = new Map([
+      [older.subject_key, hub],
+      [newer.subject_key, hub],
+    ])
+    const result = canonicalizeSubjects([older, newer], resolved)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.subject_key).toBe(`i:${hub.hubIri}`)
+    expect(result[0]?.created_at).toBe('2026-07-01T00:00:00Z')
+  })
+
+  it('resolve できなかった行（map に無い）はそのまま触らない', () => {
+    const untouched = item({ id: 'member-x', created_at: '2026-08-01T00:00:00Z' })
+    expect(canonicalizeSubjects([untouched], new Map())).toEqual([untouched])
+  })
+
+  it('map の値が null（ハブ自身・非メンバー）の行はそのまま触らない', () => {
+    const notMember = item({ id: 'member-y', created_at: '2026-08-01T00:00:00Z' })
+    const resolved = new Map([[notMember.subject_key, null]])
+    expect(canonicalizeSubjects([notMember], resolved)).toEqual([notMember])
+  })
+
+  it('set の行は resolved に載っていても触らない', () => {
+    const spec: SubjectItem['spec'] = {
+      class: 'https://example.org/class/observation',
+      where: [],
+      order_by: null,
+      limit: 50,
+      source_scope: 'all',
+    }
+    const setItem: SubjectItem = {
+      ...item({ id: 'set-a', created_at: '2026-08-01T00:00:00Z' }),
+      kind: 'set',
+      spec,
+      subject_key: 's:set-a',
+    }
+    const resolved = new Map([[setItem.subject_key, hub]])
+    expect(canonicalizeSubjects([setItem], resolved)).toEqual([setItem])
+  })
+
+  it('入力配列を書き換えない（純粋）', () => {
+    const member = item({ id: 'member-a', created_at: '2026-08-01T00:00:00Z' })
+    const input = [member]
+    const copy = [...input]
+    canonicalizeSubjects(input, new Map([[member.subject_key, hub]]))
+    expect(input).toEqual(copy)
+  })
+})
+
+describe('backfillDatasetIds（appdata への書き戻しを伴う移行ロジック・契約メモ §2.1）', () => {
+  afterEach(() => {
+    // 足した項目を毎回掃除する（localStorage 運用のため互いに影響しないように）。
+    for (const i of getAllSubjects()) removeSubjectAndPersist(i.id)
+    vi.mocked(resolveSubject).mockReset()
+    vi.mocked(classSchema).mockReset()
+  })
+
+  it('個体（kind: individual）は dataset_id が無ければ resolveSubject の結果で埋める', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-c',
+      found: true,
+      label: null,
+      class_iri: null,
+      class_label: null,
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist(item({ id: 'loan-c', created_at: '2026-08-01T00:00:00Z' }))
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-c')
+    expect(updated?.dataset_id).toBe('library')
+    expect(updated?.dataset_label).toBe('図書館')
+    expect(resolveSubject).toHaveBeenCalledWith('loan-c')
+    expect(classSchema).not.toHaveBeenCalled()
+  })
+
+  it('絞り込み（kind: set）は dataset_id が無ければ classSchema(spec.class) の結果で埋める', async () => {
+    vi.mocked(classSchema).mockResolvedValue({
+      class_iri: 'https://example.org/class/observation',
+      label: '観測',
+      dataset_id: 'observation',
+      snapshot: null,
+      properties: [],
+      tools: [],
+      dataset_label: '気象観測',
+    })
+    const spec: SubjectItem['spec'] = {
+      class: 'https://example.org/class/observation',
+      where: [],
+      order_by: null,
+      limit: 50,
+      source_scope: 'all',
+    }
+    addSubjectAndPersist({
+      ...item({ id: 'set-a', created_at: '2026-08-01T00:00:00Z' }),
+      kind: 'set',
+      spec,
+      subject_key: 's:set-a',
+    })
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'set-a')
+    expect(updated?.dataset_id).toBe('observation')
+    expect(updated?.dataset_label).toBe('気象観測')
+    expect(classSchema).toHaveBeenCalledWith(spec.class)
+    expect(resolveSubject).not.toHaveBeenCalled()
+  })
+
+  it('解決に失敗しても諦めて据え置く（＝レールの「その他」節に落ちる）— 例外を投げない', async () => {
+    vi.mocked(resolveSubject).mockRejectedValue(new Error('network down'))
+    addSubjectAndPersist(item({ id: 'loan-d', created_at: '2026-08-01T00:00:00Z' }))
+
+    await expect(backfillDatasetIds()).resolves.toBeUndefined()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-d')
+    expect(updated?.dataset_id).toBeUndefined()
+  })
+
+  it('個体は class_iri が無ければ resolveSubject の class_iri/class_label でも埋める（契約メモ contract_pr_f9.md §1-2）', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-e',
+      found: true,
+      label: null,
+      class_iri: 'https://example.org/class/loan',
+      class_label: '貸出',
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist(item({ id: 'loan-e', created_at: '2026-08-01T00:00:00Z' }))
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-e')
+    expect(updated?.class_iri).toBe('https://example.org/class/loan')
+    expect(updated?.class_label).toBe('貸出')
+  })
+
+  it('絞り込みは class_iri を spec.class からその場で埋め、class_label は classSchema(spec.class).label で埋める', async () => {
+    vi.mocked(classSchema).mockResolvedValue({
+      class_iri: 'https://example.org/class/observation',
+      label: '観測',
+      dataset_id: 'observation',
+      snapshot: null,
+      properties: [],
+      tools: [],
+      dataset_label: '気象観測',
+    })
+    const spec: SubjectItem['spec'] = {
+      class: 'https://example.org/class/observation',
+      where: [],
+      order_by: null,
+      limit: 50,
+      source_scope: 'all',
+    }
+    addSubjectAndPersist({
+      ...item({ id: 'set-b', created_at: '2026-08-01T00:00:00Z' }),
+      kind: 'set',
+      spec,
+      subject_key: 's:set-b',
+    })
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'set-b')
+    expect(updated?.class_iri).toBe('https://example.org/class/observation')
+    expect(updated?.class_label).toBe('観測')
+  })
+
+  it('rdf:type を持たない個体（class_iri が恒久的に無い）は空文字で確定させ、次回は再フェッチしない', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-g',
+      found: true,
+      label: null,
+      class_iri: null,
+      class_label: null,
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist(item({ id: 'loan-g', created_at: '2026-08-01T00:00:00Z' }))
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-g')
+    // undefined（未試行）のままだと backfill が毎回この項目を対象にしてしまう
+    // ため、空文字（「確認済み・無し」）で確定させる。
+    expect(updated?.class_iri).toBe('')
+    expect(resolveSubject).toHaveBeenCalledTimes(1)
+
+    await backfillDatasetIds()
+
+    // dataset_id/class_iri とも定義済み（空文字は undefined でない）ので、
+    // 2 回目の呼び出しでは対象から外れ再フェッチされない。
+    expect(resolveSubject).toHaveBeenCalledTimes(1)
+  })
+
+  it('dataset_id は既にあり class_iri だけ無い項目も対象になる', async () => {
+    vi.mocked(resolveSubject).mockResolvedValue({
+      iri: 'loan-f',
+      found: true,
+      label: null,
+      class_iri: 'https://example.org/class/loan',
+      class_label: '貸出',
+      dataset_id: 'library',
+      dataset_label: '図書館',
+      snapshot: null,
+    })
+    addSubjectAndPersist({
+      ...item({ id: 'loan-f', created_at: '2026-08-01T00:00:00Z' }),
+      dataset_id: 'library',
+      dataset_label: '図書館',
+    })
+
+    await backfillDatasetIds()
+
+    const updated = getAllSubjects().find((i) => i.id === 'loan-f')
+    expect(updated?.class_iri).toBe('https://example.org/class/loan')
+    expect(resolveSubject).toHaveBeenCalledWith('loan-f')
   })
 })

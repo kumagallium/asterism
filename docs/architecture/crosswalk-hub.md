@@ -177,3 +177,53 @@ equality missed (whitespace/subscript variants). The hub tool
 - **CLI (manual):** `experiments/crosswalk-hub/build.py` is now a thin wrapper over
   `asterism.crosswalk_runtime` (`--default` bootstraps the demo-stack config,
   `--remove` tears the hub down). Run with the ingest venv.
+
+## Auto-link from handles (F15)
+
+**Done** (2026-09-25). Discovery (§6 above) still needs a human to pick a candidate
+every time — correct when the two datasets are strangers to each other, redundant
+when a person has *already* opted a column in on both sides. Kantan mode's step 4
+("ID のつけかた") lets a person tick a column as a "linking handle" (`linkable`,
+K46/K47) — a declaration that this column's values are meant to be matched against
+other datasets. Until now that tick was consumed once by `assemble` and left no
+trace after ingest, so it never actually connected anything.
+
+- **The tick becomes a durable fact.** A promoted dataset persists its ticked
+  `(source, column)` pairs as a small registry artifact (`handles.json`), carried
+  forward by the normal save/load path. At the API level, re-materializing an
+  existing dataset with no `handles` field keeps the ones already on record —
+  a caller that omits the field does not wipe it out. Kantan mode's review step honours it too: when a review
+  begins, the wizard re-reads the dataset's saved `handles.json`
+  (`GET /api/datasets/{id}/handles`) into its S4 ticks and re-sends them on
+  materialize; if that read has not completed (or failed) and nobody touched
+  the ticks in this pass, the wizard omits the field so the API keeps the
+  existing ones. Either way, ticks made in an earlier pass survive a review.
+- **Only handle-to-handle overlap auto-builds.** On promote, the machine looks only
+  at *other* datasets that also declared a handle, and only builds/extends a hub
+  perspective where the *ticked* columns' values actually overlap. Any dataset that
+  never ticked a column is invisible to this path — nothing new gets linked without
+  a person having opted in on both ends. Everything outside that overlap — a person
+  browsing the つながり screen and picking a candidate between two datasets that did
+  not tick a matching handle — works exactly as before (§6 discovery, unedited).
+- **One dataset, one slot per concept.** A dataset can participate in a given hub
+  concept (e.g. a shared composition) only once. If it is already a participant via
+  some predicate, auto-link does not add a second participation for the same
+  dataset — that would just wire the dataset to itself, not to another dataset.
+- **`min_shared_keys=1`.** Ordinary discovery favors columns with many shared
+  values because a single accidental match is weak evidence from a stranger
+  dataset. A ticked handle is not a stranger — a person already vouched for the
+  column's identity on both sides — so even a table with a single row (one shared
+  value) is worth linking. Raising the bar here would silently drop exactly the
+  small datasets a person most wants connected.
+- **The `classify` exclusion is dropped (except `empty`).** Ordinary discovery
+  skips columns that look like constants, numbers, dates, booleans, or free text,
+  because those are usually not identity-bearing without a human decision. A ticked
+  handle already *is* that human decision, so a handle column is matched even if it
+  happens to hold a single repeated value or a number — the only thing still
+  excluded is a column with no values at all (`empty`), since there is nothing to
+  match. A handle whose column no longer exists in the dataset's mapping (renamed
+  or redesigned) is silently skipped rather than erroring.
+- The result is marked (`auto_linked`, `auto_linked_from`) so a person can tell an
+  automatically built perspective apart from one they built by hand, and can still
+  remove it or rebuild it manually — this path only decides *whether* to build, not
+  who owns the outcome afterward.

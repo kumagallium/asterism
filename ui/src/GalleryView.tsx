@@ -1134,7 +1134,7 @@ function AskAboutDataset({ meta }: { meta: LiveDataset['meta'] }) {
 function DatasetDetail({
   dataset,
   perspectives,
-  tab,
+  tab: rawTab,
   onTab,
   highlight,
   onChanged,
@@ -1166,6 +1166,14 @@ function DatasetDetail({
   onDetailFocusConsumed?: () => void
 }) {
   const { t } = useTranslation()
+  // 「ツール」タブは一覧から外れた（PR F9・データセットは構造定義、使う側の
+  // 可視化はワークスペースのオブジェクトへ寄せる）。URL で #/datasets/<id>/tools
+  // を直接開かれても、無い見た目にせず 中身 (structure) へ倒す。
+  // `as DetailTab` を挟んで明示的に再ワイド化する: 注釈だけでは TS の制御フロー
+  // 解析が三項演算子の分岐から 'tools' を除いた型を推論し続け、下の
+  // `tab === 'tools'` 比較（コードの経路は残す）が「絶対に一致しない」型エラー
+  // になるため。
+  const tab = (rawTab === 'tools' ? 'structure' : rawTab) as DetailTab
   const meta = dataset.live?.meta
   // Design weaknesses (entities with no link between them, unmapped columns).
   // Checked LIVE rather than read from meta so it (a) covers datasets published
@@ -1291,15 +1299,16 @@ function DatasetDetail({
   const myPersp = perspectives.filter((p) =>
     (p.config?.concepts ?? []).some((c) => c.participants.some((part) => myIds.has(part.dataset_id))),
   )
-  // Reading order = the order the work happens in, with the two developer-facing
-  // tabs (the raw rules, the SPARQL tool list) last. ツール used to be second,
-  // one tab away from 中身, and it opens on saved SPARQL and an AI drafting box.
+  // Reading order = the order the work happens in. ツール (the SPARQL tool
+  // list) was here, but PR F9 moved 使う側の可視化 to the workspace's オブジェクト
+  // pages — データセット is structure only now, so the tab no longer lists it
+  // (the render path below stays, so a stale #/datasets/<id>/tools link falls
+  // back to 中身 instead of showing nothing).
   const tabs: [DetailTab, string][] = [
     ['structure', t('gallery:tab.structure')],
     ['files', t('gallery:tab.files')],
     ['connect', t('gallery:tab.connect')],
     ['design', t('gallery:tab.design')],
-    ['tools', t('gallery:tab.tools')],
   ]
   // The design tab's two destinations, for its sub-nav.
   const rulesRef = useRef<HTMLDivElement | null>(null)

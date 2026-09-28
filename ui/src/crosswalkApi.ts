@@ -76,6 +76,12 @@ export interface CrosswalkMeta {
   crosswalk_built_at?: string
   crosswalk_concepts?: string[]
   triple_count?: number
+  /** true when this perspective was created or grown by the server itself from
+   * matching ☑ ticks (F15), not authored by a human picking candidates. */
+  auto_linked?: boolean
+  /** The dataset ids whose ☑ ticks contributed to the auto-link, when
+   * {@link auto_linked} is true. */
+  auto_linked_from?: string[]
 }
 
 export interface CrosswalkInfo {
