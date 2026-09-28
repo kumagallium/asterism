@@ -6,6 +6,7 @@ any store. The scan itself runs the REAL SPARQL against an in-memory ``rdflib.Da
 (the ``test_crosswalk_runtime`` idiom), so graph resolution, the caps, and the
 read-only promise are exercised end-to-end.
 """
+
 from __future__ import annotations
 
 import json
@@ -357,6 +358,74 @@ async def test_discover_finds_the_join_across_three_datasets() -> None:
     assert cand["normalizer"] == "identity"
 
 
+# ---------------------------------------------------------------------------
+# only_slots (F15): a human already opted certain columns into a join
+# ---------------------------------------------------------------------------
+
+
+async def test_only_slots_lets_a_single_value_column_become_a_candidate() -> None:
+    # A column carrying the same one value everywhere is normally "constant" and
+    # excluded — but a human who ticked it (a shared shelf tag, say) should still
+    # get it joined, even off a single shared value.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}shelfTag", ["reading-room", "reading-room", "reading-room"])
+    _seed(store, "ds-b", f"{NS}locationTag", ["reading-room", "reading-room"])
+
+    only_slots = {
+        "ds-a": {(None, f"{NS}shelfTag")},
+        "ds-b": {(None, f"{NS}locationTag")},
+    }
+    result = await discover(
+        _DatasetClient(store),
+        _ds("ds-a", "ds-b"),
+        limits=DiscoverLimits(min_shared_keys=1),
+        only_slots=only_slots,
+    )
+
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    assert cand["matched"] == 1
+    assert {p["dataset_id"] for p in cand["participants"]} == {"ds-a", "ds-b"}
+
+
+async def test_only_slots_hides_a_slot_not_named_by_it() -> None:
+    # Two joins actually exist in the data; only_slots restricts discovery to the
+    # one the human ticked and the other must not appear at all.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
+    _seed(store, "ds-a", f"{NS}borrowerCode", ["A1", "A2", "A3"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "ZnO"])
+    _seed(store, "ds-b", f"{NS}memberCode", ["A1", "A2", "A4"])
+
+    only_slots = {
+        "ds-a": {(None, f"{NS}comp")},
+        "ds-b": {(None, f"{NS}formula")},
+    }
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), only_slots=only_slots)
+
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    predicates = {p["predicate"] for p in cand["participants"]}
+    assert predicates == {f"{NS}comp", f"{NS}formula"}
+
+
+async def test_only_slots_none_leaves_existing_behavior_untouched() -> None:
+    # Same scenario as the very first discover test, called the old way: candidate
+    # count, matched, and concept must be byte-for-byte the same.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "ZnO"])
+    _seed(store, "ds-c", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b", "ds-c"), only_slots=None)
+
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    assert {p["dataset_id"] for p in cand["participants"]} == {"ds-a", "ds-b", "ds-c"}
+    assert cand["matched"] == 2
+    assert cand["concept"] == "composition"
+
+
 async def test_discover_resolves_predicate_and_concept_labels_when_all_agree() -> None:
     # XW-01: the human word the design chose, not the predicate IRI's local name —
     # and when every participant agrees on that word, it becomes the concept_label.
@@ -367,9 +436,7 @@ async def test_discover_resolves_predicate_and_concept_labels_when_all_agree() -
     def labels(dataset_id: str, predicate: str) -> str | None:
         return "組成" if predicate in (f"{NS}comp", f"{NS}formula") else None
 
-    result = await discover(
-        _DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=labels
-    )
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=labels)
 
     cand = result["candidates"][0]
     assert cand["concept_label"] == "組成"
@@ -404,9 +471,7 @@ async def test_discover_concept_label_joins_disagreeing_participant_labels() -> 
     def labels(dataset_id: str, predicate: str) -> str | None:
         return {"ds-a": "組成", "ds-b": "化学式"}.get(dataset_id)
 
-    result = await discover(
-        _DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=labels
-    )
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=labels)
     cand = result["candidates"][0]
     assert cand["concept_label"] == "組成 / 化学式"
 

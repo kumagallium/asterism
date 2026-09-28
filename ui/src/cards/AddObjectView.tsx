@@ -10,7 +10,7 @@
 // そのまま使う（並行実装のあいだ同名で薄く書いてここに置いていたが、統合が
 // 済んだので一本化した。契約メモ §3「無い間は同じ名前で fetch を書き統合で
 // 一本化」）。
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   listClasses,
@@ -19,7 +19,7 @@ import {
   type SubjectItem,
   type SubjectSearchItem,
 } from './cardsApi'
-import { addSubjectAndPersist } from './subjectStore'
+import { addSubjectAndPersist, resolveHubReplacement, type CanonicalHubResolution } from './subjectStore'
 import './addObject.css'
 
 // 契約メモ contract_pr_f10.md §1.1: 一覧は「全部か一部か」を必ず言う＋カードの
@@ -147,6 +147,17 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
   const [committedQuery, setCommittedQuery] = useState('')
   const [results, setResults] = useState<ResultsLoadState>(EMPTY_RESULTS)
   const [loadingMore, setLoadingMore] = useState(false)
+  // 格子の各項目が直接のメンバーかどうか（契約メモ §1.4「追加画面の一覧
+  // （格子）では、メンバーの項目に小さな印「つながり」」）。iri → ハブへの
+  // 読み替え値。resolve が済んだ項目から順に埋まる（下の `useEffect` 参照）。
+  // 選んだ種類がハブの種類そのもの（`entry.is_hub`）のときは、格子の
+  // 項目自体がハブなので印は出さない。
+  const [memberHubs, setMemberHubs] = useState<Map<string, CanonicalHubResolution>>(new Map())
+  // 一度 resolve した iri を憶えておき、「もっと見る」で一覧が伸びても
+  // 既に分かっている項目を resolve し直さない（キャッシュ・レンダーは
+  // 起こさない ref）。
+  const memberHubsCache = useRef<Map<string, CanonicalHubResolution>>(new Map())
+  const selectedEntry = classesState.classes?.find((c) => c.class_iri === selectedClassIri) ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -196,6 +207,34 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
     }
   }, [selectedClassIri, committedQuery])
 
+  // 表示中の格子の各項目が直接のメンバーかどうかを resolve する（契約メモ
+  // §1.4「格子では、メンバーの項目に小さな印」）。選んだ種類自体がハブの種類
+  // （`selectedEntry.is_hub`）のときは、項目自体がハブなので resolve しない。
+  // 既に分かっている項目（`memberHubsCache`）は飛ばす — 「もっと見る」で
+  // 一覧が伸びても新しく足された分だけ resolve する。resolve に失敗した項目は
+  // 印なしのまま（従来どおり選んだときに再試行される・`pickResult` 参照）。
+  useEffect(() => {
+    if (!selectedEntry || selectedEntry.is_hub || !results.items || results.items.length === 0) return
+    const pending = results.items.filter((item) => !memberHubsCache.current.has(item.iri))
+    if (pending.length === 0) return
+    let cancelled = false
+    void Promise.all(
+      pending.map(async (item) => {
+        try {
+          const hub = await resolveHubReplacement(item.iri)
+          if (hub) memberHubsCache.current.set(item.iri, hub)
+        } catch {
+          // best-effort: 印を出さないだけ — 選ぶときにもう一度試みる。
+        }
+      }),
+    ).then(() => {
+      if (!cancelled) setMemberHubs(new Map(memberHubsCache.current))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEntry, results.items])
+
   function onSearchSubmit(e: FormEvent) {
     e.preventDefault()
     setCommittedQuery(normalizeSearchQuery(query))
@@ -223,9 +262,14 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
     }
   }
 
-  /** 1 件を押す（契約メモ §3「1 件を押すと子ナビに加わり、そのページへ」）。 */
-  function pickResult(entry: ClassEntry, item: SubjectSearchItem) {
-    const stored: SubjectItem = {
+  /** 1 件を押す（契約メモ §3「1 件を押すと子ナビに加わり、そのページへ」・
+   *  contract_pr_f19.md §1.4「直接のメンバーならハブを保存・ハブへ遷移」）。
+   *  格子の印付け（上の `useEffect`）で既に resolve 済みならそれを使い、
+   *  まだなら（印がまだ着く前にクリックされた場合）ここで resolve する。
+   *  `resolveSubject` が失敗したら従来どおり（選んだものをそのまま保存・
+   *  遷移）。 */
+  async function pickResult(entry: ClassEntry, item: SubjectSearchItem) {
+    let stored: SubjectItem = {
       kind: 'individual',
       id: item.iri,
       label: item.label,
@@ -239,6 +283,24 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
       dataset_label: entry.dataset_label,
       class_iri: entry.class_iri,
     }
+    try {
+      const hub = entry.is_hub
+        ? null
+        : (memberHubsCache.current.get(item.iri) ?? (await resolveHubReplacement(item.iri)))
+      if (hub) {
+        stored = {
+          ...stored,
+          id: hub.hubIri,
+          subject_key: `i:${hub.hubIri}`,
+          label: hub.hubLabel,
+          class_iri: hub.classIri ?? undefined,
+          class_label: hub.classLabel,
+          dataset_label: hub.datasetLabel ?? undefined,
+        }
+      }
+    } catch {
+      // resolve に失敗 — 選んだものをそのまま保存・遷移する。
+    }
     addSubjectAndPersist(stored)
     navigate({ tab: 'cards', subjectKey: stored.subject_key })
   }
@@ -247,7 +309,6 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
     navigate({ tab: 'cards', setNew: true, setDatasetId: entry.dataset_id, setClassIri: entry.class_iri })
   }
 
-  const selectedEntry = classesState.classes?.find((c) => c.class_iri === selectedClassIri) ?? null
   const showingResults = results.classIri === selectedClassIri && results.query === committedQuery
 
   return (
@@ -320,13 +381,16 @@ export function AddObjectView({ navigate, initialClassIri }: AddObjectViewProps)
                         key={item.iri}
                         type="button"
                         className="addobject-card"
-                        onClick={() => pickResult(selectedEntry, item)}
+                        onClick={() => void pickResult(selectedEntry, item)}
                       >
                         <span className="dataset-dot dataset-dot--individual" aria-hidden="true" />
                         <span className="addobject-card-body">
                           <span className="addobject-card-label">{item.label}</span>
                           <span className="addobject-card-sub">{selectedEntry.dataset_label}</span>
                         </span>
+                        {memberHubs.has(item.iri) && (
+                          <span className="addobject-member-pill">{t('add.member_pill', { defaultValue: 'つながり' })}</span>
+                        )}
                       </button>
                     ))}
                   </div>

@@ -311,6 +311,24 @@ def _normalize_clause(raw: Any, *, index: int) -> dict[str, Any]:
         # caller that relies on it fails loudly instead of getting a
         # differently-scoped answer.
         raise SetSpecError(f"where[{index}].at is not supported yet (Phase 1)")
+    if "via" in raw and raw["via"] is not None:
+        # 2 段 link 形（PR F14 契約メモ §1-2 / ADR O59）: 「この 1 件を指す
+        # 種類」の where 条件を 1 段先まで辿る ``?s <property> ?wl . ?wl <via.
+        # property> <via.iri>`` — op/value・iri（1 段の link 形）とは同居不可
+        # （呼び出し側のバグなので拒否）。via はネストしない（1 段だけ）。
+        if "op" in raw or "value" in raw:
+            raise SetSpecError(f"where[{index}] cannot mix a via clause with op/value")
+        if "iri" in raw and raw["iri"] is not None:
+            raise SetSpecError(f"where[{index}] cannot mix a via clause with iri")
+        via_raw = raw["via"]
+        if not isinstance(via_raw, dict):
+            raise SetSpecError(f"where[{index}].via must be an object")
+        if "via" in via_raw and via_raw["via"] is not None:
+            raise SetSpecError(f"where[{index}].via cannot itself have a via (1 段だけ)")
+        prop = _require_iri(raw.get("property"), f"where[{index}].property")
+        via_prop = _require_iri(via_raw.get("property"), f"where[{index}].via.property")
+        via_target = _require_iri(via_raw.get("iri"), f"where[{index}].via.iri")
+        return {"property": prop, "via": {"property": via_prop, "iri": via_target}}
     if "iri" in raw and raw["iri"] is not None:
         # link 形（PR F4 契約メモ §1-3 / ADR O46）: 「この 1 件を指す種類」の
         # where 条件 — ``?s <property> <iri>`` の存在チェックのみで、op/value
@@ -360,7 +378,9 @@ def normalize_set_spec(raw: Any) -> dict[str, Any]:
     holding only the recognized fields, in a fixed shape — ``class`` (str),
     ``where`` (list of ``{property, op, value}`` value clauses, or
     ``{property, iri}`` link clauses — PR F4 §1-3: 「この 1 件を指す種類」の
-    where 条件, no ``op``/``value``), ``order_by``
+    where 条件, no ``op``/``value``、or ``{property, via: {property, iri}}``
+    2 段 link clauses — PR F14 §1-2: via は 1 段だけ・op/value/iri のいずれ
+    とも同居不可), ``order_by``
     (``{property, dir}`` or None), ``limit`` (int, 1..:data:`MAX_LIMIT`,
     default 20), ``source_scope`` (one of :data:`ALLOWED_SOURCE_SCOPES`,
     default ``"all"``) — so :func:`set_id_of` always hashes the same shape

@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
 
@@ -474,9 +474,7 @@ def cluster_candidates(
             if rung in cluster.trials:
                 continue
             cluster.trials[rung] = len(
-                shared_keys(
-                    (slots[m].keys[rung] for m in sig), min_datasets=limits.min_datasets
-                )
+                shared_keys((slots[m].keys[rung] for m in sig), min_datasets=limits.min_datasets)
             )
         cluster.normalizer = choose_normalizer(cluster.trials, limits.ladder)
         cluster.shared = frozenset(
@@ -489,11 +487,7 @@ def cluster_candidates(
     # A cluster fully contained in a bigger one is the same join, seen with fewer
     # participants — keep the bigger card only.
     sigs = list(found)
-    keep = [
-        s
-        for s in sigs
-        if not any(other != s and set(s) < set(other) for other in sigs)
-    ]
+    keep = [s for s in sigs if not any(other != s and set(s) < set(other) for other in sigs)]
     return [found[s] for s in keep], truncated
 
 
@@ -538,9 +532,7 @@ def candidate_flags(
     if cluster.normalizer != "identity" and cluster.trials.get("identity", 0) == 0:
         flags.append("fold_only_match")
     reaches = [
-        len(cluster.shared & s.keys[cluster.normalizer]) / s.distinct
-        for s in members
-        if s.distinct
+        len(cluster.shared & s.keys[cluster.normalizer]) / s.distinct for s in members if s.distinct
     ]
     if reaches and min(reaches) < 0.01 and max(reaches) > 0.5:
         flags.append("asymmetric_coverage")
@@ -700,6 +692,7 @@ async def discover(
     predicate_label_of: Callable[[str, str], str | None] | None = None,
     field_label_of: Callable[[str, str, str | None], str | None] | None = None,
     class_label_of: Callable[[str, str], str | None] | None = None,
+    only_slots: Mapping[str, Collection[tuple[str | None, str]]] | None = None,
 ) -> dict:
     """Scan the promoted graphs and rank the joins that actually exist.
 
@@ -720,6 +713,15 @@ async def discover(
     kind's own field (a shared ``rdfs:label`` has no single word, the Composition
     kind's does). ``class_label_of`` — ``(dataset_id, class_iri) -> label`` — names
     the kind itself (``subject_class_label``); absent, the class local name is used.
+
+    ``only_slots`` (F15, ``dataset_id -> {(subject_class|None, predicate)}``) narrows
+    the scan to slots a human already opted into (S4's handles), rather than whatever
+    the generic profiling would have picked: the predicate cap is raised so a handle
+    outside the usual top N is still read, ``classify_predicate``'s exclusions other
+    than ``empty`` are not applied (a hand-picked column joins even with one value or
+    all-numeric), and after slots are built, anything not named by ``only_slots`` is
+    dropped before clustering. ``None`` here changes nothing — every existing caller
+    keeps today's behavior byte for byte.
     """
     lim = limits or DiscoverLimits()
     cancelled = False
@@ -759,8 +761,13 @@ async def discover(
             skipped.append({"dataset_id": ds.dataset_id, "reason": "not_promoted"})
             continue
 
+        profile_limit = (
+            max(lim.max_predicates_per_dataset, 500)
+            if only_slots is not None
+            else lim.max_predicates_per_dataset
+        )
         profiles, preds_truncated = await profile_literal_predicates(
-            client, live_graph, limit=lim.max_predicates_per_dataset
+            client, live_graph, limit=profile_limit
         )
         queries += 1
         excluded: list[dict] = []
@@ -776,6 +783,10 @@ async def discover(
             queries += 1
             values, too_long = filter_values(raw_values, max_length=lim.max_value_length)
             reason = classify_predicate(values, datatypes, too_long, limits=lim)
+            # F15: a handle the human already opted into joins even with one value,
+            # all numbers, or free text — only a truly empty column is excluded.
+            if only_slots is not None and reason not in (None, "empty"):
+                reason = None
             if reason is not None:
                 excluded.append(
                     {
@@ -811,6 +822,20 @@ async def discover(
                 "predicates_excluded": excluded,
             }
         )
+
+    if only_slots is not None:
+        # F15: keep only the slots a human opted into (class None in the request
+        # matches that predicate under any kind).
+        def _wanted(slot: Slot) -> bool:
+            allowed = only_slots.get(slot.dataset.dataset_id)
+            if not allowed:
+                return False
+            return (slot.subject_class, slot.predicate) in allowed or (
+                None,
+                slot.predicate,
+            ) in allowed
+
+        slots = [s for s in slots if _wanted(s)]
 
     # Normalize once per rung, interning keys to ints: the clustering does set algebra
     # over up to 96 slots x 4 rungs, and int sets keep that cheap in time and memory.

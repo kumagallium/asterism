@@ -20,6 +20,8 @@ togomcp-data/ には endpoints.csv (starrydata 行を追加済み) と
 mie/starrydata.yaml (smoke-test 用 minimal MIE) が含まれている。
 これは dbcls/togomcp v0.1.0 の togo_mcp/data/ を雛形にしたもので、
 TOGOMCP_DIR 環境変数で togomcp に渡される。
+skills/public/ は togomcp v2.18.0 以降が import 時に必須とする空ディレクトリ
+(無いと togo-mcp-local が起動前に落ち、Connection closed にしか見えない)。
 
 前提:
 - Oxigraph が http://localhost:7878 で起動中、papers_100.ttl が default graph にロード済

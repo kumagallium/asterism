@@ -2,18 +2,44 @@
 // 見出し（カード title）→ タブ「結果／材料／作りかた」。契約メモ §6.3。
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { applyPresentation } from './applyPresentation'
 import { KNOWN_LICENSE_IDS, putDatasetLicense, runCard } from './cardsApi'
-import type { CardRef, CardMaterial, CardToolResult, SubjectKey } from './cardsApi'
+import type { CardRef, CardMaterial, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
+import { parseMermaidFlowchart } from './mermaidFlow'
+// PR F18（ui-store 担当）が新設する型。まだ存在しない間もこの担当（ui-page）は
+// 契約メモ §1.3 どおりに import だけ書いておき、統合段で繋ぐ（契約メモ §1
+// 「並列中の仮置き」と同じ流儀）。
+import type { PageChatTurn } from './pageChatThreads'
 import { isDefinitionGapValue } from './placeShape'
 import './pages.css'
 import { formatShareReasons } from './shareReasons'
 import { TableView } from './TableView'
-import type { GraphSpec, TableSpec, VegaLiteSpec } from './viewSpec'
+import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
+
+// PR F13: AI が Vega-Lite／表仕様／Mermaid で「書いた」見せ方（`card.view`。
+// `cardsApi.ts` の {@link CardView}）。CardTile.tsx と同じ変換。
+function renderableCustomView(
+  view: CardView | undefined,
+  rows: Record<string, unknown>[],
+): { view: ViewSpec } | { graph: GraphSpec } | null {
+  if (!view) return null
+  if (view.lang === 'vega-lite' && view.spec && typeof view.spec === 'object') {
+    const spec = { ...view.spec, data: { values: rows } }
+    return { view: { lang: 'vega-lite', spec: spec as VegaLiteSpec, custom: true } }
+  }
+  if (view.lang === 'table' && view.spec && typeof view.spec === 'object') {
+    return { view: { lang: 'table', spec: view.spec as unknown as TableSpec, custom: true } }
+  }
+  if (view.lang === 'mermaid' && typeof view.text === 'string') {
+    return { graph: parseMermaidFlowchart(view.text).graph }
+  }
+  return null
+}
 
 /** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
  *  （契約 §4「事実の表」）。CardTile.tsx と同じ判定・同じ流儀。 */
@@ -40,6 +66,13 @@ export interface CardDetailProps {
   /** 「このカードを消す」を押したときに呼ぶ（cardStore からの削除は呼び出し側
    *  の責務）。押下後は自動で {@link onBack} も呼ぶ。 */
   onRemoveCard?: () => void
+  /** 「直す」を押したときに呼ぶ（契約メモ PR F18 §1.3）。会話ドロワーを
+   *  このカードの会話で開くのは呼び出し側の責務。{@link isAddedCard} が
+   *  true かつこの prop が渡されているときだけボタンを出す。 */
+  onFixCard?: () => void
+  /** このカードに結びついた会話（契約メモ PR F18 §1.3）。あれば「どう作ったか」
+   *  タブに「会話の記録」を読むだけの節として出す。 */
+  conversation?: PageChatTurn[]
 }
 
 type DetailTabId = 'result' | 'materials' | 'recipe'
@@ -54,6 +87,8 @@ export function CardDetail({
   onEditDefinition,
   isAddedCard,
   onRemoveCard,
+  onFixCard,
+  conversation,
 }: CardDetailProps) {
   const { t } = useTranslation('cards')
   const depKey = JSON.stringify({ subject, tool: card.tool, params: card.params })
@@ -99,8 +134,9 @@ export function CardDetail({
   const result = loaded ? fetched.result : null
   const error = loaded && fetched.error
 
-  const titleInfo = resolveCardTitle(card.title)
-  const titleText = titleInfo.isKey ? t(titleInfo.value) : titleInfo.value
+  const titleInfo = resolveCardTitle(card.title, card.title_params)
+  const titleText = titleInfo.isKey ? t(titleInfo.value, titleInfo.params) : titleInfo.value
+  const hasCustomView = !!card.view
   const editMaterial: CardMaterial | undefined = result?.materials[0]
   const editDatasetId = editMaterial?.dataset_id
   const licenseUnknown = !!editMaterial && editMaterial.license == null
@@ -137,6 +173,7 @@ export function CardDetail({
           </div>
           <h2 className="cardpage-title">{titleText}</h2>
         </div>
+        {hasCustomView && <span className="cardpage-kind">{t('tile.custom_view')}</span>}
         {result && result.shareable !== null && (
           <span className={result.shareable ? 'pill-share pill-share--ok' : 'pill-share pill-share--warn'}>
             {t(result.shareable ? 'page.shareable_yes' : 'page.shareable_no')}
@@ -162,7 +199,7 @@ export function CardDetail({
         {!error && !result && <p className="ds-empty-note">{t('page.loading')}</p>}
         {!error && result && tab === 'result' && renderResultTab(card, result, titleText, t)}
         {!error && result && tab === 'materials' && renderMaterialsTab(subject, result, t)}
-        {!error && result && tab === 'recipe' && renderRecipeTab(card, result, t)}
+        {!error && result && tab === 'recipe' && renderRecipeTab(card, result, t, conversation)}
         {!error && result && tab === 'materials' && editDatasetId && (
           <div className="cardpage-materials-actions">
             <button
@@ -204,18 +241,25 @@ export function CardDetail({
           </div>
         )}
       </div>
-      {isAddedCard && onRemoveCard && (
-        <div className="cardpage-materials-actions">
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() => {
-              onRemoveCard()
-              onBack()
-            }}
-          >
-            {t('detail.delete_card')}
-          </button>
+      {isAddedCard && (onFixCard || onRemoveCard) && (
+        <div className="cardpage-materials-actions cardpage-detail-actions-row">
+          {onFixCard && (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={onFixCard}>
+              {t('detail.fix')}
+            </button>
+          )}
+          {onRemoveCard && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                onRemoveCard()
+                onBack()
+              }}
+            >
+              {t('detail.delete_card')}
+            </button>
+          )}
         </div>
       )}
       <div className="cardpage-bar">
@@ -243,6 +287,18 @@ export function CardDetail({
 }
 
 function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: string, t: Translate) {
+  // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
+  // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
+  // §2(a)）— その全件に対して行う。
+  const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
+
+  // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
+  // 使う（Mermaid は GraphSpec に変換して flow と同じ GraphView で描く）。
+  const customRendered = renderableCustomView(card.view, rows)
+  if (customRendered && 'graph' in customRendered) {
+    return <GraphView graph={customRendered.graph} ariaLabel={ariaLabel} maxHeight={360} />
+  }
+
   if (card.output_kind === 'flow') {
     // `result.graph` は cardsApi.ts の CardToolResult に合わせて緩い型
     // （nodes/edges: unknown[]）— subject_flow は prov_graph.graph をそのまま
@@ -250,14 +306,16 @@ function renderResultTab(card: CardRef, result: CardToolResult, ariaLabel: strin
     const graph = (result.graph ?? { nodes: [], edges: [] }) as GraphSpec
     return <GraphView graph={graph} ariaLabel={ariaLabel} maxHeight={360} />
   }
-  // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
-  // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
-  // §2(a)）— その全件に対して行う。
-  const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
-  const view = defaultViewFor(
-    { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-    rows,
-  )
+  const view =
+    customRendered && 'view' in customRendered
+      ? customRendered.view
+      : applyPresentation(
+          defaultViewFor(
+            { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+            rows,
+          ),
+          card.presentation,
+        )
   if (view.lang === 'vega-lite') {
     return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
   }
@@ -331,7 +389,7 @@ function renderMaterialsTab(subject: SubjectKey, result: CardToolResult, t: Tran
   )
 }
 
-function renderRecipeTab(card: CardRef, result: CardToolResult, t: Translate) {
+function renderRecipeTab(card: CardRef, result: CardToolResult, t: Translate, conversation: PageChatTurn[] | undefined) {
   return (
     <div className="cardpage-recipe-tab">
       <div className="cardpage-bundle">
@@ -344,6 +402,7 @@ function renderRecipeTab(card: CardRef, result: CardToolResult, t: Translate) {
           <li>{t('bundle.mcp_json')}</li>
         </ul>
       </div>
+      {conversation && conversation.length > 0 && renderConversationRecord(conversation, t)}
       {/* K4: 生の識別子・クエリは「技術情報」として折る。 */}
       <details className="cardpage-recipe">
         <summary>{t('detail.recipe_tech_info')}</summary>
@@ -356,6 +415,58 @@ function renderRecipeTab(card: CardRef, result: CardToolResult, t: Translate) {
         </p>
         <pre className="cardpage-recipe-pre">{result.sparql}</pre>
       </details>
+    </div>
+  )
+}
+
+/** 提案の決着（`AssistantTurn.decision`・PR F18 §1.2）を「会話の記録」の
+ *  文言キーに変換する。`added`／`added_as_new` はどちらも「足した」——
+ *  記録としては元の会話がカードに結びついたか別カードとして足されたかの
+ *  違いは意味を持たない。 */
+function conversationOutcomeKey(decision: 'added' | 'replaced' | 'added_as_new' | 'discarded' | undefined): string | null {
+  if (decision === 'added' || decision === 'added_as_new') return 'detail.conversation_outcome_added'
+  if (decision === 'replaced') return 'detail.conversation_outcome_replaced'
+  if (decision === 'discarded') return 'detail.conversation_outcome_discarded'
+  return null
+}
+
+/** 「会話の記録」（契約メモ PR F18 §1.3）: このカードに結びついた会話の
+ *  ターンを上から読むだけで並べる。あなたの発言はそのまま、AI の発言は
+ *  提案が付いていれば「提案: <題名>（<結末>）」の 1 行に、無ければ返信文
+ *  そのままにする。決着（足した／差し替えた／やめた）はターン自体の
+ *  `decision`（PageChatDrawer.tsx が決着のたびに書く）から出す — 決着して
+ *  いない（まだ選ばれていない）古い提案は結末を書かず題名だけ出す。 */
+function renderConversationRecord(conversation: PageChatTurn[], t: Translate) {
+  return (
+    <div className="cardpage-conversation">
+      <p className="cardpage-bundle-title">{t('detail.conversation')}</p>
+      <ul className="cardpage-conversation-list">
+        {conversation.map((turn) => {
+          if (turn.role === 'user') {
+            return (
+              <li key={turn.id} className="cardpage-conversation-turn">
+                <b>{t('detail.conversation_you')}</b>: {turn.text}
+              </li>
+            )
+          }
+          const proposal = turn.result?.proposal
+          if (proposal) {
+            const outcomeKey = conversationOutcomeKey(turn.decision)
+            return (
+              <li key={turn.id} className="cardpage-conversation-turn">
+                {outcomeKey
+                  ? t('detail.conversation_proposal', { title: proposal.title, outcome: t(outcomeKey) })
+                  : t('detail.conversation_proposal_undecided', { title: proposal.title })}
+              </li>
+            )
+          }
+          return (
+            <li key={turn.id} className="cardpage-conversation-turn">
+              <b>{t('detail.conversation_ai')}</b>: {turn.result?.reply ?? ''}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

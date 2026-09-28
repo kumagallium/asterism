@@ -13,7 +13,14 @@ import { SubjectPage } from './SubjectPage'
 export interface CardsViewProps {
   route: Route
   navigate: (route: Route, opts?: { replace?: boolean }) => void
-  /** ページ最下部の 1 行「<label> に聞く」から Ask へ（契約メモ §6.3）。 */
+  /** カード詳細（`CardDetail.tsx`）最下部の 1 行「<label> に聞く」から Ask へ
+   *  （契約メモ §6.3）。**ページ本体（1 件・条件で集めた一覧・種類）の下の
+   *  入力欄は PR F12 でドロワー（`PageChatDrawer`）に置き換わったため、
+   *  ここから SubjectPage/SetPage/ClassPage へ渡してもページ本体はもう
+   *  使わない**（契約メモ PR F12 §1 決定 5「`App.openAsk` はページからは
+   *  使わない」）。SubjectPage/SetPage は `CardDetail` に転送するためだけに
+   *  この prop を受け取り続ける（deviations 参照 — CardDetail.tsx は担当外の
+   *  ため配線自体は変えていない）。 */
   onAsk: (question: string) => void
   /** topbar の見出しに使う「選んだ対象のラベル」を App へ上げる（契約メモ §3:
    *  「CardsView/SubjectPage が持つ resolved label を App に上げる」）。1 件・
@@ -135,9 +142,15 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
       <SubjectPage
         iri={iri}
         cardId={route.cardId}
-        onSelectCard={(cardId) => navigate({ tab: 'cards', subjectKey: route.subjectKey, cardId })}
-        onCloseCard={() => navigate({ tab: 'cards', subjectKey: route.subjectKey })}
-        onOpenSubject={(nextIri) => navigate({ tab: 'cards', subjectKey: `i:${nextIri}` })}
+        solo={route.solo}
+        onSelectCard={(cardId) => navigate({ tab: 'cards', subjectKey: route.subjectKey, cardId, solo: route.solo })}
+        onCloseCard={() => navigate({ tab: 'cards', subjectKey: route.subjectKey, solo: route.solo })}
+        onOpenSubject={(nextIri, opts) =>
+          navigate({ tab: 'cards', subjectKey: `i:${nextIri}`, solo: opts?.solo })
+        }
+        // PR F19 §1.3: 直接のメンバーを solo なしで開いたときの寄せ替え —
+        // 履歴を汚さない置き換え遷移（`{replace: true}`）。
+        onRedirectToHub={(hubIri) => navigate({ tab: 'cards', subjectKey: `i:${hubIri}` }, { replace: true })}
         onAsk={onAsk}
         onEditDefinition={(datasetId: string) =>
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })

@@ -288,3 +288,101 @@ def test_normalize_set_spec_link_clause_participates_in_set_id_determinism() -> 
     )
     assert set_id_of(spec_a) == set_id_of(spec_b)
     assert set_id_of(spec_a) != set_id_of(other)
+
+
+# ----------------------------------------------------------------------------
+# normalize_set_spec's ``via`` (2 段) link where clause (契約メモ
+# contract_pr_f14.md §1.2・ADR O59): 1 段先の存在チェック
+# ``?s <property> ?wl . ?wl <via.property> <via.iri>``。1 段だけ・op/value・
+# iri のいずれとも同居不可。
+# ----------------------------------------------------------------------------
+
+VIA_PRED = EX + "viaPred"
+
+
+def test_normalize_set_spec_accepts_a_via_clause() -> None:
+    spec = normalize_set_spec(
+        {
+            "class": CLASS_IRI,
+            "where": [{"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": TARGET_IRI}}],
+        }
+    )
+    assert spec["where"] == [
+        {"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": TARGET_IRI}}
+    ]
+
+
+def test_normalize_set_spec_via_clause_has_no_op_or_value_keys() -> None:
+    spec = normalize_set_spec(
+        {
+            "class": CLASS_IRI,
+            "where": [{"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": TARGET_IRI}}],
+        }
+    )
+    clause = spec["where"][0]
+    assert "op" not in clause
+    assert "value" not in clause
+    assert "iri" not in clause
+
+
+def test_normalize_set_spec_via_clause_rejects_mixing_op() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "via": {"property": VIA_PRED, "iri": TARGET_IRI},
+                        "op": "eq",
+                        "value": "x",
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_via_clause_rejects_mixing_iri() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "iri": TARGET_IRI,
+                        "via": {"property": VIA_PRED, "iri": TARGET_IRI},
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_via_clause_rejects_nested_via() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {
+                        "property": LINK_PRED,
+                        "via": {
+                            "property": VIA_PRED,
+                            "via": {"property": VIA_PRED, "iri": TARGET_IRI},
+                        },
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_set_spec_via_clause_requires_well_formed_iris() -> None:
+    with pytest.raises(SetSpecError):
+        normalize_set_spec(
+            {
+                "class": CLASS_IRI,
+                "where": [
+                    {"property": LINK_PRED, "via": {"property": VIA_PRED, "iri": "not an iri"}}
+                ],
+            }
+        )

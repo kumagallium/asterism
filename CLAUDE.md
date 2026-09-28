@@ -16,6 +16,16 @@
   （`api/tests/test_design_consult.py`）は UI 名の陳腐化を検出するが、
   **手順の順序や説明文までは見ていない**（実例: #453 がステップを入れ替えたのに
   `manual/` を更新せず、古い順序のまま公開された）。
+- **リリースのたびに、マニュアルの「更新を知る」を見る。** `.github/workflows/tagpr.yml` の
+  nudge 段が、tagpr のリリース PR に「前回タグ以降にマージされた PR の一覧」をコメントする
+  （tagpr 本体は PR 本文に載せるだけ）。その中に「できること」が変わった PR があれば、
+  [`manual/ja/roadmap.md`](manual/ja/roadmap.md) に 1 行足し、該当章の見出し（または該当する
+  箇条書きの項目）に `<Badge type="tip" text="vX.Y.Z (YYYY-MM-DD) で追加" />` を付ける
+  （版と日付は `CHANGELOG.md` と一致させる）。無ければ何もしない。
+  [`manual/ja/release-history.md`](manual/ja/release-history.md) は CHANGELOG をビルド時に
+  取り込むので手で書かない。ズレは `python scripts/check_manual.py` が検査し、CI
+  （api の pytest）でも落ちる。`docs/ROADMAP.md` は開発者向けの実行状態、
+  `manual/ja/roadmap.md` は利用者向けの「できることが変わった節目」で、別物。
 
 ## 不変条件（破らない）
 
@@ -30,6 +40,6 @@
 
 ## 構成の入口
 
-- `docs/ROADMAP.md` — 実行状態（まずここ）。
+- `docs/ROADMAP.md` — 実行状態（まずここ）。利用者向けの節目は `manual/ja/roadmap.md`。
 - `docs/architecture/` — 決定（ADR）。
 - `ingest/`（`asterism` パッケージ）/ `mcp/`（MCP サーバ・typed tools）/ `step0/`（AI 支援スキーマ設計 CLI）/ `experiments/`（スパイク）。

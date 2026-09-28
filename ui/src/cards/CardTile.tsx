@@ -13,17 +13,42 @@
 // ための設計）。
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { applyPresentation } from './applyPresentation'
 import { runCard } from './cardsApi'
-import type { CardRef, CardToolResult, SubjectKey } from './cardsApi'
+import type { CardRef, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
 import { defaultViewFor } from './defaultView'
 import { GraphView } from './GraphView'
+import { parseMermaidFlowchart } from './mermaidFlow'
 import { isDefinitionGapValue } from './placeShape'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
 import './pages.css'
+
+/** `card.view`（AI が書いた見せ方。`cardsApi.ts` の {@link CardView}）を
+ *  描画できる形に変換する（純粋）。Vega-Lite は `data.values` にカードの結果
+ *  `rows` を差し込む（契約 F13 §1「データは AI の JSON に書かせない」）。
+ *  Mermaid はソーステキスト（`view.text`）を `mermaidFlow.ts` の同じ部分集合の
+ *  パーサで `GraphSpec` に変換する。読めない形は無視して既定描画に落とす。 */
+function renderableCustomView(
+  view: CardView | undefined,
+  rows: Record<string, unknown>[],
+): { view: ViewSpec } | { graph: GraphSpec } | null {
+  if (!view) return null
+  if (view.lang === 'vega-lite' && view.spec && typeof view.spec === 'object') {
+    const spec = { ...view.spec, data: { values: rows } }
+    return { view: { lang: 'vega-lite', spec: spec as VegaLiteSpec, custom: true } }
+  }
+  if (view.lang === 'table' && view.spec && typeof view.spec === 'object') {
+    return { view: { lang: 'table', spec: view.spec as unknown as TableSpec, custom: true } }
+  }
+  if (view.lang === 'mermaid' && typeof view.text === 'string') {
+    return { graph: parseMermaidFlowchart(view.text).graph }
+  }
+  return null
+}
 
 /** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
  *  （契約 §4「事実の表」）。行そのものを書き換えず、新しい配列を返す。 */
@@ -41,8 +66,10 @@ export interface CardTileProps {
   subject: SubjectKey
   card: CardRef
   onOpenDetail: (cardId: string) => void
-  /** 順位表の行を押したときに、その行の主語（IRI）の 1 件ページへ。 */
-  onOpenSubject: (iri: string) => void
+  /** 順位表の行を押したときに、その行の主語（IRI）の 1 件ページへ。PR F19 §1.3:
+   *  「同じものとして束ねたもの」（`subject_hub_members`）の行はハブへ寄せ
+   *  戻されないよう `{ solo: true }` を付けて開く（このカード自身が判定する）。 */
+  onOpenSubject: (iri: string, opts?: { solo?: boolean }) => void
   /** `subject_flow` が `found: false` を返したとき、親にグリッドから外すよう
    *  知らせる（契約メモ §3.1「辺が 0 なら found: false を返し、UI はカードを
    *  出さない」）。 */
@@ -50,9 +77,17 @@ export interface CardTileProps {
   /** 格子で 2 列ぶんを占めるか。無指定なら output_kind から決める
    *  （flow／facts は既定で wide・§2(b)）。 */
   wide?: boolean
+  /** このカードが cardStore にある「足したカード」かどうか（PR F18 §1.3）。
+   *  true かつ {@link onFixCard} が渡されているときだけ、印の列の最後に
+   *  小さな「直す」ボタンを出す。既定カード（組み込み・宣言ツール）には
+   *  出さない。 */
+  isAddedCard?: boolean
+  /** 「直す」を押したときに呼ぶ（会話ドロワーをこのカードの会話で開くのは
+   *  呼び出し側 — SubjectPage/SetPage — の責務）。 */
+  onFixCard?: (cardId: string) => void
 }
 
-export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide }: CardTileProps) {
+export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide, isAddedCard, onFixCard }: CardTileProps) {
   const { t } = useTranslation('cards')
   // 呼び出しの実体（subject + tool + params）を文字列化して依存キーにする —
   // 親が `subject={{kind:'individual', iri}}` のようにインライン literal を渡す
@@ -94,20 +129,32 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
   const result = loaded ? fetched.result : null
   const error = loaded && fetched.error
 
-  const titleInfo = resolveCardTitle(card.title)
-  const titleText = titleInfo.isKey ? t(titleInfo.value) : titleInfo.value
+  const titleInfo = resolveCardTitle(card.title, card.title_params)
+  const titleText = titleInfo.isKey ? t(titleInfo.value, titleInfo.params) : titleInfo.value
 
   // 定義不備の定数（value_iri === property_iri）は表示前に「（値なし）」へ
   // 落とす（契約 §4「事実の表」）。ここで一度だけ変換し、以降はこの rows を使う。
   const rows = result ? maskDefinitionGapValues(result.items, t('builtin.value_missing')) : []
 
+  // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
+  // 使う。Mermaid は表／グラフの `ViewSpec` の型に収まらないので別枠
+  // （`customGraph`）で持つ。
+  const customRendered = result ? renderableCustomView(card.view, rows) : null
+  const customGraph = customRendered && 'graph' in customRendered ? customRendered.graph : null
+
   const view =
-    result && card.output_kind !== 'flow'
-      ? defaultViewFor(
-          { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
-          rows,
-        )
-      : null
+    customRendered && 'view' in customRendered
+      ? customRendered.view
+      : result && card.output_kind !== 'flow'
+        ? applyPresentation(
+            defaultViewFor(
+              { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+              rows,
+            ),
+            card.presentation,
+          )
+        : null
+  const isCustomView = !!(view?.custom || customGraph)
   const rankedSpec = view && view.lang === 'table' ? (view.spec as TableSpec) : null
   const isRankedWithSubject = !!rankedSpec && rankedSpec.variant === 'ranked' && !!rankedSpec.subject_field
 
@@ -154,29 +201,47 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
         </button>
         <span className="cardpage-tile-pills">
           <span className="cardpage-kind">{t(`kind.${card.output_kind}`)}</span>
+          {isCustomView && <span className="cardpage-kind">{t('tile.custom_view')}</span>}
           {result && result.shareable !== null && (
             <span className={result.shareable ? 'pill-share pill-share--ok' : 'pill-share pill-share--warn'}>
               {t(result.shareable ? 'page.shareable_yes' : 'page.shareable_no')}
             </span>
+          )}
+          {isAddedCard && onFixCard && (
+            <button
+              type="button"
+              className="cardpage-tile-fix"
+              onClick={(e) => {
+                e.stopPropagation()
+                onFixCard(card.card_id)
+              }}
+            >
+              {t('tile.fix')}
+            </button>
           )}
         </span>
       </div>
       <div className="cardpage-tile-body">
         {error && <p className="ds-empty-note">{t('render_error')}</p>}
         {!error && !result && <p className="ds-empty-note">{t('page.loading')}</p>}
-        {!error && result && card.output_kind === 'flow' && (
+        {!error && result && customGraph && (
+          <GraphView graph={customGraph} ariaLabel={titleText} maxHeight={200} />
+        )}
+        {!error && result && !customGraph && card.output_kind === 'flow' && (
           <GraphView
             graph={(result.graph ?? { nodes: [], edges: [] }) as GraphSpec}
             ariaLabel={titleText}
             maxHeight={200}
           />
         )}
-        {!error && result && card.output_kind !== 'flow' && tileView && (
+        {!error && result && !customGraph && card.output_kind !== 'flow' && tileView && (
           <CardTileBody
             view={tileView}
             rows={rows}
             ariaLabel={titleText}
-            onOpenSubject={onOpenSubject}
+            onOpenSubject={(iri) =>
+              onOpenSubject(iri, card.tool === 'subject_hub_members' ? { solo: true } : undefined)
+            }
             emptyText={t('empty')}
           />
         )}

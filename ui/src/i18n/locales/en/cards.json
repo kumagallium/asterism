@@ -45,6 +45,7 @@
     "advancedSettings": "Define what the data means (columns, units, names)",
     "kindSet": "List",
     "sampleBadge": "Sample",
+    "hub_pill": "Linked",
     "state_draft": "Not defined yet",
     "state_ingesting": "Ingesting",
     "other_section": "Other",
@@ -86,7 +87,8 @@
     "count_partial": "Showing {{shown}} of {{total}} (by name)",
     "count_all": "{{total}} (all)",
     "count_search": "{{shown}} matching \"{{q}}\"",
-    "more": "Show {{n}} more ({{rest}} left)"
+    "more": "Show {{n}} more ({{rest}} left)",
+    "member_pill": "Linked"
   },
   "classpage": {
     "source": "Source: {{dataset}}",
@@ -150,7 +152,12 @@
     "export_soon": "Coming in the next version",
     "export_button": "Make a bundle for an AI",
     "shareable_yes": "Can share",
-    "shareable_no": "Just yours"
+    "shareable_no": "Just yours",
+    "ask_placeholder": "Ask this page or request a chart",
+    "hub_eyebrow": "Linked: {{name}}",
+    "hub_band": "Another dataset has the same \"{{label}}\" ({{n}})",
+    "hub_band_link": "See them together",
+    "hub_band_solo": "This is the entry from {{dataset}}. The single page for the same thing"
   },
   "set": {
     "change_condition": "Change the condition",
@@ -225,7 +232,16 @@
     "edit_definition": "Edit the definition",
     "not_found": "Not found",
     "back": "Back",
-    "delete_card": "Remove this card"
+    "delete_card": "Remove this card",
+    "fix": "Adjust",
+    "conversation": "Conversation",
+    "conversation_you": "You",
+    "conversation_ai": "AI",
+    "conversation_proposal": "Proposal: {{title}} ({{outcome}})",
+    "conversation_proposal_undecided": "Proposal: {{title}}",
+    "conversation_outcome_added": "added",
+    "conversation_outcome_replaced": "replaced",
+    "conversation_outcome_discarded": "discarded"
   },
   "bundle": {
     "title": "Here's what the AI bundle looks like",
@@ -274,11 +290,17 @@
       "count": "Count",
       "label": "Name",
       "source": "Source",
-      "subject_iri": "Subject"
-    }
+      "subject_iri": "Subject",
+      "dataset_label": "Dataset",
+      "class_label": "Kind"
+    },
+    "subject_hub_members": "Bundled as the same thing",
+    "subject_member_facts": "Values in {{dataset}}"
   },
   "tile": {
-    "show_all": "See all ({{n}})"
+    "show_all": "See all ({{n}})",
+    "custom_view": "AI-written view",
+    "fix": "Adjust"
   },
   "share": {
     "shareable": "Can share",
@@ -317,6 +339,11 @@
     "where_this_page": "This page's condition",
     "where_this_one": "This one",
     "kind_pick": "Which kind of record should it come from?",
+    "path_direct": "Records pointing to this one",
+    "path_child_child": "Records pointing to a {{via}} that points to this one",
+    "path_sibling": "Records that share the same \"{{anchor}}\"",
+    "path_sibling_child": "Records pointing to a {{via}} that shares the same \"{{anchor}}\"",
+    "path_via_member": "from {{member}} in {{dataset}}: {{rest}}",
     "submit": "Create",
     "cancel": "Cancel",
     "title_series": "{{y}} over time",
@@ -324,7 +351,8 @@
     "title_breakdown": "Count by {{category}}",
     "title_pairs": "{{x}} vs {{y}}",
     "title_quantity": "{{agg}} of {{item}}",
-    "title_facts": "{{items}}"
+    "title_facts": "{{items}}",
+    "path_direct_in_dataset": "records in {{dataset}} that point at this one"
   },
   "viewpoints": {
     "strip_title": "Viewpoints used on this data",
@@ -333,5 +361,39 @@
     "add_hint": "Adds the same graph, conditioned on this page",
     "adding": "Adding…",
     "failed": "Couldn't create it on this page (no records match the condition)"
+  },
+  "pagechat": {
+    "title": "Ask and build on this page",
+    "placeholder": "What to ask or what chart to make (e.g. show population over time)",
+    "send": "Send",
+    "proposal_title": "Add this viewpoint?",
+    "proposal_title_replace": "Replace the viewpoint with this?",
+    "proposal_add": "Add",
+    "proposal_discard": "Discard",
+    "proposal_adjust_hint": "You can keep typing to adjust it (e.g. put year on the x-axis, make it a bar chart)",
+    "no_key": "To use AI, add a key in Settings › AI. You can still create one from the form right away",
+    "open_form": "Specify in detail",
+    "thinking": "Thinking…",
+    "error": "Couldn't create a reply",
+    "added": "Added",
+    "summary_facts": "Number of facts",
+    "summary_sources": "Number of sources",
+    "summary_class": "Kind",
+    "summary_dataset": "Dataset",
+    "summary_total": "Count",
+    "view_preview_title": "Add this view?",
+    "view_source": "Original card: {{title}}",
+    "view_source_missing": "Couldn't find the original card (add that card first, then try again)",
+    "reask_note": "Answering again using the results of the card \"{{title}}\" you added",
+    "reask_waiting": "Waiting for the added card's results…",
+    "threads_viewpoints": "Viewpoints",
+    "threads_questions": "Questions",
+    "thread_new": "+ New conversation",
+    "thread_untitled": "New conversation",
+    "fix_intro": "Adjusting \"{{title}}\". What should change?",
+    "proposal_replace": "Replace",
+    "proposal_add_as_new": "Add as a new card",
+    "replaced": "Replaced",
+    "discarded": "Discarded"
   }
 }

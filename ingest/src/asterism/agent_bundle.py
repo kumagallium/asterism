@@ -14,6 +14,15 @@ D1-export）。
 * ``cards/<card_id>.json`` / ``.mmd`` — 表示に使った ``CardSpec``。
 * ``materials.json`` / ``AGENT.md`` / ``mcp.json`` / ``README.md``。
 
+契約メモ contract_pr_f13.md §1-3/§3(4): カード 1 枚が ``view``
+（``{"lang", "spec"|"text", "custom": true, "source_card_id"}`` —
+AI が「書いた」Vega-Lite/表仕様/Mermaid 由来の見せ方）を持つとき、その
+カードは**自前のツールを持たない**（"view は実行物でない"）——
+``cards/<card_id>.json`` には ``source_card_id`` の結果とその ``view`` を
+一緒に書くが、``tools/`` には元のカード（``source_card_id``）のツールしか
+凍結しない（:func:`_view_card_meta` 参照）。AGENT.md の「答えられること」
+にも、その 1 行が「AI が書いた見せ方」であることの印を残す。
+
 **Asterism への HTTP 依存を持たない**束を作る（§0/§5.7）: 実行系は同梱 stdio
 MCP（``asterism-agent serve`` — 別ファイル ``mcp/src/asterism_mcp/agent_cli.py``、
 D1-serve）が own の Oxigraph を起動して読む。ここで書き出す SPARQL は普通の
@@ -98,6 +107,17 @@ _BUILTIN_TOOL_NAMES: dict[str, str] = {
 #: （カードごとに射影する列が違うため、``result["item"]`` をそのまま使う。
 #: :func:`_added_card_tool_raw` 参照）。
 _ADDED_CARD_TOOL_NAME = "set_measure"
+
+#: 契約メモ contract_pr_f13.md §1-3/§3(4)「印」——AI が「書いた」見せ方の
+#: カードだと AGENT.md の「答えられること」に分かるよう、その 1 行の題名に
+#: 付ける印。ASCII 括弧なのは、この行が埋め込まれる先
+#: (``AgentDocCard(title=...)`` -> ``agent_doc.py`` の
+#: ``f"- {card.title}({kind_label}...)"``) が ASCII 括弧を使っているのに
+#: 合わせるため。
+_CUSTOM_VIEW_MARK: dict[str, str] = {
+    "ja": "(AIが書いた見せ方)",
+    "en": "(AI-authored view)",
+}
 
 _UNSAFE_SLUG_CHARS = re.compile(r"[^a-z0-9]+")
 _UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9_]+")
@@ -768,8 +788,26 @@ def _safe_mermaid_graph(graph: dict[str, Any]) -> dict[str, Any]:
 
 
 def _card_spec(
-    card_id: str, subject: dict[str, Any], tool: str, params: dict[str, Any], result: dict[str, Any]
+    card_id: str,
+    subject: dict[str, Any],
+    tool: str,
+    params: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    view_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """1 枚の ``cards/<card_id>.json``。``view_override`` が渡されたとき
+    （契約メモ contract_pr_f13.md §1-3/§3(4): AI が「書いた」見せ方を持つ
+    カード）は、既定ビュー（:func:`asterism.default_view.default_view_for`）
+    を計算せず、AI が書いてサーバーが検証済みの ``view_override`` をそのまま
+    使う——``spec``/``text`` は既に検証済み（``asterism.view_spec_check`` を
+    通過済み）の値をそのまま素通しするだけで、ここでは何も判断しない。
+
+    ``lang == "mermaid"`` のときは ``ui/src/cards/cardsApi.ts`` の
+    ``CardView``（保存形）に合わせて ``spec`` ではなく ``text``（flowchart の
+    ソーステキストそのもの）を持つ——AI が書いた mermaid は解析済みの
+    ``GraphSpec`` に変換されずに保存される（既定ビューの ``lang: "graph"``
+    とは別物）。"""
     output_kind = result.get("output_kind") or "facts"
     contract = {
         "name": tool,
@@ -777,11 +815,17 @@ def _card_spec(
         "output_kind": output_kind,
         "item": result.get("item") or {},
     }
-    if output_kind == "flow":
+    if view_override is not None:
+        view = {"lang": view_override["lang"], "custom": True}
+        if view_override["lang"] == "mermaid":
+            view["text"] = view_override.get("text")
+        else:
+            view["spec"] = view_override.get("spec")
+    elif output_kind == "flow":
         view = {"lang": "graph", "spec": result.get("graph") or {"nodes": [], "edges": []}}
     else:
         view = default_view_for(contract, result.get("items") or [])
-    return {
+    out: dict[str, Any] = {
         "id": card_id,
         "subject": subject,
         "tool": tool,
@@ -790,6 +834,38 @@ def _card_spec(
         "materials": result.get("materials") or [],
         "shareable": result.get("shareable"),
     }
+    if view_override is not None:
+        out["source_card_id"] = view_override.get("source_card_id")
+    return out
+
+
+# ----------------------------------------------------------------------------
+# AI が「書いた」見せ方（契約メモ contract_pr_f13.md §1-3/§3(4)）
+# ----------------------------------------------------------------------------
+
+
+def _view_card_meta(card: dict[str, Any]) -> dict[str, Any] | None:
+    """呼び出し側が渡した 1 枚の ``cards`` エントリが AI の書いた view を
+    持つときだけ、そのメタ（``{"lang", "spec"|"text", "source_card_id"}`` —
+    ``ui/src/cards/cardsApi.ts`` の ``CardView`` と同じ形）を返す。それ以外
+    （``view`` が無い・``custom`` が真でない・``source_card_id`` が文字列で
+    ない）は ``None``——保守側の規律（:func:`_added_card_tool_raw` と同じ
+    「壊れた/意図が読めないものは無視する」）。"""
+    raw_view = card.get("view")
+    if not isinstance(raw_view, dict) or not raw_view.get("custom"):
+        return None
+    source_card_id = raw_view.get("source_card_id")
+    if not isinstance(source_card_id, str) or not source_card_id:
+        return None
+    lang = raw_view.get("lang")
+    if not isinstance(lang, str) or not lang:
+        return None
+    meta: dict[str, Any] = {"lang": lang, "source_card_id": source_card_id}
+    if lang == "mermaid":
+        meta["text"] = raw_view.get("text")
+    else:
+        meta["spec"] = raw_view.get("spec")
+    return meta
 
 
 # ----------------------------------------------------------------------------
@@ -914,6 +990,15 @@ async def build_export_bundle(
     形。``cards`` は ``[{card_id, tool, params}, …]``。``share`` は
     ``"full"``/``"shareable"``、``lang`` は ``"ja"``/``"en"``。
 
+    契約メモ contract_pr_f13.md §1-3/§3(4): 各 ``cards`` エントリは任意で
+    ``view``（``{"lang", "spec", "custom": true, "source_card_id"}`` —
+    AI が書いて既に ``asterism.view_spec_check``/``converse_prompt`` で検証
+    済みの見せ方）を持てる。この ``tool``/``params`` は ``source_card_id``
+    が指す元のカードと同じ値（＝実行結果も同じ）を呼び出し側が渡す前提——
+    その上でこの関数は、元のカードの結果と ``view`` を ``cards/<card_id>.json``
+    に一緒に書くが、``tools/`` には自前のツールを凍結しない（
+    :func:`_view_card_meta` 参照）。
+
     カードの実行時エラー（未知のツール・種類の不一致・不正な spec など）は
     :mod:`asterism.subject_tools`/:mod:`asterism.query_tools` の例外のまま
     伝播する（api 層が既存の cards_run と同じ規則で 4xx に写す）。
@@ -928,6 +1013,13 @@ async def build_export_bundle(
     # 足したカードの題名（card_id → title）: 凍結ツールと AGENT.md の見出しに使う
     card_titles: dict[str, str] = {
         str(card.get("card_id")): str(card.get("title") or "") for card in cards
+    }
+    # 契約メモ contract_pr_f13.md §1-3/§3(4): AI が「書いた」見せ方（custom
+    # view）を持つカードは、実行は元のカード（tool/params は同じ値をそのまま
+    # 持ってくる — 契約 §1-4「同じ source_card_id に別の view を書いたら
+    # 別カード」）と同じだが、tools/ には自前のツールを凍結しない。
+    view_meta_by_card_id: dict[str, dict[str, Any]] = {
+        str(card["card_id"]): meta for card in cards if (meta := _view_card_meta(card)) is not None
     }
     ran: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
     for card in cards:
@@ -1007,6 +1099,13 @@ async def build_export_bundle(
     per_dataset_tools: dict[str, dict[str, dict[str, Any]]] = {}
     materials_by_dataset: dict[str, Material] = {}
     for card_id, tool, _params, result in ran:
+        if card_id in view_meta_by_card_id:
+            # 契約メモ contract_pr_f13.md §1-3/§3(4)「view は実行物でない」:
+            # AI が書いた見せ方のカードは元のカード（source_card_id）の
+            # tool/params の複製を実行しているだけなので、材料の収集も
+            # tools/ の凍結もしない（同じ材料・同じツールは source_card_id
+            # 側のエントリで既に集まっている）。
+            continue
         for raw_mat in result.get("materials") or []:
             if not isinstance(raw_mat, dict):
                 continue
@@ -1108,11 +1207,17 @@ async def build_export_bundle(
             dataset_names.append(name)
 
     for card_id, tool, params, result in ran:
-        spec = _card_spec(card_id, subject, tool, params, result)
+        view_meta = view_meta_by_card_id.get(card_id)
+        spec = _card_spec(card_id, subject, tool, params, result, view_override=view_meta)
         card_files[f"cards/{card_id}.json"] = json.dumps(spec, ensure_ascii=False, indent=2)
         if spec["view"]["lang"] == "graph":
             safe_graph = _safe_mermaid_graph(spec["view"]["spec"])
             card_files[f"cards/{card_id}.mmd"] = to_mermaid(safe_graph)
+        elif spec["view"]["lang"] == "mermaid":
+            # AI が書いた mermaid(既に asterism.view_spec_check.check_mermaid
+            # を通過済みのテキストをそのまま素通しする — 既定ビューの
+            # "graph"(解析済み GraphSpec)とは別経路)。
+            card_files[f"cards/{card_id}.mmd"] = str(spec["view"].get("text") or "")
         # AGENT.md の「答えられること」に出すツール名は、
         # tools/_builtin/query_tools.yaml に実際に書かれる名前と一致させる
         # （見つけた磨き #4）。足したカード（``_ADDED_CARD_TOOL_NAME`` ＝
@@ -1120,18 +1225,29 @@ async def build_export_bundle(
         # 出すと束に何枚あっても "set_measure" 1 行にしか見えず、実際に
         # 凍結された ``card_<hash>`` という名前がどこにも現れない
         # （ユーザー報告どおり）。凍結名 (:func:`_added_card_bundle_name`)
-        # に解決してから渡す。
-        doc_tool = _added_card_bundle_name(card_id) if tool == _ADDED_CARD_TOOL_NAME else tool
+        # に解決してから渡す。契約メモ contract_pr_f13.md §1-3/§3(4): view
+        # カードは自前のツールを凍結していないので、``resolve_id`` は
+        # ``source_card_id``（＝実際に凍結された側の card_id）を使う。
+        resolve_id = view_meta["source_card_id"] if view_meta is not None else card_id
+        doc_tool = _added_card_bundle_name(resolve_id) if tool == _ADDED_CARD_TOOL_NAME else tool
+        title = card_titles.get(card_id) or str(spec.get("tool"))
+        if view_meta is not None:
+            title = f"{title} {_CUSTOM_VIEW_MARK.get(lang, _CUSTOM_VIEW_MARK['ja'])}"
         doc_cards.append(
             AgentDocCard(
-                title=card_titles.get(card_id) or str(spec.get("tool")),
+                title=title,
                 output_kind=result.get("output_kind") or "facts",
                 tool=doc_tool,
             )
         )
 
     # ---- materials.json -------------------------------------------------
-    aggregated = _aggregate_materials([entry[3].get("materials") or [] for entry in ran])
+    # view カード（契約メモ contract_pr_f13.md §1-3/§3(4)）は source_card_id
+    # の結果の複製を持っているだけなので、集計から外す(でないと同じ材料の
+    # count が二重に数えられる)。
+    aggregated = _aggregate_materials(
+        [entry[3].get("materials") or [] for entry in ran if entry[0] not in view_meta_by_card_id]
+    )
     generated_at = _now_iso(now)
     asterism_version = _asterism_version()
     materials_doc = {

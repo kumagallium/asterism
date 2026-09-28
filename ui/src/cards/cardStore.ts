@@ -13,7 +13,7 @@
 
 import { useMemo, useSyncExternalStore } from 'react'
 import { initAppData } from '../appdata'
-import { deleteAppDataCard, fetchAppDataCards, putAppDataCard } from './cardsApi'
+import { deleteAppDataCard, fetchAppDataCards, normalizeCardView, putAppDataCard } from './cardsApi'
 import type { CardSpec } from './cardsApi'
 
 // ui-page（SubjectPage.tsx/SetPage.tsx）は `CardSpec` をこのストアの入口
@@ -40,12 +40,48 @@ export function addCardItem(items: CardSpec[], item: CardSpec): CardSpec[] {
   return [...items.filter((i) => i.card_id !== item.card_id), item]
 }
 
+/** 差し替え（純粋・契約メモ §1.1「直す」）。`oldCardId` の**位置と `created_at`
+ *  を保って** `newItem` に差し替える。3 態:
+ *  1. `oldCardId` が見つかり、`newItem.card_id` が他のどのカードとも被らない
+ *     → その位置のまま、`created_at` は元のカードのものを保って差し替える
+ *     （`newItem.card_id` が `oldCardId` と同じでも違っても、ここに入る）。
+ *  2. `oldCardId` が見つかり、`newItem.card_id` が**別の既存カード**と同じ
+ *     （見せ方だけの変更で params が変わらず、結果として元からあった別の
+ *     カードと同じ id に着地した）→ そのカードは触らずそのまま残し、
+ *     `oldCardId` の項目だけを消す（二重には並べない）。
+ *  3. `oldCardId` が見当たらない → `newItem` を（`addCardItem` と同じ規則で）
+ *     末尾に足す。 */
+export function replaceCardItem(items: CardSpec[], oldCardId: string, newItem: CardSpec): CardSpec[] {
+  const oldIndex = items.findIndex((i) => i.card_id === oldCardId)
+  if (oldIndex < 0) return addCardItem(items, newItem)
+  if (newItem.card_id !== oldCardId) {
+    const collisionIndex = items.findIndex((i) => i.card_id === newItem.card_id)
+    if (collisionIndex >= 0 && collisionIndex !== oldIndex) {
+      return items.filter((i) => i.card_id !== oldCardId)
+    }
+  }
+  const preserved: CardSpec = { ...newItem, created_at: items[oldIndex].created_at }
+  return items.map((i, idx) => (idx === oldIndex ? preserved : i))
+}
+
 /** 削除（純粋）。`subjectKey` も合わせて見る — card_id は params の決定論
  *  ハッシュだけで作られるので理論上は主語を跨いで一意とは限らない
  *  （実務上は where にその主語の条件が必ず含まれるので衝突しない想定だが、
  *  「消す」操作は関係ない主語のカードを巻き込まないよう安全側に倒す）。 */
 export function removeCardItem(items: CardSpec[], subjectKey: string, cardId: string): CardSpec[] {
   return items.filter((i) => !(i.card_id === cardId && i.subject_key === subjectKey))
+}
+
+/** PR F13 §1 実装 (3): `item.view` の形を検証し、違えば `view` だけを落として
+ *  既定ビューへ安全側に倒す（カード自体は残す — 他のフィールドはこのファイルの
+ *  従来どおり検証しない）。 */
+function sanitizeCardView(item: CardSpec): CardSpec {
+  if (item.view === undefined) return item
+  const view = normalizeCardView(item.view)
+  if (view) return view === item.view ? item : { ...item, view }
+  const rest: CardSpec = { ...item }
+  delete rest.view
+  return rest
 }
 
 /** localStorage の生の値 → CardSpec[]（純粋）。無い／壊れている／形が違う
@@ -55,7 +91,7 @@ export function parseStoredCards(raw: string | null): CardSpec[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw) as { v?: number; items?: unknown }
-    return Array.isArray(parsed.items) ? (parsed.items as CardSpec[]) : []
+    return Array.isArray(parsed.items) ? (parsed.items as CardSpec[]).map(sanitizeCardView) : []
   } catch {
     return []
   }
@@ -139,7 +175,7 @@ async function bootstrap(): Promise<void> {
     if (!info.singleUser) return
     const serverItems = await fetchAppDataCards()
     serverMode = true
-    items = serverItems
+    items = serverItems.map(sanitizeCardView)
     emit()
   } catch {
     // `/api/appdata/cards` がまだ無い（404）／単一ユーザーでない — localStorage
@@ -162,4 +198,26 @@ export function removeCard(subjectKey: string, cardId: string): void {
   emit()
   if (serverMode) void deleteAppDataCard(cardId)
   else saveLocal()
+}
+
+/** 差し替えて永続化する（契約メモ §1.1「直す」）。`subjectKey` は今のところ
+ *  `replaceCardItem` 自体には使わない（`card_id` は主語を跨いで一意という
+ *  実務上の前提のため — `removeCardItem` のコメント参照）が、呼び出し側の
+ *  意図を残す・将来の安全化のために引数として持たせる。 */
+export function replaceCard(_subjectKey: string, oldCardId: string, newSpec: CardSpec): void {
+  const before = items
+  items = replaceCardItem(before, oldCardId, newSpec)
+  emit()
+  if (serverMode) {
+    const beforeById = new Map(before.map((i) => [i.card_id, i]))
+    const afterIds = new Set(items.map((i) => i.card_id))
+    for (const id of beforeById.keys()) {
+      if (!afterIds.has(id)) void deleteAppDataCard(id)
+    }
+    for (const item of items) {
+      if (beforeById.get(item.card_id) !== item) void putAppDataCard(item.card_id, item)
+    }
+  } else {
+    saveLocal()
+  }
 }

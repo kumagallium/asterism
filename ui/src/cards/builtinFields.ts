@@ -21,6 +21,10 @@ const BUILTIN_TOOLS = new Set([
   'subject_facts',
   'subject_sources',
   'subject_flow',
+  'subject_hub_members',
+  // PR F19 §1.2: ハブのページのデータセットごとの節（メンバー 1 件分の値）。
+  // 中身は subject_facts と同じ item キー。
+  'subject_member_facts',
   'set_members',
   'set_breakdown',
   'set_count',
