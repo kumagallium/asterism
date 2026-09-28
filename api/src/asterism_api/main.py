@@ -155,6 +155,7 @@ from asterism_api.appdata_cards_routes import register_appdata_cards
 from asterism_api.cards_routes import register_cards
 from asterism_api.class_schema_routes import register_class_schema
 from asterism_api.classes_routes import register_classes
+from asterism_api.converse_routes import register_converse
 from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
@@ -9722,6 +9723,10 @@ def build_app(
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）
     register_appdata_cards(app, cfg)  # 契約メモ contract_pr_f4.md §1-5（担当 api）
     register_classes(app, cfg)  # 契約メモ contract_pr_f9.md §3（担当 api）
+    # 契約メモ contract_pr_f12.md §1-3・§2（担当 api）: design_consult と同じ
+    # `_resolve_llm` closure をそのまま渡す（converse_routes.py は
+    # `asterism_api.main` を import しない — そちらのモジュール docstring 参照）。
+    register_converse(app, cfg, _resolve_llm)
 
     return app
 

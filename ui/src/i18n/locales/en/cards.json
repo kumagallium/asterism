@@ -150,7 +150,8 @@
     "export_soon": "Coming in the next version",
     "export_button": "Make a bundle for an AI",
     "shareable_yes": "Can share",
-    "shareable_no": "Just yours"
+    "shareable_no": "Just yours",
+    "ask_placeholder": "Ask this page or request a chart"
   },
   "set": {
     "change_condition": "Change the condition",
@@ -333,5 +334,24 @@
     "add_hint": "Adds the same graph, conditioned on this page",
     "adding": "Adding…",
     "failed": "Couldn't create it on this page (no records match the condition)"
+  },
+  "pagechat": {
+    "title": "Ask and build on this page",
+    "placeholder": "What to ask or what chart to make (e.g. show population over time)",
+    "send": "Send",
+    "proposal_title": "Add this viewpoint?",
+    "proposal_add": "Add",
+    "proposal_discard": "Discard",
+    "proposal_adjust_hint": "You can keep typing to adjust it (e.g. put year on the x-axis, make it a bar chart)",
+    "no_key": "To use AI, add a key in Settings › AI. You can still create one from the form right away",
+    "open_form": "Specify in detail",
+    "thinking": "Thinking…",
+    "error": "Couldn't create a reply",
+    "added": "Added",
+    "summary_facts": "Number of facts",
+    "summary_sources": "Number of sources",
+    "summary_class": "Kind",
+    "summary_dataset": "Dataset",
+    "summary_total": "Count"
   }
 }

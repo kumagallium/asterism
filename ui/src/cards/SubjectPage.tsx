@@ -10,15 +10,47 @@ import type { CardRef, CardToolResult, LinkingKind, SubjectResolveResult } from 
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
-// PR F4（ui-form 担当）が新設するモジュール。まだ存在しない間は import だけ
-// 書いておき、統合段で繋ぐ（契約メモ PR F4 §2「無い間は import だけ書いて
-// 統合で繋ぐ」）。
-import { NewCardForm } from './NewCardForm'
+// PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
+// だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
+import { PageChatDrawer } from './PageChatDrawer'
 import { removeCard, useCards } from './cardStore'
 import type { CardSpec } from './cardStore'
 import { subjectDisplayLabel } from './subjectLabel'
 import { ViewpointStrip } from './ViewpointStrip'
 import './pages.css'
+
+/** ドロワー（`PageChatDrawer`）へ渡す「このページで読める値」の 1 行
+ *  （契約メモ PR F12 §3 API `page.facts`）。K4: ラベルは人向けの文言、値は
+ *  文字列に整形済み。 */
+export interface PageChatFact {
+  label: string
+  value: string
+}
+
+/** ドロワーへ渡す 1 カードぶんの要約（契約メモ PR F12 §3 API `page.cards`）。
+ *  `rows` は「先頭 20 行・series は先頭と末尾」（契約メモ PR F12 §5 実装順(1)）。 */
+export interface PageChatCardSummary {
+  title: string
+  output_kind: CardToolResult['output_kind']
+  rows: CardToolResult['items']
+}
+
+export interface PageChatSummary {
+  facts: PageChatFact[]
+  cards: PageChatCardSummary[]
+}
+
+/** 1 枚のカード結果 → ドロワー用の要約（純関数）。series は行数が多いと
+ *  折れ線の全点を送る意味が薄い一方、両端（開始/終了）は根拠として要る
+ *  ことが多いため先頭と末尾の 2 行だけに絞る。それ以外の出口は先頭 20 行。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（sourceLabelsFrom と同じ理由）
+export function summarizeCardForChat(title: string, result: CardToolResult): PageChatCardSummary {
+  const rows =
+    result.output_kind === 'series' && result.items.length > 2
+      ? [result.items[0], result.items[result.items.length - 1]]
+      : result.items.slice(0, 20)
+  return { title, output_kind: result.output_kind, rows }
+}
 
 /** ui-form の `cardStore.useCards` が返す 1 件（O19 CardSpec）を、既定カードと
  *  同じ並び物（`CardRef`）に変換する。契約メモ PR F4 §1-5「card_id / title /
@@ -117,7 +149,15 @@ export function SubjectPage({
   })
   const [askText, setAskText] = useState('')
   const [exporting, setExporting] = useState(false)
-  const [addingCard, setAddingCard] = useState(false)
+  // 「＋ 観点を足す」・下の入力欄はどちらもドロワー（PageChatDrawer・PR F12）を
+  // 開く（契約メモ §1 決定 1・6）。フォーム単体（NewCardForm）はドロワーの中に
+  // 埋め込む（ui-drawer 担当）ので、このページ自身はもう開閉を持たない。
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
+  const [cardResultsState, setCardResultsState] = useState<{ key: string; results: Record<string, CardToolResult> }>({
+    key: '',
+    results: {},
+  })
 
   // 足したカード（cardStore・PR F4）。既定カードとは独立に持ち、描画のたびに
   // 既定の後ろへ並べる（`appendAddedCards`）。
@@ -132,7 +172,8 @@ export function SubjectPage({
   if (hiddenFor !== iri) {
     setHiddenFor(iri)
     setHiddenCardIds(new Set())
-    setAddingCard(false)
+    setChatOpen(false)
+    setChatInitialMessage(undefined)
   }
 
   // 「観点」の帯（PR F6・ViewpointStrip）が使う `linkingKinds`（この 1 件を
@@ -217,6 +258,46 @@ export function SubjectPage({
     () => (cards ? appendAddedCards(cards, addedCardRefs) : null),
     [cards, addedCardRefs],
   )
+
+  // ドロワー（PageChatDrawer）が聞く／作るときの根拠にするカードの中身。
+  // 開いているときだけ取りに行く（契約メモ PR F12 §1-2「並んでいるカードの
+  // 結果」）— CardTile も同じ結果を独立に取るため二重に呼ぶことになるが、
+  // CardTile（担当外）に結果を上げる経路が無いためここでは割り切る
+  // （deviations 参照）。
+  useEffect(() => {
+    if (!chatOpen || !allCards) return
+    const key = `${iri}\u0000${allCards.map((c) => c.card_id).join(',')}`
+    if (cardResultsState.key === key) return
+    let cancelled = false
+    Promise.all(
+      allCards.map((c) =>
+        runCard({ kind: 'individual', iri }, c.tool, c.params)
+          .then((r): [string, CardToolResult | null] => [c.card_id, r])
+          .catch((): [string, CardToolResult | null] => [c.card_id, null]),
+      ),
+    ).then((entries) => {
+      if (cancelled) return
+      const results: Record<string, CardToolResult> = {}
+      for (const [id, r] of entries) if (r) results[id] = r
+      setCardResultsState({ key, results })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [chatOpen, allCards, iri, cardResultsState.key])
+
+  const pageSummary: PageChatSummary = useMemo(() => {
+    const facts: PageChatFact[] = []
+    if (resolved?.class_label) facts.push({ label: t('pagechat.summary_class'), value: resolved.class_label })
+    if (summary.factsCount !== null) facts.push({ label: t('pagechat.summary_facts'), value: String(summary.factsCount) })
+    if (summary.sourcesCount !== null) facts.push({ label: t('pagechat.summary_sources'), value: String(summary.sourcesCount) })
+    const cardsSummary = (allCards ?? []).flatMap((c) => {
+      const r = cardResultsState.results[c.card_id]
+      return r ? [summarizeCardForChat(c.title, r)] : []
+    })
+    return { facts, cards: cardsSummary }
+  }, [resolved, summary, allCards, cardResultsState, t])
+
   const visibleCards = useMemo(
     () => (allCards ?? []).filter((c) => !hiddenCardIds.has(c.card_id)),
     [allCards, hiddenCardIds],
@@ -313,7 +394,14 @@ export function SubjectPage({
           </h2>
         </div>
         <div className="cardpage-head-actions">
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddingCard((v) => !v)}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => {
+              setChatInitialMessage(undefined)
+              setChatOpen(true)
+            }}
+          >
             {t('newcard.button')}
           </button>
           <button
@@ -326,15 +414,6 @@ export function SubjectPage({
           </button>
         </div>
       </div>
-      {addingCard && (
-        <NewCardForm
-          subject={subjectRef}
-          subjectKey={subjectKeyStr}
-          datasetId={resolved.dataset_id ?? ''}
-          onCreated={() => setAddingCard(false)}
-          onCancel={() => setAddingCard(false)}
-        />
-      )}
       <div className="cardpage-grid">
         {visibleDefaultCards.map((card) => (
           <CardTile
@@ -386,20 +465,39 @@ export function SubjectPage({
           className="cardpage-bar-input"
           value={askText}
           onChange={(e) => setAskText(e.target.value)}
-          placeholder={t('ask_placeholder')}
+          placeholder={t('page.ask_placeholder')}
         />
         <button
           type="button"
           className="btn btn--soft btn--sm"
           disabled={!askText.trim()}
           onClick={() => {
-            onAsk(t('ask.compose', { label, text: askText }))
+            // 契約メモ PR F12 §1 決定 1: 下の入力欄はページを離れずドロワーを
+            // 開く（旧: `onAsk` で `#/ask` へ遷移）。
+            setChatInitialMessage(askText)
+            setChatOpen(true)
             setAskText('')
           }}
         >
           {t('page.ask_submit')}
         </button>
       </div>
+      <PageChatDrawer
+        subject={subjectRef}
+        subjectKey={subjectKeyStr}
+        classIri={resolved.class_iri ?? undefined}
+        datasetId={resolved.dataset_id ?? undefined}
+        pageSummary={pageSummary}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        initialMessage={chatInitialMessage}
+        // `cardStore.useCards` は `useSyncExternalStore` 購読なので、ドロワーが
+        // 内部で `addCard` を呼べば `addedCardRefs` は自動で更新される
+        // （契約メモ PR F12 §5 実装順(1)「onCardAdded で足したカードの一覧を
+        // 更新」は cardStore 側の購読で自動的に満たされる）。ここでは通知を
+        // 受けるだけでよい。
+        onCardAdded={() => {}}
+      />
     </div>
   )
 }

@@ -150,7 +150,8 @@
     "export_soon": "準備中（次の版で）",
     "export_button": "AI に渡す一式を作る",
     "shareable_yes": "人に渡せる",
-    "shareable_no": "自分だけ"
+    "shareable_no": "自分だけ",
+    "ask_placeholder": "このページに聞く・グラフを頼む"
   },
   "set": {
     "change_condition": "条件を変える",
@@ -333,5 +334,24 @@
     "add_hint": "押すと、このページの条件で同じグラフを足します",
     "adding": "足しています…",
     "failed": "このページでは作れませんでした（条件に合う記録がありません）"
+  },
+  "pagechat": {
+    "title": "このページで聞く・作る",
+    "placeholder": "聞きたいこと、出したいグラフ（例: 人口の推移を出して）",
+    "send": "送る",
+    "proposal_title": "この観点を足しますか？",
+    "proposal_add": "足す",
+    "proposal_discard": "やめる",
+    "proposal_adjust_hint": "直したいところを続けて書けます（例: 横軸を年に・棒にして）",
+    "no_key": "AI を使うには 設定 › AI でキーを入れます。フォームからは今すぐ作れます",
+    "open_form": "詳しく指定",
+    "thinking": "考えています…",
+    "error": "返事を作れませんでした",
+    "added": "足しました",
+    "summary_facts": "事実の件数",
+    "summary_sources": "出典の数",
+    "summary_class": "種類",
+    "summary_dataset": "データセット",
+    "summary_total": "件数"
   }
 }

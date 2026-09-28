@@ -22,12 +22,12 @@ import './pages.css'
 import { SetForm } from './SetForm'
 import { formatSetSubtitle, formatSetTitle } from './setTitle'
 import { addSubjectAndPersist } from './subjectStore'
-// PR F4（ui-form 担当）が新設するモジュール。まだ存在しない間は import だけ
-// 書いておき、統合段で繋ぐ（契約メモ PR F4 §2「無い間は import だけ書いて
-// 統合で繋ぐ」）。
-import { NewCardForm } from './NewCardForm'
+// PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
+// だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
+import { PageChatDrawer } from './PageChatDrawer'
 import { removeCard, useCards } from './cardStore'
-import { appendAddedCards, cardSpecToCardRef } from './SubjectPage'
+import { appendAddedCards, cardSpecToCardRef, summarizeCardForChat } from './SubjectPage'
+import type { PageChatFact, PageChatSummary } from './SubjectPage'
 import { ViewpointStrip } from './ViewpointStrip'
 
 /** `App.tsx`（ui-rail）の実 `navigate` を汎用に受ける（`PlaceView.tsx` の
@@ -115,14 +115,21 @@ export function SetPage({
     setEditing(false)
   }
 
-  // specKey が変わったら「グラフを足す」フォームも閉じる（同じ「prop が
-  // 変わったら state を調整する」パターン）。
-  const [addingCardFor, setAddingCardFor] = useState(specKey)
-  const [addingCard, setAddingCard] = useState(false)
-  if (addingCardFor !== specKey) {
-    setAddingCardFor(specKey)
-    setAddingCard(false)
+  // specKey が変わったら会話ドロワー（PageChatDrawer・PR F12）も閉じる（同じ
+  // 「prop が変わったら state を調整する」パターン）。「＋ 観点を足す」・下の
+  // 入力欄はどちらもこのドロワーを開く（契約メモ §1 決定 1・6）。
+  const [chatFor, setChatFor] = useState(specKey)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
+  if (chatFor !== specKey) {
+    setChatFor(specKey)
+    setChatOpen(false)
+    setChatInitialMessage(undefined)
   }
+  const [cardResultsState, setCardResultsState] = useState<{ key: string; results: Record<string, CardToolResult> }>({
+    key: '',
+    results: {},
+  })
 
   // 新規作成モード（契約メモ §2.3・§2.4）専用の状態: class を選ぶ段・作成後の
   // dataset_label/origin 用にデータセット要約を読む。
@@ -270,6 +277,44 @@ export function SetPage({
     [displayCards, defaultCardIds],
   )
 
+  // ドロワー（PageChatDrawer）が聞く／作るときの根拠にするカードの中身。
+  // 開いているときだけ取りに行く（SubjectPage.tsx と同じ理由 — CardTile が
+  // 独立に取る結果と二重になるが、CardTile（担当外）に結果を上げる経路が
+  // 無いためここでは割り切る）。
+  useEffect(() => {
+    if (!chatOpen || !displayCards || !spec) return
+    const key = `${specKey}\u0000${displayCards.map((c) => c.card_id).join(',')}`
+    if (cardResultsState.key === key) return
+    let cancelled = false
+    Promise.all(
+      displayCards.map((c) =>
+        runCard({ kind: 'set', spec }, c.tool, c.params)
+          .then((r): [string, CardToolResult | null] => [c.card_id, r])
+          .catch((): [string, CardToolResult | null] => [c.card_id, null]),
+      ),
+    ).then((entries) => {
+      if (cancelled) return
+      const results: Record<string, CardToolResult> = {}
+      for (const [id, r] of entries) if (r) results[id] = r
+      setCardResultsState({ key, results })
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOpen, displayCards, specKey, cardResultsState.key])
+
+  const pageSummary: PageChatSummary = useMemo(() => {
+    const facts: PageChatFact[] = []
+    if (resolved) facts.push({ label: t('pagechat.summary_class'), value: resolved.title.class_label })
+    if (total !== null) facts.push({ label: t('pagechat.summary_total'), value: String(total) })
+    const cardsSummary = (displayCards ?? []).flatMap((c) => {
+      const r = cardResultsState.results[c.card_id]
+      return r ? [summarizeCardForChat(c.title, r)] : []
+    })
+    return { facts, cards: cardsSummary }
+  }, [resolved, total, displayCards, cardResultsState, t])
+
   // ---- 新規作成モード（契約メモ §2.3・§2.4）: spec がまだ無い ----------------
   if (newFor && !spec) {
     const summaryForNew = newSummaryState.datasetId === newFor.datasetId ? newSummaryState.summary : null
@@ -397,7 +442,14 @@ export function SetPage({
         </div>
         <div className="cardpage-head-actions">
           {breadcrumbDatasetId && (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddingCard((v) => !v)}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setChatInitialMessage(undefined)
+                setChatOpen(true)
+              }}
+            >
               {t('newcard.button')}
             </button>
           )}
@@ -414,15 +466,6 @@ export function SetPage({
           </button>
         </div>
       </div>
-      {addingCard && breadcrumbDatasetId && (
-        <NewCardForm
-          subject={{ kind: 'set', spec }}
-          subjectKey={subjectKeyStr}
-          datasetId={breadcrumbDatasetId}
-          onCreated={() => setAddingCard(false)}
-          onCancel={() => setAddingCard(false)}
-        />
-      )}
       {editing && (
         <SetForm
           classIri={spec.class}
@@ -475,20 +518,36 @@ export function SetPage({
           className="cardpage-bar-input"
           value={askText}
           onChange={(e) => setAskText(e.target.value)}
-          placeholder={t('ask_placeholder')}
+          placeholder={t('page.ask_placeholder')}
         />
         <button
           type="button"
           className="btn btn--soft btn--sm"
           disabled={!askText.trim()}
           onClick={() => {
-            onAsk(t('ask.compose', { label, text: askText }))
+            // 契約メモ PR F12 §1 決定 1: 下の入力欄はページを離れずドロワーを
+            // 開く（旧: `onAsk` で `#/ask` へ遷移）。
+            setChatInitialMessage(askText)
+            setChatOpen(true)
             setAskText('')
           }}
         >
           {t('page.ask_submit')}
         </button>
       </div>
+      <PageChatDrawer
+        subject={{ kind: 'set', spec }}
+        subjectKey={subjectKeyStr}
+        classIri={spec.class}
+        datasetId={breadcrumbDatasetId ?? undefined}
+        pageSummary={pageSummary}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        initialMessage={chatInitialMessage}
+        // cardStore.useCards の購読で一覧は自動更新される（SubjectPage.tsx と
+        // 同じ理由）。
+        onCardAdded={() => {}}
+      />
     </div>
   )
 }
