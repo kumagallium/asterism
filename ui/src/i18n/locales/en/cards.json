@@ -307,5 +307,13 @@
     "title_pairs": "{{x}} vs {{y}}",
     "title_quantity": "{{agg}} of {{item}}",
     "title_facts": "{{items}}"
+  },
+  "viewpoints": {
+    "strip_title": "Viewpoints used on this data",
+    "section_title": "Viewpoints in use",
+    "used_on": "Used on {{count}} pages",
+    "add_hint": "Adds the same graph, conditioned on this page",
+    "adding": "Adding…",
+    "failed": "Couldn't create it on this page (no records match the condition)"
   }
 }

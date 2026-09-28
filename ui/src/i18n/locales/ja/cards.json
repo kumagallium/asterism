@@ -307,5 +307,13 @@
     "title_pairs": "{{x}}と{{y}}",
     "title_quantity": "{{item}}の{{agg}}",
     "title_facts": "{{items}}"
+  },
+  "viewpoints": {
+    "strip_title": "同じデータで使われている観点",
+    "section_title": "使われている観点",
+    "used_on": "{{count}} ページで使用",
+    "add_hint": "押すと、このページの条件で同じグラフを足します",
+    "adding": "足しています…",
+    "failed": "このページでは作れませんでした（条件に合う記録がありません）"
   }
 }

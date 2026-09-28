@@ -28,6 +28,7 @@ import { addSubjectAndPersist } from './subjectStore'
 import { NewCardForm } from './NewCardForm'
 import { removeCard, useCards } from './cardStore'
 import { appendAddedCards, cardSpecToCardRef } from './SubjectPage'
+import { ViewpointStrip } from './ViewpointStrip'
 
 /** `App.tsx`（ui-rail）の実 `navigate` を汎用に受ける（`PlaceView.tsx` の
  *  `PlaceNavigateFn` と同じ理由 — `Route` を直接 import すると循環になる）。 */
@@ -249,6 +250,18 @@ export function SetPage({
     () => (cards ? appendAddedCards(cards, addedCardRefs) : null),
     [cards, addedCardRefs],
   )
+  // ViewpointStrip（PR F6）を既定カードと足したカードのあいだに置くため、
+  // `displayCards` を並び順のまま二分する（`appendAddedCards` は既定を先頭に、
+  // 重複しない足したカードを後ろに並べる）。
+  const defaultCardIds = useMemo(() => new Set((cards ?? []).map((c) => c.card_id)), [cards])
+  const displayDefaultCards = useMemo(
+    () => (displayCards ?? []).filter((c) => defaultCardIds.has(c.card_id)),
+    [displayCards, defaultCardIds],
+  )
+  const displayAddedCards = useMemo(
+    () => (displayCards ?? []).filter((c) => !defaultCardIds.has(c.card_id)),
+    [displayCards, defaultCardIds],
+  )
 
   // ---- 新規作成モード（契約メモ §2.3・§2.4）: spec がまだ無い ----------------
   if (newFor && !spec) {
@@ -411,7 +424,7 @@ export function SetPage({
         />
       )}
       <div className="cardpage-grid">
-        {(displayCards ?? cards).map((card) => (
+        {(displayCards ? displayDefaultCards : cards).map((card) => (
           <CardTile
             key={card.card_id}
             subject={subjectKey}
@@ -421,6 +434,27 @@ export function SetPage({
           />
         ))}
       </div>
+      <ViewpointStrip
+        subject={{ kind: 'set', spec }}
+        subjectKey={subjectKeyStr}
+        kind="set"
+        classIri={spec.class}
+        where={spec.where}
+        sourceScope={spec.source_scope}
+      />
+      {displayCards && displayAddedCards.length > 0 && (
+        <div className="cardpage-grid">
+          {displayAddedCards.map((card) => (
+            <CardTile
+              key={card.card_id}
+              subject={subjectKey}
+              card={card}
+              onOpenDetail={onSelectCard}
+              onOpenSubject={onOpenSubject}
+            />
+          ))}
+        </div>
+      )}
       {exporting && (
         <ExportDialog subject={subjectKey} cards={displayCards ?? cards} onClose={() => setExporting(false)} />
       )}
