@@ -379,13 +379,14 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
     async def subjects_search(
         q: str = Query(default=""),
         limit: int = Query(default=20, ge=1, le=_MAX_SEARCH_LIMIT),
+        offset: int = Query(default=0, ge=0),
         dataset_id: str | None = Query(default=None),
         class_iri: str | None = Query(default=None),
     ) -> dict[str, Any]:
-        return await _run_read(_subjects_search_impl(q, limit, dataset_id, class_iri))
+        return await _run_read(_subjects_search_impl(q, limit, offset, dataset_id, class_iri))
 
     async def _subjects_search_impl(
-        q: str, limit: int, dataset_id: str | None, class_iri: str | None
+        q: str, limit: int, offset: int, dataset_id: str | None, class_iri: str | None
     ) -> dict[str, Any]:
         client: OxigraphClient = app.state.client
         # §3.2: dataset_id は任意 — 指定時はそのデータセットの版グラフに限定
@@ -409,30 +410,43 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
         # 種類の名前順の先頭 limit 件 = 一覧表示用）。class_iri も無い空 q は
         # 従来どおり空振り。
         if not needle and not class_pattern:
-            return {"items": []}
+            return {"items": [], "total": 0, "offset": offset, "limit": limit}
         graphs = await substrate.canonical_graphs(client)
         if scoped_dataset_id is not None:
             graphs = [
                 g for g in graphs if substrate.dataset_id_of_canonical_graph(g) == scoped_dataset_id
             ]
         if not graphs:
-            return {"items": []}
+            return {"items": [], "total": 0, "offset": offset, "limit": limit}
         named = substrate.canonical_from_clauses(graphs, named=True)
         # §2: 述語の優先順位は共通の LABEL_PREDICATES（rdfs:label が最優先）—
         # 以前はこの検索専用の別リストを持っていて、他の read path と食い違って
         # いた。
         pairs = " ".join(f"(<{p}> {i})" for i, p in enumerate(subjects_mod.LABEL_PREDICATES))
+        total: int | None = None
+        total_is_lower_bound = False
         if needle:
             escaped = query_tools_mod._escape_literal(needle)
-            # Over-fetch (bounded) so a subject matched via several
-            # labels/graphs still yields exactly `limit` DISTINCT subjects,
-            # picked deterministically.
-            raw_limit = min(limit * 4, 400)
             where = (
                 f"GRAPH ?g {{ {class_pattern}VALUES (?__lp ?__rank) {{ {pairs} }} "
                 f'?s ?__lp ?label FILTER(CONTAINS(LCASE(STR(?label)), "{escaped}")) }}'
             )
             order_clause = "?s ?__rank ?label ?g"
+            # 契約メモ contract_pr_f10.md §2: 検索中は over-fetch のままだと
+            # total を正確に数えられないので、同じ WHERE で COUNT(DISTINCT ?s)
+            # を別クエリで走らせて total にする（limit/offset に依らない）。
+            count_query = f"SELECT (COUNT(DISTINCT ?s) AS ?__cnt)\n{named}WHERE {{ {where} }}"
+            count_rows = _rows(await client.sparql_select(count_query))
+            total = int(_cell(count_rows[0], "__cnt")) if count_rows else 0
+            # Over-fetch (bounded) so a subject matched via several
+            # labels/graphs still yields exactly `limit` DISTINCT subjects
+            # starting at `offset`, picked deterministically. 修正前は
+            # 上限が固定 400 行で、offset が進む（「もっと見る」を繰り返す）
+            # と (offset+limit)*4 がすぐ 400 を超えて頭打ちになり、以降は
+            # total は正確なまま items だけ増えなくなっていた（既知の欠陥・
+            # レビュー指摘）。上限を実際に一致した件数（total）に応じて
+            # 伸ばし、total 件ぶんの行を読み切れるだけの余裕を持たせる。
+            raw_limit = min((offset + limit) * 4, max(400, total * 4))
         else:
             # §2.2: 空 q（ここに来るのは class_iri 指定時のみ）— その種類の
             # 全実例を、ラベルを主キーに並べ、先頭 limit 件だけ Python 側で
@@ -441,7 +455,7 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             # が先頭に来て、その主語の日本語ラベルの行は raw_limit の外に落ちる
             # （実機所見: 「Afghanistan」…が並び、日本語の見出しが選ばれない）。
             # 種類の全実例のラベル行を読み（上限つき）、Python 側で主語ごとに
-            # pick_label してから名前順に並べ、先頭 limit 件を返す。
+            # pick_label してから名前順に並べ、offset:offset+limit を返す。
             raw_limit = _EMPTY_QUERY_MAX_ROWS
             where = (
                 f"GRAPH ?g {{ {class_pattern}"
@@ -462,7 +476,7 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             if not s:
                 continue
             if s not in candidates:
-                if needle and len(order) >= limit:
+                if needle and len(order) >= offset + limit:
                     continue
                 order.append(s)
                 candidates[s] = []
@@ -470,14 +484,30 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
             rank_raw = _cell(row, "__rank")
             rank = int(rank_raw) if rank_raw is not None else None
             candidates[s].append((_cell(row, "label"), rank, _cell(row, "__lang")))
-        if not needle:
-            # 空 q: 主語ごとの見出し（pick_label）で名前順に並べて先頭 limit 件。
-            # 文字列の比較は Python のコードポイント順（決定論・ロケール非依存）。
+        if needle:
+            # 検索中: over-fetch で集めた order は既に offset+limit 件に頭打ち
+            # 済み（ラベル一致順）。先頭 offset 件を飛ばして limit 件を返す。
+            # raw_limit（total に応じて伸ばした上限）に頭打ちで読んでいて、
+            # かつそれでも offset+limit 件の主語を集めきれなかった場合は
+            # （1 主語あたりの重複行が極端に多いなど）、total は正確でも
+            # この続きを取得しきれない可能性がある印として立てる。
+            if len(rows) >= raw_limit and len(order) < offset + limit:
+                total_is_lower_bound = True
+            order = order[offset : offset + limit]
+        else:
+            # 空 q: 主語ごとの見出し（pick_label）で名前順に並べ、
+            # offset:offset+limit を返す。文字列の比較は Python のコード
+            # ポイント順（決定論・ロケール非依存）。
             def _sort_key(subject: str) -> tuple[str, str]:
                 picked = subjects_mod.pick_label(candidates[subject])
                 return (picked or subject_tools._local_name(subject), subject)
 
-            order = sorted(order, key=_sort_key)[:limit]
+            sorted_order = sorted(order, key=_sort_key)
+            total = len(sorted_order)
+            # raw_limit（_EMPTY_QUERY_MAX_ROWS）に頭打ちで読んでいたら、
+            # その種類の全実例を読み切れていない可能性がある＝total は下限。
+            total_is_lower_bound = len(rows) >= raw_limit
+            order = sorted_order[offset : offset + limit]
         items: list[dict[str, Any]] = []
         for s in order:
             label = subjects_mod.pick_label(candidates[s]) or subject_tools._local_name(s)
@@ -499,7 +529,15 @@ def register_cards(app: FastAPI, cfg: Settings) -> None:
                     "dataset_id": dataset_id,
                 }
             )
-        return {"items": items}
+        result: dict[str, Any] = {
+            "items": items,
+            "total": total if total is not None else 0,
+            "offset": offset,
+            "limit": limit,
+        }
+        if total_is_lower_bound:
+            result["total_is_lower_bound"] = True
+        return result
 
     # ------------------------------------------------------------------
     # §3.4 — GET /api/subjects/default-cards / GET /api/sets/default-cards

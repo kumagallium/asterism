@@ -1043,3 +1043,13 @@ async def test_subject_flow_type_label_uses_class_label(monkeypatch: pytest.Monk
     }
     assert any(v == "貸出" for v in labels.values()), labels
     assert all("://" not in (v or "") for v in labels.values())
+
+
+def test_local_name_decodes_percent_encoding() -> None:
+    """A subject minted from a key value keeps the value URL-encoded in its
+    IRI; the heading fallback must show the value, not ``%28…%29`` (K4)."""
+    from asterism.subject_tools import _local_name
+
+    assert _local_name("https://ex/onto/resource/record/%280%2C0%2C10%29") == "(0,0,10)"
+    assert _local_name("https://ex/onto#hasCount") == "hasCount"
+    assert _local_name("https://ex/onto/resource/plain") == "plain"

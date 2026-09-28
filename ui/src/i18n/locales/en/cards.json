@@ -79,10 +79,14 @@
     "title": "Add an object",
     "kinds": "Kinds",
     "kind_count": "{{count}}",
-    "search_placeholder": "Search by name",
+    "search_placeholder": "Search by name (from {{total}})",
     "collect": "Make a condition-based list",
     "pick_kind_first": "Choose a kind on the left to see its objects",
-    "empty": "No results"
+    "empty": "No results",
+    "count_partial": "Showing {{shown}} of {{total}} (by name)",
+    "count_all": "{{total}} (all)",
+    "count_search": "{{shown}} matching \"{{q}}\"",
+    "more": "Show {{n}} more ({{rest}} left)"
   },
   "classpage": {
     "source": "Source: {{dataset}}",

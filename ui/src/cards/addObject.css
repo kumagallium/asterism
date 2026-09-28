@@ -1,6 +1,7 @@
-/* 追加画面（AddObjectView.tsx・契約メモ contract_pr_f9.md §3）。左に種類の
- * 一覧、右に検索＋一覧。`.dataset-content-item`/`.dataset-dot`（dataset.css）
- * は右側のオブジェクト一覧にそのまま流用する。色は必ずトークンから。 */
+/* 追加画面（AddObjectView.tsx・契約メモ contract_pr_f9.md §3・拡張は
+ * contract_pr_f10.md §1.1）。左に種類の一覧、右に検索＋条件で集める＋
+ * 件数の行＋オブジェクトのカード格子。`.dataset-dot`（dataset.css）は
+ * カードの●にそのまま流用する。色は必ずトークンから。 */
 
 .addobject-layout {
   display: flex;
@@ -72,7 +73,17 @@
   gap: var(--space-3);
 }
 
+/* 検索欄と「条件で集める」を同じ行に（契約メモ §1.1.4 — 前は検索欄の下に
+ * あったが、右へ移す）。 */
+.addobject-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .addobject-search-form {
+  flex: 1;
+  min-width: 0;
   display: flex;
 }
 
@@ -89,5 +100,76 @@
 }
 
 .addobject-collect {
+  flex: none;
+}
+
+/* 一覧の上の件数の行（契約メモ §1.1.1・§4 — 全部／一部／検索中の 3 態）。 */
+.addobject-count {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* オブジェクトの一覧はカードの格子（契約メモ §1.1.2）。幅に応じて 2〜4 列。 */
+.addobject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.addobject-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-width: 0;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.addobject-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+  border-color: var(--border-strong);
+}
+.addobject-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.addobject-card .dataset-dot {
+  margin-top: 0.35rem;
+}
+
+.addobject-card-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.addobject-card-label {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.addobject-card-sub {
+  font-size: 0.76rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「さらに N 件」（契約メモ §1.1.3）。 */
+.addobject-more {
   align-self: flex-start;
 }

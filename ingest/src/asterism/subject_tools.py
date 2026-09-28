@@ -26,6 +26,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from asterism.materials import Material
 from asterism.materials import materials_for as _materials_for
@@ -157,8 +158,20 @@ def _cell(row: dict[str, dict[str, Any]], var: str) -> str | None:
 
 
 def _local_name(iri: str) -> str:
-    """The part after the last ``#``/``/`` — never the raw IRI (K4)."""
-    return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
+    """The part after the last ``#``/``/`` — never the raw IRI (K4).
+
+    Percent-encoding is undone (``%280%2C0%2C10%29`` → ``(0,0,10)``): a
+    subject minted from a key value carries that value URL-encoded in its
+    IRI, and a subject without ``rdfs:label`` falls back to this local name
+    for its heading (実機所見: 自分で入れたデータの見出しが ``%28…`` のまま
+    並んだ). The decoded value is still not the raw IRI, but it is at least
+    the value a person typed.
+    """
+    local = iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
+    try:
+        return unquote(local) or local
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return local
 
 
 # Same small humanizer ``asterism.class_schema``/``asterism.shape_match`` each

@@ -629,7 +629,9 @@ def test_subjects_search_matches_label(tmp_path: Path) -> None:
 def test_subjects_search_empty_query_returns_empty(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         r = client.get("/api/subjects/search", params={"q": "   "})
-        assert r.json() == {"items": []}
+        body = r.json()
+        assert body["items"] == []
+        assert body["total"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +660,9 @@ def test_subjects_search_dataset_id_scoped_to_a_different_dataset_finds_nothing(
             params={"q": "checkout", "dataset_id": "some-other-dataset"},
         )
         assert r.status_code == 200, r.text
-        assert r.json() == {"items": []}
+        body = r.json()
+        assert body["items"] == []
+        assert body["total"] == 0
 
 
 def test_subjects_search_malformed_dataset_id_is_400(tmp_path: Path) -> None:
@@ -722,7 +726,111 @@ def test_subjects_search_empty_q_without_class_iri_is_still_empty(tmp_path: Path
     with _client(tmp_path) as client:
         r = client.get("/api/subjects/search")
         assert r.status_code == 200, r.text
-        assert r.json() == {"items": []}
+        body = r.json()
+        assert body["items"] == []
+        assert body["total"] == 0
+
+
+def test_subjects_search_empty_q_offset_returns_continuation(tmp_path: Path) -> None:
+    # 契約メモ contract_pr_f10.md §2: offset で「もっと見る」の続きが取れる。
+    with _client(tmp_path) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={"class_iri": CHECKOUT_CLASS, "limit": 1, "offset": 1},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert [i["iri"] for i in body["items"]] == [CHECKOUT_2]
+        assert body["total"] == 2
+        assert body["offset"] == 1
+        assert body["limit"] == 1
+
+
+def test_subjects_search_empty_q_total_independent_of_limit(tmp_path: Path) -> None:
+    # total は limit に依らず全体の件数（ここでは 2 件とも見出しを持つ）。
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"class_iri": CHECKOUT_CLASS, "limit": 1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["items"]) == 1
+        assert body["total"] == 2
+
+
+def test_subjects_search_query_total_independent_of_limit(tmp_path: Path) -> None:
+    # 検索中も total は limit に依らず件数を数える(COUNT(DISTINCT ?s))。
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"q": "checkout", "limit": 1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["items"]) == 1
+        assert body["total"] == 2
+
+
+def test_subjects_search_query_offset_returns_continuation(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"q": "checkout", "limit": 1, "offset": 1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["items"]) == 1
+        assert body["total"] == 2
+        assert body["offset"] == 1
+
+
+def _widget_ttl(count: int) -> str:
+    # 検索対象の主語が「1 主語につき複数のラベル述語が一致する」データ
+    # （下のバグ再現テスト参照）。ライブラリ貸出記録とは無関係な架空ドメイン
+    # （§0）。
+    lines = [
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
+        "@prefix schema: <http://schema.org/> .",
+        "@prefix dcterms: <http://purl.org/dc/terms/> .",
+    ]
+    for i in range(count):
+        iri = f"https://ex/widgets/resource/widget-{i:04d}"
+        label = f"Widget {i:04d}"
+        lines.append(
+            f'<{iri}> rdfs:label "{label}" ; schema:name "{label}" ; dcterms:title "{label}" .'
+        )
+    return "\n".join(lines)
+
+
+def test_subjects_search_query_offset_beyond_overfetch_cap_still_returns_items(
+    tmp_path: Path,
+) -> None:
+    # 契約メモ contract_pr_f10.md §2 のバグ修正（レビュー指摘）: 検索中の
+    # over-fetch 内部上限（raw_limit）が offset に依らず固定 400 行だと、
+    # 1 主語に複数のラベル述語が一致するデータで offset が進んだとき
+    # （「もっと見る」を繰り返す）に 400 行へすぐ頭打ちし、total は正確な
+    # まま items だけ増えなくなる（もっと見るボタンが効かなくなる）。
+    # 250 件・各 3 つのラベル述語が一致する主語を用意し、offset=120/
+    # limit=60（offset+limit=180 → 旧コードの (180)*4=720 は 400 に丸めら
+    # れ、400 行 ÷ 3 行/主語 ≈ 133 主語しか読めず 180 に届かない）で再現する。
+    dataset_id = "widget-catalog"
+    graph = canonical_graph_iri(dataset_id) + "/v1"
+    count = 250
+    store_client = _pyoxi_client({graph: _widget_ttl(count)})
+    settings = _settings(tmp_path)
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get(
+            "/api/subjects/search",
+            params={"q": "widget", "limit": 60, "offset": 120},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["total"] == count
+        assert len(body["items"]) == 60
+        assert body.get("total_is_lower_bound") is None
+
+
+def test_subjects_search_response_keeps_existing_item_shape(tmp_path: Path) -> None:
+    # 既存の items の形（iri/label/class_iri/class_label/dataset_id）は不変。
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/search", params={"q": "checkout"})
+        assert r.status_code == 200, r.text
+        item = r.json()["items"][0]
+        assert set(item.keys()) == {"iri", "label", "class_iri", "class_label", "dataset_id"}
 
 
 def test_subjects_search_malformed_class_iri_is_400(tmp_path: Path) -> None:

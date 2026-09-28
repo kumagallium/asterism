@@ -43,6 +43,7 @@ import {
 } from '../api'
 import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
 import { assembleSkeleton } from '../api'
+import { commitAsKnownShape, matchKnownShape, type KnownShapeMatch } from '../cards/PlaceView'
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
@@ -123,6 +124,12 @@ const KZ_STORAGE = 'asterism.kantan'
 // JOB_STORAGE so the detail tier never adopts a job of a kind it cannot finish
 // (WorkbenchTier's toggle lock reads BOTH keys).
 const KZ_JOB_STORAGE = 'asterism.kantan.job'
+// 「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md §1.2-2）の判定
+// を待つ上限。判定はステージング→形の一致確認の2往復かかるので、S2 への遷移
+// （runInspect、通常は1往復）の方が先に終わりうる。判定が終わる（またはこの
+// 時間が経つ）までだけ S2 進行を止める — 大きいファイルで判定が長引いても、
+// 無期限に足止めはしない。
+const SHORTCUT_CHECK_TIMEOUT_MS = 4000
 
 type KantanKind = 'tabular' | 'json' | 'document'
 /** Which of the two "grow this dataset" intents S9 was clicked with: add the
@@ -857,6 +864,7 @@ export function KantanWizard({
   onRedesignConsumed,
   onRedesignDetail,
   onCreateCrosswalk,
+  onShortcutDone,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
@@ -885,6 +893,10 @@ export function KantanWizard({
    *  dataset is published — that is the moment connecting first becomes possible,
    *  and the moment the value of it is easiest to see. */
   onCreateCrosswalk?: () => void
+  /** S1 の「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+   *  §1.2-2）が「そのまま追加」で完了したときの着地先。渡されたときだけ帯を
+   *  出す（`#/datasets/add` から来たときだけ — 見直す等の他の入口では出さない）。 */
+  onShortcutDone?: (target: { datasetId: string; classIri?: string }) => void
 }) {
   const { t, i18n } = useTranslation()
   const { isReady, getActiveCredentials, openSettings, activeUsesServerKey } = useLlmSettings()
@@ -923,6 +935,14 @@ export function KantanWizard({
   // this tab are the only copy, exactly the legacy path.
   const [stagingId, setStagingId] = useState<string | null>(snap.stagingId ?? null)
   const hasSource = files.length > 0 || !!stagingId
+  // S1 の「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+  // §1.2-2）。`onShortcutDone` が無い呼び出し元（見直す等）では判定そのものを
+  // 走らせない — 帯は決して出ない。restore からの再表示では判定しない
+  // （新しく置いたファイルのときだけの近道）。
+  const [shortcutMatch, setShortcutMatch] = useState<KnownShapeMatch | null>(null)
+  const [shortcutDismissed, setShortcutDismissed] = useState(false)
+  const [shortcutBusy, setShortcutBusy] = useState(false)
+  const [shortcutErr, setShortcutErr] = useState('')
   const [kind, setKind] = useState<KantanKind | null>(
     snap.kind === 'json'
       ? 'json'
@@ -2191,11 +2211,30 @@ export function KantanWizard({
     // "drop the same file again" is only answerable if we can name it.
     setSourceNames(arr.map((f) => ({ name: f.name, size: f.size })))
     void saveSourceFiles(arr) // survive a reload (sessionStorage cannot hold a File)
+    // 帯（契約メモ contract_pr_f10.md §1.2-2）は新しく置いたファイルだけの近道
+    // — 復元（`opts?.restored`）では判定しない・前回の帯は閉じておく。
+    if (!opts?.restored) {
+      setShortcutMatch(null)
+      setShortcutDismissed(false)
+      setShortcutErr('')
+    }
     // And give them a server-side home right away (ADR source-staging.md).
     // Later calls prefer the id; until it lands (or if it never does) they
     // upload the files as before, so nothing waits on this.
-    stageSources(arr)
-      .then((r) => setStagingId(r.stagingId))
+    //
+    // `onShortcutDone` が無い呼び出し元（見直す等）では判定そのものを走らせ
+    // ない — 帯は決して出ない。文書は判定の対象外（S1 の帯は表のファイル
+    // だけの近道）。
+    const willCheckShortcut = Boolean(onShortcutDone) && !opts?.restored && k !== 'document'
+    const stagePromise = stageSources(arr)
+      .then((r) => {
+        setStagingId(r.stagingId)
+        if (willCheckShortcut) {
+          return matchKnownShape(r.stagingId)
+            .then((m) => setShortcutMatch(m))
+            .catch(() => setShortcutMatch(null))
+        }
+      })
       .catch((e) => {
         setStagingId(null)
         // A closed write gate reaches us here first — say so now rather than
@@ -2204,6 +2243,16 @@ export function KantanWizard({
           setWriteGate('token_required')
         }
       })
+    // S2 への遷移（runInspect の末尾）は、この判定が終わる（または
+    // SHORTCUT_CHECK_TIMEOUT_MS 経っても終わらない）まで待つ — 判定は
+    // ステージング＋形の一致確認の2往復、S2 側は通常1往復なので、待たせない
+    // と判定より先に段が進み帯が出せなくなる。
+    const shortcutGate: Promise<void> | undefined = willCheckShortcut
+      ? Promise.race([
+          stagePromise,
+          new Promise<void>((resolve) => window.setTimeout(resolve, SHORTCUT_CHECK_TIMEOUT_MS)),
+        ])
+      : undefined
 
     if (k === 'document') {
       // Documents need no AI design — the existing panel handles the whole
@@ -2244,7 +2293,34 @@ export function KantanWizard({
     setProposal('')
     setInspectionMd('')
     resetPipelineState()
-    void runInspect(arr)
+    void runInspect(arr, undefined, shortcutGate)
+  }
+
+  /** 帯の「そのまま追加」（契約メモ contract_pr_f10.md §1.2-2）。今の
+   *  PlaceView の commit をそのまま呼ぶ（`commitAsKnownShape`）— 候補の裁定は
+   *  帯には出さない即決の近道。完了したら `onShortcutDone` へ渡す（ウィザード
+   *  自身の S2 以降には進まない）。 */
+  async function acceptShortcut() {
+    if (!stagingId || !shortcutMatch) return
+    setShortcutBusy(true)
+    setShortcutErr('')
+    try {
+      const sourceName = sourceNames[0]?.name ?? files[0]?.name ?? ''
+      const done = await commitAsKnownShape(stagingId, shortcutMatch.class_iri, sourceName)
+      onShortcutDone?.({ datasetId: done.dataset_id, classIri: done.class_iri })
+    } catch (e) {
+      setShortcutErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setShortcutBusy(false)
+    }
+  }
+
+  /** 帯の「設計を見直してから」— 帯を閉じるだけ。裏で進んでいる通常の読み取り
+   *  （S2 への遷移）はそのまま続く（契約メモ §1.2-2「帯を閉じて通常の S1 の
+   *  まま」）。 */
+  function declineShortcut() {
+    setShortcutMatch(null)
+    setShortcutDismissed(true)
   }
 
   /** Whether the registered draft in hand was minted by THIS run — the only
@@ -2287,7 +2363,7 @@ export function KantanWizard({
     setReingested(true)
   }
 
-  async function runInspect(arr: File[], staged?: string | null) {
+  async function runInspect(arr: File[], staged?: string | null, shortcutGate?: Promise<void>) {
     setInspecting(true)
     setInspectErr('')
     try {
@@ -2300,6 +2376,10 @@ export function KantanWizard({
       setPreviews(cards)
       setColumnSamples(deriveColumnSamples(cards))
       setSourceColumns(deriveSourceColumns(cards))
+      // 「同じ形なら設計なしで追加」の帯の判定（shortcutGate）が終わる（か
+      // タイムアウトする）まで S2 へは進まない — 判定より先に段を進めると
+      // 帯を出す機会そのものが失われる（指摘対応）。
+      if (shortcutGate) await shortcutGate
       setStep(2)
     } catch (e) {
       setInspectErr(e instanceof Error ? e.message : String(e))
@@ -2519,6 +2599,12 @@ export function KantanWizard({
     setErrMsg('')
     setJobNotice('')
     resetPipelineState()
+    // stagingId を捨てるので、それに紐づく帯（契約メモ contract_pr_f10.md
+    // §1.2-2）の判定結果も一緒に捨てる — 古い staging_id を指したまま S1 に
+    // 戻ると、押しても何も起きないボタンになる。
+    setShortcutMatch(null)
+    setShortcutDismissed(false)
+    setShortcutErr('')
     setStep(1)
   }
 
@@ -4167,6 +4253,11 @@ export function KantanWizard({
     // Re-arm the redesign seed: a LATER 見直す on the same dataset must seed
     // again (the id-equality guard would otherwise swallow it).
     setSeededRedesign(null)
+    // stagingId を捨てるので帯（契約メモ contract_pr_f10.md §1.2-2）の判定
+    // 結果も一緒に捨てる（backToPick と同じ理由）。
+    setShortcutMatch(null)
+    setShortcutDismissed(false)
+    setShortcutErr('')
     setStep(1)
   }
 
@@ -5920,6 +6011,32 @@ export function KantanWizard({
                 </button>
                 <button type="button" className="btn btn--ghost" onClick={dropPendingRestore}>
                   {t('kantan:s1.leftoverDrop')}
+                </button>
+              </div>
+            </section>
+          )}
+          {/* 「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
+              §1.2-2）。S1 が読んだファイルが既にある形と一致したときだけ、S1
+              の画面の一番上に出す。`onShortcutDone` を渡していない呼び出し元
+              （見直す等）では `shortcutMatch` が立たないので出ない。 */}
+          {shortcutMatch && !shortcutDismissed && (
+            <section className="kz-card kz-warn" role="status">
+              <h3 className="kz-title">
+                {t('kantan:shortcut_title', { kind: shortcutMatch.kind_label })}
+              </h3>
+              <p className="kz-note">{t('kantan:shortcut_body')}</p>
+              {shortcutErr && <p className="kz-note kz-note--warn">{shortcutErr}</p>}
+              <div className="kz-actions">
+                <button type="button" disabled={shortcutBusy} onClick={() => void acceptShortcut()}>
+                  {t('kantan:shortcut_add')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={shortcutBusy}
+                  onClick={declineShortcut}
+                >
+                  {t('kantan:shortcut_review')}
                 </button>
               </div>
             </section>

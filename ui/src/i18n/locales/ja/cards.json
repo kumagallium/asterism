@@ -79,10 +79,14 @@
     "title": "オブジェクトを追加",
     "kinds": "種類",
     "kind_count": "{{count}} 件",
-    "search_placeholder": "名前でさがす",
+    "search_placeholder": "名前でさがす（{{total}} 件から）",
     "collect": "条件で集める",
     "pick_kind_first": "左で種類を選ぶと、その中のオブジェクトが並びます",
-    "empty": "見つかりませんでした"
+    "empty": "見つかりませんでした",
+    "count_partial": "{{total}} 件のうち {{shown}} 件を表示（名前順）",
+    "count_all": "{{total}} 件（全部）",
+    "count_search": "「{{q}}」に一致 {{shown}} 件",
+    "more": "さらに {{n}} 件（残り {{rest}} 件）"
   },
   "classpage": {
     "source": "出どころ: {{dataset}}",

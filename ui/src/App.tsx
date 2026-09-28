@@ -7,9 +7,7 @@ import { fetchProposal } from './api'
 import { CardsGallery } from './cards/CardsGallery'
 import { CardsView } from './cards/CardsView'
 import './cards/embed.css'
-import { PlaceView } from './cards/PlaceView'
 import { SubjectRail } from './cards/SubjectRail'
-import { addSubjectAndPersist } from './cards/subjectStore'
 import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
@@ -68,11 +66,12 @@ export interface Route {
    *  （契約メモ contract_pr_f8.md §1.2）。新しい入口は下の `add`。 */
   place?: boolean
   /** `#/datasets/add`（`tab: 'gallery'`）— データが入る唯一の入口「作る ›
-   *  データセット › データを追加」（契約メモ contract_pr_f8.md §1.1）。中身は
-   *  PlaceView（判定は変えない: 形が一致→そのまま追加／不一致→ウィザード）。
-   *  `tab: 'cards'` のときは `#/cards/add`（オブジェクトを追加・契約メモ
-   *  contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに読み替える
-   *  （`datasetId`/`subjectKey` 等と同じ流儀）。 */
+   *  データセット › データを追加」。中身はかんたんウィザードの S1（ファイルを
+   *  置く）を直接出す `WorkbenchTier`（契約メモ contract_pr_f10.md §1.2 —
+   *  旧 PlaceView の中間画面は撤去。「同じ形なら設計なしで追加」の近道は S1 の
+   *  帯が担う）。`tab: 'cards'` のときは `#/cards/add`（オブジェクトを追加・
+   *  契約メモ contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに
+   *  読み替える（`datasetId`/`subjectKey` 等と同じ流儀）。 */
   add?: boolean
   /** `#/cards/add?kind=<class_iri>` — 種類のページの「＋ 追加」から、その種類を
    *  開いた状態で追加画面に入る（PR F9）。 */
@@ -816,28 +815,24 @@ function App() {
               />
             )}
             {/* `#/datasets/add` — データが入る唯一の入口（契約メモ
-                contract_pr_f8.md §1.1）。gallery タブの中身を PlaceView に
-                差し替える（判定・commit は PlaceView 自身のまま）。 */}
+                contract_pr_f10.md §1.2）。PlaceView（形の一致の判定だけを先に
+                見せる中間画面）はもう出さず、かんたんウィザードの S1（ファイル
+                を置く）を直に出す。「同じ形なら設計なしで追加」の近道は S1 の
+                帯（KantanWizard.tsx）が担い、完了は `onShortcutDone` で
+                その種類のページへ着地する。 */}
             {tab === 'gallery' && route.add && (
-              <PlaceView
-                datasetId={route.placeDatasetId}
-                navigate={(r) => navigate(r as unknown as Route)}
-                onPlaced={(placedSubjects, placedSet) => {
-                  // CardsView.tsx の同名ハンドラと同じ組み立て（契約メモ §1.1:
-                  // 追加された個体・絞り込みを私の一覧に積む）。
-                  for (const s of placedSubjects) addSubjectAndPersist(s)
-                  addSubjectAndPersist({
-                    kind: 'set',
-                    id: placedSet.set_id,
-                    label: null,
-                    class_label: null,
-                    source: 'own',
-                    card_count: null,
-                    match: null,
-                    subject_key: `s:${placedSet.set_id}`,
-                    spec: placedSet.spec,
-                    created_at: new Date().toISOString(),
-                  })
+              <WorkbenchTier
+                redesignTarget={redesignTarget}
+                onRedesignConsumed={() => setRedesignTarget(null)}
+                onOpenDataset={onWorkbenchDone}
+                onOpenAsk={openAsk}
+                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                onShortcutDone={(target) => {
+                  navigate(
+                    target.classIri
+                      ? { tab: 'cards', classPageIri: target.classIri }
+                      : { tab: 'cards', datasetPageId: target.datasetId },
+                  )
                 }}
               />
             )}
