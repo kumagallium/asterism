@@ -192,18 +192,32 @@ export function paramsForPage(viewpoint: Viewpoint, page: ViewpointPage): Measur
 export function pathLabel(kind: LinkingKind, t: Translate): string | undefined {
   const anchor = kind.anchor_label ?? kind.anchor_class_label ?? undefined
   const via = kind.via?.class_label
-  switch (kind.path_kind) {
-    case 'direct':
-      return t('cards:newcard.path_direct')
-    case 'child_child':
-      return t('cards:newcard.path_child_child', { via })
-    case 'sibling':
-      return t('cards:newcard.path_sibling', { anchor })
-    case 'sibling_child':
-      return t('cards:newcard.path_sibling_child', { anchor, via })
-    default:
-      return undefined
+  const base = (() => {
+    switch (kind.path_kind) {
+      case 'direct':
+        return kind.class_dataset_label
+          ? t('cards:newcard.path_direct_in_dataset', { dataset: kind.class_dataset_label })
+          : t('cards:newcard.path_direct')
+      case 'child_child':
+        return t('cards:newcard.path_child_child', { via })
+      case 'sibling':
+        return t('cards:newcard.path_sibling', { anchor })
+      case 'sibling_child':
+        return t('cards:newcard.path_sibling_child', { anchor, via })
+      default:
+        return undefined
+    }
+  })()
+  // PR F16 §1.5: ハブ（同じものの 1 つのページ）から見た候補は、どのメンバー
+  // （ハブを指す実体）を経由しているかを従来の道の説明の外側に包む。
+  if (kind.via_member) {
+    return t('cards:newcard.path_via_member', {
+      dataset: kind.via_member.dataset_label,
+      member: kind.via_member.label,
+      rest: base ?? '',
+    })
   }
+  return base
 }
 
 // ---------------------------------------------------------------------------

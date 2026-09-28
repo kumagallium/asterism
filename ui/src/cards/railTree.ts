@@ -12,7 +12,7 @@
 //   - 見本の印は、見本のデータセット（`is_demo`）由来の主語（子）にだけ付ける
 //     （契約メモ §1-2: グループの見出し行には出さない）。
 
-import type { CardsDatasetSummary, SubjectItem } from './cardsApi'
+import type { CardsDatasetSummary, ClassEntry, SubjectItem } from './cardsApi'
 
 export interface RailChild {
   subjectKey: string
@@ -29,6 +29,10 @@ export interface RailKindNode {
   classIri: string
   label: string
   children: RailChild[]
+  /** PR F16 §1.5: この種類が共有ハブ（同じものの 1 つのページ）なら true
+   *  （`ClassEntry.is_hub` から。見出しに小さな印「つながり」を出す判定にだけ
+   *  使う）。 */
+  isHub: boolean
 }
 
 export interface RailTree {
@@ -55,11 +59,15 @@ function toChild(item: SubjectItem, sampleDatasets: Set<string>): RailChild {
 export interface BuildRailTreeInput {
   datasets: CardsDatasetSummary[]
   subjects: SubjectItem[]
+  /** PR F16 §1.5: 種類の一覧（`listClasses()`）。`is_hub` を見出しの印付けに
+   *  使うだけ — 省略時（api がまだ返さない・未取得）は全て印なし扱い。 */
+  classes?: ClassEntry[]
 }
 
 /** 左レールの木を組む（契約メモ §1-2）。 */
-export function buildRailTree({ datasets, subjects }: BuildRailTreeInput): RailTree {
+export function buildRailTree({ datasets, subjects, classes }: BuildRailTreeInput): RailTree {
   const sampleDatasets = new Set(datasets.filter((d) => d.is_demo).map((d) => d.id))
+  const hubClasses = new Set((classes ?? []).filter((c) => c.is_hub).map((c) => c.class_iri))
 
   const groups = new Map<string, { label: string; items: SubjectItem[] }>()
   const otherItems: SubjectItem[] = []
@@ -83,6 +91,7 @@ export function buildRailTree({ datasets, subjects }: BuildRailTreeInput): RailT
       classIri,
       label: g.label,
       children: byCreatedDesc(g.items).map((i) => toChild(i, sampleDatasets)),
+      isHub: hubClasses.has(classIri),
     }))
     .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0))
 

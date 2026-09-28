@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Route } from '../App'
-import { listDatasets, type CardsDatasetSummary } from './cardsApi'
+import { listClasses, listDatasets, type CardsDatasetSummary, type ClassEntry } from './cardsApi'
 import { buildRailTree, type RailChild, type RailKindNode } from './railTree'
 import './rail.css'
 import { useSubjects } from './subjectStore'
@@ -19,6 +19,7 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
   const { t } = useTranslation('cards')
   const all = useSubjects()
   const [datasets, setDatasets] = useState<CardsDatasetSummary[]>([])
+  const [classes, setClasses] = useState<ClassEntry[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -29,12 +30,21 @@ export function SubjectRail({ route, navigate }: SubjectRailProps) {
       .catch(() => {
         /* best-effort: 取れなければ見本の印が出ないだけ */
       })
+    // PR F16 §1.5: ハブの印（`rail.hub_pill`）のためだけに取る — 取れなくても
+    // 見出しに印が出ないだけで木は組める。
+    listClasses()
+      .then((c) => {
+        if (!cancelled) setClasses(c)
+      })
+      .catch(() => {
+        /* best-effort: 取れなければハブの印が出ないだけ */
+      })
     return () => {
       cancelled = true
     }
   }, [])
 
-  const tree = buildRailTree({ datasets, subjects: all })
+  const tree = buildRailTree({ datasets, subjects: all, classes })
   const isEmpty = tree.kinds.length === 0 && tree.other.length === 0
 
   function openChild(child: RailChild) {
@@ -161,6 +171,9 @@ function KindRow({
         >
           {node.label || t('rail.unlabeled')}
         </button>
+        {node.isHub && (
+          <span className="rail-hub-pill">{t('rail.hub_pill', { defaultValue: 'つながり' })}</span>
+        )}
       </div>
       {node.children.length > 0 && (
         <div className="rail-list rail-dataset-children">

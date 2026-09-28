@@ -400,6 +400,8 @@ export function SubjectPage({
   // dataset_label があればそれ、無ければ subject_sources の出どころ
   // ラベル（= データセット名＋版）を使う（§1(a)）。
   const datasetLabel = resolved.dataset_label ?? summary.sourceLabels.join('・')
+  // PR F16 §1.5: メンバー（またはその親がメンバー）のページにだけ帯を出す。
+  const hubOf = resolved.hub_of ?? null
 
   return (
     <div className="cardpage-body">
@@ -421,13 +423,23 @@ export function SubjectPage({
           <h2 className="cardpage-title">
             {label}
             <small className="cardpage-subhead">
-              {t('page.subject_meta', {
-                dataset: datasetLabel,
-                facts: summary.factsCount ?? 0,
-                sources: summary.sourcesCount ?? 0,
-              })}
+              {resolved.is_hub
+                ? t('page.hub_eyebrow', { name: resolved.hub?.name ?? datasetLabel })
+                : t('page.subject_meta', {
+                    dataset: datasetLabel,
+                    facts: summary.factsCount ?? 0,
+                    sources: summary.sourcesCount ?? 0,
+                  })}
             </small>
           </h2>
+          {hubOf && (
+            <div className="hub-band">
+              <span className="hub-band-text">{t('page.hub_band', { label: hubOf.label, n: hubOf.member_count })}</span>
+              <button type="button" className="link-btn" onClick={() => onOpenSubject(hubOf.iri)}>
+                {t('page.hub_band_link')}
+              </button>
+            </div>
+          )}
         </div>
         <div className="cardpage-head-actions">
           <button

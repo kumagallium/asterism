@@ -39,6 +39,27 @@
   gap: var(--space-2);
 }
 
+/* PR F16 §1.5: メンバーのページ（別のデータセットにも同じものがある）に出す
+   帯。見出しの下・カードの格子の上。 */
+.hub-band {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+}
+
+.hub-band-text {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---- カード格子（1 件・絞り込みで共通） ---- */
 
 .cardpage-grid {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildRailTree } from './railTree'
-import type { CardsDatasetSummary, SubjectItem } from './cardsApi'
+import type { CardsDatasetSummary, ClassEntry, SubjectItem } from './cardsApi'
 
 // 分野語ゼロ（契約メモ §0）: テストデータは架空の 2 分野（図書館の貸出・気象観測）。
 
@@ -112,6 +112,60 @@ describe('buildRailTree — 種類ごとのグループ化（own/open の区切�
       ],
     })
     expect(tree.kinds[0]?.children[0]?.match).toBeNull()
+  })
+})
+
+function classEntry(over: Partial<ClassEntry> & { class_iri: string }): ClassEntry {
+  return {
+    label: over.class_iri,
+    count: 0,
+    dataset_id: 'ds-x',
+    dataset_label: 'ds-x',
+    is_demo: false,
+    properties: 0,
+    with_label: 0,
+    with_unit: 0,
+    ...over,
+  }
+}
+
+describe('buildRailTree — ハブの印（PR F16）', () => {
+  it('classes に is_hub がある種類だけ isHub が true になる', () => {
+    const tree = buildRailTree({
+      datasets: [],
+      classes: [classEntry({ class_iri: 'https://example.org/class/loan', is_hub: true })],
+      subjects: [
+        subject({
+          subject_key: 'i:loan-1',
+          class_iri: 'https://example.org/class/loan',
+          class_label: '貸出',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+        subject({
+          subject_key: 'i:obs-1',
+          class_iri: 'https://example.org/class/observation',
+          class_label: '気象観測',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+      ],
+    })
+    expect(tree.kinds.find((k) => k.classIri === 'https://example.org/class/loan')?.isHub).toBe(true)
+    expect(tree.kinds.find((k) => k.classIri === 'https://example.org/class/observation')?.isHub).toBe(false)
+  })
+
+  it('classes を渡さなければ全て isHub: false', () => {
+    const tree = buildRailTree({
+      datasets: [],
+      subjects: [
+        subject({
+          subject_key: 'i:loan-1',
+          class_iri: 'https://example.org/class/loan',
+          class_label: '貸出',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+      ],
+    })
+    expect(tree.kinds[0]?.isHub).toBe(false)
   })
 })
 

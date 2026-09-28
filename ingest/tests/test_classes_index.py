@@ -54,6 +54,49 @@ _SEED_TTL = f"""
 
 DRAFT_DATASET = "draft-only-cccc"
 
+# --- HUB (crosswalk) fixtures (契約メモ contract_pr_f16.md §1.2) ---
+
+EX_SHARED = "https://ex/shared#"
+SHARED_CLASS = EX_SHARED + "Thing"
+HUB_PERSPECTIVE_ID = "composition"
+HUB_DATASET_ID = "crosswalk-bridge"
+HUB_GRAPH = canonical_graph_iri("crosswalk")
+_HUB_TTL = f"""
+@prefix ex: <{EX_SHARED}> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<{SHARED_CLASS}> a owl:Class ; rdfs:label "分野をまたぐつながり" .
+<https://ex/shared/thing/1> a <{SHARED_CLASS}> .
+<https://ex/shared/thing/2> a <{SHARED_CLASS}> .
+"""
+
+NAMED_PERSPECTIVE_ID = "other-view"
+NAMED_HUB_DATASET_ID = "crosswalk-other-view"
+NAMED_HUB_GRAPH = f"{CANONICAL_GRAPH_BASE}crosswalk/{NAMED_PERSPECTIVE_ID}"
+EX_SHARED_2 = "https://ex/shared2#"
+SHARED_CLASS_2 = EX_SHARED_2 + "Match"
+_NAMED_HUB_TTL = f"""
+@prefix ex: <{EX_SHARED_2}> .
+
+<https://ex/shared2/match/1> a ex:Match .
+"""
+
+
+def _write_hub_dataset(
+    registry_root: Path, dataset_id: str, name: str, perspective_id: str
+) -> None:
+    dest = registry_root / dataset_id
+    dest.mkdir(parents=True)
+    meta = {
+        "id": dataset_id,
+        "name": name,
+        "promoted": True,
+        "version": 1,
+        "crosswalk_perspective_id": perspective_id,
+    }
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
 
 def _pyoxi_client(graphs: dict[str, str]):
     """``test_dataset_summary.py``'s ``_pyoxi_client`` と同じ形。"""
@@ -172,3 +215,46 @@ async def test_classes_index_is_empty_when_there_are_no_datasets(tmp_path: Path)
 async def test_classes_index_none_registry_root_is_empty(tmp_path: Path) -> None:
     client = _pyoxi_client({})
     assert await classes_index(client, None) == []
+
+
+async def test_classes_index_hub_is_counted_from_its_own_graph_not_dataset_summary(
+    tmp_path: Path,
+) -> None:
+    """契約メモ §1.2: registry id (``crosswalk-bridge``) と graph id
+    (``crosswalk``) が食い違っても、ハブの種類は一覧に出る（``count`` はハブ
+    graph 直接の集計）。"""
+    _write_hub_dataset(tmp_path, HUB_DATASET_ID, "分野をまたいでつなぐ", HUB_PERSPECTIVE_ID)
+    client = _pyoxi_client({HUB_GRAPH: _HUB_TTL})
+
+    entries = await classes_index(client, tmp_path)
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["class_iri"] == SHARED_CLASS
+    assert entry["count"] == 2
+    assert entry["is_hub"] is True
+    assert entry["hub_perspective_id"] == HUB_PERSPECTIVE_ID
+    assert entry["dataset_id"] == HUB_DATASET_ID
+    assert entry["dataset_label"] == "分野をまたいでつなぐ"
+    # class 自身の rdfs:label があればそれを label に使う。
+    assert entry["label"] == "分野をまたぐつながり"
+
+
+async def test_classes_index_hub_label_falls_back_to_dataset_name(tmp_path: Path) -> None:
+    """契約メモ §1.2: class の rdfs:label が無ければ meta の name。named
+    perspective（``crosswalk/<id>`` graph・``crosswalk-<id>`` registry id）でも
+    同じ食い違いを吸収する。"""
+    _write_hub_dataset(tmp_path, NAMED_HUB_DATASET_ID, "べつの観点でつなぐ", NAMED_PERSPECTIVE_ID)
+    client = _pyoxi_client({NAMED_HUB_GRAPH: _NAMED_HUB_TTL})
+
+    entries = await classes_index(client, tmp_path)
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["class_iri"] == SHARED_CLASS_2
+    assert entry["count"] == 1
+    assert entry["is_hub"] is True
+    assert entry["hub_perspective_id"] == NAMED_PERSPECTIVE_ID
+    assert entry["dataset_id"] == NAMED_HUB_DATASET_ID
+    assert entry["dataset_label"] == "べつの観点でつなぐ"
+    assert entry["label"] == "べつの観点でつなぐ"

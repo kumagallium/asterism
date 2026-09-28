@@ -710,6 +710,40 @@ def test_converse_prompt_omits_candidate_kinds_dropped_from_schema_properties(
         assert "幽霊の種類" not in system_prompt
 
 
+# ---------------------------------------------------------------------------
+# 契約メモ contract_pr_f16.md §1.4 — ハブのページの候補（メンバー起点）の道の
+# 説明は、従来の道の説明を「<データセット>の「<メンバー>」から: …」で包む。
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_wraps_the_path_with_via_member() -> None:
+    from asterism_api.converse_prompt import build_system_prompt
+
+    kind = _sibling_kind(
+        via_member={
+            "iri": "https://ex/example/resource/member-1",
+            "label": "メンバー一号",
+            "dataset_id": "other-dataset",
+            "dataset_label": "別のデータセット",
+        }
+    )
+    for lang, needle in (
+        ("ja", "別のデータセットの「メンバー一号」から: 同じ「Station A」を持つ記録"),
+        (
+            "en",
+            "from メンバー一号 in 別のデータセット: records that share the same Station A",
+        ),
+    ):
+        text = build_system_prompt(
+            lang=lang,
+            schema_properties={READING_CLASS: []},
+            linking_kinds=[kind],
+            existing_titles=[],
+            draft=None,
+        )
+        assert needle in text
+
+
 def test_system_prompt_tells_the_ai_to_cite_titles_not_ids_in_plain_text() -> None:
     """[id: …] をプロンプトに出したら実 LLM が根拠に生の id と Markdown を書いた
     （K4 違反・ドロワーは平文表示）ので、両方を系統プロンプトで禁じる。"""
