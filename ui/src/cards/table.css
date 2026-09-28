@@ -1,0 +1,103 @@
+/* カード内の表 3 variant（grid / figure / ranked）。契約メモ §4。
+ * grid は既存 .table-wrap / .jobs-table / .sparql-table の流儀をそのまま使う
+ * （クラス名を再利用。App.css は触らない）。figure / ranked は試作 HTML の
+ * .big / .rank を写した .cardview-* 接頭辞。 */
+
+.cardview-table-wrap {
+  overflow-x: auto;
+}
+
+.cardview-empty {
+  color: var(--muted);
+  font-size: 0.86rem;
+  margin: var(--space-2) 0 0;
+}
+
+/* ---- figure（1 値を大きく＝数値カード） ---- */
+.cardview-figure {
+  margin-top: var(--space-2);
+}
+.cardview-figure-big {
+  font-size: 26px;
+  font-weight: 500;
+  color: var(--fg);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.cardview-figure-big .cardview-unit-suffix {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: var(--space-2);
+  letter-spacing: 0;
+}
+.cardview-figure-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: var(--space-1);
+}
+.cardview-figure-sub b {
+  font-weight: 500;
+  color: var(--body);
+}
+
+/* ---- ranked（順位表） ---- */
+.cardview-rank {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+  font-size: 0.86rem;
+}
+.cardview-rank td {
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--body);
+}
+.cardview-rank tr:last-child td {
+  border-bottom: 0;
+}
+.cardview-rank td.cardview-rank-i {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  width: 1.5rem;
+}
+.cardview-rank td.cardview-rank-num {
+  text-align: right;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.cardview-rank tr[data-clickable] {
+  cursor: pointer;
+}
+.cardview-rank tr[data-clickable]:hover td {
+  background: var(--surface-sink);
+}
+
+/* ---- grid: 追加の書式のみ（枠組みは jobs-table / sparql-table） ---- */
+.cardview-cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+.cardview-cell-iri {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.cardview-unit-suffix,
+th .cardview-unit-suffix {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  /* .jobs-table th の text-transform: uppercase を打ち消す。単位の綴りは
+     大文字小文字を含めて意味が変わる（m と M は別の単位）ので絶対に変えない。 */
+  text-transform: none;
+}
+.cardview-highlight--accent {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.cardview-highlight--muted {
+  color: var(--faint);
+}

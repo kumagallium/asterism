@@ -1,0 +1,98 @@
+/* GraphView（React Flow）。色は必ず index.css のトークンから — ライブラリ既定
+ * 色を出さない。ハンドルは display:none にせず opacity+pointer-events で隠す
+ * （display:none だと辺の実測が取れず線が消える。shapeGraph 由来の罠 #1）。 */
+
+.flow-graph {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.flow-graph .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flow-graph .react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.flow-graph .react-flow__edge-text {
+  font-size: 0.6875rem;
+  fill: var(--muted);
+}
+
+.flow-graph .react-flow__edge-textbg {
+  fill: var(--surface-alt);
+}
+
+.flow-node {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 96px;
+  min-height: 46px;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  color: var(--fg);
+  text-align: center;
+}
+
+.flow-node--entity {
+  background: var(--entity-soft);
+  border-color: var(--entity);
+}
+
+.flow-node--activity {
+  background: var(--activity-soft);
+  border-color: var(--activity);
+}
+
+.flow-node--other {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.flow-node.is-clickable {
+  cursor: pointer;
+}
+
+/* compact（カード内の小さな表示）: 節を小さく・ラベルだけ */
+.flow-graph--compact .flow-node {
+  min-width: 64px;
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.75rem;
+}
+
+.flow-node-label {
+  font-weight: 500;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flow-node-props {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.flow-node-props code {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
