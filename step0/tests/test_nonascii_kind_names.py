@@ -139,3 +139,75 @@ maps:
 """
     ir = parse_mapping_ir(text)
     assert ir.maps[0].subject.label is None
+
+
+def _label_skeleton() -> dict:
+    return {
+        "version": 1,
+        "prefixes": {"ex": "https://example.org/ns#", "exr": "https://example.org/r/"},
+        "maps": [
+            {
+                "name": "a",
+                "source": "a.csv",
+                "subject": {
+                    "template": "exr:a/{id}",
+                    "classes": ["ex:Record_389a00"],
+                    "label": "食材の名前",
+                },
+            }
+        ],
+    }
+
+
+def test_json_schemas_accept_subject_label() -> None:
+    """骨格・IR のガイド付き生成スキーマが subject.label を通す。"""
+    import jsonschema
+
+    from asterism_step0.mapping_ir_schema import mapping_ir_json_schema, skeleton_json_schema
+
+    sk = _label_skeleton()
+    jsonschema.validate(sk, skeleton_json_schema())
+    full = {
+        **sk,
+        "maps": [{**sk["maps"][0], "properties": [{"predicate": "ex:name", "column": "name"}]}],
+    }
+    jsonschema.validate(full, mapping_ir_json_schema())
+
+
+def test_reassert_and_carry_keep_subject_label() -> None:
+    from asterism_step0.staged_propose import human_pinned_edits, reassert_human_edits
+
+    baseline = _label_skeleton()
+    baseline["maps"][0]["subject"] = {
+        "template": "exr:a/{id}",
+        "classes": ["ex:A"],
+        "label": "A",
+    }
+    current = _label_skeleton()
+    pinned = human_pinned_edits(baseline, current)
+    assert pinned["a"]["label"] == "食材の名前"
+    answer = {
+        "maps": [
+            {
+                "name": "a",
+                "source": "a.csv",
+                "subject": {"template": "exr:a/{id}", "classes": ["ex:A"]},
+            }
+        ]
+    }
+    out, restored = reassert_human_edits(answer, current, pinned)
+    assert out["maps"][0]["subject"]["label"] == "食材の名前"
+    assert out["maps"][0]["subject"]["classes"] == ["ex:Record_389a00"]
+    assert restored[0]["label"] == "食材の名前"
+
+
+def test_carry_subject_labels_fills_only_missing() -> None:
+    from asterism_step0.spec_repair import carry_subject_labels
+
+    old = _label_skeleton()
+    new = {"maps": [{"name": "a", "subject": {"classes": ["ex:X"]}}, {"name": "b", "subject": {}}]}
+    out = carry_subject_labels(new, old)
+    assert out["maps"][0]["subject"]["label"] == "食材の名前"
+    assert "label" not in out["maps"][1]["subject"]
+    own = {"maps": [{"name": "a", "subject": {"label": "自分の名前"}}]}
+    assert carry_subject_labels(own, old)["maps"][0]["subject"]["label"] == "自分の名前"

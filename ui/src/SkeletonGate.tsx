@@ -23,9 +23,13 @@ import {
   containmentParents,
   containmentParentsForColumns,
 } from './skeletonContainment'
+import { classNameFromLabel } from './kantan/asciiNames'
 import {
   assignColumnOwner,
+  kindDisplayName,
+  kindFieldValue,
   kindLabelEdit,
+  kindNamesByClass,
   sameIdKind,
   sameIdSiblings,
   slugMapName,
@@ -1285,10 +1289,19 @@ export function SkeletonGate({
     /* ②の名前欄と**同じ規則**に通す。ここを素通しにしていたら、置いた例のとおり
        「結晶」と打った人が、次の②で「この名前は使えません」と言われる入口に
        なっていた（実機 2026-08-31）。`sanitizeClassName` は②の一発直しと同じ式。 */
-    const name = sanitizeClassName(rawName) || rawName.trim()
     const taken = new Set(skeleton.maps.map((m) => m.name))
-    const mapName = slugMapName(name, taken)
-    const added = sameIdKind(parent, mapName, name ? [expandClass(name, nsDetected)] : [])
+    // かんたんモード: ②の「名前・ID を直す」欄と同じ経路（表示名 + 機械が作る
+    // 公開名）。どんな文字でも打てて、同じ名前は同じ種類になる。詳細モードは
+    // 今のまま（公開される名前を直に打つ）。
+    const edit = plain ? kindLabelEdit(rawName, nsDetected) : null
+    const name = plain ? '' : sanitizeClassName(rawName) || rawName.trim()
+    const mapName = slugMapName(plain ? classNameFromLabel(rawName.trim(), 'record') : name, taken)
+    const added = sameIdKind(
+      parent,
+      mapName,
+      edit ? (edit.classes ?? []) : name ? [expandClass(name, nsDetected)] : [],
+      edit?.label?.trim(),
+    )
     onChange({
       ...skeleton,
       maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
@@ -1384,7 +1397,7 @@ export function SkeletonGate({
     if (!cls) return name
     const shown = compactClass(cls, nsDetected)
     const twin = skeleton.maps.some(
-      (x) => x.name !== name && compactClass(x.subject.classes?.[0] ?? '', nsDetected) === shown,
+      (x) => x.name !== name && kindDisplayName(x.subject, nsDetected) === shown,
     )
     return twin || !shown ? name : shown
   }
@@ -1405,7 +1418,7 @@ export function SkeletonGate({
     // 断言する形になり、人が書いていない語を答えとして見せてしまう（K20）。
     // 名前が無いなら、無いと言う。人が打った表示名（`subject.label`）が
     // あれば、折りたたんだクラス名より先にそれを読む（契約メモ a・R3）。
-    const label = (m.subject.label ?? '').trim() || compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+    const label = kindDisplayName(m.subject, nsDetected)
     if (!label) {
       return ann?.collapse_kind === 'singleton'
         ? t('skeletongate:reading.singletonUnnamed')
@@ -2308,12 +2321,7 @@ export function SkeletonGate({
           // 表示名）を読み書きする。無ければ今までどおり、公開される名前を
           // 短くしたものを見せる。詳細モードは今のまま（公開される名前を
           // 直に編集する）。
-          value={
-            plain
-              ? (m.subject.label ??
-                  (m.subject.classes ?? []).map((c) => compactClass(c, nsDetected)).join(', '))
-              : (m.subject.classes ?? []).join(', ')
-          }
+          value={plain ? kindFieldValue(m.subject, nsDetected) : (m.subject.classes ?? []).join(', ')}
           disabled={busy}
           onChange={(e) => {
             if (plain) {
@@ -2365,7 +2373,7 @@ export function SkeletonGate({
           onSplit={(cols, key) => splitConcept(idx, cols, key)}
           canRevalidate={canRevalidate}
           displayClass={
-            plain ? (c) => compactClass(c, nsDetected) : undefined
+            plain ? kindNamesByClass(skeleton, nsDetected) : undefined
           }
           plain={plain}
           reading={readingFor(m, ann)}
@@ -2844,7 +2852,7 @@ export function SkeletonGate({
                 {t('skeletongate:twinKinds', {
                   names: skeleton.maps
                     .filter((m) => twinNames.has(m.name))
-                    .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+                    .map((m) => kindDisplayName(m.subject, nsDetected) || m.name)
                     .join(t('skeletongate:key.listSeparator')),
                 })}
               </p>
@@ -2859,7 +2867,7 @@ export function SkeletonGate({
                           .filter((m) => twinNames.has(m.name))
                           .map(
                             (m) =>
-                              compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name,
+                              kindDisplayName(m.subject, nsDetected) || m.name,
                           )
                           .join(t('skeletongate:key.listSeparator')),
                       }),

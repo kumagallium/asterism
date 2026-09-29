@@ -1622,6 +1622,23 @@ def _iri_local_name(iri: str) -> str:
     return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
 
 
+def _overlay_kind_labels(labels: dict[str, str], mapping_ir_yaml: str) -> None:
+    """IR の ``subject.label``（種類の表示名）を、model.yaml 由来の ``labels`` に重ねる。
+
+    model.yaml の投影が付ける種類の ``rdfs:label`` はクラスのローカル名（機械が
+    作る符号つきの名前になり得る）。人向けの画面（ためす・公開の確認・公開後）は
+    ``labels[class_iri]`` を読むので、IR に表示名がある種類はそちらを優先する。
+    IR が無い・読めない・表示名が無い種類は今までどおり（best-effort）。
+    """
+    if not mapping_ir_yaml.strip():
+        return
+    with contextlib.suppress(Exception):
+        _fields, kinds = _ir_field_labels(mapping_ir_yaml)
+        for iri, word in kinds.items():
+            if word and word != _iri_local_name(iri):
+                labels[iri] = word
+
+
 def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
     """``({(class_iri, predicate_iri): label}, {class_iri: kind label})`` from the
     reviewed Mapping IR — the design's word for each KIND's field.
@@ -6671,6 +6688,7 @@ def build_app(
         def run() -> dict[str, object]:
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
+            _overlay_kind_labels(labels, mapping_ir_yaml)
             ir_meta: dict[str, dict[str, str]] = {}
             by_column: dict[tuple[str, str], dict[str, str]] = {}
             if mapping_ir_yaml.strip():
@@ -7532,6 +7550,7 @@ def build_app(
                 str(artifacts.get("mapping.rml.ttl") or ""),
                 str(artifacts.get("mie.yaml") or ""),
             )
+            _overlay_kind_labels(labels, str(artifacts.get("mapping.yaml") or ""))
             try:
                 ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
             except Exception:

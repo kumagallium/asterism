@@ -165,6 +165,7 @@ def _subject_schema(
             "constant": _string(max_length=_LEN_TEMPLATE),
             "classes": classes,
             "transform": transform_obj,
+            "label": _string(max_length=_LEN_LABEL),
         },
     }
 

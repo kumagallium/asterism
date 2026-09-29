@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import unicodedata
 
-__all__ = ["loses_words", "name_tag"]
+__all__ = ["loses_words", "name_tag", "needs_tag"]
 
 _FNV_OFFSET_BASIS = 0x811C9DC5
 _FNV_PRIME = 0x01000193
@@ -29,15 +29,20 @@ _MASK_32 = 0xFFFFFFFF
 # （長音記号「ー」など）。ASCII 部分を単語として使うと意味を失う合図。
 _NO_CASE_CATEGORIES = frozenset({"Lo", "Lm"})
 
+# 取り除く空白を明示する。Python の ``str.strip()`` と JS の ``trim()`` は
+# 取り除く集合が違う（BOM・NEL・制御文字）ので、両言語で同じ集合を使う。
+_STRIP_CHARS = " \t\n\r\v\f\u00a0\u3000\ufeff"
+
 
 def name_tag(text: str) -> str:
     """``text`` から決定論的に導く6桁の16進符号。
 
-    ``NFKC(text).strip()`` の UTF-8 バイト列に FNV-1a 32bit
-    （初期値 ``0x811C9DC5``・素数 ``0x01000193``）をかけ、8桁の16進表現の
-    先頭6桁を返す。同じ入力は、いつ・どこで呼んでも同じ符号になる。
+        ``NFKC(text)`` の前後から明示の空白（U+0020・``\\t\\n\\r\\v\\f``・U+00A0・
+    U+3000・U+FEFF）だけを除いた UTF-8 バイト列に FNV-1a 32bit
+        （初期値 ``0x811C9DC5``・素数 ``0x01000193``）をかけ、8桁の16進表現の
+        先頭6桁を返す。同じ入力は、いつ・どこで呼んでも同じ符号になる。
     """
-    data = unicodedata.normalize("NFKC", str(text)).strip().encode("utf-8")
+    data = unicodedata.normalize("NFKC", str(text)).strip(_STRIP_CHARS).encode("utf-8")
     h = _FNV_OFFSET_BASIS
     for byte in data:
         h ^= byte
@@ -48,3 +53,14 @@ def name_tag(text: str) -> str:
 def loses_words(text: str) -> bool:
     """``text`` に、大文字小文字の区別が無い文字が1つでもあれば真。"""
     return any(unicodedata.category(ch) in _NO_CASE_CATEGORIES for ch in str(text))
+
+
+def needs_tag(text: str, ascii_part: str) -> bool:
+    """符号を付けて一意にすべき名前か。
+
+    元の名前に ASCII 以外の文字があり、かつ（ASCII の部分が空、または大文字小文字の
+    区別が無い文字を含む）とき真。英字・数字・記号だけの名前は、いつも偽
+    （今までの識別子を 1 文字も変えない）。
+    """
+    s = str(text)
+    return (not s.isascii()) and (not ascii_part or loses_words(s))

@@ -341,8 +341,8 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
     emitted_classes: set[str] = set()
     class_local_name: dict[str, str] = {}
     # Every DISTINCT authored ``subject.label`` per class, in IR order —
-    # agreement yields the word, disagreement the local-name fallback (same
-    # rule as a property's ``label``; 契約メモ a・R3).
+    # the FIRST authored word wins (api ``_ir_field_labels`` and ir2mermaid use
+    # the same rule — one kind, one name on every screen). No word: local name.
     class_authored_labels: dict[str, list[str]] = {}
     pred_domains: dict[str, set[str]] = {}
     # Every DISTINCT authored label per predicate, in IR order — agreement
@@ -403,7 +403,7 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
         g.add((cls, a, rdfs_Class))
         authored = class_authored_labels.get(cls_iri) or []
         label = (
-            (authored[0] if len(authored) == 1 else None)
+            (authored[0] if authored else None)
             or class_local_name.get(cls_iri)
             or _local_name(cls_iri)
         )

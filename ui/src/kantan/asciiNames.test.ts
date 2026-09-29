@@ -5,7 +5,7 @@
 // 見逃さないための同一見本テスト。
 
 import { describe, expect, it } from 'vitest'
-import { classNameFromLabel, losesWords, nameTag } from './asciiNames'
+import { classNameFromLabel, losesWords, nameTag, needsTag } from './asciiNames'
 
 // 契約メモ a・R4 が指定する5つの見本。
 const SAMPLES_NAME_TAG: Record<string, string> = {
@@ -74,5 +74,24 @@ describe('classNameFromLabel', () => {
 
   it('同じ名前からはいつも同じ識別子', () => {
     expect(classNameFromLabel('食材の名前')).toBe(classNameFromLabel('食材の名前'))
+  })
+})
+
+describe('空白の集合は Python 版と同じ（BOM は除く・NEL と制御文字は除かない）', () => {
+  it('Python 版 test_ascii_names.py と同じ見本', () => {
+    expect(nameTag('\ufeff温度')).toBe('703a58')
+    expect(nameTag('温度')).toBe('703a58')
+    expect(nameTag('温度\u0085')).toBe('ad4161')
+    expect(nameTag('x\x1c')).toBe('f562e4')
+  })
+})
+
+describe('英字・数字・記号だけの名前は符号を付けない', () => {
+  it('needsTag は ASCII だけなら偽', () => {
+    for (const text of ['2024', '1', '0.5', '(1)', '', '  ', '---', '(', '_']) {
+      expect(needsTag(text, '')).toBe(false)
+    }
+    expect(classNameFromLabel('---')).toBe('Value')
+    expect(classNameFromLabel('2024')).toBe('V2024')
   })
 })

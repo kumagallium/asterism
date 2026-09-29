@@ -1395,11 +1395,11 @@ def _ascii_map_name(raw: str, taken: set[str], fallback: str) -> str:
     の区別が無い文字を含む）は ``ascii_names.name_tag`` の符号で一意にする
     （``staged_propose._identifier`` と同じ規則）。
     """
-    from asterism_step0.ascii_names import loses_words, name_tag
+    from asterism_step0.ascii_names import name_tag, needs_tag
 
     ascii_ = re.sub(r"[^0-9a-z]+", "_", raw.lower()).strip("_")
     ascii_ = re.sub(r"^[^a-z]+", "", ascii_)
-    base = ascii_ if ascii_ and not loses_words(raw) else f"{ascii_ or fallback}_{name_tag(raw)}"
+    base = f"{ascii_ or fallback}_{name_tag(raw)}" if needs_tag(raw, ascii_) else ascii_ or fallback
     name = base
     i = 2
     while name in taken:

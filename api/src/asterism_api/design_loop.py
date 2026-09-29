@@ -98,6 +98,7 @@ from asterism_step0.skeleton_annotate import annotate_skeleton
 from asterism_step0.spec_repair import (
     SPEC_REPAIR_SYSTEM_PROMPT,
     build_spec_repair_user,
+    carry_subject_labels,
     parse_spec_json,
     replace_mapping_spec_block,
 )
@@ -1861,6 +1862,19 @@ def _surgical_spec_repair(
         if had_attr:
             llm.response_schema = prior
     new_spec = parse_spec_json(raw)
+    # 種類の表示名（subject.label）はモデルが返さない。直前の IR から map 名で戻す。
+    try:
+        import yaml
+
+        new_doc = load_spec_yaml(new_spec)
+        old_doc = load_spec_yaml(ir_yaml)
+        carried = carry_subject_labels(new_doc, old_doc)
+        if carried is not new_doc:
+            new_spec = yaml.safe_dump(
+                carried, sort_keys=False, allow_unicode=True, default_flow_style=False
+            )
+    except Exception:
+        pass
     return replace_mapping_spec_block(schema_md, new_spec)
 
 

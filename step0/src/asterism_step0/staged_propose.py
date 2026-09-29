@@ -763,21 +763,24 @@ def _identifier(text: str, fallback: str = "value") -> str:
     ``ascii_names.name_tag`` の符号を付けて一意にする（K13：機械的な要件は
     機械が用意する）。同じ名前からは、いつも同じ識別子。
     """
-    from asterism_step0.ascii_names import loses_words, name_tag
+    from asterism_step0.ascii_names import name_tag, needs_tag
 
     ascii_part = _ascii_camel(text)
-    if ascii_part and not loses_words(str(text)):
-        return ascii_part
+    if not needs_tag(text, ascii_part):
+        # 英字だけ（記号だけ含む）の名前は今までどおり。空なら固定の語。
+        return ascii_part or "value"
     return f"{ascii_part or fallback}_{name_tag(text)}"
 
 
 def _class_name(text: str, fallback: str = "record") -> str:
     """``xrd_peaks`` → ``XrdPeaks`` (PascalCase, ASCII-safe). ``_identifier`` 参照。"""
-    from asterism_step0.ascii_names import loses_words, name_tag
+    from asterism_step0.ascii_names import name_tag, needs_tag
 
     ascii_part = _ascii_camel(text)
-    if ascii_part and not loses_words(str(text)):
-        return ascii_part[:1].upper() + ascii_part[1:]
+    if not needs_tag(text, ascii_part):
+        if ascii_part:
+            return ascii_part[:1].upper() + ascii_part[1:]
+        return "Value"
     base = ascii_part or fallback
     pascal_base = base[:1].upper() + base[1:] if base else "Record"
     return f"{pascal_base}_{name_tag(text)}"
@@ -1103,14 +1106,14 @@ def default_skeleton(
         taken.add(name)
         entry: dict[str, Any] = {"name": name, "source": inspection.name}
         classes = [f"{onto}:{_class_name(stem)}"]
-        from asterism_step0.ascii_names import loses_words
+        from asterism_step0.ascii_names import needs_tag
 
         subject: dict[str, Any] = {"classes": classes}
         # R1 の符号付き分岐に落ちたとき（英字にできないファイル名）だけ、
         # ファイル名そのものを種類の表示名にする。英字のファイル名は今まで
         # どおり表示名なし（K38 の「英字で書く」案内を、かんたんモードだけ
         # R4 が改める — 詳細モードはこのまま）。
-        if not _ascii_camel(stem) or loses_words(stem):
+        if needs_tag(stem, _ascii_camel(stem)):
             subject["label"] = stem
         if inspection.source_kind == "xml":
             iterators = inspection.xml_iterators or []
@@ -3160,6 +3163,13 @@ def _subject_classes(subject: Any) -> list[str]:
     return [str(c) for c in classes if str(c).strip()]
 
 
+def _subject_label(subject: Any) -> str:
+    if not isinstance(subject, Mapping):
+        return ""
+    label = subject.get("label")
+    return label.strip() if isinstance(label, str) else ""
+
+
 def human_pinned_edits(
     baseline: Mapping[str, Any] | None, current: Mapping[str, Any] | None
 ) -> dict[str, dict[str, Any]]:
@@ -3201,6 +3211,9 @@ def human_pinned_edits(
         subject_id = _subject_id_form(m.get("subject"))
         if subject_id and (was is None or subject_id != _subject_id_form(was.get("subject"))):
             edit["subject_id"] = subject_id
+        label = _subject_label(m.get("subject"))
+        if label and (was is None or label != _subject_label(was.get("subject"))):
+            edit["label"] = label
         if edit:
             pinned[name] = edit
     return pinned
@@ -3209,7 +3222,11 @@ def human_pinned_edits(
 def _restored_record(name: str, subject: Any) -> dict[str, str]:
     """One restore, named the way the screen names it: by KIND, not by map id."""
     classes = _subject_classes(subject)
-    return {"map": name, "kind": classes[0]} if classes else {"map": name}
+    rec = {"map": name, "kind": classes[0]} if classes else {"map": name}
+    label = _subject_label(subject)
+    if label:
+        rec["label"] = label
+    return rec
 
 
 def reassert_human_edits(
@@ -3257,6 +3274,10 @@ def reassert_human_edits(
         classes = edit.get("classes")
         if classes and _subject_classes(subject) != classes:
             subject["classes"] = list(classes)
+            touched = True
+        label = edit.get("label")
+        if label and _subject_label(subject) != label:
+            subject["label"] = label
             touched = True
         subject_id = edit.get("subject_id")
         if subject_id and _subject_id_form(subject) != tuple(subject_id):
@@ -3339,6 +3360,12 @@ def _generate_skeleton_gated(
         if pinned:
             skeleton, back = reassert_human_edits(skeleton, current_skeleton, pinned)
             restored = back
+        # 種類の表示名は人にも機械にも付けられる。モデルは返さないので、
+        # 直前の骨格から map 名で戻す（人が控えた分は上で戻し済み）。
+        if isinstance(current_skeleton, Mapping):
+            from asterism_step0.spec_repair import carry_subject_labels
+
+            skeleton = carry_subject_labels(skeleton, current_skeleton)
         # 差し戻しは「抜けを足して」と頼むもの。返ってきた答えが前より種類を
         # 減らしていたら、頼んだこと以上をやっている — 前の答えを採る。
         # rethink では floor が「いま画面にある骨格」=人の編集そのもの。

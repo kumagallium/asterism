@@ -14,14 +14,26 @@
 const FNV_OFFSET_BASIS = 0x811c9dc5
 const FNV_PRIME = 0x01000193
 
+// 取り除く空白を明示する（Python 版と同じ集合）。JS の `trim()` と Python の
+// `strip()` は集合が違う（BOM・NEL・制御文字）ので、どちらも使わない。
+const STRIP_CHARS = ' \t\n\r\v\f\u00a0\u3000\ufeff'
+
+function stripChars(text: string): string {
+  let start = 0
+  let end = text.length
+  while (start < end && STRIP_CHARS.includes(text[start])) start++
+  while (end > start && STRIP_CHARS.includes(text[end - 1])) end--
+  return text.slice(start, end)
+}
+
 /** `text` から決定論的に導く6桁の16進符号。
  *
- * `NFKC(text).trim()` の UTF-8 バイト列に FNV-1a 32bit（初期値
+ * `NFKC(text)` の前後から明示の空白だけを除いた UTF-8 バイト列に FNV-1a 32bit（初期値
  * `0x811C9DC5`・素数 `0x01000193`）をかけ、8桁の16進表現の先頭6桁を返す。
  * 同じ入力は、いつ・どこで呼んでも同じ符号になる（Python 版と一致）。
  */
 export function nameTag(text: string): string {
-  const bytes = new TextEncoder().encode(text.normalize('NFKC').trim())
+  const bytes = new TextEncoder().encode(stripChars(text.normalize('NFKC')))
   let h = FNV_OFFSET_BASIS
   for (const byte of bytes) {
     h ^= byte
@@ -38,6 +50,15 @@ const NO_CASE_RE = /\p{Lo}|\p{Lm}/u
 /** `text` に、大文字小文字の区別が無い文字が1つでもあれば真。 */
 export function losesWords(text: string): boolean {
   return NO_CASE_RE.test(text)
+}
+
+/** 符号を付けて一意にすべき名前か（Python 版 `needs_tag` の写し）。元の名前に
+ *  ASCII 以外があり、かつ（ASCII の部分が空、または大文字小文字の区別が無い
+ *  文字を含む）とき真。英字・数字・記号だけの名前はいつも偽。 */
+export function needsTag(text: string, asciiPart: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  const isAscii = /^[\x00-\x7f]*$/.test(text)
+  return !isAscii && (asciiPart === '' || losesWords(text))
 }
 
 /** ASCII の部分だけを lowerCamel にする（`_ascii_camel` の写し）。
@@ -59,8 +80,8 @@ function asciiCamel(text: string): string {
  *  と同じ規則）。 */
 export function classNameFromLabel(text: string, fallback = 'record'): string {
   const asciiPart = asciiCamel(text)
-  if (asciiPart && !losesWords(text)) {
-    return asciiPart[0].toUpperCase() + asciiPart.slice(1)
+  if (!needsTag(text, asciiPart)) {
+    return asciiPart ? asciiPart[0].toUpperCase() + asciiPart.slice(1) : 'Value'
   }
   const base = asciiPart || fallback
   const pascalBase = base ? base[0].toUpperCase() + base.slice(1) : 'Record'

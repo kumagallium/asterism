@@ -570,3 +570,46 @@ maps:
             for m in body["maps"]
         }
         assert got == {"DoiMap": "文献DOI", "UnitYMap": "縦軸単位"}
+
+
+def test_rules_labels_prefer_the_authored_kind_name(tmp_path: Path, healthy_client) -> None:
+    """IR の subject.label が、model.yaml の種類のラベル（ローカル名）に勝つ。"""
+    labelled = _MAPPING_IR.replace(
+        "      classes: [ex:Sample]\n", '      classes: [ex:Sample]\n      label: "食材の名前"\n'
+    )
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Samples",
+        dict(_ARTIFACTS, **{"mapping.yaml": labelled}),
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-11T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+        assert body["labels"]["https://example.org/onto#Sample"] == "食材の名前"
+
+
+def test_surgical_repair_keeps_subject_label() -> None:
+    """全 IR 修復の答えに label が無くても、直前の IR の種類の表示名が残る。"""
+    import json as _json
+
+    from asterism_api.design_loop import _surgical_spec_repair
+
+    class _Llm:
+        def complete(self, system: str, user: str) -> str:
+            import yaml
+
+            doc = yaml.safe_load(_MAPPING_IR.replace('      label: "食材の名前"\n', ""))
+            return _json.dumps(doc)
+
+    labelled = _MAPPING_IR.replace(
+        "      classes: [ex:Sample]\n", '      classes: [ex:Sample]\n      label: "食材の名前"\n'
+    )
+    md = f"# Title\n\n### 9. Declarative mapping spec\n\n```yaml\n{labelled}```\n\n### tail\n"
+    out = _surgical_spec_repair(_Llm(), md, labelled, [], "")
+    assert "食材の名前" in out

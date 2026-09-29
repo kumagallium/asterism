@@ -376,8 +376,8 @@ maps:
     assert set(g.objects(cls, RDFS.label)) == {rdflib.Literal("試料")}
 
 
-def test_mapping_ir_conflicting_subject_labels_fall_back_to_the_local_name() -> None:
-    """食い違えば今のまま（ローカル名）——項目の label と同じ扱い。"""
+def test_mapping_ir_conflicting_subject_labels_first_one_wins() -> None:
+    """食い違えば最初の label（api・図と同じ規則。符号つきの名前を人に見せない）。"""
     ir = f"""
 prefixes:
   xrd: {SD}
@@ -403,7 +403,7 @@ maps:
 """
     g = project_mapping_ir(ir, STANDARD_PREFIXES)
     cls = rdflib.URIRef(SD + "Shared")
-    assert set(g.objects(cls, RDFS.label)) == {rdflib.Literal("Shared")}
+    assert set(g.objects(cls, RDFS.label)) == {rdflib.Literal("試料")}
 
 
 def test_mapping_ir_domain_single_map_emitted_multi_map_omitted() -> None:

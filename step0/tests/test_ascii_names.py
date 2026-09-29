@@ -47,3 +47,21 @@ def test_loses_words_false_for_ascii_and_greek_letters() -> None:
     # μ (Ll) / Ω (Lu) は大文字小文字の区別を持つ文字体系 — 対象外。
     assert loses_words("Resistivity (μΩ·cm)") is False
     assert loses_words("Shelf Item") is False
+
+
+def test_ascii_only_names_never_get_a_tag() -> None:
+    """英字・数字・記号だけの名前は、英字を含まなくても今までの識別子のまま。"""
+    from asterism_step0.skeleton_annotate import _ascii_map_name
+    from asterism_step0.staged_propose import _class_name, _identifier
+
+    for text in ("2024", "1", "0.5", "(1)", "", "  ", "---", "(", "_"):
+        assert len(_identifier(text)) <= 6 and not _identifier(text).endswith(name_tag(text))
+        assert not _class_name(text).endswith("_" + name_tag(text))
+        assert _ascii_map_name(text, set(), "value") == "value"
+
+
+def test_name_tag_strip_set_is_explicit_and_matches_typescript() -> None:
+    """BOM は除く・NEL と制御文字は除かない（TS 版 asciiNames.test.ts と同じ見本）。"""
+    assert name_tag("﻿温度") == name_tag("温度") == "703a58"
+    assert name_tag("温度\x85") == "ad4161"
+    assert name_tag("x\x1c") == "f562e4"
