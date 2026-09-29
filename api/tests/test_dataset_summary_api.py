@@ -173,7 +173,8 @@ def _write_registry(registry_root: Path) -> None:
     (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     (dest / "mapping.yaml").write_text(_MAPPING_YAML, encoding="utf-8")
     (dest / "mie.yaml").write_text(_MIE_YAML, encoding="utf-8")
-    # dcterms:title (§3.1 の最優先の名前解決) — 実運用ではこのファイルは
+    # dcterms:title（§3.1 の名前解決。meta.json の name が無いときに使われる）。
+    # 実運用ではこのファイルは
     # materialize/promote が投影する。ここでは優先順位そのものを検証する
     # ため直接置く（meta.json の "name" とわざと違う値にする）。
     (dest / "metadata.ttl").write_text(
@@ -213,7 +214,8 @@ def test_dataset_summary_shape_for_a_promoted_dataset(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["dataset_id"] == SEED_DATASET
-        assert body["label"] == "種苗カタログ (見本)"  # metadata.ttl の dcterms:title 優先
+        # 人が付けた表示名（meta.json の name）が、設計の段の dcterms:title より先
+        assert body["label"] == "種苗カタログ"
         assert body["origin"] == "own"
         assert body["stage"] == "promoted"
         assert body["license"] == "CC-BY-4.0"
@@ -303,4 +305,4 @@ def test_classes_schema_includes_dataset_label(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["dataset_id"] == SEED_DATASET
-        assert body["dataset_label"] == "種苗カタログ (見本)"
+        assert body["dataset_label"] == "種苗カタログ"

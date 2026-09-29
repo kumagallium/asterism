@@ -147,17 +147,9 @@ def test_resolve_dataset_label_falls_back_to_id_when_nothing_is_recorded(
     assert resolve_dataset_label(tmp_path, "seed-catalogue-aaaa") == "seed-catalogue-aaaa"
 
 
-def test_resolve_dataset_label_prefers_metadata_ttl_title_over_meta_json_name(
-    tmp_path: Path,
-) -> None:
+def _write_titles(dataset_dir: Path, dataset_id: str) -> None:
     from asterism import substrate
 
-    dataset_id = "seed-catalogue-aaaa"
-    dataset_dir = tmp_path / dataset_id
-    dataset_dir.mkdir()
-    (dataset_dir / "meta.json").write_text(
-        json.dumps({"id": dataset_id, "name": "旧い名前"}), encoding="utf-8"
-    )
     subject = substrate.dataset_iri(dataset_id)
     (dataset_dir / "metadata.ttl").write_text(
         "\n".join(
@@ -168,6 +160,31 @@ def test_resolve_dataset_label_prefers_metadata_ttl_title_over_meta_json_name(
         ),
         encoding="utf-8",
     )
+
+
+def test_resolve_dataset_label_prefers_the_name_a_person_gave_over_the_design_time_title(
+    tmp_path: Path,
+) -> None:
+    # 人が付けた表示名（公開するときの名前・あとからの改名）は meta.json に入る。
+    # 設計の段で書かれた title は、名前を付ける前のもの — 改名しても書き換わらない。
+    dataset_id = "seed-catalogue-aaaa"
+    dataset_dir = tmp_path / dataset_id
+    dataset_dir.mkdir()
+    (dataset_dir / "meta.json").write_text(
+        json.dumps({"id": dataset_id, "name": "畑の台帳"}), encoding="utf-8"
+    )
+    _write_titles(dataset_dir, dataset_id)
+    assert resolve_dataset_label(tmp_path, dataset_id) == "畑の台帳"
+
+
+def test_resolve_dataset_label_uses_the_title_when_no_name_is_recorded(
+    tmp_path: Path,
+) -> None:
+    dataset_id = "seed-catalogue-aaaa"
+    dataset_dir = tmp_path / dataset_id
+    dataset_dir.mkdir()
+    (dataset_dir / "meta.json").write_text(json.dumps({"id": dataset_id}), encoding="utf-8")
+    _write_titles(dataset_dir, dataset_id)
     assert resolve_dataset_label(tmp_path, dataset_id) == "種苗カタログ"
 
 
