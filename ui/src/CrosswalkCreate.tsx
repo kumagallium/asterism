@@ -8,15 +8,20 @@ import {
   type DiscoverCandidate,
   type DiscoverResult,
   discoverCrosswalks,
+  joinExistingConcept,
 } from './crosswalkApi'
 import {
+  alreadyLinkedDisplayName,
   askQuestionsFor,
   conceptDisplay,
   conceptSentenceLabel,
   crosswalkError,
+  existingJoinNames,
   fieldDisplay,
   flagKey,
   foldingGain,
+  joinPayloadFor,
+  partitionDiscoverCandidates,
   sameAsKey,
 } from './crosswalkLabels'
 import { uniqueCrosswalkId } from './crosswalkMint'
@@ -68,6 +73,13 @@ export function CrosswalkCreate({
   const [name, setName] = useState('')
   const [buildErr, setBuildErr] = useState('')
   const [built, setBuilt] = useState<BuildResult | null>(null)
+  // R6: 「このつながりに足す」は確認画面を挟まない — 合流先（perspective_id・
+  // concept）はもう discover が決めているので、押した瞬間に足す。カードごとの
+  // 進行中／失敗だけを覚える。
+  const [joiningId, setJoiningId] = useState<string | null>(null)
+  const [joinErr, setJoinErr] = useState<{ id: string; message: string } | null>(null)
+  // 完了の画面の見出しを「作った」と「足した」で言い分ける。
+  const [joined, setJoined] = useState(false)
   const job = useRef<JobHandle | null>(null)
   const gone = useRef(false)
 
@@ -127,10 +139,45 @@ export function CrosswalkCreate({
   }
 
   const existingIds = perspectives.map((p) => p.perspective_id)
-  const candidates = (result?.candidates ?? [])
+  const scannedCandidates = (result?.candidates ?? [])
     .filter((c) => (c.participants?.length ?? 0) >= 2)
     .sort((a, b) => b.matched - a.matched)
+  // R7: 足せるものが無い（already_linked）候補はカードに出さない — 一覧の下に
+  // 件数と名前だけ添える。
+  const { visible: candidates, alreadyLinked } = partitionDiscoverCandidates(scannedCandidates)
   const scanned = result?.scanned
+
+  /** R6: 既にあるつながりに、まだ参加していないデータセットだけを足す。合流先の
+   * 判定は discover 側 (`match_existing`) が済ませているので、ここは足すだけ。 */
+  async function joinCandidate(c: DiscoverCandidate) {
+    if (!c.existing) return
+    setJoiningId(c.id)
+    setJoinErr(null)
+    try {
+      const res = await joinExistingConcept(
+        c.existing.perspective_id,
+        c.existing.concept,
+        joinPayloadFor(c),
+      )
+      onBuilt(c.existing.perspective_id)
+      if (res.participants_added.length === 0) {
+        // 足すものがもう無かった（別の画面や自動のつなぎが先に足した）— 候補を
+        // 読み直して、いまの状態（すでにつながっている組）を見せる。
+        rescan()
+        return
+      }
+      // 押したあと候補の一覧のままだと、足せたのかどうかが伝わらない —
+      // 「これでつなぐ」と同じ完了の画面へ進む。
+      setPicked(c)
+      setBuilt(res)
+      setJoined(true)
+      setPhase('done')
+    } catch (e) {
+      setJoinErr({ id: c.id, message: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setJoiningId(null)
+    }
+  }
 
   /** What this candidate connects on, in words — the label when there is one, else
    * "the value found in both". The ascii key never reaches the screen. */
@@ -164,6 +211,7 @@ export function CrosswalkCreate({
       // (`buildCrosswalk`) overwrites the legacy default one — never reachable here.
       const id = uniqueCrosswalkId(picked.perspective_id, existingIds)
       setBuilt(await buildPerspective(id, picked.build_config, name.trim() || picked.name))
+      setJoined(false)
       setPhase('done')
       onBuilt(id)
     } catch (e) {
@@ -209,7 +257,9 @@ export function CrosswalkCreate({
     return (
       <div className="xw-create">
         <section className="kz-card kz-done">
-          <h3 className="kz-done-title">✓ {t('crosswalk:create.done.title')}</h3>
+          <h3 className="kz-done-title">
+            ✓ {t(joined ? 'crosswalk:create.done.joinedTitle' : 'crosswalk:create.done.title')}
+          </h3>
           <p className="kz-note">
             <Trans
               i18nKey="crosswalk:create.done.stat"
@@ -447,10 +497,11 @@ export function CrosswalkCreate({
         </div>
       )}
 
-      {/* Nothing overlapped. The next step that actually helps is MORE data — the
-          manual form asks for a concept key, a normalizer and a name, which is the
-          detail tier, so it stays available but stops being the recommended move. */}
-      {!scanErr && !tooFew && candidates.length === 0 && (
+      {/* Nothing overlapped AT ALL (not even something already fully linked). The
+          next step that actually helps is MORE data — the manual form asks for a
+          concept key, a normalizer and a name, which is the detail tier, so it
+          stays available but stops being the recommended move. */}
+      {!scanErr && !tooFew && scannedCandidates.length === 0 && (
         <div className="state-block">
           <p className="state-title">{t('crosswalk:create.none.title')}</p>
           <p className="state-sub">{t('crosswalk:create.none.sub')}</p>
@@ -478,6 +529,9 @@ export function CrosswalkCreate({
               candidate={c}
               onPick={() => pick(c)}
               onAdjust={() => onOpenManual(c)}
+              onJoin={c.existing ? () => joinCandidate(c) : undefined}
+              joining={joiningId === c.id}
+              joinError={joinErr?.id === c.id ? joinErr.message : undefined}
             />
           ))}
         </div>
@@ -491,10 +545,24 @@ export function CrosswalkCreate({
         </p>
       )}
 
-      {/* Only when there are candidates: every other state carries its own single
-          primary action, and a second "choose the combination myself" underneath it
-          made two identical buttons compete on one screen. */}
-      {candidates.length > 0 && (
+      {/* R7: 足せるものが無い組み合わせは候補に出さない代わりに、件数と名前だけ
+          ここに添える — 静かに消すのではなく、見えるところに残す。 */}
+      {alreadyLinked.length > 0 && (
+        <p className="xw-hint-inline">
+          {t('crosswalk:create.alreadyLinked.line', {
+            count: alreadyLinked.length,
+            names: alreadyLinked
+              .map((c) => alreadyLinkedDisplayName(c, perspectives, t('crosswalk:create.sharedValueLabel')))
+              .join(t('crosswalk:create.confirm.join')),
+          })}
+        </p>
+      )}
+
+      {/* Only when something was found (even if every one of them is already fully
+          linked): every other state carries its own single primary action, and a
+          second "choose the combination myself" underneath it made two identical
+          buttons compete on one screen. */}
+      {scannedCandidates.length > 0 && (
         <div className="kz-actions">
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => onOpenManual()}>
             {t('crosswalk:create.bandManual')}
@@ -513,14 +581,23 @@ function CandidateCard({
   candidate,
   onPick,
   onAdjust,
+  onJoin,
+  joining,
+  joinError,
 }: {
   candidate: DiscoverCandidate
   onPick: () => void
   onAdjust: () => void
+  /** Present when this candidate's slots overlap an already-built concept with room
+   * to add — R7's "このつながりに足す" path (calls R6's join API directly). */
+  onJoin?: () => void
+  joining?: boolean
+  joinError?: string
 }) {
   const { t } = useTranslation()
   const gain = foldingGain(candidate)
   const examples = candidate.samples.slice(0, 5)
+  const joinNames = existingJoinNames(candidate)
   return (
     <div className="xw-cand-card">
       <div className="xw-cand-head">
@@ -531,6 +608,21 @@ function CandidateCard({
           {t('crosswalk:create.card.count', { count: candidate.matched })}
         </span>
       </div>
+
+      {/* R7: 合流先がある候補は、それを分かるところで言う（新しい印は作らず、
+          auto_linked と同じ印の class を使う）+ 誰がもうつながっていて誰を足せる
+          かの 1 文。 */}
+      {joinNames && (
+        <>
+          <span className="xw-auto-linked-mark">{t('crosswalk:create.joinable.badge')}</span>
+          <p className="xw-cand-note">
+            {t('crosswalk:create.joinable.sentence', {
+              linked: joinNames.linked,
+              added: joinNames.added,
+            })}
+          </p>
+        </>
+      )}
 
       {/* K23: つながりは 3 つの事実の組（どのデータ同士が／どの値で／何を同じと
           みなして）。散らして置くと読み手が組み立て直すことになるので、同じ順で
@@ -592,10 +684,25 @@ function CandidateCard({
           ),
       )}
 
+      {joinError && (
+        <p className="xw-cand-caution">⚠ {t(crosswalkError(joinError).title)}</p>
+      )}
+
       <div className="xw-cand-actions">
-        <button type="button" className="xw-cand-pick" onClick={onPick}>
-          {t('crosswalk:create.card.pick')}
-        </button>
+        {onJoin ? (
+          <button
+            type="button"
+            className="xw-cand-pick"
+            disabled={joining}
+            onClick={onJoin}
+          >
+            {joining ? t('crosswalk:create.joinable.joining') : t('crosswalk:create.joinable.join')}
+          </button>
+        ) : (
+          <button type="button" className="xw-cand-pick" onClick={onPick}>
+            {t('crosswalk:create.card.pick')}
+          </button>
+        )}
         <button type="button" className="btn btn--ghost btn--sm" onClick={onAdjust}>
           {t('crosswalk:create.card.adjust')}
         </button>

@@ -171,7 +171,9 @@ async def test_no_candidates(tmp_path: Path) -> None:
 
     seen_only_slots: dict = {}
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         seen_only_slots.update(only_slots or {})
         assert {d.dataset_id for d in datasets} == {a, b}
         return {"candidates": []}
@@ -192,7 +194,9 @@ async def test_new_perspective_created(tmp_path: Path) -> None:
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         return {
             "candidates": [
                 _candidate(
@@ -263,7 +267,9 @@ async def test_existing_perspective_gets_missing_participant_only(tmp_path: Path
         root, existing_config, outcome, perspective_id=perspective_id, name=name
     )
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         return {
             "candidates": [_candidate(perspective_id, name, [_participant(a), _participant(b)])]
         }
@@ -297,7 +303,9 @@ async def test_same_dataset_second_slot_not_added(tmp_path: Path) -> None:
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         return {
             "candidates": [
                 _candidate(
@@ -330,7 +338,9 @@ async def test_second_promote_is_idempotent(tmp_path: Path) -> None:
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         return {
             "candidates": [
                 _candidate(perspective_id, "shared code", [_participant(a), _participant(b)])
@@ -363,6 +373,73 @@ async def test_exception_is_swallowed_and_reported_as_error(tmp_path: Path) -> N
 
     assert report["linked"] == []
     assert report["skipped"] == [{"reason": "error", "dataset_id": a}]
+
+
+# ---------------------------------------------------------------------------
+# D2-5（契約 contract_d2_discover_existing.md）: 「0 の 2」回帰を、本物の
+# discover + 実ストアで ``maybe_autolink_handles`` を 2 回通す形で確かめる。
+# ---------------------------------------------------------------------------
+
+
+def _seed_triples(
+    client: _DatasetClient, dataset_id: str, predicate: str, class_iri: str, values: list[str]
+) -> None:
+    """公開済みデータセットの実データ（rdf:type + 述語の値）を、``discover``
+    が実際に SPARQL で読む形で登録する（``_seed_promoted`` と同じ流儀）。"""
+    key = substrate.canonical_graph_iri(dataset_id)
+    g = client.ds.graph(rdflib.URIRef(key))
+    for i, value in enumerate(values):
+        subject = rdflib.URIRef(f"{key}#e{i}")
+        g.add((subject, rdflib.RDF.type, rdflib.URIRef(class_iri)))
+        g.add((subject, rdflib.URIRef(predicate), rdflib.Literal(value)))
+    client.ds.update(
+        f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
+        f'<{key}> <{substrate.STATUS_PREDICATE}> "{substrate.STATUS_PROMOTED}" }} }}'
+    )
+
+
+@pytest.mark.asyncio
+async def test_two_meaning_different_pairs_do_not_merge_across_two_real_promotes(
+    tmp_path: Path,
+) -> None:
+    """API 版の「0 の 2」回帰: 本物の discover（差し替えなし）+ 実ストアで
+    ``maybe_autolink_handles`` を 2 回通す。A・B が先に自動でつながった状態で
+    C・D を公開しても、A・B のつながりに C・D が混ざらず、別のつながりができる
+    （C・D の方が値の重なりが多く、点が高くなる向きにする — たまたま順位が
+    上の候補が既存の名前/id を奪って混線する事故の形）。"""
+    root = tmp_path / "registry"
+    root.mkdir()
+    pred = PRED_TITLE
+    a = _make_dataset(root, "food-a", has_handle=True, predicate=pred, source="csv1", column="c")
+    b = _make_dataset(root, "food-b", has_handle=True, predicate=pred, source="csv1", column="c")
+
+    client = _DatasetClient()
+    _seed_triples(client, a, pred, CLASS_BOOK, ["apple", "banana"])
+    _seed_triples(client, b, pred, CLASS_BOOK, ["apple", "banana"])
+
+    first = await autolink.maybe_autolink_handles(client, root, a)
+    assert len(first["linked"]) == 1
+    ab_perspective = first["linked"][0]["perspective_id"]
+
+    c = _make_dataset(root, "shop-c", has_handle=True, predicate=pred, source="csv1", column="c")
+    d = _make_dataset(root, "shop-d", has_handle=True, predicate=pred, source="csv1", column="c")
+    shop_values = [f"shop-{i}" for i in range(20)]
+    _seed_triples(client, c, pred, CLASS_BOOK, shop_values)
+    _seed_triples(client, d, pred, CLASS_BOOK, shop_values)
+
+    second = await autolink.maybe_autolink_handles(client, root, c)
+
+    assert len(second["linked"]) == 1
+    cd_perspective = second["linked"][0]["perspective_id"]
+    assert cd_perspective != ab_perspective
+
+    ab_config = crosswalk_runtime.load_config(root, ab_perspective)
+    assert ab_config is not None
+    assert {p.dataset_id for p in ab_config.concepts[0].participants} == {a, b}
+
+    cd_config = crosswalk_runtime.load_config(root, cd_perspective)
+    assert cd_config is not None
+    assert {p.dataset_id for p in cd_config.concepts[0].participants} == {c, d}
 
 
 # ---------------------------------------------------------------------------
@@ -437,7 +514,9 @@ async def test_new_perspective_created_with_label_resolvers_writes_the_resolved_
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         return {
             "candidates": [
                 _candidate(perspective_id, "shared code", [_participant(a), _participant(b)])
@@ -491,7 +570,9 @@ async def test_fake_build_is_never_given_label_resolvers(tmp_path: Path) -> None
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
         return {
             "candidates": [
                 _candidate(perspective_id, "shared code", [_participant(a), _participant(b)])

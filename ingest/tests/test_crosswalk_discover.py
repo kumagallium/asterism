@@ -18,6 +18,7 @@ from asterism import substrate
 from asterism.crosswalk_discover import (
     DiscoverDataset,
     DiscoverLimits,
+    ExistingConcept,
     Slot,
     choose_normalizer,
     classify_predicate,
@@ -26,6 +27,7 @@ from asterism.crosswalk_discover import (
     derive_concept_name,
     discover,
     filter_values,
+    match_existing,
     perspective_id_for,
     pick_samples,
     score_candidate,
@@ -243,6 +245,108 @@ def test_concept_terms_and_perspective_id_follow_the_mint_rule() -> None:
     assert cls.endswith("#CrystalSystem")
     assert link.endswith("#hasCrystalSystem")
     assert perspective_id_for("crystal_system") == "crystal-system"
+
+
+# ---------------------------------------------------------------------------
+# Pure: matching a candidate against what already exists (契約 d, R1/R2)
+# ---------------------------------------------------------------------------
+
+
+def _existing(
+    perspective_id: str,
+    name: str,
+    slots: frozenset,
+    dataset_ids: frozenset = frozenset(),
+) -> ExistingConcept:
+    return ExistingConcept(
+        perspective_id=perspective_id,
+        name=name,
+        class_iri=f"{NS}{name}",
+        link_predicate=f"{NS}has_{name}",
+        slots=slots,
+        dataset_ids=dataset_ids or frozenset(ds for ds, _, _ in slots),
+    )
+
+
+def test_match_existing_finds_the_fully_overlapping_concept() -> None:
+    cand = [("a", f"{NS}comp", None), ("b", f"{NS}formula", None)]
+    ex = _existing("p1", "composition", frozenset(cand))
+    assert match_existing(cand, [ex]) is ex
+
+
+def test_match_existing_finds_a_partial_overlap_that_can_still_be_joined() -> None:
+    # Only one of the candidate's two slots is already in the existing concept — the
+    # other dataset can still be ADDED (R4's "new"), but the join target is the same.
+    cand = [("a", f"{NS}comp", None), ("c", f"{NS}formula", None)]
+    ex = _existing("p1", "composition", frozenset({("a", f"{NS}comp", None)}))
+    assert match_existing(cand, [ex]) is ex
+
+
+def test_match_existing_returns_none_when_nothing_overlaps() -> None:
+    cand = [("a", f"{NS}comp", None), ("b", f"{NS}formula", None)]
+    ex = _existing("p1", "unit", frozenset({("z", f"{NS}unit", None)}))
+    assert match_existing(cand, [ex]) is None
+
+
+def test_match_existing_matches_regardless_of_candidate_kind_when_existing_side_has_none() -> None:
+    # R1: two slots are the same slot when subject_class agrees OR the EXISTING side
+    # has none — a legacy/untyped participant still claims the whole predicate.
+    cand = [("a", f"{NS}comp", f"{NS}Composition")]
+    ex = _existing("p1", "composition", frozenset({("a", f"{NS}comp", None)}))
+    assert match_existing(cand, [ex]) is ex
+
+
+def test_match_existing_does_not_match_when_the_candidate_side_has_no_kind_but_existing_does() -> (
+    None
+):
+    cand = [("a", f"{NS}comp", None)]
+    ex = _existing("p1", "composition", frozenset({("a", f"{NS}comp", f"{NS}Composition")}))
+    assert match_existing(cand, [ex]) is None
+
+
+def test_match_existing_ignores_a_compound_key_concept() -> None:
+    # R1: a candidate is always a single predicate, so it can never match a compound
+    # key — the caller that builds ExistingConcept leaves ``slots`` empty for those.
+    cand = [("a", f"{NS}comp", None)]
+    ex = _existing("p1", "composition", frozenset())
+    assert match_existing(cand, [ex]) is None
+
+
+def test_match_existing_picks_the_concept_sharing_the_most_slots() -> None:
+    cand = [("a", f"{NS}comp", None), ("b", f"{NS}formula", None), ("c", f"{NS}form", None)]
+    weak = _existing("p-weak", "z", frozenset({("a", f"{NS}comp", None)}))
+    strong = _existing(
+        "p-strong",
+        "composition",
+        frozenset({("a", f"{NS}comp", None), ("b", f"{NS}formula", None)}),
+    )
+    assert match_existing(cand, [weak, strong]) is strong
+
+
+def test_match_existing_breaks_ties_by_perspective_id_then_name() -> None:
+    cand = [("a", f"{NS}comp", None)]
+    one = _existing("p-a", "b-name", frozenset({("a", f"{NS}comp", None)}))
+    two = _existing("p-a", "a-name", frozenset({("a", f"{NS}comp", None)}))
+    three = _existing("p-b", "z-name", frozenset({("a", f"{NS}comp", None)}))
+    # Same perspective_id ("p-a") for two concepts: name breaks the tie.
+    assert match_existing(cand, [one, two, three]) is two
+
+
+# ---------------------------------------------------------------------------
+# Pure: R3 — a fresh candidate avoids every already-used name AND perspective id
+# ---------------------------------------------------------------------------
+
+
+def test_derive_concept_name_avoids_names_already_taken_when_passed_explicitly() -> None:
+    # discover() is the one that folds existing names/ids into `taken`; this proves
+    # derive_concept_name itself just needs them in the set it is handed.
+    avoid = {"composition", "crystal_system"}
+    assert derive_concept_name([f"{NS}composition"], taken=avoid, rank=0) == "composition_2"
+
+
+def test_none_existing_leaves_naming_untouched() -> None:
+    # R5: existing=None must not change a single byte of today's naming.
+    assert derive_concept_name([f"{NS}composition"], taken=[], rank=0) == "composition"
 
 
 def test_samples_show_the_disagreeing_spellings_first() -> None:
@@ -711,3 +815,228 @@ async def test_discovered_candidate_config_parses_as_a_crosswalk_config() -> Non
     config = parse_config(result["candidates"][0]["build_config"])
     assert [p.dataset_id for p in config.concepts[0].participants] == ["ds-a", "ds-b"]
     assert config.concepts[0].normalizer == result["candidates"][0]["normalizer"]
+
+
+# ---------------------------------------------------------------------------
+# ``existing`` (契約 d): candidates get checked against what is already built
+# ---------------------------------------------------------------------------
+
+
+async def test_discover_marks_a_fully_joined_candidate_as_already_linked() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe"])
+    existing = [
+        ExistingConcept(
+            perspective_id="composition",
+            name="composition",
+            class_iri=f"{NS}Composition",
+            link_predicate=f"{NS}hasComposition",
+            slots=frozenset({("ds-a", f"{NS}comp", None), ("ds-b", f"{NS}formula", None)}),
+            dataset_ids=frozenset({"ds-a", "ds-b"}),
+        )
+    ]
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=existing)
+
+    cand = result["candidates"][0]
+    assert cand["perspective_id"] == "composition"
+    assert cand["concept"] == "composition"
+    assert cand["existing"]["already_linked"] is True
+    assert cand["existing"]["new"] == []
+    assert result["scanned"]["already_linked"] == 1
+
+
+async def test_discover_marks_a_partially_joined_candidate_with_what_can_be_added() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-c", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    existing = [
+        ExistingConcept(
+            perspective_id="composition",
+            name="composition",
+            class_iri=f"{NS}Composition",
+            link_predicate=f"{NS}hasComposition",
+            slots=frozenset({("ds-a", f"{NS}comp", None), ("ds-b", f"{NS}formula", None)}),
+            dataset_ids=frozenset({"ds-a", "ds-b"}),
+        )
+    ]
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b", "ds-c"), existing=existing)
+
+    cand = result["candidates"][0]
+    assert cand["existing"]["already_linked"] is False
+    assert [p["dataset_id"] for p in cand["existing"]["new"]] == ["ds-c"]
+    assert {p["dataset_id"] for p in cand["existing"]["linked"]} == {"ds-a", "ds-b"}
+    assert result["scanned"]["already_linked"] == 0
+
+
+async def test_discover_a_candidate_that_matches_nothing_carries_no_existing_key() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe"])
+    existing = [
+        ExistingConcept(
+            perspective_id="unit",
+            name="unit",
+            class_iri=f"{NS}Unit",
+            link_predicate=f"{NS}hasUnit",
+            slots=frozenset({("ds-z", f"{NS}unit", None)}),
+            dataset_ids=frozenset({"ds-z"}),
+        )
+    ]
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=existing)
+
+    assert "existing" not in result["candidates"][0]
+
+
+async def test_existing_none_leaves_discover_byte_for_byte_unchanged() -> None:
+    # R5's own invariant, exercised through the whole scan: the candidate's shape
+    # (keys present) must be identical whether ``existing`` is omitted or ``None``.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe"])
+
+    without_kw = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+    with_none = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=None)
+
+    assert without_kw == with_none
+    assert "existing" not in without_kw["candidates"][0]
+    # D2-3: existing=None must leave `scanned` byte for byte unchanged too — the
+    # key is only added when a caller opts in (even with an empty list).
+    assert "already_linked" not in without_kw["scanned"]
+
+
+async def test_discover_0_of_2_does_not_merge_two_meaning_different_pairs() -> None:
+    """0 の 2 の再現（契約メモ §3）: 述語の名前が同じで意味の違う 2 組。A・B の
+    つながりがある状態で C・D を足しても、A・B のつながりに C・D が入らず、別の
+    つながりができる。C・D の方が点が高い向き（値の重なりが多い）で確かめる —
+    「たまたま順位が上」の候補が既存の名前を奪って混線する事故の形。"""
+    store = rdflib.Dataset()
+    # A・B: 「食べものの名前」。名前は同じ述語 `name`（他多くのデータと同じ）だが
+    # 意味は違う — わざと重なりを少なくして、点が低くなるようにする。
+    _seed(store, "ds-a", f"{NS}name", ["apple", "banana"])
+    _seed(store, "ds-b", f"{NS}name", ["apple", "banana"])
+    # C・D: 「店の名前」。同じ述語 `name` だが別の意味 — 重なりを多くして、
+    # C・D の方が高得点になる向きにする（0 の 2 の再現条件）。
+    _seed(
+        store,
+        "ds-c",
+        f"{NS}name",
+        [f"shop-{i}" for i in range(20)],
+    )
+    _seed(
+        store,
+        "ds-d",
+        f"{NS}name",
+        [f"shop-{i}" for i in range(20)],
+    )
+
+    limits = DiscoverLimits(min_shared_keys=1)
+
+    # A・B が先に「つながり」として存在する状態（perspective_id は derive の結果
+    # そのまま = "name"、predicate の名前がそのまま concept 名になる場合）。
+    first = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), limits=limits)
+    ab_candidate = first["candidates"][0]
+    ab_pid = ab_candidate["perspective_id"]
+    ab_name = ab_candidate["concept"]
+    existing = [
+        ExistingConcept(
+            perspective_id=ab_pid,
+            name=ab_name,
+            class_iri=ab_candidate["class_iri"],
+            link_predicate=ab_candidate["link_predicate"],
+            slots=frozenset(
+                {
+                    ("ds-a", f"{NS}name", None),
+                    ("ds-b", f"{NS}name", None),
+                }
+            ),
+            dataset_ids=frozenset({"ds-a", "ds-b"}),
+        )
+    ]
+
+    # 全4データセットを一度に scan（C・D の方が重なりが多く、順位が入れ替わる）。
+    second = await discover(
+        _DatasetClient(store), _ds("ds-a", "ds-b", "ds-c", "ds-d"), limits=limits, existing=existing
+    )
+
+    candidates = second["candidates"]
+    assert len(candidates) == 2
+    ab_out = next(
+        c for c in candidates if {p["dataset_id"] for p in c["participants"]} == {"ds-a", "ds-b"}
+    )
+    cd_out = next(
+        c for c in candidates if {p["dataset_id"] for p in c["participants"]} == {"ds-c", "ds-d"}
+    )
+
+    # A・B は既存の合流先に一致（同じ perspective_id / concept 名）。
+    assert ab_out["perspective_id"] == ab_pid
+    assert ab_out["concept"] == ab_name
+    # C・D は別の合流先: 既存の perspective_id / 名前のどちらも奪わない。
+    assert cd_out["perspective_id"] != ab_pid
+    assert cd_out["concept"] != ab_name
+
+
+# ---------------------------------------------------------------------------
+# D2-2 (契約 contract_d2_discover_existing.md): reserved_ids — 読めない config
+# の perspective も id だけは避ける
+# ---------------------------------------------------------------------------
+
+
+async def test_reserved_ids_are_avoided_even_with_no_matching_concept() -> None:
+    """`existing` に concept が 1 つも無くても、`reserved_ids` にある id は
+    合流先なしの候補の perspective_id として選ばれない。"""
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(
+        _DatasetClient(store),
+        _ds("ds-a", "ds-b"),
+        existing=[],
+        reserved_ids=frozenset({"composition"}),
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["perspective_id"] != "composition"
+    assert "existing" not in candidate
+
+
+async def test_reserved_ids_none_leaves_naming_untouched() -> None:
+    # R5/D2-2 と同じ不変条件: reserved_ids=None は今の挙動を1バイトも変えない。
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    without_kw = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+    with_none = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), reserved_ids=None)
+
+    assert without_kw == with_none
+
+
+# ---------------------------------------------------------------------------
+# D2-3: existing=None と existing=[] は scanned.already_linked の有無で区別する
+# ---------------------------------------------------------------------------
+
+
+async def test_already_linked_key_absent_when_existing_is_none() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=None)
+
+    assert "already_linked" not in result["scanned"]
+
+
+async def test_already_linked_key_present_and_zero_when_existing_is_an_empty_list() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=[])
+
+    assert result["scanned"]["already_linked"] == 0

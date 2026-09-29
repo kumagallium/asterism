@@ -971,3 +971,147 @@ def test_predicate_labels_stay_silent_when_one_predicate_has_two_labels(
     assert "http://www.w3.org/2000/01/rdf-schema#label" not in labels
     # 一意な述語は従来どおり設計のラベルを名乗る
     assert labels["https://kumagallium.github.io/asterism/x/ontology#comp"] == "試料組成"
+
+
+# ---------------------------------------------------------------------------
+# 契約 contract_d_discover_existing.md: 候補と既存のつながりを、参加者で
+# 突き合わせる（R2〜R4 discover 側、R6 join エンドポイント）
+# ---------------------------------------------------------------------------
+
+
+def test_discover_marks_an_already_built_pair_as_already_linked(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3"), ("urn:a2", "PbTe")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3"), ("urn:b2", "PbTe")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        first = _discover(client)["candidates"][0]
+        client.post(
+            f"/api/crosswalk/{first['perspective_id']}/build",
+            json={"config": first["build_config"], "name": first["name"]},
+        )
+        again = _discover(client)["candidates"][0]
+
+    assert again["existing"]["already_linked"] is True
+    assert again["existing"]["new"] == []
+
+
+def test_discover_a_third_dataset_shows_up_as_new_on_an_existing_pair(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3"), ("urn:a2", "PbTe")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3"), ("urn:b2", "PbTe")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        first = _discover(client)["candidates"][0]
+        client.post(
+            f"/api/crosswalk/{first['perspective_id']}/build",
+            json={"config": first["build_config"], "name": first["name"]},
+        )
+        # 3 つ目のデータセットを追加してから再スキャン。
+        _seed_promoted(ds, root, "ds-c", [("urn:c1", "Bi2Te3"), ("urn:c2", "PbTe")])
+        again = _discover(client)["candidates"][0]
+
+    assert again["existing"]["already_linked"] is False
+    assert [p["dataset_id"] for p in again["existing"]["new"]] == ["ds-c"]
+    assert {p["dataset_id"] for p in again["existing"]["linked"]} == {"ds-a", "ds-b"}
+
+
+# --- POST /api/crosswalks/{perspective_id}/join (R6) ------------------------
+
+
+def test_join_adds_a_new_participant_to_an_existing_concept(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    _seed_promoted(ds, root, "ds-c", [("urn:c1", "Bi2Te3")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "結晶構造"},
+        )
+        assert r.status_code == 200, r.text
+
+        j = client.post(
+            "/api/crosswalks/crystal/join",
+            json={
+                "concept": "composition",
+                "participants": [{"dataset_id": "ds-c", "label": "ds-c", "predicate": PRED}],
+            },
+        )
+        assert j.status_code == 200, j.text
+        body = j.json()
+        assert body["participants_added"] == [{"dataset_id": "ds-c", "predicate": PRED}]
+        assert body["perspective_id"] == "crystal"
+
+        cfg = client.get("/api/crosswalk/crystal").json()["config"]
+        assert {p["dataset_id"] for p in cfg["concepts"][0]["participants"]} == {
+            "ds-a",
+            "ds-b",
+            "ds-c",
+        }
+
+
+def test_join_with_nothing_to_add_returns_empty_list(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "結晶構造"},
+        )
+        j = client.post(
+            "/api/crosswalks/crystal/join",
+            json={
+                "concept": "composition",
+                "participants": [{"dataset_id": "ds-a", "label": "ds-a", "predicate": PRED}],
+            },
+        )
+        assert j.status_code == 200, j.text
+        assert j.json() == {"perspective_id": "crystal", "participants_added": []}
+
+
+def test_join_404_when_perspective_is_missing(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        j = client.post(
+            "/api/crosswalks/no-such/join",
+            json={"concept": "composition", "participants": []},
+        )
+        assert j.status_code == 404
+
+
+def test_join_404_when_concept_is_missing(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "結晶構造"},
+        )
+        j = client.post(
+            "/api/crosswalks/crystal/join",
+            json={"concept": "no-such-concept", "participants": []},
+        )
+        assert j.status_code == 404
+
+
+def test_join_requires_write_auth(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app) as client:
+        j = client.post(
+            "/api/crosswalks/crystal/join",
+            json={"concept": "composition", "participants": []},
+        )
+        assert j.status_code in (401, 403)

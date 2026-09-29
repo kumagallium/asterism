@@ -144,6 +144,7 @@ from pydantic import BaseModel, Field
 from asterism_api import (
     appdata,
     autolink,
+    crosswalk_existing,
     crosswalk_names,
     design_loop,
     exchange,
@@ -499,6 +500,24 @@ class CrosswalkDiscoverBody(BaseModel):
     max_values_per_predicate: int = Field(2000, ge=50, le=20000)
     min_shared_keys: int = Field(2, ge=1, le=1000)
     max_candidates: int = Field(12, ge=1, le=50)
+
+
+class CrosswalkJoinParticipant(BaseModel):
+    """R6 (契約 contract_d_discover_existing.md): 既存のつながりに足す 1 参加者。"""
+
+    dataset_id: str
+    label: str = ""
+    predicate: str
+    subject_class: str | None = None
+
+
+class CrosswalkJoinBody(BaseModel):
+    """Body for POST /api/crosswalks/{perspective_id}/join — 既にある concept に、
+    まだ参加していないデータセットを足す（合流先は「候補と既存のつながりを、
+    参加者で突き合わせる」R2/R6 で決まったもの。ここは足すだけ）。"""
+
+    concept: str
+    participants: list[CrosswalkJoinParticipant] = []
 
 
 class CrosswalkAlignBody(BaseModel):
@@ -9245,12 +9264,9 @@ def build_app(
             cfg.registry_root, body.dataset_ids, body.max_datasets
         )
         client: OxigraphClient = app.state.client
-        existing_perspectives = {
-            meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
-            for meta in crosswalk_runtime.list_perspectives(cfg.registry_root)
-        }
 
         label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
+        existing = crosswalk_existing.load_existing_concepts(cfg.registry_root)
 
         async def discover_job(emit, should_cancel):
             result = await crosswalk_discover.discover(
@@ -9264,11 +9280,13 @@ def build_app(
                 predicate_label_of=label_of,
                 field_label_of=field_label_of,
                 class_label_of=class_label_of,
+                existing=existing.concepts,
+                reserved_ids=existing.perspective_ids,
             )
             # Building a candidate whose id already exists REPLACES that crosswalk —
             # the UI has to be able to warn before that happens.
             for cand in result["candidates"]:
-                cand["perspective_exists"] = cand["perspective_id"] in existing_perspectives
+                cand["perspective_exists"] = cand["perspective_id"] in existing.perspective_ids
             return result
 
         job_manager: JobManager = app.state.jobs
@@ -9610,6 +9628,66 @@ def build_app(
         await crosswalk_runtime.remove_hub(client, pid)
         await asyncio.to_thread(registry.delete_dataset, cfg.registry_root, rid)
         return JSONResponse({"deleted": True, "perspective_id": pid, "dataset_id": rid})
+
+    @app.post("/api/crosswalks/{perspective_id}/join", dependencies=_write_auth)
+    async def crosswalk_join(perspective_id: str, body: CrosswalkJoinBody) -> JSONResponse:
+        """R6 (契約 contract_d_discover_existing.md): 既にある concept に、まだ
+        参加していないデータセットを足す。合流先そのものの判定は discover 側
+        （R2 ``match_existing``）が決めており、ここは「足す」だけ — 自動でつな
+        ぐ側（``autolink._amend_concept``）と同じ手順
+        （``autolink.join_participants``）を共有する。
+
+        perspective か concept が無ければ 404。足すものが無ければ 200 で
+        ``participants_added: []``（build も rebuild もしない）。返り値は
+        ``/api/crosswalk/{id}/build`` と同じ形 + ``participants_added``（UI が
+        同じ後処理を使えるように）。
+        """
+        pid = _validated_perspective_id(perspective_id)
+        config = crosswalk_runtime.load_config(cfg.registry_root, pid)
+        if config is None:
+            raise HTTPException(404, f"crosswalk perspective {pid!r} not found")
+        result = autolink.join_participants(
+            config, body.concept, [p.model_dump() for p in body.participants]
+        )
+        if result is None:
+            raise HTTPException(404, f"concept {body.concept!r} not found in perspective {pid!r}")
+        new_config, added = result
+        if not added:
+            return JSONResponse({"perspective_id": pid, "participants_added": []})
+        client: OxigraphClient = app.state.client
+        crosswalk_runtime.save_config(cfg.registry_root, new_config, pid)
+        try:
+            outcome = await crosswalk_runtime.build_hub(
+                client,
+                new_config,
+                built_at=datetime.now(UTC).isoformat(),
+                perspective_id=pid,
+                concept_labels=_concept_labels_for_config(cfg.registry_root, new_config),
+            )
+        except Exception as exc:  # surface a build error to the UI
+            raise HTTPException(502, f"crosswalk build failed: {exc}") from exc
+        meta = crosswalk_runtime.write_registry_scaffold(
+            cfg.registry_root, new_config, outcome, perspective_id=pid
+        )
+        # 足した参加者で表示名が変わりうる — 機械が付けた名前は書き直す（O64）。
+        _refresh_crosswalk_auto_name(cfg.registry_root, pid)
+        meta = crosswalk_names.load_perspective_meta(cfg.registry_root, pid) or meta
+        return JSONResponse(
+            {
+                "perspective_id": pid,
+                "dataset_id": meta["id"],
+                "hub_graph": outcome.hub_graph,
+                "built_at": outcome.built_at,
+                "triple_count": outcome.triple_count,
+                "shared": outcome.shared,
+                "shared_total": outcome.shared_total,
+                "links": outcome.links,
+                "participants_used": outcome.participants_used,
+                "participants_skipped": outcome.participants_skipped,
+                "dataset": meta,
+                "participants_added": added,
+            }
+        )
 
     @app.post("/api/sparql", dependencies=_write_auth)
     async def sparql(body: SparqlRequest) -> JSONResponse:

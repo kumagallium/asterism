@@ -4,7 +4,7 @@
 //
 // No domain dictionary here on purpose. The concept name comes from the data's own
 // column names, and the only domain words on screen are the values themselves.
-import type { DiscoverCandidate } from './crosswalkApi'
+import type { CrosswalkPerspective, DiscoverCandidate } from './crosswalkApi'
 import { plainError } from './kantan/errorMessages'
 import { localName } from './vocab'
 
@@ -123,6 +123,85 @@ export function perspectiveDisplayName(p: {
   if (given) return isRealName(given) ? given : undefined
   const name = (p.dataset?.name ?? '').trim()
   return isRealName(name) ? name : undefined
+}
+
+/** R7 (契約 contract_d_discover_existing.md): 仕分ける — 候補として出す
+ * （合流先なし、または合流先はあるが足せるものがある）か、出さず数と名前だけ
+ * 添える（`already_linked` = 足せるものが無い）か。 */
+export function partitionDiscoverCandidates<T extends { existing?: { already_linked: boolean } }>(
+  candidates: T[],
+): { visible: T[]; alreadyLinked: T[] } {
+  const visible: T[] = []
+  const alreadyLinked: T[] = []
+  for (const c of candidates) {
+    if (c.existing?.already_linked) alreadyLinked.push(c)
+    else visible.push(c)
+  }
+  return { visible, alreadyLinked }
+}
+
+/** R6: 「このつながりに足す」が呼ぶ join API の ``participants`` 本文。合流先の
+ * `existing.new`（まだ参加していないデータセット）だけを、候補自身の
+ * participants からラベル（表示名）を引いて組み立てる。``existing`` が無い候補
+ * （合流先なし）は空配列 — 呼び出し側は先に `existing` の有無を見て判断する。 */
+export function joinPayloadFor(
+  candidate: Pick<DiscoverCandidate, 'existing' | 'participants'>,
+): { dataset_id: string; label: string; predicate: string; subject_class: string | null }[] {
+  if (!candidate.existing) return []
+  return candidate.existing.new.map((slot) => {
+    const info = candidate.participants.find((p) => p.dataset_id === slot.dataset_id)
+    return {
+      dataset_id: slot.dataset_id,
+      label: info?.name ?? slot.dataset_id,
+      predicate: slot.predicate,
+      subject_class: slot.subject_class,
+    }
+  })
+}
+
+/** R7 の「A・B はすでにつながっています。C を足せます。」の A・B / C — 候補の
+ * participants からデータセットの表示名を引く。項目が無ければ `undefined`
+ * （合流先の情報が壊れている・空という、通常起きないケース）。 */
+export function existingJoinNames(
+  candidate: Pick<DiscoverCandidate, 'existing' | 'participants'>,
+): { linked: string; added: string } | undefined {
+  const existing = candidate.existing
+  if (!existing || existing.linked.length === 0 || existing.new.length === 0) return undefined
+  const nameOf = (dsid: string) =>
+    candidate.participants.find((p) => p.dataset_id === dsid)?.name ?? dsid
+  return {
+    linked: existing.linked.map((s) => nameOf(s.dataset_id)).join('・'),
+    added: existing.new.map((s) => nameOf(s.dataset_id)).join('・'),
+  }
+}
+
+/** R7/D2-4 の「すでにつながっている組み合わせ」欄に出す名前。**つながりの
+ * registry の名前（`dataset.name` — 自動でつなぐと概念のキーそのものになり
+ * 得る）と概念のキーは、この行に出さない**。順序: ①つながり自体の
+ * `display_name`（サーバが返す表示名。無い／「名前のないつながり」と同じなら
+ * 使わない）②候補の `concept_label`／参加者の `predicate_label` の一致
+ * （`conceptDisplay` と同じ規則）③どちらも無ければ件数だけの文にする
+ * （`fallback`）。 */
+export function alreadyLinkedDisplayName(
+  candidate: Pick<DiscoverCandidate, 'existing' | 'concept' | 'concept_label' | 'participants'>,
+  perspectives: Pick<CrosswalkPerspective, 'perspective_id' | 'display_name'>[],
+  fallback: string,
+): string {
+  const perspective = perspectives.find((p) => p.perspective_id === candidate.existing?.perspective_id)
+  const given = (perspective?.display_name ?? '').trim()
+  if (given && given !== SERVER_UNNAMED) return given
+  const conceptLabelGiven = (candidate.concept_label ?? '').trim()
+  if (conceptLabelGiven) return conceptLabelGiven
+  const fields = new Set(
+    candidate.participants.map((p) => (p.predicate_label ?? '').trim()).filter(Boolean),
+  )
+  if (fields.size === 1) {
+    const only = [...fields][0]
+    if (!PLACEHOLDER_KEY.test(only)) return conceptLabel(only)
+  }
+  // ④ どちらも無ければ、概念のキー（`conceptDisplay` の最終分岐）は使わず件数
+  // だけの文にする — 概念のキーは registry の名前と並ぶ「避ける識別子」。
+  return fallback
 }
 
 /** The same rule for a SAVED crosswalk's concept (a stored config has the key; the
