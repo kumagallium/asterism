@@ -491,6 +491,16 @@ async def subject_facts(
         client, property_scope, label_targets, fallback=_property_fallback
     )
     value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_fallback_label)
+    # 種類（rdf:type の値）の表示名は、データの graph には無い — 種類の名前の
+    # 読み順（model.yaml → オントロジーの rdfs:label → …）で引く。引かないと、
+    # 機械が作った公開用の名前（符号つき）を崩した語がそのまま出る。
+    type_objects = {
+        _cell(r, "o")
+        for r in rows
+        if _cell(r, "p") == _RDF_TYPE and r.get("o", {}).get("type") == "uri" and _cell(r, "o")
+    }
+    if type_objects:
+        value_labels.update(await _class_labels(client, registry_root, type_objects))  # type: ignore[arg-type]
     labels = {**value_labels, **property_labels}
 
     items: list[dict[str, Any]] = []

@@ -1682,7 +1682,16 @@ def _link_isolated_value_catalogs(
             predicate = f"{onto}:{local}2"
             if predicate in existing:
                 continue  # both candidate names taken — leave it for a person
-        record_props.append({"predicate": predicate, "object_template": cat_tpl})
+        link: dict[str, Any] = {"predicate": predicate, "object_template": cat_tpl}
+        # つなぐ先の種類に表示名があれば、つなぐ項目にも同じ言葉を付ける —
+        # 付けないと、公開用の名前（has＋種類の名前）を崩した語が項目の名前に出る。
+        cat_subject = cat_map.get("subject")
+        cat_label = (
+            str(cat_subject.get("label") or "").strip() if isinstance(cat_subject, dict) else ""
+        )
+        if cat_label:
+            link["label"] = cat_label
+        record_props.append(link)
         linked += 1
 
     if not linked:
