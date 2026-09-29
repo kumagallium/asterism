@@ -25,12 +25,12 @@ from typing import Any, Protocol
 
 from asterism import crosswalk_discover, crosswalk_runtime
 
+from asterism_api import crosswalk_existing, registry
 from asterism_api import handles as handles_mod
-from asterism_api import registry
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["maybe_autolink_handles"]
+__all__ = ["join_participants", "maybe_autolink_handles"]
 
 
 class DiscoverFn(Protocol):
@@ -77,21 +77,25 @@ def _dedupe_participants(raw_participants: list[dict]) -> list[dict]:
     return out
 
 
-def _amend_concept(
-    config: crosswalk_runtime.RuntimeCrosswalkConfig, cand_concept: dict
-) -> tuple[crosswalk_runtime.RuntimeCrosswalkConfig, list[dict]]:
-    """既存 perspective の config に、候補の participants のうちその concept に
-    まだ参加していないデータセットだけ足す。concept 自体が無ければ丸ごと足す。
+def join_participants(
+    config: crosswalk_runtime.RuntimeCrosswalkConfig,
+    concept_name: str,
+    raw_participants: list[dict],
+) -> tuple[crosswalk_runtime.RuntimeCrosswalkConfig, list[dict]] | None:
+    """R6 共通経路: ``concept_name`` の concept に、``raw_participants`` のうち
+    まだ参加していないデータセットだけ足す。この concept が config に無ければ
+    ``None``（自動でつなぐ側の「無ければ丸ごと作る」判断はここではなく
+    ``_amend_concept`` が持つ — 手で足す側の ``POST /api/crosswalks/{id}/join``
+    は concept が無ければ 404 で止まる）。
 
     戻り値は (新しい config, 実際に足した [{"dataset_id","predicate"}, ...])。
     """
-    name = str(cand_concept.get("name") or "")
-    cand_participants = _dedupe_participants(cand_concept.get("participants") or [])
+    cand_participants = _dedupe_participants(raw_participants)
     new_concepts: list[crosswalk_runtime.RuntimeConcept] = []
     found = False
     added: list[dict] = []
     for concept in config.concepts:
-        if concept.name != name:
+        if concept.name != concept_name:
             new_concepts.append(concept)
             continue
         found = True
@@ -114,18 +118,36 @@ def _amend_concept(
             added.append({"dataset_id": dsid, "predicate": predicate})
         new_concepts.append(replace(concept, participants=tuple(participants)))
     if not found:
-        concept_dict = dict(cand_concept)
-        concept_dict["participants"] = cand_participants
-        try:
-            parsed = crosswalk_runtime.parse_config({"concepts": [concept_dict]})
-        except ValueError:
-            return config, []
-        new_concepts.append(parsed.concepts[0])
-        added = [
-            {"dataset_id": p.dataset_id, "predicate": p.predicate}
-            for p in parsed.concepts[0].participants
-        ]
+        return None
     return replace(config, concepts=tuple(new_concepts)), added
+
+
+def _amend_concept(
+    config: crosswalk_runtime.RuntimeCrosswalkConfig, cand_concept: dict
+) -> tuple[crosswalk_runtime.RuntimeCrosswalkConfig, list[dict]]:
+    """既存 perspective の config に、候補の participants のうちその concept に
+    まだ参加していないデータセットだけ足す（``join_participants``、R6 共通経路）。
+    concept 自体が無ければ丸ごと足す。
+
+    戻り値は (新しい config, 実際に足した [{"dataset_id","predicate"}, ...])。
+    """
+    name = str(cand_concept.get("name") or "")
+    cand_participants = cand_concept.get("participants") or []
+    result = join_participants(config, name, cand_participants)
+    if result is not None:
+        return result
+    concept_dict = dict(cand_concept)
+    concept_dict["participants"] = _dedupe_participants(cand_participants)
+    try:
+        parsed = crosswalk_runtime.parse_config({"concepts": [concept_dict]})
+    except ValueError:
+        return config, []
+    new_concepts = (*config.concepts, parsed.concepts[0])
+    added = [
+        {"dataset_id": p.dataset_id, "predicate": p.predicate}
+        for p in parsed.concepts[0].participants
+    ]
+    return replace(config, concepts=new_concepts), added
 
 
 async def _default_build(
@@ -267,7 +289,10 @@ async def maybe_autolink_handles(
             return report
 
         limits = crosswalk_discover.DiscoverLimits(min_datasets=2, min_shared_keys=1)
-        result = await discover_fn(client, targets, limits=limits, only_slots=only_slots)
+        existing_concepts = crosswalk_existing.load_existing_concepts(registry_root)
+        result = await discover_fn(
+            client, targets, limits=limits, only_slots=only_slots, existing=existing_concepts
+        )
         candidates = sorted(
             result.get("candidates") or [],
             key=lambda c: (-float(c.get("score") or 0.0), str(c.get("perspective_id") or "")),

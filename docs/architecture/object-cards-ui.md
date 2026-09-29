@@ -1127,6 +1127,67 @@ O57 の会話・O58 の書くは「種類が候補にあること」を前提に
   （ハブのメンバーでない IRI を渡すとエラーになる）・出どころへの
   データセットごとの合算を確認。
 
+### O64. 合流先は名前ではなく参加者で決める（つながりを見つける・PR fix/discover-knows-existing、2026-09-29）
+
+背景（2026-09-29）: つながりの画面の「つなげそうな組み合わせをさがす」に、
+すでに自動で結ばれた組が候補として毎回出ていた（実機で確認済み）。原因は
+合流先を**名前だけ**で決めていたこと — 候補の名前（概念のキー）は参加して
+いる述語の名前から作り、同じ回の中でだけ番号を振る
+（`crosswalk_discover.derive_concept_name`）。自動でつなぐ側（F15、
+`autolink._default_build`／`_amend_concept`）は `perspective_id` と concept
+の名前が同じなら既存のつながりへ参加者を足すが、手で作る側は同じ id で
+作ると既存のつながりを**置き換える**。述語の名前がたまたま同じ列（例:
+どちらも `name` の「食べものの名前」と「店の名前」。日本語の列なら
+`value`）が、順位の入れ替わり 1 つで同じつながりに混ざる・置き換わる
+事故になり得た。
+
+決定:
+
+- **R1 スロット。** スロット = `(dataset_id, predicate, subject_class
+  または None)`。既存の concept が複数の述語（`predicates`、複合キー）を
+  持つときは突き合わせの対象にしない（候補は常に述語 1 つなので一致し
+  ない）。2 つのスロットが同じ＝`dataset_id`／`predicate` が同じ、かつ
+  `subject_class` が同じか **既存側**が None。
+- **R2 突き合わせ (`match_existing`)。** 候補のスロット集合と既存の
+  concept 一覧から合流先を 1 つ決める、ストアも registry も読まない
+  純粋関数。共有するスロットが最も多い concept を選び、同数なら
+  `perspective_id` の辞書順・次に concept 名の辞書順。無ければ合流先
+  なし。
+- **R3 名前と id。** 合流先ありの候補は既存の concept の名前・perspective
+  の id・class/link_predicate をそのまま名乗る。合流先なしの候補は
+  `derive_concept_name` の「もう使われている名前」に、この回で振った
+  名前に加えて**既存の全 concept の名前と、既存の全 perspective の id
+  （`-` を `_` に直したもの）**を入れる — 合流先なしの候補が既存の
+  perspective の id を引き当てることは無くなる。
+- **R4 候補の印。** 合流先ありの候補に `existing`（`linked`／`new`／
+  `already_linked`）を添える。`already_linked`（足せるものが無い）は
+  `scanned.already_linked` に数える。候補そのものは応答から消さない
+  （消すかどうかは呼ぶ側が決める）。`build_config` は合流先ありでも
+  候補の参加者のまま — 実際に足すのは R6 の経路。
+- **`existing` は「渡す」形。** `crosswalk_discover.discover()` に
+  `existing: Sequence[ExistingConcept] | None = None` を足す
+  （`predicate_label_of` などの表示名引き手と同じ形 — ingest は
+  registry を知らない）。`None` のときは今の挙動と 1 バイトも変わらない。
+  api 側の橋渡しは新モジュール `crosswalk_existing.py`
+  （`list_perspectives`/`load_config` から組み立て、複合キーの concept
+  は対象外）。`POST /api/crosswalk/discover` と
+  `autolink.maybe_autolink_handles` の両方がこれを使う。
+- **R6 既存のつながりに足す。** `POST /api/crosswalks/{perspective_id}/join`
+  （書き込みなので `_write_auth`）。既存の config のその concept に、
+  まだ参加していないデータセットだけ足して保存・ハブ再構築・registry
+  更新する手順は、自動でつなぐ側（`autolink._default_build`）と共通の
+  関数（`autolink.join_participants`）を使う。perspective か concept が
+  無ければ 404。足すものが無ければ 200 で `participants_added: []`。
+  返り値は既存の build の返り値と同じ形 + `participants_added`。
+- **画面（R7）。** 合流先なしはそのまま候補として出す。`already_linked`
+  （足せるものが無い）は候補の一覧に出さず、一覧の下に「すでにつながっ
+  ている組み合わせ: N 件」と名前を並べる。合流先あり・足せるものが
+  あるときは候補として出し、カードに「すでにあるつながりに足せます」
+  の印（新しい印は作らず `auto_linked` と同じ class を再利用）と「A・B
+  はすでにつながっています。C を足せます。」の 1 文を添え、主ボタンは
+  「このつながりに足す」で R6 を呼ぶ（確認画面を挟まない — 合流先は
+  discover が既に決めている）。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。

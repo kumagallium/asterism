@@ -390,6 +390,66 @@ def perspective_id_for(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pure: matching a candidate against what already exists (contract_d_discover_existing.md)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExistingConcept:
+    """One already-built crosswalk concept, as the caller (api) hands it in — ingest
+    never reads the registry itself (mirrors the ``predicate_label_of`` injection).
+
+    ``slots`` is the concept's participants reduced to ``(dataset_id, predicate,
+    subject_class|None)`` — empty for a compound-key concept (R1: a candidate is
+    always a single predicate, so it can never match a compound key; the caller that
+    builds this list leaves ``slots`` empty for those rather than teaching this module
+    about compound keys)."""
+
+    perspective_id: str
+    name: str
+    class_iri: str
+    link_predicate: str
+    slots: frozenset[tuple[str, str, str | None]]
+    dataset_ids: frozenset[str]
+
+
+def _slot_matches(
+    candidate: tuple[str, str, str | None], existing: tuple[str, str, str | None]
+) -> bool:
+    """R1: same slot = same ``dataset_id`` and ``predicate``, and either the same
+    ``subject_class`` or the EXISTING side has none (a legacy/untyped participant
+    still claims the whole predicate, same reading ``crosswalk_runtime`` gives it)."""
+    c_ds, c_pred, c_cls = candidate
+    e_ds, e_pred, e_cls = existing
+    return c_ds == e_ds and c_pred == e_pred and (c_cls == e_cls or e_cls is None)
+
+
+def match_existing(
+    candidate_slots: Iterable[tuple[str, str, str | None]],
+    existing: Sequence[ExistingConcept],
+) -> ExistingConcept | None:
+    """R2: the one existing concept a new candidate should join, or ``None``.
+
+    Pure — no store, no registry. Counts, per existing concept, how many of the
+    candidate's slots it shares (a slot counts once even if several existing slots
+    would match it — the candidate participant is one thing either way); the concept
+    sharing the most wins; ties break on ``perspective_id`` then concept ``name``
+    (both ascending), so the result is total and reproducible."""
+    cand = list(candidate_slots)
+    scored: list[tuple[int, ExistingConcept]] = []
+    for concept in existing:
+        shared = sum(1 for c in cand if any(_slot_matches(c, e) for e in concept.slots))
+        if shared > 0:
+            scored.append((shared, concept))
+    if not scored:
+        return None
+    best_count = max(count for count, _ in scored)
+    best = [concept for count, concept in scored if count == best_count]
+    best.sort(key=lambda c: (c.perspective_id, c.name))
+    return best[0]
+
+
+# ---------------------------------------------------------------------------
 # Pure: clustering, flags, score, samples
 # ---------------------------------------------------------------------------
 
@@ -693,6 +753,7 @@ async def discover(
     field_label_of: Callable[[str, str, str | None], str | None] | None = None,
     class_label_of: Callable[[str, str], str | None] | None = None,
     only_slots: Mapping[str, Collection[tuple[str | None, str]]] | None = None,
+    existing: Sequence[ExistingConcept] | None = None,
 ) -> dict:
     """Scan the promoted graphs and rank the joins that actually exist.
 
@@ -722,6 +783,15 @@ async def discover(
     all-numeric), and after slots are built, anything not named by ``only_slots`` is
     dropped before clustering. ``None`` here changes nothing — every existing caller
     keeps today's behavior byte for byte.
+
+    ``existing`` (contract_d_discover_existing.md, injected — this module stays free
+    of any api-layer / registry dependency): the already-built crosswalk concepts a
+    candidate should be checked against (:func:`match_existing`, R2). When a
+    candidate shares a slot with one of them, the candidate is renamed onto that
+    concept (R3) and carries an ``existing`` block (R4) instead of a freshly derived
+    name — so a re-scan never mints a second, meaning-colliding concept next to one
+    that already exists. ``None`` (every existing caller, before this feature) leaves
+    today's naming and output byte for byte unchanged.
     """
     lim = limits or DiscoverLimits()
     cancelled = False
@@ -895,15 +965,38 @@ async def discover(
             got = class_label_of(slot.dataset.dataset_id, slot.subject_class)
         return (got or "").strip() or local_name(slot.subject_class)
 
+    existing = existing or ()
+    # R3: names a fresh candidate must not land on — this round's own names (as
+    # before) PLUS every already-built concept's name and every already-built
+    # perspective's id (dash -> underscore, ``derive_concept_name``'s alphabet).
+    # A candidate that MATCHES one of them takes its name instead (see below) and
+    # never reaches this set, so this only guards the candidates that do not match.
+    existing_names = {c.name for c in existing}
+    existing_pids = {c.perspective_id.replace("-", "_") for c in existing}
     taken: list[str] = []
     out: list[dict] = []
+    already_linked_count = 0
     for rank, cluster in enumerate(clusters):
         # A generic naming predicate names the concept after the KIND it sits on
         # (rdfs:label on Composition -> "composition"), never after itself.
         preds = [naming_term(slots[m].predicate, slots[m].subject_class) for m in cluster.slots]
-        name = derive_concept_name(preds, taken=taken, rank=rank)
-        taken.append(name)
-        class_iri, link_predicate = concept_terms(name)
+        cand_slots = tuple(
+            (slots[m].dataset.dataset_id, slots[m].predicate, slots[m].subject_class)
+            for m in cluster.slots
+        )
+        match = match_existing(cand_slots, existing) if existing else None
+        if match is not None:
+            # R3: the join goes onto what already exists — never a freshly derived
+            # name/id/hub for a slot that already means the same thing somewhere else.
+            name = match.name
+            class_iri, link_predicate = match.class_iri, match.link_predicate
+            perspective_id_value = match.perspective_id
+        else:
+            avoid = set(taken) | existing_names | existing_pids
+            name = derive_concept_name(preds, taken=avoid, rank=rank)
+            taken.append(name)
+            class_iri, link_predicate = concept_terms(name)
+            perspective_id_value = perspective_id_for(name)
         # XW-01: the DESIGN's own word for each participant's field, when one is
         # resolvable — never the raw ascii ``predicate_label`` alone (that is kept
         # as the display fallback and the concept-key derivation input; neither is
@@ -914,13 +1007,30 @@ async def discover(
             if got and got not in resolved:
                 resolved.append(got)
         concept_label = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
+        if match is not None:
+            # R4: split the candidate's own participants by whether that dataset
+            # already sits in the matched concept — this is what tells the human
+            # (and the UI's "足せる" gate) whether there is anything left to add.
+            linked = [
+                {"dataset_id": ds, "predicate": p, "subject_class": cls}
+                for ds, p, cls in cand_slots
+                if ds in match.dataset_ids
+            ]
+            new_participants = [
+                {"dataset_id": ds, "predicate": p, "subject_class": cls}
+                for ds, p, cls in cand_slots
+                if ds not in match.dataset_ids
+            ]
+            already_linked = not new_participants
+            if already_linked:
+                already_linked_count += 1
         out.append(
             {
                 "id": f"c{rank + 1}",
                 "concept": name,
                 "name": name,
                 "concept_label": concept_label,
-                "perspective_id": perspective_id_for(name),
+                "perspective_id": perspective_id_value,
                 "class_iri": class_iri,
                 "link_predicate": link_predicate,
                 "normalizer": cluster.normalizer,
@@ -955,7 +1065,23 @@ async def discover(
                 ],
                 "samples": pick_samples(cluster, slots, unintern, limit=lim.sample_limit),
                 "flags": candidate_flags(cluster, slots, limits=lim),
+                # R4: kept exactly as a fresh candidate's would be — participants stay
+                # the candidate's own; joining an existing concept for real goes
+                # through R6's dedicated endpoint, not this config.
                 "build_config": build_config_of(cluster, slots, name, limits=lim),
+                **(
+                    {
+                        "existing": {
+                            "perspective_id": match.perspective_id,
+                            "concept": name,
+                            "linked": linked,
+                            "new": new_participants,
+                            "already_linked": already_linked,
+                        }
+                    }
+                    if match is not None
+                    else {}
+                ),
             }
         )
 
@@ -967,6 +1093,7 @@ async def discover(
             "datasets_truncated": datasets_truncated,
             "clusters_truncated": clusters_truncated,
             "candidates_truncated": candidates_truncated,
+            "already_linked": already_linked_count,
         },
         "limits": lim.to_dict(),
         "cancelled": cancelled,

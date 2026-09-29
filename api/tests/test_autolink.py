@@ -171,7 +171,7 @@ async def test_no_candidates(tmp_path: Path) -> None:
 
     seen_only_slots: dict = {}
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(client, datasets, *, limits=None, only_slots=None, existing=None):
         seen_only_slots.update(only_slots or {})
         assert {d.dataset_id for d in datasets} == {a, b}
         return {"candidates": []}
@@ -192,7 +192,7 @@ async def test_new_perspective_created(tmp_path: Path) -> None:
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(client, datasets, *, limits=None, only_slots=None, existing=None):
         return {
             "candidates": [
                 _candidate(
@@ -260,7 +260,7 @@ async def test_existing_perspective_gets_missing_participant_only(tmp_path: Path
         root, existing_config, outcome, perspective_id=perspective_id, name=name
     )
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(client, datasets, *, limits=None, only_slots=None, existing=None):
         return {
             "candidates": [_candidate(perspective_id, name, [_participant(a), _participant(b)])]
         }
@@ -287,7 +287,7 @@ async def test_same_dataset_second_slot_not_added(tmp_path: Path) -> None:
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(client, datasets, *, limits=None, only_slots=None, existing=None):
         return {
             "candidates": [
                 _candidate(
@@ -320,7 +320,7 @@ async def test_second_promote_is_idempotent(tmp_path: Path) -> None:
     b = _make_dataset(root, "book-reviews", has_handle=True)
     perspective_id = "shared-code"
 
-    async def discover_stub(client, datasets, *, limits=None, only_slots=None):
+    async def discover_stub(client, datasets, *, limits=None, only_slots=None, existing=None):
         return {
             "candidates": [
                 _candidate(perspective_id, "shared code", [_participant(a), _participant(b)])
