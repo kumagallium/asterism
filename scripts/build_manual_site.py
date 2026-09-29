@@ -60,6 +60,7 @@ ORDER = [
     "add-data.md",
     "datasets.md",
     "crosswalk.md",
+    "workspace.md",
     "ask.md",
     "vocab-and-grounding.md",
     "rdf-basics.md",
@@ -74,7 +75,7 @@ ORDER = [
 GROUPS = [
     ("はじめに", ["getting-started.md"]),
     ("データを育てる", ["add-data.md", "datasets.md", "crosswalk.md"]),
-    ("つかう", ["ask.md", "vocab-and-grounding.md"]),
+    ("つかう", ["workspace.md", "ask.md", "vocab-and-grounding.md"]),
     ("しくみを知る", ["rdf-basics.md", "dataset-files.md"]),
     ("そばに置く", ["consult.md", "settings.md", "desktop.md"]),
     ("困ったときは", ["screens.md"]),
