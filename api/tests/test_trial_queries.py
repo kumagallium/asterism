@@ -590,3 +590,42 @@ def test_promote_survives_a_store_that_cannot_answer_the_trial_queries(tmp_path:
     with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{meta['id']}/promote").json()["promoted"] is True
     assert not (tmp_path / "registry" / meta["id"] / "query_tools.yaml").exists()
+
+
+def test_trial_queries_class_label_prefers_the_authored_kind_name(tmp_path: Path) -> None:
+    """IR の subject.label が、ためす段の種類の名前になる。"""
+    labelled = _MAPPING_IR.replace(
+        "      classes: [ex:Sample]\n", '      classes: [ex:Sample]\n      label: "食材の名前"\n'
+    )
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Samples",
+        dict(_ARTIFACTS, **{"mapping.yaml": labelled}),
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-22T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    _ingest(tmp_path, meta["id"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        q = request.content.decode("utf-8")
+        if "?s a ?class" in q:
+            return _sparql_json(
+                [
+                    {
+                        "class": {"type": "uri", "value": f"{_EX}Sample"},
+                        "n": {"type": "literal", "value": "3"},
+                    }
+                ]
+            )
+        return _sparql_json([])
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/trial-queries").json()
+        assert body["classes"][0]["label"] == "食材の名前"

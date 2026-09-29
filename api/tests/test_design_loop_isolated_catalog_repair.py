@@ -102,6 +102,37 @@ def test_the_record_gets_a_link_to_the_isolated_catalog(tmp_path: Path) -> None:
     assert not any("DISCONNECTED groups" in i.message for i in after)
 
 
+def test_the_link_carries_the_catalogs_display_name(tmp_path: Path) -> None:
+    """つなぐ先の種類に表示名（subject.label）があれば、機械が足すつなぐ項目にも
+    同じ言葉が付く。付かないと、公開用の名前（has＋種類の名前）を崩した語が、
+    項目の名前として画面に出る。"""
+    (tmp_path / "data.csv").write_bytes(_CSV)
+    schema_md = _spec(linked=False).replace(
+        "      classes: [ex:BookTitle]\n",
+        "      classes: [ex:BookTitle]\n      label: 本の題名\n",
+    )
+    repaired, _, _ = _evaluate(schema_md, tmp_path)
+    added = [
+        p
+        for p in _maps(repaired)["loan"]["properties"]
+        if p.get("object_template") == "exr:bookTitle/{BookTitle}"
+    ]
+    assert len(added) == 1
+    assert added[0]["label"] == "本の題名"
+
+
+def test_the_link_has_no_label_when_the_catalog_has_none(tmp_path: Path) -> None:
+    (tmp_path / "data.csv").write_bytes(_CSV)
+    repaired, _, _ = _evaluate(_spec(linked=False), tmp_path)
+    added = [
+        p
+        for p in _maps(repaired)["loan"]["properties"]
+        if p.get("object_template") == "exr:bookTitle/{BookTitle}"
+    ]
+    assert len(added) == 1
+    assert "label" not in added[0]
+
+
 def test_an_already_linked_design_is_left_byte_identical(tmp_path: Path) -> None:
     (tmp_path / "data.csv").write_bytes(_CSV)
     schema_md = _spec(linked=True)

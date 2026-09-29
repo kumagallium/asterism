@@ -79,6 +79,7 @@ import {
   applyOwners,
   applySplits,
   currentOwnerOf,
+  kindDisplayName,
 } from '../skeletonKinds'
 import { rulesShape } from '../shapeGraph'
 import { ShapeGraph } from './ShapeGraph'
@@ -1363,12 +1364,14 @@ export function KantanWizard({
       const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
       const ann = annotations?.maps?.[m.name]
       const keyColumns = templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
+      const authored = (m.subject.label ?? '').trim()
       const classes = (m.subject.classes ?? []).map((c) => compactClass(c, nsDetected))
       return {
         map: m.name,
         source: basename(m.source ?? ''),
         keyColumns,
-        kindName: classes.length > 0 ? classes.join('、') : undefined,
+        // 人向けの名前は表示名が先（符号つきの公開名を相談チャットに出さない）。
+        kindName: authored || (classes.length > 0 ? classes.join('、') : undefined),
         // ADR kind-splitting D3: この種類がいま持つ項目。人が宣言していれば
         // (`owns`) その列、していなければカードが並べている全列（S4 の①がその
         // まま出しているもの）。相談は「Cell と Volume を結晶へ」のように**列名で**
@@ -2894,6 +2897,15 @@ export function KantanWizard({
           linkableKeys.add(meaningKey(source, soleCandidates[0].column))
         }
       }
+      // 契約メモ a・R2/R3: ☑ した列から作る種類の表示名は、S3 で決めた列の
+      // 意味をそのまま渡す（無ければサーバが列名そのものを既定にする）。
+      const labels = [...linkableKeys]
+        .map(pair)
+        .map(({ source, column }) => {
+          const label = (meaningFor(source, column)?.label ?? '').trim()
+          return label ? { source, column, label } : null
+        })
+        .filter((x): x is { source: string; column: string; label: string } => x !== null)
       const result = await assembleSkeleton(files, {
         linkable: [...linkableKeys].map(pair),
         cardKeys: linkKeyPick,
@@ -2901,6 +2913,7 @@ export function KantanWizard({
         datasetName: kzDatasetName ?? undefined,
         dialects: dialectOverrides,
         stagingId,
+        labels,
       })
       setSkeleton(result.skeleton)
       setAiSkeleton(result.skeleton)
@@ -7400,14 +7413,20 @@ function DropZone({
 }
 
 /** One value the machine put back after a rethink (`kept_human_edits`). */
-type KeptEdit = { map: string; kind?: string }
+type KeptEdit = { map: string; kind?: string; label?: string }
 
 /** Name a restore the way the screen names it: by the KIND the person sees,
  *  with the minted prefix stripped (K4 — no raw identifiers in this tier). The
  *  map id is the last resort, for a kind that carries no class at all. */
 function keptEditLabel(edit: KeptEdit, skeleton: MappingSkeleton | null): string {
+  // 人向けの名前は、表示名（label）→ 公開される名前を短くしたもの、の順（R3）。
+  const label = (edit.label ?? '').trim()
+  if (label) return label
+  const nsDetected = skeleton ? detectDatasetNamespace(skeleton) : null
+  const own = skeleton?.maps.find((m) => m.name === edit.map)
+  if (own && (own.subject.label ?? '').trim()) return kindDisplayName(own.subject, nsDetected)
   if (!edit.kind) return edit.map
-  return compactClass(edit.kind, skeleton ? detectDatasetNamespace(skeleton) : null)
+  return compactClass(edit.kind, nsDetected)
 }
 
 // The S2/S3 preview block: a first-rows table per parsed file, a plain

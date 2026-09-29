@@ -10,6 +10,10 @@ import {
   assignColumnOwner,
   currentOwnerOf,
   keyColumnsOf,
+  kindDisplayName,
+  kindFieldValue,
+  kindNamesByClass,
+  kindLabelEdit,
   promoteColumnToKind,
   sameIdKind,
   sameIdSiblings,
@@ -307,5 +311,84 @@ describe('applyIdentifiers / promoteColumnToKind — D3 identifiers', () => {
     const s = skeleton(map('card', 'xrr:card/{No}'))
     const out = applyIdentifiers(s, [{ column: 'No', reason: 'カード番号' }], 'card')
     expect(out.applied).toBe(0)
+  })
+})
+
+describe('kindLabelEdit — 契約メモ a・R4「名前・ID を直す」欄（かんたんモード）', () => {
+  const NS = { ontology_prefix: 'xrr' }
+
+  it('日本語を打つと label と classes（1 つ・符号つき）が両方入る', () => {
+    const patch = kindLabelEdit('食材の名前', NS)
+    expect(patch.label).toBe('食材の名前')
+    expect(patch.classes).toEqual(['xrr:Record_389a00'])
+  })
+
+  it('英字を打つと classes も英字のまま作られる（Python の _class_name と同じ規則）', () => {
+    const patch = kindLabelEdit('Shelf Item', NS)
+    expect(patch.label).toBe('Shelf Item')
+    expect(patch.classes).toEqual(['xrr:ShelfItem'])
+  })
+
+  it('打った直後の空白は保つ（1 文字ずつ打てる）。classes は空白を落として作る', () => {
+    const patch = kindLabelEdit('Shelf ', NS)
+    expect(patch.label).toBe('Shelf ')
+    expect(patch.classes).toEqual(['xrr:Shelf'])
+    const wrapped = kindLabelEdit('  店の名前  ', NS)
+    expect(wrapped.label).toBe('  店の名前  ')
+    expect(wrapped.classes).toEqual(['xrr:Record_98874d'])
+  })
+
+  it('空にすると label も機械が作った classes も外れ、欄は空欄のまま', () => {
+    const patch = kindLabelEdit('   ', NS)
+    expect(patch).toEqual({ label: undefined, classes: [] })
+    const emptied = { template: 'xrr:a/{id}', ...patch }
+    expect(kindFieldValue(emptied, NS)).toBe('')
+    expect(kindDisplayName(emptied, NS)).toBe('')
+  })
+
+  it('同じ文字列からはいつも同じ classes になる', () => {
+    expect(kindLabelEdit('温度 (K)', NS).classes).toEqual(kindLabelEdit('温度 (K)', NS).classes)
+  })
+})
+
+
+describe('kindFieldValue / kindDisplayName / kindNamesByClass — 表示名を先に読む（R3）', () => {
+  const NS = { ontology_prefix: 'xrr' }
+
+  it('欄は表示名を打ったまま（末尾の空白つき）、無ければ公開名を短くしたもの', () => {
+    expect(kindFieldValue({ label: 'Shelf ', classes: ['xrr:Shelf'] }, NS)).toBe('Shelf ')
+    expect(kindFieldValue({ classes: ['xrr:Sample'] }, NS)).toBe('Sample')
+    expect(kindFieldValue({ label: '温度 (K)', classes: ['xrr:K_174149'] }, NS)).toBe('温度 (K)')
+  })
+
+  it('文言は表示名（前後の空白なし）が先。符号つきの公開名は出ない', () => {
+    const subject = { label: ' 食材の名前 ', classes: ['xrr:Record_389a00'] }
+    expect(kindDisplayName(subject, NS)).toBe('食材の名前')
+    expect(kindDisplayName({ classes: ['xrr:Sample'] }, NS)).toBe('Sample')
+  })
+
+  it('クラス名の文字列しか持たない場所（証拠カード）も表示名を引く', () => {
+    const s = skeleton(
+      { ...map('a', 'xrr:a/{id}'), subject: { template: 'xrr:a/{id}', classes: ['xrr:Record_389a00'], label: '食材の名前' } },
+      map('b', 'xrr:b/{id}'),
+    )
+    const nameOf = kindNamesByClass(s, NS)
+    expect(nameOf('xrr:Record_389a00')).toBe('食材の名前')
+    expect(nameOf('xrr:Other')).toBe('Other')
+  })
+
+  it('同じ名前を 2 つの種類に付けても Record_ が出ない', () => {
+    const s = skeleton(
+      { ...map('a', 'xrr:a/{id}'), subject: { template: 'xrr:a/{id}', classes: ['xrr:Record_389a00'], label: '店の名前' } },
+      { ...map('b', 'xrr:b/{id}'), subject: { template: 'xrr:b/{id}', classes: ['xrr:Record_389a00'], label: '店の名前' } },
+    )
+    expect(s.maps.map((m) => kindDisplayName(m.subject, NS)).join('、')).not.toMatch(/Record_/)
+  })
+
+  it('sameIdKind は表示名を持てる', () => {
+    const parent = map('card', 'xrr:card/{No}')
+    const added = sameIdKind(parent, 'record_389a00', ['xrr:Record_389a00'], '食材の名前')
+    expect(added.subject.label).toBe('食材の名前')
+    expect(sameIdKind(parent, 'x', []).subject.label).toBeUndefined()
   })
 })

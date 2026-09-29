@@ -370,6 +370,42 @@ def test_ir_field_labels_name_each_kinds_own_field() -> None:
     assert _crosswalk_predicate_labels(root, "nope") == {}
 
 
+_LABELLED_KIND_IR = (
+    "version: 1\n"
+    "prefixes:\n"
+    f'  x: "{_X}"\n'
+    '  rdfs: "http://www.w3.org/2000/01/rdf-schema#"\n'
+    "maps:\n"
+    "  - name: composition\n"
+    "    source: records.csv\n"
+    "    subject:\n"
+    '      template: "x:composition/{composition}"\n'
+    "      classes: [x:Composition]\n"
+    '      label: "食材の名前"\n'
+    "    properties:\n"
+    "      - predicate: rdfs:label\n"
+    "        column: composition\n"
+    "  - name: doi\n"
+    "    source: records.csv\n"
+    "    subject:\n"
+    '      template: "x:doi/{DOI}"\n'
+    "      classes: [x:Doi]\n"
+    "    properties:\n"
+    "      - predicate: rdfs:label\n"
+    "        column: DOI\n"
+)
+
+
+def test_ir_field_labels_prefers_authored_subject_label_for_the_kind() -> None:
+    """契約メモ a・R3(api): `subject.label`（R2）があればそれを種類の名前にし、
+    無ければ今までどおりクラスのローカル名にする。"""
+    from asterism_api.main import _ir_field_labels
+
+    _, kinds = _ir_field_labels(_LABELLED_KIND_IR)
+    assert kinds[f"{_X}Composition"] == "食材の名前"  # authored subject.label wins
+    assert kinds[f"{_X}Doi"] == "Doi"  # no label → local name, unchanged
+
+
 def _seed_kinds(ds: rdflib.Dataset, registry_root: Path, dataset_id: str, ir: str) -> None:
     """A promoted dataset with a Composition and a Doi kind, both labelled with
     rdfs:label, plus the design (mapping.yaml) that names each kind's field."""

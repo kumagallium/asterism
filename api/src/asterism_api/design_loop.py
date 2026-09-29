@@ -98,6 +98,7 @@ from asterism_step0.skeleton_annotate import annotate_skeleton
 from asterism_step0.spec_repair import (
     SPEC_REPAIR_SYSTEM_PROMPT,
     build_spec_repair_user,
+    carry_subject_labels,
     parse_spec_json,
     replace_mapping_spec_block,
 )
@@ -1681,7 +1682,16 @@ def _link_isolated_value_catalogs(
             predicate = f"{onto}:{local}2"
             if predicate in existing:
                 continue  # both candidate names taken — leave it for a person
-        record_props.append({"predicate": predicate, "object_template": cat_tpl})
+        link: dict[str, Any] = {"predicate": predicate, "object_template": cat_tpl}
+        # つなぐ先の種類に表示名があれば、つなぐ項目にも同じ言葉を付ける —
+        # 付けないと、公開用の名前（has＋種類の名前）を崩した語が項目の名前に出る。
+        cat_subject = cat_map.get("subject")
+        cat_label = (
+            str(cat_subject.get("label") or "").strip() if isinstance(cat_subject, dict) else ""
+        )
+        if cat_label:
+            link["label"] = cat_label
+        record_props.append(link)
         linked += 1
 
     if not linked:
@@ -1861,6 +1871,19 @@ def _surgical_spec_repair(
         if had_attr:
             llm.response_schema = prior
     new_spec = parse_spec_json(raw)
+    # 種類の表示名（subject.label）はモデルが返さない。直前の IR から map 名で戻す。
+    try:
+        import yaml
+
+        new_doc = load_spec_yaml(new_spec)
+        old_doc = load_spec_yaml(ir_yaml)
+        carried = carry_subject_labels(new_doc, old_doc)
+        if carried is not new_doc:
+            new_spec = yaml.safe_dump(
+                carried, sort_keys=False, allow_unicode=True, default_flow_style=False
+            )
+    except Exception:
+        pass
     return replace_mapping_spec_block(schema_md, new_spec)
 
 
@@ -2347,12 +2370,44 @@ def _reassert_invariants(
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
     schema_md = _overlay_data_facts(schema_md, *data_facts)
     schema_md = _overlay_column_meanings(schema_md, column_meanings)
+    schema_md = _overlay_kind_labels(schema_md, skeleton)
     schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
     schema_md = _overlay_column_decisions(schema_md, column_decisions)
     schema_md = _overlay_taken_in_columns(
         schema_md, skeleton, column_meanings, column_decisions, *data_facts
     )
     return schema_md
+
+
+def _overlay_kind_labels(schema_md: str, skeleton: Mapping[str, Any] | None) -> str:
+    """種類の表示名（``subject.label``）を §9 に言い直す [毎ラウンド]。
+
+    表示名は表示メタで、設計を丸ごと書き直す AI は書き戻さない（書ける保証が
+    無い）。人が確かめた骨格にある表示名を、同じ名前のマップへ決定論で戻す。
+    AI が自分で書いた表示名は保つ（:func:`carry_subject_labels` と同じ規則）。
+    冪等・§9 が無い/差し替え不能・戻すものが無いならバイト不変。
+    """
+    if not isinstance(skeleton, Mapping):
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc = carry_subject_labels(doc, dict(skeleton))
+    if new_doc == doc:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
 
 
 def _overlay_catalog_guarantees(

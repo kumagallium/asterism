@@ -251,6 +251,9 @@ export interface SkeletonSubject {
   constant?: string
   classes?: string[]
   transform?: Record<string, string>
+  /** 種類の表示名（契約メモ a・R2）。RML には入らない表示メタ。かんたん
+   *  モードの「名前・ID を直す」欄はこれを読み書きする（R4）。 */
+  label?: string
 }
 
 /** One skeleton map: which source becomes which class, keyed how (no properties). */
@@ -648,6 +651,15 @@ export interface LinkableColumn {
   column: string
 }
 
+/** ☑ した列から作る種類につける表示名（契約メモ a・R2/R3）。S3 で決まった
+ *  列の意味（{@link ColumnMeaning.label}）をそのまま渡す。省略した組は、
+ *  サーバが列名そのものを既定にする。 */
+export interface SkeletonKindLabel {
+  source: string
+  column: string
+  label: string
+}
+
 /** ③④の答えから骨格を組み立てる（ADR skeleton-from-easy-judgments D5）。
  *  決定論・LLM 0・ジョブなし — /validate と同じ同期の呼び出しで、annotation を
  *  同梱して返す。metadata.provisional_card_keys が空でなければ、カードの ID は
@@ -661,6 +673,7 @@ export async function assembleSkeleton(
     datasetName?: string
     dialects?: Record<string, SourceDialect>
     stagingId?: string | null
+    labels?: SkeletonKindLabel[]
   },
 ): Promise<{
   skeleton: MappingSkeleton
@@ -673,6 +686,7 @@ export async function assembleSkeleton(
   form.append('card_keys', JSON.stringify(opts.cardKeys))
   form.append('excluded', JSON.stringify(opts.excluded))
   if (opts.datasetName) form.append('dataset_name', opts.datasetName)
+  if (opts.labels?.length) form.append('labels', JSON.stringify(opts.labels))
   appendDialects(form, opts.dialects)
   const res = await fetch('/api/propose/skeleton/assemble', { method: 'POST', body: form })
   if (!res.ok) await throwApiError(res, 'assemble')

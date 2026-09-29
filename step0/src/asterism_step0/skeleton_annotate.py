@@ -1389,10 +1389,17 @@ def _rewrite_key_template(template: str, columns: Sequence[str]) -> str:
 
 
 def _ascii_map_name(raw: str, taken: set[str], fallback: str) -> str:
-    """骨格スキーマの map 名 [^A-Za-z][\\w-]* に収まる機械名。"""
+    """骨格スキーマの map 名 [^A-Za-z][\\w-]* に収まる機械名。
+
+    英字にできない名前（ASCII 部分が空、または漢字・かなのように大文字小文字
+    の区別が無い文字を含む）は ``ascii_names.name_tag`` の符号で一意にする
+    （``staged_propose._identifier`` と同じ規則）。
+    """
+    from asterism_step0.ascii_names import name_tag, needs_tag
+
     ascii_ = re.sub(r"[^0-9a-z]+", "_", raw.lower()).strip("_")
     ascii_ = re.sub(r"^[^a-z]+", "", ascii_)
-    base = ascii_ or fallback
+    base = f"{ascii_ or fallback}_{name_tag(raw)}" if needs_tag(raw, ascii_) else ascii_ or fallback
     name = base
     i = 2
     while name in taken:
@@ -1435,6 +1442,7 @@ def assemble_skeleton_from_judgments(
     dialects: Mapping[str, Any] | None = None,
     record_path: str | None = None,
     iri_base: str | None = None,
+    labels: Mapping[tuple[str, str], str] | None = None,
 ) -> dict[str, Any]:
     """③④の答えとファイルの検査から骨格を**組み立てる** [決定論・LLM 0]。
 
@@ -1448,6 +1456,11 @@ def assemble_skeleton_from_judgments(
     導出はすべて検査の事実から: 放送列 [全行同値] = カードの項目、変動列 =
     行の種類、キーは一意性の実測から。☑ した値がその種類の ID になったときは
     受け口の種類を作らない — 種類自身が受け口。
+
+    ``labels`` は ③ で決まった列の意味 {(source, column): 意味}（任意）。
+    ☑ を付けた列から作る「つながる受け口」の種類に ``subject.label`` として
+    渡す（無ければ列名そのもの）。他の種類（カード・行）には付けない
+    [契約メモ a・R2]。
 
     Returns ``{"skeleton": ..., "metadata": {...}}``。annotation は呼び出し側が
     :func:`annotate_skeleton` でいつもどおり計算する [式を二重に持たない]。
@@ -1484,13 +1497,17 @@ def assemble_skeleton_from_judgments(
         return f"{res}:{name}/" + "/".join("{" + c + "}" for c in key)
 
     def add_map(
-        name: str, source: str, key: Sequence[str], cls: str, owns: Sequence[str] = ()
+        name: str,
+        source: str,
+        key: Sequence[str],
+        cls: str,
+        owns: Sequence[str] = (),
+        label: str | None = None,
     ) -> None:
-        m: dict[str, Any] = {
-            "name": name,
-            "source": source,
-            "subject": {"template": template(name, key), "classes": [f"{onto}:{cls}"]},
-        }
+        subject: dict[str, Any] = {"template": template(name, key), "classes": [f"{onto}:{cls}"]}
+        if label:
+            subject["label"] = label
+        m: dict[str, Any] = {"name": name, "source": source, "subject": subject}
         if owns:
             m["owns"] = list(owns)
         maps.append(m)
@@ -1595,7 +1612,8 @@ def assemble_skeleton_from_judgments(
             if col not in columns:
                 continue
             name = _ascii_map_name(col, taken, "value")
-            add_map(name, design_src, [col], _pascal(name) or "Value", owns=[col])
+            meaning = (labels or {}).get((src, col)) or col
+            add_map(name, design_src, [col], _pascal(name) or "Value", owns=[col], label=meaning)
 
     skeleton = {"version": 1, "prefixes": prefixes, "maps": maps}
     return {

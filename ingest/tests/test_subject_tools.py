@@ -985,6 +985,26 @@ async def test_subject_facts_property_label_falls_back_to_class_schema(tmp_path:
     assert row["property"] == "メモ"
 
 
+async def test_subject_facts_type_value_shows_the_kinds_display_name(tmp_path: Path) -> None:
+    """``type`` の値（種類）は、種類の表示名で見せる。種類の ``rdfs:label`` は
+    オントロジーの graph にあり、データの graph だけを見ると、公開用の名前を
+    崩した語（符号つきになりうる）がそのまま出ていた。"""
+    _write_depot_registry(tmp_path)
+    # 実際の投影と同じ形: 種類は rdfs:Class として宣言され、表示名が付く
+    ontology = _DEPOT_ONTOLOGY_TTL + f'<{PARCEL_CLASS}> a rdfs:Class ; rdfs:label "荷物" .\n'
+    client = _pyoxi_client({DEPOT_GRAPH: _DEPOT_TTL, DEPOT_ONTOLOGY_GRAPH: ontology})
+    out = await subject_facts(client, PARCEL_1, registry_root=tmp_path)
+    row = next(i for i in out["items"] if i["property_iri"].endswith("#type"))
+    assert row["value"] == "荷物"
+
+
+async def test_subject_facts_type_value_without_a_label_still_humanizes(tmp_path: Path) -> None:
+    _write_depot_registry(tmp_path)
+    out = await subject_facts(_depot_client(), PARCEL_1, registry_root=tmp_path)
+    row = next(i for i in out["items"] if i["property_iri"].endswith("#type"))
+    assert row["value"] == "Parcel"
+
+
 async def test_subject_facts_property_label_humanizes_as_last_resort(tmp_path: Path) -> None:
     _write_depot_registry(tmp_path)
     out = await subject_facts(_depot_client(), PARCEL_1, registry_root=tmp_path)

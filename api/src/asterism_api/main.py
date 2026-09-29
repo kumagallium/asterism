@@ -1622,6 +1622,23 @@ def _iri_local_name(iri: str) -> str:
     return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
 
 
+def _overlay_kind_labels(labels: dict[str, str], mapping_ir_yaml: str) -> None:
+    """IR の ``subject.label``（種類の表示名）を、model.yaml 由来の ``labels`` に重ねる。
+
+    model.yaml の投影が付ける種類の ``rdfs:label`` はクラスのローカル名（機械が
+    作る符号つきの名前になり得る）。人向けの画面（ためす・公開の確認・公開後）は
+    ``labels[class_iri]`` を読むので、IR に表示名がある種類はそちらを優先する。
+    IR が無い・読めない・表示名が無い種類は今までどおり（best-effort）。
+    """
+    if not mapping_ir_yaml.strip():
+        return
+    with contextlib.suppress(Exception):
+        _fields, kinds = _ir_field_labels(mapping_ir_yaml)
+        for iri, word in kinds.items():
+            if word and word != _iri_local_name(iri):
+                labels[iri] = word
+
+
 def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
     """``({(class_iri, predicate_iri): label}, {class_iri: kind label})`` from the
     reviewed Mapping IR — the design's word for each KIND's field.
@@ -1631,8 +1648,9 @@ def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], 
     column heading for, so it counts as the design's word here (the predicate-only
     resolver refuses it — it cannot tell whose column it is). A predicate several
     kinds share (``rdfs:label``) yields one entry per kind, which is the point
-    (crosswalk-kind-scoped-fields.md). Kind labels are the class local names —
-    the words the counting gate wrote on the boxes. Raises on an unparsable IR.
+    (crosswalk-kind-scoped-fields.md). Kind labels are the authored
+    ``subject.label`` (R2) where a map has one, else the class local name — the
+    words the counting gate wrote on the boxes. Raises on an unparsable IR.
     """
     from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
 
@@ -1649,8 +1667,10 @@ def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], 
     kinds: dict[str, str] = {}
     for tm in ir.maps:
         classes = [expand(c) for c in tm.subject.classes]
-        for cls in classes:
-            kinds.setdefault(cls, _iri_local_name(cls))
+        subject_label = (tm.subject.label or "").strip() or None
+        if subject_label:
+            for cls in classes:
+                kinds.setdefault(cls, subject_label)
         for prop in tm.properties:
             word = (prop.label or "").strip() or (_label_from_column(prop.column) or "")
             if not word:
@@ -1658,6 +1678,11 @@ def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], 
             pred = expand(prop.predicate)
             for cls in classes:
                 fields.setdefault((cls, pred), word)
+    # authored ``subject.label`` (R2) wins; a kind without one keeps its
+    # local name (the class-name box text, as before R2 existed).
+    for tm in ir.maps:
+        for cls in (expand(c) for c in tm.subject.classes):
+            kinds.setdefault(cls, _iri_local_name(cls))
     return fields, kinds
 
 
@@ -5739,6 +5764,13 @@ def build_app(
             default="",
             description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
         ),
+        labels: str = Form(
+            default="[]",
+            description=(
+                "☑ した列の種類につける表示名 as JSON [{source, column, label}]"
+                " (契約メモ a・R2)。省略時は列名がそのまま既定になる。"
+            ),
+        ),
     ) -> dict[str, object]:
         """③④の答えから骨格を組み立てる [決定論・LLM 0・ジョブなし]。
 
@@ -5759,7 +5791,21 @@ def build_app(
         linkable_obj = _parse_json(linkable, "linkable", list)
         card_keys_obj = _parse_json(card_keys, "card_keys", dict)
         excluded_obj = _parse_json(excluded, "excluded", list)
+        labels_obj = _parse_json(labels, "labels", list)
         dialect_overrides = _parse_dialect_overrides(dialects)
+
+        labels_map: dict[tuple[str, str], str] = {}
+        for entry in labels_obj:
+            if not isinstance(entry, dict):
+                continue
+            source = entry.get("source")
+            column = entry.get("column")
+            label = entry.get("label")
+            if not isinstance(source, str) or not isinstance(column, str):
+                continue
+            if not isinstance(label, str) or not label.strip():
+                continue
+            labels_map[(source, column)] = label.strip()
 
         work, paths, owned = await _design_sources(
             cfg.registry_root, files, staging_id or None, prefix="asterism-assemble-"
@@ -5775,6 +5821,7 @@ def build_app(
                     dataset_name=dataset_name or None,
                     dialects=effective,
                     iri_base=cfg.iri_base,
+                    labels=labels_map or None,
                 ),
                 list(paths),
             )
@@ -6641,6 +6688,7 @@ def build_app(
         def run() -> dict[str, object]:
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
+            _overlay_kind_labels(labels, mapping_ir_yaml)
             ir_meta: dict[str, dict[str, str]] = {}
             by_column: dict[tuple[str, str], dict[str, str]] = {}
             if mapping_ir_yaml.strip():
@@ -7502,6 +7550,7 @@ def build_app(
                 str(artifacts.get("mapping.rml.ttl") or ""),
                 str(artifacts.get("mie.yaml") or ""),
             )
+            _overlay_kind_labels(labels, str(artifacts.get("mapping.yaml") or ""))
             try:
                 ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
             except Exception:
