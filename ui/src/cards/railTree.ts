@@ -73,9 +73,12 @@ export function buildRailTree({ datasets, subjects, classes }: BuildRailTreeInpu
   // 表示名を使う — 保存した写しは、あとで種類の名前が変わっても古いまま残る
   // （実機: つながりの種類が、表示名に直したあとも古い名前で出ていた）。
   // 種類の一覧がまだ無い・その種類が載っていないときだけ、写しに落とす。
-  const currentLabels = new Map(
-    (classes ?? []).filter((c) => c.label).map((c) => [c.class_iri, c.label] as const),
-  )
+  // 同じ種類の行が複数あるとき（複数のデータセットが同じ種類を持つ）は、先に
+  // 出た行を使う — 種類の一覧は件数の多い順なので、主な方の名前になる。
+  const currentLabels = new Map<string, string>()
+  for (const c of classes ?? []) {
+    if (c.label && !currentLabels.has(c.class_iri)) currentLabels.set(c.class_iri, c.label)
+  }
 
   const groups = new Map<string, { label: string; items: SubjectItem[] }>()
   const otherItems: SubjectItem[] = []

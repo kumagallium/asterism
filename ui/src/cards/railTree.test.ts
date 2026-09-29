@@ -208,6 +208,25 @@ describe('buildRailTree — 種類の見出しは今の表示名', () => {
     expect(tree.kinds[0]?.label).toBe('貸出')
   })
 
+  it('同じ種類の行が複数あるときは、先に出た行の名前を使う', () => {
+    const tree = buildRailTree({
+      datasets: [],
+      classes: [
+        classEntry({ class_iri: 'https://example.org/class/loan', label: '貸し出しの記録', count: 40 }),
+        classEntry({ class_iri: 'https://example.org/class/loan', label: '別の呼び名', count: 2 }),
+      ],
+      subjects: [
+        subject({
+          subject_key: 'i:loan-1',
+          class_iri: 'https://example.org/class/loan',
+          class_label: 'Loan',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+      ],
+    })
+    expect(tree.kinds[0]?.label).toBe('貸し出しの記録')
+  })
+
   it('並びは、今の表示名の順', () => {
     const tree = buildRailTree({
       datasets: [],

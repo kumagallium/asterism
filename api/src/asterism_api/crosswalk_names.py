@@ -251,6 +251,30 @@ def concept_labels_for_config(
     return labels
 
 
+def _is_surely_machine_name(
+    name: str,
+    meta: dict[str, Any],
+    config: crosswalk_runtime.RuntimeCrosswalkConfig,
+    perspective_id: str,
+) -> bool:
+    """書き直してよい名前か — 読むときの判定（:func:`_is_machine_name`）より
+    狭い。読むときは、間違えても表示が変わるだけで済む。書くときは、人の名前を
+    消してしまう。だから「概念のキーや id と同じ」だけでは機械の名前と見なさ
+    ず、自動でできたつながり（``auto_linked``）のときだけ、そう見なす
+    （人が、わざとキーと同じ文字列を名前にすることはありうる）。"""
+    if not name:
+        return True
+    if meta.get("name_auto") is True:
+        return True
+    if name == crosswalk_runtime.UNNAMED_PERSPECTIVE_NAME:
+        return True
+    if _IMPLEMENTATION_NAME_RE.match(name):
+        return True
+    if meta.get("auto_linked") is True:
+        return name == perspective_id or name in {c.name for c in config.concepts}
+    return False
+
+
 def refresh_auto_name(
     registry_root: Path | str,
     perspective_id: str,
@@ -266,8 +290,12 @@ def refresh_auto_name(
     の印を残す（印があるかぎり R1 は読むたびに引き直し、次に作り直したとき
     もここで書き直す）。
 
-    人が付けた名前には触らない。表示名が 1 つも引けないときも触らない
-    （概念のキーを直しただけの語で、機械の名前を上書きしても良くならない）。
+    書く名前は、読むときの表示名（R1 の 2）と同じ計算にする — 2 つが食い違う
+    と、画面によって同じつながりの名前が変わる。
+
+    触らないもの: 人が付けた名前（:func:`_is_surely_machine_name` が偽）。
+    参加している項目の表示名が 1 つも引けないつながり（概念のキーを直した
+    だけの語で、機械の名前を上書きしても良くならない）。
     """
     meta = load_perspective_meta(registry_root, perspective_id)
     if not meta:
@@ -276,12 +304,16 @@ def refresh_auto_name(
     if config is None:
         return None
     raw_name = str(meta.get("name") or "").strip()
-    if raw_name and not _is_machine_name(raw_name, meta, config, perspective_id):
+    if not _is_surely_machine_name(raw_name, meta, config, perspective_id):
+        return None
+    if not any(
+        _resolved_participant_labels(concept, field_label_of, predicate_label_of)
+        for concept in config.concepts
+    ):
         return None
     labels: list[str] = []
     for concept in config.concepts:
-        resolved = _resolved_participant_labels(concept, field_label_of, predicate_label_of)
-        label = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
+        label = concept_display_name(concept, field_label_of, predicate_label_of)
         if label and label not in labels:
             labels.append(label)
     if not labels:
