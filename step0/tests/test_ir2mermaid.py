@@ -321,3 +321,29 @@ maps:
     body = render_mermaid_body(build_graph_from_ir(ir))
     assert '["' not in body  # no label emitted at all
     assert _lint_classdiagram(body) == []
+
+
+def test_subject_label_wins_over_the_class_local_name() -> None:
+    """契約メモ a・R3: 箱の表示は ``subject.label`` → 今の落とし先の順。"""
+    ir = parse_mapping_ir(
+        """\
+version: 1
+prefixes:
+  v: "https://example.org/v/"
+maps:
+  - name: m
+    source: m.csv
+    subject: {template: "v:m/{id}", classes: [v:Measurement], label: "測定"}
+    properties: [{predicate: v:name, column: n}]
+"""
+    )
+    body = render_mermaid_body(build_graph_from_ir(ir))
+    assert 'class Measurement["測定"]' in body
+    assert _lint_classdiagram(body) == []
+
+
+def test_no_subject_label_keeps_todays_fallback() -> None:
+    """``label`` の無い IR は今までどおり読める（不変条件）。"""
+    body = render_mermaid_body(build_graph_from_ir(parse_mapping_ir(ZEM_LIKE)))
+    assert "class Measurement {" in body
+    assert '["' not in body.split("class Measurement")[1].split("\n")[0]

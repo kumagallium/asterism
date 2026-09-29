@@ -741,21 +741,46 @@ _UNUSABLE_ANSWER = (ValueError, LLMTruncatedError, LLMEmptyOutputError)
 _MENU_COLUMNS_RE = re.compile(r"^\s*[•*-]\s*(?P<name>.+?)\s+[—-]+\s+columns:\s*(?P<cols>.+?)\s*$")
 
 
-def _identifier(text: str) -> str:
-    """``Measurement temp.(C)`` → ``measurementTempC`` (lowerCamel, ASCII-safe)."""
+def _ascii_camel(text: str) -> str:
+    """ASCII の部分だけを lowerCamel にする（今までの ``_identifier`` の中身）。
+
+    ASCII の部分が無ければ空文字を返す — 呼び出し側が fallback を選ぶ。
+    """
     parts = [p for p in re.split(r"[^0-9A-Za-z]+", str(text)) if p]
     if not parts:
-        return "value"
+        return ""
     head = parts[0]
     head = head if head[:1].islower() else head[:1].lower() + head[1:]
     out = head + "".join(p[:1].upper() + p[1:] for p in parts[1:])
     return f"v{out}" if out[:1].isdigit() else out
 
 
-def _class_name(text: str) -> str:
-    """``xrd_peaks`` → ``XrdPeaks`` (PascalCase, ASCII-safe)."""
-    ident = _identifier(text)
-    return ident[:1].upper() + ident[1:] if ident else "Record"
+def _identifier(text: str, fallback: str = "value") -> str:
+    """``Measurement temp.(C)`` → ``measurementTempC`` (lowerCamel, ASCII-safe).
+
+    英字にできない名前（ASCII の部分が空、または漢字・かなのように大文字小文字
+    の区別が無い文字を含む）は、``fallback``（か ASCII の部分）に
+    ``ascii_names.name_tag`` の符号を付けて一意にする（K13：機械的な要件は
+    機械が用意する）。同じ名前からは、いつも同じ識別子。
+    """
+    from asterism_step0.ascii_names import loses_words, name_tag
+
+    ascii_part = _ascii_camel(text)
+    if ascii_part and not loses_words(str(text)):
+        return ascii_part
+    return f"{ascii_part or fallback}_{name_tag(text)}"
+
+
+def _class_name(text: str, fallback: str = "record") -> str:
+    """``xrd_peaks`` → ``XrdPeaks`` (PascalCase, ASCII-safe). ``_identifier`` 参照。"""
+    from asterism_step0.ascii_names import loses_words, name_tag
+
+    ascii_part = _ascii_camel(text)
+    if ascii_part and not loses_words(str(text)):
+        return ascii_part[:1].upper() + ascii_part[1:]
+    base = ascii_part or fallback
+    pascal_base = base[:1].upper() + base[1:] if base else "Record"
+    return f"{pascal_base}_{name_tag(text)}"
 
 
 def menu_columns(menu: str) -> dict[str, list[str]]:
@@ -1072,21 +1097,31 @@ def default_skeleton(
     taken: set[str] = set()
     for inspection in inspections:
         stem = inspection.name.rsplit(".", 1)[0]
-        name = _identifier(stem)
+        name = _identifier(stem, fallback="record")
         while name in taken:
             name = f"{name}2"
         taken.add(name)
         entry: dict[str, Any] = {"name": name, "source": inspection.name}
         classes = [f"{onto}:{_class_name(stem)}"]
+        from asterism_step0.ascii_names import loses_words
+
+        subject: dict[str, Any] = {"classes": classes}
+        # R1 の符号付き分岐に落ちたとき（英字にできないファイル名）だけ、
+        # ファイル名そのものを種類の表示名にする。英字のファイル名は今まで
+        # どおり表示名なし（K38 の「英字で書く」案内を、かんたんモードだけ
+        # R4 が改める — 詳細モードはこのまま）。
+        if not _ascii_camel(stem) or loses_words(stem):
+            subject["label"] = stem
         if inspection.source_kind == "xml":
             iterators = inspection.xml_iterators or []
             if iterators:
                 entry["iterator"] = iterators[0].iterator
-            entry["subject"] = {"constant": f"{res}:{name}", "classes": classes}
+            subject["constant"] = f"{res}:{name}"
         else:
             key = _proven_key(inspection)
             segment = "-".join(f"{{{c}}}" for c in key) if key else "1"
-            entry["subject"] = {"template": f"{res}:{name}/{segment}", "classes": classes}
+            subject["template"] = f"{res}:{name}/{segment}"
+        entry["subject"] = subject
         maps.append(entry)
     return {"version": 1, "prefixes": prefixes, "maps": maps}
 

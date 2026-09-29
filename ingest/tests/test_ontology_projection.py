@@ -304,6 +304,108 @@ maps:
     assert set(g.objects(key, RDFS.label)) == {rdflib.Literal("鍵")}
 
 
+def test_mapping_ir_subject_label_wins_over_the_curie_local_name() -> None:
+    """契約メモ a・R3: 種類の rdfs:label は subject.label を先に見る。"""
+    ir = f"""
+prefixes:
+  xrd: {SD}
+maps:
+- name: thing
+  source: x.csv
+  subject:
+    template: xrd:x/{{a}}
+    classes: [xrd:Thing]
+    label: "試料"
+  properties:
+  - column: a
+    predicate: xrd:name
+"""
+    g = project_mapping_ir(ir, STANDARD_PREFIXES)
+    cls = rdflib.URIRef(SD + "Thing")
+    assert (cls, RDFS.label, rdflib.Literal("試料")) in g
+    assert (cls, RDFS.label, rdflib.Literal("Thing")) not in g
+
+
+def test_mapping_ir_subject_without_label_falls_back_to_the_local_name() -> None:
+    """label の無い IR は今までどおり読める（不変条件）。"""
+    ir = f"""
+prefixes:
+  xrd: {SD}
+maps:
+- name: thing
+  source: x.csv
+  subject:
+    template: xrd:x/{{a}}
+    classes: [xrd:Thing]
+  properties:
+  - column: a
+    predicate: xrd:name
+"""
+    g = project_mapping_ir(ir, STANDARD_PREFIXES)
+    cls = rdflib.URIRef(SD + "Thing")
+    assert (cls, RDFS.label, rdflib.Literal("Thing")) in g
+
+
+def test_mapping_ir_agreeing_subject_labels_across_maps_yield_the_word() -> None:
+    """同じ種類を持つマップの表示名が一致すれば、それを使う。"""
+    ir = f"""
+prefixes:
+  xrd: {SD}
+maps:
+- name: a
+  source: a.csv
+  subject:
+    template: xrd:a/{{id}}
+    classes: [xrd:Shared]
+    label: "試料"
+  properties:
+  - column: id
+    predicate: xrd:name
+- name: b
+  source: b.csv
+  subject:
+    template: xrd:b/{{id}}
+    classes: [xrd:Shared]
+    label: "試料"
+  properties:
+  - column: id
+    predicate: xrd:key
+"""
+    g = project_mapping_ir(ir, STANDARD_PREFIXES)
+    cls = rdflib.URIRef(SD + "Shared")
+    assert set(g.objects(cls, RDFS.label)) == {rdflib.Literal("試料")}
+
+
+def test_mapping_ir_conflicting_subject_labels_fall_back_to_the_local_name() -> None:
+    """食い違えば今のまま（ローカル名）——項目の label と同じ扱い。"""
+    ir = f"""
+prefixes:
+  xrd: {SD}
+maps:
+- name: a
+  source: a.csv
+  subject:
+    template: xrd:a/{{id}}
+    classes: [xrd:Shared]
+    label: "試料"
+  properties:
+  - column: id
+    predicate: xrd:name
+- name: b
+  source: b.csv
+  subject:
+    template: xrd:b/{{id}}
+    classes: [xrd:Shared]
+    label: "サンプル"
+  properties:
+  - column: id
+    predicate: xrd:key
+"""
+    g = project_mapping_ir(ir, STANDARD_PREFIXES)
+    cls = rdflib.URIRef(SD + "Shared")
+    assert set(g.objects(cls, RDFS.label)) == {rdflib.Literal("Shared")}
+
+
 def test_mapping_ir_domain_single_map_emitted_multi_map_omitted() -> None:
     g = project_mapping_ir(_MAPPING_IR, STANDARD_PREFIXES)
     # dcterms:identifier only appears in the "sample" map -> domain emitted

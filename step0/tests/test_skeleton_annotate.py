@@ -623,6 +623,63 @@ def test_assemble_builds_card_record_and_receptacles(tmp_path: Path) -> None:
     assert "missing_row_kind" not in ann["card"]
 
 
+def test_assemble_value_catalog_gets_the_column_name_as_default_label(
+    tmp_path: Path,
+) -> None:
+    """契約メモ a・R2: ☑ 列から作る種類の既定の表示名は「渡されていなければ
+    列名そのもの」。カード・行には付けない（今のまま）。"""
+    p = _write_reference_card(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[
+            {"source": "card.csv", "column": "No"},
+            {"source": "card.csv", "column": "Name"},
+        ],
+        card_keys={"card.csv": "No"},
+    )
+    names = {m["name"]: m for m in out["skeleton"]["maps"]}
+    assert names["name"]["subject"]["label"] == "Name"
+    assert "label" not in names["card"]["subject"]
+    assert "label" not in names["record"]["subject"]
+
+
+def test_assemble_japanese_column_name_gets_a_tagged_map_name(tmp_path: Path) -> None:
+    """契約メモ a・R1: 英字にできない列名は、番号ではなく符号で map 名を作る
+    （``_ascii_map_name`` も ``_identifier`` と同じ規則）。"""
+    from asterism_step0.ascii_names import name_tag
+
+    p = tmp_path / "card.csv"
+    p.write_text(
+        "No,店の名前,2theta,d,I,(hkl)\n"
+        '03-065-2664,店A,21.34,4.161,5.0,"(0,0,2)"\n'
+        '03-065-2664,店A,25.87,3.441,11.5,"(1,0,1)"\n',
+        encoding="utf-8",
+    )
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[{"source": "card.csv", "column": "店の名前"}],
+        card_keys={"card.csv": "No"},
+    )
+    names = {m["name"] for m in out["skeleton"]["maps"]}
+    assert f"value_{name_tag('店の名前')}" in names
+
+
+def test_assemble_labels_argument_overrides_the_column_name(tmp_path: Path) -> None:
+    """契約メモ a・R2: ``labels`` が渡されていれば、S3 で決まった意味を使う。"""
+    p = _write_reference_card(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[
+            {"source": "card.csv", "column": "No"},
+            {"source": "card.csv", "column": "Name"},
+        ],
+        card_keys={"card.csv": "No"},
+        labels={("card.csv", "Name"): "試料の名前"},
+    )
+    names = {m["name"]: m for m in out["skeleton"]["maps"]}
+    assert names["name"]["subject"]["label"] == "試料の名前"
+
+
 def _write_card_with_csd(tmp_path: Path) -> Path:
     p = tmp_path / "card.csv"
     p.write_text(

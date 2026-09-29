@@ -339,6 +339,11 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
     a = rdflib.RDF.type
 
     emitted_classes: set[str] = set()
+    class_local_name: dict[str, str] = {}
+    # Every DISTINCT authored ``subject.label`` per class, in IR order —
+    # agreement yields the word, disagreement the local-name fallback (same
+    # rule as a property's ``label``; 契約メモ a・R3).
+    class_authored_labels: dict[str, list[str]] = {}
     pred_domains: dict[str, set[str]] = {}
     # Every DISTINCT authored label per predicate, in IR order — agreement
     # yields the word, disagreement the local-name fallback (see docstring).
@@ -350,10 +355,12 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
             continue
         subject = tm.get("subject")
         class_tokens = []
+        subject_label = None
         if isinstance(subject, dict):
             raw_classes = subject.get("classes")
             if isinstance(raw_classes, list):
                 class_tokens = [c for c in raw_classes if isinstance(c, str)]
+            subject_label = subject.get("label")
 
         class_iris: list[str] = []
         for cls_token in class_tokens:
@@ -363,9 +370,11 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
             class_iris.append(cls_iri)
             if cls_iri not in emitted_classes:
                 emitted_classes.add(cls_iri)
-                cls = rdflib.URIRef(cls_iri)
-                g.add((cls, a, rdfs_Class))
-                g.add((cls, rdfs_label, rdflib.Literal(_local_name(cls_token))))
+                class_local_name[cls_iri] = _local_name(cls_token)
+            if isinstance(subject_label, str) and subject_label.strip():
+                authored = class_authored_labels.setdefault(cls_iri, [])
+                if subject_label.strip() not in authored:
+                    authored.append(subject_label.strip())
 
         props = tm.get("properties")
         if not isinstance(props, list):
@@ -388,6 +397,17 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
                     authored.append(label.strip())
             else:
                 pred_fallback_label.setdefault(pred_iri, _local_name(pred_token))
+
+    for cls_iri in emitted_classes:
+        cls = rdflib.URIRef(cls_iri)
+        g.add((cls, a, rdfs_Class))
+        authored = class_authored_labels.get(cls_iri) or []
+        label = (
+            (authored[0] if len(authored) == 1 else None)
+            or class_local_name.get(cls_iri)
+            or _local_name(cls_iri)
+        )
+        g.add((cls, rdfs_label, rdflib.Literal(label)))
 
     all_predicates = set(pred_authored_labels) | set(pred_fallback_label) | set(pred_domains)
     for pred_iri in all_predicates:
