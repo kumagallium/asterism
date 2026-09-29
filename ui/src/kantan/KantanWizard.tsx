@@ -2894,6 +2894,15 @@ export function KantanWizard({
           linkableKeys.add(meaningKey(source, soleCandidates[0].column))
         }
       }
+      // 契約メモ a・R2/R3: ☑ した列から作る種類の表示名は、S3 で決めた列の
+      // 意味をそのまま渡す（無ければサーバが列名そのものを既定にする）。
+      const labels = [...linkableKeys]
+        .map(pair)
+        .map(({ source, column }) => {
+          const label = (meaningFor(source, column)?.label ?? '').trim()
+          return label ? { source, column, label } : null
+        })
+        .filter((x): x is { source: string; column: string; label: string } => x !== null)
       const result = await assembleSkeleton(files, {
         linkable: [...linkableKeys].map(pair),
         cardKeys: linkKeyPick,
@@ -2901,6 +2910,7 @@ export function KantanWizard({
         datasetName: kzDatasetName ?? undefined,
         dialects: dialectOverrides,
         stagingId,
+        labels,
       })
       setSkeleton(result.skeleton)
       setAiSkeleton(result.skeleton)

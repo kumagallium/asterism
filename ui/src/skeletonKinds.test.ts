@@ -10,6 +10,7 @@ import {
   assignColumnOwner,
   currentOwnerOf,
   keyColumnsOf,
+  kindLabelEdit,
   promoteColumnToKind,
   sameIdKind,
   sameIdSiblings,
@@ -307,5 +308,37 @@ describe('applyIdentifiers / promoteColumnToKind — D3 identifiers', () => {
     const s = skeleton(map('card', 'xrr:card/{No}'))
     const out = applyIdentifiers(s, [{ column: 'No', reason: 'カード番号' }], 'card')
     expect(out.applied).toBe(0)
+  })
+})
+
+describe('kindLabelEdit — 契約メモ a・R4「名前・ID を直す」欄（かんたんモード）', () => {
+  const NS = { ontology_prefix: 'xrr' }
+
+  it('日本語を打つと label と classes（1 つ・符号つき）が両方入る', () => {
+    const patch = kindLabelEdit('食材の名前', NS)
+    expect(patch.label).toBe('食材の名前')
+    expect(patch.classes).toEqual(['xrr:Record_389a00'])
+  })
+
+  it('英字を打つと classes も英字のまま作られる（Python の _class_name と同じ規則）', () => {
+    const patch = kindLabelEdit('Shelf Item', NS)
+    expect(patch.label).toBe('Shelf Item')
+    expect(patch.classes).toEqual(['xrr:ShelfItem'])
+  })
+
+  it('前後の空白は落とす', () => {
+    const patch = kindLabelEdit('  店の名前  ', NS)
+    expect(patch.label).toBe('店の名前')
+    expect(patch.classes).toEqual(['xrr:Record_98874d'])
+  })
+
+  it('空にすると label だけ外す（classes は触らない）', () => {
+    const patch = kindLabelEdit('   ', NS)
+    expect(patch).toEqual({ label: undefined })
+    expect(patch.classes).toBeUndefined()
+  })
+
+  it('同じ文字列からはいつも同じ classes になる', () => {
+    expect(kindLabelEdit('温度 (K)', NS).classes).toEqual(kindLabelEdit('温度 (K)', NS).classes)
   })
 })

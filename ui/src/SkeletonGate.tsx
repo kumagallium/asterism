@@ -25,6 +25,7 @@ import {
 } from './skeletonContainment'
 import {
   assignColumnOwner,
+  kindLabelEdit,
   sameIdKind,
   sameIdSiblings,
   slugMapName,
@@ -1105,7 +1106,6 @@ export function SkeletonGate({
      IR の検証で弾かれるが、それが分かるのは materialize まで進んだ後で、この欄は
      何も言わずに受け取っていた。ここで言う。日本語は動く（IRI/Turtle 的に有効）
      が図のノード ID が `____` に潰れて読めないので、勧めない。 */
-  const CLASS_NAME_OK = /^[A-Za-z][0-9A-Za-z_-]*$/
   const sanitizeClassName = (raw: string) => {
     const ascii = raw
       .split(/[^0-9A-Za-z]+/)
@@ -1372,9 +1372,14 @@ export function SkeletonGate({
   // Kantan tier (K4/GATE-05): one kind, one name. The internal map name
   // (`sample_detail`) is machine bookkeeping — the human sees the kind, and
   // only falls back to the internal name when the kind cannot name it alone.
+  // 契約メモ a・R3: 人が打った表示名（`subject.label`）があれば、そのまま
+  // それを使う — 折りたたんだクラス名に食い違いチェック（同名の双子）を
+  // かける必要が無い。人が書いた名前は、常にそのまま見せる。
   const displayMapName = (name: string): string => {
     if (!plain) return name
     const m = skeleton.maps.find((x) => x.name === name)
+    const label = (m?.subject.label ?? '').trim()
+    if (label) return label
     const cls = m?.subject.classes?.[0]
     if (!cls) return name
     const shown = compactClass(cls, nsDetected)
@@ -1398,8 +1403,9 @@ export function SkeletonGate({
     // 名前がまだ無いときに `m.name`（機械の内部名。この場合 `dataset`）へ落ちて
     // いた。同じ画面が「1 件が表すもの」を空欄で聞きながら「1 つの『dataset』」と
     // 断言する形になり、人が書いていない語を答えとして見せてしまう（K20）。
-    // 名前が無いなら、無いと言う。
-    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+    // 名前が無いなら、無いと言う。人が打った表示名（`subject.label`）が
+    // あれば、折りたたんだクラス名より先にそれを読む（契約メモ a・R3）。
+    const label = (m.subject.label ?? '').trim() || compactClass(m.subject.classes?.[0] ?? '', nsDetected)
     if (!label) {
       return ann?.collapse_kind === 'singleton'
         ? t('skeletongate:reading.singletonUnnamed')
@@ -2298,19 +2304,29 @@ export function SkeletonGate({
           type="text"
           className="skeleton-gate-input"
           placeholder={plain ? t('skeletongate:kindPlaceholder') : undefined}
-          value={(m.subject.classes ?? [])
-            .map((c) => (plain ? compactClass(c, nsDetected) : c))
-            .join(', ')}
+          // 契約メモ a・R4: かんたんモードの欄は `subject.label`（人が打った
+          // 表示名）を読み書きする。無ければ今までどおり、公開される名前を
+          // 短くしたものを見せる。詳細モードは今のまま（公開される名前を
+          // 直に編集する）。
+          value={
+            plain
+              ? (m.subject.label ??
+                  (m.subject.classes ?? []).map((c) => compactClass(c, nsDetected)).join(', '))
+              : (m.subject.classes ?? []).join(', ')
+          }
           disabled={busy}
-          onChange={(e) =>
+          onChange={(e) => {
+            if (plain) {
+              updateSubject(idx, kindLabelEdit(e.target.value, nsDetected))
+              return
+            }
             updateSubject(idx, {
               classes: e.target.value
                 .split(',')
                 .map((s) => s.trim())
-                .filter(Boolean)
-                .map((c) => (plain ? expandClass(c, nsDetected) : c)),
+                .filter(Boolean),
             })
-          }
+          }}
         />
         {/* 欄の下に置く。上に出していたころは、入力する前から「⚠ まだ決まって
             いません」が欄より先に目に入り、これから答える場所ではなく、すでに
@@ -2327,39 +2343,15 @@ export function SkeletonGate({
         )}
         {/* この欄が何のための名前かを言う。利用者「後半で各 ID の名前をつける
             わけですが、これは項目の意味の定義とは別なのですか？」— 別で、しかも
-            こちらは ID の中に入る＝公開後は動かせない。非対称を欄の下で言う。 */}
+            こちらは ID の中に入る＝公開後は動かせない。非対称を欄の下で言う。
+            契約メモ a・R4: かんたんモードではどんな文字でも打てる（公開される
+            英字の名前と ID は機械が作る）ので、規則の警告や「〈…〉にする」
+            ボタンは出さない — それは詳細モードで公開名を直に編集するときの
+            話。 */}
         {plain && (m.subject.classes ?? []).length > 0 && (
-          <>
-            <p className="skeleton-evidence-line skeleton-evidence-muted">
-              {t('skeletongate:kindNameNote')}
-            </p>
-            {(() => {
-              const shown = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
-              // `:` を含むものは、宣言済みの語彙の語（`schema:Dataset` / まだ畳めて
-              // いない自分の語）。規則は「このデータセットが新しく作る名前」に
-              // だけ効く — 標準語彙を「使えない名前」と言ってはいけないし、
-              // `xr:Peak` に「XrPeak にする」を勧めるのは端的に間違い（実機で誤検知）。
-              if (!shown || shown.includes(':') || CLASS_NAME_OK.test(shown)) return null
-              const fixed = sanitizeClassName(shown)
-              return (
-                <p className="skeleton-evidence-line skeleton-evidence-warn">
-                  ⚠ {t('skeletongate:kindNameRule')}
-                  {fixed && (
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm skeleton-name-fix"
-                      disabled={busy}
-                      onClick={() =>
-                        updateSubject(idx, { classes: [expandClass(fixed, nsDetected)] })
-                      }
-                    >
-                      {t('skeletongate:kindNameFix', { name: fixed })}
-                    </button>
-                  )}
-                </p>
-              )
-            })()}
-          </>
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('skeletongate:kindNameNote')}
+          </p>
         )}
       </>
     )

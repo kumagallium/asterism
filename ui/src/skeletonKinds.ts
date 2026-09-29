@@ -6,8 +6,9 @@
 //
 // LLM は 1 回も呼ばない。ここにあるのは全部、骨格 JSON だけを見る純関数。
 
-import type { DatasetNamespaceInfo, MappingSkeleton, SkeletonMap } from './api'
+import type { DatasetNamespaceInfo, MappingSkeleton, SkeletonMap, SkeletonSubject } from './api'
 import { expandClass } from './datasetNamespace'
+import { classNameFromLabel } from './kantan/asciiNames'
 
 /** テンプレートの `{列名}` を並び順のまま取り出す（ID を決めている列）。 */
 export function keyColumnsOf(map: SkeletonMap): string[] {
@@ -114,6 +115,22 @@ export function subjectHead(template: string): string {
   const trimmed = beforeSlot.replace(/\/$/, '')
   const cutAt = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf(':'))
   return cutAt >= 0 ? trimmed.slice(0, cutAt + 1) : ''
+}
+
+/** かんたんモードの「名前・ID を直す」欄（R4）が、打った文字列から作る
+ *  `subject` の差分。打った文字列が空なら `label` を外し、`classes` は
+ *  今のまま（触らない）。空でなければ `label` にそのまま入れ、`classes` は
+ *  それを {@link classNameFromLabel}（`_class_name` と同じ規則・
+ *  fallback `record`）に通した名前 1 つに差し替える。前後の空白は落とす
+ *  （契約メモ a・R4）。かんたんモードではどんな文字でも打てる — 規則の
+ *  警告や自動修正のボタンは出さない。 */
+export function kindLabelEdit(
+  raw: string,
+  nsDetected: Pick<DatasetNamespaceInfo, 'ontology_prefix'> | null,
+): Partial<SkeletonSubject> {
+  const label = raw.trim()
+  if (!label) return { label: undefined }
+  return { label, classes: [expandClass(classNameFromLabel(label, 'record'), nsDetected)] }
 }
 
 /** 骨格スキーマが map の名前に課す形（`^[A-Za-z][\w-]*$`・
