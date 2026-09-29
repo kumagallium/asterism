@@ -9622,14 +9622,19 @@ def build_app(
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
 
     register_class_schema(app, cfg)
-    register_cards(app, cfg)
+    # label_resolvers=_crosswalk_label_resolvers: 契約メモ contract_b_hub_names.md
+    # の R1/R3（ハブとつながりの表示名）が項目の表示名を引くのに使う。cards_routes /
+    # classes_routes は main.py を import できない（循環）ので、ここで渡す。
+    register_cards(app, cfg, label_resolvers=_crosswalk_label_resolvers)
     register_place(app, cfg)
     register_license(app, cfg)
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）
     register_appdata_cards(app, cfg)  # 契約メモ contract_pr_f4.md §1-5（担当 api）
-    register_classes(app, cfg)  # 契約メモ contract_pr_f9.md §3（担当 api）
+    register_classes(
+        app, cfg, label_resolvers=_crosswalk_label_resolvers
+    )  # 契約メモ contract_pr_f9.md §3（担当 api）
     # 契約メモ contract_pr_f12.md §1-3・§2（担当 api）: design_consult と同じ
     # `_resolve_llm` closure をそのまま渡す（converse_routes.py は
     # `asterism_api.main` を import しない — そちらのモジュール docstring 参照）。

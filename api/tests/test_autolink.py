@@ -221,6 +221,9 @@ async def test_new_perspective_created(tmp_path: Path) -> None:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["auto_linked"] is True
     assert meta["auto_linked_from"] == [a]
+    # 契約メモ contract_b_hub_names.md §2: 新規作成は機械付けの名前 —
+    # R1（表示名の解決）がこの meta.name を人が付けた名前として扱わない。
+    assert meta["name_auto"] is True
 
 
 @pytest.mark.asyncio
@@ -275,6 +278,13 @@ async def test_existing_perspective_gets_missing_participant_only(tmp_path: Path
 
     config = crosswalk_runtime.load_config(root, perspective_id)
     assert {p.dataset_id for p in config.concepts[0].participants} == {a, b}
+
+    # 契約メモ contract_b_hub_names.md §2: 既存 perspective への参加者追加は
+    # 「新規作成」ではないので name_auto を立てない — 人が後で付けたかもし
+    # れない名前を消さない。
+    meta_path = root / crosswalk_runtime.crosswalk_registry_id(perspective_id) / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert "name_auto" not in meta
 
 
 @pytest.mark.asyncio

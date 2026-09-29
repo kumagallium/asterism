@@ -1127,6 +1127,50 @@ O57 の会話・O58 の書くは「種類が候補にあること」を前提に
   （ハブのメンバーでない IRI を渡すとエラーになる）・出どころへの
   データセットごとの合算を確認。
 
+### O64. ハブとつながりの表示名は、読むたびに項目の表示名から引く（契約メモ contract_b_hub_names.md、2026-09-29）
+
+背景（2026-09-29）: 実機確認。☑ を付けた列どうしが自動で結ばれてできたつな
+がりで、人に見せる名前に概念のキー（``food``）や実装の語（``food
+(crosswalk)``）がそのまま出ていた。`GET /api/crosswalks` は読むたびに参加者
+の表示名から `concept_label` を引いて返す既存の経路（`main.py` の
+`_enrich_crosswalk_config_dict`）を持っていたが、ワークスペース側
+（`cards_routes.py`・`classes_routes.py`）がこの経路を通っていなかった。
+
+決定:
+
+- **R1（つながりの表示名）**: registry meta の `name`（前後の空白を除く）が
+  人が付けた名前ならそれを使う。空・`name_auto: true`・concept のキーと同じ・
+  perspective の id と同じ・「名前のないつながり」と同じ・`^crosswalk(\s|:)`
+  に当たる（古いサーバの命名）のいずれかなら機械付けと判定し、代わりに
+  各 concept の表示名（R2）を config の順に並べて `/` でつなぐ。1 つも引けな
+  ければ「名前のないつながり」。`crosswalk_runtime.DEFAULT_PERSPECTIVE_NAME`
+  （「共通の値でつなぐ」）は人が付けた名前として扱う。
+- **R2（concept の表示名）**: 参加している項目の表示名（`field_label_of` →
+  `predicate_label_of` の順、`_enrich_crosswalk_config_dict` と同じ突き合わせ
+  順）。引けなければ概念のキーを人向けに直したもの（`_` を空白に）。ただし
+  discover が命名した置き場のキー（`^shared[_ ]value(?:[_ ]?\d+)?$` — UI の
+  `crosswalkLabels.ts` の `PLACEHOLDER_KEY` と同じ規則）は使わない。実装の語
+  （`(crosswalk)` 等）は人に見せる名前に足さない。
+- **R3（ハブの種類の表示名）**: 種類の IRI がどれかの concept の `class_iri`
+  と同じなら、その concept の表示名（R2）。無ければ「名前のないつながり」。
+- **1 か所にまとめる。** R1〜R3 を `api/src/asterism_api/crosswalk_names.py`
+  の純関数にし、`cards_routes.py`（`_hub_perspective_name` 経由の
+  `dataset_label`/`hub.name`/`hub_of.perspective_name`）と
+  `classes_routes.py`（`GET /api/classes` の `is_hub` 行の `label`/
+  `dataset_label`）の両方から呼ぶ。項目の表示名を引く関数
+  （`main.py` の `_crosswalk_label_resolvers`）は `main.py` にしか無いので、
+  `register_cards`/`register_classes` へ `label_resolvers` として渡す
+  （`cards_routes.py`/`classes_routes.py` が `main.py` を import すると循環
+  になるため）。
+- **ストアは書き換えない。** 保存済みの `crosswalk.yaml`・registry meta の
+  `name`・ハブ graph の `rdfs:label`（ingest の `crosswalk.py` が書くもの）
+  はそのまま — 読むたびに計算し直すだけなので、名前を変えたいときは人が
+  meta の `name` を書けば次の読み出しから反映される。
+- **自動リンクは名前を「機械付け」と自己申告する。** `autolink.py` が新しく
+  perspective を作ったとき（既存への参加者追加ではないとき）だけ、meta に
+  `name_auto: true` を書く — R1 がこの名前を人が付けた名前として扱わない
+  目印。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。

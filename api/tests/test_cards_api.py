@@ -668,6 +668,52 @@ def test_subjects_resolve_hub_subject_lists_members_from_both_datasets(
         assert body["hub_of"] is None
 
 
+def test_subjects_resolve_hub_name_falls_back_to_concept_key_when_machine_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1（契約メモ contract_b_hub_names.md）: meta の name が perspective_id
+    と同じ（機械付け）なら、hub graph 直下の crosswalk.yaml の concept キーを
+    人向けに直した名前に落ちる — ``_hub_client`` が既定で書く meta の
+    ``name`` を上書きする。"""
+
+    async def fake_hub_of_subject(client, iri):
+        if iri != HUB_IRI:
+            return None
+        return {
+            "hub_iri": HUB_IRI,
+            "graph": crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID),
+            "perspective_id": PERSPECTIVE_ID,
+        }
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools, "hub_of_subject", fake_hub_of_subject, raising=False
+    )
+    settings = _settings(tmp_path)
+    with _hub_client(tmp_path, members=[CHECKOUT_1, OTHER_MEMBER]) as client:
+        # 機械付けの名前（perspective_id そのもの）に書き換える。
+        _hub_registry_meta(settings.registry_root, name=PERSPECTIVE_ID)
+        config = crosswalk_runtime.parse_config(
+            {
+                "concepts": [
+                    {
+                        "name": "shared_thing_name",
+                        "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                    }
+                ]
+            }
+        )
+        crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+
+        r = client.get("/api/subjects/resolve", params={"iri": HUB_IRI})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["is_hub"] is True
+        # 参加データセットに設計（mapping.yaml）が無いので R2 は概念のキーを
+        # 人向けに直したものに落ちる。
+        assert body["dataset_label"] == "shared thing name"
+        assert body["hub"]["name"] == "shared thing name"
+
+
 def test_subjects_resolve_member_subject_gets_hub_of_band(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

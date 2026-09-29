@@ -179,11 +179,19 @@ async def _default_build(
     return {"created": created, "participants_added": added}
 
 
-def _mark_auto_linked(registry_root: Any, perspective_id: str, from_dataset_id: str) -> None:
+def _mark_auto_linked(
+    registry_root: Any, perspective_id: str, from_dataset_id: str, *, created: bool = False
+) -> None:
     """perspective の ``meta.json`` に ``auto_linked``/``auto_linked_from`` を書
     き戻す（``registry.mark_promoted`` と同じ読み書きの流儀）。無ければ何もし
     ない（``write_registry_scaffold`` は必ずこれを作るので通常は無いことはな
-    い — ここは best-effort の保険）。"""
+    い — ここは best-effort の保険）。
+
+    ``created``: この呼び出しが新規に作った perspective なら ``True`` — その
+    ときだけ ``name_auto: true`` も書く（契約メモ contract_b_hub_names.md
+    §2: 自動で新しく作ったつながりの名前は機械付けなので、R1 の表示名解決が
+    人の名前として扱わない目印。既存 perspective への参加者追加では、人が
+    後で付けたかもしれない名前を消さないので書かない）。"""
     meta_path = (
         Path(registry_root) / crosswalk_runtime.crosswalk_registry_id(perspective_id) / "meta.json"
     )
@@ -198,6 +206,8 @@ def _mark_auto_linked(registry_root: Any, perspective_id: str, from_dataset_id: 
     if from_dataset_id not in existing_from:
         existing_from.append(from_dataset_id)
     meta["auto_linked_from"] = existing_from
+    if created:
+        meta["name_auto"] = True
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -285,7 +295,7 @@ async def maybe_autolink_handles(
             participants_added = list(outcome.get("participants_added") or [])
             if not created and not participants_added:
                 continue  # already fully joined — idempotent re-promote, nothing to report
-            _mark_auto_linked(registry_root, perspective_id, dataset_id)
+            _mark_auto_linked(registry_root, perspective_id, dataset_id, created=created)
             report["linked"].append(
                 {
                     "perspective_id": perspective_id,
