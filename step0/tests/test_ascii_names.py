@@ -65,3 +65,12 @@ def test_name_tag_strip_set_is_explicit_and_matches_typescript() -> None:
     assert name_tag("﻿温度") == name_tag("温度") == "703a58"
     assert name_tag("温度\x85") == "ad4161"
     assert name_tag("x\x1c") == "f562e4"
+
+
+def test_name_tag_does_not_raise_on_a_lone_surrogate() -> None:
+    """対になっていない代用符号位置は UTF-8 にできない。落とさず、TypeScript の
+    TextEncoder と同じく U+FFFD として扱う（両方で同じ符号: 03479c）。"""
+    from asterism_step0.ascii_names import name_tag
+
+    assert name_tag("\ud83d") == "03479c"
+    assert name_tag("\ud83d") == name_tag("\ufffd")

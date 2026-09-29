@@ -211,3 +211,135 @@ def test_carry_subject_labels_fills_only_missing() -> None:
     assert "label" not in out["maps"][1]["subject"]
     own = {"maps": [{"name": "a", "subject": {"label": "自分の名前"}}]}
     assert carry_subject_labels(own, old)["maps"][0]["subject"]["label"] == "自分の名前"
+
+
+# ---------------------------------------------------------------------------
+# 機械が足す「つなぐ項目」の表示名 — つなぐ先の種類の表示名を付ける
+# （マップ名は、英字にできない列から作ると符号つきになる）
+# ---------------------------------------------------------------------------
+
+
+def test_the_decided_link_carries_the_kinds_display_name(monkeypatch) -> None:
+    import asterism_step0.staged_propose as sp
+    from asterism_step0.skeleton_annotate import _ascii_map_name
+
+    def fake_generate(*_args, **_kwargs):
+        return {
+            "properties": [{"predicate": "xr:n", "column": "No", "label": "番号"}],
+            "prefixes": {},
+        }
+
+    monkeypatch.setattr(sp, "generate_map_properties", fake_generate)
+    owner = _ascii_map_name("食材の名前", set(), "value")
+    out = sp._generate_map_properties_gated(
+        "rec",
+        {"name": "rec", "source": "c.csv", "subject": {"template": "xr:rec/{No}"}},
+        "ctx",
+        "menu",
+        llm=object(),
+        function_names=None,
+        language=None,
+        index=0,
+        total=1,
+        emit=lambda **_k: None,
+        record=lambda: None,
+        owned_elsewhere={"食材の名前": owner},
+        owner_subjects={owner: "xr:" + owner + "/{食材の名前}"},
+        owner_labels={owner: "食材の名前"},
+        ontology_prefix="xr",
+    )
+    links = [p for p in out["properties"] if p.get("object_template")]
+    assert len(links) == 1
+    assert links[0]["label"] == "食材の名前"
+    assert owner not in links[0]["label"]
+
+
+def test_the_decided_link_falls_back_to_the_map_name_without_a_display_name(monkeypatch) -> None:
+    import asterism_step0.staged_propose as sp
+
+    def fake_generate(*_args, **_kwargs):
+        return {
+            "properties": [{"predicate": "xr:n", "column": "No", "label": "番号"}],
+            "prefixes": {},
+        }
+
+    monkeypatch.setattr(sp, "generate_map_properties", fake_generate)
+    out = sp._generate_map_properties_gated(
+        "rec",
+        {"name": "rec", "source": "c.csv", "subject": {"template": "xr:rec/{No}"}},
+        "ctx",
+        "menu",
+        llm=object(),
+        function_names=None,
+        language=None,
+        index=0,
+        total=1,
+        emit=lambda **_k: None,
+        record=lambda: None,
+        owned_elsewhere={"shelf": "shelf"},
+        owner_subjects={"shelf": "xr:shelf/{shelf}"},
+        ontology_prefix="xr",
+    )
+    links = [p for p in out["properties"] if p.get("object_template")]
+    assert len(links) == 1
+    assert links[0]["label"] == "shelf"
+
+
+def test_the_same_source_link_carries_the_kinds_display_name() -> None:
+    from asterism_step0.staged_propose import ensure_same_source_links
+
+    ir = {
+        "version": 1,
+        "prefixes": {"xr": "http://x/ontology#"},
+        "maps": [
+            {
+                "name": "rec",
+                "source": "c.csv",
+                "subject": {"template": "xr:rec/{No}", "classes": ["xr:Rec"]},
+                "properties": [{"predicate": "xr:n", "column": "食材の名前", "label": "食材"}],
+            },
+            {
+                "name": "value_389a00",
+                "source": "c.csv",
+                "subject": {
+                    "template": "xr:value_389a00/{食材の名前}",
+                    "classes": ["xr:Value_389a00"],
+                    "label": "食材の名前",
+                },
+                "properties": [],
+            },
+        ],
+    }
+    out, added = ensure_same_source_links(ir, ontology_prefix="xr")
+    assert added
+    links = [p for p in out["maps"][0]["properties"] if p.get("object_template")]
+    assert len(links) == 1
+    assert links[0]["label"] == "食材の名前"
+
+
+def test_the_same_source_link_has_no_label_without_a_display_name() -> None:
+    from asterism_step0.staged_propose import ensure_same_source_links
+
+    ir = {
+        "version": 1,
+        "prefixes": {"xr": "http://x/ontology#"},
+        "maps": [
+            {
+                "name": "rec",
+                "source": "c.csv",
+                "subject": {"template": "xr:rec/{No}", "classes": ["xr:Rec"]},
+                "properties": [{"predicate": "xr:n", "column": "shelf"}],
+            },
+            {
+                "name": "shelf",
+                "source": "c.csv",
+                "subject": {"template": "xr:shelf/{shelf}", "classes": ["xr:Shelf"]},
+                "properties": [],
+            },
+        ],
+    }
+    out, added = ensure_same_source_links(ir, ontology_prefix="xr")
+    assert added
+    links = [p for p in out["maps"][0]["properties"] if p.get("object_template")]
+    assert len(links) == 1
+    assert "label" not in links[0]

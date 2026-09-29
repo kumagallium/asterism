@@ -23,6 +23,12 @@ describe('nameTag', () => {
     }
   })
 
+  it('対になっていない代用符号位置でも落ちず、Python 版と同じ値になる', () => {
+    // TextEncoder は U+FFFD に置き換える。Python 版も同じ置き換えをする。
+    expect(nameTag('\ud83d')).toBe('03479c')
+    expect(nameTag('\ud83d')).toBe(nameTag('\ufffd'))
+  })
+
   it('同じ入力はいつも同じ符号', () => {
     expect(nameTag('食材の名前')).toBe(nameTag('食材の名前'))
   })

@@ -2370,12 +2370,44 @@ def _reassert_invariants(
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
     schema_md = _overlay_data_facts(schema_md, *data_facts)
     schema_md = _overlay_column_meanings(schema_md, column_meanings)
+    schema_md = _overlay_kind_labels(schema_md, skeleton)
     schema_md = _overlay_catalog_guarantees(schema_md, skeleton)
     schema_md = _overlay_column_decisions(schema_md, column_decisions)
     schema_md = _overlay_taken_in_columns(
         schema_md, skeleton, column_meanings, column_decisions, *data_facts
     )
     return schema_md
+
+
+def _overlay_kind_labels(schema_md: str, skeleton: Mapping[str, Any] | None) -> str:
+    """種類の表示名（``subject.label``）を §9 に言い直す [毎ラウンド]。
+
+    表示名は表示メタで、設計を丸ごと書き直す AI は書き戻さない（書ける保証が
+    無い）。人が確かめた骨格にある表示名を、同じ名前のマップへ決定論で戻す。
+    AI が自分で書いた表示名は保つ（:func:`carry_subject_labels` と同じ規則）。
+    冪等・§9 が無い/差し替え不能・戻すものが無いならバイト不変。
+    """
+    if not isinstance(skeleton, Mapping):
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc = carry_subject_labels(doc, dict(skeleton))
+    if new_doc == doc:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
 
 
 def _overlay_catalog_guarantees(

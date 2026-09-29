@@ -481,6 +481,13 @@ def ensure_same_source_links(
     subject_of = {
         str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
     }
+    # 種類の表示名（subject.label）。機械が足す線の label に使う — 付けないと、
+    # 公開用の名前を崩した語が、項目の名前として画面に出る。
+    label_of = {
+        str(m.get("name")): str((m.get("subject") or {}).get("label") or "").strip()
+        for m in maps
+        if isinstance(m.get("subject"), Mapping)
+    }
     props: dict[str, list[dict]] = {
         str(m.get("name")): [dict(p) for p in (m.get("properties") or []) if isinstance(p, Mapping)]
         for m in maps
@@ -565,12 +572,13 @@ def ensure_same_source_links(
                     )
                     if holder is not None:
                         local = _lower_camel(b_name) or "linkedEntity"
-                        props[holder].append(
-                            {
-                                "predicate": f"{ontology_prefix}:{local}",
-                                "object_template": subject_of[b_name],
-                            }
-                        )
+                        link: dict[str, Any] = {
+                            "predicate": f"{ontology_prefix}:{local}",
+                            "object_template": subject_of[b_name],
+                        }
+                        if label_of.get(b_name):
+                            link["label"] = label_of[b_name]
+                        props[holder].append(link)
                         added.append(f"{holder} → {b_name}")
                         linked = True
                         break
@@ -3597,6 +3605,7 @@ def _generate_map_properties_gated(
     record: Callable[[], None],
     owned_elsewhere: Mapping[str, str] | None = None,
     owner_subjects: Mapping[str, str] | None = None,
+    owner_labels: Mapping[str, str] | None = None,
     column_types: Mapping[str, str] | None = None,
     source_columns: Sequence[str] | None = None,
     ontology_prefix: str | None = None,
@@ -3727,9 +3736,13 @@ def _generate_map_properties_gated(
                 continue  # 所有者の ID がこの列そのもののときだけ、辺は自明
             local = _lower_camel(str(owner)) or "linkedEntity"
             predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
-            # label はゲートで人が見た種類の名前。決定論で付けておかないと、
-            # この機械の辺 1 本のために label-fill の LLM ラウンドが走る。
-            rows.append({"predicate": predicate, "object_template": subject, "label": str(owner)})
+            # label はゲートで人が見た種類の名前 — 種類の表示名（subject.label）。
+            # 無ければマップ名。マップ名は、英字にできない列から作ると符号つきに
+            # なる（value_389a00）ので、表示名があるときは必ずそちらを使う。
+            # 決定論で付けておかないと、この機械の辺 1 本のために label-fill の
+            # LLM ラウンドが走る。
+            link_label = str((owner_labels or {}).get(str(owner)) or "").strip() or str(owner)
+            rows.append({"predicate": predicate, "object_template": subject, "label": link_label})
             existing_targets.add(subject)
             added_links.append(f"{col} → {owner}")
         if added_links:
@@ -3966,6 +3979,11 @@ def propose_from_skeleton(
                 str(mo.get("name")): str((mo.get("subject") or {}).get("template") or "")
                 for mo in maps
                 if isinstance(mo, Mapping)
+            },
+            owner_labels={
+                str(mo.get("name")): str((mo.get("subject") or {}).get("label") or "")
+                for mo in maps
+                if isinstance(mo, Mapping) and isinstance(mo.get("subject"), Mapping)
             },
             column_types=(column_types or {}).get(str(name)),
             source_columns=(

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 __all__ = ["loses_words", "name_tag", "needs_tag"]
@@ -31,6 +32,8 @@ _NO_CASE_CATEGORIES = frozenset({"Lo", "Lm"})
 
 # 取り除く空白を明示する。Python の ``str.strip()`` と JS の ``trim()`` は
 # 取り除く集合が違う（BOM・NEL・制御文字）ので、両言語で同じ集合を使う。
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
 _STRIP_CHARS = " \t\n\r\v\f\u00a0\u3000\ufeff"
 
 
@@ -42,7 +45,10 @@ def name_tag(text: str) -> str:
         （初期値 ``0x811C9DC5``・素数 ``0x01000193``）をかけ、8桁の16進表現の
         先頭6桁を返す。同じ入力は、いつ・どこで呼んでも同じ符号になる。
     """
-    data = unicodedata.normalize("NFKC", str(text)).strip(_STRIP_CHARS).encode("utf-8")
+    cleaned = unicodedata.normalize("NFKC", str(text)).strip(_STRIP_CHARS)
+    # 対になっていない代用符号位置は UTF-8 にできない。TypeScript の TextEncoder と
+    # 同じく U+FFFD に置き換える（落とさない・両方で同じ符号になる）。
+    data = _LONE_SURROGATE.sub("\ufffd", cleaned).encode("utf-8")
     h = _FNV_OFFSET_BASIS
     for byte in data:
         h ^= byte
