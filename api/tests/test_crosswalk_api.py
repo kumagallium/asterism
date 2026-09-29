@@ -268,6 +268,64 @@ def test_display_name_falls_back_to_r2_concept_label_when_unnamed(tmp_path: Path
         assert crystal["display_name"] == "組成"
 
 
+def _write_labelled_mapping(registry_root: Path, dataset_id: str) -> None:
+    (registry_root / dataset_id / "mapping.yaml").write_text(
+        "version: 1\n"
+        "prefixes:\n"
+        '  x: "https://kumagallium.github.io/asterism/x/ontology#"\n'
+        "maps:\n"
+        "  - name: sample\n"
+        "    source: samples.csv\n"
+        "    subject:\n"
+        '      template: "x:sample/{SID}"\n'
+        "    properties:\n"
+        "      - predicate: x:comp\n"
+        "        column: comp\n"
+        '        label: "組成"\n',
+        encoding="utf-8",
+    )
+
+
+def test_building_without_a_name_stores_the_field_label_as_the_name(tmp_path: Path) -> None:
+    """名前を付けずに作ったつながりは、registry の ``name`` そのものが項目の
+    表示名になる（``name_auto`` の印つき）— ``name`` をそのまま読む場所
+    （出どころ・材料表のデータセット名、カタログ）に、読むときの上書きは
+    届かないので。人が名前を付けたら印は外れ、以後の作り直しでも人の名前の
+    まま。"""
+    ds = rdflib.Dataset()
+    registry_root = tmp_path / "registry"
+    _seed_promoted(ds, registry_root, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, registry_root, "ds-b", [("urn:b1", "Bi2Te3")])
+    _write_labelled_mapping(registry_root, "ds-a")
+    meta_path = registry_root / crosswalk_runtime.crosswalk_registry_id("crystal") / "meta.json"
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/crosswalk/crystal/build", json=_config_body(["ds-a", "ds-b"]))
+        assert r.status_code == 200, r.text
+        assert r.json()["dataset"]["name"] == "組成"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        assert meta["name"] == "組成"
+        assert meta["name_auto"] is True
+
+        # 人が名前を付ける — 印が外れ、その名前になる
+        r = client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "二つの棚の突き合わせ"},
+        )
+        assert r.status_code == 200, r.text
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        assert meta["name"] == "二つの棚の突き合わせ"
+        assert meta["name_auto"] is False
+
+        # 名前なしで作り直しても、人の名前のまま
+        r = client.post("/api/crosswalk/crystal/build", json=_config_body(["ds-a", "ds-b"]))
+        assert r.status_code == 200, r.text
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        assert meta["name"] == "二つの棚の突き合わせ"
+        assert meta["name_auto"] is False
+        assert client.get("/api/crosswalk/crystal").json()["display_name"] == "二つの棚の突き合わせ"
+
+
 _RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 _X = "https://kumagallium.github.io/asterism/x/ontology#"
 

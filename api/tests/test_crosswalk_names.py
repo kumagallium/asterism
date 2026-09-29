@@ -8,9 +8,12 @@ R3（ハブの種類の表示名）の全ての枝。
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from asterism import crosswalk_runtime
 
-from asterism_api import crosswalk_names
+from asterism_api import crosswalk_names, registry
 
 CLASS_IRI = "https://ex/shared#Item"
 
@@ -297,3 +300,110 @@ def test_r3_falls_back_to_unnamed_when_the_matching_concept_is_a_placeholder() -
         crosswalk_names.hub_class_display_name(CLASS_IRI, config, _no_labels, _no_labels)
         == crosswalk_runtime.UNNAMED_PERSPECTIVE_NAME
     )
+
+
+# ---------------------------------------------------------------------------
+# 作るたびに、機械が付けた名前を表示名で書き直す（refresh_auto_name）
+# ---------------------------------------------------------------------------
+
+PERSPECTIVE = "shelf-item-name"
+
+
+def _write_perspective(root: Path, *, name: str, name_auto: bool | None = None) -> Path:
+    """registry に、つながり 1 つ（config と meta）を置く。meta のパスを返す。"""
+    config = crosswalk_runtime.RuntimeCrosswalkConfig(
+        concepts=(
+            _concept(
+                participants=(
+                    _participant("shelf-a", "https://ex/a#name"),
+                    _participant("shelf-b", "https://ex/b#name"),
+                )
+            ),
+        ),
+    )
+    crosswalk_runtime.save_config(root, config, PERSPECTIVE)
+    registry_id = crosswalk_runtime.crosswalk_registry_id(PERSPECTIVE)
+    meta: dict = {
+        "id": registry_id,
+        "name": name,
+        "is_crosswalk": True,
+        "crosswalk_perspective_id": PERSPECTIVE,
+        "crosswalk_concepts": ["shelf_item_name"],
+    }
+    if name_auto is not None:
+        meta["name_auto"] = name_auto
+    meta_path = root / registry_id / "meta.json"
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return meta_path
+
+
+_BOTH_NAMED = {
+    ("shelf-a", "https://ex/a#name"): "品名",
+    ("shelf-b", "https://ex/b#name"): "品名",
+}
+
+
+def test_refresh_rewrites_a_machine_name_with_the_field_label(tmp_path: Path) -> None:
+    meta_path = _write_perspective(tmp_path, name="shelf_item_name")
+    got = crosswalk_names.refresh_auto_name(
+        tmp_path, PERSPECTIVE, _field_labels(_BOTH_NAMED), _no_labels
+    )
+    assert got == "品名"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["name"] == "品名"
+    assert meta["name_auto"] is True
+    # ほかの欄は触らない
+    assert meta["crosswalk_concepts"] == ["shelf_item_name"]
+
+
+def test_refresh_follows_a_later_label_change_while_the_mark_stays(tmp_path: Path) -> None:
+    meta_path = _write_perspective(tmp_path, name="品名", name_auto=True)
+    renamed = {key: "書棚の品の名前" for key in _BOTH_NAMED}
+    got = crosswalk_names.refresh_auto_name(
+        tmp_path, PERSPECTIVE, _field_labels(renamed), _no_labels
+    )
+    assert got == "書棚の品の名前"
+    assert json.loads(meta_path.read_text(encoding="utf-8"))["name"] == "書棚の品の名前"
+
+
+def test_refresh_never_touches_a_human_name(tmp_path: Path) -> None:
+    meta_path = _write_perspective(tmp_path, name="書棚どうしの突き合わせ")
+    before = meta_path.read_text(encoding="utf-8")
+    got = crosswalk_names.refresh_auto_name(
+        tmp_path, PERSPECTIVE, _field_labels(_BOTH_NAMED), _no_labels
+    )
+    assert got is None
+    assert meta_path.read_text(encoding="utf-8") == before
+
+
+def test_refresh_keeps_the_machine_name_when_no_label_resolves(tmp_path: Path) -> None:
+    # 表示名が引けないとき、概念のキーを直しただけの語で上書きしても良くならない。
+    meta_path = _write_perspective(tmp_path, name="shelf_item_name")
+    before = meta_path.read_text(encoding="utf-8")
+    got = crosswalk_names.refresh_auto_name(tmp_path, PERSPECTIVE, _no_labels, _no_labels)
+    assert got is None
+    assert meta_path.read_text(encoding="utf-8") == before
+
+
+def test_refresh_is_a_no_op_for_a_missing_perspective(tmp_path: Path) -> None:
+    assert (
+        crosswalk_names.refresh_auto_name(
+            tmp_path, PERSPECTIVE, _field_labels(_BOTH_NAMED), _no_labels
+        )
+        is None
+    )
+
+
+def test_a_human_rename_takes_the_machine_mark_off(tmp_path: Path) -> None:
+    meta_path = _write_perspective(tmp_path, name="品名", name_auto=True)
+    registry_id = crosswalk_runtime.crosswalk_registry_id(PERSPECTIVE)
+    registry.rename_dataset(tmp_path, registry_id, "書棚どうしの突き合わせ")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["name"] == "書棚どうしの突き合わせ"
+    assert meta["name_auto"] is False
+    # 印が外れたので、次に作り直しても人の名前のまま
+    got = crosswalk_names.refresh_auto_name(
+        tmp_path, PERSPECTIVE, _field_labels(_BOTH_NAMED), _no_labels
+    )
+    assert got is None
+    assert json.loads(meta_path.read_text(encoding="utf-8"))["name"] == "書棚どうしの突き合わせ"

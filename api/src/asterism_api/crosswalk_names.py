@@ -34,10 +34,12 @@ from asterism import crosswalk_runtime
 __all__ = [
     "PLACEHOLDER_KEY_RE",
     "concept_display_name",
+    "concept_labels_for_config",
     "hub_class_display_name",
     "hub_class_index",
     "load_perspective_meta",
     "perspective_display_name",
+    "refresh_auto_name",
 ]
 
 #: 参加している項目のどれからも表示名が引けなかった concept の表示名の型
@@ -231,3 +233,65 @@ def hub_class_display_name(
                     return label
                 break
     return crosswalk_runtime.UNNAMED_PERSPECTIVE_NAME
+
+
+def concept_labels_for_config(
+    config: crosswalk_runtime.RuntimeCrosswalkConfig,
+    field_label_of: FieldLabelOf,
+    predicate_label_of: PredicateLabelOf,
+) -> dict[str, str]:
+    """``config`` の各 concept の表示名（R2）を、concept の名前 → 表示名の形で
+    返す（``crosswalk_runtime.build_hub`` の ``concept_labels`` にそのまま渡せる）。
+    空の結果は入れない。"""
+    labels: dict[str, str] = {}
+    for concept in config.concepts:
+        label = concept_display_name(concept, field_label_of, predicate_label_of)
+        if label:
+            labels[concept.name] = label
+    return labels
+
+
+def refresh_auto_name(
+    registry_root: Path | str,
+    perspective_id: str,
+    field_label_of: FieldLabelOf,
+    predicate_label_of: PredicateLabelOf,
+) -> str | None:
+    """機械が付けた名前を、いまの表示名で書き直す（ハブを作った・作り直した
+    直後に呼ぶ）。書き直したらその名前、何もしなければ ``None``。
+
+    読むときに直す（R1）だけでは、registry の ``name`` をそのまま読む場所
+    （出どころ・材料表のデータセット名、カタログ、ほかの AI への一覧）に
+    届かない。だから作るたびに ``name`` そのものを表示名にし、``name_auto``
+    の印を残す（印があるかぎり R1 は読むたびに引き直し、次に作り直したとき
+    もここで書き直す）。
+
+    人が付けた名前には触らない。表示名が 1 つも引けないときも触らない
+    （概念のキーを直しただけの語で、機械の名前を上書きしても良くならない）。
+    """
+    meta = load_perspective_meta(registry_root, perspective_id)
+    if not meta:
+        return None
+    config = crosswalk_runtime.load_config(registry_root, perspective_id)
+    if config is None:
+        return None
+    raw_name = str(meta.get("name") or "").strip()
+    if raw_name and not _is_machine_name(raw_name, meta, config, perspective_id):
+        return None
+    labels: list[str] = []
+    for concept in config.concepts:
+        resolved = _resolved_participant_labels(concept, field_label_of, predicate_label_of)
+        label = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
+        if label and label not in labels:
+            labels.append(label)
+    if not labels:
+        return None
+    name = " / ".join(labels)
+    if meta.get("name") == name and meta.get("name_auto") is True:
+        return name
+    meta["name"] = name
+    meta["name_auto"] = True
+    registry_id = crosswalk_runtime.crosswalk_registry_id(perspective_id)
+    meta_path = Path(registry_root) / registry_id / _META_FILE
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return name

@@ -169,6 +169,71 @@ describe('buildRailTree — ハブの印（PR F16）', () => {
   })
 })
 
+describe('buildRailTree — 種類の見出しは今の表示名', () => {
+  it('保存した写しより、種類の一覧にある今の表示名を使う', () => {
+    const tree = buildRailTree({
+      datasets: [],
+      classes: [
+        classEntry({
+          class_iri: 'https://example.org/class/loan',
+          label: '貸し出しの記録',
+          is_hub: true,
+        }),
+      ],
+      subjects: [
+        subject({
+          subject_key: 'i:loan-1',
+          class_iri: 'https://example.org/class/loan',
+          class_label: 'Loan',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+      ],
+    })
+    expect(tree.kinds[0]?.label).toBe('貸し出しの記録')
+  })
+
+  it('種類の一覧に載っていない種類は、保存した写しのまま', () => {
+    const tree = buildRailTree({
+      datasets: [],
+      classes: [classEntry({ class_iri: 'https://example.org/class/other', label: '別の種類' })],
+      subjects: [
+        subject({
+          subject_key: 'i:loan-1',
+          class_iri: 'https://example.org/class/loan',
+          class_label: '貸出',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+      ],
+    })
+    expect(tree.kinds[0]?.label).toBe('貸出')
+  })
+
+  it('並びは、今の表示名の順', () => {
+    const tree = buildRailTree({
+      datasets: [],
+      classes: [
+        classEntry({ class_iri: 'https://example.org/class/a', label: 'んの種類' }),
+        classEntry({ class_iri: 'https://example.org/class/b', label: 'あの種類' }),
+      ],
+      subjects: [
+        subject({
+          subject_key: 'i:a-1',
+          class_iri: 'https://example.org/class/a',
+          class_label: 'A',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+        subject({
+          subject_key: 'i:b-1',
+          class_iri: 'https://example.org/class/b',
+          class_label: 'B',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
+      ],
+    })
+    expect(tree.kinds.map((k) => k.label)).toEqual(['あの種類', 'んの種類'])
+  })
+})
+
 describe('buildRailTree — その他', () => {
   it('class_iri が無い主語は「その他」節に落ちる', () => {
     const tree = buildRailTree({

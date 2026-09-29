@@ -1415,6 +1415,7 @@ async def _rebuild_crosswalk_now(
     crosswalk_runtime.write_registry_scaffold(
         registry_root, config, outcome, perspective_id=perspective_id
     )
+    _refresh_crosswalk_auto_name(registry_root, perspective_id)
     return {
         "perspective_id": perspective_id,
         "built_at": outcome.built_at,
@@ -1705,12 +1706,22 @@ def _concept_labels_for_config(
     :func:`asterism.crosswalk.build_turtle` 側の「空/absent は今のまま」に
     委ねる）。"""
     predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(registry_root)
-    labels: dict[str, str] = {}
-    for concept in config.concepts:
-        label = crosswalk_names.concept_display_name(concept, field_label_of, predicate_label_of)
-        if label:
-            labels[concept.name] = label
-    return labels
+    return crosswalk_names.concept_labels_for_config(config, field_label_of, predicate_label_of)
+
+
+def _refresh_crosswalk_auto_name(registry_root: Path, perspective_id: str) -> None:
+    """ハブを作った・作り直した直後に、機械が付けた名前を表示名で書き直す
+    （:func:`asterism_api.crosswalk_names.refresh_auto_name`）。best-effort —
+    名前の書き直しの失敗で、作ったハブを失敗にしない。"""
+    try:
+        predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(
+            registry_root
+        )
+        crosswalk_names.refresh_auto_name(
+            registry_root, perspective_id, field_label_of, predicate_label_of
+        )
+    except Exception:
+        logger.exception("refreshing the name of crosswalk %s failed (continuing)", perspective_id)
 
 
 def _label_crosswalk_fields(registry_root: Path, datasets: list[dict]) -> None:
@@ -9147,6 +9158,14 @@ def build_app(
         meta = crosswalk_runtime.write_registry_scaffold(
             cfg.registry_root, config, outcome, perspective_id=perspective_id, name=body.name or ""
         )
+        if (body.name or "").strip():
+            # 人が名前を付けた — 機械の名前の印が残っていれば外す（残すと、下の
+            # 書き直しや次の作り直しで、人の名前が表示名に戻されてしまう）。
+            if meta.get("name_auto"):
+                registry.rename_dataset(cfg.registry_root, str(meta["id"]), str(meta["name"]))
+        else:
+            _refresh_crosswalk_auto_name(cfg.registry_root, perspective_id)
+        meta = crosswalk_names.load_perspective_meta(cfg.registry_root, perspective_id) or meta
         return JSONResponse(
             {
                 "perspective_id": perspective_id,

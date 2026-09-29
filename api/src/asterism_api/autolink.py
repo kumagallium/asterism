@@ -143,12 +143,7 @@ def _concept_labels_for_config(
     if label_resolvers is None:
         return None
     predicate_label_of, field_label_of, _class_label_of = label_resolvers(registry_root)
-    labels: dict[str, str] = {}
-    for concept in config.concepts:
-        label = crosswalk_names.concept_display_name(concept, field_label_of, predicate_label_of)
-        if label:
-            labels[concept.name] = label
-    return labels
+    return crosswalk_names.concept_labels_for_config(config, field_label_of, predicate_label_of)
 
 
 async def _default_build(
@@ -343,6 +338,12 @@ async def maybe_autolink_handles(
             if not created and not participants_added:
                 continue  # already fully joined — idempotent re-promote, nothing to report
             _mark_auto_linked(registry_root, perspective_id, dataset_id, created=created)
+            if label_resolvers is not None:
+                # 機械が付けた名前（概念のキー）を、表示名で書き直す。
+                predicate_label_of, field_label_of, _ = label_resolvers(registry_root)
+                crosswalk_names.refresh_auto_name(
+                    registry_root, perspective_id, field_label_of, predicate_label_of
+                )
             report["linked"].append(
                 {
                     "perspective_id": perspective_id,
