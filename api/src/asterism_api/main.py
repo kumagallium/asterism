@@ -1631,8 +1631,9 @@ def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], 
     column heading for, so it counts as the design's word here (the predicate-only
     resolver refuses it — it cannot tell whose column it is). A predicate several
     kinds share (``rdfs:label``) yields one entry per kind, which is the point
-    (crosswalk-kind-scoped-fields.md). Kind labels are the class local names —
-    the words the counting gate wrote on the boxes. Raises on an unparsable IR.
+    (crosswalk-kind-scoped-fields.md). Kind labels are the authored
+    ``subject.label`` (R2) where a map has one, else the class local name — the
+    words the counting gate wrote on the boxes. Raises on an unparsable IR.
     """
     from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
 
@@ -1649,8 +1650,10 @@ def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], 
     kinds: dict[str, str] = {}
     for tm in ir.maps:
         classes = [expand(c) for c in tm.subject.classes]
-        for cls in classes:
-            kinds.setdefault(cls, _iri_local_name(cls))
+        subject_label = (tm.subject.label or "").strip() or None
+        if subject_label:
+            for cls in classes:
+                kinds.setdefault(cls, subject_label)
         for prop in tm.properties:
             word = (prop.label or "").strip() or (_label_from_column(prop.column) or "")
             if not word:
@@ -1658,6 +1661,11 @@ def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], 
             pred = expand(prop.predicate)
             for cls in classes:
                 fields.setdefault((cls, pred), word)
+    # authored ``subject.label`` (R2) wins; a kind without one keeps its
+    # local name (the class-name box text, as before R2 existed).
+    for tm in ir.maps:
+        for cls in (expand(c) for c in tm.subject.classes):
+            kinds.setdefault(cls, _iri_local_name(cls))
     return fields, kinds
 
 
@@ -5739,6 +5747,13 @@ def build_app(
             default="",
             description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
         ),
+        labels: str = Form(
+            default="[]",
+            description=(
+                "☑ した列の種類につける表示名 as JSON [{source, column, label}]"
+                " (契約メモ a・R2)。省略時は列名がそのまま既定になる。"
+            ),
+        ),
     ) -> dict[str, object]:
         """③④の答えから骨格を組み立てる [決定論・LLM 0・ジョブなし]。
 
@@ -5759,7 +5774,21 @@ def build_app(
         linkable_obj = _parse_json(linkable, "linkable", list)
         card_keys_obj = _parse_json(card_keys, "card_keys", dict)
         excluded_obj = _parse_json(excluded, "excluded", list)
+        labels_obj = _parse_json(labels, "labels", list)
         dialect_overrides = _parse_dialect_overrides(dialects)
+
+        labels_map: dict[tuple[str, str], str] = {}
+        for entry in labels_obj:
+            if not isinstance(entry, dict):
+                continue
+            source = entry.get("source")
+            column = entry.get("column")
+            label = entry.get("label")
+            if not isinstance(source, str) or not isinstance(column, str):
+                continue
+            if not isinstance(label, str) or not label.strip():
+                continue
+            labels_map[(source, column)] = label.strip()
 
         work, paths, owned = await _design_sources(
             cfg.registry_root, files, staging_id or None, prefix="asterism-assemble-"
@@ -5775,6 +5804,7 @@ def build_app(
                     dataset_name=dataset_name or None,
                     dialects=effective,
                     iri_base=cfg.iri_base,
+                    labels=labels_map or None,
                 ),
                 list(paths),
             )

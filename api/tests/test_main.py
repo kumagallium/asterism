@@ -705,6 +705,58 @@ def test_skeleton_assemble_builds_from_judgments(
         assert r3.status_code == 400
 
 
+def test_skeleton_assemble_passes_labels_to_subject(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """契約メモ a・R3(api): `labels` は `assemble_skeleton_from_judgments` の
+    `labels` 引数へそのまま渡り、☑ した列の種類の `subject.label` になる。"""
+    csv = (
+        "No,Name,temp,val\n"
+        "C-1,Alpha,300,1.2\n"
+        "C-1,Alpha,310,1.4\n"
+        "C-1,Alpha,320,1.9\n"
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton/assemble",
+            data={
+                "linkable": json.dumps(
+                    [
+                        {"source": "cards.csv", "column": "No"},
+                        {"source": "cards.csv", "column": "Name"},
+                    ]
+                ),
+                "card_keys": json.dumps({"cards.csv": "No"}),
+                "labels": json.dumps(
+                    [{"source": "cards.csv", "column": "Name", "label": "店の名前"}]
+                ),
+            },
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        maps = {m["name"]: m for m in r.json()["skeleton"]["maps"]}
+        assert maps["name"]["subject"]["label"] == "店の名前"
+        # ラベルを渡さなかった種類は既定どおり（label 無し）。
+        assert "label" not in maps["card"]["subject"]
+
+        # labels を省略しても今まで通り 200（新引数は任意）。
+        r2 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"linkable": "[]"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r2.status_code == 200
+
+        # 壊れた JSON は 400。
+        r3 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"labels": "{not json"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r3.status_code == 400
+
+
 def test_skeleton_validate_recomputes_evidence_for_edits(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
