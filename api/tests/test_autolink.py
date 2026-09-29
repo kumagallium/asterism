@@ -225,6 +225,9 @@ async def test_new_perspective_created(tmp_path: Path) -> None:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["auto_linked"] is True
     assert meta["auto_linked_from"] == [a]
+    # 契約メモ contract_b_hub_names.md §2: 新規作成は機械付けの名前 —
+    # R1（表示名の解決）がこの meta.name を人が付けた名前として扱わない。
+    assert meta["name_auto"] is True
 
 
 @pytest.mark.asyncio
@@ -281,6 +284,13 @@ async def test_existing_perspective_gets_missing_participant_only(tmp_path: Path
 
     config = crosswalk_runtime.load_config(root, perspective_id)
     assert {p.dataset_id for p in config.concepts[0].participants} == {a, b}
+
+    # 契約メモ contract_b_hub_names.md §2: 既存 perspective への参加者追加は
+    # 「新規作成」ではないので name_auto を立てない — 人が後で付けたかもし
+    # れない名前を消さない。
+    meta_path = root / crosswalk_runtime.crosswalk_registry_id(perspective_id) / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert "name_auto" not in meta
 
 
 @pytest.mark.asyncio
@@ -430,3 +440,155 @@ async def test_two_meaning_different_pairs_do_not_merge_across_two_real_promotes
     cd_config = crosswalk_runtime.load_config(root, cd_perspective)
     assert cd_config is not None
     assert {p.dataset_id for p in cd_config.concepts[0].participants} == {c, d}
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_b2_hub_names.md B2-3: 自動で作る／育てるハブも R2 の
+# 表示名を rdfs:label に書く。
+# ---------------------------------------------------------------------------
+
+
+def _fake_label_resolvers(word: str):
+    """``main.py`` の ``_crosswalk_label_resolvers`` と同じ形の偽物 —
+    ``predicate_label_of`` だけが ``word`` を返す（field_label_of/
+    class_label_of は常に None、契約メモ B2-3 の R2 の 2 段目に相当）。"""
+
+    def make(registry_root):
+        def field_label_of(dataset_id, predicate, subject_class):
+            return None
+
+        def predicate_label_of(dataset_id, predicate):
+            return word
+
+        def class_label_of(dataset_id, class_iri):
+            return None
+
+        return predicate_label_of, field_label_of, class_label_of
+
+    return make
+
+
+def test_concept_labels_for_config_resolves_each_concepts_r2_label() -> None:
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": CLASS_BOOK,
+                    "participants": [{"dataset_id": "ds-a", "predicate": PRED_CODE}],
+                }
+            ]
+        }
+    )
+    labels = autolink._concept_labels_for_config(
+        Path("/nonexistent"), config, _fake_label_resolvers("貸し出しコード")
+    )
+    assert labels == {"shared_thing_name": "貸し出しコード"}
+
+
+def test_concept_labels_for_config_is_none_when_label_resolvers_is_none() -> None:
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": CLASS_BOOK,
+                    "participants": [{"dataset_id": "ds-a", "predicate": PRED_CODE}],
+                }
+            ]
+        }
+    )
+    assert autolink._concept_labels_for_config(Path("/nonexistent"), config, None) is None
+
+
+@pytest.mark.asyncio
+async def test_new_perspective_created_with_label_resolvers_writes_the_resolved_class_label(
+    tmp_path: Path,
+) -> None:
+    """``label_resolvers`` を渡すと、実際に使われた concept のハブの種類の
+    ``rdfs:label`` が R2 の結果になる（渡さない既存の呼び出し方は他のテスト
+    で確認済み・出力は変わらない）。"""
+    root = tmp_path / "registry"
+    root.mkdir()
+    a = _make_dataset(root, "book-loans", has_handle=True)
+    b = _make_dataset(root, "book-reviews", has_handle=True)
+    perspective_id = "shared-code"
+
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
+        return {
+            "candidates": [
+                _candidate(perspective_id, "shared code", [_participant(a), _participant(b)])
+            ]
+        }
+
+    client = _DatasetClient()
+    # 両方のデータセットを実際に promoted な canonical graph にし、同じ値の
+    # 三つ組を置く — concept が実際に "used" になり、ハブの種類の三つ組
+    # （owl:Class + rdfs:label）が書かれる。
+    for dsid in (a, b):
+        key = substrate.canonical_graph_iri(dsid)
+        g = client.ds.graph(rdflib.URIRef(key))
+        g.add(
+            (
+                rdflib.URIRef(f"urn:{dsid}:item"),
+                rdflib.URIRef(PRED_CODE),
+                rdflib.Literal("C1"),
+            )
+        )
+        client.ds.update(
+            f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
+            f'<{key}> <{substrate.STATUS_PREDICATE}> "promoted" }} }}'
+        )
+
+    report = await autolink.maybe_autolink_handles(
+        client,
+        root,
+        a,
+        discover=discover_stub,
+        label_resolvers=_fake_label_resolvers("貸し出しコード"),
+    )
+    assert report["linked"], report["skipped"]
+
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(perspective_id)
+    labels = list(
+        client.ds.graph(rdflib.URIRef(hub_graph)).objects(
+            rdflib.URIRef(CLASS_BOOK), rdflib.RDFS.label
+        )
+    )
+    assert [str(v) for v in labels] == ["貸し出しコード"]
+
+
+@pytest.mark.asyncio
+async def test_fake_build_is_never_given_label_resolvers(tmp_path: Path) -> None:
+    """``build=`` に偽物を渡す既存のテストの流儀（固定シグネチャ）が壊れない
+    こと — ``label_resolvers`` を渡しても偽物の呼び出しには現れない。"""
+    root = tmp_path / "registry"
+    root.mkdir()
+    a = _make_dataset(root, "book-loans", has_handle=True)
+    b = _make_dataset(root, "book-reviews", has_handle=True)
+    perspective_id = "shared-code"
+
+    async def discover_stub(
+        client, datasets, *, limits=None, only_slots=None, existing=None, reserved_ids=None
+    ):
+        return {
+            "candidates": [
+                _candidate(perspective_id, "shared code", [_participant(a), _participant(b)])
+            ]
+        }
+
+    async def fake_build(client, registry_root, perspective_id, candidate) -> dict:
+        return {"created": True, "participants_added": [{"dataset_id": a, "predicate": PRED_CODE}]}
+
+    client = _DatasetClient()
+    report = await autolink.maybe_autolink_handles(
+        client,
+        root,
+        a,
+        discover=discover_stub,
+        build=fake_build,
+        label_resolvers=_fake_label_resolvers("貸し出しコード"),
+    )
+    assert len(report["linked"]) == 1

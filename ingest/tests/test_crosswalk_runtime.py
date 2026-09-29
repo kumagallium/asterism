@@ -6,6 +6,7 @@ bounded passes, the drop+post+flag write) against an in-memory ``rdflib.Dataset`
 so graph resolution, shared bounding, per-link provenance, and the promoted flag are
 exercised end-to-end without a triplestore.
 """
+
 from __future__ import annotations
 
 import json
@@ -137,6 +138,30 @@ async def test_build_hub_joins_shared_across_promoted_graphs() -> None:
 
 
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+
+
+async def test_build_hub_concept_labels_overrides_the_hub_classs_rdfs_label() -> None:
+    """契約メモ contract_b2_hub_names.md B2-3: ``concept_labels`` は
+    :func:`asterism.crosswalk.build_turtle` にそのまま届き、ハブの種類の
+    ``rdfs:label`` に反映される。"""
+    ds = rdflib.Dataset()
+    _seed_dataset(ds, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_dataset(ds, "ds-b", [("urn:b1", "Bi2Te3")])
+    client = _DatasetClient(ds)
+    cfg = _composition_config([("ds-a", "starrydata"), ("ds-b", "materials_project")])
+
+    await build_hub(
+        client,
+        cfg,
+        built_at="2026-06-11T00:00:00+00:00",
+        concept_labels={"composition": "化学組成"},
+    )
+
+    labels = await _values(
+        client,
+        f"SELECT ?v WHERE {{ GRAPH <{HUB_GRAPH}> {{ <{XW}Composition> <{RDFS_LABEL}> ?v }} }}",
+    )
+    assert labels == ["化学組成"]
 
 
 async def test_build_hub_scopes_a_participant_to_its_kind() -> None:
@@ -412,9 +437,7 @@ def test_unnamed_named_perspective_gets_a_plain_name(tmp_path: Path) -> None:
         participants_used=[],
         participants_skipped=[],
     )
-    meta = write_registry_scaffold(
-        tmp_path, _crystal_config(), outcome, perspective_id="crystal"
-    )
+    meta = write_registry_scaffold(tmp_path, _crystal_config(), outcome, perspective_id="crystal")
     assert meta["name"] == UNNAMED_PERSPECTIVE_NAME
     # A name the user typed still wins.
     meta = write_registry_scaffold(
@@ -482,8 +505,13 @@ async def test_schema_alignment_assert_list_remove() -> None:
     b = f"{XW}Material"
     # assert an equivalentClass between two perspectives' concept classes
     res = await assert_alignment(
-        client, a, b, "equivalentClass",
-        at="2026-06-11T00:00:00+00:00", from_perspective="composition", to_perspective="material",
+        client,
+        a,
+        b,
+        "equivalentClass",
+        at="2026-06-11T00:00:00+00:00",
+        from_perspective="composition",
+        to_perspective="material",
     )
     assert res["relation"] == "equivalentClass"
     # the semantic owl triple landed in the alignment graph
@@ -522,9 +550,9 @@ def test_alignment_rejects_bad_relation_and_iri() -> None:
 
 
 async def _count(client: _DatasetClient, where: str) -> int:
-    rows = (
-        await client.sparql_select(f"SELECT (COUNT(*) AS ?c) WHERE {{ {where} }}")
-    )["results"]["bindings"]
+    rows = (await client.sparql_select(f"SELECT (COUNT(*) AS ?c) WHERE {{ {where} }}"))["results"][
+        "bindings"
+    ]
     return int(rows[0]["c"]["value"]) if rows else 0
 
 

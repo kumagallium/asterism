@@ -6,6 +6,7 @@ import {
   fieldDisplay,
   joinPayloadFor,
   partitionDiscoverCandidates,
+  perspectiveDisplayName,
 } from './crosswalkLabels'
 
 const RDFS_LABEL = 'http://www.w3.org/2000/01/rdf-schema#label'
@@ -234,5 +235,36 @@ describe('alreadyLinkedDisplayName', () => {
       },
     })
     expect(alreadyLinkedDisplayName(c, perspectives, 'fallback')).toBe('fallback')
+  })
+})
+
+// 契約メモ contract_b2_hub_names.md B2-2: display_name（R1、読むたびに解決した
+// 表示名）が dataset.name より優先する。
+describe('perspectiveDisplayName', () => {
+  it('prefers display_name over the stored dataset name', () => {
+    expect(
+      perspectiveDisplayName({ display_name: '共有たな', dataset: { name: 'crosswalk-bridge' } }),
+    ).toBe('共有たな')
+  })
+
+  it('falls back to the stored dataset name when display_name is absent (older server)', () => {
+    expect(perspectiveDisplayName({ dataset: { name: '共有たな' } })).toBe('共有たな')
+  })
+
+  it('treats the server "no name" constant in display_name as no name', () => {
+    expect(
+      perspectiveDisplayName({ display_name: '名前のないつながり', dataset: { name: 'ignored' } }),
+    ).toBeUndefined()
+  })
+
+  it('treats an old implementation-minted name in display_name as no name', () => {
+    expect(
+      perspectiveDisplayName({ display_name: 'crosswalk: shelf-view', dataset: { name: 'x' } }),
+    ).toBeUndefined()
+  })
+
+  it('is undefined when neither display_name nor the dataset name is a real name', () => {
+    expect(perspectiveDisplayName({})).toBeUndefined()
+    expect(perspectiveDisplayName({ display_name: '', dataset: { name: '' } })).toBeUndefined()
   })
 })

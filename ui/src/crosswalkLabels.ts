@@ -106,13 +106,23 @@ const SERVER_UNNAMED = '名前のないつながり'
 
 /** What to call a crosswalk in the tab strip / the overview: its name, or `undefined`
  * when it has none worth showing (the caller then says "unnamed connection" and keeps
- * the id in a `title`). */
+ * the id in a `title`).
+ *
+ * `display_name` (契約メモ contract_b2_hub_names.md B2-2 — R1, computed fresh on every
+ * read from the participating fields' own display names) wins when present; older
+ * servers that do not send it fall back to the registry meta's stored `name` (the
+ * pre-B2-2 rule below). Either way, the server's "no name" constant and an old
+ * implementation-minted name still read as no name. */
 export function perspectiveDisplayName(p: {
   dataset?: { name?: string } | null
   perspective_id?: string
+  display_name?: string
 }): string | undefined {
+  const isRealName = (s: string) => !!s && s !== SERVER_UNNAMED && !IMPLEMENTATION_NAME.test(s)
+  const given = (p.display_name ?? '').trim()
+  if (given) return isRealName(given) ? given : undefined
   const name = (p.dataset?.name ?? '').trim()
-  return !name || name === SERVER_UNNAMED || IMPLEMENTATION_NAME.test(name) ? undefined : name
+  return isRealName(name) ? name : undefined
 }
 
 /** R7 (契約 contract_d_discover_existing.md): 仕分ける — 候補として出す

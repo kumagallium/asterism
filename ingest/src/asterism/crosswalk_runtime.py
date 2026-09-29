@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -501,6 +502,7 @@ async def build_hub(
     *,
     built_at: str,
     perspective_id: str = DEFAULT_PERSPECTIVE_ID,
+    concept_labels: Mapping[str, str] | None = None,
 ) -> BuildOutcome:
     """Rebuild ONE crosswalk perspective from the live store (read FROM the promoted
     canonical graphs, write the perspective's graph + control flag). Idempotent (drop +
@@ -510,6 +512,10 @@ async def build_hub(
     default is the legacy ``composition`` perspective. ``client`` is an
     :class:`asterism.oxigraph_client.OxigraphClient`. The read is bounded to shared
     values; normalization happens in Python via the concept's named normalizer.
+
+    ``concept_labels`` (契約メモ contract_b2_hub_names.md B2-3): concept name →
+    human-readable display name, forwarded as-is to :func:`asterism.crosswalk.
+    build_turtle` — see there for the fallback when absent/empty.
     """
     hub_graph = crosswalk_graph_iri(perspective_id)
     activity_iri = perspective_activity_iri(perspective_id)
@@ -551,8 +557,7 @@ async def build_hub(
             # COMPOUND key: gather per-entity TUPLES (one value per part) and bucket by
             # the normalized tuple — two entities coincide iff every part matches.
             part_norms = [
-                resolve_normalizer(kp.normalizer, kp.normalizer_recipe)
-                for kp in concept.key_parts
+                resolve_normalizer(kp.normalizer, kp.normalizer_recipe) for kp in concept.key_parts
             ]
             rows_by_label: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
             key_sets_t: list[set[tuple[str, ...]]] = []
@@ -617,6 +622,7 @@ async def build_hub(
         observations,
         activity_iri=activity_iri,
         built_at=built_at,
+        concept_labels=concept_labels,
     )
     triple_count = _count_triples(result.turtle)
 
