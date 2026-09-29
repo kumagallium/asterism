@@ -234,24 +234,33 @@ def _name_from_meta_json(registry_root: Path, dataset_id: str) -> str | None:
 
 def resolve_dataset_label(registry_root: Path | str | None, dataset_id: str) -> str:
     """The ONE dataset-display-name resolution every read path that names a
-    dataset shares (契約メモ §3.1): ``metadata.ttl``'s ``dcterms:title``
-    (``ja`` → ``en`` → untagged) → the registry's ``meta.json`` ``name`` →
+    dataset shares (契約メモ §3.1): the registry's ``meta.json`` ``name`` →
+    ``metadata.ttl``'s ``dcterms:title`` (``ja`` → ``en`` → untagged) →
     ``dataset_id`` itself (K4: never a bare id when a real name exists, but
-    never nothing either). Pure filesystem reads, no store access — callers
-    that already have a store client (``dataset_summary``) still call this
-    for the parts a store query cannot answer (the registry's own metadata),
-    same layering as :mod:`asterism.licenses`.
+    never nothing either).
+
+    ``meta.json``'s ``name`` comes first because it is the name a person gave
+    — at 「公開する」 or by renaming — and the one the dataset list shows.
+    ``dcterms:title`` is written at design time, before anyone has named the
+    dataset (the wizard's default is the literal ``dataset``), and renaming
+    does not rewrite it: with the title first, every dataset a person had
+    named still read 「dataset」 in the workspace (実機 2026-09-29).
+
+    Pure filesystem reads, no store access — callers that already have a
+    store client (``dataset_summary``) still call this for the parts a store
+    query cannot answer (the registry's own metadata), same layering as
+    :mod:`asterism.licenses`.
     """
     safe_id = valid_dataset_id(dataset_id)
     if safe_id is None or registry_root is None:
         return dataset_id
     root = Path(registry_root)
-    title = _title_from_metadata_ttl(root, safe_id)
-    if title:
-        return title
     name = _name_from_meta_json(root, safe_id)
     if name:
         return name
+    title = _title_from_metadata_ttl(root, safe_id)
+    if title:
+        return title
     return dataset_id
 
 

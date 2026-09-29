@@ -14,7 +14,7 @@
 * ライセンスは :func:`asterism.licenses.dataset_license`（正本は
   ``metadata.ttl`` の ``dcterms:license``）。
 * データセットの表示名は :func:`asterism.subjects.resolve_dataset_label`
-  （``metadata.ttl`` の ``dcterms:title`` → ``meta.json`` の ``name`` → id）。
+  （``meta.json`` の ``name`` → ``metadata.ttl`` の ``dcterms:title`` → id）。
 
 promoted（公開済み）でないデータセットは、版グラフがまだ引用可能スコープに
 無い（:func:`asterism.substrate.canonical_graphs` の定義そのもの）ので、
