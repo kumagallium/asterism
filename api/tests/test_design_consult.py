@@ -281,7 +281,7 @@ def test_consult_weaves_kind_columns_into_prompt(tmp_path: Path) -> None:
             json={
                 "messages": [{"role": "user", "content": "この表をどう分けるとよいですか"}],
                 "context": {
-                    "step": "ID のつけかた",
+                    "step": "つながりを選ぶ",
                     "kinds": [
                         {
                             "map": "card",
