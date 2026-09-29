@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import urllib.parse
-from collections.abc import Callable, Hashable, Iterable
+from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -280,9 +280,7 @@ class Concept:
     def parts(self) -> tuple[KeyPart, ...]:
         """The effective key parts: the explicit ``key_parts`` or a single implicit part
         from the concept's own normalizer (so single-part is the legacy 1-value join)."""
-        return self.key_parts or (
-            KeyPart(self.name, self.normalizer, self.normalizer_recipe),
-        )
+        return self.key_parts or (KeyPart(self.name, self.normalizer, self.normalizer_recipe),)
 
 
 @dataclass(frozen=True)
@@ -326,6 +324,7 @@ def build_turtle(
     *,
     activity_iri: str,
     built_at: str,
+    concept_labels: Mapping[str, str] | None = None,
 ) -> CrosswalkBuild:
     """Build the hub graph Turtle from observations (pure, multi-concept).
 
@@ -337,6 +336,13 @@ def build_turtle(
     ``config.per_link_provenance`` (default on), every link also gets a
     ``xw:CrosswalkLink`` node recording the *raw* string it normalized and the
     normalizer used — so each cross-dataset join is independently auditable.
+
+    ``concept_labels`` (契約メモ contract_b2_hub_names.md B2-3): concept name →
+    a human-readable display name (e.g. resolved from the participating fields'
+    own labels). When a concept has a non-empty entry, the hub class's
+    ``rdfs:label`` is written as-is instead of the implementation-worded
+    ``"<name> (crosswalk)"``. ``None``/absent leaves the output byte-identical
+    to before this parameter existed.
     """
     all_datasets = sorted({r.dataset for c in config.concepts for r in c.rules})
     lines = [
@@ -386,9 +392,11 @@ def build_turtle(
         build.links[concept.name] = {}
 
         lines.append(f"# --- concept: {concept.name} (normalizer: {norm_label}) ---")
-        lines.append(
-            f'<{concept.class_iri}> a owl:Class ; rdfs:label "{_esc(concept.name)} (crosswalk)" .'
-        )
+        # B2-3: a resolved display name (from the participating fields' own labels)
+        # replaces the implementation-worded fallback when one is given; None/absent
+        # (or an empty entry) keeps the byte-identical legacy output.
+        class_label = (concept_labels or {}).get(concept.name) or f"{concept.name} (crosswalk)"
+        lines.append(f'<{concept.class_iri}> a owl:Class ; rdfs:label "{_esc(class_label)}" .')
         base = concept.resource_base()
         for key in shared:
             iri = f"{base}{urllib.parse.quote(key, safe='')}"

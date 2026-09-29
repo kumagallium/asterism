@@ -59,8 +59,9 @@ function toChild(item: SubjectItem, sampleDatasets: Set<string>): RailChild {
 export interface BuildRailTreeInput {
   datasets: CardsDatasetSummary[]
   subjects: SubjectItem[]
-  /** PR F16 §1.5: 種類の一覧（`listClasses()`）。`is_hub` を見出しの印付けに
-   *  使うだけ — 省略時（api がまだ返さない・未取得）は全て印なし扱い。 */
+  /** PR F16 §1.5: 種類の一覧（`listClasses()`）。`is_hub` を見出しの印付けに、
+   *  `label` を見出しの名前（いまの表示名）に使う — 省略時（api がまだ
+   *  返さない・未取得）は全て印なし・名前は主語に保存した写し。 */
   classes?: ClassEntry[]
 }
 
@@ -68,6 +69,16 @@ export interface BuildRailTreeInput {
 export function buildRailTree({ datasets, subjects, classes }: BuildRailTreeInput): RailTree {
   const sampleDatasets = new Set(datasets.filter((d) => d.is_demo).map((d) => d.id))
   const hubClasses = new Set((classes ?? []).filter((c) => c.is_hub).map((c) => c.class_iri))
+  // 種類の見出しは、主語に保存した写し（追加したときの名前）ではなく、いまの
+  // 表示名を使う — 保存した写しは、あとで種類の名前が変わっても古いまま残る
+  // （実機: つながりの種類が、表示名に直したあとも古い名前で出ていた）。
+  // 種類の一覧がまだ無い・その種類が載っていないときだけ、写しに落とす。
+  // 同じ種類の行が複数あるとき（複数のデータセットが同じ種類を持つ）は、先に
+  // 出た行を使う — 種類の一覧は件数の多い順なので、主な方の名前になる。
+  const currentLabels = new Map<string, string>()
+  for (const c of classes ?? []) {
+    if (c.label && !currentLabels.has(c.class_iri)) currentLabels.set(c.class_iri, c.label)
+  }
 
   const groups = new Map<string, { label: string; items: SubjectItem[] }>()
   const otherItems: SubjectItem[] = []
@@ -89,7 +100,7 @@ export function buildRailTree({ datasets, subjects, classes }: BuildRailTreeInpu
   const kinds: RailKindNode[] = [...groups.entries()]
     .map(([classIri, g]) => ({
       classIri,
-      label: g.label,
+      label: currentLabels.get(classIri) ?? g.label,
       children: byCreatedDesc(g.items).map((i) => toChild(i, sampleDatasets)),
       isHub: hubClasses.has(classIri),
     }))

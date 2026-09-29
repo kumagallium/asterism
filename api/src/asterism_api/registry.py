@@ -867,7 +867,13 @@ def rename_dataset(root: Path, dataset_id: str, name: str) -> dict | None:
     a rename touches only ``meta.name`` and leaves all data / IRIs untouched. Returns
     the new meta, or None if the id is unsafe / absent.
     """
-    return _update_meta(root, dataset_id, {"name": name})
+    updates: dict = {"name": name}
+    current = load_dataset(root, dataset_id)
+    if ((current or {}).get("meta") or {}).get("name_auto"):
+        # 機械が付けた名前の印（つながりの名前）は、人が名前を付けたら外す —
+        # 印が残ると、次に作り直したときに人の名前が書き直されてしまう。
+        updates["name_auto"] = False
+    return _update_meta(root, dataset_id, updates)
 
 
 def mark_retracted(root: Path, dataset_id: str, *, retracted_at: str) -> dict | None:

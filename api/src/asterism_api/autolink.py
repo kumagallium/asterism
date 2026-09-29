@@ -25,8 +25,9 @@ from typing import Any, Protocol
 
 from asterism import crosswalk_discover, crosswalk_runtime
 
+from asterism_api import crosswalk_names, registry
 from asterism_api import handles as handles_mod
-from asterism_api import registry
+from asterism_api.cards_routes import LabelResolvers
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +129,36 @@ def _amend_concept(
     return replace(config, concepts=tuple(new_concepts)), added
 
 
+def _concept_labels_for_config(
+    registry_root: Any,
+    config: crosswalk_runtime.RuntimeCrosswalkConfig,
+    label_resolvers: LabelResolvers | None,
+) -> dict[str, str] | None:
+    """契約メモ contract_b2_hub_names.md B2-3: ``config`` の各 concept の R2
+    表示名を ``build_hub`` の ``concept_labels`` にそのまま渡せる形で返す
+    （``asterism_api.main._concept_labels_for_config`` と同じ計算 — ``main``
+    を import できない（循環）ので、この関数は呼び出し元から渡された
+    ``label_resolvers`` だけで完結する）。``label_resolvers`` が無ければ
+    ``None``（``build_hub`` は今のまま実装の語のフォールバックに落ちる）。"""
+    if label_resolvers is None:
+        return None
+    predicate_label_of, field_label_of, _class_label_of = label_resolvers(registry_root)
+    return crosswalk_names.concept_labels_for_config(config, field_label_of, predicate_label_of)
+
+
 async def _default_build(
-    client: Any, registry_root: Any, perspective_id: str, candidate: dict
+    client: Any,
+    registry_root: Any,
+    perspective_id: str,
+    candidate: dict,
+    *,
+    label_resolvers: LabelResolvers | None = None,
 ) -> dict:
     """候補 1 件を build する既定の実装: perspective が無ければ
     ``candidate["build_config"]`` からそのまま作る。あれば既存 concept に参加
     者を足す（``_do_crosswalk_build`` と同じ内部手順: parse_config → save_config
-    → build_hub → write_registry_scaffold）。"""
+    → build_hub → write_registry_scaffold）。``label_resolvers``: 契約メモ
+    contract_b2_hub_names.md B2-3（省略時は ``build_hub`` が今のまま）。"""
     build_config = candidate.get("build_config") or {}
     cand_concepts = build_config.get("concepts") or []
     if not cand_concepts:
@@ -168,6 +192,7 @@ async def _default_build(
         config,
         built_at=datetime.now(UTC).isoformat(),
         perspective_id=perspective_id,
+        concept_labels=_concept_labels_for_config(registry_root, config, label_resolvers),
     )
     crosswalk_runtime.write_registry_scaffold(
         registry_root,
@@ -179,11 +204,19 @@ async def _default_build(
     return {"created": created, "participants_added": added}
 
 
-def _mark_auto_linked(registry_root: Any, perspective_id: str, from_dataset_id: str) -> None:
+def _mark_auto_linked(
+    registry_root: Any, perspective_id: str, from_dataset_id: str, *, created: bool = False
+) -> None:
     """perspective の ``meta.json`` に ``auto_linked``/``auto_linked_from`` を書
     き戻す（``registry.mark_promoted`` と同じ読み書きの流儀）。無ければ何もし
     ない（``write_registry_scaffold`` は必ずこれを作るので通常は無いことはな
-    い — ここは best-effort の保険）。"""
+    い — ここは best-effort の保険）。
+
+    ``created``: この呼び出しが新規に作った perspective なら ``True`` — その
+    ときだけ ``name_auto: true`` も書く（契約メモ contract_b_hub_names.md
+    §2: 自動で新しく作ったつながりの名前は機械付けなので、R1 の表示名解決が
+    人の名前として扱わない目印。既存 perspective への参加者追加では、人が
+    後で付けたかもしれない名前を消さないので書かない）。"""
     meta_path = (
         Path(registry_root) / crosswalk_runtime.crosswalk_registry_id(perspective_id) / "meta.json"
     )
@@ -198,6 +231,8 @@ def _mark_auto_linked(registry_root: Any, perspective_id: str, from_dataset_id: 
     if from_dataset_id not in existing_from:
         existing_from.append(from_dataset_id)
     meta["auto_linked_from"] = existing_from
+    if created:
+        meta["name_auto"] = True
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -208,6 +243,7 @@ async def maybe_autolink_handles(
     *,
     discover: DiscoverFn | None = None,
     build: BuildFn | None = None,
+    label_resolvers: LabelResolvers | None = None,
 ) -> dict:
     """公開されたばかりの ``dataset_id`` の ☑ 列を、他の promoted データセット
     の ☑ 列と突き合わせて自動でハブへ参加させる。
@@ -218,6 +254,12 @@ async def maybe_autolink_handles(
 
     例外は決して外に投げない（``logger.exception`` して ``skipped`` に
     ``"error"`` を積んで戻す）。
+
+    ``label_resolvers``: 契約メモ contract_b2_hub_names.md B2-3 — 既定の
+    ``build``（:func:`_default_build`）にだけ渡す（``main.py`` からしか渡せ
+    ない・循環 import を避ける同じ理由）。``build=`` で偽物に差し替えるテス
+    トは固定の引数（``client, registry_root, perspective_id, candidate``）の
+    ままでよい — 偽物には渡さない。
     """
     discover_fn: DiscoverFn = discover or crosswalk_discover.discover  # type: ignore[assignment]
     build_fn: BuildFn = build or _default_build  # type: ignore[assignment]
@@ -280,12 +322,28 @@ async def maybe_autolink_handles(
             perspective_id = str(candidate.get("perspective_id") or "")
             if not perspective_id:
                 continue
-            outcome = await build_fn(client, registry_root, perspective_id, candidate)
+            outcome = (
+                await build_fn(
+                    client,
+                    registry_root,
+                    perspective_id,
+                    candidate,
+                    label_resolvers=label_resolvers,
+                )
+                if build is None
+                else await build_fn(client, registry_root, perspective_id, candidate)
+            )
             created = bool(outcome.get("created"))
             participants_added = list(outcome.get("participants_added") or [])
             if not created and not participants_added:
                 continue  # already fully joined — idempotent re-promote, nothing to report
-            _mark_auto_linked(registry_root, perspective_id, dataset_id)
+            _mark_auto_linked(registry_root, perspective_id, dataset_id, created=created)
+            if label_resolvers is not None:
+                # 機械が付けた名前（概念のキー）を、表示名で書き直す。
+                predicate_label_of, field_label_of, _ = label_resolvers(registry_root)
+                crosswalk_names.refresh_auto_name(
+                    registry_root, perspective_id, field_label_of, predicate_label_of
+                )
             report["linked"].append(
                 {
                     "perspective_id": perspective_id,

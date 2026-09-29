@@ -1127,6 +1127,149 @@ O57 の会話・O58 の書くは「種類が候補にあること」を前提に
   （ハブのメンバーでない IRI を渡すとエラーになる）・出どころへの
   データセットごとの合算を確認。
 
+### O64. ハブとつながりの表示名は、読むたびに項目の表示名から引く（契約メモ contract_b_hub_names.md、2026-09-29）
+
+背景（2026-09-29）: 実機確認。☑ を付けた列どうしが自動で結ばれてできたつな
+がりで、人に見せる名前に概念のキー（``food``）や実装の語（``food
+(crosswalk)``）がそのまま出ていた。`GET /api/crosswalks` は読むたびに参加者
+の表示名から `concept_label` を引いて返す既存の経路（`main.py` の
+`_enrich_crosswalk_config_dict`）を持っていたが、ワークスペース側
+（`cards_routes.py`・`classes_routes.py`）がこの経路を通っていなかった。
+
+決定:
+
+- **R1（つながりの表示名）**: registry meta の `name`（前後の空白を除く）が
+  人が付けた名前ならそれを使う。空・`name_auto: true`・concept のキーと同じ・
+  perspective の id と同じ・「名前のないつながり」と同じ・`^crosswalk(\s|:)`
+  に当たる（古いサーバの命名）のいずれかなら機械付けと判定し、代わりに
+  各 concept の表示名（R2）を config の順に並べて `/` でつなぐ。1 つも引けな
+  ければ「名前のないつながり」。`crosswalk_runtime.DEFAULT_PERSPECTIVE_NAME`
+  （「共通の値でつなぐ」）は人が付けた名前として扱う。
+- **R2（concept の表示名）**: 参加している項目の表示名（`field_label_of` →
+  `predicate_label_of` の順、`_enrich_crosswalk_config_dict` と同じ突き合わせ
+  順）。引けなければ概念のキーを人向けに直したもの（`_` を空白に）。ただし
+  discover が命名した置き場のキー（`^shared[_ ]value(?:[_ ]?\d+)?$` — UI の
+  `crosswalkLabels.ts` の `PLACEHOLDER_KEY` と同じ規則）は使わない。実装の語
+  （`(crosswalk)` 等）は人に見せる名前に足さない。
+- **R3（ハブの種類の表示名）**: 種類の IRI がどれかの concept の `class_iri`
+  と同じなら、その concept の表示名（R2）。無ければ「名前のないつながり」。
+- **1 か所にまとめる。** R1〜R3 を `api/src/asterism_api/crosswalk_names.py`
+  の純関数にし、`cards_routes.py`（`_hub_perspective_name` 経由の
+  `dataset_label`/`hub.name`/`hub_of.perspective_name`）と
+  `classes_routes.py`（`GET /api/classes` の `is_hub` 行の `label`/
+  `dataset_label`）の両方から呼ぶ。項目の表示名を引く関数
+  （`main.py` の `_crosswalk_label_resolvers`）は `main.py` にしか無いので、
+  `register_cards`/`register_classes` へ `label_resolvers` として渡す
+  （`cards_routes.py`/`classes_routes.py` が `main.py` を import すると循環
+  になるため）。
+- **ストアは書き換えない。**（2 回目・3 回目で改めた。下を参照）保存済みの `crosswalk.yaml`・registry meta の
+  `name`・ハブ graph の `rdfs:label`（ingest の `crosswalk.py` が書くもの）
+  はそのまま — 読むたびに計算し直すだけなので、名前を変えたいときは人が
+  meta の `name` を書けば次の読み出しから反映される。
+- **自動リンクは名前を「機械付け」と自己申告する。** `autolink.py` が新しく
+  perspective を作ったとき（既存への参加者追加ではないとき）だけ、meta に
+  `name_auto: true` を書く — R1 がこの名前を人が付けた名前として扱わない
+  目印。
+
+#### 2 回目（契約メモ contract_b2_hub_names.md、2026-09-29）— 読むだけでは
+届かない場所があった
+
+実機で確かめ直すと、ハブの種類の名前が 3 か所でまだ直っていなかった:
+パンくず・左の列の種類の見出し・メンバー表の「種類」・条件で集めた一覧の題
+（`class_schema.class_label` を直接呼んでいた）、`type` の値・作られた手順の
+図の「種類」（ストアの生の `rdfs:label` をそのまま読む経路には、読むときの
+上書きが届かない）、つながりの画面のタブ（`/api/crosswalks` が `name` しか
+返しておらず、UI の `perspectiveDisplayName` はそれしか見ていなかった）。
+
+追加の決定:
+
+- **B2-1（`class_schema.class_label` を直接呼ぶ箇所を R3 経由に）**:
+  `cards_routes.py` に `_class_label_or_hub(client, registry_root, class_iri,
+  resolve_labels, hub_index)` を新設し、`class_schema_mod.class_label` を直接
+  呼んでいた 4 箇所（`_hub_members` のメンバー種類・`subjects/resolve` の
+  `class_label`・`subjects/search` の一覧・`sets/resolve` の
+  `title.class_label`）をこれに差し替えた。`class_iri` がどれかのハブの
+  concept の `class_iri` と同じかどうかは、`crosswalk_names.hub_class_index`
+  が registry の全つながりの config から作る対応表を引く — 呼び出し側が
+  1 リクエストにつき 1 度だけ作って使い回す（読み直さない）。ハブ本体かどう
+  かは問わない（種類が一致すれば、そのハブの一員である別の主語の型でも R3）。
+- **B2-2（`display_name` を API が計算して返す）**: `GET /api/crosswalks` の
+  各要素と `_crosswalk_view`（`GET /api/crosswalk[/:id]` が通る）に、R1 の
+  結果をそのまま `display_name` として足した（既存の `dataset.name` は変え
+  ない）。ui の `crosswalkLabels.ts` の `perspectiveDisplayName` は
+  `display_name` があればそれを最優先で読み、無ければ今までどおり
+  `dataset.name` にフォールバックする（古いサーバとの後方互換）。「名前の
+  ないつながり」・古い実装名はどちらの経路でも `undefined` に畳む。
+- **B2-3（書くときにも直す）**: 読むときの上書きだけでは、ストアの生の値を
+  そのまま読む経路（`type` の値・作られた手順の図）に届かない。そこで
+  **書くときにも** R2 の結果を書き込むようにした:
+  - `crosswalk.build_turtle` / `crosswalk_runtime.build_hub` に
+    `concept_labels: Mapping[str, str] | None` を追加。値があればハブの種類
+    の `rdfs:label` にそのまま書き、無ければ今まで通り実装の語
+    `"<name> (crosswalk)"`（`None`/空の出力は 1 バイトも変わらない）。
+  - `build_hub` を呼ぶ全箇所（`main.py` の `_do_crosswalk_build`・
+    `_maybe_rebuild_crosswalk` 経由の `_rebuild_crosswalk_now`・`autolink.py`
+    の `_default_build`）が、R2 の結果（空は入れない）を渡す。`autolink.py`
+    は `main.py` を import できないので、`maybe_autolink_handles`/
+    `_default_build` に `label_resolvers=None` を追加し `main.py` から渡す
+    （`build=` で偽物に差し替える既存テストには渡さない — 固定シグネチャの
+    ままでよい）。
+  - `ingest` の `class_schema.class_label` の読み順の最後（ローカル名の人間
+    化の直前）に「ハブの graph（`substrate.is_hub_graph`）にあるその種類の
+    `rdfs:label`」を足した。ただし値が `"...(crosswalk)"` の形（
+    `concept_labels` が渡らなかった古いハブ）で終わっているものは使わない
+    — その場合は今まで通りローカル名に落ちる。
+  - **残る古い表示**: 作り直す前の既存ハブは、B2-1・B2-2 と 1 回目の上書き
+    で主な場所（種類の名前・つながりの名前）は直るが、`type` の値と「作られ
+    た手順」の図の「種類」は、そのハブを次に作り直す（build/rebuild）まで
+    古いまま — これは許容し、ここに書く（作り直しは自動リンク・手動ビルド
+    どちらでも次回から新しい書き方になる）。
+
+#### 3 回目（2026-09-29）— 機械が付けた名前は、作るたびに書き直す
+
+実機で確かめ直すと、まだ 2 か所に古い名前が残っていた。
+
+| 場所 | 出ていたもの | 原因 |
+|---|---|---|
+| 「出どころ」のカードのデータセット名 | 概念のキー（`food`） | ingest が registry meta の `name` をそのまま読む（`subject_tools.dataset_labels`）。api の読むときの上書きは、ここに届かない |
+| 左の列の種類の見出し | 追加したときの名前（`Food`） | 主語に保存した写し（`class_label`）を見出しに使っていた。写しは、あとで名前が変わっても古いまま残る |
+
+追加の決定:
+
+- **機械が付けた名前は、ハブを作るたび・作り直すたびに表示名で書き直す**
+  （`crosswalk_names.refresh_auto_name`）。registry meta の `name` を R1 の 2
+  （各 concept の参加項目の表示名）にし、`name_auto: true` の印を残す。
+  1 回目の「registry meta の `name` は書き換えない」は、**人が付けた名前に
+  ついてだけ**守る、に改める。
+  - 呼ぶ場所は、ハブを作る 3 つの経路（手で作る `_do_crosswalk_build`・
+    自動の作り直し `_rebuild_crosswalk_now`・自動でつなぐ
+    `maybe_autolink_handles`）の、registry を書いた直後。
+  - **書き直してよい名前の判定は、読むときより狭くする。** 読むときは、
+    間違えても表示が変わるだけで済む。書くときは、人の名前を消してしまう。
+    書き直すのは、`name_auto` の印がある・空・「名前のないつながり」・古い
+    実装の名前（`^crosswalk(\s|:)`）のとき。概念のキーや id と同じ名前は、
+    **自動でできたつながり（`auto_linked`）のときだけ**機械の名前と見なす
+    （人が、わざとキーと同じ文字列を名前にすることはありうる。検証担当の
+    指摘）。
+  - 書く名前は、読むときの表示名（R1 の 2）と同じ計算にする。食い違うと、
+    画面によって同じつながりの名前が変わる（検証担当の指摘: 表示名が引ける
+    concept と引けない concept が混ざると、書く名前だけ短くなっていた）。
+  - 参加している項目の表示名が 1 つも引けないときは書き直さない（概念の
+    キーを直しただけの語で機械の名前を上書きしても、良くならない）。
+  - 人が名前を付けたら印を外す（`registry.rename_dataset`・手で作るときに
+    名前を渡したとき）。印が残ると、次の作り直しで人の名前が表示名に戻されて
+    しまう。
+- **左の列の種類の見出しは、保存した写しではなく、いまの表示名**
+  （`GET /api/classes` の `label`）を使う。種類の一覧がまだ無い・その種類が
+  載っていないときだけ、写しに落とす（`ui/src/cards/railTree.ts`）。並びも
+  いまの表示名の順。同じ種類の行が複数あるときは、先に出た行（件数の多い
+  方）の名前を使う。
+
+作り直す前のハブに残るもの（許容）: 「出どころ」のデータセット名・`type`
+の値・作られた手順の図の「種類」。どれも、次に作り直したとき（参加している
+データセットを公開し直したとき・つながりの画面の「最新のデータで作り直す」）
+に直る。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。

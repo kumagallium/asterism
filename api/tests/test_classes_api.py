@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
+from asterism import crosswalk_runtime
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
     CONTROL_GRAPH_IRI,
@@ -150,6 +151,139 @@ def test_classes_json_shape(tmp_path: Path) -> None:
         }
         # 未 promote のデータセットは混ざらない。
         assert all(c["dataset_id"] != DRAFT_DATASET for c in body["classes"])
+
+
+# ---------------------------------------------------------------------------
+# ハブの行の表示名（契約メモ contract_b_hub_names.md）— dataset_label（R1）・
+# label（R3）は、ハブ graph の生の rdfs:label（実装の語 "(crosswalk)" が付いた
+# まま出ていたバグ）ではなく、読むたびに参加している項目の表示名から組み立て
+# た値を使う。
+# ---------------------------------------------------------------------------
+
+HUB_PERSPECTIVE_ID = "shelf-view"
+HUB_DATASET_ID = crosswalk_runtime.crosswalk_registry_id(HUB_PERSPECTIVE_ID)
+HUB_GRAPH = crosswalk_runtime.crosswalk_graph_iri(HUB_PERSPECTIVE_ID)
+SHELF_CLASS = "https://ex/shelf#Item"
+_HUB_TTL = f"""
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<{SHELF_CLASS}> a owl:Class ; rdfs:label "shelf_item_name (crosswalk)" .
+<https://ex/shelf/item/1> a <{SHELF_CLASS}> .
+"""
+
+
+def _write_hub(registry_root: Path, *, meta_name: str) -> None:
+    dest = registry_root / HUB_DATASET_ID
+    dest.mkdir(parents=True)
+    meta = {
+        "id": HUB_DATASET_ID,
+        "name": meta_name,
+        "promoted": True,
+        "crosswalk_perspective_id": HUB_PERSPECTIVE_ID,
+    }
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shelf_item_name",
+                    "class_iri": SHELF_CLASS,
+                    "participants": [
+                        {"dataset_id": LIB_DATASET, "predicate": "https://ex/library#name"}
+                    ],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(registry_root, config, HUB_PERSPECTIVE_ID)
+
+
+def test_classes_hub_row_falls_back_to_concept_key_when_name_is_machine_made(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    # meta の name が concept のキーそのもの — R1 の「人が付けた名前ではない」
+    # 判定に当たる（機械付け）。
+    _write_hub(settings.registry_root, meta_name="shelf_item_name")
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, HUB_GRAPH: _HUB_TTL})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/classes")
+        assert r.status_code == 200, r.text
+        by_iri = {c["class_iri"]: c for c in r.json()["classes"]}
+        hub = by_iri[SHELF_CLASS]
+        assert hub["is_hub"] is True
+        # 参加データセットに設計（mapping.yaml）が無いので R2 は項目の表示名を
+        # 引けず、概念のキーを人向けに直したものに落ちる。
+        assert hub["dataset_label"] == "shelf item name"
+        # ttl の rdfs:label（"(crosswalk)" 付き）ではなく R2 の結果を使う。
+        assert hub["label"] == "shelf item name"
+
+
+def test_classes_hub_row_keeps_a_human_given_perspective_name(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    _write_hub(settings.registry_root, meta_name="たなの品名")
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, HUB_GRAPH: _HUB_TTL})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/classes")
+        assert r.status_code == 200, r.text
+        by_iri = {c["class_iri"]: c for c in r.json()["classes"]}
+        hub = by_iri[SHELF_CLASS]
+        # 人が付けた名前はそのまま（R1 の 1）。
+        assert hub["dataset_label"] == "たなの品名"
+        # 種類の表示名（R3）は concept 由来のまま — perspective の名前とは別軸。
+        assert hub["label"] == "shelf item name"
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_b2_hub_names.md B2-4: build_app を通した結合テスト —
+# 参加しているデータセットの registry に、述語の表示名（mapping.yaml の
+# label）を持つ設計を置いたとき、ハブの行がその表示名を返すこと（概念のキー
+# を人向けに直したものではない — 1 回目の結合テストが通っていなかった枝）。
+# ---------------------------------------------------------------------------
+
+_LIB_MAPPING_YAML = """
+version: 1
+prefixes:
+  ex: "https://ex/library#"
+maps:
+  - name: item
+    source: records.csv
+    subject:
+      template: "ex:item/{id}"
+    properties:
+      - predicate: ex:name
+        column: name
+        label: "品名"
+"""
+
+
+def test_classes_hub_row_uses_the_participants_field_label_when_a_design_names_it(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    (settings.registry_root / LIB_DATASET / "mapping.yaml").write_text(
+        _LIB_MAPPING_YAML, encoding="utf-8"
+    )
+    # meta の name が機械付け（concept のキーそのもの）— R1 は R2 に落ちる。
+    _write_hub(settings.registry_root, meta_name="shelf_item_name")
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, HUB_GRAPH: _HUB_TTL})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/classes")
+        assert r.status_code == 200, r.text
+        by_iri = {c["class_iri"]: c for c in r.json()["classes"]}
+        hub = by_iri[SHELF_CLASS]
+        assert hub["is_hub"] is True
+        # 参加データセットの設計（mapping.yaml）の label が、概念のキーを
+        # 人向けに直したもの（"shelf item name"）より優先する。
+        assert hub["dataset_label"] == "品名"
+        assert hub["label"] == "品名"
 
 
 def test_classes_empty_when_no_datasets(tmp_path: Path) -> None:
