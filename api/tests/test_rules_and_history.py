@@ -821,3 +821,22 @@ def test_rules_ask_for_kind_names_once_each(tmp_path: Path) -> None:
     assert len(body["maps"]) == 2
     about_the_kind = [q for q in asked if f"<{_KIND_IRI}>" in q and "rdf-schema#Class" in q]
     assert len(about_the_kind) == 1
+
+
+def test_rules_name_every_kind_of_the_bundled_sample(tmp_path: Path) -> None:
+    """同梱の見本の種類は、図に渡る名前がどれも表示名（ローカル名ではない）。"""
+    sample = Path(__file__).resolve().parents[2] / "datasets" / "world"
+    artifacts = {
+        name: (sample / name).read_text(encoding="utf-8")
+        for name in ("model.yaml", "mie.yaml", "mapping.rml.ttl", "mapping.yaml")
+    }
+    meta = _save_promoted(tmp_path, dict(artifacts, **{"diagram.md": ""}))
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(lambda q: []), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    names = {m["id"]: body["labels"].get(m["subject"]["class_iris"][0]) for m in body["maps"]}
+    assert names == {
+        "ActivityMap": "取り込みの記録",
+        "CountryMap": "国",
+        "ObservationMap": "年ごとの記録",
+    }
