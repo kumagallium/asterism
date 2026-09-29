@@ -6713,7 +6713,7 @@ export function KantanWizard({
         </section>
       ) : step === 11 ? (
         <section className="kz-card">
-          {/* 4 — ID のつけかた（ADR meaning-before-identity K47 /
+          {/* 4 — つながりを選ぶ（見出しは手順の名前と同じ。ADR meaning-before-identity K47 /
               skeleton-from-easy-judgments D2〜D5）。2 問に分け、順を入れ替えた:
               ①「この 1 件を名指す番号はどれ？」→②「他のデータとつながる手がかり
               はどれ？」。旧版は②（他にも出てくる？の ☑）を先に聞き、その中から
