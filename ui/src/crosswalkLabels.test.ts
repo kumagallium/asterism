@@ -197,7 +197,10 @@ describe('alreadyLinkedDisplayName', () => {
     expect(alreadyLinkedDisplayName(c, perspectivesUnnamed, 'fallback')).toBe('組成')
   })
 
-  it('falls back to the concept display, never the raw ascii key', () => {
+  it('falls back to the given placeholder, never the raw concept key', () => {
+    // D2-4 ④: concept_label も participants の predicate_label の一致も無い
+    // ときは、`conceptDisplay` の最終分岐（概念キーの整形）を通さず fallback
+    // にする — 概念のキーは registry の名前と並ぶ「避ける識別子」。
     const c = candidate({
       concept: 'crystal_system',
       participants: [
@@ -212,7 +215,7 @@ describe('alreadyLinkedDisplayName', () => {
         already_linked: true,
       },
     })
-    expect(alreadyLinkedDisplayName(c, perspectives, 'fallback')).toBe('crystal system')
+    expect(alreadyLinkedDisplayName(c, perspectives, 'fallback')).toBe('fallback')
   })
 
   it('falls back to the given placeholder as a last resort', () => {

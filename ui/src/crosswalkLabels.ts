@@ -180,7 +180,18 @@ export function alreadyLinkedDisplayName(
   const perspective = perspectives.find((p) => p.perspective_id === candidate.existing?.perspective_id)
   const given = (perspective?.display_name ?? '').trim()
   if (given && given !== SERVER_UNNAMED) return given
-  return conceptDisplay(candidate) ?? fallback
+  const conceptLabelGiven = (candidate.concept_label ?? '').trim()
+  if (conceptLabelGiven) return conceptLabelGiven
+  const fields = new Set(
+    candidate.participants.map((p) => (p.predicate_label ?? '').trim()).filter(Boolean),
+  )
+  if (fields.size === 1) {
+    const only = [...fields][0]
+    if (!PLACEHOLDER_KEY.test(only)) return conceptLabel(only)
+  }
+  // ④ どちらも無ければ、概念のキー（`conceptDisplay` の最終分岐）は使わず件数
+  // だけの文にする — 概念のキーは registry の名前と並ぶ「避ける識別子」。
+  return fallback
 }
 
 /** The same rule for a SAVED crosswalk's concept (a stored config has the key; the
