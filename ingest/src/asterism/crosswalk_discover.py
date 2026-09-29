@@ -754,6 +754,7 @@ async def discover(
     class_label_of: Callable[[str, str], str | None] | None = None,
     only_slots: Mapping[str, Collection[tuple[str | None, str]]] | None = None,
     existing: Sequence[ExistingConcept] | None = None,
+    reserved_ids: Collection[str] | None = None,
 ) -> dict:
     """Scan the promoted graphs and rank the joins that actually exist.
 
@@ -792,6 +793,12 @@ async def discover(
     name — so a re-scan never mints a second, meaning-colliding concept next to one
     that already exists. ``None`` (every existing caller, before this feature) leaves
     today's naming and output byte for byte unchanged.
+
+    ``reserved_ids`` (contract_d2_discover_existing.md D2-2): perspective ids a fresh
+    (non-matching) candidate must not land on, on top of ``existing``'s own concept
+    names/ids — this covers a perspective whose config could not be read (so it has
+    no entry in ``existing``) but whose id is still taken. Compared after the same
+    ``-`` -> ``_`` fold :func:`derive_concept_name` uses. ``None`` changes nothing.
     """
     lim = limits or DiscoverLimits()
     cancelled = False
@@ -965,14 +972,17 @@ async def discover(
             got = class_label_of(slot.dataset.dataset_id, slot.subject_class)
         return (got or "").strip() or local_name(slot.subject_class)
 
-    existing = existing or ()
+    matching_pool = existing if existing is not None else ()
     # R3: names a fresh candidate must not land on — this round's own names (as
-    # before) PLUS every already-built concept's name and every already-built
-    # perspective's id (dash -> underscore, ``derive_concept_name``'s alphabet).
-    # A candidate that MATCHES one of them takes its name instead (see below) and
-    # never reaches this set, so this only guards the candidates that do not match.
-    existing_names = {c.name for c in existing}
-    existing_pids = {c.perspective_id.replace("-", "_") for c in existing}
+    # before) PLUS every already-built concept's name, every already-built
+    # perspective's id (dash -> underscore, ``derive_concept_name``'s alphabet), and
+    # every reserved id (D2-2: a perspective whose config could not be read still
+    # has no free name/id). A candidate that MATCHES one of them takes its name
+    # instead (see below) and never reaches this set, so this only guards the
+    # candidates that do not match.
+    existing_names = {c.name for c in matching_pool}
+    existing_pids = {c.perspective_id.replace("-", "_") for c in matching_pool}
+    reserved_pids = {rid.replace("-", "_") for rid in (reserved_ids or ())}
     taken: list[str] = []
     out: list[dict] = []
     already_linked_count = 0
@@ -984,7 +994,7 @@ async def discover(
             (slots[m].dataset.dataset_id, slots[m].predicate, slots[m].subject_class)
             for m in cluster.slots
         )
-        match = match_existing(cand_slots, existing) if existing else None
+        match = match_existing(cand_slots, matching_pool) if matching_pool else None
         if match is not None:
             # R3: the join goes onto what already exists — never a freshly derived
             # name/id/hub for a slot that already means the same thing somewhere else.
@@ -992,7 +1002,7 @@ async def discover(
             class_iri, link_predicate = match.class_iri, match.link_predicate
             perspective_id_value = match.perspective_id
         else:
-            avoid = set(taken) | existing_names | existing_pids
+            avoid = set(taken) | existing_names | existing_pids | reserved_pids
             name = derive_concept_name(preds, taken=avoid, rank=rank)
             taken.append(name)
             class_iri, link_predicate = concept_terms(name)
@@ -1093,7 +1103,10 @@ async def discover(
             "datasets_truncated": datasets_truncated,
             "clusters_truncated": clusters_truncated,
             "candidates_truncated": candidates_truncated,
-            "already_linked": already_linked_count,
+            # D2-3: only present when a caller opted in with ``existing`` (even an
+            # empty list) — ``existing=None`` must leave ``scanned`` byte for byte
+            # unchanged from before this feature.
+            **({"already_linked": already_linked_count} if existing is not None else {}),
         },
         "limits": lim.to_dict(),
         "cancelled": cancelled,

@@ -9192,13 +9192,9 @@ def build_app(
             cfg.registry_root, body.dataset_ids, body.max_datasets
         )
         client: OxigraphClient = app.state.client
-        existing_perspectives = {
-            meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
-            for meta in crosswalk_runtime.list_perspectives(cfg.registry_root)
-        }
 
         label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
-        existing_concepts = crosswalk_existing.load_existing_concepts(cfg.registry_root)
+        existing = crosswalk_existing.load_existing_concepts(cfg.registry_root)
 
         async def discover_job(emit, should_cancel):
             result = await crosswalk_discover.discover(
@@ -9212,12 +9208,13 @@ def build_app(
                 predicate_label_of=label_of,
                 field_label_of=field_label_of,
                 class_label_of=class_label_of,
-                existing=existing_concepts,
+                existing=existing.concepts,
+                reserved_ids=existing.perspective_ids,
             )
             # Building a candidate whose id already exists REPLACES that crosswalk —
             # the UI has to be able to warn before that happens.
             for cand in result["candidates"]:
-                cand["perspective_exists"] = cand["perspective_id"] in existing_perspectives
+                cand["perspective_exists"] = cand["perspective_id"] in existing.perspective_ids
             return result
 
         job_manager: JobManager = app.state.jobs

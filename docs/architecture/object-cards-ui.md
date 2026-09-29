@@ -1188,6 +1188,38 @@ O57 の会話・O58 の書くは「種類が候補にあること」を前提に
   「このつながりに足す」で R6 を呼ぶ（確認画面を挟まない — 合流先は
   discover が既に決めている）。
 
+2 回目の直し（2026-09-29、契約メモ `contract_d2_discover_existing.md`）:
+実機で「候補に既存の組は出なくなったが、次の 4 点が残っている」ことを
+確かめた。
+
+- **D2-1 複合キーも avoid の対象にする。** `crosswalk_existing.py` が
+  複合キーの concept を一覧から**外して**いたため、合流先なしの候補が
+  複合キーのつながりと同じ名前・id を引き当てうる（手で作ると既存を
+  置き換える）欠陥があった。複合キーの concept も一覧に入れる — `slots`
+  は空（突き合わせ R1 の対象外のまま）、`name`/`perspective_id` は R3 の
+  avoid に入る。
+- **D2-2 読めない config の id も避ける。** 返り値を
+  `ExistingCrosswalks(concepts, perspective_ids)` の 2 つに分け、
+  `perspective_ids` は registry にある全 perspective の id（config が
+  読めるかどうかに関わらず）。`discover()` に `reserved_ids: Collection[str]
+  | None = None` を足し、R3 の avoid（`-` を `_` に直して）に入れる。
+  `None` は今の挙動を変えない。
+- **D2-3 `existing=None` の返り値を厳密に区別する。** `discover()` の
+  中で `existing = existing or ()` として `None` と空リストを同一視して
+  いたため、`existing=None` でも `scanned.already_linked` が足されていた
+  （「1 バイトも変わらない」への違反）。`existing` が `None` のときは
+  キーごと足さない・空リスト（`[]`）が渡されたときは `0` を足す、に
+  直した。
+- **D2-4 「すでにつながっている組み合わせ」欄に概念のキーを出さない。**
+  実機で「すでにつながっている組み合わせ: 1 件（food）」と表示され、
+  `food` が概念のキーだった（自動でつなぐと registry の名前＝概念の
+  キーになり得るため）。`ui/src/crosswalkLabels.ts` の
+  `alreadyLinkedDisplayName` は、つながりの `dataset.name`（registry の
+  名前）を一切見ない: ①つながりの `display_name`（サーバが返す表示名。
+  型に追加のみ・まだ返さない）②候補の `concept_label`／participants の
+  `predicate_label` の一致（`conceptDisplay` と同じ規則）③どちらも無け
+  れば件数だけの文、の順で決める。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。

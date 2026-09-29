@@ -165,15 +165,22 @@ export function existingJoinNames(
   }
 }
 
-/** R7 の「すでにつながっている組み合わせ」欄に出す名前: そのつながり自体の表示
- * 名（あれば）、無ければ手がかりの表示名（K13 の ascii キーは絶対に出さない）。 */
+/** R7/D2-4 の「すでにつながっている組み合わせ」欄に出す名前。**つながりの
+ * registry の名前（`dataset.name` — 自動でつなぐと概念のキーそのものになり
+ * 得る）と概念のキーは、この行に出さない**。順序: ①つながり自体の
+ * `display_name`（サーバが返す表示名。無い／「名前のないつながり」と同じなら
+ * 使わない）②候補の `concept_label`／参加者の `predicate_label` の一致
+ * （`conceptDisplay` と同じ規則）③どちらも無ければ件数だけの文にする
+ * （`fallback`）。 */
 export function alreadyLinkedDisplayName(
   candidate: Pick<DiscoverCandidate, 'existing' | 'concept' | 'concept_label' | 'participants'>,
-  perspectives: Pick<CrosswalkPerspective, 'perspective_id' | 'dataset'>[],
+  perspectives: Pick<CrosswalkPerspective, 'perspective_id' | 'display_name'>[],
   fallback: string,
 ): string {
   const perspective = perspectives.find((p) => p.perspective_id === candidate.existing?.perspective_id)
-  return (perspective && perspectiveDisplayName(perspective)) ?? conceptDisplay(candidate) ?? fallback
+  const given = (perspective?.display_name ?? '').trim()
+  if (given && given !== SERVER_UNNAMED) return given
+  return conceptDisplay(candidate) ?? fallback
 }
 
 /** The same rule for a SAVED crosswalk's concept (a stored config has the key; the

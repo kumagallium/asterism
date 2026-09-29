@@ -289,9 +289,14 @@ async def maybe_autolink_handles(
             return report
 
         limits = crosswalk_discover.DiscoverLimits(min_datasets=2, min_shared_keys=1)
-        existing_concepts = crosswalk_existing.load_existing_concepts(registry_root)
+        existing = crosswalk_existing.load_existing_concepts(registry_root)
         result = await discover_fn(
-            client, targets, limits=limits, only_slots=only_slots, existing=existing_concepts
+            client,
+            targets,
+            limits=limits,
+            only_slots=only_slots,
+            existing=existing.concepts,
+            reserved_ids=existing.perspective_ids,
         )
         candidates = sorted(
             result.get("candidates") or [],

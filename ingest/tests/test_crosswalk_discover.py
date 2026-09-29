@@ -904,7 +904,9 @@ async def test_existing_none_leaves_discover_byte_for_byte_unchanged() -> None:
 
     assert without_kw == with_none
     assert "existing" not in without_kw["candidates"][0]
-    assert "already_linked" in without_kw["scanned"]
+    # D2-3: existing=None must leave `scanned` byte for byte unchanged too — the
+    # key is only added when a caller opts in (even with an empty list).
+    assert "already_linked" not in without_kw["scanned"]
 
 
 async def test_discover_0_of_2_does_not_merge_two_meaning_different_pairs() -> None:
@@ -976,4 +978,65 @@ async def test_discover_0_of_2_does_not_merge_two_meaning_different_pairs() -> N
     # C・D は別の合流先: 既存の perspective_id / 名前のどちらも奪わない。
     assert cd_out["perspective_id"] != ab_pid
     assert cd_out["concept"] != ab_name
-    assert cd_out.get("existing") is None
+
+
+# ---------------------------------------------------------------------------
+# D2-2 (契約 contract_d2_discover_existing.md): reserved_ids — 読めない config
+# の perspective も id だけは避ける
+# ---------------------------------------------------------------------------
+
+
+async def test_reserved_ids_are_avoided_even_with_no_matching_concept() -> None:
+    """`existing` に concept が 1 つも無くても、`reserved_ids` にある id は
+    合流先なしの候補の perspective_id として選ばれない。"""
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(
+        _DatasetClient(store),
+        _ds("ds-a", "ds-b"),
+        existing=[],
+        reserved_ids=frozenset({"composition"}),
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["perspective_id"] != "composition"
+    assert "existing" not in candidate
+
+
+async def test_reserved_ids_none_leaves_naming_untouched() -> None:
+    # R5/D2-2 と同じ不変条件: reserved_ids=None は今の挙動を1バイトも変えない。
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    without_kw = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+    with_none = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), reserved_ids=None)
+
+    assert without_kw == with_none
+
+
+# ---------------------------------------------------------------------------
+# D2-3: existing=None と existing=[] は scanned.already_linked の有無で区別する
+# ---------------------------------------------------------------------------
+
+
+async def test_already_linked_key_absent_when_existing_is_none() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=None)
+
+    assert "already_linked" not in result["scanned"]
+
+
+async def test_already_linked_key_present_and_zero_when_existing_is_an_empty_list() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}composition", ["Bi2Te3", "PbTe"])
+    _seed(store, "ds-b", f"{NS}composition", ["Bi2Te3", "PbTe"])
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"), existing=[])
+
+    assert result["scanned"]["already_linked"] == 0

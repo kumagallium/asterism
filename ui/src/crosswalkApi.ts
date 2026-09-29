@@ -97,6 +97,11 @@ export interface CrosswalkPerspective {
   perspective_id: string
   config: CrosswalkConfig | null
   dataset: CrosswalkMeta | null
+  /** DISPLAY ONLY: the connection's own human-facing name, when the server can
+   * resolve one (a separate PR adds this). Absent on older servers — callers that
+   * need a name fall back to the candidate's own label instead of `dataset.name`
+   * (that field is the registry name, which can be the ascii concept key; K4). */
+  display_name?: string
 }
 
 export interface BuildResult {

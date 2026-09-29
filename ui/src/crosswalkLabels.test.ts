@@ -140,11 +140,11 @@ describe('existingJoinNames', () => {
 })
 
 describe('alreadyLinkedDisplayName', () => {
-  const perspectives: Pick<CrosswalkPerspective, 'perspective_id' | 'dataset'>[] = [
-    { perspective_id: 'composition', dataset: { name: '組成でつなぐ' } },
+  const perspectives: Pick<CrosswalkPerspective, 'perspective_id' | 'display_name'>[] = [
+    { perspective_id: 'composition', display_name: '組成でつなぐ' },
   ]
 
-  it('prefers the connection\'s own display name', () => {
+  it('prefers the connection\'s own display_name', () => {
     const c = candidate({
       existing: {
         perspective_id: 'composition',
@@ -155,6 +155,46 @@ describe('alreadyLinkedDisplayName', () => {
       },
     })
     expect(alreadyLinkedDisplayName(c, perspectives, 'fallback')).toBe('組成でつなぐ')
+  })
+
+  it('never reads the registry name (dataset.name) — only display_name — even when present', () => {
+    // D2-4: 自動でつながった perspective は dataset.name に概念のキーがそのまま
+    // 入り得る（実機で「food」と出た事故）。display_name が無ければ dataset を
+    // 見ずに候補側の表示名（concept_label/predicate_label）へ進む。
+    const perspectivesWithRegistryNameOnly: (Pick<CrosswalkPerspective, 'perspective_id' | 'display_name'> & {
+      dataset?: { name?: string }
+    })[] = [{ perspective_id: 'food', dataset: { name: 'food' } }]
+    const c = candidate({
+      concept: 'food',
+      concept_label: '食べものの名前',
+      existing: {
+        perspective_id: 'food',
+        concept: 'food',
+        linked: [],
+        new: [],
+        already_linked: true,
+      },
+    })
+    expect(alreadyLinkedDisplayName(c, perspectivesWithRegistryNameOnly, 'fallback')).toBe(
+      '食べものの名前',
+    )
+  })
+
+  it('skips a display_name equal to the "no name" sentinel', () => {
+    const perspectivesUnnamed: Pick<CrosswalkPerspective, 'perspective_id' | 'display_name'>[] = [
+      { perspective_id: 'composition', display_name: '名前のないつながり' },
+    ]
+    const c = candidate({
+      concept_label: '組成',
+      existing: {
+        perspective_id: 'composition',
+        concept: 'composition',
+        linked: [],
+        new: [],
+        already_linked: true,
+      },
+    })
+    expect(alreadyLinkedDisplayName(c, perspectivesUnnamed, 'fallback')).toBe('組成')
   })
 
   it('falls back to the concept display, never the raw ascii key', () => {
