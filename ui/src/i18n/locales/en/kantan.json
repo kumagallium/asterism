@@ -487,7 +487,7 @@
     "analyzing": "Analyzing…"
   },
   "meanings": {
-    "title": "What the items mean",
+    "title": "Give meanings",
     "lead": "Check what value each column holds. The words you settle here are what search and citation will show.",
     "note": "The AI drafted these. Edit any cell directly (no AI runs here). To leave a column out, clear the checkbox on the right.",
     "noDraft": "No draft arrived from the AI. Fill the blanks in yourself and you can carry straight on.",
@@ -519,7 +519,7 @@
     "askConsultPrefill": "Please fill in the meanings that are still blank"
   },
   "links": {
-    "title": "How to assign the ID",
+    "title": "Pick the links",
     "step1Title": "① Which number names this one item?",
     "keyLead": "Something that can always name the same one item later, by the same number: a serial number, model number, catalogue number. Measured values can't be picked.",
     "keyQuestion": "Which number names this one item?",
