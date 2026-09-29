@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.47.0](https://github.com/kumagallium/asterism/compare/v0.46.0...v0.47.0) - 2026-09-29
+
+- docs(manual): v0.45.0・v0.46.0 の節目とバッジを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/619
+- fix(api): ハブとつながりの表示名を、項目の表示名から引く by @kumagallium in https://github.com/kumagallium/asterism/pull/621
+- fix(crosswalk): 合流先を名前ではなく参加者で決める by @kumagallium in https://github.com/kumagallium/asterism/pull/622
+- fix(ui): 手順バーと画面の見出しを「つながりを選ぶ」に揃える by @kumagallium in https://github.com/kumagallium/asterism/pull/623
+- feat: 種類にも表示名を持たせる — 日本語の列名から作る名前が潰れない by @kumagallium in https://github.com/kumagallium/asterism/pull/624
+
 ## [v0.46.0](https://github.com/kumagallium/asterism/compare/v0.45.0...v0.46.0) - 2026-09-29
 
 - feat: 前面 UI を object cards へ（PR A）— ADR ＋ 出口の意味型 output_kind ＋ provenance→graph by @kumagallium in https://github.com/kumagallium/asterism/pull/585
