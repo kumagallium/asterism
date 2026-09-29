@@ -1171,6 +1171,60 @@ O57 の会話・O58 の書くは「種類が候補にあること」を前提に
   `name_auto: true` を書く — R1 がこの名前を人が付けた名前として扱わない
   目印。
 
+#### 2 回目（契約メモ contract_b2_hub_names.md、2026-09-29）— 読むだけでは
+届かない場所があった
+
+実機で確かめ直すと、ハブの種類の名前が 3 か所でまだ直っていなかった:
+パンくず・左の列の種類の見出し・メンバー表の「種類」・条件で集めた一覧の題
+（`class_schema.class_label` を直接呼んでいた）、`type` の値・作られた手順の
+図の「種類」（ストアの生の `rdfs:label` をそのまま読む経路には、読むときの
+上書きが届かない）、つながりの画面のタブ（`/api/crosswalks` が `name` しか
+返しておらず、UI の `perspectiveDisplayName` はそれしか見ていなかった）。
+
+追加の決定:
+
+- **B2-1（`class_schema.class_label` を直接呼ぶ箇所を R3 経由に）**:
+  `cards_routes.py` に `_class_label_or_hub(client, registry_root, class_iri,
+  resolve_labels, hub_index)` を新設し、`class_schema_mod.class_label` を直接
+  呼んでいた 4 箇所（`_hub_members` のメンバー種類・`subjects/resolve` の
+  `class_label`・`subjects/search` の一覧・`sets/resolve` の
+  `title.class_label`）をこれに差し替えた。`class_iri` がどれかのハブの
+  concept の `class_iri` と同じかどうかは、`crosswalk_names.hub_class_index`
+  が registry の全つながりの config から作る対応表を引く — 呼び出し側が
+  1 リクエストにつき 1 度だけ作って使い回す（読み直さない）。ハブ本体かどう
+  かは問わない（種類が一致すれば、そのハブの一員である別の主語の型でも R3）。
+- **B2-2（`display_name` を API が計算して返す）**: `GET /api/crosswalks` の
+  各要素と `_crosswalk_view`（`GET /api/crosswalk[/:id]` が通る）に、R1 の
+  結果をそのまま `display_name` として足した（既存の `dataset.name` は変え
+  ない）。ui の `crosswalkLabels.ts` の `perspectiveDisplayName` は
+  `display_name` があればそれを最優先で読み、無ければ今までどおり
+  `dataset.name` にフォールバックする（古いサーバとの後方互換）。「名前の
+  ないつながり」・古い実装名はどちらの経路でも `undefined` に畳む。
+- **B2-3（書くときにも直す）**: 読むときの上書きだけでは、ストアの生の値を
+  そのまま読む経路（`type` の値・作られた手順の図）に届かない。そこで
+  **書くときにも** R2 の結果を書き込むようにした:
+  - `crosswalk.build_turtle` / `crosswalk_runtime.build_hub` に
+    `concept_labels: Mapping[str, str] | None` を追加。値があればハブの種類
+    の `rdfs:label` にそのまま書き、無ければ今まで通り実装の語
+    `"<name> (crosswalk)"`（`None`/空の出力は 1 バイトも変わらない）。
+  - `build_hub` を呼ぶ全箇所（`main.py` の `_do_crosswalk_build`・
+    `_maybe_rebuild_crosswalk` 経由の `_rebuild_crosswalk_now`・`autolink.py`
+    の `_default_build`）が、R2 の結果（空は入れない）を渡す。`autolink.py`
+    は `main.py` を import できないので、`maybe_autolink_handles`/
+    `_default_build` に `label_resolvers=None` を追加し `main.py` から渡す
+    （`build=` で偽物に差し替える既存テストには渡さない — 固定シグネチャの
+    ままでよい）。
+  - `ingest` の `class_schema.class_label` の読み順の最後（ローカル名の人間
+    化の直前）に「ハブの graph（`substrate.is_hub_graph`）にあるその種類の
+    `rdfs:label`」を足した。ただし値が `"...(crosswalk)"` の形（
+    `concept_labels` が渡らなかった古いハブ）で終わっているものは使わない
+    — その場合は今まで通りローカル名に落ちる。
+  - **残る古い表示**: 作り直す前の既存ハブは、B2-1・B2-2 と 1 回目の上書き
+    で主な場所（種類の名前・つながりの名前）は直るが、`type` の値と「作られ
+    た手順」の図の「種類」は、そのハブを次に作り直す（build/rebuild）まで
+    古いまま — これは許容し、ここに書く（作り直しは自動リンク・手動ビルド
+    どちらでも次回から新しい書き方になる）。
+
 ## 却下した代替案
 
 - **チャットを主役のまま** — 既存チャット（Claude 等）に体験で勝てない。

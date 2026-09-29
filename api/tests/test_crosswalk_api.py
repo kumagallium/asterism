@@ -201,6 +201,71 @@ def test_get_crosswalk_enriches_participant_and_concept_labels(tmp_path: Path) -
         listed = client.get("/api/crosswalks").json()["perspectives"]
         default = next(p for p in listed if p["perspective_id"] == "composition")
         assert default["config"]["concepts"][0]["concept_label"] == "組成"
+        # 契約メモ contract_b2_hub_names.md B2-2: default perspective の meta の
+        # name は DEFAULT_PERSPECTIVE_NAME（「共通の値でつなぐ」）— R1 の
+        # 「名前として扱う」定数なので display_name はそのまま。
+        assert default["display_name"] == crosswalk_runtime.DEFAULT_PERSPECTIVE_NAME
+        assert g.json()["display_name"] == crosswalk_runtime.DEFAULT_PERSPECTIVE_NAME
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_b2_hub_names.md B2-2: /api/crosswalks と /api/crosswalk が
+# 各つながりに display_name（R1）を足す。
+# ---------------------------------------------------------------------------
+
+
+def test_display_name_is_the_human_given_name_when_present(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, tmp_path / "registry", "ds-b", [("urn:b1", "Bi2Te3")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "結晶構造"},
+        )
+        assert r.status_code == 200, r.text
+
+        g = client.get("/api/crosswalk/crystal").json()
+        assert g["display_name"] == "結晶構造"
+        listed = client.get("/api/crosswalks").json()["perspectives"]
+        crystal = next(p for p in listed if p["perspective_id"] == "crystal")
+        assert crystal["display_name"] == "結晶構造"
+
+
+def test_display_name_falls_back_to_r2_concept_label_when_unnamed(tmp_path: Path) -> None:
+    """名前を付けずに作ったつながり（``name`` 省略）は、meta の既定の名前
+    （``UNNAMED_PERSPECTIVE_NAME``、機械付け）ではなく R1 の 2（concept の
+    R2 表示名）に落ちる — ここでは参加者の設計（mapping.yaml）の label。"""
+    ds = rdflib.Dataset()
+    registry_root = tmp_path / "registry"
+    _seed_promoted(ds, registry_root, "ds-a", [("urn:a1", "Bi₂Te₃")])
+    _seed_promoted(ds, registry_root, "ds-b", [("urn:b1", "Bi2Te3")])
+    (registry_root / "ds-a" / "mapping.yaml").write_text(
+        "version: 1\n"
+        "prefixes:\n"
+        '  x: "https://kumagallium.github.io/asterism/x/ontology#"\n'
+        "maps:\n"
+        "  - name: sample\n"
+        "    source: samples.csv\n"
+        "    subject:\n"
+        '      template: "x:sample/{SID}"\n'
+        "    properties:\n"
+        "      - predicate: x:comp\n"
+        "        column: comp\n"
+        '        label: "組成"\n',
+        encoding="utf-8",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/crosswalk/crystal/build", json=_config_body(["ds-a", "ds-b"]))
+        assert r.status_code == 200, r.text
+
+        g = client.get("/api/crosswalk/crystal").json()
+        assert g["display_name"] == "組成"
+        listed = client.get("/api/crosswalks").json()["perspectives"]
+        crystal = next(p for p in listed if p["perspective_id"] == "crystal")
+        assert crystal["display_name"] == "組成"
 
 
 _RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"

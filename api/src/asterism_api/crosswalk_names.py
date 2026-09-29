@@ -4,6 +4,9 @@
 - R1 :func:`perspective_display_name` — つながり（perspective）の表示名。
 - R2 :func:`concept_display_name` — 1 concept の表示名。
 - R3 :func:`hub_class_display_name` — ハブの種類の表示名。
+- :func:`hub_class_index` — ある種類の IRI がどれかのハブの concept か（
+  R3 を通すべきか）を、registry の全つながりの config から 1 度だけ調べる
+  （契約メモ contract_b2_hub_names.md B2-1）。
 
 ストアの中身・保存済みの ``crosswalk.yaml``・registry meta の ``name`` は
 一切書き換えない — ここは読み取り専用の計算だけ。項目の表示名を引く関数
@@ -32,6 +35,7 @@ __all__ = [
     "PLACEHOLDER_KEY_RE",
     "concept_display_name",
     "hub_class_display_name",
+    "hub_class_index",
     "load_perspective_meta",
     "perspective_display_name",
 ]
@@ -185,6 +189,29 @@ def perspective_display_name(
         if labels:
             return " / ".join(labels)
     return crosswalk_runtime.UNNAMED_PERSPECTIVE_NAME
+
+
+def hub_class_index(
+    registry_root: Path | str,
+) -> dict[str, crosswalk_runtime.RuntimeCrosswalkConfig]:
+    """registry にある全てのつながりの config を読み、ハブの種類の IRI →
+    その concept を持つ config、の対応表を作る（契約メモ
+    contract_b2_hub_names.md B2-1）。呼び出し元（``cards_routes``）が 1
+    リクエストにつき 1 度だけ呼び、以降の :func:`hub_class_display_name`
+    呼び出しに使い回す（レジストリを読み直さない）。同じ ``class_iri`` を
+    複数の perspective が使うことは無い前提だが、あっても先に見つかった方を
+    使う（決定論のため ``list_perspectives`` の並び順＝新しい順）。"""
+    index: dict[str, crosswalk_runtime.RuntimeCrosswalkConfig] = {}
+    for meta in crosswalk_runtime.list_perspectives(registry_root):
+        perspective_id = meta.get("crosswalk_perspective_id")
+        if not isinstance(perspective_id, str) or not perspective_id:
+            continue
+        config = crosswalk_runtime.load_config(registry_root, perspective_id)
+        if config is None:
+            continue
+        for concept in config.concepts:
+            index.setdefault(concept.class_iri, config)
+    return index
 
 
 def hub_class_display_name(

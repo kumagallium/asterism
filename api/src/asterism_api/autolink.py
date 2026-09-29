@@ -25,8 +25,9 @@ from typing import Any, Protocol
 
 from asterism import crosswalk_discover, crosswalk_runtime
 
+from asterism_api import crosswalk_names, registry
 from asterism_api import handles as handles_mod
-from asterism_api import registry
+from asterism_api.cards_routes import LabelResolvers
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +129,41 @@ def _amend_concept(
     return replace(config, concepts=tuple(new_concepts)), added
 
 
+def _concept_labels_for_config(
+    registry_root: Any,
+    config: crosswalk_runtime.RuntimeCrosswalkConfig,
+    label_resolvers: LabelResolvers | None,
+) -> dict[str, str] | None:
+    """契約メモ contract_b2_hub_names.md B2-3: ``config`` の各 concept の R2
+    表示名を ``build_hub`` の ``concept_labels`` にそのまま渡せる形で返す
+    （``asterism_api.main._concept_labels_for_config`` と同じ計算 — ``main``
+    を import できない（循環）ので、この関数は呼び出し元から渡された
+    ``label_resolvers`` だけで完結する）。``label_resolvers`` が無ければ
+    ``None``（``build_hub`` は今のまま実装の語のフォールバックに落ちる）。"""
+    if label_resolvers is None:
+        return None
+    predicate_label_of, field_label_of, _class_label_of = label_resolvers(registry_root)
+    labels: dict[str, str] = {}
+    for concept in config.concepts:
+        label = crosswalk_names.concept_display_name(concept, field_label_of, predicate_label_of)
+        if label:
+            labels[concept.name] = label
+    return labels
+
+
 async def _default_build(
-    client: Any, registry_root: Any, perspective_id: str, candidate: dict
+    client: Any,
+    registry_root: Any,
+    perspective_id: str,
+    candidate: dict,
+    *,
+    label_resolvers: LabelResolvers | None = None,
 ) -> dict:
     """候補 1 件を build する既定の実装: perspective が無ければ
     ``candidate["build_config"]`` からそのまま作る。あれば既存 concept に参加
     者を足す（``_do_crosswalk_build`` と同じ内部手順: parse_config → save_config
-    → build_hub → write_registry_scaffold）。"""
+    → build_hub → write_registry_scaffold）。``label_resolvers``: 契約メモ
+    contract_b2_hub_names.md B2-3（省略時は ``build_hub`` が今のまま）。"""
     build_config = candidate.get("build_config") or {}
     cand_concepts = build_config.get("concepts") or []
     if not cand_concepts:
@@ -168,6 +197,7 @@ async def _default_build(
         config,
         built_at=datetime.now(UTC).isoformat(),
         perspective_id=perspective_id,
+        concept_labels=_concept_labels_for_config(registry_root, config, label_resolvers),
     )
     crosswalk_runtime.write_registry_scaffold(
         registry_root,
@@ -218,6 +248,7 @@ async def maybe_autolink_handles(
     *,
     discover: DiscoverFn | None = None,
     build: BuildFn | None = None,
+    label_resolvers: LabelResolvers | None = None,
 ) -> dict:
     """公開されたばかりの ``dataset_id`` の ☑ 列を、他の promoted データセット
     の ☑ 列と突き合わせて自動でハブへ参加させる。
@@ -228,6 +259,12 @@ async def maybe_autolink_handles(
 
     例外は決して外に投げない（``logger.exception`` して ``skipped`` に
     ``"error"`` を積んで戻す）。
+
+    ``label_resolvers``: 契約メモ contract_b2_hub_names.md B2-3 — 既定の
+    ``build``（:func:`_default_build`）にだけ渡す（``main.py`` からしか渡せ
+    ない・循環 import を避ける同じ理由）。``build=`` で偽物に差し替えるテス
+    トは固定の引数（``client, registry_root, perspective_id, candidate``）の
+    ままでよい — 偽物には渡さない。
     """
     discover_fn: DiscoverFn = discover or crosswalk_discover.discover  # type: ignore[assignment]
     build_fn: BuildFn = build or _default_build  # type: ignore[assignment]
@@ -290,7 +327,17 @@ async def maybe_autolink_handles(
             perspective_id = str(candidate.get("perspective_id") or "")
             if not perspective_id:
                 continue
-            outcome = await build_fn(client, registry_root, perspective_id, candidate)
+            outcome = (
+                await build_fn(
+                    client,
+                    registry_root,
+                    perspective_id,
+                    candidate,
+                    label_resolvers=label_resolvers,
+                )
+                if build is None
+                else await build_fn(client, registry_root, perspective_id, candidate)
+            )
             created = bool(outcome.get("created"))
             participants_added = list(outcome.get("participants_added") or [])
             if not created and not participants_added:

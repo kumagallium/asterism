@@ -8,6 +8,7 @@ data spans two unrelated fictional domains (a lending-library catalogue and a
 "ghost sighting" log with no registry design at all) so no test asserts on a
 single dataset's shape or a domain-specific noun.
 """
+
 from __future__ import annotations
 
 import json
@@ -186,11 +187,10 @@ def _distinct_titles_ttl(n: int, subject_prefix: str, predicate: str) -> str:
 _LIBRARY_TTL = (
     "\n".join(
         [
-            f'<https://ex/library/resource/item/code-1> a <{ITEM_CLASS}> ;'
+            f"<https://ex/library/resource/item/code-1> a <{ITEM_CLASS}> ;"
             f' <{TITLE_PRED}> "Alpha" .',
-            f'<https://ex/library/resource/item/code-2> a <{ITEM_CLASS}> ;'
-            f' <{TITLE_PRED}> "Beta" .',
-            f'<https://ex/library/resource/item/code-3> a <{ITEM_CLASS}> ;'
+            f'<https://ex/library/resource/item/code-2> a <{ITEM_CLASS}> ; <{TITLE_PRED}> "Beta" .',
+            f"<https://ex/library/resource/item/code-3> a <{ITEM_CLASS}> ;"
             f' <{TITLE_PRED}> "Gamma" .',
         ]
     )
@@ -437,9 +437,7 @@ async def test_ontology_fallback_when_no_dataset_declares_the_class(
     assert props[SIGHTING_COUNT_PRED]["datatype"] is None
 
 
-async def test_ontology_fallback_still_loads_the_dataset_tools(
-    client, registry_root: Path
-) -> None:
+async def test_ontology_fallback_still_loads_the_dataset_tools(client, registry_root: Path) -> None:
     out = await class_schema(client, registry_root, GHOST_CLASS)
     names = {t["name"] for t in out["tools"]}
     assert names == {"recent_sightings"}
@@ -543,9 +541,7 @@ async def test_class_label_falls_back_to_ontology_when_no_model_yaml_label(
     # ex:Ghost の rdfs:label は model.yaml が無いクラスにも効く（既存フィクスチャ
     # を流用 — test_ontology_fallback_when_no_dataset_declares_the_class と同じ
     # 経路を class_label() 単体で確認する）。
-    onto_only_client = _pyoxi_client(
-        {ONTOLOGY_GRAPH_BASE + GHOST_DATASET: _GHOST_ONTOLOGY_TTL}
-    )
+    onto_only_client = _pyoxi_client({ONTOLOGY_GRAPH_BASE + GHOST_DATASET: _GHOST_ONTOLOGY_TTL})
     assert await class_label(onto_only_client, market_registry_root, GHOST_CLASS) == "亡霊"
 
 
@@ -561,6 +557,70 @@ async def test_class_schema_label_field_uses_the_shared_class_label(
     out = await class_schema(market_client, market_registry_root, STALL_CLASS)
     assert out is not None
     assert out["label"] == "屋台"
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_b2_hub_names.md B2-3: ハブの graph にあるその種類の
+# rdfs:label（ontology named graph より後・ローカル名の人間化より前）。
+# ---------------------------------------------------------------------------
+
+from asterism.crosswalk_runtime import crosswalk_graph_iri  # noqa: E402 (test-local grouping)
+
+SHARED_NAME_CLASS = "https://ex/shelf#SharedItemName"
+_SHARED_NAME_HUB_TTL = f"""
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<{SHARED_NAME_CLASS}> a owl:Class ; rdfs:label "品名" .
+"""
+
+_SHARED_NAME_LEGACY_HUB_TTL = f"""
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<{SHARED_NAME_CLASS}> a owl:Class ; rdfs:label "shelf_item_name (crosswalk)" .
+"""
+
+
+async def test_class_label_reads_a_hub_graphs_rdfs_label(
+    market_registry_root: Path,
+) -> None:
+    hub_graph = crosswalk_graph_iri("shelf-view")
+    client = _pyoxi_client({hub_graph: _SHARED_NAME_HUB_TTL})
+    assert await class_label(client, market_registry_root, SHARED_NAME_CLASS) == "品名"
+
+
+async def test_class_label_skips_a_legacy_implementation_worded_hub_label(
+    market_registry_root: Path,
+) -> None:
+    """``concept_labels`` が渡らずに作られた古いハブの rdfs:label
+    （``"<名前> (crosswalk)"``）はそのまま使わず、ローカル名に落ちる。"""
+    hub_graph = crosswalk_graph_iri("shelf-view")
+    client = _pyoxi_client({hub_graph: _SHARED_NAME_LEGACY_HUB_TTL})
+    # 実装の語のまま出した rdfs:label は使わない — ローカル名の人間化
+    # （camelCase を分かち書き）に落ちる。
+    assert await class_label(client, market_registry_root, SHARED_NAME_CLASS) == "Shared Item Name"
+
+
+async def test_class_label_prefers_ontology_graph_over_a_hub_graph(
+    market_registry_root: Path,
+) -> None:
+    """通常の ontology named graph に既に答えがあれば、ハブの graph までは
+    見に行かない（読み順は §3 のまま — B2-3 はその末尾に足すだけ）。"""
+    onto_ttl = f"""
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    <{SHARED_NAME_CLASS}> a rdfs:Class ; rdfs:label "オントロジーの名前" .
+    """
+    hub_graph = crosswalk_graph_iri("shelf-view")
+    client = _pyoxi_client(
+        {
+            ONTOLOGY_GRAPH_BASE + "some-dataset": onto_ttl,
+            hub_graph: _SHARED_NAME_HUB_TTL,
+        }
+    )
+    assert (
+        await class_label(client, market_registry_root, SHARED_NAME_CLASS) == "オントロジーの名前"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -833,9 +893,7 @@ class _MaliciousStoreClient:
         self.queries.append(query)
         if "?g ?label WHERE" in query:
             return {
-                "results": {
-                    "bindings": [{"g": {"type": "uri", "value": self._MALICIOUS_GRAPH}}]
-                }
+                "results": {"bindings": [{"g": {"type": "uri", "value": self._MALICIOUS_GRAPH}}]}
             }
         return {"results": {"bindings": []}}
 

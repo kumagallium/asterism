@@ -72,9 +72,7 @@ def test_shared_keys_is_positional_not_keyed_by_label() -> None:
 
 
 def test_shared_keys_supports_tuple_keys_for_compound_joins() -> None:
-    assert shared_keys([[("PbTe", "rocksalt")], [("PbTe", "rocksalt")]]) == {
-        ("PbTe", "rocksalt")
-    }
+    assert shared_keys([[("PbTe", "rocksalt")], [("PbTe", "rocksalt")]]) == {("PbTe", "rocksalt")}
 
 
 def test_build_turtle_shared_agrees_with_shared_keys() -> None:
@@ -330,6 +328,75 @@ def test_multi_concept_mints_each_concept() -> None:
     assert b.shared["space_group"] == ["Fm-3m"]
     assert f"<{XW}SpaceGroup>" in b.turtle
     assert "/crosswalk/resource/space_group/Fm-3m>" in b.turtle
+
+
+# --- concept_labels (契約メモ contract_b2_hub_names.md B2-3): a resolved display
+# name replaces the implementation-worded class label ("<name> (crosswalk)").
+
+
+def _comp_obs() -> dict:
+    return {
+        ("composition", "starrydata"): [("sd:s1", "ZnO")],
+        ("composition", "materials_project"): [("mp:m1", "ZnO")],
+    }
+
+
+def test_concept_labels_overrides_the_implementation_worded_class_label() -> None:
+    b = build_turtle(
+        CrosswalkConfig((COMPOSITION,)),
+        _comp_obs(),
+        activity_iri="urn:act",
+        built_at="2026-06-10T00:00:00+00:00",
+        concept_labels={"composition": "化学組成"},
+    )
+    assert f'<{XW}Composition> a owl:Class ; rdfs:label "化学組成" .' in b.turtle
+    assert "(crosswalk)" not in b.turtle
+
+
+def test_concept_labels_absent_keeps_the_output_byte_identical() -> None:
+    with_none_kwarg = build_turtle(
+        CrosswalkConfig((COMPOSITION,)),
+        _comp_obs(),
+        activity_iri="urn:act",
+        built_at="2026-06-10T00:00:00+00:00",
+        concept_labels=None,
+    )
+    without_kwarg = _build(CrosswalkConfig((COMPOSITION,)), _comp_obs())
+    assert with_none_kwarg.turtle == without_kwarg.turtle
+
+
+def test_concept_labels_empty_entry_keeps_the_implementation_worded_fallback() -> None:
+    b = build_turtle(
+        CrosswalkConfig((COMPOSITION,)),
+        _comp_obs(),
+        activity_iri="urn:act",
+        built_at="2026-06-10T00:00:00+00:00",
+        concept_labels={"composition": ""},
+    )
+    assert f'<{XW}Composition> a owl:Class ; rdfs:label "composition (crosswalk)" .' in b.turtle
+
+
+def test_concept_labels_only_covers_the_named_concept() -> None:
+    space_group = Concept(
+        name="space_group",
+        class_iri=f"{XW}SpaceGroup",
+        link_predicate=f"{XW}hasSpaceGroup",
+        normalizer="identity",
+        rules=(Rule("materials_project", "mp:sg"), Rule("other", "o:sg")),
+    )
+    config = CrosswalkConfig((COMPOSITION, space_group))
+    obs = dict(_comp_obs())
+    obs[("space_group", "materials_project")] = [("mp:m1", "Fm-3m")]
+    obs[("space_group", "other")] = [("o:x1", "Fm-3m")]
+    b = build_turtle(
+        config,
+        obs,
+        activity_iri="urn:act",
+        built_at="2026-06-10T00:00:00+00:00",
+        concept_labels={"composition": "化学組成"},
+    )
+    assert f'<{XW}Composition> a owl:Class ; rdfs:label "化学組成" .' in b.turtle
+    assert f'<{XW}SpaceGroup> a owl:Class ; rdfs:label "space_group (crosswalk)" .' in b.turtle
 
 
 def test_singleton_value_is_not_shared() -> None:

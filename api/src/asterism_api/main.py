@@ -144,6 +144,7 @@ from pydantic import BaseModel, Field
 from asterism_api import (
     appdata,
     autolink,
+    crosswalk_names,
     design_loop,
     exchange,
     registry,
@@ -1405,7 +1406,11 @@ async def _rebuild_crosswalk_now(
     if config is None:
         return None
     outcome = await crosswalk_runtime.build_hub(
-        client, config, built_at=datetime.now(UTC).isoformat(), perspective_id=perspective_id
+        client,
+        config,
+        built_at=datetime.now(UTC).isoformat(),
+        perspective_id=perspective_id,
+        concept_labels=_concept_labels_for_config(registry_root, config),
     )
     crosswalk_runtime.write_registry_scaffold(
         registry_root, config, outcome, perspective_id=perspective_id
@@ -1688,6 +1693,24 @@ def _crosswalk_label_resolvers(
         return fields(dataset_id)[1].get(class_iri)
 
     return predicate_label_of, field_label_of, class_label_of
+
+
+def _concept_labels_for_config(
+    registry_root: Path, config: crosswalk_runtime.RuntimeCrosswalkConfig
+) -> dict[str, str]:
+    """契約メモ contract_b2_hub_names.md B2-3: ``config`` の各 concept の R2
+    表示名（:func:`asterism_api.crosswalk_names.concept_display_name`）を、
+    :func:`asterism.crosswalk_runtime.build_hub` の ``concept_labels`` にその
+    まま渡せる形（concept name → 表示名）で返す。空の結果は入れない（
+    :func:`asterism.crosswalk.build_turtle` 側の「空/absent は今のまま」に
+    委ねる）。"""
+    predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(registry_root)
+    labels: dict[str, str] = {}
+    for concept in config.concepts:
+        label = crosswalk_names.concept_display_name(concept, field_label_of, predicate_label_of)
+        if label:
+            labels[concept.name] = label
+    return labels
 
 
 def _label_crosswalk_fields(registry_root: Path, datasets: list[dict]) -> None:
@@ -8791,7 +8814,13 @@ def build_app(
         # automatically ("取り込むだけでつながります" made real). Best-effort —
         # never raises.
         autolink_report = await autolink.maybe_autolink_handles(
-            client, cfg.registry_root, dataset_id
+            client,
+            cfg.registry_root,
+            dataset_id,
+            # 契約メモ contract_b2_hub_names.md B2-3: 自動で作る／育てるハブも
+            # R2 の表示名を rdfs:label に書く（main.py からしか渡せない —
+            # autolink.py のモジュール docstring 参照）。
+            label_resolvers=_crosswalk_label_resolvers,
         )
         # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
         # the hub now (inline best-effort) so its newly-citable values are joined.
@@ -9050,11 +9079,28 @@ def build_app(
             concept["concept_label"] = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
         return config_dict
 
+    def _perspective_display_name(
+        perspective_id: str,
+        meta: dict[str, Any],
+        config: crosswalk_runtime.RuntimeCrosswalkConfig | None,
+    ) -> str:
+        """契約メモ contract_b2_hub_names.md B2-2 — R1（つながりの表示名）。
+        ``_enrich_crosswalk_config_dict`` と同じ引き手（
+        ``_crosswalk_label_resolvers``）を使うので、``concept_label`` と同じ
+        突き合わせ順で同じ結果になる。"""
+        predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(
+            cfg.registry_root
+        )
+        return crosswalk_names.perspective_display_name(
+            meta, config, perspective_id, field_label_of, predicate_label_of
+        )
+
     def _crosswalk_view(perspective_id: str) -> dict:
         config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
         data = registry.load_dataset(
             cfg.registry_root, crosswalk_runtime.crosswalk_registry_id(perspective_id)
         )
+        meta = data["meta"] if data else {}
         return {
             "perspective_id": perspective_id,
             "exists": config is not None,
@@ -9062,6 +9108,10 @@ def build_app(
                 crosswalk_runtime.config_to_dict(config) if config else None
             ),
             "dataset": data["meta"] if data else None,
+            # 契約メモ contract_b2_hub_names.md B2-2: R1 の結果をそのまま返す
+            # （「名前のないつながり」もそのまま — ui 側 perspectiveDisplayName
+            # がその文字列を undefined 扱いに畳む）。
+            "display_name": _perspective_display_name(perspective_id, meta, config),
         }
 
     async def _do_crosswalk_build(perspective_id: str, body: CrosswalkBuildBody) -> JSONResponse:
@@ -9090,6 +9140,7 @@ def build_app(
                 config,
                 built_at=datetime.now(UTC).isoformat(),
                 perspective_id=perspective_id,
+                concept_labels=_concept_labels_for_config(cfg.registry_root, config),
             )
         except Exception as exc:  # surface a build error to the UI
             raise HTTPException(502, f"crosswalk build failed: {exc}") from exc
@@ -9131,6 +9182,8 @@ def build_app(
                     # created/joined by the ☑ handles auto-link (vs a human-built one).
                     "auto_linked": bool(meta.get("auto_linked")),
                     "auto_linked_from": list(meta.get("auto_linked_from") or []),
+                    # 契約メモ contract_b2_hub_names.md B2-2: R1 の結果。
+                    "display_name": _perspective_display_name(pid, meta, config),
                 }
             )
         return JSONResponse({"perspectives": out})

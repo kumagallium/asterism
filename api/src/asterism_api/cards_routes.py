@@ -213,6 +213,28 @@ def _hub_perspective_name(
     )
 
 
+async def _class_label_or_hub(
+    client: Any,
+    registry_root: Any,
+    class_iri: str,
+    resolve_labels: LabelResolvers,
+    hub_index: dict[str, crosswalk_runtime.RuntimeCrosswalkConfig],
+) -> str | None:
+    """種類の表示名 — 契約メモ contract_b2_hub_names.md B2-1: ``class_iri`` が
+    ``hub_index`` に載っているハブの concept の種類なら R3
+    （:func:`asterism_api.crosswalk_names.hub_class_display_name`）、そうでな
+    ければ従来通り ``class_schema.class_label``。``hub_index`` は呼び出し元
+    が 1 リクエストにつき 1 度だけ :func:`asterism_api.crosswalk_names.
+    hub_class_index` で作って渡す（このモジュールでは読み直さない）。"""
+    config = hub_index.get(class_iri)
+    if config is not None:
+        predicate_label_of, field_label_of, _class_label_of = resolve_labels(registry_root)
+        return crosswalk_names.hub_class_display_name(
+            class_iri, config, field_label_of, predicate_label_of
+        )
+    return await class_schema_mod.class_label(client, registry_root, class_iri)
+
+
 async def _hub_member_iris(client: Any, hub_graph: str, hub_iri: str) -> list[str]:
     """``hub_iri`` を指す実体（``hub_graph`` 内）の IRI を辞書順・重複無しで
     全件返す（契約メモ §1.4 の ``hub.members``／``hub_of.member_count``・
@@ -233,11 +255,19 @@ async def _hub_member_iris(client: Any, hub_graph: str, hub_iri: str) -> list[st
 
 
 async def _hub_members(
-    client: Any, registry_root: Any, hub_graph: str, hub_iri: str, limit: int
+    client: Any,
+    registry_root: Any,
+    hub_graph: str,
+    hub_iri: str,
+    limit: int,
+    resolve_labels: LabelResolvers,
+    hub_index: dict[str, crosswalk_runtime.RuntimeCrosswalkConfig],
 ) -> list[dict[str, Any]]:
     """ハブのページの「同じものとして束ねたもの」の行（契約メモ §1.4の
     ``hub.members``）。IRI 辞書順の先頭 ``limit`` 件だけ、ラベル・データ
-    セット・種類を添えて返す。"""
+    セット・種類を添えて返す。種類の名前は契約メモ contract_b2_hub_names.md
+    B2-1（``hub_index`` は呼び出し元が 1 リクエストにつき 1 度だけ作って渡
+    す — レジストリを読み直さない）。"""
     members: list[dict[str, Any]] = []
     for m in (await _hub_member_iris(client, hub_graph, hub_iri))[:limit]:
         label = await _entity_label(client, m)
@@ -246,7 +276,7 @@ async def _hub_members(
         types = await subject_tools.subject_types(client, m)
         class_iri = await subject_tools.pick_class_iri(client, types)
         class_label = (
-            await class_schema_mod.class_label(client, registry_root, class_iri)
+            await _class_label_or_hub(client, registry_root, class_iri, resolve_labels, hub_index)
             if class_iri
             else None
         )
@@ -482,8 +512,13 @@ def register_cards(
             }
         types = list(description.get("types") or [])
         class_iri = await subject_tools.pick_class_iri(client, types)
+        # 契約メモ contract_b2_hub_names.md B2-1: この主語自身がハブかどうかに
+        # 関わらず、種類の IRI がどれかのハブの concept のものなら R3。
+        hub_class_index = crosswalk_names.hub_class_index(cfg.registry_root)
         class_label = (
-            await class_schema_mod.class_label(client, cfg.registry_root, class_iri)
+            await _class_label_or_hub(
+                client, cfg.registry_root, class_iri, resolve_labels, hub_class_index
+            )
             if class_iri
             else None
         )
@@ -526,7 +561,13 @@ def register_cards(
                         else crosswalk_runtime.crosswalk_graph_iri(perspective_id)
                     )
                     members = await _hub_members(
-                        client, cfg.registry_root, hub_graph, hub_iri, _HUB_MEMBERS_LIMIT
+                        client,
+                        cfg.registry_root,
+                        hub_graph,
+                        hub_iri,
+                        _HUB_MEMBERS_LIMIT,
+                        resolve_labels,
+                        hub_class_index,
                     )
                     hub = {
                         "perspective_id": perspective_id,
@@ -732,6 +773,9 @@ def register_cards(
             # その種類の全実例を読み切れていない可能性がある＝total は下限。
             total_is_lower_bound = len(rows) >= raw_limit
             order = sorted_order[offset : offset + limit]
+        # 契約メモ contract_b2_hub_names.md B2-1: 検索結果の「種類」も、ハブの
+        # concept の class_iri なら R3。1 リクエストで 1 度だけ読む。
+        hub_class_index = crosswalk_names.hub_class_index(cfg.registry_root)
         items: list[dict[str, Any]] = []
         for s in order:
             label = subjects_mod.pick_label(candidates[s]) or subject_tools._local_name(s)
@@ -740,7 +784,9 @@ def register_cards(
             types = await subject_tools.subject_types(client, s)
             class_iri = await subject_tools.pick_class_iri(client, types)
             class_label = (
-                await class_schema_mod.class_label(client, cfg.registry_root, class_iri)
+                await _class_label_or_hub(
+                    client, cfg.registry_root, class_iri, resolve_labels, hub_class_index
+                )
                 if class_iri
                 else None
             )
@@ -811,7 +857,12 @@ def register_cards(
         except subjects_mod.SetSpecError as exc:
             raise HTTPException(400, str(exc)) from exc
         set_id = subjects_mod.set_id_of(spec)
-        class_label = await class_schema_mod.class_label(client, cfg.registry_root, spec["class"])
+        # 契約メモ contract_b2_hub_names.md B2-1: 条件で集めた一覧の題も、
+        # 対象の種類がハブの concept の class_iri なら R3。
+        hub_class_index = crosswalk_names.hub_class_index(cfg.registry_root)
+        class_label = await _class_label_or_hub(
+            client, cfg.registry_root, spec["class"], resolve_labels, hub_class_index
+        )
         # §3.3: dataset_label は §3.1 と同じ解決 — class_schema がこの class を
         # 所有すると判定したデータセット（無ければ null）。properties も同じ
         # schema から取るので、schema_fn の呼び出しは 1 回で済ませる。

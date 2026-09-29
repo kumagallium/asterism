@@ -592,6 +592,20 @@ def _hub_graph_ttl(hub_iri: str, members: list[str]) -> str:
     return links
 
 
+def _mark_is_crosswalk(registry_root: Path) -> None:
+    """``crosswalk_names.hub_class_index``（契約メモ contract_b2_hub_names.md
+    B2-1）は ``crosswalk_runtime.list_perspectives`` 経由でハブを見つける —
+    こちらは ``is_crosswalk: true`` を見る（``_hub_registry_meta`` が書く meta
+    には無い。既存テストは ``perspective_id`` を直接渡すのでこのフラグを要ら
+    ない。B2-1 のテストだけがこのヘルパーを呼ぶ）。"""
+    meta_path = (
+        registry_root / crosswalk_runtime.crosswalk_registry_id(PERSPECTIVE_ID) / "meta.json"
+    )
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["is_crosswalk"] = True
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+
 def _hub_registry_meta(registry_root: Path, *, name: str = "共有たな") -> None:
     dest = registry_root / crosswalk_runtime.crosswalk_registry_id(PERSPECTIVE_ID)
     dest.mkdir(parents=True, exist_ok=True)
@@ -666,6 +680,181 @@ def test_subjects_resolve_hub_subject_lists_members_from_both_datasets(
         assert by_iri[OTHER_MEMBER]["dataset_id"] == OTHER_DATASET
         assert by_iri[OTHER_MEMBER]["dataset_label"] == "別のたな"
         assert body["hub_of"] is None
+
+
+# ---------------------------------------------------------------------------
+# 契約メモ contract_b2_hub_names.md B2-1: ハブ本体自身の class_label（パンくず・
+# 左の列の見出し）・メンバー表の種類・検索/条件一覧の種類 — いずれも、種類の
+# IRI がどれかのハブの concept の class_iri なら R3（class_schema の生の
+# rdfs:label ではない）。
+# ---------------------------------------------------------------------------
+
+
+def test_subjects_resolve_hub_subject_class_label_uses_r3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_hub_of_subject(client, iri):
+        if iri != HUB_IRI:
+            return None
+        return {
+            "hub_iri": HUB_IRI,
+            "graph": crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID),
+            "perspective_id": PERSPECTIVE_ID,
+        }
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools, "hub_of_subject", fake_hub_of_subject, raising=False
+    )
+    hub_class = "https://ex/shared#SharedThingName"
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    _hub_registry_meta(settings.registry_root)
+    _mark_is_crosswalk(settings.registry_root)
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": hub_class,
+                    "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    # ハブが実際に作る形（crosswalk.py の build_turtle）と同じく、ハブ本体は
+    # concept の class_iri で型付けられる。
+    hub_ttl = f"<{HUB_IRI}> a <{hub_class}> .\n" + _hub_graph_ttl(HUB_IRI, [CHECKOUT_1])
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, hub_graph: hub_ttl})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/subjects/resolve", params={"iri": HUB_IRI})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["is_hub"] is True
+        assert body["class_iri"] == hub_class
+        # 参加データセットに設計（mapping.yaml）が無いので R2 は概念のキーを
+        # 人向けに直したものに落ちる（class_schema の生の rdfs:label ではない
+        # — このハブ graph の rdfs:label はそもそも書いていない）。
+        assert body["class_label"] == "shared thing name"
+
+
+def test_subjects_search_class_iri_filter_uses_r3_for_a_hub_class(tmp_path: Path) -> None:
+    hub_class = "https://ex/shared#SharedThingName"
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    _hub_registry_meta(settings.registry_root)
+    _mark_is_crosswalk(settings.registry_root)
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": hub_class,
+                    "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    hub_ttl = f"""
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<https://ex/shared/resource/thing-1> a <{hub_class}> ; rdfs:label "共有アイテム" .
+"""
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, hub_graph: hub_ttl})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/subjects/search", params={"q": "", "class_iri": hub_class})
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert len(items) == 1
+        assert items[0]["class_label"] == "shared thing name"
+
+
+def test_sets_resolve_class_label_uses_r3_for_a_hub_class(tmp_path: Path) -> None:
+    hub_class = "https://ex/shared#SharedThingName"
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    _hub_registry_meta(settings.registry_root)
+    _mark_is_crosswalk(settings.registry_root)
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": hub_class,
+                    "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/sets/resolve", json={"spec": {"class": hub_class, "where": []}})
+        assert r.status_code == 200, r.text
+        assert r.json()["title"]["class_label"] == "shared thing name"
+
+
+def test_subjects_resolve_hub_members_class_label_uses_r3_when_a_members_type_is_a_hub_concept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """メンバー表の「種類」（``hub.members[].class_label``）も、そのメンバーの
+    型がどれかのハブの concept の class_iri と同じなら R3。"""
+    hub_type_class = "https://ex/shared#SharedTypeName"
+
+    async def fake_hub_of_subject(client, iri):
+        if iri != HUB_IRI:
+            return None
+        return {
+            "hub_iri": HUB_IRI,
+            "graph": crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID),
+            "perspective_id": PERSPECTIVE_ID,
+        }
+
+    monkeypatch.setattr(
+        cards_routes.subject_tools, "hub_of_subject", fake_hub_of_subject, raising=False
+    )
+    settings = _settings(tmp_path)
+    typed_member_iri = "https://ex/library/resource/typed-member"
+    lib_ttl = f"""
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<{typed_member_iri}> a <{hub_type_class}> ; rdfs:label "型付きメンバー" .
+"""
+    _write_registry(settings.registry_root)
+    _hub_registry_meta(settings.registry_root)
+    _mark_is_crosswalk(settings.registry_root)
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_type_name",
+                    "class_iri": hub_type_class,
+                    "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    store_client = _pyoxi_client(
+        {LIB_GRAPH: lib_ttl, hub_graph: _hub_graph_ttl(HUB_IRI, [typed_member_iri])}
+    )
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/subjects/resolve", params={"iri": HUB_IRI})
+        assert r.status_code == 200, r.text
+        by_iri = {m["iri"]: m for m in r.json()["hub"]["members"]}
+        assert by_iri[typed_member_iri]["class_label"] == "shared type name"
 
 
 def test_subjects_resolve_hub_name_falls_back_to_concept_key_when_machine_named(

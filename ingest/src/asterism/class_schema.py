@@ -44,11 +44,13 @@ from asterism.ontology_projection import RDF, RDFS, STANDARD_PREFIXES, project_m
 from asterism.query_tools import annotate_output_kind
 from asterism.subjects import safe_http_iri
 from asterism.substrate import (
+    CANONICAL_GRAPH_BASE,
     ONTOLOGY_GRAPH_BASE,
     SupportsSparql,
     canonical_from_clauses,
     canonical_graphs,
     dataset_id_of_canonical_graph,
+    is_hub_graph,
 )
 
 logger = logging.getLogger(__name__)
@@ -361,9 +363,7 @@ def _find_owning_dataset(registry_root: Path, class_iri: str) -> _Match | None:
             continue
         prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
         matched = tuple(
-            tm
-            for tm in ir.maps
-            if class_iri in {_expand(c, prefixes) for c in tm.subject_classes}
+            tm for tm in ir.maps if class_iri in {_expand(c, prefixes) for c in tm.subject_classes}
         )
         if matched:
             return _Match(dataset_id=dataset_id, meta=meta, prefixes=prefixes, maps=matched)
@@ -397,8 +397,10 @@ def _index_display_meta(
         raw_pred = str(edit.get("predicate") or "")
         if not raw_pred:
             continue
-        pred_iri = raw_pred if raw_pred.startswith(("http://", "https://")) else _expand(
-            raw_pred, prefixes
+        pred_iri = (
+            raw_pred
+            if raw_pred.startswith(("http://", "https://"))
+            else _expand(raw_pred, prefixes)
         )
         column = str(edit.get("column") or "")
         if column:
@@ -501,12 +503,52 @@ async def _ontology_class_label(client: SupportsSparql, class_iri: str) -> str |
     return None
 
 
-async def class_label(
-    client: SupportsSparql, registry_root: Path | None, class_iri: str
-) -> str:
+#: ハブ graph（``is_hub_graph``）はすべてこのプレフィックスの下にある —
+#: ``SPARQL`` 側で先にざっくり絞り、``is_hub_graph`` で確定させる（B2-3）。
+_HUB_GRAPH_PREFIX = CANONICAL_GRAPH_BASE + "crosswalk"
+
+#: 古いサーバが書いた実装の語の名前（契約メモ contract_b_hub_names.md 由来）
+#: — このまま使うと生の識別子まがいの語が人に見える。ハブの graph の
+#: rdfs:label がこの形で終わっているときは使わず、ローカル名に落とす。
+_LEGACY_HUB_LABEL_SUFFIX = " (crosswalk)"
+
+
+async def _hub_graph_class_label(client: SupportsSparql, class_iri: str) -> str | None:
+    """ハブの graph（:func:`asterism.substrate.is_hub_graph`）にあるその種類の
+    ``rdfs:label`` — 契約メモ contract_b2_hub_names.md B2-3。作り直すとき
+    ``concept_labels`` が渡っていれば人向けの名前がここに書かれている；渡って
+    いない（古いハブ・concept_labels が空）ときは実装の語 ``"<名前>
+    (crosswalk)"`` のままなので、それは使わずローカル名フォールバックへ渡す。
+    """
+    class_ref = _ref(class_iri)
+    if class_ref is None:
+        return None
+    # ハブの種類は ``owl:Class``（:func:`asterism.crosswalk.build_turtle`）で
+    # 宣言されている（通常の ontology 投影の ``rdfs:Class`` とは別）— ここは
+    # 型を問わず、その graph に実際に付いている ``rdfs:label`` だけを読む。
+    q = (
+        "SELECT ?g ?label WHERE { GRAPH ?g { "
+        f"{class_ref} {_RDFS_LABEL_REF} ?label "
+        "} "
+        f'FILTER(STRSTARTS(STR(?g), "{_HUB_GRAPH_PREFIX}")) '
+        "} ORDER BY ?g ?label"
+    )
+    for row in await _run_select(client, q):
+        g = _cell(row, "g")
+        if not g or not is_hub_graph(g):
+            continue
+        v = _cell(row, "label")
+        if v and not v.endswith(_LEGACY_HUB_LABEL_SUFFIX):
+            return v
+    return None
+
+
+async def class_label(client: SupportsSparql, registry_root: Path | None, class_iri: str) -> str:
     """1 件の種類の表示名（契約メモ §3。プロパティのラベル優先順位（§2/§6）とは
     別の、クラス名専用の優先順位）: registry の ``model.yaml``
     （``classes.<curie>.label``）→ ontology named graph の ``rdfs:label`` →
+    ハブの graph にあるその種類の ``rdfs:label``（契約メモ
+    contract_b2_hub_names.md B2-3。古い実装の語のままの値は使わない）→
     ローカル名の人間化（K4: 生の識別子を見せない）。
 
     ``subjects/resolve`` の ``class_label``・``sets/resolve`` の
@@ -523,6 +565,9 @@ async def class_label(
         if label:
             return label
     label = await _ontology_class_label(client, safe_class_iri)
+    if label:
+        return label
+    label = await _hub_graph_class_label(client, safe_class_iri)
     if label:
         return label
     return _fallback_label(safe_class_iri)
@@ -683,10 +728,7 @@ async def _sample_kind(
     pred_ref = _ref(predicate_iri)
     if class_ref is None or pred_ref is None:
         return "text", 0
-    sq = (
-        f"SELECT ?v\n{from_block}"
-        f"WHERE {{ ?s a {class_ref} ; {pred_ref} ?v . }} LIMIT 1"
-    )
+    sq = f"SELECT ?v\n{from_block}WHERE {{ ?s a {class_ref} ; {pred_ref} ?v . }} LIMIT 1"
     rows = await _run_select(client, sq)
     if not rows:
         return "text", 0

@@ -239,6 +239,53 @@ def test_classes_hub_row_keeps_a_human_given_perspective_name(tmp_path: Path) ->
         assert hub["label"] == "shelf item name"
 
 
+# ---------------------------------------------------------------------------
+# 契約メモ contract_b2_hub_names.md B2-4: build_app を通した結合テスト —
+# 参加しているデータセットの registry に、述語の表示名（mapping.yaml の
+# label）を持つ設計を置いたとき、ハブの行がその表示名を返すこと（概念のキー
+# を人向けに直したものではない — 1 回目の結合テストが通っていなかった枝）。
+# ---------------------------------------------------------------------------
+
+_LIB_MAPPING_YAML = """
+version: 1
+prefixes:
+  ex: "https://ex/library#"
+maps:
+  - name: item
+    source: records.csv
+    subject:
+      template: "ex:item/{id}"
+    properties:
+      - predicate: ex:name
+        column: name
+        label: "品名"
+"""
+
+
+def test_classes_hub_row_uses_the_participants_field_label_when_a_design_names_it(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    (settings.registry_root / LIB_DATASET / "mapping.yaml").write_text(
+        _LIB_MAPPING_YAML, encoding="utf-8"
+    )
+    # meta の name が機械付け（concept のキーそのもの）— R1 は R2 に落ちる。
+    _write_hub(settings.registry_root, meta_name="shelf_item_name")
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, HUB_GRAPH: _HUB_TTL})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/classes")
+        assert r.status_code == 200, r.text
+        by_iri = {c["class_iri"]: c for c in r.json()["classes"]}
+        hub = by_iri[SHELF_CLASS]
+        assert hub["is_hub"] is True
+        # 参加データセットの設計（mapping.yaml）の label が、概念のキーを
+        # 人向けに直したもの（"shelf item name"）より優先する。
+        assert hub["dataset_label"] == "品名"
+        assert hub["label"] == "品名"
+
+
 def test_classes_empty_when_no_datasets(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     store_client = _pyoxi_client({})

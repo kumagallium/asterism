@@ -89,6 +89,11 @@ export interface CrosswalkInfo {
   exists: boolean
   config: CrosswalkConfig | null
   dataset: CrosswalkMeta | null
+  /** R1（契約メモ contract_b2_hub_names.md B2-2）— このつながりの表示名。人が
+   * 付けた名前が無ければ参加している項目の表示名から組み立てた名前、それも
+   * 無ければ「名前のないつながり」。 `perspectiveDisplayName` はこれを最優先
+   * で読む。 */
+  display_name?: string
 }
 
 /** One crosswalk PERSPECTIVE (multi-perspective ADR): a distinct lens with its own
@@ -97,6 +102,9 @@ export interface CrosswalkPerspective {
   perspective_id: string
   config: CrosswalkConfig | null
   dataset: CrosswalkMeta | null
+  /** R1（契約メモ contract_b2_hub_names.md B2-2）— {@link CrosswalkInfo.display_name}
+   * と同じ。 */
+  display_name?: string
 }
 
 export interface BuildResult {
