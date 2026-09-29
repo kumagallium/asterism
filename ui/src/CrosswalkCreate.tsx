@@ -78,6 +78,8 @@ export function CrosswalkCreate({
   // 進行中／失敗だけを覚える。
   const [joiningId, setJoiningId] = useState<string | null>(null)
   const [joinErr, setJoinErr] = useState<{ id: string; message: string } | null>(null)
+  // 完了の画面の見出しを「作った」と「足した」で言い分ける。
+  const [joined, setJoined] = useState(false)
   const job = useRef<JobHandle | null>(null)
   const gone = useRef(false)
 
@@ -152,8 +154,24 @@ export function CrosswalkCreate({
     setJoiningId(c.id)
     setJoinErr(null)
     try {
-      await joinExistingConcept(c.existing.perspective_id, c.existing.concept, joinPayloadFor(c))
+      const res = await joinExistingConcept(
+        c.existing.perspective_id,
+        c.existing.concept,
+        joinPayloadFor(c),
+      )
       onBuilt(c.existing.perspective_id)
+      if (res.participants_added.length === 0) {
+        // 足すものがもう無かった（別の画面や自動のつなぎが先に足した）— 候補を
+        // 読み直して、いまの状態（すでにつながっている組）を見せる。
+        rescan()
+        return
+      }
+      // 押したあと候補の一覧のままだと、足せたのかどうかが伝わらない —
+      // 「これでつなぐ」と同じ完了の画面へ進む。
+      setPicked(c)
+      setBuilt(res)
+      setJoined(true)
+      setPhase('done')
     } catch (e) {
       setJoinErr({ id: c.id, message: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -193,6 +211,7 @@ export function CrosswalkCreate({
       // (`buildCrosswalk`) overwrites the legacy default one — never reachable here.
       const id = uniqueCrosswalkId(picked.perspective_id, existingIds)
       setBuilt(await buildPerspective(id, picked.build_config, name.trim() || picked.name))
+      setJoined(false)
       setPhase('done')
       onBuilt(id)
     } catch (e) {
@@ -238,7 +257,9 @@ export function CrosswalkCreate({
     return (
       <div className="xw-create">
         <section className="kz-card kz-done">
-          <h3 className="kz-done-title">✓ {t('crosswalk:create.done.title')}</h3>
+          <h3 className="kz-done-title">
+            ✓ {t(joined ? 'crosswalk:create.done.joinedTitle' : 'crosswalk:create.done.title')}
+          </h3>
           <p className="kz-note">
             <Trans
               i18nKey="crosswalk:create.done.stat"

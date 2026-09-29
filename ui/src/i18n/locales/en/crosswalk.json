@@ -142,6 +142,7 @@
     },
     "done": {
       "title": "The connection is ready",
+      "joinedTitle": "Added to the connection",
       "stat": "<0>{{shared}}</0> values were shared across <1>{{count}}</1> datasets.",
       "skipped": "{{names}} did not join this time (not published). Publish it again and it comes back the next time you rebuild.",
       "askLead": "Try asking something across them.",
