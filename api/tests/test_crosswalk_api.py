@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from pathlib import Path
 
 import rdflib
@@ -77,7 +78,8 @@ def _seed_promoted(ds: rdflib.Dataset, registry_root: Path, dataset_id: str, row
     key = substrate.canonical_graph_iri(dataset_id)
     g = ds.graph(rdflib.URIRef(key))
     for entity, raw in rows:
-        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), rdflib.Literal(raw)))
+        lit = raw if isinstance(raw, rdflib.Literal) else rdflib.Literal(raw)
+        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), lit))
     ds.update(
         f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
         f'<{key}> <{substrate.STATUS_PREDICATE}> "promoted" }} }}'
@@ -406,14 +408,19 @@ def test_ir_field_labels_prefers_authored_subject_label_for_the_kind() -> None:
     assert kinds[f"{_X}Doi"] == "Doi"  # no label → local name, unchanged
 
 
-def _seed_kinds(ds: rdflib.Dataset, registry_root: Path, dataset_id: str, ir: str) -> None:
+def _seed_kinds(
+    ds: rdflib.Dataset,
+    registry_root: Path,
+    dataset_id: str,
+    ir: str,
+    kinds: list[tuple[str, str]] | None = None,
+) -> None:
     """A promoted dataset with a Composition and a Doi kind, both labelled with
     rdfs:label, plus the design (mapping.yaml) that names each kind's field."""
     key = substrate.canonical_graph_iri(dataset_id)
     g = ds.graph(rdflib.URIRef(key))
-    for i, (kind, raw) in enumerate(
-        [("Composition", "Bi2Te3"), ("Composition", "PbTe"), ("Doi", "10.1000/x1")]
-    ):
+    rows = kinds or [("Composition", "Bi2Te3"), ("Composition", "PbTe"), ("Doi", "10.1000/x1")]
+    for i, (kind, raw) in enumerate(rows):
         e = rdflib.URIRef(f"urn:{dataset_id}:{i}")
         g.add((e, rdflib.RDF.type, rdflib.URIRef(f"{_X}{kind}")))
         g.add((e, rdflib.URIRef(_RDFS_LABEL), rdflib.Literal(raw)))
@@ -459,6 +466,253 @@ def test_crosswalk_fields_lists_each_kinds_field_with_the_designs_words(tmp_path
         assert comp["sample"] in {"Bi2Te3", "PbTe"}
         assert by_kind[f"{_X}Doi"]["label"] == "DOI"
         assert client.get("/api/crosswalk/fields/nope").status_code == 404
+
+
+def _seed_model_yaml(registry_root: Path, dataset_id: str, classes: dict[str, str]) -> None:
+    """registry の ``model.yaml`` に ``classes.<curie>.label`` を置く（種類の表示名の置き場）。"""
+    body = "classes:\n" + "".join(
+        f'  {curie}:\n    label: "{word}"\n' for curie, word in classes.items()
+    )
+    (registry_root / dataset_id / "model.yaml").write_text(body, encoding="utf-8")
+
+
+_MODEL_KIND_WORD = "組成の記録"
+
+
+def test_crosswalk_fields_names_the_kind_from_model_yaml(tmp_path: Path) -> None:
+    """T1: IR に ``subject.label`` が無く model.yaml に表示名がある種類は、その表示名で出る。
+    どこにも名前が無い種類はローカル名のまま。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", _KINDS_IR)
+    _seed_model_yaml(root, "ds-k", {"x:Composition": _MODEL_KIND_WORD})
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get("/api/crosswalk/fields/ds-k").json()
+        by_kind = {f["subject_class"]: f for f in body["fields"]}
+        assert by_kind[f"{_X}Composition"]["subject_class_label"] == _MODEL_KIND_WORD
+        assert by_kind[f"{_X}Doi"]["subject_class_label"] == "Doi"
+
+
+def _build_kind_scoped_crosswalk(
+    client, pid: str = crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
+) -> str:
+    """ds-k の Composition と ds-b を、名前を渡さずにつなぐ。作ったつながりの id を返す。"""
+    config = {
+        "concepts": [
+            {
+                "name": "composition",
+                "participants": [
+                    {
+                        "dataset_id": "ds-k",
+                        "label": "k",
+                        "predicate": _RDFS_LABEL,
+                        "subject_class": f"{_X}Composition",
+                    },
+                    {"dataset_id": "ds-b", "label": "b", "predicate": PRED},
+                ],
+            }
+        ]
+    }
+    url = (
+        "/api/crosswalk/build"
+        if pid == crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
+        else (f"/api/crosswalk/{pid}/build")
+    )
+    b = client.post(url, json={"config": config})
+    assert b.status_code == 200, b.text
+    return pid
+
+
+def _kind_named_app(tmp_path: Path, classes: dict[str, str], ir: str = _KINDS_IR):
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", ir)
+    _seed_model_yaml(root, "ds-k", classes)
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    return build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+
+
+def test_crosswalk_reads_name_the_kind_from_model_yaml(tmp_path: Path) -> None:
+    """T2: 一覧の参加者の ``subject_class_label`` が、model.yaml の表示名になる。"""
+    app = _kind_named_app(tmp_path, {"x:Composition": _MODEL_KIND_WORD})
+    with TestClient(app, headers=_AUTH) as client:
+        pid = _build_kind_scoped_crosswalk(client)
+        one = client.get("/api/crosswalk").json()["config"]["concepts"][0]
+        listed = next(
+            c
+            for c in client.get("/api/crosswalks").json()["perspectives"]
+            if c["perspective_id"] == pid
+        )["config"]["concepts"][0]
+        for concept in (one, listed):
+            by_id = {p["dataset_id"]: p for p in concept["participants"]}
+            assert by_id["ds-k"]["subject_class_label"] == _MODEL_KIND_WORD
+            assert "subject_class_label" not in by_id["ds-b"]
+
+
+def test_crosswalk_written_names_stay_the_fields_words_not_the_kinds(tmp_path: Path) -> None:
+    """T3: 書き込まれる名前（表示名・概念の名札・registry の meta の名前）は、
+    種類の表示名ではなく項目の表示名のまま。"""
+    app = _kind_named_app(tmp_path, {"x:Composition": _MODEL_KIND_WORD})
+    with TestClient(app, headers=_AUTH) as client:
+        pid = _build_kind_scoped_crosswalk(client)
+        view = client.get("/api/crosswalk").json()
+        assert _MODEL_KIND_WORD not in view["display_name"]
+        assert view["config"]["concepts"][0]["concept_label"] == "試料化学組成"
+        meta = json.loads(
+            (
+                tmp_path / "registry" / crosswalk_runtime.crosswalk_registry_id(pid) / "meta.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert _MODEL_KIND_WORD not in meta["name"]
+        assert _MODEL_KIND_WORD not in json.dumps(meta, ensure_ascii=False)
+
+
+class _NameLookupFailsClient(_DatasetClient):
+    """種類の名前を引く問い合わせ（ontology / ハブの graph）だけ例外を投げる偽物。"""
+
+    def __init__(self, ds: rdflib.Dataset) -> None:
+        super().__init__(ds)
+        self.raised = 0
+
+    async def sparql_select(self, query: str) -> dict:
+        if "rdf-schema#label" in query and "STRSTARTS" in query:
+            self.raised += 1
+            raise RuntimeError("store cannot answer")
+        return await super().sparql_select(query)
+
+
+def test_crosswalk_reads_survive_a_store_that_cannot_name_kinds(tmp_path: Path) -> None:
+    """T6: ストアが名前の問い合わせに答えられなくても 200 で返り、種類はローカル名になる。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", _KINDS_IR)
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    client_ = _NameLookupFailsClient(ds)
+    app = build_app(_settings(tmp_path), oxigraph_client=client_, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/crosswalk/fields/ds-k")
+        assert r.status_code == 200, r.text
+        by_kind = {f["subject_class"]: f for f in r.json()["fields"]}
+        assert by_kind[f"{_X}Composition"]["subject_class_label"] == "Composition"
+        _build_kind_scoped_crosswalk(client)
+        r = client.get("/api/crosswalks")
+        assert r.status_code == 200, r.text
+        concept = r.json()["perspectives"][0]["config"]["concepts"][0]
+        by_id = {p["dataset_id"]: p for p in concept["participants"]}
+        assert by_id["ds-k"]["subject_class_label"] == "Composition"
+    assert client_.raised >= 1
+
+
+def test_crosswalk_reads_survive_a_removed_dataset(tmp_path: Path) -> None:
+    """T7: 参加しているデータセットのフォルダが消えても 200 で返り、種類はローカル名になる。"""
+    app = _kind_named_app(tmp_path, {"x:Composition": _MODEL_KIND_WORD})
+    with TestClient(app, headers=_AUTH) as client:
+        _build_kind_scoped_crosswalk(client)
+        shutil.rmtree(tmp_path / "registry" / "ds-k")
+        r_list = client.get("/api/crosswalks")
+        r_one = client.get("/api/crosswalk")
+        assert r_list.status_code == 200 and r_one.status_code == 200
+        for concept in (
+            r_list.json()["perspectives"][0]["config"]["concepts"][0],
+            r_one.json()["config"]["concepts"][0],
+        ):
+            by_id = {p["dataset_id"]: p for p in concept["participants"]}
+            assert by_id["ds-k"]["subject_class_label"] == "Composition"
+
+
+def test_named_crosswalk_get_names_the_kind_from_model_yaml(tmp_path: Path) -> None:
+    """T8: 既定でない id のつながりの GET でも、model.yaml の表示名が付く。"""
+    app = _kind_named_app(tmp_path, {"x:Composition": _MODEL_KIND_WORD})
+    with TestClient(app, headers=_AUTH) as client:
+        _build_kind_scoped_crosswalk(client, "lens-a")
+        r = client.get("/api/crosswalk/lens-a")
+        assert r.status_code == 200, r.text
+        by_id = {p["dataset_id"]: p for p in r.json()["config"]["concepts"][0]["participants"]}
+        assert by_id["ds-k"]["subject_class_label"] == _MODEL_KIND_WORD
+
+
+_LOAN_IR = (
+    "version: 1\n"
+    "prefixes:\n"
+    f'  x: "{_X}"\n'
+    '  rdfs: "http://www.w3.org/2000/01/rdf-schema#"\n'
+    "maps:\n"
+    "  - name: loan\n"
+    "    source: records.csv\n"
+    "    subject:\n"
+    '      template: "x:loan/{code}"\n'
+    "      classes: [x:LoanRecord]\n"
+    "    properties:\n"
+    "      - predicate: rdfs:label\n"
+    "        column: code\n"
+)
+
+
+def test_crosswalk_fields_humanizes_a_kind_named_nowhere(tmp_path: Path) -> None:
+    """T9: どこにも名前が無い 2 語以上の種類は、ワークスペースと同じ読みくだしで出る。"""
+    ds = rdflib.Dataset()
+    _seed_kinds(ds, tmp_path / "registry", "ds-l", _LOAN_IR, [("LoanRecord", "L-001")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        fields = client.get("/api/crosswalk/fields/ds-l").json()["fields"]
+        assert fields[0]["subject_class"] == f"{_X}LoanRecord"
+        assert fields[0]["subject_class_label"] == "Loan Record"
+
+
+def test_crosswalk_fields_ignores_a_blank_model_yaml_label(tmp_path: Path) -> None:
+    """T10: model.yaml の表示名が空白だけなら名前と見なさず、ローカル名になる。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", _KINDS_IR)
+    _seed_model_yaml(root, "ds-k", {"x:Composition": "   "})
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        by_kind = {
+            f["subject_class"]: f for f in client.get("/api/crosswalk/fields/ds-k").json()["fields"]
+        }
+        assert by_kind[f"{_X}Composition"]["subject_class_label"] == "Composition"
+
+
+def test_crosswalks_list_names_kinds_in_one_lookup(tmp_path: Path, monkeypatch) -> None:
+    """T11: つながりが 2 件あっても、一覧の名前引きは 1 回にまとまる。"""
+    import asterism_api.main as main_mod
+
+    calls: list[int] = []
+    real = main_mod._crosswalk_kind_names
+
+    async def counting(client, registry_root, kinds):
+        kinds = list(kinds)
+        calls.append(len(kinds))
+        return await real(client, registry_root, kinds)
+
+    monkeypatch.setattr(main_mod, "_crosswalk_kind_names", counting)
+    app = _kind_named_app(tmp_path, {"x:Composition": _MODEL_KIND_WORD})
+    with TestClient(app, headers=_AUTH) as client:
+        _build_kind_scoped_crosswalk(client)
+        _build_kind_scoped_crosswalk(client, "lens-a")
+        calls.clear()
+        r = client.get("/api/crosswalks")
+        assert r.status_code == 200, r.text
+        perspectives = r.json()["perspectives"]
+    assert len(perspectives) == 2
+    assert len(calls) == 1
+    for pv in perspectives:
+        by_id = {p["dataset_id"]: p for p in pv["config"]["concepts"][0]["participants"]}
+        assert by_id["ds-k"]["subject_class_label"] == _MODEL_KIND_WORD
+
+
+def test_crosswalk_kind_name_prefers_the_designs_own_subject_label(tmp_path: Path) -> None:
+    """T4: IR の ``subject.label`` と model.yaml の表示名が違うときは、IR の名前が出る。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", _LABELLED_KIND_IR)
+    _seed_model_yaml(root, "ds-k", {"x:Composition": _MODEL_KIND_WORD})
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get("/api/crosswalk/fields/ds-k").json()
+        by_kind = {f["subject_class"]: f for f in body["fields"]}
+        assert by_kind[f"{_X}Composition"]["subject_class_label"] == "食材の名前"
 
 
 def test_propose_carries_the_kind_and_the_get_names_it(tmp_path: Path) -> None:
@@ -818,6 +1072,27 @@ def test_discover_returns_candidates_with_the_evidence(tmp_path: Path) -> None:
     assert result["limits"]["ladder"]  # the bounds are disclosed, not implicit
 
 
+def test_discover_names_the_kind_from_model_yaml(tmp_path: Path) -> None:
+    """T5: 候補さがしの参加者の ``subject_class_label`` が、model.yaml の表示名になる。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_kinds(ds, root, "ds-k", _KINDS_IR)
+    _seed_kinds(ds, root, "ds-k2", _KINDS_IR)
+    _seed_model_yaml(root, "ds-k", {"x:Composition": _MODEL_KIND_WORD})
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        result = _discover(client)
+    kinds = {
+        (p["dataset_id"], p["subject_class"]): p["subject_class_label"]
+        for cand in result["candidates"]
+        for p in cand["participants"]
+    }
+    assert kinds[("ds-k", f"{_X}Composition")] == _MODEL_KIND_WORD
+    assert (
+        kinds[("ds-k2", f"{_X}Composition")] == _MODEL_KIND_WORD
+    )  # 名前は registry 全体の model.yaml から
+
+
 def test_discover_candidate_builds_without_edits(tmp_path: Path) -> None:
     # The contract that makes "connect these" one click: what discovery promises
     # (`matched`) must equal what a build of its own config produces (`shared_total`).
@@ -834,6 +1109,48 @@ def test_discover_candidate_builds_without_edits(tmp_path: Path) -> None:
         )
         assert r.status_code == 200, r.text
         assert r.json()["shared_total"] == cand["matched"]
+
+
+def test_discover_candidate_with_language_tagged_values_builds_the_same_count(
+    tmp_path: Path,
+) -> None:
+    """同じ約束を、片方の値に言語タグが付いているときにも守る。候補さがしは文字列で
+    比べて「一致」と言う（"日本"@ja と "日本" は同じ値）ので、作った結果も同じ件数で
+    なければならない。同じ主語が 2 つの言語（ja と en）で値を持っていても、一致は
+    1 件ずつ（二重に数えない）。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(
+        ds, root, "ds-a", [("urn:a1", "日本"), ("urn:a2", "フランス"), ("urn:a3", "ドイツ")]
+    )
+    _seed_promoted(
+        ds,
+        root,
+        "ds-b",
+        [
+            ("urn:b1", rdflib.Literal("日本", lang="ja")),
+            ("urn:b1", rdflib.Literal("Japan", lang="en")),
+            ("urn:b2", rdflib.Literal("フランス", lang="ja")),
+            ("urn:b2", rdflib.Literal("France", lang="en")),
+            ("urn:b3", rdflib.Literal("ドイツ", lang="ja")),
+            ("urn:b3", rdflib.Literal("Germany", lang="en")),
+        ],
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        cand = _discover(client)["candidates"][0]
+        assert {p["dataset_id"] for p in cand["participants"]} == {"ds-a", "ds-b"}
+        assert cand["matched"] == 3
+        r = client.post(
+            f"/api/crosswalk/{cand['perspective_id']}/build",
+            json={"config": cand["build_config"], "name": cand["name"]},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["shared_total"] == cand["matched"]
+        # ja と en の 2 つの値を持つ主語も、リンクは値 1 つにつき 1 本（両側とも 3）。
+        (links,) = body["links"].values()
+        assert sorted(links.values()) == [3, 3]
 
 
 def test_discover_needs_no_llm_key(tmp_path: Path) -> None:

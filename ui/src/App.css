@@ -9239,6 +9239,11 @@ tr.kz-cols-dropped td {
 .shape-graph .react-flow__node {
   pointer-events: auto !important;
 }
+/* 席のぶんの場所取り（何も描かない箱）は、上の通し直しから外す。図の全体を
+   覆っているので、通すと、箱の無いところに触れても「箱に触れた」ことになる。 */
+.shape-graph .react-flow__node.react-flow__node-seats {
+  pointer-events: none !important;
+}
 .shape-node {
   box-sizing: border-box;
   display: flex;
@@ -9612,6 +9617,9 @@ tr.kz-cols-dropped td {
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--accent-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .vocab-map .vocab-map-edge--used .react-flow__edge-path {
   stroke: var(--primary);

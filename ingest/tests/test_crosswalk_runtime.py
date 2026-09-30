@@ -77,12 +77,16 @@ def _mark_promoted(ds: rdflib.Dataset, key_graph: str) -> None:
     )
 
 
-def _seed_dataset(ds: rdflib.Dataset, dataset_id: str, rows: list[tuple[str, str]]) -> str:
-    """Put ``(entity, raw)`` rows into a dataset's promoted key graph; return its IRI."""
+def _seed_dataset(
+    ds: rdflib.Dataset, dataset_id: str, rows: list[tuple[str, str | rdflib.Literal]]
+) -> str:
+    """Put ``(entity, raw)`` rows into a dataset's promoted key graph; return its IRI.
+    ``raw`` may be a ready ``rdflib.Literal`` (language-tagged / typed)."""
     key = substrate.canonical_graph_iri(dataset_id)
     g = ds.graph(rdflib.URIRef(key))
     for entity, raw in rows:
-        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), rdflib.Literal(raw)))
+        lit = raw if isinstance(raw, rdflib.Literal) else rdflib.Literal(raw)
+        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), lit))
         g.add((rdflib.URIRef(entity), rdflib.RDF.type, rdflib.URIRef(f"{PRED}/Thing")))
     _mark_promoted(ds, key)
     return key
@@ -135,6 +139,118 @@ async def test_build_hub_joins_shared_across_promoted_graphs() -> None:
         f"SELECT ?v WHERE {{ GRAPH <{HUB_GRAPH}> {{ ?l <{XW}sourceValue> ?v }} }}",
     )
     assert set(raws) == {"Bi₂Te₃", "Bi2Te3"}
+
+
+def _identity_config(participants: list[tuple[str, str]]) -> RuntimeCrosswalkConfig:
+    return RuntimeCrosswalkConfig(
+        concepts=(
+            RuntimeConcept(
+                name="name",
+                class_iri=f"{XW}Name",
+                link_predicate=f"{XW}hasName",
+                normalizer="identity",
+                participants=tuple(
+                    RuntimeParticipant(dataset_id=dsid, label=label, predicate=PRED)
+                    for dsid, label in participants
+                ),
+            ),
+        )
+    )
+
+
+async def _source_values(client: _DatasetClient) -> set[str]:
+    return set(
+        await _values(
+            client,
+            f"SELECT ?v WHERE {{ GRAPH <{HUB_GRAPH}> {{ ?l <{XW}sourceValue> ?v }} }}",
+        )
+    )
+
+
+async def test_build_hub_reads_a_language_tagged_value_as_the_same_string() -> None:
+    """候補さがしは文字列で比べる（"日本"@ja と "日本" は同じ値）。作るときも同じ
+    比べ方でなければ、候補が約束した件数と作った件数が食い違う。2 段目の引き直しは
+    ストアにある term そのもの（言語タグつき）で問う。同じ主語が ja と en の 2 つの
+    値を持っていても、リンクは値 1 つにつき 1 本。"""
+    ds = rdflib.Dataset()
+    _seed_dataset(ds, "ds-a", [("urn:a1", "日本"), ("urn:a2", "フランス")])
+    _seed_dataset(
+        ds,
+        "ds-b",
+        [
+            ("urn:b1", rdflib.Literal("日本", lang="ja")),
+            ("urn:b1", rdflib.Literal("Japan", lang="en")),
+            ("urn:b2", rdflib.Literal("フランス", lang="ja")),
+            ("urn:b2", rdflib.Literal("France", lang="en")),
+        ],
+    )
+    client = _DatasetClient(ds)
+    cfg = _identity_config([("ds-a", "table"), ("ds-b", "catalog")])
+
+    out = await build_hub(client, cfg, built_at="2026-09-30T00:00:00+00:00")
+
+    assert sorted(out.shared["name"]) == ["フランス", "日本"]
+    assert out.links["name"] == {"table": 2, "catalog": 2}
+    assert await _source_values(client) == {"日本", "フランス"}
+
+
+async def test_build_hub_reads_a_typed_value_as_the_same_string() -> None:
+    """型つきの値（"42"^^xsd:integer）も、素の "42" と同じ値として一致する。"""
+    ds = rdflib.Dataset()
+    _seed_dataset(ds, "ds-a", [("urn:a1", "42"), ("urn:a2", "7")])
+    _seed_dataset(
+        ds,
+        "ds-b",
+        [
+            ("urn:b1", rdflib.Literal("42", datatype=rdflib.XSD.integer)),
+            ("urn:b2", rdflib.Literal("8", datatype=rdflib.XSD.integer)),
+        ],
+    )
+    client = _DatasetClient(ds)
+    cfg = _identity_config([("ds-a", "table"), ("ds-b", "catalog")])
+
+    out = await build_hub(client, cfg, built_at="2026-09-30T00:00:00+00:00")
+
+    assert out.shared["name"] == ["42"]
+    assert out.links["name"] == {"table": 1, "catalog": 1}
+
+
+async def test_build_hub_counts_the_same_string_under_two_terms_once() -> None:
+    """同じ主語が同じ文字列を 2 つの term（言語タグつき・素）で持っていても、
+    観測は 1 つ。件数が二重にならない。"""
+    ds = rdflib.Dataset()
+    _seed_dataset(ds, "ds-a", [("urn:a1", "日本")])
+    _seed_dataset(
+        ds,
+        "ds-b",
+        [("urn:b1", rdflib.Literal("日本", lang="ja")), ("urn:b1", rdflib.Literal("日本"))],
+    )
+    client = _DatasetClient(ds)
+    cfg = _identity_config([("ds-a", "table"), ("ds-b", "catalog")])
+
+    out = await build_hub(client, cfg, built_at="2026-09-30T00:00:00+00:00")
+
+    assert out.shared["name"] == ["日本"]
+    assert out.links["name"] == {"table": 1, "catalog": 1}
+
+
+async def test_build_hub_never_joins_on_a_non_literal_value() -> None:
+    """候補さがしはリテラルだけを読む。作るときも同じで、IRI の値は文字列が同じでも
+    つながない（候補さがしが約束しない一致を、作る側が作らない）。"""
+    ds = rdflib.Dataset()
+    key_a = substrate.canonical_graph_iri("ds-a")
+    ds.graph(rdflib.URIRef(key_a)).add(
+        (rdflib.URIRef("urn:a1"), rdflib.URIRef(PRED), rdflib.URIRef("urn:shared"))
+    )
+    _mark_promoted(ds, key_a)
+    _seed_dataset(ds, "ds-b", [("urn:b1", "urn:shared")])
+    client = _DatasetClient(ds)
+    cfg = _identity_config([("ds-a", "table"), ("ds-b", "catalog")])
+
+    out = await build_hub(client, cfg, built_at="2026-09-30T00:00:00+00:00")
+
+    assert out.shared["name"] == []
+    assert out.links["name"] == {}
 
 
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
@@ -633,6 +749,24 @@ async def test_build_hub_compound_key_joins_on_the_tuple() -> None:
         client, f"SELECT ?v WHERE {{ GRAPH <{HUB_GRAPH}> {{ ?s a <{XW}Phase> ; <{rdfs}> ?v }} }}"
     )
     assert labels == ["PbTe | rocksalt"]  # readable tuple label
+
+
+async def test_build_hub_compound_key_counts_the_same_strings_under_two_terms_once() -> None:
+    """複合キーでも、同じ主語が同じ文字列を 2 つの term（素と言語タグつき）で持つとき、
+    タプルは 1 つ（リンクが二重にならない）。単一キーの経路と同じ規則。"""
+    ds = rdflib.Dataset()
+    _seed_phase(ds, "ds-a", [("u:a1", "PbTe", "rocksalt")])
+    _seed_phase(ds, "ds-b", [("u:b1", "PbTe", "rocksalt")])
+    ds.graph(rdflib.URIRef(substrate.canonical_graph_iri("ds-b"))).add(
+        (rdflib.URIRef("u:b1"), rdflib.URIRef(PRED), rdflib.Literal("PbTe", lang="en"))
+    )
+    client = _DatasetClient(ds)
+    out = await build_hub(
+        client, parse_config(_phase_config()), built_at="2026-09-30T00:00:00+00:00"
+    )
+
+    assert out.shared["phase"] == ["PbTe | rocksalt"]
+    assert out.links["phase"] == {"sd": 1, "mp": 1}
 
 
 def test_compound_config_round_trips_and_validates() -> None:
