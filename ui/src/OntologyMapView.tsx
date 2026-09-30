@@ -230,7 +230,7 @@ function DsNode({ data }: NodeProps) {
           <>
             {/* The pills are the kinds' display names as the design saved them
                 (`meta.classes`, read from the diagram's box labels — ADR kantan
-                K50/K55). They name what is in the data, and a heading says WHAT
+                K50/K56). They name what is in the data, and a heading says WHAT
                 they are, so they do not read as stray tokens. */}
             <span className="ontomap-node-std-label">{n.words.kinds}</span>
             <span className="ontomap-node-pills">

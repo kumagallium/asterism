@@ -28,8 +28,10 @@ import asyncio
 import contextlib
 import importlib.util
 import ipaddress
+import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -672,7 +674,9 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
     で取り込み、``main.py`` の ``POST /api/datasets/{id}/promote`` ルートが呼ぶ
     のと同じ内部関数（``registry.load_dataset``・``substrate.alignment_report``・
     ``substrate.promote_to_canonical``・``registry.mark_promoted``）を HTTP を
-    経由せず直接呼んで公開する。全体 best-effort — どこで失敗しても
+    経由せず直接呼んで公開し、続けてオントロジーの graph と説明の graph を投影
+    する（``_project_ontology_graph``・``_project_meta_graph``）。クエリツール
+    合成・つながりの作り直し・togomcp 配信は呼ばない。全体 best-effort — どこで失敗しても
     ``log.warning`` するだけで起動は止めない。
     """
     if not cfg.single_user:
@@ -694,7 +698,12 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
         payload = snapshot_path.read_bytes()
         # main.py の POST /api/datasets/import ルートと同じ内部関数（HTTP は
         # 叩かない）。
-        from asterism_api.main import _MAX_UPLOAD_BYTES, _subjects_of_design
+        from asterism_api.main import (
+            _MAX_UPLOAD_BYTES,
+            _project_meta_graph,
+            _project_ontology_graph,
+            _subjects_of_design,
+        )
 
         imported = await exchange.import_snapshot(
             cfg, client, payload, max_extracted_bytes=_MAX_UPLOAD_BYTES
@@ -703,15 +712,18 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
         staged_iri = imported["staged_graph"]
 
         # main.py の POST /api/datasets/{id}/promote ルートが呼ぶのと同じ内部
-        # 関数、同じ順番（HTTP は叩かない）。ontology/meta グラフ投影・クエリ
-        # ツール合成・crosswalk 再構築・togomcp 配信は促進の副作用であり公開に
-        # 必須ではないので呼ばない — クエリツールは見本の query_tools.yaml
-        # （人が vet 済み、契約メモ §1）をそのまま使う。
-        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        # 関数、同じ順番（HTTP は叩かない）。促進の副作用のうち、オントロジーの
+        # graph の投影と説明の graph の投影は公開の後に呼ぶ（下）— 呼ばないと
+        # 見本のことばにストア上の名前が無く「共通の言葉」で英字＋名前未設定に
+        # なり、説明も MCP の schema_summary に出ない。クエリツール合成・
+        # crosswalk 再構築・togomcp 配信は公開に必須ではないので呼ばない —
+        # クエリツールは見本の query_tools.yaml（人が vet 済み、契約メモ §1）を
+        # そのまま使う。
+        data = registry.load_dataset(cfg.registry_root, dataset_id) or {}
         dataset_key = substrate.canonical_graph_iri(dataset_id)
         alignment = await substrate.alignment_report(client, staged_iri)
         await substrate.promote_to_canonical(client, dataset_key, staged_iri)
-        triples_promoted = int((data or {}).get("meta", {}).get("triple_count") or 0)
+        triples_promoted = int(data.get("meta", {}).get("triple_count") or 0)
         registry.mark_promoted(
             cfg.registry_root,
             dataset_id,
@@ -720,7 +732,7 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
             promoted_at=datetime.now(UTC).isoformat(),
             canonical_graph=dataset_key,
             live_graph=staged_iri,
-            published_subjects=_subjects_of_design((data or {}).get("artifacts", {})),
+            published_subjects=_subjects_of_design(data.get("artifacts", {})),
         )
     except Exception:
         logger.warning(
@@ -728,6 +740,22 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
             exc_info=True,
         )
         return
+
+    # 公開のルートと同じ投影 2 つ。失敗しても見本の公開は済んでいるので先へ進む。
+    try:
+        await _project_ontology_graph(client, dataset_id, data.get("artifacts", {}))
+    except Exception:
+        logger.warning(
+            "seed_demo_dataset: ontology graph projection failed (continuing)",
+            exc_info=True,
+        )
+    try:
+        await _project_meta_graph(client, dataset_id, data.get("artifacts", {}))
+    except Exception:
+        logger.warning(
+            "seed_demo_dataset: meta graph projection failed (continuing)",
+            exc_info=True,
+        )
 
     try:
         await _seed_demo_subjects(cfg, client, staged_iri)
@@ -739,6 +767,123 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
 
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
+
+
+_BACKFILL_ID_RE = re.compile(r"[a-z0-9-]{1,128}")
+
+
+def _redesigned_after_promote(dataset_dir: Path, meta: dict) -> bool:
+    """公開より後に設計を保存し直した記録があるか。
+
+    設計の保存し直し（``registry.update_dataset_artifacts``）は公開済みの印を
+    残したまま成果物を上書きし、上書きの前の成果物を ``history/<UTC 時刻>/`` に
+    控える。控えが公開の時刻より後にあれば、いまの成果物はまだ公開していない
+    下書きなので、それを公開側の graph に投影してはいけない。公開の時刻が
+    読めないときも、控えが 1 つでもあれば保存し直しがあったものとみなす（安全側）。
+    """
+    history = dataset_dir / "history"
+    if not history.is_dir():
+        return False
+    stamps = [c.name[:16] for c in history.iterdir() if c.is_dir()]
+    if not stamps:
+        return False
+    try:
+        promoted_at = datetime.fromisoformat(str(meta.get("promoted_at") or ""))
+    except ValueError:
+        return True
+    if promoted_at.tzinfo is None:
+        promoted_at = promoted_at.replace(tzinfo=UTC)
+    for stamp in stamps:
+        try:
+            saved_at = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        except ValueError:
+            return True
+        if saved_at >= promoted_at.replace(microsecond=0):
+            return True
+    return False
+
+
+async def backfill_store_projections(cfg: Settings, client: Any) -> None:
+    """公開済みなのにストアに名前の graph／説明の graph が無いデータセットを補う。
+
+    種まきが投影を呼ばなかった版で入れた見本など、すでにある環境を直すため、
+    起動のたびに呼ぶ。中身は公開のルートと同じ投影なので何度呼んでも同じ結果。
+    つながりのハブと、公開より後に設計を保存し直したデータセット
+    （:func:`_redesigned_after_promote`。いまの成果物は未公開の下書き）は対象外。
+    全体 best-effort — 例外は外へ出さない。
+    """
+    try:
+        from asterism_api.main import _project_meta_graph, _project_ontology_graph
+
+        root = cfg.registry_root
+        if not root.is_dir():
+            return
+        targets: list[str] = []
+        for child in sorted(root.iterdir()):
+            if not child.is_dir() or not _BACKFILL_ID_RE.fullmatch(child.name):
+                continue
+            try:
+                meta = json.loads((child / "meta.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(meta, dict) or not meta.get("promoted"):
+                continue
+            canonical = meta.get("canonical_graph")
+            if canonical and substrate.is_hub_graph(str(canonical)):
+                continue
+            if _redesigned_after_promote(child, meta):
+                logger.info(
+                    "backfill_store_projections: %s was redesigned after publishing "
+                    "— not projecting the unpublished design",
+                    child.name,
+                )
+                continue
+            targets.append(child.name)
+        if not targets:
+            return
+        onto_have = set(await substrate.ontology_graphs(client))
+        meta_have = set(await substrate.meta_graphs(client))
+    except Exception:
+        logger.warning("backfill_store_projections: listing failed (continuing)", exc_info=True)
+        return
+
+    filled = 0
+    for dataset_id in targets:
+        need_onto = substrate.ontology_graph_iri(dataset_id) not in onto_have
+        need_meta = substrate.meta_graph_iri(dataset_id) not in meta_have
+        if not (need_onto or need_meta):
+            continue
+        try:
+            data = registry.load_dataset(cfg.registry_root, dataset_id) or {}
+        except Exception:
+            logger.warning(
+                "backfill_store_projections: %s failed (continuing)", dataset_id, exc_info=True
+            )
+            continue
+        artifacts = data.get("artifacts", {})
+        # 2 つの投影は別々に試す（片方の失敗で、もう片方を次の起動まで待たせない）。
+        # 投影する中身が無い（説明の無い見本など）ときは、起動のたびにここへ来るが、
+        # 書き込むのは空の graph の DROP だけで、結果は変わらない。そのときは
+        # 「補った」と数えない。
+        written = 0
+        for need, project in (
+            (need_onto, _project_ontology_graph),
+            (need_meta, _project_meta_graph),
+        ):
+            if not need:
+                continue
+            try:
+                written += await project(client, dataset_id, artifacts)
+            except Exception:
+                logger.warning(
+                    "backfill_store_projections: %s failed (continuing)",
+                    dataset_id,
+                    exc_info=True,
+                )
+        if written:
+            filled += 1
+    if filled:
+        logger.info("backfill_store_projections: filled %d dataset(s)", filled)
 
 
 # ---------------------------------------------------------------------------
@@ -1028,10 +1173,21 @@ def main(argv: list[str] | None = None) -> int:
         # ため、ここでは同じ oxigraph へ向けた別クライアントを使う。best-effort
         # — 失敗しても起動は止めない（seed_demo_dataset 自身が既に best-effort
         # だが、クライアントの生成・破棄まわりの不測の失敗もここで飲み込む）。
+        # 続けて、すでに見本が入っている環境（種まきが投影を呼ばなかった版で入れた
+        # もの）を直すため、ストアに名前／説明の graph が無い公開済みデータセット
+        # を補う。中身は公開のルートと同じ投影なので何度呼んでも同じ結果。
+        # seed の成否に関係なく呼ぶ。
         async def _run_demo_seed() -> None:
             seed_client = OxigraphClient(OxigraphConfig(base_url=oxigraph_url))
             try:
-                await seed_demo_dataset(home, settings, seed_client)
+                try:
+                    await seed_demo_dataset(home, settings, seed_client)
+                except Exception:
+                    logger.warning("seed_demo_dataset: failed (continuing)", exc_info=True)
+                try:
+                    await backfill_store_projections(settings, seed_client)
+                except Exception:
+                    logger.warning("backfill_store_projections: failed (continuing)", exc_info=True)
             finally:
                 await seed_client.aclose()
 

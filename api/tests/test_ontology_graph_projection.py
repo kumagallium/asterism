@@ -6,6 +6,7 @@ Uses a MockTransport Oxigraph client (same pattern as ``test_ingest.py``) so no
 real Oxigraph server is needed; the /store POST body is captured and parsed
 back into an rdflib graph for assertions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -112,9 +113,7 @@ class _RecordingOxi:
                 return httpx.Response(204)
             return httpx.Response(200, text="{}", headers={"content-type": "application/json"})
 
-        inner = httpx.AsyncClient(
-            transport=httpx.MockTransport(handler), base_url="http://test"
-        )
+        inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
         self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
 
 
@@ -197,3 +196,66 @@ async def test_present_but_unprojectable_mapping_ir_warns_and_does_not_raise(
         )
     assert n == 0
     assert any("mapping.yaml" in rec_.message for rec_ in caplog.records)
+
+
+_IR_NO_SUBJECT_LABEL = f"""
+version: 1
+prefixes:
+  xrd: {XRD}
+  xrdr: {XRDR}
+maps:
+- name: sample
+  subject:
+    template: xrdr:sample/{{id}}
+    classes: [xrd:試料]
+  properties:
+  - predicate: xrd:note
+    column: note
+"""
+
+_MODEL_WITH_CLASS_LABEL = f"""
+prefixes:
+  xrd: {XRD}
+classes:
+  xrd:試料:
+    label: "測定した試料"
+"""
+
+
+@pytest.mark.asyncio
+async def test_model_yaml_class_label_names_class_when_ir_has_none() -> None:
+    rec = _RecordingOxi()
+    await _project_ontology_graph(
+        rec.client,
+        "xrd-781e7d77",
+        {
+            "mapping.yaml": _IR_NO_SUBJECT_LABEL,
+            "mapping.rml.ttl": _MAPPING_RML_TTL,
+            "model.yaml": _MODEL_WITH_CLASS_LABEL,
+        },
+    )
+    g = _uploaded_graph(rec)
+    cls = rdflib.URIRef(XRD + "試料")
+    assert (cls, RDFS.label, rdflib.Literal("測定した試料")) in g
+    assert (cls, RDFS.label, rdflib.Literal("試料")) not in g
+
+
+@pytest.mark.asyncio
+async def test_ir_subject_label_wins_over_model_yaml_class_label() -> None:
+    rec = _RecordingOxi()
+    ir = _IR_NO_SUBJECT_LABEL.replace(
+        "    classes: [xrd:試料]\n", "    classes: [xrd:試料]\n    label: IR の名前\n"
+    )
+    await _project_ontology_graph(
+        rec.client,
+        "xrd-781e7d77",
+        {
+            "mapping.yaml": ir,
+            "mapping.rml.ttl": _MAPPING_RML_TTL,
+            "model.yaml": _MODEL_WITH_CLASS_LABEL,
+        },
+    )
+    g = _uploaded_graph(rec)
+    cls = rdflib.URIRef(XRD + "試料")
+    assert (cls, RDFS.label, rdflib.Literal("IR の名前")) in g
+    assert (cls, RDFS.label, rdflib.Literal("測定した試料")) not in g
