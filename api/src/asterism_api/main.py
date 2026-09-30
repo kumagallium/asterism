@@ -749,7 +749,8 @@ def _ir_display_entries(mapping_ir_yaml: str) -> list[_IrDisplayEntry]:
 
     # つなぐ先の種類の表示名（subject.label）を、主語の文字列で引けるようにする。
     # CURIE で書いても完全な IRI で書いても同じ主語なので、展開してから比べる。
-    # 同じ主語を持つ map が複数あって表示名が違うときは IR の順で最初（K50 と同じ）。
+    # 同じ主語を持つ map が複数あって表示名が違うときは IR の順で最初
+    # （種類の表示名を読むほかの場所と同じ決まり）。
     # 自分自身の map は対象外なので、map の番号も持つ。
     by_template: dict[str, list[tuple[int, str]]] = {}
     by_constant: dict[str, list[tuple[int, str]]] = {}
@@ -783,13 +784,13 @@ def _ir_display_entries(mapping_ir_yaml: str) -> list[_IrDisplayEntry]:
             elif linked:
                 # 行に書いた表示名の次は、つなぐ先の種類の表示名（列の見出しより先）
                 extra["label"] = linked
-            elif prop.column:
+            elif read_column(prop):
                 # Deterministic third choice, below the authored label and the
                 # model.yaml projection: the source column heading the user
                 # actually typed. A weak model that skipped K8's `label:` would
                 # otherwise put `hasSeebeckCoefficient` in a question the user is
                 # asked to read — a word from their own file always beats one.
-                derived_label = _label_from_column(prop.column)
+                derived_label = _label_from_column(read_column(prop))
                 if derived_label:
                     extra["column_label"] = derived_label
             if prop.unit and not _unit_echoes_its_term(prop.unit, prop.column, prop.predicate):

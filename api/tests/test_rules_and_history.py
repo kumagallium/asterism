@@ -1691,3 +1691,55 @@ def test_a_column_row_the_design_left_unnamed_borrows_nothing() -> None:
     assert row.get("label") is None
     (other,) = _rows(summary, "OtherMap", _ONTO + "only")
     assert other["label"] == "別"
+
+
+def test_a_column_row_the_design_left_unnamed_borrows_no_column_heading() -> None:
+    """設計が名前を付けなかった列の行は、同じ述語を読む別の種類の列の見出しも借りない。"""
+    ir = _ir_header(
+        _kind_map("solo", "ex:Solo", "      - predicate: ex:p\n        column: _\n"),
+        _kind_map("other", "ex:Other", "      - predicate: ex:p\n        column: bcol\n"),
+    )
+    summary = _resolve(ir)
+    (row,) = _rows(summary, "SoloMap", _ONTO + "p")
+    assert row.get("label") is None
+    (other,) = _rows(summary, "OtherMap", _ONTO + "p")
+    assert other["label"] == "bcol"
+
+
+def test_a_function_reading_one_column_twice_is_found_by_that_column() -> None:
+    """同じ列を 2 回渡す関数の行（`columns: [a, a]`）も、列 a を読む行として引く。
+    同じ述語を別の列で読む別の種類の表示名を借りない。"""
+    ir = _ir_header(
+        _kind_map(
+            "xk", "ex:X", "      - predicate: ex:v\n        column: beta\n        label: 他\n"
+        ),
+        _kind_map(
+            "yk",
+            "ex:Y",
+            "      - predicate: ex:v\n"
+            "        columns: [alpha, alpha]\n"
+            "        function: float_array_count\n"
+            "        label: 自分\n",
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "YkMap", _ONTO + "v")
+    assert row["kind"] == "function"
+    assert row["label"] == "自分"
+
+
+def test_a_function_row_written_with_one_column_in_a_list_takes_its_column_heading() -> None:
+    """列を 1 つだけ並べた書き方（`columns: [a]`）の関数の行も、表示名が無ければ
+    自分の列の見出しになる（`column: a` と書いた行と同じ）。"""
+    ir = _ir_header(
+        _kind_map(
+            "xk", "ex:X", "      - predicate: ex:p\n        column: beta\n        label: 他\n"
+        ),
+        _kind_map(
+            "yk",
+            "ex:Y",
+            "      - predicate: ex:p\n        columns: [alpha]\n        function: slug\n",
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "YkMap", _ONTO + "p")
+    assert row["kind"] == "function"
+    assert row["label"] == "alpha"
