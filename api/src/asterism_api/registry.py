@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import uuid
@@ -835,8 +836,46 @@ def record_id_move(root: Path, dataset_id: str, record: dict | None) -> dict | N
     return _update_meta(root, dataset_id, {"id_move": record})
 
 
-def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:
-    """Load a dataset's meta, apply ``changes``, persist, and return it (or None)."""
+_ATOMIC_TMP_RE = re.compile(r"\..+\.[0-9a-f]{32}\.tmp")
+
+
+def is_atomic_tmp_name(name: str) -> bool:
+    """:func:`_atomic_write_bytes` の一時ファイルの名前（``.<name>.<uuid>.tmp``）か。
+
+    強制終了・電源断で残った残骸を、スナップショット（``exchange``）に混ぜないための判定。
+    """
+    return _ATOMIC_TMP_RE.fullmatch(name) is not None
+
+
+def _atomic_write_bytes(dest: Path, payload: bytes) -> None:
+    """``dest`` を、同じディレクトリの一時ファイル → fsync → ``os.replace`` で書く。
+
+    途中で落ちても ``dest`` は「前のバイト」か「新しいバイト」のどちらかで、
+    半端に書かれたファイルは残らない（``write_text`` の直書きは、書きかけで落ちると
+    壊れた JSON が残り、``list_datasets`` がそのデータセットを黙って読み飛ばす）。
+    一時ファイルは失敗時に消す。既存ファイルがあれば権限を引き継ぐ。
+    """
+    tmp = dest.with_name(f".{dest.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if dest.exists():
+            shutil.copymode(dest, tmp)
+        os.replace(tmp, dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def update_meta_atomic(root: Path, dataset_id: str, changes: dict) -> dict | None:
+    """meta.json を読み、``changes`` を重ね、一時ファイル経由で置き換える。
+
+    :func:`_update_meta` の中身。書き込みが原子的（途中で落ちても元の meta.json が
+    残る）な以外は、以前の ``_update_meta`` と同じ振る舞い（id が不正・meta.json が
+    無ければ ``None``、返り値は新しい meta）。
+    """
     if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
         return None
     meta_path = root / dataset_id / _META_FILE
@@ -844,8 +883,57 @@ def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta.update(changes)
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_bytes(meta_path, json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"))
     return meta
+
+
+def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:
+    """Load a dataset's meta, apply ``changes``, persist, and return it (or None)."""
+    return update_meta_atomic(root, dataset_id, changes)
+
+
+def replace_artifact_bytes(root: Path, dataset_id: str, files: dict[str, bytes]) -> None:
+    """データセットのディレクトリ内の相対パスへ、バイトのまま原子的に書く。
+
+    :func:`update_dataset_artifacts`（設計の保存し直し）との違い: あちらは
+    ``history/<UTC 時刻>/`` に旧成果物を控えるので、公開の後に呼ぶと
+    「公開後に設計を保存し直した」（``local._redesigned_after_promote``）と
+    みなされ、起動時の補いが、その設計を「未公開の下書き」として投影しなくなる。
+    さらに mie.yaml → metadata.ttl の投影・proposal.md の上書きも行い、渡した
+    バイトそのものが残らない。こちらは、同梱の見本を新しい版に入れ替えるための、
+    履歴を作らず（``history/`` に触れず）、バイトを変えない書き込み。
+
+    書き方は 1 ファイルごとに、同じディレクトリの一時ファイル → fsync →
+    ``os.replace``。途中で落ちても各ファイルは「前」か「新しい」かのどちらか。
+    パスは dataset ディレクトリの外に出られない（``..``・絶対パス・空を拒否）—
+    拒否は書き込みの前に全部のパスを見て行うので、途中まで書いて止まることはない。
+    ``meta.json`` は :func:`update_meta_atomic` だけが書く。
+    ``FileNotFoundError``: dataset ディレクトリが無いとき。
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        raise ValueError(f"unsafe dataset id: {dataset_id!r}")
+    base = root / dataset_id
+    if not base.is_dir():
+        raise FileNotFoundError(dataset_id)
+    base_resolved = base.resolve()
+    targets: list[tuple[Path, bytes]] = []
+    for rel, payload in files.items():
+        parts = Path(rel).parts
+        if (
+            not rel
+            or rel.startswith(("/", "\\"))
+            or Path(rel).is_absolute()
+            or ".." in parts
+            or parts == (_META_FILE,)
+        ):
+            raise ValueError(f"unsafe artifact path: {rel!r}")
+        dest = base / rel
+        if base_resolved not in dest.resolve().parents:
+            raise ValueError(f"artifact path escapes the dataset directory: {rel!r}")
+        targets.append((dest, payload))
+    for dest, payload in targets:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_bytes(dest, payload)
 
 
 def record_shape_findings(root: Path, dataset_id: str, findings: list[str]) -> dict | None:

@@ -134,12 +134,16 @@ def _seed_promoted(tmp: Path, ds: rdflib.Dataset, dataset_id: str, *, base: str)
     (ddir / "query_tools.yaml").write_text("tools: []\n", encoding="utf-8")
 
 
-def _export_snapshot(tmp_path: Path, *, base_env: str | None = _INVALID_BASE) -> bytes:
+def _export_snapshot(
+    tmp_path: Path, *, base_env: str | None = _INVALID_BASE, stray_files: tuple[str, ...] = ()
+) -> bytes:
     """Build instance A and export its promoted dataset."""
     a_dir = tmp_path / "a"
     a_dir.mkdir(exist_ok=True)
     ds = rdflib.Dataset()
     _seed_promoted(a_dir, ds, "zem-11112222", base=_INVALID_BASE)
+    for name in stray_files:
+        (a_dir / "registry" / "zem-11112222" / name).write_bytes(b"x")
     kwargs = {} if base_env is None else {"iri_base": base_env}
     app = build_app(
         _settings(a_dir, **kwargs),
@@ -169,6 +173,18 @@ def test_export_contains_manifest_graph_and_registry(tmp_path: Path) -> None:
     assert "registry/query_tools.yaml" in names
 
 
+def test_export_leaves_out_leftover_atomic_temp_files(tmp_path: Path) -> None:
+    """強制終了で残った書きかけの一時ファイル（`.<名前>.<uuid>.tmp`）は入れない。
+    名前が似ているだけの利用者のファイルは入れる。"""
+    leftover = f".meta.json.{'a' * 32}.tmp"
+    payload = _export_snapshot(tmp_path, stray_files=(leftover, "notes.tmp"))
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+        names = tar.getnames()
+    assert f"registry/{leftover}" not in names
+    assert "registry/notes.tmp" in names
+    assert "registry/meta.json" in names
+
+
 def test_export_includes_meta_graph_when_present(tmp_path: Path) -> None:
     # ADR dataset-description-in-the-store.md §4/§7.4: same "reference only"
     # treatment as graphs/ontology.ttl — carried for third-party consumers /
@@ -181,7 +197,7 @@ def test_export_includes_meta_graph_when_present(tmp_path: Path) -> None:
     ds.graph(rdflib.URIRef(meta_iri)).parse(
         data=(
             "@prefix dcterms: <http://purl.org/dc/terms/> .\n"
-            f"<{substrate.dataset_iri('zem-11112222')}> dcterms:title \"ZEM\" .\n"
+            f'<{substrate.dataset_iri("zem-11112222")}> dcterms:title "ZEM" .\n'
         ),
         format="turtle",
     )
@@ -359,6 +375,4 @@ def test_import_rejects_traversal_and_garbage(tmp_path: Path) -> None:
             files={"file": ("snap.tar.gz", b"not a tarball", "application/gzip")},
         )
         assert r.status_code == 400
-        assert (b_dir / "registry").exists() is False or not any(
-            (b_dir / "registry").iterdir()
-        )
+        assert (b_dir / "registry").exists() is False or not any((b_dir / "registry").iterdir())

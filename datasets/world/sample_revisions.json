@@ -1,0 +1,89 @@
+[
+  {
+    "canonical_sha256": "777b8651cd10863b5943487b1c2bfccaec21cd946456601807063ac1bb353a7d",
+    "files": {
+      "registry/diagram.md": "189c74ae7905dbaccf868cd9f5dd0e44c7af62c7299e4ae0e9fdeef7458bc2b2",
+      "registry/mapping.rml.ttl": "6543e9cc4b78fa9cf04eda69d67df6d3c14e623a9ded2c34057623946830a341",
+      "registry/mapping.yaml": "73300a8409751d35fb81cfbe3462ff742ca6c3cc91ae007d471c79e975ac41dd",
+      "registry/metadata.ttl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "registry/mie.yaml": "096865754482e72a8dc414f9510eeab14e4f6d00ef49755c3d4264e43a43f1ac",
+      "registry/model.yaml": "fe6625321032420f0df86e52b9814aec47bc49d5edbe4e2013006af77b48140c",
+      "registry/query_tools.yaml": "79676dfe053a368cda89e1454cbee57a76da62e7da637e11e8c2515f8657ebfa",
+      "registry/source/activity.csv": "1b6ace5be85457349af64f985e2593f816e6c6f7580d80160520f4613244d8e3",
+      "registry/source/world.csv": "f9b7fb87e9a992e1406bd794aea7eca9793c7bafd7a46f6f1730d4ca1dcc3bed"
+    },
+    "name": "世界の国（Gapminder）",
+    "note": {
+      "en": "The first sample",
+      "ja": "最初の見本"
+    },
+    "revision": "864d89a0e72662b7",
+    "seq": 1,
+    "tools": {
+      "countries_by_population": "1f3231b7ef6dd1ddee12f14723dc78a84408fc66df234ec779da734fbcf6f135",
+      "countries_by_region": "97ac7710e5b31412f3750567b15c2bfcd836f430c0fd0f7dce7cee0aea81aa89",
+      "counts_by_kind": "73ab8d77d042bbed5e4e38bf647d6656f3ccd39d21f724c14298c05c4e19f835",
+      "life_expectancy_by_year": "05227bf8998a41445cbfaf687869f913bc41d017ba90b7e83449f704c2eea0f9",
+      "population_by_year": "14c386897fa0b80d6a209010f8414ae41d11c95cc6360ff717c28f7fbafe58a2",
+      "population_vs_life_expectancy": "7ff8dcf0730b43a5506434a44c81c68465440be0307b724f64afcc40e5fb750e"
+    }
+  },
+  {
+    "canonical_sha256": "777b8651cd10863b5943487b1c2bfccaec21cd946456601807063ac1bb353a7d",
+    "files": {
+      "registry/diagram.md": "189c74ae7905dbaccf868cd9f5dd0e44c7af62c7299e4ae0e9fdeef7458bc2b2",
+      "registry/mapping.rml.ttl": "6543e9cc4b78fa9cf04eda69d67df6d3c14e623a9ded2c34057623946830a341",
+      "registry/mapping.yaml": "917a759c52971fb0855059188fed7d5184bacb54b01e302692f45d3bc18bddd8",
+      "registry/metadata.ttl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "registry/mie.yaml": "096865754482e72a8dc414f9510eeab14e4f6d00ef49755c3d4264e43a43f1ac",
+      "registry/model.yaml": "6ecf17967a750c35f61d959ffc1931f9a4b1c32171a6596596db5493b8ac17e1",
+      "registry/query_tools.yaml": "79676dfe053a368cda89e1454cbee57a76da62e7da637e11e8c2515f8657ebfa",
+      "registry/source/activity.csv": "1b6ace5be85457349af64f985e2593f816e6c6f7580d80160520f4613244d8e3",
+      "registry/source/world.csv": "f9b7fb87e9a992e1406bd794aea7eca9793c7bafd7a46f6f1730d4ca1dcc3bed"
+    },
+    "name": "世界の国（Gapminder）",
+    "note": {
+      "en": "Named the kind that records the take-in",
+      "ja": "取り込みの記録の種類に名前を付けた"
+    },
+    "revision": "e15f9bbdc18c2e16",
+    "seq": 2,
+    "tools": {
+      "countries_by_population": "1f3231b7ef6dd1ddee12f14723dc78a84408fc66df234ec779da734fbcf6f135",
+      "countries_by_region": "97ac7710e5b31412f3750567b15c2bfcd836f430c0fd0f7dce7cee0aea81aa89",
+      "counts_by_kind": "73ab8d77d042bbed5e4e38bf647d6656f3ccd39d21f724c14298c05c4e19f835",
+      "life_expectancy_by_year": "05227bf8998a41445cbfaf687869f913bc41d017ba90b7e83449f704c2eea0f9",
+      "population_by_year": "14c386897fa0b80d6a209010f8414ae41d11c95cc6360ff717c28f7fbafe58a2",
+      "population_vs_life_expectancy": "7ff8dcf0730b43a5506434a44c81c68465440be0307b724f64afcc40e5fb750e"
+    }
+  },
+  {
+    "canonical_sha256": "777b8651cd10863b5943487b1c2bfccaec21cd946456601807063ac1bb353a7d",
+    "files": {
+      "registry/diagram.md": "0638e032a4ca905f829a435cc7b9cce8c98b761abcdc63d9c0b8e423ef0b9b46",
+      "registry/mapping.rml.ttl": "6543e9cc4b78fa9cf04eda69d67df6d3c14e623a9ded2c34057623946830a341",
+      "registry/mapping.yaml": "917a759c52971fb0855059188fed7d5184bacb54b01e302692f45d3bc18bddd8",
+      "registry/metadata.ttl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "registry/mie.yaml": "096865754482e72a8dc414f9510eeab14e4f6d00ef49755c3d4264e43a43f1ac",
+      "registry/model.yaml": "6ecf17967a750c35f61d959ffc1931f9a4b1c32171a6596596db5493b8ac17e1",
+      "registry/query_tools.yaml": "79676dfe053a368cda89e1454cbee57a76da62e7da637e11e8c2515f8657ebfa",
+      "registry/source/activity.csv": "1b6ace5be85457349af64f985e2593f816e6c6f7580d80160520f4613244d8e3",
+      "registry/source/world.csv": "f9b7fb87e9a992e1406bd794aea7eca9793c7bafd7a46f6f1730d4ca1dcc3bed"
+    },
+    "name": "世界の国（Gapminder）",
+    "note": {
+      "en": "Showed the kinds in the diagram and on the map by their display names",
+      "ja": "図の箱と、地図の箱に並ぶ種類を日本語の名前にした"
+    },
+    "revision": "08c3557051b4b61b",
+    "seq": 3,
+    "tools": {
+      "countries_by_population": "1f3231b7ef6dd1ddee12f14723dc78a84408fc66df234ec779da734fbcf6f135",
+      "countries_by_region": "97ac7710e5b31412f3750567b15c2bfcd836f430c0fd0f7dce7cee0aea81aa89",
+      "counts_by_kind": "73ab8d77d042bbed5e4e38bf647d6656f3ccd39d21f724c14298c05c4e19f835",
+      "life_expectancy_by_year": "05227bf8998a41445cbfaf687869f913bc41d017ba90b7e83449f704c2eea0f9",
+      "population_by_year": "14c386897fa0b80d6a209010f8414ae41d11c95cc6360ff717c28f7fbafe58a2",
+      "population_vs_life_expectancy": "7ff8dcf0730b43a5506434a44c81c68465440be0307b724f64afcc40e5fb750e"
+    }
+  }
+]
