@@ -9239,6 +9239,11 @@ tr.kz-cols-dropped td {
 .shape-graph .react-flow__node {
   pointer-events: auto !important;
 }
+/* 席のぶんの場所取り（何も描かない箱）は、上の通し直しから外す。図の全体を
+   覆っているので、通すと、箱の無いところに触れても「箱に触れた」ことになる。 */
+.shape-graph .react-flow__node.react-flow__node-seats {
+  pointer-events: none !important;
+}
 .shape-node {
   box-sizing: border-box;
   display: flex;
@@ -9531,6 +9536,12 @@ tr.kz-cols-dropped td {
 .ontomap-flow .react-flow__controls {
   pointer-events: auto !important;
 }
+/* 細い列の図（段 6「ためす」）は、操作ボタンを上の帯に横に並べる。右上の
+   「大きく見る」と同じ高さ・同じ余白に揃える。帯の高さは `ShapeGraph.tsx` の
+   `NARROW_BAND` と一致していること（図はその下に収める）。 */
+.shape-graph--narrow .react-flow__controls {
+  margin: 0.35rem;
+}
 
 /* ── 共通のことばの育つ地図（shared-vocab-graph.md） ─────────────────────────
    `.vocab-map` は `.shape-graph` を併用する: 箱・手すり（handle 非表示）・既定の
@@ -9606,6 +9617,9 @@ tr.kz-cols-dropped td {
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--accent-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .vocab-map .vocab-map-edge--used .react-flow__edge-path {
   stroke: var(--primary);

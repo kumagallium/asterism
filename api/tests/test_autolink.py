@@ -450,8 +450,8 @@ async def test_two_meaning_different_pairs_do_not_merge_across_two_real_promotes
 
 def _fake_label_resolvers(word: str):
     """``main.py`` の ``_crosswalk_label_resolvers`` と同じ形の偽物 —
-    ``predicate_label_of`` だけが ``word`` を返す（field_label_of/
-    class_label_of は常に None、契約メモ B2-3 の R2 の 2 段目に相当）。"""
+    ``predicate_label_of`` だけが ``word`` を返す（field_label_of は
+    常に None、契約メモ B2-3 の R2 の 2 段目に相当）。"""
 
     def make(registry_root):
         def field_label_of(dataset_id, predicate, subject_class):
@@ -460,10 +460,7 @@ def _fake_label_resolvers(word: str):
         def predicate_label_of(dataset_id, predicate):
             return word
 
-        def class_label_of(dataset_id, class_iri):
-            return None
-
-        return predicate_label_of, field_label_of, class_label_of
+        return predicate_label_of, field_label_of
 
     return make
 

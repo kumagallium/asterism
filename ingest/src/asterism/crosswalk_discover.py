@@ -751,7 +751,8 @@ async def discover(
     should_cancel: Callable[[], bool] | Callable[[], Awaitable[bool]] | None = None,
     predicate_label_of: Callable[[str, str], str | None] | None = None,
     field_label_of: Callable[[str, str, str | None], str | None] | None = None,
-    class_label_of: Callable[[str, str], str | None] | None = None,
+    kind_labels_of: Callable[[Sequence[tuple[str, str]]], Awaitable[Mapping[tuple[str, str], str]]]
+    | None = None,
     only_slots: Mapping[str, Collection[tuple[str | None, str]]] | None = None,
     existing: Sequence[ExistingConcept] | None = None,
     reserved_ids: Collection[str] | None = None,
@@ -773,8 +774,11 @@ async def discover(
     ``field_label_of`` — ``(dataset_id, predicate_iri, subject_class|None) ->
     label`` — is asked FIRST when a slot has a kind: the design's word for that
     kind's own field (a shared ``rdfs:label`` has no single word, the Composition
-    kind's does). ``class_label_of`` — ``(dataset_id, class_iri) -> label`` — names
-    the kind itself (``subject_class_label``); absent, the class local name is used.
+    kind's does). ``kind_labels_of`` — an async ``[(dataset_id, class_iri), ...] ->
+    {(dataset_id, class_iri): label}`` — names the kinds themselves
+    (``subject_class_label``). It is awaited ONCE, before candidates are built, with
+    every distinct kind the surviving candidates use (never called when there is
+    none); a kind it does not return falls back to the class local name.
 
     ``only_slots`` (F15, ``dataset_id -> {(subject_class|None, predicate)}``) narrows
     the scan to slots a human already opted into (S4's handles), rather than whatever
@@ -952,6 +956,20 @@ async def discover(
     candidates_truncated = len(clusters) > lim.max_candidates
     clusters = clusters[: lim.max_candidates]
 
+    kind_names: Mapping[tuple[str, str], str] = {}
+    if kind_labels_of is not None:
+        wanted_kinds: list[tuple[str, str]] = []
+        for cluster in clusters:
+            for m in cluster.slots:
+                sl = slots[m]
+                if sl.subject_class is None:
+                    continue
+                pair = (sl.dataset.dataset_id, sl.subject_class)
+                if pair not in wanted_kinds:
+                    wanted_kinds.append(pair)
+        if wanted_kinds:
+            kind_names = await kind_labels_of(wanted_kinds)
+
     def label_for(slot: Slot) -> str | None:
         """The design's word for this slot's field: the kind-scoped one first (a
         shared naming predicate has no single word; one kind's field does), then
@@ -967,9 +985,7 @@ async def discover(
     def kind_label_for(slot: Slot) -> str | None:
         if slot.subject_class is None:
             return None
-        got: str | None = None
-        if class_label_of is not None:
-            got = class_label_of(slot.dataset.dataset_id, slot.subject_class)
+        got = kind_names.get((slot.dataset.dataset_id, slot.subject_class))
         return (got or "").strip() or local_name(slot.subject_class)
 
     matching_pool = existing if existing is not None else ()

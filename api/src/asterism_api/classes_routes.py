@@ -40,7 +40,7 @@ def _apply_hub_display_names(
     """``entries`` を in place で直す: ``is_hub`` の行だけ、その perspective の
     meta/config を 1 度だけ読んで R1（``dataset_label``）と R3（``label``）を
     上書きする（同じ perspective の複数行で読み直さない）。"""
-    predicate_label_of, field_label_of, _class_label_of = label_resolvers(registry_root)
+    predicate_label_of, field_label_of = label_resolvers(registry_root)
     cache: dict[str, tuple[dict[str, Any], crosswalk_runtime.RuntimeCrosswalkConfig | None]] = {}
     for entry in entries:
         if not entry.get("is_hub"):
