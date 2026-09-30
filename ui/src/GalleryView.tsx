@@ -30,6 +30,7 @@ import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { conceptLabel } from './crosswalkLabels'
 import { DatasetGrounding } from './DatasetGrounding'
+import { DatasetReshapeSummary } from './DatasetReshapeSummary'
 import { RulesSection } from './RulesPanel'
 import { TABULAR_ACCEPT } from './datasetsApi'
 import {
@@ -40,6 +41,8 @@ import {
   type AppendResult,
   type CatalogDataset,
   type CatalogStatusKind,
+  datasetHasKind,
+  kindDisplayName,
   datasetStage,
   deleteDataset,
   type DatasetRules,
@@ -321,11 +324,40 @@ export function GalleryView({
     if (focusClass === seenFocusRef.current) return
     if (!datasets) return
     seenFocusRef.current = focusClass
-    const f = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
+    const f = focusClass ? list.find((d) => datasetHasKind(d, focusClass)) : undefined
     onSelect?.(f ? f.id : null)
     // list は datasets から導出されるため datasets を依存に取る
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusClass, datasets])
+  // 帯に出す種類の名前（K59）。届いた kind は英字のローカル名のことがあるので、
+  // そのまま出さず、種類の表示名に引き直す。表示名そのものならそれを、ローカル名
+  // なら持ち主のデータセットの /rules の labels（図と同じ読み手・K51）で引く。
+  // 名前が分からないときは名前を出さない（生の識別子を見せない）。
+  const focusOwner = useMemo(
+    () =>
+      focusClass && datasets
+        ? datasets.find((d) => !d.isCrosswalk && datasetHasKind(d, focusClass))
+        : undefined,
+    [focusClass, datasets],
+  )
+  const focusDirect = focusOwner && focusClass ? kindDisplayName(focusOwner, focusClass) : undefined
+  const [focusFetched, setFocusFetched] = useState<{ kind: string; name?: string } | null>(null)
+  useEffect(() => {
+    const id = focusOwner?.live?.meta.id
+    if (!focusClass || !focusOwner || focusDirect || !id) return
+    let cancelled = false
+    getDatasetRules(id)
+      .then((r) => {
+        if (!cancelled)
+          setFocusFetched({ kind: focusClass, name: kindDisplayName(focusOwner, focusClass, r.labels) })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [focusClass, focusOwner, focusDirect])
+  const focusLabel =
+    focusDirect ?? (focusFetched && focusFetched.kind === focusClass ? focusFetched.name : undefined)
   // Default view is the full-width grid; a dataset is opened on demand (v2 #5).
   // Deep links accept BOTH id forms: the synthetic catalog id (`live-<id>`)
   // and the bare registry id — outside callers (the kantan S9 exits, redesign
@@ -425,10 +457,10 @@ export function GalleryView({
             </label>
           </div>
 
-          {focusClass && (
+          {focusClass && focusLabel && (
             <div className="vocab-focus-banner">
               {t('gallery:focusBanner.label')}
-              <strong>{focusClass}</strong>
+              <strong>{focusLabel}</strong>
               <span className="vocab-focus-sub">{t('gallery:focusBanner.sub')}</span>
             </div>
           )}
@@ -1548,15 +1580,35 @@ function DatasetDetail({
                 <>
                   <div className="ds-subhead">{t('gallery:design.classesHead')}</div>
                   <div className="ds-classes">
-                    {dataset.classes.map((c) => (
-                      <span
-                        key={c}
-                        className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
-                      >
-                        {termLabels[c] && <span>{termLabels[c]}</span>}
-                        <code className="class-chip-en">{c}</code>
-                      </span>
-                    ))}
+                    {/* 種類の IRI（alignment）があればそれで並べる: 名前は termLabels を
+                        IRI で引き、識別子はローカル名を添える（K59）。`classes` は表示名に
+                        なったので（K50）、それで引くと識別子が消えていた。取り込む前で
+                        IRI が無いときだけ、今までどおり `classes` で並べる。 */}
+                    {dataset.classIris.length > 0
+                      ? dataset.classIris.map((iri) => {
+                          const local = localName(iri)
+                          const label = termLabels[iri]
+                          const hot = !!highlight && (highlight === local || highlight === label)
+                          return (
+                            <span
+                              key={iri}
+                              className={`class-chip${hot ? ' onto-class-chip--focus' : ''}`}
+                              title={iri}
+                            >
+                              {label && label !== local && <span>{label}</span>}
+                              <code className="class-chip-en">{local}</code>
+                            </span>
+                          )
+                        })
+                      : dataset.classes.map((c) => (
+                          <span
+                            key={c}
+                            className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
+                          >
+                            {termLabels[c] && <span>{termLabels[c]}</span>}
+                            <code className="class-chip-en">{c}</code>
+                          </span>
+                        ))}
                   </div>
                 </>
               )}
@@ -1696,6 +1748,11 @@ function DatasetDetail({
           )}
           {/* A roadmap footnote about content hashes used to sit here on every
               visit; what the reader can act on is already in the note above. */}
+
+          {/* 表の形（ADR source-reshape.md R19・最小段）: 台帳を通ったデータ
+              セットだけに出る（getDatasetReshape が 404 なら何も描かない）。
+              編集はまだ無い（PUT は次の段）。 */}
+          {meta && <DatasetReshapeSummary key={meta.id} datasetId={meta.id} />}
 
           {/* Operations on this dataset's ingested data live here (the natural home
               for ingest / append / re-ingest / promote / lifecycle). State-gated, so

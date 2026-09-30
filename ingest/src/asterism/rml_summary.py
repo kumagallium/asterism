@@ -239,8 +239,13 @@ def summarize_rml(rml_ttl: str) -> dict:
         pos = text.find(name) if isinstance(tm, rdflib.URIRef) else -1
         return (pos if pos >= 0 else len(text), name)
 
+    ordered = sorted(tms, key=text_order)
+    # つなぐ行の行き先（別の map の主語そのもの）は、つながりの検査と同じ 1 関数で
+    # 決める。変換つきの主語は RML では関数になり、図が見る文字列では比べられない。
+    keys = _rv.subject_keys(graph, tms)
+
     maps: list[dict] = []
-    for tm in sorted(tms, key=text_order):
+    for tm in ordered:
         entry: dict = {"id": names[tm]}
 
         ls = _first(graph, tm, _rv._LOGICAL_SOURCE_PREDS)
@@ -280,17 +285,24 @@ def summarize_rml(rml_ttl: str) -> dict:
                     predicates.append(str(const))
             values: list[dict] = []
             for om in _all(graph, pom, (_R2RML + "objectMap",)):
-                values.append(_term_map_value(graph, om, prefixes, warnings, names))
+                value = _term_map_value(graph, om, prefixes, warnings, names)
+                target = _rv.link_target(graph, tm, om, keys, ordered)
+                if target is not None:
+                    value["target_map"] = names[target]
+                values.append(value)
             for obj in _all(graph, pom, (_R2RML + "object",)):
-                values.append(
-                    {
-                        "kind": "constant",
-                        "constant": _compress(str(obj), prefixes)
-                        if isinstance(obj, rdflib.URIRef)
-                        else str(obj),
-                        "constant_is_iri": isinstance(obj, rdflib.URIRef),
-                    }
-                )
+                value = {
+                    "kind": "constant",
+                    "constant": _compress(str(obj), prefixes)
+                    if isinstance(obj, rdflib.URIRef)
+                    else str(obj),
+                    "constant_is_iri": isinstance(obj, rdflib.URIRef),
+                }
+                if isinstance(obj, rdflib.URIRef):
+                    target = _rv.constant_link_target(str(obj), tm, keys, ordered)
+                    if target is not None:
+                        value["target_map"] = names[target]
+                values.append(value)
             if not predicates:
                 warnings.append(
                     f"a predicate-object map in {entry['id']} has no readable "

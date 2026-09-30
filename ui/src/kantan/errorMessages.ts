@@ -271,6 +271,20 @@ export function plainError(raw: string, code?: string): PlainError {
   if (has('xlsx.convert_failed', 'xlsx.unreadable')) {
     return { title: 'kantan:s5.plain.xlsxTitle', body: 'kantan:s5.plain.xlsxBody' }
   }
+  // 「表の形」の判断表が矛盾している（同じ (label, unit) が2群に属した・表名が
+  // 重複した、など — ADR source-reshape.md R6/R9）。ReshapeGate 自身の編集
+  // 関数は正常な操作でこれを作らないので、実際にはめったに起きない。
+  if (has('reshape.invalid_spec')) {
+    return { title: 'kantan:s5.plain.reshapeInvalidTitle', body: 'kantan:s5.plain.reshapeInvalidBody' }
+  }
+  // 「表の形」の保存則が破れた（R11）— 決定論のバグのサイン。再試行に意味は
+  // 無いので、「このまま進む」で reshape を使わずに進む選択肢を示す。
+  if (has('reshape.conservation')) {
+    return {
+      title: 'kantan:s5.plain.reshapeConservationTitle',
+      body: 'kantan:s5.plain.reshapeConservationBody',
+    }
+  }
   // Publish refused because nothing was ingested yet: retrying the publish can
   // never succeed, so the only exit is back to the item meanings.
   if (has('dataset.not_ingested', 'not ingested', 'no staged graph')) {
