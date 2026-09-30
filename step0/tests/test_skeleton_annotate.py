@@ -681,6 +681,43 @@ def test_assemble_labels_argument_overrides_the_column_name(tmp_path: Path) -> N
     assert names["name"]["subject"]["label"] == "試料の名前"
 
 
+def test_assemble_row_labels_name_each_files_row_kind(tmp_path: Path) -> None:
+    """ADR kantan K63: 行の種類の公開名は機械の仮の名前（Record・Record2）。
+    ``row_labels`` {ファイル名: 表示名} があれば、その行の種類の表示名になる。
+    カードと受け口は今のまま。"""
+    a = tmp_path / "curves.csv"
+    a.write_text(
+        "sample_id,figure_id,composition,x,y\n"
+        "S1,F1,Bi2Te3,300,0.375\n"
+        "S1,F1,Bi2Te3,350,1.302\n"
+        "S2,F2,PbTe,300,0.5\n",
+        encoding="utf-8",
+    )
+    b = tmp_path / "samples.csv"
+    b.write_text(
+        "SID,sample_id,composition,sample_name\n"
+        "1,S1,Bi2Te3,Bi2Te3 sample\n"
+        "2,S2,PbTe,PbTe sample\n",
+        encoding="utf-8",
+    )
+    out = assemble_skeleton_from_judgments(
+        [a, b],
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+        row_labels={"curves.csv": "curves の 1 行", "samples.csv": "samples の 1 行"},
+    )
+    rows = {
+        m["source"]: m["subject"].get("label")
+        for m in out["skeleton"]["maps"]
+        if m["subject"]["classes"][0].split(":")[-1].startswith("Record")
+    }
+    assert rows == {"curves.csv": "curves の 1 行", "samples.csv": "samples の 1 行"}
+    catalogs = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert [m["subject"]["label"] for m in catalogs] == ["composition", "composition"]
+
+
 def _write_card_with_csd(tmp_path: Path) -> Path:
     p = tmp_path / "card.csv"
     p.write_text(

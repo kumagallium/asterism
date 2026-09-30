@@ -678,6 +678,8 @@ export async function assembleSkeleton(
     dialects?: Record<string, SourceDialect>
     stagingId?: string | null
     labels?: SkeletonKindLabel[]
+    /** 行の種類の表示名 {ファイル名: 表示名}（ADR kantan K63）。 */
+    rowLabels?: Record<string, string>
   },
 ): Promise<{
   skeleton: MappingSkeleton
@@ -691,6 +693,8 @@ export async function assembleSkeleton(
   form.append('excluded', JSON.stringify(opts.excluded))
   if (opts.datasetName) form.append('dataset_name', opts.datasetName)
   if (opts.labels?.length) form.append('labels', JSON.stringify(opts.labels))
+  if (opts.rowLabels && Object.keys(opts.rowLabels).length > 0)
+    form.append('row_labels', JSON.stringify(opts.rowLabels))
   appendDialects(form, opts.dialects)
   const res = await fetch('/api/propose/skeleton/assemble', { method: 'POST', body: form })
   if (!res.ok) await throwApiError(res, 'assemble')

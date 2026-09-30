@@ -500,10 +500,18 @@ export function boxWidthFor(shape: Shape, lo: number, hi: number): number {
   let need = lo
   for (const n of shape.nodes) {
     const fold = (n.fields ?? []).length > 0 ? FOLD_W : 0
-    need = Math.max(need, Math.ceil(nameWidth(n.label) / 2) + 13 + BOX_PAD + fold)
+    // 2 行に割れるのは語の境目（空白）と全角の字の間だけ。空白の無い英字の語は
+    // 割れず、半分の幅では語の途中で折れる（「compositio / n」実機 2026-10-01）。
+    // いちばん長い英字の語が 1 行に入る幅も要る。
+    const text = Math.max(Math.ceil(nameWidth(n.label) / 2) + 13, longestWordWidth(n.label))
+    need = Math.max(need, Math.ceil(text) + BOX_PAD + fold)
   }
   return Math.min(hi, need)
 }
+
+/** 途中で折れない、いちばん長い半角の語の幅。全角の字はどこでも折れるので数えない。 */
+const longestWordWidth = (text: string): number =>
+  Math.max(0, ...(text.match(/[\x21-\xff]+/g) ?? []).map(nameWidth))
 
 /** 線 1 本ぶんの名前と、線の上の位置（0 = 出どころ、1 = 行き先）。 */
 export interface EdgeLabel {

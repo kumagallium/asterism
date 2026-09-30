@@ -1520,6 +1520,7 @@ def assemble_skeleton_from_judgments(
     record_path: str | None = None,
     iri_base: str | None = None,
     labels: Mapping[tuple[str, str], str] | None = None,
+    row_labels: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """③④の答えとファイルの検査から骨格を**組み立てる** [決定論・LLM 0]。
 
@@ -1536,8 +1537,12 @@ def assemble_skeleton_from_judgments(
 
     ``labels`` は ③ で決まった列の意味 {(source, column): 意味}（任意）。
     ☑ を付けた列から作る「つながる受け口」の種類に ``subject.label`` として
-    渡す（無ければ列名そのもの）。他の種類（カード・行）には付けない
-    [契約メモ a・R2]。
+    渡す（無ければ列名そのもの）。カードには付けない [契約メモ a・R2]。
+
+    ``row_labels`` は {ファイル名: 行の種類の表示名}（任意・ADR kantan K63）。
+    行の種類の公開名は機械の仮の名前（``Record``・``Record2``）なので、表示名が
+    無いとそれがそのまま人に見える名前になる。言語に合わせた文言
+    [「curves の 1 行」] は画面が作って渡す — ここは言葉を持たない。
 
     Returns ``{"skeleton": ..., "metadata": {...}}``。annotation は呼び出し側が
     :func:`annotate_skeleton` でいつもどおり計算する [式を二重に持たない]。
@@ -1565,6 +1570,8 @@ def assemble_skeleton_from_judgments(
         excluded_by_source[Path(str(entry.get("source") or "")).name].add(
             str(entry.get("column") or "")
         )
+
+    row_labels_by_source = {Path(str(k)).name: str(v) for k, v in (row_labels or {}).items()}
 
     maps: list[dict[str, Any]] = []
     taken: set[str] = set()
@@ -1674,7 +1681,14 @@ def assemble_skeleton_from_judgments(
             # record は singleton ではないので、owns を宣言しても
             # _parent_singleton の親判定 [originals] には影響しない。
             record_owns = [c for c in varying if c not in key and c not in links]
-            add_map(name, design_src, key, _pascal(name) or "Record", owns=record_owns)
+            add_map(
+                name,
+                design_src,
+                key,
+                _pascal(name) or "Record",
+                owns=record_owns,
+                label=(row_labels_by_source.get(src) or "").strip() or None,
+            )
 
         # ---- つながる受け口（値のカタログ）----
         record_key = set(key or []) if varying else set()

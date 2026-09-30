@@ -170,6 +170,7 @@
     "skipMeanings": "Continue with blanks"
   },
   "s4": {
+    "rowKindLabel": "Row of {{file}}",
     "gateTitle": "Confirm the shape",
     "gateHint": "From your answers in ③④ and the file inspection, the machine assembled this shape. There are three things to check.",
     "continue": "Continue with this shape",
