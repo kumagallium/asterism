@@ -851,6 +851,11 @@ def _fill_missing_labels(
     ``hasSeebeckCoefficient`` — while the server was holding the very column
     heading that person typed. Display only; the stored data is untouched.
 
+    ② counts only when it says more than the local name: the ``model.yaml``
+    projection gives every property its local name (``…/isPartOf`` →
+    ``isPartOf``), and taking that as an answer skipped ③ and ④ for every row
+    without an authored label — the diagrams then printed the raw local name.
+
     ③ is looked up by (predicate, column) — ``by_column`` from
     :func:`_ir_display_by_column` — before the predicate-only ``ir_meta``, and
     the predicate-only entry is trusted only when that predicate binds a single
@@ -870,10 +875,15 @@ def _fill_missing_labels(
             if not isinstance(row, dict) or row.get("label"):
                 continue
             iri = str(row.get("predicate_iri") or "")
-            if not iri or iri in labels:
+            if not iri:
+                continue
+            projected = labels.get(iri)
+            if projected and projected != _iri_local_name(iri):
                 # ② is already answered: the response carries the model.yaml
                 # projection in its own ``labels`` map, so repeating it on the
                 # row would only give the reader two copies to reconcile.
+                # 投影の名前がローカル名そのものなら答えになっていない
+                # （投影は項目にいつもローカル名を付ける）。③④に進む。
                 continue
             # ③ the source column heading the IR bound (the row already shows the
             # raw reference in its own cell, so only the IR's cleaned form is
