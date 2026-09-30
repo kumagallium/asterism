@@ -671,13 +671,13 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
     一度だけ呼ぶ（``main()``）。条件: 単一ユーザー ∧ registry が空 ∧
     ``home/demo-seeded`` マーカーが無い ∧ ``ASTERISM_DEMO_DATASET`` が ``"0"``
     でない。中身は ``datasets/world/snapshot.tar`` を ``exchange.import_snapshot``
-    で取り込み、``main.py`` の ``POST /api/datasets/{id}/promote`` ルートが呼ぶ
-    のと同じ内部関数（``registry.load_dataset``・``substrate.alignment_report``・
-    ``substrate.promote_to_canonical``・``registry.mark_promoted``）を HTTP を
-    経由せず直接呼んで公開し、続けてオントロジーの graph と説明の graph を投影
-    する（``_project_ontology_graph``・``_project_meta_graph``）。クエリツール
-    合成・つながりの作り直し・togomcp 配信は呼ばない。全体 best-effort — どこで失敗しても
-    ``log.warning`` するだけで起動は止めない。
+    で取り込み、:func:`_publish_seeded_sample` で公開する。
+
+    registry が空でなくても、前回の種まきが取り込みの後・公開の前で止まっていたら
+    （:func:`_interrupted_seed` が見本を見つけたら）、取り込みを飛ばして公開の続きから
+    やり直す。止まったまま印を書かずに戻ると、次の起動では registry が空でないので
+    種まきが動かず、見本が未公開のまま残り続けるため。全体 best-effort — どこで失敗
+    しても ``log.warning`` するだけで起動は止めない。
     """
     if not cfg.single_user:
         return
@@ -686,30 +686,155 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
     marker = home / _DEMO_SEED_MARKER
     if marker.is_file():
         return
-    if registry.list_datasets(cfg.registry_root):
-        return
+    resume = bool(registry.list_datasets(cfg.registry_root))
 
     snapshot_path = find_world_snapshot()
     if snapshot_path is None:
-        logger.warning("seed_demo_dataset: no bundled world snapshot found — skipping")
+        if not resume:
+            logger.warning("seed_demo_dataset: no bundled world snapshot found — skipping")
         return
 
     try:
         payload = snapshot_path.read_bytes()
-        # main.py の POST /api/datasets/import ルートと同じ内部関数（HTTP は
-        # 叩かない）。
+        if resume:
+            found = await _interrupted_seed(cfg, client, payload)
+            if found is None:
+                return
+            dataset_id, staged_iri = found
+            logger.info(
+                "seed_demo_dataset: the previous seed stopped before publishing %s "
+                "— resuming from the promote",
+                dataset_id,
+            )
+        else:
+            # main.py の POST /api/datasets/import ルートと同じ内部関数（HTTP は
+            # 叩かない）。
+            from asterism_api.main import _MAX_UPLOAD_BYTES
+
+            imported = await exchange.import_snapshot(
+                cfg, client, payload, max_extracted_bytes=_MAX_UPLOAD_BYTES
+            )
+            dataset_id = imported["dataset_id"]
+            staged_iri = imported["staged_graph"]
+    except Exception:
+        logger.warning(
+            "seed_demo_dataset: %s failed (continuing)",
+            "checking the interrupted seed" if resume else "snapshot import",
+            exc_info=True,
+        )
+        return
+
+    await _publish_seeded_sample(home, cfg, client, dataset_id, staged_iri)
+
+
+# 取り込みが見本に振る版の番号。新しいフォルダでは registry.reserve_data_seq が 1 を
+# 返す（exchange.import_snapshot）。これと違えば、取り込みの後に取り込み直しがあった。
+_IMPORTED_DATA_SEQ = 1
+# 取り込みが meta.json を書いた後に、取り込み済みの印として書き足す欄
+# （registry.reserve_data_seq・registry.mark_ingested）。値は個別に確かめる。
+_INGEST_KEYS = frozenset(
+    {"ingested", "promoted", "graph_iri", "triple_count", "ingested_at", "data_seq"}
+)
+
+
+def _meta_changes_since_import(meta: dict[str, Any], imported_meta: dict[str, Any]) -> list[str]:
+    """取り込みの書いた meta.json から変わった欄の名前（足された欄・消えた欄を含む）。
+
+    取り込み済みの印の欄（:data:`_INGEST_KEYS`）と、取り込みの時刻
+    （``imported.imported_at``）は比べない。
+    """
+
+    def without_time(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items() if k != "imported_at"}
+        return value
+
+    changed = set(meta) ^ (set(imported_meta) | _INGEST_KEYS)
+    for key, value in imported_meta.items():
+        if key in _INGEST_KEYS:
+            continue
+        if without_time(meta.get(key)) != without_time(value):
+            changed.add(key)
+    return sorted(changed)
+
+
+async def _interrupted_seed(cfg: Settings, client: Any, payload: bytes) -> tuple[str, str] | None:
+    """前回の種まきが、見本を取り込んだ後・公開する前で止まっていたなら
+    ``(dataset_id, staged_iri)``。そうでなければ ``None``。
+
+    利用者が触った見本を勝手に公開しないよう、見本のフォルダが「取り込みが書いた
+    まま」のときだけ、止まった種まきの見本とみなす（1 つでも外れたら何もしない）:
+
+    * meta.json が、取り込みの書いたものと同じ（取り込み済みの印の欄と取り込みの
+      時刻を除く）。出どころ（``origin``・``imported`` のデータの指紋）が同梱の見本と
+      違う・表示名の変更・取り下げなどの印・そのほかどの書き手が欄を書いても外れる
+    * 取り込み済み・未公開
+    * 取り込みの後に取り込み直していない（版の番号が取り込みの振ったまま・graph も
+      その版。失敗した取り込み直しも含む）
+    * フォルダのファイルが、取り込みの書いたものとバイトまで同じで、ほかのファイルも
+      無い（設計の保存し直しの控え ``history/``・説明の書き換え・つなぐ列や表示名など
+      の決めごとのファイルで外れる）
+    * ストアの版の graph に、取り込みが数えた数の 3 つ組が残っている（欠けた見本を
+      公開しない）
+    """
+    from asterism_api.main import _MAX_UPLOAD_BYTES
+
+    plan = exchange.snapshot_import_plan(cfg, payload, max_extracted_bytes=_MAX_UPLOAD_BYTES)
+    dataset_id = str(plan.manifest["dataset_id"])
+    dataset_dir = cfg.registry_root / dataset_id
+    try:
+        meta = json.loads((dataset_dir / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+
+    def skip(reason: str) -> None:
+        logger.info("seed_demo_dataset: not resuming %s — %s", dataset_id, reason)
+
+    changed = _meta_changes_since_import(meta, plan.meta)
+    if changed:
+        return skip(f"meta.json differs from what the import wrote ({', '.join(changed)})")
+    if meta.get("promoted") or not meta.get("ingested"):
+        return skip("not in the imported-but-unpublished state")
+    staged_iri = substrate.versioned_graph_iri(dataset_id, _IMPORTED_DATA_SEQ)
+    if meta.get("data_seq") != _IMPORTED_DATA_SEQ or meta.get("graph_iri") != staged_iri:
+        return skip("ingested again after the import")
+    on_disk = {
+        path.relative_to(dataset_dir).as_posix()
+        for path in dataset_dir.rglob("*")
+        if path.is_file()
+    } - {"meta.json"}
+    if on_disk != set(plan.files) or any(
+        (dataset_dir / rel).read_bytes() != blob for rel, blob in plan.files.items()
+    ):
+        return skip("the files differ from what the import wrote")
+    expected = int(meta.get("triple_count") or 0)
+    if expected <= 0 or await client.graph_triple_count(staged_iri) != expected:
+        logger.warning(
+            "seed_demo_dataset: not resuming %s — the imported graph is not in the store "
+            "as the import left it",
+            dataset_id,
+        )
+        return None
+    return dataset_id, staged_iri
+
+
+async def _publish_seeded_sample(
+    home: Path, cfg: Settings, client: Any, dataset_id: str, staged_iri: str
+) -> None:
+    """種まきの後半: 取り込んだ見本を公開し、投影 2 つ・スターター主語・印を書く。
+
+    初回の種まきと、前回の種まきが公開の前で止まったときの続き
+    （:func:`_interrupted_seed`）の両方がここを通る。公開で落ちたら印を書かずに
+    戻る — 次の起動で、また公開の続きからやり直す。
+    """
+    try:
         from asterism_api.main import (
-            _MAX_UPLOAD_BYTES,
             _project_meta_graph,
             _project_ontology_graph,
             _subjects_of_design,
         )
-
-        imported = await exchange.import_snapshot(
-            cfg, client, payload, max_extracted_bytes=_MAX_UPLOAD_BYTES
-        )
-        dataset_id = imported["dataset_id"]
-        staged_iri = imported["staged_graph"]
 
         # main.py の POST /api/datasets/{id}/promote ルートが呼ぶのと同じ内部
         # 関数、同じ順番（HTTP は叩かない）。促進の副作用のうち、オントロジーの
@@ -736,7 +861,7 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
         )
     except Exception:
         logger.warning(
-            "seed_demo_dataset: snapshot import/promote failed (continuing)",
+            "seed_demo_dataset: promote failed (continuing)",
             exc_info=True,
         )
         return
@@ -765,6 +890,7 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
             exc_info=True,
         )
 
+    marker = home / _DEMO_SEED_MARKER
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
 
