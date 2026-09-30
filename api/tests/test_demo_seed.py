@@ -117,7 +117,9 @@ def _patch_success_pipeline(
         assert artifacts == {"mapping.yaml": "TriplesMap: {}"}
         return 1
 
-    async def fake_project_meta(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+    async def fake_project_meta(
+        client: Any, dataset_id: str, artifacts: dict[str, str], **_kw: Any
+    ) -> int:
         recorder.calls.append("project_meta_graph")
         assert dataset_id == _DATASET_ID
         assert artifacts == {"mapping.yaml": "TriplesMap: {}"}
@@ -463,7 +465,7 @@ def test_projection_failure_does_not_block_marker_or_starter_subjects(
     written = _patch_success_pipeline(monkeypatch, recorder)
     monkeypatch.setattr(local, "find_world_snapshot", lambda: _fake_snapshot(tmp_path))
 
-    async def boom(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+    async def boom(client: Any, dataset_id: str, artifacts: dict[str, str], **_kw: Any) -> int:
         recorder.calls.append("boom")
         raise RuntimeError("projection failed")
 

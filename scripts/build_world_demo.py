@@ -3,7 +3,11 @@
 contract_pr_e.md §1) — content-authoring tool, NOT runtime ingestion code
 (same family as ``datasets/materials_project/seed/build_seed.py`` and
 ``datasets/papers/seed/build_paper_graph.py``). Deterministic: re-running it
-on the same ``source/gapminder.json`` produces byte-identical output.
+on the same ``source/gapminder.json`` produces the same *content* — but not
+the same bytes: ``manifest.exported_at`` and ``registry/meta.json``'s
+``created_at`` are the build time, so the tar's sha changes on every run. Whether
+two builds are "the same sample" is decided by ``revision`` in the sample
+ledger (below), a fingerprint of the contents that leaves the timestamps out.
 
 What it does, in order — the SAME declarative path any onboarded Asterism
 dataset goes through, never a hand-written shortcut:
@@ -25,6 +29,14 @@ dataset goes through, never a hand-written shortcut:
    actually calling ``import_snapshot`` against a throwaway registry dir and
    an in-memory (rdflib-backed) SPARQL store — no server, no Oxigraph
    process needed for a normal build.
+5. ``datasets/world/sample_revisions.json`` (the append-only sample ledger,
+   ADR kantan K62) is updated from what was just built, and carried inside the
+   tar as ``sample/revisions.json``. If the contents did not change (same
+   ``revision`` as the ledger's latest entry) nothing is added. If they did,
+   ``--note-ja`` and ``--note-en`` (one sentence shown to the user, no raw
+   identifiers) are REQUIRED and a new entry ``seq+1`` is appended. The
+   fingerprint and the ledger read/write live in ``asterism_api.demo_sample``
+   — this script calls them, it does not compute them a second time.
 
 Run from the ``api`` package's venv (the one editable-installed venv in this
 repo that already has ``asterism-step0``, ``asterism-ingest[substrate]`` for
@@ -67,6 +79,8 @@ MODEL_YAML = DATASET_DIR / "model.yaml"
 MIE_YAML = DATASET_DIR / "mie.yaml"
 QUERY_TOOLS_YAML = DATASET_DIR / "query_tools.yaml"
 SNAPSHOT_TAR = DATASET_DIR / "snapshot.tar"
+# 改訂台帳の正本（追記専用・git 管理）。tar には同じ内容を sample/revisions.json として入れる。
+LEDGER_PATH = DATASET_DIR / "sample_revisions.json"
 
 DATASET_ID = "world"
 DATASET_NAME = "世界の国（Gapminder）"  # noqa: RUF001 — Japanese full-width parens, correct typography
@@ -393,6 +407,7 @@ def build_snapshot_tar(
     query_tools_yaml_text: str,
     world_csv_text: str,
     activity_csv_text: str,
+    ledger_text: str | None = None,
 ) -> bytes:
     manifest = {
         "format": SNAPSHOT_FORMAT,
@@ -425,7 +440,66 @@ def build_snapshot_tar(
         _add_text(tar, "registry/query_tools.yaml", query_tools_yaml_text)
         _add_text(tar, "registry/source/world.csv", world_csv_text)
         _add_text(tar, "registry/source/activity.csv", activity_csv_text)
+        if ledger_text is not None:
+            # 改訂台帳（指紋の計算には入れない — asterism_api.demo_sample.IGNORED_MEMBERS）。
+            _add_text(tar, "sample/revisions.json", ledger_text)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Step 5: 改訂台帳（asterism_api.demo_sample の関数を呼ぶ — 計算を 2 か所に書かない）
+# ---------------------------------------------------------------------------
+
+
+def update_ledger(
+    tar_without_ledger: bytes, *, note_ja: str | None, note_en: str | None
+) -> tuple[list[dict], str | None]:
+    """作った tar の中身から今回のエントリを作り、台帳を更新する。
+
+    台帳の最新と ``revision`` が同じなら足さない。違えば ``note_ja``・``note_en`` が
+    必須（無ければ ``ValueError``）で、``seq+1`` で追記する。返り値は
+    ``(新しい台帳, 足したエントリの説明 | None)``。ファイルへは書かない（呼び出し側が書く）。
+    """
+    from asterism_api import demo_sample
+
+    members = demo_sample.read_members(tar_without_ledger)
+    ledger = demo_sample.load_ledger_file(LEDGER_PATH) if LEDGER_PATH.is_file() else []
+    revision = demo_sample.revision_of_members(members)
+    if ledger and ledger[-1]["revision"] == revision:
+        return ledger, None
+    if not (note_ja and note_ja.strip() and note_en and note_en.strip()):
+        raise ValueError(
+            "the sample's contents changed since the ledger's latest entry "
+            f"({revision} != {ledger[-1]['revision'] if ledger else 'none'}): "
+            "--note-ja and --note-en (one sentence for the user, no raw identifiers) "
+            "are required to append a new ledger entry"
+        )
+    entry = demo_sample.entry_from_members(
+        members,
+        seq=len(ledger) + 1,
+        note={"ja": note_ja.strip(), "en": note_en.strip()},
+    )
+    return [*ledger, entry], f"seq {entry['seq']} revision {entry['revision']}"
+
+
+def verify_ledger(tar_bytes: bytes) -> dict[str, object]:
+    """--verify: tar の台帳と正本が一致・最新の revision が tar の中身から計算した値と一致。"""
+    from asterism_api import demo_sample
+
+    members = demo_sample.read_members(tar_bytes)
+    in_tar = members.get(demo_sample.LEDGER_MEMBER)
+    if in_tar is None:
+        raise AssertionError(f"tar has no {demo_sample.LEDGER_MEMBER}")
+    canonical = LEDGER_PATH.read_bytes()
+    if in_tar != canonical:
+        raise AssertionError(f"the ledger inside the tar differs from {LEDGER_PATH}")
+    ledger = demo_sample.parse_ledger(in_tar.decode("utf-8"))
+    computed = demo_sample.revision_of_members(members)
+    if ledger[-1]["revision"] != computed:
+        raise AssertionError(
+            f"latest ledger revision {ledger[-1]['revision']} != contents {computed}"
+        )
+    return {"ledger_entries": len(ledger), "revision": computed}
 
 
 # ---------------------------------------------------------------------------
@@ -566,6 +640,16 @@ def main(argv: list[str] | None = None) -> int:
         help="path to a real oxigraph binary; additionally round-trips canonical.ttl "
         "through it (ASTERISM_OXIGRAPH_BIN convention)",
     )
+    parser.add_argument(
+        "--note-ja",
+        default=None,
+        help="台帳に新しいエントリを足すときの、利用者に見せる一文 (日本語。生の識別子を書かない)",
+    )
+    parser.add_argument(
+        "--note-en",
+        default=None,
+        help="同じ一文の英語 (--note-ja と一緒に、中身が変わったときだけ必須)",
+    )
     args = parser.parse_args(argv)
 
     if not GAPMINDER_JSON.is_file():
@@ -633,18 +717,37 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(canonical_ttl, str):
         canonical_ttl = canonical_ttl.encode("utf-8")
 
-    tar_bytes = build_snapshot_tar(
-        canonical_ttl=canonical_ttl,
-        triple_count=len(graph),
-        world_csv_rows=len(rows),
-        mapping_yaml_text=mapping_yaml_text,
-        mapping_rml_text=rml_ttl,
-        model_yaml_text=MODEL_YAML.read_text(encoding="utf-8"),
-        mie_yaml_text=MIE_YAML.read_text(encoding="utf-8"),
-        query_tools_yaml_text=QUERY_TOOLS_YAML.read_text(encoding="utf-8"),
-        world_csv_text=WORLD_CSV.read_text(encoding="utf-8"),
-        activity_csv_text=ACTIVITY_CSV.read_text(encoding="utf-8"),
+    tar_args = {
+        "canonical_ttl": canonical_ttl,
+        "triple_count": len(graph),
+        "world_csv_rows": len(rows),
+        "mapping_yaml_text": mapping_yaml_text,
+        "mapping_rml_text": rml_ttl,
+        "model_yaml_text": MODEL_YAML.read_text(encoding="utf-8"),
+        "mie_yaml_text": MIE_YAML.read_text(encoding="utf-8"),
+        "query_tools_yaml_text": QUERY_TOOLS_YAML.read_text(encoding="utf-8"),
+        "world_csv_text": WORLD_CSV.read_text(encoding="utf-8"),
+        "activity_csv_text": ACTIVITY_CSV.read_text(encoding="utf-8"),
+    }
+    # 台帳（Step 5）: 台帳なしの tar から今回の中身の指紋を作り、台帳を更新してから、
+    # 台帳入りの tar を作り直す（台帳は指紋の計算に入らないので、指紋は変わらない）。
+    from asterism_api import demo_sample
+
+    try:
+        ledger, added = update_ledger(
+            build_snapshot_tar(**tar_args), note_ja=args.note_ja, note_en=args.note_en
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    ledger_text = demo_sample.format_ledger(ledger)
+    if not LEDGER_PATH.is_file() or LEDGER_PATH.read_text(encoding="utf-8") != ledger_text:
+        LEDGER_PATH.write_text(ledger_text, encoding="utf-8")
+    print(
+        f"ledger {LEDGER_PATH}: {len(ledger)} entries, "
+        + (f"appended {added}" if added else "no new entry (contents unchanged)")
     )
+    tar_bytes = build_snapshot_tar(**tar_args, ledger_text=ledger_text)
     SNAPSHOT_TAR.write_bytes(tar_bytes)
     print(f"wrote {SNAPSHOT_TAR} ({len(tar_bytes)} bytes, gzip'd tar)")
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
@@ -657,6 +760,12 @@ def main(argv: list[str] | None = None) -> int:
 
         result = asyncio.run(_verify_import(tar_bytes))
         print(f"import_snapshot self-check: {json.dumps(result, ensure_ascii=False)}")
+        try:
+            ledger_check = verify_ledger(tar_bytes)
+        except AssertionError as exc:
+            print(f"ERROR: ledger self-check failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"ledger self-check: {json.dumps(ledger_check, ensure_ascii=False)}")
 
     if args.oxigraph_bin:
         n = _verify_with_real_oxigraph(args.oxigraph_bin, canonical_ttl)
