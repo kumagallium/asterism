@@ -132,7 +132,8 @@ normal rebuild.)
 | `source/gapminder.json` | the unmodified vega-datasets extract |
 | `source/world.csv` | the tabular source `mapping.yaml` maps (generated) |
 | `source/activity.csv` | 1-row provenance source for the `activity` TriplesMap (generated, see "来歴") |
-| `snapshot.tar` | the real, importable ingest result (generated) |
+| `snapshot.tar` | the real, importable ingest result (generated). Also carries the ledger as `sample/revisions.json` |
+| `sample_revisions.json` | the **sample ledger** — append-only, one entry per shipped version (see 「見本を直したら」) |
 | `LICENSE.md` | BSD-3-Clause (vega-datasets' declared license) |
 
 ## Regenerating
@@ -151,3 +152,39 @@ links, that Japan's country node carries both `rdfs:label "日本"@ja` and
 `rdfs:label "Japan"@en`, that `asterism.subjects.pick_label` actually chooses
 "日本" among them, and that `asterism.prov_graph.prov_graph` actually walks
 the edge from the embedded "日本" subject to that activity).
+
+## 見本を直したら（改訂台帳・ADR kantan K59）
+
+見本（`snapshot.tar`）は初回の起動で 1 度だけ取り込まれる。**すでに見本が入っている環境
+にも、直しを届ける**ため、配った版を `sample_revisions.json`（追記専用・git 管理）に
+残し、起動のたびに「利用者が触っていない単位だけ」新しい版に入れ替える。見本を直したら:
+
+1. 設計・説明・ツールなどを直したら `build_world_demo.py` を回す。**中身が台帳の最新と
+   変わっていれば、一文の note が必須**（無ければエラー終了）:
+
+   ```bash
+   cd api && uv run python ../scripts/build_world_demo.py \
+     --note-ja "図の箱の名前を日本語にした" --note-en "Showed the boxes in the diagram in Japanese"
+   ```
+
+   中身が同じ再ビルド（`exported_at` だけ変わる）なら、note は要らず、台帳にエントリは増えない
+   （中身の同一性は `revision` で見る。tar のバイトは毎回変わる）。
+2. **note は利用者に見せる一文**（`ja`・`en`）。生の識別子（ファイル名・ID・単位の名前）を書かない。
+3. 台帳は**追記専用**。過去のエントリを消す・直すと、過去の版を持つ環境が「触った」と誤判定される
+   （テストが A・B・C の revision を固定している）。tar の中の台帳（`sample/revisions.json`）は
+   正本と同じ内容で、`build_world_demo.py --verify`（既定）が一致を確かめる。
+4. 入れ替えの単位（`api/src/asterism_api/demo_sample.py` の `UNIT_TABLE`。tar の全 member は
+   ちょうど 1 つの単位か「無視」に属する）:
+
+   | 単位 | member | 入れ替え |
+   |---|---|---|
+   | design | `mapping.yaml`・`model.yaml`・`diagram.md`・`mapping.rml.ttl` | 4 つとも触っていないときだけ全部 |
+   | description | `mie.yaml`・`metadata.ttl` | 2 つとも触っていないときだけ |
+   | tools | `query_tools.yaml` | 触っていなければバイトで。触っていればツール名ごとに合流 |
+   | name | データセット名 | 台帳のどれかの名前のままのときだけ |
+   | data | `graphs/canonical.ttl`・`source/*` | **いまは入れ替えない** |
+
+5. **データが変わる版は、いまは既存の環境に届かない。** canonical.ttl・`mapping.rml.ttl`・
+   `source/*` を変える版は、台帳の全エントリでデータが同じことを見張るテスト
+   （`api/tests/test_demo_sample.py::test_data_changing_release_is_stopped_here`）が止める。
+   ADR kantan K59 の「データが変わる版」を読み、データの入れ替えを先に作ること。
