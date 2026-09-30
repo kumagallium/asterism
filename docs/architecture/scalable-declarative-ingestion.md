@@ -128,7 +128,7 @@ status: 実装済み（substrate + api + registry + 背景スイーパ・全 bac
 | V3 | 再取り込み(replace) | 旧 live を**触らず**新版 `v{n+1}` を投入（staged）。Ask は再ストリーム中ずっと旧版を配信＝**ギャップなし・un-publish 不要・DROP なし**。 |
 | V4 | promote | `liveGraph` を staged 版へ差し替え＋`status promoted`＝**control 書込のみ(O(1))**。旧 live 版は **`pendingDrop` キュー**へ enqueue（背景ドロップ）。 |
 | V5 | delete | live/staged データグラフを `pendingDrop` へ enqueue＋(promoted なら)`deleted` tombstone を立てて**即応答**。大 DROP はリクエスト経路に無い。 |
-| V6 | 背景スイーパ | api lifespan の周期タスク（既存 watcher と並ぶ）が `pendingDrop` グラフを**チャンク DELETE**（`chunked_drop_graph`）で掃除しマーカ除去。初回 tick は**クラッシュ復旧**（掃除途中で落ちた orphan を回収）。 |
+| V6 | 背景スイーパ | api lifespan の周期タスク（既存 watcher と並ぶ）が `pendingDrop` グラフを**チャンク DELETE**（`chunked_drop_graph`）で掃除し、空になったグラフを `DROP SILENT GRAPH` で名前ごと消してからマーカ除去（中身を消しても `CLEAR` でも Oxigraph は名前を `GRAPH ?g {}` の索引に残し、残ると起動時の孤児回収が毎回積み直す。空グラフの DROP はメモリを使わない）。初回 tick は**クラッシュ復旧**（掃除途中で落ちた orphan を回収）。 |
 | V7 | 大グラフの reclaim | **単発 `DROP GRAPH` はグラフ全体をメモリ展開し 8GB Oxigraph を OOM-kill する（実測）**ので、reclaim は `DELETE { GRAPH <g> {?s ?p ?o} } WHERE { SELECT … LIMIT N }` の**バッチ削除**（既定 10万行/バッチ・`ASK` で空になるまでループ）。各バッチは有界＝メモリ一定。**チャンク化は任意でなく必須**。 |
 
 **surgical control 書込**: status/liveGraph/stagedGraph を1つずつ replace（DELETE-all しない）＝retract/reinstate が `liveGraph` を保存（同じ版が戻る）。**後方互換**: part5 前に昇格した dataset（key グラフにデータ・live 無）は `COALESCE` で従来どおり citable。再取り込み時は **key グラフが実データを持つ場合のみ orphan**（cheap ASK で判定）＝旧版リーク無し。**起動 backfill** は status＋liveGraph（registry meta から）を復元。
