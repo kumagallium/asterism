@@ -12,6 +12,7 @@ import {
   type SubjectSearchItem,
 } from './cardsApi'
 import { useAllCards } from './cardStore'
+import { SampleNotice } from './SampleNotice'
 import './dataset.css'
 import './viewpoints.css'
 import { addSubjectAndPersist, useSubjects } from './subjectStore'
@@ -225,7 +226,16 @@ export function DatasetPage({ datasetId, navigate, onDefine, onLabel }: DatasetP
 
   return (
     <div className="cardpage-body dataset-page">
-      <p className="dataset-origin">{originLine(summary, t)}</p>
+      <p className="dataset-origin">
+        {summary.is_demo && (
+          <span className="rail-item-sample dataset-sample-badge">{t('rail.sampleBadge')}</span>
+        )}
+        {originLine(summary, t)}
+      </p>
+
+      {summary.is_demo && summary.sample_notice && (
+        <SampleNotice datasetId={datasetId} notice={summary.sample_notice} />
+      )}
 
       <div className="dataset-band">
         <div className="dataset-band-title">{t('dataset.section_meaning')}</div>

@@ -178,6 +178,8 @@ async def build_snapshot(cfg: Any, client: Any, dataset_id: str) -> tuple[bytes,
             if registry.is_atomic_tmp_name(path.name):
                 continue  # 強制終了で残った書きかけの一時ファイルはスナップショットに入れない
             rel = path.relative_to(dataset_dir).as_posix()
+            if rel.startswith("sample-backup/"):
+                continue  # 見本の置き換え前の控え（この環境の利用者のもの。配らない）
             _add_bytes(tar, f"registry/{rel}", path.read_bytes())
     return buf.getvalue(), f"asterism-snapshot-{dataset_id}.tar.gz"
 

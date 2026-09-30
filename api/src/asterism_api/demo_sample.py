@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import tarfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -46,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from asterism import substrate
+from asterism import dataset_summary, substrate
 
 from . import exchange, registry
 
@@ -132,6 +133,18 @@ HELD_DECISIONS = "decisions"
 # 印の無い環境が受け取りえたのはこの範囲だけ — 「利用者がツールを消した」を、台帳の
 # どの版まで遡って言えるかの上限に使う。台帳は追記専用なので、この値は変わらない。
 PRE_STAMP_LAST_SEQ = 3
+
+# 手動の置き換えで取る控え（dataset ディレクトリ内。``history/`` には置かない: 置くと起動時の
+# 埋め直しが、見本を「公開の後に設計を保存し直した下書き」とみなして投影を止める）。
+BACKUP_DIR = "sample-backup"
+BACKUP_MANIFEST = "backup.json"
+MAX_BACKUPS = 5
+# 複数の版の note を 1 つにつなぐ区切り（日本語は全角の斜線）。
+NOTE_JOIN_JA = "／"  # noqa: RUF001 - 全角の区切りを意図して使う
+# 画面に出す note の最大件数（前の印より後の版のうち新しいもの）。
+MAX_NOTES = 3
+# アクティビティ（jobs）の kind。
+JOB_KIND = "sample_refresh"
 
 # 印の ``pending``（データを入れ替えたあと、まだ済んでいない派生）。
 PENDING_ONTOLOGY = "design_projection"
@@ -431,6 +444,8 @@ def build_stamp(
     tools_seq: int | None = None,
     data: Mapping[str, Any] | None = None,
     pending: Sequence[str] | None = None,
+    last_update: Mapping[str, Any] | None = None,
+    backups: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """meta.json の ``sample`` 欄。``units`` には「同梱と同じ状態まで届いた単位」だけを入れる。
 
@@ -442,6 +457,10 @@ def build_stamp(
     ``data`` はデータを入れ替えた環境の印（``{"live_graph": 入れ替えた graph}``）。以後の
     起動で「利用者が取り込み直していない」を確かめる期待値になるので、一度書いたら
     引き継ぐ。``pending`` は入れ替えのあと済んでいない派生の名前（空なら済み）。
+
+    ``last_update`` は「実際に何かを入れ替えた」最後の記録（:func:`make_last_update`）。
+    入れ替えの無い起動では前の記録を引き継ぐ（画面の「新しい版になりました」を消さない）。
+    ``backups`` は手動の置き換えで取った控えの一覧（新しい順・最大 :data:`MAX_BACKUPS`）。
     """
     have = set(reached)
     out: dict[str, Any] = {
@@ -456,6 +475,10 @@ def build_stamp(
         out["data"] = dict(data)
     if data is not None or pending:
         out["pending"] = list(pending or [])
+    if last_update:
+        out["last_update"] = dict(last_update)
+    if backups:
+        out["backups"] = [dict(b) for b in backups]
     return out
 
 
@@ -481,6 +504,28 @@ def _valid_stamp(raw: Any) -> dict[str, Any] | None:
     }
     if isinstance(data, dict):
         out["data"] = data
+    last_update = raw.get("last_update")
+    if isinstance(last_update, dict) and isinstance(last_update.get("units"), list):
+        out["last_update"] = last_update
+    backups = _valid_backups(raw.get("backups"))
+    if backups:
+        out["backups"] = backups
+    return out
+
+
+def _valid_backups(raw: Any) -> list[dict[str, Any]]:
+    """印の ``backups`` のうち形の合うもの（``{"at", "units", "dir"}``。新しい順）。"""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for b in raw:
+        if (
+            isinstance(b, dict)
+            and isinstance(b.get("at"), str)
+            and isinstance(b.get("dir"), str)
+            and isinstance(b.get("units"), list)
+        ):
+            out.append(b)
     return out
 
 
@@ -494,7 +539,37 @@ def stamp_core(stamp: Mapping[str, Any]) -> tuple[Any, ...]:
         stamp.get("held"),
         stamp.get("data"),
         stamp.get("pending") or [],
+        _last_update_core(stamp.get("last_update")),
+        tuple((b.get("at"), b.get("dir")) for b in stamp.get("backups") or []),
     )
+
+
+def _last_update_core(last_update: Any) -> Any:
+    """``last_update`` の比べる部分（``at`` は入れない）。"""
+    if not isinstance(last_update, Mapping):
+        return None
+    note = last_update.get("note")
+    return (
+        last_update.get("seq"),
+        tuple(last_update.get("units") or ()),
+        tuple(sorted(note.items())) if isinstance(note, Mapping) else None,
+    )
+
+
+def make_last_update(
+    bundled: Bundled, previous_seq: int, units: Sequence[str], at: str
+) -> dict[str, Any]:
+    """印の ``last_update``: 実際に入れ替えた単位と、その版の note。
+
+    note は「前の印の seq（``previous_seq``）より後、今回の seq まで」の台帳の note を
+    新しい順に並べたもの（最大 :data:`MAX_NOTES` 件。多ければ最新のもの）。範囲が空のとき
+    （同じ版のうち保留していた単位を、手動で置き換えたとき）は最新の版の note 1 件。
+    """
+    entries = [e for e in bundled.ledger if previous_seq < e["seq"] <= bundled.seq]
+    entries = list(reversed(entries))[:MAX_NOTES] or [bundled.latest]
+    ja = NOTE_JOIN_JA.join(str(e["note"]["ja"]) for e in entries)
+    en = "; ".join(str(e["note"].get("en") or e["note"]["ja"]) for e in entries)
+    return {"seq": bundled.seq, "at": at, "units": list(units), "note": {"ja": ja, "en": en}}
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +645,7 @@ def _seen_tool_names(bundled: Bundled, seen_seq: int) -> set[str]:
 
 
 def merge_tools(
-    bundled: Bundled, env_tools: Sequence[Any], *, seen_seq: int
+    bundled: Bundled, env_tools: Sequence[Any], *, seen_seq: int, force: bool = False
 ) -> tuple[list[Any], list[str]]:
     """ツール名ごとの合流（契約メモ §8）。``(合流後の一覧, 保留する名前)``。
 
@@ -579,6 +654,9 @@ def merge_tools(
     * 環境に無い: 環境が受け取った版（``seq <= seen_seq``）にその名前がある → 利用者が
       消した（足さない）／無い → 足す
     * 環境にあって同梱に無いもの → 残す
+
+    ``force``（手動の置き換え）は、保留にするはずの定義も同梱のものに置き換える（利用者が
+    足した別の名前のツールは残す。置き換える前の内容は控えに残る）。
     """
     known = _known_tool_digests(bundled)
     seen = _seen_tool_names(bundled, seen_seq)
@@ -600,7 +678,7 @@ def merge_tools(
         current = tool_digest(merged[i])
         if current == digest:
             continue
-        if current in known.get(name, set()):
+        if force or current in known.get(name, set()):
             merged[i] = tool
         else:
             held.append(name)
@@ -612,6 +690,24 @@ def dump_tools(tools: Sequence[Any]) -> bytes:
     return yaml.safe_dump({"tools": list(tools)}, allow_unicode=True, sort_keys=False).encode(
         "utf-8"
     )
+
+
+def _differs(files: Mapping[str, bytes], member: str, bundled: Bundled) -> bool:
+    """環境のファイルが同梱のものと違う（無い場合も違う）。"""
+    blob = files.get(member)
+    return blob is None or sha256_hex(blob) != bundled.files[member]
+
+
+def _tool_title(name: str, env_tools: Sequence[Any], bundled: Bundled) -> str | None:
+    """保留するツールの、利用者に見せてよい表示名（環境の定義の ``title`` が先・無ければ
+    同梱の定義の ``title``）。どちらにも無ければ ``None``（画面は件数だけ出す）。"""
+    for pool in (env_tools, bundled.tool_defs):
+        for tool in pool:
+            if _tool_name(tool) == name and isinstance(tool, dict):
+                title = tool.get("title")
+                if isinstance(title, str) and title.strip():
+                    return title.strip()
+    return None
 
 
 @dataclass
@@ -633,6 +729,21 @@ class RefreshPlan:
     # ツールが入っている。canonical と番号・graph の扱いは実行が決める）
     swap_data: bool = False
 
+    def updated_units(self) -> list[str]:
+        """この計画が実際に入れ替える単位（ファイルの置き換え・名前・データ）。
+        投影だけをやり直す単位は入れない（何も変わっていないので知らせない）。"""
+        units: set[str] = set()
+        for rel in self.replace:
+            unit = unit_of_member(REGISTRY_PREFIX + rel)
+            if unit and unit != IGNORED:
+                units.add(unit)
+        if self.new_name is not None:
+            units.add(UNIT_NAME)
+        if self.swap_data:
+            units.add(UNIT_DATA)
+        order = (UNIT_DESIGN, UNIT_DESCRIPTION, UNIT_TOOLS, UNIT_NAME, UNIT_DATA)
+        return [u for u in order if u in units]
+
 
 @dataclass(frozen=True)
 class DataEnv:
@@ -648,10 +759,13 @@ class DataEnv:
     control_staged: str | None
 
 
-def _held(unit: str, reason: str, detail: str | None = None) -> dict[str, str]:
-    out = {"unit": unit, "reason": reason}
-    if detail:
-        out["detail"] = detail
+def _held(unit: str, reason: str, titles: Sequence[str] | None = None) -> dict[str, Any]:
+    """保留 1 件。生の識別子（ファイル名・ツール名・meta の欄名）は入れない: 画面が読む
+    ``meta.sample`` は認証なしの一覧にも載るため。ツールだけ、利用者に見せてよい
+    ``title``（定義の表示名）を ``titles`` に入れる（無ければ入れない）。"""
+    out: dict[str, Any] = {"unit": unit, "reason": reason}
+    if titles:
+        out["titles"] = [str(t) for t in titles]
     return out
 
 
@@ -697,57 +811,50 @@ def _group_reasons(
     decision_files: Sequence[str],
     bundled_subjects: list[dict] | None,
     data_env: DataEnv | None,
-) -> list[tuple[str, str | None]]:
-    """データが変わる版で、design・data・tools の群を入れられない理由（空なら入れてよい）。
+) -> list[str]:
+    """データが変わる版で、design・data・tools の群を入れられない理由コード（空なら入れてよい）。
 
     入れてよい条件は全部（契約メモ contract_sample_refresh_pr2_data.md §2）: design を
     触っていない・decisions（``reshape.json`` を含む）が無い・source を触っていない・
     追記していない・取り込み直していない・control と meta が一致・ID の作り方が同じ。
     """
     if data_env is None:
-        return [(HELD_DATA, None)]
-    reasons: list[tuple[str, str | None]] = []
+        return [HELD_DATA]
+    reasons: list[str] = []
 
     touched = _touched(bundled, _unit_paths(UNIT_DESIGN, bundled.files), files)
     touched += _source_touched(
         bundled, data_env.source_shas, (meta.get("imported") or {}).get("canonical_sha256")
     )
     if touched:
-        reasons.append((HELD_EDITED, ", ".join(sorted(touched))))
+        reasons.append(HELD_EDITED)
 
-    appended = [k for k in _APPEND_META_KEYS if meta.get(k)]
-    if data_env.applied_batches:
-        appended.append(APPLIED_BATCHES_DIR)
-    if appended:
-        reasons.append((HELD_APPENDED, ", ".join(appended)))
+    if data_env.applied_batches or any(meta.get(k) for k in _APPEND_META_KEYS):
+        reasons.append(HELD_APPENDED)
 
     data_mark = (stamp or {}).get("data")
     expected_live = (data_mark or {}).get("live_graph") or substrate.versioned_graph_iri(
         bundled.dataset_id, 1
     )
-    reingested: list[str] = []
-    if meta.get("ingested"):
-        reingested.append("ingested")
-    if meta.get("graph_iri"):
-        reingested.append("graph_iri")
-    if data_env.control_staged:
-        reingested.append("staged")
-    if meta.get("live_graph") != expected_live:
-        reingested.append("live_graph")
-    if reingested:
-        reasons.append((HELD_REINGESTED, ", ".join(reingested)))
+    if (
+        meta.get("ingested")
+        or meta.get("graph_iri")
+        or data_env.control_staged
+        or meta.get("live_graph") != expected_live
+    ):
+        reasons.append(HELD_REINGESTED)
 
     if decision_files:
-        reasons.append((HELD_DECISIONS, ", ".join(sorted(decision_files))))
+        reasons.append(HELD_DECISIONS)
 
     env_subjects = meta.get("published_subjects")
     if env_subjects is None or bundled_subjects is None:
-        reasons.append((HELD_IDS_UNKNOWN, None))
+        reasons.append(HELD_IDS_UNKNOWN)
     elif env_subjects != bundled_subjects:
-        reasons.append((HELD_IDS_MOVE, None))
+        reasons.append(HELD_IDS_MOVE)
 
     if data_env.control_live != meta.get("live_graph"):
-        reasons.append((HELD_UNSETTLED, None))
+        reasons.append(HELD_UNSETTLED)
     return reasons
 
 
@@ -759,6 +866,7 @@ def plan_refresh(
     decision_files: Sequence[str],
     bundled_subjects: list[dict] | None,
     data_env: DataEnv | None = None,
+    override: Iterable[str] = (),
 ) -> RefreshPlan:
     """判定だけの純関数（I/O なし）。
 
@@ -769,11 +877,16 @@ def plan_refresh(
 
     ``data_env`` は、データが変わる版（同梱の canonical_sha256 ≠ 環境のもの）でだけ使う。
     ``None`` はその事実が読めなかったとき — 群を入れず、理由 ``data`` で保留する。
+
+    ``override`` は手動の置き換えで「保留を無視する」単位（画面の「新しい見本に置き換える」）。
+    無視するのは利用者が変えたという理由（触った・決めた内容がある）だけで、引用の住所が
+    動く版・データの群は無視しない（利用者のデータや引用の住所を失うため）。
     """
     reason = skip_reason(bundled, meta)
     if reason:
         return RefreshPlan(skip=reason)
 
+    forced = frozenset(override)
     plan = RefreshPlan()
     held = plan.held
     stamp = _valid_stamp(meta.get("sample"))
@@ -798,14 +911,14 @@ def plan_refresh(
         )
         if group:
             for unit in (UNIT_DESIGN, UNIT_DATA, UNIT_TOOLS):
-                for reason_code, detail in group:
-                    held.append(_held(unit, reason_code, detail))
+                for reason_code in group:
+                    held.append(_held(unit, reason_code))
             design_held = group_held = True
         else:
             plan.swap_data = True
             plan.derive_design = True
             for p in design_paths:
-                if sha256_hex(files[p]) != bundled.files[p]:
+                if _differs(files, p, bundled):
                     plan.replace[_rel(p)] = bundled.members[p]
             for p in bundled.files:
                 if p.startswith(SOURCE_PREFIX):
@@ -821,16 +934,16 @@ def plan_refresh(
         elif env_subjects != bundled_subjects:
             held.append(_held(UNIT_DESIGN, HELD_IDS_MOVE))
             design_held = True
-        if decision_files:
-            held.append(_held(UNIT_DESIGN, HELD_DECISIONS, ", ".join(sorted(decision_files))))
+        if decision_files and UNIT_DESIGN not in forced:
+            held.append(_held(UNIT_DESIGN, HELD_DECISIONS))
             design_held = True
         touched = _touched(bundled, design_paths, files)
-        if touched:
-            held.append(_held(UNIT_DESIGN, HELD_EDITED, ", ".join(sorted(touched))))
+        if touched and UNIT_DESIGN not in forced:
+            held.append(_held(UNIT_DESIGN, HELD_EDITED))
             design_held = True
     if not design_held:
         for p in design_paths:
-            if sha256_hex(files[p]) != bundled.files[p]:
+            if _differs(files, p, bundled):
                 plan.replace[_rel(p)] = bundled.members[p]
         # 印の無い環境（v0.46.0〜v0.47.1）も、ファイルが同じでも派生を 1 回やり直す。
         if plan.replace or stamp_units.get(UNIT_DESIGN) != bundled.units[UNIT_DESIGN]:
@@ -841,12 +954,12 @@ def plan_refresh(
     # --- description: 2 つとも触っていないときだけ -----------------------------
     desc_paths = _unit_paths(UNIT_DESCRIPTION, bundled.files)
     touched = _touched(bundled, desc_paths, files)
-    if touched:
-        held.append(_held(UNIT_DESCRIPTION, HELD_EDITED, ", ".join(sorted(touched))))
+    if touched and UNIT_DESCRIPTION not in forced:
+        held.append(_held(UNIT_DESCRIPTION, HELD_EDITED))
     else:
         changed = False
         for p in desc_paths:
-            if sha256_hex(files[p]) != bundled.files[p]:
+            if _differs(files, p, bundled):
                 plan.replace[_rel(p)] = bundled.members[p]
                 changed = True
         # ファイルが同じでも、印が「この版の説明まで届いた」と言っていなければ投影し直す:
@@ -872,17 +985,27 @@ def plan_refresh(
             plan.reached.add(UNIT_TOOLS)
             plan.tools_seq = bundled.seq
         else:
+            force_tools = UNIT_TOOLS in forced
             try:
                 env_tools = parse_tools(env_bytes.decode("utf-8")) if env_bytes else []
             except (ValueError, UnicodeDecodeError):
-                held.append(_held(UNIT_TOOLS, HELD_EDITED, _rel(TOOLS_MEMBER)))
+                if force_tools:
+                    # 読めないファイルは、控えを取ったうえで同梱のものに置き換える。
+                    plan.replace[_rel(TOOLS_MEMBER)] = bundled.members[TOOLS_MEMBER]
+                    plan.reached.add(UNIT_TOOLS)
+                    plan.tools_seq = bundled.seq
+                else:
+                    held.append(_held(UNIT_TOOLS, HELD_EDITED))
             else:
-                merged, edited = merge_tools(bundled, env_tools, seen_seq=seen_seq)
+                merged, edited = merge_tools(
+                    bundled, env_tools, seen_seq=seen_seq, force=force_tools
+                )
                 plan.tools_seq = bundled.seq
                 if merged != env_tools:
                     plan.replace[_rel(TOOLS_MEMBER)] = dump_tools(merged)
                 for name in edited:
-                    held.append(_held(UNIT_TOOLS, HELD_EDITED, name))
+                    title = _tool_title(name, env_tools, bundled)
+                    held.append(_held(UNIT_TOOLS, HELD_EDITED, [title] if title else None))
                 if not edited:
                     plan.reached.add(UNIT_TOOLS)
 
@@ -891,7 +1014,7 @@ def plan_refresh(
     ledger_names = {e["name"] for e in bundled.ledger} | {bundled.name}
     if env_name == bundled.name:
         plan.reached.add(UNIT_NAME)
-    elif env_name in ledger_names:
+    elif env_name in ledger_names or UNIT_NAME in forced:
         plan.new_name = bundled.name
         plan.reached.add(UNIT_NAME)
     else:
@@ -997,6 +1120,9 @@ async def _swap_data(
     plan: RefreshPlan,
     meta: dict[str, Any],
     key: str,
+    *,
+    last_update: Mapping[str, Any] | None = None,
+    backups: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """データが変わる版の群を入れ替える。``(新しい meta, 新しい live の graph)``。
 
@@ -1104,6 +1230,8 @@ async def _swap_data(
         tools_seq=plan.tools_seq,
         data={"live_graph": new_live},
         pending=pending,
+        last_update=last_update,
+        backups=backups,
     )
     new_meta = registry.update_meta_atomic(root, dataset_id, changes)
     if new_meta is None:
@@ -1215,39 +1343,171 @@ def _write_pending(
     return new_meta if new_meta is not None else meta
 
 
-async def _refresh(cfg: Any, client: Any, snapshot_path: Path | None) -> None:
+class SampleOpError(Exception):
+    """手動の置き換え・戻すの失敗。``code`` は固定のコード（画面はコードから固定の文にする。
+    メッセージは画面に出さない）、``status`` は HTTP の状態。"""
+
+    def __init__(self, code: str, status: int = 409) -> None:
+        super().__init__(code)
+        self.code = code
+        self.status = status
+
+
+JOB_STARTUP = "startup"
+JOB_OVERRIDE = "override"
+JOB_RESTORE = "restore"
+
+
+def _held_key(held: Iterable[Mapping[str, Any]] | None) -> list[tuple[str, str, tuple[str, ...]]]:
+    """保留の比べる部分（単位・理由・表示名。古い印の ``detail`` は見ない）。"""
+    return sorted(
+        (str(h.get("unit")), str(h.get("reason")), tuple(h.get("titles") or ()))
+        for h in (held or [])
+    )
+
+
+def _record_job(
+    cfg: Any,
+    *,
+    action: str,
+    dataset_id: str,
+    name: str | None,
+    units: Sequence[str],
+    held: Sequence[Mapping[str, Any]],
+    status: str,
+    started: datetime,
+) -> None:
+    """アクティビティ（jobs）に 1 行足す（best-effort）。理由・単位はコードのまま持たせ、
+    画面が固定の文にする。"""
+    try:
+        from asterism_api.main import _log_job
+
+        _log_job(
+            cfg,
+            {
+                "kind": JOB_KIND,
+                "status": status,
+                "dataset_id": dataset_id,
+                "dataset_name": name,
+                "sample": {
+                    "action": action,
+                    "units": list(units),
+                    "held": [{"unit": h["unit"], "reason": h["reason"]} for h in held],
+                },
+                "started_at": started.isoformat(),
+                "ended_at": datetime.now(UTC).isoformat(),
+            },
+        )
+    except Exception:
+        logger.warning("refresh_bundled_sample: cannot record the activity", exc_info=True)
+
+
+def _backup_dir(base: Path, rel: str) -> Path:
+    """控えのディレクトリ（dataset ディレクトリ内の ``sample-backup/…``）。外には出さない。"""
+    parts = Path(rel).parts
+    if len(parts) != 2 or parts[0] != BACKUP_DIR or ".." in parts:
+        raise ValueError(f"unsafe backup path: {rel!r}")
+    path = base / rel
+    if (base / BACKUP_DIR).resolve() not in path.resolve().parents:
+        raise ValueError(f"backup path escapes the backup directory: {rel!r}")
+    return path
+
+
+def _remove_backup_dir(base: Path, rel: str) -> None:
+    try:
+        shutil.rmtree(_backup_dir(base, rel), ignore_errors=True)
+    except ValueError:
+        logger.warning("refresh_bundled_sample: refusing to remove %r", rel)
+
+
+def _take_backup(
+    cfg: Any,
+    dataset_id: str,
+    plan: RefreshPlan,
+    override: frozenset[str],
+    meta: Mapping[str, Any],
+    at: datetime,
+) -> dict[str, Any] | None:
+    """置き換える前の内容を ``sample-backup/<UTC>/`` に控える（``history/`` には置かない）。
+
+    控えるのは、この置き換えで実際に変わる、保留を無視した単位のファイルと、meta の欄
+    （名前・種類の一覧）。何も変わらなければ ``None``。
+    """
+    units = [u for u in plan.updated_units() if u in override]
+    if not units:
+        return None
+    base: Path = cfg.registry_root / dataset_id
+    stamp_name = at.strftime("%Y%m%dT%H%M%S%fZ")
+    files: dict[str, bytes] = {}
+    for rel in plan.replace:
+        unit = unit_of_member(REGISTRY_PREFIX + rel)
+        if unit in override and (base / rel).is_file():
+            files[rel] = (base / rel).read_bytes()
+    fields: dict[str, Any] = {}
+    if UNIT_NAME in units and meta.get("name") is not None:
+        fields["name"] = meta["name"]
+    if UNIT_DESIGN in units:
+        for k in ("classes", "class_count"):
+            if k in meta:
+                fields[k] = meta[k]
+    manifest = {"units": units, "files": sorted(files), "fields": fields}
+    payload = {f"{BACKUP_DIR}/{stamp_name}/files/{rel}": blob for rel, blob in files.items()}
+    payload[f"{BACKUP_DIR}/{stamp_name}/{BACKUP_MANIFEST}"] = json.dumps(
+        manifest, ensure_ascii=False, indent=2
+    ).encode("utf-8")
+    registry.replace_artifact_bytes(cfg.registry_root, dataset_id, payload)
+    return {"at": at.isoformat(), "units": units, "dir": f"{BACKUP_DIR}/{stamp_name}/"}
+
+
+async def _refresh(
+    cfg: Any,
+    client: Any,
+    snapshot_path: Path | None,
+    *,
+    override: frozenset[str] = frozenset(),
+    action: str | None = JOB_STARTUP,
+) -> dict[str, Any] | None:
+    """1 回の突き合わせと入れ替え。何もしなかった（対象でない・すでに最新）ときは ``None``、
+    したときは ``{"units": 入れ替えた単位, "held": 保留}``。
+
+    ``override`` は手動の置き換えで保留を無視する単位（控えを取ってから入れ替える）。
+    ``action`` はアクティビティに残す種類。起動時（:data:`JOB_STARTUP`）は入れ替えた単位か
+    保留の中身が変わったときだけ 1 行、手動（:data:`JOB_OVERRIDE`）は 1 回 1 行、
+    ``None`` は記録しない。
+    """
+    started = datetime.now(UTC)
     if not cfg.single_user:
         logger.info("refresh_bundled_sample: not single-user — skipping")
-        return
+        return None
     if (os.environ.get(_DATASET_ENV) or "").strip() == "0":
         logger.info("refresh_bundled_sample: %s=0 — skipping", _DATASET_ENV)
-        return
+        return None
     if snapshot_path is None or not snapshot_path.is_file():
         logger.info("refresh_bundled_sample: no bundled sample found — skipping")
-        return
+        return None
     try:
         bundled = read_bundled(snapshot_path.read_bytes())
     except (BundleError, OSError) as exc:
         logger.warning("refresh_bundled_sample: %s — skipping", exc)
-        return
+        return None
 
     root: Path = cfg.registry_root
     dataset_dir = root / bundled.dataset_id
     meta_path = dataset_dir / "meta.json"
     if not meta_path.is_file():
         logger.info("refresh_bundled_sample: no %s in the registry — skipping", bundled.dataset_id)
-        return
+        return None
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         logger.warning("refresh_bundled_sample: cannot read meta.json — skipping", exc_info=True)
-        return
+        return None
     if not isinstance(meta, dict):
-        return
+        return None
     reason = skip_reason(bundled, meta)
-    if reason:
+    if reason and not (override and reason == "up-to-date"):
         logger.info("refresh_bundled_sample: %s — nothing to do", reason)
-        return
+        return None
 
     # main は local.py より後に読む（環境変数の既定を入れた後でだけ import できる）。
     from asterism_api.main import (
@@ -1273,17 +1533,42 @@ async def _refresh(cfg: Any, client: Any, snapshot_path: Path | None) -> None:
         decision_files=[n for n in DECISION_FILES if (dataset_dir / n).exists()],
         bundled_subjects=_subjects_of_design(bundled.design_artifacts()),
         data_env=data_env,
+        override=override,
     )
     if plan.skip:
         logger.info("refresh_bundled_sample: %s — nothing to do", plan.skip)
-        return
+        return None
 
     old = _valid_stamp(meta.get("sample"))
+    at = datetime.now(UTC)
+    updated = plan.updated_units()
+    # 「実際に何かを入れ替えた」ときだけ last_update を書く。入れ替えの無い起動は前の記録を
+    # 引き継ぐ（印の無い環境でファイルが既に同じだったときは書かない: 何も変わっていない）。
+    last_update: dict[str, Any] | None = old.get("last_update") if old else None
+    if updated:
+        previous_seq = (
+            old["seq"]
+            if old
+            else _received_seq(bundled, (meta.get("imported") or {}).get("canonical_sha256"))
+        )
+        last_update = make_last_update(bundled, previous_seq, updated, at.isoformat())
+    backups: list[dict[str, Any]] = list(old.get("backups", [])) if old else []
+    dropped: list[str] = []
+    if override:
+        # ファイルを置き換える前に、いまの内容を控える。
+        taken = _take_backup(cfg, bundled.dataset_id, plan, override, meta, at)
+        if taken is not None:
+            backups.insert(0, taken)
+            dropped = [str(b["dir"]) for b in backups[MAX_BACKUPS:]]
+            backups = backups[:MAX_BACKUPS]
+
     # 1. データが変わる版の群を入れ替える（ファイルの置き換え・meta・公開の切り替えを含む）。
     #    そうでなければ、ファイルを（履歴を作らず・バイトのまま・原子的に）置き換える。
     live_graph: str | None = None
     if plan.swap_data:
-        meta, live_graph = await _swap_data(cfg, client, bundled, plan, meta, key)
+        meta, live_graph = await _swap_data(
+            cfg, client, bundled, plan, meta, key, last_update=last_update, backups=backups
+        )
     elif plan.replace:
         registry.replace_artifact_bytes(root, bundled.dataset_id, plan.replace)
 
@@ -1341,35 +1626,261 @@ async def _refresh(cfg: Any, client: Any, snapshot_path: Path | None) -> None:
         bundled,
         reached,
         plan.held,
-        datetime.now(UTC).isoformat(),
+        at.isoformat(),
         tools_seq=plan.tools_seq,
         data=data_mark,
         pending=pending,
+        last_update=last_update,
+        backups=backups,
     )
     old_now = _valid_stamp(meta.get("sample"))
     old_core = stamp_core(old_now) if old_now is not None else None
     if old_core != stamp_core(stamp):
         changes["sample"] = stamp
     changes = {k: v for k, v in changes.items() if k == "sample" or meta.get(k) != v}
-    if not changes:
-        if plan.held:
-            # 保留のまま続く起動は書き込みが無い。ログだけでは入れ替わっていないことが
-            # 分からなくなるので、判定のたびに理由コードを 1 行出す。
-            logger.info(
-                "refresh_bundled_sample: seq %s — still held %s",
-                bundled.seq,
-                [f"{h['unit']}:{h['reason']}" for h in plan.held],
-            )
-        return
+    if changes:
+        registry.update_meta_atomic(root, bundled.dataset_id, changes)
+        for rel in dropped:
+            _remove_backup_dir(dataset_dir, rel)  # 一覧から外れた古い控え
+        logger.info(
+            "refresh_bundled_sample: seq %s — replaced %s; reached %s; held %s%s",
+            bundled.seq,
+            sorted(plan.replace) or "nothing",
+            sorted(reached),
+            [f"{h['unit']}:{h['reason']}" for h in plan.held] or "nothing",
+            f"; swapped the data into {live_graph}" if live_graph else "",
+        )
+    elif plan.held:
+        # 保留のまま続く起動は書き込みが無い。ログだけでは入れ替わっていないことが
+        # 分からなくなるので、判定のたびに理由コードを 1 行出す。
+        logger.info(
+            "refresh_bundled_sample: seq %s — still held %s",
+            bundled.seq,
+            [f"{h['unit']}:{h['reason']}" for h in plan.held],
+        )
+
+    # アクティビティ: 起動時は「入れ替えた」か「保留の中身」が変わったときだけ 1 行
+    # （起動のたびには書かない）。手動の置き換えは 1 回 1 行。
+    if action == JOB_OVERRIDE or (
+        action == JOB_STARTUP
+        and (bool(updated) or _held_key(old.get("held") if old else None) != _held_key(plan.held))
+    ):
+        _record_job(
+            cfg,
+            action=action,
+            dataset_id=bundled.dataset_id,
+            name=str(meta.get("name") or changes.get("name") or bundled.name),
+            units=updated,
+            held=plan.held,
+            status="partial" if plan.held else "ok",
+            started=started,
+        )
+    return {"units": updated, "held": [dict(h) for h in plan.held]}
+
+
+# ---------------------------------------------------------------------------
+# 手動の置き換え・控えから戻す（画面のボタン）
+
+
+async def _preflight(
+    cfg: Any, client: Any, snapshot_path: Path | None, dataset_id: str
+) -> tuple[Bundled, dict[str, Any], str, dict[str, Any] | None]:
+    """手動の操作の事前の判定（何も書かない）。``(同梱, meta, control の主語, 印)``。
+
+    単一ユーザー・見本である・取り下げていない・取り込みの途中でない・取り込みの予約が
+    残っていない。走行中の取り込み・追記・設計の保存とは共通のロックを持たないので、
+    見えている限りの印で断る（限界は ADR K62 に書いた）。
+    """
+    if not cfg.single_user:
+        raise SampleOpError("not_available", 404)
+    if (os.environ.get(_DATASET_ENV) or "").strip() == "0":
+        raise SampleOpError("not_sample")
+    if snapshot_path is None or not snapshot_path.is_file():
+        raise SampleOpError("no_bundle")
+    try:
+        bundled = read_bundled(snapshot_path.read_bytes())
+    except (BundleError, OSError) as exc:
+        raise SampleOpError("no_bundle") from exc
+    meta_path = cfg.registry_root / dataset_id / "meta.json"
+    if not meta_path.is_file():
+        raise SampleOpError("not_found", 404)
+    if dataset_id != bundled.dataset_id:
+        raise SampleOpError("not_sample")
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SampleOpError("not_sample") from exc
+    if not isinstance(meta, dict):
+        raise SampleOpError("not_sample")
+    reason = skip_reason(bundled, meta)
+    if reason == "retracted":
+        raise SampleOpError("retracted")
+    if reason == "newer-than-bundle":
+        raise SampleOpError("stale")
+    if reason in ("not-open", "not-imported", "unknown-canonical", "not-promoted"):
+        raise SampleOpError("not_sample")
+    key = _graph_key(meta, bundled.dataset_id)
+    try:
+        staged = await substrate.staged_graph_of(client, key)
+    except Exception as exc:
+        raise SampleOpError("store_unavailable", 503) from exc
+    if meta.get("ingested") or staged:
+        raise SampleOpError("ingest_in_progress")
+    live_no = _VERSION_NUMBER_RE.search(str(meta.get("live_graph") or ""))
+    data_seq = meta.get("data_seq")
+    if (
+        live_no
+        and isinstance(data_seq, int)
+        and not isinstance(data_seq, bool)
+        and data_seq > int(live_no.group(1))
+    ):
+        raise SampleOpError("ingest_reserved")
+    return bundled, meta, key, _valid_stamp(meta.get("sample"))
+
+
+async def manual_override(
+    cfg: Any,
+    client: Any,
+    snapshot_path: Path | None,
+    dataset_id: str,
+    *,
+    seq: int,
+    revision: str,
+    units: Sequence[str],
+) -> dict[str, Any]:
+    """画面の「新しい見本に置き換える」。控えを取ってから、選んだ単位の保留を無視して
+    土台の入れ替えを走らせる。``SampleOpError`` は固定のコードで返す。"""
+    bundled, meta, _key, stamp = await _preflight(cfg, client, snapshot_path, dataset_id)
+    if (
+        stamp is None
+        or stamp["seq"] != seq
+        or stamp["revision"] != revision
+        or bundled.seq != seq
+        or bundled.revision != revision
+    ):
+        raise SampleOpError("stale")
+    overridable = set(dataset_summary.sample_notice(meta, is_demo=True)["overridable"])
+    wanted = list(dict.fromkeys(units))
+    if not wanted or any(u not in overridable for u in wanted):
+        raise SampleOpError("not_overridable")
+    started = datetime.now(UTC)
+    try:
+        outcome = await _refresh(
+            cfg, client, snapshot_path, override=frozenset(wanted), action=JOB_OVERRIDE
+        )
+    except Exception as exc:
+        logger.warning("manual_override: failed", exc_info=True)
+        _record_job(
+            cfg,
+            action=JOB_OVERRIDE,
+            dataset_id=dataset_id,
+            name=str(meta.get("name") or ""),
+            units=wanted,
+            held=[],
+            status="error",
+            started=started,
+        )
+        raise SampleOpError("failed", 500) from exc
+    if outcome is None:
+        raise SampleOpError("not_overridable")
+    return outcome
+
+
+async def _restore_files(
+    cfg: Any, client: Any, bundled: Bundled, meta: dict[str, Any], entry: Mapping[str, Any]
+) -> None:
+    """控えのファイルを原子的に戻し、投影をやり直し、印から戻した単位と控えを外す。"""
+    from asterism_api.main import _project_meta_graph, _project_ontology_graph
+
+    root: Path = cfg.registry_root
+    base = root / bundled.dataset_id
+    bdir = _backup_dir(base, str(entry["dir"]))
+    manifest = json.loads((bdir / BACKUP_MANIFEST).read_text(encoding="utf-8"))
+    units = [u for u in manifest["units"] if u in STAMP_UNITS]
+    files: dict[str, bytes] = {}
+    for rel in manifest["files"]:
+        if unit_of_member(REGISTRY_PREFIX + rel) not in units:
+            raise ValueError(f"the backup lists a file of another unit: {rel!r}")
+        files[rel] = (bdir / "files" / rel).read_bytes()
+    registry.replace_artifact_bytes(root, bundled.dataset_id, files)
+
+    data = registry.load_dataset(root, bundled.dataset_id) or {}
+    artifacts = data.get("artifacts", {})
+    if UNIT_DESIGN in units and not await _project_ontology_graph(
+        client, bundled.dataset_id, artifacts
+    ):
+        raise RuntimeError("the ontology projection wrote nothing")
+    if UNIT_DESCRIPTION in units:
+        blank = not (artifacts.get("metadata.ttl") or "").strip()
+        written = await _project_meta_graph(
+            client, bundled.dataset_id, artifacts, raise_on_failure=True
+        )
+        if not (written or blank):
+            raise RuntimeError("the description projection wrote nothing")
+
+    sample = dict(meta.get("sample") or {})
+    sample["units"] = {u: v for u, v in (sample.get("units") or {}).items() if u not in units}
+    last_update = sample.get("last_update")
+    if isinstance(last_update, dict):
+        left = [u for u in last_update.get("units") or [] if u not in units]
+        if left:
+            sample["last_update"] = {**last_update, "units": left}
+        else:
+            sample.pop("last_update", None)
+    rest = [b for b in _valid_backups(sample.get("backups")) if b.get("dir") != entry["dir"]]
+    if rest:
+        sample["backups"] = rest
+    else:
+        sample.pop("backups", None)
+    changes: dict[str, Any] = {
+        k: v
+        for k, v in (manifest.get("fields") or {}).items()
+        if k in ("name", "classes", "class_count")
+    }
+    changes["sample"] = sample
     registry.update_meta_atomic(root, bundled.dataset_id, changes)
-    logger.info(
-        "refresh_bundled_sample: seq %s — replaced %s; reached %s; held %s%s",
-        bundled.seq,
-        sorted(plan.replace) or "nothing",
-        sorted(reached),
-        [f"{h['unit']}:{h['reason']}" for h in plan.held] or "nothing",
-        f"; swapped the data into {live_graph}" if live_graph else "",
+    _remove_backup_dir(base, str(entry["dir"]))
+
+
+async def manual_restore(
+    cfg: Any, client: Any, snapshot_path: Path | None, dataset_id: str, *, at: str
+) -> dict[str, Any]:
+    """画面の「控えから戻す」。いちばん新しい控えのファイルを原子的に戻し、投影をやり直し、
+    印の該当単位を外す（次の突き合わせでまた「触った」と判定されて保留に戻る）。"""
+    bundled, meta, _key, stamp = await _preflight(cfg, client, snapshot_path, dataset_id)
+    backups = (stamp or {}).get("backups") or []
+    if not backups or backups[0].get("at") != at:
+        raise SampleOpError("stale")
+    entry = backups[0]
+    started = datetime.now(UTC)
+    try:
+        await _restore_files(cfg, client, bundled, meta, entry)
+        # 戻した単位の保留を、印に書き直す（記録は下で 1 行だけ）。
+        await _refresh(cfg, client, snapshot_path, action=None)
+    except Exception as exc:
+        logger.warning("manual_restore: failed", exc_info=True)
+        _record_job(
+            cfg,
+            action=JOB_RESTORE,
+            dataset_id=dataset_id,
+            name=str(meta.get("name") or ""),
+            units=list(entry.get("units") or []),
+            held=[],
+            status="error",
+            started=started,
+        )
+        raise SampleOpError("failed", 500) from exc
+    _record_job(
+        cfg,
+        action=JOB_RESTORE,
+        dataset_id=dataset_id,
+        name=str(meta.get("name") or ""),
+        units=list(entry.get("units") or []),
+        held=[],
+        status="ok",
+        started=started,
     )
+    return {"units": list(entry.get("units") or [])}
 
 
 async def write_seed_stamp(

@@ -688,6 +688,27 @@ export interface DatasetSummary {
   source_note: string | null
   classes: DatasetSummaryClass[]
   is_demo: boolean
+  /** 見本のページの「新しくなった・新しくしていない」の知らせ。見本以外は null。 */
+  sample_notice?: SampleNotice | null
+}
+
+/** `sample_notice.held[]` の 1 件（同じ単位・理由は 1 つにまとめてある）。理由・単位は
+ *  サーバのコードのまま — 文言にするのは `sampleNotice.ts`。`titles` はツールの表示名。 */
+export interface SampleHeldItem {
+  unit: string
+  reason: string
+  count?: number
+  titles?: string[]
+}
+
+/** `GET /api/datasets/{id}/summary` の `sample_notice`（契約メモ PR3 §2）。 */
+export interface SampleNotice {
+  updated: { at: string | null; note: { ja: string | null; en: string | null }; units: string[] } | null
+  held: SampleHeldItem[]
+  overridable: string[]
+  restorable: { at: string; units: string[] } | null
+  seq: number | null
+  revision: string | null
 }
 
 export async function datasetSummary(datasetId: string): Promise<DatasetSummary> {
@@ -696,6 +717,37 @@ export async function datasetSummary(datasetId: string): Promise<DatasetSummary>
   })
   if (!res.ok) await throwApiError(res, 'dataset summary')
   return (await res.json()) as DatasetSummary
+}
+
+/** 手動の置き換え・戻すの POST。ローカル版は 127.0.0.1 に届く要求すべてに書き込み権限が
+ *  付くので、サーバは JSON 本文と `X-Asterism-Intent` の見出しを必須にしている（ほかの
+ *  ページからの単純な POST を通さない）。失敗は `ApiError.code` の固定コードで返る
+ *  （画面は `message` を出さず、コードから固定の文にする）。 */
+async function postSample(datasetId: string, action: 'refresh' | 'restore', body: unknown) {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/sample/${action}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Asterism-Intent': action === 'refresh' ? 'sample-refresh' : 'sample-restore',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) await throwApiError(res, `sample ${action}`)
+}
+
+/** 「新しい見本に置き換える」（画面が見た seq・revision を添える）。 */
+export async function refreshSample(
+  datasetId: string,
+  notice: { seq: number; revision: string },
+  units: string[],
+): Promise<void> {
+  await postSample(datasetId, 'refresh', { seq: notice.seq, revision: notice.revision, units })
+}
+
+/** 「控えから戻す」。 */
+export async function restoreSample(datasetId: string, at: string): Promise<void> {
+  await postSample(datasetId, 'restore', { at })
 }
 
 // ---------------------------------------------------------------------------

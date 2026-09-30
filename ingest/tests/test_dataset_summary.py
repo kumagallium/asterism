@@ -133,3 +133,151 @@ async def test_prov_activity_and_its_dataset_subclass_are_excluded_from_classes(
     assert INGESTION_CLASS not in class_iris
     book = next(c for c in result["classes"] if c["class_iri"] == BOOK_CLASS)
     assert book["count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# sample_notice（見本のページの「新しくなった・新しくしていない」の知らせ）
+
+_RAW_WORDS = ("mapping.yaml", "model.yaml", "diagram.md", "query_tools", "life_expectancy")
+
+
+def _stamp(**over):
+    stamp = {
+        "seq": 3,
+        "revision": "08c3557051b4b61b",
+        "applied_at": "2026-09-30T00:00:00+00:00",
+        "units": {},
+        "held": [],
+    }
+    stamp.update(over)
+    return stamp
+
+
+def test_sample_notice_is_none_unless_the_sample() -> None:
+    from asterism.dataset_summary import sample_notice
+
+    assert sample_notice({"sample": _stamp()}, is_demo=False) is None
+
+
+def test_sample_notice_without_a_stamp_is_empty_but_present() -> None:
+    from asterism.dataset_summary import sample_notice
+
+    notice = sample_notice({}, is_demo=True)
+    assert notice == {
+        "updated": None,
+        "held": [],
+        "overridable": [],
+        "restorable": None,
+        "seq": None,
+        "revision": None,
+    }
+
+
+def test_sample_notice_carries_what_the_screen_needs_and_no_raw_identifiers() -> None:
+    from asterism.dataset_summary import sample_notice
+
+    meta = {
+        "sample": _stamp(
+            last_update={
+                "seq": 3,
+                "at": "2026-09-30T01:00:00+00:00",
+                "units": ["design", "data"],
+                "note": {"ja": "図の箱を日本語にした", "en": "Named the boxes"},
+            },
+            held=[
+                {"unit": "tools", "reason": "edited", "titles": ["国の平均寿命の推移"]},
+                {"unit": "tools", "reason": "edited"},
+                {"unit": "design", "reason": "decisions", "detail": "column-decisions.json"},
+            ],
+            backups=[
+                {"at": "2026-09-30T02:00:00+00:00", "units": ["name"], "dir": "sample-backup/x/"},
+                {"at": "2026-09-29T02:00:00+00:00", "units": ["design"], "dir": "sample-backup/y/"},
+            ],
+        )
+    }
+    notice = sample_notice(meta, is_demo=True)
+    assert notice is not None
+    assert notice["seq"] == 3
+    assert notice["revision"] == "08c3557051b4b61b"
+    assert notice["updated"] == {
+        "at": "2026-09-30T01:00:00+00:00",
+        "note": {"ja": "図の箱を日本語にした", "en": "Named the boxes"},
+        "units": ["design", "data"],
+    }
+    assert notice["held"] == [
+        {"unit": "tools", "reason": "edited", "count": 2, "titles": ["国の平均寿命の推移"]},
+        {"unit": "design", "reason": "decisions", "count": 1},
+    ]
+    assert notice["overridable"] == ["tools", "design"]
+    # 控えは新しいものだけ。dir は画面に要らない
+    assert notice["restorable"] == {"at": "2026-09-30T02:00:00+00:00", "units": ["name"]}
+    text = json.dumps(notice, ensure_ascii=False)
+    for word in (*_RAW_WORDS, "column-decisions", "sample-backup"):
+        assert word not in text
+
+
+@pytest.mark.parametrize(
+    "held",
+    [
+        [{"unit": "design", "reason": "appended"}],
+        [{"unit": "design", "reason": "ids_move"}],
+        [{"unit": "design", "reason": "edited"}, {"unit": "design", "reason": "ids_unknown"}],
+        # データの群は、同じ理由が design・tools にもあっても置き換えない
+        [
+            {"unit": "design", "reason": "edited"},
+            {"unit": "data", "reason": "edited"},
+            {"unit": "tools", "reason": "edited"},
+        ],
+    ],
+)
+def test_sample_notice_overridable_excludes_what_would_lose_the_users_data(held) -> None:
+    from asterism.dataset_summary import sample_notice
+
+    notice = sample_notice({"sample": _stamp(held=held)}, is_demo=True)
+    assert notice is not None
+    assert notice["overridable"] == []
+
+
+def test_sample_notice_overridable_is_per_unit() -> None:
+    from asterism.dataset_summary import sample_notice
+
+    held = [
+        {"unit": "design", "reason": "edited"},
+        {"unit": "name", "reason": "edited"},
+        {"unit": "description", "reason": "ids_move"},
+    ]
+    notice = sample_notice({"sample": _stamp(held=held)}, is_demo=True)
+    assert notice is not None
+    assert notice["overridable"] == ["design", "name"]
+
+
+def test_sample_notice_ignores_malformed_stamp_parts() -> None:
+    from asterism.dataset_summary import sample_notice
+
+    notice = sample_notice(
+        {"sample": {"seq": True, "held": ["x", {"unit": 1}], "backups": [1], "last_update": "x"}},
+        is_demo=True,
+    )
+    assert notice is not None
+    assert notice["held"] == []
+    assert notice["restorable"] is None
+    assert notice["updated"] is None
+    assert notice["seq"] is None
+
+
+async def test_dataset_summary_carries_the_notice_only_for_the_sample(tmp_path: Path) -> None:
+    from asterism.dataset_summary import DEMO_DATASET_ID
+
+    _write_registry(tmp_path)
+    plain = await dataset_summary(_pyoxi_client({}), tmp_path, DATASET_ID)
+    assert plain is not None
+    assert plain["is_demo"] is False
+    assert plain["sample_notice"] is None
+
+    dest = tmp_path / DEMO_DATASET_ID
+    dest.mkdir()
+    meta = {"id": DEMO_DATASET_ID, "name": "見本", "origin": "open", "sample": _stamp()}
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    demo = await dataset_summary(_pyoxi_client({}), tmp_path, DEMO_DATASET_ID)
+    assert demo is not None
+    assert demo["sample_notice"]["seq"] == 3

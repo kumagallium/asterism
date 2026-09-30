@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getJobs, type IngestJob } from './jobsApi'
+import { isSampleJob, sampleJobLines, sampleStatusKey } from './jobsSample'
 
 // Status → semantic color (mirrors the validation-trap palette).
 function statusClass(status: string): string {
@@ -90,6 +91,12 @@ export function JobsView() {
   // ままにする（将来 kind が増えても空欄にしない = 停止カードと同じ fail-open）。
   const kindLabel = (kind: string) => t(`jobs:kind.${kind}`, { defaultValue: kind })
   const statusLabel = (status: string) => t(`jobs:status.${status}`, { defaultValue: status })
+  // 見本の入れ替え（sample_refresh）は、ファイル名の欄も「〇件の事実」の文も持たない。
+  // 「一部」は失敗ではなく「一部は入れ替えていない」なので、状態の文言も分ける。
+  const sampleStatusLabel = (status: string) => {
+    const key = sampleStatusKey(status)
+    return key ? t(key) : statusLabel(status)
+  }
 
   return (
     <>
@@ -136,7 +143,23 @@ export function JobsView() {
           （何が・どれだけ入って・いつ）で言い切る。 */}
       {jobs && jobs.length > 0 && (
         <div className="job-cards">
-          {jobs.map((j, i) => (
+          {jobs.map((j, i) =>
+            isSampleJob(j) ? (
+              <div className={cardClass(j.status)} key={`sample-${j.ended_at}-${i}`}>
+                <div className="job-card-head">
+                  <span className={`job-status ${statusClass(j.status)}`}>
+                    {sampleStatusLabel(j.status)}
+                  </span>
+                  <span className="job-kind">{kindLabel(j.kind)}</span>
+                </div>
+                {sampleJobLines(j, t).map((line) => (
+                  <p className="job-card-fact" key={line}>
+                    {line}
+                  </p>
+                ))}
+                <p className="job-card-meta">{fmtTime(j.ended_at)}</p>
+              </div>
+            ) : (
             <div className={cardClass(j.status)} key={`${j.csv_path}-${j.ended_at}-${i}`}>
               <div className="job-card-head">
                 <span className={`job-status ${statusClass(j.status)}`}>
@@ -170,7 +193,8 @@ export function JobsView() {
                 </details>
               )}
             </div>
-          ))}
+            ),
+          )}
         </div>
       )}
     </>

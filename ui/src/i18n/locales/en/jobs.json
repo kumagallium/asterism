@@ -19,7 +19,8 @@
     "append": "Append",
     "papers": "Automatic (papers)",
     "samples": "Automatic (samples)",
-    "curves": "Automatic (measurements)"
+    "curves": "Automatic (measurements)",
+    "sample_refresh": "Sample"
   },
   "status": {
     "ok": "Done",
@@ -34,5 +35,16 @@
   "card": {
     "rowsAndFacts": "Read {{ok}} of {{total}} rows — {{facts}} facts recorded",
     "factsOnly": "{{facts}} facts recorded"
+  },
+  "sample": {
+    "other": "Sample record",
+    "status_partial": "Partly not swapped",
+    "startup_updated": "Updated the sample to the new version",
+    "startup_held_by_you": "Some of it was not updated because you changed it",
+    "startup_held": "Some of it is not updated for now",
+    "override": "Replaced what you changed with the new sample",
+    "override_error": "Could not replace with the new sample",
+    "restore": "Restored from the backup",
+    "restore_error": "Could not restore from the backup"
   }
 }
