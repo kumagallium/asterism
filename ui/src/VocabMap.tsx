@@ -1,7 +1,7 @@
 // 「共通のことば」の育つ地図の**描画**（shared-vocab-graph.md）。
 //
 // データは `composeVocabGraph`（vocabGraph.ts）が組む。ここは並べて描くだけ:
-//   ・データセット = 点線枠のクラスタ（中の段組みは ⑤ と同じ `layout()`）
+//   ・データセット = 点線枠のクラスタ（中の段組みと線の通り道は ⑤ と同じ `arrange()`）
 //   ・種類の箱 = ⑤ と同じ `ShapeBox`（同じ設計はどの画面でも同じ見た目）
 //   ・標準のことば = 画面下の琥珀の帯。ここに線が集まるのがこの図の主役
 // `ShapeGraph` 本体は触らない — ④⑤の共有部品に横断図の概念を混ぜない（ADR §3）。
@@ -25,8 +25,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { CloseIcon, ExpandIcon } from './icons'
-import { ShapeBox, type ShapeNodeData } from './kantan/ShapeGraph'
-import { layout, nodeHeight } from './shapeGraph'
+import { ShapeBox, ShapeEdgeLine, type ShapeNodeData } from './kantan/ShapeGraph'
+import { arrange, nodeHeight, type Route } from './shapeGraph'
 import type { VocabEdgeKind, VocabNode, VocabShape } from './vocabGraph'
 
 const KIND_W = 232
@@ -94,47 +94,53 @@ function StdBox({ data }: NodeProps) {
   )
 }
 
+// ⭐モジュールの上の階層に置く（ShapeGraph と同じ理由 — 中に置くと毎回作り直され、
+// React Flow が節と線を採り直す）。
 const NODE_TYPES = { shape: ShapeBox, cluster: ClusterFrame, band: BandFrame, std: StdBox }
+const EDGE_TYPES = { shape: ShapeEdgeLine }
 
-/** 決め打ちの段組み: クラスタごとに ⑤ の `layout()` で中を並べ、クラスタを行に
- *  詰めて折り返し、標準のことばの帯を下に敷く。すべて入力順で決定論。 */
-function place(shape: VocabShape) {
+/** 決め打ちの段組み: クラスタごとに ⑤ と同じ `arrange()` で中を並べ（段をまたぐ線の
+ *  席もそこで取る）、クラスタを行に詰めて折り返し、標準のことばの帯を下に敷く。
+ *  すべて入力順で決定論。
+ *
+ *  枠の幅は、席を含む幅（`arrange` の `width`）から取る — 席は箱ではないので、箱の
+ *  座標からは分からない。枠がその幅を持つので、図を枠に合わせるとき（`fitView`）にも
+ *  席が入る（ShapeGraph の場所取りの箱は要らない）。線の通り道（席・まっすぐ降りる
+ *  下端）は枠の中の座標で返ってくるので、箱と同じだけずらす（`VocabMap.test.ts`）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（PageChatDrawer と同じ理由）
+export function place(shape: VocabShape) {
   const nodes: Node[] = []
+  /** 枠の中の線の通り道。`shape.edges` と同じ並びで、枠の中の線でなければ undefined。 */
+  const routes: (Route | undefined)[] = shape.edges.map(() => undefined)
   const heightOf = (n: VocabNode) => nodeHeight(n)
-  type Placed = { id: string; w: number; h: number; inner: Map<string, { x: number; y: number }> }
+  type Placed = {
+    id: string
+    w: number
+    h: number
+    inner: Map<string, { x: number; y: number }>
+    /** 枠の中の線（`shape.edges` の添字）と、その通り道（枠の中の座標）。 */
+    lines: { edge: number; route: Route }[]
+  }
   const placed: Placed[] = []
   for (const c of shape.clusters) {
     const inner = shape.nodes.filter((n) => n.cluster === c.id)
     if (inner.length === 0) continue
-    const innerEdges = shape.edges.filter(
-      (e) =>
-        e.kind === 'link' &&
-        inner.some((n) => n.id === e.from) &&
-        inner.some((n) => n.id === e.to),
-    )
-    const pos = layout(
-      { nodes: inner, edges: innerEdges },
+    const innerIds = new Set(inner.map((n) => n.id))
+    // 枠の中の線 = データの中の線で、両端がこの枠の箱のもの。
+    const edgeIdx: number[] = []
+    shape.edges.forEach((e, i) => {
+      if (e.kind === 'link' && innerIds.has(e.from) && innerIds.has(e.to)) edgeIdx.push(i)
+    })
+    const a = arrange(
+      { nodes: inner, edges: edgeIdx.map((i) => shape.edges[i]) },
       { perRow: 3, nodeWidth: KIND_W, heightOf },
     )
-    let minX = Infinity
-    let maxX = -Infinity
-    let maxY = 0
-    for (const n of inner) {
-      const p = pos.get(n.id)!
-      minX = Math.min(minX, p.x)
-      maxX = Math.max(maxX, p.x + KIND_W)
-      maxY = Math.max(maxY, p.y + heightOf(n))
-    }
-    const shifted = new Map<string, { x: number; y: number }>()
-    for (const n of inner) {
-      const p = pos.get(n.id)!
-      shifted.set(n.id, { x: p.x - minX, y: p.y })
-    }
     placed.push({
       id: c.id,
-      w: maxX - minX + CL_PAD_SIDE * 2,
-      h: maxY + CL_PAD_TOP + CL_PAD_BOT,
-      inner: shifted,
+      w: a.width + CL_PAD_SIDE * 2,
+      h: a.height + CL_PAD_TOP + CL_PAD_BOT,
+      inner: a.pos,
+      lines: edgeIdx.map((edge, j) => ({ edge, route: a.routes[j] })),
     })
   }
 
@@ -169,6 +175,9 @@ function place(shape: VocabShape) {
     let x = (canvasW - rowW(r)) / 2
     const tallest = Math.max(...r.map((p) => p.h))
     for (const p of r) {
+      // 枠の中の座標 → 図の座標。箱も、線の通り道も、同じだけずらす。
+      const ox = x + CL_PAD_SIDE
+      const oy = top + CL_PAD_TOP
       nodes.push({
         id: `cluster:${p.id}`,
         type: 'cluster',
@@ -188,7 +197,7 @@ function place(shape: VocabShape) {
         nodes.push({
           id,
           type: 'shape',
-          position: { x: x + CL_PAD_SIDE + ip.x, y: top + CL_PAD_TOP + ip.y },
+          position: { x: ox + ip.x, y: oy + ip.y },
           data: {
             label: n.label,
             tone: n.tone,
@@ -206,6 +215,13 @@ function place(shape: VocabShape) {
           zIndex: 1,
         })
       }
+      for (const { edge, route } of p.lines) {
+        const shifted: Route = {
+          via: route.via.map((l) => ({ x: l.x + ox, top: l.top + oy, bottom: l.bottom + oy })),
+        }
+        if (route.drop !== undefined) shifted.drop = route.drop + oy
+        routes[edge] = shifted
+      }
       x += p.w + CL_GAP
     }
     top += tallest + CL_GAP
@@ -215,9 +231,14 @@ function place(shape: VocabShape) {
   if (stds.length) {
     const bandTop = top + BAND_GAP
     const bandH = BAND_PAD_TOP + stdRows.length * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
-    return { nodes: withBand(nodes, stds, stdRows, canvasW, bandTop, bandH), height: bandTop + bandH }
+    return {
+      nodes: withBand(nodes, stds, stdRows, canvasW, bandTop, bandH),
+      routes,
+      width: canvasW,
+      height: bandTop + bandH,
+    }
   }
-  return { nodes, height: top }
+  return { nodes, routes, width: canvasW, height: top }
 }
 
 function withBand(
@@ -278,7 +299,10 @@ function VocabMapInner({
   zoomable?: boolean
 }) {
   const { t } = useTranslation()
-  const { nodes: rawNodes, height: contentH } = useMemo(() => place(shape), [shape])
+  const { nodes: rawNodes, routes, width: contentW, height: contentH } = useMemo(
+    () => place(shape),
+    [shape],
+  )
   const nodes = useMemo(
     () =>
       rawNodes.map((n) =>
@@ -304,6 +328,10 @@ function VocabMapInner({
         id: `${e.from}->${e.to}-${i}`,
         source: e.from,
         target: e.to,
+        // 枠の中の線（データの中）は、席と真下の通り道を描ける ShapeGraph の線で引く。
+        // 帯へ降りる線（used / candidate / alignment）は React Flow の既定の線のまま —
+        // 帯は枠の外にあり、段の考えが無い。
+        ...(e.kind === 'link' ? { type: 'shape', data: { route: routes[i] } } : {}),
         label: dup ? undefined : e.label,
         className: `vocab-map-edge vocab-map-edge--${e.kind}`,
         markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR[e.kind] },
@@ -312,7 +340,7 @@ function VocabMapInner({
           : undefined,
       }
     })
-  }, [shape])
+  }, [shape, routes])
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {
@@ -328,8 +356,14 @@ function VocabMapInner({
   // 形が変わったら測り直して合わせ直す（ShapeGraph と同じ理由 — 辺は handle の
   // 実測が取れるまで描かれない）。
   const fitKey = useMemo(
-    () => shape.nodes.map((n) => n.id).join('|') + '#' + shape.edges.map((e) => `${e.from}>${e.to}`).join('|'),
-    [shape],
+    () =>
+      shape.nodes.map((n) => n.id).join('|') +
+      '#' +
+      shape.edges.map((e) => `${e.from}>${e.to}`).join('|') +
+      '#' +
+      // 席の幅は線の名前で決まる。名前だけが変わっても、図の幅が変わる。
+      contentW,
+    [shape, contentW],
   )
   const rf = useReactFlow()
   const updateNodeInternals = useUpdateNodeInternals()
@@ -405,6 +439,7 @@ function VocabMapInner({
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.06, maxZoom: 1 }}
         minZoom={0.08}

@@ -1,6 +1,6 @@
 import type { GraphSpec } from './viewSpec'
 
-/** GraphSpec の決定論レイアウト。`../shapeGraph.ts` の `layout()` と同じ流儀
+/** GraphSpec の決定論レイアウト。`../shapeGraph.ts` の `arrange()` と同じ流儀
  *  （入次数から段を決め、同じ段の中は登場順）だが、`direction: 'LR'` のときは
  *  段を**横**に並べる（x が段、y が段内の順）。`shapeGraph.ts` は Shape 型
  *  （tone 付き）を要求するので直接は呼ばず、ここに段の計算を自前で持つ
