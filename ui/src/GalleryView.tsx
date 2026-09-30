@@ -40,6 +40,7 @@ import {
   type AppendResult,
   type CatalogDataset,
   type CatalogStatusKind,
+  datasetHasKind,
   datasetStage,
   deleteDataset,
   type DatasetRules,
@@ -321,7 +322,7 @@ export function GalleryView({
     if (focusClass === seenFocusRef.current) return
     if (!datasets) return
     seenFocusRef.current = focusClass
-    const f = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
+    const f = focusClass ? list.find((d) => datasetHasKind(d, focusClass)) : undefined
     onSelect?.(f ? f.id : null)
     // list は datasets から導出されるため datasets を依存に取る
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1548,15 +1549,35 @@ function DatasetDetail({
                 <>
                   <div className="ds-subhead">{t('gallery:design.classesHead')}</div>
                   <div className="ds-classes">
-                    {dataset.classes.map((c) => (
-                      <span
-                        key={c}
-                        className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
-                      >
-                        {termLabels[c] && <span>{termLabels[c]}</span>}
-                        <code className="class-chip-en">{c}</code>
-                      </span>
-                    ))}
+                    {/* 種類の IRI（alignment）があればそれで並べる: 名前は termLabels を
+                        IRI で引き、識別子はローカル名を添える（K59）。`classes` は表示名に
+                        なったので（K50）、それで引くと識別子が消えていた。取り込む前で
+                        IRI が無いときだけ、今までどおり `classes` で並べる。 */}
+                    {dataset.classIris.length > 0
+                      ? dataset.classIris.map((iri) => {
+                          const local = localName(iri)
+                          const label = termLabels[iri]
+                          const hot = !!highlight && (highlight === local || highlight === label)
+                          return (
+                            <span
+                              key={iri}
+                              className={`class-chip${hot ? ' onto-class-chip--focus' : ''}`}
+                              title={iri}
+                            >
+                              {label && label !== local && <span>{label}</span>}
+                              <code className="class-chip-en">{local}</code>
+                            </span>
+                          )
+                        })
+                      : dataset.classes.map((c) => (
+                          <span
+                            key={c}
+                            className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
+                          >
+                            {termLabels[c] && <span>{termLabels[c]}</span>}
+                            <code className="class-chip-en">{c}</code>
+                          </span>
+                        ))}
                   </div>
                 </>
               )}

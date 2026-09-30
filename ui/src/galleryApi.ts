@@ -22,7 +22,7 @@
 import { fetchProposal } from './api'
 import { authHeaders } from './authToken'
 import i18n from './i18n'
-import { deriveReuses } from './vocab'
+import { deriveReuses, localName } from './vocab'
 
 // ---- edit-risk (the layer-distinction signal) -----------------------------
 
@@ -53,10 +53,27 @@ export function vocabClassFor(kind: string, known?: ReadonlySet<string>): string
   return kind && known?.has(kind) ? kind : undefined
 }
 
-/** Class names present in the catalogued datasets — the `known` set above. */
+/** A kind name as it may reach the catalog: the design's display name
+ *  (`classes`, from the diagram — K50) or the class's local name (what an Ask
+ *  citation's `kind` usually carries, since the model reads the schema's
+ *  identifiers). Both name the same kind, so both must find it (ADR kantan K59). */
+export function datasetHasKind(
+  d: Pick<CatalogDataset, 'classes' | 'classIris'>,
+  kind: string,
+): boolean {
+  if (!kind) return false
+  if (d.classes.includes(kind)) return true
+  return d.classIris.some((iri) => iri === kind || localName(iri) === kind)
+}
+
+/** Kind names present in the catalogued datasets — the `known` set above:
+ *  display names and the local names of the classes actually used. */
 export function catalogClassNames(datasets: readonly CatalogDataset[]): Set<string> {
   const out = new Set<string>()
-  for (const d of datasets) for (const c of d.classes) out.add(c)
+  for (const d of datasets) {
+    for (const c of d.classes) out.add(c)
+    for (const iri of d.classIris) out.add(localName(iri))
+  }
   return out
 }
 
