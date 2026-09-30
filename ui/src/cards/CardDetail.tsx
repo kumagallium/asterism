@@ -13,7 +13,7 @@ import { parseMermaidFlowchart } from './mermaidFlow'
 // 契約メモ §1.3 どおりに import だけ書いておき、統合段で繋ぐ（契約メモ §1
 // 「並列中の仮置き」と同じ流儀）。
 import type { PageChatTurn } from './pageChatThreads'
-import { isDefinitionGapValue } from './placeShape'
+import { presentFactRows } from './placeShape'
 import type { Presentation } from './presentation'
 import { effectivePresentation, viewFor } from './presentation'
 import './pages.css'
@@ -43,13 +43,6 @@ function renderableCustomView(
   return null
 }
 
-/** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
- *  （契約 §4「事実の表」）。CardTile.tsx と同じ判定・同じ流儀。 */
-function maskDefinitionGapValues(rows: Record<string, unknown>[], placeholder: string): Record<string, unknown>[] {
-  return rows.map((row) =>
-    isDefinitionGapValue(row.value_iri, row.property_iri) ? { ...row, value_iri: undefined, value: placeholder } : row,
-  )
-}
 
 export interface CardDetailProps {
   subject: SubjectKey
@@ -331,7 +324,7 @@ function renderResultTab(
   // 定義不備の定数（value_iri === property_iri）は「（値なし）」に落とす
   // （契約 §4「事実の表」）。カード詳細は事実カードでも件数を切らない（全件・
   // §2(a)）— その全件に対して行う。
-  const rows = maskDefinitionGapValues(result.items, t('builtin.value_missing'))
+  const rows = presentFactRows(result.items, t('builtin.value_missing'), t('graph.prop_type'))
 
   // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
   // 使う（Mermaid は GraphSpec に変換して flow と同じ GraphView で描く）。

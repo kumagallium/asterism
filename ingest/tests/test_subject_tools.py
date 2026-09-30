@@ -1657,3 +1657,112 @@ async def test_subject_facts_rows_that_disagree_keep_the_store_label(
     out = await subject_facts(_shelf_client(), SHELF_ITEM_1, registry_root=tmp_path)
     row = next(i for i in out["items"] if i["property_iri"] == IS_PART_OF)
     assert row["property"] == "isPartOf"
+
+
+# ---------------------------------------------------------------------------
+# どこにも名前の無い述語（つながりのハブへの述語など）は、値の種類の名前で読む。
+# 値の IRI に名前が無ければ、その 1 件のページの見出しと同じローカル名。
+# ---------------------------------------------------------------------------
+
+EX_TRIP = "https://ex/trip/ontology#"
+EX_TRIP_RES = "https://ex/trip/resource/"
+TRIP_DATASET = "trip-log"
+TRIP_GRAPH = canonical_graph_iri(TRIP_DATASET) + "/v1"
+TRIP_1 = "https://ex/trip/resource/trip/T-1"
+STOP_A = "https://ex/trip/resource/stop/A-1"
+STOP_B = "https://ex/trip/resource/stop/B-2"
+GATE_X = "https://ex/trip/resource/gate/X-9"
+
+_TRIP_TTL = f"""
+@prefix trip: <{EX_TRIP}> .
+<{TRIP_1}> a trip:Trip ;
+    trip:hasStop <{STOP_A}> , <{STOP_B}> ;
+    trip:hasPlace <{STOP_A}> , <{GATE_X}> ;
+    trip:hasNote <{STOP_A}> , "文字の値" .
+<{TRIP_1}> trip:visited <{EX_TRIP_RES}spot/1> .
+<{TRIP_1}> trip:passedThrough <{GATE_X}> .
+<{TRIP_1}> trip:reached <{STOP_A}> , <{EX_TRIP_RES}untyped/1> .
+<{STOP_A}> a trip:Stop .
+<{STOP_B}> a trip:Stop .
+<{GATE_X}> a trip:Gate , <http://www.w3.org/2002/07/owl#NamedIndividual> .
+<{EX_TRIP_RES}spot/1> a <{EX_TRIP}%E7%AB%8B%E3%81%A1%E5%AF%84%E3%82%8A> .
+"""
+
+_TRIP_MODEL_YAML = """
+classes:
+  trip:Trip: {label: 旅}
+  trip:Stop: {label: 立ち寄り先}
+  trip:Gate: {label: 門}
+"""
+
+_TRIP_MAPPING_YAML = """
+version: 1
+prefixes:
+  trip: https://ex/trip/ontology#
+maps:
+- name: trip
+  subject:
+    template: https://ex/trip/resource/trip/{id}
+    classes: [trip:Trip]
+  properties: []
+"""
+
+
+def _write_trip_registry(root: Path) -> None:
+    dest = root / TRIP_DATASET
+    dest.mkdir(parents=True)
+    meta = {"id": TRIP_DATASET, "promoted": True, "promoted_at": "2024-01-01"}
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (dest / "mapping.yaml").write_text(_TRIP_MAPPING_YAML, encoding="utf-8")
+    (dest / "model.yaml").write_text(_TRIP_MODEL_YAML, encoding="utf-8")
+
+
+async def _trip_rows(tmp_path: Path) -> list[dict]:
+    _write_trip_registry(tmp_path)
+    client = _pyoxi_client({TRIP_GRAPH: _TRIP_TTL})
+    out = await subject_facts(client, TRIP_1, registry_root=tmp_path)
+    return out["items"]
+
+
+async def test_unnamed_predicate_reads_the_kind_name_of_its_values(tmp_path: Path) -> None:
+    rows = await _trip_rows(tmp_path)
+    names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "hasStop"}
+    assert names == {"立ち寄り先"}
+
+
+async def test_values_of_two_kinds_keep_the_humanized_name(tmp_path: Path) -> None:
+    rows = await _trip_rows(tmp_path)
+    names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "hasPlace"}
+    assert names == {"Place"}
+
+
+async def test_predicate_with_a_literal_value_is_not_named_after_a_kind(tmp_path: Path) -> None:
+    rows = await _trip_rows(tmp_path)
+    names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "hasNote"}
+    assert names == {"Note"}
+
+
+async def test_value_without_a_name_reads_its_local_name_unchanged(tmp_path: Path) -> None:
+    rows = await _trip_rows(tmp_path)
+    values = {r["value"] for r in rows if r["property_iri"] == EX_TRIP + "hasStop"}
+    # 1 件のページの見出しと同じ（"A 1" のように値を崩さない）
+    assert values == {"A-1", "B-2"}
+
+
+async def test_kind_without_a_name_is_not_used_even_when_percent_encoded(tmp_path: Path) -> None:
+    # 名前の無い種類の読みくだし（符号つき）を、名前として使わない
+    rows = await _trip_rows(tmp_path)
+    names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "visited"}
+    assert names == {"visited"}
+
+
+async def test_a_name_less_generic_type_does_not_block_the_kind_name(tmp_path: Path) -> None:
+    rows = await _trip_rows(tmp_path)
+    names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "passedThrough"}
+    assert names == {"門"}
+
+
+async def test_a_value_without_a_kind_keeps_the_humanized_name(tmp_path: Path) -> None:
+    rows = await _trip_rows(tmp_path)
+    names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "reached"}
+    assert names == {"reached"}

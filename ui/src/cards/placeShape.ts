@@ -167,3 +167,28 @@ export function buildShapePreview(text: string, maxRows = 3): ShapePreview {
 export function isDefinitionGapValue(valueIri: unknown, propertyIri: unknown): boolean {
   return typeof valueIri === 'string' && valueIri.length > 0 && valueIri === propertyIri
 }
+
+const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
+
+/** 事実の表の 1 行が「種類」（`rdf:type`）の行か。この行の項目名は、サーバが
+ *  述語を読みくだした語（`type`）で届くので、呼び出し側が UI の言語の
+ *  「種類」に差し替える。 */
+export function isKindRow(propertyIri: unknown): boolean {
+  return propertyIri === RDF_TYPE
+}
+
+/** 事実の表の行を見せる形にする（CardTile・CardDetail が同じものを使う）:
+ *  定義不備の定数は値を「（値なし）」に（契約 §4「事実の表」）、種類の行は
+ *  項目名を UI の言語の「種類」に。行そのものは書き換えず、新しい配列を返す。 */
+export function presentFactRows(
+  rows: Record<string, unknown>[],
+  valueMissing: string,
+  kindLabel: string,
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const named = isKindRow(row.property_iri) ? { ...row, property: kindLabel } : row
+    return isDefinitionGapValue(row.value_iri, row.property_iri)
+      ? { ...named, value_iri: undefined, value: valueMissing }
+      : named
+  })
+}
