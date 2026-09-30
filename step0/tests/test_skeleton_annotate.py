@@ -7,9 +7,9 @@ from pathlib import Path
 from asterism_step0.dialect import SourceDialect
 from asterism_step0.skeleton_annotate import (
     annotate_skeleton,
-    catalog_homes,
     apply_key_safety_fix,
     assemble_skeleton_from_judgments,
+    catalog_homes,
     fold_twin_kinds,
 )
 
