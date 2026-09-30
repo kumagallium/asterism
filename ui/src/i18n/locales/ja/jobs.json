@@ -19,7 +19,8 @@
     "append": "追記",
     "papers": "自動取り込み（論文）",
     "samples": "自動取り込み（試料）",
-    "curves": "自動取り込み（測定データ）"
+    "curves": "自動取り込み（測定データ）",
+    "sample_refresh": "見本"
   },
   "status": {
     "ok": "完了",
@@ -34,5 +35,16 @@
   "card": {
     "rowsAndFacts": "{{total}} 行のうち {{ok}} 行を読み、{{facts}} 件の事実になりました",
     "factsOnly": "{{facts}} 件の事実になりました"
+  },
+  "sample": {
+    "other": "見本の記録",
+    "status_partial": "一部は入れ替えていません",
+    "startup_updated": "見本を新しい版にしました",
+    "startup_held_by_you": "一部は、あなたが変えたので新しくしていません",
+    "startup_held": "一部は、いまは新しくしていません",
+    "override": "変えたものを新しい見本に置き換えました",
+    "override_error": "新しい見本への置き換えに失敗しました",
+    "restore": "控えから戻しました",
+    "restore_error": "控えから戻せませんでした"
   }
 }

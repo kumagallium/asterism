@@ -27,13 +27,38 @@ export interface IngestJob {
   error: string | null
   started_at: string
   ended_at: string
+  /** kind が sample_refresh のときの中身（理由・単位はコードのまま。文言にするのは
+   *  jobsSample.ts）。それ以外は null。 */
+  sample: SampleJob | null
+}
+
+export interface SampleJob {
+  action: string // startup | override | restore
+  units: string[]
+  held: { unit: string; reason: string }[]
+}
+
+function normalizeSample(raw: unknown): SampleJob | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const strs = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  const held = Array.isArray(r.held)
+    ? r.held.flatMap((h) => {
+        const o = (h ?? {}) as Record<string, unknown>
+        return typeof o.unit === 'string' && typeof o.reason === 'string'
+          ? [{ unit: o.unit, reason: o.reason }]
+          : []
+      })
+    : []
+  return { action: typeof r.action === 'string' ? r.action : '', units: strs(r.units), held }
 }
 
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }
 
-function normalizeJob(raw: unknown): IngestJob {
+export function normalizeJob(raw: unknown): IngestJob {
   const r = (raw ?? {}) as Record<string, unknown>
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   return {
@@ -56,6 +81,7 @@ function normalizeJob(raw: unknown): IngestJob {
     error: typeof r.error === 'string' ? r.error : null,
     started_at: str(r.started_at),
     ended_at: str(r.ended_at),
+    sample: normalizeSample(r.sample),
   }
 }
 
