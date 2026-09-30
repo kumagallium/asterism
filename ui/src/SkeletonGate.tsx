@@ -26,6 +26,7 @@ import {
 import { classNameFromLabel } from './kantan/asciiNames'
 import {
   assignColumnOwner,
+  catalogLinkEdges,
   kindDisplayName,
   kindFieldValue,
   kindLabelEdit,
@@ -1959,18 +1960,31 @@ export function SkeletonGate({
    *  カード、行ごとに変わる列なら行の種類 — `zoneFields` が項目を箱に配るのと
    *  同じ読み。以前は全部カードから引いていて、表本体の列の受け口では⑥の
    *  実線（行の種類から）と食い違った。 */
-  const pendingEdges: [string, string][] = zone
-    ? pendingLinkEdges({
-        hostName: zone.host.name,
-        rowMap: zone.rowMap,
-        varyingColumns: zone.ann.entity_preview?.varying_columns ?? [],
-        columnKinds: zone.columnKinds,
-      })
-    : skeleton.maps.flatMap((m): [string, string][] => {
-        if (!isValueCatalog(m)) return []
-        const holder = skeleton.maps.find((o) => o.source === m.source && !isValueCatalog(o))
-        return holder ? [[holder.name, m.name]] : []
-      })
+  /* ゾーンの外（ほかのファイル）の受け口も同じ扱い — 琥珀で描き、元の種類から
+     点線を引く。ゾーンは①の選択肢を出す 1 つの表にすぎず、図は設計全体を描く
+     （実機 2026-09-30: 3 ファイルの設計で、別ファイルの composition が線の無い
+     白い箱として浮いていた）。 */
+  const zoneKinds = new Set(zone ? [...zone.columnKinds.values()].flat() : [])
+  /* 注釈の value_catalog は機械が推定した受け口も含む。ゾーンの中で琥珀にして
+     きたのは 1 列キーのものだけ（`columnKinds`）なので、ゾーンの外も同じ条件に
+     そろえる — サーバの `catalog_homes` が元の種類を決めるのもこの形だけ。 */
+  const isCatalogKind = (m: SkeletonMap): boolean =>
+    zoneKinds.has(m.name) ||
+    isValueCatalog(m) ||
+    (!!annotations?.maps?.[m.name]?.value_catalog && templateKeys(m).length === 1)
+  const pendingEdges: [string, string][] = catalogLinkEdges({
+    maps: skeleton.maps,
+    isCatalog: isCatalogKind,
+    homeOf: (name) => annotations?.maps?.[name]?.catalog_home,
+    local: zone
+      ? pendingLinkEdges({
+          hostName: zone.host.name,
+          rowMap: zone.rowMap,
+          varyingColumns: zone.ann.entity_preview?.varying_columns ?? [],
+          columnKinds: zone.columnKinds,
+        })
+      : undefined,
+  })
   /** 箱の 1 行目 = その種類の ID の作り方（承認モック「ID: No + (hkl)」）。
    *  ④で選ばれず機械が仮置きした ID は、その場で（仮・機械の推定）と書く —
    *  図だけ見ても仮だと分かるように（下の ⚠ と同じ事実の 2 つの置き場）。 */
@@ -1999,11 +2013,10 @@ export function SkeletonGate({
   /** ①で作った種類（その値そのものが ID）は琥珀、ファイル全体で 1 件のカードは
    *  緑、それ以外は素の箱。色は「何色か」ではなく**役割**で決める。 */
   const diagramTone = (m: SkeletonMap): ShapeTone => {
-    if (!zone) return isValueCatalog(m) ? 'value' : 'record'
     /* 緑（ファイル全体）の特別扱いは廃止 — その情報はラベルの「1 件」が語る。
        残す色は 1 つ: 琥珀 = ④で ☑ した「つながる受け口」（利用者指摘 2026-08-31:
-       件数で伝わる情報を色で重複させない）。 */
-    return [...zone.columnKinds.values()].flat().includes(m.name) ? 'value' : 'record'
+       件数で伝わる情報を色で重複させない）。どのファイルの受け口でも同じ色。 */
+    return isCatalogKind(m) ? 'value' : 'record'
   }
   /** 詳細モードの箱の呼び方 — 従来の mermaid の既定と同じ「map 名（クラス名）」。 */
   const detailLabel = (m: SkeletonMap): string => {

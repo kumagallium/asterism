@@ -12,6 +12,7 @@ import {
   keyColumnsOf,
   kindDisplayName,
   kindFieldValue,
+  catalogLinkEdges,
   kindNamesByClass,
   kindLabelEdit,
   pendingLinkEdges,
@@ -443,6 +444,90 @@ describe('pendingLinkEdges — ⑤の点線は「その列を元々持ってい�
     ).toEqual([
       ['card', 'crystal_structure'],
       ['card', 'space_group'],
+    ])
+  })
+})
+
+describe('catalogLinkEdges — ⑤の点線は全ファイルの受け口に引く', () => {
+  const at = (name: string, source: string, template: string, owns?: string[]): SkeletonMap => ({
+    name,
+    source,
+    subject: { template, classes: [] },
+    ...(owns ? { owns } : {}),
+  })
+  // 実機 2026-09-30 の形: いちばん大きい表（curves）がゾーン、samples は別ファイル。
+  const maps = [
+    at('curve', 'curves.csv', 'xr:curve/{sample_id}/{figure_id}'),
+    at('composition', 'curves.csv', 'xr:composition/{composition}', ['composition']),
+    at('sample_info', 'samples.csv', 'xr:sample_info/{SID}'),
+    at('sample', 'samples.csv', 'xr:sample/{SID}/{sample_id}'),
+    at('composition2', 'samples.csv', 'xr:composition2/{composition}', ['composition']),
+  ]
+  const isCatalog = (m: SkeletonMap) =>
+    (m.owns ?? []).length === 1 && m.subject.template?.endsWith(`{${m.owns![0]}}`) === true
+
+  it('ゾーンの外のファイルの受け口にも、サーバが言う元の種類から線が引かれる', () => {
+    expect(
+      catalogLinkEdges({
+        maps,
+        isCatalog,
+        homeOf: (n) => ({ composition: 'curve', composition2: 'sample' })[n],
+        local: [['curve', 'composition']],
+      }),
+    ).toEqual([
+      ['curve', 'composition'],
+      ['sample', 'composition2'],
+    ])
+  })
+
+  it('サーバの注釈（組み立てと同じ規則）が画面の計算より先に勝つ', () => {
+    const withRow = [...maps, at('card', 'curves.csv', 'xr:card/{figure_id}')]
+    expect(
+      catalogLinkEdges({
+        maps: withRow,
+        isCatalog,
+        homeOf: (n) => (n === 'composition' ? 'curve' : undefined),
+        local: [['card', 'composition']],
+      }),
+    ).toContainEqual(['curve', 'composition'])
+    expect(
+      catalogLinkEdges({
+        maps: withRow,
+        isCatalog,
+        homeOf: (n) => (n === 'composition' ? 'curve' : undefined),
+        local: [['card', 'composition']],
+      }),
+    ).not.toContainEqual(['card', 'composition'])
+  })
+
+  it('注釈が追いつく前（☑ した直後）は画面の計算で描く', () => {
+    expect(
+      catalogLinkEdges({
+        maps,
+        isCatalog,
+        homeOf: () => undefined,
+        local: [['curve', 'composition']],
+      })[0],
+    ).toEqual(['curve', 'composition'])
+  })
+
+  it('注釈が無いときは同じファイルの受け口でない最初の種類から', () => {
+    expect(catalogLinkEdges({ maps, isCatalog, homeOf: () => undefined })).toEqual([
+      ['curve', 'composition'],
+      ['sample_info', 'composition2'],
+    ])
+  })
+
+  it('別のファイルや受け口を指す注釈は信じない', () => {
+    expect(
+      catalogLinkEdges({
+        maps,
+        isCatalog,
+        homeOf: (n) => ({ composition: 'sample', composition2: 'composition' })[n],
+      }),
+    ).toEqual([
+      ['curve', 'composition'],
+      ['sample_info', 'composition2'],
     ])
   })
 })
