@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.48.0](https://github.com/kumagallium/asterism/compare/v0.47.1...v0.48.0) - 2026-09-30
+
+- fix(ui): 種類を表示名でも種類の IRI でも引く — Ask の引用のリンク・ことばの帯・「IRI の一覧」の識別子 by @kumagallium in https://github.com/kumagallium/asterism/pull/646
+- feat: 表の形をととのえる層 — 配列セル・値としての物性名・入れ子 JSON を設計の前に決定論で派生表にする by @kumagallium in https://github.com/kumagallium/asterism/pull/571
+- fix: 変換つきの主語へのつなぐ行と、主語のテンプレートにはまる定数を、図の線にする by @kumagallium in https://github.com/kumagallium/asterism/pull/648
+- fix: 標準のことばの箱の名前を、IRI からカタログを引いて出す by @kumagallium in https://github.com/kumagallium/asterism/pull/649
+- fix(api): 見本の種まきが公開の前で止まったら、次の起動で公開の続きからやり直す by @kumagallium in https://github.com/kumagallium/asterism/pull/651
+- fix(ui): ⑤の図で別ファイルの受け口が線の無い白い箱になる穴を塞ぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/650
+
 ## [v0.47.1](https://github.com/kumagallium/asterism/compare/v0.47.0...v0.47.1) - 2026-09-30
 
 - docs(manual): v0.47.0 の節目とバッジを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/625
