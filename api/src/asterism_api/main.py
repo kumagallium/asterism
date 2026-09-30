@@ -34,7 +34,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator, Callable, Collection, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -1664,6 +1664,8 @@ async def _kind_labels(
     読みくだしは、ローカル名と違うときだけ入れる — ワークスペースと同じ名前で、
     :func:`_humanize_term_iri` と同じ線引き。
 
+    空白だけの名前は名前と見なさない（読み手が 1 つなので、この関数の呼び手すべてに効く）。
+
     名前は並行に引く。ストアの応答が遅いときに、種類の数だけ待ちを積まない。
     """
     authored = _authored_kind_labels(mapping_ir_yaml)
@@ -1689,10 +1691,71 @@ async def _kind_labels(
         )
     out: dict[str, str] = {}
     for iri in wanted:
-        word = authored.get(iri) or looked_up.get(iri)
+        word = (authored.get(iri) or looked_up.get(iri) or "").strip()
         if word and word != _iri_local_name(iri):
             out[iri] = word
     return out
+
+
+async def _crosswalk_kind_names(
+    client: Any, registry_root: Path, kinds: Iterable[tuple[str, str]]
+) -> dict[tuple[str, str], str]:
+    """つながりの画面に出す種類の表示名（``(dataset_id, class_iri) -> 名前``）。
+
+    ワークスペースと同じ読み手 :func:`_kind_labels` を、データセットごとにその
+    設計の IR を添えて呼ぶだけ（新しい読み順は作らない）。best-effort — 読めなかった
+    データセットは warning を 1 回出して飛ばし、引けなかった種類は結果に入れない。
+    """
+    by_dataset: dict[str, list[str]] = {}
+    for dataset_id, class_iri in kinds:
+        if not dataset_id or not class_iri:
+            continue
+        bucket = by_dataset.setdefault(dataset_id, [])
+        if class_iri not in bucket:
+            bucket.append(class_iri)
+    if not by_dataset:
+        return {}
+
+    def _ir_of(dataset_id: str) -> str:
+        try:
+            data = registry.load_dataset(registry_root, dataset_id)
+        except Exception:
+            return ""
+        return str(((data or {}).get("artifacts") or {}).get("mapping.yaml") or "")
+
+    async def _one(dataset_id: str, class_iris: list[str]) -> dict[str, str]:
+        text = await asyncio.to_thread(_ir_of, dataset_id)
+        return await _kind_labels(client, registry_root, text, class_iris)
+
+    ids = list(by_dataset)
+    answers = await asyncio.gather(
+        *(_one(dsid, by_dataset[dsid]) for dsid in ids), return_exceptions=True
+    )
+    out: dict[tuple[str, str], str] = {}
+    for dsid, answer in zip(ids, answers, strict=True):
+        if isinstance(answer, BaseException):
+            logger.warning(
+                "crosswalk kind label lookup failed for dataset %s (continuing)",
+                dsid,
+                exc_info=answer,
+            )
+            continue
+        for iri, word in answer.items():
+            out[(dsid, iri)] = word
+    return out
+
+
+async def _name_crosswalk_kinds(
+    client: Any, registry_root: Path, rows: Sequence[tuple[str, dict]]
+) -> None:
+    """``rows`` = ``(dataset_id, subject_class を持つ dict)``。種類のある行に
+    ``subject_class_label`` を書く（その場で）。引けない種類はローカル名に折る。"""
+    kinds = [(dsid, str(row.get("subject_class") or "")) for dsid, row in rows]
+    names = await _crosswalk_kind_names(client, registry_root, kinds)
+    for dsid, row in rows:
+        kind = str(row.get("subject_class") or "")
+        if kind:
+            row["subject_class_label"] = names.get((dsid, kind)) or _iri_local_name(kind)
 
 
 def _rule_class_iris(summary: dict) -> list[str]:
@@ -1758,19 +1821,20 @@ def _crosswalk_label_resolvers(
 ) -> tuple[
     Callable[[str, str], str | None],
     Callable[[str, str, str | None], str | None],
-    Callable[[str, str], str | None],
 ]:
-    """``(predicate_label_of, field_label_of, class_label_of)`` for the crosswalk
+    """``(predicate_label_of, field_label_of)`` for the crosswalk
     screens, sharing one registry read per dataset touched.
+
+    種類の名前はここでは引かない。:func:`_kind_labels`（:func:`_crosswalk_kind_names`）が引く。
 
     ``predicate_label_of(dataset_id, predicate)`` is the kind-agnostic word
     (:func:`_crosswalk_predicate_labels` — silent where kinds disagree);
     ``field_label_of(dataset_id, predicate, subject_class)`` the word for ONE kind's
-    field (:func:`_ir_field_labels`); ``class_label_of(dataset_id, class_iri)`` the
-    kind's own name. Best-effort throughout: an unreadable design contributes nothing.
+    field (:func:`_ir_field_labels`). Best-effort throughout: an unreadable design
+    contributes nothing.
     """
     pred_cache: dict[str, dict[str, str]] = {}
-    field_cache: dict[str, tuple[dict[tuple[str, str], str], dict[str, str]]] = {}
+    field_cache: dict[str, dict[tuple[str, str], str]] = {}
 
     def preds(dataset_id: str) -> dict[str, str]:
         got = pred_cache.get(dataset_id)
@@ -1779,15 +1843,15 @@ def _crosswalk_label_resolvers(
             pred_cache[dataset_id] = got
         return got
 
-    def fields(dataset_id: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    def fields(dataset_id: str) -> dict[tuple[str, str], str]:
         got = field_cache.get(dataset_id)
         if got is None:
             data = registry.load_dataset(registry_root, dataset_id)
             text = str(((data or {}).get("artifacts") or {}).get("mapping.yaml") or "")
             try:
-                got = _ir_field_labels(text) if text.strip() else ({}, {})
+                got = _ir_field_labels(text)[0] if text.strip() else {}
             except Exception:
-                got = ({}, {})
+                got = {}
             field_cache[dataset_id] = got
         return got
 
@@ -1799,12 +1863,9 @@ def _crosswalk_label_resolvers(
     ) -> str | None:
         if not subject_class:
             return None
-        return fields(dataset_id)[0].get((subject_class, predicate_iri))
+        return fields(dataset_id).get((subject_class, predicate_iri))
 
-    def class_label_of(dataset_id: str, class_iri: str) -> str | None:
-        return fields(dataset_id)[1].get(class_iri)
-
-    return predicate_label_of, field_label_of, class_label_of
+    return predicate_label_of, field_label_of
 
 
 def _concept_labels_for_config(
@@ -1816,7 +1877,7 @@ def _concept_labels_for_config(
     まま渡せる形（concept name → 表示名）で返す。空の結果は入れない（
     :func:`asterism.crosswalk.build_turtle` 側の「空/absent は今のまま」に
     委ねる）。"""
-    predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(registry_root)
+    predicate_label_of, field_label_of = _crosswalk_label_resolvers(registry_root)
     return crosswalk_names.concept_labels_for_config(config, field_label_of, predicate_label_of)
 
 
@@ -1825,9 +1886,7 @@ def _refresh_crosswalk_auto_name(registry_root: Path, perspective_id: str) -> No
     （:func:`asterism_api.crosswalk_names.refresh_auto_name`）。best-effort —
     名前の書き直しの失敗で、作ったハブを失敗にしない。"""
     try:
-        predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(
-            registry_root
-        )
+        predicate_label_of, field_label_of = _crosswalk_label_resolvers(registry_root)
         crosswalk_names.refresh_auto_name(
             registry_root, perspective_id, field_label_of, predicate_label_of
         )
@@ -1835,21 +1894,28 @@ def _refresh_crosswalk_auto_name(registry_root: Path, perspective_id: str) -> No
         logger.exception("refreshing the name of crosswalk %s failed (continuing)", perspective_id)
 
 
-def _label_crosswalk_fields(registry_root: Path, datasets: list[dict]) -> None:
+async def _label_crosswalk_fields(client: Any, registry_root: Path, datasets: list[dict]) -> None:
     """Give each sampled field (``{iri, sample, subject_class}``) the design's words:
     ``label`` for the field, ``subject_class_label`` for its kind — so a dropdown can
     say 「Composition › 試料化学組成」 instead of ``label``. In place, best-effort."""
-    predicate_label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(registry_root)
-    for d in datasets:
-        dsid = str(d.get("dataset_id") or "")
-        for f in d.get("predicates") or []:
-            iri = str(f.get("iri") or "")
-            kind = f.get("subject_class") or None
-            label = field_label_of(dsid, iri, kind) or predicate_label_of(dsid, iri)
-            if label:
-                f["label"] = label
-            if kind:
-                f["subject_class_label"] = class_label_of(dsid, kind) or _iri_local_name(kind)
+
+    def label_fields() -> None:
+        predicate_label_of, field_label_of = _crosswalk_label_resolvers(registry_root)
+        for d in datasets:
+            dsid = str(d.get("dataset_id") or "")
+            for f in d.get("predicates") or []:
+                iri = str(f.get("iri") or "")
+                kind = f.get("subject_class") or None
+                label = field_label_of(dsid, iri, kind) or predicate_label_of(dsid, iri)
+                if label:
+                    f["label"] = label
+
+    await asyncio.to_thread(label_fields)
+    await _name_crosswalk_kinds(
+        client,
+        registry_root,
+        [(str(d.get("dataset_id") or ""), f) for d in datasets for f in d.get("predicates") or []],
+    )
 
 
 def _crosswalk_predicate_label_resolver(
@@ -9195,11 +9261,15 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         return perspective_id
 
-    def _enrich_crosswalk_config_dict(config_dict: dict | None) -> dict | None:
+    def _enrich_crosswalk_config_dict(
+        config_dict: dict | None, kind_rows: list[tuple[str, dict]]
+    ) -> dict | None:
         """Read-time DISPLAY enrichment for a crosswalk config response
         (XW-01/XW-04/XW-06): each participant gets the dataset's CURRENT name
         and a ``predicate_label``, each concept gets a ``concept_label`` —
-        resolved fresh on every read via :func:`_crosswalk_predicate_label_resolver`.
+        resolved fresh on every read via :func:`_crosswalk_label_resolvers`.
+        種類の名前は書かない — 種類のある参加者を ``kind_rows`` に積むだけで、
+        呼ぶ側がまとめて引く（:func:`_name_crosswalk_kinds`）。
         The persisted config (ids + predicate IRIs) is never touched, only this
         response dict — a rename or a redesign is reflected without a migration.
         """
@@ -9209,7 +9279,7 @@ def build_app(
             str(m.get("id")): str(m.get("name") or m.get("id"))
             for m in registry.list_datasets(cfg.registry_root)
         }
-        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
+        label_of, field_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         for concept in config_dict.get("concepts") or []:
             resolved: list[str] = []
             for p in concept.get("participants") or []:
@@ -9225,7 +9295,7 @@ def build_app(
                 # naming predicate has none of its own (crosswalk-kind-scoped-fields.md).
                 kind = str(p.get("subject_class") or "") or None
                 if kind:
-                    p["subject_class_label"] = class_label_of(ds_id, kind) or _iri_local_name(kind)
+                    kind_rows.append((ds_id, p))
                 label = next(
                     (
                         got
@@ -9250,25 +9320,26 @@ def build_app(
         ``_enrich_crosswalk_config_dict`` と同じ引き手（
         ``_crosswalk_label_resolvers``）を使うので、``concept_label`` と同じ
         突き合わせ順で同じ結果になる。"""
-        predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(
-            cfg.registry_root
-        )
+        predicate_label_of, field_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         return crosswalk_names.perspective_display_name(
             meta, config, perspective_id, field_label_of, predicate_label_of
         )
 
-    def _crosswalk_view(perspective_id: str) -> dict:
+    async def _crosswalk_view(perspective_id: str) -> dict:
         config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
         data = registry.load_dataset(
             cfg.registry_root, crosswalk_runtime.crosswalk_registry_id(perspective_id)
         )
         meta = data["meta"] if data else {}
+        kind_rows: list[tuple[str, dict]] = []
+        enriched = _enrich_crosswalk_config_dict(
+            crosswalk_runtime.config_to_dict(config) if config else None, kind_rows
+        )
+        await _name_crosswalk_kinds(app.state.client, cfg.registry_root, kind_rows)
         return {
             "perspective_id": perspective_id,
             "exists": config is not None,
-            "config": _enrich_crosswalk_config_dict(
-                crosswalk_runtime.config_to_dict(config) if config else None
-            ),
+            "config": enriched,
             "dataset": data["meta"] if data else None,
             # 契約メモ contract_b2_hub_names.md B2-2: R1 の結果をそのまま返す
             # （「名前のないつながり」もそのまま — ui 側 perspectiveDisplayName
@@ -9338,6 +9409,7 @@ def build_app(
         """List every crosswalk PERSPECTIVE (id, name, stats, config) — the upper
         ontology is plural (multi-perspective ADR)."""
         out = []
+        kind_rows: list[tuple[str, dict]] = []
         for meta in crosswalk_runtime.list_perspectives(cfg.registry_root):
             pid = meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
             config = crosswalk_runtime.load_config(cfg.registry_root, pid)
@@ -9345,7 +9417,8 @@ def build_app(
                 {
                     "perspective_id": pid,
                     "config": _enrich_crosswalk_config_dict(
-                        crosswalk_runtime.config_to_dict(config) if config else None
+                        crosswalk_runtime.config_to_dict(config) if config else None,
+                        kind_rows,
                     ),
                     "dataset": meta,
                     # 契約メモ contract_pr_f15.md §1.4: whether this perspective was
@@ -9356,13 +9429,15 @@ def build_app(
                     "display_name": _perspective_display_name(pid, meta, config),
                 }
             )
+        # 種類の名前は 1 回の応答につき 1 回でまとめて引く。
+        await _name_crosswalk_kinds(app.state.client, cfg.registry_root, kind_rows)
         return JSONResponse({"perspectives": out})
 
     @app.get("/api/crosswalk")
     async def crosswalk_get() -> JSONResponse:
         """The default (composition) perspective's config + stats (back-compat).
         ``exists:false`` when it has not been built yet."""
-        return JSONResponse(_crosswalk_view(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID))
+        return JSONResponse(await _crosswalk_view(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID))
 
     @app.post("/api/crosswalk/build", dependencies=_write_auth)
     async def crosswalk_build(body: CrosswalkBuildBody) -> JSONResponse:
@@ -9397,7 +9472,7 @@ def build_app(
         )
         client: OxigraphClient = app.state.client
 
-        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
+        label_of, field_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         existing = crosswalk_existing.load_existing_concepts(cfg.registry_root)
 
         async def discover_job(emit, should_cancel):
@@ -9411,7 +9486,9 @@ def build_app(
                 should_cancel=should_cancel,
                 predicate_label_of=label_of,
                 field_label_of=field_label_of,
-                class_label_of=class_label_of,
+                kind_labels_of=lambda kinds: _crosswalk_kind_names(
+                    client, cfg.registry_root, kinds
+                ),
                 existing=existing.concepts,
                 reserved_ids=existing.perspective_ids,
             )
@@ -9485,7 +9562,7 @@ def build_app(
             raise HTTPException(400, "none of dataset_ids is a promoted, sampleable dataset")
         # The design's words ride along with the samples, so the dropdown the
         # candidates populate can say the kind and the field, not a local name.
-        await asyncio.to_thread(_label_crosswalk_fields, cfg.registry_root, datasets)
+        await _label_crosswalk_fields(client, cfg.registry_root, datasets)
 
         def run() -> list[dict]:
             return propose_crosswalk_mapping(
@@ -9525,7 +9602,7 @@ def build_app(
         key = substrate.canonical_graph_iri(dataset_id)
         live = await substrate.live_graph_of(client, key) or key
         entry = {"dataset_id": dataset_id, "predicates": await _literal_predicates(client, live)}
-        await asyncio.to_thread(_label_crosswalk_fields, cfg.registry_root, [entry])
+        await _label_crosswalk_fields(client, cfg.registry_root, [entry])
         return {"dataset_id": dataset_id, "promoted": True, "fields": entry["predicates"]}
 
     @app.get("/api/crosswalk/alignments")
@@ -9733,7 +9810,7 @@ def build_app(
     @app.get("/api/crosswalk/{perspective_id}")
     async def crosswalk_get_one(perspective_id: str) -> JSONResponse:
         """One perspective's config + stats (multi-perspective ADR)."""
-        return JSONResponse(_crosswalk_view(_validated_perspective_id(perspective_id)))
+        return JSONResponse(await _crosswalk_view(_validated_perspective_id(perspective_id)))
 
     @app.post("/api/crosswalk/{perspective_id}/build", dependencies=_write_auth)
     async def crosswalk_build_one(perspective_id: str, body: CrosswalkBuildBody) -> JSONResponse:
