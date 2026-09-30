@@ -655,13 +655,17 @@ def _held(unit: str, reason: str, detail: str | None = None) -> dict[str, str]:
 
 
 def _source_touched(bundled: Bundled, env_shas: Mapping[str, str]) -> list[str]:
-    """環境の source/ のうち、配ったどの版とも一致しないもの（同梱に無い名前・sha の違うもの・
-    以前の版にあったのに消えたもの）。同梱の最新の版で初めて入る source が環境に無いのは
-    触った印ではない。"""
+    """環境の source/ のうち、配ったどの版とも一致しないもの（sha の違うもの・配ったことの
+    無い名前・以前の版にあったのに消えたもの）。
+
+    同梱に無い名前でも、sha が過去に配った版のどれかと一致すれば触った印ではない（後の版が
+    source を外しても、手を加えていない環境は入れ替えられる。外れたファイルは入れ替えでも
+    消さない — 利用者のデータを消す経路を増やさないため）。同梱の最新の版で初めて入る
+    source が環境に無いのは触った印ではない。"""
     out: set[str] = set()
     in_bundle = {p for p in bundled.files if p.startswith(SOURCE_PREFIX)}
     for path, sha in env_shas.items():
-        if path not in in_bundle or sha not in _known_shas(bundled, path):
+        if sha not in _known_shas(bundled, path):
             out.add(path)
     earlier = bundled.ledger[:-1]
     for path in in_bundle - set(env_shas):
@@ -980,6 +984,8 @@ async def _swap_data(
 
     順は変えない（変えると、途中で落ちたときに公開中のデータが消える）:
 
+    0. 何も書く前に、rebase が要るのに置き換えるファイルに元の土台の IRI が入っていないかを
+       確かめる（入っていれば入れずに止める）。
     1. **番号を取る**（``reserve_data_seq``。原子的に書く）。ストアの版・pendingDrop・
        ``meta.live_graph`` のどれよりも大きくなるまで取り直す。
     2. **新しい graph を載せる**（同梱の canonical を、import と同じ rebase の規則を通して）。
@@ -1001,6 +1007,18 @@ async def _swap_data(
     if not isinstance(expected, int) or isinstance(expected, bool):
         raise RuntimeError("the bundled manifest has no canonical_triples")
 
+    # 0. rebase が要るのに、置き換えるファイルに元の土台の IRI が入っているなら、入れない
+    #    （import はファイルも rebase するが、入れ替えはバイトのまま置く。rebase すると
+    #    次の起動の「触っていない」判定が同梱の sha と合わなくなる）。何も書く前に止める。
+    origin_base, rebase = exchange._iri_policy(manifest, cfg.iri_base)
+    if rebase:
+        needle = f"{origin_base}/datasets/".encode()
+        for rel, blob in plan.replace.items():
+            if Path(rel).suffix.lower() in exchange._TEXT_SUFFIXES and needle in blob:
+                raise RuntimeError(
+                    f"{rel} carries the origin IRI base; not swapping into a custom IRI base"
+                )
+
     # 1. 番号
     floor = await _number_floor(client, dataset_id, meta)
     n = registry.reserve_data_seq(root, dataset_id)
@@ -1014,7 +1032,6 @@ async def _swap_data(
 
     # 2. 新しい graph
     ttl = bundled.members[CANONICAL_MEMBER]
-    origin_base, rebase = exchange._iri_policy(manifest, cfg.iri_base)
     if rebase:
         ttl = exchange._rebase(ttl, origin_base, cfg.iri_base)
     await client.post_turtle_bytes(ttl, graph_iri=new_live)

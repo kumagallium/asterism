@@ -192,6 +192,8 @@ the edge from the embedded "日本" subject to that activity).
    作り方（`published_subjects`）が同じ。**外れたら群ごと保留**し（理由は meta の `sample.held`。
    `edited`・`appended`・`reingested`・`unsettled`・`decisions`・`ids_move`・`ids_unknown`）、
    ストアもファイルも変えない。行の IRI が動く版は自動では入らない（通常の取り込みに乗せる）。
+   後の版が source を外しても、環境のそのファイルが配ったバイトのままなら触った印ではない（外れた
+   ファイルは環境に残り、消さない）。
    新しい graph の件数は `manifest.canonical_triples` と突き合わせるので、データを変えたら
    `build_world_demo.py` を回して manifest ごと作り直すこと。手順と失敗時の収束は ADR kantan K62 の
    「データが変わる版」。

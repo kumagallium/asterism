@@ -717,10 +717,13 @@ class _Projections:
         monkeypatch.setattr(main_mod, "_project_meta_graph", meta_fn)
 
 
-def _cfg(tmp_path: Path, *, single_user: bool = True) -> Settings:
+def _cfg(
+    tmp_path: Path, *, single_user: bool = True, env_extra: dict[str, str] | None = None
+) -> Settings:
     env = {
         "CSV2RDF_REGISTRY_ROOT": str(tmp_path / "registry"),
         "ASTERISM_APPDATA_ROOT": str(tmp_path / "appdata"),
+        **(env_extra or {}),
     }
     if single_user:
         env["ASTERISM_SINGLE_USER"] = "1"
@@ -1828,8 +1831,8 @@ def _data_bundle() -> Bundled:
 
 
 def _plan_data(**over: Any) -> demo_sample.RefreshPlan:
-    """C の環境（印なし）へ、データが変わる新しい版。"""
-    new = _data_bundle()
+    """C の環境（印なし）へ、データが変わる新しい版（``bundle`` を渡せば、その版）。"""
+    new = over.pop("bundle", None) or _data_bundle()
     src = {
         p: hashlib.sha256(b).hexdigest()
         for p, b in _real_members().items()
@@ -2138,9 +2141,15 @@ def test_data_swap_rebuilds_the_hub_after_the_control_moved(
     assert seen == [[_v(2)]]
 
 
-def test_data_swap_hub_failure_is_retried_next_boot(
+def test_data_swap_a_failing_derivation_is_retried_next_boot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """例外を出した派生は、印の pending に残って次の起動でやり直される。
+
+    注意: 本物の ``main._maybe_rebuild_crosswalk`` は失敗を握りつぶして例外を出さない
+    （契約は「これを使う」と決めている）。なのでハブの再構築の失敗は、この経路では再試行
+    されない。再試行が効くのは、プロセスが落ちた場合（下の 6 の途中の注入）と、
+    ontology の投影・外部への配信が失敗した場合。ここは、その仕組み自体を固定する。"""
     _ds, client = _old_store()
     dest = _write_swap_env(tmp_path)
     calls: list[str] = []
@@ -2506,3 +2515,242 @@ def test_reserve_data_seq_writes_atomically(
     assert meta_path.read_bytes() == original  # 壊れない
     assert registry.reserve_data_seq(root, "ds") == 5
     assert json.loads(meta_path.read_text(encoding="utf-8"))["data_seq"] == 5
+
+
+# --- 後の版が source を外す・2 回目のデータ変更版 ------------------------------------
+
+_EXTRA_TRIPLE_2 = (
+    "\n<https://asterism.invalid/datasets/world/resource/country/yy> "
+    '<http://www.w3.org/2000/01/rdf-schema#label> "もう一つの国" .\n'
+).encode()
+
+
+def _next_release(*, keep_notes: bool) -> bytes:
+    """データ変更版（seq 4）の次の版（seq 5）: canonical にもう 1 件足す。``keep_notes`` が偽なら、
+    seq 4 で配った source（notes.csv）を外す。"""
+    members = dict(_release_members())
+    members["graphs/canonical.ttl"] = members["graphs/canonical.ttl"] + _EXTRA_TRIPLE_2
+    manifest = json.loads(members["manifest.json"])
+    manifest["canonical_sha256"] = hashlib.sha256(members["graphs/canonical.ttl"]).hexdigest()
+    manifest["canonical_triples"] = _triples_of(members["graphs/canonical.ttl"])
+    members["manifest.json"] = json.dumps(manifest, ensure_ascii=False).encode("utf-8")
+    if not keep_notes:
+        del members["registry/source/notes.csv"]
+    old = demo_sample.parse_ledger(members[LEDGER_MEMBER].decode("utf-8"))
+    assert len(old) == 4
+    entry = entry_from_members(members, seq=5, note={"ja": "次", "en": "next"})
+    members[LEDGER_MEMBER] = format_ledger([*old, entry]).encode("utf-8")
+    return _tar_bytes(members)
+
+
+def test_plan_data_a_later_release_may_drop_a_source_it_once_shipped() -> None:
+    """後の版が source を外しても、環境のそのファイルが配ったバイトのままなら触った印でない。
+    手が入っていれば触った印。"""
+    later = read_bundled(_next_release(keep_notes=False))
+    assert "registry/source/notes.csv" not in later.files
+    shipped = hashlib.sha256(b"a,b\n1,2\n").hexdigest()
+    base = {
+        p: hashlib.sha256(b).hexdigest()
+        for p, b in _real_members().items()
+        if p.startswith("registry/source/")
+    }
+    # 環境は seq 4 まで届いている（notes.csv が置いてある）
+    imported = {"canonical_sha256": _data_bundle().canonical_sha256}
+    meta = _meta(_real(), imported=imported, live_graph=V1)
+    env = demo_sample.DataEnv(
+        source_shas={**base, "registry/source/notes.csv": shipped},
+        applied_batches=False,
+        control_live=V1,
+        control_staged=None,
+    )
+    plan = _plan_data(bundle=later, meta=meta, data_env=env)
+    assert plan.swap_data is True and plan.held == []
+
+    env_edited = demo_sample.DataEnv(
+        source_shas={**base, "registry/source/notes.csv": "2" * 64},
+        applied_batches=False,
+        control_live=V1,
+        control_staged=None,
+    )
+    plan = _plan_data(bundle=later, meta=meta, data_env=env_edited)
+    assert plan.swap_data is False
+    for unit in ("design", "data", "tools"):
+        assert (unit, "edited") in _reasons(plan)
+
+
+@pytest.mark.parametrize("keep_notes", [True, False], ids=["keeps-source", "drops-source"])
+def test_data_swap_a_second_data_release_reaches_a_swapped_environment(
+    tmp_path: Path, keep_notes: bool
+) -> None:
+    """1 度入れ替えた環境（印の data.live_graph が v2）へ、次のデータ変更版も届く。
+    外れた source は環境に残る（消さない）。"""
+    ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    _refresh_release(tmp_path, client)
+    _lifespan(tmp_path, client)
+    assert _live(client) == _v(2)
+
+    path = tmp_path / "release5.tar"
+    path.write_bytes(_next_release(keep_notes=keep_notes))
+    _run(demo_sample.refresh_bundled_sample(_cfg(tmp_path), client, path))
+    assert _live(client) == _v(3)
+    assert _canon(client) == [_v(3)]
+    _lifespan(tmp_path, client)
+    _sweep(client)
+    assert _size(ds, _v(3)) == WORLD_TRIPLES + 2
+    assert _size(ds, _v(2)) == 0
+    m = _read_meta(dest)
+    assert m["live_graph"] == _v(3) and m["version"] == 3
+    assert m["sample"]["seq"] == 5 and m["sample"]["held"] == []
+    assert m["sample"]["data"] == {"live_graph": _v(3)} and m["sample"]["pending"] == []
+    assert (dest / "source" / "notes.csv").read_bytes() == b"a,b\n1,2\n"
+    # 次の起動は書き込みゼロ
+    snapshot = (dest / "meta.json").read_bytes()
+    client.posts.clear()
+    _run(demo_sample.refresh_bundled_sample(_cfg(tmp_path), client, path))
+    assert (dest / "meta.json").read_bytes() == snapshot and client.posts == []
+
+
+# --- 途中で落ちたあとの、回復の側の動き ------------------------------------------------
+
+
+def _hub_recorder(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """ハブの再構築が呼ばれた時点の ``canonical_graphs()`` を記録する（見本が参加者のハブ）。"""
+    seen: list[list[str]] = []
+
+    async def rebuild(c: Any, root: Path, perspective_id: str = "p") -> dict | None:
+        seen.append(await substrate.canonical_graphs(c))
+        return None
+
+    monkeypatch.setattr(main_mod, "_perspective_ids_for_dataset", lambda root, did: ["p"])
+    monkeypatch.setattr(main_mod, "_rebuild_crosswalk_now", rebuild)
+    return seen
+
+
+@pytest.mark.parametrize("position", ["4-5", "5-6", "6-mid"])
+def test_data_swap_crash_recovery_finishes_the_derivations_on_the_new_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, position: str
+) -> None:
+    """meta を書いた後に落ちた環境の次の refresh は、lifespan を待たずに公開を新へ切り替え、
+    印の pending に残った派生（ハブ・外部への配信）を、新しい graph に対して 1 回やり直す。"""
+    from asterism_api import togomcp_sync
+
+    _ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    cfg = _cfg(tmp_path)
+    cfg.togomcp_dir = tmp_path / "togomcp"
+    release = _release_file(tmp_path)
+    with monkeypatch.context() as patch:
+        _crash_at(position, patch, client, dest)
+        with pytest.raises(_Crash):
+            _run(demo_sample.refresh_bundled_sample(cfg, client, release))
+    # 入れ替えの手順 4 が、残りの派生を印に書いている（これが無いと二度とやり直されない）
+    stamp = _read_meta(dest)["sample"]
+    assert stamp["pending"] == ["design_projection", "crosswalk", "togomcp"]
+    assert stamp["data"] == {"live_graph": _v(2)}
+    assert _live(client) == (V1 if position == "4-5" else _v(2))
+
+    seen = _hub_recorder(monkeypatch)
+    published: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        togomcp_sync,
+        "publish_dataset",
+        lambda root, did, mie, live, **kw: published.append((did, live)) or {},
+    )
+    # lifespan は挟まない: 回復は refresh の冒頭で完結する
+    _run(demo_sample.refresh_bundled_sample(cfg, client, release))
+    assert _live(client) == _v(2)
+    assert _canon(client) == [_v(2)]
+    assert seen == [[_v(2)]]
+    assert published == [(DATASET_ID, _v(2))]
+    assert _read_meta(dest)["sample"]["pending"] == []
+    assert _read_meta(dest)["version"] == 2  # 入れ替えをやり直していない
+
+
+def test_data_swap_crash_recovery_drops_the_pending_when_the_user_reingested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入れ替えの後で落ち、利用者が取り込み直した（meta.live_graph が印の data.live_graph と
+    違う）なら、残っていた派生は要らない — やり直さず、pending を空にする。"""
+    _ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    with monkeypatch.context() as patch:
+        _crash_at("5-6", patch, client, dest)
+        with pytest.raises(_Crash):
+            _refresh_release(tmp_path, client)
+    assert _read_meta(dest)["sample"]["pending"] == ["design_projection", "crosswalk"]
+    _set_meta(dest, live_graph=_v(9))
+    seen = _hub_recorder(monkeypatch)
+    _refresh_release(tmp_path, client)
+    assert seen == []
+    assert _read_meta(dest)["sample"]["pending"] == []
+
+
+# --- 番号の下限: 3 つの出どころをそれぞれ単独で -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["store-orphan", "pending-drop", "meta-live", "other-dataset"],
+)
+def test_number_floor_counts_each_source_on_its_own(case: str) -> None:
+    ds, client = _old_store()  # ストアには v1 だけ
+    meta: dict[str, Any] = {}
+    expected = 1
+    if case == "store-orphan":
+        ds.graph(rdflib.URIRef(_v(8))).add(
+            (rdflib.URIRef("https://ex/a"), rdflib.URIRef("https://ex/b"), rdflib.Literal("c"))
+        )
+        expected = 8
+    elif case == "pending-drop":
+        _run(substrate.mark_pending_drop(client, _v(9)))
+        expected = 9
+    elif case == "meta-live":
+        meta = {"live_graph": _v(7)}
+        expected = 7
+    else:  # 別のデータセットの番号は数えない
+        other = substrate.versioned_graph_iri("other", 50)
+        _run(substrate.mark_pending_drop(client, other))
+        meta = {"live_graph": other}
+    assert _run(demo_sample._number_floor(client, DATASET_ID, meta)) == expected
+
+
+# --- IRI の土台（rebase） ---------------------------------------------------------------
+
+
+def test_data_swap_rebases_the_new_graph_like_an_import(tmp_path: Path) -> None:
+    ds, client = _old_store()
+    _write_swap_env(tmp_path)
+    cfg = _cfg(tmp_path, env_extra={"ASTERISM_IRI_BASE": "https://example.test"})
+    _run(demo_sample.refresh_bundled_sample(cfg, client, _release_file(tmp_path)))
+    assert _live(client) == _v(2)
+    subjects = {str(s) for s in ds.graph(rdflib.URIRef(_v(2))).subjects()}
+    assert any(s.startswith("https://example.test/datasets/") for s in subjects)
+    assert not any(s.startswith("https://asterism.invalid/datasets/") for s in subjects)
+
+
+def test_data_swap_holds_off_when_a_replaced_file_needs_a_rebase(tmp_path: Path) -> None:
+    """カスタムの IRI の土台で、置き換えるファイルに元の土台の IRI が入る版は入れない
+    （import と違い、入れ替えはファイルをバイトのまま置くため。何も書かずに止まる）。"""
+    ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    m = _real_members()
+    tar = _bundle_tar(
+        {
+            "graphs/canonical.ttl": m["graphs/canonical.ttl"] + _EXTRA_TRIPLE,
+            "registry/mapping.rml.ttl": m["registry/mapping.rml.ttl"]
+            + b"\n# https://asterism.invalid/datasets/world/x\n",
+        }
+    )
+    path = tmp_path / "rebase.tar"
+    path.write_bytes(tar)
+    files = _files_of(dest)
+    before = _read_meta(dest)
+    nquads = _nquads(ds)
+    cfg = _cfg(tmp_path, env_extra={"ASTERISM_IRI_BASE": "https://example.test"})
+    _run(demo_sample.refresh_bundled_sample(cfg, client, path))
+    assert client.posts == []
+    assert _nquads(ds) == nquads
+    assert _files_of(dest) == files
+    assert _read_meta(dest)["live_graph"] == before["live_graph"]
+    assert _live(client) == V1
