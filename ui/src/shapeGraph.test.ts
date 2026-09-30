@@ -97,6 +97,24 @@ describe('rulesShape', () => {
     })
   })
 
+  it('links where the api names the target, even when the subject is a function', () => {
+    // 変換つきの主語は RML では関数になり、テンプレートの文字列を持たない。
+    // 行き先は api が付ける（target_map）。
+    const country = rmap('Country', {
+      subject: { kind: 'function', function: 'template', classes: ['xrd:Country'] },
+    })
+    const obs = rmap('Observation', {
+      properties: [
+        link('ofCountry', { kind: 'function', function: 'template', target_map: 'Country', label: '国' }),
+        link('year', { kind: 'reference', reference: 'year', label: '年' }),
+      ],
+    })
+    const shape = rulesShape(rules([obs, country]), { withFields: true })
+    expect(shape.edges).toEqual([{ from: 'Observation', to: 'Country', label: '国' }])
+    // 線になった項目は箱の中に重ねて書かない
+    expect(shape.nodes.find((n) => n.id === 'Observation')?.fields?.map((f) => f.name)).toEqual(['年'])
+  })
+
   it('never turns a value into a line, and never draws the same pair twice', () => {
     const crystal = rmap('Crystal', {
       subject: { template: 'xrdr:Crystal/{No}', classes: ['xrd:Crystal'] },

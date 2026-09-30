@@ -812,6 +812,103 @@ def _effective_template(graph, term_map) -> str | None:
     return None
 
 
+# テンプレートの穴（{列}）。定数の IRI がテンプレートの 1 件かを見るときに、穴を
+# 「/ を含まない 1 文字以上」に置きかえる。
+_TEMPLATE_HOLE = re.compile(r"\{[^{}]*\}")
+
+
+def _template_fit(template: str) -> tuple[re.Pattern[str], int] | None:
+    """テンプレートを、定数の IRI と突き合わせる正規表現と、穴の外の文字数にする。
+
+    穴の無いテンプレートは定数と同じなので None（完全一致で比べる）。
+    """
+    parts = _TEMPLATE_HOLE.split(template)
+    if len(parts) < 2:
+        return None
+    pattern = "[^/?#]+".join(re.escape(part) for part in parts)
+    return re.compile(pattern), sum(len(part) for part in parts)
+
+
+def subject_keys(graph, tms: list) -> dict:
+    """``{TriplesMap: (実効テンプレート or None, 定数の IRI or None)}`` — 主語の鍵。
+
+    テンプレートは :func:`_effective_template` の形（変換を見通して、穴が元の列を
+    名乗る）。つなぐ行の行き先を決める :func:`link_target` に渡す。
+    """
+    import rdflib
+
+    uri = rdflib.URIRef
+    keys: dict = {}
+    for tm in tms:
+        tpl: str | None = None
+        const: str | None = None
+        for sm in graph.objects(tm, uri(_R2RML + "subjectMap")):
+            tpl = _effective_template(graph, sm)
+            for cp in _CONSTANT_PREDS:
+                for c in graph.objects(sm, uri(cp)):
+                    if isinstance(c, rdflib.URIRef):
+                        const = str(c)
+        for c in graph.objects(tm, uri(_R2RML + "subject")):
+            if isinstance(c, rdflib.URIRef):
+                const = str(c)
+        keys[tm] = (tpl, const)
+    return keys
+
+
+def constant_link_target(iri: str, self_tm, keys: dict, order: list):
+    """定数の IRI が、別の map の主語そのものなら、その map（無ければ None）。
+
+    同じ定数を主語に持つ map が先。無ければ、主語のテンプレートにはまる map
+    （``…/activity/{id}`` に ``…/activity/ingest-v1``）。はまるテンプレートが
+    複数あれば、穴の外の文字が多い方。それでも違うテンプレートが並ぶなら、
+    どれとも言わない（間違った線より、線が無い方がよい）。
+    """
+    for tm in order:
+        if tm is not self_tm and keys.get(tm, (None, None))[1] == iri:
+            return tm
+    fits: list[tuple[int, str, object]] = []
+    for tm in order:
+        tpl = keys.get(tm, (None, None))[0]
+        if tm is self_tm or not tpl:
+            continue
+        fit = _template_fit(tpl)
+        if fit is not None and fit[0].fullmatch(iri):
+            fits.append((fit[1], tpl, tm))
+    if not fits:
+        return None
+    best = max(length for length, _tpl, _tm in fits)
+    top = [(tpl, tm) for length, tpl, tm in fits if length == best]
+    if len({tpl for tpl, _tm in top}) > 1:
+        return None
+    return top[0][1]
+
+
+def link_target(graph, self_tm, om, keys: dict, order: list):
+    """この目的語のマップの行き先が、別の map の主語そのものなら、その map。
+
+    4 通り: ``rr:parentTriplesMap``・同じ実効テンプレート（変換つきの主語と
+    つなぐ行も、変換を見通して比べる）・同じ定数・主語のテンプレートにはまる
+    定数（:func:`constant_link_target`）。自分自身は行き先にしない。
+    """
+    import rdflib
+
+    uri = rdflib.URIRef
+    for ptm in graph.objects(om, uri(_R2RML + "parentTriplesMap")):
+        if ptm in keys:
+            return ptm
+    otpl = _effective_template(graph, om)
+    if otpl is not None:
+        for tm in order:
+            if tm is not self_tm and keys.get(tm, (None, None))[0] == otpl:
+                return tm
+        return None
+    for cp in _CONSTANT_PREDS:
+        for c in graph.objects(om, uri(cp)):
+            if isinstance(c, rdflib.URIRef):
+                return constant_link_target(str(c), self_tm, keys, order)
+    return None
+
+
 def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None) -> list[str]:
     """Flag a mapping whose entities form DISCONNECTED groups.
 
@@ -825,7 +922,9 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
     entity. Templates are compared in their EFFECTIVE form
     (:func:`_effective_template`), so a transformed subject or link — compiled to
     ``fn:template`` instead of a plain ``rr:template`` — still matches its plain
-    or transformed counterpart. One connected component -> no advisory.
+    or transformed counterpart. A constant object IRI that fits another map's
+    subject template (``…/activity/{id}`` ← ``…/activity/ingest-v1``) joins it
+    too (:func:`link_target`). One connected component -> no advisory.
     """
     import rdflib
 
@@ -854,17 +953,18 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
         if ra != rb:
             parent[rb] = ra
 
+    keys = subject_keys(graph, tms)
     for tm in tms:
         for pom in graph.objects(tm, uri(_R2RML + "predicateObjectMap")):
             for om in graph.objects(pom, uri(_R2RML + "objectMap")):
-                for ptm in graph.objects(om, uri(_R2RML + "parentTriplesMap")):
-                    if ptm in index:
-                        union(index[tm], index[ptm])
-                otpl = _effective_template(graph, om)
-                if otpl is not None:
-                    for other, stpl in subj_tpl.items():
-                        if other is not tm and stpl == otpl:
-                            union(index[tm], index[other])
+                target = link_target(graph, tm, om, keys, tms)
+                if target is not None:
+                    union(index[tm], index[target])
+            for obj in graph.objects(pom, uri(_R2RML + "object")):
+                if isinstance(obj, rdflib.URIRef):
+                    target = constant_link_target(str(obj), tm, keys, tms)
+                    if target is not None:
+                        union(index[tm], index[target])
     by_template: dict[str, list] = {}
     for tm, tpl in subj_tpl.items():
         by_template.setdefault(tpl, []).append(tm)

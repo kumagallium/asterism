@@ -115,6 +115,19 @@ export function skeletonShape(
 /** 述語の局所名。`#` と `/` と `:` のどれで切れていても最後の一片を取る。 */
 const localName = (iri: string): string => iri.split(/[:#/]/).pop() || iri
 
+/** 項目 `p` の行き先が、種類 `x` の主語そのものか。
+ *  api の `target_map`（つながりの検査と同じ判定）を先に見る。変換つきの主語は
+ *  RML では関数になり、ここで比べられる文字列を持たない。残りの 3 通りは
+ *  `target_map` を返さない古いサーバのため。 */
+export function linksTo(p: RuleProperty, x: RuleMap): boolean {
+  return (
+    (p.target_map != null && p.target_map === x.id) ||
+    (p.parent_map != null && p.parent_map === x.id) ||
+    (!!p.template && p.template === x.subject.template) ||
+    (!!p.constant && p.constant_is_iri === true && p.constant === x.subject.constant)
+  )
+}
+
 export function rulesShape(
   rules: DatasetRules,
   opts: {
@@ -140,12 +153,7 @@ export function rulesShape(
      見ても行を回しているかは分からない）。**分からないことを塗り分けない** —
      ⑤ の箱はどれも同じ色にして、形だけを④と揃える。 */
   const isLink = (p: RuleProperty): RuleMap | undefined =>
-    rules.maps.find(
-      (x) =>
-        (p.parent_map != null && p.parent_map === x.id) ||
-        (!!p.template && p.template === x.subject.template) ||
-        (!!p.constant && p.constant_is_iri === true && p.constant === x.subject.constant),
-    )
+    rules.maps.find((x) => linksTo(p, x))
   const nodes: ShapeNode[] = rules.maps.map((m) => ({
     id: m.id,
     label: label(m),
@@ -168,13 +176,7 @@ export function rulesShape(
   const drawn = new Set<string>()
   for (const a of rules.maps) {
     for (const p of a.properties) {
-      const b = rules.maps.find(
-        (x) =>
-          x.id !== a.id &&
-          ((p.parent_map != null && p.parent_map === x.id) ||
-            (!!p.template && p.template === x.subject.template) ||
-            (!!p.constant && p.constant_is_iri === true && p.constant === x.subject.constant)),
-      )
+      const b = rules.maps.find((x) => x.id !== a.id && linksTo(p, x))
       if (!b || drawn.has(`${a.id}\u0000${b.id}`)) continue
       drawn.add(`${a.id}\u0000${b.id}`)
       edges.push({

@@ -210,3 +210,54 @@ def test_real_repo_mappings_project_cleanly() -> None:
         assert out["warnings"] == [], rel
         for m in out["maps"]:
             assert m["subject"].get("classes"), f"{rel}: {m['id']} has no classes"
+
+
+def test_link_rows_name_their_target_map() -> None:
+    # 図が線を引く行き先を、つながりの検査と同じ判定で行に付ける。変換つきの
+    # 主語（関数）へのつなぐ行と、主語のテンプレートにはまる定数も含む。
+    rml = """
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn: <https://ex.example/fn/> .
+@prefix ex: <https://ex/onto#> .
+
+<#RunMap> rml:logicalSource [ rml:source "run.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/run/{run_id}" ; rr:class ex:Run ] .
+<#SampleMap> rml:logicalSource [ rml:source "s.csv" ] ;
+  rr:subjectMap [
+    rmlf:functionExecution [
+      rmlf:function fn:template ;
+      rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field1> ;
+                   rmlf:inputValueMap [ rmlf:functionExecution [
+              rmlf:function fn:slug ;
+              rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                           rmlf:inputValueMap [ rml:reference "sid" ] ] ] ] ] ;
+      rmlf:input [ rmlf:parameter <https://ex.example/fn/p_template> ;
+                   rmlf:inputValueMap [ rmlf:constant "https://ex/sample/{1}" ] ] ] ;
+    rr:termType rr:IRI ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:madeBy ;
+    rr:objectMap [ rr:constant <https://ex/run/run-1> ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:name ;
+    rr:objectMap [ rml:reference "name" ] ] .
+<#PointMap> rml:logicalSource [ rml:source "p.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/point/{pid}" ; rr:class ex:Point ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:template ;
+          rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field1> ;
+                       rmlf:inputValueMap [ rmlf:functionExecution [
+                  rmlf:function fn:slug ;
+                  rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                               rmlf:inputValueMap [ rml:reference "sid" ] ] ] ] ] ;
+          rmlf:input [ rmlf:parameter <https://ex.example/fn/p_template> ;
+                       rmlf:inputValueMap [ rmlf:constant "https://ex/sample/{1}" ] ] ] ;
+      rr:termType rr:IRI ] ] .
+"""
+    out = summarize_rml(rml)
+    targets = {
+        (m["id"], r["predicate"]): r.get("target_map") for m in out["maps"] for r in m["properties"]
+    }
+    assert targets[("PointMap", "ex:ofSample")] == "SampleMap"
+    assert targets[("SampleMap", "ex:madeBy")] == "RunMap"
+    assert targets[("SampleMap", "ex:name")] is None  # 値の行は線にならない
