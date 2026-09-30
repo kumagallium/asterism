@@ -384,6 +384,42 @@ def test_a_failed_restore_projection_keeps_the_backup(
     assert _jobs(tmp_path)[-1]["status"] == "error"
 
 
+def test_a_failed_restore_after_a_later_edit_keeps_the_edit_reachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """置き換えのあとに直したうえで、戻す途中の投影が失敗しても、直した内容の控えは印に載る
+    （画面から辿れる）。押し直しは、戻した内容をもう一度控えず、直した内容の控えを残し、
+    その控えから直しが返る。"""
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    mine = (dest / "mapping.yaml").read_bytes()
+    _override(cfg, dest, ["design"])
+    later = (dest / "mapping.yaml").read_bytes() + b"# LATER EDIT AFTER OVERRIDE\n"
+    (dest / "mapping.yaml").write_bytes(later)
+    at = _read_meta(dest)["sample"]["backups"][0]["at"]
+
+    _Projections(monkeypatch, onto=RuntimeError("boom"))
+    with pytest.raises(demo_sample.SampleOpError) as exc:
+        asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at=at))
+    assert _code(exc) == ("failed", 500)
+    listed = _read_meta(dest)["sample"]["backups"]
+    assert listed[0]["at"] == at  # もう一度押せる
+    assert len(listed) == 2
+    # ディスクの控えはすべて印に載っている（孤児が無い）
+    on_disk = {f"sample-backup/{p.name}/" for p in (dest / "sample-backup").iterdir()}
+    assert on_disk == {b["dir"] for b in listed}
+    assert (dest / listed[1]["dir"] / "files" / "mapping.yaml").read_bytes() == later
+
+    _Projections(monkeypatch)
+    asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at=at))
+    assert (dest / "mapping.yaml").read_bytes() == mine
+    listed = _read_meta(dest)["sample"]["backups"]
+    assert len(listed) == 1  # 戻した内容を、もう一度控えない
+    assert {p.name for p in (dest / "sample-backup").iterdir()} == {listed[0]["dir"].split("/")[1]}
+    _restore(cfg, dest)  # 直した内容の控えから戻せる
+    assert (dest / "mapping.yaml").read_bytes() == later
+    assert "backups" not in _read_meta(dest)["sample"]
+
+
 def _restore(cfg: Any, dest: Path) -> dict[str, Any]:
     at = _read_meta(dest)["sample"]["backups"][0]["at"]
     return asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at=at))
@@ -554,6 +590,38 @@ def test_restore_refuses_a_backup_that_points_outside_or_lists_another_unit(
     assert _read_meta(dest)["sample"]["backups"][0]["at"] == "T2"
 
 
+@pytest.mark.parametrize("how", ["dotdot", "symlink"])
+def test_restore_never_reads_or_removes_a_real_backup_outside_the_backup_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    """外側に有効な backup.json と files がある場所を、印の dir が指しても（``..`` でも、
+    控えの下のシンボリックリンクでも）読まず・消さず・戻さない。"""
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    _override(cfg, dest, ["design"])
+    replaced = (dest / "mapping.yaml").read_bytes()
+    outside = dest.parent / "outside"  # dataset ディレクトリの外（``../outside``）
+    (outside / "files").mkdir(parents=True)
+    (outside / "files" / "mapping.yaml").write_bytes(b"evil")
+    (outside / "backup.json").write_text(
+        json.dumps({"units": ["design"], "files": ["mapping.yaml"], "fields": {}}), "utf-8"
+    )
+    if how == "dotdot":
+        bad = "../outside"
+    else:
+        (dest / "sample-backup" / "link").symlink_to(outside, target_is_directory=True)
+        bad = "sample-backup/link/"
+    meta = _read_meta(dest)
+    meta["sample"]["backups"] = [{"at": "T", "units": ["design"], "dir": bad}]
+    (dest / "meta.json").write_text(json.dumps(meta), "utf-8")
+    with pytest.raises(demo_sample.SampleOpError) as exc:
+        asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at="T"))
+    assert _code(exc) == ("stale", 409)
+    assert (dest / "mapping.yaml").read_bytes() == replaced
+    assert (outside / "files" / "mapping.yaml").read_bytes() == b"evil"
+    assert (outside / "backup.json").is_file()
+    assert "backups" not in _read_meta(dest)["sample"]
+
+
 def test_restore_of_a_backup_whose_directory_is_gone_drops_it_from_the_stamp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -696,7 +764,30 @@ def test_override_of_a_decisions_only_hold_replaces_nothing_and_says_nothing(
     assert (dest / "column-decisions.json").exists()
     assert not (dest / "sample-backup").exists()
     assert "backups" not in _read_meta(dest)["sample"]
+    assert _read_meta(dest)["sample"]["held"] == []  # 置き換えたあとは保留が残らない
     assert [r["sample"]["action"] for r in _jobs(tmp_path)] == ["startup"]
+
+
+def test_override_of_an_edited_design_with_decisions_replaces_it_and_clears_both_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """設計の編集と決めた内容が両方の保留のとき、置き換えで設計が入れ替わり、保留は両方消える
+    （置き換えを押しても何も起きず、ボタンが残り続ける状態にならない）。決めた内容のファイルは残る。"""
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    (dest / "column-decisions.json").write_text("{}", "utf-8")
+    _refresh(cfg)
+    held = _read_meta(dest)["sample"]["held"]
+    assert {(h["unit"], h["reason"]) for h in held} == {
+        ("design", "edited"),
+        ("design", "decisions"),
+    }
+    out = _override(cfg, dest, ["design"])
+    assert out["units"] == ["design"] and out["held"] == []
+    assert b"# mine" not in (dest / "mapping.yaml").read_bytes()
+    assert (dest / "column-decisions.json").exists()
+    stamp = _read_meta(dest)["sample"]
+    assert stamp["held"] == []
+    assert "design" in stamp["units"]
 
 
 @pytest.mark.parametrize(

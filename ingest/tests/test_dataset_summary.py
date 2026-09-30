@@ -238,6 +238,21 @@ def test_sample_notice_overridable_excludes_what_would_lose_the_users_data(held)
     assert notice["overridable"] == []
 
 
+def test_sample_notice_overridable_keeps_name_and_description_when_the_data_group_is_held() -> None:
+    from asterism.dataset_summary import sample_notice
+
+    held = [
+        {"unit": "design", "reason": "edited"},
+        {"unit": "data", "reason": "edited"},
+        {"unit": "tools", "reason": "edited"},
+        {"unit": "name", "reason": "edited"},
+        {"unit": "description", "reason": "appended"},
+    ]
+    notice = sample_notice({"sample": _stamp(held=held)}, is_demo=True)
+    assert notice is not None
+    assert notice["overridable"] == ["name"]
+
+
 def test_sample_notice_overridable_is_per_unit() -> None:
     from asterism.dataset_summary import sample_notice
 

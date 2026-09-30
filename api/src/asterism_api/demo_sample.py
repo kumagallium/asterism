@@ -1813,11 +1813,18 @@ async def manual_override(
 
 
 def _edited_since(
-    base: Path, meta: Mapping[str, Any], manifest: Mapping[str, Any], units: Sequence[str]
+    base: Path,
+    meta: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    units: Sequence[str],
+    backup_files: Mapping[str, bytes],
 ) -> bool:
     """控えを取ったあとの状態から、利用者がさらに直したか（ファイルの sha256・名前）。
 
     指紋（``after``）の無い控えは、直したものとみなす（戻す前に、いまの内容を控える側に倒す）。
+    ファイルがすでに控えの内容になっている（前の「戻す」が投影で失敗して押し直した）ときは、
+    そのファイルは直したものとみなさない（戻した内容をもう一度控えても意味が無く、直した内容は
+    前の回に取った控えが持っている）。
     """
     after = manifest.get("after")
     if not isinstance(after, dict):
@@ -1826,7 +1833,7 @@ def _edited_since(
     for rel in manifest["files"]:
         path = base / rel
         now = sha256_hex(path.read_bytes()) if path.is_file() else None
-        if now != shas.get(rel):
+        if now != shas.get(rel) and now != sha256_hex(backup_files[rel]):
             return True
     return UNIT_NAME in units and "name" in after and meta.get("name") != after["name"]
 
@@ -1851,8 +1858,8 @@ async def _restore_files(
             raise ValueError(f"the backup lists a file of another unit: {rel!r}")
         files[rel] = (bdir / "files" / rel).read_bytes()
 
-    safety: dict[str, Any] | None = None
-    if _edited_since(base, meta, manifest, units):
+    sample = dict(meta.get("sample") or {})
+    if _edited_since(base, meta, manifest, units, files):
         current = {rel: (base / rel).read_bytes() for rel in files if (base / rel).is_file()}
         fields: dict[str, Any] = {}
         if UNIT_NAME in units and meta.get("name") is not None:
@@ -1867,6 +1874,14 @@ async def _restore_files(
         safety = _write_backup(
             cfg, bundled.dataset_id, units, current, fields, after, datetime.now(UTC)
         )
+        # ファイルを置き換える前に、控えを印に載せる（戻す途中で投影が失敗しても、直した内容を
+        # 画面から辿れる）。戻す元の控えの次に置く: 失敗して押し直したとき、いま画面が指して
+        # いる控えがそのまま先頭に残り、押し直せる。成功したら元の控えが外れて先頭になる。
+        listed = _valid_backups(sample.get("backups"))
+        at_entry = next((i for i, b in enumerate(listed) if b.get("dir") == entry["dir"]), -1)
+        listed.insert(at_entry + 1, safety)
+        sample["backups"] = listed
+        registry.update_meta_atomic(root, bundled.dataset_id, {"sample": sample})
     registry.replace_artifact_bytes(root, bundled.dataset_id, files)
 
     data = registry.load_dataset(root, bundled.dataset_id) or {}
@@ -1883,7 +1898,6 @@ async def _restore_files(
         if not (written or blank):
             raise RuntimeError("the description projection wrote nothing")
 
-    sample = dict(meta.get("sample") or {})
     sample["units"] = {u: v for u, v in (sample.get("units") or {}).items() if u not in units}
     last_update = sample.get("last_update")
     if isinstance(last_update, dict):
@@ -1893,11 +1907,8 @@ async def _restore_files(
         else:
             sample.pop("last_update", None)
     rest = [b for b in _valid_backups(sample.get("backups")) if b.get("dir") != entry["dir"]]
-    dropped: list[str] = []
-    if safety is not None:
-        rest.insert(0, safety)
-        dropped = [str(b["dir"]) for b in rest[MAX_BACKUPS:]]
-        rest = rest[:MAX_BACKUPS]
+    dropped = [str(b["dir"]) for b in rest[MAX_BACKUPS:]]
+    rest = rest[:MAX_BACKUPS]
     if rest:
         sample["backups"] = rest
     else:

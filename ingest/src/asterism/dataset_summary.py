@@ -76,6 +76,7 @@ DEMO_DATASET_ID = "world"
 #: ``HELD_*`` と同じ文字列（テストで一致を固定している）。
 OVERRIDABLE_REASONS: tuple[str, ...] = ("edited", "decisions")
 _SAMPLE_DATA_UNIT = "data"
+_SAMPLE_DATA_GROUP = ("design", "data", "tools")
 
 
 def sample_notice(meta: dict[str, Any], *, is_demo: bool) -> dict[str, Any] | None:
@@ -118,11 +119,16 @@ def sample_notice(meta: dict[str, Any], *, is_demo: bool) -> dict[str, Any] | No
                 item["titles"].append(t)
     held = list(merged.values())
 
+    # データの群（design・data・tools）は、データが保留のとき同じ理由で丸ごと保留されている
+    # ので、置き換えない（データや引用の住所を失う）。名前・説明は群ではないので、
+    # それぞれの理由で決める。
+    group_held = any(h["unit"] == _SAMPLE_DATA_UNIT for h in held)
     overridable: list[str] = []
-    if not any(h["unit"] == _SAMPLE_DATA_UNIT for h in held):
-        for unit in dict.fromkeys(h["unit"] for h in held):
-            if all(h["reason"] in OVERRIDABLE_REASONS for h in held if h["unit"] == unit):
-                overridable.append(unit)
+    for unit in dict.fromkeys(h["unit"] for h in held):
+        if group_held and unit in _SAMPLE_DATA_GROUP:
+            continue
+        if all(h["reason"] in OVERRIDABLE_REASONS for h in held if h["unit"] == unit):
+            overridable.append(unit)
 
     restorable: dict[str, Any] | None = None
     backups = stamp.get("backups")

@@ -72,3 +72,24 @@ describe('restoreSample', () => {
     expect(JSON.parse(init.body as string)).toEqual({ at: '2026-09-30T01:00:00+00:00' })
   })
 })
+
+describe('書き込み認証の見出し', () => {
+  it('トークンがあるとき、置き換えも戻すも X-Asterism-Token を送る', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => 'secret-token' })
+    const calls = stubFetch()
+    await refreshSample('world', { seq: 3, revision: 'abc' }, ['design'])
+    await restoreSample('world', '2026-09-30T01:00:00+00:00')
+    for (const { init } of calls) {
+      expect((init.headers as Record<string, string>)['X-Asterism-Token']).toBe('secret-token')
+    }
+  })
+
+  it('トークンが無いときは見出しを付けない', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => null })
+    const calls = stubFetch()
+    await refreshSample('world', { seq: 3, revision: 'abc' }, ['design'])
+    expect(Object.keys(calls[0].init.headers as Record<string, string>)).not.toContain(
+      'X-Asterism-Token',
+    )
+  })
+})
