@@ -1420,6 +1420,35 @@ def _remove_backup_dir(base: Path, rel: str) -> None:
         logger.warning("refresh_bundled_sample: refusing to remove %r", rel)
 
 
+def _write_backup(
+    cfg: Any,
+    dataset_id: str,
+    units: Sequence[str],
+    files: Mapping[str, bytes],
+    fields: Mapping[str, Any],
+    after: Mapping[str, Any],
+    at: datetime,
+) -> dict[str, Any]:
+    """控えを ``sample-backup/<UTC>/`` に書き、印の ``backups`` に載せる項目を返す。
+
+    ``after`` は、この控えを取ったあとの状態の指紋（``files``: 相対パス → sha256・``name``）。
+    「控えから戻す」が、置き換えたあとに利用者が直した内容を上書きしていないかを見るのに使う。
+    """
+    stamp_name = at.strftime("%Y%m%dT%H%M%S%fZ")
+    manifest = {
+        "units": list(units),
+        "files": sorted(files),
+        "fields": dict(fields),
+        "after": after,
+    }
+    payload = {f"{BACKUP_DIR}/{stamp_name}/files/{rel}": blob for rel, blob in files.items()}
+    payload[f"{BACKUP_DIR}/{stamp_name}/{BACKUP_MANIFEST}"] = json.dumps(
+        manifest, ensure_ascii=False, indent=2
+    ).encode("utf-8")
+    registry.replace_artifact_bytes(cfg.registry_root, dataset_id, payload)
+    return {"at": at.isoformat(), "units": list(units), "dir": f"{BACKUP_DIR}/{stamp_name}/"}
+
+
 def _take_backup(
     cfg: Any,
     dataset_id: str,
@@ -1437,7 +1466,6 @@ def _take_backup(
     if not units:
         return None
     base: Path = cfg.registry_root / dataset_id
-    stamp_name = at.strftime("%Y%m%dT%H%M%S%fZ")
     files: dict[str, bytes] = {}
     for rel in plan.replace:
         unit = unit_of_member(REGISTRY_PREFIX + rel)
@@ -1450,13 +1478,10 @@ def _take_backup(
         for k in ("classes", "class_count"):
             if k in meta:
                 fields[k] = meta[k]
-    manifest = {"units": units, "files": sorted(files), "fields": fields}
-    payload = {f"{BACKUP_DIR}/{stamp_name}/files/{rel}": blob for rel, blob in files.items()}
-    payload[f"{BACKUP_DIR}/{stamp_name}/{BACKUP_MANIFEST}"] = json.dumps(
-        manifest, ensure_ascii=False, indent=2
-    ).encode("utf-8")
-    registry.replace_artifact_bytes(cfg.registry_root, dataset_id, payload)
-    return {"at": at.isoformat(), "units": units, "dir": f"{BACKUP_DIR}/{stamp_name}/"}
+    after: dict[str, Any] = {"files": {rel: sha256_hex(plan.replace[rel]) for rel in files}}
+    if UNIT_NAME in units and plan.new_name is not None:
+        after["name"] = plan.new_name
+    return _write_backup(cfg, dataset_id, units, files, fields, after, at)
 
 
 async def _refresh(
@@ -1660,8 +1685,9 @@ async def _refresh(
         )
 
     # アクティビティ: 起動時は「入れ替えた」か「保留の中身」が変わったときだけ 1 行
-    # （起動のたびには書かない）。手動の置き換えは 1 回 1 行。
-    if action == JOB_OVERRIDE or (
+    # （起動のたびには書かない）。手動の置き換えは、何かを置き換えたときに 1 回 1 行
+    # （置き換わったものが無いのに「置き換えました」とは書かない）。
+    if (action == JOB_OVERRIDE and bool(updated)) or (
         action == JOB_STARTUP
         and (bool(updated) or _held_key(old.get("held") if old else None) != _held_key(plan.held))
     ):
@@ -1786,10 +1812,32 @@ async def manual_override(
     return outcome
 
 
+def _edited_since(
+    base: Path, meta: Mapping[str, Any], manifest: Mapping[str, Any], units: Sequence[str]
+) -> bool:
+    """控えを取ったあとの状態から、利用者がさらに直したか（ファイルの sha256・名前）。
+
+    指紋（``after``）の無い控えは、直したものとみなす（戻す前に、いまの内容を控える側に倒す）。
+    """
+    after = manifest.get("after")
+    if not isinstance(after, dict):
+        return True
+    shas = after.get("files") or {}
+    for rel in manifest["files"]:
+        path = base / rel
+        now = sha256_hex(path.read_bytes()) if path.is_file() else None
+        if now != shas.get(rel):
+            return True
+    return UNIT_NAME in units and "name" in after and meta.get("name") != after["name"]
+
+
 async def _restore_files(
     cfg: Any, client: Any, bundled: Bundled, meta: dict[str, Any], entry: Mapping[str, Any]
 ) -> None:
-    """控えのファイルを原子的に戻し、投影をやり直し、印から戻した単位と控えを外す。"""
+    """控えのファイルを原子的に戻し、投影をやり直し、印から戻した単位と控えを外す。
+
+    置き換えたあとに利用者がさらに直していたら、戻す前にそのいまの内容を新しい控えに取る
+    （戻して直しが消えても、その控えから戻せる）。"""
     from asterism_api.main import _project_meta_graph, _project_ontology_graph
 
     root: Path = cfg.registry_root
@@ -1802,6 +1850,23 @@ async def _restore_files(
         if unit_of_member(REGISTRY_PREFIX + rel) not in units:
             raise ValueError(f"the backup lists a file of another unit: {rel!r}")
         files[rel] = (bdir / "files" / rel).read_bytes()
+
+    safety: dict[str, Any] | None = None
+    if _edited_since(base, meta, manifest, units):
+        current = {rel: (base / rel).read_bytes() for rel in files if (base / rel).is_file()}
+        fields: dict[str, Any] = {}
+        if UNIT_NAME in units and meta.get("name") is not None:
+            fields["name"] = meta["name"]
+        if UNIT_DESIGN in units:
+            for k in ("classes", "class_count"):
+                if k in meta:
+                    fields[k] = meta[k]
+        after: dict[str, Any] = {"files": {rel: sha256_hex(blob) for rel, blob in files.items()}}
+        if "name" in (manifest.get("fields") or {}):
+            after["name"] = manifest["fields"]["name"]
+        safety = _write_backup(
+            cfg, bundled.dataset_id, units, current, fields, after, datetime.now(UTC)
+        )
     registry.replace_artifact_bytes(root, bundled.dataset_id, files)
 
     data = registry.load_dataset(root, bundled.dataset_id) or {}
@@ -1828,6 +1893,11 @@ async def _restore_files(
         else:
             sample.pop("last_update", None)
     rest = [b for b in _valid_backups(sample.get("backups")) if b.get("dir") != entry["dir"]]
+    dropped: list[str] = []
+    if safety is not None:
+        rest.insert(0, safety)
+        dropped = [str(b["dir"]) for b in rest[MAX_BACKUPS:]]
+        rest = rest[:MAX_BACKUPS]
     if rest:
         sample["backups"] = rest
     else:
@@ -1840,23 +1910,42 @@ async def _restore_files(
     changes["sample"] = sample
     registry.update_meta_atomic(root, bundled.dataset_id, changes)
     _remove_backup_dir(base, str(entry["dir"]))
+    for rel in dropped:
+        _remove_backup_dir(base, rel)
 
 
 async def manual_restore(
     cfg: Any, client: Any, snapshot_path: Path | None, dataset_id: str, *, at: str
 ) -> dict[str, Any]:
     """画面の「控えから戻す」。いちばん新しい控えのファイルを原子的に戻し、投影をやり直し、
-    印の該当単位を外す（次の突き合わせでまた「触った」と判定されて保留に戻る）。"""
+    印の該当単位を外す（次の突き合わせでまた「触った」と判定されて保留に戻る）。
+
+    置き換えたあとに直した内容があれば、戻す前に新しい控えに取る（:func:`_restore_files`）。
+    """
     bundled, meta, _key, stamp = await _preflight(cfg, client, snapshot_path, dataset_id)
     backups = (stamp or {}).get("backups") or []
     if not backups or backups[0].get("at") != at:
         raise SampleOpError("stale")
     entry = backups[0]
+    base: Path = cfg.registry_root / bundled.dataset_id
+    try:
+        present = (_backup_dir(base, str(entry["dir"])) / BACKUP_MANIFEST).is_file()
+    except ValueError:
+        present = False
+    if not present:
+        # 控えの実体が無い（消された・印が壊れている）: 押すたびに失敗し続けないよう、
+        # 印から外して、画面を見直させる。
+        sample = dict(meta.get("sample") or {})
+        rest = [b for b in _valid_backups(sample.get("backups")) if b.get("at") != at]
+        if rest:
+            sample["backups"] = rest
+        else:
+            sample.pop("backups", None)
+        registry.update_meta_atomic(cfg.registry_root, bundled.dataset_id, {"sample": sample})
+        raise SampleOpError("stale")
     started = datetime.now(UTC)
     try:
         await _restore_files(cfg, client, bundled, meta, entry)
-        # 戻した単位の保留を、印に書き直す（記録は下で 1 行だけ）。
-        await _refresh(cfg, client, snapshot_path, action=None)
     except Exception as exc:
         logger.warning("manual_restore: failed", exc_info=True)
         _record_job(
@@ -1870,6 +1959,12 @@ async def manual_restore(
             started=started,
         )
         raise SampleOpError("failed", 500) from exc
+    try:
+        # 戻した単位の保留を、印に書き直す（記録は下で 1 行だけ）。戻し自体は済んでいて
+        # 控えも外したので、ここが失敗しても失敗とは返さない（次の起動が書き直す）。
+        await _refresh(cfg, client, snapshot_path, action=None)
+    except Exception:
+        logger.warning("manual_restore: rewriting the held marks failed", exc_info=True)
     _record_job(
         cfg,
         action=JOB_RESTORE,

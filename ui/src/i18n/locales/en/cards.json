@@ -449,7 +449,7 @@
     "confirm_replace_busy": "Replacing…",
     "confirm_restore_title": "Restore from the backup?",
     "confirm_restore_what": "Will be restored: {{units}}",
-    "confirm_restore_note": "This brings back the content from before the replacement. What you restore goes back to not being swapped for the new sample.",
+    "confirm_restore_note": "This brings back the content from before the replacement. What you restore goes back to not being swapped for the new sample. If you changed something after the replacement, its current content is kept as another backup, so you can bring it back.",
     "confirm_restore_submit": "Restore",
     "confirm_restore_busy": "Restoring…",
     "confirm_tools_note": "Tools for AI reach outside AIs the next time the app is started.",

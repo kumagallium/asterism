@@ -31,12 +31,13 @@
   margin: 0;
 }
 
-.dataset-band--warn {
+/* 後ろの基本ルール（.dataset-band / .dataset-band-title）に負けないよう、詳細度を上げる */
+.dataset-band.dataset-band--warn {
   background: var(--warn-bg);
   border-color: var(--warn-border);
 }
 
-.dataset-band-title--warn {
+.dataset-band-title.dataset-band-title--warn {
   color: var(--warn-fg);
 }
 

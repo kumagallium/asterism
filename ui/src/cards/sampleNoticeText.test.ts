@@ -61,6 +61,14 @@ describe('reasonText / unitLabel', () => {
     expect(reasonText('some_new_reason', t)).not.toMatch(RAW)
   })
 
+  it('個別に文言を決めた理由は、その文になる（総称に落ちない）', () => {
+    expect(reasonText('decisions', t)).toBe('あなたが決めた内容（列の意味や見た目など）があるため')
+    expect(reasonText('edited', t)).toBe('あなたが変えたため')
+    expect(reasonText('appended', t)).toBe('データを追記したため')
+    expect(reasonText('reingested', t)).toBe('データを取り込み直したため')
+    expect(reasonText('decisions', t)).not.toBe(t('cards:sample.reason_other'))
+  })
+
   it('引用の住所が動く版の 2 つの理由は、同じ文になる', () => {
     expect(reasonText('ids_move', t)).toBe(reasonText('ids_unknown', t))
     expect(reasonText('ids_move', t)).toContain('引用の住所')
@@ -130,6 +138,16 @@ describe('errorText', () => {
       expect(text).not.toMatch(RAW)
       expect(text).not.toContain('HTTP')
     }
+  })
+
+  it('個別に文言を決めたコードは、その文になる（総称に落ちない）', () => {
+    expect(errorText(err('ingest_reserved'), t)).toBe(
+      'データの取り込みの途中のため、いまは置き換えられません。',
+    )
+    expect(errorText(err('ingest_in_progress'), t)).toBe(errorText(err('ingest_reserved'), t))
+    expect(errorText(err('stale'), t)).toContain('読み直して')
+    expect(errorText(err('retracted'), t)).toBe('この見本は取り下げ中のため、置き換えられません。')
+    expect(errorText(err('not_overridable'), t)).not.toBe(t('cards:sample.error_other'))
   })
 
   it('知らないコード・コードの無い失敗は総称の文', () => {

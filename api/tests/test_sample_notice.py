@@ -27,16 +27,23 @@ from asterism_api import demo_sample, local
 from asterism_api import main as main_mod
 from asterism_api.sample_routes import INTENT_HEADER, INTENT_REFRESH, INTENT_RESTORE
 from tests.test_demo_sample import (
+    _HOLD_CASES,
     DATASET_ID,
     SNAPSHOT,
     _cfg,
     _DatasetClient,
+    _files_of,
     _meta,
+    _nquads,
+    _old_store,
     _Projections,
     _read_meta,
     _real,
     _refresh,
+    _refresh_release,
+    _release_file,
     _write_env,
+    _write_swap_env,
 )
 from tests.test_main import _AUTH, _settings
 
@@ -377,6 +384,214 @@ def test_a_failed_restore_projection_keeps_the_backup(
     assert _jobs(tmp_path)[-1]["status"] == "error"
 
 
+def _restore(cfg: Any, dest: Path) -> dict[str, Any]:
+    at = _read_meta(dest)["sample"]["backups"][0]["at"]
+    return asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at=at))
+
+
+def _newest_backup(dest: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    entry = _read_meta(dest)["sample"]["backups"][0]
+    manifest = json.loads((dest / entry["dir"] / "backup.json").read_text("utf-8"))
+    return entry, manifest
+
+
+def test_restore_keeps_what_the_user_changed_after_the_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """置き換えたあとに直した設計を、控えから戻して失わない: 戻す前のいまの内容を新しい控えに
+    取り、その控えから戻せば直しが返る。直していなければ新しい控えは作らない。"""
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    mine = (dest / "mapping.yaml").read_bytes()
+    _override(cfg, dest, ["design"])
+    later = (dest / "mapping.yaml").read_bytes() + b"# LATER EDIT AFTER OVERRIDE\n"
+    (dest / "mapping.yaml").write_bytes(later)
+    old_dir = _read_meta(dest)["sample"]["backups"][0]["dir"]
+
+    _restore(cfg, dest)
+    assert (dest / "mapping.yaml").read_bytes() == mine
+    entry, manifest = _newest_backup(dest)
+    assert entry["dir"] != old_dir and not (dest / old_dir).exists()
+    assert len(_read_meta(dest)["sample"]["backups"]) == 1
+    assert (dest / entry["dir"] / "files" / "mapping.yaml").read_bytes() == later
+    assert manifest["units"] == ["design"]
+    assert not (dest / "history").exists()
+
+    # その控えから戻せば、置き換えのあとの直しが返る（往復できる）
+    _restore(cfg, dest)
+    assert (dest / "mapping.yaml").read_bytes() == later
+    assert "backups" not in _read_meta(dest)["sample"]
+
+
+def test_restore_of_untouched_replacement_makes_no_new_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    _override(cfg, dest, ["design"])
+    _restore(cfg, dest)
+    assert "backups" not in _read_meta(dest)["sample"]
+    assert not any((dest / "sample-backup").iterdir())
+
+
+def test_restore_of_the_tools_keeps_a_tool_added_after_the_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Projections(monkeypatch)
+    dest = _write_env(tmp_path, a_design=False)
+    tools = demo_sample.parse_tools((dest / "query_tools.yaml").read_text("utf-8"))
+    fixed = {**tools[0], "description": "利用者が直した説明"}
+    mine = demo_sample.dump_tools([fixed, *tools[1:]])
+    (dest / "query_tools.yaml").write_bytes(mine)
+    cfg = _cfg(tmp_path)
+    _refresh(cfg)
+    _override(cfg, dest, ["tools"])
+    added = {**tools[1], "name": "added_after_override", "title": "あとから足した道具"}
+    current = demo_sample.parse_tools((dest / "query_tools.yaml").read_text("utf-8"))
+    later = demo_sample.dump_tools([*current, added])
+    (dest / "query_tools.yaml").write_bytes(later)
+
+    _restore(cfg, dest)
+    assert (dest / "query_tools.yaml").read_bytes() == mine
+    assert _read_meta(dest)["sample"]["held"] == [
+        {"unit": "tools", "reason": "edited", "titles": [tools[0]["title"]]}
+    ]
+    entry, _ = _newest_backup(dest)
+    assert (dest / entry["dir"] / "files" / "query_tools.yaml").read_bytes() == later
+    _restore(cfg, dest)
+    names = [
+        t["name"] for t in demo_sample.parse_tools((dest / "query_tools.yaml").read_text("utf-8"))
+    ]
+    assert "added_after_override" in names
+
+
+def test_restore_of_a_name_puts_the_users_name_back_and_keeps_a_later_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Projections(monkeypatch)
+    dest = _write_env(tmp_path, a_design=False, meta_over={"name": "わたしの名前"})
+    cfg = _cfg(tmp_path)
+    _refresh(cfg)
+    assert _read_meta(dest)["sample"]["held"] == [{"unit": "name", "reason": "edited"}]
+    _override(cfg, dest, ["name"])
+    assert _read_meta(dest)["name"] == _real().name
+    entry, manifest = _newest_backup(dest)
+    assert entry["units"] == ["name"]
+    assert manifest["fields"] == {"name": "わたしの名前"}  # 名前の控え
+    assert manifest["files"] == []
+
+    # 何も直していなければ、名前が戻り、保留に戻り、新しい控えは作らない
+    _restore(cfg, dest)
+    meta = _read_meta(dest)
+    assert meta["name"] == "わたしの名前"
+    assert meta["sample"]["held"] == [{"unit": "name", "reason": "edited"}]
+    assert "backups" not in meta["sample"]
+
+    # 置き換えたあとに名前を付け直したなら、その名前は新しい控えに残る
+    _override(cfg, dest, ["name"])
+    registry_meta = _read_meta(dest)
+    registry_meta["name"] = "あとで付けた名前"
+    (dest / "meta.json").write_text(json.dumps(registry_meta, ensure_ascii=False), "utf-8")
+    _restore(cfg, dest)
+    assert _read_meta(dest)["name"] == "わたしの名前"
+    _entry, manifest = _newest_backup(dest)
+    assert manifest["fields"] == {"name": "あとで付けた名前"}
+    _restore(cfg, dest)
+    assert _read_meta(dest)["name"] == "あとで付けた名前"
+
+
+def test_restore_of_a_description_reprojects_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proj = _Projections(monkeypatch)
+    dest = _write_env(tmp_path, a_design=False)
+    (dest / "mie.yaml").write_bytes((dest / "mie.yaml").read_bytes() + b"\n# mine\n")
+    mine = (dest / "mie.yaml").read_bytes()
+    cfg = _cfg(tmp_path)
+    _refresh(cfg)
+    _override(cfg, dest, ["description"])
+    calls = len(proj.meta_calls)
+    _restore(cfg, dest)
+    assert (dest / "mie.yaml").read_bytes() == mine
+    assert len(proj.meta_calls) > calls  # 戻した説明を投影し直した
+    assert _read_meta(dest)["sample"]["held"] == [{"unit": "description", "reason": "edited"}]
+
+
+def test_restore_refuses_a_backup_that_points_outside_or_lists_another_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    _override(cfg, dest, ["design"])
+    replaced = (dest / "mapping.yaml").read_bytes()
+    # 印の dir が外を指している（meta.json は利用者が書き換えられる）→ 消さず・戻さず、印から外す
+    (dest / "outside").mkdir()
+    (dest / "outside" / "keep.txt").write_text("keep", "utf-8")
+    for bad in ("../outside", "sample-backup/../outside", "/etc", "sample-backup"):
+        meta = _read_meta(dest)
+        meta["sample"]["backups"] = [{"at": "T", "units": ["design"], "dir": bad}]
+        (dest / "meta.json").write_text(json.dumps(meta), "utf-8")
+        with pytest.raises(demo_sample.SampleOpError) as exc:
+            asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at="T"))
+        assert _code(exc) == ("stale", 409), bad
+        assert "backups" not in _read_meta(dest)["sample"]
+    assert (dest / "outside" / "keep.txt").read_text("utf-8") == "keep"
+    assert (dest / "mapping.yaml").read_bytes() == replaced
+
+    # 控えの一覧が別の単位のファイルを挙げている → 戻さない（失敗・控えは残る）
+    _restore_target = dest / "sample-backup" / "20260930T000000000000Z"
+    (_restore_target / "files").mkdir(parents=True)
+    (_restore_target / "files" / "mapping.yaml").write_bytes(b"evil")
+    (_restore_target / "backup.json").write_text(
+        json.dumps({"units": ["tools"], "files": ["mapping.yaml"], "fields": {}}), "utf-8"
+    )
+    meta = _read_meta(dest)
+    meta["sample"]["backups"] = [
+        {"at": "T2", "units": ["tools"], "dir": "sample-backup/20260930T000000000000Z/"}
+    ]
+    (dest / "meta.json").write_text(json.dumps(meta), "utf-8")
+    with pytest.raises(demo_sample.SampleOpError) as exc:
+        asyncio.run(demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at="T2"))
+    assert _code(exc) == ("failed", 500)
+    assert (dest / "mapping.yaml").read_bytes() == replaced
+    assert _read_meta(dest)["sample"]["backups"][0]["at"] == "T2"
+
+
+def test_restore_of_a_backup_whose_directory_is_gone_drops_it_from_the_stamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    _override(cfg, dest, ["design"])
+    entry = _read_meta(dest)["sample"]["backups"][0]
+    shutil.rmtree(dest / entry["dir"])
+    for _ in range(2):  # 押すたびに失敗し続けない（1 回目で印から外れ、2 回目は控えが無い）
+        with pytest.raises(demo_sample.SampleOpError) as exc:
+            asyncio.run(
+                demo_sample.manual_restore(cfg, _client(), SNAPSHOT, DATASET_ID, at=entry["at"])
+            )
+        assert _code(exc) == ("stale", 409)
+    assert "backups" not in _read_meta(dest)["sample"]
+
+
+def test_restore_still_succeeds_when_rewriting_the_held_marks_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ファイルを戻して控えを外したあとの、保留の書き直しが落ちても、戻しは済んでいる。
+    失敗として返さない（もう一度押せる控えは無い）。"""
+    dest, cfg = _edited_design_env(tmp_path, monkeypatch)
+    mine = (dest / "mapping.yaml").read_bytes()
+    _override(cfg, dest, ["design"])
+
+    async def boom(*_a: Any, **_kw: Any) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(demo_sample, "_refresh", boom)
+    out = _restore(cfg, dest)
+    assert out["units"] == ["design"]
+    assert (dest / "mapping.yaml").read_bytes() == mine
+    assert _jobs(tmp_path)[-1]["sample"]["action"] == "restore"
+    assert _jobs(tmp_path)[-1]["status"] == "ok"
+
+
 # ---------------------------------------------------------------------------
 # 409 の各理由
 
@@ -416,6 +631,72 @@ def test_override_does_not_replace_ids_moves_or_appended_data(
     with pytest.raises(demo_sample.SampleOpError) as exc:
         _override(cfg, dest, ["design"])
     assert _code(exc) == ("not_overridable", 409)
+
+
+_GROUP_HOLDS = [
+    "feed",
+    "append_seq",
+    "applied_batches",
+    "reshape",
+    "source_edited",
+    "design_edited",
+    "live_graph_differs",
+    "control_differs",
+    "ids_move",
+    "ids_unknown",
+]
+
+
+@pytest.mark.parametrize("name", _GROUP_HOLDS)
+def test_override_never_replaces_the_data_group(tmp_path: Path, name: str) -> None:
+    """データが変わる版で、追記・取り込み直し・決めた内容・引用の住所・決着していない状態・
+    編集のどれかで群が保留のとき、design・data・tools のどの置き換えも 409 で断り、
+    ファイル・meta・ストア・控えは何も変わらない（利用者のデータや引用の住所を守る）。"""
+    ds, client = _old_store()
+    dest = _write_swap_env(tmp_path, stamp=True)
+    alter = {c[0]: c[1] for c in _HOLD_CASES}[name]
+    alter(dest, ds)
+    _refresh_release(tmp_path, client)
+    stamp = _read_meta(dest)["sample"]
+    assert {h["unit"] for h in stamp["held"]} >= {"design", "data", "tools"}
+    files, meta_raw, nquads = _files_of(dest), (dest / "meta.json").read_bytes(), _nquads(ds)
+    for units in (["design"], ["data"], ["tools"], ["design", "data", "tools"]):
+        with pytest.raises(demo_sample.SampleOpError) as exc:
+            asyncio.run(
+                demo_sample.manual_override(
+                    _cfg(tmp_path),
+                    client,
+                    _release_file(tmp_path),
+                    DATASET_ID,
+                    seq=stamp["seq"],
+                    revision=stamp["revision"],
+                    units=units,
+                )
+            )
+        assert _code(exc) == ("not_overridable", 409), (name, units)
+    assert _files_of(dest) == files
+    assert (dest / "meta.json").read_bytes() == meta_raw
+    assert _nquads(ds) == nquads
+    assert not (dest / "sample-backup").exists()
+
+
+def test_override_of_a_decisions_only_hold_replaces_nothing_and_says_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """決めた内容だけが保留の理由のとき、設計のファイルは同梱と同じで置き換わるものが無い。
+    控えは作らず、決めた内容のファイルは残り、アクティビティに「置き換えました」を書かない。"""
+    _Projections(monkeypatch)
+    dest = _write_env(tmp_path, a_design=False)
+    (dest / "column-decisions.json").write_text("{}", "utf-8")
+    cfg = _cfg(tmp_path)
+    _refresh(cfg)
+    assert _read_meta(dest)["sample"]["held"] == [{"unit": "design", "reason": "decisions"}]
+    out = _override(cfg, dest, ["design"])
+    assert out["units"] == []
+    assert (dest / "column-decisions.json").exists()
+    assert not (dest / "sample-backup").exists()
+    assert "backups" not in _read_meta(dest)["sample"]
+    assert [r["sample"]["action"] for r in _jobs(tmp_path)] == ["startup"]
 
 
 @pytest.mark.parametrize(
@@ -614,6 +895,91 @@ def test_route_needs_json_the_intent_header_and_a_valid_body(
         assert res.status_code in (401, 503)
     assert (dest / "mapping.yaml").read_bytes() == mine  # どれも書いていない
     assert not (dest / "sample-backup").exists()
+
+
+def test_restore_route_needs_json_the_intent_header_a_valid_body_and_auth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _snapshot: None
+) -> None:
+    dest, body = _route_env(tmp_path, monkeypatch)
+    with _app(tmp_path) as client:
+        assert _post(client, REFRESH, body).status_code == 200
+        at = _read_meta(dest)["sample"]["backups"][0]["at"]
+        replaced = (dest / "mapping.yaml").read_bytes()
+        payload = json.dumps({"at": at})
+        res = client.post(RESTORE, content=payload, headers={**_AUTH, "Content-Type": "text/plain"})
+        assert (res.status_code, res.json()["detail"]["error"]) == (415, "json_required")
+        res = client.post(RESTORE, content=payload, headers=_AUTH)
+        assert res.status_code == 415
+        # 見出しが無い・refresh の見出し
+        res = _post(client, RESTORE, {"at": at}, headers={INTENT_HEADER: ""})
+        assert (res.status_code, res.json()["detail"]["error"]) == (403, "intent_required")
+        res = _post(client, RESTORE, {"at": at}, headers={INTENT_HEADER: INTENT_REFRESH})
+        assert res.status_code == 403
+        # 本文が壊れている・形が違う
+        for bad in ("{", "[]", json.dumps({"at": 1}), json.dumps({"at": ""}), json.dumps({})):
+            res = _post(client, RESTORE, bad, headers={INTENT_HEADER: INTENT_RESTORE})
+            assert (res.status_code, res.json()["detail"]["error"]) == (400, "bad_request"), bad
+        # 書き込み認証
+        res = client.post(
+            RESTORE,
+            content=payload,
+            headers={"Content-Type": "application/json", INTENT_HEADER: INTENT_RESTORE},
+        )
+        assert res.status_code in (401, 503)
+        # 知らない控え
+        res = _post(client, RESTORE, {"at": "x"}, headers={INTENT_HEADER: INTENT_RESTORE})
+        assert (res.status_code, res.json()["detail"]) == (409, {"error": "stale"})
+    assert (dest / "mapping.yaml").read_bytes() == replaced  # どれも戻していない
+    assert _read_meta(dest)["sample"]["backups"][0]["at"] == at
+
+
+def test_restore_route_is_busy_while_another_request_holds_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _snapshot: None
+) -> None:
+    dest, body = _route_env(tmp_path, monkeypatch)
+    with _app(tmp_path) as client:
+        assert _post(client, REFRESH, body).status_code == 200
+        at = _read_meta(dest)["sample"]["backups"][0]["at"]
+        lock = asyncio.Lock()
+        asyncio.run(lock.acquire())
+        client.app.state.sample_locks[DATASET_ID] = lock
+        res = _post(client, RESTORE, {"at": at}, headers={INTENT_HEADER: INTENT_RESTORE})
+        assert (res.status_code, res.json()["detail"]) == (409, {"error": "busy"})
+
+
+def test_route_holds_the_lock_for_the_whole_operation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _snapshot: None
+) -> None:
+    """1 つ目が途中（await の最中）にいる間に来た 2 つ目は 409 busy。終われば次は通る。
+    ロックを手で先に取るのでなく、実際に走っている操作の途中で確かめる。"""
+    import threading
+
+    _dest, body = _route_env(tmp_path, monkeypatch)
+    started, release = threading.Event(), threading.Event()
+    calls: list[int] = []
+
+    async def slow(*_a: Any, **_kw: Any) -> dict[str, Any]:
+        calls.append(1)
+        started.set()
+        while len(calls) == 1 and not release.is_set():  # 2 つ目が入ってきても待たせない
+            await asyncio.sleep(0.01)
+        return {"units": [], "held": []}
+
+    monkeypatch.setattr(demo_sample, "manual_override", slow)
+    results: list[Any] = []
+    with _app(tmp_path) as client:
+        first = threading.Thread(target=lambda: results.append(_post(client, REFRESH, body)))
+        first.start()
+        try:
+            assert started.wait(10)
+            res = _post(client, REFRESH, body)
+            assert (res.status_code, res.json()["detail"]) == (409, {"error": "busy"})
+            assert calls == [1]  # 2 つ目は中身まで入っていない
+        finally:
+            release.set()
+            first.join(10)
+        assert results[0].status_code == 200
+        assert _post(client, REFRESH, body).status_code == 200  # 終われば次は通る
 
 
 def test_route_reports_the_fixed_code_for_a_stale_screen(

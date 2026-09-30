@@ -449,7 +449,7 @@
     "confirm_replace_busy": "置き換えています…",
     "confirm_restore_title": "控えから戻しますか？",
     "confirm_restore_what": "戻るもの: {{units}}",
-    "confirm_restore_note": "置き換える前の内容に戻します。戻したものは、新しい見本には入れ替えない状態に戻ります。",
+    "confirm_restore_note": "置き換える前の内容に戻します。戻したものは、新しい見本には入れ替えない状態に戻ります。置き換えたあとに直した分があれば、いまの内容を別の控えとして残すので、そこから戻せます。",
     "confirm_restore_submit": "戻す",
     "confirm_restore_busy": "戻しています…",
     "confirm_tools_note": "AI に渡す道具は、外部の AI からは、アプリを次に起動したときから新しくなります。",
