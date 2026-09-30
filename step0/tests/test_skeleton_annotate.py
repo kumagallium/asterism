@@ -9,6 +9,7 @@ from asterism_step0.skeleton_annotate import (
     annotate_skeleton,
     apply_key_safety_fix,
     assemble_skeleton_from_judgments,
+    catalog_homes,
     fold_twin_kinds,
 )
 
@@ -1392,3 +1393,94 @@ def test_assemble_orders_record_key_coarse_to_fine(tmp_path: Path) -> None:
     tpl = record["subject"]["template"]
     # 異なり数 SID(2) < figure_id(3) < sample_id(4) → 粗 → 細。
     assert tpl.endswith(":record/{SID}/{figure_id}/{sample_id}")
+
+
+def test_catalog_home_is_stamped_for_every_file(tmp_path: Path) -> None:
+    """K58 の「元の種類」は、ファイルが何本あってもファイルごとに押印される。
+
+    ⑤の図はこれを読んで点線を引く。以前は図が 1 つの表（いちばん件数の多い
+    表）の受け口しか知らず、別のファイルで作った受け口が線の無い白い箱に見えた
+    （実機 2026-09-30: Starrydata の 3 ファイル設計で composition が孤立）。
+    """
+    (tmp_path / "curves.csv").write_text(
+        "sample_id,figure_id,composition,x,y\n"
+        "S1,F1,Bi2Te3,1,2\nS1,F1,Bi2Te3,2,3\nS2,F1,PbTe,1,5\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "samples.csv").write_text(
+        "SID,sample_id,composition,sample_name\n"
+        "P1,S1,Bi2Te3,a\nP1,S2,PbTe,b\nP2,S3,SnSe,c\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {
+                "name": "curve",
+                "source": "curves.csv",
+                "subject": {
+                    "template": "xr:curve/{sample_id}/{figure_id}/{x}",
+                    "classes": ["xo:Curve"],
+                },
+            },
+            {
+                "name": "composition",
+                "source": "curves.csv",
+                "subject": {"template": "xr:composition/{composition}"},
+                "owns": ["composition"],
+            },
+            {
+                "name": "sample",
+                "source": "samples.csv",
+                "subject": {"template": "xr:sample/{SID}/{sample_id}", "classes": ["xo:Sample"]},
+            },
+            {
+                "name": "composition2",
+                "source": "samples.csv",
+                "subject": {"template": "xr:composition2/{composition}"},
+                "owns": ["composition"],
+            },
+        ],
+    }
+    ann = annotate_skeleton(skeleton, [tmp_path / "curves.csv", tmp_path / "samples.csv"])["maps"]
+    assert ann["composition"]["catalog_home"] == "curve"
+    assert ann["composition2"]["catalog_home"] == "sample"
+    # 受け口でない種類には付かない
+    assert "catalog_home" not in ann["curve"]
+    assert "catalog_home" not in ann["sample"]
+    # 組み立て（design_loop が呼ぶ catalog_homes）と注釈は同じ答え
+    assert catalog_homes(skeleton, {"maps": ann}) == {
+        "composition": "curve",
+        "composition2": "sample",
+    }
+
+
+def test_catalog_home_prefers_the_fewest_entities_and_skips_the_unprovable(
+    tmp_path: Path,
+) -> None:
+    """列を決める種類が 2 つあれば件数の少ないほう（前置きの列はカード）。
+    列を定数として持つ種類が無い受け口には押印しない（K49 の後追い修理の領分）。"""
+    (tmp_path / "data.csv").write_text(
+        "CardNo,Category,Food,Brand\nC1,Stew,carrot,A\nC1,Stew,potato,B\nC1,Stew,onion,A\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {"name": "record", "source": "data.csv",
+             "subject": {"template": "xr:record/{CardNo}/{Food}"}},
+            {"name": "card", "source": "data.csv", "subject": {"template": "xr:card/{CardNo}"}},
+            {"name": "category", "source": "data.csv",
+             "subject": {"template": "xr:category/{Category}"}, "owns": ["Category"]},
+            {"name": "brand", "source": "data.csv",
+             "subject": {"template": "xr:brand/{Brand}"}, "owns": ["Brand"]},
+            {"name": "ghost", "source": "data.csv",
+             "subject": {"template": "xr:ghost/{Nope}"}, "owns": ["Nope"]},
+        ],
+    }
+    ann = annotate_skeleton(skeleton, [tmp_path / "data.csv"])["maps"]
+    assert ann["category"]["catalog_home"] == "card"
+    assert ann["brand"]["catalog_home"] == "record"
+    assert "catalog_home" not in ann["ghost"]
