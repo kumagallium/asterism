@@ -209,6 +209,12 @@ def _fallback_label(iri: str) -> str:
     return _humanize(local) or local
 
 
+def _value_fallback(iri: str) -> str:
+    """名前の無い IRI の値: その 1 件のページの見出しと同じローカル名（データの値を
+    崩さない）。末尾が ``/``・``#`` の IRI は、それを落としてから最後の区切りの後ろ。"""
+    return _local_name(iri.rstrip("/#") or iri)
+
+
 def _as_number(value: str | None) -> float | str | None:
     """Best-effort numeric coercion (mirrors ``query_tools._shape_row``): a
     value that parses as a float becomes one, otherwise it is left as the
@@ -487,8 +493,15 @@ async def subject_facts(
                     if isinstance(p, dict) and p.get("iri") and p.get("label")
                 }
 
+    unnamed: set[str] = set()  # ストアにも種類のスキーマにも名前が無い述語
+
     def _property_fallback(p: str) -> str:
-        return schema_labels.get(p) or _fallback_label(p)
+        fallback = _fallback_label(p)
+        # 種類のスキーマも、名前の無い述語には読みくだしを入れて返す — それは名前ではない
+        if schema_labels.get(p, fallback) != fallback:
+            return schema_labels[p]
+        unnamed.add(p)
+        return fallback
 
     property_labels = await _label_lookup(
         client, property_scope, label_targets, fallback=_property_fallback
@@ -501,7 +514,17 @@ async def subject_facts(
             _designed_property_labels, Path(registry_root), class_iri
         )
         property_labels.update({p: name for p, name in designed.items() if p in label_targets})
-    value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_fallback_label)
+        unnamed -= set(designed)
+    # 種類の行の項目名は UI が決める（値の種類の名前で上書きしない）
+    unnamed.discard(_RDF_TYPE)
+    # どこにも名前の無い述語（つながりのハブへの述語など）は、値（つなぐ先）の
+    # 種類の名前で読む — 設計のつなぐ行と同じ規則。値の種類の名前が割れるときは付けない。
+    if unnamed:
+        property_labels.update(
+            await _kind_names_of_values(client, graphs, registry_root, rows, unnamed)
+        )
+    # 値の名前が無ければ、その 1 件のページの見出しと同じローカル名（データの値を崩さない）
+    value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_value_fallback)
     # 種類（rdf:type の値）の表示名は、データの graph には無い — 種類の名前の
     # 読み順（model.yaml → オントロジーの rdfs:label → …）で引く。引かないと、
     # 機械が作った公開用の名前（符号つき）を崩した語がそのまま出る。
@@ -1572,6 +1595,75 @@ async def _sibling_child_linking_rows(
         with contextlib.suppress(ValueError):
             rows.append((cls, p3, p2, p1, parent, pcls, sibcls, int(float(cnt))))
     return rows
+
+
+async def _kind_names_of_values(
+    client: SupportsSparql,
+    graphs: list[str],
+    registry_root: Path | str | None,
+    rows: list[dict[str, dict[str, Any]]],
+    predicates: set[str],
+) -> dict[str, str]:
+    """``{述語: 値の種類の名前}`` — ``predicates`` のうち、値がすべて IRI で、どの
+    値にも名前のある種類があり、その名前が 1 つに決まるものだけ。"""
+    values: dict[str, set[str]] = {}
+    for r in rows:
+        p = _cell(r, "p")
+        if p not in predicates:
+            continue
+        if r.get("o", {}).get("type") != "uri" or not _cell(r, "o"):
+            predicates = predicates - {p}  # 文字の値もある述語は対象外
+            continue
+        values.setdefault(p, set()).add(_cell(r, "o"))  # type: ignore[arg-type]
+    targets = {o for p, os in values.items() if p in predicates for o in os}
+    if not targets or not graphs:
+        return {}
+    type_rows = _rows(
+        await client.sparql_select(
+            f"SELECT DISTINCT ?o ?c\n{canonical_from_clauses(graphs)}"
+            f"WHERE {{ VALUES ?o {{ {' '.join(_ref(o) for o in sorted(targets))} }} ?o a ?c }}"
+        )
+    )
+    kinds: dict[str, set[str]] = {}
+    for r in type_rows:
+        o, c = _cell(r, "o"), _cell(r, "c")
+        if o and c:
+            kinds.setdefault(o, set()).add(c)
+    class_names = await _named_class_labels(
+        client, registry_root, {c for cs in kinds.values() for c in cs}
+    )
+    out: dict[str, str] = {}
+    for p, os in values.items():
+        if p not in predicates:
+            continue
+        # 値ごとに、名前のある種類の名前（総称の型のような名前の無い種類は数えない）
+        per_value = [{class_names[c] for c in kinds.get(o, ()) if c in class_names} for o in os]
+        names = {n for ns in per_value for n in ns}
+        if len(names) == 1 and all(per_value):
+            out[p] = next(iter(names))
+    return out
+
+
+async def _named_class_labels(
+    client: SupportsSparql, registry_root: Path | str | None, class_iris: set[str]
+) -> dict[str, str]:
+    """``class_iris`` のうち、名前が付いている種類だけの ``{種類: 名前}``
+    （:func:`asterism.class_schema.class_label_or_none`。読みくだしは含めない）。"""
+    try:
+        from asterism.class_schema import class_label_or_none
+    except ImportError:
+        return {}
+    root = Path(registry_root) if registry_root is not None else None
+    out: dict[str, str] = {}
+    for c in sorted(class_iris):
+        try:
+            name = await class_label_or_none(client, root, c)
+        except Exception:  # best-effort: 名前が引けなければ付けない
+            logger.debug("subject_facts: class_label_or_none failed", exc_info=True)
+            continue
+        if name:
+            out[c] = name
+    return out
 
 
 async def _class_labels(

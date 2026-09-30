@@ -22,7 +22,7 @@ import { useCardPresentation } from './cardPresentation'
 import { GraphView } from './GraphView'
 import { parseMermaidFlowchart } from './mermaidFlow'
 import { effectivePresentation, viewFor } from './presentation'
-import { isDefinitionGapValue } from './placeShape'
+import { presentFactRows } from './placeShape'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
@@ -51,13 +51,6 @@ function renderableCustomView(
   return null
 }
 
-/** 定義不備の定数（`value_iri === property_iri`）を「（値なし）」に落とす
- *  （契約 §4「事実の表」）。行そのものを書き換えず、新しい配列を返す。 */
-function maskDefinitionGapValues(rows: Record<string, unknown>[], placeholder: string): Record<string, unknown>[] {
-  return rows.map((row) =>
-    isDefinitionGapValue(row.value_iri, row.property_iri) ? { ...row, value_iri: undefined, value: placeholder } : row,
-  )
-}
 
 /** ページ上のカードで `facts` 表を切る行数。カード詳細（`CardDetail.tsx`）は
  *  切らずに全件出す — §2(a)。 */
@@ -141,7 +134,7 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
 
   // 定義不備の定数（value_iri === property_iri）は表示前に「（値なし）」へ
   // 落とす（契約 §4「事実の表」）。ここで一度だけ変換し、以降はこの rows を使う。
-  const rows = result ? maskDefinitionGapValues(result.items, t('builtin.value_missing')) : []
+  const rows = result ? presentFactRows(result.items, t('builtin.value_missing'), t('graph.prop_type')) : []
 
   // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
   // 使う。Mermaid は表／グラフの `ViewSpec` の型に収まらないので別枠

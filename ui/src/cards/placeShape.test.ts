@@ -3,6 +3,7 @@ import {
   buildShapePreview,
   footerSummary,
   isDefinitionGapValue,
+  presentFactRows,
   pillFor,
   readHeading,
   readSummary,
@@ -161,5 +162,29 @@ describe('isDefinitionGapValue (PR E §4: 事実の表の値なし判定)', () =
 
   it('is false when value_iri is not a string (defensive: unexpected shapes never mask real data)', () => {
     expect(isDefinitionGapValue(42, 42)).toBe(false)
+  })
+})
+
+describe('presentFactRows（事実の表の行を見せる形にする）', () => {
+  const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
+
+  it('種類の行の項目名を、渡された UI の言語の語にする', () => {
+    const rows = [
+      { property_iri: RDF_TYPE, property: 'type', value: '材料', value_iri: 'https://example.org/onto/Kind' },
+      { property_iri: 'https://example.org/onto/amount', property: '使う量', value: '2' },
+    ]
+    const out = presentFactRows(rows, '（値なし）', '種類')
+    expect(out[0].property).toBe('種類')
+    expect(out[0].value).toBe('材料')
+    expect(out[1]).toEqual(rows[1])
+    expect(rows[0].property).toBe('type') // 元の行は書き換えない
+  })
+
+  it('定義不備の定数は、値を「（値なし）」にする', () => {
+    const iri = 'https://example.org/onto/rainfall'
+    const out = presentFactRows([{ property_iri: iri, property: '雨量', value: 'Rainfall', value_iri: iri }], '（値なし）', '種類')
+    expect(out[0].value).toBe('（値なし）')
+    expect(out[0].value_iri).toBeUndefined()
+    expect(out[0].property).toBe('雨量')
   })
 })
