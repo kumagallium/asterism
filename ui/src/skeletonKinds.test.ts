@@ -14,7 +14,6 @@ import {
   kindFieldValue,
   catalogLinkEdges,
   kindNamesByClass,
-  mergeSharedKinds,
   kindLabelEdit,
   pendingLinkEdges,
   promoteColumnToKind,
@@ -25,6 +24,7 @@ import {
   slugMapName,
   twinKindNames,
 } from './skeletonKinds'
+import { mergeNodes } from './shapeGraph'
 
 const SOURCE = 'xrd-card.csv'
 
@@ -560,7 +560,7 @@ describe('sharedKindGroups / mergeSharedKinds / separateSharedKind — 同じ意
   })
 
   it('図では先頭の箱に畳み、ほかのメンバーへの線を付け替える', () => {
-    const merged = mergeSharedKinds(
+    const merged = mergeNodes(
       {
         nodes: maps.map((m) => ({ id: m.name, label: m.name, tone: 'record' as const })),
         edges: [

@@ -46,6 +46,41 @@ const link = (predicate: string, over: Record<string, unknown>) => ({
   ...over,
 })
 
+describe('rulesShape — 同じ種類を共有する map は 1 つの箱（K62）', () => {
+  it('別々のファイルの受け口が同じ ID の作り方と種類名を持てば、箱は 1 つで線は両方から来る', () => {
+    const comp = (id: string, source: string): RuleMap => ({
+      id,
+      source,
+      subject: {
+        template: 'xrdr:composition/{composition}',
+        classes: ['xrd:Composition'],
+        class_iris: [`${NS}Composition`],
+      },
+      properties: [],
+    })
+    const tpl = 'xrdr:composition/{composition}'
+    const shape = rulesShape(
+      rules([
+        rmap('Record', {
+          source: 'curves.csv',
+          properties: [link('hasComposition', { template: tpl })] as RuleMap['properties'],
+        }),
+        comp('composition', 'curves.csv'),
+        rmap('Record2', {
+          source: 'samples.csv',
+          properties: [link('hasComposition', { template: tpl })] as RuleMap['properties'],
+        }),
+        comp('composition2', 'samples.csv'),
+      ]),
+    )
+    expect(shape.nodes.map((n) => n.id)).toEqual(['Record', 'composition', 'Record2'])
+    expect(shape.edges.map((e) => [e.from, e.to])).toEqual([
+      ['Record', 'composition'],
+      ['Record2', 'composition'],
+    ])
+  })
+})
+
 describe('rulesShape', () => {
   it('names a box by the class label, falling back to the class then the map', () => {
     const shape = rulesShape(rules([rmap('Peak'), rmap('Crystal')], { [`${NS}Peak`]: 'ピーク' }))

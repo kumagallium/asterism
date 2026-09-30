@@ -31,7 +31,6 @@ import {
   kindFieldValue,
   kindLabelEdit,
   kindNamesByClass,
-  mergeSharedKinds,
   pendingLinkEdges,
   sameIdKind,
   sameIdSiblings,
@@ -41,7 +40,7 @@ import {
   splitSharedConcept,
   twinKindNames,
 } from './skeletonKinds'
-import { skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
+import { mergeNodes, skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
 import { requestConsult } from './consult/consultOpen'
 
@@ -2050,7 +2049,7 @@ export function SkeletonGate({
           map 名（＋クラス名）で呼ぶ — 呼び方だけが違う。押して②の種類へ飛べる
           のは両方で役に立つ（箱が増えるのはこの画面の操作の結果）。 */}
       <ShapeGraph
-        shape={mergeSharedKinds(skeletonShape(skeleton, {
+        shape={mergeNodes(skeletonShape(skeleton, {
           label: plain ? diagramLabel : detailLabel,
           tone: diagramTone,
           // 項目はかんたん層だけ。詳細モードは同じ表を下に全部出している。

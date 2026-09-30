@@ -9,7 +9,6 @@
 import type { DatasetNamespaceInfo, MappingSkeleton, SkeletonMap, SkeletonSubject } from './api'
 import { compactClass, expandClass } from './datasetNamespace'
 import { classNameFromLabel } from './kantan/asciiNames'
-import type { Shape, ShapeEdge } from './shapeGraph'
 
 /** テンプレートの `{列名}` を並び順のまま取り出す（ID を決めている列）。 */
 export function keyColumnsOf(map: SkeletonMap): string[] {
@@ -213,27 +212,6 @@ export function sharedKindGroups(
   return [...groups.values()]
     .filter((g) => new Set(g.map((m) => m.source)).size > 1)
     .map((g) => g.map((m) => m.name))
-}
-
-/** 同じ種類の箱を 1 つに畳む。残すのはかたまりの先頭で、ほかのメンバーへの線は
- *  先頭へ付け替える（同じ線は 1 本）。図は「種類」を描くもので、map（ファイルごとの
- *  読み方）を描くものではない — 同じ種類が 2 つの箱に見えると、つながっていない
- *  別物に読める（利用者指摘 2026-09-30）。 */
-export function mergeSharedKinds(shape: Shape, groups: readonly (readonly string[])[]): Shape {
-  const lead = new Map<string, string>()
-  for (const g of groups) for (const name of g.slice(1)) lead.set(name, g[0])
-  if (lead.size === 0) return shape
-  const to = (id: string) => lead.get(id) ?? id
-  const seen = new Set<string>()
-  const edges: ShapeEdge[] = []
-  for (const e of shape.edges) {
-    const moved = { ...e, from: to(e.from), to: to(e.to) }
-    const key = `${moved.from}\u0000${moved.to}\u0000${moved.pending ? 1 : 0}`
-    if (moved.from === moved.to || seen.has(key)) continue
-    seen.add(key)
-    edges.push(moved)
-  }
-  return { nodes: shape.nodes.filter((n) => !lead.has(n.id)), edges }
 }
 
 /** 同じ種類を共有している受け口を、**自分だけの種類**に戻す（K62 の逃げ道）。
