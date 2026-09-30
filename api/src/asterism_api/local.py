@@ -58,7 +58,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from asterism_api import appdata, exchange, registry
+from asterism_api import appdata, demo_sample, exchange, registry
 from asterism_api.mcp_mount import MCP_PATH, attach_mcp
 
 if TYPE_CHECKING:
@@ -676,8 +676,10 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
     ``substrate.promote_to_canonical``・``registry.mark_promoted``）を HTTP を
     経由せず直接呼んで公開し、続けてオントロジーの graph と説明の graph を投影
     する（``_project_ontology_graph``・``_project_meta_graph``）。クエリツール
-    合成・つながりの作り直し・togomcp 配信は呼ばない。全体 best-effort — どこで失敗しても
-    ``log.warning`` するだけで起動は止めない。
+    合成・つながりの作り直し・togomcp 配信は呼ばない。最後に、見本の版の印
+    （meta.json の ``sample``。:func:`asterism_api.demo_sample.write_seed_stamp`）を書き、
+    次の起動の入れ替えが 1 回目から速い道になるようにする。全体 best-effort — どこで
+    失敗しても ``log.warning`` するだけで起動は止めない。
     """
     if not cfg.single_user:
         return
@@ -742,20 +744,31 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
         return
 
     # 公開のルートと同じ投影 2 つ。失敗しても見本の公開は済んでいるので先へ進む。
+    artifacts = data.get("artifacts", {})
+    design_ok = False
+    description_ok = False
     try:
-        await _project_ontology_graph(client, dataset_id, data.get("artifacts", {}))
+        design_ok = bool(await _project_ontology_graph(client, dataset_id, artifacts))
     except Exception:
         logger.warning(
             "seed_demo_dataset: ontology graph projection failed (continuing)",
             exc_info=True,
         )
     try:
-        await _project_meta_graph(client, dataset_id, data.get("artifacts", {}))
+        written = await _project_meta_graph(client, dataset_id, artifacts)
+        # 説明が空なら 0 件が正しい答え（投影は空の graph の DROP になる）。
+        description_ok = bool(written) or not (artifacts.get("metadata.ttl") or "").strip()
     except Exception:
         logger.warning(
             "seed_demo_dataset: meta graph projection failed (continuing)",
             exc_info=True,
         )
+
+    # 取り込み・公開・投影が済んだ後に、見本の版の印を書く（refresh と同じ計算）。
+    # 新しい環境では、次の起動の入れ替えが 1 回目から速い道になる。
+    await demo_sample.write_seed_stamp(
+        cfg, dataset_id, payload, design_ok=design_ok, description_ok=description_ok
+    )
 
     try:
         await _seed_demo_subjects(cfg, client, staged_iri)
@@ -884,6 +897,34 @@ async def backfill_store_projections(cfg: Settings, client: Any) -> None:
             filled += 1
     if filled:
         logger.info("backfill_store_projections: filled %d dataset(s)", filled)
+
+
+async def run_startup_sample(home: Path, settings: Settings, client: Any) -> None:
+    """起動時の見本まわりの処理を、順に 1 回ずつ行う: **種まき → 入れ替え → 補い**。
+
+    それぞれ別の try — どれかが落ちても次へ進み、起動は止めない。
+    種まきは初回だけ見本を入れる（:func:`seed_demo_dataset`）。入れ替えは、すでに
+    入っている見本のうち利用者が触っていない単位だけを、同梱の新しい版にする
+    （:func:`asterism_api.demo_sample.refresh_bundled_sample`）。補いは、公開済みなのに
+    ストアに名前／説明の graph が無いものを埋める（:func:`backfill_store_projections`）。
+    入れ替えを補いより前に置くのは、補いが古い設計の graph を作ってしまわないように。
+
+    ``main()`` は、これを ``build_local_app`` より前に呼ぶ — MCP の型付きツールは
+    ``build_local_app`` の中で registry を読んで 1 回だけ登録されるので、種まき・
+    入れ替えの後の registry を読ませるため。
+    """
+    try:
+        await seed_demo_dataset(home, settings, client)
+    except Exception:
+        logger.warning("seed_demo_dataset: failed (continuing)", exc_info=True)
+    try:
+        await demo_sample.refresh_bundled_sample(settings, client, find_world_snapshot())
+    except Exception:
+        logger.warning("refresh_bundled_sample: failed (continuing)", exc_info=True)
+    try:
+        await backfill_store_projections(settings, client)
+    except Exception:
+        logger.warning("backfill_store_projections: failed (continuing)", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1154,6 +1195,29 @@ def main(argv: list[str] | None = None) -> int:
         from asterism_api.main import Settings
 
         settings = Settings()
+
+        # 見本まわりの起動時処理（種まき → 入れ替え → 補い）。build_local_app より
+        # **前**に呼ぶ: MCP の型付きツールは build_local_app（attach_mcp →
+        # build_server）の中で registry を読んで 1 回だけ登録されるので、種まき・
+        # 入れ替えの後の registry を読ませるため。前に出せるのは、ここまでに
+        # Settings（環境変数の既定を入れた後）と oxigraph が揃っていて、
+        # build_local_app が種まきの結果を要らない（app.state.client は ASGI lifespan
+        # の startup で初めて生える）から。app がまだ無いので、同じ oxigraph へ向けた
+        # 別クライアントを使う。best-effort — 各段は run_startup_sample の中で別の
+        # try に入っており、クライアントの生成・破棄まわりの不測の失敗もここで
+        # 飲み込む（起動は止めない）。
+        async def _run_startup_sample() -> None:
+            seed_client = OxigraphClient(OxigraphConfig(base_url=oxigraph_url))
+            try:
+                await run_startup_sample(home, settings, seed_client)
+            finally:
+                await seed_client.aclose()
+
+        try:
+            asyncio.run(_run_startup_sample())
+        except Exception:
+            logger.warning("startup sample: setup failed (continuing)", exc_info=True)
+
         app = build_local_app(
             token=token,
             ui_dist=ui_dist,
@@ -1166,35 +1230,6 @@ def main(argv: list[str] | None = None) -> int:
         if mcp_url:
             # The literal string a person registers in their AI client.
             logger.info("MCP endpoint: %s", mcp_url)
-
-        # 見本データセット「世界の国」の初回自動取り込み（契約メモ
-        # contract_pr_e.md §2）: oxigraph ready・app 構築後、ブラウザを開く前に
-        # 一度だけ。app.state.client は ASGI lifespan の startup で初めて生える
-        # ため、ここでは同じ oxigraph へ向けた別クライアントを使う。best-effort
-        # — 失敗しても起動は止めない（seed_demo_dataset 自身が既に best-effort
-        # だが、クライアントの生成・破棄まわりの不測の失敗もここで飲み込む）。
-        # 続けて、すでに見本が入っている環境（種まきが投影を呼ばなかった版で入れた
-        # もの）を直すため、ストアに名前／説明の graph が無い公開済みデータセット
-        # を補う。中身は公開のルートと同じ投影なので何度呼んでも同じ結果。
-        # seed の成否に関係なく呼ぶ。
-        async def _run_demo_seed() -> None:
-            seed_client = OxigraphClient(OxigraphConfig(base_url=oxigraph_url))
-            try:
-                try:
-                    await seed_demo_dataset(home, settings, seed_client)
-                except Exception:
-                    logger.warning("seed_demo_dataset: failed (continuing)", exc_info=True)
-                try:
-                    await backfill_store_projections(settings, seed_client)
-                except Exception:
-                    logger.warning("backfill_store_projections: failed (continuing)", exc_info=True)
-            finally:
-                await seed_client.aclose()
-
-        try:
-            asyncio.run(_run_demo_seed())
-        except Exception:
-            logger.warning("seed_demo_dataset: setup failed (continuing)", exc_info=True)
 
         _serve(
             app,

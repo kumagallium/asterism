@@ -285,6 +285,22 @@ def test_snapshot_tar_matches_the_asterism_snapshot_format() -> None:
         assert path in members, f"snapshot is missing {path}"
 
 
+def test_snapshot_carries_the_sample_ledger() -> None:
+    """改訂台帳（ADR kantan K59）: tar の ``sample/revisions.json`` は正本
+    ``datasets/world/sample_revisions.json`` と同じ内容で、最新のエントリは今の
+    canonical.ttl を指す。指紋の計算そのもの（api の ``demo_sample``）は api のテストで見る —
+    この package は ``asterism-api`` に依存しない。"""
+    members = _extract_snapshot()
+    ledger_file = DATASET_DIR / "sample_revisions.json"
+    assert members["sample/revisions.json"] == ledger_file.read_bytes()
+    ledger = json.loads(ledger_file.read_text(encoding="utf-8"))
+    assert [e["seq"] for e in ledger] == list(range(1, len(ledger) + 1))
+    manifest = json.loads(members["manifest.json"])
+    assert ledger[-1]["canonical_sha256"] == manifest["canonical_sha256"]
+    for path, sha in ledger[-1]["files"].items():
+        assert hashlib.sha256(members[path]).hexdigest() == sha, path
+
+
 async def test_snapshot_tar_is_importable_via_exchange_import_snapshot() -> None:
     """The strongest check (契約メモ §1: 「自分で import_snapshot をテストで
     呼んで確認」) — actually calls ``asterism_api.exchange.import_snapshot``.
