@@ -26,8 +26,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { CloseIcon, ExpandIcon } from './icons'
 import { ShapeBox, ShapeEdgeLine, type ShapeNodeData } from './kantan/ShapeGraph'
-import { arrange, nodeHeight, type Route } from './shapeGraph'
-import type { VocabEdgeKind, VocabNode, VocabShape } from './vocabGraph'
+import { arrange, nodeHeight, type Lane, type Route } from './shapeGraph'
+import type { VocabEdge, VocabEdgeKind, VocabNode, VocabShape } from './vocabGraph'
 
 const KIND_W = 232
 const STD_W = 224
@@ -42,6 +42,10 @@ const BAND_PAD_TOP = 56
 const BAND_PAD_SIDE = 26
 const BAND_PAD_BOT = 24
 const BAND_GAP = 88
+/** 下の行の、枠と枠のすき間に取る席の幅（線を通すだけ — 名前は置かない）。 */
+const CL_SEAT_W = 24
+/** 線の端は、箱の辺から出入り口（handle）の半分だけ外にある（shapeGraph と同じ）。 */
+const HANDLE_R = 3
 
 /** 辺の色。矢じりは同じ設定の辺どうしで共有されるので、色はここから inline で渡す
  *  （ShapeGraph と同じ制約）。 */
@@ -106,13 +110,27 @@ const EDGE_TYPES = { shape: ShapeEdgeLine }
  *  枠の幅は、席を含む幅（`arrange` の `width`）から取る — 席は箱ではないので、箱の
  *  座標からは分からない。枠がその幅を持つので、図を枠に合わせるとき（`fitView`）にも
  *  席が入る（ShapeGraph の場所取りの箱は要らない）。線の通り道（席・まっすぐ降りる
- *  下端）は枠の中の座標で返ってくるので、箱と同じだけずらす（`VocabMap.test.ts`）。 */
+ *  下端）は枠の中の座標で返ってくるので、箱と同じだけずらす（`VocabMap.test.ts`）。
+ *
+ *  ⭐**帯へ降りる線も、箱と枠の裏を通らない。** 枠の中では、下の段に席を取って
+ *  枠の下へ抜ける（`arrange` の `exits`）。同じ箱から出る線は、枠の下までは 1 本の
+ *  道を重ねて通る（席を線の数だけ取ると枠が広がる）。枠の下からは、その行でいちばん
+ *  高い枠の下端までまっすぐ降り（隣の高い枠の裏を通らない）、下の行では枠と枠の
+ *  すき間に取った席を通る。下の行の席は枠 1 つに 1 つ — 同じ枠の線は、帯の手前まで
+ *  1 本の道を重ねて通り、帯の手前で分かれる（実機 2026-10-01: 見本の地図で、上の段の
+ *  種類から帯へ降りる線が、下の段の箱と、下の行の枠の中の箱の裏を通った）。 */
 // eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（PageChatDrawer と同じ理由）
 export function place(shape: VocabShape) {
   const nodes: Node[] = []
-  /** 枠の中の線の通り道。`shape.edges` と同じ並びで、枠の中の線でなければ undefined。 */
+  /** 線の通り道。`shape.edges` と同じ並びで、枠の中の線と帯へ降りる線だけが持つ。 */
   const routes: (Route | undefined)[] = shape.edges.map(() => undefined)
+  /** 線の名前の位置（`ShapeEdgeLine` の `labelAt`）。帯へ降りる線だけが持つ。 */
+  const labelAts: (number | undefined)[] = shape.edges.map(() => undefined)
   const heightOf = (n: VocabNode) => nodeHeight(n)
+  const byId = new Map(shape.nodes.map((n) => [n.id, n]))
+  /** 帯へ降りる線 = 枠の中の箱から、帯の標準のことばへ向かう線。 */
+  const intoBand = (e: VocabEdge) =>
+    !!byId.get(e.from)?.cluster && byId.has(e.to) && !byId.get(e.to)!.cluster
   type Placed = {
     id: string
     w: number
@@ -120,6 +138,8 @@ export function place(shape: VocabShape) {
     inner: Map<string, { x: number; y: number }>
     /** 枠の中の線（`shape.edges` の添字）と、その通り道（枠の中の座標）。 */
     lines: { edge: number; route: Route }[]
+    /** 帯へ降りる線を出す箱と、枠の下へ抜ける道（枠の中の座標）。 */
+    exits: Map<string, Route>
   }
   const placed: Placed[] = []
   for (const c of shape.clusters) {
@@ -128,12 +148,14 @@ export function place(shape: VocabShape) {
     const innerIds = new Set(inner.map((n) => n.id))
     // 枠の中の線 = データの中の線で、両端がこの枠の箱のもの。
     const edgeIdx: number[] = []
+    const exits: string[] = []
     shape.edges.forEach((e, i) => {
       if (e.kind === 'link' && innerIds.has(e.from) && innerIds.has(e.to)) edgeIdx.push(i)
+      else if (innerIds.has(e.from) && intoBand(e) && !exits.includes(e.from)) exits.push(e.from)
     })
     const a = arrange(
       { nodes: inner, edges: edgeIdx.map((i) => shape.edges[i]) },
-      { perRow: 3, nodeWidth: KIND_W, heightOf },
+      { perRow: 3, nodeWidth: KIND_W, heightOf, exits },
     )
     placed.push({
       id: c.id,
@@ -141,10 +163,12 @@ export function place(shape: VocabShape) {
       h: a.height + CL_PAD_TOP + CL_PAD_BOT,
       inner: a.pos,
       lines: edgeIdx.map((edge, j) => ({ edge, route: a.routes[j] })),
+      exits: a.exits,
     })
   }
 
-  // クラスタを行に詰める（広すぎたら折り返す）。
+  // クラスタを行に詰める（広すぎたら折り返す）。席を取る前の幅で決める — 席の
+  // 幅で折り返しが変わると、席の要る行が変わる。
   const rows: Placed[][] = []
   let row: Placed[] = []
   let roww = 0
@@ -160,90 +184,215 @@ export function place(shape: VocabShape) {
   }
   if (row.length) rows.push(row)
 
+  // 下の行の席: 帯へ降りる線を持つ枠ごとに、その下の行のそれぞれで 1 つ。席を入れる
+  // のは、枠のまっすぐ下にいちばん近いすき間（同じ近さなら右 — `arrange` と同じ）。
+  // 位置は席を取る前の、行のまん中を 0 とした座標で決める。
+  interface Seat {
+    cluster: string
+    slot: number
+    ideal: number
+  }
+  const rowW = (r: Placed[]) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * CL_GAP
+  const centerOf = new Map<string, number>()
+  for (const r of rows) {
+    let x = -rowW(r) / 2
+    for (const p of r) {
+      centerOf.set(p.id, x + p.w / 2)
+      x += p.w + CL_GAP
+    }
+  }
+  const seats: Seat[][] = rows.map(() => [])
+  rows.forEach((r, ri) => {
+    for (const p of r) {
+      if (p.exits.size === 0) continue
+      const ideal = centerOf.get(p.id)!
+      for (let below = ri + 1; below < rows.length; below++) {
+        const lower = rows[below]
+        // すき間 k の位置: 0 = 左端の枠の左、k = 枠 k-1 と枠 k の間、n = 右端の枠の右。
+        const gapAt = (k: number): number => {
+          let x = -rowW(lower) / 2
+          for (let i = 0; i < k; i++) x += lower[i].w + CL_GAP
+          return x - CL_GAP / 2
+        }
+        let slot = lower.length
+        let best = Infinity
+        for (let k = lower.length; k >= 0; k--) {
+          const d = Math.abs(gapAt(k) - ideal)
+          if (d < best - 1e-6) {
+            best = d
+            slot = k
+          }
+        }
+        seats[below].push({ cluster: p.id, slot, ideal })
+      }
+    }
+  })
+  // 行の並び: すき間 0 の席 → 枠 0 → すき間 1 の席 → 枠 1 → …（同じすき間では、
+  // 枠のまっすぐ下が左のものから — 線どうしが交わりにくい。同じなら入力順）。
+  type Item = { w: number; frame?: Placed; seat?: Seat }
+  const itemsOf = (r: Placed[], ri: number): Item[] => {
+    const order = [...seats[ri]].sort((p, q) => p.slot - q.slot || p.ideal - q.ideal)
+    const items: Item[] = []
+    for (let k = 0; k <= r.length; k++) {
+      for (const s of order) if (s.slot === k) items.push({ w: CL_SEAT_W, seat: s })
+      if (k < r.length) items.push({ w: r[k].w, frame: r[k] })
+    }
+    return items
+  }
+  const rowItems = rows.map(itemsOf)
+  const itemsW = (items: Item[]) =>
+    items.reduce((s, it) => s + it.w, 0) + (items.length - 1) * CL_GAP
+
   const stds = shape.nodes.filter((n) => !n.cluster)
   const stdPerRow = Math.max(1, Math.floor((ROW_MAX_W - BAND_PAD_SIDE * 2 + STD_GAP) / (STD_W + STD_GAP)))
   const stdRows: VocabNode[][] = []
   for (let i = 0; i < stds.length; i += stdPerRow) stdRows.push(stds.slice(i, i + stdPerRow))
   const stdRowW = (n: number) => n * STD_W + (n - 1) * STD_GAP
   const bandInnerW = Math.max(0, ...stdRows.map((r) => stdRowW(r.length)))
-  const rowW = (r: Placed[]) => r.reduce((s, p) => s + p.w, 0) + (r.length - 1) * CL_GAP
-  const canvasW = Math.max(...rows.map(rowW), bandInnerW + BAND_PAD_SIDE * 2, 1)
+  const canvasW = Math.max(...rowItems.map(itemsW), bandInnerW + BAND_PAD_SIDE * 2, 1)
 
-  const byId = new Map(shape.nodes.map((n) => [n.id, n]))
+  /** 帯へ降りる道: 枠 → 箱 → 枠の下へ抜ける道（図の座標）。 */
+  const exitRoute = new Map<string, Route>()
+  /** 行の下端（その行でいちばん高い枠の下端）。 */
+  const rowBottom = new Map<string, number>()
+  /** 下の行の席（枠 → 上の行から順に）。 */
+  const laneOf = new Map<string, Lane[]>()
   let top = 0
-  for (const r of rows) {
-    let x = (canvasW - rowW(r)) / 2
+  rows.forEach((r, ri) => {
+    const items = rowItems[ri]
+    let x = (canvasW - itemsW(items)) / 2
     const tallest = Math.max(...r.map((p) => p.h))
-    for (const p of r) {
-      // 枠の中の座標 → 図の座標。箱も、線の通り道も、同じだけずらす。
-      const ox = x + CL_PAD_SIDE
-      const oy = top + CL_PAD_TOP
-      nodes.push({
-        id: `cluster:${p.id}`,
-        type: 'cluster',
-        position: { x, y: top },
-        data: {
-          label: shape.clusters.find((c) => c.id === p.id)?.label ?? p.id,
-          width: p.w,
-          height: p.h,
-        },
-        draggable: false,
-        selectable: false,
-        connectable: false,
-        zIndex: 0,
-      })
-      for (const [id, ip] of p.inner) {
-        const n = byId.get(id)!
+    for (const it of items) {
+      if (it.seat) {
+        const lanes = laneOf.get(it.seat.cluster) ?? []
+        lanes.push({ x: x + it.w / 2, top, bottom: top + tallest })
+        laneOf.set(it.seat.cluster, lanes)
+      }
+      const p = it.frame
+      if (p) {
+        // 枠の中の座標 → 図の座標。箱も、線の通り道も、同じだけずらす。
+        const ox = x + CL_PAD_SIDE
+        const oy = top + CL_PAD_TOP
+        const shift = (route: Route): Route => {
+          const shifted: Route = {
+            via: route.via.map((l) => ({ x: l.x + ox, top: l.top + oy, bottom: l.bottom + oy })),
+          }
+          if (route.drop !== undefined) shifted.drop = route.drop + oy
+          return shifted
+        }
         nodes.push({
-          id,
-          type: 'shape',
-          position: { x: ox + ip.x, y: oy + ip.y },
+          id: `cluster:${p.id}`,
+          type: 'cluster',
+          position: { x, y: top },
           data: {
-            label: n.label,
-            tone: n.tone,
-            width: KIND_W,
-            height: heightOf(n),
-            fields: n.fields ?? [],
-            foldable: false,
-            folded: false,
-            words: { open: '', close: '' },
-            clickable: true,
-          } satisfies ShapeNodeData,
+            label: shape.clusters.find((c) => c.id === p.id)?.label ?? p.id,
+            width: p.w,
+            height: p.h,
+          },
           draggable: false,
           selectable: false,
           connectable: false,
-          zIndex: 1,
+          zIndex: 0,
         })
-      }
-      for (const { edge, route } of p.lines) {
-        const shifted: Route = {
-          via: route.via.map((l) => ({ x: l.x + ox, top: l.top + oy, bottom: l.bottom + oy })),
+        for (const [id, ip] of p.inner) {
+          const n = byId.get(id)!
+          nodes.push({
+            id,
+            type: 'shape',
+            position: { x: ox + ip.x, y: oy + ip.y },
+            data: {
+              label: n.label,
+              tone: n.tone,
+              width: KIND_W,
+              height: heightOf(n),
+              fields: n.fields ?? [],
+              foldable: false,
+              folded: false,
+              words: { open: '', close: '' },
+              clickable: true,
+            } satisfies ShapeNodeData,
+            draggable: false,
+            selectable: false,
+            connectable: false,
+            zIndex: 1,
+          })
         }
-        if (route.drop !== undefined) shifted.drop = route.drop + oy
-        routes[edge] = shifted
+        for (const { edge, route } of p.lines) routes[edge] = shift(route)
+        for (const [id, route] of p.exits) {
+          exitRoute.set(id, shift(route))
+          rowBottom.set(id, top + tallest)
+        }
       }
-      x += p.w + CL_GAP
+      x += it.w + CL_GAP
     }
     top += tallest + CL_GAP
-  }
+  })
   if (rows.length) top -= CL_GAP
 
-  if (stds.length) {
-    const bandTop = top + BAND_GAP
-    const bandH = BAND_PAD_TOP + stdRows.length * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
-    return {
-      nodes: withBand(nodes, stds, stdRows, canvasW, bandTop, bandH),
-      routes,
-      width: canvasW,
-      height: bandTop + bandH,
+  if (!stds.length) return { nodes, routes, labelAts, width: canvasW, height: top }
+
+  const bandTop = top + BAND_GAP
+  const bandH = BAND_PAD_TOP + stdRows.length * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
+  withBand(nodes, stdRows, canvasW, bandTop, bandH)
+  const at = new Map(nodes.map((n) => [n.id, n.position]))
+  shape.edges.forEach((e, i) => {
+    const own = exitRoute.get(e.from)
+    const from = at.get(e.from)
+    const to = at.get(e.to)
+    if (!intoBand(e) || !own || !from || !to) return
+    const cluster = byId.get(e.from)!.cluster!
+    const fromY = from.y + heightOf(byId.get(e.from)!) + HANDLE_R
+    // 枠の下へ抜けたところから、行の下端までまっすぐ降りる。
+    const bottom = rowBottom.get(e.from)!
+    const route: Route = { via: [...own.via] }
+    const last = own.via[own.via.length - 1]
+    if (last) route.via.push({ x: last.x, top: last.bottom, bottom })
+    else route.drop = bottom
+    route.via.push(...(laneOf.get(cluster) ?? []))
+    const lastY = route.via.length ? route.via[route.via.length - 1].bottom : bottom
+    // 帯の 2 行目より下の語へは、上の行の箱と箱のすき間を通る（箱の裏を通らない）。
+    const inBand = bandLanes(stdRows, canvasW, bandTop, e.to)
+    route.via.push(...inBand)
+    routes[i] = route
+    // 名前は、枠の下（最後の行の下端）から帯までの曲がりのまん中。途中の席は細いので、
+    // そこに置くと名前が箱に重なる。位置は縦の長さで測る（`pointOnEdge`）。
+    const toY = to.y - HANDLE_R
+    const enter = inBand[0]?.top ?? toY
+    if (toY > fromY) labelAts[i] = ((lastY + enter) / 2 - fromY) / (toY - fromY)
+  })
+  return { nodes, routes, labelAts, width: canvasW, height: bandTop + bandH }
+}
+
+/** 帯の行の、標準のことばの箱の左端（`withBand` と同じ並べかた）。 */
+function stdRowXs(r: VocabNode[], canvasW: number): number[] {
+  const w = r.length * STD_W + (r.length - 1) * STD_GAP
+  const left = (canvasW - w) / 2
+  return r.map((_, k) => left + k * (STD_W + STD_GAP))
+}
+
+/** 帯の中で、語 `id` へ向かう線が通る席（上の行から）。語が 1 行目なら無い。
+ *  席は、上の行の箱と箱のすき間（両端の外も含む）のうち、行き先のまっすぐ上に
+ *  いちばん近いところ（同じ近さなら右）。 */
+function bandLanes(stdRows: VocabNode[][], canvasW: number, bandTop: number, id: string): Lane[] {
+  const k = stdRows.findIndex((r) => r.some((n) => n.id === id))
+  if (k <= 0) return []
+  const target = stdRowXs(stdRows[k], canvasW)[stdRows[k].findIndex((n) => n.id === id)] + STD_W / 2
+  const lanes: Lane[] = []
+  for (let j = 0; j < k; j++) {
+    const xs = stdRowXs(stdRows[j], canvasW)
+    const gaps = [xs[0] - STD_GAP / 2, ...xs.map((x) => x + STD_W + STD_GAP / 2)]
+    let x = gaps[gaps.length - 1]
+    for (let g = gaps.length - 1; g >= 0; g--) {
+      if (Math.abs(gaps[g] - target) < Math.abs(x - target) - 1e-6) x = gaps[g]
     }
+    const top = bandTop + BAND_PAD_TOP + j * (STD_H + STD_GAP)
+    lanes.push({ x, top, bottom: top + STD_H })
   }
-  return { nodes, routes, width: canvasW, height: top }
+  return lanes
 }
 
 function withBand(
   nodes: Node[],
-  _stds: VocabNode[],
   stdRows: VocabNode[][],
   canvasW: number,
   bandTop: number,
@@ -262,9 +411,9 @@ function withBand(
   })
   let y = bandTop + BAND_PAD_TOP
   for (const r of stdRows) {
-    const w = r.length * STD_W + (r.length - 1) * STD_GAP
-    let x = (canvasW - w) / 2
-    for (const n of r) {
+    const xs = stdRowXs(r, canvasW)
+    r.forEach((n, k) => {
+      const x = xs[k]
       nodes.push({
         id: n.id,
         type: 'std',
@@ -275,8 +424,7 @@ function withBand(
         connectable: false,
         zIndex: 1,
       })
-      x += STD_W + STD_GAP
-    }
+    })
     y += STD_H + STD_GAP
   }
   return nodes
@@ -299,7 +447,7 @@ function VocabMapInner({
   zoomable?: boolean
 }) {
   const { t } = useTranslation()
-  const { nodes: rawNodes, routes, width: contentW, height: contentH } = useMemo(
+  const { nodes: rawNodes, routes, labelAts, width: contentW, height: contentH } = useMemo(
     () => place(shape),
     [shape],
   )
@@ -328,10 +476,9 @@ function VocabMapInner({
         id: `${e.from}->${e.to}-${i}`,
         source: e.from,
         target: e.to,
-        // 枠の中の線（データの中）は、席と真下の通り道を描ける ShapeGraph の線で引く。
-        // 帯へ降りる線（used / candidate / alignment）は React Flow の既定の線のまま —
-        // 帯は枠の外にあり、段の考えが無い。
-        ...(e.kind === 'link' ? { type: 'shape', data: { route: routes[i] } } : {}),
+        // 通り道のある線（枠の中の線・帯へ降りる線）は、席と真下の通り道を描ける
+        // ShapeGraph の線で引く。ほかの線（帯から出る対応など）は React Flow の既定の線。
+        ...(routes[i] ? { type: 'shape', data: { route: routes[i], labelAt: labelAts[i] } } : {}),
         label: dup ? undefined : e.label,
         className: `vocab-map-edge vocab-map-edge--${e.kind}`,
         markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR[e.kind] },
@@ -340,7 +487,7 @@ function VocabMapInner({
           : undefined,
       }
     })
-  }, [shape, routes])
+  }, [shape, routes, labelAts])
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {
