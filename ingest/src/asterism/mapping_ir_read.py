@@ -20,7 +20,7 @@ mapping-IR でない形は :class:`MappingIRReadError`。
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import yaml
@@ -64,6 +64,10 @@ class PropertyView:
     datatype: str | None = None
     label: str | None = None
     unit: str | None = None
+    constant: str | None = None
+    # つなぐ先の種類の表示名（別の map の subject.label）。行が別の map の
+    # 主語を指すときだけ入る — read_mapping_ir が全 map を見て付ける。
+    link_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,8 @@ class TriplesMapView:
     subject_columns: tuple[str, ...]
     """``subject_template`` の ``{col}`` プレースホルダ -- 出現順・重複除去。"""
     properties: tuple[PropertyView, ...]
+    subject_constant: str | None = None
+    subject_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +143,7 @@ def _read_property(raw: Any, *, map_index: int, prop_index: int) -> PropertyView
         datatype=_str_or_none(raw.get("datatype")),
         label=_str_or_none(raw.get("label")),
         unit=_str_or_none(raw.get("unit")),
+        constant=_str_or_none(raw.get("constant")),
     )
 
 
@@ -163,6 +170,63 @@ def _read_map(raw: Any, *, index: int) -> TriplesMapView:
         subject_classes=_str_tuple(subject_raw.get("classes")),
         subject_columns=_template_columns(template),
         properties=properties,
+        subject_constant=_str_or_none(subject_raw.get("constant")),
+        subject_label=_str_or_none(subject_raw.get("label")),
+    )
+
+
+def _expand_head(prefixes: dict[str, str], template: str) -> str:
+    """テンプレートの先頭（最初の ``{`` まで）の CURIE だけを展開する —
+    コンパイラがテンプレートを書き出すときと同じ展開。"""
+    head, brace, rest = template.partition("{")
+    return expand(prefixes, head) + brace + rest
+
+
+def _with_link_labels(
+    maps: tuple[TriplesMapView, ...], prefixes: dict[str, str]
+) -> tuple[TriplesMapView, ...]:
+    """行が別の map の主語を指すなら、その map の ``subject.label`` を
+    ``link_label`` に付ける。
+
+    図が読む ``/rules``（api の ``_ir_display_entries``、ADR kantan K52）の
+    「表示名の無いつなぐ行は、つなぐ先の種類の表示名で読む」と同じ規則
+    （step0 を import できないので手で揃える）:
+    ``object_template``（literal でない）は別の map の ``subject.template`` と、
+    ``object_type: iri`` の ``constant`` は別の map の ``subject.constant`` と
+    比べる。CURIE と完全な IRI は展開してから比べる。自分自身の map は対象外。
+    同じ主語の map が複数あれば IR の順で最初。
+    """
+    by_template: dict[str, list[tuple[int, str]]] = {}
+    by_constant: dict[str, list[tuple[int, str]]] = {}
+    for index, tm in enumerate(maps):
+        name = (tm.subject_label or "").strip()
+        if not name:
+            continue
+        if tm.subject_template:
+            key = _expand_head(prefixes, tm.subject_template)
+            by_template.setdefault(key, []).append((index, name))
+        if tm.subject_constant:
+            by_constant.setdefault(expand(prefixes, tm.subject_constant), []).append((index, name))
+
+    def link_label(index: int, prop: PropertyView) -> str | None:
+        if prop.object_template is not None and prop.object_type != "literal":
+            candidates = by_template.get(_expand_head(prefixes, prop.object_template), [])
+        elif prop.constant is not None and prop.object_type == "iri":
+            candidates = by_constant.get(expand(prefixes, prop.constant), [])
+        else:
+            return None
+        return next((name for i, name in candidates if i != index), None)
+
+    if not by_template and not by_constant:
+        return maps
+    return tuple(
+        replace(
+            tm,
+            properties=tuple(
+                replace(prop, link_label=link_label(index, prop)) for prop in tm.properties
+            ),
+        )
+        for index, tm in enumerate(maps)
     )
 
 
@@ -190,4 +254,5 @@ def read_mapping_ir(text: str) -> MappingIRView:
     if not isinstance(maps_raw, list):
         raise MappingIRReadError("maps must be a list")
     maps = tuple(_read_map(m, index=i) for i, m in enumerate(maps_raw))
+    maps = _with_link_labels(maps, dict(BUILTIN_PREFIXES) | prefixes)
     return MappingIRView(prefixes=prefixes, maps=maps)

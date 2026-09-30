@@ -19,6 +19,7 @@ read path in this codebase uses (:mod:`asterism.substrate`).
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -422,9 +423,11 @@ async def subject_facts(
 
     Ordered by the predicate's IRI, then by the value — deterministic
     regardless of store iteration order. ``?p``'s label comes from the
-    ontology projection's ``rdfs:label`` → the class schema's own label
-    (Mapping IR / display-meta, via :mod:`asterism.class_schema`) → a
-    humanized local name (§6 — never the raw identifier alone, K4). An IRI
+    name this class's design gave the row (display-meta → the row's label →
+    the linked kind's label, :func:`asterism.class_schema.class_property_labels`;
+    only when every row of that predicate agrees) → the ontology projection's
+    ``rdfs:label`` → the class schema's own label → a humanized local name
+    (§6 — never the raw identifier alone, K4). An IRI
     value's label uses the same priority rule
     (:func:`asterism.subjects.pick_label`), falling back to a humanized
     local name; ``value_iri`` always carries the raw IRI for "出典を見る".
@@ -490,6 +493,14 @@ async def subject_facts(
     property_labels = await _label_lookup(
         client, property_scope, label_targets, fallback=_property_fallback
     )
+    # この種類の設計が行に付けた名前は、ストアの rdfs:label より先。rdfs:label は
+    # 述語そのものの名前で（データセットをまたいで共有される）、名前の無い行には
+    # ローカル名が入る — 機械が足したつなぐ行が "isPartOf" と出ていた。
+    if class_iri is not None and registry_root is not None:
+        designed = await asyncio.to_thread(
+            _designed_property_labels, Path(registry_root), class_iri
+        )
+        property_labels.update({p: name for p, name in designed.items() if p in label_targets})
     value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_fallback_label)
     # 種類（rdf:type の値）の表示名は、データの graph には無い — 種類の名前の
     # 読み順（model.yaml → オントロジーの rdfs:label → …）で引く。引かないと、
@@ -1680,6 +1691,17 @@ async def _resolve_order_unit(
         if isinstance(prop, dict) and prop.get("iri") == property_iri:
             return prop.get("unit"), prop.get("kind") == "quantity"
     return None, False
+
+
+def _designed_property_labels(registry_root: Path, class_iri: str) -> dict[str, str]:
+    """``asterism.class_schema.class_property_labels`` — 読めなければ空（best-effort）。"""
+    try:
+        from asterism.class_schema import class_property_labels
+
+        return class_property_labels(registry_root, class_iri)
+    except Exception:  # best-effort: 名前が引けなくても事実の表は返す
+        logger.debug("subject_facts: class_property_labels failed", exc_info=True)
+        return {}
 
 
 def _load_class_schema():

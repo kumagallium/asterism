@@ -428,7 +428,7 @@ def _gate_annotations(
 def _catalog_homes(
     skeleton: Mapping[str, Any], annotations: Mapping[str, Any]
 ) -> dict[str, str]:
-    """Per ☑ value catalog, the map that HELD its column before the ☑ (K53).
+    """Per ☑ value catalog, the map that HELD its column before the ☑ (K55).
 
     Kantan S4 turns a checked column into a "value catalog" map (K33: keyed on
     that ONE column, ``owns == [column]``). The link INTO that catalog belongs to
@@ -1651,13 +1651,13 @@ def _pascal(name: str) -> str:
 def _catalog_home_among(
     siblings: list[dict], column: str, rows: list[dict[str, str]] | None
 ) -> dict:
-    """The sibling map that HELD ``column`` before it became a catalog (K53).
+    """The sibling map that HELD ``column`` before it became a catalog (K55).
 
     G1 on the real rows: candidates are the siblings whose subject key
     functionally determines ``column``; the one with the fewest distinct key
     values wins (a file-wide constant → the card with 1 entity; a per-row
     value → the row kind), ties keeping spec order. Without rows, or when no
-    sibling's key determines the column, the pre-K53 rule applies: most
+    sibling's key determines the column, the pre-K55 rule applies: most
     properties, ties keeping the first (``max`` returns the first on a tie).
     """
     if rows:
@@ -1702,11 +1702,11 @@ def _link_isolated_value_catalogs(
     genuinely isolated (no map points AT it, and it points at nothing
     itself); a catalog the model DID link is left untouched.
 
-    WHICH sibling carries the edge is the kind the column came from (K53):
+    WHICH sibling carries the edge is the kind the column came from (K55):
     among the siblings whose key functionally determines the column in the
     real rows, the one minting the fewest entities (ADR column-ownership G1 —
     a preface column goes to the file's card, a table column to the row
-    kind), ties keeping spec order. Before K53 this was "most properties
+    kind), ties keeping spec order. Before K55 this was "most properties
     wins", which happened to pick the card on the XRD card (18 preface
     columns) and the RECORD on a recipe card (3 preface columns vs 3 row
     columns + the isPartOf link) — the S5 preview had promised the card.
@@ -2135,7 +2135,7 @@ def run_design_loop(
         # describe the skeleton actually being generated from.
         gate_annotations = _gate_annotations(skeleton, paths, effective)
         column_owners = _column_owners(skeleton, paths, effective, gate_annotations)
-        # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K53）。
+        # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K55）。
         # 前置きの列ならカード、表本体の列なら行の種類 — 骨格には書かれていないが、
         # 同じ注釈（誰の鍵がその列を決めるか・件数）から決定論で分かる。
         catalog_homes = _catalog_homes(skeleton, gate_annotations)

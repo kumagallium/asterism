@@ -210,11 +210,11 @@ def test_repair_design_manual_path_reaches_the_same_result(tmp_path: Path) -> No
     assert added[0]["predicate"] == "ex:hasBookTitle"
 
 
-# --- K53: リンクは、その列を元々持っていた種類が持つ -----------------------------
+# --- K55: リンクは、その列を元々持っていた種類が持つ -----------------------------
 
 
 def _home_spec(maps: list[dict]) -> str:
-    """K53 用の spec。maps をそのまま §9 の YAML にする。"""
+    """K55 用の spec。maps をそのまま §9 の YAML にする。"""
     doc = {
         "version": 1,
         "prefixes": {

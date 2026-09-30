@@ -458,12 +458,12 @@ function SkeletonEvidence({
      （利用者裁定 2026-09-03「推奨で良いが UI はシンプルなまま」）。 */
   const tiedKeyCount = (() => {
     if (singleton || collides || keyColumns.length === 0) return 0
-    const current = [...keyColumns].sort().join(' ')
+    const current = [...keyColumns].sort().join('\u0000')
     return (ann.key_candidates ?? []).filter(
       (c) =>
         !c.measurement_only &&
         c.columns.length === keyColumns.length &&
-        [...c.columns].sort().join(' ') !== current,
+        [...c.columns].sort().join('\u0000') !== current,
     ).length
   })()
   // The card's three ownership blocks (G12): what it carries, what another map
@@ -1955,7 +1955,7 @@ export function SkeletonGate({
    *  ID の入れ子だけなので、そのままだと作った種類が孤立して見え、「つながらない
    *  のでは」と読める（利用者評価 2026-08-28）。
    *
-   *  線の出どころは、その列を**元々持っていた種類**（K53）: 前置きの列なら
+   *  線の出どころは、その列を**元々持っていた種類**（K55）: 前置きの列なら
    *  カード、行ごとに変わる列なら行の種類 — `zoneFields` が項目を箱に配るのと
    *  同じ読み。以前は全部カードから引いていて、表本体の列の受け口では⑥の
    *  実線（行の種類から）と食い違った。 */
@@ -2031,8 +2031,9 @@ export function SkeletonGate({
           if (plain) setPlainFix('names')
         }}
         /* 同じ深さの受け口が 2 つ以上あるとき、1 列だと縦に直列に見えて
-           「どの箱からの線か」が読めない（利用者指摘 2026-09-01）。layout は
-           深さ別に折り返すので、2 にしても親子が横に並ぶことはない。 */
+           「どの箱からの線か」が読めない（利用者指摘 2026-09-01）。いまは
+           線のある段を折り返さない（`rowsOf`）ので、受け口がいくつあっても
+           横に並ぶ。これは線のない箱の折り返し幅。 */
         perRow={plain ? 2 : 3}
         nodeWidth={176}
         maxHeight={plain ? 640 : 440}

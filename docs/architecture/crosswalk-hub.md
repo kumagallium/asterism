@@ -164,8 +164,18 @@ equality missed (whitespace/subscript variants). The hub tool
   config)` resolves each participant's exact promoted graph (`canonical_graphs` /
   `live_graph_of`), does a two-pass bounded read (distinct values → shared keys →
   entities for shared raws), delegates the Turtle to `asterism.crosswalk`, and writes
-  the hub graph + control `promoted` flag (so the FROM-merge unions it). `load/
-  save_config` + `write_registry_scaffold` persist the participation config + the
+  the hub graph + control `promoted` flag (so the FROM-merge unions it).
+  **Values compare as strings** (2026-09-30): discovery and both passes of the build
+  read literals only (`FILTER(isLiteral(?v))` — an IRI value never joins) and key on
+  the literal's *string*, so a language tag or a datatype never separates two values
+  that read the same (`"日本"@ja` = `"日本"`, `"42"^^xsd:integer` = `"42"`). Pass 2
+  re-reads with `VALUES`, which matches *terms*, so it writes each shared term back
+  exactly as pass 1 read it (tag / datatype included) and de-duplicates per
+  (entity, string) — the same string held under two terms by one entity is one
+  observation; the compound gather applies the same rule per tuple. Before this, a
+  tagged value that discovery had counted as shared came back with no entities and
+  the build reported 0 shared while discovery promised 8.
+  `load/save_config` + `write_registry_scaffold` persist the participation config + the
   `crosswalk-bridge` dataset (seeding the generic `datasets_for_composition` tool only
   if absent, never clobbering authored tools). Tests in `test_crosswalk_runtime.py`
   (a real `rdflib.Dataset`) cover graph resolution / skip-unpromoted, the bounded read,
