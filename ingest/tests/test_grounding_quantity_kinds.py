@@ -135,6 +135,31 @@ def test_short_names_do_not_match_fuzzily() -> None:
         assert "Horsepower" not in c.name
 
 
+def test_a_quantity_name_inside_a_longer_word_is_not_a_match() -> None:
+    """実測 2026-09-30: 項目 ``ofCountry`` に ``Count`` が候補として出た。"count" は
+    "ofcountry" の語の頭にあるが、そこの語は "country" で、数の話ではない。"""
+    assert "Count" not in _names(resolve_quantity_kind("ofCountry"))
+    # 語の途中（"concent*ratio*n"）も当たらない。
+    assert "Ratio" not in _names(resolve_quantity_kind("carrierConcentration"))
+
+
+@pytest.mark.parametrize(
+    ("column", "expected"),
+    [
+        # 量の名前が列名の中に語として入っている
+        ("sampleTemperature", "Temperature"),
+        ("totalCount", "Count"),
+        ("lengthMm", "Length"),
+        ("electricalResistivity", "Resistivity"),
+        # 列名が量の名前の語の頭
+        ("temp", "Temperature"),
+        ("thermalCond", "ThermalConductivity"),
+    ],
+)
+def test_a_word_inside_a_name_still_matches(column: str, expected: str) -> None:
+    assert expected in _names(resolve_quantity_kind(column))
+
+
 def test_empty_query_and_unit_resolve_to_nothing() -> None:
     assert resolve_quantity_kind("") == []
     assert resolve_quantity_kind(None) == []
