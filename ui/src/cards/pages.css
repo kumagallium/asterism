@@ -464,6 +464,11 @@
   font-size: 0.84rem;
   color: var(--muted);
 }
+.export-modal-what {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--body);
+}
 .export-modal-field {
   display: flex;
   flex-direction: column;

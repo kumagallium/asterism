@@ -602,9 +602,9 @@ def test_tools_fixed_bundled_tool_is_held() -> None:
     fixed["description"] = "利用者が直した説明"
     env[0] = fixed
     plan = _tools_plan(_tools_yaml(env))
-    assert {(h["unit"], h["reason"], h.get("detail")) for h in plan.held} == {
-        ("tools", "edited", str(fixed["name"]))
-    }
+    # 生のツール名は出さず、表示名（title）だけを持つ
+    assert plan.held == [{"unit": "tools", "reason": "edited", "titles": [fixed["title"]]}]
+    assert str(fixed["name"]) not in json.dumps(plan.held)
     assert "tools" not in plan.reached
 
 
@@ -625,7 +625,20 @@ def test_tools_new_bundled_tool_is_added_and_a_users_same_name_is_not_overwritte
     users = {**added, "description": "利用者の別の定義"}
     plan = _tools_plan(_tools_yaml([*_real_tools(), users]), newer)
     assert ("tools", "edited") in _reasons(plan)
-    assert plan.held[0]["detail"] == "brand_new_tool"
+    # 生のツール名は入れない。持たせるのは表示名（利用者の定義の title）だけ
+    assert plan.held == [{"unit": "tools", "reason": "edited", "titles": [users["title"]]}]
+    assert "brand_new_tool" not in json.dumps(plan.held)
+    # 表示名の無い定義は、表示名を持たない（画面は件数だけ出す）
+    untitled = {k: v for k, v in users.items() if k != "title"}
+    newer_untitled = _make_bundle(
+        {
+            "registry/query_tools.yaml": demo_sample.dump_tools(
+                [*_real_tools(), {k: v for k, v in added.items() if k != "title"}]
+            )
+        }
+    )
+    plan = _tools_plan(_tools_yaml([*_real_tools(), untitled]), newer_untitled)
+    assert plan.held == [{"unit": "tools", "reason": "edited"}]
     assert "query_tools.yaml" not in plan.replace
     assert "tools" not in plan.reached
 
@@ -724,6 +737,7 @@ def _cfg(
 ) -> Settings:
     env = {
         "CSV2RDF_REGISTRY_ROOT": str(tmp_path / "registry"),
+        "CSV2RDF_JOBS_LOG": str(tmp_path / "jobs.jsonl"),
         "ASTERISM_APPDATA_ROOT": str(tmp_path / "appdata"),
         **(env_extra or {}),
     }

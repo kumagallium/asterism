@@ -12,6 +12,42 @@
   color: var(--muted);
 }
 
+/* 見本のページの印（レールと同じ .rail-item-sample を、出どころの行の頭に置く）。 */
+.dataset-sample-badge {
+  margin-right: var(--space-2);
+  vertical-align: 1px;
+}
+
+/* ---- 見本の「新しくなった・新しくしていない」の知らせ（SampleNotice.tsx） ----
+ * 新しい色・トークンは作らない: 枠は .dataset-band、注意の帯は --warn-*、本文は --body。 */
+
+.dataset-sample {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dataset-sample-updated {
+  margin: 0;
+}
+
+/* 後ろの基本ルール（.dataset-band / .dataset-band-title）に負けないよう、詳細度を上げる */
+.dataset-band.dataset-band--warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.dataset-band-title.dataset-band-title--warn {
+  color: var(--warn-fg);
+}
+
+.dataset-sample-held {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+  color: var(--body);
+}
+
 /* ---- 「データの意味を定義する」の帯（決定 2） ---- */
 
 .dataset-band {

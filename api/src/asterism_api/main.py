@@ -168,6 +168,7 @@ from asterism_api.converse_routes import register_converse
 from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
+from asterism_api.sample_routes import register_sample_routes
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
 
 # asterism_api.place_routes / asterism_api.license_routes は意図的にここで
@@ -11057,6 +11058,7 @@ def build_app(
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）
+    register_sample_routes(app, cfg)  # 見本の手動の置き換え・控えから戻す（ADR kantan K62）
     register_appdata_cards(app, cfg)  # 契約メモ contract_pr_f4.md §1-5（担当 api）
     register_classes(
         app, cfg, label_resolvers=_crosswalk_label_resolvers

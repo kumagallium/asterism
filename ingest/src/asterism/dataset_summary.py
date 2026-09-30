@@ -47,7 +47,13 @@ from asterism.substrate import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEMO_DATASET_ID", "dataset_summary", "list_entry_extras"]
+__all__ = [
+    "DEMO_DATASET_ID",
+    "OVERRIDABLE_REASONS",
+    "dataset_summary",
+    "list_entry_extras",
+    "sample_notice",
+]
 
 #: PROV-O namespace（統合時の所見 #1: 来歴のクラス — ``prov:Activity`` そのもの
 #: や、データセットの ontology が定義した「その」サブクラス — は人が「この中の
@@ -62,6 +68,87 @@ _PROV_TYPES: tuple[str, str] = (f"{_PROV_NS}Activity", f"{_PROV_NS}Agent")
 #: ``datasets/world/snapshot.tar``）。公開（api 層の一覧ルート・``local.py``
 #: の seed が同じ判定を再利用できるように）。
 DEMO_DATASET_ID = "world"
+
+
+#: 手動の「新しい見本に置き換える」で、保留を無視してよい理由コード（利用者が変えたもの）。
+#: 追記・取り込み直し・引用の住所が動く版・決着していない状態・データの群は、利用者の
+#: データや引用の住所を失うので、置き換えない。コードは ``asterism_api.demo_sample`` の
+#: ``HELD_*`` と同じ文字列（テストで一致を固定している）。
+OVERRIDABLE_REASONS: tuple[str, ...] = ("edited", "decisions")
+_SAMPLE_DATA_UNIT = "data"
+_SAMPLE_DATA_GROUP = ("design", "data", "tools")
+
+
+def sample_notice(meta: dict[str, Any], *, is_demo: bool) -> dict[str, Any] | None:
+    """見本のページの「新しくなった・新しくしていない」の知らせに要るものだけ。
+
+    見本（``is_demo``）以外は ``None``。中身は ``meta.sample``（印）から作る。理由・単位は
+    コードのまま返し、文言にするのは UI。生の識別子（ツール名・ファイル名）は印に
+    入っていないので、ここでも出ない — ツールは利用者に見せてよい表示名（``titles``）だけ。
+    """
+    if not is_demo:
+        return None
+    raw = meta.get("sample")
+    stamp: dict[str, Any] = raw if isinstance(raw, dict) else {}
+
+    updated: dict[str, Any] | None = None
+    last = stamp.get("last_update")
+    if isinstance(last, dict) and isinstance(last.get("note"), dict):
+        note = last["note"]
+        updated = {
+            "at": last.get("at"),
+            "note": {"ja": note.get("ja"), "en": note.get("en") or note.get("ja")},
+            "units": [u for u in last.get("units") or [] if isinstance(u, str)],
+        }
+
+    # 同じ（単位, 理由）は 1 つにまとめる。ツールは 1 件ずつ入っているので、表示名を集め、
+    # 件数（``count``）を添える（表示名の無いツールは件数だけで出る）。
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for h in stamp.get("held") or []:
+        if not isinstance(h, dict) or not isinstance(h.get("unit"), str):
+            continue
+        if not isinstance(h.get("reason"), str):
+            continue
+        item = merged.setdefault(
+            (h["unit"], h["reason"]),
+            {"unit": h["unit"], "reason": h["reason"], "count": 0},
+        )
+        item["count"] += 1
+        for t in h.get("titles") or []:
+            if isinstance(t, str) and t and t not in item.setdefault("titles", []):
+                item["titles"].append(t)
+    held = list(merged.values())
+
+    # データの群（design・data・tools）は、データが保留のとき同じ理由で丸ごと保留されている
+    # ので、置き換えない（データや引用の住所を失う）。名前・説明は群ではないので、
+    # それぞれの理由で決める。
+    group_held = any(h["unit"] == _SAMPLE_DATA_UNIT for h in held)
+    overridable: list[str] = []
+    for unit in dict.fromkeys(h["unit"] for h in held):
+        if group_held and unit in _SAMPLE_DATA_GROUP:
+            continue
+        if all(h["reason"] in OVERRIDABLE_REASONS for h in held if h["unit"] == unit):
+            overridable.append(unit)
+
+    restorable: dict[str, Any] | None = None
+    backups = stamp.get("backups")
+    if isinstance(backups, list) and backups and isinstance(backups[0], dict):
+        newest = backups[0]
+        if isinstance(newest.get("at"), str):
+            restorable = {
+                "at": newest["at"],
+                "units": [u for u in newest.get("units") or [] if isinstance(u, str)],
+            }
+
+    seq = stamp.get("seq")
+    return {
+        "updated": updated,
+        "held": held,
+        "overridable": overridable,
+        "restorable": restorable,
+        "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) else None,
+        "revision": stamp.get("revision") if isinstance(stamp.get("revision"), str) else None,
+    }
 
 
 def _read_meta(registry_root: Path | str | None, dataset_id: str) -> dict[str, Any] | None:
@@ -324,4 +411,5 @@ async def dataset_summary(
         "source_note": _source_note(root, safe_id) if root is not None else None,
         "classes": classes,
         "is_demo": safe_id == DEMO_DATASET_ID,
+        "sample_notice": sample_notice(meta, is_demo=safe_id == DEMO_DATASET_ID),
     }
