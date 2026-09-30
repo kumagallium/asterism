@@ -691,7 +691,7 @@ const LINE_CLEAR = 3
 /** 組み合わせを探す手数の上限。線が多い図でも描画を待たせない。 */
 const LABEL_SEARCH_LIMIT = 20000
 
-interface Rect {
+export interface Rect {
   x: number
   y: number
   w: number
@@ -712,7 +712,14 @@ export function labelRect(from: Pt, to: Pt, label: EdgeLabel, route: Route = NO_
 
 export interface EdgeOpts {
   nodeWidth?: number
+  /** 箱ごとの幅（幅のちがう箱が並ぶ図）。渡さなければ、どの箱も `nodeWidth`。 */
+  widthOf?: (node: ShapeNode) => number
   heightOf?: (node: ShapeNode) => number
+  /** 名前が重なってはいけない、箱でないもの（枠の見出しなど）。 */
+  obstacles?: Rect[]
+  /** 線ごとの名前の置き場の候補（線の上の位置。先のものほど好ましい）。渡さない線は
+   *  まん中から外へ（`LABEL_AT`）。 */
+  spotsOf?: (edge: number) => number[] | undefined
   /** 線の通り道（`arrange` が返したもの）。渡さなければ、どの線も React Flow の
    *  既定の線と同じ形。 */
   routes?: Route[]
@@ -726,16 +733,18 @@ export function edgeEnds(
   opts: EdgeOpts = {},
 ): ({ from: Pt; to: Pt; route: Route } | undefined)[] {
   const nodeW = opts.nodeWidth ?? NODE_W
+  const widthOf = opts.widthOf ?? (() => nodeW)
   const heightOf = opts.heightOf ?? ((n: ShapeNode) => nodeHeight(n))
   const byId = new Map(shape.nodes.map((n) => [n.id, n]))
   return shape.edges.map((e, i) => {
     const a = byId.get(e.from)
+    const b = byId.get(e.to)
     const pa = pos.get(e.from)
     const pb = pos.get(e.to)
-    if (!a || !pa || !pb || !byId.has(e.to)) return undefined
+    if (!a || !b || !pa || !pb) return undefined
     return {
-      from: { x: pa.x + nodeW / 2, y: pa.y + heightOf(a) + HANDLE_R },
-      to: { x: pb.x + nodeW / 2, y: pb.y - HANDLE_R },
+      from: { x: pa.x + widthOf(a) / 2, y: pa.y + heightOf(a) + HANDLE_R },
+      to: { x: pb.x + widthOf(b) / 2, y: pb.y - HANDLE_R },
       route: opts.routes?.[i] ?? NO_ROUTE,
     }
   })
@@ -762,11 +771,12 @@ export function edgeLabels(
   opts: EdgeOpts = {},
 ): (EdgeLabel | undefined)[] {
   const nodeW = opts.nodeWidth ?? NODE_W
+  const widthOf = opts.widthOf ?? (() => nodeW)
   const heightOf = opts.heightOf ?? ((n: ShapeNode) => nodeHeight(n))
-  const boxes: Rect[] = []
+  const boxes: Rect[] = [...(opts.obstacles ?? [])]
   for (const n of shape.nodes) {
     const p = pos.get(n.id)
-    if (p) boxes.push({ x: p.x, y: p.y, w: nodeW, h: heightOf(n) })
+    if (p) boxes.push({ x: p.x, y: p.y, w: widthOf(n), h: heightOf(n) })
   }
 
   // 名前を出さない線も、覆われる側として要る。
@@ -787,13 +797,16 @@ export function edgeLabels(
     spots: { rect: Rect; boxed: number; covers: number; off: number }[]
   }
   const wants: Want[] = []
+  const spotsAt: number[][] = []
   shownNames(shape).forEach((text, index) => {
     const end = ends[index]
     if (!text || !end) return
+    const ats = opts.spotsOf?.(index) ?? LABEL_AT
+    spotsAt.push(ats)
     wants.push({
       index,
       text,
-      spots: LABEL_AT.map((at) => {
+      spots: ats.map((at, k) => {
         const rect = labelRect(end.from, end.to, { text, at }, end.route)
         let covers = 0
         lines.forEach((line, other) => {
@@ -812,7 +825,8 @@ export function edgeLabels(
           rect,
           boxed: boxes.reduce((sum, r) => sum + overlapArea(rect, r), 0),
           covers,
-          off: Math.abs(at - 0.5),
+          // まん中からの外れ（候補を渡された線は、候補の順番）。
+          off: ats === LABEL_AT ? Math.abs(at - 0.5) : k * 0.01,
         }
       }),
     })
@@ -841,7 +855,7 @@ export function edgeLabels(
   wants.forEach((_, i) => {
     let at = 0
     let cost = added(i, 0)
-    for (let s = 1; s < LABEL_AT.length; s++) {
+    for (let s = 1; s < spotsAt[i].length; s++) {
       const c = added(i, s)
       if (better(c, cost)) {
         at = s
@@ -863,7 +877,7 @@ export function edgeLabels(
       bestCost = cost
       return
     }
-    for (let s = 0; s < LABEL_AT.length; s++) {
+    for (let s = 0; s < spotsAt[i].length; s++) {
       if (steps++ > LABEL_SEARCH_LIMIT) return
       const c = added(i, s)
       picked[i] = s
@@ -874,7 +888,7 @@ export function edgeLabels(
 
   const out: (EdgeLabel | undefined)[] = shape.edges.map(() => undefined)
   wants.forEach((w, i) => {
-    out[w.index] = { text: w.text, at: LABEL_AT[best[i] ?? 0] }
+    out[w.index] = { text: w.text, at: spotsAt[i][best[i] ?? 0] }
   })
   return out
 }
