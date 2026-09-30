@@ -246,6 +246,26 @@ def _word_starts(words: tuple[str, ...]) -> set[int]:
     return starts
 
 
+def _subject_words(words: tuple[str, ...]) -> tuple[str, ...]:
+    """名前のうち「何の量か」を言っている語。
+
+    ⭐名前全体で当てると、量の中身を言っていない語だけで当たる（実測 2026-09-30:
+    項目 ``unit`` に "Volume per **Unit** Area"、``amount`` に "**Amount** of
+    Substance" が候補として出た）。
+
+    - ``per`` の後ろは分母 — 何あたりかであって、何の量かではない。
+    - ``of`` の前は入れ物 — "amount of" "number of" は「何の」を ``of`` の後ろに言う。
+      ``of`` が重なるときは最後の ``of`` の後ろ（"current of the amount of substance"）。
+    - 先頭の ``per``・末尾の ``of``（"is version of"）は区切りにしない（何も残らなくなる）。
+    """
+    if "per" in words[1:]:
+        words = words[: words.index("per", 1)]
+    of_at = [i for i, w in enumerate(words[:-1]) if w == "of"]
+    if of_at:
+        words = words[of_at[-1] + 1 :]
+    return words
+
+
 def _contains(outer: str, outer_words: tuple[str, ...], inner: str, *, whole: bool = False) -> bool:
     """``inner`` が ``outer`` の中に「意味のある形で」含まれるか（部分一致の条件）。
 
@@ -285,7 +305,12 @@ def _score(
         return 100, "exact"
     if q_tokens and (q_tokens == ix.tokens):
         return 90, "exact_tokens"
+    # 1 語だけの問いが入れ物・分母の語にだけ当たるのは数えない（``_subject_words``。
+    # 実測 2026-09-30: 項目 ``amount`` に qudt:dimensionExponentForAmountOfSubstance）。
+    name_subject, label_subject = _subject_words(ix.name_words), _subject_words(ix.label_words)
     if q_tokens and q_tokens <= ix.tokens:
+        if len(q_tokens) == 1 and not q_tokens & (set(name_subject) | set(label_subject)):
+            return 0, ""
         # all query words appear in the term; tighter (fewer extra words) ranks higher
         return 70 + max(0, 10 - (len(ix.tokens) - len(q_tokens))), "tokens_subset"
     if (
