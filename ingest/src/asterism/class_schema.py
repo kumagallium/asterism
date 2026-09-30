@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -561,7 +562,8 @@ async def class_label(client: SupportsSparql, registry_root: Path | None, class_
     if safe_class_iri is None:
         return _fallback_label(class_iri)
     if registry_root is not None:
-        label = _model_yaml_class_label(registry_root, safe_class_iri)
+        # registry の走査は同期のファイル読み — 呼ぶ側のイベントループを止めない。
+        label = await asyncio.to_thread(_model_yaml_class_label, registry_root, safe_class_iri)
         if label:
             return label
     label = await _ontology_class_label(client, safe_class_iri)

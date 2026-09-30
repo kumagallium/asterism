@@ -31,6 +31,9 @@
 # constant object (the activity's IRI is fixed; there is only ever one), so
 # every citable fact this dataset emits has a "how did this number get here"
 # flow behind it.
+# この種類の表示名はここ（`subject.label`）に書く。model.yaml には書かない —
+# `prov:Activity` は共通の標準の種類なので、model.yaml の `classes:` に書くと
+# ほかのデータセットの同じ種類にもこの名前が付く。
 version: 1
 prefixes:
   world: "https://kumagallium.github.io/asterism/world/ontology#"
@@ -44,6 +47,7 @@ maps:
     subject:
       template: "wr:activity/{activity_id}"
       classes: [prov:Activity, world:IngestionActivity]
+      label: "取り込みの記録"
     properties:
       - predicate: prov:used
         function: iri_safe

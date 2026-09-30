@@ -209,8 +209,12 @@ def test_trial_queries_full_shape(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["available"] is True
-        # Every query ran against the staged version graph recorded at ingest.
-        assert queries and all(f"GRAPH <{staged_iri}>" in q for q in queries)
+        # Every FACT query ran against the staged version graph recorded at ingest.
+        # 種類の名前を引く問い合わせ（class_label）は別 — 名前は公開済みの
+        # オントロジーの graph にあり、下書きの graph には無い。
+        facts = [q for q in queries if "?label" not in q]
+        assert facts and all(f"GRAPH <{staged_iri}>" in q for q in facts)
+        assert len(facts) < len(queries)  # 名前は共通の読み手（class_label）に聞いている
 
         assert body["classes"] == [{"iri": f"{_EX}Sample", "n": 24}]
         assert "COUNT(DISTINCT ?s)" in body["count_sparql"]
@@ -629,3 +633,51 @@ def test_trial_queries_class_label_prefers_the_authored_kind_name(tmp_path: Path
     with TestClient(app, headers=_AUTH) as client:
         body = client.get(f"/api/datasets/{meta['id']}/trial-queries").json()
         assert body["classes"][0]["label"] == "食材の名前"
+
+
+def test_trial_queries_class_label_is_read_from_model_yaml(tmp_path: Path) -> None:
+    """IR に表示名が無く model.yaml にある種類も、/rules と同じ名前になる。"""
+    model = 'classes:\n  ex:Sample:\n    label: "貸し出しの記録"\n'
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Samples",
+        dict(_ARTIFACTS, **{"model.yaml": model}),
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-22T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    staged_iri = _ingest(tmp_path, meta["id"])
+    registry.mark_promoted(
+        tmp_path / "registry",
+        meta["id"],
+        triples_promoted=42,
+        alignment={"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}},
+        promoted_at="2026-07-22T01:00:00+00:00",
+        canonical_graph=f"https://kumagallium.github.io/asterism/graph/canonical/{meta['id']}",
+        live_graph=staged_iri,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        q = request.content.decode("utf-8")
+        if "?s a ?class" in q:
+            return _sparql_json(
+                [
+                    {
+                        "class": {"type": "uri", "value": f"{_EX}Sample"},
+                        "n": {"type": "literal", "value": "3"},
+                    }
+                ]
+            )
+        return _sparql_json([])
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        trial = client.get(f"/api/datasets/{meta['id']}/trial-queries").json()
+        rules = client.get(f"/api/datasets/{meta['id']}/rules").json()
+        assert trial["classes"][0]["label"] == "貸し出しの記録"
+        assert trial["classes"][0]["label"] == rules["labels"][f"{_EX}Sample"]
