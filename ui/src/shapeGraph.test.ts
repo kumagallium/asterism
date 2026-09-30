@@ -9,7 +9,6 @@ import {
   isPlainEdge,
   labelRect,
   labelSize,
-  layout,
   nodeHeight,
   NODE_W,
   pointOnEdge,
@@ -161,14 +160,14 @@ describe('skeletonShape', () => {
 
 // ── 並べかた ─────────────────────────────────────────────────────────────
 
-describe('layout', () => {
+describe('arrange', () => {
   const shape = (nodes: string[], edges: [string, string][]): Shape => ({
     nodes: nodes.map((id) => ({ id, label: id, tone: 'record' as const })),
     edges: edges.map(([from, to]) => ({ from, to })),
   })
 
   it('puts a source above its target and centres each row', () => {
-    const pos = layout(shape(['A', 'B'], [['A', 'B']]))
+    const pos = arrange(shape(['A', 'B'], [['A', 'B']])).pos
     expect(pos.get('A')!.y).toBeLessThan(pos.get('B')!.y)
     expect(pos.get('A')!.x).toBe(pos.get('B')!.x)
   })
@@ -177,7 +176,7 @@ describe('layout', () => {
 
   it('puts two children of one parent side by side, even with perRow 1', () => {
     for (const perRow of [undefined, 1]) {
-      const pos = layout(shape(['P', 'a', 'b'], [['P', 'a'], ['P', 'b']]), { perRow })
+      const pos = arrange(shape(['P', 'a', 'b'], [['P', 'a'], ['P', 'b']]), { perRow }).pos
       expect(pos.get('a')!.y).toBe(pos.get('b')!.y)
       expect(pos.get('a')!.x).not.toBe(pos.get('b')!.x)
       expect(pos.get('P')!.y).toBeLessThan(pos.get('a')!.y)
@@ -187,14 +186,14 @@ describe('layout', () => {
 
   it('keeps three children of one parent on one row, whatever perRow is', () => {
     for (const perRow of [1, 2]) {
-      const pos = layout(shape(['P', 'a', 'b', 'c'], [['P', 'a'], ['P', 'b'], ['P', 'c']]), { perRow })
+      const pos = arrange(shape(['P', 'a', 'b', 'c'], [['P', 'a'], ['P', 'b'], ['P', 'c']]), { perRow }).pos
       expect(new Set(['a', 'b', 'c'].map((id) => pos.get(id)!.y)).size).toBe(1)
       expect(pos.get('P')!.x).toBe(pos.get('b')!.x)
     }
   })
 
   it('stacks a chain A → B → C in one column', () => {
-    const pos = layout(shape(['A', 'B', 'C'], [['A', 'B'], ['B', 'C']]))
+    const pos = arrange(shape(['A', 'B', 'C'], [['A', 'B'], ['B', 'C']])).pos
     expect(pos.get('A')!.x).toBe(pos.get('B')!.x)
     expect(pos.get('B')!.x).toBe(pos.get('C')!.x)
     expect(pos.get('A')!.y).toBeLessThan(pos.get('B')!.y)
@@ -202,16 +201,16 @@ describe('layout', () => {
   })
 
   it('wraps boxes with no lines by perRow', () => {
-    const pos = layout(shape(['X', 'Y', 'Z'], []), { perRow: 2 })
+    const pos = arrange(shape(['X', 'Y', 'Z'], []), { perRow: 2 }).pos
     expect(pos.get('X')!.y).toBe(pos.get('Y')!.y)
     expect(pos.get('Z')!.y).toBeGreaterThan(pos.get('X')!.y)
   })
 
   it('puts boxes with no lines below the linked ones and wraps only those', () => {
-    const pos = layout(
+    const pos = arrange(
       shape(['P', 'a', 'b', 'X', 'Y', 'Z'], [['P', 'a'], ['P', 'b']]),
       { perRow: 2 },
-    )
+    ).pos
     for (const id of ['X', 'Y', 'Z']) expect(pos.get(id)!.y).toBeGreaterThan(pos.get('a')!.y)
     expect(pos.get('X')!.y).toBe(pos.get('Y')!.y)
     expect(pos.get('Z')!.y).toBeGreaterThan(pos.get('X')!.y)
@@ -473,7 +472,6 @@ describe('layout', () => {
         for (const nodeWidth of [NODE_W, 153, 153.3]) {
           const a = arrange(s, { perRow, nodeWidth })
           expect([...a.pos.entries()]).toEqual(before(s, perRow, nodeWidth))
-          expect([...layout(s, { perRow, nodeWidth }).entries()]).toEqual(before(s, perRow, nodeWidth))
           expect(a.routes.every((r) => r.via.length === 0)).toBe(true)
         }
       }
@@ -506,14 +504,14 @@ describe('layout', () => {
   })
 
   it('terminates on a cycle instead of recursing forever', () => {
-    const pos = layout(shape(['A', 'B'], [['A', 'B'], ['B', 'A']]))
+    const pos = arrange(shape(['A', 'B'], [['A', 'B'], ['B', 'A']])).pos
     expect(pos.size).toBe(2)
     expect([...pos.values()].every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true)
   })
 
   it('is deterministic — the same design lays out identically', () => {
     const s = shape(['A', 'B', 'C'], [['A', 'B'], ['A', 'C']])
-    expect([...layout(s).entries()]).toEqual([...layout(s).entries()])
+    expect([...arrange(s).pos.entries()]).toEqual([...arrange(s).pos.entries()])
     for (const t of [triangle, pastSiblings, nested]) {
       const a = arrange(t)
       const b = arrange(t)
@@ -676,7 +674,7 @@ describe('edgeLabels', () => {
       ['値段の記録', '食材名', '食材名'],
       ['値段の記録', '店名', '店名'],
     ])
-    expect(edgeLabels(s, layout(s, { nodeWidth: 112 }), { nodeWidth: 112 }).map((l) => l?.at)).toEqual([
+    expect(edgeLabels(s, arrange(s, { nodeWidth: 112 }).pos, { nodeWidth: 112 }).map((l) => l?.at)).toEqual([
       0.5, 0.5,
     ])
   })
@@ -710,7 +708,7 @@ describe('edgeLabels', () => {
       ['P', 'b', '値段を調べたお店の名前'],
     ])
     for (const nodeWidth of [132, 176]) {
-      const pos = layout(s, { nodeWidth })
+      const pos = arrange(s, { nodeWidth }).pos
       const ls = edgeLabels(s, pos, { nodeWidth })
       edgeEnds(s, pos, { nodeWidth }).forEach((end, i) => {
         const rect = labelRect(end!.from, end!.to, ls[i]!)
@@ -802,7 +800,7 @@ describe('edgeLabels', () => {
 
   it('puts the name in the middle of a chain', () => {
     const s = named(['A', 'B', 'C'], [['A', 'B'], ['B', 'C']])
-    const ls = edgeLabels(s, layout(s))
+    const ls = edgeLabels(s, arrange(s).pos)
     expect(ls.map((l) => l?.at)).toEqual([0.5, 0.5])
   })
 
@@ -816,7 +814,7 @@ describe('edgeLabels', () => {
         { from: 'A', to: 'D', label: 'same' },
       ],
     }
-    const ls = edgeLabels(s, layout(s))
+    const ls = edgeLabels(s, arrange(s).pos)
     expect(ls[0]).toBeUndefined()
     expect(ls[1]).toBeUndefined()
     expect(ls[2]?.text).toBe('same')
@@ -832,7 +830,7 @@ describe('edgeLabels', () => {
       kids.map((k) => ['P', k, `かなり長い線の名前その${k}`] as [string, string, string]),
     )
     for (const nodeWidth of [132, 176]) {
-      const pos = layout(s, { nodeWidth })
+      const pos = arrange(s, { nodeWidth }).pos
       const t0 = performance.now()
       const a = edgeLabels(s, pos, { nodeWidth })
       expect(performance.now() - t0).toBeLessThan(500)
