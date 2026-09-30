@@ -343,3 +343,52 @@ def test_the_same_source_link_has_no_label_without_a_display_name() -> None:
     links = [p for p in out["maps"][0]["properties"] if p.get("object_template")]
     assert len(links) == 1
     assert "label" not in links[0]
+
+
+def _nested_id_ir(parent_label: str | None) -> dict:
+    """子の ID が親の鍵を丸ごと含む（ID の入れ子）2 つの種類。"""
+    parent_subject: dict = {"template": "xr:parent/{p}", "classes": ["xr:Parent"]}
+    if parent_label is not None:
+        parent_subject["label"] = parent_label
+    return {
+        "version": 1,
+        "prefixes": {"xr": "http://x/ontology#"},
+        "maps": [
+            {
+                "name": "child",
+                "source": "c.csv",
+                "subject": {"template": "xr:child/{p}/{c}", "classes": ["xr:Child"]},
+                "properties": [{"predicate": "xr:n", "column": "n"}],
+            },
+            {
+                "name": "parent",
+                "source": "c.csv",
+                "subject": parent_subject,
+                "properties": [],
+            },
+        ],
+    }
+
+
+def test_the_nested_id_link_carries_the_parents_display_name() -> None:
+    from asterism_step0.staged_propose import ensure_same_source_links
+
+    out, added = ensure_same_source_links(_nested_id_ir("親の名前"), ontology_prefix="xr")
+    assert added
+    links = [
+        p for p in out["maps"][0]["properties"] if p.get("predicate") == "dcterms:isPartOf"
+    ]
+    assert len(links) == 1
+    assert links[0]["label"] == "親の名前"
+
+
+def test_the_nested_id_link_has_no_label_without_a_display_name() -> None:
+    from asterism_step0.staged_propose import ensure_same_source_links
+
+    out, added = ensure_same_source_links(_nested_id_ir(None), ontology_prefix="xr")
+    assert added
+    links = [
+        p for p in out["maps"][0]["properties"] if p.get("predicate") == "dcterms:isPartOf"
+    ]
+    assert len(links) == 1
+    assert "label" not in links[0]
