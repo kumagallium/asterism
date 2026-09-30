@@ -1168,6 +1168,15 @@ async def live_graph_of(client: SupportsSparql, dataset_key: str) -> str | None:
     return await _control_iri_object(client, dataset_key, LIVE_GRAPH_PREDICATE)
 
 
+async def staged_graph_of(client: SupportsSparql, dataset_key: str) -> str | None:
+    """The dataset's ingested-but-not-yet-promoted version graph, or None if unset.
+
+    Read-only sibling of :func:`live_graph_of`. A set pointer means a (re-)ingest is
+    waiting at the promote gate.
+    """
+    return await _control_iri_object(client, dataset_key, STAGED_GRAPH_PREDICATE)
+
+
 async def set_staged_graph(
     client: SupportsSparql, dataset_key: str, staged_iri: str
 ) -> str | None:

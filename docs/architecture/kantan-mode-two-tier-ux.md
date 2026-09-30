@@ -1621,7 +1621,7 @@ registry を読んで 1 回だけ登録されるように）。
   | description | mie.yaml・metadata.ttl | 2 つとも触っていないときだけ | meta graph の再投影 |
   | tools | query_tools.yaml | ファイルが配った版のバイトならバイトで。触っていればツール名ごとに合流 | なし |
   | name | meta の `name` | 台帳のどれかの名前のままのときだけ | なし |
-  | data | canonical.ttl・source/* | **この版では入れ替えない**（検知だけ） | — |
+  | data | canonical.ttl・source/* | データが変わる版だけ、**design・tools と 1 つの群として**（下の「データが変わる版」） | live の graph・meta の版・ontology・ハブ |
 
 - **「触っていない」の判定**: ファイルは sha256 が台帳の全エントリのそのパスの値のどれか（か同梱）と
   一致。名前・ツールも同じ。`history/` の有無は使わない（ライセンス保存でも作られ、設計は変わらない）。
@@ -1630,11 +1630,16 @@ registry を読んで 1 回だけ登録されるように）。
   `imported.canonical_sha256` が台帳のどれかと一致（利用者が自分で作った同じ id を取り違えない）・
   公開済み・取り下げでない。どれかが外れたら何もしない（印も書かない）。
 - **保留**（単位を入れ替えずに、理由コードを meta の印に残す。画面には出さない）:
-  `edited`（触られたファイル・名前・ツール。ツールは名前ごと）／`data`（同梱のデータが環境と違う。
-  design と tools を保留し、description・name は進める）／`ids_move`・`ids_unknown`（同梱の設計から
+  `edited`（触られたファイル・名前・ツール。ツールは名前ごと）／データが変わる版の群の保留
+  （`edited`・`appended`・`reingested`・`unsettled`・`decisions`・`ids_move`・`ids_unknown`。
+  design・data・tools を同じ理由で保留し、description・name は進める。`data` は群の判定に必要な
+  環境の事実が読めなかったときの総称）／`ids_move`・`ids_unknown`（同梱の設計から
   作る「公開時の ID の作り方」が `published_subjects` と違う・記録が無い＝ fail-closed）／
-  `decisions`（display-meta.json・column-decisions.json・column-meanings.json・handles.json がある）。
-- **印**（meta.json の新欄 `sample`: `seq`・`revision`・`applied_at`・`tools_seq`・`units`・`held`）。
+  `decisions`（display-meta.json・column-decisions.json・column-meanings.json・handles.json・
+  reshape.json がある。reshape.json は利用者が表の形を整えた印）。
+- **印**（meta.json の新欄 `sample`: `seq`・`revision`・`applied_at`・`tools_seq`・`units`・`held`。
+  データを入れ替えた環境はさらに `data`＝`{live_graph}`（利用者が取り込み直していないことの期待値。
+  次の版の印にも引き継ぐ）と `pending`＝済んでいない派生の名前）。
   `tools_seq` は、ツールの合流をやり終えた版（下の「ツールの合流」）。`units` には
   「同梱と同じ状態まで届いた単位」だけを入れる（投影が例外か 0 件の単位は入れない。説明が空の
   同梱では、説明 graph の DROP が成功したときだけ description を入れる）。印の無い環境
@@ -1649,8 +1654,8 @@ registry を読んで 1 回だけ登録されるように）。
   ストアの再投影 → **最後に** meta を 1 回だけ書く。投影が例外か 0 件なら、その単位は印に入れない
   （次の起動でやり直す）。途中で落ちても、ファイルは「配ったどれかの版」なので次の起動で収束する。
   `update_meta_atomic` は `_update_meta` の中身になり、`_update_meta` を通る書き手は原子的になった
-  （`update_dataset_artifacts`・`reserve_data_seq`・`mark_ingested` など meta.json へ直に書く書き手は
-  まだ残る）。書きかけの一時ファイル（`.<名前>.<uuid>.tmp`）が強制終了で残っても、スナップショットには
+  （`update_dataset_artifacts`・`mark_ingested` など meta.json へ直に書く書き手はまだ残る。
+  `reserve_data_seq` は PR2 で原子的にした）。書きかけの一時ファイル（`.<名前>.<uuid>.tmp`）が強制終了で残っても、スナップショットには
   入れない（`registry.is_atomic_tmp_name`）。
   説明（description）も設計と同じ規則で、印が「この版の説明まで届いた」と言っていなければ、ファイルが
   同じでも meta graph を投影し直す（前の起動の投影の失敗・置き換えと印の間で落ちた、を収束させる）。
@@ -1660,11 +1665,6 @@ registry を読んで 1 回だけ登録されるように）。
   仕組みより前の版＝ seq 3 以下）に名前があれば利用者が消したので足さない、無ければ足す。ツール単位が
   保留（ファイルが読めない・data 保留）の間は `seq` だけ進み `tools_seq` は進めない（その間に同梱へ
   入った新しいツールを、次の起動で「消した」と取り違えないため）。環境にあって同梱に無いものは残す。
-- **データが変わる版の歯止め**: データ単位は入れ替えないので、テストで台帳の全エントリの
-  `canonical_sha256`・`mapping.rml.ttl`・`source/*` の sha が同じであることを固定した。違えば
-  「データが変わる版は既存の環境に届きません。ADR kantan K62 の『データが変わる版』を読み、
-  データの入れ替えを先に作ってください」と落ちる。
-
 **採らなかった案**:
 
 - **削除 → 再取り込み**。`import_snapshot` は既存 id で 409 になり、削除は公開済みだと引用を壊し、
@@ -1682,12 +1682,59 @@ registry を読んで 1 回だけ登録されるように）。
 - **`history/` での「触っていない」判定**。見本ではライセンス保存でも作られ、設計は変わらない。
   ファイルの sha を台帳と比べる方が、触ったかどうかを直接言える。
 
-**データが変わる版の道筋（別の作業）**: データ単位（canonical.ttl・source）を入れ替える版は、
-新しい version graph を作り、`liveGraph` と `meta.live_graph` を同時に切り替える（次の起動の
-`mark_graph_promoted` に巻き戻されず、孤児の掃除にも消されないように）作業になる。`append` 済み・
-`source` が同梱と違う環境は自動では入れ替えず、利用者に確認する。行の ID が動く版は
-`plan_id_move` で先に判定し、台帳（`graph/moved`）付きの通常の取り込みに乗せる。それまでは、
-データが変わる版は上のテストが止める。
+**データが変わる版**（PR2・契約メモ `contract_sample_refresh_pr2_data.md`）: 同梱の
+`canonical_sha256` が環境の `meta.imported.canonical_sha256` と違う版も、利用者がデータに手を加えて
+いない環境には自動で届ける。引用の住所（行の IRI）が動く版は自動では入れない。
+
+- **単位のまとめ方**: このときだけ **design・data・tools を 1 つの群**として、全部入れるか全部保留にする
+  （RML は design、データは data にあるので、片方だけ進むと設計とデータが食い違う）。description・name は
+  今までどおり独立。データが同じ版は PR1 の動きのまま（data 単位は何もしない）。
+- **群を入れてよい条件（全部）**: design の 4 ファイルを触っていない・decisions のファイルが無い・
+  source/* の各ファイルの sha が台帳のどれかか同梱と一致し、同梱に無い source が環境に無い（同梱の最新の版で
+  初めて入る source が環境に無いのは触った印ではない）・追記の印が無い（meta の `feed`・`append_seq`・
+  `appends`・`triples_appended`・`last_appended_at`・`source/.applied_batches/`）・再取り込みの印が無い
+  （`ingested`・`graph_iri`・control の stagedGraph・`meta.live_graph` が期待値＝印の `data.live_graph`、
+  無ければ `v1` と一致）・control の liveGraph が `meta.live_graph` と一致・「ID の作り方」が同じ。
+  外れたものは理由コードで全部並べて、design・data・tools を同じ理由で保留する。
+- **入れ替えの手順（順を変えない。`refresh` は lifespan より前に走る）**:
+  1. 番号を取る（`reserve_data_seq`。ストアの `canonical/{id}/v*`・pendingDrop・`meta.live_graph` の
+     どの番号よりも大きくなるまで取り直す）。2. 同梱の canonical を（import と同じ rebase の規則で）
+     新しい graph に載せ、件数を `manifest.canonical_triples` と突き合わせる（違えばその graph を消して
+     中止）。3. 設計・source・ツールを置き換える。4. **meta を 1 回だけ原子的に書く**（`live_graph`・
+     `data_seq`・件数・`imported.canonical_sha256`・`source_files` など・`version`＋1・`versions` に 1 件・
+     `promoted_at`・印の `data` と `pending`）。5. `promote_to_canonical`（liveGraph を新へ・staged を
+     消す・旧を pendingDrop）。6. 派生（ontology の再投影・description・つながりのハブ・
+     `ASTERISM_TOGOMCP_DIR` があれば配信）。7. `pending` を空にして印を仕上げる。
+  meta（4）は control（5）より前。逆にすると、5 の後・4 の前で落ちたとき、次に refresh が走らない環境では
+  lifespan が control を meta（旧）へ巻き戻し、旧は既に pendingDrop なので sweeper が消し、新は孤児になって
+  両方を失う。4→5 の順なら、5 の前で落ちても lifespan が control を新へ寄せ、旧が孤児として回収される。
+- **途中で落ちたとき（次の起動で収束）**: refresh は判定より前に回復する。印に `pending` があればその派生
+  だけやり直す。`meta.live_graph` が印の `data.live_graph` と同じで control が違う（4 の後・5 の前）なら
+  `promote_to_canonical` を完了させる。2 の途中・2 と 3 の間の新しい graph は無参照で、lifespan の
+  reconcile が回収し、次は新しい番号で最初から。3 の途中はファイルが「配ったどれかの版」なので最初から
+  （置き換えの一時ファイルは「触った」に数えない）。テストは各位置（2 の途中・2 と 3 の間・3 の途中・
+  4 と 5 の間・5 と 6 の間・6 の途中）でプロセスの死（`BaseException`）を注入し、次の refresh と
+  lifespan で同じ最終状態に収束し、公開中のデータが一度も消えないことを固定した。
+- **版の表示**: 入れ替えたら `meta.version` を 1 つ進めて `versions` に 1 件足す（見本のページの「版 v○」と、
+  カードの詳細の版＝graph 名の末尾が食い違わない）。`published_subjects`・`alignment` は触らない。
+- **やらないこと**: 行の IRI が動く版（`ids_move`）の自動の入れ替え（引っ越し台帳を書く経路は通常の取り込み
+  にしか無い。保留して PR3 の画面で知らせる）。追記・取り込み直しをした環境のデータの入れ替え（利用者の
+  データを失う）。
+
+**データが変わる版で採らなかった案**:
+
+- **`set_staged_graph` で新しい graph を載せる**。`mark_graph_promoted` は stagedGraph を消さないので、
+  lifespan が live を新へ寄せても staged が同じ graph を指したまま残り、次の取り込みが staged を
+  上書きしたとき、公開中の graph を pendingDrop に積んで sweeper が消してしまう。新しい graph は
+  `promote_to_canonical` まで無参照にし、staged と live が同じ graph を指す状態を作らない。
+- **control を先に切り替え、meta を後で書く**。上の順序の理由のとおり、5 の後・4 の前で落ちると
+  新旧の両方を失う。
+- **`mark_promoted` で meta を書く**。`published_subjects`・`alignment` の上書き、取り下げの黙った解除、
+  非原子の書き込みが付いてくる。`update_meta_atomic` で欄を選んで書く。
+- **削除して取り込み直す**。公開済みの引用を壊し、利用者が付けた名前・ツール・ハブ参加を失う（PR1 と同じ）。
+- **番号を `data_seq` だけから決める・「触った」の判定に `data_seq` を使う**。`reserve_data_seq` は
+  呼んだ時点で `data_seq` を書くので、落ちた試行を「触った」と取り違える。判定は内容とポインタで行い、
+  番号は再利用しない（pendingDrop の印は再起動をまたいで残り、掃除は参照を見ずに消すため）。
 
 **画面の知らせ（別の作業）**: 入れ替えたこと・保留した単位を利用者に知らせる文言（`note` と保留の
 理由コードを訳す）、手動の置き換え、アクティビティ（jobs）への記録は、この決定に入れていない。

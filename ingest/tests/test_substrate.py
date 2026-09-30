@@ -1020,6 +1020,30 @@ async def test_set_staged_graph_orphans_superseded_staged() -> None:
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_staged_graph_of_reads_the_pointer_without_writing() -> None:
+    # staged_graph_of は live_graph_of の読み専用の対。stagedGraph だけを引き、liveGraph とは
+    # 混ざらない。promote が staged を消したあとは None に戻る。
+    from asterism.substrate import (
+        live_graph_of,
+        promote_to_canonical,
+        set_staged_graph,
+        staged_graph_of,
+    )
+
+    ds = rdflib.Dataset()
+    key = canonical_graph_iri("ds1")
+    v1 = versioned_graph_iri("ds1", 1)
+    client = _RWClient(ds)
+    assert await staged_graph_of(client, key) is None
+    await set_staged_graph(client, key, v1)
+    assert await staged_graph_of(client, key) == v1
+    assert await live_graph_of(client, key) is None
+    await promote_to_canonical(client, key, v1)
+    assert await staged_graph_of(client, key) is None
+    assert await live_graph_of(client, key) == v1
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_all_version_graphs_scoped_and_global() -> None:
     # ④/②: version-graph enumeration matches only …/v{n} (never the per-dataset key
     # graph or the legacy graph), and the dataset-scoped form returns just that

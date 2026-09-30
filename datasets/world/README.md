@@ -182,9 +182,16 @@ the edge from the embedded "日本" subject to that activity).
    | description | `mie.yaml`・`metadata.ttl` | 2 つとも触っていないときだけ |
    | tools | `query_tools.yaml` | 触っていなければバイトで。触っていればツール名ごとに合流 |
    | name | データセット名 | 台帳のどれかの名前のままのときだけ |
-   | data | `graphs/canonical.ttl`・`source/*` | **いまは入れ替えない** |
+   | data | `graphs/canonical.ttl`・`source/*` | データが変わる版だけ、design・tools と**群で**（下の 5） |
 
-5. **データが変わる版は、いまは既存の環境に届かない。** canonical.ttl・`mapping.rml.ttl`・
-   `source/*` を変える版は、台帳の全エントリでデータが同じことを見張るテスト
-   （`api/tests/test_demo_sample.py::test_data_changing_release_is_stopped_here`）が止める。
-   ADR kantan K62 の「データが変わる版」を読み、データの入れ替えを先に作ること。
+5. **データが変わる版も、データに手を加えていない環境には届く。** canonical.ttl・
+   `mapping.rml.ttl`・`source/*` を変える版は、design・data・tools を **1 つの群として、全部入れるか
+   全部保留にする**（RML は design、データは data にあり、片方だけ進むと設計とデータが食い違うため）。
+   届く条件は全部: 設計の 4 ファイル・source を触っていない／`reshape.json` などの判断の記録が無い／
+   追記していない／取り込み直していない／control と meta の指し先が食い違っていない／行の IRI の
+   作り方（`published_subjects`）が同じ。**外れたら群ごと保留**し（理由は meta の `sample.held`。
+   `edited`・`appended`・`reingested`・`unsettled`・`decisions`・`ids_move`・`ids_unknown`）、
+   ストアもファイルも変えない。行の IRI が動く版は自動では入らない（通常の取り込みに乗せる）。
+   新しい graph の件数は `manifest.canonical_triples` と突き合わせるので、データを変えたら
+   `build_world_demo.py` を回して manifest ごと作り直すこと。手順と失敗時の収束は ADR kantan K62 の
+   「データが変わる版」。
