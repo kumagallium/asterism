@@ -209,6 +209,12 @@ def _fallback_label(iri: str) -> str:
     return _humanize(local) or local
 
 
+def _value_fallback(iri: str) -> str:
+    """名前の無い IRI の値: その 1 件のページの見出しと同じローカル名（データの値を
+    崩さない）。末尾が ``/``・``#`` の IRI は、それを落としてから最後の区切りの後ろ。"""
+    return _local_name(iri.rstrip("/#") or iri)
+
+
 def _as_number(value: str | None) -> float | str | None:
     """Best-effort numeric coercion (mirrors ``query_tools._shape_row``): a
     value that parses as a float becomes one, otherwise it is left as the
@@ -509,6 +515,8 @@ async def subject_facts(
         )
         property_labels.update({p: name for p, name in designed.items() if p in label_targets})
         unnamed -= set(designed)
+    # 種類の行の項目名は UI が決める（値の種類の名前で上書きしない）
+    unnamed.discard(_RDF_TYPE)
     # どこにも名前の無い述語（つながりのハブへの述語など）は、値（つなぐ先）の
     # 種類の名前で読む — 設計のつなぐ行と同じ規則。値の種類の名前が割れるときは付けない。
     if unnamed:
@@ -516,7 +524,7 @@ async def subject_facts(
             await _kind_names_of_values(client, graphs, registry_root, rows, unnamed)
         )
     # 値の名前が無ければ、その 1 件のページの見出しと同じローカル名（データの値を崩さない）
-    value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_local_name)
+    value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_value_fallback)
     # 種類（rdf:type の値）の表示名は、データの graph には無い — 種類の名前の
     # 読み順（model.yaml → オントロジーの rdfs:label → …）で引く。引かないと、
     # 機械が作った公開用の名前（符号つき）を崩した語がそのまま出る。

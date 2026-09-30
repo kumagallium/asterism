@@ -20,6 +20,7 @@ from asterism.subject_tools import (
     SubjectKindMismatchError,
     SubjectToolError,
     UnknownSubjectToolError,
+    _value_fallback,
     card_id_of,
     default_cards_for_set,
     default_cards_for_subject,
@@ -1766,3 +1767,17 @@ async def test_a_value_without_a_kind_keeps_the_humanized_name(tmp_path: Path) -
     rows = await _trip_rows(tmp_path)
     names = {r["property"] for r in rows if r["property_iri"] == EX_TRIP + "reached"}
     assert names == {"reached"}
+
+
+async def test_kind_row_is_not_renamed_after_the_kind_of_its_value(tmp_path: Path) -> None:
+    # 種類そのものが名前のある別の種類の型を持っても、種類の行は上書きしない
+    _write_trip_registry(tmp_path)
+    ttl = _TRIP_TTL + f"<{EX_TRIP}Trip> a <{EX_TRIP}Stop> .\n"
+    out = await subject_facts(_pyoxi_client({TRIP_GRAPH: ttl}), TRIP_1, registry_root=tmp_path)
+    names = {r["property"] for r in out["items"] if r["property_iri"].endswith("#type")}
+    assert names == {"type"}
+
+
+def test_value_fallback_keeps_the_local_name_and_never_the_raw_iri() -> None:
+    assert _value_fallback("https://ex/trip/resource/card/C-0012") == "C-0012"
+    assert _value_fallback("https://ex/trip/resource/") == "resource"
