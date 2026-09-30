@@ -85,7 +85,18 @@
     "source": "最初に置いたファイル",
     "batch": "あとから足した分（{{seq}} 回目）",
     "none": "まだ取り込んだファイルの記録がありません。下の操作から取り込めます。",
-    "statusSavedOnly": "保存済み・未取り込み"
+    "statusSavedOnly": "保存済み・未取り込み",
+    "reshapeTitle": "表の形をととのえた記録",
+    "reshapeKind": {
+      "explode": "バラバラの値をそろえた表",
+      "pivot": "値の種類ごとに分けた表",
+      "flatten": "入れ子になった値を表にした"
+    },
+    "reshapeRowsSuffix": "行",
+    "reshapeLongTable": "項目ごとの細長い表",
+    "reshapeWideTable": "項目を列にした表",
+    "reshapeStale": "古い設定になっている項目が {{count}} 件あります（元のファイルの列が変わった可能性があります）。",
+    "reshapeRawSummary": "表の形の設定（技術情報）"
   },
   "connect": {
     "head": "このデータセットのつながり",
