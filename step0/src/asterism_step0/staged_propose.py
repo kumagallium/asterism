@@ -395,6 +395,27 @@ def has_predicate_local(catalog_name: str) -> str:
     return "has" + ("".join(w[:1].upper() + w[1:] for w in parts) or "Value")
 
 
+def shared_kind_lead(catalog_name: str, maps: Sequence[Mapping[str, Any]]) -> str:
+    """同じ種類を共有する受け口（K63: 別々のファイルの受け口が同じ subject template
+    を持つ）の**先頭**の map 名。共有していなければ自分の名前。
+
+    受け口へのリンクの述語（``has<Pascal>``）はこの名前から作る。map 名から作ると、
+    同じ種類への辺が ``hasComposition`` と ``hasComposition2`` に割れ、map 名の
+    連番が公開される語彙に漏れる。共有していない受け口は今までどおり自分の名前
+    （公開済みの述語の名前を変えない）。
+    """
+    me = next((m for m in maps if str(m.get("name")) == catalog_name), None)
+    subject = (me or {}).get("subject")
+    template = str(subject.get("template") or "") if isinstance(subject, Mapping) else ""
+    if not template:
+        return catalog_name
+    for m in maps:
+        other = m.get("subject")
+        if isinstance(other, Mapping) and str(other.get("template") or "") == template:
+            return str(m.get("name") or catalog_name)
+    return catalog_name
+
+
 def catalog_link_row(
     catalog_name: str,
     subject_template: str,
@@ -3793,9 +3814,12 @@ def _generate_map_properties_gated(
             home = (catalog_homes or {}).get(str(owner))
             if home and home != map_name:
                 continue  # 元の種類が別にある — 辺はそちらが持つ（K58）
+            # 同じ種類を共有する受け口（K63）は先頭の名前で述語をそろえる。
+            # owner_subjects は骨格の順なので、同じテンプレートの最初が先頭。
+            lead = next((n for n, tpl in owner_subjects.items() if tpl == subject), str(owner))
             rows.append(
                 catalog_link_row(
-                    str(owner),
+                    lead,
                     subject,
                     ontology_prefix=ontology_prefix or "",
                     label=(owner_labels or {}).get(str(owner)),
@@ -3926,15 +3950,17 @@ def catalog_links_from_home(
         template = str(subject.get("template") or "")
         if len(_template_placeholders(template)) != 1:
             continue  # 受け口は「その値そのものが ID」— それ以外は辺が自明でない
+        lead = shared_kind_lead(cat, maps)
         out.append(
             catalog_link_row(
-                cat,
+                lead,
                 template,
                 ontology_prefix=ontology_prefix,
                 label=str(subject.get("label") or ""),
                 # 述語は K49 の修理と同じ has<Pascal>（かんたん経路で今まで公開されて
                 # きた名前）。受け口自身の値の述語（列名の lowerCamel）と重ねない。
-                predicate_local=has_predicate_local(cat),
+                # 同じ種類を共有する受け口は、先頭の名前で 1 つの述語にそろえる（K63）。
+                predicate_local=has_predicate_local(lead),
             )
         )
     return out

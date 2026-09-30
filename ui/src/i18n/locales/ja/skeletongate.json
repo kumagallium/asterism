@@ -154,5 +154,12 @@
   "idLineProvisional": "ID: {{keys}}（仮・機械の推定）",
   "backToLinks": "← ④に戻って ☑ を変える",
   "sourceRowsNote": "（元ファイル {{rows}} 行）",
-  "fixRethink": "AI にもう一度考えさせる"
+  "fixRethink": "AI にもう一度考えさせる",
+  "sharedKind": {
+    "fileLine": "{{count}} つのファイルに出てくる",
+    "note": "「{{name}}」は {{count}} つのファイルで同じ意味なので、同じ種類にまとめました。同じ値はファイルをまたいで 1 件になります。",
+    "evidence": "両方に出てくる値が {{count}} 件あります。",
+    "noEvidence": "ただし、両方に出てくる値はまだありません。違うものなら、別々の種類にしてください。",
+    "separate": "別々の種類にする"
+  }
 }

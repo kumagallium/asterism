@@ -321,6 +321,11 @@ export interface SkeletonMapAnnotation {
    *  組み立てが辺を書くのと同じ規則（`skeleton_annotate.catalog_homes`）で、
    *  ファイルごとに決まる。⑤の図の点線の出どころ。 */
   catalog_home?: string
+  /** K63: 別々のファイルの受け口が**同じ種類**（ID の頭と種類名が同じ）を共有して
+   *  いるとき。`members` は同じ種類の受け口（骨格の順）、`distinct_ids` はまとまった
+   *  あとの件数、`shared_values` は 2 つ以上のファイルに出てくる値の数。値の読めない
+   *  ファイルがあると件数は付かない。 */
+  shared_kind?: { members: string[]; distinct_ids?: number; shared_values?: number }
   /** Citation-consequence risks of this ID recipe (machine-readable kinds,
    *  copy lives in the UI): `measurement-id` — a corrected value mints a new
    *  ID and strands citations of the old one; `scope-missing` — unique in
