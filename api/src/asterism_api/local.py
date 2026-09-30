@@ -755,7 +755,8 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
             exc_info=True,
         )
     try:
-        written = await _project_meta_graph(client, dataset_id, artifacts)
+        # 失敗を 0 件に丸めさせない（説明が空のとき、DROP の失敗を「届いた」と書かないため）。
+        written = await _project_meta_graph(client, dataset_id, artifacts, raise_on_failure=True)
         # 説明が空なら 0 件が正しい答え（投影は空の graph の DROP になる）。
         description_ok = bool(written) or not (artifacts.get("metadata.ttl") or "").strip()
     except Exception:

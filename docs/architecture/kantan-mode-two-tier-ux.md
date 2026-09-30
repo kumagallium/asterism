@@ -1563,10 +1563,13 @@ registry を読んで 1 回だけ登録されるように）。
   design と tools を保留し、description・name は進める）／`ids_move`・`ids_unknown`（同梱の設計から
   作る「公開時の ID の作り方」が `published_subjects` と違う・記録が無い＝ fail-closed）／
   `decisions`（display-meta.json・column-decisions.json・column-meanings.json・handles.json がある）。
-- **印**（meta.json の新欄 `sample`: `seq`・`revision`・`applied_at`・`units`・`held`）。`units` には
-  「同梱と同じ状態まで届いた単位」だけを入れる。印の無い環境（v0.46.0〜v0.47.1 の全部）は、
-  ファイルが同梱と同じでも、design の派生（classes の再計算・ontology の再投影）を 1 回だけ行って
-  印を書く（`units.design` が同梱の design revision と違う＝派生をやり直す、という 1 つの規則）。
+- **印**（meta.json の新欄 `sample`: `seq`・`revision`・`applied_at`・`tools_seq`・`units`・`held`）。
+  `tools_seq` は、ツールの合流をやり終えた版（下の「ツールの合流」）。`units` には
+  「同梱と同じ状態まで届いた単位」だけを入れる（投影が例外か 0 件の単位は入れない。説明が空の
+  同梱では、説明 graph の DROP が成功したときだけ description を入れる）。印の無い環境
+  （v0.46.0〜v0.47.1 の全部）は、ファイルが同梱と同じでも、design の派生（classes の再計算・
+  ontology の再投影）と description の再投影を 1 回だけ行って印を書く（`units.design`・
+  `units.description` が同梱の revision と違う＝派生をやり直す、という 1 つの規則）。
   印の `seq` が台帳の最新より大きい（アプリを古い版に戻した）ときは何もしない。印が最新で
   `held` が空・全単位が届いていれば書き込みゼロ。種まきも、取り込み・公開・投影が済んだ後に同じ計算で
   印を書く。

@@ -816,10 +816,15 @@ async def _refresh(cfg: Any, client: Any, snapshot_path: Path | None) -> None:
         if plan.reproject_description:
             blank = not (artifacts.get("metadata.ttl") or "").strip()
             try:
-                written = await _project_meta_graph(client, bundled.dataset_id, artifacts)
+                # 失敗を 0 件に丸めさせない: 説明が空のとき 0 件は「DROP が成功した」印にも
+                # なるので、失敗（例外）と区別できるようにする。
+                written = await _project_meta_graph(
+                    client, bundled.dataset_id, artifacts, raise_on_failure=True
+                )
             except Exception:
                 logger.warning("refresh_bundled_sample: meta projection failed", exc_info=True)
                 written = 0
+                blank = False
             # 説明が空なら 0 件が正しい答え（投影は空の graph の DROP になる）。
             if written or blank:
                 reached.add(UNIT_DESCRIPTION)

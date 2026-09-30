@@ -703,7 +703,9 @@ class _Projections:
                 raise self.onto_result
             return int(self.onto_result)
 
-        async def meta_fn(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+        async def meta_fn(
+            client: Any, dataset_id: str, artifacts: dict[str, str], **_kw: Any
+        ) -> int:
             self.meta_calls.append(artifacts)
             if isinstance(self.meta_result, Exception):
                 raise self.meta_result
@@ -1186,6 +1188,58 @@ def test_refresh_still_held_is_logged_every_time(
     )
 
 
+def test_refresh_known_tool_file_advances_the_received_version(tmp_path: Path) -> None:
+    """環境のツールファイルが配った版そのもの（既知の sha）のときも、受け取った版を今回の
+    seq まで進める（進めないと、その版で入った新ツールを利用者が後で消したとき、次の版で
+    「消していない」と取り違えて足し直す）。"""
+    added = _custom_tool("brand_new_tool")
+    newer = _make_bundle(
+        {"registry/query_tools.yaml": demo_sample.dump_tools([*_real_tools(), added])}
+    )
+    assert newer.seq == 4
+    plan = _tools_plan(_real_members()["registry/query_tools.yaml"], newer)
+    assert plan.replace["query_tools.yaml"] == newer.members["registry/query_tools.yaml"]
+    assert "tools" in plan.reached
+    assert plan.tools_seq == 4
+
+
+def test_refresh_unchanged_result_does_not_rewrite_meta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """投影が 0 件を返し続ける環境で、2 回目の起動は meta.json を書かない
+    （classes などの変わらない値だけで書き直さない）。"""
+    _Projections(monkeypatch, onto=0)
+    dest = _write_env(tmp_path, a_design=False)
+    _refresh(_cfg(tmp_path))
+    assert "design" not in _read_meta(dest)["sample"]["units"]  # 0 件は届いた扱いにしない
+    meta_bytes = (dest / "meta.json").read_bytes()
+    mtime = (dest / "meta.json").stat().st_mtime_ns
+    _refresh(_cfg(tmp_path))
+    assert (dest / "meta.json").read_bytes() == meta_bytes
+    assert (dest / "meta.json").stat().st_mtime_ns == mtime
+
+
+def test_atomic_writers_fsync_before_the_swap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一時ファイルへ書いたあと、置き換えの前に fsync する（電源断で空のファイルに
+    ならないように）。"""
+    root = tmp_path / "registry"
+    (root / "ds").mkdir(parents=True)
+    (root / "ds" / "meta.json").write_text(json.dumps({"id": "ds"}), encoding="utf-8")
+    events: list[str] = []
+    real_fsync, real_replace = registry.os.fsync, registry.os.replace
+    monkeypatch.setattr(registry.os, "fsync", lambda fd: events.append("fsync") or real_fsync(fd))
+    monkeypatch.setattr(
+        registry.os, "replace", lambda a, b: events.append("replace") or real_replace(a, b)
+    )
+    registry.replace_artifact_bytes(root, "ds", {"a.txt": b"x"})
+    assert events == ["fsync", "replace"]
+    events.clear()
+    registry.update_meta_atomic(root, "ds", {"name": "n"})
+    assert events == ["fsync", "replace"]
+
+
 def test_atomic_temp_file_names_are_recognised() -> None:
     assert registry.is_atomic_tmp_name(f".meta.json.{'a' * 32}.tmp")
     assert not registry.is_atomic_tmp_name("meta.json")
@@ -1467,3 +1521,105 @@ def test_seed_without_a_readable_bundle_still_finishes(
     assert meta["promoted"] is True
     assert "sample" not in meta
     assert (home / "demo-seeded").is_file()
+
+
+# ---------------------------------------------------------------------------
+# 説明が空の同梱: meta graph の DROP が成功したときだけ「届いた」（実 rdflib のストア）
+
+
+class _MetaDropFails(_DatasetClient):
+    """説明 graph の DROP だけが失敗するストア。"""
+
+    def __init__(self, ds: rdflib.Dataset) -> None:
+        super().__init__(ds)
+        self.fail = True
+        self.meta_drops = 0
+
+    async def sparql_update(self, update: str) -> None:
+        if update.startswith("DROP") and substrate.meta_graph_iri(DATASET_ID) in update:
+            self.meta_drops += 1
+            if self.fail:
+                raise RuntimeError("store down")
+        await super().sparql_update(update)
+
+
+_STALE_DESCRIPTION = (
+    rdflib.URIRef("http://example.org/old"),
+    rdflib.URIRef("http://example.org/says"),
+    rdflib.Literal("古い説明"),
+)
+
+
+def _meta_graph_size(ds: rdflib.Dataset) -> int:
+    return len(ds.graph(rdflib.URIRef(substrate.meta_graph_iri(DATASET_ID))))
+
+
+def test_real_store_blank_description_is_reached_only_when_the_drop_succeeds(
+    tmp_path: Path,
+) -> None:
+    """実物の同梱は metadata.ttl が空。DROP が失敗したのに「説明まで届いた」と印に書くと、
+    ストアの説明が古いまま固定される。成功したら印に入り、次からは投影しない。"""
+    ds = rdflib.Dataset()
+    ds.graph(rdflib.URIRef(substrate.meta_graph_iri(DATASET_ID))).add(_STALE_DESCRIPTION)
+    client = _MetaDropFails(ds)
+    dest = _write_env(tmp_path, a_design=False)  # 印の無い環境（v0.46.0 以降）
+    cfg = _cfg(tmp_path)
+
+    asyncio.run(demo_sample.refresh_bundled_sample(cfg, client, SNAPSHOT))
+    assert "description" not in _read_meta(dest)["sample"]["units"]
+    assert _meta_graph_size(ds) == 1  # 古いまま
+
+    client.fail = False  # ストアが戻った → やり直して収束する
+    asyncio.run(demo_sample.refresh_bundled_sample(cfg, client, SNAPSHOT))
+    assert _read_meta(dest)["sample"]["units"]["description"] == _real().units["description"]
+    assert _meta_graph_size(ds) == 0
+    drops = client.meta_drops
+
+    asyncio.run(demo_sample.refresh_bundled_sample(cfg, client, SNAPSHOT))  # 速い道
+    assert client.meta_drops == drops
+
+
+def test_refresh_blank_description_reached_with_a_mocked_projection_and_not_redone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """印の無い環境: 説明が空でも投影が 0 件で成功すれば届いた → 2 回目は投影しない。"""
+    proj = _Projections(monkeypatch, meta=0)
+    dest = _write_env(tmp_path, a_design=False)
+    _refresh(_cfg(tmp_path))
+    assert "description" in _read_meta(dest)["sample"]["units"]
+    assert len(proj.meta_calls) == 1
+    _refresh(_cfg(tmp_path))
+    assert len(proj.meta_calls) == 1
+
+
+def test_seed_does_not_stamp_a_projection_that_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """種まきで投影が失敗（設計 0 件・説明の DROP 失敗）→ 印は「届いた」と書かず、
+    次の refresh がやり直す。"""
+    ds = rdflib.Dataset()
+    client = _MetaDropFails(ds)
+    cfg = _cfg(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(local, "find_world_snapshot", lambda: SNAPSHOT)
+
+    async def no_triples(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+        return 0
+
+    monkeypatch.setattr(main_mod, "_project_ontology_graph", no_triples)
+    asyncio.run(local.seed_demo_dataset(home, cfg, client))
+    dest = tmp_path / "registry" / DATASET_ID
+    units = _read_meta(dest)["sample"]["units"]
+    assert "design" not in units
+    assert "description" not in units
+    assert "tools" in units
+    assert "name" in units
+
+    # 投影が戻れば、次の refresh が 2 つとも届けて印に入れる
+    monkeypatch.undo()
+    client.fail = False
+    asyncio.run(demo_sample.refresh_bundled_sample(cfg, client, SNAPSHOT))
+    units = _read_meta(dest)["sample"]["units"]
+    assert "design" in units
+    assert "description" in units

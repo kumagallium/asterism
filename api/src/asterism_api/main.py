@@ -2522,7 +2522,11 @@ async def _project_ontology_graph(
 
 
 async def _project_meta_graph(
-    client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
+    client: OxigraphClient,
+    dataset_id: str,
+    artifacts: dict[str, str],
+    *,
+    raise_on_failure: bool = False,
 ) -> int:
     """ADR dataset-description-in-the-store.md §4: replace the dataset's
     description named graph (``meta/{id}``) with its registry ``metadata.ttl``.
@@ -2534,6 +2538,10 @@ async def _project_meta_graph(
     an absent/blank artifact OR a caught failure — the caller cannot tell
     those apart from the count alone, which is fine: both mean "nothing to
     show", and a failure is separately logged here).
+
+    ``raise_on_failure=True`` は、失敗を握りつぶさず例外で返す（既定は今まで通り 0）。
+    説明が空で 0 件が正しい答えのとき、「DROP が成功した 0」と「失敗した 0」を
+    呼び出し側が区別したい場合（見本の入れ直し・種まきの印）に使う。
     """
     turtle = artifacts.get("metadata.ttl") or ""
     try:
@@ -2553,6 +2561,8 @@ async def _project_meta_graph(
             dataset_id,
             exc_info=True,
         )
+        if raise_on_failure:
+            raise
         return 0
 
 
