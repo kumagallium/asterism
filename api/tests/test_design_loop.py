@@ -510,6 +510,56 @@ def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> No
     }
 
 
+def test_catalog_homes_follow_the_column_origin(tmp_path: Path) -> None:
+    """K53: ☑ した列のカタログは、その列を元々持っていた種類（前置きならカード、
+    表本体なら行の種類）に紐づく。"""
+    csv = tmp_path / "data.csv"
+    csv.write_text(
+        "CardNo,Category,Food,Amount,Brand\n"
+        "C1,Stew,carrot,1,A\nC1,Stew,potato,2,B\nC1,Stew,onion,1,A\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {
+                "name": "card",
+                "source": "data.csv",
+                "subject": {"template": "xr:card/{CardNo}", "classes": ["xo:Card"]},
+            },
+            {
+                "name": "record",
+                "source": "data.csv",
+                "subject": {"template": "xr:record/{CardNo}/{Food}", "classes": ["xo:Record"]},
+                "owns": ["Amount"],
+            },
+            {
+                "name": "category",
+                "source": "data.csv",
+                "subject": {"template": "xr:category/{Category}", "classes": ["xo:Category"]},
+                "owns": ["Category"],
+            },
+            {
+                "name": "brand",
+                "source": "data.csv",
+                "subject": {"template": "xr:brand/{Brand}", "classes": ["xo:Brand"]},
+                "owns": ["Brand"],
+            },
+        ],
+    }
+    ann = design_loop._gate_annotations(skeleton, [csv], {})
+    assert design_loop._catalog_homes(skeleton, ann) == {"category": "card", "brand": "record"}
+    # 読めないソースは注釈なし → 元の種類は決められない
+    missing = tmp_path / "missing.csv"
+    assert design_loop._gate_annotations(skeleton, [missing], {}) == {}
+    assert design_loop._catalog_homes(skeleton, {}) == {}
+    # 注釈を渡しても渡さなくても、持ち主の結果は同じ
+    assert design_loop._column_owners(skeleton, [csv], {}, ann) == design_loop._column_owners(
+        skeleton, [csv], {}
+    )
+
+
 def test_ir_env_check_accepts_json_backed_csv_with_tabularized_header(tmp_path: Path) -> None:
     """設計時の IR 環境検証も JSON→CSV の別名規約を知る。知らないと、決定論で
     組んだ正しい §9（source: <stem>.csv）を「存在しない」と差し戻し、LLM refine

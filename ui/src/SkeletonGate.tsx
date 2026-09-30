@@ -30,6 +30,7 @@ import {
   kindFieldValue,
   kindLabelEdit,
   kindNamesByClass,
+  pendingLinkEdges,
   sameIdKind,
   sameIdSiblings,
   slugMapName,
@@ -1950,11 +1951,21 @@ export function SkeletonGate({
     return cols.map((name) => ({ name }))
   }
   /** 「このあと機械が引く」線。①で作った種類は「その値そのものが ID」なので、
-   *  設計を組むときに表全体から必ず辺が引かれる（per-map の決定論リンク）。
-   *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
-   *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
+   *  設計を組むときに必ず辺が引かれる（決定論リンク）。骨格の図に描けるのは
+   *  ID の入れ子だけなので、そのままだと作った種類が孤立して見え、「つながらない
+   *  のでは」と読める（利用者評価 2026-08-28）。
+   *
+   *  線の出どころは、その列を**元々持っていた種類**（K53）: 前置きの列なら
+   *  カード、行ごとに変わる列なら行の種類 — `zoneFields` が項目を箱に配るのと
+   *  同じ読み。以前は全部カードから引いていて、表本体の列の受け口では⑥の
+   *  実線（行の種類から）と食い違った。 */
   const pendingEdges: [string, string][] = zone
-    ? [...new Set([...zone.columnKinds.values()].flat())].map((n) => [zone.host.name, n])
+    ? pendingLinkEdges({
+        hostName: zone.host.name,
+        rowMap: zone.rowMap,
+        varyingColumns: zone.ann.entity_preview?.varying_columns ?? [],
+        columnKinds: zone.columnKinds,
+      })
     : skeleton.maps.flatMap((m): [string, string][] => {
         if (!isValueCatalog(m)) return []
         const holder = skeleton.maps.find((o) => o.source === m.source && !isValueCatalog(o))

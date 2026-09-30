@@ -14,6 +14,7 @@ import {
   kindFieldValue,
   kindNamesByClass,
   kindLabelEdit,
+  pendingLinkEdges,
   promoteColumnToKind,
   sameIdKind,
   sameIdSiblings,
@@ -390,5 +391,58 @@ describe('kindFieldValue / kindDisplayName / kindNamesByClass — 表示名を�
     const added = sameIdKind(parent, 'record_389a00', ['xrr:Record_389a00'], '食材の名前')
     expect(added.subject.label).toBe('食材の名前')
     expect(sameIdKind(parent, 'x', []).subject.label).toBeUndefined()
+  })
+})
+
+describe('pendingLinkEdges — ⑤の点線は「その列を元々持っていた種類」から（K53）', () => {
+  const columnKinds = new Map<string, string[]>([
+    ['category', ['category']],
+    ['brand', ['brand']],
+  ])
+
+  it('前置きの列の受け口はカードから、行ごとに変わる列の受け口は行の種類から', () => {
+    expect(
+      pendingLinkEdges({
+        hostName: 'card',
+        rowMap: 'record',
+        varyingColumns: ['food', 'amount', 'brand'],
+        columnKinds,
+      }),
+    ).toEqual([
+      ['card', 'category'],
+      ['record', 'brand'],
+    ])
+  })
+
+  it('行の種類が無ければ全部カードから（今までどおり）', () => {
+    expect(
+      pendingLinkEdges({
+        hostName: 'card',
+        rowMap: undefined,
+        varyingColumns: ['brand'],
+        columnKinds,
+      }),
+    ).toEqual([
+      ['card', 'category'],
+      ['card', 'brand'],
+    ])
+  })
+
+  it('同じ列の受け口が 2 つあれば 2 本、同じ線は 1 本、自分への線は引かない', () => {
+    expect(
+      pendingLinkEdges({
+        hostName: 'card',
+        rowMap: 'record',
+        varyingColumns: [],
+        columnKinds: new Map([
+          ['Space Group', ['crystal_structure', 'space_group']],
+          ['Again', ['space_group']],
+          ['Self', ['card']],
+        ]),
+      }),
+    ).toEqual([
+      ['card', 'crystal_structure'],
+      ['card', 'space_group'],
+    ])
   })
 })
