@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from asterism.class_schema import class_schema
+from asterism.class_schema import class_property_labels, class_schema
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
     CONTROL_GRAPH_IRI,
@@ -949,3 +949,139 @@ async def test_malicious_store_predicate_iri_is_dropped_not_embedded() -> None:
     for q in client.queries:
         assert "evil.example" not in q
         assert "SELECT * WHERE { ?s ?p ?o" not in q
+
+
+# ---------------------------------------------------------------------------
+# 機械が足したつなぐ行（label なし）は、つなぐ先の種類の表示名で読む
+# ---------------------------------------------------------------------------
+
+EX_LEND = "https://ex/lending/ontology#"
+LEND_ITEM_CLASS = EX_LEND + "Record_bbbbbb"
+IS_PART_OF_PRED = "http://purl.org/dc/terms/isPartOf"
+LENDING_DATASET = "lending-bbbbbbbb"
+
+# 公開済みの設計と同じ形（ensure_same_source_links が足した行に label が無い）
+_LENDING_LINKED_MAPPING_YAML = """
+version: 1
+prefixes:
+  ex: https://ex/lending/ontology#
+  exr: https://ex/lending/resource/
+  dcterms: http://purl.org/dc/terms/
+maps:
+- name: card
+  source: lending.txt
+  subject:
+    template: exr:card/{card_no}
+    classes:
+    - ex:Record_aaaaaa
+    label: 貸出カード
+  properties:
+  - predicate: ex:cardNo
+    column: card_no
+    label: カードの番号
+- name: record
+  source: lending.txt
+  subject:
+    template: exr:record/{card_no}/{item}
+    classes:
+    - ex:Record_bbbbbb
+    label: 貸出した本
+  properties:
+  - predicate: ex:item
+    column: item
+    label: 本の名前
+  - predicate: dcterms:isPartOf
+    object_template: exr:card/{card_no}
+"""
+
+
+def _write_lending(root: Path, *, display_meta: dict | None = None) -> None:
+    _write_dataset(
+        root,
+        LENDING_DATASET,
+        promoted_at="2026-02-01T00:00:00Z",
+        mapping_yaml=_LENDING_LINKED_MAPPING_YAML,
+        display_meta=display_meta,
+    )
+
+
+async def test_link_row_without_label_reads_the_target_kind_label(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    root.mkdir()
+    _write_lending(root)
+
+    out = await class_schema(_pyoxi_client({}), root, LEND_ITEM_CLASS)
+
+    props = {p["iri"]: p for p in out["properties"]}
+    link = props[IS_PART_OF_PRED]
+    assert link["kind"] == "link"
+    # 述語の読みくだし（"Part Of"）ではなく、図と同じつなぐ先の種類の表示名
+    assert link["label"] == "貸出カード"
+
+
+async def test_display_edit_still_wins_over_the_target_kind_label(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    root.mkdir()
+    _write_lending(
+        root,
+        display_meta={"edits": [{"predicate": "dcterms:isPartOf", "label": "人が直した名前"}]},
+    )
+
+    out = await class_schema(_pyoxi_client({}), root, LEND_ITEM_CLASS)
+
+    props = {p["iri"]: p for p in out["properties"]}
+    assert props[IS_PART_OF_PRED]["label"] == "人が直した名前"
+
+
+def test_class_property_labels_reads_the_design_only(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    root.mkdir()
+    _write_lending(root)
+    labels = class_property_labels(root, LEND_ITEM_CLASS)
+    assert labels == {EX_LEND + "item": "本の名前", IS_PART_OF_PRED: "貸出カード"}
+
+
+def test_class_property_labels_skips_a_predicate_whose_rows_disagree(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    root.mkdir()
+    _write_dataset(
+        root,
+        LENDING_DATASET,
+        promoted_at="2026-02-01T00:00:00Z",
+        mapping_yaml=_LENDING_LINKED_MAPPING_YAML
+        + "  - predicate: ex:item\n    column: item_alt\n",  # 名前の無い 2 本目
+    )
+    labels = class_property_labels(root, LEND_ITEM_CLASS)
+    assert EX_LEND + "item" not in labels
+    assert labels[IS_PART_OF_PRED] == "貸出カード"
+
+
+def test_class_property_labels_without_registry_is_empty() -> None:
+    assert class_property_labels(None, LEND_ITEM_CLASS) == {}
+
+
+def test_class_property_labels_does_not_lend_another_columns_edit(tmp_path: Path) -> None:
+    # 同じ述語の行が 2 本（名前の無い 2 本目）。1 本目の列だけを人が直しても、
+    # 2 本目はその名前を借りない — 割れたままなので付けない
+    root = tmp_path / "registry"
+    root.mkdir()
+    _write_dataset(
+        root,
+        LENDING_DATASET,
+        promoted_at="2026-02-01T00:00:00Z",
+        mapping_yaml=_LENDING_LINKED_MAPPING_YAML
+        + "  - predicate: ex:item\n    column: item_alt\n",
+        display_meta={"edits": [{"predicate": "ex:item", "column": "item", "label": "直した名前"}]},
+    )
+    labels = class_property_labels(root, LEND_ITEM_CLASS)
+    assert EX_LEND + "item" not in labels
+
+
+def test_class_property_labels_uses_a_column_less_edit_for_the_link_row(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    root.mkdir()
+    _write_lending(
+        root,
+        display_meta={"edits": [{"predicate": "dcterms:isPartOf", "label": "人が直した名前"}]},
+    )
+    assert class_property_labels(root, LEND_ITEM_CLASS)[IS_PART_OF_PRED] == "人が直した名前"

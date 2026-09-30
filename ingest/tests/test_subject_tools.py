@@ -1541,3 +1541,119 @@ async def test_subject_sources_for_a_non_hub_subject_is_unaffected() -> None:
     """ハブでない主語では subject_sources も何も変わらない。"""
     out = await subject_sources(_hub_client(), HUB_RECORD_1)
     assert out["count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 設計が行に付けた名前は、ストアの rdfs:label より先。投影は名前の無い行の
+# 述語にローカル名（"isPartOf"）を rdfs:label として書く — 機械が足した
+# つなぐ行が、1 件のページの事実の表でそのまま出ていた。
+# ---------------------------------------------------------------------------
+
+EX_SHELF = "https://ex/shelf/ontology#"
+SHELF_ITEM_CLASS = EX_SHELF + "Record_bbbbbb"
+IS_PART_OF = "http://purl.org/dc/terms/isPartOf"
+SHELF_DATASET = "shelf-log"
+SHELF_GRAPH = canonical_graph_iri(SHELF_DATASET) + "/v1"
+SHELF_ONTOLOGY_GRAPH = ONTOLOGY_GRAPH_BASE + SHELF_DATASET
+SHELF_ITEM_1 = "https://ex/shelf/resource/record/A-1/x"
+
+_SHELF_TTL = f"""
+<{SHELF_ITEM_1}> a <{SHELF_ITEM_CLASS}> ;
+    <{EX_SHELF}item> "x" ;
+    <{IS_PART_OF}> <https://ex/shelf/resource/card/A-1> .
+"""
+
+# 実際の投影と同じ: 名前の無い行の述語にはローカル名が付く
+_SHELF_ONTOLOGY_TTL = f"""
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{IS_PART_OF}> rdfs:label "isPartOf" .
+<{EX_SHELF}item> rdfs:label "本の名前" .
+"""
+
+_SHELF_MAPPING_YAML = """
+version: 1
+prefixes:
+  ex: https://ex/shelf/ontology#
+  exr: https://ex/shelf/resource/
+  dcterms: http://purl.org/dc/terms/
+maps:
+- name: card
+  source: shelf.txt
+  subject:
+    template: exr:card/{card_no}
+    classes:
+    - ex:Record_aaaaaa
+    label: 貸出カード
+  properties:
+  - predicate: ex:cardNo
+    column: card_no
+    label: カードの番号
+- name: record
+  source: shelf.txt
+  subject:
+    template: exr:record/{card_no}/{item}
+    classes:
+    - ex:Record_bbbbbb
+    label: 貸出した本
+  properties:
+  - predicate: ex:item
+    column: item
+    label: 本の名前
+  - predicate: dcterms:isPartOf
+    object_template: exr:card/{card_no}
+"""
+
+
+def _write_shelf_registry(root: Path, mapping_yaml: str = _SHELF_MAPPING_YAML) -> None:
+    dest = root / SHELF_DATASET
+    dest.mkdir(parents=True)
+    meta = {"id": SHELF_DATASET, "promoted": True, "promoted_at": "2024-01-01"}
+    (dest / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (dest / "mapping.yaml").write_text(mapping_yaml, encoding="utf-8")
+
+
+def _shelf_client() -> object:
+    return _pyoxi_client({SHELF_GRAPH: _SHELF_TTL, SHELF_ONTOLOGY_GRAPH: _SHELF_ONTOLOGY_TTL})
+
+
+@pytest.fixture()
+def shelf_ontology_readable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """実機と同じく、オントロジーの graph を性質名の引き先に入れる（テスト用の
+    pyoxigraph は ``GRAPH ?g {}`` で graph を列挙しないため、そのままでは
+    ストアの rdfs:label の段が試されない）。"""
+
+    async def _readable(_client: object) -> set[str]:
+        return {SHELF_GRAPH, SHELF_ONTOLOGY_GRAPH}
+
+    monkeypatch.setattr("asterism.subject_tools.readable_graph_iris", _readable)
+
+
+async def test_subject_facts_store_label_is_read_without_a_design(
+    tmp_path: Path, shelf_ontology_readable: None
+) -> None:
+    # 前提の確認: 設計が無ければ、ストアの rdfs:label（投影のローカル名）が出る
+    out = await subject_facts(_shelf_client(), SHELF_ITEM_1, registry_root=tmp_path)
+    row = next(i for i in out["items"] if i["property_iri"] == IS_PART_OF)
+    assert row["property"] == "isPartOf"
+
+
+async def test_subject_facts_link_row_reads_the_target_kind_label(
+    tmp_path: Path, shelf_ontology_readable: None
+) -> None:
+    _write_shelf_registry(tmp_path)
+    out = await subject_facts(_shelf_client(), SHELF_ITEM_1, registry_root=tmp_path)
+    row = next(i for i in out["items"] if i["property_iri"] == IS_PART_OF)
+    assert row["property"] == "貸出カード"
+
+
+async def test_subject_facts_rows_that_disagree_keep_the_store_label(
+    tmp_path: Path, shelf_ontology_readable: None
+) -> None:
+    # 同じ述語の行が 2 本（名前が割れる）— どちらの名前も借りない
+    two_rows = _SHELF_MAPPING_YAML + (
+        "  - predicate: dcterms:isPartOf\n    object_template: exr:shelf/{item}\n"
+    )
+    _write_shelf_registry(tmp_path, two_rows)
+    out = await subject_facts(_shelf_client(), SHELF_ITEM_1, registry_root=tmp_path)
+    row = next(i for i in out["items"] if i["property_iri"] == IS_PART_OF)
+    assert row["property"] == "isPartOf"
