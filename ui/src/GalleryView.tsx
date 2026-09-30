@@ -41,6 +41,7 @@ import {
   type CatalogDataset,
   type CatalogStatusKind,
   datasetHasKind,
+  kindDisplayName,
   datasetStage,
   deleteDataset,
   type DatasetRules,
@@ -327,6 +328,35 @@ export function GalleryView({
     // list は datasets から導出されるため datasets を依存に取る
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusClass, datasets])
+  // 帯に出す種類の名前（K59）。届いた kind は英字のローカル名のことがあるので、
+  // そのまま出さず、種類の表示名に引き直す。表示名そのものならそれを、ローカル名
+  // なら持ち主のデータセットの /rules の labels（図と同じ読み手・K51）で引く。
+  // 名前が分からないときは名前を出さない（生の識別子を見せない）。
+  const focusOwner = useMemo(
+    () =>
+      focusClass && datasets
+        ? datasets.find((d) => !d.isCrosswalk && datasetHasKind(d, focusClass))
+        : undefined,
+    [focusClass, datasets],
+  )
+  const focusDirect = focusOwner && focusClass ? kindDisplayName(focusOwner, focusClass) : undefined
+  const [focusFetched, setFocusFetched] = useState<{ kind: string; name?: string } | null>(null)
+  useEffect(() => {
+    const id = focusOwner?.live?.meta.id
+    if (!focusClass || !focusOwner || focusDirect || !id) return
+    let cancelled = false
+    getDatasetRules(id)
+      .then((r) => {
+        if (!cancelled)
+          setFocusFetched({ kind: focusClass, name: kindDisplayName(focusOwner, focusClass, r.labels) })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [focusClass, focusOwner, focusDirect])
+  const focusLabel =
+    focusDirect ?? (focusFetched && focusFetched.kind === focusClass ? focusFetched.name : undefined)
   // Default view is the full-width grid; a dataset is opened on demand (v2 #5).
   // Deep links accept BOTH id forms: the synthetic catalog id (`live-<id>`)
   // and the bare registry id — outside callers (the kantan S9 exits, redesign
@@ -426,10 +456,10 @@ export function GalleryView({
             </label>
           </div>
 
-          {focusClass && (
+          {focusClass && focusLabel && (
             <div className="vocab-focus-banner">
               {t('gallery:focusBanner.label')}
-              <strong>{focusClass}</strong>
+              <strong>{focusLabel}</strong>
               <span className="vocab-focus-sub">{t('gallery:focusBanner.sub')}</span>
             </div>
           )}

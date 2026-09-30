@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { catalogClassNames, datasetHasKind, vocabClassFor } from './galleryApi'
+import { catalogClassNames, datasetHasKind, kindDisplayName, vocabClassFor } from './galleryApi'
 
 // 種類は表示名（図から・K50）でも、種類のローカル名（Ask の引用の kind に来やすい）でも
 // 同じ種類として見つかる（ADR kantan K59）。
@@ -30,5 +30,20 @@ describe('catalogClassNames', () => {
     expect(vocabClassFor('Country', known)).toBe('Country')
     expect(vocabClassFor('国', known)).toBe('国')
     expect(vocabClassFor('Unknown', known)).toBeUndefined()
+  })
+})
+
+describe('kindDisplayName', () => {
+  const labels = { 'https://example.org/ontology#Country': '国' }
+  it('表示名はそのまま', () => {
+    expect(kindDisplayName(ds, '年ごとの記録')).toBe('年ごとの記録')
+  })
+  it('ローカル名は、その種類の IRI の名前に引き直す', () => {
+    expect(kindDisplayName(ds, 'Country', labels)).toBe('国')
+  })
+  it('名前が分からないときは出さない（生の識別子を返さない）', () => {
+    expect(kindDisplayName(ds, 'Observation', labels)).toBeUndefined()
+    expect(kindDisplayName(ds, 'Observation', { 'https://example.org/ontology#Observation': 'Observation' })).toBeUndefined()
+    expect(kindDisplayName(ds, 'Paper', labels)).toBeUndefined()
   })
 })

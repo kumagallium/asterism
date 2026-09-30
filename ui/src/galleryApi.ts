@@ -66,6 +66,23 @@ export function datasetHasKind(
   return d.classIris.some((iri) => iri === kind || localName(iri) === kind)
 }
 
+/** The human name of `kind` in `d`, for a screen that must not print an
+ *  identifier: the display name itself when `kind` already is one, else the
+ *  name the design gives the matching class IRI (`labels`, the dataset's
+ *  `/rules` labels — the same reader the diagrams use, K51). Undefined when no
+ *  name is known — the caller then shows no name rather than the raw kind (K59). */
+export function kindDisplayName(
+  d: Pick<CatalogDataset, 'classes' | 'classIris'>,
+  kind: string,
+  labels: Readonly<Record<string, string>> = {},
+): string | undefined {
+  if (!kind) return undefined
+  if (d.classes.includes(kind)) return kind
+  const iri = d.classIris.find((x) => x === kind || localName(x) === kind)
+  const name = iri ? labels[iri] : undefined
+  return name && name !== kind && name !== localName(iri ?? '') ? name : undefined
+}
+
 /** Kind names present in the catalogued datasets — the `known` set above:
  *  display names and the local names of the classes actually used. */
 export function catalogClassNames(datasets: readonly CatalogDataset[]): Set<string> {
