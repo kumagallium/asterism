@@ -403,7 +403,7 @@ def catalog_link_row(
     label: str | None = None,
     predicate_local: str | None = None,
 ) -> dict[str, Any]:
-    """「☑ した列の受け口」へ機械が引くリンクの 1 行（K33 / K55）。
+    """「☑ した列の受け口」へ機械が引くリンクの 1 行（K33 / K56）。
 
     述語は ``{ontology}:{predicate_local}`` — 省略時は受け口の map 名の lowerCamel
     （K33 の LLM 経路が今まで付けてきた名前）。行き先は受け口の subject template、
@@ -3772,7 +3772,7 @@ def _generate_map_properties_gated(
     # モデルは黙って飛ばす — ここで決定論で足す。書き換えではなく追加。
     #
     # 辺の出どころは、その列を**元々持っていた種類**（前置きの列ならカード、表本体の
-    # 列なら行の種類 — K55・マニュアル「☑ を付けた項目は元の種類から外れず、参照
+    # 列なら行の種類 — K56・マニュアル「☑ を付けた項目は元の種類から外れず、参照
     # として持ち続けます」）。``catalog_homes``（受け口 → 元の種類）が分かっている
     # 受け口は、元の種類でない map からは引かない。分からない受け口は今までどおり
     # （この列を持ちうる map の全部から）。
@@ -3792,7 +3792,7 @@ def _generate_map_properties_gated(
                 continue  # 所有者の ID がこの列そのもののときだけ、辺は自明
             home = (catalog_homes or {}).get(str(owner))
             if home and home != map_name:
-                continue  # 元の種類が別にある — 辺はそちらが持つ（K55）
+                continue  # 元の種類が別にある — 辺はそちらが持つ（K56）
             rows.append(
                 catalog_link_row(
                     str(owner),
@@ -3904,7 +3904,7 @@ def catalog_links_from_home(
     *,
     ontology_prefix: str,
 ) -> list[dict[str, Any]]:
-    """``map_name`` が「元の種類」である受け口への、機械のリンク行（K55）。
+    """``map_name`` が「元の種類」である受け口への、機械のリンク行（K56）。
 
     ``catalog_homes`` は ``{受け口の map 名: 元の種類の map 名}``。受け口の subject
     template が列 1 つで立っていること（値のカタログ・K33）と、同じソースであること
@@ -4005,7 +4005,7 @@ def propose_from_skeleton(
     展開する決定論の指示。かんたん経路（``deterministic=True``）だけが使う。
 
     ``catalog_homes`` は ``{受け口の map 名: その列を元々持っていた map 名}``
-    （api の ``_catalog_homes`` が骨格の注釈から決める・K55）。☑ した列の受け口への
+    （api の ``_catalog_homes`` が骨格の注釈から決める・K56）。☑ した列の受け口への
     リンクは、この「元の種類」が持つ — 前置きの列ならカード、表本体の列なら行の
     種類。決定論の枝はここで辺を書き、LLM の枝は K33 の辺をこの map からだけ引く。
     無い受け口は今までどおり（決定論の枝では K49 の後追い修理に任せる）。"""
@@ -4060,7 +4060,7 @@ def propose_from_skeleton(
                 column_types=(column_types or {}).get(str(name)),
                 json_plan=(json_plans or {}).get(str(name)),
             )
-            # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K55）。
+            # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K56）。
             # 性質表は「他の map が持つ列を書かない」だけで辺を書かないので、ここで
             # 決定論で足す — 足さないと受け口は孤島のまま公開され、K49 の後追い修理が
             # 「プロパティ数が最多の map」という偶然で出どころを決めていた。

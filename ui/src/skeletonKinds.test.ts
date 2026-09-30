@@ -394,7 +394,7 @@ describe('kindFieldValue / kindDisplayName / kindNamesByClass — 表示名を�
   })
 })
 
-describe('pendingLinkEdges — ⑤の点線は「その列を元々持っていた種類」から（K55）', () => {
+describe('pendingLinkEdges — ⑤の点線は「その列を元々持っていた種類」から（K56）', () => {
   const columnKinds = new Map<string, string[]>([
     ['category', ['category']],
     ['brand', ['brand']],

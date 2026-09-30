@@ -511,7 +511,7 @@ def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> No
 
 
 def test_catalog_homes_follow_the_column_origin(tmp_path: Path) -> None:
-    """K55: ☑ した列のカタログは、その列を元々持っていた種類（前置きならカード、
+    """K56: ☑ した列のカタログは、その列を元々持っていた種類（前置きならカード、
     表本体なら行の種類）に紐づく。"""
     csv = tmp_path / "data.csv"
     csv.write_text(

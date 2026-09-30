@@ -22,8 +22,11 @@ Two independent inputs, tried in this order by the caller
    kept for bundles that still carry one. Accepts BOTH shapes of ``model.yaml``
    that exist in the wild: rdf-config's example-driven flat list of subjects
    (``- Name <IRI>: …``), and the plain ``classes:``/``properties:`` mapping
-   form kantan-mode design docs also use. Since this path never carries a
-   human-authored label, ``rdfs:label`` is always the term's local name here.
+   form kantan-mode design docs also use. The mapping form's
+   ``classes.<curie>.label`` can carry a class's display name (the same field
+   ``asterism.class_schema.class_label`` reads first), so a class takes it when
+   present (:func:`model_yaml_class_labels`); every other term (and the list
+   form) falls back to the local name.
 
 What we project:
 - each class -> ``rdfs:Class`` + ``rdfs:label``;
@@ -48,10 +51,12 @@ cannot be resolved is skipped (graceful) so a projection never fails a promote.
 
 No generated code runs: this is pure parsing + triple construction.
 """
+
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 import rdflib
@@ -150,14 +155,41 @@ def _local_name(curie_or_iri: str) -> str:
     return curie_or_iri
 
 
+def model_yaml_class_labels(model_yaml_text: str) -> dict[str, str]:
+    """model.yaml（mapping form）の ``classes.<token>.label`` を ``{token: label}`` で返す。
+
+    ``label`` が空でない文字列の種類だけ入れる。キーは model.yaml の書き方のまま
+    （CURIE か ``<IRI>``）。rdf-config のリスト形・壊れた YAML・``classes`` が
+    dict でないときは ``{}``。例外は出さない。
+    """
+    try:
+        data = yaml.safe_load(model_yaml_text)
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    classes = data.get("classes")
+    if not isinstance(classes, dict):
+        return {}
+    out: dict[str, str] = {}
+    for token, spec in classes.items():
+        if not isinstance(spec, dict):
+            continue
+        label = spec.get("label")
+        if isinstance(label, str) and label.strip():
+            out[str(token)] = label.strip()
+    return out
+
+
 def project_model_yaml(model_yaml_text: str, prefixes: dict[str, str]) -> rdflib.Graph:
     """Project a legacy ``model.yaml`` TBox into an RDFS/OWL :class:`rdflib.Graph`.
 
     Accepts either shape found in the wild: rdf-config's example-driven flat
     list of subjects (``- Name <IRI>: …``), or the plain ``classes:``/
-    ``properties:`` mapping form kantan-mode design docs also produce. Neither
-    shape carries a human-authored label, so ``rdfs:label`` here is always the
-    term's local name — prefer :func:`project_mapping_ir` when a ``mapping.yaml``
+    ``properties:`` mapping form kantan-mode design docs also produce. The list
+    form carries no human-authored label (``rdfs:label`` is the local name); the
+    mapping form's ``classes.<curie>.label`` is a class's display name and is used
+    when present. Prefer :func:`project_mapping_ir` when a ``mapping.yaml``
     (Mapping IR) is available.
 
     ``prefixes`` should include the dataset's own ``sd:`` / ``sdr:`` (from its
@@ -218,9 +250,7 @@ def project_model_yaml(model_yaml_text: str, prefixes: dict[str, str]) -> rdflib
                     continue
                 for ref in entry.values():
                     if isinstance(ref, str) and ref in class_iri_by_name:
-                        pred_ranges.setdefault(pred_iri, set()).add(
-                            class_iri_by_name[ref]
-                        )
+                        pred_ranges.setdefault(pred_iri, set()).add(class_iri_by_name[ref])
 
     # Pass 3: emit predicates (+ domain/range only when unambiguous).
     for pred_iri, domains in pred_domains.items():
@@ -243,8 +273,9 @@ def _project_model_yaml_mapping_form(
 
     Unlike the rdf-config list form, this shape declares ``domain:``/``range:``
     explicitly per property, so no usage-based ambiguity check is needed — both
-    are emitted whenever they resolve. No human-authored label exists in this
-    shape either, so ``rdfs:label`` is always the term's local name.
+    are emitted whenever they resolve. A class's ``rdfs:label`` is its
+    ``classes.<curie>.label`` (display name) when present, else the local name;
+    a property's is always the local name.
     """
     g = rdflib.Graph()
     g.bind("rdfs", rdflib.Namespace(RDFS))
@@ -263,7 +294,11 @@ def _project_model_yaml_mapping_form(
                 continue
             cls = rdflib.URIRef(cls_iri)
             g.add((cls, a, rdfs_Class))
-            g.add((cls, rdfs_label, rdflib.Literal(_local_name(str(cls_token)))))
+            spec = classes[cls_token]
+            name = spec.get("label") if isinstance(spec, dict) else None
+            if not (isinstance(name, str) and name.strip()):
+                name = _local_name(str(cls_token))
+            g.add((cls, rdfs_label, rdflib.Literal(name.strip())))
 
     properties = data.get("properties")
     if isinstance(properties, dict):
@@ -286,7 +321,12 @@ def _project_model_yaml_mapping_form(
     return g
 
 
-def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib.Graph:
+def project_mapping_ir(
+    mapping_ir_yaml: str,
+    prefixes: dict[str, str],
+    *,
+    class_labels: Mapping[str, str] | None = None,
+) -> rdflib.Graph:
     """Project a ``mapping.yaml`` (Mapping IR, K8) into an RDFS/OWL graph.
 
     This is the **first-choice** TBox source: it carries the reviewer's own
@@ -312,6 +352,11 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
     bundle's RML/MIE declarations); the IR's own ``prefixes:`` block is merged
     on top (IR-declared prefixes win — they are what the IR's own CURIEs were
     written against).
+
+    ``class_labels`` は model.yaml の種類の表示名（:func:`model_yaml_class_labels`
+    の結果。キーは CURIE か IRI）。種類の名前は「IR の ``subject.label`` →
+    ``class_labels`` → ローカル名」の順で決まる。キーは IR の prefixes を合わせた
+    prefixes で IRI に直し、直せないキーは捨てる。項目（predicate）は変えない。
     """
     g = rdflib.Graph()
     g.bind("rdfs", rdflib.Namespace(RDFS))
@@ -328,9 +373,13 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
     ir_prefixes = data.get("prefixes")
     all_prefixes = dict(prefixes)
     if isinstance(ir_prefixes, dict):
-        all_prefixes.update(
-            {str(k): str(v) for k, v in ir_prefixes.items() if isinstance(v, str)}
-        )
+        all_prefixes.update({str(k): str(v) for k, v in ir_prefixes.items() if isinstance(v, str)})
+
+    model_class_label: dict[str, str] = {}
+    for key, name in (class_labels or {}).items():
+        iri = _resolve(key, all_prefixes)
+        if iri and isinstance(name, str) and name.strip():
+            model_class_label.setdefault(iri, name.strip())
 
     rdfs_Class = rdflib.URIRef(RDFS + "Class")
     rdf_Property = rdflib.URIRef(RDF + "Property")
@@ -404,6 +453,7 @@ def project_mapping_ir(mapping_ir_yaml: str, prefixes: dict[str, str]) -> rdflib
         authored = class_authored_labels.get(cls_iri) or []
         label = (
             (authored[0] if authored else None)
+            or model_class_label.get(cls_iri)
             or class_local_name.get(cls_iri)
             or _local_name(cls_iri)
         )
