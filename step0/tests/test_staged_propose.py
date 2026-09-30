@@ -1643,7 +1643,7 @@ def _catalog_home_skeleton() -> dict:
 
 
 def test_deterministic_propose_links_a_catalog_from_its_home_map() -> None:
-    """K57: ☑ した列の受け口へのリンクは、元の種類（ここではカード）の性質表に足す。"""
+    """K58: ☑ した列の受け口へのリンクは、元の種類（ここではカード）の性質表に足す。"""
     import yaml
 
     from asterism_step0.materialize import materialize_schema

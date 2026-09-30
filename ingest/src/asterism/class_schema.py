@@ -561,6 +561,18 @@ async def class_label(client: SupportsSparql, registry_root: Path | None, class_
     safe_class_iri = _safe_iri(class_iri)
     if safe_class_iri is None:
         return _fallback_label(class_iri)
+    label = await class_label_or_none(client, registry_root, safe_class_iri)
+    return label or _fallback_label(safe_class_iri)
+
+
+async def class_label_or_none(
+    client: SupportsSparql, registry_root: Path | None, class_iri: str
+) -> str | None:
+    """:func:`class_label` と同じ読み順で、名前が付いているときだけ返す
+    （ローカル名の読みくだしには落とさない — 呼ぶ側が「名前が無い」を知るため）。"""
+    safe_class_iri = _safe_iri(class_iri)
+    if safe_class_iri is None:
+        return None
     if registry_root is not None:
         # registry の走査は同期のファイル読み — 呼ぶ側のイベントループを止めない。
         label = await asyncio.to_thread(_model_yaml_class_label, registry_root, safe_class_iri)
@@ -569,10 +581,7 @@ async def class_label(client: SupportsSparql, registry_root: Path | None, class_
     label = await _ontology_class_label(client, safe_class_iri)
     if label:
         return label
-    label = await _hub_graph_class_label(client, safe_class_iri)
-    if label:
-        return label
-    return _fallback_label(safe_class_iri)
+    return await _hub_graph_class_label(client, safe_class_iri)
 
 
 def _designed_label(prop: PropertyView, edit: dict[str, Any]) -> str | None:

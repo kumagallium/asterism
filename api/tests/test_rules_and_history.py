@@ -572,6 +572,76 @@ maps:
         assert got == {"DoiMap": "文献DOI", "UnitYMap": "縦軸単位"}
 
 
+def test_projected_local_name_does_not_block_the_column_heading(
+    tmp_path: Path, healthy_client
+) -> None:
+    """model.yaml の投影が項目に付ける名前（いつもローカル名）は、答えに数えない。
+
+    投影に名前があると「答え済み」として③（列の見出し）と④（読みくだし）に
+    進まず、表示名の無い行は図でローカル名のまま出ていた（K52 で残した穴）。"""
+    from asterism_step0.mapping_ir import parse_mapping_ir
+    from asterism_step0.rml_compile import compile_mapping_ir
+
+    ir = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+maps:
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "exr:sample/{sid}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:hasWeight
+        column: 重さ
+      - predicate: ex:hasBatchCode
+        column: code
+"""
+    model = """\
+- Sample <https://example.org/resource/sample/s1>:
+    - a: ex:Sample
+    - ex:hasWeight:
+        - weight: 1.5
+    - ex:hasBatchCode:
+        - code: "B-1"
+"""
+    artifacts = dict(
+        _ARTIFACTS,
+        **{
+            "mapping.rml.ttl": compile_mapping_ir(parse_mapping_ir(ir)),
+            "mapping.yaml": ir,
+            "model.yaml": model,
+            "mie.yaml": _MIE,
+        },
+    )
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Samples",
+        artifacts,
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-09-30T00:00:00+00:00",
+        proposal_md="",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get(f"/api/datasets/{meta['id']}/rules")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        weight = "https://example.org/onto#hasWeight"
+        code = "https://example.org/onto#hasBatchCode"
+        # 投影はローカル名を持っている（前提の確認）
+        assert body["labels"].get(weight) == "hasWeight"
+        rows = {row["predicate_iri"]: row for row in body["maps"][0]["properties"]}
+        # ③ 列の見出し。ローカル名（hasWeight・hasBatchCode）ではない
+        assert rows[weight]["label"] == "重さ"
+        assert rows[code]["label"] == "code"
+
+
 def test_rules_labels_prefer_the_authored_kind_name(tmp_path: Path, healthy_client) -> None:
     """IR の subject.label が、model.yaml の種類のラベル（ローカル名）に勝つ。"""
     labelled = _MAPPING_IR.replace(
