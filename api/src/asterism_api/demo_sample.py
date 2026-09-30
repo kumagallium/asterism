@@ -654,22 +654,35 @@ def _held(unit: str, reason: str, detail: str | None = None) -> dict[str, str]:
     return out
 
 
-def _source_touched(bundled: Bundled, env_shas: Mapping[str, str]) -> list[str]:
+def _received_seq(bundled: Bundled, env_canonical_sha256: Any) -> int:
+    """環境が受け取った版の seq: 環境の ``imported.canonical_sha256`` を持つ台帳の版のうち
+    最も古いもの（同じ canonical を持つ版が続くとき、環境がどこまで届いたかは source からは
+    分からない。「消した」の数え漏れは入れ替えが足し直すだけなので、寄せるのは古い側）。
+    見つからなければ 0。"""
+    seqs = [e["seq"] for e in bundled.ledger if e["canonical_sha256"] == env_canonical_sha256]
+    return min(seqs) if seqs else 0
+
+
+def _source_touched(
+    bundled: Bundled, env_shas: Mapping[str, str], env_canonical_sha256: Any
+) -> list[str]:
     """環境の source/ のうち、配ったどの版とも一致しないもの（sha の違うもの・配ったことの
-    無い名前・以前の版にあったのに消えたもの）。
+    無い名前・環境が受け取った版にあったのに消えたもの）。
 
     同梱に無い名前でも、sha が過去に配った版のどれかと一致すれば触った印ではない（後の版が
     source を外しても、手を加えていない環境は入れ替えられる。外れたファイルは入れ替えでも
-    消さない — 利用者のデータを消す経路を増やさないため）。同梱の最新の版で初めて入る
-    source が環境に無いのは触った印ではない。"""
+    消さない — 利用者のデータを消す経路を増やさないため）。環境がまだ受け取っていない版
+    （途中の版で足された source を含む）で初めて入る source が環境に無いのは触った印ではない
+    — 「消した」と数えるのは、環境が受け取った版（``_received_seq`` まで）にあったものだけ。"""
     out: set[str] = set()
     in_bundle = {p for p in bundled.files if p.startswith(SOURCE_PREFIX)}
     for path, sha in env_shas.items():
         if sha not in _known_shas(bundled, path):
             out.add(path)
-    earlier = bundled.ledger[:-1]
+    received = _received_seq(bundled, env_canonical_sha256)
+    seen = [e for e in bundled.ledger if e["seq"] <= received]
     for path in in_bundle - set(env_shas):
-        if any(path in e["files"] for e in earlier):
+        if any(path in e["files"] for e in seen):
             out.add(path)
     return sorted(out)
 
@@ -695,7 +708,9 @@ def _group_reasons(
     reasons: list[tuple[str, str | None]] = []
 
     touched = _touched(bundled, _unit_paths(UNIT_DESIGN, bundled.files), files)
-    touched += _source_touched(bundled, data_env.source_shas)
+    touched += _source_touched(
+        bundled, data_env.source_shas, (meta.get("imported") or {}).get("canonical_sha256")
+    )
     if touched:
         reasons.append((HELD_EDITED, ", ".join(sorted(touched))))
 

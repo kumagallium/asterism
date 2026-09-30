@@ -1952,7 +1952,7 @@ def test_plan_data_group_is_held_together_for_the_same_reason(
             params[key] = value
     plan = _plan_data(files=files, data_env=demo_sample.DataEnv(**fields), **params)
     assert plan.swap_data is False
-    assert plan.replace == {} or set(plan.replace) <= {"query_tools.yaml"} - {"query_tools.yaml"}
+    assert plan.replace == {}
     for unit in ("design", "data", "tools"):
         assert (unit, reason) in _reasons(plan), (unit, reason, plan.held)
 
@@ -1982,6 +1982,25 @@ def test_plan_data_a_new_source_file_is_not_a_touch_but_a_deleted_one_is() -> No
         data_env=env,
     )
     assert ("data", "edited") in _reasons(plan)  # activity.csv が消えている
+
+
+def test_plan_data_a_source_added_by_a_skipped_release_is_not_a_touch() -> None:
+    """環境（C = seq 3）が受け取っていない途中の版（seq 4）で足された source が、同梱の最新の版
+    （seq 5）にも残っていて環境に無いのは、触った印ではない。環境が seq 4 まで届いていて、
+    それが消えていれば触った印。"""
+    later = read_bundled(_next_release(keep_notes=True))
+    assert "registry/source/notes.csv" in later.files
+    # 環境は C（seq 3）: notes.csv は無いが、消したのではない
+    plan = _plan_data(bundle=later)
+    assert plan.swap_data is True and plan.held == []
+    assert "source/notes.csv" in plan.replace  # 入れ替えで足される
+
+    # 環境は seq 4 まで届いていた（imported が seq 4 の canonical）のに notes.csv が無い → 消した
+    meta = _meta(_real(), imported={"canonical_sha256": _data_bundle().canonical_sha256})
+    plan = _plan_data(bundle=later, meta=meta)
+    assert plan.swap_data is False
+    for unit in ("design", "data", "tools"):
+        assert (unit, "edited") in _reasons(plan)
 
 
 # --- 実行: 入れ替えの結果 -----------------------------------------------------
@@ -2611,6 +2630,99 @@ def test_data_swap_a_second_data_release_reaches_a_swapped_environment(
     assert (dest / "meta.json").read_bytes() == snapshot and client.posts == []
 
 
+def test_data_swap_reaches_an_environment_that_skipped_the_release_which_added_a_source(
+    tmp_path: Path,
+) -> None:
+    """C の環境へ、seq 4 を飛ばして seq 5（seq 4 で足した notes.csv を残す版）が来ても、
+    「notes.csv を消した」とは数えず、入れ替わる。"""
+    ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    assert not (dest / "source" / "notes.csv").exists()
+    path = tmp_path / "release5.tar"
+    path.write_bytes(_next_release(keep_notes=True))
+    _run(demo_sample.refresh_bundled_sample(_cfg(tmp_path), client, path))
+    assert _live(client) == _v(2)
+    assert _size(ds, _v(2)) == WORLD_TRIPLES + 2
+    m = _read_meta(dest)
+    assert m["sample"]["held"] == []
+    assert (dest / "source" / "notes.csv").read_bytes() == b"a,b\n1,2\n"
+
+
+def test_data_swap_after_a_crash_before_the_files_the_next_release_still_goes_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """手順 3 の前で落ち（source は置かれず、meta は C のまま）、次の起動では次の版（seq 5）が
+    来る。途中の版で足された source が環境に無いのを、触った印にしない。"""
+    ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    with monkeypatch.context() as patch:
+        _crash_at("2-3", patch, client, dest)
+        with pytest.raises(_Crash):
+            _refresh_release(tmp_path, client)
+    assert not (dest / "source" / "notes.csv").exists()
+    path = tmp_path / "release5.tar"
+    path.write_bytes(_next_release(keep_notes=True))
+    _run(demo_sample.refresh_bundled_sample(_cfg(tmp_path), client, path))
+    _lifespan(tmp_path, client)
+    _assert_public_data_intact(ds, client)
+    assert _live(client) == _v(3)  # 落ちた回の graph（v2）の番号は再利用しない
+    assert _size(ds, _v(3)) == WORLD_TRIPLES + 2
+    m = _read_meta(dest)
+    assert m["sample"]["held"] == [] and m["version"] == 2
+    assert (dest / "source" / "notes.csv").read_bytes() == b"a,b\n1,2\n"
+
+
+def _shaped_release() -> bytes:
+    """データが変わる版（``_data_release`` と同じ）で、同梱の meta.json の source の欄と、
+    図の種類の数（2 → 3）も変えた合成の版。"""
+    m = _real_members()
+    meta = json.loads(m["registry/meta.json"])
+    meta["source_files"] = ["activity.csv", "notes.csv", "world.csv"]
+    meta["source_kind"] = "mixed"
+    meta["has_source"] = True
+    diagram = (
+        m["registry/diagram.md"]
+        .decode("utf-8")
+        .replace(
+            "    Observation --> Country",
+            '    class Extra["三つ目"] { world:extra }\n    Observation --> Country',
+        )
+    )
+    return _bundle_tar(
+        {
+            "graphs/canonical.ttl": m["graphs/canonical.ttl"] + _EXTRA_TRIPLE,
+            "registry/source/notes.csv": b"a,b\n1,2\n",
+            "registry/mapping.rml.ttl": m["registry/mapping.rml.ttl"] + b"\n# new release\n",
+            "registry/meta.json": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+            "registry/diagram.md": diagram.encode("utf-8"),
+        }
+    )
+
+
+def test_data_swap_writes_the_source_fields_and_classes_in_the_meta_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """手順 4 の meta が、同梱の meta の source の欄と、新しい図の種類（数）を書く。
+    後段（派生）が書き直す前 — 4 と 5 の間で落とした直後の meta で確かめる。"""
+    _ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    before = _read_meta(dest)
+    assert before["source_files"] == ["activity.csv", "world.csv"]
+    assert before["class_count"] == 2
+    path = tmp_path / "shaped.tar"
+    path.write_bytes(_shaped_release())
+    with monkeypatch.context() as patch:
+        _crash_at("4-5", patch, client, dest)
+        with pytest.raises(_Crash):
+            _run(demo_sample.refresh_bundled_sample(_cfg(tmp_path), client, path))
+    m = _read_meta(dest)
+    assert m["source_files"] == ["activity.csv", "notes.csv", "world.csv"]
+    assert m["source_kind"] == "mixed"
+    assert m["has_source"] is True
+    assert m["classes"] == ["国", "年ごとの記録", "三つ目"]
+    assert m["class_count"] == 3
+
+
 # --- 途中で落ちたあとの、回復の側の動き ------------------------------------------------
 
 
@@ -2684,6 +2796,36 @@ def test_data_swap_crash_recovery_drops_the_pending_when_the_user_reingested(
     _refresh_release(tmp_path, client)
     assert seen == []
     assert _read_meta(dest)["sample"]["pending"] == []
+
+
+def test_data_swap_crash_recovery_does_not_promote_an_emptied_new_graph(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """4 と 5 の間で落ち、次の起動までに新しい graph が空になっていたら、公開を空の graph へ
+    切り替えない（公開中の旧いデータを失わない）。"""
+    ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+    with monkeypatch.context() as patch:
+        _crash_at("4-5", patch, client, dest)
+        with pytest.raises(_Crash):
+            _refresh_release(tmp_path, client)
+    assert _read_meta(dest)["live_graph"] == _v(2)
+    ds.graph(rdflib.URIRef(_v(2))).remove((None, None, None))
+    assert _size(ds, _v(2)) == 0
+
+    promoted: list[str] = []
+    real = substrate.promote_to_canonical
+
+    async def spy(c: Any, key: str, graph: str) -> Any:
+        promoted.append(graph)
+        return await real(c, key, graph)
+
+    monkeypatch.setattr(substrate, "promote_to_canonical", spy)
+    _refresh_release(tmp_path, client)
+    assert promoted == []
+    assert _live(client) == V1
+    assert _canon(client) == [V1]
+    assert _size(ds, V1) == WORLD_TRIPLES
 
 
 # --- 番号の下限: 3 つの出どころをそれぞれ単独で -----------------------------------------
