@@ -1,4 +1,4 @@
-"""同梱の見本を、すでにある環境へ届ける（ADR kantan K59）。
+"""同梱の見本を、すでにある環境へ届ける（ADR kantan K62）。
 
 デスクトップ版は初回の起動で 1 度だけ、同梱の見本（``datasets/world/snapshot.tar``）を
 取り込む。以後の見本の直しが既存の環境に届かなかった（「入れ直すまで英字のまま」）。
@@ -99,6 +99,9 @@ DECISION_FILES = (
     "column-decisions.json",
     "column-meanings.json",
     "handles.json",
+    # 表の形をととのえる層の台帳（main の _RESHAPE_LEDGER_FILE）。利用者が元の表から
+    # 派生表を作ると置かれる。設計はその派生表を前提にするので、設計を保留する。
+    "reshape.json",
 )
 
 # 保留の理由コード（人向けの画面には出さない。画面の文言への翻訳は別の作業）。

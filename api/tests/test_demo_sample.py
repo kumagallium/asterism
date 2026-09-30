@@ -1,4 +1,4 @@
-"""同梱の見本を、すでにある環境へ届ける（ADR kantan K59）。
+"""同梱の見本を、すでにある環境へ届ける（ADR kantan K62）。
 
 契約メモ contract_sample_refresh.md のテスト節に 1 対 1 で対応する。
 
@@ -276,7 +276,7 @@ def test_data_changing_release_is_stopped_here() -> None:
         }
 
     message = (
-        "データが変わる版は既存の環境に届きません。ADR kantan K59 の『データが変わる版』を"
+        "データが変わる版は既存の環境に届きません。ADR kantan K62 の『データが変わる版』を"
         "読み、データの入れ替えを先に作ってください"
     )
     for entry in ledger:
@@ -501,7 +501,13 @@ def test_plan_ids_unknown_is_fail_closed() -> None:
 
 @pytest.mark.parametrize(
     "filename",
-    ["display-meta.json", "column-decisions.json", "column-meanings.json", "handles.json"],
+    [
+        "display-meta.json",
+        "column-decisions.json",
+        "column-meanings.json",
+        "handles.json",
+        "reshape.json",
+    ],
 )
 def test_plan_held_when_a_decision_file_exists(filename: str) -> None:
     plan = _plan(decision_files=[filename])
@@ -873,11 +879,12 @@ def test_refresh_edited_design_is_held_and_recorded_once(
     assert (dest / "meta.json").stat().st_mtime_ns == mtime
 
 
+@pytest.mark.parametrize("filename", ["handles.json", "reshape.json"])
 def test_refresh_decision_file_holds_design(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
 ) -> None:
     _Projections(monkeypatch)
-    dest = _write_env(tmp_path, extra={"handles.json": b"{}"})
+    dest = _write_env(tmp_path, extra={filename: b"{}"})
     _refresh(_cfg(tmp_path))
     meta = _read_meta(dest)
     assert ("design", "decisions") in {(h["unit"], h["reason"]) for h in meta["sample"]["held"]}

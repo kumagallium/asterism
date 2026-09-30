@@ -17,6 +17,8 @@ from asterism.grounding.catalog import (
     catalog_terms,
     ground_terms,
     load_catalog,
+    term_by_iri,
+    term_display_name,
     vocabularies,
 )
 from asterism.grounding.quantity_kinds import (
@@ -48,5 +50,7 @@ __all__ = [
     "quantity_kind_catalog_meta",
     "resolve_quantity_kind",
     "resolve_unit",
+    "term_by_iri",
+    "term_display_name",
     "vocabularies",
 ]

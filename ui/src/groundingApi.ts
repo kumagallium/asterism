@@ -83,18 +83,26 @@ export async function groundTerms(
 /** Batch grounding for the 共通のことばの地図: many term names, ONE round trip
  *  (`POST /api/ground/terms`). The reply maps each sent name to its near-exact
  *  candidates (score >= 90 server-side) — names with no strong match are absent.
- *  Same closed catalog + determinism as `groundTerms`. Read-only. */
+ *  `iris` are terms whose IRI is already known (a term the design uses directly, an
+ *  alignment's end): they come back in `names` as `{iri: catalog name}`, so a
+ *  vocabulary that mints coded IRIs still shows a name. Same closed catalog +
+ *  determinism as `groundTerms`. Read-only. */
 export async function groundTermsBatch(
   terms: { name: string; kind?: 'class' | 'property' }[],
-): Promise<Record<string, GroundCandidate[]>> {
-  if (terms.length === 0) return {}
+  iris: string[] = [],
+): Promise<{ terms: Record<string, GroundCandidate[]>; names: Record<string, string> }> {
+  if (terms.length === 0 && iris.length === 0) return { terms: {}, names: {} }
   const res = await fetch(`${API_BASE}/api/ground/terms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ terms }),
+    body: JSON.stringify({ terms, iris }),
   })
   if (!res.ok) throw await asError(res, i18n.t('grounding:op.search'))
-  return ((await res.json()) as { terms?: Record<string, GroundCandidate[]> }).terms ?? {}
+  const body = (await res.json()) as {
+    terms?: Record<string, GroundCandidate[]>
+    names?: Record<string, string>
+  }
+  return { terms: body.terms ?? {}, names: body.names ?? {} }
 }
 
 /**

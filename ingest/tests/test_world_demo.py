@@ -286,7 +286,7 @@ def test_snapshot_tar_matches_the_asterism_snapshot_format() -> None:
 
 
 def test_snapshot_carries_the_sample_ledger() -> None:
-    """改訂台帳（ADR kantan K59）: tar の ``sample/revisions.json`` は正本
+    """改訂台帳（ADR kantan K62）: tar の ``sample/revisions.json`` は正本
     ``datasets/world/sample_revisions.json`` と同じ内容で、最新のエントリは今の
     canonical.ttl を指す。指紋の計算そのもの（api の ``demo_sample``）は api のテストで見る —
     この package は ``asterism-api`` に依存しない。"""

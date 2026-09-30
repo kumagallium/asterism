@@ -30,7 +30,7 @@ dataset goes through, never a hand-written shortcut:
    an in-memory (rdflib-backed) SPARQL store — no server, no Oxigraph
    process needed for a normal build.
 5. ``datasets/world/sample_revisions.json`` (the append-only sample ledger,
-   ADR kantan K59) is updated from what was just built, and carried inside the
+   ADR kantan K62) is updated from what was just built, and carried inside the
    tar as ``sample/revisions.json``. If the contents did not change (same
    ``revision`` as the ledger's latest entry) nothing is added. If they did,
    ``--note-ja`` and ``--note-en`` (one sentence shown to the user, no raw

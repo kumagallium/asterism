@@ -153,7 +153,7 @@ links, that Japan's country node carries both `rdfs:label "日本"@ja` and
 "日本" among them, and that `asterism.prov_graph.prov_graph` actually walks
 the edge from the embedded "日本" subject to that activity).
 
-## 見本を直したら（改訂台帳・ADR kantan K59）
+## 見本を直したら（改訂台帳・ADR kantan K62）
 
 見本（`snapshot.tar`）は初回の起動で 1 度だけ取り込まれる。**すでに見本が入っている環境
 にも、直しを届ける**ため、配った版を `sample_revisions.json`（追記専用・git 管理）に
@@ -187,4 +187,4 @@ the edge from the embedded "日本" subject to that activity).
 5. **データが変わる版は、いまは既存の環境に届かない。** canonical.ttl・`mapping.rml.ttl`・
    `source/*` を変える版は、台帳の全エントリでデータが同じことを見張るテスト
    （`api/tests/test_demo_sample.py::test_data_changing_release_is_stopped_here`）が止める。
-   ADR kantan K59 の「データが変わる版」を読み、データの入れ替えを先に作ること。
+   ADR kantan K62 の「データが変わる版」を読み、データの入れ替えを先に作ること。

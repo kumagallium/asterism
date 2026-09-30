@@ -35,7 +35,7 @@ import re
 import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from asterism import substrate
 from asterism_step0.instance_iri import DEFAULT_IRI_BASE
@@ -212,9 +212,7 @@ def _rebase(payload: bytes, origin_base: str, local_base: str) -> bytes:
     Mirrors K13's host-agnostic mint shape: only ``<base>/datasets/…`` moves;
     engine vocabulary and third-party IRIs are untouched by construction.
     """
-    return payload.replace(
-        f"{origin_base}/datasets/".encode(), f"{local_base}/datasets/".encode()
-    )
+    return payload.replace(f"{origin_base}/datasets/".encode(), f"{local_base}/datasets/".encode())
 
 
 def _sanitized_meta(raw: bytes, manifest: dict[str, Any], rebased: bool) -> dict[str, Any]:
@@ -242,15 +240,10 @@ def _sanitized_meta(raw: bytes, manifest: dict[str, Any], rebased: bool) -> dict
     return meta
 
 
-async def import_snapshot(
-    cfg: Any, client: Any, payload: bytes, *, max_extracted_bytes: int
-) -> dict[str, Any]:
-    """Land a snapshot as an *ingested, unpublished* dataset.
-
-    Sequence (identical to a normal ingest): registry dir → reserve_data_seq →
-    stream Turtle into ``canonical/{id}/v{seq}`` → ``set_staged_graph`` →
-    ``mark_ingested``. Publication is the existing promote gate.
-    """
+def _read_snapshot(
+    payload: bytes, max_extracted_bytes: int
+) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """snapshot の tar を開いて検証し、``(manifest, members)`` を返す（取り込みの前半）。"""
     try:
         with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
             members = _safe_members(tar, max_extracted_bytes)
@@ -281,6 +274,73 @@ async def import_snapshot(
         raise HTTPException(400, "graphs/canonical.ttl does not match manifest sha256")
     if "registry/meta.json" not in members:
         raise HTTPException(400, "snapshot is missing registry/meta.json")
+    return manifest, members
+
+
+def _iri_policy(manifest: dict[str, Any], local_base: str) -> tuple[str, bool]:
+    """``(origin_base, rebase)`` — 作った環境の IRI の土台と、手元の土台へ書き換えるか。"""
+    origin_base = str(manifest.get("origin_iri_base") or DEFAULT_IRI_BASE)
+    return origin_base, origin_base != local_base and origin_base == DEFAULT_IRI_BASE
+
+
+def _registry_files(
+    members: dict[str, bytes], origin_base: str, local_base: str, rebase: bool
+) -> dict[str, bytes]:
+    """取り込みが registry のフォルダに書くファイル（相対パス → バイト。``meta.json`` は除く）。"""
+    files: dict[str, bytes] = {}
+    for name, blob in members.items():
+        if not name.startswith("registry/"):
+            continue
+        rel = name[len("registry/") :]
+        if rel == "meta.json":
+            continue
+        if rebase and Path(rel).suffix.lower() in _TEXT_SUFFIXES:
+            blob = _rebase(blob, origin_base, local_base)
+        files[rel] = blob
+    return files
+
+
+class ImportPlan(NamedTuple):
+    """:func:`import_snapshot` が、ある snapshot から registry のフォルダに書くもの。"""
+
+    manifest: dict[str, Any]
+    # meta.json（取り込み済みの印 ``registry.reserve_data_seq``・``registry.mark_ingested``
+    # を書き足す前。``imported.imported_at`` は計算した時刻）。
+    meta: dict[str, Any]
+    # meta.json 以外のファイル（相対パス → バイト）。
+    files: dict[str, bytes]
+
+
+def snapshot_import_plan(cfg: Any, payload: bytes, *, max_extracted_bytes: int) -> ImportPlan:
+    """:func:`import_snapshot` がこの snapshot から registry のフォルダに書くものを、
+    書かずに返す。
+
+    同梱の見本の種まきが取り込みの後で止まった環境で、フォルダの中身が取り込みの
+    書いたままか（＝利用者が触っていないか）を確かめるために使う
+    （``local._interrupted_seed``）。取り込みと同じ関数で計算するので、取り込みの
+    書き方が変わっても食い違わない。
+    """
+    manifest, members = _read_snapshot(payload, max_extracted_bytes)
+    origin_base, rebase = _iri_policy(manifest, cfg.iri_base)
+    return ImportPlan(
+        manifest=manifest,
+        meta=_sanitized_meta(members["registry/meta.json"], manifest, rebase),
+        files=_registry_files(members, origin_base, cfg.iri_base, rebase),
+    )
+
+
+async def import_snapshot(
+    cfg: Any, client: Any, payload: bytes, *, max_extracted_bytes: int
+) -> dict[str, Any]:
+    """Land a snapshot as an *ingested, unpublished* dataset.
+
+    Sequence (identical to a normal ingest): registry dir → reserve_data_seq →
+    stream Turtle into ``canonical/{id}/v{seq}`` → ``set_staged_graph`` →
+    ``mark_ingested``. Publication is the existing promote gate.
+    """
+    manifest, members = _read_snapshot(payload, max_extracted_bytes)
+    dataset_id = str(manifest["dataset_id"])
+    canonical_ttl = members["graphs/canonical.ttl"]
 
     dataset_dir = cfg.registry_root / dataset_id
     if dataset_dir.exists():
@@ -291,22 +351,14 @@ async def import_snapshot(
         )
 
     # --- IRI policy -------------------------------------------------------
-    origin_base = str(manifest.get("origin_iri_base") or DEFAULT_IRI_BASE)
-    rebase = origin_base != cfg.iri_base and origin_base == DEFAULT_IRI_BASE
+    origin_base, rebase = _iri_policy(manifest, cfg.iri_base)
     if rebase:
         canonical_ttl = _rebase(canonical_ttl, origin_base, cfg.iri_base)
 
     # --- registry dir -----------------------------------------------------
     dataset_dir.mkdir(parents=True, exist_ok=False)
     try:
-        for name, blob in members.items():
-            if not name.startswith("registry/"):
-                continue
-            rel = name[len("registry/") :]
-            if rel == "meta.json":
-                continue
-            if rebase and Path(rel).suffix.lower() in _TEXT_SUFFIXES:
-                blob = _rebase(blob, origin_base, cfg.iri_base)
+        for rel, blob in _registry_files(members, origin_base, cfg.iri_base, rebase).items():
             dest = dataset_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(blob)
