@@ -16,12 +16,18 @@ import type { GroundCandidate } from './groundingApi'
 import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
 import { VocabMap } from './VocabMap'
-import { collectMintedTermQueries, composeVocabGraph, datasetApiId } from './vocabGraph'
+import {
+  collectMintedTermQueries,
+  collectStandardIris,
+  composeVocabGraph,
+  datasetApiId,
+} from './vocabGraph'
 
 interface Loaded {
   datasets: { id: string; name: string; rules: DatasetRules }[]
   alignments: Alignment[]
   candidates: Record<string, GroundCandidate[]>
+  standardNames: Record<string, string>
   /** 取り込みルールを読みに行ったデータセットの数。0 件なら地図は出さない、
    *  1 件以上あって 1 つも読めなかったならその事実を出す（黙って消えない）。 */
   attempted: number
@@ -60,16 +66,22 @@ export function VocabMapSection({
           }),
         )
       ).filter((d): d is Loaded['datasets'][number] => d !== null)
-      const [alignments, candidates] = await Promise.all([
-        getAlignments()
-          .then((r) => r.alignments)
-          .catch(() => [] as Alignment[]),
-        groundTermsBatch(collectMintedTermQueries(withRules)).catch(
-          () => ({}) as Record<string, GroundCandidate[]>,
-        ),
-      ])
+      // 対応の両端の語も名前を引くので、対応を先に読む（接地は 1 往復のまま）。
+      const alignments = await getAlignments()
+        .then((r) => r.alignments)
+        .catch(() => [] as Alignment[])
+      const grounded = await groundTermsBatch(
+        collectMintedTermQueries(withRules),
+        collectStandardIris(withRules, alignments),
+      ).catch(() => ({ terms: {} as Record<string, GroundCandidate[]>, names: {} }))
       if (!cancelled)
-        setLoaded({ datasets: withRules, alignments, candidates, attempted: targets.length })
+        setLoaded({
+          datasets: withRules,
+          alignments,
+          candidates: grounded.terms,
+          standardNames: grounded.names,
+          attempted: targets.length,
+        })
     })()
     return () => {
       cancelled = true
@@ -88,6 +100,7 @@ export function VocabMapSection({
       datasets: loaded.datasets,
       classCounts,
       candidates: loaded.candidates,
+      standardNames: loaded.standardNames,
       alignments: loaded.alignments,
       words: {
         more: (n) => t('vocab:map.moreFields', { n }),

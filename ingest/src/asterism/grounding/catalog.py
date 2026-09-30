@@ -405,6 +405,32 @@ def catalog_terms(*, kind: str | None = None, domain: str | None = None) -> list
     ]
 
 
+@functools.lru_cache(maxsize=1)
+def _terms_by_iri() -> dict[str, VocabTerm]:
+    out: dict[str, VocabTerm] = {}
+    for term in _all_terms():
+        out.setdefault(term.iri, term)  # 同じ IRI が 2 度あればカタログで先の方
+    return out
+
+
+def term_by_iri(iri: str) -> VocabTerm | None:
+    """語の IRI から、カタログの語を引く（無ければ None）。
+
+    :func:`ground_terms` は名前で探す。こちらは、設計がすでに使っている語や
+    対応の行き先の語のように、IRI が先に分かっているときに使う — 符号で語を
+    作る語彙（``…#EMMO_<uuid>``）でも、カタログの名前を人に見せられる。
+    """
+    return _terms_by_iri().get(iri)
+
+
+def term_display_name(iri: str) -> str | None:
+    """語の IRI の人向けの名前: カタログの表示名 → 名前。カタログに無ければ None。"""
+    term = term_by_iri(iri)
+    if term is None:
+        return None
+    return term.label.strip() or term.name.strip() or None
+
+
 def vocabularies() -> list[Vocabulary]:
     """The curated vocabularies (for listing the recognized standards)."""
     return list(load_catalog())

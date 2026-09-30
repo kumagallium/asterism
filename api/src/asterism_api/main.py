@@ -567,6 +567,9 @@ class GroundTermsBody(BaseModel):
     terms: list[dict[str, str]] = []
     limit_per_term: int = 1
     min_score: int = 90
+    #: 名前ではなく IRI が先に分かっている語（設計が直に使う語・対応の行き先）。
+    #: 返答の ``names`` に ``{iri: カタログの名前}`` を返す。
+    iris: list[str] = []
 
 
 class UsageEventBody(BaseModel):
@@ -9880,7 +9883,9 @@ def build_app(
         """Ground MANY term names in one round trip（共通の言葉の地図用）.
 
         Each entry is ``{"name": ..., "kind": "class"|"property"(optional)}``; the reply
-        maps each name to its best candidates. ``min_score``（既定 90 = exact 級）で
+        maps each name to its best candidates. ``iris`` (optional) are looked up by IRI
+        instead and answered in ``names`` as ``{iri: catalog name}``.
+        ``min_score``（既定 90 = exact 級）で
         弱い一致を落とす — 地図に自動で描く線は名前がほぼ一致する語だけにする。
         Closed-set + deterministic + read-only（GET /api/ground と同じカタログ）。"""
         limit = max(1, min(5, body.limit_per_term))
@@ -9897,7 +9902,17 @@ def build_app(
             kept = [c.to_dict() for c in cands if c.score >= body.min_score]
             if kept:
                 out[name] = kept
-        return JSONResponse({"terms": out})
+        # IRI が先に分かっている語は、名前で探さずにカタログを直に引く。符号で語を
+        # 作る語彙（``…#EMMO_<uuid>``）でも、箱に IRI の末尾ではなく名前を出せる。
+        names: dict[str, str] = {}
+        for iri in body.iris[:500]:
+            iri = (iri or "").strip()
+            if not iri or iri in names:
+                continue
+            human = grounding.term_display_name(iri)
+            if human:
+                names[iri] = human
+        return JSONResponse({"terms": out, "names": names})
 
     @app.get("/api/units/resolve")
     async def units_resolve(
