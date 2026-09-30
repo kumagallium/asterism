@@ -175,6 +175,8 @@ async def build_snapshot(cfg: Any, client: Any, dataset_id: str) -> tuple[bytes,
         for path in sorted(dataset_dir.rglob("*")):
             if not path.is_file():
                 continue
+            if registry.is_atomic_tmp_name(path.name):
+                continue  # 強制終了で残った書きかけの一時ファイルはスナップショットに入れない
             rel = path.relative_to(dataset_dir).as_posix()
             _add_bytes(tar, f"registry/{rel}", path.read_bytes())
     return buf.getvalue(), f"asterism-snapshot-{dataset_id}.tar.gz"

@@ -836,6 +836,17 @@ def record_id_move(root: Path, dataset_id: str, record: dict | None) -> dict | N
     return _update_meta(root, dataset_id, {"id_move": record})
 
 
+_ATOMIC_TMP_RE = re.compile(r"\..+\.[0-9a-f]{32}\.tmp")
+
+
+def is_atomic_tmp_name(name: str) -> bool:
+    """:func:`_atomic_write_bytes` の一時ファイルの名前（``.<name>.<uuid>.tmp``）か。
+
+    強制終了・電源断で残った残骸を、スナップショット（``exchange``）に混ぜないための判定。
+    """
+    return _ATOMIC_TMP_RE.fullmatch(name) is not None
+
+
 def _atomic_write_bytes(dest: Path, payload: bytes) -> None:
     """``dest`` を、同じディレクトリの一時ファイル → fsync → ``os.replace`` で書く。
 

@@ -103,6 +103,11 @@ def _tar_bytes(members: dict[str, bytes]) -> bytes:
 def _make_bundle(mutate: dict[str, bytes] | None = None, note: str = "テスト") -> Bundled:
     """実物の tar の中身を変えた「新しい版」の同梱。台帳には実物の 3 エントリ＋今回の
     エントリ（seq 4）を持たせる。"""
+    return read_bundled(_bundle_tar(mutate, note))
+
+
+def _bundle_tar(mutate: dict[str, bytes] | None = None, note: str = "テスト") -> bytes:
+    """:func:`_make_bundle` の tar のバイト（``refresh_bundled_sample`` に渡す用）。"""
     members = dict(_real_members())
     members.update(mutate or {})
     if "graphs/canonical.ttl" in members and "graphs/canonical.ttl" in (mutate or {}):
@@ -112,7 +117,7 @@ def _make_bundle(mutate: dict[str, bytes] | None = None, note: str = "テスト"
     old = demo_sample.parse_ledger(members[LEDGER_MEMBER].decode("utf-8"))
     entry = entry_from_members(members, seq=len(old) + 1, note={"ja": note, "en": note})
     members[LEDGER_MEMBER] = format_ledger([*old, entry]).encode("utf-8")
-    return read_bundled(_tar_bytes(members))
+    return _tar_bytes(members)
 
 
 def _subjects(artifacts: dict[str, str]) -> list[dict]:
@@ -375,9 +380,12 @@ def test_plan_from_a_replaces_the_design_and_reaches_the_rest() -> None:
     assert set(plan.replace) == {"mapping.yaml", "model.yaml", "diagram.md"}
     assert plan.replace["diagram.md"] == _real().members["registry/diagram.md"]
     assert plan.derive_design is True
-    assert plan.reproject_description is False
+    # 印の無い環境は、説明のファイルが同じでも meta graph を 1 回投影し直す（届いたと数えるのは
+    # 投影が済んでから）
+    assert plan.reproject_description is True
     assert plan.new_name is None
-    assert plan.reached == {"description", "tools", "name"}
+    assert plan.reached == {"tools", "name"}
+    assert plan.tools_seq == _real().seq
 
 
 def test_plan_from_c_without_a_stamp_writes_no_file_but_derives_once() -> None:
@@ -403,7 +411,8 @@ def test_plan_one_byte_edit_of_mapping_holds_only_design() -> None:
     assert ("design", "edited") in _reasons(plan)
     assert plan.replace == {}  # 全部か何もしないか
     assert plan.derive_design is False
-    assert plan.reached == {"description", "tools", "name"}
+    assert plan.reached == {"tools", "name"}
+    assert plan.reproject_description is True
 
 
 def test_plan_a_and_c_mixed_environment_converges() -> None:
@@ -468,7 +477,10 @@ def test_plan_held_when_the_bundled_data_differs() -> None:
     )
     assert {("design", "data"), ("tools", "data")} <= _reasons(plan)
     assert plan.replace == {}
-    assert plan.reached == {"description", "name"}
+    assert plan.reached == {"name"}
+    assert plan.reproject_description is True
+    # data 保留の間は、ツールを新しい版まで受け取ったことにしない
+    assert plan.tools_seq == demo_sample.PRE_STAMP_LAST_SEQ
 
 
 def test_plan_held_when_ids_would_move() -> None:
@@ -476,7 +488,7 @@ def test_plan_held_when_ids_would_move() -> None:
     plan = _plan(bundled_subjects=moved)
     assert ("design", "ids_move") in _reasons(plan)
     assert plan.replace == {}
-    assert plan.reached == {"description", "tools", "name"}
+    assert plan.reached == {"tools", "name"}
 
 
 def test_plan_ids_unknown_is_fail_closed() -> None:
@@ -636,7 +648,10 @@ def test_tools_a_tool_only_in_the_latest_release_is_not_re_added_once_delivered(
 
     assert "query_tools.yaml" in plan_with(None).replace  # 印なし: 印より前の版しか受け取っていない
     delivered = demo_sample.build_stamp(
-        newer, {"design"}, [{"unit": "name", "reason": "edited"}], "2026-10-01T00:00:00+00:00"
+        newer,
+        {"design", "tools"},
+        [{"unit": "name", "reason": "edited"}],
+        "2026-10-01T00:00:00+00:00",
     )
     assert "query_tools.yaml" not in plan_with(delivered).replace  # 受け取り済み → 消したのは利用者
 
@@ -791,11 +806,12 @@ def test_refresh_from_a_replaces_files_and_derives_meta(
         "origin",
     ):
         assert after[key] == before[key], key
-    # 投影は新しい artifacts で 1 回（説明は変わらないので投影しない）
+    # 投影は新しい artifacts で 1 回。印の無い環境は説明も 1 回だけ投影し直す（届いたと数えるのは
+    # 投影が済んでから。実物の説明は空なので meta graph は空のまま）
     assert len(proj.onto_calls) == 1
     assert proj.onto_calls[0]["mapping.yaml"] == b.members["registry/mapping.yaml"].decode()
     assert "取り込みの記録" in proj.onto_calls[0]["mapping.yaml"]
-    assert proj.meta_calls == []
+    assert len(proj.meta_calls) == 1
     assert [p.name for p in dest.iterdir() if p.name.endswith(".tmp")] == []
 
 
@@ -985,6 +1001,196 @@ def test_refresh_zero_triples_projection_is_not_reached(
     assert "design" not in _read_meta(dest)["sample"]["units"]
     _refresh(_cfg(tmp_path))
     assert len(proj.onto_calls) == 2  # 0 件のあいだは毎回やり直す
+
+
+def _stamp_of_real(**over: Any) -> dict[str, Any]:
+    """C（実物・seq 3）が全部届いたときの印。"""
+    stamp = demo_sample.build_stamp(
+        _real(), {"design", "description", "tools", "name"}, [], "2026-09-30T00:00:00+00:00"
+    )
+    stamp.update(over)
+    return stamp
+
+
+_NEW_DESCRIPTION = {
+    "registry/mie.yaml": _real_members()["registry/mie.yaml"] + "# 説明を直した版\n".encode(),
+    "registry/metadata.ttl": b'@prefix ex: <http://example.org/> . ex:a ex:b "c" .\n',
+}
+
+
+def _write_bundle(tmp_path: Path, mutate: dict[str, bytes]) -> Path:
+    path = tmp_path / "newer.tar"
+    path.write_bytes(_bundle_tar(mutate))
+    return path
+
+
+def test_plan_description_replaced_and_reprojected_when_the_bundle_changes_it() -> None:
+    newer = _make_bundle(_NEW_DESCRIPTION)
+    plan = plan_refresh(
+        newer,
+        meta=_meta(newer, sample=_stamp_of_real()),
+        files=_env_files(_real()),
+        decision_files=[],
+        bundled_subjects=_subjects(newer.design_artifacts()),
+    )
+    assert plan.held == []
+    assert set(plan.replace) == {"mie.yaml", "metadata.ttl"}
+    assert plan.replace["metadata.ttl"] == _NEW_DESCRIPTION["registry/metadata.ttl"]
+    assert plan.reproject_description is True
+    assert "description" not in plan.reached  # 投影が済むまで「届いた」に数えない
+
+
+def test_plan_description_is_reprojected_until_the_stamp_says_it_arrived() -> None:
+    """ファイルが同梱と同じでも、印が「この版の説明まで届いた」と言っていなければやり直す。"""
+    b = _real()
+    files = _env_files(b)
+    without = _stamp_of_real()
+    del without["units"]["description"]
+    plan = _plan(meta=_meta(b, sample=without), files=files)
+    assert plan.replace == {}
+    assert plan.reproject_description is True
+    assert "description" not in plan.reached
+    # 届いたと言っている印なら投影しない
+    plan = _plan(meta=_meta(b, sample=_stamp_of_real(held=[{"unit": "name", "reason": "edited"}])))
+    assert plan.reproject_description is False
+    assert "description" in plan.reached
+
+
+def test_refresh_description_projection_failure_converges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """説明のファイルを置き換えた後に meta graph の投影が失敗 → 次の起動でやり直して収束。"""
+    proj = _Projections(monkeypatch, meta=0)
+    proj.meta_result = RuntimeError("store down")
+    dest = _write_env(tmp_path, a_design=False, meta_over={"sample": _stamp_of_real()})
+    snapshot = _write_bundle(tmp_path, _NEW_DESCRIPTION)
+    newer = read_bundled(snapshot.read_bytes())
+
+    _refresh(_cfg(tmp_path), snapshot)
+    assert (dest / "metadata.ttl").read_bytes() == _NEW_DESCRIPTION["registry/metadata.ttl"]
+    assert (dest / "mie.yaml").read_bytes() == _NEW_DESCRIPTION["registry/mie.yaml"]
+    assert len(proj.meta_calls) == 1
+    assert "http://example.org/" in proj.meta_calls[0]["metadata.ttl"]
+    stamp = _read_meta(dest)["sample"]
+    assert stamp["seq"] == newer.seq
+    assert "description" not in stamp["units"]  # 失敗は印に入れない
+    assert proj.onto_calls == []  # 設計は変わっていない
+
+    # ファイルは新しくなったので、次の起動は「ファイルが違う」ではなく印で再投影を決める
+    proj.meta_result = 7
+    _refresh(_cfg(tmp_path), snapshot)
+    assert len(proj.meta_calls) == 2
+    assert _read_meta(dest)["sample"]["units"]["description"] == newer.units["description"]
+
+    _refresh(_cfg(tmp_path), snapshot)  # 収束したら何もしない
+    assert len(proj.meta_calls) == 2
+
+
+def test_refresh_description_zero_triples_is_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proj = _Projections(monkeypatch, meta=0)
+    dest = _write_env(tmp_path, a_design=False, meta_over={"sample": _stamp_of_real()})
+    snapshot = _write_bundle(tmp_path, _NEW_DESCRIPTION)
+    _refresh(_cfg(tmp_path), snapshot)
+    assert "description" not in _read_meta(dest)["sample"]["units"]
+    _refresh(_cfg(tmp_path), snapshot)
+    assert len(proj.meta_calls) == 2  # 説明があるのに 0 件のあいだは毎回やり直す
+
+
+def test_refresh_crash_between_the_files_and_the_stamp_still_reprojects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ファイルを置き換えた後・meta を書く前に落ちた環境（印は古い版のまま）。"""
+    proj = _Projections(monkeypatch)
+    dest = _write_env(tmp_path, a_design=False, meta_over={"sample": _stamp_of_real()})
+    for member, blob in _NEW_DESCRIPTION.items():
+        (dest / member[len("registry/") :]).write_bytes(blob)
+    _refresh(_cfg(tmp_path), _write_bundle(tmp_path, _NEW_DESCRIPTION))
+    assert len(proj.meta_calls) == 1
+    assert "description" in _read_meta(dest)["sample"]["units"]
+
+
+def test_refresh_holds_ids_move_from_the_real_wiring_and_touches_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """公開時の ID の作り方が同梱の設計で変わる版 → 設計は保留（環境自身の published_subjects
+    でなく、同梱の設計から計算した値と比べていること）。"""
+    proj = _Projections(monkeypatch)
+    dest = _write_env(tmp_path, a_design=False, meta_over={"sample": _stamp_of_real()})
+    mapping = _real_members()["registry/mapping.yaml"].decode("utf-8")
+    assert "wr:country/{country}" in mapping
+    moved = mapping.replace("wr:country/{country}", "wr:nation/{country}").encode("utf-8")
+    snapshot = _write_bundle(tmp_path, {"registry/mapping.yaml": moved})
+    before = {p: p.read_bytes() for p in dest.rglob("*") if p.is_file() and p.name != "meta.json"}
+    _refresh(_cfg(tmp_path), snapshot)
+    assert {p: p.read_bytes() for p in before} == before  # ファイルは変わらない
+    meta = _read_meta(dest)
+    assert ("design", "ids_move") in {(h["unit"], h["reason"]) for h in meta["sample"]["held"]}
+    assert "design" not in meta["sample"]["units"]
+    assert meta["classes"] == ["国", "年ごとの記録"]
+    assert proj.onto_calls == []
+
+
+def test_refresh_tools_held_does_not_hide_a_tool_added_meanwhile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ツール単位が保留（ファイルが読めない）のあいだに seq だけ進んでも、その版で同梱に
+    入った新しいツールを、次の起動で「利用者が消した」と取り違えない。"""
+    _Projections(monkeypatch)
+    added = _custom_tool("brand_new_tool")
+    snapshot = _write_bundle(
+        tmp_path,
+        {"registry/query_tools.yaml": demo_sample.dump_tools([*_real_tools(), added])},
+    )
+    dest = _write_env(tmp_path, a_design=False, meta_over={"sample": _stamp_of_real()})
+    tools_file = dest / "query_tools.yaml"
+    tools_file.write_bytes(b"tools: [unclosed\n")
+
+    _refresh(_cfg(tmp_path), snapshot)
+    assert tools_file.read_bytes() == b"tools: [unclosed\n"  # 読めないファイルは触らない
+    stamp = _read_meta(dest)["sample"]
+    assert stamp["seq"] == 4
+    assert stamp["tools_seq"] == 3  # ツールはまだ 4 版まで受け取っていない
+    assert "tools" not in stamp["units"]
+
+    # 利用者がファイルを直した（配った版のバイトではない）→ 合流して新しいツールも入る
+    tools_file.write_bytes(demo_sample.dump_tools([*_real_tools(), _custom_tool("my_own")]))
+    _refresh(_cfg(tmp_path), snapshot)
+    names = [t["name"] for t in demo_sample.parse_tools(tools_file.read_text(encoding="utf-8"))]
+    assert "brand_new_tool" in names
+    assert "my_own" in names
+    stamp = _read_meta(dest)["sample"]
+    assert stamp["tools_seq"] == 4
+    assert "tools" in stamp["units"]
+
+    # 受け取った後に利用者が消したものは、足し直さない
+    tools_file.write_bytes(demo_sample.dump_tools([*_real_tools(), _custom_tool("my_own")]))
+    _refresh(_cfg(tmp_path), snapshot)
+    names = [t["name"] for t in demo_sample.parse_tools(tools_file.read_text(encoding="utf-8"))]
+    assert "brand_new_tool" not in names
+
+
+def test_refresh_still_held_is_logged_every_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _Projections(monkeypatch)
+    dest = _write_env(tmp_path)
+    mapping = dest / "mapping.yaml"
+    mapping.write_bytes(mapping.read_bytes() + b"# my note\n")
+    _refresh(_cfg(tmp_path))
+    with caplog.at_level("INFO", logger="asterism_api.demo_sample"):
+        _refresh(_cfg(tmp_path))  # 書き込みは無いが、保留の理由コードは 1 行出る
+    assert any(
+        "still held" in r.getMessage() and "design:edited" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_atomic_temp_file_names_are_recognised() -> None:
+    assert registry.is_atomic_tmp_name(f".meta.json.{'a' * 32}.tmp")
+    assert not registry.is_atomic_tmp_name("meta.json")
+    assert not registry.is_atomic_tmp_name("notes.tmp")
+    assert not registry.is_atomic_tmp_name(".hidden")
 
 
 def test_update_meta_atomic_keeps_the_original_when_the_write_fails(

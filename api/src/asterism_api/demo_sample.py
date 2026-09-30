@@ -394,14 +394,26 @@ def read_bundled(payload: bytes) -> Bundled:
 
 
 def build_stamp(
-    bundled: Bundled, reached: Iterable[str], held: Sequence[Mapping[str, str]], applied_at: str
+    bundled: Bundled,
+    reached: Iterable[str],
+    held: Sequence[Mapping[str, str]],
+    applied_at: str,
+    *,
+    tools_seq: int | None = None,
 ) -> dict[str, Any]:
-    """meta.json の ``sample`` 欄。``units`` には「同梱と同じ状態まで届いた単位」だけを入れる。"""
+    """meta.json の ``sample`` 欄。``units`` には「同梱と同じ状態まで届いた単位」だけを入れる。
+
+    ``tools_seq`` は「ツールの合流を最後にやり終えた版の seq」（省略は ``bundled.seq``）。
+    ツール単位が保留（読めない・data 保留）のままでも ``seq`` は進むので、ツールについて
+    「環境が受け取った版」は ``seq`` でなくこちらで持つ — でないと、その間に同梱へ入った
+    新しいツールを、次の起動で「利用者が消した」と取り違えて永久に配らない。
+    """
     have = set(reached)
     return {
         "seq": bundled.seq,
         "revision": bundled.revision,
         "applied_at": applied_at,
+        "tools_seq": bundled.seq if tools_seq is None else tools_seq,
         "units": {u: bundled.units[u] for u in STAMP_UNITS if u in have},
         "held": [dict(h) for h in held],
     }
@@ -414,9 +426,13 @@ def _valid_stamp(raw: Any) -> dict[str, Any] | None:
         return None
     units = raw.get("units")
     held = raw.get("held")
+    tools_seq = raw.get("tools_seq")
+    if not isinstance(tools_seq, int) or isinstance(tools_seq, bool):
+        tools_seq = raw["seq"]
     return {
         "seq": raw["seq"],
         "revision": raw.get("revision"),
+        "tools_seq": tools_seq,
         "units": units if isinstance(units, dict) else {},
         "held": held if isinstance(held, list) else [],
     }
@@ -424,7 +440,13 @@ def _valid_stamp(raw: Any) -> dict[str, Any] | None:
 
 def stamp_core(stamp: Mapping[str, Any]) -> tuple[Any, ...]:
     """印の比べる部分（``applied_at`` は入れない — 結果が同じなら書き直さない）。"""
-    return (stamp.get("seq"), stamp.get("revision"), stamp.get("units"), stamp.get("held"))
+    return (
+        stamp.get("seq"),
+        stamp.get("revision"),
+        stamp.get("tools_seq"),
+        stamp.get("units"),
+        stamp.get("held"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +578,8 @@ class RefreshPlan:
     # 投影を待たずに「同梱と同じ状態まで届いた」単位
     reached: set[str] = field(default_factory=set)
     held: list[dict[str, str]] = field(default_factory=list)
+    # ツールの合流を最後にやり終えた版の seq（印の ``tools_seq``）
+    tools_seq: int = 0
 
 
 def _held(unit: str, reason: str, detail: str | None = None) -> dict[str, str]:
@@ -632,12 +656,19 @@ def plan_refresh(
             if sha256_hex(files[p]) != bundled.files[p]:
                 plan.replace[_rel(p)] = bundled.members[p]
                 changed = True
-        if changed:
+        # ファイルが同じでも、印が「この版の説明まで届いた」と言っていなければ投影し直す:
+        # 前の起動で投影が失敗した（ファイルは置き換え済み）・置き換えと印の書き込みの間で
+        # 落ちた、のどちらも、次の起動で収束させるため（design の派生と同じ 1 つの規則）。
+        if changed or stamp_units.get(UNIT_DESCRIPTION) != bundled.units[UNIT_DESCRIPTION]:
             plan.reproject_description = True
         else:
             plan.reached.add(UNIT_DESCRIPTION)
 
     # --- tools: 丸ごと触っていなければバイトで、触っていればツール名ごとに合流 --
+    # 環境がツールについて受け取った版: 印があれば印の ``tools_seq``、無ければ印より前に
+    # 配った版すべて。合流をやり終えたら今回の版まで進める（保留・読めないときは進めない）。
+    seen_seq = stamp["tools_seq"] if stamp else min(PRE_STAMP_LAST_SEQ, bundled.seq)
+    plan.tools_seq = min(seen_seq, bundled.seq)
     if data_differs:
         held.append(_held(UNIT_TOOLS, HELD_DATA))
     else:
@@ -646,15 +677,15 @@ def plan_refresh(
             if sha256_hex(env_bytes) != bundled.files.get(TOOLS_MEMBER):
                 plan.replace[_rel(TOOLS_MEMBER)] = bundled.members[TOOLS_MEMBER]
             plan.reached.add(UNIT_TOOLS)
+            plan.tools_seq = bundled.seq
         else:
             try:
                 env_tools = parse_tools(env_bytes.decode("utf-8")) if env_bytes else []
             except (ValueError, UnicodeDecodeError):
                 held.append(_held(UNIT_TOOLS, HELD_EDITED, _rel(TOOLS_MEMBER)))
             else:
-                # 環境が受け取った版: 印があれば印の seq、無ければ印より前に配った版すべて。
-                seen_seq = stamp["seq"] if stamp else min(PRE_STAMP_LAST_SEQ, bundled.seq)
                 merged, edited = merge_tools(bundled, env_tools, seen_seq=seen_seq)
+                plan.tools_seq = bundled.seq
                 if merged != env_tools:
                     plan.replace[_rel(TOOLS_MEMBER)] = dump_tools(merged)
                 for name in edited:
@@ -796,13 +827,23 @@ async def _refresh(cfg: Any, client: Any, snapshot_path: Path | None) -> None:
         changes["name"] = plan.new_name
 
     # 3. 最後に meta を 1 回だけ、原子的に書く。変わるものが無ければ書かない。
-    stamp = build_stamp(bundled, reached, plan.held, datetime.now(UTC).isoformat())
+    stamp = build_stamp(
+        bundled, reached, plan.held, datetime.now(UTC).isoformat(), tools_seq=plan.tools_seq
+    )
     old = _valid_stamp(meta.get("sample"))
-    old_core = (old["seq"], old["revision"], old["units"], old["held"]) if old is not None else None
+    old_core = stamp_core(old) if old is not None else None
     if old_core != stamp_core(stamp):
         changes["sample"] = stamp
     changes = {k: v for k, v in changes.items() if k == "sample" or meta.get(k) != v}
     if not changes:
+        if plan.held:
+            # 保留のまま続く起動は書き込みが無い。ログだけでは入れ替わっていないことが
+            # 分からなくなるので、判定のたびに理由コードを 1 行出す。
+            logger.info(
+                "refresh_bundled_sample: seq %s — still held %s",
+                bundled.seq,
+                [f"{h['unit']}:{h['reason']}" for h in plan.held],
+            )
         return
     registry.update_meta_atomic(root, bundled.dataset_id, changes)
     logger.info(
