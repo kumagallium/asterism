@@ -69,6 +69,7 @@ from asterism.metadata import (
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
+    model_yaml_class_labels,
     project_mapping_ir,
     project_model_yaml,
 )
@@ -2458,6 +2459,8 @@ async def _project_ontology_graph(
     does this fall back to the legacy ``model.yaml`` TBox (rdf-config list or
     the plain ``classes:``/``properties:`` mapping shape — both accepted by
     :func:`project_model_yaml`), which never carries an authored label.
+    IR に種類の表示名（``subject.label``）が無いときは、model.yaml の
+    ``classes.<curie>.label`` の表示名を使う（無ければローカル名）。
     Prefixes resolve from the bundle's own RML / MIE declarations (so ``sd:`` /
     ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, then
     replaces the ontology graph (DROP then load) so a re-promote has no stale
@@ -2476,7 +2479,9 @@ async def _project_ontology_graph(
 
     graph = None
     if mapping_ir_yaml.strip():
-        graph = project_mapping_ir(mapping_ir_yaml, prefixes)
+        graph = project_mapping_ir(
+            mapping_ir_yaml, prefixes, class_labels=model_yaml_class_labels(model_yaml)
+        )
         if len(graph) == 0:
             logger.warning(
                 "dataset %s: mapping.yaml (Mapping IR) present but projected "

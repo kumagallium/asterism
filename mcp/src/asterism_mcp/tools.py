@@ -458,9 +458,7 @@ async def property_ranking(
             f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ; sd:yMax ?ymax .\n'
             + f"  FILTER(?ymax > {float(max_plausible)})\n"
         )
-        count_q = _scoped_select(
-            _PREFIXES + "SELECT (COUNT(?curve) AS ?n)", count_body, from_block
-        )
+        count_q = _scoped_select(_PREFIXES + "SELECT (COUNT(?curve) AS ?n)", count_body, from_block)
         cb = _bindings(await client.sparql_select(count_q))
         if cb:
             excluded = int(float(_cell(cb[0], "n") or 0))
@@ -874,12 +872,27 @@ async def dataset_descriptions(client: OxigraphClient) -> dict[str, str]:
     return out
 
 
+def _iri_local_name(iri: str) -> str:
+    """IRI の最後の ``:`` ``/`` ``#`` の後ろ（``_local_name`` と同じ切り方）。"""
+    for sep in (":", "/", "#"):
+        if sep in iri:
+            iri = iri.rsplit(sep, 1)[-1]
+    return iri
+
+
 async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
     """``term IRI -> rdfs:label`` from the projected ontology graph(s) (#20 step5).
 
     Reads named graphs under the ontology prefix directly (these are deliberately
     NOT in the canonical scope — TBox is separate from citable ABox). Empty dict
     when no ontology graph exists, so callers degrade to label-free output.
+
+    語のローカル名（IRI の最後の ``#`` ``/`` ``:`` の後ろ）と同じ文字列の
+    ``rdfs:label`` は読み飛ばす。投影は名前の無い語にローカル名を ``rdfs:label``
+    として書くので、それは名前ではなく代わりの値であり、拾うと生の識別子を人に
+    見せる上に、別の graph が付けた表示名にも辞書順で勝ってしまう。ローカル名
+    しか無い語は結果に入れない（api の ``_kind_labels`` の「ローカル名がそのまま
+    返ってきた種類は入れない」と同じ線引き）。
     """
     # ORDER BY ?l makes the pick deterministic when the same term has multiple
     # labels across datasets (e.g. two designs both project a label for the same
@@ -894,7 +907,7 @@ async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
     out: dict[str, str] = {}
     for r in _bindings(await client.sparql_select(q)):
         term, label = _cell(r, "t"), _cell(r, "l")
-        if term and label and term not in out:
+        if term and label and term not in out and label != _iri_local_name(term):
             out[term] = label
     return out
 
@@ -1075,10 +1088,7 @@ async def sparql_query(
     columns = head.get("vars", []) if isinstance(head, dict) else []
     bindings = _bindings(raw)
     truncated = len(bindings) > max_rows
-    rows = [
-        {var: _flatten_cell(r.get(var)) for var in columns}
-        for r in bindings[:max_rows]
-    ]
+    rows = [{var: _flatten_cell(r.get(var)) for var in columns} for r in bindings[:max_rows]]
     # Untyped numbers under ORDER/aggregate/compare: the silent wrong answer.
     # Reported next to the rows so the caller (an LLM loop, a UI) can qualify
     # what it says instead of presenting a text-sorted "maximum" as a fact.
