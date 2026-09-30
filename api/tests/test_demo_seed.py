@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from asterism_api import local
+from asterism_api import main as main_mod
 from asterism_api.main import Settings
 
 _DATASET_ID = "world"
@@ -110,6 +111,20 @@ def _patch_success_pipeline(
         assert namespace == "subjects"
         written.append(payload)
 
+    async def fake_project_ontology(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+        recorder.calls.append("project_ontology_graph")
+        assert dataset_id == _DATASET_ID
+        assert artifacts == {"mapping.yaml": "TriplesMap: {}"}
+        return 1
+
+    async def fake_project_meta(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+        recorder.calls.append("project_meta_graph")
+        assert dataset_id == _DATASET_ID
+        assert artifacts == {"mapping.yaml": "TriplesMap: {}"}
+        return 1
+
+    monkeypatch.setattr(main_mod, "_project_ontology_graph", fake_project_ontology)
+    monkeypatch.setattr(main_mod, "_project_meta_graph", fake_project_meta)
     monkeypatch.setattr(local.exchange, "import_snapshot", fake_import_snapshot)
     monkeypatch.setattr(local.registry, "load_dataset", fake_load_dataset)
     monkeypatch.setattr(local.registry, "list_datasets", lambda root: [])
@@ -139,6 +154,8 @@ def test_seed_runs_import_then_promote_internals_in_order(
         "alignment_report",
         "promote_to_canonical",
         "mark_promoted",
+        "project_ontology_graph",
+        "project_meta_graph",
         "find_japan",
         "write_thread:individual",
         "write_thread:set",
@@ -433,3 +450,28 @@ def test_find_world_snapshot_none_when_nothing_matches(
     monkeypatch.setattr(local, "_bundled_world_snapshot_candidates", lambda: [])
 
     assert local.find_world_snapshot() is None
+
+
+def test_projection_failure_does_not_block_marker_or_starter_subjects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """投影が例外を出しても、マーカーが付き、最初の記録の書き込みも走る。"""
+    home = tmp_path / "home"
+    home.mkdir()
+    cfg = _settings(tmp_path)
+    recorder = _Recorder()
+    written = _patch_success_pipeline(monkeypatch, recorder)
+    monkeypatch.setattr(local, "find_world_snapshot", lambda: _fake_snapshot(tmp_path))
+
+    async def boom(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+        recorder.calls.append("boom")
+        raise RuntimeError("projection failed")
+
+    monkeypatch.setattr(main_mod, "_project_ontology_graph", boom)
+    monkeypatch.setattr(main_mod, "_project_meta_graph", boom)
+
+    asyncio.run(local.seed_demo_dataset(home, cfg, client=object()))
+
+    assert recorder.calls.count("boom") == 2
+    assert (home / "demo-seeded").is_file()
+    assert {item["kind"] for item in written} == {"individual", "set"}
