@@ -9531,6 +9531,12 @@ tr.kz-cols-dropped td {
 .ontomap-flow .react-flow__controls {
   pointer-events: auto !important;
 }
+/* 細い列の図（段 6「ためす」）は、操作ボタンを上の帯に横に並べる。右上の
+   「大きく見る」と同じ高さ・同じ余白に揃える。帯の高さは `ShapeGraph.tsx` の
+   `NARROW_BAND` と一致していること（図はその下に収める）。 */
+.shape-graph--narrow .react-flow__controls {
+  margin: 0.35rem;
+}
 
 /* ── 共通のことばの育つ地図（shared-vocab-graph.md） ─────────────────────────
    `.vocab-map` は `.shape-graph` を併用する: 箱・手すり（handle 非表示）・既定の
