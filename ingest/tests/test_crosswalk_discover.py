@@ -673,12 +673,21 @@ async def test_discover_profiles_a_shared_naming_predicate_per_kind() -> None:
             return "試料化学組成"
         return None
 
+    asked: list[list[tuple[str, str]]] = []
+
+    async def kind_labels_of(kinds):
+        asked.append(list(kinds))
+        return {(ds, cls): "組成" for ds, cls in kinds if cls.endswith("Composition")}
+
     result = await discover(
         _DatasetClient(store),
         _ds("ds-a", "ds-b"),
         field_label_of=field_label_of,
-        class_label_of=lambda _ds, cls: "組成" if cls.endswith("Composition") else None,
+        kind_labels_of=kind_labels_of,
     )
+    assert len(asked) == 1  # まとめて 1 回だけ
+    assert ("ds-a", f"{NS}Composition") in asked[0]
+    assert len(asked[0]) == len(set(asked[0]))  # 重複なし
     assert len(result["candidates"]) == 1
     cand = result["candidates"][0]
     assert cand["concept"] == "composition"  # the kind's word, never "label"
@@ -700,11 +709,73 @@ async def test_discover_profiles_a_shared_naming_predicate_per_kind() -> None:
     parse_config(cand["build_config"])  # still a valid config
 
 
+async def test_discover_asks_kind_names_only_for_surviving_candidates() -> None:
+    """T12: ``max_candidates`` で切られた候補の種類は、名前の口に渡らない。"""
+    store = rdflib.Dataset()
+    _seed_kinds(
+        store,
+        "ds-a",
+        [
+            ("Composition", RDFS_LABEL, "Bi2Te3"),
+            ("Composition", RDFS_LABEL, "PbTe"),
+            ("Doi", RDFS_LABEL, "10.1000/x1"),
+            ("Doi", RDFS_LABEL, "10.1000/x2"),
+        ],
+    )
+    _seed_kinds(
+        store,
+        "ds-b",
+        [
+            ("Sample", RDFS_LABEL, "Bi2Te3"),
+            ("Sample", RDFS_LABEL, "PbTe"),
+            ("Paper", RDFS_LABEL, "10.1000/x1"),
+            ("Paper", RDFS_LABEL, "10.1000/x2"),
+        ],
+    )
+
+    async def run(max_candidates: int):
+        asked: list[list[tuple[str, str]]] = []
+
+        async def kind_labels_of(kinds):
+            asked.append(list(kinds))
+            return {}
+
+        result = await discover(
+            _DatasetClient(store),
+            _ds("ds-a", "ds-b"),
+            limits=DiscoverLimits(max_candidates=max_candidates),
+            kind_labels_of=kind_labels_of,
+        )
+        return result, asked
+
+    full, asked_full = await run(10)
+    assert len(full["candidates"]) >= 2
+    cut, asked_cut = await run(1)
+    assert len(cut["candidates"]) == 1
+    assert len(asked_cut) == 1
+    used = {
+        (p["dataset_id"], p["subject_class"])
+        for p in cut["candidates"][0]["participants"]
+        if p["subject_class"]
+    }
+    assert set(asked_cut[0]) == used
+    assert len(asked_cut[0]) < len(set(asked_full[0]))
+
+
 async def test_discover_keeps_untyped_subjects_as_kindless_slots() -> None:
     store = rdflib.Dataset()
     _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe"])
     _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe"])
-    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+    called: list[object] = []
+
+    async def kind_labels_of(kinds):
+        called.append(kinds)
+        return {}
+
+    result = await discover(
+        _DatasetClient(store), _ds("ds-a", "ds-b"), kind_labels_of=kind_labels_of
+    )
+    assert called == []  # 種類のあるスロットが無ければ口は呼ばれない
     cand = result["candidates"][0]
     assert all(p["subject_class"] is None for p in cand["participants"])
     assert all(p["subject_class_label"] is None for p in cand["participants"])

@@ -164,7 +164,7 @@ def _concept_labels_for_config(
     ``None``（``build_hub`` は今のまま実装の語のフォールバックに落ちる）。"""
     if label_resolvers is None:
         return None
-    predicate_label_of, field_label_of, _class_label_of = label_resolvers(registry_root)
+    predicate_label_of, field_label_of = label_resolvers(registry_root)
     return crosswalk_names.concept_labels_for_config(config, field_label_of, predicate_label_of)
 
 
@@ -370,7 +370,7 @@ async def maybe_autolink_handles(
             _mark_auto_linked(registry_root, perspective_id, dataset_id, created=created)
             if label_resolvers is not None:
                 # 機械が付けた名前（概念のキー）を、表示名で書き直す。
-                predicate_label_of, field_label_of, _ = label_resolvers(registry_root)
+                predicate_label_of, field_label_of = label_resolvers(registry_root)
                 crosswalk_names.refresh_auto_name(
                     registry_root, perspective_id, field_label_of, predicate_label_of
                 )
