@@ -94,7 +94,7 @@ from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import propose_schema
 from asterism_step0.refine import refine_schema
 from asterism_step0.rml_compile import RmlCompileError, compile_mapping_ir
-from asterism_step0.skeleton_annotate import annotate_skeleton
+from asterism_step0.skeleton_annotate import annotate_skeleton, catalog_homes
 from asterism_step0.spec_repair import (
     SPEC_REPAIR_SYSTEM_PROMPT,
     build_spec_repair_user,
@@ -425,75 +425,14 @@ def _gate_annotations(
         return {}
 
 
-def _catalog_homes(
-    skeleton: Mapping[str, Any], annotations: Mapping[str, Any]
-) -> dict[str, str]:
+def _catalog_homes(skeleton: Mapping[str, Any], annotations: Mapping[str, Any]) -> dict[str, str]:
     """Per ☑ value catalog, the map that HELD its column before the ☑ (K58).
 
-    Kantan S4 turns a checked column into a "value catalog" map (K33: keyed on
-    that ONE column, ``owns == [column]``). The link INTO that catalog belongs to
-    the kind the column came from — the manual's own words for the dotted line:
-    「☑ を付けた項目は元の種類から外れず、参照として持ち続けます」. For a
-    preface (broadcast) column that is the file's card; for a table column it
-    is the row kind. Neither is written in the skeleton, but the gate's
-    annotation states it: a map whose key DETERMINES the column shows it as a
-    constant of its representative entity (``entity_preview.all_values``), and
-    among those maps the one minting the FEWEST entities is the owner (ADR
-    column-ownership G1 — the same normalisation that puts a per-card constant
-    on the card, not on each of its 47 peaks). Ties keep skeleton order
-    (parents first).
-
-    Returns ``{catalog map name: home map name}``; a catalog with no provable
-    home is simply absent (the deterministic assembly then leaves it to the
-    K49 repair, which decides the same way from the rows).
+    The rule lives in ``skeleton_annotate.catalog_homes`` — the gate's diagram
+    reads the same verdict (``catalog_home`` on each annotation), so the dotted
+    line on screen and the edge the assembly writes cannot disagree.
     """
-    maps = [m for m in (skeleton.get("maps") or []) if isinstance(m, Mapping)]
-    anns: Mapping[str, Any] = annotations.get("maps") or {}
-    order = {str(m.get("name")): i for i, m in enumerate(maps)}
-
-    def _is_catalog(m: Mapping[str, Any]) -> bool:
-        if (anns.get(str(m.get("name"))) or {}).get("value_catalog"):
-            return True
-        keys = _placeholders(str((m.get("subject") or {}).get("template") or ""))
-        owns = [str(c) for c in (m.get("owns") or [])]
-        return len(keys) == 1 and owns == keys
-
-    def _determined(m: Mapping[str, Any], column: str) -> bool:
-        card = (anns.get(str(m.get("name"))) or {}).get("entity_preview")
-        if not isinstance(card, Mapping):
-            return False
-        conflicts = {
-            str(p.get("column"))
-            for p in card.get("properties") or []
-            if isinstance(p, Mapping) and p.get("conflict")
-        }
-        constants = {
-            str(v.get("column")) for v in card.get("all_values") or [] if isinstance(v, Mapping)
-        }
-        return column in constants and column not in conflicts
-
-    homes: dict[str, str] = {}
-    for m in maps:
-        name = str(m.get("name") or "")
-        if not name or not _is_catalog(m):
-            continue
-        keys = _placeholders(str((m.get("subject") or {}).get("template") or ""))
-        if len(keys) != 1:
-            continue
-        column = keys[0]
-        source = str(m.get("source") or "")
-        ranked: list[tuple[int, int, str]] = []
-        for other in maps:
-            oname = str(other.get("name") or "")
-            if oname == name or str(other.get("source") or "") != source:
-                continue
-            if _is_catalog(other) or not _determined(other, column):
-                continue
-            count = int((anns.get(oname) or {}).get("distinct_ids") or 0)
-            ranked.append((count, order.get(oname, 0), oname))
-        if ranked:
-            homes[name] = min(ranked)[2]
-    return homes
+    return catalog_homes(skeleton, {"maps": annotations.get("maps") or {}})
 
 
 def _column_owners(

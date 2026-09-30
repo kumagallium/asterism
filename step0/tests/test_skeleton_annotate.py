@@ -1392,3 +1392,59 @@ def test_assemble_orders_record_key_coarse_to_fine(tmp_path: Path) -> None:
     tpl = record["subject"]["template"]
     # 異なり数 SID(2) < figure_id(3) < sample_id(4) → 粗 → 細。
     assert tpl.endswith(":record/{SID}/{figure_id}/{sample_id}")
+
+
+def test_catalog_home_is_stamped_for_every_file(tmp_path: Path) -> None:
+    """K58 の「元の種類」は、ファイルが何本あってもファイルごとに押印される。
+
+    ⑤の図はこれを読んで点線を引く。以前は図が 1 つの表（いちばん件数の多い
+    表）の受け口しか知らず、別のファイルで作った受け口が線の無い白い箱に見えた
+    （実機 2026-09-30: Starrydata の 3 ファイル設計で composition が孤立）。
+    """
+    (tmp_path / "curves.csv").write_text(
+        "sample_id,figure_id,composition,x,y\n"
+        "S1,F1,Bi2Te3,1,2\nS1,F1,Bi2Te3,2,3\nS2,F1,PbTe,1,5\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "samples.csv").write_text(
+        "SID,sample_id,composition,sample_name\n"
+        "P1,S1,Bi2Te3,a\nP1,S2,PbTe,b\nP2,S3,SnSe,c\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {
+                "name": "curve",
+                "source": "curves.csv",
+                "subject": {
+                    "template": "xr:curve/{sample_id}/{figure_id}/{x}",
+                    "classes": ["xo:Curve"],
+                },
+            },
+            {
+                "name": "composition",
+                "source": "curves.csv",
+                "subject": {"template": "xr:composition/{composition}"},
+                "owns": ["composition"],
+            },
+            {
+                "name": "sample",
+                "source": "samples.csv",
+                "subject": {"template": "xr:sample/{SID}/{sample_id}", "classes": ["xo:Sample"]},
+            },
+            {
+                "name": "composition2",
+                "source": "samples.csv",
+                "subject": {"template": "xr:composition2/{composition}"},
+                "owns": ["composition"],
+            },
+        ],
+    }
+    ann = annotate_skeleton(skeleton, [tmp_path / "curves.csv", tmp_path / "samples.csv"])["maps"]
+    assert ann["composition"]["catalog_home"] == "curve"
+    assert ann["composition2"]["catalog_home"] == "sample"
+    # 受け口でない種類には付かない
+    assert "catalog_home" not in ann["curve"]
+    assert "catalog_home" not in ann["sample"]

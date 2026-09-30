@@ -317,6 +317,10 @@ export interface SkeletonMapAnnotation {
   /** K33: この種類の ID は値そのもの（owns == キー列）。同じ値の行が 1 件に
    *  まとまるのは意図なので、ID 重複は事故として扱わない。 */
   value_catalog?: boolean
+  /** K58: 受け口（値のカタログ）の列を元々持っていた種類の map 名。サーバの
+   *  組み立てが辺を書くのと同じ規則（`skeleton_annotate.catalog_homes`）で、
+   *  ファイルごとに決まる。⑤の図の点線の出どころ。 */
+  catalog_home?: string
   /** Citation-consequence risks of this ID recipe (machine-readable kinds,
    *  copy lives in the UI): `measurement-id` — a corrected value mints a new
    *  ID and strands citations of the old one; `scope-missing` — unique in
