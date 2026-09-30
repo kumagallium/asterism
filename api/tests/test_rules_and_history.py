@@ -910,3 +910,1133 @@ def test_rules_name_every_kind_of_the_bundled_sample(tmp_path: Path) -> None:
         "CountryMap": "国",
         "ObservationMap": "年ごとの記録",
     }
+
+
+# ---------------------------------------------------------------------------
+# 行の表示名の引き方（述語×行が読む列 → 種類×述語 → 述語だけ）
+# ---------------------------------------------------------------------------
+
+_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+
+
+def _ir_header(*maps: str) -> str:
+    return (
+        "version: 1\n"
+        "prefixes:\n"
+        '  ex: "https://example.org/onto#"\n'
+        '  exr: "https://example.org/resource/"\n'
+        '  rdfs: "http://www.w3.org/2000/01/rdf-schema#"\n'
+        "maps:\n" + "".join(maps)
+    )
+
+
+def _real_summary(ir: str) -> dict:
+    """IR → 本物のコンパイル → 本物の要約（手書きの要約に頼らない）。"""
+    from asterism.rml_summary import summarize_rml
+    from asterism_step0.mapping_ir import parse_mapping_ir
+    from asterism_step0.rml_compile import compile_mapping_ir
+
+    return summarize_rml(compile_mapping_ir(parse_mapping_ir(ir)))
+
+
+def _resolve(ir: str) -> dict:
+    """/rules ハンドラと同じ順（merge → fill）で行の表示名を決めた要約。"""
+    from asterism_api.main import (
+        _fill_missing_labels,
+        _ir_display_by_column,
+        _ir_predicate_display,
+        _merge_ir_display_metadata,
+    )
+
+    summary = _real_summary(ir)
+    ir_meta = _merge_ir_display_metadata(ir, summary)
+    assert ir_meta == _ir_predicate_display(ir)
+    _fill_missing_labels(summary, {}, ir_meta, _ir_display_by_column(ir))
+    return summary
+
+
+def _rows(summary: dict, map_id: str, predicate_iri: str) -> list[dict]:
+    return [
+        r
+        for m in summary["maps"]
+        if m["id"] == map_id
+        for r in m["properties"]
+        if r["predicate_iri"] == predicate_iri
+    ]
+
+
+_MAP_COMP = """\
+  - name: comp
+    source: c.csv
+    subject:
+      template: "exr:comp/{comp}"
+      classes: [ex:Comp]
+    properties:
+      - predicate: rdfs:label
+        column: comp
+        label: "組成"
+"""
+_MAP_UNIT = """\
+  - name: unit_y
+    source: c.csv
+    subject:
+      template: "exr:unit/{unit_y}"
+      classes: [ex:UnitY]
+    properties:
+      - predicate: rdfs:label
+        column: unit_y
+        label: "縦軸単位"
+"""
+
+
+def test_rows_without_a_column_get_their_own_kinds_label() -> None:
+    """同じ述語をいくつもの種類が束縛しても、定数の行・テンプレートの行は
+    自分の種類の表示名になる（列の行の表示名を借りない・述語だけで落ちない）。"""
+    ir = _ir_header(
+        _MAP_COMP,
+        _MAP_UNIT,
+        """\
+  - name: prov
+    source: c.csv
+    subject:
+      template: "exr:prov/{pid}"
+      classes: [ex:Prov]
+    properties:
+      - predicate: rdfs:label
+        constant: "manual"
+        label: "来歴"
+  - name: yearly
+    source: c.csv
+    subject:
+      template: "exr:yearly/{yid}"
+      classes: [ex:Yearly]
+    properties:
+      - predicate: rdfs:label
+        object_template: "Year {y}"
+        object_type: literal
+        label: "年ごとの記録"
+""",
+    )
+    summary = _resolve(ir)
+    (prov_row,) = _rows(summary, "ProvMap", _LABEL)
+    (yearly_row,) = _rows(summary, "YearlyMap", _LABEL)
+    assert prov_row["kind"] == "constant"
+    assert yearly_row["kind"] == "template"
+    assert prov_row["label"] == "来歴"
+    assert yearly_row["label"] == "年ごとの記録"
+    assert _rows(summary, "CompMap", _LABEL)[0]["label"] == "組成"
+    assert _rows(summary, "UnitYMap", _LABEL)[0]["label"] == "縦軸単位"
+
+
+def test_function_row_reading_one_column_is_found_by_that_column() -> None:
+    """関数を通して列を 1 つ読む行（最上位に reference が無い）も、
+    複数の列に束縛された述語で自分の表示名になる。"""
+    ir = _ir_header(
+        _MAP_COMP,
+        """\
+  - name: doi
+    source: c.csv
+    subject:
+      template: "exr:doi/{doi}"
+      classes: [ex:Doi]
+    properties:
+      - predicate: rdfs:label
+        column: doi
+        function: slug
+        label: "文献DOI"
+""",
+    )
+    summary = _resolve(ir)
+    (row,) = _rows(summary, "DoiMap", _LABEL)
+    assert row["kind"] == "function"
+    assert "reference" not in row
+    assert row["label"] == "文献DOI"
+
+
+def test_templates_with_different_strings_each_keep_their_own_label() -> None:
+    """同じ種類・同じ述語に、文字列の違うテンプレートの行が 2 つあれば、
+    表示名が違っても、それぞれ自分の表示名になる（文字列で見分けられる）。"""
+    ir = _ir_header(
+        _MAP_COMP,
+        _MAP_UNIT,
+        """\
+  - name: yearly
+    source: c.csv
+    subject:
+      template: "exr:yearly/{yid}"
+      classes: [ex:Yearly]
+    properties:
+      - predicate: rdfs:label
+        object_template: "Year {y}"
+        object_type: literal
+        label: "年"
+      - predicate: rdfs:label
+        object_template: "Month {m}"
+        object_type: literal
+        label: "月"
+""",
+    )
+    summary = _resolve(ir)
+    rows = _rows(summary, "YearlyMap", _LABEL)
+    assert {r["template"]: r["label"] for r in rows} == {"Year {y}": "年", "Month {m}": "月"}
+
+
+def test_rows_that_the_rml_cannot_tell_apart_borrow_nothing() -> None:
+    """同じ種類・同じ述語に、RML に書き出される文字列では見分けられない行が 2 つ
+    （どちらも複数の列を読む関数）あり表示名が違うなら、どちらにも付けない。"""
+    ir = _ir_header(
+        """\
+  - name: rec
+    source: c.csv
+    subject:
+      template: "exr:rec/{rid}"
+      classes: [ex:Rec]
+    properties:
+      - predicate: ex:v
+        columns: [a, b]
+        function: float_array_count
+        datatype: xsd:integer
+        label: "一つ目"
+      - predicate: ex:v
+        columns: [c, d]
+        function: float_array_count
+        datatype: xsd:integer
+        label: "二つ目"
+""",
+    )
+    summary = _resolve(ir)
+    rows = _rows(summary, "RecMap", "https://example.org/onto#v")
+    assert len(rows) == 2
+    # 種類×述語の引きは割れて黙る。述語の読み下しも述語名と同じなので無印。
+    assert all(r.get("label") is None for r in rows)
+
+
+def test_constant_row_never_borrows_the_column_rows_label() -> None:
+    """同じ種類・同じ述語の列の行（表示名 A）と定数の行（表示名 B）は、
+    定数の行が B になる（A を借りない）。"""
+    ir = _ir_header(
+        _MAP_UNIT,
+        """\
+  - name: mix
+    source: c.csv
+    subject:
+      template: "exr:mix/{mid}"
+      classes: [ex:Mix]
+    properties:
+      - predicate: rdfs:label
+        column: mname
+        label: "A 列の名前"
+      - predicate: rdfs:label
+        constant: "fixed"
+        label: "B 定数の名前"
+""",
+    )
+    summary = _resolve(ir)
+    by_kind = {r["kind"]: r["label"] for r in _rows(summary, "MixMap", _LABEL)}
+    assert by_kind == {"reference": "A 列の名前", "constant": "B 定数の名前"}
+
+
+def test_column_rows_of_one_kind_keep_their_own_column_heading() -> None:
+    """同じ種類・同じ述語を 2 つの列が束縛し、どちらにも表示名が無いとき、
+    列の行はそれぞれ自分の列の見出しになる（種類×述語の引き方に流れない）。"""
+    ir = _ir_header(
+        """\
+  - name: rec
+    source: c.csv
+    subject:
+      template: "exr:rec/{rid}"
+      classes: [ex:Rec]
+    properties:
+      - predicate: ex:v
+        column: alpha
+      - predicate: ex:v
+        column: beta
+""",
+    )
+    summary = _resolve(ir)
+    got = {
+        r["reference"]: r["label"] for r in _rows(summary, "RecMap", "https://example.org/onto#v")
+    }
+    assert got == {"alpha": "alpha", "beta": "beta"}
+
+
+_LINK_MAPS = """\
+  - name: parent
+    source: c.csv
+    subject:
+      template: "exr:parent/{pid}"
+      classes: [ex:Parent]
+      label: "親の種類"
+    properties:
+      - predicate: ex:n
+        column: pn
+  - name: bare
+    source: c.csv
+    subject:
+      template: "exr:bare/{bid}"
+      classes: [ex:Bare]
+    properties:
+      - predicate: ex:n
+        column: bn
+  - name: child
+    source: c.csv
+    subject:
+      template: "exr:child/{cid}"
+      classes: [ex:Child]
+    properties:
+      - predicate: ex:belongsTo
+        object_template: "exr:parent/{pid}"
+      - predicate: ex:pointsAt
+        object_template: "exr:bare/{bid}"
+      - predicate: ex:named
+        object_template: "exr:parent/{pid}"
+        label: "書いてある名前"
+"""
+
+
+def test_link_row_reads_the_target_kinds_label() -> None:
+    """表示名の無いつなぐ行は、つなぐ先の種類の表示名になる。
+    つなぐ先に表示名が無ければ付かない。行に書いた表示名が勝つ。"""
+    summary = _resolve(_ir_header(_LINK_MAPS))
+    onto = "https://example.org/onto#"
+    (belongs,) = _rows(summary, "ChildMap", onto + "belongsTo")
+    (points,) = _rows(summary, "ChildMap", onto + "pointsAt")
+    (named,) = _rows(summary, "ChildMap", onto + "named")
+    assert belongs["label"] == "親の種類"
+    assert named["label"] == "書いてある名前"
+    # つなぐ先に表示名が無い: 付かないので、述語の読み下し（今までどおり）に落ちる
+    assert points["label"] == "points At"
+
+
+def _saved_client(tmp_path: Path, healthy_client, ir: str) -> tuple[TestClient, str]:
+    from asterism_step0.mapping_ir import parse_mapping_ir
+    from asterism_step0.rml_compile import compile_mapping_ir
+
+    artifacts = dict(
+        _ARTIFACTS,
+        **{
+            "mapping.rml.ttl": compile_mapping_ir(parse_mapping_ir(ir)),
+            "mapping.yaml": ir,
+            "model.yaml": "",
+        },
+    )
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Records",
+        artifacts,
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-09-30T00:00:00+00:00",
+        proposal_md="",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    return TestClient(app, headers=_AUTH), meta["id"]
+
+
+def test_rules_endpoint_names_columnless_rows_and_links(tmp_path: Path, healthy_client) -> None:
+    """/rules の返り値で、列を読まない行とつなぐ行が人向けの名前になる。"""
+    ir = _ir_header(
+        _MAP_COMP,
+        _MAP_UNIT,
+        """\
+  - name: prov
+    source: c.csv
+    subject:
+      template: "exr:prov/{pid}"
+      classes: [ex:Prov]
+    properties:
+      - predicate: rdfs:label
+        constant: "manual"
+        label: "来歴"
+""",
+        _LINK_MAPS,
+    )
+    client, dataset_id = _saved_client(tmp_path, healthy_client, ir)
+    with client:
+        r = client.get(f"/api/datasets/{dataset_id}/rules")
+        assert r.status_code == 200, r.text
+        body = r.json()
+    assert body["warnings"] == []
+    (prov_row,) = _rows(body, "ProvMap", _LABEL)
+    assert prov_row["label"] == "来歴"
+    (belongs,) = _rows(body, "ChildMap", "https://example.org/onto#belongsTo")
+    assert belongs["label"] == "親の種類"
+
+
+def test_a_composed_value_is_never_named_after_one_of_its_columns() -> None:
+    """変換つきのテンプレートは、引数に生の列が 1 つだけ残っていても、その列を
+    読む行ではない。同じ述語でその列を読む行の表示名を借りない。"""
+    ir = _ir_header(
+        _MAP_UNIT,
+        """\
+  - name: mix
+    source: c.csv
+    subject:
+      template: "exr:mix/{mid}"
+      classes: [ex:Mix]
+    properties:
+      - predicate: ex:ref
+        column: b
+        function: iri_safe
+        object_type: iri
+        label: "列 b の名前"
+      - predicate: ex:ref
+        object_template: "exr:pair/{a}-{b}"
+        transform:
+          a: slug
+        label: "組み立てた名前"
+""",
+    )
+    summary = _resolve(ir)
+    rows = _rows(summary, "MixMap", "https://example.org/onto#ref")
+    got = {r["function"]: r["label"] for r in rows}
+    assert got == {"iri_safe": "列 b の名前", "template": "組み立てた名前"}
+
+
+def test_a_template_without_placeholders_is_matched_as_the_constant_it_compiles_to() -> None:
+    """穴あきの無いテンプレートは RML では定数になる。同じ種類・同じ述語に
+    穴あきのあるテンプレートが並んでいても、それぞれ自分の表示名になる。"""
+    ir = _ir_header(
+        _MAP_COMP,
+        _MAP_UNIT,
+        """\
+  - name: mix
+    source: c.csv
+    subject:
+      template: "exr:mix/{mid}"
+      classes: [ex:Mix]
+    properties:
+      - predicate: rdfs:label
+        object_template: "fixed words"
+        object_type: literal
+        label: "決まった言葉"
+      - predicate: rdfs:label
+        object_template: "No. {mid}"
+        object_type: literal
+        label: "番号つきの見出し"
+""",
+    )
+    summary = _resolve(ir)
+    by_kind = {r["kind"]: r["label"] for r in _rows(summary, "MixMap", _LABEL)}
+    assert by_kind == {"constant": "決まった言葉", "template": "番号つきの見出し"}
+
+
+_ONTO = "https://example.org/onto#"
+
+
+def _parents_and_child(child_rows: str) -> str:
+    return _ir_header(
+        """\
+  - name: pa
+    source: c.csv
+    subject:
+      template: "exr:pa/{pid}"
+      classes: [ex:Pa]
+      label: "親A"
+    properties:
+      - predicate: ex:n
+        column: pn
+  - name: pb
+    source: c.csv
+    subject:
+      template: "exr:pb/{qid}"
+      classes: [ex:Pb]
+      label: "親B"
+    properties:
+      - predicate: ex:n
+        column: qn
+  - name: child
+    source: c.csv
+    subject:
+      template: "exr:child/{cid}"
+      classes: [ex:Child]
+    properties:
+"""
+        + child_rows
+    )
+
+
+def test_two_links_on_one_predicate_each_read_their_own_parents_label() -> None:
+    """同じ述語で別々の親へつなぐ行が 2 本あれば、それぞれつなぐ先の表示名になる。
+    行に表示名を書いてあれば、それぞれ自分の表示名になる。"""
+    ir = _parents_and_child(
+        """\
+      - predicate: ex:belongsTo
+        object_template: "exr:pa/{pid}"
+      - predicate: ex:belongsTo
+        object_template: "exr:pb/{qid}"
+"""
+    )
+    rows = _rows(_resolve(ir), "ChildMap", _ONTO + "belongsTo")
+    assert sorted(r["label"] for r in rows) == ["親A", "親B"]
+
+    authored = _parents_and_child(
+        """\
+      - predicate: ex:belongsTo
+        object_template: "exr:pa/{pid}"
+        label: "書いた一"
+      - predicate: ex:belongsTo
+        object_template: "exr:pb/{qid}"
+        label: "書いた二"
+"""
+    )
+    rows = _rows(_resolve(authored), "ChildMap", _ONTO + "belongsTo")
+    assert sorted(r["label"] for r in rows) == ["書いた一", "書いた二"]
+
+
+def test_a_constant_row_never_takes_another_kinds_column_label() -> None:
+    """種類 A が列で読む述語を、種類 B が定数で持つとき、B の定数の行に A の表示名は付かない。"""
+    ir = _ir_header(
+        """\
+  - name: ka
+    source: c.csv
+    subject:
+      template: "exr:ka/{kid}"
+      classes: [ex:Ka]
+    properties:
+      - predicate: rdfs:label
+        column: nm
+        label: "A の名前"
+  - name: kb
+    source: c.csv
+    subject:
+      template: "exr:kb/{kid}"
+      classes: [ex:Kb]
+    properties:
+      - predicate: rdfs:label
+        constant: "fixed"
+""",
+    )
+    summary = _resolve(ir)
+    (row,) = _rows(summary, "KbMap", _LABEL)
+    assert row["kind"] == "constant"
+    assert "label" not in row
+
+
+def _two_maps_of_one_kind(value_a: str, value_b: str) -> str:
+    return _ir_header(
+        _MAP_UNIT,
+        f"""\
+  - name: alpha
+    source: c.csv
+    subject:
+      template: "exr:alpha/{{aid}}"
+      classes: [ex:Shared]
+    properties:
+      - predicate: rdfs:label
+        constant: "{value_a}"
+        label: "甲"
+  - name: beta
+    source: c.csv
+    subject:
+      template: "exr:beta/{{bid}}"
+      classes: [ex:Shared]
+    properties:
+      - predicate: rdfs:label
+        constant: "{value_b}"
+        label: "乙"
+""",
+    )
+
+
+def test_same_kind_in_two_maps_with_different_constants_keeps_each_label() -> None:
+    """同じ種類を 2 つの map が持ち、定数の値が違うなら、それぞれ自分の表示名になる。
+    別の種類の列の行の表示名は借りない。"""
+    summary = _resolve(_two_maps_of_one_kind("one", "two"))
+    (a,) = _rows(summary, "AlphaMap", _LABEL)
+    (b,) = _rows(summary, "BetaMap", _LABEL)
+    assert a["label"] == "甲"
+    assert b["label"] == "乙"
+
+
+def test_same_kind_in_two_maps_with_the_same_constant_borrows_nothing() -> None:
+    """同じ種類を 2 つの map が持ち、定数の値が同じで表示名だけ違うなら、どちらにも付けない。
+    別の種類の表示名も借りない。"""
+    summary = _resolve(_two_maps_of_one_kind("same", "same"))
+    for map_id in ("AlphaMap", "BetaMap"):
+        (row,) = _rows(summary, map_id, _LABEL)
+        assert row.get("label") is None
+
+
+def test_a_column_row_and_a_template_row_keep_their_own_labels() -> None:
+    """同じ map・同じ述語の列の行とテンプレートの行は、それぞれ自分の表示名になる。"""
+    ir = _ir_header(
+        """\
+  - name: mix
+    source: c.csv
+    subject:
+      template: "exr:mix/{mid}"
+      classes: [ex:Mix]
+    properties:
+      - predicate: rdfs:label
+        column: mname
+        label: "列の名前"
+      - predicate: rdfs:label
+        object_template: "No. {mid}"
+        object_type: literal
+        label: "番号の名前"
+""",
+    )
+    rows = _rows(_resolve(ir), "MixMap", _LABEL)
+    assert {r["kind"]: r["label"] for r in rows} == {
+        "reference": "列の名前",
+        "template": "番号の名前",
+    }
+
+
+def test_a_several_column_function_never_borrows_a_column_rows_label() -> None:
+    """複数の列を読む関数の行は、同じ述語でその列の 1 つを読む行と並んでいても、
+    列の行の表示名を借りず、自分の表示名になる。"""
+    ir = _ir_header(
+        """\
+  - name: rec
+    source: c.csv
+    subject:
+      template: "exr:rec/{rid}"
+      classes: [ex:Rec]
+    properties:
+      - predicate: ex:v
+        column: alpha
+        label: "列の名前"
+      - predicate: ex:v
+        columns: [alpha, beta]
+        function: float_array_count
+        datatype: xsd:integer
+        label: "関数の名前"
+""",
+    )
+    rows = _rows(_resolve(ir), "RecMap", _ONTO + "v")
+    assert {r["kind"]: r["label"] for r in rows} == {
+        "reference": "列の名前",
+        "function": "関数の名前",
+    }
+
+
+def test_a_link_to_its_own_map_does_not_take_its_own_kinds_label() -> None:
+    """自分自身の map の主語と同じ object_template を持つ行は、
+    自分の種類の表示名にならない。"""
+    ir = _ir_header(
+        """\
+  - name: selfy
+    source: c.csv
+    subject:
+      template: "exr:selfy/{sid}"
+      classes: [ex:Selfy]
+      label: "自分の種類"
+    properties:
+      - predicate: ex:sameAs
+        object_template: "exr:selfy/{sid}"
+""",
+    )
+    (row,) = _rows(_resolve(ir), "SelfyMap", _ONTO + "sameAs")
+    assert row.get("label") != "自分の種類"
+
+
+def test_a_constant_link_reads_the_target_only_when_it_is_an_iri() -> None:
+    """定数でつなぐ行は、object_type が iri で定数が別の map の主語の定数と同じときだけ、
+    つなぐ先の表示名になる。リテラルの定数は文字列が同じでも付かない。"""
+    ir = _ir_header(
+        """\
+  - name: doc
+    source: c.csv
+    subject:
+      constant: "exr:doc1"
+      classes: [ex:Doc]
+      label: "文書"
+    properties:
+      - predicate: ex:n
+        column: dn
+  - name: note
+    source: c.csv
+    subject:
+      template: "exr:note/{nid}"
+      classes: [ex:Note]
+    properties:
+      - predicate: ex:about
+        constant: "exr:doc1"
+        object_type: iri
+      - predicate: ex:remark
+        constant: "exr:doc1"
+""",
+    )
+    summary = _resolve(ir)
+    (about,) = _rows(summary, "NoteMap", _ONTO + "about")
+    (remark,) = _rows(summary, "NoteMap", _ONTO + "remark")
+    assert about["label"] == "文書"
+    assert remark.get("label") != "文書"
+
+
+def test_unit_on_a_row_without_a_column_is_returned() -> None:
+    """列を読まない行（テンプレート・定数）に書いた unit は、行の unit として返る。"""
+    ir = _ir_header(
+        """\
+  - name: mix
+    source: c.csv
+    subject:
+      template: "exr:mix/{mid}"
+      classes: [ex:Mix]
+    properties:
+      - predicate: ex:size
+        object_template: "{mid} big"
+        object_type: literal
+        unit: "kg"
+      - predicate: ex:fixedSize
+        constant: "10"
+        unit: "m"
+""",
+    )
+    summary = _resolve(ir)
+    (tpl,) = _rows(summary, "MixMap", _ONTO + "size")
+    (const,) = _rows(summary, "MixMap", _ONTO + "fixedSize")
+    assert tpl["kind"] == "template"
+    assert tpl["unit"] == "kg"
+    assert const["kind"] == "constant"
+    assert const["unit"] == "m"
+
+
+_RAW_ROW = """\
+      - predicate: rdfs:label
+        column: doi
+        label: "素のままの名前"
+"""
+_FUNCTION_ROW = """\
+      - predicate: rdfs:label
+        column: doi
+        function: slug
+        label: "関数を通した名前"
+"""
+
+
+@pytest.mark.parametrize("rows", [(_FUNCTION_ROW, _RAW_ROW), (_RAW_ROW, _FUNCTION_ROW)])
+def test_a_function_row_and_a_raw_row_on_one_column_keep_their_own_labels(
+    rows: tuple[str, str],
+) -> None:
+    """同じ述語・同じ列を、関数を通す行と素のままの行が読むとき、
+    それぞれ自分の表示名になる（行の順によらない）。"""
+    ir = _ir_header(
+        """\
+  - name: doi
+    source: c.csv
+    subject:
+      template: "exr:doi/{doi}"
+      classes: [ex:Doi]
+    properties:
+"""
+        + "".join(rows)
+    )
+    got = {r["kind"]: r["label"] for r in _rows(_resolve(ir), "DoiMap", _LABEL)}
+    assert got == {"reference": "素のままの名前", "function": "関数を通した名前"}
+
+
+def _fn_arg(name: str) -> dict:
+    return {"kind": "reference", "reference": name}
+
+
+def test_row_column_reads_reference_and_single_function_column() -> None:
+    """reference のある行はその列、関数で列 1 つならその列、関数で列 2 つなら列なし。"""
+    from asterism_api.main import _row_column
+
+    assert _row_column({"kind": "reference", "reference": "a"}) == "a"
+    assert _row_column({"kind": "function", "function": "slug", "args": [_fn_arg("a")]}) == "a"
+    two = {
+        "kind": "function",
+        "function": "float_array_count",
+        "args": [_fn_arg("a"), _fn_arg("b")],
+    }
+    assert _row_column(two) == ""
+
+
+def test_row_column_is_empty_for_a_template_function() -> None:
+    """テンプレートを組む関数は、生の列が 1 つだけ残っていても、列を読む行ではない。"""
+    from asterism_api.main import _row_column
+
+    row = {
+        "kind": "function",
+        "function": "template",
+        "args": [_fn_arg("a"), {"kind": "constant", "value": "-"}],
+    }
+    assert _row_column(row) == ""
+
+
+def test_row_column_is_empty_when_an_arg_is_a_nested_function() -> None:
+    """引数に関数の入れ子がある行は、生の列が 1 つだけ残っていても、列を読む行ではない。"""
+    from asterism_api.main import _row_column
+
+    nested = {"kind": "function", "function": "slug", "args": [_fn_arg("a")]}
+    row = {"kind": "function", "function": "concat", "args": [nested, _fn_arg("b")]}
+    assert _row_column(row) == ""
+
+
+def test_a_constant_row_never_takes_another_kinds_column_heading() -> None:
+    """種類 A が列で読む述語（表示名なし）を、種類 B が定数で持つとき、
+    B の定数の行に A の列の見出しは付かない。"""
+    ir = _ir_header(
+        """\
+  - name: ka
+    source: c.csv
+    subject:
+      template: "exr:ka/{kid}"
+      classes: [ex:Ka]
+    properties:
+      - predicate: ex:p
+        column: c
+  - name: kb
+    source: c.csv
+    subject:
+      template: "exr:kb/{kid}"
+      classes: [ex:Kb]
+    properties:
+      - predicate: ex:p
+        constant: "fixed"
+""",
+    )
+    (row,) = _rows(_resolve(ir), "KbMap", _ONTO + "p")
+    assert row["kind"] == "constant"
+    assert row.get("label") is None
+
+
+def test_a_literal_template_is_never_a_link_even_with_the_parents_string() -> None:
+    """object_type が literal のテンプレートは、別の map の主語と同じ文字列でも、
+    つなぐ先の表示名にならない。"""
+    ir = _ir_header(
+        """\
+  - name: pa
+    source: c.csv
+    subject:
+      template: "exr:pa/{pid}"
+      classes: [ex:Pa]
+      label: "親A"
+    properties:
+      - predicate: ex:n
+        column: pn
+  - name: child
+    source: c.csv
+    subject:
+      template: "exr:child/{cid}"
+      classes: [ex:Child]
+    properties:
+      - predicate: ex:code
+        object_template: "exr:pa/{pid}"
+        object_type: literal
+""",
+    )
+    (row,) = _rows(_resolve(ir), "ChildMap", _ONTO + "code")
+    assert row.get("label") != "親A"
+
+
+def _kind_map(name: str, kind: str, rows: str, subject: str | None = None) -> str:
+    head = subject or f'template: "exr:{name}/{{{name}_id}}"'
+    return f"""\
+  - name: {name}
+    source: c.csv
+    subject:
+      {head}
+      classes: [{kind}]
+    properties:
+{rows}"""
+
+
+def test_raw_and_function_reads_of_one_column_on_different_kinds_keep_their_labels() -> None:
+    """種類 X が素の列 a で、種類 Y が列 a を関数に通して読む同じ述語は、
+    それぞれ自分の表示名になる（読み方が違う行どうしで表示名を貸し借りしない）。"""
+    ir = _ir_header(
+        _kind_map("xk", "ex:X", "      - predicate: ex:p\n        column: a\n        label: A\n"),
+        _kind_map(
+            "yk",
+            "ex:Y",
+            "      - predicate: ex:p\n"
+            "        columns: [a]\n"
+            "        function: slug\n"
+            "        label: B\n",
+        ),
+    )
+    summary = _resolve(ir)
+    (x,) = _rows(summary, "XkMap", _ONTO + "p")
+    (y,) = _rows(summary, "YkMap", _ONTO + "p")
+    assert y["kind"] == "function"
+    assert x["label"] == "A"
+    assert y["label"] == "B"
+
+
+def test_escaped_braces_only_template_is_told_apart_from_a_real_hole() -> None:
+    """波括弧をエスケープしただけの文字列（RML ではテンプレートの行になる）と、
+    穴あきのテンプレートは、同じ種類・同じ述語でもそれぞれ自分の表示名になる。"""
+    ir = _ir_header(
+        _kind_map(
+            "esc",
+            "ex:Shared",
+            "      - predicate: ex:p\n"
+            "        object_template: 'Year \\{lit}'\n"
+            "        object_type: literal\n"
+            "        label: A\n",
+        ),
+        _kind_map(
+            "hole",
+            "ex:Shared",
+            "      - predicate: ex:p\n"
+            '        object_template: "Year {y}"\n'
+            "        object_type: literal\n"
+            "        label: B\n",
+        ),
+    )
+    real = _real_summary(ir)
+    (esc_real,) = _rows(real, "EscMap", _ONTO + "p")
+    assert esc_real["kind"] == "template"
+    summary = _resolve(ir)
+    (esc,) = _rows(summary, "EscMap", _ONTO + "p")
+    (hole,) = _rows(summary, "HoleMap", _ONTO + "p")
+    assert esc["label"] == "A"
+    assert hole["label"] == "B"
+
+
+@pytest.mark.parametrize(
+    ("parent_subject", "child_object"),
+    [
+        ("https://example.org/resource/parent/{pid}", "exr:parent/{pid}"),
+        ("exr:parent/{pid}", "https://example.org/resource/parent/{pid}"),
+    ],
+)
+def test_link_finds_its_parent_whether_curie_or_full_iri(
+    parent_subject: str, child_object: str
+) -> None:
+    """親の主語と子のつなぐ先は、CURIE で書いても完全な IRI で書いても
+    同じものとして比べ、つなぐ行は親の表示名になる（テンプレート）。"""
+    ir = _ir_header(
+        _kind_map(
+            "parent",
+            "ex:Parent",
+            "      - predicate: ex:n\n        column: pn\n",
+            f'template: "{parent_subject}"\n      label: 親の種類',
+        ),
+        _kind_map(
+            "child",
+            "ex:Child",
+            f'      - predicate: ex:belongsTo\n        object_template: "{child_object}"\n',
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "ChildMap", _ONTO + "belongsTo")
+    assert row["label"] == "親の種類"
+
+
+@pytest.mark.parametrize(
+    ("parent_subject", "child_object"),
+    [
+        ("https://example.org/resource/parent1", "exr:parent1"),
+        ("exr:parent1", "https://example.org/resource/parent1"),
+    ],
+)
+def test_constant_link_finds_its_parent_whether_curie_or_full_iri(
+    parent_subject: str, child_object: str
+) -> None:
+    """定数の主語と定数のつなぐ先も、CURIE と完全な IRI の書き分けに関わらず
+    同じものとして比べ、つなぐ行は親の表示名になる。"""
+    ir = _ir_header(
+        _kind_map(
+            "parent",
+            "ex:Parent",
+            "      - predicate: ex:n\n        column: pn\n",
+            f'constant: "{parent_subject}"\n      label: 親の種類',
+        ),
+        _kind_map(
+            "child",
+            "ex:Child",
+            "      - predicate: ex:belongsTo\n"
+            f'        constant: "{child_object}"\n'
+            "        object_type: iri\n",
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "ChildMap", _ONTO + "belongsTo")
+    assert row["label"] == "親の種類"
+
+
+def test_two_curie_iri_constants_on_one_kind_and_predicate_keep_their_labels() -> None:
+    """同じ種類・同じ述語に、CURIE で書いた IRI の定数の行が 2 つあり、値も表示名も
+    違うなら、それぞれ自分の表示名になる。"""
+    ir = _ir_header(
+        _kind_map(
+            "rec",
+            "ex:Rec",
+            "      - predicate: ex:tag\n"
+            '        constant: "ex:one"\n'
+            "        object_type: iri\n"
+            "        label: 一\n"
+            "      - predicate: ex:tag\n"
+            '        constant: "ex:two"\n'
+            "        object_type: iri\n"
+            "        label: 二\n",
+        ),
+    )
+    rows = _rows(_resolve(ir), "RecMap", _ONTO + "tag")
+    assert len(rows) == 2
+    assert sorted(r["label"] for r in rows) == ["一", "二"]
+    assert {r["constant"]: r["label"] for r in rows} == {"ex:one": "一", "ex:two": "二"}
+
+
+def test_same_constant_or_template_string_on_different_kinds_keeps_each_label() -> None:
+    """別々の種類が同じ述語に同じ文字列（定数・穴あきのテンプレート）を持つとき、
+    表示名が違っても、それぞれ自分の種類の表示名になる。"""
+    ir = _ir_header(
+        _kind_map(
+            "ka",
+            "ex:Ka",
+            "      - predicate: ex:c\n"
+            '        constant: "same"\n'
+            "        label: 甲\n"
+            "      - predicate: ex:t\n"
+            '        object_template: "Year {y}"\n'
+            "        object_type: literal\n"
+            "        label: 甲T\n",
+        ),
+        _kind_map(
+            "kb",
+            "ex:Kb",
+            "      - predicate: ex:c\n"
+            '        constant: "same"\n'
+            "        label: 乙\n"
+            "      - predicate: ex:t\n"
+            '        object_template: "Year {y}"\n'
+            "        object_type: literal\n"
+            "        label: 乙T\n",
+        ),
+    )
+    summary = _resolve(ir)
+    assert _rows(summary, "KaMap", _ONTO + "c")[0]["label"] == "甲"
+    assert _rows(summary, "KbMap", _ONTO + "c")[0]["label"] == "乙"
+    assert _rows(summary, "KaMap", _ONTO + "t")[0]["label"] == "甲T"
+    assert _rows(summary, "KbMap", _ONTO + "t")[0]["label"] == "乙T"
+
+
+def test_multi_column_function_row_and_constant_row_keep_their_own_labels() -> None:
+    """同じ種類・同じ述語の、複数の列を読む関数の行と定数の行は、
+    それぞれ自分の表示名になる（形が違う行の表示名を貸し借りしない）。"""
+    ir = _ir_header(
+        _kind_map(
+            "rec",
+            "ex:Rec",
+            "      - predicate: ex:v\n"
+            "        columns: [a, b]\n"
+            "        function: float_array_count\n"
+            "        datatype: xsd:integer\n"
+            "        label: Y\n"
+            "      - predicate: ex:v\n"
+            '        constant: "fixed"\n'
+            "        label: X\n",
+        ),
+    )
+    by_kind = {r["kind"]: r["label"] for r in _rows(_resolve(ir), "RecMap", _ONTO + "v")}
+    assert by_kind == {"function": "Y", "constant": "X"}
+
+
+def test_function_row_without_a_label_takes_its_own_column_heading() -> None:
+    """関数を通して列を 1 つ読む行に表示名が無く、その述語が別の種類で別の列に
+    束縛されていても、関数の行は自分の列の見出しになる。"""
+    ir = _ir_header(
+        _kind_map(
+            "xk", "ex:X", "      - predicate: ex:p\n        column: beta\n        label: 他\n"
+        ),
+        _kind_map(
+            "yk",
+            "ex:Y",
+            "      - predicate: ex:p\n        column: alpha\n        function: slug\n",
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "YkMap", _ONTO + "p")
+    assert row["kind"] == "function"
+    assert row["label"] == "alpha"
+
+
+@pytest.mark.parametrize("breakage", ["prefixes_list", "class_iris_str", "class_iris_mixed"])
+def test_broken_summary_shape_does_not_skip_the_label_merge(breakage: str) -> None:
+    """要約の一部の形が壊れていても、表示名の付与は丸ごと飛ばず（警告も出さず）、
+    列を読む行には表示名が付く。"""
+    from asterism_api.main import _merge_ir_display_metadata
+
+    ir = _ir_header(_MAP_COMP, _MAP_UNIT)
+    summary = _real_summary(ir)
+    if breakage == "prefixes_list":
+        summary["prefixes"] = ["ex", "exr"]
+    elif breakage == "class_iris_str":
+        summary["maps"][0]["subject"]["class_iris"] = "https://example.org/onto#Comp"
+    else:
+        summary["maps"][0]["subject"]["class_iris"] = [None, 3, "https://example.org/onto#Comp"]
+    before = list(summary.get("warnings") or [])
+    _merge_ir_display_metadata(ir, summary)
+    assert list(summary.get("warnings") or []) == before
+    assert _rows(summary, "CompMap", _LABEL)[0]["label"] == "組成"
+    assert _rows(summary, "UnitYMap", _LABEL)[0]["label"] == "縦軸単位"
+
+
+def test_a_column_row_the_design_left_unnamed_borrows_nothing() -> None:
+    """列の名前が見出しとして何も残らない（`_`）行は、設計が名前を付けなかった行。
+    同じ述語の別の種類の行に表示名があっても、述語だけの引き方で借りない。"""
+    ir = _ir_header(
+        _kind_map(
+            "solo",
+            "ex:Solo",
+            "      - predicate: ex:only\n        column: _\n",
+        ),
+        _kind_map(
+            "other",
+            "ex:Other",
+            "      - predicate: ex:only\n        constant: fixed\n        label: 別\n",
+        ),
+    )
+    summary = _resolve(ir)
+    (row,) = _rows(summary, "SoloMap", _ONTO + "only")
+    assert row.get("label") is None
+    (other,) = _rows(summary, "OtherMap", _ONTO + "only")
+    assert other["label"] == "別"
+
+
+def test_a_column_row_the_design_left_unnamed_borrows_no_column_heading() -> None:
+    """設計が名前を付けなかった列の行は、同じ述語を読む別の種類の列の見出しも借りない。"""
+    ir = _ir_header(
+        _kind_map("solo", "ex:Solo", "      - predicate: ex:p\n        column: _\n"),
+        _kind_map("other", "ex:Other", "      - predicate: ex:p\n        column: bcol\n"),
+    )
+    summary = _resolve(ir)
+    (row,) = _rows(summary, "SoloMap", _ONTO + "p")
+    assert row.get("label") is None
+    (other,) = _rows(summary, "OtherMap", _ONTO + "p")
+    assert other["label"] == "bcol"
+
+
+def test_a_function_reading_one_column_twice_is_found_by_that_column() -> None:
+    """同じ列を 2 回渡す関数の行（`columns: [a, a]`）も、列 a を読む行として引く。
+    同じ述語を別の列で読む別の種類の表示名を借りない。"""
+    ir = _ir_header(
+        _kind_map(
+            "xk", "ex:X", "      - predicate: ex:v\n        column: beta\n        label: 他\n"
+        ),
+        _kind_map(
+            "yk",
+            "ex:Y",
+            "      - predicate: ex:v\n"
+            "        columns: [alpha, alpha]\n"
+            "        function: float_array_count\n"
+            "        label: 自分\n",
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "YkMap", _ONTO + "v")
+    assert row["kind"] == "function"
+    assert row["label"] == "自分"
+
+
+def test_a_function_row_written_with_one_column_in_a_list_takes_its_column_heading() -> None:
+    """列を 1 つだけ並べた書き方（`columns: [a]`）の関数の行も、表示名が無ければ
+    自分の列の見出しになる（`column: a` と書いた行と同じ）。"""
+    ir = _ir_header(
+        _kind_map(
+            "xk", "ex:X", "      - predicate: ex:p\n        column: beta\n        label: 他\n"
+        ),
+        _kind_map(
+            "yk",
+            "ex:Y",
+            "      - predicate: ex:p\n        columns: [alpha]\n        function: slug\n",
+        ),
+    )
+    (row,) = _rows(_resolve(ir), "YkMap", _ONTO + "p")
+    assert row["kind"] == "function"
+    assert row["label"] == "alpha"
