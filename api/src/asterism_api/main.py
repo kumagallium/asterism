@@ -39,7 +39,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
 
 import httpx
 import yaml
@@ -679,11 +679,39 @@ def _humanize_term_iri(iri: str) -> str | None:
     return words if words and words != tail else None
 
 
-def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, str]]]:
-    """``(predicate_iri, column, display metadata)`` — one entry per property row.
+# テンプレートの穴あき（{列}）。コンパイラが「穴あきが無ければ定数」と決めるときの
+# 数え方（``rml_compile._HAS_PLACEHOLDER``）と同じ — エスケープした ``\{`` も穴あきに数える。
+_RE_TEMPLATE_HOLE = re.compile(r"\{[^{}]+\}")
 
-    The single pass both keyed views below are built from, so the per-row rules
-    (authored label → column heading → unit fallbacks) live in exactly one place.
+
+class _IrDisplayEntry(NamedTuple):
+    """IR の 1 行ぶんの表示メタと、その行が RML でどう書き出されるか。
+
+    ``kinds`` はその行の map の種類（展開済み IRI）。``shape`` は RML の要約
+    （:func:`summarize_rml`）の行の ``kind`` と同じ言葉、``value`` はテンプレート・
+    定数の行が RML に持つ文字列。列を読まない行を突き合わせる鍵になる
+    （:func:`_ir_display_by_kind`）。
+    """
+
+    predicate_iri: str
+    column: str
+    extra: dict[str, str]
+    kinds: tuple[str, ...]
+    shape: str
+    value: str
+
+
+def _ir_display_entries(mapping_ir_yaml: str) -> list[_IrDisplayEntry]:
+    """One entry per property row (display metadata may be empty).
+
+    The single pass every keyed view below is built from, so the per-row rules
+    (authored label → link target's kind label → column heading → unit
+    fallbacks) live in exactly one place. Rows with EMPTY metadata are returned
+    too: the (kind, predicate) lookup must know they exist to stay silent when
+    they disagree with their siblings. The three keyed views skip them.
+
+    ``shape``/``value`` mirror ``rml_compile.object_map`` — the same case split,
+    so an entry can be matched to the compiled row it became.
     """
     from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
     from asterism_step0.units import extract_unit_from_label
@@ -697,19 +725,75 @@ def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, 
             return prefixes[prefix] + rest
         return term
 
-    entries: list[tuple[str, str, dict[str, str]]] = []
-    for tm in ir.maps:
+    def expand_head(template: str) -> str:
+        # コンパイラは先頭（最初の { まで）の CURIE だけを展開する
+        head, brace, rest = template.partition("{")
+        return expand(head) + brace + rest
+
+    def compiled(prop: Any) -> tuple[str, str]:
+        if prop.constant is not None:
+            is_iri = prop.object_type == "iri"
+            return "constant", expand(prop.constant) if is_iri else prop.constant
+        if prop.object_template is not None:
+            literal = prop.object_type == "literal"
+            if prop.transform and not literal:
+                return "function", ""  # 変換つきのテンプレートは関数として書き出される
+            text = prop.object_template if literal else expand_head(prop.object_template)
+            # 穴あき（{列}）の無いテンプレートは、定数として書き出される
+            return ("template" if _RE_TEMPLATE_HOLE.search(text) else "constant"), text
+        return ("function" if prop.function is not None else "reference"), ""
+
+    def read_column(prop: Any) -> str:
+        # :func:`_row_column` と同じ数え方。``columns: [a]`` も列 a を読む行。
+        if prop.column:
+            return str(prop.column)
+        distinct = set(prop.columns)
+        return str(next(iter(distinct))) if len(distinct) == 1 else ""
+
+    # つなぐ先の種類の表示名（subject.label）を、主語の文字列で引けるようにする。
+    # CURIE で書いても完全な IRI で書いても同じ主語なので、展開してから比べる。
+    # 同じ主語を持つ map が複数あって表示名が違うときは IR の順で最初
+    # （種類の表示名を読むほかの場所と同じ決まり）。
+    # 自分自身の map は対象外なので、map の番号も持つ。
+    by_template: dict[str, list[tuple[int, str]]] = {}
+    by_constant: dict[str, list[tuple[int, str]]] = {}
+    for index, tm in enumerate(ir.maps):
+        subject_label = (tm.subject.label or "").strip()
+        if not subject_label:
+            continue
+        if tm.subject.template:
+            key = expand_head(tm.subject.template)
+            by_template.setdefault(key, []).append((index, subject_label))
+        if tm.subject.constant:
+            by_constant.setdefault(expand(tm.subject.constant), []).append((index, subject_label))
+
+    def link_label(index: int, prop: Any) -> str | None:
+        if prop.object_template is not None and prop.object_type != "literal":
+            candidates = by_template.get(expand_head(prop.object_template), [])
+        elif prop.constant is not None and prop.object_type == "iri":
+            candidates = by_constant.get(expand(prop.constant), [])
+        else:
+            return None
+        return next((name for i, name in candidates if i != index), None)
+
+    entries: list[_IrDisplayEntry] = []
+    for index, tm in enumerate(ir.maps):
+        kinds = tuple(expand(cls) for cls in tm.subject.classes)
         for prop in tm.properties:
             extra: dict[str, str] = {}
+            linked = link_label(index, prop)
             if prop.label:
                 extra["label"] = prop.label
-            elif prop.column:
+            elif linked:
+                # 行に書いた表示名の次は、つなぐ先の種類の表示名（列の見出しより先）
+                extra["label"] = linked
+            elif read_column(prop):
                 # Deterministic third choice, below the authored label and the
                 # model.yaml projection: the source column heading the user
                 # actually typed. A weak model that skipped K8's `label:` would
                 # otherwise put `hasSeebeckCoefficient` in a question the user is
                 # asked to read — a word from their own file always beats one.
-                derived_label = _label_from_column(prop.column)
+                derived_label = _label_from_column(read_column(prop))
                 if derived_label:
                     extra["column_label"] = derived_label
             if prop.unit and not _unit_echoes_its_term(prop.unit, prop.column, prop.predicate):
@@ -723,8 +807,12 @@ def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, 
                 derived = extract_unit_from_label(prop.column)
                 if derived:
                     extra["unit"] = derived
-            if extra:
-                entries.append((expand(prop.predicate), str(prop.column or ""), extra))
+            shape, value = compiled(prop)
+            entries.append(
+                _IrDisplayEntry(
+                    expand(prop.predicate), read_column(prop), extra, kinds, shape, value
+                )
+            )
     return entries
 
 
@@ -743,8 +831,9 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
     for the whole-design fallbacks that have no row to scope by.
     """
     meta: dict[str, dict[str, str]] = {}
-    for iri, _column, extra in _ir_display_entries(mapping_ir_yaml):
-        meta.setdefault(iri, {}).update(extra)
+    for entry in _ir_display_entries(mapping_ir_yaml):
+        if entry.extra:
+            meta.setdefault(entry.predicate_iri, {}).update(entry.extra)
     return meta
 
 
@@ -763,9 +852,11 @@ def _ir_display_by_column(mapping_ir_yaml: str) -> dict[tuple[str, str], dict[st
     そのまま残るため（命名規約に依存しない結合鍵）。
     """
     out: dict[tuple[str, str], dict[str, str]] = {}
-    for iri, column, extra in _ir_display_entries(mapping_ir_yaml):
-        if column:
-            out.setdefault((iri, column), {}).update(extra)
+    for entry in _ir_display_entries(mapping_ir_yaml):
+        # 表示メタが空の行も入れる。設計がその行に名前を付けなかった、も答えで、
+        # 述語だけの引き方に落として別の行の名前を借りない。
+        if entry.column:
+            out.setdefault((entry.predicate_iri, entry.column), {}).update(entry.extra)
     return out
 
 
@@ -787,6 +878,104 @@ def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str
     return labels
 
 
+# コンパイラが変換つきのテンプレートを書き出すときの関数の名前
+# （``rml_compile.transformed_template``）。列を読む関数ではなく、値を組み立てる関数。
+_TEMPLATE_FUNCTION: Final = "template"
+
+
+def _row_column(row: Mapping[str, Any]) -> str:
+    """The one source column a rule row reads, or ``""``.
+
+    A plain row carries ``reference``. A function row has none at the top — its
+    columns sit in ``args`` — so a single distinct column there counts as the
+    row's column (two or more: the row has no ONE column, so ``""``).
+
+    A row that COMPOSES its value is not a column read, whatever its args hold:
+    the template function, or any arg that is itself a function. ``{a}-{b}``
+    with a transform on ``a`` alone leaves ``b`` as the only plain reference,
+    and naming the row after column ``b`` would borrow that column's label.
+    """
+    reference = str(row.get("reference") or "")
+    if reference:
+        return reference
+    if row.get("kind") != "function" or row.get("function") == _TEMPLATE_FUNCTION:
+        return ""
+    args = [arg for arg in row.get("args") or [] if isinstance(arg, Mapping)]
+    if any(arg.get("kind") == "function" for arg in args):
+        return ""
+    refs = {
+        str(arg.get("reference"))
+        for arg in args
+        if arg.get("kind") == "reference" and arg.get("reference")
+    }
+    return next(iter(refs)) if len(refs) == 1 else ""
+
+
+def _row_value(row: Mapping[str, Any], prefixes: Mapping[str, Any]) -> str:
+    """The string a template / constant row carries, as the RML holds it.
+
+    The summary compresses a constant IRI to ``prefix:local`` under the
+    mapping's own prefixes; this undoes it so the IR's expanded IRI compares.
+    """
+    kind = row.get("kind")
+    if kind == "template":
+        return str(row.get("template") or "")
+    if kind != "constant":
+        return ""
+    text = str(row.get("constant") or "")
+    if row.get("constant_is_iri"):
+        prefix, sep, rest = text.partition(":")
+        if sep and prefix in prefixes:
+            return str(prefixes[prefix]) + rest
+    return text
+
+
+def _ir_display_by_kind(
+    entries: Sequence[_IrDisplayEntry],
+    map_entry: Mapping[str, Any],
+    row: Mapping[str, Any],
+    prefixes: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Display metadata by (kind, predicate), for a row that reads no column.
+
+    A constant, a template or a several-column row has no column to be looked up
+    by, and a predicate several kinds bind (``rdfs:label``) cannot be looked up
+    by the predicate alone. The kind can: the compiled map keeps the IR map's
+    classes even though it renames the map itself.
+
+    Among the IR's column-less rows of this kind and predicate, the ones that
+    compile to the same shape are the candidates — narrowed to the rows with the
+    very string this row carries, when there are any (two links on one
+    predicate, each to its own parent, are told apart by where they point). A
+    key is lent only when EVERY candidate has it and they all agree. One row
+    missing it, or a split, and that key stays silent: borrowing a neighbour's
+    word is worse than showing none.
+
+    ``None`` means the IR has no such row for this kind at all (a mapping that
+    was not compiled from this IR) — only then may the caller fall back to the
+    predicate alone. An empty dict is an answer: the design gave no name.
+    """
+    subject = map_entry.get("subject")
+    class_iris = subject.get("class_iris") if isinstance(subject, Mapping) else None
+    kinds = {c for c in class_iris if isinstance(c, str)} if isinstance(class_iris, list) else set()
+    iri = str(row.get("predicate_iri") or "")
+    same_kind = [
+        e for e in entries if e.predicate_iri == iri and not e.column and kinds & set(e.kinds)
+    ]
+    if not same_kind:
+        return None
+    candidates = [e for e in same_kind if e.shape == row.get("kind")]
+    value = _row_value(row, prefixes)
+    candidates = [e for e in candidates if value and e.value == value] or candidates
+    out: dict[str, str] = {}
+    for key in ("label", "unit"):
+        values = {e.extra.get(key) for e in candidates}
+        found = next(iter(values)) if len(values) == 1 else None
+        if found:
+            out[key] = found
+    return out
+
+
 def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str, dict[str, str]]:
     """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
 
@@ -794,12 +983,21 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str,
     structural projection (see :func:`_ir_predicate_display`). Best-effort: an
     unparsable IR adds a warning instead of failing the read-only endpoint.
     Returns the metadata it merged, so the caller can also use its fallbacks.
+
+    A row that reads a column is looked up by (predicate, that column —
+    :func:`_row_column`); a row that reads none, by (kind, predicate)
+    (:func:`_ir_display_by_kind`). The predicate alone is the last resort, used
+    only when the IR holds no such row and the predicate binds a single column.
+    Without the lookup by kind, a constant or a template on a predicate several
+    kinds bind had nothing to be found by, and the diagram printed the
+    predicate's local name as the field (``label``).
     """
     meta: dict[str, dict[str, str]] = {}
     try:
         meta = _ir_predicate_display(mapping_ir_yaml)
         if not meta:
             return meta
+        entries = _ir_display_entries(mapping_ir_yaml)
         # 行の表示は (述語, 列) で引く。述語だけだと、同じ述語を複数の map が
         # 束縛したとき最後の 1 つが全部を塗る（値のカタログの rdfs:label が
         # まさにその形 — 利用者報告 2026-09-02「全部のIDが縦軸単位」）。
@@ -810,14 +1008,33 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str,
         columns_per_iri: dict[str, set[str]] = {}
         for cached_iri, cached_col in by_column:
             columns_per_iri.setdefault(cached_iri, set()).add(cached_col)
+        # 同じ列を、素のままと関数を通してと 2 回読む設計で取り違えないように、
+        # 関数を通すかどうかまで鍵に入れた引き方を先に試す。
+        by_read: dict[tuple[str, str, bool], dict[str, str]] = {}
+        for e in entries:
+            if e.column:
+                key = (e.predicate_iri, e.column, e.shape == "function")
+                by_read.setdefault(key, {}).update(e.extra)
+        raw_prefixes = summary.get("prefixes")
+        prefixes = raw_prefixes if isinstance(raw_prefixes, Mapping) else {}
         for entry in summary.get("maps") or []:
             if not isinstance(entry, dict):
                 continue
             for row in entry.get("properties") or []:
                 iri = str(row.get("predicate_iri") or "")
-                column = str(row.get("reference") or "")
-                extra = by_column.get((iri, column)) if column else None
+                column = _row_column(row)
+                extra: Mapping[str, str] | None
+                if column:
+                    # 列を 1 つ読む行は (述語, 行が読む列)
+                    through_function = row.get("kind") == "function"
+                    extra = by_read.get((iri, column, through_function))
+                    if extra is None:
+                        extra = by_column.get((iri, column))
+                else:
+                    # 列を読まない行（定数・テンプレート・複数の列）は (種類, 述語)
+                    extra = _ir_display_by_kind(entries, entry, row, prefixes)
                 if extra is None and len(columns_per_iri.get(iri, ())) <= 1:
+                    # 述語だけ。IR に当てはまる行が無かったときの折り先
                     extra = meta.get(iri)
                 if extra:
                     # ``column_label`` is a FALLBACK, resolved in
@@ -857,7 +1074,9 @@ def _fill_missing_labels(
     column: every value catalog binds ``rdfs:label`` (and the ones without an
     authored label are exactly the rows that land here), so the predicate-only
     ``column_label`` is the LAST catalog's heading — the same collision #554
-    fixed for ① (利用者報告 2026-09-02「全部の ID が縦軸単位」).
+    fixed for ① (利用者報告 2026-09-02「全部の ID が縦軸単位」). A row that reads
+    no column takes no column heading at all: whichever one the predicate-only
+    entry holds belongs to another row.
     """
     scoped_meta = by_column or {}
     columns_per_iri: dict[str, set[str]] = {}
@@ -879,9 +1098,9 @@ def _fill_missing_labels(
             # raw reference in its own cell, so only the IR's cleaned form is
             # used here) ④ the term IRI read as words, and only when that
             # actually reads better than the local name.
-            column = str(row.get("reference") or "")
+            column = _row_column(row)
             scoped = scoped_meta.get((iri, column)) if column else None
-            if scoped is None and len(columns_per_iri.get(iri, ())) <= 1:
+            if scoped is None and column and len(columns_per_iri.get(iri, ())) <= 1:
                 scoped = ir_meta.get(iri)
             fallback = (scoped or {}).get("column_label") or _humanize_term_iri(iri)
             if fallback:
@@ -1608,10 +1827,10 @@ def _crosswalk_predicate_labels(registry_root: Path, dataset_id: str) -> dict[st
     # （利用者報告 2026-09-02）。この関数の約束は「設計が選んだ言葉を言う、
     # さもなくば黙る」で、取り違えた言葉はその約束を破る。
     authored: dict[str, set[str]] = {}
-    for iri, _column, meta in entries:
-        lbl = meta.get("label")
+    for entry in entries:
+        lbl = entry.extra.get("label")
         if lbl:
-            authored.setdefault(iri, set()).add(lbl)
+            authored.setdefault(entry.predicate_iri, set()).add(lbl)
     for iri, names in authored.items():
         if len(names) == 1:  # the authored label wins over the model.yaml projection
             labels[iri] = next(iter(names))

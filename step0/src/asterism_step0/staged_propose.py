@@ -552,9 +552,14 @@ def ensure_same_source_links(
                     )
                     if pair is not None:
                         child, parent = pair
-                        props[child].append(
-                            {"predicate": "dcterms:isPartOf", "object_template": subject_of[parent]}
-                        )
+                        part_of: dict[str, Any] = {
+                            "predicate": "dcterms:isPartOf",
+                            "object_template": subject_of[parent],
+                        }
+                        # 親の種類の表示名があれば付ける（(2) の経路と同じ形）
+                        if label_of.get(parent):
+                            part_of["label"] = label_of[parent]
+                        props[child].append(part_of)
                         added.append(f"{child} → {parent}")
                         linked = True
                         break
