@@ -9606,6 +9606,9 @@ tr.kz-cols-dropped td {
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--accent-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .vocab-map .vocab-map-edge--used .react-flow__edge-path {
   stroke: var(--primary);

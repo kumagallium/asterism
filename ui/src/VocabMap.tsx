@@ -75,14 +75,20 @@ function BandFrame({ data }: NodeProps) {
   )
 }
 
-/** 標準のことばの箱。種類の箱と見間違えないよう 2 行（語＋語彙名）の別部品。 */
+/** 標準のことばの箱。種類の箱と見間違えないよう 2 行（語＋語彙名）の別部品。
+ *  箱の高さは決まっているので、どちらの行も 1 行に収める（長い語彙名が折り返すと
+ *  語を隠す）。切れた分は title で読める。 */
 function StdBox({ data }: NodeProps) {
   const d = data as StdData
   return (
     <div className="vocab-map-std" style={{ width: d.width, height: d.height }}>
       <Handle type="target" position={Position.Top} isConnectable={false} />
-      <span className="vocab-map-std-term">{d.label}</span>
-      <span className="vocab-map-std-vocab">{d.vocab}</span>
+      <span className="vocab-map-std-term" title={d.label}>
+        {d.label}
+      </span>
+      <span className="vocab-map-std-vocab" title={d.vocab}>
+        {d.vocab}
+      </span>
       <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   )
