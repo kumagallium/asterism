@@ -6,6 +6,10 @@
     "module": "esnext",
     "types": ["vite/client"],
     "skipLibCheck": true,
+    // PR D §6: defaultView.test.ts / mermaidFlow.test.ts import the shared
+    // ui/Python フィクスチャ（fixtures/*.json）directly, so `tsc -b`（npm run
+    // build の一部）needs this to type-check the import.
+    "resolveJsonModule": true,
 
     /* Bundler mode */
     "moduleResolution": "bundler",

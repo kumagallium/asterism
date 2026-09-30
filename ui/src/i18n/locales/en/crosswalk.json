@@ -1,4 +1,5 @@
 {
+  "auto_linked": "Linked automatically from the handles you ticked",
   "view": {
     "back": "Back",
     "bannerTitle": "Connections",
@@ -60,6 +61,15 @@
     "scanningSub": "Matching the actual values against each other. No AI involved.",
     "scanningAt": "Looking at {{name}}…",
     "truncated": "There were many candidates; showing the {{shown}} with the most matches.",
+    "alreadyLinked": {
+      "line": "Already-connected combinations: {{count}} ({{names}})"
+    },
+    "joinable": {
+      "badge": "Can be added to an existing connection",
+      "sentence": "{{linked}} are already connected. {{added}} can be added.",
+      "join": "Add to this connection",
+      "joining": "Adding…"
+    },
     "tooFew": {
       "title": "Connecting needs two published datasets",
       "sub": "You have {{count}} published right now. Add and publish one more and you can connect them here.",
@@ -132,6 +142,7 @@
     },
     "done": {
       "title": "The connection is ready",
+      "joinedTitle": "Added to the connection",
       "stat": "<0>{{shared}}</0> values were shared across <1>{{count}}</1> datasets.",
       "skipped": "{{names}} did not join this time (not published). Publish it again and it comes back the next time you rebuild.",
       "askLead": "Try asking something across them.",

@@ -82,7 +82,20 @@ _SECRET_KEY_EXACT = {"key"}
 # pathological/adversarial payload can't blow the stack.
 _MAX_STRIP_DEPTH = 20
 
-_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+# A thread id is either a client-minted uuid4 (ask/consult/subjects — one per
+# browser session) OR a ``"card-" + lowercase-hex`` deterministic hash (cards
+# — the "cards" namespace's card_id: ``asterism.subject_tools.card_id_of``
+# on the api/ingest side and ``measureCardFields.ts``'s ``cardId()`` on the ui
+# side both mint ``f"card-{sha256(...)[:N]}"``, N varying by caller — 契約メモ
+# contract_pr_f4.md §1-5, so the same params always round-trip to the same
+# id). Both shapes are equally safe as a path component (fixed character
+# class + bounded length, no ``.``/``/`` ever possible) — this is still the
+# same "the id is the ONLY path component a client controls, reject anything
+# that isn't exactly one of these two shapes" gate, just with one more
+# accepted shape.
+_ID = re.compile(
+    r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|card-[0-9a-f]{8,64})$"
+)
 
 
 class AppDataError(Exception):
@@ -90,7 +103,8 @@ class AppDataError(Exception):
 
 
 class InvalidThreadId(AppDataError, ValueError):
-    """The thread id is not a uuid4 — refused before it can touch a path."""
+    """The thread id is neither a uuid4 nor a lowercase-hex hash — refused
+    before it can touch a path."""
 
 
 class ThreadTooLarge(AppDataError):

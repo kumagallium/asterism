@@ -119,7 +119,7 @@ def build_graph_from_ir(ir: MappingIR) -> MermaidGraph:
     label_map: dict[str, str] = {}
     taken: set[str] = set()
 
-    def _class_entry(class_term: str) -> ClassEntry:
+    def _class_entry(class_term: str, subject_label: str | None) -> ClassEntry:
         iri = _expand(class_term, prefixes)
         entry = entries.get(iri)
         if entry is not None:
@@ -131,19 +131,21 @@ def build_graph_from_ir(ir: MappingIR) -> MermaidGraph:
         while label in taken:  # still colliding — numbered alias
             label = f"{label}_2" if not label[-1].isdigit() else label + "_"
         taken.add(label)
+        # 表示は「IR の subject.label → 今の落とし先」の順（契約メモ a・R3）。
         # ``raw_local`` is the class's real name (e.g. ``試料``), untouched by
         # `_safe_ident`'s ASCII flattening — carried through as the diagram's
         # display label (see ClassEntry.display) so a non-ASCII class name
         # doesn't get reduced to an unreadable run of underscores in the
         # rendered diagram / meta.classes (see registry.extract_classes).
-        entry = ClassEntry(iri=iri, label=label, display=raw_local)
+        display = subject_label.strip() if subject_label and subject_label.strip() else raw_local
+        entry = ClassEntry(iri=iri, label=label, display=display)
         entries[iri] = entry
         label_map[label] = iri
         return entry
 
     map_classes: list[tuple[TriplesMapIR, list[ClassEntry]]] = []
     for m in ir.maps:
-        map_classes.append((m, [_class_entry(c) for c in m.subject.classes]))
+        map_classes.append((m, [_class_entry(c, m.subject.label) for c in m.subject.classes]))
 
     # ---- subject-term index for IRI-link resolution (template AND constant)
     subject_index: dict[str, ClassEntry] = {}

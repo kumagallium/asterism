@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -381,12 +382,67 @@ def _sparql_str(s: str) -> str:
     )
 
 
-def _literal_values(rows: list[dict], var: str) -> list[str]:
-    out: list[str] = []
+_XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
+# A SPARQL LANGTAG (``@ja``, ``@en-US``): the only shape a tag from the store may take
+# before it is written back into a query.
+_LANGTAG_RE = re.compile(r"^[A-Za-z]+(-[A-Za-z0-9]+)*$")
+
+
+@dataclass(frozen=True)
+class _LiteralTerm:
+    """One literal exactly as the store holds it: the string, plus the language tag
+    or datatype that makes it a distinct RDF term.
+
+    The join compares the STRING (``lexical``) — the same rule discovery applies —
+    so ``"日本"@ja``, ``"日本"`` and ``"42"^^xsd:integer`` vs ``"42"`` each count as
+    one value. Pass 2 re-reads the store with ``VALUES``, which matches TERMS, not
+    strings: it must ask for the term as stored, or a tagged/typed value that pass 1
+    counted as shared comes back with no entities (and the build says 0 shared).
+    """
+
+    lexical: str
+    lang: str | None = None
+    datatype: str | None = None
+
+    def sparql(self) -> str | None:
+        """The term as a SPARQL literal, or None when it cannot be written safely."""
+        body = f'"{_sparql_str(self.lexical)}"'
+        if self.lang:
+            if not _writable(self.lang, _LANGTAG_RE):
+                return None
+            return f"{body}@{self.lang}"
+        if self.datatype:
+            if not _writable(self.datatype, _IRI_RE):
+                return None
+            return f"{body}^^<{self.datatype}>"
+        return body
+
+
+def _writable(s: str, pattern: re.Pattern[str]) -> bool:
+    """``s`` matches ``pattern`` as a WHOLE (``$`` alone would let a trailing newline
+    through) and carries no control character — the only shapes a tag / datatype IRI
+    may take before they are written into a query unquoted."""
+    return bool(pattern.fullmatch(s)) and not any(ord(c) < 0x20 or c == "\x7f" for c in s)
+
+
+def _literal_term(binding: dict) -> _LiteralTerm | None:
+    # Discovery reads literals only (``FILTER(isLiteral(?v))``); a non-literal value
+    # (an IRI, a blank node) is never a join value here either.
+    if binding.get("type") not in ("literal", "typed-literal") or "value" not in binding:
+        return None
+    lang = binding.get("xml:lang") or None
+    datatype = binding.get("datatype") or None
+    if datatype == _XSD_STRING:
+        datatype = None  # a simple literal (RDF 1.1); never written back typed
+    return _LiteralTerm(lexical=binding["value"], lang=lang, datatype=datatype)
+
+
+def _literal_terms(rows: list[dict], var: str) -> list[_LiteralTerm]:
+    out: list[_LiteralTerm] = []
     for b in rows:
-        v = b.get(var, {})
-        if "value" in v:
-            out.append(v["value"])
+        t = _literal_term(b.get(var, {}))
+        if t is not None:
+            out.append(t)
     return out
 
 
@@ -401,44 +457,63 @@ def _kind_scope(subject_class: str | None) -> str:
     return f"?e a <{subject_class}> . " if subject_class else ""
 
 
-async def _distinct_values(
+async def _distinct_terms(
     client, graph: str, predicate: str, subject_class: str | None = None
-) -> list[str]:
+) -> list[_LiteralTerm]:
     """Pass 1: every distinct raw value of ``?e <predicate> ?v`` in ``graph`` (bounded
     by the number of distinct values, not entities), for entities of ``subject_class``
-    when given."""
+    when given. Each comes back as the TERM the store holds (see :class:`_LiteralTerm`)
+    so pass 2 can ask for exactly it."""
     rows = await _select_bindings(
         client,
         f"SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ "
-        f"{_kind_scope(subject_class)}?e <{predicate}> ?v }} }}",
+        f"{_kind_scope(subject_class)}?e <{predicate}> ?v FILTER(isLiteral(?v)) }} }}",
     )
-    return _literal_values(rows, "v")
+    return _literal_terms(rows, "v")
 
 
-async def _entities_for_values(
+async def _entities_for_terms(
     client,
     graph: str,
     predicate: str,
-    values: list[str],
+    terms: list[_LiteralTerm],
     subject_class: str | None = None,
 ) -> list[tuple[str, str]]:
-    """Pass 2: ``(entity, raw)`` pairs whose raw value is in ``values`` — bounded to
-    the SHARED set, so the read is O(#shared-entities), not O(#entities)."""
-    if not values:
+    """Pass 2: ``(entity, raw)`` pairs whose value is one of ``terms`` — bounded to
+    the SHARED set, so the read is O(#shared-entities), not O(#entities).
+
+    ``VALUES`` matches terms, so the terms are written back exactly as pass 1 read them
+    (tag / datatype included). The result is de-duplicated per ``(entity, string)``:
+    the same string held under two terms by one entity (``"日本"@ja`` and ``"日本"``)
+    is one observation, never two links.
+    """
+    written: dict[str, None] = {}
+    for t in terms:
+        sparql = t.sparql()
+        if sparql is None:
+            logger.warning("crosswalk pass 2 skipped a literal it cannot write back: %r", t)
+            continue
+        written.setdefault(sparql, None)
+    if not written:
         return []
-    vals = " ".join(f'"{_sparql_str(v)}"' for v in values)
     rows = await _select_bindings(
         client,
         f"SELECT ?e ?v WHERE {{ GRAPH <{graph}> {{ "
         f"{_kind_scope(subject_class)}?e <{predicate}> ?v }} "
-        f"VALUES ?v {{ {vals} }} }}",
+        f"VALUES ?v {{ {' '.join(written)} }} }}",
     )
+    seen: set[tuple[str, str]] = set()
     out: list[tuple[str, str]] = []
     for b in rows:
         e = b.get("e", {})
         v = b.get("v", {})
-        if e.get("type") == "uri" and "value" in v:
-            out.append((e["value"], v["value"]))
+        if e.get("type") != "uri" or "value" not in v:
+            continue
+        pair = (e["value"], v["value"])
+        if pair in seen:
+            continue
+        seen.add(pair)
+        out.append(pair)
     return out
 
 
@@ -453,7 +528,10 @@ async def _entity_tuples(
     """Compound gather (crosswalk-compound-keys.md): ``(entity, raw_tuple)`` for entities
     that have a value for EVERY part predicate — an inner join over the part predicates,
     so an entity missing any part never enters (no half-join). Multi-valued parts produce
-    the cross product (SPARQL natural join); per-entity tuples are capped (logged)."""
+    the cross product (SPARQL natural join); per-entity tuples are capped (logged).
+
+    Parts compare as strings, like the single-key passes: the same strings held under two
+    terms (a language tag, a datatype) by one entity are ONE tuple, never two links."""
     sel = " ".join(f"?v{i}" for i in range(len(predicates)))
     where = _kind_scope(subject_class) + " ".join(
         f"?e <{p}> ?v{i} ." for i, p in enumerate(predicates)
@@ -462,6 +540,7 @@ async def _entity_tuples(
         client, f"SELECT ?e {sel} WHERE {{ GRAPH <{graph}> {{ {where} }} }}"
     )
     per_entity: dict[str, list[tuple[str, ...]]] = {}
+    seen: set[tuple[str, tuple[str, ...]]] = set()
     capped = 0
     for b in rows:
         e = b.get("e", {})
@@ -470,11 +549,15 @@ async def _entity_tuples(
         cells = [b.get(f"v{i}") for i in range(len(predicates))]
         if any(c is None or "value" not in c for c in cells):
             continue  # a part is unbound -> not a complete tuple
+        raw_tuple = tuple(c["value"] for c in cells)
+        if (e["value"], raw_tuple) in seen:
+            continue  # the same strings under other terms -> already one tuple
+        seen.add((e["value"], raw_tuple))
         bucket = per_entity.setdefault(e["value"], [])
         if len(bucket) >= _COMPOUND_TUPLE_CAP:
             capped += 1
             continue
-        bucket.append(tuple(c["value"] for c in cells))
+        bucket.append(raw_tuple)
     if capped:
         logger.warning(
             "crosswalk compound gather trimmed %d tuple(s) over the %d/entity cap in %s",
@@ -501,6 +584,7 @@ async def build_hub(
     *,
     built_at: str,
     perspective_id: str = DEFAULT_PERSPECTIVE_ID,
+    concept_labels: Mapping[str, str] | None = None,
 ) -> BuildOutcome:
     """Rebuild ONE crosswalk perspective from the live store (read FROM the promoted
     canonical graphs, write the perspective's graph + control flag). Idempotent (drop +
@@ -510,6 +594,10 @@ async def build_hub(
     default is the legacy ``composition`` perspective. ``client`` is an
     :class:`asterism.oxigraph_client.OxigraphClient`. The read is bounded to shared
     values; normalization happens in Python via the concept's named normalizer.
+
+    ``concept_labels`` (契約メモ contract_b2_hub_names.md B2-3): concept name →
+    human-readable display name, forwarded as-is to :func:`asterism.crosswalk.
+    build_turtle` — see there for the fallback when absent/empty.
     """
     hub_graph = crosswalk_graph_iri(perspective_id)
     activity_iri = perspective_activity_iri(perspective_id)
@@ -551,8 +639,7 @@ async def build_hub(
             # COMPOUND key: gather per-entity TUPLES (one value per part) and bucket by
             # the normalized tuple — two entities coincide iff every part matches.
             part_norms = [
-                resolve_normalizer(kp.normalizer, kp.normalizer_recipe)
-                for kp in concept.key_parts
+                resolve_normalizer(kp.normalizer, kp.normalizer_recipe) for kp in concept.key_parts
             ]
             rows_by_label: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
             key_sets_t: list[set[tuple[str, ...]]] = []
@@ -575,23 +662,26 @@ async def build_hub(
 
         normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
         # Pass 1: distinct raw values per participant -> the shared normalized keys.
-        per_label_raws: dict[str, list[str]] = {}
+        # The key is made from the STRING of each term (a language tag or a datatype
+        # never separates two values that read the same — the rule discovery counts
+        # ``matched`` by), so what discovery promised is what the build produces.
+        per_label_terms: dict[str, list[_LiteralTerm]] = {}
         key_sets: list[set[str]] = []
         for p in active:
-            raws = await _distinct_values(
+            terms = await _distinct_terms(
                 client, live[p.label], p.predicate, subject_class=p.subject_class
             )
-            per_label_raws[p.label] = raws
-            key_sets.append({normalize(r) for r in raws})
+            per_label_terms[p.label] = terms
+            key_sets.append({normalize(t.lexical) for t in terms})
         shared = shared_keys(key_sets, min_datasets=config.min_datasets)
         if not shared:
             continue
 
-        # Pass 2: bounded read of (entity, raw) for raws whose key is shared.
+        # Pass 2: bounded read of (entity, raw) for the terms whose key is shared.
         for p in active:
-            shared_raws = [r for r in per_label_raws[p.label] if normalize(r) in shared]
-            observations[(concept.name, p.label)] = await _entities_for_values(
-                client, live[p.label], p.predicate, shared_raws, subject_class=p.subject_class
+            shared_terms = [t for t in per_label_terms[p.label] if normalize(t.lexical) in shared]
+            observations[(concept.name, p.label)] = await _entities_for_terms(
+                client, live[p.label], p.predicate, shared_terms, subject_class=p.subject_class
             )
 
     # Delegate Turtle construction to the tested pure library (multi-concept,
@@ -617,6 +707,7 @@ async def build_hub(
         observations,
         activity_iri=activity_iri,
         built_at=built_at,
+        concept_labels=concept_labels,
     )
     triple_count = _count_triples(result.turtle)
 

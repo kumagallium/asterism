@@ -6,8 +6,9 @@
 //
 // LLM は 1 回も呼ばない。ここにあるのは全部、骨格 JSON だけを見る純関数。
 
-import type { DatasetNamespaceInfo, MappingSkeleton, SkeletonMap } from './api'
-import { expandClass } from './datasetNamespace'
+import type { DatasetNamespaceInfo, MappingSkeleton, SkeletonMap, SkeletonSubject } from './api'
+import { compactClass, expandClass } from './datasetNamespace'
+import { classNameFromLabel } from './kantan/asciiNames'
 
 /** テンプレートの `{列名}` を並び順のまま取り出す（ID を決めている列）。 */
 export function keyColumnsOf(map: SkeletonMap): string[] {
@@ -105,6 +106,39 @@ export function sameIdSiblings(skeleton: MappingSkeleton, hostName: string): str
     .map((m) => m.name)
 }
 
+/** ⑤「かたちをたしかめる」の点線（このあと機械が引く線）の出どころと行き先。
+ *
+ *  ☑ した列の受け口へのリンクは、**その列を元々持っていた種類**が持つ（ADR kantan
+ *  K58・マニュアル「☑ を付けた項目は元の種類から外れず、参照として持ち続けます」）:
+ *  前置きの列ならカード（`hostName`）、表本体＝行ごとに変わる列（`varyingColumns`）
+ *  なら行の種類（`rowMap`）。行の種類が無いときはカードから。サーバの決定論の
+ *  組み立て（`catalog_homes`）と K49 の後追い修理が同じ規則で辺を書くので、
+ *  ここで予告した形がそのまま⑥「ためす」の実線になる。
+ *
+ *  `columnKinds` は 列 → その列をキーにした受け口の名前（同じ列の受け口が 2 つ
+ *  あれば 2 つとも）。同じ線は 1 本だけ返す。 */
+export function pendingLinkEdges(opts: {
+  hostName: string
+  rowMap?: string | null
+  varyingColumns: readonly string[]
+  columnKinds: ReadonlyMap<string, readonly string[]>
+}): [string, string][] {
+  const varying = new Set(opts.varyingColumns)
+  const seen = new Set<string>()
+  const edges: [string, string][] = []
+  for (const [column, kinds] of opts.columnKinds) {
+    const from = opts.rowMap && varying.has(column) ? opts.rowMap : opts.hostName
+    for (const to of kinds) {
+      if (to === from) continue
+      const key = `${from}\u0000${to}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      edges.push([from, to])
+    }
+  }
+  return edges
+}
+
 /** 新しい種類の住所の頭。親の下ではなくデータセットの根に置く — 最後の
  *  リテラル区間を 1 つ落として接頭辞（`xrr:` / `…/resource/`）まで戻す。
  *  （`SkeletonGate` の `splitConcept` から移設。つなぐための種類が「親の下」に
@@ -114,6 +148,65 @@ export function subjectHead(template: string): string {
   const trimmed = beforeSlot.replace(/\/$/, '')
   const cutAt = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf(':'))
   return cutAt >= 0 ? trimmed.slice(0, cutAt + 1) : ''
+}
+
+/** かんたんモードの「名前・ID を直す」欄（R4）が、打った文字列から作る
+ *  `subject` の差分。打った文字列が空なら `label` を外し、`classes` は
+ *  今のまま（触らない）。空でなければ `label` にそのまま入れ、`classes` は
+ *  それを {@link classNameFromLabel}（`_class_name` と同じ規則・
+ *  fallback `record`）に通した名前 1 つに差し替える。前後の空白は落とす
+ *  （契約メモ a・R4）。かんたんモードではどんな文字でも打てる — 規則の
+ *  警告や自動修正のボタンは出さない。 */
+export function kindLabelEdit(
+  raw: string,
+  nsDetected: Pick<DatasetNamespaceInfo, 'ontology_prefix'> | null,
+): Partial<SkeletonSubject> {
+  const trimmed = raw.trim()
+  // 空にしたら、表示名を外し、機械が作った名前も外す。名前が「無い」状態に戻る
+  // ので、欄は空欄のまま（符号つきの識別子が欄に出ない）。
+  if (!trimmed) return { label: undefined, classes: [] }
+  // 状態に入れる表示名は、打ったままにする（前後の空白を落とすと、空白を 1 文字
+  // ずつ打てない）。空白は読む側（{@link kindDisplayName}）・サーバが落とす。
+  return { label: raw, classes: [expandClass(classNameFromLabel(trimmed, 'record'), nsDetected)] }
+}
+
+type NsForDisplay = Pick<DatasetNamespaceInfo, 'ontology_prefix'> | null
+
+/** かんたんモードの「名前・ID を直す」欄に出す値。表示名があればそのまま
+ *  （前後の空白も含めて。打っている途中で空白が消えないように）、無ければ
+ *  公開される名前を短くしたもの。 */
+export function kindFieldValue(subject: SkeletonSubject, nsDetected: NsForDisplay): string {
+  if (subject.label !== undefined) return subject.label
+  return (subject.classes ?? []).map((c) => compactClass(c, nsDetected)).join(', ')
+}
+
+/** 人に見せる種類の名前。表示名（`subject.label`）→ 公開される名前を短くした
+ *  もの、の順（契約メモ a・R3）。かんたんモードの文言は、すべてこれを通す。 */
+export function kindDisplayName(subject: SkeletonSubject, nsDetected: NsForDisplay): string {
+  const label = (subject.label ?? '').trim()
+  return label || compactClass(subject.classes?.[0] ?? '', nsDetected)
+}
+
+/** クラス（CURIE）→ 人に見せる名前。表示名のある種類の分だけ入る（先に出た
+ *  表示名が勝つ — サーバの読み方と同じ）。証拠カードのように、クラス名の
+ *  文字列しか持たない場所が、表示名を引くのに使う。 */
+export function kindNamesByClass(
+  skeleton: MappingSkeleton,
+  nsDetected: NsForDisplay,
+): (cls: string) => string {
+  const byClass = new Map<string, string>()
+  for (const m of skeleton.maps) {
+    const label = (m.subject.label ?? '').trim()
+    if (!label) continue
+    for (const c of m.subject.classes ?? []) {
+      const key = compactClass(c, nsDetected)
+      if (!byClass.has(key)) byClass.set(key, label)
+    }
+  }
+  return (cls) => {
+    const key = compactClass(cls, nsDetected)
+    return byClass.get(key) ?? key
+  }
 }
 
 /** 骨格スキーマが map の名前に課す形（`^[A-Za-z][\w-]*$`・
@@ -141,6 +234,7 @@ export function sameIdKind(
   parent: SkeletonMap,
   mapName: string,
   classes: string[],
+  label?: string,
 ): SkeletonMap {
   const template = parent.subject.template ?? ''
   const slots = template.includes('{') ? template.slice(template.indexOf('{')) : ''
@@ -148,7 +242,11 @@ export function sameIdKind(
     name: mapName,
     source: parent.source,
     ...(parent.iterator === undefined ? {} : { iterator: parent.iterator }),
-    subject: { template: `${subjectHead(template)}${mapName}/${slots}`, classes },
+    subject: {
+      template: `${subjectHead(template)}${mapName}/${slots}`,
+      classes,
+      ...(label ? { label } : {}),
+    },
     owns: keyColumnsOf(parent),
   }
 }

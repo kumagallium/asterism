@@ -39,6 +39,7 @@ from pydantic import Field
 from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
+    dataset_descriptions,
     provenance_of,
     schema_summary,
     sparql_query,
@@ -219,7 +220,24 @@ def build_server(
             int, Field(description="Maximum datasets to return.", ge=1, le=500)
         ] = 50,
     ) -> dict[str, object]:
-        return find_datasets(keywords, include_drafts=include_drafts, limit=limit)
+        # ADR dataset-description-in-the-store.md §7.1: catalog.py stays
+        # synchronous and store-free, so the store read happens here and is
+        # handed in. Best-effort: a store failure degrades to no descriptions
+        # (empty-string, same as an absent metadata.ttl) rather than losing the
+        # whole discovery call — one bad store round trip must not hide every
+        # dataset (the same "1 つの不良が全部を隠さない" contract catalog.py
+        # already keeps for a malformed on-disk artifact).
+        try:
+            descriptions = await dataset_descriptions(get_client())
+        except Exception:
+            logger.warning("find_datasets: dataset_descriptions failed (continuing)", exc_info=True)
+            descriptions = {}
+        return find_datasets(
+            keywords,
+            include_drafts=include_drafts,
+            limit=limit,
+            descriptions=descriptions,
+        )
 
     # The arbitrary-SPARQL escape hatch is gated by the deployment exposure
     # profile: a sensitive store (topology B) sets ASTERISM_EXPOSE_RAW_SPARQL=0
@@ -305,7 +323,9 @@ def _make_query_tool_handler(tool: QueryTool, get_client):
     handler.__signature__ = inspect.Signature(sig_params)  # type: ignore[attr-defined]
     handler.__annotations__ = annotations
     handler.__name__ = tool.name
-    handler.__doc__ = tool.description or tool.title
+    # object-cards-ui.md §3: the answer's shape, so an AI calling this tool
+    # knows what to do with the result without parsing column names.
+    handler.__doc__ = f"{tool.description or tool.title}\n\nResult kind: {tool.output_kind}."
     return handler
 
 
@@ -328,11 +348,16 @@ def _register_declared_query_tools(mcp: FastMCP, get_client) -> None:
     for dataset, tools in sources.items():
         for tool in tools:
             name = served[dataset][tool.name]
+            handler = _make_query_tool_handler(tool, get_client)
             mcp.add_tool(
                 Tool.from_function(
-                    _make_query_tool_handler(tool, get_client),
+                    handler,
                     name=name,
-                    description=tool.description or tool.title,
+                    # FunctionTool.from_function keeps an explicit ``description``
+                    # verbatim over the wrapped function's docstring, so the
+                    # "Result kind" line handler.__doc__ carries has to be
+                    # repeated here too or a caller listing tools never sees it.
+                    description=handler.__doc__,
                 )
             )
 

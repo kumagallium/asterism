@@ -705,6 +705,58 @@ def test_skeleton_assemble_builds_from_judgments(
         assert r3.status_code == 400
 
 
+def test_skeleton_assemble_passes_labels_to_subject(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """契約メモ a・R3(api): `labels` は `assemble_skeleton_from_judgments` の
+    `labels` 引数へそのまま渡り、☑ した列の種類の `subject.label` になる。"""
+    csv = (
+        "No,Name,temp,val\n"
+        "C-1,Alpha,300,1.2\n"
+        "C-1,Alpha,310,1.4\n"
+        "C-1,Alpha,320,1.9\n"
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton/assemble",
+            data={
+                "linkable": json.dumps(
+                    [
+                        {"source": "cards.csv", "column": "No"},
+                        {"source": "cards.csv", "column": "Name"},
+                    ]
+                ),
+                "card_keys": json.dumps({"cards.csv": "No"}),
+                "labels": json.dumps(
+                    [{"source": "cards.csv", "column": "Name", "label": "店の名前"}]
+                ),
+            },
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        maps = {m["name"]: m for m in r.json()["skeleton"]["maps"]}
+        assert maps["name"]["subject"]["label"] == "店の名前"
+        # ラベルを渡さなかった種類は既定どおり（label 無し）。
+        assert "label" not in maps["card"]["subject"]
+
+        # labels を省略しても今まで通り 200（新引数は任意）。
+        r2 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"linkable": "[]"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r2.status_code == 200
+
+        # 壊れた JSON は 400。
+        r3 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"labels": "{not json"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r3.status_code == 400
+
+
 def test_skeleton_validate_recomputes_evidence_for_edits(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
@@ -2126,3 +2178,63 @@ def test_update_check_reports_unreachable_feed(
     app = build_app(cfg, oxigraph_client=healthy_client, start_watcher=False)
     with TestClient(app) as client:
         assert client.get("/api/desktop/update-check").status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# object-cards-ui.md（契約 contract_pr_c.md §0.1）— 統合段の配線そのものを検証する。
+# class_schema_routes / cards_routes / place_routes 自身のテストは並列段が用意した
+# 専用テストファイルにあり（各ファイルが自分で register_<name>(app, settings) を
+# 呼ぶ）、ここで確かめるのはそれとは別のこと: 素の build_app() だけで — 誰も
+# register_ を手で呼ばなくても — 3 モジュールが配線され、既存ルートと 1 つも
+# 衝突していないこと。
+# ---------------------------------------------------------------------------
+
+
+def test_build_app_wires_object_cards_routes_without_any_manual_register_call(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+
+    seen: dict[tuple[str, str], int] = {}
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        for method in getattr(route, "methods", None) or ():
+            seen[(method, path)] = seen.get((method, path), 0) + 1
+
+    # 1 つの (method, path) につき登録は必ず 1 回だけ — 既存ルートとの衝突が
+    # あれば、ここが真っ先に 2 になる。
+    duplicates = {key: count for key, count in seen.items() if count > 1}
+    assert duplicates == {}
+
+    expected = {
+        ("GET", "/api/classes/schema"),
+        ("POST", "/api/cards/run"),
+        ("GET", "/api/subjects/resolve"),
+        ("GET", "/api/subjects/search"),
+        ("GET", "/api/subjects/default-cards"),
+        ("GET", "/api/sets/default-cards"),
+        ("POST", "/api/sets/resolve"),
+        ("GET", "/api/appdata/subjects"),
+        ("PUT", "/api/appdata/subjects/{subject_id}"),
+        ("DELETE", "/api/appdata/subjects/{subject_id}"),
+        ("POST", "/api/place/inspect"),
+        ("POST", "/api/place/subjects"),
+        ("POST", "/api/place/commit"),
+    }
+    assert expected <= set(seen)
+
+
+def test_build_app_object_cards_routes_answer_over_http(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """1 本だけ実際に叩いて確認する — 配線が「ルートは載っているが実は 2 度
+    register されて後勝ちの空実装に化けている」ような事故ではないこと。未知の
+    class_iri は §2 の契約どおり 404 になる。"""
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        resp = client.get(
+            "/api/classes/schema", params={"class_iri": "https://example.org/does-not-exist"}
+        )
+    assert resp.status_code == 404

@@ -147,6 +147,9 @@ class _Indexed:
     # leading has/is/was dropped (so "structure" can match "hasStructure").
     tokens: frozenset[str]
     core_norm: str  # name_norm with a leading has/is/was prefix removed
+    #: 名前・表示名を語に分けたもの（順序つき）。部分一致を語の境目で確かめるのに使う。
+    name_words: tuple[str, ...] = ()
+    label_words: tuple[str, ...] = ()
     #: 語彙がカタログに並んでいる順。同点のときの優先順位に使う（下記 ``ground_terms``）。
     vocab_rank: int = 0
 
@@ -226,13 +229,75 @@ def _index() -> tuple[_Indexed, ...]:
                 label_norm=_norm(term.label),
                 tokens=frozenset(tokens),
                 core_norm="".join(core_tokens),
+                name_words=tuple(name_tokens),
+                label_words=tuple(label_tokens),
                 vocab_rank=rank_of.get(term.prefix, len(rank_of)),
             )
         )
     return tuple(idx)
 
 
-def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, str]:
+def _word_starts(words: tuple[str, ...]) -> set[int]:
+    """語の頭の位置（区切りを除いた正規形の中での文字位置）。末尾の位置も含める。"""
+    starts, pos = {0}, 0
+    for w in words:
+        pos += len(w)
+        starts.add(pos)
+    return starts
+
+
+def _subject_words(words: tuple[str, ...]) -> tuple[str, ...]:
+    """名前のうち「何の量か」を言っている語。
+
+    ⭐名前全体で当てると、量の中身を言っていない語だけで当たる（実測 2026-09-30:
+    項目 ``unit`` に "Volume per **Unit** Area"、``amount`` に "**Amount** of
+    Substance" が候補として出た）。
+
+    - ``per`` の後ろは分母 — 何あたりかであって、何の量かではない。
+    - ``of`` の前は入れ物 — "amount of" "number of" は「何の」を ``of`` の後ろに言う。
+      ``of`` が重なるときは最後の ``of`` の後ろ（"current of the amount of substance"）。
+    - 先頭の ``per``・末尾の ``of``（"is version of"）は区切りにしない（何も残らなくなる）。
+    """
+    if "per" in words[1:]:
+        words = words[: words.index("per", 1)]
+    of_at = [i for i, w in enumerate(words[:-1]) if w == "of"]
+    if of_at:
+        words = words[of_at[-1] + 1 :]
+    return words
+
+
+def _contains(outer: str, outer_words: tuple[str, ...], inner: str, *, whole: bool = False) -> bool:
+    """``inner`` が ``outer`` の中に「意味のある形で」含まれるか（部分一致の条件）。
+
+    ⭐ただの文字列の包含にすると、短い語がどんな名前にも当たる（実測 2026-09-30:
+    1 文字の語 ``C`` が "Country" "Record" "IngestionActivity" のすべてに候補として
+    出た）。短いほど偶然に含まれやすいので、長さに応じて条件をきつくする:
+
+    - 2 文字以下 — 部分一致では当てない（完全一致なら当たる）。
+    - 3 文字 — 語の境目から境目まで、語そのものとして含まれるときだけ
+      （"gasFlow" の "gas" は当たる・"percentage" の "age" は当たらない）。
+    - 4 文字以上 — 語の頭から始まるときだけ（"temp" は "temperature" に当たる・
+      "unit" は "community" に当たらない）。
+
+    ``whole=True`` のときは長さによらず語の境目から境目までに限る。短い名前が長い名前の
+    「中に入っている」向きで使う（"count" は "ofCountry" の語の頭にあるが、そこの語は
+    "country" であって "count" ではない）。
+    """
+    n = len(inner)
+    if n <= 2 or n >= len(outer):
+        return False
+    starts = _word_starts(outer_words)
+    at = outer.find(inner)
+    while at != -1:
+        if at in starts and ((n >= 4 and not whole) or at + n in starts):
+            return True
+        at = outer.find(inner, at + 1)
+    return False
+
+
+def _score(
+    q_norm: str, q_tokens: frozenset[str], ix: _Indexed, q_words: tuple[str, ...]
+) -> tuple[int, str]:
     """Deterministic match score + tier name for one indexed term (0 = no match)."""
     if not q_norm:
         return 0, ""
@@ -240,10 +305,19 @@ def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, st
         return 100, "exact"
     if q_tokens and (q_tokens == ix.tokens):
         return 90, "exact_tokens"
+    # 1 語だけの問いが入れ物・分母の語にだけ当たるのは数えない（``_subject_words``。
+    # 実測 2026-09-30: 項目 ``amount`` に qudt:dimensionExponentForAmountOfSubstance）。
+    name_subject, label_subject = _subject_words(ix.name_words), _subject_words(ix.label_words)
     if q_tokens and q_tokens <= ix.tokens:
+        if len(q_tokens) == 1 and not q_tokens & (set(name_subject) | set(label_subject)):
+            return 0, ""
         # all query words appear in the term; tighter (fewer extra words) ranks higher
         return 70 + max(0, 10 - (len(ix.tokens) - len(q_tokens))), "tokens_subset"
-    if q_norm in ix.name_norm or ix.name_norm in q_norm or q_norm in ix.label_norm:
+    if (
+        _contains(ix.name_norm, ix.name_words, q_norm)
+        or _contains(q_norm, q_words, ix.name_norm)
+        or _contains(ix.label_norm, ix.label_words, q_norm)
+    ):
         return 50, "substring"
     overlap = q_tokens & ix.tokens
     if overlap:
@@ -267,14 +341,15 @@ def ground_terms(
     if kind is not None and kind not in _KINDS:
         raise ValueError(f"kind must be one of {sorted(_KINDS)} or None, got {kind!r}")
     q_norm = _norm(query)
-    q_tokens = frozenset(_split(query))
+    q_words = tuple(_split(query))
+    q_tokens = frozenset(q_words)
     scored: list[tuple[int, str, _Indexed]] = []
     for ix in _index():
         if kind is not None and ix.term.kind != kind:
             continue
         if domain is not None and ix.term.domain != domain:
             continue
-        score, match = _score(q_norm, q_tokens, ix)
+        score, match = _score(q_norm, q_tokens, ix, q_words)
         if score > 0:
             scored.append((score, match, ix))
     # Deterministic ordering: score desc, then the CATALOG's own vocabulary order,

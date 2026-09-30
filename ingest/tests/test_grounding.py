@@ -106,6 +106,52 @@ def test_no_match_returns_empty() -> None:
     assert ground_terms("", limit=5) == []
 
 
+# ── 部分一致は語の境目で ───────────────────────────────────────────────────────
+# 実測 2026-09-30: カタログの 1 文字の語（class ``C``）が "Country" "Record_…"
+# "IngestionActivity" のすべてに候補として出た。文字列として含まれるだけでは当てない。
+
+
+def _substring_hits(query: str, kind: str | None = None) -> set[str]:
+    return {c.name for c in ground_terms(query, kind=kind, limit=50) if c.match == "substring"}
+
+
+@pytest.mark.parametrize("query", ["Country", "Record_50577d", "IngestionActivity", "Recipe"])
+def test_a_one_letter_term_is_not_found_inside_a_longer_name(query: str) -> None:
+    short = {t.name for t in _all_terms() if len(t.name) <= 2}
+    assert short, "カタログに 1〜2 文字の語がある前提のテスト"
+    assert not (_substring_hits(query) & short)
+
+
+@pytest.mark.parametrize("query", ["cardNo", "population", "servings", "lifeExpectancy"])
+def test_a_one_letter_property_is_not_found_inside_a_longer_name(query: str) -> None:
+    assert not {n for n in _substring_hits(query, "property") if len(n) <= 2}
+
+
+@pytest.mark.parametrize("query", ["no", "pH"])
+def test_a_one_or_two_letter_query_is_never_a_substring(query: str) -> None:
+    assert _substring_hits(query) == set()
+
+
+def test_a_one_letter_term_still_matches_exactly() -> None:
+    (top,) = ground_terms("C", kind="class", limit=1)
+    assert top.match == "exact"
+    assert top.name == "C"
+
+
+def test_a_three_letter_word_matches_only_as_a_whole_word() -> None:
+    # "imageUrl" の "url" は語そのもの → 当たる。"percentage" の "age" は語の途中 → 当たらない。
+    assert any(n.lower() == "url" for n in _substring_hits("imageUrl", "property"))
+    assert "age" not in _substring_hits("percentage", "property")
+
+
+def test_a_longer_fragment_must_start_at_a_word() -> None:
+    # 語の頭から始まる略記は当たる（"temp" → "…Temperature"）。
+    assert any("Temperature" in n for n in _substring_hits("temp", "property"))
+    # 語の途中にたまたま現れる並びは当たらない（"IngestionActivity" の中の "ionactivity"）。
+    assert "IonActivity" not in _substring_hits("IngestionActivity", "class")
+    assert "Activity" in _substring_hits("IngestionActivity", "class")
+
+
 def test_limit_is_respected() -> None:
     assert len(ground_terms("structure", limit=2)) <= 2
 
@@ -166,3 +212,12 @@ def test_terms_without_an_explicit_iri_still_concatenate() -> None:
     """明示 IRI を持たない語（大多数）は従来どおり namespace + name。"""
     hits = [c for c in ground_terms("title", kind="property", limit=5) if c.prefix == "dcterms"]
     assert hits and hits[0].iri == "http://purl.org/dc/terms/title"
+
+
+def test_a_lone_word_before_of_is_not_a_candidate() -> None:
+    """実測 2026-09-30: 項目 ``amount`` に qudt:dimensionExponentForAmountOfSubstance が
+    候補として出た。``of`` の前は入れ物で、「何の」は ``of`` の後ろに言う。"""
+    curies = [c.curie for c in ground_terms("amount", kind="property", limit=8)]
+    assert "qudt:dimensionExponentForAmountOfSubstance" not in curies
+    # 末尾の of は区切りにしない（"is version of" は version の話）。
+    assert "dcterms:isVersionOf" in [c.curie for c in ground_terms("version", limit=8)]

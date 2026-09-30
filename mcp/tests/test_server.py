@@ -111,6 +111,19 @@ async def test_declared_query_tools_registered_with_typed_schema(monkeypatch) ->
     assert "max_plausible" in schema["properties"]  # optional param present
 
 
+async def test_declared_query_tool_description_carries_output_kind(monkeypatch) -> None:
+    # object-cards-ui.md §3: an AI calling a declared tool should learn its
+    # answer's shape without parsing column names — the shipped starrydata
+    # bundle declares property_ranking's output_kind as "ranked" explicitly.
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"]))
+    )
+    tools = {t.name: t for t in await mcp.list_tools()}
+    assert tools["property_ranking"].description is not None
+    assert "Result kind: ranked." in tools["property_ranking"].description
+
+
 async def test_declared_property_ranking_call_round_trip(monkeypatch) -> None:
     monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     def handler(request: httpx.Request) -> httpx.Response:
@@ -284,3 +297,34 @@ async def test_find_datasets_names_the_tool_the_caller_must_send(
     }
     assert reported == {"dup", "beta-22222222_dup"}
     assert reported <= registered  # every reported name is actually callable
+
+
+async def test_find_datasets_store_failure_degrades_to_empty_descriptions(
+    monkeypatch, tmp_path
+) -> None:
+    # A store outage must not hide the whole catalog (ADR
+    # dataset-description-in-the-store.md §7.1): dataset_descriptions() raises,
+    # the server catches it (warning-logged), and find_datasets still answers —
+    # just without store-sourced descriptions ("1 つの不良が全部を隠さない").
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    d = reg / "zem-abc12345"
+    d.mkdir(parents=True)
+    (d / "meta.json").write_text(
+        json.dumps({"id": "zem-abc12345", "name": "ZEM", "promoted": True}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("store is down", request=request)
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    client = OxigraphClient(OxigraphConfig(base_url="http://test", retries=1), client=inner)
+
+    mcp = build_server(Settings({}), oxigraph_client=client)
+    result = await mcp.call_tool("find_datasets", {})
+    body = result.structured_content
+    assert body is not None
+    assert [ds["name"] for ds in body["datasets"]] == ["ZEM"]
+    assert body["datasets"][0]["description"] == ""

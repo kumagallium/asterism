@@ -481,6 +481,16 @@ def test_default_dialect_entry_compiles_byte_identically() -> None:
     assert "ast:" not in compile_text(plain)
 
 
+def test_subject_label_is_display_metadata_never_compiled() -> None:
+    """契約メモ a・R2: ``subject.label`` はコンパイルした RML を1バイトも
+    変えない（``PropertyIR.label`` と同じ扱い）。"""
+    plain = BASE_IR.replace("__EXTRA__", "")
+    labeled = plain.replace(
+        "classes: [ex:Thing]", 'classes: [ex:Thing]\n      label: "試料"'
+    )
+    assert compile_text(labeled) == compile_text(plain)
+
+
 def test_ast_prefix_conflict_fails_closed() -> None:
     bad = DIALECT_IR.replace(
         'ex: "https://example.org/ns#"',

@@ -15,6 +15,7 @@ The repaired spec goes through the SAME parse → validate → compile → RML
 gates as any other round — guided decoding narrows generation, it never
 replaces validation.
 """
+
 from __future__ import annotations
 
 from asterism_step0.materialize import materialize_schema
@@ -71,6 +72,38 @@ def build_spec_repair_user(spec_yaml: str, issues: list[str], oracle: str) -> st
         f"{oracle}\n\n"
         "Return the corrected mapping spec as a single JSON object."
     )
+
+
+def carry_subject_labels(new_doc: dict, old_doc: object) -> dict:
+    """再生成された骨格・IR に、直前の ``subject.label`` を map 名で決定論に戻す。
+
+    種類の表示名は表示メタで、モデルは書き戻さない（書けても保証が無い）。
+    答えの map に label が無く、同じ名前の map が直前の設計に label を持っていれば
+    コピーする。答えが自分で label を書いていれば、それを保つ。新しい dict を返す。
+    """
+    if not isinstance(new_doc, dict) or not isinstance(old_doc, dict):
+        return new_doc
+    labels: dict[str, str] = {}
+    for m in old_doc.get("maps") or []:
+        if not isinstance(m, dict) or not isinstance(m.get("subject"), dict):
+            continue
+        label = m["subject"].get("label")
+        if isinstance(label, str) and label.strip():
+            labels.setdefault(str(m.get("name") or ""), label)
+    if not labels or not isinstance(new_doc.get("maps"), list):
+        return new_doc
+    maps: list = []
+    for m in new_doc["maps"]:
+        if isinstance(m, dict):
+            name = str(m.get("name") or "")
+            subject = m.get("subject")
+            if name in labels and (subject is None or isinstance(subject, dict)):
+                subject = dict(subject or {})
+                if not str(subject.get("label") or "").strip():
+                    subject["label"] = labels[name]
+                    m = {**m, "subject": subject}
+        maps.append(m)
+    return {**new_doc, "maps": maps}
 
 
 def parse_spec_json(raw: str) -> str:

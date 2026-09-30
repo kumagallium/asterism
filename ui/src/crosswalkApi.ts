@@ -76,6 +76,12 @@ export interface CrosswalkMeta {
   crosswalk_built_at?: string
   crosswalk_concepts?: string[]
   triple_count?: number
+  /** true when this perspective was created or grown by the server itself from
+   * matching ☑ ticks (F15), not authored by a human picking candidates. */
+  auto_linked?: boolean
+  /** The dataset ids whose ☑ ticks contributed to the auto-link, when
+   * {@link auto_linked} is true. */
+  auto_linked_from?: string[]
 }
 
 export interface CrosswalkInfo {
@@ -83,6 +89,11 @@ export interface CrosswalkInfo {
   exists: boolean
   config: CrosswalkConfig | null
   dataset: CrosswalkMeta | null
+  /** R1（契約メモ contract_b2_hub_names.md B2-2）— このつながりの表示名。人が
+   * 付けた名前が無ければ参加している項目の表示名から組み立てた名前、それも
+   * 無ければ「名前のないつながり」。 `perspectiveDisplayName` はこれを最優先
+   * で読む。 */
+  display_name?: string
 }
 
 /** One crosswalk PERSPECTIVE (multi-perspective ADR): a distinct lens with its own
@@ -91,6 +102,9 @@ export interface CrosswalkPerspective {
   perspective_id: string
   config: CrosswalkConfig | null
   dataset: CrosswalkMeta | null
+  /** R1（契約メモ contract_b2_hub_names.md B2-2）— {@link CrosswalkInfo.display_name}
+   * と同じ。 */
+  display_name?: string
 }
 
 export interface BuildResult {
@@ -209,6 +223,36 @@ export async function buildPerspective(
   return (await res.json()) as BuildResult
 }
 
+/** R6 (契約 contract_d_discover_existing.md): 既にある concept に、まだ参加して
+ * いないデータセットだけを足す。合流先（perspectiveId・concept）は discover の
+ * `existing` が決めたもの — ここは足すだけ。返り値は build 系と同じ形
+ * + `participants_added`。 */
+export interface JoinResult extends BuildResult {
+  participants_added: { dataset_id: string; predicate: string }[]
+}
+
+export async function joinExistingConcept(
+  perspectiveId: string,
+  concept: string,
+  participants: {
+    dataset_id: string
+    label: string
+    predicate: string
+    subject_class?: string | null
+  }[],
+): Promise<JoinResult> {
+  const res = await fetch(
+    `${API_BASE}/api/crosswalks/${encodeURIComponent(perspectiveId)}/join`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ concept, participants }),
+    },
+  )
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.build'))
+  return (await res.json()) as JoinResult
+}
+
 /** つながり（perspective）を削除する。消えるのは hub グラフ（参加データの投影）と
  *  登録だけで、元のデータセットには触れない — 同じ設定でいつでも作り直せる。
  *  視点間の対応（alignment）は独立した事実なので残る。 */
@@ -281,6 +325,27 @@ export interface DiscoverSample {
   raw: Record<string, string>
 }
 
+/** One participant slot, as it appears in {@link DiscoverExisting}'s `linked`/`new`. */
+export interface DiscoverExistingSlot {
+  dataset_id: string
+  predicate: string
+  subject_class: string | null
+}
+
+/** 契約 contract_d_discover_existing.md R4: このスロットの組が、すでにある
+ * つながり（concept）と重なっているときだけ、候補に付く。合流先は名前ではなく
+ * 参加者そのもの（`match_existing`）で決まる — この情報を使って足すのが R6。 */
+export interface DiscoverExisting {
+  perspective_id: string
+  concept: string
+  /** 候補の参加者のうち、その concept にそのデータセットがもう参加しているもの。 */
+  linked: DiscoverExistingSlot[]
+  /** まだ参加していないデータセットの参加者 — R6 の API で足せるもの。 */
+  new: DiscoverExistingSlot[]
+  /** `new` が空 = 足せるものが無い（もう全員つながっている）。 */
+  already_linked: boolean
+}
+
 export interface DiscoverCandidate {
   id: string
   concept: string
@@ -303,6 +368,9 @@ export interface DiscoverCandidate {
   flags: string[]
   /** Buildable as-is — no assembly on the client (see {@link buildPerspective}). */
   build_config: CrosswalkConfig
+  /** Present only when this candidate's slots overlap an already-built concept
+   * (R4). Absent = a fresh candidate — nothing joins it. */
+  existing?: DiscoverExisting
 }
 
 export interface DiscoverResult {
@@ -321,6 +389,8 @@ export interface DiscoverResult {
     datasets_truncated: boolean
     clusters_truncated: boolean
     candidates_truncated: boolean
+    /** `existing`.`already_linked` が真の候補の数（契約 R4）。 */
+    already_linked: number
   }
   limits: Record<string, unknown>
   cancelled: boolean

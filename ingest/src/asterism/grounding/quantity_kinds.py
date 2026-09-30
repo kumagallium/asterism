@@ -29,6 +29,8 @@ from typing import Final
 
 import yaml
 
+from asterism.grounding.catalog import _contains, _subject_words
+
 logger = logging.getLogger(__name__)
 
 _CATALOG: Final[Path] = Path(__file__).with_name("qudt_quantitykinds.yaml")
@@ -108,6 +110,13 @@ class _Indexed:
     label_norm: str
     tokens: frozenset[str]
     units: frozenset[str]
+    #: 名前・表示名を語に分けたもの（順序つき）。部分一致を語の境目で確かめるのに使う。
+    name_words: tuple[str, ...] = ()
+    label_words: tuple[str, ...] = ()
+    #: そのうち「何の量か」を言っている語（``_subject_words``）。語の一致・部分一致は
+    #: ここに当たって初めて数える。
+    name_subject: tuple[str, ...] = ()
+    label_subject: tuple[str, ...] = ()
 
 
 @functools.lru_cache(maxsize=1)
@@ -116,17 +125,33 @@ def _index() -> tuple[_Indexed, ...]:
     for name, entry in (_catalog().get("quantity_kinds") or {}).items():
         entry = entry or {}
         label = str(entry.get("label") or name)
+        name_words, label_words = tuple(_split(name)), tuple(_split(label))
         out.append(
             _Indexed(
                 name=name,
                 entry=entry,
                 name_norm=_norm(name),
                 label_norm=_norm(label),
-                tokens=frozenset(_split(name)) | frozenset(_split(label)),
+                tokens=frozenset(name_words) | frozenset(label_words),
                 units=frozenset(entry.get("units") or ()),
+                name_words=name_words,
+                label_words=label_words,
+                name_subject=_subject_words(name_words),
+                label_subject=_subject_words(label_words),
             )
         )
     return tuple(out)
+
+
+@functools.lru_cache(maxsize=1)
+def _modifier_counts() -> dict[str, int]:
+    """飾りの語（``_subject_words`` の頭より前の語）ごとに、それが出てくる量の数。"""
+    where: dict[str, set[str]] = {}
+    for ix in _index():
+        for sub in (ix.name_subject, ix.label_subject):
+            for w in sub[:-1]:
+                where.setdefault(w, set()).add(ix.name)
+    return {w: len(names) for w, names in where.items()}
 
 
 #: Below this length a column name is an abbreviation (`S`, `rho`, `kappa`), and every
@@ -136,9 +161,15 @@ def _index() -> tuple[_Indexed, ...]:
 _MIN_FUZZY_CHARS: Final[int] = 4
 
 
-def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, str]:
+def _score(
+    q_norm: str, q_tokens: frozenset[str], ix: _Indexed, q_words: tuple[str, ...] = ()
+) -> tuple[int, str]:
     """Deterministic match score + tier name (0 = no match). Same ladder as the term
-    catalog, so one dataset's candidates are ranked the same way everywhere."""
+    catalog, so one dataset's candidates are ranked the same way everywhere.
+
+    部分一致も用語カタログと同じ条件（``catalog._contains``）。⭐ただの文字列の包含だと
+    語の途中に当たる（実測 2026-09-30: 項目 ``ofCountry`` に ``Count`` が候補に出た）。
+    量の名前が列名の「中に入っている」向きは、語の境目から境目までに限る。"""
     if not q_norm:
         return 0, ""
     if q_norm in (ix.name_norm, ix.label_norm):
@@ -147,9 +178,29 @@ def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, st
         return 0, ""
     if q_tokens and q_tokens == ix.tokens:
         return 90, "exact_tokens"
+    # 1 語だけの問いは、量の名前の頭（``_subject_words`` の最後の語 — 英語の複合語は
+    # 最後の語が本体）に当たって初めて数える。"source" は "Source Voltage" の飾りで、
+    # "conductivity" は "Thermal Conductivity" の本体。ただし飾りでも、カタログで 1 つの
+    # 量にしか出てこない語はその量を名指している（"seebeck" → Seebeck Coefficient）。
+    # 2 語以上の問いは十分に具体的なので「何の量か」の語のどこかに当たればよい
+    # （"specificHeat" → Specific Heat Capacity）。
+    single = len(q_tokens) == 1
+    heads = {w[-1] for w in (ix.name_subject, ix.label_subject) if w}
+    if single and _modifier_counts().get(q_norm) == 1:
+        heads |= set(ix.name_subject) | set(ix.label_subject)
     if q_tokens and q_tokens <= ix.tokens:
-        return 70 + max(0, 10 - (len(ix.tokens) - len(q_tokens))), "tokens_subset"
-    if q_norm in ix.name_norm or ix.name_norm in q_norm or q_norm in ix.label_norm:
+        if q_tokens & (heads if single else set(ix.name_subject) | set(ix.label_subject)):
+            return 70 + max(0, 10 - (len(ix.tokens) - len(q_tokens))), "tokens_subset"
+        # 飾り・入れ物・分母の語にだけ当たった。それだけでは候補にしない（_MIN_SCORE
+        # 未満）が、単位も合うときは単位だけの候補より前に並べる（amount × mol → 物質量）。
+        return _NAME_HINT_SCORE, "outside_subject"
+    if single:
+        forward = any(h != q_norm and h.startswith(q_norm) for h in heads)
+    else:
+        forward = _contains("".join(ix.name_subject), ix.name_subject, q_norm) or _contains(
+            "".join(ix.label_subject), ix.label_subject, q_norm
+        )
+    if forward or _contains(q_norm, q_words, ix.name_norm, whole=True):
         return 50, "substring"
     overlap = q_tokens & ix.tokens
     if overlap:
@@ -157,6 +208,9 @@ def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, st
     return 0, ""
 
 
+#: 名前が入れ物・分母の語にだけ当たったとき。単独では候補にならず、単位が合うときの
+#: 並びの手がかりにだけなる（``_UNIT_ONLY_SCORE`` より 1 高い）。
+_NAME_HINT_SCORE: Final[int] = 26
 #: A name that IS the quantity's own name or label. Nothing ranks above it, and one of
 #: them alone is the answer rather than the head of a list.
 _EXACT_SCORE: Final[int] = 100
@@ -188,11 +242,12 @@ def resolve_quantity_kind(
     if not q and not u:
         return []
     q_norm = _norm(q)
-    q_tokens = frozenset(_split(q))
+    q_words = tuple(_split(q))
+    q_tokens = frozenset(q_words)
 
     scored: list[tuple[int, str, bool, _Indexed]] = []
     for ix in _index():
-        score, match = _score(q_norm, q_tokens, ix)
+        score, match = _score(q_norm, q_tokens, ix, q_words)
         fits = bool(u) and u in ix.units
         exact = score >= _EXACT_SCORE
         if score < _MIN_SCORE:
@@ -200,7 +255,7 @@ def resolve_quantity_kind(
             # suggestion — never dressed up as if the name had matched.
             if not fits:
                 continue
-            score, match = _UNIT_ONLY_SCORE, "unit"
+            score, match = max(score, _UNIT_ONLY_SCORE), "unit"
         elif u and not fits and not exact:
             # The unit is real evidence about what this column CAN be. A near-neighbour
             # the column cannot possibly be measuring (thermal resistivity, for a column

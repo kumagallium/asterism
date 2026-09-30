@@ -23,8 +23,14 @@ import {
   containmentParents,
   containmentParentsForColumns,
 } from './skeletonContainment'
+import { classNameFromLabel } from './kantan/asciiNames'
 import {
   assignColumnOwner,
+  kindDisplayName,
+  kindFieldValue,
+  kindLabelEdit,
+  kindNamesByClass,
+  pendingLinkEdges,
   sameIdKind,
   sameIdSiblings,
   slugMapName,
@@ -452,12 +458,12 @@ function SkeletonEvidence({
      （利用者裁定 2026-09-03「推奨で良いが UI はシンプルなまま」）。 */
   const tiedKeyCount = (() => {
     if (singleton || collides || keyColumns.length === 0) return 0
-    const current = [...keyColumns].sort().join(' ')
+    const current = [...keyColumns].sort().join('\u0000')
     return (ann.key_candidates ?? []).filter(
       (c) =>
         !c.measurement_only &&
         c.columns.length === keyColumns.length &&
-        [...c.columns].sort().join(' ') !== current,
+        [...c.columns].sort().join('\u0000') !== current,
     ).length
   })()
   // The card's three ownership blocks (G12): what it carries, what another map
@@ -1105,7 +1111,6 @@ export function SkeletonGate({
      IR の検証で弾かれるが、それが分かるのは materialize まで進んだ後で、この欄は
      何も言わずに受け取っていた。ここで言う。日本語は動く（IRI/Turtle 的に有効）
      が図のノード ID が `____` に潰れて読めないので、勧めない。 */
-  const CLASS_NAME_OK = /^[A-Za-z][0-9A-Za-z_-]*$/
   const sanitizeClassName = (raw: string) => {
     const ascii = raw
       .split(/[^0-9A-Za-z]+/)
@@ -1285,10 +1290,19 @@ export function SkeletonGate({
     /* ②の名前欄と**同じ規則**に通す。ここを素通しにしていたら、置いた例のとおり
        「結晶」と打った人が、次の②で「この名前は使えません」と言われる入口に
        なっていた（実機 2026-08-31）。`sanitizeClassName` は②の一発直しと同じ式。 */
-    const name = sanitizeClassName(rawName) || rawName.trim()
     const taken = new Set(skeleton.maps.map((m) => m.name))
-    const mapName = slugMapName(name, taken)
-    const added = sameIdKind(parent, mapName, name ? [expandClass(name, nsDetected)] : [])
+    // かんたんモード: ②の「名前・ID を直す」欄と同じ経路（表示名 + 機械が作る
+    // 公開名）。どんな文字でも打てて、同じ名前は同じ種類になる。詳細モードは
+    // 今のまま（公開される名前を直に打つ）。
+    const edit = plain ? kindLabelEdit(rawName, nsDetected) : null
+    const name = plain ? '' : sanitizeClassName(rawName) || rawName.trim()
+    const mapName = slugMapName(plain ? classNameFromLabel(rawName.trim(), 'record') : name, taken)
+    const added = sameIdKind(
+      parent,
+      mapName,
+      edit ? (edit.classes ?? []) : name ? [expandClass(name, nsDetected)] : [],
+      edit?.label?.trim(),
+    )
     onChange({
       ...skeleton,
       maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
@@ -1372,14 +1386,19 @@ export function SkeletonGate({
   // Kantan tier (K4/GATE-05): one kind, one name. The internal map name
   // (`sample_detail`) is machine bookkeeping — the human sees the kind, and
   // only falls back to the internal name when the kind cannot name it alone.
+  // 契約メモ a・R3: 人が打った表示名（`subject.label`）があれば、そのまま
+  // それを使う — 折りたたんだクラス名に食い違いチェック（同名の双子）を
+  // かける必要が無い。人が書いた名前は、常にそのまま見せる。
   const displayMapName = (name: string): string => {
     if (!plain) return name
     const m = skeleton.maps.find((x) => x.name === name)
+    const label = (m?.subject.label ?? '').trim()
+    if (label) return label
     const cls = m?.subject.classes?.[0]
     if (!cls) return name
     const shown = compactClass(cls, nsDetected)
     const twin = skeleton.maps.some(
-      (x) => x.name !== name && compactClass(x.subject.classes?.[0] ?? '', nsDetected) === shown,
+      (x) => x.name !== name && kindDisplayName(x.subject, nsDetected) === shown,
     )
     return twin || !shown ? name : shown
   }
@@ -1398,8 +1417,9 @@ export function SkeletonGate({
     // 名前がまだ無いときに `m.name`（機械の内部名。この場合 `dataset`）へ落ちて
     // いた。同じ画面が「1 件が表すもの」を空欄で聞きながら「1 つの『dataset』」と
     // 断言する形になり、人が書いていない語を答えとして見せてしまう（K20）。
-    // 名前が無いなら、無いと言う。
-    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+    // 名前が無いなら、無いと言う。人が打った表示名（`subject.label`）が
+    // あれば、折りたたんだクラス名より先にそれを読む（契約メモ a・R3）。
+    const label = kindDisplayName(m.subject, nsDetected)
     if (!label) {
       return ann?.collapse_kind === 'singleton'
         ? t('skeletongate:reading.singletonUnnamed')
@@ -1931,11 +1951,21 @@ export function SkeletonGate({
     return cols.map((name) => ({ name }))
   }
   /** 「このあと機械が引く」線。①で作った種類は「その値そのものが ID」なので、
-   *  設計を組むときに表全体から必ず辺が引かれる（per-map の決定論リンク）。
-   *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
-   *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
+   *  設計を組むときに必ず辺が引かれる（決定論リンク）。骨格の図に描けるのは
+   *  ID の入れ子だけなので、そのままだと作った種類が孤立して見え、「つながらない
+   *  のでは」と読める（利用者評価 2026-08-28）。
+   *
+   *  線の出どころは、その列を**元々持っていた種類**（K58）: 前置きの列なら
+   *  カード、行ごとに変わる列なら行の種類 — `zoneFields` が項目を箱に配るのと
+   *  同じ読み。以前は全部カードから引いていて、表本体の列の受け口では⑥の
+   *  実線（行の種類から）と食い違った。 */
   const pendingEdges: [string, string][] = zone
-    ? [...new Set([...zone.columnKinds.values()].flat())].map((n) => [zone.host.name, n])
+    ? pendingLinkEdges({
+        hostName: zone.host.name,
+        rowMap: zone.rowMap,
+        varyingColumns: zone.ann.entity_preview?.varying_columns ?? [],
+        columnKinds: zone.columnKinds,
+      })
     : skeleton.maps.flatMap((m): [string, string][] => {
         if (!isValueCatalog(m)) return []
         const holder = skeleton.maps.find((o) => o.source === m.source && !isValueCatalog(o))
@@ -2001,8 +2031,9 @@ export function SkeletonGate({
           if (plain) setPlainFix('names')
         }}
         /* 同じ深さの受け口が 2 つ以上あるとき、1 列だと縦に直列に見えて
-           「どの箱からの線か」が読めない（利用者指摘 2026-09-01）。layout は
-           深さ別に折り返すので、2 にしても親子が横に並ぶことはない。 */
+           「どの箱からの線か」が読めない（利用者指摘 2026-09-01）。いまは
+           線のある段を折り返さない（`rowsOf`）ので、受け口がいくつあっても
+           横に並ぶ。これは線のない箱の折り返し幅。 */
         perRow={plain ? 2 : 3}
         nodeWidth={176}
         maxHeight={plain ? 640 : 440}
@@ -2298,19 +2329,24 @@ export function SkeletonGate({
           type="text"
           className="skeleton-gate-input"
           placeholder={plain ? t('skeletongate:kindPlaceholder') : undefined}
-          value={(m.subject.classes ?? [])
-            .map((c) => (plain ? compactClass(c, nsDetected) : c))
-            .join(', ')}
+          // 契約メモ a・R4: かんたんモードの欄は `subject.label`（人が打った
+          // 表示名）を読み書きする。無ければ今までどおり、公開される名前を
+          // 短くしたものを見せる。詳細モードは今のまま（公開される名前を
+          // 直に編集する）。
+          value={plain ? kindFieldValue(m.subject, nsDetected) : (m.subject.classes ?? []).join(', ')}
           disabled={busy}
-          onChange={(e) =>
+          onChange={(e) => {
+            if (plain) {
+              updateSubject(idx, kindLabelEdit(e.target.value, nsDetected))
+              return
+            }
             updateSubject(idx, {
               classes: e.target.value
                 .split(',')
                 .map((s) => s.trim())
-                .filter(Boolean)
-                .map((c) => (plain ? expandClass(c, nsDetected) : c)),
+                .filter(Boolean),
             })
-          }
+          }}
         />
         {/* 欄の下に置く。上に出していたころは、入力する前から「⚠ まだ決まって
             いません」が欄より先に目に入り、これから答える場所ではなく、すでに
@@ -2327,39 +2363,15 @@ export function SkeletonGate({
         )}
         {/* この欄が何のための名前かを言う。利用者「後半で各 ID の名前をつける
             わけですが、これは項目の意味の定義とは別なのですか？」— 別で、しかも
-            こちらは ID の中に入る＝公開後は動かせない。非対称を欄の下で言う。 */}
+            こちらは ID の中に入る＝公開後は動かせない。非対称を欄の下で言う。
+            契約メモ a・R4: かんたんモードではどんな文字でも打てる（公開される
+            英字の名前と ID は機械が作る）ので、規則の警告や「〈…〉にする」
+            ボタンは出さない — それは詳細モードで公開名を直に編集するときの
+            話。 */}
         {plain && (m.subject.classes ?? []).length > 0 && (
-          <>
-            <p className="skeleton-evidence-line skeleton-evidence-muted">
-              {t('skeletongate:kindNameNote')}
-            </p>
-            {(() => {
-              const shown = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
-              // `:` を含むものは、宣言済みの語彙の語（`schema:Dataset` / まだ畳めて
-              // いない自分の語）。規則は「このデータセットが新しく作る名前」に
-              // だけ効く — 標準語彙を「使えない名前」と言ってはいけないし、
-              // `xr:Peak` に「XrPeak にする」を勧めるのは端的に間違い（実機で誤検知）。
-              if (!shown || shown.includes(':') || CLASS_NAME_OK.test(shown)) return null
-              const fixed = sanitizeClassName(shown)
-              return (
-                <p className="skeleton-evidence-line skeleton-evidence-warn">
-                  ⚠ {t('skeletongate:kindNameRule')}
-                  {fixed && (
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm skeleton-name-fix"
-                      disabled={busy}
-                      onClick={() =>
-                        updateSubject(idx, { classes: [expandClass(fixed, nsDetected)] })
-                      }
-                    >
-                      {t('skeletongate:kindNameFix', { name: fixed })}
-                    </button>
-                  )}
-                </p>
-              )
-            })()}
-          </>
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('skeletongate:kindNameNote')}
+          </p>
         )}
       </>
     )
@@ -2373,7 +2385,7 @@ export function SkeletonGate({
           onSplit={(cols, key) => splitConcept(idx, cols, key)}
           canRevalidate={canRevalidate}
           displayClass={
-            plain ? (c) => compactClass(c, nsDetected) : undefined
+            plain ? kindNamesByClass(skeleton, nsDetected) : undefined
           }
           plain={plain}
           reading={readingFor(m, ann)}
@@ -2852,7 +2864,7 @@ export function SkeletonGate({
                 {t('skeletongate:twinKinds', {
                   names: skeleton.maps
                     .filter((m) => twinNames.has(m.name))
-                    .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+                    .map((m) => kindDisplayName(m.subject, nsDetected) || m.name)
                     .join(t('skeletongate:key.listSeparator')),
                 })}
               </p>
@@ -2867,7 +2879,7 @@ export function SkeletonGate({
                           .filter((m) => twinNames.has(m.name))
                           .map(
                             (m) =>
-                              compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name,
+                              kindDisplayName(m.subject, nsDetected) || m.name,
                           )
                           .join(t('skeletongate:key.listSeparator')),
                       }),

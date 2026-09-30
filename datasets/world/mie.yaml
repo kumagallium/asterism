@@ -1,0 +1,102 @@
+schema_info:
+  title: "世界の国（Gapminder）"
+  description: >-
+    Gapminder Foundation の国別統計（人口・平均寿命・出生率）を vega-datasets
+    経由で収録した見本データセット。62 か国 x 11 年（1955〜2005、5 年刻み）=
+    682 件の年ごとの記録。分野を選ばない一般的なデータで、初回起動の見本として
+    そのまま埋め込まれる（object-cards-ui PR E）。
+  base_uri: https://kumagallium.github.io/asterism/world/
+  license: BSD-3-Clause
+  keywords:
+    - population
+    - life expectancy
+    - fertility
+    - country
+    - region
+    - Gapminder
+  categories:
+    - demographics
+    - example data
+
+shape_expressions: |
+  PREFIX wr: <https://kumagallium.github.io/asterism/world/resource/>
+  PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+  PREFIX schema: <https://schema.org/>
+  # Country は country 列だけで畳まれる安定 IRI（wr:country/{slug(country)}）。
+  # Observation は (country, year) の複合キー（wr:observation/{slug(country)}-{year}）。
+  <CountryShape> {
+    a [world:Country] ;
+    schema:name xsd:string ;
+    world:nameJa xsd:string ;
+    world:region xsd:string ;
+    world:regionJa xsd:string ;
+  }
+  <ObservationShape> {
+    a [world:Observation] ;
+    world:year xsd:integer ;
+    world:population xsd:integer ;
+    world:lifeExpectancy xsd:double ;
+    world:fertility xsd:double ;
+    world:ofCountry @<CountryShape> ;
+  }
+
+sample_rdf_entries:
+  - id: country-japan
+    rdf: |
+      wr:country/japan a world:Country ;
+        schema:name "Japan" ;
+        world:nameJa "日本" ;
+        world:region "East Asia & Pacific" ;
+        world:regionJa "東アジア・太平洋" .
+  - id: observation-japan-2005
+    rdf: |
+      wr:observation/japan-2005 a world:Observation ;
+        world:year 2005 ;
+        world:population 127798373 ;
+        world:lifeExpectancy 82.5 ;
+        world:fertility 1.27 ;
+        world:ofCountry wr:country/japan .
+
+sparql_query_examples:
+  - title: Life expectancy over time for one country
+    description: 日本の平均寿命の推移（年順）。
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      PREFIX wr: <https://kumagallium.github.io/asterism/world/resource/>
+      SELECT ?year ?lifeExpectancy WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry wr:country/japan ;
+             world:year ?year ;
+             world:lifeExpectancy ?lifeExpectancy .
+      } ORDER BY ?year
+  - title: Countries ranked by population in a given year
+    description: ある年の人口上位の国（東アジア・太平洋の一覧に相当）。
+    query: |
+      PREFIX world: <https://kumagallium.github.io/asterism/world/ontology#>
+      SELECT ?country ?countryJa ?population WHERE {
+        ?obs a world:Observation ;
+             world:ofCountry ?country ;
+             world:year 2005 ;
+             world:population ?population .
+        ?country world:nameJa ?countryJa ; world:regionJa "東アジア・太平洋" .
+      } ORDER BY DESC(?population)
+
+anti_patterns: |
+  Do NOT key wr:country/{...} by (country, year) — country is the SAME entity
+  across all 11 years in source/world.csv, so a per-year key would mint 682
+  distinct "countries" instead of 62, breaking every ranking/breakdown tool
+  that groups by country. Do NOT use the raw country column value unslugged
+  in an IRI segment ("Hong Kong, China" contains a comma and a space).
+
+architectural_notes: |
+  Decision: Country keyed on the bare (slugified) country name; Observation
+  keyed on (slugified country, year). Why: source/world.csv already carries
+  one row per (country, year) — the natural composite key for the yearly
+  record — while country identity is invariant across years, so RDF set
+  semantics collapse the repeated Country triples for free (no explicit
+  dedup pass needed). Region names/codes are Gapminder's own six clusters
+  (vega-datasets' `cluster` 0-5), carried as plain literals (world:region /
+  world:regionJa) rather than minted as their own resources — this dataset
+  has no need to query "which countries share a region" through a Region
+  node yet; if that changes, region becomes its own class without touching
+  Country/Observation's keys.

@@ -87,7 +87,9 @@ function termName(rules: DatasetRules, p: RuleProperty): string {
   return p.label || rules.labels?.[p.predicate_iri] || localName(p.predicate_iri)
 }
 
-/** 図で人が読む種類名（`rulesShape` の既定ラベルと同じ優先順位）。 */
+/** 図で人が読む種類名（`rulesShape` の既定ラベルと同じ優先順位）。
+ *  `labels` の種類名は api がワークスペースと同じ読み手で引いてくる。ここに別の
+ *  読み順を足さない（画面ごとに名前が食い違う）。 */
 function kindLabelOf(rules: DatasetRules, m: RuleMap): string {
   const classIri = (m.subject.class_iris ?? [])[0] ?? ''
   return (
@@ -148,10 +150,25 @@ export function composeVocabGraph(inputs: {
   const clusters: VocabCluster[] = []
   /** 標準語彙の節は語 IRI で 1 つ（複数データセットの線が同じ節に集まるのが主役）。 */
   const standard = new Map<string, VocabNode>()
+  // 語 IRI → 人向けの名前（候補の全部から作る）。読み順: 表示名 → 名前 → ローカル名。
+  // 符号だけの IRI（ローカル名が読めない語彙）でも、カタログの名前で箱を出すため。
+  const nameByIri = new Map<string, string>()
+  for (const list of Object.values(candidates)) {
+    for (const c of list) {
+      if (nameByIri.has(c.iri)) continue
+      const human = (c.label ?? '').trim() || (c.name ?? '').trim()
+      if (human) nameByIri.set(c.iri, human)
+    }
+  }
   const ensureStandard = (iri: string, vocabTitle: string): VocabNode => {
     let n = standard.get(iri)
     if (!n) {
-      n = { id: iri, label: localName(iri), tone: 'record', vocab: vocabTitle }
+      n = {
+        id: iri,
+        label: nameByIri.get(iri) ?? localName(iri),
+        tone: 'record',
+        vocab: vocabTitle,
+      }
       standard.set(iri, n)
     }
     return n

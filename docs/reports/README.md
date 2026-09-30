@@ -44,3 +44,4 @@ verdict, add a dated addendum rather than silently editing the numbers.
 | 2026-08-18 | [↳ addendum — ループが「値が 1 つも出ない設計」を合格にしていた](traps-in-autocorrect-loop.md) | ✅ 検査を「仕様の形」から「結果＝値が取り出せるか」へ転換。実データのループ出口が 0→1 issue で捕まる・型 1→7 本が LLM 0 コールで復活 |
 | 2026-08-27 | [公開後に「データの数えかた」を直しても、配った引用は切れない](id-move-after-publish.md) | ✅ 実機一周: 旧 version graph 削除後も旧 ID が 2 件の行き先を返す・v1→v3 の 2 世代追跡・列欠落は公開前に警告。LLM 0 コール |
 | 2026-08-31 | [本番デプロイをプル型（Dewy）に置き換えられるか](dewy-pull-deploy-poc.md) | ✅ api 1 サービスで実機一周: タグ push→102 秒で自動反映・プローブ 863 件無断絶・digest 同一ロールバック・health 不合格の新版は自動破棄 |
+| 2026-09-07 | [既存データセットの説明を三つ組へ移す — 実データ 7 件を実ストア込みで一周](dataset-description-migration.md) | ✅ 往復 7/7 等価・2 回目は全件 unchanged・`schema_summary` の件数不変・togomcp 配信は normalize 等価（差分は集合の並びとキー順のみ）。コメント喪失 1 件は原本に残る |

@@ -381,6 +381,50 @@ def _lower_camel(name: str) -> str:
     return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
 
 
+def has_predicate_local(catalog_name: str) -> str:
+    """``space_group`` → ``hasSpaceGroup`` — 受け口へのリンクの述語のローカル名。
+
+    api の K49 の修理（``_link_isolated_value_catalogs``）が付けるのと同じ形
+    （``has`` + PascalCase）。決定論の組み立てが同じ名前を付けるので、同じ ☑ から
+    どちらの経路で辺が生まれても述語は 1 つ。受け口自身の値の述語
+    （``{onto}:{列名の lowerCamel}``・``default_property_table``）とも重ならない —
+    受け口の map 名は列名から作るので、lowerCamel だと同じ述語が IRI と
+    リテラルの両方に使われる。
+    """
+    parts = [w for w in re.split(r"[^0-9A-Za-z]+", str(catalog_name)) if w]
+    return "has" + ("".join(w[:1].upper() + w[1:] for w in parts) or "Value")
+
+
+def catalog_link_row(
+    catalog_name: str,
+    subject_template: str,
+    *,
+    ontology_prefix: str,
+    label: str | None = None,
+    predicate_local: str | None = None,
+) -> dict[str, Any]:
+    """「☑ した列の受け口」へ機械が引くリンクの 1 行（K33 / K58）。
+
+    述語は ``{ontology}:{predicate_local}`` — 省略時は受け口の map 名の lowerCamel
+    （K33 の LLM 経路が今まで付けてきた名前）。行き先は受け口の subject template、
+    label は受け口の表示名（``subject.label``）— 無ければ map 名。map 名は、英字に
+    できない列から作ると符号つき（value_389a00）になるので、表示名があるときは
+    必ずそちらを使う。決定論で label を付けておかないと、この機械の辺 1 本の
+    ために label-fill の LLM ラウンドが走る。
+
+    決定論の組み立て（``propose_from_skeleton(deterministic=True)``）と、LLM 経路の
+    ``_generate_map_properties_gated`` が**同じ 1 行**を書く — 2 か所に式を持つと、
+    同じ ☑ から違う形の辺が出る。
+    """
+    local = (predicate_local or "").strip() or _lower_camel(str(catalog_name)) or "linkedEntity"
+    predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
+    return {
+        "predicate": predicate,
+        "object_template": subject_template,
+        "label": str(label or "").strip() or str(catalog_name),
+    }
+
+
 def ensure_value_catalog_labels(
     ir: Mapping[str, Any],
     owns_by_map: Mapping[str, Sequence[str]] | None = None,
@@ -481,6 +525,13 @@ def ensure_same_source_links(
     subject_of = {
         str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
     }
+    # 種類の表示名（subject.label）。機械が足す線の label に使う — 付けないと、
+    # 公開用の名前を崩した語が、項目の名前として画面に出る。
+    label_of = {
+        str(m.get("name")): str((m.get("subject") or {}).get("label") or "").strip()
+        for m in maps
+        if isinstance(m.get("subject"), Mapping)
+    }
     props: dict[str, list[dict]] = {
         str(m.get("name")): [dict(p) for p in (m.get("properties") or []) if isinstance(p, Mapping)]
         for m in maps
@@ -545,9 +596,14 @@ def ensure_same_source_links(
                     )
                     if pair is not None:
                         child, parent = pair
-                        props[child].append(
-                            {"predicate": "dcterms:isPartOf", "object_template": subject_of[parent]}
-                        )
+                        part_of: dict[str, Any] = {
+                            "predicate": "dcterms:isPartOf",
+                            "object_template": subject_of[parent],
+                        }
+                        # 親の種類の表示名があれば付ける（(2) の経路と同じ形）
+                        if label_of.get(parent):
+                            part_of["label"] = label_of[parent]
+                        props[child].append(part_of)
                         added.append(f"{child} → {parent}")
                         linked = True
                         break
@@ -565,12 +621,13 @@ def ensure_same_source_links(
                     )
                     if holder is not None:
                         local = _lower_camel(b_name) or "linkedEntity"
-                        props[holder].append(
-                            {
-                                "predicate": f"{ontology_prefix}:{local}",
-                                "object_template": subject_of[b_name],
-                            }
-                        )
+                        link: dict[str, Any] = {
+                            "predicate": f"{ontology_prefix}:{local}",
+                            "object_template": subject_of[b_name],
+                        }
+                        if label_of.get(b_name):
+                            link["label"] = label_of[b_name]
+                        props[holder].append(link)
                         added.append(f"{holder} → {b_name}")
                         linked = True
                         break
@@ -741,21 +798,49 @@ _UNUSABLE_ANSWER = (ValueError, LLMTruncatedError, LLMEmptyOutputError)
 _MENU_COLUMNS_RE = re.compile(r"^\s*[•*-]\s*(?P<name>.+?)\s+[—-]+\s+columns:\s*(?P<cols>.+?)\s*$")
 
 
-def _identifier(text: str) -> str:
-    """``Measurement temp.(C)`` → ``measurementTempC`` (lowerCamel, ASCII-safe)."""
+def _ascii_camel(text: str) -> str:
+    """ASCII の部分だけを lowerCamel にする（今までの ``_identifier`` の中身）。
+
+    ASCII の部分が無ければ空文字を返す — 呼び出し側が fallback を選ぶ。
+    """
     parts = [p for p in re.split(r"[^0-9A-Za-z]+", str(text)) if p]
     if not parts:
-        return "value"
+        return ""
     head = parts[0]
     head = head if head[:1].islower() else head[:1].lower() + head[1:]
     out = head + "".join(p[:1].upper() + p[1:] for p in parts[1:])
     return f"v{out}" if out[:1].isdigit() else out
 
 
-def _class_name(text: str) -> str:
-    """``xrd_peaks`` → ``XrdPeaks`` (PascalCase, ASCII-safe)."""
-    ident = _identifier(text)
-    return ident[:1].upper() + ident[1:] if ident else "Record"
+def _identifier(text: str, fallback: str = "value") -> str:
+    """``Measurement temp.(C)`` → ``measurementTempC`` (lowerCamel, ASCII-safe).
+
+    英字にできない名前（ASCII の部分が空、または漢字・かなのように大文字小文字
+    の区別が無い文字を含む）は、``fallback``（か ASCII の部分）に
+    ``ascii_names.name_tag`` の符号を付けて一意にする（K13：機械的な要件は
+    機械が用意する）。同じ名前からは、いつも同じ識別子。
+    """
+    from asterism_step0.ascii_names import name_tag, needs_tag
+
+    ascii_part = _ascii_camel(text)
+    if not needs_tag(text, ascii_part):
+        # 英字だけ（記号だけ含む）の名前は今までどおり。空なら固定の語。
+        return ascii_part or "value"
+    return f"{ascii_part or fallback}_{name_tag(text)}"
+
+
+def _class_name(text: str, fallback: str = "record") -> str:
+    """``xrd_peaks`` → ``XrdPeaks`` (PascalCase, ASCII-safe). ``_identifier`` 参照。"""
+    from asterism_step0.ascii_names import name_tag, needs_tag
+
+    ascii_part = _ascii_camel(text)
+    if not needs_tag(text, ascii_part):
+        if ascii_part:
+            return ascii_part[:1].upper() + ascii_part[1:]
+        return "Value"
+    base = ascii_part or fallback
+    pascal_base = base[:1].upper() + base[1:] if base else "Record"
+    return f"{pascal_base}_{name_tag(text)}"
 
 
 def menu_columns(menu: str) -> dict[str, list[str]]:
@@ -1072,21 +1157,31 @@ def default_skeleton(
     taken: set[str] = set()
     for inspection in inspections:
         stem = inspection.name.rsplit(".", 1)[0]
-        name = _identifier(stem)
+        name = _identifier(stem, fallback="record")
         while name in taken:
             name = f"{name}2"
         taken.add(name)
         entry: dict[str, Any] = {"name": name, "source": inspection.name}
         classes = [f"{onto}:{_class_name(stem)}"]
+        from asterism_step0.ascii_names import needs_tag
+
+        subject: dict[str, Any] = {"classes": classes}
+        # R1 の符号付き分岐に落ちたとき（英字にできないファイル名）だけ、
+        # ファイル名そのものを種類の表示名にする。英字のファイル名は今まで
+        # どおり表示名なし（K38 の「英字で書く」案内を、かんたんモードだけ
+        # R4 が改める — 詳細モードはこのまま）。
+        if needs_tag(stem, _ascii_camel(stem)):
+            subject["label"] = stem
         if inspection.source_kind == "xml":
             iterators = inspection.xml_iterators or []
             if iterators:
                 entry["iterator"] = iterators[0].iterator
-            entry["subject"] = {"constant": f"{res}:{name}", "classes": classes}
+            subject["constant"] = f"{res}:{name}"
         else:
             key = _proven_key(inspection)
             segment = "-".join(f"{{{c}}}" for c in key) if key else "1"
-            entry["subject"] = {"template": f"{res}:{name}/{segment}", "classes": classes}
+            subject["template"] = f"{res}:{name}/{segment}"
+        entry["subject"] = subject
         maps.append(entry)
     return {"version": 1, "prefixes": prefixes, "maps": maps}
 
@@ -3125,6 +3220,13 @@ def _subject_classes(subject: Any) -> list[str]:
     return [str(c) for c in classes if str(c).strip()]
 
 
+def _subject_label(subject: Any) -> str:
+    if not isinstance(subject, Mapping):
+        return ""
+    label = subject.get("label")
+    return label.strip() if isinstance(label, str) else ""
+
+
 def human_pinned_edits(
     baseline: Mapping[str, Any] | None, current: Mapping[str, Any] | None
 ) -> dict[str, dict[str, Any]]:
@@ -3166,6 +3268,9 @@ def human_pinned_edits(
         subject_id = _subject_id_form(m.get("subject"))
         if subject_id and (was is None or subject_id != _subject_id_form(was.get("subject"))):
             edit["subject_id"] = subject_id
+        label = _subject_label(m.get("subject"))
+        if label and (was is None or label != _subject_label(was.get("subject"))):
+            edit["label"] = label
         if edit:
             pinned[name] = edit
     return pinned
@@ -3174,7 +3279,11 @@ def human_pinned_edits(
 def _restored_record(name: str, subject: Any) -> dict[str, str]:
     """One restore, named the way the screen names it: by KIND, not by map id."""
     classes = _subject_classes(subject)
-    return {"map": name, "kind": classes[0]} if classes else {"map": name}
+    rec = {"map": name, "kind": classes[0]} if classes else {"map": name}
+    label = _subject_label(subject)
+    if label:
+        rec["label"] = label
+    return rec
 
 
 def reassert_human_edits(
@@ -3222,6 +3331,10 @@ def reassert_human_edits(
         classes = edit.get("classes")
         if classes and _subject_classes(subject) != classes:
             subject["classes"] = list(classes)
+            touched = True
+        label = edit.get("label")
+        if label and _subject_label(subject) != label:
+            subject["label"] = label
             touched = True
         subject_id = edit.get("subject_id")
         if subject_id and _subject_id_form(subject) != tuple(subject_id):
@@ -3304,6 +3417,12 @@ def _generate_skeleton_gated(
         if pinned:
             skeleton, back = reassert_human_edits(skeleton, current_skeleton, pinned)
             restored = back
+        # 種類の表示名は人にも機械にも付けられる。モデルは返さないので、
+        # 直前の骨格から map 名で戻す（人が控えた分は上で戻し済み）。
+        if isinstance(current_skeleton, Mapping):
+            from asterism_step0.spec_repair import carry_subject_labels
+
+            skeleton = carry_subject_labels(skeleton, current_skeleton)
         # 差し戻しは「抜けを足して」と頼むもの。返ってきた答えが前より種類を
         # 減らしていたら、頼んだこと以上をやっている — 前の答えを採る。
         # rethink では floor が「いま画面にある骨格」=人の編集そのもの。
@@ -3535,12 +3654,14 @@ def _generate_map_properties_gated(
     record: Callable[[], None],
     owned_elsewhere: Mapping[str, str] | None = None,
     owner_subjects: Mapping[str, str] | None = None,
+    owner_labels: Mapping[str, str] | None = None,
     column_types: Mapping[str, str] | None = None,
     source_columns: Sequence[str] | None = None,
     ontology_prefix: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
     settled_meanings: Sequence[Mapping[str, Any]] | None = None,
     excluded_columns: Sequence[str] | None = None,
+    catalog_homes: Mapping[str, str] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -3649,6 +3770,12 @@ def _generate_map_properties_gated(
     # 所有者の subject がその列 1 つで立っている（＝値の種類・K33）とき、平文の
     # 列を落とすだけでは辺が消える。「リンクとして使え」は指示（お願い）で、弱い
     # モデルは黙って飛ばす — ここで決定論で足す。書き換えではなく追加。
+    #
+    # 辺の出どころは、その列を**元々持っていた種類**（前置きの列ならカード、表本体の
+    # 列なら行の種類 — K58・マニュアル「☑ を付けた項目は元の種類から外れず、参照
+    # として持ち続けます」）。``catalog_homes``（受け口 → 元の種類）が分かっている
+    # 受け口は、元の種類でない map からは引かない。分からない受け口は今までどおり
+    # （この列を持ちうる map の全部から）。
     if owned_elsewhere and owner_subjects:
         rows = list(result.get("properties") or [])
         existing_targets = {
@@ -3663,11 +3790,17 @@ def _generate_map_properties_gated(
                 continue
             if set(re.findall(r"\{([^{}]+)\}", subject)) != {str(col)}:
                 continue  # 所有者の ID がこの列そのもののときだけ、辺は自明
-            local = _lower_camel(str(owner)) or "linkedEntity"
-            predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
-            # label はゲートで人が見た種類の名前。決定論で付けておかないと、
-            # この機械の辺 1 本のために label-fill の LLM ラウンドが走る。
-            rows.append({"predicate": predicate, "object_template": subject, "label": str(owner)})
+            home = (catalog_homes or {}).get(str(owner))
+            if home and home != map_name:
+                continue  # 元の種類が別にある — 辺はそちらが持つ（K58）
+            rows.append(
+                catalog_link_row(
+                    str(owner),
+                    subject,
+                    ontology_prefix=ontology_prefix or "",
+                    label=(owner_labels or {}).get(str(owner)),
+                )
+            )
             existing_targets.add(subject)
             added_links.append(f"{col} → {owner}")
         if added_links:
@@ -3764,6 +3897,49 @@ def _synthesize_document(ir_yaml: str, *, dataset_name: str | None) -> str | Non
         return None
 
 
+def catalog_links_from_home(
+    map_name: str,
+    maps: Sequence[Mapping[str, Any]],
+    catalog_homes: Mapping[str, str] | None,
+    *,
+    ontology_prefix: str,
+) -> list[dict[str, Any]]:
+    """``map_name`` が「元の種類」である受け口への、機械のリンク行（K58）。
+
+    ``catalog_homes`` は ``{受け口の map 名: 元の種類の map 名}``。受け口の subject
+    template が列 1 つで立っていること（値のカタログ・K33）と、同じソースであること
+    を確かめてから 1 行ずつ作る。骨格の並び順で返す（同じ設計は毎回同じ形）。
+    """
+    if not catalog_homes:
+        return []
+    me = next((m for m in maps if str(m.get("name")) == map_name), None)
+    if me is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for m in maps:
+        cat = str(m.get("name") or "")
+        if not cat or catalog_homes.get(cat) != map_name or cat == map_name:
+            continue
+        if str(m.get("source") or "") != str(me.get("source") or ""):
+            continue
+        subject = m.get("subject") if isinstance(m.get("subject"), Mapping) else {}
+        template = str(subject.get("template") or "")
+        if len(_template_placeholders(template)) != 1:
+            continue  # 受け口は「その値そのものが ID」— それ以外は辺が自明でない
+        out.append(
+            catalog_link_row(
+                cat,
+                template,
+                ontology_prefix=ontology_prefix,
+                label=str(subject.get("label") or ""),
+                # 述語は K49 の修理と同じ has<Pascal>（かんたん経路で今まで公開されて
+                # きた名前）。受け口自身の値の述語（列名の lowerCamel）と重ねない。
+                predicate_local=has_predicate_local(cat),
+            )
+        )
+    return out
+
+
 def propose_from_skeleton(
     skeleton: Mapping[str, Any],
     inspection_md: str,
@@ -3784,6 +3960,7 @@ def propose_from_skeleton(
     excluded_columns: Mapping[str, Sequence[str]] | None = None,
     deterministic: bool = False,
     json_plans: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+    catalog_homes: Mapping[str, str] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -3825,7 +4002,13 @@ def propose_from_skeleton(
 
     ``json_plans`` maps a map name to :func:`json_expansion_plan` の結果 —
     セル内 JSON（配列・辞書）を既存 Tier0（json_array / json_get / json_pluck）で
-    展開する決定論の指示。かんたん経路（``deterministic=True``）だけが使う。"""
+    展開する決定論の指示。かんたん経路（``deterministic=True``）だけが使う。
+
+    ``catalog_homes`` は ``{受け口の map 名: その列を元々持っていた map 名}``
+    （api の ``_catalog_homes`` が骨格の注釈から決める・K58）。☑ した列の受け口への
+    リンクは、この「元の種類」が持つ — 前置きの列ならカード、表本体の列なら行の
+    種類。決定論の枝はここで辺を書き、LLM の枝は K33 の辺をこの map からだけ引く。
+    無い受け口は今までどおり（決定論の枝では K49 の後追い修理に任せる）。"""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -3877,6 +4060,25 @@ def propose_from_skeleton(
                 column_types=(column_types or {}).get(str(name)),
                 json_plan=(json_plans or {}).get(str(name)),
             )
+            # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K58）。
+            # 性質表は「他の map が持つ列を書かない」だけで辺を書かないので、ここで
+            # 決定論で足す — 足さないと受け口は孤島のまま公開され、K49 の後追い修理が
+            # 「プロパティ数が最多の map」という偶然で出どころを決めていた。
+            links = catalog_links_from_home(
+                str(name), maps, catalog_homes, ontology_prefix=ontology_prefix
+            )
+            if links:
+                permaps[name] = {
+                    **permaps[name],
+                    "properties": [*(permaps[name].get("properties") or []), *links],
+                }
+                emit(
+                    phase=f"map:{name}",
+                    index=i,
+                    total=len(maps),
+                    message="受け口へのリンクを足しました: "
+                    + ", ".join(str(link.get("label") or "") for link in links),
+                )
             continue
         emit(phase=f"map:{name}", index=i, total=len(maps), message=f"プロパティ表を生成中: {name}")
         # Generate this map's properties + a bounded per-map structural repair
@@ -3905,6 +4107,11 @@ def propose_from_skeleton(
                 for mo in maps
                 if isinstance(mo, Mapping)
             },
+            owner_labels={
+                str(mo.get("name")): str((mo.get("subject") or {}).get("label") or "")
+                for mo in maps
+                if isinstance(mo, Mapping) and isinstance(mo.get("subject"), Mapping)
+            },
             column_types=(column_types or {}).get(str(name)),
             source_columns=(
                 (map_columns or {}).get(str(name))
@@ -3914,6 +4121,7 @@ def propose_from_skeleton(
             on_fallback=on_fallback,
             settled_meanings=settled_by_source.get(str(map_obj.get("source") or "")),
             excluded_columns=(excluded_columns or {}).get(str(map_obj.get("source") or "")),
+            catalog_homes=catalog_homes,
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)

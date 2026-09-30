@@ -142,6 +142,22 @@ CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
 # still resolve a v1 id). Never in the Ask/FROM-merge scope: forwarding is how
 # the data was re-shaped, not a fact anyone asked about.
 MOVED_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "moved/"
+# Per-dataset *description* named graph (ADR dataset-description-in-the-store.md):
+# holds the DCAT/VoID/ast: triples projected from a dataset's §7 (mie.yaml). Same
+# layer as ONTOLOGY_GRAPH_BASE, for the same reason — it is best-effort metadata
+# about a dataset, not data anyone asked a citable question about, so it stays
+# outside the version graph (a promote must not take the description down with the
+# version it supersedes) and outside canonical scope (§6 of the ADR).
+META_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "meta/"
+# Dataset *description* subject IRI base. NOT a graph container — an entity IRI,
+# stable across re-ingests/re-designs because ``dataset_id`` never changes (rename
+# only changes the display name). Distinct from CANONICAL_GRAPH_BASE on purpose
+# (ADR §3: "グラフ IRI は入れ物であって同一性ではない").
+DATASET_IRI_BASE: str = "https://kumagallium.github.io/asterism/dataset/"
+# ``schema_info.categories[]`` values are minted as skos:Concept IRIs under this
+# base (ADR §3: dcat:theme's range is skos:Concept, so a bare string cannot fill
+# it — a concept must be cast).
+THEME_IRI_BASE: str = "https://kumagallium.github.io/asterism/theme/"
 
 # Control vocabulary (asterism: namespace) for the lifecycle status of a dataset.
 ASTERISM_NS: str = "https://kumagallium.github.io/asterism/vocab#"
@@ -207,6 +223,106 @@ def moved_graph_iri(dataset_id: str) -> str:
     if not _DATASET_ID.match(dataset_id):
         raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
     return f"{MOVED_GRAPH_BASE}{dataset_id}"
+
+
+def meta_graph_iri(dataset_id: str) -> str:
+    """Per-dataset description (projected §7) named graph IRI (ADR
+    dataset-description-in-the-store.md §4)."""
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{META_GRAPH_BASE}{dataset_id}"
+
+
+def dataset_iri(dataset_id: str) -> str:
+    """Dataset description subject IRI (ADR dataset-description-in-the-store.md §3).
+
+    Distinct from any graph IRI: this is the entity ``asterism.metadata`` builds
+    triples about (``D a dcat:Dataset``), not a storage container.
+    """
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{DATASET_IRI_BASE}{dataset_id}"
+
+
+#: A versioned canonical graph's trailing segment (part5: ``canonical/{id}/v{n}``).
+_CANONICAL_VERSION_SUFFIX = re.compile(r"/v\d+$")
+
+
+def dataset_id_of_canonical_graph(iri: str) -> str | None:
+    """Recover a dataset id from one of the IRIs :func:`canonical_graphs` returns
+    — the KEY graph (``…/canonical/{id}``) or a versioned data graph (part5:
+    ``…/canonical/{id}/v{n}``) — or ``None`` for any IRI under a different base
+    (ontology / meta / control graphs are never canonical).
+
+    Used by ``schema_summary``'s ``VALUES ?g { … }`` limiting (ADR
+    dataset-description-in-the-store.md §6): each promoted dataset's canonical
+    IRI is turned back into an id, then into that dataset's
+    :func:`meta_graph_iri`, so the description query only ever names graphs a
+    promote actually wrote — never an unpublished dataset's.
+    """
+    if not iri.startswith(CANONICAL_GRAPH_BASE):
+        return None
+    rest = iri[len(CANONICAL_GRAPH_BASE) :]
+    rest = _CANONICAL_VERSION_SUFFIX.sub("", rest)
+    # Not every promoted canonical graph belongs to a registry dataset: the
+    # crosswalk hub publishes ``…/canonical/crosswalk`` and
+    # ``…/canonical/crosswalk/alignment`` (ADR crosswalk-hub.md) — the latter
+    # keeps a ``/`` after the version strip and is no dataset id at all.
+    # Returning it would make ``meta_graph_iri`` raise and take the whole
+    # ``schema_summary`` call down (observed live 2026-09-23). Only a value
+    # that IS a valid dataset id is one; everything else has no meta graph.
+    if not rest or not _DATASET_ID.match(rest):
+        return None
+    return rest
+
+
+#: Names under ``…/canonical/crosswalk/`` that are NOT a perspective's hub graph.
+#: ``alignment`` is :data:`asterism.crosswalk_runtime.ALIGNMENT_GRAPH` (schema
+#: alignments between perspectives) — promoted like a hub graph, but it holds no
+#: shared entities. Kept here as a literal so this module stays decoupled from
+#: ``crosswalk_runtime`` (a test pins the two together).
+_HUB_RESERVED_NAMES = frozenset({"alignment"})
+_HUB_PERSPECTIVE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def hub_perspective_name(graph_iri: str) -> str | None:
+    """The perspective name when ``graph_iri`` is a crosswalk HUB graph, else
+    ``None``. The legacy composition hub at ``…/canonical/crosswalk`` has no
+    name of its own and yields ``""``; a named perspective at
+    ``…/canonical/crosswalk/<name>`` yields ``<name>``.
+
+    Reads the IRI itself rather than going through
+    :func:`dataset_id_of_canonical_graph`: a hub graph is *not* a registry
+    dataset, and that function (rightly) answers ``None`` for
+    ``crosswalk/<name>`` because the slash makes it no dataset id at all.
+    """
+    if not graph_iri.startswith(CANONICAL_GRAPH_BASE):
+        return None
+    rest = _CANONICAL_VERSION_SUFFIX.sub("", graph_iri[len(CANONICAL_GRAPH_BASE) :])
+    if rest == "crosswalk":
+        return ""
+    prefix = "crosswalk/"
+    if not rest.startswith(prefix):
+        return None
+    name = rest[len(prefix) :]
+    if name in _HUB_RESERVED_NAMES or not _HUB_PERSPECTIVE_NAME.match(name):
+        return None
+    return name
+
+
+def is_hub_graph(graph_iri: str) -> bool:
+    """True when ``graph_iri`` is a crosswalk HUB graph (the legacy composition
+    perspective at ``…/canonical/crosswalk`` or any named perspective at
+    ``…/canonical/crosswalk/<id>``) rather than an ordinary dataset's canonical
+    graph.
+
+    Pure and decoupled from :mod:`asterism.crosswalk_runtime` on purpose (ADR
+    object-cards-ui.md O60): the runtime module knows how to *build* the graph
+    IRI for a given perspective id; this function only needs to recognise one
+    once handed an arbitrary canonical graph IRI, e.g. while walking the
+    FROM-merge graph set.
+    """
+    return hub_perspective_name(graph_iri) is not None
 
 
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
@@ -1457,6 +1573,33 @@ async def ontology_graphs(client: SupportsSparql) -> list[str]:
         "SELECT DISTINCT ?g WHERE { "
         "GRAPH ?g {} "
         f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) '
+        "} ORDER BY ?g"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+async def meta_graphs(client: SupportsSparql) -> list[str]:
+    """List the per-dataset description named graphs, sorted (ADR
+    dataset-description-in-the-store.md §4).
+
+    Enumerated by graph name (not a triple scan), same as :func:`ontology_graphs`.
+    A dataset's description graph exists whether or not the dataset is promoted
+    (§4 of the ADR: ingest writes it for unpublished datasets too), so — same
+    caveat as the ADR's §6 warns against for ``schema_summary`` — this listing
+    must NOT be used to answer "what is citable"; callers that need only
+    *published* descriptions must intersect with :func:`canonical_graphs`.
+    """
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        "GRAPH ?g {} "
+        f'FILTER(STRSTARTS(STR(?g), "{META_GRAPH_BASE}")) '
         "} ORDER BY ?g"
     )
     data = await client.sparql_select(q)

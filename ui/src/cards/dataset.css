@@ -1,0 +1,197 @@
+/* データセットのページ（DatasetPage.tsx・担当 ui-page・契約メモ §2.2）。
+ * .cardpage-body/.cardpage-head/.cardpage-title は pages.css のものをそのまま
+ * 使う（1 件・絞り込みのページと見た目を揃える）。色は必ずトークンから。 */
+
+.dataset-page {
+  gap: var(--space-4);
+}
+
+.dataset-origin {
+  margin: -0.4rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* ---- 「データの意味を定義する」の帯（決定 2） ---- */
+
+.dataset-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+
+.dataset-band-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.dataset-band-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.dataset-band-text {
+  font-size: 0.92rem;
+  color: var(--fg);
+}
+
+.dataset-band-actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ---- 「この中のもの」ヘッダの操作列 ---- */
+
+.dataset-contents-actions {
+  align-items: flex-start;
+}
+
+.dataset-search {
+  position: relative;
+}
+
+.dataset-search-form {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 16em;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+
+.dataset-search-input {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.35rem 0.6rem;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--fg);
+}
+
+.dataset-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 12em;
+  overflow-y: auto;
+}
+
+.dataset-search-result {
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+  font-size: 0.84rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+.dataset-search-result:hover {
+  background: var(--surface-alt);
+}
+
+/* ---- 種類ごとの行 ---- */
+
+.dataset-kinds {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.84rem;
+}
+
+.dataset-kinds-label {
+  color: var(--muted);
+}
+
+.dataset-kind-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.dataset-kind-link:hover {
+  color: var(--accent-strong);
+}
+
+/* ---- この中のものの一覧 ---- */
+
+.dataset-contents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.dataset-content-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg);
+  font-size: 0.88rem;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.dataset-content-item:hover {
+  background: var(--surface-alt);
+}
+
+.dataset-content-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dataset-content-kind {
+  flex: none;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.dataset-content-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.dataset-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--entity);
+}
+.dataset-dot--set {
+  border-radius: 2px;
+  background: var(--activity);
+}

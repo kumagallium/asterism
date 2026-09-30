@@ -1,0 +1,16 @@
+/* 種類のページ（ClassPage.tsx・契約メモ contract_pr_f9.md §1 決定 4）。
+ * `.dataset-*`（dataset.css）・`.dataset-viewpoint-*`（viewpoints.css）・
+ * `.cardpage-*`（pages.css）をそのまま流用し、ここに置くのはこのページだけの
+ * 微調整だけ。色は必ずトークンから。 */
+
+.classpage-subtitle {
+  font-size: 0.95rem;
+}
+
+.classpage-sample {
+  margin-left: 0.4rem;
+}
+
+.classpage-definition {
+  align-self: flex-start;
+}

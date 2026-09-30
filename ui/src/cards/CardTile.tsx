@@ -1,0 +1,300 @@
+// 1 件のページ／絞り込みページの格子に並ぶ 1 カード。`defaultCardsForSubject`/
+// `defaultCardsForSet` が返す 1 件（tool + params）を `runCard` で実行し、
+// `viewFor`（見せ方つきの既定ビュー）→ PR B の描画器（VegaLiteView/TableView/
+// GraphView）に渡す。
+//
+// SubjectPage.tsx と SetPage.tsx の両方が使うので共通化した（新設・c2-pages の
+// 担当外だが、両ページで同じ 80 行ほどを重複させないための追加。notes に記載）。
+//
+// クリックの扱い: 見出し（タイトル）は常にカード詳細を開く。カード本体も、
+// 「順位表で行に主語（IRI）が乗っている」場合を除いて詳細を開く — 順位表の
+// 行クリックは別の意味（その 1 件のページへ）を持つため、そこだけは本体の
+// クリックを詳細開きに使わない（TableView の onRowClick は DOM イベントを
+// 渡さないので stopPropagation で親のクリックを止められず、二重発火を避ける
+// ための設計）。
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { runCard } from './cardsApi'
+import type { CardRef, CardToolResult, CardView, SubjectKey } from './cardsApi'
+import { resolveCardTitle } from './cardTitle'
+import { withFieldLabels } from './builtinFields'
+import { useCardPresentation } from './cardPresentation'
+import { GraphView } from './GraphView'
+import { parseMermaidFlowchart } from './mermaidFlow'
+import { effectivePresentation, viewFor } from './presentation'
+import { presentFactRows } from './placeShape'
+import { TableView } from './TableView'
+import type { GraphSpec, TableSpec, ViewSpec, VegaLiteSpec } from './viewSpec'
+import { VegaLiteView } from './VegaLiteView'
+import './pages.css'
+
+/** `card.view`（AI が書いた見せ方。`cardsApi.ts` の {@link CardView}）を
+ *  描画できる形に変換する（純粋）。Vega-Lite は `data.values` にカードの結果
+ *  `rows` を差し込む（契約 F13 §1「データは AI の JSON に書かせない」）。
+ *  Mermaid はソーステキスト（`view.text`）を `mermaidFlow.ts` の同じ部分集合の
+ *  パーサで `GraphSpec` に変換する。読めない形は無視して既定描画に落とす。 */
+function renderableCustomView(
+  view: CardView | undefined,
+  rows: Record<string, unknown>[],
+): { view: ViewSpec } | { graph: GraphSpec } | null {
+  if (!view) return null
+  if (view.lang === 'vega-lite' && view.spec && typeof view.spec === 'object') {
+    const spec = { ...view.spec, data: { values: rows } }
+    return { view: { lang: 'vega-lite', spec: spec as VegaLiteSpec, custom: true } }
+  }
+  if (view.lang === 'table' && view.spec && typeof view.spec === 'object') {
+    return { view: { lang: 'table', spec: view.spec as unknown as TableSpec, custom: true } }
+  }
+  if (view.lang === 'mermaid' && typeof view.text === 'string') {
+    return { graph: parseMermaidFlowchart(view.text).graph }
+  }
+  return null
+}
+
+
+/** ページ上のカードで `facts` 表を切る行数。カード詳細（`CardDetail.tsx`）は
+ *  切らずに全件出す — §2(a)。 */
+const FACTS_TILE_LIMIT = 12
+
+export interface CardTileProps {
+  subject: SubjectKey
+  card: CardRef
+  onOpenDetail: (cardId: string) => void
+  /** 順位表の行を押したときに、その行の主語（IRI）の 1 件ページへ。PR F19 §1.3:
+   *  「同じものとして束ねたもの」（`subject_hub_members`）の行はハブへ寄せ
+   *  戻されないよう `{ solo: true }` を付けて開く（このカード自身が判定する）。 */
+  onOpenSubject: (iri: string, opts?: { solo?: boolean }) => void
+  /** `subject_flow` が `found: false` を返したとき、親にグリッドから外すよう
+   *  知らせる（契約メモ §3.1「辺が 0 なら found: false を返し、UI はカードを
+   *  出さない」）。 */
+  onFoundChange?: (cardId: string, found: boolean) => void
+  /** 格子で 2 列ぶんを占めるか。無指定なら output_kind から決める
+   *  （flow／facts は既定で wide・§2(b)）。 */
+  wide?: boolean
+  /** このカードが cardStore にある「足したカード」かどうか（PR F18 §1.3）。
+   *  true かつ {@link onFixCard} が渡されているときだけ、印の列の最後に
+   *  小さな「直す」ボタンを出す。既定カード（組み込み・宣言ツール）には
+   *  出さない。 */
+  isAddedCard?: boolean
+  /** 「直す」を押したときに呼ぶ（会話ドロワーをこのカードの会話で開くのは
+   *  呼び出し側 — SubjectPage/SetPage — の責務）。 */
+  onFixCard?: (cardId: string) => void
+}
+
+export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundChange, wide, isAddedCard, onFixCard }: CardTileProps) {
+  const { t } = useTranslation('cards')
+  // カード詳細（`CardDetail.tsx`）で選んだ見せ方を、同じキー
+  // （`asterism.cardView.<card_id>`）で読むだけ（一覧側に切替 UI は出さない —
+  // 契約メモ §1.4）。選んでいなければ、カードに保存された見せ方
+  // （`card.presentation`・会話で決めたもの）→ 既定、の順に倒れる（ADR O36）。
+  const { presentation: chosenPresentation } = useCardPresentation(card.card_id)
+  const presentation = effectivePresentation(chosenPresentation, card.presentation)
+  // 呼び出しの実体（subject + tool + params）を文字列化して依存キーにする —
+  // 親が `subject={{kind:'individual', iri}}` のようにインライン literal を渡す
+  // と毎レンダリングで参照が変わるため、オブジェクト参照そのものを依存にすると
+  // ask 入力欄の入力ごとに再実行されてしまう。契約メモの card_id は
+  // subject+tool+params のハッシュなので、この depKey が変わるのは常に
+  // card.card_id が変わるとき（= 親の .map の key で自然に再マウントされる）
+  // と一致する。
+  const depKey = JSON.stringify({ subject, tool: card.tool, params: card.params })
+  // state 自身に「どの depKey に対する結果か」を持たせる（effect の本体先頭で
+  // setState して同期的にリセットしない — react-hooks/set-state-in-effect。
+  // ProvenanceTrace.tsx と同じ流儀）。
+  const [fetched, setFetched] = useState<{ key: string; result: CardToolResult | null; error: boolean }>({
+    key: '',
+    result: null,
+    error: false,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    runCard(subject, card.tool, card.params)
+      .then((r) => {
+        if (cancelled) return
+        setFetched({ key: depKey, result: r, error: false })
+        if (r.found === false) onFoundChange?.(card.card_id, false)
+      })
+      .catch(() => {
+        if (!cancelled) setFetched({ key: depKey, result: null, error: true })
+      })
+    return () => {
+      cancelled = true
+    }
+    // onFoundChange は毎レンダリングで作り直される親のクロージャなので依存に
+    // 入れない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depKey])
+
+  const loaded = fetched.key === depKey
+  const result = loaded ? fetched.result : null
+  const error = loaded && fetched.error
+
+  const titleInfo = resolveCardTitle(card.title, card.title_params)
+  const titleText = titleInfo.isKey ? t(titleInfo.value, titleInfo.params) : titleInfo.value
+
+  // 定義不備の定数（value_iri === property_iri）は表示前に「（値なし）」へ
+  // 落とす（契約 §4「事実の表」）。ここで一度だけ変換し、以降はこの rows を使う。
+  const rows = result ? presentFactRows(result.items, t('builtin.value_missing'), t('graph.prop_type')) : []
+
+  // PR F13: AI が書いた見せ方（`card.view`）があれば既定描画の代わりにそれを
+  // 使う。Mermaid は表／グラフの `ViewSpec` の型に収まらないので別枠
+  // （`customGraph`）で持つ。
+  const customRendered = result ? renderableCustomView(card.view, rows) : null
+  const customGraph = customRendered && 'graph' in customRendered ? customRendered.graph : null
+
+  const view =
+    customRendered && 'view' in customRendered
+      ? customRendered.view
+      : result && card.output_kind !== 'flow'
+        ? viewFor(
+            { name: card.tool, title: card.title, output_kind: result.output_kind, item: withFieldLabels(card.tool, result.item, t) },
+            rows,
+            presentation,
+          )
+        : null
+  const isCustomView = !!(view?.custom || customGraph)
+  const rankedSpec = view && view.lang === 'table' ? (view.spec as TableSpec) : null
+  const isRankedWithSubject = !!rankedSpec && rankedSpec.variant === 'ranked' && !!rankedSpec.subject_field
+
+  // facts 表はページ上では 12 行に切る（超えるときはカード下部に「すべて見る」
+  // リンク）。defaultView.ts の決定論は変えず、CardTile 側で TableSpec.limit
+  // を上書きする（§2(a)）。
+  const factsTotal = rows.length
+  const isFactsTable = card.output_kind === 'facts' && view && view.lang === 'table'
+  const factsTruncated = isFactsTable && factsTotal > FACTS_TILE_LIMIT
+  const tileView =
+    isFactsTable && view
+      ? { ...view, spec: { ...(view.spec as TableSpec), limit: FACTS_TILE_LIMIT } }
+      : view
+
+  const isWide = wide ?? (card.output_kind === 'flow' || card.output_kind === 'facts')
+
+  return (
+    <div
+      className={isWide ? 'card cardpage-tile cardpage-tile--wide' : 'card cardpage-tile'}
+      role={isRankedWithSubject ? undefined : 'button'}
+      tabIndex={isRankedWithSubject ? undefined : 0}
+      onClick={isRankedWithSubject ? undefined : () => onOpenDetail(card.card_id)}
+      onKeyDown={
+        isRankedWithSubject
+          ? undefined
+          : (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onOpenDetail(card.card_id)
+              }
+            }
+      }
+    >
+      <div className="cardpage-tile-head">
+        <button
+          type="button"
+          className="cardpage-tile-title"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenDetail(card.card_id)
+          }}
+        >
+          {titleText}
+        </button>
+        <span className="cardpage-tile-pills">
+          <span className="cardpage-kind">{t(`kind.${card.output_kind}`)}</span>
+          {isCustomView && <span className="cardpage-kind">{t('tile.custom_view')}</span>}
+          {result && result.shareable !== null && (
+            <span className={result.shareable ? 'pill-share pill-share--ok' : 'pill-share pill-share--warn'}>
+              {t(result.shareable ? 'page.shareable_yes' : 'page.shareable_no')}
+            </span>
+          )}
+          {isAddedCard && onFixCard && (
+            <button
+              type="button"
+              className="cardpage-tile-fix"
+              onClick={(e) => {
+                e.stopPropagation()
+                onFixCard(card.card_id)
+              }}
+            >
+              {t('tile.fix')}
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="cardpage-tile-body">
+        {error && <p className="ds-empty-note">{t('render_error')}</p>}
+        {!error && !result && <p className="ds-empty-note">{t('page.loading')}</p>}
+        {!error && result && customGraph && (
+          <GraphView graph={customGraph} ariaLabel={titleText} maxHeight={200} />
+        )}
+        {!error && result && !customGraph && card.output_kind === 'flow' && (
+          <GraphView
+            graph={(result.graph ?? { nodes: [], edges: [] }) as GraphSpec}
+            ariaLabel={titleText}
+            maxHeight={200}
+          />
+        )}
+        {!error && result && !customGraph && card.output_kind !== 'flow' && tileView && (
+          <CardTileBody
+            view={tileView}
+            rows={rows}
+            ariaLabel={titleText}
+            onOpenSubject={(iri) =>
+              onOpenSubject(iri, card.tool === 'subject_hub_members' ? { solo: true } : undefined)
+            }
+            emptyText={t('empty')}
+          />
+        )}
+        {factsTruncated && (
+          <button
+            type="button"
+            className="link-btn cardpage-tile-more"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenDetail(card.card_id)
+            }}
+          >
+            {t('tile.show_all', { n: factsTotal })}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CardTileBody({
+  view,
+  rows,
+  ariaLabel,
+  onOpenSubject,
+  emptyText,
+}: {
+  view: ViewSpec
+  rows: Record<string, unknown>[]
+  ariaLabel: string
+  onOpenSubject: (iri: string) => void
+  emptyText: string
+}) {
+  if (rows.length === 0) return <p className="ds-empty-note">{emptyText}</p>
+  if (view.lang === 'vega-lite') {
+    return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={200} />
+  }
+  if (view.lang === 'table') {
+    const spec = view.spec as TableSpec
+    const subjectField = spec.subject_field
+    return (
+      <TableView
+        spec={spec}
+        rows={rows}
+        ariaLabel={ariaLabel}
+        onRowClick={
+          subjectField
+            ? (row) => {
+                const iri = row[subjectField]
+                if (typeof iri === 'string') onOpenSubject(iri)
+              }
+            : undefined
+        }
+      />
+    )
+  }
+  return null
+}

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from asterism.catalog import find_datasets, resolve_tool_names, tool_sources
+from asterism.metadata import build_metadata_graph, metadata_turtle
 from asterism.query_tools import QueryTool
 
 
@@ -130,7 +131,40 @@ def test_limit_is_reported_as_truncated(monkeypatch, tmp_path) -> None:
     assert out["count"] == 2 and out["truncated"] is True
 
 
-def test_mie_description_is_surfaced_and_searchable(monkeypatch, tmp_path) -> None:
+def _write_metadata_ttl(d: Path, dataset_id: str, description: str) -> None:
+    graph = build_metadata_graph(
+        {"schema_info": {"title": "x", "description": description}}, dataset_id
+    )
+    (d / "metadata.ttl").write_text(metadata_turtle(graph), encoding="utf-8")
+
+
+def test_ttl_description_is_surfaced_and_searchable(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    d = _dataset(reg, "zem-abc12345", name="ZEM")
+    _write_metadata_ttl(d, "zem-abc12345", "thermoelectric transport curves")
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+    out = find_datasets(["transport"])
+    assert out["count"] == 1
+    assert out["datasets"][0]["description"] == "thermoelectric transport curves"
+
+
+def test_descriptions_argument_wins_over_metadata_ttl(monkeypatch, tmp_path) -> None:
+    # The MCP server's store-read description (ADR §7.1) is one step fresher
+    # than the registry file for a promoted dataset, so it wins.
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    d = _dataset(reg, "zem-abc12345", name="ZEM")
+    _write_metadata_ttl(d, "zem-abc12345", "stale registry description")
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+    out = find_datasets(descriptions={"zem-abc12345": "fresh store description"})
+    assert out["datasets"][0]["description"] == "fresh store description"
+
+
+def test_mie_yaml_alone_is_no_longer_read(monkeypatch, tmp_path) -> None:
+    # Regression for the ADR's demotion of mie.yaml to a generated projection:
+    # a dataset that only has mie.yaml (no metadata.ttl written yet) surfaces
+    # no description, rather than falling back to the old file.
     monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
     reg = tmp_path / "registry"
     d = _dataset(reg, "zem-abc12345", name="ZEM")
@@ -139,16 +173,16 @@ def test_mie_description_is_surfaced_and_searchable(monkeypatch, tmp_path) -> No
         encoding="utf-8",
     )
     monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
-    out = find_datasets(["transport"])
-    assert out["count"] == 1
-    assert out["datasets"][0]["description"] == "thermoelectric transport curves"
+    out = find_datasets()
+    assert out["datasets"][0]["description"] == ""
+    assert find_datasets(["transport"])["count"] == 0
 
 
 def test_a_malformed_artifact_does_not_hide_the_dataset(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
     reg = tmp_path / "registry"
     d = _dataset(reg, "zem-abc12345", name="ZEM")
-    (d / "mie.yaml").write_text("schema_info: [not, a, mapping\n", encoding="utf-8")
+    (d / "metadata.ttl").write_text("this is not turtle {{{\n", encoding="utf-8")
     (reg / "broken-44444444").mkdir(parents=True)
     (reg / "broken-44444444" / "meta.json").write_text("{not json", encoding="utf-8")
     monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))

@@ -1,0 +1,2 @@
+activity_id,source_file,source_url,retrieved_at,tool
+ingest-world-v1,gapminder.json,https://cdn.jsdelivr.net/npm/vega-datasets@2/data/gapminder.json,2026-09-24T00:00:00Z,asterism build_world_demo.py

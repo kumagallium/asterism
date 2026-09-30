@@ -1,0 +1,213 @@
+/* SubjectRail — 契約メモ contract_pr_f9.md §1-2（旧 contract_pr_f7.md §1-3・
+   contract_pr_f2.md §6.3）。左ナビ（.sidebar, 220px・たたむと 56px）とは別の
+   第 2 列として `.app-main`（App.tsx）の左に出る。左ナビと違い、tab === 'cards'
+   のあいだ常に出る（旧: sidebar の中身を丸ごと差し替えていた）。トークンのみ、
+   house style。 */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: none;
+  width: 240px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 1.1rem 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.rail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.rail-section-title {
+  margin: 0;
+  padding: 0 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rail-empty {
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg);
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.rail-item:hover {
+  background: var(--surface-alt);
+}
+
+.rail-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-item-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+/* 種類の併記（「日本 ・国」）。ラベルの後ろ、件数の前に小さく。 */
+.rail-item-kind {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+/* 見本（boot 仕込みの主語）の印。 */
+.rail-item-sample {
+  flex: none;
+  border-radius: 999px;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
+}
+
+.rail-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+.rail-dot--link {
+  background: var(--entity);
+}
+.rail-dot--own {
+  background: var(--accent);
+}
+.rail-dot--amb {
+  background: var(--warn-border);
+}
+.rail-dot--set {
+  border-radius: 2px;
+  background: var(--activity);
+}
+
+/* 種類の行 + 子（契約メモ contract_pr_f9.md §1-2）。旧名 `.rail-datasets` を
+   種類の木にもそのまま流用（クラス名は変えない — 中身だけ差し替え）。折りたたみ
+   は無い（種類の数は通常少ない）。 */
+.rail-datasets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.rail-dataset-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.rail-dataset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.2rem 0;
+  cursor: pointer;
+}
+.rail-dataset-name:hover {
+  text-decoration: underline;
+}
+
+.rail-dataset-children {
+  padding-left: 1.5rem;
+}
+
+/* 「＋ オブジェクトを追加」（契約メモ §1-2・#/cards/add）。 */
+.rail-add-object {
+  align-self: flex-start;
+  margin: 0 0.7rem;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0;
+  cursor: pointer;
+}
+.rail-add-object:hover {
+  text-decoration: underline;
+}
+
+.rail-legend {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.7rem;
+  padding: 0.6rem 0.7rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.rail-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* いま開いている種類の行（`aria-current="page"`・契約メモ §1-4: 種類のページ
+   を開いているあいだ、この行が選ばれたまま＝木の中の現在地） */
+.rail-dataset-name[aria-current='page'] {
+  font-weight: 600;
+  color: var(--accent, #1d5f3f);
+}
+
+/* PR F16 §1.5: 共有ハブ（同じものの 1 つのページ）の種類の見出しに付ける
+   小さな印「つながり」。`.rail-item-sample` と同じ見た目の流儀。 */
+.rail-hub-pill {
+  flex: none;
+  border-radius: 999px;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
+}

@@ -102,6 +102,21 @@ describe('composeVocabGraph', () => {
     expect(symbol.fields!.map((f) => f.name)).toEqual(['symbol'])
   })
 
+  it('種類の箱の名前は API が引いた名前（labels）で、無いときだけローカル名', () => {
+    // 名前の読み順は api にある（ワークスペースと同じ読み手）。図は受け取った名前を
+    // そのまま出す — ここで別の読み順を持つと、画面ごとに名前が食い違う。
+    const named = rules([rmap(NS, 'record'), rmap(NS, 'symbol')], {
+      [`${NS}record`]: '年ごとの記録',
+    })
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: named }],
+      classCounts: { [`${NS}record`]: 238 },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === 'pt::record')!.label).toBe('年ごとの記録（238件）')
+    expect(shape.nodes.find((n) => n.id === 'pt::symbol')!.label).toBe('symbol')
+  })
+
   it('既知名前空間の述語は「使っている」、配管は描かない', () => {
     const shape = composeVocabGraph({
       datasets: [{ id: 'x', name: 'XRD', rules: xrd() }],
@@ -168,6 +183,92 @@ describe('composeVocabGraph', () => {
     ])
     // a2 は source が解決できない（消えたデータセット）→ 描かない
     expect(shape.stats.alignments).toBe(1)
+  })
+
+  it('標準のことばの箱は、語の IRI が符号でもカタログの表示名で出す', () => {
+    const code = 'https://w3id.org/emmo#EMMO_3b19eab4_0000'
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: pt() }],
+      candidates: { name: [cand({ iri: code, label: 'Mass Density', name: 'MassDensity' })] },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === code)!.label).toBe('Mass Density')
+    // 線の名前・種類は変えない
+    expect(shape.edges.filter((e) => e.kind === 'candidate')[0]).toEqual(
+      expect.objectContaining({ to: code, label: 'name' }),
+    )
+  })
+
+  it('カタログの表示名が空なら、カタログの名前で出す', () => {
+    const code = 'https://w3id.org/emmo#EMMO_3b19eab4_0001'
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: pt() }],
+      candidates: { name: [cand({ iri: code, label: '  ', name: 'MassDensity' })] },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === code)!.label).toBe('MassDensity')
+  })
+
+  it('同じ語の IRI が候補に 2 回出て名前が違うとき、箱の名前は最初の名前', () => {
+    const code = 'https://w3id.org/emmo#EMMO_3b19eab4_0003'
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: pt() }],
+      candidates: {
+        name: [cand({ iri: code, label: 'First Name', name: 'FirstName' })],
+        mass: [cand({ iri: code, label: 'Second Name', name: 'SecondName' })],
+      },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === code)!.label).toBe('First Name')
+  })
+
+  it('候補の表示名も名前も空白だけなら、箱の名前は今までどおりローカル名', () => {
+    const code = 'https://w3id.org/emmo#EMMO_3b19eab4_0004'
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: pt() }],
+      candidates: { name: [cand({ iri: code, label: '  ', name: ' ' })] },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === code)!.label).toBe('EMMO_3b19eab4_0004')
+  })
+
+  it('対応の行き先の箱も、候補に出ている語ならカタログの名前で出す', () => {
+    const code = 'https://w3id.org/emmo#EMMO_3b19eab4_0002'
+    const alignments: Alignment[] = [
+      {
+        alignment_iri: 'a1',
+        source: `${XNS}name`,
+        target: code,
+        relation: 'equivalentProperty',
+        from_perspective: 'XRD',
+        to_perspective: 'EMMO',
+        at: '',
+      },
+    ]
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'x', name: 'XRD', rules: xrd() }],
+      candidates: {
+        Name: [
+          cand({ iri: 'https://schema.org/name', label: 'name' }),
+          cand({ iri: code, label: 'Designation', name: 'Designation' }),
+        ],
+      },
+      alignments,
+      words: WORDS,
+    })
+    expect(shape.stats.alignments).toBe(1)
+    expect(shape.nodes.find((n) => n.id === code)!.label).toBe('Designation')
+  })
+
+  it('候補に出ていない語の箱は、今までどおりローカル名', () => {
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'x', name: 'XRD', rules: xrd() }],
+      candidates: { Name: [cand({ iri: 'https://w3id.org/emmo#EMMO_other', label: 'Other' })] },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === 'http://purl.org/dc/terms/isPartOf')!.label).toBe(
+      'isPartOf',
+    )
   })
 
   it('項目は上限で畳み「…ほか N 項目」を足す', () => {

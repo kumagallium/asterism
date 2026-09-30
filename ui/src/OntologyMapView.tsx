@@ -228,9 +228,10 @@ function DsNode({ data }: NodeProps) {
         </span>
         {n.d.classes.length > 0 && (
           <>
-            {/* The pills are the design's own English class names. They stay
-                as they are — they name what is in the data — but a heading
-                says WHAT they are, so they do not read as stray tokens. */}
+            {/* The pills are the kinds' display names as the design saved them
+                (`meta.classes`, read from the diagram's box labels — ADR kantan
+                K50/K56). They name what is in the data, and a heading says WHAT
+                they are, so they do not read as stray tokens. */}
             <span className="ontomap-node-std-label">{n.words.kinds}</span>
             <span className="ontomap-node-pills">
               {n.d.classes.slice(0, 4).map((c) => (

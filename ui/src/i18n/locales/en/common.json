@@ -10,6 +10,11 @@
     "en": "English"
   },
   "nav": {
+    "group_build": "Build",
+    "group_use": "Use",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "cards": "Workspace",
     "home": "Home",
     "gallery": "Datasets",
     "crosswalk": "Connections",
@@ -87,6 +92,16 @@
       "eyebrow": "Developer",
       "title": "SPARQL",
       "sub": "Write read-only queries directly. For everyday questions, use Ask"
+    },
+    "cardsdemo": {
+      "eyebrow": "Sample",
+      "title": "Cards",
+      "sub": "The seven default cards, one per output kind"
+    },
+    "cards": {
+      "eyebrow": "Workspace",
+      "title": "Workspace",
+      "sub": "See a single item or a condition-based list as cards, with their sources"
     }
   }
 }

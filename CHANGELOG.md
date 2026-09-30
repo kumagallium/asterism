@@ -1,5 +1,87 @@
 # Changelog
 
+## [v0.47.1](https://github.com/kumagallium/asterism/compare/v0.47.0...v0.47.1) - 2026-09-30
+
+- docs(manual): v0.47.0 の節目とバッジを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/625
+- fix(api): 「共通の言葉」の図の種類の名前を、ワークスペースと同じ読み手で引く by @kumagallium in https://github.com/kumagallium/asterism/pull/627
+- fix(ui): 「ためす」の図を、同じ親の子が横に並ぶようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/628
+- fix(api): つながりの画面の種類の名前を、ワークスペースと同じ読み手で引く by @kumagallium in https://github.com/kumagallium/asterism/pull/633
+- chore(ui): ソースに入っていた生の NUL 文字をエスケープ表記に書き直す — 差分をレビューできるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/629
+- fix: 図に出ていた生のローカル名 3 か所を、人向けの名前にする by @kumagallium in https://github.com/kumagallium/asterism/pull/631
+- chore(deps): Bump Songmu/tagpr from 1.20.2 to 1.21.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/612
+- chore(deps): Bump astral-sh/setup-uv from 7.6.0 to 10.2.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/613
+- fix(ui): 図の線が箱の裏を通らないようにする — 段をまたぐ線は、途中の段に席を取って通す by @kumagallium in https://github.com/kumagallium/asterism/pull/634
+- chore(deps): Bump docker/setup-buildx-action from 4.3.0 to 4.4.1 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/582
+- chore(deps): Bump docker/build-push-action from 7.3.0 to 7.4.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/583
+- fix: 1 件のページで、機械が足したつなぐ項目をつなぐ先の種類の名前で出す by @kumagallium in https://github.com/kumagallium/asterism/pull/635
+- fix(grounding): 短い語が長い名前の途中に当たる部分一致をやめる by @kumagallium in https://github.com/kumagallium/asterism/pull/636
+- fix(ingest): つながりを作るとき、言語タグ・型つきの値を候補さがしと同じ文字列で比べる by @kumagallium in https://github.com/kumagallium/asterism/pull/638
+- fix(api): 見本のことばにもストアの名前を付け、一覧で英字と「名前が未設定」を出さない by @kumagallium in https://github.com/kumagallium/asterism/pull/639
+- fix(datasets): 地図の箱の「入っている種類」を、同梱の見本も表示名にする by @kumagallium in https://github.com/kumagallium/asterism/pull/640
+- fix(ui): 共通の言葉の地図の、枠の中の線も席を通す by @kumagallium in https://github.com/kumagallium/asterism/pull/641
+- fix(api): model.yaml の投影が付けるローカル名で、行の名前を答え済みにしない by @kumagallium in https://github.com/kumagallium/asterism/pull/637
+- fix: 1 件のページの読み取った値で、項目名と値を人向けの名前にそろえる by @kumagallium in https://github.com/kumagallium/asterism/pull/643
+- fix(kantan): ☑ した列の受け口へのリンクを、その列を元々持っていた種類から引く by @kumagallium in https://github.com/kumagallium/asterism/pull/642
+- fix(grounding): 「この列は何の量か」の部分一致が語の途中に当たるのをやめる by @kumagallium in https://github.com/kumagallium/asterism/pull/644
+- fix(grounding): 「何の量か」を言っていない語だけで候補を出さない by @kumagallium in https://github.com/kumagallium/asterism/pull/645
+
+## [v0.47.0](https://github.com/kumagallium/asterism/compare/v0.46.0...v0.47.0) - 2026-09-29
+
+- docs(manual): v0.45.0・v0.46.0 の節目とバッジを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/619
+- fix(api): ハブとつながりの表示名を、項目の表示名から引く by @kumagallium in https://github.com/kumagallium/asterism/pull/621
+- fix(crosswalk): 合流先を名前ではなく参加者で決める by @kumagallium in https://github.com/kumagallium/asterism/pull/622
+- fix(ui): 手順バーと画面の見出しを「つながりを選ぶ」に揃える by @kumagallium in https://github.com/kumagallium/asterism/pull/623
+- feat: 種類にも表示名を持たせる — 日本語の列名から作る名前が潰れない by @kumagallium in https://github.com/kumagallium/asterism/pull/624
+
+## [v0.46.0](https://github.com/kumagallium/asterism/compare/v0.45.0...v0.46.0) - 2026-09-29
+
+- feat: 前面 UI を object cards へ（PR A）— ADR ＋ 出口の意味型 output_kind ＋ provenance→graph by @kumagallium in https://github.com/kumagallium/asterism/pull/585
+- feat(ui): 前面 UI を object cards へ（PR B）— 描画器 3 つと型から決まる既定ビュー by @kumagallium in https://github.com/kumagallium/asterism/pull/586
+- feat: 前面 UI を object cards へ（PR C）— データを置く・1 件／絞り込みのページ・カード詳細 by @kumagallium in https://github.com/kumagallium/asterism/pull/588
+- feat: 前面 UI を object cards へ（PR D）— 材料表・ライセンス・配れる判定と、エージェントを持ち帰る by @kumagallium in https://github.com/kumagallium/asterism/pull/589
+- feat: 初見の画面を「入口 2 つ＋本物の見本『世界の国』」にし、言葉を使う人の語に揃える（PR E） by @kumagallium in https://github.com/kumagallium/asterism/pull/593
+- feat: 「データセットが親」の情報設計 — レール 2 階層・データセットのページ・ウィザードを子画面に（PR F2） by @kumagallium in https://github.com/kumagallium/asterism/pull/595
+- feat: 「＋ グラフを足す」— 見せ方 → 項目 → 条件 を選ぶだけで新しいカード（決定論・LLM なし）（PR F4） by @kumagallium in https://github.com/kumagallium/asterism/pull/596
+- feat(ui): 「データの意味を定義する」「詳しい情報」を「見る」の枠の中で開く — レールを変えず、戻れる（PR F5） by @kumagallium in https://github.com/kumagallium/asterism/pull/597
+- feat(ui): 「観点」— 同じデータで使われたグラフの作り方を、他のページに 1 クリックで足す（PR F6） by @kumagallium in https://github.com/kumagallium/asterism/pull/598
+- feat(ui): 左ナビを 1 本に — 「作る」「使う」の 2 見出し・たためる・ワークスペースの子ナビ・「見る」→「ワークスペース」（PR F7） by @kumagallium in https://github.com/kumagallium/asterism/pull/599
+- feat(ui): データが入る入口を「作る › データセット › データを追加」の 1 つに — ワークスペースは回答のダッシュボード（PR F8） by @kumagallium in https://github.com/kumagallium/asterism/pull/600
+- feat: ワークスペースを「種類 › オブジェクト › 観点」に — 作る＝構造の定義、使う＝回答（PR F9） by @kumagallium in https://github.com/kumagallium/asterism/pull/601
+- feat: オブジェクトの一覧を件数つきの格子に／「データを追加」は直接ウィザードの ①／見出しの URL エンコードを戻す（PR F10） by @kumagallium in https://github.com/kumagallium/asterism/pull/602
+- feat: ページの中で AI と会話しながら観点を作り・直し・聞く — 右のドロワー・AI は指定だけ出し、検証してから決定論で実行（PR F12） by @kumagallium in https://github.com/kumagallium/asterism/pull/604
+- feat: 指定で表せない見せ方は AI が「書く」— Vega-Lite／表仕様／Mermaid を許可リストで検証し、元カードの結果に当てて描く（PR F13） by @kumagallium in https://github.com/kumagallium/asterism/pull/605
+- feat: 1 件のページの届く範囲を近傍（上に 1 段・下に 2 段）に広げ、答えがページに無ければ観点を提案してから答える（PR F14） by @kumagallium in https://github.com/kumagallium/asterism/pull/606
+- feat: S4 の ☑「つながる手がかり」を公開時に自動でハブへつなぐ — 取り込むだけでつながります、を本当にする（PR F15） by @kumagallium in https://github.com/kumagallium/asterism/pull/607
+- feat: 共有ハブを「同じものの 1 つのページ」にする — 種類一覧・ハブのページ＝メンバーの近傍の和・「まとめて見る」帯（PR F16） by @kumagallium in https://github.com/kumagallium/asterism/pull/608
+- feat: 会話を右のパネルとして並べる（被せない）・入力欄は一番下・「詳しく指定」は会話の領域に（PR F17） by @kumagallium in https://github.com/kumagallium/asterism/pull/609
+- feat: 会話を「観点ごと＋自由な質問」に — 直しは元のカードを差し替える・会話が作り方の記録になる（PR F18） by @kumagallium in https://github.com/kumagallium/asterism/pull/610
+- feat: オブジェクトを唯一にする — 束ねられた実体はハブの 1 つのページに寄せ、データセットごとの値は節に（PR F19） by @kumagallium in https://github.com/kumagallium/asterism/pull/611
+- feat(ui): かんたん S4「ID のつけかた」を 2 問に — 先に「この 1 件を名指す番号」、次に「他のデータとつながる手がかり」（PR F11） by @kumagallium in https://github.com/kumagallium/asterism/pull/603
+- feat(ui): カードの「見せ方を変える」— 同じ結果を折れ線／棒／点／表で・縦横入替・色分け（PR F3） by @kumagallium in https://github.com/kumagallium/asterism/pull/594
+- fix(ingest): ハブの graph が複数あっても、ハブのページの中身が引けるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/615
+- fix(ingest): ワークスペースのデータセット名を、人が付けた表示名にする by @kumagallium in https://github.com/kumagallium/asterism/pull/616
+- docs(manual): マニュアルを object cards の画面に合わせる — ワークスペースの章・11 章の直し・画像 30 枚 by @kumagallium in https://github.com/kumagallium/asterism/pull/617
+
+## [v0.45.0](https://github.com/kumagallium/asterism/compare/v0.44.0...v0.45.0) - 2026-09-24
+
+- docs(manual): 「更新を知る」— 機能ロードマップ・リリース履歴・追加バッジと、CHANGELOG とのズレ検査 by @kumagallium in https://github.com/kumagallium/asterism/pull/590
+- ci(tagpr): リリース時にマニュアルの更新を確認する — ロードマップ nudge と release-history の再生成 by @kumagallium in https://github.com/kumagallium/asterism/pull/591
+
+## [v0.44.0](https://github.com/kumagallium/asterism/compare/v0.43.0...v0.44.0) - 2026-09-23
+
+- docs(manual): 入門章の例題を XRD からレシピ表へ — 分野を問わない題材にする by @kumagallium in https://github.com/kumagallium/asterism/pull/567
+- docs(manual): 入門章から XRD の画面写真を外す by @kumagallium in https://github.com/kumagallium/asterism/pull/569
+- chore(manual): 参照の切れた画像を消し、孤児を機械で見張る by @kumagallium in https://github.com/kumagallium/asterism/pull/570
+- docs(manual): 入門章に依存の向き・三つの空間・種類の決め方・重複の扱いを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/572
+- docs(manual): 種類・1 件・絞り込みは別のもの、を入門章に足す by @kumagallium in https://github.com/kumagallium/asterism/pull/573
+- docs(architecture): データセットの説明の正本をストアに移す — mie.yaml を投影に降格する by @kumagallium in https://github.com/kumagallium/asterism/pull/574
+- feat(ingest): データセットの説明を三つ組にするビルダと投影 — mie.yaml ↔ メタグラフの決定論往復 by @kumagallium in https://github.com/kumagallium/asterism/pull/575
+- feat(api): 説明の書き手をストアへ切り替える — 保存で metadata.ttl、取り込み/公開でメタグラフ、削除で落とす by @kumagallium in https://github.com/kumagallium/asterism/pull/577
+- feat: 説明の読み手をストアへ切り替える — togomcp 配信はメタグラフから投影、find_datasets と schema_summary に説明を添える by @kumagallium in https://github.com/kumagallium/asterism/pull/578
+- feat(ingest): asterism-metadata migrate — 既存データセットの説明を三つ組へ一度きりで移す by @kumagallium in https://github.com/kumagallium/asterism/pull/576
+- fix(ingest): schema_summary が crosswalk のグラフ IRI で落ちる — dataset id の切り出しを検証つきにする by @kumagallium in https://github.com/kumagallium/asterism/pull/584
+- fix(experiments): smoke test の togomcp-data に skills/public を追加 — togomcp v2.18.0 が import 時に必須化した by @kumagallium in https://github.com/kumagallium/asterism/pull/587
+
 ## [v0.43.0](https://github.com/kumagallium/asterism/compare/v0.42.0...v0.43.0) - 2026-09-03
 
 - feat(grounding): 語彙カタログ 596→2,398 語（EMMO 収録・不透明 IRI 対応・同点の決着） by @kumagallium in https://github.com/kumagallium/asterism/pull/565

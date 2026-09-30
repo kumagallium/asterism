@@ -103,6 +103,10 @@ class SubjectIR:
     """Optional per-placeholder Tier-0 transform (e.g. ``{container_title: slug}``)
     for readable/stable IRI segments. Untransformed placeholders rely on the
     engine's R2RML-conformant percent-encoding (probed; see the ADR)."""
+    label: str | None = None
+    """Human-readable name for what one row of this kind IS, in the reviewer's
+    language (display metadata only — never compiled into RML). Mirrors
+    ``PropertyIR.label``; an IR without it reads exactly as before."""
 
 
 @dataclass(frozen=True)
@@ -389,7 +393,7 @@ def _parse_transform(
     return out
 
 
-_SUBJECT_KEYS = ("template", "constant", "classes", "transform")
+_SUBJECT_KEYS = ("template", "constant", "classes", "transform", "label")
 _PROPERTY_KEYS = (
     "predicate",
     "column",
@@ -469,11 +473,15 @@ def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
         raw.get("transform"), template if isinstance(template, str) else None,
         f"{where}.subject", issues,
     )
+    label = raw.get("label")
+    if label is not None:
+        label = _expect_str(label, f"{where}.subject.label", issues)
     return SubjectIR(
         template=template if isinstance(template, str) else None,
         constant=constant if isinstance(constant, str) else None,
         classes=tuple(classes),
         transform=transform,
+        label=label if isinstance(label, str) else None,
     )
 
 

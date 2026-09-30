@@ -14,6 +14,8 @@
 # Placeholder syntax:
 #   {{name}}                scalar (type-safe serialization of the arg)
 #   {{#name}}...{{/name}}   kept only when the arg is provided (optional block)
+#
+# output_kind は出口の意味型（ADR object-cards-ui.md）
 
 tools:
   - name: structure_by_composition
@@ -173,13 +175,14 @@ tools:
       }
       ORDER BY DESC(?ymax)
       LIMIT {{top_n}}
+    output_kind: ranked
     result:
       item:
-        composition: formula
-        value: { var: ymax, number: true }
+        composition: { var: formula, role: label }
+        value: { var: ymax, number: true, role: value }
         space_group: spaceGroupSymbol
         space_group_number: { var: spaceGroupNumber, number: true }
         crystal_system: crystalSystem
         mp_id: mpid
-        curve_iri: curve
+        curve_iri: { var: curve, role: subject }
         sample_iri: sample

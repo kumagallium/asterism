@@ -73,7 +73,7 @@ export function getAppDataInfo(): AppDataInfo | null {
 // The Ask-specific wrappers below keep their original signatures/behavior byte
 // -for-byte; `consultThreads.ts` calls the namespaced functions directly.
 
-export type ThreadNamespace = 'ask' | 'consult'
+export type ThreadNamespace = 'ask' | 'consult' | 'pagechat'
 
 export async function fetchAppDataThreadsNS<T>(namespace: ThreadNamespace): Promise<T[]> {
   const res = await fetch(`/api/appdata/${namespace}/threads`, { headers: authHeaders() })

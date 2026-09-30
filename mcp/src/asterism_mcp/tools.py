@@ -29,10 +29,14 @@ from typing import Any, Final
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
 from asterism.substrate import (
+    DATASET_IRI_BASE,
+    META_GRAPH_BASE,
     ONTOLOGY_GRAPH_BASE,
     canonical_from_clauses,
     canonical_graphs,
     canonical_merge_query,
+    dataset_id_of_canonical_graph,
+    meta_graph_iri,
     ontology_graphs,
 )
 
@@ -54,6 +58,7 @@ SD: Final[str] = (
 )
 SCHEMA: Final[str] = "https://schema.org/"
 DCTERMS: Final[str] = "http://purl.org/dc/terms/"
+DCAT: Final[str] = "http://www.w3.org/ns/dcat#"
 
 # Predicates we extract as scalars (single value per curve). Anything not in
 # this map is ignored in the response (prov:wasGeneratedBy etc. are
@@ -300,6 +305,23 @@ def _bindings(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return results.get("bindings", []) if isinstance(results, dict) else []
 
 
+def _dataset_id_from_subject(subject: object) -> str | None:
+    """Strip ``DATASET_IRI_BASE`` off a meta-graph ``?d`` binding, or ``None``
+    if it is not a dataset subject at all (unbound, or some other prefix).
+
+    Shared guard for :func:`schema_summary` and :func:`dataset_descriptions`:
+    both scan a meta graph via generic ``?d a dcat:Dataset`` and must drop a
+    subject outside ``DATASET_IRI_BASE`` rather than surface it with a mangled
+    ``dataset_id``.
+    """
+    if not subject:
+        return None
+    subject = str(subject)
+    if not subject.startswith(DATASET_IRI_BASE):
+        return None
+    return subject[len(DATASET_IRI_BASE) :]
+
+
 def _to_float(raw: str | None) -> float | None:
     if raw is None:
         return None
@@ -436,9 +458,7 @@ async def property_ranking(
             f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ; sd:yMax ?ymax .\n'
             + f"  FILTER(?ymax > {float(max_plausible)})\n"
         )
-        count_q = _scoped_select(
-            _PREFIXES + "SELECT (COUNT(?curve) AS ?n)", count_body, from_block
-        )
+        count_q = _scoped_select(_PREFIXES + "SELECT (COUNT(?curve) AS ?n)", count_body, from_block)
         cb = _bindings(await client.sparql_select(count_q))
         if cb:
             excluded = int(float(_cell(cb[0], "n") or 0))
@@ -657,12 +677,17 @@ async def schema_summary(
         max_predicates: cap on returned predicates (clamped 1..500), by usage.
         predicates_per_class: cap on predicates listed per class (clamped 1..200).
 
-    Returns ``{graph, classes, predicates, class_shapes}`` where:
+    Returns ``{graph, classes, predicates, class_shapes}`` — plus, when
+    ``graph`` is ``None`` (the canonical scope), a ``datasets`` list (ADR
+    dataset-description-in-the-store.md §6):
 
     - ``classes``: ``[{iri, count}]`` — ``?s a ?cls`` instance counts, desc.
     - ``predicates``: ``[{iri, count}]`` — all predicate usages, desc.
     - ``class_shapes``: ``[{class, predicates: [{iri, count}]}]`` — for each
       class, the predicates used on its instances (the implicit shape).
+    - ``datasets``: ``[{iri, dataset_id, title, description}]`` — one entry
+      per PROMOTED dataset that has a description graph; empty list when none
+      do. Never present when ``graph`` names one specific graph.
     """
     max_classes = max(1, min(int(max_classes), 500))
     max_predicates = max(1, min(int(max_predicates), 500))
@@ -682,8 +707,16 @@ async def schema_summary(
             )
 
     # graph=None reads the cross-dataset canonical FROM-merge; an explicit graph
-    # reads that one named graph directly (no FROM).
-    from_block = "" if graph else await _from_merge(client)
+    # reads that one named graph directly (no FROM). The promoted-graph list is
+    # fetched at most once per call (not via `_from_merge`, which would hide it
+    # from the `datasets` block below) so graph=None costs one control-graph
+    # round trip, not two.
+    promoted_graphs: list[str] = []
+    if graph is None:
+        promoted_graphs = await canonical_graphs(client)
+        from_block = canonical_from_clauses(promoted_graphs)
+    else:
+        from_block = ""
     classes_q = _scoped_select(
         "SELECT ?cls (COUNT(DISTINCT ?s) AS ?n)",
         _graph_pattern(graph, "?s a ?cls ."),
@@ -730,6 +763,12 @@ async def schema_summary(
     # projected ontology graph(s). Only for the canonical scope (graph=None); an
     # explicit graph is inspected as-is. Invariant: no ontology graph -> no labels,
     # so schema_summary still works purely from ABox introspection (ADR §2).
+    result: dict[str, Any] = {
+        "graph": graph,
+        "classes": classes,
+        "predicates": predicates,
+        "class_shapes": class_shapes,
+    }
     if graph is None:
         labels = await _ontology_labels(client)
         if labels:
@@ -739,12 +778,106 @@ async def schema_summary(
                 _attach_label_value(shape, "class", labels)
                 _attach_labels(shape["predicates"], labels)
 
-    return {
-        "graph": graph,
-        "classes": classes,
-        "predicates": predicates,
-        "class_shapes": class_shapes,
-    }
+        # ADR dataset-description-in-the-store.md §6: attach each PROMOTED
+        # dataset's title/description. The meta graph base is NOT added to the
+        # `graph=<iri>` allow-list above and is never STRSTARTS-scanned here —
+        # a meta graph exists for unpublished datasets too (§4), so scanning by
+        # prefix would leak an unpublished title/description into the canonical
+        # response. Instead: enumerate PROMOTED dataset ids from the control
+        # graph (`canonical_graphs`, already the source of truth for citability
+        # elsewhere in this module — reusing the list fetched above so this
+        # branch costs zero extra control-graph round trips) and query only
+        # those datasets' meta graphs by explicit `VALUES ?g { … }` —
+        # "列挙して許す", the same discipline the graph= allow-list above uses.
+        dataset_ids = sorted(
+            {
+                did
+                for iri in promoted_graphs
+                if (did := dataset_id_of_canonical_graph(iri)) is not None
+            }
+        )
+        datasets: list[dict[str, Any]] = []
+        if dataset_ids:
+            meta_iris = [meta_graph_iri(did) for did in dataset_ids]
+            values = " ".join(f"<{iri}>" for iri in meta_iris)
+            ds_q = (
+                "SELECT ?g ?d ?title ?desc WHERE { "
+                f"VALUES ?g {{ {values} }} "
+                "GRAPH ?g { "
+                f"?d a <{DCAT}Dataset> . "
+                f"OPTIONAL {{ ?d <{DCTERMS}title> ?title }} "
+                f"OPTIONAL {{ ?d <{DCTERMS}description> ?desc }} "
+                "} } ORDER BY ?d ?title ?desc"
+            )
+            # `?d` should carry exactly one title/description (`build_metadata_graph`
+            # writes one of each), but the two OPTIONALs above Cartesian-multiply if
+            # a meta graph ever holds more than one — dedup by subject the same way
+            # `dataset_descriptions()` does (ORDER BY + first-row-wins), via the
+            # shared `_dataset_id_from_subject` guard.
+            seen_datasets: set[str] = set()
+            for r in _bindings(await client.sparql_select(ds_q)):
+                subject = _cell(r, "d")
+                dataset_id = _dataset_id_from_subject(subject)
+                if dataset_id is None:
+                    continue
+                if dataset_id in seen_datasets:
+                    continue
+                seen_datasets.add(dataset_id)
+                datasets.append(
+                    {
+                        "iri": str(subject),
+                        "dataset_id": dataset_id,
+                        "title": str(_cell(r, "title") or ""),
+                        "description": str(_cell(r, "desc") or ""),
+                    }
+                )
+        result["datasets"] = datasets
+
+    return result
+
+
+async def dataset_descriptions(client: OxigraphClient) -> dict[str, str]:
+    """``{dataset_id: description}`` across EVERY dataset with a description
+    graph — published or not (ADR dataset-description-in-the-store.md §7.1).
+
+    Unlike :func:`schema_summary`'s ``datasets`` (§6, promoted-only via an
+    explicit ``VALUES`` list), this deliberately scans the whole meta-graph
+    prefix: it feeds :func:`asterism.catalog.find_datasets`'s discovery
+    listing, which has its own ``include_drafts`` gate and is never mistaken
+    for "what's citable" — so a draft's description surfacing here is correct,
+    not a leak. One round trip, regardless of how many datasets exist.
+
+    Raises whatever the store call raises — this function does NOT catch
+    (§7.1: "解決は呼び出し側に置く"); the caller (the MCP tool body) decides how
+    a store failure degrades.
+    """
+    q = (
+        "SELECT ?d ?desc WHERE { GRAPH ?g { "
+        f"?d a <{DCAT}Dataset> ; <{DCTERMS}description> ?desc "
+        '} FILTER(STRSTARTS(STR(?g), "' + META_GRAPH_BASE + '")) '
+        "} ORDER BY ?d ?desc"
+    )
+    out: dict[str, str] = {}
+    for r in _bindings(await client.sparql_select(q)):
+        subject, desc = _cell(r, "d"), _cell(r, "desc")
+        if desc is None:
+            continue
+        dataset_id = _dataset_id_from_subject(subject)
+        if dataset_id is None:
+            continue
+        # ORDER BY ?d ?desc: bindings for the same ?d arrive lexicographically
+        # sorted by description, so `setdefault` keeps the first (smallest) one
+        # — deterministic, same pattern as `_ontology_labels`.
+        out.setdefault(dataset_id, str(desc))
+    return out
+
+
+def _iri_local_name(iri: str) -> str:
+    """IRI の最後の ``:`` ``/`` ``#`` の後ろ（``_local_name`` と同じ切り方）。"""
+    for sep in (":", "/", "#"):
+        if sep in iri:
+            iri = iri.rsplit(sep, 1)[-1]
+    return iri
 
 
 async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
@@ -753,6 +886,13 @@ async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
     Reads named graphs under the ontology prefix directly (these are deliberately
     NOT in the canonical scope — TBox is separate from citable ABox). Empty dict
     when no ontology graph exists, so callers degrade to label-free output.
+
+    語のローカル名（IRI の最後の ``#`` ``/`` ``:`` の後ろ）と同じ文字列の
+    ``rdfs:label`` は読み飛ばす。投影は名前の無い語にローカル名を ``rdfs:label``
+    として書くので、それは名前ではなく代わりの値であり、拾うと生の識別子を人に
+    見せる上に、別の graph が付けた表示名にも辞書順で勝ってしまう。ローカル名
+    しか無い語は結果に入れない（api の ``_kind_labels`` の「ローカル名がそのまま
+    返ってきた種類は入れない」と同じ線引き）。
     """
     # ORDER BY ?l makes the pick deterministic when the same term has multiple
     # labels across datasets (e.g. two designs both project a label for the same
@@ -767,7 +907,7 @@ async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
     out: dict[str, str] = {}
     for r in _bindings(await client.sparql_select(q)):
         term, label = _cell(r, "t"), _cell(r, "l")
-        if term and label and term not in out:
+        if term and label and term not in out and label != _iri_local_name(term):
             out[term] = label
     return out
 
@@ -948,10 +1088,7 @@ async def sparql_query(
     columns = head.get("vars", []) if isinstance(head, dict) else []
     bindings = _bindings(raw)
     truncated = len(bindings) > max_rows
-    rows = [
-        {var: _flatten_cell(r.get(var)) for var in columns}
-        for r in bindings[:max_rows]
-    ]
+    rows = [{var: _flatten_cell(r.get(var)) for var in columns} for r in bindings[:max_rows]]
     # Untyped numbers under ORDER/aggregate/compare: the silent wrong answer.
     # Reported next to the rows so the caller (an LLM loop, a UI) can qualify
     # what it says instead of presenting a text-sorted "maximum" as a fact.

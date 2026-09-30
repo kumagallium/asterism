@@ -19,6 +19,7 @@ records that outcome on the dataset's meta.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import uuid
@@ -26,6 +27,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
+from asterism.metadata import (
+    build_metadata_graph,
+    metadata_turtle,
+    parse_mie_yaml,
+    project_mie_yaml,
+)
+
+logger = logging.getLogger(__name__)
 
 # Files written per dataset (artifact key -> filename on disk).
 _ARTIFACT_FILES = {
@@ -40,7 +49,20 @@ _ARTIFACT_FILES = {
     # rules. Persisted so the catalog's rules viewer can show the spec a
     # reviewer actually vetted (absent on legacy raw-Turtle designs).
     "mapping.yaml": "mapping.yaml",
+    # The dataset's description as a triple serialization (ADR
+    # dataset-description-in-the-store.md): the deterministic compile of
+    # mie.yaml, and — once the store carries a meta graph — the exact
+    # payload that graph was loaded from. mie.yaml itself is downgraded to a
+    # PROJECTION of this (see _project_description); this file is the source.
+    "metadata.ttl": "metadata.ttl",
+    # F15 (crosswalk-hub.md §Auto-link from handles): the S4 ☑「他のデータと
+    # つながる手がかり」で人が opt-in した (source, column) の一覧。materialize
+    # (api-autolink) と PUT /api/datasets/{id}/handles (handles_routes.py) の
+    # 2 経路だけが書く。読み手は asterism_api.handles.load_handles。
+    "handles.json": "handles.json",
 }
+
+
 def artifact_names() -> frozenset[str]:
     """The artifact filenames a dataset carries TODAY.
 
@@ -67,7 +89,16 @@ _SOURCE_DIR = "source"
 # api-side conversion (K6) — the persisted source the RML maps is the derived
 # .csv set kept alongside it.
 _SOURCE_SUFFIXES = (
-    ".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson", ".xml", ".pdf", ".xlsx"
+    ".csv",
+    ".tsv",
+    ".txt",
+    ".dat",
+    ".asc",
+    ".json",
+    ".geojson",
+    ".xml",
+    ".pdf",
+    ".xlsx",
 )
 
 
@@ -86,6 +117,7 @@ def source_kind_of(filenames: list[str]) -> str:
     if any(Path(n).suffix.lower() in (".json", ".geojson") for n in filenames):
         return "json"
     return "csv"
+
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ID_RE = re.compile(r"[a-z0-9-]{1,128}")
@@ -122,7 +154,7 @@ def mermaid_of(diagram_md: str) -> str:
 
 # The propose/refine Markdown the bundle was materialized from. Persisted so a
 # dataset's design can be RE-OPENED in the workbench (refine/edit → re-materialize)
-# without losing the dataset — the "見直す" (redesign) flow. It is the source the 4
+# without losing the dataset — the "見直す" (redesign) flow. It is the source the
 # artifacts are extracted from, so it round-trips a full re-design.
 _PROPOSAL_FILE = "proposal.md"
 
@@ -135,6 +167,61 @@ _PROPOSAL_FILE = "proposal.md"
 _HISTORY_DIR = "history"
 _SNAPSHOT_META_FILE = "snapshot.json"
 _SNAPSHOT_ID_RE = re.compile(r"[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?")
+
+
+def _project_description(artifacts: dict[str, str], dataset_id: str) -> dict[str, str]:
+    """ADR dataset-description-in-the-store.md §4: compile ``mie.yaml`` into a
+    triple serialization and write BOTH back — ``metadata.ttl`` becomes the
+    source, ``mie.yaml`` is downgraded to a deterministic projection of it.
+
+    Pure function: returns a NEW dict (a shallow copy of ``artifacts`` with
+    ``mie.yaml`` / ``metadata.ttl`` possibly replaced); the caller decides when
+    to call it (design-save time — before the store is ever touched, per the
+    ADR's §4 table). An absent/blank ``mie.yaml`` projects to an empty
+    ``metadata.ttl`` — a description is never invented for a dataset that
+    carries none (a document dataset with no §7, e.g.). A ``mie.yaml`` that
+    fails to parse (not YAML, or not a mapping) is left exactly as stored —
+    materialize should never hand this function a broken document, but if one
+    reaches here anyway the broken text must not be silently discarded. The
+    compile itself (``build_metadata_graph`` / ``metadata_turtle`` /
+    ``project_mie_yaml``) is wrapped the same way: a syntactically-valid
+    ``mie.yaml`` can still carry shapes ``build_metadata_graph`` does not
+    expect (e.g. a non-string top-level key), and the ADR is explicit that a
+    projection failure must never take the design save down with it (§4:
+    "書くのは best-effort") — the same broad catch already used for the
+    store-side projection (``main.py::_project_meta_graph``) and inside
+    ``build_metadata_graph`` itself for a bad RML shape compile.
+    """
+    out = dict(artifacts)
+    mie_text = out.get("mie.yaml") or ""
+    if not mie_text.strip():
+        out["metadata.ttl"] = ""
+        return out
+    try:
+        document = parse_mie_yaml(mie_text)
+    except (yaml.YAMLError, ValueError):
+        logger.warning(
+            "dataset %s: mie.yaml did not parse (kept verbatim, metadata.ttl left empty)",
+            dataset_id,
+            exc_info=True,
+        )
+        out["metadata.ttl"] = ""
+        return out
+    try:
+        graph = build_metadata_graph(
+            document, dataset_id, rml_ttl=out.get("mapping.rml.ttl") or None
+        )
+        out["metadata.ttl"] = metadata_turtle(graph)
+        out["mie.yaml"] = project_mie_yaml(graph, dataset_id)
+    except Exception:
+        logger.warning(
+            "dataset %s: mie.yaml compiled to an unsupported shape "
+            "(kept verbatim, metadata.ttl left empty)",
+            dataset_id,
+            exc_info=True,
+        )
+        out["metadata.ttl"] = ""
+    return out
 
 
 def save_dataset(
@@ -152,8 +239,11 @@ def save_dataset(
 ) -> dict:
     """Persist a materialized bundle under ``root/<id>/``; return its meta dict.
 
-    ``artifacts`` maps the 3 logical names (diagram.md / model.yaml / mie.yaml)
-    to their text contents. A ``meta.json`` summary (name, time,
+    ``artifacts`` maps the logical artifact names (diagram.md / model.yaml /
+    mie.yaml / mapping.rml.ttl / mapping.yaml — see ``_ARTIFACT_FILES``) to
+    their text contents; ``mie.yaml`` is projected into ``metadata.ttl`` (and
+    re-projected from it) before any of them are written — see
+    :func:`_project_description`. A ``meta.json`` summary (name, time,
     validation outcome, extracted class list) is written alongside so the
     listing endpoint stays cheap (no re-parsing of artifacts). ``proposal_md``
     (the design source) is persisted so the dataset can later be re-opened in the
@@ -162,6 +252,13 @@ def save_dataset(
     dataset_id = f"{_slug(name)}-{uuid.uuid4().hex[:8]}"
     dest = root / dataset_id
     dest.mkdir(parents=True, exist_ok=True)
+
+    # ADR dataset-description-in-the-store.md §4: the subject IRI is
+    # `.../dataset/{id}`, so the description can only be compiled once the id
+    # exists — this is the first point in the dataset's life that is true.
+    # Design-save time never touches the store (§4's table): only the files
+    # below are written here.
+    artifacts = _project_description(artifacts, dataset_id)
 
     for key, filename in _ARTIFACT_FILES.items():
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
@@ -235,11 +332,13 @@ def update_dataset_artifacts(
     The redesign counterpart of :func:`save_dataset`: the user reopened an existing
     dataset's design in the workbench, refined/edited it, and re-materialized. We must
     update the SAME registry record (so IRIs / graphs / lifecycle / source are
-    preserved) rather than mint a duplicate. Overwrites the 4 artifact files + the
-    stored ``proposal_md`` and refreshes the design-derived meta (classes, has_rml, …)
-    while leaving identity + lifecycle/source fields (``id`` / ``promoted`` /
-    ``ingested`` / ``has_source`` / ``version`` / …) untouched. Re-design changes the
-    MAPPING only; the user re-applies data via the existing re-ingest controls.
+    preserved) rather than mint a duplicate. Overwrites the artifact files (``mie.yaml``
+    re-projected from ``metadata.ttl``, same as :func:`save_dataset` — see
+    :func:`_project_description`) + the stored ``proposal_md`` and refreshes the
+    design-derived meta (classes, has_rml, …) while leaving identity + lifecycle/source
+    fields (``id`` / ``promoted`` / ``ingested`` / ``has_source`` / ``version`` / …)
+    untouched. Re-design changes the MAPPING only; the user re-applies data via the
+    existing re-ingest controls.
 
     Returns the new meta, or ``None`` if the id is unsafe / absent.
     """
@@ -250,8 +349,21 @@ def update_dataset_artifacts(
     if not meta_path.is_file():
         return None
 
+    # Project BEFORE the snapshot so the comparison inside
+    # _snapshot_before_overwrite is projected-vs-projected: an unchanged
+    # re-save (mie.yaml text identical) must not pile up a history entry just
+    # because the projection step re-serializes it (ADR §4, idempotency).
+    artifacts = _project_description(artifacts, dataset_id)
     _snapshot_before_overwrite(dest, artifacts, proposal_md)
+    # A key the caller did not include is not a caller decision to CLEAR that
+    # artifact — it means the caller does not manage it (e.g. a display-meta /
+    # column-decision / column-meaning / stale-include edit rebuilds only the
+    # design-document-derived artifacts and never mentions handles.json). Only
+    # overwrite the artifacts the caller actually passed; leave everything else
+    # (on-disk) untouched, so an unrelated edit cannot silently wipe it.
     for key, filename in _ARTIFACT_FILES.items():
+        if key not in artifacts:
+            continue
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
     (dest / _PROPOSAL_FILE).write_text(proposal_md or "", encoding="utf-8")
 
@@ -295,14 +407,21 @@ def _snapshot_before_overwrite(
         if path.is_file():
             current[key] = path.read_text(encoding="utf-8")
     proposal_path = dest / _PROPOSAL_FILE
-    current_proposal = (
-        proposal_path.read_text(encoding="utf-8") if proposal_path.is_file() else ""
-    )
+    current_proposal = proposal_path.read_text(encoding="utf-8") if proposal_path.is_file() else ""
 
-    changed = any(
-        (new_artifacts.get(key, "") or "") != current.get(key, "")
-        for key in _ARTIFACT_FILES
-    ) or (new_proposal_md or "") != current_proposal
+    # A key absent from ``new_artifacts`` is left untouched by the overwrite
+    # below (see ``update_dataset_artifacts``), so it must not count as a
+    # change here either — otherwise every unrelated edit that never mentions
+    # e.g. handles.json would pile up a history snapshot for a file nothing
+    # actually modified.
+    changed = (
+        any(
+            (new_artifacts.get(key, "") or "") != current.get(key, "")
+            for key in _ARTIFACT_FILES
+            if key in new_artifacts
+        )
+        or (new_proposal_md or "") != current_proposal
+    )
     if not changed:
         return
 
@@ -359,9 +478,7 @@ def list_dataset_history(root: Path, dataset_id: str) -> list[dict]:
             except (OSError, json.JSONDecodeError):
                 saved_at = ""
         files = sorted(
-            p.name
-            for p in child.iterdir()
-            if p.is_file() and p.name != _SNAPSHOT_META_FILE
+            p.name for p in child.iterdir() if p.is_file() and p.name != _SNAPSHOT_META_FILE
         )
         entries.append({"id": child.name, "saved_at": saved_at, "artifacts": files})
     entries.sort(key=lambda e: str(e["id"]), reverse=True)
@@ -383,9 +500,7 @@ def load_dataset_history(root: Path, dataset_id: str, snapshot_id: str) -> dict 
     meta_path = snap_dir / _SNAPSHOT_META_FILE
     if meta_path.is_file():
         try:
-            saved_at = str(
-                json.loads(meta_path.read_text(encoding="utf-8")).get("saved_at", "")
-            )
+            saved_at = str(json.loads(meta_path.read_text(encoding="utf-8")).get("saved_at", ""))
         except (OSError, json.JSONDecodeError):
             saved_at = ""
     artifacts = {
@@ -418,9 +533,7 @@ def list_source_files(root: Path, dataset_id: str) -> list[Path]:
     sdir = source_dir(root, dataset_id)
     if sdir is None or not sdir.is_dir():
         return []
-    return sorted(
-        p for p in sdir.iterdir() if p.is_file() and p.suffix.lower() in _SOURCE_SUFFIXES
-    )
+    return sorted(p for p in sdir.iterdir() if p.is_file() and p.suffix.lower() in _SOURCE_SUFFIXES)
 
 
 def mark_source_saved(
@@ -586,9 +699,7 @@ def mark_appended(
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["feed"] = True
     meta["append_seq"] = int(append_seq)
-    meta["triples_appended"] = int(meta.get("triples_appended", 0) or 0) + int(
-        triples_in_batch
-    )
+    meta["triples_appended"] = int(meta.get("triples_appended", 0) or 0) + int(triples_in_batch)
     meta["triple_count"] = int(meta.get("triple_count", 0) or 0) + int(triples_in_batch)
     meta["source_files"] = sorted(source_files)
     meta["source_kind"] = source_kind_of(source_files)
@@ -602,9 +713,7 @@ def mark_appended(
             "batch_id": batch_id,
         }
     )
-    meta_path.write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
 
 
@@ -692,9 +801,7 @@ def mark_promoted(
     return meta
 
 
-def backfill_published_subjects(
-    root: Path, dataset_id: str, subjects: list[dict]
-) -> dict | None:
+def backfill_published_subjects(root: Path, dataset_id: str, subjects: list[dict]) -> dict | None:
     """Record "how ids are made" for a dataset promoted BEFORE this was tracked.
 
     Called just once, immediately before a re-design overwrites the artifacts of an
@@ -750,9 +857,7 @@ def record_shape_findings(root: Path, dataset_id: str, findings: list[str]) -> d
     re-ingest CLEARS the previous round's findings (a stale "dangling link" on a
     dataset the user just fixed is worse than no advice at all).
     """
-    return _update_meta(
-        root, dataset_id, {"shape_findings": [str(f) for f in findings]}
-    )
+    return _update_meta(root, dataset_id, {"shape_findings": [str(f) for f in findings]})
 
 
 def rename_dataset(root: Path, dataset_id: str, name: str) -> dict | None:
@@ -762,7 +867,13 @@ def rename_dataset(root: Path, dataset_id: str, name: str) -> dict | None:
     a rename touches only ``meta.name`` and leaves all data / IRIs untouched. Returns
     the new meta, or None if the id is unsafe / absent.
     """
-    return _update_meta(root, dataset_id, {"name": name})
+    updates: dict = {"name": name}
+    current = load_dataset(root, dataset_id)
+    if ((current or {}).get("meta") or {}).get("name_auto"):
+        # 機械が付けた名前の印（つながりの名前）は、人が名前を付けたら外す —
+        # 印が残ると、次に作り直したときに人の名前が書き直されてしまう。
+        updates["name_auto"] = False
+    return _update_meta(root, dataset_id, updates)
 
 
 def mark_retracted(root: Path, dataset_id: str, *, retracted_at: str) -> dict | None:
@@ -771,16 +882,12 @@ def mark_retracted(root: Path, dataset_id: str, *, retracted_at: str) -> dict | 
     Tombstone semantics: the data stays (IRIs keep resolving) but it leaves the
     citable corpus until reinstated. Returns the new meta, or None if absent.
     """
-    return _update_meta(
-        root, dataset_id, {"status": "retracted", "retracted_at": retracted_at}
-    )
+    return _update_meta(root, dataset_id, {"status": "retracted", "retracted_at": retracted_at})
 
 
 def mark_reinstated(root: Path, dataset_id: str, *, reinstated_at: str) -> dict | None:
     """Clear a retract tombstone: the dataset is canonical (active) again."""
-    return _update_meta(
-        root, dataset_id, {"status": "active", "reinstated_at": reinstated_at}
-    )
+    return _update_meta(root, dataset_id, {"status": "active", "reinstated_at": reinstated_at})
 
 
 def delete_dataset(root: Path, dataset_id: str) -> bool:
@@ -834,6 +941,28 @@ def load_dataset(root: Path, dataset_id: str) -> dict | None:
         if (dest / filename).is_file()
     }
     return {"meta": meta, "artifacts": artifacts}
+
+
+def dataset_origin(root: Path, dataset_id: str) -> str:
+    """``meta.origin`` の読み手（契約メモ contract_pr_d.md §1）。
+
+    ``"own"``（「データを置く」経由 — ``place_routes.place_commit`` が書く）/
+    ``"open"``（``exchange.import_snapshot`` が書く）/ それ以外は全部
+    ``"unknown"``（O13: 配れる判定は保守側に倒す — 出どころが分からない材料は
+    ``materials_for`` が「手元限り」の理由にする）。id が不正・データセットが
+    存在しない場合も ``"unknown"``。
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return "unknown"
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return "unknown"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "unknown"
+    origin = meta.get("origin")
+    return origin if origin in ("own", "open") else "unknown"
 
 
 # ---------------------------------------------------------------------------

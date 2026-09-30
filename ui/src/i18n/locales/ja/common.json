@@ -10,6 +10,11 @@
     "en": "English"
   },
   "nav": {
+    "group_build": "作る",
+    "group_use": "使う",
+    "collapse": "たたむ",
+    "expand": "ひろげる",
+    "cards": "ワークスペース",
     "home": "ホーム",
     "gallery": "データセット",
     "crosswalk": "つながり",
@@ -87,6 +92,16 @@
       "eyebrow": "開発者向け",
       "title": "SPARQL",
       "sub": "読み取り専用のクエリを直接書く画面です。ふつうの質問は「質問する」へ"
+    },
+    "cardsdemo": {
+      "eyebrow": "見本",
+      "title": "カード",
+      "sub": "型から決まる既定のカード 7 種"
+    },
+    "cards": {
+      "eyebrow": "ワークスペース",
+      "title": "ワークスペース",
+      "sub": "1 つのデータ・条件で集めた一覧を、出どころつきのカードで見る"
     }
   }
 }
