@@ -212,3 +212,12 @@ def test_terms_without_an_explicit_iri_still_concatenate() -> None:
     """明示 IRI を持たない語（大多数）は従来どおり namespace + name。"""
     hits = [c for c in ground_terms("title", kind="property", limit=5) if c.prefix == "dcterms"]
     assert hits and hits[0].iri == "http://purl.org/dc/terms/title"
+
+
+def test_a_lone_word_before_of_is_not_a_candidate() -> None:
+    """実測 2026-09-30: 項目 ``amount`` に qudt:dimensionExponentForAmountOfSubstance が
+    候補として出た。``of`` の前は入れ物で、「何の」は ``of`` の後ろに言う。"""
+    curies = [c.curie for c in ground_terms("amount", kind="property", limit=8)]
+    assert "qudt:dimensionExponentForAmountOfSubstance" not in curies
+    # 末尾の of は区切りにしない（"is version of" は version の話）。
+    assert "dcterms:isVersionOf" in [c.curie for c in ground_terms("version", limit=8)]

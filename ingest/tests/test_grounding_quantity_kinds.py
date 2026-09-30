@@ -160,6 +160,50 @@ def test_a_word_inside_a_name_still_matches(column: str, expected: str) -> None:
     assert expected in _names(resolve_quantity_kind(column))
 
 
+def test_words_that_do_not_say_what_is_measured_are_not_a_match() -> None:
+    """実測 2026-09-30: 項目 ``unit`` に "Volume per **Unit** Area"、``amount`` に
+    "**Amount** of Substance" が出た。``per`` の後ろは分母、``of`` の前は入れ物で、
+    どちらも「何の量か」を言っていない。"""
+    assert resolve_quantity_kind("unit") == []
+    assert resolve_quantity_kind("amount") == []
+
+
+def test_a_word_after_of_or_before_per_still_matches() -> None:
+    assert "AmountOfSubstance" in _names(resolve_quantity_kind("substance"))
+    assert "HeatFlowRatePerArea" in _names(resolve_quantity_kind("heatFlow"))
+
+
+def test_a_lone_modifier_is_not_a_match() -> None:
+    """1 語の ``source`` は "Source Voltage" の飾りで、何の量かを言っていない
+    （実測 2026-09-30: recipe の項目 ``source`` に Source Voltage が出た）。"""
+    for column in ("source", "electric", "thermal", "specific", "total"):
+        assert resolve_quantity_kind(column) == [], column
+    # 本体（最後の語）に当たる 1 語は残る。
+    assert "LinearThermalExpansion" in _names(resolve_quantity_kind("expansion"))
+
+
+@pytest.mark.parametrize(
+    ("column", "expected"),
+    [("seebeck", "SeebeckCoefficient"), ("hall", "HallCoefficient")],
+)
+def test_a_modifier_that_names_one_quantity_still_matches(column: str, expected: str) -> None:
+    """カタログで 1 つの量にしか出てこない飾りは、その量を名指している。"""
+    assert _names(resolve_quantity_kind(column))[0] == expected
+
+
+def test_a_container_word_still_ranks_when_the_unit_agrees() -> None:
+    """``amount`` だけでは何の量か分からないが、mol で測っているなら物質量が先頭。"""
+    top = resolve_quantity_kind("amount", unit="MOL")[0]
+    assert top.name == "AmountOfSubstance"
+    assert top.match == "unit"
+
+
+def test_every_quantity_is_still_found_by_its_own_name_and_label() -> None:
+    for ix in qk_mod._index():
+        for q in (ix.name, str(ix.entry.get("label") or ix.name)):
+            assert ix.name in _names(resolve_quantity_kind(q, limit=50)), q
+
+
 def test_empty_query_and_unit_resolve_to_nothing() -> None:
     assert resolve_quantity_kind("") == []
     assert resolve_quantity_kind(None) == []
@@ -200,8 +244,10 @@ def test_resolution_disabled_when_catalog_missing(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(qk_mod, "_CATALOG", tmp_path / "absent.yaml")
     qk_mod._catalog.cache_clear()
     qk_mod._index.cache_clear()
+    qk_mod._modifier_counts.cache_clear()
     try:
         assert resolve_quantity_kind("temperature") == []
     finally:
         qk_mod._catalog.cache_clear()
         qk_mod._index.cache_clear()
+        qk_mod._modifier_counts.cache_clear()
