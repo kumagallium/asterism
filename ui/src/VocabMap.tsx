@@ -344,7 +344,10 @@ export function place(shape: VocabShape) {
     const fromY = from.y + heightOf(byId.get(e.from)!) + HANDLE_R
     // 枠の下へ抜けたところから、行の下端までまっすぐ降りる。
     const bottom = rowBottom.get(e.from)!
+    // 出どころの段の下端までまっすぐ降りる（`arrange` の drop）。席へ曲がり始めるのは
+    // そこから — 箱の下辺から曲がると、同じ段の隣の高い箱の裏を通る（K54 の 9）。
     const route: Route = { via: [...own.via] }
+    if (own.drop !== undefined) route.drop = own.drop
     const last = own.via[own.via.length - 1]
     if (last) route.via.push({ x: last.x, top: last.bottom, bottom })
     else route.drop = bottom

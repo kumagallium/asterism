@@ -203,3 +203,106 @@ describe('place (vocab map): lines into the band', () => {
     expect(place(wide)).toEqual(place(wide))
   })
 })
+
+describe('place (vocab map): a line into the band from a short box beside a tall one', () => {
+  /** 根 → 低い箱・高い箱（同じ段）→ 下の段。低い箱から帯へ降りる線は、下の段の席へ
+   *  曲がる前に、段の下端（高い箱の下辺）までまっすぐ降りる。 */
+  const shape: VocabShape = {
+    clusters: [{ id: 'd', label: 'D' }],
+    nodes: [
+      { id: 'd::root', label: 'root', tone: 'record', cluster: 'd' },
+      { id: 'd::short', label: 'short', tone: 'record', cluster: 'd' },
+      {
+        id: 'd::tall',
+        label: 'tall',
+        tone: 'record',
+        cluster: 'd',
+        fields: Array.from({ length: 8 }, (_, k) => ({ name: `f${k}` })),
+      },
+      { id: 'd::low', label: 'low', tone: 'record', cluster: 'd' },
+      { id: 'std:1', label: 'one', tone: 'record', vocab: 'v' },
+    ],
+    edges: [
+      { from: 'd::root', to: 'd::short', kind: 'link' },
+      { from: 'd::root', to: 'd::tall', kind: 'link' },
+      { from: 'd::tall', to: 'd::low', kind: 'link' },
+      { from: 'd::short', to: 'std:1', kind: 'used', label: 'u' },
+    ],
+    stats,
+  }
+  const { nodes, routes } = place(shape)
+
+  it('drops to the bottom of its row before it turns', () => {
+    const tall = box(nodes, 'd::tall')
+    expect(routes[3]!.drop).toBe(tall.y + tall.h + 3)
+  })
+})
+
+describe('place (vocab map): lines into the band, on many made-up maps', () => {
+  /** 決まった種から作る乱数（毎回同じ地図）。 */
+  const rng = (seed: number) => {
+    let x = seed >>> 0 || 1
+    return () => {
+      x = (Math.imul(x, 1664525) + 1013904223) >>> 0
+      return x / 2 ** 32
+    }
+  }
+  /** 枠の数・箱の数・項目の数（= 箱の高さ）・線をばらばらに。同じ行に高さのちがう箱と枠が並ぶ。 */
+  const made = (seed: number): VocabShape => {
+    const r = rng(seed)
+    const pick = (n: number) => Math.floor(r() * n)
+    const clusters = Array.from({ length: 1 + pick(6) }, (_, c) => ({ id: `c${c}`, label: `C${c}` }))
+    const nodes: VocabShape['nodes'] = []
+    const edges: VocabShape['edges'] = []
+    for (const c of clusters) {
+      const n = 1 + pick(6)
+      for (let k = 0; k < n; k++) {
+        nodes.push({
+          id: `${c.id}::${k}`,
+          label: `${c.id}${k}`,
+          tone: 'record',
+          cluster: c.id,
+          fields: Array.from({ length: pick(7) }, (_, j) => ({ name: `f${j}` })),
+        })
+        // 前の箱へ下向きの線（段ができる）。
+        for (let j = 0; j < k; j++) {
+          if (r() < 0.35) edges.push({ from: `${c.id}::${j}`, to: `${c.id}::${k}`, kind: 'link', label: r() < 0.5 ? `l${j}` : undefined })
+        }
+      }
+    }
+    const stds = Array.from({ length: 1 + pick(12) }, (_, k) => `std:${k}`)
+    for (const id of stds) nodes.push({ id, label: id, tone: 'record', vocab: 'v' })
+    for (const n of nodes.filter((x) => x.cluster)) {
+      if (r() < 0.5) edges.push({ from: n.id, to: stds[pick(stds.length)], kind: 'used', label: `u${n.id}` })
+    }
+    return { clusters, nodes, edges, stats }
+  }
+
+  it('never passes behind a box, nor through a frame other than its own', () => {
+    let lines = 0
+    const wrong: string[] = []
+    for (let seed = 1; seed <= 300; seed++) {
+      const shape = made(seed)
+      const { nodes, routes } = place(shape)
+      const byId = new Map(shape.nodes.map((n) => [n.id, n]))
+      const boxes = shape.nodes.map((n) => ({ id: n.id, r: box(nodes, n.id) }))
+      const frames = shape.clusters
+        .filter((c) => nodes.some((n) => n.id === `cluster:${c.id}`))
+        .map((c) => ({ id: c.id, r: box(nodes, `cluster:${c.id}`) }))
+      shape.edges.forEach((e, i) => {
+        if (e.kind === 'link') return
+        lines++
+        const own = byId.get(e.from)!.cluster
+        const hit = new Set<string>()
+        for (const pt of pointsOf(nodes, routes[i]!, e.from, e.to, nodeHeight(byId.get(e.from)!))) {
+          for (const b of boxes) if (inside(pt, b.r)) hit.add(`behind ${b.id}`)
+          for (const f of frames) if (f.id !== own && inside(pt, f.r)) hit.add(`through ${f.id}`)
+        }
+        for (const h of hit) wrong.push(`seed ${seed}: ${e.from} -> ${e.to} ${h}`)
+      })
+    }
+    expect(wrong).toEqual([])
+    // 検査が空回りしていない（線が十分にある）。
+    expect(lines).toBeGreaterThan(500)
+  }, 60000)
+})
