@@ -638,7 +638,8 @@ class RefreshPlan:
 class DataEnv:
     """データの群を入れてよいかの判定に使う、環境の事実（実行が集める。plan は I/O をしない）。"""
 
-    # 環境の source/ の全ファイル（``registry/source/…`` → sha256。``.applied_batches`` は除く）
+    # 環境の source/ の全ファイル（``registry/source/…`` → sha256。``.applied_batches`` と
+    # 隠しファイルは除く）
     source_shas: Mapping[str, str]
     # ``source/.applied_batches/`` がある（追記の途中で落ちた窓も拾う）
     applied_batches: bool
@@ -949,6 +950,8 @@ def _source_shas(dataset_dir: Path) -> tuple[dict[str, str], bool]:
             rel = path.relative_to(base)
             if APPLIED_BATCHES_DIR in rel.parts or not path.is_file():
                 continue
+            if path.name.startswith("."):
+                continue  # 隠しファイル（OS が置く .DS_Store など）は利用者が触った印ではない
             if registry.is_atomic_tmp_name(path.name):
                 continue  # 置き換えの途中で落ちて残った一時ファイル（利用者のものではない）
             shas[SOURCE_PREFIX + rel.as_posix()] = sha256_hex(path.read_bytes())
@@ -1147,7 +1150,17 @@ async def _run_derivations(
                 ):
                     remaining.append(item)
             elif item == PENDING_CROSSWALK:
-                await m._maybe_rebuild_crosswalk(client, cfg.registry_root, dataset_id)
+                # ``main._maybe_rebuild_crosswalk`` は中で例外を握りつぶす（失敗しても pending が
+                # 空になり、やり直されない）。観点ごとに直に呼んで、失敗を拾う。
+                failure: Exception | None = None
+                for pid in m._perspective_ids_for_dataset(cfg.registry_root, dataset_id):
+                    try:
+                        await m._rebuild_crosswalk_now(client, cfg.registry_root, pid)
+                    except Exception as exc:  # 残りの観点は作り直してから、失敗として扱う
+                        logger.warning("refresh_bundled_sample: hub %s failed", pid, exc_info=True)
+                        failure = failure or exc
+                if failure is not None:
+                    raise failure
             elif cfg.togomcp_dir is not None:
                 await _publish_togomcp(cfg, client, dataset_id, live_graph)
         except Exception:
@@ -1316,7 +1329,7 @@ async def _refresh(cfg: Any, client: Any, snapshot_path: Path | None) -> None:
     pending: list[str] = list(old["pending"]) if old else []
     if live_graph is not None:
         data_mark = {"live_graph": live_graph}
-        # つながりのハブは、見本が参加者でなければ何もしない（``_maybe_rebuild_crosswalk``）。
+        # つながりのハブは、見本が参加している観点が無ければ何もしない。
         todo = [PENDING_CROSSWALK]
         pending = [] if UNIT_DESIGN in reached else [PENDING_ONTOLOGY]
         if cfg.togomcp_dir is not None:

@@ -20,6 +20,8 @@ snapshot.tar から取り出して ``fixtures/world_sample_a/`` に置いてあ�
 from __future__ import annotations
 
 import asyncio
+import copy
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -2160,36 +2162,53 @@ def test_data_swap_rebuilds_the_hub_after_the_control_moved(
     assert seen == [[_v(2)]]
 
 
-def test_data_swap_a_failing_derivation_is_retried_next_boot(
+def test_data_swap_a_failing_hub_rebuild_is_retried_next_boot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """例外を出した派生は、印の pending に残って次の起動でやり直される。
-
-    注意: 本物の ``main._maybe_rebuild_crosswalk`` は失敗を握りつぶして例外を出さない
-    （契約は「これを使う」と決めている）。なのでハブの再構築の失敗は、この経路では再試行
-    されない。再試行が効くのは、プロセスが落ちた場合（下の 6 の途中の注入）と、
-    ontology の投影・外部への配信が失敗した場合。ここは、その仕組み自体を固定する。"""
+    """つながりのハブの作り直しが失敗したら、印の pending に crosswalk が残って次の起動で
+    やり直される。実物と同じ形: 内側の ``_rebuild_crosswalk_now`` が例外を出す（外側の
+    ``_maybe_rebuild_crosswalk`` は例外を握りつぶすので、それを呼ぶと失敗が消える）。
+    1 つの観点が失敗しても、残りの観点は作り直す。"""
     _ds, client = _old_store()
     dest = _write_swap_env(tmp_path)
     calls: list[str] = []
+    monkeypatch.setattr(main_mod, "_perspective_ids_for_dataset", lambda root, did: ["p1", "p2"])
 
-    async def failing(c: Any, root: Path, did: str) -> None:
-        calls.append("first")
-        raise RuntimeError("hub failed")
+    async def failing(c: Any, root: Path, perspective_id: str = "p") -> dict | None:
+        calls.append(f"first:{perspective_id}")
+        if perspective_id == "p1":
+            raise RuntimeError("hub failed")
+        return None
 
-    monkeypatch.setattr(main_mod, "_maybe_rebuild_crosswalk", failing)
+    monkeypatch.setattr(main_mod, "_rebuild_crosswalk_now", failing)
     _refresh_release(tmp_path, client)
     assert _read_meta(dest)["sample"]["pending"] == ["crosswalk"]
     assert _canon(client) == [_v(2)]
 
-    async def working(c: Any, root: Path, did: str) -> None:
-        calls.append("second")
+    async def working(c: Any, root: Path, perspective_id: str = "p") -> dict | None:
+        calls.append(f"second:{perspective_id}")
+        return None
 
-    monkeypatch.setattr(main_mod, "_maybe_rebuild_crosswalk", working)
+    monkeypatch.setattr(main_mod, "_rebuild_crosswalk_now", working)
     _refresh_release(tmp_path, client)
-    assert calls == ["first", "second"]
+    assert calls == ["first:p1", "first:p2", "second:p1", "second:p2"]
     assert _read_meta(dest)["sample"]["pending"] == []
     assert _read_meta(dest)["version"] == 2  # 入れ替えをやり直していない
+
+
+def test_data_swap_without_a_participating_perspective_leaves_no_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """見本が参加している観点が無ければ、ハブには何もしない（pending も残らない）。"""
+    _ds, client = _old_store()
+    dest = _write_swap_env(tmp_path)
+
+    async def boom(c: Any, root: Path, perspective_id: str = "p") -> dict | None:
+        raise AssertionError("no hub to rebuild")
+
+    monkeypatch.setattr(main_mod, "_rebuild_crosswalk_now", boom)
+    _refresh_release(tmp_path, client)  # 実物の _perspective_ids_for_dataset は空を返す
+    assert _read_meta(dest)["sample"]["pending"] == []
 
 
 def test_data_swap_publishes_to_togomcp_when_configured(
@@ -2261,6 +2280,24 @@ def _control_live(ds: rdflib.Dataset, graph: str) -> None:
 def _edit(dest: Path, rel: str, extra: bytes = b"# edit\n") -> None:
     path = dest / rel
     path.write_bytes(path.read_bytes() + extra)
+
+
+def test_data_swap_a_hidden_file_in_source_is_not_counted_as_a_touch(tmp_path: Path) -> None:
+    """OS が置く隠しファイル（.DS_Store など）は「触った」に数えない。追記の印のディレクトリ
+    ``.applied_batches`` は今までどおり「追記した」の印。入れ替えても隠しファイルは消さない。"""
+    _ds, client = _old_store()
+    dest = _write_swap_env(tmp_path, stamp=True)
+    (dest / "source" / ".DS_Store").write_bytes(b"\x00\x01os")
+    (dest / "source" / "sub").mkdir()
+    (dest / "source" / "sub" / ".hidden").write_bytes(b"x")
+    shas, applied = demo_sample._source_shas(dest)
+    assert not any(Path(p).name.startswith(".") for p in shas) and applied is False
+    _refresh_release(tmp_path, client)
+    assert _live(client) == _v(2)
+    assert _read_meta(dest)["sample"]["held"] == []
+    assert (dest / "source" / ".DS_Store").read_bytes() == b"\x00\x01os"
+    assert (dest / "source" / "sub" / ".hidden").read_bytes() == b"x"
+    assert (dest / "source" / "notes.csv").read_bytes() == b"a,b\n1,2\n"
 
 
 _HOLD_CASES: list[tuple[str, Any, str]] = [
@@ -2409,7 +2446,8 @@ def _crash_at(
         async def no_hub(*a: Any, **k: Any) -> None:
             raise _Crash()
 
-        monkeypatch.setattr(main_mod, "_maybe_rebuild_crosswalk", no_hub)
+        monkeypatch.setattr(main_mod, "_perspective_ids_for_dataset", lambda root, did: ["p"])
+        monkeypatch.setattr(main_mod, "_rebuild_crosswalk_now", no_hub)
     else:  # pragma: no cover
         raise AssertionError(position)
 
@@ -2560,6 +2598,36 @@ def _next_release(*, keep_notes: bool) -> bytes:
     entry = entry_from_members(members, seq=5, note={"ja": "次", "en": "next"})
     members[LEDGER_MEMBER] = format_ledger([*old, entry]).encode("utf-8")
     return _tar_bytes(members)
+
+
+def test_plan_data_received_seq_is_the_oldest_release_with_the_same_canonical() -> None:
+    """同じ canonical の版が 2 つ続き（seq 1・2）、後の版（seq 2）で source が足され、その後の版
+    （seq 3）で canonical が変わる台帳。環境は seq 1 か 2 のどちらまで届いたか分からない
+    （canonical が同じ）ので、寄せるのは古い側（min）。seq 2 で足された source が環境に無いのは、
+    消したのではなく、まだ受け取っていないだけ。max に寄せると「消した」と数えて保留になる。"""
+    late = "registry/source/late.csv"
+    late_blob = b"x,y\n1,2\n"
+    real = _real()
+    new = _data_bundle()
+    first, second = (copy.deepcopy(e) for e in real.ledger[:2])
+    second["seq"] = 2
+    second["files"][late] = hashlib.sha256(late_blob).hexdigest()
+    third = copy.deepcopy(new.latest)
+    third["seq"] = 3
+    third["files"] = {**third["files"], late: second["files"][late]}
+    assert first["canonical_sha256"] == second["canonical_sha256"] == real.canonical_sha256
+    assert third["canonical_sha256"] != real.canonical_sha256
+    bundle = dataclasses.replace(
+        new,
+        ledger=[first, second, third],
+        latest=third,
+        files={**new.files, late: second["files"][late]},
+        members={**new.members, late: late_blob},
+    )
+    assert demo_sample._received_seq(bundle, real.canonical_sha256) == 1
+    plan = _plan_data(bundle=bundle)
+    assert plan.swap_data is True and plan.held == []
+    assert "source/late.csv" in plan.replace  # 入れ替えで足される
 
 
 def test_plan_data_a_later_release_may_drop_a_source_it_once_shipped() -> None:
