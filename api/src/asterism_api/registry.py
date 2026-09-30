@@ -601,7 +601,10 @@ def reserve_data_seq(root: Path, dataset_id: str) -> int:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     seq = int(meta.get("data_seq", 0)) + 1
     meta["data_seq"] = seq
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 原子的に書く（途中で落ちても元の meta.json が残る）。番号の予約は、見本のデータの
+    # 入れ替え（demo_sample）でも使う — 書き込みの途中で meta.json が壊れると
+    # list_datasets が黙って読み飛ばすため、他の書き手（update_meta_atomic）と揃える。
+    _atomic_write_bytes(meta_path, json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"))
     return seq
 
 
