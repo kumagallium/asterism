@@ -467,6 +467,30 @@ async def test_discover_finds_the_join_across_three_datasets() -> None:
 # ---------------------------------------------------------------------------
 
 
+async def test_discover_counts_a_language_tagged_value_as_its_string() -> None:
+    """ "日本"@ja と "日本" は同じ値。同じ主語が ja と en の 2 つの言語で値を持っても、
+    一致は 1 件ずつ — ``matched`` は、この候補を作ったときの ``shared_total`` と同じ
+    数でなければならない（作る側は test_crosswalk_runtime の言語タグのテスト、両者の
+    一致は test_crosswalk_api の約束のテストが見る）。"""
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}name", ["日本", "フランス", "ドイツ"])
+    key_b = _seed(store, "ds-b", f"{NS}label", [])
+    g = store.graph(rdflib.URIRef(key_b))
+    for i, (ja, en) in enumerate(
+        [("日本", "Japan"), ("フランス", "France"), ("ドイツ", "Germany")]
+    ):
+        e = rdflib.URIRef(f"urn:ds-b:{i}")
+        g.add((e, rdflib.URIRef(f"{NS}label"), rdflib.Literal(ja, lang="ja")))
+        g.add((e, rdflib.URIRef(f"{NS}label"), rdflib.Literal(en, lang="en")))
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    assert {p["dataset_id"] for p in cand["participants"]} == {"ds-a", "ds-b"}
+    assert cand["matched"] == 3
+
+
 async def test_only_slots_lets_a_single_value_column_become_a_candidate() -> None:
     # A column carrying the same one value everywhere is normally "constant" and
     # excluded — but a human who ticked it (a shared shelf tag, say) should still
