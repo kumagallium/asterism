@@ -124,12 +124,38 @@ export function collectMintedTermQueries(
   return out
 }
 
+/** 名前を IRI でカタログに問い合わせる標準の語（POST /api/ground/terms の `iris`）。
+ *  合成で標準の箱になりうる語 = 設計が直に使う既知の語彙の語と、対応の両端の既知の
+ *  語彙の語。接地の候補から来る箱は、候補そのものに名前がある。 */
+export function collectStandardIris(
+  datasets: { rules: DatasetRules }[],
+  alignments: Alignment[] = [],
+): string[] {
+  const out = new Set<string>()
+  const push = (iri: string | undefined) => {
+    if (iri && !isPlumbing(iri) && knownVocabForIri(iri)) out.add(iri)
+  }
+  for (const ds of datasets) {
+    for (const m of ds.rules.maps) {
+      for (const iri of m.subject.class_iris ?? []) push(iri)
+      for (const p of m.properties) push(p.predicate_iri)
+    }
+  }
+  for (const a of alignments) {
+    push(a.source)
+    push(a.target)
+  }
+  return [...out]
+}
+
 export function composeVocabGraph(inputs: {
   datasets: { id: string; name: string; rules: DatasetRules }[]
   /** クラス IRI → 実体の件数（公開グラフの実測）。未公開の設計は無くてよい。 */
   classCounts?: Record<string, number>
   /** 語の名前 → 接地候補（POST /api/ground/terms の返答そのまま）。 */
   candidates?: Record<string, GroundCandidate[]>
+  /** 語 IRI → カタログの名前（POST /api/ground/terms の `names`）。 */
+  standardNames?: Record<string, string>
   alignments?: Alignment[]
   /** 箱の中に並べる項目数の上限。超過分は 1 行の「…ほか N 項目」に畳む。 */
   maxFields?: number
@@ -139,15 +165,23 @@ export function composeVocabGraph(inputs: {
     aligned: string
   }
 }): VocabShape {
-  const { datasets, classCounts = {}, candidates = {}, alignments = [], words } = inputs
+  const {
+    datasets,
+    classCounts = {},
+    candidates = {},
+    standardNames = {},
+    alignments = [],
+    words,
+  } = inputs
   const maxFields = inputs.maxFields ?? 6
   const nodes: VocabNode[] = []
   const edges: VocabEdge[] = []
   const clusters: VocabCluster[] = []
   /** 標準語彙の節は語 IRI で 1 つ（複数データセットの線が同じ節に集まるのが主役）。 */
   const standard = new Map<string, VocabNode>()
-  // 語 IRI → 人向けの名前（候補の全部から作る）。読み順: 表示名 → 名前 → ローカル名。
-  // 符号だけの IRI（ローカル名が読めない語彙）でも、カタログの名前で箱を出すため。
+  // 語 IRI → 人向けの名前（候補の全部と、IRI で引いたカタログの名前から作る）。
+  // 読み順: 表示名 → 名前 → ローカル名。符号だけの IRI（ローカル名が読めない語彙）
+  // でも、カタログの名前で箱を出すため。
   const nameByIri = new Map<string, string>()
   for (const list of Object.values(candidates)) {
     for (const c of list) {
@@ -155,6 +189,10 @@ export function composeVocabGraph(inputs: {
       const human = (c.label ?? '').trim() || (c.name ?? '').trim()
       if (human) nameByIri.set(c.iri, human)
     }
+  }
+  for (const [iri, name] of Object.entries(standardNames)) {
+    const human = name.trim()
+    if (human && !nameByIri.has(iri)) nameByIri.set(iri, human)
   }
   const ensureStandard = (iri: string, vocabTitle: string): VocabNode => {
     let n = standard.get(iri)

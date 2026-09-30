@@ -221,3 +221,13 @@ def test_a_lone_word_before_of_is_not_a_candidate() -> None:
     assert "qudt:dimensionExponentForAmountOfSubstance" not in curies
     # 末尾の of は区切りにしない（"is version of" は version の話）。
     assert "dcterms:isVersionOf" in [c.curie for c in ground_terms("version", limit=8)]
+
+
+def test_term_display_name_reads_the_catalog_by_iri() -> None:
+    # 符号で語を作る語彙は、IRI の末尾ではなくカタログの名前を返す。
+    from asterism.grounding import catalog_terms, term_by_iri, term_display_name
+
+    coded = next(t for t in catalog_terms() if "#EMMO_" in t.iri)
+    assert term_by_iri(coded.iri) == coded
+    assert term_display_name(coded.iri) == coded.label
+    assert term_display_name("https://example.org/not-in-catalog#x") is None

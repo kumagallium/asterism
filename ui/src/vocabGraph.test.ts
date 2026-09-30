@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
-import { composeVocabGraph, datasetApiId } from './vocabGraph'
+import { collectStandardIris, composeVocabGraph, datasetApiId } from './vocabGraph'
 
 /** 地図の約束: 1 データセット分は ⑤ と同じ判定で組まれ、標準語彙の節は語 IRI で
  *  1 つに**合流**し、確定（使用）と候補は混ざらず、両端の解けない対応は描かない。 */
@@ -128,6 +128,47 @@ describe('composeVocabGraph', () => {
     ])
     expect(shape.nodes.some((n) => n.id.includes('rdf-schema'))).toBe(false)
     expect(shape.stats.used).toBe(1)
+  })
+
+  it('候補に出ていない標準の語の箱も、IRI で引いたカタログの名前で出す', () => {
+    // 符号で語を作る語彙（EMMO）の語を、設計が種類として直に使う。
+    const coded = 'https://w3id.org/emmo#EMMO_0000_aaaa'
+    const direct = rules([
+      rmap(NS, 'record', {
+        subject: { template: 'r:record/{k}', classes: ['emmo:X'], class_iris: [coded] },
+      }),
+    ])
+    expect(collectStandardIris([{ rules: direct }])).toEqual([coded])
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: direct }],
+      standardNames: { [coded]: 'Crystal' },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === coded)!.label).toBe('Crystal')
+    // 名前が引けなければ、今までどおり IRI の末尾
+    const bare = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: direct }],
+      words: WORDS,
+    })
+    expect(bare.nodes.find((n) => n.id === coded)!.label).toBe('EMMO_0000_aaaa')
+  })
+
+  it('名前を問い合わせる IRI は、既知の語彙の語と対応の両端だけ（配管・自前の語は除く）', () => {
+    const alignments: Alignment[] = [
+      {
+        alignment_iri: 'a1',
+        source: `${XNS}name`,
+        target: 'https://w3id.org/emmo#EMMO_bbbb',
+        relation: 'skos:exactMatch',
+        from_perspective: '',
+        to_perspective: '',
+        at: '',
+      },
+    ]
+    expect(collectStandardIris([{ rules: xrd() }], alignments)).toEqual([
+      'http://purl.org/dc/terms/isPartOf',
+      'https://w3id.org/emmo#EMMO_bbbb',
+    ])
   })
 
   it('接地の候補は自前の語だけ・同じ標準語には複数データセットの線が合流する', () => {
