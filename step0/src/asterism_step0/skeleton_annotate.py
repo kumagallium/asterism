@@ -1435,9 +1435,6 @@ def annotate_skeleton(
         for name, iri in prefixes.items()
         if placeholder_prefix_issue(name, iri)
     ]
-    # Which prefixes are THIS dataset's minted pair (vs reused vocabularies),
-    # under which base, operator-configured or not — the gate renders "dataset
-    # name" as the one editable naming judgment from this (kantan ADR K13).
     # 受け口ごとの「元の種類」（K58）を押印する。⑤の図はこれを読んで、**どの
     # ファイルの**受け口にも元の種類から点線を引く — 以前は図が 1 つの表（宿主）の
     # 受け口しか知らず、ほかのファイルで作った受け口が線の無い白い箱に見えていた。
@@ -1446,6 +1443,9 @@ def annotate_skeleton(
     return {
         "maps": annotations,
         "placeholder_prefixes": placeholder,
+        # Which prefixes are THIS dataset's minted pair (vs reused vocabularies),
+        # under which base, operator-configured or not — the gate renders "dataset
+        # name" as the one editable naming judgment from this (kantan ADR K13).
         "dataset_namespace": dataset_namespace_info(prefixes, iri_base),
     }
 

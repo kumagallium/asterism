@@ -1965,8 +1965,13 @@ export function SkeletonGate({
      （実機 2026-09-30: 3 ファイルの設計で、別ファイルの composition が線の無い
      白い箱として浮いていた）。 */
   const zoneKinds = new Set(zone ? [...zone.columnKinds.values()].flat() : [])
+  /* 注釈の value_catalog は機械が推定した受け口も含む。ゾーンの中で琥珀にして
+     きたのは 1 列キーのものだけ（`columnKinds`）なので、ゾーンの外も同じ条件に
+     そろえる — サーバの `catalog_homes` が元の種類を決めるのもこの形だけ。 */
   const isCatalogKind = (m: SkeletonMap): boolean =>
-    zoneKinds.has(m.name) || isValueCatalog(m) || !!annotations?.maps?.[m.name]?.value_catalog
+    zoneKinds.has(m.name) ||
+    isValueCatalog(m) ||
+    (!!annotations?.maps?.[m.name]?.value_catalog && templateKeys(m).length === 1)
   const pendingEdges: [string, string][] = catalogLinkEdges({
     maps: skeleton.maps,
     isCatalog: isCatalogKind,

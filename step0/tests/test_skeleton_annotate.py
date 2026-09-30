@@ -7,6 +7,7 @@ from pathlib import Path
 from asterism_step0.dialect import SourceDialect
 from asterism_step0.skeleton_annotate import (
     annotate_skeleton,
+    catalog_homes,
     apply_key_safety_fix,
     assemble_skeleton_from_judgments,
     fold_twin_kinds,
@@ -1448,3 +1449,38 @@ def test_catalog_home_is_stamped_for_every_file(tmp_path: Path) -> None:
     # 受け口でない種類には付かない
     assert "catalog_home" not in ann["curve"]
     assert "catalog_home" not in ann["sample"]
+    # 組み立て（design_loop が呼ぶ catalog_homes）と注釈は同じ答え
+    assert catalog_homes(skeleton, {"maps": ann}) == {
+        "composition": "curve",
+        "composition2": "sample",
+    }
+
+
+def test_catalog_home_prefers_the_fewest_entities_and_skips_the_unprovable(
+    tmp_path: Path,
+) -> None:
+    """列を決める種類が 2 つあれば件数の少ないほう（前置きの列はカード）。
+    列を定数として持つ種類が無い受け口には押印しない（K49 の後追い修理の領分）。"""
+    (tmp_path / "data.csv").write_text(
+        "CardNo,Category,Food,Brand\nC1,Stew,carrot,A\nC1,Stew,potato,B\nC1,Stew,onion,A\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {"name": "record", "source": "data.csv",
+             "subject": {"template": "xr:record/{CardNo}/{Food}"}},
+            {"name": "card", "source": "data.csv", "subject": {"template": "xr:card/{CardNo}"}},
+            {"name": "category", "source": "data.csv",
+             "subject": {"template": "xr:category/{Category}"}, "owns": ["Category"]},
+            {"name": "brand", "source": "data.csv",
+             "subject": {"template": "xr:brand/{Brand}"}, "owns": ["Brand"]},
+            {"name": "ghost", "source": "data.csv",
+             "subject": {"template": "xr:ghost/{Nope}"}, "owns": ["Nope"]},
+        ],
+    }
+    ann = annotate_skeleton(skeleton, [tmp_path / "data.csv"])["maps"]
+    assert ann["category"]["catalog_home"] == "card"
+    assert ann["brand"]["catalog_home"] == "record"
+    assert "catalog_home" not in ann["ghost"]

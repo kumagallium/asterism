@@ -480,7 +480,27 @@ describe('catalogLinkEdges — ⑤の点線は全ファイルの受け口に引�
     ])
   })
 
-  it('画面の計算（local）がサーバの注釈より先に勝つ — ☑ した直後の形を描く', () => {
+  it('サーバの注釈（組み立てと同じ規則）が画面の計算より先に勝つ', () => {
+    const withRow = [...maps, at('card', 'curves.csv', 'xr:card/{figure_id}')]
+    expect(
+      catalogLinkEdges({
+        maps: withRow,
+        isCatalog,
+        homeOf: (n) => (n === 'composition' ? 'curve' : undefined),
+        local: [['card', 'composition']],
+      }),
+    ).toContainEqual(['curve', 'composition'])
+    expect(
+      catalogLinkEdges({
+        maps: withRow,
+        isCatalog,
+        homeOf: (n) => (n === 'composition' ? 'curve' : undefined),
+        local: [['card', 'composition']],
+      }),
+    ).not.toContainEqual(['card', 'composition'])
+  })
+
+  it('注釈が追いつく前（☑ した直後）は画面の計算で描く', () => {
     expect(
       catalogLinkEdges({
         maps,
