@@ -34,15 +34,18 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator, Callable, Collection, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
 
 import httpx
 import yaml
+from asterism import (
+    class_schema as class_schema_mod,
+)
 from asterism import (
     crosswalk,
     crosswalk_discover,
@@ -66,6 +69,7 @@ from asterism.metadata import (
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
+    model_yaml_class_labels,
     project_mapping_ir,
     project_model_yaml,
 )
@@ -676,11 +680,39 @@ def _humanize_term_iri(iri: str) -> str | None:
     return words if words and words != tail else None
 
 
-def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, str]]]:
-    """``(predicate_iri, column, display metadata)`` — one entry per property row.
+# テンプレートの穴あき（{列}）。コンパイラが「穴あきが無ければ定数」と決めるときの
+# 数え方（``rml_compile._HAS_PLACEHOLDER``）と同じ — エスケープした ``\{`` も穴あきに数える。
+_RE_TEMPLATE_HOLE = re.compile(r"\{[^{}]+\}")
 
-    The single pass both keyed views below are built from, so the per-row rules
-    (authored label → column heading → unit fallbacks) live in exactly one place.
+
+class _IrDisplayEntry(NamedTuple):
+    """IR の 1 行ぶんの表示メタと、その行が RML でどう書き出されるか。
+
+    ``kinds`` はその行の map の種類（展開済み IRI）。``shape`` は RML の要約
+    （:func:`summarize_rml`）の行の ``kind`` と同じ言葉、``value`` はテンプレート・
+    定数の行が RML に持つ文字列。列を読まない行を突き合わせる鍵になる
+    （:func:`_ir_display_by_kind`）。
+    """
+
+    predicate_iri: str
+    column: str
+    extra: dict[str, str]
+    kinds: tuple[str, ...]
+    shape: str
+    value: str
+
+
+def _ir_display_entries(mapping_ir_yaml: str) -> list[_IrDisplayEntry]:
+    """One entry per property row (display metadata may be empty).
+
+    The single pass every keyed view below is built from, so the per-row rules
+    (authored label → link target's kind label → column heading → unit
+    fallbacks) live in exactly one place. Rows with EMPTY metadata are returned
+    too: the (kind, predicate) lookup must know they exist to stay silent when
+    they disagree with their siblings. The three keyed views skip them.
+
+    ``shape``/``value`` mirror ``rml_compile.object_map`` — the same case split,
+    so an entry can be matched to the compiled row it became.
     """
     from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
     from asterism_step0.units import extract_unit_from_label
@@ -694,19 +726,75 @@ def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, 
             return prefixes[prefix] + rest
         return term
 
-    entries: list[tuple[str, str, dict[str, str]]] = []
-    for tm in ir.maps:
+    def expand_head(template: str) -> str:
+        # コンパイラは先頭（最初の { まで）の CURIE だけを展開する
+        head, brace, rest = template.partition("{")
+        return expand(head) + brace + rest
+
+    def compiled(prop: Any) -> tuple[str, str]:
+        if prop.constant is not None:
+            is_iri = prop.object_type == "iri"
+            return "constant", expand(prop.constant) if is_iri else prop.constant
+        if prop.object_template is not None:
+            literal = prop.object_type == "literal"
+            if prop.transform and not literal:
+                return "function", ""  # 変換つきのテンプレートは関数として書き出される
+            text = prop.object_template if literal else expand_head(prop.object_template)
+            # 穴あき（{列}）の無いテンプレートは、定数として書き出される
+            return ("template" if _RE_TEMPLATE_HOLE.search(text) else "constant"), text
+        return ("function" if prop.function is not None else "reference"), ""
+
+    def read_column(prop: Any) -> str:
+        # :func:`_row_column` と同じ数え方。``columns: [a]`` も列 a を読む行。
+        if prop.column:
+            return str(prop.column)
+        distinct = set(prop.columns)
+        return str(next(iter(distinct))) if len(distinct) == 1 else ""
+
+    # つなぐ先の種類の表示名（subject.label）を、主語の文字列で引けるようにする。
+    # CURIE で書いても完全な IRI で書いても同じ主語なので、展開してから比べる。
+    # 同じ主語を持つ map が複数あって表示名が違うときは IR の順で最初
+    # （種類の表示名を読むほかの場所と同じ決まり）。
+    # 自分自身の map は対象外なので、map の番号も持つ。
+    by_template: dict[str, list[tuple[int, str]]] = {}
+    by_constant: dict[str, list[tuple[int, str]]] = {}
+    for index, tm in enumerate(ir.maps):
+        subject_label = (tm.subject.label or "").strip()
+        if not subject_label:
+            continue
+        if tm.subject.template:
+            key = expand_head(tm.subject.template)
+            by_template.setdefault(key, []).append((index, subject_label))
+        if tm.subject.constant:
+            by_constant.setdefault(expand(tm.subject.constant), []).append((index, subject_label))
+
+    def link_label(index: int, prop: Any) -> str | None:
+        if prop.object_template is not None and prop.object_type != "literal":
+            candidates = by_template.get(expand_head(prop.object_template), [])
+        elif prop.constant is not None and prop.object_type == "iri":
+            candidates = by_constant.get(expand(prop.constant), [])
+        else:
+            return None
+        return next((name for i, name in candidates if i != index), None)
+
+    entries: list[_IrDisplayEntry] = []
+    for index, tm in enumerate(ir.maps):
+        kinds = tuple(expand(cls) for cls in tm.subject.classes)
         for prop in tm.properties:
             extra: dict[str, str] = {}
+            linked = link_label(index, prop)
             if prop.label:
                 extra["label"] = prop.label
-            elif prop.column:
+            elif linked:
+                # 行に書いた表示名の次は、つなぐ先の種類の表示名（列の見出しより先）
+                extra["label"] = linked
+            elif read_column(prop):
                 # Deterministic third choice, below the authored label and the
                 # model.yaml projection: the source column heading the user
                 # actually typed. A weak model that skipped K8's `label:` would
                 # otherwise put `hasSeebeckCoefficient` in a question the user is
                 # asked to read — a word from their own file always beats one.
-                derived_label = _label_from_column(prop.column)
+                derived_label = _label_from_column(read_column(prop))
                 if derived_label:
                     extra["column_label"] = derived_label
             if prop.unit and not _unit_echoes_its_term(prop.unit, prop.column, prop.predicate):
@@ -720,8 +808,12 @@ def _ir_display_entries(mapping_ir_yaml: str) -> list[tuple[str, str, dict[str, 
                 derived = extract_unit_from_label(prop.column)
                 if derived:
                     extra["unit"] = derived
-            if extra:
-                entries.append((expand(prop.predicate), str(prop.column or ""), extra))
+            shape, value = compiled(prop)
+            entries.append(
+                _IrDisplayEntry(
+                    expand(prop.predicate), read_column(prop), extra, kinds, shape, value
+                )
+            )
     return entries
 
 
@@ -740,8 +832,9 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
     for the whole-design fallbacks that have no row to scope by.
     """
     meta: dict[str, dict[str, str]] = {}
-    for iri, _column, extra in _ir_display_entries(mapping_ir_yaml):
-        meta.setdefault(iri, {}).update(extra)
+    for entry in _ir_display_entries(mapping_ir_yaml):
+        if entry.extra:
+            meta.setdefault(entry.predicate_iri, {}).update(entry.extra)
     return meta
 
 
@@ -760,9 +853,11 @@ def _ir_display_by_column(mapping_ir_yaml: str) -> dict[tuple[str, str], dict[st
     そのまま残るため（命名規約に依存しない結合鍵）。
     """
     out: dict[tuple[str, str], dict[str, str]] = {}
-    for iri, column, extra in _ir_display_entries(mapping_ir_yaml):
-        if column:
-            out.setdefault((iri, column), {}).update(extra)
+    for entry in _ir_display_entries(mapping_ir_yaml):
+        # 表示メタが空の行も入れる。設計がその行に名前を付けなかった、も答えで、
+        # 述語だけの引き方に落として別の行の名前を借りない。
+        if entry.column:
+            out.setdefault((entry.predicate_iri, entry.column), {}).update(entry.extra)
     return out
 
 
@@ -784,6 +879,104 @@ def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str
     return labels
 
 
+# コンパイラが変換つきのテンプレートを書き出すときの関数の名前
+# （``rml_compile.transformed_template``）。列を読む関数ではなく、値を組み立てる関数。
+_TEMPLATE_FUNCTION: Final = "template"
+
+
+def _row_column(row: Mapping[str, Any]) -> str:
+    """The one source column a rule row reads, or ``""``.
+
+    A plain row carries ``reference``. A function row has none at the top — its
+    columns sit in ``args`` — so a single distinct column there counts as the
+    row's column (two or more: the row has no ONE column, so ``""``).
+
+    A row that COMPOSES its value is not a column read, whatever its args hold:
+    the template function, or any arg that is itself a function. ``{a}-{b}``
+    with a transform on ``a`` alone leaves ``b`` as the only plain reference,
+    and naming the row after column ``b`` would borrow that column's label.
+    """
+    reference = str(row.get("reference") or "")
+    if reference:
+        return reference
+    if row.get("kind") != "function" or row.get("function") == _TEMPLATE_FUNCTION:
+        return ""
+    args = [arg for arg in row.get("args") or [] if isinstance(arg, Mapping)]
+    if any(arg.get("kind") == "function" for arg in args):
+        return ""
+    refs = {
+        str(arg.get("reference"))
+        for arg in args
+        if arg.get("kind") == "reference" and arg.get("reference")
+    }
+    return next(iter(refs)) if len(refs) == 1 else ""
+
+
+def _row_value(row: Mapping[str, Any], prefixes: Mapping[str, Any]) -> str:
+    """The string a template / constant row carries, as the RML holds it.
+
+    The summary compresses a constant IRI to ``prefix:local`` under the
+    mapping's own prefixes; this undoes it so the IR's expanded IRI compares.
+    """
+    kind = row.get("kind")
+    if kind == "template":
+        return str(row.get("template") or "")
+    if kind != "constant":
+        return ""
+    text = str(row.get("constant") or "")
+    if row.get("constant_is_iri"):
+        prefix, sep, rest = text.partition(":")
+        if sep and prefix in prefixes:
+            return str(prefixes[prefix]) + rest
+    return text
+
+
+def _ir_display_by_kind(
+    entries: Sequence[_IrDisplayEntry],
+    map_entry: Mapping[str, Any],
+    row: Mapping[str, Any],
+    prefixes: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Display metadata by (kind, predicate), for a row that reads no column.
+
+    A constant, a template or a several-column row has no column to be looked up
+    by, and a predicate several kinds bind (``rdfs:label``) cannot be looked up
+    by the predicate alone. The kind can: the compiled map keeps the IR map's
+    classes even though it renames the map itself.
+
+    Among the IR's column-less rows of this kind and predicate, the ones that
+    compile to the same shape are the candidates — narrowed to the rows with the
+    very string this row carries, when there are any (two links on one
+    predicate, each to its own parent, are told apart by where they point). A
+    key is lent only when EVERY candidate has it and they all agree. One row
+    missing it, or a split, and that key stays silent: borrowing a neighbour's
+    word is worse than showing none.
+
+    ``None`` means the IR has no such row for this kind at all (a mapping that
+    was not compiled from this IR) — only then may the caller fall back to the
+    predicate alone. An empty dict is an answer: the design gave no name.
+    """
+    subject = map_entry.get("subject")
+    class_iris = subject.get("class_iris") if isinstance(subject, Mapping) else None
+    kinds = {c for c in class_iris if isinstance(c, str)} if isinstance(class_iris, list) else set()
+    iri = str(row.get("predicate_iri") or "")
+    same_kind = [
+        e for e in entries if e.predicate_iri == iri and not e.column and kinds & set(e.kinds)
+    ]
+    if not same_kind:
+        return None
+    candidates = [e for e in same_kind if e.shape == row.get("kind")]
+    value = _row_value(row, prefixes)
+    candidates = [e for e in candidates if value and e.value == value] or candidates
+    out: dict[str, str] = {}
+    for key in ("label", "unit"):
+        values = {e.extra.get(key) for e in candidates}
+        found = next(iter(values)) if len(values) == 1 else None
+        if found:
+            out[key] = found
+    return out
+
+
 def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str, dict[str, str]]:
     """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
 
@@ -791,12 +984,21 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str,
     structural projection (see :func:`_ir_predicate_display`). Best-effort: an
     unparsable IR adds a warning instead of failing the read-only endpoint.
     Returns the metadata it merged, so the caller can also use its fallbacks.
+
+    A row that reads a column is looked up by (predicate, that column —
+    :func:`_row_column`); a row that reads none, by (kind, predicate)
+    (:func:`_ir_display_by_kind`). The predicate alone is the last resort, used
+    only when the IR holds no such row and the predicate binds a single column.
+    Without the lookup by kind, a constant or a template on a predicate several
+    kinds bind had nothing to be found by, and the diagram printed the
+    predicate's local name as the field (``label``).
     """
     meta: dict[str, dict[str, str]] = {}
     try:
         meta = _ir_predicate_display(mapping_ir_yaml)
         if not meta:
             return meta
+        entries = _ir_display_entries(mapping_ir_yaml)
         # 行の表示は (述語, 列) で引く。述語だけだと、同じ述語を複数の map が
         # 束縛したとき最後の 1 つが全部を塗る（値のカタログの rdfs:label が
         # まさにその形 — 利用者報告 2026-09-02「全部のIDが縦軸単位」）。
@@ -807,14 +1009,33 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> dict[str,
         columns_per_iri: dict[str, set[str]] = {}
         for cached_iri, cached_col in by_column:
             columns_per_iri.setdefault(cached_iri, set()).add(cached_col)
+        # 同じ列を、素のままと関数を通してと 2 回読む設計で取り違えないように、
+        # 関数を通すかどうかまで鍵に入れた引き方を先に試す。
+        by_read: dict[tuple[str, str, bool], dict[str, str]] = {}
+        for e in entries:
+            if e.column:
+                key = (e.predicate_iri, e.column, e.shape == "function")
+                by_read.setdefault(key, {}).update(e.extra)
+        raw_prefixes = summary.get("prefixes")
+        prefixes = raw_prefixes if isinstance(raw_prefixes, Mapping) else {}
         for entry in summary.get("maps") or []:
             if not isinstance(entry, dict):
                 continue
             for row in entry.get("properties") or []:
                 iri = str(row.get("predicate_iri") or "")
-                column = str(row.get("reference") or "")
-                extra = by_column.get((iri, column)) if column else None
+                column = _row_column(row)
+                extra: Mapping[str, str] | None
+                if column:
+                    # 列を 1 つ読む行は (述語, 行が読む列)
+                    through_function = row.get("kind") == "function"
+                    extra = by_read.get((iri, column, through_function))
+                    if extra is None:
+                        extra = by_column.get((iri, column))
+                else:
+                    # 列を読まない行（定数・テンプレート・複数の列）は (種類, 述語)
+                    extra = _ir_display_by_kind(entries, entry, row, prefixes)
                 if extra is None and len(columns_per_iri.get(iri, ())) <= 1:
+                    # 述語だけ。IR に当てはまる行が無かったときの折り先
                     extra = meta.get(iri)
                 if extra:
                     # ``column_label`` is a FALLBACK, resolved in
@@ -854,7 +1075,9 @@ def _fill_missing_labels(
     column: every value catalog binds ``rdfs:label`` (and the ones without an
     authored label are exactly the rows that land here), so the predicate-only
     ``column_label`` is the LAST catalog's heading — the same collision #554
-    fixed for ① (利用者報告 2026-09-02「全部の ID が縦軸単位」).
+    fixed for ① (利用者報告 2026-09-02「全部の ID が縦軸単位」). A row that reads
+    no column takes no column heading at all: whichever one the predicate-only
+    entry holds belongs to another row.
     """
     scoped_meta = by_column or {}
     columns_per_iri: dict[str, set[str]] = {}
@@ -876,9 +1099,9 @@ def _fill_missing_labels(
             # raw reference in its own cell, so only the IR's cleaned form is
             # used here) ④ the term IRI read as words, and only when that
             # actually reads better than the local name.
-            column = str(row.get("reference") or "")
+            column = _row_column(row)
             scoped = scoped_meta.get((iri, column)) if column else None
-            if scoped is None and len(columns_per_iri.get(iri, ())) <= 1:
+            if scoped is None and column and len(columns_per_iri.get(iri, ())) <= 1:
                 scoped = ir_meta.get(iri)
             fallback = (scoped or {}).get("column_label") or _humanize_term_iri(iri)
             if fallback:
@@ -1605,10 +1828,10 @@ def _crosswalk_predicate_labels(registry_root: Path, dataset_id: str) -> dict[st
     # （利用者報告 2026-09-02）。この関数の約束は「設計が選んだ言葉を言う、
     # さもなくば黙る」で、取り違えた言葉はその約束を破る。
     authored: dict[str, set[str]] = {}
-    for iri, _column, meta in entries:
-        lbl = meta.get("label")
+    for entry in entries:
+        lbl = entry.extra.get("label")
         if lbl:
-            authored.setdefault(iri, set()).add(lbl)
+            authored.setdefault(entry.predicate_iri, set()).add(lbl)
     for iri, names in authored.items():
         if len(names) == 1:  # the authored label wins over the model.yaml projection
             labels[iri] = next(iter(names))
@@ -1622,21 +1845,148 @@ def _iri_local_name(iri: str) -> str:
     return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
 
 
-def _overlay_kind_labels(labels: dict[str, str], mapping_ir_yaml: str) -> None:
-    """IR の ``subject.label``（種類の表示名）を、model.yaml 由来の ``labels`` に重ねる。
+def _authored_kind_labels(mapping_ir_yaml: str) -> dict[str, str]:
+    """この設計の IR が種類に付けた表示名（``subject.label``）だけを返す。
 
-    model.yaml の投影が付ける種類の ``rdfs:label`` はクラスのローカル名（機械が
-    作る符号つきの名前になり得る）。人向けの画面（ためす・公開の確認・公開後）は
-    ``labels[class_iri]`` を読むので、IR に表示名がある種類はそちらを優先する。
-    IR が無い・読めない・表示名が無い種類は今までどおり（best-effort）。
+    表示名の無い種類は入れない — :func:`_ir_field_labels` はそこをローカル名で
+    埋めるが、それは設計が選んだ言葉ではない。IR が無い・読めないときは空。
     """
     if not mapping_ir_yaml.strip():
-        return
-    with contextlib.suppress(Exception):
+        return {}
+    try:
         _fields, kinds = _ir_field_labels(mapping_ir_yaml)
-        for iri, word in kinds.items():
-            if word and word != _iri_local_name(iri):
-                labels[iri] = word
+    except Exception:
+        return {}
+    return {iri: word for iri, word in kinds.items() if word and word != _iri_local_name(iri)}
+
+
+async def _kind_labels(
+    client: Any,
+    registry_root: Path,
+    mapping_ir_yaml: str,
+    class_iris: Collection[str],
+) -> dict[str, str]:
+    """種類の表示名（``class_iri -> 名前``）。/rules と /trial-queries が共に通る。
+
+    読み順: この設計の IR の ``subject.label``（公開する前の設計の名前はここに
+    しか無い）→ :func:`asterism.class_schema.class_label`（ワークスペースと同じ
+    1 関数: registry の model.yaml の ``classes.<curie>.label`` → オントロジーの
+    graph → ハブの graph → ローカル名の読みくだし）。
+
+    model.yaml の投影（:func:`_model_yaml_labels`）が種類に付ける ``rdfs:label`` は
+    いつもローカル名で、model.yaml に書いてある表示名を読まない。だから IR に
+    表示名が無く model.yaml にある設計の種類は、``labels[class_iri]`` を読む図
+    （共通の言葉・データセットの詳細・ためす）でだけ、ワークスペースと違う名前に
+    なっていた。
+
+    best-effort — 引けなかった種類と、ローカル名がそのまま返ってきた種類は結果に
+    入れない（呼ぶ側に元からある値が残る）。どこにも名前が無い種類に返ってくる
+    読みくだしは、ローカル名と違うときだけ入れる — ワークスペースと同じ名前で、
+    :func:`_humanize_term_iri` と同じ線引き。
+
+    空白だけの名前は名前と見なさない（読み手が 1 つなので、この関数の呼び手すべてに効く）。
+
+    名前は並行に引く。ストアの応答が遅いときに、種類の数だけ待ちを積まない。
+    """
+    authored = _authored_kind_labels(mapping_ir_yaml)
+    wanted = [iri for iri in dict.fromkeys(class_iris) if iri]
+    asked = [iri for iri in wanted if iri not in authored]
+    answers = await asyncio.gather(
+        *(class_schema_mod.class_label(client, registry_root, iri) for iri in asked),
+        return_exceptions=True,
+    )
+    looked_up: dict[str, str] = {}
+    failed: list[BaseException] = []
+    for iri, answer in zip(asked, answers, strict=True):
+        if isinstance(answer, BaseException):
+            failed.append(answer)
+        elif answer:
+            looked_up[iri] = answer
+    if failed:
+        logger.warning(
+            "kind label lookup failed for %d of %d kinds (continuing)",
+            len(failed),
+            len(asked),
+            exc_info=failed[0],
+        )
+    out: dict[str, str] = {}
+    for iri in wanted:
+        word = (authored.get(iri) or looked_up.get(iri) or "").strip()
+        if word and word != _iri_local_name(iri):
+            out[iri] = word
+    return out
+
+
+async def _crosswalk_kind_names(
+    client: Any, registry_root: Path, kinds: Iterable[tuple[str, str]]
+) -> dict[tuple[str, str], str]:
+    """つながりの画面に出す種類の表示名（``(dataset_id, class_iri) -> 名前``）。
+
+    ワークスペースと同じ読み手 :func:`_kind_labels` を、データセットごとにその
+    設計の IR を添えて呼ぶだけ（新しい読み順は作らない）。best-effort — 読めなかった
+    データセットは warning を 1 回出して飛ばし、引けなかった種類は結果に入れない。
+    """
+    by_dataset: dict[str, list[str]] = {}
+    for dataset_id, class_iri in kinds:
+        if not dataset_id or not class_iri:
+            continue
+        bucket = by_dataset.setdefault(dataset_id, [])
+        if class_iri not in bucket:
+            bucket.append(class_iri)
+    if not by_dataset:
+        return {}
+
+    def _ir_of(dataset_id: str) -> str:
+        try:
+            data = registry.load_dataset(registry_root, dataset_id)
+        except Exception:
+            return ""
+        return str(((data or {}).get("artifacts") or {}).get("mapping.yaml") or "")
+
+    async def _one(dataset_id: str, class_iris: list[str]) -> dict[str, str]:
+        text = await asyncio.to_thread(_ir_of, dataset_id)
+        return await _kind_labels(client, registry_root, text, class_iris)
+
+    ids = list(by_dataset)
+    answers = await asyncio.gather(
+        *(_one(dsid, by_dataset[dsid]) for dsid in ids), return_exceptions=True
+    )
+    out: dict[tuple[str, str], str] = {}
+    for dsid, answer in zip(ids, answers, strict=True):
+        if isinstance(answer, BaseException):
+            logger.warning(
+                "crosswalk kind label lookup failed for dataset %s (continuing)",
+                dsid,
+                exc_info=answer,
+            )
+            continue
+        for iri, word in answer.items():
+            out[(dsid, iri)] = word
+    return out
+
+
+async def _name_crosswalk_kinds(
+    client: Any, registry_root: Path, rows: Sequence[tuple[str, dict]]
+) -> None:
+    """``rows`` = ``(dataset_id, subject_class を持つ dict)``。種類のある行に
+    ``subject_class_label`` を書く（その場で）。引けない種類はローカル名に折る。"""
+    kinds = [(dsid, str(row.get("subject_class") or "")) for dsid, row in rows]
+    names = await _crosswalk_kind_names(client, registry_root, kinds)
+    for dsid, row in rows:
+        kind = str(row.get("subject_class") or "")
+        if kind:
+            row["subject_class_label"] = names.get((dsid, kind)) or _iri_local_name(kind)
+
+
+def _rule_class_iris(summary: dict) -> list[str]:
+    """取り込みルールの投影（:func:`summarize_rml`）に出てくる種類の IRI（出てきた順）。"""
+    seen: list[str] = []
+    for entry in summary.get("maps") or []:
+        subject = entry.get("subject") if isinstance(entry, dict) else None
+        for iri in (subject.get("class_iris") if isinstance(subject, dict) else None) or []:
+            if isinstance(iri, str) and iri and iri not in seen:
+                seen.append(iri)
+    return seen
 
 
 def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
@@ -1691,19 +2041,20 @@ def _crosswalk_label_resolvers(
 ) -> tuple[
     Callable[[str, str], str | None],
     Callable[[str, str, str | None], str | None],
-    Callable[[str, str], str | None],
 ]:
-    """``(predicate_label_of, field_label_of, class_label_of)`` for the crosswalk
+    """``(predicate_label_of, field_label_of)`` for the crosswalk
     screens, sharing one registry read per dataset touched.
+
+    種類の名前はここでは引かない。:func:`_kind_labels`（:func:`_crosswalk_kind_names`）が引く。
 
     ``predicate_label_of(dataset_id, predicate)`` is the kind-agnostic word
     (:func:`_crosswalk_predicate_labels` — silent where kinds disagree);
     ``field_label_of(dataset_id, predicate, subject_class)`` the word for ONE kind's
-    field (:func:`_ir_field_labels`); ``class_label_of(dataset_id, class_iri)`` the
-    kind's own name. Best-effort throughout: an unreadable design contributes nothing.
+    field (:func:`_ir_field_labels`). Best-effort throughout: an unreadable design
+    contributes nothing.
     """
     pred_cache: dict[str, dict[str, str]] = {}
-    field_cache: dict[str, tuple[dict[tuple[str, str], str], dict[str, str]]] = {}
+    field_cache: dict[str, dict[tuple[str, str], str]] = {}
 
     def preds(dataset_id: str) -> dict[str, str]:
         got = pred_cache.get(dataset_id)
@@ -1712,15 +2063,15 @@ def _crosswalk_label_resolvers(
             pred_cache[dataset_id] = got
         return got
 
-    def fields(dataset_id: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    def fields(dataset_id: str) -> dict[tuple[str, str], str]:
         got = field_cache.get(dataset_id)
         if got is None:
             data = registry.load_dataset(registry_root, dataset_id)
             text = str(((data or {}).get("artifacts") or {}).get("mapping.yaml") or "")
             try:
-                got = _ir_field_labels(text) if text.strip() else ({}, {})
+                got = _ir_field_labels(text)[0] if text.strip() else {}
             except Exception:
-                got = ({}, {})
+                got = {}
             field_cache[dataset_id] = got
         return got
 
@@ -1732,12 +2083,9 @@ def _crosswalk_label_resolvers(
     ) -> str | None:
         if not subject_class:
             return None
-        return fields(dataset_id)[0].get((subject_class, predicate_iri))
+        return fields(dataset_id).get((subject_class, predicate_iri))
 
-    def class_label_of(dataset_id: str, class_iri: str) -> str | None:
-        return fields(dataset_id)[1].get(class_iri)
-
-    return predicate_label_of, field_label_of, class_label_of
+    return predicate_label_of, field_label_of
 
 
 def _concept_labels_for_config(
@@ -1749,7 +2097,7 @@ def _concept_labels_for_config(
     まま渡せる形（concept name → 表示名）で返す。空の結果は入れない（
     :func:`asterism.crosswalk.build_turtle` 側の「空/absent は今のまま」に
     委ねる）。"""
-    predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(registry_root)
+    predicate_label_of, field_label_of = _crosswalk_label_resolvers(registry_root)
     return crosswalk_names.concept_labels_for_config(config, field_label_of, predicate_label_of)
 
 
@@ -1758,9 +2106,7 @@ def _refresh_crosswalk_auto_name(registry_root: Path, perspective_id: str) -> No
     （:func:`asterism_api.crosswalk_names.refresh_auto_name`）。best-effort —
     名前の書き直しの失敗で、作ったハブを失敗にしない。"""
     try:
-        predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(
-            registry_root
-        )
+        predicate_label_of, field_label_of = _crosswalk_label_resolvers(registry_root)
         crosswalk_names.refresh_auto_name(
             registry_root, perspective_id, field_label_of, predicate_label_of
         )
@@ -1768,21 +2114,28 @@ def _refresh_crosswalk_auto_name(registry_root: Path, perspective_id: str) -> No
         logger.exception("refreshing the name of crosswalk %s failed (continuing)", perspective_id)
 
 
-def _label_crosswalk_fields(registry_root: Path, datasets: list[dict]) -> None:
+async def _label_crosswalk_fields(client: Any, registry_root: Path, datasets: list[dict]) -> None:
     """Give each sampled field (``{iri, sample, subject_class}``) the design's words:
     ``label`` for the field, ``subject_class_label`` for its kind — so a dropdown can
     say 「Composition › 試料化学組成」 instead of ``label``. In place, best-effort."""
-    predicate_label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(registry_root)
-    for d in datasets:
-        dsid = str(d.get("dataset_id") or "")
-        for f in d.get("predicates") or []:
-            iri = str(f.get("iri") or "")
-            kind = f.get("subject_class") or None
-            label = field_label_of(dsid, iri, kind) or predicate_label_of(dsid, iri)
-            if label:
-                f["label"] = label
-            if kind:
-                f["subject_class_label"] = class_label_of(dsid, kind) or _iri_local_name(kind)
+
+    def label_fields() -> None:
+        predicate_label_of, field_label_of = _crosswalk_label_resolvers(registry_root)
+        for d in datasets:
+            dsid = str(d.get("dataset_id") or "")
+            for f in d.get("predicates") or []:
+                iri = str(f.get("iri") or "")
+                kind = f.get("subject_class") or None
+                label = field_label_of(dsid, iri, kind) or predicate_label_of(dsid, iri)
+                if label:
+                    f["label"] = label
+
+    await asyncio.to_thread(label_fields)
+    await _name_crosswalk_kinds(
+        client,
+        registry_root,
+        [(str(d.get("dataset_id") or ""), f) for d in datasets for f in d.get("predicates") or []],
+    )
 
 
 def _crosswalk_predicate_label_resolver(
@@ -2106,6 +2459,8 @@ async def _project_ontology_graph(
     does this fall back to the legacy ``model.yaml`` TBox (rdf-config list or
     the plain ``classes:``/``properties:`` mapping shape — both accepted by
     :func:`project_model_yaml`), which never carries an authored label.
+    IR に種類の表示名（``subject.label``）が無いときは、model.yaml の
+    ``classes.<curie>.label`` の表示名を使う（無ければローカル名）。
     Prefixes resolve from the bundle's own RML / MIE declarations (so ``sd:`` /
     ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, then
     replaces the ontology graph (DROP then load) so a re-promote has no stale
@@ -2124,7 +2479,9 @@ async def _project_ontology_graph(
 
     graph = None
     if mapping_ir_yaml.strip():
-        graph = project_mapping_ir(mapping_ir_yaml, prefixes)
+        graph = project_mapping_ir(
+            mapping_ir_yaml, prefixes, class_labels=model_yaml_class_labels(model_yaml)
+        )
         if len(graph) == 0:
             logger.warning(
                 "dataset %s: mapping.yaml (Mapping IR) present but projected "
@@ -6685,10 +7042,9 @@ def build_app(
         mie_yaml = str(artifacts.get("mie.yaml") or "")
         mapping_ir_yaml = str(artifacts.get("mapping.yaml") or "")
 
-        def run() -> dict[str, object]:
+        def run() -> tuple[dict, dict[str, str]]:
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
-            _overlay_kind_labels(labels, mapping_ir_yaml)
             ir_meta: dict[str, dict[str, str]] = {}
             by_column: dict[tuple[str, str], dict[str, str]] = {}
             if mapping_ir_yaml.strip():
@@ -6700,9 +7056,16 @@ def build_app(
             # Deterministic last resorts (source column, then the term IRI read
             # as words) so a design that skipped K8's labels still reads.
             _fill_missing_labels(summary, labels, ir_meta, by_column)
-            return {"dataset_id": dataset_id, **summary, "labels": labels}
+            return summary, labels
 
-        return await asyncio.to_thread(run)
+        summary, labels = await asyncio.to_thread(run)
+        # 種類の名前は、ワークスペースと同じ読み手で引く（:func:`_kind_labels`）。
+        labels.update(
+            await _kind_labels(
+                app.state.client, cfg.registry_root, mapping_ir_yaml, _rule_class_iris(summary)
+            )
+        )
+        return {"dataset_id": dataset_id, **summary, "labels": labels}
 
     @app.get("/api/datasets/{dataset_id}/source-samples")
     async def get_dataset_source_samples(dataset_id: str) -> dict[str, object]:
@@ -7541,16 +7904,16 @@ def build_app(
         if not (meta.get("ingested") or meta.get("promoted")):
             return out
 
-        # Display enrichment — the same two sources /rules merges: the IR's
-        # reviewed label/unit per predicate + the model.yaml rdfs:labels
-        # (classes AND predicates). Both deterministic; both optional.
+        # Display enrichment — the same sources /rules merges: the IR's
+        # reviewed label/unit per predicate + the model.yaml rdfs:labels, and
+        # for the kinds the shared reader (:func:`_kind_labels`, below).
+        # All deterministic; all optional.
         def display_meta() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
             labels = _model_yaml_labels(
                 str(artifacts.get("model.yaml") or ""),
                 str(artifacts.get("mapping.rml.ttl") or ""),
                 str(artifacts.get("mie.yaml") or ""),
             )
-            _overlay_kind_labels(labels, str(artifacts.get("mapping.yaml") or ""))
             try:
                 ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
             except Exception:
@@ -7616,6 +7979,16 @@ def build_app(
         rows = await select(count_q)
         if rows is None:
             return out  # store down → available: false, the UI offers retry
+        kind_names = await _kind_labels(
+            client,
+            cfg.registry_root,
+            str(artifacts.get("mapping.yaml") or ""),
+            [
+                str((b.get("class") or {}).get("value") or "")
+                for b in rows
+                if (b.get("class") or {}).get("type") == "uri"
+            ],
+        )
         classes: list[dict[str, object]] = []
         for b in rows:
             cls = b.get("class") or {}
@@ -7627,7 +8000,7 @@ def build_app(
             except (TypeError, ValueError):
                 continue
             entry: dict[str, object] = {"iri": cls["value"], "n": n}
-            got = label_of(str(cls["value"]))
+            got = kind_names.get(str(cls["value"])) or label_of(str(cls["value"]))
             if got:
                 entry["label"] = got
             classes.append(entry)
@@ -9112,11 +9485,15 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         return perspective_id
 
-    def _enrich_crosswalk_config_dict(config_dict: dict | None) -> dict | None:
+    def _enrich_crosswalk_config_dict(
+        config_dict: dict | None, kind_rows: list[tuple[str, dict]]
+    ) -> dict | None:
         """Read-time DISPLAY enrichment for a crosswalk config response
         (XW-01/XW-04/XW-06): each participant gets the dataset's CURRENT name
         and a ``predicate_label``, each concept gets a ``concept_label`` —
-        resolved fresh on every read via :func:`_crosswalk_predicate_label_resolver`.
+        resolved fresh on every read via :func:`_crosswalk_label_resolvers`.
+        種類の名前は書かない — 種類のある参加者を ``kind_rows`` に積むだけで、
+        呼ぶ側がまとめて引く（:func:`_name_crosswalk_kinds`）。
         The persisted config (ids + predicate IRIs) is never touched, only this
         response dict — a rename or a redesign is reflected without a migration.
         """
@@ -9126,7 +9503,7 @@ def build_app(
             str(m.get("id")): str(m.get("name") or m.get("id"))
             for m in registry.list_datasets(cfg.registry_root)
         }
-        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
+        label_of, field_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         for concept in config_dict.get("concepts") or []:
             resolved: list[str] = []
             for p in concept.get("participants") or []:
@@ -9142,7 +9519,7 @@ def build_app(
                 # naming predicate has none of its own (crosswalk-kind-scoped-fields.md).
                 kind = str(p.get("subject_class") or "") or None
                 if kind:
-                    p["subject_class_label"] = class_label_of(ds_id, kind) or _iri_local_name(kind)
+                    kind_rows.append((ds_id, p))
                 label = next(
                     (
                         got
@@ -9167,25 +9544,26 @@ def build_app(
         ``_enrich_crosswalk_config_dict`` と同じ引き手（
         ``_crosswalk_label_resolvers``）を使うので、``concept_label`` と同じ
         突き合わせ順で同じ結果になる。"""
-        predicate_label_of, field_label_of, _class_label_of = _crosswalk_label_resolvers(
-            cfg.registry_root
-        )
+        predicate_label_of, field_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         return crosswalk_names.perspective_display_name(
             meta, config, perspective_id, field_label_of, predicate_label_of
         )
 
-    def _crosswalk_view(perspective_id: str) -> dict:
+    async def _crosswalk_view(perspective_id: str) -> dict:
         config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
         data = registry.load_dataset(
             cfg.registry_root, crosswalk_runtime.crosswalk_registry_id(perspective_id)
         )
         meta = data["meta"] if data else {}
+        kind_rows: list[tuple[str, dict]] = []
+        enriched = _enrich_crosswalk_config_dict(
+            crosswalk_runtime.config_to_dict(config) if config else None, kind_rows
+        )
+        await _name_crosswalk_kinds(app.state.client, cfg.registry_root, kind_rows)
         return {
             "perspective_id": perspective_id,
             "exists": config is not None,
-            "config": _enrich_crosswalk_config_dict(
-                crosswalk_runtime.config_to_dict(config) if config else None
-            ),
+            "config": enriched,
             "dataset": data["meta"] if data else None,
             # 契約メモ contract_b2_hub_names.md B2-2: R1 の結果をそのまま返す
             # （「名前のないつながり」もそのまま — ui 側 perspectiveDisplayName
@@ -9255,6 +9633,7 @@ def build_app(
         """List every crosswalk PERSPECTIVE (id, name, stats, config) — the upper
         ontology is plural (multi-perspective ADR)."""
         out = []
+        kind_rows: list[tuple[str, dict]] = []
         for meta in crosswalk_runtime.list_perspectives(cfg.registry_root):
             pid = meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
             config = crosswalk_runtime.load_config(cfg.registry_root, pid)
@@ -9262,7 +9641,8 @@ def build_app(
                 {
                     "perspective_id": pid,
                     "config": _enrich_crosswalk_config_dict(
-                        crosswalk_runtime.config_to_dict(config) if config else None
+                        crosswalk_runtime.config_to_dict(config) if config else None,
+                        kind_rows,
                     ),
                     "dataset": meta,
                     # 契約メモ contract_pr_f15.md §1.4: whether this perspective was
@@ -9273,13 +9653,15 @@ def build_app(
                     "display_name": _perspective_display_name(pid, meta, config),
                 }
             )
+        # 種類の名前は 1 回の応答につき 1 回でまとめて引く。
+        await _name_crosswalk_kinds(app.state.client, cfg.registry_root, kind_rows)
         return JSONResponse({"perspectives": out})
 
     @app.get("/api/crosswalk")
     async def crosswalk_get() -> JSONResponse:
         """The default (composition) perspective's config + stats (back-compat).
         ``exists:false`` when it has not been built yet."""
-        return JSONResponse(_crosswalk_view(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID))
+        return JSONResponse(await _crosswalk_view(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID))
 
     @app.post("/api/crosswalk/build", dependencies=_write_auth)
     async def crosswalk_build(body: CrosswalkBuildBody) -> JSONResponse:
@@ -9314,7 +9696,7 @@ def build_app(
         )
         client: OxigraphClient = app.state.client
 
-        label_of, field_label_of, class_label_of = _crosswalk_label_resolvers(cfg.registry_root)
+        label_of, field_label_of = _crosswalk_label_resolvers(cfg.registry_root)
         existing = crosswalk_existing.load_existing_concepts(cfg.registry_root)
 
         async def discover_job(emit, should_cancel):
@@ -9328,7 +9710,9 @@ def build_app(
                 should_cancel=should_cancel,
                 predicate_label_of=label_of,
                 field_label_of=field_label_of,
-                class_label_of=class_label_of,
+                kind_labels_of=lambda kinds: _crosswalk_kind_names(
+                    client, cfg.registry_root, kinds
+                ),
                 existing=existing.concepts,
                 reserved_ids=existing.perspective_ids,
             )
@@ -9402,7 +9786,7 @@ def build_app(
             raise HTTPException(400, "none of dataset_ids is a promoted, sampleable dataset")
         # The design's words ride along with the samples, so the dropdown the
         # candidates populate can say the kind and the field, not a local name.
-        await asyncio.to_thread(_label_crosswalk_fields, cfg.registry_root, datasets)
+        await _label_crosswalk_fields(client, cfg.registry_root, datasets)
 
         def run() -> list[dict]:
             return propose_crosswalk_mapping(
@@ -9442,7 +9826,7 @@ def build_app(
         key = substrate.canonical_graph_iri(dataset_id)
         live = await substrate.live_graph_of(client, key) or key
         entry = {"dataset_id": dataset_id, "predicates": await _literal_predicates(client, live)}
-        await asyncio.to_thread(_label_crosswalk_fields, cfg.registry_root, [entry])
+        await _label_crosswalk_fields(client, cfg.registry_root, [entry])
         return {"dataset_id": dataset_id, "promoted": True, "fields": entry["predicates"]}
 
     @app.get("/api/crosswalk/alignments")
@@ -9650,7 +10034,7 @@ def build_app(
     @app.get("/api/crosswalk/{perspective_id}")
     async def crosswalk_get_one(perspective_id: str) -> JSONResponse:
         """One perspective's config + stats (multi-perspective ADR)."""
-        return JSONResponse(_crosswalk_view(_validated_perspective_id(perspective_id)))
+        return JSONResponse(await _crosswalk_view(_validated_perspective_id(perspective_id)))
 
     @app.post("/api/crosswalk/{perspective_id}/build", dependencies=_write_auth)
     async def crosswalk_build_one(perspective_id: str, body: CrosswalkBuildBody) -> JSONResponse:

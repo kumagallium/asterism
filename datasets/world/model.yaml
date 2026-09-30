@@ -7,8 +7,9 @@
 # projected `rdfs:label` — which is always a term's local name — and the
 # local-name-humanized fallback). mapping.yaml's authored `label:` fields
 # already carry the Japanese name for every PROPERTY; this file is what
-# carries it for the two CLASSES themselves (a class has no `label:` slot in
-# the Mapping IR).
+# carries it for the two data CLASSES themselves.
+# 取り込みの記録（来歴）の種類の表示名は、mapping.yaml の `subject.label` にある
+# （理由は mapping.yaml の冒頭のコメント）。
 #
 # Two classes:
 #   - world:Country     (「国」)          : 62 countries, one row per country.

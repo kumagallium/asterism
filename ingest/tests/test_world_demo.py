@@ -15,6 +15,7 @@ Real data only: every count below is the actual vega-datasets@2
 contract memo's illustrative "63 x 11 = 693" figure — see the deviation noted
 in the PR description / final report.
 """
+
 from __future__ import annotations
 
 import csv
@@ -28,6 +29,12 @@ import rdflib
 import yaml
 
 from asterism.mapping_ir_read import read_mapping_ir
+from asterism.ontology_projection import (
+    STANDARD_PREFIXES,
+    extract_prefixes,
+    model_yaml_class_labels,
+    project_mapping_ir,
+)
 from asterism.query_tools import lint_query_tool, parse_query_tools
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -337,9 +344,7 @@ def test_canonical_ttl_has_the_expected_instance_counts() -> None:
     g.parse(data=members["graphs/canonical.ttl"], format="turtle")
 
     n_country = len(list(g.subjects(rdflib.RDF.type, rdflib.URIRef(WORLD_NS + "Country"))))
-    n_observation = len(
-        list(g.subjects(rdflib.RDF.type, rdflib.URIRef(WORLD_NS + "Observation")))
-    )
+    n_observation = len(list(g.subjects(rdflib.RDF.type, rdflib.URIRef(WORLD_NS + "Observation"))))
     assert n_country == EXPECTED_COUNTRIES
     assert n_observation == EXPECTED_ROWS
 
@@ -462,9 +467,7 @@ async def test_model_yaml_class_label_matches_contract_labels() -> None:
     with tempfile.TemporaryDirectory(prefix="world-model-label-") as tmp:
         registry_root = _build_registry(Path(tmp))
         client = _NoopClient()
-        country_label = await class_schema.class_label(
-            client, registry_root, WORLD_NS + "Country"
-        )
+        country_label = await class_schema.class_label(client, registry_root, WORLD_NS + "Country")
         observation_label = await class_schema.class_label(
             client, registry_root, WORLD_NS + "Observation"
         )
@@ -528,3 +531,60 @@ async def test_prov_graph_follows_wasGeneratedBy_from_japan_to_the_activity() ->
     assert (ACTIVITY_IRI, japan, "generated") in edges
     activity_node = next(n for n in out["graph"]["nodes"] if n["id"] == ACTIVITY_IRI)
     assert activity_node["kind"] == "activity"
+
+
+def test_every_kind_has_a_display_name() -> None:
+    """見本の種類には、どれも表示名がある — Mapping IR の ``subject.label`` か、
+    model.yaml の ``classes.<curie>.label`` のどちらかに（実機所見: 表示名の無い
+    種類は、保存した設計から描く図に英字のローカル名で出ていた）。"""
+    import yaml
+
+    mapping = yaml.safe_load(MAPPING_YAML.read_text(encoding="utf-8"))
+    model = yaml.safe_load((DATASET_DIR / "model.yaml").read_text(encoding="utf-8"))
+    named_in_model = {
+        curie for curie, spec in model["classes"].items() if (spec or {}).get("label")
+    }
+    unnamed = [
+        m["name"]
+        for m in mapping["maps"]
+        if not m["subject"].get("label") and m["subject"]["classes"][0] not in named_in_model
+    ]
+    assert unnamed == []
+
+
+def test_projected_ontology_carries_display_names_like_the_api_does() -> None:
+    """api の公開（_project_ontology_graph）と同じ呼び方で投影すると、
+    種類・項目に人の書いた名前が付き、ローカル名が名前の代わりに残らない。"""
+    mapping_text = MAPPING_YAML.read_text(encoding="utf-8")
+    model_text = (DATASET_DIR / "model.yaml").read_text(encoding="utf-8")
+    prefixes = STANDARD_PREFIXES | extract_prefixes(
+        (DATASET_DIR / "mapping.rml.ttl").read_text(encoding="utf-8")
+    )
+    g = project_mapping_ir(mapping_text, prefixes, class_labels=model_yaml_class_labels(model_text))
+    rdfs_label = rdflib.URIRef("http://www.w3.org/2000/01/rdf-schema#label")
+
+    def label(iri: str) -> str | None:
+        v = g.value(rdflib.URIRef(iri), rdfs_label)
+        return str(v) if v is not None else None
+
+    assert label(WORLD_NS + "Country") == "国"
+    assert label(WORLD_NS + "Observation") == "年ごとの記録"
+    assert label("http://www.w3.org/ns/prov#Activity") == "取り込みの記録"
+    assert label(WORLD_NS + "IngestionActivity") == "取り込みの記録"
+    assert label(WORLD_NS + "population") == "人口"
+    assert label(WORLD_NS + "year") == "年"
+
+
+def test_snapshot_meta_classes_are_display_names() -> None:
+    """snapshot の ``registry/meta.json`` の ``classes`` は、種類の表示名（ローカル名
+    ではない）。取り込みはこの値をそのまま写し、地図の箱の「入っている種類」・
+    データセットの詳細の「中身」の種類と件数がそれを読む（実機所見: 利用者の
+    設計は表示名なのに、見本だけ英字のローカル名が地図に出ていた）。図の箱も同じ
+    名前を ``["…"]`` ラベルで持つ — ``registry.extract_classes`` がそこから採る。"""
+    members = _extract_snapshot()
+    meta = json.loads(members["registry/meta.json"])
+    assert meta["classes"] == ["国", "年ごとの記録"]
+    assert meta["class_count"] == len(meta["classes"])
+    diagram = members["registry/diagram.md"].decode("utf-8")
+    assert 'class Country["国"]' in diagram
+    assert 'class Observation["年ごとの記録"]' in diagram

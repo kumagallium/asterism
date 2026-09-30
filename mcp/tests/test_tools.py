@@ -484,13 +484,9 @@ async def test_schema_summary_collects_classes_predicates_and_shapes() -> None:
         body = request.content.decode()
         # Per-class shape query: pins the class IRI then groups predicates.
         if f"<{cls_a}> ; ?p ?o" in body:
-            return _rows(
-                [{"p": _u("https://example.org/name"), "n": _l("5")}], ["p", "n"]
-            )
+            return _rows([{"p": _u("https://example.org/name"), "n": _l("5")}], ["p", "n"])
         if f"<{cls_b}> ; ?p ?o" in body:
-            return _rows(
-                [{"p": _u("https://example.org/size"), "n": _l("2")}], ["p", "n"]
-            )
+            return _rows([{"p": _u("https://example.org/size"), "n": _l("2")}], ["p", "n"])
         # Classes query (?s a ?cls).
         if "?s a ?cls" in body:
             assert "ORDER BY DESC(?n)" in body
@@ -638,6 +634,33 @@ async def test_schema_summary_picks_deterministic_label_when_multiple_exist() ->
 
     assert out1["classes"][0]["label"] == "Alpha"
     assert out2["classes"][0]["label"] == "Alpha"
+
+
+async def test_schema_summary_skips_label_equal_to_local_name() -> None:
+    # 投影は名前の無い語にローカル名を rdfs:label として書く。それは名前ではない
+    # ので、ローカル名しか無い語には label キーを付けない。
+    cls_a = "https://example.org/onto#Widget"
+    label_rows = [{"t": _u(cls_a), "l": _l("Widget")}]
+
+    async with _make_client(_label_handler(label_rows, cls_a)) as client:
+        out = await schema_summary(client)
+
+    assert "label" not in out["classes"][0]
+
+
+async def test_schema_summary_display_name_beats_local_name_from_other_graph() -> None:
+    # 同じ語に、ある graph はローカル名、別の graph は表示名を付けている。
+    # 辞書順では英字が先でも表示名が採られる。
+    cls_a = "http://www.w3.org/ns/prov#Activity"
+    label_rows = [
+        {"t": _u(cls_a), "l": _l("Activity")},
+        {"t": _u(cls_a), "l": _l("取り込みの記録")},
+    ]
+
+    async with _make_client(_label_handler(label_rows, cls_a)) as client:
+        out = await schema_summary(client)
+
+    assert out["classes"][0]["label"] == "取り込みの記録"
 
 
 async def test_schema_summary_no_ontology_graph_is_no_regression() -> None:
@@ -910,9 +933,7 @@ async def test_sparql_query_flattens_select_rows() -> None:
 
 async def test_sparql_query_truncates_at_max_rows() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return _rows(
-            [{"s": _u(f"https://example.org/{i}")} for i in range(5)], ["s"]
-        )
+        return _rows([{"s": _u(f"https://example.org/{i}")} for i in range(5)], ["s"])
 
     async with _make_client(handler) as client:
         out = await sparql_query("SELECT ?s WHERE { ?s ?p ?o }", client, max_rows=2)

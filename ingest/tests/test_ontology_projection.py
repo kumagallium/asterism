@@ -1,4 +1,5 @@
 """Tests for the #20 step5 TBox projector (asterism.ontology_projection)."""
+
 from __future__ import annotations
 
 import rdflib
@@ -6,6 +7,7 @@ import rdflib
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
+    model_yaml_class_labels,
     project_mapping_ir,
     project_model_yaml,
 )
@@ -445,3 +447,69 @@ def test_mapping_ir_empty_or_garbage_input_is_empty_graph() -> None:
     assert len(project_mapping_ir(": : not yaml : :", STANDARD_PREFIXES)) == 0
     assert len(project_mapping_ir("maps: not-a-list", STANDARD_PREFIXES)) == 0
     assert len(project_mapping_ir("just: a string doc", STANDARD_PREFIXES)) == 0
+
+
+_MODEL_CLASS_LABELS = """
+classes:
+  sd:Sample:
+    label: " 試料 "
+  sd:Curve:
+    description: "no label here"
+properties:
+  sd:ofSample:
+    domain: sd:Curve
+    range: sd:Sample
+"""
+
+
+def test_mapping_form_class_label_from_model_yaml_else_local_name() -> None:
+    g = project_model_yaml(_MODEL_CLASS_LABELS, _PREFIXES)
+    assert (rdflib.URIRef(SD + "Sample"), RDFS.label, rdflib.Literal("試料")) in g
+    assert (rdflib.URIRef(SD + "Curve"), RDFS.label, rdflib.Literal("Curve")) in g
+    # 項目はローカル名のまま
+    assert (rdflib.URIRef(SD + "ofSample"), RDFS.label, rdflib.Literal("ofSample")) in g
+
+
+_IR_FOR_CLASS_LABELS = f"""
+version: 1
+prefixes:
+  ir: {SD}ir#
+maps:
+- name: a
+  subject:
+    template: "x/{{id}}"
+    classes: [sd:Sample]
+    label: "IR の名前"
+  properties:
+  - predicate: sd:p
+    column: c
+- name: b
+  subject:
+    template: "y/{{id}}"
+    classes: [sd:Curve, ir:Other]
+  properties:
+  - predicate: sd:q
+    column: c
+"""
+
+
+def test_project_mapping_ir_class_labels_order_ir_then_model_then_local() -> None:
+    labels = {
+        "sd:Sample": "model の名前",  # IR の subject.label が勝つ
+        "<" + SD + "Curve>": "曲線",  # IR に無い -> model の名前（IRI 形も可）
+        "nope:Ghost": "無視される",  # 解決できないキーは捨てる
+    }
+    g = project_mapping_ir(_IR_FOR_CLASS_LABELS, _PREFIXES, class_labels=labels)
+    assert (rdflib.URIRef(SD + "Sample"), RDFS.label, rdflib.Literal("IR の名前")) in g
+    assert (rdflib.URIRef(SD + "Curve"), RDFS.label, rdflib.Literal("曲線")) in g
+    # どちらにも無い種類はローカル名
+    assert (rdflib.URIRef(SD + "ir#Other"), RDFS.label, rdflib.Literal("Other")) in g
+    assert not any("Ghost" in str(s) for s in g.subjects())
+
+
+def test_model_yaml_class_labels_empty_for_list_form_and_broken_yaml() -> None:
+    assert model_yaml_class_labels(_MODEL) == {}
+    assert model_yaml_class_labels("classes: [unclosed") == {}
+    assert model_yaml_class_labels("classes: [a, b]") == {}
+    assert model_yaml_class_labels("") == {}
+    assert model_yaml_class_labels(_MODEL_CLASS_LABELS) == {"sd:Sample": "試料"}

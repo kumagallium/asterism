@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -561,7 +562,8 @@ async def class_label(client: SupportsSparql, registry_root: Path | None, class_
     if safe_class_iri is None:
         return _fallback_label(class_iri)
     if registry_root is not None:
-        label = _model_yaml_class_label(registry_root, safe_class_iri)
+        # registry の走査は同期のファイル読み — 呼ぶ側のイベントループを止めない。
+        label = await asyncio.to_thread(_model_yaml_class_label, registry_root, safe_class_iri)
         if label:
             return label
     label = await _ontology_class_label(client, safe_class_iri)
@@ -571,6 +573,53 @@ async def class_label(client: SupportsSparql, registry_root: Path | None, class_
     if label:
         return label
     return _fallback_label(safe_class_iri)
+
+
+def _designed_label(prop: PropertyView, edit: dict[str, Any]) -> str | None:
+    """設計が 1 行に付けた名前。読み順: 人が直した表示名（display-meta）→
+    行の表示名 → つなぐ先の種類の表示名（``link_label``）。どれも無ければ
+    ``None``（読みくだしは呼ぶ側が決める）。"""
+    return edit.get("label") or prop.label or prop.link_label or None
+
+
+def class_property_labels(registry_root: Path | None, class_iri: str) -> dict[str, str]:
+    """``{述語 IRI: 設計が付けた名前}`` — この種類を持つデータセットの設計だけから
+    （ストアも読みくだしも使わない。同期のファイル読み）。
+
+    1 件のページの「事実」の表のように、述語だけで名前を引く読み手のため。
+    オントロジーの ``rdfs:label`` は述語そのものの名前（データセットをまたいで
+    共有され、名前の無い行にはローカル名が入る）なので、この種類の行の名前には
+    ならない。同じ述語の行が複数あって名前が割れる（または名前の無い行がある）
+    ときは付けない — 別の行の名前を借りない。人が直した名前も、その行のものだけ
+    （列を読む行は同じ列の直し、列の無い行は列の無い直し）を使う。
+    """
+    safe_class_iri = _safe_iri(class_iri)
+    if registry_root is None or safe_class_iri is None:
+        return {}
+    match = _find_owning_dataset(registry_root, safe_class_iri)
+    if match is None:
+        return {}
+    edits = _load_display_meta(registry_root / match.dataset_id)
+    by_column, _ = _index_display_meta(edits, match.prefixes)
+    _, without_column = _index_display_meta(
+        [e for e in edits if not e.get("column")], match.prefixes
+    )
+    names: dict[str, set[str | None]] = {}
+    for tm in match.maps:
+        for prop in tm.properties:
+            if not prop.predicate:
+                continue
+            pred_iri = _expand(prop.predicate, match.prefixes)
+            if prop.column:
+                edit = by_column.get((pred_iri, prop.column)) or {}
+            else:
+                edit = without_column.get(pred_iri) or {}
+            names.setdefault(pred_iri, set()).add(_designed_label(prop, edit))
+    return {
+        pred: next(iter(found))
+        for pred, found in names.items()
+        if len(found) == 1 and next(iter(found))
+    }
 
 
 async def _build_property(
@@ -604,7 +653,7 @@ async def _build_property(
     column = prop.column
     edit = by_column.get((pred_iri, column or "")) or by_predicate.get(pred_iri) or {}
 
-    label = edit.get("label") or prop.label or _fallback_label(pred_iri)
+    label = _designed_label(prop, edit) or _fallback_label(pred_iri)
     unit = _normalize_unit(edit.get("unit") or prop.unit or None)
     datatype = prop.datatype
 

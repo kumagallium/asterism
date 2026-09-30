@@ -311,14 +311,14 @@ async def test_schema_summary_enriches_with_ontology_labels() -> None:
     tbox = f"""
     @prefix sd: <{SD}> .
     @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-    sd:Sample rdfs:label "Sample" .
+    sd:Sample rdfs:label "試料" .
     sd:fromPaper rdfs:label "from paper" .
     """
     out = await schema_summary(
         _ds_client({canonical_graph_iri("ds1"): abox, ontology_graph_iri("ds1"): tbox})
     )
     cls = next(c for c in out["classes"] if c["iri"] == f"{SD}Sample")
-    assert cls["label"] == "Sample"  # class label from the ontology graph
+    assert cls["label"] == "試料"  # class label from the ontology graph
     pred = next(p for p in out["predicates"] if p["iri"] == f"{SD}fromPaper")
     assert pred["label"] == "from paper"  # predicate label from the ontology graph
 
