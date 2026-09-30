@@ -9,6 +9,7 @@
 import type { DatasetNamespaceInfo, MappingSkeleton, SkeletonMap, SkeletonSubject } from './api'
 import { compactClass, expandClass } from './datasetNamespace'
 import { classNameFromLabel } from './kantan/asciiNames'
+import type { Shape, ShapeEdge } from './shapeGraph'
 
 /** テンプレートの `{列名}` を並び順のまま取り出す（ID を決めている列）。 */
 export function keyColumnsOf(map: SkeletonMap): string[] {
@@ -186,6 +187,83 @@ export function catalogLinkEdges(opts: {
     if (holder) push(holder.name, m.name)
   }
   return edges
+}
+
+/** 別々のファイルで**同じ種類**を共有する受け口のかたまり（ADR kantan K62）。
+ *
+ *  同じ種類 = 受け口（1 列キー）で、ID の頭（テンプレートの `{` より前）と種類名
+ *  （`classes`）が同じもの。同じ値は同じ IRI になり、ファイルをまたいで 1 件に
+ *  まとまる。④で同じ意味の列に ☑ を付けると、組み立てがこの形を作る。サーバの
+ *  注釈 `shared_kind` と同じ読みだが、骨格だけから出す — 「別々にする」を押した
+ *  瞬間に図が変わるように。同じファイルの中の重なりは双子（`twinKindNames`）の
+ *  領分なので、2 つ以上のファイルにまたがるものだけ返す。 */
+export function sharedKindGroups(
+  maps: readonly SkeletonMap[],
+  isCatalog: (m: SkeletonMap) => boolean,
+): string[][] {
+  const groups = new Map<string, SkeletonMap[]>()
+  for (const m of maps) {
+    const template = m.subject.template ?? ''
+    if (!isCatalog(m) || keyColumnsOf(m).length !== 1) continue
+    const sig = [template.slice(0, template.indexOf('{')), ...(m.subject.classes ?? [])].join(
+      '\u0000',
+    )
+    groups.set(sig, [...(groups.get(sig) ?? []), m])
+  }
+  return [...groups.values()]
+    .filter((g) => new Set(g.map((m) => m.source)).size > 1)
+    .map((g) => g.map((m) => m.name))
+}
+
+/** 同じ種類の箱を 1 つに畳む。残すのはかたまりの先頭で、ほかのメンバーへの線は
+ *  先頭へ付け替える（同じ線は 1 本）。図は「種類」を描くもので、map（ファイルごとの
+ *  読み方）を描くものではない — 同じ種類が 2 つの箱に見えると、つながっていない
+ *  別物に読める（利用者指摘 2026-09-30）。 */
+export function mergeSharedKinds(shape: Shape, groups: readonly (readonly string[])[]): Shape {
+  const lead = new Map<string, string>()
+  for (const g of groups) for (const name of g.slice(1)) lead.set(name, g[0])
+  if (lead.size === 0) return shape
+  const to = (id: string) => lead.get(id) ?? id
+  const seen = new Set<string>()
+  const edges: ShapeEdge[] = []
+  for (const e of shape.edges) {
+    const moved = { ...e, from: to(e.from), to: to(e.to) }
+    const key = `${moved.from}\u0000${moved.to}\u0000${moved.pending ? 1 : 0}`
+    if (moved.from === moved.to || seen.has(key)) continue
+    seen.add(key)
+    edges.push(moved)
+  }
+  return { nodes: shape.nodes.filter((n) => !lead.has(n.id)), edges }
+}
+
+/** 同じ種類を共有している受け口を、**自分だけの種類**に戻す（K62 の逃げ道）。
+ *  ID の頭と種類名を自分の map 名から作り直す — `splitSharedConcept` が新しい
+ *  種類に付けるのと同じ形。表示名はそのまま（名前は②で直せる）。 */
+export function separateSharedKind(skeleton: MappingSkeleton, name: string): MappingSkeleton {
+  return {
+    ...skeleton,
+    maps: skeleton.maps.map((m) => {
+      if (m.name !== name) return m
+      const template = m.subject.template ?? ''
+      const key = keyColumnsOf(m)[0]
+      if (!key) return m
+      const cls = m.subject.classes?.[0] ?? ''
+      const classPrefix = cls.includes(':') ? cls.slice(0, cls.indexOf(':') + 1) : ''
+      const pascal = m.name
+        .split('_')
+        .filter(Boolean)
+        .map((w) => w[0].toUpperCase() + w.slice(1))
+        .join('')
+      return {
+        ...m,
+        subject: {
+          ...m.subject,
+          template: `${subjectHead(template)}${m.name}/{${key}}`,
+          classes: classPrefix ? [`${classPrefix}${pascal}`] : (m.subject.classes ?? []),
+        },
+      }
+    }),
+  }
 }
 
 /** 新しい種類の住所の頭。親の下ではなくデータセットの根に置く — 最後の

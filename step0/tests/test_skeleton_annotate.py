@@ -1484,3 +1484,84 @@ def test_catalog_home_prefers_the_fewest_entities_and_skips_the_unprovable(
     assert ann["category"]["catalog_home"] == "card"
     assert ann["brand"]["catalog_home"] == "record"
     assert "catalog_home" not in ann["ghost"]
+
+
+def _two_files_with_composition(tmp_path: Path, second_column: str = "composition") -> list[Path]:
+    curves = tmp_path / "curves.csv"
+    curves.write_text(
+        "sample_id,composition,x,y\nS1,Bi2Te3,1,2\nS2,Bi2Te3,2,3\nS3,PbTe,1,5\n",
+        encoding="utf-8",
+    )
+    samples = tmp_path / "samples.csv"
+    samples.write_text(
+        f"SID,{second_column},sample_name\nP1,Bi2Te3,a\nP2,SnSe,b\nP3,GeTe,c\n",
+        encoding="utf-8",
+    )
+    return [curves, samples]
+
+
+def test_same_meaning_checked_in_two_files_is_one_kind(tmp_path: Path) -> None:
+    """K62: 同じ意味の列を別々のファイルで ☑ すると、受け口は同じ種類になる —
+    ID の頭・種類名・表示名を共有し、同じ値はファイルをまたいで同じ IRI。"""
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+    )
+    maps = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert len(maps) == 2
+    first, second = maps
+    assert first["name"] != second["name"]  # map は別（ファイルごと）
+    assert first["subject"]["template"] == second["subject"]["template"]
+    assert first["subject"]["classes"] == second["subject"]["classes"]
+    assert first["subject"]["label"] == second["subject"]["label"]
+
+    ann = annotate_skeleton(out["skeleton"], paths)["maps"]
+    shared = ann[second["name"]]["shared_kind"]
+    assert shared == ann[first["name"]]["shared_kind"]
+    assert shared["members"] == [first["name"], second["name"]]
+    assert shared["distinct_ids"] == 4  # Bi2Te3 / PbTe / SnSe / GeTe
+    assert shared["shared_values"] == 1  # Bi2Te3 だけが両方に出る
+
+
+def test_same_meaning_under_different_column_names_is_one_kind(tmp_path: Path) -> None:
+    """列名が違っても、③の意味（表示名）が同じなら同じ種類。"""
+    paths = _two_files_with_composition(tmp_path, second_column="組成")
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "組成"},
+        ],
+        labels={("curves.csv", "composition"): "組成", ("samples.csv", "組成"): "組成 "},
+    )
+    heads = {
+        m["subject"]["template"].split("{")[0]
+        for m in out["skeleton"]["maps"]
+        if len(m.get("owns") or []) == 1 and m["owns"][0] in ("composition", "組成")
+    }
+    assert len(heads) == 1
+
+
+def test_different_meanings_stay_different_kinds(tmp_path: Path) -> None:
+    """意味が違えば、列名が同じでも別の種類のまま（shared_kind も付かない）。"""
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+        labels={
+            ("curves.csv", "composition"): "測定した組成",
+            ("samples.csv", "composition"): "仕込み組成",
+        },
+    )
+    maps = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert maps[0]["subject"]["template"] != maps[1]["subject"]["template"]
+    assert maps[0]["subject"]["classes"] != maps[1]["subject"]["classes"]
+    ann = annotate_skeleton(out["skeleton"], paths)["maps"]
+    assert all("shared_kind" not in ann[m["name"]] for m in maps)

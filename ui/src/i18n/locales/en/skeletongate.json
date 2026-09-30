@@ -154,5 +154,15 @@
   "idLineProvisional": "ID: {{keys}} (provisional — machine guess)",
   "backToLinks": "← Back to ④ to change the ☑",
   "sourceRowsNote": " (source file: {{rows}} rows)",
-  "fixRethink": "Let the AI rethink"
+  "fixRethink": "Let the AI rethink",
+  "sharedKind": {
+    "fileLine_one": "Appears in {{count}} file",
+    "fileLine_other": "Appears in {{count}} files",
+    "note_one": "“{{name}}” means the same thing in {{count}} file, so it is one kind.",
+    "note_other": "“{{name}}” means the same thing in {{count}} files, so they are one kind. The same value becomes one record across files.",
+    "evidence_one": "{{count}} value appears in more than one file.",
+    "evidence_other": "{{count}} values appear in more than one file.",
+    "noEvidence": "No value appears in more than one file yet. If they are different things, separate them.",
+    "separate": "Make them separate kinds"
+  }
 }

@@ -7038,6 +7038,18 @@ button.ds-artifact:disabled {
   font-size: 0.85rem;
 }
 
+/* 同じ意味の ☑ を 1 つの種類にまとめたことの説明と、戻す道（K62）。 */
+.skeleton-shared-kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.skeleton-shared-kind p {
+  margin: 0;
+  flex: 1 1 320px;
+}
+
 /* ①の帯（ADR kind-splitting D2/D4）: 相談 2 本と「同じ ID で種類を足す」。
    表のすぐ上に置く — 疑問が生まれる場所と、頼む場所を離さない。 */
 .skeleton-zone-graph {

@@ -14,11 +14,14 @@ import {
   kindFieldValue,
   catalogLinkEdges,
   kindNamesByClass,
+  mergeSharedKinds,
   kindLabelEdit,
   pendingLinkEdges,
   promoteColumnToKind,
   sameIdKind,
   sameIdSiblings,
+  separateSharedKind,
+  sharedKindGroups,
   slugMapName,
   twinKindNames,
 } from './skeletonKinds'
@@ -529,5 +532,56 @@ describe('catalogLinkEdges — ⑤の点線は全ファイルの受け口に引�
       ['curve', 'composition'],
       ['sample_info', 'composition2'],
     ])
+  })
+})
+
+describe('sharedKindGroups / mergeSharedKinds / separateSharedKind — 同じ意味の受け口は 1 つの種類（K62）', () => {
+  const at = (name: string, source: string, template: string, owns?: string[]): SkeletonMap => ({
+    name,
+    source,
+    subject: { template, classes: [`xo:${template.split(':')[1].split('/')[0]}`] },
+    ...(owns ? { owns } : {}),
+  })
+  const maps = [
+    at('record', 'curves.csv', 'xr:record/{sample_id}'),
+    at('composition', 'curves.csv', 'xr:composition/{composition}', ['composition']),
+    at('record2', 'samples.csv', 'xr:record2/{SID}'),
+    at('composition2', 'samples.csv', 'xr:composition/{composition}', ['composition']),
+  ]
+  const isCatalog = (m: SkeletonMap) => (m.owns ?? []).length === 1
+
+  it('ID の頭と種類名が同じ・ファイルが違う受け口を 1 つのかたまりにする', () => {
+    expect(sharedKindGroups(maps, isCatalog)).toEqual([['composition', 'composition2']])
+  })
+
+  it('同じファイルの中の重なりは双子の領分なので、かたまりにしない', () => {
+    const same = maps.map((m) => (m.name === 'composition2' ? { ...m, source: 'curves.csv' } : m))
+    expect(sharedKindGroups(same, isCatalog)).toEqual([])
+  })
+
+  it('図では先頭の箱に畳み、ほかのメンバーへの線を付け替える', () => {
+    const merged = mergeSharedKinds(
+      {
+        nodes: maps.map((m) => ({ id: m.name, label: m.name, tone: 'record' as const })),
+        edges: [
+          { from: 'record', to: 'composition', pending: true },
+          { from: 'record2', to: 'composition2', pending: true },
+        ],
+      },
+      [['composition', 'composition2']],
+    )
+    expect(merged.nodes.map((n) => n.id)).toEqual(['record', 'composition', 'record2'])
+    expect(merged.edges).toEqual([
+      { from: 'record', to: 'composition', pending: true },
+      { from: 'record2', to: 'composition', pending: true },
+    ])
+  })
+
+  it('「別々の種類にする」で、自分の map 名から ID の頭と種類名を作り直す', () => {
+    const next = separateSharedKind({ version: 1, prefixes: {}, maps }, 'composition2')
+    const m = next.maps.find((x) => x.name === 'composition2')!
+    expect(m.subject.template).toBe('xr:composition2/{composition}')
+    expect(m.subject.classes).toEqual(['xo:Composition2'])
+    expect(sharedKindGroups(next.maps, isCatalog)).toEqual([])
   })
 })
