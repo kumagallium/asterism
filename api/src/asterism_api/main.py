@@ -44,6 +44,9 @@ from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
 import httpx
 import yaml
 from asterism import (
+    class_schema as class_schema_mod,
+)
+from asterism import (
     crosswalk,
     crosswalk_discover,
     crosswalk_runtime,
@@ -1841,21 +1844,85 @@ def _iri_local_name(iri: str) -> str:
     return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
 
 
-def _overlay_kind_labels(labels: dict[str, str], mapping_ir_yaml: str) -> None:
-    """IR の ``subject.label``（種類の表示名）を、model.yaml 由来の ``labels`` に重ねる。
+def _authored_kind_labels(mapping_ir_yaml: str) -> dict[str, str]:
+    """この設計の IR が種類に付けた表示名（``subject.label``）だけを返す。
 
-    model.yaml の投影が付ける種類の ``rdfs:label`` はクラスのローカル名（機械が
-    作る符号つきの名前になり得る）。人向けの画面（ためす・公開の確認・公開後）は
-    ``labels[class_iri]`` を読むので、IR に表示名がある種類はそちらを優先する。
-    IR が無い・読めない・表示名が無い種類は今までどおり（best-effort）。
+    表示名の無い種類は入れない — :func:`_ir_field_labels` はそこをローカル名で
+    埋めるが、それは設計が選んだ言葉ではない。IR が無い・読めないときは空。
     """
     if not mapping_ir_yaml.strip():
-        return
-    with contextlib.suppress(Exception):
+        return {}
+    try:
         _fields, kinds = _ir_field_labels(mapping_ir_yaml)
-        for iri, word in kinds.items():
-            if word and word != _iri_local_name(iri):
-                labels[iri] = word
+    except Exception:
+        return {}
+    return {iri: word for iri, word in kinds.items() if word and word != _iri_local_name(iri)}
+
+
+async def _kind_labels(
+    client: Any,
+    registry_root: Path,
+    mapping_ir_yaml: str,
+    class_iris: Collection[str],
+) -> dict[str, str]:
+    """種類の表示名（``class_iri -> 名前``）。/rules と /trial-queries が共に通る。
+
+    読み順: この設計の IR の ``subject.label``（公開する前の設計の名前はここに
+    しか無い）→ :func:`asterism.class_schema.class_label`（ワークスペースと同じ
+    1 関数: registry の model.yaml の ``classes.<curie>.label`` → オントロジーの
+    graph → ハブの graph → ローカル名の読みくだし）。
+
+    model.yaml の投影（:func:`_model_yaml_labels`）が種類に付ける ``rdfs:label`` は
+    いつもローカル名で、model.yaml に書いてある表示名を読まない。だから IR に
+    表示名が無く model.yaml にある設計の種類は、``labels[class_iri]`` を読む図
+    （共通の言葉・データセットの詳細・ためす）でだけ、ワークスペースと違う名前に
+    なっていた。
+
+    best-effort — 引けなかった種類と、ローカル名がそのまま返ってきた種類は結果に
+    入れない（呼ぶ側に元からある値が残る）。どこにも名前が無い種類に返ってくる
+    読みくだしは、ローカル名と違うときだけ入れる — ワークスペースと同じ名前で、
+    :func:`_humanize_term_iri` と同じ線引き。
+
+    名前は並行に引く。ストアの応答が遅いときに、種類の数だけ待ちを積まない。
+    """
+    authored = _authored_kind_labels(mapping_ir_yaml)
+    wanted = [iri for iri in dict.fromkeys(class_iris) if iri]
+    asked = [iri for iri in wanted if iri not in authored]
+    answers = await asyncio.gather(
+        *(class_schema_mod.class_label(client, registry_root, iri) for iri in asked),
+        return_exceptions=True,
+    )
+    looked_up: dict[str, str] = {}
+    failed: list[BaseException] = []
+    for iri, answer in zip(asked, answers, strict=True):
+        if isinstance(answer, BaseException):
+            failed.append(answer)
+        elif answer:
+            looked_up[iri] = answer
+    if failed:
+        logger.warning(
+            "kind label lookup failed for %d of %d kinds (continuing)",
+            len(failed),
+            len(asked),
+            exc_info=failed[0],
+        )
+    out: dict[str, str] = {}
+    for iri in wanted:
+        word = authored.get(iri) or looked_up.get(iri)
+        if word and word != _iri_local_name(iri):
+            out[iri] = word
+    return out
+
+
+def _rule_class_iris(summary: dict) -> list[str]:
+    """取り込みルールの投影（:func:`summarize_rml`）に出てくる種類の IRI（出てきた順）。"""
+    seen: list[str] = []
+    for entry in summary.get("maps") or []:
+        subject = entry.get("subject") if isinstance(entry, dict) else None
+        for iri in (subject.get("class_iris") if isinstance(subject, dict) else None) or []:
+            if isinstance(iri, str) and iri and iri not in seen:
+                seen.append(iri)
+    return seen
 
 
 def _ir_field_labels(mapping_ir_yaml: str) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
@@ -6904,10 +6971,9 @@ def build_app(
         mie_yaml = str(artifacts.get("mie.yaml") or "")
         mapping_ir_yaml = str(artifacts.get("mapping.yaml") or "")
 
-        def run() -> dict[str, object]:
+        def run() -> tuple[dict, dict[str, str]]:
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
-            _overlay_kind_labels(labels, mapping_ir_yaml)
             ir_meta: dict[str, dict[str, str]] = {}
             by_column: dict[tuple[str, str], dict[str, str]] = {}
             if mapping_ir_yaml.strip():
@@ -6919,9 +6985,16 @@ def build_app(
             # Deterministic last resorts (source column, then the term IRI read
             # as words) so a design that skipped K8's labels still reads.
             _fill_missing_labels(summary, labels, ir_meta, by_column)
-            return {"dataset_id": dataset_id, **summary, "labels": labels}
+            return summary, labels
 
-        return await asyncio.to_thread(run)
+        summary, labels = await asyncio.to_thread(run)
+        # 種類の名前は、ワークスペースと同じ読み手で引く（:func:`_kind_labels`）。
+        labels.update(
+            await _kind_labels(
+                app.state.client, cfg.registry_root, mapping_ir_yaml, _rule_class_iris(summary)
+            )
+        )
+        return {"dataset_id": dataset_id, **summary, "labels": labels}
 
     @app.get("/api/datasets/{dataset_id}/source-samples")
     async def get_dataset_source_samples(dataset_id: str) -> dict[str, object]:
@@ -7760,16 +7833,16 @@ def build_app(
         if not (meta.get("ingested") or meta.get("promoted")):
             return out
 
-        # Display enrichment — the same two sources /rules merges: the IR's
-        # reviewed label/unit per predicate + the model.yaml rdfs:labels
-        # (classes AND predicates). Both deterministic; both optional.
+        # Display enrichment — the same sources /rules merges: the IR's
+        # reviewed label/unit per predicate + the model.yaml rdfs:labels, and
+        # for the kinds the shared reader (:func:`_kind_labels`, below).
+        # All deterministic; all optional.
         def display_meta() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
             labels = _model_yaml_labels(
                 str(artifacts.get("model.yaml") or ""),
                 str(artifacts.get("mapping.rml.ttl") or ""),
                 str(artifacts.get("mie.yaml") or ""),
             )
-            _overlay_kind_labels(labels, str(artifacts.get("mapping.yaml") or ""))
             try:
                 ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
             except Exception:
@@ -7835,6 +7908,16 @@ def build_app(
         rows = await select(count_q)
         if rows is None:
             return out  # store down → available: false, the UI offers retry
+        kind_names = await _kind_labels(
+            client,
+            cfg.registry_root,
+            str(artifacts.get("mapping.yaml") or ""),
+            [
+                str((b.get("class") or {}).get("value") or "")
+                for b in rows
+                if (b.get("class") or {}).get("type") == "uri"
+            ],
+        )
         classes: list[dict[str, object]] = []
         for b in rows:
             cls = b.get("class") or {}
@@ -7846,7 +7929,7 @@ def build_app(
             except (TypeError, ValueError):
                 continue
             entry: dict[str, object] = {"iri": cls["value"], "n": n}
-            got = label_of(str(cls["value"]))
+            got = kind_names.get(str(cls["value"])) or label_of(str(cls["value"]))
             if got:
                 entry["label"] = got
             classes.append(entry)

@@ -102,6 +102,21 @@ describe('composeVocabGraph', () => {
     expect(symbol.fields!.map((f) => f.name)).toEqual(['symbol'])
   })
 
+  it('種類の箱の名前は API が引いた名前（labels）で、無いときだけローカル名', () => {
+    // 名前の読み順は api にある（ワークスペースと同じ読み手）。図は受け取った名前を
+    // そのまま出す — ここで別の読み順を持つと、画面ごとに名前が食い違う。
+    const named = rules([rmap(NS, 'record'), rmap(NS, 'symbol')], {
+      [`${NS}record`]: '年ごとの記録',
+    })
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'pt', name: '元素表', rules: named }],
+      classCounts: { [`${NS}record`]: 238 },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === 'pt::record')!.label).toBe('年ごとの記録（238件）')
+    expect(shape.nodes.find((n) => n.id === 'pt::symbol')!.label).toBe('symbol')
+  })
+
   it('既知名前空間の述語は「使っている」、配管は描かない', () => {
     const shape = composeVocabGraph({
       datasets: [{ id: 'x', name: 'XRD', rules: xrd() }],
