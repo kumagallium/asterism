@@ -162,14 +162,13 @@ async def _hub_of_or_none(client: Any, iri: str) -> dict[str, Any] | None:
 
 
 #: :func:`asterism_api.crosswalk_names.perspective_display_name` の
-#: ``(predicate_label_of, field_label_of, class_label_of)`` を返す作り手の型
+#: ``(predicate_label_of, field_label_of)`` を返す作り手の型
 #: （``asterism_api.main._crosswalk_label_resolvers`` と同じ形）。
 LabelResolvers = Callable[
     [Any],
     tuple[
         Callable[[str, str], "str | None"],
         Callable[[str, str, "str | None"], "str | None"],
-        Callable[[str, str], "str | None"],
     ],
 ]
 
@@ -179,7 +178,6 @@ def _no_op_label_resolvers(
 ) -> tuple[
     Callable[[str, str], str | None],
     Callable[[str, str, str | None], str | None],
-    Callable[[str, str], str | None],
 ]:
     """``label_resolvers`` 省略時の既定（単体テストなど main.py を経由しない
     呼び出し向け）。項目の表示名が 1 件も引けない場合と同じ挙動 — R2 は
@@ -193,7 +191,7 @@ def _no_op_label_resolvers(
     def _none3(_a: str, _b: str, _c: str | None) -> str | None:
         return None
 
-    return _none2, _none3, _none2
+    return _none2, _none3
 
 
 def _hub_perspective_name(
@@ -207,7 +205,7 @@ def _hub_perspective_name(
     変換してから meta / config を読む。"""
     meta = crosswalk_names.load_perspective_meta(registry_root, perspective_id)
     config = crosswalk_runtime.load_config(registry_root, perspective_id)
-    predicate_label_of, field_label_of, _class_label_of = label_resolvers(registry_root)
+    predicate_label_of, field_label_of = label_resolvers(registry_root)
     return crosswalk_names.perspective_display_name(
         meta, config, perspective_id, field_label_of, predicate_label_of
     )
@@ -228,7 +226,7 @@ async def _class_label_or_hub(
     hub_class_index` で作って渡す（このモジュールでは読み直さない）。"""
     config = hub_index.get(class_iri)
     if config is not None:
-        predicate_label_of, field_label_of, _class_label_of = resolve_labels(registry_root)
+        predicate_label_of, field_label_of = resolve_labels(registry_root)
         return crosswalk_names.hub_class_display_name(
             class_iri, config, field_label_of, predicate_label_of
         )
