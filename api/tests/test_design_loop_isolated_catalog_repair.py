@@ -208,3 +208,149 @@ def test_repair_design_manual_path_reaches_the_same_result(tmp_path: Path) -> No
     ]
     assert len(added) == 1
     assert added[0]["predicate"] == "ex:hasBookTitle"
+
+
+# --- K58: リンクは、その列を元々持っていた種類が持つ -----------------------------
+
+
+def _home_spec(maps: list[dict]) -> str:
+    """K58 用の spec。maps をそのまま §9 の YAML にする。"""
+    doc = {
+        "version": 1,
+        "prefixes": {
+            "ex": "https://ns.invalid/ns#",
+            "exr": "https://ns.invalid/r/",
+            "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+            "dcterms": "http://purl.org/dc/terms/",
+        },
+        "maps": maps,
+    }
+    body = yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
+    return "## Schema proposal\n\n### 9. Declarative mapping spec\n\n```yaml\n" + body + "```\n"
+
+
+def _links_to(maps: dict[str, dict], target: str) -> list[str]:
+    return [
+        name
+        for name, m in maps.items()
+        for p in m.get("properties") or []
+        if p.get("object_template") == target
+    ]
+
+
+def test_the_home_of_a_preface_column_is_the_card_not_the_busiest_map(tmp_path: Path) -> None:
+    (tmp_path / "data.csv").write_bytes(
+        b"CardNo,Title,Category,Food,Amount\n"
+        b"C1,Soup,Stew,carrot,1\nC1,Soup,Stew,potato,2\nC1,Soup,Stew,onion,1\n"
+    )
+    schema_md = _home_spec(
+        [
+            {
+                "name": "card",
+                "source": "data.csv",
+                "subject": {"template": "exr:card/{CardNo}", "classes": ["ex:Card"]},
+                "properties": [{"predicate": "ex:title", "column": "Title"}],
+            },
+            {
+                "name": "record",
+                "source": "data.csv",
+                "subject": {"template": "exr:record/{CardNo}/{Food}", "classes": ["ex:Record"]},
+                "properties": [
+                    {"predicate": "ex:amount", "column": "Amount"},
+                    {"predicate": "dcterms:isPartOf", "object_template": "exr:card/{CardNo}"},
+                ],
+            },
+            {
+                "name": "category",
+                "source": "data.csv",
+                "subject": {"template": "exr:category/{Category}", "classes": ["ex:Category"]},
+                "properties": [{"predicate": "rdfs:label", "column": "Category"}],
+            },
+        ]
+    )
+    _, before = _verdict(schema_md, tmp_path)
+    assert any("DISCONNECTED groups" in i.message for i in before)
+
+    repaired, _, after = _evaluate(schema_md, tmp_path)
+    maps = _maps(repaired)
+    assert _links_to(maps, "exr:category/{Category}") == ["card"]
+    added = [
+        p
+        for p in maps["card"]["properties"]
+        if p.get("object_template") == "exr:category/{Category}"
+    ]
+    assert added[0]["predicate"] == "ex:hasCategory"
+    assert not any("DISCONNECTED groups" in i.message for i in after)
+
+
+def test_the_home_of_a_table_column_is_the_row_kind_even_when_the_card_is_busier(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "data.csv").write_bytes(
+        b"CardNo,Dish,Servings,Source,Food,Brand\n"
+        b"C1,Curry,4,Book,carrot,A\nC1,Curry,4,Book,potato,B\nC1,Curry,4,Book,onion,A\n"
+    )
+    schema_md = _home_spec(
+        [
+            {
+                "name": "card",
+                "source": "data.csv",
+                "subject": {"template": "exr:card/{CardNo}", "classes": ["ex:Card"]},
+                "properties": [
+                    {"predicate": "ex:dish", "column": "Dish"},
+                    {"predicate": "ex:servings", "column": "Servings"},
+                    {"predicate": "ex:source", "column": "Source"},
+                ],
+            },
+            {
+                "name": "record",
+                "source": "data.csv",
+                "subject": {"template": "exr:record/{CardNo}/{Food}", "classes": ["ex:Record"]},
+                "properties": [
+                    {"predicate": "ex:food", "column": "Food"},
+                    {"predicate": "dcterms:isPartOf", "object_template": "exr:card/{CardNo}"},
+                ],
+            },
+            {
+                "name": "brand",
+                "source": "data.csv",
+                "subject": {"template": "exr:brand/{Brand}", "classes": ["ex:Brand"]},
+                "properties": [{"predicate": "rdfs:label", "column": "Brand"}],
+            },
+        ]
+    )
+    repaired, _, _ = _evaluate(schema_md, tmp_path)
+    maps = _maps(repaired)
+    assert _links_to(maps, "exr:brand/{Brand}") == ["record"]
+    added = [
+        p
+        for p in maps["record"]["properties"]
+        if p.get("object_template") == "exr:brand/{Brand}"
+    ]
+    assert added[0]["predicate"] == "ex:hasBrand"
+
+
+def test_catalog_home_among_falls_back_to_property_count_without_rows() -> None:
+    from asterism_api.design_loop import _catalog_home_among
+
+    a = {"name": "a", "subject": {"template": "x:a/{K}"}, "properties": [{}]}
+    b = {"name": "b", "subject": {"template": "x:b/{K}/{J}"}, "properties": [{}, {}, {}]}
+    c = {"name": "c", "subject": {"template": "x:c/{Z}"}, "properties": [{}, {}, {}]}
+    assert _catalog_home_among([a, b, c], "X", None)["name"] == "b"  # 最多
+    assert _catalog_home_among([a, b, c], "X", [])["name"] == "b"
+    # 同点は先頭
+    assert _catalog_home_among([c, b], "X", None)["name"] == "c"
+    # rows があっても、どの鍵も列を決めない（X が鍵ごとにばらばら）ならプロパティ数に落ちる
+    rows = [
+        {"K": "1", "J": "1", "Z": "1", "X": "p"},
+        {"K": "1", "J": "2", "Z": "1", "X": "q"},
+        {"K": "2", "J": "1", "Z": "1", "X": "r"},
+    ]
+    assert _catalog_home_among([a, b, c], "X", rows)["name"] == "b"
+    # 鍵が列を決めるなら、件数最少が勝つ（b: 3 種 / a: K で決まる → 2 種）
+    rows2 = [
+        {"K": "1", "J": "1", "Z": "1", "X": "p"},
+        {"K": "1", "J": "2", "Z": "2", "X": "p"},
+        {"K": "2", "J": "1", "Z": "3", "X": "q"},
+    ]
+    assert _catalog_home_among([b, a], "X", rows2)["name"] == "a"

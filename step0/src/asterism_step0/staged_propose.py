@@ -381,6 +381,50 @@ def _lower_camel(name: str) -> str:
     return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
 
 
+def has_predicate_local(catalog_name: str) -> str:
+    """``space_group`` → ``hasSpaceGroup`` — 受け口へのリンクの述語のローカル名。
+
+    api の K49 の修理（``_link_isolated_value_catalogs``）が付けるのと同じ形
+    （``has`` + PascalCase）。決定論の組み立てが同じ名前を付けるので、同じ ☑ から
+    どちらの経路で辺が生まれても述語は 1 つ。受け口自身の値の述語
+    （``{onto}:{列名の lowerCamel}``・``default_property_table``）とも重ならない —
+    受け口の map 名は列名から作るので、lowerCamel だと同じ述語が IRI と
+    リテラルの両方に使われる。
+    """
+    parts = [w for w in re.split(r"[^0-9A-Za-z]+", str(catalog_name)) if w]
+    return "has" + ("".join(w[:1].upper() + w[1:] for w in parts) or "Value")
+
+
+def catalog_link_row(
+    catalog_name: str,
+    subject_template: str,
+    *,
+    ontology_prefix: str,
+    label: str | None = None,
+    predicate_local: str | None = None,
+) -> dict[str, Any]:
+    """「☑ した列の受け口」へ機械が引くリンクの 1 行（K33 / K58）。
+
+    述語は ``{ontology}:{predicate_local}`` — 省略時は受け口の map 名の lowerCamel
+    （K33 の LLM 経路が今まで付けてきた名前）。行き先は受け口の subject template、
+    label は受け口の表示名（``subject.label``）— 無ければ map 名。map 名は、英字に
+    できない列から作ると符号つき（value_389a00）になるので、表示名があるときは
+    必ずそちらを使う。決定論で label を付けておかないと、この機械の辺 1 本の
+    ために label-fill の LLM ラウンドが走る。
+
+    決定論の組み立て（``propose_from_skeleton(deterministic=True)``）と、LLM 経路の
+    ``_generate_map_properties_gated`` が**同じ 1 行**を書く — 2 か所に式を持つと、
+    同じ ☑ から違う形の辺が出る。
+    """
+    local = (predicate_local or "").strip() or _lower_camel(str(catalog_name)) or "linkedEntity"
+    predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
+    return {
+        "predicate": predicate,
+        "object_template": subject_template,
+        "label": str(label or "").strip() or str(catalog_name),
+    }
+
+
 def ensure_value_catalog_labels(
     ir: Mapping[str, Any],
     owns_by_map: Mapping[str, Sequence[str]] | None = None,
@@ -3617,6 +3661,7 @@ def _generate_map_properties_gated(
     on_fallback: Callable[[str], None] | None = None,
     settled_meanings: Sequence[Mapping[str, Any]] | None = None,
     excluded_columns: Sequence[str] | None = None,
+    catalog_homes: Mapping[str, str] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -3725,6 +3770,12 @@ def _generate_map_properties_gated(
     # 所有者の subject がその列 1 つで立っている（＝値の種類・K33）とき、平文の
     # 列を落とすだけでは辺が消える。「リンクとして使え」は指示（お願い）で、弱い
     # モデルは黙って飛ばす — ここで決定論で足す。書き換えではなく追加。
+    #
+    # 辺の出どころは、その列を**元々持っていた種類**（前置きの列ならカード、表本体の
+    # 列なら行の種類 — K58・マニュアル「☑ を付けた項目は元の種類から外れず、参照
+    # として持ち続けます」）。``catalog_homes``（受け口 → 元の種類）が分かっている
+    # 受け口は、元の種類でない map からは引かない。分からない受け口は今までどおり
+    # （この列を持ちうる map の全部から）。
     if owned_elsewhere and owner_subjects:
         rows = list(result.get("properties") or [])
         existing_targets = {
@@ -3739,15 +3790,17 @@ def _generate_map_properties_gated(
                 continue
             if set(re.findall(r"\{([^{}]+)\}", subject)) != {str(col)}:
                 continue  # 所有者の ID がこの列そのもののときだけ、辺は自明
-            local = _lower_camel(str(owner)) or "linkedEntity"
-            predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
-            # label はゲートで人が見た種類の名前 — 種類の表示名（subject.label）。
-            # 無ければマップ名。マップ名は、英字にできない列から作ると符号つきに
-            # なる（value_389a00）ので、表示名があるときは必ずそちらを使う。
-            # 決定論で付けておかないと、この機械の辺 1 本のために label-fill の
-            # LLM ラウンドが走る。
-            link_label = str((owner_labels or {}).get(str(owner)) or "").strip() or str(owner)
-            rows.append({"predicate": predicate, "object_template": subject, "label": link_label})
+            home = (catalog_homes or {}).get(str(owner))
+            if home and home != map_name:
+                continue  # 元の種類が別にある — 辺はそちらが持つ（K58）
+            rows.append(
+                catalog_link_row(
+                    str(owner),
+                    subject,
+                    ontology_prefix=ontology_prefix or "",
+                    label=(owner_labels or {}).get(str(owner)),
+                )
+            )
             existing_targets.add(subject)
             added_links.append(f"{col} → {owner}")
         if added_links:
@@ -3844,6 +3897,49 @@ def _synthesize_document(ir_yaml: str, *, dataset_name: str | None) -> str | Non
         return None
 
 
+def catalog_links_from_home(
+    map_name: str,
+    maps: Sequence[Mapping[str, Any]],
+    catalog_homes: Mapping[str, str] | None,
+    *,
+    ontology_prefix: str,
+) -> list[dict[str, Any]]:
+    """``map_name`` が「元の種類」である受け口への、機械のリンク行（K58）。
+
+    ``catalog_homes`` は ``{受け口の map 名: 元の種類の map 名}``。受け口の subject
+    template が列 1 つで立っていること（値のカタログ・K33）と、同じソースであること
+    を確かめてから 1 行ずつ作る。骨格の並び順で返す（同じ設計は毎回同じ形）。
+    """
+    if not catalog_homes:
+        return []
+    me = next((m for m in maps if str(m.get("name")) == map_name), None)
+    if me is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for m in maps:
+        cat = str(m.get("name") or "")
+        if not cat or catalog_homes.get(cat) != map_name or cat == map_name:
+            continue
+        if str(m.get("source") or "") != str(me.get("source") or ""):
+            continue
+        subject = m.get("subject") if isinstance(m.get("subject"), Mapping) else {}
+        template = str(subject.get("template") or "")
+        if len(_template_placeholders(template)) != 1:
+            continue  # 受け口は「その値そのものが ID」— それ以外は辺が自明でない
+        out.append(
+            catalog_link_row(
+                cat,
+                template,
+                ontology_prefix=ontology_prefix,
+                label=str(subject.get("label") or ""),
+                # 述語は K49 の修理と同じ has<Pascal>（かんたん経路で今まで公開されて
+                # きた名前）。受け口自身の値の述語（列名の lowerCamel）と重ねない。
+                predicate_local=has_predicate_local(cat),
+            )
+        )
+    return out
+
+
 def propose_from_skeleton(
     skeleton: Mapping[str, Any],
     inspection_md: str,
@@ -3864,6 +3960,7 @@ def propose_from_skeleton(
     excluded_columns: Mapping[str, Sequence[str]] | None = None,
     deterministic: bool = False,
     json_plans: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+    catalog_homes: Mapping[str, str] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -3905,7 +4002,13 @@ def propose_from_skeleton(
 
     ``json_plans`` maps a map name to :func:`json_expansion_plan` の結果 —
     セル内 JSON（配列・辞書）を既存 Tier0（json_array / json_get / json_pluck）で
-    展開する決定論の指示。かんたん経路（``deterministic=True``）だけが使う。"""
+    展開する決定論の指示。かんたん経路（``deterministic=True``）だけが使う。
+
+    ``catalog_homes`` は ``{受け口の map 名: その列を元々持っていた map 名}``
+    （api の ``_catalog_homes`` が骨格の注釈から決める・K58）。☑ した列の受け口への
+    リンクは、この「元の種類」が持つ — 前置きの列ならカード、表本体の列なら行の
+    種類。決定論の枝はここで辺を書き、LLM の枝は K33 の辺をこの map からだけ引く。
+    無い受け口は今までどおり（決定論の枝では K49 の後追い修理に任せる）。"""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -3957,6 +4060,25 @@ def propose_from_skeleton(
                 column_types=(column_types or {}).get(str(name)),
                 json_plan=(json_plans or {}).get(str(name)),
             )
+            # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K58）。
+            # 性質表は「他の map が持つ列を書かない」だけで辺を書かないので、ここで
+            # 決定論で足す — 足さないと受け口は孤島のまま公開され、K49 の後追い修理が
+            # 「プロパティ数が最多の map」という偶然で出どころを決めていた。
+            links = catalog_links_from_home(
+                str(name), maps, catalog_homes, ontology_prefix=ontology_prefix
+            )
+            if links:
+                permaps[name] = {
+                    **permaps[name],
+                    "properties": [*(permaps[name].get("properties") or []), *links],
+                }
+                emit(
+                    phase=f"map:{name}",
+                    index=i,
+                    total=len(maps),
+                    message="受け口へのリンクを足しました: "
+                    + ", ".join(str(link.get("label") or "") for link in links),
+                )
             continue
         emit(phase=f"map:{name}", index=i, total=len(maps), message=f"プロパティ表を生成中: {name}")
         # Generate this map's properties + a bounded per-map structural repair
@@ -3999,6 +4121,7 @@ def propose_from_skeleton(
             on_fallback=on_fallback,
             settled_meanings=settled_by_source.get(str(map_obj.get("source") or "")),
             excluded_columns=(excluded_columns or {}).get(str(map_obj.get("source") or "")),
+            catalog_homes=catalog_homes,
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)

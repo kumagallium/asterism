@@ -410,8 +410,97 @@ def _json_backed_header_for(base: Path, csv_name: str) -> list[str]:
     return []
 
 
-def _column_owners(
+def _gate_annotations(
     skeleton: Mapping[str, Any], paths: list[Path], dialects: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The skeleton gate's own annotation pass, best-effort (``{}`` on failure).
+
+    Evidence is advisory; generation never blocks on it. Computed once per
+    continue run and shared by :func:`_column_owners` and :func:`_catalog_homes`,
+    so both read the SAME verdict the human just approved on screen.
+    """
+    try:
+        return annotate_skeleton(skeleton, paths, dialects=dialects)
+    except Exception:
+        return {}
+
+
+def _catalog_homes(
+    skeleton: Mapping[str, Any], annotations: Mapping[str, Any]
+) -> dict[str, str]:
+    """Per ☑ value catalog, the map that HELD its column before the ☑ (K58).
+
+    Kantan S4 turns a checked column into a "value catalog" map (K33: keyed on
+    that ONE column, ``owns == [column]``). The link INTO that catalog belongs to
+    the kind the column came from — the manual's own words for the dotted line:
+    「☑ を付けた項目は元の種類から外れず、参照として持ち続けます」. For a
+    preface (broadcast) column that is the file's card; for a table column it
+    is the row kind. Neither is written in the skeleton, but the gate's
+    annotation states it: a map whose key DETERMINES the column shows it as a
+    constant of its representative entity (``entity_preview.all_values``), and
+    among those maps the one minting the FEWEST entities is the owner (ADR
+    column-ownership G1 — the same normalisation that puts a per-card constant
+    on the card, not on each of its 47 peaks). Ties keep skeleton order
+    (parents first).
+
+    Returns ``{catalog map name: home map name}``; a catalog with no provable
+    home is simply absent (the deterministic assembly then leaves it to the
+    K49 repair, which decides the same way from the rows).
+    """
+    maps = [m for m in (skeleton.get("maps") or []) if isinstance(m, Mapping)]
+    anns: Mapping[str, Any] = annotations.get("maps") or {}
+    order = {str(m.get("name")): i for i, m in enumerate(maps)}
+
+    def _is_catalog(m: Mapping[str, Any]) -> bool:
+        if (anns.get(str(m.get("name"))) or {}).get("value_catalog"):
+            return True
+        keys = _placeholders(str((m.get("subject") or {}).get("template") or ""))
+        owns = [str(c) for c in (m.get("owns") or [])]
+        return len(keys) == 1 and owns == keys
+
+    def _determined(m: Mapping[str, Any], column: str) -> bool:
+        card = (anns.get(str(m.get("name"))) or {}).get("entity_preview")
+        if not isinstance(card, Mapping):
+            return False
+        conflicts = {
+            str(p.get("column"))
+            for p in card.get("properties") or []
+            if isinstance(p, Mapping) and p.get("conflict")
+        }
+        constants = {
+            str(v.get("column")) for v in card.get("all_values") or [] if isinstance(v, Mapping)
+        }
+        return column in constants and column not in conflicts
+
+    homes: dict[str, str] = {}
+    for m in maps:
+        name = str(m.get("name") or "")
+        if not name or not _is_catalog(m):
+            continue
+        keys = _placeholders(str((m.get("subject") or {}).get("template") or ""))
+        if len(keys) != 1:
+            continue
+        column = keys[0]
+        source = str(m.get("source") or "")
+        ranked: list[tuple[int, int, str]] = []
+        for other in maps:
+            oname = str(other.get("name") or "")
+            if oname == name or str(other.get("source") or "") != source:
+                continue
+            if _is_catalog(other) or not _determined(other, column):
+                continue
+            count = int((anns.get(oname) or {}).get("distinct_ids") or 0)
+            ranked.append((count, order.get(oname, 0), oname))
+        if ranked:
+            homes[name] = min(ranked)[2]
+    return homes
+
+
+def _column_owners(
+    skeleton: Mapping[str, Any],
+    paths: list[Path],
+    dialects: Mapping[str, Any],
+    annotations: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, str]]:
     """Per map, which of its columns another map owns (ADR column-ownership G6).
 
@@ -439,10 +528,8 @@ def _column_owners(
     form) alone — G6 keys stay usable as keys everywhere.
     """
     owners: dict[str, dict[str, str]] = {}
-    try:
-        annotations = annotate_skeleton(skeleton, paths, dialects=dialects)
-    except Exception:  # evidence is advisory; never block generation on it
-        annotations = {}
+    if annotations is None:
+        annotations = _gate_annotations(skeleton, paths, dialects)
     for name, ann in (annotations.get("maps") or {}).items():
         borrowed = ann.get("borrowed_columns") or []
         if borrowed:
@@ -1561,6 +1648,36 @@ def _pascal(name: str) -> str:
     return "".join(w[:1].upper() + w[1:] for w in parts) or "Value"
 
 
+def _catalog_home_among(
+    siblings: list[dict], column: str, rows: list[dict[str, str]] | None
+) -> dict:
+    """The sibling map that HELD ``column`` before it became a catalog (K58).
+
+    G1 on the real rows: candidates are the siblings whose subject key
+    functionally determines ``column``; the one with the fewest distinct key
+    values wins (a file-wide constant → the card with 1 entity; a per-row
+    value → the row kind), ties keeping spec order. Without rows, or when no
+    sibling's key determines the column, the pre-K58 rule applies: most
+    properties, ties keeping the first (``max`` returns the first on a tie).
+    """
+    if rows:
+        ranked: list[tuple[int, int]] = []
+        for idx, m in enumerate(siblings):
+            keys = frozenset(_placeholders(str((m.get("subject") or {}).get("template") or "")))
+            if not keys or not _determined_by(rows, column, keys):
+                continue
+            ordered = sorted(keys)
+            distinct = {
+                tuple((r.get(c) or "").strip() for c in ordered)
+                for r in rows
+                if all((r.get(c) or "").strip() for c in ordered)
+            }
+            ranked.append((len(distinct), idx))
+        if ranked:
+            return siblings[min(ranked)[1]]
+    return max(siblings, key=lambda m: len(m.get("properties") or []))
+
+
 def _link_isolated_value_catalogs(
     schema_md: str, base: Path, issues: list[Issue]
 ) -> str | None:
@@ -1584,6 +1701,17 @@ def _link_isolated_value_catalogs(
     narrow — only maps :func:`value_catalog_owns` recognizes, and only when
     genuinely isolated (no map points AT it, and it points at nothing
     itself); a catalog the model DID link is left untouched.
+
+    WHICH sibling carries the edge is the kind the column came from (K58):
+    among the siblings whose key functionally determines the column in the
+    real rows, the one minting the fewest entities (ADR column-ownership G1 —
+    a preface column goes to the file's card, a table column to the row
+    kind), ties keeping spec order. Before K58 this was "most properties
+    wins", which happened to pick the card on the XRD card (18 preface
+    columns) and the RECORD on a recipe card (3 preface columns vs 3 row
+    columns + the isPartOf link) — the S5 preview had promised the card.
+    Rows unreadable, or no sibling's key determines the column: the old
+    property-count rule remains as the fallback.
     """
     if not any("DISCONNECTED groups" in iss.message for iss in issues):
         return None
@@ -1636,6 +1764,16 @@ def _link_isolated_value_catalogs(
                 header_cache[source] = []
         return header_cache[source]
 
+    rows_cache: dict[str, list[dict[str, str]] | None] = {}
+
+    def rows_of(source: str) -> list[dict[str, str]] | None:
+        if source not in rows_cache:
+            try:
+                rows_cache[source] = _rows_by_source(base, ir).get(source)
+            except Exception:
+                rows_cache[source] = None
+        return rows_cache[source]
+
     linked = 0
     for cat_name, cat_map in catalogs.items():
         cat_tpl = subject_tpl.get(cat_name, "")
@@ -1657,9 +1795,7 @@ def _link_isolated_value_catalogs(
         ]
         if not siblings:
             continue
-        # Most properties wins; ties keep the FIRST (spec/IR order) — `max`
-        # returns the first item on a tie.
-        record = max(siblings, key=lambda m: len(m.get("properties") or []))
+        record = _catalog_home_among(siblings, key_col, rows_of(source))
         subject = record.get("subject")
         classes = [
             c
@@ -1997,7 +2133,12 @@ def run_design_loop(
         # column-ownership-and-growth G6). Recomputed here rather than carried
         # from the gate: the human may have edited a key, and the verdict must
         # describe the skeleton actually being generated from.
-        column_owners = _column_owners(skeleton, paths, effective)
+        gate_annotations = _gate_annotations(skeleton, paths, effective)
+        column_owners = _column_owners(skeleton, paths, effective, gate_annotations)
+        # ☑ した列の受け口へのリンクは、その列を元々持っていた種類が持つ（K58）。
+        # 前置きの列ならカード、表本体の列なら行の種類 — 骨格には書かれていないが、
+        # 同じ注釈（誰の鍵がその列を決めるか・件数）から決定論で分かる。
+        catalog_homes = _catalog_homes(skeleton, gate_annotations)
         # Numeric columns get a datatype from the DATA (ADR §B): an untyped
         # number is compared lexically by SPARQL — a silent wrong answer.
         column_datatypes = _column_datatypes(skeleton, paths, effective)
@@ -2026,6 +2167,7 @@ def run_design_loop(
             # 決定論で組む。LLM は refine (検証エラー時のみ) と相談に残る。
             deterministic=deterministic_rules,
             json_plans=json_plans,
+            catalog_homes=catalog_homes,
         )
         metadata: dict[str, Any] = {
             "llm_class": type(llm).__name__,

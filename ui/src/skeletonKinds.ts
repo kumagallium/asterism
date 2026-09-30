@@ -106,6 +106,39 @@ export function sameIdSiblings(skeleton: MappingSkeleton, hostName: string): str
     .map((m) => m.name)
 }
 
+/** ⑤「かたちをたしかめる」の点線（このあと機械が引く線）の出どころと行き先。
+ *
+ *  ☑ した列の受け口へのリンクは、**その列を元々持っていた種類**が持つ（ADR kantan
+ *  K58・マニュアル「☑ を付けた項目は元の種類から外れず、参照として持ち続けます」）:
+ *  前置きの列ならカード（`hostName`）、表本体＝行ごとに変わる列（`varyingColumns`）
+ *  なら行の種類（`rowMap`）。行の種類が無いときはカードから。サーバの決定論の
+ *  組み立て（`catalog_homes`）と K49 の後追い修理が同じ規則で辺を書くので、
+ *  ここで予告した形がそのまま⑥「ためす」の実線になる。
+ *
+ *  `columnKinds` は 列 → その列をキーにした受け口の名前（同じ列の受け口が 2 つ
+ *  あれば 2 つとも）。同じ線は 1 本だけ返す。 */
+export function pendingLinkEdges(opts: {
+  hostName: string
+  rowMap?: string | null
+  varyingColumns: readonly string[]
+  columnKinds: ReadonlyMap<string, readonly string[]>
+}): [string, string][] {
+  const varying = new Set(opts.varyingColumns)
+  const seen = new Set<string>()
+  const edges: [string, string][] = []
+  for (const [column, kinds] of opts.columnKinds) {
+    const from = opts.rowMap && varying.has(column) ? opts.rowMap : opts.hostName
+    for (const to of kinds) {
+      if (to === from) continue
+      const key = `${from}\u0000${to}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      edges.push([from, to])
+    }
+  }
+  return edges
+}
+
 /** 新しい種類の住所の頭。親の下ではなくデータセットの根に置く — 最後の
  *  リテラル区間を 1 つ落として接頭辞（`xrr:` / `…/resource/`）まで戻す。
  *  （`SkeletonGate` の `splitConcept` から移設。つなぐための種類が「親の下」に

@@ -1612,6 +1612,196 @@ def test_owned_single_var_column_gets_its_link_deterministically() -> None:
 
 
 
+def _catalog_home_skeleton() -> dict:
+    return {
+        "version": 1,
+        "prefixes": {"r": "https://example.org/r/ontology#", "res": "https://example.org/r/resource/"},
+        "maps": [
+            {
+                "name": "card",
+                "source": "recipes.csv",
+                "subject": {"template": "res:card/{card_no}", "classes": ["r:Card"]},
+            },
+            {
+                "name": "record",
+                "source": "recipes.csv",
+                "subject": {"template": "res:record/{card_no}/{food}", "classes": ["r:Record"]},
+                "owns": ["amount"],
+            },
+            {
+                "name": "category",
+                "source": "recipes.csv",
+                "subject": {
+                    "template": "res:category/{category}",
+                    "classes": ["r:Category"],
+                    "label": "料理の分類",
+                },
+                "owns": ["category"],
+            },
+        ],
+    }
+
+
+def test_deterministic_propose_links_a_catalog_from_its_home_map() -> None:
+    """K58: ☑ した列の受け口へのリンクは、元の種類（ここではカード）の性質表に足す。"""
+    import yaml
+
+    from asterism_step0.materialize import materialize_schema
+
+    calls: list[str] = []
+
+    class Boom:
+        def complete(self, *args: object, **kwargs: object) -> str:
+            calls.append("called")
+            raise AssertionError("deterministic path must not call the LLM")
+
+    cols = ["card_no", "category", "food", "amount"]
+
+    def run(**extra: object) -> dict:
+        md = propose_from_skeleton(
+            _catalog_home_skeleton(),
+            "",
+            "",
+            llm=Boom(),  # type: ignore[arg-type]
+            deterministic=True,
+            map_columns={n: list(cols) for n in ("card", "record", "category")},
+            column_owners={
+                "card": {"category": "category", "food": "record", "amount": "record"},
+                "record": {"category": "category"},
+                "category": {"amount": "record", "food": "record"},
+            },
+            dataset_name="recipes",
+            **extra,  # type: ignore[arg-type]
+        )
+        ir_yaml = materialize_schema(md, ".", "t", write=False).mapping_ir_yaml
+        assert ir_yaml is not None
+        return {m["name"]: m for m in yaml.safe_load(ir_yaml)["maps"]}
+
+    target = "res:category/{category}"
+
+    def linkers(by_name: dict) -> dict[str, list[dict]]:
+        return {
+            n: [p for p in m.get("properties") or [] if p.get("object_template") == target]
+            for n, m in by_name.items()
+        }
+
+    got = linkers(run(catalog_homes={"category": "card"}))
+    assert len(got["card"]) == 1
+    # 述語は K49 の修理と同じ has<Pascal>（受け口自身の値の述語 r:category と重ねない）
+    assert got["card"][0]["predicate"] == "r:hasCategory"
+    assert got["card"][0]["label"] == "料理の分類"
+    assert got["record"] == []
+    assert not calls
+    # catalog_homes なし: 従来どおりどの map にも行き先の行は無い
+    assert all(v == [] for v in linkers(run()).values())
+    assert not calls
+
+
+def test_catalog_links_from_home_is_pure_and_ordered() -> None:
+    from asterism_step0.staged_propose import catalog_links_from_home
+
+    def m(name: str, template: str, source: str = "a.csv", **subject: object) -> dict:
+        return {"name": name, "source": source, "subject": {"template": template, **subject}}
+
+    maps = [
+        m("card", "rr:card/{no}"),
+        m("cat1", "rr:cat1/{c1}", label="分類1"),
+        m("other", "rr:other/{o}", source="b.csv"),
+        m("two", "rr:two/{a}/{b}"),
+        m("cat2", "rr:cat2/{c2}"),
+    ]
+    homes = {"cat2": "card", "cat1": "card", "other": "card", "two": "card"}
+    rows = catalog_links_from_home("card", maps, homes, ontology_prefix="r")
+    # 骨格順（homes の並びではない）・別ソースとプレースホルダ 2 つは出ない
+    assert [r["object_template"] for r in rows] == ["rr:cat1/{c1}", "rr:cat2/{c2}"]
+    assert [r["label"] for r in rows] == ["分類1", "cat2"]
+    assert catalog_links_from_home("card", maps, None, ontology_prefix="r") == []
+    assert catalog_links_from_home("cat1", maps, homes, ontology_prefix="r") == []
+
+
+def test_k33_link_is_drawn_only_from_the_home_map() -> None:
+    from asterism_step0.staged_propose import _generate_map_properties_gated
+
+    class OneShot:
+        def complete(self, *a, **k):
+            raise AssertionError("not used")
+
+    def fake_generate(*a, **k):
+        return {
+            "properties": [
+                {"predicate": "xr:twoTheta", "column": "2theta", "label": "2θ"},
+                {"predicate": "xr:hkl", "column": "(hkl)", "label": "ミラー指数"},
+            ],
+            "prefixes": {},
+        }
+
+    import asterism_step0.staged_propose as sp
+
+    def run(**extra: object) -> list[str | None]:
+        original = sp.generate_map_properties
+        sp.generate_map_properties = fake_generate  # type: ignore[assignment]
+        try:
+            result = _generate_map_properties_gated(
+                "peak",
+                {
+                    "name": "peak",
+                    "source": "c.txt",
+                    "subject": {"template": "xr:peak/{No}/{2theta}"},
+                },
+                "ctx",
+                "menu",
+                llm=OneShot(),  # type: ignore[arg-type]
+                function_names=None,
+                language=None,
+                index=0,
+                total=1,
+                emit=lambda **k: None,
+                record=lambda: None,
+                owned_elsewhere={"(hkl)": "hkl"},
+                owner_subjects={"hkl": "xr:hkl/{(hkl)}"},
+                ontology_prefix="xr",
+                **extra,  # type: ignore[arg-type]
+            )
+        finally:
+            sp.generate_map_properties = original  # type: ignore[assignment]
+        return [p.get("object_template") for p in result["properties"]]
+
+    assert "xr:hkl/{(hkl)}" not in run(catalog_homes={"hkl": "card"})
+    assert "xr:hkl/{(hkl)}" in run(catalog_homes={"hkl": "peak"})
+    assert "xr:hkl/{(hkl)}" in run(catalog_homes=None)
+
+
+def test_catalog_link_row_shape() -> None:
+    from asterism_step0.staged_propose import catalog_link_row
+
+    assert catalog_link_row(
+        "space_group", "xr:sg/{Space Group}", ontology_prefix="xr", label=" 空間群 "
+    ) == {
+        "predicate": "xr:spaceGroup",
+        "object_template": "xr:sg/{Space Group}",
+        "label": "空間群",
+    }
+    assert (
+        catalog_link_row("space_group", "xr:sg/{Space Group}", ontology_prefix="xr")["label"]
+        == "space_group"
+    )
+    assert (
+        catalog_link_row("space_group", "xr:sg/{x}", ontology_prefix="")["predicate"]
+        == "dcterms:relation"
+    )
+    from asterism_step0.staged_propose import has_predicate_local
+
+    assert has_predicate_local("space_group") == "hasSpaceGroup"
+    assert has_predicate_local("value_389a00") == "hasValue389a00"
+    assert has_predicate_local("") == "hasValue"
+    assert (
+        catalog_link_row(
+            "space_group", "xr:sg/{x}", ontology_prefix="xr", predicate_local="hasSpaceGroup"
+        )["predicate"]
+        == "xr:hasSpaceGroup"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Column meanings — the stage that runs BEFORE any design exists
 # (ADR meaning-before-identity.md §7-1).
