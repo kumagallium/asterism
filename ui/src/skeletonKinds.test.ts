@@ -535,7 +535,7 @@ describe('catalogLinkEdges — ⑤の点線は全ファイルの受け口に引�
   })
 })
 
-describe('sharedKindGroups / mergeSharedKinds / separateSharedKind — 同じ意味の受け口は 1 つの種類（K62）', () => {
+describe('sharedKindGroups / mergeSharedKinds / separateSharedKind — 同じ意味の受け口は 1 つの種類（K63）', () => {
   const at = (name: string, source: string, template: string, owns?: string[]): SkeletonMap => ({
     name,
     source,

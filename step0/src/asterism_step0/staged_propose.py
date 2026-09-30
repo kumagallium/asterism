@@ -396,7 +396,7 @@ def has_predicate_local(catalog_name: str) -> str:
 
 
 def shared_kind_lead(catalog_name: str, maps: Sequence[Mapping[str, Any]]) -> str:
-    """同じ種類を共有する受け口（K62: 別々のファイルの受け口が同じ subject template
+    """同じ種類を共有する受け口（K63: 別々のファイルの受け口が同じ subject template
     を持つ）の**先頭**の map 名。共有していなければ自分の名前。
 
     受け口へのリンクの述語（``has<Pascal>``）はこの名前から作る。map 名から作ると、
@@ -3814,7 +3814,7 @@ def _generate_map_properties_gated(
             home = (catalog_homes or {}).get(str(owner))
             if home and home != map_name:
                 continue  # 元の種類が別にある — 辺はそちらが持つ（K58）
-            # 同じ種類を共有する受け口（K62）は先頭の名前で述語をそろえる。
+            # 同じ種類を共有する受け口（K63）は先頭の名前で述語をそろえる。
             # owner_subjects は骨格の順なので、同じテンプレートの最初が先頭。
             lead = next((n for n, tpl in owner_subjects.items() if tpl == subject), str(owner))
             rows.append(
@@ -3959,7 +3959,7 @@ def catalog_links_from_home(
                 label=str(subject.get("label") or ""),
                 # 述語は K49 の修理と同じ has<Pascal>（かんたん経路で今まで公開されて
                 # きた名前）。受け口自身の値の述語（列名の lowerCamel）と重ねない。
-                # 同じ種類を共有する受け口は、先頭の名前で 1 つの述語にそろえる（K62）。
+                # 同じ種類を共有する受け口は、先頭の名前で 1 つの述語にそろえる（K63）。
                 predicate_local=has_predicate_local(lead),
             )
         )

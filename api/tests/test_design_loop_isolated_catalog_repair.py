@@ -357,7 +357,7 @@ def test_catalog_home_among_falls_back_to_property_count_without_rows() -> None:
 
 
 def test_a_shared_kind_in_another_file_does_not_hide_this_files_island(tmp_path: Path) -> None:
-    """K62: 別々のファイルの受け口が同じ種類（同じテンプレート）を共有しても、
+    """K63: 別々のファイルの受け口が同じ種類（同じテンプレート）を共有しても、
     別のファイルからのリンクで「つながっている」と読まない。このファイルの行が
     孤島のまま残らないよう、K49 はこのファイルの種類から辺を足す。述語は先頭の
     受け口の名前でそろう（hasBookTitle2 に割れない）。"""

@@ -46,7 +46,7 @@ const link = (predicate: string, over: Record<string, unknown>) => ({
   ...over,
 })
 
-describe('rulesShape — 同じ種類を共有する map は 1 つの箱（K62）', () => {
+describe('rulesShape — 同じ種類を共有する map は 1 つの箱（K63）', () => {
   it('別々のファイルの受け口が同じ ID の作り方と種類名を持てば、箱は 1 つで線は両方から来る', () => {
     const comp = (id: string, source: string): RuleMap => ({
       id,

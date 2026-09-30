@@ -188,7 +188,7 @@ export function catalogLinkEdges(opts: {
   return edges
 }
 
-/** 別々のファイルで**同じ種類**を共有する受け口のかたまり（ADR kantan K62）。
+/** 別々のファイルで**同じ種類**を共有する受け口のかたまり（ADR kantan K63）。
  *
  *  同じ種類 = 受け口（1 列キー）で、ID の頭（テンプレートの `{` より前）と種類名
  *  （`classes`）が同じもの。同じ値は同じ IRI になり、ファイルをまたいで 1 件に
@@ -214,7 +214,7 @@ export function sharedKindGroups(
     .map((g) => g.map((m) => m.name))
 }
 
-/** 同じ種類を共有している受け口を、**自分だけの種類**に戻す（K62 の逃げ道）。
+/** 同じ種類を共有している受け口を、**自分だけの種類**に戻す（K63 の逃げ道）。
  *  ID の頭と種類名を自分の map 名から作り直す — `splitSharedConcept` が新しい
  *  種類に付けるのと同じ形。表示名はそのまま（名前は②で直せる）。 */
 export function separateSharedKind(skeleton: MappingSkeleton, name: string): MappingSkeleton {

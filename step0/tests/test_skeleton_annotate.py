@@ -1501,7 +1501,7 @@ def _two_files_with_composition(tmp_path: Path, second_column: str = "compositio
 
 
 def test_same_meaning_checked_in_two_files_is_one_kind(tmp_path: Path) -> None:
-    """K62: 同じ意味の列を別々のファイルで ☑ すると、受け口は同じ種類になる —
+    """K63: 同じ意味の列を別々のファイルで ☑ すると、受け口は同じ種類になる —
     ID の頭・種類名・表示名を共有し、同じ値はファイルをまたいで同じ IRI。"""
     paths = _two_files_with_composition(tmp_path)
     out = assemble_skeleton_from_judgments(

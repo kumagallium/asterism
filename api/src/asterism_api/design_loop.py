@@ -1735,7 +1735,7 @@ def _link_isolated_value_catalogs(
 
     def points_in(template: str, owner_name: str, source: str) -> bool:
         # 同じファイルの種類からのリンクだけを数える。別々のファイルの受け口が同じ
-        # 種類を共有すると（K62）テンプレートが同じになり、別のファイルからの辺で
+        # 種類を共有すると（K63）テンプレートが同じになり、別のファイルからの辺で
         # 「つながっている」と誤って読み、このファイルの行が孤島のまま残る。
         return any(
             isinstance(p, dict) and str(p.get("object_template") or "") == template
@@ -1807,7 +1807,7 @@ def _link_isolated_value_catalogs(
             for p in record_props
         ):
             continue  # some OTHER property already links here
-        # 同じ種類を共有する受け口は、先頭の名前で 1 つの述語にそろえる（K62）。
+        # 同じ種類を共有する受け口は、先頭の名前で 1 つの述語にそろえる（K63）。
         local = f"has{_pascal(shared_kind_lead(cat_name, maps))}"
         predicate = f"{onto}:{local}"
         existing = {str(p.get("predicate")) for p in record_props if isinstance(p, dict)}

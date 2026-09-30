@@ -7038,7 +7038,7 @@ button.ds-artifact:disabled {
   font-size: 0.85rem;
 }
 
-/* 同じ意味の ☑ を 1 つの種類にまとめたことの説明と、戻す道（K62）。 */
+/* 同じ意味の ☑ を 1 つの種類にまとめたことの説明と、戻す道（K63）。 */
 .skeleton-shared-kind {
   display: flex;
   flex-wrap: wrap;

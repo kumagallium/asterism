@@ -1321,7 +1321,7 @@ def _stamp_shared_kinds(
     map_sources: Mapping[str, str],
     inspections: Mapping[str, tuple[Path, SourceInspection]],
 ) -> None:
-    """別々のファイルの受け口が**同じ種類**を共有しているとき（K62）、その事実を
+    """別々のファイルの受け口が**同じ種類**を共有しているとき（K63）、その事実を
     受け口ごとの注釈 ``shared_kind`` に書く。
 
     同じ種類 = 値のカタログで、ID の頭（テンプレートの ``{`` より前）と種類名
@@ -1646,7 +1646,7 @@ def assemble_skeleton_from_judgments(
     maps: list[dict[str, Any]] = []
     taken: set[str] = set()
     provisional: dict[str, str] = {}
-    # 同じ意味の受け口は、ファイルが違っても**同じ種類**（K62）。意味（③の表示名・
+    # 同じ意味の受け口は、ファイルが違っても**同じ種類**（K63）。意味（③の表示名・
     # 無ければ列名）→ 最初に作った受け口の map 名。2 つめ以降は map 名だけ別で、
     # ID の頭・種類名・表示名は最初のものを共有する — 同じ値は同じ IRI になり、
     # ファイルをまたいで 1 件にまとまる。

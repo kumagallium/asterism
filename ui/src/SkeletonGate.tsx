@@ -1925,7 +1925,7 @@ export function SkeletonGate({
   const diagramLabel = (m: SkeletonMap): string => {
     /* 件数はラベルに入れる（ADR D4: 「n 件」が数えかたを語る — 色で二重に
        言わない）。annotation が無いあいだは名前だけ。 */
-    /* 同じ種類に畳んだ箱は、まとまったあとの件数（全ファイルの値の和集合・K62）。
+    /* 同じ種類に畳んだ箱は、まとまったあとの件数（全ファイルの値の和集合・K63）。
        注釈がまだ無い・数えられないときは件数を出さない（1 ファイル分の数は嘘）。 */
     const n = sharedGroupOf(m.name)
       ? annotations?.maps?.[m.name]?.shared_kind?.distinct_ids
@@ -1991,7 +1991,7 @@ export function SkeletonGate({
         })
       : undefined,
   })
-  /** 別々のファイルで同じ種類を共有する受け口（K62）。図では 1 つの箱に畳み、
+  /** 別々のファイルで同じ種類を共有する受け口（K63）。図では 1 つの箱に畳み、
    *  図の下で「同じ種類にした」ことと、戻す道（別々の種類にする）を言う。 */
   const sharedGroups = plain ? sharedKindGroups(skeleton.maps, isCatalogKind) : []
   const sharedGroupOf = (name: string) => sharedGroups.find((g) => g.includes(name))
@@ -2015,7 +2015,7 @@ export function SkeletonGate({
           keys: keys.join(' + '),
         }),
       },
-      // 同じ種類を共有する受け口は、どのファイルから来るかを箱の中で言う（K62）。
+      // 同じ種類を共有する受け口は、どのファイルから来るかを箱の中で言う（K63）。
       ...(sharedGroupOf(m.name)
         ? [
             {
@@ -2370,7 +2370,7 @@ export function SkeletonGate({
           disabled={busy}
           onChange={(e) => {
             if (plain) {
-              /* 同じ種類を共有する受け口（K62）は名前もひとつ — 片方だけ直すと
+              /* 同じ種類を共有する受け口（K63）は名前もひとつ — 片方だけ直すと
                  種類名が割れ、同じ ID に 2 つの種類が付く。全員を同時に直す。 */
               const patch = kindLabelEdit(e.target.value, nsDetected)
               const group = sharedGroupOf(m.name)
@@ -2855,7 +2855,7 @@ export function SkeletonGate({
               強い手応え。 */}
           <div className="skeleton-zone-graph">{diagram}</div>
           <p className="kz-note kz-prose">{t('skeletongate:graphLegend')}</p>
-          {/* 同じ意味の ☑ は同じ種類にまとめた（K62）— 黙ってまとめない。根拠（両方に
+          {/* 同じ意味の ☑ は同じ種類にまとめた（K63）— 黙ってまとめない。根拠（両方に
               出てくる値の数）と、違うものだったときの戻し方を、その場で出す。 */}
           {sharedGroups.map((group) => {
             const lead = skeleton.maps.find((m) => m.name === group[0])

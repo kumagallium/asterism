@@ -107,7 +107,7 @@ export function skeletonShape(
   return { nodes, edges }
 }
 
-/** 同じ種類の箱を 1 つに畳む（ADR kantan K62）。`groups` の各かたまりの先頭を
+/** 同じ種類の箱を 1 つに畳む（ADR kantan K63）。`groups` の各かたまりの先頭を
  *  残し、ほかのメンバーへの線は先頭へ付け替える（同じ線は 1 本・自分への線は
  *  捨てる）。項目は名前で重ねずに足す。図は「種類」を描くもので、map（ファイル
  *  ごとの読み方）を描くものではない — 同じ種類が 2 つの箱に見えると、つながって
@@ -222,7 +222,7 @@ export function rulesShape(
       })
     }
   }
-  /* 同じ ID の作り方と同じ種類名を持つ map は、同じ実体を作る同じ種類（K62:
+  /* 同じ ID の作り方と同じ種類名を持つ map は、同じ実体を作る同じ種類（K63:
      別々のファイルの受け口が 1 つの種類を共有する）。1 つの箱に畳む。 */
   const bySig = new Map<string, string[]>()
   for (const m of rules.maps) {
