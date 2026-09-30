@@ -29,6 +29,8 @@ from typing import Final
 
 import yaml
 
+from asterism.grounding.catalog import _contains
+
 logger = logging.getLogger(__name__)
 
 _CATALOG: Final[Path] = Path(__file__).with_name("qudt_quantitykinds.yaml")
@@ -108,6 +110,9 @@ class _Indexed:
     label_norm: str
     tokens: frozenset[str]
     units: frozenset[str]
+    #: 名前・表示名を語に分けたもの（順序つき）。部分一致を語の境目で確かめるのに使う。
+    name_words: tuple[str, ...] = ()
+    label_words: tuple[str, ...] = ()
 
 
 @functools.lru_cache(maxsize=1)
@@ -116,14 +121,17 @@ def _index() -> tuple[_Indexed, ...]:
     for name, entry in (_catalog().get("quantity_kinds") or {}).items():
         entry = entry or {}
         label = str(entry.get("label") or name)
+        name_words, label_words = tuple(_split(name)), tuple(_split(label))
         out.append(
             _Indexed(
                 name=name,
                 entry=entry,
                 name_norm=_norm(name),
                 label_norm=_norm(label),
-                tokens=frozenset(_split(name)) | frozenset(_split(label)),
+                tokens=frozenset(name_words) | frozenset(label_words),
                 units=frozenset(entry.get("units") or ()),
+                name_words=name_words,
+                label_words=label_words,
             )
         )
     return tuple(out)
@@ -136,9 +144,15 @@ def _index() -> tuple[_Indexed, ...]:
 _MIN_FUZZY_CHARS: Final[int] = 4
 
 
-def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, str]:
+def _score(
+    q_norm: str, q_tokens: frozenset[str], ix: _Indexed, q_words: tuple[str, ...] = ()
+) -> tuple[int, str]:
     """Deterministic match score + tier name (0 = no match). Same ladder as the term
-    catalog, so one dataset's candidates are ranked the same way everywhere."""
+    catalog, so one dataset's candidates are ranked the same way everywhere.
+
+    部分一致も用語カタログと同じ条件（``catalog._contains``）。⭐ただの文字列の包含だと
+    語の途中に当たる（実測 2026-09-30: 項目 ``ofCountry`` に ``Count`` が候補に出た）。
+    量の名前が列名の「中に入っている」向きは、語の境目から境目までに限る。"""
     if not q_norm:
         return 0, ""
     if q_norm in (ix.name_norm, ix.label_norm):
@@ -149,7 +163,11 @@ def _score(q_norm: str, q_tokens: frozenset[str], ix: _Indexed) -> tuple[int, st
         return 90, "exact_tokens"
     if q_tokens and q_tokens <= ix.tokens:
         return 70 + max(0, 10 - (len(ix.tokens) - len(q_tokens))), "tokens_subset"
-    if q_norm in ix.name_norm or ix.name_norm in q_norm or q_norm in ix.label_norm:
+    if (
+        _contains(ix.name_norm, ix.name_words, q_norm)
+        or _contains(q_norm, q_words, ix.name_norm, whole=True)
+        or _contains(ix.label_norm, ix.label_words, q_norm)
+    ):
         return 50, "substring"
     overlap = q_tokens & ix.tokens
     if overlap:
@@ -188,11 +206,12 @@ def resolve_quantity_kind(
     if not q and not u:
         return []
     q_norm = _norm(q)
-    q_tokens = frozenset(_split(q))
+    q_words = tuple(_split(q))
+    q_tokens = frozenset(q_words)
 
     scored: list[tuple[int, str, bool, _Indexed]] = []
     for ix in _index():
-        score, match = _score(q_norm, q_tokens, ix)
+        score, match = _score(q_norm, q_tokens, ix, q_words)
         fits = bool(u) and u in ix.units
         exact = score >= _EXACT_SCORE
         if score < _MIN_SCORE:

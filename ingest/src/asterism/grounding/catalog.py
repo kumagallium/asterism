@@ -246,7 +246,7 @@ def _word_starts(words: tuple[str, ...]) -> set[int]:
     return starts
 
 
-def _contains(outer: str, outer_words: tuple[str, ...], inner: str) -> bool:
+def _contains(outer: str, outer_words: tuple[str, ...], inner: str, *, whole: bool = False) -> bool:
     """``inner`` が ``outer`` の中に「意味のある形で」含まれるか（部分一致の条件）。
 
     ⭐ただの文字列の包含にすると、短い語がどんな名前にも当たる（実測 2026-09-30:
@@ -258,6 +258,10 @@ def _contains(outer: str, outer_words: tuple[str, ...], inner: str) -> bool:
       （"gasFlow" の "gas" は当たる・"percentage" の "age" は当たらない）。
     - 4 文字以上 — 語の頭から始まるときだけ（"temp" は "temperature" に当たる・
       "unit" は "community" に当たらない）。
+
+    ``whole=True`` のときは長さによらず語の境目から境目までに限る。短い名前が長い名前の
+    「中に入っている」向きで使う（"count" は "ofCountry" の語の頭にあるが、そこの語は
+    "country" であって "count" ではない）。
     """
     n = len(inner)
     if n <= 2 or n >= len(outer):
@@ -265,7 +269,7 @@ def _contains(outer: str, outer_words: tuple[str, ...], inner: str) -> bool:
     starts = _word_starts(outer_words)
     at = outer.find(inner)
     while at != -1:
-        if at in starts and (n >= 4 or at + n in starts):
+        if at in starts and ((n >= 4 and not whole) or at + n in starts):
             return True
         at = outer.find(inner, at + 1)
     return False
