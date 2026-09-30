@@ -1,5 +1,30 @@
 # Changelog
 
+## [v0.47.1](https://github.com/kumagallium/asterism/compare/v0.47.0...v0.47.1) - 2026-09-30
+
+- docs(manual): v0.47.0 の節目とバッジを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/625
+- fix(api): 「共通の言葉」の図の種類の名前を、ワークスペースと同じ読み手で引く by @kumagallium in https://github.com/kumagallium/asterism/pull/627
+- fix(ui): 「ためす」の図を、同じ親の子が横に並ぶようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/628
+- fix(api): つながりの画面の種類の名前を、ワークスペースと同じ読み手で引く by @kumagallium in https://github.com/kumagallium/asterism/pull/633
+- chore(ui): ソースに入っていた生の NUL 文字をエスケープ表記に書き直す — 差分をレビューできるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/629
+- fix: 図に出ていた生のローカル名 3 か所を、人向けの名前にする by @kumagallium in https://github.com/kumagallium/asterism/pull/631
+- chore(deps): Bump Songmu/tagpr from 1.20.2 to 1.21.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/612
+- chore(deps): Bump astral-sh/setup-uv from 7.6.0 to 10.2.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/613
+- fix(ui): 図の線が箱の裏を通らないようにする — 段をまたぐ線は、途中の段に席を取って通す by @kumagallium in https://github.com/kumagallium/asterism/pull/634
+- chore(deps): Bump docker/setup-buildx-action from 4.3.0 to 4.4.1 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/582
+- chore(deps): Bump docker/build-push-action from 7.3.0 to 7.4.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/583
+- fix: 1 件のページで、機械が足したつなぐ項目をつなぐ先の種類の名前で出す by @kumagallium in https://github.com/kumagallium/asterism/pull/635
+- fix(grounding): 短い語が長い名前の途中に当たる部分一致をやめる by @kumagallium in https://github.com/kumagallium/asterism/pull/636
+- fix(ingest): つながりを作るとき、言語タグ・型つきの値を候補さがしと同じ文字列で比べる by @kumagallium in https://github.com/kumagallium/asterism/pull/638
+- fix(api): 見本のことばにもストアの名前を付け、一覧で英字と「名前が未設定」を出さない by @kumagallium in https://github.com/kumagallium/asterism/pull/639
+- fix(datasets): 地図の箱の「入っている種類」を、同梱の見本も表示名にする by @kumagallium in https://github.com/kumagallium/asterism/pull/640
+- fix(ui): 共通の言葉の地図の、枠の中の線も席を通す by @kumagallium in https://github.com/kumagallium/asterism/pull/641
+- fix(api): model.yaml の投影が付けるローカル名で、行の名前を答え済みにしない by @kumagallium in https://github.com/kumagallium/asterism/pull/637
+- fix: 1 件のページの読み取った値で、項目名と値を人向けの名前にそろえる by @kumagallium in https://github.com/kumagallium/asterism/pull/643
+- fix(kantan): ☑ した列の受け口へのリンクを、その列を元々持っていた種類から引く by @kumagallium in https://github.com/kumagallium/asterism/pull/642
+- fix(grounding): 「この列は何の量か」の部分一致が語の途中に当たるのをやめる by @kumagallium in https://github.com/kumagallium/asterism/pull/644
+- fix(grounding): 「何の量か」を言っていない語だけで候補を出さない by @kumagallium in https://github.com/kumagallium/asterism/pull/645
+
 ## [v0.47.0](https://github.com/kumagallium/asterism/compare/v0.46.0...v0.47.0) - 2026-09-29
 
 - docs(manual): v0.45.0・v0.46.0 の節目とバッジを足す by @kumagallium in https://github.com/kumagallium/asterism/pull/619
