@@ -528,3 +528,22 @@ async def test_prov_graph_follows_wasGeneratedBy_from_japan_to_the_activity() ->
     assert (ACTIVITY_IRI, japan, "generated") in edges
     activity_node = next(n for n in out["graph"]["nodes"] if n["id"] == ACTIVITY_IRI)
     assert activity_node["kind"] == "activity"
+
+
+def test_every_kind_has_a_display_name() -> None:
+    """見本の種類には、どれも表示名がある — Mapping IR の ``subject.label`` か、
+    model.yaml の ``classes.<curie>.label`` のどちらかに（実機所見: 表示名の無い
+    種類は、保存した設計から描く図に英字のローカル名で出ていた）。"""
+    import yaml
+
+    mapping = yaml.safe_load(MAPPING_YAML.read_text(encoding="utf-8"))
+    model = yaml.safe_load((DATASET_DIR / "model.yaml").read_text(encoding="utf-8"))
+    named_in_model = {
+        curie for curie, spec in model["classes"].items() if (spec or {}).get("label")
+    }
+    unnamed = [
+        m["name"]
+        for m in mapping["maps"]
+        if not m["subject"].get("label") and m["subject"]["classes"][0] not in named_in_model
+    ]
+    assert unnamed == []

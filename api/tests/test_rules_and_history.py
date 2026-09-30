@@ -613,3 +613,230 @@ def test_surgical_repair_keeps_subject_label() -> None:
     md = f"# Title\n\n### 9. Declarative mapping spec\n\n```yaml\n{labelled}```\n\n### tail\n"
     out = _surgical_spec_repair(_Llm(), md, labelled, [], "")
     assert "食材の名前" in out
+
+
+# ---------------------------------------------------------------------------
+# 種類の名前は、ワークスペースと同じ読み手（class_schema.class_label）で引く
+# ---------------------------------------------------------------------------
+
+_KIND_IRI = "https://example.org/onto#Sample"
+
+# IR に種類の表示名（subject.label）は無く、model.yaml の ``classes:`` にだけある。
+_MODEL_WITH_KIND_NAME = """\
+classes:
+  ex:Sample:
+    label: "貸し出しの記録"
+properties:
+  ex:label:
+    domain: ex:Sample
+"""
+
+
+def _save_promoted(tmp: Path, artifacts: dict) -> dict:
+    meta = registry.save_dataset(
+        tmp / "registry",
+        "Samples",
+        artifacts,
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-11T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    graph = f"https://kumagallium.github.io/asterism/graph/canonical/{meta['id']}"
+    registry.mark_promoted(
+        tmp / "registry",
+        meta["id"],
+        triples_promoted=1,
+        alignment={"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}},
+        promoted_at="2026-07-11T01:00:00+00:00",
+        canonical_graph=graph,
+        live_graph=f"{graph}/v1",
+    )
+    return meta
+
+
+def _store(answer) -> OxigraphClient:
+    """``answer(query) -> bindings`` で答える偽のストア。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        rows = answer(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            text=json.dumps({"head": {"vars": []}, "results": {"bindings": rows}}),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def _workspace_name(tmp: Path, store: OxigraphClient, class_iri: str) -> str:
+    """ワークスペース（GET /api/classes）が種類に付ける名前 — 同じ 1 関数を直に呼ぶ。"""
+    import asyncio
+
+    from asterism import class_schema
+
+    return asyncio.run(class_schema.class_label(store, tmp / "registry", class_iri))
+
+
+def test_rules_kind_name_is_read_from_model_yaml(tmp_path: Path) -> None:
+    """IR に表示名が無く model.yaml にある種類は、図に渡る名前も表示名になる。"""
+    meta = _save_promoted(tmp_path, dict(_ARTIFACTS, **{"model.yaml": _MODEL_WITH_KIND_NAME}))
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(lambda q: []), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    assert body["labels"][_KIND_IRI] == "貸し出しの記録"
+    assert body["labels"][_KIND_IRI] == _workspace_name(tmp_path, _store(lambda q: []), _KIND_IRI)
+
+
+def test_rules_kind_name_is_read_from_the_ontology_graph(tmp_path: Path) -> None:
+    """IR にも model.yaml にも無く、公開したオントロジーの graph にある名前も届く。"""
+
+    def answer(query: str) -> list[dict]:
+        if f"<{_KIND_IRI}>" in query and "rdf-schema#Class" in query:
+            return [{"label": {"type": "literal", "value": "貸し出しの記録"}}]
+        return []
+
+    meta = _save_promoted(tmp_path, _ARTIFACTS)
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(answer), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    assert body["labels"][_KIND_IRI] == "貸し出しの記録"
+    assert body["labels"][_KIND_IRI] == _workspace_name(tmp_path, _store(answer), _KIND_IRI)
+
+
+def test_rules_kind_name_prefers_the_design_in_hand(tmp_path: Path) -> None:
+    """この設計の IR の表示名が先 — 公開する前の直しが、図にすぐ出る。"""
+    labelled = _MAPPING_IR.replace(
+        "      classes: [ex:Sample]\n", '      classes: [ex:Sample]\n      label: "返した記録"\n'
+    )
+    meta = _save_promoted(
+        tmp_path,
+        dict(_ARTIFACTS, **{"model.yaml": _MODEL_WITH_KIND_NAME, "mapping.yaml": labelled}),
+    )
+    asked: list[str] = []
+
+    def answer(query: str) -> list[dict]:
+        asked.append(query)
+        return []
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(answer), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        asked.clear()
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    assert body["labels"][_KIND_IRI] == "返した記録"
+    assert not [q for q in asked if f"<{_KIND_IRI}>" in q]  # 名前があるので聞きに行かない
+
+
+def test_rules_do_not_make_up_a_kind_name(tmp_path: Path, healthy_client) -> None:
+    """どこにも名前が無い種類に、名前を作って足さない（今までどおり）。"""
+    no_model = dict(_ARTIFACTS, **{"model.yaml": ""})
+    meta = _save_promoted(tmp_path, no_model)
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    assert _KIND_IRI not in body["labels"]
+
+
+def test_rules_survive_a_store_that_cannot_answer_kind_names(tmp_path: Path) -> None:
+    """ストアが答えられなくても /rules は返る（名前は元の投影のまま）。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/query" and b"?label" in request.content:
+            return httpx.Response(500, text="store is down")
+        if request.url.path == "/query":
+            return httpx.Response(
+                200,
+                text=json.dumps({"head": {}, "boolean": True}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+        return httpx.Response(204)
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    store = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+    meta = _save_promoted(tmp_path, _ARTIFACTS)
+    app = build_app(_settings(tmp_path), oxigraph_client=store, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get(f"/api/datasets/{meta['id']}/rules")
+    assert r.status_code == 200, r.text
+    assert r.json()["labels"][_KIND_IRI] == "Sample"
+    assert len(r.json()["maps"]) == 1
+
+
+def test_rules_kind_name_falls_back_like_the_workspace(tmp_path: Path) -> None:
+    """どこにも名前が無い種類は、ワークスペースと同じ読みくだしになる。"""
+    iri = "https://example.org/onto#LoanRecord"
+    artifacts = {
+        name: text.replace("ex:Sample", "ex:LoanRecord") for name, text in _ARTIFACTS.items()
+    }
+    meta = _save_promoted(tmp_path, dict(artifacts, **{"model.yaml": ""}))
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(lambda q: []), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    assert body["labels"][iri] == "Loan Record"
+    assert body["labels"][iri] == _workspace_name(tmp_path, _store(lambda q: []), iri)
+
+
+def test_rules_ask_for_kind_names_once_each(tmp_path: Path) -> None:
+    """同じ種類を何度も聞かない（種類が 2 つの map にあっても 1 回）。"""
+    second_map = """\
+  - name: SampleNoteMap
+    source: samples.csv
+    subject:
+      template: "exr:sample/{sid}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:note
+        column: note
+"""
+    second_rml = """
+<#SampleNoteMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://example.org/resource/sample/{sid}" ;
+    rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:note ;
+    rr:objectMap [ rml:reference "note" ] ] .
+"""
+    asked: list[str] = []
+
+    def answer(query: str) -> list[dict]:
+        asked.append(query)
+        return []
+
+    meta = _save_promoted(
+        tmp_path,
+        dict(
+            _ARTIFACTS,
+            **{"mapping.yaml": _MAPPING_IR + second_map, "mapping.rml.ttl": _RML + second_rml},
+        ),
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(answer), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        asked.clear()
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    assert len(body["maps"]) == 2
+    about_the_kind = [q for q in asked if f"<{_KIND_IRI}>" in q and "rdf-schema#Class" in q]
+    assert len(about_the_kind) == 1
+
+
+def test_rules_name_every_kind_of_the_bundled_sample(tmp_path: Path) -> None:
+    """同梱の見本の種類は、図に渡る名前がどれも表示名（ローカル名ではない）。"""
+    sample = Path(__file__).resolve().parents[2] / "datasets" / "world"
+    artifacts = {
+        name: (sample / name).read_text(encoding="utf-8")
+        for name in ("model.yaml", "mie.yaml", "mapping.rml.ttl", "mapping.yaml")
+    }
+    meta = _save_promoted(tmp_path, dict(artifacts, **{"diagram.md": ""}))
+    app = build_app(_settings(tmp_path), oxigraph_client=_store(lambda q: []), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/rules").json()
+    names = {m["id"]: body["labels"].get(m["subject"]["class_iris"][0]) for m in body["maps"]}
+    assert names == {
+        "ActivityMap": "取り込みの記録",
+        "CountryMap": "国",
+        "ObservationMap": "年ごとの記録",
+    }
