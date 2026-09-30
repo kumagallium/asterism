@@ -639,6 +639,36 @@ def test_transformed_subject_still_flagged_when_truly_disconnected() -> None:
     assert len(advisories) == 1 and "DISCONNECTED" in advisories[0]
 
 
+_CONSTANT_FITS_TEMPLATE = _ADV_PREFIXES + """
+<#Run> rml:logicalSource [ rml:source "run.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/run/{run_id}" ; rr:class ex:Run ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sid}" ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:madeBy ;
+    rr:objectMap [ rr:constant <https://ex/run/run-1> ] ] .
+"""
+
+
+def test_constant_that_fits_a_subject_template_connects() -> None:
+    # 取り込みの記録のような 1 件だけの種類: 主語はテンプレート（…/run/{run_id}）、
+    # ほかの種類はその 1 件を定数の IRI（…/run/run-1）で指す。同じ 1 件なので
+    # つながっている（見本の設計で、指摘が誤って出ていた）。
+    assert design_advisories(_CONSTANT_FITS_TEMPLATE) == []
+
+
+def test_constant_outside_the_template_is_still_disconnected() -> None:
+    # テンプレートにはまらない定数（別の名前空間）はつながりに数えない。
+    other = _CONSTANT_FITS_TEMPLATE.replace("https://ex/run/run-1", "https://other/run/run-1")
+    advisories = design_advisories(other)
+    assert len(advisories) == 1 and "DISCONNECTED" in advisories[0]
+
+
+def test_constant_under_a_path_segment_does_not_fit() -> None:
+    # 穴は / をまたがない。…/run/a/b は …/run/{run_id} の 1 件ではない。
+    deeper = _CONSTANT_FITS_TEMPLATE.replace("https://ex/run/run-1", "https://ex/run/a/b")
+    assert len(design_advisories(deeper)) == 1
+
+
 def test_single_entity_never_flagged() -> None:
     single = _ADV_PREFIXES + """
 <#Only> rml:logicalSource [ rml:source "a.csv" ] ;

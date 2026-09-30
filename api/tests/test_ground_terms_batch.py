@@ -71,3 +71,23 @@ def test_batch_rejects_bad_kind(tmp_path: Path) -> None:
         json={"terms": [{"name": "name", "kind": "nonsense"}]},
     )
     assert res.status_code == 400
+
+
+def test_batch_names_terms_by_iri(tmp_path: Path) -> None:
+    """IRI が先に分かっている語は、カタログを直に引いて名前を返す。
+
+    符号で語を作る語彙でも、箱に IRI の末尾（``EMMO_<uuid>``）ではなく名前を出すため。
+    カタログに無い IRI は返さない（呼ぶ側は IRI の末尾のまま）。"""
+    from asterism import grounding
+
+    coded = next(t for t in grounding.catalog_terms() if "#EMMO_" in t.iri)
+    client = _client(tmp_path)
+    res = client.post(
+        "/api/ground/terms",
+        json={"iris": [coded.iri, "https://example.org/not-in-catalog#x", coded.iri]},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["terms"] == {}
+    assert body["names"] == {coded.iri: coded.label}
+    assert "EMMO_" not in body["names"][coded.iri]

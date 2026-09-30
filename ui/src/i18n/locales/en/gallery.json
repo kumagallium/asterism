@@ -85,7 +85,18 @@
     "source": "Original file",
     "batch": "Added later (#{{seq}})",
     "none": "No ingested-file records yet. Use the operations below to ingest.",
-    "statusSavedOnly": "Saved · not ingested yet"
+    "statusSavedOnly": "Saved · not ingested yet",
+    "reshapeTitle": "Table-shaping record",
+    "reshapeKind": {
+      "explode": "Table lined up from scattered values",
+      "pivot": "Table split by kind of value",
+      "flatten": "Nested values turned into a table"
+    },
+    "reshapeRowsSuffix": "rows",
+    "reshapeLongTable": "the long, one-item-per-row table",
+    "reshapeWideTable": "the table with items as columns",
+    "reshapeStale": "{{count}} item(s) are out of date (the original file's columns may have changed).",
+    "reshapeRawSummary": "Table-shaping settings (technical)"
   },
   "connect": {
     "head": "This dataset's connections",
