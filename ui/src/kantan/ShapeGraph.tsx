@@ -124,8 +124,11 @@ export function ShapeBox({ data }: NodeProps) {
  *  実測の端から計算する（`pointOnEdge` は React Flow の bezier と同じ式）。
  *
  *  まっすぐな部分を持つ線（途中の段の席を通る線・出どころの段の下端まで降りる線）
- *  だけは、自前の経路にする — 既定の線は途中の点を持てず、箱の裏を通る。 */
-function ShapeEdgeLine({
+ *  だけは、自前の経路にする — 既定の線は途中の点を持てず、箱の裏を通る。
+ *
+ *  「共通のことば」の地図（VocabMap）の、データセットの枠の中の線もこれで引く —
+ *  枠の中は同じ `arrange` で並べるので、席も同じ線で通す。 */
+export function ShapeEdgeLine({
   id,
   sourceX,
   sourceY,
@@ -133,6 +136,7 @@ function ShapeEdgeLine({
   targetY,
   sourcePosition,
   targetPosition,
+  markerStart,
   markerEnd,
   label,
   data,
@@ -152,7 +156,17 @@ function ShapeEdgeLine({
   const path = plain ? bezier : edgePath(from, to, route)
   const p =
     at === undefined && plain ? { x: midX, y: midY } : pointOnEdge(from, to, at ?? 0.5, route)
-  return <BaseEdge id={id} path={path} labelX={p.x} labelY={p.y} label={label} markerEnd={markerEnd} />
+  return (
+    <BaseEdge
+      id={id}
+      path={path}
+      labelX={p.x}
+      labelY={p.y}
+      label={label}
+      markerStart={markerStart}
+      markerEnd={markerEnd}
+    />
+  )
 }
 
 /** 席のぶんの場所取り。何も描かない。席は箱ではないので React Flow は席を知らず、
