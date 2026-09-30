@@ -457,12 +457,12 @@ function SkeletonEvidence({
      （利用者裁定 2026-09-03「推奨で良いが UI はシンプルなまま」）。 */
   const tiedKeyCount = (() => {
     if (singleton || collides || keyColumns.length === 0) return 0
-    const current = [...keyColumns].sort().join(' ')
+    const current = [...keyColumns].sort().join('\u0000')
     return (ann.key_candidates ?? []).filter(
       (c) =>
         !c.measurement_only &&
         c.columns.length === keyColumns.length &&
-        [...c.columns].sort().join(' ') !== current,
+        [...c.columns].sort().join('\u0000') !== current,
     ).length
   })()
   // The card's three ownership blocks (G12): what it carries, what another map
