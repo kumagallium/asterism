@@ -2371,7 +2371,20 @@ export function SkeletonGate({
           disabled={busy}
           onChange={(e) => {
             if (plain) {
-              updateSubject(idx, kindLabelEdit(e.target.value, nsDetected))
+              /* 同じ種類を共有する受け口（K62）は名前もひとつ — 片方だけ直すと
+                 種類名が割れ、同じ ID に 2 つの種類が付く。全員を同時に直す。 */
+              const patch = kindLabelEdit(e.target.value, nsDetected)
+              const group = sharedGroupOf(m.name)
+              if (!group) {
+                updateSubject(idx, patch)
+                return
+              }
+              onChange({
+                ...skeleton,
+                maps: skeleton.maps.map((x) =>
+                  group.includes(x.name) ? { ...x, subject: { ...x.subject, ...patch } } : x,
+                ),
+              })
               return
             }
             updateSubject(idx, {

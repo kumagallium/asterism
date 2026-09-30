@@ -1650,7 +1650,10 @@ def assemble_skeleton_from_judgments(
     # 無ければ列名）→ 最初に作った受け口の map 名。2 つめ以降は map 名だけ別で、
     # ID の頭・種類名・表示名は最初のものを共有する — 同じ値は同じ IRI になり、
     # ファイルをまたいで 1 件にまとまる。
-    kind_by_meaning: dict[str, str] = {}
+    # 値 = (最初の受け口の map 名, そのファイル, その表示名)。まとめるのは**別々の
+    # ファイル**の受け口だけ — 同じファイルの 2 列（出発地と到着地が同じ「地点」）は
+    # 別の役割なので、同じ意味でも別の種類のまま。
+    kind_by_meaning: dict[str, tuple[str, str, str]] = {}
 
     def template(name: str, key: Sequence[str]) -> str:
         return f"{res}:{name}/" + "/".join("{" + c + "}" for c in key)
@@ -1773,18 +1776,20 @@ def assemble_skeleton_from_judgments(
             if col not in columns:
                 continue
             meaning = (labels or {}).get((src, col)) or col
-            same = kind_by_meaning.get(_meaning_key(meaning))
             name = _ascii_map_name(col, taken, "value")
-            if same is None:
-                kind_by_meaning[_meaning_key(meaning)] = name
-            kind = same or name
+            lead = kind_by_meaning.get(_meaning_key(meaning))
+            if lead is not None and lead[1] != src:
+                kind, label = lead[0], lead[2]  # 同じ種類: 頭・種類名・表示名を共有
+            else:
+                kind, label = name, meaning
+                kind_by_meaning.setdefault(_meaning_key(meaning), (name, src, meaning))
             add_map(
                 name,
                 design_src,
                 [col],
                 _pascal(kind) or "Value",
                 owns=[col],
-                label=meaning,
+                label=label,
                 kind=kind,
             )
 

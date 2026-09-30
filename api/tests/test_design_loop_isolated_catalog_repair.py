@@ -354,3 +354,45 @@ def test_catalog_home_among_falls_back_to_property_count_without_rows() -> None:
         {"K": "2", "J": "1", "Z": "3", "X": "q"},
     ]
     assert _catalog_home_among([b, a], "X", rows2)["name"] == "a"
+
+
+def test_a_shared_kind_in_another_file_does_not_hide_this_files_island(tmp_path: Path) -> None:
+    """K62: 別々のファイルの受け口が同じ種類（同じテンプレート）を共有しても、
+    別のファイルからのリンクで「つながっている」と読まない。このファイルの行が
+    孤島のまま残らないよう、K49 はこのファイルの種類から辺を足す。述語は先頭の
+    受け口の名前でそろう（hasBookTitle2 に割れない）。"""
+    (tmp_path / "data.csv").write_bytes(_CSV)
+    (tmp_path / "shelf.csv").write_bytes(
+        b"ShelfId,Floor,BookTitle\nS1,1,Origin of Species\nS2,2,Silent Spring\n"
+    )
+    schema_md = _spec(linked=True).replace(
+        "```\n",
+        "  - name: shelf\n"
+        "    source: shelf.csv\n"
+        "    subject:\n"
+        '      template: "exr:shelf/{ShelfId}"\n'
+        "      classes: [ex:Shelf]\n"
+        "    properties:\n"
+        "      - predicate: ex:floor\n"
+        "        column: Floor\n"
+        "  - name: book_title2\n"
+        "    source: shelf.csv\n"
+        "    subject:\n"
+        '      template: "exr:bookTitle/{BookTitle}"\n'
+        "      classes: [ex:BookTitle]\n"
+        "    properties:\n"
+        "      - predicate: rdfs:label\n"
+        "        column: BookTitle\n"
+        "```\n",
+    )
+    _, before = _verdict(schema_md, tmp_path)
+    assert any("DISCONNECTED groups" in i.message for i in before)
+    repaired, _, after = _evaluate(schema_md, tmp_path)
+    added = [
+        p
+        for p in _maps(repaired)["shelf"].get("properties") or []
+        if p.get("object_template") == "exr:bookTitle/{BookTitle}"
+    ]
+    assert len(added) == 1
+    assert added[0]["predicate"] == "ex:hasBookTitle"
+    assert not any("DISCONNECTED groups" in i.message for i in after)

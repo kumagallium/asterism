@@ -112,6 +112,7 @@ from asterism_step0.staged_propose import (
     ensure_value_catalog_labels,
     json_expansion_plan,
     propose_from_skeleton,
+    shared_kind_lead,
     skeleton_from_full_ir,
     take_in_columns,
     value_catalog_owns,
@@ -1732,11 +1733,15 @@ def _link_isolated_value_catalogs(
             for p in map_entry.get("properties") or []
         )
 
-    def points_in(template: str, owner_name: str) -> bool:
+    def points_in(template: str, owner_name: str, source: str) -> bool:
+        # 同じファイルの種類からのリンクだけを数える。別々のファイルの受け口が同じ
+        # 種類を共有すると（K62）テンプレートが同じになり、別のファイルからの辺で
+        # 「つながっている」と誤って読み、このファイルの行が孤島のまま残る。
         return any(
             isinstance(p, dict) and str(p.get("object_template") or "") == template
             for other in maps
             if str(other.get("name")) != owner_name
+            and str(other.get("source") or "") == source
             for p in other.get("properties") or []
         )
 
@@ -1764,7 +1769,11 @@ def _link_isolated_value_catalogs(
     linked = 0
     for cat_name, cat_map in catalogs.items():
         cat_tpl = subject_tpl.get(cat_name, "")
-        if not cat_tpl or points_out(cat_map) or points_in(cat_tpl, cat_name):
+        if (
+            not cat_tpl
+            or points_out(cat_map)
+            or points_in(cat_tpl, cat_name, str(cat_map.get("source") or ""))
+        ):
             continue  # already connected — the model did its job
         keys = _placeholders(cat_tpl)
         if len(keys) != 1:
@@ -1798,7 +1807,8 @@ def _link_isolated_value_catalogs(
             for p in record_props
         ):
             continue  # some OTHER property already links here
-        local = f"has{_pascal(cat_name)}"
+        # 同じ種類を共有する受け口は、先頭の名前で 1 つの述語にそろえる（K62）。
+        local = f"has{_pascal(shared_kind_lead(cat_name, maps))}"
         predicate = f"{onto}:{local}"
         existing = {str(p.get("predicate")) for p in record_props if isinstance(p, dict)}
         if predicate in existing:

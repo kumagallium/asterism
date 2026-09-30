@@ -1565,3 +1565,72 @@ def test_different_meanings_stay_different_kinds(tmp_path: Path) -> None:
     assert maps[0]["subject"]["classes"] != maps[1]["subject"]["classes"]
     ann = annotate_skeleton(out["skeleton"], paths)["maps"]
     assert all("shared_kind" not in ann[m["name"]] for m in maps)
+
+
+def test_shared_kind_shares_the_first_display_name(tmp_path: Path) -> None:
+    """同じ意味とみなした受け口は、表示名も最初の受け口のものを共有する
+    （表記の揺れ Composition / composition を同じ種類に 2 つ付けない）。"""
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+        labels={
+            ("curves.csv", "composition"): "Composition",
+            ("samples.csv", "composition"): "composition",
+        },
+    )
+    maps = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert [m["subject"]["label"] for m in maps] == ["Composition", "Composition"]
+
+
+def test_same_meaning_in_one_file_stays_two_kinds(tmp_path: Path) -> None:
+    """同じファイルの 2 列（出発地・到着地がどちらも「地点」）は別の役割 —
+    同じ意味でも 1 つの種類にしない。まとめるのは別々のファイルの受け口だけ。"""
+    p = tmp_path / "trips.csv"
+    p.write_text(
+        "trip,start,end,km\nT1,Tokyo,Osaka,500\nT2,Osaka,Kyoto,50\nT3,Kyoto,Tokyo,450\n",
+        encoding="utf-8",
+    )
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[
+            {"source": "trips.csv", "column": "start"},
+            {"source": "trips.csv", "column": "end"},
+        ],
+        labels={("trips.csv", "start"): "地点", ("trips.csv", "end"): "地点"},
+    )
+    by_owns = {
+        m["owns"][0]: m
+        for m in out["skeleton"]["maps"]
+        if m.get("owns") in (["start"], ["end"])
+    }
+    assert by_owns["start"]["subject"]["template"] != by_owns["end"]["subject"]["template"]
+    assert by_owns["start"]["subject"]["classes"] != by_owns["end"]["subject"]["classes"]
+
+
+def test_links_to_a_shared_kind_use_one_predicate(tmp_path: Path) -> None:
+    """同じ種類への機械のリンクは、どのファイルからでも同じ述語（hasComposition）。
+    map 名の連番（hasComposition2）を公開される語彙に漏らさない。"""
+    from asterism_step0.staged_propose import catalog_links_from_home
+
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+    )
+    maps = out["skeleton"]["maps"]
+    ann = annotate_skeleton(out["skeleton"], paths)
+    homes = catalog_homes(out["skeleton"], ann)
+    onto = next(iter(out["skeleton"]["prefixes"]))
+    predicates = {
+        row["predicate"]
+        for home in set(homes.values())
+        for row in catalog_links_from_home(home, maps, homes, ontology_prefix=onto)
+    }
+    assert predicates == {f"{onto}:hasComposition"}
