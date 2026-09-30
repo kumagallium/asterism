@@ -78,7 +78,8 @@ def _seed_promoted(ds: rdflib.Dataset, registry_root: Path, dataset_id: str, row
     key = substrate.canonical_graph_iri(dataset_id)
     g = ds.graph(rdflib.URIRef(key))
     for entity, raw in rows:
-        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), rdflib.Literal(raw)))
+        lit = raw if isinstance(raw, rdflib.Literal) else rdflib.Literal(raw)
+        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), lit))
     ds.update(
         f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
         f'<{key}> <{substrate.STATUS_PREDICATE}> "promoted" }} }}'
@@ -1108,6 +1109,48 @@ def test_discover_candidate_builds_without_edits(tmp_path: Path) -> None:
         )
         assert r.status_code == 200, r.text
         assert r.json()["shared_total"] == cand["matched"]
+
+
+def test_discover_candidate_with_language_tagged_values_builds_the_same_count(
+    tmp_path: Path,
+) -> None:
+    """同じ約束を、片方の値に言語タグが付いているときにも守る。候補さがしは文字列で
+    比べて「一致」と言う（"日本"@ja と "日本" は同じ値）ので、作った結果も同じ件数で
+    なければならない。同じ主語が 2 つの言語（ja と en）で値を持っていても、一致は
+    1 件ずつ（二重に数えない）。"""
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(
+        ds, root, "ds-a", [("urn:a1", "日本"), ("urn:a2", "フランス"), ("urn:a3", "ドイツ")]
+    )
+    _seed_promoted(
+        ds,
+        root,
+        "ds-b",
+        [
+            ("urn:b1", rdflib.Literal("日本", lang="ja")),
+            ("urn:b1", rdflib.Literal("Japan", lang="en")),
+            ("urn:b2", rdflib.Literal("フランス", lang="ja")),
+            ("urn:b2", rdflib.Literal("France", lang="en")),
+            ("urn:b3", rdflib.Literal("ドイツ", lang="ja")),
+            ("urn:b3", rdflib.Literal("Germany", lang="en")),
+        ],
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        cand = _discover(client)["candidates"][0]
+        assert {p["dataset_id"] for p in cand["participants"]} == {"ds-a", "ds-b"}
+        assert cand["matched"] == 3
+        r = client.post(
+            f"/api/crosswalk/{cand['perspective_id']}/build",
+            json={"config": cand["build_config"], "name": cand["name"]},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["shared_total"] == cand["matched"]
+        # ja と en の 2 つの値を持つ主語も、リンクは値 1 つにつき 1 本（両側とも 3）。
+        (links,) = body["links"].values()
+        assert sorted(links.values()) == [3, 3]
 
 
 def test_discover_needs_no_llm_key(tmp_path: Path) -> None:
