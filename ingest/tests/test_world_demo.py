@@ -547,3 +547,18 @@ def test_every_kind_has_a_display_name() -> None:
         if not m["subject"].get("label") and m["subject"]["classes"][0] not in named_in_model
     ]
     assert unnamed == []
+
+
+def test_snapshot_meta_classes_are_display_names() -> None:
+    """snapshot の ``registry/meta.json`` の ``classes`` は、種類の表示名（ローカル名
+    ではない）。取り込みはこの値をそのまま写し、地図の箱の「入っている種類」・
+    データセットの詳細の「中身」の種類と件数がそれを読む（実機所見: 利用者の
+    設計は表示名なのに、見本だけ英字のローカル名が地図に出ていた）。図の箱も同じ
+    名前を ``["…"]`` ラベルで持つ — ``registry.extract_classes`` がそこから採る。"""
+    members = _extract_snapshot()
+    meta = json.loads(members["registry/meta.json"])
+    assert meta["classes"] == ["国", "年ごとの記録"]
+    assert meta["class_count"] == len(meta["classes"])
+    diagram = members["registry/diagram.md"].decode("utf-8")
+    assert 'class Country["国"]' in diagram
+    assert 'class Observation["年ごとの記録"]' in diagram

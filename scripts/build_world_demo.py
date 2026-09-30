@@ -44,6 +44,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import tarfile
@@ -285,7 +286,7 @@ def _add_text(tar: tarfile.TarFile, name: str, text: str) -> None:
     _add_bytes(tar, name, text.encode("utf-8"))
 
 
-def _registry_meta(*, world_csv_rows: int) -> dict[str, object]:
+def _registry_meta(*, world_csv_rows: int, classes: list[str]) -> dict[str, object]:
     """The dataset's ``meta.json`` shape as ``asterism_api.registry.save_dataset``
     would have written it for a hand-authored (non-LLM-proposed) bundle — the
     same convention ``datasets/materials_project`` / ``datasets/papers`` follow
@@ -293,6 +294,11 @@ def _registry_meta(*, world_csv_rows: int) -> dict[str, object]:
     Only the fields ``asterism_api.exchange._META_KEEP`` actually carries
     through an import matter for round-tripping; the rest are realistic
     filler so the dataset dir looks like any other onboarded one.
+
+    ``classes`` は ``registry.save_dataset`` と同じく図の箱から採る
+    （:func:`_classes_of`）。取り込み（``exchange.import_snapshot``）はこの値を
+    そのまま写すので、ここが地図の箱の「入っている種類」と、データセットの詳細の
+    「中身」の種類と件数に出る名前の出どころになる。
     """
     now = datetime.now(UTC).isoformat()
     return {
@@ -303,8 +309,8 @@ def _registry_meta(*, world_csv_rows: int) -> dict[str, object]:
         "warnings": [],
         "exit_code": 0,
         "traps": [],
-        "classes": ["Country", "Observation"],
-        "class_count": 2,
+        "classes": list(classes),
+        "class_count": len(classes),
         "has_mie": True,
         "has_rml": True,
         "has_mapping_ir": True,
@@ -317,16 +323,62 @@ def _registry_meta(*, world_csv_rows: int) -> dict[str, object]:
     }
 
 
-def _diagram_md() -> str:
+def _kind_display_names(mapping_yaml_text: str, model_yaml_text: str) -> dict[str, str]:
+    """種類（CURIE）→ 人が読む表示名。表示名の無い種類は入れない。
+
+    読み順は api の ``_kind_labels``（ADR kantan K51）と同じ: この設計の
+    Mapping IR の ``subject.label`` → model.yaml の ``classes.<curie>.label``。
+    見本の 2 つのデータの種類は model.yaml に、来歴の種類は mapping.yaml に
+    表示名がある（どちらに書くかの理由は mapping.yaml の冒頭のコメント）。
+    """
+    import yaml
+
+    names: dict[str, str] = {}
+    mapping = yaml.safe_load(mapping_yaml_text) or {}
+    for m in mapping.get("maps") or []:
+        subject = m.get("subject") or {}
+        label = str(subject.get("label") or "").strip()
+        for curie in subject.get("classes") or []:
+            if label and str(curie) not in names:
+                names[str(curie)] = label
+    model = yaml.safe_load(model_yaml_text) or {}
+    for curie, spec in (model.get("classes") or {}).items():
+        label = str((spec or {}).get("label") or "").strip()
+        if label and str(curie) not in names:
+            names[str(curie)] = label
+    return names
+
+
+def _mermaid_box(ident: str, curie: str, kind_names: dict[str, str]) -> str:
+    """Mermaid の箱の頭 — 表示名があれば ``Ident["表示名"]``（step0 の
+    ``ttl2mermaid._display_label`` と同じ書式・同じ省略規則）。
+    ``registry.extract_classes`` はこのラベルを ``meta.classes`` に採る。"""
+    name = kind_names.get(curie, "")
+    if not name or name == ident or re.search(r'["\r\n]', name):
+        return ident
+    return f'{ident}["{name}"]'
+
+
+def _diagram_md(kind_names: dict[str, str]) -> str:
+    country = _mermaid_box("Country", "world:Country", kind_names)
+    observation = _mermaid_box("Observation", "world:Observation", kind_names)
     return (
         "```mermaid\n"
         "classDiagram\n"
-        "    class Country { schema:name; world:nameJa; world:region; world:regionJa }\n"
-        "    class Observation { world:year; world:population; world:lifeExpectancy; "
+        f"    class {country} {{ schema:name; world:nameJa; world:region; world:regionJa }}\n"
+        f"    class {observation} {{ world:year; world:population; world:lifeExpectancy; "
         "world:fertility }\n"
         "    Observation --> Country : world:ofCountry\n"
         "```\n"
     )
+
+
+def _classes_of(diagram_md: str) -> list[str]:
+    """``meta.classes`` — api の ``registry.save_dataset`` と同じ読み手で、図の箱の
+    表示名（無ければ識別子）を採る。手で写した一覧を持たない。"""
+    from asterism_api.registry import extract_classes, mermaid_of
+
+    return extract_classes(mermaid_of(diagram_md))
 
 
 def build_snapshot_tar(
@@ -355,7 +407,8 @@ def build_snapshot_tar(
         "ontology_included": False,
         "meta_included": False,
     }
-    meta = _registry_meta(world_csv_rows=world_csv_rows)
+    diagram_md = _diagram_md(_kind_display_names(mapping_yaml_text, model_yaml_text))
+    meta = _registry_meta(world_csv_rows=world_csv_rows, classes=_classes_of(diagram_md))
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -367,7 +420,7 @@ def build_snapshot_tar(
         _add_text(tar, "registry/mapping.yaml", mapping_yaml_text)
         _add_text(tar, "registry/mapping.rml.ttl", mapping_rml_text)
         _add_text(tar, "registry/metadata.ttl", "")
-        _add_text(tar, "registry/diagram.md", _diagram_md())
+        _add_text(tar, "registry/diagram.md", diagram_md)
         _add_text(tar, "registry/proposal.md", "")
         _add_text(tar, "registry/query_tools.yaml", query_tools_yaml_text)
         _add_text(tar, "registry/source/world.csv", world_csv_text)
@@ -594,6 +647,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     SNAPSHOT_TAR.write_bytes(tar_bytes)
     print(f"wrote {SNAPSHOT_TAR} ({len(tar_bytes)} bytes, gzip'd tar)")
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
+        member = tar.extractfile("registry/meta.json")
+        assert member is not None
+        print(f"meta.classes: {json.loads(member.read())['classes']}")
 
     if not args.no_verify:
         import asyncio
