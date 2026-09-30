@@ -34,11 +34,13 @@ import {
   pendingLinkEdges,
   sameIdKind,
   sameIdSiblings,
+  separateSharedKind,
+  sharedKindGroups,
   slugMapName,
   splitSharedConcept,
   twinKindNames,
 } from './skeletonKinds'
-import { skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
+import { mergeNodes, skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
 import { requestConsult } from './consult/consultOpen'
 
@@ -1915,7 +1917,7 @@ export function SkeletonGate({
         t(hostIsWhole ? 'skeletongate:zone.diagramCard' : 'skeletongate:zone.diagramRecord')
       )
     if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
-    // 表示名のある種類（人が打った名前・組み立てが付けた「curves の 1 行」K63）は
+    // 表示名のある種類（人が打った名前・組み立てが付けた「curves の 1 行」K64）は
     // それで呼ぶ。ID の列名で呼ぶのは、名前の無い種類の最後の手だけ。受け口は
     // 列の名前で呼ぶ（④で ☑ した列）ので、ここでは変えない。
     if (!isValueCatalog(m) && (m.subject.label ?? '').trim()) return displayMapName(m.name)
@@ -1927,7 +1929,11 @@ export function SkeletonGate({
   const diagramLabel = (m: SkeletonMap): string => {
     /* 件数はラベルに入れる（ADR D4: 「n 件」が数えかたを語る — 色で二重に
        言わない）。annotation が無いあいだは名前だけ。 */
-    const n = annotations?.maps?.[m.name]?.distinct_ids
+    /* 同じ種類に畳んだ箱は、まとまったあとの件数（全ファイルの値の和集合・K63）。
+       注釈がまだ無い・数えられないときは件数を出さない（1 ファイル分の数は嘘）。 */
+    const n = sharedGroupOf(m.name)
+      ? annotations?.maps?.[m.name]?.shared_kind?.distinct_ids
+      : annotations?.maps?.[m.name]?.distinct_ids
     const label = plainKindLabel(m)
     return n === undefined
       ? label
@@ -1989,6 +1995,10 @@ export function SkeletonGate({
         })
       : undefined,
   })
+  /** 別々のファイルで同じ種類を共有する受け口（K63）。図では 1 つの箱に畳み、
+   *  図の下で「同じ種類にした」ことと、戻す道（別々の種類にする）を言う。 */
+  const sharedGroups = plain ? sharedKindGroups(skeleton.maps, isCatalogKind) : []
+  const sharedGroupOf = (name: string) => sharedGroups.find((g) => g.includes(name))
   /** 箱の 1 行目 = その種類の ID の作り方（承認モック「ID: No + (hkl)」）。
    *  ④で選ばれず機械が仮置きした ID は、その場で（仮・機械の推定）と書く —
    *  図だけ見ても仮だと分かるように（下の ⚠ と同じ事実の 2 つの置き場）。 */
@@ -2009,6 +2019,16 @@ export function SkeletonGate({
           keys: keys.join(' + '),
         }),
       },
+      // 同じ種類を共有する受け口は、どのファイルから来るかを箱の中で言う（K63）。
+      ...(sharedGroupOf(m.name)
+        ? [
+            {
+              name: t('skeletongate:sharedKind.fileLine', {
+                count: sharedGroupOf(m.name)!.length,
+              }),
+            },
+          ]
+        : []),
       // ID 行が言った列を項目にも並べない（承認モック: カードの箱に「ID: No」と
       // 「No」を二重に出さない）。
       ...base.filter((f) => !keys.includes(f.name)),
@@ -2033,7 +2053,7 @@ export function SkeletonGate({
           map 名（＋クラス名）で呼ぶ — 呼び方だけが違う。押して②の種類へ飛べる
           のは両方で役に立つ（箱が増えるのはこの画面の操作の結果）。 */}
       <ShapeGraph
-        shape={skeletonShape(skeleton, {
+        shape={mergeNodes(skeletonShape(skeleton, {
           label: plain ? diagramLabel : detailLabel,
           tone: diagramTone,
           // 項目はかんたん層だけ。詳細モードは同じ表を下に全部出している。
@@ -2041,7 +2061,7 @@ export function SkeletonGate({
           edgeLabel: t('workbench:skeleton.diagram.edge'),
           pendingEdges: plain ? pendingEdges : undefined,
           pendingLabel: t('skeletongate:zone.diagramPending'),
-        })}
+        }), sharedGroups)}
         ariaLabel={t('skeletongate:zone.diagramAria')}
         onNodeClick={(id) => {
           setOpenKind(id)
@@ -2354,7 +2374,20 @@ export function SkeletonGate({
           disabled={busy}
           onChange={(e) => {
             if (plain) {
-              updateSubject(idx, kindLabelEdit(e.target.value, nsDetected))
+              /* 同じ種類を共有する受け口（K63）は名前もひとつ — 片方だけ直すと
+                 種類名が割れ、同じ ID に 2 つの種類が付く。全員を同時に直す。 */
+              const patch = kindLabelEdit(e.target.value, nsDetected)
+              const group = sharedGroupOf(m.name)
+              if (!group) {
+                updateSubject(idx, patch)
+                return
+              }
+              onChange({
+                ...skeleton,
+                maps: skeleton.maps.map((x) =>
+                  group.includes(x.name) ? { ...x, subject: { ...x.subject, ...patch } } : x,
+                ),
+              })
               return
             }
             updateSubject(idx, {
@@ -2826,6 +2859,41 @@ export function SkeletonGate({
               強い手応え。 */}
           <div className="skeleton-zone-graph">{diagram}</div>
           <p className="kz-note kz-prose">{t('skeletongate:graphLegend')}</p>
+          {/* 同じ意味の ☑ は同じ種類にまとめた（K63）— 黙ってまとめない。根拠（両方に
+              出てくる値の数）と、違うものだったときの戻し方を、その場で出す。 */}
+          {sharedGroups.map((group) => {
+            const lead = skeleton.maps.find((m) => m.name === group[0])
+            if (!lead) return null
+            const shared = annotations?.maps?.[lead.name]?.shared_kind?.shared_values
+            return (
+              <div key={group.join('\u0000')} className="kz-note kz-prose skeleton-shared-kind">
+                <p>
+                  {t('skeletongate:sharedKind.note', {
+                    name: plainKindLabel(lead),
+                    count: group.length,
+                  })}{' '}
+                  {shared === undefined
+                    ? null
+                    : shared > 0
+                      ? t('skeletongate:sharedKind.evidence', { count: shared })
+                      : t('skeletongate:sharedKind.noEvidence')}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() =>
+                    onChange(
+                      group
+                        .slice(1)
+                        .reduce((next, name) => separateSharedKind(next, name), skeleton),
+                    )
+                  }
+                >
+                  {t('skeletongate:sharedKind.separate')}
+                </button>
+              </div>
+            )
+          })}
           {/* ④で名指しが選ばれず、機械が仮置きした ID（ADR D3）。推測は黙って
               残さない — このままでも進めるが、⚠ で言い、直しへ誘導する。列が
               もうどの種類のキーでもなくなっていたら（人が直した後）出さない。 */}

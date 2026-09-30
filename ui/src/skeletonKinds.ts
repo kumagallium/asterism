@@ -188,6 +188,62 @@ export function catalogLinkEdges(opts: {
   return edges
 }
 
+/** 別々のファイルで**同じ種類**を共有する受け口のかたまり（ADR kantan K63）。
+ *
+ *  同じ種類 = 受け口（1 列キー）で、ID の頭（テンプレートの `{` より前）と種類名
+ *  （`classes`）が同じもの。同じ値は同じ IRI になり、ファイルをまたいで 1 件に
+ *  まとまる。④で同じ意味の列に ☑ を付けると、組み立てがこの形を作る。サーバの
+ *  注釈 `shared_kind` と同じ読みだが、骨格だけから出す — 「別々にする」を押した
+ *  瞬間に図が変わるように。同じファイルの中の重なりは双子（`twinKindNames`）の
+ *  領分なので、2 つ以上のファイルにまたがるものだけ返す。 */
+export function sharedKindGroups(
+  maps: readonly SkeletonMap[],
+  isCatalog: (m: SkeletonMap) => boolean,
+): string[][] {
+  const groups = new Map<string, SkeletonMap[]>()
+  for (const m of maps) {
+    const template = m.subject.template ?? ''
+    if (!isCatalog(m) || keyColumnsOf(m).length !== 1) continue
+    const sig = [template.slice(0, template.indexOf('{')), ...(m.subject.classes ?? [])].join(
+      '\u0000',
+    )
+    groups.set(sig, [...(groups.get(sig) ?? []), m])
+  }
+  return [...groups.values()]
+    .filter((g) => new Set(g.map((m) => m.source)).size > 1)
+    .map((g) => g.map((m) => m.name))
+}
+
+/** 同じ種類を共有している受け口を、**自分だけの種類**に戻す（K63 の逃げ道）。
+ *  ID の頭と種類名を自分の map 名から作り直す — `splitSharedConcept` が新しい
+ *  種類に付けるのと同じ形。表示名はそのまま（名前は②で直せる）。 */
+export function separateSharedKind(skeleton: MappingSkeleton, name: string): MappingSkeleton {
+  return {
+    ...skeleton,
+    maps: skeleton.maps.map((m) => {
+      if (m.name !== name) return m
+      const template = m.subject.template ?? ''
+      const key = keyColumnsOf(m)[0]
+      if (!key) return m
+      const cls = m.subject.classes?.[0] ?? ''
+      const classPrefix = cls.includes(':') ? cls.slice(0, cls.indexOf(':') + 1) : ''
+      const pascal = m.name
+        .split('_')
+        .filter(Boolean)
+        .map((w) => w[0].toUpperCase() + w.slice(1))
+        .join('')
+      return {
+        ...m,
+        subject: {
+          ...m.subject,
+          template: `${subjectHead(template)}${m.name}/{${key}}`,
+          classes: classPrefix ? [`${classPrefix}${pascal}`] : (m.subject.classes ?? []),
+        },
+      }
+    }),
+  }
+}
+
 /** 新しい種類の住所の頭。親の下ではなくデータセットの根に置く — 最後の
  *  リテラル区間を 1 つ落として接頭辞（`xrr:` / `…/resource/`）まで戻す。
  *  （`SkeletonGate` の `splitConcept` から移設。つなぐための種類が「親の下」に

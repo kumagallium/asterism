@@ -3,7 +3,7 @@ import { rowKindLabels } from './rowKindLabels'
 
 const label = (file: string) => `${file} の 1 行`
 
-describe('rowKindLabels (K63)', () => {
+describe('rowKindLabels (K64)', () => {
   it('names each file by its stem, keyed by the name it was given', () => {
     expect(rowKindLabels(['curves.csv', 'samples.csv'], label)).toEqual({
       'curves.csv': 'curves の 1 行',

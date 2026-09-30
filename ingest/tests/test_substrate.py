@@ -934,7 +934,8 @@ async def test_chunked_drop_graph_empties_in_batches() -> None:
     assert batches == 3  # 2 + 2 + 1
     assert len(ds.graph(g)) == 0  # emptied
     assert len(ds.graph(other)) == 1  # sibling untouched
-    # idempotent: a second call on the empty graph is a no-op (0 batches)
+    # idempotent: a second call deletes nothing (0 batches); its DROP SILENT of the
+    # already-dropped name does not fail
     assert await chunked_drop_graph(client, str(g), chunk=2) == 0
 
 

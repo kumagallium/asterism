@@ -3161,7 +3161,7 @@ export function KantanWizard({
           return label ? { source, column, label } : null
         })
         .filter((x): x is { source: string; column: string; label: string } => x !== null)
-      // K63: 行の種類の公開名は機械の仮の名前（Record・Record2）。表示名が無いと
+      // K64: 行の種類の公開名は機械の仮の名前（Record・Record2）。表示名が無いと
       // それが「ためす」の図・件数・気になる点の文にそのまま出る。どのファイルの
       // 行かで呼ぶ。名前は**元のファイル名**から作る — 設計が参照する名前は
       // サーバが英数字に直したもの（「測定結果.csv」→「source-1a2b3c4d.csv」）で、

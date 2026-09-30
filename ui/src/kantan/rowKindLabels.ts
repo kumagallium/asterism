@@ -1,6 +1,6 @@
 import { basename } from '../skeletonContainment'
 
-/** 行の種類の表示名 {ファイル名: 表示名}（K63）。拡張子を落として呼ぶが、落とすと
+/** 行の種類の表示名 {ファイル名: 表示名}（K64）。拡張子を落として呼ぶが、落とすと
  *  同じ名前になるファイルどうしは拡張子まで含めて呼ぶ（見分けられなくなるので）。 */
 export function rowKindLabels(
   names: string[],

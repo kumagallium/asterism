@@ -682,7 +682,7 @@ def test_assemble_labels_argument_overrides_the_column_name(tmp_path: Path) -> N
 
 
 def test_assemble_row_labels_name_each_files_row_kind(tmp_path: Path) -> None:
-    """ADR kantan K63: 行の種類の公開名は機械の仮の名前（Record・Record2）。
+    """ADR kantan K64: 行の種類の公開名は機械の仮の名前（Record・Record2）。
     ``row_labels`` {ファイル名: 表示名} があれば、その行の種類の表示名になる。
     カードと受け口は今のまま。"""
     a = tmp_path / "curves.csv"
@@ -1521,3 +1521,153 @@ def test_catalog_home_prefers_the_fewest_entities_and_skips_the_unprovable(
     assert ann["category"]["catalog_home"] == "card"
     assert ann["brand"]["catalog_home"] == "record"
     assert "catalog_home" not in ann["ghost"]
+
+
+def _two_files_with_composition(tmp_path: Path, second_column: str = "composition") -> list[Path]:
+    curves = tmp_path / "curves.csv"
+    curves.write_text(
+        "sample_id,composition,x,y\nS1,Bi2Te3,1,2\nS2,Bi2Te3,2,3\nS3,PbTe,1,5\n",
+        encoding="utf-8",
+    )
+    samples = tmp_path / "samples.csv"
+    samples.write_text(
+        f"SID,{second_column},sample_name\nP1,Bi2Te3,a\nP2,SnSe,b\nP3,GeTe,c\n",
+        encoding="utf-8",
+    )
+    return [curves, samples]
+
+
+def test_same_meaning_checked_in_two_files_is_one_kind(tmp_path: Path) -> None:
+    """K63: 同じ意味の列を別々のファイルで ☑ すると、受け口は同じ種類になる —
+    ID の頭・種類名・表示名を共有し、同じ値はファイルをまたいで同じ IRI。"""
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+    )
+    maps = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert len(maps) == 2
+    first, second = maps
+    assert first["name"] != second["name"]  # map は別（ファイルごと）
+    assert first["subject"]["template"] == second["subject"]["template"]
+    assert first["subject"]["classes"] == second["subject"]["classes"]
+    assert first["subject"]["label"] == second["subject"]["label"]
+
+    ann = annotate_skeleton(out["skeleton"], paths)["maps"]
+    shared = ann[second["name"]]["shared_kind"]
+    assert shared == ann[first["name"]]["shared_kind"]
+    assert shared["members"] == [first["name"], second["name"]]
+    assert shared["distinct_ids"] == 4  # Bi2Te3 / PbTe / SnSe / GeTe
+    assert shared["shared_values"] == 1  # Bi2Te3 だけが両方に出る
+
+
+def test_same_meaning_under_different_column_names_is_one_kind(tmp_path: Path) -> None:
+    """列名が違っても、③の意味（表示名）が同じなら同じ種類。"""
+    paths = _two_files_with_composition(tmp_path, second_column="組成")
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "組成"},
+        ],
+        labels={("curves.csv", "composition"): "組成", ("samples.csv", "組成"): "組成 "},
+    )
+    heads = {
+        m["subject"]["template"].split("{")[0]
+        for m in out["skeleton"]["maps"]
+        if len(m.get("owns") or []) == 1 and m["owns"][0] in ("composition", "組成")
+    }
+    assert len(heads) == 1
+
+
+def test_different_meanings_stay_different_kinds(tmp_path: Path) -> None:
+    """意味が違えば、列名が同じでも別の種類のまま（shared_kind も付かない）。"""
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+        labels={
+            ("curves.csv", "composition"): "測定した組成",
+            ("samples.csv", "composition"): "仕込み組成",
+        },
+    )
+    maps = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert maps[0]["subject"]["template"] != maps[1]["subject"]["template"]
+    assert maps[0]["subject"]["classes"] != maps[1]["subject"]["classes"]
+    ann = annotate_skeleton(out["skeleton"], paths)["maps"]
+    assert all("shared_kind" not in ann[m["name"]] for m in maps)
+
+
+def test_shared_kind_shares_the_first_display_name(tmp_path: Path) -> None:
+    """同じ意味とみなした受け口は、表示名も最初の受け口のものを共有する
+    （表記の揺れ Composition / composition を同じ種類に 2 つ付けない）。"""
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+        labels={
+            ("curves.csv", "composition"): "Composition",
+            ("samples.csv", "composition"): "composition",
+        },
+    )
+    maps = [m for m in out["skeleton"]["maps"] if m.get("owns") == ["composition"]]
+    assert [m["subject"]["label"] for m in maps] == ["Composition", "Composition"]
+
+
+def test_same_meaning_in_one_file_stays_two_kinds(tmp_path: Path) -> None:
+    """同じファイルの 2 列（出発地・到着地がどちらも「地点」）は別の役割 —
+    同じ意味でも 1 つの種類にしない。まとめるのは別々のファイルの受け口だけ。"""
+    p = tmp_path / "trips.csv"
+    p.write_text(
+        "trip,start,end,km\nT1,Tokyo,Osaka,500\nT2,Osaka,Kyoto,50\nT3,Kyoto,Tokyo,450\n",
+        encoding="utf-8",
+    )
+    out = assemble_skeleton_from_judgments(
+        [p],
+        linkable=[
+            {"source": "trips.csv", "column": "start"},
+            {"source": "trips.csv", "column": "end"},
+        ],
+        labels={("trips.csv", "start"): "地点", ("trips.csv", "end"): "地点"},
+    )
+    by_owns = {
+        m["owns"][0]: m
+        for m in out["skeleton"]["maps"]
+        if m.get("owns") in (["start"], ["end"])
+    }
+    assert by_owns["start"]["subject"]["template"] != by_owns["end"]["subject"]["template"]
+    assert by_owns["start"]["subject"]["classes"] != by_owns["end"]["subject"]["classes"]
+
+
+def test_links_to_a_shared_kind_use_one_predicate(tmp_path: Path) -> None:
+    """同じ種類への機械のリンクは、どのファイルからでも同じ述語（hasComposition）。
+    map 名の連番（hasComposition2）を公開される語彙に漏らさない。"""
+    from asterism_step0.staged_propose import catalog_links_from_home
+
+    paths = _two_files_with_composition(tmp_path)
+    out = assemble_skeleton_from_judgments(
+        paths,
+        linkable=[
+            {"source": "curves.csv", "column": "composition"},
+            {"source": "samples.csv", "column": "composition"},
+        ],
+    )
+    maps = out["skeleton"]["maps"]
+    ann = annotate_skeleton(out["skeleton"], paths)
+    homes = catalog_homes(out["skeleton"], ann)
+    onto = next(iter(out["skeleton"]["prefixes"]))
+    predicates = {
+        row["predicate"]
+        for home in set(homes.values())
+        for row in catalog_links_from_home(home, maps, homes, ontology_prefix=onto)
+    }
+    assert predicates == {f"{onto}:hasComposition"}

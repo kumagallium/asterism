@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
@@ -1314,6 +1315,75 @@ def catalog_homes(skeleton: Mapping[str, Any], annotations: Mapping[str, Any]) -
     return homes
 
 
+def _stamp_shared_kinds(
+    skeleton: Mapping[str, Any],
+    annotations: dict[str, Any],
+    map_sources: Mapping[str, str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+) -> None:
+    """別々のファイルの受け口が**同じ種類**を共有しているとき（K63）、その事実を
+    受け口ごとの注釈 ``shared_kind`` に書く。
+
+    同じ種類 = 値のカタログで、ID の頭（テンプレートの ``{`` より前）と種類名
+    （``classes``）が同じ。同じ値は同じ IRI になり、ファイルをまたいで 1 件に
+    まとまる。人が「本当に同じものか」を確かめる根拠として、
+
+    - ``members``: 同じ種類の受け口（骨格の順）
+    - ``distinct_ids``: まとまったあとの件数（全員の値の和集合）
+    - ``shared_values``: 2 つ以上のファイルに出てくる値の数（0 なら、同じ種類に
+      した根拠が値には無い）
+
+    を付ける。値の読めないファイルがあれば、件数は付けない（嘘の数を出さない）。
+    """
+    groups: dict[tuple[str, tuple[str, ...]], list[Mapping[str, Any]]] = defaultdict(list)
+    for m in skeleton.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        name = str(m.get("name") or "")
+        if not (annotations.get(name) or {}).get("value_catalog"):
+            continue
+        subject = m.get("subject") if isinstance(m.get("subject"), Mapping) else {}
+        tmpl = str(subject.get("template") or "")
+        keys = re.findall(r"\{([^{}]+)\}", tmpl)
+        if len(keys) != 1:
+            continue
+        head = tmpl[: tmpl.index("{")]
+        classes = tuple(str(c) for c in subject.get("classes") or [])
+        groups[(head, classes)].append(m)
+    for members in groups.values():
+        names = [str(m.get("name")) for m in members]
+        if len(members) < 2 or len({map_sources.get(n) for n in names}) < 2:
+            continue
+        values: list[set[str]] = []
+        for m in members:
+            name = str(m.get("name"))
+            column = re.findall(r"\{([^{}]+)\}", str(m["subject"]["template"]))[0]
+            entry = inspections.get(map_sources.get(name, ""))
+            if entry is None:
+                values = []
+                break
+            path, ins = entry
+            if ins.source_kind != "csv":
+                values = []  # 表化前の JSON 等は行を読まない（件数は付けない）
+                break
+            try:
+                rows = _read_rows(path, ins.dialect)
+            except (OSError, ValueError):
+                values = []
+                break
+            values.append({v for r in rows if (v := (r.get(column) or "").strip())})
+        stamp: dict[str, Any] = {"members": names}
+        if len(values) == len(members):
+            seen: dict[str, int] = defaultdict(int)
+            for vs in values:
+                for v in vs:
+                    seen[v] += 1
+            stamp["distinct_ids"] = len(seen)
+            stamp["shared_values"] = sum(1 for n in seen.values() if n > 1)
+        for name in names:
+            annotations[name]["shared_kind"] = dict(stamp)
+
+
 def annotate_skeleton(
     skeleton: Mapping[str, Any],
     paths: Sequence[Path | str],
@@ -1440,6 +1510,7 @@ def annotate_skeleton(
     # 受け口しか知らず、ほかのファイルで作った受け口が線の無い白い箱に見えていた。
     for catalog, home in catalog_homes(skeleton, {"maps": annotations}).items():
         annotations[catalog]["catalog_home"] = home
+    _stamp_shared_kinds(skeleton, annotations, map_sources, by_name)
     return {
         "maps": annotations,
         "placeholder_prefixes": placeholder,
@@ -1509,6 +1580,12 @@ def _order_key_coarse_first(
     return [*parent, *rest]
 
 
+def _meaning_key(meaning: str) -> str:
+    """受け口の「意味」の突き合わせ鍵。全角半角・大文字小文字・前後と連続の空白を
+    無視する（``Composition`` と ``composition``、``組成 `` と ``組成`` は同じ意味）。"""
+    return " ".join(unicodedata.normalize("NFKC", meaning).casefold().split())
+
+
 def assemble_skeleton_from_judgments(
     paths: Sequence[Path | str],
     *,
@@ -1539,7 +1616,7 @@ def assemble_skeleton_from_judgments(
     ☑ を付けた列から作る「つながる受け口」の種類に ``subject.label`` として
     渡す（無ければ列名そのもの）。カードには付けない [契約メモ a・R2]。
 
-    ``row_labels`` は {ファイル名: 行の種類の表示名}（任意・ADR kantan K63）。
+    ``row_labels`` は {ファイル名: 行の種類の表示名}（任意・ADR kantan K64）。
     行の種類の公開名は機械の仮の名前（``Record``・``Record2``）なので、表示名が
     無いとそれがそのまま人に見える名前になる。言語に合わせた文言
     [「curves の 1 行」] は画面が作って渡す — ここは言葉を持たない。
@@ -1576,6 +1653,14 @@ def assemble_skeleton_from_judgments(
     maps: list[dict[str, Any]] = []
     taken: set[str] = set()
     provisional: dict[str, str] = {}
+    # 同じ意味の受け口は、ファイルが違っても**同じ種類**（K63）。意味（③の表示名・
+    # 無ければ列名）→ 最初に作った受け口の map 名。2 つめ以降は map 名だけ別で、
+    # ID の頭・種類名・表示名は最初のものを共有する — 同じ値は同じ IRI になり、
+    # ファイルをまたいで 1 件にまとまる。
+    # 値 = (最初の受け口の map 名, そのファイル, その表示名)。まとめるのは**別々の
+    # ファイル**の受け口だけ — 同じファイルの 2 列（出発地と到着地が同じ「地点」）は
+    # 別の役割なので、同じ意味でも別の種類のまま。
+    kind_by_meaning: dict[str, tuple[str, str, str]] = {}
 
     def template(name: str, key: Sequence[str]) -> str:
         return f"{res}:{name}/" + "/".join("{" + c + "}" for c in key)
@@ -1587,8 +1672,10 @@ def assemble_skeleton_from_judgments(
         cls: str,
         owns: Sequence[str] = (),
         label: str | None = None,
+        kind: str | None = None,
     ) -> None:
-        subject: dict[str, Any] = {"template": template(name, key), "classes": [f"{onto}:{cls}"]}
+        head = kind or name
+        subject: dict[str, Any] = {"template": template(head, key), "classes": [f"{onto}:{cls}"]}
         if label:
             subject["label"] = label
         m: dict[str, Any] = {"name": name, "source": source, "subject": subject}
@@ -1702,9 +1789,23 @@ def assemble_skeleton_from_judgments(
                 continue  # 測定値は ID にしない（K7/K33）
             if col not in columns:
                 continue
-            name = _ascii_map_name(col, taken, "value")
             meaning = (labels or {}).get((src, col)) or col
-            add_map(name, design_src, [col], _pascal(name) or "Value", owns=[col], label=meaning)
+            name = _ascii_map_name(col, taken, "value")
+            lead = kind_by_meaning.get(_meaning_key(meaning))
+            if lead is not None and lead[1] != src:
+                kind, label = lead[0], lead[2]  # 同じ種類: 頭・種類名・表示名を共有
+            else:
+                kind, label = name, meaning
+                kind_by_meaning.setdefault(_meaning_key(meaning), (name, src, meaning))
+            add_map(
+                name,
+                design_src,
+                [col],
+                _pascal(kind) or "Value",
+                owns=[col],
+                label=label,
+                kind=kind,
+            )
 
     skeleton = {"version": 1, "prefixes": prefixes, "maps": maps}
     return {

@@ -1291,7 +1291,9 @@ async def sweep_pending_drops(client: SupportsSparql, *, limit: int = 50) -> lis
 
     Uses :func:`chunked_drop_graph` rather than ``DROP GRAPH``: a single DROP of a
     multi-million-triple graph materializes the whole graph and OOMs even an 8 GB
-    Oxigraph (measured), so the reclaim itself must be batched.
+    Oxigraph (measured), so the reclaim itself must be batched. (It still ends with a
+    ``DROP`` of the then-empty graph, so the name leaves the graph-name index and
+    :func:`reconcile_orphan_versions` does not re-enqueue it on the next startup.)
     """
     drops = await pending_drops(client, limit=limit)
     done: list[str] = []
@@ -1331,6 +1333,10 @@ async def all_version_graphs(
     (the property that made the old name-scan slow — see :func:`canonical_graphs`). The
     ``/v<digits>`` filter matches only version graphs, so the per-dataset key graph
     (``canonical/{id}``) and the ``legacy`` graph are never returned.
+
+    名前の索引を読むので、中身を消しただけ（``DROP`` していない）の空の graph も返る。
+    空かどうかでは絞らない: 掃除（:func:`chunked_drop_graph`）が最後に ``DROP`` して
+    名前ごと消すので、残った空の名前は次の起動で 1 回だけ積み直されて片付く。
     """
     if dataset_id is not None:
         if not _DATASET_ID.match(dataset_id):
@@ -1471,13 +1477,22 @@ DEFAULT_DELETE_CHUNK = 100_000
 async def chunked_drop_graph(
     client: SupportsSparql, graph_iri: str, *, chunk: int = DEFAULT_DELETE_CHUNK
 ) -> int:
-    """Empty a named graph in bounded ``DELETE … LIMIT N`` batches; return batch count.
+    """Empty a named graph in bounded ``DELETE … LIMIT N`` batches, then drop its
+    name; return batch count.
 
     Memory-safe alternative to ``DROP GRAPH`` for large graphs: each batch
     materializes at most ``chunk`` bindings (a sub-SELECT ``LIMIT`` inside the
     ``WHERE``), so Oxigraph never holds the whole graph in memory. Loops until the
     graph is empty (``ASK`` between batches — O(1), stops at the first triple). Used
     by the background sweeper to reclaim superseded / deleted versions without OOM.
+
+    中身が空になったら ``DROP SILENT GRAPH`` で名前も消す。Oxigraph（0.5.9 で確認）も
+    rdflib も、三つ組を全部消しても（``CLEAR`` でも）graph の名前を名前の索引
+    （``GRAPH ?g {}``）に残し、名前を消すのは ``DROP`` だけ。名前が残ると
+    :func:`all_version_graphs` が数え続け、起動のたびに :func:`reconcile_orphan_versions`
+    が積み直して掃除がまた走る。空の graph の ``DROP`` は何も読み込まないので、
+    メモリの心配は無い。中身が最初から空で名前だけ残っている graph（この直しの前に
+    掃除した版）も、ここで名前が消える — だから ``batches`` が 0 でも打つ。
     """
     batches = 0
     while await graph_has_triples(client, graph_iri):
@@ -1487,6 +1502,7 @@ async def chunked_drop_graph(
             f"LIMIT {int(chunk)} }}"
         )
         batches += 1
+    await drop_graph(client, graph_iri)
     return batches
 
 

@@ -6842,7 +6842,7 @@ def build_app(
         row_labels: str = Form(
             default="{}",
             description=(
-                "行の種類につける表示名 as JSON {source: label} (ADR kantan K63)。"
+                "行の種類につける表示名 as JSON {source: label} (ADR kantan K64)。"
                 "省略時は表示名なし [仮の公開名 Record のまま]。"
             ),
         ),

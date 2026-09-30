@@ -740,7 +740,7 @@ def test_skeleton_assemble_passes_labels_to_subject(
         # ラベルを渡さなかった種類は既定どおり（label 無し）。
         assert "label" not in maps["card"]["subject"]
 
-        # K63: 行の種類の表示名は `row_labels` {ファイル名: 表示名} で渡す。
+        # K64: 行の種類の表示名は `row_labels` {ファイル名: 表示名} で渡す。
         r_row = client.post(
             "/api/propose/skeleton/assemble",
             data={

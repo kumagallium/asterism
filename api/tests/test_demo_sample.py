@@ -2127,6 +2127,23 @@ def test_data_swap_second_boot_writes_nothing(tmp_path: Path, monkeypatch: Any) 
     assert _nquads(ds) == nquads
 
 
+def test_data_swap_later_boots_do_not_requeue_the_swept_version(tmp_path: Path) -> None:
+    """入れ替えで外れた v1 は、掃除のあと名前ごと消える。次の起動の lifespan が v1 を
+    孤児として pendingDrop に積み直さず、掃除も走らない（起動のたびに増えない）。"""
+    ds, client = _old_store()
+    _write_swap_env(tmp_path)
+    _refresh_release(tmp_path, client)
+    _lifespan(tmp_path, client)
+    _sweep(client)
+    assert _run(substrate.all_version_graphs(client, dataset_id=DATASET_ID)) == [_v(2)]
+    for _ in range(2):
+        _refresh_release(tmp_path, client)
+        _lifespan(tmp_path, client)
+        assert _pending(client) == []
+        assert _run(substrate.sweep_pending_drops(client, limit=1000)) == []
+    assert _size(ds, _v(2)) == WORLD_TRIPLES + 1
+
+
 def test_data_swap_with_a_stamp_from_the_previous_release(tmp_path: Path) -> None:
     """印のある環境（C まで届いた）でも同じ。ツールを受け取った版は新しい版まで進む。"""
     _ds, client = _old_store()
@@ -2474,9 +2491,8 @@ def _assert_converged(tmp_path: Path, ds: rdflib.Dataset, client: Any, dest: Pat
     assert live is not None and live != V1
     assert _canon(client) == [live]
     assert _size(ds, live) == WORLD_TRIPLES + 1
-    for graph in _run(substrate.all_version_graphs(client, dataset_id=DATASET_ID)):
-        if graph != live:
-            assert _size(ds, graph) == 0, graph
+    # 掃除は名前ごと消す（空の名前が残ると、次の起動で孤児として積み直される）
+    assert _run(substrate.all_version_graphs(client, dataset_id=DATASET_ID)) == [live]
     assert _staged(client) is None
     m = _read_meta(dest)
     assert m["live_graph"] == live

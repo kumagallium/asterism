@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.49.0](https://github.com/kumagallium/asterism/compare/v0.48.0...v0.49.0) - 2026-09-30
+
+- feat: 既存の環境に新しい同梱の見本を届ける（改訂台帳・触っていない部分だけ入れ替える） by @kumagallium in https://github.com/kumagallium/asterism/pull/652
+- feat: 同梱の見本のデータが変わる版も、手を加えていない環境に届ける by @kumagallium in https://github.com/kumagallium/asterism/pull/654
+- feat: 見本の新しさを画面で知らせ、控えつきで新しい見本に置き換えられるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/655
+- feat: 同じ意味の列を別々のファイルで ☑ すると、受け口を 1 つの種類にする by @kumagallium in https://github.com/kumagallium/asterism/pull/656
+
 ## [v0.48.0](https://github.com/kumagallium/asterism/compare/v0.47.1...v0.48.0) - 2026-09-30
 
 - fix(ui): 種類を表示名でも種類の IRI でも引く — Ask の引用のリンク・ことばの帯・「IRI の一覧」の識別子 by @kumagallium in https://github.com/kumagallium/asterism/pull/646

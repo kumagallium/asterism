@@ -107,6 +107,42 @@ export function skeletonShape(
   return { nodes, edges }
 }
 
+/** 同じ種類の箱を 1 つに畳む（ADR kantan K63）。`groups` の各かたまりの先頭を
+ *  残し、ほかのメンバーへの線は先頭へ付け替える（同じ線は 1 本・自分への線は
+ *  捨てる）。項目は名前で重ねずに足す。図は「種類」を描くもので、map（ファイル
+ *  ごとの読み方）を描くものではない — 同じ種類が 2 つの箱に見えると、つながって
+ *  いない別物に読める（利用者指摘 2026-09-30）。⑤の骨格の図と⑥・詳細の
+ *  取り込みルールの図が同じ 1 本を通る。 */
+export function mergeNodes(shape: Shape, groups: readonly (readonly string[])[]): Shape {
+  const lead = new Map<string, string>()
+  for (const g of groups) for (const name of g.slice(1)) lead.set(name, g[0])
+  if (lead.size === 0) return shape
+  const to = (id: string) => lead.get(id) ?? id
+  const seen = new Set<string>()
+  const edges: ShapeEdge[] = []
+  for (const e of shape.edges) {
+    const moved = { ...e, from: to(e.from), to: to(e.to) }
+    const key = [moved.from, moved.to, moved.pending ? 1 : 0].join('\u0001')
+    if (moved.from === moved.to || seen.has(key)) continue
+    seen.add(key)
+    edges.push(moved)
+  }
+  const extra = new Map<string, ShapeField[]>()
+  for (const n of shape.nodes) {
+    const l = lead.get(n.id)
+    if (l && n.fields) extra.set(l, [...(extra.get(l) ?? []), ...n.fields])
+  }
+  const nodes = shape.nodes
+    .filter((n) => !lead.has(n.id))
+    .map((n) => {
+      const more = extra.get(n.id)
+      if (!more || !n.fields) return n
+      const names = new Set(n.fields.map((f) => f.name))
+      return { ...n, fields: [...n.fields, ...more.filter((f) => !names.has(f.name))] }
+    })
+  return { nodes, edges }
+}
+
 /** ⑤「ためす」の形 — **保存済みの取り込みルール**そのもの。説明ではなく事実。
  *
  *  線を引くのは、ある種類の項目の**行き先が別の種類そのもの**になっていると
@@ -186,7 +222,18 @@ export function rulesShape(
       })
     }
   }
-  return { nodes, edges }
+  /* 同じ ID の作り方と同じ種類名を持つ map は、同じ実体を作る同じ種類（K63:
+     別々のファイルの受け口が 1 つの種類を共有する）。1 つの箱に畳む。 */
+  const bySig = new Map<string, string[]>()
+  for (const m of rules.maps) {
+    if (!m.subject.template) continue
+    const sig = [m.subject.template, ...(m.subject.classes ?? [])].join('\u0001')
+    bySig.set(sig, [...(bySig.get(sig) ?? []), m.id])
+  }
+  return mergeNodes(
+    { nodes, edges },
+    [...bySig.values()].filter((g) => g.length > 1),
+  )
 }
 
 export const NODE_W = 128

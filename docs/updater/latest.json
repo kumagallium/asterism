@@ -1,11 +1,11 @@
 {
-  "version": "0.48.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 31e15adea2135b653d966d2ff0b866c47e851e01 -->\n\n## What's Changed\n* fix(ui): 種類を表示名でも種類の IRI でも引く — Ask の引用のリンク・ことばの帯・「IRI の一覧」の識別子 by @kumagallium in https://github.com/kumagallium/asterism/pull/646\n* feat: 表の形をととのえる層 — 配列セル・値としての物性名・入れ子 JSON を設計の前に決定論で派生表にする by @kumagallium in https://github.com/kumagallium/asterism/pull/571\n* fix: 変換つきの主語へのつなぐ行と、主語のテンプレートにはまる定数を、図の線にする by @kumagallium in https://github.com/kumagallium/asterism/pull/648\n* fix: 標準のことばの箱の名前を、IRI からカタログを引いて出す by @kumagallium in https://github.com/kumagallium/asterism/pull/649\n* fix(api): 見本の種まきが公開の前で止まったら、次の起動で公開の続きからやり直す by @kumagallium in https://github.com/kumagallium/asterism/pull/651\n* fix(ui): ⑤の図で別ファイルの受け口が線の無い白い箱になる穴を塞ぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/650\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.47.1...v0.48.0",
-  "pub_date": "2026-09-30T09:39:56Z",
+  "version": "0.49.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ce593f7f95b17372225ab8c2685e9da57763483c -->\n\n## What's Changed\n* feat: 既存の環境に新しい同梱の見本を届ける（改訂台帳・触っていない部分だけ入れ替える） by @kumagallium in https://github.com/kumagallium/asterism/pull/652\n* feat: 同梱の見本のデータが変わる版も、手を加えていない環境に届ける by @kumagallium in https://github.com/kumagallium/asterism/pull/654\n* feat: 見本の新しさを画面で知らせ、控えつきで新しい見本に置き換えられるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/655\n* feat: 同じ意味の列を別々のファイルで ☑ すると、受け口を 1 つの種類にする by @kumagallium in https://github.com/kumagallium/asterism/pull/656\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.48.0...v0.49.0",
+  "pub_date": "2026-09-30T22:08:23Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVNER3dLZmZFKzRrMGFTMEJZR0haNEVOZjBrOXFycWoyK05IT0hvbjlOV3gvWXlGRXZaRDlvOVlXclQzQ0Q3SkovS1VMNnk3TXNJdjBDMkRSSzBIYUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNzYxMTk1CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmdCUkZqS0J0WjJ1b2FEUG5ZSXJtMUh3Z01TZEdIeElRZmRQckp4Tlc2cmpTNXFPVU9ibGlyeTNQZXd6aERxNDN1bDFnd01nbDFYUk96dUVpZlJUMEJRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.48.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWF2N01sKzJ0bWwvOW5LVnNDaFZXVTF1RG1kRG5XdWF4MklmR3kwZ05JQTZnZ3RQTTY4OVdFVXhLOE44aVkrd2tKSGNvVEt6ZWhjOTRXZXVwT2J1RVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwODA2MTAzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmZDNXdKeW80OXUycmNidU9XOXVaMVlQejZuUHRGRzF1eFR0Y3FFcWxKbVkvN3lXRjVxemQ0VnZqVm85VzVaUW5zNE5lOWcxZUxOUU1EeUlWdVo0T0J3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.49.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
