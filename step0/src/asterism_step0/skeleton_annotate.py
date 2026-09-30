@@ -1242,6 +1242,78 @@ def _annotate_map(
     return ann
 
 
+def catalog_homes(skeleton: Mapping[str, Any], annotations: Mapping[str, Any]) -> dict[str, str]:
+    """☑ した列の受け口（値のカタログ）ごとに、その列を**元々持っていた種類**（K58）。
+
+    かんたん S4 の ☑ は列を「値のカタログ」map にする（K33: その 1 列がキーで
+    ``owns == [列]``）。受け口へのリンクは列の出どころの種類が持つ — マニュアルの
+    点線の説明「☑ を付けた項目は元の種類から外れず、参照として持ち続けます」。
+    前置き（全行に同じ値）の列ならファイルのカード、表本体の列なら行の種類。
+    骨格には書かれていないが、注釈が語っている: キーがその列を**決める** map は
+    代表の 1 件の定数（``entity_preview.all_values``）にその列を出す。その中で
+    いちばん件数の少ない map が持ち主（ADR column-ownership G1 — 1 枚のカードの
+    定数を 47 本のピークでなくカードに置くのと同じ正規化）。同数は骨格の順（親が先）。
+
+    ``annotations`` は :func:`annotate_skeleton` の返り値（``{"maps": …}``）。
+    返り値は ``{受け口の map 名: 元の種類の map 名}``。証明できない受け口は載せない
+    （決定論の組み立ては K49 の後追い修理に任せ、同じ判断を行から下す）。
+
+    ⭐規則はここに 1 つだけ: 設計の組み立て（api の ``design_loop``）が辺を書くのも、
+    ⑤の図が点線を描くのも（注釈の ``catalog_home``）、この関数を通る。ファイルが
+    何本あっても、ファイルごとに同じ規則で決める。
+    """
+    maps = [m for m in (skeleton.get("maps") or []) if isinstance(m, Mapping)]
+    anns: Mapping[str, Any] = annotations.get("maps") or {}
+    order = {str(m.get("name")): i for i, m in enumerate(maps)}
+
+    def _keys(m: Mapping[str, Any]) -> list[str]:
+        return re.findall(r"\{([^{}]+)\}", str((m.get("subject") or {}).get("template") or ""))
+
+    def _is_catalog(m: Mapping[str, Any]) -> bool:
+        if (anns.get(str(m.get("name"))) or {}).get("value_catalog"):
+            return True
+        keys = _keys(m)
+        owns = [str(c) for c in (m.get("owns") or [])]
+        return len(keys) == 1 and owns == keys
+
+    def _determined(m: Mapping[str, Any], column: str) -> bool:
+        card = (anns.get(str(m.get("name"))) or {}).get("entity_preview")
+        if not isinstance(card, Mapping):
+            return False
+        conflicts = {
+            str(p.get("column"))
+            for p in card.get("properties") or []
+            if isinstance(p, Mapping) and p.get("conflict")
+        }
+        constants = {
+            str(v.get("column")) for v in card.get("all_values") or [] if isinstance(v, Mapping)
+        }
+        return column in constants and column not in conflicts
+
+    homes: dict[str, str] = {}
+    for m in maps:
+        name = str(m.get("name") or "")
+        if not name or not _is_catalog(m):
+            continue
+        keys = _keys(m)
+        if len(keys) != 1:
+            continue
+        column = keys[0]
+        source = str(m.get("source") or "")
+        ranked: list[tuple[int, int, str]] = []
+        for other in maps:
+            oname = str(other.get("name") or "")
+            if oname == name or str(other.get("source") or "") != source:
+                continue
+            if _is_catalog(other) or not _determined(other, column):
+                continue
+            count = int((anns.get(oname) or {}).get("distinct_ids") or 0)
+            ranked.append((count, order.get(oname, 0), oname))
+        if ranked:
+            homes[name] = min(ranked)[2]
+    return homes
+
+
 def annotate_skeleton(
     skeleton: Mapping[str, Any],
     paths: Sequence[Path | str],
@@ -1363,12 +1435,17 @@ def annotate_skeleton(
         for name, iri in prefixes.items()
         if placeholder_prefix_issue(name, iri)
     ]
-    # Which prefixes are THIS dataset's minted pair (vs reused vocabularies),
-    # under which base, operator-configured or not — the gate renders "dataset
-    # name" as the one editable naming judgment from this (kantan ADR K13).
+    # 受け口ごとの「元の種類」（K58）を押印する。⑤の図はこれを読んで、**どの
+    # ファイルの**受け口にも元の種類から点線を引く — 以前は図が 1 つの表（宿主）の
+    # 受け口しか知らず、ほかのファイルで作った受け口が線の無い白い箱に見えていた。
+    for catalog, home in catalog_homes(skeleton, {"maps": annotations}).items():
+        annotations[catalog]["catalog_home"] = home
     return {
         "maps": annotations,
         "placeholder_prefixes": placeholder,
+        # Which prefixes are THIS dataset's minted pair (vs reused vocabularies),
+        # under which base, operator-configured or not — the gate renders "dataset
+        # name" as the one editable naming judgment from this (kantan ADR K13).
         "dataset_namespace": dataset_namespace_info(prefixes, iri_base),
     }
 

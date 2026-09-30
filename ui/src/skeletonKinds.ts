@@ -139,6 +139,55 @@ export function pendingLinkEdges(opts: {
   return edges
 }
 
+/** ⑤の図の点線を**全ファイル分**そろえる。受け口（値のカタログ）1 つにつき、
+ *  元の種類から 1 本。
+ *
+ *  出どころの決め方（先に見つかったものが勝つ）:
+ *  1. `homeOf` — サーバの注釈 `catalog_home`。組み立てが辺を書くのと**同じ規則**
+ *     （K58）なので、⑥の実線と食い違わない。**ゾーンの外のファイル**の受け口も
+ *     これで分かる。
+ *  2. `local` — ①のゾーン（いちばん件数の多い表）の中で画面が今計算した線
+ *     （`pendingLinkEdges`）。☑ した直後、注釈が追いつく前でも描ける。
+ *  3. 同じファイルの、受け口でない最初の種類（注釈がまだ無い・古いサーバ）。
+ *
+ *  以前はゾーンのある画面では 1 しか見ておらず、別のファイルで作った受け口が
+ *  線の無い白い箱として浮いていた（実機 2026-09-30・Starrydata の composition）。 */
+export function catalogLinkEdges(opts: {
+  maps: readonly SkeletonMap[]
+  isCatalog: (m: SkeletonMap) => boolean
+  homeOf: (name: string) => string | undefined
+  local?: readonly (readonly [string, string])[]
+}): [string, string][] {
+  const byName = new Map(opts.maps.map((m) => [m.name, m]))
+  const edges: [string, string][] = []
+  const seen = new Set<string>()
+  const push = (from: string, to: string) => {
+    const key = `${from}\u0000${to}`
+    if (from === to || seen.has(key)) return
+    seen.add(key)
+    edges.push([from, to])
+  }
+  const local = new Map<string, string[]>()
+  for (const [from, to] of opts.local ?? []) local.set(to, [...(local.get(to) ?? []), from])
+  for (const m of opts.maps) {
+    if (!opts.isCatalog(m) && !local.has(m.name)) continue
+    const stated = opts.homeOf(m.name)
+    const home = stated ? byName.get(stated) : undefined
+    if (home && home.source === m.source && !opts.isCatalog(home)) {
+      push(home.name, m.name)
+      continue
+    }
+    const mine = local.get(m.name)
+    if (mine) {
+      for (const from of mine) push(from, m.name)
+      continue
+    }
+    const holder = opts.maps.find((o) => o.source === m.source && !opts.isCatalog(o))
+    if (holder) push(holder.name, m.name)
+  }
+  return edges
+}
+
 /** 新しい種類の住所の頭。親の下ではなくデータセットの根に置く — 最後の
  *  リテラル区間を 1 つ落として接頭辞（`xrr:` / `…/resource/`）まで戻す。
  *  （`SkeletonGate` の `splitConcept` から移設。つなぐための種類が「親の下」に
