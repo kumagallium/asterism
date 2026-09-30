@@ -8,6 +8,7 @@ import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, RuleMap, RuleProperty } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import type { ShapeEdge, ShapeField, ShapeNode } from './shapeGraph'
+import { linksTo } from './shapeGraph'
 import { knownVocabForIri, localName } from './vocab'
 
 /** カタログの `id` は表示用（`live-<登録 id>`）で、API が受け取る登録 id とは**違う**。
@@ -72,14 +73,9 @@ export interface VocabShape {
   stats: VocabStats
 }
 
-/** ある項目の行き先が別の種類そのものか（`rulesShape` と同じ 3 判定）。 */
+/** ある項目の行き先が別の種類そのものか（`rulesShape` と同じ判定）。 */
 function linkTarget(rules: DatasetRules, p: RuleProperty): RuleMap | undefined {
-  return rules.maps.find(
-    (x) =>
-      (p.parent_map != null && p.parent_map === x.id) ||
-      (!!p.template && p.template === x.subject.template) ||
-      (!!p.constant && p.constant_is_iri === true && p.constant === x.subject.constant),
-  )
+  return rules.maps.find((x) => linksTo(p, x))
 }
 
 /** 図で人が読む項目名（`rulesShape` と同じ優先順位）。 */

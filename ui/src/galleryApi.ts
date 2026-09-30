@@ -232,6 +232,9 @@ export interface RuleTerm {
   args?: (RuleTerm & { param: string })[]
   parent_map?: string
   conditions?: { child: string; parent: string }[]
+  /** この行の行き先の map（別の種類の主語そのもの）。api がつながりの検査と
+   *  同じ 1 関数で決める — 変換つきの主語や、主語のテンプレートにはまる定数も含む。 */
+  target_map?: string
   datatype?: string
   language?: string
   term_type?: string
