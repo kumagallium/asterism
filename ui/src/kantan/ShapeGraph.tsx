@@ -23,15 +23,18 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  arrange,
   boxWidthFor,
   edgeLabels,
+  edgePath,
   FIELD_H,
-  layout,
+  hasSideBySide,
+  isPlainEdge,
   pointOnEdge,
   nodeHeight,
   NODE_H,
   NODE_W,
-  rowsOf,
+  type Route,
   type Shape,
   type ShapeField,
 } from '../shapeGraph'
@@ -118,7 +121,10 @@ export function ShapeBox({ data }: NodeProps) {
 /** 線ひとつ。React Flow の既定の線は、名前を必ず線のまん中に置く。交わる線は
  *  まん中が同じ点になり、長い名前は隣の名前に重なるので、`edgeLabels()` が
  *  決めた位置に置く。線そのものは既定と同じ bezier で、見た目は変えない。位置は
- *  実測の端から計算する（`pointOnEdge` は React Flow の bezier と同じ式）。 */
+ *  実測の端から計算する（`pointOnEdge` は React Flow の bezier と同じ式）。
+ *
+ *  まっすぐな部分を持つ線（途中の段の席を通る線・出どころの段の下端まで降りる線）
+ *  だけは、自前の経路にする — 既定の線は途中の点を持てず、箱の裏を通る。 */
 function ShapeEdgeLine({
   id,
   sourceX,
@@ -131,7 +137,7 @@ function ShapeEdgeLine({
   label,
   data,
 }: EdgeProps) {
-  const [path, midX, midY] = getBezierPath({
+  const [bezier, midX, midY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -139,17 +145,35 @@ function ShapeEdgeLine({
     targetY,
     targetPosition,
   })
-  const at = (data as { labelAt?: number } | undefined)?.labelAt
+  const { labelAt: at, route } = (data ?? {}) as { labelAt?: number; route?: Route }
+  const from = { x: sourceX, y: sourceY }
+  const to = { x: targetX, y: targetY }
+  const plain = isPlainEdge(from, to, route)
+  const path = plain ? bezier : edgePath(from, to, route)
   const p =
-    at === undefined
-      ? { x: midX, y: midY }
-      : pointOnEdge({ x: sourceX, y: sourceY }, { x: targetX, y: targetY }, at)
+    at === undefined && plain ? { x: midX, y: midY } : pointOnEdge(from, to, at ?? 0.5, route)
   return <BaseEdge id={id} path={path} labelX={p.x} labelY={p.y} label={label} markerEnd={markerEnd} />
+}
+
+/** 席のぶんの場所取り。何も描かない。席は箱ではないので React Flow は席を知らず、
+ *  図を枠に合わせるとき（`fitView`）に数えるのは箱だけ — 箱の外側にある席と、
+ *  そこを通る線・線の名前が、枠からはみ出す。図と同じ大きさの見えない箱を 1 つ
+ *  置いて、合わせる範囲に席を入れる。 */
+function SeatFrame({ data }: NodeProps) {
+  const d = data as { width: number; height: number }
+  return <div style={{ width: d.width, height: d.height }} />
+}
+/** 場所取りの箱の ID。種類の ID と重なったら、重ならなくなるまで伸ばす。 */
+const seatFrameId = (shape: Shape): string => {
+  const taken = new Set(shape.nodes.map((n) => n.id))
+  let id = '(seats)'
+  while (taken.has(id)) id += '*'
+  return id
 }
 
 // ⭐モジュールの上の階層に置く。中に置くと毎回作り直され、React Flow が辺を採り直す。
 const EDGE_TYPES = { shape: ShapeEdgeLine }
-const NODE_TYPES = { shape: ShapeBox }
+const NODE_TYPES = { shape: ShapeBox, seats: SeatFrame }
 
 /** 段数の上限。これを超えたら横に広げる。 */
 const MAX_ROWS = 4
@@ -227,7 +251,8 @@ function ShapeGraphInner({
      いま効くのは**線のない箱**だけ — 線のある箱は深さごとに 1 行で、折り返さ
      ない（`rowsOf`）。 */
   const cols = Math.max(perRow, Math.ceil(shape.nodes.length / MAX_ROWS))
-  const sideBySide = useMemo(() => rowsOf(shape, cols).some((r) => r.length > 1), [shape, cols])
+  // 段をまたぐ線の席も、横に並ぶものに数える（箱 1 つと席 1 つの段も、幅を取る）。
+  const sideBySide = useMemo(() => hasSideBySide(shape, cols), [shape, cols])
   const boxWidth = useMemo(
     () =>
       narrow && sideBySide
@@ -235,9 +260,15 @@ function ShapeGraphInner({
         : nodeWidth,
     [shape, narrow, sideBySide, nodeWidth],
   )
-  const pos = useMemo(
-    () => layout(shape, { perRow: cols, nodeWidth: boxWidth, heightOf }),
+  const placed = useMemo(
+    () => arrange(shape, { perRow: cols, nodeWidth: boxWidth, heightOf }),
     [shape, cols, boxWidth, heightOf],
+  )
+  const pos = placed.pos
+  /** 場所取りの箱の ID。席の無い図には置かない。 */
+  const frameId = useMemo(
+    () => (placed.routes.some((r) => r.via.length > 0) ? seatFrameId(shape) : undefined),
+    [placed, shape],
   )
   /* 高さは段数から決める。貼り付く細い列に置くので伸ばせる範囲には上限があり、
      それを超えた分は `fitView` が中で縮める。 */
@@ -249,7 +280,7 @@ function ShapeGraphInner({
     return Math.min(maxHeight, Math.max(176, deepest + 56))
   }, [pos, shape.nodes, heightOf, maxHeight])
 
-  const nodes: Node[] = useMemo(
+  const boxes: Node[] = useMemo(
     () =>
       shape.nodes.map((n) => ({
         id: n.id,
@@ -280,17 +311,38 @@ function ShapeGraphInner({
       })),
     [shape, pos, onNodeClick, boxWidth, heightOf, folded, t],
   )
+  // 席がある図にだけ、場所取りの箱を足す。席の無い図は、今までと同じ節のまま。
+  const nodes: Node[] = useMemo(
+    () =>
+      frameId !== undefined
+        ? [
+            {
+              id: frameId,
+              type: 'seats',
+              position: { x: 0, y: 0 },
+              data: { width: placed.width, height: placed.height },
+              draggable: false,
+              selectable: false,
+              connectable: false,
+              focusable: false,
+              zIndex: -1,
+            },
+            ...boxes,
+          ]
+        : boxes,
+    [boxes, frameId, placed.width, placed.height],
+  )
 
   const edges: Edge[] = useMemo(() => {
     // 名前を出すか・どこに置くかは `edgeLabels()` が決める（規則は 1 か所）。
-    const labels = edgeLabels(shape, pos, { nodeWidth: boxWidth, heightOf })
+    const labels = edgeLabels(shape, pos, { nodeWidth: boxWidth, heightOf, routes: placed.routes })
     return shape.edges.map((e, i) => ({
       id: `${e.from}->${e.to}-${i}`,
       source: e.from,
       target: e.to,
       type: 'shape',
       label: labels[i]?.text,
-      data: { labelAt: labels[i]?.at },
+      data: { labelAt: labels[i]?.at, route: placed.routes[i] },
       animated: !!e.pending,
       className: e.pending ? 'shape-edge shape-edge--pending' : 'shape-edge',
       /* ⭐矢じりの定義は同じ設定の辺どうしで共有されるので、辺に付けた
@@ -303,7 +355,7 @@ function ShapeGraphInner({
         color: e.pending ? 'var(--accent)' : 'var(--border-strong)',
       },
     }))
-  }, [shape, pos, boxWidth, heightOf])
+  }, [shape, pos, placed, boxWidth, heightOf])
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => onNodeClick?.(node.id),
@@ -318,8 +370,11 @@ function ShapeGraphInner({
       '#' +
       [...folded].sort().join(',') +
       '#' +
-      boxWidth,
-    [shape, folded, boxWidth],
+      boxWidth +
+      '#' +
+      // 席の幅は線の名前で決まる。名前だけが変わっても、図の幅が変わる。
+      placed.width,
+    [shape, folded, boxWidth, placed.width],
   )
 
   /* 形が変わったら、箱の測り直しと拡大率の合わせ直しを**明示的に**やる。
@@ -339,13 +394,17 @@ function ShapeGraphInner({
   /* 測り直しの引き金は**形の署名だけ**。`shape` は呼ぶ側が毎レンダー組み直すので、
      `shape.nodes` を deps に入れると描き直しのたびに測り直すことになる。 */
   const shapeRef = useRef(shape)
+  const frameRef = useRef(frameId)
   // 書き込みは描画中ではなく effect で（宣言順に走るので、下の合わせ直しより先）。
   useEffect(() => {
     shapeRef.current = shape
+    frameRef.current = frameId
   })
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
-      updateNodeInternals(shapeRef.current.nodes.map((n) => n.id))
+      // 場所取りの箱も測り直す。席の幅は線の名前で変わる。
+      const ids = shapeRef.current.nodes.map((n) => n.id)
+      updateNodeInternals(frameRef.current === undefined ? ids : [...ids, frameRef.current])
       rf.fitView(fit)
     })
     return () => cancelAnimationFrame(raf)
