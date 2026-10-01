@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.49.1](https://github.com/kumagallium/asterism/compare/v0.49.0...v0.49.1) - 2026-10-01
+
+- fix(ingest): 掃除した版の graph の名前も消し、起動のたびに孤児として積み直さない by @kumagallium in https://github.com/kumagallium/asterism/pull/657
+- docs(manual): v0.49.0 の節目 — 同じ意味の列はファイルをまたいで 1 つの種類に by @kumagallium in https://github.com/kumagallium/asterism/pull/659
+- fix(ui/step0): 「ためす」の図で英字の語を割らず、行の種類を「〈ファイル名〉の 1 行」と呼ぶ by @kumagallium in https://github.com/kumagallium/asterism/pull/660
+- fix(ui): 共通の言葉の地図で、帯へ降りる線が箱と枠の裏を通らないようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/661
+- fix(ui): 共通の言葉の地図の線の名前を、⑤ と同じ決め方で重ならない位置に置く by @kumagallium in https://github.com/kumagallium/asterism/pull/662
+
 ## [v0.49.0](https://github.com/kumagallium/asterism/compare/v0.48.0...v0.49.0) - 2026-09-30
 
 - feat: 既存の環境に新しい同梱の見本を届ける（改訂台帳・触っていない部分だけ入れ替える） by @kumagallium in https://github.com/kumagallium/asterism/pull/652
