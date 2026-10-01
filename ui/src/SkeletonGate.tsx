@@ -1917,6 +1917,10 @@ export function SkeletonGate({
         t(hostIsWhole ? 'skeletongate:zone.diagramCard' : 'skeletongate:zone.diagramRecord')
       )
     if (zone.sameIdKinds.includes(m.name)) return displayMapName(m.name)
+    // 表示名のある種類（人が打った名前・組み立てが付けた「curves の 1 行」K64）は
+    // それで呼ぶ。ID の列名で呼ぶのは、名前の無い種類の最後の手だけ。受け口は
+    // 列の名前で呼ぶ（④で ☑ した列）ので、ここでは変えない。
+    if (!isValueCatalog(m) && (m.subject.label ?? '').trim()) return displayMapName(m.name)
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     if (vars.length !== 1) return named(m.name) ?? t('skeletongate:zone.diagramRecord')
     // 同じ列の種類が 2 つあると呼び名が同名で並ぶ — 名前で見分ける（⚠ と同じ呼び方）。

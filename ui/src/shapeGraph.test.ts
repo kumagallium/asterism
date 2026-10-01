@@ -664,6 +664,15 @@ describe('boxWidthFor', () => {
     expect(boxWidthFor(kinds(['仕入れた食材の正式な名前'], false), 100, 176)).toBe(127)
   })
 
+  it('fits the longest English word on one line — a word never breaks in two', () => {
+    // 「composition」11 字 = 93.5。半分に割ると「compositio / n」と語の途中で折れた
+    // （実機 2026-10-01）。語 1 つ ＋ 余白 36 ＋ 畳むボタン 26 = 156。
+    expect(boxWidthFor(kinds(['Record', 'composition']), 132, 176)).toBe(156)
+    // 語の境目（空白）では割れるので、今までどおり 2 行の幅（1 行に並べた 232 にはしない）。
+    // 23 字 = 195.5。半分の 98 ＋ 1 字 13 ＋ 余白 36 = 147。いちばん長い語は 42.5。
+    expect(boxWidthFor(kinds(['aaaaa bbbbb ccccc ddddd'], false), 100, 300)).toBe(147)
+  })
+
   it('never goes past the width the caller asked for', () => {
     expect(boxWidthFor(kinds(['あ'.repeat(40)]), 132, 176)).toBe(176)
   })
