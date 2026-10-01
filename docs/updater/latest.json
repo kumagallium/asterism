@@ -1,11 +1,11 @@
 {
-  "version": "0.49.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ce593f7f95b17372225ab8c2685e9da57763483c -->\n\n## What's Changed\n* feat: 既存の環境に新しい同梱の見本を届ける（改訂台帳・触っていない部分だけ入れ替える） by @kumagallium in https://github.com/kumagallium/asterism/pull/652\n* feat: 同梱の見本のデータが変わる版も、手を加えていない環境に届ける by @kumagallium in https://github.com/kumagallium/asterism/pull/654\n* feat: 見本の新しさを画面で知らせ、控えつきで新しい見本に置き換えられるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/655\n* feat: 同じ意味の列を別々のファイルで ☑ すると、受け口を 1 つの種類にする by @kumagallium in https://github.com/kumagallium/asterism/pull/656\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.48.0...v0.49.0",
-  "pub_date": "2026-09-30T22:08:23Z",
+  "version": "0.49.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 9d1930f80aa04fd0030a8b874d087b8c2e80c1ef -->\n\n## What's Changed\n* fix(ingest): 掃除した版の graph の名前も消し、起動のたびに孤児として積み直さない by @kumagallium in https://github.com/kumagallium/asterism/pull/657\n* docs(manual): v0.49.0 の節目 — 同じ意味の列はファイルをまたいで 1 つの種類に by @kumagallium in https://github.com/kumagallium/asterism/pull/659\n* fix(ui/step0): 「ためす」の図で英字の語を割らず、行の種類を「〈ファイル名〉の 1 行」と呼ぶ by @kumagallium in https://github.com/kumagallium/asterism/pull/660\n* fix(ui): 共通の言葉の地図で、帯へ降りる線が箱と枠の裏を通らないようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/661\n* fix(ui): 共通の言葉の地図の線の名前を、⑤ と同じ決め方で重ならない位置に置く by @kumagallium in https://github.com/kumagallium/asterism/pull/662\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.49.0...v0.49.1",
+  "pub_date": "2026-10-01T02:49:45Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWF2N01sKzJ0bWwvOW5LVnNDaFZXVTF1RG1kRG5XdWF4MklmR3kwZ05JQTZnZ3RQTTY4OVdFVXhLOE44aVkrd2tKSGNvVEt6ZWhjOTRXZXVwT2J1RVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwODA2MTAzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmZDNXdKeW80OXUycmNidU9XOXVaMVlQejZuUHRGRzF1eFR0Y3FFcWxKbVkvN3lXRjVxemQ0VnZqVm85VzVaUW5zNE5lOWcxZUxOUU1EeUlWdVo0T0J3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.49.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWV4L2MzWktXdnFXamFzOHpEOCs4eUJTWnliTzEyMjVNZGpXcmQ0Z2UyNnI5TFAwTjh0WnNnckwyL0ZzZjZtUmg0RTZOejdmSmdMOW9pbWQrYnZZSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwODIyOTg1CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnFQbUlJbWhTQm9tWnJ1N2FQY0xxOG84NGdIRzZweERrZ0lEb1puMTRSZjNObG9ib1JTdDhxV085OG1ZREllaHB5VFFQVUNWU0ViN0d6b2swbmRvL0NBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.49.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
