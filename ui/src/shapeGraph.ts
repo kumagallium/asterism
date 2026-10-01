@@ -316,6 +316,10 @@ export interface LayoutOpts {
   nodeWidth?: number
   /** 箱の高さ。項目の数で変わるので呼ぶ側が決める。 */
   heightOf?: (node: ShapeNode) => number
+  /** 図の下へ抜ける線を出す箱（図の外のものへ向かう線の出どころ）。線は箱の真下へ
+   *  まっすぐ抜けたいので、下の段では、箱のまっすぐ下にいちばん近いすき間に席を取る。
+   *  通り道は `Arranged.exits` に返る（最後の段の下端まで）。 */
+  exits?: string[]
 }
 
 /** 席 = 段をまたぐ線 1 本が、途中の段 1 つで通るところ。線は席のまん中（`x`）を、
@@ -340,6 +344,9 @@ export interface Arranged {
   pos: Map<string, { x: number; y: number }>
   /** 線の通り道。`shape.edges` と同じ並び。 */
   routes: Route[]
+  /** 図の下へ抜ける線の通り道（`LayoutOpts.exits` の箱 → 通り道）。線は最後の席の
+   *  下端（席が無ければ、出どころの段の下端）までこの道を通る。 */
+  exits: Map<string, Route>
   /** 図の大きさ。席は箱ではないので、箱の座標からは分からない。 */
   width: number
   height: number
@@ -382,6 +389,7 @@ export function arrange(shape: Shape, opts: LayoutOpts = {}): Arranged {
   const byId = new Map(shape.nodes.map((n) => [n.id, n]))
   const rows = rowsOf(shape, opts.perRow)
   const pitch = nodeW + GAP_X
+  const exits = (opts.exits ?? []).filter((id, i, all) => byId.has(id) && all.indexOf(id) === i)
 
   // 箱の高さがまちまちなので段の間隔は一定にできない。行ごとに積み上げる。
   const tops: number[] = []
@@ -413,17 +421,24 @@ export function arrange(shape: Shape, opts: LayoutOpts = {}): Arranged {
     row.forEach((id, i) => at.set(id, { row: r, x: (i - (row.length - 1) / 2) * pitch })),
   )
   const names = shownNames(shape)
-  shape.edges.forEach((e, edge) => {
-    const a = at.get(e.from)
-    const b = at.get(e.to)
+  /** 席を取る線 = `shape.edges` のあとに、図の下へ抜ける線。行き先は、最後の段の
+   *  1 つ下の段の、出どころのまっすぐ下（まっすぐ降りたい）。 */
+  const lines: { from: string; to?: { row: number; x: number }; name?: string }[] = [
+    ...shape.edges.map((e, edge) => ({ from: e.from, to: at.get(e.to), name: names[edge] })),
+    ...exits.map((id) => {
+      const a = at.get(id)
+      return { from: id, to: a && { row: rows.length, x: a.x } }
+    }),
+  ]
+  lines.forEach(({ from, to: b, name }, edge) => {
+    const a = at.get(from)
     // 上へ戻る線（循環）は、席を取らない。
     if (!a || !b || b.row - a.row < 2) return
-    const name = names[edge]
     const width = name
       ? Math.min(nodeW, Math.max(SEAT_MIN, labelSize(name).w + 2 * SEAT_PAD))
       : SEAT_MIN
-    const y0 = tops[a.row] + heightOf(byId.get(e.from)!)
-    const y1 = tops[b.row]
+    const y0 = tops[a.row] + heightOf(byId.get(from)!)
+    const y1 = b.row < rows.length ? tops[b.row] : top
     const own: Seat[] = []
     for (let r = a.row + 1; r < b.row; r++) {
       const through = a.x + ((b.x - a.x) * (tops[r] + talls[r] / 2 - y0)) / (y1 - y0)
@@ -466,7 +481,7 @@ export function arrange(shape: Shape, opts: LayoutOpts = {}): Arranged {
   )
 
   const pos = new Map<string, { x: number; y: number }>()
-  const routes: Route[] = shape.edges.map(() => ({ via: [] }))
+  const routes: Route[] = lines.map(() => ({ via: [] }))
   // 上の段から決める。同じすき間の席の順番は、上の段で通ったところで決まる。
   rows.forEach((row, r) => {
     /** この段の 1 つ上で、線が通ったところ（上の段の席。無ければ、出どころの箱の
@@ -475,7 +490,7 @@ export function arrange(shape: Shape, opts: LayoutOpts = {}): Arranged {
       const via = routes[s.edge].via
       const lane = via[via.length - 1]
       if (lane) return lane.x
-      const p = pos.get(shape.edges[s.edge].from)
+      const p = pos.get(lines[s.edge].from)
       return p ? p.x + nodeW / 2 : 0
     }
     // 線どうしが交わりにくい順: まっすぐ結んだ線が左のものから。同じなら、上の段で
@@ -510,12 +525,28 @@ export function arrange(shape: Shape, opts: LayoutOpts = {}): Arranged {
       before += it.w
     })
   })
+  const dropOf = (from: string): number | undefined => {
+    const r = rows.findIndex((row) => row.includes(from))
+    return pos.has(from) && r >= 0 ? tops[r] + talls[r] + HANDLE_R : undefined
+  }
   shape.edges.forEach((e, i) => {
-    const p = pos.get(e.from)
-    const r = rows.findIndex((row) => row.includes(e.from))
-    if (p && r >= 0 && pos.has(e.to)) routes[i].drop = tops[r] + talls[r] + HANDLE_R
+    const drop = dropOf(e.from)
+    if (drop !== undefined && pos.has(e.to)) routes[i].drop = drop
   })
-  return { pos, routes, width: canvasW, height: Math.max(0, top - GAP_Y) }
+  const out = new Map<string, Route>()
+  exits.forEach((id, k) => {
+    const route = routes[shape.edges.length + k]
+    const drop = dropOf(id)
+    if (drop !== undefined) route.drop = drop
+    out.set(id, route)
+  })
+  return {
+    pos,
+    routes: routes.slice(0, shape.edges.length),
+    exits: out,
+    width: canvasW,
+    height: Math.max(0, top - GAP_Y),
+  }
 }
 
 /** 横に並ぶ段があるか。席も、横に並ぶものに数える。 */
