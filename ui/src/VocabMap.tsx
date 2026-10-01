@@ -26,7 +26,15 @@ import {
 import '@xyflow/react/dist/style.css'
 import { CloseIcon, ExpandIcon } from './icons'
 import { ShapeBox, ShapeEdgeLine, type ShapeNodeData } from './kantan/ShapeGraph'
-import { arrange, nodeHeight, type Lane, type Route } from './shapeGraph'
+import {
+  arrange,
+  edgeLabels,
+  nodeHeight,
+  type EdgeLabel,
+  type Lane,
+  type Rect,
+  type Route,
+} from './shapeGraph'
 import type { VocabEdge, VocabEdgeKind, VocabNode, VocabShape } from './vocabGraph'
 
 const KIND_W = 232
@@ -42,6 +50,9 @@ const BAND_PAD_TOP = 56
 const BAND_PAD_SIDE = 26
 const BAND_PAD_BOT = 24
 const BAND_GAP = 88
+/** 帯へ降りる線の名前の置き場（枠の下から帯までの曲がりの中の、上からの割合。
+ *  まん中が先）。 */
+const BAND_LABEL_AT = [0.5, 0.3, 0.7, 0.15, 0.85]
 /** 下の行の、枠と枠のすき間に取る席の幅（線を通すだけ — 名前は置かない）。 */
 const CL_SEAT_W = 24
 /** 線の端は、箱の辺から出入り口（handle）の半分だけ外にある（shapeGraph と同じ）。 */
@@ -124,8 +135,8 @@ export function place(shape: VocabShape) {
   const nodes: Node[] = []
   /** 線の通り道。`shape.edges` と同じ並びで、枠の中の線と帯へ降りる線だけが持つ。 */
   const routes: (Route | undefined)[] = shape.edges.map(() => undefined)
-  /** 線の名前の位置（`ShapeEdgeLine` の `labelAt`）。帯へ降りる線だけが持つ。 */
-  const labelAts: (number | undefined)[] = shape.edges.map(() => undefined)
+  /** 帯へ降りる線の、名前の置き場の候補（`ShapeEdgeLine` の `labelAt`）。 */
+  const bandSpots: (number[] | undefined)[] = shape.edges.map(() => undefined)
   const heightOf = (n: VocabNode) => nodeHeight(n)
   const byId = new Map(shape.nodes.map((n) => [n.id, n]))
   /** 帯へ降りる線 = 枠の中の箱から、帯の標準のことばへ向かう線。 */
@@ -329,7 +340,9 @@ export function place(shape: VocabShape) {
   })
   if (rows.length) top -= CL_GAP
 
-  if (!stds.length) return { nodes, routes, labelAts, width: canvasW, height: top }
+  if (!stds.length) {
+    return { nodes, routes, labels: labelsOf(shape, nodes, routes, bandSpots), width: canvasW, height: top }
+  }
 
   const bandTop = top + BAND_GAP
   const bandH = BAND_PAD_TOP + stdRows.length * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
@@ -357,13 +370,58 @@ export function place(shape: VocabShape) {
     const inBand = bandLanes(stdRows, canvasW, bandTop, e.to)
     route.via.push(...inBand)
     routes[i] = route
-    // 名前は、枠の下（最後の行の下端）から帯までの曲がりのまん中。途中の席は細いので、
-    // そこに置くと名前が箱に重なる。位置は縦の長さで測る（`pointOnEdge`）。
+    // 名前の置き場は、枠の下（最後の行の下端）から帯までの曲がりの中だけ。途中の席は
+    // 細いので、そこに置くと名前が箱に重なる。位置は縦の長さで測る（`pointOnEdge`）。
     const toY = to.y - HANDLE_R
     const enter = inBand[0]?.top ?? toY
-    if (toY > fromY) labelAts[i] = ((lastY + enter) / 2 - fromY) / (toY - fromY)
+    if (toY > fromY) {
+      bandSpots[i] = BAND_LABEL_AT.map((f) => (lastY + f * (enter - lastY) - fromY) / (toY - fromY))
+    }
   })
-  return { nodes, routes, labelAts, width: canvasW, height: bandTop + bandH }
+  return {
+    nodes,
+    routes,
+    labels: labelsOf(shape, nodes, routes, bandSpots),
+    width: canvasW,
+    height: bandTop + bandH,
+  }
+}
+
+/** 線の名前と位置を、図全体で ⑤ と同じ決め方（`edgeLabels`）で決める — 名前どうし・
+ *  名前と箱・名前と枠や帯の見出しが重ならず、ほかの線をなるべく覆わない位置。
+ *  同じ文言の 2 本目は名前を出さない（⑤ と同じ）。
+ *
+ *  実機 2026-10-01: 見本の world で「国 → 取り込みの記録」の名前「取り込み」が線の
+ *  まん中に固定され、同じ行き先へ席から入ってくる「年ごとの記録 → 取り込みの記録」の
+ *  線と、帯へ降りる線に横切られて読めなかった。帯へ降りる線の名前も、同じ高さに
+ *  並んで重なった。 */
+function labelsOf(
+  shape: VocabShape,
+  nodes: Node[],
+  routes: (Route | undefined)[],
+  bandSpots: (number[] | undefined)[],
+): (EdgeLabel | undefined)[] {
+  const pos = new Map<string, { x: number; y: number }>()
+  const size = new Map<string, { width: number; height: number }>()
+  const obstacles: Rect[] = []
+  for (const n of nodes) {
+    const d = n.data as { width: number; height: number }
+    if (n.type === 'cluster' || n.type === 'band') {
+      // 枠と帯の見出しの帯（名前が見出しの字に重ならない）。
+      const padTop = n.type === 'band' ? BAND_PAD_TOP : CL_PAD_TOP
+      obstacles.push({ x: n.position.x, y: n.position.y, w: d.width, h: padTop - 8 })
+      continue
+    }
+    pos.set(n.id, n.position)
+    size.set(n.id, { width: d.width, height: d.height })
+  }
+  return edgeLabels(shape, pos, {
+    widthOf: (n) => size.get(n.id)?.width ?? KIND_W,
+    heightOf: (n) => size.get(n.id)?.height ?? nodeHeight(n),
+    routes: routes.map((r) => r ?? { via: [] }),
+    obstacles,
+    spotsOf: (i) => bandSpots[i],
+  })
 }
 
 /** 帯の行の、標準のことばの箱の左端（`withBand` と同じ並べかた）。 */
@@ -450,7 +508,7 @@ function VocabMapInner({
   zoomable?: boolean
 }) {
   const { t } = useTranslation()
-  const { nodes: rawNodes, routes, labelAts, width: contentW, height: contentH } = useMemo(
+  const { nodes: rawNodes, routes, labels, width: contentW, height: contentH } = useMemo(
     () => place(shape),
     [shape],
   )
@@ -471,18 +529,16 @@ function VocabMapInner({
     [rawNodes, t],
   )
   const edges: Edge[] = useMemo(() => {
-    const said = new Set<string>()
     return shape.edges.map((e, i) => {
-      const dup = !e.label || said.has(e.label)
-      if (e.label) said.add(e.label)
       return {
         id: `${e.from}->${e.to}-${i}`,
         source: e.from,
         target: e.to,
-        // 通り道のある線（枠の中の線・帯へ降りる線）は、席と真下の通り道を描ける
-        // ShapeGraph の線で引く。ほかの線（帯から出る対応など）は React Flow の既定の線。
-        ...(routes[i] ? { type: 'shape', data: { route: routes[i], labelAt: labelAts[i] } } : {}),
-        label: dup ? undefined : e.label,
+        // どの線も ShapeGraph の線で引く（席と真下の通り道、名前の位置を描ける）。
+        // 通り道の無い線（帯から出る対応など）は、React Flow の既定の線と同じ形。
+        type: 'shape',
+        data: { route: routes[i], labelAt: labels[i]?.at },
+        label: labels[i]?.text,
         className: `vocab-map-edge vocab-map-edge--${e.kind}`,
         markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color: EDGE_COLOR[e.kind] },
         markerStart: e.both
@@ -490,7 +546,7 @@ function VocabMapInner({
           : undefined,
       }
     })
-  }, [shape, routes, labelAts])
+  }, [shape, routes, labels])
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {

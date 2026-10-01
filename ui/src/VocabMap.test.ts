@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { place } from './VocabMap'
-import { nodeHeight, pointOnEdge } from './shapeGraph'
+import { labelRect, nodeHeight, pointOnEdge } from './shapeGraph'
 import type { VocabShape } from './vocabGraph'
 
 /** 地図の枠の中の線が、枠の中の箱と同じだけずれているか。線の通り道（席・まっすぐ
@@ -103,6 +103,28 @@ function pointsOf(nodes: ReturnType<typeof place>['nodes'], route: NonNullable<R
 const inside = (pt: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }) =>
   pt.x > r.x && pt.x < r.x + r.w && pt.y > r.y && pt.y < r.y + r.h
 
+const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  return w > 0 && h > 0 ? w * h : 0
+}
+
+type Placed = ReturnType<typeof place>
+/** 出ている名前の四角（線の端は描かれる線と同じ: 出どころの下辺・行き先の上辺の中央）。 */
+function labelRects(shape: VocabShape, nodes: Placed['nodes'], routes: Placed['routes'], labels: Placed['labels']) {
+  const out: { edge: number; text: string; rect: ReturnType<typeof labelRect> }[] = []
+  shape.edges.forEach((e, i) => {
+    const label = labels[i]
+    if (!label) return
+    const a = box(nodes, e.from)
+    const b = box(nodes, e.to)
+    const p = { x: a.x + a.w / 2, y: a.y + a.h + 3 }
+    const q = { x: b.x + b.w / 2, y: b.y - 3 }
+    out.push({ edge: i, text: label.text, rect: labelRect(p, q, label, routes[i] ?? { via: [] }) })
+  })
+  return out
+}
+
 describe('place (vocab map): lines into the band', () => {
   /** 1 行目に 2 つの枠（上の段の箱から帯へ降りる線を持つ）、折り返した 2 行目に
    *  縦長の枠。2 行目の枠は 1 行目の枠のまっすぐ下にある。 */
@@ -151,11 +173,11 @@ describe('place (vocab map): lines into the band', () => {
     ],
     stats,
   }
-  const { nodes, routes, labelAts } = place(wide)
+  const { nodes, routes, labels } = place(wide)
   const heightOf = (id: string) => nodeHeight(wide.nodes.find((n) => n.id === id)!)
   const boxes = wide.nodes.map((n) => ({ id: n.id, cluster: n.cluster, r: box(nodes, n.id) }))
   const frames = wide.clusters.map((c) => ({ id: c.id, r: box(nodes, `cluster:${c.id}`) }))
-  const band = wide.edges.map((e, i) => ({ e, i })).filter(({ e }) => e.to.startsWith('std:'))
+  const bandLines = wide.edges.map((e, i) => ({ e, i })).filter(({ e }) => e.to.startsWith('std:'))
 
   it('wraps the frames and the band into more than one row (the case this guards)', () => {
     expect(new Set(frames.map((f) => f.r.y)).size).toBeGreaterThan(1)
@@ -163,7 +185,7 @@ describe('place (vocab map): lines into the band', () => {
   })
 
   it('never passes behind a box, nor through a frame other than its own', () => {
-    for (const { e, i } of band) {
+    for (const { e, i } of bandLines) {
       const route = routes[i]
       expect(route, `${e.from} -> ${e.to}`).toBeDefined()
       const own = wide.nodes.find((n) => n.id === e.from)!.cluster
@@ -185,17 +207,28 @@ describe('place (vocab map): lines into the band', () => {
     expect(lastLane(3)).toEqual(lastLane(4))
   })
 
-  it('puts the name of a line into the band below the last frame it passes', () => {
-    for (const { e, i } of band) {
+  it('puts the name of a line into the band below every frame, clear of the band title', () => {
+    const band = box(nodes, 'band:standard')
+    for (const { e, i } of bandLines) {
       const route = routes[i]!
       const a = box(nodes, e.from)
       const b = box(nodes, e.to)
       const p = { x: a.x + a.w / 2, y: a.y + heightOf(e.from) + 3 }
       const q = { x: b.x + b.w / 2, y: b.y - 3 }
-      const at = pointOnEdge(p, q, labelAts[i]!, route)
-      // どの線も最後の行の下を通るので、名前はどの枠よりも下、帯の上端より上。
-      expect(at.y).toBeGreaterThan(Math.max(...frames.map((f) => f.r.y + f.r.h)))
-      expect(at.y).toBeLessThan(box(nodes, 'band:standard').y)
+      const label = labels[i]
+      expect(label, `${e.from} -> ${e.to}`).toBeDefined()
+      const r = labelRect(p, q, label!, route)
+      expect(r.y).toBeGreaterThan(Math.max(...frames.map((f) => f.r.y + f.r.h)))
+      // 帯の見出し（上端から 48）には重ならない。
+      expect(r.y + r.h <= band.y || r.y >= band.y + 48).toBe(true)
+    }
+  })
+
+  it('never lets two names, or a name and a box, overlap', () => {
+    const rects = labelRects(wide, nodes, routes, labels)
+    for (const [k, r] of rects.entries()) {
+      for (const b of boxes) expect(overlap(r.rect, b.r), `${r.text} on ${b.id}`).toBe(0)
+      for (const o of rects.slice(k + 1)) expect(overlap(r.rect, o.rect), `${r.text} on ${o.text}`).toBe(0)
     }
   })
 
@@ -305,4 +338,56 @@ describe('place (vocab map): lines into the band, on many made-up maps', () => {
     // 検査が空回りしていない（線が十分にある）。
     expect(lines).toBeGreaterThan(500)
   }, 60000)
+})
+
+describe('place (vocab map): names of lines', () => {
+  /** 見本の形: 上の段が中の段と下の段を指し、中の段も下の段を指す。上 → 下 と 中 → 下 は
+   *  同じ名前。上と中からは、同じ名前で帯へも降りる。 */
+  const f = (name: string) => [{ name: `${name}1` }, { name: `${name}2` }, { name: `${name}3` }]
+  const tri: VocabShape = {
+    clusters: [{ id: 'w', label: 'W' }],
+    nodes: [
+      { id: 'w::top', label: 'Top', tone: 'record', cluster: 'w', fields: f('t') },
+      { id: 'w::mid', label: 'Mid', tone: 'record', cluster: 'w', fields: f('m') },
+      { id: 'w::low', label: 'Low', tone: 'record', cluster: 'w', fields: f('l') },
+      { id: 'std:a', label: 'a', tone: 'record', vocab: 'v' },
+      { id: 'std:b', label: 'b', tone: 'record', vocab: 'v' },
+    ],
+    edges: [
+      { from: 'w::top', to: 'w::mid', kind: 'link', label: 'to mid' },
+      { from: 'w::top', to: 'w::low', kind: 'link', label: 'made by' },
+      { from: 'w::top', to: 'std:a', kind: 'used', label: 'made by' },
+      { from: 'w::mid', to: 'w::low', kind: 'link', label: 'made by' },
+      { from: 'w::mid', to: 'std:a', kind: 'used', label: 'made by' },
+      { from: 'w::mid', to: 'std:b', kind: 'used', label: 'other' },
+      { from: 'w::low', to: 'std:b', kind: 'used', label: 'low used' },
+    ],
+    stats,
+  }
+  const { nodes, routes, labels } = place(tri)
+
+  it('says the same name once (as the dataset map does)', () => {
+    expect(labels.filter((l) => l?.text === 'made by')).toHaveLength(1)
+  })
+
+  it('keeps every name off the other lines, the boxes and the other names', () => {
+    const rects = labelRects(tri, nodes, routes, labels)
+    expect(rects.map((r) => r.text).sort()).toEqual(['low used', 'made by', 'other', 'to mid'])
+    for (const r of rects) {
+      for (const n of tri.nodes) expect(overlap(r.rect, box(nodes, n.id)), `${r.text} on ${n.id}`).toBe(0)
+      for (const o of rects) if (o !== r) expect(overlap(r.rect, o.rect), `${r.text} on ${o.text}`).toBe(0)
+      tri.edges.forEach((e, j) => {
+        if (j === r.edge) return
+        const a = box(nodes, e.from)
+        const b = box(nodes, e.to)
+        const p = { x: a.x + a.w / 2, y: a.y + a.h + 3 }
+        const q = { x: b.x + b.w / 2, y: b.y - 3 }
+        // 端（出入り口のすぐそば）は、同じ箱から出る線どうしが必ず重なるので数えない。
+        for (let k = 4; k < STEPS - 4; k++) {
+          const pt = pointOnEdge(p, q, k / STEPS, routes[j] ?? { via: [] })
+          expect(inside(pt, r.rect), `${r.text} crossed by ${e.from} -> ${e.to}`).toBe(false)
+        }
+      })
+    }
+  })
 })
