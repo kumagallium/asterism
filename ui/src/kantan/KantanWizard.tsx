@@ -80,6 +80,7 @@ import { useLlmSettings } from '../settings/context'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { basename } from '../skeletonContainment'
+import { rowKindLabels } from './rowKindLabels'
 import {
   applyIdentifiers,
   applyOwners,
@@ -3160,6 +3161,16 @@ export function KantanWizard({
           return label ? { source, column, label } : null
         })
         .filter((x): x is { source: string; column: string; label: string } => x !== null)
+      // K64: 行の種類の公開名は機械の仮の名前（Record・Record2）。表示名が無いと
+      // それが「ためす」の図・件数・気になる点の文にそのまま出る。どのファイルの
+      // 行かで呼ぶ。名前は**元のファイル名**から作る — 設計が参照する名前は
+      // サーバが英数字に直したもの（「測定結果.csv」→「source-1a2b3c4d.csv」）で、
+      // 人に見せる名前ではない。キーも元の名前で送り、サーバが同じ規則で直して
+      // 突き合わせる。拡張子だけ違うファイルが並ぶときは、拡張子まで含めて呼ぶ。
+      const rowLabels = rowKindLabels(
+        files.length > 0 ? files.map((f) => f.name) : [...new Set(meaningRows().map((r) => r.source))],
+        (file) => t('kantan:s4.rowKindLabel', { file }),
+      )
       const result = await assembleSkeleton(files, {
         linkable: [...linkableKeys].map(pair),
         cardKeys: linkKeyPick,
@@ -3168,6 +3179,7 @@ export function KantanWizard({
         dialects: dialectOverrides,
         stagingId,
         labels,
+        rowLabels,
       })
       setSkeleton(result.skeleton)
       setAiSkeleton(result.skeleton)

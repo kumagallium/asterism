@@ -740,6 +740,37 @@ def test_skeleton_assemble_passes_labels_to_subject(
         # ラベルを渡さなかった種類は既定どおり（label 無し）。
         assert "label" not in maps["card"]["subject"]
 
+        # K64: 行の種類の表示名は `row_labels` {ファイル名: 表示名} で渡す。
+        r_row = client.post(
+            "/api/propose/skeleton/assemble",
+            data={
+                "linkable": json.dumps([{"source": "cards.csv", "column": "No"}]),
+                "card_keys": json.dumps({"cards.csv": "No"}),
+                "row_labels": json.dumps({"cards.csv": "cards の 1 行", "other.csv": "x"}),
+            },
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r_row.status_code == 200, r_row.text
+        row_maps = {m["name"]: m for m in r_row.json()["skeleton"]["maps"]}
+        assert row_maps["record"]["subject"]["label"] == "cards の 1 行"
+        assert "label" not in row_maps["card"]["subject"]
+
+        # キーは元のファイル名。英数字に直した設計上の名前へ同じ規則で突き合わせる。
+        r_ja = client.post(
+            "/api/propose/skeleton/assemble",
+            data={
+                "linkable": json.dumps([]),
+                "row_labels": json.dumps({"測定結果.csv": "測定結果 の 1 行"}),
+            },
+            files={"files": ("測定結果.csv", csv, "text/csv")},
+        )
+        assert r_ja.status_code == 200, r_ja.text
+        ja_rows = [
+            m for m in r_ja.json()["skeleton"]["maps"] if m["subject"].get("label")
+        ]
+        assert [m["subject"]["label"] for m in ja_rows] == ["測定結果 の 1 行"]
+        assert ja_rows[0]["source"].startswith("source-")
+
         # labels を省略しても今まで通り 200（新引数は任意）。
         r2 = client.post(
             "/api/propose/skeleton/assemble",
@@ -755,6 +786,12 @@ def test_skeleton_assemble_passes_labels_to_subject(
             files={"files": ("cards.csv", csv, "text/csv")},
         )
         assert r3.status_code == 400
+        r4 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"row_labels": "[]"},
+            files={"files": ("cards.csv", csv, "text/csv")},
+        )
+        assert r4.status_code == 400
 
 
 def test_skeleton_validate_recomputes_evidence_for_edits(
