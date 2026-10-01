@@ -6839,6 +6839,13 @@ def build_app(
                 " (契約メモ a・R2)。省略時は列名がそのまま既定になる。"
             ),
         ),
+        row_labels: str = Form(
+            default="{}",
+            description=(
+                "行の種類につける表示名 as JSON {source: label} (ADR kantan K64)。"
+                "省略時は表示名なし [仮の公開名 Record のまま]。"
+            ),
+        ),
     ) -> dict[str, object]:
         """③④の答えから骨格を組み立てる [決定論・LLM 0・ジョブなし]。
 
@@ -6860,6 +6867,17 @@ def build_app(
         card_keys_obj = _parse_json(card_keys, "card_keys", dict)
         excluded_obj = _parse_json(excluded, "excluded", list)
         labels_obj = _parse_json(labels, "labels", list)
+        row_labels_obj = _parse_json(row_labels, "row_labels", dict)
+        # キーは画面の元のファイル名。設計が参照する名前 [英数字に直した名前] へ
+        # 同じ規則で直して突き合わせる [既に安全な名前はそのまま]。
+        row_labels_map: dict[str, str] = {}
+        for key, value in row_labels_obj.items():
+            if not isinstance(value, str) or not value.strip():
+                continue
+            try:
+                row_labels_map[_sanitize_tabular_name(str(key))] = value.strip()
+            except HTTPException:
+                continue
         dialect_overrides = _parse_dialect_overrides(dialects)
 
         labels_map: dict[tuple[str, str], str] = {}
@@ -6890,6 +6908,7 @@ def build_app(
                     dialects=effective,
                     iri_base=cfg.iri_base,
                     labels=labels_map or None,
+                    row_labels=row_labels_map or None,
                 ),
                 list(paths),
             )
