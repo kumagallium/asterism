@@ -20,6 +20,7 @@ import {
   setCarry,
   spellingDisplay,
   toggleGroup,
+  toggleWideField,
   toggleWideKey,
   totalSummary,
 } from './reshapeSpec'
@@ -189,6 +190,43 @@ describe('setCarry / toggleWideKey', () => {
   it('toggleWideKey は flatten でない op には何もしない', () => {
     const spec = pivotSpec([group('zt')])
     expect(toggleWideKey(spec, 0, 'Form')).toEqual(spec)
+  })
+})
+
+describe('toggleWideField（R23）', () => {
+  const flat = (fields: string[]): ReshapeSpec => ({
+    version: 1,
+    ops: [
+      {
+        kind: 'flatten',
+        source: 'samples.csv',
+        dialect: {},
+        column: 'sample_info',
+        carry: ['SID'],
+        long: { table: 'samples__sample_info.csv', fields: ['category'] },
+        wide: { table: 'samples__sample_info-wide.csv', keys: ['Form'], fields },
+      },
+    ],
+  })
+  const fieldsOf = (spec: ReshapeSpec) => {
+    const op = spec.ops[0]
+    return op.kind === 'flatten' ? op.wide.fields : undefined
+  }
+
+  it('足す・外す', () => {
+    const added = toggleWideField(flat(['category']), 0, 'comment')
+    expect(fieldsOf(added)).toEqual(['category', 'comment'])
+    expect(fieldsOf(toggleWideField(added, 0, 'category'))).toEqual(['comment'])
+  })
+
+  it('最後の 1 つは外せない', () => {
+    const spec = flat(['category'])
+    expect(toggleWideField(spec, 0, 'category')).toEqual(spec)
+  })
+
+  it('flatten でない op には何もしない', () => {
+    const spec = pivotSpec([group('zt')])
+    expect(toggleWideField(spec, 0, 'x')).toEqual(spec)
   })
 })
 

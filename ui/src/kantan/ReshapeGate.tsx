@@ -18,9 +18,19 @@ import {
   setCarry,
   spellingDisplay,
   toggleGroup,
+  toggleWideField,
   toggleWideKey,
   totalSummary,
 } from './reshapeSpec'
+
+/** 判断表を変えたことを呼び出し側へ伝える。`key` は「どのボタンを押したか」
+ *  （処理中にそのボタン自体へ spinner を出すため）。 */
+type OnChange = (next: ReshapeSpec, key?: string) => void
+
+/** 押したボタンの中に出す小さなくるくる。 */
+function BtnSpin({ on }: { on: boolean }) {
+  return on ? <span className="spinner" aria-hidden="true" /> : null
+}
 
 /** タブの名前に添える「対象の列名」（人が付けた名前・K4 が禁じる機械の識別子
  *  ではない）。explode は並行列をまとめて示す。 */
@@ -76,6 +86,18 @@ export function ReshapeGate({
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState(0)
+  // 最後に押した操作（busy の間だけ、そのボタン自体に spinner を出す）。
+  const [pending, setPending] = useState<string | null>(null)
+  // busy が false の間は pending を見ない（各ボタンが `busy && pending === key` で
+  // 判定する）ので、クリアの effect は要らない。「進む」を押したら必ず外す。
+  const act: OnChange = (next, key) => {
+    setPending(key ?? null)
+    onChange(next)
+  }
+  const clearThen = (fn: () => void) => () => {
+    setPending(null)
+    fn()
+  }
   const total = totalSummary(spec, counts)
   const ops = spec.ops
   const activeOp = ops[Math.min(tab, ops.length - 1)]
@@ -98,7 +120,7 @@ export function ReshapeGate({
       <p className="kz-lead">{t('kantan:s12.lead')}</p>
 
       {/* 常時見える件数の帯（K23 採用デザイン・S4 と同じ見た目）。 */}
-      <div className="kz-map-card">
+      <div className="kz-map-card kz-map-card--sticky">
         <span className="kz-stat">
           <span className="kz-stat-num">{total.sourceRows.toLocaleString()}</span>
           <span className="kz-stat-unit">{t('kantan:s12.unitRows')}</span>
@@ -114,6 +136,12 @@ export function ReshapeGate({
         <span className="kz-map-note">
           {t('kantan:s12.droppedTruncated', { dropped: total.dropped, truncated: total.truncated })}
         </span>
+        {busy && (
+          <span className="kz-map-busy" role="status">
+            <span className="spinner" aria-hidden="true" />
+            {t('kantan:s12.recalculating')}
+          </span>
+        )}
       </div>
 
       {errorText && (
@@ -156,7 +184,8 @@ export function ReshapeGate({
           counts={counts}
           sourceColumns={sourceColumns}
           busy={busy}
-          onChange={onChange}
+          pending={pending}
+          onChange={act}
         />
       )}
       {activeOp.kind === 'explode' && (
@@ -165,7 +194,7 @@ export function ReshapeGate({
           opIndex={activeIndex}
           sourceColumns={sourceColumns}
           busy={busy}
-          onChange={onChange}
+          onChange={act}
           spec={spec}
         />
       )}
@@ -182,16 +211,17 @@ export function ReshapeGate({
           opIndex={activeIndex}
           sourceColumns={sourceColumns}
           busy={busy}
-          onChange={onChange}
+          pending={pending}
+          onChange={act}
           spec={spec}
         />
       )}
 
       <div className="kz-actions">
-        <button type="button" onClick={onProceedApply} disabled={busy}>
+        <button type="button" onClick={clearThen(onProceedApply)} disabled={busy}>
           {t('kantan:s12.proceedApply')}
         </button>
-        <button type="button" className="btn btn--ghost" onClick={onProceedSkip} disabled={busy}>
+        <button type="button" className="btn btn--ghost" onClick={clearThen(onProceedSkip)} disabled={busy}>
           {t('kantan:s12.proceedSkip')}
         </button>
         {busy && (
@@ -215,6 +245,7 @@ function CarryPicker({
   consumed,
   columns,
   busy,
+  pending,
   onChange,
 }: {
   spec: ReshapeSpec
@@ -226,7 +257,9 @@ function CarryPicker({
    *  入っている列だけを出す（他ファイルの列を出すくらいなら何も出さない）。 */
   columns: string[]
   busy: boolean
-  onChange: (next: ReshapeSpec) => void
+  /** 最後に押した操作のキー（busy の間だけ意味を持つ）。 */
+  pending?: string | null
+  onChange: OnChange
 }) {
   const { t } = useTranslation()
   // 候補 = op 自身のソースの列名から、この op 自身が使う列を除いたもの。すでに
@@ -252,9 +285,11 @@ function CarryPicker({
                   opIndex,
                   carry.includes(col) ? carry.filter((c) => c !== col) : [...carry, col],
                 ),
+                `carry:${col}`,
               )
             }
           >
+            <BtnSpin on={busy && pending === `carry:${col}`} />
             {col}
           </button>
         ))}
@@ -270,6 +305,7 @@ function PivotTab({
   counts,
   sourceColumns,
   busy,
+  pending,
   onChange,
 }: {
   spec: ReshapeSpec
@@ -279,7 +315,9 @@ function PivotTab({
   counts: Record<string, ReshapeOpCounts>
   sourceColumns: Record<string, string[]>
   busy: boolean
-  onChange: (next: ReshapeSpec) => void
+  /** 最後に押した操作のキー（busy の間だけ意味を持つ）。 */
+  pending?: string | null
+  onChange: OnChange
 }) {
   const { t } = useTranslation()
   const enabledGroups = op.groups.filter((g) => g.enabled !== false)
@@ -291,17 +329,16 @@ function PivotTab({
   return (
     <>
       <p className="kz-note">{t('kantan:s12.pivotIntro')}</p>
-      <div className="kz-preview-tablewrap">
-        <table className="kz-preview-table kz-cols-table kz-reshape-groups">
+      <div className="kz-preview-tablewrap" aria-busy={busy}>
+        <table
+          className={`kz-preview-table kz-cols-table kz-reshape-groups${busy ? ' kz-reshape-busy' : ''}`}
+        >
           <thead>
             <tr>
               <th>{t('kantan:s12.colUse')}</th>
-              <th>{t('kantan:s12.colLabel')}</th>
-              <th>{t('kantan:s12.colUnit')}</th>
+              <th>{t('kantan:s12.colProperty')}</th>
               <th>{t('kantan:s12.colRows')}</th>
-              <th>{t('kantan:s12.colSpellings')}</th>
-              <th>{t('kantan:s12.colOtherUnits')}</th>
-              <th>{t('kantan:s12.mergeLabel')}</th>
+              <th>{t('kantan:s12.colActions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -319,90 +356,105 @@ function PivotTab({
               const sourceRows = groupSourceRows(g)
               const derivedRows = groupDerivedRows(g, opIndex, counts)
               const zeroAfterApply = groupIsZeroAfterApply(g, opIndex, counts)
+              const hasOthers = !!g.other_units && g.other_units.length > 0
               return (
                 <Fragment key={g.slug}>
-                <tr className={enabled ? undefined : 'kz-cols-dropped'}>
-                  <td>
-                    <label className="kz-cols-keep" title={mergedAway ? t('kantan:s12.mergedAwayTitle') : undefined}>
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        disabled={busy || mergedAway}
-                        onChange={() => onChange(toggleGroup(spec, opIndex, g.slug, !enabled))}
-                      />
-                    </label>
-                  </td>
-                  <td>{g.label}</td>
-                  <td>{g.unit}</td>
-                  <td>
-                    {sourceRows.toLocaleString()}
-                    {derivedRows !== undefined && (
-                      <span className="kz-note" style={{ display: 'block' }}>
-                        {t('kantan:s12.derivedRowsNote', { count: derivedRows })}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {g.members.length > 1
-                      ? g.members.map((m) => spellingDisplay(m, g.unit)).join(', ')
-                      : t('kantan:s12.singleSpelling')}
-                  </td>
-                  <td>
-                    {g.other_units && g.other_units.length > 0 ? (
-                      <div className="kz-q-options">
-                        {g.other_units.map((o) => (
-                          <button
-                            key={`${o.label} ${o.unit}`}
-                            type="button"
-                            className="btn btn--ghost btn--sm"
-                            disabled={busy}
-                            title={t('kantan:s12.adoptOtherUnitTitle', {
-                              label: o.label,
-                              unit: o.unit,
-                            })}
-                            onClick={() => onChange(adoptOtherUnit(spec, opIndex, g.slug, o))}
-                          >
-                            {t('kantan:s12.adoptOtherUnit', { unit: o.unit, rows: o.rows ?? 0 })}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="kz-note">{t('kantan:s12.noOtherUnits')}</span>
-                    )}
-                  </td>
-                  <td>
-                    {others.length > 0 ? (
-                      <select
-                        className="kz-cols-input"
-                        disabled={busy || !enabled}
-                        value=""
-                        aria-label={t('kantan:s12.mergeAria', { label: g.label })}
-                        onChange={(e) => {
-                          const into = e.target.value
-                          if (into) onChange(mergeGroupInto(spec, opIndex, g.slug, into))
-                        }}
+                  <tr className={enabled ? undefined : 'kz-cols-dropped'}>
+                    <td>
+                      <label
+                        className="kz-cols-keep"
+                        title={mergedAway ? t('kantan:s12.mergedAwayTitle') : undefined}
                       >
-                        <option value="">{t('kantan:s12.mergePlaceholder')}</option>
-                        {others.map((o) => (
-                          <option key={o.slug} value={o.slug}>
-                            {o.label}（{o.unit}）
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                </tr>
-                {zeroAfterApply && (
-                  <tr className="kz-cols-dropped">
-                    <td colSpan={7}>
-                      <span className="kz-note" role="alert">
-                        ⚠ {t('kantan:s12.groupZeroRows')}
-                      </span>
+                        <BtnSpin on={busy && pending === `toggle:${g.slug}`} />
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          disabled={busy || mergedAway}
+                          onChange={() =>
+                            onChange(toggleGroup(spec, opIndex, g.slug, !enabled), `toggle:${g.slug}`)
+                          }
+                        />
+                      </label>
+                    </td>
+                    <td className="kz-reshape-prop">
+                      <strong>{g.label}</strong>
+                      <span className="kz-reshape-unit">{g.unit}</span>
+                      {g.members.length > 1 && (
+                        <span className="kz-note kz-reshape-spellings">
+                          {t('kantan:s12.spellingsNote', {
+                            spellings: g.members.map((m) => spellingDisplay(m, g.unit)).join(', '),
+                          })}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {sourceRows.toLocaleString()}
+                      {derivedRows !== undefined && (
+                        <span className="kz-note" style={{ display: 'block' }}>
+                          {t('kantan:s12.derivedRowsNote', { count: derivedRows })}
+                        </span>
+                      )}
+                    </td>
+                    <td className="kz-reshape-actions">
+                      {hasOthers && (
+                        <div className="kz-q-options">
+                          {g.other_units?.map((o) => {
+                            const key = `adopt:${g.slug}:${o.label}:${o.unit}`
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                disabled={busy}
+                                title={t('kantan:s12.adoptOtherUnitTitle', {
+                                  label: o.label,
+                                  unit: o.unit,
+                                })}
+                                onClick={() => onChange(adoptOtherUnit(spec, opIndex, g.slug, o), key)}
+                              >
+                                <BtnSpin on={busy && pending === key} />
+                                {t('kantan:s12.adoptOtherUnit', { unit: o.unit, rows: o.rows ?? 0 })}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {others.length > 0 && (
+                        <label className="kz-reshape-merge">
+                          <span className="kz-note">{t('kantan:s12.mergeLabel')}</span>
+                          <BtnSpin on={busy && pending === `merge:${g.slug}`} />
+                          <select
+                            className="kz-cols-input"
+                            disabled={busy || !enabled}
+                            value=""
+                            aria-label={t('kantan:s12.mergeAria', { label: g.label })}
+                            onChange={(e) => {
+                              const into = e.target.value
+                              if (into)
+                                onChange(mergeGroupInto(spec, opIndex, g.slug, into), `merge:${g.slug}`)
+                            }}
+                          >
+                            <option value="">{t('kantan:s12.mergePlaceholder')}</option>
+                            {others.map((o) => (
+                              <option key={o.slug} value={o.slug}>
+                                {o.label}（{o.unit}）
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      {!hasOthers && others.length === 0 && '—'}
                     </td>
                   </tr>
-                )}
+                  {zeroAfterApply && (
+                    <tr className="kz-cols-dropped">
+                      <td colSpan={4}>
+                        <span className="kz-note" role="alert">
+                          ⚠ {t('kantan:s12.groupZeroRows')}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               )
             })}
@@ -440,12 +492,12 @@ function ExplodeTab({
   opIndex: number
   sourceColumns: Record<string, string[]>
   busy: boolean
-  onChange: (next: ReshapeSpec) => void
+  onChange: OnChange
 }) {
   const { t } = useTranslation()
   const consumed = new Set(op.arrays)
   return (
-    <>
+    <div aria-busy={busy} className={busy ? 'kz-reshape-busy' : undefined}>
       <p className="kz-note">{t('kantan:s12.explodeIntro', { columns: op.arrays.join(', ') })}</p>
       <CarryPicker
         spec={spec}
@@ -456,7 +508,7 @@ function ExplodeTab({
         busy={busy}
         onChange={onChange}
       />
-    </>
+    </div>
   )
 }
 
@@ -466,6 +518,7 @@ function FlattenTab({
   opIndex,
   sourceColumns,
   busy,
+  pending,
   onChange,
 }: {
   spec: ReshapeSpec
@@ -473,34 +526,106 @@ function FlattenTab({
   opIndex: number
   sourceColumns: Record<string, string[]>
   busy: boolean
-  onChange: (next: ReshapeSpec) => void
+  /** 最後に押した操作のキー（busy の間だけ意味を持つ）。 */
+  pending?: string | null
+  onChange: OnChange
 }) {
   const { t } = useTranslation()
   const consumed = new Set([op.column])
-  // wide にできる項目の候補は「機械がいま提案している keys」だけ（サーバは
-  // それ以外の候補を返さない、ADR §4.3）。チェックを外しても候補自体は
-  // 消えない — 外した項目は long（細長い表）にはそのまま残る。
-  const [universe] = useState(op.wide.keys)
+  // R23: 候補は op.wide.candidates（値が 1 件でもある全キー）。25% は「既定の
+  // チェック」であって足切りではない。古い spec（candidates 無し）は keys だけを
+  // 割合不明で出す。外した項目は long（細長い表）にはそのまま残る。
+  const [showAll, setShowAll] = useState(false)
+  type Cand = { key: string; rate?: number }
+  const candidates: Cand[] =
+    op.wide.candidates && op.wide.candidates.length > 0
+      ? op.wide.candidates
+      : op.wide.keys.map((key): Cand => ({ key }))
+  // 選択済みなのに候補に無いキー（手で書いた spec）も落とさず出す。
+  const known = new Set(candidates.map((c) => c.key))
+  const all: Cand[] = [...candidates, ...op.wide.keys.filter((k) => !known.has(k)).map((key): Cand => ({ key }))]
+  const isDefault = (c: Cand) =>
+    op.wide.keys.includes(c.key) || (c.rate ?? 0) >= 0.25
+  const shown = all.filter((c) => showAll || isDefault(c))
+  const hiddenCount = all.length - all.filter(isDefault).length
+  const fieldCands = op.wide.field_candidates ?? []
+  const selectedFields = op.wide.fields ?? []
   return (
-    <>
+    <div aria-busy={busy} className={busy ? 'kz-reshape-busy' : undefined}>
       <p className="kz-note">{t('kantan:s12.flattenIntro', { column: op.column })}</p>
       <p className="kz-note">{t('kantan:s12.longNote')}</p>
-      {universe.length > 0 && (
+      {all.length > 0 && (
         <div className="kz-q">
           <p className="kz-q-text">{t('kantan:s12.wideKeysTitle')}</p>
           <p className="kz-note">{t('kantan:s12.wideKeysNote')}</p>
+          {candidates.some((c) => c.rate !== undefined) && (
+            <p className="kz-note">{t('kantan:s12.wideKeysNoteRate')}</p>
+          )}
           <div className="kz-q-options">
-            {universe.map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={`kz-pill${op.wide.keys.includes(key) ? ' selected' : ''}`}
-                disabled={busy}
-                onClick={() => onChange(toggleWideKey(spec, opIndex, key))}
-              >
-                {key}
-              </button>
-            ))}
+            {shown.map((c) => {
+              const key = `wide:${c.key}`
+              return (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={`kz-pill${op.wide.keys.includes(c.key) ? ' selected' : ''}`}
+                  disabled={busy}
+                  onClick={() => onChange(toggleWideKey(spec, opIndex, c.key), key)}
+                >
+                  <BtnSpin on={busy && pending === key} />
+                  {c.rate === undefined
+                    ? c.key
+                    : t('kantan:s12.wideKeyPill', {
+                        key: c.key,
+                        percent: c.rate > 0 && c.rate < 0.01 ? '<1' : Math.round(c.rate * 100),
+                      })}
+                </button>
+              )
+            })}
+          </div>
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              style={{ alignSelf: 'flex-start', width: 'auto', marginTop: 8 }}
+              aria-expanded={showAll}
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll
+                ? t('kantan:s12.hideMoreKeys')
+                : t('kantan:s12.showMoreKeys', { count: hiddenCount })}
+            </button>
+          )}
+        </div>
+      )}
+      {fieldCands.length >= 2 && (
+        <div className="kz-q">
+          <p className="kz-q-text">{t('kantan:s12.wideFieldsTitle')}</p>
+          <p className="kz-note">{t('kantan:s12.wideFieldsNote')}</p>
+          <div className="kz-q-options">
+            {fieldCands.map((f) => {
+              const key = `field:${f.field}`
+              const selected = selectedFields.includes(f.field)
+              return (
+                <button
+                  key={f.field}
+                  type="button"
+                  className={`kz-pill${selected ? ' selected' : ''}`}
+                  // 最後の 1 つは外せないが、disabled にすると「選ばれていない」ように
+                  // 薄く見えてしまう — 選択の見た目は保ったまま押しても何もしない。
+                  disabled={busy}
+                  aria-disabled={selected && selectedFields.length <= 1}
+                  title={selected && selectedFields.length <= 1 ? t('kantan:s12.wideFieldsKeepOne') : undefined}
+                  onClick={() => {
+                    if (selected && selectedFields.length <= 1) return
+                    onChange(toggleWideField(spec, opIndex, f.field), key)
+                  }}
+                >
+                  <BtnSpin on={busy && pending === key} />
+                  {f.field}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -513,6 +638,6 @@ function FlattenTab({
         busy={busy}
         onChange={onChange}
       />
-    </>
+    </div>
   )
 }

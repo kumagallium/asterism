@@ -1052,6 +1052,42 @@ def _propose_flatten(
         if total and key_counts[k] / total >= 0.25
     ][:12]
 
+    # R23: 25% は「既定のチェック」であって候補の足切りではない。非空が 1 件でもある
+    # キーは全部 candidates に載せる（非空数の降順・同数は初出順）。
+    candidates = [
+        {"key": k, "rows": key_counts[k], "rate": key_counts[k] / total if total else 0.0}
+        for k in sorted(
+            (k for k in key_counts if key_counts[k] > 0),
+            key=lambda k: (-key_counts[k], key_first[k]),
+        )
+    ]
+    cand_set = {c["key"] for c in candidates}
+    cand_field_counts: Counter = Counter()
+    cand_field_first: dict[str, int] = {}
+    seq = 0
+    for row in scan_rows:
+        cell = row.get(column, "")
+        if not cell.strip():
+            continue
+        obj = _unwrap_json_object(cell)
+        if obj is None:
+            continue
+        norm_obj, _ = _normalize_obj_keys(obj, cand_set)
+        for key in cand_set:
+            val = norm_obj.get(key)
+            if isinstance(val, dict):
+                for field, fval in val.items():
+                    cand_field_first.setdefault(field, seq)
+                    seq += 1
+                    if _is_nonblank(fval):
+                        cand_field_counts[field] += 1
+    field_candidates = [
+        {"field": f, "rows": cand_field_counts[f]}
+        for f in sorted(
+            cand_field_counts, key=lambda f: (-cand_field_counts[f], cand_field_first[f])
+        )
+    ]
+
     wide_keys_set = set(wide_keys)
     wide_field_counts: Counter = Counter()
     wide_field_first: dict[str, int] = {}
@@ -1085,7 +1121,13 @@ def _propose_flatten(
         "column": column,
         "carry": carry,
         "long": {"table": table_long, "fields": long_fields},
-        "wide": {"table": table_wide, "keys": wide_keys, "fields": wide_fields},
+        "wide": {
+            "table": table_wide,
+            "keys": wide_keys,
+            "fields": wide_fields,
+            "candidates": candidates,
+            "field_candidates": field_candidates,
+        },
         "source_rows": len(rows),
     }
 
@@ -1184,6 +1226,14 @@ def validate_spec(spec: dict) -> list[str]:
                 cfg = op.get(sub)
                 if isinstance(cfg, dict):
                     _claim_table(cfg.get("table"), idx)
+            wide_cfg = op.get("wide")
+            if isinstance(wide_cfg, dict):
+                for sub in ("keys", "fields"):
+                    v = wide_cfg.get(sub, [])
+                    if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+                        errors.append(
+                            f"reshape.invalid_spec: ops[{idx}] wide.{sub} must be a list of str"
+                        )
 
     return errors
 
@@ -1502,8 +1552,8 @@ def _apply_flatten(op: dict, rows: list[dict[str, str]]) -> tuple[dict, dict]:
     wide_cols = list(source_columns)
     for key in wide_keys:
         if key_shapes[key] == "object":
-            if wide_fields:
-                wide_cols.append(f"{key}__{wide_fields[0]}")
+            for wf in wide_fields:
+                wide_cols.append(f"{key}__{wf}")
         else:
             wide_cols.append(key)
 
@@ -1518,9 +1568,9 @@ def _apply_flatten(op: dict, rows: list[dict[str, str]]) -> tuple[dict, dict]:
         for key in wide_keys:
             val = norm_obj.get(key)
             if key_shapes[key] == "object":
-                if wide_fields:
-                    out[f"{key}__{wide_fields[0]}"] = (
-                        _stringify_flat(val.get(wide_fields[0])) if isinstance(val, dict) else ""
+                for wf in wide_fields:
+                    out[f"{key}__{wf}"] = (
+                        _stringify_flat(val.get(wf)) if isinstance(val, dict) else ""
                     )
             else:
                 out[key] = _stringify_flat(val) if not isinstance(val, dict) else ""

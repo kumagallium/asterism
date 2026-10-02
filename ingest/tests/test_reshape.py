@@ -1269,3 +1269,77 @@ def test_derived_tables_excludes_disabled_pivot_groups() -> None:
     }
     names = derived_tables(spec)
     assert names == ["curves__zt.csv"]
+
+
+# ===========================================================================
+# R23: wide の候補（candidates / field_candidates）と複数 fields
+# ===========================================================================
+
+
+def _samples_flatten_op() -> dict:
+    return next(o for o in propose(SAMPLES, detect(SAMPLES)) if o["kind"] == "flatten")
+
+
+def _wide_header(op: dict, tmp_path: Path) -> list[str]:
+    apply({"version": 1, "ops": [op]}, FIXTURES, tmp_path)
+    with (tmp_path / op["wide"]["table"]).open(encoding="utf-8", newline="") as fh:
+        return next(csv.reader(fh))
+
+
+def test_propose_flatten_candidates_order_and_nonempty_only() -> None:
+    wide = _samples_flatten_op()["wide"]
+    cands = wide["candidates"]
+    assert cands, "候補が空"
+    rows = [c["rows"] for c in cands]
+    assert rows == sorted(rows, reverse=True)
+    assert all(c["rows"] >= 1 and 0 < c["rate"] <= 1 for c in cands)
+    keys = [c["key"] for c in cands]
+    assert len(keys) == len(set(keys))
+    # 0 件（常に空）のキー " remanence magnetion" は載らない。
+    assert "remanence magnetion" not in keys
+    # 既定の keys は候補の部分集合で、候補は keys より多い。
+    assert set(wide["keys"]) <= set(keys)
+    assert len(keys) > len(wide["keys"])
+    assert all(c["rate"] >= 0.25 for c in cands if c["key"] in wide["keys"])
+    fc = wide["field_candidates"]
+    assert [f["field"] for f in fc][:1] == wide["fields"]
+    assert [f["rows"] for f in fc] == sorted((f["rows"] for f in fc), reverse=True)
+
+
+def test_apply_flatten_wide_adds_column_for_below_threshold_key(tmp_path: Path) -> None:
+    op = _samples_flatten_op()
+    extra = next(c["key"] for c in op["wide"]["candidates"] if c["key"] not in op["wide"]["keys"])
+    before = _wide_header(op, tmp_path / "a")
+    assert not any(c == extra or c.startswith(f"{extra}__") for c in before)
+    op["wide"]["keys"] = [*op["wide"]["keys"], extra]
+    after = _wide_header(op, tmp_path / "b")
+    assert any(c == extra or c.startswith(f"{extra}__") for c in after)
+
+
+def test_apply_flatten_wide_multiple_fields_makes_one_column_each(tmp_path: Path) -> None:
+    op = _samples_flatten_op()
+    one = _wide_header(op, tmp_path / "b")
+    f0 = op["wide"]["fields"][0]
+    key = next(c[: -len(f0) - 2] for c in one if c.endswith(f"__{f0}"))
+    op["wide"]["fields"] = [f["field"] for f in op["wide"]["field_candidates"][:2]]
+    two = _wide_header(op, tmp_path / "c")
+    f1, f2 = op["wide"]["fields"]
+    assert f"{key}__{f1}" in two and f"{key}__{f2}" in two
+    assert len(two) > len(one)
+    # 1 field のときは従来と同一（先頭 field だけ）。
+    assert f"{key}__{f2}" not in one
+
+
+def test_apply_flatten_old_spec_without_candidates(tmp_path: Path) -> None:
+    op = _samples_flatten_op()
+    del op["wide"]["candidates"]
+    del op["wide"]["field_candidates"]
+    assert validate_spec({"version": 1, "ops": [op]}) == []
+    assert _wide_header(op, tmp_path)
+
+
+def test_validate_spec_rejects_non_str_wide_keys() -> None:
+    op = _samples_flatten_op()
+    op["wide"]["keys"] = ["a", 1]
+    errs = validate_spec({"version": 1, "ops": [op]})
+    assert any("wide.keys" in e for e in errs)
