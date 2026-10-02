@@ -103,7 +103,9 @@
       "count": "{{n}} 件",
       "countTruncated": "{{n}} 件（上限で切り詰め）",
       "empty": "該当する結果はありません。",
-      "sparqlSummary": "詳しい内容（技術情報）: 実行した検索"
+      "sparqlSummary": "詳しい内容（技術情報）: 実行した検索",
+      "countThinned": "{{n}} 件（全 {{total}} 件から、範囲全体を覆って間引き）",
+      "countOf": "{{n}} 件（全 {{total}} 件のうち）"
     },
     "missingRequired": "必須パラメータを入力してください: {{names}}"
   },

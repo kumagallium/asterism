@@ -519,3 +519,75 @@ async def test_run_subject_tool_set_measure_bad_class_is_subject_tool_error() ->
             "set_measure",
             {"where": [], "shape": "quantity", "item": VALUE_PRED, "agg": "count"},
         )
+
+
+
+# ---------------------------------------------------------------------------
+# 図の点数は絞り込みの limit（一覧の件数）と別（asterism.plot_points）
+# ---------------------------------------------------------------------------
+
+SCAN_CLASS = EX + "ScanPoint"
+ANGLE_PRED = EX + "angle"
+COUNTS_PRED = EX + "counts"
+SCAN_DATASET = "scan-log"
+SCAN_GRAPH = canonical_graph_iri(SCAN_DATASET) + "/v1"
+
+_SCAN_ONTOLOGY_TTL = f"""
+@prefix ex: <{EX}> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:ScanPoint a rdfs:Class ; rdfs:label "走査の点" .
+ex:angle a rdf:Property ; rdfs:domain ex:ScanPoint ; rdfs:label "角度" .
+ex:counts a rdf:Property ; rdfs:domain ex:ScanPoint ; rdfs:label "強度" .
+"""
+
+
+def _scan_client(n: int = 301) -> object:
+    """20.0 から 0.2 刻みで 80.0 まで（XRD の走査を小さくしたもの）。"""
+    rows = [f"@prefix ex: <{EX}> .", "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> ."]
+    for i in range(n):
+        x = 20.0 + 0.2 * i
+        rows.append(
+            f'<https://ex/scan/p{i}> a ex:ScanPoint ; ex:angle "{x:.1f}"^^xsd:double ; '
+            f'ex:counts "{1000 + i % 5}"^^xsd:double .'
+        )
+    return _pyoxi_client(
+        {ONTOLOGY_GRAPH_BASE + SCAN_DATASET: _SCAN_ONTOLOGY_TTL, SCAN_GRAPH: "\n".join(rows)}
+    )
+
+
+@pytest.mark.parametrize("shape", ["series", "pairs"])
+async def test_set_measure_plot_ignores_the_list_limit(shape: str) -> None:
+    """実例の固定: 一覧の件数（limit 20）で図の点が先頭 20 点に切られていた。"""
+    spec = {"class": SCAN_CLASS, "where": [], "limit": 20}
+    out = await set_measure(
+        _scan_client(), spec, params={"shape": shape, "x": ANGLE_PRED, "y": COUNTS_PRED}
+    )
+    xs = [i["x"] for i in out["items"]]
+    assert len(xs) == 301
+    assert xs[0] == 20.0 and xs[-1] == 80.0
+    assert out["truncated"] is False
+    assert out["total"] == 301
+
+
+async def test_set_measure_series_thins_over_the_whole_range_past_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import functools
+
+    from asterism import plot_points, subject_tools
+
+    monkeypatch.setattr(
+        subject_tools, "_plot_result", functools.partial(plot_points.plot_result, max_points=40)
+    )
+    out = await set_measure(
+        _scan_client(),
+        {"class": SCAN_CLASS, "where": []},
+        params={"shape": "series", "x": ANGLE_PRED, "y": COUNTS_PRED},
+    )
+    xs = [i["x"] for i in out["items"]]
+    assert len(xs) <= 40
+    assert xs[0] == 20.0 and xs[-1] == 80.0
+    assert out["thinned"] is True and out["truncated"] is True
+    assert out["total"] == 301

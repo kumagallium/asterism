@@ -108,7 +108,9 @@ def build_server(
             "min/max) for a single starrydata curve, given its IRI. "
             "Use this when the AI needs point-level reasoning over a curve "
             "(e.g. 'what is Seebeck at 300 K?') beyond what xMin/xMax/yMin/yMax "
-            "alone can answer."
+            "alone can answer. ``max_points`` thins the arrays over the "
+            "WHOLE x range (both ends and each bucket's min/max y kept), "
+            "never just the leading points."
         ),
     )
     async def _template_curve_fetch(
