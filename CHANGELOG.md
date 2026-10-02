@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.50.0](https://github.com/kumagallium/asterism/compare/v0.49.1...v0.50.0) - 2026-10-02
+
+- fix: 図の点を一覧の件数の上限で先頭から切らない — 全範囲を覆って間引き、切れたら必ず言う by @kumagallium in https://github.com/kumagallium/asterism/pull/663
+- 「表の形」: 列にできる項目を全部候補に出す・再計算中の表示・横スクロールをなくす by @kumagallium in https://github.com/kumagallium/asterism/pull/664
+- 「表の形」: リストの列（著者・プロジェクト名）を 1 要素 1 行の表にする（unnest・R24） by @kumagallium in https://github.com/kumagallium/asterism/pull/666
+
 ## [v0.49.1](https://github.com/kumagallium/asterism/compare/v0.49.0...v0.49.1) - 2026-10-01
 
 - fix(ingest): 掃除した版の graph の名前も消し、起動のたびに孤児として積み直さない by @kumagallium in https://github.com/kumagallium/asterism/pull/657
