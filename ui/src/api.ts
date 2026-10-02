@@ -1883,10 +1883,27 @@ export interface ReshapeFlattenLong {
   fields: string[]
 }
 
+export interface ReshapeWideCandidate {
+  key: string
+  /** スキャン母集団のうち、このキーに値が入っている行数。 */
+  rows: number
+  /** rows / スキャン行数（0〜1）。 */
+  rate: number
+}
+
+export interface ReshapeFieldCandidate {
+  field: string
+  rows: number
+}
+
 export interface ReshapeFlattenWide {
   table: string
   keys: string[]
   fields?: string[]
+  /** R23: 値が 1 件でもある全キー（非空数の降順）。古い spec には無い。 */
+  candidates?: ReshapeWideCandidate[]
+  /** R23: 全候補キーの値の中で非空のフィールド名（非空数の降順）。 */
+  field_candidates?: ReshapeFieldCandidate[]
 }
 
 export interface ReshapeFlattenOp {

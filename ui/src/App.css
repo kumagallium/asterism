@@ -7766,16 +7766,70 @@ tr[data-map].skeleton-gate-row--added td {
   background: var(--surface);
   color: var(--body);
 }
-/* 表の形（S12）の判断表: 7 列と多く、既定の 10rem select だと 1280px 幅でも
-   「別の表に合流」列まで収まらない。この表だけ詰めて、収まる場合は横スクロール
-   自体を要らなくする（それでも収まらなければ `.kz-preview-tablewrap` が
-   横スクロールする）。 */
+/* 表の形（S12）の判断表: 4 列（使う／物性／行数／操作）。長い表記は折り返し、
+   select は列幅に収める — 1366px 幅（サイドバー 248px あり）でも横スクロール
+   を出さない。 */
+.kz-reshape-groups.kz-cols-table {
+  width: 100%;
+  table-layout: auto;
+}
 .kz-reshape-groups.kz-cols-table select {
-  min-width: 8rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .kz-reshape-groups.kz-cols-table th,
 .kz-reshape-groups.kz-cols-table td {
   padding: 0.4rem 0.5rem;
+  vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.kz-reshape-prop strong {
+  display: block;
+}
+.kz-reshape-unit,
+.kz-reshape-spellings {
+  display: block;
+}
+.kz-reshape-unit {
+  color: var(--muted);
+}
+.kz-reshape-spellings {
+  font-size: 0.78rem;
+}
+.kz-reshape-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+.kz-reshape-actions .kz-q-options button {
+  white-space: normal;
+  text-align: left;
+}
+.kz-reshape-merge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-width: 100%;
+}
+/* 処理中: 帯を画面内に貼り付け、判断表は少し薄くする。 */
+.kz-map-card--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.kz-map-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  color: var(--muted);
+}
+.kz-reshape-busy {
+  opacity: 0.6;
+  transition: opacity 0.15s;
 }
 .kz-cols-input--unit {
   min-width: 6rem;

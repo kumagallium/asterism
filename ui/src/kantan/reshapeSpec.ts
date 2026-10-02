@@ -142,6 +142,21 @@ export function toggleWideKey(spec: ReshapeSpec, opIndex: number, key: string): 
   })
 }
 
+/** R23「表の列にする中身」: flatten の `wide.fields` に 1 つ足す／外す。最後の 1 つは
+ *  外せない（中身が 0 だと wide の入れ子キーが列を失う）。flatten でない op には
+ *  何もしない。 */
+export function toggleWideField(spec: ReshapeSpec, opIndex: number, field: string): ReshapeSpec {
+  return mapOp(spec, opIndex, (op) => {
+    if (op.kind !== 'flatten') return op
+    const fields = op.wide.fields ?? []
+    if (fields.includes(field)) {
+      if (fields.length <= 1) return op
+      return { ...op, wide: { ...op.wide, fields: fields.filter((f) => f !== field) } }
+    }
+    return { ...op, wide: { ...op.wide, fields: [...fields, field] } }
+  })
+}
+
 /**
  * apply() が作る派生表名の順序付き list — サーバの `reshape.derived_tables()`
  * と同じ規則（R5/R7: `enabled: false` の群は含めない）。編集した判断表が
