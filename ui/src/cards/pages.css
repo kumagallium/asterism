@@ -205,6 +205,16 @@
   color: var(--accent-strong);
 }
 
+/* ---- 結果が元の全部ではないときの注記（truncationNote.ts） ---- */
+
+.cardpage-truncation {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* ---- 最下部「<ラベル> に聞く」 ---- */
 
 .cardpage-bar {

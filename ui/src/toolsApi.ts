@@ -63,6 +63,10 @@ export interface ToolRunResult {
   count: number
   items: Record<string, unknown>[]
   truncated: boolean
+  /** 元の行数（図の道具は点数）。 */
+  total?: number
+  /** 図（series/pairs）の点を、x の全範囲を覆ったまま間引いた。 */
+  thinned?: boolean
   sparql: string
 }
 

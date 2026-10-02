@@ -36,6 +36,8 @@ from asterism.materials import materials_for as _materials_for
 from asterism.materials import shareable as _shareable
 from asterism.materials import shareable_reasons as _shareable_reasons
 from asterism.measure_spec import MeasureSpecError, output_kind_for, validate_measure
+from asterism.plot_points import PLOT_MAX_POINTS, PLOT_OUTPUT_KINDS, PLOT_READ_CAP
+from asterism.plot_points import plot_result as _plot_result
 from asterism.prov_graph import PROV as _PROV_NS
 from asterism.prov_graph import prov_graph as _prov_graph
 from asterism.query_tools import (
@@ -825,9 +827,12 @@ async def run_iri_bound_tool(
     extra_params: dict[str, Any] | None = None,
     *,
     registry_root: Path | str | None = None,
-    max_rows: int = 200,
+    max_rows: int | None = None,
 ) -> dict[str, Any]:
     """Bind ``iri`` into ``tool``'s one iri parameter and run it (§3.1 row 4).
+
+    ``max_rows`` が無指定なら、図（series/pairs）は :data:`PLOT_MAX_POINTS` 点
+    （全範囲を覆って間引く）、それ以外は 200 行。
 
     Raises :class:`SubjectToolError` when ``tool`` does not have exactly one
     ``iri``-typed parameter, or :class:`asterism.query_tools.QueryToolError`
@@ -840,6 +845,8 @@ async def run_iri_bound_tool(
         )
     args = dict(extra_params or {})
     args[param.name] = iri
+    if max_rows is None:
+        max_rows = PLOT_MAX_POINTS if tool.output_kind in PLOT_OUTPUT_KINDS else 200
     result = await run_query_tool(client, tool, args, max_rows=max_rows)
     materials = await materials_for_subject(client, iri, registry_root=registry_root)
     return _finalize(
@@ -2183,26 +2190,19 @@ async def _measure_series(
     ]
     for i, clause in enumerate(spec["where"]):
         lines.append(_clause_pattern(clause, index=i))
-    limit = spec["limit"]
+    # 図の点数は絞り込みの ``limit``（一覧に何件出すか）とは別の上限で読む —
+    # :mod:`asterism.plot_points`。
     query = (
         _XSD_PREFIX
         + f"SELECT ?xn (AVG(?yn) AS ?y)\n{named}"
         + "WHERE { "
         + " ".join(lines)
         + " }"
-        + f" GROUP BY ?xn ORDER BY ?xn LIMIT {limit + 1}"
+        + f" GROUP BY ?xn ORDER BY ?xn LIMIT {PLOT_READ_CAP + 1}"
     )
     rows = _rows(await client.sparql_select(query))
-    truncated = len(rows) > limit
-    rows = rows[:limit]
     items = [{"x": _as_number(_cell(row, "xn")), "y": _as_number(_cell(row, "y"))} for row in rows]
-    base = {
-        "tool": "set_measure",
-        "count": len(items),
-        "items": items,
-        "truncated": truncated,
-        "sparql": query,
-    }
+    base = {"tool": "set_measure", **_plot_result(items, item), "sparql": query}
     materials = await materials_for_set(client, spec, registry_root=registry_root)
     return _finalize(base, output_kind="series", item=item, materials=materials)
 
@@ -2245,26 +2245,18 @@ async def _measure_pairs(
     ]
     for i, clause in enumerate(spec["where"]):
         lines.append(_clause_pattern(clause, index=i))
-    limit = spec["limit"]
+    # 図の点数は絞り込みの ``limit`` とは別の上限で読む（``_measure_series`` と同じ）。
     query = (
         _XSD_PREFIX
         + f"SELECT DISTINCT ?x ?y\n{named}"
         + "WHERE { "
         + " ".join(lines)
         + " }"
-        + f" ORDER BY ?x ?y LIMIT {limit + 1}"
+        + f" ORDER BY ?x ?y LIMIT {PLOT_READ_CAP + 1}"
     )
     rows = _rows(await client.sparql_select(query))
-    truncated = len(rows) > limit
-    rows = rows[:limit]
     items = [{"x": _as_number(_cell(row, "x")), "y": _as_number(_cell(row, "y"))} for row in rows]
-    base = {
-        "tool": "set_measure",
-        "count": len(items),
-        "items": items,
-        "truncated": truncated,
-        "sparql": query,
-    }
+    base = {"tool": "set_measure", **_plot_result(items, item), "sparql": query}
     materials = await materials_for_set(client, spec, registry_root=registry_root)
     return _finalize(base, output_kind="pairs", item=item, materials=materials)
 
