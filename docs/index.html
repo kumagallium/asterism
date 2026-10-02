@@ -1,50 +1,521 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>asterism</title>
+<title>Asterism — 研究データを、つながりに</title>
+<meta name="description" content="Excel・CSV・装置のファイルを置くと、AI が設計図の下書きを作り、あなたが確かめて公開する。公開したデータには、ふつうの言葉で質問でき、答えには出どころが付きます。" />
+<meta property="og:title" content="Asterism — 研究データを、つながりに" />
+<meta property="og:description" content="表を置けば、出どころつきで答えるデータになる。オープンソースの研究データ基盤。" />
+<meta property="og:image" content="https://kumagallium.github.io/asterism/manual/screenshots/home.png" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='%23a9bfa6' stroke-width='1.4'%3E%3Cline x1='5' y1='7' x2='18' y2='12'/%3E%3Cline x1='5' y1='7' x2='9' y2='19'/%3E%3Cline x1='18' y1='12' x2='9' y2='19'/%3E%3C/g%3E%3Cg fill='%232f6b41'%3E%3Ccircle cx='5' cy='7' r='2.4'/%3E%3Ccircle cx='18' cy='12' r='2.4'/%3E%3Ccircle cx='9' cy='19' r='2.4'/%3E%3C/g%3E%3C/svg%3E" />
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #1f2933; max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.6; }
-  h1 { border-bottom: 2px solid #4B7A52; padding-bottom: 0.3rem; }
-  a { color: #4B7A52; }
-  code { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; background: #f3f4f6; padding: 0.1em 0.35em; border-radius: 3px; }
+  /* Asterism のトップページ（LP）。トークンはマニュアル（manual/style.css）と同じ forest テーマ。
+     画像は scripts/build_manual_site.py が docs/manual/screenshots/ へ写したものを参照する。 */
+  :root{
+    --ground:#f6f9f4; --band:#eef3ec; --surface:#ffffff; --surface-alt:#f5f9f3;
+    --ink:#16241a; --body:#33453a; --muted:#54695b;
+    --line:#d5e0d2; --line-strong:#bccdb9;
+    --entity:#2f6b41; --entity-strong:#3f6f49; --entity-soft:#e3eee2;
+    --accent:#a3661f; --on-entity:#ffffff;
+    --shadow:0 1px 2px rgba(22,36,26,.05), 0 18px 40px -24px rgba(22,36,26,.35);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#0f1610; --band:#131c15; --surface:#18211a; --surface-alt:#1d2820;
+      --ink:#e9f1e8; --body:#c3d3c5; --muted:#98ab9a;
+      --line:#2b382c; --line-strong:#3f4f40;
+      --entity:#7cc491; --entity-strong:#3f7a50; --entity-soft:#1f2d22;
+      --accent:#e0a862; --on-entity:#ffffff;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 18px 40px -24px rgba(0,0,0,.8);
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:72px}
+  body{
+    margin:0; background:var(--ground); color:var(--body);
+    font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+    font-size:16px; line-height:1.85; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--entity)}
+  a:focus-visible,summary:focus-visible{outline:2px solid var(--entity); outline-offset:3px; border-radius:6px}
+  img{max-width:100%; height:auto; display:block}
+  .wrap{max-width:1120px; margin:0 auto; padding:0 24px}
+  @media (max-width:640px){ .wrap{padding:0 16px} }
+
+  /* --- header --- */
+  header.top{
+    position:sticky; top:0; z-index:10;
+    background:color-mix(in srgb, var(--ground) 86%, transparent);
+    backdrop-filter:saturate(1.4) blur(10px); -webkit-backdrop-filter:saturate(1.4) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  header.top .wrap{display:flex; align-items:center; gap:24px; height:60px}
+  .brand{display:flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:700; font-size:1.12rem; letter-spacing:.01em}
+  .brand svg{color:var(--entity)}
+  nav.links{margin-left:auto; display:flex; gap:22px; font-size:.88rem}
+  nav.links a{color:var(--muted); text-decoration:none}
+  nav.links a:hover{color:var(--ink)}
+  @media (max-width:820px){ nav.links .opt{display:none} }
+  @media (max-width:480px){ nav.links{gap:14px} }
+
+  /* --- hero --- */
+  .hero{position:relative; overflow:hidden; padding:72px 0 0}
+  .hero .stars{position:absolute; top:24px; right:max(0px, calc(50% - 600px)); width:440px; height:380px; pointer-events:none; color:var(--entity); opacity:.55}
+  @media (max-width:1180px){ .hero .stars{display:none} }
+  .eyebrow{
+    font-size:.74rem; letter-spacing:.16em; font-weight:700; color:var(--entity);
+    text-transform:uppercase; margin:0 0 14px;
+  }
+  .hero h1{
+    position:relative; font-size:clamp(2rem,5.2vw,3.25rem); line-height:1.3; color:var(--ink);
+    margin:0 0 22px; font-weight:800; letter-spacing:-.01em; max-width:20em; word-break:keep-all; overflow-wrap:anywhere;
+  }
+  .hero h1 em{font-style:normal; color:var(--entity)}
+  .lead{position:relative; font-size:1.05rem; max-width:40em; margin:0 0 30px}
+  .ctas{position:relative; display:flex; flex-wrap:wrap; gap:12px; align-items:center}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; padding:12px 22px; border-radius:999px;
+    font-weight:700; font-size:.95rem; text-decoration:none; border:1px solid transparent;
+    transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .btn:hover{transform:translateY(-1px)}
+  .btn.primary{background:var(--entity-strong); color:var(--on-entity); box-shadow:0 8px 20px -10px rgba(47,107,65,.7)}
+  .btn.primary:hover{background:#2f5f39}
+  .btn.ghost{background:var(--surface); color:var(--ink); border-color:var(--line-strong)}
+  .btn.text{color:var(--muted); padding-left:8px; padding-right:8px}
+  .btn.text:hover{color:var(--ink)}
+  .shot{
+    position:relative; margin:56px auto 0; border-radius:14px 14px 0 0; overflow:hidden;
+    border:1px solid var(--line); border-bottom:none; background:var(--surface); box-shadow:var(--shadow);
+  }
+  .chrome{display:flex; gap:7px; padding:11px 14px; background:var(--surface-alt); border-bottom:1px solid var(--line)}
+  .chrome i{width:11px; height:11px; border-radius:50%; background:var(--line-strong)}
+
+  /* --- sections --- */
+  section{padding:96px 0}
+  @media (max-width:640px){ section{padding:64px 0} }
+  section.band{background:var(--band); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+  h2{font-size:clamp(1.6rem,3.4vw,2.2rem); color:var(--ink); margin:0 0 10px; line-height:1.35; font-weight:800; text-wrap:balance}
+  .sub{color:var(--muted); margin:0 0 44px; max-width:44em}
+  .grid{display:grid; gap:20px}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:26px 24px}
+  .card h3{color:var(--ink); font-size:1.08rem; margin:12px 0 8px; line-height:1.5}
+  .card p{margin:0; font-size:.93rem}
+  .num{font-family:"SF Mono",Menlo,Consolas,monospace; color:var(--accent); font-weight:700; font-size:.9rem; letter-spacing:.08em}
+  .ico{width:42px; height:42px; border-radius:11px; display:grid; place-items:center; background:var(--entity-soft); color:var(--entity)}
+
+  /* screens: alternating */
+  .feature{display:grid; gap:36px; align-items:center; margin-bottom:88px}
+  .feature:last-child{margin-bottom:0}
+  @media (min-width:900px){
+    .feature{grid-template-columns:5fr 7fr; gap:48px}
+    .feature.flip{grid-template-columns:7fr 5fr}
+    .feature.flip .text{order:2}
+  }
+  .feature h3{font-size:1.45rem; color:var(--ink); margin:8px 0 12px; line-height:1.45}
+  .feature p{margin:0 0 12px}
+  .feature .frame{border-radius:12px; overflow:hidden; border:1px solid var(--line); box-shadow:var(--shadow); background:var(--surface)}
+  .tag{display:inline-block; font-size:.74rem; font-weight:700; letter-spacing:.12em; color:var(--accent)}
+  .more{font-size:.9rem; font-weight:700; text-decoration:none}
+  .more:hover{text-decoration:underline}
+
+  /* provenance strip */
+  .prov{margin-top:44px; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:20px 16px}
+  .prov svg{width:100%; height:auto; display:block}
+  .prov text{font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif}
+  .prov .narrow{display:none}
+  @media (max-width:640px){ .prov .wide{display:none} .prov .narrow{display:block; max-width:340px; margin:0 auto} }
+
+  /* start */
+  .start .card{display:flex; flex-direction:column; gap:10px; padding:30px 28px}
+  .start .card p{flex:1}
+  .start .card .btn{align-self:flex-start; margin-top:6px}
+
+  /* faq */
+  .faq{max-width:820px; margin-top:32px}
+  details{border-bottom:1px solid var(--line); padding:4px 0}
+  details:first-of-type{border-top:1px solid var(--line)}
+  summary{cursor:pointer; list-style:none; padding:18px 36px 18px 0; position:relative; color:var(--ink); font-weight:700}
+  summary::-webkit-details-marker{display:none}
+  summary::after{
+    content:"+"; position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    font-size:1.4rem; font-weight:400; color:var(--muted); transition:transform .2s ease;
+  }
+  details[open] summary::after{transform:translateY(-50%) rotate(45deg)}
+  details p{margin:0 0 20px; max-width:52em}
+
+  /* footer */
+  footer{padding:56px 0 64px; background:var(--band); border-top:1px solid var(--line); font-size:.88rem; color:var(--muted)}
+  footer .cols{display:grid; gap:32px; grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  footer h4{color:var(--ink); font-size:.78rem; letter-spacing:.12em; margin:0 0 10px}
+  footer ul{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px}
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--ink)}
+  footer code{font-family:"SF Mono",Menlo,Consolas,monospace; font-size:.82rem; background:var(--surface); padding:.1em .4em; border-radius:4px; border:1px solid var(--line)}
+  .fine{margin-top:40px; padding-top:20px; border-top:1px solid var(--line); font-size:.8rem}
+
+  /* スクロールで出す（JS が無い・動きを減らす設定なら最初から見える） */
+  .js .reveal{opacity:0; transform:translateY(18px); transition:opacity .7s ease, transform .7s ease}
+  .js .reveal.in{opacity:1; transform:none}
+  @media (prefers-reduced-motion: reduce){
+    .js .reveal{opacity:1; transform:none; transition:none}
+    html{scroll-behavior:auto}
+    .btn{transition:none}
+  }
 </style>
+<script>document.documentElement.classList.add('js')</script>
 </head>
 <body>
 
-<h1>asterism</h1>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="Asterism トップ">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <g stroke="var(--line-strong)" stroke-width="1.4"><line x1="5" y1="7" x2="18" y2="12"/><line x1="5" y1="7" x2="9" y2="19"/><line x1="18" y1="12" x2="9" y2="19"/></g>
+        <g fill="currentColor"><circle cx="5" cy="7" r="2.4"/><circle cx="18" cy="12" r="2.4"/><circle cx="9" cy="19" r="2.4"/></g>
+      </svg>
+      asterism
+    </a>
+    <nav class="links" aria-label="ページ内">
+      <a class="opt" href="#how">仕組み</a>
+      <a class="opt" href="#screens">画面</a>
+      <a class="opt" href="#start">はじめる</a>
+      <a class="opt" href="#faq">FAQ</a>
+      <a href="manual/">マニュアル</a>
+      <a href="https://github.com/kumagallium/asterism">GitHub</a>
+    </nav>
+  </div>
+</header>
 
-<p><em>CSV → RDF → SPARQL/MCP. PROV-O first-class. Self-hostable, sovereignty-first.</em></p>
+<main>
 
-<p>This page hosts the dereferenceable namespaces used by the
-<a href="https://github.com/kumagallium/asterism"><code>kumagallium/asterism</code></a> project.</p>
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <svg class="stars" viewBox="740 20 460 420" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1" opacity=".35">
+      <line x1="880" y1="70" x2="1010" y2="130"/><line x1="1010" y1="130" x2="960" y2="240"/>
+      <line x1="880" y1="70" x2="960" y2="240"/><line x1="960" y1="240" x2="1110" y2="300"/>
+      <line x1="1110" y1="300" x2="1150" y2="180"/><line x1="1010" y1="130" x2="1150" y2="180"/>
+    </g>
+    <g fill="currentColor">
+      <circle cx="880" cy="70" r="4"/><circle cx="1010" cy="130" r="5"/><circle cx="960" cy="240" r="4"/>
+      <circle cx="1110" cy="300" r="3.5"/><circle cx="1150" cy="180" r="3"/>
+      <circle cx="760" cy="40" r="1.6" opacity=".5"/><circle cx="1180" cy="60" r="1.6" opacity=".5"/>
+      <circle cx="820" cy="300" r="1.4" opacity=".5"/><circle cx="1070" cy="420" r="1.6" opacity=".4"/>
+    </g>
+  </svg>
+  <div class="wrap">
+    <p class="eyebrow">Asterism · 研究データを、つながりに</p>
+    <h1>表を置けば、<wbr><em>出どころつきで<wbr>答える</em><wbr>データになる。</h1>
+    <p class="lead">Excel・CSV・装置のファイルを置くと、AI が「どの列が何を表すか」の下書きを作ります。あなたが確かめて公開すれば、そのデータにはふつうの言葉で質問でき、答えにはいつも出どころが付きます。別々の表も、共通の値でつながります。</p>
+    <div class="ctas">
+      <a class="btn primary" href="manual/ja/getting-started.html">はじめかたを見る →</a>
+      <a class="btn ghost" href="https://github.com/kumagallium/asterism/releases/latest">デスクトップ版を入手</a>
+      <a class="btn text" href="https://github.com/kumagallium/asterism">★ GitHub でスター</a>
+    </div>
+    <div class="shot">
+      <div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+      <img src="manual/screenshots/home.png" width="2560" height="1600"
+           alt="Asterism のホーム画面。事実の数・データセット数・データの種類と、データを追加・質問する・データどうしをつなぐ の入口、最近のデータセットが並ぶ" />
+    </div>
+  </div>
+</div>
 
-<h2>Live demo</h2>
+<!-- ============ HOW IT WORKS ============ -->
+<section id="how" class="band">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2 class="reveal">置く、確かめる、問う。</h2>
+    <p class="sub reveal">RDF や SPARQL を知らなくても大丈夫です。手元の表から、引用できる「つながったデータ」までを 3 段で。</p>
+    <div class="grid g3">
+      <div class="card reveal">
+        <span class="num">01</span>
+        <h3>置く</h3>
+        <p>Excel・CSV・装置が書き出したファイルをそのまま置きます。AI が中身を読み、列の意味と ID のつけかたの下書きを作ります。</p>
+      </div>
+      <div class="card reveal">
+        <span class="num">02</span>
+        <h3>確かめて公開する</h3>
+        <p>「この列は何の値か」「どの表とつなぐか」を、あなたが選んで決めます。決めた設計図どおりに機械が変換するので、同じ表からは毎回同じデータができます。公開するまで誰にも見えません。</p>
+      </div>
+      <div class="card reveal">
+        <span class="num">03</span>
+        <h3>出どころつきで問う</h3>
+        <p>公開したデータに、ふつうの言葉で質問できます。答えの一つひとつから、元のファイル・取り込んだ日・使ったルールまで遡れます。</p>
+      </div>
+    </div>
 
-<p><a href="demo/"><strong>引用できる事実デモ →</strong></a> — Starrydata
-の熱電材料データを、サーバも AI も使わずブラウザ内 SPARQL
-(oxigraph-wasm) で決定論的に問うショーケース。ZT
-ランキング・組成検索・来歴トレース (curve → sample → paper → digitization →
-ingestion) を、引用 IRI と実行した SPARQL 付きで表示します。</p>
+    <div class="prov reveal">
+      <svg class="wide" viewBox="0 0 1000 150" role="img" aria-label="手元のファイルから設計図、つながったデータ、答えへと進み、答えからは元のファイルまで遡れることを示す図">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--entity)"/></marker>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+        </defs>
+        <g font-size="15" text-anchor="middle" font-weight="700">
+          <rect x="10" y="22" width="190" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="105" y="56" fill="var(--ink)">手元のファイル</text>
+          <rect x="270" y="22" width="190" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="365" y="56" fill="var(--ink)">設計図（人が確定）</text>
+          <rect x="530" y="22" width="190" height="56" rx="12" fill="var(--entity-soft)" stroke="var(--entity)"/>
+          <text x="625" y="56" fill="var(--ink)">つながったデータ</text>
+          <rect x="790" y="22" width="200" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="890" y="56" fill="var(--ink)">答え＋出どころ</text>
+        </g>
+        <g stroke="var(--entity)" stroke-width="2" fill="none">
+          <line x1="204" y1="50" x2="264" y2="50" marker-end="url(#ar)"/>
+          <line x1="464" y1="50" x2="524" y2="50" marker-end="url(#ar)"/>
+          <line x1="724" y1="50" x2="784" y2="50" marker-end="url(#ar)"/>
+        </g>
+        <path d="M890 82 C 890 128, 105 128, 105 86" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#ar2)"/>
+        <text x="497" y="140" font-size="14" text-anchor="middle" fill="var(--accent)" font-weight="700">答えから、元のファイルまで遡れる</text>
+      </svg>
+      <svg class="narrow" viewBox="0 0 320 330" role="img" aria-label="手元のファイルから設計図、つながったデータ、答えへと進み、答えからは元のファイルまで遡れることを示す図">
+        <defs>
+          <marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--entity)"/></marker>
+          <marker id="br2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+        </defs>
+        <g font-size="15" text-anchor="middle" font-weight="700">
+          <rect x="20" y="6" width="210" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="125" y="36" fill="var(--ink)">手元のファイル</text>
+          <rect x="20" y="92" width="210" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="125" y="122" fill="var(--ink)">設計図（人が確定）</text>
+          <rect x="20" y="178" width="210" height="48" rx="12" fill="var(--entity-soft)" stroke="var(--entity)"/>
+          <text x="125" y="208" fill="var(--ink)">つながったデータ</text>
+          <rect x="20" y="264" width="210" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="125" y="294" fill="var(--ink)">答え＋出どころ</text>
+        </g>
+        <g stroke="var(--entity)" stroke-width="2">
+          <line x1="125" y1="57" x2="125" y2="86" marker-end="url(#br)"/>
+          <line x1="125" y1="143" x2="125" y2="172" marker-end="url(#br)"/>
+          <line x1="125" y1="229" x2="125" y2="258" marker-end="url(#br)"/>
+        </g>
+        <path d="M234 288 C 300 288, 300 30, 238 30" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#br2)"/>
+        <text x="300" y="166" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700" transform="rotate(90 300 166)">元まで遡れる</text>
+      </svg>
+    </div>
+  </div>
+</section>
 
-<h2>User manual</h2>
+<!-- ============ SCREENS ============ -->
+<section id="screens">
+  <div class="wrap">
+    <p class="eyebrow">Screens</p>
+    <h2 class="reveal">実際の画面。</h2>
+    <p class="sub reveal">画面の言葉は、データの専門用語ではなく、ふだんの言葉で書いてあります。</p>
 
-<p><a href="manual/"><strong>ユーザーマニュアル（日本語） →</strong></a> —
-データセットを取り込んで公開するまでの手順に加えて、RDF・IRI・クラス・属性・
-オントロジー・SPARQL の入門と、データセットに残る各ファイルの役割を、はじめての
-人向けに図解しています。</p>
+    <div class="feature reveal">
+      <div class="text">
+        <span class="tag">かんたんモード</span>
+        <h3>列ごとに「何の値か」を決める</h3>
+        <p>AI が読んだ列の意味が、実データの例と並んで出てきます。違っていれば書き換えるだけ。ここで決めたことばが、検索や引用にそのまま出てきます。</p>
+        <a class="more" href="manual/ja/getting-started.html">はじめる（7 ステップ）→</a>
+      </div>
+      <div class="frame"><img src="manual/screenshots/kantan-meanings.png" width="2560" height="1800" loading="lazy" alt="「意味をつける」ステップ。元の列名・実データの例・この値の意味・単位が表に並ぶ" /></div>
+    </div>
 
-<h2>Namespaces</h2>
+    <div class="feature flip reveal">
+      <div class="text">
+        <span class="tag">つながり</span>
+        <h3>別々の表を、共通の値でつなぐ</h3>
+        <p>レシピとスーパーの価格表のように、別々に作った表でも「食材の名前」のような共通の値でつながります。つなげば、表をまたいで質問できます。世界の標準のことば（schema.org・PROV-O など）にも揃えられます。</p>
+        <a class="more" href="manual/ja/crosswalk.html">つながりの章へ →</a>
+      </div>
+      <div class="frame"><img src="manual/screenshots/crosswalk-map.png" width="2560" height="1600" loading="lazy" alt="つながりの地図。データセットが「食材の名前」でつながり、標準のことばへ線が伸びている" /></div>
+    </div>
 
-<ul>
-  <li><a href="starrydata/ontology/"><code>starrydata/ontology/</code></a> — Starrydata Ontology (TBox: classes &amp; properties)</li>
-  <li><a href="starrydata/resource/"><code>starrydata/resource/</code></a> — Starrydata Resource IRIs (instance space; dereferencing deferred to Phase 2)</li>
-</ul>
+    <div class="feature reveal">
+      <div class="text">
+        <span class="tag">ワークスペース</span>
+        <h3>聞けば、根拠つきで返ってくる</h3>
+        <p>1 件のページを開いて「人口の推移を棒グラフで」と頼むと、そのページの値からグラフを作り、何を使ったかを添えて返します。残すかどうかは、あなたが決めます。</p>
+        <a class="more" href="manual/ja/workspace.html">ワークスペースの章へ →</a>
+      </div>
+      <div class="frame"><img src="manual/screenshots/workspace-page-chat.png" width="2880" height="1800" loading="lazy" alt="「日本」のページで、右のチャットに人口の推移を頼むと、根拠を添えて棒グラフが返ってくる" /></div>
+    </div>
+  </div>
+</section>
 
-<h2>Repository</h2>
+<!-- ============ WHO ============ -->
+<section class="band">
+  <div class="wrap">
+    <p class="eyebrow">Who it's for</p>
+    <h2 class="reveal">表を、次の人に渡せる形にしたい人へ。</h2>
+    <p class="sub reveal">研究室でも、データベース運営でも、AI と組む開発でも。</p>
+    <div class="grid g4">
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6L4.5 18.5A1.6 1.6 0 0 0 5.9 21h12.2a1.6 1.6 0 0 0 1.4-2.5L14 9V3"/><path d="M7 15h10"/></svg></div>
+        <h3>実験・測定をする研究者</h3>
+        <p>装置のファイルや測定表を、試料・条件・出典までつながったデータに。数年後の自分にも、共同研究者にも説明がいりません。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"/><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/></svg></div>
+        <h3>データベースを運営する人</h3>
+        <p>文献から集めたデータに、引用できる ID と来歴を。追記・差し替え・ID の引っ越しまで、公開後も育てられます。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.4 6h7.2M6 8.4v7.2M18 8.4v7.2M8.4 18h7.2"/></svg></div>
+        <h3>研究室・チーム</h3>
+        <p>人ごと・装置ごとにばらばらの表を、共通の値と共通のことばでつないで、またいで問えるように。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-5 4 5 4M16 8l5 4-5 4M13.5 5l-3 14"/></svg></div>
+        <h3>AI と組んで開発する人</h3>
+        <p>Asterism は MCP の接続先を出します。Claude Code・Claude Desktop・Cursor などから、データを引けます。</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-<p>Source, docs, CI, releases: <a href="https://github.com/kumagallium/asterism">github.com/kumagallium/asterism</a></p>
+<!-- ============ TRUST ============ -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Trust</p>
+    <h2 class="reveal">信頼できる土台。</h2>
+    <p class="sub reveal">AI は下書きと相談役。データを作るのは、人が確かめたルールです。</p>
+    <div class="grid g3">
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>AI が書いたコードは動かさない</h3>
+        <p>取り込みは、宣言的な変換ルールと、人が一度確かめた関数だけで行います。AI に任せるのは下書きまで。だから同じ表からは、毎回同じデータができます。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <h3>あなたの PC、あなたの AI</h3>
+        <p>デスクトップ版はデータをすべて手元に置きます。AI は Anthropic・OpenAI・OpenAI 互換（さくらの AI Engine・Ollama など）から、自分のものを登録して使います。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.8"/></svg></div>
+        <h3>オープンソース＆オープン標準</h3>
+        <p>Apache-2.0 で公開しています。データは RDF、問い合わせは SPARQL、来歴は PROV-O。Asterism の外でも、そのまま読めます。</p>
+      </div>
+    </div>
+  </div>
+</section>
 
+<!-- ============ START ============ -->
+<section id="start" class="band start">
+  <div class="wrap">
+    <p class="eyebrow">Start</p>
+    <h2 class="reveal">はじめる。</h2>
+    <p class="sub reveal">まずはインストール不要のデモで、「出どころつきの答え」を体験できます。</p>
+    <div class="grid g3">
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg></div>
+        <h3>ブラウザでデモ</h3>
+        <p>熱電材料のデータ（Starrydata）に、サーバも AI も使わずブラウザの中で問い合わせます。答えの IRI と、実行した SPARQL まで見られます。</p>
+        <a class="btn ghost" href="demo/">デモを開く →</a>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></div>
+        <h3>デスクトップアプリ</h3>
+        <p>Asterism の本領はこちら。アプリを立ち上げるだけで、この PC の中で完結して動きます。自動更新つき。macOS（Apple Silicon）対応。</p>
+        <a class="btn primary" href="https://github.com/kumagallium/asterism/releases/latest">ダウンロード →</a>
+      </div>
+      <div class="card reveal">
+        <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2z"/><path d="M8 7h8M8 11h6"/></svg></div>
+        <h3>ユーザーマニュアル</h3>
+        <p>7 ステップのはじめかたから、つながったデータの基礎（RDF・IRI・SPARQL）まで、はじめての人向けに図解しています。</p>
+        <a class="btn ghost" href="manual/">マニュアルを読む →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section id="faq">
+  <div class="wrap">
+    <p class="eyebrow">FAQ</p>
+    <h2 class="reveal">よくある質問</h2>
+    <div class="faq reveal">
+      <details>
+        <summary>RDF やオントロジーの知識は必要ですか？</summary>
+        <p>いりません。かんたんモードでは「この列は何の値か」「どの表とつなぐか」をふだんの言葉で選ぶだけです。しくみを知りたくなったら、マニュアルの「<a href="manual/ja/rdf-basics.html">つながったデータの基礎</a>」で図解しています。変換ルールや検査結果まで見たい人には詳細モードもあります。</p>
+      </details>
+      <details>
+        <summary>AI は必須ですか？</summary>
+        <p>表の読み取り・設計の下書き・ふつうの言葉での質問には AI を使います。設定で、Anthropic（Claude）・OpenAI・OpenAI 互換（さくらの AI Engine・Groq・Ollama など）から登録してください。一方、データそのものは人が確定した設計図から機械が作るので、同じ表からは同じデータができます。Word・PDF の文書は AI を使わずに取り込めます。</p>
+      </details>
+      <details>
+        <summary>データはどこに保存されますか？</summary>
+        <p>デスクトップ版では、この PC の中に保存されます。公開するまで、データは誰にも見えません。</p>
+      </details>
+      <details>
+        <summary>どんなファイルを取り込めますか？</summary>
+        <p>Excel・CSV・装置が書き出したファイル（.txt / .dat）・JSON・Word / PDF に対応しています。詳しくは「<a href="manual/ja/add-data.html">データの追加</a>」をご覧ください。</p>
+      </details>
+      <details>
+        <summary>ほかの AI（Claude など）から使えますか？</summary>
+        <p>はい。Asterism 本体が MCP の接続先を出します。設定の「ほかの AI から使う」タブに、Claude Code・Claude Desktop・Cursor などへ貼り付ける内容がそのまま出ます。</p>
+      </details>
+      <details>
+        <summary>無料ですか？</summary>
+        <p>Asterism 自体は Apache-2.0 のオープンソースで、無料です。AI を使う分は、登録したプロバイダの料金がかかります。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <a class="brand" href="./">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <g stroke="var(--line-strong)" stroke-width="1.4"><line x1="5" y1="7" x2="18" y2="12"/><line x1="5" y1="7" x2="9" y2="19"/><line x1="18" y1="12" x2="9" y2="19"/></g>
+            <g fill="currentColor"><circle cx="5" cy="7" r="2.4"/><circle cx="18" cy="12" r="2.4"/><circle cx="9" cy="19" r="2.4"/></g>
+          </svg>
+          asterism
+        </a>
+        <p style="margin:10px 0 0">研究データを、つながりに。</p>
+      </div>
+      <div>
+        <h4>つかう</h4>
+        <ul>
+          <li><a href="manual/">ユーザーマニュアル</a></li>
+          <li><a href="manual/ja/roadmap.html">機能ロードマップ</a></li>
+          <li><a href="manual/ja/release-history.html">リリース履歴</a></li>
+          <li><a href="demo/">引用できる事実デモ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>開発</h4>
+        <ul>
+          <li><a href="https://github.com/kumagallium/asterism">GitHub リポジトリ</a></li>
+          <li><a href="https://github.com/kumagallium/asterism/releases">リリース</a></li>
+          <li><a href="https://github.com/kumagallium/asterism/issues">Issue</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>名前空間</h4>
+        <ul>
+          <li><a href="starrydata/ontology/"><code>starrydata/ontology/</code></a></li>
+          <li><a href="starrydata/resource/"><code>starrydata/resource/</code></a></li>
+        </ul>
+        <p style="margin:8px 0 0; font-size:.8rem">このサイトは Asterism が使う IRI 名前空間の置き場も兼ねています。</p>
+      </div>
+    </div>
+    <p class="fine">© kumagallium · Apache License 2.0</p>
+  </div>
+</footer>
+
+<script>
+  // 画面に入った要素をふわっと出す。IntersectionObserver が無ければ全部すぐ見せる。
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
 </body>
 </html>
