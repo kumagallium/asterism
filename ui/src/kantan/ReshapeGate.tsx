@@ -7,6 +7,7 @@ import type {
   ReshapeOpCounts,
   ReshapePivotOp,
   ReshapeSpec,
+  ReshapeUnnestOp,
 } from '../api'
 import {
   adoptOtherUnit,
@@ -18,6 +19,7 @@ import {
   setCarry,
   spellingDisplay,
   toggleGroup,
+  toggleUnnestField,
   toggleWideField,
   toggleWideKey,
   totalSummary,
@@ -37,6 +39,7 @@ function BtnSpin({ on }: { on: boolean }) {
 function tabTargetColumn(op: ReshapeOp): string {
   if (op.kind === 'explode') return op.arrays.join(', ')
   if (op.kind === 'pivot') return op.label
+  // flatten / unnest はどちらも元の列名
   return op.column
 }
 
@@ -111,7 +114,8 @@ export function ReshapeGate({
     return (
       (s.unresolvedOtherUnits ?? 0) > 0 ||
       (s.disabledGroups ?? 0) > 0 ||
-      (s.zeroRowGroups ?? 0) > 0
+      (s.zeroRowGroups ?? 0) > 0 ||
+      (s.notList ?? 0) > 0
     )
   }
 
@@ -209,6 +213,20 @@ export function ReshapeGate({
           key={activeIndex}
           op={activeOp}
           opIndex={activeIndex}
+          sourceColumns={sourceColumns}
+          busy={busy}
+          pending={pending}
+          onChange={act}
+          spec={spec}
+        />
+      )}
+      {activeOp.kind === 'unnest' && (
+        // key=activeIndex: FlattenTab と同じ理由（内部 state を op ごとに作り直す）。
+        <UnnestTab
+          key={activeIndex}
+          op={activeOp}
+          opIndex={activeIndex}
+          counts={counts}
           sourceColumns={sourceColumns}
           busy={busy}
           pending={pending}
@@ -636,6 +654,126 @@ function FlattenTab({
         consumed={consumed}
         columns={sourceColumns[op.source] ?? []}
         busy={busy}
+        onChange={onChange}
+      />
+    </div>
+  )
+}
+
+function UnnestTab({
+  spec,
+  op,
+  opIndex,
+  counts,
+  sourceColumns,
+  busy,
+  pending,
+  onChange,
+}: {
+  spec: ReshapeSpec
+  op: ReshapeUnnestOp
+  opIndex: number
+  /** 適用後の実測（読めなかったセル・空の要素の注記に使う）。 */
+  counts: Record<string, ReshapeOpCounts>
+  sourceColumns: Record<string, string[]>
+  busy: boolean
+  /** 最後に押した操作のキー（busy の間だけ意味を持つ）。 */
+  pending?: string | null
+  onChange: OnChange
+}) {
+  const { t } = useTranslation()
+  const consumed = new Set([op.column])
+  const [showAll, setShowAll] = useState(false)
+  // shape 省略（古い spec）は mixed 扱い。scalar のときは「列にする項目」を出さない。
+  const hasFields = (op.shape ?? 'mixed') !== 'scalar'
+  // 候補は field_candidates（割合つき）、無ければ fields だけを割合不明で出す。
+  // 5% は「既定のチェック」であって足切りではない（flatten と同じ考え方）。
+  type Cand = { field: string; rate?: number }
+  const candidates: Cand[] =
+    op.field_candidates && op.field_candidates.length > 0
+      ? op.field_candidates.map((c): Cand => ({ field: c.field, rate: c.rate }))
+      : op.fields.map((field): Cand => ({ field }))
+  // 選択済みなのに候補に無い項目（手で書いた spec）も落とさず出す。
+  const known = new Set(candidates.map((c) => c.field))
+  const all: Cand[] = [
+    ...candidates,
+    ...op.fields.filter((f) => !known.has(f)).map((field): Cand => ({ field })),
+  ]
+  const isDefault = (c: Cand) => op.fields.includes(c.field) || (c.rate ?? 0) >= 0.05
+  const shown = all.filter((c) => showAll || isDefault(c))
+  const hiddenCount = all.length - all.filter(isDefault).length
+  const c = counts[String(opIndex)]
+  const notList = c?.cells_not_list ?? 0
+  const emptyElements = c?.elements_empty ?? 0
+  return (
+    <div aria-busy={busy} className={busy ? 'kz-reshape-busy' : undefined}>
+      <p className="kz-note">
+        {t(
+          hasFields ? 'kantan:s12.unnestIntroObject' : 'kantan:s12.unnestIntroScalar',
+          { column: op.column },
+        )}
+      </p>
+      {hasFields && all.length > 0 && (
+        <div className="kz-q">
+          <p className="kz-q-text">{t('kantan:s12.unnestFieldsTitle')}</p>
+          <p className="kz-note">{t('kantan:s12.unnestFieldsNote')}</p>
+          {candidates.some((x) => x.rate !== undefined) && (
+            <p className="kz-note">{t('kantan:s12.unnestFieldsNoteRate')}</p>
+          )}
+          <div className="kz-q-options">
+            {shown.map((cand) => {
+              const key = `unnest:${cand.field}`
+              return (
+                <button
+                  key={cand.field}
+                  type="button"
+                  className={`kz-pill${op.fields.includes(cand.field) ? ' selected' : ''}`}
+                  disabled={busy}
+                  onClick={() => onChange(toggleUnnestField(spec, opIndex, cand.field), key)}
+                >
+                  <BtnSpin on={busy && pending === key} />
+                  {cand.rate === undefined
+                    ? cand.field
+                    : t('kantan:s12.wideKeyPill', {
+                        key: cand.field,
+                        percent:
+                          cand.rate > 0 && cand.rate < 0.01 ? '<1' : Math.round(cand.rate * 100),
+                      })}
+                </button>
+              )
+            })}
+          </div>
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              style={{ alignSelf: 'flex-start', width: 'auto', marginTop: 8 }}
+              aria-expanded={showAll}
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll
+                ? t('kantan:s12.hideMoreKeys')
+                : t('kantan:s12.showMoreKeys', { count: hiddenCount })}
+            </button>
+          )}
+        </div>
+      )}
+      {notList > 0 && (
+        <p className="kz-note" role="alert">
+          ⚠ {t('kantan:s12.unnestNotList', { count: notList })}
+        </p>
+      )}
+      {emptyElements > 0 && (
+        <p className="kz-note">{t('kantan:s12.unnestEmptyElements', { count: emptyElements })}</p>
+      )}
+      <CarryPicker
+        spec={spec}
+        opIndex={opIndex}
+        carry={op.carry}
+        consumed={consumed}
+        columns={sourceColumns[op.source] ?? []}
+        busy={busy}
+        pending={pending}
         onChange={onChange}
       />
     </div>

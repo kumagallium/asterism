@@ -123,7 +123,8 @@
     "tabKind": {
       "explode": "Line up scattered values — {{column}}",
       "pivot": "Split into one table per kind of value — {{column}}",
-      "flatten": "Turn nested values into a table — {{column}}"
+      "flatten": "Turn nested values into a table — {{column}}",
+      "unnest": "Turn a list into one row per value — {{column}}"
     },
     "pivotIntro": "We grouped spelling variants of the same kind of value. The tables you'll use are checked.",
     "colUse": "Use",
@@ -162,7 +163,14 @@
     "recalculating": "Recalculating…",
     "checking": "Checking the table's shape…",
     "samplesLost": "The reload lost the file contents, so real-data examples could not be re-read. Please start over with \"Choose different files\".",
-    "wideFieldsKeepOne": "Keep at least one"
+    "wideFieldsKeepOne": "Keep at least one",
+    "unnestIntroObject": "In this table, the {{column}} column holds several values (a list) in one cell, and each value has its own items. We make a long table with one value per row, and keep the original order in a \"which one\" column.",
+    "unnestIntroScalar": "In this table, the {{column}} column holds several values (a list) in one cell. We make a long table with one value per row, and keep the original order in a \"which one\" column.",
+    "unnestFieldsTitle": "Items to make into columns",
+    "unnestFieldsNote": "Checked items become columns. Unchecked items are not lost: they stay together in one column, as JSON.",
+    "unnestFieldsNoteRate": "The percentage is the share of values in the list that have a value for that item.",
+    "unnestNotList": "{{count}} cells could not be read as a list (they stay as they are in the original table).",
+    "unnestEmptyElements": "{{count}} empty values were not turned into rows."
   },
   "s3": {
     "jobLabel": "Reading",

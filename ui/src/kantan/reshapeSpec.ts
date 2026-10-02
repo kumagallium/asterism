@@ -157,6 +157,18 @@ export function toggleWideField(spec: ReshapeSpec, opIndex: number, field: strin
   })
 }
 
+/** unnest「列にする項目」: `fields` に 1 つ足す／外す。全部外してもよい（外した
+ *  項目は `value_json` 列に JSON のまま残る）。unnest でない op には何もしない。 */
+export function toggleUnnestField(spec: ReshapeSpec, opIndex: number, field: string): ReshapeSpec {
+  return mapOp(spec, opIndex, (op) => {
+    if (op.kind !== 'unnest') return op
+    const next = op.fields.includes(field)
+      ? op.fields.filter((f) => f !== field)
+      : [...op.fields, field]
+    return { ...op, fields: next }
+  })
+}
+
 /**
  * apply() が作る派生表名の順序付き list — サーバの `reshape.derived_tables()`
  * と同じ規則（R5/R7: `enabled: false` の群は含めない）。編集した判断表が
@@ -165,14 +177,14 @@ export function toggleWideField(spec: ReshapeSpec, opIndex: number, field: strin
 export function derivedTables(spec: ReshapeSpec): string[] {
   const names: string[] = []
   for (const op of spec.ops) {
-    if (op.kind === 'explode') {
+    if (op.kind === 'explode' || op.kind === 'unnest') {
       names.push(op.table)
     } else if (op.kind === 'pivot') {
       for (const g of op.groups) {
         if (g.enabled === false) continue
         names.push(g.table)
       }
-    } else {
+    } else if (op.kind === 'flatten') {
       names.push(op.long.table)
       names.push(op.wide.table)
     }
@@ -182,7 +194,7 @@ export function derivedTables(spec: ReshapeSpec): string[] {
 
 /** 1 op（1 タブ）ぶんの数の要約。表の形画面のタブと帯が読む。 */
 export interface ReshapeOpSummary {
-  kind: 'explode' | 'pivot' | 'flatten'
+  kind: 'explode' | 'pivot' | 'flatten' | 'unnest'
   /** 入力行数（実測できるとき）。 */
   sourceRows?: number
   /** この op が生む行の合計（pivot は有効な群の表を合算）。 */
@@ -195,6 +207,9 @@ export interface ReshapeOpSummary {
   /** flatten のみ: 値が空だった項目数（`entries_empty`）。「捨てた要素」には
    *  数えない。 */
   emptyEntries?: number
+  /** unnest のみ: 空の要素の数（`elements_empty`。行にしない）は `emptyEntries`
+   *  に入れる。こちらは JSON 配列として読めなかったセル数（`cells_not_list`）。 */
+  notList?: number
   /** いま生成する派生表の枚数。 */
   tableCount: number
   /** pivot のみ: 有効にした群の数。 */
@@ -261,6 +276,17 @@ export function opSummary(
       disabledGroups: disabled.length,
       unresolvedOtherUnits,
       zeroRowGroups,
+    }
+  }
+
+  if (op.kind === 'unnest') {
+    return {
+      kind: 'unnest',
+      sourceRows,
+      rowsOut: c?.rows_out,
+      emptyEntries: c?.elements_empty,
+      notList: c?.cells_not_list,
+      tableCount: 1,
     }
   }
 

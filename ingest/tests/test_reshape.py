@@ -1343,3 +1343,294 @@ def test_validate_spec_rejects_non_str_wide_keys() -> None:
     op["wide"]["keys"] = ["a", 1]
     errs = validate_spec({"version": 1, "ops": [op]})
     assert any("wide.keys" in e for e in errs)
+
+
+# ---------------------------------------------------------------------------
+# R24: unnest — オブジェクトの配列・文字列の配列を「1 要素 1 行」に
+# ---------------------------------------------------------------------------
+
+
+def _read_table(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def _unnest_op(column: str, **extra: object) -> dict:
+    op = {
+        "kind": "unnest",
+        "source": "src.csv",
+        "dialect": {},
+        "column": column,
+        "table": f"src__{column}.csv",
+        "index": "position",
+        "carry": ["sid"],
+    }
+    op.update(extra)
+    return op
+
+
+def test_detect_papers_unnest_author_and_project_names() -> None:
+    """生の papers.csv で、オブジェクトの配列（author）と文字列の配列
+    （project_names）が unnest として検出される。"""
+    dets = detect(PAPERS)
+    cols = [d["columns"]["column"] for d in dets if d["kind"] == "unnest"]
+    assert cols == ["author", "project_names"]
+    author = _find(dets, "unnest", column="author")
+    assert author is not None and author["evidence"]["object_rate"] == 1.0
+    names = _find(dets, "unnest", column="project_names")
+    assert names is not None and names["evidence"]["object_rate"] == 0.0
+
+
+def test_detect_curves_unnest_project_names_but_not_numeric_arrays() -> None:
+    """curves の x / y（数値の配列）は explode・pivot の担当で、unnest にはならない。
+    project_names（文字列の配列）だけが unnest になる。"""
+    dets = detect(CURVES)
+    cols = [d["columns"]["column"] for d in dets if d["kind"] == "unnest"]
+    assert cols == ["project_names"]
+
+
+def test_detect_unnest_silent_for_numeric_single_array_and_nested_lists(tmp_path: Path) -> None:
+    """数値だけの配列（1 本でも）と、要素に配列が入っている列には黙る。JSON 配列で
+    ないセルが 1 割を超える列にも黙る。"""
+    src = tmp_path / "src.csv"
+    _write_csv(
+        src,
+        ["sid", "nums", "nested", "mostly_text"],
+        [
+            {"sid": str(i), "nums": "[1, 2.5]", "nested": "[[2014, 4, 15]]",
+             "mostly_text": '["a"]' if i == 0 else "plain"}
+            for i in range(10)
+        ],
+    )
+    assert [d for d in detect(src) if d["kind"] == "unnest"] == []
+
+
+def test_propose_unnest_author_fields_and_candidates() -> None:
+    """既定の列は要素の 5% 以上で値がある項目。候補はそれ未満も全部載る（R23 と同じ
+    — 既定の閾値を候補の足切りにしない）。"""
+    ops = propose(PAPERS, detect(PAPERS))
+    author = next(op for op in ops if op["kind"] == "unnest" and op["column"] == "author")
+    assert author["shape"] == "object"
+    assert author["index"] == "position"
+    assert author["table"] == "starrydata_papers__author.csv"
+    assert author["fields"][:2] == ["given", "family"]
+    cand = {c["field"]: c for c in author["field_candidates"]}
+    assert set(author["fields"]) <= set(cand)
+    low = [f for f, c in cand.items() if c["rate"] < 0.05]
+    assert low and not set(low) & set(author["fields"])
+    assert "author" not in author["carry"] and "SID" in author["carry"]
+    names = next(op for op in ops if op["kind"] == "unnest" and op["column"] == "project_names")
+    assert names["shape"] == "scalar" and names["fields"] == []
+    assert validate_spec({"version": 1, "ops": ops}) == []
+
+
+def test_apply_unnest_papers_conserves_and_keeps_order(tmp_path: Path) -> None:
+    """保存則（R11 の unnest 版）と順序番号: 元の配列の順に 1 から番号が付く。"""
+    ops = [op for op in propose(PAPERS, detect(PAPERS)) if op["kind"] == "unnest"]
+    result = apply({"version": 1, "ops": ops}, FIXTURES, tmp_path)
+    src_rows = list(read_rows(PAPERS, DEFAULT_DIALECT))
+    for idx, op in enumerate(ops):
+        c = result["counts"][str(idx)]
+        assert c["source_rows"] == len(src_rows)
+        assert c["source_rows"] == c["cells_list"] + c["cells_blank"] + c["cells_not_list"]
+        assert c["elements_in"] == c["rows_out"] + c["elements_empty"]
+        col = op["column"]
+        expected = sum(len(json.loads(r[col])) for r in src_rows if r[col].strip())
+        assert c["elements_in"] == expected
+
+    authors = _read_table(tmp_path / "starrydata_papers__author.csv")
+    first = json.loads(src_rows[0]["author"])
+    got = [r for r in authors if r["SID"] == src_rows[0]["SID"]]
+    assert [r["position"] for r in got] == [str(i + 1) for i in range(len(first))]
+    assert [r["family"] for r in got] == [a["family"] for a in first]
+
+    names = _read_table(tmp_path / "starrydata_papers__project-names.csv")
+    assert list(names[0].keys())[-2:] == ["position", "project_names"]
+    assert names[0]["project_names"] == json.loads(src_rows[0]["project_names"])[0]
+
+
+def test_apply_unnest_unselected_fields_go_to_value_json(tmp_path: Path) -> None:
+    """列にしない項目は value_json に JSON のまま残る（捨てない）。空の値は空欄。"""
+    src = tmp_path / "src.csv"
+    cell = json.dumps(
+        [{"family": "Xiao", "given": "Chong", "affiliation": [], "ORCID": "http://orcid.org/1"}]
+    )
+    _write_csv(src, ["sid", "author"], [{"sid": "1", "author": cell}])
+    op = _unnest_op("author", shape="object", fields=["family", "affiliation"])
+    apply({"version": 1, "ops": [op]}, tmp_path, tmp_path / "out")
+    rows = _read_table(tmp_path / "out" / "src__author.csv")
+    assert list(rows[0].keys()) == ["sid", "position", "family", "affiliation", "value_json"]
+    assert rows[0]["family"] == "Xiao"
+    assert rows[0]["affiliation"] == ""
+    assert json.loads(rows[0]["value_json"]) == {"given": "Chong", "ORCID": "http://orcid.org/1"}
+
+
+def test_apply_unnest_counts_blank_not_list_and_empty_elements(tmp_path: Path) -> None:
+    """空セル・配列でないセル・空の要素を数え、空の要素は飛び番で分かる。"""
+    src = tmp_path / "src.csv"
+    _write_csv(
+        src,
+        ["sid", "tags"],
+        [
+            {"sid": "1", "tags": '["a", "", null, "b"]'},
+            {"sid": "2", "tags": ""},
+            {"sid": "3", "tags": "not json"},
+            {"sid": "4", "tags": "[]"},
+        ],
+    )
+    op = _unnest_op("tags", shape="scalar", fields=[])
+    result = apply({"version": 1, "ops": [op]}, tmp_path, tmp_path / "out")
+    c = result["counts"]["0"]
+    assert c == {
+        "source_rows": 4,
+        "cells_list": 2,
+        "cells_blank": 1,
+        "cells_not_list": 1,
+        "elements_in": 4,
+        "rows_out": 2,
+        "elements_empty": 2,
+    }
+    rows = _read_table(tmp_path / "out" / "src__tags.csv")
+    assert [(r["position"], r["tags"]) for r in rows] == [("1", "a"), ("4", "b")]
+
+
+def test_apply_unnest_preserves_numeric_tokens_and_mismatched_shapes(tmp_path: Path) -> None:
+    """R16: 要素の数値は元のトークンのまま。spec の shape と違う形の要素も捨てない
+    （object の表に来たスカラは value_json へ、scalar の表に来たオブジェクトは値の
+    列に JSON で）。"""
+    src = tmp_path / "src.csv"
+    _write_csv(
+        src,
+        ["sid", "a", "b"],
+        [{"sid": "1", "a": '[{"n": 98765432109876543210}, "loose"]', "b": '["x", {"k": 1}]'}],
+    )
+    ops = [
+        _unnest_op("a", shape="object", fields=["n"]),
+        _unnest_op("b", shape="scalar", fields=[]),
+    ]
+    apply({"version": 1, "ops": ops}, tmp_path, tmp_path / "out")
+    a = _read_table(tmp_path / "out" / "src__a.csv")
+    assert a[0]["n"] == "98765432109876543210"
+    assert json.loads(a[1]["value_json"]) == "loose"
+    assert json.loads(a[0]["value_json"] or "{}") == {}
+    b = _read_table(tmp_path / "out" / "src__b.csv")
+    assert [r["b"] for r in b] == ["x", '{"k": 1}']
+
+
+def test_apply_unnest_field_column_collision_is_escaped(tmp_path: Path) -> None:
+    """field 名が持ち回り列・順序番号と同じでも、列を上書きせず連番で逃がす。"""
+    src = tmp_path / "src.csv"
+    cell = '[{"sid": "inner", "position": "p"}]'
+    _write_csv(src, ["sid", "items"], [{"sid": "1", "items": cell}])
+    op = _unnest_op("items", shape="object", fields=["sid", "position"])
+    apply({"version": 1, "ops": [op]}, tmp_path, tmp_path / "out")
+    rows = _read_table(tmp_path / "out" / "src__items.csv")
+    assert rows[0]["sid"] == "1" and rows[0]["sid__1"] == "inner"
+    assert rows[0]["position"] == "1" and rows[0]["position__1"] == "p"
+
+
+def test_apply_unnest_schema_is_fixed_by_spec_not_data(tmp_path: Path) -> None:
+    """A6: 列は spec だけで決まる — 未知の項目しか無いバッチでも列は同じ（未知の
+    項目は value_json に落ちる）。"""
+    src = tmp_path / "src.csv"
+    _write_csv(src, ["sid", "author"], [{"sid": "1", "author": '[{"unknown": "u"}]'}])
+    op = _unnest_op("author", shape="object", fields=["family", "given"])
+    apply({"version": 1, "ops": [op]}, tmp_path, tmp_path / "out")
+    rows = _read_table(tmp_path / "out" / "src__author.csv")
+    assert list(rows[0].keys()) == ["sid", "position", "family", "given", "value_json"]
+    assert json.loads(rows[0]["value_json"]) == {"unknown": "u"}
+
+
+def test_unnest_derived_tables_and_header_check() -> None:
+    op = _unnest_op("author", shape="object", fields=["family"])
+    assert derived_tables({"version": 1, "ops": [op]}) == ["src__author.csv"]
+    assert check_op_against_header(op, ["sid", "author"]) is None
+    assert "author" in (check_op_against_header(op, ["sid"]) or "")
+
+
+def test_validate_spec_rejects_bad_unnest() -> None:
+    bad_shape = _unnest_op("a", shape="tree", fields=[])
+    dup_fields = _unnest_op("b", fields=["x", "x"])
+    no_table = _unnest_op("c")
+    del no_table["table"]
+    errs = validate_spec({"version": 1, "ops": [bad_shape, dup_fields, no_table]})
+    assert any("shape" in e for e in errs)
+    assert any("duplicates" in e for e in errs)
+    assert any("missing table" in e for e in errs)
+
+
+def test_verify_conservation_unnest_violation() -> None:
+    from asterism.reshape import _verify_conservation
+
+    with pytest.raises(ReshapeError):
+        _verify_conservation(
+            "unnest",
+            {"source_rows": 3, "cells_list": 1, "cells_blank": 1, "cells_not_list": 0,
+             "elements_in": 2, "rows_out": 2, "elements_empty": 0},
+        )
+    with pytest.raises(ReshapeError):
+        _verify_conservation(
+            "unnest",
+            {"source_rows": 1, "cells_list": 1, "cells_blank": 0, "cells_not_list": 0,
+             "elements_in": 3, "rows_out": 2, "elements_empty": 0},
+        )
+
+
+def test_apply_unnest_determinism(tmp_path: Path) -> None:
+    ops = [op for op in propose(PAPERS, detect(PAPERS)) if op["kind"] == "unnest"]
+    apply({"version": 1, "ops": ops}, FIXTURES, tmp_path / "a")
+    apply({"version": 1, "ops": ops}, FIXTURES, tmp_path / "b")
+    for op in ops:
+        a, b = (tmp_path / d / op["table"] for d in ("a", "b"))
+        assert a.read_bytes() == b.read_bytes()
+
+
+def test_flatten_value_json_keeps_numbers_as_numbers(tmp_path: Path) -> None:
+    """R16: 入れ子を value_json に書き戻すとき、数値を文字列に化けさせない
+    （``{"k": 1}`` が ``{"k": "1"}`` になると型が変わる）。桁も元のまま。"""
+    src = tmp_path / "src.csv"
+    cell = '{"a": {"category": "x", "n": 98765432109876543210, "f": 1.50}}'
+    _write_csv(src, ["sid", "info"], [{"sid": "1", "info": cell}])
+    op = {
+        "kind": "flatten",
+        "source": "src.csv",
+        "dialect": {},
+        "column": "info",
+        "carry": ["sid"],
+        "long": {"table": "src__info.csv", "fields": ["category"]},
+        "wide": {"table": "src__info-wide.csv", "keys": [], "fields": []},
+    }
+    apply({"version": 1, "ops": [op]}, tmp_path, tmp_path / "out")
+    rows = _read_table(tmp_path / "out" / "src__info.csv")
+    assert rows[0]["value_json"] == '{"n": 98765432109876543210, "f": 1.50}'
+
+
+def test_propose_unnest_escapes_position_when_source_has_position_column(tmp_path: Path) -> None:
+    """元の表の position 列（持ち回る）を順序番号で上書きしない。"""
+    src = tmp_path / "src.csv"
+    _write_csv(
+        src,
+        ["sid", "position", "tags"],
+        [{"sid": f"a{i}", "position": "first", "tags": '["x", "y"]'} for i in range(3)],
+    )
+    ops = [op for op in propose(src, detect(src)) if op["kind"] == "unnest"]
+    assert len(ops) == 1 and "position" in ops[0]["carry"]
+    assert ops[0]["index"] == "position__1"
+    apply({"version": 1, "ops": ops}, tmp_path, tmp_path / "out")
+    rows = _read_table(tmp_path / "out" / ops[0]["table"])
+    assert rows[0]["position"] == "first" and rows[1]["position__1"] == "2"
+
+
+def test_validate_spec_rejects_unnest_carry_index_collision() -> None:
+    op = _unnest_op("tags", shape="scalar", fields=[], carry=["sid", "position"])
+    errs = validate_spec({"version": 1, "ops": [op]})
+    assert any("collision" in e for e in errs)
+    op2 = _unnest_op("tags", shape="scalar", fields=[], carry=["sid", "tags"])
+    assert any("collision" in e for e in validate_spec({"version": 1, "ops": [op2]}))
+
+
+def test_detect_numeric_array_with_nan_is_not_unnest(tmp_path: Path) -> None:
+    """NaN / Infinity 入りの数値配列は explode の担当 — unnest を二重に立てない。"""
+    src = tmp_path / "src.csv"
+    _write_csv(src, ["x", "y"], [{"x": "[1, 2, NaN]", "y": "[3, 4, 5]"} for _ in range(5)])
+    assert [d for d in detect(src) if d["kind"] == "unnest"] == []
