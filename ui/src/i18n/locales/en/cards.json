@@ -463,5 +463,13 @@
     "error_retracted": "This sample is withdrawn, so it cannot be replaced.",
     "error_failed": "That did not work. Please try again.",
     "error_other": "This cannot be done right now."
+  },
+  "truncation": {
+    "thinned": "Showing {{shown}} of {{total}} points, thinned across the whole range (peaks and dips kept).",
+    "thinned_lower_bound": "{{total}}+ points; showing {{shown}} thinned from the part that could be read.",
+    "thinned_unknown": "Too many points; showing {{shown}} thinned across the whole range.",
+    "partial": "Showing {{shown}} of {{total}}.",
+    "partial_lower_bound": "Showing {{shown}} of {{total}}+.",
+    "more": "Showing {{shown}}. There are more."
   }
 }

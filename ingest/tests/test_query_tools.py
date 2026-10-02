@@ -881,3 +881,80 @@ async def test_value_range_ignores_non_numeric_values_on_real_store() -> None:
     assert item["max"] == 80.0
     assert item["min_subject_iri"] == "https://ex/xrd/record/num1"
     assert item["max_subject_iri"] == "https://ex/xrd/record/num2"
+
+
+
+# ---------------------------------------------------------------------------
+# 図（series/pairs）の道具は先頭から切らず、全範囲を覆って間引く
+# ---------------------------------------------------------------------------
+
+
+def _series_tool(output_kind: str = "series") -> QueryTool:
+    doc = _doc(
+        "SELECT ?x ?y WHERE { ?s <https://ex/x> ?x ; <https://ex/y> ?y }",
+        output_kind=output_kind,
+        result={
+            "item": {
+                "x": {"var": "x", "role": "x", "number": True},
+                "y": {"var": "y", "role": "y", "number": True},
+            }
+        },
+    )
+    return parse_query_tools(doc)[0]
+
+
+class _RowsClient:
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    async def sparql_select(self, query: str) -> dict:
+        if "https://ex/x" not in query:
+            return {"results": {"bindings": []}}  # canonical enumeration etc.
+        lit = "http://www.w3.org/2001/XMLSchema#double"
+        rows = [
+            {
+                "x": {"type": "literal", "value": str(20 + 0.02 * i), "datatype": lit},
+                "y": {"type": "literal", "value": str(1000 + i % 9), "datatype": lit},
+            }
+            for i in range(self.n)
+        ]
+        return {"results": {"bindings": rows}}
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+@pytest.mark.parametrize("output_kind", ["series", "pairs"])
+async def test_run_query_tool_thins_plot_tools_over_the_whole_range(output_kind: str) -> None:
+    out = await run_query_tool(_RowsClient(3001), _series_tool(output_kind), {}, max_rows=200)
+    xs = [i["x"] for i in out["items"]]
+    assert len(xs) <= 200
+    assert xs[0] == pytest.approx(20.0) and xs[-1] == pytest.approx(80.0)
+    assert out["thinned"] is True and out["truncated"] is True
+    assert out["total"] == 3001
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_run_query_tool_plot_cap_allows_a_whole_scan() -> None:
+    out = await run_query_tool(_RowsClient(3001), _series_tool(), {}, max_rows=5000)
+    assert out["count"] == 3001 and out["truncated"] is False
+
+
+class _DateRowsClient:
+    async def sparql_select(self, query: str) -> dict:
+        if "https://ex/x" not in query:
+            return {"results": {"bindings": []}}
+        rows = [
+            {
+                "x": {"type": "literal", "value": f"2020-01-{i + 1:02d}"},
+                "y": {"type": "literal", "value": str(i)},
+            }
+            for i in range(10)
+        ]
+        return {"results": {"bindings": rows}}
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_run_query_tool_dry_run_of_a_date_x_series_still_returns_a_row() -> None:
+    """api の dry run（max_rows=1）が、x が日付の推移で 0 行にならない。"""
+    out = await run_query_tool(_DateRowsClient(), _series_tool(), {}, max_rows=1)
+    assert out["count"] == 1
+    assert out["total"] == 10

@@ -463,5 +463,13 @@
     "error_retracted": "この見本は取り下げ中のため、置き換えられません。",
     "error_failed": "うまくいきませんでした。もう一度お試しください。",
     "error_other": "いまは実行できません。"
+  },
+  "truncation": {
+    "thinned": "全 {{total}} 点を、範囲全体から {{shown}} 点に間引いて描いています（山と谷は残しています）。",
+    "thinned_lower_bound": "{{total}} 点以上あるため、読めた範囲から {{shown}} 点に間引いて描いています。",
+    "thinned_unknown": "点が多いため、範囲全体から {{shown}} 点に間引いて描いています。",
+    "partial": "全 {{total}} 件のうち {{shown}} 件を出しています。",
+    "partial_lower_bound": "{{total}} 件以上のうち {{shown}} 件を出しています。",
+    "more": "{{shown}} 件を出しています。ほかにもあります。"
   }
 }

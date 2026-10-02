@@ -28,6 +28,7 @@ from typing import Any, Final
 
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
+from asterism.plot_points import thin_xy
 from asterism.substrate import (
     DATASET_IRI_BASE,
     META_GRAPH_BASE,
@@ -165,10 +166,12 @@ async def template_curve_fetch(
         curve_iri: Full IRI of the curve, e.g.
             ``https://kumagallium.github.io/asterism/starrydata/resource/curve/1-1-1``.
         client: :class:`OxigraphClient` used to issue the SPARQL query.
-        max_points: If provided, the returned ``x``/``y`` are truncated to
-            this many leading points. ``None`` (default) returns the full
-            arrays. Truncation is useful when an AI client only needs the
-            curve shape preview and the raw arrays are large.
+        max_points: If provided, the returned ``x``/``y`` are reduced to at
+            most this many points **spread over the whole x range** — both
+            ends kept, and the min/max-y real point of each bucket kept so
+            peaks survive (:func:`asterism.plot_points.thin_xy`). Never the
+            leading points only: a head cut would make the curve look like it
+            ends early. ``None`` (default) returns the full arrays.
 
     Returns:
         A dict with keys:
@@ -179,8 +182,8 @@ async def template_curve_fetch(
         - ``of_sample``: sample IRI string (resolvable in the same store)
         - ``x_min``, ``x_max``, ``y_min``, ``y_max``: float
         - ``point_count``: int (total points before truncation)
-        - ``x``, ``y``: list[float] (possibly truncated)
-        - ``truncated``: bool — True iff max_points cut the arrays
+        - ``x``, ``y``: list[float] (possibly thinned)
+        - ``truncated``: bool — True iff max_points reduced the arrays
         - ``found``: True (the false case raises instead)
 
     Raises:
@@ -227,11 +230,16 @@ async def template_curve_fetch(
     out["x"] = _decode_array(x_json)
     out["y"] = _decode_array(y_json)
 
-    if max_points is not None and max_points >= 0:
-        if len(out["x"]) > max_points or len(out["y"]) > max_points:
-            out["truncated"] = True
-        out["x"] = out["x"][:max_points]
-        out["y"] = out["y"][:max_points]
+    if (
+        max_points is not None
+        and max_points >= 0
+        and (len(out["x"]) > max_points or len(out["y"]) > max_points)
+    ):
+        out["truncated"] = True
+        if max_points == 0:
+            out["x"], out["y"] = [], []
+        else:
+            out["x"], out["y"] = thin_xy(out["x"], out["y"], max_points=max_points)
 
     return out
 

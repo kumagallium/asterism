@@ -227,9 +227,13 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
             {/* `count` drives i18next's plural selection, `n` fills the existing
                 {{n}} placeholder in both locales — without `count` an English
                 one-row result rendered "1 rows". */}
-            {result.truncated
-              ? t('tools:runner.result.countTruncated', { count: result.count, n: result.count })
-              : t('tools:runner.result.count', { count: result.count, n: result.count })}
+            {result.truncated && result.thinned && result.total !== undefined
+              ? t('tools:runner.result.countThinned', { count: result.count, n: result.count, total: result.total })
+              : result.truncated && result.total !== undefined && result.total > result.count
+                ? t('tools:runner.result.countOf', { count: result.count, n: result.count, total: result.total })
+                : result.truncated
+                  ? t('tools:runner.result.countTruncated', { count: result.count, n: result.count })
+                  : t('tools:runner.result.count', { count: result.count, n: result.count })}
             {result.count > 0 && (
               <span className="cell-copy-tip"> {t('tools:runner.cellCopyTip')}</span>
             )}

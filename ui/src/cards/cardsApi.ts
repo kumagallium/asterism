@@ -110,7 +110,14 @@ export interface CardToolResult {
   tool: string
   count: number
   items: Row[]
+  /** `items` が元の全部ではない（間引いた・上限で切れた）。`truncationNote.ts` が注記にする。 */
   truncated: boolean
+  /** 元の件数・点数（返さない道具もある）。 */
+  total?: number
+  /** 図（推移・散らばり）の点を、x の全範囲を覆ったまま間引いた。 */
+  thinned?: boolean
+  /** `total` は下限（読み切れていない）。 */
+  total_is_lower_bound?: boolean
   sparql: string
   output_kind: OutputKind
   item: Record<string, ItemSpec>
