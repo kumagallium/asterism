@@ -90,7 +90,8 @@
     "reshapeKind": {
       "explode": "バラバラの値をそろえた表",
       "pivot": "値の種類ごとに分けた表",
-      "flatten": "入れ子になった値を表にした"
+      "flatten": "入れ子になった値を表にした",
+      "unnest": "リストを 1 つずつの行にした表"
     },
     "reshapeRowsSuffix": "行",
     "reshapeLongTable": "項目ごとの細長い表",

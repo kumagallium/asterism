@@ -1,6 +1,6 @@
 # 表の形をととのえる — 配列セル・値としての物性名・入れ子 JSON を、設計の前に決定論で派生表にする
 
-status: 提案（2026-09-03。判事 3 レンズの指摘を反映した第 2 稿）
+status: 提案（2026-09-03。判事 3 レンズの指摘を反映した第 2 稿。2026-10-02 R24 で unnest を追加）
 owner: kumagallium
 関連: [`source-dialect.md`](source-dialect.md)（読み方の宣言＝直接の前例）/ [`native-json-denormalization.md`](native-json-denormalization.md)（§5 で「並行配列の zip・相関エンティティの再構成」を Tier 0 の外と判定）/ [`kantan-mode-two-tier-ux.md`](kantan-mode-two-tier-ux.md)（K2 3 問・K6 1 シート=1 表・K17 1 工程=1 画面・K20 発明した名前を問わない・K44 人の裁定の台帳）/ [`skeleton-from-easy-judgments.md`](skeleton-from-easy-judgments.md)（7 段フロー・D2「外とのつながり」＝組成のような決まった書き方）/ [`column-ownership-and-growth.md`](column-ownership-and-growth.md)（G7 沈黙の条件）/ [`incremental-ingest.md`](incremental-ingest.md)（A6 スキーマ固定・A7 追記式永続化）/ [`ingestion-execution-safety.md`](ingestion-execution-safety.md)（§3 option 2 = 人が一度 vet した固定関数の閉集合）/ [`data-shape-checks.md`](data-shape-checks.md)
 
@@ -12,6 +12,7 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 |---|---|---|---|
 | **配列セル** | `x` = `[299.8, 324.8, …]`、`y` = `[-0.000148, …]`（並行する 2 列を添字で対応づけて初めて「点」になる） | 文字列リテラル 1 個。数値比較も最大値も取れない | CSV セルの中を反復する iterator が無く、2 列を添字で zip する手段も無い（`native-json-denormalization.md` §5 が「閉じない」と判定した領域） |
 | **値としての物性名** | `prop_y` に "ZT" / "Seebeck coefficient" … 169 種、単位は `unit_y` | ZT も Seebeck も同じ述語の文字列。`schema_summary` に物性が現れず、Ask は語彙 169 種を知らないと問えない | 値ごとの条件付きマップを 169 本書けば形式上は可能だが、設計の対象にならない |
+| **リストのセル** | `author` = `[{"affiliation":[],"given":"Chong","family":"Xiao"},…]`（オブジェクトの配列）、`project_names` = `["ThermoelectricMaterials","GeneralDB"]`（文字列の配列） | 1 文字列。「この人が著者の論文」「GeneralDB に入っている曲線」を問えない | 要素数が行ごとに違う。数値の並行配列でもオブジェクトでもないので explode にも flatten にも当たらない（R24） |
 | **入れ子 JSON** | `sample_info` = `{"MaterialFamily":{"category":"Bi2Te3","comment":""},…}`、`comments` = JSON 文字列の中に JSON（二重符号化） | 1 文字列。`WHERE` で中を見られない | `json_pluck` は固定キー 1 つの取り出し。キーの表記ゆれ（`" coercivity"`, `"Measurement temperature\t"`）と 60 種超の裾野は拾えない |
 
 これらは**マッピングではなく reshape**（行と列の作り直し）であり、宣言経路の入口で表が「1 行 = 1 記録・1 セル = 値 1 つ」になっていることを前提にしている以上、入口の手前で整えるしかない。いまは手元の決定論スクリプト（`starrydata_dataset/tidy/build_tidy.py`・別名表 `aliases.csv`）が代行しているが、これは Asterism が持つべき機械処理を利用者の手作業に押し付けている。旧ハンドコード ingest（`ingest/src/asterism/starrydata.py`）はまさにこの 3 処理を Python でやっていた。それを「データセット固有コード」として降格させた以上、汎用の層として戻すのが筋である。
@@ -41,7 +42,7 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 | # | 論点 | 決定 | 理由 |
 |---|---|---|---|
 | R1 | 層の位置 | `ingest/src/asterism/reshape.py` に**検出・提案・適用・保存則**を持つ決定論の純関数群を置く。api が staging（①）・attach・append で呼ぶ。step0 には依存させない | tabularize.py（xlsx→CSV）と同じ層・同じ呼ばれ方 |
-| R2 | 操作の閉集合 | `explode`・`pivot`・`flatten` の **3 つだけ**。新しい操作は人が vet して足す | `ingestion-execution-safety.md` §3 option 2（固定関数の閉集合＋宣言データ）。Tier 0 がセル変換、reshape は行×列の再構成 |
+| R2 | 操作の閉集合 | `explode`・`pivot`・`flatten`・`unnest`（R24 で追加）の **4 つだけ**。新しい操作は人が vet して足す | `ingestion-execution-safety.md` §3 option 2（固定関数の閉集合＋宣言データ）。Tier 0 がセル変換、reshape は行×列の再構成 |
 | R3 | 宣言の形 | `ReshapeSpec`（JSON, §4.0）。op ごとに入力表・出力表名・列名・判断表（別名・単位・持ち回り列・凍結したフィールド）・読み方（dialect）を持つ。適用のたびに `counts` を記録 | 判断表がそのまま宣言＝K44 と同じ「人の宣言が台帳」 |
 | R4 | 検出は沈黙が既定 | 証拠が揃ったときだけ提案する。判定は**ファイル全体から等間隔に取った 20,000 行**（行数を数えてから stride = ⌈行数/20,000⌉ で拾う。決定論）で行う。**配列セル**: 非空セルの全部が JSON の数値配列。並行列は行ごとの長さが 95% 以上一致。**値としての物性名**: 文字列列の distinct が 2〜200 かつ 1 回しか現れない値の行が 60% 以下で、**単位らしき列がラベルに関数従属**（ラベルの 90% 以上が単位 1 つ）し、値列（配列または数値）が同じ行にある。partner（もう 1 組のラベル＋単位＋値）は distinct が 1 でもよい（x 軸が全部 Temperature でも partner）。distinct が 200 を超えたら「多すぎる」として黙る。**入れ子 JSON**: 非空セルの 90% 以上が JSON オブジェクト（JSON 文字列を 2 段までほどく）。キーが 1 種類だけで値がスカラでもオブジェクトでもない（配列だけ）なら黙る | G7「証拠が無ければ黙る」。先頭だけの接頭辞は分布が偏る（Starrydata は先頭 20,000 行が熱電だけで `prop_x` が 1 種）。単位列の従属を要求するのは、測定の long 表には必ず単位列があり、ただのカテゴリ列（`category` + 数値列）を誤爆しないため |
 | R5 | 既定の提案は綴りだけ畳む | 既定の判断表は**全行**のラベル・単位列を走査して作る。群は**空白正規化＋大文字小文字**の同一視だけで作り、群の代表表記は最頻の綴り、群の単位は最頻の単位 1 つ。同数の tie は**ファイル内で先に現れた方**。`thermopower`→Seebeck のような語の同一視、`ohm^(-1)*m^(-1)`＝`S/m` のような単位の同一視、`T`→Temperature のような略記は**人が足す**。群には `enabled` があり、既定で有効なのは**行数上位 12 群**（同数は初出順）。残りは判断表に載るが表は作らず元表に残る。人が編集した判断表は機械の既定を**置き換える**（既定は種にすぎない） | 語の同一視は curation（§1）。169 種すべてに表を作ると裾野の表が 5 行単位で 150 枚並ぶ。tie-break と母集団を決めないと決定論にならない |
@@ -63,6 +64,7 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 | R21 | 見直し（redesign） | raw を再アップロードしない見直しでは台帳は不変（派生表もそのまま）。raw を差し替えたら attach と同じく R14 の失効判定→再生成を通す | 判断は人のもの。機械が黙って捨てない |
 | R22 | 派生表の inspect は先頭 50,000 行 | 派生表の inspect は先頭 50,000 行で型を判定し、行数は別に正確に数える（実測: 120 万行の long 表で 94 秒 → 数秒）。raw は従来どおり全行 | 派生表は機械が作った同質な表（列ごとの型は一様）なので、先頭行で型判定して十分。raw は人の生ファイルなので全行を見る |
 | R23 | flatten の wide は「全候補から選ぶ」 | propose は wide に `candidates`（`[{key, rows, rate}]`・スキャン母集団で非空が 1 件以上の全キー・非空数の降順、同数は初出順）と `field_candidates`（`[{field, rows}]`）を載せる。既定の `keys`（充足率 25% 以上・上位 12）と `fields`（上位 1）の選び方は変えない — **25% は「既定のチェック」であって候補の足切りではない**。`wide.fields` は複数持てて、object 形のキーは field ごとに列 `{key}__{field}` を足す（1 つのときは従来と同一）。両候補は任意（無い古い spec も apply できる）。UI は候補に割合を添え、25% 未満は折りたたんで見せる | 分野が混ざる Starrydata では分野固有のキーは全体比 25% を必ず割る（実測 105,260 行: MaterialFamily 20%・Purity 19%・電池系 13%）。足切りで候補ごと消すと、人が wide に足したくても足せない。判断はデータ所有者のもの（§1） |
+| R24 | リストのセルは `unnest` で「1 要素 1 行」 | **4 つ目の op** `unnest` を足す（§4.4）。**検出**: ID らしくない列で、非空セルの 90% 以上が（2 段までほどいた）JSON 配列、要素が 1 つ以上ある。要素がすべて数値なら黙る（並行配列は explode・pivot の担当）、要素に配列が入っていれば黙る（`[[2014,4,15]]` は 1 要素 1 行にしても形が決まらない）。**出力**: `<stem>__<列 slug>.csv` に、持ち回り列 ＋ **順序番号 `position`（1 から）** ＋ 要素。要素がスカラなら元の列名の列（`project_names`）、オブジェクトなら選んだ field の列 ＋ 残りを `value_json`。**判断表**: `fields`（列にする field）だけ。既定は要素の 5% 以上で値がある field（上位 16）で、`field_candidates` には値が 1 件でもある field を全部載せる（R23 と同じく既定の閾値を候補の足切りにしない）。`shape`（scalar / object / mixed）と `fields` は提案時に凍結し、列は spec だけで決まる（A6）。**保存則**: `source_rows = cells_list + cells_blank + cells_not_list`、`elements_in = rows_out + elements_empty`。空の要素（null・""・{}・[]・値が全部空のオブジェクト）は行にしないが番号は元の位置のまま（飛び番で分かる）。spec の `shape` と違う形の要素も捨てず、JSON のまま値の列か `value_json` に入れる。**数値**: R16 を入れ子の書き戻しにも及ぼす — 元トークンを数値のまま（引用符なし・元の綴り）JSON に書き戻す（flatten の `value_json` も同じ。以前は `{"k": 1}` が `{"k": "1"}` に化けていた） | explode の意味（数値の並行配列・数値でない要素は捨てる）を広げると、文字列の要素が「捨てた要素」に数えられて保存則の意味が変わる。flatten はキーで引く操作で、位置で引くリストには順序の列が要る。順序番号を 1 から振るのは、著者順のように人が読む順位だから（配列の添字 `point_index` とは別物なので名前も変える）。値の列を元の列名にするのは、③で `value` より意味が読めるから（元の列は持ち回らないので衝突しない）。field の既定 5% は、千に 1 つの field（`suffix`・`literal`）が③で 1 列ずつ意味を問われる負担を避けるため。外した field は `value_json` と raw に残る |
 
 ## 4. 各操作の定義
 
@@ -131,6 +133,22 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 
 母集団の使い分け: **検出（R4）と flatten の既定（F・K・F′）は等間隔の 20,000 行**（提案は速く、どのキーが落ちても long と raw に残る）。F′ は選ばれたキー全体で最頻の field 1 つ（キーごとに変えない。spec の `wide.fields` は 1 本のリスト）。**pivot の既定の群（R5）は全行**（稀な綴りも判断表に載せないと人は畳めない）。**適用（R11）は常に全行**。
 
+### 4.4 unnest
+
+入力: 表 T、JSON 配列の列 A（JSON 文字列を 2 段までほどく）、持ち回り列 C、順序番号の列名 i（既定 `position`）、要素の形 `shape`、列にする field の集合 F。
+出力: 行ごとに A の要素を 1 行ずつ (C…, i, [A], F の各列, [value_json])。`[A]` は `shape` が scalar / mixed のときの値の列（列名は A そのもの）、`value_json` は object / mixed のときだけ。i は 1 から（要素の元の位置）。F の列名が C・i・A・`value_json` と衝突したら `<field>__1` のように連番で逃がす。i 自身も、元の表に `position` 列があって持ち回るときは提案時に `position__1` へ逃がす（C・i・A の同名は validate_spec が拒否する）。数値の配列に `NaN`・`Infinity` が混じっても数値として扱い、unnest は黙る（explode の担当）。
+既定: `shape` は等間隔 20,000 行で見た空でない要素がスカラだけなら scalar、オブジェクトだけなら object、両方なら mixed。F は要素の 5% 以上で値がある field（非空数の降順・同数は初出順・上位 16）。
+
+```json
+{"kind": "unnest", "source": "papers.csv", "dialect": {}, "column": "author",
+ "table": "papers__author.csv", "index": "position", "shape": "object",
+ "carry": ["SID", "DOI"],
+ "fields": ["family", "given", "sequence", "affiliation", "ORCID", "authenticated_orcid"],
+ "field_candidates": [{"field": "family", "rows": 98717, "rate": 0.9987}, {"field": "role", "rows": 173, "rate": 0.0018}]}
+```
+
+実データ（Starrydata 2026-05-27 snapshot）: papers 56,473 行の `author` → 297,323 行（空セル 16・空の要素 0）、`project_names` → 58,492 行。curves 234,029 行の `project_names` → 255,320 行。いずれも保存則どおりで、適用は各 3 秒前後。`affiliation` の値（`[{"name": "…"}]`）は 2 段目の配列なので列の中に JSON のまま残る（§6）。
+
 ## 5. 段階と受け入れ条件
 
 | 段階 | 実装単位 | 受け入れ条件 |
@@ -143,4 +161,5 @@ Starrydata の公開 CSV（2026-05-27 snapshot・曲線 233,103 本）で実測�
 
 - pivot の群を「物性 × 単位」でなく「物性 × 単位 × partner」まで既定で分けるべきか（いまは partner は最頻 1 組）。
 - `reshape.json` を Mapping IR の `reshapes:` にも写すか（snapshot exchange で IR だけ持ち出す場合）。当面はデータセット台帳のみで、exchange は台帳ファイルごと運ぶ。
+- R24 の 2 段目（`author` の `affiliation` = `[{"name": …}]`）は列の中に JSON のまま残る。派生表にもう一度 unnest を掛ける（op の連鎖）か、R24 の op に「field の中の配列も 1 段ほどく」を足すか。どちらも保存則の式が 2 段になるので、実データで要るとわかってから決める。
 - R8 の「決まった書き方」ヒューリスティック（空白なし・40 文字以内）が、`Bi2Te3-xSex (x=0.1)` のように空白や括弧を含む組成表記でも組成列を拾えるか。①の受け入れ確認で実データの適合率を見る。

@@ -6,6 +6,7 @@ where the ledger lives, when it is (re)applied, and how staleness surfaces.
 from __future__ import annotations
 
 import csv
+import io
 import json
 from pathlib import Path
 
@@ -948,3 +949,131 @@ def test_flatten_wide_candidates_survive_apply_and_ledger(tmp_path: Path, health
             if op["kind"] == "flatten" and op["column"] == "sample_info"
         )
         assert lflat["wide"]["candidates"] == flat["wide"]["candidates"]
+
+
+# ===========================================================================
+# R24: unnest（オブジェクトの配列・文字列の配列）が staging → attach → append を通る
+# ===========================================================================
+
+_AUTHOR_RML = (
+    "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+    "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+    "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+    "<#M> a rr:TriplesMap ;\n"
+    '  rml:logicalSource [ rml:source "starrydata_papers__author.csv" ; '
+    "rml:referenceFormulation ql:CSV ] ;\n"
+    '  rr:subjectMap [ rr:template "https://ex/author/{SID}-{position}" ] .\n'
+)
+
+
+def test_unnest_author_and_project_names_attach_persists_tables(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        dataset_id = _save_dataset_with_rml(tmp_path)
+        sid = _stage_three(client)
+        got = client.get(f"/api/staging/{sid}/reshape").json()
+        unnest = {
+            op["column"]: op
+            for op in got["spec"]["ops"]
+            if op["kind"] == "unnest" and op["source"] == "starrydata_papers.csv"
+        }
+        assert set(unnest) == {"author", "project_names"}
+        assert unnest["author"]["shape"] == "object"
+        assert unnest["project_names"]["shape"] == "scalar"
+
+        r = client.post(f"/api/staging/{sid}/reshape", json={"spec": got["spec"]})
+        assert r.status_code == 200, r.text
+        r = client.post(f"/api/datasets/{dataset_id}/source", data={"staging_id": sid})
+        assert r.status_code == 200, r.text
+
+        sdir = tmp_path / "registry" / dataset_id / "source"
+        header = (sdir / "starrydata_papers__author.csv").read_text().splitlines()[0]
+        assert header.split(",")[-1] == "value_json" and ",position," in header
+        assert (sdir / "starrydata_papers__project-names.csv").is_file()
+        ledger = json.loads((tmp_path / "registry" / dataset_id / "reshape.json").read_text())
+        assert ledger["stale"] == []
+
+
+def test_append_papers_batch_unnests_through_ledger(
+    tmp_path: Path, healthy_client, monkeypatch
+) -> None:
+    """append のバッチも台帳の unnest を通り、派生表の列（スキーマ）は変わらない。
+    バッチにだけある未知の項目は value_json に落ちる（A6）。"""
+    dataset_id = _save_dataset_with_rml(tmp_path, rml=_AUTHOR_RML)
+    sdir = tmp_path / "registry" / dataset_id / "source"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "starrydata_papers.csv").write_bytes(_PAPERS)
+    op = {
+        "kind": "unnest",
+        "source": "starrydata_papers.csv",
+        "dialect": {},
+        "column": "author",
+        "table": "starrydata_papers__author.csv",
+        "index": "position",
+        "shape": "object",
+        "carry": ["SID", "DOI"],
+        "fields": ["family", "given"],
+    }
+    applied = reshape_apply({"version": 1, "ops": [op]}, _FIXTURES, sdir)
+    registry.mark_source_saved(
+        tmp_path / "registry",
+        dataset_id,
+        ["starrydata_papers.csv", "starrydata_papers__author.csv"],
+    )
+    (tmp_path / "registry" / dataset_id / "reshape.json").write_text(
+        json.dumps({"spec": applied, "stale": [], "attached_at": "2026-09-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    live = substrate.versioned_graph_iri(dataset_id, 1)
+    registry.mark_ingested(
+        tmp_path / "registry",
+        dataset_id,
+        graph_iri=live,
+        triple_count=1,
+        ingested_at="2026-09-03T00:00:00+00:00",
+        data_seq=1,
+    )
+    registry.mark_promoted(
+        tmp_path / "registry",
+        dataset_id,
+        triples_promoted=1,
+        alignment={},
+        promoted_at="2026-09-03T00:01:00+00:00",
+        canonical_graph=substrate.canonical_graph_iri(dataset_id),
+        live_graph=live,
+    )
+    before = (sdir / "starrydata_papers__author.csv").read_text()
+
+    from asterism import substrate as substrate_mod
+
+    monkeypatch.setattr(substrate_mod, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    header = _PAPERS.decode("utf-8").splitlines()[0]
+    cols = header.split(",")
+    row = {c: "" for c in cols}
+    row.update(
+        SID="900",
+        DOI="10.9/new",
+        author=json.dumps([{"family": "Kumagai", "given": "M", "nickname": "kuma"}]),
+        project_names='["GeneralDB"]',
+    )
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=cols, lineterminator="\n")
+    w.writeheader()
+    w.writerow(row)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("starrydata_papers.csv", buf.getvalue().encode(), "text/csv")},
+        )
+    assert r.status_code == 200, r.text
+
+    after = (sdir / "starrydata_papers__author.csv").read_text()
+    assert after.splitlines()[0] == before.splitlines()[0]  # schema unchanged
+    with (sdir / "starrydata_papers__author.csv").open(encoding="utf-8", newline="") as fh:
+        added = [r for r in csv.DictReader(fh) if r["SID"] == "900"]
+    assert len(added) == 1
+    assert added[0]["position"] == "1" and added[0]["family"] == "Kumagai"
+    assert json.loads(added[0]["value_json"]) == {"nickname": "kuma"}

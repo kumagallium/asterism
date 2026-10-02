@@ -3,10 +3,12 @@
 配列セル（並行する2列以上を添字で対応づけて初めて「点」になる）・値としての物性名
 （ラベル列の値ごとに単位と値が変わる long/EAV 形）・入れ子 JSON（1セルの中に構造化
 データが入っている）の3つを、宣言経路（RML）の手前で「1行=1記録・1セル=値1つ」の
-表に直す。LLM はこの層に一切関与しない: 検出・既定の提案・適用はすべて決定論の
-純関数で、人が変えられるのは判断表（ReshapeSpec の ops）だけ。
+表に直す。加えて、オブジェクトの配列・文字列の配列（著者の一覧・プロジェクト名の
+一覧）を「1 要素 1 行」の細長い表にする（unnest, R24）。LLM はこの層に一切関与
+しない: 検出・既定の提案・適用はすべて決定論の純関数で、人が変えられるのは判断表
+（ReshapeSpec の ops）だけ。
 
-決定の記録: ``docs/architecture/source-reshape.md``（R1〜R20・§4）。
+決定の記録: ``docs/architecture/source-reshape.md``（R1〜R24・§4）。
 """
 
 from __future__ import annotations
@@ -70,6 +72,14 @@ _LABEL_MAX_SINGLETON_RATE = 0.6
 _UNIT_FWD_MIN_FD = 0.9
 _UNIT_REV_MIN_FD = 0.7
 
+# R24: unnest の検出は「非空セルの 90% 以上が JSON 配列」（flatten の入れ子 JSON と
+# 同じ閾値）。既定で列にする要素の field は「要素の 5% 以上で値がある」もの（上位
+# 16 個まで）。満たさない field も候補（field_candidates）には全部載り、列にしない
+# ものは value_json に JSON のまま残る（消えない）。
+_UNNEST_MIN_LIST_RATE = 0.9
+_UNNEST_DEFAULT_FIELD_RATE = 0.05
+_UNNEST_DEFAULT_FIELDS_MAX = 16
+
 _WS_RE = re.compile(r"\s+")
 
 
@@ -105,6 +115,25 @@ def read_rows(path: Path | str, dialect: SourceDialect) -> Iterator[dict[str, st
 # ---------------------------------------------------------------------------
 
 _PARSE_FAIL = object()
+
+
+class _NumToken(str):
+    """R16: JSON の数値の元トークン（``"98765432109876543210"``）。値としては str
+    （列に書くときはそのまま）だが、入れ子を JSON に書き戻すときは引用符を付けない
+    — ただの str で読むと ``{"k": 1}`` が ``{"k": "1"}`` に化ける（型が変わる）。"""
+
+
+def _dumps_raw(val: object) -> str:
+    """``_NumToken`` を数値のまま（引用符なし・元の綴り）書き戻す ``json.dumps``。"""
+    if isinstance(val, _NumToken):
+        return str(val)
+    if isinstance(val, dict):
+        return "{" + ", ".join(
+            f"{json.dumps(k, ensure_ascii=False)}: {_dumps_raw(v)}" for k, v in val.items()
+        ) + "}"
+    if isinstance(val, list):
+        return "[" + ", ".join(_dumps_raw(v) for v in val) + "]"
+    return json.dumps(val, ensure_ascii=False)
 
 
 def _cell_json(cell: str) -> object:
@@ -210,10 +239,30 @@ def _unwrap_json_object(cell: str) -> dict | None:
         if not isinstance(value, str):
             return None
         try:
-            value = json.loads(value, parse_int=str, parse_float=str)
+            value = json.loads(
+                value, parse_int=_NumToken, parse_float=_NumToken, parse_constant=_NumToken
+            )
         except json.JSONDecodeError:
             return None
     return value if isinstance(value, dict) else None
+
+
+def _unwrap_json_list(cell: str) -> list | None:
+    """R24: ``_unwrap_json_object`` の配列版。JSON 文字列を最大 2 段までほどき、JSON
+    配列なら返す（R16 と同じく数値は元トークンのまま）。配列でなければ None。"""
+    value: object = cell
+    for _ in range(2):
+        if isinstance(value, list):
+            return value
+        if not isinstance(value, str):
+            return None
+        try:
+            value = json.loads(
+                value, parse_int=_NumToken, parse_float=_NumToken, parse_constant=_NumToken
+            )
+        except json.JSONDecodeError:
+            return None
+    return value if isinstance(value, list) else None
 
 
 def _normalize_label(s: str) -> str:
@@ -379,6 +428,7 @@ def detect(
     explode_groups = [d["columns"]["arrays"] for d in detections]
     detections.extend(_detect_pivot(columns, rows, source, explode_groups))
     detections.extend(_detect_flatten(columns, rows, source))
+    detections.extend(_detect_unnest(columns, rows, source))
     return detections
 
 
@@ -656,6 +706,50 @@ def _detect_flatten(columns: list[str], rows: list[dict[str, str]], source: str)
     return detections
 
 
+def _detect_unnest(columns: list[str], rows: list[dict[str, str]], source: str) -> list[dict]:
+    """R24: オブジェクトの配列・文字列の配列。非空セルの 90% 以上が（2 段までほどいた）
+    JSON 配列で、少なくとも 1 つは要素を持つ列。
+
+    黙る条件: 数値だけの配列の列（並行配列の explode・pivot の担当）・ID らしい列・
+    要素に配列が入っている列（``[[2014, 4, 15]]`` のような入れ子の配列は 1 要素
+    1 行にしても形が決まらない）。
+    """
+    n = len(rows)
+    detections = []
+    for c in columns:
+        if _ID_RE.search(c):
+            continue
+        vals = [row[c] for row in rows if row.get(c, "").strip()]
+        if not vals:
+            continue
+        parsed = [_unwrap_json_list(v) for v in vals]
+        lists = [p for p in parsed if p is not None]
+        if len(lists) / len(vals) < _UNNEST_MIN_LIST_RATE:
+            continue
+        elements = [e for lst in lists for e in lst]
+        if not elements:
+            continue
+        if any(isinstance(e, list) for e in elements):
+            continue
+        if all(_is_numeric_token(e) for e in elements):
+            continue
+        objects = sum(1 for e in elements if isinstance(e, dict))
+        detections.append(
+            {
+                "kind": "unnest",
+                "source": source,
+                "columns": {"column": c},
+                "evidence": {
+                    "rows": n,
+                    "list_rate": round(len(lists) / len(vals), 6),
+                    "elements": len(elements),
+                    "object_rate": round(objects / len(elements), 6),
+                },
+            }
+        )
+    return detections
+
+
 # ===========================================================================
 # propose() — R5/R8/§4.3: 既定の判断表
 # ===========================================================================
@@ -682,6 +776,7 @@ def propose(
     # （人のオプトイン）。
     pivot_ops: list[dict] = []
     flatten_ops: list[dict] = []
+    unnest_ops: list[dict] = []
     for det in detections:
         if det.get("source") != source:
             continue
@@ -689,6 +784,8 @@ def propose(
             pivot_ops.append(_propose_pivot(det, rows, columns, used_tables, dialect_dict))
         elif det["kind"] == "flatten":
             flatten_ops.append(_propose_flatten(det, rows, columns, used_tables, dialect_dict))
+        elif det["kind"] == "unnest":
+            unnest_ops.append(_propose_unnest(det, rows, columns, used_tables, dialect_dict))
 
     consumed_arrays = {
         frozenset(op["explode"]["arrays"]) for op in pivot_ops if op.get("explode")
@@ -701,7 +798,7 @@ def propose(
             continue
         explode_ops.append(_propose_explode(det, rows, columns, used_tables, dialect_dict))
 
-    return explode_ops + pivot_ops + flatten_ops
+    return explode_ops + pivot_ops + flatten_ops + unnest_ops
 
 
 def _default_carry(
@@ -997,7 +1094,7 @@ def _stringify_flat(val: object) -> str:
     if isinstance(val, bool):
         return "true" if val else "false"
     if isinstance(val, (dict, list)):
-        return json.dumps(val, ensure_ascii=False)
+        return _dumps_raw(val)
     return str(val)
 
 
@@ -1132,6 +1229,97 @@ def _propose_flatten(
     }
 
 
+def _propose_unnest(
+    det: dict,
+    rows: list[dict[str, str]],
+    columns: list[str],
+    used_tables: set[str],
+    dialect_dict: dict,
+) -> dict:
+    """R24: 既定の判断表。要素の形（``shape``）と列にする field を、等間隔に取った
+    MAX_DETECT_ROWS 行（R4/§4.3 と同じ母集団）で決めて凍結する（A6）。
+
+    - ``shape``: 要素がスカラだけなら ``scalar``（元の列名の列）、オブジェクトだけなら
+      ``object``（field の列 + ``value_json``）、両方なら ``mixed``（全部）。
+    - ``fields``: 要素の 5% 以上で値がある field（非空数の降順・同数は初出順・上位 16）。
+    - ``field_candidates``: 値が 1 件でもある field を全部（R23 と同じく既定の閾値を
+      候補の足切りにしない）。
+    """
+    column = det["columns"]["column"]
+    carry = _default_carry(columns, {column}, rows)
+    stem = Path(det["source"]).stem
+    scan_rows = _stride_sample_rows(rows, MAX_DETECT_ROWS)
+
+    n_scalar = n_object = 0
+    field_counts: Counter = Counter()
+    field_first: dict[str, int] = {}
+    seq = 0
+    for row in scan_rows:
+        cell = row.get(column, "")
+        if not cell.strip():
+            continue
+        lst = _unwrap_json_list(cell)
+        if lst is None:
+            continue
+        for elem in lst:
+            if _entry_is_empty(elem):
+                continue
+            if isinstance(elem, dict):
+                n_object += 1
+                for field, fval in elem.items():
+                    field_first.setdefault(field, seq)
+                    seq += 1
+                    if _is_nonblank(fval):
+                        field_counts[field] += 1
+            else:
+                n_scalar += 1
+
+    if n_object and n_scalar:
+        shape = "mixed"
+    elif n_object:
+        shape = "object"
+    else:
+        shape = "scalar"
+
+    ordered = sorted(
+        (f for f in field_counts if field_counts[f] > 0),
+        key=lambda f: (-field_counts[f], field_first[f]),
+    )
+    field_candidates = [
+        {
+            "field": f,
+            "rows": field_counts[f],
+            "rate": field_counts[f] / n_object if n_object else 0.0,
+        }
+        for f in ordered
+    ]
+    fields = [
+        c["field"] for c in field_candidates if c["rate"] >= _UNNEST_DEFAULT_FIELD_RATE
+    ][:_UNNEST_DEFAULT_FIELDS_MAX]
+
+    table = _dedupe_table_name(f"{stem}__{_table_slug(column)}.csv", used_tables)
+    # 元の表に position 列がある（持ち回る）ときは順序番号の列名を逃がす — 同名の
+    # 列が 2 本になると、持ち回った値が順序番号で上書きされる。
+    index_col = "position"
+    n = 1
+    while index_col in carry or index_col == column:
+        index_col = f"position__{n}"
+        n += 1
+    return {
+        "kind": "unnest",
+        "source": det["source"],
+        "dialect": dialect_dict,
+        "column": column,
+        "table": table,
+        "index": index_col,
+        "shape": shape,
+        "carry": carry,
+        "fields": fields,
+        "field_candidates": field_candidates,
+        "source_rows": len(rows),
+    }
+
+
 # ===========================================================================
 # validate_spec() / check_op_against_header()
 # ===========================================================================
@@ -1162,7 +1350,7 @@ def validate_spec(spec: dict) -> list[str]:
             errors.append(f"reshape.invalid_spec: ops[{idx}] is not an object")
             continue
         kind = op.get("kind")
-        if kind not in ("explode", "pivot", "flatten"):
+        if kind not in ("explode", "pivot", "flatten", "unnest"):
             errors.append(f"reshape.invalid_spec: ops[{idx}].kind is invalid ({kind!r})")
             continue
         if not op.get("source"):
@@ -1234,6 +1422,31 @@ def validate_spec(spec: dict) -> list[str]:
                         errors.append(
                             f"reshape.invalid_spec: ops[{idx}] wide.{sub} must be a list of str"
                         )
+        elif kind == "unnest":
+            for field in ("column", "table", "carry"):
+                if field not in op:
+                    errors.append(f"reshape.invalid_spec: ops[{idx}] missing {field}")
+            _claim_table(op.get("table"), idx)
+            if op.get("shape", "mixed") not in ("scalar", "object", "mixed"):
+                errors.append(
+                    f"reshape.invalid_spec: ops[{idx}].shape is invalid ({op.get('shape')!r})"
+                )
+            fields = op.get("fields", [])
+            if not isinstance(fields, list) or not all(isinstance(x, str) for x in fields):
+                errors.append(f"reshape.invalid_spec: ops[{idx}] fields must be a list of str")
+            elif len(set(fields)) != len(fields):
+                errors.append(f"reshape.invalid_spec: ops[{idx}] fields has duplicates")
+            # 持ち回り列・順序番号・値の列（元の列名）が同名だと、_write_csv で片方が
+            # 黙って上書きされる（field 側は _unnest_columns が連番で逃がす）。
+            carry = op.get("carry") or []
+            fixed = [*carry, op.get("index", "position")]
+            if op.get("shape", "mixed") != "object":
+                fixed.append(op.get("column"))
+            dupes = sorted({c for c in fixed if fixed.count(c) > 1})
+            if dupes:
+                errors.append(
+                    f"reshape.invalid_spec: ops[{idx}] column name collision {dupes!r}"
+                )
 
     return errors
 
@@ -1252,7 +1465,7 @@ def check_op_against_header(op: dict, header: list[str]) -> str | None:
         partner = op.get("partner")
         if partner:
             ref_cols += [partner.get("label"), partner.get("unit"), partner.get("value")]
-    elif kind == "flatten":
+    elif kind in ("flatten", "unnest"):
         ref_cols.append(op.get("column"))
     ref_cols += op.get("carry", [])
 
@@ -1283,6 +1496,8 @@ def derived_tables(spec: dict) -> list[str]:
         elif kind == "flatten":
             names.append(op["long"]["table"])
             names.append(op["wide"]["table"])
+        elif kind == "unnest":
+            names.append(op["table"])
     return names
 
 
@@ -1331,6 +1546,19 @@ def _verify_conservation(kind: str, counts: dict) -> None:
             raise ReshapeError(
                 "reshape.conservation_violation: flatten wide_rows_out="
                 f"{counts['wide_rows_out']} != {counts['source_rows']} ({counts})"
+            )
+    elif kind == "unnest":
+        cells = counts["cells_list"] + counts["cells_blank"] + counts["cells_not_list"]
+        if counts["source_rows"] != cells:
+            raise ReshapeError(
+                "reshape.conservation_violation: unnest source_rows="
+                f"{counts['source_rows']} != {cells} ({counts})"
+            )
+        if counts["elements_in"] != counts["rows_out"] + counts["elements_empty"]:
+            raise ReshapeError(
+                "reshape.conservation_violation: unnest elements_in="
+                f"{counts['elements_in']} != {counts['rows_out'] + counts['elements_empty']} "
+                f"({counts})"
             )
     else:
         raise ReshapeError(f"reshape.conservation_violation: unknown op kind {kind!r}")
@@ -1525,7 +1753,7 @@ def _apply_flatten(op: dict, rows: list[dict[str, str]]) -> tuple[dict, dict]:
                 for f in long_fields:
                     out[f] = _stringify_flat(val.get(f))
                 extra = {k: v for k, v in val.items() if k not in long_fields}
-                out["value_json"] = json.dumps(extra, ensure_ascii=False) if extra else ""
+                out["value_json"] = _dumps_raw(extra) if extra else ""
             else:
                 out["value"] = _stringify_flat(val)
                 for f in long_fields:
@@ -1591,6 +1819,96 @@ def _apply_flatten(op: dict, rows: list[dict[str, str]]) -> tuple[dict, dict]:
     return produced, counts
 
 
+def _unnest_columns(op: dict) -> tuple[list[str], dict[str, str]]:
+    """R24: unnest の派生表の列と、field → 列名の対応。列は spec だけから決まる
+    （データを見ない＝append でスキーマが変わらない、A6）。スカラの要素を入れる列は
+    元の列名そのもの（``project_names`` の要素は ``project_names`` 列 — ③で意味を
+    問うとき ``value`` より読める。元の列は持ち回らないので衝突しない）。field 名が
+    持ち回り列・順序番号・値の列・``value_json`` と衝突したら ``<field>__1`` のように
+    連番で逃がす（flatten の wide と同じ流儀）。"""
+    carry = op["carry"]
+    index_col = op.get("index", "position")
+    shape = op.get("shape", "mixed")
+    fields = op.get("fields", []) if shape != "scalar" else []
+    cols = [*carry, index_col]
+    if shape in ("scalar", "mixed"):
+        cols.append(op["column"])
+    used = set(cols) | ({"value_json"} if shape != "scalar" else set())
+    field_cols: dict[str, str] = {}
+    for f in fields:
+        name = f
+        n = 1
+        while name in used:
+            name = f"{f}__{n}"
+            n += 1
+        used.add(name)
+        field_cols[f] = name
+        cols.append(name)
+    if shape != "scalar":
+        cols.append("value_json")
+    return cols, field_cols
+
+
+def _apply_unnest(op: dict, rows: list[dict[str, str]]) -> tuple[dict, dict]:
+    """R24: unnest（1 要素 1 行）。順序番号は 1 から（著者順のように人が読む順位）。
+    空の要素（null・""・{}・[]・値が全部空のオブジェクト）は行にせず ``elements_empty``
+    に数えるが、番号は元の位置のまま（飛び番で「空だった」ことが分かる）。
+
+    要素の形と spec の ``shape`` が合わないときも値は捨てない: ``scalar`` の表に来た
+    オブジェクト・配列は値の列に JSON のまま、``object`` の表に来たスカラ・配列は
+    ``value_json`` に JSON のまま入れる。"""
+    column = op["column"]
+    carry = op["carry"]
+    index_col = op.get("index", "position")
+    shape = op.get("shape", "mixed")
+    cols, field_cols = _unnest_columns(op)
+
+    out_rows: list[dict[str, str]] = []
+    cells_list = cells_blank = cells_not_list = 0
+    elements_in = elements_empty = 0
+    for row in rows:
+        cell = row.get(column, "")
+        if not cell.strip():
+            cells_blank += 1
+            continue
+        lst = _unwrap_json_list(cell)
+        if lst is None:
+            cells_not_list += 1
+            continue
+        cells_list += 1
+        for i, elem in enumerate(lst):
+            elements_in += 1
+            if _entry_is_empty(elem):
+                elements_empty += 1
+                continue
+            out = {c: row.get(c, "") for c in carry}
+            out[index_col] = str(i + 1)
+            if isinstance(elem, dict) and shape != "scalar":
+                for f, col in field_cols.items():
+                    # 空の値（""・[]・{}・null）は空欄（"[]" と書くと値があるように見える）。
+                    fval = elem.get(f)
+                    out[col] = "" if _entry_is_empty(fval) else _stringify_flat(fval)
+                extra = {k: v for k, v in elem.items() if k not in field_cols}
+                out["value_json"] = _dumps_raw(extra) if extra else ""
+            elif shape == "object":
+                # object の表に来たスカラ・配列 — 列が無いので value_json に JSON で残す。
+                out["value_json"] = _dumps_raw(elem)
+            else:
+                out[column] = _stringify_flat(elem)
+            out_rows.append(out)
+
+    counts = {
+        "source_rows": len(rows),
+        "cells_list": cells_list,
+        "cells_blank": cells_blank,
+        "cells_not_list": cells_not_list,
+        "elements_in": elements_in,
+        "rows_out": len(out_rows),
+        "elements_empty": elements_empty,
+    }
+    return {op["table"]: (cols, out_rows)}, counts
+
+
 def _columns_meta(op: dict, table_name: str, cols: list[str]) -> list[dict]:
     """R9: 列メタ（unit・出自）。pivot は群の情報から、flatten は long のフィールドから
     埋める。それ以外（explode・flatten の他の列）は unit/origin とも None。"""
@@ -1632,6 +1950,25 @@ def _columns_meta(op: dict, table_name: str, cols: list[str]) -> list[dict]:
                 out.append({"name": c, "unit": None, "origin": f"{op['column']} field {c}"})
             else:
                 out.append({"name": c, "unit": None, "origin": None})
+        return out
+    if op["kind"] == "unnest":
+        column = op["column"]
+        index_col = op.get("index", "position")
+        _cols, field_cols = _unnest_columns(op)
+        col_to_field = {v: k for k, v in field_cols.items()}
+        out = []
+        for c in cols:
+            if c == index_col:
+                origin = f"{column} element position (1-based)"
+            elif c in col_to_field:
+                origin = f"{column} element field {col_to_field[c]}"
+            elif c == column:
+                origin = f"{column} element"
+            elif c == "value_json":
+                origin = f"{column} element, other fields (JSON)"
+            else:
+                origin = None
+            out.append({"name": c, "unit": None, "origin": origin})
         return out
     return [{"name": c, "unit": None, "origin": None} for c in cols]
 
@@ -1685,6 +2022,8 @@ def apply(
             produced, counts = _apply_pivot(op, rows)
         elif kind == "flatten":
             produced, counts = _apply_flatten(op, rows)
+        elif kind == "unnest":
+            produced, counts = _apply_unnest(op, rows)
         else:  # pragma: no cover — validate_spec が先に拒否する
             raise ReshapeError(f"reshape.invalid_spec: unknown op kind {kind!r}")
 

@@ -90,7 +90,8 @@
     "reshapeKind": {
       "explode": "Table lined up from scattered values",
       "pivot": "Table split by kind of value",
-      "flatten": "Nested values turned into a table"
+      "flatten": "Nested values turned into a table",
+      "unnest": "Table with each list turned into one row per value"
     },
     "reshapeRowsSuffix": "rows",
     "reshapeLongTable": "the long, one-item-per-row table",

@@ -1894,6 +1894,8 @@ export interface ReshapeWideCandidate {
 export interface ReshapeFieldCandidate {
   field: string
   rows: number
+  /** unnest のみ: 要素のうち、その項目に値がある割合（0〜1）。 */
+  rate?: number
 }
 
 export interface ReshapeFlattenWide {
@@ -1918,7 +1920,33 @@ export interface ReshapeFlattenOp {
   source_rows?: number
 }
 
-export type ReshapeOp = ReshapeExplodeOp | ReshapePivotOp | ReshapeFlattenOp
+/** JSON 配列の列を「1 要素 1 行」の細長い表にする。`fields` が人の判断（列に
+ *  する要素の項目）で、外した項目は派生表の `value_json` 列に JSON のまま残る。 */
+export interface ReshapeUnnestOp {
+  kind: 'unnest'
+  source: string
+  dialect?: ReshapeOpDialect
+  column: string
+  table: string
+  /** 順序番号の列名（1 始まり）。古い spec には無い。 */
+  index?: string
+  /** 要素の形。scalar=文字列など／object=オブジェクト／mixed=両方。
+   *  省略時は mixed 扱い。 */
+  shape?: 'scalar' | 'object' | 'mixed'
+  carry: string[]
+  /** 列にする要素の項目（空でもよい）。 */
+  fields: string[]
+  /** 値が 1 件でもある全項目（割合つき）。古い spec には無い。 */
+  field_candidates?: ReshapeFieldCandidate[]
+  /** propose() が全行走査で数えた入力行数（適用前の見積もり用）。 */
+  source_rows?: number
+}
+
+export type ReshapeOp =
+  | ReshapeExplodeOp
+  | ReshapePivotOp
+  | ReshapeFlattenOp
+  | ReshapeUnnestOp
 
 /** 派生表 1 枚の列メタ — `origin` が K20 の出自（例:「もとの表で prop_y = "ZT"
  *  だった行から」）。適用（apply）が書く。 */
@@ -1951,6 +1979,14 @@ export interface ReshapeOpCounts {
   entries_empty?: number
   wide_rows_out?: number
   wide_key_collisions?: number
+  /** unnest のみ: JSON 配列として読めたセル数。 */
+  cells_list?: number
+  /** unnest のみ: 空のセル数。 */
+  cells_blank?: number
+  /** unnest のみ: JSON 配列として読めなかったセル数（元の表には残る）。 */
+  cells_not_list?: number
+  /** unnest のみ: 空の要素の数（行にしない）。 */
+  elements_empty?: number
 }
 
 /** ReshapeSpec（ADR §4.0）— `ops` の判断表だけが人の編集対象。`tables` と
@@ -1965,7 +2001,7 @@ export interface ReshapeSpec {
 /** detect() が返す1件の検出（R4）。`columns`/`evidence` は kind ごとに形が
  *  違う自由形（表の形画面は kind と source だけで足りる）。 */
 export interface ReshapeDetection {
-  kind: 'explode' | 'pivot' | 'flatten'
+  kind: 'explode' | 'pivot' | 'flatten' | 'unnest'
   source: string
   columns: Record<string, unknown>
   evidence: Record<string, unknown>

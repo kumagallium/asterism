@@ -21,6 +21,7 @@ import {
   spellingDisplay,
   toggleGroup,
   toggleWideField,
+  toggleUnnestField,
   toggleWideKey,
   totalSummary,
 } from './reshapeSpec'
@@ -466,5 +467,53 @@ describe('spellingDisplay — 「同じ単位とみなす」で移した別単�
     })
     const display = zt.members.map((m) => spellingDisplay(m, zt.unit))
     expect(display).toEqual(['Seebeck coefficient', 'Seebeck coefficient  (V/K)'])
+  })
+})
+
+describe('unnest（リストを 1 つずつの行にする）', () => {
+  const un = (fields: string[]): ReshapeSpec => ({
+    version: 1,
+    ops: [
+      {
+        kind: 'unnest',
+        source: 'papers.csv',
+        dialect: {},
+        column: 'author',
+        table: 'papers__author.csv',
+        carry: ['SID'],
+        fields,
+        source_rows: 10,
+      },
+    ],
+  })
+  const fieldsOf = (spec: ReshapeSpec) => {
+    const op = spec.ops[0]
+    return op.kind === 'unnest' ? op.fields : undefined
+  }
+
+  it('toggleUnnestField: 足す・外す・全部外してもよい', () => {
+    const added = toggleUnnestField(un(['family']), 0, 'given')
+    expect(fieldsOf(added)).toEqual(['family', 'given'])
+    const removed = toggleUnnestField(toggleUnnestField(added, 0, 'family'), 0, 'given')
+    expect(fieldsOf(removed)).toEqual([])
+  })
+
+  it('unnest でない op には何もしない', () => {
+    const spec = pivotSpec([group('zt')])
+    expect(toggleUnnestField(spec, 0, 'x')).toEqual(spec)
+  })
+
+  it('derivedTables は op.table を返す', () => {
+    expect(derivedTables(un([]))).toEqual(['papers__author.csv'])
+  })
+
+  it('opSummary: 適用前は行数なし、適用後は実測', () => {
+    const spec = un(['family'])
+    expect(opSummary(spec, 0, {})).toMatchObject({ kind: 'unnest', sourceRows: 10, tableCount: 1 })
+    expect(opSummary(spec, 0, {}).rowsOut).toBeUndefined()
+    const s = opSummary(spec, 0, {
+      '0': { source_rows: 12, rows_out: 40, elements_empty: 2, cells_not_list: 3 },
+    })
+    expect(s).toMatchObject({ sourceRows: 12, rowsOut: 40, emptyEntries: 2, notList: 3, tableCount: 1 })
   })
 })
