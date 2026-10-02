@@ -906,3 +906,45 @@ def test_reshape_derived_names_for_dataset_reads_ledger(
 
         names = main_mod._reshape_derived_names_for_dataset(registry_root, dataset_id)
         assert "starrydata_curves__zt.csv" in names
+
+
+# ===========================================================================
+# 7. R23: flatten の wide.candidates / field_candidates / 複数 fields が往復で落ちない
+# ===========================================================================
+
+
+def test_flatten_wide_candidates_survive_apply_and_ledger(tmp_path: Path, healthy_client) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        dataset_id = _save_dataset_with_rml(tmp_path)
+        sid = _stage_three(client)
+        spec = client.get(f"/api/staging/{sid}/reshape").json()["spec"]
+        flat = next(
+            op for op in spec["ops"] if op["kind"] == "flatten" and op["column"] == "sample_info"
+        )
+        assert flat["wide"]["candidates"], "propose should carry candidates"
+        assert flat["wide"]["field_candidates"]
+        # 25% 未満のキーも足し、fields を 2 つにして適用する。
+        extra = next(
+            c["key"] for c in flat["wide"]["candidates"] if c["key"] not in flat["wide"]["keys"]
+        )
+        flat["wide"]["keys"].append(extra)
+        flat["wide"]["fields"] = [f["field"] for f in flat["wide"]["field_candidates"][:2]]
+
+        r = client.post(f"/api/staging/{sid}/reshape", json={"spec": spec})
+        assert r.status_code == 200, r.text
+        got = client.get(f"/api/staging/{sid}/reshape").json()["spec"]
+        gflat = next(
+            op for op in got["ops"] if op["kind"] == "flatten" and op["column"] == "sample_info"
+        )
+        assert gflat["wide"]["candidates"] == flat["wide"]["candidates"]
+        assert gflat["wide"]["field_candidates"] == flat["wide"]["field_candidates"]
+        assert gflat["wide"]["fields"] == flat["wide"]["fields"]
+
+        client.post(f"/api/datasets/{dataset_id}/source", data={"staging_id": sid})
+        ledger = json.loads((tmp_path / "registry" / dataset_id / "reshape.json").read_text())
+        lflat = next(
+            op
+            for op in ledger["spec"]["ops"]
+            if op["kind"] == "flatten" and op["column"] == "sample_info"
+        )
+        assert lflat["wide"]["candidates"] == flat["wide"]["candidates"]
