@@ -190,7 +190,9 @@ async def test_template_curve_fetch_returns_full_record() -> None:
     assert result["point_count"] == 3
 
 
-async def test_template_curve_fetch_truncates_at_max_points() -> None:
+async def test_template_curve_fetch_thins_over_the_whole_range_at_max_points() -> None:
+    """max_points は先頭から切らない: 両端（300 と 500）が残り、曲線が途中で
+    終わっているように見せない（asterism.plot_points）。"""
     bindings = [
         _binding(f"{SD}xValuesJSON", "[300, 350, 400, 450, 500]"),
         _binding(f"{SD}yValuesJSON", "[1, 2, 3, 4, 5]"),
@@ -204,8 +206,8 @@ async def test_template_curve_fetch_truncates_at_max_points() -> None:
     async with _make_client(lambda r: _sparql_response(bindings)) as client:
         result = await template_curve_fetch(CURVE_IRI, client, max_points=2)
 
-    assert result["x"] == [300.0, 350.0]
-    assert result["y"] == [1.0, 2.0]
+    assert result["x"] == [300.0, 500.0]
+    assert result["y"] == [1.0, 5.0]
     assert result["truncated"] is True
     # point_count remains the original (untruncated) total
     assert result["point_count"] == 5

@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { runCard } from './cardsApi'
+import { CardTruncationNote } from './CardTruncationNote'
 import type { CardRef, CardToolResult, CardView, SubjectKey } from './cardsApi'
 import { resolveCardTitle } from './cardTitle'
 import { withFieldLabels } from './builtinFields'
@@ -242,6 +243,10 @@ export function CardTile({ subject, card, onOpenDetail, onOpenSubject, onFoundCh
             }
             emptyText={t('empty')}
           />
+        )}
+        {/* 事実の表を一覧で縮めているときは「すべて見る」が件数を言う（注記は詳細で出す）。 */}
+        {!error && result && card.output_kind !== 'flow' && !factsTruncated && (
+          <CardTruncationNote result={result} />
         )}
         {factsTruncated && (
           <button

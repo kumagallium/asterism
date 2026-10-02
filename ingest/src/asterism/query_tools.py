@@ -47,6 +47,7 @@ from typing import Any
 import yaml
 
 from asterism.datasets import datasets_root
+from asterism.plot_points import PLOT_MAX_POINTS, PLOT_OUTPUT_KINDS, plot_result
 from asterism.substrate import _scan_view, canonical_merge_query
 
 _log = logging.getLogger(__name__)
@@ -1225,7 +1226,10 @@ async def run_query_tool(
     ``{tool, count, items, truncated, sparql}`` where ``items`` are rows shaped
     per the tool's ``result.item`` mapping (or raw ``{var: value}`` if none).
     """
-    max_rows = max(1, min(int(max_rows), 2000))
+    # 図（series/pairs）は先頭から切らず、x の全範囲を覆ったまま ``max_rows`` 点に
+    # 間引く（:mod:`asterism.plot_points`）。上限も図の分だけ大きく取れる。
+    is_plot = tool.output_kind in PLOT_OUTPUT_KINDS and bool(tool.item)
+    max_rows = max(1, min(int(max_rows), PLOT_MAX_POINTS if is_plot else 2000))
     sparql = render_query(tool, args)
     try:
         effective = await canonical_merge_query(client, sparql)
@@ -1252,6 +1256,10 @@ async def run_query_tool(
         raise
     results = raw.get("results", {}) if isinstance(raw, dict) else {}
     bindings = results.get("bindings", []) if isinstance(results, dict) else []
+    if is_plot:
+        shaped = [_shape_row(tool.item, r) for r in bindings]
+        plotted = plot_result(shaped, dict(tool.item), max_points=max_rows, read_cap=None)
+        return {"tool": tool.name, **plotted, "sparql": effective}
     truncated = len(bindings) > max_rows
     rows = bindings[:max_rows]
     if tool.item:
@@ -1263,5 +1271,6 @@ async def run_query_tool(
         "count": len(items),
         "items": items,
         "truncated": truncated,
+        "total": len(bindings),
         "sparql": effective,
     }

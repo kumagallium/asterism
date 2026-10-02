@@ -21,6 +21,7 @@ import { formatShareReasons } from './shareReasons'
 import { TableView } from './TableView'
 import type { GraphSpec, TableSpec, ToolContract, ViewSpec, VegaLiteSpec } from './viewSpec'
 import { VegaLiteView } from './VegaLiteView'
+import { CardTruncationNote } from './CardTruncationNote'
 import { ViewSwitcher } from './ViewSwitcher'
 
 // PR F13: AI が Vega-Lite／表仕様／Mermaid で「書いた」見せ方（`card.view`。
@@ -330,7 +331,12 @@ function renderResultTab(
   // 使う（Mermaid は GraphSpec に変換して flow と同じ GraphView で描く）。
   const customRendered = renderableCustomView(card.view, rows)
   if (customRendered && 'graph' in customRendered) {
-    return <GraphView graph={customRendered.graph} ariaLabel={ariaLabel} maxHeight={360} />
+    return (
+      <>
+        <GraphView graph={customRendered.graph} ariaLabel={ariaLabel} maxHeight={360} />
+        <CardTruncationNote result={result} />
+      </>
+    )
   }
 
   if (card.output_kind === 'flow') {
@@ -345,10 +351,20 @@ function renderResultTab(
       ? customRendered.view
       : viewFor(toolContractFor(card, result, t), rows, presentation)
   if (view.lang === 'vega-lite') {
-    return <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
+    return (
+      <>
+        <VegaLiteView spec={view.spec as VegaLiteSpec} ariaLabel={ariaLabel} height={360} />
+        <CardTruncationNote result={result} />
+      </>
+    )
   }
   if (view.lang === 'table') {
-    return <TableView spec={view.spec as TableSpec} rows={rows} ariaLabel={ariaLabel} />
+    return (
+      <>
+        <TableView spec={view.spec as TableSpec} rows={rows} ariaLabel={ariaLabel} />
+        <CardTruncationNote result={result} />
+      </>
+    )
   }
   return null
 }

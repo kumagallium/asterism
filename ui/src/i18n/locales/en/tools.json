@@ -109,7 +109,9 @@
       "count_one": "{{n}} row",
       "count_other": "{{n}} rows",
       "countTruncated_one": "{{n}} row (truncated at limit)",
-      "countTruncated_other": "{{n}} rows (truncated at limit)"
+      "countTruncated_other": "{{n}} rows (truncated at limit)",
+      "countThinned": "{{n}} of {{total}} rows (thinned across the whole range)",
+      "countOf": "{{n}} of {{total}} rows"
     },
     "missingRequired": "Fill the required parameters: {{names}}"
   },
