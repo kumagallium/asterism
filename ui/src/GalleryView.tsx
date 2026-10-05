@@ -45,6 +45,7 @@ import {
   type CatalogStatusKind,
   datasetHasKind,
   kindDisplayName,
+  placedSourceNames,
   datasetStage,
   deleteDataset,
   type DatasetRules,
@@ -221,7 +222,8 @@ function ErrorNote({
 }: {
   err: unknown
   titleKey: string
-  /** The design-time file names, for the one append failure that is about names. */
+  /** The design-time file names AS THE USER DROPPED THEM, for the one append
+   *  failure that is about names (shown, never matched against). */
   expectedFiles?: string[]
 }) {
   const { t } = useTranslation()
@@ -1333,7 +1335,7 @@ function DatasetDetail({
   const fileRows: { name: string; type: string; when: string; tag: string }[] = []
   if (meta) {
     const typeLabel = sourceTag(t, meta)
-    for (const f of meta.source_files ?? [])
+    for (const f of placedSourceNames(meta))
       fileRows.push({ name: f, type: typeLabel, when: meta.created_at.slice(0, 10), tag: t('gallery:files.source') })
     for (const a of meta.appends ?? [])
       for (const bf of a.batch_files)
@@ -2203,7 +2205,7 @@ function IngestControl({
           {t('gallery:ingest.sourceSaved', {
             source: sourceLabel,
             files: meta.source_files?.length
-              ? t('gallery:ingest.filesSuffix', { names: meta.source_files.join('、') })
+              ? t('gallery:ingest.filesSuffix', { names: placedSourceNames(meta).join('、') })
               : '',
           })}
         </p>
@@ -2439,7 +2441,7 @@ function AppendControl({
             matters for a MULTI-source design (ambiguous which source a lone
             file continues) — the note is shown only then. */}
         {(meta.source_files?.length ?? 0) > 1
-          ? ` ${t('gallery:append.noteFilename', { names: meta.source_files!.join('、') })}`
+          ? ` ${t('gallery:append.noteFilename', { names: placedSourceNames(meta, true).join('、') })}`
           : ''}
       </p>
       {(meta.append_seq ?? 0) > 0 && (
@@ -2475,7 +2477,7 @@ function AppendControl({
         <ErrorNote
           err={err}
           titleKey="gallery:append.error"
-          expectedFiles={meta.source_files}
+          expectedFiles={placedSourceNames(meta, true)}
         />
       )}
     </div>
@@ -2896,7 +2898,7 @@ function ReingestControl({
         <p className="ingest-source">
           {t('gallery:reingest.sourceSaved', {
             files: meta.source_files?.length
-              ? t('gallery:ingest.filesSuffix', { names: meta.source_files.join('、') })
+              ? t('gallery:ingest.filesSuffix', { names: placedSourceNames(meta).join('、') })
               : '',
           })}
         </p>

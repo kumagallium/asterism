@@ -32,7 +32,9 @@ export function IdMoveNotice({ move, exit }: { move: IdMove | null; exit: string
                       source: b.source,
                       columns: b.columns.join('、') || '—',
                     })
-                  : t('kantan:s8.idMoveBrokenKind', { source: b.source })}
+                  : b.reason === 'ledger'
+                    ? t('kantan:s8.idMoveBrokenLedger', { source: b.source })
+                    : t('kantan:s8.idMoveBrokenKind', { source: b.source })}
               </li>
             ))}
           </ul>

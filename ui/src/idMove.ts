@@ -12,8 +12,9 @@ import { fetchIdMove, type IdMove } from './api'
 export interface IdMoveBlockedLine {
   key: string
   source: string
-  /** `columns` = 前の ID を綴る列がいまのファイルに無い／`kind` = その種類が設計から消えた。 */
-  reason: 'columns' | 'kind'
+  /** `columns` = 前の ID を綴る列がいまのファイルに無い／`kind` = その種類が設計から消えた／
+   *  `ledger` = 引っ越し先を記録できなかった（計画の上では引き継げたぶん）。 */
+  reason: 'columns' | 'kind' | 'ledger'
   columns: string[]
 }
 
@@ -30,15 +31,39 @@ export interface IdMoveNoticeView {
  *  まだ読めていない・読めなかった）。 */
 export function idMoveNoticeView(move: IdMove | null | undefined): IdMoveNoticeView | null {
   if (!move?.changes_ids) return null
+  const blocked: IdMoveBlockedLine[] = (move.blocked ?? []).map((b) => ({
+    key: `${b.source}:${b.name}`,
+    source: b.source_label ?? b.source,
+    reason: b.reason === 'missing_columns' ? 'columns' : 'kind',
+    columns: b.missing_columns ?? [],
+  }))
+  // 台帳を作れなかった記録は、たどれなくなるぶんを `blocked` ではなく `moved` に
+  // 持つ（計画の上では引き継げたので）。ここで拾わないと、警告の枠に「次のぶんは…」
+  // と出たあと一覧が空になる。同じファイルの種類は理由も同じなので 1 回だけ言う。
+  if (move.ledger_error) {
+    // 保存名でまとめ、画面に出す名前は置いた名前（あれば）。
+    const labels = new Map<string, string>()
+    for (const m of move.moved ?? []) {
+      if (!labels.has(m.source)) labels.set(m.source, m.source_label ?? m.source)
+    }
+    for (const [source, label] of labels) {
+      blocked.push({ key: `${source}:ledger`, source: label, reason: 'ledger', columns: [] })
+    }
+  }
+  // 画面に出る文は「名前・理由・列」で決まる。同じ文になる行は 1 回だけ言う ——
+  // Excel のシートごとの表は同じブックの名前で呼ぶので、保存名では別の行でも
+  // 読む人には同じ 1 行が並ぶだけになる。
+  const said = new Set<string>()
+  const lines = blocked.filter((b) => {
+    const sentence = [b.source, b.reason, ...b.columns].join('\u0000')
+    if (said.has(sentence)) return false
+    said.add(sentence)
+    return true
+  })
   return {
     broken: move.fully_movable === false,
     forwarded: move.forwarded ?? 0,
-    blocked: (move.blocked ?? []).map((b) => ({
-      key: `${b.source}:${b.name}`,
-      source: b.source,
-      reason: b.reason === 'missing_columns' ? 'columns' : 'kind',
-      columns: b.missing_columns ?? [],
-    })),
+    blocked: lines,
   }
 }
 

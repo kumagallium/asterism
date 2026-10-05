@@ -4,6 +4,9 @@ Covers the pieces local mode adds AROUND the untouched api:
 
 * loopback token injection (the in-process caddy ``header_up`` equivalent):
   replace semantics, loopback-only, end-to-end through ``require_write_auth``;
+* the cross-site guard in front of it: non-loopback Host names (DNS
+  rebinding) and cross-origin writes are refused, the window / same-URL
+  browser / Origin-less clients (curl, MCP) still pass;
 * SPA serving with the caddy split (``/assets/*`` real 404s for the
   stale-chunk self-heal; index.html fallback with no-cache; api routes never
   shadowed);
@@ -32,6 +35,7 @@ from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
 
 from asterism_api.local import (
+    LoopbackOriginGuard,
     LoopbackTokenInjector,
     build_local_app,
     default_data_home,
@@ -46,6 +50,9 @@ from asterism_api.local import (
 from asterism_api.main import Settings
 
 _TEST_TOKEN = "local-test-token"
+# 窓・ブラウザがこのサーバを開くときの URL。門（LoopbackOriginGuard）はループバック名の
+# Host しか通さないので、TestClient 既定の ``testserver`` ではなくこれを使う。
+_LOCAL_URL = "http://127.0.0.1:8765"
 
 
 def _settings(tmp: Path) -> Settings:
@@ -105,7 +112,7 @@ def _request_as(
         async with app.router.lifespan_context(app):  # type: ignore[attr-defined]
             transport = httpx.ASGITransport(app=app, client=client_addr)  # type: ignore[arg-type]
             async with httpx.AsyncClient(
-                transport=transport, base_url="http://local"
+                transport=transport, base_url=_LOCAL_URL
             ) as client:
                 return await client.request(method, path, **kwargs)  # type: ignore[arg-type]
 
@@ -177,6 +184,196 @@ def test_loopback_request_passes_write_auth_without_pasting_token(
     assert r.status_code == 200, r.text
 
 
+# ---------------------------------------------------------------------------
+# cross-site guard（よそのページ・DNS リバインディングからの要求を断る）
+
+
+def _guard_call(scope_extra: dict[str, object], headers: dict[str, str]) -> tuple[bool, list]:
+    """門に 1 回通し、(内側が呼ばれたか, 門が送ったメッセージ) を返す。"""
+    called: list[bool] = []
+    sent: list[dict[str, object]] = []
+
+    async def inner(scope, receive, send) -> None:  # type: ignore[no-untyped-def]
+        called.append(True)
+
+    async def receive() -> dict[str, object]:
+        return {"type": "websocket.connect"}
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    scope: dict[str, object] = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/staging",
+        "client": ("127.0.0.1", 1234),
+        "headers": [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers.items()],
+        **scope_extra,
+    }
+    # 値が None のキーは外す（WebSocket の scope には method が無い）。
+    scope = {k: v for k, v in scope.items() if v is not None}
+    asyncio.run(LoopbackOriginGuard(inner)(scope, receive, send))  # type: ignore[arg-type]
+    return bool(called), sent
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "rebind.example:8765",  # DNS リバインディング: よその名前が 127.0.0.1 を指す
+        "127.0.0.1.rebind.example:8765",
+        "evil@127.0.0.1:8765",
+        "rebind.localhost:8765",
+        "0.0.0.0:8765",  # よそのページが 0.0.0.0 経由で手元のサーバに届く経路
+        "",
+    ],
+)
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_guard_refuses_non_loopback_host_names(host: str, method: str) -> None:
+    # リバインディングでは Origin も同じ名前＝同一オリジンに見えるので、Host で止める。
+    origin = {"Origin": f"http://{host}"} if host else {}
+    called, sent = _guard_call({"method": method}, {"Host": host, **origin})
+    assert not called
+    assert sent[0]["status"] == 403
+
+
+@pytest.mark.parametrize(
+    "host", ["127.0.0.1:8765", "localhost:8765", "[::1]:8765", "LOCALHOST:57245"]
+)
+def test_guard_passes_same_origin_writes_on_loopback_names(host: str) -> None:
+    # 窓（Tauri）・同じ URL を開いたブラウザ。localhost で開いた場合も同じ。
+    called, _ = _guard_call({}, {"Host": host, "Origin": f"http://{host.lower()}"})
+    assert called
+    called, _ = _guard_call({}, {"Host": host, "Sec-Fetch-Site": "same-origin"})
+    assert called
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Origin": "https://evil.example"},
+        {"Origin": "http://localhost:18900"},  # 同じ機械の別のサイト
+        {"Origin": "http://127.0.0.1:18900"},  # 同じ名前でも別のポート＝別オリジン
+        {"Origin": "http://localhost:8765"},  # 127.0.0.1 で開いたサーバに対して別の名前
+        {"Origin": "null"},  # sandbox iframe・file:// など
+        {"Origin": "https://127.0.0.1:8765"},  # ローカルモードは http しか話さない
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "same-site"},
+    ],
+)
+def test_guard_refuses_cross_origin_writes(headers: dict[str, str]) -> None:
+    called, sent = _guard_call({}, {"Host": "127.0.0.1:8765", **headers})
+    assert not called
+    assert sent[0]["status"] == 403
+
+
+def test_guard_passes_writes_without_browser_headers() -> None:
+    # curl・MCP クライアント・demo-agent の子は Origin も Sec-Fetch-Site も付けない。
+    called, _ = _guard_call({}, {"Host": "127.0.0.1:8765"})
+    assert called
+    # 利用者がアドレス欄から直接開いたもの（none）も通す。
+    called, _ = _guard_call({}, {"Host": "127.0.0.1:8765", "Sec-Fetch-Site": "none"})
+    assert called
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+def test_guard_leaves_safe_methods_from_other_sites_alone(method: str) -> None:
+    # よそのサイトからのリンク・<img>・プリフライト。読めない／状態を変えないので通す。
+    called, _ = _guard_call(
+        {"method": method}, {"Host": "127.0.0.1:8765", "Origin": "https://evil.example"}
+    )
+    assert called
+
+
+def test_guard_closes_cross_origin_websockets() -> None:
+    # WebSocket はブラウザが CORS をかけないので、メソッドに関係なく出どころを見る。
+    # 実際の scope と同じく method を持たせない（POST 扱いで断られたのでは検証にならない）。
+    ws = {"type": "websocket", "path": "/ws", "method": None}
+    called, sent = _guard_call(ws, {"Host": "127.0.0.1:8765", "Origin": "https://evil.example"})
+    assert not called
+    assert sent[0]["type"] == "websocket.close"
+    assert sent[0]["code"] == 1008
+    called, _ = _guard_call(ws, {"Host": "127.0.0.1:8765", "Origin": _LOCAL_URL})
+    assert called
+    called, _ = _guard_call(ws, {"Host": "127.0.0.1:8765"})
+    assert called
+
+
+def test_guard_sits_outside_the_token_injection(tmp_path: Path) -> None:
+    # 後から足した middleware が外側。断った要求にはトークンが足されない並び。
+    app = build_local_app(
+        token=_TEST_TOKEN,
+        ui_dist=None,
+        settings=_settings(tmp_path),
+        oxigraph_client=_fake_oxigraph(),
+        start_watcher=False,
+    )
+    order = [m.cls for m in app.user_middleware]  # type: ignore[attr-defined]
+    assert order.index(LoopbackOriginGuard) < order.index(LoopbackTokenInjector)
+
+
+def test_cross_site_upload_is_refused_end_to_end(tmp_path: Path) -> None:
+    """2026-10-05 の再現（別サイトの no-cors multipart POST が取り込みを置けた）の回帰。"""
+    settings = _settings(tmp_path)
+    app = build_local_app(
+        token=_TEST_TOKEN,
+        ui_dist=None,
+        settings=settings,
+        oxigraph_client=_fake_oxigraph(),
+        start_watcher=False,
+    )
+    files = {"files": ("evil.csv", b"a,b\n1,2\n", "text/csv")}
+    staging_root = settings.registry_root / "_staging"
+
+    r = _request_as(
+        app,
+        ("127.0.0.1", 4321),
+        "POST",
+        "/api/staging",
+        files=files,
+        headers={"Origin": "http://localhost:18900", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "ほかのサイトからの書き込みは受け付けません。"
+    assert not staging_root.exists() or not any(staging_root.iterdir())
+
+    # 同じページ（窓・同じ URL のブラウザ）からは今までどおり置ける。
+    r = _request_as(
+        app,
+        ("127.0.0.1", 4321),
+        "POST",
+        "/api/staging",
+        files=files,
+        headers={"Origin": _LOCAL_URL, "Sec-Fetch-Site": "same-origin"},
+    )
+    assert r.status_code == 200, r.text
+    assert any(staging_root.iterdir())
+
+
+def test_rebinding_host_cannot_read_token_gated_routes(tmp_path: Path) -> None:
+    """リバインディングでは応答も読めるので、トークンの要る読み取りも Host で止める。"""
+    app = build_local_app(
+        token=_TEST_TOKEN,
+        ui_dist=None,
+        settings=_settings(tmp_path),
+        oxigraph_client=_fake_oxigraph(),
+        start_watcher=False,
+    )
+    query = {"query": "SELECT * WHERE { ?s ?p ?o } LIMIT 1"}
+    r = _request_as(
+        app,
+        ("127.0.0.1", 4321),
+        "POST",
+        "/api/sparql",
+        json=query,
+        headers={"Host": "rebind.example:8765", "Origin": "http://rebind.example:8765"},
+    )
+    assert r.status_code == 403
+    r = _request_as(
+        app, ("127.0.0.1", 4321), "GET", "/health", headers={"Host": "rebind.example:8765"}
+    )
+    assert r.status_code == 403
+
+
 def test_non_loopback_request_is_still_token_gated(tmp_path: Path) -> None:
     app = build_local_app(
         token=_TEST_TOKEN,
@@ -208,7 +405,7 @@ def test_spa_serving_replicates_caddy_split(tmp_path: Path) -> None:
         oxigraph_client=_fake_oxigraph(),
         start_watcher=False,
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url=_LOCAL_URL) as client:
         # index at /
         r = client.get("/")
         assert r.status_code == 200
@@ -238,7 +435,7 @@ def test_api_only_mode_keeps_api_routes(tmp_path: Path) -> None:
         oxigraph_client=_fake_oxigraph(),
         start_watcher=False,
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url=_LOCAL_URL) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/").status_code == 404
 
@@ -412,7 +609,7 @@ def test_no_relay_when_ask_disabled(tmp_path: Path) -> None:
         oxigraph_client=_fake_oxigraph(),
         start_watcher=False,
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url=_LOCAL_URL) as client:
         assert client.get("/demo/schema").status_code == 404
 
 

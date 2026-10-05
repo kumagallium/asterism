@@ -9,6 +9,10 @@
   loopback clients — the in-process equivalent of production caddy's
   ``header_up X-Asterism-Token {$ASTERISM_API_TOKEN}``, so the browser
   never sees or pastes a token,
+* a guard in front of that injection: non-loopback Host names (DNS
+  rebinding) and writes from other origins (any site the browser has open)
+  are refused, so the injected authority only reaches this app's own pages
+  and Origin-less clients (curl, MCP),
 * the built SPA (``ui/dist``) served same-origin, replicating the caddy
   split: ``/assets/*`` misses stay real 404s (the ``vite:preloadError``
   stale-chunk self-heal depends on that), everything else falls back to
@@ -46,6 +50,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import httpx
 from asterism import subjects as subjects_mod
@@ -57,6 +62,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 from asterism_api import appdata, demo_sample, exchange, registry
 from asterism_api.mcp_mount import MCP_PATH, attach_mcp
@@ -234,6 +240,111 @@ def _is_loopback(client: tuple[str, int] | None) -> bool:
         return ipaddress.ip_address(client[0]).is_loopback
     except ValueError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# cross-site guard（トークン注入の手前に置く門）
+
+# 窓（Tauri）とブラウザがこのサーバを開くときの名前。``--host`` が無く
+# 127.0.0.1 にしか bind しないので、正規の Host はこの 3 つのどれか（＋ポート）。
+# 文字列として厳密に照らす（URL として解釈すると ``evil@127.0.0.1`` も通る）。
+_LOOPBACK_HOST_RE = re.compile(r"(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?")
+# 状態を変えないメソッド。OPTIONS は CORS のプリフライトで、通しても
+# 405 が返るだけ（CORS の許可ヘッダは出さない）＝本番の要求は送られない。
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# Sec-Fetch-Site のうち「同じオリジンのページ自身」か「利用者が直接開いた」もの。
+_SAME_ORIGIN_FETCH_SITES = frozenset({"same-origin", "none"})
+
+_HOST_REFUSED = "このアドレスでは開けません。127.0.0.1 か localhost で開いてください。"
+_ORIGIN_REFUSED = "ほかのサイトからの書き込みは受け付けません。"
+
+
+class LoopbackOriginGuard:
+    """ブラウザで開いたよそのページから来た要求を、トークン注入の前に断る。
+
+    ``LoopbackTokenInjector`` は接続元がループバックなら誰にでも書き込み
+    トークンを足す。ブラウザもループバックの接続元なので、利用者が開いている
+    **任意のサイト**のスクリプトが、プリフライトの要らない要求（multipart や
+    本文なしの POST）でトークンつきの書き込みを起こせた。応答は読めなくても
+    副作用（取り込み・引用対象から外す・AI 呼び出し）は起きる。さらに書き込み
+    ゲートの無い経路も多く、注入を絞るだけでは守れない。そこで入口で止める:
+
+    1. **Host がループバックの名前でなければ断る**（全メソッド・全経路）。
+       DNS リバインディングでは、よそのドメインが 127.0.0.1 を指すように
+       なり、ブラウザから見て同一オリジンになる＝Origin と Host が一致して
+       しまい 2. では止まらない。Host だけが攻撃者のドメイン名のまま残る。
+    2. **状態を変えるメソッドで、出どころが同じオリジンでなければ断る。**
+       Origin があればその host:port が Host と一致すること。Origin が
+       無ければ Sec-Fetch-Site が same-origin／none であること。どちらも
+       無い要求（curl・MCP クライアント・demo-agent の子）は今までどおり通す
+       ── ブラウザは書き込み系の要求に必ずどちらかを付けるので、ここを
+       通れるのはブラウザ以外だけ。
+
+    GET はよそのサイトからのリンクや ``<img>`` でも飛んでくるので 2. の対象に
+    しない。その代わり **GET の経路は状態を変えてはいけない**（ADR
+    local-first-distribution.md のセキュリティ意味論）。WebSocket はブラウザが
+    CORS をかけないので、メソッドに関係なく 2. を当てる。
+
+    本番（caddy＋authgate の後ろ）は ``build_local_app`` を通らないので、
+    この門は掛からない。
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self._app(scope, receive, send)
+            return
+        headers = {
+            name.lower(): value.decode("latin-1").strip() for name, value in scope["headers"]
+        }
+        host = headers.get(b"host", "").lower()
+        method = scope.get("method", "GET")
+        refusal: str | None = None
+        if not _LOOPBACK_HOST_RE.fullmatch(host):
+            refusal = _HOST_REFUSED
+            logger.warning(
+                "refused %s %s: Host %r is not a loopback name", method, scope["path"], host
+            )
+        elif scope["type"] == "websocket" or method not in _SAFE_METHODS:
+            origin = headers.get(b"origin")
+            fetch_site = headers.get(b"sec-fetch-site")
+            if origin is not None:
+                cross_origin = not _same_origin(origin, host)
+            else:
+                # Origin も Sec-Fetch-Site も無い＝ブラウザ以外（curl・MCP）は通す。
+                cross_origin = (
+                    fetch_site is not None and fetch_site.lower() not in _SAME_ORIGIN_FETCH_SITES
+                )
+            if cross_origin:
+                refusal = _ORIGIN_REFUSED
+                logger.warning(
+                    "refused %s %s: cross-origin (Origin %r, Sec-Fetch-Site %r, Host %r)",
+                    method,
+                    scope["path"],
+                    origin,
+                    fetch_site,
+                    host,
+                )
+        if refusal is None:
+            await self._app(scope, receive, send)
+        elif scope["type"] == "websocket":
+            # accept 前の close は、ハンドシェイクへの 403 として返る。
+            await WebSocketClose(code=1008, reason=refusal)(scope, receive, send)
+        else:
+            await JSONResponse({"detail": refusal}, status_code=403)(scope, receive, send)
+
+
+def _same_origin(origin: str, host: str) -> bool:
+    """Origin の host:port が Host と同じか（``null`` などの不透明なオリジンは別物）。
+
+    ``host`` は門の 1. を通った後＝ループバックの名前＋ポートだけなので、一致すれば
+    Origin もそのループバックの同じポートを指している。ローカルモードは http しか
+    話さないので、scheme も http に限る。
+    """
+    parts = urlsplit(origin.lower())
+    return parts.scheme == "http" and parts.netloc == host
 
 
 # ---------------------------------------------------------------------------
@@ -1111,6 +1222,8 @@ def build_local_app(
     if ui_dist is not None:
         app.mount("/", SpaStaticFiles(directory=str(ui_dist), html=True), name="spa")
     app.add_middleware(LoopbackTokenInjector, token=token)
+    # 後から足したものが外側。断った要求にはトークンを足さない。
+    app.add_middleware(LoopbackOriginGuard)
     return app
 
 
