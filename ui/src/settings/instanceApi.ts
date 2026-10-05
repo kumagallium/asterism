@@ -43,4 +43,15 @@ export function fetchInstanceInfo(): Promise<InstanceInfo | null> {
 /** トークンを保存した直後など、ゲートの答えが変わったとき用。 */
 export function invalidateInstanceInfo(): void {
   pending = null
+  for (const cb of Array.from(listeners)) cb()
+}
+
+const listeners = new Set<() => void>()
+
+/** `invalidateInstanceInfo()` の通知を受ける。戻り値で購読を外す。 */
+export function subscribeInstanceInfo(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => {
+    listeners.delete(cb)
+  }
 }

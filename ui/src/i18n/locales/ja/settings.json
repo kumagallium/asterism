@@ -10,7 +10,8 @@
     "usage": "AI の使用量",
     "storage": "保存先",
     "about": "このアプリ",
-    "connect": "ほかの AI から使う"
+    "connect": "ほかの AI から使う",
+    "pdf": "PDF"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",
@@ -228,5 +229,30 @@
     },
     "caveat": "Asterism を起動している間だけ使えます。アプリを終了すると、AI からは繋がらなくなります。",
     "unavailable": "この画面からは接続先を出せません。デスクトップアプリの画面から開いてください。"
+  },
+  "pdf": {
+    "title": "PDF の読み取り",
+    "intro": "PDF を取り込むには、読み取る部品（約 {{size}}GB）をこのパソコンに入れます。入れるのは 1 回だけです。PDF の読み取りはこのパソコンの中で行い、読み取りのために PDF を外へ送ることはありません。",
+    "install": "部品を入れる（約 {{size}}GB）",
+    "installNote": "インターネットへの接続が要ります。数分かかります。",
+    "phase": {
+      "packages": "部品をダウンロードしています…",
+      "models": "モデルをダウンロードしています…",
+      "starting": "動くことを確かめています…"
+    },
+    "progress": "約 {{pct}}%",
+    "keepsGoing": "この画面を閉じても続きます。",
+    "cancel": "中止",
+    "starting": "PDF を読み取る準備をしています…",
+    "ready": "PDF を取り込めます",
+    "readyNote": "PDF の読み取りはこのパソコンの中で行います。読み取りのために PDF を外へ送ることはありません。部品は約 {{size}}GB を使っています。",
+    "remove": "部品を消す",
+    "removeConfirm": "部品を消すと、PDF を取り込めなくなります（取り込み済みのデータは残ります）。もう一度入れるには、約 {{size}}GB のダウンロードが要ります。",
+    "removeYes": "消す",
+    "removeNo": "やめる",
+    "failed": "PDF を読み取る部品が使えません。",
+    "retry": "もう一度試す",
+    "logPath": "くわしい記録: {{path}}",
+    "requestFailed": "操作できませんでした。少し待ってから、もう一度お試しください。"
   }
 }

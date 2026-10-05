@@ -77,6 +77,7 @@ import type { RedesignTarget } from '../WorkbenchView'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
+import { usePdfRuntime } from '../pdfRuntime'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { basename } from '../skeletonContainment'
@@ -119,8 +120,8 @@ import {
   formatsContext,
   formatsLabel,
   unavailableDropMessage,
-  unavailableFormats,
-  unavailableNote,
+  pdfInstallable,
+  unavailableNotes,
   useDocumentFormats,
   type DocumentFormats,
 } from '../documentFormats'
@@ -934,6 +935,7 @@ export function KantanWizard({
 }) {
   const { t, i18n } = useTranslation()
   const fmts = useDocumentFormats()
+  const pdfRuntime = usePdfRuntime()
   const { isReady, getActiveCredentials, openSettings, activeUsesServerKey } = useLlmSettings()
 
   const [snap] = useState(loadSnapshot)
@@ -994,6 +996,15 @@ export function KantanWizard({
           : null,
   )
   const [pickError, setPickError] = useState('')
+  // 取り込める形式が変わったら（PDF の部品を入れ終えた・消した）、置いたときの知らせを消す。
+  // 「PDF は部品を入れると取り込めます」が、入れ終えたあとも残っていた。描画中に
+  // 前回の値と比べて直す（effect の中で setState しない）。
+  const fmtKey = `${fmts.docx}/${fmts.pdf}`
+  const [pickErrorFmtKey, setPickErrorFmtKey] = useState(fmtKey)
+  if (pickErrorFmtKey !== fmtKey) {
+    setPickErrorFmtKey(fmtKey)
+    setPickError('')
+  }
   // A document run that was still going when the screen was left: the panel
   // below re-attaches on its own, but say so rather than showing a bare form.
   const [documentResumed] = useState(() => snap.kind === 'document')
@@ -2325,7 +2336,7 @@ export function KantanWizard({
     // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
     const unavailable = firstUnavailableIn(arr, fmts)
     if (unavailable) {
-      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      setPickError(unavailableDropMessage(t, fmts, unavailable, pdfRuntime.status))
       return
     }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
@@ -3381,7 +3392,7 @@ export function KantanWizard({
     // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
     const unavailable = firstUnavailableIn(arr, fmts)
     if (unavailable) {
-      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      setPickError(unavailableDropMessage(t, fmts, unavailable, pdfRuntime.status))
       return
     }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
@@ -4582,7 +4593,7 @@ export function KantanWizard({
     // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
     const unavailable = firstUnavailableIn(arr, fmts)
     if (unavailable) {
-      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      setPickError(unavailableDropMessage(t, fmts, unavailable, pdfRuntime.status))
       return
     }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
@@ -6456,9 +6467,33 @@ export function KantanWizard({
             <p className="kz-lead">{t('kantan:s1.privacy')}</p>
             <DropZone onFiles={onFilesChosen} />
             {/* 変換できない形式は、置く欄のすぐ下で先に言う（見出しの直後は 1 文だけ＝K23）。 */}
-            {unavailableFormats(fmts).length > 0 && (
-              <p className="kz-note">{unavailableNote(t, fmts)}</p>
-            )}
+            {(() => {
+              const notes = unavailableNotes(t, fmts, pdfRuntime.status)
+              // 部品を入れられるとき、PDF の案内（最後の行）は「設定を開く」の隣に置く
+              // （K23: 説明はボタンの隣。行を分けると、何のボタンの話かが近さでしか伝わらない）。
+              const withButton = pdfInstallable(fmts, pdfRuntime.status) ? notes.pop() : undefined
+              return (
+                <>
+                  {notes.map((line) => (
+                    <p key={line} className="kz-note">
+                      {line}
+                    </p>
+                  ))}
+                  {withButton !== undefined && (
+                    <div className="kz-actions">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={() => openSettings('pdf')}
+                      >
+                        {t('document:unavailable.openSettings')}
+                      </button>
+                      <span className="kz-note kz-prose">{withButton}</span>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {/* Nobody can be walked through a flow they cannot start. Without a
                 file of their own, the first screen used to be a dead end
                 (KZ-A-39). */}

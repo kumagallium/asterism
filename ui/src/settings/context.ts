@@ -9,7 +9,7 @@ import type { LlmCredentials, LlmModelConfig } from './store'
 /** Where openSettings() should land. Named after what the user was told to do,
  *  not after the component: 'ai' = the AI setup, 'server-token' = the access
  *  code, 'server-instance' = where IDs are issued from. */
-export type SettingsSection = 'ai' | 'server-token' | 'server-instance' | 'usage'
+export type SettingsSection = 'ai' | 'server-token' | 'server-instance' | 'usage' | 'pdf'
 
 export interface LlmSettings {
   models: LlmModelConfig[]

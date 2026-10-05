@@ -66,10 +66,10 @@ import {
   firstUnavailableIn,
   formatsLabel,
   unavailableDropMessage,
-  unavailableFormats,
-  unavailableNote,
+  unavailableNotes,
   useDocumentFormats,
 } from './documentFormats'
+import { usePdfRuntime } from './pdfRuntime'
 
 export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
@@ -2070,6 +2070,7 @@ function IngestControl({
   const [job, setJob] = useState<IngestJobHandle | null>(null)
   const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
   const fmt = useDocumentFormats()
+  const pdfRuntime = usePdfRuntime()
   // 変換できない形式を選んだときの文（サーバの 4xx を待たず受け付けない）
   const [formatMsg, setFormatMsg] = useState('')
 
@@ -2209,7 +2210,7 @@ function IngestControl({
                 const picked = Array.from(e.target.files ?? [])
                 const bad = isDocument ? firstUnavailableIn(picked, fmt) : null
                 if (bad) {
-                  setFormatMsg(unavailableDropMessage(t, fmt, bad))
+                  setFormatMsg(unavailableDropMessage(t, fmt, bad, pdfRuntime.status))
                   return
                 }
                 setFormatMsg('')
@@ -2502,6 +2503,7 @@ function DocumentAppendControl({
   const [prog, setProg] = useState<{ i: number; n: number } | null>(null)
   const [err, setErr] = useState<unknown>(null)
   const fmt = useDocumentFormats()
+  const pdfRuntime = usePdfRuntime()
   // 変換できない形式を選んだときの文（サーバの 4xx を待たず受け付けない）
   const [formatMsg, setFormatMsg] = useState('')
 
@@ -2544,9 +2546,11 @@ function DocumentAppendControl({
     <div className={embedded ? '' : 'ingest-gate'} ref={rootRef}>
       <div className="ds-subhead">{t('gallery:docAppend.head')}</div>
       <p className="ingest-note">{t('gallery:docAppend.note', { formats: formatsLabel(fmt) })}</p>
-      {unavailableFormats(fmt).length > 0 && (
-        <p className="ingest-note">{unavailableNote(t, fmt)}</p>
-      )}
+      {unavailableNotes(t, fmt, pdfRuntime.status).map((line) => (
+        <p key={line} className="ingest-note">
+          {line}
+        </p>
+      ))}
       {(meta.append_seq ?? 0) > 0 && (
         <p className="ingest-source">{t('gallery:docAppend.appended', { n: meta.append_seq })}</p>
       )}
@@ -2561,7 +2565,7 @@ function DocumentAppendControl({
               const picked = Array.from(e.target.files ?? [])
               const bad = firstUnavailableIn(picked, fmt)
               if (bad) {
-                setFormatMsg(unavailableDropMessage(t, fmt, bad))
+                setFormatMsg(unavailableDropMessage(t, fmt, bad, pdfRuntime.status))
                 return
               }
               setFormatMsg('')
