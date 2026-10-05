@@ -5318,16 +5318,48 @@ def _artifacts_from_document(
     return artifacts, list(mat.warnings)
 
 
-def _has_mapping_spec(document_md: str) -> bool:
-    """Whether the design document carries a §9 mapping spec at all.
+def _settle_on_minted_design(
+    document_md: str, decisions: list[dict], meanings: list[dict]
+) -> tuple[str, list[dict]]:
+    """Assert what was settled before the design on the document a NEW dataset
+    is about to be saved with. Returns ``(document, decisions to file)``.
 
-    The projections onto §9 (column decisions, column meanings) raise when
-    there is none; a caller that must still save such a document asks first.
+    Same contract as the design loop's own overlay
+    (``design_loop._overlay_column_decisions``): the save that mints the dataset
+    must not fail over a statement the design cannot place. That save went
+    through before these lists existed here, and it still has to.
+
+    * No §9 to assert onto (absent, or unreadable — a truncated design): the
+      document is saved as it is and everything is still filed; the next round,
+      with a readable design, restores from the stores.
+    * An exclusion the design cannot honor (the column mints an id, or it is the
+      only thing its kind records — the loop left it in for the same reason) is
+      NOT filed: the column is taken in, and a stored statement to the contrary
+      would make every later save of this dataset fail on it.
     """
-    return (
-        materialize_schema(document_md, ".", "mapping-spec-check", write=False).mapping_ir_yaml
-        is not None
-    )
+    if not decisions and not meanings:
+        return document_md, []
+    try:
+        apply_column_decisions_to_document(document_md, [])
+    except ValueError:
+        return document_md, decisions
+    placed: list[dict] = []
+    for decision in decisions:
+        try:
+            document_md, _changed = apply_column_decisions_to_document(document_md, [decision])
+        except ValueError as exc:
+            logger.warning(
+                "column %r of %r stays in the new design, so its exclusion is not filed: %s",
+                decision.get("column"),
+                decision.get("source"),
+                exc,
+            )
+            continue
+        placed.append(decision)
+    if meanings:
+        with contextlib.suppress(ValueError):
+            document_md, _changed = apply_column_meanings_to_document(document_md, meanings)
+    return document_md, placed
 
 
 def _refine_oracle(registry_root: Path, dataset_id: str | None, staging_id: str | None) -> str:
@@ -7590,25 +7622,7 @@ def build_app(
                 if src_dir is not None and src_dir.is_dir():
                     # (already inside asyncio.to_thread(run) — call directly)
                     proposal_md = design_loop.repair_design(proposal_md, src_dir)
-                if body.dataset_id:
-                    human_decisions = _load_column_decisions(cfg.registry_root, body.dataset_id)
-                    settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
-                else:
-                    # The dataset is being minted: what its stores are about to
-                    # hold is what the wizard settled before the design. Assert
-                    # it on the document exactly as a later round would from the
-                    # stores — the design usually carries it already
-                    # (/api/propose/continue projected it), but an AI fix round
-                    # run before there was a dataset had nothing to restore from.
-                    human_decisions = minted_decisions
-                    settled_meanings = minted_meanings
-                    if (human_decisions or settled_meanings) and not _has_mapping_spec(
-                        proposal_md
-                    ):
-                        # No §9 to assert onto (a truncated design): it is still
-                        # saved as incomplete, as before, and the stores are
-                        # written all the same — the next round restores from them.
-                        human_decisions, settled_meanings = [], []
+                human_decisions = _load_column_decisions(cfg.registry_root, body.dataset_id)
                 if human_decisions:
                     proposal_md, _restored = apply_column_decisions_to_document(
                         proposal_md, human_decisions
@@ -7616,9 +7630,22 @@ def build_app(
                 human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
                 if human_meta:
                     proposal_md, _restored = apply_display_meta_to_document(proposal_md, human_meta)
+                settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
                 if settled_meanings:
                     proposal_md, _restored = apply_column_meanings_to_document(
                         proposal_md, settled_meanings
+                    )
+                # The dataset is being minted: what its stores are about to hold
+                # is what the wizard settled before the design (the loads above
+                # found nothing — there is no dataset yet). Assert it on the
+                # document as a later round would from the stores: the design
+                # usually carries it already (/api/propose/continue projected
+                # it), but an AI fix round run before there was a dataset had
+                # nothing to restore from.
+                filed_decisions: list[dict] = []
+                if not body.dataset_id:
+                    proposal_md, filed_decisions = _settle_on_minted_design(
+                        proposal_md, minted_decisions, minted_meanings
                     )
                 mat = materialize_schema(
                     proposal_md,
@@ -7706,7 +7733,7 @@ def build_app(
                     # A dataset being minted has no store to read yet — the
                     # exclusions it is about to be given already answer the
                     # "never uses" notice for those columns.
-                    column_decisions=None if body.dataset_id else minted_decisions,
+                    column_decisions=None if body.dataset_id else filed_decisions,
                 )
                 # Mapping-spec parse/compile problems are the same class of
                 # advisory, readable design issue — surface them first (when the
@@ -7805,13 +7832,23 @@ def build_app(
                         # was later folded away (ADR meaning-before-identity
                         # §7-4), and nothing did it since: a first run's
                         # 「取り込まない」 existed only in that browser's state.
-                        if minted_decisions:
-                            _remember_column_decisions(
-                                cfg.registry_root, str(meta["id"]), minted_decisions
-                            )
-                        if minted_meanings:
-                            _remember_column_meanings(
-                                cfg.registry_root, str(meta["id"]), minted_meanings
+                        # Best-effort, like the display-meta memo: the dataset
+                        # is saved by now, and failing the request here would
+                        # make the wizard mint a second one on its retry.
+                        try:
+                            if filed_decisions:
+                                _remember_column_decisions(
+                                    cfg.registry_root, str(meta["id"]), filed_decisions
+                                )
+                            if minted_meanings:
+                                _remember_column_meanings(
+                                    cfg.registry_root, str(meta["id"]), minted_meanings
+                                )
+                        except OSError:
+                            logger.exception(
+                                "could not file what was settled before the design for %s "
+                                "(continuing)",
+                                meta["id"],
                             )
                     result["dataset"] = meta
                 return result

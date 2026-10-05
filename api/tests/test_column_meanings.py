@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 from fastapi.testclient import TestClient
 
@@ -713,16 +714,71 @@ def test_the_first_save_reads_only_pre_design_decisions(
         assert client.get("/api/datasets").json()["count"] == 0
 
 
-def test_a_design_with_no_mapping_spec_is_still_saved_and_the_stores_are_written(
-    tmp_path: Path, healthy_client
+@pytest.mark.parametrize(
+    "document",
+    [
+        "## Proposed schema\n\n(truncated)",  # §9 が無い
+        _FIX_RECIPE_MD.replace("maps:\n", "maps: [\n"),  # §9 が読めない
+    ],
+    ids=["no-spec", "unreadable-spec"],
+)
+def test_a_design_with_no_usable_mapping_spec_is_still_saved_and_the_stores_are_written(
+    tmp_path: Path, healthy_client, document: str
 ) -> None:
-    """§9 の無い設計（途中で切れた出力）は、写す先が無いだけで保存は通る。保管庫には
+    """§9 が無い・読めない設計（途中で切れた出力）は、写す先が無いだけで保存は通る
+    （決めたことを添えなければ通っていた保存を、添えたせいで落とさない）。保管庫には
     書くので、次の作り直しがそこから戻せる。"""
     with _client(tmp_path, healthy_client) as client:
-        saved = _first_save(client, proposal_md="## Proposed schema\n\n(truncated)")
+        saved = _first_save(client, proposal_md=document)
         ds_id = saved["dataset"]["id"]
-        assert saved["complete"] is False
         assert (
             client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
             == _SETTLED_DROPS
         )
+        assert (tmp_path / "registry" / ds_id / "column-meanings.json").is_file()
+
+
+def test_the_first_save_never_fails_over_a_decision_the_design_cannot_place(
+    tmp_path: Path, healthy_client
+) -> None:
+    """設計が外せない列（ID を作る列・その種類のただ 1 つの項目）の「取り込まない」で、
+    データセットを作る保存を落とさない — 設計ループも同じ理由でその列を残している。
+
+    守れなかった判断は保管庫に書かない。書くと、列は取り込まれているのに保管庫は
+    「取り込まない」と言い、以後の保存がそのたびに 422 になる。
+    """
+    with _client(tmp_path, healthy_client) as client:
+        saved = _first_save(
+            client,
+            column_decisions=[
+                {"source": "readings.csv", "column": "reading_id", "action": "exclude"},
+                *_SETTLED_DROPS,
+            ],
+        )
+        ds_id = saved["dataset"]["id"]
+        # ID を作る列は残り、守れた判断だけが保管庫に入る。
+        assert "reading/{reading_id}" in saved["artifacts"]["mapping.yaml"]
+        assert (
+            client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
+            == _SETTLED_DROPS
+        )
+        # 以後の保存も通る（保管庫が、設計の守れない判断を抱えていない）。
+        resaved = client.post(
+            "/api/materialize",
+            json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor", "dataset_id": ds_id},
+        )
+        assert resaved.status_code == 200, resaved.text
+
+        # その種類のただ 1 つの項目になる列も同じ: 先に外せたぶんは外れ、最後の 1 つは残る。
+        saved = _first_save(
+            client,
+            column_decisions=[
+                {"source": "readings.csv", "column": "channel", "action": "exclude"},
+                {"source": "readings.csv", "column": "amplitude", "action": "exclude"},
+            ],
+        )
+        ds_id = saved["dataset"]["id"]
+        assert list(_design_columns(client, ds_id)) == ["amplitude"]
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == [
+            {"source": "readings.csv", "column": "channel", "action": "exclude"}
+        ]
