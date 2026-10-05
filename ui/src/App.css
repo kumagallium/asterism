@@ -8076,10 +8076,11 @@ tr.kz-cols-dropped td {
 .kz-words {
   margin-top: var(--space-1);
 }
-/* S8: what this update does to already-published IDs
-   (ADR id-move-after-publish.md). Two states, and they must not look alike:
-   forwarding in place is information, forwarding that could NOT be built is the
-   one thing on this screen that breaks someone else's link. */
+/* S8 and the detail's publish dialog (`IdMoveNotice`): what this update does to
+   already-published IDs (ADR id-move-after-publish.md). Two states, and they
+   must not look alike: forwarding in place is information, forwarding that
+   could NOT be built is the one thing on this screen that breaks someone
+   else's link. */
 .kz-idmove {
   border-left: 3px solid var(--primary);
   background: var(--primary-softer);

@@ -404,3 +404,205 @@ def test_recount_refuses_when_no_source_is_kept(tmp_path: Path) -> None:
         res = client.post("/api/datasets/dataset-x/recount", headers=_AUTH)
     assert res.status_code == 422
     assert res.json()["detail"]["code"] == "dataset.no_source"
+
+
+# ---------------------------------------------------------------------------
+# 取り込みの経路 —— 記録は「いま下書きにある版」の話でなければならない
+# ---------------------------------------------------------------------------
+# 公開の前に出す知らせ（かんたんモードの S8・データセットの詳細の公開確認）は、
+# ここで meta に残した記録をそのまま読む。記録が前の回のまま残ると、画面は
+# 「たどれなくなります」を言い続けるか、言うべきときに黙る。
+
+
+def _spec(template: str, name: str = "sample") -> str:
+    return _SPEC.replace("exr:sample/{sid}", template).replace("name: sample", f"name: {name}")
+
+
+class _IngestOxi:
+    """取り込みと公開の両方に答える偽ストア（/store・/update を記録するだけ）。"""
+
+    def __init__(self) -> None:
+        self.store_calls: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/store":
+                self.store_calls.append(request.url.params.get("graph"))
+                return httpx.Response(204)
+            if request.url.path == "/update":
+                return httpx.Response(204)
+            q = request.content.decode()
+            rows = [{"c": {"value": "0"}}] if "COUNT" in q else []
+            return httpx.Response(
+                200,
+                text=json.dumps({"head": {"vars": []}, "results": {"bindings": rows}}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+
+        inner = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="http://test"
+        )
+        self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def _fake_materializer(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None,
+                       should_cancel=None) -> Path:
+    """Morph-KGC の代わりに 1 行ぶんを書く（台帳の RML なら転送 1 件になる）。"""
+    out = Path(work_dir) / "out.nt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(f'<{_OLD}> <https://schema.org/name> "x" .\n', encoding="utf-8")
+    return out
+
+
+def _redesign(root: Path, spec: str) -> None:
+    """設計を保存し直す（かんたんモードの見直しが materialize でやること）。"""
+    from asterism_step0.mapping_ir import parse_mapping_ir
+    from asterism_step0.rml_compile import compile_mapping_ir
+
+    dest = root / "dataset-x"
+    (dest / "mapping.yaml").write_text(spec, encoding="utf-8")
+    (dest / "mapping.rml.ttl").write_text(
+        compile_mapping_ir(parse_mapping_ir(spec)), encoding="utf-8"
+    )
+
+
+def _ingest(client: TestClient, csv: bytes) -> dict:
+    res = client.post(
+        "/api/datasets/dataset-x/ingest",
+        files={"files": ("s.csv", csv, "text/csv")},
+        headers=_AUTH,
+    )
+    assert res.status_code == 202, res.text
+    stream = client.get(f"/api/jobs/{res.json()['job_id']}/stream").text
+    done = [
+        json.loads(line[len("data:") :])
+        for line in stream.splitlines()
+        if line.startswith("data:") and '"result"' in line
+    ]
+    assert done, stream
+    return done[-1]["result"]
+
+
+def _published_app(tmp: Path, monkeypatch) -> TestClient:
+    """`exr:sample/{sid}` で 1 回公開済みのデータセットと、それを載せたアプリ。"""
+    root = _seed_dataset(tmp, {"has_rml": True})
+    (root / "dataset-x" / "source").mkdir()
+    _redesign(root, _SPEC)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_materializer)
+    client = TestClient(
+        build_app(_settings(tmp), oxigraph_client=_IngestOxi().client, start_watcher=False)
+    )
+    client.__enter__()
+    _ingest(client, b"sid,name\n1,Bi2Te3\n")
+    assert client.post("/api/datasets/dataset-x/promote", headers=_AUTH).status_code == 200
+    return client
+
+
+def _meta(tmp: Path) -> dict:
+    return json.loads(
+        (tmp / "registry" / "dataset-x" / "meta.json").read_text(encoding="utf-8")
+    )
+
+
+def test_a_blocked_move_can_be_published_from_outside_the_wizard(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """設計を見直して取り込んだあと、ウィザードを離れても下書きは残る。詳細画面は
+    その下書きに「公開を更新する」を出し、サーバは止めない（ADR §5）。だから
+    「前の ID からたどれなくなります」は、公開を押せる**すべての画面**が読める
+    場所に残っていなければならない。"""
+    client = _published_app(tmp_path, monkeypatch)
+    root = tmp_path / "registry"
+    # 前の ID を綴っていた列 sid が、いまのファイルには無い。
+    _redesign(root, _spec("exr:sample/{code}").replace("column: name", "column: code"))
+    _ingest(client, b"code\nA1\n")
+
+    meta = _meta(tmp_path)
+    # 詳細画面が「公開を更新する」を出す条件（下書きがあり、公開したことがある）。
+    assert meta["ingested"] is True and meta["version"] == 1
+    move = client.get("/api/datasets/dataset-x/id-move").json()
+    assert move["changes_ids"] is True and move["fully_movable"] is False
+    assert move["blocked"][0]["reason"] == "missing_columns"
+    assert move["blocked"][0]["missing_columns"] == ["sid"]
+    # 公開そのものは通る —— 知らせるのは画面の仕事。
+    assert client.post("/api/datasets/dataset-x/promote", headers=_AUTH).status_code == 200
+    client.__exit__(None, None, None)
+
+
+def test_putting_the_id_back_takes_the_warning_away(tmp_path: Path, monkeypatch) -> None:
+    """知らせの戻り道は「ID の作り方を元に戻してください」。元に戻して取り込み
+    直したのに警告が残るなら、戻り道は行き止まりである。"""
+    client = _published_app(tmp_path, monkeypatch)
+    root = tmp_path / "registry"
+    _redesign(root, _spec("exr:sample/{code}").replace("column: name", "column: code"))
+    _ingest(client, b"code\nA1\n")
+    assert client.get("/api/datasets/dataset-x/id-move").json()["fully_movable"] is False
+
+    _redesign(root, _SPEC)  # 元の ID の作り方に戻す
+    _ingest(client, b"sid,name\n1,Bi2Te3\n")
+    assert client.get("/api/datasets/dataset-x/id-move").json()["changes_ids"] is False
+    client.__exit__(None, None, None)
+
+
+def test_a_failed_redraft_keeps_the_warning_of_the_staged_draft(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """引き継げない下書きが残っている間は、その警告も残る。元に戻す取り込みが
+    下書きの確定の手前で落ちたら、下書きは前のまま —— 記録だけ先に消してはいけない。"""
+    client = _published_app(tmp_path, monkeypatch)
+    root = tmp_path / "registry"
+    _redesign(root, _spec("exr:sample/{code}").replace("column: name", "column: code"))
+    _ingest(client, b"code\nA1\n")
+    staged = _meta(tmp_path)["graph_iri"]
+
+    async def _boom(*args, **kwargs) -> None:
+        raise RuntimeError("store went away")
+
+    monkeypatch.setattr(substrate, "set_staged_graph", _boom)
+    _redesign(root, _SPEC)
+    res = client.post(
+        "/api/datasets/dataset-x/ingest",
+        files={"files": ("s.csv", b"sid,name\n1,Bi2Te3\n", "text/csv")},
+        headers=_AUTH,
+    )
+    assert res.status_code == 202
+    stream = client.get(f"/api/jobs/{res.json()['job_id']}/stream").text
+    assert "store went away" in stream
+    assert _meta(tmp_path)["graph_iri"] == staged  # 下書きは前のまま
+    assert client.get("/api/datasets/dataset-x/id-move").json()["fully_movable"] is False
+    client.__exit__(None, None, None)
+
+
+def test_a_second_draft_still_plans_the_move(tmp_path: Path, monkeypatch) -> None:
+    """公開 → 意味だけ直して下書き → やっぱり ID も直して下書き。2 回めの取り込みの
+    時点では meta.promoted はもう False だが、街に出ているのは最初の ID のまま。
+    ここで計画を省くと、転送も知らせも無いまま前の ID が消える。"""
+    client = _published_app(tmp_path, monkeypatch)
+    root = tmp_path / "registry"
+    _ingest(client, b"sid,name\n1,Bi2Te3\n")  # 住所を動かさない下書き
+    assert client.get("/api/datasets/dataset-x/id-move").json()["changes_ids"] is False
+
+    _redesign(root, _spec("exr:sample/{sid}-{name}"))
+    result = _ingest(client, b"sid,name\n1,Bi2Te3\n")
+    move = client.get("/api/datasets/dataset-x/id-move").json()
+    assert move["changes_ids"] is True and move["fully_movable"] is True
+    assert move["forwarded"] == 1
+    assert result["id_move"]["forwarded"] == 1
+    client.__exit__(None, None, None)
+
+
+def test_a_published_move_is_not_announced_again(tmp_path: Path, monkeypatch) -> None:
+    """ID を引っ越して公開し終えたあと、同じ設計でファイルだけ差し替える。
+    この更新では住所は動かないので、前回の「N 件の ID が変わります」を
+    もう一度出してはいけない。"""
+    client = _published_app(tmp_path, monkeypatch)
+    root = tmp_path / "registry"
+    _redesign(root, _spec("exr:sample/{sid}-{name}"))
+    _ingest(client, b"sid,name\n1,Bi2Te3\n")
+    assert client.get("/api/datasets/dataset-x/id-move").json()["changes_ids"] is True
+    assert client.post("/api/datasets/dataset-x/promote", headers=_AUTH).status_code == 200
+    # 公開した時点で、知らせる下書きはもう無い。
+    assert client.get("/api/datasets/dataset-x/id-move").json()["changes_ids"] is False
+
+    _ingest(client, b"sid,name\n1,Bi2Te3\n2,PbTe\n")
+    assert client.get("/api/datasets/dataset-x/id-move").json()["changes_ids"] is False
+    client.__exit__(None, None, None)
