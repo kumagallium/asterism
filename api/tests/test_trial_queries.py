@@ -209,6 +209,7 @@ def test_trial_queries_full_shape(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["available"] is True
+        assert body["read_from"] == "draft"  # 取り込んだだけ — まだ公開前の下書き
         # Every FACT query ran against the staged version graph recorded at ingest.
         # 種類の名前を引く問い合わせ（class_label）は別 — 名前は公開済みの
         # オントロジーの graph にあり、下書きの graph には無い。
@@ -357,6 +358,7 @@ def test_trial_queries_before_ingest_and_unknown_dataset(tmp_path: Path) -> None
         r = client.get(f"/api/datasets/{meta['id']}/trial-queries")
         assert r.status_code == 200, r.text
         assert r.json()["available"] is False
+        assert r.json()["read_from"] is None  # 何も読んでいない
         assert queries == []
 
         assert client.get("/api/datasets/nope/trial-queries").status_code == 404
@@ -402,10 +404,78 @@ def test_trial_queries_works_after_promote(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["available"] is True
+        assert body["read_from"] == "published"
         assert body["classes"] == [{"iri": f"{_EX}Sample", "n": 24}]
         # Queries target the live version graph promote pointed at.
         trial_queries = [q for q in queries if "?s a ?class" in q]
         assert trial_queries and all(f"GRAPH <{staged_iri}>" in q for q in trial_queries)
+
+
+def test_trial_queries_say_which_data_answered(tmp_path: Path) -> None:
+    """公開 → もう一度取り込む（新しい下書き）と、問いは下書きに走る。
+
+    画面の「ためす」は、どちらのデータの答えかを ``read_from`` で言い分ける。
+    公開済みのデータセットを見直しで開いたとき、何も作り直していなければ公開
+    した版の答えで、作り直したあとは下書きの答え — どちらも同じ画面に出る。
+    """
+    meta = _save(tmp_path)
+    root = tmp_path / "registry"
+    live_iri = _ingest(tmp_path, meta["id"])
+    registry.mark_promoted(
+        root,
+        meta["id"],
+        triples_promoted=42,
+        alignment={"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}},
+        promoted_at="2026-07-22T01:00:00+00:00",
+        canonical_graph=f"https://kumagallium.github.io/asterism/graph/canonical/{meta['id']}",
+        live_graph=live_iri,
+    )
+    queries: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        q = request.content.decode("utf-8")
+        queries.append(q)
+        if "?s a ?class" in q:
+            return _sparql_json(
+                [
+                    {
+                        "class": {"type": "uri", "value": f"{_EX}Sample"},
+                        "n": {"type": "literal", "value": "24"},
+                    }
+                ]
+            )
+        return _sparql_json([])
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        # 公開をやめても、読むのは公開した版のまま（データは残る）。ただし
+        # 「公開済み」とは言わない — いまは公開していない。
+        registry.mark_retracted(root, meta["id"], retracted_at="2026-07-22T02:00:00+00:00")
+        body = client.get(f"/api/datasets/{meta['id']}/trial-queries").json()
+        assert body["read_from"] == "retracted"
+        counts = [q for q in queries if "?s a ?class" in q]
+        assert counts and all(f"GRAPH <{live_iri}>" in q for q in counts)
+        registry.mark_reinstated(root, meta["id"], reinstated_at="2026-07-22T02:30:00+00:00")
+        assert client.get(f"/api/datasets/{meta['id']}/trial-queries").json()["read_from"] == (
+            "published"
+        )
+
+        draft_iri = live_iri.removesuffix("/v1") + "/v2"
+        registry.mark_ingested(
+            root,
+            meta["id"],
+            graph_iri=draft_iri,
+            triple_count=10,
+            ingested_at="2026-07-22T03:00:00+00:00",
+            data_seq=2,
+        )
+        queries.clear()
+        body = client.get(f"/api/datasets/{meta['id']}/trial-queries").json()
+        assert body["read_from"] == "draft"
+        counts = [q for q in queries if "?s a ?class" in q]
+        assert counts and all(f"GRAPH <{draft_iri}>" in q for q in counts)
 
 
 def test_trial_queries_degrades_when_store_is_down(tmp_path: Path) -> None:
@@ -423,6 +493,7 @@ def test_trial_queries_degrades_when_store_is_down(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["available"] is False  # the UI shows a plain retry note
+        assert body["read_from"] is None  # 答えが返っていないので、どちらとも言わない
         assert body["classes"] == []
 
 

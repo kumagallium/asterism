@@ -3112,7 +3112,10 @@ async def _persist_converted_xlsx(
 
 
 async def _save_tabular_uploads(
-    files: list[UploadFile], dest_dir: Path, sheets_out: dict[str, dict[str, str]] | None = None
+    files: list[UploadFile],
+    dest_dir: Path,
+    sheets_out: dict[str, dict[str, str]] | None = None,
+    origins_out: dict[str, str] | None = None,
 ) -> list[Path]:
     """Canonicalize + save tabular uploads for a design entrance (inspect / propose
     / skeleton / validate / continue) — the ONE convert+sanitize seam.
@@ -3125,6 +3128,10 @@ async def _save_tabular_uploads(
     ``sheets_out``, when given, collects ``{csv_name: {"from": xlsx, "sheet":
     title}}`` for every workbook that expanded into MORE THAN ONE table — the
     only case K6 asks "which sheet do you mean?" about.
+
+    ``origins_out``, when given, collects ``{csv_name: workbook name}`` for EVERY
+    table a workbook expanded into (one sheet or many) — the caller that knows
+    what the human called the workbook can then say so for its tables too.
     """
     paths: list[Path] = []
     for upload in files:
@@ -3140,6 +3147,8 @@ async def _save_tabular_uploads(
                 paths.append(dest)
                 if sheets_out is not None and len(derived) > 1:
                     sheets_out[csv_name] = {"from": name, "sheet": title}
+                if origins_out is not None:
+                    origins_out[csv_name] = name
         else:
             dest = dest_dir / name
             await _save_upload(upload, dest)
@@ -3193,11 +3202,21 @@ async def _design_sources(
     return tmpdir, await _save_tabular_uploads(files, tmpdir, sheets_out), True
 
 
+def _dataset_source_names(meta: Mapping[str, object]) -> dict[str, str]:
+    """``meta.source_names`` ({saved name: name the user dropped}) with anything
+    malformed dropped — it is read straight off disk."""
+    raw = meta.get("source_names")
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str) and v}
+
+
 async def _persist_source_uploads(
     registry_root: Path,
     dataset_id: str,
     files: list[UploadFile],
     keep: Collection[str] | None = None,
+    names: Mapping[str, str] | None = None,
 ) -> tuple[list[str], dict | None]:
     """Persist uploaded sources as the dataset's design-time source (Task E, #19).
 
@@ -3209,16 +3228,34 @@ async def _persist_source_uploads(
     to CSV(s) (openpyxl, K6) with the original kept alongside. This lets a
     *design*-stage dataset be ingested from the catalog later with no re-attach
     (reproducibility).
+
+    ``names`` is the known ``{upload filename: the name the user dropped}`` (the
+    staging record's ``names`` — an attach from staging sees only the saved name).
+    Every saved source name is recorded against the name its upload was dropped
+    under (``meta.source_names``), so the UI can say "価格表.csv", not the slug.
+
+    An upload that arrives under an already-safe name with no entry in ``names``
+    says nothing new about what a human called it — it may just be a saved file
+    replayed (a re-design copies the persisted set, original workbook included,
+    back through here). What such an upload implies for the files DERIVED from
+    it is only a guess: it never replaces a name learned from a real upload in
+    this batch, nor one the dataset already remembers, and it is not made at all
+    when the derived file is itself part of the batch (that IS a replay — a human
+    drops a workbook, not the workbook plus its own tables).
     """
     sdir = registry.source_dir(registry_root, dataset_id)
     if sdir is None:
         raise HTTPException(404, f"dataset {dataset_id!r} not found")
     await asyncio.to_thread(shutil.rmtree, sdir, ignore_errors=True)
     saved: list[str] = []
+    placed: dict[str, str] = {}
+    guessed: dict[str, str] = {}
     conversion: dict | None = None
     for upload in files:
         if upload.filename is None:
             raise HTTPException(400, "missing filename")
+        upload_name = Path(upload.filename).name
+        placed_name = (names or {}).get(upload_name) or upload_name
         # Documents (xml/docx/pdf) accept ANY filename (slugified — not RML-referenced);
         # tabular names slug DETERMINISTICALLY so they still match the mapping's
         # rml:source (which the design wrote from the same canonical name).
@@ -3226,16 +3263,34 @@ async def _persist_source_uploads(
             name = _sanitize_document_name(upload.filename)
         else:
             name = _sanitize_tabular_name(upload.filename)
+        # Known = staging remembered it, or the sanitizer had to change it (so
+        # the filename IS what a human typed).
+        known = upload_name in (names or {}) or upload_name != name
+        learned = placed if known else guessed
         if name.lower().endswith(".docx"):
             jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
             saved.append(jats_name)
+            learned[jats_name] = placed_name
         elif name.lower().endswith(".xlsx"):
             csv_names, conversion = await _persist_converted_xlsx(upload, sdir, name, keep)
             saved.extend(csv_names)
+            # The workbook itself is kept alongside and gets listed with the
+            # sources later (reshape refresh, append) — it answers to the same name.
+            for derived_name in (*csv_names, name):
+                learned[derived_name] = placed_name
         else:
             await _save_upload(upload, sdir / name)
             saved.append(name)
-    meta = registry.mark_source_saved(registry_root, dataset_id, saved, conversion=conversion)
+            learned[name] = placed_name
+    remembered = _dataset_source_names(registry.load_meta(registry_root, dataset_id) or {})
+    replayed = {Path(u.filename).name for u in files if u.filename}
+    for saved_name, guess in guessed.items():
+        if saved_name in placed or saved_name in remembered or saved_name in replayed:
+            continue
+        placed[saved_name] = guess
+    meta = registry.mark_source_saved(
+        registry_root, dataset_id, saved, conversion=conversion, names=placed
+    )
     return saved, meta
 
 
@@ -5818,6 +5873,27 @@ def build_app(
         if not 1 <= limit <= 500:
             raise HTTPException(400, "limit must be in [1, 500]")
         entries = _tail_jsonl(cfg.jobs_log, limit)
+        # The log keeps saved names; add ``file_label`` (the names the user dropped)
+        # where the dataset remembers them. One meta read per dataset per request.
+        names_by_dataset: dict[str, dict[str, str]] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            ds_id = entry.get("dataset_id")
+            file = entry.get("file")
+            if not isinstance(ds_id, str) or not ds_id or not isinstance(file, str):
+                continue
+            if ds_id not in names_by_dataset:
+                loaded = registry.load_meta(cfg.registry_root, ds_id)
+                names_by_dataset[ds_id] = _dataset_source_names(loaded) if loaded else {}
+            source_names = names_by_dataset[ds_id]
+            if not source_names:
+                continue
+            parts = file.split(", ")
+            if any(p in source_names for p in parts):
+                # A workbook and its tables share one name — say it once.
+                shown = dict.fromkeys(source_names.get(p, p) for p in parts)
+                entry["file_label"] = ", ".join(shown)
         return {"count": len(entries), "jobs": entries}
 
     @app.post("/api/staging", dependencies=_write_auth)
@@ -5838,18 +5914,28 @@ def build_app(
         try:
             # raw/ = as received (attach converts it like a fresh upload);
             # root = the canonical design files (xlsx expanded, names slugged).
+            dropped_as: dict[str, str] = {}  # raw/ name -> what the human called it
             for upload in files:
                 if upload.filename is None:
                     raise HTTPException(400, "missing filename")
-                await _save_upload(upload, sdir / "raw" / _sanitize_tabular_name(upload.filename))
+                raw_name = _sanitize_tabular_name(upload.filename)
+                await _save_upload(upload, sdir / "raw" / raw_name)
+                dropped_as[raw_name] = Path(upload.filename).name
             replay = _uploads_from_dir(sdir / "raw")
             sheets: dict[str, dict[str, str]] = {}
+            origins: dict[str, str] = {}
             try:
-                paths = await _save_tabular_uploads(replay, sdir, sheets)
+                paths = await _save_tabular_uploads(replay, sdir, sheets, origins)
             finally:
                 for u in replay:
                     await u.close()
-            meta = staging.write_meta(sdir, [p.name for p in paths])
+            # Only the pairs that differ; a workbook's tables answer to the
+            # workbook's name (whoever consumes the record sees only the tables).
+            placed_names = {raw: name for raw, name in dropped_as.items() if name != raw}
+            placed_names.update(
+                {csv: dropped_as[book] for csv, book in origins.items() if book in dropped_as}
+            )
+            meta = staging.write_meta(sdir, [p.name for p in paths], names=placed_names)
             if sheets:
                 # Which derived table came from which worksheet — the record has
                 # to remember it, because everything downstream sees only the
@@ -8636,7 +8722,12 @@ def build_app(
             for path in source_paths:
                 await asyncio.to_thread(shutil.copy2, path, sdir / "raw" / path.name)
                 await asyncio.to_thread(shutil.copy2, path, sdir / path.name)
-            staging.write_meta(sdir, [p.name for p in source_paths])
+            recount_names = {
+                k: v
+                for k, v in _dataset_source_names(data["meta"]).items()
+                if k in {p.name for p in source_paths}
+            }
+            staging.write_meta(sdir, [p.name for p in source_paths], names=recount_names)
         except Exception:
             shutil.rmtree(sdir, ignore_errors=True)
             raise
@@ -8671,6 +8762,20 @@ def build_app(
         record = data["meta"].get("id_move")
         if not isinstance(record, dict):
             return JSONResponse({"dataset_id": dataset_id, "changes_ids": False})
+        # Read-time only: the stored record keeps the saved names; the names the
+        # user dropped (meta.source_names) are added as ``source_label``.
+        source_names = _dataset_source_names(data["meta"])
+        if source_names:
+            record = dict(record)
+            for key in ("moved", "blocked"):
+                entries = record.get(key)
+                if isinstance(entries, list):
+                    record[key] = [
+                        {**e, "source_label": source_names[e["source"]]}
+                        if isinstance(e, dict) and e.get("source") in source_names
+                        else e
+                        for e in entries
+                    ]
         return JSONResponse({"dataset_id": dataset_id, **record})
 
     @app.get("/api/datasets/{dataset_id}/trial-queries")
@@ -8688,6 +8793,10 @@ def build_app(
         Labels/units come from the Mapping IR (K8) + the model.yaml projection —
         never re-derived by an AI. Works before AND after promote: the staged
         version graph a promote points ``liveGraph`` at is the same graph.
+        ``read_from`` says which of the two answered — ``"draft"`` (staged, not
+        yet published) or ``"published"`` (the version a promote made live;
+        ``"retracted"`` while that version is withdrawn) — and stays null when
+        nothing was read.
 
         Read-only and forgiving like /draft-stats: a never-ingested dataset or
         an unreachable store returns 200 with ``available: false`` (the UI
@@ -8704,6 +8813,7 @@ def build_app(
         out: dict[str, object] = {
             "dataset_id": dataset_id,
             "available": False,
+            "read_from": None,
             "classes": [],
             "count_sparql": None,
             "entities": None,
@@ -8767,6 +8877,19 @@ def build_app(
             or meta.get("live_graph")  # the live version graph (post-promote)
             or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
         )
+        # どちらのデータに問い合わせたか。新しい取り込みは必ず ``promoted`` を
+        # 下ろす（``mark_ingested``）ので、立っていれば公開した版、下りていれば
+        # 公開前の下書き。画面はこれを見て言い分ける — 公開済みのデータセットを
+        # 見直しで開き、何も作り直さずに「ためす」へ出ると、問いは公開した版に
+        # 走るのに、画面は「公開前の下書きに取り込めました」と言っていた（実機
+        # 2026-10-05）。公開をやめたデータセットは、読むのは公開した版のままだが
+        # いまは公開していないので、別に言う（画面は「公開済み」と言わない）。
+        if not meta.get("promoted"):
+            read_from = "draft"
+        elif meta.get("status") == "retracted":
+            read_from = "retracted"
+        else:
+            read_from = "published"
         client: OxigraphClient = app.state.client
 
         async def select(q: str) -> list[dict] | None:
@@ -8819,6 +8942,7 @@ def build_app(
                 entry["label"] = got
             classes.append(entry)
         out["available"] = True
+        out["read_from"] = read_from
         out["classes"] = classes
         out["count_sparql"] = count_q
 
@@ -9319,9 +9443,14 @@ def build_app(
             # S2 has to be re-applied — otherwise the design maps three sheets
             # and the dataset persists all seven (K6 / KZ-A-09).
             keep = {str(n) for n in (smeta.get("sources") or [])} or None
+            staged_names = smeta.get("names")
             try:
                 saved, meta = await _persist_source_uploads(
-                    cfg.registry_root, dataset_id, uploads, keep
+                    cfg.registry_root,
+                    dataset_id,
+                    uploads,
+                    keep,
+                    names=staged_names if isinstance(staged_names, dict) else None,
                 )
             finally:
                 for u in uploads:

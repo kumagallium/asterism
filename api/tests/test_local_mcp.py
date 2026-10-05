@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from asterism_api.local import build_local_app
 
-from .test_local import _TEST_TOKEN, _fake_oxigraph, _make_dist, _settings
+from .test_local import _LOCAL_URL, _TEST_TOKEN, _fake_oxigraph, _make_dist, _settings
 
 pytest.importorskip("fastmcp", reason="MCP endpoint needs the [local] extra")
 
@@ -59,7 +59,7 @@ def _initialize_result(response) -> dict:
 @pytest.mark.parametrize("path", ["/mcp", "/mcp/"])
 def test_initialize_over_http(tmp_path: Path, path: str) -> None:
     """Both spellings work: no client is asked to guess the trailing slash."""
-    with TestClient(_app(tmp_path)) as client:
+    with TestClient(_app(tmp_path), base_url=_LOCAL_URL) as client:
         r = client.post(path, headers=_MCP_HEADERS, json=_INITIALIZE)
         body = _initialize_result(r)
         assert body["result"]["serverInfo"]["name"] == "asterism-mcp-tools"
@@ -73,7 +73,7 @@ def test_mcp_is_not_shadowed_by_the_spa(tmp_path: Path) -> None:
     index.html and ``POST /mcp`` answered 405 — the endpoint looked reachable
     to anyone probing with a browser and was not there at all.
     """
-    with TestClient(_app(tmp_path)) as client:
+    with TestClient(_app(tmp_path), base_url=_LOCAL_URL) as client:
         r = client.post("/mcp", headers=_MCP_HEADERS, json=_INITIALIZE)
         assert "asterism-local-spa" not in r.text
         assert r.headers["content-type"].startswith("text/event-stream")
@@ -81,15 +81,34 @@ def test_mcp_is_not_shadowed_by_the_spa(tmp_path: Path) -> None:
         assert "asterism-local-spa" in client.get("/some/typoed/path").text
 
 
+def test_mcp_refuses_browser_pages_on_other_origins(tmp_path: Path) -> None:
+    """登録した AI クライアントは Origin を付けない（上のテスト）ので通り、
+    ブラウザで開いたよそのページ・DNS リバインディングからは届かない
+    （MCP 仕様が求める Origin の確認。ADR local-first-distribution.md）。"""
+    with TestClient(_app(tmp_path), base_url=_LOCAL_URL) as client:
+        r = client.post(
+            "/mcp",
+            headers={**_MCP_HEADERS, "Origin": "https://evil.example"},
+            json=_INITIALIZE,
+        )
+        assert r.status_code == 403
+        r = client.post(
+            "/mcp",
+            headers={**_MCP_HEADERS, "Host": "rebind.example:8765"},
+            json=_INITIALIZE,
+        )
+        assert r.status_code == 403
+
+
 def test_mcp_can_be_turned_off(tmp_path: Path) -> None:
-    with TestClient(_app(tmp_path, mcp=False)) as client:
+    with TestClient(_app(tmp_path, mcp=False), base_url=_LOCAL_URL) as client:
         r = client.post("/mcp", headers=_MCP_HEADERS, json=_INITIALIZE)
         assert r.status_code == 405  # SPA mount: GET-only static files
 
 
 def test_tools_are_listed(tmp_path: Path) -> None:
     """A registered client sees the typed tools, not an empty server."""
-    with TestClient(_app(tmp_path)) as client:
+    with TestClient(_app(tmp_path), base_url=_LOCAL_URL) as client:
         r = client.post("/mcp", headers=_MCP_HEADERS, json=_INITIALIZE)
         session = r.headers["mcp-session-id"]
         headers = {**_MCP_HEADERS, "mcp-session-id": session}
@@ -113,7 +132,7 @@ def test_tools_are_listed(tmp_path: Path) -> None:
 
 
 def test_api_routes_survive_the_mount(tmp_path: Path) -> None:
-    with TestClient(_app(tmp_path)) as client:
+    with TestClient(_app(tmp_path), base_url=_LOCAL_URL) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/jobs").status_code == 200
 
@@ -131,7 +150,7 @@ def test_info_reports_the_endpoint_to_register(tmp_path: Path) -> None:
     settings.appdata_root = tmp_path / "appdata"
     settings.mcp_url = "http://127.0.0.1:8801/mcp"
     app = build_app(settings, oxigraph_client=_fake_oxigraph(), start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, base_url=_LOCAL_URL) as client:
         assert client.get("/api/appdata/info").json()["mcp_url"] == (
             "http://127.0.0.1:8801/mcp"
         )
