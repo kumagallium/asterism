@@ -9,8 +9,10 @@ import {
   fetchDraftStats,
   fetchDatasetHandles,
   generateColumnMeanings,
+  fetchPublishedNames,
   fetchTrialQueries,
   getStagingReshape,
+  publishDatasetNames,
   recountDataset,
   IngestCancelledError,
   IngestValidationError,
@@ -45,6 +47,7 @@ import {
   type SkeletonResult,
   type SourceDialect,
   type TrialDetail,
+  type PublishedNames,
   type TrialQueries,
 } from '../api'
 import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
@@ -113,6 +116,8 @@ import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
 import { ReshapeGate } from './ReshapeGate'
+import { namesToPublish } from './publishedNames'
+import { PublishedNamesNotice } from './PublishedNamesNotice'
 import { tryWording } from './tryWording'
 import {
   docsLabel,
@@ -1295,6 +1300,13 @@ export function KantanWizard({
   const [trial, setTrial] = useState<TrialQueries | null>(null)
   const [trialLoading, setTrialLoading] = useState(false)
   const [trialErr, setTrialErr] = useState('')
+  // 見直しの「ためす」: 保存した名前のうち、公開側にまだ出ていないもの。意味だけを
+  // 直した見直しは下書きを作らないので、名前を公開側へ出す入口をここに置く
+  // （PublishedNamesNotice）。`namesDone` は直前に公開した件数。
+  const [pubNames, setPubNames] = useState<PublishedNames | null>(null)
+  const [namesBusy, setNamesBusy] = useState(false)
+  const [namesDone, setNamesDone] = useState<number | null>(null)
+  const [namesErr, setNamesErr] = useState('')
 
   // S8: publish = name + per-kind counts + word summary + promote, ONE screen
   // (human gate ③ — K10). The name defaults empty: the auto chain registered
@@ -1369,7 +1381,13 @@ export function KantanWizard({
   }
 
   const busy =
-    inspecting || skeletonBusy || continuing || pipeBusy || refining !== false || publishing
+    inspecting ||
+    skeletonBusy ||
+    continuing ||
+    pipeBusy ||
+    refining !== false ||
+    publishing ||
+    namesBusy
   const structuralCarriedAdvisories = carriedAdvisories.filter(
     (advisory) => !isMeaningReviewAdvisory(advisory),
   )
@@ -2486,6 +2504,9 @@ export function KantanWizard({
     setIngestProgress(null)
     setTrial(null)
     setTrialErr('')
+    setPubNames(null)
+    setNamesDone(null)
+    setNamesErr('')
     setAlignment(null)
     setPubName('')
     setPubErr('')
@@ -3940,12 +3961,43 @@ export function KantanWizard({
     // の例・列の判断）はこの画面が読む。まだ取り込んでいない列の判断と、AI への
     // 注記がここに残っているため。
     void loadS6(datasetId)
+    setPubNames(null)
+    setNamesDone(null)
+    setNamesErr('')
     try {
-      setTrial(await fetchTrialQueries(datasetId))
+      const got = await fetchTrialQueries(datasetId)
+      setTrial(got)
+      // 公開した版を読んだときだけ、公開されている名前と見くらべる（下書きの名前は
+      // その公開で一緒に出る）。問いの答えを待たせない — 知らせはあとから出る。
+      if (got.read_from === 'published') {
+        void fetchPublishedNames(datasetId)
+          .then(setPubNames)
+          .catch(() => setPubNames(null))
+      }
     } catch (e) {
       setTrialErr(errText(e))
     } finally {
       setTrialLoading(false)
+    }
+  }
+
+  /** 名前だけを公開側へ出す（取り込み直さない）。押す前に、何が変わるかは
+   *  PublishedNamesNotice が 1 件ずつ見せている。 */
+  async function runPublishNames() {
+    const datasetId = kzDatasetId
+    if (!datasetId || namesBusy) return
+    setNamesBusy(true)
+    setNamesErr('')
+    try {
+      const res = await publishDatasetNames(datasetId)
+      // 0 件（押す前に揃っていた）は「更新しました」と言わない — 知らせが消えるだけ。
+      setNamesDone(res.updated > 0 ? res.updated : null)
+      // 書けたかどうかは、もう一度見くらべて確かめる（残っていれば、また出る）。
+      setPubNames(await fetchPublishedNames(datasetId).catch(() => null))
+    } catch (e) {
+      setNamesErr(errText(e))
+    } finally {
+      setNamesBusy(false)
     }
   }
 
@@ -5873,12 +5925,25 @@ export function KantanWizard({
               </aside>
             )}
           </div>
+          <PublishedNamesNotice
+            changes={namesToPublish({
+              datasetId: kzDatasetId,
+              reviewOnly,
+              readFrom: trialLoading ? null : trial?.read_from,
+              names: pubNames,
+            })}
+            busy={namesBusy}
+            done={namesDone}
+            error={namesErr}
+            onPublish={() => void runPublishNames()}
+          />
           <div className="kz-actions">
             <button
               type="button"
               className={trialEmpty ? 'btn btn--ghost' : undefined}
               onClick={goPublish}
-              disabled={trialLoading}
+              // 名前を公開している最中に画面を離れると、結果を見せる先が無くなる。
+              disabled={trialLoading || namesBusy}
             >
               {t(tryWords.forward)}
             </button>
@@ -5886,6 +5951,7 @@ export function KantanWizard({
               type="button"
               className={trialEmpty ? undefined : 'btn btn--ghost'}
               onClick={backToMeanings}
+              disabled={namesBusy}
             >
               {t('kantan:s7.back')}
             </button>

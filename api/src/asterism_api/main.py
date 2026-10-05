@@ -184,6 +184,7 @@ from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
 # 受けずトップレベル import できる。
 
 if TYPE_CHECKING:
+    import rdflib
     from asterism.dialect import SourceDialect
 
 
@@ -2502,6 +2503,31 @@ async def _project_ontology_graph(
     but still produced zero triples — that is an unparsed/unexpected shape, not
     the legitimate "nothing to project" case.
     """
+    graph = _design_ontology_graph(dataset_id, artifacts)
+    if graph is None:
+        return 0
+    payload = graph.serialize(format="turtle")
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    ontology_iri = substrate.ontology_graph_iri(dataset_id)
+    await substrate.drop_graph(client, ontology_iri)  # replace, not merge
+    await client.post_turtle_bytes(payload, graph_iri=ontology_iri)
+    return len(graph)
+
+
+def _design_ontology_graph(
+    dataset_id: str, artifacts: dict[str, str], *, warn: bool = True
+) -> rdflib.Graph | None:
+    """The TBox the stored design would publish — nothing is written.
+
+    The pure half of :func:`_project_ontology_graph` (same sources, same
+    order: the Mapping IR first, the legacy ``model.yaml`` only when the IR is
+    absent or projects nothing). ``None`` when neither projects a triple.
+    読むだけの呼び出し（公開済みの名前との見くらべ）と書く呼び出しが、同じ
+    1 つの作り方を通る — 見くらべた名前と、書かれる名前が食い違わないように。
+    ``warn=False`` は、読めない設計の警告を出さない（見くらべは画面を開くたびに
+    走る。警告は公開のときの 1 回でよい）。
+    """
     mapping_ir_yaml = artifacts.get("mapping.yaml") or ""
     model_yaml = artifacts.get("model.yaml") or ""
     prefixes = STANDARD_PREFIXES | extract_prefixes(
@@ -2514,32 +2540,115 @@ async def _project_ontology_graph(
             mapping_ir_yaml, prefixes, class_labels=model_yaml_class_labels(model_yaml)
         )
         if len(graph) == 0:
-            logger.warning(
-                "dataset %s: mapping.yaml (Mapping IR) present but projected "
-                "0 ontology triples (unparsed shape?); falling back to model.yaml",
-                dataset_id,
-            )
+            if warn:
+                logger.warning(
+                    "dataset %s: mapping.yaml (Mapping IR) present but projected "
+                    "0 ontology triples (unparsed shape?); falling back to model.yaml",
+                    dataset_id,
+                )
             graph = None
 
     if graph is None and model_yaml.strip():
         graph = project_model_yaml(model_yaml, prefixes)
         if len(graph) == 0:
-            logger.warning(
-                "dataset %s: model.yaml present but projected 0 ontology "
-                "triples (unrecognized shape?)",
-                dataset_id,
-            )
+            if warn:
+                logger.warning(
+                    "dataset %s: model.yaml present but projected 0 ontology "
+                    "triples (unrecognized shape?)",
+                    dataset_id,
+                )
             graph = None
 
     if graph is None or len(graph) == 0:
-        return 0
-    payload = graph.serialize(format="turtle")
-    if isinstance(payload, str):
-        payload = payload.encode("utf-8")
+        return None
+    return graph
+
+
+_RDFS_LABEL_IRI = "http://www.w3.org/2000/01/rdf-schema#label"
+# An IRI that can be written between ``<`` and ``>`` in a SPARQL update as is.
+_SPARQL_SAFE_IRI = re.compile(r"[^\s<>\"{}|^`\\]+")
+_SPARQL_STRING_ESCAPES = str.maketrans(
+    {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+)
+
+
+def _sparql_string(value: str) -> str:
+    """``value`` as a SPARQL string literal (``"…"``), escaped by hand.
+
+    ``rdflib.Literal(value).n3()`` は、改行を含み ``\\"`` で終わる値で閉じの引用符を
+    逃がし損ねる（長い引用符の形に切り替えるため）。1 行の形だけを使い、
+    逆斜線・引用符・改行・復帰・タブを逃がす — SPARQL の文法が求めるのはこれで全部。
+    """
+    return '"' + value.translate(_SPARQL_STRING_ESCAPES) + '"'
+
+
+def _names_are_published(meta: Mapping[str, object]) -> bool:
+    """公開した版があり、いま公開していて、下書きが残っていない。
+
+    名前だけの公開ができるのはこのときだけ: 下書きがあれば名前はその公開で
+    一緒に出る（``promoted`` は新しい取り込みで必ず下りる）。公開をやめている
+    あいだは、もう一度公開してから。
+    """
+    return bool(meta.get("promoted")) and meta.get("status") != "retracted"
+
+
+async def _published_name_changes(
+    client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
+) -> list[dict[str, str]] | None:
+    """公開済みの用語のうち、設計の名前が、公開されている名前と違うもの。
+
+    見くらべるのは**すでに公開されている用語**（データセットのオントロジーの
+    graph に ``rdfs:label`` がある種類・項目）だけ。設計にしか無い用語は数えない
+    — それは名前の違いではなく、まだ公開していない構造で、取り込み直してから
+    公開（promote）で出る。
+
+    ``None`` = 見くらべられない（ストアを読めない／公開されている名前が 1 つも
+    無い／設計から用語を 1 つも作れない）。空の一覧 = 見くらべて、違いが無い。
+    """
+    import rdflib
+
+    graph = _design_ontology_graph(dataset_id, artifacts, warn=False)
+    if graph is None:
+        return None
     ontology_iri = substrate.ontology_graph_iri(dataset_id)
-    await substrate.drop_graph(client, ontology_iri)  # replace, not merge
-    await client.post_turtle_bytes(payload, graph_iri=ontology_iri)
-    return len(graph)
+    query = (
+        f"SELECT ?t ?l WHERE {{ GRAPH <{ontology_iri}> {{ ?t <{_RDFS_LABEL_IRI}> ?l }} }} "
+        f"ORDER BY ?t ?l"
+    )
+    try:
+        res = await client.sparql_select(query)
+    except Exception:
+        return None
+    results = res.get("results") if isinstance(res, dict) else None
+    bindings = results.get("bindings") if isinstance(results, dict) else None
+    published: dict[str, list[str]] = {}
+    for b in bindings if isinstance(bindings, list) else []:
+        term = b.get("t") or {}
+        label = b.get("l") or {}
+        if term.get("type") == "uri" and label.get("type") == "literal":
+            published.setdefault(str(term["value"]), []).append(str(label.get("value") or ""))
+    if not published:
+        return None
+    rdfs_class = rdflib.URIRef("http://www.w3.org/2000/01/rdf-schema#Class")
+    changes: list[dict[str, str]] = []
+    for subject, _, name in graph.triples((None, rdflib.URIRef(_RDFS_LABEL_IRI), None)):
+        term_iri = str(subject)
+        want = str(name)
+        have = published.get(term_iri)
+        if have is None or have == [want] or not _SPARQL_SAFE_IRI.fullmatch(term_iri):
+            continue
+        changes.append(
+            {
+                "iri": term_iri,
+                "kind": "class" if (subject, rdflib.RDF.type, rdfs_class) in graph else "property",
+                # 公開側に名前が複数あるとき（いまの書き手は 1 つしか書かない）は、
+                # 設計と違うものを見せる — 「A → A」とは言わない。
+                "published": next((old for old in have if old != want), have[0]),
+                "design": want,
+            }
+        )
+    changes.sort(key=lambda c: (c["kind"] != "property", c["iri"]))
+    return changes
 
 
 async def _project_meta_graph(
@@ -10204,6 +10313,25 @@ def build_app(
         report = await substrate.alignment_report(client, staged_iri)
         return JSONResponse({"dataset_id": dataset_id, "alignment": report})
 
+    async def _register_trial_query_tools(dataset_id: str) -> None:
+        """Register the dataset's trial queries as typed query tools (best-effort).
+
+        The tools carry the item names in their titles, so every publication of
+        names writes them again: a promote, and a names-only publish.
+        """
+        try:
+            trial = await dataset_trial_queries(dataset_id)
+            tools = synthesize_query_tools_from_trial_queries(trial)
+            if tools:
+                await asyncio.to_thread(
+                    write_registry_query_tools,
+                    cfg.registry_root,
+                    dataset_id,
+                    tools,
+                )
+        except Exception:  # never block a publication on tool synthesis
+            logger.exception("query tool synthesis failed for %s (continuing)", dataset_id)
+
     @app.post("/api/datasets/{dataset_id}/promote", dependencies=_write_auth)
     async def promote_dataset(dataset_id: str) -> JSONResponse:
         """Phase 5 (#15 S4): human-gated promotion of a staged version graph to citable.
@@ -10287,18 +10415,7 @@ def build_app(
         # trial queries as typed query tools, so Ask answers "how many / what range
         # / which is largest" from the verified path instead of asking a weak model
         # to compose SPARQL. Best-effort: a failure here must not undo the promote.
-        try:
-            trial = await dataset_trial_queries(dataset_id)
-            tools = synthesize_query_tools_from_trial_queries(trial)
-            if tools:
-                await asyncio.to_thread(
-                    write_registry_query_tools,
-                    cfg.registry_root,
-                    dataset_id,
-                    tools,
-                )
-        except Exception:  # never block a promote on tool synthesis
-            logger.exception("query tool synthesis failed for %s (continuing)", dataset_id)
+        await _register_trial_query_tools(dataset_id)
         # ADR togomcp-auto-publish.md: project the vetted MIE into the togomcp
         # catalog (best-effort, opt-in via ASTERISM_TOGOMCP_DIR). Only promoted
         # data is ever published; the projection pins the CURRENT live graph.
@@ -10339,6 +10456,93 @@ def build_app(
         if togomcp is not None:
             payload["togomcp"] = togomcp
         return JSONResponse(payload)
+
+    @app.get("/api/datasets/{dataset_id}/published-names")
+    async def dataset_published_names(dataset_id: str) -> dict[str, object]:
+        """公開されている名前と、いまの設計の名前の違い。
+
+        項目の意味を直して保存すると、書き換わるのは保存済みの設計だけで、
+        ストアの名前（オントロジーの graph の ``rdfs:label``）は公開のときにしか
+        変わらない（``_project_ontology_graph``）。意味だけを直したときは下書きが
+        できないので、その「公開」が来ない — 公開済みの ID を開いたページは前の
+        名前のまま残る（実機 2026-10-05）。ここはその違いを読むだけで、書くのは
+        ``POST …/publish-names``（ADR ontology-canonical-lifecycle.md §3.2）。
+
+        ``available: false`` = 見くらべるものが無い: 公開した版が無い／下書きが
+        残っている（名前はその公開で一緒に出る）／公開をやめている／ストアを
+        読めない。読むだけで、失敗しても 200（「ためす」の画面を止めない）。
+        知らないデータセットだけ 404。
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        out: dict[str, object] = {"dataset_id": dataset_id, "available": False, "changes": []}
+        if not _names_are_published(data.get("meta") or {}):
+            return out
+        changes = await _published_name_changes(
+            app.state.client, dataset_id, data.get("artifacts") or {}
+        )
+        if changes is None:
+            return out
+        out["available"] = True
+        out["changes"] = changes
+        return out
+
+    @app.post("/api/datasets/{dataset_id}/publish-names", dependencies=_write_auth)
+    async def publish_dataset_names(dataset_id: str) -> dict[str, object]:
+        """公開済みの用語の名前だけを、いまの設計の名前に書き換える。
+
+        人が押す公開のひとつ（kantan K10 の人間ゲート）で、取り込み直さない。
+        書くのは ``GET …/published-names`` が返す違いそのもの — すでに公開されて
+        いる種類・項目の ``rdfs:label`` — だけ。設計にしか無い用語・つながり・
+        データには触れない（オントロジーの graph を作り直さない）ので、構造の
+        変更がこの入口から公開されることは無い。名前を題に持つ型つきツールも
+        登録し直す。
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not _names_are_published(data.get("meta") or {}):
+            raise _coded_error(
+                409,
+                "dataset.names_not_published",
+                "dataset has no published version whose names could be updated",
+            )
+        client: OxigraphClient = app.state.client
+        changes = await _published_name_changes(client, dataset_id, data.get("artifacts") or {})
+        if changes is None:
+            raise _coded_error(
+                503,
+                "dataset.names_unreadable",
+                "the published names could not be read from the store",
+            )
+        if changes:
+            graph = f"GRAPH <{substrate.ontology_graph_iri(dataset_id)}>"
+            operations: list[str] = []
+            for change in changes:
+                names = f"<{change['iri']}> <{_RDFS_LABEL_IRI}>"
+                name = _sparql_string(change["design"])
+                operations.append(f"DELETE WHERE {{ {graph} {{ {names} ?l }} }}")
+                operations.append(f"INSERT DATA {{ {graph} {{ {names} {name} }} }}")
+            # 項目ごとに分けて送らず、1 回の更新要求にまとめる（文法で断られた
+            # 要求は 1 行も書かれない — 実物の Oxigraph で確認・2026-10-05）。
+            try:
+                await client.sparql_update(" ;\n".join(operations))
+            except Exception as exc:
+                logger.exception("publishing names failed for %s", dataset_id)
+                raise _coded_error(
+                    502,
+                    "dataset.names_write_failed",
+                    "the store did not accept the name update",
+                ) from exc
+            await _register_trial_query_tools(dataset_id)
+            await asyncio.to_thread(
+                registry.update_meta_atomic,
+                cfg.registry_root,
+                dataset_id,
+                {"names_published_at": datetime.now(UTC).isoformat()},
+            )
+        return {"dataset_id": dataset_id, "updated": len(changes), "changes": changes}
 
     @app.post("/api/datasets/{dataset_id}/retract", dependencies=_write_auth)
     async def retract_dataset(dataset_id: str) -> JSONResponse:
