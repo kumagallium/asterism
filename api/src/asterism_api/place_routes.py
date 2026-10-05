@@ -117,6 +117,17 @@ def _resolve_place_source(
     raise HTTPException(400, "staging_id or dataset_id is required")
 
 
+def _staged_names(sdir: Path) -> dict[str, str]:
+    """staging が覚えている ``{保存名: 利用者が置いた名前}``（無ければ空）。"""
+    try:
+        names = json.loads((sdir / "meta.json").read_text("utf-8")).get("names")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    if not isinstance(names, dict):
+        return {}
+    return {k: v for k, v in names.items() if isinstance(k, str) and isinstance(v, str)}
+
+
 def _first_tabular(paths: list[Path]) -> Path:
     tabular = [p for p in paths if p.suffix.lower() in TABULAR_SUFFIXES]
     if not tabular:
@@ -427,7 +438,7 @@ def register_place(app: FastAPI, cfg: Settings) -> None:
     @app.post("/api/place/commit", dependencies=_write_auth)
     async def place_commit(body: PlaceCommitBody) -> JSONResponse:
         try:
-            _sdir, paths = staging.load(cfg.registry_root, body.staging_id)
+            sdir, paths = staging.load(cfg.registry_root, body.staging_id)
         except staging.StagingNotFound as exc:
             raise HTTPException(404, f"staging {body.staging_id!r} not found (expired?)") from exc
         source_path = _first_tabular(paths)
@@ -465,8 +476,14 @@ def register_place(app: FastAPI, cfg: Settings) -> None:
                 raise HTTPException(500, "could not resolve the new dataset's source directory")
             dest_source_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, dest_source_dir / source_path.name)
+            # 置いた名前（日本語だけの名前は保存名に直っている）を引き継ぐ
+            # （ADR source-staging.md §4.5）。
             registry.mark_source_saved(
-                cfg.registry_root, dataset_id, [source_path.name], conversion=None
+                cfg.registry_root,
+                dataset_id,
+                [source_path.name],
+                conversion=None,
+                names=_staged_names(sdir),
             )
 
             # ② ingest（既存 job）

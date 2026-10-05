@@ -69,7 +69,8 @@ export function normalizeJob(raw: unknown): IngestJob {
     dataset_name: str(r.dataset_name) || str(r.dataset_id),
     // Watcher records carry csv_path; append/ingest records carry `file` (a
     // name or comma list) — fall back so the file column is never blank.
-    csv_path: str(r.csv_path) || str(r.file),
+    // `file_label` = the name the user dropped (server-side, when it differs).
+    csv_path: str(r.csv_path) || str(r.file_label) || str(r.file),
     ttl_path: typeof r.ttl_path === 'string' ? r.ttl_path : null,
     rows_in: num(r.rows_in),
     rows_ok: num(r.rows_ok),

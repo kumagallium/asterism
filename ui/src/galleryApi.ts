@@ -38,6 +38,26 @@ export const KIND_TO_CLASS: Record<string, string> = {
   ingestion: 'IngestionActivity',
 }
 
+/** 画面に出すファイル名: `source_files`（保存名）を置いた名前に直し、同じ名前は
+ *  1 回だけ、順序は保つ。照合や件数には使わない（そちらは保存名の `source_files`）。
+ *
+ *  `sameFormatOnly`: 「この名前で置き直してください」と案内する文に使う。変換して
+ *  できたファイル（Excel のシートから作った CSV など）は、置いたブックの名前では
+ *  置き直せないので、保存名のまま出す。 */
+export function placedSourceNames(
+  meta: { source_files?: string[]; source_names?: Record<string, string> },
+  sameFormatOnly = false,
+): string[] {
+  const ext = (n: string) => n.slice(n.lastIndexOf('.') + 1).toLowerCase()
+  const out: string[] = []
+  for (const f of meta.source_files ?? []) {
+    const placed = meta.source_names?.[f]
+    const name = placed && (!sameFormatOnly || ext(placed) === ext(f)) ? placed : f
+    if (!out.includes(name)) out.push(name)
+  }
+  return out
+}
+
 /**
  * The vocabulary class an Ask citation (or provenance step) links to, or
  * undefined when nothing known matches.
@@ -218,6 +238,8 @@ interface DatasetMeta {
   // accumulation feed is documents, not CSV/JSON batches).
   has_source?: boolean
   source_files?: string[]
+  /** 保存名 → 利用者が置いたファイル名（日本語だけの名前などを保存名に直したぶんだけ）。 */
+  source_names?: Record<string, string>
   source_kind?: 'csv' | 'json' | 'xml'
   // S4: whether the draft was promoted into the canonical (default) graph.
   promoted?: boolean
