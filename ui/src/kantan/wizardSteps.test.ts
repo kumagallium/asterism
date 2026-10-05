@@ -71,3 +71,49 @@ describe('「ためす」へ戻るボタンの名前', () => {
     })
   }
 })
+
+describe('畳んだ「数の確認」の言葉', () => {
+  // 画面を畳んだら、その名前とボタンの文言も辞書から消す。残っていると、
+  // マニュアルの照合テスト（api/tests/test_design_consult.py）は「辞書のどこかに
+  // 在る」で通すので、無い画面・無いボタンの案内が素通りする（2026-10-05 に
+  // 実例: getting-started.md の「まだ取り込んでいない項目」「すべて取り込む」）。
+  // 生きている文言が、消したボタンを名指していないことも同じ検査で見る
+  // （実例: 「ためす」の失敗の案内が「この意味で確定」で進めと言っていた）。
+  const retired = {
+    ja: [
+      '数の確認',
+      'この意味で確定',
+      'まだ取り込んでいない項目',
+      'すべて取り込む',
+      'すべて取り込まない',
+      '空の意味に元の列名を使う',
+    ],
+    en: [
+      'Check the counts',
+      'Confirm these meanings',
+      'Items not yet included',
+      'Include all',
+      'Leave all out',
+      'Use the original column name for empty meanings',
+    ],
+  }
+
+  /** 辞書の文言を、キーの道筋つきで全部ならべる。 */
+  function strings(value: unknown, path = ''): { key: string; text: string }[] {
+    if (typeof value === 'string') return [{ key: path, text: value }]
+    if (value === null || typeof value !== 'object') return []
+    return Object.entries(value).flatMap(([k, v]) => strings(v, path ? `${path}.${k}` : k))
+  }
+
+  for (const [name, locale] of [
+    ['ja', ja],
+    ['en', en],
+  ] as const) {
+    it(`${name}: 辞書のどの文言にも残っていない`, () => {
+      const hits = strings(locale)
+        .filter(({ text }) => retired[name].some((word) => text.includes(word)))
+        .map(({ key, text }) => `${key}: ${text}`)
+      expect(hits).toEqual([])
+    })
+  }
+})
