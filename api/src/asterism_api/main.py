@@ -8954,6 +8954,10 @@ def build_app(
         Labels/units come from the Mapping IR (K8) + the model.yaml projection —
         never re-derived by an AI. Works before AND after promote: the staged
         version graph a promote points ``liveGraph`` at is the same graph.
+        ``read_from`` says which of the two answered — ``"draft"`` (staged, not
+        yet published) or ``"published"`` (the version a promote made live;
+        ``"retracted"`` while that version is withdrawn) — and stays null when
+        nothing was read.
 
         Read-only and forgiving like /draft-stats: a never-ingested dataset or
         an unreachable store returns 200 with ``available: false`` (the UI
@@ -8970,6 +8974,7 @@ def build_app(
         out: dict[str, object] = {
             "dataset_id": dataset_id,
             "available": False,
+            "read_from": None,
             "classes": [],
             "count_sparql": None,
             "entities": None,
@@ -9033,6 +9038,19 @@ def build_app(
             or meta.get("live_graph")  # the live version graph (post-promote)
             or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
         )
+        # どちらのデータに問い合わせたか。新しい取り込みは必ず ``promoted`` を
+        # 下ろす（``mark_ingested``）ので、立っていれば公開した版、下りていれば
+        # 公開前の下書き。画面はこれを見て言い分ける — 公開済みのデータセットを
+        # 見直しで開き、何も作り直さずに「ためす」へ出ると、問いは公開した版に
+        # 走るのに、画面は「公開前の下書きに取り込めました」と言っていた（実機
+        # 2026-10-05）。公開をやめたデータセットは、読むのは公開した版のままだが
+        # いまは公開していないので、別に言う（画面は「公開済み」と言わない）。
+        if not meta.get("promoted"):
+            read_from = "draft"
+        elif meta.get("status") == "retracted":
+            read_from = "retracted"
+        else:
+            read_from = "published"
         client: OxigraphClient = app.state.client
 
         async def select(q: str) -> list[dict] | None:
@@ -9085,6 +9103,7 @@ def build_app(
                 entry["label"] = got
             classes.append(entry)
         out["available"] = True
+        out["read_from"] = read_from
         out["classes"] = classes
         out["count_sparql"] = count_q
 

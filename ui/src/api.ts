@@ -1533,6 +1533,10 @@ export interface TrialDetail {
 export interface TrialQueries {
   dataset_id: string
   available: boolean
+  /** Which data answered: the staged draft, or the version already published
+   *  ('retracted' while that version is withdrawn from the public corpus).
+   *  Null when nothing was read; absent on an older server. */
+  read_from?: 'draft' | 'published' | 'retracted' | null
   classes: { iri: string; label?: string; n: number }[]
   count_sparql: string | null
   /** Plain entity count — only set when the draft declares no classes at all
