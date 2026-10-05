@@ -3194,7 +3194,8 @@ export function KantanWizard({
     }
   }
 
-  /** The same screen, reached BACKWARDS from the counts once a design exists.
+  /** The same screen, reached BACKWARDS (from ためす, or reopened from the
+   *  catalog) once a design exists — it returns to ためす.
    *  Saving is deterministic — the meaning is projected onto §9 and the
    *  artifacts are re-derived; no model runs and the design is not rebuilt. */
   async function saveMeaningsAndReturn() {
@@ -7000,7 +7001,7 @@ export function KantanWizard({
           )}
           <div className="kz-actions">
             {/* 設計がまだ無いとき＝ここが先へ進む扉。設計ができたあとに戻って
-                きたとき＝直した意味を保存して数の確認へ返す扉（作り直さない）。 */}
+                きたとき＝直した意味を保存して「ためす」へ返す扉（作り直さない）。 */}
             {kzDatasetId ? (
               <button
                 type="button"
@@ -7017,10 +7018,19 @@ export function KantanWizard({
             <button
               type="button"
               className="btn btn--ghost"
-              onClick={() => setStep(kzDatasetId ? 6 : 2)}
+              onClick={() => {
+                // 設計ができたあとの戻り先は「ためす」— 上の保存ボタンと同じ場所へ、
+                // 保存せずに出る。以前は「数の確認」(6) を指していたが、その画面は
+                // 畳んで描画の分岐が無く、空のカードで行き止まりになっていた（実機
+                // 2026-10-05）。見直しでまだ下書きを作り直していないときも「ためす」
+                // でよい: 問いは公開済みのグラフにも答え、そこの「公開へ」は公開
+                // し直すものが無ければ見直しを終える（goPublish）。
+                if (kzDatasetId) confirmMeanings()
+                else setStep(2)
+              }}
               disabled={meaningSaving}
             >
-              {t(kzDatasetId ? 'kantan:meanings.backToCounts' : 'kantan:meanings.back')}
+              {t(kzDatasetId ? 'kantan:meanings.backToTry' : 'kantan:meanings.back')}
             </button>
           </div>
         </section>
