@@ -1,0 +1,12 @@
+[
+  {
+    "repo_id": "docling-project/docling-layout-heron",
+    "ref": "main",
+    "commit": "8f39ad3c0b4c58e9c2d2c84a38465abf757272d8"
+  },
+  {
+    "repo_id": "docling-project/docling-models",
+    "ref": "v2.3.0",
+    "commit": "fc0f2d45e2218ea24bce5045f58a389aed16dc23"
+  }
+]
