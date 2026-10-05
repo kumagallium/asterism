@@ -9,7 +9,6 @@ import {
   fetchDraftStats,
   fetchDatasetHandles,
   generateColumnMeanings,
-  fetchIdMove,
   fetchTrialQueries,
   getStagingReshape,
   recountDataset,
@@ -28,7 +27,6 @@ import {
   type ColumnMeaning,
   type DraftStats,
   type DuplicateColumnFinding,
-  type IdMove,
   type IngestJobHandle,
   type IngestProgress,
   type InspectResult,
@@ -74,6 +72,8 @@ import {
 } from '../galleryApi'
 import type { DetailTab } from '../GalleryView'
 import type { RedesignTarget } from '../WorkbenchView'
+import { useIdMove } from '../idMove'
+import { IdMoveNotice } from '../IdMoveNotice'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
@@ -112,6 +112,18 @@ import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
 import { ReshapeGate } from './ReshapeGate'
+import {
+  docsLabel,
+  documentExts,
+  firstUnavailableIn,
+  formatsContext,
+  formatsLabel,
+  unavailableDropMessage,
+  unavailableFormats,
+  unavailableNote,
+  useDocumentFormats,
+  type DocumentFormats,
+} from '../documentFormats'
 import { requestConsult } from '../consult/consultOpen'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
@@ -334,7 +346,10 @@ function formatNum(raw: string, lng: string): string {
 const TABULAR_EXTS = TABULAR_ACCEPT.split(',')
 const JSON_EXTS = ['.json', '.geojson']
 const DOCUMENT_EXTS = ['.xml', '.docx', '.pdf']
-const DROP_ACCEPT = [...TABULAR_EXTS, ...JSON_EXTS, ...DOCUMENT_EXTS].join(',')
+// ファイル選択ダイアログの accept。変換できない拡張子は含めない（分類用の DOCUMENT_EXTS は静的のまま）。
+function dropAccept(f: DocumentFormats): string {
+  return [...TABULAR_EXTS, ...JSON_EXTS, ...documentExts(f)].join(',')
+}
 
 /** The example table behind S1's 「まずサンプルデータで試す」. Five columns, twenty
  *  rows, five samples measured at four temperatures — enough for the AI to
@@ -453,11 +468,11 @@ function kindOf(name: string): KantanKind | null {
 
 /** What a re-drop is allowed to be: the design was written against ONE kind of
  *  file, so the resume drop zone must not accept a PDF for a table (RESUME-18). */
-function acceptFor(k: KantanKind | null): string {
+function acceptFor(k: KantanKind | null, f: DocumentFormats): string {
   if (k === 'tabular') return TABULAR_EXTS.join(',')
   if (k === 'json') return JSON_EXTS.join(',')
-  if (k === 'document') return DOCUMENT_EXTS.join(',')
-  return DROP_ACCEPT
+  if (k === 'document') return documentExts(f).join(',')
+  return dropAccept(f)
 }
 
 /** The tail of a citation ID as a person can read it: the path below
@@ -918,6 +933,7 @@ export function KantanWizard({
   onShortcutDone?: (target: { datasetId: string; classIri?: string }) => void
 }) {
   const { t, i18n } = useTranslation()
+  const fmts = useDocumentFormats()
   const { isReady, getActiveCredentials, openSettings, activeUsesServerKey } = useLlmSettings()
 
   const [snap] = useState(loadSnapshot)
@@ -1299,10 +1315,6 @@ export function KantanWizard({
   // reached, so it costs nothing during the wizard. null = unknown → the connect
   // offer stays hidden (fail closed: never point at a dead end).
   const [publishedCount, setPublishedCount] = useState<number | null>(null)
-  // 公開済みの ID がこの更新で動くか（ADR id-move-after-publish.md）。null =
-  // まだ読んでいない／読めなかった。読めなかったときは黙る: 公開を止める材料
-  // ではないし、無い断定を作るよりは何も言わない方が正しい。
-  const [idMove, setIdMove] = useState<IdMove | null>(null)
 
   // かんたん見直し (catalog 見直す): the wizard reopens an existing dataset at
   // S6. `reingested` = whether THIS session ran the refine → re-ingest chain;
@@ -1569,16 +1581,8 @@ export function KantanWizard({
 
   // 公開画面に来たら「この更新で ID がいくつ動くか」を読む。ingest のときに
   // 実測して meta に残してあるので、リロードして戻ってきても同じ答えが出る。
-  useEffect(() => {
-    if (step !== 8 || !kzDatasetId) return
-    let off = false
-    fetchIdMove(kzDatasetId)
-      .then((m) => !off && setIdMove(m))
-      .catch(() => !off && setIdMove(null))
-    return () => {
-      off = true
-    }
-  }, [step, kzDatasetId])
+  // データセットの詳細の公開確認も、同じ読み方・同じ知らせを使う。
+  const idMove = useIdMove(step === 8 ? kzDatasetId : null)
 
   // Count published datasets when S9 is reached, to decide whether connecting is
   // even possible yet. A failure leaves it null and the offer simply does not
@@ -2306,13 +2310,19 @@ export function KantanWizard({
   function onFilesChosen(list: FileList | File[] | null, opts?: { restored?: boolean }) {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
+    // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
+    const unavailable = firstUnavailableIn(arr, fmts)
+    if (unavailable) {
+      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      return
+    }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
     if (kinds.has(null)) {
-      setPickError(t('kantan:s1.unsupported'))
+      setPickError(t('kantan:s1.unsupported', { context: formatsContext(fmts) }))
       return
     }
     if (kinds.size > 1) {
-      setPickError(t('kantan:s1.mixed'))
+      setPickError(t('kantan:s1.mixed', { context: formatsContext(fmts), docs: docsLabel(fmts) }))
       return
     }
     const k = [...kinds][0] as KantanKind
@@ -3357,18 +3367,24 @@ export function KantanWizard({
         }
       }
     }
+    // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
+    const unavailable = firstUnavailableIn(arr, fmts)
+    if (unavailable) {
+      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      return
+    }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
     if (kinds.has(null)) {
-      setPickError(t('kantan:s1.unsupported'))
+      setPickError(t('kantan:s1.unsupported', { context: formatsContext(fmts) }))
       return
     }
     if (kinds.size > 1) {
-      setPickError(t('kantan:s1.mixed'))
+      setPickError(t('kantan:s1.mixed', { context: formatsContext(fmts), docs: docsLabel(fmts) }))
       return
     }
     const dropped = [...kinds][0] as KantanKind
     if (kind && dropped !== kind) {
-      setPickError(t(`kantan:s5.stop.wrongKind.${kind}`))
+      setPickError(t(`kantan:s5.stop.wrongKind.${kind}`, { formats: formatsLabel(fmts) }))
       return
     }
     if (sourceNames.length > 0) {
@@ -4552,13 +4568,19 @@ export function KantanWizard({
   function onStopFilesDropped(list: FileList | null) {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
+    // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
+    const unavailable = firstUnavailableIn(arr, fmts)
+    if (unavailable) {
+      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      return
+    }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
     if (kinds.has(null)) {
-      setPickError(t('kantan:s1.unsupported'))
+      setPickError(t('kantan:s1.unsupported', { context: formatsContext(fmts) }))
       return
     }
     if (kinds.size > 1) {
-      setPickError(t('kantan:s1.mixed'))
+      setPickError(t('kantan:s1.mixed', { context: formatsContext(fmts), docs: docsLabel(fmts) }))
       return
     }
     // The design was written for ONE kind of file. A PDF dropped here used to
@@ -4567,7 +4589,7 @@ export function KantanWizard({
     // judgement to push onto the reader (RESUME-18).
     const dropped = [...kinds][0] as KantanKind
     if (kind && dropped !== kind) {
-      setPickError(t(`kantan:s5.stop.wrongKind.${kind}`))
+      setPickError(t(`kantan:s5.stop.wrongKind.${kind}`, { formats: formatsLabel(fmts) }))
       return
     }
     // Days later nobody remembers which file this was. If the names differ,
@@ -5429,7 +5451,7 @@ export function KantanWizard({
                     })
                   : t('kantan:s5.stop.filesBody')}
               </p>
-              <DropZone onFiles={onStopFilesDropped} accept={acceptFor(kind)} />
+              <DropZone onFiles={onStopFilesDropped} accept={acceptFor(kind, fmts)} />
               {pickError && <p className="kz-note kz-pick-error">{pickError}</p>}
             </>
           )}
@@ -6108,38 +6130,7 @@ export function KantanWizard({
               pressed. An update that re-counts the data moves addresses other
               people may already have cited — the one thing on this screen that
               reaches outside it (ADR id-move-after-publish.md). */}
-          {idMove?.changes_ids && (
-            <div
-              className={`kz-idmove${idMove.fully_movable === false ? ' kz-idmove--warn' : ''}`}
-            >
-              <p className="kz-idmove-head">{t('kantan:s8.idMoveTitle')}</p>
-              {(idMove.forwarded ?? 0) > 0 && (
-                <p>
-                  {t('kantan:s8.idMoveForwarded', {
-                    n: (idMove.forwarded ?? 0).toLocaleString(),
-                  })}
-                </p>
-              )}
-              {idMove.fully_movable === false && (
-                <>
-                  <p>{t('kantan:s8.idMoveBroken')}</p>
-                  <ul className="kz-idmove-list">
-                    {(idMove.blocked ?? []).map((b) => (
-                      <li key={`${b.source}:${b.name}`}>
-                        {b.reason === 'missing_columns'
-                          ? t('kantan:s8.idMoveBrokenColumns', {
-                              source: b.source,
-                              columns: b.missing_columns.join('、') || '—',
-                            })
-                          : t('kantan:s8.idMoveBrokenKind', { source: b.source })}
-                      </li>
-                    ))}
-                  </ul>
-                  <p>{t('kantan:s8.idMoveBrokenExit')}</p>
-                </>
-              )}
-            </div>
-          )}
+          <IdMoveNotice move={idMove} exit={t('kantan:s8.idMoveBrokenExit')} />
           {/* K23: 「中身」「ことば」「あとから」は同じ問い — 公開すると何がどう
               なるか — への 3 つの答えなので、1 つの表として読ませる。撤回の約束
               だけ見出し語が無く、他の 2 行と揃っていなかった。 */}
@@ -6422,6 +6413,10 @@ export function KantanWizard({
                 答えだけで、途中で聞かれることも消し方も、読まなくても進める。 */}
             <p className="kz-lead">{t('kantan:s1.privacy')}</p>
             <DropZone onFiles={onFilesChosen} />
+            {/* 変換できない形式は、置く欄のすぐ下で先に言う（見出しの直後は 1 文だけ＝K23）。 */}
+            {unavailableFormats(fmts).length > 0 && (
+              <p className="kz-note">{unavailableNote(t, fmts)}</p>
+            )}
             {/* Nobody can be walked through a flow they cannot start. Without a
                 file of their own, the first screen used to be a dead end
                 (KZ-A-39). */}
@@ -6511,7 +6506,12 @@ export function KantanWizard({
               {/* The panel below now OPENS on what was dropped here, so there
                   is one sentence again — the old "choose it once more" line was
                   only ever true while the panel ignored the drop (GAL-B-27). */}
-              <p className="kz-note">{t('kantan:s1.documentNote')}</p>
+              <p className="kz-note">
+                {t('kantan:s1.documentNote', {
+                  docs: docsLabel(fmts),
+                  context: formatsContext(fmts) === 'none' ? 'none' : undefined,
+                })}
+              </p>
               {/* A document run survives a reload now (the snapshot keeps the
                   kind), and the panel reconnects on its own — say so, or the
                   reader sees a bare form and starts again (RESUME-19). */}
@@ -7404,7 +7404,7 @@ export function KantanWizard({
             <div className="kz-q">
               <p className="kz-title">{t('kantan:s4.reattachTitle')}</p>
               <p className="kz-note">{t('kantan:s4.reattachBody')}</p>
-              <DropZone onFiles={onGateFilesDropped} accept={acceptFor(kind)} />
+              <DropZone onFiles={onGateFilesDropped} accept={acceptFor(kind, fmts)} />
               {pickError && <p className="kz-note kz-pick-error">{pickError}</p>}
             </div>
           )}
@@ -7451,7 +7451,7 @@ export function KantanWizard({
                 ref={reattachInputRef}
                 type="file"
                 multiple
-                accept={acceptFor(kind)}
+                accept={acceptFor(kind, fmts)}
                 style={{ display: 'none' }}
                 onChange={(e) => {
                   onGateFilesDropped(e.target.files)
@@ -7699,12 +7699,13 @@ function FixFailure({
 // the kind of file this design was written for (RESUME-18).
 function DropZone({
   onFiles,
-  accept = DROP_ACCEPT,
+  accept,
 }: {
   onFiles: (list: FileList | null) => void
   accept?: string
 }) {
   const { t } = useTranslation()
+  const fmts = useDocumentFormats()
   const [dragOver, setDragOver] = useState(false)
   return (
     <label
@@ -7723,14 +7724,19 @@ function DropZone({
       <input
         type="file"
         multiple
-        accept={accept}
+        accept={accept ?? dropAccept(fmts)}
         onChange={(e) => {
           onFiles(e.target.files)
           e.target.value = '' // allow re-picking the same file after an error
         }}
       />
       <span className="kz-drop-main">{t('kantan:s1.dropTitle')}</span>
-      <span className="kz-drop-sub">{t('kantan:s1.dropFormats')}</span>
+      <span className="kz-drop-sub">
+        {t('kantan:s1.dropFormats', {
+          docs: docsLabel(fmts),
+          context: formatsContext(fmts) === 'none' ? 'none' : undefined,
+        })}
+      </span>
     </label>
   )
 }

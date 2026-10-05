@@ -41,7 +41,7 @@
     "db": "DB",
     "api": "API connection",
     "apiShort": "API",
-    "document": "Document (Word / PDF / XML)",
+    "document": "Document ({{formats}})",
     "pickJson": "Choose JSON",
     "pickCsv": "Choose CSV/TSV/instrument text",
     "noFile": "No file selected",

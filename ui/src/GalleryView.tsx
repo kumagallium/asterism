@@ -25,6 +25,8 @@ import { plainAdvisories, type TermLabels } from './advisoryPlain'
 import { validateDesign } from './api'
 import { prefillAskQuestion } from './askPrefill'
 import { plainError } from './kantan/errorMessages'
+import { useIdMove } from './idMove'
+import { IdMoveNotice } from './IdMoveNotice'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
@@ -61,6 +63,15 @@ import { ToolsPanel } from './ToolsPanel'
 import { rulesShape } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
 import { localName } from './vocab'
+import {
+  documentAccept,
+  firstUnavailableIn,
+  formatsLabel,
+  unavailableDropMessage,
+  unavailableFormats,
+  unavailableNote,
+  useDocumentFormats,
+} from './documentFormats'
 
 export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
@@ -864,6 +875,11 @@ function WordGroup({
  * summary loads by itself: an optional "check the differences" button is a
  * button first-timers never press (K9), which is how it stopped being part of
  * the decision.
+ *
+ * An UPDATE has a fifth: what it does to the IDs already handed out (ADR
+ * id-move-after-publish.md §5). S8 said it and this dialog did not, so a
+ * re-design finished from here — leave the wizard, press 公開を更新する on the
+ * detail — took the earlier IDs down without a word.
  */
 function PublishDialog({
   meta,
@@ -885,6 +901,7 @@ function PublishDialog({
   const [err, setErr] = useState<unknown>(null)
   const version = meta.version ?? 0
   const isRepromote = version >= 1
+  const idMove = useIdMove(meta.id)
 
   useEffect(() => {
     let cancelled = false
@@ -979,6 +996,7 @@ function PublishDialog({
               <WordGroup head={t('kantan:s8.wordsNew')} iris={words.added} labels={labels} />
             </details>
           )}
+          <IdMoveNotice move={idMove} exit={t('gallery:promote.idMoveBrokenExit')} />
           <p className="ingest-hint">{t('kantan:s8.promise')}</p>
           {!name && <p className="ingest-hint">{t('kantan:s8.needName')}</p>}
           <div className="rules-viewer-actions">
@@ -2060,6 +2078,9 @@ function IngestControl({
   const [cancelled, setCancelled] = useState(false)
   const [job, setJob] = useState<IngestJobHandle | null>(null)
   const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
+  const fmt = useDocumentFormats()
+  // 変換できない形式を選んだときの文（サーバの 4xx を待たず受け付けない）
+  const [formatMsg, setFormatMsg] = useState('')
 
   // A document dataset (source_kind=xml) has NO RML — it ingests through the
   // deterministic structurer, not Morph-KGC. So the "no RML" dead-end is CSV/JSON-
@@ -2149,7 +2170,7 @@ function IngestControl({
     : isJson
       ? 'JSON'
       : t('gallery:sourceKind.tabular')
-  const accept = isDocument ? '.xml,.docx,.pdf' : isJson ? '.json,.geojson' : TABULAR_ACCEPT
+  const accept = isDocument ? documentAccept(fmt) : isJson ? '.json,.geojson' : TABULAR_ACCEPT
   const canIngest = !busy && (hasSource || files.length > 0)
 
   async function onIngest() {
@@ -2193,7 +2214,16 @@ function IngestControl({
               type="file"
               accept={accept}
               multiple
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? [])
+                const bad = isDocument ? firstUnavailableIn(picked, fmt) : null
+                if (bad) {
+                  setFormatMsg(unavailableDropMessage(t, fmt, bad))
+                  return
+                }
+                setFormatMsg('')
+                setFiles(picked)
+              }}
             />
           </label>
           <span className={`file-names${files.length ? '' : ' empty'}`}>
@@ -2202,6 +2232,11 @@ function IngestControl({
               : t('gallery:ingest.pickPlaceholder', { source: sourceLabel })}
           </span>
         </div>
+      )}
+      {formatMsg && (
+        <p className="ingest-err" role="alert">
+          {formatMsg}
+        </p>
       )}
       <button type="button" className="promote-btn" onClick={onIngest} disabled={!canIngest}>
         {busy ? t('gallery:ingest.submitting') : t('gallery:ingest.submit')}
@@ -2475,6 +2510,9 @@ function DocumentAppendControl({
   const [done, setDone] = useState<{ docs: number } | null>(null)
   const [prog, setProg] = useState<{ i: number; n: number } | null>(null)
   const [err, setErr] = useState<unknown>(null)
+  const fmt = useDocumentFormats()
+  // 変換できない形式を選んだときの文（サーバの 4xx を待たず受け付けない）
+  const [formatMsg, setFormatMsg] = useState('')
 
   // A promoted, active DOCUMENT dataset (documents have no RML; their accumulation is
   // the source-kind=xml feed). Hidden otherwise.
@@ -2514,19 +2552,29 @@ function DocumentAppendControl({
   return (
     <div className={embedded ? '' : 'ingest-gate'} ref={rootRef}>
       <div className="ds-subhead">{t('gallery:docAppend.head')}</div>
-      <p className="ingest-note">{t('gallery:docAppend.note')}</p>
+      <p className="ingest-note">{t('gallery:docAppend.note', { formats: formatsLabel(fmt) })}</p>
+      {unavailableFormats(fmt).length > 0 && (
+        <p className="ingest-note">{unavailableNote(t, fmt)}</p>
+      )}
       {(meta.append_seq ?? 0) > 0 && (
         <p className="ingest-source">{t('gallery:docAppend.appended', { n: meta.append_seq })}</p>
       )}
       <div className="ingest-pick">
         <label className="file-btn">
-          {t('gallery:docAppend.pick')}
+          {t('gallery:docAppend.pick', { formats: formatsLabel(fmt) })}
           <input
             type="file"
-            accept=".xml,.docx,.pdf"
+            accept={documentAccept(fmt)}
             multiple
             onChange={(e) => {
-              setFiles(Array.from(e.target.files ?? []))
+              const picked = Array.from(e.target.files ?? [])
+              const bad = firstUnavailableIn(picked, fmt)
+              if (bad) {
+                setFormatMsg(unavailableDropMessage(t, fmt, bad))
+                return
+              }
+              setFormatMsg('')
+              setFiles(picked)
               setDone(null)
             }}
           />
@@ -2549,6 +2597,11 @@ function DocumentAppendControl({
       {/* K12: what the reader added is documents, not triples — the fact count
           was the only number here and meant nothing to them. */}
       {done && <p className="ingest-ok">{t('gallery:docAppend.doneN', { docs: done.docs })}</p>}
+      {formatMsg && (
+        <p className="ingest-err" role="alert">
+          {formatMsg}
+        </p>
+      )}
       {err != null && <ErrorNote err={err} titleKey="gallery:docAppend.error" />}
     </div>
   )

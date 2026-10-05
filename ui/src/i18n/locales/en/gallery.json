@@ -261,7 +261,8 @@
     "error": "Publish failed",
     "dialogContent": "Contents: {{counts}}",
     "dialogCountsUnknown": "the data you loaded",
-    "cancel": "Not now"
+    "cancel": "Not now",
+    "idMoveBrokenExit": "You can publish anyway. To keep the earlier IDs, close this with \"Not now\" and use \"Revise the design\" to put the way IDs are made back as it was."
   },
   "reingest": {
     "head": "Replace everything (rebuild from a new file)",
@@ -303,9 +304,9 @@
   },
   "docAppend": {
     "head": "Add a document (to this dataset)",
-    "note": "Add one more Word / PDF / XML document and it is split sentence by sentence straight into your published data, so \"Ask\" can search and cite the added document too (for accumulating meeting minutes).",
+    "note": "Add one more {{formats}} document and it is split sentence by sentence straight into your published data, so \"Ask\" can search and cite the added document too (for accumulating meeting minutes).",
     "appended": "{{n}} document(s) appended so far.",
-    "pick": "Choose a document (Word / PDF / XML)",
+    "pick": "Choose a document ({{formats}})",
     "noFile": "Choose a document to add",
     "busy": "Adding…",
     "busyN": "Adding ({{i}}/{{n}})…",
