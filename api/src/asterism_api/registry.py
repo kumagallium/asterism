@@ -772,6 +772,9 @@ def mark_promoted(
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["promoted"] = True
     meta["ingested"] = False  # no pending staged graph; the version graph is now live
+    # The id-move record is about the pending draft (ADR id-move-after-publish.md):
+    # once that draft is the published version, there is nothing left to announce.
+    meta["id_move"] = None
     meta["status"] = "active"  # a (re-)promote makes it citable again (clears retracted)
     meta["graph_iri"] = None
     meta["canonical_graph"] = canonical_graph  # #20 P3: per-dataset canonical key graph

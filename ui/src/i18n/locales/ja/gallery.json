@@ -261,7 +261,8 @@
     "error": "公開に失敗しました",
     "dialogContent": "中身: {{counts}}",
     "dialogCountsUnknown": "取り込んだデータ",
-    "cancel": "やめる"
+    "cancel": "やめる",
+    "idMoveBrokenExit": "このまま公開もできます。前の ID を残したいときは「やめる」で閉じ、「設計を見直す」から ID の作り方を元に戻してください。"
   },
   "reingest": {
     "head": "全部を差し替える（新しいファイルで作り直す）",

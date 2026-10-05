@@ -9,7 +9,6 @@ import {
   fetchDraftStats,
   fetchDatasetHandles,
   generateColumnMeanings,
-  fetchIdMove,
   fetchTrialQueries,
   getStagingReshape,
   recountDataset,
@@ -28,7 +27,6 @@ import {
   type ColumnMeaning,
   type DraftStats,
   type DuplicateColumnFinding,
-  type IdMove,
   type IngestJobHandle,
   type IngestProgress,
   type InspectResult,
@@ -74,6 +72,8 @@ import {
 } from '../galleryApi'
 import type { DetailTab } from '../GalleryView'
 import type { RedesignTarget } from '../WorkbenchView'
+import { useIdMove } from '../idMove'
+import { IdMoveNotice } from '../IdMoveNotice'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
@@ -1315,10 +1315,6 @@ export function KantanWizard({
   // reached, so it costs nothing during the wizard. null = unknown → the connect
   // offer stays hidden (fail closed: never point at a dead end).
   const [publishedCount, setPublishedCount] = useState<number | null>(null)
-  // 公開済みの ID がこの更新で動くか（ADR id-move-after-publish.md）。null =
-  // まだ読んでいない／読めなかった。読めなかったときは黙る: 公開を止める材料
-  // ではないし、無い断定を作るよりは何も言わない方が正しい。
-  const [idMove, setIdMove] = useState<IdMove | null>(null)
 
   // かんたん見直し (catalog 見直す): the wizard reopens an existing dataset at
   // S6. `reingested` = whether THIS session ran the refine → re-ingest chain;
@@ -1585,16 +1581,8 @@ export function KantanWizard({
 
   // 公開画面に来たら「この更新で ID がいくつ動くか」を読む。ingest のときに
   // 実測して meta に残してあるので、リロードして戻ってきても同じ答えが出る。
-  useEffect(() => {
-    if (step !== 8 || !kzDatasetId) return
-    let off = false
-    fetchIdMove(kzDatasetId)
-      .then((m) => !off && setIdMove(m))
-      .catch(() => !off && setIdMove(null))
-    return () => {
-      off = true
-    }
-  }, [step, kzDatasetId])
+  // データセットの詳細の公開確認も、同じ読み方・同じ知らせを使う。
+  const idMove = useIdMove(step === 8 ? kzDatasetId : null)
 
   // Count published datasets when S9 is reached, to decide whether connecting is
   // even possible yet. A failure leaves it null and the offer simply does not
@@ -3216,7 +3204,8 @@ export function KantanWizard({
     }
   }
 
-  /** The same screen, reached BACKWARDS from the counts once a design exists.
+  /** The same screen, reached BACKWARDS (from ためす, or reopened from the
+   *  catalog) once a design exists — it returns to ためす.
    *  Saving is deterministic — the meaning is projected onto §9 and the
    *  artifacts are re-derived; no model runs and the design is not rebuilt. */
   async function saveMeaningsAndReturn() {
@@ -6141,38 +6130,7 @@ export function KantanWizard({
               pressed. An update that re-counts the data moves addresses other
               people may already have cited — the one thing on this screen that
               reaches outside it (ADR id-move-after-publish.md). */}
-          {idMove?.changes_ids && (
-            <div
-              className={`kz-idmove${idMove.fully_movable === false ? ' kz-idmove--warn' : ''}`}
-            >
-              <p className="kz-idmove-head">{t('kantan:s8.idMoveTitle')}</p>
-              {(idMove.forwarded ?? 0) > 0 && (
-                <p>
-                  {t('kantan:s8.idMoveForwarded', {
-                    n: (idMove.forwarded ?? 0).toLocaleString(),
-                  })}
-                </p>
-              )}
-              {idMove.fully_movable === false && (
-                <>
-                  <p>{t('kantan:s8.idMoveBroken')}</p>
-                  <ul className="kz-idmove-list">
-                    {(idMove.blocked ?? []).map((b) => (
-                      <li key={`${b.source}:${b.name}`}>
-                        {b.reason === 'missing_columns'
-                          ? t('kantan:s8.idMoveBrokenColumns', {
-                              source: b.source,
-                              columns: b.missing_columns.join('、') || '—',
-                            })
-                          : t('kantan:s8.idMoveBrokenKind', { source: b.source })}
-                      </li>
-                    ))}
-                  </ul>
-                  <p>{t('kantan:s8.idMoveBrokenExit')}</p>
-                </>
-              )}
-            </div>
-          )}
+          <IdMoveNotice move={idMove} exit={t('kantan:s8.idMoveBrokenExit')} />
           {/* K23: 「中身」「ことば」「あとから」は同じ問い — 公開すると何がどう
               なるか — への 3 つの答えなので、1 つの表として読ませる。撤回の約束
               だけ見出し語が無く、他の 2 行と揃っていなかった。 */}
@@ -7043,7 +7001,7 @@ export function KantanWizard({
           )}
           <div className="kz-actions">
             {/* 設計がまだ無いとき＝ここが先へ進む扉。設計ができたあとに戻って
-                きたとき＝直した意味を保存して数の確認へ返す扉（作り直さない）。 */}
+                きたとき＝直した意味を保存して「ためす」へ返す扉（作り直さない）。 */}
             {kzDatasetId ? (
               <button
                 type="button"
@@ -7060,10 +7018,19 @@ export function KantanWizard({
             <button
               type="button"
               className="btn btn--ghost"
-              onClick={() => setStep(kzDatasetId ? 6 : 2)}
+              onClick={() => {
+                // 設計ができたあとの戻り先は「ためす」— 上の保存ボタンと同じ場所へ、
+                // 保存せずに出る。以前は「数の確認」(6) を指していたが、その画面は
+                // 畳んで描画の分岐が無く、空のカードで行き止まりになっていた（実機
+                // 2026-10-05）。見直しでまだ下書きを作り直していないときも「ためす」
+                // でよい: 問いは公開済みのグラフにも答え、そこの「公開へ」は公開
+                // し直すものが無ければ見直しを終える（goPublish）。
+                if (kzDatasetId) confirmMeanings()
+                else setStep(2)
+              }}
               disabled={meaningSaving}
             >
-              {t(kzDatasetId ? 'kantan:meanings.backToCounts' : 'kantan:meanings.back')}
+              {t(kzDatasetId ? 'kantan:meanings.backToTry' : 'kantan:meanings.back')}
             </button>
           </div>
         </section>
