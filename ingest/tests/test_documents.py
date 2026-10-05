@@ -196,6 +196,18 @@ def test_pandoc_unavailable_raises(monkeypatch) -> None:
         convert_docx_to_jats(b"PK\x03\x04 not really a docx")
 
 
+def test_pandoc_available_is_a_path_lookup(monkeypatch) -> None:
+    """The yes/no the UI relies on (``/api/instance``) is a PATH lookup only, and
+    ``pandoc_version`` agrees with it when pandoc is absent (no subprocess run)."""
+    import asterism.documents as documents
+
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    assert documents.pandoc_available() is False
+    assert documents.pandoc_version() is None
+    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
+    assert documents.pandoc_available() is True
+
+
 @pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
 def test_convert_docx_to_jats_real() -> None:
     jats, converter = convert_docx_to_jats((_FIXTURES / "sample.docx").read_bytes())

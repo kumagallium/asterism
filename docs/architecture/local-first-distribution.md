@@ -1,6 +1,6 @@
 # ADR: ローカルファースト配布 — 同一ソフトの 3 つの置き場所と、その間の受け渡し
 
-状態: **実装済（中核）**（2026-08-12 着手 / 最終更新 2026-08-31）— Phase 1（`asterism-local`）・Phase 2（デスクトップシェル＋自己完結バンドル＋署名/公証/updater）・Phase 3（snapshot exchange v1）まで実装済。残タスクは §7。
+状態: **実装済（中核）**（2026-08-12 着手 / 最終更新 2026-10-05）— Phase 1（`asterism-local`）・Phase 2（デスクトップシェル＋自己完結バンドル＋署名/公証/updater）・Phase 3（snapshot exchange v1）まで実装済。残タスクは §7。
 
 関連: [`instance-iri-base.md`](instance-iri-base.md)（IRI の所有と `.invalid` 既定）/
 [`store-mcp-split.md`](store-mcp-split.md)（トポロジ A/B・露出プロファイル・publish=Crucible 橋渡し）/
@@ -57,7 +57,7 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 
 ### 縮退（すべて既存の明示 4xx に乗る）
 
-- Docling 未設定 → PDF のみ 4xx（既存）。pandoc 無し → .docx のみ 4xx(既存)。
+- Docling 未設定 → PDF のみ 4xx（既存）。pandoc 無し → .docx のみ 4xx(既存)。この 4xx は最後の砦で、画面は置く前に知らせる（§6.3）。
 - morph-kgc 未 install → materialize/ingest が失敗するため、extras `asterism-api[local]`（= `asterism-ingest[substrate]` + `asterism-mcp-tools`）を用意。
 - **Ask は実接続**（Phase 1 追補で実装）: demo-agent を子プロセス起動（`uvicorn app:app --app-dir demo-agent`・空きポート・loopback）し、`/demo/*` を同一オリジン中継（本番 caddy `reverse_proxy /demo/*` の等価物）。中継は Ask 契約ヘッダ（`X-API-Key`/`X-LLM-*`）だけを転送し、**注入された `X-Asterism-Token` は子に渡さない**。`/demo/ask` は内部タイムアウト無しの LLM ループがあり得るため read timeout 無制限。子の `/health` は `/demo/*` 外で api 自身の `/health` と衝突するため中継せず、親が直接ポーリング。SPA は `VITE_DEMO_MODE=live VITE_DEMO_AGENT_URL=/` でビルド（本番イメージと同じ）。mcp 依存が無い/子が起動しない場合は警告して Ask のみ縮退（`--no-ask` で明示無効化も可）。
 
@@ -187,8 +187,45 @@ UI 上部にボタンが出る。asterism はメニューの中から選ばな�
 updater の macOS 差し替え先は実行ファイルの親（`Contents/MacOS` を含まなければ
 そのディレクトリ）＝`target/debug/` ごと置き換えに行く。検証は必ず .app で。
 
+## 6.3 決定: 変換できない文書の形式は、置く前に画面へ伝える（2026-10-05）
+
+**サーバが「いま Word／PDF を変換できるか」を `/api/instance` で返し、画面は
+変換できない形式を置く前に外す。判定は「デスクトップかどうか」ではなく
+「実際に変換できるか」。**
+
+それまで画面は、どの置き場所でも Word・PDF を受け付けると案内していた
+（置く欄の文言・ファイル選択の `accept`・「文書を追加」）。デスクトップ版は
+pandoc も Docling も同梱せず、Finder から起動したアプリの PATH
+（`/usr/bin:/bin:/usr/sbin:/sbin`）には Homebrew の pandoc も入らないので、
+置いてから §3 の 4xx で止まっていた。開発用の `compose.yaml` も Docling が
+無く、PDF で同じことが起きる。
+
+- `/api/instance` に真偽値を 2 つ足す: `can_convert_docx`（pandoc が PATH に
+  見つかる＝`documents.pandoc_available()`。`pandoc_version()` の前半だけで、
+  子プロセスは起こさない — この経路は認証なしで何度も呼ばれるため）と
+  `can_convert_pdf`（`ASTERISM_DOCLING_URL` が設定されている。届くかどうかまでは
+  見ない）。どちらも「部品はあるが変換に失敗する」場合は既存の 4xx のまま。
+  サーバはリクエストごとに調べるが、画面は `/api/instance` の答えをページを
+  開いているあいだ覚えているので、あとから入れた pandoc が画面に出るのは
+  再読み込みのあと。論文の XML（JATS）は変換が
+  要らないので常に取り込める。
+- 画面（`ui/src/documentFormats.ts`）は、変換できない形式を案内の文言と
+  ファイル選択の `accept` から外し、「Word・PDF は、デスクトップ版ではまだ
+  取り込めません。」と 1 行添える（利用者が「先に言う」案を選んだ）。ドラッグで
+  置かれたときはサーバへ送る前に画面で止め、形式を名指しして理由を言う。
+- `desktop` は言い方を分けるためだけに使う（「デスクトップ版ではまだ」／
+  「このサーバでは」）。可否そのものには使わない。
+- 旧 api（フィールドが無い）に当てた画面は「変換できる」とみなし、これまで
+  どおりに振る舞う（§3 の 4xx が残る）。
+
+**この形にした理由**: 可否が実際の状態で決まるので、あとで pandoc を同梱すれば
+画面は作り直さずに Word を受け付けるようになる（§7）。
+
 ## 7. スコープと残
 
 - **Phase 2（デスクトップシェル）**: **v1 実装済 = `desktop/`（Tauri v2）**。シェルの契約は 1 つだけ＝`asterism-local` を spawn（起動器が Oxigraph/demo-agent の孫を監督）→空きポートの HTTP readiness を待つ→そのループバック URL でネイティブウィンドウを開く。終了時は **SIGTERM**（SIGKILL は孫をみなしごにする）。起動器の解決順= `ASTERISM_LOCAL_CMD` → 実行ファイルから祖先を遡って `api/.venv/bin/asterism-local`（`tauri dev` と repo 内ビルドの .app を両カバー）→ PATH。バックエンドログは app log dir（`~/Library/Logs/com.kumagallium.asterism/backend.log`）。**v2 追補=自己完結バンドル実装済**: `scripts/bundle-backend.sh`（`beforeBuildCommand`）が `src-tauri/backend/` を組み立て（uv 管理の standalone CPython+全パッケージ非 editable install・Oxigraph 単一バイナリ・demo-agent・datasets・SPA）、Tauri resource として .app に同梱（約 370MB）。シェルは同梱 backend を最優先で解決し `python3 -m asterism_api.local` で起動（console script の shebang は再配置で壊れるため使わない）。env で全ペイロードをバンドルに向ける（`ASTERISM_UI_DIST`/`ASTERISM_OXIGRAPH_BIN`/`ASTERISM_DEMO_AGENT_DIR`/`ASTERISM_DATASETS_ROOT`。demo-agent の env override は本追補で `local.py` に追加）。**リポジトリ外・環境変数なしで全スタック起動を実機実証**（repo も Python も Docker も Homebrew も不要）。`tauri dev` はバンドルせず checkout 解決＝反復は速いまま。**v3 追補=署名/公証/updater 完了**: 自動アップデートは実装済（#338 クライアント＋#339 release workflow。フィードは §6.1 の Pages 固定 URL・日常導線は §6.2 の SPA バナー）。署名/公証は #346 で完了＝同梱バイナリ 133 個の deep-sign＋app/dmg の公証＋staple・実機で `spctl` = Notarized Developer ID を確認（Resources 内バイナリの署名カバレッジは前例どおり Graphium の node 同梱に倣った・secret 名も Graphium と同一を流用）。自動 dispatch（#342/#344）込みで次リリースから全自動。**残**= Windows（Job Object・バンドル script の asset 名）・Docling のオプショナルダウンロード。※Ask 実接続は Phase 1 追補で実装済（§3）。
+- **デスクトップ版での文書の変換（Word・PDF）**: **残**。いまは §6.3 のとおり「取り込めない」と置く前に伝えるだけ。
+  - Word＝pandoc を同梱すれば足りる見込み（単一バイナリ。配布物は 3.12 の macOS arm64 の zip で約 40MB。GPL なのでライセンス表記の同梱が要る。場所は `ASTERISM_OXIGRAPH_BIN` と同じ形で env で渡す — `pandoc_version()` は PATH しか探さないため）。同梱が入れば §6.3 の判定で画面は自動で Word を受け付ける。未着手。
+  - PDF＝Docling は PyTorch とレイアウト解析モデルを要し（サイドカーの目安はメモリ 4〜8GiB）、同梱には向かない。利用者の意向（2026-10-05）: 最終的には、Graphium との連携も含めて Asterism 側でも PDF を扱えるようにしたい。方式（あとからダウンロードする等）は未決定で、決めるときは別の ADR に書く。
 - **Phase 3（exchange）**: **v1 実装済（§5）** — マニフェスト形式・export/import 経路（token-gated API）・決定論リベースまで実 2 インスタンス e2e 済。残= かんたん UI への「書き出す/受け取る」導線・既存 id との衝突時の再取り込み/新版化。
 - 残課題（本 ADR の外）: SSRF ガードの非対称（モデル一覧のみ private 拒否・ジョブ経路は素通し）の整理／env 名 `CSV2RDF_*`→`ASTERISM_*` 統一（既存の残課題）。

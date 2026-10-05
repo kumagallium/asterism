@@ -21,6 +21,10 @@ export interface InstanceInfo {
   app_version?: string | null
   desktop?: boolean
   write_gate?: WriteGate
+  /** Word（.docx）をこのサーバが変換できるか。 */
+  can_convert_docx?: boolean
+  /** PDF（.pdf）をこのサーバが変換できるか。 */
+  can_convert_pdf?: boolean
 }
 
 let pending: Promise<InstanceInfo | null> | null = null

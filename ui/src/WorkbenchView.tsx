@@ -39,6 +39,7 @@ import { LlmGate } from './settings/LlmGate'
 import { SkeletonGate } from './SkeletonGate'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from './sourceFileStore'
 import { stageSources, stagingAlive, unstageSources } from './api'
+import { formatsLabel, useDocumentFormats } from './documentFormats'
 
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
@@ -233,6 +234,7 @@ export function WorkbenchView({
   onBackToKantan?: (datasetId: string, proposalMd: string, sourceAttached: boolean) => void
 } = {}) {
   const { t, i18n } = useTranslation()
+  const docFormats = useDocumentFormats()
   // Restore generated artifacts saved before a tab switch / reload (once).
   const [snap] = useState(loadSnapshot)
 
@@ -1107,7 +1109,7 @@ export function WorkbenchView({
                     resetDialectContext() // FIX3: the new source kind has its own dialects
                   }}
                 >
-                  {t(s.labelKey)}
+                  {t(s.labelKey, { formats: formatsLabel(docFormats) })}
                   {!supported && <span className="source-soon">{t('workbench:source.soonBadge')}</span>}
                 </button>
               )
@@ -1212,7 +1214,7 @@ export function WorkbenchView({
             >
               <span className="step-num">{done[s.n] ? '✓' : s.n}</span>
               <span className="step-text">
-                <span className="step-label">{t(s.labelKey)}</span>
+                <span className="step-label">{t(s.labelKey, { formats: formatsLabel(docFormats) })}</span>
                 <span className="step-en">{t(s.enKey)}</span>
               </span>
             </button>
