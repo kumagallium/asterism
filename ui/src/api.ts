@@ -1526,6 +1526,50 @@ export async function fetchTrialQueries(datasetId: string): Promise<TrialQueries
   return (await res.json()) as TrialQueries
 }
 
+/** One published term whose name the stored design now says differently. */
+export interface PublishedNameChange {
+  iri: string
+  kind: 'property' | 'class'
+  /** The name on the published side (what a page opened from a published ID shows). */
+  published: string
+  /** The name the stored design carries now. */
+  design: string
+}
+
+/** Published names vs. the stored design's names — kantan ためす, in a review.
+ *
+ *  Saving a meaning rewrites the stored design only; the published names change
+ *  at a publish. A meaning-only edit makes no draft, so that publish never
+ *  comes — this is what is still waiting, and `publishDatasetNames` sends it. */
+export interface PublishedNames {
+  dataset_id: string
+  /** False when there is nothing to compare: no published version, a pending
+   *  draft (its own publish carries the names), or the store could not be read. */
+  available: boolean
+  changes: PublishedNameChange[]
+}
+
+export async function fetchPublishedNames(datasetId: string): Promise<PublishedNames> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/published-names`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'published names')
+  return (await res.json()) as PublishedNames
+}
+
+/** Publish the names only — no re-ingest. Rewrites the names of terms that are
+ *  already published to what the stored design says; nothing else moves. */
+export async function publishDatasetNames(
+  datasetId: string,
+): Promise<{ updated: number; changes: PublishedNameChange[] }> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/publish-names`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'publish names')
+  return (await res.json()) as { updated: number; changes: PublishedNameChange[] }
+}
+
 /** Everything needed to re-open「データの数えかた」on an already-saved design. */
 export interface RecountMaterials {
   dataset_id: string
