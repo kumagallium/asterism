@@ -4,9 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Asterism — 研究データを、つながりに</title>
-<meta name="description" content="Excel・CSV・装置のファイルを置くと、AI が設計図の下書きを作り、あなたが確かめて公開する。公開したデータには、ふつうの言葉で質問でき、答えには出どころが付きます。" />
+<meta name="description" content="測定ファイル・表・論文を取り込み、列やメタデータの意味＝「データの見方」を、AI の下書きと人の確認で知識グラフとオントロジーにする。AI は、あなたの研究室の見方でデータを引き、出どころを添えて答えます。" />
 <meta property="og:title" content="Asterism — 研究データを、つながりに" />
-<meta property="og:description" content="表を置けば、出どころつきで答えるデータになる。オープンソースの研究データ基盤。" />
+<meta property="og:description" content="頭の中にある「データの見方」を、AI も読める知識に。オープンソースの意味論エンジン。" />
 <meta property="og:image" content="https://kumagallium.github.io/asterism/manual/screenshots/home.png" />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='%23a9bfa6' stroke-width='1.4'%3E%3Cline x1='5' y1='7' x2='18' y2='12'/%3E%3Cline x1='5' y1='7' x2='9' y2='19'/%3E%3Cline x1='18' y1='12' x2='9' y2='19'/%3E%3C/g%3E%3Cg fill='%232f6b41'%3E%3Ccircle cx='5' cy='7' r='2.4'/%3E%3Ccircle cx='18' cy='12' r='2.4'/%3E%3Ccircle cx='9' cy='19' r='2.4'/%3E%3C/g%3E%3C/svg%3E" />
@@ -55,10 +55,11 @@
   .brand{display:flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:700; font-size:1.12rem; letter-spacing:.01em}
   .brand svg{color:var(--entity)}
   nav.links{margin-left:auto; display:flex; gap:22px; font-size:.88rem}
-  nav.links a{color:var(--muted); text-decoration:none}
+  nav.links a{color:var(--muted); text-decoration:none; white-space:nowrap}
   nav.links a:hover{color:var(--ink)}
   @media (max-width:820px){ nav.links .opt{display:none} }
-  @media (max-width:480px){ nav.links{gap:14px} }
+  /* 狭い画面では GitHub への入口をヒーローとフッターに任せ、メニューを折らせない */
+  @media (max-width:480px){ header.top .wrap{gap:12px} nav.links{gap:12px} nav.links .gh{display:none} }
 
   /* --- hero --- */
   .hero{position:relative; overflow:hidden; padding:72px 0 0}
@@ -73,6 +74,7 @@
     margin:0 0 22px; font-weight:800; letter-spacing:-.01em; max-width:20em; word-break:keep-all; overflow-wrap:anywhere;
   }
   .hero h1 em{font-style:normal; color:var(--entity)}
+  .nb{white-space:nowrap}
   .lead{position:relative; font-size:1.05rem; max-width:40em; margin:0 0 30px}
   .ctas{position:relative; display:flex; flex-wrap:wrap; gap:12px; align-items:center}
   .btn{
@@ -98,7 +100,7 @@
   @media (max-width:640px){ section{padding:64px 0} }
   section.band{background:var(--band); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
   h2{font-size:clamp(1.6rem,3.4vw,2.2rem); color:var(--ink); margin:0 0 10px; line-height:1.35; font-weight:800; text-wrap:balance}
-  .sub{color:var(--muted); margin:0 0 44px; max-width:44em}
+  .sub{color:var(--muted); margin:0 0 44px; max-width:44em; text-wrap:pretty}
   .grid{display:grid; gap:20px}
   .g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
   .g4{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
@@ -109,7 +111,7 @@
   .ico{width:42px; height:42px; border-radius:11px; display:grid; place-items:center; background:var(--entity-soft); color:var(--entity)}
 
   /* screens: alternating */
-  .feature{display:grid; gap:36px; align-items:center; margin-bottom:88px}
+  .feature{display:grid; gap:36px; align-items:center; margin-bottom:72px}
   .feature:last-child{margin-bottom:0}
   @media (min-width:900px){
     .feature{grid-template-columns:5fr 7fr; gap:48px}
@@ -149,7 +151,7 @@
   details p{margin:0 0 20px; max-width:52em}
 
   /* footer */
-  footer{padding:56px 0 64px; background:var(--band); border-top:1px solid var(--line); font-size:.88rem; color:var(--muted)}
+  footer{padding:56px 0 64px; background:var(--ground); font-size:.88rem; color:var(--muted)}
   footer .cols{display:grid; gap:32px; grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
   footer h4{color:var(--ink); font-size:.78rem; letter-spacing:.12em; margin:0 0 10px}
   footer ul{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px}
@@ -166,6 +168,17 @@
     html{scroll-behavior:auto}
     .btn{transition:none}
   }
+  /* 名前の由来（星・線・形） */
+  .what .card{padding:20px 24px 26px}
+  .what .fig{display:block; width:100%; max-width:230px; height:auto; margin:0 auto 4px; color:var(--entity)}
+
+  /* 画面の説明に添える注記 */
+  .feature .note{font-size:.84rem; color:var(--muted)}
+
+  /* はじめるの下の一言（サーバ版） */
+  .server-note{margin:28px 0 0; font-size:.93rem; color:var(--muted)}
+  .server-note.dev{margin-top:6px}
+
   /* 言語の切り替え */
   .lang{
     margin-left:4px; font:inherit; font-size:.82rem; font-weight:700; cursor:pointer;
@@ -201,12 +214,13 @@
       asterism
     </a>
     <nav class="links" data-i18n-aria="aria_nav" aria-label="ページ内">
+      <a class="opt" href="#what" data-i18n="nav_what">Asterism とは</a>
       <a class="opt" href="#how" data-i18n="nav_how">仕組み</a>
       <a class="opt" href="#screens" data-i18n="nav_screens">画面</a>
       <a class="opt" href="#start" data-i18n="nav_start">はじめる</a>
       <a class="opt" href="#faq">FAQ</a>
       <a href="manual/" data-i18n="nav_manual">マニュアル</a>
-      <a href="https://github.com/kumagallium/asterism">GitHub</a>
+      <a class="gh" href="https://github.com/kumagallium/asterism">GitHub</a>
     </nav>
     <button class="lang" type="button" id="lang-toggle" lang="en" aria-label="Switch to English">English</button>
   </div>
@@ -230,12 +244,12 @@
     </g>
   </svg>
   <div class="wrap">
-    <p class="eyebrow" data-i18n="hero_eyebrow">Asterism · 研究データを、つながりに</p>
-    <h1 data-i18n="hero_h1">表を置けば、<wbr><em>出どころつきで<wbr>答える</em><wbr>データになる。</h1>
-    <p class="lead" data-i18n="hero_lead">Excel・CSV・装置のファイルを置くと、AI が「どの列が何を表すか」の下書きを作ります。あなたが確かめて公開すれば、そのデータにはふつうの言葉で質問でき、答えにはいつも出どころが付きます。別々の表も、共通の値でつながります。</p>
+    <p class="eyebrow" data-i18n="hero_eyebrow">Asterism · オープンソースの意味論エンジン</p>
+    <h1 data-i18n="hero_h1">頭の中にある<wbr><em>「データの見方」</em>を、<wbr><span class="nb">AI も読める知識に。</span></h1>
+    <p class="lead" data-i18n="hero_lead">この列は何の値で、単位は何で、どの試料の測定か。データを読み解く文脈は、たいてい人の頭の中にしかありません。Asterism は、測定ファイル・表・論文を取り込み、AI の下書きをあなたが確かめることで、その「データの見方」を知識グラフとオントロジーにします。AI は、あなたの研究室の見方でデータを引き、出どころを添えて答えられるようになります。</p>
     <div class="ctas">
       <a class="btn primary" href="manual/ja/getting-started.html" data-i18n="hero_cta1">はじめかたを見る →</a>
-      <a class="btn ghost" href="https://github.com/kumagallium/asterism/releases/latest" data-i18n="hero_cta2">デスクトップ版を入手</a>
+      <a class="btn ghost" href="https://github.com/kumagallium/asterism/releases/latest" data-i18n="hero_cta2">デスクトップ版を入手（macOS）</a>
       <a class="btn text" href="https://github.com/kumagallium/asterism" data-i18n="hero_cta3">★ GitHub でスター</a>
     </div>
     <div class="shot">
@@ -246,83 +260,95 @@
   </div>
 </div>
 
+<!-- ============ WHAT ============ -->
+<section id="what" class="band what">
+  <div class="wrap">
+    <p class="eyebrow">What it is</p>
+    <h2 class="reveal" data-i18n="what_h2">星をつないで、形にする。</h2>
+    <p class="sub reveal" data-i18n="what_sub">Asterism（アステリズム）という名前は「星群」に由来します。データの一つひとつが星、知識グラフやオントロジーが星を結ぶ線、つながって現れる形が知識です。</p>
+    <div class="grid g3">
+      <div class="card reveal">
+        <svg class="fig" viewBox="0 0 200 110" aria-hidden="true"><g fill="currentColor"><circle cx="30" cy="30" r="4.5"/><circle cx="92" cy="20" r="5.5"/><circle cx="70" cy="72" r="4.5"/><circle cx="142" cy="88" r="4"/><circle cx="170" cy="38" r="3.5"/></g></svg>
+        <h3 data-i18n="what1_h">星 ＝ データ</h3>
+        <p data-i18n="what1_p">測定値、試料、論文の一文。取り込んだデータの一つひとつが、自分の ID を持つ点になります。</p>
+      </div>
+      <div class="card reveal">
+        <svg class="fig" viewBox="0 0 200 110" aria-hidden="true"><g stroke="var(--line-strong)" stroke-width="1.6"><line x1="30" y1="30" x2="92" y2="20"/><line x1="92" y1="20" x2="70" y2="72"/><line x1="30" y1="30" x2="70" y2="72"/><line x1="70" y1="72" x2="142" y2="88"/><line x1="142" y1="88" x2="170" y2="38"/><line x1="92" y1="20" x2="170" y2="38"/></g><g fill="currentColor"><circle cx="30" cy="30" r="4.5"/><circle cx="92" cy="20" r="5.5"/><circle cx="70" cy="72" r="4.5"/><circle cx="142" cy="88" r="4"/><circle cx="170" cy="38" r="3.5"/></g></svg>
+        <h3 data-i18n="what2_h">線 ＝ 知識グラフとオントロジー</h3>
+        <p data-i18n="what2_p">「この測定は、この試料のもの」のような事実のつながりが知識グラフ。「試料」「測定」といったことばと、その関係の整理がオントロジーです。</p>
+      </div>
+      <div class="card reveal">
+        <svg class="fig" viewBox="0 0 200 110" aria-hidden="true"><polygon points="30,30 92,20 70,72" fill="var(--entity-soft)"/><polygon points="92,20 170,38 142,88 70,72" fill="var(--entity-soft)"/><g stroke="currentColor" stroke-width="2"><line x1="30" y1="30" x2="92" y2="20"/><line x1="92" y1="20" x2="70" y2="72"/><line x1="30" y1="30" x2="70" y2="72"/><line x1="70" y1="72" x2="142" y2="88"/><line x1="142" y1="88" x2="170" y2="38"/><line x1="92" y1="20" x2="170" y2="38"/></g><g fill="currentColor"><circle cx="30" cy="30" r="4.5"/><circle cx="92" cy="20" r="5.5"/><circle cx="70" cy="72" r="4.5"/><circle cx="142" cy="88" r="4"/><circle cx="170" cy="38" r="3.5"/></g></svg>
+        <h3 data-i18n="what3_h">形 ＝ 知識</h3>
+        <p data-i18n="what3_p">つながると、人にも AI にも読める形になります。AI は、データの説明と構造を先に読んでから、あなたのデータを引きます。いわば「AI への取扱説明書」です。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ HOW IT WORKS ============ -->
-<section id="how" class="band">
+<section id="how">
   <div class="wrap">
     <p class="eyebrow">How it works</p>
     <h2 class="reveal" data-i18n="how_h2">置く、確かめる、問う。</h2>
-    <p class="sub reveal" data-i18n="how_sub">RDF や SPARQL を知らなくても大丈夫です。手元の表から、引用できる「つながったデータ」までを 3 段で。</p>
+    <p class="sub reveal" data-i18n="how_sub">データベースや専門の規格（RDF・SPARQL など）を知らなくても大丈夫です。手元のファイルから、AI が引ける知識までを 3 段で。</p>
     <div class="grid g3">
       <div class="card reveal">
         <span class="num">01</span>
         <h3 data-i18n="how1_h">置く</h3>
-        <p data-i18n="how1_p">Excel・CSV・装置が書き出したファイルをそのまま置きます。AI が中身を読み、列の意味と ID のつけかたの下書きを作ります。</p>
+        <p data-i18n="how1_p">Excel・CSV、装置が書き出した .txt / .dat、JSON、論文などの文書（Word・PDF はサーバ版）を、そのまま置きます。表や装置のファイルは、AI が中身を読んで「どんな種類のデータで、各項目が何を表すか」の下書きを作ります。文書は、節・段落・文に分けて取り込みます。</p>
       </div>
       <div class="card reveal">
         <span class="num">02</span>
-        <h3 data-i18n="how2_h">確かめて公開する</h3>
-        <p data-i18n="how2_p">「この列は何の値か」「どの表とつなぐか」を、あなたが選んで決めます。決めた設計図どおりに機械が変換するので、同じ表からは毎回同じデータができます。公開するまで誰にも見えません。</p>
+        <h3 data-i18n="how2_h">見方を確かめて、公開する</h3>
+        <p data-i18n="how2_p">列やファイル先頭の値の意味・単位、データどうしのつながりを、あなたが確かめて決めます。決めた設計図どおりに機械が変換するので、同じファイルからは毎回同じデータができます。公開するまでは下書きで、質問の答えや、ほかの AI からの問い合わせには使われません。</p>
       </div>
       <div class="card reveal">
         <span class="num">03</span>
         <h3 data-i18n="how3_h">出どころつきで問う</h3>
-        <p data-i18n="how3_p">公開したデータに、ふつうの言葉で質問できます。答えの一つひとつから、元のファイル・取り込んだ日・使ったルールまで遡れます。</p>
+        <p data-i18n="how3_p">公開したデータに、ふつうの言葉で質問できます。データに基づく答えには出どころが付き、どのデータセットのどの取り込みから来たかをたどれます。</p>
       </div>
     </div>
 
     <div class="prov reveal">
-      <svg class="wide" viewBox="0 0 1000 150" role="img" data-i18n-aria="aria_prov" aria-label="手元のファイルから設計図、つながったデータ、答えへと進み、答えからは元のファイルまで遡れることを示す図">
-        <defs>
-          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--entity)"/></marker>
-          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
-        </defs>
+      <svg class="wide" viewBox="0 0 1004 150" role="img" data-i18n-aria="aria_prov" aria-label="手元のファイルからデータの見方、知識グラフとオントロジー、答えへと進み、答えからは出どころをたどれることを示す図">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--entity)"/></marker><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker></defs>
         <g font-size="15" text-anchor="middle" font-weight="700">
-          <rect x="10" y="22" width="190" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
-          <text x="105" y="56" fill="var(--ink)" data-i18n="prov1">手元のファイル</text>
-          <rect x="270" y="22" width="190" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
-          <text x="365" y="56" fill="var(--ink)" data-i18n="prov2">設計図（人が確定）</text>
-          <rect x="530" y="22" width="190" height="56" rx="12" fill="var(--entity-soft)" stroke="var(--entity)"/>
-          <text x="625" y="56" fill="var(--ink)" data-i18n="prov3">つながったデータ</text>
-          <rect x="790" y="22" width="200" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
-          <text x="890" y="56" fill="var(--ink)" data-i18n="prov4">答え＋出どころ</text>
+          <rect x="2" y="22" width="205" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="104.5" y="56" fill="var(--ink)" data-i18n="prov1">手元のファイル</text>
+          <rect x="267" y="22" width="205" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="369.5" y="56" fill="var(--ink)" data-i18n="prov2">データの見方（人が確定）</text>
+          <rect x="532" y="22" width="205" height="56" rx="12" fill="var(--entity-soft)" stroke="var(--entity)"/>
+          <text x="634.5" y="56" fill="var(--ink)" data-i18n="prov3">知識グラフ＋オントロジー</text>
+          <rect x="797" y="22" width="205" height="56" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="899.5" y="56" fill="var(--ink)" data-i18n="prov4">答え＋出どころ</text>
         </g>
-        <g stroke="var(--entity)" stroke-width="2" fill="none">
-          <line x1="204" y1="50" x2="264" y2="50" marker-end="url(#ar)"/>
-          <line x1="464" y1="50" x2="524" y2="50" marker-end="url(#ar)"/>
-          <line x1="724" y1="50" x2="784" y2="50" marker-end="url(#ar)"/>
-        </g>
-        <path d="M890 82 C 890 128, 105 128, 105 86" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#ar2)"/>
-        <text x="497" y="140" font-size="14" text-anchor="middle" fill="var(--accent)" font-weight="700" data-i18n="prov_back">答えから、元のファイルまで遡れる</text>
+        <g stroke="var(--entity)" stroke-width="2" fill="none"><line x1="211" y1="50" x2="263" y2="50" marker-end="url(#ar)"/><line x1="476" y1="50" x2="528" y2="50" marker-end="url(#ar)"/><line x1="741" y1="50" x2="793" y2="50" marker-end="url(#ar)"/></g>
+        <path d="M899 82 C 899 128, 104 128, 104 86" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#ar2)"/>
+        <text x="502" y="140" font-size="14" text-anchor="middle" fill="var(--accent)" font-weight="700" data-i18n="prov_back">答えから、出どころをたどれる</text>
       </svg>
-      <svg class="narrow" viewBox="0 0 320 330" role="img" data-i18n-aria="aria_prov" aria-label="手元のファイルから設計図、つながったデータ、答えへと進み、答えからは元のファイルまで遡れることを示す図">
-        <defs>
-          <marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--entity)"/></marker>
-          <marker id="br2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
-        </defs>
+      <svg class="narrow" viewBox="0 0 320 330" role="img" data-i18n-aria="aria_prov" aria-label="手元のファイルからデータの見方、知識グラフとオントロジー、答えへと進み、答えからは出どころをたどれることを示す図">
+        <defs><marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--entity)"/></marker><marker id="br2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker></defs>
         <g font-size="15" text-anchor="middle" font-weight="700">
-          <rect x="20" y="6" width="210" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <rect x="14" y="6" width="222" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
           <text x="125" y="36" fill="var(--ink)" data-i18n="prov1">手元のファイル</text>
-          <rect x="20" y="92" width="210" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
-          <text x="125" y="122" fill="var(--ink)" data-i18n="prov2">設計図（人が確定）</text>
-          <rect x="20" y="178" width="210" height="48" rx="12" fill="var(--entity-soft)" stroke="var(--entity)"/>
-          <text x="125" y="208" fill="var(--ink)" data-i18n="prov3">つながったデータ</text>
-          <rect x="20" y="264" width="210" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <rect x="14" y="92" width="222" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
+          <text x="125" y="122" fill="var(--ink)" data-i18n="prov2">データの見方（人が確定）</text>
+          <rect x="14" y="178" width="222" height="48" rx="12" fill="var(--entity-soft)" stroke="var(--entity)"/>
+          <text x="125" y="208" fill="var(--ink)" data-i18n="prov3">知識グラフ＋オントロジー</text>
+          <rect x="14" y="264" width="222" height="48" rx="12" fill="var(--surface-alt)" stroke="var(--line-strong)"/>
           <text x="125" y="294" fill="var(--ink)" data-i18n="prov4">答え＋出どころ</text>
         </g>
-        <g stroke="var(--entity)" stroke-width="2">
-          <line x1="125" y1="57" x2="125" y2="86" marker-end="url(#br)"/>
-          <line x1="125" y1="143" x2="125" y2="172" marker-end="url(#br)"/>
-          <line x1="125" y1="229" x2="125" y2="258" marker-end="url(#br)"/>
-        </g>
-        <path d="M234 288 C 300 288, 300 30, 238 30" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#br2)"/>
-        <text x="300" y="166" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700" transform="rotate(90 300 166)" data-i18n="prov_back_short">元まで遡れる</text>
+        <g stroke="var(--entity)" stroke-width="2"><line x1="125" y1="57" x2="125" y2="86" marker-end="url(#br)"/><line x1="125" y1="143" x2="125" y2="172" marker-end="url(#br)"/><line x1="125" y1="229" x2="125" y2="258" marker-end="url(#br)"/></g>
+        <path d="M240 288 C 302 288, 302 30, 244 30" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#br2)"/>
+        <text x="302" y="166" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700" transform="rotate(90 302 166)" data-i18n="prov_back_short">出どころをたどれる</text>
       </svg>
     </div>
   </div>
 </section>
 
 <!-- ============ SCREENS ============ -->
-<section id="screens">
+<section id="screens" class="band">
   <div class="wrap">
     <p class="eyebrow">Screens</p>
     <h2 class="reveal" data-i18n="scr_h2">実際の画面。</h2>
@@ -330,30 +356,51 @@
 
     <div class="feature reveal">
       <div class="text">
-        <span class="tag" data-i18n="scr1_tag">かんたんモード</span>
-        <h3 data-i18n="scr1_h">列ごとに「何の値か」を決める</h3>
-        <p data-i18n="scr1_p">AI が読んだ列の意味が、実データの例と並んで出てきます。違っていれば書き換えるだけ。ここで決めたことばが、検索や引用にそのまま出てきます。</p>
-        <a class="more" href="manual/ja/getting-started.html" data-i18n="scr1_more">はじめる（7 ステップ）→</a>
+        <span class="tag" data-i18n="scr_in_tag">入れる</span>
+        <h3 data-i18n="scr_in_h">表も、装置のファイルも、文書も</h3>
+        <p data-i18n="scr_in_p">Excel・CSV・装置が書き出したファイル・JSON に加えて、論文などの文書も取り込めます。文書は節・段落・文ごとに ID が付き、文の単位で検索して、出典つきで引用できます。</p>
+        <p class="note" data-i18n="scr_in_note">※ Word・PDF の取り込みは、いまのところサーバ版が対象です。</p>
+        <a class="more" href="manual/ja/add-data.html" data-i18n="scr_in_more">データの追加の章へ →</a>
       </div>
-      <div class="frame"><img src="manual/screenshots/kantan-meanings.png" width="2560" height="1800" loading="lazy" data-i18n-alt="alt_meanings" alt="「意味をつける」ステップ。元の列名・実データの例・この値の意味・単位が表に並ぶ" /></div>
+      <div class="frame"><img src="manual/screenshots/add-data-drop.png" width="2560" height="1800" loading="lazy" data-i18n-alt="alt_drop" alt="「入れる」ステップ。測定データや文書のファイルを置く枠に、Excel・CSV・装置が出力したファイル・Word / PDF と書かれている" /></div>
     </div>
 
     <div class="feature flip reveal">
       <div class="text">
-        <span class="tag" data-i18n="scr2_tag">つながり</span>
-        <h3 data-i18n="scr2_h">別々の表を、共通の値でつなぐ</h3>
-        <p data-i18n="scr2_p">レシピとスーパーの価格表のように、別々に作った表でも「食材の名前」のような共通の値でつながります。つなげば、表をまたいで質問できます。世界の標準のことば（schema.org・PROV-O など）にも揃えられます。</p>
-        <a class="more" href="manual/ja/crosswalk.html" data-i18n="scr2_more">つながりの章へ →</a>
+        <span class="tag" data-i18n="scr_mean_tag">かんたんモード</span>
+        <h3 data-i18n="scr_mean_h">列やメタデータに、意味と単位をつける</h3>
+        <p data-i18n="scr_mean_p">AI が読んだ意味が、実データの例と並んで出てきます。ファイルの先頭に一度だけ書かれた値も、1 件ごとの値も対象です。違っていれば書き換えるだけ。単位は、国際的な標準（QUDT）に照らして揃えられます。</p>
+        <a class="more" href="manual/ja/getting-started.html" data-i18n="scr_mean_more">はじめる（7 ステップ）→</a>
+      </div>
+      <div class="frame"><img src="manual/screenshots/kantan-meanings.png" width="2560" height="1800" loading="lazy" data-i18n-alt="alt_meanings" alt="「意味をつける」ステップ。ファイル全体の値と 1 件ごとの値に分けて、元の列名・実データの例・この値の意味・単位が表に並ぶ" /></div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="text">
+        <span class="tag" data-i18n="scr_onto_tag">データの種類と項目</span>
+        <h3 data-i18n="scr_onto_h">確かめた関係が、オントロジーになる</h3>
+        <p data-i18n="scr_onto_p">確かめた「データの種類」「項目」「つながり」は、そのデータセットのオントロジー（ことばの整理）として保存されます。Dublin Core・PROV-O・schema.org・QUDT・EMMO など、世界の標準のことばに結びつけることもできます。</p>
+        <a class="more" href="manual/ja/vocab-and-grounding.html" data-i18n="scr_onto_more">共通の言葉の章へ →</a>
+      </div>
+      <div class="frame"><img src="manual/screenshots/datasets-detail-tabs.png" width="2560" height="1600" loading="lazy" data-i18n-alt="alt_onto" alt="データセットの中身。「値段の記録」と「食材の名前」という 2 つの種類と、それぞれの項目、あいだをつなぐ線が図になっている" /></div>
+    </div>
+
+    <div class="feature flip reveal">
+      <div class="text">
+        <span class="tag" data-i18n="scr_link_tag">つながり</span>
+        <h3 data-i18n="scr_link_h">別々のデータを、共通の値でつなぐ</h3>
+        <p data-i18n="scr_link_p">別々に作ったデータでも、同じ値（たとえば「食材の名前」）を手がかりにつながります。候補は AI を使わず、実際の値の重なりから探します。つなげば、データをまたいで質問できます。</p>
+        <a class="more" href="manual/ja/crosswalk.html" data-i18n="scr_link_more">つながりの章へ →</a>
       </div>
       <div class="frame"><img src="manual/screenshots/crosswalk-map.png" width="2560" height="1600" loading="lazy" data-i18n-alt="alt_map" alt="つながりの地図。データセットが「食材の名前」でつながり、標準のことばへ線が伸びている" /></div>
     </div>
 
     <div class="feature reveal">
       <div class="text">
-        <span class="tag" data-i18n="scr3_tag">ワークスペース</span>
-        <h3 data-i18n="scr3_h">聞けば、根拠つきで返ってくる</h3>
-        <p data-i18n="scr3_p">1 件のページを開いて「人口の推移を棒グラフで」と頼むと、そのページの値からグラフを作り、何を使ったかを添えて返します。残すかどうかは、あなたが決めます。</p>
-        <a class="more" href="manual/ja/workspace.html" data-i18n="scr3_more">ワークスペースの章へ →</a>
+        <span class="tag" data-i18n="scr_ask_tag">ワークスペース</span>
+        <h3 data-i18n="scr_ask_h">聞けば、根拠つきで返ってくる</h3>
+        <p data-i18n="scr_ask_p">1 件ごとのページ（たとえば、ある国や、ある試料のページ）を開いて「人口の推移を棒グラフで」と頼むと、そのページの値からグラフを作り、何を使ったかを添えて返します。残すかどうかは、あなたが決めます。</p>
+        <a class="more" href="manual/ja/workspace.html" data-i18n="scr_ask_more">ワークスペースの章へ →</a>
       </div>
       <div class="frame"><img src="manual/screenshots/workspace-page-chat.png" width="2880" height="1800" loading="lazy" data-i18n-alt="alt_chat" alt="「日本」のページで、右のチャットに人口の推移を頼むと、根拠を添えて棒グラフが返ってくる" /></div>
     </div>
@@ -361,38 +408,38 @@
 </section>
 
 <!-- ============ WHO ============ -->
-<section class="band">
+<section>
   <div class="wrap">
     <p class="eyebrow">Who it's for</p>
-    <h2 class="reveal" data-i18n="who_h2">表を、次の人に渡せる形にしたい人へ。</h2>
+    <h2 class="reveal" data-i18n="who_h2">データを、次の人にも AI にも渡せる形にしたい人へ。</h2>
     <p class="sub reveal" data-i18n="who_sub">研究室でも、データベース運営でも、AI と組む開発でも。</p>
     <div class="grid g4">
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6L4.5 18.5A1.6 1.6 0 0 0 5.9 21h12.2a1.6 1.6 0 0 0 1.4-2.5L14 9V3"/><path d="M7 15h10"/></svg></div>
         <h3 data-i18n="who1_h">実験・測定をする研究者</h3>
-        <p data-i18n="who1_p">装置のファイルや測定表を、試料・条件・出典までつながったデータに。数年後の自分にも、共同研究者にも説明がいりません。</p>
+        <p data-i18n="who1_p">装置のファイルや測定表を、列の意味と単位がわかる形で残せます。数年後の自分にも、共同研究者にも説明がいりません。</p>
       </div>
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"/><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/></svg></div>
         <h3 data-i18n="who2_h">データベースを運営する人</h3>
-        <p data-i18n="who2_p">文献から集めたデータに、引用できる ID と来歴を。追記・差し替え・ID の引っ越しまで、公開後も育てられます。</p>
+        <p data-i18n="who2_p">文献から集めたデータに、引用できる ID と出どころを。公開後も、追記・差し替え・設計の見直しができます。ID のつけかたを変えても、前の ID に引っ越し先が記録されるので、すでに配った引用からたどれます。引き継げない ID があるときは、公開の前に知らせます。</p>
       </div>
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.4 6h7.2M6 8.4v7.2M18 8.4v7.2M8.4 18h7.2"/></svg></div>
         <h3 data-i18n="who3_h">研究室・チーム</h3>
-        <p data-i18n="who3_p">人ごと・装置ごとにばらばらの表を、共通の値と共通のことばでつないで、またいで問えるように。</p>
+        <p data-i18n="who3_p">先輩の頭の中にあった「列の意味」や「単位」を、研究室の資産として残せます。人ごと・装置ごとにばらばらのデータも、共通のことばでつながります。</p>
       </div>
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-5 4 5 4M16 8l5 4-5 4M13.5 5l-3 14"/></svg></div>
-        <h3 data-i18n="who4_h">AI と組んで開発する人</h3>
-        <p data-i18n="who4_p">Asterism は MCP の接続先を出します。Claude Code・Claude Desktop・Cursor などから、データを引けます。</p>
+        <h3 data-i18n="who4_h">AI と組んで研究・開発する人</h3>
+        <p data-i18n="who4_p">Asterism は、MCP（AI アシスタントが外のデータや道具につながるための共通の規格）の接続先になります。Claude Code・Claude Desktop・Cursor・VS Code などの AI が、データの説明と構造を読んだうえで、あなたのデータを引けます。</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ============ TRUST ============ -->
-<section>
+<section class="band">
   <div class="wrap">
     <p class="eyebrow">Trust</p>
     <h2 class="reveal" data-i18n="tr_h2">信頼できる土台。</h2>
@@ -401,24 +448,24 @@
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3z"/><path d="m9 12 2 2 4-4"/></svg></div>
         <h3 data-i18n="tr1_h">AI が書いたコードは動かさない</h3>
-        <p data-i18n="tr1_p">取り込みは、宣言的な変換ルールと、人が一度確かめた関数だけで行います。AI に任せるのは下書きまで。だから同じ表からは、毎回同じデータができます。</p>
+        <p data-i18n="tr1_p">AI が作るのは下書きまでです。取り込みを実行するのは、あなたが確かめた変換ルールと、あらかじめ人が点検した部品（関数）だけ。だから同じファイルからは、毎回同じデータができます。</p>
       </div>
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-        <h3 data-i18n="tr2_h">あなたの PC、あなたの AI</h3>
-        <p data-i18n="tr2_p">デスクトップ版はデータをすべて手元に置きます。AI は Anthropic・OpenAI・OpenAI 互換（さくらの AI Engine・Ollama など）から、自分のものを登録して使います。</p>
+        <h3 data-i18n="tr2_h">閉じた環境で、自分たちの見方を育てる</h3>
+        <p data-i18n="tr2_p">データと、その見方の保存先は、自分の PC か、自分たちで立てたサーバです。AI に読ませる表の内容や質問は、登録した AI のサービスに送られます。外に出したくないデータには、手元で動く AI（Ollama など）を選べます。</p>
       </div>
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.8"/></svg></div>
         <h3 data-i18n="tr3_h">オープンソース＆オープン標準</h3>
-        <p data-i18n="tr3_p">Apache-2.0 で公開しています。データは RDF、問い合わせは SPARQL、来歴は PROV-O。Asterism の外でも、そのまま読めます。</p>
+        <p data-i18n="tr3_p">Apache-2.0 で公開しています。データの形式は RDF、問い合わせの言語は SPARQL、来歴の書き方は PROV-O。どれも W3C の標準なので、Asterism の外でもそのまま読めます。</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ============ START ============ -->
-<section id="start" class="band start">
+<section id="start" class="start">
   <div class="wrap">
     <p class="eyebrow">Start</p>
     <h2 class="reveal" data-i18n="st_h2">はじめる。</h2>
@@ -427,13 +474,13 @@
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg></div>
         <h3 data-i18n="st1_h">ブラウザでデモ</h3>
-        <p data-i18n="st1_p">熱電材料のデータ（Starrydata）に、サーバも AI も使わずブラウザの中で問い合わせます。答えの IRI と、実行した SPARQL まで見られます。</p>
+        <p data-i18n="st1_p">熱電材料のデータ（Starrydata の一部）で、「出どころつきの答え」がどう見えるかを確かめるデモです。サーバも AI も使わず、ブラウザの中の問い合わせ（SPARQL）だけで動きます。答えの ID（IRI）と、実行した問い合わせまで見られます。</p>
         <a class="btn ghost" href="demo/" data-i18n="st1_btn">デモを開く →</a>
       </div>
       <div class="card reveal">
         <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></div>
         <h3 data-i18n="st2_h">デスクトップアプリ</h3>
-        <p data-i18n="st2_p">Asterism の本領はこちら。アプリを立ち上げるだけで、この PC の中で完結して動きます。自動更新つき。macOS（Apple Silicon）対応。</p>
+        <p data-i18n="st2_p">アプリを立ち上げるだけで、自分の PC の中で動きます。自動更新つき。macOS（Apple Silicon）対応。</p>
         <a class="btn primary" href="https://github.com/kumagallium/asterism/releases/latest" data-i18n="st2_btn">ダウンロード →</a>
       </div>
       <div class="card reveal">
@@ -443,38 +490,44 @@
         <a class="btn ghost" href="manual/" data-i18n="st3_btn">マニュアルを読む →</a>
       </div>
     </div>
+    <p class="server-note reveal" data-i18n="st_server">研究室やチームで共有するときは、Docker で自分たちのサーバに立てられます。立て方と注意点は、<a href="https://github.com/kumagallium/asterism#readme">GitHub の README</a>（Quickstart と Security / deploying の節）にあります。</p>
+    <p class="server-note dev reveal" data-i18n="st_dev">Asterism は開発中です。使ってみた感想や要望は、<a href="https://github.com/kumagallium/asterism/issues">GitHub の Issue</a> でお寄せください。</p>
   </div>
 </section>
 
 <!-- ============ FAQ ============ -->
-<section id="faq">
+<section id="faq" class="band">
   <div class="wrap">
     <p class="eyebrow">FAQ</p>
     <h2 class="reveal" data-i18n="faq_h2">よくある質問</h2>
     <div class="faq reveal">
       <details>
         <summary data-i18n="faq1_q">RDF やオントロジーの知識は必要ですか？</summary>
-        <p data-i18n="faq1_a">いりません。かんたんモードでは「この列は何の値か」「どの表とつなぐか」をふだんの言葉で選ぶだけです。しくみを知りたくなったら、マニュアルの「<a href="manual/ja/rdf-basics.html">つながったデータの基礎</a>」で図解しています。変換ルールや検査結果まで見たい人には詳細モードもあります。</p>
+        <p data-i18n="faq1_a">いりません。かんたんモードでは「この列は何の値か」「どのデータとつなぐか」をふだんの言葉で選ぶだけです。しくみを知りたくなったら、マニュアルの「<a href="manual/ja/rdf-basics.html">つながったデータの基礎</a>」で図解しています。変換ルールや検査結果まで見たい人には詳細モードもあります。</p>
       </details>
       <details>
-        <summary data-i18n="faq2_q">AI は必須ですか？</summary>
-        <p data-i18n="faq2_a">表の読み取り・設計の下書き・ふつうの言葉での質問には AI を使います。設定で、Anthropic（Claude）・OpenAI・OpenAI 互換（さくらの AI Engine・Groq・Ollama など）から登録してください。一方、データそのものは人が確定した設計図から機械が作るので、同じ表からは同じデータができます。Word・PDF の文書は AI を使わずに取り込めます。</p>
+        <summary data-i18n="faq2_q">知識グラフとオントロジーは、何が違いますか？</summary>
+        <p data-i18n="faq2_a">知識グラフは「この測定は、この試料のもの」のような事実のつながり、オントロジーは「試料」「測定」といったことばと、その関係の整理です。Asterism では、かんたんモードで種類・項目・つながりを確かめると、両方ができあがります。</p>
       </details>
       <details>
-        <summary data-i18n="faq3_q">データはどこに保存されますか？</summary>
-        <p data-i18n="faq3_a">デスクトップ版では、この PC の中に保存されます。公開するまで、データは誰にも見えません。</p>
+        <summary data-i18n="faq3_q">AI は必須ですか？</summary>
+        <p data-i18n="faq3_a">表の読み取り・設計の下書き・ふつうの言葉での質問には AI を使います。設定で、Anthropic（Claude）・OpenAI・OpenAI 互換のサービス（さくらの AI Engine・Groq・Ollama など）から登録してください。一方、データそのものは人が確定した設計図から機械が作るので、同じファイルからは同じデータができます。文書の取り込みと、つながりの候補さがしには AI を使いません。</p>
       </details>
       <details>
-        <summary data-i18n="faq4_q">どんなファイルを取り込めますか？</summary>
-        <p data-i18n="faq4_a">Excel・CSV・装置が書き出したファイル（.txt / .dat）・JSON・Word / PDF に対応しています。詳しくは「<a href="manual/ja/add-data.html">データの追加</a>」をご覧ください。</p>
+        <summary data-i18n="faq4_q">データはどこに保存されますか？</summary>
+        <p data-i18n="faq4_a">デスクトップ版では、自分の PC の中に保存されます。サーバ版では、自分たちで立てたサーバの中です。公開するまでは下書きで、質問の答えや、ほかの AI からの問い合わせには使われません。なお、設計の下書きや質問のときに AI に読ませる表の内容や質問は、登録した AI のサービスに送られます。</p>
       </details>
       <details>
-        <summary data-i18n="faq5_q">ほかの AI（Claude など）から使えますか？</summary>
-        <p data-i18n="faq5_a">はい。Asterism 本体が MCP の接続先を出します。設定の「ほかの AI から使う」タブに、Claude Code・Claude Desktop・Cursor などへ貼り付ける内容がそのまま出ます。</p>
+        <summary data-i18n="faq5_q">どんなファイルを取り込めますか？</summary>
+        <p data-i18n="faq5_a">表は Excel（.xlsx）・CSV・タブ区切り、装置が書き出したファイル（.txt / .dat）、JSON に対応しています。文書は、論文の XML（JATS）・Word・PDF です。このうち Word と PDF は、いまのところサーバ版が対象です。文字が画像になっているスキャン PDF は読み取れません。詳しくは「<a href="manual/ja/add-data.html">データの追加</a>」をご覧ください。</p>
       </details>
       <details>
-        <summary data-i18n="faq6_q">無料ですか？</summary>
-        <p data-i18n="faq6_a">Asterism 自体は Apache-2.0 のオープンソースで、無料です。AI を使う分は、登録したプロバイダの料金がかかります。</p>
+        <summary data-i18n="faq6_q">ほかの AI（Claude など）から使えますか？</summary>
+        <p data-i18n="faq6_a">はい。Asterism 自身が MCP の接続先になります。デスクトップ版では、設定の「ほかの AI から使う」タブに、Claude Code・Claude Desktop・Cursor・VS Code 向けの設定内容がそのまま出ます。</p>
+      </details>
+      <details>
+        <summary data-i18n="faq7_q">無料ですか？</summary>
+        <p data-i18n="faq7_a">Asterism 自体は Apache-2.0 のオープンソースで、無料です。AI を使う分は、登録したプロバイダの料金がかかります。</p>
       </details>
     </div>
   </div>
@@ -529,90 +582,133 @@
   // 英語の文言。日本語は HTML に書いたものが正本で、切り替え時に元へ戻す。
   // マニュアルは日本語のみなので、英語ではリンク先にそう書き添える。
   var EN = {
-    aria_home: 'Asterism home',
-    aria_nav: 'On this page',
-    nav_how: 'How it works', nav_screens: 'Screens', nav_start: 'Get started', nav_manual: 'Manual',
-    hero_eyebrow: 'Asterism · Research data, connected',
-    hero_h1: 'Drop in a table.<br>Get data that <em>answers with its sources.</em>',
-    hero_lead: 'Drop in Excel, CSV, or instrument files, and AI drafts what each column means. Once you review and publish, you can ask the data questions in plain language — and every answer comes with where it came from. Separate tables connect through the values they share.',
-    hero_cta1: 'See how to start →', hero_cta2: 'Get the desktop app', hero_cta3: '★ Star on GitHub',
-    alt_home: 'The Asterism home screen: counts of facts, datasets, and kinds of data; entry points to add data, ask questions, and connect datasets; and a list of recent datasets',
-    how_h2: 'Drop in. Review. Ask.',
-    how_sub: 'No RDF or SPARQL required. From your own tables to citable, linked data in three steps.',
-    how1_h: 'Drop in',
-    how1_p: 'Drop in files from Excel, CSV, or your instruments as they are. AI reads them and drafts what each column means and how records get their IDs.',
-    how2_h: 'Review and publish',
-    how2_p: 'You decide what each column holds and which tables to connect. The machine then converts the data exactly as the approved design says, so the same table always yields the same data. Nothing is visible to anyone until you publish.',
-    how3_h: 'Ask, with sources',
-    how3_p: 'Ask your published data questions in plain language. Every answer traces back to its source file, the date it was ingested, and the rules that were applied.',
-    aria_prov: 'Diagram: your files become a design, then linked data, then answers — and every answer traces back to the original file',
-    prov1: 'Your files', prov2: 'Design (you approve)', prov3: 'Linked data', prov4: 'Answer + source',
-    prov_back: 'Every answer traces back to the original file', prov_back_short: 'Trace back',
-    scr_h2: 'The real screens.',
-    scr_sub: 'The app speaks in everyday words, not data jargon. (Screenshots show the Japanese UI; English is also available in the app.)',
-    scr1_tag: 'Easy mode', scr1_h: 'Decide what each column means',
-    scr1_p: 'The meaning AI read for each column appears next to real example values. If it is wrong, just rewrite it. The words you choose here are what search and citations will show.',
-    scr1_more: 'Getting started, in 7 steps (Japanese) →',
-    alt_meanings: 'The “add meaning” step: a table of original column names, example values, the meaning of each value, and units',
-    scr2_tag: 'Connections', scr2_h: 'Connect separate tables through shared values',
-    scr2_p: 'Tables made separately — say, recipes and a supermarket price list — connect through a shared value such as “ingredient name”. Once connected, you can ask questions across them. You can also align to world-standard vocabularies such as schema.org and PROV-O.',
-    scr2_more: 'Connections chapter (Japanese) →',
-    alt_map: 'The connections map: datasets linked through “ingredient name”, with lines out to standard vocabularies',
-    scr3_tag: 'Workspace', scr3_h: 'Ask, and get an answer with its evidence',
-    scr3_p: 'Open a page and ask for “population over time as a bar chart”. Asterism builds the chart from that page’s values and tells you what it used. Whether to keep it is up to you.',
-    scr3_more: 'Workspace chapter (Japanese) →',
-    alt_chat: 'On the “Japan” page, asking the side chat for population over time returns a bar chart with the evidence it used',
-    who_h2: 'For anyone who wants their tables ready for the next person.',
-    who_sub: 'In the lab, running a database, or building with AI.',
-    who1_h: 'Experimental researchers',
-    who1_p: 'Turn instrument files and measurement tables into data linked to samples, conditions, and sources. No explaining needed — to collaborators, or to yourself years later.',
-    who2_h: 'Database maintainers',
-    who2_p: 'Give data collected from the literature citable IDs and provenance. Keep it growing after publication: append, replace, even move IDs.',
-    who3_h: 'Labs and teams',
-    who3_p: 'Connect tables scattered across people and instruments through shared values and shared vocabulary, so you can ask across all of them.',
-    who4_h: 'Developers building with AI',
-    who4_p: 'Asterism exposes an MCP endpoint, so Claude Code, Claude Desktop, Cursor, and others can pull from your data.',
-    tr_h2: 'A foundation you can trust.',
-    tr_sub: 'AI drafts and advises. The data itself is made by rules a person has checked.',
-    tr1_h: 'AI-written code never runs',
-    tr1_p: 'Ingestion uses only declarative mapping rules and a fixed set of functions a person has reviewed. AI only drafts — so the same table always yields the same data.',
-    tr2_h: 'Your computer, your AI',
-    tr2_p: 'The desktop app keeps all data on your machine. Bring your own AI: Anthropic, OpenAI, or any OpenAI-compatible provider (Sakura AI Engine, Ollama, and more).',
-    tr3_h: 'Open source, open standards',
-    tr3_p: 'Released under Apache-2.0. Data is RDF, queries are SPARQL, provenance is PROV-O — readable as-is outside Asterism.',
-    st_h2: 'Get started.',
-    st_sub: 'Try the no-install demo first to see what “answers with sources” feels like.',
-    st1_h: 'Demo in your browser',
-    st1_p: 'Query thermoelectric materials data (Starrydata) right in your browser — no server, no AI. You can see each answer’s IRI and the SPARQL that ran.',
-    st1_btn: 'Open the demo →',
-    st2_h: 'Desktop app',
-    st2_p: 'This is where Asterism shines. Launch the app and everything runs on your own computer, with automatic updates. macOS (Apple Silicon).',
-    st2_btn: 'Download →',
-    st3_h: 'User manual',
-    st3_p: 'From the 7-step quick start to the basics of linked data (RDF, IRIs, SPARQL), illustrated for first-timers. Currently in Japanese.',
-    st3_btn: 'Read the manual →',
-    faq_h2: 'FAQ',
-    faq1_q: 'Do I need to know RDF or ontologies?',
-    faq1_a: 'No. In easy mode you just choose, in everyday words, what each column holds and which tables to connect. If you want to know how it works, the manual’s “<a href="manual/ja/rdf-basics.html">basics of linked data</a>” (Japanese) explains it with diagrams. An advanced mode shows everything, down to the mapping rules and check results.',
-    faq2_q: 'Is AI required?',
-    faq2_a: 'AI is used to read tables, draft designs, and answer plain-language questions. Register a provider in Settings: Anthropic (Claude), OpenAI, or OpenAI-compatible (Sakura AI Engine, Groq, Ollama, and more). The data itself is built by the machine from the design a person approved, so the same table always yields the same data. Word and PDF documents can be ingested without AI.',
-    faq3_q: 'Where is my data stored?',
-    faq3_a: 'With the desktop app, on your own computer. Nothing is visible to anyone until you publish.',
-    faq4_q: 'What files can I bring in?',
-    faq4_a: 'Excel, CSV, files written by instruments (.txt / .dat), JSON, and Word / PDF. See “<a href="manual/ja/add-data.html">Adding data</a>” (Japanese) for details.',
-    faq5_q: 'Can other AI tools (like Claude) use it?',
-    faq5_a: 'Yes. Asterism exposes an MCP endpoint. The “Use from other AI” tab in Settings shows exactly what to paste into Claude Code, Claude Desktop, Cursor, and others.',
-    faq6_q: 'Is it free?',
-    faq6_a: 'Asterism itself is free and open source under Apache-2.0. AI usage is billed by the provider you register.',
-    ft_tag: 'Research data, connected.',
-    ft_use: 'USE', ft_manual: 'User manual (Japanese)', ft_roadmap: 'Feature roadmap', ft_history: 'Release history', ft_demo: 'Citable facts demo',
-    ft_dev: 'DEVELOP', ft_repo: 'GitHub repository', ft_releases: 'Releases',
-    ft_ns: 'NAMESPACES', ft_ns_p: 'This site also hosts the IRI namespaces Asterism uses.'
+    "aria_home": "Asterism home",
+    "aria_nav": "On this page",
+    "nav_what": "What it is",
+    "nav_how": "How it works",
+    "nav_screens": "Screens",
+    "nav_start": "Get started",
+    "nav_manual": "Manual",
+    "hero_eyebrow": "Asterism · An open-source semantic engine",
+    "hero_h1": "Turn <em>the way you read your data</em><br>into knowledge AI can read, too.",
+    "hero_lead": "What a column holds, what unit it uses, which sample it belongs to — the context needed to read data usually lives only in people’s heads. Asterism takes in measurement files, tables, and papers, and turns that “way of reading the data” into a knowledge graph and an ontology: AI drafts, you confirm. Then AI can pull from your data the way your lab reads it, and answer with sources.",
+    "hero_cta1": "See how to start →",
+    "hero_cta2": "Get the desktop app (macOS)",
+    "hero_cta3": "★ Star on GitHub",
+    "alt_home": "The Asterism home screen: counts of facts, datasets, and kinds of data; entry points to add data, ask questions, and connect datasets; and a list of recent datasets",
+    "what_h2": "Connect the stars into a figure.",
+    "what_sub": "An asterism is a pattern of stars. Each piece of data is a star; the knowledge graph and the ontology are the lines between the stars; the figure that appears is knowledge.",
+    "what1_h": "Stars = data",
+    "what1_p": "A measured value, a sample, a sentence in a paper. Each piece of data you bring in becomes a point with its own ID.",
+    "what2_h": "Lines = knowledge graph and ontology",
+    "what2_p": "Facts linked together — “this measurement belongs to this sample” — form the knowledge graph. The ontology organizes the words, such as “sample” and “measurement”, and how they relate.",
+    "what3_h": "Figure = knowledge",
+    "what3_p": "Once connected, the data takes a shape both people and AI can read. AI reads the description and structure of your data first, then pulls from it — a user manual for your data, written for AI.",
+    "how_h2": "Drop in. Confirm. Ask.",
+    "how_sub": "No need to know databases or specialist standards such as RDF and SPARQL. From the files you already have to knowledge AI can pull from, in three steps.",
+    "how1_h": "Drop in",
+    "how1_p": "Drop in Excel or CSV, .txt / .dat files written by instruments, JSON, or documents such as papers (Word and PDF: server version), just as they are. For tables and instrument files, AI reads them and drafts what kinds of things the data holds and what each field means. Documents are split into sections, paragraphs, and sentences.",
+    "how2_h": "Confirm how to read the data, then publish",
+    "how2_p": "You confirm what each column, and each value written once at the top of a file, means, its unit, and how the data connects. The machine then converts the data exactly as the confirmed design says, so the same file always yields the same data. Until you publish, it stays a draft that is never used to answer questions or queries from other AI tools.",
+    "how3_h": "Ask, with sources",
+    "how3_p": "Ask your published data questions in plain language. Answers grounded in your data carry their sources, so you can trace which dataset and which ingest they came from.",
+    "aria_prov": "Diagram: your files become a confirmed way of reading the data, then a knowledge graph and ontology, then answers — and each answer can be traced to its source",
+    "prov1": "Your files",
+    "prov2": "Meaning (you confirm)",
+    "prov3": "Graph + ontology",
+    "prov4": "Answer + source",
+    "prov_back": "Each answer can be traced to its source",
+    "prov_back_short": "Source is traceable",
+    "scr_h2": "The real screens.",
+    "scr_sub": "The app speaks in everyday words, not data jargon. (Screenshots show the Japanese UI; the app is also available in English.)",
+    "scr_in_tag": "Add data",
+    "scr_in_h": "Tables, instrument files, and documents",
+    "scr_in_p": "Besides Excel, CSV, instrument files, and JSON, you can bring in documents such as papers. Each section, paragraph, and sentence of a document gets its own ID, so you can search by sentence and quote it with a citation.",
+    "scr_in_note": "Note: Word and PDF ingestion is currently for the server version.",
+    "scr_in_more": "Adding data (Japanese) →",
+    "alt_drop": "The “add” step: a drop zone for measurement data and documents, listing Excel, CSV, instrument files, and Word / PDF",
+    "scr_mean_tag": "Easy mode",
+    "scr_mean_h": "Give columns and metadata a meaning and a unit",
+    "scr_mean_p": "The meaning AI read appears next to real example values — for values written once at the top of a file as well as values repeated per record. If it is wrong, just rewrite it. Units can be matched against an international standard (QUDT).",
+    "scr_mean_more": "Getting started, in 7 steps (Japanese) →",
+    "alt_meanings": "The “add meaning” step: split into file-wide values and per-record values, a table of original column names, example values, the meaning of each value, and units",
+    "scr_onto_tag": "Kinds and fields",
+    "scr_onto_h": "What you confirm becomes the ontology",
+    "scr_onto_p": "The kinds of data, their fields, and the links you confirm are saved as the dataset’s ontology — its vocabulary, organized. You can also tie your terms to world-standard vocabularies such as Dublin Core, PROV-O, schema.org, QUDT, and EMMO.",
+    "scr_onto_more": "Shared terms chapter (Japanese) →",
+    "alt_onto": "Inside a dataset: two kinds, “price record” and “ingredient name”, with their fields and the link between them shown as a diagram",
+    "scr_link_tag": "Connections",
+    "scr_link_h": "Connect separate datasets through shared values",
+    "scr_link_p": "Datasets made separately connect through values they share — say, “ingredient name”. Candidates are found from the actual overlap of values, without AI. Once connected, you can ask questions across datasets.",
+    "scr_link_more": "Connections chapter (Japanese) →",
+    "alt_map": "The connections map: datasets linked through “ingredient name”, with lines out to standard vocabularies",
+    "scr_ask_tag": "Workspace",
+    "scr_ask_h": "Ask, and get an answer with its evidence",
+    "scr_ask_p": "Open the page for a single item — a country, say, or a sample — and ask for “population over time as a bar chart”. The chart is built from that page’s values and comes with a note of what was used. Whether to keep it is up to you.",
+    "scr_ask_more": "Workspace chapter (Japanese) →",
+    "alt_chat": "On the “Japan” page, asking the side chat for population over time returns a bar chart with the evidence it used",
+    "who_h2": "For anyone who wants data ready for the next person — and for AI.",
+    "who_sub": "In the lab, running a database, or building with AI.",
+    "who1_h": "Experimental researchers",
+    "who1_p": "Keep instrument files and measurement tables in a form where the meaning and unit of every column is clear. No explaining needed — to collaborators, or to yourself years later.",
+    "who2_h": "Database maintainers",
+    "who2_p": "Give data collected from the literature citable IDs and sources. After publishing you can still append, replace, and revise the design. Even if you change how IDs are made, each old ID records where it moved, so citations already handed out still lead to the data. If some IDs cannot be carried over, you are told before you publish.",
+    "who3_h": "Labs and teams",
+    "who3_p": "Keep what used to live in a senior member’s head — what a column means, which unit it uses — as a lab asset. Data scattered across people and instruments connects through shared vocabulary.",
+    "who4_h": "People working with AI",
+    "who4_p": "Asterism works as an endpoint for MCP, a common standard that lets AI assistants connect to outside data and tools. AI tools such as Claude Code, Claude Desktop, Cursor, and VS Code read the description and structure of your data first, then pull from it.",
+    "tr_h2": "A foundation you can trust.",
+    "tr_sub": "AI drafts and advises. The data itself is made by rules a person has checked.",
+    "tr1_h": "AI-written code never runs",
+    "tr1_p": "AI only drafts. Ingestion runs on nothing but the mapping rules you confirmed and functions a person has reviewed in advance — so the same file always yields the same data.",
+    "tr2_h": "Grow your own reading, in a closed environment",
+    "tr2_p": "Your data, and the way you read it, are stored on your own computer or on a server you host. Table contents and questions that you have AI read are sent to the AI service you register. For data that must not leave, you can choose an AI that runs locally, such as Ollama.",
+    "tr3_h": "Open source, open standards",
+    "tr3_p": "Released under Apache-2.0. The data format is RDF, the query language is SPARQL, and provenance is written in PROV-O — all W3C standards, so everything is readable as-is outside Asterism.",
+    "st_h2": "Get started.",
+    "st_sub": "Try the no-install demo first to see what “answers with sources” feels like.",
+    "st1_h": "Demo in your browser",
+    "st1_p": "A demo of what “answers with sources” look like, on thermoelectric materials data (a small subset of Starrydata). It runs entirely in your browser on queries (SPARQL) alone — no server, no AI. You can see each answer’s ID (IRI) and the query that ran.",
+    "st1_btn": "Open the demo →",
+    "st2_h": "Desktop app",
+    "st2_p": "Launch the app and it runs on your own computer, with automatic updates. macOS (Apple Silicon).",
+    "st2_btn": "Download →",
+    "st3_h": "User manual",
+    "st3_p": "From the 7-step quick start to the basics of linked data (RDF, IRIs, SPARQL), illustrated for first-timers. Currently in Japanese.",
+    "st3_btn": "Read the manual →",
+    "st_server": "To share within a lab or team, host it on your own server with Docker. How to set it up, and what to watch for, is in the <a href=\"https://github.com/kumagallium/asterism#readme\">README on GitHub</a> (the Quickstart and “Security / deploying” sections).",
+    "faq_h2": "FAQ",
+    "faq1_q": "Do I need to know RDF or ontologies?",
+    "faq1_a": "No. In easy mode you just choose, in everyday words, what each column holds and which data to connect. If you want to know how it works, the manual’s “<a href=\"manual/ja/rdf-basics.html\">basics of linked data</a>” (Japanese) explains it with diagrams. There is also a detailed mode for those who want to see the mapping rules and check results.",
+    "faq2_q": "What is the difference between a knowledge graph and an ontology?",
+    "faq2_a": "A knowledge graph links facts — “this measurement belongs to this sample”. An ontology organizes the words, such as “sample” and “measurement”, and how they relate. In Asterism, confirming the kinds, fields, and links in easy mode produces both.",
+    "faq3_q": "Is AI required?",
+    "faq3_a": "AI is used to read tables, draft designs, and answer plain-language questions. Register a provider in Settings: Anthropic (Claude), OpenAI, or an OpenAI-compatible service (Sakura AI Engine, Groq, Ollama, and more). The data itself is built by the machine from the design a person confirmed, so the same file always yields the same data. Ingesting documents and finding connection candidates do not use AI.",
+    "faq4_q": "Where is my data stored?",
+    "faq4_a": "With the desktop app, on your own computer. With the server version, on the server you host. Until you publish, data stays a draft that is never used to answer questions or queries from other AI tools. Note that table contents and questions you have AI read — when drafting a design or asking a question — are sent to the AI service you register.",
+    "faq5_q": "What files can I bring in?",
+    "faq5_a": "Tables: Excel (.xlsx), CSV, tab-separated files, files written by instruments (.txt / .dat), and JSON. Documents: paper XML (JATS), Word, and PDF — of these, Word and PDF are currently for the server version. Scanned PDFs, where the text is an image, cannot be read. See “<a href=\"manual/ja/add-data.html\">Adding data</a>” (Japanese) for details.",
+    "faq6_q": "Can other AI tools (like Claude) use it?",
+    "faq6_a": "Yes. Asterism itself works as an MCP endpoint. In the desktop app, the “Use from other AI” tab in Settings shows exactly what to set in Claude Code, Claude Desktop, Cursor, and VS Code.",
+    "ft_tag": "Research data, connected.",
+    "ft_use": "USE",
+    "ft_manual": "User manual (Japanese)",
+    "ft_roadmap": "Feature roadmap",
+    "ft_history": "Release history",
+    "ft_demo": "Citable facts demo",
+    "ft_dev": "DEVELOP",
+    "ft_repo": "GitHub repository",
+    "ft_releases": "Releases",
+    "ft_ns": "NAMESPACES",
+    "ft_ns_p": "This site also hosts the IRI namespaces Asterism uses.",
+    "st_dev": "Asterism is under active development. Tell us what you think, or what you need, in <a href=\"https://github.com/kumagallium/asterism/issues\">GitHub Issues</a>.",
+    "faq7_q": "Is it free?",
+    "faq7_a": "Asterism itself is free and open source under Apache-2.0. AI usage is billed by the provider you register."
   };
   var META = {
     ja: { title: document.title, desc: document.querySelector('meta[name=description]').content },
     en: { title: 'Asterism — Research data, connected',
-          desc: 'Drop in Excel, CSV, or instrument files; AI drafts the design, you review and publish. Ask the published data questions in plain language, and every answer comes with its source.' }
+          desc: 'Asterism takes in measurement files, tables, and papers, and turns the way you read your data into a knowledge graph and an ontology — AI drafts, you confirm. AI then answers the way your lab reads the data, with sources.' }
   };
 
   (function () {
