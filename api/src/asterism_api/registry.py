@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -538,7 +539,11 @@ def list_source_files(root: Path, dataset_id: str) -> list[Path]:
 
 
 def mark_source_saved(
-    root: Path, dataset_id: str, source_files: list[str], conversion: dict | None = None
+    root: Path,
+    dataset_id: str,
+    source_files: list[str],
+    conversion: dict | None = None,
+    names: Mapping[str, str] | None = None,
 ) -> dict | None:
     """Record on the meta which design-time source files are now persisted.
 
@@ -549,6 +554,16 @@ def mark_source_saved(
     converter (e.g. ``{"converter": "pandoc/3.1", "sourceFormat": "docx"}``), so the
     document ingest can disclose it as a ``lit:DocumentConversionActivity``. Returns
     the new meta, or None if id is unsafe / absent.
+
+    ``names`` (optional) is ``{saved name: the name the user dropped}``. The meta's
+    ``source_names`` becomes the previous entries whose key is still a file of this
+    dataset, overlaid by the ``names`` entries that are, non-empty and different
+    from the key — so re-attaching under the saved name keeps the remembered name,
+    and a file that left the set is forgotten. "A file of this dataset" is
+    ``source_files`` plus whatever is in ``source/`` right now: the original
+    workbook of a converted source is kept there without being listed, and joins
+    ``source_files`` on a later refresh. The field is not created (empty result,
+    none before) so existing metas stay untouched.
     """
     changes: dict = {
         "has_source": True,
@@ -556,6 +571,26 @@ def mark_source_saved(
         "source_kind": source_kind_of(source_files),
     }
     changes["conversion"] = conversion  # None clears any prior conversion record
+    if re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        meta_path = root / dataset_id / _META_FILE
+        if meta_path.is_file():
+            current = json.loads(meta_path.read_text(encoding="utf-8"))
+            had_field = "source_names" in current
+            prior = current.get("source_names")
+            keep = set(source_files)
+            sdir = meta_path.parent / _SOURCE_DIR
+            if sdir.is_dir():
+                keep |= {f.name for f in sdir.iterdir() if f.is_file()}
+            merged: dict[str, str] = {
+                k: v
+                for k, v in (prior if isinstance(prior, dict) else {}).items()
+                if k in keep and isinstance(v, str)
+            }
+            for k, v in (names or {}).items():
+                if k in keep and v and v != k:
+                    merged[k] = v
+            if merged or had_field:
+                changes["source_names"] = merged
     return _update_meta(root, dataset_id, changes)
 
 
@@ -873,6 +908,17 @@ def _atomic_write_bytes(dest: Path, payload: bytes) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def load_meta(root: Path, dataset_id: str) -> dict | None:
+    """Just ``meta.json`` (no artifacts) — None when the id is unsafe / absent / unreadable."""
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    try:
+        meta = json.loads((root / dataset_id / _META_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return meta if isinstance(meta, dict) else None
 
 
 def update_meta_atomic(root: Path, dataset_id: str, changes: dict) -> dict | None:

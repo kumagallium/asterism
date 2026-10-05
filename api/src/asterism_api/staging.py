@@ -24,7 +24,7 @@ Layout
 ::
 
     _staging/<uuid4>/
-        meta.json          {"created_at", "sources": [canonical names]}
+        meta.json          {"created_at", "sources": [canonical names], "names"?: {saved: placed}}
         raw/<name>         the upload as received (converted at attach)
         <canonical>.csv    what the design reads (xlsx already expanded)
 
@@ -80,8 +80,12 @@ def dir_for(registry_root: Path | str, staging_id: str, *, create: bool = False)
     return d
 
 
-def write_meta(sdir: Path, sources: list[str]) -> dict:
-    meta = {"created_at": datetime.now(UTC).isoformat(), "sources": list(sources)}
+def write_meta(sdir: Path, sources: list[str], names: dict[str, str] | None = None) -> dict:
+    """``names`` = ``{raw/ file name: the name the user dropped}`` (only the pairs
+    where the two differ); the field is omitted when empty."""
+    meta: dict = {"created_at": datetime.now(UTC).isoformat(), "sources": list(sources)}
+    if names:
+        meta["names"] = dict(names)
     (sdir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
     return meta
 

@@ -353,6 +353,72 @@ def test_place_commit_choices_override_match_state(
         assert subjects["P-01"]["id"] == chosen_iri
 
 
+def _plants_xlsx() -> bytes:
+    from tests.test_xlsx_source import _xlsx_bytes
+
+    return _xlsx_bytes(
+        {"plants": [["code", "name", "height_cm"], ["P-01", "Rose", 32.5], ["P-02", "Tulip", 18.0]]}
+    )
+
+
+@pytest.mark.parametrize(
+    ("placed", "content"),
+    [("庭の植物.csv", _PLANTS_CSV), ("庭の植物.xlsx", None)],
+    ids=["csv", "xlsx"],
+)
+def test_place_commit_remembers_what_the_file_was_called(
+    tmp_path: Path,
+    healthy_client: OxigraphClient,
+    monkeypatch: pytest.MonkeyPatch,
+    placed: str,
+    content: bytes | None,
+) -> None:
+    """日本語だけの名前で置いた表は、保存名に直って新しいデータセットに入る。
+    置いた名前は staging の記録から引き継ぐ（ADR source-staging.md §4.5）—
+    画面が「source-xxxx.csv」ではなく、置いた名前で呼べるように。Excel は、
+    置く経路が見る派生した表の名前からも、ブックの名前が引ける。"""
+    app, cfg = _build(tmp_path, healthy_client)
+
+    def fake_materialize_own(
+        settings, *, dataset_name, signature, source_path, source_name, columns
+    ):
+        return registry.save_dataset(
+            settings.registry_root,
+            dataset_name,
+            {},
+            complete=True,
+            warnings=[],
+            traps=[],
+            exit_code=0,
+            created_at="2024-01-01T00:00:00Z",
+            proposal_md="",
+        )
+
+    async def fake_ingest_own(fastapi_app, dataset_id):
+        return {"job_id": "job-fake-names"}
+
+    async def fake_promote_own(fastapi_app, dataset_id):
+        return {}
+
+    monkeypatch.setattr(place_routes, "_materialize_own", fake_materialize_own)
+    monkeypatch.setattr(place_routes, "_ingest_own", fake_ingest_own)
+    monkeypatch.setattr(place_routes, "_promote_own", fake_promote_own)
+
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _stage(client, _plants_xlsx() if content is None else content, placed)
+        r = client.post(
+            "/api/place/commit",
+            json={"staging_id": sid, "type_id": _PLANT_CLASS, "choices": {}, "name": "私の庭"},
+        )
+        assert r.status_code == 200, r.text
+        dataset_id = r.json()["dataset_id"]
+
+    meta = registry.load_dataset(cfg.registry_root, dataset_id)["meta"]
+    (saved,) = meta["source_files"]
+    assert saved.endswith(".csv") and saved != placed  # 保存名に直っている
+    assert meta["source_names"] == {saved: placed}
+
+
 def test_place_commit_relocates_signature_map_when_template_is_curie(
     tmp_path: Path, healthy_client: OxigraphClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
