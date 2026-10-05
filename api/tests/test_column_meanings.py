@@ -492,3 +492,237 @@ def test_store_wins_over_the_design_projection(tmp_path: Path, healthy_client) -
         meanings = client.get(f"/api/datasets/{ds_id}/column-meanings").json()["meanings"]
         row = next(m for m in meanings if m["column"] == "amplitude")
         assert row["label"] == "振幅の言い直し"
+
+
+# ---------------------------------------------------------------------------
+# 初回の流れ: データセットが生まれた時点で、保管庫に写る
+# ---------------------------------------------------------------------------
+#
+# 設計の前に決めたこと（意味と「取り込まない」）は、`/api/propose/continue` が
+# 設計に効かせるだけで、データセットの保管庫には誰も書いていなかった — 写して
+# いた画面（「数の確認」）を畳んだときに、その仕事の引き継ぎ先が無くなった
+# （2026-10-05 に実機で確認: 別のブラウザで見直すと、外した列が「取り込む」に
+# 戻る）。データセットを作る `/api/materialize` が、同じ一歩で保管庫に書く。
+
+_SETTLED_MEANINGS = [
+    {"source": "readings.csv", "column": "channel", "label": "測定チャンネル"},
+    {"source": "readings.csv", "column": "amplitude", "label": "振幅", "unit": "mV"},
+]
+_SETTLED_DROPS = [{"source": "readings.csv", "column": "unused", "action": "exclude"}]
+
+# AI の作り直しが、外した列を戻し、決めた意味を書き換えた設計。
+_AI_REWRITE_MD = _FIX_RECIPE_MD.replace(
+    "      - predicate: sn:channel\n        column: channel\n",
+    "      - predicate: sn:channel\n        column: channel\n        label: AI の言い直し\n",
+).replace(
+    "      - predicate: sn:amplitude\n        column: amplitude",
+    "      - predicate: sn:amplitude\n"
+    "        column: amplitude\n"
+    "      - predicate: sn:unused\n"
+    "        column: unused",
+)
+
+
+def _staged(client: TestClient) -> str:
+    return client.post(
+        "/api/staging", files={"files": ("readings.csv", _READINGS, "text/csv")}
+    ).json()["staging_id"]
+
+
+def _first_save(client: TestClient, **extra) -> dict:
+    r = client.post(
+        "/api/materialize",
+        json={
+            "proposal_md": _FIX_RECIPE_MD,
+            "dataset_name": "sensor",
+            "staging_id": _staged(client),
+            "column_meanings": _SETTLED_MEANINGS,
+            "column_decisions": _SETTLED_DROPS,
+            **extra,
+        },
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _design_columns(client: TestClient, ds_id: str) -> dict[str, dict]:
+    ir = yaml.safe_load(client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.yaml"])
+    return {p["column"]: p for p in ir["maps"][0]["properties"]}
+
+
+def test_the_first_save_files_what_was_settled_before_the_design(
+    tmp_path: Path, healthy_client
+) -> None:
+    """データセットを作る保存が、③で決めた意味と「取り込まない」を保管庫に書く。"""
+    with _client(tmp_path, healthy_client) as client:
+        # 何も渡さなければ、外した列は「使っていない列」として知らされる（対照）。
+        blind = client.post(
+            "/api/materialize",
+            json={"proposal_md": _FIX_RECIPE_MD, "persist": False, "staging_id": _staged(client)},
+        ).json()
+        assert any("never uses: unused" in advisory for advisory in blind["advisories"])
+
+        saved = _first_save(client)
+        ds_id = saved["dataset"]["id"]
+        home = tmp_path / "registry" / ds_id
+        assert json.loads((home / "column-decisions.json").read_text("utf-8")) == {
+            "decisions": _SETTLED_DROPS
+        }
+        assert json.loads((home / "column-meanings.json").read_text("utf-8")) == {
+            "meanings": _SETTLED_MEANINGS
+        }
+        assert (
+            client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
+            == _SETTLED_DROPS
+        )
+        # 「取り込まない」と決めた列は、最初から「使っていない列」に数えない。
+        assert all("unused" not in advisory for advisory in saved["advisories"])
+        assert all("unused" not in advisory for advisory in saved["dataset"]["advisories"])
+        # 設計にも同じ意味が載っている（保管庫と設計が、生まれた時点で食い違わない）。
+        columns = _design_columns(client, ds_id)
+        assert columns["channel"]["label"] == "測定チャンネル"
+        assert (columns["amplitude"]["label"], columns["amplitude"]["unit"]) == ("振幅", "mV")
+        assert "unused" not in columns
+
+
+def test_a_first_save_with_nothing_settled_leaves_no_store(
+    tmp_path: Path, healthy_client
+) -> None:
+    """何も決めていない保存（詳細モードなど）は、これまでどおり保管庫を作らない。"""
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _FIX_RECIPE_MD,
+                "dataset_name": "sensor",
+                "column_meanings": [],
+                "column_decisions": [],
+            },
+        ).json()["dataset"]["id"]
+        home = tmp_path / "registry" / ds_id
+        assert not (home / "column-decisions.json").exists()
+        assert not (home / "column-meanings.json").exists()
+
+
+def test_a_later_save_never_writes_the_stores(tmp_path: Path, healthy_client) -> None:
+    """すでにあるデータセットへの保存は、渡された意味・判断を保管庫に書かない。
+
+    データセットができたあとの③は「この意味を保存して戻る」だけが保存する
+    （「ためすに戻る」は保存しない約束）。作り直しの保存がついでに書いてしまうと、
+    ③で書きかけて保存しなかったものまで保管庫に入る。
+    """
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _attached_dataset(client)
+        resaved = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _FIX_RECIPE_MD,
+                "dataset_name": "sensor",
+                "dataset_id": ds_id,
+                "column_meanings": _SETTLED_MEANINGS,
+                "column_decisions": _SETTLED_DROPS,
+            },
+        )
+        assert resaved.status_code == 200, resaved.text
+        home = tmp_path / "registry" / ds_id
+        assert not (home / "column-decisions.json").exists()
+        assert not (home / "column-meanings.json").exists()
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == []
+        # 設計にも写っていない（保存の本文が運んだものは、読まれてもいない）。
+        assert "label" not in _design_columns(client, ds_id)["channel"]
+        assert any("unused" in advisory for advisory in resaved.json()["advisories"])
+
+
+def test_what_was_settled_survives_a_resave_before_the_source_is_attached(
+    tmp_path: Path, healthy_client
+) -> None:
+    """生まれた直後（ソースをまだ付けていない）の保存のやり直しでも、外した列は
+    戻らず、決めた意味は書き換わらない — 取り込みの完了を待たずに保管庫にあるから。"""
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _first_save(client)["dataset"]["id"]
+        resaved = client.post(
+            "/api/materialize",
+            json={"proposal_md": _AI_REWRITE_MD, "dataset_name": "sensor", "dataset_id": ds_id},
+        )
+        assert resaved.status_code == 200, resaved.text
+        columns = _design_columns(client, ds_id)
+        assert "unused" not in columns
+        assert columns["channel"]["label"] == "測定チャンネル"
+
+
+class _RewritingLLM:
+    """「AI に直してもらう」の 1 回ぶん: 外した列を戻し、意味を書き換えて返す。"""
+
+    def __init__(self, key: str | None) -> None:
+        self.key = key
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        return _AI_REWRITE_MD
+
+
+def test_what_was_settled_survives_an_ai_round_before_the_ingest(
+    tmp_path: Path, healthy_client
+) -> None:
+    """取り込みの前に走る AI の作り直し（refine）は、保管庫だけを読んで戻す。
+    保管庫が取り込みの完了まで空だと、ここで戻す材料が無い。"""
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _RewritingLLM(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        ds_id = _first_save(client)["dataset"]["id"]
+        r = client.post(
+            "/api/refine",
+            json={
+                "schema_md": _FIX_RECIPE_MD,
+                "comments": ["fix the design"],
+                "dataset_id": ds_id,
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 202, r.text
+        events = _parse_sse(client.get(f"/api/jobs/{r.json()['job_id']}/stream").text)
+        done = next(d for n, d in events if n == "done")["result"]
+        spec = yaml.safe_load(
+            done["effective_schema_md"].split("```yaml\n")[-1].split("```")[0]
+        )
+        columns = {p["column"]: p for p in spec["maps"][0]["properties"]}
+        assert "unused" not in columns
+        assert columns["channel"]["label"] == "測定チャンネル"
+
+
+def test_the_first_save_reads_only_pre_design_decisions(
+    tmp_path: Path, healthy_client
+) -> None:
+    """設計の前に言えるのは「取り込まない」だけ — `/api/propose/continue` と同じ検査。"""
+    with _client(tmp_path, healthy_client) as client:
+        r = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _FIX_RECIPE_MD,
+                "dataset_name": "sensor",
+                "column_decisions": [
+                    {"source": "readings.csv", "column": "unused", "action": "include"}
+                ],
+            },
+        )
+        assert r.status_code == 422
+        assert "exclude" in r.text
+        assert client.get("/api/datasets").json()["count"] == 0
+
+
+def test_a_design_with_no_mapping_spec_is_still_saved_and_the_stores_are_written(
+    tmp_path: Path, healthy_client
+) -> None:
+    """§9 の無い設計（途中で切れた出力）は、写す先が無いだけで保存は通る。保管庫には
+    書くので、次の作り直しがそこから戻せる。"""
+    with _client(tmp_path, healthy_client) as client:
+        saved = _first_save(client, proposal_md="## Proposed schema\n\n(truncated)")
+        ds_id = saved["dataset"]["id"]
+        assert saved["complete"] is False
+        assert (
+            client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
+            == _SETTLED_DROPS
+        )

@@ -1246,13 +1246,28 @@ export interface MaterializeHandle {
  * that ticked the same kind of column. Omit on a redesign to keep the
  * dataset's existing ticks (the server carries them forward when absent).
  */
-export async function materializeSchema(
+/** What the wizard settled BEFORE the design — the same two lists
+ *  `/api/propose/continue` built it from (ADR meaning-before-identity). */
+export interface SettledBeforeDesign {
+  columnMeanings: ColumnMeaning[]
+  columnDecisions: PreDesignColumnDecision[]
+}
+
+/** The JSON body of `POST /api/materialize`.
+ *
+ *  `settled` rides ONLY the call that mints the dataset (no `datasetId`): the
+ *  server files it in the new dataset's own stores in the same step. On an
+ *  existing dataset it is left out on purpose — the stores are the truth there
+ *  and change only through the meaning screen's own save, so a re-save can
+ *  never write what that screen was left without saving. */
+export function materializeRequestBody(
   proposalMd: string,
-  datasetName = 'dataset',
+  datasetName: string,
   datasetId?: string,
   stagingId?: string | null,
   handles?: MaterializeHandle[],
-): Promise<MaterializeResult> {
+  settled?: SettledBeforeDesign,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     proposal_md: proposalMd,
     dataset_name: datasetName,
@@ -1263,6 +1278,29 @@ export async function materializeSchema(
   // real data on a brand-new design instead of being skipped until attach.
   if (stagingId) body.staging_id = stagingId
   if (handles) body.handles = handles
+  if (settled && !datasetId) {
+    if (settled.columnMeanings.length > 0) body.column_meanings = settled.columnMeanings
+    if (settled.columnDecisions.length > 0) body.column_decisions = settled.columnDecisions
+  }
+  return body
+}
+
+export async function materializeSchema(
+  proposalMd: string,
+  datasetName = 'dataset',
+  datasetId?: string,
+  stagingId?: string | null,
+  handles?: MaterializeHandle[],
+  settled?: SettledBeforeDesign,
+): Promise<MaterializeResult> {
+  const body = materializeRequestBody(
+    proposalMd,
+    datasetName,
+    datasetId,
+    stagingId,
+    handles,
+    settled,
+  )
   const res = await fetch('/api/materialize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -1446,20 +1484,32 @@ export async function fetchColumnDecisions(datasetId: string): Promise<ColumnDec
   return ((await res.json()) as { decisions?: ColumnDecision[] }).decisions ?? []
 }
 
+/** One physical source column — how every per-column store names it. */
+export interface ColumnRef {
+  source: string
+  column: string
+}
+
 /** Save all unresolved-column choices. Includes and owner verdicts change the
  * mapping deterministically; exclusions only record the human's decision. No LLM
  * is called. `stagingId` is the design-time source for a dataset whose own
  * source is not attached yet — the wizard settles a duplicated column at S5,
- * one step before the chain persists the files. */
+ * one step before the chain persists the files. `withdrawnExclusions` are the
+ * columns whose stored 「取り込まない」 the person took back: they return to
+ * "not decided" (nothing is included by this). */
 export async function saveColumnDecisions(
   datasetId: string,
   decisions: ColumnDecision[],
   stagingId?: string | null,
+  withdrawnExclusions: ColumnRef[] = [],
 ): Promise<ColumnDecisionResult> {
+  const body: Record<string, unknown> = { decisions }
+  if (stagingId) body.staging_id = stagingId
+  if (withdrawnExclusions.length > 0) body.withdrawn_exclusions = withdrawnExclusions
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-decisions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(stagingId ? { decisions, staging_id: stagingId } : { decisions }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) await throwApiError(res, 'column decisions')
   return (await res.json()) as ColumnDecisionResult

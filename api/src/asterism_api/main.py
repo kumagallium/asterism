@@ -244,6 +244,19 @@ class MaterializeRequest(BaseModel):
     # wiped, so a re-materialize can never silently drop a ☑ the human already
     # made.
     handles: list[dict] | None = None
+    # What the wizard settled BEFORE the design (ADR meaning-before-identity
+    # §7-4): what each column means, and which columns are not taken in — the
+    # same two lists ``/api/propose/continue`` built the design from. Read only
+    # when this call MINTS the dataset (no ``dataset_id``): they are filed in
+    # the new dataset's own stores (``column-meanings.json`` /
+    # ``column-decisions.json``) in the same step, so every later round — an AI
+    # fix, a re-save, another browser reopening the design — has them from the
+    # first moment there is a dataset. On an existing dataset they are IGNORED:
+    # the stores are the truth there, and they change only through the
+    # ``column-meanings`` / ``column-decisions`` endpoints (a re-save must never
+    # write what the meaning screen was left without saving).
+    column_meanings: list[dict] | None = None
+    column_decisions: list[dict] | None = None
 
 
 class SparqlRequest(BaseModel):
@@ -342,10 +355,25 @@ class ColumnMeaningsBody(BaseModel):
     meanings: list[ColumnMeaning] = []
 
 
+class ColumnRef(BaseModel):
+    """One physical source column, named the way every per-column store names it."""
+
+    source: str
+    column: str
+
+
 class ColumnDecisionsBody(BaseModel):
     """Body for POST /api/datasets/{id}/column-decisions."""
 
     decisions: list[ColumnDecision] = []
+    # Columns whose stored ``exclude`` the person took back on the meaning
+    # screen (the row is 「取り込む」 again). Without this there was no way to
+    # un-say it: the store kept the exclusion, and every later save removed the
+    # column from the design again however the screen read. Only an ``exclude``
+    # is withdrawn — the column goes back to "not decided", it is not included
+    # by this (an include needs a kind and a meaning, which is another screen's
+    # question). A column that is also in ``decisions`` takes that decision.
+    withdrawn_exclusions: list[ColumnRef] = []
     # The wizard settles a duplicated column at S5 — BEFORE the attach step has
     # persisted the source. The staged copy is the design-time source there
     # (ADR source-staging.md), exactly as it is for /api/materialize.
@@ -4082,6 +4110,15 @@ def _parse_column_meanings(raw: str) -> list[dict[str, str]]:
         parsed = json.loads(raw)
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, f"column_meanings is not valid JSON: {exc}") from exc
+    return _settled_column_meanings(parsed)
+
+
+def _settled_column_meanings(parsed: object) -> list[dict[str, str]]:
+    """The checks behind :func:`_parse_column_meanings`, on an already-decoded value.
+
+    ``/api/materialize`` carries the same list in its JSON body (it files the
+    meanings against the dataset it mints), so the shape is checked in one place.
+    """
     if not isinstance(parsed, list):
         raise HTTPException(422, "column_meanings must be a JSON array")
     out: list[dict[str, str]] = []
@@ -4118,6 +4155,12 @@ def _parse_design_column_decisions(raw: str) -> list[dict[str, str]]:
         parsed = json.loads(raw)
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, f"column_decisions is not valid JSON: {exc}") from exc
+    return _settled_design_column_decisions(parsed)
+
+
+def _settled_design_column_decisions(parsed: object) -> list[dict[str, str]]:
+    """The checks behind :func:`_parse_design_column_decisions`, on a decoded value
+    (shared with ``/api/materialize``, same reason as :func:`_settled_column_meanings`)."""
     if not isinstance(parsed, list):
         raise HTTPException(422, "column_decisions must be a JSON array")
     out: list[dict[str, str]] = []
@@ -5273,6 +5316,18 @@ def _artifacts_from_document(
         "mapping.yaml": mat.mapping_ir_yaml,
     }
     return artifacts, list(mat.warnings)
+
+
+def _has_mapping_spec(document_md: str) -> bool:
+    """Whether the design document carries a §9 mapping spec at all.
+
+    The projections onto §9 (column decisions, column meanings) raise when
+    there is none; a caller that must still save such a document asks first.
+    """
+    return (
+        materialize_schema(document_md, ".", "mapping-spec-check", write=False).mapping_ir_yaml
+        is not None
+    )
 
 
 def _refine_oracle(registry_root: Path, dataset_id: str | None, staging_id: str | None) -> str:
@@ -7484,6 +7539,18 @@ def build_app(
         """
         if not body.proposal_md.strip():
             raise HTTPException(400, "proposal_md is required")
+        # What the wizard settled before the design — read only when this call
+        # mints the dataset (see MaterializeRequest). On an existing dataset the
+        # stores are the truth and the body's copies are not even looked at.
+        minted_meanings: list[dict] = []
+        minted_decisions: list[dict] = []
+        if not body.dataset_id:
+            minted_meanings = _merge_column_meanings(
+                [], _settled_column_meanings(body.column_meanings or [])
+            )
+            minted_decisions = _merge_column_decisions(
+                [], _settled_design_column_decisions(body.column_decisions or [])
+            )
 
         def run() -> dict[str, object]:
             tmpdir = tempfile.mkdtemp(prefix="asterism-materialize-")
@@ -7523,7 +7590,25 @@ def build_app(
                 if src_dir is not None and src_dir.is_dir():
                     # (already inside asyncio.to_thread(run) — call directly)
                     proposal_md = design_loop.repair_design(proposal_md, src_dir)
-                human_decisions = _load_column_decisions(cfg.registry_root, body.dataset_id)
+                if body.dataset_id:
+                    human_decisions = _load_column_decisions(cfg.registry_root, body.dataset_id)
+                    settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
+                else:
+                    # The dataset is being minted: what its stores are about to
+                    # hold is what the wizard settled before the design. Assert
+                    # it on the document exactly as a later round would from the
+                    # stores — the design usually carries it already
+                    # (/api/propose/continue projected it), but an AI fix round
+                    # run before there was a dataset had nothing to restore from.
+                    human_decisions = minted_decisions
+                    settled_meanings = minted_meanings
+                    if (human_decisions or settled_meanings) and not _has_mapping_spec(
+                        proposal_md
+                    ):
+                        # No §9 to assert onto (a truncated design): it is still
+                        # saved as incomplete, as before, and the stores are
+                        # written all the same — the next round restores from them.
+                        human_decisions, settled_meanings = [], []
                 if human_decisions:
                     proposal_md, _restored = apply_column_decisions_to_document(
                         proposal_md, human_decisions
@@ -7531,7 +7616,6 @@ def build_app(
                 human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
                 if human_meta:
                     proposal_md, _restored = apply_display_meta_to_document(proposal_md, human_meta)
-                settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
                 if settled_meanings:
                     proposal_md, _restored = apply_column_meanings_to_document(
                         proposal_md, settled_meanings
@@ -7619,6 +7703,10 @@ def build_app(
                     body.dataset_id,
                     artifacts.get("mapping.rml.ttl"),
                     source_dir=src_dir if src_dir is not None and src_dir.is_dir() else None,
+                    # A dataset being minted has no store to read yet — the
+                    # exclusions it is about to be given already answer the
+                    # "never uses" notice for those columns.
+                    column_decisions=None if body.dataset_id else minted_decisions,
                 )
                 # Mapping-spec parse/compile problems are the same class of
                 # advisory, readable design issue — surface them first (when the
@@ -7711,6 +7799,20 @@ def build_app(
                             proposal_md=proposal_md,
                             advisories=design_advisories,
                         )
+                        # File what was settled before the design in the new
+                        # dataset's own stores, in the same step that mints it.
+                        # The wizard used to copy these over from a screen that
+                        # was later folded away (ADR meaning-before-identity
+                        # §7-4), and nothing did it since: a first run's
+                        # 「取り込まない」 existed only in that browser's state.
+                        if minted_decisions:
+                            _remember_column_decisions(
+                                cfg.registry_root, str(meta["id"]), minted_decisions
+                            )
+                        if minted_meanings:
+                            _remember_column_meanings(
+                                cfg.registry_root, str(meta["id"]), minted_meanings
+                            )
                     result["dataset"] = meta
                 return result
             finally:
@@ -8115,7 +8217,12 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         incoming = [decision.model_dump(exclude_none=True) for decision in body.decisions]
-        if not incoming:
+        withdrawn = {
+            (ref.source.strip(), ref.column.strip()) for ref in body.withdrawn_exclusions
+        }
+        if any(not source or not column for source, column in withdrawn):
+            raise HTTPException(422, "a withdrawn exclusion requires a source and a column")
+        if not incoming and not withdrawn:
             raise HTTPException(422, "at least one column decision is required")
         for decision in incoming:
             if not str(decision.get("source") or "").strip():
@@ -8152,7 +8259,18 @@ def build_app(
             mapping_ir = parse_mapping_ir(mapping_ir_yaml)
         except MappingIRParseError as exc:
             raise HTTPException(409, "the stored mapping spec could not be read") from exc
-        existing_decisions = _load_column_decisions(cfg.registry_root, dataset_id)
+        # A withdrawn exclusion simply stops being part of the stored set; the
+        # rest of this request then runs as if it had never been said (the
+        # notices are recomputed below, so "this column is not used" comes back
+        # for it — which is now true again).
+        existing_decisions = [
+            decision
+            for decision in _load_column_decisions(cfg.registry_root, dataset_id)
+            if not (
+                decision.get("action") == "exclude"
+                and _column_decision_key(decision) in withdrawn
+            )
+        ]
         existing_by_key = {
             _column_decision_key(decision): decision for decision in existing_decisions
         }
@@ -8273,14 +8391,20 @@ def build_app(
                 decision for decision in merged_decisions if str(decision["source"]) in source_paths
             ]
             requested_sources = {str(d["source"]) for d in current_decisions}
-            try:
-                inspections, _ = inspect_source_set(
-                    [source_paths[name] for name in sorted(requested_sources)],
-                    dialects=mapping_ir.dialects or None,
-                    max_rows_by_name=max_rows_by_name,
-                )
-            except (OSError, UnicodeError, ValueError) as exc:
-                raise HTTPException(422, f"could not inspect dataset source: {exc}") from exc
+            inspections = []
+            # Nothing left to check against the source when the request only
+            # withdrew the last stored decision.
+            if requested_sources:
+                try:
+                    inspections, _ = inspect_source_set(
+                        [source_paths[name] for name in sorted(requested_sources)],
+                        dialects=mapping_ir.dialects or None,
+                        max_rows_by_name=max_rows_by_name,
+                    )
+                except (OSError, UnicodeError, ValueError) as exc:
+                    raise HTTPException(
+                        422, f"could not inspect dataset source: {exc}"
+                    ) from exc
             # ColumnSummary.inferred_type is intentionally sample-based and is
             # unsafe for emitting datatypes. Reuse the full-column scan that the
             # normal design repair path uses; every other value remains a string.
