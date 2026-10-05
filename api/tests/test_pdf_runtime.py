@@ -1133,8 +1133,9 @@ def test_main_survives_the_runtime_blowing_up(
     served = _run_main(tmp_path, monkeypatch, extra=[])
     assert len(served) == 1
     client = TestClient(served[0], base_url=_LOCAL_URL)  # lifespan なし(Oxigraph は居ない)
-    # 部品の経路は無い。SPA（ui/dist）が在る環境ではその index.html（200・HTML）が、無い環境
-    # （CI の api ジョブ）では 404（JSON）が返る。どちらでも「状態の JSON が 200 で返る」ことは無い。
+    # 部品の経路は無い。SPA（ui/dist）が在る環境ではその index.html（200・HTML）が、
+    # 無い環境（CI の api ジョブ）では 404（JSON）が返る。どちらでも「状態の JSON が
+    # 200 で返る」ことは無い。
     res = client.get("/api/pdf-runtime")
     serves_status = res.status_code == 200 and "json" in res.headers.get("content-type", "")
     assert not serves_status
