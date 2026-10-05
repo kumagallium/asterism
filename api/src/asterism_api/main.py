@@ -5747,6 +5747,15 @@ def build_app(
             write_gate = "authorized"
         else:
             write_gate = "token_required"
+        # Which document formats THIS install can convert right now, so the UI
+        # says so before a file is dropped instead of after a 4xx. Decided by
+        # what is actually there — not by `desktop`: the desktop bundle ships
+        # neither converter, a dev compose has pandoc and no Docling, and a
+        # laptop `asterism-local` has whatever its PATH has. JATS XML needs no
+        # converter, so it is not listed. pandoc is a PATH lookup per request
+        # (no subprocess — this route is public and asked often); Docling is
+        # "configured", not "reachable". Either way the existing 4xx stays as
+        # the backstop for a converter that is there but fails.
         return {
             "iri_base": cfg.iri_base,
             "iri_base_configured": cfg.iri_base != DEFAULT_IRI_BASE,
@@ -5755,6 +5764,8 @@ def build_app(
             "app_version": cfg.app_version,
             "desktop": cfg.app_version is not None,
             "write_gate": write_gate,
+            "can_convert_docx": documents.pandoc_available(),
+            "can_convert_pdf": cfg.docling_url is not None,
         }
 
     @app.get("/api/desktop/update-check")

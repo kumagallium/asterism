@@ -3,16 +3,21 @@
     "creating": "Registering document…",
     "ingesting": "Splitting it into sentences…"
   },
-  "intro": "A document such as a paper or a contract can be taken in as it is. Once in, you can search the sentences inside it and cite them with their source. (Supported: Word .docx / PDF .pdf / XML .xml)",
-  "introPlain": "Word / PDF files can be taken in as they are. Once in, you can search and cite the sentences inside.",
+  "intro": "A document such as a paper or a contract can be taken in as it is. Once in, you can search the sentences inside it and cite them with their source. (Supported: {{formats}})",
+  "introPlain": "{{docs}} files can be taken in as they are. Once in, you can search and cite the sentences inside.",
+  "introPlain_none": "A paper's XML can be taken in as it is. Once in, you can search and cite the sentences inside.",
   "pickAnother": "Use a different file",
-  "pickFile": "Choose a document (Word / PDF / XML)",
+  "pickFile": "Choose a document ({{formats}})",
   "noFile": "No file selected",
   "nFiles": "{{n}} documents",
   "nameLabel": "Document name (optional)",
   "namePlaceholder": "e.g. Measurement report 2026 / Service agreement",
   "convertHint": "Word (.docx) and PDF (.pdf) are read for you on the server — nothing to do. A PDF can take a few minutes because the layout is read too. What tool read it, and its version, are kept in this data's history.",
+  "convertHint_noPdf": "Word (.docx) is read for you on the server — nothing to do. What tool read it, and its version, are kept in this data's history.",
+  "convertHint_noDocx": "PDF (.pdf) is read for you on the server — nothing to do. A PDF can take a few minutes because the layout is read too. What tool read it, and its version, are kept in this data's history.",
   "convertHintPlain": "Word and PDF can be dropped in as they are. A PDF can take a few minutes to read.",
+  "convertHintPlain_noPdf": "Word can be dropped in as it is.",
+  "convertHintPlain_noDocx": "PDF can be dropped in as it is. A PDF can take a few minutes to read.",
   "submit": "Take in the document",
   "retrySubmit": "Resume ingestion",
   "retryResumes": "The dataset was already created. Retrying resumes ingesting the same document \"{{name}}\" — it does not create a duplicate.",
@@ -36,5 +41,14 @@
   "errScanned": "A PDF that is a scanned image (text stored as a picture) cannot be read.",
   "errRetry": "Try again",
   "techSummary": "Technical details",
-  "cancelled": "Ingest cancelled. Run again to resume from ingest on the same dataset."
+  "cancelled": "Ingest cancelled. Run again to resume from ingest on the same dataset.",
+  "unavailable": {
+    "both": "Word and PDF",
+    "docx": "Word (.docx)",
+    "pdf": "PDF (.pdf)",
+    "noteDesktop": "{{formats}} cannot be taken in by the desktop app yet.",
+    "noteServer": "{{formats}} cannot be taken in on this server (the converter is not set up).",
+    "dropDesktop": "{{format}} cannot be taken in by the desktop app yet. For now it is supported on the server version.",
+    "dropServer": "{{format}} cannot be taken in on this server (the converter is not set up)."
+  }
 }

@@ -13,6 +13,18 @@ import { prefillAskQuestion } from './askPrefill'
 import { promoteDataset } from './galleryApi'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import { IngestProgressView } from './IngestProgressView'
+import {
+  docsLabel,
+  documentAccept,
+  firstUnavailableIn,
+  formatsContext,
+  formatsLabel,
+  formatsWithExtLabel,
+  unavailableDropMessage,
+  unavailableFormats,
+  unavailableNote,
+  useDocumentFormats,
+} from './documentFormats'
 import { plainError } from './kantan/errorMessages'
 
 // The "文書を追加" flow (PR-3): a JATS (.xml) or Word (.docx) document needs NO
@@ -71,6 +83,10 @@ export function DocumentPanel({
   initialFiles,
 }: { plain?: boolean; initialFiles?: File[] } = {}) {
   const { t } = useTranslation()
+  const f = useDocumentFormats()
+  const ctx = formatsContext(f)
+  // 変換できない形式（Word / PDF）を置いたときの文。サーバの 4xx を待たず、受け付けない。
+  const [formatMsg, setFormatMsg] = useState('')
   const [files, setFiles] = useState<File[]>(initialFiles ?? [])
   const [name, setName] = useState(() => stemOf(initialFiles?.[0]?.name))
   const [phase, setPhase] = useState<Phase>('idle')
@@ -133,9 +149,20 @@ export function DocumentPanel({
   const awaitingPublish = phase === 'confirm' || phase === 'promoting'
   // A retry is pending when a prior attempt created the dataset but did not finish.
   const resuming = created !== null && phase === 'idle'
+  // 手元に持っているファイルが変換できない形式のとき（可否が届く前に渡された場合など）。
+  // `pick` を通らない経路でも、取り込みは始めさせずに理由を出す。
+  const heldUnavailable = firstUnavailableIn(files, f)
+  const formatNotice =
+    formatMsg || (heldUnavailable ? unavailableDropMessage(t, f, heldUnavailable) : '')
 
   function pick(list: FileList | File[] | null) {
     const arr = Array.from(list ?? [])
+    const bad = firstUnavailableIn(arr, f)
+    if (bad) {
+      setFormatMsg(unavailableDropMessage(t, f, bad))
+      return
+    }
+    setFormatMsg('')
     setFiles(arr)
     if (arr.length && !name.trim()) setName(stemOf(arr[0].name))
     setError('')
@@ -229,16 +256,24 @@ export function DocumentPanel({
 
   return (
     <section className="document-panel">
-      <p className="step-hint">{t(plain ? 'document:introPlain' : 'document:intro')}</p>
+      <p className="step-hint">
+        {plain
+          ? ctx === 'none'
+            ? t('document:introPlain_none')
+            : t('document:introPlain', { docs: docsLabel(f) })
+          : t('document:intro', { formats: formatsWithExtLabel(f) })}
+      </p>
 
       <div className="data-source-row">
         <label className="file-btn">
           {/* Already holding the caller's file: the picker is a change of mind,
               not the way in — say so instead of "文書を選択" (GAL-B-27). */}
-          {t(files.length > 0 && initialFiles ? 'document:pickAnother' : 'document:pickFile')}
+          {files.length > 0 && initialFiles
+            ? t('document:pickAnother')
+            : t('document:pickFile', { formats: formatsLabel(f) })}
           <input
             type="file"
-            accept=".xml,.docx,.pdf"
+            accept={documentAccept(f)}
             multiple
             disabled={busy || awaitingPublish}
             onChange={(e) => pick(e.target.files)}
@@ -266,9 +301,17 @@ export function DocumentPanel({
       {!awaitingPublish && (
         <div className="data-source-foot">
           <span className="hint">
-            {t(plain ? 'document:convertHintPlain' : 'document:convertHint')}
+            {/* 両方不可なら変換の説明は出さない。取り込めない形式の案内文は詳細モードだけに
+                続ける — かんたん層では、置く欄のすぐ下で同じことを先に言っている。 */}
+            {ctx !== 'none' &&
+              (plain
+                ? t('document:convertHintPlain', { context: ctx })
+                : t('document:convertHint', { context: ctx }))}
+            {!plain &&
+              unavailableFormats(f).length > 0 &&
+              (ctx === 'none' ? '' : ' ') + unavailableNote(t, f)}
           </span>
-          <button type="button" onClick={run} disabled={(!files.length && !created) || busy}>
+          <button type="button" onClick={run} disabled={(!files.length && !created) || busy || heldUnavailable !== null}>
             {busy ? (
               <>
                 <span className="spinner" />
@@ -287,6 +330,12 @@ export function DocumentPanel({
           onCancel={job ? job.cancel : undefined}
           lastPulseAt={lastPulseAt}
         />
+      )}
+
+      {formatNotice && (
+        <p className="ingest-err" role="alert">
+          {formatNotice}
+        </p>
       )}
 
       {cancelled && <p className="hint">{t('document:cancelled')}</p>}
