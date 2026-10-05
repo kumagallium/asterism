@@ -79,9 +79,11 @@ jobs:
           HOME_DIR="$(mktemp -d)"
           ASTERISM_UI_DIST="$B/ui-dist" \
           ASTERISM_OXIGRAPH_BIN="$B/oxigraph" \
+          ASTERISM_PANDOC_BIN="$B/pandoc" \
           ASTERISM_DEMO_AGENT_DIR="$B/demo-agent" \
           ASTERISM_DATASETS_ROOT="$B/datasets" \
           ASTERISM_LOCAL_HOME="$HOME_DIR" \
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
             "$PY" -m asterism_api.local --no-browser --port "$PORT" \
             > /tmp/backend-smoke.log 2>&1 &
           BACKEND_PID=$!
@@ -90,6 +92,10 @@ jobs:
             if curl -fsS "http://127.0.0.1:${PORT}/health" > /tmp/health.json 2>/dev/null; then
               echo "backend healthy after ${i}s:"; cat /tmp/health.json; echo
               grep -q '"oxigraph":true' /tmp/health.json || { echo "oxigraph not up"; exit 1; }
+              # PATH has no pandoc (see the launch line), so true means the bundled one is found.
+              curl -fsS "http://127.0.0.1:${PORT}/api/instance" > /tmp/instance.json
+              grep -Eq '"can_convert_docx" *: *true' /tmp/instance.json \
+                || { echo "bundled pandoc not found (can_convert_docx != true)"; cat /tmp/instance.json; exit 1; }
               exit 0
             fi
             if ! kill -0 $BACKEND_PID 2>/dev/null; then
