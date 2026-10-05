@@ -65,6 +65,34 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 
 「ローカルマシンに居る者＝所有者」モデル。127.0.0.1 バインド + ループバック注入 + umask 0o077（`asterism-api` と同じ private-by-default at-rest）。これは本番の「caddy セッションの内側＝トークン注入」と同じ信頼構造を 1 台に畳んだもの。
 
+#### 追補（2026-10-05）: ブラウザはループバックの接続元だが、所有者ではない
+
+**決定: ローカルモードは、トークン注入の外側に門（`LoopbackOriginGuard`・`local.py`）を置き、よそのサイトと DNS リバインディングからの要求を 403 で断る。**
+
+利用者がブラウザで開いている**任意のサイト**のスクリプトも 127.0.0.1 に要求を送れ、注入はそれにもトークンを足していた。Origin・Sec-Fetch-Site・Host を見る箇所はどこにも無かった。実機（`asterism-local`・一時ホーム）での再現:
+
+| よそのページからの送り方 | 結果（直す前） |
+|---|---|
+| no-cors の multipart POST（`/api/staging`・`/upload/samples`） | 200。ファイルが置かれ、取り込みジョブまで走った |
+| no-cors の本文なし POST（`/api/datasets/world/retract`） | 200。見本データセットが引用対象から外れた |
+| no-cors の text/plain・型なし Blob（JSON 経路） | 422（FastAPI 0.142 は JSON として読まない）＝副作用なし |
+| application/json の POST・DELETE | プリフライトが 405 になり、要求は送られない |
+| リバインディング相当（Host が `rebind.localhost:<port>`。ブラウザから見て同一オリジン） | トークンの要る読み取り（snapshot の書き出し）も DELETE も 200。**応答も読める** |
+
+門の判定:
+
+1. **Host がループバックの名前（`127.0.0.1`・`localhost`・`[::1]`＋ポート）でなければ、全メソッド・全経路で 403。** リバインディングでは Origin も同じよその名前になる＝Origin と Host が一致して 2. では止まらない。残る手がかりは Host だけ。照合は文字列で行う（URL として解釈すると `evil@127.0.0.1` が通る）。`0.0.0.0` も断る（よそのページが手元のサーバに届く既知の経路）。
+2. **GET・HEAD・OPTIONS 以外と WebSocket は、出どころが同じオリジンであること。** Origin があれば、scheme が http（ローカルモードは http しか話さない）で、その host:port が Host と一致すること。無ければ Sec-Fetch-Site が `same-origin`／`none` であること。**どちらも無い要求（curl・登録した MCP クライアント・demo-agent の子）は今までどおり通す。** ブラウザは書き込み系の要求に必ずどちらかを付けるので、ここを通れるのはブラウザ以外だけ。
+
+判断と含意:
+
+- **注入を絞るだけの案（よそのオリジンにはトークンを足さない）は採らなかった**（利用者が選択）。状態を変える経路のおよそ半数は書き込みゲートを持たない（AI 呼び出し＝利用者の鍵を消費する `/api/propose` など・`/api/appdata/cards` の PUT/DELETE・ジョブの取り消しなど）。注入を絞っても、これらは素通しのまま残る。
+- **不変条件: ローカルモードの GET 経路は状態を変えない。** 門は GET の出どころを見ない（よそのサイトからのリンク・`<img>`・IRI の参照を壊さないため）。GET で状態を変える経路を足せば、この門の外側になる（2026-10-05 に全 GET 経路を確認。`GET /api/staging/{id}/reshape` が結果をキャッシュに書くのは、意味のある状態の変更に数えない）。
+- 経路ごとの既存の守り（見本の入れ替え＝JSON 本文＋`X-Asterism-Intent` を必須にしている。PDF 部品の導入・削除＝Origin を確認している）は、残しても門と二重になるだけで害は無い。
+- MCP 仕様が求める「Origin の確認によるリバインディング対策」も、この門で満たす。ブラウザ上の別オリジンから `/mcp` を直接叩くクライアントは届かない（もともと CORS 応答が無いので、応答は読めていなかった）。
+- **サーバ版は `build_local_app` を通らないので挙動は変わらない**（caddy＋authgate が信頼の境界）。
+- 検証（実機）: 直した後は、上の表のよそのページからの 5 本がすべて 403 になり、副作用は残らない。リバインディング相当の Host も 403。同じ URL を `127.0.0.1` と `localhost` の両方で開いた画面からの書き込み（POST・PUT・DELETE）、デスクトップ版と同じエンジン（WKWebView）で開いたページからの書き込み、curl、MCP の `initialize` は通る。WebKit も書き込み系の要求に Origin と Sec-Fetch-Site を付ける（門のログで確認）。
+
 ## 4. IRI — 新しい決定は無い（既存 ADR がそのまま効く）
 
 [`instance-iri-base.md`](instance-iri-base.md) の設計はローカルモードのためにあったかのように噛み合う:
@@ -93,7 +121,7 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 
 ## 6. 検証（本 PR）
 
-- 単体（`api/tests/test_local.py`）: 注入 middleware（追加・strip・非ループバック不注入・`require_write_auth` を素通しで通る end-to-end・非ループバックは 401 のまま）／SPA 分割（`/assets` 実 404・fallback no-cache・`/health` `/jobs` 非遮蔽）／env 既定・トークン 0600 冪等／oxigraph 不在の明確な exit 2。
+- 単体（`api/tests/test_local.py`）: 注入 middleware（追加・strip・非ループバック不注入・`require_write_auth` を素通しで通る end-to-end・非ループバックは 401 のまま）／門（§3 追補 2026-10-05: ループバック名でない Host・よそのオリジンからの書き込み・WebSocket は断る、同じオリジン・Origin の無いクライアントは通す。`test_local_mcp.py` で `/mcp` も）／SPA 分割（`/assets` 実 404・fallback no-cache・`/health` `/jobs` 非遮蔽）／env 既定・トークン 0600 冪等／oxigraph 不在の明確な exit 2。
 - 実機: `asterism-local`（実 Oxigraph +ビルド済み SPA）でブラウザ起動 → `/health` ok → トークン無しの書き込み系呼び出しがループバックから通ることを確認。
 - 副次修正: 4 パッケージの `readme = "../README.md"`（プロジェクト外パス）を撤去 — 最新 hatchling が拒否するため**新規 venv 作成（=CI）が repo 全体で壊れていた**。
 
