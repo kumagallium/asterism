@@ -1580,7 +1580,9 @@ export interface IdMove {
   moved?: IdMoveEntry[]
   unchanged?: string[]
   blocked?: IdMoveBlocked[]
-  /** The ledger could not be built at all — the old ids will stop resolving. */
+  /** The ledger could not be built at all — the old ids will stop resolving.
+   *  The ones lost this way are the entries of `moved` (the plan could forward
+   *  them), NOT of `blocked`, which may well be empty. */
   ledger_error?: boolean
 }
 
