@@ -197,15 +197,43 @@ def test_pandoc_unavailable_raises(monkeypatch) -> None:
 
 
 def test_pandoc_available_is_a_path_lookup(monkeypatch) -> None:
-    """The yes/no the UI relies on (``/api/instance``) is a PATH lookup only, and
+    """The yes/no the UI relies on (``/api/instance``) is a lookup only, and
     ``pandoc_version`` agrees with it when pandoc is absent (no subprocess run)."""
     import asterism.documents as documents
 
+    monkeypatch.delenv("ASTERISM_PANDOC_BIN", raising=False)
     monkeypatch.setattr("shutil.which", lambda _name: None)
     assert documents.pandoc_available() is False
     assert documents.pandoc_version() is None
     monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
     assert documents.pandoc_available() is True
+
+
+def test_pandoc_path_prefers_env_file(monkeypatch, tmp_path) -> None:
+    import asterism.documents as documents
+
+    fake = tmp_path / "pandoc"
+    fake.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("ASTERISM_PANDOC_BIN", str(fake))
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    assert documents.pandoc_path() == str(fake)
+    assert documents.pandoc_available() is True
+
+
+def test_pandoc_path_none_when_unset_and_not_on_path(monkeypatch) -> None:
+    import asterism.documents as documents
+
+    monkeypatch.delenv("ASTERISM_PANDOC_BIN", raising=False)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    assert documents.pandoc_path() is None
+
+
+def test_pandoc_path_none_when_env_missing_and_not_on_path(monkeypatch, tmp_path) -> None:
+    import asterism.documents as documents
+
+    monkeypatch.setenv("ASTERISM_PANDOC_BIN", str(tmp_path / "nope"))
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    assert documents.pandoc_path() is None
 
 
 @pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
@@ -219,3 +247,16 @@ def test_convert_docx_to_jats_real() -> None:
     g = structure_jats(jats, paper_iri=base, conversion=conv)
     texts = [str(o) for _, _, o in g.triples((None, rdflib.URIRef(NIF + "anchorOf"), None))]
     assert any("thirty (30) days" in t for t in texts)
+
+
+@pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
+def test_convert_docx_to_jats_via_env_without_path(monkeypatch) -> None:
+    """A bundled pandoc is found through the env var even when PATH has none."""
+    import asterism.documents as documents
+
+    real = documents.pandoc_path()
+    assert real is not None
+    monkeypatch.setenv("ASTERISM_PANDOC_BIN", str(Path(real).resolve()))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    jats, converter = convert_docx_to_jats((_FIXTURES / "sample.docx").read_bytes())
+    assert "<body" in jats and converter.startswith("pandoc/")

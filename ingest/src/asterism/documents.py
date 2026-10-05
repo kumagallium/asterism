@@ -357,24 +357,43 @@ class ConversionError(RuntimeError):
     a malformed / oversized document). The API surfaces this as a clear 4xx."""
 
 
-def pandoc_available() -> bool:
-    """Whether a pandoc binary is on ``PATH`` — the cheap half of
-    :func:`pandoc_version` (a lookup, no subprocess). For callers that only need
-    a yes/no and may be asked often, e.g. the public ``/api/instance``."""
-    import shutil
+def pandoc_path() -> str | None:
+    """Locate the pandoc executable: ``ASTERISM_PANDOC_BIN`` first, then ``PATH``.
 
-    return shutil.which("pandoc") is not None
+    The env var lets a packaged app point at its bundled pandoc (a GUI-launched
+    process has a minimal ``PATH``). Its value may be a file path or a command name
+    to look up. Same shape as the Oxigraph lookup. A lookup only — no subprocess.
+    """
+    import os
+    import shutil
+    from pathlib import Path
+
+    override = (os.environ.get("ASTERISM_PANDOC_BIN") or "").strip()
+    if override:
+        path = Path(override).expanduser()
+        if path.is_file():
+            return str(path)
+        return shutil.which(override)
+    return shutil.which("pandoc")
+
+
+def pandoc_available() -> bool:
+    """Whether a pandoc binary can be located (:func:`pandoc_path`) — the cheap half
+    of :func:`pandoc_version` (a lookup, no subprocess). For callers that only need
+    a yes/no and may be asked often, e.g. the public ``/api/instance``."""
+    return pandoc_path() is not None
 
 
 def pandoc_version() -> str | None:
     """``"pandoc/<version>"`` if the pandoc binary is available, else ``None``."""
     import subprocess
 
-    if not pandoc_available():
+    exe = pandoc_path()
+    if exe is None:
         return None
     try:
         out = subprocess.run(
-            ["pandoc", "--version"], capture_output=True, text=True, timeout=10, check=True
+            [exe, "--version"], capture_output=True, text=True, timeout=10, check=True
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -397,8 +416,9 @@ def convert_docx_to_jats(docx_bytes: bytes, *, timeout: float = 30.0) -> tuple[s
     """
     import subprocess
 
-    version = pandoc_version()
-    if version is None:
+    exe = pandoc_path()
+    version = pandoc_version() if exe is not None else None
+    if exe is None or version is None:
         raise ConversionError(
             "Word (.docx) ingestion requires the 'pandoc' tool, which is not installed. "
             "Convert the document to JATS XML first, or install pandoc."
@@ -409,7 +429,7 @@ def convert_docx_to_jats(docx_bytes: bytes, *, timeout: float = 30.0) -> tuple[s
         # -s (standalone) wraps the content in <article><body> — the shape the
         # structurer ingests (a bare `-t jats` emits a sectionless fragment).
         proc = subprocess.run(
-            ["pandoc", "-f", "docx", "-t", "jats", "-s", "-o", "-"],
+            [exe, "-f", "docx", "-t", "jats", "-s", "-o", "-"],
             input=docx_bytes,
             capture_output=True,
             timeout=timeout,
