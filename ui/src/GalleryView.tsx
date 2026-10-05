@@ -25,6 +25,8 @@ import { plainAdvisories, type TermLabels } from './advisoryPlain'
 import { validateDesign } from './api'
 import { prefillAskQuestion } from './askPrefill'
 import { plainError } from './kantan/errorMessages'
+import { useIdMove } from './idMove'
+import { IdMoveNotice } from './IdMoveNotice'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
@@ -873,6 +875,11 @@ function WordGroup({
  * summary loads by itself: an optional "check the differences" button is a
  * button first-timers never press (K9), which is how it stopped being part of
  * the decision.
+ *
+ * An UPDATE has a fifth: what it does to the IDs already handed out (ADR
+ * id-move-after-publish.md §5). S8 said it and this dialog did not, so a
+ * re-design finished from here — leave the wizard, press 公開を更新する on the
+ * detail — took the earlier IDs down without a word.
  */
 function PublishDialog({
   meta,
@@ -894,6 +901,7 @@ function PublishDialog({
   const [err, setErr] = useState<unknown>(null)
   const version = meta.version ?? 0
   const isRepromote = version >= 1
+  const idMove = useIdMove(meta.id)
 
   useEffect(() => {
     let cancelled = false
@@ -988,6 +996,7 @@ function PublishDialog({
               <WordGroup head={t('kantan:s8.wordsNew')} iris={words.added} labels={labels} />
             </details>
           )}
+          <IdMoveNotice move={idMove} exit={t('gallery:promote.idMoveBrokenExit')} />
           <p className="ingest-hint">{t('kantan:s8.promise')}</p>
           {!name && <p className="ingest-hint">{t('kantan:s8.needName')}</p>}
           <div className="rules-viewer-actions">

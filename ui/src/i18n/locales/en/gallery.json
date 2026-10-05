@@ -261,7 +261,8 @@
     "error": "Publish failed",
     "dialogContent": "Contents: {{counts}}",
     "dialogCountsUnknown": "the data you loaded",
-    "cancel": "Not now"
+    "cancel": "Not now",
+    "idMoveBrokenExit": "You can publish anyway. To keep the earlier IDs, close this with \"Not now\" and use \"Revise the design\" to put the way IDs are made back as it was."
   },
   "reingest": {
     "head": "Replace everything (rebuild from a new file)",
