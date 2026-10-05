@@ -36,6 +36,7 @@ import {
   type MappingSkeleton,
   type MaterializeHandle,
   type MaterializeResult,
+  type SettledBeforeDesign,
   type PreDesignColumnDecision,
   type ProposeResult,
   type RefineResult,
@@ -85,6 +86,7 @@ import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { basename } from '../skeletonContainment'
 import { rowKindLabels } from './rowKindLabels'
+import { columnKey, storedExclusionKeys, withdrawnExclusions } from './settledStore'
 import {
   applyIdentifiers,
   applyOwners,
@@ -178,12 +180,10 @@ type Q2Answer = 'only' | 'elsewhere' | 'unknown'
 // speaks in these numbers. 12 is 「表の形」（ADR source-reshape.md R12）: visited
 // between 2 and 3, only when detection found something to reshape — same reason
 // for the new (non-sequential) id.
-// 6 は畳んだ「数の確認」（ADR meaning-before-identity §7-4）。描画の分岐は無く、
-// そこへ進む `setStep` も無い（wizardSteps.test.ts が検査する）。6 を知っている
-// のは、古いスナップショットの読み替え（6→7）と、起点がまだ 6 のまま残って
-// いる `settledSyncedRef` の effect だけ — あの effect の起点が移れば、型から
-// 6 を外せる（外せば、畳んだ画面へ進むコードはコンパイルで止まる）。
-type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
+// 6 は欠番 — 畳んだ「数の確認」（ADR meaning-before-identity §7-4）。型に無い
+// ので、そこへ進むコードはコンパイルで止まる。6 を知っているのは、古い
+// スナップショットの読み替え（6→7・`KantanSnapshot.step`）だけ。
+type KzStep = 1 | 2 | 3 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12
 
 /** One row of the meaning screen: a physical column, where in the file it came
  *  from, and what it actually holds. */
@@ -710,7 +710,9 @@ function deriveColumnSamples(cards: PreviewCard[]): Record<string, string[]> {
 // ---------------------------------------------------------------------------
 
 interface KantanSnapshot {
-  step: KzStep
+  /** 6 は畳んだ「数の確認」。その画面にいたときに保存されたスナップショットが
+   *  まだ残りうるので、読む側の型にだけ置く（復元は 7「ためす」に読み替える）。 */
+  step: KzStep | 6
   /** Source kind in the detail tier's vocabulary ('csv' | 'json' | 'document').
    *  Documents need no AI design — but their panel only renders while the kind
    *  says so, and its own resume effect lives inside it (RESUME-19). */
@@ -3019,7 +3021,7 @@ export function KantanWizard({
   }
 
   function meaningKey(source: string, column: string): string {
-    return `${source}\u0000${column}`
+    return columnKey(source, column)
   }
 
   /** 見直し（redesign）でウィザードを開いたとき、既存の ☑ handles.json を
@@ -3064,50 +3066,17 @@ export function KantanWizard({
     )
   }
 
-  // What was settled BEFORE the design has to reach the dataset's own stores as
-  // soon as there IS a dataset: the meanings so a later visit (or another
-  // browser) reads the same words, the keep/drop calls so the review screen
-  // does not ask about the same columns again as if nothing had been said.
-  // Sent once per distinct set — both endpoints are idempotent, but a call per
-  // render is not free.
-  //
-  // ⚠ いまは発火しない。起点が「数の確認」(6) のままで、その画面は畳んだので
-  // 6 に入る経路が無い（ADR meaning-before-identity §7-4）。**死んだコードとして
-  // 消さない** — この仕事を引き継いだ経路がまだ無い。初回の流れでは、③の意味と
-  // 「取り込まない」は `/api/propose/continue` が設計に効かせるだけで、
-  // データセットの保管庫（column-meanings.json・column-decisions.json）には
-  // 書かれない（実機 2026-10-05: 別のブラウザで見直すと、外した列が「取り込む」
-  // に戻り、「ためす」が「まだ取り込まれていない列」と言う）。起点をそのまま
-  // 「ためす」(7) に移すのは誤り —「ためすに戻る」は保存しない約束なのに、③で
-  // 書きかけた意味まで書いてしまう。移し先は未決（docs/ROADMAP.md 2026-10-05）。
-  const settledSyncedRef = useRef('')
-  useEffect(() => {
-    if (step !== 6 || !kzDatasetId) return
-    const drops = excludedDecisions()
-    if (drops.length === 0 && settledMeanings.length === 0) return
-    const key = [
-      kzDatasetId,
-      [...excludedColumns].sort().join('\u001f'),
-      JSON.stringify(settledMeanings),
-    ].join('\u0000')
-    if (settledSyncedRef.current === key) return
-    settledSyncedRef.current = key
-    void (async () => {
-      try {
-        if (settledMeanings.length > 0) await saveColumnMeanings(kzDatasetId, settledMeanings)
-        if (drops.length > 0) await saveColumnDecisions(kzDatasetId, drops)
-      } catch {
-        settledSyncedRef.current = '' // a failed sync is retried on the next visit
-      }
-    })()
-    // excludedDecisions() is a plain function over the state already listed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, kzDatasetId, excludedColumns, settledMeanings])
-
   // Opening the meaning screen over a dataset that already exists: the store is
   // the truth source for what its columns mean (a meaning edited on another
-  // visit, or projected from a design). Never runs before a dataset exists —
-  // there is nothing to read then, and the AI draft in state is the truth.
+  // visit, or projected from a design) and for which of them are not taken in.
+  // Never runs before a dataset exists — there is nothing to read then, and the
+  // AI draft in state is the truth.
+  //
+  // 「取り込まない」も読み戻す。以前は意味だけで、この列の state は置いた
+  // ブラウザにしか無かった — 別のブラウザで見直すと、保管庫に判断があっても
+  // 全部の行が「取り込む」と出た（実機 2026-10-05）。読めた集合は控えておく:
+  // 保存のとき、そこから消えた列が「取り下げ」になる（saveMeaningsAndReturn）。
+  const storedExclusionsRef = useRef<{ datasetId: string; keys: string[] } | null>(null)
   useEffect(() => {
     if (step !== 10 || !kzDatasetId) return
     let off = false
@@ -3117,6 +3086,16 @@ export function KantanWizard({
       })
       .catch(() => {
         /* enrichment: an unreadable store leaves what is on screen alone */
+      })
+    void fetchColumnDecisions(kzDatasetId)
+      .then((stored) => {
+        if (off) return
+        const keys = storedExclusionKeys(stored)
+        storedExclusionsRef.current = { datasetId: kzDatasetId, keys }
+        setExcludedColumns(keys)
+      })
+      .catch(() => {
+        /* 読めなければ画面の state のまま。控えが無いので、取り下げも送らない */
       })
     return () => {
       off = true
@@ -3237,7 +3216,16 @@ export function KantanWizard({
     try {
       await saveColumnMeanings(datasetId, settledMeanings)
       const drops = excludedDecisions()
-      if (drops.length > 0) await saveColumnDecisions(datasetId, drops)
+      // 保管庫では「取り込まない」なのに、この画面ではもう外れていない列 = 人が
+      // 「取り込む」に戻した列。取り下げないと保管庫に残り、次に開くと「取り
+      // 込まない」に戻るうえ、作り直しのたびに設計から外し直される。
+      const stored = storedExclusionsRef.current
+      const withdrawn =
+        stored?.datasetId === datasetId ? withdrawnExclusions(stored.keys, excludedColumns) : []
+      if (drops.length > 0 || withdrawn.length > 0) {
+        await saveColumnDecisions(datasetId, drops, undefined, withdrawn)
+        storedExclusionsRef.current = { datasetId, keys: [...excludedColumns] }
+      }
       confirmMeanings()
     } catch (e) {
       setMeaningSaveErr(e instanceof Error ? e.message : String(e))
@@ -3603,6 +3591,17 @@ export function KantanWizard({
         const handles: MaterializeHandle[] | undefined = isUnhydratedRedesign
           ? undefined
           : linkedHandles
+        // ③で設計の前に決めた意味と「取り込まない」。データセットを**作る**
+        // 呼び出しだけが運び（api.ts が既存のデータセットでは落とす）、サーバが
+        // 同じ一歩で保管庫に書く — 取り込みの前に走る AI の作り直しも、別の
+        // ブラウザでの見直しも、生まれた時点からそこを読める。以前は畳んだ
+        // 「数の確認」が画面から写していて、畳んだあと誰も書いていなかった
+        // （ADR meaning-before-identity §6）。できたあとの③は自分の保存ボタン
+        // だけが書く（「ためすに戻る」は保存しない）。
+        const settled: SettledBeforeDesign = {
+          columnMeanings: settledMeanings,
+          columnDecisions: excludedDecisions(),
+        }
         try {
           try {
             result = await materializeSchema(
@@ -3611,6 +3610,7 @@ export function KantanWizard({
               datasetId ?? undefined,
               stagingId,
               handles,
+              settled,
             )
           } catch (e) {
             // The adopted record vanished (deleted in the catalog meanwhile) —
@@ -3620,7 +3620,14 @@ export function KantanWizard({
             attached = false
             setKzDatasetId(null)
             setSourceAttached(false)
-            result = await materializeSchema(md, draftName, undefined, stagingId, handles)
+            result = await materializeSchema(
+              md,
+              draftName,
+              undefined,
+              stagingId,
+              handles,
+              settled,
+            )
           }
         } catch (e) {
           setStop({ kind: 'materialize', detail: errText(e), retryFrom: 'materialize' })
@@ -3905,9 +3912,12 @@ export function KantanWizard({
           },
         ]),
       )
-      // 3（項目の意味）で外した列は、この画面ではもう決まっている。サーバへの
-      // 記録は別の effect が行うが、その往復を待って「まだ決めていない」と
-      // 見せると、同じ列を二度断ることになる（実機 2026-08-28）。
+      // 3（項目の意味）で外した列は、この画面ではもう決まっている。保管庫には
+      // データセットを作る保存（materialize）と③の保存ボタンが書くので、普通は
+      // 上の `savedDecisions` に入っている。ここで重ねるのは、まだ保管庫に無い
+      // ぶん（③で外したまま保存せずに戻った列・この仕組みより前に作った
+      // データセット）—「まだ決めていない」と見せて同じ列を二度断らせない
+      // （実機 2026-08-28）。
       for (const drop of excludedDecisions()) {
         const key = columnDecisionKey(drop.source, drop.column)
         if (!drafts[key]) drafts[key] = { action: 'exclude', map: '', label: '', unit: '' }
@@ -4753,7 +4763,7 @@ export function KantanWizard({
           ? 3
           : step === 11
             ? 4
-            : step <= 6
+            : step <= 5
               ? 5
               : step === 7
                 ? 6
@@ -5157,7 +5167,7 @@ export function KantanWizard({
       {/* かんたん見直し: what is being reviewed + the two escape hatches
           (structural rework in detail mode / stop reviewing). Hidden on stop
           cards (they carry their own detail-mode exit) and after publish. */}
-      {redesigning && !stop && !showS5 && (step === 10 || (step >= 6 && step <= 8)) && (
+      {redesigning && !stop && !showS5 && (step === 10 || step === 7 || step === 8) && (
         <section className="kz-card kz-redesign" role="note">
           <div className="kz-redesign-row">
             <span className="kz-redesign-name">

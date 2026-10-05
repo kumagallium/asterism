@@ -692,6 +692,134 @@ def test_excluded_column_stays_out_after_a_later_redesign(
         assert all(p.get("column") != "secret" for p in ir["maps"][0]["properties"])
 
 
+_SECRET_SOURCE = b"reading_id,channel,amplitude,secret\nr1,A,1.5,x\nr2,B,2.5,y\n"
+_SECRET_EXCLUDED = {"source": "readings.csv", "column": "secret", "action": "exclude"}
+_MAPS_SECRET_MD = _FIX_RECIPE_MD.replace(
+    "      - predicate: sn:amplitude\n        column: amplitude",
+    "      - predicate: sn:amplitude\n"
+    "        column: amplitude\n"
+    "      - predicate: sn:secret\n"
+    "        column: secret",
+)
+
+
+def _dataset_excluding_secret(client: TestClient) -> str:
+    ds_id = client.post(
+        "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+    ).json()["dataset"]["id"]
+    attached = client.post(
+        f"/api/datasets/{ds_id}/source",
+        files={"files": ("readings.csv", _SECRET_SOURCE, "text/csv")},
+    )
+    assert attached.status_code == 200, attached.text
+    excluded = client.post(
+        f"/api/datasets/{ds_id}/column-decisions", json={"decisions": [_SECRET_EXCLUDED]}
+    )
+    assert excluded.status_code == 200, excluded.text
+    return ds_id
+
+
+def test_a_withdrawn_exclusion_lets_a_later_redesign_take_the_column_in(
+    tmp_path: Path, healthy_client
+) -> None:
+    """「取り込まない」を取り下げると、その列は「まだ決めていない」に戻る。
+
+    取り下げる手段が無いあいだは、③で「取り込む」に戻しても保管庫に残り、
+    作り直しのたびに設計から外し直されていた（画面は「取り込む」と言うのに入らない）。
+    """
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _dataset_excluding_secret(client)
+        dataset = client.get(f"/api/datasets/{ds_id}").json()
+        assert all("secret" not in advisory for advisory in dataset["meta"]["advisories"])
+        before = dataset["artifacts"]["mapping.rml.ttl"]
+
+        withdrawn = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={"withdrawn_exclusions": [{"source": "readings.csv", "column": "secret"}]},
+        )
+        assert withdrawn.status_code == 200, withdrawn.text
+        assert withdrawn.json()["changed"] == []
+        assert withdrawn.json()["requires_reingest"] is False
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == []
+        dataset = client.get(f"/api/datasets/{ds_id}").json()
+        # 設計は動かない。決まっていない列に戻ったので、知らせは戻る。
+        assert dataset["artifacts"]["mapping.rml.ttl"] == before
+        assert any("never uses: secret" in advisory for advisory in dataset["meta"]["advisories"])
+
+        redesigned = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MAPS_SECRET_MD, "dataset_name": "sensor", "dataset_id": ds_id},
+        )
+        assert redesigned.status_code == 200, redesigned.text
+        ir = yaml.safe_load(
+            client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.yaml"]
+        )
+        assert any(p.get("column") == "secret" for p in ir["maps"][0]["properties"])
+
+
+def test_withdrawing_touches_only_the_named_exclusion(tmp_path: Path, healthy_client) -> None:
+    """取り下げるのは名指した列の「取り込まない」だけ。ほかの判断は残り、同じ
+    依頼の中で言い直した列は、言い直したほうが勝つ。"""
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _dataset_excluding_secret(client)
+        included = {
+            "source": "readings.csv",
+            "map": "reading",
+            "column": "reading_id",
+            "action": "include",
+            "label": "Reading id",
+        }
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/column-decisions", json={"decisions": [included]}
+            ).status_code
+            == 200
+        )
+        # 取り込むと決めた列は、取り下げの対象ではない。保管庫に無い列も何も起こさない。
+        r = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "withdrawn_exclusions": [
+                    {"source": "readings.csv", "column": "reading_id"},
+                    {"source": "readings.csv", "column": "amplitude"},
+                ]
+            },
+        )
+        assert r.status_code == 200, r.text
+        stored = client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
+        assert {(d["column"], d["action"]) for d in stored} == {
+            ("secret", "exclude"),
+            ("reading_id", "include"),
+        }
+        # 同じ依頼で取り下げと「取り込まない」の両方に出た列は、取り込まないまま。
+        r = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [_SECRET_EXCLUDED],
+                "withdrawn_exclusions": [{"source": "readings.csv", "column": "secret"}],
+            },
+        )
+        assert r.status_code == 200, r.text
+        stored = client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
+        assert ("secret", "exclude") in {(d["column"], d["action"]) for d in stored}
+
+
+def test_a_withdrawal_needs_a_column_and_an_empty_request_is_refused(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _dataset_excluding_secret(client)
+        url = f"/api/datasets/{ds_id}/column-decisions"
+        assert client.post(url, json={}).status_code == 422
+        assert client.post(url, json={"withdrawn_exclusions": []}).status_code == 422
+        blank = client.post(
+            url, json={"withdrawn_exclusions": [{"source": "readings.csv", "column": " "}]}
+        )
+        assert blank.status_code == 422
+        assert "withdrawn exclusion" in blank.text
+        assert client.get(url).json()["decisions"] == [_SECRET_EXCLUDED]
+
+
 def test_materialize_reports_an_unsafe_exclusion_as_422(
     tmp_path: Path, healthy_client
 ) -> None:
