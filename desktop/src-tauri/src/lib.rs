@@ -492,6 +492,10 @@ fn bundled_backend(app: &tauri::AppHandle) -> Option<BackendCmd> {
             ("ASTERISM_OXIGRAPH_BIN".into(), backend.join("oxigraph")),
             ("ASTERISM_PANDOC_BIN".into(), backend.join("pandoc")),
             ("ASTERISM_DEMO_AGENT_DIR".into(), backend.join("demo-agent")),
+            (
+                "ASTERISM_DOCLING_SIDECAR_DIR".into(),
+                backend.join("docling-sidecar"),
+            ),
             ("ASTERISM_DATASETS_ROOT".into(), backend.join("datasets")),
         ],
     })

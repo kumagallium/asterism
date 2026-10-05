@@ -49,6 +49,12 @@
     "noteDesktop": "{{formats}} は、デスクトップ版ではまだ取り込めません。",
     "noteServer": "{{formats}} は、このサーバでは取り込めません（読み取る部品が設定されていません）。",
     "dropDesktop": "{{format}}は、デスクトップ版ではまだ取り込めません。いまのところサーバ版が対象です。",
-    "dropServer": "{{format}}は、このサーバでは取り込めません（読み取る部品が設定されていません）。"
+    "dropServer": "{{format}}は、このサーバでは取り込めません（読み取る部品が設定されていません）。",
+    "pdfInstallable": "PDF は、読み取る部品を入れると取り込めます。",
+    "pdfInstalling": "PDF を読み取る部品を入れています。終わると、PDF を置けるようになります。",
+    "pdfStarting": "PDF を読み取る準備をしています…",
+    "openSettings": "設定を開く",
+    "dropPdfInstallable": "PDF（.pdf）は、読み取る部品を入れると取り込めます。設定の「このアプリ」から入れられます。",
+    "dropPdfInstalling": "PDF（.pdf）は、読み取る部品を入れ終わると取り込めます。いま入れている最中です。"
   }
 }

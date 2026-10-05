@@ -12,9 +12,14 @@ import {
   formatsWithExtLabel,
   unavailableDropMessage,
   unavailableFormatOf,
+  pdfInstallable,
   unavailableNote,
+  unavailableNotes,
   type DocumentFormats,
 } from './documentFormats'
+import { isManageable, progressPercent, sizeGb } from './pdfRuntime'
+import type { PdfRuntimeState, PdfRuntimeStatus } from './settings/pdfRuntimeApi'
+import jaSettings from './i18n/locales/ja/settings.json'
 import jaDocument from './i18n/locales/ja/document.json'
 import jaGallery from './i18n/locales/ja/gallery.json'
 import jaKantan from './i18n/locales/ja/kantan.json'
@@ -98,7 +103,7 @@ describe('文言（ja の辞書と組み合わせて）', () => {
     await i18n.init({
       lng: 'ja',
       resources: {
-        ja: { document: jaDocument, gallery: jaGallery, kantan: jaKantan, workbench: jaWorkbench },
+        ja: { document: jaDocument, settings: jaSettings, gallery: jaGallery, kantan: jaKantan, workbench: jaWorkbench },
       },
       interpolation: { escapeValue: false },
     })
@@ -203,5 +208,154 @@ describe('firstUnavailableIn', () => {
     expect(firstUnavailableIn(files, noDocx)).toBe('docx')
     expect(firstUnavailableIn(files, both)).toBeNull()
     expect(firstUnavailableIn([{ name: 'table.csv' }], none)).toBeNull()
+  })
+})
+
+// ---- PDF の読み取り部品 ----
+const rt = (state: PdfRuntimeState, extra: Partial<PdfRuntimeStatus> = {}): PdfRuntimeStatus => ({
+  state,
+  phase: null,
+  bytes_done: 0,
+  bytes_total: 0,
+  error: null,
+  log_path: null,
+  ...extra,
+})
+const dNoPdf: DocumentFormats = { docx: true, pdf: false, desktop: true }
+const dNone: DocumentFormats = { docx: false, pdf: false, desktop: true }
+
+describe('manageable / 進み具合', () => {
+  it('isManageable', () => {
+    expect(isManageable(null)).toBe(false)
+    expect(isManageable(rt('unsupported'))).toBe(false)
+    expect(isManageable(rt('external'))).toBe(false)
+    for (const s of ['absent', 'installing', 'starting', 'ready', 'failed'] as const) {
+      expect(isManageable(rt(s))).toBe(true)
+    }
+  })
+  it('progressPercent', () => {
+    expect(progressPercent({ bytes_done: 0, bytes_total: 0 })).toBe(0)
+    expect(progressPercent({ bytes_done: 0, bytes_total: 100 })).toBe(0)
+    expect(progressPercent({ bytes_done: 50, bytes_total: 200 })).toBe(25)
+    expect(progressPercent({ bytes_done: 100, bytes_total: 100 })).toBe(99)
+    expect(progressPercent({ bytes_done: 300, bytes_total: 100 })).toBe(99)
+  })
+  it('sizeGb', () => {
+    expect(sizeGb({ bytes_total: 1.74e9 })).toBe('1.7')
+    expect(sizeGb({ bytes_total: 0 })).toBe('1.7')
+  })
+})
+
+describe('pdfInstallable', () => {
+  it('PDF 不可かつ absent・failed・installing のときだけ true', () => {
+    expect(pdfInstallable(dNoPdf, rt('absent'))).toBe(true)
+    expect(pdfInstallable(dNoPdf, rt('failed'))).toBe(true)
+    expect(pdfInstallable(dNoPdf, rt('installing'))).toBe(true)
+    expect(pdfInstallable(dNoPdf, rt('starting'))).toBe(false)
+    expect(pdfInstallable(dNoPdf, rt('external'))).toBe(false)
+    expect(pdfInstallable(dNoPdf, null)).toBe(false)
+    expect(pdfInstallable(both, rt('absent'))).toBe(false)
+  })
+})
+
+describe('PDF 部品まわりの文言', () => {
+  let t: TFunction
+  beforeAll(async () => {
+    const i18n = i18next.createInstance()
+    await i18n.init({
+      lng: 'ja',
+      resources: { ja: { document: jaDocument, settings: jaSettings } },
+      interpolation: { escapeValue: false },
+    })
+    t = i18n.t
+  })
+
+  it('管理できない環境では、今の 1 行と同じ', () => {
+    for (const p of [null, rt('unsupported'), rt('external')]) {
+      expect(unavailableNotes(t, dNone, p)).toEqual([unavailableNote(t, dNone)])
+      expect(unavailableNotes(t, dNoPdf, p)).toEqual([unavailableNote(t, dNoPdf)])
+    }
+  })
+  it('両方できるなら空', () => {
+    expect(unavailableNotes(t, both, null)).toEqual([])
+    expect(unavailableNotes(t, both, rt('absent'))).toEqual([])
+  })
+  it('Word だけ不可なら、今のまま', () => {
+    expect(unavailableNotes(t, { docx: false, pdf: true, desktop: true }, rt('absent'))).toEqual([
+      'Word は、デスクトップ版ではまだ取り込めません。',
+    ])
+  })
+  it('PDF 不可・管理できる環境', () => {
+    expect(unavailableNotes(t, dNoPdf, rt('absent'))).toEqual([
+      'PDF は、読み取る部品を入れると取り込めます。',
+    ])
+    expect(unavailableNotes(t, dNoPdf, rt('failed'))).toEqual([
+      'PDF は、読み取る部品を入れると取り込めます。',
+    ])
+    expect(unavailableNotes(t, dNoPdf, rt('installing'))[0]).toMatch(/^PDF を読み取る部品を入れています/)
+    expect(unavailableNotes(t, dNoPdf, rt('starting'))).toEqual(['PDF を読み取る準備をしています…'])
+  })
+  it('Word も不可なら 2 行（Word が先）', () => {
+    expect(unavailableNotes(t, dNone, rt('absent'))).toEqual([
+      'Word は、デスクトップ版ではまだ取り込めません。',
+      'PDF は、読み取る部品を入れると取り込めます。',
+    ])
+  })
+  it('置いたときの文', () => {
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('absent'))).toMatch(/設定の「このアプリ」/)
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('failed'))).toMatch(/設定の「このアプリ」/)
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('installing'))).toMatch(/入れている最中/)
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('starting'))).toMatch(/入れている最中/)
+    // Word を置いたとき・管理できないときは今のまま
+    expect(unavailableDropMessage(t, dNone, 'docx', rt('absent'))).toBe(unavailableDropMessage(t, dNone, 'docx'))
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('external'))).toBe(unavailableDropMessage(t, dNoPdf, 'pdf'))
+  })
+  it('設定のタブは、どの state・phase でも埋め残しが出ない', () => {
+    const size = sizeGb(rt('absent', { bytes_total: 1.7e9 }))
+    const texts = [
+      t('settings:pdf.intro', { size }),
+      t('settings:pdf.install', { size }),
+      t('settings:pdf.installNote'),
+      ...(['packages', 'models', 'starting'] as const).map((p) => t(`settings:pdf.phase.${p}`)),
+      t('settings:pdf.progress', { pct: progressPercent({ bytes_done: 1, bytes_total: 3 }) }),
+      t('settings:pdf.keepsGoing'),
+      t('settings:pdf.cancel'),
+      t('settings:pdf.starting'),
+      t('settings:pdf.ready'),
+      t('settings:pdf.readyNote', { size }),
+      t('settings:pdf.remove'),
+      t('settings:pdf.removeConfirm', { size }),
+      t('settings:pdf.removeYes'),
+      t('settings:pdf.removeNo'),
+      t('settings:pdf.failed'),
+      t('settings:pdf.retry'),
+      t('settings:pdf.logPath', { path: '/tmp/x.log' }),
+      t('settings:pdf.requestFailed'),
+    ]
+    for (const text of texts) {
+      expect(text).not.toContain('{{')
+      expect(text).not.toMatch(/^pdf\./)
+    }
+    expect(t('settings:pdf.progress', { pct: 42 })).toBe('約 42%')
+  })
+})
+
+describe('部品が使えるようになった直後（/api/instance の取り直し前）', () => {
+  // 部品は ready なのに、画面がまだ古い可否（pdf: false）を持っている一瞬。
+  // 「まだ取り込めません」には戻さない。
+  let t: TFunction
+  beforeAll(async () => {
+    const i18n = i18next.createInstance()
+    await i18n.init({
+      lng: 'ja',
+      resources: { ja: { document: jaDocument } },
+      interpolation: { escapeValue: false },
+    })
+    t = i18n.t
+  })
+  it('案内は「準備をしています」、置いたときは「入れ終わると取り込めます」', () => {
+    expect(unavailableNotes(t, dNoPdf, rt('ready'))).toEqual(['PDF を読み取る準備をしています…'])
+    expect(pdfInstallable(dNoPdf, rt('ready'))).toBe(false)
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('ready'))).toMatch(/入れ終わると取り込めます/)
   })
 })

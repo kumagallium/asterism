@@ -9,6 +9,9 @@
 #   backend/pandoc                     pandoc (unmodified official release; Word -> JATS)
 #   backend/licenses/                  third-party license texts (pandoc: GPL-2.0-or-later)
 #   backend/demo-agent/app.py          Ask agent (spawned by asterism-local)
+#   backend/docling-sidecar/app.py     PDF sidecar (infra/docling-sidecar/app.py, unmodified).
+#                                      Docling itself is NOT bundled: the user installs it on
+#                                      demand (pdf_runtime/ in site-packages; ADR desktop-pdf-runtime.md)
 #   backend/datasets/                  bundled example dataset content
 #   backend/ui-dist/                   built SPA (live Ask mode)
 #
@@ -37,7 +40,15 @@ PYBIN="$(ls -d "$DEST"/uv-python/cpython-3.11*/bin/python3 2>/dev/null | head -1
 # to the BUILD machine's checkout — which exist during the CI smoke test and
 # vanish on the user's machine (the v0.1.0 .dmg shipped exactly that:
 # ModuleNotFoundError: asterism). Snapshots must be real copies.
+# --reinstall-package (the four local packages): a rebuild on a machine that
+# already has $DEST must pick up source changes. Without it uv sees "same
+# version, already installed" and keeps the OLD copy — a locally rebuilt bundle
+# then runs stale code while its ui-dist is fresh (seen 2026-10-05: a re-bundle
+# kept the previous pdf_runtime, and a check ran against it). CI builds from an
+# empty $DEST, so this only ever bit local rebuilds.
 uv pip install --python "$PYBIN" --break-system-packages --no-sources \
+  --reinstall-package asterism-ingest --reinstall-package asterism-step0 \
+  --reinstall-package asterism-mcp-tools --reinstall-package asterism-api \
   "$REPO/ingest[substrate]" "$REPO/step0" "$REPO/mcp" "$REPO/api"
 
 # Relocation proof: importable-on-the-build-machine is NOT the bar (editable
@@ -46,6 +57,13 @@ uv pip install --python "$PYBIN" --break-system-packages --no-sources \
 SITE="$(dirname "$PYBIN")/../lib/python3.11/site-packages"
 for pkg in asterism asterism_api asterism_step0 asterism_mcp morph_kgc; do
   [ -d "$SITE/$pkg" ] || { echo "bundle is not self-contained: $pkg missing from site-packages" >&2; exit 1; }
+done
+# The on-demand PDF runtime reads its pinned dependency list and model commits from the
+# installed package. They are data files, not code: a wheel build that drops them would ship
+# a "PDF runtime" that can never be installed.
+for f in requirements-macos-arm64.txt models.json wheels/antlr4_python3_runtime-4.9.3-py3-none-any.whl; do
+  [ -f "$SITE/asterism_api/pdf_runtime/$f" ] \
+    || { echo "bundle is missing asterism_api/pdf_runtime/$f in site-packages" >&2; exit 1; }
 done
 if ls "$SITE"/_editable_impl_*.pth "$SITE"/__editable__* >/dev/null 2>&1; then
   echo "bundle contains editable-install remnants (.pth) — would break on relocation" >&2
@@ -153,9 +171,10 @@ mkdir -p "$DEST/licenses/pandoc"
 cp third-party/pandoc/COPYING.md third-party/pandoc/COPYRIGHT third-party/pandoc/README.md "$DEST/licenses/pandoc/"
 
 # --- repo payloads ---------------------------------------------------------
-rm -rf "$DEST/demo-agent" "$DEST/datasets" "$DEST/ui-dist" "$DEST/manual"
-mkdir -p "$DEST/demo-agent"
+rm -rf "$DEST/demo-agent" "$DEST/docling-sidecar" "$DEST/datasets" "$DEST/ui-dist" "$DEST/manual"
+mkdir -p "$DEST/demo-agent" "$DEST/docling-sidecar"
 cp "$REPO/demo-agent/app.py" "$DEST/demo-agent/app.py"
+cp "$REPO/infra/docling-sidecar/app.py" "$DEST/docling-sidecar/app.py"
 cp -R "$REPO/datasets" "$DEST/datasets"
 # The user manual is ALSO the consult chat's knowledge source: the api's
 # upward search reaches $DEST/manual/ja from site-packages. Without it the

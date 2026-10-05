@@ -9,6 +9,10 @@ import {
   type UpdateAvailableDetail,
 } from '../desktop/updater'
 import { useUpdateInstall } from '../desktop/useUpdateInstall'
+import { getAppDataInfo } from '../appdata'
+import { usePdfRuntime } from '../pdfRuntime'
+import { PdfRuntimeSection } from './PdfRuntimeSection'
+import { StorageSection } from './StorageSection'
 import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 
 // 他のクライアントと同じ API ベース（既定は同一オリジン /api・別ホスト配備は VITE_API_URL）
@@ -84,6 +88,9 @@ export function AboutTab() {
   }, [clearError])
 
   const tauri = isTauri()
+  // 保存先は共有ブラウザ版では出さない／PDF の部品は入れ外しできる環境でだけ出す
+  const showStorage = getAppDataInfo()?.singleUser === true
+  const { manageable: showPdf } = usePdfRuntime()
 
   async function onCheck() {
     setCheck({ status: 'checking' })
@@ -204,6 +211,8 @@ export function AboutTab() {
           </>
         )}
       </section>
+      {showStorage && <StorageSection />}
+      {showPdf && <PdfRuntimeSection />}
     </div>
   )
 }

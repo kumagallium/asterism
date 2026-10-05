@@ -21,10 +21,10 @@ import {
   formatsLabel,
   formatsWithExtLabel,
   unavailableDropMessage,
-  unavailableFormats,
-  unavailableNote,
+  unavailableNotes,
   useDocumentFormats,
 } from './documentFormats'
+import { usePdfRuntime } from './pdfRuntime'
 import { plainError } from './kantan/errorMessages'
 
 // The "文書を追加" flow (PR-3): a JATS (.xml) or Word (.docx) document needs NO
@@ -84,6 +84,7 @@ export function DocumentPanel({
 }: { plain?: boolean; initialFiles?: File[] } = {}) {
   const { t } = useTranslation()
   const f = useDocumentFormats()
+  const pdfRuntime = usePdfRuntime()
   const ctx = formatsContext(f)
   // 変換できない形式（Word / PDF）を置いたときの文。サーバの 4xx を待たず、受け付けない。
   const [formatMsg, setFormatMsg] = useState('')
@@ -153,13 +154,13 @@ export function DocumentPanel({
   // `pick` を通らない経路でも、取り込みは始めさせずに理由を出す。
   const heldUnavailable = firstUnavailableIn(files, f)
   const formatNotice =
-    formatMsg || (heldUnavailable ? unavailableDropMessage(t, f, heldUnavailable) : '')
+    formatMsg || (heldUnavailable ? unavailableDropMessage(t, f, heldUnavailable, pdfRuntime.status) : '')
 
   function pick(list: FileList | File[] | null) {
     const arr = Array.from(list ?? [])
     const bad = firstUnavailableIn(arr, f)
     if (bad) {
-      setFormatMsg(unavailableDropMessage(t, f, bad))
+      setFormatMsg(unavailableDropMessage(t, f, bad, pdfRuntime.status))
       return
     }
     setFormatMsg('')
@@ -308,8 +309,8 @@ export function DocumentPanel({
                 ? t('document:convertHintPlain', { context: ctx })
                 : t('document:convertHint', { context: ctx }))}
             {!plain &&
-              unavailableFormats(f).length > 0 &&
-              (ctx === 'none' ? '' : ' ') + unavailableNote(t, f)}
+              unavailableNotes(t, f, pdfRuntime.status).length > 0 &&
+              (ctx === 'none' ? '' : ' ') + unavailableNotes(t, f, pdfRuntime.status).join(' ')}
           </span>
           <button type="button" onClick={run} disabled={(!files.length && !created) || busy || heldUnavailable !== null}>
             {busy ? (

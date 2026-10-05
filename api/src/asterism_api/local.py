@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from asterism_api.main import Settings
+    from asterism_api.pdf_runtime import PdfRuntime
 
 logger = logging.getLogger("asterism.local")
 
@@ -498,6 +499,17 @@ def find_demo_agent_dir() -> Path | None:
         explicit = Path(override).expanduser()
         return explicit if (explicit / "app.py").is_file() else None
     candidate = Path(__file__).resolve().parents[3] / "demo-agent"
+    return candidate if (candidate / "app.py").is_file() else None
+
+
+def find_docling_sidecar_dir() -> Path | None:
+    """``docling-sidecar/app.py`` — env override (bundled .app layout) first, then
+    the repo-checkout location ``infra/docling-sidecar/``."""
+    override = (os.environ.get("ASTERISM_DOCLING_SIDECAR_DIR") or "").strip()
+    if override:
+        explicit = Path(override).expanduser()
+        return explicit if (explicit / "app.py").is_file() else None
+    candidate = Path(__file__).resolve().parents[3] / "infra" / "docling-sidecar"
     return candidate if (candidate / "app.py").is_file() else None
 
 
@@ -1181,6 +1193,7 @@ def build_local_app(
     demo_agent_url: str | None = None,
     demo_relay_client: httpx.AsyncClient | None = None,
     mcp: bool = True,
+    pdf_runtime: PdfRuntime | None = None,
 ) -> FastAPI:
     """``build_app`` + optional /demo relay + /mcp + SPA mount + token injection.
 
@@ -1192,11 +1205,18 @@ def build_local_app(
     answered it with the SPA's index.html — a 200 full of HTML, which is why
     the endpoint looked present and was not.)
     """
-    from asterism_api.main import build_app
+    from asterism_api.main import Settings, build_app
 
+    if pdf_runtime is not None and settings is None:
+        settings = Settings()  # 書き込みゲートが build_app と同じ設定を見るため
     app = build_app(settings, oxigraph_client=oxigraph_client, start_watcher=start_watcher)
     if demo_agent_url is not None:
         app.include_router(create_demo_relay(demo_agent_url, demo_relay_client))
+    if pdf_runtime is not None:
+        from asterism_api.pdf_runtime.routes import create_pdf_runtime_router
+
+        assert settings is not None
+        app.include_router(create_pdf_runtime_router(pdf_runtime, settings))
     if mcp:
         attach_mcp(app)
     if ui_dist is not None:
@@ -1431,12 +1451,38 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 logger.info("demo-agent: %s (pid %d)", demo_url, demo_child.pid)
 
+    pdf_runtime: PdfRuntime | None = None
     try:
         # Import AFTER the env defaults: asterism_api.main reads
         # ASTERISM_MAX_UPLOAD_BYTES at module import time.
         from asterism_api.main import Settings
 
         settings = Settings()
+
+        # PDF を読み取る部品（Docling サイドカー。ADR desktop-pdf-runtime.md）。
+        # 入っていれば、サイドカーの起動待ちは別スレッドで行う＝起動を止めない
+        # （demo-agent のように起動前に最大 30 秒待つことはしない）。応答したら
+        # settings.docling_url に入り、/api/instance の can_convert_pdf が true になる。
+        # 入っていない・対応していない・ASTERISM_DOCLING_URL が外から設定されている
+        # ときは、何も起こさない。
+        # 何があっても asterism-local の起動は止めない: 部品まわりが落ちたら、ログに 1 行書いて
+        # 部品の経路は無しにする(PDF は今までどおり「読み取れない」と案内される)。
+        try:
+            from asterism_api import pdf_runtime as pdf_runtime_mod
+
+            def _set_docling_url(url: str | None) -> None:
+                settings.docling_url = url
+
+            pdf_runtime = pdf_runtime_mod.PdfRuntime(
+                sidecar_dir=find_docling_sidecar_dir(),
+                log_dir=home / "logs",
+                external_url=settings.docling_url,
+                on_url=_set_docling_url,
+            )
+            pdf_runtime.startup()
+        except Exception as exc:
+            logger.warning("pdf-runtime: disabled (%s: %s)", type(exc).__name__, exc)
+            pdf_runtime = None
 
         # 見本まわりの起動時処理（種まき → 入れ替え → 補い）。build_local_app より
         # **前**に呼ぶ: MCP の型付きツールは build_local_app（attach_mcp →
@@ -1466,6 +1512,7 @@ def main(argv: list[str] | None = None) -> int:
             settings=settings,
             demo_agent_url=demo_url,
             mcp=not args.no_mcp,
+            pdf_runtime=pdf_runtime,
         )
         url = f"http://127.0.0.1:{args.port}/"
         logger.info("Asterism local: %s (data: %s)", url, home)
@@ -1484,6 +1531,12 @@ def main(argv: list[str] | None = None) -> int:
             _terminate(demo_child)
         if child is not None:
             _terminate(child)
+        # Oxigraph の穏やかな停止を待たせないよう、部品の停止は最後(shutdown は 2 秒ほどで返る)。
+        if pdf_runtime is not None:
+            try:
+                pdf_runtime.shutdown()
+            except Exception:
+                logger.warning("pdf-runtime: shutdown failed", exc_info=True)
     return 0
 
 
