@@ -44,7 +44,7 @@ interface StorageNotice {
   detail: string
 }
 
-export function StorageTab() {
+export function StorageSection() {
   const { t } = useTranslation('settings')
   const appData = getAppDataInfo()
   const tauri = isTauri()
@@ -157,8 +157,8 @@ export function StorageTab() {
     notice?.kind === 'failed' ? 'field-error' : notice?.kind === 'copied' ? 'field-warn' : 'field-ok'
 
   return (
-    <div className="storage-tab">
-      <section className="serverkeys storage-section">
+    <>
+      <section className="serverkeys">
         <h4 className="serverkeys-title">{t('storage.title')}</h4>
         <p className="field-help">{t('storage.intro')}</p>
 
@@ -246,6 +246,6 @@ export function StorageTab() {
           </button>
         )}
       </section>
-    </div>
+    </>
   )
 }

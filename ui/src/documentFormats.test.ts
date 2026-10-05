@@ -302,8 +302,8 @@ describe('PDF 部品まわりの文言', () => {
     ])
   })
   it('置いたときの文', () => {
-    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('absent'))).toMatch(/設定の「PDF」タブ/)
-    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('failed'))).toMatch(/設定の「PDF」タブ/)
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('absent'))).toMatch(/設定の「このアプリ」/)
+    expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('failed'))).toMatch(/設定の「このアプリ」/)
     expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('installing'))).toMatch(/入れている最中/)
     expect(unavailableDropMessage(t, dNoPdf, 'pdf', rt('starting'))).toMatch(/入れている最中/)
     // Word を置いたとき・管理できないときは今のまま
@@ -331,7 +331,6 @@ describe('PDF 部品まわりの文言', () => {
       t('settings:pdf.retry'),
       t('settings:pdf.logPath', { path: '/tmp/x.log' }),
       t('settings:pdf.requestFailed'),
-      t('settings:tabs.pdf'),
     ]
     for (const text of texts) {
       expect(text).not.toContain('{{')

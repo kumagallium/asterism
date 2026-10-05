@@ -54,7 +54,7 @@
     "pdfInstalling": "The PDF reading component is being installed. PDFs can be dropped here once it finishes.",
     "pdfStarting": "Getting ready to read PDFs…",
     "openSettings": "Open settings",
-    "dropPdfInstallable": "PDF (.pdf) can be taken in once the reading component is installed — see the “PDF” tab in settings.",
+    "dropPdfInstallable": "PDF (.pdf) can be taken in once the reading component is installed — see “About” in settings.",
     "dropPdfInstalling": "PDF (.pdf) can be taken in once the reading component finishes installing. It is being installed now."
   }
 }

@@ -8,10 +8,8 @@
     "ai": "AI",
     "server": "This server",
     "usage": "AI usage",
-    "storage": "Storage",
     "about": "About",
-    "connect": "Use from other AI",
-    "pdf": "PDF"
+    "connect": "Use from other AI"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",

@@ -8,10 +8,8 @@
     "ai": "AI",
     "server": "このサーバ",
     "usage": "AI の使用量",
-    "storage": "保存先",
     "about": "このアプリ",
-    "connect": "ほかの AI から使う",
-    "pdf": "PDF"
+    "connect": "ほかの AI から使う"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",

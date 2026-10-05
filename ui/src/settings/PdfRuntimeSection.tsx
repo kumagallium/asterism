@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { progressPercent, sizeGb, usePdfRuntime } from '../pdfRuntime'
 
-// 「PDF」タブ — デスクトップ版で、PDF を読み取る部品をあとから入れる／消す。
+// 「このアプリ」タブの「PDF の読み取り」の節 — デスクトップ版で、PDF を読み取る部品をあとから入れる／消す。
 // 状態は pdfRuntime.ts の共有ストアから来る（入れている最中は 1.5 秒おきに更新）。
 // 画面を閉じても入れる処理は続く（バックエンド側で動いている）。
 
-export function PdfRuntimeTab() {
+export function PdfRuntimeSection() {
   const { t } = useTranslation('settings')
   const { status, install, remove } = usePdfRuntime()
   const [busy, setBusy] = useState(false)
@@ -32,8 +32,7 @@ export function PdfRuntimeTab() {
   const pct = progressPercent(status)
 
   return (
-    <div className="pdf-tab" id="settings-pdf">
-      <section className="serverkeys storage-section">
+    <section className="serverkeys" id="settings-pdf">
         <h4 className="serverkeys-title">{t('pdf.title')}</h4>
 
         {status.state === 'absent' && (
@@ -150,7 +149,6 @@ export function PdfRuntimeTab() {
             {t('pdf.requestFailed')}
           </p>
         )}
-      </section>
-    </div>
+    </section>
   )
 }
