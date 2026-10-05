@@ -493,7 +493,7 @@
     "idMoveBroken": "These cannot be reached from their earlier IDs any more:",
     "idMoveBrokenColumns": "{{source}}: the columns the earlier ID was built from ({{columns}}) are not in the current file.",
     "idMoveBrokenKind": "{{source}}: the kind it used to create is not in the new design.",
-    "idMoveBrokenExit": "You can publish anyway. To keep the earlier IDs, use \"Back to Try it\" → \"Back to how the data is counted\" and put the way IDs are made back as it was.",
+    "idMoveBrokenExit": "You can publish anyway. To keep the earlier IDs, use \"Back to Try it\" → \"Back to the shape check\" and put the way IDs are made back as it was.",
     "promise": "If you spot a mistake, you can withdraw it from citation at any time (from \"Withdraw\" on the dataset page). The data and IDs remain, so links to already-cited numbers never break.",
     "laterLabel": "Later",
     "publish": "Publish",

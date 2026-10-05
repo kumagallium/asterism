@@ -2326,9 +2326,14 @@ def _plan_id_move(
     nothing recorded how its ids were made, or the new design has no Mapping IR.
     A plan whose ``changes_ids`` is False means the re-design left every published
     address exactly where it was (a meaning / label / type-only edit).
+
+    "Was published" is read from ``published_subjects`` itself — it is only ever
+    written at a publication (or backfilled for one). ``meta.promoted`` cannot
+    answer it: every ingest flips that flag to False while the published version
+    is still the live one, so a SECOND draft before publishing (go back, change
+    the id after all) would be planned as "never published" — no ledger, no
+    notice, and the old addresses gone at the next promote.
     """
-    if not meta.get("promoted"):
-        return None
     raw = meta.get("published_subjects")
     if not isinstance(raw, list) or not raw:
         return None
@@ -2375,7 +2380,6 @@ def _id_move_rml(plan, artifacts: dict[str, str]) -> str | None:
 
 async def _write_id_move_ledger(
     client: OxigraphClient,
-    registry_root: Path,
     dataset_id: str,
     meta: dict,
     artifacts: dict[str, str],
@@ -2399,6 +2403,10 @@ async def _write_id_move_ledger(
     Best-effort: a dataset must still publish when the ledger cannot be built. The
     failure is not swallowed, though — it lands in the record as "not fully
     movable", which is what the publish screen shows the human.
+
+    Returns the record WITHOUT persisting it: the caller writes it next to the
+    commit that makes this draft the staged one (``mark_ingested``), so what the
+    publish screens read is always about the draft that is actually staged.
     """
     plan = _plan_id_move(meta, artifacts, _source_columns(source_paths, artifacts))
     if plan is None or not plan.changes_ids:
@@ -2428,7 +2436,6 @@ async def _write_id_move_ledger(
             # stop resolving. Say so rather than letting the plan claim otherwise.
             record["fully_movable"] = False
             record["ledger_error"] = True
-    registry.record_id_move(registry_root, dataset_id, record)
     return record
 
 
@@ -9852,7 +9859,6 @@ def build_app(
                     # from the same rows, before the old version graph is superseded.
                     id_move = await _write_id_move_ledger(
                         client,
-                        cfg.registry_root,
                         dataset_id,
                         data.get("meta") or {},
                         data.get("artifacts") or {},
@@ -9898,6 +9904,15 @@ def build_app(
                     ingested_at=datetime.now(UTC).isoformat(),
                     data_seq=data_seq,
                 )
+                # The id-move record describes the draft that was JUST staged, so it
+                # is written here and nowhere earlier: set when this draft moves
+                # published ids, cleared when it does not. One left over from an
+                # earlier ingest — a blocked move the human went back and undid —
+                # would keep announcing itself on every screen that reads it before
+                # publishing; one cleared before this commit could erase a warning
+                # about a draft that is still the staged one.
+                if id_move is not None or (meta or {}).get("id_move") is not None:
+                    meta = registry.record_id_move(cfg.registry_root, dataset_id, id_move) or meta
                 if not already_promoted:
                     # Same freshness argument for the artifacts: a redesign saved
                     # while this job ran must be what the catalog describes.
