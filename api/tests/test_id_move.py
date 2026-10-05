@@ -590,6 +590,38 @@ def test_a_second_draft_still_plans_the_move(tmp_path: Path, monkeypatch) -> Non
     client.__exit__(None, None, None)
 
 
+def test_a_ledger_that_could_not_be_built_says_which_ids_are_lost(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """計画の上では全部引き継げる（moved だけ）のに、台帳づくりそのものが落ちる
+    ことがある。取り込みは通り、下書きは確定する —— だから記録は「どのぶんが
+    たどれなくなるか」を言えなければならない。このとき blocked は空のままで、
+    たどれなくなるぶんは moved が持ち、ledger_error がそれを「書けなかった」と言う。
+    画面はこの形を読む（blocked だけを描くと、警告の枠に理由が 1 つも出ない）。"""
+    client = _published_app(tmp_path, monkeypatch)
+    root = tmp_path / "registry"
+    _redesign(root, _spec("exr:sample/{sid}-{name}"))
+
+    def _ledger_fails(rml_ttl, csv_dir, *, work_dir=None, **kwargs) -> Path:
+        if Path(work_dir).name == "idmove":  # 台帳の RML を流す回だけ落とす
+            raise RuntimeError("the ledger mapping could not be run")
+        return _fake_materializer(rml_ttl, csv_dir, work_dir=work_dir, **kwargs)
+
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _ledger_fails)
+    result = _ingest(client, b"sid,name\n1,Bi2Te3\n")
+
+    meta = _meta(tmp_path)
+    assert meta["ingested"] is True  # 取り込みは止まらない
+    move = client.get("/api/datasets/dataset-x/id-move").json()
+    assert move["changes_ids"] is True
+    assert move["fully_movable"] is False and move["ledger_error"] is True
+    assert move["forwarded"] == 0
+    assert move["blocked"] == []
+    assert [(m["name"], m["source"]) for m in move["moved"]] == [("sample", "s.csv")]
+    assert result["id_move"] == {k: v for k, v in move.items() if k != "dataset_id"}
+    client.__exit__(None, None, None)
+
+
 def test_a_published_move_is_not_announced_again(tmp_path: Path, monkeypatch) -> None:
     """ID を引っ越して公開し終えたあと、同じ設計でファイルだけ差し替える。
     この更新では住所は動かないので、前回の「N 件の ID が変わります」を

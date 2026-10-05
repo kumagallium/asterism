@@ -12,8 +12,9 @@ import { fetchIdMove, type IdMove } from './api'
 export interface IdMoveBlockedLine {
   key: string
   source: string
-  /** `columns` = 前の ID を綴る列がいまのファイルに無い／`kind` = その種類が設計から消えた。 */
-  reason: 'columns' | 'kind'
+  /** `columns` = 前の ID を綴る列がいまのファイルに無い／`kind` = その種類が設計から消えた／
+   *  `ledger` = 引っ越し先を記録できなかった（計画の上では引き継げたぶん）。 */
+  reason: 'columns' | 'kind' | 'ledger'
   columns: string[]
 }
 
@@ -30,15 +31,24 @@ export interface IdMoveNoticeView {
  *  まだ読めていない・読めなかった）。 */
 export function idMoveNoticeView(move: IdMove | null | undefined): IdMoveNoticeView | null {
   if (!move?.changes_ids) return null
+  const blocked: IdMoveBlockedLine[] = (move.blocked ?? []).map((b) => ({
+    key: `${b.source}:${b.name}`,
+    source: b.source,
+    reason: b.reason === 'missing_columns' ? 'columns' : 'kind',
+    columns: b.missing_columns ?? [],
+  }))
+  // 台帳を作れなかった記録は、たどれなくなるぶんを `blocked` ではなく `moved` に
+  // 持つ（計画の上では引き継げたので）。ここで拾わないと、警告の枠に「次のぶんは…」
+  // と出たあと一覧が空になる。同じファイルの種類は理由も同じなので 1 回だけ言う。
+  if (move.ledger_error) {
+    for (const source of new Set((move.moved ?? []).map((m) => m.source))) {
+      blocked.push({ key: `${source}:ledger`, source, reason: 'ledger', columns: [] })
+    }
+  }
   return {
     broken: move.fully_movable === false,
     forwarded: move.forwarded ?? 0,
-    blocked: (move.blocked ?? []).map((b) => ({
-      key: `${b.source}:${b.name}`,
-      source: b.source,
-      reason: b.reason === 'missing_columns' ? 'columns' : 'kind',
-      columns: b.missing_columns ?? [],
-    })),
+    blocked,
   }
 }
 
