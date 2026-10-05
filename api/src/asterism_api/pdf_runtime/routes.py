@@ -2,14 +2,16 @@
 
 GET は読むだけなので認証なし。POST・DELETE は ``build_app`` の ``require_write_auth`` と同じ
 書き込みゲート（loopback のクライアントには ``LoopbackTokenInjector`` がトークンを足す）。
+
+よそのサイトのページからの POST・DELETE は、ここではなくローカルモードの入口
+（``local.LoopbackOriginGuard``）が全経路まとめて断る。経路ごとの確認は持たない。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 if TYPE_CHECKING:
     from asterism_api.main import Settings
@@ -31,18 +33,6 @@ def create_pdf_runtime_router(runtime: PdfRuntime, cfg: Settings) -> APIRouter:
         if not _write_credential_ok(cfg, authorization, x_asterism_token):
             raise HTTPException(401, "利用許可コードが違います")
 
-    def require_same_origin(request: Request) -> None:
-        """Origin がある(=ブラウザ)のに Host と違うなら 403。
-
-        よそのサイトのページが、ループバックのトークン注入に乗って取得・削除を起こすのを防ぐ。
-        Origin が無い(curl など)ときは書き込みゲートだけで判定する。
-        """
-        origin = request.headers.get("origin")
-        if origin is None:
-            return
-        if urlparse(origin).netloc != request.headers.get("host", ""):
-            raise HTTPException(403, "別のサイトからの操作は受け付けません")
-
     def _refuse_if_fixed(status: dict[str, Any]) -> None:
         if status["state"] == "unsupported":
             raise HTTPException(409, "この環境では PDF を読み取る部品を入れられません")
@@ -57,18 +47,12 @@ def create_pdf_runtime_router(runtime: PdfRuntime, cfg: Settings) -> APIRouter:
     def get_pdf_runtime() -> dict[str, Any]:
         return runtime.status()
 
-    @router.post(
-        "/api/pdf-runtime/install",
-        dependencies=[Depends(require_same_origin), Depends(require_write_auth)],
-    )
+    @router.post("/api/pdf-runtime/install", dependencies=[Depends(require_write_auth)])
     def install_pdf_runtime() -> dict[str, Any]:
         _refuse_if_fixed(runtime.status())
         return runtime.install()
 
-    @router.delete(
-        "/api/pdf-runtime",
-        dependencies=[Depends(require_same_origin), Depends(require_write_auth)],
-    )
+    @router.delete("/api/pdf-runtime", dependencies=[Depends(require_write_auth)])
     def delete_pdf_runtime() -> dict[str, Any]:
         _refuse_if_fixed(runtime.status())
         return runtime.remove()

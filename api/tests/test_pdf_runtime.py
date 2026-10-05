@@ -38,6 +38,8 @@ from asterism_api.pdf_runtime import (
 REPO = Path(__file__).resolve().parents[2]
 REQUIREMENTS = PACKAGE_DIR / "requirements-macos-arm64.txt"
 _TOKEN = "pdf-runtime-token"
+# ローカルモードの門は Host がループバックの名前でないと断る(TestClient の既定は testserver)。
+_LOCAL_URL = "http://127.0.0.1:8765"
 GB = 1024**3
 
 
@@ -677,7 +679,7 @@ def _local_app(tmp_path: Path, rt: PdfRuntime) -> Any:
 
 def test_api_get_is_open_and_reports_state(tmp_path: Path, sidecar_dir: Path) -> None:
     rt, _ = make_runtime(tmp_path, sidecar_dir)
-    with TestClient(_local_app(tmp_path, rt)) as client:
+    with TestClient(_local_app(tmp_path, rt), base_url=_LOCAL_URL) as client:
         res = client.get("/api/pdf-runtime")  # 認証なし
         assert res.status_code == 200
         body = res.json()
@@ -698,7 +700,7 @@ def test_api_install_and_delete_go_through_the_write_gate(
     tmp_path: Path, sidecar_dir: Path
 ) -> None:
     rt, spawn = make_runtime(tmp_path, sidecar_dir)
-    with TestClient(_local_app(tmp_path, rt)) as client:
+    with TestClient(_local_app(tmp_path, rt), base_url=_LOCAL_URL) as client:
         assert client.post("/api/pdf-runtime/install").status_code == 401
         assert (
             client.post(
@@ -725,20 +727,20 @@ def test_api_install_and_delete_go_through_the_write_gate(
 def test_api_unsupported_and_external_refuse_changes(tmp_path: Path, sidecar_dir: Path) -> None:
     headers = {"X-Asterism-Token": _TOKEN}
     rt, _ = make_runtime(tmp_path / "a", None)
-    with TestClient(_local_app(tmp_path, rt)) as client:
+    with TestClient(_local_app(tmp_path, rt), base_url=_LOCAL_URL) as client:
         assert client.get("/api/pdf-runtime").json()["state"] == "unsupported"
         assert client.post("/api/pdf-runtime/install", headers=headers).status_code == 409
         assert client.delete("/api/pdf-runtime", headers=headers).status_code == 409
 
     rt2, _ = make_runtime(tmp_path / "b", sidecar_dir, external_url="http://docling:8090")
-    with TestClient(_local_app(tmp_path, rt2)) as client:
+    with TestClient(_local_app(tmp_path, rt2), base_url=_LOCAL_URL) as client:
         assert client.get("/api/pdf-runtime").json()["state"] == "external"
         assert client.post("/api/pdf-runtime/install", headers=headers).status_code == 409
 
 
 def test_server_app_has_no_pdf_runtime_routes(tmp_path: Path) -> None:
     app = build_app(_settings(tmp_path), oxigraph_client=_fake_oxigraph(), start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, base_url=_LOCAL_URL) as client:
         assert client.get("/api/pdf-runtime").status_code == 404
         headers = {"X-Asterism-Token": _TOKEN}
         assert client.post("/api/pdf-runtime/install", headers=headers).status_code == 404
@@ -761,7 +763,7 @@ def test_ready_runtime_makes_instance_report_can_convert_pdf(
         mcp=False,
         pdf_runtime=rt,
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url=_LOCAL_URL) as client:
         assert client.get("/api/instance").json()["can_convert_pdf"] is False
         client.post("/api/pdf-runtime/install", headers={"X-Asterism-Token": _TOKEN})
         rt.join(10)
@@ -1035,13 +1037,16 @@ def test_sidecar_log_is_truncated_when_over_5mb(tmp_path: Path, sidecar_dir: Pat
 
 
 # ---------------------------------------------------------------------------
-# Origin の確認
+# よそのサイトからの操作は、ローカルモードの入口の門が断る
+# (local.LoopbackOriginGuard。経路ごとの確認は持たない — 新しい経路も門の内側に居ること)
 
 
-def test_origin_must_match_host_for_post_and_delete(tmp_path: Path, sidecar_dir: Path) -> None:
+def test_cross_site_post_and_delete_are_refused_by_the_local_guard(
+    tmp_path: Path, sidecar_dir: Path
+) -> None:
     rt, _ = make_runtime(tmp_path, sidecar_dir)
     auth = {"X-Asterism-Token": _TOKEN}
-    with TestClient(_local_app(tmp_path, rt)) as client:
+    with TestClient(_local_app(tmp_path, rt), base_url=_LOCAL_URL) as client:
         evil = {**auth, "Origin": "https://evil.example"}
         assert client.post("/api/pdf-runtime/install", headers=evil).status_code == 403
         assert client.delete("/api/pdf-runtime", headers=evil).status_code == 403
@@ -1051,7 +1056,7 @@ def test_origin_must_match_host_for_post_and_delete(tmp_path: Path, sidecar_dir:
             ).status_code
             == 403
         )
-        same = {**auth, "Origin": "http://testserver"}
+        same = {**auth, "Origin": _LOCAL_URL}
         assert client.post("/api/pdf-runtime/install", headers=same).status_code == 200
         rt.join(10)
         assert client.delete("/api/pdf-runtime", headers=same).status_code == 200
@@ -1127,6 +1132,6 @@ def test_main_survives_the_runtime_blowing_up(
     monkeypatch.setattr("asterism_api.pdf_runtime.PdfRuntime", Boom)
     served = _run_main(tmp_path, monkeypatch, extra=[])
     assert len(served) == 1
-    client = TestClient(served[0])  # lifespan なし(Oxigraph は居ない)
+    client = TestClient(served[0], base_url=_LOCAL_URL)  # lifespan なし(Oxigraph は居ない)
     res = client.get("/api/pdf-runtime")  # 部品の経路は無し(SPA があればその index.html が返る)
     assert "json" not in res.headers.get("content-type", "")
