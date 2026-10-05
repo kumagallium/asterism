@@ -97,6 +97,83 @@ describe('idMoveNoticeView — 「ID の引っ越し」の知らせが言うこ�
   })
 })
 
+describe('idMoveNoticeView — 置いた名前（source_label）', () => {
+  it('同じ文になる行は 1 回だけ言う（シートごとの表は同じブックの名前で呼ぶ）', () => {
+    const sheet = (source: string, columns: string[]) => ({
+      name: 'record',
+      source,
+      source_label: '価格表.xlsx',
+      reason: 'missing_columns',
+      missing_columns: columns,
+    })
+    const view = idMoveNoticeView({
+      ...base,
+      fully_movable: false,
+      blocked: [
+        sheet('source-a5e26419__a.csv', ['番号']),
+        sheet('source-a5e26419__b.csv', ['番号']),
+        sheet('source-a5e26419__c.csv', ['店名']), // 列が違えば別の文
+      ],
+    })
+    expect(view?.blocked.map((b) => [b.source, b.columns])).toEqual([
+      ['価格表.xlsx', ['番号']],
+      ['価格表.xlsx', ['店名']],
+    ])
+  })
+
+  it('blocked は source_label があればそれを出す。key は保存名のまま', () => {
+    const view = idMoveNoticeView({
+      ...base,
+      fully_movable: false,
+      blocked: [
+        {
+          name: 'record',
+          source: 'source-3637d45e.csv',
+          source_label: '価格表.csv',
+          reason: 'missing_columns',
+          missing_columns: ['番号'],
+        },
+        { name: 'shop', source: 'shops.csv', reason: 'no_matching_map', missing_columns: [] },
+      ],
+    })
+    expect(view?.blocked).toEqual([
+      {
+        key: 'source-3637d45e.csv:record',
+        source: '価格表.csv',
+        reason: 'columns',
+        columns: ['番号'],
+      },
+      { key: 'shops.csv:shop', source: 'shops.csv', reason: 'kind', columns: [] },
+    ])
+  })
+
+  it('ledger は保存名でまとめ、出す名前は source_label（無ければ保存名）', () => {
+    const e = (name: string, source: string, source_label?: string) => ({
+      name,
+      old_name: name,
+      source,
+      source_label,
+      old_template: 'a',
+      new_template: 'b',
+    })
+    const view = idMoveNoticeView({
+      ...base,
+      fully_movable: false,
+      ledger_error: true,
+      moved: [
+        e('record', 'source-3637d45e.csv', '価格表.csv'),
+        e('shop', 'source-3637d45e.csv', '価格表.csv'),
+        e('item', 'items.csv'),
+      ],
+      blocked: [],
+    })
+    expect(view?.blocked).toEqual([
+      { key: 'source-3637d45e.csv:ledger', source: '価格表.csv', reason: 'ledger', columns: [] },
+      { key: 'items.csv:ledger', source: 'items.csv', reason: 'ledger', columns: [] },
+    ])
+  })
+})
+
 // 戻り道は「その画面に実在するボタンの名前」で言う。ボタンの名前が変わったのに
 // 文だけ残ると、無いボタンを案内することになる（実例: 「データの数えかたに戻る」
 // というボタンは無かった）。

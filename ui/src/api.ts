@@ -1552,6 +1552,8 @@ export interface IdMoveEntry {
   name: string
   old_name: string
   source: string
+  /** 利用者が置いたファイル名。無ければ保存名（`source`）を出す。 */
+  source_label?: string
   old_template: string
   new_template: string
 }
@@ -1560,6 +1562,8 @@ export interface IdMoveEntry {
 export interface IdMoveBlocked {
   name: string
   source: string
+  /** 利用者が置いたファイル名。無ければ保存名（`source`）を出す。 */
+  source_label?: string
   /** `no_matching_map` (the kind is gone) | `missing_columns` (the old key's
    *  columns are not in the current file). */
   reason: string
