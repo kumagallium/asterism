@@ -177,6 +177,11 @@ type Q2Answer = 'only' | 'elsewhere' | 'unknown'
 // speaks in these numbers. 12 is 「表の形」（ADR source-reshape.md R12）: visited
 // between 2 and 3, only when detection found something to reshape — same reason
 // for the new (non-sequential) id.
+// 6 は畳んだ「数の確認」（ADR meaning-before-identity §7-4）。描画の分岐は無く、
+// そこへ進む `setStep` も無い（wizardSteps.test.ts が検査する）。6 を知っている
+// のは、古いスナップショットの読み替え（6→7）と、起点がまだ 6 のまま残って
+// いる `settledSyncedRef` の effect だけ — あの effect の起点が移れば、型から
+// 6 を外せる（外せば、畳んだ画面へ進むコードはコンパイルで止まる）。
 type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
 
 /** One row of the meaning screen: a physical column, where in the file it came
@@ -515,27 +520,6 @@ function humanizeLocal(name: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
-/** One word, stripped down to what it MEANS: case, separators and the `has`/`is`
- *  prefix removed. `hasSeebeckCoefficient`, `seebeck_coefficient` and "Seebeck
- *  coefficient" all collapse to the same key. */
-function meaningKey(word: string): string {
-  return word
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .replace(/^(has|is)/, '')
-}
-
-/** Whether a "label" is just the machine term written out again — the weak
- *  model's favourite non-answer. The term goes through the same readable form
- *  the rest of this tier shows (`ast:hasSeebeckCoefficient` → "Seebeck
- *  Coefficient"), so both "seebeckCoefficient" and "Seebeck coefficient" are
- *  caught. A label in the reader's own script normalises to '' and is never
- *  an echo (WEAK-MODEL-31). */
-function isEchoOfTerm(label: string, term: string): boolean {
-  const key = meaningKey(label)
-  return key !== '' && key === meaningKey(humanizeLocal(localName(term)))
-}
-
 // Read settings the preview falls back to when detection reported nothing for a
 // source (a clean CSV is simply absent from `inspect.dialects`).
 function defaultDialect(name: string): SourceDialect {
@@ -741,13 +725,12 @@ interface KantanSnapshot {
   annotations: SkeletonAnnotations | null
   inspectionMd: string
   proposal: string
-  // S5/S6 (all serializable) — lets a reload land back on the auto chain or
-  // the column-meaning review instead of the drop zone.
+  // S5 onwards (all serializable) — lets a reload land back on the auto chain
+  // or the try-it-out screen instead of the drop zone.
   datasetId: string | null
   datasetName: string | null
   sourceAttached: boolean
   autoFixed: boolean
-  confirmed: boolean
   columnSamples: Record<string, string[]>
   // S8/S9: the publish name being edited and whether promote landed — a reload
   // on S9 must come back as "published", not re-offer the publish button.
@@ -1293,7 +1276,6 @@ export function KantanWizard({
   const autoFixLeft = useRef(AUTO_FIX_MAX)
   const lastAutoFixKey = useRef<string | null>(null)
   const [autoFixing, setAutoFixing] = useState(0) // 0 = off, else the round number
-  const [confirmed, setConfirmed] = useState<boolean>(snap.confirmed ?? false)
   // Whether the LAST design round's self-correction shrank the mapping while
   // repairing it (the columns it dropped are what S6 must be checked against).
   const [coverageDropped, setCoverageDropped] = useState(false)
@@ -1652,7 +1634,6 @@ export function KantanWizard({
       stagingId,
       sourceAttached,
       autoFixed,
-      confirmed,
       columnSamples,
       pubName,
       published,
@@ -1703,7 +1684,6 @@ export function KantanWizard({
     stagingId,
     sourceAttached,
     autoFixed,
-    confirmed,
     columnSamples,
     pubName,
     published,
@@ -2120,14 +2100,10 @@ export function KantanWizard({
   // S5-S9 reload recovery (best-effort, ADR K3/K11): a still-running draft
   // ingest is re-attached through the same SSE replay the catalog uses
   // (StrictMode-safe — re-subscribing twice is harmless, unlike re-POSTing;
-  // the no-live-job case became a stop card at state init above). S6-S9 just
+  // the no-live-job case became a stop card at state init above). S7-S9 just
   // re-fetch their read-only data (S9 only the chips' question source).
   useEffect(() => {
     if (!kzDatasetId) return
-    if (step === 6 && !confirmed) {
-      void loadS6(kzDatasetId)
-      return
-    }
     if (step === 7) {
       void loadS7(kzDatasetId)
       return
@@ -2502,7 +2478,6 @@ export function KantanWizard({
     setReturnedFromDetail(false)
     setSourceAttached(false)
     setAutoFixed(false)
-    setConfirmed(false)
     setColumnSamples({})
     setRules(null)
     setStats(null)
@@ -3084,6 +3059,16 @@ export function KantanWizard({
   // does not ask about the same columns again as if nothing had been said.
   // Sent once per distinct set — both endpoints are idempotent, but a call per
   // render is not free.
+  //
+  // ⚠ いまは発火しない。起点が「数の確認」(6) のままで、その画面は畳んだので
+  // 6 に入る経路が無い（ADR meaning-before-identity §7-4）。**死んだコードとして
+  // 消さない** — この仕事を引き継いだ経路がまだ無い。初回の流れでは、③の意味と
+  // 「取り込まない」は `/api/propose/continue` が設計に効かせるだけで、
+  // データセットの保管庫（column-meanings.json・column-decisions.json）には
+  // 書かれない（実機 2026-10-05: 別のブラウザで見直すと、外した列が「取り込む」
+  // に戻り、「ためす」が「まだ取り込まれていない列」と言う）。起点をそのまま
+  // 「ためす」(7) に移すのは誤り —「ためすに戻る」は保存しない約束なのに、③で
+  // 書きかけた意味まで書いてしまう。移し先は未決（docs/ROADMAP.md 2026-10-05）。
   const settledSyncedRef = useRef('')
   useEffect(() => {
     if (step !== 6 || !kzDatasetId) return
@@ -4015,42 +4000,13 @@ export function KantanWizard({
     setReflectChanged(null)
     setResumed(false)
     setReturnedFromDetail(false)
-    setConfirmed(true)
     setStep(7)
     const id = datasetId ?? kzDatasetId
     if (id) void loadS7(id)
   }
 
-  function updateColumnDecision(
-    source: string,
-    column: string,
-    fallbackMap: string,
-    patch: Partial<ColumnDecisionDraft>,
-  ) {
-    const key = columnDecisionKey(source, column)
-    setColumnDecisionDrafts((current) => {
-      const existing = current[key]
-      return {
-        ...current,
-        [key]: existing
-          ? { ...existing, ...patch }
-          : { action: '', map: fallbackMap, label: '', unit: '', ...patch },
-      }
-    })
-  }
-
-  /** Header bulk actions for the "not yet included" table (#406): choosing
-   *  include/exclude one row at a time was the ask (2026-08-25), but a
-   *  checkbox toggle was explicitly rejected — it collapses "not yet
-   *  decided" into an unchecked box, which reads as "decided: no" and
-   *  quietly undoes K22 (inclusion is a human call, never a default). The
-   *  3-state pulldown stays; these just PRE-FILL every row's state through
-   *  the SAME `updateColumnDecision` a manual edit uses, so a later
-   *  individual change (any row, any field) simply overwrites it — no new
-   *  state machine, no bulk-vs-manual distinction to keep in sync. */
   // The ⑤ "something is off" exit: back to where the meanings are decided (3).
   function backToMeanings() {
-    setConfirmed(false)
     setStep(10)
     if (kzDatasetId) void loadS6(kzDatasetId)
   }
@@ -4096,7 +4052,6 @@ export function KantanWizard({
     }
     if (!target) return
     setStop(null)
-    setConfirmed(false)
     setSkeleton(target)
     setAnnotations(null)
     setStep(4)
@@ -5027,29 +4982,12 @@ export function KantanWizard({
   // Plain face of the reflect failure — same table as S5.
   const refinePlain = refineErr ? plainError(refineErr) : null
 
-  /** The meaning to show for one column, or '' when there is none to show. A
-   *  weak model routinely answers with the machine term rewritten
-   *  (`seebeckCoefficient`, "Seebeck coefficient" for `ast:hasSeebeckCoefficient`),
-   *  which reads as a meaning while carrying no more information than the
-   *  identifier this tier refuses to print. Treated as absent, so it gets the
-   *  ⚠ that draws the eye and the invitation to say what it means
-   *  (WEAK-MODEL-31 / KZ-B-04). */
-  function readMeaning(p: RuleProperty): string {
-    const label = p.label || rules?.labels?.[p.predicate_iri] || ''
-    if (!label) return ''
-    return isEchoOfTerm(label, p.predicate_iri || p.predicate) ? '' : label
-  }
-
-  // design-consult-chat.md D4 extension (2026-08-25 ユーザー裁定): 「まだ取り込ん
-  // でいない項目」(droppedColumns) と「意味が確定している項目」(valueRows +
-  // readMeaning、S6 の表そのもの) を、画面に出しているのと同じデータから consult
-  // ドロワーへ渡す — 相談チャットが「まだ取り込んでいない列」を聞かれて「列名を
-  // 教えてください」と聞き返した実 dogfood の欠落を埋める。別経路で作り直さない。
-  // S6 以外に移ったら両方 null にして消す(その画面の情報を持ち越さない)。
-  // droppedColumns/valueRows は毎レンダー新しい配列として計算される(メモ化なし)
-  // ため、それ自体を deps に置くと無関係な再レンダーでも発火する。表示の元になる
-  // state (rules/sourceSamples/columnSamples) を deps にして、実際にデータが変わ
-  // ったときだけ setConsultContext するようにしている。
+  // design-consult-chat.md D4: 画面に出している表を、同じデータから相談ドロワーへ
+  // 渡す — 相談チャットが列のことを聞かれて「列名を教えてください」と聞き返した
+  // 実 dogfood の欠落を埋める。別経路で作り直さない。表のある画面（意味・外との
+  // つながり）を離れたら null にして消す（その画面の情報を持ち越さない）。
+  // meaningRows() は毎レンダー新しい配列になるので、それ自体ではなく元になる
+  // state を deps に置き、実際にデータが変わったときだけ setConsultContext する。
   useEffect(() => {
     // 意味の画面（3）でも、ドロワーは「この画面に何があるか」を知っている必要が
     // ある。知らないまま「どの列ですか」と聞き返すのが、この機構が塞いだ欠落。
@@ -5074,40 +5012,9 @@ export function KantanWizard({
       })
       return
     }
-    if (step !== 6) {
-      setConsultContext({ pendingColumns: null, columns: null })
-      return
-    }
-    setConsultContext({
-      pendingColumns: droppedColumns.map(({ column, samples }) => ({
-        name: column,
-        samples: samples.slice(0, 3),
-      })),
-      columns: valueRows.flatMap(({ rows }) =>
-        rows.map(({ prop, column }) => {
-          const meaning = readMeaning(prop)
-          return {
-            name: column,
-            meaning: meaning || undefined,
-            unit: prop.unit || undefined,
-            // 2026-08-25 拡張: 「意味が未入力の項目」を実データ例つきで見せられる
-            // よう、確定済み・未入力の両方に samples を添える(droppedColumns と
-            // 同じ columnSamples ソース)。
-            samples: (columnSamples[column] ?? []).slice(0, 3),
-          }
-        }),
-      ),
-    })
+    setConsultContext({ pendingColumns: null, columns: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, rules, sourceSamples, columnSamples, settledMeanings, excludedColumns, inspection])
-
-  // 提案の反映は「いまの画面の値」を読む必要があるが、この 2 つは毎レンダー
-  // 組み直される。deps に並べると applier が毎レンダー登録し直しになるので、
-  // 読むだけの値は ref 越しに見る（登録はその画面にいる間だけ、という形を保つ）。
-  const droppedColumnsRef = useRef(droppedColumns)
-  droppedColumnsRef.current = droppedColumns
-  const columnDecisionDraftsRef = useRef(columnDecisionDrafts)
-  columnDecisionDraftsRef.current = columnDecisionDrafts
+  }, [step, sourceSamples, settledMeanings, excludedColumns, inspection])
 
   // 相談ドロワーの提案を、意味の画面に反映する（D10 と同じ約束：空欄だけ・
   // 人が書いたものには触らない）。反映先は state で、保存は画面の下のボタン
@@ -5142,73 +5049,9 @@ export function KantanWizard({
     })
     return unregister
     // meaningRows/meaningFor/setMeaning are plain functions over the state
-    // already listed (same posture as the S6 applier below).
+    // already listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, settledMeanings, inspection, sourceSamples])
-
-  // design-consult-chat.md D10: register how S6 applies the consult drawer's
-  // suggestion blocks, for exactly as long as S6 is on screen. Fills ONLY
-  // blank meaning/unit fields — never an include/exclude decision, never
-  // something the human already typed (D5: the human still decides what
-  // stays). The confirmed-columns table (valueRows) uses the SAME commitMeta
-  // path a manual edit's onBlur uses, so an applied suggestion is saved the
-  // same way and reconciled the same way. The not-yet-included table
-  // (droppedColumns) uses the SAME updateColumnDecision a manual edit uses,
-  // leaving the 取り扱い pulldown untouched. Re-registers on every render
-  // where the underlying data could have changed, so the closure never acts
-  // on stale rows; unregisters (via the cleanup) the moment S6 is left.
-  // S6 only ever ACTS on `payload.suggestions` — `kinds` (S4's own candidate
-  // shape) is ignored here, and the drawer never sends any while S6's own
-  // context (pendingColumns/columns) is what's on screen anyway.
-  useEffect(() => {
-    if (step !== 6) return
-    const unregister = registerSuggestionApplier(({ suggestions }) => {
-      let applied = 0
-      let skipped = 0
-      const touchedColumns = new Set<string>()
-      for (const s of suggestions) {
-        const name = s.column?.trim()
-        if (!name) continue
-        const meaning = s.meaning?.trim() || ''
-        const unit = s.unit?.trim() || ''
-
-        // 意味の表はこの画面から 3 へ移った（ADR meaning-before-identity）。
-        // ここに残るのは「まだ取り込んでいない列」の判断だけなので、提案の
-        // 反映先もそれだけ — 画面に無い行を黙って書き換えない。
-        let matched = false
-        let touched = false
-        {
-          const pending = droppedColumnsRef.current.find((c) => c.column === name)
-          if (pending) {
-            matched = true
-            const draft =
-              columnDecisionDraftsRef.current[columnDecisionKey(pending.source, pending.column)]
-            if (meaning && !draft?.label.trim()) {
-              updateColumnDecision(pending.source, pending.column, pending.maps[0]?.id ?? '', {
-                label: meaning,
-              })
-              touched = true
-            }
-            if (unit && !draft?.unit.trim()) {
-              updateColumnDecision(pending.source, pending.column, pending.maps[0]?.id ?? '', {
-                unit,
-              })
-              touched = true
-            }
-          }
-        }
-        if (!matched) continue // not a column on this screen — silently ignored
-        if (touched) {
-          applied += 1
-          touchedColumns.add(name)
-        } else {
-          skipped += 1
-        }
-      }
-      return { applied, skipped }
-    })
-    return unregister
-  }, [step, kzDatasetId])
 
   /** Enter = confirm this field and move DOWN the same column, spreadsheet-style
    *  (dogfood: jumping right into the unit field surprised — nobody edits
