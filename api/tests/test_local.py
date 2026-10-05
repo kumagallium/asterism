@@ -210,6 +210,8 @@ def _guard_call(scope_extra: dict[str, object], headers: dict[str, str]) -> tupl
         "headers": [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers.items()],
         **scope_extra,
     }
+    # 値が None のキーは外す（WebSocket の scope には method が無い）。
+    scope = {k: v for k, v in scope.items() if v is not None}
     asyncio.run(LoopbackOriginGuard(inner)(scope, receive, send))  # type: ignore[arg-type]
     return bool(called), sent
 
@@ -221,6 +223,7 @@ def _guard_call(scope_extra: dict[str, object], headers: dict[str, str]) -> tupl
         "127.0.0.1.rebind.example:8765",
         "evil@127.0.0.1:8765",
         "rebind.localhost:8765",
+        "0.0.0.0:8765",  # よそのページが 0.0.0.0 経由で手元のサーバに届く経路
         "",
     ],
 )
@@ -252,6 +255,7 @@ def test_guard_passes_same_origin_writes_on_loopback_names(host: str) -> None:
         {"Origin": "http://127.0.0.1:18900"},  # 同じ名前でも別のポート＝別オリジン
         {"Origin": "http://localhost:8765"},  # 127.0.0.1 で開いたサーバに対して別の名前
         {"Origin": "null"},  # sandbox iframe・file:// など
+        {"Origin": "https://127.0.0.1:8765"},  # ローカルモードは http しか話さない
         {"Sec-Fetch-Site": "cross-site"},
         {"Sec-Fetch-Site": "same-site"},
     ],
@@ -281,14 +285,30 @@ def test_guard_leaves_safe_methods_from_other_sites_alone(method: str) -> None:
 
 
 def test_guard_closes_cross_origin_websockets() -> None:
-    # WebSocket はブラウザが CORS をかけないので、GET でも出どころを見る。
-    called, sent = _guard_call(
-        {"type": "websocket", "path": "/ws"},
-        {"Host": "127.0.0.1:8765", "Origin": "https://evil.example"},
-    )
+    # WebSocket はブラウザが CORS をかけないので、メソッドに関係なく出どころを見る。
+    # 実際の scope と同じく method を持たせない（POST 扱いで断られたのでは検証にならない）。
+    ws = {"type": "websocket", "path": "/ws", "method": None}
+    called, sent = _guard_call(ws, {"Host": "127.0.0.1:8765", "Origin": "https://evil.example"})
     assert not called
     assert sent[0]["type"] == "websocket.close"
     assert sent[0]["code"] == 1008
+    called, _ = _guard_call(ws, {"Host": "127.0.0.1:8765", "Origin": _LOCAL_URL})
+    assert called
+    called, _ = _guard_call(ws, {"Host": "127.0.0.1:8765"})
+    assert called
+
+
+def test_guard_sits_outside_the_token_injection(tmp_path: Path) -> None:
+    # 後から足した middleware が外側。断った要求にはトークンが足されない並び。
+    app = build_local_app(
+        token=_TEST_TOKEN,
+        ui_dist=None,
+        settings=_settings(tmp_path),
+        oxigraph_client=_fake_oxigraph(),
+        start_watcher=False,
+    )
+    order = [m.cls for m in app.user_middleware]  # type: ignore[attr-defined]
+    assert order.index(LoopbackOriginGuard) < order.index(LoopbackTokenInjector)
 
 
 def test_cross_site_upload_is_refused_end_to_end(tmp_path: Path) -> None:

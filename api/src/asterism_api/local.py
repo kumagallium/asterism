@@ -339,10 +339,11 @@ def _same_origin(origin: str, host: str) -> bool:
     """Origin の host:port が Host と同じか（``null`` などの不透明なオリジンは別物）。
 
     ``host`` は門の 1. を通った後＝ループバックの名前＋ポートだけなので、一致すれば
-    Origin もそのループバックの同じポートを指している。
+    Origin もそのループバックの同じポートを指している。ローカルモードは http しか
+    話さないので、scheme も http に限る。
     """
     parts = urlsplit(origin.lower())
-    return parts.scheme in ("http", "https") and parts.netloc == host
+    return parts.scheme == "http" and parts.netloc == host
 
 
 # ---------------------------------------------------------------------------
