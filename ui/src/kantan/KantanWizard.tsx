@@ -112,6 +112,7 @@ import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
 import { ReshapeGate } from './ReshapeGate'
+import { tryWording } from './tryWording'
 import {
   docsLabel,
   documentExts,
@@ -1322,6 +1323,9 @@ export function KantanWizard({
   // instead of leading to a publish that would 400.
   const [redesigning, setRedesigning] = useState<boolean>(snap.redesigning ?? false)
   const [reingested, setReingested] = useState<boolean>(snap.reingested ?? true)
+  // 見直しで、まだ下書きを作り直していない。「ためす」の先へ進むボタンは公開へ
+  // 進まず見直しを終える（goPublish）ので、画面の言葉もこれで選ぶ（tryWording）。
+  const reviewOnly = redesigning && !reingested
 
   // Catalog 見直す → seed the wizard at S6 on the stored design. Same
   // adjust-during-render consumption as WorkbenchView's seededTarget, so the
@@ -4171,8 +4175,9 @@ export function KantanWizard({
 
   function goPublish() {
     // 見直しで何も変えなかった運びには、公開し直す下書きが無い。ここが「数の
-    // 確認」から移ってきた出口（その画面を畳んだので・ADR §7-4）。
-    if (redesigning && !reingested) {
+    // 確認」から移ってきた出口（その画面を畳んだので・ADR §7-4）。ボタンの
+    // 名前もそのとき「公開へ」ではなく「見直しを終了」になる（tryWording）。
+    if (reviewOnly) {
       exitRedesign()
       return
     }
@@ -4743,6 +4748,15 @@ export function KantanWizard({
   const trialFailed = !trialLoading && (!!trialErr || (trial !== null && !trial.available))
   // The questions ran and found NOTHING: an empty draft (KZ-B-33).
   const trialEmpty = !trialLoading && !!trial?.available && trialQAs.length === 0
+  // 「ためす」の言葉は、この画面が実際にすることで選ぶ: 見直しでまだ作り直して
+  // いないときは、読んでいるのが公開した版かもしれず、先へ進むボタンは見直しを
+  // 終える。読み込み中は前の回の答えを言葉に使わない。
+  const tryWords = tryWording({
+    reviewOnly,
+    trialFailed,
+    trialEmpty,
+    readFrom: trialLoading ? null : trial?.read_from,
+  })
   // The name this data now carries in the public list (S8 renames before it
   // promotes, so by S9 the two agree; the edited field is the fallback).
   const publishedName = (kzDatasetName ?? pubName).trim()
@@ -5740,7 +5754,7 @@ export function KantanWizard({
       ) : step === 7 ? (
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s7.title')}</h3>
-          <p className="kz-note">{t('kantan:s7.lead')}</p>
+          <p className="kz-note">{t(tryWords.lead)}</p>
           <div className="skeleton-zone-layout">
             <div>
           {trialLoading && (
@@ -5753,7 +5767,7 @@ export function KantanWizard({
             <>
               {/* The queries are enrichment (K9): a failure offers a retry but
                   never blocks the road to publish — the human gates are S4/S6/S8. */}
-              <p className="kz-note">{t('kantan:s7.failed')}</p>
+              <p className="kz-note">{t(tryWords.failed)}</p>
               {trialErr && (
                 <details className="kz-stop-detail">
                   <summary>{t('kantan:s5.stop.detailSummary')}</summary>
@@ -5812,7 +5826,7 @@ export function KantanWizard({
                   )}
                 </div>
               ))}
-              <p className="kz-note">{t('kantan:s7.traceNote')}</p>
+              <p className="kz-note">{t(tryWords.traceNote)}</p>
               <details className="kz-stop-detail">
                 <summary>{t('kantan:s7.techSummary')}</summary>
                 {trialQAs
@@ -6012,11 +6026,7 @@ export function KantanWizard({
               onClick={goPublish}
               disabled={trialLoading}
             >
-              {trialFailed
-                ? t('kantan:s7.okNoTrial')
-                : trialEmpty
-                  ? t('kantan:s7.okAnyway')
-                  : t('kantan:s7.ok')}
+              {t(tryWords.forward)}
             </button>
             <button
               type="button"
