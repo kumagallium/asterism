@@ -484,6 +484,10 @@ def test_instance_endpoint_still_reports_base(tmp_path: Path) -> None:
     oxi, _ = _mock_client()
     with _app_client(tmp_path, oxi) as client:
         body = client.get("/api/instance").json()
+    # What this install can convert follows the machine (is pandoc on PATH?), so
+    # only the shape is checked here — the values are pinned in test_main.py.
+    assert isinstance(body.pop("can_convert_docx"), bool)
+    assert isinstance(body.pop("can_convert_pdf"), bool)
     assert json.loads(json.dumps(body)) == {
         "iri_base": "https://asterism.invalid",
         "iri_base_configured": False,

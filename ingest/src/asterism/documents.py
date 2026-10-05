@@ -357,12 +357,20 @@ class ConversionError(RuntimeError):
     a malformed / oversized document). The API surfaces this as a clear 4xx."""
 
 
+def pandoc_available() -> bool:
+    """Whether a pandoc binary is on ``PATH`` — the cheap half of
+    :func:`pandoc_version` (a lookup, no subprocess). For callers that only need
+    a yes/no and may be asked often, e.g. the public ``/api/instance``."""
+    import shutil
+
+    return shutil.which("pandoc") is not None
+
+
 def pandoc_version() -> str | None:
     """``"pandoc/<version>"`` if the pandoc binary is available, else ``None``."""
-    import shutil
     import subprocess
 
-    if shutil.which("pandoc") is None:
+    if not pandoc_available():
         return None
     try:
         out = subprocess.run(

@@ -303,9 +303,9 @@
   },
   "docAppend": {
     "head": "Add a document (to this dataset)",
-    "note": "Add one more Word / PDF / XML document and it is split sentence by sentence straight into your published data, so \"Ask\" can search and cite the added document too (for accumulating meeting minutes).",
+    "note": "Add one more {{formats}} document and it is split sentence by sentence straight into your published data, so \"Ask\" can search and cite the added document too (for accumulating meeting minutes).",
     "appended": "{{n}} document(s) appended so far.",
-    "pick": "Choose a document (Word / PDF / XML)",
+    "pick": "Choose a document ({{formats}})",
     "noFile": "Choose a document to add",
     "busy": "Adding…",
     "busyN": "Adding ({{i}}/{{n}})…",

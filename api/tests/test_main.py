@@ -2089,10 +2089,15 @@ def test_settings_iri_base(tmp_path: Path) -> None:
     assert s.iri_base != configured.iri_base
 
 
-def test_instance_info_is_public(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+def test_instance_info_is_public(
+    tmp_path: Path, healthy_client: OxigraphClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """/api/instance (ADR instance-iri-base.md): readable WITHOUT the write
     token (the base is embedded in every minted IRI anyway), and flags the
     unconfigured .invalid default so the settings UI can warn."""
+    # Pin the pandoc probe: the exact body below must not depend on whether the
+    # machine running the tests happens to have pandoc installed.
+    monkeypatch.setattr("asterism.documents.pandoc_available", lambda: False)
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
@@ -2109,7 +2114,38 @@ def test_instance_info_is_public(tmp_path: Path, healthy_client: OxigraphClient)
             # Protected deployment, and this caller sent no token: this is the
             # one case where the settings write-token field is worth showing.
             "write_gate": "token_required",
+            # Neither converter is here (pandoc pinned absent above, no Docling
+            # URL in the test settings): the UI must not offer Word or PDF.
+            "can_convert_docx": False,
+            "can_convert_pdf": False,
         }
+
+
+def test_instance_info_reports_what_documents_it_can_convert(
+    tmp_path: Path, healthy_client: OxigraphClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The UI offers Word / PDF only where a drop would actually convert, so
+    the answer follows what this install HAS — pandoc for .docx, a configured
+    Docling sidecar for .pdf — each on its own, and never `desktop`: a dev
+    compose has pandoc and no Docling, the desktop bundle ships neither."""
+    cfg = _settings(tmp_path)
+    cfg.app_version = "0.13.1"  # a desktop build is not "cannot convert" by itself
+    cfg.docling_url = None
+    monkeypatch.setattr("asterism.documents.pandoc_available", lambda: True)
+    app = build_app(cfg, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        body = client.get("/api/instance").json()
+    assert body["desktop"] is True
+    assert (body["can_convert_docx"], body["can_convert_pdf"]) == (True, False)
+
+    cfg = _settings(tmp_path)
+    cfg.docling_url = "http://docling:8090"
+    monkeypatch.setattr("asterism.documents.pandoc_available", lambda: False)
+    app = build_app(cfg, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        body = client.get("/api/instance").json()
+    assert body["desktop"] is False
+    assert (body["can_convert_docx"], body["can_convert_pdf"]) == (False, True)
 
 
 def test_instance_write_gate_reflects_the_caller(
