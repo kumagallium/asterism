@@ -48,10 +48,30 @@ S（種類）- P（項目）- O（行き先）は保存済みの取り込みル�
 
 ### 4. 描かないもの
 
-- 実体（ABox）の個々の件。件数だけを箱に書く（`getSchema()` のクラス件数）。
+- 実体（ABox）の個々の件。件数だけを箱に書く（§5 のデータセット単位の件数）。
 - 両端が解決できない対応（削除済みデータセットの語など）。事実だけを描く。
 - rdf/rdfs/owl の配管語彙（現ページの PLUMBING 方針を踏襲）。ただし述語としての
   使用が既知名前空間（dcterms 等）に当たる場合の「使っている」線は描く。
+
+### 5. 箱の件数はデータセット単位で引く（2026-10-07）
+
+箱の件数を `getSchema()`（`schema_summary`）から引くと 2 つの穴があった:
+(1) 全データセットを混ぜた合計なので、同じ種類 IRI を 2 つのデータセットが使うと
+どちらの箱にも合計が出る。(2) 上位 50 種類で切られ、件数の少ない種類の箱は黙って欠ける。
+
+- **新しい読み手** `asterism.kind_counts.kind_counts` と `GET /api/kinds/counts`。
+  公開済みの版 graph とハブ graph（`canonical_graphs`）を 1 本の SPARQL で
+  `GROUP BY ?g ?c` し、`{graphs: [{graph, dataset_id, hub, kinds}], truncated}` を返す。
+  `dataset_id` は版 graph から引いた**登録 id**（ハブは `null`）。行数の上限
+  （既定 5000）を超えたら `truncated: true`。公開 0 件なら SPARQL を投げず空を返す
+  （空の `FROM NAMED` は draft まで読むため）。
+- **UI**: `composeVocabGraph` は `classCountsByDataset`（節のデータセット id → 種類 IRI →
+  件数）が渡されたらそれだけを引き、全体の合計を混ぜない。API が取れなかったとき
+  （失敗・古いサーバ）だけ従来の `classCounts` に落ちる。
+- ⭐**id の取り違え**: API の `dataset_id` は登録 id で、カタログの `id` は `live-<登録 id>`。
+  `classCountsByCatalogId` が `datasetApiId` を通して突き合わせる（これを怠ると一致が 0 件に
+  なり件数が全部消える — §3 の「地図が空だった」事故と同じ型）。
+- 見た目は変えない（数字が正しくなるだけ）。この件数は案 B（TBox の全体図）の土台でもある。
 
 ## 育ち方
 
