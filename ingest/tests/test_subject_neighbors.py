@@ -252,6 +252,24 @@ async def test_hub_flag_on_center_and_neighbours() -> None:
     assert hub_center["center"]["is_hub"] is True
 
 
+async def test_build_activity_and_link_in_the_hub_graph_are_not_hubs() -> None:
+    """ハブの graph には build の prov:Activity と per-link の xw:CrosswalkLink も型つきで
+    載る。それらはハブ実体ではない（resolve の is_hub＝_hub_entity_ask と同じ条件）。
+    実機 2026-10-07: ハブの隣の「取り込みの記録」がハブの色で描かれた。"""
+    hub_ttl = (
+        HUB_TTL
+        + f"<{HUB}> <{PROV}wasGeneratedBy> <{R}hub-build> .\n"
+        + f"<{R}hub-build> a <{PROV}Activity> .\n"
+        + f"<{R}link-1> a <{XW}CrosswalkLink> ; <{XW}linkObject> <{HUB}> .\n"
+    )
+    client = _pyoxi_client({GRAPH: _data(), ONTO_GRAPH: ONTOLOGY, HUB_GRAPH: hub_ttl})
+    out = await subject_neighbors(client, HUB)
+    assert out["center"]["is_hub"] is True
+    flags = {i["iri"]: i["is_hub"] for g in out["groups"] for i in g["items"]}
+    assert flags.get(R + "hub-build") is False
+    assert R + "link-1" not in flags  # per-link の来歴は隣にもしない
+
+
 async def test_center_carries_names_and_kind() -> None:
     out = await subject_neighbors(_client(), STATION)
     assert out["found"] is True

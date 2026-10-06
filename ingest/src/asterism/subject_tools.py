@@ -1105,8 +1105,17 @@ def _hub_entity_ask(hub_graph: str, iri: str) -> str:
     判定され、メンバー 0・候補 0 のページになった）。"""
     return (
         f"ASK {{ GRAPH {_ref(hub_graph)} {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?c "
-        f'FILTER(!STRSTARTS(STR(?c), "{_PROV_NS}") '
-        f'&& STR(?c) != "{_XW_NS}CrosswalkLink") }} }}'
+        f"{_hub_entity_type_filter('?c')} }} }}"
+    )
+
+
+def _hub_entity_type_filter(var: str) -> str:
+    """ハブ graph の中で「ハブ実体」の型だけを残す FILTER（build の prov:Activity と
+    per-link の xw:CrosswalkLink は実体ではない）。:func:`_hub_entity_ask` と
+    :func:`subject_neighbors` の ``is_hub`` が同じ条件で判定するための 1 か所。"""
+    return (
+        f'FILTER(!STRSTARTS(STR({var}), "{_PROV_NS}") '
+        f'&& STR({var}) != "{_XW_NS}CrosswalkLink")'
     )
 
 
@@ -1904,7 +1913,10 @@ async def subject_neighbors(
         hub_rows = _rows(
             await client.sparql_select(
                 f"SELECT DISTINCT ?n\n{named}"
-                f"WHERE {{ VALUES ?n {{ {values} }} GRAPH ?g {{ ?n a ?c }} }}"
+                # ハブ graph には build の activity と per-link の来歴も型つきで載る —
+                # それらはハブ実体ではない（resolve の is_hub と同じ条件）
+                f"WHERE {{ VALUES ?n {{ {values} }} GRAPH ?g {{ ?n a ?c "
+                f"{_hub_entity_type_filter('?c')} }} }}"
             )
         )
         hub_members = {n for r in hub_rows if (n := _cell(r, "n"))}
