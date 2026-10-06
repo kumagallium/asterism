@@ -920,13 +920,39 @@ def register_cards(
         clauses = []
         for clause in spec["where"]:
             meta = prop_meta.get(clause["property"], {})
+            property_label = meta.get("label") or subject_tools._local_name(clause["property"])
+            if "op" in clause:
+                clauses.append(
+                    {
+                        "property_label": property_label,
+                        "op": clause["op"],
+                        "value": clause["value"],
+                        "unit": meta.get("unit"),
+                    }
+                )
+                continue
+            # 線の条件（O59 の where：「この 1 件を指す」`{property, iri}`／経由つき
+            # `{property, via: {property, iri}}`）。値は相手の 1 件の名前 — その 1 件の
+            # ページの見出しと同じ（K4: 生の IRI を出さない）。O67 の束の「一覧で開く」が
+            # この形の where を渡す（以前は "op" を前提にして 500 になっていた）。
+            via = clause.get("via")
+            if isinstance(via, dict):
+                clauses.append(
+                    {
+                        "property_label": property_label,
+                        "op": "via",
+                        "value": await _entity_label(client, via["iri"]),
+                        "via_property_label": subject_tools._local_name(via["property"]),
+                        "unit": None,
+                    }
+                )
+                continue
             clauses.append(
                 {
-                    "property_label": meta.get("label")
-                    or subject_tools._local_name(clause["property"]),
-                    "op": clause["op"],
-                    "value": clause["value"],
-                    "unit": meta.get("unit"),
+                    "property_label": property_label,
+                    "op": "link",
+                    "value": await _entity_label(client, clause["iri"]),
+                    "unit": None,
                 }
             )
         return {
