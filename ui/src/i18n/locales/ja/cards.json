@@ -179,7 +179,9 @@
       "lt": "{{property}} が {{value}} より小さい",
       "eq": "{{property}} が {{value}}",
       "between": "{{property}} が {{range}}",
-      "in": "{{property}} が {{values}} のいずれか"
+      "in": "{{property}} が {{values}} のいずれか",
+      "link": "{{property}} が {{value}}",
+      "via": "{{property}} の {{via}} が {{value}}"
     }
   },
   "setform": {

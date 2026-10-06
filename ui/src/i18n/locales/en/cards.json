@@ -179,7 +179,9 @@
       "lt": "{{property}} less than {{value}}",
       "eq": "{{property}} is {{value}}",
       "between": "{{property}} between {{range}}",
-      "in": "{{property}} is one of {{values}}"
+      "in": "{{property}} is one of {{values}}",
+      "link": "{{property}} is {{value}}",
+      "via": "{{via}} of {{property}} is {{value}}"
     }
   },
   "setform": {

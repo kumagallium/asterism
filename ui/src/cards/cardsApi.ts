@@ -338,9 +338,14 @@ export async function defaultCardsForSet(spec: SetSpec): Promise<CardRef[]> {
 
 export interface SetResolveClause {
   property_label: string
+  /** 値の条件は gt/lt/eq/between/in。線の条件（O59 の where・O67 の束の「一覧で開く」）は
+   *  `link`（この 1 件を指す）／`via`（それを指す何かを、さらに指す）で、`value` は相手の
+   *  1 件の名前。 */
   op: string
   value: SetWhereValue
   unit?: string | null
+  /** `op: 'via'` だけ: 経由する線の名前。 */
+  via_property_label?: string
 }
 
 export interface SetResolveResult {
