@@ -6,10 +6,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { defaultCardsForSubject, linkingKinds, resolveSubject, runCard, subjectKeyToString } from './cardsApi'
-import type { CardRef, CardToolResult, LinkingKind, SubjectResolveResult } from './cardsApi'
+import type { CardRef, CardToolResult, LinkingKind, SetResolveResult, SubjectResolveResult } from './cardsApi'
 import { CardDetail } from './CardDetail'
 import { CardTile } from './CardTile'
 import { ExportDialog } from './ExportDialog'
+import { NeighborExplorer } from './NeighborExplorer'
 // PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
 // だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
 // PR F18: `target`/`subjectKeys`/`onCardReplaced`（契約メモ §1.2）もこの
@@ -151,6 +152,10 @@ export interface SubjectPageProps {
    *  撤去した（データセットのページは子ナビから外れ、種類のページの「データの
    *  定義を見る・直す」からだけ入る枠になったため — 決定 9）。 */
   onOpenClass?: (classIri: string) => void
+  /** 「つながりを図で見る」で束を「一覧で開く」とき、`resolveSet` の結果を受けて
+   *  絞り込みのページへ遷移する（`SetForm` の送信後と同じ経路 — `CardsView` が
+   *  一覧に足して `#/cards/s:<id>` へ）。無ければ束の「一覧で開く」は何もしない。 */
+  onOpenSet?: (result: SetResolveResult) => void
 }
 
 interface FactsSummary {
@@ -185,6 +190,7 @@ export function SubjectPage({
   onAsk,
   onEditDefinition,
   onOpenClass,
+  onOpenSet,
 }: SubjectPageProps) {
   const { t } = useTranslation('cards')
   const [loaded, setLoaded] = useState<SubjectLoadState>(EMPTY_LOAD)
@@ -195,6 +201,8 @@ export function SubjectPage({
   })
   const [askText, setAskText] = useState('')
   const [exporting, setExporting] = useState(false)
+  // 「つながりを図で見る」— 既定は閉じる（開くまで API を呼ばない）。
+  const [exploring, setExploring] = useState(false)
   // 「＋ 観点を足す」・下の入力欄はどちらもドロワー（PageChatDrawer・PR F12）を
   // 開く（契約メモ §1 決定 1・6）。フォーム単体（NewCardForm）はドロワーの中に
   // 埋め込む（ui-drawer 担当）ので、このページ自身はもう開閉を持たない。
@@ -221,6 +229,7 @@ export function SubjectPage({
     setChatOpen(false)
     setChatInitialMessage(undefined)
     setChatTarget(undefined)
+    setExploring(false)
   }
 
   // 「観点」の帯（PR F6・ViewpointStrip）が使う `linkingKinds`（この 1 件を
@@ -552,6 +561,14 @@ export function SubjectPage({
           <button
             type="button"
             className="btn btn--ghost btn--sm"
+            aria-pressed={exploring}
+            onClick={() => setExploring((v) => !v)}
+          >
+            {exploring ? t('explore.button_close') : t('explore.button')}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
             onClick={() => {
               setChatInitialMessage(undefined)
               setChatTarget({ kind: 'new' })
@@ -570,6 +587,14 @@ export function SubjectPage({
           </button>
         </div>
       </div>
+      {exploring && (
+        <NeighborExplorer
+          key={iri}
+          iri={iri}
+          onOpenSubject={onOpenSubject}
+          onOpenSet={(result) => onOpenSet?.(result)}
+        />
+      )}
       <div className="cardpage-grid">
         {visibleDefaultCards.map((card) => (
           <CardTile

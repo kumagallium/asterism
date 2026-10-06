@@ -471,5 +471,30 @@
     "partial": "Showing {{shown}} of {{total}}.",
     "partial_lower_bound": "Showing {{shown}} of {{total}}+.",
     "more": "Showing {{shown}}. There are more."
+  },
+  "explore": {
+    "button": "See connections as a diagram",
+    "button_close": "Close the connections diagram",
+    "title": "Connections diagram",
+    "aria": "Connections diagram of {{label}}",
+    "loading": "Loading connections…",
+    "error": "Could not load the connections.",
+    "empty": "This item has no connections yet.",
+    "bundle_name": "{{name}} ({{count}})",
+    "bundle_rest": "{{count}} more {{name}}",
+    "hub_tag": "Merged as the same thing",
+    "open_neighbors": "Open its connections",
+    "collapse": "Collapse",
+    "open_page": "Open this page",
+    "open_list": "Open as a list",
+    "peek": "Look inside",
+    "set_hint": "There are {{count}}. Open as a list to see them all.",
+    "peek_hint": "There are {{count}}. Look inside to show the first few as boxes.",
+    "rest_note": "The other {{n}} are not shown in the diagram.",
+    "limit": "The diagram would have more than {{max}} boxes, so it cannot open any further. Collapse boxes you do not need, or open as a list.",
+    "action_error": "That did not work. Please try again.",
+    "no_neighbors": "This box has no other connections.",
+    "truncated": "There are many connections, so some neighbors are not shown.",
+    "legend": "Select a box to see its actions below. A dashed pill is a group with several items inside."
   }
 }

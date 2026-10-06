@@ -1039,6 +1039,52 @@ export async function linkingKinds(iri: string): Promise<LinkingKind[]> {
   return data.kinds ?? []
 }
 
+/** `GET /api/subjects/neighbors`（契約メモ §2.5）— 1 件の隣を 1 段だけ返す。
+ *  群（向き × 線 × 代表の種類）ごとに、少なければ全件・多ければ束（件数だけ）。 */
+export interface NeighborItem {
+  iri: string
+  label: string
+  class_iri: string | null
+  is_hub: boolean
+}
+
+export interface NeighborGroup {
+  /** `out|<述語>|<種類 or 空>` — 群の識別子。 */
+  key: string
+  direction: 'out' | 'in'
+  predicate_iri: string
+  predicate_label: string
+  class_iri: string | null
+  class_label: string | null
+  /** 正確な件数（重複なし）。 */
+  count: number
+  items: NeighborItem[]
+  /** 束を「一覧で開く」ための条件（サーバが完成形で返す）。無ければ null。 */
+  set_spec: SetSpec | null
+}
+
+export interface NeighborCenter {
+  iri: string
+  label: string
+  class_iri: string | null
+  class_label: string | null
+  is_hub: boolean
+}
+
+export interface NeighborsResult {
+  iri: string
+  found: boolean
+  center: NeighborCenter | null
+  groups: NeighborGroup[]
+  truncated: boolean
+}
+
+export async function getNeighbors(iri: string): Promise<NeighborsResult> {
+  const res = await fetch(`/api/subjects/neighbors?iri=${encodeURIComponent(iri)}`)
+  if (!res.ok) await throwApiError(res, 'subject neighbors')
+  return (await res.json()) as NeighborsResult
+}
+
 // ---- appdata cards（namespace "cards"・subjects と同じ流儀 — 単一ユーザーで
 // ないサーバでは 404 のまま。呼び出し側 cardStore.ts が localStorage に
 // フォールバックする） ---------------------------------------------------------
