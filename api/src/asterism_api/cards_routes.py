@@ -635,6 +635,47 @@ def register_cards(
         return {"kinds": kinds}
 
     # ------------------------------------------------------------------
+    # ADR O67 — GET /api/subjects/neighbors
+    #
+    # この 1 件の隣を 1 段だけ返す（図を人が 1 段ずつ広げるための読み手）。
+    # 形と名前の規則は asterism.subject_tools.subject_neighbors の docstring。
+    # ここでは境界の検証と、ハブの concept の種類名の差し替え（resolve と同じ
+    # _class_label_or_hub）だけをする。
+    # ------------------------------------------------------------------
+
+    @app.get("/api/subjects/neighbors")
+    async def subjects_neighbors(iri: str = Query(...)) -> dict[str, Any]:
+        return await _run_read(_subjects_neighbors_impl(iri))
+
+    async def _subjects_neighbors_impl(iri: str) -> dict[str, Any]:
+        client: OxigraphClient = app.state.client
+        try:
+            subjects_mod.validate_subject_key({"kind": "individual", "iri": iri})
+        except (subjects_mod.SubjectKeyError, subjects_mod.SetSpecError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        out = await subject_tools.subject_neighbors(client, iri, registry_root=cfg.registry_root)
+        hub_index = crosswalk_names.hub_class_index(cfg.registry_root)
+        if hub_index:
+            names: dict[str, str | None] = {}
+
+            async def _hub_name(class_iri: str | None) -> str | None:
+                if class_iri is None or class_iri not in hub_index:
+                    return None
+                if class_iri not in names:
+                    names[class_iri] = await _class_label_or_hub(
+                        client, cfg.registry_root, class_iri, resolve_labels, hub_index
+                    )
+                return names[class_iri]
+
+            center = out.get("center")
+            if isinstance(center, dict) and (label := await _hub_name(center.get("class_iri"))):
+                center["class_label"] = label
+            for group in out.get("groups", []):
+                if label := await _hub_name(group.get("class_iri")):
+                    group["class_label"] = label
+        return out
+
+    # ------------------------------------------------------------------
     # §3.4 — GET /api/subjects/search
     # ------------------------------------------------------------------
 

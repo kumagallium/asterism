@@ -1039,6 +1039,73 @@ def test_subjects_linking_kinds_bad_iri_is_400(tmp_path: Path) -> None:
         assert r.status_code == 400
 
 
+def test_subjects_neighbors_returns_one_step_with_names_equal_to_the_heading(
+    tmp_path: Path,
+) -> None:
+    """O67: 200 で形を返す。隣の名前は resolve の見出し（_entity_label）と同じ。"""
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/neighbors", params={"iri": CHECKOUT_1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["found"] is True
+        assert body["truncated"] is False
+        assert body["center"]["iri"] == CHECKOUT_1
+        borrower = next(g for g in body["groups"] if g["predicate_iri"] == BORROWER_PRED)
+        assert borrower["direction"] == "out"
+        assert borrower["count"] == 1
+        item = borrower["items"][0]
+        assert item["iri"] == BORROWER_A
+        heading = client.get("/api/subjects/resolve", params={"iri": BORROWER_A}).json()["label"]
+        assert item["label"] == heading == "Borrower A"
+        # 入る線（借り手 → 貸出 2 件）は束にならず 1 件ずつ
+        incoming = client.get("/api/subjects/neighbors", params={"iri": BORROWER_A}).json()
+        group = next(g for g in incoming["groups"] if g["direction"] == "in")
+        assert group["count"] == 2
+        assert {i["iri"] for i in group["items"]} == {CHECKOUT_1, CHECKOUT_2}
+        assert group["class_iri"] == CHECKOUT_CLASS
+
+
+def test_subjects_neighbors_bad_iri_is_400(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        r = client.get("/api/subjects/neighbors", params={"iri": "not-an-iri"})
+        assert r.status_code == 400
+
+
+def test_subjects_neighbors_uses_r3_for_a_hub_class(tmp_path: Path) -> None:
+    """ハブの concept の種類名は resolve と同じく R3（class_schema の生の名前ではない）。"""
+    hub_class = "https://ex/shared#SharedThingName"
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    _hub_registry_meta(settings.registry_root)
+    _mark_is_crosswalk(settings.registry_root)
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": hub_class,
+                    "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    hub_ttl = f"<{HUB_IRI}> a <{hub_class}> .\n" + _hub_graph_ttl(HUB_IRI, [CHECKOUT_1])
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, hub_graph: hub_ttl})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get("/api/subjects/neighbors", params={"iri": CHECKOUT_1}).json()
+        shared = next(g for g in body["groups"] if g["class_iri"] == hub_class)
+        assert shared["class_label"] == "shared thing name"
+        assert shared["items"][0]["iri"] == HUB_IRI
+        assert shared["items"][0]["is_hub"] is True
+        hub_page = client.get("/api/subjects/neighbors", params={"iri": HUB_IRI}).json()
+        assert hub_page["center"]["class_label"] == "shared thing name"
+        assert hub_page["center"]["is_hub"] is True
+
+
 def test_subjects_linking_kinds_passes_through_the_neighborhood_fields(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
