@@ -137,6 +137,16 @@ async def _entity_label(client: Any, iri: str) -> str:
     return labels.get(iri) or subject_tools._local_name(iri)
 
 
+async def _property_name(client: Any, iri: str) -> str:
+    """述語の表示名 — ストア（公開済み＋オントロジー）の ``rdfs:label`` 等を共通の優先順位で、
+    無ければ読みくだし（K4: 生のローカル名を出さない）。経由つきの線の条件の題（O67）用。"""
+    graphs = sorted(await substrate.readable_graph_iris(client))
+    labels = await subject_tools._label_lookup(
+        client, graphs, {iri}, fallback=subject_tools._fallback_label
+    )
+    return labels.get(iri) or subject_tools._fallback_label(iri)
+
+
 #: 契約メモ contract_pr_f16.md §1.4: ハブのページの「同じものとして束ねた
 #: もの」に載せるメンバーの上限。
 _HUB_MEMBERS_LIMIT = 50
@@ -942,7 +952,7 @@ def register_cards(
                         "property_label": property_label,
                         "op": "via",
                         "value": await _entity_label(client, via["iri"]),
-                        "via_property_label": subject_tools._local_name(via["property"]),
+                        "via_property_label": await _property_name(client, via["property"]),
                         "unit": None,
                     }
                 )

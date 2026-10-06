@@ -1616,6 +1616,29 @@ def test_sets_resolve_link_clause_title_names_the_linked_item(tmp_path: Path) ->
         ]
 
 
+def test_sets_resolve_via_clause_title_names_the_far_item_and_the_via_line(
+    tmp_path: Path,
+) -> None:
+    """経由つきの線の条件（``{property, via: {property, iri}}``）も題にできる。値は経由先の
+    1 件の名前、経由する線の名前は生のローカル名ではなく読みくだし（K4）。"""
+    spec = {
+        "class": CHECKOUT_CLASS,
+        "where": [
+            {
+                "property": f"{EX_LIB}borrower",
+                "via": {"property": f"{EX_LIB}homeBranch", "iri": BORROWER_A},
+            }
+        ],
+    }
+    with _client(tmp_path) as client:
+        r = client.post("/api/sets/resolve", json={"spec": spec})
+        assert r.status_code == 200, r.text
+        clause = r.json()["title"]["clauses"][0]
+        assert clause["op"] == "via"
+        assert clause["value"] == "Borrower A"
+        assert clause["via_property_label"] == "home Branch"
+
+
 def test_neighbors_bundle_set_spec_resolves_as_a_set(tmp_path: Path) -> None:
     """隣の束の ``set_spec`` は、そのまま ``/api/sets/resolve`` に渡せる（O67・O59）。"""
     ttl_lines = [_LIB_TTL]

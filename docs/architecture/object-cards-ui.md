@@ -1435,7 +1435,10 @@ O29 との関係（新しい決定）: O29 は「自動で辿ると、1 つの a
   （null は最後）→述語 IRI→種類 IRI で決定論。
 - **読み取り範囲** は `canonical_graphs`（公開済みの版 graph とハブ graph）。公開 0 件なら
   SPARQL を 1 本も投げずに空（`found: false`）。リテラルの値しか無い 1 件は
-  `found: true` で群は空。ハブかどうか（`is_hub`）は、ハブ graph に `?n a ?c` で載るか。
+  `found: true` で群は空。ハブかどうか（`is_hub`）は、ハブ graph に**ハブ実体の型**で載るか — build の `prov:Activity` と
+  per-link の `xw:CrosswalkLink` もハブ graph に型つきで載るので除く（resolve の `is_hub`＝
+  `_hub_entity_ask` と同じ条件を `_hub_entity_type_filter` 1 か所で共有。実機で「取り込みの記録」が
+  ハブと判定された）。
 - **名前は新しい規則を作らない（K4）。** 隣・中心の名前 = 1 件のページの見出し（api の
   `_entity_label` と同じ手順）。種類の名前 = `_class_labels`（ハブの concept の種類だけ api の
   ルートで `_class_label_or_hub`＝O64 に差し替え）。線の名前 = その主語の 1 件ページの
@@ -1453,6 +1456,8 @@ O29 との関係（新しい決定）: O29 は「自動で辿ると、1 つの a
   経由つき）を渡すと 500 になっていた（実機で発見。`normalize_set_spec` と絞り込みの実行は
   この形を元から扱える）。線の条件は `op: "link"`（経由つきは `op: "via"` と
   `via_property_label`）として題に入れ、値は相手の 1 件の名前（見出しと同じ `_entity_label`）。
+  経由する線の名前は、ストアの `rdfs:label` → 読みくだし（`_fallback_label`）で引く（生の
+  ローカル名を出さない・K4）。
 
 却下: 隣を全件 `items` で返す（兄弟の壁 O29 が戻る）。UI で `set_spec` を組み立てる
 （O59: `where` はサーバが完成形で返す）。
