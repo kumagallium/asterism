@@ -13,6 +13,7 @@ import {
   collapseNode,
   columnLayout,
   initialState,
+  isOverLimit,
   openBundle,
   openNode,
 } from './neighborGraph'
@@ -47,7 +48,10 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
           setLoad('empty')
           return
         }
-        setState(initialState(r))
+        const s0 = initialState(r)
+        setState(s0)
+        // 最初の 1 段で上限を超えるときも黙らない（枠の中で言う）。
+        setNotice(isOverLimit(s0) ? 'limit' : null)
         setSelectedId(r.iri)
         setLoad('ok')
       })

@@ -71,6 +71,11 @@ export function initialState(result: NeighborsResult): ExplorerState {
   }
 }
 
+/** 図の箱の数が {@link MAX_BOXES} を超えているか（最初の表示にも使う）。 */
+export function isOverLimit(state: ExplorerState): boolean {
+  return buildNeighborGraph(state).graph.nodes.length > MAX_BOXES
+}
+
 export function bundleId(ownerIri: string, groupKey: string): string {
   return `bundle|${ownerIri}|${groupKey}`
 }
@@ -118,10 +123,15 @@ export function buildNeighborGraph(state: ExplorerState, fmt: BundleFormat = {})
 
   const opened = new Set(state.openedBundles)
 
-  for (const owner of state.openOrder) {
+  // 親が columns に入ってから再生する。ひらいた順が「別の節で先に図に入った箱」を
+  // 後から親にするときがある（他の節からもつながる箱を残してたたんだあと）ので、
+  // 進みがなくなるまで繰り返す（固定点。決定論）。
+  const replayed = new Set<string>()
+  const replay = (owner: string): boolean => {
     const d = state.data[owner]
     const ownerCol = columns.get(owner)
-    if (!d || ownerCol === undefined) continue // 親が消えていれば再生しない
+    if (!d || ownerCol === undefined) return false // 親が消えていれば再生しない
+    replayed.add(owner)
     if (d.truncated) truncated = true
     for (const g of d.groups) {
       const col = ownerCol + (g.direction === 'out' ? 1 : -1)
@@ -180,6 +190,13 @@ export function buildNeighborGraph(state: ExplorerState, fmt: BundleFormat = {})
         link(id)
       }
     }
+    return true
+  }
+  for (let progress = true; progress; ) {
+    progress = false
+    for (const owner of state.openOrder) {
+      if (!replayed.has(owner) && replay(owner)) progress = true
+    }
   }
 
   // 「ひらいている」印（箱ごと）。
@@ -213,7 +230,7 @@ export interface ChangeResult {
 }
 
 function guard(prev: ExplorerState, next: ExplorerState): ChangeResult {
-  if (buildNeighborGraph(next).graph.nodes.length > MAX_BOXES) return { state: prev, blocked: true }
+  if (isOverLimit(next)) return { state: prev, blocked: true }
   return { state: next, blocked: false }
 }
 

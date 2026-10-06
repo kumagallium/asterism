@@ -6,6 +6,7 @@ import {
   collapseNode,
   columnLayout,
   initialState,
+  isOverLimit,
   openBundle,
   openNode,
 } from './neighborGraph'
@@ -316,5 +317,41 @@ describe('columnLayout', () => {
     expect(positions.get('https://example.org/staff/1')!.y).toBeLessThan(positions.get('https://example.org/staff/2')!.y)
     expect(height).toBeGreaterThan(0)
     expect(columnLayout(v.columns)(v.graph)).toEqual({ positions, height })
+  })
+})
+
+describe('固定点の再生と初回の上限', () => {
+  const C = 'https://example.org/c'
+  const A = 'https://example.org/a'
+  const B = 'https://example.org/b'
+  const X = 'https://example.org/x'
+  const Y = 'https://example.org/y'
+  const one = (key: string, to: string, label: string, count = 1) =>
+    group({ key, predicate_label: key, count, items: [item(to, label)] })
+
+  it('先にひらいた箱 X を残してたたんでも、X の隣は消えず「ひらいている」のまま', () => {
+    let s = initialState(
+      result(C, 'C', [one('a', A, 'A'), one('b', B, 'B')]),
+    )
+    s = openNode(s, A, result(A, 'A', [one('ax', X, 'X')])).state
+    s = openNode(s, X, result(X, 'X', [one('xy', Y, 'Y')])).state
+    s = openNode(s, B, result(B, 'B', [one('bx', X, 'X')])).state
+    s = collapseNode(s, A)
+    const v = buildNeighborGraph(s)
+    expect(v.graph.nodes.map((n) => n.id).sort()).toEqual([A, B, C, X, Y].sort())
+    expect(v.meta.get(X)?.isOpen).toBe(true)
+    expect(s.openOrder).toContain(X)
+  })
+
+  it('最初の 1 段で箱が上限を超えるときは isOverLimit が真', () => {
+    const groups = Array.from({ length: 24 }, (_, g) =>
+      group({
+        key: `g${g}`,
+        count: 6,
+        items: Array.from({ length: 6 }, (_, i) => item(`https://example.org/n/${g}/${i}`, `n${g}-${i}`)),
+      }),
+    )
+    expect(isOverLimit(initialState(result(C, 'C', groups)))).toBe(true)
+    expect(isOverLimit(initialState(result(C, 'C', groups.slice(0, 2))))).toBe(false)
   })
 })
