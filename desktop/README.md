@@ -77,9 +77,21 @@ Backend output goes to the app log dir (macOS:
 - standalone CPython (uv-managed, relocatable) with the asterism packages
   installed non-editable (`ingest[substrate]` / `step0` / `mcp` / `api`),
 - the Oxigraph single binary (pinned release, per-arch download),
-- `demo-agent/app.py`, the bundled `datasets/`, and the built SPA.
+- the pandoc binary (pinned official release, sha256-verified; Word import — the
+  shell passes it to the backend as `ASTERISM_PANDOC_BIN`) and `licenses/`
+  (pandoc is GPL-2.0-or-later; see `third-party/pandoc/README.md`),
+- `demo-agent/app.py`, `docling-sidecar/app.py` (the PDF sidecar, unmodified; the shell
+  passes it as `ASTERISM_DOCLING_SIDECAR_DIR`), the bundled `datasets/`, and the built SPA.
 
-The whole directory ships inside the .app as a Tauri resource (~370 MB), so
+Docling itself (PyTorch and the layout/table models, ~1.7 GB) is **not** bundled. The
+backend fetches it on demand through `POST /api/pdf-runtime/install` into
+`~/Library/Application Support/com.kumagallium.asterism/pdf-runtime/` (a venv made with the
+bundled python from the pinned, hash-locked list in `asterism_api/pdf_runtime/`, plus models
+pinned by commit), then runs the sidecar as a child process. See ADR
+`docs/architecture/desktop-pdf-runtime.md`.
+
+The whole directory ships inside the .app as a Tauri resource (~530 MB
+unpacked, of which pandoc is ~190 MB — it compresses to ~40 MB), so
 the built app runs on a machine with **no repo, no Python, no Docker, no
 Homebrew** — the shell starts the backend as `python3 -m asterism_api.local`
 with env pointing every payload at the bundle (console-script shebangs would
@@ -252,14 +264,11 @@ normally — nothing is lost. Either way the shell reports the outcome once via
 
 - **Windows**: grandchild cleanup needs a Job Object; the bundle script and the
   updater's `latest.json` cover macOS aarch64 only.
-- **Docling (PDF)**: not bundled — optional download later. The UI says so
-  before a file is dropped (`/api/instance` → `can_convert_pdf`, ADR
-  local-first-distribution.md §6.3); the clear 4xx stays as the backstop.
-- **pandoc (Word)**: not bundled either, and the shell passes its own
-  environment through, so a Finder-launched app does not see a Homebrew pandoc
-  on PATH. Same UI treatment (`can_convert_docx`). Bundling the single binary
-  would be enough — once the backend finds a pandoc, the UI offers Word again
-  with no further change.
+- **Docling (PDF)**: not bundled; the backend can fetch it on demand (`GET/POST/DELETE
+  /api/pdf-runtime`, ADR `docs/architecture/desktop-pdf-runtime.md`) but **there is no
+  screen for it yet** (stage 2). Until it is installed the UI says PDFs cannot be read before
+  a file is dropped (`/api/instance` → `can_convert_pdf`, ADR local-first-distribution.md
+  §6.3); the clear 4xx stays as the backstop.
 - **MCP のポート発見**: oxigraph は空きポートで起動するので、MCP クライアントに
   `CSV2RDF_OXIGRAPH_URL` を固定で書けない（起動ごとに登録し直しになる）。固定ポート化か、
   実ポートを既知の場所に書き出す仕組みが要る。

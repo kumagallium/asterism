@@ -77,11 +77,16 @@ jobs:
           PY="$(ls -d "$B"/uv-python/cpython-3.11*/bin/python3 | head -1)"
           PORT=13001
           HOME_DIR="$(mktemp -d)"
+          PDF_RUNTIME_DIR="$(mktemp -d)/pdf-runtime"
           ASTERISM_UI_DIST="$B/ui-dist" \
           ASTERISM_OXIGRAPH_BIN="$B/oxigraph" \
+          ASTERISM_PANDOC_BIN="$B/pandoc" \
           ASTERISM_DEMO_AGENT_DIR="$B/demo-agent" \
+          ASTERISM_DOCLING_SIDECAR_DIR="$B/docling-sidecar" \
+          ASTERISM_PDF_RUNTIME_DIR="$PDF_RUNTIME_DIR" \
           ASTERISM_DATASETS_ROOT="$B/datasets" \
           ASTERISM_LOCAL_HOME="$HOME_DIR" \
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
             "$PY" -m asterism_api.local --no-browser --port "$PORT" \
             > /tmp/backend-smoke.log 2>&1 &
           BACKEND_PID=$!
@@ -90,6 +95,16 @@ jobs:
             if curl -fsS "http://127.0.0.1:${PORT}/health" > /tmp/health.json 2>/dev/null; then
               echo "backend healthy after ${i}s:"; cat /tmp/health.json; echo
               grep -q '"oxigraph":true' /tmp/health.json || { echo "oxigraph not up"; exit 1; }
+              # PATH has no pandoc (see the launch line), so true means the bundled one is found.
+              curl -fsS "http://127.0.0.1:${PORT}/api/instance" > /tmp/instance.json
+              grep -Eq '"can_convert_docx" *: *true' /tmp/instance.json \
+                || { echo "bundled pandoc not found (can_convert_docx != true)"; cat /tmp/instance.json; exit 1; }
+              # The PDF runtime is NOT installed here (that would fetch ~1.5 GB): the bundle
+              # must report it as absent, which also proves the sidecar dir + pinned lists
+              # were found (a missing sidecar app.py would say "unsupported").
+              curl -fsS "http://127.0.0.1:${PORT}/api/pdf-runtime" > /tmp/pdf-runtime.json
+              grep -Eq '"state" *: *"absent"' /tmp/pdf-runtime.json \
+                || { echo "pdf-runtime state != absent"; cat /tmp/pdf-runtime.json; exit 1; }
               exit 0
             fi
             if ! kill -0 $BACKEND_PID 2>/dev/null; then

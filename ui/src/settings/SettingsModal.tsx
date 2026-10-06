@@ -5,7 +5,6 @@ import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
 import { ConnectTab } from './ConnectTab'
 import { InstanceSection } from './InstanceSection'
-import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
@@ -34,8 +33,8 @@ import {
 // from, the shared AI setup), usage, where things are saved, and the app itself.
 // Most of those used to live under "Models", so guidance like "enter it in
 // settings" landed on a page whose tab names said nothing about the field being
-// described. 'storage' only exists on a single-user server (see below).
-type Tab = 'ai' | 'server' | 'usage' | 'storage' | 'connect' | 'about'
+// described. 保存先・PDF の読み取りは「このアプリ」タブの中の節（条件つき）。
+type Tab = 'ai' | 'server' | 'usage' | 'connect' | 'about'
 
 /** DOM id of the block a section name scrolls to. */
 const SECTION_ANCHOR: Record<SettingsSection, string> = {
@@ -43,6 +42,7 @@ const SECTION_ANCHOR: Record<SettingsSection, string> = {
   'server-token': 'settings-server-token',
   'server-instance': 'settings-server-instance',
   usage: 'settings-usage',
+  pdf: 'settings-pdf',
 }
 
 const SECTION_TAB: Record<SettingsSection, Tab> = {
@@ -50,6 +50,7 @@ const SECTION_TAB: Record<SettingsSection, Tab> = {
   'server-token': 'server',
   'server-instance': 'server',
   usage: 'usage',
+  pdf: 'about',
 }
 
 export function SettingsModal({
@@ -66,7 +67,6 @@ export function SettingsModal({
   const [tab, setTab] = useState<Tab>('ai')
 
   // 共有ブラウザ版（複数ユーザーが同じ api を見ている）ではストレージタブ自体を出さない。
-  const showStorageTab = getAppDataInfo()?.singleUser === true
   const showConnectTab = getAppDataInfo()?.mcpUrl != null
 
   // Land on the section the user was sent to. Chosen during render (rather than
@@ -156,8 +156,6 @@ export function SettingsModal({
               'ai',
               'server',
               'usage',
-              // 共有ブラウザ版では保存先を出さない（サーバの申告で決める）。
-              ...(showStorageTab ? (['storage'] as const) : []),
               // 接続先はこの機が MCP を出しているときだけ（--no-mcp・共有 api では出ない）。
               ...(showConnectTab ? (['connect'] as const) : []),
               'about',
@@ -181,7 +179,6 @@ export function SettingsModal({
               <UsageTab />
             </div>
           )}
-          {tab === 'storage' && showStorageTab && <StorageTab />}
           {tab === 'connect' && showConnectTab && <ConnectTab />}
           {tab === 'about' && <AboutTab />}
         </div>

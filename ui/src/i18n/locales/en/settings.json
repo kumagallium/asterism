@@ -8,7 +8,6 @@
     "ai": "AI",
     "server": "This server",
     "usage": "AI usage",
-    "storage": "Storage",
     "about": "About",
     "connect": "Use from other AI"
   },
@@ -229,5 +228,30 @@
     },
     "caveat": "This works only while Asterism is running. Quit the app and the AI can no longer reach it.",
     "unavailable": "This screen cannot show the address. Open it from the desktop app."
+  },
+  "pdf": {
+    "title": "PDF reading",
+    "intro": "To take in PDFs, a reading component (about {{size}} GB) is installed on this computer. This is done once. PDFs are read on this computer; reading does not send them anywhere.",
+    "install": "Install the component (about {{size}} GB)",
+    "installNote": "Needs an internet connection. Takes a few minutes.",
+    "phase": {
+      "packages": "Downloading the component…",
+      "models": "Downloading the models…",
+      "starting": "Checking that it runs…"
+    },
+    "progress": "about {{pct}}%",
+    "keepsGoing": "This continues if you close this screen.",
+    "cancel": "Cancel",
+    "starting": "Getting ready to read PDFs…",
+    "ready": "PDFs can be taken in",
+    "readyNote": "PDFs are read on this computer; reading does not send them anywhere. The component uses about {{size}} GB.",
+    "remove": "Remove the component",
+    "removeConfirm": "After removal, PDFs cannot be taken in (data already taken in stays). Installing again needs a download of about {{size}} GB.",
+    "removeYes": "Remove",
+    "removeNo": "Keep it",
+    "failed": "The PDF reading component is not working.",
+    "retry": "Try again",
+    "logPath": "Details: {{path}}",
+    "requestFailed": "That did not work. Please wait a moment and try again."
   }
 }

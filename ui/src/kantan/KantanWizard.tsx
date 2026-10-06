@@ -9,8 +9,10 @@ import {
   fetchDraftStats,
   fetchDatasetHandles,
   generateColumnMeanings,
+  fetchPublishedNames,
   fetchTrialQueries,
   getStagingReshape,
+  publishDatasetNames,
   recountDataset,
   IngestCancelledError,
   IngestValidationError,
@@ -46,6 +48,7 @@ import {
   type SkeletonResult,
   type SourceDialect,
   type TrialDetail,
+  type PublishedNames,
   type TrialQueries,
 } from '../api'
 import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
@@ -78,6 +81,7 @@ import { IdMoveNotice } from '../IdMoveNotice'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
+import { usePdfRuntime } from '../pdfRuntime'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { basename } from '../skeletonContainment'
@@ -122,6 +126,9 @@ import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
 import { ReshapeGate } from './ReshapeGate'
+import { namesToPublish } from './publishedNames'
+import { PublishedNamesNotice } from './PublishedNamesNotice'
+import { tryWording } from './tryWording'
 import {
   docsLabel,
   documentExts,
@@ -129,8 +136,8 @@ import {
   formatsContext,
   formatsLabel,
   unavailableDropMessage,
-  unavailableFormats,
-  unavailableNote,
+  pdfInstallable,
+  unavailableNotes,
   useDocumentFormats,
   type DocumentFormats,
 } from '../documentFormats'
@@ -927,6 +934,7 @@ export function KantanWizard({
 }) {
   const { t, i18n } = useTranslation()
   const fmts = useDocumentFormats()
+  const pdfRuntime = usePdfRuntime()
   const { isReady, getActiveCredentials, openSettings, activeUsesServerKey } = useLlmSettings()
 
   const [snap] = useState(loadSnapshot)
@@ -987,6 +995,15 @@ export function KantanWizard({
           : null,
   )
   const [pickError, setPickError] = useState('')
+  // 取り込める形式が変わったら（PDF の部品を入れ終えた・消した）、置いたときの知らせを消す。
+  // 「PDF は部品を入れると取り込めます」が、入れ終えたあとも残っていた。描画中に
+  // 前回の値と比べて直す（effect の中で setState しない）。
+  const fmtKey = `${fmts.docx}/${fmts.pdf}`
+  const [pickErrorFmtKey, setPickErrorFmtKey] = useState(fmtKey)
+  if (pickErrorFmtKey !== fmtKey) {
+    setPickErrorFmtKey(fmtKey)
+    setPickError('')
+  }
   // A document run that was still going when the screen was left: the panel
   // below re-attaches on its own, but say so rather than showing a bare form.
   const [documentResumed] = useState(() => snap.kind === 'document')
@@ -1293,6 +1310,13 @@ export function KantanWizard({
   const [trial, setTrial] = useState<TrialQueries | null>(null)
   const [trialLoading, setTrialLoading] = useState(false)
   const [trialErr, setTrialErr] = useState('')
+  // 見直しの「ためす」: 保存した名前のうち、公開側にまだ出ていないもの。意味だけを
+  // 直した見直しは下書きを作らないので、名前を公開側へ出す入口をここに置く
+  // （PublishedNamesNotice）。`namesDone` は直前に公開した件数。
+  const [pubNames, setPubNames] = useState<PublishedNames | null>(null)
+  const [namesBusy, setNamesBusy] = useState(false)
+  const [namesDone, setNamesDone] = useState<number | null>(null)
+  const [namesErr, setNamesErr] = useState('')
 
   // S8: publish = name + per-kind counts + word summary + promote, ONE screen
   // (human gate ③ — K10). The name defaults empty: the auto chain registered
@@ -1314,6 +1338,9 @@ export function KantanWizard({
   // instead of leading to a publish that would 400.
   const [redesigning, setRedesigning] = useState<boolean>(snap.redesigning ?? false)
   const [reingested, setReingested] = useState<boolean>(snap.reingested ?? true)
+  // 見直しで、まだ下書きを作り直していない。「ためす」の先へ進むボタンは公開へ
+  // 進まず見直しを終える（goPublish）ので、画面の言葉もこれで選ぶ（tryWording）。
+  const reviewOnly = redesigning && !reingested
 
   // Catalog 見直す → seed the wizard at S6 on the stored design. Same
   // adjust-during-render consumption as WorkbenchView's seededTarget, so the
@@ -1364,7 +1391,13 @@ export function KantanWizard({
   }
 
   const busy =
-    inspecting || skeletonBusy || continuing || pipeBusy || refining !== false || publishing
+    inspecting ||
+    skeletonBusy ||
+    continuing ||
+    pipeBusy ||
+    refining !== false ||
+    publishing ||
+    namesBusy
   const structuralCarriedAdvisories = carriedAdvisories.filter(
     (advisory) => !isMeaningReviewAdvisory(advisory),
   )
@@ -2299,7 +2332,7 @@ export function KantanWizard({
     // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
     const unavailable = firstUnavailableIn(arr, fmts)
     if (unavailable) {
-      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      setPickError(unavailableDropMessage(t, fmts, unavailable, pdfRuntime.status))
       return
     }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
@@ -2481,6 +2514,9 @@ export function KantanWizard({
     setIngestProgress(null)
     setTrial(null)
     setTrialErr('')
+    setPubNames(null)
+    setNamesDone(null)
+    setNamesErr('')
     setAlignment(null)
     setPubName('')
     setPubErr('')
@@ -3387,7 +3423,7 @@ export function KantanWizard({
     // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
     const unavailable = firstUnavailableIn(arr, fmts)
     if (unavailable) {
-      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      setPickError(unavailableDropMessage(t, fmts, unavailable, pdfRuntime.status))
       return
     }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
@@ -3982,12 +4018,43 @@ export function KantanWizard({
     // の例・列の判断）はこの画面が読む。まだ取り込んでいない列の判断と、AI への
     // 注記がここに残っているため。
     void loadS6(datasetId, excludedNow)
+    setPubNames(null)
+    setNamesDone(null)
+    setNamesErr('')
     try {
-      setTrial(await fetchTrialQueries(datasetId))
+      const got = await fetchTrialQueries(datasetId)
+      setTrial(got)
+      // 公開した版を読んだときだけ、公開されている名前と見くらべる（下書きの名前は
+      // その公開で一緒に出る）。問いの答えを待たせない — 知らせはあとから出る。
+      if (got.read_from === 'published') {
+        void fetchPublishedNames(datasetId)
+          .then(setPubNames)
+          .catch(() => setPubNames(null))
+      }
     } catch (e) {
       setTrialErr(errText(e))
     } finally {
       setTrialLoading(false)
+    }
+  }
+
+  /** 名前だけを公開側へ出す（取り込み直さない）。押す前に、何が変わるかは
+   *  PublishedNamesNotice が 1 件ずつ見せている。 */
+  async function runPublishNames() {
+    const datasetId = kzDatasetId
+    if (!datasetId || namesBusy) return
+    setNamesBusy(true)
+    setNamesErr('')
+    try {
+      const res = await publishDatasetNames(datasetId)
+      // 0 件（押す前に揃っていた）は「更新しました」と言わない — 知らせが消えるだけ。
+      setNamesDone(res.updated > 0 ? res.updated : null)
+      // 書けたかどうかは、もう一度見くらべて確かめる（残っていれば、また出る）。
+      setPubNames(await fetchPublishedNames(datasetId).catch(() => null))
+    } catch (e) {
+      setNamesErr(errText(e))
+    } finally {
+      setNamesBusy(false)
     }
   }
 
@@ -4184,8 +4251,9 @@ export function KantanWizard({
 
   function goPublish() {
     // 見直しで何も変えなかった運びには、公開し直す下書きが無い。ここが「数の
-    // 確認」から移ってきた出口（その画面を畳んだので・ADR §7-4）。
-    if (redesigning && !reingested) {
+    // 確認」から移ってきた出口（その画面を畳んだので・ADR §7-4）。ボタンの
+    // 名前もそのとき「公開へ」ではなく「見直しを終了」になる（tryWording）。
+    if (reviewOnly) {
       exitRedesign()
       return
     }
@@ -4584,7 +4652,7 @@ export function KantanWizard({
     // 変換できない形式（Word / PDF）は、サーバへ進める前にここで止める。
     const unavailable = firstUnavailableIn(arr, fmts)
     if (unavailable) {
-      setPickError(unavailableDropMessage(t, fmts, unavailable))
+      setPickError(unavailableDropMessage(t, fmts, unavailable, pdfRuntime.status))
       return
     }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
@@ -4756,6 +4824,15 @@ export function KantanWizard({
   const trialFailed = !trialLoading && (!!trialErr || (trial !== null && !trial.available))
   // The questions ran and found NOTHING: an empty draft (KZ-B-33).
   const trialEmpty = !trialLoading && !!trial?.available && trialQAs.length === 0
+  // 「ためす」の言葉は、この画面が実際にすることで選ぶ: 見直しでまだ作り直して
+  // いないときは、読んでいるのが公開した版かもしれず、先へ進むボタンは見直しを
+  // 終える。読み込み中は前の回の答えを言葉に使わない。
+  const tryWords = tryWording({
+    reviewOnly,
+    trialFailed,
+    trialEmpty,
+    readFrom: trialLoading ? null : trial?.read_from,
+  })
   // The name this data now carries in the public list (S8 renames before it
   // promotes, so by S9 the two agree; the edited field is the fallback).
   const publishedName = (kzDatasetName ?? pubName).trim()
@@ -5641,7 +5718,7 @@ export function KantanWizard({
       ) : step === 7 ? (
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s7.title')}</h3>
-          <p className="kz-note">{t('kantan:s7.lead')}</p>
+          <p className="kz-note">{t(tryWords.lead)}</p>
           <div className="skeleton-zone-layout">
             <div>
           {trialLoading && (
@@ -5654,7 +5731,7 @@ export function KantanWizard({
             <>
               {/* The queries are enrichment (K9): a failure offers a retry but
                   never blocks the road to publish — the human gates are S4/S6/S8. */}
-              <p className="kz-note">{t('kantan:s7.failed')}</p>
+              <p className="kz-note">{t(tryWords.failed)}</p>
               {trialErr && (
                 <details className="kz-stop-detail">
                   <summary>{t('kantan:s5.stop.detailSummary')}</summary>
@@ -5713,7 +5790,7 @@ export function KantanWizard({
                   )}
                 </div>
               ))}
-              <p className="kz-note">{t('kantan:s7.traceNote')}</p>
+              <p className="kz-note">{t(tryWords.traceNote)}</p>
               <details className="kz-stop-detail">
                 <summary>{t('kantan:s7.techSummary')}</summary>
                 {trialQAs
@@ -5906,23 +5983,33 @@ export function KantanWizard({
               </aside>
             )}
           </div>
+          <PublishedNamesNotice
+            changes={namesToPublish({
+              datasetId: kzDatasetId,
+              reviewOnly,
+              readFrom: trialLoading ? null : trial?.read_from,
+              names: pubNames,
+            })}
+            busy={namesBusy}
+            done={namesDone}
+            error={namesErr}
+            onPublish={() => void runPublishNames()}
+          />
           <div className="kz-actions">
             <button
               type="button"
               className={trialEmpty ? 'btn btn--ghost' : undefined}
               onClick={goPublish}
-              disabled={trialLoading}
+              // 名前を公開している最中に画面を離れると、結果を見せる先が無くなる。
+              disabled={trialLoading || namesBusy}
             >
-              {trialFailed
-                ? t('kantan:s7.okNoTrial')
-                : trialEmpty
-                  ? t('kantan:s7.okAnyway')
-                  : t('kantan:s7.ok')}
+              {t(tryWords.forward)}
             </button>
             <button
               type="button"
               className={trialEmpty ? undefined : 'btn btn--ghost'}
               onClick={backToMeanings}
+              disabled={namesBusy}
             >
               {t('kantan:s7.back')}
             </button>
@@ -6315,9 +6402,33 @@ export function KantanWizard({
             <p className="kz-lead">{t('kantan:s1.privacy')}</p>
             <DropZone onFiles={onFilesChosen} />
             {/* 変換できない形式は、置く欄のすぐ下で先に言う（見出しの直後は 1 文だけ＝K23）。 */}
-            {unavailableFormats(fmts).length > 0 && (
-              <p className="kz-note">{unavailableNote(t, fmts)}</p>
-            )}
+            {(() => {
+              const notes = unavailableNotes(t, fmts, pdfRuntime.status)
+              // 部品を入れられるとき、PDF の案内（最後の行）は「設定を開く」の隣に置く
+              // （K23: 説明はボタンの隣。行を分けると、何のボタンの話かが近さでしか伝わらない）。
+              const withButton = pdfInstallable(fmts, pdfRuntime.status) ? notes.pop() : undefined
+              return (
+                <>
+                  {notes.map((line) => (
+                    <p key={line} className="kz-note">
+                      {line}
+                    </p>
+                  ))}
+                  {withButton !== undefined && (
+                    <div className="kz-actions">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={() => openSettings('pdf')}
+                      >
+                        {t('document:unavailable.openSettings')}
+                      </button>
+                      <span className="kz-note kz-prose">{withButton}</span>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {/* Nobody can be walked through a flow they cannot start. Without a
                 file of their own, the first screen used to be a dead end
                 (KZ-A-39). */}

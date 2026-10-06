@@ -463,6 +463,7 @@ struct BackendCmd {
 
 /// Self-contained layout: the .app ships `Resources/backend/` (standalone
 /// CPython with the asterism packages installed, the oxigraph binary, the
+/// pandoc binary (Word import), the license texts under `licenses/`, the
 /// demo-agent, bundled datasets, and the built SPA) — assembled by
 /// `desktop/scripts/bundle-backend.sh`. The backend is started as
 /// `python3 -m asterism_api.local`, with env pointing every payload at the
@@ -489,7 +490,12 @@ fn bundled_backend(app: &tauri::AppHandle) -> Option<BackendCmd> {
         envs: vec![
             ("ASTERISM_UI_DIST".into(), backend.join("ui-dist")),
             ("ASTERISM_OXIGRAPH_BIN".into(), backend.join("oxigraph")),
+            ("ASTERISM_PANDOC_BIN".into(), backend.join("pandoc")),
             ("ASTERISM_DEMO_AGENT_DIR".into(), backend.join("demo-agent")),
+            (
+                "ASTERISM_DOCLING_SIDECAR_DIR".into(),
+                backend.join("docling-sidecar"),
+            ),
             ("ASTERISM_DATASETS_ROOT".into(), backend.join("datasets")),
         ],
     })

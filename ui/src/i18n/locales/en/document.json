@@ -49,6 +49,12 @@
     "noteDesktop": "{{formats}} cannot be taken in by the desktop app yet.",
     "noteServer": "{{formats}} cannot be taken in on this server (the converter is not set up).",
     "dropDesktop": "{{format}} cannot be taken in by the desktop app yet. For now it is supported on the server version.",
-    "dropServer": "{{format}} cannot be taken in on this server (the converter is not set up)."
+    "dropServer": "{{format}} cannot be taken in on this server (the converter is not set up).",
+    "pdfInstallable": "PDFs can be taken in once the reading component is installed.",
+    "pdfInstalling": "The PDF reading component is being installed. PDFs can be dropped here once it finishes.",
+    "pdfStarting": "Getting ready to read PDFs…",
+    "openSettings": "Open settings",
+    "dropPdfInstallable": "PDF (.pdf) can be taken in once the reading component is installed — see “About” in settings.",
+    "dropPdfInstalling": "PDF (.pdf) can be taken in once the reading component finishes installing. It is being installed now."
   }
 }

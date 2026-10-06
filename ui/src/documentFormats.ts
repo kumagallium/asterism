@@ -3,7 +3,9 @@
 
 import { useEffect, useState } from 'react'
 import type { TFunction } from 'i18next'
-import { fetchInstanceInfo, type InstanceInfo } from './settings/instanceApi'
+import { fetchInstanceInfo, subscribeInstanceInfo, type InstanceInfo } from './settings/instanceApi'
+import type { PdfRuntimeStatus } from './settings/pdfRuntimeApi'
+import { isManageable } from './pdfRuntime'
 
 export type ConvertedFormat = 'docx' | 'pdf'
 export interface DocumentFormats {
@@ -79,12 +81,64 @@ export function unavailableNote(t: TFunction, f: DocumentFormats): string {
   })
 }
 
+/** 部品を入れられる環境で PDF が変換できないとき、画面に設定への道を出すか。 */
+export function pdfInstallable(f: DocumentFormats, pdf: PdfRuntimeStatus | null): boolean {
+  return (
+    !f.pdf &&
+    isManageable(pdf) &&
+    (pdf.state === 'absent' || pdf.state === 'failed' || pdf.state === 'installing')
+  )
+}
+
+/** 変換できない形式の案内文（1 行ずつの配列。無ければ空）。 */
+export function unavailableNotes(
+  t: TFunction,
+  f: DocumentFormats,
+  pdf: PdfRuntimeStatus | null,
+): string[] {
+  if (!f.pdf && isManageable(pdf)) {
+    // ready なのに f.pdf が false ＝ 使えるようになった直後で、/api/instance の
+    // 取り直しがまだ届いていない一瞬。「まだ取り込めません」に戻さず、準備中と言う。
+    const key =
+      pdf.state === 'installing'
+        ? 'pdfInstalling'
+        : pdf.state === 'starting' || pdf.state === 'ready'
+          ? 'pdfStarting'
+          : pdf.state === 'absent' || pdf.state === 'failed'
+            ? 'pdfInstallable'
+            : null
+    if (key) {
+      const lines: string[] = []
+      if (!f.docx) {
+        lines.push(
+          t(f.desktop ? 'document:unavailable.noteDesktop' : 'document:unavailable.noteServer', {
+            formats: 'Word',
+          }),
+        )
+      }
+      lines.push(t(`document:unavailable.${key}`))
+      return lines
+    }
+  }
+  const note = unavailableNote(t, f)
+  return note ? [note] : []
+}
+
 /** 変換できない形式のファイルを置いたときの文。 */
 export function unavailableDropMessage(
   t: TFunction,
   f: DocumentFormats,
   format: ConvertedFormat,
+  pdf: PdfRuntimeStatus | null = null,
 ): string {
+  if (format === 'pdf' && isManageable(pdf)) {
+    if (pdf.state === 'absent' || pdf.state === 'failed') {
+      return t('document:unavailable.dropPdfInstallable')
+    }
+    if (pdf.state === 'installing' || pdf.state === 'starting' || pdf.state === 'ready') {
+      return t('document:unavailable.dropPdfInstalling')
+    }
+  }
   return t(f.desktop ? 'document:unavailable.dropDesktop' : 'document:unavailable.dropServer', {
     format: t(format === 'docx' ? 'document:unavailable.docx' : 'document:unavailable.pdf'),
   })
@@ -107,11 +161,17 @@ export function useDocumentFormats(): DocumentFormats {
   const [formats, setFormats] = useState<DocumentFormats>(() => documentFormatsOf(null))
   useEffect(() => {
     let alive = true
-    void fetchInstanceInfo().then((info) => {
-      if (alive) setFormats(documentFormatsOf(info))
-    })
+    const load = () => {
+      void fetchInstanceInfo().then((info) => {
+        if (alive) setFormats(documentFormatsOf(info))
+      })
+    }
+    load()
+    // 部品を入れ終えた／消したとき（invalidateInstanceInfo）に取り直す
+    const unsubscribe = subscribeInstanceInfo(load)
     return () => {
       alive = false
+      unsubscribe()
     }
   }, [])
   return formats
