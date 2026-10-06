@@ -145,6 +145,10 @@ describe('classCountsByCatalogId', () => {
     const out = classCountsByCatalogId(counts, [{ id: 'live-weather-log' }])
     expect(out).toEqual({ 'live-weather-log': { k: 7 } })
   })
+  it('API が上限で切れたときは null（取れた分だけだと末尾の箱が黙って欠ける）', () => {
+    const out = classCountsByCatalogId({ ...counts, truncated: true }, [{ id: 'live-weather-log' }])
+    expect(out).toBeNull()
+  })
 })
 
 describe('composeVocabGraph', () => {

@@ -9,8 +9,13 @@ from __future__ import annotations
 import pytest
 
 from asterism.kind_counts import kind_counts
-from asterism.substrate import canonical_graph_iri
-from tests.test_prov_graph import _pyoxi_client
+from asterism.substrate import (
+    CANONICAL_GRAPH_BASE,
+    CONTROL_GRAPH_IRI,
+    STATUS_PREDICATE,
+    STATUS_PROMOTED,
+    canonical_graph_iri,
+)
 
 pyoxigraph = pytest.importorskip("pyoxigraph")
 
@@ -24,6 +29,43 @@ G_HUB = canonical_graph_iri("crosswalk")
 G_DRAFT = "https://kumagallium.github.io/asterism/draft/unpublished"
 
 PFX = "@prefix ex: <https://ex/> .\n"
+
+
+def _pyoxi_client(graphs: dict[str, str]):
+    """実物の pyoxigraph.Store を包む（test_prov_graph の同名ヘルパと同じ約束。
+    ingest/tests は兄弟を import できないので写している）。"""
+    store = pyoxigraph.Store()
+    for giri, ttl in graphs.items():
+        store.load(
+            ttl.encode("utf-8"), mime_type="text/turtle", to_graph=pyoxigraph.NamedNode(giri)
+        )
+        if giri.startswith(CANONICAL_GRAPH_BASE):
+            store.add(
+                pyoxigraph.Quad(
+                    pyoxigraph.NamedNode(giri),
+                    pyoxigraph.NamedNode(STATUS_PREDICATE),
+                    pyoxigraph.Literal(STATUS_PROMOTED),
+                    pyoxigraph.NamedNode(CONTROL_GRAPH_IRI),
+                )
+            )
+
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            result = store.query(query)
+            names = [v.value for v in result.variables]
+            bindings = []
+            for solution in result:
+                row = {}
+                for name in names:
+                    term = solution[name]
+                    if term is None:
+                        continue
+                    kind = "uri" if isinstance(term, pyoxigraph.NamedNode) else "literal"
+                    row[name] = {"type": kind, "value": term.value}
+                bindings.append(row)
+            return {"results": {"bindings": bindings}}
+
+    return _C()
 
 
 def _ttl(rows: dict[str, list[str]]) -> str:

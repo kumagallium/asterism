@@ -36,7 +36,7 @@ S（種類）- P（項目）- O（行き先）は保存済みの取り込みル�
 
 - **すべて決定論・読み取り専用。LLM は使わない。**
 - 合成は純関数 `ui/src/vocabGraph.ts` の `composeVocabGraph()`（単体テスト対象）。
-  入力: 各データセットの `DatasetRules`・`getSchema()` のクラス件数・alignments・
+  入力: 各データセットの `DatasetRules`・`getSchema()` のクラス件数（データセットごとの件数は §5）・alignments・
   接地候補。出力: クラスタ付きの Shape（節・辺・クラスタ）。
 - 描画は新部品 `VocabGraph.tsx`（React Flow）。**`ShapeGraph` は触らない** —
   ④⑤が使う共有部品に横断図専用の概念（クラスタ・辺種別）を混ぜて退行させない。
@@ -67,10 +67,10 @@ S（種類）- P（項目）- O（行き先）は保存済みの取り込みル�
   （空の `FROM NAMED` は draft まで読むため）。
 - **UI**: `composeVocabGraph` は `classCountsByDataset`（節のデータセット id → 種類 IRI →
   件数）が渡されたらそれだけを引き、全体の合計を混ぜない。API が取れなかったとき
-  （失敗・古いサーバ）だけ従来の `classCounts` に落ちる。
+  （失敗・古いサーバ・上限で切れた `truncated`）だけ従来の `classCounts` に落ちる。
 - ⭐**id の取り違え**: API の `dataset_id` は登録 id で、カタログの `id` は `live-<登録 id>`。
   `classCountsByCatalogId` が `datasetApiId` を通して突き合わせる（これを怠ると一致が 0 件に
-  なり件数が全部消える — §3 の「地図が空だった」事故と同じ型）。
+  なり件数が全部消える — `ui/src/vocabGraph.ts` 冒頭の「地図が空だった」事故の注記と同じ型）。
 - 見た目は変えない（数字が正しくなるだけ）。この件数は案 B（TBox の全体図）の土台でもある。
 
 ## 育ち方

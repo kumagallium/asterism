@@ -151,11 +151,14 @@ export function collectStandardIris(
 /** `GET /api/kinds/counts` を、地図の節のデータセット id（カタログの `id`）→ 種類 IRI →
  *  件数 に組み替える。API の `dataset_id` は登録 id なので、カタログ側を
  *  `datasetApiId` で登録 id にして突き合わせる（⭐`live-…` のまま突き合わせると
- *  一致が 0 件になり、件数が全部消える）。ハブ・未公開は対象外。 */
+ *  一致が 0 件になり、件数が全部消える）。ハブ・未公開は対象外。
+ *  ⭐API が上限で切れた（`truncated`）ときは null。取れた分だけ渡すと、末尾側の
+ *  データセットの箱が件数なしで黙って欠けるので、従来の全体件数に落とす。 */
 export function classCountsByCatalogId(
   counts: KindCounts,
   datasets: { id: string; live?: { meta: { id: string } } | null }[],
-): Record<string, Record<string, number>> {
+): Record<string, Record<string, number>> | null {
+  if (counts.truncated) return null
   const byRegistered = new Map<string, Record<string, number>>()
   for (const g of counts.graphs) {
     if (g.hub || !g.dataset_id) continue
