@@ -29,7 +29,7 @@ export interface NeighborExplorerProps {
 }
 
 type Load = 'loading' | 'error' | 'empty' | 'ok'
-type Notice = 'limit' | 'error' | 'no_neighbors' | null
+type Notice = 'limit' | 'limit_initial' | 'error' | 'no_neighbors' | null
 
 export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExplorerProps) {
   const { t } = useTranslation('cards')
@@ -51,7 +51,8 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
         const s0 = initialState(r)
         setState(s0)
         // 最初の 1 段で上限を超えるときも黙らない（枠の中で言う）。
-        setNotice(isOverLimit(s0) ? 'limit' : null)
+        // 最初の 1 段で上限を超えたときは、たためる箱が無い — 「たたむ」を勧めない文言にする
+        setNotice(isOverLimit(s0) ? 'limit_initial' : null)
         setSelectedId(r.iri)
         setLoad('ok')
       })
@@ -133,11 +134,13 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
   const noticeText =
     notice === 'limit'
       ? t('explore.limit', { max: MAX_BOXES })
-      : notice === 'error'
-        ? t('explore.action_error')
-        : notice === 'no_neighbors'
-          ? t('explore.no_neighbors')
-          : null
+      : notice === 'limit_initial'
+        ? t('explore.limit_initial', { max: MAX_BOXES })
+        : notice === 'error'
+          ? t('explore.action_error')
+          : notice === 'no_neighbors'
+            ? t('explore.no_neighbors')
+            : null
 
   return (
     <section className="explorer" aria-label={t('explore.title')}>
