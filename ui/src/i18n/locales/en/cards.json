@@ -494,7 +494,7 @@
     "peek_hint": "There are {{count}}. Look inside to show the first few as boxes.",
     "rest_note": "The other {{n}} are not shown in the diagram.",
     "limit": "The diagram would have more than {{max}} boxes, so it cannot open any further. Collapse boxes you do not need, or open as a list.",
-    "limit_initial": "There are so many connections that the diagram has more than {{max}} boxes, so it cannot open any further. Open the groups (dashed pills) as a list instead.",
+    "limit_initial": "There are so many connections that the diagram already has more than {{max}} boxes, so it cannot open any further. To keep going, select a box and use \"Open this page\" to continue from that item.",
     "action_error": "That did not work. Please try again.",
     "no_neighbors": "This box has no other connections.",
     "truncated": "There are many connections, so some neighbors are not shown.",
