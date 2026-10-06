@@ -1600,6 +1600,46 @@ def test_sets_resolve_class_label_uses_model_yaml_over_ontology_local_name(
         assert r.json()["title"]["class_label"] == "屋台"
 
 
+def test_sets_resolve_link_clause_title_names_the_linked_item(tmp_path: Path) -> None:
+    """O59 の線の条件（``{property, iri}``）も題にできる。値は相手の 1 件の名前
+    （見出しと同じ・生の IRI ではない）。O67 の束の「一覧で開く」がこの形を渡す
+    （実機 2026-10-07: "op" を前提にした組み立てで 500 になっていた）。"""
+    spec = {
+        "class": CHECKOUT_CLASS,
+        "where": [{"property": f"{EX_LIB}borrower", "iri": BORROWER_A}],
+    }
+    with _client(tmp_path) as client:
+        r = client.post("/api/sets/resolve", json={"spec": spec})
+        assert r.status_code == 200, r.text
+        assert r.json()["title"]["clauses"] == [
+            {"property_label": "borrower", "op": "link", "value": "Borrower A", "unit": None}
+        ]
+
+
+def test_neighbors_bundle_set_spec_resolves_as_a_set(tmp_path: Path) -> None:
+    """隣の束の ``set_spec`` は、そのまま ``/api/sets/resolve`` に渡せる（O67・O59）。"""
+    ttl_lines = [_LIB_TTL]
+    for i in range(3, 10):
+        ttl_lines.append(
+            f"<https://ex/library/checkout/{i}> a <{CHECKOUT_CLASS}> ; "
+            f"<{EX_LIB}borrower> <{BORROWER_A}> .\n"
+        )
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    store_client = _pyoxi_client({LIB_GRAPH: "".join(ttl_lines)})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/subjects/neighbors", params={"iri": BORROWER_A})
+        assert r.status_code == 200, r.text
+        bundles = [g for g in r.json()["groups"] if g["set_spec"]]
+        assert bundles, r.json()
+        r2 = client.post("/api/sets/resolve", json={"spec": bundles[0]["set_spec"]})
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["title"]["clauses"][0]["op"] == "link"
+        assert r2.json()["title"]["clauses"][0]["value"] == "Borrower A"
+
+
 def test_sets_resolve_at_clause_is_400(tmp_path: Path) -> None:
     spec = {
         "class": CHECKOUT_CLASS,
