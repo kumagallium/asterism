@@ -208,6 +208,19 @@ export function buildNeighborGraph(state: ExplorerState, fmt: BundleFormat = {})
   return { graph: { direction: 'LR', nodes, edges }, columns, meta, truncated }
 }
 
+/** 線の名前は、選んだ箱につながる線にだけ付ける。列の間で線が交わると、真ん中に
+ *  置かれる名前どうしが重なって読めなくなる（実機: 「食材の名前」と「レシピ」が重なって
+ *  「食レシピ前」に見えた）。選んだ箱の線だけなら、名前は 1 つの箱から扇状に出るので
+ *  重なりにくい。線そのもの（向き・つながり）は全部残す。 */
+export function labelSelectedEdges(graph: GraphSpec, selectedId: string | undefined): GraphSpec {
+  return {
+    ...graph,
+    edges: graph.edges.map((e) =>
+      e.from === selectedId || e.to === selectedId ? e : { from: e.from, to: e.to },
+    ),
+  }
+}
+
 /** 状態から、図に出ている節だけを残す（たたんだあとの後始末）。 */
 function prune(state: ExplorerState, fmt?: BundleFormat): ExplorerState {
   const view = buildNeighborGraph(state, fmt)

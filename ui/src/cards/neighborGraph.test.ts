@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NeighborGroup, NeighborsResult, NeighborItem } from './cardsApi'
+import type { GraphSpec } from './viewSpec'
 import {
   MAX_BOXES,
   buildNeighborGraph,
@@ -7,6 +8,7 @@ import {
   columnLayout,
   initialState,
   isOverLimit,
+  labelSelectedEdges,
   openBundle,
   openNode,
 } from './neighborGraph'
@@ -353,5 +355,27 @@ describe('固定点の再生と初回の上限', () => {
     )
     expect(isOverLimit(initialState(result(C, 'C', groups)))).toBe(true)
     expect(isOverLimit(initialState(result(C, 'C', groups.slice(0, 2))))).toBe(false)
+  })
+})
+
+describe('labelSelectedEdges', () => {
+  const g: GraphSpec = {
+    nodes: [],
+    edges: [
+      { from: 'a', to: 'b', label: '所属' },
+      { from: 'c', to: 'b', label: '観測点' },
+      { from: 'c', to: 'd', label: '記録' },
+    ],
+  }
+  it('選んだ箱につながる線にだけ名前を残し、線そのものは全部残す', () => {
+    const out = labelSelectedEdges(g, 'c')
+    expect(out.edges).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'c', to: 'b', label: '観測点' },
+      { from: 'c', to: 'd', label: '記録' },
+    ])
+  })
+  it('何も選んでいなければ名前は出さない', () => {
+    expect(labelSelectedEdges(g, undefined).edges.every((e) => e.label === undefined)).toBe(true)
   })
 })

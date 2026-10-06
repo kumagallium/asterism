@@ -14,6 +14,7 @@ import {
   columnLayout,
   initialState,
   isOverLimit,
+  labelSelectedEdges,
   openBundle,
   openNode,
 } from './neighborGraph'
@@ -145,7 +146,7 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
   return (
     <section className="explorer" aria-label={t('explore.title')}>
       <GraphView
-        graph={view.graph}
+        graph={labelSelectedEdges(view.graph, selected?.id)}
         ariaLabel={t('explore.aria', { label: centerLabel })}
         onNodeClick={(id) => {
           setSelectedId(id)

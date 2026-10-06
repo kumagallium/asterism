@@ -498,6 +498,6 @@
     "action_error": "That did not work. Please try again.",
     "no_neighbors": "This box has no other connections.",
     "truncated": "There are many connections, so some neighbors are not shown.",
-    "legend": "Select a box to see its actions below. A dashed pill is a group with several items inside."
+    "legend": "Select a box to see its actions below. Line names are shown only on the selected box's lines. A dashed pill is a group with several items inside."
   }
 }
