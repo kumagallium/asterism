@@ -1695,7 +1695,10 @@ async def subject_neighbors(
     群（group）= (向き, 述語, 代表の種類)。``count`` は正確な件数（重複なし）。
     ``count <= inline_max`` は全件を ``items`` に。超えた入る線の束で代表の種類が PROV でも
     ``xw:`` でもなければ ``set_spec``（一覧で開く）を返して ``items`` は空、それ以外の束は
-    先頭 ``sample_max`` 件（IRI 順）を ``items`` に入れる。読む範囲は公開済みの graph
+    先頭 ``sample_max`` 件（IRI 順）を ``items`` に入れる。
+    注意: 束の ``count`` は代表の種類での件数。``set_spec`` は ``class`` で絞るだけなので、型を
+    複数持つ主語は一覧側に余分に入り、件数が一覧の total と食い違うことがある（O67）。
+    読む範囲は公開済みの graph
     （:func:`asterism.substrate.canonical_graphs`）だけ — 0 件なら SPARQL を 1 本も投げない。
 
     名前は新しい規則を作らない: 隣・中心の名前は 1 件のページの見出し（api の
