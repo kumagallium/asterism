@@ -86,7 +86,15 @@ import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { basename } from '../skeletonContainment'
 import { rowKindLabels } from './rowKindLabels'
-import { columnKey, storedExclusionKeys, withdrawnExclusions } from './settledStore'
+import {
+  columnKey,
+  meaningsScreenOpened,
+  unsavedDraftDiscarded,
+  withStoredDecisions,
+  withStoredMeanings,
+  withdrawnExclusions,
+  type MeaningsScreenOpened,
+} from './settledStore'
 import {
   applyIdentifiers,
   applyOwners,
@@ -3074,25 +3082,36 @@ export function KantanWizard({
   //
   // 「取り込まない」も読み戻す。以前は意味だけで、この列の state は置いた
   // ブラウザにしか無かった — 別のブラウザで見直すと、保管庫に判断があっても
-  // 全部の行が「取り込む」と出た（実機 2026-10-05）。読めた集合は控えておく:
-  // 保存のとき、そこから消えた列が「取り下げ」になる（saveMeaningsAndReturn）。
-  const storedExclusionsRef = useRef<{ datasetId: string; keys: string[] } | null>(null)
+  // 全部の行が「取り込む」と出た（実機 2026-10-05）。
+  //
+  // 開いているあいだの控え（settledStore.ts）。2 つの役: 保存のとき、保管庫で
+  // 外れていたのに今は外れていない列が「取り下げ」になる（saveMeaningsAndReturn）。
+  // 保存せずに出るとき、state をここへ戻す（discardMeaningsDraft）— 書きかけを
+  // 残して出ると、⑤からのやり直し（runContinue・runAssemble）が画面の state を
+  // 送って、保存していない「取り込まない」が設計に効いた（実機 2026-10-05）。
+  const openedMeaningsRef = useRef<MeaningsScreenOpened | null>(null)
   useEffect(() => {
     if (step !== 10 || !kzDatasetId) return
+    // 開いた瞬間の state が、保管庫が読めなかった欄の戻し先。
+    openedMeaningsRef.current = meaningsScreenOpened(kzDatasetId, settledMeanings, excludedColumns)
     let off = false
     void fetchColumnMeanings(kzDatasetId)
       .then((stored) => {
-        if (!off && stored.length > 0) setSettledMeanings(stored)
+        if (off || !openedMeaningsRef.current) return
+        const opened = withStoredMeanings(openedMeaningsRef.current, stored)
+        openedMeaningsRef.current = opened
+        // 空の保管庫は画面に触れない（withStoredMeanings と同じ規則）。
+        if (stored.length > 0) setSettledMeanings(opened.meanings)
       })
       .catch(() => {
         /* enrichment: an unreadable store leaves what is on screen alone */
       })
     void fetchColumnDecisions(kzDatasetId)
       .then((stored) => {
-        if (off) return
-        const keys = storedExclusionKeys(stored)
-        storedExclusionsRef.current = { datasetId: kzDatasetId, keys }
-        setExcludedColumns(keys)
+        if (off || !openedMeaningsRef.current) return
+        const opened = withStoredDecisions(openedMeaningsRef.current, stored)
+        openedMeaningsRef.current = opened
+        setExcludedColumns(opened.excluded)
       })
       .catch(() => {
         /* 読めなければ画面の state のまま。控えが無いので、取り下げも送らない */
@@ -3100,7 +3119,23 @@ export function KantanWizard({
     return () => {
       off = true
     }
+    // settledMeanings / excludedColumns は「開いた瞬間の値」を控えるためだけに
+    // 読む — 書きかけのたびに読み直すものではない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, kzDatasetId])
+
+  /** ③の書きかけ（意味・「取り込まない」）を捨てて、開いたときの内容に state を
+   *  戻す。「ためすに戻る」は保存しない約束（#674）で、保存しないとは「残す」
+   *  ではなく「捨てる」— ③を開き直せば保管庫の内容に置き換わるのと同じことを、
+   *  出る時点でやる。戻した「取り込まない」を返す: 続けて呼ぶ「ためす」の読み込み
+   *  が、この render の（まだ書きかけの）state を見ないように渡す。 */
+  function discardMeaningsDraft(): string[] | undefined {
+    const restored = unsavedDraftDiscarded(openedMeaningsRef.current, kzDatasetId)
+    if (!restored) return undefined
+    setSettledMeanings(restored.meanings)
+    setExcludedColumns(restored.excluded)
+    return restored.excluded
+  }
 
   /** Columns still without a meaning — the ⚠ rows of the meaning screen. A
    *  column nobody is taking in is not one of them: it will not be asked about
@@ -3213,18 +3248,27 @@ export function KantanWizard({
     if (!datasetId) return
     setMeaningSaving(true)
     setMeaningSaveErr('')
+    /** 保管庫に届いたぶんは、もう書きかけではない — 控えもそれに合わせる（この
+     *  先の保存に失敗して「ためすに戻る」で出ても、届いたものまでは捨てない）。 */
+    const settled = (patch: Partial<MeaningsScreenOpened>) => {
+      const opened = openedMeaningsRef.current
+      if (opened?.datasetId === datasetId) openedMeaningsRef.current = { ...opened, ...patch }
+    }
     try {
       await saveColumnMeanings(datasetId, settledMeanings)
+      settled({ meanings: settledMeanings })
       const drops = excludedDecisions()
       // 保管庫では「取り込まない」なのに、この画面ではもう外れていない列 = 人が
       // 「取り込む」に戻した列。取り下げないと保管庫に残り、次に開くと「取り
       // 込まない」に戻るうえ、作り直しのたびに設計から外し直される。
-      const stored = storedExclusionsRef.current
+      const opened = openedMeaningsRef.current
       const withdrawn =
-        stored?.datasetId === datasetId ? withdrawnExclusions(stored.keys, excludedColumns) : []
+        opened?.datasetId === datasetId && opened.storedExclusions
+          ? withdrawnExclusions(opened.storedExclusions, excludedColumns)
+          : []
       if (drops.length > 0 || withdrawn.length > 0) {
         await saveColumnDecisions(datasetId, drops, undefined, withdrawn)
-        storedExclusionsRef.current = { datasetId, keys: [...excludedColumns] }
+        settled({ excluded: excludedColumns, storedExclusions: excludedColumns })
       }
       confirmMeanings()
     } catch (e) {
@@ -3526,8 +3570,8 @@ export function KantanWizard({
   }
 
   /** The exclusions as the API's pre-design decision shape. */
-  function excludedDecisions(): PreDesignColumnDecision[] {
-    return excludedColumns.flatMap((key) => {
+  function excludedDecisions(keys: string[] = excludedColumns): PreDesignColumnDecision[] {
+    return keys.flatMap((key) => {
       const [source, column] = key.split('\u0000')
       return source && column ? [{ source, column, action: 'exclude' as const }] : []
     })
@@ -3878,7 +3922,9 @@ export function KantanWizard({
     return out
   }
 
-  async function loadS6(datasetId: string) {
+  /** `excludedNow`: ③から保存せずに出た直後は、この render の `excludedColumns`
+   *  がまだ書きかけ — 捨てたあとの値を呼び手が渡す（discardMeaningsDraft）。 */
+  async function loadS6(datasetId: string, excludedNow: string[] = excludedColumns) {
     setS6Err('')
     try {
       const [r, s, serverSamples, savedDecisions] = await Promise.all([
@@ -3915,10 +3961,11 @@ export function KantanWizard({
       // 3（項目の意味）で外した列は、この画面ではもう決まっている。保管庫には
       // データセットを作る保存（materialize）と③の保存ボタンが書くので、普通は
       // 上の `savedDecisions` に入っている。ここで重ねるのは、まだ保管庫に無い
-      // ぶん（③で外したまま保存せずに戻った列・この仕組みより前に作った
-      // データセット）—「まだ決めていない」と見せて同じ列を二度断らせない
-      // （実機 2026-08-28）。
-      for (const drop of excludedDecisions()) {
+      // ぶん（この仕組みより前に作ったデータセット・設計が外せなくて保管庫に
+      // 書かれなかった列）—「まだ決めていない」と見せて同じ列を二度断らせない
+      // （実機 2026-08-28）。③で外したまま保存せずに出た列はここに来ない:
+      // 「ためすに戻る」が書きかけを捨てる（discardMeaningsDraft）。
+      for (const drop of excludedDecisions(excludedNow)) {
         const key = columnDecisionKey(drop.source, drop.column)
         if (!drafts[key]) drafts[key] = { action: 'exclude', map: '', label: '', unit: '' }
       }
@@ -3963,14 +4010,14 @@ export function KantanWizard({
       })
   }
 
-  async function loadS7(datasetId: string) {
+  async function loadS7(datasetId: string, excludedNow?: string[]) {
     setTrialLoading(true)
     setTrialErr('')
     ensureRules(datasetId)
     // 「数の確認」の画面を畳んだので、そこが読んでいたもの（設計の規則・実データ
     // の例・列の判断）はこの画面が読む。まだ取り込んでいない列の判断と、AI への
     // 注記がここに残っているため。
-    void loadS6(datasetId)
+    void loadS6(datasetId, excludedNow)
     setPubNames(null)
     setNamesDone(null)
     setNamesErr('')
@@ -4015,15 +4062,16 @@ export function KantanWizard({
   /** 「ためす」へ出る。取り込みの完了から呼ばれる経路は、その回の datasetId を
    *  渡してくる — この関数が閉じ込めている `kzDatasetId` は、その時点ではまだ
    *  1 レンダー前の値でありうる（取り込み直後に問い合わせが 1 本も飛ばず、
-   *  結果の出ない「ためす」に着地した・実機 2026-08-28）。 */
-  function confirmMeanings(datasetId?: string) {
+   *  結果の出ない「ためす」に着地した・実機 2026-08-28）。`excludedNow` も同じ
+   *  理由: ③から保存せずに出る経路は、捨てたあとの「取り込まない」を渡す。 */
+  function confirmMeanings(datasetId?: string, excludedNow?: string[]) {
     setReflectedNote('')
     setReflectChanged(null)
     setResumed(false)
     setReturnedFromDetail(false)
     setStep(7)
     const id = datasetId ?? kzDatasetId
-    if (id) void loadS7(id)
+    if (id) void loadS7(id, excludedNow)
   }
 
   // The ⑤ "something is off" exit: back to where the meanings are decided (3).
@@ -6989,7 +7037,9 @@ export function KantanWizard({
                 // 2026-10-05）。見直しでまだ下書きを作り直していないときも「ためす」
                 // でよい: 問いは公開済みのグラフにも答え、そこの「公開へ」は公開
                 // し直すものが無ければ見直しを終える（goPublish）。
-                if (kzDatasetId) confirmMeanings()
+                // 保存しないとは「捨てる」— 書きかけを state に残して出ると、
+                // ⑤からのやり直しがそれを送って設計に効く（実機 2026-10-05）。
+                if (kzDatasetId) confirmMeanings(undefined, discardMeaningsDraft())
                 else setStep(2)
               }}
               disabled={meaningSaving}

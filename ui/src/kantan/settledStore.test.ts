@@ -6,9 +6,19 @@
 // （2026-10-05 に実機で確認: 別のブラウザで見直すと「取り込む」に戻る）。
 // いまは、データセットを**作る**保存が運び、サーバが同じ一歩で書く。できた
 // あとは③の「この意味を保存して戻る」だけが書く —「ためすに戻る」は保存しない。
+// 保存しないとは「捨てる」: 書きかけを state に残して出ると、⑤からのやり直しが
+// それを送って、保存していない「取り込まない」が設計に効いた（実機 2026-10-05）。
 import { describe, expect, it } from 'vitest'
 import { materializeRequestBody } from '../api'
-import { columnKey, storedExclusionKeys, withdrawnExclusions } from './settledStore'
+import {
+  columnKey,
+  meaningsScreenOpened,
+  storedExclusionKeys,
+  unsavedDraftDiscarded,
+  withStoredDecisions,
+  withStoredMeanings,
+  withdrawnExclusions,
+} from './settledStore'
 import source from './KantanWizard.tsx?raw'
 
 const settled = {
@@ -64,6 +74,55 @@ describe('保管庫の「取り込まない」と、③の表', () => {
   })
 })
 
+describe('③を保存せずに出ると、書きかけは捨てられる', () => {
+  // 開いたときの画面: AI の下書きの意味と、置いたブラウザに残っていた「取り込まない」。
+  const onScreen = {
+    meanings: [{ source: 'stock.csv', column: 'amount', label: '量' }],
+    excluded: [columnKey('stock.csv', 'memo')],
+  }
+  const stored = {
+    meanings: [{ source: 'stock.csv', column: 'amount', label: '使う量', unit: 'g' }],
+    decisions: [{ source: 'stock.csv', column: 'unit', action: 'exclude' as const }],
+  }
+
+  it('保管庫が読めたら、戻す先は保管庫の内容（意味も「取り込まない」も）', () => {
+    let opened = meaningsScreenOpened('stock-1a2b3c4d', onScreen.meanings, onScreen.excluded)
+    opened = withStoredMeanings(opened, stored.meanings)
+    opened = withStoredDecisions(opened, stored.decisions)
+    // ここで人が書きかける: 意味を直し、amount を外す — state だけが変わる。
+    expect(unsavedDraftDiscarded(opened, 'stock-1a2b3c4d')).toEqual({
+      meanings: stored.meanings,
+      excluded: [columnKey('stock.csv', 'unit')],
+    })
+    // 取り下げの計算に使う控えも、保管庫から読めたもの。
+    expect(opened.storedExclusions).toEqual([columnKey('stock.csv', 'unit')])
+  })
+
+  it('保管庫が読めていない欄は、開いたときの state に戻す（取り下げは計算しない）', () => {
+    const opened = meaningsScreenOpened('stock-1a2b3c4d', onScreen.meanings, onScreen.excluded)
+    expect(unsavedDraftDiscarded(opened, 'stock-1a2b3c4d')).toEqual(onScreen)
+    expect(opened.storedExclusions).toBeNull()
+  })
+
+  it('保管庫の意味が空なら画面の意味を残し、判断が空なら「外した列は無い」が勝つ', () => {
+    let opened = meaningsScreenOpened('stock-1a2b3c4d', onScreen.meanings, onScreen.excluded)
+    opened = withStoredMeanings(opened, [])
+    opened = withStoredDecisions(opened, [])
+    expect(unsavedDraftDiscarded(opened, 'stock-1a2b3c4d')).toEqual({
+      meanings: onScreen.meanings,
+      excluded: [],
+    })
+    expect(opened.storedExclusions).toEqual([])
+  })
+
+  it('控えが無い・別のデータセットの控えなら、state に触らない', () => {
+    const opened = meaningsScreenOpened('stock-1a2b3c4d', onScreen.meanings, onScreen.excluded)
+    expect(unsavedDraftDiscarded(null, 'stock-1a2b3c4d')).toBeNull()
+    expect(unsavedDraftDiscarded(opened, 'other-9f8e7d6c')).toBeNull()
+    expect(unsavedDraftDiscarded(opened, null)).toBeNull()
+  })
+})
+
 describe('ウィザードが保管庫に書く場所', () => {
   /** `name(` の呼び出しごとに、それを囲む関数（コンポーネント直下の宣言）の名前。 */
   function callers(src: string, name: string): string[] {
@@ -93,12 +152,55 @@ describe('ウィザードが保管庫に書く場所', () => {
     ])
   })
 
-  it('「ためすに戻る」は保存しない', () => {
+  it('「ためすに戻る」は保存せず、書きかけを捨ててから出る', () => {
     const label = source.indexOf("'kantan:meanings.backToTry'")
     expect(label).toBeGreaterThan(0)
     const button = source.slice(source.lastIndexOf('<button', label), label)
-    expect(button).toContain('confirmMeanings()')
     expect(button).not.toMatch(/save\w*\(/)
+    // 捨てたあとの「取り込まない」を「ためす」の読み込みに渡す — この render の
+    // state はまだ書きかけなので、渡さないと「まだ取り込まれていない列」の判断に
+    // 書きかけが重なる（loadS6）。
+    expect(button).toContain('confirmMeanings(undefined, discardMeaningsDraft())')
+  })
+
+  it('控えは③を開く effect が作り、保管庫が読めた欄をその内容に置き換える', () => {
+    // 控えの代入を消しても「ためすに戻る」のテストは通ってしまう — 配線を見る。
+    const start = source.indexOf('const openedMeaningsRef = useRef<MeaningsScreenOpened | null>(null)')
+    expect(start).toBeGreaterThan(0)
+    const effect = source.slice(start, source.indexOf('}, [step, kzDatasetId])', start))
+    expect(effect).toContain(
+      'openedMeaningsRef.current = meaningsScreenOpened(kzDatasetId, settledMeanings, excludedColumns)',
+    )
+    expect(effect).toContain('withStoredMeanings(openedMeaningsRef.current, stored)')
+    expect(effect).toContain('withStoredDecisions(openedMeaningsRef.current, stored)')
+    // 読めた内容は控えだけでなく画面にも届く（戻す先と見えているものが同じ）。
+    expect(effect).toContain('setSettledMeanings(opened.meanings)')
+    expect(effect).toContain('setExcludedColumns(opened.excluded)')
+  })
+
+  it('書きかけを捨てる先は、③を開いたときの控え（意味と「取り込まない」の両方）', () => {
+    const start = source.indexOf('function discardMeaningsDraft(')
+    expect(start).toBeGreaterThan(0)
+    const body = source.slice(start, source.indexOf('\n  }\n', start))
+    expect(body).toContain('unsavedDraftDiscarded(openedMeaningsRef.current, kzDatasetId)')
+    expect(body).toContain('setSettledMeanings(restored.meanings)')
+    expect(body).toContain('setExcludedColumns(restored.excluded)')
+  })
+
+  it('データセットがあるとき③から「ためす」へ出る道は、保存して出るか、捨てて出るかだけ', () => {
+    // ⑤「この形で進む」と④の組み立てが送るのは画面の state で、保管庫を読み直さ
+    // ない。state が保管庫と違ってよいのは③を開いているあいだだけ — 出口は保存
+    // （state を保管庫へ）か捨てる（保管庫を state へ）の 2 つで、素の
+    // `confirmMeanings()` で出る道を③に足すと、書きかけがそのまま設計に効く。
+    const screen = source.slice(
+      source.indexOf("step === 10 ? ("),
+      source.indexOf("step === 11 ? ("),
+    )
+    const toTry = [...screen.matchAll(/confirmMeanings\((?:[^()]|\([^()]*\))*\)/g)].map(
+      (m) => m[0],
+    )
+    expect(toTry).toEqual(['confirmMeanings(undefined, discardMeaningsDraft())'])
+    expect(screen).toContain('void saveMeaningsAndReturn()')
   })
 
   it('データセットを作る保存は、どの呼び出しも設計の前に決めたことを渡す', () => {
