@@ -17,6 +17,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import '@xyflow/react/dist/style.css'
 import './graph.css'
+import { zoomFlags } from '../bigViewSize'
 import { layoutGraph } from './graphLayout'
 import { nodePropLines } from './graphProps'
 import type { GraphNodeKind, GraphSpec } from './viewSpec'
@@ -110,6 +111,7 @@ function GraphViewInner({
   compact = false,
   layout,
   selectedId,
+  zoomable = false,
 }: {
   graph: GraphSpec
   ariaLabel: string
@@ -118,6 +120,8 @@ function GraphViewInner({
   compact?: boolean
   layout?: GraphLayoutFn
   selectedId?: string
+  /** ホイール・ダブルクリックで拡大縮小する（大きく見るときだけ）。 */
+  zoomable?: boolean
 }) {
   const { t } = useTranslation('cards')
   const horizontal = (graph.direction ?? 'LR') === 'LR'
@@ -216,8 +220,7 @@ function GraphViewInner({
         elementsSelectable={false}
         panOnDrag={!compact}
         panOnScroll={false}
-        zoomOnScroll={false}
-        zoomOnDoubleClick={false}
+        {...zoomFlags(zoomable)}
         preventScrolling={false}
         proOptions={{ hideAttribution: true }}
         onNodeClick={onNodeClick ? handleClick : undefined}
@@ -239,6 +242,7 @@ export function GraphView(props: {
   compact?: boolean
   layout?: GraphLayoutFn
   selectedId?: string
+  zoomable?: boolean
 }) {
   return (
     <ReactFlowProvider>
