@@ -2,8 +2,10 @@
 // 図は GraphView（React Flow）。箱を押す＝選ぶ → 下の帯に操作を出す（ホバーでは
 // 出さない）。隣のデータは `GET /api/subjects/neighbors`。開くまで API を呼ばない
 // （親が開いたときだけこのコンポーネントを置く）。
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { BigViewOverlay, ExpandButton } from '../BigView'
+import { bigGraphHeight, useBigViewHeight } from '../bigViewSize'
 import { getNeighbors, resolveSet } from './cardsApi'
 import type { SetResolveResult, SetSpec } from './cardsApi'
 import { GraphView } from './GraphView'
@@ -39,6 +41,17 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
   const [selectedId, setSelectedId] = useState<string>(iri)
   const [notice, setNotice] = useState<Notice>(null)
   const [busy, setBusy] = useState(false)
+  // 大きく見る。状態はここが持ち、描く場所だけ切り替える（2 つ目の図を作らない）。
+  const [big, setBig] = useState(false)
+  const bigH = useBigViewHeight(big)
+  // 大きく見るに切り替えると ExpandButton ごと別の枝に差し替わるため、閉じたあとは
+  // 作り直された ExpandButton へ自分でフォーカスを戻す（BigViewOverlay の戻し先は取り外し済み）。
+  const expandRef = useRef<HTMLButtonElement>(null)
+  const wasBigRef = useRef(false)
+  useEffect(() => {
+    if (wasBigRef.current && !big) expandRef.current?.focus()
+    wasBigRef.current = big
+  }, [big])
 
   useEffect(() => {
     let cancelled = false
@@ -143,8 +156,9 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
             ? t('explore.no_neighbors')
             : null
 
-  return (
-    <section className="explorer" aria-label={t('explore.title')}>
+  // 図＋選んだものの帯＋注意書き。大きく見るときは丸ごと重ね表示へ移す。
+  const body = (
+    <>
       <GraphView
         graph={labelSelectedEdges(view.graph, selected?.id)}
         ariaLabel={t('explore.aria', { label: centerLabel })}
@@ -152,9 +166,10 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
           setSelectedId(id)
           setNotice(null)
         }}
-        maxHeight={440}
+        maxHeight={big ? bigGraphHeight(bigH) : 440}
         layout={layout}
         selectedId={selected?.id}
+        zoomable={big}
       />
       <div className="explorer-bar">
         {selected && (
@@ -232,6 +247,24 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
       {noticeText && <p className="explorer-note explorer-note--warn">{noticeText}</p>}
       {view.truncated && <p className="explorer-note">{t('explore.truncated')}</p>}
       <p className="explorer-note">{t('explore.legend')}</p>
+    </>
+  )
+
+  return (
+    <section className="explorer" aria-label={t('explore.title')}>
+      {big ? (
+        <>
+          <p className="explorer-note">{t('explore.big_now')}</p>
+          <BigViewOverlay open onClose={() => setBig(false)} title={t('explore.title')}>
+            <div className="explorer explorer--big">{body}</div>
+          </BigViewOverlay>
+        </>
+      ) : (
+        <div className="explorer-graph-wrap">
+          <ExpandButton ref={expandRef} onClick={() => setBig(true)} />
+          {body}
+        </div>
+      )}
     </section>
   )
 }
