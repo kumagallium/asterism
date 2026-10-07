@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import {
-  fitName,
   hubCountsOf,
   layoutKindOverview,
   radiusOf,
@@ -68,17 +67,6 @@ describe('radiusOf — 件数（対数）で丸の大きさ', () => {
     expect(radiusOf(100)).toBeGreaterThan(radiusOf(10))
     expect(radiusOf(10)).toBeGreaterThan(radiusOf(1))
     expect(radiusOf(1e12)).toBe(52)
-  })
-})
-
-describe('fitName — 丸の中の名前', () => {
-  it('収まれば全文', () => {
-    expect(fitName('木', 30)).toBe('木')
-  })
-  it('長ければ省略し、最小の丸でも 1 字は残る', () => {
-    const s = fitName('とても長い種類の名前です', 20)
-    expect(s.endsWith('…')).toBe(true)
-    expect(s.length).toBeGreaterThanOrEqual(2)
   })
 })
 

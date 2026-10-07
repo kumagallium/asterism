@@ -8,7 +8,7 @@
 //   ・形が変わったら `useUpdateNodeInternals` + `fitView` を rAF の中でやり直す。
 //   ・`.react-flow__panel`（Controls）は隠さない。
 // 「大きく見る」は付けない（共通部品を使って親が付ける）。
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Background,
@@ -28,9 +28,17 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { fitName, type OverviewEdge, type OverviewEdgeKind, type OverviewLayout } from './kindOverview'
+import {
+  HUB_LABEL_W,
+  LABEL_H,
+  LABEL_W,
+  type OverviewEdge,
+  type OverviewEdgeKind,
+  type OverviewLayout,
+} from './kindOverview'
+import { BigViewOverlay, ExpandButton } from './BigView'
+import { useBigViewHeight } from './bigViewSize'
 
-const COUNT_H = 18
 
 const EDGE_COLOR: Record<OverviewEdgeKind, string> = {
   link: 'var(--border-strong)',
@@ -43,7 +51,6 @@ type FrameData = { label: string; width: number; height: number }
 type BandData = { label: string; hint: string; width: number; height: number }
 type CircleData = {
   label: string
-  shown: string
   countText: string
   r: number
   hub: boolean
@@ -76,20 +83,27 @@ function BandBox({ data }: NodeProps) {
 
 function CircleBox({ data }: NodeProps) {
   const d = data as CircleData
+  const w = nodeWidth(d.r, d.hub)
   return (
     <div
       className={`kind-ov-node${d.hub ? ' kind-ov-node--hub' : ''}`}
-      style={{ width: 2 * d.r, height: 2 * d.r + COUNT_H }}
-      title={d.label}
+      style={{ width: w, height: 2 * d.r + LABEL_H }}
+      title={d.countText ? `${d.label}（${d.countText}）` : d.label}
     >
       <div className="kind-ov-circle" style={{ width: 2 * d.r, height: 2 * d.r }}>
         <Handle type="source" position={Position.Top} isConnectable={false} style={{ ...HANDLE_STYLE, top: d.r }} />
         <Handle type="target" position={Position.Top} isConnectable={false} style={{ ...HANDLE_STYLE, top: d.r }} />
-        <span className="kind-ov-name">{d.shown}</span>
       </div>
+      {/* 名前は丸の下（丸の中では小さい丸で切れて読めない）。2 行まで・続きは title。 */}
+      <span className="kind-ov-name">{d.label}</span>
       <span className="kind-ov-count">{d.countText}</span>
     </div>
   )
+}
+
+/** 丸の節の幅 = 丸と、その下の名前の幅の広い方（ハブの名前は広めに取る）。 */
+function nodeWidth(r: number, hub: boolean): number {
+  return Math.max(2 * r, hub ? HUB_LABEL_W : LABEL_W)
 }
 
 function StdBox({ data }: NodeProps) {
@@ -167,10 +181,9 @@ export function toFlow(
     nodes.push({
       id: c.id,
       type: 'circle',
-      position: { x: c.x - c.r, y: c.y - c.r },
+      position: { x: c.x - nodeWidth(c.r, hub) / 2, y: c.y - c.r },
       data: {
         label: c.label,
-        shown: fitName(c.label, c.r),
         countText: c.count != null ? words.count(c.count) : '',
         r: c.r,
         hub,
@@ -212,6 +225,7 @@ function KindOverviewInner({
   onOpenCrosswalk,
   maxHeight = 620,
   zoomable = false,
+  expandable = true,
 }: {
   layout: OverviewLayout
   ariaLabel: string
@@ -223,8 +237,12 @@ function KindOverviewInner({
   onOpenCrosswalk?: () => void
   maxHeight?: number
   zoomable?: boolean
+  /** 右上の「大きく見る」（重ね表示の中では出さない）。 */
+  expandable?: boolean
 }) {
   const { t } = useTranslation()
+  const [big, setBig] = useState(false)
+  const bigH = useBigViewHeight(big)
   const { nodes, edges } = useMemo(
     () =>
       toFlow(layout, {
@@ -269,6 +287,19 @@ function KindOverviewInner({
 
   return (
     <div className="shape-graph vocab-map kind-ov" style={{ height }} role="img" aria-label={ariaLabel}>
+      {expandable && <ExpandButton onClick={() => setBig(true)} />}
+      <BigViewOverlay open={big} onClose={() => setBig(false)} title={ariaLabel}>
+        <KindOverview
+          layout={layout}
+          ariaLabel={ariaLabel}
+          onOpenKind={onOpenKind}
+          onOpenDataset={onOpenDataset}
+          onOpenCrosswalk={onOpenCrosswalk}
+          maxHeight={bigH}
+          expandable={false}
+          zoomable
+        />
+      </BigViewOverlay>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -307,6 +338,7 @@ export function KindOverview(props: {
   onOpenCrosswalk?: () => void
   maxHeight?: number
   zoomable?: boolean
+  expandable?: boolean
 }) {
   return (
     <ReactFlowProvider>

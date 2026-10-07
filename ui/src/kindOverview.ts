@@ -21,7 +21,12 @@ export const R_MIN = 16
 export const R_MAX = 52
 const PER_ROW = 4
 const CELL_GAP = 14
-const COUNT_H = 18
+/** 丸の下の名前（2 行まで）と件数に取る高さ。名前は丸の中に入れない（小さい丸では読めない）。 */
+export const LABEL_H = 46
+/** 種類の丸の名前の幅。 */
+export const LABEL_W = 104
+/** ハブの丸の名前の幅（ハブは図の主役なので広めに取る）。 */
+export const HUB_LABEL_W = 132
 const ROW_GAP = 8
 const FRAME_PAD_X = 18
 const FRAME_PAD_TOP = 42
@@ -42,23 +47,6 @@ const STD_GAP = 18
 export function radiusOf(count: number | undefined): number {
   if (count == null || !(count > 0)) return R_MIN
   return Math.round(Math.min(R_MAX, Math.max(R_MIN, R_MIN + 10 * Math.log10(count + 1))))
-}
-
-/** 丸の中に入れる名前。全角を 1、半角を 0.55 の幅として数え、収まらなければ「…」で切る。
- *  切っても最低 1 字は残す（全文は title で読む）。 */
-export function fitName(label: string, r: number): string {
-  const budget = Math.max(1, (2 * r - 10) / 11)
-  const width = (ch: string) => (ch.charCodeAt(0) < 0x250 ? 0.55 : 1)
-  const chars = [...label]
-  if (chars.reduce((s, c) => s + width(c), 0) <= budget) return label
-  let used = width('…')
-  const out: string[] = []
-  for (const c of chars) {
-    if (used + width(c) > budget && out.length >= 1) break
-    out.push(c)
-    used += width(c)
-  }
-  return out.join('') + '…'
 }
 
 /** `GET /api/kinds/counts` のうち、ハブのグラフの種類 IRI → 件数。 */
@@ -208,7 +196,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     const links = shape.edges.map((e) => [`${ds.id}::${e.from}`, `${ds.id}::${e.to}`] as [string, string])
     // 枠の中の並べかた: 1 行 4 つ。1 つの枠の升の幅は、中でいちばん大きい丸で揃える。
     const maxR = Math.max(R_MIN, ...drafts.map((d) => d.r))
-    const cellW = 2 * maxR + CELL_GAP
+    const cellW = Math.max(2 * maxR, LABEL_W) + CELL_GAP
     const cols = Math.min(PER_ROW, Math.max(1, drafts.length))
     const w = Math.max(FRAME_MIN_W, cols * cellW - CELL_GAP + FRAME_PAD_X * 2)
     const at = new Map<string, { x: number; y: number }>()
@@ -219,7 +207,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
       const rowW = row.length * cellW - CELL_GAP
       const left = (w - rowW) / 2
       row.forEach((d, k) => at.set(d.id, { x: left + k * cellW + cellW / 2 - CELL_GAP / 2, y: y + rowR }))
-      y += 2 * rowR + COUNT_H + ROW_GAP
+      y += 2 * rowR + LABEL_H + ROW_GAP
     }
     const h = y - ROW_GAP + FRAME_PAD_BOT
     return { ds, drafts, links, w, h, at }
@@ -229,7 +217,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
   const left = frameDrafts.filter((_, i) => i % 2 === 0)
   const right = frameDrafts.filter((_, i) => i % 2 === 1)
   const colW = (col: FrameDraft[]) => Math.max(0, ...col.map((f) => f.w))
-  const hubColW = 2 * R_MAX
+  const hubColW = Math.max(2 * R_MAX, HUB_LABEL_W)
   const hubX = colW(left) + COL_GAP // ハブ列の左端
   const rightX = hubX + hubColW + COL_GAP
   const frames: OverviewFrame[] = []
@@ -317,9 +305,9 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     const want = Number.isFinite(c) ? c : hubBottom + HUB_ROW_GAP + h.r
     const y = Math.max(want, hubBottom + HUB_ROW_GAP + h.r)
     hubs.push({ id: h.id, label: h.label, count: h.count, r: h.r, x: hubX + hubColW / 2, y })
-    hubBottom = y + h.r + COUNT_H
+    hubBottom = y + h.r + LABEL_H
   }
-  const bodyH = Math.max(columnsH, hubs.length ? hubBottom - COUNT_H : 0)
+  const bodyH = Math.max(columnsH, hubs.length ? hubBottom - LABEL_H : 0)
 
   // ── 4. 標準のことば（種類の class_iris のうち既知の語彙の語）と、対応の足場 ──
   const stdMap = new Map<string, { label: string; vocab: string }>()
@@ -435,4 +423,21 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
   for (const [a, b] of alignLinks) addEdge(a, b, 'alignment', true)
 
   return { circles, frames, hubs, stds, band, edges, width: totalW, height }
+}
+
+/** 「全体」表示の集計の帯（図に描いたものだけを数える。項目や接地の候補は「詳しく」の数字）。 */
+export function overviewStats(layout: OverviewLayout): {
+  datasets: number
+  kinds: number
+  hubs: number
+  standards: number
+  records: number
+} {
+  return {
+    datasets: layout.frames.length,
+    kinds: layout.circles.length,
+    hubs: layout.hubs.length,
+    standards: layout.stds.length,
+    records: layout.circles.reduce((sum, c) => sum + (c.count ?? 0), 0),
+  }
 }

@@ -91,6 +91,11 @@
     "aria": "Overview of the dataset kinds and connections",
     "count": "{{n}} items",
     "lead": "Each circle is a kind, sized by how many there are. The circles in the middle are the connections that tie datasets together. Switch to Detailed to see the fields.",
+    "stats": {
+      "hubs": "connections",
+      "standards": "standard terms",
+      "records": "records (sum over kinds)"
+    },
     "unnamedHub": "Unnamed connection",
     "legend": {
       "link": "Link inside the data",

@@ -18,7 +18,7 @@ import type { GroundCandidate } from './groundingApi'
 import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
 import { KindOverview } from './KindOverviewMap'
-import { hubCountsOf, layoutKindOverview } from './kindOverview'
+import { hubCountsOf, layoutKindOverview, overviewStats } from './kindOverview'
 import { VocabMap } from './VocabMap'
 import {
   collectMintedTermQueries,
@@ -224,26 +224,54 @@ export function VocabMapSection({
         ))}
       </div>
       <p className="vocab-map-lead">{showOverview ? t('vocab:overview.lead') : t('vocab:map.lead')}</p>
-      <div className="vocab-map-stats" aria-label={t('vocab:map.statsAria')}>
-        <span>
-          <strong>{shape.stats.datasets}</strong> {t('vocab:map.stats.datasets')}
-        </span>
-        <span>
-          <strong>{shape.stats.kinds}</strong> {t('vocab:map.stats.kinds')}
-        </span>
-        <span>
-          <strong>{shape.stats.items}</strong> {t('vocab:map.stats.items')}
-        </span>
-        <span>
-          <strong>{shape.stats.used}</strong> {t('vocab:map.stats.used')}
-        </span>
-        <span>
-          <strong>{shape.stats.candidates}</strong> {t('vocab:map.stats.candidates')}
-        </span>
-        <span>
-          <strong>{shape.stats.alignments}</strong> {t('vocab:map.stats.alignments')}
-        </span>
-      </div>
+      {showOverview && overview ? (
+        // 「全体」は図に描いたものだけを数える（項目・接地の候補は「詳しく」の数字）。
+        <div className="vocab-map-stats" aria-label={t('vocab:map.statsAria')}>
+          {(() => {
+            const st = overviewStats(overview)
+            return (
+              <>
+                <span>
+                  <strong>{st.datasets}</strong> {t('vocab:map.stats.datasets')}
+                </span>
+                <span>
+                  <strong>{st.kinds}</strong> {t('vocab:map.stats.kinds')}
+                </span>
+                <span>
+                  <strong>{st.hubs}</strong> {t('vocab:overview.stats.hubs')}
+                </span>
+                <span>
+                  <strong>{st.standards}</strong> {t('vocab:overview.stats.standards')}
+                </span>
+                <span>
+                  <strong>{st.records.toLocaleString('en-US')}</strong> {t('vocab:overview.stats.records')}
+                </span>
+              </>
+            )
+          })()}
+        </div>
+      ) : (
+        <div className="vocab-map-stats" aria-label={t('vocab:map.statsAria')}>
+          <span>
+            <strong>{shape.stats.datasets}</strong> {t('vocab:map.stats.datasets')}
+          </span>
+          <span>
+            <strong>{shape.stats.kinds}</strong> {t('vocab:map.stats.kinds')}
+          </span>
+          <span>
+            <strong>{shape.stats.items}</strong> {t('vocab:map.stats.items')}
+          </span>
+          <span>
+            <strong>{shape.stats.used}</strong> {t('vocab:map.stats.used')}
+          </span>
+          <span>
+            <strong>{shape.stats.candidates}</strong> {t('vocab:map.stats.candidates')}
+          </span>
+          <span>
+            <strong>{shape.stats.alignments}</strong> {t('vocab:map.stats.alignments')}
+          </span>
+        </div>
+      )}
       {showOverview ? (
         <KindOverview
           layout={overview}

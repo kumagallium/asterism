@@ -19,11 +19,15 @@ const layout: OverviewLayout = {
 }
 
 describe('toFlow', () => {
-  it('丸は中心から半径だけ引いた位置に置き、件数を下に出す', () => {
+  it('節は丸の中心に揃え、下の名前の幅を取る（名前は丸の中に入れない）。件数は下に出す', () => {
     const { nodes } = toFlow(layout, words)
     const c = nodes.find((n) => n.id === 'd1::Tree')!
-    expect(c.position).toEqual({ x: 60, y: 30 })
+    // 丸の直径 80 より名前の幅 104 が広いので、節の幅は 104・中心 x=100 に揃える
+    expect(c.position).toEqual({ x: 100 - 104 / 2, y: 30 })
     expect((c.data as { countText: string }).countText).toBe('1234 件')
+    // ハブの名前は広めに取る（幅 132）
+    const h = nodes.find((n) => n.id === 'hub:p:o')!
+    expect(h.position).toEqual({ x: 400 - 132 / 2, y: 70 - 16 })
   })
   it('件数が無ければ件数の字は出さない', () => {
     const { nodes } = toFlow(layout, words)

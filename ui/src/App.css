@@ -9784,18 +9784,36 @@ tr.kz-cols-dropped td {
   border: 1.5px solid var(--link);
 }
 .kind-ov-name {
-  max-width: 100%;
-  padding: 0 0.2rem;
+  /* 丸の下に 2 行まで（続きは節の title で読む） */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  width: 100%;
+  height: 28px;
+  margin-top: 3px;
   overflow: hidden;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: 0.6875rem;
   font-weight: 600;
-  line-height: 1;
+  line-height: 14px;
+  text-align: center;
+  color: var(--fg);
+  /* 線が名前の上を横切っても字が読めるよう、地図の地の色で縁取る */
+  text-shadow:
+    0 0 2px var(--surface-alt),
+    0 0 2px var(--surface-alt),
+    0 0 3px var(--surface-alt);
+}
+.kind-ov-node--hub .kind-ov-name {
+  color: var(--link);
 }
 .kind-ov-count {
-  height: 18px;
+  text-shadow:
+    0 0 2px var(--surface-alt),
+    0 0 2px var(--surface-alt);
+  height: 15px;
   font-size: 0.6875rem;
-  line-height: 18px;
+  line-height: 15px;
   color: var(--muted);
   white-space: nowrap;
 }
