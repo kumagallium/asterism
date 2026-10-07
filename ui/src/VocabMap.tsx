@@ -586,7 +586,7 @@ function VocabMapInner({
   }, [fitKey, rf, updateNodeInternals])
 
   const [big, setBig] = useState(false)
-  const bigH = useBigViewHeight()
+  const bigH = useBigViewHeight(big)
 
   return (
     <div className="shape-graph vocab-map" style={{ height }} role="img" aria-label={ariaLabel}>

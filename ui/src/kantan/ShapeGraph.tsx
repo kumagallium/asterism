@@ -429,7 +429,7 @@ function ShapeGraphInner({
   /** 大きく見る。細い列に貼り付いた図は、節が増えると読める大きさで収まらない
    *  （利用者評価 2026-08-30）。同じ図を画面いっぱいで開く。 */
   const [big, setBig] = useState(false)
-  const bigH = useBigViewHeight()
+  const bigH = useBigViewHeight(big)
 
   return (
     <div

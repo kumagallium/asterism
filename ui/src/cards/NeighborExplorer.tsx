@@ -2,7 +2,7 @@
 // 図は GraphView（React Flow）。箱を押す＝選ぶ → 下の帯に操作を出す（ホバーでは
 // 出さない）。隣のデータは `GET /api/subjects/neighbors`。開くまで API を呼ばない
 // （親が開いたときだけこのコンポーネントを置く）。
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BigViewOverlay, ExpandButton } from '../BigView'
 import { bigGraphHeight, useBigViewHeight } from '../bigViewSize'
@@ -43,7 +43,15 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
   const [busy, setBusy] = useState(false)
   // 大きく見る。状態はここが持ち、描く場所だけ切り替える（2 つ目の図を作らない）。
   const [big, setBig] = useState(false)
-  const bigH = useBigViewHeight()
+  const bigH = useBigViewHeight(big)
+  // 大きく見るに切り替えると ExpandButton ごと別の枝に差し替わるため、閉じたあとは
+  // 作り直された ExpandButton へ自分でフォーカスを戻す（BigViewOverlay の戻し先は取り外し済み）。
+  const expandRef = useRef<HTMLButtonElement>(null)
+  const wasBigRef = useRef(false)
+  useEffect(() => {
+    if (wasBigRef.current && !big) expandRef.current?.focus()
+    wasBigRef.current = big
+  }, [big])
 
   useEffect(() => {
     let cancelled = false
@@ -253,7 +261,7 @@ export function NeighborExplorer({ iri, onOpenSubject, onOpenSet }: NeighborExpl
         </>
       ) : (
         <div className="explorer-graph-wrap">
-          <ExpandButton onClick={() => setBig(true)} />
+          <ExpandButton ref={expandRef} onClick={() => setBig(true)} />
           {body}
         </div>
       )}

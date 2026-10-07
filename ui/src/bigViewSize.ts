@@ -17,13 +17,16 @@ export function bigGraphHeight(bigH: number, reserve = 160): number {
   return Math.max(320, bigH - reserve)
 }
 
-/** 窓の大きさに追従する {@link bigViewHeight}。 */
-export function useBigViewHeight(): number {
+/** 窓の大きさに追従する {@link bigViewHeight}。active が true のあいだだけ resize を購読する
+ *  （開いていない図が窓のリサイズで再描画されないように）。 */
+export function useBigViewHeight(active: boolean): number {
   const [h, setH] = useState(() => bigViewHeight(window.innerHeight))
   useEffect(() => {
+    if (!active) return
     const onResize = () => setH(bigViewHeight(window.innerHeight))
+    onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [])
+  }, [active])
   return h
 }
