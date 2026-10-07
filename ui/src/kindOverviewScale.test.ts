@@ -9,6 +9,8 @@ import {
   countCrossings,
   edgeClassName,
   focusOverview,
+  FOCUS_MAX_DATASETS,
+  FOCUS_MAX_HUBS,
   KIND_LEVEL_MAX_DATASETS,
   KIND_LEVEL_MAX_KINDS,
   layoutDatasetOverview,
@@ -253,6 +255,24 @@ describe('フォーカスの入力の絞り方', () => {
     expect(l.frames.find((x) => x.id === 'live-d1')!.omitted).toBe(2)
     expect(l.frames.find((x) => x.id === 'live-d0')!.omitted).toBeUndefined()
     expect(l.hubs).toHaveLength(1)
+  })
+  it('参加者が多くても周りの図は窓に収まる（他は FOCUS_MAX_DATASETS 個・ハブは FOCUS_MAX_HUBS 個まで）', () => {
+    const big = makeScale(100, 20, 30, 30)
+    const d = focusOverview(big, { type: 'dataset', id: 'live-d0' })!
+    expect(d.input.datasets.length).toBeLessThanOrEqual(FOCUS_MAX_DATASETS + 1)
+    expect(d.input.crosswalks!.length).toBeLessThanOrEqual(FOCUS_MAX_HUBS)
+    expect(d.hiddenHubs).toBeGreaterThanOrEqual(0)
+    const dl = layoutKindOverview(d.input)
+    expect(dl.height).toBeLessThan(2500)
+    const h = focusOverview(big, { type: 'hub', id: 'hub:p0:c0' })!
+    expect(h.input.datasets).toHaveLength(FOCUS_MAX_DATASETS)
+    expect(h.hiddenDatasets).toBe(30 - FOCUS_MAX_DATASETS)
+    expect(layoutKindOverview(h.input).height).toBeLessThan(2500)
+  })
+  it('省いた数は上限以内なら 0', () => {
+    const f = focusOverview(inp, { type: 'dataset', id: 'live-d0' })!
+    expect(f.hiddenDatasets).toBe(0)
+    expect(f.hiddenHubs).toBe(0)
   })
   it('存在しない id は null', () => {
     expect(focusOverview(inp, { type: 'dataset', id: 'nope' })).toBeNull()

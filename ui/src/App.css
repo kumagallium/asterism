@@ -9850,6 +9850,15 @@ tr.kz-cols-dropped td {
 .vocab-map .kind-ov-edge.is-hot .react-flow__edge-path {
   stroke-width: 3;
 }
+/* 線の title（「N 種類が参加」）を受ける。選べない線は React Flow が pointer-events:none にするので、
+   見えない当たり判定の線だけ戻す。 */
+.vocab-map .kind-ov-edge .react-flow__edge-interaction {
+  pointer-events: stroke;
+}
+.kind-ov-hidden {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
 /* 周りだけ開いた図の上の「全体に戻る」と今見ているもの */
 .kind-ov-focusbar {
   position: absolute;

@@ -327,7 +327,16 @@ export function VocabMapSection({
           onOpenDataset={onOpenDataset}
           onOpenCrosswalk={onOpenCrosswalk}
           onFocus={setFocus}
-          focus={focused ? { label: focused.label, onBack: () => setFocus(null) } : undefined}
+          focus={
+            focused
+              ? {
+                  label: focused.label,
+                  onBack: () => setFocus(null),
+                  hiddenDatasets: focused.hiddenDatasets,
+                  hiddenHubs: focused.hiddenHubs,
+                }
+              : undefined
+          }
         />
       ) : (
         <VocabMap shape={shape} ariaLabel={t('vocab:map.aria')} onOpenDataset={onOpenDataset} />

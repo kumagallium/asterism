@@ -291,7 +291,7 @@ function KindOverviewInner({
   /** データセットごとの俯瞰で丸・ハブを押したときの行き先（その周りだけを開く）。 */
   onFocus?: (f: OverviewFocus) => void
   /** 周りだけ開いているとき: いま見ているものの名前と、全体へ戻る操作。 */
-  focus?: { label: string; onBack: () => void }
+  focus?: { label: string; onBack: () => void; hiddenDatasets?: number; hiddenHubs?: number }
   maxHeight?: number
   zoomable?: boolean
   /** 右上の「大きく見る」（重ね表示の中では出さない）。 */
@@ -300,7 +300,10 @@ function KindOverviewInner({
   const { t } = useTranslation()
   const [big, setBig] = useState(false)
   const bigH = useBigViewHeight(big)
-  const [active, setActive] = useState<string | null>(null)
+  // 強調する id は「どの図の」ものかも持つ。図が切り替わったら（押した丸の DOM が消えて
+  // mouseleave が来なくても）古い id は無いものとして扱う。
+  const [hover, setHover] = useState<{ layout: OverviewLayout; id: string } | null>(null)
+  const active = hover && hover.layout === layout ? hover.id : null
   const { nodes, edges: baseEdges } = useMemo(
     () =>
       toFlow(layout, {
@@ -350,10 +353,13 @@ function KindOverviewInner({
   )
 
   const height = Math.min(maxHeight, Math.max(260, layout.height + 48))
-  const onEnter = useCallback((_: unknown, node: Node) => {
-    if (node.type === 'circle') setActive(node.id)
-  }, [])
-  const onLeave = useCallback(() => setActive(null), [])
+  const onEnter = useCallback(
+    (_: unknown, node: Node) => {
+      if (node.type === 'circle') setHover({ layout, id: node.id })
+    },
+    [layout],
+  )
+  const onLeave = useCallback(() => setHover(null), [])
   const fitKey = useMemo(
     () => nodes.map((n) => n.id).join('|') + '#' + edges.length + '#' + layout.width + 'x' + layout.height,
     [nodes, edges, layout],
@@ -380,6 +386,12 @@ function KindOverviewInner({
             {t('vocab:overview.back')}
           </button>
           <span className="kind-ov-around">{t('vocab:overview.around', { name: focus.label })}</span>
+          {(focus.hiddenDatasets ?? 0) > 0 && (
+            <span className="kind-ov-hidden">{t('vocab:overview.hiddenDatasets', { n: focus.hiddenDatasets })}</span>
+          )}
+          {(focus.hiddenHubs ?? 0) > 0 && (
+            <span className="kind-ov-hidden">{t('vocab:overview.hiddenHubs', { n: focus.hiddenHubs })}</span>
+          )}
         </div>
       )}
       {expandable && <ExpandButton onClick={() => setBig(true)} />}
@@ -436,7 +448,7 @@ export function KindOverview(props: {
   onOpenDataset?: (datasetId: string) => void
   onOpenCrosswalk?: () => void
   onFocus?: (f: OverviewFocus) => void
-  focus?: { label: string; onBack: () => void }
+  focus?: { label: string; onBack: () => void; hiddenDatasets?: number; hiddenHubs?: number }
   maxHeight?: number
   zoomable?: boolean
   expandable?: boolean

@@ -90,6 +90,10 @@ export function collectHubs(input: OverviewInput): HubInfo[] {
 // ── フォーカス（周りだけ開く） ──
 export type OverviewFocus = { type: 'dataset' | 'hub'; id: string }
 
+/** 周りだけ開くとき、描く他のデータセット・ハブの上限（超えたら「ほか N 個」にまとめる）。 */
+export const FOCUS_MAX_DATASETS = 8
+export const FOCUS_MAX_HUBS = 6
+
 const classIriOf = (m: DatasetRules['maps'][number]) => (m.subject.class_iris ?? [])[0] ?? ''
 
 /**
@@ -101,17 +105,26 @@ const classIriOf = (m: DatasetRules['maps'][number]) => (m.subject.class_iris ??
 export function focusOverview(
   input: OverviewInput,
   focus: OverviewFocus,
-): { input: OverviewInput; label: string } | null {
+): { input: OverviewInput; label: string; hiddenDatasets: number; hiddenHubs: number } | null {
   const hubs = collectHubs(input)
   let label: string
   let chosen: HubInfo[]
+  let hiddenHubs = 0
   // データセット id → 残す種類 IRI（null = 全部）
   const keep = new Map<string, Set<string> | null>()
   if (focus.type === 'dataset') {
     const ds = input.datasets.find((d) => d.id === focus.id)
     if (!ds) return null
     label = ds.name
-    chosen = hubs.filter((h) => h.parts.some((p) => p.datasetId === ds.id))
+    const mine = hubs.filter((h) => h.parts.some((p) => p.datasetId === ds.id))
+    // 参加者の多いハブから FOCUS_MAX_HUBS 個（同数は入力順）。
+    chosen = mine
+      .map((h, i) => ({ h, i }))
+      .sort((a, b) => b.h.parts.length - a.h.parts.length || a.i - b.i)
+      .slice(0, FOCUS_MAX_HUBS)
+      .sort((a, b) => a.i - b.i)
+      .map((x) => x.h)
+    hiddenHubs = mine.length - chosen.length
     keep.set(ds.id, null)
   } else {
     const hub = hubs.find((h) => h.id === focus.id)
@@ -119,8 +132,18 @@ export function focusOverview(
     label = hub.label
     chosen = [hub]
   }
+  // 他のデータセットは、選んだハブを共有する数の多い順に FOCUS_MAX_DATASETS 個まで（同数は入力順）。
+  const shared = new Map<string, number>()
+  for (const h of chosen) for (const p of h.parts) shared.set(p.datasetId, (shared.get(p.datasetId) ?? 0) + 1)
+  const order = new Map(input.datasets.map((d, i) => [d.id, i]))
+  const others = [...shared.keys()]
+    .filter((id) => !(keep.has(id) && keep.get(id) === null))
+    .sort((a, b) => shared.get(b)! - shared.get(a)! || order.get(a)! - order.get(b)!)
+  const allowed = new Set(others.slice(0, FOCUS_MAX_DATASETS))
+  const hiddenDatasets = others.length - allowed.size
   for (const h of chosen) {
     for (const p of h.parts) {
+      if (!allowed.has(p.datasetId) && !(keep.has(p.datasetId) && keep.get(p.datasetId) === null)) continue
       if (keep.has(p.datasetId) && keep.get(p.datasetId) === null) continue
       if (!p.classIri) {
         keep.set(p.datasetId, null) // 種類を指していない参加者は絞れない（データセット全体）
@@ -156,7 +179,7 @@ export function focusOverview(
         : p.config,
     }))
     .filter((p) => (p.config?.concepts ?? []).length > 0)
-  return { input: { ...input, datasets, crosswalks, omitted }, label }
+  return { input: { ...input, datasets, crosswalks, omitted }, label, hiddenDatasets, hiddenHubs }
 }
 
 // ── 線の強弱 ──

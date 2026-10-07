@@ -112,6 +112,8 @@
     "hubBandHint": "Shared concepts that connect datasets",
     "back": "Back to overview",
     "around": "Around {{name}}",
+    "hiddenDatasets": "{{n}} more datasets not shown",
+    "hiddenHubs": "{{n}} more connections not shown",
     "leadDataset": "Each circle is a dataset; its size is the total record count of its kinds. The circles in the middle band are the links that connect datasets. Click a circle to open just the kinds around it.",
     "leadFocus": "Showing only what is around your choice, as kind circles. Use \"Back to overview\" to return."
   }
