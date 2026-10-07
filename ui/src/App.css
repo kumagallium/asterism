@@ -9752,6 +9752,229 @@ tr.kz-cols-dropped td {
   stroke: var(--activity);
 }
 
+/* 「全体」表示（KindOverview）: 種類の丸＝箱と同じ色、ハブ＝つながりの色、標準＝琥珀。
+   触れたときの見た目は CSS だけ（React の state に持たない）。 */
+.kind-ov-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+.kind-ov-circle {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 役割の色でうすく塗る（白は下書きに見える）。縁は役割の色を薄めたもの */
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.kind-ov-node--dataset .kind-ov-circle {
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+}
+.kind-ov-node:hover .kind-ov-circle {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.kind-ov-node--hub .kind-ov-circle {
+  background: var(--activity-soft);
+  border-color: color-mix(in srgb, var(--activity) 45%, transparent);
+  color: var(--activity);
+}
+.kind-ov-node--hub:hover .kind-ov-circle {
+  border-color: var(--activity);
+  box-shadow: 0 0 0 2px var(--activity-soft);
+}
+/* 丸の中の件数（半径 22 以上のとき・短い形） */
+.kind-ov-inside {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: inherit;
+}
+/* 全体図の枠と帯: 点線をやめて、うすい面に（「詳しく」の .vocab-map-cluster は変えない） */
+.vocab-map-cluster.kind-ov-frame {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.kind-ov-band {
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.5rem 0.8rem;
+}
+.kind-ov-band .vocab-map-cluster-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fg);
+  margin-right: 0.8rem;
+}
+.kind-ov-band .vocab-map-band-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.kind-ov-band--hubs {
+  background: color-mix(in srgb, var(--activity-soft) 60%, transparent);
+}
+.kind-ov-band--std {
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+}
+.kind-ov-name {
+  /* 丸の下に 2 行まで（続きは節の title で読む） */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  width: 100%;
+  height: 28px;
+  margin-top: 3px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  color: var(--fg);
+  /* 線が名前の上を横切っても字が読めるよう、地図の地の色で縁取る */
+  text-shadow:
+    0 0 2px var(--surface-alt),
+    0 0 2px var(--surface-alt),
+    0 0 3px var(--surface-alt);
+}
+.kind-ov-node--hub .kind-ov-name {
+  color: var(--activity);
+}
+.kind-ov-count {
+  text-shadow:
+    0 0 2px var(--surface-alt),
+    0 0 2px var(--surface-alt);
+  height: 15px;
+  font-size: 0.6875rem;
+  line-height: 15px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.kind-ov-frame.is-clickable {
+  cursor: pointer;
+}
+.vocab-map-cluster.kind-ov-frame.is-clickable:hover {
+  border-color: var(--primary);
+}
+.vocab-map .kind-ov-edge--hub .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--activity) 55%, transparent);
+  stroke-width: 2;
+}
+/* 全体では確定の使用だけを描くので実線（点線は「詳しく」の候補だけ） */
+.vocab-map .kind-ov-edge--standard .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 1.2;
+}
+.vocab-map .kind-ov-edge--alignment .react-flow__edge-path {
+  stroke: var(--activity);
+  stroke-dasharray: 5 4;
+}
+/* 枠の「ほか N 種類」（周りだけ開いたとき・名前の下） */
+.kind-ov-frame-omitted {
+  position: absolute;
+  top: 24px;
+  left: 14px;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+/* 線の強弱: 丸・ハブに載せたとき、つながる線を濃く・他を薄く（className で切り替える） */
+.vocab-map .kind-ov-edge.is-dim {
+  opacity: 0.12;
+}
+.vocab-map .kind-ov-edge.is-hot .react-flow__edge-path {
+  stroke-width: 3;
+}
+/* 線の title（「N 種類が参加」）を受ける。選べない線は React Flow が pointer-events:none にするので、
+   見えない当たり判定の線だけ戻す。 */
+.vocab-map .kind-ov-edge .react-flow__edge-interaction {
+  pointer-events: stroke;
+}
+.kind-ov-hidden {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+/* 周りだけ開いた図の上の「全体に戻る」と今見ているもの */
+.kind-ov-focusbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.kind-ov-back {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.kind-ov-back:hover {
+  border-color: var(--primary);
+}
+.kind-ov-around {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.vocab-map-leg-line--hub {
+  stroke: color-mix(in srgb, var(--activity) 55%, transparent);
+}
+/* 凡例「丸の大きさ＝件数」の小さい丸と大きい丸 */
+.vocab-map-leg-circle {
+  fill: var(--primary-soft);
+  stroke: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.vocab-map-toggle {
+  display: inline-flex;
+  margin: 0 0 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.vocab-map-toggle-btn {
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border-strong);
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.vocab-map-toggle-btn:last-child {
+  border-right: none;
+}
+.vocab-map-toggle-btn:hover:not(.is-on) {
+  background: var(--surface-alt);
+}
+.vocab-map-toggle-btn.is-on {
+  background: var(--primary-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+
 /* つながりの削除 — 押し間違いを誘わない控えめな危険ボタン（confirm が本丸）。 */
 .xw-delete-btn {
   color: var(--error-fg);

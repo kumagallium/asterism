@@ -83,5 +83,39 @@
     "sosa": "SOSA/SSN (observations, sensors, samples)",
     "emmo": "EMMO (shared words for materials science)",
     "cmso": "CMSO (shared words for crystal structure, composition and defects)"
+  },
+  "overview": {
+    "toggleAria": "Switch how the map is shown",
+    "all": "Overview",
+    "detail": "Detailed",
+    "aria": "Overview of the dataset kinds and connections",
+    "count": "{{n}} items",
+    "lead": "Each circle is a kind, sized by how many there are. The circles in the middle are the connections that tie datasets together. Switch to Detailed to see the fields.",
+    "stats": {
+      "hubs": "connections",
+      "standards": "standard terms",
+      "records": "records (sum over kinds)"
+    },
+    "unnamedHub": "Unnamed connection",
+    "legend": {
+      "link": "Link inside the data",
+      "hub": "Kind taking part in a connection",
+      "standard": "Uses a standard term",
+      "alignment": "Match between datasets",
+      "size": "Circle size = number of items (smallest to largest shown)",
+      "hubDataset": "Datasets that take part in a link"
+    },
+    "datasetKinds": "{{kinds}} kinds",
+    "datasetKindsCount": "{{kinds}} kinds · {{n}} records",
+    "omitted": "and {{n}} more kinds",
+    "participates": "{{n}} kinds take part",
+    "hubBandTitle": "Links",
+    "hubBandHint": "Shared concepts that connect datasets",
+    "back": "Back to overview",
+    "around": "Around {{name}}",
+    "hiddenDatasets": "{{n}} more datasets not shown",
+    "hiddenHubs": "{{n}} more connections not shown",
+    "leadDataset": "Each circle is a dataset; its size is the total record count of its kinds. The circles in the middle band are the links that connect datasets. Click a circle to open just the kinds around it.",
+    "leadFocus": "Showing only what is around your choice, as kind circles. Use \"Back to overview\" to return."
   }
 }
