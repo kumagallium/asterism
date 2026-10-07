@@ -203,6 +203,41 @@ describe('ウィザードが保管庫に書く場所', () => {
     expect(screen).toContain('void saveMeaningsAndReturn()')
   })
 
+  /** `saveMeaningsAndReturn` の本体。 */
+  function saveBody(): string {
+    const start = source.indexOf('async function saveMeaningsAndReturn(')
+    expect(start).toBeGreaterThan(0)
+    return source.slice(start, source.indexOf('\n  }\n', start))
+  }
+
+  it('③の保存は、ソースをまだ付けていないデータセットでも通る（staging_id を渡す）', () => {
+    // データセットはできたのに取り込みの前に止まったとき、サーバは staged の写しを
+    // 設計時のソースとして読む。渡さないと 409 で保存が落ちる（#682 の log の残 ④）。
+    expect(saveBody()).toContain('saveColumnDecisions(datasetId, drops, stagingId, withdrawn)')
+  })
+
+  it('③の保存で設計が変わったら、取り込み直してから「ためす」へ出る', () => {
+    // 取り込んでいた列を外すとサーバは設計を書き換えて `requires_reingest` を返す。
+    // 見ずに「ためす」へ出ると、下書きのデータが設計と食い違う（残 ③）。
+    const body = saveBody()
+    expect(body).toContain('result.requires_reingest')
+    expect(body).toContain("runPipeline('ingest', result.proposal_md)")
+    // 取り込み直す道は素の confirmMeanings() を通らない（取り込みの完了が着地させる）。
+    const branch = body.slice(body.indexOf('result.requires_reingest'), body.indexOf('return'))
+    expect(branch).not.toContain('confirmMeanings(')
+  })
+
+  it('「最初から」で再開始すると、③で決めたこと（意味・「取り込まない」）は消える', () => {
+    // 残すと、同じ列名のファイルを置き直したとき、前の実行で外した列が新しい実行の
+    // ③に外れたまま出て、そのまま進めば作る保存に載る（残 ⑥）。
+    const start = source.indexOf('function resetWizardToStart(')
+    expect(start).toBeGreaterThan(0)
+    const body = source.slice(start, source.indexOf('\n  }\n', start))
+    expect(body).toContain('setSettledMeanings([])')
+    expect(body).toContain('setExcludedColumns([])')
+    expect(body).toContain('openedMeaningsRef.current = null')
+  })
+
   it('データセットを作る保存は、どの呼び出しも設計の前に決めたことを渡す', () => {
     const calls = [...source.matchAll(/materializeSchema\(([^)]*)\)/g)].map((m) => m[1])
     expect(calls.length).toBeGreaterThan(0)

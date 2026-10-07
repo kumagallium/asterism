@@ -425,6 +425,10 @@
     "ok": "問題なさそう — 公開へ",
     "back": "何かおかしい — ③ 意味をつける に戻る",
     "notTakenIn": "まだ取り込まれていない列が {{count}} 件あります（{{list}} など）。「③ 意味をつける」でその列に意味を入れると、次の取り込みから入ります。",
+    "keptExclusions": "「取り込まない」にできなかった列が {{count}} 件あります: {{list}}。この列は取り込んでいます。ID の作り方を変えるなら「⑤ かたちをたしかめる に戻る」で戻れます。",
+    "keptExclusionWhy_identifier": "{{column}}（ID を作る列）",
+    "keptExclusionWhy_only": "{{column}}（その種類のただ 1 つの項目）",
+    "keptExclusionWhy_other": "{{column}}",
     "diagramNote": "この設計でできる形です。線は「この種類が、この種類を指している」という意味です。"
   },
   "s8": {

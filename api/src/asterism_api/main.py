@@ -5428,11 +5428,31 @@ def _artifacts_from_document(
     return artifacts, list(mat.warnings)
 
 
+#: Fixed phrase of the advisory a minting save leaves for an exclusion the
+#: design could not honor. The UI classifies advisories by such phrases
+#: (``ui/src/advisoryPlain.ts``) — change both or neither.
+_KEPT_EXCLUSION_MARKER = "stays in the design although it was marked do-not-take-in"
+
+
+def _kept_exclusion_advisory(decision: Mapping[str, object], reason: str) -> str:
+    """The sentence for ONE exclusion the design kept (``_settle_on_minted_design``).
+
+    Same shape as the validators' review notes: column and source first, the
+    fixed phrase, then the reason as the mapping-spec patcher gave it (which
+    names the map and says whether the column mints the id or is the only thing
+    its kind records).
+    """
+    return (
+        f"column {decision.get('column')} of source {decision.get('source')} "
+        f"{_KEPT_EXCLUSION_MARKER}: {reason}"
+    )
+
+
 def _settle_on_minted_design(
     document_md: str, decisions: list[dict], meanings: list[dict]
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[dict], list[str]]:
     """Assert what was settled before the design on the document a NEW dataset
-    is about to be saved with. Returns ``(document, decisions to file)``.
+    is about to be saved with. Returns ``(document, decisions to file, advisories)``.
 
     Same contract as the design loop's own overlay
     (``design_loop._overlay_column_decisions``): the save that mints the dataset
@@ -5445,15 +5465,21 @@ def _settle_on_minted_design(
     * An exclusion the design cannot honor (the column mints an id, or it is the
       only thing its kind records — the loop left it in for the same reason) is
       NOT filed: the column is taken in, and a stored statement to the contrary
-      would make every later save of this dataset fail on it.
+      would make every later save of this dataset fail on it. It is SAID
+      instead — one advisory per such column, on the same list the other
+      design notes ride — because nothing else ever would: the store does not
+      hold it, so the meaning screen shows the column as taken in, and the
+      person who unticked it never learned why it is in the data (live
+      2026-10-05; kantan K-series, ADR meaning-before-identity §6).
     """
     if not decisions and not meanings:
-        return document_md, []
+        return document_md, [], []
     try:
         apply_column_decisions_to_document(document_md, [])
     except ValueError:
-        return document_md, decisions
+        return document_md, decisions, []
     placed: list[dict] = []
+    kept: list[str] = []
     for decision in decisions:
         try:
             document_md, _changed = apply_column_decisions_to_document(document_md, [decision])
@@ -5464,12 +5490,13 @@ def _settle_on_minted_design(
                 decision.get("source"),
                 exc,
             )
+            kept.append(_kept_exclusion_advisory(decision, str(exc)))
             continue
         placed.append(decision)
     if meanings:
         with contextlib.suppress(ValueError):
             document_md, _changed = apply_column_meanings_to_document(document_md, meanings)
-    return document_md, placed
+    return document_md, placed, kept
 
 
 def _refine_oracle(registry_root: Path, dataset_id: str | None, staging_id: str | None) -> str:
@@ -7753,8 +7780,9 @@ def build_app(
                 # it), but an AI fix round run before there was a dataset had
                 # nothing to restore from.
                 filed_decisions: list[dict] = []
+                kept_exclusions: list[str] = []
                 if not body.dataset_id:
-                    proposal_md, filed_decisions = _settle_on_minted_design(
+                    proposal_md, filed_decisions, kept_exclusions = _settle_on_minted_design(
                         proposal_md, minted_decisions, minted_meanings
                     )
                 mat = materialize_schema(
@@ -7845,6 +7873,12 @@ def build_app(
                     # "never uses" notice for those columns.
                     column_decisions=None if body.dataset_id else filed_decisions,
                 )
+                # An exclusion the minting save could not honor is said here,
+                # beside the other design notes (persisted with the dataset and
+                # returned to the wizard, which shows it on ためす). A later
+                # save of this dataset recomputes the list without it — the
+                # column is simply taken in from then on, as the store says.
+                design_advisories = [*design_advisories, *kept_exclusions]
                 # Mapping-spec parse/compile problems are the same class of
                 # advisory, readable design issue — surface them first (when the
                 # spec does not compile there IS no RML for the check above).

@@ -782,3 +782,59 @@ def test_the_first_save_never_fails_over_a_decision_the_design_cannot_place(
         assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == [
             {"source": "readings.csv", "column": "channel", "action": "exclude"}
         ]
+
+
+_KEPT = "stays in the design although it was marked do-not-take-in"
+
+
+def test_an_exclusion_the_design_cannot_place_is_said_in_the_advisories(
+    tmp_path: Path, healthy_client
+) -> None:
+    """守れなかった「取り込まない」は保管庫に書かない（上のテスト）。その代わり
+    advisories で言う — 言わないと、③を開き直すと「取り込む」と出るだけで、
+    外した人はなぜその列がデータに入っているのかを知る術が無い（残 ⑤）。
+    """
+    with _client(tmp_path, healthy_client) as client:
+        saved = _first_save(
+            client,
+            column_decisions=[
+                {"source": "readings.csv", "column": "reading_id", "action": "exclude"},
+                *_SETTLED_DROPS,
+            ],
+        )
+        said = [a for a in saved["advisories"] if _KEPT in a]
+        assert said == [a for a in saved["dataset"]["advisories"] if _KEPT in a], (
+            "データセットにも残る — カタログの「見直す」が運ぶ"
+        )
+        assert len(said) == 1, saved["advisories"]
+        # 列とソースを先に、理由（どの種類の ID を作るか）をあとに。
+        assert said[0].startswith(f"column reading_id of source readings.csv {_KEPT}: ")
+        assert "is an identifier for map 'reading'" in said[0]
+        # 守れた判断の列は言わない。
+        for drop in _SETTLED_DROPS:
+            assert f"column {drop['column']} of source" not in said[0]
+
+        # すでにあるデータセットへの保存は言い直さない — 保管庫に無い判断は、もう無い。
+        resaved = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _FIX_RECIPE_MD,
+                "dataset_name": "sensor",
+                "dataset_id": saved["dataset"]["id"],
+            },
+        )
+        assert resaved.status_code == 200, resaved.text
+        assert not any(_KEPT in a for a in resaved.json()["advisories"])
+
+        # その種類のただ 1 つの項目になる列も、理由つきで言う。
+        saved = _first_save(
+            client,
+            column_decisions=[
+                {"source": "readings.csv", "column": "channel", "action": "exclude"},
+                {"source": "readings.csv", "column": "amplitude", "action": "exclude"},
+            ],
+        )
+        said = [a for a in saved["advisories"] if _KEPT in a]
+        assert len(said) == 1, saved["advisories"]
+        assert said[0].startswith(f"column amplitude of source readings.csv {_KEPT}: ")
+        assert "is the only property of map 'reading'" in said[0]
