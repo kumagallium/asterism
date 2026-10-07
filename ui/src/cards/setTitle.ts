@@ -46,6 +46,14 @@ export function formatClause(clause: SetResolveClause, t: Translate): string {
     }
     case 'in':
       return t('cards:set.op.in', { property: clause.property_label, values: valuesOf(clause.value).join('・') })
+    case 'link':
+      return t('cards:set.op.link', { property: clause.property_label, value: formatValue(clause.value) })
+    case 'via':
+      return t('cards:set.op.via', {
+        property: clause.property_label,
+        via: clause.via_property_label ?? '',
+        value: formatValue(clause.value),
+      })
     default:
       return clause.property_label
   }

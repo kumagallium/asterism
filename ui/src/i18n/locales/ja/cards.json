@@ -179,7 +179,9 @@
       "lt": "{{property}} が {{value}} より小さい",
       "eq": "{{property}} が {{value}}",
       "between": "{{property}} が {{range}}",
-      "in": "{{property}} が {{values}} のいずれか"
+      "in": "{{property}} が {{values}} のいずれか",
+      "link": "{{property}} が {{value}}",
+      "via": "{{property}} の {{via}} が {{value}}"
     }
   },
   "setform": {
@@ -471,5 +473,31 @@
     "partial": "全 {{total}} 件のうち {{shown}} 件を出しています。",
     "partial_lower_bound": "{{total}} 件以上のうち {{shown}} 件を出しています。",
     "more": "{{shown}} 件を出しています。ほかにもあります。"
+  },
+  "explore": {
+    "button": "つながりを図で見る",
+    "button_close": "つながりの図を閉じる",
+    "title": "つながりの図",
+    "aria": "{{label}} のつながりの図",
+    "loading": "つながりを読み込んでいます…",
+    "error": "つながりを読み込めませんでした。",
+    "empty": "この 1 件には、つながる先がまだありません。",
+    "bundle_name": "{{name}} {{count}} 件",
+    "bundle_rest": "ほか {{name}} {{count}} 件",
+    "hub_tag": "同じものとして束ねたもの",
+    "open_neighbors": "隣をひらく",
+    "collapse": "たたむ",
+    "open_page": "このページを開く",
+    "open_list": "一覧で開く",
+    "peek": "中を見る",
+    "set_hint": "{{count}} 件あります。一覧で開くと全部を見られます。",
+    "peek_hint": "{{count}} 件あります。中を見ると、先頭の何件かを箱にします。",
+    "rest_note": "残り {{n}} 件は図に出していません。",
+    "limit": "図の箱が {{max}} を超えるので、これ以上はひらけません。いらない箱をたたむか、一覧で開いてください。",
+    "limit_initial": "つながりが多く、最初から図の箱が {{max}} を超えています。これ以上はひらけません。続きは、箱を選んで「このページを開く」で、その 1 件から見てください。",
+    "action_error": "うまく進められませんでした。もう一度試してください。",
+    "no_neighbors": "この箱には、ほかにつながる先がありません。",
+    "truncated": "つながりが多いため、一部の隣は図に出していません。",
+    "legend": "箱を押すと、下に操作が出ます。線の名前は、選んだ箱の線にだけ出します。点線の札は、中に何件かあるまとまりです。"
   }
 }

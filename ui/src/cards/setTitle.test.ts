@@ -32,6 +32,28 @@ describe('formatClause', () => {
     expect(out).toContain('"range":"10〜2,000 mm"')
   })
 
+  it('link: 線の条件は相手の 1 件の名前をそのまま出す（桁区切りしない）', () => {
+    const clause: SetResolveClause = { property_label: '借りた人', op: 'link', value: '利用者 A', unit: null }
+    const out = formatClause(clause, t)
+    expect(out).toContain('cards:set.op.link')
+    expect(out).toContain('"value":"利用者 A"')
+    expect(out).toContain('"property":"借りた人"')
+  })
+
+  it('via: 経由する線の名前も渡す', () => {
+    const clause: SetResolveClause = {
+      property_label: '観測点',
+      op: 'via',
+      value: '港の観測所',
+      unit: null,
+      via_property_label: '所属',
+    }
+    const out = formatClause(clause, t)
+    expect(out).toContain('cards:set.op.via')
+    expect(out).toContain('"via":"所属"')
+    expect(out).toContain('"value":"港の観測所"')
+  })
+
   it('in: 値を「・」でつなぐ', () => {
     const clause: SetResolveClause = { property_label: 'ジャンル', op: 'in', value: ['fiction', 'poetry'] }
     const out = formatClause(clause, t)

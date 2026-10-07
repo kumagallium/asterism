@@ -42,12 +42,14 @@ export interface ViewSpec {
 /** Vega-Lite の JSON。データは spec.data.values に埋め込む。 */
 export type VegaLiteSpec = Record<string, unknown>
 
-export type GraphNodeKind = 'entity' | 'activity' | 'other'
+export type GraphNodeKind = 'entity' | 'activity' | 'other' | 'hub' | 'bundle'
 export interface GraphNode {
   id: string
   label: string
   kind: GraphNodeKind
   props?: Record<string, string>
+  /** 1 件から広げる図の中心の箱（印を付ける）。 */
+  center?: boolean
 }
 export interface GraphEdge {
   from: string
