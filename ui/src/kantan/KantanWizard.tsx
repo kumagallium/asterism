@@ -51,7 +51,14 @@ import {
   type PublishedNames,
   type TrialQueries,
 } from '../api'
-import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
+import {
+  advisoryLabel,
+  isMeaningReviewAdvisory,
+  keptExclusionsOf,
+  plainAdvisories,
+  plainIssues,
+  type KeptExclusion,
+} from '../advisoryPlain'
 import { assembleSkeleton } from '../api'
 import { commitAsKnownShape, matchKnownShape, type KnownShapeMatch } from '../cards/PlaceView'
 import { registerSuggestionApplier } from '../consult/consultApply'
@@ -1308,6 +1315,11 @@ export function KantanWizard({
 
   // S7: the automatic try-it-out queries (ADR K9 — auto-run, never a button).
   const [trial, setTrial] = useState<TrialQueries | null>(null)
+  // ③で「取り込まない」にしたのに設計が外せなかった列（ID を作る列・その種類の
+  // ただ 1 つの項目）。作る保存が advisories で言い残し、ここで「ためす」に出す —
+  // 保管庫には書かれないので、③を開き直すと「取り込む」と出るだけで、言わないと
+  // 外した人はなぜその列がデータに入っているのかを知れない（残 ⑤・2026-10-07）。
+  const [keptExclusions, setKeptExclusions] = useState<KeptExclusion[]>([])
   const [trialLoading, setTrialLoading] = useState(false)
   const [trialErr, setTrialErr] = useState('')
   // 見直しの「ためす」: 保存した名前のうち、公開側にまだ出ていないもの。意味だけを
@@ -1376,6 +1388,7 @@ export function KantanWizard({
     setCarriedAdvisories(
       (redesignTarget.advisories ?? []).filter((advisory) => !isMeaningReviewAdvisory(advisory)),
     )
+    setKeptExclusions(keptExclusionsOf(redesignTarget.advisories ?? []))
     // ④の ☑（linkChecked）は、この見直しぶんを読み戻すまで「まだ分からない」
     // 扱いにする（F15 契約メモ §1.1 — 見直しで ☑ を消さないため）。
     setLinkChecked(new Set())
@@ -2494,6 +2507,7 @@ export function KantanWizard({
   function resetPipelineState() {
     setKzDatasetId(null)
     setKzDatasetName(null)
+    setKeptExclusions([])
     setGateSkeleton(null)
     setSourceColumns([])
     setReturnedFromDetail(false)
@@ -3770,6 +3784,8 @@ export function KantanWizard({
         // legitimately single-purpose. So: show it, and let the human choose —
         // "AI に直してもらう" or "このまま進む" (which resumes at attach).
         const advisories = result.advisories ?? []
+        // 作る保存だけが言う（できたあとの保存は言い直さない＝空に戻る）。
+        setKeptExclusions(keptExclusionsOf(advisories))
         // An unused column is not an AI repair task: whether it carries meaning
         // worth publishing is knowledge only the person who owns the file has.
         // Let ingest finish and ask that question in S6. Other weaknesses (for
@@ -5849,6 +5865,18 @@ export function KantanWizard({
                 list: notTakenIn
                   .slice(0, 4)
                   .map(({ column }) => column)
+                  .join('、'),
+              })}
+            </p>
+          )}
+          {/* ③で外したのに設計が外せなかった列。判断は求めない — 取り込まれて
+              いる事実と理由、変えるならどこへ戻るか、だけ言う。 */}
+          {keptExclusions.length > 0 && (
+            <p className="kz-note kz-prose">
+              {t('kantan:s7.keptExclusions', {
+                count: keptExclusions.length,
+                list: keptExclusions
+                  .map((k) => t(`kantan:s7.keptExclusionWhy_${k.why}`, { column: k.column }))
                   .join('、'),
               })}
             </p>
