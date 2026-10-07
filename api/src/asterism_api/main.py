@@ -61,6 +61,7 @@ from asterism import (
 )
 from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
+from asterism.kind_counts import kind_counts
 from asterism.metadata import (
     fetch_metadata_graph,
     graph_from_turtle,
@@ -11245,6 +11246,17 @@ def build_app(
                 "relations": sorted(crosswalk_runtime.ALIGN_RELATIONS),
             }
         )
+
+    @app.get("/api/kinds/counts")
+    async def kinds_counts_route() -> dict[str, object]:
+        """種類ごとの件数をデータセット（版 graph）単位で返す（shared-vocab-graph.md §5）。
+
+        `schema_summary` のクラス件数は全データセットの合計で上位 50 で切られる。
+        こちらは graph × 種類 × 件数をそのまま返し、行数の上限を超えたら
+        `truncated: true`（黙って欠けさせない）。読むのは公開済みの graph だけで、
+        公開 0 件なら SPARQL を投げずに空を返す。"""
+        client: OxigraphClient = app.state.client
+        return await kind_counts(client)
 
     @app.get("/api/vocabularies")
     async def grounding_vocabularies() -> JSONResponse:

@@ -5,7 +5,7 @@
 // 1 データセット分の絵は ⑤/詳細の `rulesShape` と同じ判定で組む（同じ設計は
 // どの画面でも同じ形に見える）。すべて決定論・入力順を保つ。
 import type { Alignment } from './crosswalkApi'
-import type { DatasetRules, RuleMap, RuleProperty } from './galleryApi'
+import type { DatasetRules, KindCounts, RuleMap, RuleProperty } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import type { ShapeEdge, ShapeField, ShapeNode } from './shapeGraph'
 import { linksTo } from './shapeGraph'
@@ -148,10 +148,41 @@ export function collectStandardIris(
   return [...out]
 }
 
+/** `GET /api/kinds/counts` を、地図の節のデータセット id（カタログの `id`）→ 種類 IRI →
+ *  件数 に組み替える。API の `dataset_id` は登録 id なので、カタログ側を
+ *  `datasetApiId` で登録 id にして突き合わせる（⭐`live-…` のまま突き合わせると
+ *  一致が 0 件になり、件数が全部消える）。ハブ・未公開は対象外。
+ *  ⭐API が上限で切れた（`truncated`）ときは null。取れた分だけ渡すと、末尾側の
+ *  データセットの箱が件数なしで黙って欠けるので、従来の全体件数に落とす。 */
+export function classCountsByCatalogId(
+  counts: KindCounts,
+  datasets: { id: string; live?: { meta: { id: string } } | null }[],
+): Record<string, Record<string, number>> | null {
+  if (counts.truncated) return null
+  const byRegistered = new Map<string, Record<string, number>>()
+  for (const g of counts.graphs) {
+    if (g.hub || !g.dataset_id) continue
+    const m = byRegistered.get(g.dataset_id) ?? {}
+    for (const k of g.kinds) m[k.class_iri] = (m[k.class_iri] ?? 0) + k.count
+    byRegistered.set(g.dataset_id, m)
+  }
+  const out: Record<string, Record<string, number>> = {}
+  for (const d of datasets) {
+    const m = byRegistered.get(datasetApiId(d))
+    if (m) out[d.id] = m
+  }
+  return out
+}
+
 export function composeVocabGraph(inputs: {
   datasets: { id: string; name: string; rules: DatasetRules }[]
   /** クラス IRI → 実体の件数（公開グラフの実測）。未公開の設計は無くてよい。 */
   classCounts?: Record<string, number>
+  /** データセット id（`datasets[].id`）→ クラス IRI → 件数。渡されたときはこちらだけを
+   *  引く（同じ種類 IRI を別のデータセットが使っていても、その箱には自分の件数が出る。
+   *  全体の合計は混ぜない）。取れなかったとき（API 失敗・古いサーバ）は渡さず、
+   *  従来の `classCounts` に落とす。 */
+  classCountsByDataset?: Record<string, Record<string, number>>
   /** 語の名前 → 接地候補（POST /api/ground/terms の返答そのまま）。 */
   candidates?: Record<string, GroundCandidate[]>
   /** 語 IRI → カタログの名前（POST /api/ground/terms の `names`）。 */
@@ -168,6 +199,7 @@ export function composeVocabGraph(inputs: {
   const {
     datasets,
     classCounts = {},
+    classCountsByDataset,
     candidates = {},
     standardNames = {},
     alignments = [],
@@ -219,7 +251,8 @@ export function composeVocabGraph(inputs: {
       const nodeId = `${ds.id}::${m.id}`
       const classIri = (m.subject.class_iris ?? [])[0] ?? ''
       const kindLabel = kindLabelOf(ds.rules, m)
-      const count = classIri ? classCounts[classIri] : undefined
+      const countSource = classCountsByDataset ? (classCountsByDataset[ds.id] ?? {}) : classCounts
+      const count = classIri ? countSource[classIri] : undefined
       const own = m.properties.filter((p) => !linkTarget(ds.rules, p))
       items += m.properties.length
       const fields: ShapeField[] = own.slice(0, maxFields).map((p) => ({

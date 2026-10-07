@@ -329,6 +329,25 @@ export async function getDatasetRules(datasetId: string): Promise<DatasetRules> 
   return (await res.json()) as DatasetRules
 }
 
+/** 種類ごとの件数（データセット単位）。`GET /api/kinds/counts` の返答そのまま。
+ *  `dataset_id` は**登録 id**（カタログの `live-…` ではない — `datasetApiId` 参照）。 */
+export interface KindCounts {
+  graphs: {
+    graph: string
+    dataset_id: string | null
+    hub: boolean
+    kinds: { class_iri: string; count: number }[]
+  }[]
+  /** 行数の上限で切れたとき true（黙って欠けさせない）。 */
+  truncated: boolean
+}
+
+export async function getKindCounts(): Promise<KindCounts> {
+  const res = await fetch(`${API_BASE}/api/kinds/counts`)
+  if (!res.ok) throw new Error(await _errText(res, 'kind counts'))
+  return (await res.json()) as KindCounts
+}
+
 /** Raw artifact contents (file name → text), incl. proposal.md when stored.
  * The detail endpoint already ships every artifact; this surfaces them. */
 export async function getDatasetArtifactContents(
