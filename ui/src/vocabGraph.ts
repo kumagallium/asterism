@@ -86,7 +86,7 @@ function termName(rules: DatasetRules, p: RuleProperty): string {
 /** 図で人が読む種類名（`rulesShape` の既定ラベルと同じ優先順位）。
  *  `labels` の種類名は api がワークスペースと同じ読み手で引いてくる。ここに別の
  *  読み順を足さない（画面ごとに名前が食い違う）。 */
-function kindLabelOf(rules: DatasetRules, m: RuleMap): string {
+export function kindLabelOf(rules: DatasetRules, m: RuleMap): string {
   const classIri = (m.subject.class_iris ?? [])[0] ?? ''
   return (
     (classIri && rules.labels?.[classIri]) ||
