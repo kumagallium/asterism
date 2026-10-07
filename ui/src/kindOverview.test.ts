@@ -180,6 +180,14 @@ describe('layoutKindOverview — ハブ', () => {
     const l = layoutKindOverview(base({ crosswalks: [p] }))
     expect(l.hubs[0].label).toBe('名前のないつながり')
   })
+  it('hubCountsOf: 件数が切れたときは空（途中の件数を事実として描かない）', () => {
+    expect(
+      hubCountsOf({
+        truncated: true,
+        graphs: [{ graph: 'g2', dataset_id: null, hub: true, kinds: [{ class_iri: 'y', count: 3 }] }],
+      }),
+    ).toEqual({})
+  })
   it('hubCountsOf: ハブのグラフだけ集める', () => {
     expect(
       hubCountsOf({
@@ -233,5 +241,28 @@ describe('layoutKindOverview — 標準のことばと対応', () => {
     expect(a).toHaveLength(2)
     expect(a.every((x) => x.both)).toBe(true)
     expect(l.stds.map((s) => s.id)).toEqual(['https://schema.org/Place'])
+  })
+
+  it('対応: 同じ種類 IRI を複数のデータセットが名乗るときは全ての丸へ張る', () => {
+    const stationA = ds('sa', 'A社', rules([rmap('Station')]))
+    const stationB = ds('sb', 'B社', rules([rmap('Station')]))
+    const l = layoutKindOverview(
+      base({
+        datasets: [stationA, stationB, apple],
+        alignments: [
+          {
+            alignment_iri: 'x',
+            source: `${NS}Station`,
+            target: `${NS}Tree`,
+            relation: 'exactMatch',
+            from_perspective: '',
+            to_perspective: '',
+            at: '',
+          },
+        ],
+      }),
+    )
+    const a = l.edges.filter((x) => x.kind === 'alignment')
+    expect(a).toHaveLength(2)
   })
 })

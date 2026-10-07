@@ -64,6 +64,8 @@ export function fitName(label: string, r: number): string {
 /** `GET /api/kinds/counts` のうち、ハブのグラフの種類 IRI → 件数。 */
 export function hubCountsOf(counts: KindCounts): Record<string, number> {
   const out: Record<string, number> = {}
+  // 件数が上限で切れたら途中の件数は嘘になる。空にして「件数なし」の最小の丸に落とす。
+  if (counts.truncated) return out
   for (const g of counts.graphs) {
     if (!g.hub) continue
     for (const k of g.kinds) out[k.class_iri] = (out[k.class_iri] ?? 0) + k.count
@@ -343,29 +345,38 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     }
   }
   // 対応: 少なくとも片端が種類の丸。もう片端は種類・既知の語彙の語。項目の対応は描かない。
-  const circleOfIri = new Map<string, string>()
-  for (const c of circles) if (c.classIri && !circleOfIri.has(c.classIri)) circleOfIri.set(c.classIri, c.id)
+  // 同じ種類 IRI を複数のデータセットが名乗ることがある。対応はその全ての丸に張る（標準の線と揃える）。
+  const circlesOfIri = new Map<string, string[]>()
+  for (const c of circles) {
+    if (!c.classIri) continue
+    const list = circlesOfIri.get(c.classIri) ?? []
+    list.push(c.id)
+    circlesOfIri.set(c.classIri, list)
+  }
   const alignLinks: [string, string][] = []
   const alignSeen = new Set<string>()
-  for (const a of input.alignments ?? []) {
-    const ends = [a.source, a.target].map((iri) => circleOfIri.get(iri))
-    const resolveOther = (iri: string): string | undefined => {
-      if (circleOfIri.has(iri)) return circleOfIri.get(iri)
-      if (stdMap.has(iri)) return iri
-      if (usable(iri)) return iri
-      return undefined
-    }
-    let from: string | undefined
-    let to: string | undefined
-    if (ends[0] && ends[1]) [from, to] = [ends[0], ends[1]]
-    else if (ends[0]) [from, to] = [ends[0], resolveOther(a.target)]
-    else if (ends[1]) [from, to] = [resolveOther(a.source), ends[1]]
-    if (!from || !to || from === to) continue
+  const pushAlign = (from: string, to: string) => {
+    if (from === to) return
     const key = [from, to].sort().join('\u0000')
-    if (alignSeen.has(key)) continue
+    if (alignSeen.has(key)) return
     alignSeen.add(key)
     for (const id of [from, to]) if (!circleById.has(id)) ensureStd(id)
     alignLinks.push([from, to])
+  }
+  for (const a of input.alignments ?? []) {
+    const ends = [a.source, a.target].map((iri) => circlesOfIri.get(iri) ?? [])
+    const resolveOther = (iri: string): string[] => {
+      const own = circlesOfIri.get(iri)
+      if (own) return own
+      if (stdMap.has(iri) || usable(iri)) return [iri]
+      return []
+    }
+    let froms: string[] = []
+    let tos: string[] = []
+    if (ends[0].length && ends[1].length) [froms, tos] = [ends[0], ends[1]]
+    else if (ends[0].length) [froms, tos] = [ends[0], resolveOther(a.target)]
+    else if (ends[1].length) [froms, tos] = [resolveOther(a.source), ends[1]]
+    for (const f of froms) for (const t of tos) pushAlign(f, t)
   }
 
   const stdIds = [...stdMap.keys()]
