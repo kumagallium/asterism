@@ -1,5 +1,31 @@
 # Changelog
 
+## [v0.51.0](https://github.com/kumagallium/asterism/compare/v0.50.0...v0.51.0) - 2026-10-07
+
+- feat(site): 公開サイトのトップを LP に作り直す by @kumagallium in https://github.com/kumagallium/asterism/pull/667
+- feat(site): トップの LP を「表」から「データの見方」へ書き直す by @kumagallium in https://github.com/kumagallium/asterism/pull/669
+- docs(manual): Word・PDF の取り込みと ID の引っ越しの言い切りを実装に合わせる by @kumagallium in https://github.com/kumagallium/asterism/pull/670
+- fix: 取り込めない Word・PDF を「取り込める」と案内しない — 変換の可否をサーバが画面に伝え、置く前に出し分ける by @kumagallium in https://github.com/kumagallium/asterism/pull/672
+- fix: 「ID の引っ越し」の知らせを詳細画面の公開確認にも出す — 戻り道を実際のボタン名に合わせ、古い記録が残る穴をふさぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/671
+- fix(ui/kantan): 「意味をつける」の戻るボタンが空の画面で行き止まりになる穴を塞ぐ by @kumagallium in https://github.com/kumagallium/asterism/pull/674
+- fix: 「ID の引っ越し」の知らせ — 引っ越し先を記録できなかったときも、どのファイルのぶんかを言う by @kumagallium in https://github.com/kumagallium/asterism/pull/675
+- fix: 利用者の置いたファイル名を覚えて、知らせ・取り込み元・アクティビティはその名前で言う by @kumagallium in https://github.com/kumagallium/asterism/pull/676
+- fix(local): よそのサイトと DNS リバインディングからの書き込みを入口で断る — トークン注入の外側に門を置く by @kumagallium in https://github.com/kumagallium/asterism/pull/679
+- chore(ui/kantan): 畳んだ「数の確認」の残骸を片付ける — 死んだ文言と分岐を消し、マニュアルを今の画面に合わせる by @kumagallium in https://github.com/kumagallium/asterism/pull/677
+- fix: 見直しの「ためす」が言うことを、実際の動きに合わせる — 「公開へ」と言うのに見直しを終えるだけだった by @kumagallium in https://github.com/kumagallium/asterism/pull/680
+- feat(kantan): 意味を直して保存した名前を、取り込み直さずに公開側へ出す — 見直しの「ためす」に「項目名の公開を更新する」 by @kumagallium in https://github.com/kumagallium/asterism/pull/681
+- fix(kantan): ③の「取り込まない」と意味を、データセットを作る保存で保管庫に書く by @kumagallium in https://github.com/kumagallium/asterism/pull/682
+- feat(desktop): pandoc を同梱する — デスクトップ版でも Word を取り込める by @kumagallium in https://github.com/kumagallium/asterism/pull/673
+- feat(desktop): PDF を読み取る部品をあとから入れる — デスクトップ版でも PDF を取り込める by @kumagallium in https://github.com/kumagallium/asterism/pull/678
+- feat(api): 1 件の隣を 1 段返す GET /api/subjects/neighbors — 多い隣は束にして件数だけ返す by @kumagallium in https://github.com/kumagallium/asterism/pull/685
+- feat(ui): 1 件のページに「つながりを図で見る」 — 隣を 1 段ずつ広げ、多い隣は束から一覧で開く by @kumagallium in https://github.com/kumagallium/asterism/pull/686
+- fix(kantan): ③を保存せずに出たとき、書きかけを捨てる — 「ためすに戻る」で残した state を⑤のやり直しが設計に送っていた by @kumagallium in https://github.com/kumagallium/asterism/pull/683
+- feat(kinds): 種類ごとの件数をデータセット単位で返し、地図の箱はそれを先に引く — GET /api/kinds/counts by @kumagallium in https://github.com/kumagallium/asterism/pull/684
+- fix(kantan): ③の保存の残り 3 つ — 設計が変わったら取り込み直す・取り込み前でも保存できる・再開始で③の state を消す by @kumagallium in https://github.com/kumagallium/asterism/pull/687
+- feat(kantan): 設計が守れなかった「取り込まない」を、作る保存が言い残して「ためす」に出す by @kumagallium in https://github.com/kumagallium/asterism/pull/690
+- feat(ui): 図を「大きく見る」を共通部品にし、つながりの図にも付ける — ひらいた状態のまま窓いっぱいに by @kumagallium in https://github.com/kumagallium/asterism/pull/688
+- feat(ui): 「共通のことば」の地図に「全体」表示 — 規模に合わせてデータセットごとに畳み、押すと周りだけ種類まで開く by @kumagallium in https://github.com/kumagallium/asterism/pull/689
+
 ## [v0.50.0](https://github.com/kumagallium/asterism/compare/v0.49.1...v0.50.0) - 2026-10-02
 
 - fix: 図の点を一覧の件数の上限で先頭から切らない — 全範囲を覆って間引き、切れたら必ず言う by @kumagallium in https://github.com/kumagallium/asterism/pull/663
