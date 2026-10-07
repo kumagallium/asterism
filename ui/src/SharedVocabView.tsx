@@ -179,6 +179,8 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
           datasets={datasets}
           schema={schema}
           onOpenDataset={(id) => goTo(`#/datasets/${encodeURIComponent(id)}`)}
+          onOpenKind={(iri) => goTo(`#/cards/k/${encodeURIComponent(iri)}`)}
+          onOpenCrosswalk={() => goTo('#/crosswalk')}
         />
       )}
 

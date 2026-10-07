@@ -83,5 +83,20 @@
     "sosa": "SOSA/SSN (observations, sensors, samples)",
     "emmo": "EMMO (shared words for materials science)",
     "cmso": "CMSO (shared words for crystal structure, composition and defects)"
+  },
+  "overview": {
+    "toggleAria": "Switch how the map is shown",
+    "all": "Overview",
+    "detail": "Detailed",
+    "aria": "Overview of the dataset kinds and connections",
+    "count": "{{n}} items",
+    "lead": "Each circle is a kind, sized by how many there are. The circles in the middle are the connections that tie datasets together. Switch to Detailed to see the fields.",
+    "unnamedHub": "Unnamed connection",
+    "legend": {
+      "link": "Link inside the data",
+      "hub": "Kind taking part in a connection",
+      "standard": "Uses a standard term",
+      "alignment": "Match between datasets"
+    }
   }
 }

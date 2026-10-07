@@ -9752,6 +9752,103 @@ tr.kz-cols-dropped td {
   stroke: var(--activity);
 }
 
+/* 「全体」表示（KindOverview）: 種類の丸＝箱と同じ色、ハブ＝つながりの色、標準＝琥珀。
+   触れたときの見た目は CSS だけ（React の state に持たない）。 */
+.kind-ov-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+.kind-ov-circle {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--fg);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.kind-ov-node:hover .kind-ov-circle {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.kind-ov-node--hub .kind-ov-circle {
+  background: var(--link-soft);
+  border: 1.5px solid var(--link);
+}
+.kind-ov-name {
+  max-width: 100%;
+  padding: 0 0.2rem;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.kind-ov-count {
+  height: 18px;
+  font-size: 0.6875rem;
+  line-height: 18px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.kind-ov-frame.is-clickable {
+  cursor: pointer;
+}
+.kind-ov-frame.is-clickable:hover {
+  border-color: var(--primary);
+}
+.vocab-map .kind-ov-edge--hub .react-flow__edge-path {
+  stroke: var(--link);
+  stroke-width: 2;
+}
+.vocab-map .kind-ov-edge--standard .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-dasharray: 5 4;
+}
+.vocab-map .kind-ov-edge--alignment .react-flow__edge-path {
+  stroke: var(--activity);
+  stroke-dasharray: 5 4;
+}
+.vocab-map-leg-line--hub {
+  stroke: var(--link);
+}
+.vocab-map-toggle {
+  display: inline-flex;
+  margin: 0 0 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.vocab-map-toggle-btn {
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border-strong);
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.vocab-map-toggle-btn:last-child {
+  border-right: none;
+}
+.vocab-map-toggle-btn:hover:not(.is-on) {
+  background: var(--surface-alt);
+}
+.vocab-map-toggle-btn.is-on {
+  background: var(--primary-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+
 /* つながりの削除 — 押し間違いを誘わない控えめな危険ボタン（confirm が本丸）。 */
 .xw-delete-btn {
   color: var(--error-fg);
