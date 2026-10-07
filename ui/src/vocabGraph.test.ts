@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
-import { collectStandardIris, composeVocabGraph, datasetApiId } from './vocabGraph'
+import {
+  classCountsByCatalogId,
+  collectStandardIris,
+  composeVocabGraph,
+  datasetApiId,
+} from './vocabGraph'
 
 /** 地図の約束: 1 データセット分は ⑤ と同じ判定で組まれ、標準語彙の節は語 IRI で
  *  1 つに**合流**し、確定（使用）と候補は混ざらず、両端の解けない対応は描かない。 */
@@ -82,6 +87,69 @@ const xrd = () =>
       ],
     }),
   ])
+
+describe('composeVocabGraph の件数（データセット単位）', () => {
+  const two = [
+    { id: 'a', name: 'A', rules: rules([rmap(NS, 'record')]) },
+    { id: 'b', name: 'B', rules: rules([rmap(NS, 'record')]) },
+  ]
+  const KIND = `${NS}record`
+
+  it('同じ種類 IRI を 2 つのデータセットが使っても、箱ごとに自分の件数が出る', () => {
+    const shape = composeVocabGraph({
+      datasets: two,
+      classCounts: { [KIND]: 15 },
+      classCountsByDataset: { a: { [KIND]: 12 }, b: { [KIND]: 3 } },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === 'a::record')!.label).toContain('12件')
+    expect(shape.nodes.find((n) => n.id === 'b::record')!.label).toContain('3件')
+  })
+
+  it('データセット単位が無い（API 失敗）ときだけ全体の件数に落ちる', () => {
+    const shape = composeVocabGraph({
+      datasets: two,
+      classCounts: { [KIND]: 15 },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === 'a::record')!.label).toContain('15件')
+  })
+
+  it('データセット単位があるときは、そこに無い種類に全体の合計を混ぜない', () => {
+    const shape = composeVocabGraph({
+      datasets: two,
+      classCounts: { [KIND]: 15 },
+      classCountsByDataset: { a: { [KIND]: 12 } },
+      words: WORDS,
+    })
+    expect(shape.nodes.find((n) => n.id === 'b::record')!.label).not.toContain('件')
+  })
+})
+
+describe('classCountsByCatalogId', () => {
+  const counts = {
+    truncated: false,
+    graphs: [
+      { graph: 'g1', dataset_id: 'weather-log', hub: false, kinds: [{ class_iri: 'k', count: 7 }] },
+      { graph: 'g2', dataset_id: null, hub: true, kinds: [{ class_iri: 'k', count: 99 }] },
+    ],
+  }
+  it('API の登録 id を、カタログの `live-…` の節 id に突き合わせる', () => {
+    const out = classCountsByCatalogId(counts, [
+      { id: 'live-weather-log', live: { meta: { id: 'weather-log' } } },
+      { id: 'live-other', live: { meta: { id: 'other' } } },
+    ])
+    expect(out).toEqual({ 'live-weather-log': { k: 7 } })
+  })
+  it('live が無くても `live-` を外した id で引ける（datasetApiId と同じ規則）', () => {
+    const out = classCountsByCatalogId(counts, [{ id: 'live-weather-log' }])
+    expect(out).toEqual({ 'live-weather-log': { k: 7 } })
+  })
+  it('API が上限で切れたときは null（取れた分だけだと末尾の箱が黙って欠ける）', () => {
+    const out = classCountsByCatalogId({ ...counts, truncated: true }, [{ id: 'live-weather-log' }])
+    expect(out).toBeNull()
+  })
+})
 
 describe('composeVocabGraph', () => {
   it('データセットごとの種類と中のつながりを ⑤ と同じ判定で組む', () => {
