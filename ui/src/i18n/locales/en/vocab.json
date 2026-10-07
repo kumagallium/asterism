@@ -102,6 +102,7 @@
       "hub": "Kind taking part in a connection",
       "standard": "Uses a standard term",
       "alignment": "Match between datasets",
+      "size": "Circle size = number of items (smallest to largest shown)",
       "hubDataset": "Datasets that take part in a link"
     },
     "datasetKinds": "{{kinds}} kinds",

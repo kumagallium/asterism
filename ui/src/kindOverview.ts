@@ -1,6 +1,6 @@
 // 「共通のことば」の地図の「全体」表示（案 B）の**データと配置**（shared-vocab-graph.md §6）。
 //
-// 種類を**丸**で置き（丸の大きさ＝件数の対数）、データセットの点線の枠で囲み、つながりの
+// 種類を**丸**で置き（丸の大きさ＝表示している中の件数、面積が対数に比例）、データセットの枠で囲み、つながりの
 // **ハブ**を真ん中の列に置く。標準のことばは一番下の帯。項目つきの箱で描く「詳しく」
 // （`composeVocabGraph` → `VocabMap`）とは別の絵で、項目は描かない。
 //
@@ -43,10 +43,33 @@ export const STD_W = 190
 export const STD_H = 50
 const STD_GAP = 18
 
-/** 丸の半径。`16 + 10 * log10(count + 1)` を 16〜52 に丸める。件数が無ければ最小。 */
-export function radiusOf(count: number | undefined, max: number = R_MAX): number {
-  if (count == null || !(count > 0)) return R_MIN
-  return Math.round(Math.min(max, Math.max(R_MIN, R_MIN + 10 * Math.log10(count + 1))))
+/** 半径がこれ以上の丸は、件数を丸の中に短い形で書く（それ未満は名前の下に「N 件」）。 */
+export const INSIDE_R = 22
+export const countInside = (r: number): boolean => r >= INSIDE_R
+
+/** 件数の短い形（ja「120万」「3.4万」・en「1.2M」「34K」）。 */
+export function compactCount(n: number, lang: string): string {
+  return new Intl.NumberFormat(lang, { notation: 'compact', maximumFractionDigits: 1, useGrouping: false }).format(n)
+}
+
+/**
+ * 丸の大きさ。**その図に描く丸の中**の最小〜最大の件数で対数をとり、**面積**が対数に比例するよう
+ * 半径は √t（`r = rMin + (rMax - rMin) * √t`）。件数が 1 つだけ・全部同じなら中間（t = 0.5）。
+ * 件数の無い丸（未取得・0 件）は rMin。固定の上限で頭打ちしない。
+ */
+export function sizeScale(
+  counts: (number | undefined)[],
+  rMin: number,
+  rMax: number,
+): (count: number | undefined) => number {
+  const known = counts.filter((n): n is number => n != null && n > 0)
+  const lo = known.length ? Math.log10(Math.min(...known) + 1) : 0
+  const hi = known.length ? Math.log10(Math.max(...known) + 1) : 0
+  return (count) => {
+    if (count == null || !(count > 0)) return rMin
+    const t = hi > lo ? (Math.log10(count + 1) - lo) / (hi - lo) : 0.5
+    return Math.round(rMin + (rMax - rMin) * Math.sqrt(Math.min(1, Math.max(0, t))))
+  }
 }
 
 /** `GET /api/kinds/counts` のうち、ハブのグラフの種類 IRI → 件数。 */
@@ -194,18 +217,24 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     /** 丸の中心（枠の左上からの相対）。 */
     at: Map<string, { x: number; y: number }>
   }
-  const frameDrafts: FrameDraft[] = datasets.map((ds) => {
+  const staged = datasets.map((ds) => {
     const shape = rulesShape(ds.rules, { label: (m) => kindLabelOf(ds.rules, m) })
     const countSource = classCountsByDataset ? (classCountsByDataset[ds.id] ?? {}) : classCounts
     const drafts: Draft[] = shape.nodes.map((n, order) => {
       const m = ds.rules.maps.find((x) => x.id === n.id)!
       const classIri = (m.subject.class_iris ?? [])[0] ?? ''
       const count = classIri ? countSource[classIri] : undefined
-      return { id: `${ds.id}::${n.id}`, dataset: ds.id, classIri, label: n.label, count, r: radiusOf(count), order }
+      return { id: `${ds.id}::${n.id}`, dataset: ds.id, classIri, label: n.label, count, r: R_MIN, order }
     })
     // 件数の多い順（件数なしは最後・同数は入力順）。
     drafts.sort((a, b) => (b.count ?? -1) - (a.count ?? -1) || a.order - b.order)
     const links = shape.edges.map((e) => [`${ds.id}::${e.from}`, `${ds.id}::${e.to}`] as [string, string])
+    return { ds, drafts, links }
+  })
+  // 丸の大きさは、この図に描く種類の件数ぜんぶで 1 つのスケール（並べる前に決める）。
+  const kindR = sizeScale(staged.flatMap((f) => f.drafts.map((d) => d.count)), R_MIN, R_MAX)
+  for (const f of staged) for (const d of f.drafts) d.r = kindR(d.count)
+  const frameDrafts: FrameDraft[] = staged.map(({ ds, drafts, links }) => {
     // 枠の中の並べかた: 1 行 4 つ。1 つの枠の升の幅は、中でいちばん大きい丸で揃える。
     const maxR = Math.max(R_MIN, ...drafts.map((d) => d.r))
     const cellW = Math.max(2 * maxR, LABEL_W) + CELL_GAP
@@ -304,11 +333,14 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
         id: `hub:${p.perspective_id}:${c.name}`,
         label: conceptName(c.name, c.concept_label) ?? fallback ?? input.unnamedHub,
         count,
-        r: radiusOf(count),
+        r: R_MIN,
         sources,
       })
     }
   }
+  // ハブの丸はハブの件数で別のスケール（種類の丸とは比べない）。
+  const hubR = sizeScale(hubDrafts.map((h) => h.count), R_MIN, R_MAX)
+  for (const h of hubDrafts) h.r = hubR(h.count)
   // 重心の高さ（つながる枠の中心の高さの平均）が近い順。つながりの無いハブは最後。
   const frameCy = (id: string) => {
     const f = frameById.get(circleById.get(id)?.dataset ?? id)

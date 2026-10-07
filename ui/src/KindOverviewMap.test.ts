@@ -4,6 +4,7 @@ import type { OverviewLayout } from './kindOverview'
 
 const words = {
   count: (n: number) => `${n} 件`,
+  compact: (n: number) => `c${n}`,
   bandTitle: '帯',
   bandHint: 'ヒント',
   datasetCount: (k: number, n?: number) => (n != null ? `${k} 種類・${n} 件` : `${k} 種類`),
@@ -33,10 +34,23 @@ describe('toFlow', () => {
     const c = nodes.find((n) => n.id === 'd1::Tree')!
     // 丸の直径 80 より名前の幅 104 が広いので、節の幅は 104・中心 x=100 に揃える
     expect(c.position).toEqual({ x: 100 - 104 / 2, y: 30 })
-    expect((c.data as { countText: string }).countText).toBe('1234 件')
+    // 半径 40 は丸の中に短く書く（下には出さない）。title 用の全文は正確な数
+    const cd = c.data as { countText: string; insideText: string; fullText: string }
+    expect(cd.insideText).toBe('c1234')
+    expect(cd.countText).toBe('')
+    expect(cd.fullText).toBe('1234 件')
     // ハブの名前は広めに取る（幅 132）
     const h = nodes.find((n) => n.id === 'hub:p:o')!
     expect(h.position).toEqual({ x: 400 - 132 / 2, y: 70 - 16 })
+  })
+  it('半径 22 未満の丸は名前の下に「N 件」（丸の中は空）', () => {
+    const l: OverviewLayout = { ...layout, circles: [{ ...layout.circles[0], r: 21 }] }
+    const d = toFlow(l, words).nodes.find((n) => n.id === 'd1::Tree')!.data as {
+      countText: string
+      insideText: string
+    }
+    expect(d.countText).toBe('1234 件')
+    expect(d.insideText).toBe('')
   })
   it('件数が無ければ件数の字は出さない', () => {
     const { nodes } = toFlow(layout, words)
@@ -68,7 +82,11 @@ describe('toFlow', () => {
       height: 400,
     }
     const { nodes, edges } = toFlow(ds, words)
-    expect((nodes.find((n) => n.id === 'd1')!.data as { countText: string }).countText).toBe('3 種類・50 件')
+    // 半径 30（丸の中に件数が出る）: 下は「3 種類」だけ・title の全文は「3 種類・50 件」
+    const dd = nodes.find((n) => n.id === 'd1')!.data as { countText: string; insideText: string; fullText: string }
+    expect(dd.countText).toBe('3 種類')
+    expect(dd.insideText).toBe('c50')
+    expect(dd.fullText).toBe('3 種類・50 件')
     expect(nodes.some((n) => n.id === 'band:hubs')).toBe(true)
     expect((edges[0].data as { title?: string }).title).toBe('2 種類が参加')
   })

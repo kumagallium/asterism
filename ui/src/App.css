@@ -9767,21 +9767,68 @@ tr.kz-cols-dropped td {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-strong);
+  /* 役割の色でうすく塗る（白は下書きに見える）。縁は役割の色を薄めたもの */
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
   border-radius: 50%;
-  background: var(--surface);
-  color: var(--fg);
+  background: var(--primary-soft);
+  color: var(--primary);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+.kind-ov-node--dataset .kind-ov-circle {
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
 }
 .kind-ov-node:hover .kind-ov-circle {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px var(--primary-soft);
 }
 .kind-ov-node--hub .kind-ov-circle {
-  background: var(--link-soft);
-  border: 1.5px solid var(--link);
+  background: var(--activity-soft);
+  border-color: color-mix(in srgb, var(--activity) 45%, transparent);
+  color: var(--activity);
+}
+.kind-ov-node--hub:hover .kind-ov-circle {
+  border-color: var(--activity);
+  box-shadow: 0 0 0 2px var(--activity-soft);
+}
+/* 丸の中の件数（半径 22 以上のとき・短い形） */
+.kind-ov-inside {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: inherit;
+}
+/* 全体図の枠と帯: 点線をやめて、うすい面に（「詳しく」の .vocab-map-cluster は変えない） */
+.vocab-map-cluster.kind-ov-frame {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.kind-ov-band {
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.5rem 0.8rem;
+}
+.kind-ov-band .vocab-map-cluster-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fg);
+  margin-right: 0.8rem;
+}
+.kind-ov-band .vocab-map-band-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.kind-ov-band--hubs {
+  background: color-mix(in srgb, var(--activity-soft) 60%, transparent);
+}
+.kind-ov-band--std {
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
 }
 .kind-ov-name {
   /* 丸の下に 2 行まで（続きは節の title で読む） */
@@ -9805,7 +9852,7 @@ tr.kz-cols-dropped td {
     0 0 3px var(--surface-alt);
 }
 .kind-ov-node--hub .kind-ov-name {
-  color: var(--link);
+  color: var(--activity);
 }
 .kind-ov-count {
   text-shadow:
@@ -9820,16 +9867,17 @@ tr.kz-cols-dropped td {
 .kind-ov-frame.is-clickable {
   cursor: pointer;
 }
-.kind-ov-frame.is-clickable:hover {
+.vocab-map-cluster.kind-ov-frame.is-clickable:hover {
   border-color: var(--primary);
 }
 .vocab-map .kind-ov-edge--hub .react-flow__edge-path {
-  stroke: var(--link);
+  stroke: color-mix(in srgb, var(--activity) 55%, transparent);
   stroke-width: 2;
 }
+/* 全体では確定の使用だけを描くので実線（点線は「詳しく」の候補だけ） */
 .vocab-map .kind-ov-edge--standard .react-flow__edge-path {
   stroke: var(--accent);
-  stroke-dasharray: 5 4;
+  stroke-width: 1.2;
 }
 .vocab-map .kind-ov-edge--alignment .react-flow__edge-path {
   stroke: var(--activity);
@@ -9891,7 +9939,12 @@ tr.kz-cols-dropped td {
   color: var(--fg);
 }
 .vocab-map-leg-line--hub {
-  stroke: var(--link);
+  stroke: color-mix(in srgb, var(--activity) 55%, transparent);
+}
+/* 凡例「丸の大きさ＝件数」の小さい丸と大きい丸 */
+.vocab-map-leg-circle {
+  fill: var(--primary-soft);
+  stroke: color-mix(in srgb, var(--primary) 45%, transparent);
 }
 .vocab-map-toggle {
   display: inline-flex;

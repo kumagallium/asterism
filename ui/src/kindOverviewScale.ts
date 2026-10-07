@@ -13,7 +13,7 @@ import {
   edgePoint,
   HUB_LABEL_W,
   LABEL_H,
-  radiusOf,
+  sizeScale,
   R_MAX,
   R_MIN,
   type Anchor,
@@ -79,11 +79,14 @@ export function collectHubs(input: OverviewInput): HubInfo[] {
         id: `hub:${p.perspective_id}:${c.name}`,
         label: conceptName(c.name, c.concept_label) ?? fallback ?? input.unnamedHub,
         count,
-        r: radiusOf(count),
+        r: R_MIN,
         parts,
       })
     }
   }
+  // ハブの丸はハブの件数で別のスケール。
+  const hubR = sizeScale(out.map((h) => h.count), R_MIN, R_MAX)
+  for (const h of out) h.r = hubR(h.count)
   return out
 }
 
@@ -264,8 +267,11 @@ function build(input: OverviewInput, width: number, sweeps: number): OverviewLay
       classIris.add(iri)
       if (src[iri] != null) total = (total ?? 0) + src[iri]
     }
-    return { ds, idx, kinds: shape.nodes.length, total, r: radiusOf(total, DS_R_MAX), classIris }
+    return { ds, idx, kinds: shape.nodes.length, total, r: R_MIN, classIris }
   })
+  // データセットの丸は、種類の件数の合計どうしで 1 つのスケール（16〜56）。
+  const dsR = sizeScale(infos.map((i) => i.total), R_MIN, DS_R_MAX)
+  for (const i of infos) i.r = dsR(i.total)
 
   // ── 2. ハブと、データセット ↔ ハブのつながり（1 本にまとめる） ──
   const hubInfos = collectHubs(input)

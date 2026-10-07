@@ -30,6 +30,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { DS_LABEL_W, edgeClassName, type OverviewFocus } from './kindOverviewScale'
 import {
+  compactCount,
+  countInside,
   HUB_LABEL_W,
   LABEL_H,
   LABEL_W,
@@ -49,11 +51,16 @@ const EDGE_COLOR: Record<OverviewEdgeKind, string> = {
 }
 
 type FrameData = { label: string; width: number; height: number; omittedText?: string }
-type BandData = { label: string; hint: string; width: number; height: number }
+type BandData = { label: string; hint: string; width: number; height: number; variant: 'std' | 'hubs' }
 type CircleKind = 'kind' | 'hub' | 'dataset'
 type CircleData = {
   label: string
+  /** 名前の下に出す件数の字（丸の中に出すときは空・データセットは「N 種類」だけ）。 */
   countText: string
+  /** 丸の中に出す短い件数（半径 22 以上のときだけ）。 */
+  insideText: string
+  /** title 用の全文（正確な数）。 */
+  fullText: string
   r: number
   kind: CircleKind
 }
@@ -77,7 +84,7 @@ function FrameBox({ data }: NodeProps) {
 function BandBox({ data }: NodeProps) {
   const d = data as BandData
   return (
-    <div className="vocab-map-cluster vocab-map-band" style={{ width: d.width, height: d.height }}>
+    <div className={`kind-ov-band kind-ov-band--${d.variant}`} style={{ width: d.width, height: d.height }}>
       <span className="vocab-map-cluster-name">{d.label}</span>
       <span className="vocab-map-band-hint">{d.hint}</span>
     </div>
@@ -91,15 +98,16 @@ function CircleBox({ data }: NodeProps) {
     <div
       className={`kind-ov-node${d.kind === 'hub' ? ' kind-ov-node--hub' : ''}${d.kind === 'dataset' ? ' kind-ov-node--dataset' : ''}`}
       style={{ width: w, height: 2 * d.r + LABEL_H }}
-      title={d.countText ? `${d.label}（${d.countText}）` : d.label}
+      title={d.fullText ? `${d.label}（${d.fullText}）` : d.label}
     >
       <div className="kind-ov-circle" style={{ width: 2 * d.r, height: 2 * d.r }}>
+        {d.insideText && <span className="kind-ov-inside">{d.insideText}</span>}
         <Handle type="source" position={Position.Top} isConnectable={false} style={{ ...HANDLE_STYLE, top: d.r }} />
         <Handle type="target" position={Position.Top} isConnectable={false} style={{ ...HANDLE_STYLE, top: d.r }} />
       </div>
       {/* 名前は丸の下（丸の中では小さい丸で切れて読めない）。2 行まで・続きは title。 */}
       <span className="kind-ov-name">{d.label}</span>
-      <span className="kind-ov-count">{d.countText}</span>
+      {d.countText && <span className="kind-ov-count">{d.countText}</span>}
     </div>
   )
 }
@@ -164,6 +172,8 @@ export function toFlow(
   layout: OverviewLayout,
   words: {
     count: (n: number) => string
+    /** 件数の短い形（丸の中に書く）。 */
+    compact: (n: number) => string
     bandTitle: string
     bandHint: string
     /** データセットごとの俯瞰の丸の下（種類の数・件数の合計）。 */
@@ -198,7 +208,7 @@ export function toFlow(
       id: 'band:standard',
       type: 'band',
       position: { x: layout.band.x, y: layout.band.y },
-      data: { label: words.bandTitle, hint: words.bandHint, width: layout.band.w, height: layout.band.h },
+      data: { label: words.bandTitle, hint: words.bandHint, width: layout.band.w, height: layout.band.h, variant: 'std' },
       zIndex: 0,
       ...base,
     })
@@ -208,10 +218,29 @@ export function toFlow(
       id: 'band:hubs',
       type: 'band',
       position: { x: layout.hubBand.x, y: layout.hubBand.y },
-      data: { label: words.hubBandTitle, hint: words.hubBandHint, width: layout.hubBand.w, height: layout.hubBand.h },
+      data: { label: words.hubBandTitle, hint: words.hubBandHint, width: layout.hubBand.w, height: layout.hubBand.h, variant: 'hubs' },
       zIndex: 0,
       ...base,
     })
+  }
+  // 半径 22 以上は件数を丸の中に短く・それ未満は名前の下に「N 件」。title は常に正確な数。
+  const circleTexts = (
+    c: { count?: number; kindCount?: number; r: number },
+    kind: CircleKind,
+  ): Pick<CircleData, 'countText' | 'insideText' | 'fullText'> => {
+    const inside = c.count != null && countInside(c.r)
+    if (kind === 'dataset' && c.kindCount != null)
+      return {
+        countText: inside ? words.datasetCount(c.kindCount) : words.datasetCount(c.kindCount, c.count),
+        insideText: inside ? words.compact(c.count!) : '',
+        fullText: words.datasetCount(c.kindCount, c.count),
+      }
+    if (c.count == null) return { countText: '', insideText: '', fullText: '' }
+    return {
+      countText: inside ? '' : words.count(c.count),
+      insideText: inside ? words.compact(c.count) : '',
+      fullText: words.count(c.count),
+    }
   }
   const circle = (
     c: { id: string; label: string; count?: number; kindCount?: number; r: number; x: number; y: number },
@@ -223,12 +252,7 @@ export function toFlow(
       position: { x: c.x - nodeWidth(c.r, kind) / 2, y: c.y - c.r },
       data: {
         label: c.label,
-        countText:
-          kind === 'dataset' && c.kindCount != null
-            ? words.datasetCount(c.kindCount, c.count)
-            : c.count != null
-              ? words.count(c.count)
-              : '',
+        ...circleTexts(c, kind),
         r: c.r,
         kind,
       } satisfies CircleData,
@@ -297,7 +321,7 @@ function KindOverviewInner({
   /** 右上の「大きく見る」（重ね表示の中では出さない）。 */
   expandable?: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [big, setBig] = useState(false)
   const bigH = useBigViewHeight(big)
   // 強調する id は「どの図の」ものかも持つ。図が切り替わったら（押した丸の DOM が消えて
@@ -308,6 +332,7 @@ function KindOverviewInner({
     () =>
       toFlow(layout, {
         count: (n) => t('vocab:overview.count', { n: n.toLocaleString('en-US') }),
+        compact: (n) => compactCount(n, i18n.language),
         bandTitle: t('vocab:map.bandTitle'),
         bandHint: t('vocab:map.bandHint'),
         datasetCount: (kinds, n) =>
@@ -319,7 +344,7 @@ function KindOverviewInner({
         hubBandTitle: t('vocab:overview.hubBandTitle'),
         hubBandHint: t('vocab:overview.hubBandHint'),
       }),
-    [layout, t],
+    [layout, t, i18n.language],
   )
   // 丸・ハブに載せたら、その丸につながる線を濃く・他を薄く（CSS のホバーは線に届かない）。
   const edges = useMemo(

@@ -228,7 +228,7 @@ export function VocabMapSection({
         } as const,
         ...(overviewMode === 'dataset'
           ? []
-          : [{ kind: 'candidate', dashed: true, text: t('vocab:overview.legend.standard') } as const]),
+          : [{ kind: 'candidate', dashed: false, text: t('vocab:overview.legend.standard') } as const]),
         { kind: 'alignment', dashed: true, text: t('vocab:overview.legend.alignment') } as const,
       ] as const)
     : ([
@@ -358,6 +358,15 @@ export function VocabMapSection({
             {l.text}
           </span>
         ))}
+        {showOverview && (
+          <span className="vocab-map-leg">
+            <svg width="34" height="16" aria-hidden>
+              <circle cx="6" cy="8" r="4" strokeWidth="1" className="vocab-map-leg-circle" />
+              <circle cx="22" cy="8" r="7.5" strokeWidth="1" className="vocab-map-leg-circle" />
+            </svg>
+            {t('vocab:overview.legend.size')}
+          </span>
+        )}
       </div>
     </div>
   )

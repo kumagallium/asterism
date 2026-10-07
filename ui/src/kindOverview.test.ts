@@ -4,7 +4,10 @@ import type { DatasetRules, RuleMap } from './galleryApi'
 import {
   hubCountsOf,
   layoutKindOverview,
-  radiusOf,
+  sizeScale,
+  compactCount,
+  countInside,
+  INSIDE_R,
   type OverviewInput,
 } from './kindOverview'
 
@@ -58,15 +61,54 @@ const hubPerspective = (participants: { dataset_id: string; subject_class?: stri
     dataset: null,
   }) as CrosswalkPerspective
 
-describe('radiusOf — 件数（対数）で丸の大きさ', () => {
-  it('件数なし・0 件は最小', () => {
-    expect(radiusOf(undefined)).toBe(16)
-    expect(radiusOf(0)).toBe(16)
+describe('sizeScale — 表示している中の最小〜最大で、面積が対数に比例', () => {
+  it('最小→rMin・最大→rMax', () => {
+    const f = sizeScale([10, 1000, 100000], 16, 52)
+    expect(f(10)).toBe(16)
+    expect(f(100000)).toBe(52)
   })
-  it('件数が増えると大きくなり、16〜52 に収まる', () => {
-    expect(radiusOf(100)).toBeGreaterThan(radiusOf(10))
-    expect(radiusOf(10)).toBeGreaterThan(radiusOf(1))
-    expect(radiusOf(1e12)).toBe(52)
+  it('中間は √t（面積が対数に比例）', () => {
+    const f = sizeScale([0, 99, 9999], 16, 52) // 0 件は min に入れない
+    const g = sizeScale([99, 9999], 16, 52)
+    const t = (Math.log10(1000) - Math.log10(100)) / (Math.log10(10000) - Math.log10(100))
+    expect(g(999)).toBe(Math.round(16 + 36 * Math.sqrt(t)))
+    expect(f(undefined)).toBe(16)
+  })
+  it('全部同じ・1 つだけなら件数のある丸は中間', () => {
+    const mid = Math.round(16 + 36 * Math.SQRT1_2)
+    expect(sizeScale([500], 16, 52)(500)).toBe(mid)
+    expect(sizeScale([500, 500, undefined], 16, 52)(500)).toBe(mid)
+  })
+  it('件数なし・0 件は rMin', () => {
+    const f = sizeScale([undefined, 10, 1000], 16, 52)
+    expect(f(undefined)).toBe(16)
+    expect(f(0)).toBe(16)
+    expect(sizeScale([], 16, 52)(undefined)).toBe(16)
+  })
+  it('頭打ちしない: 10・1 万・100 万で全部違い、単調に増える', () => {
+    const f = sizeScale([10, 1e4, 1e6], 16, 52)
+    const rs = [f(10), f(1e4), f(1e6)]
+    expect(new Set(rs).size).toBe(3)
+    expect(rs[0]).toBeLessThan(rs[1])
+    expect(rs[1]).toBeLessThan(rs[2])
+  })
+  it('同じ入力は同じ結果（決定論）', () => {
+    expect(sizeScale([3, 30, 300], 16, 52)(30)).toBe(sizeScale([300, 3, 30], 16, 52)(30))
+  })
+})
+
+describe('compactCount — 件数の短い形と、丸の中／下', () => {
+  it('ja は万、en は K/M', () => {
+    expect(compactCount(1200000, 'ja')).toBe('120万')
+    expect(compactCount(34000, 'ja')).toBe('3.4万')
+    expect(compactCount(9820, 'ja')).toBe('9820')
+    expect(compactCount(1200000, 'en')).toBe('1.2M')
+    expect(compactCount(34000, 'en')).toBe('34K')
+  })
+  it('半径 22 以上は丸の中・未満は下', () => {
+    expect(countInside(22)).toBe(true)
+    expect(countInside(21)).toBe(false)
+    expect(INSIDE_R).toBe(22)
   })
 })
 
@@ -135,7 +177,7 @@ describe('layoutKindOverview — ハブ', () => {
     const l = layoutKindOverview(base({ crosswalks: xw, hubCounts: { [`${NS}Origin`]: 1000 } }))
     expect(l.hubs).toHaveLength(1)
     expect(l.hubs[0].label).toBe('産地')
-    expect(l.hubs[0].r).toBe(radiusOf(1000))
+    expect(l.hubs[0].r).toBe(sizeScale([1000], 16, 52)(1000))
     expect(l.hubs[0].count).toBe(1000)
   })
   it('件数が取れなければ最小', () => {
