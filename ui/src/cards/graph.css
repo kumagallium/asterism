@@ -63,6 +63,29 @@
   border-color: var(--border-strong);
 }
 
+.flow-node--hub {
+  background: var(--link-soft);
+  border-color: var(--link);
+}
+
+/* 束: 点線の丸い札（中に何件かある、の印） */
+.flow-node--bundle {
+  background: var(--surface-alt);
+  border-style: dashed;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+/* 選んだ箱・中心の箱の印 */
+.flow-node.is-selected {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.flow-node.is-center {
+  border-width: 3px;
+  font-weight: 600;
+}
+
 .flow-node.is-clickable {
   cursor: pointer;
 }

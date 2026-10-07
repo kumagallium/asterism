@@ -1,0 +1,61 @@
+/* 1 件から広げる図（NeighborExplorer）。色は index.css のトークンから。 */
+
+.explorer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.explorer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  font-family: var(--font-ui);
+}
+
+.explorer-bar-who {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.explorer-bar-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.explorer-bar-kind {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.explorer-bar-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.explorer-bar-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.explorer-note {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.explorer-note--warn {
+  color: var(--fg);
+}

@@ -338,9 +338,14 @@ export async function defaultCardsForSet(spec: SetSpec): Promise<CardRef[]> {
 
 export interface SetResolveClause {
   property_label: string
+  /** 値の条件は gt/lt/eq/between/in。線の条件（O59 の where・O67 の束の「一覧で開く」）は
+   *  `link`（この 1 件を指す）／`via`（それを指す何かを、さらに指す）で、`value` は相手の
+   *  1 件の名前。 */
   op: string
   value: SetWhereValue
   unit?: string | null
+  /** `op: 'via'` だけ: 経由する線の名前。 */
+  via_property_label?: string
 }
 
 export interface SetResolveResult {
@@ -1037,6 +1042,52 @@ export async function linkingKinds(iri: string): Promise<LinkingKind[]> {
   if (!res.ok) await throwApiError(res, 'linking kinds')
   const data = (await res.json()) as { kinds?: LinkingKind[] }
   return data.kinds ?? []
+}
+
+/** `GET /api/subjects/neighbors`（契約メモ §2.5）— 1 件の隣を 1 段だけ返す。
+ *  群（向き × 線 × 代表の種類）ごとに、少なければ全件・多ければ束（件数だけ）。 */
+export interface NeighborItem {
+  iri: string
+  label: string
+  class_iri: string | null
+  is_hub: boolean
+}
+
+export interface NeighborGroup {
+  /** `out|<述語>|<種類 or 空>` — 群の識別子。 */
+  key: string
+  direction: 'out' | 'in'
+  predicate_iri: string
+  predicate_label: string
+  class_iri: string | null
+  class_label: string | null
+  /** 正確な件数（重複なし）。 */
+  count: number
+  items: NeighborItem[]
+  /** 束を「一覧で開く」ための条件（サーバが完成形で返す）。無ければ null。 */
+  set_spec: SetSpec | null
+}
+
+export interface NeighborCenter {
+  iri: string
+  label: string
+  class_iri: string | null
+  class_label: string | null
+  is_hub: boolean
+}
+
+export interface NeighborsResult {
+  iri: string
+  found: boolean
+  center: NeighborCenter | null
+  groups: NeighborGroup[]
+  truncated: boolean
+}
+
+export async function getNeighbors(iri: string): Promise<NeighborsResult> {
+  const res = await fetch(`/api/subjects/neighbors?iri=${encodeURIComponent(iri)}`)
+  if (!res.ok) await throwApiError(res, 'subject neighbors')
+  return (await res.json()) as NeighborsResult
 }
 
 // ---- appdata cards（namespace "cards"・subjects と同じ流儀 — 単一ユーザーで
