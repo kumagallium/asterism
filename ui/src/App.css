@@ -9835,6 +9835,52 @@ tr.kz-cols-dropped td {
   stroke: var(--activity);
   stroke-dasharray: 5 4;
 }
+/* 枠の「ほか N 種類」（周りだけ開いたとき・名前の下） */
+.kind-ov-frame-omitted {
+  position: absolute;
+  top: 24px;
+  left: 14px;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+/* 線の強弱: 丸・ハブに載せたとき、つながる線を濃く・他を薄く（className で切り替える） */
+.vocab-map .kind-ov-edge.is-dim {
+  opacity: 0.12;
+}
+.vocab-map .kind-ov-edge.is-hot .react-flow__edge-path {
+  stroke-width: 3;
+}
+/* 周りだけ開いた図の上の「全体に戻る」と今見ているもの */
+.kind-ov-focusbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.kind-ov-back {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.kind-ov-back:hover {
+  border-color: var(--primary);
+}
+.kind-ov-around {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+}
 .vocab-map-leg-line--hub {
   stroke: var(--link);
 }

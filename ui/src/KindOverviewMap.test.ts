@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { toFlow } from './KindOverviewMap'
 import type { OverviewLayout } from './kindOverview'
 
-const words = { count: (n: number) => `${n} 件`, bandTitle: '帯', bandHint: 'ヒント' }
+const words = {
+  count: (n: number) => `${n} 件`,
+  bandTitle: '帯',
+  bandHint: 'ヒント',
+  datasetCount: (k: number, n?: number) => (n != null ? `${k} 種類・${n} 件` : `${k} 種類`),
+  omitted: (n: number) => `ほか ${n} 種類`,
+  participates: (n: number) => `${n} 種類が参加`,
+  hubBandTitle: 'つながり',
+  hubBandHint: '',
+}
 
 const layout: OverviewLayout = {
   frames: [{ id: 'd1', label: '果樹園', x: 0, y: 0, w: 200, h: 120 }],
@@ -44,5 +53,28 @@ describe('toFlow', () => {
       expect(n.draggable).toBe(false)
       expect(n.selectable).toBe(false)
     }
+  })
+  it('データセットごとの俯瞰: 丸の下は「N 種類・M 件」・つながりの帯・線の title', () => {
+    const ds: OverviewLayout = {
+      frames: [],
+      circles: [{ id: 'd1', dataset: 'd1', classIri: '', label: '果樹園', count: 50, kindCount: 3, r: 30, x: 100, y: 50 }],
+      hubs: [{ id: 'hub:p:o', label: '産地', r: 16, x: 100, y: 300 }],
+      stds: [],
+      band: null,
+      hubBand: { x: 0, y: 200, w: 300, h: 150 },
+      level: 'dataset',
+      edges: [{ from: 'd1', to: 'hub:p:o', kind: 'hub', kinds: 2, x1: 0, y1: 0, x2: 1, y2: 1 }],
+      width: 300,
+      height: 400,
+    }
+    const { nodes, edges } = toFlow(ds, words)
+    expect((nodes.find((n) => n.id === 'd1')!.data as { countText: string }).countText).toBe('3 種類・50 件')
+    expect(nodes.some((n) => n.id === 'band:hubs')).toBe(true)
+    expect((edges[0].data as { title?: string }).title).toBe('2 種類が参加')
+  })
+  it('周りだけ開いた枠には「ほか N 種類」を持たせる', () => {
+    const l: OverviewLayout = { ...layout, frames: [{ ...layout.frames[0], omitted: 4 }] }
+    const f = toFlow(l, words).nodes.find((n) => n.id === 'd1')!
+    expect((f.data as { omittedText?: string }).omittedText).toBe('ほか 4 種類')
   })
 })

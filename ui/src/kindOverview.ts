@@ -44,9 +44,9 @@ export const STD_H = 50
 const STD_GAP = 18
 
 /** 丸の半径。`16 + 10 * log10(count + 1)` を 16〜52 に丸める。件数が無ければ最小。 */
-export function radiusOf(count: number | undefined): number {
+export function radiusOf(count: number | undefined, max: number = R_MAX): number {
   if (count == null || !(count > 0)) return R_MIN
-  return Math.round(Math.min(R_MAX, Math.max(R_MIN, R_MIN + 10 * Math.log10(count + 1))))
+  return Math.round(Math.min(max, Math.max(R_MIN, R_MIN + 10 * Math.log10(count + 1))))
 }
 
 /** `GET /api/kinds/counts` のうち、ハブのグラフの種類 IRI → 件数。 */
@@ -73,6 +73,8 @@ export interface OverviewInput {
   alignments?: Alignment[]
   /** 名前のないハブの代わりの語。 */
   unnamedHub: string
+  /** 周りだけ開く（フォーカス）で省いた種類の数（データセットの id → 数）。枠に「ほか N 種類」と書く。 */
+  omitted?: Record<string, number>
 }
 
 export interface OverviewCircle {
@@ -83,6 +85,8 @@ export interface OverviewCircle {
   label: string
   count?: number
   r: number
+  /** データセットごとの俯瞰だけ: この丸（データセット）が持つ種類の数。 */
+  kindCount?: number
   /** 中心の座標。 */
   x: number
   y: number
@@ -94,6 +98,8 @@ export interface OverviewFrame {
   y: number
   w: number
   h: number
+  /** 周りだけ開いたとき、この枠から省いた種類の数。 */
+  omitted?: number
 }
 export interface OverviewHub {
   id: string
@@ -119,6 +125,8 @@ export interface OverviewEdge {
   kind: OverviewEdgeKind
   /** 対応は両向き。 */
   both?: boolean
+  /** データセットごとの俯瞰だけ: ハブへ参加している種類の数（線の title「N 種類が参加」）。 */
+  kinds?: number
   /** 端の丸・枠の縁にそろえた線の両端（図の座標）。 */
   x1: number
   y1: number
@@ -131,20 +139,24 @@ export interface OverviewLayout {
   hubs: OverviewHub[]
   stds: OverviewStd[]
   band: { x: number; y: number; w: number; h: number } | null
+  /** データセットごとの俯瞰だけ: 真ん中の「つながり」の帯。 */
+  hubBand?: { x: number; y: number; w: number; h: number } | null
+  /** 'dataset' = データセットごとの俯瞰（丸 = データセット）。無ければ種類まで。 */
+  level?: 'dataset'
   edges: OverviewEdge[]
   width: number
   height: number
 }
 
-type Anchor =
+export type Anchor =
   | { type: 'circle'; x: number; y: number; r: number }
   | { type: 'rect'; x: number; y: number; w: number; h: number }
 
-const centerOf = (a: Anchor) =>
+export const centerOf = (a: Anchor) =>
   a.type === 'circle' ? { x: a.x, y: a.y } : { x: a.x + a.w / 2, y: a.y + a.h / 2 }
 
 /** `a` の縁のうち、`toward` へ向かう線が出るところ。 */
-function edgePoint(a: Anchor, toward: { x: number; y: number }): { x: number; y: number } {
+export function edgePoint(a: Anchor, toward: { x: number; y: number }): { x: number; y: number } {
   const c = centerOf(a)
   const dx = toward.x - c.x
   const dy = toward.y - c.y
@@ -225,7 +237,16 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
   const place = (col: FrameDraft[], x: number) => {
     let y = 0
     for (const f of col) {
-      frames.push({ id: f.ds.id, label: f.ds.name, x, y, w: f.w, h: f.h })
+      const omitted = input.omitted?.[f.ds.id]
+      frames.push({
+        id: f.ds.id,
+        label: f.ds.name,
+        x,
+        y,
+        w: f.w,
+        h: f.h,
+        ...(omitted && omitted > 0 ? { omitted } : {}),
+      })
       for (const d of f.drafts) {
         const p = f.at.get(d.id)!
         circles.push({
@@ -433,6 +454,16 @@ export function overviewStats(layout: OverviewLayout): {
   standards: number
   records: number
 } {
+  if (layout.level === 'dataset') {
+    // データセットごとの俯瞰: 丸はデータセット。種類は各データセットの種類の合計。
+    return {
+      datasets: layout.circles.length,
+      kinds: layout.circles.reduce((sum, c) => sum + (c.kindCount ?? 0), 0),
+      hubs: layout.hubs.length,
+      standards: 0,
+      records: layout.circles.reduce((sum, c) => sum + (c.count ?? 0), 0),
+    }
+  }
   return {
     datasets: layout.frames.length,
     kinds: layout.circles.length,

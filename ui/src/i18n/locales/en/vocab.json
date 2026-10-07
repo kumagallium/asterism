@@ -101,7 +101,18 @@
       "link": "Link inside the data",
       "hub": "Kind taking part in a connection",
       "standard": "Uses a standard term",
-      "alignment": "Match between datasets"
-    }
+      "alignment": "Match between datasets",
+      "hubDataset": "Datasets that take part in a link"
+    },
+    "datasetKinds": "{{kinds}} kinds",
+    "datasetKindsCount": "{{kinds}} kinds · {{n}} records",
+    "omitted": "and {{n}} more kinds",
+    "participates": "{{n}} kinds take part",
+    "hubBandTitle": "Links",
+    "hubBandHint": "Shared concepts that connect datasets",
+    "back": "Back to overview",
+    "around": "Around {{name}}",
+    "leadDataset": "Each circle is a dataset; its size is the total record count of its kinds. The circles in the middle band are the links that connect datasets. Click a circle to open just the kinds around it.",
+    "leadFocus": "Showing only what is around your choice, as kind circles. Use \"Back to overview\" to return."
   }
 }

@@ -19,6 +19,12 @@ import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
 import { KindOverview } from './KindOverviewMap'
 import { hubCountsOf, layoutKindOverview, overviewStats } from './kindOverview'
+import {
+  chooseOverviewLevel,
+  focusOverview,
+  layoutDatasetOverview,
+  type OverviewFocus,
+} from './kindOverviewScale'
 import { VocabMap } from './VocabMap'
 import {
   collectMintedTermQueries,
@@ -160,9 +166,11 @@ export function VocabMapSection({
     })
   }, [loaded, classCounts, t])
 
-  const overview = useMemo(() => {
+  const [focusState, setFocus] = useState<OverviewFocus | null>(null)
+
+  const overviewInput = useMemo(() => {
     if (!loaded || loaded.datasets.length === 0) return null
-    return layoutKindOverview({
+    return {
       datasets: loaded.datasets,
       classCounts,
       classCountsByDataset: loaded.countsByDataset ?? undefined,
@@ -171,8 +179,25 @@ export function VocabMapSection({
       standardNames: loaded.standardNames,
       alignments: loaded.alignments,
       unnamedHub: t('vocab:overview.unnamedHub'),
-    })
+    }
   }, [loaded, classCounts, t])
+
+  // 段は自動（小さければ種類まで・超えたらデータセットごと）。丸を押したらその周りだけを種類まで。
+  // 押した先が今のデータに無ければ（読み直し後など）フォーカスは無いものとして俯瞰に戻る。
+  const focused = useMemo(
+    () => (overviewInput && focusState ? focusOverview(overviewInput, focusState) : null),
+    [overviewInput, focusState],
+  )
+  const overviewMode: 'kind' | 'dataset' | 'focus' = focused
+    ? 'focus'
+    : overviewInput && chooseOverviewLevel(overviewInput.datasets) === 'dataset'
+      ? 'dataset'
+      : 'kind'
+  const overview = useMemo(() => {
+    if (!overviewInput) return null
+    if (focused) return layoutKindOverview(focused.input)
+    return overviewMode === 'dataset' ? layoutDatasetOverview(overviewInput) : layoutKindOverview(overviewInput)
+  }, [overviewInput, focused, overviewMode])
 
   // ⭐取れなかったときに**黙って消えない**。設計のあるデータセットが 1 つも
   // 読めなかったのに節ごと消すと、画面から機能が丸ごと無くなったように見える
@@ -193,10 +218,18 @@ export function VocabMapSection({
   const showOverview = view === 'overview' && overview !== null
   const legend = showOverview
     ? ([
-        { kind: 'link', dashed: false, text: t('vocab:overview.legend.link') },
-        { kind: 'hub', dashed: false, text: t('vocab:overview.legend.hub') },
-        { kind: 'candidate', dashed: true, text: t('vocab:overview.legend.standard') },
-        { kind: 'alignment', dashed: true, text: t('vocab:overview.legend.alignment') },
+        ...(overviewMode === 'dataset'
+          ? []
+          : [{ kind: 'link', dashed: false, text: t('vocab:overview.legend.link') } as const]),
+        {
+          kind: 'hub',
+          dashed: false,
+          text: t(overviewMode === 'dataset' ? 'vocab:overview.legend.hubDataset' : 'vocab:overview.legend.hub'),
+        } as const,
+        ...(overviewMode === 'dataset'
+          ? []
+          : [{ kind: 'candidate', dashed: true, text: t('vocab:overview.legend.standard') } as const]),
+        { kind: 'alignment', dashed: true, text: t('vocab:overview.legend.alignment') } as const,
       ] as const)
     : ([
         { kind: 'link', dashed: false, text: t('vocab:map.legend.link') },
@@ -223,7 +256,17 @@ export function VocabMapSection({
           </button>
         ))}
       </div>
-      <p className="vocab-map-lead">{showOverview ? t('vocab:overview.lead') : t('vocab:map.lead')}</p>
+      <p className="vocab-map-lead">
+        {showOverview
+          ? t(
+              overviewMode === 'focus'
+                ? 'vocab:overview.leadFocus'
+                : overviewMode === 'dataset'
+                  ? 'vocab:overview.leadDataset'
+                  : 'vocab:overview.lead',
+            )
+          : t('vocab:map.lead')}
+      </p>
       {showOverview && overview ? (
         // 「全体」は図に描いたものだけを数える（項目・接地の候補は「詳しく」の数字）。
         <div className="vocab-map-stats" aria-label={t('vocab:map.statsAria')}>
@@ -240,12 +283,16 @@ export function VocabMapSection({
                 <span>
                   <strong>{st.hubs}</strong> {t('vocab:overview.stats.hubs')}
                 </span>
-                <span>
-                  <strong>{st.standards}</strong> {t('vocab:overview.stats.standards')}
-                </span>
-                <span>
-                  <strong>{st.records.toLocaleString('en-US')}</strong> {t('vocab:overview.stats.records')}
-                </span>
+                {overviewMode === 'kind' && (
+                  <span>
+                    <strong>{st.standards}</strong> {t('vocab:overview.stats.standards')}
+                  </span>
+                )}
+                {overviewMode !== 'focus' && (
+                  <span>
+                    <strong>{st.records.toLocaleString('en-US')}</strong> {t('vocab:overview.stats.records')}
+                  </span>
+                )}
               </>
             )
           })()}
@@ -279,6 +326,8 @@ export function VocabMapSection({
           onOpenKind={onOpenKind}
           onOpenDataset={onOpenDataset}
           onOpenCrosswalk={onOpenCrosswalk}
+          onFocus={setFocus}
+          focus={focused ? { label: focused.label, onBack: () => setFocus(null) } : undefined}
         />
       ) : (
         <VocabMap shape={shape} ariaLabel={t('vocab:map.aria')} onOpenDataset={onOpenDataset} />
