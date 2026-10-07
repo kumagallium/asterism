@@ -2,7 +2,8 @@
 //
 // データ源はすべて決定論・読み取り専用（shared-vocab-graph.md §3）:
 //   ・各データセットの保存済み取り込みルール（⑤と同じ）
-//   ・公開グラフのクラス件数（親の getSchema() をそのまま貰う）
+//   ・公開グラフの種類ごとの件数（データセット単位は GET /api/kinds/counts。
+//     取れないときだけ親の getSchema() の全体の件数に落ちる）
 //   ・接地候補は POST /api/ground/terms（exact 級のみ・1 往復）
 //   ・対応は crosswalk の alignment グラフ
 // どれかが取れなくても図は残りで描く（欠けは「線が無い」だけ — 嘘は描かない）。
@@ -11,7 +12,7 @@ import { useTranslation } from 'react-i18next'
 import type { Alignment } from './crosswalkApi'
 import { getAlignments } from './crosswalkApi'
 import type { CatalogDataset, DatasetRules } from './galleryApi'
-import { getDatasetRules } from './galleryApi'
+import { getDatasetRules, getKindCounts } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
@@ -19,6 +20,7 @@ import { VocabMap } from './VocabMap'
 import {
   collectMintedTermQueries,
   collectStandardIris,
+  classCountsByCatalogId,
   composeVocabGraph,
   datasetApiId,
 } from './vocabGraph'
@@ -28,6 +30,9 @@ interface Loaded {
   alignments: Alignment[]
   candidates: Record<string, GroundCandidate[]>
   standardNames: Record<string, string>
+  /** データセット単位の件数（節の id → 種類 IRI → 件数）。取れなかったときは null で、
+   *  地図は全体の件数（`schema`）に落ちる。 */
+  countsByDataset: Record<string, Record<string, number>> | null
   /** 取り込みルールを読みに行ったデータセットの数。0 件なら地図は出さない、
    *  1 件以上あって 1 つも読めなかったならその事実を出す（黙って消えない）。 */
   attempted: number
@@ -74,12 +79,16 @@ export function VocabMapSection({
         collectMintedTermQueries(withRules),
         collectStandardIris(withRules, alignments),
       ).catch(() => ({ terms: {} as Record<string, GroundCandidate[]>, names: {} }))
+      const countsByDataset = await getKindCounts()
+        .then((c) => classCountsByCatalogId(c, targets))
+        .catch(() => null)
       if (!cancelled)
         setLoaded({
           datasets: withRules,
           alignments,
           candidates: grounded.terms,
           standardNames: grounded.names,
+          countsByDataset,
           attempted: targets.length,
         })
     })()
@@ -99,6 +108,7 @@ export function VocabMapSection({
     return composeVocabGraph({
       datasets: loaded.datasets,
       classCounts,
+      classCountsByDataset: loaded.countsByDataset ?? undefined,
       candidates: loaded.candidates,
       standardNames: loaded.standardNames,
       alignments: loaded.alignments,
