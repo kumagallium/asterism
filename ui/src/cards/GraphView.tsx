@@ -21,6 +21,12 @@ import { layoutGraph } from './graphLayout'
 import { nodePropLines } from './graphProps'
 import type { GraphNodeKind, GraphSpec } from './viewSpec'
 
+/** 配置の差し替え（既定は {@link layoutGraph}）。1 件から広げる図は列で置く。 */
+export type GraphLayoutFn = (graph: GraphSpec) => {
+  positions: Map<string, { x: number; y: number }>
+  height: number
+}
+
 /** GraphSpec を React Flow で描く。`ui/src/kantan/ShapeGraph.tsx` の
  *  `ShapeGraphInner` の罠回避パターンをそのまま写す:
  *  - Handle は `display:none` にせず `isConnectable={false}` のまま描画し、
@@ -37,11 +43,19 @@ type FlowBoxData = {
   propLines: string[]
   horizontal: boolean
   clickable: boolean
+  selected: boolean
+  center: boolean
 }
 
 function FlowBox({ data }: NodeProps) {
   const d = data as unknown as FlowBoxData
-  const cls = ['flow-node', `flow-node--${d.kind}`, d.clickable ? 'is-clickable' : '']
+  const cls = [
+    'flow-node',
+    `flow-node--${d.kind}`,
+    d.clickable ? 'is-clickable' : '',
+    d.selected ? 'is-selected' : '',
+    d.center ? 'is-center' : '',
+  ]
     .filter(Boolean)
     .join(' ')
   const targetPos = d.horizontal ? Position.Left : Position.Top
@@ -94,20 +108,24 @@ function GraphViewInner({
   onNodeClick,
   maxHeight = 240,
   compact = false,
+  layout,
+  selectedId,
 }: {
   graph: GraphSpec
   ariaLabel: string
   onNodeClick?: (id: string) => void
   maxHeight?: number
   compact?: boolean
+  layout?: GraphLayoutFn
+  selectedId?: string
 }) {
   const { t } = useTranslation('cards')
   const horizontal = (graph.direction ?? 'LR') === 'LR'
   const nodeW = compact ? COMPACT_NODE_W : NODE_W
 
   const { positions, height } = useMemo(
-    () => layoutGraph(graph, { nodeWidth: nodeW, nodeHeight: NODE_H }),
-    [graph, nodeW],
+    () => (layout ? layout(graph) : layoutGraph(graph, { nodeWidth: nodeW, nodeHeight: NODE_H })),
+    [graph, nodeW, layout],
   )
 
   const nodes: Node[] = useMemo(
@@ -123,12 +141,14 @@ function GraphViewInner({
           propLines: compact ? [] : nodePropLines(n.props, t),
           horizontal,
           clickable: !!onNodeClick,
+          selected: n.id === selectedId,
+          center: !!n.center,
         } satisfies FlowBoxData,
         draggable: false,
         selectable: false,
         connectable: false,
       })),
-    [graph, positions, horizontal, onNodeClick, compact, nodeW, t],
+    [graph, positions, horizontal, onNodeClick, compact, nodeW, t, selectedId],
   )
 
   const edges: Edge[] = useMemo(
@@ -217,6 +237,8 @@ export function GraphView(props: {
   onNodeClick?: (id: string) => void
   maxHeight?: number
   compact?: boolean
+  layout?: GraphLayoutFn
+  selectedId?: string
 }) {
   return (
     <ReactFlowProvider>

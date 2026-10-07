@@ -64,6 +64,7 @@ from asterism.substrate import (
     dataset_id_of_canonical_graph,
     hub_perspective_name,
     is_hub_graph,
+    ontology_graphs,
     readable_graph_iris,
 )
 
@@ -94,6 +95,7 @@ __all__ = [
     "subject_flow",
     "subject_hub_members",
     "subject_member_facts",
+    "subject_neighbors",
     "subject_sources",
     "subject_types",
 ]
@@ -410,6 +412,74 @@ async def pick_class_iri(client: SupportsSparql, type_iris: list[str]) -> str | 
 # ----------------------------------------------------------------------------
 
 
+async def _predicate_names(
+    client: SupportsSparql,
+    graphs: list[str],
+    registry_root: Path | str | None,
+    class_iri: str | None,
+    rows: list[dict[str, dict[str, Any]]],
+    predicates: set[str],
+) -> dict[str, str]:
+    """``{述語: 項目名}`` — 1 件のページの「読み取った値」カード（``subject_facts``）と
+    同じ決め方（``subject_facts`` と 1 件の隣の図が共有する唯一の規則）。
+
+    ``class_iri`` はその主語の種類、``rows`` は ``?p ?o`` の束縛行（値が IRI かどうかを
+    見る）。設計の行の名前 → ストアの rdfs:label → 種類のスキーマ → 値の種類の名前
+    → 読みくだし（§6 — 生の識別子だけにはしない、K4）。"""
+    # A property's ``rdfs:label`` lives in the projected ontology graph, not
+    # the canonical data graph (§6) — the label lookup for property IRIs must
+    # read both scopes, or a resource whose only outbound facts are literals
+    # (no per-subject rdfs:label) never resolves its properties' names.
+    property_scope = sorted(await readable_graph_iris(client))
+    schema_labels: dict[str, str] = {}
+    if class_iri is not None:
+        schema_fn = _load_class_schema()
+        if schema_fn is not None:
+            try:
+                schema = await schema_fn(client, registry_root, class_iri)
+            except Exception:  # best-effort: class_schema failing must not break facts
+                logger.debug("subject_facts: class_schema lookup failed", exc_info=True)
+                schema = None
+            if isinstance(schema, dict):
+                schema_labels = {
+                    p["iri"]: p["label"]
+                    for p in schema.get("properties") or []
+                    if isinstance(p, dict) and p.get("iri") and p.get("label")
+                }
+
+    unnamed: set[str] = set()  # ストアにも種類のスキーマにも名前が無い述語
+
+    def _property_fallback(p: str) -> str:
+        fallback = _fallback_label(p)
+        # 種類のスキーマも、名前の無い述語には読みくだしを入れて返す — それは名前ではない
+        if schema_labels.get(p, fallback) != fallback:
+            return schema_labels[p]
+        unnamed.add(p)
+        return fallback
+
+    property_labels = await _label_lookup(
+        client, property_scope, predicates, fallback=_property_fallback
+    )
+    # この種類の設計が行に付けた名前は、ストアの rdfs:label より先。rdfs:label は
+    # 述語そのものの名前で（データセットをまたいで共有される）、名前の無い行には
+    # ローカル名が入る — 機械が足したつなぐ行が "isPartOf" と出ていた。
+    if class_iri is not None and registry_root is not None:
+        designed = await asyncio.to_thread(
+            _designed_property_labels, Path(registry_root), class_iri
+        )
+        property_labels.update({p: name for p, name in designed.items() if p in predicates})
+        unnamed -= set(designed)
+    # 種類の行の項目名は UI が決める（値の種類の名前で上書きしない）
+    unnamed.discard(_RDF_TYPE)
+    # どこにも名前の無い述語（つながりのハブへの述語など）は、値（つなぐ先）の
+    # 種類の名前で読む — 設計のつなぐ行と同じ規則。値の種類の名前が割れるときは付けない。
+    if unnamed:
+        property_labels.update(
+            await _kind_names_of_values(client, graphs, registry_root, rows, unnamed)
+        )
+    return property_labels
+
+
 async def subject_facts(
     client: SupportsSparql,
     iri: str,
@@ -472,59 +542,11 @@ async def subject_facts(
         _cell(r, "o") for r in rows if r.get("o", {}).get("type") == "uri" and _cell(r, "o")
     }
 
-    # A property's ``rdfs:label`` lives in the projected ontology graph, not
-    # the canonical data graph (§6) — the label lookup for property IRIs must
-    # read both scopes, or a resource whose only outbound facts are literals
-    # (no per-subject rdfs:label) never resolves its properties' names.
-    property_scope = sorted(await readable_graph_iris(client))
-    schema_labels: dict[str, str] = {}
     types = await subject_types(client, iri)
     class_iri = await pick_class_iri(client, types)
-    if class_iri is not None:
-        schema_fn = _load_class_schema()
-        if schema_fn is not None:
-            try:
-                schema = await schema_fn(client, registry_root, class_iri)
-            except Exception:  # best-effort: class_schema failing must not break facts
-                logger.debug("subject_facts: class_schema lookup failed", exc_info=True)
-                schema = None
-            if isinstance(schema, dict):
-                schema_labels = {
-                    p["iri"]: p["label"]
-                    for p in schema.get("properties") or []
-                    if isinstance(p, dict) and p.get("iri") and p.get("label")
-                }
-
-    unnamed: set[str] = set()  # ストアにも種類のスキーマにも名前が無い述語
-
-    def _property_fallback(p: str) -> str:
-        fallback = _fallback_label(p)
-        # 種類のスキーマも、名前の無い述語には読みくだしを入れて返す — それは名前ではない
-        if schema_labels.get(p, fallback) != fallback:
-            return schema_labels[p]
-        unnamed.add(p)
-        return fallback
-
-    property_labels = await _label_lookup(
-        client, property_scope, label_targets, fallback=_property_fallback
+    property_labels = await _predicate_names(
+        client, graphs, registry_root, class_iri, rows, label_targets
     )
-    # この種類の設計が行に付けた名前は、ストアの rdfs:label より先。rdfs:label は
-    # 述語そのものの名前で（データセットをまたいで共有される）、名前の無い行には
-    # ローカル名が入る — 機械が足したつなぐ行が "isPartOf" と出ていた。
-    if class_iri is not None and registry_root is not None:
-        designed = await asyncio.to_thread(
-            _designed_property_labels, Path(registry_root), class_iri
-        )
-        property_labels.update({p: name for p, name in designed.items() if p in label_targets})
-        unnamed -= set(designed)
-    # 種類の行の項目名は UI が決める（値の種類の名前で上書きしない）
-    unnamed.discard(_RDF_TYPE)
-    # どこにも名前の無い述語（つながりのハブへの述語など）は、値（つなぐ先）の
-    # 種類の名前で読む — 設計のつなぐ行と同じ規則。値の種類の名前が割れるときは付けない。
-    if unnamed:
-        property_labels.update(
-            await _kind_names_of_values(client, graphs, registry_root, rows, unnamed)
-        )
     # 値の名前が無ければ、その 1 件のページの見出しと同じローカル名（データの値を崩さない）
     value_labels = await _label_lookup(client, graphs, iri_objects, fallback=_value_fallback)
     # 種類（rdf:type の値）の表示名は、データの graph には無い — 種類の名前の
@@ -1083,8 +1105,17 @@ def _hub_entity_ask(hub_graph: str, iri: str) -> str:
     判定され、メンバー 0・候補 0 のページになった）。"""
     return (
         f"ASK {{ GRAPH {_ref(hub_graph)} {{ {_ref(iri)} {_ref(_RDF_TYPE)} ?c "
-        f'FILTER(!STRSTARTS(STR(?c), "{_PROV_NS}") '
-        f'&& STR(?c) != "{_XW_NS}CrosswalkLink") }} }}'
+        f"{_hub_entity_type_filter('?c')} }} }}"
+    )
+
+
+def _hub_entity_type_filter(var: str) -> str:
+    """ハブ graph の中で「ハブ実体」の型だけを残す FILTER（build の prov:Activity と
+    per-link の xw:CrosswalkLink は実体ではない）。:func:`_hub_entity_ask` と
+    :func:`subject_neighbors` の ``is_hub`` が同じ条件で判定するための 1 か所。"""
+    return (
+        f'FILTER(!STRSTARTS(STR({var}), "{_PROV_NS}") '
+        f'&& STR({var}) != "{_XW_NS}CrosswalkLink")'
     )
 
 
@@ -1602,6 +1633,330 @@ async def _sibling_child_linking_rows(
         with contextlib.suppress(ValueError):
             rows.append((cls, p3, p2, p1, parent, pcls, sibcls, int(float(cnt))))
     return rows
+
+
+# ----------------------------------------------------------------------------
+# 1 件の隣を 1 段（object-cards-ui.md O67）
+# ----------------------------------------------------------------------------
+
+#: つながりの per-link 来歴の型（O60 と同じ除外）。隣としては数えない。
+_XW_LINK_CLASS = _XW_NS + "CrosswalkLink"
+_NEIGHBOR_OUT_LIMIT = 1000
+
+
+def _representative_kind(types: set[str]) -> str | None:
+    """主語の「代表の種類」: PROV 名前空間でない型の IRI 辞書順の先頭。無ければ PROV の
+    型の先頭。型が無ければ None。入る線の SPARQL（:func:`_incoming_subject_pattern`）の
+    ``MIN`` と同じ規則 — 出・入で同じ種類に畳む。"""
+    plain = sorted(t for t in types if not t.startswith(_PROV_NS))
+    if plain:
+        return plain[0]
+    return min(types) if types else None
+
+
+def _incoming_subject_pattern(iri: str, predicate: str | None) -> str:
+    """``?s ?p <iri>`` の主語ごとに代表の種類（頭に ``0``/``1`` を付けた文字列 ``?k``。
+    型が無ければ空文字）を 1 つ決める副問い合わせ。1 つの主語が型を 2 つ持っても 1 行。
+    rdf:type の線・自分自身・IRI でない主語・CrosswalkLink は除く。"""
+    p_ref = _ref(predicate) if predicate else "?p"
+    select_p = "" if predicate else " ?p"
+    group_p = "" if predicate else " ?p"
+    return (
+        f"{{ SELECT ?s{select_p} (MIN(?k0) AS ?k) WHERE {{ "
+        f"?s {p_ref} {_ref(iri)} "
+        f"FILTER(isIRI(?s)) FILTER({p_ref} != {_ref(_RDF_TYPE)}) FILTER(?s != {_ref(iri)}) "
+        f"FILTER NOT EXISTS {{ ?s a {_ref(_XW_LINK_CLASS)} }} "
+        "OPTIONAL { ?s a ?t0 } "
+        f'BIND(COALESCE(IF(STRSTARTS(STR(?t0), "{_PROV_NS}"), CONCAT("1", STR(?t0)), '
+        'CONCAT("0", STR(?t0))), "") AS ?k0) '
+        f"}} GROUP BY ?s{group_p} }}"
+    )
+
+
+def _kind_of_key(key: str) -> str | None:
+    """``?k``（頭の 1 文字 ``0``/``1`` ＋ 型 IRI、型が無ければ空）→ 型 IRI / None。"""
+    return key[1:] if key else None
+
+
+def _neighbor_set_spec(class_iri: str, predicate: str, center: str) -> dict[str, Any]:
+    """束を「一覧で開く」ための SetSpec。where はサーバが完成形で返す（O59）。"""
+    return {
+        "class": class_iri,
+        "where": [{"property": predicate, "iri": center}],
+        "order_by": None,
+        "limit": 20,
+        "source_scope": "all",
+    }
+
+
+async def subject_neighbors(
+    client: SupportsSparql,
+    iri: str,
+    *,
+    registry_root: Path | str | None = None,
+    inline_max: int = 6,
+    sample_max: int = 12,
+    max_groups: int = 24,
+) -> dict[str, Any]:
+    """``iri`` の隣を 1 段だけ返す（O67）。人が押したときに 1 段だけ — 自動で何段も
+    辿らない（O29 の兄弟の壁）。多い隣は**束**にして件数だけ返し、兄弟の壁は束で防ぐ。
+
+    群（group）= (向き, 述語, 代表の種類)。``count`` は正確な件数（重複なし）。
+    ``count <= inline_max`` は全件を ``items`` に。超えた入る線の束で代表の種類が PROV でも
+    ``xw:`` でもなければ ``set_spec``（一覧で開く）を返して ``items`` は空、それ以外の束は
+    先頭 ``sample_max`` 件（IRI 順）を ``items`` に入れる。
+    注意: 束の ``count`` は代表の種類での件数。``set_spec`` は ``class`` で絞るだけなので、型を
+    複数持つ主語は一覧側に余分に入り、件数が一覧の total と食い違うことがある（O67）。
+    読む範囲は公開済みの graph
+    （:func:`asterism.substrate.canonical_graphs`）だけ — 0 件なら SPARQL を 1 本も投げない。
+
+    名前は新しい規則を作らない: 隣・中心の名前は 1 件のページの見出し（api の
+    ``_entity_label``）と同じ、線の名前は 1 件ページの「読み取った値」カードの項目名
+    （:func:`_predicate_names`）と同じ、種類の名前は :func:`_class_labels`。
+    """
+    graphs = await canonical_graphs(client)
+    if not graphs:
+        return {"iri": iri, "found": False, "center": None, "groups": [], "truncated": False}
+    from_clause = canonical_from_clauses(graphs)
+    center_ref = _ref(iri)
+    truncated = False
+
+    # --- 出ていく線（中心が主語）---------------------------------------------
+    out_query = (
+        f"SELECT DISTINCT ?p ?o\n{from_clause}"
+        f"WHERE {{ {center_ref} ?p ?o FILTER(isIRI(?o)) FILTER(?p != {_ref(_RDF_TYPE)}) "
+        f"FILTER(?o != {center_ref}) }} ORDER BY ?p ?o LIMIT {_NEIGHBOR_OUT_LIMIT + 1}"
+    )
+    out_rows = _rows(await client.sparql_select(out_query))
+    if len(out_rows) > _NEIGHBOR_OUT_LIMIT:
+        truncated = True
+        out_rows = out_rows[:_NEIGHBOR_OUT_LIMIT]
+    out_pairs = [(p, o) for r in out_rows if (p := _cell(r, "p")) and (o := _cell(r, "o"))]
+    out_types: dict[str, set[str]] = {}
+    if out_pairs:
+        values = " ".join(_ref(o) for o in sorted({o for _, o in out_pairs}))
+        type_rows = _rows(
+            await client.sparql_select(
+                f"SELECT DISTINCT ?o ?c\n{from_clause}"
+                f"WHERE {{ VALUES ?o {{ {values} }} ?o a ?c }} ORDER BY ?o ?c"
+            )
+        )
+        for r in type_rows:
+            o, c = _cell(r, "o"), _cell(r, "c")
+            if o and c:
+                out_types.setdefault(o, set()).add(c)
+    # (述語, 代表の種類) → 隣の IRI（CrosswalkLink は除く）
+    out_members: dict[tuple[str, str | None], list[str]] = {}
+    for p, o in out_pairs:
+        types = out_types.get(o, set())
+        if _XW_LINK_CLASS in types:
+            continue
+        out_members.setdefault((p, _representative_kind(types)), []).append(o)
+
+    # --- 入ってくる線（中心が目的語）の件数 ---------------------------------------
+    in_rows = _rows(
+        await client.sparql_select(
+            f"SELECT ?p ?k (COUNT(DISTINCT ?s) AS ?n)\n{from_clause}"
+            f"WHERE {{ {_incoming_subject_pattern(iri, None)} }} GROUP BY ?p ?k ORDER BY ?p ?k"
+        )
+    )
+    in_counts: dict[tuple[str, str | None], int] = {}
+    for r in in_rows:
+        p, k, n = _cell(r, "p"), _cell(r, "k"), _cell(r, "n")
+        if p is None or n is None:
+            continue
+        with contextlib.suppress(ValueError):
+            in_counts[(p, _kind_of_key(k or ""))] = int(float(n))
+
+    raw_groups: list[dict[str, Any]] = [
+        {
+            "direction": "out",
+            "predicate_iri": p,
+            "class_iri": c,
+            "count": len(members),
+            "members": members,
+        }
+        for (p, c), members in out_members.items()
+    ] + [
+        {"direction": "in", "predicate_iri": p, "class_iri": c, "count": n, "members": None}
+        for (p, c), n in in_counts.items()
+        if n > 0
+    ]
+
+    center_types = await subject_types(client, iri)
+    center_class = await pick_class_iri(client, center_types)
+
+    if not raw_groups:
+        present = _rows(
+            await client.sparql_select(
+                f"SELECT ?x\n{from_clause}WHERE {{ {{ {center_ref} ?p ?x }} UNION "
+                f"{{ ?x ?p {center_ref} }} }} LIMIT 1"
+            )
+        )
+        if not present:
+            return {"iri": iri, "found": False, "center": None, "groups": [], "truncated": False}
+
+    # --- 名前 ------------------------------------------------------------------
+    class_names = await _class_labels(
+        client,
+        registry_root,
+        {g["class_iri"] for g in raw_groups if g["class_iri"]}
+        | ({center_class} if center_class else set()),
+    )
+    out_predicates = {g["predicate_iri"] for g in raw_groups if g["direction"] == "out"}
+    predicate_names: dict[tuple[str, str, str | None], str] = {}
+    if out_predicates:
+        # 中心の「読み取った値」カードと同じ行（文字の値の有無まで同じに見せる）
+        literal_rows = _rows(
+            await client.sparql_select(
+                f"SELECT DISTINCT ?p\n{from_clause}"
+                f"WHERE {{ {center_ref} ?p ?o FILTER(isLiteral(?o)) }} ORDER BY ?p"
+            )
+        )
+        rows_for_names: list[dict[str, dict[str, Any]]] = [
+            {"p": {"type": "uri", "value": p}, "o": {"type": "uri", "value": o}}
+            for p, o in out_pairs
+        ] + [
+            {"p": {"type": "uri", "value": lp}, "o": {"type": "literal", "value": ""}}
+            for r in literal_rows
+            if (lp := _cell(r, "p"))
+        ]
+        names = await _predicate_names(
+            client, graphs, registry_root, center_class, rows_for_names, out_predicates
+        )
+        for g in raw_groups:
+            if g["direction"] == "out":
+                predicate_names[("out", g["predicate_iri"], g["class_iri"])] = names.get(
+                    g["predicate_iri"], _fallback_label(g["predicate_iri"])
+                )
+    in_by_class: dict[str | None, set[str]] = {}
+    for g in raw_groups:
+        if g["direction"] == "in":
+            in_by_class.setdefault(g["class_iri"], set()).add(g["predicate_iri"])
+    for cls, preds in in_by_class.items():
+        names = await _predicate_names(
+            client,
+            graphs,
+            registry_root,
+            cls,
+            [
+                {"p": {"type": "uri", "value": p}, "o": {"type": "uri", "value": iri}}
+                for p in sorted(preds)
+            ],
+            preds,
+        )
+        for p in preds:
+            predicate_names[("in", p, cls)] = names.get(p, _fallback_label(p))
+
+    for g in raw_groups:
+        g["predicate_label"] = predicate_names[(g["direction"], g["predicate_iri"], g["class_iri"])]
+        g["class_label"] = class_names.get(g["class_iri"]) if g["class_iri"] else None
+    raw_groups.sort(
+        key=lambda g: (
+            0 if g["direction"] == "out" else 1,
+            g["predicate_label"],
+            g["class_label"] is None,
+            g["class_label"] or "",
+            g["predicate_iri"],
+            g["class_iri"] or "",
+        )
+    )
+    if len(raw_groups) > max_groups:
+        raw_groups = raw_groups[:max_groups]
+        truncated = True
+
+    # --- 中身 ------------------------------------------------------------------
+    for g in raw_groups:
+        is_bundle = g["count"] > inline_max
+        spec_ok = (
+            g["direction"] == "in"
+            and g["class_iri"] is not None
+            and not g["class_iri"].startswith(_PROV_NS)
+            and not g["class_iri"].startswith(_XW_NS)
+        )
+        g["set_spec"] = None
+        if g["direction"] == "out":
+            limit = sample_max if is_bundle else g["count"]
+            g["item_iris"] = g["members"][:limit]
+            item_class = {
+                o: _representative_kind(out_types.get(o, set())) for o in g["item_iris"]
+            }
+        else:
+            if is_bundle and spec_ok:
+                g["set_spec"] = _neighbor_set_spec(g["class_iri"], g["predicate_iri"], iri)
+                g["item_iris"] = []
+            else:
+                limit = sample_max if is_bundle else inline_max
+                kind_key = f"0{g['class_iri']}" if g["class_iri"] else ""
+                if g["class_iri"] and g["class_iri"].startswith(_PROV_NS):
+                    kind_key = f"1{g['class_iri']}"
+                item_rows = _rows(
+                    await client.sparql_select(
+                        f"SELECT ?s\n{from_clause}WHERE {{ "
+                        f"{_incoming_subject_pattern(iri, g['predicate_iri'])} "
+                        f"FILTER(?k = \"{_escape_literal(kind_key)}\") }} ORDER BY ?s LIMIT {limit}"
+                    )
+                )
+                g["item_iris"] = [s for r in item_rows if (s := _cell(r, "s"))]
+            item_class = {s: g["class_iri"] for s in g["item_iris"]}
+        g["item_class"] = item_class
+
+    # --- 隣・中心の名前とハブ判定 ------------------------------------------------
+    all_iris = {iri} | {i for g in raw_groups for i in g["item_iris"]}
+    heading_graphs = sorted(set(graphs) | set(await ontology_graphs(client)))
+    labels = await _label_lookup(client, heading_graphs, all_iris)
+    hub_graphs = [g for g in graphs if is_hub_graph(g)]
+    hub_members: set[str] = set()
+    if hub_graphs:
+        named = "".join(f"FROM NAMED <{g}>\n" for g in hub_graphs)
+        values = " ".join(_ref(i) for i in sorted(all_iris))
+        hub_rows = _rows(
+            await client.sparql_select(
+                f"SELECT DISTINCT ?n\n{named}"
+                # ハブ graph には build の activity と per-link の来歴も型つきで載る —
+                # それらはハブ実体ではない（resolve の is_hub と同じ条件）
+                f"WHERE {{ VALUES ?n {{ {values} }} GRAPH ?g {{ ?n a ?c "
+                f"{_hub_entity_type_filter('?c')} }} }}"
+            )
+        )
+        hub_members = {n for r in hub_rows if (n := _cell(r, "n"))}
+
+    groups_out: list[dict[str, Any]] = []
+    for g in raw_groups:
+        groups_out.append(
+            {
+                "key": f"{g['direction']}|{g['predicate_iri']}|{g['class_iri'] or ''}",
+                "direction": g["direction"],
+                "predicate_iri": g["predicate_iri"],
+                "predicate_label": g["predicate_label"],
+                "class_iri": g["class_iri"],
+                "class_label": g["class_label"],
+                "count": g["count"],
+                "items": [
+                    {
+                        "iri": i,
+                        "label": labels.get(i) or _local_name(i),
+                        "class_iri": g["item_class"].get(i),
+                        "is_hub": i in hub_members,
+                    }
+                    for i in g["item_iris"]
+                ],
+                "set_spec": g["set_spec"],
+            }
+        )
+    return {
+        "iri": iri,
+        "found": True,
+        "center": {
+            "iri": iri,
+            "label": labels.get(iri) or _local_name(iri),
+            "class_iri": center_class,
+            "class_label": class_names.get(center_class) if center_class else None,
+            "is_hub": iri in hub_members,
+        },
+        "groups": groups_out,
+        "truncated": truncated,
+    }
 
 
 async def _kind_names_of_values(

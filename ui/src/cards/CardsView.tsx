@@ -156,6 +156,23 @@ export function CardsView({ route, navigate, onAsk, onLabel, onDefine }: CardsVi
           navigate({ tab: 'gallery', datasetId, detailTab: 'design' })
         }
         onOpenClass={(classIri) => navigate({ tab: 'cards', classPageIri: classIri })}
+        // 「つながりを図で見る」の束 →「一覧で開く」。SetForm の送信後（SetPage の
+        // 新規作成モード）と同じく、私の一覧に足して絞り込みのページへ。
+        onOpenSet={(result) => {
+          addSubjectAndPersist({
+            kind: 'set',
+            id: result.set_id,
+            label: formatSetTitle(result.title, t),
+            class_label: result.title.class_label,
+            source: 'open',
+            card_count: null,
+            match: null,
+            subject_key: `s:${result.set_id}`,
+            spec: result.spec,
+            created_at: new Date().toISOString(),
+          })
+          navigate({ tab: 'cards', subjectKey: `s:${result.set_id}` })
+        }}
       />
     )
   }
