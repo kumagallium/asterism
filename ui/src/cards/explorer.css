@@ -59,3 +59,11 @@
 .explorer-note--warn {
   color: var(--fg);
 }
+
+/* 図の枠の右上に「大きく見る」を置くための基準。 */
+.explorer-graph-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

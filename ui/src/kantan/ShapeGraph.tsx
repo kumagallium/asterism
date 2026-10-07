@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { ChevronIcon, CloseIcon, ExpandIcon } from '../icons'
+import { BigViewOverlay, ExpandButton } from '../BigView'
+import { useBigViewHeight } from '../bigViewSize'
+import { ChevronIcon } from '../icons'
 import {
   Background,
   BackgroundVariant,
@@ -428,14 +429,7 @@ function ShapeGraphInner({
   /** 大きく見る。細い列に貼り付いた図は、節が増えると読める大きさで収まらない
    *  （利用者評価 2026-08-30）。同じ図を画面いっぱいで開く。 */
   const [big, setBig] = useState(false)
-  useEffect(() => {
-    if (!big) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setBig(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [big])
+  const bigH = useBigViewHeight()
 
   return (
     <div
@@ -444,56 +438,23 @@ function ShapeGraphInner({
       role="img"
       aria-label={ariaLabel}
     >
-      {expandable && (
-        <button
-          type="button"
-          className="shape-graph-expand"
-          onClick={() => setBig(true)}
-          aria-label={t('skeletongate:diagram.expand')}
-          title={t('skeletongate:diagram.expand')}
-        >
-          <ExpandIcon size={15} />
-        </button>
-      )}
-      {big &&
-        createPortal(
-          <div
-            className="shape-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label={ariaLabel}
-            onClick={() => setBig(false)}
-          >
-            <div className="shape-overlay-panel" onClick={(e) => e.stopPropagation()}>
-              <div className="shape-overlay-head">
-                <span>{ariaLabel}</span>
-                <button
-                  type="button"
-                  className="shape-overlay-close"
-                  onClick={() => setBig(false)}
-                  aria-label={t('skeletongate:diagram.close')}
-                >
-                  <CloseIcon size={18} />
-                </button>
-              </div>
-              {/* 中身は同じ部品。⭐広いほうでは**段を折り返さない** — 折り返すと
-                  同じ段の箱が上下に並び、親から下の段へ引かれた線が上の段の箱から
-                  出ているように見える（実測 2026-08-30: 10 個の兄弟が 3 段に割れて
-                  鎖のように読めた）。横に長くなった分はホイールと手で動かせる。 */}
-              <ShapeGraph
-                shape={shape}
-                ariaLabel={ariaLabel}
-                onNodeClick={onNodeClick}
-                perRow={Math.max(1, shape.nodes.length)}
-                nodeWidth={216}
-                maxHeight={Math.max(360, Math.round(window.innerHeight * 0.8))}
-                expandable={false}
-                zoomable
-              />
-            </div>
-          </div>,
-          document.body,
-        )}
+      {expandable && <ExpandButton onClick={() => setBig(true)} />}
+      <BigViewOverlay open={big} onClose={() => setBig(false)} title={ariaLabel}>
+        {/* 中身は同じ部品。⭐広いほうでは**段を折り返さない** — 折り返すと
+            同じ段の箱が上下に並び、親から下の段へ引かれた線が上の段の箱から
+            出ているように見える（実測 2026-08-30: 10 個の兄弟が 3 段に割れて
+            鎖のように読めた）。横に長くなった分はホイールと手で動かせる。 */}
+        <ShapeGraph
+          shape={shape}
+          ariaLabel={ariaLabel}
+          onNodeClick={onNodeClick}
+          perRow={Math.max(1, shape.nodes.length)}
+          nodeWidth={216}
+          maxHeight={bigH}
+          expandable={false}
+          zoomable
+        />
+      </BigViewOverlay>
       <ReactFlow
         nodes={nodes}
         edges={edges}

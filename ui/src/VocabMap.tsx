@@ -6,7 +6,6 @@
 //   ・標準のことば = 画面下の琥珀の帯。ここに線が集まるのがこの図の主役
 // `ShapeGraph` 本体は触らない — ④⑤の共有部品に横断図の概念を混ぜない（ADR §3）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Background,
@@ -24,7 +23,8 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { CloseIcon, ExpandIcon } from './icons'
+import { BigViewOverlay, ExpandButton } from './BigView'
+import { useBigViewHeight } from './bigViewSize'
 import { ShapeBox, ShapeEdgeLine, type ShapeNodeData } from './kantan/ShapeGraph'
 import {
   arrange,
@@ -586,61 +586,21 @@ function VocabMapInner({
   }, [fitKey, rf, updateNodeInternals])
 
   const [big, setBig] = useState(false)
-  useEffect(() => {
-    if (!big) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setBig(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [big])
+  const bigH = useBigViewHeight()
 
   return (
     <div className="shape-graph vocab-map" style={{ height }} role="img" aria-label={ariaLabel}>
-      {expandable && (
-        <button
-          type="button"
-          className="shape-graph-expand"
-          onClick={() => setBig(true)}
-          aria-label={t('skeletongate:diagram.expand')}
-          title={t('skeletongate:diagram.expand')}
-        >
-          <ExpandIcon size={15} />
-        </button>
-      )}
-      {big &&
-        createPortal(
-          <div
-            className="shape-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label={ariaLabel}
-            onClick={() => setBig(false)}
-          >
-            <div className="shape-overlay-panel" onClick={(e) => e.stopPropagation()}>
-              <div className="shape-overlay-head">
-                <span>{ariaLabel}</span>
-                <button
-                  type="button"
-                  className="shape-overlay-close"
-                  onClick={() => setBig(false)}
-                  aria-label={t('skeletongate:diagram.close')}
-                >
-                  <CloseIcon size={18} />
-                </button>
-              </div>
-              <VocabMap
-                shape={shape}
-                ariaLabel={ariaLabel}
-                onOpenDataset={onOpenDataset}
-                maxHeight={Math.max(360, Math.round(window.innerHeight * 0.8))}
-                expandable={false}
-                zoomable
-              />
-            </div>
-          </div>,
-          document.body,
-        )}
+      {expandable && <ExpandButton onClick={() => setBig(true)} />}
+      <BigViewOverlay open={big} onClose={() => setBig(false)} title={ariaLabel}>
+        <VocabMap
+          shape={shape}
+          ariaLabel={ariaLabel}
+          onOpenDataset={onOpenDataset}
+          maxHeight={bigH}
+          expandable={false}
+          zoomable
+        />
+      </BigViewOverlay>
       <ReactFlow
         nodes={nodes}
         edges={edges}
