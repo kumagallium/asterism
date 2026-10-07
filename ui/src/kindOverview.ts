@@ -47,9 +47,11 @@ const STD_GAP = 18
 export const INSIDE_R = 22
 export const countInside = (r: number): boolean => r >= INSIDE_R
 
-/** 件数の短い形（ja「120万」「3.4万」・en「1.2M」「34K」）。 */
+/** 件数の短い形（有効数字 3 桁。ja「120万」「1980万」「2.3億」・en「1.2M」「19.8M」）。
+ *  小数 1 桁で切ると ja で「1978.3万」のような読みにくい形になるため、桁数ではなく有効数字で揃える。
+ *  正確な数は丸の title に出す。 */
 export function compactCount(n: number, lang: string): string {
-  return new Intl.NumberFormat(lang, { notation: 'compact', maximumFractionDigits: 1, useGrouping: false }).format(n)
+  return new Intl.NumberFormat(lang, { notation: 'compact', maximumSignificantDigits: 3 }).format(n)
 }
 
 /**

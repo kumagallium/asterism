@@ -105,6 +105,11 @@ describe('compactCount — 件数の短い形と、丸の中／下', () => {
     expect(compactCount(1200000, 'en')).toBe('1.2M')
     expect(compactCount(34000, 'en')).toBe('34K')
   })
+  it('有効数字 3 桁で揃える（「1978.3万」のような形にしない）', () => {
+    expect(compactCount(19783000, 'ja')).toBe('1980万')
+    expect(compactCount(189992093, 'ja')).toBe('1.9億')
+    expect(compactCount(19783000, 'en')).toBe('19.8M')
+  })
   it('半径 22 以上は丸の中・未満は下', () => {
     expect(countInside(22)).toBe(true)
     expect(countInside(21)).toBe(false)
