@@ -51,9 +51,53 @@ const SHAPE_DATATYPE = 'datatype MISMATCH'
  *  anonymous "other": it is the one advisory that makes an ANSWER wrong. */
 const UNTYPED_NUMERIC = 'holds numbers but is mapped as an untyped literal'
 
-/** A finding whose resolution is a human column decision, not another AI round. */
+/** Marker phrase from `asterism_api.main._settle_on_minted_design`: a column the
+ *  person unticked on ③ that the design could not leave out (it mints the id, or
+ *  it is the only thing its kind records). Said once, with the dataset's birth —
+ *  the store never holds that decision, so nothing else would ever tell the
+ *  person why the column is in their data. */
+const KEPT_EXCLUSION = 'stays in the design although it was marked do-not-take-in'
+
+/** A finding whose resolution is a human column decision (or none at all), not
+ *  another AI round: an unused column, or an exclusion the design kept. */
 export function isMeaningReviewAdvisory(advisory: string): boolean {
-  return advisory.includes(UNMAPPED_COLUMN)
+  return advisory.includes(UNMAPPED_COLUMN) || advisory.includes(KEPT_EXCLUSION)
+}
+
+/** One exclusion the design kept, as the ためす screen names it. `why` comes from
+ *  the reason the mapping-spec patcher gave (`asterism_step0.staged_propose`). */
+export interface KeptExclusion {
+  source: string
+  column: string
+  why: 'identifier' | 'only' | 'other'
+  /** The advisory this was read from (for the fold / a raw listing). */
+  raw: string
+}
+
+/** `column no of source stock.csv stays in the design although it was marked
+ *  do-not-take-in: excluded column 'no' is an identifier for map 'record' and
+ *  cannot be removed safely` → `{ column: "no", source: "stock.csv", why: "identifier" }`.
+ *  Lines that are not this advisory are skipped. */
+export function keptExclusionsOf(advisories: string[]): KeptExclusion[] {
+  const out: KeptExclusion[] = []
+  for (const raw of advisories) {
+    const m = /^column (.+?) of source (.+?) stays in the design although it was marked do-not-take-in: ([\s\S]*)$/.exec(
+      raw,
+    )
+    if (!m) continue
+    const reason = m[3]
+    let why: KeptExclusion['why'] = 'other'
+    if (reason.includes('is an identifier for map')) why = 'identifier'
+    else if (reason.includes('is the only property of map')) why = 'only'
+    out.push({ column: m[1], source: m[2], why, raw })
+  }
+  return out
+}
+
+const KEPT_EXCLUSION_KEYS: Record<KeptExclusion['why'], string> = {
+  identifier: 'gallery:advisory.keptExclusionIdentifier',
+  only: 'gallery:advisory.keptExclusionOnly',
+  other: 'gallery:advisory.keptExclusion',
 }
 
 /** `… groups: MaterialSample  |  Measurement.` → ["MaterialSample", "Measurement"] */
@@ -232,6 +276,7 @@ export function plainAdvisories(advisories: string[], labels?: TermLabels): Plai
   const untyped = hasSentence('gallery:advisory.untypedNumeric')
     ? advisories.filter((a) => a.includes(UNTYPED_NUMERIC))
     : []
+  const kept = keptExclusionsOf(advisories)
   const shape: PlainAdvisory[] = []
   const shapeHits = [
     ...shapeLines(advisories, SHAPE_MISSING, 'gallery:advisory.shapeMissing', shape, names),
@@ -245,6 +290,7 @@ export function plainAdvisories(advisories: string[], labels?: TermLabels): Plai
     ...unmapped,
     ...shells,
     ...untyped,
+    ...kept.map((k) => k.raw),
     ...shapeHits,
   ])
   const other = advisories.filter((a) => !known.has(a))
@@ -303,6 +349,11 @@ export function plainAdvisories(advisories: string[], labels?: TermLabels): Plai
       text: t('gallery:advisory.untypedNumeric', { column: untypedNumericColumn(a) }),
       raw: [a],
     })
+  }
+  // A column the person unticked that the design kept anyway — named per
+  // column with the reason, because "why is this in my data" is the question.
+  for (const k of kept) {
+    out.push({ text: t(KEPT_EXCLUSION_KEYS[k.why], { column: k.column }), raw: [k.raw] })
   }
   // Data findings last: the design lines above are about something the user can
   // still edit, these are about data already ingested.
