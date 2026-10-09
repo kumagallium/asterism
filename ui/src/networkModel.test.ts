@@ -609,6 +609,35 @@ describe('kindQualifiers / barDatasetName', () => {
     expect(q.get('https://e.org/a#CardOne')).toBe('Card One')
     expect(q.get('https://e.org/b#CardTwo')).toBe('Card Two')
   })
+  it('名前なし（null）の行どうしも同名として別データセット名を添える', () => {
+    const q = kindQualifiers(
+      [row('https://e.org/a#Z', null), row('https://e.org/b#Y', null)],
+      [
+        { class_iri: 'https://e.org/a#Z', dataset_ids: ['xa'] },
+        { class_iri: 'https://e.org/b#Y', dataset_ids: ['xb'] },
+      ],
+      labels,
+    )
+    expect(q.get('https://e.org/a#Z')).toBe('XRD カード A')
+    expect(q.get('https://e.org/b#Y')).toBe('XRD カード B')
+  })
+  it('読みくだしを足してもまだ同じなら足す前に戻す', () => {
+    const old = kindQualifiers(
+      [row('https://e/a#Card', 'Card'), row('https://e/b#Card', 'Card')],
+      [{ class_iri: 'https://e/a#Card' }, { class_iri: 'https://e/b#Card' }],
+      new Map(),
+    )
+    expect([...old.values()]).toEqual([null, null])
+    const same = kindQualifiers(
+      [row('https://e/a#Card', 'Card'), row('https://e/b#Card', 'Card')],
+      [
+        { class_iri: 'https://e/a#Card', dataset_ids: ['xa'] },
+        { class_iri: 'https://e/b#Card', dataset_ids: ['xa'] },
+      ],
+      labels,
+    )
+    expect([...same.values()]).toEqual(['XRD カード A', 'XRD カード A'])
+  })
   it('帯のデータセット名は引けたときだけ出る', () => {
     expect(barDatasetName('xa', labels)).toBe('XRD カード A')
     expect(barDatasetName('nope', labels)).toBeNull()

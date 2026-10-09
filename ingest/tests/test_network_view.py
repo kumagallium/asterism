@@ -655,3 +655,36 @@ async def test_bundle_dataset_id_is_set_when_same_and_null_when_split() -> None:
 async def test_no_published_graph_gives_empty_datasets() -> None:
     out = await network_view(_pyoxi_client({DRAFT_GRAPH: _stations(3, zones=1)}))
     assert out["datasets"] == []
+
+
+async def test_upper_kinds_dataset_ids_are_per_group() -> None:
+    a, b, upper = _upper_fixture()
+    client = _pyoxi_client({GRAPH_A: a, GRAPH_B: b, ONTO_GRAPH: ONTOLOGY})
+    out = await network_view(client, upper=upper)
+    (kind,) = out["kinds"]
+    assert kind["class_iri"] == WX + "Site"
+    assert kind["dataset_ids"] == ["weather-a", "weather-b"]
+    assert [d["id"] for d in out["datasets"]] == ["weather-a", "weather-b"]
+    # 束になる件数でも group 単位
+    a2 = "\n".join([PREFIXES] + [f"r:a-{i} a wx:Station ; wx:zone \"z\" ." for i in range(25)])
+    b2 = "\n".join([PREFIXES] + [f"r:b-{i} a wx:Buoy ; wx:area \"z\" ." for i in range(25)])
+    big = await network_view(
+        _pyoxi_client({GRAPH_A: a2, GRAPH_B: b2, ONTO_GRAPH: ONTOLOGY}), upper=upper
+    )
+    assert _nodes(big, "bundle")
+    (bk,) = big["kinds"]
+    assert bk["class_iri"] == WX + "Site"
+    assert bk["dataset_ids"] == ["weather-a", "weather-b"]
+
+
+async def test_value_and_hub_nodes_have_no_dataset_id() -> None:
+    out = await network_view(
+        _pyoxi_client(
+            {
+                GRAPH_A: _stations(6, zones=2, prefix="a"),
+                GRAPH_B: _stations(6, zones=2, prefix="b"),
+            }
+        )
+    )
+    assert _nodes(out, "value")
+    assert all(n["dataset_id"] is None for n in _nodes(out, "value"))

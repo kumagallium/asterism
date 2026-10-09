@@ -206,12 +206,20 @@ export function kindQualifiers(
   const byPair = tally(pair, clash)
   const out = new Map<string, string | null>()
   for (const r of rows) out.set(r.key, null)
+  const full = new Map<string, string>()
   for (const r of clash) {
     let q = base.get(r.key) ?? ''
     if ((byPair.get(pair(r)) ?? 0) > 1) {
       const local = kindDisplayName(null, r.key)
       if (local) q = q ? `${q}・${local}` : local
     }
+    full.set(r.key, q)
+  }
+  // 読みくだしを足してもまだ同じ（名前, 添え書き）なら、足す前に戻す
+  const finalPair = (r: { key: string; name: string | null }) => `${nameKey(r)}\u0000${full.get(r.key) ?? ''}`
+  const byFinal = tally(finalPair, clash)
+  for (const r of clash) {
+    const q = (byFinal.get(finalPair(r)) ?? 0) > 1 ? (base.get(r.key) ?? '') : (full.get(r.key) ?? '')
     out.set(r.key, q || null)
   }
   return out
