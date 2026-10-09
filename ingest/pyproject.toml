@@ -39,6 +39,7 @@ substrate = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.3",
     "ruff>=0.6",
     "mypy>=1.10",
 ]
@@ -76,6 +77,12 @@ ignore = ["RUF002", "RUF003"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# テスト 1 件の上限（pytest-timeout）。固まったテストを 300 秒で止め、全スレッドの
+# スタックを stderr に出して pytest ごと終える。thread 方式は pytest-timeout の説明で
+# 最も確実とされる方式で、代わりに fixture の後片付けは走らない。2026-10-09 に CI で
+# 1 件 70 分固まった（Morph-KGC が fork した子）ことへの備え。ふだんの最長は 1 件 6 秒ほど。
+timeout = 300
+timeout_method = "thread"
 
 [tool.mypy]
 strict = true

@@ -9,10 +9,17 @@ on:
   push:
     branches: [main]
 
+# 各ジョブの timeout-minutes は、固まったジョブを既定の 360 分まで走らせないための上限。
+# 2026-10-09 に ingest の pytest が 1 件のテストで 70 分固まった（Morph-KGC が Linux でだけ
+# fork で作る mp.Pool の子が固まった。substrate.py の number_of_processes: 1 で直した）。
+# 値は直近 30 回の実行の最大所要時間の数倍。ingest と api は pytest-timeout でテスト 1 件
+# 300 秒の上限も持つ（各 pyproject）。そちらが先に切れてスタックを出すよう、この上限は
+# 「ふだんの所要時間＋300 秒」より長くとる。ジョブの上限は最後の砦で、スタックは出ない。
 jobs:
   ingest:
     name: ingest tests (ruff + pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # 実測 1.0〜1.9 分
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -68,6 +75,7 @@ jobs:
   step0:
     name: step0 tests (ruff + pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # 実測 0.2〜0.3 分
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -117,6 +125,7 @@ jobs:
   api:
     name: upload API tests (ruff + pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # 実測 3.0〜4.9 分
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -149,6 +158,7 @@ jobs:
   mcp:
     name: asterism tools (ruff + pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # 実測 0.2〜0.7 分
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -176,6 +186,7 @@ jobs:
   smoke-e2e:
     name: Oxigraph + togomcp smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # 実測 0.5〜0.7 分
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -280,6 +291,7 @@ jobs:
   ui:
     name: ui (lint + test + build)
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # 実測 0.8〜1.5 分
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
