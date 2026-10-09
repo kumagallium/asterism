@@ -719,8 +719,6 @@ def register_cards(
             for node in out["nodes"]:
                 if label := await _hub_name(node.get("class_iri")):
                     node["class_label"] = label
-                    if node["kind"] == "bundle":
-                        node["label"] = f"{label} {node['count']:,} 件"
             for kind in out["kinds"]:
                 if label := await _hub_name(kind.get("class_iri")):
                     kind["class_label"] = label

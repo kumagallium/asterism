@@ -262,6 +262,21 @@ async def test_bundle_set_spec_is_null_when_partner_not_single() -> None:
     assert bundle["set_spec"] is None
 
 
+async def test_value_set_spec_keeps_untrimmed_store_value() -> None:
+    lines = [PREFIXES]
+    for i in range(6):
+        lines.append(f'r:st-{i} a wx:Station ; wx:zone " A " .')
+    out = await network_view(_pyoxi_client({GRAPH_A: "\n".join(lines)}))
+    (value,) = _nodes(out, "value")
+    assert value["label"].endswith(": A")
+    assert value["set_spec"]["where"] == [{"property": WX + "zone", "op": "eq", "value": " A "}]
+
+
+async def test_truncated_when_fixed_nodes_alone_exceed_max_nodes() -> None:
+    out = await network_view(_pyoxi_client({GRAPH_A: _stations(25, zones=1)}), max_nodes=1)
+    assert out["truncated"] is True
+
+
 async def test_value_set_spec_uses_most_common_kind_and_normalizes() -> None:
     lines = [PREFIXES]
     for i in range(6):

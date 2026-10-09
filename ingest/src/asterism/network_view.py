@@ -196,6 +196,7 @@ async def network_view(
     ]
     value_edges: list[tuple[str, str, str]] = []  # (件, 述語, 値の点 id)
     value_text: dict[str, tuple[str, str]] = {}  # 値の点 id → (述語, 値)
+    value_raw: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # 元の文字列の数
     budget = max_rows
     for i in range(0, len(pairs), _CHUNK):
         chunk = pairs[i : i + _CHUNK]
@@ -221,6 +222,7 @@ async def network_view(
                 continue
             vid = _value_id(p, text)
             value_text[vid] = (p, text)
+            value_raw[vid][o] += 1
             value_edges.append((s, p, vid))
         if budget <= 0:
             if i + _CHUNK < len(pairs):
@@ -298,6 +300,8 @@ async def network_view(
         degree[t] += 1
     live = {n for n in live if degree[n] > 0}
     keep_entities &= live
+    if len(live) > max_nodes:  # 固定の点（ハブ・値・束）だけで上限を超えた分
+        truncated = True
     total_entities = len(entity_ids)
 
     # --- 7. 名前 ---------------------------------------------------------------
@@ -363,7 +367,9 @@ async def network_view(
         spec = None
         if holders.get(vid):
             top = sorted(holders[vid].items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
-            spec = _spec(top, [{"property": p, "op": "eq", "value": text}])
+            # 一覧側の eq は完全一致。ストアの値（空白つき）で最も多いものを渡す
+            raw = sorted(value_raw[vid].items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+            spec = _spec(top, [{"property": p, "op": "eq", "value": raw}])
         nodes.append(
             {
                 "id": vid,
