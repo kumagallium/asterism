@@ -277,6 +277,18 @@ export function TermsIcon(p: IconProps) {
   )
 }
 
+/** Network — 値でつなぐ網（全体グラフ）。 */
+export function NetworkIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="6" cy="7" r="2.2" />
+      <circle cx="18" cy="6" r="2.2" />
+      <circle cx="12" cy="18" r="2.2" />
+      <path d="M8 7.4l7.8-1M7.2 8.9l3.5 7.2M16.8 8l-3.6 8.2" />
+    </Icon>
+  )
+}
+
 /** Globe — a world-wide external standard. */
 export function GlobeIcon(p: IconProps) {
   return (

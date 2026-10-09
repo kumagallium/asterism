@@ -5,13 +5,14 @@ import {
   DataIcon,
   HomeIcon,
   LayersIcon,
+  NetworkIcon,
   TermsIcon,
 } from './icons'
 
 /** 左ナビの項目 1 つ（契約メモ contract_pr_f7.md §1）。`id` は App.tsx の hash
  *  ルータが使う `Tab` の一部（ここに出す項目だけの部分集合）。 */
 export interface NavItem {
-  id: 'home' | 'gallery' | 'crosswalk' | 'vocab' | 'jobs' | 'cards' | 'ask'
+  id: 'home' | 'gallery' | 'crosswalk' | 'vocab' | 'jobs' | 'cards' | 'network' | 'ask'
   icon: typeof HomeIcon
 }
 
@@ -45,6 +46,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     key: 'use',
     items: [
       { id: 'cards', icon: LayersIcon },
+      { id: 'network', icon: NetworkIcon },
       { id: 'ask', icon: AskIcon },
     ],
   },

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import httpx
 from asterism import class_schema as class_schema_mod
 from asterism import crosswalk_runtime, subject_tools, substrate
+from asterism import network_view as network_view_mod
 from asterism import query_tools as query_tools_mod
 from asterism import subjects as subjects_mod
 from asterism.crosswalk import XW as _XW_NS
@@ -683,6 +684,70 @@ def register_cards(
             for group in out.get("groups", []):
                 if label := await _hub_name(group.get("class_iri")):
                     group["class_label"] = label
+        return out
+
+    # ------------------------------------------------------------------
+    # GET /api/network — 「値でつなぐ網」（全体グラフ・contract_network_view.md §2）
+    #
+    # 点・線・束の規則は asterism.network_view.network_view の docstring。ここでは
+    # クエリ引数の受け取りと、ハブの concept の種類名の差し替え（neighbors と同じ
+    # _class_label_or_hub）だけをする。
+    # ------------------------------------------------------------------
+
+    async def _upper_map_or_none(client: Any) -> dict[str, Any] | None:
+        """上位構造の対応表（`asterism.shared_vocab.upper_map`）。
+        ADR upper-structure-shared-terms.md。
+        その関数がまだ無い（上位構造の実装前）か、組み立てに失敗したときは None。全体グラフは
+        「同じ述語の同じ値」で合流し、種類ごとに塗る（global-network-view.md）。"""
+        try:
+            from asterism.shared_vocab import upper_map  # type: ignore[import-not-found]
+        except ImportError as exc:
+            # まだ無い（モジュールか upper_map が無い）は静かに。
+            # 中の import が壊れているときは見えるように warning。
+            if exc.name == "asterism.shared_vocab":
+                logger.debug("network: asterism.shared_vocab.upper_map not available yet")
+            else:
+                logger.warning(
+                    "network: shared_vocab failed to import; drawing without it", exc_info=True
+                )
+            return None
+        try:
+            return await upper_map(client)
+        except Exception:  # 対応表が無くても網は出す
+            logger.warning("network: upper_map failed; drawing without it", exc_info=True)
+            return None
+
+    @app.get("/api/network")
+    async def network(include_prov: bool = Query(default=False)) -> dict[str, Any]:
+        return await _run_read(_network_impl(include_prov))
+
+    async def _network_impl(include_prov: bool) -> dict[str, Any]:
+        client: OxigraphClient = app.state.client
+        out = await network_view_mod.network_view(
+            client,
+            registry_root=cfg.registry_root,
+            include_prov=include_prov,
+            upper=await _upper_map_or_none(client),
+        )
+        hub_index = crosswalk_names.hub_class_index(cfg.registry_root)
+        if hub_index:
+            names: dict[str, str | None] = {}
+
+            async def _hub_name(class_iri: str | None) -> str | None:
+                if class_iri is None or class_iri not in hub_index:
+                    return None
+                if class_iri not in names:
+                    names[class_iri] = await _class_label_or_hub(
+                        client, cfg.registry_root, class_iri, resolve_labels, hub_index
+                    )
+                return names[class_iri]
+
+            for node in out["nodes"]:
+                if label := await _hub_name(node.get("class_iri")):
+                    node["class_label"] = label
+            for kind in out["kinds"]:
+                if label := await _hub_name(kind.get("class_iri")):
+                    kind["class_label"] = label
         return out
 
     # ------------------------------------------------------------------
