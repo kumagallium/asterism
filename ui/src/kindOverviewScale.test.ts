@@ -198,7 +198,7 @@ describe('layoutDatasetOverview', () => {
     expect(before).toBeGreaterThan(0)
     expect(after).toBeLessThan(before)
   })
-  it('線は端点でない丸をよける（端点でない丸と交わる線: S 24 本 2→0・M 75 本 43→8・L 180 本 133→72）', () => {
+  it('線は端点でない丸をよける（実際に描かれる線で数える。端点でない丸と交わる線: S 24 本 2→0・M 75 本 43→16・L 180 本 133→91）', () => {
     const measure = (nDs: number, nK: number, nH: number, per: number) => {
       const l = layoutDatasetOverview(makeScale(nDs, nK, nH, per))
       return { before: crossingCount(l, false), after: crossingCount(l, true), n: l.edges.length }

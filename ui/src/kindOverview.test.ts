@@ -6,6 +6,7 @@ import {
   hubCountsOf,
   layoutKindOverview,
   routeAround,
+  routedLine,
   ROUTE_MARGIN,
   sizeScale,
   compactCount,
@@ -335,11 +336,71 @@ describe('routeAround — 線が別の丸の裏を通らないように曲げる
     const blocked = routeAround(p, q, [mid, { x: 118, y: -40, r: 30 }])!
     expect(blocked.cy).toBeGreaterThan(0)
   })
-  it('どうしても離れきらないときは余白が最大のものを採る', () => {
+  it('余白 6 は効いている: 余白なしなら通る丸（r=40 ・線から 34）でも、余白ありは頂点 56（k=4）まで曲げる', () => {
+    // 余白 0 なら曲線は半径 40 の外（頂点 42 = k=3）でよいが、余白 6 では 46 以上が要る（頂点 56 = k=4・制御点は 2 倍の 112）
+    const o = { x: 118, y: 0, r: 40 }
+    const c = routeAround(p, q, [o])!
+    expect(ROUTE_MARGIN).toBe(6)
+    expect(c).toEqual({ cx: 118, cy: -112 })
+    // 線分と丸の距離判定にも余白が効く（距離 34 は r=30 の外だが r+6=36 の内）
+    expect(routeAround(p, q, [{ x: 118, y: 34, r: 30 }])).not.toBeNull()
+    expect(routeAround(p, q, [{ x: 118, y: 36, r: 30 }])).toBeNull()
+  })
+  it('どうしても離れきらないときは余白が最大のものを採る（同点は試した順で先）', () => {
     const wall = [{ x: 118, y: 0, r: 30 }, ...Array.from({ length: 9 }, (_, i) => ({ x: 118, y: (i - 4) * 60, r: 200 }))]
     const c = routeAround(p, q, wall)!
-    expect(c).not.toBeNull()
-    expect(routeAround(p, q, wall)).toEqual(c)
+    // 独立に全候補（+1, -1, +2, -2, … ×14）の余白を数える
+    const need = wall.map((o) => ({ ...o, r: o.r + ROUTE_MARGIN }))
+    const clearOf = (cy: number) => {
+      let w = Infinity
+      for (let i = 0; i <= 24; i++) {
+        const t = i / 24
+        const x = (1 - t) * (1 - t) * p.x + 2 * t * (1 - t) * 118 + t * t * q.x
+        const y = (1 - t) * (1 - t) * p.y + 2 * t * (1 - t) * cy + t * t * q.y
+        for (const o of need) w = Math.min(w, Math.hypot(x - o.x, y - o.y) - o.r)
+      }
+      return w
+    }
+    const cands: number[] = []
+    for (let k = 1; k <= 8; k++) for (const sg of [1, -1]) cands.push(-sg * k * 14 * 2) // ＋ = 画面の上（cy が負）
+    const clears = cands.map(clearOf)
+    const max = Math.max(...clears)
+    expect(max).toBeLessThan(0) // 離れきらない壁である
+    expect(Math.min(...clears)).toBeLessThan(max) // 候補によって余白が違う（最大を選ぶ意味がある）
+    expect(clearOf(c.cy)).toBe(max)
+    // 同点は先に試した方: 壁は上下対称なので ＋ と − が同点 → 先の ＋（cy が負）
+    expect(c.cy).toBe(cands[clears.indexOf(max)])
+    expect(clears.filter((v) => v === max).length).toBeGreaterThan(1)
+    expect(c.cy).toBeLessThan(0)
+  })
+})
+
+describe('routedLine — 曲げたときの両端は制御点へ向かう縁', () => {
+  const A = { type: 'circle' as const, x: 188, y: 94, r: 30 }
+  const B = { type: 'circle' as const, x: 424, y: 94, r: 25 }
+  it('障害物なし: 直線（制御点なし）で、両端は相手の中心へ向かう縁', () => {
+    const l = routedLine(A, B, [])
+    expect(l.cx).toBeUndefined()
+    expect(l.cy).toBeUndefined()
+    expect(l.x1).toBeCloseTo(218)
+    expect(l.x2).toBeCloseTo(399)
+  })
+  it('障害物あり: 始点は A の縁・A の中心→制御点の向き、終点は B の縁・B の中心→制御点の向き', () => {
+    const l = routedLine(A, B, [{ x: 306, y: 94, r: 28 }])
+    expect(l.cx).toBeDefined()
+    const cx = l.cx!
+    const cy = l.cy!
+    expect(Math.hypot(l.x1 - A.x, l.y1 - A.y)).toBeCloseTo(A.r)
+    expect(Math.hypot(l.x2 - B.x, l.y2 - B.y)).toBeCloseTo(B.r)
+    // 向きは制御点（相手の中心ではない）
+    const dA = Math.hypot(cx - A.x, cy - A.y)
+    expect((l.x1 - A.x) / A.r).toBeCloseTo((cx - A.x) / dA)
+    expect((l.y1 - A.y) / A.r).toBeCloseTo((cy - A.y) / dA)
+    const dB = Math.hypot(cx - B.x, cy - B.y)
+    expect((l.x2 - B.x) / B.r).toBeCloseTo((cx - B.x) / dB)
+    expect((l.y2 - B.y) / B.r).toBeCloseTo((cy - B.y) / dB)
+    // 相手の中心向きなら y1 は 94 のまま。制御点向きなら 94 からずれる
+    expect(Math.abs(l.y1 - 94)).toBeGreaterThan(1)
   })
 })
 

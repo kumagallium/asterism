@@ -133,13 +133,19 @@ function StdBox({ data }: NodeProps) {
   )
 }
 
-/** 縁から縁へのまっすぐな線（座標は配置が決めたもの）。 */
+/** 線の path。制御点（cx, cy）があれば二次ベジェ、無ければ直線。純関数にしてテストで確かめる。 */
+// eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（toFlow と同じ理由）
+export function edgePath(d: { x1: number; y1: number; x2: number; y2: number; cx?: number; cy?: number }): string {
+  return d.cx != null && d.cy != null ? `M ${d.x1},${d.y1} Q ${d.cx},${d.cy} ${d.x2},${d.y2}` : `M ${d.x1},${d.y1} L ${d.x2},${d.y2}`
+}
+
+/** 縁から縁への線（座標は配置が決めたもの）。別の丸をよけるときは二次ベジェ、そうでなければ直線。 */
 function LineEdge({ id, data, markerEnd, markerStart, style }: EdgeProps) {
   const d = data as { x1: number; y1: number; x2: number; y2: number; cx?: number; cy?: number; title?: string }
   const line = (
     <BaseEdge
       id={id}
-      path={d.cx != null && d.cy != null ? `M ${d.x1},${d.y1} Q ${d.cx},${d.cy} ${d.x2},${d.y2}` : `M ${d.x1},${d.y1} L ${d.x2},${d.y2}`}
+      path={edgePath(d)}
       markerEnd={markerEnd}
       markerStart={markerStart}
       style={style}
