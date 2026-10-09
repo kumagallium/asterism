@@ -12,7 +12,7 @@
   "search_placeholder": "Name of a point",
   "search_button": "Find",
   "search_none": "No point matches",
-  "search_many": "{{count}} match. Picked the closest one",
+  "search_many": "{{count}} matches. Picked the closest one",
   "truncated": "There are many points, so only some are shown",
   "big_now": "Viewing large",
   "open_page": "Open this page",

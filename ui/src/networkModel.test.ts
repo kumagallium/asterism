@@ -73,6 +73,12 @@ function fixture(): NetworkResponse {
 }
 
 /** 1 種類だけ渡したときの好みの席（ぶつからない）。 */
+// 固定値（seatOf と別に直書き）。変わったら既存ユーザの色が変わる
+const GOLDEN: [string, string][] = [
+  ['https://example.org/sky#Star', 'kind-7'],
+  ['https://example.org/sky#Planet', 'kind-0'],
+  ['https://example.org/ns#Class1', 'kind-4'],
+]
 const seatOf = (iri: string) => assignKindRoles([{ class_iri: iri }]).get(iri) as string
 /** 好みの席が互いに違う IRI を n 個（決定論で探す）。 */
 function distinctSeatIris(n: number, prefix = 'k'): string[] {
@@ -166,6 +172,12 @@ describe('assignKindRoles', () => {
   })
 })
 
+describe('席の固定値（色が黙って変わらないように）', () => {
+  it('代表的な IRI の席は直書きの値と一致する', () => {
+    for (const [iri, seat] of GOLDEN) expect(seatOf(iri)).toBe(seat)
+  })
+})
+
 describe('focusedKindRoles', () => {
   const iris = distinctSeatIris(5)
   const kinds = kd(iris)
@@ -226,6 +238,19 @@ describe('nodeAppearance / edgeAppearance', () => {
     expect(e(null, inB, val, focusA).faded).toBe(true)
     expect(e(null, inA, val, focusA).faded).toBe(false)
     expect(e(null, inB, inB, new Set()).faded).toBe(false)
+  })
+  it('線: 選んだ点が target 側でも「今と同じ」', () => {
+    expect(e('t', inB, inB, focusA)).toMatchObject({ on: true, faded: false })
+  })
+  it('選択中: 値・ハブも（相手でなければ）薄くなり、role は roles から引く', () => {
+    const o = { ...base, kindKey: null, focused: focusA, sel: 's' }
+    for (const k of ['value', 'hub'] as const) {
+      expect(nodeAppearance({ ...o, nodeKind: k }).faded).toBe(true)
+      expect(nodeAppearance({ ...o, nodeKind: k, isNear: true }).faded).toBe(false)
+    }
+    expect(nodeAppearance({ ...o, nodeKind: 'entity', kindKey: 'A' }).role).toBe('kind-1')
+    expect(nodeAppearance({ ...o, nodeKind: 'entity', kindKey: 'A', isNear: true }).role).toBe('kind-1')
+    expect(nodeAppearance({ ...o, nodeKind: 'entity', kindKey: 'B' }).role).toBe(REST_ROLE)
   })
   it('束は絞り込みの種類として数える。kindKey が null の件は絞り込み中は薄い', () => {
     expect(e(null, bundleA, val, focusA).faded).toBe(false)

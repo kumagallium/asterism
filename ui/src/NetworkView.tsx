@@ -217,11 +217,13 @@ interface LegendProps {
   focused: ReadonlySet<string>
   onToggle: (key: string) => void
   onClear: () => void
+  expanded: boolean
+  onExpandedChange: (v: boolean) => void
 }
 
-function Legend({ resp, roles, focused, onToggle, onClear }: LegendProps) {
+function Legend({ resp, roles, focused, onToggle, onClear, expanded, onExpandedChange }: LegendProps) {
   const { t } = useTranslation('network')
-  const [expanded, setExpanded] = useState(false)
+  const setExpanded = onExpandedChange
   const rows = legendKindRows(resp.kinds, roles, focused)
   const shown = expanded ? rows : rows.slice(0, FOLDED_KINDS)
   const full = focused.size >= KIND_COLOR_COUNT
@@ -255,7 +257,7 @@ function Legend({ resp, roles, focused, onToggle, onClear }: LegendProps) {
             type="button"
             className="btn btn--ghost btn--sm"
             aria-expanded={expanded}
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => setExpanded(!expanded)}
           >
             {expanded ? t('legend_collapse') : t('legend_show_all', { count: rows.length })}
           </button>
@@ -295,6 +297,8 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // 凡例で押した種類（押した順）。空なら色は既定（上位 8 種類）。
   const [focusKinds, setFocusKinds] = useState<string[]>([])
+  // 凡例の「すべて表示」。「大きく見る」で木が変わって再マウントされても残す
+  const [legendExpanded, setLegendExpanded] = useState(false)
   const [query, setQuery] = useState('')
   const [searchNote, setSearchNote] = useState<string | null>(null)
   const [focus, setFocus] = useState<{ id: string | null; tick: number }>({ id: null, tick: 0 })
@@ -511,6 +515,8 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
               )
             }
             onClear={() => setFocusKinds([])}
+            expanded={legendExpanded}
+            onExpandedChange={setLegendExpanded}
           />
         </>
       )}
