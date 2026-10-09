@@ -17,7 +17,7 @@ owner: kumagallium
 [`ask-quality-and-generality.md`](ask-quality-and-generality.md)（D1 壊れたツールを Ask／MCP に出さない）、
 [`object-cards-ui.md`](object-cards-ui.md)（O54 観点＝宣言ツール・言葉は 1 つ）、
 [`kantan-mode-two-tier-ux.md`](kantan-mode-two-tier-ux.md)（K2・K9・K10 公開ダイアログ・K35・K63）。
-関連する並行作業: `global-network-view.md`（別セッション・全体グラフ・branch `feat/network-view-*` にだけあり、この worktree には無い。§2.6 の差し替え口を参照）。
+関連する並行作業: [`global-network-view.md`](global-network-view.md)（全体グラフ・値でつなぐ網。§2.6 の差し替え口を参照）。
 
 ## 1. きっかけ — 線は値でしか引けず、ことばどうしの関係を人が書いて育てる場が無い
 
