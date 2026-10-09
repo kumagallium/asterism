@@ -12,7 +12,7 @@ import type { DatasetRules } from './galleryApi'
 import {
   routedLine,
   labelRect,
-  countInside,
+  countLineText,
   type Obstacle,
   HUB_LABEL_W,
   LABEL_H,
@@ -437,8 +437,8 @@ function build(input: OverviewInput, width: number, sweeps: number): OverviewLay
       ...others.map((o) => ({ x: o.x, y: o.y, r: o.r })),
       ...others.map((o) =>
         'dataset' in o
-          ? labelRect(o, o.label, DS_LABEL_W, true)
-          : labelRect(o, o.label, HUB_LABEL_W, o.count != null && !countInside(o.r)),
+          ? labelRect(o, o.label, DS_LABEL_W, countLineText(o, 'dataset'))
+          : labelRect(o, o.label, HUB_LABEL_W, countLineText(o, 'kind')),
       ),
     ]
     edges.push({ from, to, kind, ...extra, ...routedLine(a, b, obstacles) })

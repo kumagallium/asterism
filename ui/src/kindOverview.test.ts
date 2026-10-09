@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { crossingCount, labelCrossingCount } from './edgeRoutingTestUtil'
+import { crossingCount, frameTitleCrossingCount, labelCrossingCount } from './edgeRoutingTestUtil'
+import { makeScale } from './overviewScaleFixture'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import {
@@ -8,6 +9,12 @@ import {
   routeAround,
   routedLine,
   ROUTE_MARGIN,
+  ROUTE_MAX_STEPS,
+  ROUTE_SAMPLES,
+  ROUTE_STEP,
+  countLineText,
+  frameTitleRect,
+  labelRect,
   sizeScale,
   compactCount,
   countInside,
@@ -337,13 +344,14 @@ describe('routeAround — 線が別の丸の裏を通らないように曲げる
     const blocked = routeAround(p, q, [mid, { x: 118, y: -40, r: 30 }])!
     expect(blocked.cy).toBeGreaterThan(0)
   })
-  it('余白 6 は効いている: 余白なしなら通る丸（r=40 ・線から 34）でも、余白ありは頂点 56（k=4）まで曲げる', () => {
-    // 余白 0 なら曲線は半径 40 の外（頂点 42 = k=3）でよいが、余白 6 では 46 以上が要る（頂点 56 = k=4・制御点は 2 倍の 112）
-    const o = { x: 118, y: 0, r: 40 }
-    const c = routeAround(p, q, [o])!
+  it('余白 6 は効いている: 余白なしなら頂点 48（k=4）で足りる丸（r=44）でも、余白ありは頂点 60（k=5）まで曲げる', () => {
+    // 刻み 12。余白 0 なら曲線は半径 44 の外（頂点 48 = k=4・制御点は 2 倍の 96）でよいが、余白 6 では 50 以上が要る（頂点 60 = k=5）
+    const o = { x: 118, y: 0, r: 44 }
     expect(ROUTE_MARGIN).toBe(6)
-    expect(c).toEqual({ cx: 118, cy: -112 })
-    // 線分と丸の距離判定にも余白が効く（距離 34 は r=30 の外だが r+6=36 の内）
+    expect(ROUTE_STEP).toBe(12)
+    expect(routeAround(p, q, [o], { margin: 0 })).toEqual({ cx: 118, cy: -96 })
+    expect(routeAround(p, q, [o])).toEqual({ cx: 118, cy: -120 })
+    // 直線の判定にも余白が効く（距離 34 は r=30 の外だが r+6=36 の内）
     expect(routeAround(p, q, [{ x: 118, y: 34, r: 30 }])).not.toBeNull()
     expect(routeAround(p, q, [{ x: 118, y: 36, r: 30 }])).toBeNull()
   })
@@ -383,9 +391,12 @@ describe('routeAround — 線が別の丸の裏を通らないように曲げる
     // 独立に全候補（+1, -1, +2, -2, … ×14）の余白を数える
     const need = wall.map((o) => ({ ...o, r: o.r + ROUTE_MARGIN }))
     const clearOf = (cy: number) => {
+      // 実装と同じ点の数（ROUTE_SAMPLES か、曲線の長さの見積もり 4px ごとの多い方）
+      const approx = Math.hypot(118 - p.x, cy - p.y) + Math.hypot(q.x - 118, q.y - cy)
+      const n = Math.max(ROUTE_SAMPLES, Math.ceil(approx / 4))
       let w = Infinity
-      for (let i = 0; i <= 24; i++) {
-        const t = i / 24
+      for (let i = 0; i <= n; i++) {
+        const t = i / n
         const x = (1 - t) * (1 - t) * p.x + 2 * t * (1 - t) * 118 + t * t * q.x
         const y = (1 - t) * (1 - t) * p.y + 2 * t * (1 - t) * cy + t * t * q.y
         for (const o of need) w = Math.min(w, Math.hypot(x - o.x, y - o.y) - o.r)
@@ -393,7 +404,7 @@ describe('routeAround — 線が別の丸の裏を通らないように曲げる
       return w
     }
     const cands: number[] = []
-    for (let k = 1; k <= 8; k++) for (const sg of [1, -1]) cands.push(-sg * k * 14 * 2) // ＋ = 画面の上（cy が負）
+    for (let k = 1; k <= ROUTE_MAX_STEPS; k++) for (const sg of [1, -1]) cands.push(-sg * k * ROUTE_STEP * 2) // ＋ = 画面の上（cy が負）
     const clears = cands.map(clearOf)
     const max = Math.max(...clears)
     expect(max).toBeLessThan(0) // 離れきらない壁である
@@ -488,5 +499,56 @@ describe('routeAround — 名前の四角もよける・丸を先に', () => {
   it('丸から離れた直線は、名前をよけきれないなら曲げない', () => {
     const everywhere: Obstacle = { x0: -1000, y0: -1000, x1: 1000, y1: 1000 }
     expect(routeAround({ x: 0, y: 0 }, { x: 300, y: 0 }, [everywhere])).toBeNull()
+  })
+})
+
+describe('labelRect / frameTitleRect — 描く寸法と同じ四角', () => {
+  it('名前の枠は 1 行でも 28px・件数の行はその下 15px（件数の字が名前より広ければ幅は件数で）', () => {
+    const r = labelRect({ x: 0, y: 0, r: 16 }, 'Card', 104, '1,234 件') as { x0: number; y0: number; x1: number; y1: number }
+    expect(r.y0).toBe(19)
+    expect(r.y1).toBe(19 + 28 + 15)
+    expect(r.x1 - r.x0).toBeGreaterThan(40) // 「1,234 件」は「Card」より広い
+    const noCount = labelRect({ x: 0, y: 0, r: 30 }, 'Card', 104) as { y1: number }
+    expect(noCount.y1).toBe(33 + 28)
+  })
+  it('長い名前は 2 行に折り返すので幅は labelW', () => {
+    const r = labelRect({ x: 50, y: 0, r: 20 }, 'ChemicalFormulaOfTheSampleMeasured', 104) as { x0: number; x1: number }
+    expect(r.x1 - r.x0).toBe(104)
+  })
+  it('件数の行の字: 種類は丸の外に出るときだけ・データセットはいつも（N 種類、外なら・M 件）', () => {
+    expect(countLineText({ r: 16, count: 1234 }, 'kind')).toBe('1,234 件')
+    expect(countLineText({ r: 40, count: 1234 }, 'kind')).toBeUndefined()
+    expect(countLineText({ r: 16 }, 'kind')).toBeUndefined()
+    expect(countLineText({ r: 16, count: 141, kindCount: 8 }, 'dataset')).toBe('8 種類・141 件')
+    expect(countLineText({ r: 40, count: 141, kindCount: 8 }, 'dataset')).toBe('8 種類')
+  })
+  it('枠の題は「ほか N 種類」があれば下に延ばす', () => {
+    const a = frameTitleRect({ x: 0, y: 0, w: 400 }, 'xrd-cards') as { y1: number }
+    const b = frameTitleRect({ x: 0, y: 0, w: 400, omitted: 3 }, 'xrd-cards') as { y1: number }
+    expect(a.y1).toBe(28)
+    expect(b.y1).toBe(40)
+  })
+})
+
+describe('layoutKindOverview — 種類までの図でも名前・枠の題をよける（数値を固定）', () => {
+  // 数値は「直線 → 曲げた後」。丸を先によけるので、名前は増えることがある（丸の裏を通るより名前をかすめる方が読める）。
+  // 配置か曲げ方を変えたら数え直して ADR §6.1 も直す。名前・枠の題の障害物を外すと、この数値が変わって落ちる。
+  const measure = (nDs: number, nK: number, nH: number, per: number) => {
+    const l = layoutKindOverview(makeScale(nDs, nK, nH, per))
+    return [
+      l.edges.length,
+      crossingCount(l, false),
+      crossingCount(l, true),
+      labelCrossingCount(l, false),
+      labelCrossingCount(l, true),
+      frameTitleCrossingCount(l, false),
+      frameTitleCrossingCount(l, true),
+    ]
+  }
+  it('6 データセット × 6 種類・ハブ 4: 丸 7→0・名前 1→2・枠の題 1→1', () => {
+    expect(measure(6, 6, 4, 4)).toEqual([16, 7, 0, 1, 2, 1, 1])
+  })
+  it('4 データセット × 8 種類・ハブ 3: 丸 7→1・名前 2→2・枠の題 1→2', () => {
+    expect(measure(4, 8, 3, 3)).toEqual([9, 7, 1, 2, 2, 1, 2])
   })
 })

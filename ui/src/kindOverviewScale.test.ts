@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
-import type { DatasetRules, RuleMap } from './galleryApi'
-import { layoutKindOverview, type OverviewInput } from './kindOverview'
+import type { Alignment } from './crosswalkApi'
+import { layoutKindOverview } from './kindOverview'
 import { crossingCount, labelCrossingCount } from './edgeRoutingTestUtil'
 import {
   chooseLevelByCounts,
@@ -17,68 +16,8 @@ import {
   layoutDatasetOverview,
 } from './kindOverviewScale'
 
-// 架空の分野の作り物。規模の試験にも同じ作り方を使う。
-const NS = 'https://example.org/scale#'
-const rmap = (id: string): RuleMap => ({
-  id,
-  subject: { template: `o:${id}/{k}`, classes: [`o:${id}`], class_iris: [`${NS}${id}`] },
-  properties: [],
-})
-const mkDs = (i: number, kinds: number) => ({
-  id: `live-d${i}`,
-  apiId: `d${i}`,
-  name: `データセット${i}`,
-  rules: {
-    maps: Array.from({ length: kinds }, (_, k) => rmap(`d${i}K${k}`)),
-    prefixes: {},
-    warnings: [],
-    labels: {},
-  } as DatasetRules,
-})
+import { makeScale, mkDs, NS } from './overviewScaleFixture'
 
-/** 種つきの擬似乱数（時刻・Math.random は使わない）。 */
-function lcg(seed: number) {
-  let s = seed >>> 0
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
-    return s / 2 ** 32
-  }
-}
-
-export function makeScale(nDs: number, nKinds: number, nHubs: number, perHub: number): OverviewInput {
-  const rnd = lcg(42)
-  const datasets = Array.from({ length: nDs }, (_, i) => mkDs(i, nKinds))
-  const counts: Record<string, Record<string, number>> = {}
-  for (const d of datasets) {
-    counts[d.id] = {}
-    for (const m of d.rules.maps) counts[d.id][m.subject.class_iris![0]] = Math.round(10 ** (1 + rnd() * 4))
-  }
-  const crosswalks: CrosswalkPerspective[] = Array.from({ length: nHubs }, (_, h) => {
-    const picked = new Set<number>()
-    while (picked.size < Math.min(perHub, nDs)) picked.add(Math.floor(rnd() * nDs))
-    return {
-      perspective_id: `p${h}`,
-      display_name: `つながり${String(h).padStart(2, '0')}`,
-      config: {
-        min_datasets: 2,
-        concepts: [
-          {
-            name: `c${h}`,
-            concept_label: `概念${String(h).padStart(2, '0')}`,
-            class_iri: `${NS}Hub${h}`,
-            participants: [...picked].map((i) => ({
-              dataset_id: `d${i}`,
-              subject_class: `${NS}d${i}K${Math.floor(rnd() * nKinds)}`,
-              label: 'x',
-            })),
-          },
-        ],
-      },
-      dataset: null,
-    } as unknown as CrosswalkPerspective
-  })
-  return { datasets, classCountsByDataset: counts, crosswalks, unnamedHub: '名前なし' }
-}
 
 describe('段の選び方', () => {
   it('閾値は 6 データセット・40 種類', () => {
@@ -198,15 +137,15 @@ describe('layoutDatasetOverview', () => {
     expect(before).toBeGreaterThan(0)
     expect(after).toBeLessThan(before)
   })
-  it('線は端点でない丸と、その下の名前をよける（実際に描かれる線で数える。丸: S 24 本 2→0・M 75 本 43→12・L 180 本 133→75／名前: S 6→1・M 46→32・L 136→120）', () => {
+  it('線は端点でない丸と、その下の名前をよける（実際に描かれる線で数える。丸: S 24 本 2→0・M 75 本 43→6・L 180 本 133→62／名前: S 6→0・M 51→31・L 149→123）', () => {
     const measure = (nDs: number, nK: number, nH: number, per: number) => {
       const l = layoutDatasetOverview(makeScale(nDs, nK, nH, per))
       return [l.edges.length, crossingCount(l, false), crossingCount(l, true), labelCrossingCount(l, false), labelCrossingCount(l, true)]
     }
     // 数値を固定する（名前の数値と実測がずれたまま通らないように）。配置か曲げ方を変えたら数え直して ADR §6.1 も直す。
-    expect(measure(12, 3, 6, 4)).toEqual([24, 2, 0, 6, 1])
-    expect(measure(50, 5, 15, 5)).toEqual([75, 43, 12, 46, 32])
-    expect(measure(100, 20, 30, 6)).toEqual([180, 133, 75, 136, 120])
+    expect(measure(12, 3, 6, 4)).toEqual([24, 2, 0, 6, 0])
+    expect(measure(50, 5, 15, 5)).toEqual([75, 43, 6, 51, 31])
+    expect(measure(100, 20, 30, 6)).toEqual([180, 133, 62, 149, 123])
   })
   it('100 データセット・各 20 種類・ハブ 30 で高さは 1,500px 以内', () => {
     const l = layoutDatasetOverview(makeScale(100, 20, 30, 6))

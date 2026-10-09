@@ -221,31 +221,49 @@ export function textWidth(text: string, fontPx: number): number {
   return w
 }
 
-/** 丸の下の名前（11px・行の高さ 14・2 行まで）と件数の行（15px）が占める四角。KindOverviewMap の CircleBox と同じ寸法。 */
+/** 丸の下の名前と件数の行が占める四角。KindOverviewMap の CircleBox と App.css と同じ寸法:
+ *  名前の枠は margin-top 3px・高さ 28px 固定（11px・行 14px・2 行まで。1 行でも 28px）、件数の行はその下 15px（nowrap）。
+ *  幅は名前（最大 labelW で折り返す）と件数の字の広い方（字の幅は見積もり）。 */
 export function labelRect(
   c: { x: number; y: number; r: number },
   name: string,
   labelW: number,
-  withCount: boolean,
+  countText?: string,
 ): Obstacle {
-  const w = textWidth(name, 11)
-  const lines = w > labelW ? 2 : 1
-  const half = Math.min(w, labelW) / 2
+  const nameW = Math.min(textWidth(name, 11), labelW)
+  const countW = countText ? textWidth(countText, 11) : 0
+  const half = Math.max(nameW, countW) / 2
   const top = c.y + c.r + 3
-  return { x0: c.x - half, y0: top, x1: c.x + half, y1: top + lines * 14 + (withCount ? 15 : 0) }
+  return { x0: c.x - half, y0: top, x1: c.x + half, y1: top + 28 + (countText ? 15 : 0) }
 }
 
-/** 枠の左上の題（0.85rem・太字。枠の内側の余白 0.5rem / 0.8rem）が占める四角。 */
-export function frameTitleRect(f: { x: number; y: number; w: number }, title: string): Obstacle {
-  const w = Math.min(textWidth(title, 13.6), f.w - 26)
-  return { x0: f.x + 13, y0: f.y + 8, x1: f.x + 13 + w, y1: f.y + 8 + 20 }
+/** 丸の下に出る件数の行の字（見積もり用・ja の形）。KindOverviewMap の countText と同じ出し分け:
+ *  種類・ハブ = 件数が丸の中に入らないときだけ「N 件」、データセット = 「N 種類」（件数が丸の外なら「N 種類・M 件」）。 */
+export function countLineText(
+  o: { r: number; count?: number; kindCount?: number },
+  level: 'kind' | 'dataset',
+): string | undefined {
+  const n = (v: number) => v.toLocaleString('en-US')
+  if (level === 'dataset' && o.kindCount != null) {
+    return o.count != null && !countInside(o.r) ? `${o.kindCount} 種類・${n(o.count)} 件` : `${o.kindCount} 種類`
+  }
+  return o.count != null && !countInside(o.r) ? `${n(o.count)} 件` : undefined
+}
+
+/** 枠の左上の題（0.85rem・太字。枠の内側の余白 0.5rem / 0.8rem）と、あれば「ほか N 種類」
+ *  （.kind-ov-frame-omitted: top 24px・left 14px・11px）が占める四角。 */
+export function frameTitleRect(f: { x: number; y: number; w: number; omitted?: number }, title: string): Obstacle {
+  const titleW = textWidth(title, 13.6)
+  const omittedW = f.omitted ? textWidth(`ほか ${f.omitted} 種類`, 11) : 0
+  const w = Math.min(Math.max(titleW, omittedW), f.w - 26)
+  return { x0: f.x + 13, y0: f.y + 8, x1: f.x + 13 + w, y1: f.y + (f.omitted ? 40 : 28) }
 }
 /** 線が丸の縁からあけておく余白。 */
 export const ROUTE_MARGIN = 6
 /** 曲げる量（頂点のずらし）の刻み。 */
-export const ROUTE_STEP = 14
+export const ROUTE_STEP = 12
 /** 刻みの倍数を何回まで試すか（＋−交互なので最大 ±MAX_STEPS·STEP）。 */
-export const ROUTE_MAX_STEPS = 8
+export const ROUTE_MAX_STEPS = 14
 /** 曲線を調べる点の数（両端を含めて +1 点）。 */
 export const ROUTE_SAMPLES = 24
 
@@ -640,7 +658,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     const obstacles: Obstacle[] = [
       ...others.map((o) => ({ x: o.x, y: o.y, r: o.r })),
       ...others.map((o) =>
-        labelRect(o, o.label, 'dataset' in o ? LABEL_W : HUB_LABEL_W, o.count != null && !countInside(o.r)),
+        labelRect(o, o.label, 'dataset' in o ? LABEL_W : HUB_LABEL_W, countLineText(o, 'kind')),
       ),
       ...frames.filter((f) => f.id !== from && f.id !== to).map((f) => frameTitleRect(f, f.label)),
     ]
