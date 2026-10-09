@@ -1,0 +1,61 @@
+{
+  "sharedBand": {
+    "title": "Shared words",
+    "hint": "Names only. A circle's size is the total count of the kinds hanging under it (derived)",
+    "total": "Children total {{n}}",
+    "totalNone": "Children total: no counts",
+    "orphan": "Not wired yet",
+    "kids": "{{n}} children"
+  },
+  "stats": {
+    "shared": "shared words"
+  },
+  "legend": {
+    "upper": "Line to a broader word (⊂ points the way; ≡ is two-way)",
+    "sharedSize": "Shared-word circle = total count of its children (derived)"
+  },
+  "pick": {
+    "start": "Draw a line",
+    "stop": "Stop selecting",
+    "hint": "Pick two circles to join with a line (a kind, a shared word or a standard word). While selecting, clicking a circle does not leave this page.",
+    "count": "{{n}} / 2 selected",
+    "unavailable": "Circles can't be selected at this level (per dataset). Click a dataset circle to open its surroundings, then select."
+  },
+  "line": {
+    "title": "Draw a line",
+    "from": "Line starts at",
+    "to": "Line ends at",
+    "role": {
+      "dataset": "kind",
+      "shared": "shared word",
+      "standard": "standard word"
+    },
+    "termKind": {
+      "class": "kind",
+      "property": "item",
+      "quantity": "quantity kind",
+      "unknown": ""
+    },
+    "swap": "Swap direction",
+    "relation": "Relation",
+    "relations": {
+      "equivalentClass": "≡ Same meaning (kinds)",
+      "subClassOf": "⊂ Start is a kind of the end (kinds)",
+      "equivalentProperty": "≡ Same meaning (items)",
+      "subPropertyOf": "⊂ Start is a kind of the end (items)",
+      "hasQuantityKind": "→ Quantity kind of this item"
+    },
+    "cq": "Question this line answers (optional)",
+    "cqNone": "None",
+    "submit": "Draw the line",
+    "submitting": "Drawing…",
+    "cancel": "Cancel",
+    "error": {
+      "same": "A word can't be joined to itself. Pick a different circle.",
+      "mixed": "A kind and an item can't be joined. Pick two kinds, two items (or an item and a quantity kind).",
+      "cycle": "This line would form a loop (the end is already below the start). Check the direction.",
+      "invalid": "This pair can't be joined (it includes a shared word that hasn't been minted, or mixes a kind with an item).",
+      "generic": "Couldn't draw the line{{detail}}"
+    }
+  }
+}

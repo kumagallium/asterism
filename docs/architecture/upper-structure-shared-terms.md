@@ -468,3 +468,4 @@ slug の辞書順で先頭）。組み立て関数は `asterism.shared_vocab.upp
   一覧系の除外は `is_shared_vocab` だけ（ハブの見え方は変えない・§2.3・§5）、`wired.json` は `{"terms": {…}, "at"}`（§2.3）、
   `schema_summary.shared_terms[].cqs` は実際に公開されるツール名だけ（`wired.json` で絞られたものは出さない）。
   `/api/vocab/fit` の標準語は `ground_terms` の score 100 だけ。
+- 2026-10-09（同日・7 回目・実装）: 段 2（PR 2 UI「ことば」）を branch `feat/vocab-view` で実装（#697 に積む）。実装時の判断: 線の一覧に「すべて」の切り替えを足す（scope 無し＝全件）、hash は実ルータの `#/vocab?q=…&scope=…&dataset=…`、項目（property）の共有語はデータセットの項目からの線を PR 3 の③の当てはめで引く（PR 2 の地図は種類の丸だけ）、`vocab:banner.*` の既存文言は残す。スクショは PR 3 の後にまとめて撮る。

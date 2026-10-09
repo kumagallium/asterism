@@ -1,4 +1,4 @@
-// 「共通のことば」の地図の「全体」表示（案 B）の**描画**（shared-vocab-graph.md §6）。
+// 「ことば」の地図の「全体」表示（案 B）の**描画**（shared-vocab-graph.md §6）。
 //
 // データと配置は `layoutKindOverview`（kindOverview.ts）。ここは React Flow で描くだけ。
 // 罠の回避は `VocabMap` / `GraphView` と同じ:
@@ -28,19 +28,23 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import './vocabMapShared.css'
 import { DS_LABEL_W, edgeClassName, type OverviewFocus } from './kindOverviewScale'
+import { relationSymbol } from './lineChoice'
 import {
   compactCount,
   countInside,
   HUB_LABEL_W,
   LABEL_H,
   LABEL_W,
+  pickEndOfOverview,
   type OverviewEdge,
   type OverviewEdgeKind,
   type OverviewLayout,
 } from './kindOverview'
 import { BigViewOverlay, ExpandButton } from './BigView'
 import { useBigViewHeight } from './bigViewSize'
+import type { VocabPick } from './VocabMap'
 
 
 const EDGE_COLOR: Record<OverviewEdgeKind, string> = {
@@ -48,11 +52,12 @@ const EDGE_COLOR: Record<OverviewEdgeKind, string> = {
   hub: 'var(--link)',
   standard: 'var(--accent)',
   alignment: 'var(--activity)',
+  upper: 'var(--link)',
 }
 
 type FrameData = { label: string; width: number; height: number; omittedText?: string }
-type BandData = { label: string; hint: string; width: number; height: number; variant: 'std' | 'hubs' }
-type CircleKind = 'kind' | 'hub' | 'dataset'
+type BandData = { label: string; hint: string; width: number; height: number; variant: 'std' | 'hubs' | 'shared' }
+type CircleKind = 'kind' | 'hub' | 'dataset' | 'shared'
 type CircleData = {
   label: string
   /** 名前の下に出す件数の字（丸の中に出すときは空・データセットは「N 種類」だけ）。 */
@@ -63,6 +68,8 @@ type CircleData = {
   fullText: string
   r: number
   kind: CircleKind
+  /** 共有のことばだけ: まだ線になっていない（点線の縁）。 */
+  orphan?: boolean
 }
 type StdData = { label: string; vocab: string; width: number; height: number }
 
@@ -96,7 +103,7 @@ function CircleBox({ data }: NodeProps) {
   const w = nodeWidth(d.r, d.kind)
   return (
     <div
-      className={`kind-ov-node${d.kind === 'hub' ? ' kind-ov-node--hub' : ''}${d.kind === 'dataset' ? ' kind-ov-node--dataset' : ''}`}
+      className={`kind-ov-node${d.kind === 'hub' ? ' kind-ov-node--hub' : ''}${d.kind === 'dataset' ? ' kind-ov-node--dataset' : ''}${d.kind === 'shared' ? ' kind-ov-node--shared' : ''}${d.orphan ? ' is-orphan' : ''}`}
       style={{ width: w, height: 2 * d.r + LABEL_H }}
       title={d.fullText ? `${d.label}（${d.fullText}）` : d.label}
     >
@@ -114,7 +121,7 @@ function CircleBox({ data }: NodeProps) {
 
 /** 丸の節の幅 = 丸と、その下の名前の幅の広い方（ハブの名前は広めに取る）。 */
 function nodeWidth(r: number, kind: CircleKind): number {
-  return Math.max(2 * r, kind === 'hub' ? HUB_LABEL_W : kind === 'dataset' ? DS_LABEL_W : LABEL_W)
+  return Math.max(2 * r, kind === 'hub' || kind === 'shared' ? HUB_LABEL_W : kind === 'dataset' ? DS_LABEL_W : LABEL_W)
 }
 
 function StdBox({ data }: NodeProps) {
@@ -190,7 +197,16 @@ export function toFlow(
     participates: (n: number) => string
     hubBandTitle: string
     hubBandHint: string
+    /** 共有のことばの帯（省略可 — 無ければ空）。 */
+    sharedBandTitle?: string
+    sharedBandHint?: string
+    /** 共有のことばの丸の title「子の合計 N 件」（件数のある子が無いときは n なし）。 */
+    sharedTotal?: (n?: number) => string
+    /** 共有のことばの札「まだ線になっていない」。 */
+    sharedOrphan?: string
   },
+  /** 選んでいる節の id（線を引く選択）。 */
+  picked: readonly string[] = [],
 ): { nodes: Node[]; edges: Edge[] } {
   const base = { draggable: false, selectable: false, connectable: false }
   const nodes: Node[] = []
@@ -219,6 +235,22 @@ export function toFlow(
       ...base,
     })
   }
+  if (layout.sharedBand) {
+    nodes.push({
+      id: 'band:shared',
+      type: 'band',
+      position: { x: layout.sharedBand.x, y: layout.sharedBand.y },
+      data: {
+        label: words.sharedBandTitle ?? '',
+        hint: words.sharedBandHint ?? '',
+        width: layout.sharedBand.w,
+        height: layout.sharedBand.h,
+        variant: 'shared',
+      },
+      zIndex: 0,
+      ...base,
+    })
+  }
   if (layout.hubBand) {
     nodes.push({
       id: 'band:hubs',
@@ -241,6 +273,12 @@ export function toFlow(
         insideText: inside ? words.compact(c.count!) : '',
         fullText: words.datasetCount(c.kindCount, c.count),
       }
+    if (kind === 'shared')
+      return {
+        countText: c.count != null && !inside ? words.count(c.count) : '',
+        insideText: inside ? words.compact(c.count!) : '',
+        fullText: words.sharedTotal ? words.sharedTotal(c.count) : '',
+      }
     if (c.count == null) return { countText: '', insideText: '', fullText: '' }
     return {
       countText: inside ? '' : words.count(c.count),
@@ -248,8 +286,13 @@ export function toFlow(
       fullText: words.count(c.count),
     }
   }
+  const pickedSet = new Set(picked)
+  const withOrphan = (t: Pick<CircleData, 'countText' | 'insideText' | 'fullText'>, orphan?: boolean) =>
+    orphan && words.sharedOrphan
+      ? { ...t, fullText: t.fullText ? `${t.fullText}・${words.sharedOrphan}` : words.sharedOrphan }
+      : t
   const circle = (
-    c: { id: string; label: string; count?: number; kindCount?: number; r: number; x: number; y: number },
+    c: { id: string; label: string; count?: number; kindCount?: number; r: number; x: number; y: number; orphan?: boolean },
     kind: CircleKind,
   ) =>
     nodes.push({
@@ -258,25 +301,34 @@ export function toFlow(
       position: { x: c.x - nodeWidth(c.r, kind) / 2, y: c.y - c.r },
       data: {
         label: c.label,
-        ...circleTexts(c, kind),
+        ...withOrphan(circleTexts(c, kind), c.orphan),
         r: c.r,
         kind,
+        ...(c.orphan ? { orphan: true } : {}),
       } satisfies CircleData,
+      ...(pickedSet.has(c.id) ? { className: 'is-picked' } : {}),
       zIndex: 2,
       ...base,
     })
   for (const c of layout.circles) circle(c, layout.level === 'dataset' ? 'dataset' : 'kind')
   for (const h of layout.hubs) circle(h, 'hub')
+  for (const sh of layout.shared ?? []) circle(sh, 'shared')
   for (const s of layout.stds) {
     nodes.push({
       id: s.id,
       type: 'std',
       position: { x: s.x, y: s.y },
       data: { label: s.label, vocab: s.vocab, width: s.w, height: s.h } satisfies StdData,
+      ...(pickedSet.has(s.id) ? { className: 'is-picked' } : {}),
       zIndex: 1,
       ...base,
     })
   }
+  // 'upper' の線の title「A ⊂ B」/「A ≡ B」用の名前。
+  const nameOf = new Map<string, string>()
+  for (const c of layout.circles) nameOf.set(c.id, c.label)
+  for (const sh of layout.shared ?? []) nameOf.set(sh.id, sh.label)
+  for (const s of layout.stds) nameOf.set(s.id, s.label)
   const edges: Edge[] = layout.edges.map((e: OverviewEdge, i) => ({
     id: `${e.from}->${e.to}-${e.kind}-${i}`,
     source: e.from,
@@ -290,10 +342,15 @@ export function toFlow(
       cx: e.cx,
       cy: e.cy,
       kind: e.kind,
-      title: e.kinds != null ? words.participates(e.kinds) : undefined,
+      title:
+        e.kinds != null
+          ? words.participates(e.kinds)
+          : e.kind === 'upper'
+            ? `${nameOf.get(e.from) ?? e.from} ${e.both ? '≡' : relationSymbol(e.relation ?? 'subClassOf')} ${nameOf.get(e.to) ?? e.to}`
+            : undefined,
     },
     className: edgeClassName(e.kind, e.from, e.to, null),
-    markerEnd: e.kind === 'link' || e.kind === 'alignment' ? arrow(e.kind) : undefined,
+    markerEnd: e.kind === 'link' || e.kind === 'alignment' || e.kind === 'upper' ? arrow(e.kind) : undefined,
     markerStart: e.both ? arrow(e.kind) : undefined,
     zIndex: 1,
   }))
@@ -308,6 +365,7 @@ function KindOverviewInner({
   onOpenCrosswalk,
   onFocus,
   focus,
+  pick,
   maxHeight = 620,
   zoomable = false,
   expandable = true,
@@ -324,6 +382,8 @@ function KindOverviewInner({
   onFocus?: (f: OverviewFocus) => void
   /** 周りだけ開いているとき: いま見ているものの名前と、全体へ戻る操作。 */
   focus?: { label: string; onBack: () => void; hiddenDatasets?: number; hiddenHubs?: number }
+  /** 線の起点に丸を選ぶ操作。有効のあいだ、押すと選択になり画面遷移・フォーカスはしない。 */
+  pick?: VocabPick
   maxHeight?: number
   zoomable?: boolean
   /** 右上の「大きく見る」（重ね表示の中では出さない）。 */
@@ -336,6 +396,8 @@ function KindOverviewInner({
   // mouseleave が来なくても）古い id は無いものとして扱う。
   const [hover, setHover] = useState<{ layout: OverviewLayout; id: string } | null>(null)
   const active = hover && hover.layout === layout ? hover.id : null
+  const pickedKey = (pick?.picked ?? []).join('|')
+  const pickedList = useMemo(() => (pickedKey ? pickedKey.split('|') : []), [pickedKey])
   const { nodes, edges: baseEdges } = useMemo(
     () =>
       toFlow(layout, {
@@ -351,8 +413,15 @@ function KindOverviewInner({
         participates: (n) => t('vocab:overview.participates', { n }),
         hubBandTitle: t('vocab:overview.hubBandTitle'),
         hubBandHint: t('vocab:overview.hubBandHint'),
-      }),
-    [layout, t, i18n.language],
+        sharedBandTitle: t('vocabmap:sharedBand.title'),
+        sharedBandHint: t('vocabmap:sharedBand.hint'),
+        sharedTotal: (n) =>
+          n != null
+            ? t('vocabmap:sharedBand.total', { n: n.toLocaleString('en-US') })
+            : t('vocabmap:sharedBand.totalNone'),
+        sharedOrphan: t('vocabmap:sharedBand.orphan'),
+      }, pickedList),
+    [layout, t, i18n.language, pickedList],
   )
   // 丸・ハブに載せたら、その丸につながる線を濃く・他を薄く（CSS のホバーは線に届かない）。
   const edges = useMemo(
@@ -368,6 +437,12 @@ function KindOverviewInner({
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {
+      // 線を引く選択のあいだは、押すと丸を選ぶだけ（遷移・フォーカスはしない）。
+      if (pick?.active) {
+        const end = pickEndOfOverview(layout, node.id)
+        if (end) pick.onPick(end)
+        return
+      }
       if (layout.level === 'dataset') {
         // データセットごとの俯瞰: 押すとその周りだけを種類まで開く。
         if (node.type === 'circle')
@@ -382,7 +457,7 @@ function KindOverviewInner({
         }
       } else if (node.type === 'frame') onOpenDataset?.(node.id)
     },
-    [layout, onOpenKind, onOpenDataset, onOpenCrosswalk, onFocus],
+    [layout, onOpenKind, onOpenDataset, onOpenCrosswalk, onFocus, pick],
   )
 
   const height = Math.min(maxHeight, Math.max(260, layout.height + 48))
@@ -437,6 +512,7 @@ function KindOverviewInner({
           onOpenCrosswalk={onOpenCrosswalk}
           onFocus={onFocus}
           focus={focus}
+          pick={pick}
           maxHeight={bigH}
           expandable={false}
           zoomable
@@ -482,6 +558,7 @@ export function KindOverview(props: {
   onOpenCrosswalk?: () => void
   onFocus?: (f: OverviewFocus) => void
   focus?: { label: string; onBack: () => void; hiddenDatasets?: number; hiddenHubs?: number }
+  pick?: VocabPick
   maxHeight?: number
   zoomable?: boolean
   expandable?: boolean
