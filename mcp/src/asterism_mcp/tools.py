@@ -24,11 +24,16 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any, Final
 
+from asterism import shared_vocab as _sv
+from asterism.catalog import resolve_tool_names, tool_sources
+from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
 from asterism.plot_points import thin_xy
+from asterism.query_tools import load_query_tools
 from asterism.substrate import (
     DATASET_IRI_BASE,
     META_GRAPH_BASE,
@@ -41,7 +46,9 @@ from asterism.substrate import (
     ontology_graphs,
 )
 
-_RDFS_LABEL: Final[str] = "http://www.w3.org/2000/01/rdf-schema#label"
+_RDFS: Final[str] = "http://www.w3.org/2000/01/rdf-schema#"
+_RDF: Final[str] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+_RDFS_LABEL: Final[str] = _RDFS + "label"
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
@@ -667,6 +674,7 @@ async def schema_summary(
     max_classes: int = 50,
     max_predicates: int = 100,
     predicates_per_class: int = 25,
+    registry_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Introspect the vocabulary actually present in the store (schema-agnostic).
 
@@ -684,6 +692,9 @@ async def schema_summary(
         max_classes: cap on returned classes (clamped 1..500), by instance count.
         max_predicates: cap on returned predicates (clamped 1..500), by usage.
         predicates_per_class: cap on predicates listed per class (clamped 1..200).
+        registry_root: workbench registry root (``CSV2RDF_REGISTRY_ROOT``). Only used
+            to fill ``shared_terms[].cqs`` from ``vocab-shared``'s ``query_tools.yaml``;
+            ``None`` leaves every ``cqs`` as ``[]``.
 
     Returns ``{graph, classes, predicates, class_shapes}`` — plus, when
     ``graph`` is ``None`` (the canonical scope), a ``datasets`` list (ADR
@@ -696,6 +707,18 @@ async def schema_summary(
     - ``datasets``: ``[{iri, dataset_id, title, description}]`` — one entry
       per PROMOTED dataset that has a description graph; empty list when none
       do. Never present when ``graph`` names one specific graph.
+    - ``shared_terms`` (canonical scope only; ``[]`` when none): the minted shared
+      words (ADR upper-structure-shared-terms.md) that at least one published
+      dataset answers — ``[{iri, label, comment, kind: "class"|"property",
+      narrower: [{iri, dataset_id, label}], standards: [iri], cqs: [tool_name]}]``.
+      A word nothing answers (an orphan) is left out. ``cqs`` lists the
+      served names of ``vocab-shared`` CQ tools whose ``for_terms`` include the word;
+      ``[]`` when ``registry_root`` is not given or no tool names it.
+      ``narrower`` is capped at ``max_classes`` and ``dataset_id`` is ``None`` for a
+      perspective (``xw:``) word.
+    - ``lines`` (canonical scope only; ``[]`` when none): ``[{source, relation,
+      target}]`` — the alignment lines between two DATASET words (a line to a shared
+      word or a standard is carried by ``shared_terms``).
     """
     max_classes = max(1, min(int(max_classes), 500))
     max_predicates = max(1, min(int(max_predicates), 500))
@@ -840,8 +863,160 @@ async def schema_summary(
                     }
                 )
         result["datasets"] = datasets
+        shared_terms, lines = await _shared_vocab_overview(
+            client, max_narrower=max_classes, registry_root=registry_root
+        )
+        result["shared_terms"] = shared_terms
+        result["lines"] = lines
 
     return result
+
+
+async def _shared_vocab_overview(
+    client: OxigraphClient, *, max_narrower: int, registry_root: Path | str | None = None
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """``(shared_terms, lines)`` for :func:`schema_summary`, from the store alone.
+
+    Words come from the shared-vocab graph, lines from the alignment graph, the
+    answering-dataset count from :func:`asterism.shared_vocab.answering_datasets`
+    (a word with 0 is an orphan and is left out). Deterministic: sorted by IRI,
+    no LLM.
+    """
+    # --- minted words ---------------------------------------------------------
+    terms_q = (
+        "SELECT ?s ?t ?l ?c WHERE { "
+        f"GRAPH <{_sv.SHARED_VOCAB_GRAPH}> {{ ?s a ?t . "
+        f"VALUES ?t {{ <{_RDFS}Class> <{_RDF}Property> }} "
+        f"OPTIONAL {{ ?s <{_RDFS_LABEL}> ?l }} OPTIONAL {{ ?s <{_RDFS}comment> ?c }} }} "
+        "} ORDER BY ?s ?l ?c"
+    )
+    acc: dict[str, dict[str, Any]] = {}
+    for r in _bindings(await client.sparql_select(terms_q)):
+        iri, typ = _cell(r, "s"), _cell(r, "t")
+        if not iri or not typ or _sv.slug_of(str(iri)) is None:
+            continue
+        d = acc.setdefault(str(iri), {"kind": None, "labels": set(), "comments": set()})
+        if typ == f"{_RDFS}Class":
+            d["kind"] = "class"
+        elif d["kind"] is None:
+            d["kind"] = "property"
+        lab = r.get("l")
+        if isinstance(lab, dict) and lab.get("value"):
+            lang = str(lab.get("xml:lang") or "").lower()
+            rank = 0 if lang.startswith("ja") else 1 if not lang else 2
+            d["labels"].add((rank, str(lab["value"])))
+        com = _cell(r, "c")
+        if com:
+            d["comments"].add(str(com))
+
+    # --- alignment lines ------------------------------------------------------
+    rel_by_iri = {v: k for k, v in ALIGN_RELATIONS.items()}
+    values = " ".join(f"<{v}>" for v in ALIGN_RELATIONS.values())
+    lines_q = (
+        f"SELECT ?s ?r ?t WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?s ?r ?t }} "
+        f"VALUES ?r {{ {values} }} FILTER(isIRI(?s) && isIRI(?t)) }} ORDER BY ?s ?r ?t"
+    )
+    raw_lines: list[tuple[str, str, str]] = []
+    for r in _bindings(await client.sparql_select(lines_q)):
+        s_, r_, t_ = _cell(r, "s"), _cell(r, "r"), _cell(r, "t")
+        if s_ and t_ and r_ in rel_by_iri:
+            raw_lines.append((str(s_), rel_by_iri[str(r_)], str(t_)))
+    if not acc and not raw_lines:
+        return [], []
+
+    # --- which kind of word each end is (decided at read time) ----------------
+    onto = await _sv.ontology_terms(client)
+    shared_iris = set(acc)
+    ns = _sv.known_namespaces()
+    kinds: dict[str, tuple[str, str | None]] = {}
+
+    def kind_of(iri: str) -> tuple[str, str | None]:
+        if iri not in kinds:
+            kinds[iri] = _sv.classify_endpoint(
+                iri, ontology_terms=onto, shared_iris=shared_iris, known_namespaces=ns
+            )
+        return kinds[iri]
+
+    lines = [
+        {"source": s_, "relation": rel, "target": t_}
+        for s_, rel, t_ in raw_lines
+        if kind_of(s_)[0] == "dataset" and kind_of(t_)[0] == "dataset"
+    ]
+    if not acc:
+        return [], lines
+
+    # --- orphans out ----------------------------------------------------------
+    counts = await _sv.answering_datasets(client, sorted(acc))
+    live = [iri for iri in sorted(acc) if counts.get(iri, 0) >= 1]
+    if not live:
+        return [], lines
+
+    narrower: dict[str, dict[str, dict[str, Any]]] = {i: {} for i in live}
+    standards: dict[str, set[str]] = {i: set() for i in live}
+    for src, rel, tgt in raw_lines:
+        sub = rel in ("subClassOf", "subPropertyOf")
+        eq = rel in ("equivalentClass", "equivalentProperty")
+        pairs: list[tuple[str, str]] = []  # (shared word, the dataset-side word)
+        if sub and tgt in narrower:
+            pairs.append((tgt, src))
+        if eq:
+            pairs += [(tgt, src), (src, tgt)]
+        for me, other in pairs:
+            if me in narrower and kind_of(other)[0] in ("dataset", "perspective"):
+                narrower[me][other] = {"iri": other, "dataset_id": kind_of(other)[1]}
+        if src in standards and kind_of(tgt)[0] == "standard":
+            standards[src].add(tgt)
+
+    cqs_by_term = _cq_tools_by_term(registry_root)
+    labels = await _ontology_labels(client)
+    shared_terms: list[dict[str, Any]] = []
+    for iri in live:
+        d = acc[iri]
+        nar = [
+            {**e, "label": labels.get(e["iri"]) or _iri_local_name(e["iri"])}
+            for e in sorted(narrower[iri].values(), key=lambda e: e["iri"])
+        ][:max_narrower]
+        shared_terms.append(
+            {
+                "iri": iri,
+                "label": min(d["labels"])[1] if d["labels"] else _sv.slug_of(iri),
+                "comment": min(d["comments"]) if d["comments"] else None,
+                "kind": d["kind"] or "class",
+                "narrower": nar,
+                "standards": sorted(standards[iri]),
+                "cqs": cqs_by_term.get(iri, []),
+            }
+        )
+    return shared_terms, lines
+
+
+def _cq_tools_by_term(registry_root: Path | str | None) -> dict[str, list[str]]:
+    """``{term IRI: [served tool name]}`` from ``vocab-shared``'s ``for_terms`` tools.
+
+    ``[]``-equivalent (empty dict) when there is no registry root or no such tool.
+    Names are the ones the server serves (a collision may prefix the declared name);
+    a declared tool the server does not serve (pruned by ``wired.json``) is left out.
+    """
+    if registry_root is None:
+        return {}
+    try:
+        tools = load_query_tools(_sv.REGISTRY_ID, registry_root)
+        served = resolve_tool_names(tool_sources(registry_root)).get(_sv.REGISTRY_ID, {})
+    except Exception:  # a broken registry must not break schema_summary
+        return {}
+    out: dict[str, list[str]] = {}
+    for t in tools:
+        # Only names the server actually serves: ``tool_sources`` already pruned
+        # the CQs whose terms are isolated (wired.json), so a declared tool that is
+        # absent from ``served`` must not be advertised to Ask (it cannot be called).
+        name = served.get(t.name)
+        if name is None:
+            continue
+        for term in t.for_terms:
+            names = out.setdefault(term, [])
+            if name not in names:
+                names.append(name)
+    return out
 
 
 async def dataset_descriptions(client: OxigraphClient) -> dict[str, str]:

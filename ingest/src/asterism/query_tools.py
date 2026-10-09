@@ -40,6 +40,7 @@ import contextlib
 import logging
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -170,6 +171,10 @@ class QueryTool:
     item: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: The answer's shape (:data:`OUTPUT_KINDS`); "facts" when not declared.
     output_kind: str = "facts"
+    #: 共有のことば（``sv:`` の IRI）に紐づく問い（CQ）ツールが持つ欄。宣言に無ければ空。
+    #: 空でなければ、``registry/vocab-shared/wired.json`` で「どの語も答えるデータセットが
+    #: 0」の間は MCP の一覧に載せない（:func:`prune_unwired_tools`）。
+    for_terms: tuple[str, ...] = ()
 
     def param(self, name: str) -> ToolParam | None:
         return next((p for p in self.params if p.name == name), None)
@@ -425,6 +430,17 @@ def annotate_output_kind(raw_tool: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _parse_for_terms(tool_name: str, raw: Any) -> tuple[str, ...]:
+    """``for_terms``（任意）を文字列の tuple に。無ければ空。形が違えば宣言の誤り。"""
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list) or not all(isinstance(t, str) and t for t in raw):
+        raise QueryToolError(f"tool {tool_name!r}: for_terms must be a list of IRI strings")
+    return tuple(raw)
+
+
 def parse_query_tools(data: Any) -> list[QueryTool]:
     """Parse a ``query_tools.yaml`` document into validated :class:`QueryTool`s."""
     tools_raw = (data or {}).get("tools", []) if isinstance(data, dict) else []
@@ -466,6 +482,7 @@ def parse_query_tools(data: Any) -> list[QueryTool]:
                 query=query,
                 item=item,
                 output_kind=output_kind,
+                for_terms=_parse_for_terms(name, raw.get("for_terms")),
             )
         )
     return tools
@@ -537,8 +554,36 @@ def load_all_query_tools(root: Path | str | None = None) -> dict[str, list[Query
 
     The MCP surface is the union over all datasets (each reads the same
     cross-dataset canonical scope), so the server registers all of these.
+
+    A tool that declares ``for_terms`` (a shared-vocabulary CQ) is left out while no
+    dataset answers its term — see :func:`prune_unwired_tools`. That rule reads
+    ``registry/vocab-shared/wired.json`` under ``root``; a root without it (the repo's
+    bundled ``datasets/``) therefore serves no ``for_terms`` tool at all.
     """
-    return {name: load_query_tools(name, root) for name in available_datasets(root)}
+    base = Path(root) if root is not None else datasets_root()
+    return {
+        name: prune_unwired_tools(load_query_tools(name, root), base)
+        for name in available_datasets(root)
+    }
+
+
+def prune_unwired_tools(tools: list[QueryTool], root: Path | str | None) -> list[QueryTool]:
+    """Drop the ``for_terms`` tools none of whose terms any dataset answers.
+
+    ``wired.json`` (``asterism.shared_vocab.load_wired``) maps term IRI → number of
+    answering datasets. A tool is kept when it has no ``for_terms`` (the ordinary case),
+    or when AT LEAST ONE of its terms has a count >= 1. All terms at 0 — or missing from
+    the file, or no file at all — drops it: failing closed, so an unanswerable question
+    is never advertised.
+    """
+    if not any(t.for_terms for t in tools):
+        return tools
+    from asterism.shared_vocab import is_wired, load_wired  # lazy: shared_vocab imports us
+
+    wired = load_wired(root) if root is not None else {}
+    return [
+        t for t in tools if not t.for_terms or any(is_wired(wired.get(i, 0)) for i in t.for_terms)
+    ]
 
 
 # ----------------------------------------------------------------------------
@@ -752,11 +797,12 @@ def write_registry_query_tools(
 
     Best-effort like the rest of promote's optional post-steps: returns the
     written path on success, or ``None`` when there is nothing new to write (no
-    ``tools`` passed in, all failed lint, or the dataset directory does not
-    exist — never mints a new registry entry out of a synthesis call). Raises
-    nothing — a malformed ``tools`` list degrades to "dropped, logged", matching
-    :func:`load_query_tools`'s lenience; an unreadable existing file is treated
-    as empty rather than aborting the write.
+    ``tools`` passed in, all failed lint, the dataset directory does not
+    exist — never mints a new registry entry out of a synthesis call — or the
+    existing file cannot be read: it is then left untouched rather than
+    overwritten). Raises nothing — a malformed ``tools`` list degrades to
+    "dropped, logged", matching :func:`load_query_tools`'s lenience. The write is
+    tmp → ``os.replace``.
     """
     base = Path(registry_root)
     dataset_dir = base / dataset_id
@@ -781,26 +827,185 @@ def write_registry_query_tools(
     if not kept_raw:
         return None
     path = dataset_dir / "query_tools.yaml"
-    existing_raw: list[dict[str, Any]] = []
-    if path.is_file():
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except (yaml.YAMLError, OSError) as exc:
-            _log.warning(
-                "synthesize_query_tools[%s]: unreadable existing file (%s)", dataset_id, exc
-            )
-        else:
-            existing = data.get("tools") if isinstance(data, dict) else None
-            if isinstance(existing, list):
-                existing_raw = [t for t in existing if isinstance(t, dict)]
+    existing_raw = _read_existing_raw_tools(path)
+    if existing_raw is None:
+        # 読めない既存ファイルは上書きしない（人が書いたツールを黙って消さない）。
+        _log.warning(
+            "synthesize_query_tools[%s]: unreadable existing file, left untouched", dataset_id
+        )
+        return None
     merged = [
         t for t in existing_raw if str(t.get("name")) not in SYNTHESIZED_TOOL_NAMES
     ] + kept_raw
-    path.write_text(
-        yaml.safe_dump({"tools": merged}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    _write_tools_yaml(path, merged)
     return path
+
+
+class _BlockDumper(yaml.SafeDumper):
+    """SafeDumper that writes multi-line strings (the SPARQL) as ``|`` blocks."""
+
+
+def _str_representer(dumper: yaml.SafeDumper, data: str) -> yaml.Node:
+    style = "|" if "\n" in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+
+_BlockDumper.add_representer(str, _str_representer)
+
+
+def _read_existing_raw_tools(path: Path) -> list[dict[str, Any]] | None:
+    """既存 ``query_tools.yaml`` の生のツール宣言。無ければ ``[]``、読めなければ ``None``。
+
+    ``None``（YAMLError / OSError）のとき呼び出し側は書き込みを中止する。読めたが形が
+    想定外（トップが dict でない・``tools`` が list でない）なら ``[]`` として扱う。
+    """
+    if not path.is_file():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        return None
+    existing = data.get("tools") if isinstance(data, dict) else None
+    if not isinstance(existing, list):
+        return []
+    return [t for t in existing if isinstance(t, dict)]
+
+
+def _write_tools_yaml(path: Path, tools: list[dict[str, Any]]) -> None:
+    """tmp に書いて fsync してから ``os.replace``（途中で落ちても半端なファイルが残らない）。
+
+    ``query_tools.yaml`` の書き手はここ 1 か所。例外時は tmp を消す。
+    """
+    text = yaml.dump({"tools": tools}, Dumper=_BlockDumper, sort_keys=False, allow_unicode=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+
+
+def read_registry_raw_tools(
+    registry_root: Path | str, dataset_id: str
+) -> list[dict[str, Any]] | None:
+    """``query_tools.yaml`` の生のツール宣言（無ければ ``[]``、読めなければ ``None``）。"""
+    return _read_existing_raw_tools(Path(registry_root) / dataset_id / "query_tools.yaml")
+
+
+def write_registry_raw_tools(
+    registry_root: Path | str, dataset_id: str, tools: list[dict[str, Any]]
+) -> Path | None:
+    """``registry/<id>/query_tools.yaml`` を ``tools`` で丸ごと置き換える（検査なし）。
+
+    既存のツールを減らす・直す側（語の撤回など）用。データセットのディレクトリが無ければ
+    何もせず ``None``（登録簿に新しい項目を作らない）。
+    """
+    dataset_dir = Path(registry_root) / dataset_id
+    if not dataset_dir.is_dir():
+        return None
+    path = dataset_dir / "query_tools.yaml"
+    _write_tools_yaml(path, tools)
+    return path
+
+
+def remove_registry_query_tools_by_name(
+    registry_root: Path | str, dataset_id: str, names: Iterable[str]
+) -> bool | None:
+    """``query_tools.yaml`` から ``names`` のツールを名前で取り除く。
+
+    戻り値: 取り除いたものがあれば ``True``、無ければ ``False``、既存 yaml が読めない・
+    ディレクトリが無いときは ``None``（何も書かない）。
+    """
+    dataset_dir = Path(registry_root) / dataset_id
+    if not dataset_dir.is_dir():
+        return None
+    path = dataset_dir / "query_tools.yaml"
+    existing = _read_existing_raw_tools(path)
+    if existing is None:
+        return None
+    drop = set(names)
+    kept = [t for t in existing if str(t.get("name")) not in drop]
+    if len(kept) == len(existing):
+        return False
+    _write_tools_yaml(path, kept)
+    return True
+
+
+def upsert_registry_query_tools_by_name(
+    registry_root: Path | str,
+    dataset_id: str,
+    tools: list[dict[str, Any]],
+    *,
+    remove_missing_prefix: str | None = None,
+) -> list[str] | None:
+    """``registry/<id>/query_tools.yaml`` に ``tools`` を名前で upsert する。
+
+    - 同名の既存は（位置を保って）置換、無ければ末尾に追加。それ以外の既存は触らない。
+      :data:`SYNTHESIZED_TOOL_NAMES` の置換規則は :func:`write_registry_query_tools` の
+      もので、ここでは特別扱いしない（名前で置くだけ）。
+    - ``remove_missing_prefix`` を渡すと、その接頭辞で始まる既存ツールのうち今回の
+      ``tools`` に**無い**ものを消す（語を作り直したとき古い問いが残らないように）。
+      lint で落ちた名前は「今回あるもの」として数える（落ちたからといって既存を消さない）。
+    - parse か :func:`lint_query_tool` を通らない宣言は書かず、その名前を返す。
+    - 戻り値: 書けなかった名前の list（全部書けたら ``[]``）。**中止したら ``None``** —
+      既存 yaml が読めない、データセットのディレクトリが無い（登録簿に新しい項目を
+      作らない）、書くものが何も無い、のいずれか。同じ入力で 2 回呼んでも結果は同じ。
+    """
+    dataset_dir = Path(registry_root) / dataset_id
+    if not dataset_dir.is_dir():
+        return None
+    parsed, issues = parse_query_tools_lenient({"tools": tools})
+    rejected: list[str] = []
+    for msg in issues:
+        _log.warning("upsert_query_tools[%s]: dropped %s", dataset_id, msg)
+    ok_names: set[str] = set()
+    for qt in parsed:
+        lint = lint_query_tool(qt)
+        if lint.errors:
+            _log.warning(
+                "upsert_query_tools[%s]: dropped tool %r (%s)",
+                dataset_id,
+                qt.name,
+                "; ".join(lint.errors),
+            )
+            continue
+        ok_names.add(qt.name)
+    seen: set[str] = set()
+    kept: list[dict[str, Any]] = []
+    for t in tools:
+        name = str(t.get("name"))
+        if name in ok_names:
+            if name not in seen:
+                kept.append(t)
+                seen.add(name)
+        elif name not in rejected:
+            rejected.append(name)
+    if not kept and not remove_missing_prefix:
+        return None
+    path = dataset_dir / "query_tools.yaml"
+    existing = _read_existing_raw_tools(path)
+    if existing is None:
+        _log.warning("upsert_query_tools[%s]: unreadable existing file, left untouched", dataset_id)
+        return None
+    by_name = {str(t.get("name")): t for t in kept}
+    given = {str(t.get("name")) for t in tools}
+    merged: list[dict[str, Any]] = []
+    for t in existing:
+        name = str(t.get("name"))
+        if name in by_name:
+            merged.append(by_name.pop(name))
+        elif remove_missing_prefix and name.startswith(remove_missing_prefix) and name not in given:
+            continue
+        else:
+            merged.append(t)
+    merged.extend(by_name.values())
+    if merged != existing or not path.is_file():
+        _write_tools_yaml(path, merged)
+    return rejected
 
 
 # ----------------------------------------------------------------------------

@@ -578,6 +578,8 @@ class CrosswalkAlignBody(BaseModel):
     from_perspective: str = ""
     to_perspective: str = ""
     remove: bool = False
+    # この線が答える問い（共有の言葉の CQ の題。任意）。来歴 xw:answersCq に記録される。
+    cq: str | None = None
 
 
 class NormalizerPreviewBody(BaseModel):
@@ -1827,6 +1829,9 @@ def _discover_targets(
             continue
         if wanted and dsid not in wanted:
             skipped.append({"dataset_id": dsid, "reason": "not_requested"})
+        elif meta.get("is_shared_vocab"):
+            # 共有の言葉の項目はデータセットではない（ADR upper-structure-shared-terms §5）
+            skipped.append({"dataset_id": dsid, "reason": "shared_vocab"})
         elif meta.get("is_crosswalk"):
             skipped.append({"dataset_id": dsid, "reason": "crosswalk"})
         elif not meta.get("promoted"):
@@ -5750,6 +5755,8 @@ def build_app(
             if moved or await substrate.graph_has_triples(client, legacy_iri):
                 await substrate.mark_graph_promoted(client, legacy_iri)
             for meta in registry.list_datasets(cfg.registry_root):
+                if meta.get("is_shared_vocab"):
+                    continue  # 共有の言葉は canonical ではない（公開済みの印を付けない）
                 if meta.get("promoted") and meta.get("status") != "retracted":
                     cg = meta.get("canonical_graph") or substrate.canonical_graph_iri(meta["id"])
                     # part5: restore the live version pointer too (a dataset promoted
@@ -8014,7 +8021,10 @@ def build_app(
         :func:`asterism.dataset_summary.list_entry_extras` — existing fields
         are never dropped.
         """
-        items = registry.list_datasets(cfg.registry_root)
+        # 共有の言葉（vocab-shared）はデータセットではないので一覧に出さない。ハブは従来どおり出る。
+        items = [
+            m for m in registry.list_datasets(cfg.registry_root) if not m.get("is_shared_vocab")
+        ]
         return {
             "count": len(items),
             "datasets": [{**item, **dataset_summary_mod.list_entry_extras(item)} for item in items],
@@ -9511,7 +9521,11 @@ def build_app(
         lint = lint_query_tool(parsed[0])
         if lint.errors:
             raise HTTPException(400, "invalid query tool: " + "; ".join(lint.errors))
-        registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        try:
+            registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        except registry.QueryToolsUnreadable as exc:
+            # 読めない query_tools.yaml を空として上書きすると人のツールが消える
+            raise HTTPException(409, f"保存を中止しました: {exc}") from exc
         warnings = list(lint.warnings)
         dry_run: dict[str, object] | None = None
         client = getattr(app.state, "client", None)
@@ -9544,7 +9558,10 @@ def build_app(
         """Remove one declared query tool from a dataset."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
-        removed = registry.delete_query_tool(cfg.registry_root, dataset_id, tool_name)
+        try:
+            removed = registry.delete_query_tool(cfg.registry_root, dataset_id, tool_name)
+        except registry.QueryToolsUnreadable as exc:
+            raise HTTPException(409, f"削除を中止しました: {exc}") from exc
         if not removed:
             raise HTTPException(404, f"tool {tool_name!r} not found")
         return {
@@ -10590,6 +10607,9 @@ def build_app(
             # then (ADR id-move-after-publish.md).
             published_subjects=_subjects_of_design(data.get("artifacts", {})),
         )
+        # 共有の言葉の「答えるデータセット数」（wired.json）は公開で変わる。失敗しても
+        # 公開は止めない（warning は _refresh_wired が出す）。
+        await _refresh_wired(client)
         # 契約メモ contract_pr_f15.md §1.4: before rebuilding whatever hub this
         # dataset already participates in, see whether its ☑ handles newly join
         # ANOTHER promoted dataset's ☑ handles and, if so, join the hub
@@ -10738,6 +10758,7 @@ def build_app(
                 dataset_id,
                 {"names_published_at": datetime.now(UTC).isoformat()},
             )
+        await _refresh_wired(client)
         return {"dataset_id": dataset_id, "updated": len(changes), "changes": changes}
 
     @app.post("/api/datasets/{dataset_id}/retract", dependencies=_write_auth)
@@ -10763,6 +10784,8 @@ def build_app(
         now = datetime.now(UTC).isoformat()
         await substrate.retract_canonical(client, canonical_iri, invalidated_at=now)
         meta = registry.mark_retracted(cfg.registry_root, dataset_id, retracted_at=now)
+        # 引用対象から外れた分、共有の言葉の「答えるデータセット数」も減る。
+        await _refresh_wired(client)
         # A retracted dataset leaves the Ask scope — unlist it from the togomcp
         # catalog too (best-effort; reversed by /reinstate).
         if cfg.togomcp_dir is not None:
@@ -10781,6 +10804,7 @@ def build_app(
         meta = registry.mark_reinstated(
             cfg.registry_root, dataset_id, reinstated_at=datetime.now(UTC).isoformat()
         )
+        await _refresh_wired(client)  # 引用対象に戻った分、数え直す
         # Reverse the retract-time unlisting: republish the MIE against the live
         # graph that just came back into scope (best-effort).
         if cfg.togomcp_dir is not None:
@@ -10873,6 +10897,7 @@ def build_app(
         await substrate.drop_graph(client, substrate.meta_graph_iri(dataset_id))
         await substrate.drop_graph(client, substrate.ontology_graph_iri(dataset_id))
         registry.delete_dataset(cfg.registry_root, dataset_id)
+        await _refresh_wired(client)
         # A deleted dataset must not linger in the togomcp catalog (best-effort).
         if cfg.togomcp_dir is not None:
             await asyncio.to_thread(togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id)
@@ -11236,13 +11261,28 @@ def build_app(
         return {"dataset_id": dataset_id, "promoted": True, "fields": entry["predicates"]}
 
     @app.get("/api/crosswalk/alignments")
-    async def crosswalk_alignments() -> JSONResponse:
-        """The asserted schema alignments BETWEEN perspectives (Phase 2) + the closed
-        set of relations a human may assert. Read-only."""
+    async def crosswalk_alignments(
+        scope: str | None = Query(
+            default=None,
+            description='"perspective" | "standard" | "shared" | "dataset" (omit for all)',
+        ),
+    ) -> JSONResponse:
+        """The asserted schema alignments + the closed set of relations a human may
+        assert. Read-only. Each row carries ``source_kind`` / ``target_kind`` /
+        ``source_dataset`` / ``target_dataset`` / ``cq`` / ``broken`` (computed at read
+        time, so older rows get them too). ``scope`` narrows the list;
+        ``scope=perspective`` is the set the perspective screen can author on (both ends
+        are terms of a perspective that loads)."""
         client: OxigraphClient = app.state.client
+        try:
+            alignments = await crosswalk_runtime.list_alignments(
+                client, scope=scope, registry_root=cfg.registry_root
+            )
+        except ValueError as exc:  # unknown scope
+            raise HTTPException(422, str(exc)) from exc
         return JSONResponse(
             {
-                "alignments": await crosswalk_runtime.list_alignments(client),
+                "alignments": alignments,
                 "relations": sorted(crosswalk_runtime.ALIGN_RELATIONS),
             }
         )
@@ -11405,23 +11445,45 @@ def build_app(
         terms = grounding.ground_model_yaml(model_yaml) if model_yaml.strip() else []
         return JSONResponse({"terms": [t.to_dict() for t in terms]})
 
+    async def _refresh_wired(client: OxigraphClient) -> bool:
+        """線・語が変わったあとに ``wired.json`` を数え直す（ADR upper-structure-shared-terms
+        §2.3 の契機）。共有の言葉がまだ 1 つも無い（vocab-shared の項目が無い）ときは何も
+        しない。数え直しに失敗しても線そのものは書けているので、例外にはせず ``False`` を返す
+        （呼ぶ側が ``wired_stale`` として応答に載せる — 黙って古いままにしない）。"""
+        from asterism import shared_vocab
+
+        if not (cfg.registry_root / shared_vocab.REGISTRY_ID / "meta.json").is_file():
+            return True
+        try:
+            await shared_vocab.recompute_wired(client, cfg.registry_root)
+        except Exception:
+            logger.warning("wired.json の数え直しに失敗しました", exc_info=True)
+            return False
+        return True
+
     @app.post("/api/crosswalk/align", dependencies=_write_auth)
     async def crosswalk_align(body: CrosswalkAlignBody) -> JSONResponse:
         """Assert (or, with ``remove``, withdraw) a schema relationship between two
-        perspective terms — "視点をつなぐ". Additive, reversible, human-gated; stored in a
-        promoted alignment graph the FROM-merge unions (a citable, declared fact)."""
+        terms — "視点をつなぐ" / 共有の言葉へ結ぶ. Additive, reversible, human-gated; stored
+        in a promoted alignment graph the FROM-merge unions (a citable, declared fact).
+
+        Errors: a cycle through ⊑/≡ is 409; a shared term that was never minted, or a
+        class joined to a property, is 422; a bad relation / IRI stays 400. Any absolute
+        IRI (including one nothing knows) is still accepted."""
         client: OxigraphClient = app.state.client
         try:
             if body.remove:
                 await crosswalk_runtime.remove_alignment(
                     client, body.source, body.target, body.relation
                 )
+                stale = not await _refresh_wired(client)
                 return JSONResponse(
                     {
                         "removed": True,
                         "source": body.source,
                         "target": body.target,
                         "relation": body.relation,
+                        **({"wired_stale": True} if stale else {}),
                     }
                 )
             res = await crosswalk_runtime.assert_alignment(
@@ -11432,10 +11494,22 @@ def build_app(
                 at=datetime.now(UTC).isoformat(),
                 from_perspective=body.from_perspective,
                 to_perspective=body.to_perspective,
+                cq=body.cq,
             )
+            if not await _refresh_wired(client):
+                res = {**res, "wired_stale": True}
             return JSONResponse(res)
-        except ValueError as exc:  # bad relation / non-IRI term
-            raise HTTPException(400, str(exc)) from exc
+        except ValueError as exc:
+            msg = str(exc)
+            if msg == "cycle":
+                raise HTTPException(
+                    409, "循環になるので結べません。上位が下位の下に入ります"
+                ) from exc
+            if msg == "unminted shared term":
+                raise HTTPException(422, "まだ作っていない共有の言葉には結べません") from exc
+            if msg.startswith("kind mismatch"):
+                raise HTTPException(422, f"種類と項目は結べません: {msg}") from exc
+            raise HTTPException(400, msg) from exc  # bad relation / non-IRI term
         except Exception as exc:  # surface a store error
             raise HTTPException(502, f"alignment failed: {exc}") from exc
 
@@ -11632,6 +11706,7 @@ def build_app(
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
+    from asterism_api.vocab_routes import register_vocab  # 共有の言葉（上位構造 ADR §2）
 
     register_class_schema(app, cfg)
     # label_resolvers=_crosswalk_label_resolvers: 契約メモ contract_b_hub_names.md
@@ -11640,6 +11715,7 @@ def build_app(
     register_cards(app, cfg, label_resolvers=_crosswalk_label_resolvers)
     register_place(app, cfg)
     register_license(app, cfg)
+    register_vocab(app, cfg, write_auth=_write_auth)
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）

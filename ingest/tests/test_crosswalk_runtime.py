@@ -662,6 +662,293 @@ def test_alignment_rejects_bad_relation_and_iri() -> None:
         asyncio.run(assert_alignment(client, "not-an-iri", f"{XW}B", "equivalentClass", at="t"))
 
 
+# --- 線の種類・来歴・循環・混在（共有語 ADR §2.1〜§2.2） ----------------------
+
+RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
+RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+SV_NS = "https://kumagallium.github.io/asterism/vocab/shared#"
+STD = "http://purls.helmholtz-metadaten.de/cmso/Material"  # 標準（known_vocabs の名前空間）
+QK = "http://qudt.org/vocab/quantitykind/Temperature"
+AT = "2026-10-09T00:00:00+00:00"
+A_CLS, B_CLS = "https://example.org/a#Rec", "https://example.org/b#Rec"
+A_PROP, B_PROP = "https://example.org/a#temp", "https://example.org/b#temp"
+
+
+def _onto(ds: rdflib.Dataset, dataset_id: str, terms: list[tuple[str, str]]) -> None:
+    """Declare ``(iri, "class"|"property")`` in a dataset's ontology graph."""
+    g = ds.graph(rdflib.URIRef(substrate.ontology_graph_iri(dataset_id)))
+    for iri, kind in terms:
+        t = RDFS_NS + "Class" if kind == "class" else RDF_NS + "Property"
+        g.add((rdflib.URIRef(iri), rdflib.RDF.type, rdflib.URIRef(t)))
+
+
+def _shared(ds: rdflib.Dataset, *slugs: str, kind: str = "class") -> list[str]:
+    """Mint bare ``sv:`` terms into the shared graph (just the TBox type triple)."""
+    g = ds.graph(rdflib.URIRef(substrate.SHARED_VOCAB_GRAPH))
+    t = RDFS_NS + "Class" if kind == "class" else RDF_NS + "Property"
+    iris = [SV_NS + slug for slug in slugs]
+    for iri in iris:
+        g.add((rdflib.URIRef(iri), rdflib.RDF.type, rdflib.URIRef(t)))
+    return iris
+
+
+def _world() -> tuple[rdflib.Dataset, _DatasetClient]:
+    ds = rdflib.Dataset()
+    _onto(ds, "ds-a", [(A_CLS, "class"), (A_PROP, "property")])
+    _onto(ds, "ds-b", [(B_CLS, "class"), (B_PROP, "property")])
+    return ds, _DatasetClient(ds)
+
+
+async def _written(client: _DatasetClient) -> int:
+    return await _count(client, f"GRAPH <{ALIGNMENT_GRAPH}> {{ ?s ?p ?o }}")
+
+
+async def test_assert_records_kinds_datasets_and_the_cq() -> None:
+    ds, client = _world()
+    (sv_cls,) = _shared(ds, "diffraction_point")
+    res = await assert_alignment(
+        client, A_CLS, sv_cls, "subClassOf", at=AT, cq="回折点はどこにあるか"
+    )
+    assert (res["source_kind"], res["target_kind"]) == ("dataset", "shared")
+    assert (res["source_dataset"], res["target_dataset"]) == ("ds-a", None)
+    assert res["cq"] == "回折点はどこにあるか"
+    node = res["alignment_iri"]
+    rows = (
+        await client.sparql_select(
+            f"SELECT ?p ?o WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{node}> ?p ?o }} }}"
+        )
+    )["results"]["bindings"]
+    rec = {r["p"]["value"].removeprefix(XW): r["o"]["value"] for r in rows}
+    assert rec["alignSourceKind"] == "dataset" and rec["alignTargetKind"] == "shared"
+    assert rec["alignSourceDataset"] == "ds-a" and rec["answersCq"] == "回折点はどこにあるか"
+    assert "alignTargetDataset" not in rec  # dataset 端のときだけ
+
+    # a dataset -> dataset line records BOTH dataset ids; no cq -> no answersCq
+    res2 = await assert_alignment(client, A_CLS, B_CLS, "equivalentClass", at=AT)
+    assert (res2["source_dataset"], res2["target_dataset"]) == ("ds-a", "ds-b")
+    assert res2["cq"] is None
+    listed = {a["alignment_iri"]: a for a in await list_alignments(client)}
+    assert listed[node]["cq"] == "回折点はどこにあるか"
+    assert listed[res2["alignment_iri"]]["cq"] is None
+    assert listed[res2["alignment_iri"]]["target_dataset"] == "ds-b"
+
+
+async def test_unminted_shared_term_is_refused_and_nothing_is_written() -> None:
+    ds, client = _world()
+    (minted,) = _shared(ds, "minted")
+    for src, tgt in [(A_CLS, SV_NS + "ghost"), (SV_NS + "ghost", B_CLS)]:
+        with pytest.raises(ValueError, match="unminted shared term"):
+            await assert_alignment(client, src, tgt, "equivalentClass", at=AT)
+    assert await _written(client) == 0
+    # the minted one is fine, and a standard / unknown end never blocks
+    await assert_alignment(client, A_CLS, minted, "subClassOf", at=AT)
+    await assert_alignment(client, A_CLS, STD, "equivalentClass", at=AT)
+    await assert_alignment(client, "https://nowhere.example/x#Y", STD, "equivalentClass", at=AT)
+
+
+async def test_class_property_mix_is_a_kind_mismatch() -> None:
+    ds, client = _world()
+    (sv_cls,) = _shared(ds, "a_class")
+    (sv_prop,) = _shared(ds, "a_prop", kind="property")
+    bad = [
+        (A_CLS, B_PROP, "equivalentClass"),  # property end under a class relation
+        (A_PROP, B_CLS, "equivalentProperty"),  # class end under a property relation
+        (A_PROP, sv_cls, "subPropertyOf"),  # shared class under a property relation
+        (A_CLS, sv_prop, "subClassOf"),  # shared property under a class relation
+    ]
+    for src, tgt, rel in bad:
+        with pytest.raises(ValueError, match="kind mismatch"):
+            await assert_alignment(client, src, tgt, rel, at=AT)
+    assert await _written(client) == 0
+    # same-kind lines pass; hasQuantityKind (item -> individual) is the exception
+    await assert_alignment(client, A_CLS, sv_cls, "subClassOf", at=AT)
+    await assert_alignment(client, A_PROP, sv_prop, "subPropertyOf", at=AT)
+    await assert_alignment(client, A_PROP, QK, "hasQuantityKind", at=AT)
+    # an end declared nowhere is undecidable -> allowed
+    await assert_alignment(client, A_CLS, "https://nowhere.example/x#Y", "subClassOf", at=AT)
+
+
+async def test_a_term_declared_as_both_is_not_a_mismatch() -> None:
+    ds, client = _world()
+    _onto(ds, "ds-c", [(A_CLS, "property")])  # A_CLS is also a property somewhere
+    await assert_alignment(client, A_CLS, B_CLS, "equivalentClass", at=AT)
+    await assert_alignment(client, A_CLS, B_PROP, "equivalentProperty", at=AT)
+
+
+async def test_cycle_is_refused_through_subsumption_and_equivalence() -> None:
+    ds, client = _world()
+    top, mid = _shared(ds, "top", "mid")
+    await assert_alignment(client, A_CLS, mid, "subClassOf", at=AT)
+    await assert_alignment(client, mid, top, "subClassOf", at=AT)
+    for src, tgt in [(top, A_CLS), (mid, A_CLS), (top, mid), (A_CLS, A_CLS)]:
+        with pytest.raises(ValueError, match="cycle"):
+            await assert_alignment(client, src, tgt, "subClassOf", at=AT)
+    # ≡ is walked in BOTH directions: B ≡ top (written B -> top) puts B above A_CLS
+    await assert_alignment(client, B_CLS, top, "equivalentClass", at=AT)
+    with pytest.raises(ValueError, match="cycle"):
+        await assert_alignment(client, top, B_CLS, "subClassOf", at=AT)
+    # the SAME length-1 re-assertion is idempotent, not a cycle
+    await assert_alignment(client, A_CLS, mid, "subClassOf", at=AT)
+    # ≡ itself is symmetric: no cycle check, both directions may be written
+    await assert_alignment(client, top, B_CLS, "equivalentClass", at=AT)
+    # a diamond (two ways up) is not a cycle
+    await assert_alignment(client, A_CLS, top, "subClassOf", at=AT)
+
+
+async def test_cycle_check_for_properties_uses_the_property_path() -> None:
+    ds, client = _world()
+    (p,) = _shared(ds, "p", kind="property")
+    await assert_alignment(client, A_PROP, p, "subPropertyOf", at=AT)
+    await assert_alignment(client, B_PROP, A_PROP, "equivalentProperty", at=AT)
+    with pytest.raises(ValueError, match="cycle"):
+        await assert_alignment(client, p, B_PROP, "subPropertyOf", at=AT)
+    # a CLASS path is not followed by a property relation
+    (c,) = _shared(ds, "c")
+    await assert_alignment(client, A_CLS, c, "subClassOf", at=AT)
+    await assert_alignment(client, c, A_CLS, "equivalentClass", at=AT)  # ≡ unchecked
+
+
+async def test_old_rows_get_kinds_at_read_time_and_are_never_broken() -> None:
+    ds, client = _world()
+    # a row written before kinds were recorded: no alignSourceKind / answersCq at all
+    node = "https://kumagallium.github.io/asterism/crosswalk/resource/alignment/old"
+    ds.update(
+        f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
+        f"<{node}> a <{XW}Alignment> ; <{XW}alignSource> <{A_CLS}> ; "
+        f'<{XW}alignTarget> <{STD}> ; <{XW}alignRelation> "equivalentClass" }} }}'
+    )
+    (row,) = await list_alignments(client)
+    assert (row["source_kind"], row["target_kind"]) == ("dataset", "standard")
+    assert row["source_dataset"] == "ds-a" and row["target_dataset"] is None
+    assert row["cq"] is None and row["broken"] is False
+    # …and even when the end can no longer be classified, an unrecorded row is not broken
+    ds.remove_graph(ds.graph(rdflib.URIRef(substrate.ontology_graph_iri("ds-a"))))
+    (row,) = await list_alignments(client)
+    assert row["source_kind"] == "unknown" and row["broken"] is False
+
+
+async def test_a_recorded_dataset_or_shared_end_that_vanished_is_broken() -> None:
+    ds, client = _world()
+    (sv_cls,) = _shared(ds, "gone")
+    await assert_alignment(client, A_CLS, sv_cls, "subClassOf", at=AT)
+    await assert_alignment(client, B_CLS, STD, "equivalentClass", at=AT)
+    await assert_alignment(client, "https://nowhere.example/x#Y", STD, "equivalentClass", at=AT)
+    assert [a["broken"] for a in await list_alignments(client)] == [False, False, False]
+
+    # the shared term is un-minted behind the line's back
+    ds.remove_graph(ds.graph(rdflib.URIRef(substrate.SHARED_VOCAB_GRAPH)))
+    by_source = {a["source"]: a for a in await list_alignments(client)}
+    assert by_source[A_CLS]["target_kind"] == "shared_unminted"
+    assert by_source[A_CLS]["broken"] is True
+    assert by_source[B_CLS]["broken"] is False
+
+    # a dataset's ontology disappears
+    ds.remove_graph(ds.graph(rdflib.URIRef(substrate.ontology_graph_iri("ds-b"))))
+    by_source = {a["source"]: a for a in await list_alignments(client)}
+    assert by_source[B_CLS]["source_kind"] == "unknown" and by_source[B_CLS]["broken"] is True
+    # an end that was `unknown` at assertion time stays unbroken
+    assert by_source["https://nowhere.example/x#Y"]["broken"] is False
+
+
+def _perspective_registry(root: Path) -> list[str]:
+    cfg = _composition_config([("ds-a", "a"), ("ds-b", "b")])
+    outcome = BuildOutcome(
+        built_at="2026-06-11T00:00:00+00:00",
+        hub_graph=HUB_GRAPH,
+        triple_count=1,
+        shared={},
+        links={},
+        participants_used=[],
+        participants_skipped=[],
+    )
+    write_registry_scaffold(root, cfg, outcome)
+    save_config(root, cfg)  # 視点の語集合は crosswalk.yaml から読む
+    c = cfg.concepts[0]
+    return [c.class_iri, c.link_predicate]
+
+
+async def test_list_alignments_perspective_scope_uses_loaded_terms_only(tmp_path: Path) -> None:
+    """With registry_root the filter is "both ends are terms of a loaded perspective",
+    whatever the namespace (the screen's alignableIris); the xw: kind test is dropped."""
+    _ds, client = _world()
+    base = _composition_config([("ds-a", "a")]).concepts[0]
+    cfg = RuntimeCrosswalkConfig(
+        concepts=(
+            RuntimeConcept(
+                name=base.name,
+                class_iri=A_CLS,  # a dataset-namespace term used as a perspective class
+                link_predicate=f"{XW}hasComposition",
+                normalizer=base.normalizer,
+                participants=base.participants,
+            ),
+        )
+    )
+    outcome = BuildOutcome(
+        built_at="2026-06-11T00:00:00+00:00",
+        hub_graph=HUB_GRAPH,
+        triple_count=1,
+        shared={},
+        links={},
+        participants_used=[],
+        participants_skipped=[],
+    )
+    write_registry_scaffold(tmp_path, cfg, outcome)
+    save_config(tmp_path, cfg)
+    link = f"{XW}hasComposition"
+    await assert_alignment(client, A_CLS, link, "equivalentClass", at=AT)
+    await assert_alignment(client, A_CLS, B_CLS, "equivalentClass", at=AT)
+
+    async def sel(**kw) -> set[tuple[str, str]]:
+        return {(a["source"], a["target"]) for a in await list_alignments(client, **kw)}
+
+    assert await sel(scope="perspective", registry_root=tmp_path) == {(A_CLS, link)}
+    # without registry_root the old rule stands: both ends must be xw:
+    assert await sel(scope="perspective") == set()
+
+
+async def test_list_alignments_scope_branches(tmp_path: Path) -> None:
+    ds, client = _world()
+    (sv_cls,) = _shared(ds, "term")
+    loaded_cls, loaded_link = _perspective_registry(tmp_path)
+    stray = f"{XW}NotInAnyLoadedPerspective"
+    lines = [
+        (loaded_cls, loaded_link, "equivalentClass"),  # perspective (loaded) x2
+        (loaded_cls, stray, "equivalentClass"),  # xw: but not in a loaded perspective
+        (A_CLS, STD, "equivalentClass"),  # dataset -> standard
+        (A_CLS, B_CLS, "equivalentClass"),  # dataset <-> dataset
+        (A_CLS, sv_cls, "subClassOf"),  # dataset -> shared
+        (sv_cls, STD, "equivalentClass"),  # shared -> standard
+        ("https://nowhere.example/x#Y", loaded_cls, "subClassOf"),  # unknown -> perspective
+    ]
+    for src, tgt, rel in lines:
+        await assert_alignment(client, src, tgt, rel, at=AT)
+
+    async def sel(**kw) -> set[tuple[str, str]]:
+        return {(a["source"], a["target"]) for a in await list_alignments(client, **kw)}
+
+    everything = await sel()
+    assert len(everything) == len(lines)  # no scope: all, `unknown` ends included
+    assert await sel(scope="perspective") == {(loaded_cls, loaded_link), (loaded_cls, stray)}
+    assert await sel(scope="perspective", registry_root=tmp_path) == {(loaded_cls, loaded_link)}
+    assert await sel(scope="standard") == {(A_CLS, STD), (sv_cls, STD)}
+    assert await sel(scope="shared") == {(A_CLS, sv_cls), (sv_cls, STD)}
+    # dataset: either end is a dataset AND the target is not a standard
+    assert await sel(scope="dataset") == {(A_CLS, B_CLS), (A_CLS, sv_cls)}
+    with pytest.raises(ValueError, match="scope"):
+        await list_alignments(client, scope="everything")
+
+
+def test_list_perspectives_does_not_return_the_shared_vocab_entry(tmp_path: Path) -> None:
+    _perspective_registry(tmp_path)
+    shared = tmp_path / "vocab-shared"
+    shared.mkdir()
+    (shared / "meta.json").write_text(
+        json.dumps({"id": "vocab-shared", "is_shared_vocab": True, "promoted": True}),
+        encoding="utf-8",
+    )
+    assert [m["id"] for m in list_perspectives(tmp_path)] == ["crosswalk-bridge"]
+
+
 # --- small SPARQL helpers for assertions -----------------------------------
 
 

@@ -64,7 +64,9 @@ def _promoted_datasets(registry_root: Path) -> list[tuple[str, dict[str, Any]]]:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(meta, dict) and meta.get("promoted"):
+        # 共有のことば（is_shared_vocab）はデータセットではないので返さない。
+        # ハブ（is_crosswalk）の扱いはこれまでどおり（呼び出し側が見分ける）。
+        if isinstance(meta, dict) and meta.get("promoted") and not meta.get("is_shared_vocab"):
             out.append((dataset_id, meta))
     return out
 

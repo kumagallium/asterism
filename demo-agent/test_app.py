@@ -991,3 +991,44 @@ def test_exhausted_loop_falls_back_to_a_best_effort_answer(monkeypatch) -> None:
     final = fake.calls[-1]
     assert final.get("tool_choice") == {"type": "none"}
     assert demo._LAST_RESORT_PROMPT in json.dumps(final["messages"], ensure_ascii=False)
+
+
+# --- _render_schema: shared_terms / lines (ADR upper-structure-shared-terms.md) ---
+
+_SW = "https://kumagallium.github.io/asterism/vocab/shared#dp"
+
+
+def test_render_schema_draws_shared_terms_and_lines() -> None:
+    schema = {
+        "classes": [{"iri": "urn:c", "count": 3}],
+        "class_shapes": [],
+        "shared_terms": [
+            {
+                "iri": _SW,
+                "label": "回折点",
+                "comment": "回折で得た 1 点",
+                "kind": "class",
+                "narrower": [
+                    {"iri": "urn:a#Rec", "dataset_id": "xrd-a", "label": "回折点A"},
+                    {"iri": "urn:xw#P", "dataset_id": None, "label": "視点"},
+                ],
+                "standards": ["http://qudt.org/vocab/quantitykind/Temperature"],
+                "cqs": ["xrd_by_point"],
+            }
+        ],
+        "lines": [{"source": "urn:b#Rec", "relation": "equivalentClass", "target": "urn:a#Rec"}],
+    }
+    out = demo._render_schema(schema)
+    assert f'<{_SW}> "回折点" (class) — 回折で得た 1 点' in out
+    assert '<urn:a#Rec> "回折点A" (dataset xrd-a)' in out
+    assert '<urn:xw#P> "視点" (perspective)' in out
+    assert "standards: <http://qudt.org/vocab/quantitykind/Temperature>" in out
+    assert "tools: xrd_by_point" in out
+    assert "<urn:b#Rec> equivalentClass <urn:a#Rec>" in out
+
+
+def test_render_schema_without_shared_keys_is_unchanged() -> None:
+    schema = {"classes": [{"iri": "urn:c", "count": 3}], "class_shapes": []}
+    out = demo._render_schema(schema)
+    assert "Shared terms" not in out and "Alignment lines" not in out
+    assert demo._render_shared_terms({"shared_terms": [], "lines": []}) == []
