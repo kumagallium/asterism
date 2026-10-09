@@ -131,3 +131,46 @@ Decision (implemented in `step0/instance_iri.py`, mirrored in
   edit. The BASE is never editable at the gate: an unconfigured base shows a
   provisional-issuer warning routing to Settings (`dataset_namespace` in the
   annotate payload carries slug/base/base_configured/pair).
+
+## データ自身の IRI 列を主語の元にする（accepted 2026-10-09 — かんたんモードの初回設計）
+
+**問題**: Graphium のような外のツールが主張（判断・規則・観察）を flat JSON（型ごとの
+ファイル・参照と根拠は完全 IRI・入れ子は `*_iri` + `position` の平らな子ファイル）で書き出し、
+Asterism に通常のデータセットとして登録する。行の ID が元の IRI と同じでなければ、外で
+配られた参照はつながらない。IR は `https://<固定>/{id}` を許す（`mapping_ir._check_curies` /
+`rml_compile.expand_template`）が、かんたんモードの決定論の組み立て
+（`skeleton-from-easy-judgments.md` D5・`assemble_skeleton_from_judgments`）は常に
+`{res}:{kind}/{key}` に鋳造していた。
+
+**決定**（すべて決定論・事実から。LLM 0）:
+
+- **検査が事実を持つ** — `inspect.ColumnSummary.iri_base`: 列の**全行**（サンプルリングでは
+  なく）の非空セルが絶対 http(s) IRI で、共通の先頭を持つとき、その先頭を最後の `/` または
+  `#` までで切った base。authority の直下（`https://doi.org/`）は base にしない。
+  `/api/inspect` は `X-Asterism-Iri-Bases` `{source: {列: base}}` で画面に渡す（表の形の派生表で
+  `max_rows` が効くときは先頭 N 行の base。組み立ては全行で計算し直すので、ずれれば却下の知らせ
+  になる）。
+- **④「つながりを選ぶ」に「ID をこのデータの IRI に合わせる」欄** — 候補のある source
+  ごとに「Asterism が作る ID のまま（既定）」と「『列』の先頭 base を ID の元にする」。
+  **既定は従来どおり**（opt-in）。人が受けると `assemble_skeleton_from_judgments(
+  subject_bases={source: 列})` が、その source の**行の種類**の `subject.template` を
+  `<base>` + キー列（`{k1}/{k2}`）にする。カード・つながる受け口は変えない。
+- **却下は事実で決める** — 列が IRI 列でない（`not_iri_column`）／base がプレースホルダ
+  （`placeholder_host`。example.* / localhost の拒否は本 ADR の方針そのまま）／IRI 列を除くと
+  一意の証明がある候補が無い（`no_unique_key`。仮キーに base を貼ると複数の行が 1 つの IRI に
+  潰れる — JSON は行を読まないので、これが唯一の防波堤）／IRI 列自身が行のキーになる
+  （`iri_column_is_key`。カードの ID が IRI 列のとき。base を二重に貼ることになる）／CSV で
+  base + キーを **RML と同じ percent-encode**（値は strip しない）で鋳造した形が元の IRI と
+  一致しない行がある（`values_do_not_match`。JSON は行を読まないので検査しない）。
+  却下は `metadata.subject_base_rejected` で⑤に出し、既定の ID に戻す。
+- **出すのは初回設計のときだけ**（見直し `redesigning` では出さない）。公開したあとに変えると
+  `id-move-after-publish.md` の台帳が要る。
+- **base の所有はよそ** — その base は外のツールの名前空間で、この install の
+  `ASTERISM_IRI_BASE` ではない。`/describe?iri=` は host に依らず効く（Phase 2）が、IRI 自体が
+  ここに route することはない。「種類を分ける」などで新しい種類を派生させるときは、絶対頭から
+  兄弟を作らず、この dataset の `resource/` 接頭辞に戻す（`ui/src/skeletonKinds.ts`
+  `subjectHeadFor`）。
+
+**非目標**: IRI 列そのものを主語にする（`{iri}` だけのテンプレート）は IR が許さない（head
+必須）。`regex_extract` で base を剥がす形は `subject.transform`（引数無し）に乗らない。
+必要になったら別に決める。

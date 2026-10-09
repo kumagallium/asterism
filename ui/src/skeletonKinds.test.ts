@@ -21,6 +21,7 @@ import {
   sameIdSiblings,
   separateSharedKind,
   sharedKindGroups,
+  subjectHeadFor,
   slugMapName,
   twinKindNames,
 } from './skeletonKinds'
@@ -583,5 +584,35 @@ describe('sharedKindGroups / mergeSharedKinds / separateSharedKind — 同じ意
     expect(m.subject.template).toBe('xr:composition2/{composition}')
     expect(m.subject.classes).toEqual(['xo:Composition2'])
     expect(sharedKindGroups(next.maps, isCatalog)).toEqual([])
+  })
+})
+
+describe('subjectHeadFor — 絶対 IRI 頭はよその名前空間に鋳造しない', () => {
+  const prefixes = { xrr: 'https://x.example.org/vocab/', res: 'https://x.example.org/resource/' }
+  it('絶対頭 → resource の接頭辞に戻る', () => {
+    expect(subjectHeadFor({ prefixes }, 'https://g.example/claims/judgment/{id}')).toBe('res:')
+  })
+  it('CURIE 頭 → 従来どおり', () => {
+    expect(subjectHeadFor({ prefixes }, 'xrr:card/{No}')).toBe('xrr:')
+  })
+  it('applySplits（AI の「種類を分ける」）でも、絶対頭の親から分けた種類は resource の接頭辞に戻る', () => {
+    const s: MappingSkeleton = {
+      version: 1,
+      prefixes,
+      maps: [
+        {
+          name: 'record',
+          source: SOURCE,
+          subject: { template: 'https://g.example/claims/judgment/{id}', classes: ['xrr:Record'] },
+          owns: ['claim', 'score'],
+        },
+      ],
+    }
+    const out = applySplits(s, [{ from: 'record', name: 'Score', columns: ['score'] }], null)
+    expect(out.applied).toBe(1)
+    const added = out.skeleton.maps.find((m) => m.name !== 'record')
+    const template = added?.subject.template ?? ''
+    expect(template.startsWith('res:')).toBe(true)
+    expect(template.endsWith('/{id}')).toBe(true)
   })
 })

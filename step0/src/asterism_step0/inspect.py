@@ -52,6 +52,7 @@ import csv
 import io
 import itertools
 import json
+import os
 import re
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -349,6 +350,9 @@ class ColumnSummary:
     # because a measured outcome is a poor identity — correcting it re-mints the
     # ID — while a value someone SET is a perfectly good one.
     sampling_grid: bool = False
+    # Every non-empty cell is an absolute http(s) IRI sharing this base (the
+    # prefix up to the last "/" or "#"). None when not an IRI column.
+    iri_base: str | None = None
     # JSON-only:
     json_keys: list[str] = field(default_factory=list)  # for json-object
     json_element_kind: str | None = None  # for json-array
@@ -550,6 +554,29 @@ def _is_sampling_grid(values: Sequence[str]) -> bool:
     return all(abs(d - reference) <= abs(reference) * _GRID_STEP_TOLERANCE for d in steps)
 
 
+_IRI_CELL_RE = re.compile(r"https?://[^\s<>\"{}|\\^`]+")
+_IRI_BASE_RE = re.compile(r"https?://[^/]+/.+[/#]")
+
+
+def _iri_base_of(prefix: str | None, values_ok: bool, shortest_len: int) -> str | None:
+    """Common base of an IRI column, or None.
+
+    ``prefix`` is the common prefix of all non-empty cells, ``values_ok`` is
+    whether every cell is an absolute IRI, ``shortest_len`` the shortest cell.
+    """
+    if prefix is None or not values_ok:
+        return None
+    cut = max(prefix.rfind("/"), prefix.rfind("#"))
+    if cut < 0:
+        return None
+    base = prefix[: cut + 1]
+    if not _IRI_BASE_RE.fullmatch(base):
+        return None
+    if shortest_len <= len(base):
+        return None
+    return base
+
+
 def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[ColumnSummary]:
     """Build per-column summaries from already-materialised string rows.
 
@@ -564,12 +591,25 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
     # Values in FILE ORDER (bounded), for the scan-axis reading: the sample ring
     # above stops early, and a trend needs the sequence, not a set.
     ordered: dict[str, list[str]] = {c: [] for c in columns}
+    # IRI-column tracking over ALL rows (not just the sample ring).
+    iri_prefix: dict[str, str | None] = {c: None for c in columns}
+    iri_ok: dict[str, bool] = {c: True for c in columns}
+    iri_min: dict[str, int] = {c: 0 for c in columns}
 
     for row in rows:
         for c in columns:
             v = row.get(c, "") or ""
             if v:
                 non_null[c] += 1
+                if iri_ok[c]:
+                    if not _IRI_CELL_RE.fullmatch(v):
+                        iri_ok[c] = False
+                    elif iri_prefix[c] is None:
+                        iri_prefix[c] = v
+                        iri_min[c] = len(v)
+                    else:
+                        iri_prefix[c] = os.path.commonprefix([iri_prefix[c], v])
+                        iri_min[c] = min(iri_min[c], len(v))
                 if len(seen_values[c]) < _SAMPLE_RING:
                     seen_values[c].add(v)
                 if len(samples[c]) < _SAMPLE_RING:
@@ -604,6 +644,7 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
                 json_keys=json_keys,
                 json_element_kind=element_kind,
                 sampling_grid=json_kind is None and _is_sampling_grid(ordered[c]),
+                iri_base=_iri_base_of(iri_prefix[c], iri_ok[c], iri_min[c]),
             )
         )
 

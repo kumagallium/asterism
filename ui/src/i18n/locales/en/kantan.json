@@ -569,6 +569,18 @@
     "askConsult": "Ask the AI if unsure",
     "askConsultPrefill": "Which values for this one item are likely to appear in other data with the same spelling (values worth giving an ID)? Look at the columns and real values.",
     "assembling": "Assembling the shape…",
+    "baseTitle": "Match IDs to this data's own IRIs",
+    "baseLead": "This column holds full IRIs (IDs starting with https://). Using their shared prefix as the ID base makes each row's ID here identical to the original IRI, so references handed out elsewhere connect as they are. Changing it after publishing means moving IDs, so this can only be decided during the first design.",
+    "baseKeep": "Keep the IDs Asterism makes (default)",
+    "baseUse": "Use the prefix {{base}} of “{{column}}” as the ID base",
+    "baseRejected": "The IRIs in “{{column}}” could not be used as the ID base for {{source}} ({{reason}}). Reverted to the IDs Asterism makes.",
+    "baseReason": {
+      "not_iri_column": "this column is not full IRIs",
+      "placeholder_host": "example.org / localhost IRIs cannot be published",
+      "no_unique_key": "no other column tells the rows apart one by one",
+      "iri_column_is_key": "this column is itself the row ID",
+      "values_do_not_match": "prefix + row ID does not reproduce the original IRI"
+    },
     "assembleFailed": "Could not assemble the shape",
     "valueVaries": "(varies per row)",
     "noMeasure": "Measured values can't be picked",

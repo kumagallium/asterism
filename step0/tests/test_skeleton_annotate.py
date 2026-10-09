@@ -1671,3 +1671,128 @@ def test_links_to_a_shared_kind_use_one_predicate(tmp_path: Path) -> None:
         for row in catalog_links_from_home(home, maps, homes, ontology_prefix=onto)
     }
     assert predicates == {f"{onto}:hasComposition"}
+
+
+def _write_iri_table(tmp_path: Path, header: str, rows: list[str]) -> Path:
+    p = tmp_path / "j.csv"
+    p.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    return p
+
+
+def _assemble_bases(p: Path, col: str) -> dict:
+    return assemble_skeleton_from_judgments(
+        [p], dataset_name="claims", subject_bases={"j.csv": col}
+    )
+
+
+def _record_template(out: dict) -> str:
+    return next(m for m in out["skeleton"]["maps"] if m["name"] == "record")["subject"]["template"]
+
+
+def test_assemble_subject_base_accepted(tmp_path: Path) -> None:
+    b = "https://g.example/claims/judgment/"
+    p = _write_iri_table(tmp_path, "id,iri,score", [f"{i},{b}{i},{i}.5" for i in ("a", "b", "c")])
+    out = _assemble_bases(p, "iri")
+    rec = next(m for m in out["skeleton"]["maps"] if m["name"] == "record")
+    assert rec["subject"]["template"] == f"{b}{{id}}"
+    assert "iri" in rec["owns"]
+    assert out["metadata"]["subject_bases"] == {
+        "j.csv": {"column": "iri", "base": b, "template": f"{b}{{id}}"}
+    }
+    assert out["metadata"]["subject_base_rejected"] == {}
+    ann = annotate_skeleton(out["skeleton"], [p])["maps"]
+    assert ann["record"]["collapse_kind"] == "unique"
+
+
+def test_assemble_subject_base_rejected_not_iri_column(tmp_path: Path) -> None:
+    p = _write_iri_table(tmp_path, "id,name,score", ["a,x,1.5", "b,y,2.5", "c,z,3.5"])
+    out = _assemble_bases(p, "name")
+    assert ":record/" in _record_template(out)
+    assert out["metadata"]["subject_base_rejected"] == {"j.csv": "not_iri_column"}
+    assert out["metadata"]["subject_bases"] == {}
+
+
+def test_assemble_subject_base_rejected_placeholder_host(tmp_path: Path) -> None:
+    p = _write_iri_table(
+        tmp_path, "id,iri,score", [f"{i},https://example.org/x/{i},1.5" for i in ("a", "b")]
+    )
+    out = _assemble_bases(p, "iri")
+    assert ":record/" in _record_template(out)
+    assert out["metadata"]["subject_base_rejected"] == {"j.csv": "placeholder_host"}
+
+
+def test_assemble_subject_base_rejected_when_only_the_iri_column_is_unique(
+    tmp_path: Path,
+) -> None:
+    """IRI 列しか一意でない表: IRI 列を除くと一意の候補が無いので `no_unique_key`
+    （仮キーに base を貼らない）。`iri_column_is_key` は、カードの ID（親キー）が
+    IRI 列そのものだったときに残る理由。"""
+    b = "https://g.example/claims/judgment/"
+    p = _write_iri_table(tmp_path, "iri,score", [f"{b}{i},1.5" for i in ("a", "b", "c")])
+    out = _assemble_bases(p, "iri")
+    assert ":record/" in _record_template(out)
+    assert out["metadata"]["subject_base_rejected"] == {"j.csv": "no_unique_key"}
+
+
+def test_assemble_subject_base_rejected_values_do_not_match(tmp_path: Path) -> None:
+    b = "https://g.example/claims/judgment/"
+    p = _write_iri_table(tmp_path, "id,iri,score", [f"a,{b}a,1.5", f"b,{b}b,2.5", f"c,{b}zzz,3.5"])
+    out = _assemble_bases(p, "iri")
+    assert ":record/" in _record_template(out)
+    assert out["metadata"]["subject_base_rejected"] == {"j.csv": "values_do_not_match"}
+
+
+def test_assemble_subject_base_compares_the_minted_form(tmp_path: Path) -> None:
+    """RML はプレースホルダを percent-encode する（test_rml_compile_morph の pin #1）
+    ので、照合も鋳造される形で行う: ID `a b` と元の IRI `…/a%20b` は一致（受理）、
+    ID `a/b` と元の IRI `…/a/b` は生では同じに見えても `a%2Fb` に鋳造されるので却下。"""
+    b = "https://g.example/claims/judgment/"
+    p = _write_iri_table(tmp_path, "id,iri,score", [f"a b,{b}a%20b,1.5", f"c,{b}c,2.5"])
+    out = _assemble_bases(p, "iri")
+    assert _record_template(out) == f"{b}{{id}}"
+    assert out["metadata"]["subject_base_rejected"] == {}
+
+    p2 = _write_iri_table(tmp_path, "id,iri,score", [f"a/b,{b}a/b,1.5", f"c,{b}c,2.5"])
+    out2 = _assemble_bases(p2, "iri")
+    assert ":record/" in _record_template(out2)
+    assert out2["metadata"]["subject_base_rejected"] == {"j.csv": "values_do_not_match"}
+
+
+def test_assemble_subject_base_rejected_without_a_unique_key(tmp_path: Path) -> None:
+    """IRI 列を除くと一意の証明がある候補が無い（JSON・列順に依らず）→ `no_unique_key`。
+    仮キーに base を貼ると複数行が 1 つの IRI に潰れるので、JSON でも却下する
+    （JSON は行を読まないので、この検査が唯一の防波堤）。"""
+    import json
+
+    b = "https://g.example/claims/judgment/"
+    for order in (("kind", "iri"), ("iri", "kind")):
+        rows = [
+            {"kind": "claim", "iri": f"{b}a"},
+            {"kind": "claim", "iri": f"{b}b"},
+            {"kind": "rule", "iri": f"{b}c"},
+        ]
+        p = tmp_path / f"j_{'_'.join(order)}.json"
+        p.write_text(json.dumps([{k: r[k] for k in order} for r in rows]), encoding="utf-8")
+        out = assemble_skeleton_from_judgments(
+            [p], dataset_name="claims", subject_bases={p.name: "iri"}
+        )
+        assert ":record/" in _record_template(out), order
+        assert out["metadata"]["subject_base_rejected"] == {p.name: "no_unique_key"}, order
+        assert out["metadata"]["subject_bases"] == {}
+
+
+def test_assemble_subject_base_does_not_strip_values(tmp_path: Path) -> None:
+    """エンジンは値を strip しない（`a ` は `a%20` に鋳造される）ので、照合も strip
+    しない: 末尾に空白のある ID は元の IRI と合わず却下。"""
+    b = "https://g.example/claims/judgment/"
+    p = _write_iri_table(tmp_path, "id,iri,score", [f'"a ",{b}a,1.5', f"b,{b}b,2.5"])
+    out = _assemble_bases(p, "iri")
+    assert ":record/" in _record_template(out)
+    assert out["metadata"]["subject_base_rejected"] == {"j.csv": "values_do_not_match"}
+
+
+def test_assemble_without_subject_bases_has_empty_metadata(tmp_path: Path) -> None:
+    p = _write_reference_card(tmp_path)
+    out = assemble_skeleton_from_judgments([p])
+    assert out["metadata"]["subject_bases"] == {}
+    assert out["metadata"]["subject_base_rejected"] == {}

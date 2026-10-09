@@ -4047,6 +4047,26 @@ def _samples_header_json(inspections: list) -> str:
     return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
 
 
+def _iri_bases_header_json(inspections: list) -> str:
+    """Compact JSON for the ``X-Asterism-Iri-Bases`` header of /api/inspect.
+
+    ``{source: {column: base}}`` for columns whose every cell is an absolute IRI
+    with a shared base — the "match the ID to this data's IRI" question on the
+    first-design screen. Columns without a base are left out. Over budget → ``{}``.
+    """
+    out: dict[str, dict[str, str]] = {}
+    for ins in inspections:
+        cols = {
+            col.name: base
+            for col in getattr(ins, "columns", [])
+            if (base := getattr(col, "iri_base", None))
+        }
+        if cols:
+            out[ins.name] = cols
+    payload = json.dumps(out, separators=(",", ":"))
+    return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
+
+
 def _preamble_header_json(inspections: list, paths: list[Path]) -> str:
     """Compact JSON for the ``X-Asterism-Preamble`` response header of /api/inspect.
 
@@ -6602,6 +6622,8 @@ def build_app(
             # (.xlsx / .json) — KZ-A-08.
             "X-Asterism-Samples": _samples_header_json(inspections),
             "X-Asterism-Preamble": preamble_header,
+            # {source: {column: base}} — columns holding full IRIs with a shared base.
+            "X-Asterism-Iri-Bases": _iri_bases_header_json(inspections),
         }
         reshape_encoded = json.dumps(reshape_detections, separators=(",", ":"))
         if len(reshape_encoded) <= _SAMPLES_HEADER_BUDGET:
@@ -7151,6 +7173,13 @@ def build_app(
             default="{}",
             description="④末尾の名指し as JSON {source: column}. 無ければ機械が仮置き。",
         ),
+        subject_bases: str = Form(
+            default="{}",
+            description=(
+                "④「ID をこのデータの IRI に合わせる」の答え as JSON {source: column}。"
+                "無ければ既定の ID。"
+            ),
+        ),
         excluded: str = Form(
             default="[]",
             description="③で取り込まないと決めた列 as JSON [{source, column}]",
@@ -7193,6 +7222,7 @@ def build_app(
 
         linkable_obj = _parse_json(linkable, "linkable", list)
         card_keys_obj = _parse_json(card_keys, "card_keys", dict)
+        subject_bases_obj = _parse_json(subject_bases, "subject_bases", dict)
         excluded_obj = _parse_json(excluded, "excluded", list)
         labels_obj = _parse_json(labels, "labels", list)
         row_labels_obj = _parse_json(row_labels, "row_labels", dict)
@@ -7231,6 +7261,7 @@ def build_app(
                     assemble_skeleton_from_judgments,
                     linkable=[e for e in linkable_obj if isinstance(e, dict)],
                     card_keys={str(k): str(v) for k, v in card_keys_obj.items()},
+                    subject_bases={str(k): str(v) for k, v in subject_bases_obj.items()},
                     excluded=[e for e in excluded_obj if isinstance(e, dict)],
                     dataset_name=dataset_name or None,
                     dialects=effective,

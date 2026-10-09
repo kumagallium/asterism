@@ -32,6 +32,7 @@ from collections import defaultdict
 from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .dialect import SourceDialect
 from .inspect import (
@@ -1586,6 +1587,43 @@ def _meaning_key(meaning: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", meaning).casefold().split())
 
 
+def _pick_record_key(
+    ins: Any,
+    parent: Sequence[str],
+    varying: Sequence[str],
+    types: Mapping[str, str],
+    candidates: list[dict[str, Any]],
+) -> list[str]:
+    """行の種類のキーを候補から選ぶ（親スコープ優先・測定値だけのキーは後回し）。"""
+    picked: list[str] | None = None
+    if parent:
+        scoped = [
+            c
+            for c in _scoped_candidates(parent, (), candidates, None, ins)
+            if len(c["columns"]) > len(parent)
+        ]
+        best = next((c for c in scoped if not c.get("measurement_only")), None) or (
+            scoped[0] if scoped else None
+        )
+        if best:
+            picked = list(best["columns"])
+    if picked is None:
+        best = next((c for c in candidates if not c.get("measurement_only")), None) or (
+            candidates[0] if candidates else None
+        )
+        if best:
+            cols = list(best["columns"])
+            picked = [*parent, *(c for c in cols if c not in parent)] if parent else cols
+    if picked is None:
+        # 一意の証明が無い — 最有力の識別子列で仮組みし、ゲートの ⚠ に任せる。
+        first_identity = next(
+            (c for c in varying if types.get(c) not in _MEASUREMENT_TYPES),
+            varying[0],
+        )
+        picked = [*parent, first_identity]
+    return _order_key_coarse_first(picked, parent, {c.name: c.unique_count for c in ins.columns})
+
+
 def assemble_skeleton_from_judgments(
     paths: Sequence[Path | str],
     *,
@@ -1598,6 +1636,7 @@ def assemble_skeleton_from_judgments(
     iri_base: str | None = None,
     labels: Mapping[tuple[str, str], str] | None = None,
     row_labels: Mapping[str, str] | None = None,
+    subject_bases: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """③④の答えとファイルの検査から骨格を**組み立てる** [決定論・LLM 0]。
 
@@ -1620,6 +1659,15 @@ def assemble_skeleton_from_judgments(
     行の種類の公開名は機械の仮の名前（``Record``・``Record2``）なので、表示名が
     無いとそれがそのまま人に見える名前になる。言語に合わせた文言
     [「curves の 1 行」] は画面が作って渡す — ここは言葉を持たない。
+
+    ``subject_bases`` は {ファイル名: 列名}（任意）。「この行の種類の ID を、この列の
+    IRI の共通の先頭（base）の下に作る」— 外のツールが書き出した完全 IRI の参照を
+    同じ IRI で取り込むため、既定の ``{res}:record/{キー}`` の代わりに
+    ``<base>{キー}`` を使う。IRI でない列・仮の置き場の host・IRI 列を除くと一意の
+    キーが無い・その列自身がキー・値がキーと合わない場合は却下し、既定の ID で進める
+    （理由は metadata の ``subject_base_rejected``: ``not_iri_column`` /
+    ``placeholder_host`` / ``no_unique_key`` / ``iri_column_is_key`` /
+    ``values_do_not_match``）。公開後に変えると id-move 台帳が要るので、初回設計だけで出す。
 
     Returns ``{"skeleton": ..., "metadata": {...}}``。annotation は呼び出し側が
     :func:`annotate_skeleton` でいつもどおり計算する [式を二重に持たない]。
@@ -1653,6 +1701,9 @@ def assemble_skeleton_from_judgments(
     maps: list[dict[str, Any]] = []
     taken: set[str] = set()
     provisional: dict[str, str] = {}
+    subject_bases_used: dict[str, dict[str, str]] = {}
+    subject_base_rejected: dict[str, str] = {}
+    bases_by_source = {Path(str(k)).name: str(v) for k, v in (subject_bases or {}).items()}
     # 同じ意味の受け口は、ファイルが違っても**同じ種類**（K63）。意味（③の表示名・
     # 無ければ列名）→ 最初に作った受け口の map 名。2 つめ以降は map 名だけ別で、
     # ID の頭・種類名・表示名は最初のものを共有する — 同じ値は同じ IRI になり、
@@ -1673,9 +1724,13 @@ def assemble_skeleton_from_judgments(
         owns: Sequence[str] = (),
         label: str | None = None,
         kind: str | None = None,
+        template_override: str | None = None,
     ) -> None:
         head = kind or name
-        subject: dict[str, Any] = {"template": template(head, key), "classes": [f"{onto}:{cls}"]}
+        subject: dict[str, Any] = {
+            "template": template_override or template(head, key),
+            "classes": [f"{onto}:{cls}"],
+        }
         if label:
             subject["label"] = label
         m: dict[str, Any] = {"name": name, "source": source, "subject": subject}
@@ -1730,36 +1785,65 @@ def assemble_skeleton_from_judgments(
         # ---- 行の種類 ----
         if varying:
             parent = [card_key] if card_key else []
-            candidates = _key_candidates(ins, tuple(parent))
-            key: list[str] | None = None
-            if parent:
-                scoped = [
-                    c
-                    for c in _scoped_candidates(parent, (), candidates, None, ins)
-                    if len(c["columns"]) > len(parent)
-                ]
-                best = next((c for c in scoped if not c.get("measurement_only")), None) or (
-                    scoped[0] if scoped else None
-                )
-                if best:
-                    key = list(best["columns"])
+            all_candidates = _key_candidates(ins, tuple(parent))
+
+            # ---- 主語を IRI 列の base に合わせる（任意・却下なら既定の ID）----
+            iri_col = bases_by_source.get(src)
+            iri_template: str | None = None
+            key = None
+            if iri_col:
+                summary = next((c for c in ins.columns if c.name == iri_col), None)
+                iri_base_value = summary.iri_base if summary is not None else None
+                reason: str | None = None
+                if not iri_base_value:
+                    reason = "not_iri_column"
+                elif placeholder_prefix_issue("subject_base", iri_base_value) is not None:
+                    reason = "placeholder_host"
+                else:
+                    without_iri = [c for c in all_candidates if iri_col not in c["columns"]]
+                    if not without_iri:
+                        # IRI 列を除くと一意の証明がある候補が無い — 仮キー（一意で
+                        # ない列）の上に base を貼ると、複数の行が 1 つの IRI に潰れて
+                        # 元の IRI とも合わない。既定の ID なら仮キーはゲートの ⚠ で
+                        # 見えるが、base 付きでは「外の参照とつながる」約束が黙って
+                        # 破れるので、ここで却下する（JSON は行を読まないので、この
+                        # 検査が唯一の防波堤）。
+                        reason = "no_unique_key"
+                        key = None
+                    else:
+                        key = _pick_record_key(ins, parent, varying, types, without_iri)
+                    if reason:
+                        pass
+                    elif iri_col in key:
+                        reason = "iri_column_is_key"
+                    elif ins.source_kind == "csv" and rows:
+                        # 比べるのは**鋳造される形**: RML はプレースホルダの値を
+                        # percent-encode する（R2RML の IRI-safe・test_rml_compile_morph
+                        # の pin #1）ので、生の連結ではなく同じ符号化を通した上で
+                        # 元の IRI と突き合わせる。空白や `/` を含む ID は、元の IRI と
+                        # 同じに見えても別の IRI に鋳造される — それは却下。値は
+                        # strip しない（エンジンもしない: 末尾の空白は `%20` になる）。
+                        for row in rows:
+                            parts = [row.get(c) or "" for c in key]
+                            if not all(parts):
+                                continue
+                            minted = iri_base_value + "/".join(quote(p, safe="-._~") for p in parts)
+                            if minted != (row.get(iri_col) or ""):
+                                reason = "values_do_not_match"
+                                break
+                if reason:
+                    subject_base_rejected[src] = reason
+                    key = None
+                else:
+                    assert key is not None and iri_base_value
+                    iri_template = iri_base_value + "/".join("{" + c + "}" for c in key)
+                    subject_bases_used[src] = {
+                        "column": iri_col,
+                        "base": iri_base_value,
+                        "template": iri_template,
+                    }
             if key is None:
-                best = next((c for c in candidates if not c.get("measurement_only")), None) or (
-                    candidates[0] if candidates else None
-                )
-                if best:
-                    cols = list(best["columns"])
-                    key = [*parent, *(c for c in cols if c not in parent)] if parent else cols
-            if key is None:
-                # 一意の証明が無い — 最有力の識別子列で仮組みし、ゲートの ⚠ に任せる。
-                first_identity = next(
-                    (c for c in varying if types.get(c) not in _MEASUREMENT_TYPES),
-                    varying[0],
-                )
-                key = [*parent, first_identity]
-            key = _order_key_coarse_first(
-                key, parent, {c.name: c.unique_count for c in ins.columns}
-            )
+                key = _pick_record_key(ins, parent, varying, types, all_candidates)
             name = _ascii_map_name("record", taken, "record")
             # 行の種類は自分の持ち物 [キー以外の変動列。☑ の受け口列は受け口の
             # 持ち物] を**宣言**する。宣言が無いと、キーでも受け口でもない列は
@@ -1775,6 +1859,7 @@ def assemble_skeleton_from_judgments(
                 _pascal(name) or "Record",
                 owns=record_owns,
                 label=(row_labels_by_source.get(src) or "").strip() or None,
+                template_override=iri_template,
             )
 
         # ---- つながる受け口（値のカタログ）----
@@ -1810,7 +1895,12 @@ def assemble_skeleton_from_judgments(
     skeleton = {"version": 1, "prefixes": prefixes, "maps": maps}
     return {
         "skeleton": skeleton,
-        "metadata": {"provisional_card_keys": provisional, "dataset_slug": slug},
+        "metadata": {
+            "provisional_card_keys": provisional,
+            "dataset_slug": slug,
+            "subject_bases": subject_bases_used,
+            "subject_base_rejected": subject_base_rejected,
+        },
     }
 
 
