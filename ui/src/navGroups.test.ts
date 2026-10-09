@@ -19,14 +19,14 @@ describe('NAV_GROUPS', () => {
     ])
   })
 
-  it('use＝ワークスペース(cards)/質問する(ask)（この順）', () => {
-    expect(NAV_GROUPS[1].items.map((it) => it.id)).toEqual(['cards', 'ask'])
+  it('use＝ワークスペース(cards)/全体グラフ(network)/質問する(ask)（この順）', () => {
+    expect(NAV_GROUPS[1].items.map((it) => it.id)).toEqual(['cards', 'network', 'ask'])
   })
 
-  it('全項目（7 つ）がちょうど 1 度だけ出る', () => {
+  it('全項目（8 つ）がちょうど 1 度だけ出る', () => {
     const ids = NAV_GROUPS.flatMap((g) => g.items.map((it) => it.id))
-    expect(ids).toHaveLength(7)
-    expect(new Set(ids).size).toBe(7)
+    expect(ids).toHaveLength(8)
+    expect(new Set(ids).size).toBe(8)
   })
 
   it('workbench（かんたんウィザード）はどの見出しにも出ない', () => {

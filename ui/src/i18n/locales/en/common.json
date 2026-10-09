@@ -19,6 +19,7 @@
     "gallery": "Datasets",
     "crosswalk": "Connections",
     "ask": "Ask",
+    "network": "Graph",
     "vocab": "Shared terms",
     "jobs": "Activity",
     "workbench": "Add data",
@@ -67,6 +68,11 @@
       "eyebrow": "Data",
       "title": "Datasets",
       "sub": "Your datasets — open one to see its contents, files and connections"
+    },
+    "network": {
+      "eyebrow": "Use",
+      "title": "Graph",
+      "sub": "A network linked by shared values. Categories become points, so you can see which items sit close together"
     },
     "vocab": {
       "eyebrow": "Shared",
