@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.52.0](https://github.com/kumagallium/asterism/compare/v0.51.0...v0.52.0) - 2026-10-09
+
+- docs(manual): v0.51.0 の節目とバッジ — Word・PDF の取り込み・つながりの図・「全体」表示・意味だけの見直し by @kumagallium in https://github.com/kumagallium/asterism/pull/691
+- feat: 全体グラフ — 値でつなぐデータの網（色は種類ごとに固定・凡例で押した種類だけ色） by @kumagallium in https://github.com/kumagallium/asterism/pull/694
+- docs(adr): 上位構造「星座の名前」— 共有のことば・線・問い（CQ）・「ことば」画面・作る UI の双方向の流れ by @kumagallium in https://github.com/kumagallium/asterism/pull/693
+- fix: 「共通のことば」の全体図で線が別の丸や名前の裏を通らないように曲げる by @kumagallium in https://github.com/kumagallium/asterism/pull/696
+- feat: 全体グラフで同じ名前の種類にデータセット名を添えて見分ける by @kumagallium in https://github.com/kumagallium/asterism/pull/695
+
 ## [v0.51.0](https://github.com/kumagallium/asterism/compare/v0.50.0...v0.51.0) - 2026-10-07
 
 - feat(site): 公開サイトのトップを LP に作り直す by @kumagallium in https://github.com/kumagallium/asterism/pull/667

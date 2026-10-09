@@ -36,6 +36,7 @@
   "legend_size": "点の大きさは、つながりの数（束は中の件数）です",
   "legend_kinds_hint": "種類を押すと、その種類だけに色が付きます（{{max}} 種類まで）",
   "legend_kind_title": "押すと、この種類だけに色が付きます",
+  "legend_kind_qualified": "{{name}}（{{qualifier}}）{{count}}",
   "legend_kind_max": "{{max}} 種類まで選べます",
   "legend_show_all": "すべて表示（{{count}} 種類）",
   "legend_collapse": "たたむ",

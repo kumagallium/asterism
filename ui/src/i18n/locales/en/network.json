@@ -36,6 +36,7 @@
   "legend_size": "Point size shows the number of connections (for a bundle, the items inside)",
   "legend_kinds_hint": "Click a kind to color only that kind (up to {{max}})",
   "legend_kind_title": "Click to color only this kind",
+  "legend_kind_qualified": "{{name}} ({{qualifier}}) {{count}}",
   "legend_kind_max": "You can pick up to {{max}} kinds",
   "legend_show_all": "Show all ({{count}} kinds)",
   "legend_collapse": "Collapse",

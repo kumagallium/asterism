@@ -598,3 +598,101 @@ async def test_output_is_sorted_so_it_does_not_depend_on_set_order() -> None:
     assert bundles == sorted(bundles)
     pairs = [(e["source"], e["target"]) for e in out["edges"]]
     assert pairs == sorted(pairs)
+
+
+# --- データセット名（同じ名前の種類を見分ける） -----------------------------------
+
+
+def _write_meta(root, did: str, name: str) -> None:
+    (root / did).mkdir(parents=True)
+    (root / did / "meta.json").write_text(f'{{"name": "{name}"}}', encoding="utf-8")
+
+
+async def test_datasets_lists_used_datasets_sorted_with_resolved_labels(tmp_path) -> None:
+    from asterism.subjects import resolve_dataset_label
+
+    _write_meta(tmp_path, "weather-a", "気象A")  # weather-b は meta が無く id に落ちる
+    client = _pyoxi_client(
+        {GRAPH_B: _stations(3, zones=1, prefix="b"), GRAPH_A: _stations(3, zones=1, prefix="a")}
+    )
+    out = await network_view(client, registry_root=tmp_path)
+    assert out["datasets"] == [
+        {"id": "weather-a", "label": "気象A"},
+        {"id": "weather-b", "label": "weather-b"},
+    ]
+    assert out["datasets"][0]["label"] == resolve_dataset_label(tmp_path, "weather-a")
+
+
+async def test_kinds_dataset_ids_for_same_named_kind_in_two_datasets() -> None:
+    client = _pyoxi_client(
+        {GRAPH_A: _stations(3, zones=1, prefix="a"), GRAPH_B: _stations(3, zones=1, prefix="b")}
+    )
+    out = await network_view(client)
+    (kind,) = out["kinds"]
+    assert kind["dataset_ids"] == ["weather-a", "weather-b"]
+    only_a = await network_view(_pyoxi_client({GRAPH_A: _stations(3, zones=1)}))
+    assert only_a["kinds"][0]["dataset_ids"] == ["weather-a"]
+
+
+async def test_bundle_dataset_id_is_set_when_same_and_null_when_split() -> None:
+    same = await network_view(_pyoxi_client({GRAPH_A: _observations(20)}))
+    (b1,) = _nodes(same, "bundle")
+    assert b1["dataset_id"] == "weather-a"
+    assert same["kinds"][0]["dataset_ids"] == ["weather-a"]
+    half = "\n".join(
+        [PREFIXES]
+        + [f"r:obs-b{i} a wx:Observation ; wx:observedAt r:st-1 ." for i in range(10)]
+    )
+    split = await network_view(
+        _pyoxi_client({GRAPH_A: _observations(10), GRAPH_B: half})
+    )
+    (b2,) = _nodes(split, "bundle")
+    assert b2["count"] == 20 and b2["dataset_id"] is None
+    obs = next(k for k in split["kinds"] if k["class_iri"] == WX + "Observation")
+    assert obs["dataset_ids"] == ["weather-a", "weather-b"]
+
+
+async def test_no_published_graph_gives_empty_datasets() -> None:
+    out = await network_view(_pyoxi_client({DRAFT_GRAPH: _stations(3, zones=1)}))
+    assert out["datasets"] == []
+
+
+async def test_upper_kinds_dataset_ids_are_per_group() -> None:
+    a, b, upper = _upper_fixture()
+    client = _pyoxi_client({GRAPH_A: a, GRAPH_B: b, ONTO_GRAPH: ONTOLOGY})
+    out = await network_view(client, upper=upper)
+    (kind,) = out["kinds"]
+    assert kind["class_iri"] == WX + "Site"
+    assert kind["dataset_ids"] == ["weather-a", "weather-b"]
+    assert [d["id"] for d in out["datasets"]] == ["weather-a", "weather-b"]
+    # 束になる件数でも group 単位
+    a2 = "\n".join([PREFIXES] + [f"r:a-{i} a wx:Station ; wx:zone \"z\" ." for i in range(25)])
+    b2 = "\n".join([PREFIXES] + [f"r:b-{i} a wx:Buoy ; wx:area \"z\" ." for i in range(25)])
+    big = await network_view(
+        _pyoxi_client({GRAPH_A: a2, GRAPH_B: b2, ONTO_GRAPH: ONTOLOGY}), upper=upper
+    )
+    assert _nodes(big, "bundle")
+    (bk,) = big["kinds"]
+    assert bk["class_iri"] == WX + "Site"
+    assert bk["dataset_ids"] == ["weather-a", "weather-b"]
+
+
+async def test_value_nodes_have_no_dataset_id() -> None:
+    out = await network_view(
+        _pyoxi_client(
+            {
+                GRAPH_A: _stations(6, zones=2, prefix="a"),
+                GRAPH_B: _stations(6, zones=2, prefix="b"),
+            }
+        )
+    )
+    assert _nodes(out, "value")
+    assert all(n["dataset_id"] is None for n in _nodes(out, "value"))
+
+
+async def test_hub_has_no_dataset_id_even_if_typed_in_a_dataset_graph_too() -> None:
+    ttl = _observations(3) + "\nr:st-1 wx:sharedWith r:shared-1 .\nr:shared-1 a wx:Thing .\n"
+    hub = PREFIXES + "r:shared-1 a xw:Composition .\n"
+    out = await network_view(_pyoxi_client({GRAPH_A: ttl, HUB_GRAPH: hub}))
+    (h,) = _nodes(out, "hub")
+    assert h["dataset_id"] is None

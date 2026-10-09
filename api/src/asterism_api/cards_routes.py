@@ -20,6 +20,7 @@ constant-time comparison) against the ``cfg`` this module already receives.
 from __future__ import annotations
 
 import hmac
+import inspect
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -712,7 +713,12 @@ def register_cards(
                 )
             return None
         try:
-            return await upper_map(client)
+            # 取り決め（upper-structure-shared-terms.md §2.6）は関数名と返り値の形だけなので、
+            # 同期でも非同期でも受ける。返り値は {"classes", "properties", "at"}（at は使わない）。
+            result = upper_map(client)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
         except Exception:  # 対応表が無くても網は出す
             logger.warning("network: upper_map failed; drawing without it", exc_info=True)
             return None
