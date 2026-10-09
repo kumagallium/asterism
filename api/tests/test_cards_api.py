@@ -1106,6 +1106,59 @@ def test_subjects_neighbors_uses_r3_for_a_hub_class(tmp_path: Path) -> None:
         assert hub_page["center"]["is_hub"] is True
 
 
+def _network_client(tmp_path: Path, extra_ttl: str = "") -> TestClient:
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL + extra_ttl})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    return TestClient(app, headers=_AUTH)
+
+
+def test_network_returns_nodes_edges_kinds_and_stats(tmp_path: Path) -> None:
+    """全体グラフ: 200 で形を返す。件の名前は 1 件のページの見出しと同じ。"""
+    with _network_client(tmp_path) as client:
+        r = client.get("/api/network")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body) == {"nodes", "edges", "kinds", "stats", "truncated"}
+        assert body["truncated"] is False
+        assert set(body["stats"]) == {"entities", "nodes", "edges", "values", "bundles"}
+        assert body["stats"]["nodes"] == len(body["nodes"])
+        assert body["stats"]["edges"] == len(body["edges"])
+        node = next(n for n in body["nodes"] if n["id"] == BORROWER_A)
+        assert node["kind"] == "entity"
+        assert set(node) == {
+            "id",
+            "kind",
+            "label",
+            "class_iri",
+            "class_label",
+            "dataset_id",
+            "count",
+            "degree",
+            "set_spec",
+        }
+        heading = client.get("/api/subjects/resolve", params={"iri": BORROWER_A}).json()["label"]
+        assert node["label"] == heading
+        assert any(e["source"] == CHECKOUT_1 and e["target"] == BORROWER_A for e in body["edges"])
+
+
+def test_network_include_prov_switches_provenance_lines(tmp_path: Path) -> None:
+    prov = "http://www.w3.org/ns/prov#"
+    extra = (
+        f"<https://ex/library/resource/run-1> a <{prov}Activity> .\n"
+        f"<{CHECKOUT_1}> <{prov}wasGeneratedBy> <https://ex/library/resource/run-1> .\n"
+    )
+    with _network_client(tmp_path, extra) as client:
+        plain = client.get("/api/network").json()
+        with_prov = client.get("/api/network", params={"include_prov": "true"}).json()
+        run = "https://ex/library/resource/run-1"
+        assert run not in {n["id"] for n in plain["nodes"]}
+        assert run in {n["id"] for n in with_prov["nodes"]}
+        assert len(with_prov["edges"]) == len(plain["edges"]) + 1
+
+
 def test_subjects_linking_kinds_passes_through_the_neighborhood_fields(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
