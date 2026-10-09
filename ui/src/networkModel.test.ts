@@ -86,6 +86,18 @@ function distinctSeatIris(n: number, prefix = 'k'): string[] {
   }
   return out
 }
+/** 好みの席が同じ 2 つの IRI（決定論で探す）。 */
+function collidingPair(): [string, string] {
+  const bySeat = new Map<string, string>()
+  for (let i = 0; i < 10000; i++) {
+    const iri = `x${i}`
+    const seat = seatOf(iri)
+    const other = bySeat.get(seat)
+    if (other) return [other, iri]
+    bySeat.set(seat, iri)
+  }
+  throw new Error('no collision')
+}
 const kd = (iris: string[]) => iris.map((class_iri) => ({ class_iri }))
 
 describe('assignKindRoles', () => {
@@ -113,11 +125,14 @@ describe('assignKindRoles', () => {
     const roles = assignKindRoles(kd(iris))
     iris.forEach((iri) => expect(roles.get(iri)).toBe(seatOf(iri)))
   })
-  it('下位に種類が増えても、上位の種類の色は変わらない', () => {
-    const iris = Array.from({ length: 20 }, (_, i) => `u${i}`)
-    const before = assignKindRoles(kd(iris.slice(0, 5)))
-    const after = assignKindRoles(kd(iris))
-    for (const iri of iris.slice(0, 5)) expect(after.get(iri)).toBe(before.get(iri))
+  it('下位に種類が増えても、上位の種類の色は変わらない（上位に席のぶつかりを含む）', () => {
+    const [p, q] = collidingPair()
+    const rest = Array.from({ length: 20 }, (_, i) => `u${i}`).filter((x) => x !== p && x !== q)
+    const top = [p, q, ...rest.slice(0, 3)]
+    const before = assignKindRoles(kd(top))
+    const after = assignKindRoles(kd([...top, ...rest.slice(3)]))
+    for (const iri of top) expect(after.get(iri)).toBe(before.get(iri))
+    expect(before.get(p)).not.toBe(before.get(q))
   })
   it('順位が違う 2 つの kinds でも、ぶつからない種類は同じ色（好みの席）', () => {
     const [a, b, c, d] = distinctSeatIris(4)
@@ -126,16 +141,28 @@ describe('assignKindRoles', () => {
     for (const iri of [a, b, c]) expect(r1.get(iri)).toBe(r2.get(iri))
     expect(r1.get(a)).toBe(seatOf(a))
   })
-  it('好みの席がぶつかったら次の空き席', () => {
+  it('好みの席がぶつかったら次の空き席（+1 して % 8）', () => {
+    const [p, q] = collidingPair()
+    const roles = assignKindRoles(kd([p, q]))
+    const seat = Number(seatOf(p).replace('kind-', ''))
+    expect(roles.get(p)).toBe(`kind-${seat}`)
+    expect(roles.get(q)).toBe(`kind-${(seat + 1) % 8}`)
     const iris = Array.from({ length: 12 }, (_, i) => `c${i}`)
-    const roles = assignKindRoles(kd(iris))
-    const used = iris.slice(0, 8).map((i) => roles.get(i))
-    expect(new Set(used).size).toBe(8)
+    const all = assignKindRoles(kd(iris))
+    expect(new Set(iris.slice(0, 8).map((i) => all.get(i))).size).toBe(8)
   })
-  it('重複する IRI は 1 つとして数える', () => {
+  it('重複する IRI は 1 つとして数え、席も消費しない', () => {
     const roles = assignKindRoles(kd(['a', 'a', 'b']))
     expect(roles.size).toBe(2)
     expect(roles.get('a')).toBe(seatOf('a'))
+    expect(roles.get('b')).toBe(assignKindRoles(kd(['a', 'b'])).get('b'))
+  })
+  it('番号違い・大文字小文字違いの IRI が必ずぶつかることはない', () => {
+    const seats = new Set<string>()
+    for (let i = 0; i < 9; i++) seats.add(seatOf(`https://example.org/ns#Class${i}`))
+    expect(seats.size).toBeGreaterThan(4)
+    expect(seatOf('https://example.org/ns#Star') === seatOf('https://example.org/ns#star') &&
+      seatOf('https://example.org/ns#Class1') === seatOf('https://example.org/ns#Class9')).toBe(false)
   })
 })
 
@@ -189,6 +216,8 @@ describe('nodeAppearance / edgeAppearance', () => {
   const inA: End = { nodeKind: 'entity', kindKey: 'A' }
   const inB: End = { nodeKind: 'entity', kindKey: 'B' }
   const val: End = { nodeKind: 'value', kindKey: null }
+  const bundleA: End = { nodeKind: 'bundle', kindKey: 'A' }
+  const noKind: End = { nodeKind: 'entity', kindKey: null }
   const e = (sel: string | null, s: End, t: End, focused: ReadonlySet<string>) =>
     edgeAppearance({ sel, source: 's', target: 't', sourceNode: s, targetNode: t, focused })
   it('線: 選びがあれば今まで通り、無ければ絞り込みの種類に触れない線を薄く', () => {
@@ -197,6 +226,16 @@ describe('nodeAppearance / edgeAppearance', () => {
     expect(e(null, inB, val, focusA).faded).toBe(true)
     expect(e(null, inA, val, focusA).faded).toBe(false)
     expect(e(null, inB, inB, new Set()).faded).toBe(false)
+  })
+  it('束は絞り込みの種類として数える。kindKey が null の件は絞り込み中は薄い', () => {
+    expect(e(null, bundleA, val, focusA).faded).toBe(false)
+    expect(e(null, noKind, val, focusA).faded).toBe(true)
+    expect(e(null, noKind, noKind, focusA).faded).toBe(true)
+    expect(nodeAppearance({ ...base, nodeKind: 'entity', kindKey: null, focused: focusA })).toMatchObject({
+      faded: true,
+      hideLabel: true,
+    })
+    expect(nodeAppearance({ ...base, nodeKind: 'entity', kindKey: null, focused: new Set() }).faded).toBe(false)
   })
 })
 

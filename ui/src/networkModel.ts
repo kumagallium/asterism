@@ -35,7 +35,9 @@ export function assignKindRoles(
       out.set(k.class_iri, REST_ROLE)
       continue
     }
-    let seat = fnv1a(k.class_iri, COLOR_SALT) % max
+    // 上位ビットを混ぜる（FNV の乗算は下位ビットしか下位へ運ばず、番号違い・大文字小文字違いが必ずぶつかる）
+    const h = fnv1a(k.class_iri, COLOR_SALT)
+    let seat = ((h ^ (h >>> 16)) >>> 0) % max
     while (taken.has(seat)) seat = (seat + 1) % max
     taken.add(seat)
     out.set(k.class_iri, `kind-${seat}`)
