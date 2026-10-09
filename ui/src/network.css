@@ -115,10 +115,8 @@
 }
 
 .network-swatch--bundle {
-  width: 14px;
-  height: 14px;
-  background: transparent !important;
-  border: 2px solid var(--muted);
+  width: 16px;
+  height: 16px;
 }
 
 .network--big .network-canvas-wrap {

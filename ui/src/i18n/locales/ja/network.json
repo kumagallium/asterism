@@ -28,6 +28,7 @@
   "bar_bundle": "同じ相手にだけつながる {{count}} 件の束",
   "bar_hint": "点を押すと選べます。つながる線と相手が濃くなります",
   "legend_title": "凡例",
+  "legend_unnamed": "名前のない種類",
   "legend_rest": "そのほかの種類",
   "legend_value": "値（分類のようなことば）",
   "legend_bundle": "束（同じ相手にだけつながる件の群れ・大きさは件数）",

@@ -172,17 +172,40 @@ export async function loadLaidOutNetwork(
   return { graph, response }
 }
 
-/** 色の役割 → 色トークン（index.css の CSS 変数）。凡例（CSS）と sigma（実際の色に解決）で共有。 */
+/** 件の種類の 8 色。ガイドラインの意味色（warn・success・accent など）は注意／状態の意味を持つので
+ *  流用せず、互いに見分けられる別のパレットを使う（色相を散らし、ハブの青・値の灰とも離す）。 */
+export const KIND_COLORS: string[] = [
+  '#1b9e77', // 緑
+  '#e08a00', // 橙
+  '#c2579b', // 桃
+  '#7b4fc9', // 紫
+  '#d6452c', // 朱
+  '#a3a100', // 黄緑
+  '#00a6c8', // 水色
+  '#7a4a1e', // 茶
+]
+
+/** 色の役割 → 色トークン（index.css の CSS 変数）。種類以外の固定色。 */
 export const ROLE_VAR: Record<string, string> = {
-  'kind-0': '--entity',
-  'kind-1': '--accent',
-  'kind-2': '--prov-result',
-  'kind-3': '--primary',
-  'kind-4': '--accent-strong',
-  'kind-5': '--info-fg',
-  'kind-6': '--warn-fg',
-  'kind-7': '--success-fg',
   [REST_ROLE]: '--faint',
   [VALUE_ROLE]: '--muted',
   [HUB_ROLE]: '--link',
+}
+
+/** 役割 → CSS の色（凡例用）。種類は固定の hex、ほかは CSS 変数。 */
+export function roleCss(role: string): string {
+  const m = /^kind-(\d+)$/.exec(role)
+  if (m && KIND_COLORS[Number(m[1])]) return KIND_COLORS[Number(m[1])]
+  return `var(${ROLE_VAR[role] ?? ROLE_VAR[REST_ROLE]})`
+}
+
+/** 種類の名前。class_label が無いときは IRI のローカル名を読みくだす（生の IRI を出さない）。 */
+export function kindDisplayName(label: string | null, iri: string): string | null {
+  if (label && label.trim()) return label
+  const local = iri.split(/[#/]/).filter(Boolean).pop() ?? ''
+  const words = decodeURIComponent(local)
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+  return words || null
 }

@@ -10,6 +10,9 @@ import {
   loadLaidOutNetwork,
   neighborhoodOf,
   searchNodes,
+  KIND_COLORS,
+  kindDisplayName,
+  roleCss,
 } from './networkModel'
 
 // 架空の分野（星・観測所）の作り物。
@@ -176,5 +179,41 @@ describe('loadLaidOutNetwork（API をモック）', () => {
     expect(fetcher).toHaveBeenCalledWith(true)
     expect(r.graph.order).toBe(6)
     expect(r.response.stats.nodes).toBe(6)
+  })
+})
+
+describe('種類の色', () => {
+  const lab = (hex: string): [number, number, number] => {
+    const lin = (i: number) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    }
+    const [r, g, b] = [lin(1), lin(3), lin(5)]
+    const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+    const f = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116)
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))]
+  }
+  const dist = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]))
+  // index.css の --link / --muted / --faint（ハブ・値・そのほか）
+  const fixed = ['#356794', '#54695b', '#728579']
+  it('8 色が互いに、またハブ・値・灰とも見分けられる距離（Lab 25 以上）にある', () => {
+    expect(KIND_COLORS).toHaveLength(8)
+    const all = [...KIND_COLORS, ...fixed]
+    for (let i = 0; i < KIND_COLORS.length; i++)
+      for (let j = i + 1; j < all.length; j++) expect(dist(all[i], all[j])).toBeGreaterThanOrEqual(25)
+  })
+  it('凡例の色: 種類は固定色、ほかは CSS 変数', () => {
+    expect(roleCss('kind-3')).toBe(KIND_COLORS[3])
+    expect(roleCss('hub')).toBe('var(--link)')
+  })
+})
+
+describe('kindDisplayName', () => {
+  it('名前があればそのまま、無ければ IRI のローカル名を読みくだす', () => {
+    expect(kindDisplayName('星', 'https://example.org/x#Star')).toBe('星')
+    expect(kindDisplayName(null, 'https://example.org/x#StarCatalog')).toBe('Star Catalog')
+    expect(kindDisplayName('', 'https://example.org/ns/dark_matter')).toBe('dark matter')
   })
 })

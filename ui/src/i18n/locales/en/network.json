@@ -28,6 +28,7 @@
   "bar_bundle": "A bundle of {{count}} items linked only to the same neighbors",
   "bar_hint": "Click a point to select it. Its lines and neighbors stand out",
   "legend_title": "Legend",
+  "legend_unnamed": "Unnamed kind",
   "legend_rest": "Other kinds",
   "legend_value": "Value (a category-like term)",
   "legend_bundle": "Bundle (items linked only to the same neighbors; size = number of items)",

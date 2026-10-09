@@ -3,6 +3,7 @@
 // 配置は決定論（初期位置のハッシュ＋固定回数の ForceAtlas2）— 同じデータは同じ絵。
 import Graph from 'graphology'
 import Sigma from 'sigma'
+import type { CameraState } from 'sigma/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BigViewOverlay, ExpandButton } from './BigView'
@@ -12,8 +13,11 @@ import type { SetResolveResult } from './cards/cardsApi'
 import { getNetwork } from './networkApi'
 import type { NetworkNodeKind, NetworkResponse } from './networkApi'
 import {
-  ROLE_VAR,
   REST_ROLE,
+  KIND_COLORS,
+  ROLE_VAR,
+  kindDisplayName,
+  roleCss,
   alwaysLabeled,
   loadLaidOutNetwork,
   neighborhoodOf,
@@ -46,6 +50,9 @@ interface Palette {
 
 function readPalette(): Palette {
   const roles: Record<string, string> = {}
+  KIND_COLORS.forEach((c, i) => {
+    roles[`kind-${i}`] = c
+  })
   for (const [role, v] of Object.entries(ROLE_VAR)) roles[role] = cssColor(v, '#888888')
   return {
     roles,
@@ -64,14 +71,19 @@ interface CanvasProps {
   focusTick: number
   onSelect: (id: string | null) => void
   ariaLabel: string
+  /** 大きく見る等の作り直しをまたいでカメラを引き継ぐ置き場（同じ graph のときだけ復元）。 */
+  cameraRef: { current: { graph: Graph; state: CameraState } | null }
 }
 
 /** sigma を作って壊すだけの素の使い方（React 19 では公式の @react-sigma は使わない）。 */
-function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect, ariaLabel }: CanvasProps) {
+function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect, ariaLabel, cameraRef }: CanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const sigmaRef = useRef<Sigma | null>(null)
   const selRef = useRef<string | null>(selectedId)
   const nearRef = useRef<Set<string>>(neighborhoodOf(graph, selectedId))
+  // 載せている点（hover）。あいだは選びより優先して強調する。
+  const hovRef = useRef<string | null>(null)
+  const consumedTickRef = useRef(focusTick)
   const onSelectRef = useRef(onSelect)
   useEffect(() => {
     onSelectRef.current = onSelect
@@ -83,6 +95,7 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
     const pal = readPalette()
     const sigma = new Sigma(graph, host, {
       renderEdgeLabels: false,
+      zIndex: true,
       labelRenderedSizeThreshold: 9,
       labelColor: { color: pal.label },
       defaultEdgeColor: pal.edge,
@@ -91,7 +104,7 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
       nodeReducer: (id, data) => {
         const a = data as unknown as NetworkNodeAttrs & Record<string, unknown>
         const color = pal.roles[a.role] ?? pal.roles[REST_ROLE]
-        const sel = selRef.current
+        const sel = hovRef.current ?? selRef.current
         const out: Record<string, unknown> = { ...data, color }
         if (alwaysLabeled(a.nodeKind)) out.forceLabel = true
         if (sel) {
@@ -111,7 +124,7 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
         return out
       },
       edgeReducer: (edge, data) => {
-        const sel = selRef.current
+        const sel = hovRef.current ?? selRef.current
         if (!sel) return data
         const [s, t] = graph.extremities(edge)
         const on = s === sel || t === sel
@@ -120,23 +133,36 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
           : { ...data, color: pal.edgeFaded, zIndex: 0 }
       },
     })
+    const prev = cameraRef.current
+    if (prev && prev.graph === graph) sigma.getCamera().setState(prev.state)
+    const highlight = (id: string | null) => {
+      hovRef.current = id
+      nearRef.current = neighborhoodOf(graph, id ?? selRef.current)
+      sigma.refresh()
+    }
+    sigma.on('enterNode', ({ node }) => highlight(node))
+    sigma.on('leaveNode', () => highlight(null))
     sigma.on('clickNode', ({ node }) => onSelectRef.current(node))
     sigma.on('clickStage', () => onSelectRef.current(null))
     sigmaRef.current = sigma
     return () => {
+      cameraRef.current = { graph, state: sigma.getCamera().getState() }
       sigma.kill()
       sigmaRef.current = null
     }
-  }, [graph])
+  }, [graph, cameraRef])
 
   useEffect(() => {
     selRef.current = selectedId
-    nearRef.current = neighborhoodOf(graph, selectedId)
+    nearRef.current = neighborhoodOf(graph, hovRef.current ?? selectedId)
     sigmaRef.current?.refresh()
   }, [graph, selectedId])
 
   useEffect(() => {
     const sigma = sigmaRef.current
+    // 探した直後の 1 回だけ寄る（作り直しや来歴の切り替えでは動かさない）
+    if (focusTick === consumedTickRef.current) return
+    consumedTickRef.current = focusTick
     if (!sigma || !focusId || !graph.hasNode(focusId)) return
     const d = sigma.getNodeDisplayData(focusId)
     if (d) sigma.getCamera().animate({ x: d.x, y: d.y, ratio: 0.15 }, { duration: 400 })
@@ -157,14 +183,14 @@ function Legend({ resp }: { resp: NetworkResponse }) {
   const { t } = useTranslation('network')
   const shown = resp.kinds.slice(0, 8)
   const hasRest = resp.kinds.length > 8
-  const dot = (role: string) => ({ background: `var(${ROLE_VAR[role]})` })
+  const dot = (role: string) => ({ background: roleCss(role) })
   return (
     <section aria-label={t('legend_title')}>
       <ul className="network-legend">
         {shown.map((k, i) => (
           <li key={k.class_iri}>
             <span className="network-swatch" style={dot(`kind-${i}`)} />
-            {k.class_label ?? k.class_iri}
+            {kindDisplayName(k.class_label, k.class_iri) ?? t('legend_unnamed')}
           </li>
         ))}
         {hasRest && (
@@ -178,7 +204,7 @@ function Legend({ resp }: { resp: NetworkResponse }) {
           {t('legend_value')}
         </li>
         <li>
-          <span className="network-swatch network-swatch--bundle" />
+          <span className="network-swatch network-swatch--bundle" style={dot('kind-0')} />
           {t('legend_bundle')}
         </li>
         <li>
@@ -194,13 +220,14 @@ function Legend({ resp }: { resp: NetworkResponse }) {
 export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
   const { t } = useTranslation('network')
   const [includeProv, setIncludeProv] = useState(false)
-  // 取得の結果。prov は「どの切り替えで取ったか」— 違うあいだは読み込み中（effect で setState しない）。
+  // 取得の結果。prov は「どの切り替えで取ったか」— 違うあいだは古い絵を出さず読み込み中にする。
   const [net, setNet] = useState<{ graph: Graph; response: NetworkResponse; prov: boolean } | null>(null)
   const [failedProv, setFailedProv] = useState<boolean | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [searchNote, setSearchNote] = useState<string | null>(null)
   const [focus, setFocus] = useState<{ id: string | null; tick: number }>({ id: null, tick: 0 })
+  const cameraRef = useRef<{ graph: Graph; state: CameraState } | null>(null)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState(false)
   // 大きく見る。状態はここが持ち、描く場所だけ切り替える（2 つ目の図を作らない）。
@@ -262,10 +289,14 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
     }
   }, [selected, onOpenSet])
 
-  if (failedProv === includeProv) return <div className="network network-note">{t('error')}</div>
-  if (!net || !graph) return <div className="network network-note">{t('loading')}</div>
+  const failed = failedProv === includeProv
+  if (!net || !graph) {
+    return <div className="network network-note">{failed ? t('error') : t('loading')}</div>
+  }
 
   const { response } = net
+  // 切り替え直後（古い絵）や失敗のあいだも、ヘッダ（切り替えと探す）は残す。
+  const pending = net.prov !== includeProv
   const isEmpty = response.nodes.length === 0
   const tagOf = (k: NetworkNodeKind) => t(`tag.${k}`)
 
@@ -285,7 +316,10 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
           <input
             type="checkbox"
             checked={includeProv}
-            onChange={(e) => setIncludeProv(e.target.checked)}
+            onChange={(e) => {
+              setFailedProv(null)
+              setIncludeProv(e.target.checked)
+            }}
           />
           {t('prov_toggle')}
         </label>
@@ -310,7 +344,11 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
         </form>
       </div>
       {searchNote && <p className="network-note">{searchNote}</p>}
-      {isEmpty ? (
+      {pending ? (
+        <p className="network-note" role={failed ? 'alert' : 'status'}>
+          {failed ? t('error') : t('loading')}
+        </p>
+      ) : isEmpty ? (
         <p className="network-note">{response.stats.entities === 0 ? t('empty') : t('no_points')}</p>
       ) : (
         <>
@@ -327,6 +365,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
                 setActionError(false)
               }}
               ariaLabel={t('aria')}
+              cameraRef={cameraRef}
             />
           </div>
           <div className="network-bar">
@@ -337,7 +376,6 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
                   {[
                     tagOf(selected.nodeKind),
                     selected.classLabel,
-                    selected.datasetId,
                     selected.nodeKind === 'bundle'
                       ? t('bar_bundle', { count: selected.count })
                       : t('bar_degree', { count: selected.degree }),
