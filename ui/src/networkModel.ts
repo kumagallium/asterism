@@ -16,17 +16,155 @@ export const ENTITY_R: [number, number] = [1.5, 5]
 export const VALUE_R: [number, number] = [5, 11]
 export const BUNDLE_R: [number, number] = [9, 14]
 
-/** `kinds`（件数の多い順）の上位 8 種類に `kind-0`〜`kind-7`。順序は API の順のまま。 */
+/** 色の席を決めるハッシュの salt（hashPosition とは別の値）。 */
+const COLOR_SALT = 0x51ed270b
+
+/** `kinds`（件数の多い順）の先頭 `max` 種類に色の席 `kind-0`〜`kind-7` を配る。
+ *  席は順位でなく IRI のハッシュで決める（好みの席が埋まっていれば次の空き席）。
+ *  順位で配ると、データが増えたときに同じ種類の色が変わった（手元と見本で「国」の色が違った）。
+ *  下位に種類が増えても、上位の種類の席は変わらない。`max` を超えた種類は灰。 */
 export function assignKindRoles(
   kinds: { class_iri: string }[],
   max = KIND_COLOR_COUNT,
 ): Map<string, string> {
   const out = new Map<string, string>()
+  const taken = new Set<number>()
   for (const k of kinds) {
     if (out.has(k.class_iri)) continue
-    out.set(k.class_iri, out.size < max ? `kind-${out.size}` : REST_ROLE)
+    if (taken.size >= max) {
+      out.set(k.class_iri, REST_ROLE)
+      continue
+    }
+    let seat = fnv1a(k.class_iri, COLOR_SALT) % max
+    while (taken.has(seat)) seat = (seat + 1) % max
+    taken.add(seat)
+    out.set(k.class_iri, `kind-${seat}`)
   }
   return out
+}
+
+/** 凡例で押した種類（`focused`）だけに色を付ける。空なら既定と同じ。
+ *  選ばれていない種類は Map に入れない（引く側が `?? REST_ROLE` で灰にする）。 */
+export function focusedKindRoles(
+  kinds: { class_iri: string }[],
+  focused: ReadonlySet<string>,
+  max = KIND_COLOR_COUNT,
+): Map<string, string> {
+  if (focused.size === 0) return assignKindRoles(kinds, max)
+  return assignKindRoles(
+    kinds.filter((k) => focused.has(k.class_iri)),
+    max,
+  )
+}
+
+export interface NodeAppearanceInput {
+  nodeKind: NetworkNodeKind
+  /** `group_iri ?? class_iri`。値・ハブは null。 */
+  kindKey: string | null
+  roles: ReadonlyMap<string, string>
+  focused: ReadonlySet<string>
+  /** 載せている／選んでいる点。 */
+  sel: string | null
+  isSel: boolean
+  isNear: boolean
+}
+
+export interface NodeAppearance {
+  role: string
+  faded: boolean
+  forceLabel: boolean
+  hideLabel: boolean
+  highlighted: boolean
+  zIndex: number
+}
+
+/** 種類で絞り込み中に「色を付ける対象の外」にある件・束か。値の点とハブは網の骨組みなので対象外。 */
+function outsideFocus(
+  nodeKind: NetworkNodeKind,
+  kindKey: string | null,
+  focused: ReadonlySet<string>,
+): boolean {
+  if (focused.size === 0) return false
+  if (nodeKind !== 'entity' && nodeKind !== 'bundle') return false
+  return !(kindKey && focused.has(kindKey))
+}
+
+/** 点の見え方（sigma の nodeReducer はこれを呼ぶだけ）。載せた／選んだ点の強調が絞り込みより優先。 */
+export function nodeAppearance(i: NodeAppearanceInput): NodeAppearance {
+  const role =
+    i.nodeKind === 'value'
+      ? VALUE_ROLE
+      : i.nodeKind === 'hub'
+        ? HUB_ROLE
+        : ((i.kindKey ? i.roles.get(i.kindKey) : undefined) ?? REST_ROLE)
+  const base = { role, faded: false, forceLabel: false, hideLabel: false, highlighted: false, zIndex: 0 }
+  if (i.sel) {
+    if (i.isSel) return { ...base, forceLabel: true, highlighted: true, zIndex: 2 }
+    if (i.isNear) return { ...base, zIndex: 1 }
+    return { ...base, faded: true, hideLabel: true }
+  }
+  if (outsideFocus(i.nodeKind, i.kindKey, i.focused)) return { ...base, faded: true, hideLabel: true }
+  return base
+}
+
+export interface EdgeAppearanceInput {
+  sel: string | null
+  source: string
+  target: string
+  sourceNode: { nodeKind: NetworkNodeKind; kindKey: string | null }
+  targetNode: { nodeKind: NetworkNodeKind; kindKey: string | null }
+  focused: ReadonlySet<string>
+}
+
+export interface EdgeAppearance {
+  faded: boolean
+  /** 選んだ点につながる線（濃く）。 */
+  on: boolean
+  zIndex: number
+}
+
+/** 線の見え方。選んだ点があればその点の線だけ濃く、無ければ絞り込みの種類（件・束）に触れない線を薄く。 */
+export function edgeAppearance(i: EdgeAppearanceInput): EdgeAppearance {
+  if (i.sel) {
+    const on = i.source === i.sel || i.target === i.sel
+    return on ? { faded: false, on: true, zIndex: 1 } : { faded: true, on: false, zIndex: 0 }
+  }
+  if (i.focused.size > 0) {
+    const inFocus = (n: { nodeKind: NetworkNodeKind; kindKey: string | null }) =>
+      (n.nodeKind === 'entity' || n.nodeKind === 'bundle') && !!n.kindKey && i.focused.has(n.kindKey)
+    if (!inFocus(i.sourceNode) && !inFocus(i.targetNode)) return { faded: true, on: false, zIndex: 0 }
+  }
+  return { faded: false, on: false, zIndex: 0 }
+}
+
+export interface LegendKindRow {
+  key: string
+  name: string | null
+  count: number
+  role: string
+  pressed: boolean
+}
+
+/** 凡例の種類の行（`kinds` の順・重複なし）。色は今の色（絞り込み中は選ばれていない種類は灰）。 */
+export function legendKindRows(
+  kinds: { class_iri: string; class_label: string | null; count: number }[],
+  roles: ReadonlyMap<string, string>,
+  focused: ReadonlySet<string>,
+): LegendKindRow[] {
+  const seen = new Set<string>()
+  const rows: LegendKindRow[] = []
+  for (const k of kinds) {
+    if (seen.has(k.class_iri)) continue
+    seen.add(k.class_iri)
+    rows.push({
+      key: k.class_iri,
+      name: kindDisplayName(k.class_label, k.class_iri),
+      count: k.count,
+      role: roles.get(k.class_iri) ?? REST_ROLE,
+      pressed: focused.has(k.class_iri),
+    })
+  }
+  return rows
 }
 
 /** 点の色の役割。件・束は種類で、値の点とハブは固定。 */
@@ -65,6 +203,8 @@ export interface NetworkNodeAttrs {
   label: string
   nodeKind: NetworkNodeKind
   role: string
+  /** 色の鍵（group_iri ?? class_iri）。値・ハブは null。 */
+  kindKey: string | null
   size: number
   x: number
   y: number
@@ -101,6 +241,7 @@ export function buildNetworkGraph(
       label: n.kind === 'bundle' && bundleName ? bundleName(n.class_label ?? n.label, n.count) : n.label,
       nodeKind: n.kind,
       role: roleOf(n, kindRoles),
+      kindKey: n.kind === 'value' || n.kind === 'hub' ? null : (n.group_iri ?? n.class_iri ?? null),
       size: sized(n),
       ...hashPosition(n.id),
       classLabel: n.class_label,

@@ -30,9 +30,15 @@
   "bar_hint": "点を押すと選べます。つながる線と相手が濃くなります",
   "legend_title": "凡例",
   "legend_unnamed": "名前のない種類",
-  "legend_rest": "そのほかの種類",
   "legend_value": "値（分類のようなことば）",
   "legend_bundle": "束（同じ相手にだけつながる件の群れ・大きさは件数）",
   "legend_hub": "つながりのハブ",
-  "legend_size": "点の大きさは、つながりの数（束は中の件数）です"
+  "legend_size": "点の大きさは、つながりの数（束は中の件数）です",
+  "legend_kinds_hint": "種類を押すと、その種類だけに色が付きます（{{max}} 種類まで）",
+  "legend_kind_title": "押すと、この種類だけに色が付きます",
+  "legend_kind_max": "{{max}} 種類まで選べます",
+  "legend_show_all": "すべて表示（{{count}} 種類）",
+  "legend_collapse": "たたむ",
+  "legend_clear": "色をすべてに戻す",
+  "legend_shapes": "形と大きさ"
 }

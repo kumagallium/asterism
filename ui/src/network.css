@@ -119,6 +119,43 @@
   height: 16px;
 }
 
+.network-legend-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.network-legend-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.network-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--body);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.network-kind[aria-pressed='true'] {
+  color: var(--fg);
+  border-color: var(--fg);
+  background: var(--surface-alt);
+}
+
+.network-kind:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .network--big .network-canvas-wrap {
   flex: 1;
 }

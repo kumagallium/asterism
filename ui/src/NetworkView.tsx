@@ -16,11 +16,15 @@ import {
   REST_ROLE,
   KIND_COLORS,
   ROLE_VAR,
+  KIND_COLOR_COUNT,
+  edgeAppearance,
   focusCamera,
-  kindDisplayName,
+  focusedKindRoles,
+  legendKindRows,
   roleCss,
   loadLaidOutNetwork,
   neighborhoodOf,
+  nodeAppearance,
   searchNodes,
 } from './networkModel'
 import type { NetworkNodeAttrs } from './networkModel'
@@ -73,16 +77,21 @@ interface CanvasProps {
   ariaLabel: string
   /** 大きく見る等の作り直しをまたいでカメラを引き継ぐ置き場（同じ graph のときだけ復元）。 */
   cameraRef: { current: { graph: Graph; state: CameraState } | null }
+  /** 色の役割（種類の鍵 → 役割）と、凡例で押した種類。変わったら sigma.refresh() だけ。 */
+  roles: ReadonlyMap<string, string>
+  focused: ReadonlySet<string>
 }
 
 /** sigma を作って壊すだけの素の使い方（React 19 では公式の @react-sigma は使わない）。 */
-function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect, ariaLabel, cameraRef }: CanvasProps) {
+function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect, ariaLabel, cameraRef, roles, focused }: CanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const sigmaRef = useRef<Sigma | null>(null)
   const selRef = useRef<string | null>(selectedId)
   const nearRef = useRef<Set<string>>(neighborhoodOf(graph, selectedId))
   // 載せている点（hover）。あいだは選びより優先して強調する。
   const hovRef = useRef<string | null>(null)
+  const rolesRef = useRef(roles)
+  const focusedRef = useRef(focused)
   const consumedTickRef = useRef(focusTick)
   const onSelectRef = useRef(onSelect)
   useEffect(() => {
@@ -106,33 +115,44 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
       maxCameraRatio: 8,
       nodeReducer: (id, data) => {
         const a = data as unknown as NetworkNodeAttrs & Record<string, unknown>
-        const color = pal.roles[a.role] ?? pal.roles[REST_ROLE]
         const sel = hovRef.current ?? selRef.current
-        const out: Record<string, unknown> = { ...data, color }
-        if (sel) {
-          if (id === sel) {
-            out.forceLabel = true
-            out.highlighted = true
-            out.zIndex = 2
-          } else if (nearRef.current.has(id)) {
-            out.zIndex = 1
-          } else {
-            out.color = pal.nodeFaded
-            out.label = null
-            out.forceLabel = false
-            out.zIndex = 0
-          }
+        const ap = nodeAppearance({
+          nodeKind: a.nodeKind,
+          kindKey: a.kindKey,
+          roles: rolesRef.current,
+          focused: focusedRef.current,
+          sel,
+          isSel: id === sel,
+          isNear: nearRef.current.has(id),
+        })
+        const out: Record<string, unknown> = {
+          ...data,
+          color: ap.faded ? pal.nodeFaded : (pal.roles[ap.role] ?? pal.roles[REST_ROLE]),
+          zIndex: ap.zIndex,
+        }
+        if (ap.forceLabel) out.forceLabel = true
+        if (ap.highlighted) out.highlighted = true
+        if (ap.hideLabel) {
+          out.label = null
+          out.forceLabel = false
         }
         return out
       },
       edgeReducer: (edge, data) => {
-        const sel = hovRef.current ?? selRef.current
-        if (!sel) return data
         const [s, t] = graph.extremities(edge)
-        const on = s === sel || t === sel
-        return on
-          ? { ...data, color: pal.label, zIndex: 1 }
-          : { ...data, color: pal.edgeFaded, zIndex: 0 }
+        const sa = graph.getNodeAttributes(s) as unknown as NetworkNodeAttrs
+        const ta = graph.getNodeAttributes(t) as unknown as NetworkNodeAttrs
+        const ap = edgeAppearance({
+          sel: hovRef.current ?? selRef.current,
+          source: s,
+          target: t,
+          sourceNode: sa,
+          targetNode: ta,
+          focused: focusedRef.current,
+        })
+        if (ap.on) return { ...data, color: pal.label, zIndex: ap.zIndex }
+        if (ap.faded) return { ...data, color: pal.edgeFaded, zIndex: ap.zIndex }
+        return data
       },
     })
     const prev = cameraRef.current
@@ -161,6 +181,12 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
   }, [graph, selectedId])
 
   useEffect(() => {
+    rolesRef.current = roles
+    focusedRef.current = focused
+    sigmaRef.current?.refresh()
+  }, [roles, focused])
+
+  useEffect(() => {
     const sigma = sigmaRef.current
     // 探した直後の 1 回だけ寄る（作り直しや来歴の切り替えでは動かさない）
     if (focusTick === consumedTickRef.current) return
@@ -183,32 +209,71 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
   )
 }
 
-function Legend({ resp }: { resp: NetworkResponse }) {
+const FOLDED_KINDS = 12
+
+interface LegendProps {
+  resp: NetworkResponse
+  roles: ReadonlyMap<string, string>
+  focused: ReadonlySet<string>
+  onToggle: (key: string) => void
+  onClear: () => void
+}
+
+function Legend({ resp, roles, focused, onToggle, onClear }: LegendProps) {
   const { t } = useTranslation('network')
-  const shown = resp.kinds.slice(0, 8)
-  const hasRest = resp.kinds.length > 8
+  const [expanded, setExpanded] = useState(false)
+  const rows = legendKindRows(resp.kinds, roles, focused)
+  const shown = expanded ? rows : rows.slice(0, FOLDED_KINDS)
+  const full = focused.size >= KIND_COLOR_COUNT
   const dot = (role: string) => ({ background: roleCss(role) })
   return (
-    <section aria-label={t('legend_title')}>
-      <ul className="network-legend">
-        {shown.map((k, i) => (
-          <li key={k.class_iri}>
-            <span className="network-swatch" style={dot(`kind-${i}`)} />
-            {kindDisplayName(k.class_label, k.class_iri) ?? t('legend_unnamed')}
-          </li>
-        ))}
-        {hasRest && (
-          <li>
-            <span className="network-swatch" style={dot(REST_ROLE)} />
-            {t('legend_rest')}
-          </li>
+    <section aria-label={t('legend_title')} className="network-legend-wrap">
+      <p className="network-note">{t('legend_kinds_hint', { max: KIND_COLOR_COUNT })}</p>
+      <ul className="network-legend network-legend--kinds">
+        {shown.map((r) => {
+          const disabled = full && !r.pressed
+          return (
+            <li key={r.key}>
+              <button
+                type="button"
+                className="network-kind"
+                aria-pressed={r.pressed}
+                disabled={disabled}
+                title={disabled ? t('legend_kind_max', { max: KIND_COLOR_COUNT }) : t('legend_kind_title')}
+                onClick={() => onToggle(r.key)}
+              >
+                <span className="network-swatch" style={dot(r.role)} />
+                {r.name ?? t('legend_unnamed')} {r.count.toLocaleString()}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      <div className="network-legend-actions">
+        {rows.length > FOLDED_KINDS && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? t('legend_collapse') : t('legend_show_all', { count: rows.length })}
+          </button>
         )}
+        {focused.size > 0 && (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onClear}>
+            {t('legend_clear')}
+          </button>
+        )}
+      </div>
+      <p className="network-note">{t('legend_shapes')}</p>
+      <ul className="network-legend">
         <li>
           <span className="network-swatch" style={dot('value')} />
           {t('legend_value')}
         </li>
         <li>
-          <span className="network-swatch network-swatch--bundle" style={dot('kind-0')} />
+          <span className="network-swatch network-swatch--bundle" style={dot(REST_ROLE)} />
           {t('legend_bundle')}
         </li>
         <li>
@@ -228,6 +293,8 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
   const [net, setNet] = useState<{ graph: Graph; response: NetworkResponse; prov: boolean } | null>(null)
   const [failedProv, setFailedProv] = useState<boolean | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // 凡例で押した種類（押した順）。空なら色は既定（上位 8 種類）。
+  const [focusKinds, setFocusKinds] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [searchNote, setSearchNote] = useState<string | null>(null)
   const [focus, setFocus] = useState<{ id: string | null; tick: number }>({ id: null, tick: 0 })
@@ -257,6 +324,11 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
       .then((r) => {
         if (cancelled) return
         setNet({ ...r, prov: includeProv })
+        const keep = new Set(r.response.kinds.map((k) => k.class_iri))
+        setFocusKinds((cur) => {
+          const next = cur.filter((k) => keep.has(k))
+          return next.length === cur.length ? cur : next
+        })
         setFailedProv(null)
         setSelectedId(null)
         setSearchNote(null)
@@ -270,6 +342,11 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
   }, [includeProv])
 
   const graph = net?.graph ?? null
+  const focused = useMemo(() => new Set(focusKinds), [focusKinds])
+  const roles = useMemo(
+    () => focusedKindRoles(net?.response.kinds ?? [], focused),
+    [net, focused],
+  )
   const selected = useMemo(() => {
     if (!graph || !selectedId || !graph.hasNode(selectedId)) return null
     return { id: selectedId, ...(graph.getNodeAttributes(selectedId) as unknown as NetworkNodeAttrs) }
@@ -377,6 +454,8 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
               }}
               ariaLabel={t('aria')}
               cameraRef={cameraRef}
+              roles={roles}
+              focused={focused}
             />
           </div>
           <div className="network-bar">
@@ -422,7 +501,17 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
           </div>
           {actionError && <p className="network-note network-note--warn">{t('action_error')}</p>}
           {response.truncated && <p className="network-note network-note--warn">{t('truncated')}</p>}
-          <Legend resp={response} />
+          <Legend
+            resp={response}
+            roles={roles}
+            focused={focused}
+            onToggle={(key) =>
+              setFocusKinds((cur) =>
+                cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key],
+              )
+            }
+            onClear={() => setFocusKinds([])}
+          />
         </>
       )}
     </>

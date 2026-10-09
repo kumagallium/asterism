@@ -30,9 +30,15 @@
   "bar_hint": "Click a point to select it. Its lines and neighbors stand out",
   "legend_title": "Legend",
   "legend_unnamed": "Unnamed kind",
-  "legend_rest": "Other kinds",
   "legend_value": "Value (a category-like term)",
   "legend_bundle": "Bundle (items linked only to the same neighbors; size = number of items)",
   "legend_hub": "Connection hub",
-  "legend_size": "Point size shows the number of connections (for a bundle, the items inside)"
+  "legend_size": "Point size shows the number of connections (for a bundle, the items inside)",
+  "legend_kinds_hint": "Click a kind to color only that kind (up to {{max}})",
+  "legend_kind_title": "Click to color only this kind",
+  "legend_kind_max": "You can pick up to {{max}} kinds",
+  "legend_show_all": "Show all ({{count}} kinds)",
+  "legend_collapse": "Collapse",
+  "legend_clear": "Reset colors to all",
+  "legend_shapes": "Shapes and sizes"
 }

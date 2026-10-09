@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { NetworkNode, NetworkResponse } from './networkApi'
+import type { NetworkNode, NetworkNodeKind, NetworkResponse } from './networkApi'
 import {
   BUNDLE_R,
   ENTITY_R,
   VALUE_R,
   assignKindRoles,
+  focusedKindRoles,
+  nodeAppearance,
+  edgeAppearance,
+  legendKindRows,
+  REST_ROLE,
   buildNetworkGraph,
   connectedParts,
   focusCamera,
@@ -67,19 +72,151 @@ function fixture(): NetworkResponse {
   }
 }
 
+/** 1 種類だけ渡したときの好みの席（ぶつからない）。 */
+const seatOf = (iri: string) => assignKindRoles([{ class_iri: iri }]).get(iri) as string
+/** 好みの席が互いに違う IRI を n 個（決定論で探す）。 */
+function distinctSeatIris(n: number, prefix = 'k'): string[] {
+  const out: string[] = []
+  const seats = new Set<string>()
+  for (let i = 0; out.length < n && i < 10000; i++) {
+    const iri = `${prefix}${i}`
+    if (seats.has(seatOf(iri))) continue
+    seats.add(seatOf(iri))
+    out.push(iri)
+  }
+  return out
+}
+const kd = (iris: string[]) => iris.map((class_iri) => ({ class_iri }))
+
 describe('assignKindRoles', () => {
-  it('上位 8 種類に kind-0〜7、残りは rest。API の順のまま', () => {
+  it('先頭 8 種類に色、9 種類目から rest。8 種類以下なら全部違う色', () => {
     const kinds = Array.from({ length: 10 }, (_, i) => ({ class_iri: `k${i}` }))
     const roles = assignKindRoles(kinds)
-    expect(roles.get('k0')).toBe('kind-0')
-    expect(roles.get('k7')).toBe('kind-7')
+    const colors = kinds.slice(0, 8).map((k) => roles.get(k.class_iri))
+    expect(new Set(colors).size).toBe(8)
+    for (const c of colors) expect(c).toMatch(/^kind-[0-7]$/)
     expect(roles.get('k8')).toBe('rest')
     expect(roles.get('k9')).toBe('rest')
+    const few = assignKindRoles(kd(['a', 'b', 'c']))
+    expect(new Set(few.values()).size).toBe(3)
   })
   it('同じ入力で同じ割り当て（決定論）', () => {
     const kinds = [{ class_iri: 'b' }, { class_iri: 'a' }]
     expect([...assignKindRoles(kinds)]).toEqual([...assignKindRoles(kinds)])
-    expect(assignKindRoles(kinds).get('b')).toBe('kind-0')
+  })
+  it('席は順位でなくハッシュ: 1 位の種類が kind-0 とは限らず、好みの席と一致する', () => {
+    const firsts = new Set(
+      Array.from({ length: 30 }, (_, i) => assignKindRoles([{ class_iri: `x${i}` }]).get(`x${i}`)),
+    )
+    expect(firsts.size).toBeGreaterThan(1)
+    const iris = distinctSeatIris(3)
+    const roles = assignKindRoles(kd(iris))
+    iris.forEach((iri) => expect(roles.get(iri)).toBe(seatOf(iri)))
+  })
+  it('下位に種類が増えても、上位の種類の色は変わらない', () => {
+    const iris = Array.from({ length: 20 }, (_, i) => `u${i}`)
+    const before = assignKindRoles(kd(iris.slice(0, 5)))
+    const after = assignKindRoles(kd(iris))
+    for (const iri of iris.slice(0, 5)) expect(after.get(iri)).toBe(before.get(iri))
+  })
+  it('順位が違う 2 つの kinds でも、ぶつからない種類は同じ色（好みの席）', () => {
+    const [a, b, c, d] = distinctSeatIris(4)
+    const r1 = assignKindRoles(kd([a, b, c]))
+    const r2 = assignKindRoles(kd([d, c, b, a]))
+    for (const iri of [a, b, c]) expect(r1.get(iri)).toBe(r2.get(iri))
+    expect(r1.get(a)).toBe(seatOf(a))
+  })
+  it('好みの席がぶつかったら次の空き席', () => {
+    const iris = Array.from({ length: 12 }, (_, i) => `c${i}`)
+    const roles = assignKindRoles(kd(iris))
+    const used = iris.slice(0, 8).map((i) => roles.get(i))
+    expect(new Set(used).size).toBe(8)
+  })
+  it('重複する IRI は 1 つとして数える', () => {
+    const roles = assignKindRoles(kd(['a', 'a', 'b']))
+    expect(roles.size).toBe(2)
+    expect(roles.get('a')).toBe(seatOf('a'))
+  })
+})
+
+describe('focusedKindRoles', () => {
+  const iris = distinctSeatIris(5)
+  const kinds = kd(iris)
+  it('空なら既定と同じ', () => {
+    expect([...focusedKindRoles(kinds, new Set())]).toEqual([...assignKindRoles(kinds)])
+  })
+  it('選んだ種類だけ色が付き、ほかは Map に無い。色は既定と同じ', () => {
+    const roles = focusedKindRoles(kinds, new Set([iris[1], iris[3]]))
+    expect([...roles.keys()].sort()).toEqual([iris[1], iris[3]].sort())
+    expect(roles.get(iris[1])).toBe(assignKindRoles(kinds).get(iris[1]))
+    expect(roles.get(iris[3])).toBe(assignKindRoles(kinds).get(iris[3]))
+    expect(roles.get(iris[0])).toBeUndefined()
+  })
+})
+
+describe('nodeAppearance / edgeAppearance', () => {
+  const roles = new Map([['A', 'kind-1']])
+  const base = { roles, sel: null, isSel: false, isNear: false }
+  const focusA = new Set(['A'])
+  it('選びも絞り込みも無ければ全部普通', () => {
+    const ap = nodeAppearance({ ...base, nodeKind: 'entity', kindKey: 'B', focused: new Set() })
+    expect(ap).toMatchObject({ role: REST_ROLE, faded: false, hideLabel: false, zIndex: 0 })
+    expect(nodeAppearance({ ...base, nodeKind: 'entity', kindKey: 'A', focused: new Set() }).role).toBe('kind-1')
+  })
+  it('値・ハブは固定の役割で、絞り込みでも薄くならない', () => {
+    for (const [k, role] of [['value', 'value'], ['hub', 'hub']] as const) {
+      const ap = nodeAppearance({ ...base, nodeKind: k, kindKey: null, focused: focusA })
+      expect(ap.role).toBe(role)
+      expect(ap.faded).toBe(false)
+    }
+  })
+  it('絞り込みの外の件と束は薄く名前なし。中なら普通', () => {
+    for (const k of ['entity', 'bundle'] as const) {
+      expect(nodeAppearance({ ...base, nodeKind: k, kindKey: 'B', focused: focusA })).toMatchObject({
+        faded: true,
+        hideLabel: true,
+      })
+      expect(nodeAppearance({ ...base, nodeKind: k, kindKey: 'A', focused: focusA }).faded).toBe(false)
+    }
+  })
+  it('選んだ点とその相手は絞り込みの外でも薄くならない。ほかは薄い', () => {
+    const o = { ...base, nodeKind: 'entity' as const, kindKey: 'B', focused: focusA, sel: 's' }
+    expect(nodeAppearance({ ...o, isSel: true })).toMatchObject({ faded: false, forceLabel: true, highlighted: true, zIndex: 2 })
+    expect(nodeAppearance({ ...o, isNear: true })).toMatchObject({ faded: false, zIndex: 1 })
+    expect(nodeAppearance(o)).toMatchObject({ faded: true, hideLabel: true })
+  })
+  type End = { nodeKind: NetworkNodeKind; kindKey: string | null }
+  const inA: End = { nodeKind: 'entity', kindKey: 'A' }
+  const inB: End = { nodeKind: 'entity', kindKey: 'B' }
+  const val: End = { nodeKind: 'value', kindKey: null }
+  const e = (sel: string | null, s: End, t: End, focused: ReadonlySet<string>) =>
+    edgeAppearance({ sel, source: 's', target: 't', sourceNode: s, targetNode: t, focused })
+  it('線: 選びがあれば今まで通り、無ければ絞り込みの種類に触れない線を薄く', () => {
+    expect(e('s', inB, inB, focusA)).toMatchObject({ on: true, faded: false })
+    expect(e('x', inA, inA, focusA).faded).toBe(true)
+    expect(e(null, inB, val, focusA).faded).toBe(true)
+    expect(e(null, inA, val, focusA).faded).toBe(false)
+    expect(e(null, inB, inB, new Set()).faded).toBe(false)
+  })
+})
+
+describe('legendKindRows', () => {
+  const kinds = [
+    { class_iri: 'https://e.org/ns#StarCatalog', class_label: null, count: 3000 },
+    { class_iri: 'https://e.org/ns#Obs', class_label: '観測所', count: 12 },
+    { class_iri: 'https://e.org/ns#Obs', class_label: '観測所', count: 12 },
+  ]
+  it('順番・名前・件数・押した状態・重複なし', () => {
+    const rows = legendKindRows(kinds, assignKindRoles(kinds), new Set(['https://e.org/ns#Obs']))
+    expect(rows.map((r) => r.name)).toEqual(['Star Catalog', '観測所'])
+    expect(rows.map((r) => r.count)).toEqual([3000, 12])
+    expect(rows.map((r) => r.pressed)).toEqual([false, true])
+  })
+  it('絞り込み中は選ばれていない種類は灰', () => {
+    const f = new Set(['https://e.org/ns#Obs'])
+    const rows = legendKindRows(kinds, focusedKindRoles(kinds, f), f)
+    expect(rows[0].role).toBe(REST_ROLE)
+    expect(rows[1].role).toMatch(/^kind-/)
   })
 })
 
@@ -90,11 +227,12 @@ describe('buildNetworkGraph', () => {
     expect(g.size).toBe(6)
   })
   it('色の役割: 件は種類、値・ハブは固定、束は中身の種類', () => {
-    expect(g.getNodeAttribute('s1', 'role')).toBe('kind-0')
-    expect(g.getNodeAttribute('o1', 'role')).toBe('kind-1')
+    const roles = assignKindRoles(fixture().kinds)
+    expect(g.getNodeAttribute('s1', 'role')).toBe(roles.get(`${NS}Star`))
+    expect(g.getNodeAttribute('o1', 'role')).toBe(roles.get(`${NS}Obs`))
     expect(g.getNodeAttribute('v:region:north', 'role')).toBe('value')
     expect(g.getNodeAttribute('h1', 'role')).toBe('hub')
-    expect(g.getNodeAttribute('b1', 'role')).toBe('kind-0')
+    expect(g.getNodeAttribute('b1', 'role')).toBe(roles.get(`${NS}Star`))
   })
   it('大きさ: 役割ごとの範囲に収まる（件は小さく・値は中・束は大きく）', () => {
     const size = (id: string) => g.getNodeAttribute(id, 'size') as number
@@ -223,12 +361,14 @@ describe('kindDisplayName', () => {
 describe('上位構造の色の鍵・束の名前・壊れた名前', () => {
   it('group_iri があればそれで色を決める（上位の種類が同じなら同じ色）', () => {
     const roles = assignKindRoles([{ class_iri: `${NS}Upper` }])
-    expect(roleOf(node('a', { class_iri: `${NS}A`, group_iri: `${NS}Upper` }), roles)).toBe('kind-0')
-    expect(roleOf(node('b', { class_iri: `${NS}B`, group_iri: `${NS}Upper` }), roles)).toBe('kind-0')
+    const up = roles.get(`${NS}Upper`)
+    expect(up).toMatch(/^kind-/)
+    expect(roleOf(node('a', { class_iri: `${NS}A`, group_iri: `${NS}Upper` }), roles)).toBe(up)
+    expect(roleOf(node('b', { class_iri: `${NS}B`, group_iri: `${NS}Upper` }), roles)).toBe(up)
   })
   it('group_iri が無い古いサーバでは class_iri で塗る', () => {
     const roles = assignKindRoles([{ class_iri: `${NS}A` }])
-    expect(roleOf(node('a', { class_iri: `${NS}A` }), roles)).toBe('kind-0')
+    expect(roleOf(node('a', { class_iri: `${NS}A` }), roles)).toBe(roles.get(`${NS}A`))
   })
   it('束の名前は渡した作り方で組み立てる', () => {
     const resp = {
