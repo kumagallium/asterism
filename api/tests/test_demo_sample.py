@@ -2199,7 +2199,7 @@ def test_data_swap_a_failing_hub_rebuild_is_retried_next_boot(
     """つながりのハブの作り直しが失敗したら、印の pending に crosswalk が残って次の起動で
     やり直される。実物と同じ形: 内側の ``_rebuild_crosswalk_now`` が例外を出す（外側の
     ``_maybe_rebuild_crosswalk`` は例外を握りつぶすので、それを呼ぶと失敗が消える）。
-    1 つの観点が失敗しても、残りの観点は作り直す。"""
+    1 つのつながりが失敗しても、残りのつながりは作り直す。"""
     _ds, client = _old_store()
     dest = _write_swap_env(tmp_path)
     calls: list[str] = []
@@ -2230,7 +2230,7 @@ def test_data_swap_a_failing_hub_rebuild_is_retried_next_boot(
 def test_data_swap_without_a_participating_perspective_leaves_no_pending(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """見本が参加している観点が無ければ、ハブには何もしない（pending も残らない）。"""
+    """見本が参加しているつながりが無ければ、ハブには何もしない（pending も残らない）。"""
     _ds, client = _old_store()
     dest = _write_swap_env(tmp_path)
 

@@ -1055,6 +1055,17 @@ async def list_alignments(
                 "broken": broken,
             }
         )
+    # 端の表示名（rdfs:label・日本語優先・無ければ IRI の末尾）。一覧が内部の IRI の末尾
+    # （Record_50577d）を出すと、人には何の種類か読めなかった（実機 2026-10-09）。
+    if out:
+        from asterism import shared_vocab as _sv
+
+        labels = await _sv._display_labels(
+            client, [r["source"] for r in out] + [r["target"] for r in out]
+        )
+        for r in out:
+            r["source_label"] = labels.get(r["source"]) or _local_name(r["source"])
+            r["target_label"] = labels.get(r["target"]) or _local_name(r["target"])
     return out
 
 

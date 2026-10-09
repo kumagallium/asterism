@@ -1,4 +1,4 @@
-// ページの中で AI と会話しながら観点（グラフ）を作り・直し・聞く右ドロワー
+// ページの中で AI と会話しながら問い（グラフ）を作り・直し・聞く右ドロワー
 // （契約メモ contract_pr_f12.md §1）。見た目・開閉の流儀は
 // `consult/ConsultDrawer.tsx` に揃える（`pageChat.css` は Asterism 自身の
 // デザイントークンを使い、consult 側の CSS はコピーしない）。
@@ -7,7 +7,7 @@
 // ui-page）に完全に制御される: 自分の FAB や履歴一覧は持たない
 // （`open`/`onClose` の外部制御・`target` で開き方を指示される）。
 //
-// PR F18（contract_pr_f18.md §1.2）: 会話の単位を「観点（カード）ごと＋自由な
+// PR F18（contract_pr_f18.md §1.2）: 会話の単位を「問い（カード）ごと＋自由な
 // 質問」の複数本にする。見出しの下に会話の切り替え（`.pagechat-threads`）を
 // 持ち、`target` で「そのカードの会話」「特定の会話」「新しい会話」のどれを
 // 開くかを外から指示できる。提案の決着は、会話がカードに結びついているかで
@@ -78,7 +78,7 @@ const REASK_WAIT_MS = 15000
 // PR F18 §1.2（cards.json は ui-page 担当・統合段で追加される想定）。
 const THREAD_NEW_TEXT = '＋ 新しい会話'
 const THREAD_UNTITLED_TEXT = '新しい会話'
-const THREADS_VIEWPOINTS_TEXT = '観点'
+const THREADS_VIEWPOINTS_TEXT = '問い'
 const THREADS_QUESTIONS_TEXT = '質問'
 const FIX_INTRO_TEXT = '「{{title}}」を直します。どう変えますか？'
 const PROPOSAL_REPLACE_TEXT = '差し替える'
@@ -243,7 +243,7 @@ function renderOutcomeNote(decision: ProposalDecision | undefined, t: Translate)
 /** `target` の識別用カウンタを 1 つ進める（参照が変わったときだけ）。純関数。
  *  内容が同じ `target`（例: 2 回連続の `{kind:'new'}`）でも、呼び出し元が
  *  毎回新しいオブジェクトを渡す限り参照は変わる — 内容の文字列化だけを
- *  署名にすると区別が付かず、2 回目以降の「＋ 観点を足す」で前回（すでに
+ *  署名にすると区別が付かず、2 回目以降の「＋ 問いを足す」で前回（すでに
  *  カードへ結びついた）会話が開いたままになる。 */
 // eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（同上）
 export function nextTargetChangeCounter(
@@ -478,7 +478,7 @@ export function PageChatDrawer({
   // しない、が守れない相談だったので、既存の CardTile.tsx／SubjectPage.tsx
   // と同じくこちらへ倒した）。ユーザーが会話一覧から手で別の会話へ切り替えた
   // ぶんは、この組が変わらない限り上書きしない。
-  // 内容が同じ `target`（例: 2 回目以降の「＋ 観点を足す」はどちらも
+  // 内容が同じ `target`（例: 2 回目以降の「＋ 問いを足す」はどちらも
   // `{kind:'new'}`）でも、呼び出し元が渡すオブジェクトの参照が変わって
   // いれば別のクリックとして扱う — 内容の文字列化だけだと `kind:'new'` が
   // 何度クリックされても同じ署名になり、前回の会話（すでにカードへ結びついた
@@ -615,7 +615,7 @@ export function PageChatDrawer({
 
   if (!open) return null
 
-  // PR F18 §1.2: 会話の切り替え一覧（観点＝カードに結びついた会話・質問＝
+  // PR F18 §1.2: 会話の切り替え一覧（問い＝カードに結びついた会話・質問＝
   // その他）。`updatedAt` 降順は `pageChatThreadsFor` が保証する。
   const chatThreads = pageChatThreadsFor(subjKeys)
   const viewpointThreads = chatThreads.filter((th) => th.meta?.kind === 'viewpoint')
@@ -1039,8 +1039,8 @@ function ProposalPreview({
     <div className="pagechat-proposal">
       <p className="pagechat-proposal-title">
         {buttons.primary === 'replace'
-          ? t('pagechat.proposal_title_replace', { defaultValue: 'この観点に差し替えますか？' })
-          : t('pagechat.proposal_title', { defaultValue: 'この観点を足しますか？' })}
+          ? t('pagechat.proposal_title_replace', { defaultValue: 'この問いに差し替えますか？' })
+          : t('pagechat.proposal_title', { defaultValue: 'この問いを足しますか？' })}
       </p>
       {error && <p className="ds-empty-note">{t('render_error')}</p>}
       {!error && !ready && <p className="ds-empty-note">{t('page.loading')}</p>}

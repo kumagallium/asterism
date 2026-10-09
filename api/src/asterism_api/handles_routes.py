@@ -26,13 +26,13 @@ from __future__ import annotations
 import hmac
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from asterism_api import registry
-from asterism_api.handles import load_handles
+from asterism_api.handles import clean_handle, load_handles
 
 if TYPE_CHECKING:  # pragma: no cover - type-checking only, avoids a runtime cycle
     from asterism_api.main import Settings
@@ -45,6 +45,10 @@ class HandleItem(BaseModel):
 
     source: str
     column: str
+    # 出どころ（上位構造 ADR §2.5.3）。無い = 旧形式 = ``tick``。``fit`` は人が当てはめ提案の
+    # 「値でもつなぐ」で付けた ☑ で、``term`` に当てはめ先を残す。
+    via: Literal["tick", "fit"] | None = None
+    term: str | None = None
 
 
 class HandlesBody(BaseModel):
@@ -100,8 +104,15 @@ def register_handles(app: FastAPI, cfg: Settings) -> None:
         record = registry.load_dataset(cfg.registry_root, dataset_id)
         if record is None:
             raise HTTPException(404, "unknown dataset_id")
-        handles = [{"source": h.source, "column": h.column} for h in body.handles]
+        # via / term を落とさず通す。source / column が空の項目は load_handles と同じく無かった
+        # ことにする。
+        handles = [c for h in body.handles if (c := clean_handle(h.model_dump(exclude_none=True)))]
         payload = {"version": 1, "handles": handles}
-        dest = cfg.registry_root / dataset_id / "handles.json"
-        dest.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        # atomic（tmp → fsync → replace）。途中で落ちても半端な handles.json を残さない。
+        registry.write_artifact(
+            cfg.registry_root,
+            dataset_id,
+            "handles.json",
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
         return {"handles": handles}

@@ -27,7 +27,7 @@ export interface ShapeField {
   type?: string
   unit?: string
   /** 元ファイルの**実データの例**（1 つ）。「中身」タブは「何が入っているか」を
-   *  見に来る場所で、項目名と型だけでは中身は分からない — ④「つながりを選ぶ」で
+   *  見に来る場所で、項目名と型だけでは中身は分からない — ③「意味をつける」で
    *  実値を出したのと同じ理由（利用者要望・Phase 2）。 */
   example?: string
 }
@@ -61,7 +61,7 @@ function embedsKey(aVars: Set<string>, bVars: Set<string>): boolean {
   return bVars.size > 0 && bVars.size < aVars.size && [...bVars].every((v) => aVars.has(v))
 }
 
-/** ④「ID のつけかた」の形。線が引けるのは ID の入れ子だけで、種類どうしの
+/** ⑤「かたちをたしかめる」の形。線が引けるのは ID の入れ子だけで、種類どうしの
  *  本当のつながりは次の段で決まる — それは `pendingEdges` で点線として予告する。 */
 export function skeletonShape(
   skeleton: MappingSkeleton,

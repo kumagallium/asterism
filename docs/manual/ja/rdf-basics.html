@@ -44,7 +44,7 @@
 <p class="caption">IRI が同じなら同じもの、違えば違うもの。この一点だけで、別々の場所で作られたデータがあとから機械的につながる。</p>
 <p>IRI は 2 種類あります。</p>
 <div class="tablewrap"><table><thead><tr><th>種類</th><th>何につける名前</th><th>例</th></tr></thead><tbody><tr><td>実体（データ）の IRI</td><td>実際のもの 1 件ずつ</td><td><code>.../resource/使用量/カレー/にんじん</code></td></tr><tr><td>語彙（項目）の IRI</td><td>項目や種類そのもの</td><td><code>.../ontology#分量</code></td></tr></tbody></table></div>
-<p>Asterism が ID のつけかたを必ず人に確認するのは、この 1 件を指す部分をどの列から組み立てるかを決めるためです。ここを間違えると、別々のものが同じ名前になってしまい、あとから直すのが大変になります。</p>
+<p>Asterism が ID の作り方を必ず人に確認するのは、この 1 件を指す部分をどの列から組み立てるかを決めるためです。ここを間違えると、別々のものが同じ名前になってしまい、あとから直すのが大変になります。</p>
 <p>長い IRI を毎回書くのは大変なので、先頭部分に短い別名（<strong>接頭辞</strong>、prefix）を付けて <code>recipe:分量</code> のように略記します。ファイルの先頭に並ぶ <code>prefixes:</code> は、この対応表です。</p>
 <p><strong>スラッシュは区切りで、階層ではありません。</strong> <code>使用量/カレー/にんじん</code> は「使用量の下にカレーがある」という意味ではなく、ただの一意な文字列です。並べ方に決まりもないので、<code>カレー/使用量/にんじん</code> でも動きます。</p>
 <p>それでも<strong>種類の名前を先に置く</strong>のが慣習です。理由は 2 つあります。</p>
@@ -82,7 +82,7 @@
 <p>ここに決まった正解はありません。ただし実用的な指針が 1 つあります。<strong>その値自身が、何かを持つ必要があるか</strong>です。</p>
 <p>同じレシピ表でも、聞きたいことが違えば、種類にすべきものが変わります。</p>
 <div class="tablewrap"><table><thead><tr><th>聞きたいこと</th><th>種類にする</th><th>なぜ</th></tr></thead><tbody><tr><td>にんじんはどの店が安い？</td><td><strong>食材</strong></td><td>にんじん自身が価格を持つ必要がある</td></tr><tr><td>カレーの材料を全部</td><td><strong>料理</strong></td><td>カレー自身が材料を持つ必要がある</td></tr><tr><td>カレーのにんじんは何本？</td><td><strong>使用量</strong></td><td>料理と食材の組み合わせ自身が分量を持つ</td></tr></tbody></table></div>
-<p>かんたんモードの「つながりを選ぶ」の問い②「他のデータとつながる手がかりはどれ？」も、同じことを別の言い方にしたものです。画面は、他でも同じ表記で出てくる言葉や番号に ☑ を付けるよう案内します。これは、外の世界も同じ名前で呼ぶ値・後から何か言いたくなる値・2 つ以上の種類から参照したい値、とおおむね重なります。</p>
+<p>かんたんモードの「意味をつける」の「他のデータとつながる手がかりはどれ？」（列に ☑ を付ける問い）も、同じことを別の言い方にしたものです。画面は、他でも同じ表記で出てくる言葉や番号に ☑ を付けるよう案内します。これは、外の世界も同じ名前で呼ぶ値・後から何か言いたくなる値・2 つ以上の種類から参照したい値、とおおむね重なります。</p>
 <p>そして<strong>迷ったら種類にしてください</strong>。余分な種類はあとで消せますが、足りない種類は設計をやり直さないと足せず、公開したあとは動かせません。判断が非対称なので、多いほうに倒すのが安全です。</p>
 <h2 id="同じ項目を-2-か所に書きたくなったら">同じ項目を 2 か所に書きたくなったら</h2>
 <p>種類を増やすと「この項目は両方に要るのでは」と感じることがあります。ほとんどは次の 3 つに分かれ、<strong>うち 2 つは書かずに済みます</strong>。</p>
@@ -135,7 +135,7 @@ ORDER BY DESC(?分量)</code></pre>
 <p>メニューの「ことば」に並ぶ一覧は、<strong>公開済みの事実から逆算</strong>して作られます（実際に使われている種類と項目を数える）。だから定義を書かなくても動く一方、「この種類は、あの種類の一種である」といった<strong>用語どうしの関係は、書いて公開しないかぎり質問には効きません</strong>。</p>
 <h2 id="画面の言葉との対応">画面の言葉との対応</h2>
 <p>Asterism はこれらの用語を、なるべくやさしい言葉に置き換えて表示しています。文献や他のツールを読むときのために、対応を挙げておきます。</p>
-<div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>料理・食材などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID のつけかた</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>ことば</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>料理・食材などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID の作り方</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>ことば</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
 <h2 id="関連">関連</h2>
 <ul><li>各ファイルが何をしているかは <a href="./dataset-files.html">dataset-files.md</a> を参照してください。</li><li>語彙を標準に合わせる話は<a href="./vocab-and-grounding.html">vocab-and-grounding.md</a> を参照してください。</li><li>データどうしをつなぐ話は <a href="./crosswalk.html">crosswalk.md</a> を参照してください。</li></ul>
 <footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>

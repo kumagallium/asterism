@@ -1,3 +1,4 @@
+import { knownVocabForIri, localName as _localName } from './vocab'
 // 「ことば」画面の純関数（ADR upper-structure-shared-terms.md §2.1・§2.3・§2.5.1）。
 // 描画から切り離してあるので、既定の問い・標準語を先に出す分岐・孤立の判定・hash の読み書きを
 // vitest でそのまま固定できる。LLM は使わない（すべて決定論）。
@@ -202,4 +203,15 @@ export function cqTitleMap(terms: SharedTerm[]): Record<string, string> {
 /** 線の問いの見せ方。題が引ければ題、引けなければ tool_name のまま。 */
 export function cqLabel(titles: Record<string, string> | undefined, toolName: string): string {
   return titles?.[toolName] || toolName
+}
+
+/** 線の端の名前。標準の語は語彙の接頭辞つき（`qudt:hasUnit`）、それ以外は表示名（サーバが
+ *  返す rdfs:label）、無ければ IRI の末尾。内部の IRI の末尾（`Record_50577d`）だけでは、
+ *  何の種類か読めなかった（実機 2026-10-09）。 */
+export function endLabel(iri: string, kind?: string, label?: string): string {
+  if (kind === 'standard') {
+    const v = knownVocabForIri(iri)
+    if (v) return `${v.prefix}${_localName(iri)}`
+  }
+  return (label ?? '').trim() || _localName(iri)
 }

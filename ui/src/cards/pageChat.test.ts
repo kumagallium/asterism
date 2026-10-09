@@ -457,7 +457,7 @@ describe('resolveChatTarget', () => {
 })
 
 describe('nextTargetChangeCounter', () => {
-  it('内容が同じ target でも、参照が違えば数え上げる（2 回目以降の「＋ 観点を足す」の再現）', () => {
+  it('内容が同じ target でも、参照が違えば数え上げる（2 回目以降の「＋ 問いを足す」の再現）', () => {
     const first: PageChatTarget = { kind: 'new' }
     const second: PageChatTarget = { kind: 'new' }
     const afterFirst = nextTargetChangeCounter(undefined, first, 0)

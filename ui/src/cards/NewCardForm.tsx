@@ -232,7 +232,7 @@ export function NewCardForm({ subject, subjectKey, datasetId, onCancel, onCreate
   return (
     <div className={embedded ? 'cardpage-setform newcard-form newcard-form--embedded' : 'cardpage-setform newcard-form'}>
       {/* 契約メモ contract_pr_f9.md §1 決定 5・§5 実装順(4): フォームの先頭に
-          「この種類の観点として足す」ことを 1 行で示す。ドロワーに埋め込む
+          「この種類の問いとして足す」ことを 1 行で示す。ドロワーに埋め込む
           ときは、ドロワー側の案内文と重複するので省く（PR F12 §1-4）。 */}
       {!embedded && <p className="newcard-lead">{t('newcard.lead')}</p>}
       <div className="newcard-step">

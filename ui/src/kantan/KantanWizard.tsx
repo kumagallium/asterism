@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { shouldAutoFix } from './autoFix'
 import { useTranslation } from 'react-i18next'
 import {
@@ -8,6 +8,10 @@ import {
   clearStagingReshape,
   fetchDraftStats,
   fetchDatasetHandles,
+  fetchDatasetQuestions,
+  fetchDatasetUpper,
+  saveDatasetQuestions,
+  saveDatasetHandles,
   generateColumnMeanings,
   fetchPublishedNames,
   fetchTrialQueries,
@@ -46,10 +50,13 @@ import {
   type RethinkRequest,
   type SkeletonAnnotations,
   type SkeletonResult,
+  type UpperQuestionsReport,
   type SourceDialect,
   type TrialDetail,
   type PublishedNames,
+  type QuestionDraft,
   type TrialQueries,
+  type UpperItem,
 } from '../api'
 import {
   advisoryLabel,
@@ -132,9 +139,30 @@ import { termColumns, templateColumns, transcribedColumn } from '../ruleColumns'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
+import { FitSuggestion } from './FitSuggestion'
+import { type KindFitPick, itemFitsToUpper, picksToUpper, upperToPicks } from './kindFit'
+import { QuestionBuilder } from './QuestionBuilder'
+import { publishWriteCounts } from './questions'
+import { listTerms } from '../vocabApi'
+import {
+  canTick,
+  effectiveNumber,
+  handlesChanged,
+  hydratedChecks,
+  judgments,
+  linkableOf,
+  numberCandidates,
+  numberStepMode,
+  sourcesMissingNumber,
+  sourcesOf,
+  tickedHandles,
+  withoutKey,
+  type JudgmentState,
+} from './judgments'
 import { ReshapeGate } from './ReshapeGate'
 import { namesToPublish } from './publishedNames'
 import { PublishedNamesNotice } from './PublishedNamesNotice'
+import { UpperQuestionsResult } from './UpperQuestionsResult'
 import { tryWording } from './tryWording'
 import {
   docsLabel,
@@ -152,13 +180,16 @@ import { requestConsult } from '../consult/consultOpen'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
-// uses: drop files → auto inspect → two "only you know this" questions →
-// staged skeleton propose → the human data-counting gate (S4, human gate ①) →
-// continue → S5 auto chain (save → source persist → DRAFT ingest, no approval
-// button by design — ADR K3) → S6 column-meaning review (human gate ②) →
-// S7 auto try-it-out queries (K9 — run, never offered as a button) →
-// S8 publish (rename + word summary + promote in ONE screen, human gate ③ —
-// K10) → S9 done (Ask-prefill question chips + the grow-your-dataset exits).
+// uses, in seven recipe steps (RecipeCard):
+//   ① put data in → ② AI reads it → ③ give meanings (S10: what each column
+//   means, and the ☑ "links to other data" — ADR upper-structure-shared-terms
+//   §2.5.2) → ④ pick the number (S11: only when a file has 2+ candidates;
+//   with 1 or 0 it is folded and ③ goes straight to the assemble) → ⑤ confirm
+//   the shape (S4 gate; S5 is the auto chain behind "continue": save → source
+//   persist → DRAFT ingest, no approval button by design — ADR K3) → ⑥ try it
+//   (S7 auto queries — K9, run, never offered as a button) → ⑦ publish (S8
+//   rename + word summary + promote in ONE screen — K10; S9 done: Ask-prefill
+//   question chips + the grow-your-dataset exits).
 // No jargon may appear in this layer (no RML/IRI/namespace/canonical wording).
 
 // Storage keys shared with the detail tier (WorkbenchView.tsx). Duplicated by
@@ -1118,9 +1149,14 @@ export function KantanWizard({
     snap.columnMeanings ?? [],
   )
   const [excludedColumns, setExcludedColumns] = useState<string[]>(snap.excludedColumns ?? [])
-  // ④「外とのつながり」(ADR skeleton-from-easy-judgments): ☑ した (source,column)
-  // と、名指し（この表 1 枚を名指す値）。ここが骨格の唯一の人間入力になる。
+  // 骨格の人間入力は 2 つ（ADR skeleton-from-easy-judgments・upper-structure-
+  // shared-terms §2.5.2）: ③で ☑ した (source,column)（linkChecked）と、④で選ぶ
+  // 名指し（この表 1 枚を名指す番号 — linkKeyPick）。2 つから骨格の受け口と
+  // handles.json を作る算出元は judgments.ts の 1 か所。
   const [linkChecked, setLinkChecked] = useState<Set<string>>(new Set())
+  // ☑ のうち「値でもつなぐ」（当てはめ提案）で付けたもの: 鍵 → 当てはめ先の語。
+  // handles.json の via:"fit"・term になる。ここに無い ☑ は via:"tick"。
+  const [linkFitTerms, setLinkFitTerms] = useState<Record<string, string>>({})
   const [linkKeyPick, setLinkKeyPick] = useState<Record<string, string>>({})
   // 見直し（redesign）で開き直したとき、既存の ☑ handles.json を linkChecked
   // に読み戻せたか（F15 契約メモ §1.1）。読み戻す前 / 読み戻しに失敗したまま
@@ -1128,6 +1164,15 @@ export function KantanWizard({
   // 送られ既存の ☑ を消してしまう — その事故を避けるための帳簿。
   const [linkTouched, setLinkTouched] = useState(false)
   const linkHandlesHydratedFor = useRef<string | null>(null)
+  // ⑤ 種類の当てはめ提案（ADR upper-structure-shared-terms §2.5.3）。受けた当てはめは
+  // `upper.json` に入り、線になるのは公開のときだけ。人が受けた・外したものだけを
+  // `kindPicks`（map 名 → 当てはめ。null = 外した）に持ち、見直しでは保管済みの
+  // `upperBase`（GET /upper）に重ねる。`upperBase` が null は「まだ読めていない」で、
+  // 送るときに読み直す（読めなければ省略 = サーバが既存を保つ）。機械は書かない。
+  const [kindPicks, setKindPicks] = useState<Record<string, KindFitPick | null>>({})
+  const [upperBase, setUpperBase] = useState<UpperItem[] | null>(null)
+  const [upperLabels, setUpperLabels] = useState<Record<string, string>>({})
+  const [upperTouched, setUpperTouched] = useState(false)
   const redesignOpenedDatasetIdRef = useRef<string | null>(null)
   const [assembleBusy, setAssembleBusy] = useState(false)
   const [assembleErr, setAssembleErr] = useState('')
@@ -1322,10 +1367,22 @@ export function KantanWizard({
   const [keptExclusions, setKeptExclusions] = useState<KeptExclusion[]>([])
   const [trialLoading, setTrialLoading] = useState(false)
   const [trialErr, setTrialErr] = useState('')
+  // ⑥「自分の問い」の下書き（questions.json）。足す・消すたびに保管庫へ置き換えで
+  // 保存する（宣言ツールにするのは公開のとき）。
+  const [ownQuestions, setOwnQuestions] = useState<QuestionDraft[]>([])
+  // ⑦ 公開ダイアログの「線 N 本・問い M 件を書きます」の材料（読めなければ出さない）。
+  const [pendingUpper, setPendingUpper] = useState<UpperItem[]>([])
+  const [publishQuestions, setPublishQuestions] = useState<QuestionDraft[]>([])
   // 見直しの「ためす」: 保存した名前のうち、公開側にまだ出ていないもの。意味だけを
   // 直した見直しは下書きを作らないので、名前を公開側へ出す入口をここに置く
   // （PublishedNamesNotice）。`namesDone` は直前に公開した件数。
   const [pubNames, setPubNames] = useState<PublishedNames | null>(null)
+  // 直前の公開（promote／名前だけの公開）が線と問いを書いた結果（応答の upper_questions）。
+  // 書けなかった線の理由・検査で落ちた問いを、名前だけの公開の知らせと⑨の完了に出す。
+  const [publishReport, setPublishReport] = useState<UpperQuestionsReport | null>(null)
+  // 自分の問い（questions.json）の読み書きの世代。読み込みの応答が届くより先に保存が
+  // 走ったら、古い読み込みで保存済みの問いを上書きしない。
+  const questionsSeq = useRef(0)
   const [namesBusy, setNamesBusy] = useState(false)
   const [namesDone, setNamesDone] = useState<number | null>(null)
   const [namesErr, setNamesErr] = useState('')
@@ -1389,13 +1446,18 @@ export function KantanWizard({
       (redesignTarget.advisories ?? []).filter((advisory) => !isMeaningReviewAdvisory(advisory)),
     )
     setKeptExclusions(keptExclusionsOf(redesignTarget.advisories ?? []))
-    // ④の ☑（linkChecked）は、この見直しぶんを読み戻すまで「まだ分からない」
+    // ③の ☑（linkChecked）は、この見直しぶんを読み戻すまで「まだ分からない」
     // 扱いにする（F15 契約メモ §1.1 — 見直しで ☑ を消さないため）。
     setLinkChecked(new Set())
+    setLinkFitTerms({})
     setLinkTouched(false)
     linkHandlesHydratedFor.current = null
+    setKindPicks({})
+    setUpperBase(null)
+    setUpperTouched(false)
     redesignOpenedDatasetIdRef.current = redesignTarget.datasetId
     void hydrateLinkedHandles(redesignTarget.datasetId)
+    void hydrateUpper(redesignTarget.datasetId)
     // 見直しは「意味から」入る。順序が意味 → ID になった以上、戻ってくる場所も
     // その先頭でなければ、読む順と直す順が食い違う（ADR meaning-before-identity）。
     setStep(10)
@@ -3047,7 +3109,7 @@ export function KantanWizard({
   }
 
   /** 見直し（redesign）でウィザードを開いたとき、既存の ☑ handles.json を
-   *  linkChecked に読み戻す（F15 契約メモ §1.1）。取得できなくても致命的
+   *  ③の ☑（linkChecked・linkFitTerms）に読み戻す（F15 契約メモ §1.1）。取得できなくても致命的
    *  ではない — materialize 側が handles を省略してサーバの「既存を引き継ぐ」
    *  経路に委ねる（下記 runAssemble）。 */
   async function hydrateLinkedHandles(datasetId: string) {
@@ -3055,12 +3117,48 @@ export function KantanWizard({
       const handles = await fetchDatasetHandles(datasetId)
       // 読み込み中に別のデータセットへ切り替わっていたら捨てる。
       if (redesignOpenedDatasetIdRef.current !== datasetId) return
-      setLinkChecked(new Set(handles.map((h) => meaningKey(h.source, h.column))))
+      const back = hydratedChecks(handles)
+      setLinkChecked(back.checked)
+      setLinkFitTerms(back.fitTerms)
       linkHandlesHydratedFor.current = datasetId
     } catch {
       // 読めなかった場合は linkHandlesHydratedFor を立てない — 送信側が
       // 「まだ読めていない」とみなして handles を省略する。
     }
+  }
+
+  /** 見直しで開いたとき、保管済みの当てはめ（upper.json）を読み戻す。⑤の提案に「受けた」
+   *  と出すためと、送るときに項目の当てはめを落とさないため。読めなくても致命的ではない —
+   *  送るときにもう一度読み、それでも読めなければ upper を省略する（既存を保つ）。 */
+  async function hydrateUpper(datasetId: string) {
+    try {
+      const [items, terms] = await Promise.all([
+        fetchDatasetUpper(datasetId),
+        listTerms().catch(() => []),
+      ])
+      if (redesignOpenedDatasetIdRef.current !== datasetId) return
+      setUpperLabels(Object.fromEntries(terms.map((term) => [term.iri, term.label])))
+      setUpperBase(items)
+    } catch {
+      /* upperBase は null のまま */
+    }
+  }
+
+  /** ⑤に出す・送る、種類ごとの当てはめ（保管済み + 人がこの回で受けた／外したもの）。 */
+  function currentKindFits(sk: MappingSkeleton, base: UpperItem[] | null) {
+    const labelOf = (iri: string) => upperLabels[iri] ?? humanizeLocal(localName(iri))
+    const stored = upperToPicks(base ?? [], sk, labelOf)
+    const picks: Record<string, KindFitPick> = { ...stored.picks }
+    for (const [name, pick] of Object.entries(kindPicks)) {
+      if (pick) picks[name] = pick
+      else delete picks[name]
+    }
+    return { picks, other: stored.other }
+  }
+
+  function onKindFit(mapName: string, pick: KindFitPick | null) {
+    setKindPicks((prev) => ({ ...prev, [mapName]: pick }))
+    setUpperTouched(true)
   }
 
   function meaningFor(source: string, column: string): ColumnMeaning | undefined {
@@ -3083,6 +3181,8 @@ export function KantanWizard({
    *  column is always something the person did on purpose (ADR §9). */
   function toggleColumnKept(source: string, column: string) {
     const key = meaningKey(source, column)
+    // 当てはめを受けた列を外す／戻すと、upper の項目の当てはめが変わる。
+    if (meaningFor(source, column)?.fit) setUpperTouched(true)
     setExcludedColumns((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
     )
@@ -3163,12 +3263,71 @@ export function KantanWizard({
         ).length
       : 0
 
-  /** The reader is done naming columns → ④「外とのつながり」へ。骨格の生成は
-   *  もう LLM の仕事ではない（ADR skeleton-from-easy-judgments D5）: ④の ☑ と
-   *  検査の事実から runAssemble が決定論で組み立てる。 */
+  /** 骨格の受け口と handles の算出元（judgments.ts）に渡す、いまの画面の事実。 */
+  function judgmentState(): JudgmentState {
+    return {
+      rows: meaningRows(),
+      excluded: excludedColumns,
+      keyPick: linkKeyPick,
+      checked: linkChecked,
+    }
+  }
+
+  /** The reader is done naming columns / ticking links → ④「番号を選ぶ」へ。
+   *  骨格の生成はもう LLM の仕事ではない（ADR skeleton-from-easy-judgments D5）:
+   *  ③の ☑・④の番号と検査の事実から runAssemble が決定論で組み立てる。
+   *  番号の候補が 2 つ未満のファイルしか無いとき④は畳まれている（選ぶ余地が無い）—
+   *  ③が④の役を引き継いで、その場で組み立てる（ADR upper-structure-shared-terms
+   *  §2.5.2）。 */
   function onMeaningsSettled() {
     setAssembleErr('')
-    setStep(11)
+    const state = judgmentState()
+    if (numberStepMode(state.rows, state.excluded) === 'ask') {
+      setStep(11)
+      return
+    }
+    void runAssemble()
+  }
+
+  /** ③の ☑ を動かす。人が自分で動かした印（K48 — 見直しで既存の ☑ を空で上書きしない
+   *  ための帳簿）を立てる。「値でもつなぐ」の出どころは、手で動かしたら外す
+   *  （手で付け直した ☑ は via:"tick"）。 */
+  function toggleLinkTick(key: string) {
+    setLinkTouched(true)
+    const off = linkChecked.has(key)
+    setLinkChecked((prev) => {
+      const next = new Set(prev)
+      if (off) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    setLinkFitTerms((prev) => withoutKey(prev, key))
+  }
+
+  /** 当てはめ提案の「値でもつなぐ」— 人が押したときだけ ☑ を付け、出どころ
+   *  （via:"fit"・当てはめ先の語）を記録する。 */
+  function tickViaFit(source: string, column: string, term: string) {
+    const key = meaningKey(source, column)
+    setLinkTouched(true)
+    setLinkChecked((prev) => new Set(prev).add(key))
+    setLinkFitTerms((prev) => ({ ...prev, [key]: term }))
+  }
+
+  /** 項目の当てはめ（③の「同じ項目として結ぶ」）を受ける・外す。upper.json の
+   *  `property:<map>/<列>` の項目になる（骨格ができたあと materialize で重ねる）ので、
+   *  動かしたら upper を「人が触った」印にする（外した当てはめが保管済みから消える）。 */
+  function setItemFit(source: string, column: string, fit: ColumnMeaning['fit']) {
+    setMeaning(source, column, { fit })
+    setUpperTouched(true)
+  }
+
+  /** 意味の欄を書き換える。意味が変われば、受けた当てはめ（fit）と「値でもつなぐ」の
+   *  出どころは前の意味に対するものなので外す（☑ は人が付けたまま残す）。 */
+  function editMeaningLabel(source: string, column: string, label: string) {
+    const hadFit = !!meaningFor(source, column)?.fit
+    if (hadFit) setUpperTouched(true)
+    setMeaning(source, column, hadFit ? { label, fit: null } : { label })
+    setLinkFitTerms((prev) => withoutKey(prev, meaningKey(source, column)))
   }
 
   /** ④の答えから骨格を組み立てる（決定論・ジョブなし・数秒）。 */
@@ -3180,37 +3339,12 @@ export function KantanWizard({
         const at = key.indexOf('\u0000')
         return { source: key.slice(0, at), column: key.slice(at + 1) }
       }
-      // K47: ①（この 1 件を名指す番号）は他からこの 1 件を指す手がかりでも
-      // あるので、②で ☑ していなくても linkable に必ず含める（重複除去）。
-      // 候補が 1 つしかないソース（選ぶ余地が無く①に radio を出していない）も
-      // 同じ扱い — UI で ☑ 済み・外せないと見せている列と実際に送る内容を
-      // 一致させる。
-      const isMeasurementForAssemble = (examples: string[]) => {
-        const vals = examples.filter((e) => e.trim() !== '')
-        return (
-          vals.length > 0 &&
-          vals.every((e) => Number.isFinite(Number(e))) &&
-          vals.some((e) => /[.eE]/.test(e))
-        )
-      }
-      const linkableKeys = new Set(linkChecked)
-      for (const source of new Set(meaningRows().map((r) => r.source))) {
-        const picked = linkKeyPick[source]
-        if (picked) {
-          linkableKeys.add(meaningKey(source, picked))
-          continue
-        }
-        const soleCandidates = meaningRows().filter(
-          (r) =>
-            r.source === source &&
-            r.origin === 'preamble' &&
-            !excludedColumns.includes(meaningKey(r.source, r.column)) &&
-            !isMeasurementForAssemble(r.examples),
-        )
-        if (soleCandidates.length === 1) {
-          linkableKeys.add(meaningKey(source, soleCandidates[0].column))
-        }
-      }
+      // 骨格の受け口 = ③の ☑ ∪ ④の番号（算出元は judgments.ts の 1 か所）。K47:
+      // 番号（この 1 件を名指す値）は他からこの 1 件を指す手がかりでもあるので、
+      // ☑ していなくても必ず含める。候補が 1 つしかないファイル（選ぶ余地が無く
+      // ④を畳んだもの）も同じ扱い — UI で ☑ 済み・外せないと見せている列と実際に
+      // 送る内容を一致させる。
+      const linkableKeys = linkableOf(judgments(judgmentState()))
       // 契約メモ a・R2/R3: ☑ した列から作る種類の表示名は、S3 で決めた列の
       // 意味をそのまま渡す（無ければサーバが列名そのものを既定にする）。
       const labels = [...linkableKeys]
@@ -3232,7 +3366,12 @@ export function KantanWizard({
       )
       const result = await assembleSkeleton(files, {
         linkable: [...linkableKeys].map(pair),
-        cardKeys: linkKeyPick,
+        // 取り込まない列を名指しの番号として送らない（effectiveNumber と同じ規則）。
+        cardKeys: Object.fromEntries(
+          Object.entries(linkKeyPick).filter(
+            ([source, column]) => !excludedColumns.includes(meaningKey(source, column)),
+          ),
+        ),
         excluded: excludedColumns.map(pair),
         datasetName: kzDatasetName ?? undefined,
         dialects: dialectOverrides,
@@ -3257,6 +3396,20 @@ export function KantanWizard({
    *  catalog) once a design exists — it returns to ためす.
    *  Saving is deterministic — the meaning is projected onto §9 and the
    *  artifacts are re-derived; no model runs and the design is not rebuilt. */
+  /** 設計後の見直しでも、③の ☑ の変更を handles.json に保存する（保管庫を読み戻し、
+   *  変わっていれば PUT。変わっていなければ送らない）。読み戻せていない見直しで、人も
+   *  ☑ に触っていないなら、空の state で既存の ☑ を消さないよう送らない。 */
+  async function saveLinkTicks(datasetId: string) {
+    const unhydrated =
+      redesignOpenedDatasetIdRef.current === datasetId &&
+      linkHandlesHydratedFor.current !== datasetId &&
+      !linkTouched
+    if (unhydrated) return
+    const next = tickedHandles(judgments(judgmentState()).ticked, linkFitTerms)
+    const stored = await fetchDatasetHandles(datasetId)
+    if (handlesChanged(stored, next)) await saveDatasetHandles(datasetId, next)
+  }
+
   async function saveMeaningsAndReturn() {
     const datasetId = kzDatasetId
     if (!datasetId) return
@@ -3271,6 +3424,7 @@ export function KantanWizard({
     try {
       await saveColumnMeanings(datasetId, settledMeanings)
       settled({ meanings: settledMeanings })
+      await saveLinkTicks(datasetId)
       const drops = excludedDecisions()
       // 保管庫では「取り込まない」なのに、この画面ではもう外れていない列 = 人が
       // 「取り込む」に戻した列。取り下げないと保管庫に残り、次に開くと「取り
@@ -3641,18 +3795,18 @@ export function KantanWizard({
         // A draft the user can recognise in the catalog list: the literal name
         // "dataset" made every abandoned run indistinguishable (KZ-A-28).
         const draftName = kzDatasetName ?? defaultDraftName(fs)
-        // ☑「他のデータとつながる手がかり」(linkChecked) の (source, column) — F15:
-        // 公開時に機械が値の重なりを探してハブへつなぐための材料。key の形は
-        // runAssemble の pair と同じ（"\0" 区切りの source/column）。
-        // ここに入れるのは人が②で自分で付けた ☑ だけ — ①の番号（画面では
-        // ☑ 済み・外せない）は runAssemble の linkable には入るが、自動でつなぐ
-        // 材料にはしない（ADR meaning-before-identity §11・K48 との関係）。
-        const linkedHandles: MaterializeHandle[] = [...linkChecked].map((key) => {
-          const at = key.indexOf('\u0000')
-          return { source: key.slice(0, at), column: key.slice(at + 1) }
-        })
+        // ③の ☑「他のデータとつながる手がかり」の (source, column) — F15:
+        // 公開時に機械が値の重なりを探してハブへつなぐための材料。算出元は
+        // judgments.ts（骨格の受け口と同じ 1 か所）。ここに入れるのは人が③で自分で
+        // 付けた ☑ だけ — ④の番号（画面では ☑ 済み・外せない）は linkable には入る
+        // が、自動でつなぐ材料にはしない（ADR meaning-before-identity §11・K48）。
+        // 「値でもつなぐ」で付けた ☑ は via:"fit"・term を添える。
+        const linkedHandles: MaterializeHandle[] = tickedHandles(
+          judgments(judgmentState()).ticked,
+          linkFitTerms,
+        )
         // 見直し（redesign）で開いたのと同じデータセットに対し、既存の ☑ を
-        // まだ読み戻せておらず（GET 未完了・失敗）、かつ人もこの回では ☑ に
+        // まだ③に読み戻せておらず（GET 未完了・失敗）、かつ人もこの回では ☑ に
         // 触っていないなら、handles を省略してサーバの「既存を引き継ぐ」経路
         // （契約メモ §1.1）に譲る — 空配列を「新しい値」として送って既存の
         // ☑ を消してしまわないように。
@@ -3675,6 +3829,28 @@ export function KantanWizard({
           columnMeanings: settledMeanings,
           columnDecisions: excludedDecisions(),
         }
+        // ⑤で受けた種類の当てはめ（upper.json）。人が受けた・外したときだけ送る — 触って
+        // いなければ省略して、サーバに既存を保たせる。見直しで保管済みをまだ読めて
+        // いないなら、ここで読み直して重ねる（読めなければ省略 = 既存を保つ）。線を書くのは
+        // 公開のときだけで、ここでは書かない。
+        // ③で受けた項目の当てはめ（ColumnMeaning.fit）は `property:<map>/<列>` の項目として
+        // ここで重ねる（骨格ができてはじめて map 名が決まる）。③の意味を読めていない
+        // （空）ときは項目の当てはめは分からない — 保管済みを触らない（null）。
+        const itemFits =
+          skeleton && settledMeanings.length > 0
+            ? itemFitsToUpper(settledMeanings, excludedColumns, skeleton)
+            : null
+        let upper: UpperItem[] | undefined
+        if ((upperTouched || (itemFits?.length ?? 0) > 0) && skeleton) {
+          let base = upperBase
+          if (base === null && datasetId) {
+            base = await fetchDatasetUpper(datasetId).catch(() => null)
+          }
+          if (base !== null || !datasetId) {
+            const fits = currentKindFits(skeleton, base)
+            upper = picksToUpper(fits.picks, skeleton, fits.other, itemFits)
+          }
+        }
         try {
           try {
             result = await materializeSchema(
@@ -3684,6 +3860,7 @@ export function KantanWizard({
               stagingId,
               handles,
               settled,
+              upper,
             )
           } catch (e) {
             // The adopted record vanished (deleted in the catalog meanwhile) —
@@ -3700,6 +3877,7 @@ export function KantanWizard({
               stagingId,
               handles,
               settled,
+              upper,
             )
           }
         } catch (e) {
@@ -4052,6 +4230,26 @@ export function KantanWizard({
     setPubNames(null)
     setNamesDone(null)
     setNamesErr('')
+    setPublishReport(null)
+    // 自分の問いは補助。読めなくても「ためす」は止めない（空として扱う）。
+    // 応答が届いたとき、別のデータセットに移っていたり、その間に保存が走っていたら捨てる。
+    const seq = ++questionsSeq.current
+    const current = () => kzDatasetIdRef.current === datasetId && questionsSeq.current === seq
+    void fetchDatasetQuestions(datasetId)
+      .then((questions) => {
+        if (current()) setOwnQuestions(questions)
+      })
+      .catch(() => {
+        if (current()) setOwnQuestions([])
+      })
+    // 公開に書く線（未消費のもの）。名前だけの公開の入口（見直し）が件数を出すのに使う。
+    void fetchDatasetUpper(datasetId)
+      .then((items) => {
+        if (kzDatasetIdRef.current === datasetId) setPendingUpper(items)
+      })
+      .catch(() => {
+        if (kzDatasetIdRef.current === datasetId) setPendingUpper([])
+      })
     try {
       const got = await fetchTrialQueries(datasetId)
       setTrial(got)
@@ -4069,6 +4267,27 @@ export function KantanWizard({
     }
   }
 
+  /** ⑥ 自分の問いの下書きを置き換えで保存する。サーバが検査して返した形（lint_error 付き）を
+   *  採る。失敗は投げる（QuestionBuilder が画面に出す）。 */
+  async function saveOwnQuestions(next: QuestionDraft[]) {
+    const datasetId = kzDatasetId
+    if (!datasetId) throw new Error('no dataset')
+    // 保存が始まったら、これより前に始まった読み込みの応答は古い。
+    questionsSeq.current += 1
+    const saved = await saveDatasetQuestions(datasetId, next)
+    // 保存の応答を待つあいだに別のデータセットへ移っていたら、画面には載せない。
+    if (kzDatasetIdRef.current !== datasetId) return
+    setOwnQuestions(saved)
+    // 問いが変わったので、前の公開の結果はもう今の状態を言わない（また書ける）。
+    setPublishReport(null)
+  }
+
+  /** 走らせた問いの答え 1 件。自動の問いと同じ文に整える（題は呼び出し側が出す）。 */
+  function ownAnswerOf(res: TrialQueries) {
+    const qa = buildTrialQAs(res)[0]
+    return qa ? { a: qa.a, sparql: qa.sparql } : null
+  }
+
   /** 名前だけを公開側へ出す（取り込み直さない）。押す前に、何が変わるかは
    *  PublishedNamesNotice が 1 件ずつ見せている。 */
   async function runPublishNames() {
@@ -4080,6 +4299,14 @@ export function KantanWizard({
       const res = await publishDatasetNames(datasetId)
       // 0 件（押す前に揃っていた）は「更新しました」と言わない — 知らせが消えるだけ。
       setNamesDone(res.updated > 0 ? res.updated : null)
+      // 線と問いを書いた結果。応答に無い（古いサーバ）ときも、書いたものとして件数の行は畳む。
+      setPublishReport(res.upper_questions ?? {})
+      // 書いた線は消費済みになる — 件数を読み直す（読めなくても致命的ではない）。
+      void fetchDatasetUpper(datasetId)
+        .then((items) => {
+          if (kzDatasetIdRef.current === datasetId) setPendingUpper(items)
+        })
+        .catch(() => undefined)
       // 書けたかどうかは、もう一度見くらべて確かめる（残っていれば、また出る）。
       setPubNames(await fetchPublishedNames(datasetId).catch(() => null))
     } catch (e) {
@@ -4306,6 +4533,16 @@ export function KantanWizard({
     ])
     if (s) setStats(s)
     setAlignment(a)
+    // 公開で書くもの（線と問い）。画面の材料なので、読めなければ空 = 行を出さない。
+    const [upper, questions] = await Promise.all([
+      fetchDatasetUpper(datasetId).catch(() => [] as UpperItem[]),
+      fetchDatasetQuestions(datasetId).catch(() => [] as QuestionDraft[]),
+    ])
+    // 読んでいるあいだに別のデータセットへ移っていたら、前の件数を載せない。
+    if (kzDatasetIdRef.current === datasetId) {
+      setPendingUpper(upper)
+      setPublishQuestions(questions)
+    }
     setS8Loading(false)
   }
 
@@ -4324,6 +4561,7 @@ export function KantanWizard({
       }
       const res = await promoteDataset(kzDatasetId)
       setAlignment(res.alignment)
+      setPublishReport(res.upper_questions ?? null)
       setPublished(true)
       setStep(9)
     } catch (e) {
@@ -4758,6 +4996,22 @@ export function KantanWizard({
     setSettledMeanings([])
     setExcludedColumns([])
     openedMeaningsRef.current = null
+    // 骨格の ☑・番号・当てはめ・問いも前の実行のもの。残すと、次の実行の③⑤⑥⑦に
+    // 前のデータの ☑ や線が出て、そのまま送られる。
+    setKindPicks({})
+    setUpperTouched(false)
+    setUpperBase(null)
+    setUpperLabels({})
+    setLinkFitTerms({})
+    setLinkChecked(new Set())
+    setLinkKeyPick({})
+    setLinkTouched(false)
+    linkHandlesHydratedFor.current = null
+    redesignOpenedDatasetIdRef.current = null
+    setPendingUpper([])
+    setPublishQuestions([])
+    setOwnQuestions([])
+    setPublishReport(null)
     resetPipelineState()
     // Re-arm the redesign seed: a LATER 見直す on the same dataset must seed
     // again (the id-equality guard would otherwise swallow it).
@@ -4834,12 +5088,14 @@ export function KantanWizard({
 
   // ---- render -----------------------------------------------------------------
 
-  // Recipe position (ADR meaning-before-identity: ③ 項目の意味 → ④ ID のつけかた).
-  // S10 is the meaning screen — the one human gate that comes BEFORE any design.
-  // S4 (the ID gate) and S5 (the machine work that follows it) are ④. The old S6
-  // (a screen that re-asked what ③ had just answered) is gone: its counts are on
-  // the gate and on ⑤, and what was left of it moved to ⑤.
-  // S7 = ⑤ ためす, S8/S9 = ⑥ 公開する (S9 renders it done).
+  // Recipe position (ADR meaning-before-identity / upper-structure-shared-terms
+  // §2.5.2: ③ 意味をつける → ④ 番号を選ぶ → ⑤ かたちをたしかめる).
+  // S10 is the meaning screen (with the ☑ links) — the one human gate that comes
+  // BEFORE any design. S11 is ④ (pick the number; folded away when no file has
+  // 2+ candidates — see numberMode below). S4 (the shape gate) and S5 (the machine
+  // work that follows it) are ⑤. The old S6 (a screen that re-asked what ③ had
+  // just answered) is gone: its counts are on the gate and on ⑤.
+  // S7 = ⑥ ためす, S8/S9 = ⑦ 公開する (S9 renders it done).
   const recipePos: RecipeStep =
     step <= 2 || step === 12 // 12 = 「表の形」— ①「入れる」の内側（R12）
       ? 1
@@ -4854,6 +5110,12 @@ export function KantanWizard({
               : step === 7
                 ? 6
                 : 7
+  // ④「番号を選ぶ」が畳まれているか（候補が 2 つ未満）。手順バーに薄く出す。
+  // 列の事実がまだ無い間（①②）は言わない。
+  const numberMode =
+    recipePos >= 3 ? numberStepMode(meaningRows(), excludedColumns) : null
+  const step4Fold: 'auto' | 'placeholder' | undefined =
+    numberMode === 'auto' || numberMode === 'placeholder' ? numberMode : undefined
   const resumeAvailable = !!skeleton && !hasSource && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
 
@@ -4862,6 +5124,17 @@ export function KantanWizard({
   const trialFailed = !trialLoading && (!!trialErr || (trial !== null && !trial.available))
   // The questions ran and found NOTHING: an empty draft (KZ-B-33).
   const trialEmpty = !trialLoading && !!trial?.available && trialQAs.length === 0
+  // ⑦ 公開で書くもの（未消費の線・自分の問い）。0 件なら null（行を出さない）。
+  const writeCounts = publishWriteCounts(pendingUpper, publishQuestions)
+  // 見直し（公開済みの版を読んでいて、作り直していない）で、名前の差が無くても公開に
+  // まだ書けるもの: 未消費の線と問い。名前だけの公開の入口（PublishedNamesNotice）に出す。
+  // 書いたあと（publishReport がある）は畳む — 問いは何度でも書き直せるが、押したばかり。
+  const reviewWrites =
+    reviewOnly && !trialLoading && trial?.read_from === 'published' && publishReport === null
+      ? publishWriteCounts(pendingUpper, ownQuestions)
+      : null
+  const questionTitleOf = (id: string) =>
+    [...ownQuestions, ...publishQuestions].find((q) => q.id === id)?.title
   // 「ためす」の言葉は、この画面が実際にすることで選ぶ: 見直しでまだ作り直して
   // いないときは、読んでいるのが公開した版かもしれず、先へ進むボタンは見直しを
   // 終える。読み込み中は前の回の答えを言葉に使わない。
@@ -5202,7 +5475,12 @@ export function KantanWizard({
   return (
     // ④ だけは右に形の図を貼るぶん、列を広く取る（`skeleton-zone-map`）。
     <div className={step === 4 ? 'kz-wizard kz-wizard--wide' : 'kz-wizard'}>
-      <RecipeCard current={recipePos} currentDone={step === 9} onStepClick={onRecipeStep} />
+      <RecipeCard
+        current={recipePos}
+        currentDone={step === 9}
+        onStepClick={onRecipeStep}
+        step4Fold={step4Fold}
+      />
 
       {/* Coming back must be said out loud: without this the wizard silently
           lands on S4 (reads as "it lost my work") or shows an empty drop zone
@@ -5841,6 +6119,18 @@ export function KantanWizard({
               </details>
             </>
           )}
+          {/* 自分の問い（ADR upper-structure-shared-terms §2.3）。自動の問いの下に、種類／項目／
+              集計を選んで足す。下書きの graph で答え、公開後は公開済みのデータで答える。 */}
+          {kzDatasetId && !trialLoading && trial?.available && (
+            <QuestionBuilder
+              datasetId={kzDatasetId}
+              rules={rules}
+              questions={ownQuestions}
+              onChange={saveOwnQuestions}
+              answerOf={ownAnswerOf}
+              kindLabel={classLabel}
+            />
+          )}
           {/* Nothing came back although the questions could run: the draft is
               EMPTY. Publishing here would ship a dataset with no facts in it,
               so the road forward stops being the primary one (KZ-B-33). */}
@@ -6040,6 +6330,9 @@ export function KantanWizard({
               readFrom: trialLoading ? null : trial?.read_from,
               names: pubNames,
             })}
+            writes={reviewWrites}
+            report={publishReport}
+            titleOf={questionTitleOf}
             busy={namesBusy}
             done={namesDone}
             error={namesErr}
@@ -6169,6 +6462,22 @@ export function KantanWizard({
               people may already have cited — the one thing on this screen that
               reaches outside it (ADR id-move-after-publish.md). */}
           <IdMoveNotice move={idMove} exit={t('kantan:s8.idMoveBrokenExit')} />
+          {/* 公開で書く、人が決めたもの（⑤で受けた線・⑥の自分の問い）。0 件なら出さない。 */}
+          {writeCounts && (
+            <div className="kz-kv" data-testid="s8-writes">
+              <span className="kz-kv-key">{t('kantan:s8.writesLabel')}</span>
+              <span>
+                {t(
+                  writeCounts.lines > 0 && writeCounts.questions > 0
+                    ? 'kantan:s8.writesBoth'
+                    : writeCounts.lines > 0
+                      ? 'kantan:s8.writesLines'
+                      : 'kantan:s8.writesQuestions',
+                  { lines: writeCounts.lines, questions: writeCounts.questions },
+                )}
+              </span>
+            </div>
+          )}
           {/* K23: 「中身」「ことば」「あとから」は同じ問い — 公開すると何がどう
               なるか — への 3 つの答えなので、1 つの表として読ませる。撤回の約束
               だけ見出し語が無く、他の 2 行と揃っていなかった。 */}
@@ -6246,6 +6555,9 @@ export function KantanWizard({
                 })
               : t(redesigning ? 'kantan:s9.titleUpdate' : 'kantan:s9.title')}
           </h3>
+          {/* 公開が線と問いを書いた結果。書けなかった線の理由・検査で落ちた問いを、
+              黙って捨てずにここで言う（言うことが無ければ何も出ない）。 */}
+          <UpperQuestionsResult report={publishReport} titleOf={questionTitleOf} />
           {/* No chips came back (S7 failed, or a reload lost them): the payoff
               of the whole run — asking your own data a question — must still
               have a door here (KZ-B-22). */}
@@ -6917,6 +7229,69 @@ export function KantanWizard({
               </div>
             </>
           )}
+          {/* ☑「他のデータとつながる手がかり」— 旧④の問②をここへ移した（ADR
+              upper-structure-shared-terms §2.5.2）。付けるかどうかは人の判断のまま
+              （K48）。付けておくと取り込むだけでつながる、という約束はそのまま。 */}
+          <h4 className="kz-next-title">{t('kantan:meanings.link.title')}</h4>
+          <p className="kz-lead">{t('kantan:meanings.link.lead')}</p>
+          <p className="kz-note kz-prose">{t('kantan:meanings.link.promise')}</p>
+          <details>
+            <summary>{t('kantan:meanings.link.exampleSummary')}</summary>
+            <div className="kz-links-example" aria-hidden="true">
+              {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを持つのに
+                  図解に列名（食材名）が無く、構造が対応して見えなかった（利用者指摘
+                  2026-09-02）。☑ を付ける単位＝列、を絵でも言う。 */}
+              <div className="kz-links-mini">
+                <p className="kz-links-mini-title">{t('kantan:meanings.link.exampleA')}</p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{t('kantan:meanings.link.exampleColDish')}</th>
+                      <th className="kz-links-hl">{t('kantan:meanings.link.exampleColFood')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>カレー</td><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td></tr>
+                    <tr><td>シチュー</td><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="kz-links-mid">
+                <span className="kz-links-word">{t('kantan:meanings.link.exampleWord')}</span>
+                <span className="kz-links-note">{t('kantan:meanings.link.exampleNote')}</span>
+              </div>
+              <div className="kz-links-mini">
+                <p className="kz-links-mini-title">{t('kantan:meanings.link.exampleB')}</p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="kz-links-hl">{t('kantan:meanings.link.exampleColFood')}</th>
+                      <th>{t('kantan:meanings.link.exampleColPrice')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td><td>¥120</td></tr>
+                    <tr><td>じゃがいも</td><td>¥98</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <p className="kz-note kz-prose">{t('kantan:meanings.link.exampleCaption')}</p>
+          </details>
+          <ul className="kz-stop-plainlist skeleton-choose-hints">
+            <li>{t('kantan:meanings.link.whenYes')}</li>
+            <li>{t('kantan:meanings.link.whenNo')}</li>
+            <li>{t('kantan:meanings.link.whenSafe')}</li>
+          </ul>
+          <div className="kz-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => requestConsult(t('kantan:meanings.link.askConsultPrefill'))}
+            >
+              {t('kantan:meanings.link.askConsult')}
+            </button>
+          </div>
           {(['preamble', 'table'] as const).map((origin) => {
             const rows = meaningRows().filter((r) => r.origin === origin)
             if (rows.length === 0) return null
@@ -6939,6 +7314,7 @@ export function KantanWizard({
                         <th>{t('kantan:meanings.colExamples')}</th>
                         <th>{t('kantan:meanings.colMeaning')}</th>
                         <th>{t('kantan:meanings.colUnit')}</th>
+                        <th>{t('kantan:meanings.link.colLink')}</th>
                         <th>{t('kantan:meanings.colKeep')}</th>
                       </tr>
                     </thead>
@@ -6949,9 +7325,17 @@ export function KantanWizard({
                           meaningKey(row.source, row.column),
                         )
                         const blank = !(current?.label ?? '').trim()
+                        const linkKey = meaningKey(row.source, row.column)
+                        // 測定値は ☑ 不可。番号の列（④で選ばれた／候補が 1 つで自動に
+                        // 決まったもの）は ☑ 済みと見せて外せない — handles.json には
+                        // 入れない（K48）が、骨格の受け口には入る。
+                        const measured = !canTick(row.examples)
+                        const isNumberCol =
+                          row.origin === 'preamble' &&
+                          row.column === effectiveNumber(judgmentState(), row.source)
                         return (
+                          <Fragment key={meaningKey(row.source, row.column)}>
                           <tr
-                            key={meaningKey(row.source, row.column)}
                             className={
                               dropped ? 'kz-cols-dropped' : blank ? 'kz-attn' : undefined
                             }
@@ -6997,7 +7381,7 @@ export function KantanWizard({
                                   column: row.column,
                                 })}
                                 onChange={(e) =>
-                                  setMeaning(row.source, row.column, { label: e.target.value })
+                                  editMeaningLabel(row.source, row.column, e.target.value)
                                 }
                                 onKeyDown={(e) => {
                                   if (e.key !== 'Enter' || isImeConfirm(e)) return
@@ -7029,6 +7413,28 @@ export function KantanWizard({
                                   黙って受けると、単位の三つ組だけが出ない (ADR §3)。 */}
                               <UnitBadge info={unitInfo[(current?.unit ?? '').trim()]} />
                             </td>
+                            <td className="kz-links-checkcell">
+                              {measured ? (
+                                <span className="kz-links-check kz-links-nomeasure">
+                                  {t('kantan:meanings.link.noMeasure')}
+                                </span>
+                              ) : (
+                                <label className="kz-links-check">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={t('kantan:meanings.link.colLink')}
+                                    checked={!dropped && (isNumberCol || linkChecked.has(linkKey))}
+                                    disabled={dropped || isNumberCol}
+                                    onChange={() => toggleLinkTick(linkKey)}
+                                  />
+                                  {isNumberCol && (
+                                    <span className="kz-cols-origin">
+                                      {t('kantan:meanings.link.numberLocked')}
+                                    </span>
+                                  )}
+                                </label>
+                              )}
+                            </td>
                             <td>
                               {/* 既定は「取り込む」。外すのは必ず人の操作なので、
                                   2 状態のトグルで足りる（K22 の「未決定を消すな」は
@@ -7047,6 +7453,30 @@ export function KantanWizard({
                               </label>
                             </td>
                           </tr>
+                          {/* 当てはめ提案 — 表示だけ。☑ も fit も、人が押したときだけ
+                              付く（ADR upper-structure-shared-terms §2.5.3）。行の下に
+                              表の幅いっぱいで出す（☑ のセルからあふれないように）。 */}
+                          {!measured && !dropped && (
+                            <FitSuggestion
+                              colSpan={6}
+                              label={current?.label ?? ''}
+                              column={row.named === false ? '' : row.column}
+                              accepted={current?.fit}
+                              canTick={!isNumberCol}
+                              isTicked={linkChecked.has(linkKey)}
+                              reviewOnly={reviewOnly}
+                              onAccept={(c) =>
+                                setItemFit(row.source, row.column, {
+                                  term: c.term,
+                                  kind: c.kind,
+                                  matched_by: c.matched_by,
+                                })
+                              }
+                              onClear={() => setItemFit(row.source, row.column, null)}
+                              onTick={(c) => tickViaFit(row.source, row.column, c.term)}
+                            />
+                          )}
+                          </Fragment>
                         )
                       })}
                     </tbody>
@@ -7061,6 +7491,13 @@ export function KantanWizard({
               <p className="kz-note">{plainBody(meaningSaveErr)}</p>
             </div>
           )}
+          {/* ④が畳まれているとき、組み立てはこの画面から走る — 失敗もここで言う。 */}
+          {assembleErr && (
+            <div role="alert">
+              <p className="kz-note">{t('kantan:links.assembleFailed')}</p>
+              <p className="kz-note">{plainBody(assembleErr)}</p>
+            </div>
+          )}
           <div className="kz-actions">
             {/* 設計がまだ無いとき＝ここが先へ進む扉。設計ができたあとに戻って
                 きたとき＝直した意味を保存して「ためす」へ返す扉（作り直さない）。 */}
@@ -7073,8 +7510,12 @@ export function KantanWizard({
                 {t(meaningSaving ? 'kantan:meanings.saving' : 'kantan:meanings.save')}
               </button>
             ) : (
-              <button type="button" onClick={onMeaningsSettled} disabled={!isReady || !hasSource}>
-                {t('kantan:meanings.continue')}
+              <button
+                type="button"
+                onClick={onMeaningsSettled}
+                disabled={!isReady || !hasSource || assembleBusy}
+              >
+                {t(assembleBusy ? 'kantan:links.assembling' : 'kantan:meanings.continue')}
               </button>
             )}
             <button
@@ -7092,7 +7533,7 @@ export function KantanWizard({
                 if (kzDatasetId) confirmMeanings(undefined, discardMeaningsDraft())
                 else setStep(2)
               }}
-              disabled={meaningSaving}
+              disabled={meaningSaving || assembleBusy}
             >
               {t(kzDatasetId ? 'kantan:meanings.backToTry' : 'kantan:meanings.back')}
             </button>
@@ -7100,60 +7541,33 @@ export function KantanWizard({
         </section>
       ) : step === 11 ? (
         <section className="kz-card">
-          {/* 4 — つながりを選ぶ（見出しは手順の名前と同じ。ADR meaning-before-identity K47 /
-              skeleton-from-easy-judgments D2〜D5）。2 問に分け、順を入れ替えた:
-              ①「この 1 件を名指す番号はどれ？」→②「他のデータとつながる手がかり
-              はどれ？」。旧版は②（他にも出てくる？の ☑）を先に聞き、その中から
-              名指しを選ばせていたが、利用者指摘（2026-09-25・XRD の例）「『他の
-              データにも出てくる？』で選ぶことと、最後の『名指すのはどれ』が
-              なんとなく一致しない」を受けて分離・入れ替えた。①で選んだ番号は
-              「他からこの 1 件を指す手がかり」でもあるので②で ☑ 済み・外せない
-              にする。AI の事前チェックは置かない（利用者裁定 — 精度が悪いと
-              惑わすだけ）。測定値は①②のどちらにも選べない。 */}
+          {/* 4 — 番号を選ぶ（見出しは手順の名前と同じ。ADR meaning-before-identity K47 /
+              skeleton-from-easy-judgments D2〜D5 / upper-structure-shared-terms §2.5.2）。
+              問は「この 1 件を名指す番号はどれ？」だけ。旧版の問②（他のデータとつながる
+              手がかりの ☑）は③へ移した — ③の「意味」と同じ表で、列を見ながら付ける方が
+              自然なため。番号の候補（測定値を除く前置き列）が 2 つ以上のファイルがある
+              ときだけこの画面を出し、1 つなら「自動で決まりました」、0 なら「仮置き」
+              （⑤で ⚠）として畳む — 畳んだときは③の「この意味で進む」が直接組み立てる
+              ので、ここへは来ない。下の畳み表示は、来てしまったときの行き止まり除け。
+              AI の事前チェックは置かない（利用者裁定 — 精度が悪いと惑わすだけ）。測定値は
+              番号に選べない。 */}
           <h3 className="kz-title">{t('kantan:links.title')}</h3>
           {(() => {
-            const isMeasurement = (examples: string[]) => {
-              const vals = examples.filter((e) => e.trim() !== '')
-              return (
-                vals.length > 0 &&
-                vals.every((e) => Number.isFinite(Number(e))) &&
-                vals.some((e) => /[.eE]/.test(e))
-              )
-            }
-            const sources = [...new Set(meaningRows().map((r) => r.source))]
-            // ①の候補規則（測定値は除く preamble 列）— 旧 keyQuestion と同じ規則
-            // だが、②の ☑ がまだ無いのでその部分集合には縛られない。
-            const keyCandidates = (source: string) =>
-              meaningRows()
-                .filter(
-                  (r) =>
-                    r.source === source &&
-                    r.origin === 'preamble' &&
-                    !excludedColumns.includes(meaningKey(r.source, r.column)) &&
-                    !isMeasurement(r.examples),
-                )
-                .map((r) => r.column)
-            // 候補が 1 つしかなければ選びようがない＝機械が決める（D3 と同じ
-            // 「1 つならそれが ID」）。0 なら⑤で ⚠ になる従来どおりの仮置き。
-            const effectiveKey = (source: string) => {
-              const picked = linkKeyPick[source]
-              if (picked) return picked
-              const candidates = keyCandidates(source)
-              return candidates.length === 1 ? candidates[0] : undefined
-            }
-            const missingKeySources = sources.filter(
-              (s) => keyCandidates(s).length >= 2 && !linkKeyPick[s],
-            )
-            // ① は「ファイル全体の値（preamble）」に番号の候補が 2 つ以上あるとき
-            // だけ出す。普通の 1 枚の表（先頭のメタ行が無い）では 1 行ごとの番号は
-            // 次の段（形をたしかめる）で決まるので、空の ① を見せて迷わせない。
-            const showKeyStep = sources.some((s) => keyCandidates(s).length >= 2)
+            const state = judgmentState()
+            const sources = sourcesOf(state.rows)
+            const mode = numberStepMode(state.rows, state.excluded)
+            const missingKeySources = sourcesMissingNumber(state.rows, state.excluded, linkKeyPick)
             return (
               <>
-                {showKeyStep && <h4 className="kz-next-title">{t('kantan:links.step1Title')}</h4>}
-                {showKeyStep && <p className="kz-lead">{t('kantan:links.keyLead')}</p>}
+                {mode === 'ask' ? (
+                  <p className="kz-lead">{t('kantan:links.keyLead')}</p>
+                ) : (
+                  <p className="kz-note kz-prose">
+                    {t(mode === 'auto' ? 'kantan:recipe.step4Auto' : 'kantan:recipe.step4Placeholder')}
+                  </p>
+                )}
                 {sources.map((source) => {
-                  const candidates = keyCandidates(source)
+                  const candidates = numberCandidates(state.rows, state.excluded, source)
                   if (candidates.length < 2) return null
                   return (
                     <div key={source} className="kz-links-keyq">
@@ -7184,155 +7598,6 @@ export function KantanWizard({
                     {t('kantan:links.keyMissing')}
                   </p>
                 )}
-                <h4 className="kz-next-title">
-                  {t(showKeyStep ? 'kantan:links.step2Title' : 'kantan:links.step2TitleSolo')}
-                </h4>
-                <p className="kz-lead">{t('kantan:links.lead')}</p>
-                <div className="kz-links-example" aria-hidden="true">
-                  {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを
-                      持つのに図解に列名（食材名）が無く、構造が対応して見えな
-                      かった（利用者指摘 2026-09-02）。☑ を付ける単位＝列、を絵
-                      でも言う。 */}
-                  <div className="kz-links-mini">
-                    <p className="kz-links-mini-title">{t('kantan:links.exampleA')}</p>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>{t('kantan:links.exampleColDish')}</th>
-                          <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr><td>カレー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
-                        <tr><td>シチュー</td><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="kz-links-mid">
-                    <span className="kz-links-word">{t('kantan:links.exampleWord')}</span>
-                    <span className="kz-links-note">{t('kantan:links.exampleNote')}</span>
-                  </div>
-                  <div className="kz-links-mini">
-                    <p className="kz-links-mini-title">{t('kantan:links.exampleB')}</p>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th className="kz-links-hl">{t('kantan:links.exampleColFood')}</th>
-                          <th>{t('kantan:links.exampleColPrice')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr><td className="kz-links-hl">{t('kantan:links.exampleWord')}</td><td>¥120</td></tr>
-                        <tr><td>じゃがいも</td><td>¥98</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <p className="kz-note kz-prose">{t('kantan:links.exampleCaption')}</p>
-                <ul className="kz-stop-plainlist skeleton-choose-hints">
-                  <li>{t('kantan:links.whenYes')}</li>
-                  <li>{t('kantan:links.whenNo')}</li>
-                  <li>{t('kantan:links.whenSafe')}</li>
-                </ul>
-                {/* 表は 1 枚（承認モックどおり）。行ごとの値は「（行ごとに変わる）」
-                    と書けば見出しで分けなくても読める。測定値（小数を含む数値だけ
-                    の列）はサーバの組み立てが黙って無視するので、UI でも最初から
-                    選べなくする — 押せたのに何も起きない、を作らない。判定はサー
-                    バの型スニッフの近似（例が全部数値で、どれかに小数点/指数があ
-                    る）: サーバ側の防御は残るので、まれに取りこぼしても受け口が
-                    黙って増えることはない。①で名指しに決まった列は、その番号自体
-                    が他からこの 1 件を指す手がかりでもあるため ☑ 済み・外せない
-                    にする（K47）。 */}
-                {sources.map((source) => {
-                  const rows = meaningRows().filter(
-                    (r) =>
-                      r.source === source &&
-                      !excludedColumns.includes(meaningKey(r.source, r.column)),
-                  )
-                  if (rows.length === 0) return null
-                  const keyForSource = effectiveKey(source)
-                  return (
-                    <div key={source}>
-                      {sources.length > 1 && (
-                        <p className="kz-zone-label">{basename(source)}</p>
-                      )}
-                      <div className="kz-preview-tablewrap">
-                        <table className="kz-preview-table kz-links-table">
-                          <thead>
-                            <tr>
-                              <th>{t('kantan:links.colColumn')}</th>
-                              <th>{t('kantan:links.colValue')}</th>
-                              <th>{t('kantan:links.colMeaning')}</th>
-                              <th>{t('kantan:links.colLink')}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rows.map((r) => {
-                              const key = meaningKey(r.source, r.column)
-                              const measured = isMeasurement(r.examples)
-                              const isKeyCol =
-                                r.origin === 'preamble' && r.column === keyForSource
-                              return (
-                                <tr key={key}>
-                                  <th scope="row">{r.column}</th>
-                                  <td className="kz-links-value">
-                                    {/* 行ごとの値も実物を見せる — 「同じ表記で
-                                        他にも出てくるか」は値の見た目で判断する
-                                        （利用者指摘 2026-09-01: 値が見えないと
-                                        判断できない）。 */}
-                                    {r.origin === 'table'
-                                      ? r.examples.length > 0
-                                        ? t('kantan:links.valueSamples', {
-                                            values: r.examples
-                                              .slice(0, 3)
-                                              .join(t('skeletongate:key.listSeparator')),
-                                          })
-                                        : t('kantan:links.valueVaries')
-                                      : (r.examples[0] ?? '')}
-                                  </td>
-                                  <td className="kz-links-meaning">
-                                    {meaningFor(r.source, r.column)?.label || '—'}
-                                  </td>
-                                  <td className="kz-links-checkcell">
-                                    {measured ? (
-                                      <span className="kz-links-check kz-links-nomeasure">
-                                        {t('kantan:links.noMeasure')}
-                                      </span>
-                                    ) : (
-                                      <label className="kz-links-check">
-                                        <input
-                                          type="checkbox"
-                                          aria-label={t('kantan:links.colLink')}
-                                          checked={isKeyCol || linkChecked.has(key)}
-                                          disabled={isKeyCol}
-                                          onChange={() => {
-                                            if (isKeyCol) return
-                                            // 人が自分で ☑ を動かした印（K48 —
-                                            // 見直しで既存の ☑ を空で上書きしない
-                                            // ための帳簿。①の番号は機械が付けた
-                                            // ☑ なのでここを通らない）。
-                                            setLinkTouched(true)
-                                            const off = linkChecked.has(key)
-                                            setLinkChecked((prev) => {
-                                              const next = new Set(prev)
-                                              if (off) next.delete(key)
-                                              else next.add(key)
-                                              return next
-                                            })
-                                          }}
-                                        />
-                                      </label>
-                                    )}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )
-                })}
                 {assembleErr && (
                   <div role="alert">
                     <p className="kz-note">{t('kantan:links.assembleFailed')}</p>
@@ -7358,7 +7623,7 @@ export function KantanWizard({
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm"
-                    onClick={() => requestConsult(t('kantan:links.askConsultPrefill'))}
+                    onClick={() => requestConsult(t('kantan:links.keyConsultPrefill'))}
                   >
                     {t('kantan:links.askConsult')}
                   </button>
@@ -7530,9 +7795,13 @@ export function KantanWizard({
                 busy={continuing}
                 plain
                 provisionalCardKeys={provisionalKeys}
+                kindFits={currentKindFits(skeleton, upperBase).picks}
+                onKindFit={onKindFit}
                 onBackToLinks={() => {
                   setAssembleErr('')
-                  setStep(11)
+                  // ④が畳まれているなら戻る先は③（☑ も番号の自動判定もそこで決まる）。
+                  const state = judgmentState()
+                  setStep(numberStepMode(state.rows, state.excluded) === 'ask' ? 11 : 10)
                 }}
                 // The provisional-issuer note is otherwise a dead end here: this
                 // tier has no settings tab of its own to point at (GATE-13).

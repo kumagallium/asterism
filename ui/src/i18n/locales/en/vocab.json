@@ -2,9 +2,9 @@
   "back": "Back",
   "addData": "Add data",
   "banner": {
-    "title": "<1>Words</1> shared across your data",
-    "sub": "The <1>kinds of data and fields</1> collected automatically from what you have added. The more the names line up, the better questions and comparisons work across datasets.",
-    "fixNote": "To change the name of a word, open that dataset and use \"Revise the design\".",
+    "title": "<1>Words</1> shared across datasets",
+    "sub": "Place <1>shared words</1> starting from a question, and link them with lines to datasets' kinds and items or to standard terms. The more lines connect, the more cross-dataset questions can be answered.",
+    "fixNote": "The list below is collected automatically from imported data. To rename a word, open its dataset and use “Review the design”.",
     "fixLink": "Open the dataset list"
   },
   "loading": "Loading…",
@@ -119,7 +119,6 @@
     "leadFocus": "Showing only what is around your choice, as kind circles. Use \"Back to overview\" to return."
   },
   "title": "Words",
-  "lead": "Decide the words your datasets share, starting from a question. A word can answer questions only once a line connects it to datasets or a standard term.",
   "sections": {
     "question": "Start from a question",
     "terms": "Words",

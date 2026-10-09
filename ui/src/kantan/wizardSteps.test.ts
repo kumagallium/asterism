@@ -11,7 +11,7 @@ import ja from '../i18n/locales/ja/kantan.json'
 import source from './KantanWizard.tsx?raw'
 
 /** 描画の分岐を持つ step。`) : step === N ? (` の連なりから読む。
- *  5 は `showS5`（進行の画面）、4 は連なりの最後の else（ID のゲート）が描く。 */
+ *  5 は `showS5`（進行の画面）、4 は連なりの最後の else（⑤の形のゲート）が描く。 */
 function renderedSteps(src: string): Set<number> {
   const steps = new Set<number>([4, 5])
   for (const m of src.matchAll(/\) : step === (\d+) \? \(/g)) steps.add(Number(m[1]))
@@ -116,4 +116,32 @@ describe('畳んだ「数の確認」の言葉', () => {
       expect(hits).toEqual([])
     })
   }
+})
+
+describe('④を畳むときの行き先（ADR upper-structure-shared-terms §2.5.2）', () => {
+  /** 関数の本体（最初の `{` から対応する `}` まで）。 */
+  function bodyOf(src: string, head: string): string {
+    const at = src.indexOf(head)
+    expect(at).toBeGreaterThan(-1)
+    const open = src.indexOf('{', at)
+    let depth = 0
+    for (let i = open; i < src.length; i += 1) {
+      if (src[i] === '{') depth += 1
+      else if (src[i] === '}' && --depth === 0) return src.slice(open, i + 1)
+    }
+    return ''
+  }
+
+  it('③の「この意味で進む」は、④が畳まれていれば runAssemble を直接呼ぶ', () => {
+    const body = bodyOf(source, 'function onMeaningsSettled()')
+    expect(body).toContain('numberStepMode')
+    expect(body).toContain('runAssemble()')
+    expect(body).toContain('setStep(11)')
+  })
+
+  it('⑤の戻るは、④が畳まれていれば③（10）へ、出ていれば④（11）へ', () => {
+    const at = source.indexOf('onBackToLinks={() => {')
+    const body = source.slice(at, at + 400)
+    expect(body).toContain("numberStepMode(state.rows, state.excluded) === 'ask' ? 11 : 10")
+  })
 })

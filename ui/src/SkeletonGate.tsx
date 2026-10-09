@@ -24,6 +24,8 @@ import {
   containmentParentsForColumns,
 } from './skeletonContainment'
 import { classNameFromLabel } from './kantan/asciiNames'
+import { type KindFitPick, kindIriOf } from './kantan/kindFit'
+import { KindFitSuggestion } from './kantan/KindFitSuggestion'
 import {
   assignColumnOwner,
   catalogLinkEdges,
@@ -1031,6 +1033,8 @@ export function SkeletonGate({
   droppedColumns = [],
   provisionalCardKeys = {},
   onBackToLinks,
+  kindFits,
+  onKindFit,
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -1076,6 +1080,12 @@ export function SkeletonGate({
    *  変える」）。骨格は捨てない — 戻って ☑ を変えれば組み立て直しになる。
    *  かんたん層のウィザードだけが渡す。 */
   onBackToLinks?: () => void
+  /** 種類の箱の下の当てはめ提案（「既にある『〇〇』の一種にしますか」・表示のみ）。
+   *  `kindFits` は人が既に受けた当てはめ（map 名 → 当てはめ）、`onKindFit` は受ける／
+   *  取り消す（null）。両方が無ければ提案は出ない。受けても線は書かない — 線になるのは
+   *  公開のときだけ（ADR upper-structure-shared-terms §2.5.3）。 */
+  kindFits?: Record<string, KindFitPick>
+  onKindFit?: (mapName: string, pick: KindFitPick | null) => void
   /** When set, offered as the in-place way back wherever the gate says a
    *  source could not be checked — the caller returns to the file-drop step
    *  WITHOUT discarding the draft skeleton (unlike `onDiscard`, which starts
@@ -1871,8 +1881,8 @@ export function SkeletonGate({
     onChange(assignColumnOwner(skeleton, zone.host.source, col, target))
   }
 
-  /** 3（項目の意味）で「取り込まない」と決めた列。ここは ID を決める画面なので、
-   *  取り込まない列を並べると、成立しない選択肢を読ませることになる。 */
+  /** 3（項目の意味）で「取り込まない」と決めた列。ここは形をたしかめる画面（⑤）で、ID の候補も
+   *  並ぶので、取り込まない列を並べると、成立しない選択肢を読ませることになる。 */
   const droppedSet = new Set(droppedColumns)
   const isDropped = (col: string) =>
     !!zone && droppedSet.has(`${zone.host.source}\u0000${col}`)
@@ -2422,6 +2432,14 @@ export function SkeletonGate({
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('skeletongate:kindNameNote')}
           </p>
+        )}
+        {plain && onKindFit && (m.subject.classes ?? []).length > 0 && (
+          <KindFitSuggestion
+            label={kindDisplayName(m.subject, nsDetected)}
+            ownIri={kindIriOf(m, skeleton)}
+            pick={kindFits?.[m.name]}
+            onPick={(pick) => onKindFit(m.name, pick)}
+          />
         )}
       </>
     )

@@ -121,7 +121,7 @@ export function SetPage({
   }
 
   // specKey が変わったら会話ドロワー（PageChatDrawer・PR F12）も閉じる（同じ
-  // 「prop が変わったら state を調整する」パターン）。「＋ 観点を足す」・下の
+  // 「prop が変わったら state を調整する」パターン）。「＋ 問いを足す」・下の
   // 入力欄はどちらもこのドロワーを開く（契約メモ §1 決定 1・6）。
   const [chatFor, setChatFor] = useState(specKey)
   const [chatOpen, setChatOpen] = useState(false)
@@ -397,7 +397,7 @@ export function SetPage({
   }
 
   // `breadcrumbDatasetId` は表示用ではなく、NewCardForm が要る `datasetId`
-  // prop の出所（この 1 段下の「＋ 観点を足す」の描画ゲート）としてだけ残る
+  // prop の出所（この 1 段下の「＋ 問いを足す」の描画ゲート）としてだけ残る
   // ——パンくずの表示自体は種類（`breadcrumbClassLabel`）に置き換えた
   // （契約メモ contract_pr_f9.md §1 決定 5）。
   const breadcrumbDatasetId = spec && datasetRef.classIri === spec.class ? datasetRef.datasetId : null
