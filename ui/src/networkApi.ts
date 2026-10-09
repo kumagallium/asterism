@@ -31,12 +31,21 @@ export interface NetworkKind {
   class_iri: string
   class_label: string | null
   count: number
+  /** この種類の件が属するデータセット（古いサーバは返さないので省略できる）。 */
+  dataset_ids?: string[]
+}
+
+export interface NetworkDataset {
+  id: string
+  label: string
 }
 
 export interface NetworkResponse {
   nodes: NetworkNode[]
   edges: NetworkEdge[]
   kinds: NetworkKind[]
+  /** 点・種類に出てくるデータセットの名前（古いサーバは返さないので省略できる）。 */
+  datasets?: NetworkDataset[]
   stats: {
     entities: number
     nodes: number
