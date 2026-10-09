@@ -239,7 +239,7 @@ function segDist(p: { x: number; y: number }, q: { x: number; y: number }, o: { 
  * 線 p→q（両端の丸の中心）が端点でない丸（`obstacles`）の裏を通るとき、よける二次ベジェの制御点を返す。
  * 離れていれば null（直線のまま）。頂点を中点から法線（from→to を左に 90° 回した向きが ＋）へ
  * STEP·(1, −1, 2, −2, …) ずらして順に試し、全障害物から r + MARGIN 以上離れる最初のものを採る。
- * 離れきらなければ、余白がいちばん大きいもの（同点は試した順で先）。乱数・時刻は使わない。
+ * 離れきらなければ、余白がいちばん大きいもの（同点は試した順で先）。ただし直線より余白が小さいなら null。乱数・時刻は使わない。
  */
 export function routeAround(
   p: { x: number; y: number },
@@ -259,6 +259,8 @@ export function routeAround(
   const mx = (p.x + q.x) / 2
   const my = (p.y + q.y) / 2
   const need = obstacles.map((o) => ({ ...o, r: o.r + margin }))
+  // 直線（制御点 = 中点）の余白。離れきらないとき、直線より悪い曲線は採らない。
+  const straightClear = clearance(p, { x: mx, y: my }, q, need)
   let best: { cx: number; cy: number } | null = null
   let bestClear = -Infinity
   for (let k = 1; k <= maxSteps; k++) {
@@ -273,7 +275,8 @@ export function routeAround(
       }
     }
   }
-  return best
+  // 曲げても直線以上に離れないなら、直線に戻す（直線で丸に入っていなかった線を曲げて入れない）。
+  return best && bestClear >= straightClear ? best : null
 }
 
 /** 両端の縁にそろえた線の座標。障害物をよけるときは制御点（cx, cy）も付く。 */

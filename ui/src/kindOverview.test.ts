@@ -12,6 +12,7 @@ import {
   compactCount,
   countInside,
   INSIDE_R,
+  type Obstacle,
   type OverviewInput,
 } from './kindOverview'
 
@@ -345,6 +346,36 @@ describe('routeAround — 線が別の丸の裏を通らないように曲げる
     // 線分と丸の距離判定にも余白が効く（距離 34 は r=30 の外だが r+6=36 の内）
     expect(routeAround(p, q, [{ x: 118, y: 34, r: 30 }])).not.toBeNull()
     expect(routeAround(p, q, [{ x: 118, y: 36, r: 30 }])).toBeNull()
+  })
+  it('法線は線に直交し、＋は進行方向の左（縦線・斜め線）', () => {
+    const check = (a: { x: number; y: number }, b: { x: number; y: number }, ob: Obstacle[]) => {
+      const c = routeAround(a, b, ob)!
+      expect(c).not.toBeNull()
+      const mx = (a.x + b.x) / 2
+      const my = (a.y + b.y) / 2
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      // 制御点の中点からのずれは線に直交する
+      expect((c.cx - mx) * dx + (c.cy - my) * dy).toBeCloseTo(0)
+      // 左 = (dy, -dx) 方向の成分
+      return (c.cx - mx) * dy - (c.cy - my) * dx
+    }
+    // 縦線 (0,0)→(0,236)（下向き）: 左 = 画面の x が正。小さい丸なら最初の ＋ で通る
+    expect(check({ x: 0, y: 0 }, { x: 0, y: 236 }, [{ x: 0, y: 118, r: 8 }])).toBeGreaterThan(0)
+    // 斜め 45°（右下向き）: 左 = 画面の右上
+    expect(check({ x: 0, y: 0 }, { x: 200, y: 200 }, [{ x: 100, y: 100, r: 8 }])).toBeGreaterThan(0)
+    // 左が塞がれていれば右（縦線: x が負）
+    const c = routeAround({ x: 0, y: 0 }, { x: 0, y: 236 }, [{ x: 0, y: 118, r: 30 }, { x: 40, y: 118, r: 30 }])!
+    expect(c.cx).toBeLessThan(0)
+  })
+  it('直線より余白が悪い曲線は採らず null（直線のまま）', () => {
+    // 直線は丸（r=30）の縁から 4 離れ、余白 6 に届かない。上へ曲げると巨大な丸、下へ曲げると小さい丸に近づき、どちらも直線より悪い
+    const o = [
+      { x: 118, y: 34, r: 30 },
+      { x: 118, y: -210, r: 200 }, // 線の上 4 から先が丸の中
+      { x: 118, y: 270, r: 200 }, // 小さい丸の先（下 70 から）も丸の中
+    ]
+    expect(routeAround(p, q, o)).toBeNull()
   })
   it('どうしても離れきらないときは余白が最大のものを採る（同点は試した順で先）', () => {
     const wall = [{ x: 118, y: 0, r: 30 }, ...Array.from({ length: 9 }, (_, i) => ({ x: 118, y: (i - 4) * 60, r: 200 }))]
