@@ -74,9 +74,12 @@ SPARQL の行が `max_rows`（既定 200,000）を超えても `truncated: true`
 
 ## 5. 上位構造との接続
 
-`asterism.shared_vocab.upper_map(client)`（別の作業で設計中・まだ main に無い）があれば、値の点は上位の項目で
-まとめ、色は上位の分類（`group_iri`）で塗る（案 A）。無ければ今の振る舞い（`class_iri` で塗る）。
-この差し替え口は f06fe018 で入った（`kindKey = group_iri ?? class_iri`）。
+`asterism.shared_vocab.upper_map(client)` があれば、値の点は上位の項目でまとめ、色は上位の分類（`group_iri`）で塗る（案 A）。
+無ければ今の振る舞い（`class_iri` で塗る）。この差し替え口は f06fe018 で入った（`kindKey = group_iri ?? class_iri`）。
 
-**未確認**: `upper_map` の返り値の形 `{"classes": {...}, "properties": {...}}` は、上位構造の作業との取り決めで、
-まだ裏取りできていない。`upper_map` が main に入ったら形を確かめる（違うと、静かに何も合流せず色も上位にならない）。
+取り決めは [`upper-structure-shared-terms.md`](upper-structure-shared-terms.md) §2.6（#693・2026-10-09 に合意）:
+返り値は `{"classes": {IRI: 最上位の共有語}, "properties": {IRI: 最上位の共有語}, "at": …}`（`GET /api/vocab/upper` と同じ）。
+畳み方は上位パス（種類は `rdfs:subClassOf|owl:equivalentClass|^owl:equivalentClass` の繰り返し、項目は `subPropertyOf` 版）、
+複数の上位は slug の辞書順で先頭、表に無い IRI は自分（全体グラフ側も `get(iri, iri)` で自分に落とす）。`at` は使わない。
+関数の同期・非同期は取り決めに無いので、api はどちらでも受ける。**`upper_map` の実装はまだ main に無い**（別 PR）。
+入ったら、実データで値の点の合流と色が上位になることを確かめる。

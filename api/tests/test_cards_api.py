@@ -1866,6 +1866,23 @@ def test_network_group_iri_becomes_the_upper_class_when_upper_map_succeeds(
         assert top in {k["class_iri"] for k in body["kinds"]}
 
 
+def test_network_accepts_a_synchronous_upper_map_with_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """取り決めの形 {classes, properties, at}。同期の関数でも受ける（at は使わない）。"""
+    top = "https://ex/upper#Thing"
+
+    def fake_upper_map(_client: Any) -> dict[str, Any]:
+        return {"classes": {CHECKOUT_CLASS: top}, "properties": {}, "at": "2026-10-09T00:00:00Z"}
+
+    _fake_upper_map(monkeypatch, fake_upper_map)
+    with _network_client(tmp_path) as client:
+        body = client.get("/api/network").json()
+        mapped = [n for n in body["nodes"] if n["class_iri"] == CHECKOUT_CLASS]
+        assert mapped
+        assert {n["group_iri"] for n in mapped} == {top}
+
+
 def test_network_still_returns_200_when_upper_map_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
