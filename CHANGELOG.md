@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.52.1](https://github.com/kumagallium/asterism/compare/v0.52.0...v0.52.1) - 2026-10-09
+
+- ci: 各ジョブに上限時間、ingest と api の pytest にテスト 1 件の上限を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/699
+- docs(manual): v0.52.0 の節目とバッジ — 全体グラフ・同じ名前の種類の見分け by @kumagallium in https://github.com/kumagallium/asterism/pull/698
+- ci: ci.yml 以外の 5 ワークフローにも上限時間を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/702
+- feat(step0/ui): IRI 列を主語の元にする選択と json_array+iri の実機テスト — Graphium の主張を同じ IRI で取り込む by @kumagallium in https://github.com/kumagallium/asterism/pull/703
+
 ## [v0.52.0](https://github.com/kumagallium/asterism/compare/v0.51.0...v0.52.0) - 2026-10-09
 
 - docs(manual): v0.51.0 の節目とバッジ — Word・PDF の取り込み・つながりの図・「全体」表示・意味だけの見直し by @kumagallium in https://github.com/kumagallium/asterism/pull/691
