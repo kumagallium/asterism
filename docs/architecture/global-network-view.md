@@ -29,7 +29,8 @@
 - 返り値は `datasets: [{id, label}]`（返す点と `kinds` に出てくるデータセットだけ・id の辞書順・名前は
   `resolve_dataset_label`。公開 0 件なら空）と、`kinds[].dataset_ids`（その種類の件が属するデータセット。束の中身も含む）も持つ。
   束の点の `dataset_id` は、中身の件がすべて同じデータセットならその id、割れていれば null。
-  同じ主語が複数のデータセットに載るときは、点の `dataset_id` と同じく辞書順で最初の 1 つに数える（`kinds[].dataset_ids` も同じ）。
+  同じ主語が複数のデータセットに載るときは、点の `dataset_id` と同じく 1 つに数える（型の行を主語・種類・graph の順に
+  並べて最初に出てくるデータセット。`kinds[].dataset_ids` も同じ）。
 - `kinds` の名前は、上位の種類（`group_iri`）も含めて引く。
 - `stats.published_graphs`（公開済み graph の数）を返す。画面は点が 0 のとき、これが 0 なら公開 0 件の案内（`empty`）、
   1 以上なら点 0 の案内（`no_points`）と分ける（`emptyKind`。無い古いサーバは件の数 0 で判定）。

@@ -677,7 +677,7 @@ async def test_upper_kinds_dataset_ids_are_per_group() -> None:
     assert bk["dataset_ids"] == ["weather-a", "weather-b"]
 
 
-async def test_value_and_hub_nodes_have_no_dataset_id() -> None:
+async def test_value_nodes_have_no_dataset_id() -> None:
     out = await network_view(
         _pyoxi_client(
             {
@@ -688,3 +688,11 @@ async def test_value_and_hub_nodes_have_no_dataset_id() -> None:
     )
     assert _nodes(out, "value")
     assert all(n["dataset_id"] is None for n in _nodes(out, "value"))
+
+
+async def test_hub_has_no_dataset_id_even_if_typed_in_a_dataset_graph_too() -> None:
+    ttl = _observations(3) + "\nr:st-1 wx:sharedWith r:shared-1 .\nr:shared-1 a wx:Thing .\n"
+    hub = PREFIXES + "r:shared-1 a xw:Composition .\n"
+    out = await network_view(_pyoxi_client({GRAPH_A: ttl, HUB_GRAPH: hub}))
+    (h,) = _nodes(out, "hub")
+    assert h["dataset_id"] is None
