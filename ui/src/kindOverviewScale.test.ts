@@ -198,7 +198,7 @@ describe('layoutDatasetOverview', () => {
     expect(before).toBeGreaterThan(0)
     expect(after).toBeLessThan(before)
   })
-  it('線は端点でない丸をよける（実際に描かれる線で数える。端点でない丸と交わる線: S 24 本 2→0・M 75 本 43→16・L 180 本 133→91）', () => {
+  it('線は端点でない丸をよける（実際に描かれる線で数える。端点でない丸と交わる線: S 24 本 2→0・M 75 本 43→16・L 180 本 133→89）', () => {
     const measure = (nDs: number, nK: number, nH: number, per: number) => {
       const l = layoutDatasetOverview(makeScale(nDs, nK, nH, per))
       return { before: crossingCount(l, false), after: crossingCount(l, true), n: l.edges.length }
@@ -206,10 +206,10 @@ describe('layoutDatasetOverview', () => {
     const S = measure(12, 3, 6, 4)
     const M = measure(50, 5, 15, 5)
     const L = measure(100, 20, 30, 6)
-    expect(S.before).toBeGreaterThan(0)
-    expect(S.after).toBe(0)
-    expect(M.after).toBeLessThan(M.before)
-    expect(L.after).toBeLessThan(L.before)
+    // 数値を固定する（名前の数値と実測がずれたまま通らないように）。配置か曲げ方を変えたら数え直して ADR §6.1 も直す。
+    expect([S.n, S.before, S.after]).toEqual([24, 2, 0])
+    expect([M.n, M.before, M.after]).toEqual([75, 43, 16])
+    expect([L.n, L.before, L.after]).toEqual([180, 133, 89])
   })
   it('100 データセット・各 20 種類・ハブ 30 で高さは 1,500px 以内', () => {
     const l = layoutDatasetOverview(makeScale(100, 20, 30, 6))
