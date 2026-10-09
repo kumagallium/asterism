@@ -37,6 +37,7 @@ from asterism.subject_tools import (
     _representative_kind,
     _rows,
 )
+from asterism.subjects import resolve_dataset_label
 from asterism.substrate import (
     SupportsSparql,
     canonical_from_clauses,
@@ -98,6 +99,7 @@ def _empty() -> dict[str, Any]:
         "nodes": [],
         "edges": [],
         "kinds": [],
+        "datasets": [],
         "stats": {
             "entities": 0,
             "nodes": 0,
@@ -369,6 +371,7 @@ async def network_view(
     # --- 8. 返り値 --------------------------------------------------------------
     nodes: list[dict[str, Any]] = []
     kind_counts: dict[str, int] = defaultdict(int)
+    kind_datasets: dict[str, set[str]] = defaultdict(set)
     # 値の点の持ち主: (種類, 件が実際に使った元の述語) ごとの数
     holders: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
     for s, t, p0 in raw_edges:
@@ -395,6 +398,8 @@ async def network_view(
         )
         if not is_hub and cls:
             kind_counts[class_top.get(cls, cls)] += 1
+            if dataset_of.get(e):
+                kind_datasets[class_top.get(cls, cls)].add(dataset_of[e])
 
     for vid in sorted(v for v in value_text if v in live):
         p, text = value_text[vid]
@@ -441,6 +446,7 @@ async def network_view(
         spec = None
         if cls and len(outs) == 1:
             spec = _spec(cls, [{"property": outs[0][1], "iri": outs[0][0]}])
+        member_ds = {dataset_of[m] for m in b["members"] if m in dataset_of}
         nodes.append(
             {
                 "id": bid,
@@ -450,7 +456,7 @@ async def network_view(
                 "class_iri": cls,
                 "class_label": name,
                 "group_iri": class_top.get(cls, cls) if cls else None,
-                "dataset_id": None,
+                "dataset_id": next(iter(member_ds)) if len(member_ds) == 1 else None,
                 "count": n,
                 "degree": degree[bid],
                 "set_spec": spec,
@@ -458,9 +464,11 @@ async def network_view(
         )
         if cls:
             kind_counts[class_top.get(cls, cls)] += n
+            kind_datasets[class_top.get(cls, cls)] |= member_ds
 
     kinds = [
-        {"class_iri": c, "class_label": class_label.get(c) or _fallback_label(c), "count": n}
+        {"class_iri": c, "class_label": class_label.get(c) or _fallback_label(c), "count": n,
+         "dataset_ids": sorted(kind_datasets.get(c, ()))}
         for c, n in sorted(kind_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     ]
     edges = [
@@ -468,10 +476,17 @@ async def network_view(
     ]
     n_values = len([n for n in nodes if n["kind"] == "value"])
     n_bundles = len([n for n in nodes if n["kind"] == "bundle"])
+    used_ds = {n["dataset_id"] for n in nodes if n.get("dataset_id")}
+    for k in kinds:
+        used_ds |= set(k["dataset_ids"])
+    datasets = [
+        {"id": d, "label": resolve_dataset_label(registry_root, d)} for d in sorted(used_ds)
+    ]
     return {
         "nodes": nodes,
         "edges": edges,
         "kinds": kinds,
+        "datasets": datasets,
         "stats": {
             "entities": total_entities,
             "nodes": len(nodes),

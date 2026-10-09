@@ -26,6 +26,11 @@
 - `set_spec`（一覧で開く）はサーバが完成形で返す（O59）。値＝いちばん件数の多い種類＋`eq`、束＝相手の件が 1 つに決まるときだけ。
   上位構造（§5）で述語を合流させても、`set_spec` の述語は件が実際に使っている元の述語で組む（合流後の述語はデータに無く 0 件になる）。
 - 種類の無い件（rdf:type を持たない）は束にしない。型の行が `max_rows` で切れたときは、型の分かった件だけを点にする。
+- 返り値は `datasets: [{id, label}]`（返す点と `kinds` に出てくるデータセットだけ・id の辞書順・名前は
+  `resolve_dataset_label`。公開 0 件なら空）と、`kinds[].dataset_ids`（その種類の件が属するデータセット。束の中身も含む）も持つ。
+  束の点の `dataset_id` は、中身の件がすべて同じデータセットならその id、割れていれば null。
+  同じ主語が複数のデータセットに載るときは、点の `dataset_id` と同じく 1 つに数える（型の行を主語・種類・graph の順に
+  並べて最初に出てくるデータセット。`kinds[].dataset_ids` も同じ）。
 - `kinds` の名前は、上位の種類（`group_iri`）も含めて引く。
 - `stats.published_graphs`（公開済み graph の数）を返す。画面は点が 0 のとき、これが 0 なら公開 0 件の案内（`empty`）、
   1 以上なら点 0 の案内（`no_points`）と分ける（`emptyKind`。無い古いサーバは件の数 0 で判定）。
@@ -44,6 +49,11 @@
   凡例の束の見本は「形（大きな丸）」を示すものなので、特定の種類の色を借りず灰にする。
 - データセットごとには塗らない。大きさは次数（束は中の件数）の表示中の最小〜最大の対数・面積比例
   （全体図の `sizeScale` と同じ考え方）。
+- **同じ名前の種類は、データセット名を添えて見分ける**。凡例の種類名が別の行とぶつかる行だけに、その種類の
+  `dataset_ids` のデータセット名を「・」でつないで添える（例「Card（XRD カード A）1」）。添えてもぶつかる
+  （同じデータセット内の同名）ときは種類の読みくだしを足し、それでも同じなら何もしない。`dataset_ids` が無い
+  古いサーバでは読みくだしだけを試す（純関数 `kindQualifiers`）。選んだ点の帯にも、件・束ではデータセット名を並べる
+  （`datasets` から引き、引けなければ出さない）。
 - 案 A（上位構造の分類で塗る）は §5。
 
 ## 3. 配置は決定論
@@ -64,9 +74,12 @@ SPARQL の行が `max_rows`（既定 200,000）を超えても `truncated: true`
 
 ## 5. 上位構造との接続
 
-`asterism.shared_vocab.upper_map(client)`（別の作業で設計中・まだ main に無い）があれば、値の点は上位の項目で
-まとめ、色は上位の分類（`group_iri`）で塗る（案 A）。無ければ今の振る舞い（`class_iri` で塗る）。
-この差し替え口は f06fe018 で入った（`kindKey = group_iri ?? class_iri`）。
+`asterism.shared_vocab.upper_map(client)` があれば、値の点は上位の項目でまとめ、色は上位の分類（`group_iri`）で塗る（案 A）。
+無ければ今の振る舞い（`class_iri` で塗る）。この差し替え口は f06fe018 で入った（`kindKey = group_iri ?? class_iri`）。
 
-**未確認**: `upper_map` の返り値の形 `{"classes": {...}, "properties": {...}}` は、上位構造の作業との取り決めで、
-まだ裏取りできていない。`upper_map` が main に入ったら形を確かめる（違うと、静かに何も合流せず色も上位にならない）。
+取り決めは [`upper-structure-shared-terms.md`](upper-structure-shared-terms.md) §2.6（#693・2026-10-09 に合意）:
+返り値は `{"classes": {IRI: 最上位の共有語}, "properties": {IRI: 最上位の共有語}, "at": …}`（`GET /api/vocab/upper` と同じ）。
+畳み方は上位パス（種類は `rdfs:subClassOf|owl:equivalentClass|^owl:equivalentClass` の繰り返し、項目は `subPropertyOf` 版）、
+複数の上位は slug の辞書順で先頭、表に無い IRI は自分（全体グラフ側も `get(iri, iri)` で自分に落とす）。`at` は使わない。
+関数の同期・非同期は取り決めに無いので、api はどちらでも受ける。**`upper_map` の実装はまだ main に無い**（別 PR）。
+入ったら、実データで値の点の合流と色が上位になることを確かめる。

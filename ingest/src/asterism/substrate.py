@@ -722,9 +722,14 @@ def materialize_to_graph(
     validate_rml_design(prepared, csv_dir)
     mapping_file.write_text(prepared, encoding="utf-8")
 
+    # number_of_processes: 1 — Morph-KGC は library として呼ばれると Linux でだけ並列にし
+    # （既定は CPU 数の 2 倍）、mp.Pool を fork で作る。スレッドを持つ親（API サーバ・テストの途中）
+    # から fork すると子が固まりうる（CI の ingest テストが test_papers_dataset で 70 分固まった・
+    # 2026-10-09）。流し込みの経路（materialize_to_nt_file）と同じく 1 にする。
     config = (
         "[CONFIGURATION]\n"
         f"udfs: {udfs}\n"
+        "number_of_processes: 1\n"
         "[DataSource1]\n"
         f"mappings: {mapping_file}\n"
     )

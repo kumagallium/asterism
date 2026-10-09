@@ -1124,7 +1124,7 @@ def test_network_returns_nodes_edges_kinds_and_stats(tmp_path: Path) -> None:
         r = client.get("/api/network")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body) == {"nodes", "edges", "kinds", "stats", "truncated"}
+        assert set(body) == {"nodes", "edges", "kinds", "datasets", "stats", "truncated"}
         assert body["truncated"] is False
         assert set(body["stats"]) == {
             "entities",
@@ -1866,6 +1866,23 @@ def test_network_group_iri_becomes_the_upper_class_when_upper_map_succeeds(
         assert top in {k["class_iri"] for k in body["kinds"]}
 
 
+def test_network_accepts_a_synchronous_upper_map_with_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """取り決めの形 {classes, properties, at}。同期の関数でも受ける（at は使わない）。"""
+    top = "https://ex/upper#Thing"
+
+    def fake_upper_map(_client: Any) -> dict[str, Any]:
+        return {"classes": {CHECKOUT_CLASS: top}, "properties": {}, "at": "2026-10-09T00:00:00Z"}
+
+    _fake_upper_map(monkeypatch, fake_upper_map)
+    with _network_client(tmp_path) as client:
+        body = client.get("/api/network").json()
+        mapped = [n for n in body["nodes"] if n["class_iri"] == CHECKOUT_CLASS]
+        assert mapped
+        assert {n["group_iri"] for n in mapped} == {top}
+
+
 def test_network_still_returns_200_when_upper_map_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1889,3 +1906,10 @@ def test_network_stats_carry_published_graphs(tmp_path: Path) -> None:
         # 起動時に版なしの live graph も公開済みとして載るので数は 2 になりうる。
         # 正確な数え方（0・1・2）は ingest の test_stats_published_graphs_counts_graphs_read。
         assert body["stats"]["published_graphs"] >= 1
+
+
+def test_network_datasets_carry_the_registry_name(tmp_path: Path) -> None:
+    with _network_client(tmp_path) as client:
+        body = client.get("/api/network").json()
+        assert {"id": LIB_DATASET, "label": "貸出記録"} in body["datasets"]
+        assert all(LIB_DATASET in k["dataset_ids"] for k in body["kinds"] if k["dataset_ids"])
