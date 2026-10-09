@@ -7340,7 +7340,7 @@ tr[data-map].skeleton-gate-row--added td {
   margin-inline: auto;
   width: 100%;
 }
-/* ④（ID のつけかた）だけは、①の右に形の図を貼るぶん列を広く取る。散文もこの幅に
+/* ⑤（かたちをたしかめる）だけは、①の右に形の図を貼るぶん列を広く取る。散文もこの幅に
    なるが、この画面のリード文は 1 文に絞ってあるので行長は伸びない。 */
 .kz-wizard--wide {
   max-width: 1180px;

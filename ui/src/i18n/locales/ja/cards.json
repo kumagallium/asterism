@@ -92,7 +92,7 @@
   },
   "classpage": {
     "source": "出どころ: {{dataset}}",
-    "viewpoints": "この種類の観点",
+    "viewpoints": "この種類への問い",
     "viewpoint_bundled": "同梱",
     "viewpoint_used": "{{count}} ページで使用",
     "objects": "この種類のオブジェクト",
@@ -325,9 +325,9 @@
     }
   },
   "newcard": {
-    "button": "＋ 観点を足す",
-    "title": "観点を足す",
-    "lead": "グラフや表を、この種類の観点として足します",
+    "button": "＋ 問いを足す",
+    "title": "問いを足す",
+    "lead": "グラフや表を、この種類への問いとして足します",
     "step_shape": "① 見せ方",
     "step_items": "② 項目",
     "step_where": "③ 条件",
@@ -366,8 +366,8 @@
     "path_direct_in_dataset": "{{dataset}}の、この 1 件を指す記録"
   },
   "viewpoints": {
-    "strip_title": "同じデータで使われている観点",
-    "section_title": "使われている観点",
+    "strip_title": "同じデータで使われている問い",
+    "section_title": "使われている問い",
     "used_on": "{{count}} ページで使用",
     "add_hint": "押すと、このページの条件で同じグラフを足します",
     "adding": "足しています…",
@@ -377,8 +377,8 @@
     "title": "このページで聞く・作る",
     "placeholder": "聞きたいこと、出したいグラフ（例: 人口の推移を出して）",
     "send": "送る",
-    "proposal_title": "この観点を足しますか？",
-    "proposal_title_replace": "この観点に差し替えますか？",
+    "proposal_title": "この問いを足しますか？",
+    "proposal_title_replace": "この問いに差し替えますか？",
     "proposal_add": "足す",
     "proposal_discard": "やめる",
     "proposal_adjust_hint": "直したいところを続けて書けます（例: 横軸を年に・棒にして）",
@@ -397,7 +397,7 @@
     "view_source_missing": "元になるカードが見つかりませんでした（先にそのカードを足してから頼んでください）",
     "reask_note": "足したカード「{{title}}」の結果をもとに、もう一度答えます",
     "reask_waiting": "足したカードの結果を待っています…",
-    "threads_viewpoints": "観点",
+    "threads_viewpoints": "問い",
     "threads_questions": "質問",
     "thread_new": "＋ 新しい会話",
     "thread_untitled": "新しい会話",

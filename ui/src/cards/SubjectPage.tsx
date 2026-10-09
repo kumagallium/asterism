@@ -203,13 +203,13 @@ export function SubjectPage({
   const [exporting, setExporting] = useState(false)
   // 「つながりを図で見る」— 既定は閉じる（開くまで API を呼ばない）。
   const [exploring, setExploring] = useState(false)
-  // 「＋ 観点を足す」・下の入力欄はどちらもドロワー（PageChatDrawer・PR F12）を
+  // 「＋ 問いを足す」・下の入力欄はどちらもドロワー（PageChatDrawer・PR F12）を
   // 開く（契約メモ §1 決定 1・6）。フォーム単体（NewCardForm）はドロワーの中に
   // 埋め込む（ui-drawer 担当）ので、このページ自身はもう開閉を持たない。
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
   // どの会話を開くか（契約メモ PR F18 §1.2「開き方」）。「直す」→ そのカードの
-  // 会話、「＋ 観点を足す」→ 新しい会話、下の入力欄からは指定しない（初回送信は
+  // 会話、「＋ 問いを足す」→ 新しい会話、下の入力欄からは指定しない（初回送信は
   // ドロワー側が常に新しい会話として扱う）。
   const [chatTarget, setChatTarget] = useState<PageChatTarget | undefined>(undefined)
   const [cardResultsState, setCardResultsState] = useState<{ key: string; results: Record<string, CardToolResult> }>({
@@ -232,7 +232,7 @@ export function SubjectPage({
     setExploring(false)
   }
 
-  // 「観点」の帯（PR F6・ViewpointStrip）が使う `linkingKinds`（この 1 件を
+  // 「問い」の帯（PR F6・ViewpointStrip）が使う `linkingKinds`（この 1 件を
   // 指す種類の候補）— 1 回だけ取る（契約メモ §5 実装順(4)「1 件のページは
   // linkingKinds を 1 回取って渡す」）。`NewCardForm` も同じ API を独自に
   // 叩くが、`NewCardForm` は F4（担当外・変更しない）のため、ここでは共有せず

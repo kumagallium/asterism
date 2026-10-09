@@ -92,7 +92,7 @@
   },
   "classpage": {
     "source": "Source: {{dataset}}",
-    "viewpoints": "Viewpoints for this kind",
+    "viewpoints": "Questions about this kind",
     "viewpoint_bundled": "Built in",
     "viewpoint_used": "Used on {{count}} pages",
     "objects": "Objects of this kind",
@@ -325,9 +325,9 @@
     }
   },
   "newcard": {
-    "button": "+ Add a viewpoint",
-    "title": "Add a viewpoint",
-    "lead": "Add a chart or table as a viewpoint for this kind",
+    "button": "+ Add a question",
+    "title": "Add a question",
+    "lead": "Add a chart or table as a question about this kind",
     "step_shape": "① How to show it",
     "step_items": "② Items",
     "step_where": "③ Condition",
@@ -366,8 +366,8 @@
     "path_direct_in_dataset": "records in {{dataset}} that point at this one"
   },
   "viewpoints": {
-    "strip_title": "Viewpoints used on this data",
-    "section_title": "Viewpoints in use",
+    "strip_title": "Questions used on this data",
+    "section_title": "Questions in use",
     "used_on": "Used on {{count}} pages",
     "add_hint": "Adds the same graph, conditioned on this page",
     "adding": "Adding…",
@@ -377,8 +377,8 @@
     "title": "Ask and build on this page",
     "placeholder": "What to ask or what chart to make (e.g. show population over time)",
     "send": "Send",
-    "proposal_title": "Add this viewpoint?",
-    "proposal_title_replace": "Replace the viewpoint with this?",
+    "proposal_title": "Add this question?",
+    "proposal_title_replace": "Replace the question with this?",
     "proposal_add": "Add",
     "proposal_discard": "Discard",
     "proposal_adjust_hint": "You can keep typing to adjust it (e.g. put year on the x-axis, make it a bar chart)",
@@ -397,7 +397,7 @@
     "view_source_missing": "Couldn't find the original card (add that card first, then try again)",
     "reask_note": "Answering again using the results of the card \"{{title}}\" you added",
     "reask_waiting": "Waiting for the added card's results…",
-    "threads_viewpoints": "Viewpoints",
+    "threads_viewpoints": "Questions",
     "threads_questions": "Questions",
     "thread_new": "+ New conversation",
     "thread_untitled": "New conversation",

@@ -66,6 +66,14 @@ _ARTIFACT_FILES = {
     # (api-autolink) と PUT /api/datasets/{id}/handles (handles_routes.py) の
     # 2 経路だけが書く。読み手は asterism_api.handles.load_handles。
     "handles.json": "handles.json",
+    # 上位構造 ADR upper-structure-shared-terms.md §2.3・§2.5.3。handles.json と
+    # 同じ運び方（materialize で省略なら既存を保つ）。
+    #   questions.json — ⑥「自分の問い」の下書き。公開のときにだけ query_tools.yaml へ
+    #                    q_<hash8> の名前で upsert する（questions_routes.py）。
+    #   upper.json     — ③⑤で人が受けた「同じ項目／種類の一種」の当てはめ。公開で線を
+    #                    書き applied_at を付けて 1 回だけ消費する（upper_routes.py）。
+    "questions.json": "questions.json",
+    "upper.json": "upper.json",
 }
 
 
@@ -912,6 +920,24 @@ def _atomic_write_bytes(dest: Path, payload: bytes) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def write_artifact(root: Path, dataset_id: str, key: str, text: str) -> bool:
+    """既存データセットの artifact 1 つを atomic（tmp → fsync → replace）に書く。
+
+    ``handles.json`` / ``questions.json`` / ``upper.json`` のように、設計の再生成とは
+    別の経路（PUT・公開時の消費）が単独で書くファイル用。``key`` は
+    :data:`_ARTIFACT_FILES` の中だけ。データセットが無い・id が不正なら ``False``
+    （登録簿に新しい項目を作らない）。
+    """
+    filename = _ARTIFACT_FILES.get(key)
+    if filename is None or not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return False
+    dest = root / dataset_id
+    if not (dest / _META_FILE).is_file():
+        return False
+    _atomic_write_bytes(dest / filename, text.encode("utf-8"))
+    return True
 
 
 def load_meta(root: Path, dataset_id: str) -> dict | None:

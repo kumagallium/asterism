@@ -941,6 +941,7 @@ def upsert_registry_query_tools_by_name(
     tools: list[dict[str, Any]],
     *,
     remove_missing_prefix: str | None = None,
+    remove_missing_origin: str | None = None,
 ) -> list[str] | None:
     """``registry/<id>/query_tools.yaml`` に ``tools`` を名前で upsert する。
 
@@ -950,6 +951,8 @@ def upsert_registry_query_tools_by_name(
     - ``remove_missing_prefix`` を渡すと、その接頭辞で始まる既存ツールのうち今回の
       ``tools`` に**無い**ものを消す（語を作り直したとき古い問いが残らないように）。
       lint で落ちた名前は「今回あるもの」として数える（落ちたからといって既存を消さない）。
+    - ``remove_missing_origin`` も渡すと、削除は既存ツールの ``origin`` がその値のものだけに
+      限る（同じ接頭辞でも、人が保存した ``origin`` の無いツールは消さない）。
     - parse か :func:`lint_query_tool` を通らない宣言は書かず、その名前を返す。
     - 戻り値: 書けなかった名前の list（全部書けたら ``[]``）。**中止したら ``None``** —
       既存 yaml が読めない、データセットのディレクトリが無い（登録簿に新しい項目を
@@ -998,7 +1001,12 @@ def upsert_registry_query_tools_by_name(
         name = str(t.get("name"))
         if name in by_name:
             merged.append(by_name.pop(name))
-        elif remove_missing_prefix and name.startswith(remove_missing_prefix) and name not in given:
+        elif (
+            remove_missing_prefix
+            and name.startswith(remove_missing_prefix)
+            and name not in given
+            and (remove_missing_origin is None or t.get("origin") == remove_missing_origin)
+        ):
             continue
         else:
             merged.append(t)

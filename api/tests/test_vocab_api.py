@@ -191,7 +191,8 @@ def test_add_cq_appends_with_a_numbered_name_and_refuses_bad_ones(tmp_path: Path
         (term,) = client.get("/api/vocab/shared").json()["terms"]
         assert len(term["cqs"]) == 3
 
-        # 種類の語に項目の op は 422・未鋳造は 404・「写す」は 501
+        # 種類の語に項目の op は 422・未鋳造は 404・「写す」は元の問いが無ければ 404
+        # （写す本体は test_upper_questions.py）
         bad = client.post("/api/vocab/shared/diffraction_point/cq", json=CQ_VALUES)
         assert bad.status_code == 422, bad.text
         assert client.post("/api/vocab/shared/nothing/cq", json=CQ_COUNT).status_code == 404
@@ -199,7 +200,7 @@ def test_add_cq_appends_with_a_numbered_name_and_refuses_bad_ones(tmp_path: Path
             "/api/vocab/shared/diffraction_point/cq",
             json={**CQ_COUNT, "from_dataset": "ds-a", "question_id": "q_x"},
         )
-        assert copy.status_code == 501, copy.text
+        assert copy.status_code == 404, copy.text
         assert len(client.get("/api/vocab/shared").json()["terms"][0]["cqs"]) == 3
 
 
@@ -504,6 +505,44 @@ def test_fit_exact_matches_only_and_generic_labels_yield_nothing(tmp_path: Path)
                 "candidates": []
             }
         assert client.get("/api/vocab/fit").status_code == 400
+
+
+def test_fit_candidates_say_class_or_property(tmp_path: Path) -> None:
+    """③（項目）と⑤（種類）が候補を取り違えないよう、各候補に term_kind が付く。"""
+    ds = rdflib.Dataset()
+    onto = ds.graph(rdflib.URIRef(substrate.ontology_graph_iri("xrd-a")))
+    for local, rdf_type, label in (
+        ("Peak", rdflib.RDFS.Class, "ピーク"),
+        ("intensity", rdflib.RDF.Property, "ピーク"),
+    ):
+        iri = rdflib.URIRef(f"https://example.org/xrd-a#{local}")
+        onto.add((iri, rdflib.RDF.type, rdf_type))
+        onto.add((iri, rdflib.RDFS.label, rdflib.Literal(label, lang="ja")))
+    app, _ = _app(tmp_path, ds)
+    with TestClient(app, headers=_AUTH) as client:
+        _mint(client, label_en="Diffraction point")  # 回折点（class）
+        _mint(client, slug="peak_height", kind="property", label_ja="ピーク高さ", cqs=[CQ_VALUES])
+        shared = client.get("/api/vocab/fit", params={"label": "回折点"}).json()["candidates"]
+        assert [(c["kind"], c["term_kind"]) for c in shared] == [("shared", "class")]
+        prop = client.get("/api/vocab/fit", params={"label": "ピーク高さ"}).json()["candidates"]
+        assert [(c["kind"], c["term_kind"]) for c in prop] == [("shared", "property")]
+        # 他データの項目は ontology graph の型で区別される（同じ label でも別々に出る）
+        other = client.get("/api/vocab/fit", params={"label": "ピーク"}).json()["candidates"]
+        assert {(c["term"].rsplit("#", 1)[-1], c["term_kind"]) for c in other} == {
+            ("Peak", "class"),
+            ("intensity", "property"),
+        }
+        # 標準の語は ground_terms の kind
+        from asterism import grounding
+
+        want = {
+            c.iri: c.kind
+            for c in grounding.ground_terms("thermal conductivity", limit=8)
+            if c.score == 100
+        }
+        assert want
+        std = client.get("/api/vocab/fit", params={"column": "thermal conductivity"}).json()
+        assert {c["term"]: c["term_kind"] for c in std["candidates"]} == want
 
 
 def test_fit_puts_an_exact_standard_term_first_and_drops_fuzzy_ones(tmp_path: Path) -> None:

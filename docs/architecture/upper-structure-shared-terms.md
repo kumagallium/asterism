@@ -469,3 +469,4 @@ slug の辞書順で先頭）。組み立て関数は `asterism.shared_vocab.upp
   `schema_summary.shared_terms[].cqs` は実際に公開されるツール名だけ（`wired.json` で絞られたものは出さない）。
   `/api/vocab/fit` の標準語は `ground_terms` の score 100 だけ。
 - 2026-10-09（同日・7 回目・実装）: 段 2（PR 2 UI「ことば」）を branch `feat/vocab-view` で実装（#697 に積む）。実装時の判断: 線の一覧に「すべて」の切り替えを足す（scope 無し＝全件）、hash は実ルータの `#/vocab?q=…&scope=…&dataset=…`、項目（property）の共有語はデータセットの項目からの線を PR 3 の③の当てはめで引く（PR 2 の地図は種類の丸だけ）、`vocab:banner.*` の既存文言は残す。スクショは PR 3 の後にまとめて撮る。
+- 2026-10-09（同日・8 回目・実装）: 段 3（PR 3 作る UI の流れ）を branch `feat/kantan-flow-questions` で実装（#700 に積む）。実装時の判断: upper.json の項目の subject は `property:<map 名>/<列名>`（api が mapping.yaml の列 → 述語で解決。標準語へは equivalentProperty・共有語／他データセットの項目へは subPropertyOf）、問いのツールには `origin: "question"` を印として付け公開時の削除はその印のあるものだけ、「写す」は `source: {dataset, question_id}` を記録して同じ組は 200 で既存を返す、⑤の種類の当てはめは問い無しでも線になる（線は CQ 任意・§2.0 のとおり）、種類のページの「問い」一覧からの写すは未実装（宣言ツールから写す口が要る・次の作業）。

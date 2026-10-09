@@ -14,11 +14,41 @@ from typing import Any
 
 from asterism_step0.spec_yaml import load_spec_yaml
 
-__all__ = ["handle_slots", "load_handles"]
+__all__ = ["HANDLE_VIA", "clean_handle", "handle_slots", "load_handles"]
+
+# ☑ の出どころ。``tick`` = 人が直接付けた（``via`` 無しの旧形式も同じ）、``fit`` = 人が
+# 当てはめ提案の「値でもつなぐ」で付けた（``term`` に当てはめ先を残す）。機械は書かない（K48）。
+HANDLE_VIA = ("tick", "fit")
+
+
+def clean_handle(item: Any) -> dict | None:
+    """1 件の ☑ を ``{"source", "column"[, "via"[, "term"]]}`` に整える（不正は ``None``）。
+
+    ``via`` は ``tick`` / ``fit`` だけ残し、``term`` は ``via == "fit"`` のときだけ残す。
+    ``via`` 無し（旧形式）は無いまま通す — 意味は ``tick``。autolink（:func:`handle_slots`）は
+    ``via`` / ``term`` を見ない。
+    """
+    if not isinstance(item, dict):
+        return None
+    source = item.get("source")
+    column = item.get("column")
+    if not (isinstance(source, str) and source and isinstance(column, str) and column):
+        return None
+    out: dict = {"source": source, "column": column}
+    via = item.get("via")
+    if via in HANDLE_VIA:
+        out["via"] = via
+        term = item.get("term")
+        if via == "fit" and isinstance(term, str) and term:
+            out["term"] = term
+    return out
 
 
 def load_handles(artifacts: dict[str, str]) -> list[dict]:
-    """``artifacts["handles.json"]`` → ``[{"source", "column"}, ...]``。
+    """``artifacts["handles.json"]`` → ``[{"source", "column"[, "via", "term"]}, ...]``。
+
+    ``via`` / ``term``（上位構造 ADR §2.5.3）は落とさず通す。旧形式（``via`` 無し）は
+    そのまま ``{"source", "column"}`` で返る。
 
     無い／空／壊れた JSON／期待した形でない場合は静かに ``[]``（handles.json は
     無くても構わない任意の artifact — 契約を満たさないデータは「無かった」
@@ -36,12 +66,9 @@ def load_handles(artifacts: dict[str, str]) -> list[dict]:
         return []
     handles: list[dict] = []
     for item in raw:
-        if not isinstance(item, dict):
-            continue
-        source = item.get("source")
-        column = item.get("column")
-        if isinstance(source, str) and source and isinstance(column, str) and column:
-            handles.append({"source": source, "column": column})
+        cleaned = clean_handle(item)
+        if cleaned is not None:
+            handles.append(cleaned)
     return handles
 
 

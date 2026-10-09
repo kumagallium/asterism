@@ -491,6 +491,16 @@ export interface ColumnMeaning {
   column: string
   label?: string
   unit?: string
+  /** 人が受けた当てはめ（③「同じ項目として結ぶ」）。無ければ null／省略。
+   *  提案は表示のみで、これは人が押したときにだけ入る。 */
+  fit?: ColumnFit | null
+}
+
+/** 項目の当てはめ先（`column-meanings.json` の `fit`）。 */
+export interface ColumnFit {
+  term: string
+  kind: 'shared' | 'standard' | 'dataset'
+  matched_by: 'label' | 'column'
 }
 
 /** Result payload carried by the SSE `done` event for a column-meanings job. */
@@ -1231,6 +1241,11 @@ function attachIngestJob(
 export interface MaterializeHandle {
   source: string
   column: string
+  /** 出どころ。`fit` = 人が当てはめ提案の「値でもつなぐ」で付けた ☑（`term` を伴う）。
+   *  `tick` = 人が直接付けた ☑。省略は `tick`（旧形式）。機械は書かない。 */
+  via?: 'tick' | 'fit'
+  /** `via: "fit"` のとき、当てはめ先の語の IRI。 */
+  term?: string
 }
 
 /**
@@ -1267,6 +1282,7 @@ export function materializeRequestBody(
   stagingId?: string | null,
   handles?: MaterializeHandle[],
   settled?: SettledBeforeDesign,
+  upper?: UpperItem[],
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     proposal_md: proposalMd,
@@ -1278,6 +1294,8 @@ export function materializeRequestBody(
   // real data on a brand-new design instead of being skipped until attach.
   if (stagingId) body.staging_id = stagingId
   if (handles) body.handles = handles
+  // 当てはめ（⑤の「一種にする」）。省略 = サーバが既存の upper.json を保つ。送れば置換。
+  if (upper) body.upper = upper
   if (settled && !datasetId) {
     if (settled.columnMeanings.length > 0) body.column_meanings = settled.columnMeanings
     if (settled.columnDecisions.length > 0) body.column_decisions = settled.columnDecisions
@@ -1292,6 +1310,7 @@ export async function materializeSchema(
   stagingId?: string | null,
   handles?: MaterializeHandle[],
   settled?: SettledBeforeDesign,
+  upper?: UpperItem[],
 ): Promise<MaterializeResult> {
   const body = materializeRequestBody(
     proposalMd,
@@ -1300,6 +1319,7 @@ export async function materializeSchema(
     stagingId,
     handles,
     settled,
+    upper,
   )
   const res = await fetch('/api/materialize', {
     method: 'POST',
@@ -1319,6 +1339,117 @@ export async function fetchDatasetHandles(datasetId: string): Promise<Materializ
   })
   if (!res.ok) await throwApiError(res, 'handles')
   return ((await res.json()) as { handles?: MaterializeHandle[] }).handles ?? []
+}
+
+/** ③の ☑ を置き換えで保存する（設計後の意味の見直し）。送れば置換。 */
+export async function saveDatasetHandles(
+  datasetId: string,
+  handles: MaterializeHandle[],
+): Promise<MaterializeHandle[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/handles`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ handles }),
+  })
+  if (!res.ok) await throwApiError(res, 'save handles')
+  return ((await res.json()) as { handles?: MaterializeHandle[] }).handles ?? handles
+}
+
+/** 当てはめ 1 本（`upper.json` の項目）。⑤で種類を既にある語の一種にする、など。
+ *  線を書くのは公開のときだけ（人が受けたものだけ・機械は書かない）。
+ *  `applied_at` / `skipped` はサーバが書く（送っても信じない）。 */
+export type UpperRelation = 'subClassOf' | 'equivalentClass' | 'subPropertyOf' | 'equivalentProperty'
+
+export interface UpperItem {
+  /** 種類・項目の IRI（このデータセットの ontology に居るもの）。 */
+  subject: string
+  /** 当てはめ先の語の IRI。 */
+  term: string
+  relation: UpperRelation
+  /** 公開で線にした時刻。空 = まだ書いていない（公開で 1 回だけ消費する）。 */
+  applied_at?: string | null
+  skipped?: string
+}
+
+/** 公開（promote／publish-names）が線と問いを書いた結果（応答の `upper_questions`）。
+ *  書けなかった線の理由・検査で落ちた問い・警告を、画面が言うための材料。 */
+export interface UpperQuestionsReport {
+  upper?: {
+    applied?: number
+    skipped?: { subject: string; term: string; reason: string }[]
+  }
+  questions?: {
+    written?: string[]
+    lint_errors?: { id: string; errors?: string[] }[]
+  }
+  warnings?: string[]
+}
+
+/** 当てはめの一覧を読み戻す（見直しの開始時）。読み取り専用。 */
+export async function fetchDatasetUpper(datasetId: string): Promise<UpperItem[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/upper`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'upper')
+  return ((await res.json()) as { upper?: UpperItem[] }).upper ?? []
+}
+
+/** ⑥の「自分の問い」1 件（`questions.json` の項目）。閉じた選択だけで組む。
+ *  `count` は種類（kind_iri）が要り、`range` / `top` は項目（property_iri）が要る。
+ *  `lint_error` はサーバが書く（再設計で選択が通らなくなった問い）。 */
+export type QuestionOp = 'count' | 'range' | 'top'
+
+export interface QuestionDraft {
+  id: string
+  title: string
+  op: QuestionOp
+  kind_iri?: string
+  property_iri?: string
+  lint_error?: string
+}
+
+export async function fetchDatasetQuestions(datasetId: string): Promise<QuestionDraft[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/questions`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'questions')
+  return ((await res.json()) as { questions?: QuestionDraft[] }).questions ?? []
+}
+
+/** 問いの下書きを置き換える（送れば置換）。公開までは宣言ツールに何も書かない。 */
+export async function saveDatasetQuestions(
+  datasetId: string,
+  questions: QuestionDraft[],
+): Promise<QuestionDraft[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/questions`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ questions }),
+  })
+  if (!res.ok) await throwApiError(res, 'save questions')
+  return ((await res.json()) as { questions?: QuestionDraft[] }).questions ?? questions
+}
+
+/** 問いの選択（閉じた選択。自由記述の SPARQL は無い）。 */
+export interface QuestionSelection {
+  op: QuestionOp
+  kind_iri?: string
+  property_iri?: string
+}
+
+/** 問いを下書きの graph で 1 回走らせる（/trial-queries と同じ読み先）。答えは
+ *  {@link TrialQueries} と同じ形で、問いに当たる 1 つだけが入る。 */
+export async function runTrialQuestion(
+  datasetId: string,
+  selection: QuestionSelection,
+): Promise<TrialQueries> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/trial-queries/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(selection),
+  })
+  if (!res.ok) await throwApiError(res, 'trial question')
+  return (await res.json()) as TrialQueries
 }
 
 /** Per-class entity counts of a dataset's draft graph + per-file source data
@@ -1611,13 +1742,21 @@ export async function fetchPublishedNames(datasetId: string): Promise<PublishedN
  *  already published to what the stored design says; nothing else moves. */
 export async function publishDatasetNames(
   datasetId: string,
-): Promise<{ updated: number; changes: PublishedNameChange[] }> {
+): Promise<{
+  updated: number
+  changes: PublishedNameChange[]
+  upper_questions?: UpperQuestionsReport
+}> {
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/publish-names`, {
     method: 'POST',
     headers: authHeaders(),
   })
   if (!res.ok) await throwApiError(res, 'publish names')
-  return (await res.json()) as { updated: number; changes: PublishedNameChange[] }
+  return (await res.json()) as {
+    updated: number
+    changes: PublishedNameChange[]
+    upper_questions?: UpperQuestionsReport
+  }
 }
 
 /** Everything needed to re-open「データの数えかた」on an already-saved design. */

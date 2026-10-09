@@ -1119,7 +1119,7 @@ export async function deleteAppDataCard(cardId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// PR F12 §1-3: ページの中で AI と会話しながら観点を作る（POST /api/cards/converse）
+// PR F12 §1-3: ページの中で AI と会話しながら問いを作る（POST /api/cards/converse）
 // ---------------------------------------------------------------------------
 
 export interface ConverseMessage {
@@ -1183,7 +1183,7 @@ export interface ConversePageSummary {
 
 /** AI の提案（契約メモ §1-3・PR F13 §1）。`params` はサーバが `validate_measure`
  *  を通したもの — `set_measure` の params と同じ形（`MeasureCardParams` 互換）。
- *  `kind` 省略時は `'measure'`（F12 までの観点の指定）。`'view'` は AI が
+ *  `kind` 省略時は `'measure'`（F12 までの問いの指定）。`'view'` は AI が
  *  Vega-Lite／表仕様／Mermaid を「書いた」見せ方（PR F13）— このときだけ
  *  {@link ConverseProposalView} を持つ（ワイヤ形・`custom` は無い）。 */
 export interface ConverseProposal {

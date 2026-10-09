@@ -4,7 +4,9 @@
 - ``GET /api/vocab/shared`` — 鋳造済みの語の一覧（下に掛かるもの・標準との線・問い・答える数）
 - ``POST /api/vocab/shared`` — 語を 1 つ作る（問いを添えて 1 操作。問い無しは 422・同 slug は 409）
 - ``DELETE /api/vocab/shared/{slug}`` — 語を外す（線が残っていれば 409・問いは連動して消える）
-- ``POST /api/vocab/shared/{slug}/cq`` — 既定テンプレの問いを 1 本足す（「写す」は未対応 = 501）
+- ``POST /api/vocab/shared/{slug}/cq`` — 既定テンプレの問いを 1 本足す。``{from_dataset,
+  question_id}`` を送ると、他データセットの問い（``questions.json``）の種類／項目を上位の共有語に
+  置き換えて足す（「ことばへ写す」・元は残す・上位がその語でなければ 409）
 - ``GET /api/vocab/upper`` — 全体グラフ向けの上位の対応表（線だけから作る）
 - ``GET /api/vocab/fit`` — 列を当てはめられる語の候補（完全一致のみ・表示専用）
 
@@ -23,11 +25,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from asterism import grounding, shared_vocab, substrate
-from asterism.query_tools import upsert_registry_query_tools_by_name
+from asterism.query_tools import read_registry_raw_tools, upsert_registry_query_tools_by_name
 from asterism.shared_vocab import CQSpec, SharedTerm
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from asterism_api import registry
+from asterism_api.questions_routes import load_questions
 
 if TYPE_CHECKING:  # pragma: no cover - type-checking only
     from asterism.oxigraph_client import OxigraphClient
@@ -70,9 +75,11 @@ class SharedTermBody(BaseModel):
 
 
 class AddCqBody(BaseModel):
-    title: str
-    op: str
-    # 「写す」（他データセットの問いを共有の語へ写す）は次の段。受け取って 501 を返す。
+    # 既定テンプレの問いを足すときは title / op が要る（無ければ 422）。「写す」
+    # （``from_dataset`` + ``question_id``）のときは題を省くと元の問いの題を使い、op は語の
+    # 種類で決まる（種類＝count・項目＝values）ので送らなくてよい。
+    title: str | None = None
+    op: str | None = None
     from_dataset: str | None = None
     question_id: str | None = None
 
@@ -148,12 +155,64 @@ def register_vocab(
             raise HTTPException(502, f"shared vocab write failed: {exc}") from exc
         return Response(status_code=204)
 
+    def _find_question(dataset_id: str, question_id: str) -> dict:
+        record = registry.load_dataset(cfg.registry_root, dataset_id)
+        if record is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        found = next(
+            (q for q in load_questions(record["artifacts"]) if q["id"] == question_id), None
+        )
+        if found is None:
+            raise HTTPException(404, f"question {question_id!r} not found in {dataset_id!r}")
+        return found
+
+    async def _check_upper_is(question: dict, term_row: dict) -> None:
+        """問いの種類／項目の上位が、この語であること（でなければ 409 と案内）。
+
+        問いの IRI は種類（``kind_iri``）と項目（``property_iri``）。語の種類（class / property）に
+        合う側を ``upper_map`` で上位に畳み、その上位が ``term_row`` の語と同じなら通す。
+        """
+        is_class = term_row["kind"] == "class"
+        subject = question.get("kind_iri") if is_class else question.get("property_iri")
+        where = "種類" if is_class else "項目"
+        if not subject:
+            raise HTTPException(
+                409,
+                f"この問いは{where}を選んでいないため、{where}の語「{term_row['slug']}」へは"
+                "写せません。",
+            )
+        try:
+            m = await shared_vocab.upper_map(_client())
+        except Exception as exc:
+            raise HTTPException(502, f"upper map failed: {exc}") from exc
+        mapped = (m["classes"] if is_class else m["properties"]).get(str(subject), str(subject))
+        if mapped != term_row["iri"]:
+            raise HTTPException(
+                409,
+                f"この問いの{where}の上位が「{term_row['slug']}」ではありません"
+                + (
+                    "（上位に共有の語がありません）。先に「ことば」で語を作り、線を引いてください。"
+                    if mapped == subject
+                    else f"（上位は {mapped} です）。写す先の語を選び直してください。"
+                ),
+            )
+
     @app.post("/api/vocab/shared/{slug}/cq", dependencies=list(write_auth))
     async def vocab_shared_add_cq(slug: str, body: AddCqBody) -> JSONResponse:
         """既定テンプレの問いを 1 本足す（名前は ``cq_<slug>_<op>``・同じ op が既にあれば
-        ``_2`` …）。他データセットの問いを「写す」のは次の段なので、指定されたら 501。"""
-        if body.from_dataset or body.question_id:
-            raise HTTPException(501, "問いを写す操作はまだありません")
+        ``_2`` …）。
+
+        ``from_dataset`` + ``question_id`` を送ると「ことばへ写す」: そのデータセットの
+        ``questions.json`` の問いの種類（``kind_iri``）／項目（``property_iri``）を ``upper_map`` で
+        上位の共有語に置き換え、その語が ``slug`` の語なら ``slug`` への問いとして足す（元の問いは
+        データセットのツールとして残る＝コピー）。上位が ``slug`` の語でなければ 409 で案内する
+        （語が無ければ「ことば」で鋳造、線が無ければ線を引く）。
+        """
+        copy_from = bool(body.from_dataset or body.question_id)
+        if copy_from and not (body.from_dataset and body.question_id):
+            raise HTTPException(422, "from_dataset と question_id は一緒に送ってください")
+        if not copy_from and not (body.title and body.op):
+            raise HTTPException(422, "title と op が要ります")
         try:
             iri = shared_vocab.term_iri(slug)
         except ValueError as exc:
@@ -165,9 +224,42 @@ def register_vocab(
         row = next((r for r in rows if r["iri"] == iri), None)
         if row is None:
             raise HTTPException(404, f"{slug!r} ということばはありません")
+        title = (body.title or "").strip()
+        op = body.op or ""
+        if copy_from:
+            question = _find_question(str(body.from_dataset), str(body.question_id))
+            await _check_upper_is(question, row)
+            title = title or str(question["title"])
+            op = "count" if row["kind"] == "class" else "values"
         term = _term_from_row(row)
+        source = (
+            {"dataset": str(body.from_dataset), "question_id": str(body.question_id)}
+            if copy_from
+            else None
+        )
+        if source is not None:
+            # 同じ問いを同じ語へ写すのは 1 回だけ — 2 度目は新しく作らず既存を返す。
+            for existing in (
+                read_registry_raw_tools(cfg.registry_root, shared_vocab.REGISTRY_ID) or []
+            ):
+                if existing.get("source") == source and iri in (existing.get("for_terms") or []):
+                    return JSONResponse(
+                        {
+                            "term": slug,
+                            "cq": {
+                                "tool_name": existing.get("name"),
+                                "title": existing.get("title"),
+                            },
+                            "from": {
+                                "dataset_id": body.from_dataset,
+                                "question_id": body.question_id,
+                            },
+                            "existing": True,
+                        },
+                        status_code=200,
+                    )
         taken = {c["tool_name"] for c in row.get("cqs", [])}
-        spec = CQSpec(title=body.title, op=body.op)
+        spec = CQSpec(title=title, op=op)
         try:
             tool = None
             for n in range(1, len(taken) + 2):
@@ -177,6 +269,8 @@ def register_vocab(
             assert tool is not None
         except shared_vocab.TermError as exc:
             raise HTTPException(422, str(exc)) from exc
+        if source is not None:
+            tool["source"] = source
         rejected = upsert_registry_query_tools_by_name(
             cfg.registry_root, shared_vocab.REGISTRY_ID, [tool]
         )
@@ -184,10 +278,13 @@ def register_vocab(
             raise HTTPException(409, "query_tools.yaml が読めないため、問いを足せません")
         if rejected:
             raise HTTPException(422, f"問いが検査を通りません: {', '.join(rejected)}")
-        return JSONResponse(
-            {"term": slug, "cq": {"tool_name": tool["name"], "title": tool["title"]}},
-            status_code=201,
-        )
+        out: dict[str, Any] = {
+            "term": slug,
+            "cq": {"tool_name": tool["name"], "title": tool["title"]},
+        }
+        if copy_from:
+            out["from"] = {"dataset_id": body.from_dataset, "question_id": body.question_id}
+        return JSONResponse(out, status_code=201)
 
     @app.get("/api/vocab/upper")
     async def vocab_upper() -> JSONResponse:
@@ -239,7 +336,12 @@ def register_vocab(
         standard_hits: list[dict] = []
         if column.strip():
             standard_hits = [
-                {"iri": c.iri, "label": c.label or c.name, "matched_by": "column"}
+                {
+                    "iri": c.iri,
+                    "label": c.label or c.name,
+                    "kind": c.kind,
+                    "matched_by": "column",
+                }
                 for c in grounding.ground_terms(column, limit=8)
                 if c.score == _EXACT_SCORE
             ]

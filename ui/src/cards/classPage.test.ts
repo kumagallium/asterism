@@ -29,7 +29,7 @@ describe('classViewpointRows', () => {
     ])
   })
 
-  it('使用中の観点は同梱のあとに、使用数の多い順→題名順で続く', () => {
+  it('使用中の問いは同梱のあとに、使用数の多い順→題名順で続く', () => {
     const s = schema([{ name: 'by_year', title: '出版年の推移', output_kind: 'series' }])
     const paramsA = buildMeasureCard({ classIri: BOOK, shape: 'facts', where: [], items: ['p1'] }).params
     const paramsB = buildMeasureCard({ classIri: BOOK, shape: 'quantity', where: [], item: 'p2', agg: 'avg' }).params

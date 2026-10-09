@@ -1,8 +1,8 @@
-// 「観点」（viewpoint）— カードの作り方から条件（`where`）を除いたもの。契約
+// 「問い」（viewpoint）— カードの作り方から条件（`where`）を除いたもの。契約
 // メモ contract_pr_f6.md §1。純関数のみ（store アクセスなし・LLM なし）。
 //
-// 観点は保存しない — appdata の `cards`（`cardStore.ts`）から毎回、決定論に
-// 派生させる（カードを全部消せば観点も消える・契約メモ §1-1）。id は F4 の
+// 問いは保存しない — appdata の `cards`（`cardStore.ts`）から毎回、決定論に
+// 派生させる（カードを全部消せば問いも消える・契約メモ §1-1）。id は F4 の
 // `cardId`（`measureCardFields.ts`）と同じ規則（params を key 順で正規化した
 // JSON の sha-256 先頭 16 桁）— `where` を除く点だけが違うので、同じ
 // `canonicalJson`/`sha256Hex` をそのまま再利用する。
@@ -14,7 +14,7 @@ import { canonicalJson, sha256Hex, type Translate } from './measureCardFields'
 export type { Translate } from './measureCardFields'
 
 // ---------------------------------------------------------------------------
-// 観点の id（契約メモ §1-1）
+// 問いの id（契約メモ §1-1）
 // ---------------------------------------------------------------------------
 
 /** `params` から `where` キーだけを取り除いた新しいオブジェクト（`where` は
@@ -35,12 +35,12 @@ export function viewpointId(params: MeasureCardParams): string {
 }
 
 // ---------------------------------------------------------------------------
-// 観点の派生（契約メモ §1-1）
+// 問いの派生（契約メモ §1-1）
 // ---------------------------------------------------------------------------
 
 export interface Viewpoint {
   id: string
-  /** 観点の対象の種類（`params.class`）。 */
+  /** 問いの対象の種類（`params.class`）。 */
   class: string
   shape: MeasureShape
   /** カードの作り方から `where` を除いたもの（`paramsForPage` がこれに
@@ -48,7 +48,7 @@ export interface Viewpoint {
   params: MeasureCardParams
   /** カードの題名そのまま（契約メモ §1-5「チップは題名そのもの」）。 */
   title: string
-  /** この観点が使われているページの数（`subject_key` の distinct 数）。 */
+  /** この問いが使われているページの数（`subject_key` の distinct 数）。 */
   usedOn: number
 }
 
@@ -63,8 +63,8 @@ interface ViewpointGroup {
   title: string
 }
 
-/** 全カード（`useAllCards()` の結果）→ 観点の集合（契約メモ §1-1）。同じ
- *  観点（`where` 以外が同じ）は 1 つにまとまる。順は使用数の多い順→題名順
+/** 全カード（`useAllCards()` の結果）→ 問いの集合（契約メモ §1-1）。同じ
+ *  問い（`where` 以外が同じ）は 1 つにまとまる。順は使用数の多い順→題名順
  *  →id 順（決定論・入力の並び順に依存しない）。 */
 export function viewpointsFrom(cards: CardSpec[]): Viewpoint[] {
   const groups = new Map<string, ViewpointGroup>()
@@ -124,18 +124,18 @@ export interface ViewpointPage {
   sourceScope?: SetSpec['source_scope']
   /** 1 件のページだけ: この 1 件の IRI（`paramsForPage` が使う）。 */
   iri?: string
-  /** このページに既にある観点の id（`viewpointId` の値）— 出さない
-   *  （契約メモ §1-2「このページに既にある観点は出さない」）。 */
+  /** このページに既にある問いの id（`viewpointId` の値）— 出さない
+   *  （契約メモ §1-2「このページに既にある問いは出さない」）。 */
   existingViewpointIds: string[]
 }
 
-/** 契約メモ §1-3 の判定。観点の `class` が、
+/** 契約メモ §1-3 の判定。問いの `class` が、
  *  - 一覧のページ: その一覧の `spec.class` と同じ、または
  *  - 1 件のページ: その 1 件の種類と同じ（かつ「数字 1 つ」「表」だけ — 1 件
  *    自身の quantity は値が 1 つなので他の見せ方は描けない）、または
  *    `linkingKinds` の `class_iri` に含まれる（この 1 件を指す種類・見せ方の
  *    制限なし）
- *  のとき。既にこのページにある観点（`existingViewpointIds`）は除く。 */
+ *  のとき。既にこのページにある問い（`existingViewpointIds`）は除く。 */
 export function applicableViewpoints(viewpoints: Viewpoint[], page: ViewpointPage): Viewpoint[] {
   const existing = new Set(page.existingViewpointIds)
   const linkingClasses = new Set((page.linkingKinds ?? []).map((k) => k.class_iri))
@@ -151,13 +151,13 @@ export function applicableViewpoints(viewpoints: Viewpoint[], page: ViewpointPag
 // 1 クリックで足す条件付け（契約メモ §1-4）
 // ---------------------------------------------------------------------------
 
-/** 観点にこのページの条件を付けた `set_measure` の params。一覧のページは
+/** 問いにこのページの条件を付けた `set_measure` の params。一覧のページは
  *  `spec.where`（`source_scope` も同じ）、1 件のページは `linkingKinds` の
  *  該当する種類の `where`（サーバが完成形で返したものをそのまま使う —
  *  PR F14 §1.3。組み立て直さない）。候補が複数なら最初の 1 つ（契約メモ
  *  §1-4）。条件が組めない（一覧なのに `where` が無い・1 件なのに
- *  `linkingKinds` に観点の class と一致する候補が無い）ときは `null`。
- *  後者は、観点の class が「この 1 件自身の種類」と一致するとき
+ *  `linkingKinds` に問いの class と一致する候補が無い）ときは `null`。
+ *  後者は、問いの class が「この 1 件自身の種類」と一致するとき
  *  （`applicableViewpoints` の own-class-match）に起こる — `linkingKinds` は
  *  この 1 件から届く近傍の種類の一覧であり、1 件自身の種類は含まれないため、
  *  条件を組む材料が無い。ここで無条件の params を返すと「この 1 件のカード」
@@ -224,7 +224,7 @@ export function pathLabel(kind: LinkingKind, t: Translate): string | undefined {
 // 題名（契約メモ §1-5）
 // ---------------------------------------------------------------------------
 
-/** 観点の題名（カードの題名そのまま — 条件を除いても題名は変わらない。
+/** 問いの題名（カードの題名そのまま — 条件を除いても題名は変わらない。
  *  題名は property の label だけから組み立てられ、`where` に依存しないため）。
  *  `t` は呼び出し側と同じ i18next インスタンスを受け取るだけ（このファイルは
  *  react-i18next に依存しない — `titleFor` と同じ流儀）で、今のところ使わない
@@ -235,7 +235,7 @@ export function viewpointTitle(viewpoint: Viewpoint, _t: Translate): string {
 }
 
 // ---------------------------------------------------------------------------
-// 同梱の観点（契約メモ contract_pr_f9.md §1-4「種類のページ」・§5 実装順(5)・
+// 同梱の問い（契約メモ contract_pr_f9.md §1-4「種類のページ」・§5 実装順(5)・
 // ClassPage.tsx が使う）
 // ---------------------------------------------------------------------------
 
@@ -254,7 +254,7 @@ export interface DeclaredViewpoint {
 
 const MEASURE_SHAPES: ReadonlySet<string> = new Set(['series', 'pairs', 'ranked', 'breakdown', 'quantity', 'facts'])
 
-/** `classSchema.tools` → 種類のページの「同梱」観点（契約メモ §5 実装順(5)）。
+/** `classSchema.tools` → 種類のページの「同梱」問い（契約メモ §5 実装順(5)）。
  *  `name`/`title` が文字列でない項目は黙って落とす（壊れた宣言を描画側に
  *  混ぜない — K39 と同じ考え方）。順は `tools` の宣言順のまま（決定論）。 */
 export function declaredViewpoints(schema: ClassSchema): DeclaredViewpoint[] {

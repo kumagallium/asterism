@@ -1,6 +1,6 @@
-// 「同じデータで使われている観点」の帯（契約メモ contract_pr_f6.md §1-2・
+// 「同じデータで使われている問い」の帯（契約メモ contract_pr_f6.md §1-2・
 // §1-4）。既定カードと足したカードのあいだに置く（呼び出し側 —
-// SubjectPage.tsx/SetPage.tsx）。観点は `viewpoints.ts` の純関数で毎回
+// SubjectPage.tsx/SetPage.tsx）。問いは `viewpoints.ts` の純関数で毎回
 // 派生させる（保存しない）。チップを押すと、このページの条件を付けて
 // `set_measure` を 1 回実行（F4 の `NewCardForm` と同じ `runCard`）→
 // 成功したら `cardStore.addCard`（同じ `CardSpec`・同じ `card_id` 規則）。
@@ -57,7 +57,7 @@ export function ViewpointStrip({ subject, subjectKey, kind, classIri, where, sou
   }
 
   const viewpoints = useMemo(() => viewpointsFrom(allCards), [allCards])
-  // このページに既にある観点の id（契約メモ §1-2「このページに既にある観点は
+  // このページに既にある問いの id（契約メモ §1-2「このページに既にある問いは
   // 出さない」）。`ownCards`（このページの足したカード）はすべて
   // `tool: 'set_measure'` だが、将来の型の広がりに備えて明示的に絞る。
   const existingViewpointIds = useMemo(
@@ -83,7 +83,7 @@ export function ViewpointStrip({ subject, subjectKey, kind, classIri, where, sou
   async function handleClick(v: (typeof chips)[number]) {
     const params = paramsForPage(v, page)
     if (!params) {
-      // このページでは条件が組めない（例: 観点の class が 1 件自身の種類と
+      // このページでは条件が組めない（例: 問いの class が 1 件自身の種類と
       // 一致するのに `linkingKinds` に候補が無い）— 無条件で足さず、失敗と
       // 同じ帰結の 1 文で知らせる（黙って何もしないとチップが壊れて見える）。
       setFailedFor({ subjectKey, failed: true })

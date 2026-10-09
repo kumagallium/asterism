@@ -862,7 +862,9 @@ def fit_candidates(
     :func:`normalize_label`) — never fuzzy. ``standard_hits`` (``{iri, label}``, the
     exact-grade result of ``ground_terms``) come first as kind ``standard``, then
     shared terms (``label`` / ``label_en``), then other datasets' item labels
-    (``dataset_terms``: ``{iri, label, dataset_id, kind}``). A label or column that is
+    (``dataset_terms``: ``{iri, label, dataset_id, kind}``). Every candidate carries
+    ``term_kind`` (``"class"`` | ``"property"``) so the caller can tell a kind from an
+    item; ``standard_hits`` pass theirs as ``kind``. A label or column that is
     generic (:data:`GENERIC_LABELS`) yields nothing at all."""
     nl, nc = normalize_label(label or ""), normalize_label(column or "")
     if nl in GENERIC_LABELS or nc in GENERIC_LABELS:
@@ -886,6 +888,7 @@ def fit_candidates(
                 {
                     "term": iri,
                     "kind": "standard",
+                    "term_kind": h.get("kind") or "",
                     "label": h.get("label") or _local(iri),
                     "matched_by": h.get("matched_by") or "column",
                 }
@@ -894,13 +897,29 @@ def fit_candidates(
         by = matched_by(t.label, t.label_en)
         if by and t.iri not in seen:
             seen.add(t.iri)
-            out.append({"term": t.iri, "kind": "shared", "label": t.label, "matched_by": by})
+            out.append(
+                {
+                    "term": t.iri,
+                    "kind": "shared",
+                    "term_kind": t.kind,
+                    "label": t.label,
+                    "matched_by": by,
+                }
+            )
     for d in sorted(dataset_terms, key=lambda d: (str(d.get("dataset_id")), str(d.get("iri")))):
         by = matched_by(d.get("label"))
         iri = d.get("iri")
         if by and iri and iri not in seen:
             seen.add(iri)
-            out.append({"term": iri, "kind": "dataset", "label": d["label"], "matched_by": by})
+            out.append(
+                {
+                    "term": iri,
+                    "kind": "dataset",
+                    "term_kind": d.get("kind") or "",
+                    "label": d["label"],
+                    "matched_by": by,
+                }
+            )
     return out
 
 
