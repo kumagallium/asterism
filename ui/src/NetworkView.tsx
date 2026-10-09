@@ -20,6 +20,9 @@ import {
   edgeAppearance,
   focusCamera,
   focusedKindRoles,
+  barDatasetName,
+  datasetLabelMap,
+  kindQualifiers,
   legendKindRows,
   visibleLegendRows,
   roleCss,
@@ -228,6 +231,7 @@ function Legend({ resp, roles, focused, onToggle, onClear, expanded, onExpandedC
   const setExpanded = onExpandedChange
   const rows = legendKindRows(resp.kinds, roles, focused)
   const shown = visibleLegendRows(rows, expanded, FOLDED_KINDS)
+  const qualifiers = kindQualifiers(rows, resp.kinds, datasetLabelMap(resp.datasets))
   const full = focused.size >= KIND_COLOR_COUNT
   const dot = (role: string) => ({ background: roleCss(role) })
   return (
@@ -236,6 +240,9 @@ function Legend({ resp, roles, focused, onToggle, onClear, expanded, onExpandedC
       <ul className="network-legend network-legend--kinds">
         {shown.map((r) => {
           const disabled = full && !r.pressed
+          const q = qualifiers.get(r.key) ?? null
+          const shownName = r.name ?? t('legend_unnamed')
+          const count = r.count.toLocaleString()
           return (
             <li key={r.key}>
               <button
@@ -243,11 +250,19 @@ function Legend({ resp, roles, focused, onToggle, onClear, expanded, onExpandedC
                 className="network-kind"
                 aria-pressed={r.pressed}
                 disabled={disabled}
-                title={disabled ? t('legend_kind_max', { max: KIND_COLOR_COUNT }) : t('legend_kind_title')}
+                title={
+                  disabled
+                    ? t('legend_kind_max', { max: KIND_COLOR_COUNT })
+                    : q
+                      ? `${t('legend_kind_qualified', { name: shownName, qualifier: q, count })} — ${t('legend_kind_title')}`
+                      : t('legend_kind_title')
+                }
                 onClick={() => onToggle(r.key)}
               >
                 <span className="network-swatch" style={dot(r.role)} />
-                {r.name ?? t('legend_unnamed')} {r.count.toLocaleString()}
+                {q
+                  ? t('legend_kind_qualified', { name: shownName, qualifier: q, count })
+                  : `${shownName} ${count}`}
               </button>
             </li>
           )
@@ -353,6 +368,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
     () => focusedKindRoles(net?.response.kinds ?? [], focused),
     [net, focused],
   )
+  const datasetLabels = useMemo(() => datasetLabelMap(net?.response.datasets), [net])
   const selected = useMemo(() => {
     if (!graph || !selectedId || !graph.hasNode(selectedId)) return null
     return { id: selectedId, ...(graph.getNodeAttributes(selectedId) as unknown as NetworkNodeAttrs) }
@@ -472,6 +488,9 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
                   {[
                     tagOf(selected.nodeKind),
                     selected.classLabel,
+                    selected.nodeKind === 'entity' || selected.nodeKind === 'bundle'
+                      ? barDatasetName(selected.datasetId, datasetLabels)
+                      : null,
                     selected.nodeKind === 'bundle'
                       ? t('bar_bundle', { count: selected.count })
                       : t('bar_degree', { count: selected.degree }),
