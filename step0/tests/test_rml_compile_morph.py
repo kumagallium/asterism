@@ -149,3 +149,116 @@ def test_compiled_mp_parity_with_handwritten_mapping(tmp_path: Path) -> None:
     g_ir = substrate.materialize_to_graph(compiled_ttl, tmp_path / "ir")
 
     assert set(g_ref) == set(g_ir)
+
+
+# ---------------------------------------------------------------------------
+# Tier-0 ``json_array`` + ``object_type: iri`` — a JSON array of full IRIs in
+# one cell becomes one IRI object per element (the shape an external writer
+# such as Graphium uses for "references and evidence are full IRIs" in flat
+# JSON; ADR upper-structure-shared-terms.md §2.1).
+# ---------------------------------------------------------------------------
+
+JSON_ARRAY_IRI_IR = """
+version: 1
+prefixes:
+  ex: "https://example.org/ns#"
+  exr: "https://example.org/r/"
+maps:
+  - name: claim
+    source: data.csv
+    subject:
+      template: "exr:claim/{id}"
+      classes: [ex:Claim]
+    properties:
+      - predicate: ex:evidence
+        column: evidence
+        function: json_array
+        object_type: iri
+"""
+
+_EVIDENCE = rdflib.URIRef("https://example.org/ns#evidence")
+
+
+def _write_claims(tmp_path: Path, cell: str) -> Path:
+    """One row whose ``evidence`` cell is the JSON array ``cell`` (CSV-quoted)."""
+    d = tmp_path / "src"
+    d.mkdir()
+    (d / "data.csv").write_text(
+        "id,evidence\n" + 'A1,"' + cell.replace('"', '""') + '"\n', encoding="utf-8"
+    )
+    return d
+
+
+def test_json_array_iri_explodes_into_one_iri_object_per_element(tmp_path: Path) -> None:
+    """Clean elements: the array explodes to one ``rr:IRI`` object each, and
+    the output round-trips strict N-Triples (store-grade validity)."""
+    d = _write_claims(tmp_path, '["https://g.example/ev/1", "https://g.example/ev/2"]')
+    g = substrate.materialize_to_graph(compile_mapping_ir(parse_mapping_ir(JSON_ARRAY_IRI_IR)), d)
+    objs = list(g.objects(None, _EVIDENCE))
+    assert all(isinstance(o, rdflib.URIRef) for o in objs)
+    assert {str(o) for o in objs} == {"https://g.example/ev/1", "https://g.example/ev/2"}
+    rdflib.Graph().parse(data=g.serialize(format="nt"), format="nt")
+
+
+@pytest.mark.parametrize(
+    ("label", "cell", "raw_object"),
+    [
+        # A space inside an element: Morph-KGC does NOT percent-encode function
+        # output the way it encodes ``rr:template`` placeholders.
+        (
+            "space",
+            '["https://g.example/ev/1", "https://g.example/ev/with space"]',
+            "<https://g.example/ev/with space>",
+        ),
+        # Angle brackets already around the element are not stripped.
+        (
+            "angle",
+            '["https://g.example/ev/1", "<https://g.example/ev/2>"]',
+            "<<https://g.example/ev/2>>",
+        ),
+        # A bare word is written as a relative ``<abc>``.
+        ("non_iri", '["https://g.example/ev/1", "abc"]', "<abc>"),
+    ],
+    ids=["space", "angle", "non_iri"],
+)
+def test_json_array_iri_with_a_broken_element_fails_closed(
+    tmp_path: Path, label: str, cell: str, raw_object: str
+) -> None:
+    """Pins what happens when an element is NOT a clean IRI (probed 2026-10-09,
+    morph-kgc 2.8.1): the engine performs no IRI validation and emits the
+    element verbatim inside ``<…>``. Nothing silently reaches a store:
+
+    - :func:`substrate.materialize_to_graph` raises rdflib's ``ParserError``
+      while reading the engine's N-Triples back (the WHOLE run fails — no
+      partial graph);
+    - :func:`substrate.materialize_to_nt_file` (the production ingest path,
+      which streams the CLI output to disk) returns a file containing the
+      broken line verbatim, and Oxigraph refuses to load that file.
+
+    If a future Morph-KGC starts validating/encoding function-produced IRIs,
+    THIS test fails first and the pin moves — not a production ingest.
+    """
+    import rdflib.exceptions
+
+    ttl = compile_mapping_ir(parse_mapping_ir(JSON_ARRAY_IRI_IR))
+    d = _write_claims(tmp_path, cell)
+
+    with pytest.raises(rdflib.exceptions.ParserError):
+        substrate.materialize_to_graph(ttl, d)
+
+    out = substrate.materialize_to_nt_file(ttl, d, work_dir=tmp_path / "work")
+    lines = out.read_text(encoding="utf-8").splitlines()
+    broken = [line for line in lines if line.endswith(f"{raw_object} .")]
+    assert len(broken) == 1, lines
+    head = "<https://example.org/r/claim/A1> <https://example.org/ns#evidence> "
+    assert broken[0].startswith(head)
+    # The clean sibling element is still written — the engine does not drop the row.
+    assert any(line.endswith("<https://g.example/ev/1> .") for line in lines)
+
+    pyoxigraph = pytest.importorskip("pyoxigraph")
+    store = pyoxigraph.Store()
+    with pytest.raises(SyntaxError):
+        try:
+            store.bulk_load(path=str(out), mime_type="application/n-triples")
+        except TypeError:  # older pyoxigraph signature
+            store.bulk_load(str(out), "application/n-triples")

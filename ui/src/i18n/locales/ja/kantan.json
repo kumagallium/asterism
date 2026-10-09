@@ -569,6 +569,18 @@
     "askConsult": "迷ったら AI に相談",
     "askConsultPrefill": "この 1 件の値のうち、他のデータにも同じ表記で出てきそうなもの（ID を与えるとつながる値）はどれですか。列と実際の値を見て教えてください",
     "assembling": "形を組み立てています…",
+    "baseTitle": "ID をこのデータの IRI に合わせる",
+    "baseLead": "この列には完全な IRI（https:// で始まる ID）が入っています。その共通の先頭を ID の元にすると、ここで作る 1 行の ID が元の IRI と同じになり、外で配られた参照がそのままつながります。公開したあとに変えると ID の引っ越しになるので、決められるのは最初の設計のときだけです。",
+    "baseKeep": "Asterism が作る ID のまま（既定）",
+    "baseUse": "「{{column}}」の先頭 {{base}} を ID の元にする",
+    "baseRejected": "{{source}} の ID の元に「{{column}}」の IRI は使えませんでした（{{reason}}）。Asterism が作る ID に戻しました。",
+    "baseReason": {
+      "not_iri_column": "この列は完全な IRI ではありません",
+      "placeholder_host": "example.org や localhost の IRI は公開できません",
+      "no_unique_key": "この列のほかに、行を 1 件ずつ区別できる列がありません",
+      "iri_column_is_key": "この列自身が行の ID になっています",
+      "values_do_not_match": "IRI の先頭と行の ID をつないでも元の IRI になりません"
+    },
     "assembleFailed": "形の組み立てに失敗しました",
     "valueVaries": "（行ごとに変わる）",
     "noMeasure": "測定値は選べません",

@@ -814,3 +814,79 @@ def test_foreign_keys_across_dialected_and_clean_sources(tmp_path: Path) -> None
     assert any(
         fk.from_column == "sample_id" and fk.to_column == "sample_id" for fk in fks
     )
+
+
+def _iri_base(ins, col: str) -> str | None:
+    c = ins.column(col)
+    assert c is not None
+    return c.iri_base
+
+
+def test_iri_base_common_prefix_cut_at_slash(tmp_path: Path) -> None:
+    p = tmp_path / "a.csv"
+    p.write_text(
+        "id,iri\n1,https://g.example/claims/judgment/a\n2,https://g.example/claims/judgment/b\n",
+        encoding="utf-8",
+    )
+    ins = inspect_csv(p)
+    assert _iri_base(ins, "iri") == "https://g.example/claims/judgment/"
+    assert _iri_base(ins, "id") is None
+
+
+def test_iri_base_single_value(tmp_path: Path) -> None:
+    p = tmp_path / "a.csv"
+    p.write_text("iri\nhttps://g.example/claims/judgment/a\n", encoding="utf-8")
+    assert _iri_base(inspect_csv(p), "iri") == "https://g.example/claims/judgment/"
+
+
+def test_iri_base_authority_only_is_none(tmp_path: Path) -> None:
+    p = tmp_path / "a.csv"
+    p.write_text(
+        "iri\nhttps://doi.org/10.1000/abc\nhttps://doi.org/10.2000/xyz\n", encoding="utf-8"
+    )
+    assert _iri_base(inspect_csv(p), "iri") is None
+
+
+def test_iri_base_hash_separator(tmp_path: Path) -> None:
+    p = tmp_path / "a.csv"
+    p.write_text("iri\nhttps://g.example/vocab#A\nhttps://g.example/vocab#B\n", encoding="utf-8")
+    assert _iri_base(inspect_csv(p), "iri") == "https://g.example/vocab#"
+
+
+def test_iri_base_mixed_and_empty_cells(tmp_path: Path) -> None:
+    p = tmp_path / "a.csv"
+    p.write_text(
+        "mixed,gappy,text\n"
+        "https://g.example/x/a,https://g.example/x/a,foo\n"
+        "abc,,bar\n"
+        ",https://g.example/x/b,baz\n",
+        encoding="utf-8",
+    )
+    ins = inspect_csv(p)
+    assert _iri_base(ins, "mixed") is None
+    assert _iri_base(ins, "gappy") == "https://g.example/x/"
+    assert _iri_base(ins, "text") is None
+
+
+def test_iri_base_in_json_source(tmp_path: Path) -> None:
+    p = tmp_path / "a.json"
+    p.write_text(
+        json.dumps(
+            [
+                {"iri": "https://g.example/claims/judgment/a", "n": "x"},
+                {"iri": "https://g.example/claims/judgment/b", "n": "y"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ins = inspect_json(p)
+    assert _iri_base(ins, "iri") == "https://g.example/claims/judgment/"
+    assert _iri_base(ins, "n") is None
+
+
+def test_iri_base_uses_all_rows_beyond_sample_ring(tmp_path: Path) -> None:
+    lines = ["iri"] + [f"https://g.example/claims/judgment/{i}" for i in range(250)]
+    p = tmp_path / "a.csv"
+    p.write_text("\n".join(lines) + "\nhttps://g.example/claims/other/z\n", encoding="utf-8")
+    # 201 行目以降で先頭が変わる → 全行で計算されているので base が縮む
+    assert _iri_base(inspect_csv(p), "iri") == "https://g.example/claims/"

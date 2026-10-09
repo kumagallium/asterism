@@ -1305,6 +1305,7 @@ export function SkeletonGate({
       mapName,
       edit ? (edit.classes ?? []) : name ? [expandClass(name, nsDetected)] : [],
       edit?.label?.trim(),
+      skeleton,
     )
     onChange({
       ...skeleton,
