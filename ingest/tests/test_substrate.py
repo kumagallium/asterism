@@ -221,6 +221,34 @@ def test_materialize_to_nt_file_requires_morph_kgc(tmp_path: Path) -> None:
         materialize_to_nt_file('rml:source "p.csv"', tmp_path)
 
 
+def test_materialize_to_graph_runs_morph_kgc_in_one_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Morph-KGC は library として呼ばれると Linux でだけ並列にし（既定 CPU 数の 2 倍）、
+    mp.Pool を fork で作る。スレッドを持つ親から fork すると子が固まりうる（CI で 70 分固まった）
+    ので、流し込みの経路と同じく number_of_processes: 1 を渡す。本物の Morph-KGC が無くても
+    確かめられるよう、偽物の materialize で設定を受ける。"""
+    import sys
+    import types
+
+    seen: list[str] = []
+    fake = types.ModuleType("morph_kgc")
+    fake.materialize = lambda config: seen.append(config) or "graph"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "morph_kgc", fake)
+    (tmp_path / "p.csv").write_text("id,name\n1,a\n", encoding="utf-8")
+    rml = (
+        "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+        "<#M> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "p.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "https://ex/p/{id}" ] .\n'
+    )
+    assert materialize_to_graph(rml, tmp_path) == "graph"
+    assert len(seen) == 1
+    assert "number_of_processes: 1" in seen[0].splitlines()
+
+
 def test_materialize_to_graph_json_source(tmp_path: Path) -> None:
     """#19: Morph-KGC reads a JSON source via ql:JSONPath + rml:iterator + dot-path
     references (incl. nested objects). Gated on the optional morph-kgc extra."""
