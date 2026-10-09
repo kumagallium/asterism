@@ -169,6 +169,12 @@ export function legendKindRows(
   return rows
 }
 
+/** 凡例に並べる行。畳んでいるときは先頭 `folded` 行と、それより後ろで押してある行（押した種類が
+ *  凡例から消えて、図だけ色が付いたままにならないように）。 */
+export function visibleLegendRows(rows: LegendKindRow[], expanded: boolean, folded: number): LegendKindRow[] {
+  return expanded ? rows : rows.filter((r, i) => i < folded || r.pressed)
+}
+
 /** 点の色の役割。件・束は種類で、値の点とハブは固定。 */
 export function roleOf(node: NetworkNode, kindRoles: Map<string, string>): string {
   if (node.kind === 'value') return VALUE_ROLE

@@ -21,6 +21,7 @@ import {
   focusCamera,
   focusedKindRoles,
   legendKindRows,
+  visibleLegendRows,
   roleCss,
   loadLaidOutNetwork,
   neighborhoodOf,
@@ -225,7 +226,7 @@ function Legend({ resp, roles, focused, onToggle, onClear, expanded, onExpandedC
   const { t } = useTranslation('network')
   const setExpanded = onExpandedChange
   const rows = legendKindRows(resp.kinds, roles, focused)
-  const shown = expanded ? rows : rows.slice(0, FOLDED_KINDS)
+  const shown = visibleLegendRows(rows, expanded, FOLDED_KINDS)
   const full = focused.size >= KIND_COLOR_COUNT
   const dot = (role: string) => ({ background: roleCss(role) })
   return (

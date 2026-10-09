@@ -9,6 +9,7 @@ import {
   nodeAppearance,
   edgeAppearance,
   legendKindRows,
+  visibleLegendRows,
   REST_ROLE,
   buildNetworkGraph,
   connectedParts,
@@ -298,6 +299,16 @@ describe('buildNetworkGraph', () => {
     expect(g.getNodeAttribute('h1', 'role')).toBe('hub')
     expect(g.getNodeAttribute('b1', 'role')).toBe(roles.get(`${NS}Star`))
   })
+  it('絞り込みの鍵 kindKey: 件・束は group_iri（無ければ class_iri）、値・ハブは null', () => {
+    const resp = fixture()
+    resp.nodes = resp.nodes.map((n) => (n.id === 's2' ? { ...n, group_iri: `${NS}Body` } : n))
+    const gg = buildNetworkGraph(resp)
+    expect(gg.getNodeAttribute('s1', 'kindKey')).toBe(`${NS}Star`)
+    expect(gg.getNodeAttribute('s2', 'kindKey')).toBe(`${NS}Body`)
+    expect(gg.getNodeAttribute('b1', 'kindKey')).toBe(`${NS}Star`)
+    expect(gg.getNodeAttribute('v:region:north', 'kindKey')).toBeNull()
+    expect(gg.getNodeAttribute('h1', 'kindKey')).toBeNull()
+  })
   it('大きさ: 役割ごとの範囲に収まる（件は小さく・値は中・束は大きく）', () => {
     const size = (id: string) => g.getNodeAttribute(id, 'size') as number
     g.forEachNode((id, a) => {
@@ -507,5 +518,24 @@ describe('connectedParts / まとまりごとの配置', () => {
     const [big, small] = connectedParts(a).map(box)
     const apart = big.x1 < small.x0 || small.x1 < big.x0 || big.y1 < small.y0 || small.y1 < big.y0
     expect(apart).toBe(true)
+  })
+})
+
+describe('visibleLegendRows', () => {
+  const rows = Array.from({ length: 15 }, (_, i) => ({
+    key: `k${i}`,
+    name: `種類${i}`,
+    count: 15 - i,
+    role: REST_ROLE,
+    pressed: i === 13,
+  }))
+  it('畳むと先頭の行と、その後ろで押してある行だけ（押した種類が凡例から消えない）', () => {
+    expect(visibleLegendRows(rows, false, 12).map((r) => r.key)).toEqual([
+      ...Array.from({ length: 12 }, (_, i) => `k${i}`),
+      'k13',
+    ])
+  })
+  it('広げると全部', () => {
+    expect(visibleLegendRows(rows, true, 12)).toHaveLength(15)
   })
 })
