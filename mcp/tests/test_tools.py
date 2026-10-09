@@ -568,7 +568,7 @@ def _label_handler(label_rows: list[dict], cls_a: str, cls_a_count: str = "3"):
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = request.content.decode()
-        if "rdf-schema#label" in body:
+        if "rdf-schema#label" in body and "vocab/shared" not in body:
             assert "ORDER BY ?t ?l" in body
             ordered = sorted(label_rows, key=lambda r: (r["t"]["value"], r["l"]["value"]))
             return _rows(ordered, ["t", "l"])
@@ -587,7 +587,7 @@ async def test_schema_summary_attaches_ontology_labels_to_classes_and_predicates
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = request.content.decode()
-        if "rdf-schema#label" in body:
+        if "rdf-schema#label" in body and "vocab/shared" not in body:
             return _rows(
                 [
                     {"t": _u(cls_a), "l": _l("ウィジェット")},
@@ -1029,3 +1029,198 @@ def test_untyped_numeric_warning_covers_filter_and_aggregate_alias() -> None:
     agg = "SELECT (MAX(?i) AS ?m) WHERE { ?s ?p ?i }"
     hits = untyped_numeric_warnings(agg, ["m"], [{"m": _untyped("9.4")}])
     assert [w["variable"] for w in hits] == ["m"]
+
+
+# ----------------------------------------------------------------------------
+# schema_summary — shared_terms / lines (ADR upper-structure-shared-terms.md §2.4)
+# ----------------------------------------------------------------------------
+
+_RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+_RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
+_OWL_NS = "http://www.w3.org/2002/07/owl#"
+_SV = "https://kumagallium.github.io/asterism/vocab/shared#"
+_NS_A = "https://example.org/xrd-a#"
+_NS_B = "https://example.org/xrd-b#"
+_A_REC, _B_REC = _NS_A + "Record", _NS_B + "Record"
+_A_PROP = _NS_A + "intensity"
+_QK = "http://qudt.org/vocab/quantitykind/Temperature"
+
+
+class _StoreClient:
+    """OxigraphClient stand-in over a real rdflib Dataset (read + control writes)."""
+
+    def __init__(self) -> None:
+        import rdflib
+
+        self.ds = rdflib.Dataset(default_union=True)
+
+    async def sparql_select(self, query: str) -> dict:
+        raw = self.ds.query(query).serialize(format="json")
+        return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+    async def sparql_update(self, update: str) -> None:
+        self.ds.update(update)
+
+
+async def _seed_shared_store(*, answering: bool = True) -> _StoreClient:
+    """xrd-a / xrd-b data + ontology; shared words diffraction_point (class, answered),
+    intensity (property, answered by xrd-a), orphan_term (class nobody answers);
+    alignment lines tie them up, plus one dataset <-> dataset line."""
+    import rdflib
+    from asterism import substrate
+    from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
+
+    u = rdflib.URIRef
+    c = _StoreClient()
+
+    async def publish(did: str, rows: list[tuple[str, str, str]]) -> None:
+        key = substrate.canonical_graph_iri(did)
+        data = substrate.versioned_graph_iri(did, 1)
+        g = c.ds.graph(u(data))
+        for s, p, o in rows:
+            g.add((u(s), u(p), u(o) if o.startswith("http") else rdflib.Literal(o)))
+        await substrate.mark_graph_promoted(c, key, live_graph=data)
+
+    if answering:
+        await publish("xrd-a", [("urn:a1", _RDF_NS + "type", _A_REC), ("urn:a1", _A_PROP, "12")])
+        await publish("xrd-b", [("urn:b1", _RDF_NS + "type", _B_REC)])
+
+    for did, terms in (
+        ("xrd-a", [(_A_REC, "Class", "回折点A"), (_A_PROP, "Property", "強度")]),
+        ("xrd-b", [(_B_REC, "Class", "回折点B")]),
+    ):
+        og = c.ds.graph(u(substrate.ontology_graph_iri(did)))
+        for iri, kind, label in terms:
+            og.add(
+                (u(iri), u(_RDF_NS + "type"), u((_RDFS_NS if kind == "Class" else _RDF_NS) + kind))
+            )
+            og.add((u(iri), u(_RDFS_NS + "label"), rdflib.Literal(label, lang="ja")))
+
+    sg = c.ds.graph(u(substrate.SHARED_VOCAB_GRAPH))
+    for slug, kind, label, comment in (
+        ("diffraction_point", "Class", "回折点", "回折で得た 1 点"),
+        ("intensity", "Property", "強度", None),
+        ("orphan_term", "Class", "孤立語", None),
+    ):
+        t = u(_SV + slug)
+        sg.add((t, u(_RDF_NS + "type"), u((_RDFS_NS if kind == "Class" else _RDF_NS) + kind)))
+        sg.add((t, u(_RDFS_NS + "label"), rdflib.Literal(label, lang="ja")))
+        sg.add((t, u(_RDFS_NS + "label"), rdflib.Literal(slug, lang="en")))
+        if comment:
+            sg.add((t, u(_RDFS_NS + "comment"), rdflib.Literal(comment)))
+
+    ag = c.ds.graph(u(ALIGNMENT_GRAPH))
+    for s, p, o in (
+        (_A_REC, _RDFS_NS + "subClassOf", _SV + "diffraction_point"),
+        (_B_REC, _OWL_NS + "equivalentClass", _SV + "diffraction_point"),
+        (_A_PROP, _RDFS_NS + "subPropertyOf", _SV + "intensity"),
+        (_SV + "intensity", _RDFS_NS + "subPropertyOf", _QK),
+        (_B_REC, _OWL_NS + "equivalentClass", _A_REC),
+    ):
+        ag.add((u(s), u(p), u(o)))
+    await substrate.mark_graph_promoted(c, ALIGNMENT_GRAPH)
+    return c
+
+
+async def test_schema_summary_shared_terms_and_lines_shape() -> None:
+    client = await _seed_shared_store()
+
+    out = await schema_summary(client)
+
+    by_iri = {t["iri"]: t for t in out["shared_terms"]}
+    # an orphan (nothing answers it) is not shown; the answered two are, sorted by IRI
+    assert [t["iri"] for t in out["shared_terms"]] == [_SV + "diffraction_point", _SV + "intensity"]
+    assert _SV + "orphan_term" not in by_iri
+    dp = by_iri[_SV + "diffraction_point"]
+    assert set(dp) == {"iri", "label", "comment", "kind", "narrower", "standards", "cqs"}
+    assert (dp["label"], dp["comment"], dp["kind"]) == ("回折点", "回折で得た 1 点", "class")
+    assert dp["narrower"] == [
+        {"iri": _A_REC, "dataset_id": "xrd-a", "label": "回折点A"},
+        {"iri": _B_REC, "dataset_id": "xrd-b", "label": "回折点B"},
+    ]
+    assert dp["standards"] == [] and dp["cqs"] == []
+    it = by_iri[_SV + "intensity"]
+    assert (it["kind"], it["comment"]) == ("property", None)
+    assert it["narrower"] == [{"iri": _A_PROP, "dataset_id": "xrd-a", "label": "強度"}]
+    assert it["standards"] == [_QK]
+    # lines: only dataset <-> dataset ones (a line to a shared word / standard is not one)
+    assert out["lines"] == [{"source": _B_REC, "relation": "equivalentClass", "target": _A_REC}]
+
+
+async def test_schema_summary_shared_narrower_is_capped_by_max_classes() -> None:
+    client = await _seed_shared_store()
+
+    out = await schema_summary(client, max_classes=1)
+
+    dp = next(t for t in out["shared_terms"] if t["iri"] == _SV + "diffraction_point")
+    assert len(dp["narrower"]) == 1
+    # the term list itself has no cap
+    assert len(out["shared_terms"]) == 2
+
+
+async def test_schema_summary_all_orphans_leaves_no_terms_but_keeps_lines() -> None:
+    client = await _seed_shared_store(answering=False)
+
+    out = await schema_summary(client)
+
+    assert out["shared_terms"] == []
+    assert out["lines"] == [{"source": _B_REC, "relation": "equivalentClass", "target": _A_REC}]
+
+
+async def test_schema_summary_shared_keys_are_empty_lists_when_nothing_minted() -> None:
+    async with _make_client(lambda r: _rows([], ["cls", "n"])) as client:
+        out = await schema_summary(client)
+
+    assert out["shared_terms"] == []
+    assert out["lines"] == []
+
+
+async def test_schema_summary_explicit_graph_has_no_shared_keys() -> None:
+    from asterism.substrate import canonical_graph_iri
+
+    graph = canonical_graph_iri("ds1")
+    async with _make_client(lambda r: _rows([], ["cls", "n"]), canonical_graphs=[graph]) as client:
+        out = await schema_summary(client, graph=graph)
+
+    assert "shared_terms" not in out and "lines" not in out
+
+
+async def test_schema_summary_cqs_come_from_vocab_shared_tools(tmp_path) -> None:
+    client = await _seed_shared_store()
+    d = tmp_path / "vocab-shared"
+    d.mkdir()
+    (d / "query_tools.yaml").write_text(
+        "tools:\n"
+        "  - name: by_point\n"
+        "    title: t\n"
+        "    description: d\n"
+        f"    for_terms: ['{_SV}diffraction_point']\n"
+        "    parameters: []\n"
+        "    query: 'SELECT ?s WHERE { ?s a ?c } LIMIT 1'\n",
+        encoding="utf-8",
+    )
+
+    # Without wired.json the server prunes every for_terms tool (safe side), so the
+    # name must NOT be advertised: Ask would otherwise call a tool that is not served.
+    out = await schema_summary(client, registry_root=tmp_path)
+    by_iri = {t["iri"]: t for t in out["shared_terms"]}
+    assert by_iri[_SV + "diffraction_point"]["cqs"] == []
+
+    (d / "wired.json").write_text(
+        json.dumps({"terms": {_SV + "diffraction_point": 1}, "at": "2026-10-09T00:00:00Z"}),
+        encoding="utf-8",
+    )
+
+    out = await schema_summary(client, registry_root=tmp_path)
+
+    by_iri = {t["iri"]: t for t in out["shared_terms"]}
+    assert by_iri[_SV + "diffraction_point"]["cqs"] == ["by_point"]
+    assert by_iri[_SV + "intensity"]["cqs"] == []
+
+
+async def test_schema_summary_cqs_empty_without_registry_root() -> None:
+    client = await _seed_shared_store()
+
+    out = await schema_summary(client)
+
+    assert all(t["cqs"] == [] for t in out["shared_terms"])

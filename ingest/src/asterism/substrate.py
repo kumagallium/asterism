@@ -132,6 +132,13 @@ def draft_graph_iri(dataset_id: str) -> str:
 LIFECYCLE_GRAPH_BASE: str = "https://kumagallium.github.io/asterism/graph/"
 CANONICAL_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "canonical/"
 ONTOLOGY_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "ontology/"
+# The shared-vocabulary graph (ADR upper-structure-shared-terms.md §2.1): TBox-only
+# terms (``sv:<slug>``) that a human mints. It is readable on the raw-SPARQL escape
+# (see :func:`readable_graph_iris`) but is deliberately NOT a canonical graph — it is
+# never returned by :func:`canonical_graphs`, so it never enters the default FROM,
+# ``kind_counts`` or ``classes_index`` (a minted ``rdfs:Class`` must not show up as an
+# individual in a ``?s a ?c`` count).
+SHARED_VOCAB_GRAPH: str = LIFECYCLE_GRAPH_BASE + "vocab/shared"
 CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
 # The forwarding ledger (ADR id-move-after-publish.md): when a re-design changes
 # HOW ids are made, this holds one ``<old> dcterms:isReplacedBy <new>`` per row,
@@ -1822,9 +1829,15 @@ _FROM_IRI: re.Pattern[str] = re.compile(r"\s*(?:named\b\s*)?<([^>\s]+)>", re.IGN
 
 async def readable_graph_iris(client: SupportsSparql) -> set[str]:
     """The only graphs a raw-SPARQL caller may scope to: the promoted canonical
-    graphs plus the projected ontology graphs. Draft / control / legacy graphs are
-    never listed, so a hand-written ``FROM NAMED <draft>`` cannot reach them."""
-    return set(await canonical_graphs(client)) | set(await ontology_graphs(client))
+    graphs, the projected ontology graphs, and the shared-vocabulary graph
+    (:data:`SHARED_VOCAB_GRAPH`, allowlisted explicitly — it is not canonical, so it
+    joins only when a caller names it). Draft / control / legacy graphs are never
+    listed, so a hand-written ``FROM NAMED <draft>`` cannot reach them."""
+    return (
+        set(await canonical_graphs(client))
+        | set(await ontology_graphs(client))
+        | {SHARED_VOCAB_GRAPH}
+    )
 
 
 def _dataset_clause_iris(query: str) -> list[str] | None:
@@ -1946,8 +1959,8 @@ async def canonical_merge_query(client: SupportsSparql, query: str) -> str:
 
     * ``SERVICE`` (federation) is rejected outright — SSRF / exfiltration vector.
     * When the caller supplies its OWN ``FROM`` / ``FROM NAMED``, it is NOT trusted
-      verbatim: every referenced graph must be in the canonical + ontology
-      allowlist, else the query is rejected. This closes the ``FROM NAMED <draft>``
+      verbatim: every referenced graph must be in the canonical + ontology +
+      shared-vocab allowlist, else the query is rejected. This closes the ``FROM NAMED <draft>``
       bypass.
     * When no canonical graph exists yet, GRAPH-less reads hit the real default
       graph (safe pre-migration behaviour), but any ``GRAPH`` pattern is rejected —
@@ -1975,8 +1988,8 @@ async def canonical_merge_query(client: SupportsSparql, query: str) -> str:
         outside = sorted(g for g in iris if g not in allowed)
         if outside:
             raise ValueError(
-                "FROM/FROM NAMED may only reference promoted canonical or ontology "
-                f"graphs; rejected: {', '.join(outside)}"
+                "FROM/FROM NAMED may only reference promoted canonical, ontology or "
+                f"shared-vocab graphs; rejected: {', '.join(outside)}"
             )
         return query
     clause = canonical_from_clauses(await canonical_graphs(client), named=True)

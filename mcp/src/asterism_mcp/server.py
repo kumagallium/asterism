@@ -23,7 +23,7 @@ import logging
 import os
 from typing import Annotated, Final, Literal
 
-from asterism.catalog import find_datasets, resolve_tool_names, tool_sources
+from asterism.catalog import find_datasets, registry_root, resolve_tool_names, tool_sources
 from asterism.exposure import raw_sparql_enabled
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from asterism.query_tools import (
@@ -180,6 +180,7 @@ def build_server(
             max_classes=max_classes,
             max_predicates=max_predicates,
             predicates_per_class=predicates_per_class,
+            registry_root=registry_root(),
         )
 
     @mcp.tool(

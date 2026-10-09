@@ -483,6 +483,10 @@ Materials Project `formula`. To answer a question that spans datasets, JOIN on t
 shared value, e.g.
   ?samp <…/compositionString> ?c . ?mat <…/formula> ?c . ?mat <…/hasCrystalStructure> ?cs .
 Use the EXACT class/predicate IRIs from the schema, in <>.
+Upper words (rdfs/owl): to ask by a SHARED/upper class or property, use a property path —
+(rdfs:subClassOf|owl:equivalentClass|^owl:equivalentClass)* for classes and
+(rdfs:subPropertyOf|owl:equivalentProperty|^owl:equivalentProperty)* for properties (there
+is NO reasoner, so the path is the only way to reach the narrower words).
 
 Conversation: this may be a multi-turn chat. Any earlier turns precede the current
 question; a follow-up may refer back to them ("those samples", "the same paper",
@@ -652,7 +656,39 @@ def _render_schema(schema: dict) -> str:
     for s in schema.get("class_shapes", []):
         preds = ", ".join(f"<{p['iri']}>" for p in s.get("predicates", []))
         lines.append(f"  <{s['class']}>: {preds}")
+    lines.extend(_render_shared_terms(schema))
     return "\n".join(lines)
+
+
+def _render_shared_terms(schema: dict) -> list[str]:
+    """schema_summary の shared_terms / lines をプロンプト用の行にする（無ければ []）。
+
+    純関数。共有のことば（上位語）と、それを答えるデータセット側の語・標準・CQ ツール、
+    およびデータセット同士の対応線を描く。
+    """
+    out: list[str] = []
+    terms = schema.get("shared_terms") or []
+    if terms:
+        out.append("Shared terms (upper words; ask by these, reach the narrower ones via the path):")
+        for t in terms:
+            head = f"  <{t['iri']}> \"{t.get('label', '')}\" ({t.get('kind', 'class')})"
+            if t.get("comment"):
+                head += f" — {t['comment']}"
+            out.append(head)
+            for n in t.get("narrower") or []:
+                ds = n.get("dataset_id")
+                where = f"dataset {ds}" if ds else "perspective"
+                out.append(f"    narrower: <{n['iri']}> \"{n.get('label', '')}\" ({where})")
+            if t.get("standards"):
+                out.append("    standards: " + ", ".join(f"<{i}>" for i in t["standards"]))
+            if t.get("cqs"):
+                out.append("    tools: " + ", ".join(t["cqs"]))
+    links = schema.get("lines") or []
+    if links:
+        out.append("Alignment lines between dataset words:")
+        for ln in links:
+            out.append(f"  <{ln['source']}> {ln['relation']} <{ln['target']}>")
+    return out
 
 
 def _blocks_to_dicts(content: list) -> list[dict]:

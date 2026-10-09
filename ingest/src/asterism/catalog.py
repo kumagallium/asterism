@@ -179,6 +179,8 @@ def _registry_entries(
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        if isinstance(meta, dict) and meta.get("is_shared_vocab"):
+            continue  # 共有のことば（registry/vocab-shared）はデータセットではない
         dataset_id = str(meta.get("id") or child.name)
         description = (descriptions or {}).get(dataset_id) or _ttl_description(child)
         entries.append(
