@@ -8,6 +8,9 @@ import {
   focusedKindRoles,
   nodeAppearance,
   edgeAppearance,
+  barDatasetName,
+  datasetLabelMap,
+  kindQualifiers,
   legendKindRows,
   visibleLegendRows,
   REST_ROLE,
@@ -555,5 +558,61 @@ describe('emptyKind（点が 0 のときの案内）', () => {
   })
   it('点があれば null', () => {
     expect(emptyKind({ ...base, nodes: 4, published_graphs: 1 })).toBeNull()
+  })
+})
+
+describe('kindQualifiers / barDatasetName', () => {
+  const row = (key: string, name: string | null) => ({ key, name })
+  const labels = new Map([
+    ['xa', 'XRD カード A'],
+    ['xb', 'XRD カード B'],
+  ])
+  it('ぶつからない行は null', () => {
+    const q = kindQualifiers(
+      [row('https://e.org/a#Card', 'Card'), row('https://e.org/a#Sample', '試料')],
+      [{ class_iri: 'https://e.org/a#Card', dataset_ids: ['xa'] }],
+      labels,
+    )
+    expect([...q.values()]).toEqual([null, null])
+  })
+  it('2 データセットの同名はデータセット名を添える', () => {
+    const q = kindQualifiers(
+      [row('https://e.org/a#Card', 'Card 1'), row('https://e.org/b#Card', 'Card 1'), row('z', 'Other')],
+      [
+        { class_iri: 'https://e.org/a#Card', dataset_ids: ['xa'] },
+        { class_iri: 'https://e.org/b#Card', dataset_ids: ['xb', 'zz'] },
+      ],
+      labels,
+    )
+    expect(q.get('https://e.org/a#Card')).toBe('XRD カード A')
+    expect(q.get('https://e.org/b#Card')).toBe('XRD カード B・zz')
+    expect(q.get('z')).toBeNull()
+  })
+  it('同じデータセット内の同名はローカル名を足す', () => {
+    const q = kindQualifiers(
+      [row('https://e.org/a#CardOne', 'Card'), row('https://e.org/a#CardTwo', 'Card')],
+      [
+        { class_iri: 'https://e.org/a#CardOne', dataset_ids: ['xa'] },
+        { class_iri: 'https://e.org/a#CardTwo', dataset_ids: ['xa'] },
+      ],
+      labels,
+    )
+    expect(q.get('https://e.org/a#CardOne')).toBe('XRD カード A・Card One')
+    expect(q.get('https://e.org/a#CardTwo')).toBe('XRD カード A・Card Two')
+  })
+  it('古いサーバ（dataset_ids 無し）はローカル名だけ', () => {
+    const q = kindQualifiers(
+      [row('https://e.org/a#CardOne', 'Card'), row('https://e.org/b#CardTwo', 'Card')],
+      [{ class_iri: 'https://e.org/a#CardOne' }, { class_iri: 'https://e.org/b#CardTwo' }],
+      new Map(),
+    )
+    expect(q.get('https://e.org/a#CardOne')).toBe('Card One')
+    expect(q.get('https://e.org/b#CardTwo')).toBe('Card Two')
+  })
+  it('帯のデータセット名は引けたときだけ出る', () => {
+    expect(barDatasetName('xa', labels)).toBe('XRD カード A')
+    expect(barDatasetName('nope', labels)).toBeNull()
+    expect(barDatasetName(null, labels)).toBeNull()
+    expect(datasetLabelMap(undefined).size).toBe(0)
   })
 })

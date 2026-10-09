@@ -1124,7 +1124,7 @@ def test_network_returns_nodes_edges_kinds_and_stats(tmp_path: Path) -> None:
         r = client.get("/api/network")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body) == {"nodes", "edges", "kinds", "stats", "truncated"}
+        assert set(body) == {"nodes", "edges", "kinds", "datasets", "stats", "truncated"}
         assert body["truncated"] is False
         assert set(body["stats"]) == {
             "entities",
@@ -1889,3 +1889,10 @@ def test_network_stats_carry_published_graphs(tmp_path: Path) -> None:
         # 起動時に版なしの live graph も公開済みとして載るので数は 2 になりうる。
         # 正確な数え方（0・1・2）は ingest の test_stats_published_graphs_counts_graphs_read。
         assert body["stats"]["published_graphs"] >= 1
+
+
+def test_network_datasets_carry_the_registry_name(tmp_path: Path) -> None:
+    with _network_client(tmp_path) as client:
+        body = client.get("/api/network").json()
+        assert {"id": LIB_DATASET, "label": "貸出記録"} in body["datasets"]
+        assert all(LIB_DATASET in k["dataset_ids"] for k in body["kinds"] if k["dataset_ids"])

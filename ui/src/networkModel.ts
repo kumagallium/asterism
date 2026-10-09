@@ -179,6 +179,54 @@ export function legendKindRows(
   return rows
 }
 
+/** 同じ名前の種類を見分ける添え書き（行の key → 添え書き）。ぶつからない行は null。
+ *  データセット名を「・」でつなぎ、それでもぶつかるときは種類の IRI の読みくだしを足す。
+ *  古いサーバ（dataset_ids が無い）では読みくだしだけを試す。 */
+export function kindQualifiers(
+  rows: { key: string; name: string | null }[],
+  kinds: { class_iri: string; dataset_ids?: string[] }[],
+  datasetLabel: ReadonlyMap<string, string>,
+): Map<string, string | null> {
+  const idsOf = new Map<string, string[]>()
+  for (const k of kinds) if (!idsOf.has(k.class_iri)) idsOf.set(k.class_iri, k.dataset_ids ?? [])
+  const nameKey = (r: { name: string | null }) => r.name ?? ''
+  const tally = (keyOf: (r: { key: string; name: string | null }) => string, subset = rows) => {
+    const m = new Map<string, number>()
+    for (const r of subset) m.set(keyOf(r), (m.get(keyOf(r)) ?? 0) + 1)
+    return m
+  }
+  const byName = tally(nameKey)
+  const clash = rows.filter((r) => (byName.get(nameKey(r)) ?? 0) > 1)
+  const base = new Map<string, string>()
+  for (const r of clash) {
+    const ids = idsOf.get(r.key) ?? []
+    base.set(r.key, ids.map((id) => datasetLabel.get(id) ?? id).join('・'))
+  }
+  const pair = (r: { key: string; name: string | null }) => `${nameKey(r)}\u0000${base.get(r.key) ?? ''}`
+  const byPair = tally(pair, clash)
+  const out = new Map<string, string | null>()
+  for (const r of rows) out.set(r.key, null)
+  for (const r of clash) {
+    let q = base.get(r.key) ?? ''
+    if ((byPair.get(pair(r)) ?? 0) > 1) {
+      const local = kindDisplayName(null, r.key)
+      if (local) q = q ? `${q}・${local}` : local
+    }
+    out.set(r.key, q || null)
+  }
+  return out
+}
+
+/** データセットの id → 名前の引き表（`datasets` が無い古いサーバでは空）。 */
+export function datasetLabelMap(datasets: { id: string; label: string }[] | undefined): Map<string, string> {
+  return new Map((datasets ?? []).map((d) => [d.id, d.label]))
+}
+
+/** 選んだ点の帯に出すデータセット名。分からないとき・名前が引けないときは null（id は出さない）。 */
+export function barDatasetName(datasetId: string | null, labels: ReadonlyMap<string, string>): string | null {
+  return datasetId ? (labels.get(datasetId) ?? null) : null
+}
+
 /** 凡例に並べる行。畳んでいるときは先頭 `folded` 行と、それより後ろで押してある行（押した種類が
  *  凡例から消えて、図だけ色が付いたままにならないように）。 */
 export function visibleLegendRows(rows: LegendKindRow[], expanded: boolean, folded: number): LegendKindRow[] {
