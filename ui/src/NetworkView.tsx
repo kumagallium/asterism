@@ -27,6 +27,7 @@ import {
   neighborhoodOf,
   nodeAppearance,
   searchNodes,
+  emptyKind,
 } from './networkModel'
 import type { NetworkNodeAttrs } from './networkModel'
 import './network.css'
@@ -442,7 +443,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
           {failed ? t('error') : t('loading')}
         </p>
       ) : isEmpty ? (
-        <p className="network-note">{response.stats.entities === 0 ? t('empty') : t('no_points')}</p>
+        <p className="network-note">{emptyKind(response.stats) === 'unpublished' ? t('empty') : t('no_points')}</p>
       ) : (
         <>
           <div className="network-canvas-wrap">

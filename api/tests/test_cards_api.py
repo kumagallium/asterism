@@ -14,7 +14,10 @@ per query shape. Fixture data spans two unrelated fictional domains (§0).
 from __future__ import annotations
 
 import json
+import sys
+import types
 from pathlib import Path
+from typing import Any
 
 import pytest
 from asterism import crosswalk_runtime
@@ -1123,7 +1126,14 @@ def test_network_returns_nodes_edges_kinds_and_stats(tmp_path: Path) -> None:
         body = r.json()
         assert set(body) == {"nodes", "edges", "kinds", "stats", "truncated"}
         assert body["truncated"] is False
-        assert set(body["stats"]) == {"entities", "nodes", "edges", "values", "bundles"}
+        assert set(body["stats"]) == {
+            "entities",
+            "nodes",
+            "edges",
+            "values",
+            "bundles",
+            "published_graphs",
+        }
         assert body["stats"]["nodes"] == len(body["nodes"])
         assert body["stats"]["edges"] == len(body["edges"])
         node = next(n for n in body["nodes"] if n["id"] == BORROWER_A)
@@ -1795,3 +1805,87 @@ def test_appdata_subjects_invalid_id_is_400(tmp_path: Path) -> None:
     with _appdata_client(tmp_path) as client:
         r = client.put("/api/appdata/subjects/not-a-uuid", json={"id": "x"})
         assert r.status_code == 400
+
+
+def test_network_hub_node_uses_r3_class_label(tmp_path: Path) -> None:
+    """ハブの点・種類の class_label は R3 の名前（neighbors と同じ構成）。"""
+    hub_class = "https://ex/shared#SharedThingName"
+    settings = _settings(tmp_path)
+    _write_registry(settings.registry_root)
+    _hub_registry_meta(settings.registry_root)
+    _mark_is_crosswalk(settings.registry_root)
+    config = crosswalk_runtime.parse_config(
+        {
+            "concepts": [
+                {
+                    "name": "shared_thing_name",
+                    "class_iri": hub_class,
+                    "participants": [{"dataset_id": LIB_DATASET, "predicate": f"{EX_LIB}code"}],
+                }
+            ]
+        }
+    )
+    crosswalk_runtime.save_config(settings.registry_root, config, PERSPECTIVE_ID)
+    hub_graph = crosswalk_runtime.crosswalk_graph_iri(PERSPECTIVE_ID)
+    hub_ttl = f"<{HUB_IRI}> a <{hub_class}> .\n" + _hub_graph_ttl(HUB_IRI, [CHECKOUT_1])
+    store_client = _pyoxi_client({LIB_GRAPH: _LIB_TTL, hub_graph: hub_ttl})
+    app = build_app(settings, oxigraph_client=store_client, start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get("/api/network").json()
+        hub = next(n for n in body["nodes"] if n["id"] == HUB_IRI)
+        assert hub["kind"] == "hub"
+        assert hub["class_label"] == "shared thing name"
+        assert hub["class_iri"] == hub_class
+
+
+def _fake_upper_map(monkeypatch: pytest.MonkeyPatch, impl: Any) -> None:
+    """``from asterism.shared_vocab import upper_map`` が偽物を拾うよう差し替える。"""
+    fake = types.ModuleType("asterism.shared_vocab")
+    fake.upper_map = impl  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "asterism.shared_vocab", fake)
+
+
+def test_network_group_iri_becomes_the_upper_class_when_upper_map_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    top = "https://ex/upper#Thing"
+
+    async def fake_upper_map(_client: Any) -> dict[str, Any]:
+        return {
+            "classes": {CHECKOUT_CLASS: top},
+            "properties": {},
+        }
+
+    _fake_upper_map(monkeypatch, fake_upper_map)
+    with _network_client(tmp_path) as client:
+        body = client.get("/api/network").json()
+        mapped = [n for n in body["nodes"] if n["class_iri"] == CHECKOUT_CLASS]
+        assert mapped
+        assert {n["group_iri"] for n in mapped} == {top}
+        assert top in {k["class_iri"] for k in body["kinds"]}
+
+
+def test_network_still_returns_200_when_upper_map_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def boom(_client: Any) -> dict[str, Any]:
+        raise RuntimeError("upper map broke")
+
+    _fake_upper_map(monkeypatch, boom)
+    with _network_client(tmp_path) as client:
+        r = client.get("/api/network")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["nodes"]
+        assert all(
+            n["group_iri"] == n["class_iri"] for n in body["nodes"] if n["kind"] == "entity"
+        )
+
+
+def test_network_stats_carry_published_graphs(tmp_path: Path) -> None:
+    with _network_client(tmp_path) as client:
+        body = client.get("/api/network").json()
+        # 起動時に版なしの live graph も公開済みとして載るので数は 2 になりうる。
+        # 正確な数え方（0・1・2）は ingest の test_stats_published_graphs_counts_graphs_read。
+        assert body["stats"]["published_graphs"] >= 1

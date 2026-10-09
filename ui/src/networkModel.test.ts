@@ -24,6 +24,7 @@ import {
   kindDisplayName,
   roleCss,
   roleOf,
+  emptyKind,
 } from './networkModel'
 
 // 架空の分野（星・観測所）の作り物。
@@ -537,5 +538,22 @@ describe('visibleLegendRows', () => {
   })
   it('広げると全部', () => {
     expect(visibleLegendRows(rows, true, 12)).toHaveLength(15)
+  })
+})
+
+describe('emptyKind（点が 0 のときの案内）', () => {
+  const base = { entities: 0, nodes: 0, edges: 0, values: 0, bundles: 0 }
+  it('公開 0 件は unpublished', () => {
+    expect(emptyKind({ ...base, published_graphs: 0 })).toBe('unpublished')
+  })
+  it('公開があって点が 0 なら、件が 0 でも no_points', () => {
+    expect(emptyKind({ ...base, published_graphs: 2 })).toBe('no_points')
+  })
+  it('published_graphs が無い古いサーバは件の数で見る', () => {
+    expect(emptyKind(base)).toBe('unpublished')
+    expect(emptyKind({ ...base, entities: 3 })).toBe('no_points')
+  })
+  it('点があれば null', () => {
+    expect(emptyKind({ ...base, nodes: 4, published_graphs: 1 })).toBeNull()
   })
 })

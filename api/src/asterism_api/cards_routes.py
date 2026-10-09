@@ -701,7 +701,15 @@ def register_cards(
         「同じ述語の同じ値」で合流し、種類ごとに塗る（global-network-view.md）。"""
         try:
             from asterism.shared_vocab import upper_map  # type: ignore[import-not-found]
-        except ImportError:
+        except ImportError as exc:
+            # まだ無い（モジュールか upper_map が無い）は静かに。
+            # 中の import が壊れているときは見えるように warning。
+            if exc.name == "asterism.shared_vocab":
+                logger.debug("network: asterism.shared_vocab.upper_map not available yet")
+            else:
+                logger.warning(
+                    "network: shared_vocab failed to import; drawing without it", exc_info=True
+                )
             return None
         try:
             return await upper_map(client)

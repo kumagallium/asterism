@@ -98,7 +98,14 @@ def _empty() -> dict[str, Any]:
         "nodes": [],
         "edges": [],
         "kinds": [],
-        "stats": {"entities": 0, "nodes": 0, "edges": 0, "values": 0, "bundles": 0},
+        "stats": {
+            "entities": 0,
+            "nodes": 0,
+            "edges": 0,
+            "values": 0,
+            "bundles": 0,
+            "published_graphs": 0,
+        },
         "truncated": False,
     }
 
@@ -156,9 +163,14 @@ async def network_view(
             f"ORDER BY ?s ?c ?g LIMIT {max_rows + 1}"
         )
     )
-    if len(type_rows) > max_rows:
+    types_cut = len(type_rows) > max_rows  # 型の行が切れた → 型が確かめられた IRI だけを点にする
+    cut_subject: str | None = None
+    if types_cut:
         truncated = True
         type_rows = type_rows[:max_rows]
+        # 切れ目の主語は型の一部しか読めていない
+        # （CrosswalkLink や PROV の型が、切れた後ろにあるかもしれない）
+        cut_subject = _cell(type_rows[-1], "s") if type_rows else None
     types: dict[str, set[str]] = defaultdict(set)
     hub_types: dict[str, set[str]] = defaultdict(set)
     dataset_of: dict[str, str] = {}
@@ -208,7 +220,8 @@ async def network_view(
     ]
     value_edges: list[tuple[str, str, str]] = []  # (件, 述語, 値の点 id)
     value_text: dict[str, tuple[str, str]] = {}  # 値の点 id → (述語, 値)
-    value_raw: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # 元の文字列の数
+    # 値の点 id → (件, 元の述語, 元の文字列) の並び
+    value_raw: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     budget = max_rows
     for i in range(0, len(pairs), _CHUNK):
         chunk = pairs[i : i + _CHUNK]
@@ -235,7 +248,7 @@ async def network_view(
             key_p = property_top.get(p, p)  # 上位の項目があればそれで合流する
             vid = _value_id(key_p, text)
             value_text[vid] = (key_p, text)
-            value_raw[vid][o] += 1
+            value_raw[vid].append((s, p, o))
             value_edges.append((s, p, vid))
         if budget <= 0:
             if i + _CHUNK < len(pairs):
@@ -244,11 +257,15 @@ async def network_view(
 
     # --- 4. 点と線をそろえる ----------------------------------------------------
     raw_edges: set[tuple[str, str, str]] = set()  # (source, target, 述語)
+
+    def confirmed(iri: str) -> bool:
+        return not types_cut or (iri in types and iri != cut_subject)
+
     for s, p, o in links:
-        if not excluded(s) and not excluded(o):
+        if confirmed(s) and confirmed(o) and not excluded(s) and not excluded(o):
             raw_edges.add((s, o, p))
     for s, p, vid in value_edges:
-        if not excluded(s):
+        if confirmed(s) and not excluded(s):
             raw_edges.add((s, vid, p))
 
     def is_value(nid: str) -> bool:
@@ -266,7 +283,7 @@ async def network_view(
             neighbors[t].add((s, p, "in"))
     groups: dict[tuple[str | None, frozenset[tuple[str, str, str]]], list[str]] = defaultdict(list)
     for e in entity_ids:
-        if e not in hub_ids:
+        if e not in hub_ids and kind_of[e] is not None:
             groups[(kind_of[e], frozenset(neighbors[e]))].append(e)
     bundle_of: dict[str, str] = {}
     bundles: dict[str, dict[str, Any]] = {}
@@ -346,15 +363,17 @@ async def network_view(
         bundles[b]["class_iri"] for b in bundles if b in live and bundles[b]["class_iri"]
     }
     class_iris |= {sorted(hub_types[e])[0] for e in keep_entities if e in hub_ids}
+    class_iris |= {class_top[c] for c in class_iris if c in class_top}  # 色の鍵の名前も引く
     class_label = await _class_labels(client, registry_root, class_iris)
 
     # --- 8. 返り値 --------------------------------------------------------------
     nodes: list[dict[str, Any]] = []
     kind_counts: dict[str, int] = defaultdict(int)
-    holders: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for s, t, _p in raw_edges:
+    # 値の点の持ち主: (種類, 件が実際に使った元の述語) ごとの数
+    holders: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
+    for s, t, p0 in raw_edges:
         if is_value(t) and kind_of.get(s):
-            holders[t][kind_of[s]] += 1  # type: ignore[index]
+            holders[t][(kind_of[s], p0)] += 1  # type: ignore[index]
 
     for e in sorted(keep_entities):
         is_hub = e in hub_ids
@@ -381,10 +400,20 @@ async def network_view(
         p, text = value_text[vid]
         spec = None
         if holders.get(vid):
-            top = sorted(holders[vid].items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
-            # 一覧側の eq は完全一致。ストアの値（空白つき）で最も多いものを渡す
-            raw = sorted(value_raw[vid].items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
-            spec = _spec(top, [{"property": p, "op": "eq", "value": raw}])
+            # 上位の述語で合流していても、一覧は件が実際に使う元の述語で引く
+            (top, orig_p), _n = sorted(holders[vid].items(), key=lambda kv: (-kv[1], kv[0]))[0]
+            # 一覧側の eq は完全一致。選んだ種類の件がその述語で持つ値（空白つき）で
+            # 最も多いものを渡す（別の種類が空白違いの値を多く持っていても 0 件にしない）
+            raw_counts: dict[str, int] = defaultdict(int)
+            for s0, p1, o1 in value_raw[vid]:
+                if p1 == orig_p and kind_of.get(s0) == top:
+                    raw_counts[o1] += 1
+            if not raw_counts:  # 念のため（持ち主の数え方と食い違ったとき）
+                for _s0, p1, o1 in value_raw[vid]:
+                    if p1 == orig_p:
+                        raw_counts[o1] += 1
+            raw = sorted(raw_counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+            spec = _spec(top, [{"property": orig_p, "op": "eq", "value": raw}])
         nodes.append(
             {
                 "id": vid,
@@ -449,6 +478,7 @@ async def network_view(
             "edges": len(edges),
             "values": n_values,
             "bundles": n_bundles,
+            "published_graphs": len(graphs),
         },
         "truncated": truncated,
     }

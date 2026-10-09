@@ -418,3 +418,183 @@ async def test_upper_map_merges_values_of_different_predicates_and_groups_colors
         WX + "Station",
         WX + "Buoy",
     }
+
+
+async def _count_listed(client, spec: dict) -> int:
+    """set_spec の where で一覧が引けるか（subjects の where の組み立てで SPARQL を打つ）。"""
+    from asterism.subject_tools import _clause_pattern, _ref
+
+    spec = normalize_set_spec(spec)
+    lines = [f"?s a {_ref(spec['class'])} ."]
+    lines += [_clause_pattern(c, index=i) for i, c in enumerate(spec["where"])]
+    graphs = await canonical_graphs(client)
+    from asterism.substrate import canonical_from_clauses
+
+    q = (
+        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+        f"SELECT (COUNT(DISTINCT ?s) AS ?n) {canonical_from_clauses(graphs)}"
+        "WHERE { " + " ".join(lines) + " }"
+    )
+    rows = (await client.sparql_select(q))["results"]["bindings"]
+    return int(rows[0]["n"]["value"])
+
+
+def _upper_fixture():
+    a = "\n".join([PREFIXES] + [f'r:a-{i} a wx:Station ; wx:zone "z{i % 2}" .' for i in range(6)])
+    b = "\n".join([PREFIXES] + [f'r:b-{i} a wx:Buoy ; wx:area "z{i % 2}" .' for i in range(6)])
+    upper = {
+        "classes": {WX + "Station": WX + "Site", WX + "Buoy": WX + "Site"},
+        "properties": {WX + "zone": WX + "region", WX + "area": WX + "region"},
+    }
+    return a, b, upper
+
+
+async def test_upper_value_set_spec_uses_the_original_predicate_and_lists_items() -> None:
+    a, b, upper = _upper_fixture()
+    client = _pyoxi_client({GRAPH_A: a, GRAPH_B: b, ONTO_GRAPH: ONTOLOGY})
+    out = await network_view(client, upper=upper)
+    values = _nodes(out, "value")
+    assert len(values) == 2  # 点は上位の述語で 1 つ
+    assert all(n["id"].startswith(f"value:{WX}region\n") for n in values)
+    for v in values:
+        where = v["set_spec"]["where"]
+        assert where[0]["property"] in {WX + "zone", WX + "area"}
+        assert where[0]["property"] != WX + "region"
+        assert await _count_listed(client, v["set_spec"]) >= 1
+    # 同数なら種類 IRI の辞書順（Buoy < Station）→ その種類が使う述語
+    assert values[0]["set_spec"]["class"] == WX + "Buoy"
+    assert values[0]["set_spec"]["where"][0]["property"] == WX + "area"
+
+
+async def test_upper_kinds_get_the_ontology_label_of_the_top_class() -> None:
+    a, b, upper = _upper_fixture()
+    onto = ONTOLOGY + 'wx:Site a rdfs:Class ; rdfs:label "Observation site" .\n'
+    client = _pyoxi_client({GRAPH_A: a, GRAPH_B: b, ONTO_GRAPH: onto})
+    out = await network_view(client, upper=upper)
+    (kind,) = out["kinds"]
+    assert kind["class_iri"] == WX + "Site"
+    assert kind["class_label"] == "Observation site"
+
+
+async def test_truncated_type_rows_do_not_make_untyped_iris_into_nodes() -> None:
+    lines = [PREFIXES, "r:st-1 a wx:Station ."]
+    for i in range(6):
+        lines.append(f"r:obs-{i} a wx:Observation ; wx:observedAt r:st-1 .")
+    lines.append("r:obs-0 wx:ref r:zz-link , r:zz-run .")
+    lines.append("r:zz-link a xw:CrosswalkLink .")
+    lines.append("r:zz-run a prov:Activity .")
+    client = _pyoxi_client({GRAPH_A: "\n".join(lines)})
+    full = await network_view(client, include_prov=True)
+    assert R + "zz-run" in {n["id"] for n in full["nodes"]}  # 切れていなければ従来どおり
+    assert full["truncated"] is False
+    cut = await network_view(client, include_prov=True, max_rows=7)
+    ids = {n["id"] for n in cut["nodes"]}
+    assert cut["truncated"] is True
+    assert R + "zz-link" not in ids and R + "zz-run" not in ids
+
+
+async def test_things_without_a_kind_are_never_bundled() -> None:
+    lines = [PREFIXES, "r:st-1 a wx:Station ."]
+    lines += [f"r:k-{i} wx:observedAt r:st-1 ." for i in range(25)]
+    out = await network_view(_pyoxi_client({GRAPH_A: "\n".join(lines)}))
+    assert _nodes(out, "bundle") == []
+    assert len([n for n in out["nodes"] if n["id"].startswith(R + "k-")]) == 25
+
+
+async def test_prov_activity_and_crosswalk_link_in_a_hub_graph_are_not_hubs() -> None:
+    data = _observations(3) + "\nr:st-1 wx:sharedWith r:act-1 , r:link-1 .\n"
+    hub = PREFIXES + "r:act-1 a prov:Activity .\nr:link-1 a xw:CrosswalkLink .\n"
+    out = await network_view(_pyoxi_client({GRAPH_A: data, HUB_GRAPH: hub}), include_prov=True)
+    assert _nodes(out, "hub") == []
+    assert R + "link-1" not in {n["id"] for n in out["nodes"]}
+
+
+async def test_ontology_graph_label_is_used_for_the_name_of_a_thing() -> None:
+    onto = ONTOLOGY + 'r:st-2 rdfs:label "Ontology Pier" .\n'
+    out = await network_view(_pyoxi_client({GRAPH_A: _observations(3, other=1), ONTO_GRAPH: onto}))
+    node = next(n for n in out["nodes"] if n["id"] == R + "st-2")
+    assert node["label"] == "Ontology Pier"
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "http://www.w3.org/2000/01/rdf-schema#label",
+        "http://www.w3.org/2000/01/rdf-schema#comment",
+        "http://schema.org/name",
+        "http://schema.org/description",
+        "http://purl.org/dc/terms/title",
+        "http://purl.org/dc/terms/description",
+        "http://www.w3.org/2004/02/skos/core#prefLabel",
+        "http://www.w3.org/2004/02/skos/core#altLabel",
+    ],
+)
+async def test_each_name_predicate_never_becomes_a_value_node(predicate: str) -> None:
+    lines = [PREFIXES] + [f'r:st-{i} a wx:Station ; <{predicate}> "same" .' for i in range(9)]
+    out = await network_view(_pyoxi_client({GRAPH_A: "\n".join(lines)}))
+    assert _nodes(out, "value") == []
+
+
+async def test_insertion_order_does_not_change_the_result() -> None:
+    lines = _observations(25, other=3).splitlines() + _stations(12, zones=2).splitlines()
+    fwd = "\n".join(lines)
+    body = [ln for ln in lines if not ln.startswith("@prefix")]
+    rev = PREFIXES + "\n".join(reversed(body))
+    a = await network_view(_pyoxi_client({GRAPH_A: fwd, ONTO_GRAPH: ONTOLOGY}))
+    b = await network_view(_pyoxi_client({ONTO_GRAPH: ONTOLOGY, GRAPH_A: rev}))
+    assert a == b
+
+
+async def test_stats_published_graphs_counts_graphs_read() -> None:
+    none = await network_view(_pyoxi_client({DRAFT_GRAPH: _stations(30, zones=3)}))
+    assert none["stats"]["published_graphs"] == 0
+    one = await network_view(_pyoxi_client({GRAPH_A: _observations(3)}))
+    assert one["stats"]["published_graphs"] == 1
+    two = await network_view(
+        _pyoxi_client({GRAPH_A: _observations(3), GRAPH_B: _stations(6, zones=2)})
+    )
+    assert two["stats"]["published_graphs"] == 2
+
+
+async def test_cut_type_rows_do_not_let_the_subject_at_the_cut_slip_in() -> None:
+    # 型の行が (st-1, Station)・(zz, A) で切れ、zz の CrosswalkLink の型は読めていない
+    ttl = PREFIXES + (
+        "r:st-1 a wx:Station .\n"
+        "r:zz a wx:A, xw:CrosswalkLink ; wx:about r:st-1 .\n"
+        "r:zz2 a prov:Activity, wx:Z .\n"
+        "r:st-1 wx:ref r:zz .\n"
+    )
+    out = await network_view(_pyoxi_client({GRAPH_A: ttl}), max_rows=2)
+    assert out["truncated"] is True
+    assert f"{R}zz" not in {n["id"] for n in out["nodes"]}
+
+
+async def test_value_set_spec_uses_a_string_the_chosen_kind_really_has() -> None:
+    # 駅（6 件）が多いので一覧は駅で開く。値の文字列は駅が持つもの（"z0" と "z0  "）から選び、
+    # 浮標だけが持つ "z0 "（5 件で全体では最多）を渡さない（渡すと駅の一覧が 0 件になる）。
+    lines = [PREFIXES]
+    lines += [f'r:st-{i} a wx:Station ; wx:zone "z0" .' for i in range(3)]
+    lines += [f'r:st-{i} a wx:Station ; wx:zone "z0  " .' for i in range(3, 6)]
+    lines += [f'r:by-{i} a wx:Buoy ; wx:zone "z0 " .' for i in range(5)]
+    client = _pyoxi_client({GRAPH_A: "\n".join(lines)})
+    out = await network_view(client)
+    (value,) = _nodes(out, "value")
+    spec = value["set_spec"]
+    assert spec["class"] == f"{WX}Station"
+    assert spec["where"][0]["value"] in {"z0", "z0  "}
+    assert await _count_listed(client, spec) >= 1
+
+
+async def test_output_is_sorted_so_it_does_not_depend_on_set_order() -> None:
+    # 同じプロセスの中では集合の並びがたまたま揃うので、並べ替えそのものを確かめる
+    ttl = _observations(25, other=3) + "\n" + _stations(12, zones=2).replace(PREFIXES, "")
+    out = await network_view(_pyoxi_client({GRAPH_A: ttl, ONTO_GRAPH: ONTOLOGY}))
+    things = [n["id"] for n in out["nodes"] if n["kind"] in ("entity", "hub")]
+    values = [n["id"] for n in out["nodes"] if n["kind"] == "value"]
+    bundles = [n["id"] for n in out["nodes"] if n["kind"] == "bundle"]
+    assert len(things) > 5 and values and bundles
+    assert things == sorted(things)
+    assert values == sorted(values)
+    assert bundles == sorted(bundles)
+    pairs = [(e["source"], e["target"]) for e in out["edges"]]
+    assert pairs == sorted(pairs)

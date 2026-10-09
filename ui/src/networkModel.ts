@@ -8,6 +8,16 @@ import type { NetworkNode, NetworkNodeKind, NetworkResponse } from './networkApi
 
 /** 件の種類に色を付ける数。残りは灰。 */
 export const KIND_COLOR_COUNT = 8
+
+/** 点が 0 のときの案内の切り分け。公開が 0 件なら 'unpublished'、公開はあるが点にできる物が無ければ 'no_points'。
+ *  published_graphs を返さない古いサーバは、件の数 0 を公開なしと見る。点があれば null。 */
+export function emptyKind(stats: NetworkResponse['stats']): 'unpublished' | 'no_points' | null {
+  if (stats.nodes > 0) return null
+  if (typeof stats.published_graphs === 'number') {
+    return stats.published_graphs === 0 ? 'unpublished' : 'no_points'
+  }
+  return stats.entities === 0 ? 'unpublished' : 'no_points'
+}
 export const REST_ROLE = 'rest'
 export const VALUE_ROLE = 'value'
 export const HUB_ROLE = 'hub'

@@ -37,7 +37,15 @@ export interface NetworkResponse {
   nodes: NetworkNode[]
   edges: NetworkEdge[]
   kinds: NetworkKind[]
-  stats: { entities: number; nodes: number; edges: number; values: number; bundles: number }
+  stats: {
+    entities: number
+    nodes: number
+    edges: number
+    values: number
+    bundles: number
+    /** 公開済みの graph の数。古いサーバは返さないので省略できる。 */
+    published_graphs?: number
+  }
   truncated: boolean
 }
 
