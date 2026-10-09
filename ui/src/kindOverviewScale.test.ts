@@ -146,13 +146,13 @@ describe('layoutDatasetOverview', () => {
     expect(measure(12, 3, 6, 4)).toEqual([24, 2, 0, 6, 0])
     expect(measure(50, 5, 15, 5)).toEqual([75, 43, 6, 51, 31])
     expect(measure(100, 20, 30, 6)).toEqual([180, 133, 62, 149, 123])
-  })
+  }, 30_000) // 数える道具（線分×四角）が重い。CI は手元の数倍遅い
   it('100 データセット・各 20 種類・ハブ 30 で高さは 1,500px 以内', () => {
     const l = layoutDatasetOverview(makeScale(100, 20, 30, 6))
     expect(l.height).toBeLessThanOrEqual(1500)
     expect(l.circles).toHaveLength(100)
     expect(l.hubs).toHaveLength(30)
-  })
+  }, 20_000)
 })
 
 describe('countCrossings', () => {

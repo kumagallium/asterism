@@ -274,9 +274,18 @@ const quadAt = (p: { x: number; y: number }, c: { x: number; y: number }, q: { x
 
 /** 二次ベジェ（p, c, q）を等間隔に調べ、どの障害物の縁からも余白がいちばん小さい所の値（負 = 中）。
  *  曲線は p・c・q の外接四角の中にあるので、その四角に掛からない障害物は調べない（規模が大きいときの速さ）。
- *  掛かる障害物が無ければ Infinity。調べる点は ROUTE_SAMPLES か、線の長さ 4px ごとの多い方
- *  （細い名前の四角を点の間で取り逃がさない）。 */
-function clearance(p: { x: number; y: number }, c: { x: number; y: number }, q: { x: number; y: number }, obs: Obstacle[]): number {
+ *  掛かる障害物が無ければ Infinity。調べる点は ROUTE_SAMPLES か、線の長さ every px ごとの多い方
+ *  （丸は 8px・細い名前の四角は 4px で、点の間で取り逃がさない）。 */
+function clearance(
+  p: { x: number; y: number },
+  c: { x: number; y: number },
+  q: { x: number; y: number },
+  obs: Obstacle[],
+  /** この値以下になった時点で調べるのをやめる（それ以上は結果を変えない・速さのため）。 */
+  stopAt = -Infinity,
+  /** 調べる点の間隔（px）。丸は大きく滑らかなので粗くてよい、細い名前の四角は細かく。 */
+  every = 4,
+): number {
   const bx0 = Math.min(p.x, c.x, q.x)
   const bx1 = Math.max(p.x, c.x, q.x)
   const by0 = Math.min(p.y, c.y, q.y)
@@ -288,11 +297,17 @@ function clearance(p: { x: number; y: number }, c: { x: number; y: number }, q: 
   )
   if (near.length === 0) return Infinity
   const approx = Math.hypot(c.x - p.x, c.y - p.y) + Math.hypot(q.x - c.x, q.y - c.y)
-  const n = Math.max(ROUTE_SAMPLES, Math.ceil(approx / 4))
+  const n = Math.max(ROUTE_SAMPLES, Math.ceil(approx / every))
   let worst = Infinity
   for (let i = 0; i <= n; i++) {
     const pt = quadAt(p, c, q, i / n)
-    for (const o of near) worst = Math.min(worst, gapTo(pt, o))
+    for (const o of near) {
+      const g = gapTo(pt, o)
+      if (g < worst) {
+        worst = g
+        if (worst <= stopAt) return worst
+      }
+    }
   }
   return worst
 }
@@ -328,7 +343,7 @@ export function routeAround(
   const rects = need.filter((o) => !('r' in o))
   const clr = (c: { x: number; y: number }) => {
     const [a, b] = opts.endsFor ? opts.endsFor(c) : [p, q]
-    return { c: clearance(a, c, b, circ), l: clearance(a, c, b, rects) }
+    return { c: clearance(a, c, b, circ, -Infinity, 8), l: clearance(a, c, b, rects) }
   }
   const mx = (p.x + q.x) / 2
   const my = (p.y + q.y) / 2
@@ -343,10 +358,18 @@ export function routeAround(
     for (const sign of [1, -1]) {
       const d = sign * k * step
       const cand = { cx: mx + nx * 2 * d, cy: my + ny * 2 * d }
-      const v = clr({ x: cand.cx, y: cand.cy })
-      if (v.c >= 0 && v.l >= 0) return cand
-      if (v.c >= 0 && (!circleOk || v.l > circleOk.l)) circleOk = { ...cand, l: v.l }
-      if (!bestC || v.c > bestC.c) bestC = { ...cand, c: v.c }
+      const ctrl = { x: cand.cx, y: cand.cy }
+      const [a, b] = opts.endsFor ? opts.endsFor(ctrl) : [p, q]
+      // 打ち切り（結果は打ち切らない場合と同じ）: 丸から離れた候補がもうあるなら、丸に入る候補は使わない（< 0 で止める）。
+      // まだ無いなら、今までの最大以下の候補は使わない。
+      const c = clearance(a, ctrl, b, circ, circleOk ? -1e-9 : bestC ? bestC.c : -Infinity, 8)
+      if (c >= 0) {
+        // 名前: 丸から離れた候補の中で、今の最大以下なら使わない
+        const l = clearance(a, ctrl, b, rects, circleOk ? circleOk.l : -Infinity)
+        if (l >= 0) return cand
+        if (!circleOk || l > circleOk.l) circleOk = { ...cand, l }
+      }
+      if (!circleOk && (!bestC || c > bestC.c)) bestC = { ...cand, c }
     }
   }
   const pick = (x: { cx: number; cy: number } | null) => (x ? { cx: x.cx, cy: x.cy } : null)

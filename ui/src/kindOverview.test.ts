@@ -391,9 +391,9 @@ describe('routeAround — 線が別の丸の裏を通らないように曲げる
     // 独立に全候補（+1, -1, +2, -2, … ×14）の余白を数える
     const need = wall.map((o) => ({ ...o, r: o.r + ROUTE_MARGIN }))
     const clearOf = (cy: number) => {
-      // 実装と同じ点の数（ROUTE_SAMPLES か、曲線の長さの見積もり 4px ごとの多い方）
+      // 実装と同じ点の数（ROUTE_SAMPLES か、曲線の長さの見積もり 8px ごと〈丸〉の多い方）
       const approx = Math.hypot(118 - p.x, cy - p.y) + Math.hypot(q.x - 118, q.y - cy)
-      const n = Math.max(ROUTE_SAMPLES, Math.ceil(approx / 4))
+      const n = Math.max(ROUTE_SAMPLES, Math.ceil(approx / 8))
       let w = Infinity
       for (let i = 0; i <= n; i++) {
         const t = i / n
