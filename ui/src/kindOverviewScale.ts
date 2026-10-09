@@ -11,6 +11,9 @@ import { conceptName, perspectiveDisplayName } from './crosswalkLabels'
 import type { DatasetRules } from './galleryApi'
 import {
   routedLine,
+  labelRect,
+  countInside,
+  type Obstacle,
   HUB_LABEL_W,
   LABEL_H,
   sizeScale,
@@ -428,10 +431,16 @@ function build(input: OverviewInput, width: number, sweeps: number): OverviewLay
     const a = anchors.get(from)
     const b = anchors.get(to)
     if (!a || !b) return
-    // 障害物 = 端点でないデータセットの丸とハブの丸。
-    const obstacles = [...circles, ...hubs]
-      .filter((o) => o.id !== from && o.id !== to)
-      .map((o) => ({ x: o.x, y: o.y, r: o.r }))
+    // 障害物 = 端点でないデータセットの丸とハブの丸と、その下の名前（データセットは件数の行がいつもある）。
+    const others = [...circles, ...hubs].filter((o) => o.id !== from && o.id !== to)
+    const obstacles: Obstacle[] = [
+      ...others.map((o) => ({ x: o.x, y: o.y, r: o.r })),
+      ...others.map((o) =>
+        'dataset' in o
+          ? labelRect(o, o.label, DS_LABEL_W, true)
+          : labelRect(o, o.label, HUB_LABEL_W, o.count != null && !countInside(o.r)),
+      ),
+    ]
     edges.push({ from, to, kind, ...extra, ...routedLine(a, b, obstacles) })
   }
   for (const h of hubInfos) {

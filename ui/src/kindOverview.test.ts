@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crossingCount } from './edgeRoutingTestUtil'
+import { crossingCount, labelCrossingCount } from './edgeRoutingTestUtil'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import {
@@ -449,6 +449,44 @@ describe('layoutKindOverview — 報告の形（xrd-cards）で線が別の丸�
     expect(l.edges.filter((e) => e.kind === 'link')).toHaveLength(3)
     expect(crossingCount(l, false)).toBeGreaterThan(0)
     expect(crossingCount(l, true)).toBe(0)
+    expect(labelCrossingCount(l, true)).toBe(0)
     expect(l.edges.some((e) => e.cx != null)).toBe(true)
+  })
+})
+
+describe('routeAround — 名前の四角もよける・丸を先に', () => {
+  it('名前の四角を横切る直線は、四角をよけて曲げる', () => {
+    const p = { x: 0, y: 0 }
+    const q = { x: 300, y: 0 }
+    const label: Obstacle = { x0: 120, y0: -8, x1: 180, y1: 8 }
+    const c = routeAround(p, q, [label])!
+    expect(c).not.toBeNull()
+    for (let i = 0; i <= 200; i++) {
+      const t = i / 200
+      const x = 2 * t * (1 - t) * c.cx + t * t * q.x
+      const y = 2 * t * (1 - t) * c.cy + t * t * q.y
+      const inside = x > 120 - ROUTE_MARGIN && x < 180 + ROUTE_MARGIN && y > -8 - ROUTE_MARGIN && y < 8 + ROUTE_MARGIN
+      expect(inside).toBe(false)
+    }
+  })
+  it('名前をよけきれないときも、丸はよける（丸を先に）', () => {
+    const p = { x: 0, y: 0 }
+    const q = { x: 300, y: 0 }
+    const circle = { x: 150, y: 0, r: 12 }
+    const everywhere: Obstacle = { x0: -1000, y0: -1000, x1: 1000, y1: 1000 } // どう曲げても中
+    const c = routeAround(p, q, [circle, everywhere])!
+    expect(c).not.toBeNull()
+    let min = Infinity
+    for (let i = 0; i <= 200; i++) {
+      const t = i / 200
+      const x = 2 * t * (1 - t) * c.cx + t * t * q.x
+      const y = 2 * t * (1 - t) * c.cy + t * t * q.y
+      min = Math.min(min, Math.hypot(x - circle.x, y - circle.y))
+    }
+    expect(min).toBeGreaterThanOrEqual(circle.r + ROUTE_MARGIN)
+  })
+  it('丸から離れた直線は、名前をよけきれないなら曲げない', () => {
+    const everywhere: Obstacle = { x0: -1000, y0: -1000, x1: 1000, y1: 1000 }
+    expect(routeAround({ x: 0, y: 0 }, { x: 300, y: 0 }, [everywhere])).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import { layoutKindOverview, type OverviewInput } from './kindOverview'
-import { crossingCount } from './edgeRoutingTestUtil'
+import { crossingCount, labelCrossingCount } from './edgeRoutingTestUtil'
 import {
   chooseLevelByCounts,
   chooseOverviewLevel,
@@ -198,18 +198,15 @@ describe('layoutDatasetOverview', () => {
     expect(before).toBeGreaterThan(0)
     expect(after).toBeLessThan(before)
   })
-  it('線は端点でない丸をよける（実際に描かれる線で数える。端点でない丸と交わる線: S 24 本 2→0・M 75 本 43→16・L 180 本 133→89）', () => {
+  it('線は端点でない丸と、その下の名前をよける（実際に描かれる線で数える。丸: S 24 本 2→0・M 75 本 43→12・L 180 本 133→75／名前: S 6→1・M 46→32・L 136→120）', () => {
     const measure = (nDs: number, nK: number, nH: number, per: number) => {
       const l = layoutDatasetOverview(makeScale(nDs, nK, nH, per))
-      return { before: crossingCount(l, false), after: crossingCount(l, true), n: l.edges.length }
+      return [l.edges.length, crossingCount(l, false), crossingCount(l, true), labelCrossingCount(l, false), labelCrossingCount(l, true)]
     }
-    const S = measure(12, 3, 6, 4)
-    const M = measure(50, 5, 15, 5)
-    const L = measure(100, 20, 30, 6)
     // 数値を固定する（名前の数値と実測がずれたまま通らないように）。配置か曲げ方を変えたら数え直して ADR §6.1 も直す。
-    expect([S.n, S.before, S.after]).toEqual([24, 2, 0])
-    expect([M.n, M.before, M.after]).toEqual([75, 43, 16])
-    expect([L.n, L.before, L.after]).toEqual([180, 133, 89])
+    expect(measure(12, 3, 6, 4)).toEqual([24, 2, 0, 6, 1])
+    expect(measure(50, 5, 15, 5)).toEqual([75, 43, 12, 46, 32])
+    expect(measure(100, 20, 30, 6)).toEqual([180, 133, 75, 136, 120])
   })
   it('100 データセット・各 20 種類・ハブ 30 で高さは 1,500px 以内', () => {
     const l = layoutDatasetOverview(makeScale(100, 20, 30, 6))
