@@ -10,7 +10,7 @@ import type { Alignment } from './crosswalkApi'
 import { conceptName, perspectiveDisplayName } from './crosswalkLabels'
 import type { DatasetRules } from './galleryApi'
 import {
-  edgePoint,
+  routedLine,
   HUB_LABEL_W,
   LABEL_H,
   sizeScale,
@@ -428,11 +428,11 @@ function build(input: OverviewInput, width: number, sweeps: number): OverviewLay
     const a = anchors.get(from)
     const b = anchors.get(to)
     if (!a || !b) return
-    const ca = { x: a.type === 'circle' ? a.x : 0, y: a.type === 'circle' ? a.y : 0 }
-    const cb = { x: b.type === 'circle' ? b.x : 0, y: b.type === 'circle' ? b.y : 0 }
-    const p1 = edgePoint(a, cb)
-    const p2 = edgePoint(b, ca)
-    edges.push({ from, to, kind, ...extra, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y })
+    // 障害物 = 端点でないデータセットの丸とハブの丸。
+    const obstacles = [...circles, ...hubs]
+      .filter((o) => o.id !== from && o.id !== to)
+      .map((o) => ({ x: o.x, y: o.y, r: o.r }))
+    edges.push({ from, to, kind, ...extra, ...routedLine(a, b, obstacles) })
   }
   for (const h of hubInfos) {
     for (const [i, kinds] of hubDs.get(h.id)!) addEdge(infos[i].ds.id, h.id, 'hub', { kinds: kinds.size })

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import { layoutKindOverview, type OverviewInput } from './kindOverview'
+import { crossingCount } from './edgeRoutingTestUtil'
 import {
   chooseLevelByCounts,
   chooseOverviewLevel,
@@ -196,6 +197,19 @@ describe('layoutDatasetOverview', () => {
     const after = countCrossings(layoutDatasetOverview(inp).edges)
     expect(before).toBeGreaterThan(0)
     expect(after).toBeLessThan(before)
+  })
+  it('線は端点でない丸をよける（端点でない丸と交わる線: S 24 本 2→0・M 75 本 43→8・L 180 本 133→72）', () => {
+    const measure = (nDs: number, nK: number, nH: number, per: number) => {
+      const l = layoutDatasetOverview(makeScale(nDs, nK, nH, per))
+      return { before: crossingCount(l, false), after: crossingCount(l, true), n: l.edges.length }
+    }
+    const S = measure(12, 3, 6, 4)
+    const M = measure(50, 5, 15, 5)
+    const L = measure(100, 20, 30, 6)
+    expect(S.before).toBeGreaterThan(0)
+    expect(S.after).toBe(0)
+    expect(M.after).toBeLessThan(M.before)
+    expect(L.after).toBeLessThan(L.before)
   })
   it('100 データセット・各 20 種類・ハブ 30 で高さは 1,500px 以内', () => {
     const l = layoutDatasetOverview(makeScale(100, 20, 30, 6))

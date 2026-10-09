@@ -157,6 +157,9 @@ export interface OverviewEdge {
   y1: number
   x2: number
   y2: number
+  /** 別の丸をよけて曲げるときの二次ベジェの制御点（図の座標）。無ければ直線。 */
+  cx?: number
+  cy?: number
 }
 export interface OverviewLayout {
   circles: OverviewCircle[]
@@ -192,6 +195,105 @@ export function edgePoint(a: Anchor, toward: { x: number; y: number }): { x: num
   const hh = a.h / 2
   const t = Math.min(dx === 0 ? Infinity : hw / Math.abs(dx), dy === 0 ? Infinity : hh / Math.abs(dy))
   return { x: c.x + dx * t, y: c.y + dy * t }
+}
+
+export interface Obstacle {
+  x: number
+  y: number
+  r: number
+}
+/** 線が丸の縁からあけておく余白。 */
+export const ROUTE_MARGIN = 6
+/** 曲げる量（頂点のずらし）の刻み。 */
+export const ROUTE_STEP = 14
+/** 刻みの倍数を何回まで試すか（＋−交互なので最大 ±MAX_STEPS·STEP）。 */
+export const ROUTE_MAX_STEPS = 8
+/** 曲線を調べる点の数（両端を含めて +1 点）。 */
+export const ROUTE_SAMPLES = 24
+
+const quadAt = (p: { x: number; y: number }, c: { x: number; y: number }, q: { x: number; y: number }, t: number) => ({
+  x: (1 - t) * (1 - t) * p.x + 2 * t * (1 - t) * c.x + t * t * q.x,
+  y: (1 - t) * (1 - t) * p.y + 2 * t * (1 - t) * c.y + t * t * q.y,
+})
+
+/** 二次ベジェ（p, c, q）を等間隔に調べ、どの障害物の縁からも余白がいちばん小さい所の値（負 = 丸の中）。 */
+function clearance(p: { x: number; y: number }, c: { x: number; y: number }, q: { x: number; y: number }, obs: Obstacle[]): number {
+  let worst = Infinity
+  for (let i = 0; i <= ROUTE_SAMPLES; i++) {
+    const pt = quadAt(p, c, q, i / ROUTE_SAMPLES)
+    for (const o of obs) worst = Math.min(worst, Math.hypot(pt.x - o.x, pt.y - o.y) - o.r)
+  }
+  return worst
+}
+
+/** 線分 p-q と点の距離。 */
+function segDist(p: { x: number; y: number }, q: { x: number; y: number }, o: { x: number; y: number }): number {
+  const dx = q.x - p.x
+  const dy = q.y - p.y
+  const l2 = dx * dx + dy * dy
+  const t = l2 === 0 ? 0 : Math.min(1, Math.max(0, ((o.x - p.x) * dx + (o.y - p.y) * dy) / l2))
+  return Math.hypot(p.x + t * dx - o.x, p.y + t * dy - o.y)
+}
+
+/**
+ * 線 p→q（両端の丸の中心）が端点でない丸（`obstacles`）の裏を通るとき、よける二次ベジェの制御点を返す。
+ * 離れていれば null（直線のまま）。頂点を中点から法線（from→to を左に 90° 回した向きが ＋）へ
+ * STEP·(1, −1, 2, −2, …) ずらして順に試し、全障害物から r + MARGIN 以上離れる最初のものを採る。
+ * 離れきらなければ、余白がいちばん大きいもの（同点は試した順で先）。乱数・時刻は使わない。
+ */
+export function routeAround(
+  p: { x: number; y: number },
+  q: { x: number; y: number },
+  obstacles: Obstacle[],
+  opts: { margin?: number; step?: number; maxSteps?: number } = {},
+): { cx: number; cy: number } | null {
+  const margin = opts.margin ?? ROUTE_MARGIN
+  const step = opts.step ?? ROUTE_STEP
+  const maxSteps = opts.maxSteps ?? ROUTE_MAX_STEPS
+  if (obstacles.every((o) => segDist(p, q, o) >= o.r + margin)) return null
+  const len = Math.hypot(q.x - p.x, q.y - p.y)
+  if (len === 0) return null
+  // 法線の ＋ = 画面（y が下向き）で見て進行方向の左。(dx, dy) → (dy, -dx)。
+  const nx = (q.y - p.y) / len
+  const ny = -(q.x - p.x) / len
+  const mx = (p.x + q.x) / 2
+  const my = (p.y + q.y) / 2
+  const need = obstacles.map((o) => ({ ...o, r: o.r + margin }))
+  let best: { cx: number; cy: number } | null = null
+  let bestClear = -Infinity
+  for (let k = 1; k <= maxSteps; k++) {
+    for (const sign of [1, -1]) {
+      const d = sign * k * step
+      const c = { cx: mx + nx * 2 * d, cy: my + ny * 2 * d }
+      const clear = clearance(p, { x: c.cx, y: c.cy }, q, need)
+      if (clear >= 0) return c
+      if (clear > bestClear) {
+        bestClear = clear
+        best = c
+      }
+    }
+  }
+  return best
+}
+
+/** 両端の縁にそろえた線の座標。障害物をよけるときは制御点（cx, cy）も付く。 */
+export function routedLine(
+  a: Anchor,
+  b: Anchor,
+  obstacles: Obstacle[],
+): Pick<OverviewEdge, 'x1' | 'y1' | 'x2' | 'y2'> & { cx?: number; cy?: number } {
+  const ca = centerOf(a)
+  const cb = centerOf(b)
+  const route = routeAround(ca, cb, obstacles)
+  if (!route) {
+    const p1 = edgePoint(a, cb)
+    const p2 = edgePoint(b, ca)
+    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y }
+  }
+  const ctrl = { x: route.cx, y: route.cy }
+  const p1 = edgePoint(a, ctrl)
+  const p2 = edgePoint(b, ctrl)
+  return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx: route.cx, cy: route.cy }
 }
 
 const isPlumbing = (iri: string) => PLUMBING_NS.some((ns) => iri.startsWith(ns))
@@ -468,9 +570,11 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     const key = `${kind}\u0000${from}\u0000${to}`
     if (!a || !b || edgeSeen.has(key)) return
     edgeSeen.add(key)
-    const p1 = edgePoint(a, centerOf(b))
-    const p2 = edgePoint(b, centerOf(a))
-    edges.push({ from, to, kind, ...(both ? { both } : {}), x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y })
+    // 障害物 = 端点でない丸（種類の丸・ハブの丸）。端が枠のときは、その枠の中の丸も除く（線は枠の縁から出る）。
+    const obstacles = [...circles, ...hubs]
+      .filter((o) => o.id !== from && o.id !== to && !('dataset' in o && (o.dataset === from || o.dataset === to)))
+      .map((o) => ({ x: o.x, y: o.y, r: o.r }))
+    edges.push({ from, to, kind, ...(both ? { both } : {}), ...routedLine(a, b, obstacles) })
   }
   for (const f of frameDrafts) for (const [a, b] of f.links) addEdge(a, b, 'link')
   for (const h of hubDrafts) for (const s of h.sources) addEdge(s, h.id, 'hub')

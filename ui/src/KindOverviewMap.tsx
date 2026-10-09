@@ -135,11 +135,11 @@ function StdBox({ data }: NodeProps) {
 
 /** 縁から縁へのまっすぐな線（座標は配置が決めたもの）。 */
 function LineEdge({ id, data, markerEnd, markerStart, style }: EdgeProps) {
-  const d = data as { x1: number; y1: number; x2: number; y2: number; title?: string }
+  const d = data as { x1: number; y1: number; x2: number; y2: number; cx?: number; cy?: number; title?: string }
   const line = (
     <BaseEdge
       id={id}
-      path={`M ${d.x1},${d.y1} L ${d.x2},${d.y2}`}
+      path={d.cx != null && d.cy != null ? `M ${d.x1},${d.y1} Q ${d.cx},${d.cy} ${d.x2},${d.y2}` : `M ${d.x1},${d.y1} L ${d.x2},${d.y2}`}
       markerEnd={markerEnd}
       markerStart={markerStart}
       style={style}
@@ -281,6 +281,8 @@ export function toFlow(
       y1: e.y1,
       x2: e.x2,
       y2: e.y2,
+      cx: e.cx,
+      cy: e.cy,
       kind: e.kind,
       title: e.kinds != null ? words.participates(e.kinds) : undefined,
     },

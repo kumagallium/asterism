@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { crossingCount } from './edgeRoutingTestUtil'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import {
   hubCountsOf,
   layoutKindOverview,
+  routeAround,
+  ROUTE_MARGIN,
   sizeScale,
   compactCount,
   countInside,
@@ -299,5 +302,61 @@ describe('layoutKindOverview — 標準のことばと対応', () => {
     )
     const a = l.edges.filter((x) => x.kind === 'alignment')
     expect(a).toHaveLength(2)
+  })
+})
+
+describe('routeAround — 線が別の丸の裏を通らないように曲げる', () => {
+  const p = { x: 0, y: 0 }
+  const q = { x: 236, y: 0 }
+  const mid = { x: 118, y: 0, r: 30 }
+  const curvePoints = (c: { cx: number; cy: number }) =>
+    Array.from({ length: 25 }, (_, i) => {
+      const t = i / 24
+      return {
+        x: (1 - t) * (1 - t) * p.x + 2 * t * (1 - t) * c.cx + t * t * q.x,
+        y: (1 - t) * (1 - t) * p.y + 2 * t * (1 - t) * c.cy + t * t * q.y,
+      }
+    })
+  it('障害物なし・離れた障害物は null（直線のまま）', () => {
+    expect(routeAround(p, q, [])).toBeNull()
+    expect(routeAround(p, q, [{ x: 118, y: 80, r: 30 }])).toBeNull()
+  })
+  it('報告の形（3 つの丸が一列）: 真ん中の丸から r + 余白以上離れる曲線を返す', () => {
+    const c = routeAround(p, q, [mid])!
+    expect(c).not.toBeNull()
+    for (const pt of curvePoints(c)) expect(Math.hypot(pt.x - mid.x, pt.y - mid.y)).toBeGreaterThanOrEqual(mid.r + ROUTE_MARGIN)
+  })
+  it('決定論: 同じ入力は同じ制御点', () => {
+    expect(routeAround(p, q, [mid])).toEqual(routeAround(p, q, [mid]))
+  })
+  it('向き: 最初に試す ＋ は進行方向の左（画面で上）。左が塞がれていれば右へ', () => {
+    const c = routeAround(p, q, [{ ...mid, r: 8 }])!
+    expect(c.cy).toBeLessThan(0)
+    const blocked = routeAround(p, q, [mid, { x: 118, y: -40, r: 30 }])!
+    expect(blocked.cy).toBeGreaterThan(0)
+  })
+  it('どうしても離れきらないときは余白が最大のものを採る', () => {
+    const wall = [{ x: 118, y: 0, r: 30 }, ...Array.from({ length: 9 }, (_, i) => ({ x: 118, y: (i - 4) * 60, r: 200 }))]
+    const c = routeAround(p, q, wall)!
+    expect(c).not.toBeNull()
+    expect(routeAround(p, q, wall)).toEqual(c)
+  })
+})
+
+describe('layoutKindOverview — 報告の形（xrd-cards）で線が別の丸を貫かない', () => {
+  const X = 'https://example.org/xrd#'
+  const m = (id: string, props: string[] = []) =>
+    rmap(id, {
+      subject: { template: `x:${id}/{k}`, classes: [`x:${id}`], class_iris: [`${X}${id}`] },
+      properties: props.map((t) => ({ predicate: `x:has${t}`, predicate_iri: `${X}has${t}`, label: t, target_map: t }) as never),
+    })
+  const xrd = ds('x1', 'xrd-cards', rules([m('Card', ['ChemicalFormula', 'SpaceGroup', 'CrystalSystem']), m('ChemicalFormula'), m('SpaceGroup'), m('CrystalSystem'), m('Record')]))
+  const counts = { [`${X}Card`]: 100000, [`${X}ChemicalFormula`]: 50000, [`${X}SpaceGroup`]: 20000, [`${X}CrystalSystem`]: 9000, [`${X}Record`]: 100 }
+  it('どの線も端点でない丸の中を通らない（直線なら通る）', () => {
+    const l = layoutKindOverview({ datasets: [xrd], classCounts: counts, unnamedHub: 'x' })
+    expect(l.edges.filter((e) => e.kind === 'link')).toHaveLength(3)
+    expect(crossingCount(l, false)).toBeGreaterThan(0)
+    expect(crossingCount(l, true)).toBe(0)
+    expect(l.edges.some((e) => e.cx != null)).toBe(true)
   })
 })
