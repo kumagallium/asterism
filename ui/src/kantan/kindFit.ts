@@ -1,3 +1,4 @@
+import { knownVocabForIri, localName } from '../vocab'
 // ⑤「かたちをたしかめる」の種類の当てはめ提案（ADR upper-structure-shared-terms §2.5.2・§2.5.3）。
 //
 // 種類の名前（人が付けた表示名）が、既にある語・他データの種類と**完全一致**したときだけ、
@@ -80,7 +81,13 @@ function mapOfColumn(
   const here = skeleton.maps.filter(
     (m) => basename(m.source ?? '') === basename(source) || onlySource,
   )
-  return here.find((m) => (m.owns ?? []).map(String).includes(column)) ?? here[0]
+  return (
+    here.find((m) => (m.owns ?? []).map(String).includes(column)) ??
+    // 1 件ごとの行の種類は、その列を ID のテンプレートに持つことが多い（record/{card_no}/{food}）。
+    // ファイルの先頭の種類（カード）に寄せると、公開時に「設計に見つからない」で線が書けなかった。
+    here.find((m) => (m.subject?.template ?? '').includes(`{${column}}`)) ??
+    here[0]
+  )
 }
 
 /** ③で受けた項目の当てはめ（`ColumnMeaning.fit`）→ `upper.json` の項目。標準の語へは
@@ -189,4 +196,15 @@ export async function loadClassIris(): Promise<Set<string>> {
   for (const term of terms) if (term.kind === 'class') out.add(term.iri)
   for (const g of counts?.graphs ?? []) for (const k of g.kinds) out.add(k.class_iri)
   return out
+}
+
+/** 提案の 1 文。標準の語は語彙の接頭辞つき（`qudt:hasUnit`）で言う — ラベルだけだと、
+ *  別の語彙の同名の語（CMSO と QUDT の has unit）が同じ文で 2 つ並んだ（実機 2026-10-09）。 */
+export function fitSentence(t: (key: string, opts?: Record<string, unknown>) => string, c: FitCandidate): string {
+  if (c.kind === 'standard') {
+    const v = knownVocabForIri(c.term)
+    const label = v ? `${v.prefix}${localName(c.term)}` : c.label
+    return t('kantan:meanings.fit.sameStandard', { label })
+  }
+  return t('kantan:meanings.fit.same', { label: c.label })
 }

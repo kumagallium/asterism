@@ -612,6 +612,7 @@
     },
     "fit": {
       "same": "既にある「{{label}}」と同じ項目",
+      "sameStandard": "標準の語「{{label}}」と同じ項目",
       "accept": "同じ項目として結ぶ",
       "accepted": "結んであります",
       "clear": "結ぶのをやめる",

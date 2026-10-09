@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { shouldAutoFix } from './autoFix'
 import { useTranslation } from 'react-i18next'
 import {
@@ -7334,8 +7334,8 @@ export function KantanWizard({
                           row.origin === 'preamble' &&
                           row.column === effectiveNumber(judgmentState(), row.source)
                         return (
+                          <Fragment key={meaningKey(row.source, row.column)}>
                           <tr
-                            key={meaningKey(row.source, row.column)}
                             className={
                               dropped ? 'kz-cols-dropped' : blank ? 'kz-attn' : undefined
                             }
@@ -7434,27 +7434,6 @@ export function KantanWizard({
                                   )}
                                 </label>
                               )}
-                              {/* 当てはめ提案 — 表示だけ。☑ も fit も、人が押したときだけ
-                                  付く（ADR upper-structure-shared-terms §2.5.3）。 */}
-                              {!measured && !dropped && (
-                                <FitSuggestion
-                                  label={current?.label ?? ''}
-                                  column={row.named === false ? '' : row.column}
-                                  accepted={current?.fit}
-                                  canTick={!isNumberCol}
-                                  isTicked={linkChecked.has(linkKey)}
-                                  reviewOnly={reviewOnly}
-                                  onAccept={(c) =>
-                                    setItemFit(row.source, row.column, {
-                                      term: c.term,
-                                      kind: c.kind,
-                                      matched_by: c.matched_by,
-                                    })
-                                  }
-                                  onClear={() => setItemFit(row.source, row.column, null)}
-                                  onTick={(c) => tickViaFit(row.source, row.column, c.term)}
-                                />
-                              )}
                             </td>
                             <td>
                               {/* 既定は「取り込む」。外すのは必ず人の操作なので、
@@ -7474,6 +7453,30 @@ export function KantanWizard({
                               </label>
                             </td>
                           </tr>
+                          {/* 当てはめ提案 — 表示だけ。☑ も fit も、人が押したときだけ
+                              付く（ADR upper-structure-shared-terms §2.5.3）。行の下に
+                              表の幅いっぱいで出す（☑ のセルからあふれないように）。 */}
+                          {!measured && !dropped && (
+                            <FitSuggestion
+                              colSpan={6}
+                              label={current?.label ?? ''}
+                              column={row.named === false ? '' : row.column}
+                              accepted={current?.fit}
+                              canTick={!isNumberCol}
+                              isTicked={linkChecked.has(linkKey)}
+                              reviewOnly={reviewOnly}
+                              onAccept={(c) =>
+                                setItemFit(row.source, row.column, {
+                                  term: c.term,
+                                  kind: c.kind,
+                                  matched_by: c.matched_by,
+                                })
+                              }
+                              onClear={() => setItemFit(row.source, row.column, null)}
+                              onTick={(c) => tickViaFit(row.source, row.column, c.term)}
+                            />
+                          )}
+                          </Fragment>
                         )
                       })}
                     </tbody>

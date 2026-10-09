@@ -860,16 +860,23 @@ def fit_candidates(
 ) -> list[dict]:
     """Words a column could be fitted to, by EXACT match only (after
     :func:`normalize_label`) — never fuzzy. ``standard_hits`` (``{iri, label}``, the
-    exact-grade result of ``ground_terms``) come first as kind ``standard``, then
-    shared terms (``label`` / ``label_en``), then other datasets' item labels
-    (``dataset_terms``: ``{iri, label, dataset_id, kind}``). Every candidate carries
-    ``term_kind`` (``"class"`` | ``"property"``) so the caller can tell a kind from an
-    item; ``standard_hits`` pass theirs as ``kind``. A label or column that is
-    generic (:data:`GENERIC_LABELS`) yields nothing at all."""
+    exact-grade result of ``ground_terms`` on the column name) come first as kind
+    ``standard``, then shared terms (``label`` / ``label_en``), then other datasets'
+    item labels (``dataset_terms``: ``{iri, label, dataset_id, kind}``) — these two
+    are matched against the column's MEANING (``label``) only, never the column name.
+    Every candidate carries ``term_kind`` (``"class"`` | ``"property"``) so the caller
+    can tell a kind from an item; ``standard_hits`` pass theirs as ``kind``. A label or
+    column that is generic (:data:`GENERIC_LABELS`) yields nothing at all."""
     nl, nc = normalize_label(label or ""), normalize_label(column or "")
     if nl in GENERIC_LABELS or nc in GENERIC_LABELS:
         return []
-    keys = [(nl, "label"), (nc, "column")]
+    # Shared terms and other datasets' items are matched on the MEANING only (the
+    # label a person settled in ③). A bare column name (``source``, ``category``)
+    # matched another dataset's item of the same spelling regardless of what either
+    # column meant — noise the screen showed on the first real run (2026-10-09).
+    # The column name still reaches standard terms, via ``standard_hits`` (the
+    # caller grounds the ASCII column, since ``ground_terms`` cannot read Japanese).
+    keys = [(nl, "label")]
 
     def matched_by(*texts: str | None) -> str | None:
         norms = {normalize_label(t) for t in texts if t}

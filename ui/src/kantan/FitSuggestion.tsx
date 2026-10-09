@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ColumnFit } from '../api'
 import { fit as fetchFit, type FitCandidate } from '../vocabApi'
-import { itemFitCandidates } from './kindFit'
+import { fitSentence, itemFitCandidates } from './kindFit'
 
 // ③「意味をつける」の行の隣に出す、決定論の**当てはめ提案**（表示のみ）。
 // ADR upper-structure-shared-terms §2.5.3: 列の意味と列名が、既にある語・標準語・
@@ -20,6 +20,7 @@ export function FitSuggestion({
   canTick,
   isTicked,
   reviewOnly = false,
+  colSpan,
   onAccept,
   onClear,
   onTick,
@@ -36,6 +37,9 @@ export function FitSuggestion({
   /** 設計後の意味の見直し。この経路では当てはめは線にならない（下書きを作り直す
    *  ときだけ upper が効く）ので、受ける・外すを出さず、1 行の案内にする。 */
   reviewOnly?: boolean
+  /** 表の行の下に、表の幅いっぱいの補助行（`<tr><td colSpan>`）として出すときの列数。
+   *  ☑ のセルの中に出すと、文とボタンが狭い列からあふれて右端で切れた（実機 2026-10-09）。 */
+  colSpan?: number
   onAccept: (candidate: FitCandidate) => void
   onClear: () => void
   onTick: (candidate: FitCandidate) => void
@@ -75,13 +79,13 @@ export function FitSuggestion({
 
   const hasInput = label.trim() !== '' || column.trim() !== ''
   if (!hasInput || candidates.length === 0) return null
-  return (
-    <div className="kz-note" data-testid="fit-suggestion">
+  const body = (
+    <div className="kz-note kz-fit-note" data-testid="fit-suggestion">
       {candidates.slice(0, MAX_SHOWN).map((c) => {
         const same = accepted?.term === c.term
         return (
           <div key={`${c.kind}:${c.term}`}>
-            <span>{t('kantan:meanings.fit.same', { label: c.label })}</span>{' '}
+            <span>{fitSentence(t, c)}</span>{' '}
             {same ? (
               <>
                 <span role="status">{t('kantan:meanings.fit.accepted')}</span>{' '}
@@ -114,5 +118,11 @@ export function FitSuggestion({
       })}
       {reviewOnly && <p data-testid="fit-review-note">{t('kantan:meanings.fit.reviewNote')}</p>}
     </div>
+  )
+  if (!colSpan) return body
+  return (
+    <tr className="kz-fit-row">
+      <td colSpan={colSpan}>{body}</td>
+    </tr>
   )
 }

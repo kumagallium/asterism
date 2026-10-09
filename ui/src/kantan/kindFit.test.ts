@@ -257,3 +257,43 @@ describe('項目の当てはめ → upper（property:<map>/<列>）', () => {
     expect(got).toHaveLength(2)
   })
 })
+
+describe('③ 標準の語は語彙の接頭辞つきで言う', () => {
+  it('qudt と cmso の has unit を見分ける', async () => {
+    const { fitSentence } = await import('./kindFit')
+    const t = (k: string, o?: Record<string, unknown>) => `${k}:${String(o?.label)}`
+    const std = (term: string) =>
+      ({ term, kind: 'standard', term_kind: 'property', label: 'has unit', matched_by: 'column' }) as const
+    expect(fitSentence(t, std('http://qudt.org/schema/qudt/hasUnit'))).toBe(
+      'kantan:meanings.fit.sameStandard:qudt:hasUnit',
+    )
+    expect(fitSentence(t, std('http://purls.helmholtz-metadaten.de/cmso/hasUnit'))).toBe(
+      'kantan:meanings.fit.sameStandard:cmso:hasUnit',
+    )
+    expect(
+      fitSentence(t, { term: 'x', kind: 'shared', term_kind: 'property', label: '食材の名前', matched_by: 'label' }),
+    ).toBe('kantan:meanings.fit.same:食材の名前')
+  })
+})
+
+describe('③ 項目の当てはめの持ち主（ID のテンプレートで探す）', () => {
+  it('owns に無い列は、その列を ID に持つ種類（1 件ごとの行）に付く', async () => {
+    const { itemFitsToUpper } = await import('./kindFit')
+    const skeleton = {
+      maps: [
+        { name: 'card', source: 'recipe.txt', subject: { template: 'card/{card_no}' } },
+        { name: 'record', source: 'recipe.txt', subject: { template: 'record/{card_no}/{food}' } },
+      ],
+    } as unknown as Parameters<typeof itemFitsToUpper>[2]
+    const meanings = [
+      {
+        source: 'recipe.txt',
+        column: 'food',
+        label: '食材の名前',
+        fit: { term: 'https://kumagallium.github.io/asterism/vocab/shared#food_name', kind: 'shared', matched_by: 'label' },
+      },
+    ] as unknown as Parameters<typeof itemFitsToUpper>[0]
+    const out = itemFitsToUpper(meanings, [], skeleton)
+    expect(out.map((u) => u.subject)).toEqual(['property:record/food'])
+  })
+})

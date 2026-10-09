@@ -307,9 +307,10 @@ AI の事前 ☑ 推薦は「精度が悪いと惑わす」として退けられ
 
 #### 2.5.3 当てはめ提案（③・⑤）の規則
 
-- **決定論・表示のみ**。列の label（③の意味）と列名を正規化し、共有語の label（ja/en）・標準語
-  （`ground_terms` の exact 級。列名（ASCII）と英語 label で照合）・他データセットの項目 label と
-  **完全一致**したときだけ出す。部分一致は出さない。正規化は K63 の `_meaning_key`（NFKC・casefold・
+- **決定論・表示のみ**。列の label（③の意味）を正規化し、共有語の label（ja/en）・他データセットの
+  項目 label と**完全一致**したときだけ出す。標準語（`ground_terms` の exact 級）は列名（ASCII）で
+  照合する。共有語・他データセットの項目には列名では当てない（実機で `category`・`source` のような
+  同名の雑音が出た・2026-10-09）。標準語は語彙の接頭辞つき（`qudt:hasUnit`）で示す。部分一致は出さない。正規化は K63 の `_meaning_key`（NFKC・casefold・
   空白の畳み）と**同じ規則**を 1 つの関数にし、両方の package でテストで同値を固定する。
   候補は孤立の語も含めて全共有語（`wired` で絞らない）。
 - **出さない列**: 測定値（④の `noMeasure` と同じ判定）、一般語（`name` `id` `type` `date` `value`
@@ -470,3 +471,4 @@ slug の辞書順で先頭）。組み立て関数は `asterism.shared_vocab.upp
   `/api/vocab/fit` の標準語は `ground_terms` の score 100 だけ。
 - 2026-10-09（同日・7 回目・実装）: 段 2（PR 2 UI「ことば」）を branch `feat/vocab-view` で実装（#697 に積む）。実装時の判断: 線の一覧に「すべて」の切り替えを足す（scope 無し＝全件）、hash は実ルータの `#/vocab?q=…&scope=…&dataset=…`、項目（property）の共有語はデータセットの項目からの線を PR 3 の③の当てはめで引く（PR 2 の地図は種類の丸だけ）、`vocab:banner.*` の既存文言は残す。スクショは PR 3 の後にまとめて撮る。
 - 2026-10-09（同日・8 回目・実装）: 段 3（PR 3 作る UI の流れ）を branch `feat/kantan-flow-questions` で実装（#700 に積む）。実装時の判断: upper.json の項目の subject は `property:<map 名>/<列名>`（api が mapping.yaml の列 → 述語で解決。標準語へは equivalentProperty・共有語／他データセットの項目へは subPropertyOf）、問いのツールには `origin: "question"` を印として付け公開時の削除はその印のあるものだけ、「写す」は `source: {dataset, question_id}` を記録して同じ組は 200 で既存を返す、⑤の種類の当てはめは問い無しでも線になる（線は CQ 任意・§2.0 のとおり）、種類のページの「問い」一覧からの写すは未実装（宣言ツールから写す口が要る・次の作業）。
+- 2026-10-09（同日・9 回目・画面確認）: 実機の撮影で見つけた不具合を直した（ROADMAP の 7 回目の log）。§2.5.3 の照合を「共有語・他データセットの項目は意味だけ」に改め、標準語の提案は語彙の接頭辞つきにした。`property:<map>/<列>` は名指した種類に列が無いとき、同じファイルの種類で述語がちょうど 1 つに決まる場合だけ使う。

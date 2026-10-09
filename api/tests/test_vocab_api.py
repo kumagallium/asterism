@@ -490,9 +490,14 @@ def test_fit_exact_matches_only_and_generic_labels_yield_nothing(tmp_path: Path)
         assert [(c["kind"], c["term"], c["matched_by"]) for c in got["candidates"]] == [
             ("shared", SV + "diffraction_point", "label")
         ]
-        # 列名の英語でも当たる（NFKC・大文字小文字・空白を畳む）
+        # 共有語には列名では当たらない（意味だけで見る。列名は標準語にだけ届く）
         by_col = client.get("/api/vocab/fit", params={"column": "  DIFFRACTION   point "}).json()
-        assert by_col["candidates"][0]["matched_by"] == "column"
+        assert by_col["candidates"] == []
+        # 意味を英語で書けば当たる（NFKC・大文字小文字・空白を畳む）
+        by_label_en = client.get(
+            "/api/vocab/fit", params={"label": "  DIFFRACTION   point "}
+        ).json()
+        assert by_label_en["candidates"][0]["matched_by"] == "label"
 
         other = client.get("/api/vocab/fit", params={"label": "回折強度"}).json()["candidates"]
         assert [(c["kind"], c["term"]) for c in other] == [
@@ -555,7 +560,8 @@ def test_fit_puts_an_exact_standard_term_first_and_drops_fuzzy_ones(tmp_path: Pa
     app, _ = _app(tmp_path)
     with TestClient(app, headers=_AUTH) as client:
         _mint(client, slug="thermal_conductivity", kind="property", cqs=[CQ_VALUES])
-        # 共有の語の label も同じ列名に当たる → 標準が先・共有が後
+        # 共有の語は列名では当たらない（意味だけで見る）。意味に同じ英語を書けば
+        # 標準（列名で引く）が先・共有（意味で引く）が後に並ぶ
         client.post(
             "/api/vocab/shared",
             json={
@@ -566,7 +572,12 @@ def test_fit_puts_an_exact_standard_term_first_and_drops_fuzzy_ones(tmp_path: Pa
                 "cqs": [CQ_VALUES],
             },
         )
-        got = client.get("/api/vocab/fit", params={"column": "thermal conductivity"}).json()
+        only_col = client.get("/api/vocab/fit", params={"column": "thermal conductivity"}).json()
+        assert [c["kind"] for c in only_col["candidates"]] == ["standard"] * len(exact)
+        got = client.get(
+            "/api/vocab/fit",
+            params={"label": "thermal conductivity", "column": "thermal conductivity"},
+        ).json()
         kinds = [c["kind"] for c in got["candidates"]]
         assert kinds == ["standard"] * len(exact) + ["shared"]
         assert [c["term"] for c in got["candidates"][: len(exact)]] == exact

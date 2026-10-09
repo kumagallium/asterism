@@ -7857,25 +7857,58 @@ tr.kz-attn td {
   table-layout: fixed;
   width: 100%;
 }
+/* 6 列（列名・実データ・意味・単位・つながる手がかり ☑・取り込む）。5 列分の幅しか
+   無かったころは 6 列目が隣に重なった（実機 2026-10-09）。 */
 .kz-meaning-table th:nth-child(1),
 .kz-meaning-table td:nth-child(1) {
-  width: 20%;
+  width: 17%;
 }
 .kz-meaning-table th:nth-child(2),
 .kz-meaning-table td:nth-child(2) {
-  width: 23%;
+  width: 19%;
 }
 .kz-meaning-table th:nth-child(3),
 .kz-meaning-table td:nth-child(3) {
-  width: 17%;
+  width: 19%;
 }
 .kz-meaning-table th:nth-child(4),
 .kz-meaning-table td:nth-child(4) {
-  width: 23%;
+  width: 17%;
 }
 .kz-meaning-table th:nth-child(5),
 .kz-meaning-table td:nth-child(5) {
-  width: 17%;
+  width: 14%;
+}
+.kz-meaning-table th:nth-child(6),
+.kz-meaning-table td:nth-child(6) {
+  width: 14%;
+}
+/* 見出しは折り返してよい（「他のデータとつながる手がかり」は 1 行に収まらない）。 */
+.kz-meaning-table th {
+  white-space: normal;
+  vertical-align: bottom;
+}
+/* 当てはめ提案の補助行: 上の行とひと続きに見せ、表の幅いっぱいで折り返す。 */
+.kz-meaning-table tr:has(+ tr.kz-fit-row) td {
+  border-bottom-color: transparent;
+}
+.kz-meaning-table tr.kz-fit-row td {
+  white-space: normal;
+  padding-top: 0;
+}
+.kz-meaning-table .kz-fit-note {
+  display: block;
+  margin: 0;
+  padding-left: 17%;
+}
+.kz-meaning-table .kz-fit-note > div + div {
+  margin-top: 0.35rem;
+}
+.kz-meaning-table .kz-fit-note > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
 }
 .kz-meaning-table .kz-cols-input {
   min-width: 0;
@@ -9999,4 +10032,19 @@ tr.kz-cols-dropped td {
   font-size: 0.6875rem;
   color: var(--muted);
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* ⑥「自分の問いを足す」— 自動の問いの技術情報に詰まって見えたので、区切りを置く（実機 2026-10-09）。 */
+.kz-own-questions {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.kz-own-question + .kz-own-question,
+.kz-own-question + .kz-own-form,
+.kz-own-questions > .kz-note + .kz-own-form {
+  margin-top: 1rem;
+}
+.kz-own-form .kz-q + .kz-q {
+  margin-top: 0.75rem;
 }

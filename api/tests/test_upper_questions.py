@@ -785,6 +785,46 @@ def test_resolve_property_ref_expands_the_prefix_and_reads_columns() -> None:
     assert upper_routes.resolve_property_ref(view, "https://example.org/onto#weight") is None
 
 
+def test_resolve_property_ref_falls_back_to_the_map_of_the_same_file_that_carries_it() -> None:
+    """画面が列の持ち主を別の map（カード）と推測しても、同じファイルの 1 件ごとの行の
+    map がその列を運んでいれば、その述語に解決する（実機 2026-10-09 の「card/food」）。
+    同じ列を 2 つの述語が運ぶときは決めない。"""
+    from asterism.mapping_ir_read import read_mapping_ir
+
+    from asterism_api import upper_routes
+
+    ir = """
+version: 1
+prefixes:
+  ex: https://example.org/onto#
+  exr: https://example.org/res/
+maps:
+  - name: card
+    source: recipe.txt
+    subject: {template: "exr:card/{card_no}", classes: [ex:Card]}
+    properties:
+      - {predicate: ex:cardNo, column: card_no}
+  - name: record
+    source: recipe.txt
+    subject: {template: "exr:record/{card_no}/{food}", classes: [ex:Record]}
+    properties:
+      - {predicate: ex:food, column: food}
+      - {predicate: ex:cardNo, column: card_no}
+  - name: other
+    source: other.txt
+    subject: {template: "exr:o/{food}", classes: [ex:Other]}
+    properties:
+      - {predicate: ex:otherFood, column: food}
+"""
+    view = read_mapping_ir(ir)
+    # 名指した map（card）に無い → 同じファイルの record が運ぶ ex:food（別ファイルは見ない）
+    assert upper_routes.resolve_property_ref(view, "property:card/food") == "https://example.org/onto#food"
+    # 名指した map にあればそれ
+    assert upper_routes.resolve_property_ref(view, "property:card/card_no") == "https://example.org/onto#cardNo"
+    # どこにも無い列は決めない
+    assert upper_routes.resolve_property_ref(view, "property:card/nope") is None
+
+
 def test_republish_keeps_a_human_saved_q_tool_but_drops_a_question_tool(tmp_path: Path) -> None:
     dsid = _dataset(tmp_path)
     root = tmp_path / "registry"

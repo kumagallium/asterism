@@ -208,17 +208,29 @@ def test_fit_candidates_exact_only_generic_empty_standard_first() -> None:
         ("standard", "https://w3id.org/cmso/Foo", "column"),
         ("shared", sv.SV + "dp", "label"),
     ]
-    # the column is a case/width variant of the English label -> matches by column
+    # a bare column name never reaches shared terms or other datasets' items: only the
+    # meaning does (``source`` / ``category`` matched unrelated items on the real run)
+    assert (
+        sv.fit_candidates(
+            "ぜんぜん別",
+            "ＤＩＦＦＲＡＣＴＩＯＮ  point",
+            shared_terms=shared,
+            dataset_terms=ds_terms,
+            standard_hits=[],
+        )
+        == []
+    )
+    # the meaning written as a case/width variant of the English label still matches
     out = sv.fit_candidates(
-        "ぜんぜん別",
         "ＤＩＦＦＲＡＣＴＩＯＮ  point",
+        "",
         shared_terms=shared,
         dataset_terms=ds_terms,
         standard_hits=[],
     )
     assert [(o["kind"], o["matched_by"]) for o in out] == [
-        ("shared", "column"),
-        ("dataset", "column"),
+        ("shared", "label"),
+        ("dataset", "label"),
     ]
     assert out[1]["term"] == B_PROP and out[1]["label"] == "diffraction  point"
     # not fuzzy: a substring / near miss is no match

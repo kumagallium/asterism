@@ -12,7 +12,7 @@ import {
 import { perspectiveDisplayName } from './crosswalkLabels'
 import { ArrowIcon } from './icons'
 import { localName } from './vocab'
-import { cqLabel } from './vocabQuestion'
+import { cqLabel, endLabel } from './vocabQuestion'
 
 // 「つながりどうしを対応づける」— 旧 CrosswalkView の PerspectiveAlignment を「ことば」画面の
 // 「線」の節へ移したもの（ADR upper-structure-shared-terms.md §2.5.1 (5)・§3.1 (b)）。
@@ -356,14 +356,14 @@ export function AlignmentRow({
       <div className="xw-align-claim">
         <EndKindBadge kind={a.source_kind} datasetId={a.source_dataset} />
         <code className="xw-align-term" title={a.source}>
-          {localName(a.source)}
+          {endLabel(a.source, a.source_kind, a.source_label)}
         </code>
         <span className="xw-align-relchip" title={a.relation}>
           {relationLabel(a.relation)}
         </span>
         <EndKindBadge kind={a.target_kind} datasetId={a.target_dataset} />
         <code className="xw-align-term" title={a.target}>
-          {localName(a.target)}
+          {endLabel(a.target, a.target_kind, a.target_label)}
         </code>
       </div>
       <div className="xw-align-meta">

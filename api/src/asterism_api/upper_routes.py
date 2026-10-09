@@ -73,14 +73,32 @@ def resolve_property_ref(view: MappingIRView, ref: str) -> str | None:
         return None
     map_name, column = m.group(1), m.group(2)
     prefixes = dict(BUILTIN_PREFIXES) | view.prefixes
-    for tm in view.maps:
-        if tm.name != map_name:
-            continue
-        for prop in tm.properties:
-            if prop.predicate and (prop.column == column or column in prop.columns):
-                iri = expand(prefixes, prop.predicate)
-                return iri if _IRI_RE.match(iri) else None
-    return None
+
+    def carriers(maps) -> list[str]:
+        out: list[str] = []
+        for tm in maps:
+            for prop in tm.properties:
+                if prop.predicate and (prop.column == column or column in prop.columns):
+                    iri = expand(prefixes, prop.predicate)
+                    if _IRI_RE.match(iri) and iri not in out:
+                        out.append(iri)
+        return out
+
+    named = [tm for tm in view.maps if tm.name == map_name]
+    if not named:
+        # 名指した map 自体が無い（作り直しで消えた）。推測で補わない。
+        return None
+    found = carriers(named)
+    if found:
+        return found[0]
+    # 名指した map にその列が無い（画面は列の持ち主を推測で決める。同じファイルの別の
+    # map、例えば 1 件ごとの行の種類が持っていることがある — 実機 2026-10-09）。同じ
+    # ファイルの map の中で、その列を運ぶ述語が**ちょうど 1 つ**に決まるときだけ使う。
+    # 決まらなければ書かない（違う述語に線を引くより、書けなかったと言う方がよい）。
+    sources = {tm.source for tm in named if tm.source}
+    pool = [tm for tm in view.maps if tm.source in sources]
+    found = carriers(pool)
+    return found[0] if len(found) == 1 else None
 
 
 def _key(item: dict) -> tuple[str, str, str]:

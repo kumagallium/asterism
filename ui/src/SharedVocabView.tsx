@@ -171,7 +171,6 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         </div>
       </div>
 
-      <p className="vocab-sec-sub">{t('vocab:lead')}</p>
 
       {/* 問いを書く入口（任意の入口。語が先なら下の「ことば」から作る）。題が変わったら作り直す。 */}
       <VocabQuestionEntry

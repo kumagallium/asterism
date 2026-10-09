@@ -612,6 +612,7 @@
     },
     "fit": {
       "same": "Same item as the existing “{{label}}”",
+      "sameStandard": "Same item as the standard term “{{label}}”",
       "accept": "Treat as the same item",
       "accepted": "Linked",
       "clear": "Undo",

@@ -187,3 +187,13 @@ describe('「ことばへ写す」の重複', () => {
     expect(vocabApiSource).toMatch(/existed: res\.status === 200/)
   })
 })
+
+describe('③ 当てはめ提案の置き場（表からあふれない）', () => {
+  it('☑ のセルではなく、行の下の補助行（colSpan=6）に出す', () => {
+    expect(source).toMatch(/<FitSuggestion\s+colSpan=\{6\}/)
+    expect(fitSource).toMatch(/<tr className="kz-fit-row">\s*<td colSpan=\{colSpan\}>/)
+    // ☑ のセル（kz-links-checkcell）の中には置かない
+    const cell = source.slice(source.indexOf('kz-links-checkcell'), source.indexOf('kz-cols-keep'))
+    expect(cell).not.toMatch(/<FitSuggestion/)
+  })
+})
