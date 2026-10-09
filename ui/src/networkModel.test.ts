@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NetworkNode, NetworkResponse } from './networkApi'
 import {
-  alwaysLabeled,
+  BUNDLE_R,
+  ENTITY_R,
+  VALUE_R,
   assignKindRoles,
   buildNetworkGraph,
+  connectedParts,
+  focusCamera,
   hashPosition,
   layoutIterations,
   layoutNetwork,
@@ -92,14 +96,17 @@ describe('buildNetworkGraph', () => {
     expect(g.getNodeAttribute('h1', 'role')).toBe('hub')
     expect(g.getNodeAttribute('b1', 'role')).toBe('kind-0')
   })
-  it('大きさ: 束は件数、ほかは次数。最小〜最大に収まり、大きいほど大きい', () => {
+  it('大きさ: 役割ごとの範囲に収まる（件は小さく・値は中・束は大きく）', () => {
     const size = (id: string) => g.getNodeAttribute(id, 'size') as number
-    expect(size('b1')).toBe(16)
-    expect(size('s1')).toBeGreaterThan(size('s2') - 1)
-    g.forEachNode((id) => {
-      expect(size(id)).toBeGreaterThanOrEqual(3)
-      expect(size(id)).toBeLessThanOrEqual(16)
+    g.forEachNode((id, a) => {
+      const [lo, hi] =
+        a.nodeKind === 'bundle' ? BUNDLE_R : a.nodeKind === 'value' ? VALUE_R : ENTITY_R
+      expect(size(id)).toBeGreaterThanOrEqual(lo)
+      expect(size(id)).toBeLessThanOrEqual(hi)
     })
+    // 束は件の点より大きい（束の件数が多くても件の点を大きくしない）
+    expect(size('b1')).toBeGreaterThan(size('s1'))
+    expect(size('s1')).toBeGreaterThan(size('s2') - 1)
   })
   it('初期位置は id のハッシュそのもの', () => {
     expect(g.getNodeAttribute('s1', 'x')).toBe(hashPosition('s1').x)
@@ -146,14 +153,14 @@ describe('layoutNetwork', () => {
   it('空のグラフでも落ちない', () => {
     expect(() => layoutNetwork(buildNetworkGraph({ ...fixture(), nodes: [], edges: [] }))).not.toThrow()
   })
-  it('繰り返し回数は 100〜400、点が多いほど少ない', () => {
-    expect(layoutIterations(10)).toBe(400)
-    expect(layoutIterations(776)).toBe(200)
-    expect(layoutIterations(100000)).toBe(100)
+  it('繰り返し回数は 120〜500、点が多いほど少ない', () => {
+    expect(layoutIterations(10)).toBe(500)
+    expect(layoutIterations(776)).toBe(400)
+    expect(layoutIterations(100000)).toBe(120)
   })
 })
 
-describe('neighborhoodOf / searchNodes / alwaysLabeled', () => {
+describe('neighborhoodOf / searchNodes', () => {
   const g = buildNetworkGraph(fixture())
   it('載せた点と相手', () => {
     expect([...neighborhoodOf(g, 'v:region:north')].sort()).toEqual(['o1', 's1', 's2', 'v:region:north'])
@@ -164,12 +171,6 @@ describe('neighborhoodOf / searchNodes / alwaysLabeled', () => {
     expect(searchNodes(g, 'vega')).toEqual(['s2'])
     expect(searchNodes(g, '')).toEqual([])
     expect(searchNodes(g, 'S')[0]).toBe('s1')
-  })
-  it('値・ハブ・束は名前を常に出す', () => {
-    expect(alwaysLabeled('entity')).toBe(false)
-    expect(alwaysLabeled('value')).toBe(true)
-    expect(alwaysLabeled('hub')).toBe(true)
-    expect(alwaysLabeled('bundle')).toBe(true)
   })
 })
 
@@ -242,5 +243,65 @@ describe('上位構造の色の鍵・束の名前・壊れた名前', () => {
   })
   it('壊れた % 符号の名前でも落ちない', () => {
     expect(kindDisplayName(null, 'http://x/a%ZZ')).toBe('a%ZZ')
+  })
+})
+
+describe('focusCamera', () => {
+  it('点と相手が全部入る広さ・真ん中に寄る・0.04〜1 に収める', () => {
+    const c = focusCamera([
+      { x: 0.2, y: 0.4 },
+      { x: 0.6, y: 0.5 },
+    ])
+    expect(c.x).toBeCloseTo(0.4)
+    expect(c.y).toBeCloseTo(0.45)
+    expect(c.ratio).toBeCloseTo(0.52)
+    expect(focusCamera([{ x: 0.3, y: 0.3 }]).ratio).toBe(0.04)
+    expect(focusCamera([{ x: 0, y: 0 }, { x: 2, y: 0 }]).ratio).toBe(1)
+    expect(focusCamera([])).toEqual({ x: 0.5, y: 0.5, ratio: 1 })
+  })
+})
+
+describe('connectedParts / まとまりごとの配置', () => {
+  // 大きなまとまり（星 1 つに 30 個）と小さなまとまり（3 点）。
+  const twoParts = (): NetworkResponse => {
+    const nodes: NetworkNode[] = [node('hubA'), node('x1'), node('x2'), node('x3')]
+    const edges = [
+      { source: 'x1', target: 'x2', label: 'p' },
+      { source: 'x2', target: 'x3', label: 'p' },
+    ]
+    for (let i = 0; i < 30; i++) {
+      nodes.push(node(`a${String(i).padStart(2, '0')}`))
+      edges.push({ source: 'hubA', target: `a${String(i).padStart(2, '0')}`, label: 'p' })
+    }
+    return {
+      nodes,
+      edges,
+      kinds: [],
+      stats: { entities: nodes.length, nodes: nodes.length, edges: edges.length, values: 0, bundles: 0 },
+      truncated: false,
+    }
+  }
+  it('大きい順・中身は id 順', () => {
+    const parts = connectedParts(buildNetworkGraph(twoParts()))
+    expect(parts.map((p) => p.length)).toEqual([31, 3])
+    expect(parts[1]).toEqual(['x1', 'x2', 'x3'])
+  })
+  it('まとまりどうしが重ならない（外接円が離れている）・決定論', () => {
+    const a = buildNetworkGraph(twoParts())
+    const b = buildNetworkGraph(twoParts())
+    layoutNetwork(a)
+    layoutNetwork(b)
+    a.forEachNode((id, attr) => {
+      expect(attr.x).toBe(b.getNodeAttribute(id, 'x'))
+      expect(attr.y).toBe(b.getNodeAttribute(id, 'y'))
+    })
+    const box = (ids: string[]) => {
+      const xs = ids.map((id) => a.getNodeAttribute(id, 'x') as number)
+      const ys = ids.map((id) => a.getNodeAttribute(id, 'y') as number)
+      return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }
+    }
+    const [big, small] = connectedParts(a).map(box)
+    const apart = big.x1 < small.x0 || small.x1 < big.x0 || big.y1 < small.y0 || small.y1 < big.y0
+    expect(apart).toBe(true)
   })
 })

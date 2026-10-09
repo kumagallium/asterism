@@ -11,8 +11,10 @@ export const KIND_COLOR_COUNT = 8
 export const REST_ROLE = 'rest'
 export const VALUE_ROLE = 'value'
 export const HUB_ROLE = 'hub'
-export const NODE_R_MIN = 3
-export const NODE_R_MAX = 16
+/** 役割ごとの大きさの範囲（[最小, 最大]）。 */
+export const ENTITY_R: [number, number] = [1.5, 5]
+export const VALUE_R: [number, number] = [5, 11]
+export const BUNDLE_R: [number, number] = [9, 14]
 
 /** `kinds`（件数の多い順）の上位 8 種類に `kind-0`〜`kind-7`。順序は API の順のまま。 */
 export function assignKindRoles(
@@ -82,14 +84,24 @@ export function buildNetworkGraph(
 ): Graph {
   const g = new Graph({ type: 'undirected', multi: false })
   const kindRoles = assignKindRoles(resp.kinds)
-  const sized = sizeScale(resp.nodes.map(sizeMetric), NODE_R_MIN, NODE_R_MAX)
+  // 大きさは役割ごとに別の尺度（件は小さな点・値は中くらい・束は大きく）。1 本の尺度だと
+  // 束（3,001 件など）に引っぱられて件の点まで大きくなり、網が団子に見えた（実データで確認）。
+  const scaleOf = (kinds: NetworkNodeKind[], lo: number, hi: number) =>
+    sizeScale(resp.nodes.filter((n) => kinds.includes(n.kind)).map(sizeMetric), lo, hi)
+  const sizedBy: Record<NetworkNodeKind, (n: number | undefined) => number> = {
+    entity: scaleOf(['entity', 'hub'], ENTITY_R[0], ENTITY_R[1]),
+    hub: scaleOf(['entity', 'hub'], ENTITY_R[0], ENTITY_R[1]),
+    value: scaleOf(['value'], VALUE_R[0], VALUE_R[1]),
+    bundle: scaleOf(['bundle'], BUNDLE_R[0], BUNDLE_R[1]),
+  }
+  const sized = (n: NetworkNode) => sizedBy[n.kind](sizeMetric(n))
   for (const n of resp.nodes) {
     if (g.hasNode(n.id)) continue
     const attrs: NetworkNodeAttrs = {
       label: n.kind === 'bundle' && bundleName ? bundleName(n.class_label ?? n.label, n.count) : n.label,
       nodeKind: n.kind,
       role: roleOf(n, kindRoles),
-      size: sized(sizeMetric(n)),
+      size: sized(n),
       ...hashPosition(n.id),
       classLabel: n.class_label,
       datasetId: n.dataset_id,
@@ -107,25 +119,144 @@ export function buildNetworkGraph(
   return g
 }
 
-/** 点の数に応じた繰り返し回数（100〜400）。多いほど少なく（計算時間の都合）。 */
+/** 点の数に応じた繰り返し回数（120〜500）。多いほど少なく（計算時間の都合。776 点で 400 回＝約 0.7 秒）。 */
 export function layoutIterations(order: number): number {
-  if (order < 200) return 400
-  if (order < 500) return 300
-  if (order < 2000) return 200
-  return 100
+  if (order < 200) return 500
+  if (order < 1000) return 400
+  if (order < 2000) return 250
+  return 120
 }
 
 export const BARNES_HUT_FROM = 500
 
-/** ForceAtlas2 を同期で固定回数だけ回して止める（グラフを直接書き換える）。
- *  初期位置が決まっていれば結果は決まる。 */
+/** つながっている点のまとまり（連結成分）。大きい順・同じ大きさは先頭の id 順（決定論）。 */
+export function connectedParts(g: Graph): string[][] {
+  const seen = new Set<string>()
+  const parts: string[][] = []
+  for (const start of [...g.nodes()].sort()) {
+    if (seen.has(start)) continue
+    const part: string[] = []
+    const stack = [start]
+    seen.add(start)
+    while (stack.length > 0) {
+      const id = stack.pop() as string
+      part.push(id)
+      g.forEachNeighbor(id, (nb) => {
+        if (!seen.has(nb)) {
+          seen.add(nb)
+          stack.push(nb)
+        }
+      })
+    }
+    parts.push(part.sort())
+  }
+  return parts.sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+}
+
+/** まとまり 1 つの半径の目安（面積がおよそ点の数に比例。小さなまとまりも読める大きさに底上げ）。 */
+export const PART_MIN_N = 60
+export const PART_UNIT = 10
+export const PART_GAP = 2 * PART_UNIT
+export function partRadius(n: number): number {
+  return PART_UNIT * Math.sqrt(n + PART_MIN_N)
+}
+
+/** 1 つのまとまりを ForceAtlas2 で配置し、重心を原点・半径を PART_UNIT·√n にそろえた位置を返す。 */
+function layoutPart(g: Graph, ids: string[]): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>()
+  if (ids.length === 1) {
+    out.set(ids[0], { x: 0, y: 0 })
+    return out
+  }
+  const sub = new Graph({ type: 'undirected', multi: false })
+  for (const id of ids) {
+    sub.addNode(id, {
+      x: g.getNodeAttribute(id, 'x'),
+      y: g.getNodeAttribute(id, 'y'),
+      size: g.getNodeAttribute(id, 'size'),
+    })
+  }
+  for (const id of ids) {
+    g.forEachNeighbor(id, (nb) => {
+      if (id < nb && !sub.hasEdge(id, nb)) sub.addEdge(id, nb)
+    })
+  }
+  const inferred = forceAtlas2.inferSettings(sub)
+  forceAtlas2.assign(sub, {
+    iterations: layoutIterations(sub.order),
+    settings: {
+      ...inferred,
+      // 重力を弱くした線形の FA2。実データ（国 62・年ごとの記録 682・年 11・地域 6）で設定を比べ、
+      // 同じ地域の国どうしの距離 ÷ 違う地域の国どうしの距離が 0.23 と最も小さかった（LinLog は 1.0＝
+      // 地域で寄らない・重力 1 は 0.81）。年のように全員につながる値の点に引かれて団子になるのを避ける。
+      gravity: 0.1,
+      scalingRatio: 2,
+      barnesHutOptimize: sub.order >= BARNES_HUT_FROM,
+    },
+  })
+  let cx = 0
+  let cy = 0
+  sub.forEachNode((_, a) => {
+    cx += a.x
+    cy += a.y
+  })
+  cx /= sub.order
+  cy /= sub.order
+  let radius = 0
+  sub.forEachNode((_, a) => {
+    radius = Math.max(radius, Math.hypot(a.x - cx, a.y - cy))
+  })
+  const scale = radius > 0 ? partRadius(ids.length) / radius : 1
+  sub.forEachNode((id, a) => out.set(id, { x: (a.x - cx) * scale, y: (a.y - cy) * scale }))
+  return out
+}
+
+/** 配置（グラフを直接書き換える）。まとまりごとに ForceAtlas2 を固定回数回し、大きい順に
+ *  左から行に並べる（行の幅は全体の面積から決め、横長の枠に合わせて 1.6 倍）。
+ *  1 つの力学配置で全部を回すと、小さなまとまり（XRD のカードなど）が大きな網の縁に押しつけられ、
+ *  名前が重なった（実データで確認）。初期位置が決まっていれば結果は決まる。 */
 export function layoutNetwork(g: Graph): void {
   if (g.order === 0) return
-  const inferred = forceAtlas2.inferSettings(g)
-  forceAtlas2.assign(g, {
-    iterations: layoutIterations(g.order),
-    settings: { ...inferred, barnesHutOptimize: g.order >= BARNES_HUT_FROM },
-  })
+  const parts = connectedParts(g).map((ids) => ({
+    pos: layoutPart(g, ids),
+    r: partRadius(ids.length),
+    cx: 0,
+    cy: 0,
+  }))
+  const area = parts.reduce((s, p) => s + (2 * p.r + PART_GAP) ** 2, 0)
+  const width = Math.max(2 * parts[0].r, 1.6 * Math.sqrt(area))
+  const rows: (typeof parts)[] = []
+  let x = 0
+  for (const p of parts) {
+    if (rows.length === 0 || (x > 0 && x + 2 * p.r > width)) {
+      rows.push([])
+      x = 0
+    }
+    p.cx = x + p.r
+    x += 2 * p.r + PART_GAP
+    rows[rows.length - 1].push(p)
+  }
+  let top = 0
+  for (const row of rows) {
+    const h = Math.max(...row.map((p) => 2 * p.r))
+    for (const p of row) p.cy = top + h / 2
+    top += h + PART_GAP
+  }
+  for (const p of parts) {
+    // 行は上から下へ（sigma の y は上向きなので符号を反転）。
+    for (const [id, q] of p.pos) g.mergeNodeAttributes(id, { x: p.cx + q.x, y: -(p.cy + q.y) })
+  }
+}
+
+/** 探した点に寄るときのカメラ（sigma の正規化した座標・全体が ratio 1）。点と相手が全部入る
+ *  広さにする（点だけに寄ると相手が画面の外に出た・実データで確認）。広さは 0.04〜1。 */
+export function focusCamera(points: { x: number; y: number }[]): { x: number; y: number; ratio: number } {
+  if (points.length === 0) return { x: 0.5, y: 0.5, ratio: 1 }
+  const xs = points.map((p) => p.x)
+  const ys = points.map((p) => p.y)
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const span = Math.max(x1 - x0, y1 - y0) * 1.3
+  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, ratio: Math.min(1, Math.max(0.04, span)) }
 }
 
 /** 載せた（選んだ）点とそのつながる相手の id。 */
@@ -154,11 +285,6 @@ export function searchNodes(g: Graph, query: string, limit = 20): string[] {
       (x.id < y.id ? -1 : x.id > y.id ? 1 : 0),
   )
   return hits.slice(0, limit).map((h) => h.id)
-}
-
-/** 名前を常に出す点か（値・ハブ・束）。件は拡大したときか載せたときだけ。 */
-export function alwaysLabeled(kind: NetworkNodeKind): boolean {
-  return kind !== 'entity'
 }
 
 export interface LaidOutNetwork {

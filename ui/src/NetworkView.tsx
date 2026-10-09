@@ -16,9 +16,9 @@ import {
   REST_ROLE,
   KIND_COLORS,
   ROLE_VAR,
+  focusCamera,
   kindDisplayName,
   roleCss,
-  alwaysLabeled,
   loadLaidOutNetwork,
   neighborhoodOf,
   searchNodes,
@@ -96,7 +96,10 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
     const sigma = new Sigma(graph, host, {
       renderEdgeLabels: false,
       zIndex: true,
-      labelRenderedSizeThreshold: 9,
+      // 名前は重ならないものだけ出す（格子の升ごとに大きい点から）。値の点は大きめなので優先される。
+      labelRenderedSizeThreshold: 5,
+      labelDensity: 0.6,
+      labelGridCellSize: 180,
       labelColor: { color: pal.label },
       defaultEdgeColor: pal.edge,
       minCameraRatio: 0.02,
@@ -106,7 +109,6 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
         const color = pal.roles[a.role] ?? pal.roles[REST_ROLE]
         const sel = hovRef.current ?? selRef.current
         const out: Record<string, unknown> = { ...data, color }
-        if (alwaysLabeled(a.nodeKind)) out.forceLabel = true
         if (sel) {
           if (id === sel) {
             out.forceLabel = true
@@ -164,8 +166,10 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
     if (focusTick === consumedTickRef.current) return
     consumedTickRef.current = focusTick
     if (!sigma || !focusId || !graph.hasNode(focusId)) return
-    const d = sigma.getNodeDisplayData(focusId)
-    if (d) sigma.getCamera().animate({ x: d.x, y: d.y, ratio: 0.15 }, { duration: 400 })
+    const pts = [...neighborhoodOf(graph, focusId)]
+      .map((id) => sigma.getNodeDisplayData(id))
+      .filter((d): d is NonNullable<typeof d> => d != null)
+    if (pts.length > 0) sigma.getCamera().animate(focusCamera(pts), { duration: 400 })
   }, [graph, focusId, focusTick])
 
   return (
