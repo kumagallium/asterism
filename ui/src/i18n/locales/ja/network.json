@@ -25,6 +25,7 @@
     "entity": "件"
   },
   "bar_degree": "つながり {{count}}",
+  "bundle_name": "{{name}} {{count}} 件",
   "bar_bundle": "同じ相手にだけつながる {{count}} 件の束",
   "bar_hint": "点を押すと選べます。つながる線と相手が濃くなります",
   "legend_title": "凡例",

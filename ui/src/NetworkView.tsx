@@ -240,9 +240,16 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
     wasBigRef.current = big
   }, [big])
 
+  // 束の名前は言語ごとに組み立てる（サーバは種類の名前だけを返す）。t が変わっても取り直さないよう ref で持つ。
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   useEffect(() => {
     let cancelled = false
-    loadLaidOutNetwork(getNetwork, includeProv)
+    loadLaidOutNetwork(getNetwork, includeProv, (name, count) =>
+      tRef.current('bundle_name', { name, count: count.toLocaleString() }),
+    )
       .then((r) => {
         if (cancelled) return
         setNet({ ...r, prov: includeProv })

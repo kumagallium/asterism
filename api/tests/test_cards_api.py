@@ -1134,6 +1134,7 @@ def test_network_returns_nodes_edges_kinds_and_stats(tmp_path: Path) -> None:
             "label",
             "class_iri",
             "class_label",
+            "group_iri",
             "dataset_id",
             "count",
             "degree",

@@ -10,6 +10,9 @@ export interface NetworkNode {
   label: string
   class_iri: string | null
   class_label: string | null
+  /** 色の鍵。上位構造（`asterism.shared_vocab.upper_map`）があれば最上位の種類、無ければ自分の種類。
+   *  古いサーバは返さないので省略できる（そのときは class_iri で塗る）。 */
+  group_iri?: string | null
   dataset_id: string | null
   /** 束なら中の件数。それ以外は 1。 */
   count: number

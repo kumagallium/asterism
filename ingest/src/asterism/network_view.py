@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,18 @@ async def network_view(
     include_prov: bool = False,
     max_nodes: int = DEFAULT_MAX_NODES,
     max_rows: int = DEFAULT_MAX_ROWS,
+    upper: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, Any]:
+    """「値でつなぐ網」を組み立てる（点・線・束の規則はモジュールの説明）。
+
+    ``upper`` は上位構造の対応表（``asterism.shared_vocab.upper_map`` の返り値の形:
+    ``{"classes": {種類: 最上位}, "properties": {述語: 最上位}}``）。渡されたときは、
+    値の点を「最上位の項目＋値」で合流させ（別の述語でも同じ上位の項目なら同じ点）、
+    件・束の ``group_iri``（色の鍵）を最上位の種類にする。表に無い IRI はそのまま
+    （ADR global-network-view.md §上位構造との接続・upper-structure-shared-terms.md）。
+    """
+    class_top: Mapping[str, str] = (upper or {}).get("classes") or {}
+    property_top: Mapping[str, str] = (upper or {}).get("properties") or {}
     graphs = await canonical_graphs(client)
     if not graphs:
         return _empty()
@@ -220,8 +232,9 @@ async def network_view(
             text = o.strip()
             if not text:
                 continue
-            vid = _value_id(p, text)
-            value_text[vid] = (p, text)
+            key_p = property_top.get(p, p)  # 上位の項目があればそれで合流する
+            vid = _value_id(key_p, text)
+            value_text[vid] = (key_p, text)
             value_raw[vid][o] += 1
             value_edges.append((s, p, vid))
         if budget <= 0:
@@ -353,6 +366,8 @@ async def network_view(
                 "label": labels.get(e) or _local_name(e),
                 "class_iri": cls,
                 "class_label": class_label.get(cls) if cls else None,
+                # 色の鍵: 上位構造があれば最上位の種類（無ければ自分の種類）
+                "group_iri": class_top.get(cls, cls) if cls else None,
                 "dataset_id": None if is_hub else dataset_of.get(e),
                 "count": 1,
                 "degree": degree[e],
@@ -360,7 +375,7 @@ async def network_view(
             }
         )
         if not is_hub and cls:
-            kind_counts[cls] += 1
+            kind_counts[class_top.get(cls, cls)] += 1
 
     for vid in sorted(v for v in value_text if v in live):
         p, text = value_text[vid]
@@ -401,9 +416,11 @@ async def network_view(
             {
                 "id": bid,
                 "kind": "bundle",
-                "label": f"{name or 'Record'} {n:,} 件",
+                # 件数の言い回し（「3,001 件」など）は画面が言語ごとに付ける
+                "label": name or (_fallback_label(cls) if cls else ""),
                 "class_iri": cls,
                 "class_label": name,
+                "group_iri": class_top.get(cls, cls) if cls else None,
                 "dataset_id": None,
                 "count": n,
                 "degree": degree[bid],
@@ -411,7 +428,7 @@ async def network_view(
             }
         )
         if cls:
-            kind_counts[cls] += n
+            kind_counts[class_top.get(cls, cls)] += n
 
     kinds = [
         {"class_iri": c, "class_label": class_label.get(c) or _fallback_label(c), "count": n}

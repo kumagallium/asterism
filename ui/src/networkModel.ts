@@ -31,7 +31,8 @@ export function assignKindRoles(
 export function roleOf(node: NetworkNode, kindRoles: Map<string, string>): string {
   if (node.kind === 'value') return VALUE_ROLE
   if (node.kind === 'hub') return HUB_ROLE
-  return (node.class_iri ? kindRoles.get(node.class_iri) : undefined) ?? REST_ROLE
+  const key = node.group_iri ?? node.class_iri
+  return (key ? kindRoles.get(key) : undefined) ?? REST_ROLE
 }
 
 /** 大きさの元の数。束は中の件数、それ以外は次数。 */
@@ -74,14 +75,18 @@ export interface NetworkNodeAttrs {
 
 /** API の返り値 → graphology のグラフ。位置は hashPosition（まだ配置していない）。
  *  重複する点・存在しない点への線・自分への線・同じ組の線は落とす。 */
-export function buildNetworkGraph(resp: NetworkResponse): Graph {
+export function buildNetworkGraph(
+  resp: NetworkResponse,
+  /** 束の名前（言語ごと）。省略時はサーバの label のまま。 */
+  bundleName?: (className: string, count: number) => string,
+): Graph {
   const g = new Graph({ type: 'undirected', multi: false })
   const kindRoles = assignKindRoles(resp.kinds)
   const sized = sizeScale(resp.nodes.map(sizeMetric), NODE_R_MIN, NODE_R_MAX)
   for (const n of resp.nodes) {
     if (g.hasNode(n.id)) continue
     const attrs: NetworkNodeAttrs = {
-      label: n.label,
+      label: n.kind === 'bundle' && bundleName ? bundleName(n.class_label ?? n.label, n.count) : n.label,
       nodeKind: n.kind,
       role: roleOf(n, kindRoles),
       size: sized(sizeMetric(n)),
@@ -165,9 +170,10 @@ export interface LaidOutNetwork {
 export async function loadLaidOutNetwork(
   fetcher: (includeProv: boolean) => Promise<NetworkResponse>,
   includeProv: boolean,
+  bundleName?: (className: string, count: number) => string,
 ): Promise<LaidOutNetwork> {
   const response = await fetcher(includeProv)
-  const graph = buildNetworkGraph(response)
+  const graph = buildNetworkGraph(response, bundleName)
   layoutNetwork(graph)
   return { graph, response }
 }
@@ -203,7 +209,13 @@ export function roleCss(role: string): string {
 export function kindDisplayName(label: string | null, iri: string): string | null {
   if (label && label.trim()) return label
   const local = iri.split(/[#/]/).filter(Boolean).pop() ?? ''
-  const words = decodeURIComponent(local)
+  let decoded = local
+  try {
+    decoded = decodeURIComponent(local)
+  } catch {
+    // 壊れた % 符号（例 a%ZZ）は読みくだせないので、そのまま使う（凡例の描画ごと落とさない）
+  }
+  const words = decoded
     .replace(/[_-]+/g, ' ')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .trim()

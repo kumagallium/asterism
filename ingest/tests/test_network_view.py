@@ -386,3 +386,35 @@ async def test_entity_label_equals_the_heading_and_kinds_count_bundle_members() 
     assert kinds == {WX + "Observation": 20, WX + "Station": 1}
     assert out["kinds"][0]["class_iri"] == WX + "Observation"  # 件数の多い順
     assert out["stats"]["edges"] == len(out["edges"])
+
+
+# --- 上位構造との接続（ADR global-network-view.md・upper-structure-shared-terms.md） ---
+
+
+async def test_upper_map_merges_values_of_different_predicates_and_groups_colors() -> None:
+    """上位構造の対応表を渡すと、別の述語でも同じ上位の項目なら同じ値の点に合流し、
+    件の色の鍵（group_iri）は最上位の種類になる。表に無い IRI はそのまま。"""
+    a = "\n".join(
+        [PREFIXES] + [f'r:a-{i} a wx:Station ; wx:zone "z{i % 2}" .' for i in range(6)]
+    )
+    b = "\n".join(
+        [PREFIXES] + [f'r:b-{i} a wx:Buoy ; wx:area "z{i % 2}" .' for i in range(6)]
+    )
+    client = _pyoxi_client({GRAPH_A: a, GRAPH_B: b, ONTO_GRAPH: ONTOLOGY})
+    upper = {
+        "classes": {WX + "Station": WX + "Site", WX + "Buoy": WX + "Site"},
+        "properties": {WX + "zone": WX + "region", WX + "area": WX + "region"},
+    }
+    merged = await network_view(client, upper=upper)
+    values = _nodes(merged, "value")
+    assert len(values) == 2  # z0・z1 が 2 つの述語をまたいで 1 つずつ
+    groups = {n["group_iri"] for n in merged["nodes"] if n["kind"] in ("entity", "bundle")}
+    assert groups == {WX + "Site"}
+    assert [k["class_iri"] for k in merged["kinds"]] == [WX + "Site"]
+
+    plain = await network_view(client)
+    assert len(_nodes(plain, "value")) == 4  # 表が無ければ述語ごとに別の点
+    assert {n["group_iri"] for n in plain["nodes"] if n["kind"] in ("entity", "bundle")} == {
+        WX + "Station",
+        WX + "Buoy",
+    }

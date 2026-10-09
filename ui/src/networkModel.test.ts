@@ -13,6 +13,7 @@ import {
   KIND_COLORS,
   kindDisplayName,
   roleCss,
+  roleOf,
 } from './networkModel'
 
 // 架空の分野（星・観測所）の作り物。
@@ -215,5 +216,31 @@ describe('kindDisplayName', () => {
     expect(kindDisplayName('星', 'https://example.org/x#Star')).toBe('星')
     expect(kindDisplayName(null, 'https://example.org/x#StarCatalog')).toBe('Star Catalog')
     expect(kindDisplayName('', 'https://example.org/ns/dark_matter')).toBe('dark matter')
+  })
+})
+
+describe('上位構造の色の鍵・束の名前・壊れた名前', () => {
+  it('group_iri があればそれで色を決める（上位の種類が同じなら同じ色）', () => {
+    const roles = assignKindRoles([{ class_iri: `${NS}Upper` }])
+    expect(roleOf(node('a', { class_iri: `${NS}A`, group_iri: `${NS}Upper` }), roles)).toBe('kind-0')
+    expect(roleOf(node('b', { class_iri: `${NS}B`, group_iri: `${NS}Upper` }), roles)).toBe('kind-0')
+  })
+  it('group_iri が無い古いサーバでは class_iri で塗る', () => {
+    const roles = assignKindRoles([{ class_iri: `${NS}A` }])
+    expect(roleOf(node('a', { class_iri: `${NS}A` }), roles)).toBe('kind-0')
+  })
+  it('束の名前は渡した作り方で組み立てる', () => {
+    const resp = {
+      nodes: [node('b1', { kind: 'bundle', class_label: '観測', label: '観測', count: 3001, degree: 1 }), node('c1', { degree: 1 })],
+      edges: [{ source: 'b1', target: 'c1', label: 'x' }],
+      kinds: [],
+      stats: { entities: 3002, nodes: 2, edges: 1, values: 0, bundles: 1 },
+      truncated: false,
+    } as unknown as NetworkResponse
+    const g = buildNetworkGraph(resp, (name, count) => `${name}:${count}`)
+    expect(g.getNodeAttribute('b1', 'label')).toBe('観測:3001')
+  })
+  it('壊れた % 符号の名前でも落ちない', () => {
+    expect(kindDisplayName(null, 'http://x/a%ZZ')).toBe('a%ZZ')
   })
 })

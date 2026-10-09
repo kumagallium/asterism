@@ -694,6 +694,21 @@ def register_cards(
     # _class_label_or_hub）だけをする。
     # ------------------------------------------------------------------
 
+    async def _upper_map_or_none(client: Any) -> dict[str, Any] | None:
+        """上位構造の対応表（`asterism.shared_vocab.upper_map`）。
+        ADR upper-structure-shared-terms.md。
+        その関数がまだ無い（上位構造の実装前）か、組み立てに失敗したときは None。全体グラフは
+        「同じ述語の同じ値」で合流し、種類ごとに塗る（global-network-view.md）。"""
+        try:
+            from asterism.shared_vocab import upper_map  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+        try:
+            return await upper_map(client)
+        except Exception:  # 対応表が無くても網は出す
+            logger.warning("network: upper_map failed; drawing without it", exc_info=True)
+            return None
+
     @app.get("/api/network")
     async def network(include_prov: bool = Query(default=False)) -> dict[str, Any]:
         return await _run_read(_network_impl(include_prov))
@@ -701,7 +716,10 @@ def register_cards(
     async def _network_impl(include_prov: bool) -> dict[str, Any]:
         client: OxigraphClient = app.state.client
         out = await network_view_mod.network_view(
-            client, registry_root=cfg.registry_root, include_prov=include_prov
+            client,
+            registry_root=cfg.registry_root,
+            include_prov=include_prov,
+            upper=await _upper_map_or_none(client),
         )
         hub_index = crosswalk_names.hub_class_index(cfg.registry_root)
         if hub_index:

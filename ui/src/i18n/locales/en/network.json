@@ -25,6 +25,7 @@
     "entity": "Item"
   },
   "bar_degree": "{{count}} connections",
+  "bundle_name": "{{name}} ({{count}})",
   "bar_bundle": "A bundle of {{count}} items linked only to the same neighbors",
   "bar_hint": "Click a point to select it. Its lines and neighbors stand out",
   "legend_title": "Legend",
