@@ -337,3 +337,10 @@ describe('parseHash / routeToHash — 既存の route を壊さない', () => {
     expect(parseHash('#/nonexistent')).toEqual<Route>({ tab: 'home' })
   })
 })
+
+describe('#/network（全体グラフ）', () => {
+  it('parseHash / routeToHash が往復する', () => {
+    expect(parseHash('#/network')).toEqual({ tab: 'network' })
+    expect(routeToHash({ tab: 'network' })).toBe('#/network')
+  })
+})

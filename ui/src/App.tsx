@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
 import { prefillAskQuestion } from './askPrefill'
@@ -20,11 +20,17 @@ import { BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
 import { JobsView } from './JobsView'
 import { WorkbenchTier } from './kantan/WorkbenchTier'
 import { NAV_GROUPS } from './navGroups'
+import { addSubjectAndPersist } from './cards/subjectStore'
+import { formatSetTitle } from './cards/setTitle'
+import type { SetResolveResult } from './cards/cardsApi'
 import { OntologyMapView } from './OntologyMapView'
 import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
 import type { RedesignTarget } from './WorkbenchView'
+
+// sigma（WebGL）は全体グラフを開くときだけ読む（初期の読み込みを重くしない・テストの node でも落ちない）。
+const NetworkView = lazy(() => import('./NetworkView').then((m) => ({ default: m.NetworkView })))
 
 type Tab =
   | 'home'
@@ -32,6 +38,7 @@ type Tab =
   | 'ask'
   | 'gallery'
   | 'vocab'
+  | 'network'
   | 'crosswalk'
   | 'map'
   | 'jobs'
@@ -120,6 +127,7 @@ const TABS: readonly Tab[] = [
   'ask',
   'gallery',
   'vocab',
+  'network',
   'crosswalk',
   'map',
   'jobs',
@@ -621,6 +629,25 @@ function App() {
     navigate({ tab: id })
   }
 
+  // 全体グラフの値・束 →「一覧で開く」。CardsView の束と同じ経路（私の一覧に足して
+  // 絞り込みのページへ）。
+  function openNetworkSet(result: SetResolveResult) {
+    const tc = i18n.getFixedT(null, 'cards')
+    addSubjectAndPersist({
+      kind: 'set',
+      id: result.set_id,
+      label: formatSetTitle(result.title, tc),
+      class_label: result.title.class_label,
+      source: 'open',
+      card_count: null,
+      match: null,
+      subject_key: `s:${result.set_id}`,
+      spec: result.spec,
+      created_at: new Date().toISOString(),
+    })
+    navigate({ tab: 'cards', subjectKey: `s:${result.set_id}` })
+  }
+
   // データセット詳細への直行導線（ホームの最近行・保存完了リンクなどから）。
   function openDataset(id: string, detailTab?: DetailTab, focus?: DetailFocus) {
     setGalleryFocus(null)
@@ -878,6 +905,14 @@ function App() {
               />
             )}
             {tab === 'vocab' && <SharedVocabView />}
+            {tab === 'network' && (
+              <Suspense fallback={null}>
+                <NetworkView
+                  onOpenSubject={(iri) => navigate({ tab: 'cards', subjectKey: `i:${iri}` })}
+                  onOpenSet={openNetworkSet}
+                />
+              </Suspense>
+            )}
             {tab === 'crosswalk' && (
               <CrosswalkView
                 createMode={!!route.create}
