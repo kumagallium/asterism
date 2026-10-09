@@ -20,6 +20,8 @@ permissions:
 jobs:
   tagpr:
     runs-on: ubuntu-latest
+    # 固まったときに既定の 360 分まで走らせない上限（考え方は ci.yml の jobs: の上）。
+    timeout-minutes: 10 # 実測 0.3〜0.6 分（直近 40 回）
     steps:
       # ロードマップ nudge が「前回タグ以降」の履歴を読むので全履歴を取る（Graphium と同じ）。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
