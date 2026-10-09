@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toFlow } from './KindOverviewMap'
+import { edgePath, toFlow } from './KindOverviewMap'
 import type { OverviewLayout } from './kindOverview'
 
 const words = {
@@ -29,6 +29,21 @@ const layout: OverviewLayout = {
 }
 
 describe('toFlow', () => {
+  it('制御点（cx, cy）は線の data に渡り、path は二次ベジェ。無ければ直線', () => {
+    const l: OverviewLayout = {
+      ...layout,
+      edges: [
+        { from: 'd1::Tree', to: 'hub:p:o', kind: 'hub', x1: 140, y1: 70, x2: 384, y2: 70, cx: 262, cy: 10 },
+        { from: 'd1::Tree', to: 'hub:p:o', kind: 'hub', x1: 140, y1: 70, x2: 384, y2: 70 },
+      ],
+    }
+    const { edges } = toFlow(l, words)
+    const d0 = edges[0].data as { cx?: number; cy?: number }
+    expect(d0.cx).toBe(262)
+    expect(d0.cy).toBe(10)
+    expect(edgePath(edges[0].data as never)).toBe('M 140,70 Q 262,10 384,70')
+    expect(edgePath(edges[1].data as never)).toBe('M 140,70 L 384,70')
+  })
   it('節は丸の中心に揃え、下の名前の幅を取る（名前は丸の中に入れない）。件数は下に出す', () => {
     const { nodes } = toFlow(layout, words)
     const c = nodes.find((n) => n.id === 'd1::Tree')!
