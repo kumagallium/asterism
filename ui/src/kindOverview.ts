@@ -10,10 +10,17 @@
 //   ・枠の中は件数の多い順に、1 行あたり最大 4 つで折り返す。
 //   ・ハブはつながるデータセットの重心の高さの順（同じなら名前順）。
 // 並びは入力順と辞書順だけで決まる（同じ入力は同じ図）。
+//
+// 帯は 2 つ（上から）: 共有のことば（`sv:`・丸）→ 標準のことば（箱）。共有のことばの帯は
+// データセットが 0 件でも描く（upper-structure-shared-terms.md §2.5.1 2）。種類の丸 → 共有語は
+// 向きのある 'upper'（⊂）、共有語 → 標準は 'upper'（≡ は両向き）。共有語の丸の大きさは
+// 「子の件数の合計」（派生値）。
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import { conceptName, perspectiveDisplayName } from './crosswalkLabels'
 import type { DatasetRules, KindCounts } from './galleryApi'
+import { isDirectedRelation, relationKey, sharedLines, standardTermKind, type PickEnd } from './lineChoice'
 import { rulesShape } from './shapeGraph'
+import type { SharedTerm } from './vocabApi'
 import { knownVocabForIri, localName } from './vocab'
 import { kindLabelOf, PLUMBING_NS } from './vocabGraph'
 
@@ -42,6 +49,11 @@ const BAND_PAD_BOT = 20
 export const STD_W = 190
 export const STD_H = 50
 const STD_GAP = 18
+/** 共有のことばの帯: 丸の升の幅（丸の直径か名前の幅の広い方 + すき間）と、行のすき間。 */
+export const SHARED_CELL_W = Math.max(2 * R_MAX, HUB_LABEL_W) + 16
+const SHARED_ROW_GAP = 12
+/** 共有のことばの帯の 1 行の目安の幅（本体が狭い・空でも並べられるように）。 */
+const SHARED_MIN_W = 720
 
 /** 半径がこれ以上の丸は、件数を丸の中に短い形で書く（それ未満は名前の下に「N 件」）。 */
 export const INSIDE_R = 22
@@ -96,6 +108,11 @@ export interface OverviewInput {
   hubCounts?: Record<string, number>
   standardNames?: Record<string, string>
   alignments?: Alignment[]
+  /** 鋳造済みの共有のことば（GET /api/vocab/shared の terms）。帯に丸で描く。 */
+  sharedTerms?: SharedTerm[]
+  /** 真なら、描いている種類（か、それにつながる共有語）に線のある共有語だけを帯に出す
+   *  （周りだけ開くとき）。 */
+  onlyLinkedShared?: boolean
   /** 名前のないハブの代わりの語。 */
   unnamedHub: string
   /** 周りだけ開く（フォーカス）で省いた種類の数（データセットの id → 数）。枠に「ほか N 種類」と書く。 */
@@ -134,6 +151,23 @@ export interface OverviewHub {
   x: number
   y: number
 }
+/** 共有のことば 1 つの丸。 */
+export interface OverviewShared {
+  /** 語の IRI（そのまま節 id）。 */
+  id: string
+  slug: string
+  label: string
+  termKind: 'class' | 'property'
+  /** 子の件数の合計（派生値）。件数のある子が無ければ undefined。 */
+  count?: number
+  /** 下に掛かる種類の丸の数。 */
+  kids: number
+  r: number
+  /** まだ線になっていない（答えるデータセットが 0）。 */
+  orphan: boolean
+  x: number
+  y: number
+}
 export interface OverviewStd {
   id: string
   label: string
@@ -143,13 +177,16 @@ export interface OverviewStd {
   w: number
   h: number
 }
-export type OverviewEdgeKind = 'link' | 'hub' | 'standard' | 'alignment'
+/** 'upper' = 上位への線（⊂ は from → to の向きあり・≡ は両向き）。'alignment' = 向きのない対応。 */
+export type OverviewEdgeKind = 'link' | 'hub' | 'standard' | 'alignment' | 'upper'
 export interface OverviewEdge {
   from: string
   to: string
   kind: OverviewEdgeKind
-  /** 対応は両向き。 */
+  /** 対応・≡ は両向き。 */
   both?: boolean
+  /** 'upper' の関係（短い名前: subClassOf / equivalentClass …）。title に ⊂ / ≡ を出す。 */
+  relation?: string
   /** データセットごとの俯瞰だけ: ハブへ参加している種類の数（線の title「N 種類が参加」）。 */
   kinds?: number
   /** 端の丸・枠の縁にそろえた線の両端（図の座標）。 */
@@ -164,6 +201,10 @@ export interface OverviewLayout {
   hubs: OverviewHub[]
   stds: OverviewStd[]
   band: { x: number; y: number; w: number; h: number } | null
+  /** 共有のことばの丸（種類までの段だけ・省略可）。 */
+  shared?: OverviewShared[]
+  /** 共有のことばの帯（標準の帯の上）。 */
+  sharedBand?: { x: number; y: number; w: number; h: number } | null
   /** データセットごとの俯瞰だけ: 真ん中の「つながり」の帯。 */
   hubBand?: { x: number; y: number; w: number; h: number } | null
   /** 'dataset' = データセットごとの俯瞰（丸 = データセット）。無ければ種類まで。 */
@@ -387,6 +428,13 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
       }
     }
   }
+  // 共有のことば（sv:）に掛かる線を先に分ける。共有語を片端に持つ線は下の「共有のことばの帯」で
+  // 描き、ここ（種類・標準どうしの対応）には混ぜない。
+  const sharedTerms = input.sharedTerms ?? []
+  const sharedByIri = new Map(sharedTerms.map((t) => [t.iri, t]))
+  const allAlignments = input.alignments ?? []
+  const plainAlignments = allAlignments.filter((a) => !sharedByIri.has(a.source) && !sharedByIri.has(a.target))
+
   // 対応: 少なくとも片端が種類の丸。もう片端は種類・既知の語彙の語。項目の対応は描かない。
   // 同じ種類 IRI を複数のデータセットが名乗ることがある。対応はその全ての丸に張る（標準の線と揃える）。
   const circlesOfIri = new Map<string, string[]>()
@@ -396,17 +444,20 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     list.push(c.id)
     circlesOfIri.set(c.classIri, list)
   }
-  const alignLinks: [string, string][] = []
+  /** 種類の丸どうし・標準の語との線。⊂（向きあり）は 'upper'、≡ などは向きのない 'alignment'。 */
+  const alignLinks: { from: string; to: string; directed: boolean; relation: string }[] = []
   const alignSeen = new Set<string>()
-  const pushAlign = (from: string, to: string) => {
+  const pushAlign = (from: string, to: string, relation: string) => {
     if (from === to) return
-    const key = [from, to].sort().join('\u0000')
+    const directed = isDirectedRelation(relation)
+    // 向きのない対応は両端を入れ替えても同じ線。向きのある線は向きごとに 1 本。
+    const key = directed ? `up\u0000${from}\u0000${to}` : `eq\u0000${[from, to].sort().join('\u0000')}`
     if (alignSeen.has(key)) return
     alignSeen.add(key)
     for (const id of [from, to]) if (!circleById.has(id)) ensureStd(id)
-    alignLinks.push([from, to])
+    alignLinks.push({ from, to, directed, relation: relationKey(relation) })
   }
-  for (const a of input.alignments ?? []) {
+  for (const a of plainAlignments) {
     const ends = [a.source, a.target].map((iri) => circlesOfIri.get(iri) ?? [])
     const resolveOther = (iri: string): string[] => {
       const own = circlesOfIri.get(iri)
@@ -419,20 +470,136 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     if (ends[0].length && ends[1].length) [froms, tos] = [ends[0], ends[1]]
     else if (ends[0].length) [froms, tos] = [ends[0], resolveOther(a.target)]
     else if (ends[1].length) [froms, tos] = [resolveOther(a.source), ends[1]]
-    for (const f of froms) for (const t of tos) pushAlign(f, t)
+    for (const f of froms) for (const t of tos) pushAlign(f, t, a.relation)
   }
+
+  // ── 4b. 共有のことば: 線の両端を解く（共有語・種類の丸・標準の語）。見つからない端の線は描かない ──
+  interface UpperLink {
+    from: string
+    to: string
+    relation: string
+  }
+  const resolveShared = (iri: string): string[] => {
+    if (sharedByIri.has(iri)) return [iri]
+    const own = circlesOfIri.get(iri)
+    if (own) return own
+    if (usable(iri)) return [iri] // 標準の語（既知の語彙）
+    return []
+  }
+  const upperAll: UpperLink[] = []
+  for (const ln of sharedLines(sharedTerms, allAlignments)) {
+    for (const f of resolveShared(ln.from)) for (const t of resolveShared(ln.to)) {
+      if (f !== t) upperAll.push({ from: f, to: t, relation: ln.relation })
+    }
+  }
+  // 周りだけ開くときは、描いている種類につながる共有語（とその上下の共有語）だけを出す。
+  let shownIris = new Set(sharedTerms.map((t) => t.iri))
+  if (input.onlyLinkedShared) {
+    shownIris = new Set()
+    const touches = (id: string) => circleById.has(id)
+    for (const u of upperAll) {
+      if (sharedByIri.has(u.from) && touches(u.to)) shownIris.add(u.from)
+      if (sharedByIri.has(u.to) && touches(u.from)) shownIris.add(u.to)
+    }
+    // 共有語どうしの線で、つながった側も出す（収束するまで・語の数が上限）。
+    for (let i = 0; i < sharedTerms.length; i++) {
+      let grew = false
+      for (const u of upperAll) {
+        if (!sharedByIri.has(u.from) || !sharedByIri.has(u.to)) continue
+        if (shownIris.has(u.from) !== shownIris.has(u.to)) {
+          shownIris.add(u.from)
+          shownIris.add(u.to)
+          grew = true
+        }
+      }
+      if (!grew) break
+    }
+  }
+  const upperLinks = upperAll.filter(
+    (u) => (!sharedByIri.has(u.from) || shownIris.has(u.from)) && (!sharedByIri.has(u.to) || shownIris.has(u.to)),
+  )
+  // 共有語の線が行き着く標準の語も、標準の帯に出す。
+  for (const u of upperLinks) for (const id of [u.from, u.to]) if (!circleById.has(id) && !sharedByIri.has(id)) ensureStd(id)
+
+  // 子の件数の合計（派生値）: 共有語に掛かる種類の丸（≡ と、⊂ で下から掛かるもの）と、その下の共有語が
+  // 抱える種類の丸の件数の和。同じ丸は 1 回だけ数える（循環があっても止まる）。
+  const childrenOf = new Map<string, Set<string>>() // 共有語 → その下に掛かる節（種類の丸か共有語）
+  const addChild = (parent: string, child: string) => {
+    const set = childrenOf.get(parent) ?? new Set<string>()
+    set.add(child)
+    childrenOf.set(parent, set)
+  }
+  for (const u of upperLinks) {
+    const eq = !isDirectedRelation(u.relation)
+    // from ⊂ to: from は to の子。≡ は両方向とも子として数える。
+    if (sharedByIri.has(u.to) && (circleById.has(u.from) || sharedByIri.has(u.from))) addChild(u.to, u.from)
+    if (eq && sharedByIri.has(u.from) && (circleById.has(u.to) || sharedByIri.has(u.to))) addChild(u.from, u.to)
+  }
+  const descend = (iri: string, seen: Set<string>): Set<string> => {
+    const out = new Set<string>()
+    if (seen.has(iri)) return out
+    seen.add(iri)
+    for (const c of childrenOf.get(iri) ?? []) {
+      if (circleById.has(c)) out.add(c)
+      else for (const x of descend(c, seen)) out.add(x)
+    }
+    return out
+  }
+  interface SharedDraft {
+    term: SharedTerm
+    kinds: Set<string>
+    count?: number
+    r: number
+    key: number
+  }
+  const sharedDrafts: SharedDraft[] = sharedTerms
+    .filter((t) => shownIris.has(t.iri))
+    .map((term) => {
+      const kinds = descend(term.iri, new Set())
+      let count: number | undefined
+      for (const id of kinds) {
+        const c = circleById.get(id)?.count
+        if (c != null) count = (count ?? 0) + c
+      }
+      // 並びの鍵: 掛かる種類の丸の x の平均（線が交わりにくい）。掛かるものが無ければ最後。
+      const xs = [...kinds].map((id) => circleById.get(id)!.x)
+      const key = xs.length ? xs.reduce((p, q) => p + q, 0) / xs.length : Infinity
+      return { term, kinds, count, r: R_MIN, key }
+    })
+  const sharedR = sizeScale(sharedDrafts.map((d) => d.count), R_MIN, R_MAX)
+  for (const d of sharedDrafts) d.r = sharedR(d.count)
+  sharedDrafts.sort(
+    (a, b) =>
+      (a.key === b.key ? 0 : a.key - b.key) ||
+      a.term.label.localeCompare(b.term.label, 'ja') ||
+      a.term.slug.localeCompare(b.term.slug),
+  )
+  // 1 行に並べる数と行（行の高さは行内でいちばん大きい丸で決める）。
+  const sharedPerRow = Math.max(1, Math.floor((Math.max(width, SHARED_MIN_W) - BAND_PAD_SIDE * 2) / SHARED_CELL_W))
+  const sharedRows: SharedDraft[][] = []
+  for (let i = 0; i < sharedDrafts.length; i += sharedPerRow) sharedRows.push(sharedDrafts.slice(i, i + sharedPerRow))
+  const sharedRowH = (r: SharedDraft[]) => 2 * Math.max(R_MIN, ...r.map((d) => d.r)) + LABEL_H
+  const sharedBandH = sharedRows.length
+    ? BAND_PAD_TOP + sharedRows.reduce((t, r, k) => t + sharedRowH(r) + (k ? SHARED_ROW_GAP : 0), 0) + BAND_PAD_BOT
+    : 0
+  const sharedInnerW = sharedRows.length ? Math.min(sharedPerRow, sharedDrafts.length) * SHARED_CELL_W : 0
 
   const stdIds = [...stdMap.keys()]
   const stds: OverviewStd[] = []
   let band: OverviewLayout['band'] = null
-  let height = bodyH
-  let totalW = width
+  let sharedBand: OverviewLayout['sharedBand'] = null
+  let height: number
+  let totalW = Math.max(width, sharedInnerW + (sharedRows.length ? BAND_PAD_SIDE * 2 : 0))
+  // 共有のことばの帯は本体の下（本体が空なら先頭）。標準の帯はその下。
+  const sharedTop = sharedRows.length ? (bodyH > 0 ? bodyH + BAND_GAP : 0) : bodyH
+  const belowShared = sharedRows.length ? sharedTop + sharedBandH : bodyH
   if (stdIds.length) {
-    const perRow = Math.max(1, Math.floor((Math.max(width, STD_W + BAND_PAD_SIDE * 2) - BAND_PAD_SIDE * 2 + STD_GAP) / (STD_W + STD_GAP)))
+    const baseW = totalW
+    const perRow = Math.max(1, Math.floor((Math.max(baseW, STD_W + BAND_PAD_SIDE * 2) - BAND_PAD_SIDE * 2 + STD_GAP) / (STD_W + STD_GAP)))
     const rows = Math.ceil(stdIds.length / perRow)
     const innerW = Math.min(stdIds.length, perRow) * STD_W + (Math.min(stdIds.length, perRow) - 1) * STD_GAP
-    totalW = Math.max(width, innerW + BAND_PAD_SIDE * 2)
-    const bandTop = bodyH + BAND_GAP
+    totalW = Math.max(baseW, innerW + BAND_PAD_SIDE * 2)
+    const bandTop = belowShared + BAND_GAP
     const bandH = BAND_PAD_TOP + rows * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
     band = { x: 0, y: bandTop, w: totalW, h: bandH }
     stdIds.forEach((iri, i) => {
@@ -452,6 +619,33 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
       })
     })
     height = bandTop + bandH
+  } else {
+    height = belowShared
+  }
+  // 共有のことばの丸の座標（行ごとに中央そろえ）。
+  const shared: OverviewShared[] = []
+  if (sharedRows.length) {
+    sharedBand = { x: 0, y: sharedTop, w: totalW, h: sharedBandH }
+    let y = sharedTop + BAND_PAD_TOP
+    for (const row of sharedRows) {
+      const rowR = Math.max(R_MIN, ...row.map((d) => d.r))
+      const left = (totalW - row.length * SHARED_CELL_W) / 2
+      row.forEach((d, k) => {
+        shared.push({
+          id: d.term.iri,
+          slug: d.term.slug,
+          label: d.term.label,
+          termKind: d.term.kind,
+          count: d.count,
+          kids: d.kinds.size,
+          r: d.r,
+          orphan: !d.term.wired,
+          x: left + k * SHARED_CELL_W + SHARED_CELL_W / 2,
+          y: y + rowR,
+        })
+      })
+      y += sharedRowH(row) + SHARED_ROW_GAP
+    }
   }
 
   // ── 5. 線（両端は丸・枠・箱の縁にそろえる） ──
@@ -459,10 +653,17 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
   for (const f of frames) anchors.set(f.id, { type: 'rect', x: f.x, y: f.y, w: f.w, h: f.h })
   for (const c of circles) anchors.set(c.id, { type: 'circle', x: c.x, y: c.y, r: c.r })
   for (const h of hubs) anchors.set(h.id, { type: 'circle', x: h.x, y: h.y, r: h.r })
+  for (const s of shared) anchors.set(s.id, { type: 'circle', x: s.x, y: s.y, r: s.r })
   for (const s of stds) anchors.set(s.id, { type: 'rect', x: s.x, y: s.y, w: s.w, h: s.h })
   const edges: OverviewEdge[] = []
   const edgeSeen = new Set<string>()
-  const addEdge = (from: string, to: string, kind: OverviewEdgeKind, both?: boolean) => {
+  const addEdge = (
+    from: string,
+    to: string,
+    kind: OverviewEdgeKind,
+    both?: boolean,
+    relation?: string,
+  ) => {
     const a = anchors.get(from)
     const b = anchors.get(to)
     const key = `${kind}\u0000${from}\u0000${to}`
@@ -470,14 +671,31 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     edgeSeen.add(key)
     const p1 = edgePoint(a, centerOf(b))
     const p2 = edgePoint(b, centerOf(a))
-    edges.push({ from, to, kind, ...(both ? { both } : {}), x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y })
+    edges.push({
+      from,
+      to,
+      kind,
+      ...(both ? { both } : {}),
+      ...(relation ? { relation } : {}),
+      x1: p1.x,
+      y1: p1.y,
+      x2: p2.x,
+      y2: p2.y,
+    })
   }
   for (const f of frameDrafts) for (const [a, b] of f.links) addEdge(a, b, 'link')
   for (const h of hubDrafts) for (const s of h.sources) addEdge(s, h.id, 'hub')
   for (const [c, iri] of stdLinks) addEdge(c, iri, 'standard')
-  for (const [a, b] of alignLinks) addEdge(a, b, 'alignment', true)
+  for (const l of alignLinks) {
+    if (l.directed) addEdge(l.from, l.to, 'upper', false, l.relation)
+    else addEdge(l.from, l.to, 'alignment', true)
+  }
+  for (const u of upperLinks) {
+    const directed = isDirectedRelation(u.relation)
+    addEdge(u.from, u.to, 'upper', !directed, u.relation)
+  }
 
-  return { circles, frames, hubs, stds, band, edges, width: totalW, height }
+  return { circles, frames, hubs, stds, band, shared, sharedBand, edges, width: totalW, height }
 }
 
 /** 「全体」表示の集計の帯（図に描いたものだけを数える。項目や接地の候補は「詳しく」の数字）。 */
@@ -486,6 +704,8 @@ export function overviewStats(layout: OverviewLayout): {
   kinds: number
   hubs: number
   standards: number
+  /** 共有のことば（帯に描いた丸）。データセットごとの俯瞰では描かないので 0。 */
+  shared: number
   records: number
 } {
   if (layout.level === 'dataset') {
@@ -495,6 +715,7 @@ export function overviewStats(layout: OverviewLayout): {
       kinds: layout.circles.reduce((sum, c) => sum + (c.kindCount ?? 0), 0),
       hubs: layout.hubs.length,
       standards: 0,
+      shared: 0,
       records: layout.circles.reduce((sum, c) => sum + (c.count ?? 0), 0),
     }
   }
@@ -503,6 +724,19 @@ export function overviewStats(layout: OverviewLayout): {
     kinds: layout.circles.length,
     hubs: layout.hubs.length,
     standards: layout.stds.length,
+    shared: layout.shared?.length ?? 0,
     records: layout.circles.reduce((sum, c) => sum + (c.count ?? 0), 0),
   }
+}
+
+/** 「全体」の丸・標準の箱を、線の起点に選べる丸へ。選べない節（枠・ハブ・データセットごとの俯瞰の丸）は null。 */
+export function pickEndOfOverview(layout: OverviewLayout, id: string): PickEnd | null {
+  if (layout.level === 'dataset') return null
+  const c = layout.circles.find((x) => x.id === id)
+  if (c) return c.classIri ? { id, iri: c.classIri, label: c.label, role: 'dataset', termKind: 'class' } : null
+  const sh = layout.shared?.find((x) => x.id === id)
+  if (sh) return { id, iri: sh.id, label: sh.label, role: 'shared', termKind: sh.termKind }
+  const st = layout.stds.find((x) => x.id === id)
+  if (st) return { id, iri: st.id, label: st.label, role: 'standard', termKind: standardTermKind(st.id) }
+  return null
 }

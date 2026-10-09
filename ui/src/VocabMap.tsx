@@ -1,9 +1,10 @@
-// 「共通のことば」の育つ地図の**描画**（shared-vocab-graph.md）。
+// 「ことば」の育つ地図の**描画**（shared-vocab-graph.md）。
 //
 // データは `composeVocabGraph`（vocabGraph.ts）が組む。ここは並べて描くだけ:
 //   ・データセット = 点線枠のクラスタ（中の段組みと線の通り道は ⑤ と同じ `arrange()`）
 //   ・種類の箱 = ⑤ と同じ `ShapeBox`（同じ設計はどの画面でも同じ見た目）
 //   ・標準のことば = 画面下の琥珀の帯。ここに線が集まるのがこの図の主役
+//   ・共有のことば = 標準の帯の上の帯（`sv:`・青）。データセットが 0 件でも描く
 // `ShapeGraph` 本体は触らない — ④⑤の共有部品に横断図の概念を混ぜない（ADR §3）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -35,7 +36,17 @@ import {
   type Rect,
   type Route,
 } from './shapeGraph'
-import type { VocabEdge, VocabEdgeKind, VocabNode, VocabShape } from './vocabGraph'
+import './vocabMapShared.css'
+import type { PickEnd } from './lineChoice'
+import { pickEndOfVocabNode, type VocabEdge, type VocabEdgeKind, type VocabNode, type VocabShape } from './vocabGraph'
+
+/** 線の起点に丸を選ぶ操作（「ことば」画面の地図）。有効のあいだ、押すと選択（押した先の画面遷移はしない）。 */
+export interface VocabPick {
+  active: boolean
+  /** 選んでいる節の id（最大 2 つ）。 */
+  picked: string[]
+  onPick: (end: PickEnd) => void
+}
 
 const KIND_W = 232
 const STD_W = 224
@@ -65,11 +76,19 @@ const EDGE_COLOR: Record<VocabEdgeKind, string> = {
   used: 'var(--primary)',
   candidate: 'var(--accent)',
   alignment: 'var(--activity)',
+  upper: 'var(--link)',
 }
 
 type ClusterData = { label: string; width: number; height: number }
 type BandData = { label: string; hint: string; width: number; height: number }
-type StdData = { label: string; vocab: string; width: number; height: number }
+type StdData = {
+  label: string
+  vocab: string
+  width: number
+  height: number
+  /** 共有のことばの箱（標準の箱と見分ける色と札）。 */
+  shared?: { orphan: boolean; kind: 'class' | 'property' }
+}
 
 function ClusterFrame({ data }: NodeProps) {
   const d = data as ClusterData
@@ -96,7 +115,10 @@ function BandFrame({ data }: NodeProps) {
 function StdBox({ data }: NodeProps) {
   const d = data as StdData
   return (
-    <div className="vocab-map-std" style={{ width: d.width, height: d.height }}>
+    <div
+      className={`vocab-map-std${d.shared ? ' vocab-map-std--shared' : ''}${d.shared?.orphan ? ' is-orphan' : ''}`}
+      style={{ width: d.width, height: d.height }}
+    >
       <Handle type="target" position={Position.Top} isConnectable={false} />
       <span className="vocab-map-std-term" title={d.label}>
         {d.label}
@@ -254,12 +276,19 @@ export function place(shape: VocabShape) {
   const itemsW = (items: Item[]) =>
     items.reduce((s, it) => s + it.w, 0) + (items.length - 1) * CL_GAP
 
-  const stds = shape.nodes.filter((n) => !n.cluster)
+  // 帯は上から 共有のことば → 標準のことば（どちらも枠の下）。共有のことばは 0 件でも帯を作る。
+  const sharedBandNodes = shape.nodes.filter((n) => !n.cluster && n.shared)
+  const stds = shape.nodes.filter((n) => !n.cluster && !n.shared)
   const stdPerRow = Math.max(1, Math.floor((ROW_MAX_W - BAND_PAD_SIDE * 2 + STD_GAP) / (STD_W + STD_GAP)))
-  const stdRows: VocabNode[][] = []
-  for (let i = 0; i < stds.length; i += stdPerRow) stdRows.push(stds.slice(i, i + stdPerRow))
+  const chunk = (list: VocabNode[]) => {
+    const out: VocabNode[][] = []
+    for (let i = 0; i < list.length; i += stdPerRow) out.push(list.slice(i, i + stdPerRow))
+    return out
+  }
+  const sharedRows = chunk(sharedBandNodes)
+  const stdRows = chunk(stds)
   const stdRowW = (n: number) => n * STD_W + (n - 1) * STD_GAP
-  const bandInnerW = Math.max(0, ...stdRows.map((r) => stdRowW(r.length)))
+  const bandInnerW = Math.max(0, ...[...sharedRows, ...stdRows].map((r) => stdRowW(r.length)))
   const canvasW = Math.max(...rowItems.map(itemsW), bandInnerW + BAND_PAD_SIDE * 2, 1)
 
   /** 帯へ降りる道: 枠 → 箱 → 枠の下へ抜ける道（図の座標）。 */
@@ -340,13 +369,25 @@ export function place(shape: VocabShape) {
   })
   if (rows.length) top -= CL_GAP
 
-  if (!stds.length) {
+  if (!stds.length && !sharedBandNodes.length) {
     return { nodes, routes, labels: labelsOf(shape, nodes, routes, bandSpots), width: canvasW, height: top }
   }
 
-  const bandTop = top + BAND_GAP
-  const bandH = BAND_PAD_TOP + stdRows.length * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
-  withBand(nodes, stdRows, canvasW, bandTop, bandH)
+  // 帯を上から積む。枠が 0 個（データセット 0 件）なら先頭から。
+  const bandHeight = (n: number) => BAND_PAD_TOP + n * (STD_H + STD_GAP) - STD_GAP + BAND_PAD_BOT
+  let cursor = rows.length ? top + BAND_GAP : 0
+  /** 帯の行ぜんぶ（上から）。帯へ降りる線が上の行の席を通るのに使う。 */
+  const bandRows: BandRow[] = []
+  const addBand = (id: 'band:shared' | 'band:standard', list: VocabNode[][]) => {
+    if (!list.length) return
+    const h = bandHeight(list.length)
+    withBand(nodes, id, list, canvasW, cursor, h)
+    list.forEach((r, j) => bandRows.push({ nodes: r, top: cursor + BAND_PAD_TOP + j * (STD_H + STD_GAP) }))
+    cursor += h + BAND_GAP
+  }
+  addBand('band:shared', sharedRows)
+  addBand('band:standard', stdRows)
+  const bandBottom = cursor - BAND_GAP
   const at = new Map(nodes.map((n) => [n.id, n.position]))
   shape.edges.forEach((e, i) => {
     const own = exitRoute.get(e.from)
@@ -367,7 +408,7 @@ export function place(shape: VocabShape) {
     route.via.push(...(laneOf.get(cluster) ?? []))
     const lastY = route.via.length ? route.via[route.via.length - 1].bottom : bottom
     // 帯の 2 行目より下の語へは、上の行の箱と箱のすき間を通る（箱の裏を通らない）。
-    const inBand = bandLanes(stdRows, canvasW, bandTop, e.to)
+    const inBand = bandLanes(bandRows, canvasW, e.to)
     route.via.push(...inBand)
     routes[i] = route
     // 名前の置き場は、枠の下（最後の行の下端）から帯までの曲がりの中だけ。途中の席は
@@ -383,7 +424,7 @@ export function place(shape: VocabShape) {
     routes,
     labels: labelsOf(shape, nodes, routes, bandSpots),
     width: canvasW,
-    height: bandTop + bandH,
+    height: bandBottom,
   }
 }
 
@@ -431,22 +472,28 @@ function stdRowXs(r: VocabNode[], canvasW: number): number[] {
   return r.map((_, k) => left + k * (STD_W + STD_GAP))
 }
 
-/** 帯の中で、語 `id` へ向かう線が通る席（上の行から）。語が 1 行目なら無い。
+/** 帯の 1 行（箱の並びと、その行の上端）。共有のことばの帯と標準の帯の行を通して持つ。 */
+interface BandRow {
+  nodes: VocabNode[]
+  top: number
+}
+
+/** 帯の中で、語 `id` へ向かう線が通る席（上の行から）。語が最初の行なら無い。
  *  席は、上の行の箱と箱のすき間（両端の外も含む）のうち、行き先のまっすぐ上に
- *  いちばん近いところ（同じ近さなら右）。 */
-function bandLanes(stdRows: VocabNode[][], canvasW: number, bandTop: number, id: string): Lane[] {
-  const k = stdRows.findIndex((r) => r.some((n) => n.id === id))
+ *  いちばん近いところ（同じ近さなら右）。共有のことばの帯の行も「上の行」に数える。 */
+function bandLanes(bandRows: BandRow[], canvasW: number, id: string): Lane[] {
+  const k = bandRows.findIndex((r) => r.nodes.some((n) => n.id === id))
   if (k <= 0) return []
-  const target = stdRowXs(stdRows[k], canvasW)[stdRows[k].findIndex((n) => n.id === id)] + STD_W / 2
+  const target = stdRowXs(bandRows[k].nodes, canvasW)[bandRows[k].nodes.findIndex((n) => n.id === id)] + STD_W / 2
   const lanes: Lane[] = []
   for (let j = 0; j < k; j++) {
-    const xs = stdRowXs(stdRows[j], canvasW)
+    const xs = stdRowXs(bandRows[j].nodes, canvasW)
     const gaps = [xs[0] - STD_GAP / 2, ...xs.map((x) => x + STD_W + STD_GAP / 2)]
     let x = gaps[gaps.length - 1]
     for (let g = gaps.length - 1; g >= 0; g--) {
       if (Math.abs(gaps[g] - target) < Math.abs(x - target) - 1e-6) x = gaps[g]
     }
-    const top = bandTop + BAND_PAD_TOP + j * (STD_H + STD_GAP)
+    const top = bandRows[j].top
     lanes.push({ x, top, bottom: top + STD_H })
   }
   return lanes
@@ -454,6 +501,7 @@ function bandLanes(stdRows: VocabNode[][], canvasW: number, bandTop: number, id:
 
 function withBand(
   nodes: Node[],
+  bandId: 'band:shared' | 'band:standard',
   stdRows: VocabNode[][],
   canvasW: number,
   bandTop: number,
@@ -461,7 +509,7 @@ function withBand(
 ): Node[] {
   // 帯そのもの（ラベルは呼び出し側が i18n で流し込む — placeholder を後で差し替え）。
   nodes.push({
-    id: 'band:standard',
+    id: bandId,
     type: 'band',
     position: { x: 0, y: bandTop },
     data: { label: '', hint: '', width: canvasW, height: bandH },
@@ -479,7 +527,13 @@ function withBand(
         id: n.id,
         type: 'std',
         position: { x, y },
-        data: { label: n.label, vocab: n.vocab ?? '', width: STD_W, height: STD_H },
+        data: {
+          label: n.label,
+          vocab: n.vocab ?? '',
+          width: STD_W,
+          height: STD_H,
+          ...(n.shared ? { shared: { orphan: n.shared.orphan, kind: n.shared.kind } } : {}),
+        } satisfies StdData,
         draggable: false,
         selectable: false,
         connectable: false,
@@ -495,6 +549,7 @@ function VocabMapInner({
   shape,
   ariaLabel,
   onOpenDataset,
+  pick,
   maxHeight = 620,
   expandable = true,
   zoomable = false,
@@ -503,6 +558,8 @@ function VocabMapInner({
   ariaLabel: string
   /** 種類の箱を押したときの行き先（データセット詳細）。 */
   onOpenDataset?: (datasetId: string) => void
+  /** 線の起点に丸を選ぶ操作。有効のあいだ、押すと選択になり画面遷移はしない。 */
+  pick?: VocabPick
   maxHeight?: number
   expandable?: boolean
   zoomable?: boolean
@@ -512,22 +569,22 @@ function VocabMapInner({
     () => place(shape),
     [shape],
   )
-  const nodes = useMemo(
-    () =>
-      rawNodes.map((n) =>
-        n.id === 'band:standard'
-          ? {
-              ...n,
-              data: {
-                ...n.data,
-                label: t('vocab:map.bandTitle'),
-                hint: t('vocab:map.bandHint'),
-              },
-            }
-          : n,
-      ),
-    [rawNodes, t],
-  )
+  const byId = useMemo(() => new Map(shape.nodes.map((n) => [n.id, n])), [shape])
+  const pickedKey = (pick?.picked ?? []).join('|')
+  const nodes = useMemo(() => {
+    const picked = new Set(pickedKey ? pickedKey.split('|') : [])
+    return rawNodes.map((n) => {
+      if (n.id === 'band:standard')
+        return { ...n, data: { ...n.data, label: t('vocab:map.bandTitle'), hint: t('vocab:map.bandHint') } }
+      if (n.id === 'band:shared')
+        return {
+          ...n,
+          data: { ...n.data, label: t('vocabmap:sharedBand.title'), hint: t('vocabmap:sharedBand.hint') },
+        }
+      // 選んだ丸には className を付ける（見た目は CSS）。
+      return picked.has(n.id) ? { ...n, className: 'is-picked' } : n
+    })
+  }, [rawNodes, t, pickedKey])
   const edges: Edge[] = useMemo(() => {
     return shape.edges.map((e, i) => {
       return {
@@ -550,11 +607,17 @@ function VocabMapInner({
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {
+      // 線を引く選択のあいだは、押すと丸を選ぶだけ（枠・帯は選べない）。
+      if (pick?.active) {
+        const end = pickEndOfVocabNode(byId.get(node.id))
+        if (end) pick.onPick(end)
+        return
+      }
       if (!onOpenDataset || node.type !== 'shape') return
       const dsId = String(node.id).split('::')[0]
       if (dsId) onOpenDataset(dsId)
     },
-    [onOpenDataset],
+    [onOpenDataset, pick, byId],
   )
 
   const height = Math.min(maxHeight, Math.max(240, contentH + 48))
@@ -596,6 +659,7 @@ function VocabMapInner({
           shape={shape}
           ariaLabel={ariaLabel}
           onOpenDataset={onOpenDataset}
+          pick={pick}
           maxHeight={bigH}
           expandable={false}
           zoomable
@@ -618,7 +682,7 @@ function VocabMapInner({
         zoomOnDoubleClick={zoomable}
         preventScrolling={false}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={onOpenDataset ? handleClick : undefined}
+        onNodeClick={onOpenDataset || pick?.active ? handleClick : undefined}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
         <Controls
@@ -635,6 +699,7 @@ export function VocabMap(props: {
   shape: VocabShape
   ariaLabel: string
   onOpenDataset?: (datasetId: string) => void
+  pick?: VocabPick
   maxHeight?: number
   expandable?: boolean
   zoomable?: boolean

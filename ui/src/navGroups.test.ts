@@ -9,7 +9,7 @@ describe('NAV_GROUPS', () => {
     expect(NAV_GROUPS.map((g) => g.key)).toEqual(['build', 'use'])
   })
 
-  it('build＝ホーム/データ/つながり/共通の言葉/アクティビティ（この順）', () => {
+  it('build＝ホーム/データ/つながり/ことば/アクティビティ（この順）', () => {
     expect(NAV_GROUPS[0].items.map((it) => it.id)).toEqual([
       'home',
       'gallery',

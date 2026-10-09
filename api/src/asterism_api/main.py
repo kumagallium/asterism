@@ -603,7 +603,7 @@ class GroundSchemaBody(BaseModel):
 
 
 class GroundTermsBody(BaseModel):
-    """Body for POST /api/ground/terms: batch-ground a list of term names（共通の言葉の
+    """Body for POST /api/ground/terms: batch-ground a list of term names（ことばの
     地図が 1 往復で全語の接地候補を得るため — 1 語ずつの GET /api/ground では語数分の
     往復になる）. Read-only + deterministic; same closed catalog as GET /api/ground."""
 
@@ -1935,7 +1935,7 @@ async def _kind_labels(
     model.yaml の投影（:func:`_model_yaml_labels`）が種類に付ける ``rdfs:label`` は
     いつもローカル名で、model.yaml に書いてある表示名を読まない。だから IR に
     表示名が無く model.yaml にある設計の種類は、``labels[class_iri]`` を読む図
-    （共通の言葉・データセットの詳細・ためす）でだけ、ワークスペースと違う名前に
+    （ことば・データセットの詳細・ためす）でだけ、ワークスペースと違う名前に
     なっていた。
 
     best-effort — 引けなかった種類と、ローカル名がそのまま返ってきた種類は結果に
@@ -5885,7 +5885,7 @@ def build_app(
 
         ``…/graph/canonical/<dataset_id>[/v<n>]`` → the dataset's own name (so
         the 出どころ column never shows ``dataset-9422ba7c``), and
-        ``…/graph/ontology/<id>`` → 「共通の言葉」. Unresolvable graphs are simply
+        ``…/graph/ontology/<id>`` → 「ことば」. Unresolvable graphs are simply
         omitted; the renderer then drops the column rather than showing an
         internal id. Resolution lives here so ``describe.py`` stays free of any
         registry dependency.
@@ -11324,7 +11324,7 @@ def build_app(
 
     @app.post("/api/ground/terms")
     async def grounding_search_batch(body: GroundTermsBody) -> JSONResponse:
-        """Ground MANY term names in one round trip（共通の言葉の地図用）.
+        """Ground MANY term names in one round trip（ことばの地図用）.
 
         Each entry is ``{"name": ..., "kind": "class"|"property"(optional)}``; the reply
         maps each name to its best candidates. ``iris`` (optional) are looked up by IRI

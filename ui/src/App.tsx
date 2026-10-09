@@ -242,6 +242,9 @@ export function parseHash(hash: string): Route {
     }
     return { tab: 'cards' }
   }
+  // `#/vocab?q=<題>` ・ `#/vocab?scope=…&dataset=<id>` — 「ことば」画面への持ち込み。クエリは
+  // 画面（SharedVocabView）が自分で hash から読む。route はタブだけ持つ。
+  if (parts[0]?.startsWith('vocab?')) return { tab: 'vocab' }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
 }
@@ -299,7 +302,7 @@ export function routeToHash(r: Route): string {
 // lists only "places to look" (nouns). Creation is inline (the Home action and
 // the Datasets add-tile), so there is NO global create button and "データを追加"
 // (workbench) is reachable but not a nav entry. Crosswalk (つながり) and shared
-// terms (共通の言葉) are promoted to first-class places; the ontology map (全体像)
+// terms (ことば) are promoted to first-class places; the ontology map (全体像)
 // is reached from つながり. SPARQL sits apart at the foot as a developer escape
 // hatch. Labels are resolved via i18n (common.nav.*).
 //

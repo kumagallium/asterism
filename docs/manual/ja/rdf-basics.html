@@ -9,7 +9,7 @@
 <body class="page-rdf-basics">
 <div class="wrap">
 <div class="cols">
-<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="workspace.html">ワークスペース</a></li><li><a href="graph.html">全体グラフ</a></li><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a class="here" href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="workspace.html">ワークスペース</a></li><li><a href="graph.html">全体グラフ</a></li><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">ことば</a></li></ol><h2>しくみを知る</h2><ol><li><a class="here" href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
 <main>
 <h1 id="つながったデータの基礎-RDF-オントロジー-SPARQL">つながったデータの基礎 — RDF・オントロジー・SPARQL</h1>
 <p>Asterism は、表を「つながったデータ」に変える道具です。この章では、その裏側にある考え方を、はじめての人向けに説明します。操作はありません。読むだけの章です。</p>
@@ -100,9 +100,9 @@
 <p>この問いは「カレーの材料」を返しますが、その集まり自体に名前は要りません。条件を変えれば別の集まりになるからです。</p>
 <p><strong>種類は「同じ形のものが繰り返し現れる単位」で決めます。</strong>「カレーの材料」を種類にしてしまうと、料理が増えるたびに種類が増えてしまいます。</p>
 <p>そして <strong>1 件のものは、外とつながるかどうかに関係なく IRI を持ちます。</strong> 事実を書くには主語が要るからです。「外とつながるか」が効くのは、<a href="#何を種類にするか-問いたいことが決める">何を種類にするか</a>の判断のほうです。</p>
-<h2 id="オントロジー-共通の言葉">オントロジー — 共通の言葉</h2>
+<h2 id="オントロジー-ことば">オントロジー — ことば</h2>
 <p>クラスと属性を決めて、名前（IRI）を与え、「このクラスはこの属性を持つ」「この属性の値は数値」といった決まりを書いたもの。それが<strong>オントロジー</strong>です。データそのものではなく、<strong>データを書くための語彙集</strong>だと考えるのがいちばん近いです。</p>
-<p>Asterism の画面では、これを<strong>共通の言葉</strong>と呼んでいます。メニューの「共通の言葉」に並んでいるのが、いま使われているクラスと属性の一覧です。</p>
+<p>Asterism の画面では、これを<strong>ことば</strong>と呼んでいます。メニューの「ことば」に並んでいるのが、いま使われているクラスと属性の一覧です。</p>
 <p>語彙を他の人と揃えるほど、データはつながります。だから Asterism には、自分のデータ専用の言葉を、世界で使われている標準の語彙（QUDT・schema.org など）に結びつける機能があります（<a href="./vocab-and-grounding.html">vocab-and-grounding.md</a>）。</p>
 <h2 id="SPARQL-つながったデータへの問い方">SPARQL — つながったデータへの問い方</h2>
 <p>Excel に対する検索やフィルタにあたるものが、つながったデータにもあります。それが <strong>SPARQL</strong> です。3 つ組の「わからないところ」を <code>?名前</code> にして書くと、あてはまる組み合わせを全部返してくれます。</p>
@@ -132,10 +132,10 @@ ORDER BY DESC(?分量)</code></pre>
 <h3 id="どれが-SPARQL-で引けるか">どれが SPARQL で引けるか</h3>
 <p>Asterism では、この疎結合が保存場所にも現れています。</p>
 <div class="tablewrap"><table><thead><tr><th></th><th>どこにあるか</th><th>SPARQL で引けるか</th></tr></thead><tbody><tr><td>事実（<code>使用量 分量 2</code>）</td><td>グラフの中</td><td><strong>引ける</strong></td></tr><tr><td>型付け（<code>使用量 a 使用量クラス</code>）</td><td>グラフの中</td><td><strong>引ける</strong></td></tr><tr><td>外の標準に合わせた対応</td><td>専用のグラフ</td><td><strong>引ける</strong></td></tr><tr><td>種類と項目の細かい定義</td><td>ファイル（<code>model.yaml</code>）</td><td>引けない</td></tr></tbody></table></div>
-<p>メニューの「共通の言葉」に並ぶ一覧は、<strong>公開済みの事実から逆算</strong>して作られます（実際に使われている種類と項目を数える）。だから定義を書かなくても動く一方、「この種類は、あの種類の一種である」といった<strong>用語どうしの関係は、書いて公開しないかぎり質問には効きません</strong>。</p>
+<p>メニューの「ことば」に並ぶ一覧は、<strong>公開済みの事実から逆算</strong>して作られます（実際に使われている種類と項目を数える）。だから定義を書かなくても動く一方、「この種類は、あの種類の一種である」といった<strong>用語どうしの関係は、書いて公開しないかぎり質問には効きません</strong>。</p>
 <h2 id="画面の言葉との対応">画面の言葉との対応</h2>
 <p>Asterism はこれらの用語を、なるべくやさしい言葉に置き換えて表示しています。文献や他のツールを読むときのために、対応を挙げておきます。</p>
-<div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>料理・食材などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID のつけかた</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>共通の言葉</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Asterism の画面</th><th>標準の用語</th><th>ひとことで言うと</th></tr></thead><tbody><tr><td>事実</td><td>トリプル（triple）</td><td>3 つ組ひとつ = 事実 1 件</td></tr><tr><td>データの種類</td><td>クラス（class）</td><td>料理・食材などの区分</td></tr><tr><td>項目</td><td>属性 / プロパティ</td><td>種類が持つ列にあたるもの</td></tr><tr><td>ID・ID のつけかた</td><td>IRI・IRI テンプレート</td><td>世界でひとつの名前</td></tr><tr><td>ことば</td><td>オントロジー / 語彙</td><td>使ってよいクラスと属性の一覧</td></tr><tr><td>つながり</td><td>参照（オブジェクト属性）</td><td>別のものを IRI で指すこと</td></tr><tr><td>高度な検索（SPARQL）</td><td>SPARQL クエリ</td><td>つながったデータへの問い合わせ</td></tr><tr><td>変換ルール</td><td>RML マッピング</td><td>表を 3 つ組に変える規則</td></tr><tr><td>公開する</td><td>昇格（promote）</td><td>引用できる状態にすること</td></tr></tbody></table></div>
 <h2 id="関連">関連</h2>
 <ul><li>各ファイルが何をしているかは <a href="./dataset-files.html">dataset-files.md</a> を参照してください。</li><li>語彙を標準に合わせる話は<a href="./vocab-and-grounding.html">vocab-and-grounding.md</a> を参照してください。</li><li>データどうしをつなぐ話は <a href="./crosswalk.html">crosswalk.md</a> を参照してください。</li></ul>
 <footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>

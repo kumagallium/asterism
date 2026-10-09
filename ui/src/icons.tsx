@@ -267,7 +267,7 @@ export function ConnectIcon(p: IconProps) {
   )
 }
 
-/** Document with lines — shared terms / vocabulary (共通の言葉). */
+/** Document with lines — shared terms / vocabulary (ことば). */
 export function TermsIcon(p: IconProps) {
   return (
     <Icon {...p}>

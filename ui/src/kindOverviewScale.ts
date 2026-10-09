@@ -24,6 +24,7 @@ import {
   type OverviewInput,
   type OverviewLayout,
 } from './kindOverview'
+import { isDirectedRelation, relationKey } from './lineChoice'
 import { rulesShape } from './shapeGraph'
 
 /** これ以下なら種類まで（丸）で全部描く。 */
@@ -182,7 +183,7 @@ export function focusOverview(
         : p.config,
     }))
     .filter((p) => (p.config?.concepts ?? []).length > 0)
-  return { input: { ...input, datasets, crosswalks, omitted }, label, hiddenDatasets, hiddenHubs }
+  return { input: { ...input, datasets, crosswalks, omitted, onlyLinkedShared: true }, label, hiddenDatasets, hiddenHubs }
 }
 
 // ── 線の強弱 ──
@@ -441,13 +442,16 @@ function build(input: OverviewInput, width: number, sweeps: number): OverviewLay
   for (const i of infos) for (const iri of i.classIris) dsOfIri.set(iri, [...(dsOfIri.get(iri) ?? []), i.idx])
   const seen = new Set<string>()
   for (const a of (input.alignments ?? []) as Alignment[]) {
+    // ⊂ は向きあり（'upper'・source → target）、≡ などは向きのない対応。
+    const directed = isDirectedRelation(a.relation)
     for (const f of dsOfIri.get(a.source) ?? []) {
       for (const t of dsOfIri.get(a.target) ?? []) {
         if (f === t) continue
-        const key = f < t ? `${f}\u0000${t}` : `${t}\u0000${f}`
+        const key = directed ? `up\u0000${f}\u0000${t}` : f < t ? `eq\u0000${f}\u0000${t}` : `eq\u0000${t}\u0000${f}`
         if (seen.has(key)) continue
         seen.add(key)
-        addEdge(infos[f].ds.id, infos[t].ds.id, 'alignment', { both: true })
+        if (directed) addEdge(infos[f].ds.id, infos[t].ds.id, 'upper', { relation: relationKey(a.relation) })
+        else addEdge(infos[f].ds.id, infos[t].ds.id, 'alignment', { both: true })
       }
     }
   }
