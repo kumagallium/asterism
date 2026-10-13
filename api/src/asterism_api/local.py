@@ -812,7 +812,7 @@ async def seed_demo_dataset(home: Path, cfg: Settings, client: Any) -> None:
     marker = home / _DEMO_SEED_MARKER
     if marker.is_file():
         return
-    resume = bool(registry.list_datasets(cfg.registry_root))
+    resume = any(not m.get("is_shared_vocab") for m in registry.list_datasets(cfg.registry_root))
 
     snapshot_path = find_world_snapshot()
     if snapshot_path is None:
@@ -1093,6 +1093,8 @@ async def backfill_store_projections(cfg: Settings, client: Any) -> None:
                 continue
             if not isinstance(meta, dict) or not meta.get("promoted"):
                 continue
+            if meta.get("is_shared_vocab"):
+                continue  # 共有の言葉はデータセットではない（メタ・ontology の投影を作らない）
             canonical = meta.get("canonical_graph")
             if canonical and substrate.is_hub_graph(str(canonical)):
                 continue

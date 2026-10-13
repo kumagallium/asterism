@@ -155,3 +155,13 @@ def test_redesigned_after_promote_reads_history_stamps(
     for stamp in stamps:
         (d / "history" / stamp).mkdir(parents=True)
     assert local._redesigned_after_promote(d, meta) is expected
+
+
+def test_shared_vocab_entry_is_never_projected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """共有の言葉（vocab-shared）は promoted: true でもデータセットではない。"""
+    cfg, calls = _setup(tmp_path, monkeypatch)
+    _write(tmp_path / "registry", "vocab-shared", {"promoted": True, "is_shared_vocab": True})
+    asyncio.run(local.backfill_store_projections(cfg, object()))
+    assert calls == [("onto", "no-names"), ("meta", "no-names")]

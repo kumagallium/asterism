@@ -791,6 +791,90 @@ def _alignment_iri(source: str, relation: str, target: str) -> str:
     return f"{_ALIGN_RESOURCE}{h}"
 
 
+_CLASS_RELATIONS = ("equivalentClass", "subClassOf")
+_PROPERTY_RELATIONS = ("equivalentProperty", "subPropertyOf")
+_SUBSUMPTION = ("subClassOf", "subPropertyOf")
+_RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
+_RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+ALIGN_SCOPES = ("perspective", "standard", "shared", "dataset")
+
+
+async def _endpoint_context(client) -> tuple[dict[str, str], set[str], list[str]]:
+    """What :func:`shared_vocab.classify_endpoint` needs, read once from the store:
+    the datasets' ontology terms, the minted shared terms, the known standards.
+    (``shared_vocab`` imports this module, so it is imported lazily here.)"""
+    from asterism import shared_vocab
+
+    return (
+        await shared_vocab.ontology_terms(client),
+        set(await shared_vocab.minted_iris(client)),
+        shared_vocab.known_namespaces(),
+    )
+
+
+def _kind_of(iri: str, ctx: tuple[dict[str, str], set[str], list[str]]) -> tuple[str, str | None]:
+    from asterism import shared_vocab
+
+    ontology, shared, namespaces = ctx
+    return shared_vocab.classify_endpoint(
+        iri, ontology_terms=ontology, shared_iris=shared, known_namespaces=namespaces
+    )
+
+
+async def _declared_shapes(client, iris: list[str]) -> dict[str, set[str]]:
+    """``{iri: {"class", "property"}}`` as DECLARED in a dataset's ontology graph or
+    the shared-vocab graph. An IRI declared nowhere is absent (kind undecidable)."""
+    from asterism import shared_vocab
+
+    safe = sorted({i for i in iris if _IRI_RE.match(i)})
+    if not safe:
+        return {}
+    values = " ".join(f"<{i}>" for i in safe)
+    q = (
+        "SELECT DISTINCT ?s ?t WHERE { GRAPH ?g { ?s a ?t } "
+        f"VALUES ?s {{ {values} }} "
+        f"VALUES ?t {{ <{_RDFS_NS}Class> <{_RDF_NS}Property> }} "
+        f"FILTER(?g = <{shared_vocab.SHARED_VOCAB_GRAPH}> || "
+        f'STRSTARTS(STR(?g), "{substrate.ONTOLOGY_GRAPH_BASE}")) }}'
+    )
+    out: dict[str, set[str]] = {}
+    for b in await _select_bindings(client, q):
+        shape = "class" if b["t"]["value"] == f"{_RDFS_NS}Class" else "property"
+        out.setdefault(b["s"]["value"], set()).add(shape)
+    return out
+
+
+def _check_same_shape(relation: str, source: str, target: str, shapes: dict[str, set[str]]) -> None:
+    """Refuse a line that mixes a CLASS with a PROPERTY, as far as it is decidable.
+
+    A class relation rejects an end declared only as a property; a property relation
+    rejects an end declared only as a class. An end declared as both, or nowhere,
+    passes (undecidable). ``hasQuantityKind`` is exempt: it joins an item to an
+    individual (a QUDT quantity kind), which is neither."""
+    if relation == "hasQuantityKind":
+        return
+    wrong = "property" if relation in _CLASS_RELATIONS else "class"
+    for iri in (source, target):
+        if shapes.get(iri) == {wrong}:
+            raise ValueError(f"kind mismatch: {relation} cannot join {iri} (a {wrong})")
+
+
+async def _upper_path_reaches(client, relation: str, start: str, goal: str) -> bool:
+    """``start`` reaches ``goal`` going UP (⊑ / ≡) over the alignment lines alone."""
+    from asterism import shared_vocab
+
+    path = (
+        shared_vocab.UPPER_PATH_CLASS
+        if relation == "subClassOf"
+        else shared_vocab.UPPER_PATH_PROPERTY
+    )
+    data = await client.sparql_select(
+        f"ASK {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{start}> {path} <{goal}> }} }}"
+    )
+    return bool(data.get("boolean")) if isinstance(data, dict) else False
+
+
 async def assert_alignment(
     client,
     source: str,
@@ -800,17 +884,47 @@ async def assert_alignment(
     at: str,
     from_perspective: str = "",
     to_perspective: str = "",
+    cq: str | None = None,
 ) -> dict:
     """Assert a schema relationship (``relation`` from :data:`ALIGN_RELATIONS`) between
-    two perspective terms (``source`` -> ``target``, both absolute IRIs). Additive,
-    idempotent (deterministic alignment node), reversible. Records a dated provenance
-    node so it can be listed + removed. Raises ``ValueError`` on a bad relation / IRI."""
+    two terms (``source`` -> ``target``, both absolute IRIs). Additive, idempotent
+    (deterministic alignment node), reversible. Records a dated provenance node so it
+    can be listed + removed. Raises ``ValueError`` on:
+
+    - a bad relation / IRI;
+    - ``"unminted shared term"`` — an end is in the ``sv:`` namespace but was never
+      minted;
+    - ``"kind mismatch"`` — a class joined to a property (as far as decidable);
+    - ``"cycle"`` — ``subClassOf`` / ``subPropertyOf`` whose target already reaches the
+      source going up (``≡`` included), or a term under itself.
+
+    The provenance node also records what each end was at assertion time
+    (``xw:alignSourceKind`` / ``alignTargetKind``, plus ``…Dataset`` for a dataset
+    end) and the optional competency question the line answers (``xw:answersCq``)."""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
     _check_iri(source)
     _check_iri(target)
+    ctx = await _endpoint_context(client)
+    s_kind, s_dataset = _kind_of(source, ctx)
+    t_kind, t_dataset = _kind_of(target, ctx)
+    if "shared_unminted" in (s_kind, t_kind):
+        raise ValueError("unminted shared term")
+    _check_same_shape(relation, source, target, await _declared_shapes(client, [source, target]))
+    if relation in _SUBSUMPTION and (
+        source == target or await _upper_path_reaches(client, relation, target, source)
+    ):
+        raise ValueError("cycle")
     rel_iri = ALIGN_RELATIONS[relation]
     align_iri = _alignment_iri(source, relation, target)
+    extra = f'<{XW}alignSourceKind> "{s_kind}" ; <{XW}alignTargetKind> "{t_kind}" ; '
+    if s_dataset:
+        extra += f'<{XW}alignSourceDataset> "{_sparql_str(s_dataset)}" ; '
+    if t_dataset:
+        extra += f'<{XW}alignTargetDataset> "{_sparql_str(t_dataset)}" ; '
+    cq_text = (cq or "").strip()
+    if cq_text:
+        extra += f'<{XW}answersCq> "{_sparql_str(cq_text)}" ; '
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} ;"
         f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
@@ -818,6 +932,7 @@ async def assert_alignment(
         f"<{align_iri}> a <{XW}Alignment> ; "
         f"<{XW}alignSource> <{source}> ; <{XW}alignTarget> <{target}> ; "
         f'<{XW}alignRelation> "{relation}" ; '
+        f"{extra}"
         f'<{XW}fromPerspective> "{_sparql_str(from_perspective)}" ; '
         f'<{XW}toPerspective> "{_sparql_str(to_perspective)}" ; '
         f'<{_PROV}endedAtTime> "{at}"^^<{_XSD}dateTime> }} }}'
@@ -831,32 +946,113 @@ async def assert_alignment(
         "relation_iri": rel_iri,
         "from_perspective": from_perspective,
         "to_perspective": to_perspective,
+        "source_kind": s_kind,
+        "target_kind": t_kind,
+        "source_dataset": s_dataset,
+        "target_dataset": t_dataset,
+        "cq": cq_text or None,
         "at": at,
     }
 
 
-async def list_alignments(client) -> list[dict]:
-    """Every asserted schema alignment between perspectives (oldest first)."""
+def _perspective_terms(registry_root: Path | str) -> set[str]:
+    """Every concept class + link predicate of the perspectives that load — the terms
+    a person can actually align on the perspective screen."""
+    terms: set[str] = set()
+    for meta in list_perspectives(registry_root):
+        pid = str(meta.get("crosswalk_perspective_id") or DEFAULT_PERSPECTIVE_ID)
+        try:
+            config = load_config(registry_root, pid)
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        if config is None:
+            continue
+        for concept in config.concepts:
+            terms.add(concept.class_iri)
+            terms.add(concept.link_predicate)
+    return terms
+
+
+async def list_alignments(
+    client,
+    *,
+    scope: str | None = None,
+    registry_root: Path | str | None = None,
+) -> list[dict]:
+    """Every asserted schema alignment (oldest first).
+
+    Each row also carries ``source_kind`` / ``target_kind`` / ``source_dataset`` /
+    ``target_dataset`` / ``cq`` / ``broken``, computed AT READ TIME so older rows get
+    them too. ``broken`` = an end recorded as ``dataset`` / ``shared`` at assertion
+    can no longer be classified (its ontology or term is gone); rows with no record
+    (written before kinds were recorded) are never broken.
+
+    ``scope`` narrows the list (``None`` = everything, ``unknown`` ends included):
+
+    - ``"perspective"`` — both ends are ``xw:`` perspective terms; with ``registry_root``
+      INSTEAD both ends are terms (class_iri / link_predicate) of a perspective that
+      loads, whatever their namespace (the screen's ``alignableIris``);
+    - ``"standard"`` — the target is a standard;
+    - ``"shared"`` — either end is a shared term;
+    - ``"dataset"`` — either end is a dataset term and the target is not a standard.
+    """
+    if scope is not None and scope not in ALIGN_SCOPES:
+        raise ValueError(f"scope must be one of {list(ALIGN_SCOPES)}, got {scope!r}")
     q = (
-        f"SELECT ?a ?source ?target ?relation ?from ?to ?at WHERE {{ "
+        f"SELECT ?a ?source ?target ?relation ?from ?to ?at ?sk ?tk ?cq WHERE {{ "
         f"GRAPH <{ALIGNMENT_GRAPH}> {{ "
         f"?a a <{XW}Alignment> ; <{XW}alignSource> ?source ; <{XW}alignTarget> ?target ; "
         f"<{XW}alignRelation> ?relation . "
         f"OPTIONAL {{ ?a <{XW}fromPerspective> ?from }} "
         f"OPTIONAL {{ ?a <{XW}toPerspective> ?to }} "
-        f"OPTIONAL {{ ?a <{_PROV}endedAtTime> ?at }} }} }} ORDER BY ?at"
+        f"OPTIONAL {{ ?a <{_PROV}endedAtTime> ?at }} "
+        f"OPTIONAL {{ ?a <{XW}alignSourceKind> ?sk }} "
+        f"OPTIONAL {{ ?a <{XW}alignTargetKind> ?tk }} "
+        f"OPTIONAL {{ ?a <{XW}answersCq> ?cq }} }} }} ORDER BY ?at"
     )
+    bindings = await _select_bindings(client, q)
+    ctx = await _endpoint_context(client)
+    wanted = _perspective_terms(registry_root) if scope == "perspective" and registry_root else None
     out: list[dict] = []
-    for b in await _select_bindings(client, q):
+    for b in bindings:
+        source, target = b["source"]["value"], b["target"]["value"]
+        s_kind, s_dataset = _kind_of(source, ctx)
+        t_kind, t_dataset = _kind_of(target, ctx)
+        recorded = (b.get("sk", {}).get("value"), b.get("tk", {}).get("value"))
+        broken = any(
+            rec in ("dataset", "shared") and now in ("unknown", "shared_unminted")
+            for rec, now in zip(recorded, (s_kind, t_kind), strict=True)
+        )
+        if scope == "perspective":
+            if wanted is not None:
+                # 読み込めた視点の語だけで絞る（xw: かどうかは見ない。画面の alignableIris と同じ）
+                if not ({source, target} <= wanted):
+                    continue
+            elif (s_kind, t_kind) != ("perspective", "perspective"):
+                continue
+        elif scope == "standard":
+            if t_kind != "standard":
+                continue
+        elif scope == "shared":
+            if "shared" not in (s_kind, t_kind):
+                continue
+        elif scope == "dataset" and ("dataset" not in (s_kind, t_kind) or t_kind == "standard"):
+            continue
         out.append(
             {
                 "alignment_iri": b["a"]["value"],
-                "source": b["source"]["value"],
-                "target": b["target"]["value"],
+                "source": source,
+                "target": target,
                 "relation": b["relation"]["value"],
                 "from_perspective": b.get("from", {}).get("value", ""),
                 "to_perspective": b.get("to", {}).get("value", ""),
                 "at": b.get("at", {}).get("value", ""),
+                "source_kind": s_kind,
+                "target_kind": t_kind,
+                "source_dataset": s_dataset,
+                "target_dataset": t_dataset,
+                "cq": b.get("cq", {}).get("value") or None,
+                "broken": broken,
             }
         )
     return out
@@ -929,6 +1125,8 @@ def list_perspectives(registry_root: Path | str) -> list[dict]:
     """Every crosswalk perspective's registry meta (newest first). A perspective is any
     registry dataset flagged ``is_crosswalk`` — so discovery does not depend on the id
     naming convention (the legacy ``crosswalk-bridge`` is found the same way)."""
+    from asterism.shared_vocab import is_system_entry  # lazy: shared_vocab imports us
+
     root = Path(registry_root)
     if not root.is_dir():
         return []
@@ -940,6 +1138,9 @@ def list_perspectives(registry_root: Path | str) -> list[dict]:
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            continue
+        # a system entry that is not a crosswalk (``vocab-shared``) is not a perspective
+        if is_system_entry(meta) and not meta.get("is_crosswalk"):
             continue
         if meta.get("is_crosswalk"):
             metas.append(meta)

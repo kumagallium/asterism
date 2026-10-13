@@ -14,8 +14,6 @@ per query shape. Fixture data spans two unrelated fictional domains (§0).
 from __future__ import annotations
 
 import json
-import sys
-import types
 from pathlib import Path
 from typing import Any
 
@@ -1840,10 +1838,13 @@ def test_network_hub_node_uses_r3_class_label(tmp_path: Path) -> None:
 
 
 def _fake_upper_map(monkeypatch: pytest.MonkeyPatch, impl: Any) -> None:
-    """``from asterism.shared_vocab import upper_map`` が偽物を拾うよう差し替える。"""
-    fake = types.ModuleType("asterism.shared_vocab")
-    fake.upper_map = impl  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "asterism.shared_vocab", fake)
+    """``from asterism.shared_vocab import upper_map`` が偽物を拾うよう差し替える。
+
+    モジュールごと入れ替えると ``is_system_entry`` など他の公開名（``list_perspectives``
+    が遅延 import する）まで消えるので、``upper_map`` の 1 属性だけを差し替える。"""
+    from asterism import shared_vocab
+
+    monkeypatch.setattr(shared_vocab, "upper_map", impl)
 
 
 def test_network_group_iri_becomes_the_upper_class_when_upper_map_succeeds(
