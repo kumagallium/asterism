@@ -25,7 +25,9 @@ from pathlib import Path
 from typing import Any
 
 from asterism.crosswalk import XW as _XW_NS
+from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
 from asterism.prov_graph import PROV as _PROV_NS
+from asterism.shared_vocab import SV as _SV_NS
 from asterism.subject_tools import (
     _cell,
     _class_labels,
@@ -39,6 +41,7 @@ from asterism.subject_tools import (
 )
 from asterism.subjects import resolve_dataset_label
 from asterism.substrate import (
+    SHARED_VOCAB_GRAPH,
     SupportsSparql,
     canonical_from_clauses,
     canonical_graphs,
@@ -131,7 +134,10 @@ async def network_view(
     """
     class_top: Mapping[str, str] = (upper or {}).get("classes") or {}
     property_top: Mapping[str, str] = (upper or {}).get("properties") or {}
-    graphs = await canonical_graphs(client)
+    # 線の graph（共有のことばや対応の線とその来歴）は公開済みの印を持つが、設計の情報で
+    # 中身の網ではない。読むと線の記録（xw:Alignment）・結んだ種類や項目の IRI・`align…` の値が
+    # 件として混ざった（上位構造を入れた実データで確認・2026-10-13）。公開済みの数にも数えない。
+    graphs = [g for g in await canonical_graphs(client) if g != ALIGNMENT_GRAPH]
     if not graphs:
         return _empty()
     truncated = False
@@ -367,6 +373,12 @@ async def network_view(
     class_iris |= {sorted(hub_types[e])[0] for e in keep_entities if e in hub_ids}
     class_iris |= {class_top[c] for c in class_iris if c in class_top}  # 色の鍵の名前も引く
     class_label = await _class_labels(client, registry_root, class_iris)
+    # 上位の種類が共有のことば（sv:）なら、名前は共有のことばの graph から引く（_class_labels は
+    # registry と ontology しか見ないので、slug の読みくだし「card」になった）。
+    shared_kinds = {c for c in class_iris if c.startswith(_SV_NS)}
+    if shared_kinds:
+        shared_names = await _label_lookup(client, [SHARED_VOCAB_GRAPH], shared_kinds)
+        class_label.update({c: n for c, n in shared_names.items() if n})
 
     # --- 8. 返り値 --------------------------------------------------------------
     nodes: list[dict[str, Any]] = []
