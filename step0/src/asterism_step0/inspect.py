@@ -52,7 +52,6 @@ import csv
 import io
 import itertools
 import json
-import os
 import re
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -555,6 +554,21 @@ def _is_sampling_grid(values: Sequence[str]) -> bool:
 
 
 _IRI_CELL_RE = re.compile(r"https?://[^\s<>\"{}|\\^`]+")
+
+
+def _common_prefix(a: str, b: str) -> str:
+    """Character-wise common prefix of two IRI strings (the IRI base candidate).
+
+    ``os.path.commonprefix`` gave the same result, but it reads like a path
+    operation (ruff RUF071); an IRI base is compared character by character.
+    """
+    n = min(len(a), len(b))
+    i = 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    return a[:i]
+
+
 _IRI_BASE_RE = re.compile(r"https?://[^/]+/.+[/#]")
 
 
@@ -608,7 +622,7 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
                         iri_prefix[c] = v
                         iri_min[c] = len(v)
                     else:
-                        iri_prefix[c] = os.path.commonprefix([iri_prefix[c], v])
+                        iri_prefix[c] = _common_prefix(iri_prefix[c], v)
                         iri_min[c] = min(iri_min[c], len(v))
                 if len(seen_values[c]) < _SAMPLE_RING:
                     seen_values[c].add(v)
