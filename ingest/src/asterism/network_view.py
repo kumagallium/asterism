@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 from asterism.crosswalk import XW as _XW_NS
-from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
 from asterism.prov_graph import PROV as _PROV_NS
 from asterism.shared_vocab import SV as _SV_NS
 from asterism.subject_tools import (
@@ -48,6 +47,7 @@ from asterism.substrate import (
     dataset_id_of_canonical_graph,
     is_hub_graph,
     ontology_graphs,
+    without_alignment_graph,
 )
 
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
@@ -137,7 +137,7 @@ async def network_view(
     # 線の graph（共有のことばや対応の線とその来歴）は公開済みの印を持つが、設計の情報で
     # 中身の網ではない。読むと線の記録（xw:Alignment）・結んだ種類や項目の IRI・`align…` の値が
     # 件として混ざった（上位構造を入れた実データで確認・2026-10-13）。公開済みの数にも数えない。
-    graphs = [g for g in await canonical_graphs(client) if g != ALIGNMENT_GRAPH]
+    graphs = without_alignment_graph(await canonical_graphs(client))  # 共通の判定（#708）
     if not graphs:
         return _empty()
     truncated = False
