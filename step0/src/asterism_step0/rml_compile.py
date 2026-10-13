@@ -43,9 +43,11 @@ from asterism_step0.mapping_ir import (
 
 __all__ = ["RmlCompileError", "compile_mapping_ir", "default_catalog"]
 
-# The asterism vocab namespace the source-dialect annotations live in (ADR
-# source-dialect.md) — the same ASTERISM_NS the substrate reads. The two sides
-# communicate via the RML artifact, not Python imports.
+# The asterism vocab namespace the source-dialect annotations (ADR
+# source-dialect.md) and the optional-source mark (ADR
+# native-json-denormalization.md §10) live in — the same ASTERISM_NS the
+# substrate reads. The two sides communicate via the RML artifact, not Python
+# imports.
 ASTERISM_NS = "https://kumagallium.github.io/asterism/vocab#"
 
 # The compiler-owned prefix block. rmlf: MUST be http://w3id.org/rml/ — Morph-KGC
@@ -146,7 +148,7 @@ class _Compiler:
         self.namespaces: dict[str, str] = dict(BUILTIN_PREFIXES)
         self.namespaces.update(ir.prefixes)
         # Set while emitting maps; gates the ast: prefix declaration so an
-        # IR without dialects compiles byte-identically to before.
+        # IR without dialects / optional maps compiles byte-identically to before.
         self.uses_dialect = False
 
     # -- terms ---------------------------------------------------------------
@@ -424,6 +426,8 @@ class _Compiler:
             if annotations:
                 # The parser flags this too; the compiler refuses as backstop.
                 self._fail(f"{where}: a source dialect applies to tabular sources only.")
+            if m.optional:
+                self._fail(f"{where}: 'optional' applies to tabular sources only.")
             if not m.iterator:
                 self._fail(f"{where}: an XML source requires an iterator.")
             lines.append(
@@ -431,19 +435,24 @@ class _Compiler:
                 f"{source} ; rml:referenceFormulation ql:XPath ;\n"
                 f"                      rml:iterator {_turtle_string(m.iterator or '')} ] ;"
             )
-        elif annotations:
-            self.uses_dialect = True
-            sep = " ;\n                      "
-            lines.append(
-                f"  rml:logicalSource [ rml:source {source} ; "
-                "rml:referenceFormulation ql:CSV ;\n"
-                f"                      {sep.join(annotations)} ] ;"
-            )
         else:
-            lines.append(
-                f"  rml:logicalSource [ rml:source {source} ; "
-                "rml:referenceFormulation ql:CSV ] ;"
-            )
+            if m.optional:
+                # Absent file = 0 rows: the substrate skips this map and strips
+                # the mark (ADR native-json-denormalization.md §10).
+                annotations.append("ast:sourceOptional true")
+            if annotations:
+                self.uses_dialect = True
+                sep = " ;\n                      "
+                lines.append(
+                    f"  rml:logicalSource [ rml:source {source} ; "
+                    "rml:referenceFormulation ql:CSV ;\n"
+                    f"                      {sep.join(annotations)} ] ;"
+                )
+            else:
+                lines.append(
+                    f"  rml:logicalSource [ rml:source {source} ; "
+                    "rml:referenceFormulation ql:CSV ] ;"
+                )
         lines.append(self.subject_map(m, m.subject, where) + " ;")
         for p in m.properties:
             p_where = f"{where} property {p.predicate}"
@@ -475,8 +484,8 @@ class _Compiler:
                 prefix_lines.append(f"@prefix ast: <{ASTERISM_NS}> .")
             elif declared_ast != ASTERISM_NS:
                 self._fail(
-                    f"prefix 'ast' is reserved for the source-dialect annotations "
-                    f"(<{ASTERISM_NS}>) when a dialect is declared; rename it."
+                    f"prefix 'ast' is reserved for the source-dialect / optional-source "
+                    f"annotations (<{ASTERISM_NS}>) when a map uses them; rename it."
                 )
         prefix_lines.append(f"@prefix xsd: <{BUILTIN_PREFIXES['xsd']}> .")
         for name in sorted(self.ir.prefixes):

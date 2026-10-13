@@ -137,6 +137,7 @@ maps:
 | `maps[].name` | TriplesMap 名 | 識別子形式 |
 | `maps[].source` | ソースファイル名 | **実在チェック**（did-you-mean） |
 | `maps[].iterator` | XML のみ: XPath iterator | XML ソース時のみ許可 |
+| `maps[].optional` | ソースファイルが無い回を 0 件として通す（`ast:sourceOptional true` に落ちる・[native-json-denormalization.md](native-json-denormalization.md) §10） | bool・表のソースのみ・同じソースを読む map どうしで揃える。LLM の schema には載せない |
 | `subject.template` / `subject.constant` | subject IRI（排他） | プレースホルダ列の**実在チェック** |
 | `subject.classes` | `rr:class`（複数可） | CURIE 解決可能 |
 | `subject.transform` / `properties[].transform` | template 内列の可読セグメント化（`{列: slug}` 等） | プレースホルダに限る・単一入力 Tier-0 のみ・多値不可・≤4 プレースホルダ |

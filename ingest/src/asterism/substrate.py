@@ -50,6 +50,9 @@ from asterism.dialect import (
 )
 
 # Re-exported so callers can `substrate.assert_rml_safe` / catch `substrate.RmlSafetyError`.
+# Re-exported so callers can `substrate.prune_empty_sources` (ADR
+# native-json-denormalization.md §10: a zero-row source is skipped, not read).
+from asterism.empty_sources import prune_empty_sources as prune_empty_sources
 from asterism.rml_safety import RmlSafetyError as RmlSafetyError
 from asterism.rml_safety import assert_rml_safe as assert_rml_safe
 
@@ -716,7 +719,15 @@ def materialize_to_graph(
     work.mkdir(parents=True, exist_ok=True)
     mapping_file = work / "mappings.rml.ttl"
     run_id_subst = substitute_run_id(rml_ttl)
-    dialected = normalize_dialect_sources(run_id_subst, csv_dir, work)
+    # A source with no rows this run (a ``[]`` JSON, or an absent file marked
+    # ``ast:sourceOptional``) has its TriplesMaps removed before anything reads it;
+    # with none left there is nothing to run (ADR native-json-denormalization §10).
+    pruned = prune_empty_sources(run_id_subst, csv_dir)
+    if pruned is None:
+        import rdflib
+
+        return rdflib.Graph()
+    dialected = normalize_dialect_sources(pruned, csv_dir, work)
     tabularized = tabularize_json_sources(dialected, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
@@ -865,7 +876,14 @@ def materialize_to_nt_file(
     # re-mints the SAME activity (idempotent); None keeps the per-call fresh
     # timestamp used by snapshot ingest (each version graph is its own activity).
     run_id_subst = substitute_run_id(rml_ttl, run_id)
-    dialected = normalize_dialect_sources(run_id_subst, csv_dir, work)
+    out = work / "out.nt"
+    # Zero-row sources are skipped, not read (see materialize_to_graph); with no
+    # TriplesMap left the result is an empty N-Triples file.
+    pruned = prune_empty_sources(run_id_subst, csv_dir)
+    if pruned is None:
+        out.write_bytes(b"")
+        return out
+    dialected = normalize_dialect_sources(pruned, csv_dir, work)
     tabularized = tabularize_json_sources(dialected, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
@@ -875,7 +893,6 @@ def materialize_to_nt_file(
     # of an opaque engine exit.
     validate_rml_design(prepared, csv_dir)
     mapping_file.write_text(prepared, encoding="utf-8")
-    out = work / "out.nt"
     config_file = work / "config.ini"
     config_file.write_text(
         "[CONFIGURATION]\n"

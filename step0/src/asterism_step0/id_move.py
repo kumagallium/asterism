@@ -371,11 +371,15 @@ def compile_id_move_rml(
         return None
     from asterism_step0.rml_compile import compile_mapping_ir
 
+    # 読む元ファイルが「無い回がありうる」(optional) なら台帳も同じ扱いにする ——
+    # 無い回に台帳だけが「ファイルが無い」で止まらないように。
+    optional = {m.name: m.optional for m in new_ir.maps}
     maps = tuple(
         TriplesMapIR(
             name=f"idmove_{mv.name}",
             source=mv.source,
             iterator=mv.iterator,
+            optional=optional.get(mv.name, False),
             subject=SubjectIR(template=mv.old_template, transform=dict(mv.old_transform)),
             properties=(
                 PropertyIR(

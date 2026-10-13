@@ -499,3 +499,31 @@ def test_ast_prefix_conflict_fails_closed() -> None:
     with pytest.raises(RmlCompileError) as exc:
         compile_text(bad)
     assert any("reserved for the source-dialect" in i for i in exc.value.issues)
+
+
+# ---- optional: ast:sourceOptional on the logical source (ADR native-json-denormalization §10)
+
+
+def test_optional_map_emits_source_optional_annotation() -> None:
+    ir = BASE_IR.replace("__EXTRA__", "").replace(
+        "source: data.csv", "source: data.csv\n    optional: true"
+    )
+    ttl = compile_text(ir)
+    g = as_graph(ttl)
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert next(g.objects(ls, AST.sourceOptional)).toPython() is True
+    assert "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> ." in ttl
+
+
+def test_optional_false_compiles_byte_identically() -> None:
+    plain = BASE_IR.replace("__EXTRA__", "")
+    explicit = plain.replace("source: data.csv", "source: data.csv\n    optional: false")
+    assert compile_text(explicit) == compile_text(plain)
+
+
+def test_optional_and_dialect_share_the_logical_source() -> None:
+    ir = DIALECT_IR.replace("source: xrd.txt", "source: xrd.txt\n    optional: true")
+    g = as_graph(compile_text(ir))
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert next(g.objects(ls, AST.sourceOptional)).toPython() is True
+    assert next(g.objects(ls, AST.sourceEncoding)).toPython() == "cp932"

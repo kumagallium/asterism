@@ -269,3 +269,18 @@ def test_published_subject_json_roundtrip_and_junk() -> None:
     assert PublishedSubject.from_json({"name": "x"}) is None
     assert PublishedSubject.from_json("nonsense") is None
     assert PublishedSubject.from_json({"name": "x", "source": "s", "template": ""}) is None
+
+
+def test_ledger_keeps_optional_source_mark() -> None:
+    """読む元ファイルが ``optional``（無い回がありうる）なら、台帳の map も同じ印を持つ ——
+    無い回に台帳だけが「ファイルが無い」で止まらないように
+    （ADR native-json-denormalization §10）。"""
+    new_ir = parse_mapping_ir(
+        RECOUNTED.replace("source: samples.csv", "source: samples.csv\n    optional: true")
+    )
+    plan = plan_id_move(published_subjects(parse_mapping_ir(BASE)), new_ir)
+    rml = compile_id_move_rml(plan, new_ir)
+    assert rml is not None
+    assert "ast:sourceOptional true" in rml
+    plain = compile_id_move_rml(plan, parse_mapping_ir(RECOUNTED))
+    assert plain is not None and "sourceOptional" not in plain

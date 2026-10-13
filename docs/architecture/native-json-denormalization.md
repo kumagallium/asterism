@@ -7,6 +7,7 @@ Status: **承認済・配線着地（コア＋ランタイム＋design-time）**
 ✅ coverage 再計測（PR #192・`…Raw` 0.0%・ゲート 5%）・✅ MP 例 RML の CSV 移行（JSONPath 使用ゼロに）・
 ✅ CSV 直取込の予約列ガード（`sanitize_csv_sources`＋inspect）・✅ `{key:[...]}` wrapped 配列の自動検出・
 ✅ inspect↔tabularize の drift 対策（依存結合でなく sync guard・§8.8）。**全 follow-up 完了**。
+§10（2026-10-13）: 0 件の回（`[]`・`optional: true` の map の無いファイル）は取り込み全体を止めずにその map だけ外す。
 
 決定母体:
 [`ingestion-execution-safety.md`](ingestion-execution-safety.md)（生成コード非実行・Tier0 閉集合のみ）/
@@ -247,3 +248,63 @@ LLM/人任せのままだった。実運用（starrydata）で、かんたんの
   openlibrary は安定キー希薄）。propose/step0 の主キー選定に委ねる（本 ADR では `rid` 行番号で実証）。
 - **深い入れ子（配列の配列 `[[YYYY,M,D]]`）** の扱いは当面 dotted 列＋スカラ投影の範囲に留める（§5）。
 - **自動 tabularize の発火条件**: 「JSON source は常に tabualize」か「明示宣言時のみ」か（§8-2 は前者を提案）。
+
+---
+
+## 10. 0 件の回（空の配列・無いファイル）（2026-10-13・決定）
+
+### 10.1 何が起きたか
+
+種類ごとの JSON（`judgments.json` / `rules.json` / `observations.json` /
+`interpretations.json` …）を 1 ファイル 1 map にした Mapping IR で、ある種類が
+その回 0 件だと**取り込み全体が止まった**（再現 2026-10-10・Graphium の主張の書き出し）。
+
+| 0 件の形 | 止まり方 | 原因 |
+|---|---|---|
+| ファイルごと無い | `RmlValidationError: RML design validation failed`（source file … does not exist） | 設計検証の `_check_sources` が「無い source」を設計の誤りとして止める |
+| 中身が `[]` | `ValueError`（Morph-KGC の CSV 読み — `Usecols do not match` や区切り文字の推定 `bad delimiter value`） | tabularize が**列の無い空の CSV** を書き、Morph-KGC が列を探し・区切り文字を推定しに行って落ちる |
+
+止まるのは他の map まで巻き込む点が問題。0 件の種類は 0 トリプル、他の種類は普段どおり、が正しい。
+
+### 10.2 決定
+
+| # | 論点 | 決定 |
+|---|---|---|
+| E1 | `[]`（トップレベルの空配列） | **印なしで常に「行が 0 件」**。ファイルがあって中身が `[]` なのは「0 件です」という明示の申告であり、設計の誤りではない。 |
+| E2 | `[]` の扱い方 | substrate の前処理の先頭（`prune_empty_sources`）で、その source を読む TriplesMap を**取り込みから外す**。tabularize は呼ばれない＝列の無い空の表を作らない＝Morph-KGC の区切り文字の推定に空ファイルが渡らない。`tabularize_json_to_csv` 自体も 0 件なら書かずに `ValueError`（防御）。 |
+| E3 | ファイルが無い（既定） | **今のまま止める**。名前の打ち間違い・書き出し漏れを黙って 0 件にしない（`_check_sources` が存在する理由そのもの）。 |
+| E4 | ファイルが無い（印あり） | map に **`optional: true`** があるときだけ「0 件の回がありうる source」とみなし、無ければ E2 と同じく外す。ファイルがあれば普段どおり読む（列の打ち間違いはこれまでどおり止まる）。 |
+| E5 | 印の置き場所 | **Mapping IR の map**（`optional: true`）。コンパイラが `rml:logicalSource` に **`ast:sourceOptional true`** を載せ、substrate が読む。dialect の `ast:` 注記と同じ経路（データ専用・実行の意味なし・取り込み境界で剥がす）。 |
+| E6 | 外す範囲 | 外した TriplesMap を `rr:parentTriplesMap` で参照する object map も外す（0 行の親との join は 0 トリプル＝結果は同じ）。名前つきの `rml:LogicalSource` も、他に読む map が無ければ一緒に外す（残すと後段がその `rml:source` を拾って止まる）。join が唯一の出力で class も無い map は何も生まなくなるので連鎖して外す（Morph-KGC は殻の map で落ちる）。TriplesMap が 1 つも残らなければ Morph-KGC を呼ばずに 0 トリプルを返す。 |
+| E7 | 外したことの記録 | 外した map と理由（`empty`／`missing`）を `logger.info` に出す。UI での表示は後続。 |
+
+### 10.3 印の置き場所 — 案の比較
+
+| 案 | 内容 | 判定 |
+|---|---|---|
+| **A（採用）. IR の map に `optional: true`** | 設計（レビュー対象の成果物）に載る。RML に `ast:sourceOptional` として落ち、substrate の契約（RML ＋ source dir）の中で完結する | ✓ 設計の差分として人が見られる・生 RML でも書ける・map 単位＝書き出しの単位（1 種類 1 ファイル）と一致 |
+| B. registry 側の設定 | データセットの meta に「無くてよい source」を持つ | ✗ 設計と設定が別々にずれる・レビューに出ない・substrate に横の入口が増える |
+| C. 無いファイルは常に 0 件 | 印を設けない | ✗ 打ち間違い・書き出し漏れが静かに 0 件になる（E3 の理由） |
+
+### 10.4 規則（IR 側の検査）
+
+- `optional` は真偽値（`yes`/`no` 等の YAML 1.1 表記も既存の `coerce_bool` で受ける）。
+- 表の source（`.csv` — JSON の表化名を含む — ほか `TABULAR_SUFFIXES`）にだけ置ける。XML は対象外（需要が無い・iterator の別経路）。
+- **同じ source を読む map どうしは `optional` を揃える**。片方だけ印があると「無くてよい」と「無いのは誤り」が同時に成り立つため、パース時に誤りとして返す。
+- 環境検査（`validate_mapping_ir`）と設計検証（`validate_rml_design._check_sources`）は、印のある map のファイルが無いことを誤りにしない。
+- 実行時にファイルの形式は判定しない（無いファイルには形式が無い）。印は「JSON の record 配列の書き出しで 0 件の回がありうる」用途のためのものだが、表の source なら同じ意味で効く。
+- AI の設計（LLM の JSON schema）には `optional` を**載せない**。設計の誤りを AI が印で塞ぐ道を作らないため。書くのは書き出し側（Graphium 等）か人。
+
+### 10.5 範囲外（正直に）
+
+- `{"data": []}` のように**包まれた空配列**は 0 件とみなさない（1 件の文書の空リスト欄と区別できない・`_load_records` は従来どおり 1 行として読む）。
+- 0 バイトのファイル・壊れた JSON は従来どおり止まる。
+- かんたんの決定論設計や AI の作り直し（skeleton からの組み直し・修正ループ）は IR を作り直すので `optional` を引き継がない。UI から印を付ける手段も後続。
+- ID の引っ越しの台帳（`id_move.compile_id_move_rml`）は新しい設計の map の `optional` を引き継ぐ。ファイルが無い回はその map の列が読めず、通常は台帳に載らない（`blocked`）。
+- 何か外したときの再シリアライズでは、相対 IRI（`<#ThingMap>` など）が実行時の場所を基準に絶対化される（`normalize_dialect_sources` と同じ既存の振る舞い）。TriplesMap 名はデータに出ないので影響しない。
+
+### 10.6 不変条件への適合
+
+- **生成コード非実行**: 外すのは宣言的マッピングへの固定の編集（`strip_dialect_annotations` と同じ信頼クラス）。関数は増えない（T9 不変）。
+- **IRI 不変**: 残る map の IRI 規則に触れない。
+- **後方互換**: 印も `[]` も無いマッピングは `prune_empty_sources` を素通り（バイト一致）。
