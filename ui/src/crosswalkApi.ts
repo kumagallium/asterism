@@ -166,6 +166,9 @@ export interface Alignment {
   cq?: string | null
   /** 端が `dataset`／`shared` として記録されたのに、今は存在しない。切れている線。 */
   broken?: boolean
+  /** 端の表示名（rdfs:label・日本語優先）。古いサーバは返さない。 */
+  source_label?: string
+  target_label?: string
 }
 
 /** 線の端の種類（鋳造済みの共有語＝shared、標準語＝standard、素性不明＝unknown）。 */

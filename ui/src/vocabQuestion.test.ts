@@ -324,3 +324,13 @@ describe('既存の語に問いを足す', () => {
     expect(row()).not.toContain('問いを足す')
   })
 })
+
+describe('線の端の名前（表示名・標準は接頭辞つき）', () => {
+  it('表示名を優先し、標準の語は prefix:local、無ければ IRI の末尾', async () => {
+    const { endLabel } = await import('./vocabQuestion')
+    expect(endLabel('https://x.invalid/onto#Record_50577d', 'dataset', 'レシピ')).toBe('レシピ')
+    expect(endLabel('http://qudt.org/schema/qudt/hasUnit', 'standard', 'has unit')).toBe('qudt:hasUnit')
+    expect(endLabel('https://x.invalid/onto#food', 'dataset', '')).toBe('food')
+    expect(endLabel('https://x.invalid/onto#food')).toBe('food')
+  })
+})

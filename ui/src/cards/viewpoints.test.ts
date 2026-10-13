@@ -58,7 +58,7 @@ describe('viewpointsFrom', () => {
   const cardOnPage1 = card({ subject_key: 's:page-1', params: paramsA, title: '降水量の推移' })
   const cardOnPage2 = card({ subject_key: 's:page-2', params: paramsB, title: '降水量の推移' })
 
-  it('where 違いの 2 枚のカードは 1 つの観点にまとまり、使用ページ数は 2', () => {
+  it('where 違いの 2 枚のカードは 1 つの問いにまとまり、使用ページ数は 2', () => {
     const viewpoints = viewpointsFrom([cardOnPage1, cardOnPage2])
     expect(viewpoints).toHaveLength(1)
     expect(viewpoints[0].usedOn).toBe(2)
@@ -117,19 +117,19 @@ describe('applicableViewpoints', () => {
     }),
   ])[0]
 
-  it('一覧のページ: spec.class と同じ観点だけを返す', () => {
+  it('一覧のページ: spec.class と同じ問いだけを返す', () => {
     const page: ViewpointPage = { kind: 'set', classIri: OBS_CLASS, existingViewpointIds: [] }
     expect(applicableViewpoints([seriesVp, quantityVp], page).map((v) => v.id)).toEqual([seriesVp.id, quantityVp.id])
     const other: ViewpointPage = { kind: 'set', classIri: STATION_CLASS, existingViewpointIds: [] }
     expect(applicableViewpoints([seriesVp], other)).toEqual([])
   })
 
-  it('一覧のページ: 既にある観点は出さない', () => {
+  it('一覧のページ: 既にある問いは出さない', () => {
     const page: ViewpointPage = { kind: 'set', classIri: OBS_CLASS, existingViewpointIds: [seriesVp.id] }
     expect(applicableViewpoints([seriesVp, quantityVp], page).map((v) => v.id)).toEqual([quantityVp.id])
   })
 
-  it('1 件のページ: 自身の種類と一致する観点は「数字 1 つ」「表」だけ通す', () => {
+  it('1 件のページ: 自身の種類と一致する問いは「数字 1 つ」「表」だけ通す', () => {
     const page: ViewpointPage = { kind: 'individual', classIri: OBS_CLASS, existingViewpointIds: [] }
     const result = applicableViewpoints([seriesVp, quantityVp, factsVp], page)
     expect(result.map((v) => v.id).sort()).toEqual([quantityVp.id, factsVp.id].sort())
@@ -224,7 +224,7 @@ describe('paramsForPage', () => {
     ])
   })
 
-  it('1 件のページ: 観点の class が自身の種類と一致し linkingKinds に候補が無いときは null（無条件の全体集計を装わない）', () => {
+  it('1 件のページ: 問いの class が自身の種類と一致し linkingKinds に候補が無いときは null（無条件の全体集計を装わない）', () => {
     const quantityVp = viewpointsFrom([
       card({
         subject_key: 's:x',
@@ -287,7 +287,7 @@ function schema(tools: unknown[]): ClassSchema {
 }
 
 describe('declaredViewpoints', () => {
-  it('name/title/output_kind から同梱の観点を作る（宣言順のまま）', () => {
+  it('name/title/output_kind から同梱の問いを作る（宣言順のまま）', () => {
     const s = schema([
       { name: 'rainfall_by_year', title: '降水量の推移', output_kind: 'series' },
       { name: 'counts_by_kind', title: '種類別の件数', output_kind: 'breakdown' },

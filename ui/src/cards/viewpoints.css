@@ -1,5 +1,5 @@
-/* 「同じデータで使われている観点」の帯（ViewpointStrip.tsx・契約メモ
- * contract_pr_f6.md §1-2）とデータセットのページの「使われている観点」
+/* 「同じデータで使われている問い」の帯（ViewpointStrip.tsx・契約メモ
+ * contract_pr_f6.md §1-2）とデータセットのページの「使われている問い」
  * （DatasetPage.tsx）。色は必ず index.css のトークンから（生の値を書かない）。 */
 
 .viewpoint-strip {
@@ -45,7 +45,7 @@
   cursor: default;
 }
 
-/* ---- データセットのページの「使われている観点」（見た目だけ・押せない —
+/* ---- データセットのページの「使われている問い」（見た目だけ・押せない —
  * K30） ---- */
 
 .dataset-viewpoints-list {

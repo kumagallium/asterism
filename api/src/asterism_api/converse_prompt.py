@@ -111,7 +111,7 @@ _PATH_DESC: dict[str, dict[str, str]] = {
     },
 }
 
-#: 観点を作れる候補として ``build_system_prompt`` に渡す ``schema_properties``
+#: 問いを作れる候補として ``build_system_prompt`` に渡す ``schema_properties``
 #: に採る ``linking_kinds`` の種類の上限（契約 F14 §1.4「hops 昇順で先頭 8
 #: 種類（同じ class は 1 回）」）。
 _MAX_LINKING_CANDIDATE_CLASSES = 8
@@ -179,7 +179,7 @@ def top_linking_kind_classes(
 #: 絶対に出さない — AI への言い直し指示（``render_retry_message``）にだけ
 #: 生の理由を渡す）。
 _CANNOT_BUILD_NOTE: dict[str, str] = {
-    "ja": "うまく観点を作れませんでした。もう少し具体的に教えてください。",
+    "ja": "うまく問いを作れませんでした。もう少し具体的に教えてください。",
     "en": "I couldn't put together a working view from that — could you be a bit more specific?",
 }
 
@@ -280,14 +280,14 @@ def build_system_prompt(
     existing_titles: list[str],
     draft: dict[str, Any] | None,
 ) -> str:
-    """このページで観点を作る/直す/聞くための系統プロンプト（契約メモ §1-2/
+    """このページで問いを作る/直す/聞くための系統プロンプト（契約メモ §1-2/
     §1-3）。
 
-    ``schema_properties`` はこの会話で観点を作れる「候補の種類」ごとの
+    ``schema_properties`` はこの会話で問いを作れる「候補の種類」ごとの
     class_schema の properties（``{class_iri: [property, ...]}``）——
     個体のページでは linking_kinds の候補ぶん複数になり得る（1 件のページで
     候補が複数あるとき、AI にはどちらの種類で作るか選ばせる）。空 dict なら
-    「このページでは観点を新しく作れない」と明示し、聞くことだけを促す。
+    「このページでは問いを新しく作れない」と明示し、聞くことだけを促す。
 
     ``draft`` は ``params``/``presentation`` に加えて任意の ``view``
     （``{lang, spec|text, source_card_id}``）を持ち得る（契約 F18 §1.4）。
@@ -302,7 +302,7 @@ def build_system_prompt(
         lines = [
             "あなたはデータの可視化づくりを手伝う相談役です。",
             "このページに表示されている値や、並んでいるグラフ（カード）の結果をもとに、"
-            "ユーザーの質問に答えたり、新しい観点（グラフ）を提案したりします。",
+            "ユーザーの質問に答えたり、新しい問い（グラフ）を提案したりします。",
             "答えの最後には必ず根拠を書いてください"
             "（例:「『国の人口の推移』の2005年の値」のように、どのカードのどの値を見て"
             "答えたかを示す）。根拠にはカードの題名を書き、id（[id: …] の中身）は"
@@ -311,12 +311,12 @@ def build_system_prompt(
             "プログラムのコードや SPARQL クエリは書かないでください。",
             "",
             "質問の答えが、このページの値にも並んでいるカードの結果にも無く、下に挙げる"
-            "候補の種類の項目で答えられそうなときは、推測で答えず、その観点"
+            "候補の種類の項目で答えられそうなときは、推測で答えず、その問い"
             "（例: 強度の高い順）を提案してください。文章には「足すと答えられます」の"
             'ように書き、<proposal> の JSON に "answers": true を付け加えてください。'
             "答えが本当にどこにも無いときだけ、「このデータには無い」と伝えてください。",
             "",
-            "観点（グラフ）を提案したいときだけ、文章の後に <proposal> タグで囲んだ JSON を"
+            "問い（グラフ）を提案したいときだけ、文章の後に <proposal> タグで囲んだ JSON を"
             "1 つだけ書いてください（他の場所に JSON を書かない）。",
             "JSON の形: "
             '{"params": {"class": "...", "shape": "...", "x"?, "y"?, "category"?, '
@@ -324,7 +324,7 @@ def build_system_prompt(
             'null, "title": "..."}',
             "params.where は書かなくてよい（どの記録を対象にするかはサーバー側が自動的に補う）。",
             "",
-            "まず、この観点の指定（params）だけで表せないか考えてください。表せるなら"
+            "まず、この問いの指定（params）だけで表せないか考えてください。表せるなら"
             "それを使ってください。",
             "指定では表せない特殊な見せ方（例: 複数系列を重ねて描く・注釈を添える・軸を"
             "作り込む）のときだけ、代わりに次の形の JSON を書いてください:",
@@ -354,13 +354,13 @@ def build_system_prompt(
         ]
         lines += _shape_fields_line(lk)
         if schema_properties:
-            lines.append('観点を作れる種類と、それぞれの項目（"property IRI": 情報）:')
+            lines.append('問いを作れる種類と、それぞれの項目（"property IRI": 情報）:')
             for class_iri, props in schema_properties.items():
                 lines.append(f'- class "{class_iri}":')
                 lines.extend(_property_line(p) for p in props)
         else:
             lines.append(
-                "このページでは、まだ新しい観点を作れる種類が見つかっていません。"
+                "このページでは、まだ新しい問いを作れる種類が見つかっていません。"
                 "質問に答えるだけにしてください（<proposal> は書かない）。"
             )
         if linking_kinds:
@@ -368,7 +368,7 @@ def build_system_prompt(
             for k in linking_kinds:
                 lines.append(f"- {k.get('class_label')}（{_path_description(k, lk)}）")
         if existing_titles:
-            lines.append("すでにこのページにある観点: " + "、".join(existing_titles))
+            lines.append("すでにこのページにある問い: " + "、".join(existing_titles))
         if draft:
             lines.append(
                 "いまの下書き（「直す」で更新してほしい前回の提案）: "
@@ -678,7 +678,7 @@ def validate_proposal(
 ) -> dict[str, Any]:
     """AI の ``<proposal>`` を検証する。``proposal.kind == "view"``（契約
     F13 §1-2）なら :func:`_validate_view_proposal` に委ね、それ以外（従来の
-    観点の指定・``kind`` を書かない F12 の形も含む）は §1-2/§1-3 の妥当性表
+    問いの指定・``kind`` を書かない F12 の形も含む）は §1-2/§1-3 の妥当性表
     に照らして検証し、正規化した ``{"kind": "measure", "params",
     "presentation", "output_kind", "title", "answers"}`` を返す（表の外は
     ``MeasureSpecError``）。

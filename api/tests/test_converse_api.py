@@ -272,7 +272,7 @@ def test_converse_gives_up_after_one_retry_and_hides_the_raw_reason(tmp_path: Pa
         body = r.json()
         assert body["proposal"] is None
         assert "NotAKind" not in body["reply"]
-        assert "うまく観点を作れませんでした" in body["reply"]
+        assert "うまく問いを作れませんでした" in body["reply"]
         assert len(llm.calls) == 2
 
 

@@ -215,3 +215,9 @@
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* 節（縦並び）の直下に置いた入力欄は伸ばさない。横並びのフォーム用の flex-basis（14rem）が
+   縦の節では高さとして効き、「問いから始める」の入力欄の下に大きな空白ができた（実機 2026-10-09）。 */
+.vocab-sec > .vocab-field {
+  flex: none;
+}

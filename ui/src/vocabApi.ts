@@ -82,6 +82,9 @@ export interface FitCandidate {
   /** 候補の語の IRI。 */
   term: string
   kind: 'standard' | 'shared' | 'dataset'
+  /** 種類（class）か項目（property）か。③（項目）には property だけ、⑤（種類）には
+   *  class だけを出すための区別。 */
+  term_kind: 'class' | 'property'
   label: string
   matched_by: 'label' | 'column'
 }
@@ -180,4 +183,24 @@ export async function fit(label: string, column = ''): Promise<FitCandidate[]> {
   const res = await fetch(`${API_BASE}/api/vocab/fit?${qs.toString()}`)
   if (!res.ok) throw await asError(res, i18n.t('vocab:error.ops.fit'))
   return ((await res.json()) as { candidates?: FitCandidate[] }).candidates ?? []
+}
+
+/** ⑥の自分の問いを、共有の語 `slug` の問いとして写す（元の問いはデータセットに残る）。
+ *  200＝すでに写してある（`existed`）／201＝足した。
+ *  409＝上位が `slug` の語ではない（語が無い・線が無い）— 画面は鋳造フォームへ案内する。
+ *  404＝語か問いが無い。 */
+export async function copyCqFromDataset(
+  slug: string,
+  datasetId: string,
+  questionId: string,
+): Promise<{ term: string; cq: { tool_name: string; title: string }; existed: boolean }> {
+  const res = await fetch(`${API_BASE}/api/vocab/shared/${encodeURIComponent(slug)}/cq`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ from_dataset: datasetId, question_id: questionId }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('vocab:error.ops.addCq'))
+  const body = (await res.json()) as { term: string; cq: { tool_name: string; title: string } }
+  // 200 = すでに写してあった（api は新しく足したときだけ 201）。
+  return { ...body, existed: res.status === 200 }
 }

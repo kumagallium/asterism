@@ -74,7 +74,7 @@ export function subjectsForDataset(subjects: SubjectItem[], datasetId: string): 
   return subjects.filter((s) => s.dataset_id === datasetId)
 }
 
-/** 「使われている観点」の 1 行（PR F6・契約メモ contract_pr_f6.md §1-2）。 */
+/** 「使われている問い」の 1 行（PR F6・契約メモ contract_pr_f6.md §1-2）。 */
 export interface DatasetViewpointRow {
   id: string
   title: string
@@ -82,11 +82,11 @@ export interface DatasetViewpointRow {
   usedOn: number
 }
 
-/** 観点の集合（`viewpointsFrom` の全件）のうち、この `summary` の種類
+/** 問いの集合（`viewpointsFrom` の全件）のうち、この `summary` の種類
  *  （`classes[].class_iri`）に属するものだけを、表示に要る形にする。K4:
  *  種類の名前は必ず `summary.classes` の `label` から引く（生の class_iri は
  *  出さない）— この `dataset_id` の種類一覧に無い class（他のデータセット
- *  由来の観点）は出さない。順は `viewpointsFrom` が決めた順（使用数の多い順→
+ *  由来の問い）は出さない。順は `viewpointsFrom` が決めた順（使用数の多い順→
  *  題名順）のまま。 */
 // eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（FirstScreen.tsx と同じ理由）
 export function datasetViewpointRows(viewpoints: Viewpoint[], summary: DatasetSummary): DatasetViewpointRow[] {

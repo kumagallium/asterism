@@ -77,7 +77,7 @@
     "vocab": {
       "eyebrow": "Shared",
       "title": "Words",
-      "sub": "Kinds of data and fields your datasets share"
+      "sub": "Place words from a question and link them across datasets"
     },
     "crosswalk": {
       "eyebrow": "Connect",
