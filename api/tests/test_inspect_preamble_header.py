@@ -156,3 +156,24 @@ def test_preamble_header_over_budget_degrades_without_breaking_response(tmp_path
     # degraded rather than describing all of them.
     preamble = json.loads(r.headers["X-Asterism-Preamble"])
     assert preamble == {}
+
+
+def test_iri_bases_header_lists_only_iri_columns(tmp_path: Path) -> None:
+    """``X-Asterism-Iri-Bases``: {source: {column: base}} — IRI を持つ列だけ。"""
+    b = "https://g.example/claims/judgment/"
+    body = f"id,iri,score\na,{b}a,1.5\nb,{b}b,2.5\n"
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    canonical = _sanitize_tabular_name("j.csv")
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/inspect", files={"files": ("j.csv", body, "text/csv")})
+    assert r.status_code == 200, r.text
+    bases = json.loads(r.headers["X-Asterism-Iri-Bases"])
+    assert bases == {canonical: {"iri": b}}
+
+
+def test_iri_bases_header_empty_without_iri_columns(tmp_path: Path) -> None:
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/inspect", files={"files": ("clean.csv", _CLEAN_CSV, "text/csv")})
+    assert r.status_code == 200, r.text
+    assert json.loads(r.headers["X-Asterism-Iri-Bases"]) == {}

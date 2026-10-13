@@ -646,6 +646,42 @@ def test_propose_skeleton_rejects_a_malformed_rethink_skeleton(
         assert "skeleton" in r.json()["detail"]
 
 
+def test_skeleton_assemble_subject_bases(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """④「ID をこのデータの IRI に合わせる」: 受理なら template が base 形、
+    却下なら既定の ID のまま理由が metadata に出る。"""
+    b = "https://g.example/claims/judgment/"
+    csv = f"id,iri,score\na,{b}a,1.5\nb,{b}b,2.5\nc,{b}c,3.5\n"
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"subject_bases": json.dumps({"j.csv": "iri"}), "dataset_name": "claims"},
+            files={"files": ("j.csv", csv, "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        rec = next(m for m in body["skeleton"]["maps"] if m["name"] == "record")
+        assert rec["subject"]["template"] == b + "{id}"
+        assert body["metadata"]["subject_bases"]["j.csv"]["base"] == b
+        assert body["metadata"]["subject_base_rejected"] == {}
+
+        r2 = client.post(
+            "/api/propose/skeleton/assemble",
+            data={"subject_bases": json.dumps({"j.csv": "score"}), "dataset_name": "claims"},
+            files={"files": ("j.csv", csv, "text/csv")},
+        )
+        assert r2.status_code == 200, r2.text
+        body2 = r2.json()
+        rec2 = next(m for m in body2["skeleton"]["maps"] if m["name"] == "record")
+        assert ":record/" in rec2["subject"]["template"]
+        assert body2["metadata"]["subject_bases"] == {}
+        assert body2["metadata"]["subject_base_rejected"] == {"j.csv": "not_iri_column"}
+
+
 def test_skeleton_assemble_builds_from_judgments(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
