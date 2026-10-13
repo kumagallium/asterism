@@ -68,6 +68,9 @@ export interface InspectResult {
    *  preamble. Lets S2 ask for a name at the moment the column is created,
    *  instead of asking about a machine name after it has spread (K21). */
   preambleColumns: Record<string, PreambleColumn[]>
+  /** `{source: {列名: base}}` — 列の値が全部完全 IRI で共通の先頭を持つときの base。
+   *  ④で「ID をこのデータの IRI に合わせる」の提案に使う。 */
+  iriBases: Record<string, Record<string, string>>
 }
 
 /** Where a derived table came from, in the words of the workbook (K6). */
@@ -125,7 +128,12 @@ export async function inspectCsvs(
     'X-Asterism-Preamble',
     {},
   )
-  return { markdown, sourceNames, dialects, samples, sheets, preambleColumns }
+  const iriBases = jsonHeader<Record<string, Record<string, string>>>(
+    res,
+    'X-Asterism-Iri-Bases',
+    {},
+  )
+  return { markdown, sourceNames, dialects, samples, sheets, preambleColumns, iriBases }
 }
 
 /**
@@ -673,6 +681,13 @@ export interface SkeletonKindLabel {
  *  決定論・LLM 0・ジョブなし — /validate と同じ同期の呼び出しで、annotation を
  *  同梱して返す。metadata.provisional_card_keys が空でなければ、カードの ID は
  *  機械の仮置き（⑤で ⚠ として明示する）。 */
+export interface AssembleMetadata {
+  provisional_card_keys: Record<string, string>
+  dataset_slug: string
+  subject_bases?: Record<string, { column: string; base: string; template: string }>
+  subject_base_rejected?: Record<string, string>
+}
+
 export async function assembleSkeleton(
   files: File[],
   opts: {
@@ -685,11 +700,13 @@ export async function assembleSkeleton(
     labels?: SkeletonKindLabel[]
     /** 行の種類の表示名 {ファイル名: 表示名}（ADR kantan K64）。 */
     rowLabels?: Record<string, string>
+    /** ID を元データの IRI に合わせる列 {ファイル名: 列名}（card_keys と同じ形）。 */
+    subjectBases?: Record<string, string>
   },
 ): Promise<{
   skeleton: MappingSkeleton
   annotations: SkeletonAnnotations
-  metadata: { provisional_card_keys: Record<string, string>; dataset_slug: string }
+  metadata: AssembleMetadata
 }> {
   const form = new FormData()
   appendSources(form, files, opts.stagingId)
@@ -700,13 +717,15 @@ export async function assembleSkeleton(
   if (opts.labels?.length) form.append('labels', JSON.stringify(opts.labels))
   if (opts.rowLabels && Object.keys(opts.rowLabels).length > 0)
     form.append('row_labels', JSON.stringify(opts.rowLabels))
+  if (opts.subjectBases && Object.keys(opts.subjectBases).length > 0)
+    form.append('subject_bases', JSON.stringify(opts.subjectBases))
   appendDialects(form, opts.dialects)
   const res = await fetch('/api/propose/skeleton/assemble', { method: 'POST', body: form })
   if (!res.ok) await throwApiError(res, 'assemble')
   return (await res.json()) as {
     skeleton: MappingSkeleton
     annotations: SkeletonAnnotations
-    metadata: { provisional_card_keys: Record<string, string>; dataset_slug: string }
+    metadata: AssembleMetadata
   }
 }
 

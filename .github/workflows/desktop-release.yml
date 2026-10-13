@@ -34,6 +34,11 @@ jobs:
   release:
     name: Release build (macOS Apple Silicon)
     runs-on: macos-latest
+    # 固まったときに既定の 360 分まで走らせない上限（考え方は ci.yml の jobs: の上）。
+    # 公証（notarytool submit --wait を app と dmg で 2 回）は Apple 側の混み具合で延びるので
+    # 長めにとる。ここで切れると dmg と更新の配信は出ない — release-update-drift-check が
+    # 翌日 Issue にするので、`gh workflow run "Desktop Release" -f tag=vX.Y.Z` でやり直す。
+    timeout-minutes: 60 # 実測 8.4〜13.9 分（直近の成功 86 回・うち公証 5.5〜6.7 分）
     steps:
       - name: Resolve tag
         id: tag
