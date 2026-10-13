@@ -81,5 +81,13 @@ SPARQL の行が `max_rows`（既定 200,000）を超えても `truncated: true`
 返り値は `{"classes": {IRI: 最上位の共有語}, "properties": {IRI: 最上位の共有語}, "at": …}`（`GET /api/vocab/upper` と同じ）。
 畳み方は上位パス（種類は `rdfs:subClassOf|owl:equivalentClass|^owl:equivalentClass` の繰り返し、項目は `subPropertyOf` 版）、
 複数の上位は slug の辞書順で先頭、表に無い IRI は自分（全体グラフ側も `get(iri, iri)` で自分に落とす）。`at` は使わない。
-関数の同期・非同期は取り決めに無いので、api はどちらでも受ける。**`upper_map` の実装はまだ main に無い**（別 PR）。
-入ったら、実データで値の点の合流と色が上位になることを確かめる。
+関数の同期・非同期は取り決めに無いので、api はどちらでも受ける（実装は非同期・#697）。
+
+**実データで確かめた（2026-10-13・手元データの写し）**: 共有のことば「カード」（種類）に 2 つの XRD の Card を、
+「地域」（項目）に世界の国の「地域」と「地域（英語）」を結ぶと、凡例の「Card（xrd-cards）」「Card（xrd-experiment）」が
+「カード 2」の 1 つになり、押すと両方のデータセットのカードに同じ色が付く。英語の地域の値も「地域: …」の名前で出て、
+「一覧で開く」は元の項目で引ける。そのとき見つかった穴を 2 つ直した:
+- **線の graph（`crosswalk_runtime.ALIGNMENT_GRAPH`）を読まない**。公開済みの印を持つので読む範囲に入り、線の記録
+  （`xw:Alignment`）・結んだ種類や項目の IRI・`align…` の値が件として網に混ざっていた（点 776 → 788）。公開済みの数にも数えない。
+- **上位の種類が共有のことば（`sv:`）なら、名前は共有のことばの graph（`SHARED_VOCAB_GRAPH`）から引く**。`_class_labels` は
+  registry と ontology しか見ないので、slug の読みくだし「card」になっていた。
