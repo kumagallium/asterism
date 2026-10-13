@@ -676,3 +676,54 @@ def test_dialects_apply_to_tabular_sources_only() -> None:
     )
     issues = parse_issues(xml)
     assert any("tabular sources only" in i for i in issues)
+
+
+# ---- optional: ファイルが無い回を 0 件として通す（ADR native-json-denormalization §10）
+
+
+def _with_optional(value: str) -> str:
+    return MINIMAL.replace("source: data.csv", f"source: data.csv\n    optional: {value}")
+
+
+def test_optional_parses_onto_map() -> None:
+    ir = parse_mapping_ir(_with_optional("true"))
+    assert ir.maps[0].optional is True
+    assert parse_mapping_ir(MINIMAL).maps[0].optional is False
+
+
+def test_optional_accepts_yaml11_words() -> None:
+    ir = parse_mapping_ir(_with_optional("yes"))
+    assert ir.maps[0].optional is True
+
+
+def test_optional_must_be_boolean() -> None:
+    issues = parse_issues(_with_optional("sometimes"))
+    assert any("optional must be true or false" in i for i in issues)
+
+
+def test_optional_applies_to_tabular_sources_only() -> None:
+    xml = MINIMAL.replace(
+        "source: data.csv", 'source: doc.xml\n    iterator: "/x"\n    optional: true'
+    ).replace('template: "exr:thing/{id}"', 'template: "exr:thing/{@id}"')
+    issues = parse_issues(xml)
+    assert any("'optional' applies to tabular sources only" in i for i in issues)
+
+
+def test_maps_reading_one_source_must_agree_on_optional() -> None:
+    second = MINIMAL.split("maps:\n", 1)[1].replace("name: thing", "name: other")
+    text = _with_optional("true") + second
+    issues = parse_issues(text)
+    assert any("disagree on 'optional'" in i and "thing" in i and "other" in i for i in issues)
+
+
+def test_validate_absent_optional_source_is_not_an_issue() -> None:
+    text = _with_optional("true")
+    assert validate(text, ["other.csv"], {"other.csv": ["id"]}) == []
+
+
+def test_validate_absent_optional_source_still_checks_functions() -> None:
+    text = _with_optional("true").replace(
+        "column: name", "column: name\n        function: no_such_fn"
+    )
+    issues = validate(text, [], {})
+    assert issues and not any("does not exist" in i for i in issues)

@@ -51,6 +51,7 @@ from asterism.dialect import (
     is_default,
     safe_column,
 )
+from asterism.empty_sources import is_optional_logical_source
 
 # FnO vocab (the *new* RML-FNML namespace Morph-KGC uses; the substrate normalizes
 # the legacy URI to this before validation, but we accept both for robustness).
@@ -242,7 +243,7 @@ def _check_sources(graph, csv_dir: Path) -> list[str]:
         available = []
     seen: set[str] = set()
     for s_pred in _SOURCE_PREDS:
-        for src in graph.objects(None, sub_pred(s_pred)):
+        for ls, src in graph.subject_objects(sub_pred(s_pred)):
             raw = str(src).strip()
             if not raw:
                 continue
@@ -250,6 +251,11 @@ def _check_sources(graph, csv_dir: Path) -> list[str]:
             if not path.is_absolute():
                 path = csv_dir / raw
             if path.exists():
+                continue
+            # A source marked ``ast:sourceOptional`` (IR ``optional: true``) may be
+            # absent: it has 0 rows this run and ingest skips its TriplesMaps (ADR
+            # native-json-denormalization.md §10). Unmarked, absence stays an error.
+            if is_optional_logical_source(graph, ls):
                 continue
             name = path.name
             # A ``.csv`` reference backed by a sibling JSON is legal: ingest

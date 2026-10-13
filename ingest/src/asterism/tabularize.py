@@ -169,6 +169,41 @@ def sanitize_csv_columns(source: Path | str, dest: Path | str) -> bool:
     return True
 
 
+_JSON_WHITESPACE = frozenset(b" \t\n\r")
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+def is_empty_json_array(source: Path | str) -> bool:
+    """True when ``source`` is a JSON document whose top level is ``[]``.
+
+    The zero-row shape of a per-kind record export (ADR
+    ``native-json-denormalization.md`` §10): the file is there and says "no
+    records this run". Read as a byte stream that stops at the first character
+    that cannot belong to ``[ ]`` (a record array answers at its second
+    non-blank byte), so a large source is never parsed twice. A wrapped
+    ``{"data": []}`` is NOT empty here — it is indistinguishable from a single
+    record whose field is an empty list, and :func:`_load_records` reads it as
+    one row.
+    """
+    state = 0  # 0: before "[", 1: inside "[", 2: after "]"
+    with Path(source).open("rb") as fh:
+        first = True
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            if first and chunk.startswith(_UTF8_BOM):
+                chunk = chunk[len(_UTF8_BOM):]
+            first = False
+            for byte in chunk:
+                if byte in _JSON_WHITESPACE:
+                    continue
+                if state == 0 and byte == 0x5B:  # "["
+                    state = 1
+                elif state == 1 and byte == 0x5D:  # "]"
+                    state = 2
+                else:
+                    return False
+    return state == 2
+
+
 def tabularize_json_to_csv(
     source: Path | str,
     dest: Path | str,
@@ -181,9 +216,20 @@ def tabularize_json_to_csv(
     inside a top-level object (mirrors the inspector's iterator detection); by
     default a top-level array is the record set and any other document is treated
     as one record.
+
+    A source with no records (``[]``) raises :class:`ValueError` and writes
+    nothing: a column-less CSV is not a table any reader can use (Morph-KGC falls
+    into delimiter sniffing on it and fails). The substrate removes a zero-row
+    source's TriplesMaps before this runs (``asterism.empty_sources``).
     """
     doc = json.loads(Path(source).read_text(encoding="utf-8"))
-    rows = tabularize_records(_load_records(doc, record_path))
+    records = _load_records(doc, record_path)
+    if not records:
+        raise ValueError(
+            f"JSON source {Path(source).name!r} has no records; a zero-row source "
+            "is skipped, not tabularized"
+        )
+    rows = tabularize_records(records)
     return write_rows_csv(rows, dest)
 
 

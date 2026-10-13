@@ -262,3 +262,47 @@ def test_json_array_iri_with_a_broken_element_fails_closed(
             store.bulk_load(path=str(out), mime_type="application/n-triples")
         except TypeError:  # older pyoxigraph signature
             store.bulk_load(str(out), "application/n-triples")
+
+
+def test_compiled_per_kind_export_skips_zero_row_kinds(tmp_path: Path) -> None:
+    """種類ごとの JSON 書き出し（1 ファイル 1 map）で、ある種類が ``[]``、別の種類が
+    ``optional: true`` でファイルごと無くても、残りの種類は取り込める
+    （ADR native-json-denormalization.md §10）。IR → コンパイラ → substrate の一周。"""
+    import json
+
+    (tmp_path / "judgments.json").write_text(
+        json.dumps([{"id": "j1", "text": "a"}, {"id": "j2", "text": "b"}]), encoding="utf-8"
+    )
+    (tmp_path / "rules.json").write_text("[]", encoding="utf-8")
+    # interpretations.json は書き出されていない回
+    kinds = (("judgment", "judgments"), ("rule", "rules"), ("interpretation", "interpretations"))
+    maps = "".join(
+        f"""
+  - name: {name}
+    source: {src}.csv
+    optional: {"true" if src == "interpretations" else "false"}
+    subject:
+      template: "exr:{name}/{{id}}"
+      classes: [ex:{name.capitalize()}]
+    properties:
+      - predicate: ex:text
+        column: text
+"""
+        for name, src in kinds
+    )
+    ir = parse_mapping_ir(
+        'version: 1\nprefixes:\n  ex: "https://example.org/ns#"\n'
+        '  exr: "https://example.org/r/"\nmaps:' + maps
+    )
+    graph = substrate.materialize_to_graph(compile_mapping_ir(ir), tmp_path)
+    subjects = {str(s) for s in graph.subjects()}
+    assert subjects == {"https://example.org/r/judgment/j1", "https://example.org/r/judgment/j2"}
+    assert len(graph) == 4
+
+    # 印の無い map のファイルが無ければ、従来どおり止まる
+    strict = parse_mapping_ir(
+        'version: 1\nprefixes:\n  ex: "https://example.org/ns#"\n'
+        '  exr: "https://example.org/r/"\nmaps:' + maps.replace("optional: true", "optional: false")
+    )
+    with pytest.raises(substrate.RmlValidationError):
+        substrate.materialize_to_graph(compile_mapping_ir(strict), tmp_path)

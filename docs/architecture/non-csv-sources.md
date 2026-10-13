@@ -63,6 +63,8 @@ Materials Project = ネスト JSON スナップショット（`datasets/material
 
 ## 7. 残（後続）
 
+- **0 件の回**（JSON が `[]`・種類ごとの書き出しでファイルが無い回）は [`native-json-denormalization.md`](native-json-denormalization.md) §10 で決定・実装済（2026-10-13）。
+
 - **ライブ API ソース**: Morph-KGC `http_api`（`http_api_df`＋認証トークン＋paging）。実体は *fetch→JSON スナップショット→本 ADR の JSON 経路* の前段に fetch を足す形で拡張でき、再現性のため取得 JSON を `source/` にスナップショット保存する。
 - **DB（RDB）ソース**: 接続情報/secret の扱いを決めてから。
 - **validate.py の JSON 対応**: T1/T2 は CSV をファイル読みする。現状は `asterism-validate` CLI（`source_csvs` 明示時）のみで走り、api の materialize/ingest 経路には乗らないため JSON 取り込みには影響しない。JSON ソースで CLI validate を使う場合は要一般化。

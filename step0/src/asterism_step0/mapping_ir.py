@@ -146,6 +146,11 @@ class TriplesMapIR:
     subject: SubjectIR
     properties: tuple[PropertyIR, ...]
     iterator: str | None = None  # XML only
+    optional: bool = False
+    """The source file may be absent on a run: absent = 0 rows, and ingest
+    skips this map instead of stopping (ADR native-json-denormalization.md §10).
+    For per-kind exports where a kind can be empty. Compiled to
+    ``ast:sourceOptional true`` on the logical source; tabular sources only."""
 
 
 @dataclass(frozen=True)
@@ -410,7 +415,7 @@ _PROPERTY_KEYS = (
     "label",
     "unit",
 )
-_MAP_KEYS = ("name", "source", "iterator", "subject", "properties")
+_MAP_KEYS = ("name", "source", "iterator", "optional", "subject", "properties")
 _TOP_KEYS = ("version", "prefixes", "maps", "dialects")
 _DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows", "preamble", "preamble_names")
 
@@ -745,8 +750,18 @@ def _parse_map(raw: Any, index: int, issues: list[str]) -> TriplesMapIR | None:
     iterator = raw.get("iterator")
     if iterator is not None:
         iterator = _expect_str(iterator, f"{where}.iterator", issues)
+    optional_raw = raw.get("optional")
+    optional = False
+    if optional_raw is not None:
+        coerced = coerce_bool(optional_raw)
+        if coerced is None:
+            issues.append(f"{where}.optional must be true or false (got {optional_raw!r}).")
+        else:
+            optional = coerced
     if source is not None:
         suffix = "." + source.rsplit(".", 1)[-1].lower() if "." in source else ""
+        if optional and suffix not in _TABULAR_SUFFIXES:
+            issues.append(f"{where}: 'optional' applies to tabular sources only; remove it.")
         if suffix in _XML_SUFFIXES and iterator is None:
             issues.append(f"{where}: an XML source requires 'iterator' (an XPath).")
         if suffix in _TABULAR_SUFFIXES and iterator is not None:
@@ -776,6 +791,7 @@ def _parse_map(raw: Any, index: int, issues: list[str]) -> TriplesMapIR | None:
         subject=subject,
         properties=tuple(properties),
         iterator=iterator if isinstance(iterator, str) else None,
+        optional=optional,
     )
 
 
@@ -1015,6 +1031,19 @@ def parse_mapping_ir(text: str) -> MappingIR:
         names = [m.name for m in maps]
         for dup in sorted({n for n in names if names.count(n) > 1}):
             issues.append(f"map name {dup!r} is used more than once; names must be unique.")
+        # One file is either allowed to be absent or not: maps reading the same
+        # source must agree, or an absent file would be fine and an error at once.
+        optional_by_source: dict[str, set[bool]] = {}
+        for m in maps:
+            optional_by_source.setdefault(m.source, set()).add(m.optional)
+        for src in sorted(s for s, flags in optional_by_source.items() if len(flags) > 1):
+            marked = sorted(m.name for m in maps if m.source == src and m.optional)
+            unmarked = sorted(m.name for m in maps if m.source == src and not m.optional)
+            issues.append(
+                f"maps reading {src!r} disagree on 'optional' (set on "
+                f"{', '.join(marked)}; not on {', '.join(unmarked)}); set it on all "
+                f"of them or on none."
+            )
 
     dialects = _parse_dialects(doc.get("dialects"), maps, issues)
 
@@ -1051,7 +1080,10 @@ def validate_mapping_ir(
 
     for m in ir.maps:
         where = f"map '{m.name}'"
-        if m.source not in file_set:
+        # An optional map's absent file is 0 rows this run, skipped at ingest
+        # (ADR native-json-denormalization.md §10) — not an error; with no header
+        # its columns go unchecked, its functions are still checked below.
+        if m.source not in file_set and not m.optional:
             hint = _suggest(m.source, sorted(file_set))
             if not hint and file_set:
                 hint = f" Available files: {', '.join(sorted(file_set))}."
