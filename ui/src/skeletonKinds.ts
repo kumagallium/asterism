@@ -236,7 +236,7 @@ export function separateSharedKind(skeleton: MappingSkeleton, name: string): Map
         ...m,
         subject: {
           ...m.subject,
-          template: `${subjectHead(template)}${m.name}/{${key}}`,
+          template: `${subjectHeadFor(skeleton, template)}${m.name}/{${key}}`,
           classes: classPrefix ? [`${classPrefix}${pascal}`] : (m.subject.classes ?? []),
         },
       }
@@ -248,6 +248,17 @@ export function separateSharedKind(skeleton: MappingSkeleton, name: string): Map
  *  リテラル区間を 1 つ落として接頭辞（`xrr:` / `…/resource/`）まで戻す。
  *  （`SkeletonGate` の `splitConcept` から移設。つなぐための種類が「親の下」に
  *  見える住所を持つのを避けるための処理で、複数の入口が同じ形を作る要がある。） */
+/** 新しい種類の住所の頭。親の頭が絶対 IRI（`https://…`）のときは、よその名前空間に
+ *  鋳造せず、この設計の `…/resource/` の接頭辞（`res:` など）に戻す。 */
+export function subjectHeadFor(skeleton: Partial<Pick<MappingSkeleton, 'prefixes'>>, template: string): string {
+  const beforeSlot = template.includes('{') ? template.slice(0, template.indexOf('{')) : template
+  if (/^https?:\/\//.test(beforeSlot)) {
+    const res = Object.entries(skeleton.prefixes ?? {}).find(([, iri]) => iri.endsWith('/resource/'))
+    if (res) return `${res[0]}:`
+  }
+  return subjectHead(template)
+}
+
 export function subjectHead(template: string): string {
   const beforeSlot = template.includes('{') ? template.slice(0, template.indexOf('{')) : template
   const trimmed = beforeSlot.replace(/\/$/, '')
@@ -340,6 +351,7 @@ export function sameIdKind(
   mapName: string,
   classes: string[],
   label?: string,
+  skeleton?: Pick<MappingSkeleton, 'prefixes'>,
 ): SkeletonMap {
   const template = parent.subject.template ?? ''
   const slots = template.includes('{') ? template.slice(template.indexOf('{')) : ''
@@ -348,7 +360,7 @@ export function sameIdKind(
     source: parent.source,
     ...(parent.iterator === undefined ? {} : { iterator: parent.iterator }),
     subject: {
-      template: `${subjectHead(template)}${mapName}/${slots}`,
+      template: `${subjectHeadFor(skeleton ?? {}, template)}${mapName}/${slots}`,
       classes,
       ...(label ? { label } : {}),
     },
@@ -451,7 +463,7 @@ export function applySplits(
     }
     const taken = new Set(next.maps.map((m) => m.name))
     const mapName = slugMapName(split.name, taken)
-    const added = sameIdKind(parent, mapName, [expandClass(split.name.trim(), ns)])
+    const added = sameIdKind(parent, mapName, [expandClass(split.name.trim(), ns)], undefined, next)
     added.owns = [...new Set([...(added.owns ?? []), ...columns])]
     const idx = next.maps.findIndex((m) => m.name === parent.name)
     let withKind: MappingSkeleton = {
@@ -587,7 +599,7 @@ export function splitSharedConcept(
     name: mapName,
     source: parent.source,
     subject: {
-      template: `${subjectHead(template)}${mapName}/{${key}}`,
+      template: `${subjectHeadFor(skeleton, template)}${mapName}/{${key}}`,
       classes: classPrefix ? [`${classPrefix}${pascal}`] : [],
     },
     owns: columns,

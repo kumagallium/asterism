@@ -134,14 +134,22 @@ describe('④を畳むときの行き先（ADR upper-structure-shared-terms §2.
 
   it('③の「この意味で進む」は、④が畳まれていれば runAssemble を直接呼ぶ', () => {
     const body = bodyOf(source, 'function onMeaningsSettled()')
-    expect(body).toContain('numberStepMode')
+    expect(body).toContain('step4Needed()')
     expect(body).toContain('runAssemble()')
     expect(body).toContain('setStep(11)')
+  })
+
+  it('④が要るかの判定は 1 つ: 番号の候補が 2 つ以上か、IRI に合わせる候補（#703）がある', () => {
+    const body = bodyOf(source, 'function step4Needed()')
+    expect(body).toContain("numberStepMode(state.rows, state.excluded) === 'ask'")
+    expect(body).toContain('baseCandidatesFor(s).length > 0')
+    // 手順バーの薄い表示も同じ判定（IRI の候補があれば畳まない）
+    expect(source).toMatch(/step4Fold[\s\S]{0,200}step4Needed\(\)/)
   })
 
   it('⑤の戻るは、④が畳まれていれば③（10）へ、出ていれば④（11）へ', () => {
     const at = source.indexOf('onBackToLinks={() => {')
     const body = source.slice(at, at + 400)
-    expect(body).toContain("numberStepMode(state.rows, state.excluded) === 'ask' ? 11 : 10")
+    expect(body).toContain('setStep(step4Needed() ? 11 : 10)')
   })
 })

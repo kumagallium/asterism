@@ -28,6 +28,8 @@ jobs:
   build:
     name: Build (macOS Apple Silicon)
     runs-on: macos-latest
+    # 固まったときに既定の 360 分まで走らせない上限（考え方は ci.yml の jobs: の上）。
+    timeout-minutes: 30 # 実測 6.7〜10.7 分（直近の成功 10 回）
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

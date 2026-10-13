@@ -1158,6 +1158,13 @@ export function KantanWizard({
   // handles.json の via:"fit"・term になる。ここに無い ☑ は via:"tick"。
   const [linkFitTerms, setLinkFitTerms] = useState<Record<string, string>>({})
   const [linkKeyPick, setLinkKeyPick] = useState<Record<string, string>>({})
+  // ④「ID をこのデータの IRI に合わせる」の答え（source → 列名。無ければ既定の ID）。
+  // ④の他の答えと同じく snapshot には入れない。
+  const [subjectBasePick, setSubjectBasePick] = useState<Record<string, string>>({})
+  // 組み立てで却下された知らせ（⑤に出す）。
+  const [subjectBaseNotes, setSubjectBaseNotes] = useState<
+    { source: string; column: string; reason: string }[]
+  >([])
   // 見直し（redesign）で開き直したとき、既存の ☑ handles.json を linkChecked
   // に読み戻せたか（F15 契約メモ §1.1）。読み戻す前 / 読み戻しに失敗したまま
   // 人も触っていない状態で materialize すると、空の配列が「新しい値」として
@@ -1450,6 +1457,8 @@ export function KantanWizard({
     // 扱いにする（F15 契約メモ §1.1 — 見直しで ☑ を消さないため）。
     setLinkChecked(new Set())
     setLinkFitTerms({})
+    setSubjectBasePick({})
+    setSubjectBaseNotes([])
     setLinkTouched(false)
     linkHandlesHydratedFor.current = null
     setKindPicks({})
@@ -2609,6 +2618,8 @@ export function KantanWizard({
       // re-uploading — that is how a sheet choice takes effect (K6).
       const result = await inspectCsvs(arr, [], staged ?? null)
       setInspection(result)
+      setSubjectBasePick({})
+      setSubjectBaseNotes([])
       setInspectionMd(result.markdown)
       const cards = await buildPreviews(arr, result, dialectOverrides)
       setPreviews(cards)
@@ -2889,6 +2900,8 @@ export function KantanWizard({
       }
       const result = await inspectCsvs(files, [], stagingId)
       setInspection(result)
+      setSubjectBasePick({})
+      setSubjectBaseNotes([])
       setInspectionMd(result.markdown)
       const cards = await buildPreviews(files, result, dialectOverrides)
       const nextSourceColumns = deriveSourceColumns(cards)
@@ -2953,6 +2966,8 @@ export function KantanWizard({
     setKind(null)
     setPreviews([])
     setInspection(null)
+    setSubjectBasePick({})
+    setSubjectBaseNotes([])
     setSkeleton(null)
     setAnnotations(null)
     setQ1(null)
@@ -3106,6 +3121,32 @@ export function KantanWizard({
 
   function meaningKey(source: string, column: string): string {
     return columnKey(source, column)
+  }
+
+  /** ④「ID をこのデータの IRI に合わせる」の候補（列と base）。初回設計だけ
+   *  （見直しでは空 — 公開後に変えると ID の引っ越しになる）。③で「取り込まない」
+   *  にした列と、プレースホルダのホスト（サーバの placeholder_prefix_issue と
+   *  同じ規則）は除く。描画と送信が**同じ式**を通るので、画面に見えない選択が
+   *  サーバへ届くことはない。 */
+  /** ④を見せる必要があるか。番号の候補が 2 つ以上あるか、「ID をこのデータの IRI に
+   *  合わせる」の候補（#703・初回設計だけ）があるとき。どちらも無ければ④は畳み、③が
+   *  直接組み立てる（ADR upper-structure-shared-terms §2.5.2）。③の進み先・⑤の戻り先・
+   *  手順バーの薄い表示が、この 1 つの判定を使う。 */
+  function step4Needed(): boolean {
+    const state = judgmentState()
+    if (numberStepMode(state.rows, state.excluded) === 'ask') return true
+    return sourcesOf(state.rows).some((s) => baseCandidatesFor(s).length > 0)
+  }
+
+  function baseCandidatesFor(source: string): { column: string; base: string }[] {
+    if (redesigning) return []
+    return Object.entries(inspection?.iriBases?.[source] ?? {})
+      .filter(([column, base]) => {
+        if (excludedColumns.includes(meaningKey(source, column))) return false
+        const host = /^https?:\/\/([^/]+)/.exec(base)?.[1]
+        return !!host && !/(^|\.)example\.(org|com|net|edu)$|^localhost$/i.test(host)
+      })
+      .map(([column, base]) => ({ column, base }))
   }
 
   /** 見直し（redesign）でウィザードを開いたとき、既存の ☑ handles.json を
@@ -3281,8 +3322,7 @@ export function KantanWizard({
    *  §2.5.2）。 */
   function onMeaningsSettled() {
     setAssembleErr('')
-    const state = judgmentState()
-    if (numberStepMode(state.rows, state.excluded) === 'ask') {
+    if (step4Needed()) {
       setStep(11)
       return
     }
@@ -3364,6 +3404,13 @@ export function KantanWizard({
         files.length > 0 ? files.map((f) => f.name) : [...new Set(meaningRows().map((r) => r.source))],
         (file) => t('kantan:s4.rowKindLabel', { file }),
       )
+      // 画面に見えている候補だけを送る（③で外した列や、入れ替えたファイルの
+      // 選択は捨てる）。
+      const subjectBases = Object.fromEntries(
+        Object.entries(subjectBasePick).filter(([source, column]) =>
+          baseCandidatesFor(source).some((c) => c.column === column),
+        ),
+      )
       const result = await assembleSkeleton(files, {
         linkable: [...linkableKeys].map(pair),
         // 取り込まない列を名指しの番号として送らない（effectiveNumber と同じ規則）。
@@ -3378,7 +3425,15 @@ export function KantanWizard({
         stagingId,
         labels,
         rowLabels,
+        subjectBases,
       })
+      setSubjectBaseNotes(
+        Object.entries(result.metadata?.subject_base_rejected ?? {}).map(([source, reason]) => ({
+          source,
+          column: subjectBases[source] ?? '',
+          reason,
+        })),
+      )
       setSkeleton(result.skeleton)
       setAiSkeleton(result.skeleton)
       setAnnotations(result.annotations)
@@ -4977,6 +5032,8 @@ export function KantanWizard({
     setPendingRestore(null)
     setPreviews([])
     setInspection(null)
+    setSubjectBasePick({})
+    setSubjectBaseNotes([])
     setInspectionMd('')
     setSkeleton(null)
     setAnnotations(null)
@@ -5114,8 +5171,11 @@ export function KantanWizard({
   // 列の事実がまだ無い間（①②）は言わない。
   const numberMode =
     recipePos >= 3 ? numberStepMode(meaningRows(), excludedColumns) : null
+  // IRI に合わせる候補があれば④は出る（畳まない）。
   const step4Fold: 'auto' | 'placeholder' | undefined =
-    numberMode === 'auto' || numberMode === 'placeholder' ? numberMode : undefined
+    (numberMode === 'auto' || numberMode === 'placeholder') && !(recipePos >= 3 && step4Needed())
+      ? numberMode
+      : undefined
   const resumeAvailable = !!skeleton && !hasSource && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
 
@@ -7557,6 +7617,10 @@ export function KantanWizard({
             const sources = sourcesOf(state.rows)
             const mode = numberStepMode(state.rows, state.excluded)
             const missingKeySources = sourcesMissingNumber(state.rows, state.excluded, linkKeyPick)
+            // 「ID をこのデータの IRI に合わせる」の候補（初回設計だけ — 公開後に
+            // 変えると ID の引っ越しになる）。式は runAssemble と同じ 1 本。
+            const baseCandidates = baseCandidatesFor
+            const baseSources = sources.filter((s) => baseCandidates(s).length > 0)
             return (
               <>
                 {mode === 'ask' ? (
@@ -7598,6 +7662,47 @@ export function KantanWizard({
                     {t('kantan:links.keyMissing')}
                   </p>
                 )}
+                {baseSources.length > 0 && (
+                  <>
+                    <h4 className="kz-next-title">{t('kantan:links.baseTitle')}</h4>
+                    <p className="kz-lead">{t('kantan:links.baseLead')}</p>
+                  </>
+                )}
+                {baseSources.map((source) => (
+                  <div key={`base-${source}`}>
+                    {sources.length > 1 && <p className="kz-zone-label">{basename(source)}</p>}
+                    <div className="kz-actions">
+                      <label className="kz-links-pick">
+                        <input
+                          type="radio"
+                          name={`basepick-${source}`}
+                          checked={!subjectBasePick[source]}
+                          onChange={() =>
+                            setSubjectBasePick((prev) => {
+                              const next = { ...prev }
+                              delete next[source]
+                              return next
+                            })
+                          }
+                        />
+                        {t('kantan:links.baseKeep')}
+                      </label>
+                      {baseCandidates(source).map(({ column, base }) => (
+                        <label key={column} className="kz-links-pick">
+                          <input
+                            type="radio"
+                            name={`basepick-${source}`}
+                            checked={subjectBasePick[source] === column}
+                            onChange={() =>
+                              setSubjectBasePick((prev) => ({ ...prev, [source]: column }))
+                            }
+                          />
+                          {t('kantan:links.baseUse', { column, base })}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
                 {assembleErr && (
                   <div role="alert">
                     <p className="kz-note">{t('kantan:links.assembleFailed')}</p>
@@ -7762,6 +7867,15 @@ export function KantanWizard({
           )}
           {/* 「もう一度考えさせる」の答えが、人が自分で打った値を書き換えて
               いたので機械が戻した。直したことは必ず画面に出す（黙って直さない）。 */}
+          {subjectBaseNotes.map((n) => (
+            <p key={n.source} className="kz-note" role="alert">
+              {t('kantan:links.baseRejected', {
+                source: basename(n.source),
+                column: n.column,
+                reason: t(`kantan:links.baseReason.${n.reason}`),
+              })}
+            </p>
+          ))}
           {skeleton && keptEdits.length > 0 && (
             <p className="kz-note" role="status">
               {t('kantan:s4.keptEdits', {
@@ -7800,8 +7914,7 @@ export function KantanWizard({
                 onBackToLinks={() => {
                   setAssembleErr('')
                   // ④が畳まれているなら戻る先は③（☑ も番号の自動判定もそこで決まる）。
-                  const state = judgmentState()
-                  setStep(numberStepMode(state.rows, state.excluded) === 'ask' ? 11 : 10)
+                  setStep(step4Needed() ? 11 : 10)
                 }}
                 // The provisional-issuer note is otherwise a dead end here: this
                 // tier has no settings tab of its own to point at (GATE-13).
