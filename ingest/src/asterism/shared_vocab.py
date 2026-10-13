@@ -245,7 +245,10 @@ def _local(iri: str) -> str:
 def _is_hub_or_alignment(graph_iri: str) -> bool:
     """A graph that is NOT a dataset's data: any crosswalk hub (the legacy
     ``…/canonical/crosswalk`` included) or the alignment graph."""
-    return graph_iri == ALIGNMENT_GRAPH or substrate.hub_perspective_name(graph_iri) is not None
+    return (
+        substrate.is_alignment_graph(graph_iri)
+        or substrate.hub_perspective_name(graph_iri) is not None
+    )
 
 
 def _hub_filter(var: str) -> str:

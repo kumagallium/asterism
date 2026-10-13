@@ -44,6 +44,7 @@ from asterism.substrate import (
     dataset_id_of_canonical_graph,
     meta_graph_iri,
     ontology_graphs,
+    without_alignment_graph,
 )
 
 _RDFS: Final[str] = "http://www.w3.org/2000/01/rdf-schema#"
@@ -745,7 +746,8 @@ async def schema_summary(
     promoted_graphs: list[str] = []
     if graph is None:
         promoted_graphs = await canonical_graphs(client)
-        from_block = canonical_from_clauses(promoted_graphs)
+        # 線の graph は数え上げから除く（線の意味は lines/shared_terms で別に出す）。
+        from_block = canonical_from_clauses(without_alignment_graph(promoted_graphs))
     else:
         from_block = ""
     classes_q = _scoped_select(

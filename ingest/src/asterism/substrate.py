@@ -286,13 +286,28 @@ def dataset_id_of_canonical_graph(iri: str) -> str | None:
     return rest
 
 
+#: 線の graph（種類どうし・項目どうし・標準への対応と、その記録 ``xw:Alignment``）。
+#: 定義はここに置き、:data:`asterism.crosswalk_runtime.ALIGNMENT_GRAPH` はこれを再公開する
+#: （同じ値であることはテストで固定）。promoted なので :func:`canonical_graphs` に入るが、
+#: データの中身ではない。Ask の FROM には上位パス（``rdfs:subClassOf|owl:equivalentClass…``）
+#: のために残し、件数・語の一覧・隣の探索では :func:`without_alignment_graph` で除く。
+ALIGNMENT_GRAPH: str = CANONICAL_GRAPH_BASE + "crosswalk/alignment"
+
 #: Names under ``…/canonical/crosswalk/`` that are NOT a perspective's hub graph.
-#: ``alignment`` is :data:`asterism.crosswalk_runtime.ALIGNMENT_GRAPH` (schema
-#: alignments between perspectives) — promoted like a hub graph, but it holds no
-#: shared entities. Kept here as a literal so this module stays decoupled from
-#: ``crosswalk_runtime`` (a test pins the two together).
+#: ``alignment`` is :data:`ALIGNMENT_GRAPH` (schema alignments between
+#: perspectives) — promoted like a hub graph, but it holds no shared entities.
 _HUB_RESERVED_NAMES = frozenset({"alignment"})
 _HUB_PERSPECTIVE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def is_alignment_graph(graph_iri: str) -> bool:
+    """``graph_iri`` が線の graph（:data:`ALIGNMENT_GRAPH`）か。"""
+    return graph_iri == ALIGNMENT_GRAPH
+
+
+def without_alignment_graph(graphs: Iterable[str]) -> list[str]:
+    """``graphs`` から線の graph を除く（順序は保つ）。件数・語の一覧・隣の探索用。"""
+    return [g for g in graphs if not is_alignment_graph(g)]
 
 
 def hub_perspective_name(graph_iri: str) -> str | None:
@@ -1126,9 +1141,11 @@ async def alignment_report(client: SupportsSparql, staged_iri: str) -> dict[str,
     every citable graph (:func:`canonical_graphs` — the same scope Ask reads), so
     Reuse reflects the whole corpus the staged data is being merged into. The staged
     graph is not promoted yet, so it is never part of the side it is compared against.
+    線の graph（:data:`ALIGNMENT_GRAPH`）はデータの中身ではないので比べる側から除く
+    （線の記録の語が reuse に混ざらない）。
     """
     staged = f"<{staged_iri}>"
-    from_block = canonical_from_clauses(await canonical_graphs(client))
+    from_block = canonical_from_clauses(without_alignment_graph(await canonical_graphs(client)))
     staged_preds = await _distinct_iris(client, f"GRAPH {staged} {{ ?s ?x ?o }}")
     canon_preds = await _distinct_iris(client, "?s ?x ?o", from_block=from_block)
     staged_classes = await _distinct_iris(client, f"GRAPH {staged} {{ ?s a ?x }}")

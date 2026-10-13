@@ -46,6 +46,9 @@ def _pyoxi_client(graphs: dict[str, str]):
         def __init__(self) -> None:
             self.queries: list[str] = []
 
+        async def sparql_update(self, update: str) -> None:
+            store.update(update)
+
         async def sparql_select(self, query: str) -> dict:
             self.queries.append(query)
             result = store.query(query)
@@ -370,3 +373,18 @@ async def test_incoming_line_name_uses_the_subjects_kind() -> None:
     assert _group(out, "in", WX + "observedAt", WX + "Observation")["predicate_label"] == "seen at"
     # 名前の無い線は読みくだし（生の識別子にしない）
     assert _group(out, "in", WX + "about", WX + "Alert")["predicate_label"] == "about"
+
+
+async def test_alignment_graph_is_not_a_neighbour_bundle() -> None:
+    # 中心が線の端の IRI でも、線そのもの・xw:alignTarget の記録を「入る線の束」にしない。
+    from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, assert_alignment
+
+    client = _client()
+    before = await subject_neighbors(client, REGION)
+    await assert_alignment(
+        client, WX + "Station", REGION, "equivalentClass", at="2026-10-13T00:00:00+00:00"
+    )
+    assert ALIGNMENT_GRAPH in await canonical_graphs(client)
+    after = await subject_neighbors(client, REGION)
+    assert after == before
+    assert not [g for g in after["groups"] if g["predicate_iri"] == XW + "alignTarget"]

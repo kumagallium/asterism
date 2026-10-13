@@ -2260,3 +2260,55 @@ def test_normalize_still_refuses_bytes_no_encoding_can_read(tmp_path: Path) -> N
         normalize_dialect_sources(rml, tmp_path, tmp_path / "work")
     assert "No known text encoding" in str(exc.value.issues[0])
     assert "changed since design time" not in str(exc.value.issues[0])
+
+
+def test_alignment_graph_helpers_and_pin() -> None:
+    from asterism import crosswalk_runtime
+
+    assert crosswalk_runtime.ALIGNMENT_GRAPH == substrate.ALIGNMENT_GRAPH
+    assert substrate.ALIGNMENT_GRAPH == CANONICAL_GRAPH_BASE + "crosswalk/alignment"
+    assert substrate.is_alignment_graph(substrate.ALIGNMENT_GRAPH)
+    assert not substrate.is_alignment_graph(canonical_graph_iri("ds1") + "/v1")
+    assert not substrate.is_alignment_graph(CANONICAL_GRAPH_BASE + "crosswalk/composition")
+    a, b = canonical_graph_iri("b"), canonical_graph_iri("a")
+    assert substrate.without_alignment_graph([a, substrate.ALIGNMENT_GRAPH, b]) == [a, b]
+    assert substrate.without_alignment_graph([]) == []
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_alignment_report_ignores_alignment_graph_terms() -> None:
+    # 線の graph（promoted）にしか無い語は、下書きが使っても reuse にならず new に残る。
+    from asterism.crosswalk_runtime import XW, assert_alignment
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        STATUS_PREDICATE,
+        STATUS_PROMOTED,
+    )
+
+    prov_end = "http://www.w3.org/ns/prov#endedAtTime"
+    qk = "http://qudt.org/schema/qudt/hasQuantityKind"
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    canon_g = rdflib.URIRef(canonical_graph_iri("other"))
+    staged_g = rdflib.URIRef(versioned_graph_iri("ds1", 1))
+    ds.graph(canon_g).add((ex.s, ex.p, rdflib.Literal("x")))
+    ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (canon_g, rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_PROMOTED))
+    )
+    g = ds.graph(staged_g)
+    g.add((ex.a, rdflib.RDF.type, rdflib.URIRef(XW + "Alignment")))
+    g.add((ex.a, rdflib.URIRef(XW + "alignSource"), ex.b))
+    g.add((ex.a, rdflib.URIRef(prov_end), rdflib.Literal("2026-01-01")))
+    g.add((ex.a, rdflib.URIRef(qk), ex.q))
+    client = _RWClient(ds)
+    await assert_alignment(
+        client, "https://ex/a#C", "https://ex/b#D", "subClassOf", at="2026-10-13T00:00:00+00:00"
+    )
+    assert substrate.ALIGNMENT_GRAPH in set(await substrate.canonical_graphs(client))
+
+    rep = await alignment_report(client, str(staged_g))
+    assert XW + "Alignment" in rep["classes"]["new"]
+    assert rep["classes"]["reuse"] == []
+    for term in (XW + "alignSource", prov_end, qk):
+        assert term in rep["predicates"]["new"]
+    assert rep["predicates"]["reuse"] == []
