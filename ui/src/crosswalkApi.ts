@@ -154,7 +154,25 @@ export interface Alignment {
   from_perspective: string
   to_perspective: string
   at: string
+  /** 以下の 6 つは api が読み取り時に必ず付ける（古い行にも。ADR upper-structure-shared-terms.md
+   * §2.3）。型が省略可なのは、これらが無かった頃の手組みデータ（テストの fixture など）を
+   * 壊さないため。画面は `?? 'unknown'` / `?? false` で読む。 */
+  source_kind?: AlignEndKind
+  target_kind?: AlignEndKind
+  /** 端が `dataset` のとき、そのデータセットの id。それ以外は null。 */
+  source_dataset?: string | null
+  target_dataset?: string | null
+  /** この線を引いた理由の問い（CQ）。無ければ null。 */
+  cq?: string | null
+  /** 端が `dataset`／`shared` として記録されたのに、今は存在しない。切れている線。 */
+  broken?: boolean
 }
+
+/** 線の端の種類（鋳造済みの共有語＝shared、標準語＝standard、素性不明＝unknown）。 */
+export type AlignEndKind = 'dataset' | 'perspective' | 'shared' | 'standard' | 'unknown'
+
+/** `getAlignments(scope)` の絞り込み。省略＝全部。 */
+export type AlignmentScope = 'perspective' | 'standard' | 'shared' | 'dataset'
 
 /** The asserted alignments + the CLOSED set of relations a human may assert. */
 export interface AlignmentsResult {
@@ -424,8 +442,9 @@ export function discoverCrosswalks(
 
 /** The asserted schema alignments between perspectives + the closed relation set
  * (read-only). */
-export async function getAlignments(): Promise<AlignmentsResult> {
-  const res = await fetch(`${API_BASE}/api/crosswalk/alignments`)
+export async function getAlignments(scope?: AlignmentScope): Promise<AlignmentsResult> {
+  const qs = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+  const res = await fetch(`${API_BASE}/api/crosswalk/alignments${qs}`)
   if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.fetchAlignments'))
   const j = (await res.json()) as { alignments?: Alignment[]; relations?: string[] }
   return { alignments: j.alignments ?? [], relations: j.relations ?? [] }
@@ -442,6 +461,8 @@ export async function align(
   relation: string,
   fromPerspective?: string,
   toPerspective?: string,
+  /** この線を引く理由の問い（CQ）。共有語への線では必要。 */
+  cq?: string,
 ): Promise<Alignment> {
   const res = await fetch(`${API_BASE}/api/crosswalk/align`, {
     method: 'POST',
@@ -452,6 +473,7 @@ export async function align(
       relation,
       from_perspective: fromPerspective ?? '',
       to_perspective: toPerspective ?? '',
+      ...(cq ? { cq } : {}),
     }),
   })
   if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.align'))

@@ -30,8 +30,8 @@
     "head": "Datasets"
   },
   "sharedBand": {
-    "title": "Shared terms",
-    "en": "shared terms",
+    "title": "Words",
+    "en": "words",
     "warn": "Changes affect everything · handle with care",
     "sub": "The words multiple datasets share. Keeping them aligned lets you <1>search and compare across datasets</1>.",
     "users": "<0>{{n}}</0> kinds shared",

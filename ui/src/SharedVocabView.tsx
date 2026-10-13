@@ -4,7 +4,11 @@ import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 import { deriveReuses, localName, knownVocabForIri } from './vocab'
+import { VocabLinesSection } from './VocabLinesSection'
 import { VocabMapSection } from './VocabMapSection'
+import { VocabQuestionEntry } from './VocabQuestionEntry'
+import { VocabTermsSection } from './VocabTermsSection'
+import { bumpVersion, parseVocabHash } from './vocabQuestion'
 
 const STATUS_KEY: Record<CatalogDataset['statusKind'], string> = {
   pub: 'vocab:status.pub',
@@ -80,6 +84,13 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
   const [loaded, setLoaded] = useState(false)
   // Bumped by the retry button; the fetch effect re-runs on every change.
   const [reloadKey, setReloadKey] = useState(0)
+  // 他の画面から持ち込まれた題・絞り込み（`#/vocab?q=…` `#/vocab?scope=…&dataset=…`）。
+  // タブは同じまま hash だけ変わることがあるので、hashchange で読み直す。
+  const [params, setParams] = useState(() => parseVocabHash(window.location.hash))
+  // 語・問い・線のどれかが変わったら 1 つ進める。地図・ことば・線の節がこれを見て読み直す
+  // （どの節から起きた変更でも、ほかの節が古いままにならない）。
+  const [version, setVersion] = useState(0)
+  const onChanged = () => setVersion(bumpVersion)
 
   // 「もう一度読み込む」: 表示を読み込み中に戻してから取得を再実行する
   // （state のリセットは effect の外で行う — effect 内の同期 setState は禁止）。
@@ -88,6 +99,12 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
     setLoaded(false)
     setReloadKey((k) => k + 1)
   }
+
+  useEffect(() => {
+    const onHash = () => setParams(parseVocabHash(window.location.hash))
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -154,6 +171,15 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         </div>
       </div>
 
+      <p className="vocab-sec-sub">{t('vocab:lead')}</p>
+
+      {/* 問いを書く入口（任意の入口。語が先なら下の「ことば」から作る）。題が変わったら作り直す。 */}
+      <VocabQuestionEntry
+        key={params.q}
+        initialQuestion={params.q}
+        onChanged={onChanged}
+      />
+
       {!schemaTried && (
         <p className="loading-row">
           <span className="spinner" />
@@ -181,8 +207,20 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
           onOpenDataset={(id) => goTo(`#/datasets/${encodeURIComponent(id)}`)}
           onOpenKind={(iri) => goTo(`#/cards/k/${encodeURIComponent(iri)}`)}
           onOpenCrosswalk={() => goTo('#/crosswalk')}
+          reloadKey={version}
+          onChanged={onChanged}
         />
       )}
+
+      <VocabTermsSection reloadKey={version} onChanged={onChanged} />
+
+      <VocabLinesSection
+        key={`${params.scope ?? ''}|${params.dataset ?? ''}`}
+        initialScope={params.scope}
+        initialDataset={params.dataset}
+        reloadKey={version}
+        onChanged={onChanged}
+      />
 
       {schema && (
         <div className="vocab-grid">

@@ -47,6 +47,7 @@ import {
 } from './icons'
 import { ProvenanceTrace } from './ProvenanceTrace'
 import { SourcePanel } from './SourcePanel'
+import { vocabQuestionHash } from './vocabQuestion'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
 
@@ -738,7 +739,7 @@ function Conversation({
     >
       {/* Answers arrive seconds later, asynchronously — announce arrivals. */}
       <div className="chat-thread" aria-live="polite">
-        {thread.turns.map((turn) =>
+        {thread.turns.map((turn, i) =>
           turn.role === 'user' ? (
             <div key={turn.id} className="chat-msg chat-msg--user">
               <div className="chat-bubble">{turn.text}</div>
@@ -757,6 +758,7 @@ function Conversation({
               onExample={onExample}
               onOpenSettings={onOpenSettings}
               catalog={catalog}
+              question={precedingQuestion(thread.turns, i)}
             />
           ),
         )}
@@ -778,6 +780,7 @@ function AnswerMessage({
   onExample,
   onOpenSettings,
   catalog,
+  question,
 }: {
   turn: AskAssistantTurn
   selectedIri: string | null
@@ -790,6 +793,8 @@ function AnswerMessage({
   onExample: (question: string) => void
   onOpenSettings: () => void
   catalog: AskCatalog
+  /** この回答に対する質問文（直前のユーザーの発言）。「ことばをつなぐ」導線に運ぶ。 */
+  question: string
 }) {
   const { t } = useTranslation()
   // `answered: false` = the agent produced no answer text at all (attempts
@@ -865,9 +870,33 @@ function AnswerMessage({
             catalog={catalog}
           />
         )}
+        {/* 答えられなかったとき（answered === false）だけ、ことばをつなぐ画面へ題だけ持ち込む。
+            答えられた回答には出さない。質問文は解釈しない（LLM を使わない）。 */}
+        {!turn.pending && question && unanswered && (
+          <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem' }}>
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => {
+                window.location.hash = vocabQuestionHash(question)
+              }}
+            >
+              {t('ask:toVocab')}
+            </button>
+          </p>
+        )}
       </div>
     </div>
   )
+}
+
+/** 回答 `index` の直前にあるユーザーの発言（質問文）。無ければ空。 */
+function precedingQuestion(turns: AskThread['turns'], index: number): string {
+  for (let i = index - 1; i >= 0; i--) {
+    const turn = turns[i]
+    if (turn.role === 'user') return turn.text
+  }
+  return ''
 }
 
 /** One grounded answer: provenance badge, Markdown answer, citations, notes,

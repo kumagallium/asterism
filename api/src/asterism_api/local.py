@@ -966,7 +966,7 @@ async def _publish_seeded_sample(
         # main.py の POST /api/datasets/{id}/promote ルートが呼ぶのと同じ内部
         # 関数、同じ順番（HTTP は叩かない）。促進の副作用のうち、オントロジーの
         # graph の投影と説明の graph の投影は公開の後に呼ぶ（下）— 呼ばないと
-        # 見本のことばにストア上の名前が無く「共通の言葉」で英字＋名前未設定に
+        # 見本のことばにストア上の名前が無く「ことば」で英字＋名前未設定に
         # なり、説明も MCP の schema_summary に出ない。クエリツール合成・
         # crosswalk 再構築・togomcp 配信は公開に必須ではないので呼ばない —
         # クエリツールは見本の query_tools.yaml（人が vet 済み、契約メモ §1）を

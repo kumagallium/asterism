@@ -1,0 +1,217 @@
+/* 「ことば」画面の本文（問いを書く入口・共有のことば・線）。色・角は既存のトークンだけを使う。 */
+.vocab-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+.vocab-sec-h {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.vocab-sec-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--body);
+  line-height: 1.7;
+}
+
+/* フォーム */
+.vocab-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.vocab-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+.vocab-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.vocab-field > input,
+.vocab-field > select {
+  font-size: 0.875rem;
+}
+.vocab-field-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.vocab-field-req {
+  margin-left: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--accent-strong);
+}
+
+/* 標準の語を先に出す箱 */
+.vocab-std {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--primary-softer);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+}
+.vocab-std-head {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.vocab-std-term {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.vocab-std-term code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--primary);
+}
+.vocab-std-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* 問い（CQ）の行 */
+.vocab-cq-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.vocab-cq-row > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 共有のことばの一覧 */
+.vocab-term-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.vocab-term {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.vocab-term-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.vocab-term-label {
+  font-weight: 700;
+  color: var(--fg);
+}
+.vocab-term-slug {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.vocab-term-kind,
+.vocab-term-isolated,
+.vocab-line-broken {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--muted);
+}
+.vocab-term-isolated,
+.vocab-line-broken {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.vocab-term-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--body);
+}
+.vocab-term-cqs {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--body);
+}
+.vocab-term-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.vocab-notice {
+  padding: 0.55rem 0.9rem;
+  font-size: 0.8125rem;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+/* 線の絞り込み */
+.vocab-scope-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.vocab-scope-tab {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.8rem;
+  color: var(--body);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.vocab-scope-tab:hover {
+  border-color: var(--border-strong);
+}
+.vocab-scope-tab[aria-pressed='true'] {
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  font-weight: 700;
+}
+.vocab-line-cq {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+/* 線の両端の kind の札（データセット・つながり・ことば・標準の語）。 */
+.vocab-line-kind {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--muted);
+  white-space: nowrap;
+}

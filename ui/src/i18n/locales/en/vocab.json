@@ -117,5 +117,121 @@
     "hiddenHubs": "{{n}} more connections not shown",
     "leadDataset": "Each circle is a dataset; its size is the total record count of its kinds. The circles in the middle band are the links that connect datasets. Click a circle to open just the kinds around it.",
     "leadFocus": "Showing only what is around your choice, as kind circles. Use \"Back to overview\" to return."
+  },
+  "title": "Words",
+  "lead": "Decide the words your datasets share, starting from a question. A word can answer questions only once a line connects it to datasets or a standard term.",
+  "sections": {
+    "question": "Start from a question",
+    "terms": "Words",
+    "lines": "Lines"
+  },
+  "question": {
+    "titleLabel": "Question",
+    "titlePlaceholder": "e.g. How many records are there for each sample composition?",
+    "hint": "Words are placed to answer this question. A word without a question cannot be created.",
+    "place": "Place the words the answer needs",
+    "empty": "No questions yet. Start by writing what you want to know.",
+    "defaultCq": {
+      "class": "How many {{label}} are there in each dataset?",
+      "property": "How many values of {{label}} are there in each dataset?"
+    },
+    "placedNote": "Placed \"{{label}}\". If the answer needs other words, place them next.",
+    "standardNote": "The standard term is used as it is, so no word was created.",
+    "notSaved": "The question you wrote here is not saved."
+  },
+  "term": {
+    "label": "Word (Japanese)",
+    "label_en": "English name",
+    "slug": "ID (ASCII letters and digits)",
+    "comment": "Short description",
+    "kind": "Type",
+    "kind_class": "Kind of data",
+    "kind_property": "Field",
+    "cq": "Questions this word answers",
+    "add_cq": "Add a question",
+    "standard_first": "Look for a standard term first",
+    "use_standard": "Use this standard term",
+    "decline": "Don't use it, create a new word",
+    "decline_reason": "Why not (kept as a record)",
+    "isolated": "Not wired to anything yet",
+    "answering": "Answered by {{n}} dataset(s)",
+    "many_isolated": "{{n}} word(s) are not wired yet. They will not appear as question candidates until a line is drawn.",
+    "narrower": "Connected to this word",
+    "standards": "Lines to standard terms",
+    "mint": "Create the word",
+    "remove": "Remove the word",
+    "removeBlocked": "Lines still point to this word. Remove the lines first.",
+    "exists": "A word with the same ID already exists.",
+    "cqRequired": "Write at least one question.",
+    "label_ja_hint": "In Japanese. This is the name shown on screen.",
+    "slug_hint": "Lowercase ASCII letters, digits and _, starting with a letter (e.g. sample_composition). The same ID means the same word.",
+    "slug_invalid": "The ID must be lowercase ASCII letters, digits and _, starting with a letter.",
+    "cq_title": "Question text",
+    "cq_remove": "Remove this question",
+    "cq_hint": "Answers are counted from datasets connected by lines. With no line yet, it reads \"0 datasets\".",
+    "std_found": "A standard term was found",
+    "std_searching": "Looking for a standard term…",
+    "std_use_note": "This standard term can be used as it is, so no word is created. To draw a line between kinds, pick this standard term in the \"Lines\" section.",
+    "std_goto_lines": "Go to \"Lines\"",
+    "std_reason_required": "Write why you are not using it (kept as a record).",
+    "std_from_column": "column \"{{column}}\"",
+    "cancel": "Cancel",
+    "creating": "Creating…",
+    "created": "Created \"{{label}}\".",
+    "open_form": "Create a word",
+    "list_empty": "No words yet. Write a question, or create one here.",
+    "list_loading": "Loading words…",
+    "narrower_count": "{{n}} connected",
+    "no_cq": "No questions",
+    "standard_line": "{{relation}} · {{name}}",
+    "remove_confirm": "Really remove",
+    "removing": "Removing…",
+    "kind_badge": {
+      "class": "Kind of data",
+      "property": "Field"
+    },
+    "required": "required",
+    "cq_op": "How to answer",
+    "cq_op_count": "Count records",
+    "cq_op_values": "Look at values",
+    "cq_add_submit": "Add the question",
+    "cq_adding": "Adding…",
+    "cq_added": "Added the question."
+  },
+  "lines": {
+    "scope": {
+      "perspective": "Between connections",
+      "standard": "To standard terms",
+      "shared": "To words",
+      "dataset": "Between datasets",
+      "all": "All"
+    },
+    "broken": "Broken",
+    "brokenHint": "The word this line pointed to can no longer be found.",
+    "empty": "No lines of this kind yet.",
+    "lead": "Lines drawn between words, datasets and standard terms. Filter them by kind. A line stays as a citable fact and can be withdrawn later.",
+    "cq": "Question: {{cq}}",
+    "datasetPick": "Dataset",
+    "datasetNone": "No dataset can be matched to a standard term yet.",
+    "loading": "Loading lines…",
+    "perspectiveLoading": "Loading connections…",
+    "standardLead": "Match the kinds and fields a dataset made itself to widely used standard terms.",
+    "kind_badge": {
+      "dataset": "Dataset",
+      "perspective": "Connection",
+      "shared": "Word",
+      "standard": "Standard term"
+    }
+  },
+  "error": {
+    "failed": "{{op}} failed (HTTP {{status}}){{detail}}",
+    "ops": {
+      "list": "Loading words",
+      "mint": "Creating the word",
+      "remove": "Removing the word",
+      "addCq": "Adding the question",
+      "upper": "Loading the upper map",
+      "fit": "Searching candidates"
+    }
   }
 }

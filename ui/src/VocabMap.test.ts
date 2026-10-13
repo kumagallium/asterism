@@ -7,7 +7,7 @@ import type { VocabShape } from './vocabGraph'
  *  降りる下端）は `arrange` が枠の中の座標で返すので、ずらし忘れると席が枠の外に
  *  描かれる（線は図全体の座標で描かれる）。 */
 
-const stats = { datasets: 0, kinds: 0, items: 0, used: 0, candidates: 0, alignments: 0 }
+const stats = { datasets: 0, kinds: 0, items: 0, used: 0, candidates: 0, alignments: 0, shared: 0 }
 
 /** 三角（R → a → b ＋ R → b）の枠が 2 つと、帯の標準のことば 1 つ。 */
 const shape: VocabShape = {
