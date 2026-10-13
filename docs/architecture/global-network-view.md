@@ -87,7 +87,7 @@ SPARQL の行が `max_rows`（既定 200,000）を超えても `truncated: true`
 「地域」（項目）に世界の国の「地域」と「地域（英語）」を結ぶと、凡例の「Card（xrd-cards）」「Card（xrd-experiment）」が
 「カード 2」の 1 つになり、押すと両方のデータセットのカードに同じ色が付く。英語の地域の値も「地域: …」の名前で出て、
 「一覧で開く」は元の項目で引ける。そのとき見つかった穴を 2 つ直した:
-- **線の graph（`crosswalk_runtime.ALIGNMENT_GRAPH`）を読まない**。公開済みの印を持つので読む範囲に入り、線の記録
+- **線の graph（`substrate.ALIGNMENT_GRAPH`）を読まない**（#708 の共通の判定 `substrate.without_alignment_graph` を使う）。公開済みの印を持つので読む範囲に入り、線の記録
   （`xw:Alignment`）・結んだ種類や項目の IRI・`align…` の値が件として網に混ざっていた（点 776 → 788）。公開済みの数にも数えない。
 - **上位の種類が共有のことば（`sv:`）なら、名前は共有のことばの graph（`SHARED_VOCAB_GRAPH`）から引く**。`_class_labels` は
   registry と ontology しか見ないので、slug の読みくだし「card」になっていた。
