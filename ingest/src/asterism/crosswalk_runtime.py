@@ -749,7 +749,7 @@ async def remove_hub(client, perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> No
 # auto-rewrite queries — it is a human-vetted, queryable FACT that a tool can follow
 # (consistent with the deterministic / citable product direction).
 
-ALIGNMENT_GRAPH = substrate.CANONICAL_GRAPH_BASE + "crosswalk/alignment"
+ALIGNMENT_GRAPH = substrate.ALIGNMENT_GRAPH
 _ALIGN_RESOURCE = "https://kumagallium.github.io/asterism/crosswalk/resource/alignment/"
 _PROV = "http://www.w3.org/ns/prov#"
 _XSD = "http://www.w3.org/2001/XMLSchema#"

@@ -333,3 +333,46 @@ async def test_schema_summary_without_ontology_graph_has_no_labels() -> None:
     out = await schema_summary(_ds_client({canonical_graph_iri("ds1"): abox}))
     cls = next(c for c in out["classes"] if c["iri"] == f"{SD}Sample")
     assert "label" not in cls  # degrades gracefully
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_schema_summary_excludes_alignment_graph_from_counts() -> None:
+    # 線の graph は promoted だが、データの中身ではない: classes / class_shapes /
+    # predicates に線の記録の語（xw:Alignment・xw:align*）が混ざらない。線の意味は lines に出る。
+    from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, XW, assert_alignment
+
+    abox = f"""
+    @prefix sd: <{SD}> .
+    <https://ex/s/1> a sd:Sample ; sd:fromPaper <https://ex/p/1> .
+    """
+    tbox = f"""
+    @prefix sd: <{SD}> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    sd:Sample a rdfs:Class . sd:Paper a rdfs:Class .
+    """
+    ds = _ds_from({canonical_graph_iri("ds1"): abox, ontology_graph_iri("ds1"): tbox})
+
+    class _RW:
+        async def sparql_select(self, query: str) -> dict:
+            raw = ds.query(query).serialize(format="json")
+            return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+        async def sparql_update(self, update: str) -> None:
+            ds.update(update)
+
+    client = _RW()
+    await assert_alignment(
+        client, f"{SD}Sample", f"{SD}Paper", "subClassOf", at="2026-10-13T00:00:00+00:00"
+    )
+    out = await schema_summary(client)
+    assert ALIGNMENT_GRAPH not in json.dumps(out["classes"])
+    class_iris = {c["iri"] for c in out["classes"]}
+    assert XW + "Alignment" not in class_iris
+    assert XW + "Alignment" not in json.dumps(out.get("class_shapes", []))
+    pred_iris = {p["iri"] for p in out["predicates"]}
+    assert not {i for i in pred_iris if i.startswith(XW + "align")}
+    assert "http://www.w3.org/ns/prov#endedAtTime" not in pred_iris
+    assert f"{SD}Sample" in class_iris
+    assert out["lines"] == [
+        {"source": f"{SD}Sample", "relation": "subClassOf", "target": f"{SD}Paper"}
+    ]

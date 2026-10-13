@@ -260,6 +260,12 @@ AI の事前 ☑ 推薦は「精度が悪いと惑わす」として退けられ
   （`crosswalk-multi-perspective.md` Phase 2 の caveat と同じ）。
 - 線は生 SPARQL と MCP で何も変えずに辿れる（既に FROM-merge の中）。共有語の label／comment を
   生 SPARQL から引くには `readable_graph_iris` の allowlist に `vocab/shared` を足す（§2.1）。
+- 線の graph（`…/canonical/crosswalk/alignment`）は promoted だが**データの中身ではない**。
+  Ask の実行範囲（FROM）には上位パスを辿るために残し、**件数・語の一覧・隣の探索からは除く**
+  （`substrate.without_alignment_graph`: `kind_counts`・`alignment_report`・`subject_neighbors`・
+  `schema_summary` の数え上げ）。線の意味は `lines`／`shared_terms` が alignment graph を直読みして出す。
+  残り: 線の記録 `xw:Alignment` が Ask の自由な問いの集計に混ざる件は、記録を FROM に入らない
+  別 graph に分けるときに直す。
 
 ### 2.5 UI — 作る場所を 2 つにし、流れを双方向にする
 
@@ -472,3 +478,4 @@ slug の辞書順で先頭）。組み立て関数は `asterism.shared_vocab.upp
 - 2026-10-09（同日・7 回目・実装）: 段 2（PR 2 UI「ことば」）を branch `feat/vocab-view` で実装（#697 に積む）。実装時の判断: 線の一覧に「すべて」の切り替えを足す（scope 無し＝全件）、hash は実ルータの `#/vocab?q=…&scope=…&dataset=…`、項目（property）の共有語はデータセットの項目からの線を PR 3 の③の当てはめで引く（PR 2 の地図は種類の丸だけ）、`vocab:banner.*` の既存文言は残す。スクショは PR 3 の後にまとめて撮る。
 - 2026-10-09（同日・8 回目・実装）: 段 3（PR 3 作る UI の流れ）を branch `feat/kantan-flow-questions` で実装（#700 に積む）。実装時の判断: upper.json の項目の subject は `property:<map 名>/<列名>`（api が mapping.yaml の列 → 述語で解決。標準語へは equivalentProperty・共有語／他データセットの項目へは subPropertyOf）、問いのツールには `origin: "question"` を印として付け公開時の削除はその印のあるものだけ、「写す」は `source: {dataset, question_id}` を記録して同じ組は 200 で既存を返す、⑤の種類の当てはめは問い無しでも線になる（線は CQ 任意・§2.0 のとおり）、種類のページの「問い」一覧からの写すは未実装（宣言ツールから写す口が要る・次の作業）。
 - 2026-10-09（同日・9 回目・画面確認）: 実機の撮影で見つけた不具合を直した（ROADMAP の 7 回目の log）。§2.5.3 の照合を「共有語・他データセットの項目は意味だけ」に改め、標準語の提案は語彙の接頭辞つきにした。`property:<map>/<列>` は名指した種類に列が無いとき、同じファイルの種類で述語がちょうど 1 つに決まる場合だけ使う。
+- 2026-10-13: §2.4 に「線の graph は Ask の実行範囲には残し、件数・語の一覧・隣の探索・`schema_summary` の数え上げからは除く」を追記（4 か所の混入を実装で修正）。

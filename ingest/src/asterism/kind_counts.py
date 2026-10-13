@@ -6,7 +6,8 @@
 超えたときは ``truncated`` で言う（黙って欠けさせない）。
 
 読み取り範囲は :func:`asterism.substrate.canonical_graphs`（公開済みの版 graph と
-ハブ graph）だけ。公開済みが 0 件なら SPARQL を投げずに空を返す — 空の
+ハブ graph）から線の graph（``crosswalk/alignment``）を除いたもの。線はデータの中身では
+ないので数えない。データの graph が 0 件なら SPARQL を投げずに空を返す — 空の
 ``FROM NAMED`` は draft まで読んでしまうため（``prov_graph`` と同じ理由）。
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ from asterism.substrate import (
     canonical_graphs,
     dataset_id_of_canonical_graph,
     is_hub_graph,
+    without_alignment_graph,
 )
 
 #: 返す (graph, 種類) 行の既定の上限。超えたら ``truncated: true``。
@@ -44,7 +46,7 @@ async def kind_counts(
     ``graphs`` は graph IRI 順、``kinds`` は件数の多い順→種類 IRI 順（決定論）。
     ``dataset_id`` は版 graph から引いた登録 id（ハブは ``None``）。
     """
-    graphs = await canonical_graphs(client)
+    graphs = without_alignment_graph(await canonical_graphs(client))
     if not graphs:
         return {"graphs": [], "truncated": False}
     raw = await client.sparql_select(_kind_counts_query(graphs, max_rows + 1))

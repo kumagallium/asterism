@@ -66,6 +66,7 @@ from asterism.substrate import (
     is_hub_graph,
     ontology_graphs,
     readable_graph_iris,
+    without_alignment_graph,
 )
 
 logger = logging.getLogger(__name__)
@@ -1709,12 +1710,13 @@ async def subject_neighbors(
     複数持つ主語は一覧側に余分に入り、件数が一覧の total と食い違うことがある（O67）。
     読む範囲は公開済みの graph
     （:func:`asterism.substrate.canonical_graphs`）だけ — 0 件なら SPARQL を 1 本も投げない。
+    線の graph（``crosswalk/alignment``）は除く（線そのものや xw:alignTarget の記録を束にしない）。
 
     名前は新しい規則を作らない: 隣・中心の名前は 1 件のページの見出し（api の
     ``_entity_label``）と同じ、線の名前は 1 件ページの「読み取った値」カードの項目名
     （:func:`_predicate_names`）と同じ、種類の名前は :func:`_class_labels`。
     """
-    graphs = await canonical_graphs(client)
+    graphs = without_alignment_graph(await canonical_graphs(client))
     if not graphs:
         return {"iri": iri, "found": False, "center": None, "groups": [], "truncated": False}
     from_clause = canonical_from_clauses(graphs)

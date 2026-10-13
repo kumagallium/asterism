@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, assert_alignment
 from asterism.kind_counts import kind_counts
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
@@ -50,8 +51,13 @@ def _pyoxi_client(graphs: dict[str, str]):
             )
 
     class _C:
+        async def sparql_update(self, update: str) -> None:
+            store.update(update)
+
         async def sparql_select(self, query: str) -> dict:
             result = store.query(query)
+            if isinstance(result, bool):
+                return {"head": {}, "boolean": result}
             names = [v.value for v in result.variables]
             bindings = []
             for solution in result:
@@ -87,6 +93,9 @@ class _Counting:
     async def sparql_select(self, query: str) -> dict:
         self.calls += 1
         return await self.inner.sparql_select(query)
+
+    async def sparql_update(self, update: str) -> None:
+        await self.inner.sparql_update(update)
 
 
 @pytest.mark.asyncio
@@ -171,3 +180,31 @@ async def test_literal_class_is_ignored_only_iri_kinds() -> None:
     ttl = f'<https://ex/s/a> a <{ONLY_W}> .\n<https://ex/s/a> <https://ex/p> "x" .'
     out = await kind_counts(_pyoxi_client({G_WEATHER: ttl}))
     assert out["graphs"][0]["kinds"] == [{"class_iri": ONLY_W, "count": 1}]
+
+
+async def _draw_line(client) -> None:
+    """実物の assert_alignment で線を 1 本引く（線の graph が promoted になる）。"""
+    await assert_alignment(
+        client, ONLY_W, ONLY_L, "subClassOf", at="2026-10-13T00:00:00+00:00"
+    )
+
+
+@pytest.mark.asyncio
+async def test_alignment_graph_is_not_counted_as_data() -> None:
+    client = _pyoxi_client({G_WEATHER: _ttl({ONLY_W: ["a"]})})
+    await _draw_line(client)
+    out = await kind_counts(client)
+    # 線の記録（xw:Alignment）が「データの種類」として行にならない
+    assert [g["graph"] for g in out["graphs"]] == [G_WEATHER]
+    assert all(g["graph"] != ALIGNMENT_GRAPH for g in out["graphs"])
+
+
+@pytest.mark.asyncio
+async def test_only_alignment_graph_promoted_sends_no_count_sparql() -> None:
+    client = _Counting(_pyoxi_client({G_DRAFT: _ttl({SHARED: ["d"]})}))
+    await _draw_line(client)
+    client.calls = 0
+    out = await kind_counts(client)
+    assert out == {"graphs": [], "truncated": False}
+    # 列挙 1 本だけ。線だけが promoted でも、空の FROM NAMED（draft まで読む）を投げない。
+    assert client.calls == 1
