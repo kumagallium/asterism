@@ -36,6 +36,10 @@ from asterism.metadata import (
     project_mie_yaml,
 )
 
+# 「データセットではない registry の項目」（ハブ is_crosswalk・共有の言葉 is_shared_vocab）の
+# 判定は ingest 側に 1 つだけ置き、ここから再公開する（`as` 付きは明示的な再公開）。
+from asterism.shared_vocab import is_system_entry as is_system_entry
+
 logger = logging.getLogger(__name__)
 
 # Files written per dataset (artifact key -> filename on disk).
@@ -62,6 +66,14 @@ _ARTIFACT_FILES = {
     # (api-autolink) と PUT /api/datasets/{id}/handles (handles_routes.py) の
     # 2 経路だけが書く。読み手は asterism_api.handles.load_handles。
     "handles.json": "handles.json",
+    # 上位構造 ADR upper-structure-shared-terms.md §2.3・§2.5.3。handles.json と
+    # 同じ運び方（materialize で省略なら既存を保つ）。
+    #   questions.json — ⑥「自分の問い」の下書き。公開のときにだけ query_tools.yaml へ
+    #                    q_<hash8> の名前で upsert する（questions_routes.py）。
+    #   upper.json     — ③⑤で人が受けた「同じ項目／種類の一種」の当てはめ。公開で線を
+    #                    書き applied_at を付けて 1 回だけ消費する（upper_routes.py）。
+    "questions.json": "questions.json",
+    "upper.json": "upper.json",
 }
 
 
@@ -910,6 +922,24 @@ def _atomic_write_bytes(dest: Path, payload: bytes) -> None:
         raise
 
 
+def write_artifact(root: Path, dataset_id: str, key: str, text: str) -> bool:
+    """既存データセットの artifact 1 つを atomic（tmp → fsync → replace）に書く。
+
+    ``handles.json`` / ``questions.json`` / ``upper.json`` のように、設計の再生成とは
+    別の経路（PUT・公開時の消費）が単独で書くファイル用。``key`` は
+    :data:`_ARTIFACT_FILES` の中だけ。データセットが無い・id が不正なら ``False``
+    （登録簿に新しい項目を作らない）。
+    """
+    filename = _ARTIFACT_FILES.get(key)
+    if filename is None or not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return False
+    dest = root / dataset_id
+    if not (dest / _META_FILE).is_file():
+        return False
+    _atomic_write_bytes(dest / filename, text.encode("utf-8"))
+    return True
+
+
 def load_meta(root: Path, dataset_id: str) -> dict | None:
     """Just ``meta.json`` (no artifacts) — None when the id is unsafe / absent / unreadable."""
     if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
@@ -1137,16 +1167,46 @@ def list_query_tools(root: Path, dataset_id: str) -> list[dict]:
     return [t for t in tools if isinstance(t, dict)] if isinstance(tools, list) else []
 
 
+class QueryToolsUnreadable(RuntimeError):
+    """既存の ``query_tools.yaml`` が読めない（壊れている・形が違う）。
+
+    読めないまま「空の一覧 + 今回の 1 本」で上書きすると、人が書いた他のツールが
+    黙って消える。書き手はこれを受けたら**中止**する（呼び出し側は 409 などにする）。"""
+
+
+def _read_tools_strict(path: Path) -> list[dict]:
+    """書き込み前の読み戻し。無いファイルは ``[]``、読めないファイルは中止
+    （:class:`QueryToolsUnreadable`）。``list_query_tools`` のように壊れた中身を
+    黙って空として扱わない。"""
+    if not path.is_file():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise QueryToolsUnreadable(f"{path.name} を読めません: {exc}") from exc
+    if data is None:
+        return []
+    tools = data.get("tools") if isinstance(data, dict) else None
+    # 空のファイル・``{}``・``tools:`` だけのファイル（tools が None）は空リスト。
+    if tools is None and isinstance(data, dict) and (not data or "tools" in data):
+        return []
+    if not isinstance(tools, list) or not all(isinstance(t, dict) for t in tools):
+        raise QueryToolsUnreadable(f"{path.name} の形が {{tools: [...]}} ではありません")
+    return list(tools)
+
+
 def _write_tools(path: Path, tools: list[dict]) -> None:
-    path.write_text(
-        yaml.safe_dump({"tools": tools}, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
+    """tmp → fsync → ``os.replace`` で書く（途中で落ちても前の中身か新しい中身のどちらか）。"""
+    _atomic_write_bytes(
+        path,
+        yaml.safe_dump({"tools": tools}, allow_unicode=True, sort_keys=False).encode("utf-8"),
     )
 
 
 def save_query_tool(root: Path, dataset_id: str, tool: dict) -> list[dict]:
     """Upsert ``tool`` (by ``name``) into the dataset's query_tools.yaml; return
-    the full tool list. Raises ``FileNotFoundError`` if the dataset dir is absent.
+    the full tool list. Raises ``FileNotFoundError`` if the dataset dir is absent and
+    :class:`QueryToolsUnreadable` (nothing written) if the existing file cannot be read.
 
     The caller MUST have validated ``tool`` via
     ``asterism.query_tools.parse_query_tools`` first (read-only + safe binding) —
@@ -1156,18 +1216,19 @@ def save_query_tool(root: Path, dataset_id: str, tool: dict) -> list[dict]:
     if path is None or not path.parent.is_dir():
         raise FileNotFoundError(dataset_id)
     name = str(tool.get("name", ""))
-    tools = [t for t in list_query_tools(root, dataset_id) if str(t.get("name")) != name]
+    tools = [t for t in _read_tools_strict(path) if str(t.get("name")) != name]
     tools.append(tool)
     _write_tools(path, tools)
     return tools
 
 
 def delete_query_tool(root: Path, dataset_id: str, name: str) -> bool:
-    """Remove the named tool; return True if one was removed."""
+    """Remove the named tool; return True if one was removed. Raises
+    :class:`QueryToolsUnreadable` (and writes nothing) if the file cannot be read."""
     path = query_tools_path(root, dataset_id)
     if path is None or not path.is_file():
         return False
-    tools = list_query_tools(root, dataset_id)
+    tools = _read_tools_strict(path)
     remaining = [t for t in tools if str(t.get("name")) != name]
     if len(remaining) == len(tools):
         return False

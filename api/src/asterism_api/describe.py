@@ -128,7 +128,7 @@ _TEXT: dict[str, dict[str, str]] = {
         "in_note": "参照しているデータのうち、はじめの {n} 件だけを表示しています。",
         "tech": "詳しい内容（技術情報）",
         "machine": "同じ内容を機械向けに取り出す:",
-        "shared_terms": "共通の言葉",
+        "shared_terms": "ことば",
         "nf_title": "見つからない ID",
         "nf_heading": "このリンクのデータは、まだ公開されていないようです",
         "nf_body": (
@@ -243,7 +243,7 @@ def _t(lang: str) -> dict[str, str]:
 
 
 def shared_terms_label(lang: str) -> str:
-    """Display name for an ontology graph — the app calls it 「共通の言葉」."""
+    """Display name for an ontology graph — the app calls it 「ことば」."""
     return _t(lang)["shared_terms"]
 
 

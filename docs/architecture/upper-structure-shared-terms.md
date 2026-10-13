@@ -225,8 +225,9 @@ AI の事前 ☑ 推薦は「精度が悪いと惑わす」として退けられ
   データセット id の `COUNT(DISTINCT)`）で全語分を一度に出す。結果は api が `registry/vocab-shared/
   wired.json`（語 → 答えるデータセット数・決定論の派生ファイル）に書き、鋳造・削除・線の追加／
   取り消し・公開（名前だけの公開を含む）・データセットの削除／公開取り消しのたびに作り直す
-  （runtime の `recompute_wired(client, root)` を api が呼ぶ。契機の一覧はここが正）。CQ の答える
-  データセット数は `for_terms` の語の**最大値**。MCP の `load_all_query_tools` は store を引かず
+  （runtime の `recompute_wired(client, root)` を api が呼ぶ。契機の一覧はここが正）。ファイルの形は
+  `{"terms": {"<sv:IRI>": n}, "at": "<ISO>"}`（実装が正）。CQ の答えるデータセット数は `for_terms` の
+  語の**最大値**。MCP の `load_all_query_tools` は store を引かず
   このファイルで孤立の CQ（最大値が 0）を除く。
 - **検査としての CQ**: 札に「N データセットが答える」を出す。鋳造直後は 0、線を 1 本引くと 1、
   2 本目で 2 になる。この差が線が効いた証拠。画面の札は表示のみ。**実 Oxigraph の統合テストでは
@@ -242,7 +243,8 @@ AI の事前 ☑ 推薦は「精度が悪いと惑わす」として退けられ
   atomic にし、既存ファイルが読めないときは上書きせず中止する（既存関数には atomic 化と中止処理だけを
   足し、保持の規則のテストは維持する）。
 - **`vocab-shared` は registry の項目だがデータセットではない**（meta `is_shared_vocab: true`・
-  `promoted: true`。`classes_index`・データセット一覧・discover・autolink・視点一覧は共通の判定で除く。§5）。
+  `promoted: true`。一覧系（`classes_index`・カタログ・discover・ツールの発見）は `is_shared_vocab` で除き、
+  ハブ（`is_crosswalk`）の見え方は今のまま。autolink と視点一覧は `is_system_entry`（両方）で除く。§5）。
   各ツールに `for_terms: [<sv:IRI>…]` を持たせる（`QueryTool` に欄を足す。今の `parse_query_tools` は
   未知キーを落とす）。
 
@@ -305,9 +307,10 @@ AI の事前 ☑ 推薦は「精度が悪いと惑わす」として退けられ
 
 #### 2.5.3 当てはめ提案（③・⑤）の規則
 
-- **決定論・表示のみ**。列の label（③の意味）と列名を正規化し、共有語の label（ja/en）・標準語
-  （`ground_terms` の exact 級。列名（ASCII）と英語 label で照合）・他データセットの項目 label と
-  **完全一致**したときだけ出す。部分一致は出さない。正規化は K63 の `_meaning_key`（NFKC・casefold・
+- **決定論・表示のみ**。列の label（③の意味）を正規化し、共有語の label（ja/en）・他データセットの
+  項目 label と**完全一致**したときだけ出す。標準語（`ground_terms` の exact 級）は列名（ASCII）で
+  照合する。共有語・他データセットの項目には列名では当てない（実機で `category`・`source` のような
+  同名の雑音が出た・2026-10-09）。標準語は語彙の接頭辞つき（`qudt:hasUnit`）で示す。部分一致は出さない。正規化は K63 の `_meaning_key`（NFKC・casefold・
   空白の畳み）と**同じ規則**を 1 つの関数にし、両方の package でテストで同値を固定する。
   候補は孤立の語も含めて全共有語（`wired` で絞らない）。
 - **出さない列**: 測定値（④の `noMeasure` と同じ判定）、一般語（`name` `id` `type` `date` `value`
@@ -399,9 +402,9 @@ slug の辞書順で先頭）。組み立て関数は `asterism.shared_vocab.upp
   「同じ slug の語」を一覧で見せる。今の snapshot はどちらも運ばない（孤立の語は既定で交換しない）。
 - **registry の `vocab-shared` がデータセットに混ざる**: `classes_index._promoted_datasets` は registry
   直下を走査し、`registry.list_datasets` は `meta.json` があれば全部返し、discover／autolink／視点一覧は
-  `is_crosswalk` しか見ない。対策: `registry.is_system_entry(meta)`（`is_crosswalk or is_shared_vocab`）を
-  1 つ置き、`list_datasets` の呼び出し側すべてと `autolink`・`crosswalk_runtime.list_perspectives`・
-  `classes_index` で除く。
+  `is_crosswalk` しか見ない。対策: `shared_vocab.is_system_entry(meta)`（`is_crosswalk or is_shared_vocab`）を
+  1 つ置く。一覧系（`classes_index`・カタログ・discover・ツールの発見）は `is_shared_vocab` だけで除き
+  ハブの見え方を変えない。autolink と視点一覧は `is_system_entry` で除く（実装時の判断・2026-10-09）。
 - **日本語の照合**: `ground_terms` の正規化は ASCII 専用で、日本語 label は 0 点になる。共有語・列の
   突き合わせには K63 と同じ正規化を使い、標準語は列名（ASCII）と英語 label で引く。英語 label も
   列名も無い語は標準語の提示が出ない（鋳造フォームに「英語名を入れると標準の語を探せます」と書く）。
@@ -462,3 +465,10 @@ slug の辞書順で先頭）。組み立て関数は `asterism.shared_vocab.upp
 - 2026-10-09（同日・5 回目）: 別セッションの利用例（観察・解釈・規則・判断を Graphium の記録の型として
   置く）で判定し、「共有語は直接 `rdf:type` に使ってよい（直接再利用）・名前空間の判定が先・結合の問いは
   手書きの宣言ツール」を §2.1・§2.2・§2.3 に追記。同 4 種類は同梱せず利用者が鋳造する語のまま（裁定・§4）。
+- 2026-10-09（同日・6 回目・実装）: 段 1（PR 1 runtime + api）を branch `feat/shared-vocab-runtime` で実装。実装時の判断 3 つを本文に反映:
+  一覧系の除外は `is_shared_vocab` だけ（ハブの見え方は変えない・§2.3・§5）、`wired.json` は `{"terms": {…}, "at"}`（§2.3）、
+  `schema_summary.shared_terms[].cqs` は実際に公開されるツール名だけ（`wired.json` で絞られたものは出さない）。
+  `/api/vocab/fit` の標準語は `ground_terms` の score 100 だけ。
+- 2026-10-09（同日・7 回目・実装）: 段 2（PR 2 UI「ことば」）を branch `feat/vocab-view` で実装（#697 に積む）。実装時の判断: 線の一覧に「すべて」の切り替えを足す（scope 無し＝全件）、hash は実ルータの `#/vocab?q=…&scope=…&dataset=…`、項目（property）の共有語はデータセットの項目からの線を PR 3 の③の当てはめで引く（PR 2 の地図は種類の丸だけ）、`vocab:banner.*` の既存文言は残す。スクショは PR 3 の後にまとめて撮る。
+- 2026-10-09（同日・8 回目・実装）: 段 3（PR 3 作る UI の流れ）を branch `feat/kantan-flow-questions` で実装（#700 に積む）。実装時の判断: upper.json の項目の subject は `property:<map 名>/<列名>`（api が mapping.yaml の列 → 述語で解決。標準語へは equivalentProperty・共有語／他データセットの項目へは subPropertyOf）、問いのツールには `origin: "question"` を印として付け公開時の削除はその印のあるものだけ、「写す」は `source: {dataset, question_id}` を記録して同じ組は 200 で既存を返す、⑤の種類の当てはめは問い無しでも線になる（線は CQ 任意・§2.0 のとおり）、種類のページの「問い」一覧からの写すは未実装（宣言ツールから写す口が要る・次の作業）。
+- 2026-10-09（同日・9 回目・画面確認）: 実機の撮影で見つけた不具合を直した（ROADMAP の 7 回目の log）。§2.5.3 の照合を「共有語・他データセットの項目は意味だけ」に改め、標準語の提案は語彙の接頭辞つきにした。`property:<map>/<列>` は名指した種類に列が無いとき、同じファイルの種類で述語がちょうど 1 つに決まる場合だけ使う。

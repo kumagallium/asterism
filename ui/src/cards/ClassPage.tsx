@@ -1,5 +1,5 @@
 // 種類のページ（契約メモ contract_pr_f9.md §1 決定 4・§5 実装順(2)・担当
-// ui-page）。出どころ／この種類の観点（同梱＋使用中）／この種類のオブジェクト
+// ui-page）。出どころ／この種類の問い（同梱＋使用中）／この種類のオブジェクト
 // （＋「＋ 追加」）／「データの定義を見る」（実態は details へ — goDefinition
 // のコメント参照。文言を契約メモの「見る・直す」から変えている）。
 import { useEffect, useMemo, useState } from 'react'
@@ -18,7 +18,7 @@ import { declaredViewpoints, viewpointsFrom } from './viewpoints'
 // PR F12（ui-drawer 担当）が新設するモジュール。まだ存在しない間は import
 // だけ書いておき、統合段で繋ぐ（契約メモ PR F12 §2「並列中の仮置き」）。
 // PR F18: `target`（契約メモ §1.2）もこのモジュールに足される。この画面は
-// カードを実行していないため「直す」は無く、「＋ 観点を足す」から
+// カードを実行していないため「直す」は無く、「＋ 問いを足す」から
 // `{kind:'new'}` を渡すだけ（`subjectKeys`/`onCardReplaced` は使わない）。
 import { PageChatDrawer, type PageChatTarget } from './PageChatDrawer'
 import type { PageChatSummary } from './SubjectPage'
@@ -51,15 +51,15 @@ export interface ClassViewpointRow {
   title: string
   /** 同梱（宣言ツール・`classSchema.tools`）なら true。 */
   bundled: boolean
-  /** 使用中の観点（カードから派生）だけが持つ使用ページ数。同梱のみの行は 0。 */
+  /** 使用中の問い（カードから派生）だけが持つ使用ページ数。同梱のみの行は 0。 */
   usedOn: number
 }
 
-/** 「この種類の観点」の合流（契約メモ §1 決定 4「同梱の宣言ツール＝『同梱』の
- *  印、使われた観点＝『N ページで使用』」）。同梱（`declaredViewpoints`）を
- *  宣言順のまま先頭に並べ、そのあとに使用中の観点（`viewpointsFrom` — この
+/** 「この種類の問い」の合流（契約メモ §1 決定 4「同梱の宣言ツール＝『同梱』の
+ *  印、使われた問い＝『N ページで使用』」）。同梱（`declaredViewpoints`）を
+ *  宣言順のまま先頭に並べ、そのあとに使用中の問い（`viewpointsFrom` — この
  *  種類のカードから毎回決定論に派生するもの）を使用数の多い順→題名順で続ける。
- *  同じ id が両方にあれば（宣言ツールの `name` と使用中の観点 `vp-<hash>` は
+ *  同じ id が両方にあれば（宣言ツールの `name` と使用中の問い `vp-<hash>` は
  *  名前空間が違うため実務上は起こらないが、念のため）同梱側だけを残す。 */
 // eslint-disable-next-line react-refresh/only-export-components -- テスト容易性のため意図して許容（DatasetPage.tsx の各純関数と同じ理由）。
 export function classViewpointRows(schema: ClassSchema, cards: CardSpec[]): ClassViewpointRow[] {
@@ -106,12 +106,12 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
   const allCards = useAllCards()
   const [entryState, setEntryState] = useState<EntryLoadState>(EMPTY_ENTRY)
   const [schemaState, setSchemaState] = useState<SchemaLoadState>(EMPTY_SCHEMA)
-  // 下の入力欄・「＋ 観点を足す」はどちらも会話ドロワー（PageChatDrawer・
+  // 下の入力欄・「＋ 問いを足す」はどちらも会話ドロワー（PageChatDrawer・
   // PR F12）を開く（契約メモ §1 決定 1・6）。
   const [askText, setAskText] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>(undefined)
-  // どの会話を開くか（契約メモ PR F18 §1.2）。この画面の「＋ 観点を足す」は
+  // どの会話を開くか（契約メモ PR F18 §1.2）。この画面の「＋ 問いを足す」は
   // 常に新しい会話。
   const [chatTarget, setChatTarget] = useState<PageChatTarget | undefined>(undefined)
   // classIri が変わったらドロワーを閉じる（SubjectPage.tsx と同じ「prop が
@@ -168,7 +168,7 @@ export function ClassPage({ classIri, navigate, onLabel, onDefine }: ClassPagePr
   const viewpointRows = useMemo(() => (schema ? classViewpointRows(schema, allCards) : []), [schema, allCards])
 
   // ドロワー（PageChatDrawer）へ渡す要約。この画面は個々のカードを実行
-  // していない（出どころ・観点一覧・オブジェクト一覧という「見出し」だけの
+  // していない（出どころ・問い一覧・オブジェクト一覧という「見出し」だけの
   // 画面）ため、`cards` は空のまま — `facts` だけで答える（deviations 参照）。
   const pageSummary: PageChatSummary = useMemo(() => {
     if (!entry) return { facts: [], cards: [] }

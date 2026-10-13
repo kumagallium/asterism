@@ -169,8 +169,25 @@ from asterism_api.converse_routes import register_converse
 from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
+from asterism_api.questions_routes import (
+    apply_questions,
+    build_question_sparql,
+    clean_questions,
+    dump_questions,
+    is_reserved_tool_name,
+    register_questions,
+    selection_error,
+)
 from asterism_api.sample_routes import register_sample_routes
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
+from asterism_api.upper_routes import (
+    apply_upper,
+    clean_upper,
+    dump_upper,
+    load_upper,
+    merge_upper,
+    register_upper,
+)
 
 # asterism_api.place_routes / asterism_api.license_routes は意図的にここで
 # import しない: どちらのモジュールも `from asterism_api.main import
@@ -246,6 +263,12 @@ class MaterializeRequest(BaseModel):
     # wiped, so a re-materialize can never silently drop a ☑ the human already
     # made.
     handles: list[dict] | None = None
+    # 上位構造 ADR §2.5.3（``upper.json``）・§2.3（``questions.json``）。``handles`` と同じ運び方 —
+    # ``None`` は「そのまま」（既存を保つ）、送れば置換。``upper`` の ``applied_at`` は
+    # サーバの値で、
+    # 送っても消費済みを未消費に戻せない（``merge_upper``）。
+    upper: list[dict] | None = None
+    questions: list[dict] | None = None
     # What the wizard settled BEFORE the design (ADR meaning-before-identity
     # §7-4): what each column means, and which columns are not taken in — the
     # same two lists ``/api/propose/continue`` built the design from. Read only
@@ -334,6 +357,22 @@ class ColumnDecision(BaseModel):
     datatype: str | None = None
 
 
+class TrialQueryRunBody(BaseModel):
+    """⑥「自分の問い」を staged graph で 1 回走らせる選択（閉じた選択・自由記述の SPARQL なし）。"""
+
+    op: Literal["count", "range", "top"]
+    kind_iri: str | None = None
+    property_iri: str | None = None
+
+
+class ColumnFit(BaseModel):
+    """列の当てはめ先（``GET /api/vocab/fit`` の候補 1 つを人が受けたもの）。"""
+
+    term: str
+    kind: Literal["shared", "standard", "dataset"]
+    matched_by: Literal["label", "column"]
+
+
 class ColumnMeaning(BaseModel):
     """What ONE source column MEANS — the input layer of a dataset's display metadata.
 
@@ -349,6 +388,10 @@ class ColumnMeaning(BaseModel):
     column: str
     label: str | None = None
     unit: str | None = None
+    # 上位構造 ADR §2.5.3: 人が受けた当てはめ（既にある語と同じ項目として結ぶ）。表示専用の提案を
+    # 受けた記録で、線そのものは ``upper.json`` が公開で書く。送らなければそのまま、``null`` を
+    # 送ると外す。
+    fit: ColumnFit | None = None
 
 
 class ColumnMeaningsBody(BaseModel):
@@ -578,6 +621,8 @@ class CrosswalkAlignBody(BaseModel):
     from_perspective: str = ""
     to_perspective: str = ""
     remove: bool = False
+    # この線が答える問い（共有の言葉の CQ の題。任意）。来歴 xw:answersCq に記録される。
+    cq: str | None = None
 
 
 class NormalizerPreviewBody(BaseModel):
@@ -601,7 +646,7 @@ class GroundSchemaBody(BaseModel):
 
 
 class GroundTermsBody(BaseModel):
-    """Body for POST /api/ground/terms: batch-ground a list of term names（共通の言葉の
+    """Body for POST /api/ground/terms: batch-ground a list of term names（ことばの
     地図が 1 往復で全語の接地候補を得るため — 1 語ずつの GET /api/ground では語数分の
     往復になる）. Read-only + deterministic; same closed catalog as GET /api/ground."""
 
@@ -703,6 +748,71 @@ def _unit_echoes_its_term(unit: str, column: str | None, predicate: str | None) 
         return True
     local = (predicate or "").rsplit("#", 1)[-1].rsplit("/", 1)[-1].rsplit(":", 1)[-1]
     return target == key(local)
+
+
+def _trial_display(
+    artifacts: dict[str, str],
+) -> tuple[Callable[[str], str | None], Callable[[str], str | None]]:
+    """``(label_of, unit_of)`` — /trial-queries と ⑥「自分の問い」の実行が共に通る表示名の引き方。
+
+    Display enrichment — the same sources /rules merges: the IR's reviewed
+    label/unit per predicate + the model.yaml rdfs:labels. All deterministic;
+    all optional (a broken IR must not block S7).
+    """
+    labels = _model_yaml_labels(
+        str(artifacts.get("model.yaml") or ""),
+        str(artifacts.get("mapping.rml.ttl") or ""),
+        str(artifacts.get("mie.yaml") or ""),
+    )
+    try:
+        ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
+    except Exception:
+        ir_meta = {}  # enrichment only — a broken IR must not block S7
+
+    def label_of(iri: str) -> str | None:
+        # ① authored label (K8) ② model.yaml projection ③ the source column
+        # heading ④ the term IRI read as words. The last two are new: the
+        # trial questions on S7 are read aloud by the person who made the
+        # file, and "hasSeebeckCoefficient の範囲は" is not their language
+        # when the server is holding the column heading they typed.
+        return (
+            (ir_meta.get(iri) or {}).get("label")
+            or labels.get(iri)
+            or (ir_meta.get(iri) or {}).get("column_label")
+            or _humanize_term_iri(iri)
+            or None
+        )
+
+    def unit_of(iri: str) -> str | None:
+        return (ir_meta.get(iri) or {}).get("unit") or None
+
+    return label_of, unit_of
+
+
+def _trial_graph(dataset_id: str, meta: dict) -> tuple[str, str]:
+    """``(読む graph, read_from)`` — /trial-queries と ⑥の実行が共に読む graph と、その言い分け。
+
+    公開前は staged の下書き（``graph_iri``）、公開後は公開した版（``live_graph``・同じ graph）。
+    ``read_from`` は ``draft`` / ``published`` / ``retracted``。
+
+    新しい取り込みは必ず ``promoted`` を下ろす（``mark_ingested``）ので、立っていれば公開した版、
+    下りていれば公開前の下書き。画面はこれを見て言い分ける — 公開済みのデータセットを見直しで
+    開き、何も作り直さずに「ためす」へ出ると、問いは公開した版に走るのに、画面は「公開前の下書きに
+    取り込めました」と言っていた（実機 2026-10-05）。公開をやめたデータセットは、読むのは公開した
+    版のままだが、いまは公開していないので別に言う（画面は「公開済み」と言わない）。
+    """
+    staged_iri = (
+        meta.get("graph_iri")  # the staged draft (pre-promote)
+        or meta.get("live_graph")  # the live version graph (post-promote)
+        or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
+    )
+    if not meta.get("promoted"):
+        read_from = "draft"
+    elif meta.get("status") == "retracted":
+        read_from = "retracted"
+    else:
+        read_from = "published"
+    return staged_iri, read_from
 
 
 def _humanize_term_iri(iri: str) -> str | None:
@@ -1354,15 +1464,17 @@ def _build_consult_system_prompt(manual_text: str) -> str:
     return f"""あなたは Asterism の設計相談役です。研究者がデータを Asterism に取り込む
 とき、隣に座って質問に答える専門家として振る舞ってください。
 
-Asterism の「かんたんモード」は次の6ステップで進みます。ユーザーがどのステップにいるかは
+Asterism の「かんたんモード」は次の7ステップで進みます。ユーザーがどのステップにいるかは
 「## いま見ている画面」に書かれています。それぞれ一言で言うと:
 
 1. 入れる - 元データ(CSV・Excel・装置ファイルなど)をアップロードする
-2. AI が読む - AI がファイルを読み、種類(サンプル・測定条件・測定値など)を推定する
-3. データの数えかた - 1行が何を表すか(例: 1サンプルにつき1行、1測定点につき1行)を決める
-4. 項目の意味 - 各列が何を意味するか(例: 「Ic」は臨界電流、単位はA)を確認・修正する
-5. ためす - 実際にデータを取り込んでみて、想定どおりの結果になるか試す
-6. 公開する - 問題がなければ、他の人が引用できる形で公開する
+2. AI に読ませる - AI がファイルを読み、種類(サンプル・測定条件・測定値など)を推定する
+3. 意味をつける - 各列が何を意味するか(例: 「Ic」は臨界電流、単位はA)を確認・修正し、
+   他のデータにも同じ表記で出てくる値の列に ☑ を付ける
+4. 番号を選ぶ - この1件を名指す番号を選ぶ(候補が2つ未満なら自動で決まり、この画面は畳まれる)
+5. かたちをたしかめる - 機械が組み立てたデータの形(種類・ID・項目・件数)を図で確かめる
+6. ためす - 実際にデータを取り込んでみて、想定どおりの結果になるか試す。自分の問いも足せる
+7. 公開する - 問題がなければ、他の人が引用できる形で公開する
 {manual_block}
 守るべきこと:
 - 取り込む/取り込まないの裁定、列の意味や単位の最終判断は常にユーザーが行います。あなたは
@@ -1385,7 +1497,7 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
   (どの列で数えるか)や、取り込む/取り込まないの裁定はここでは提案しません——種類名だけ
   です。`suggestions`・`kinds` はどちらも省略可能で、何も具体的に提案していない応答には
   このブロック自体を付けないでください。
-- 「ID のつけかた」の画面で**種類の分け方・帰属・ID を与える候補**を尋ねられたときは、
+- 「かたちをたしかめる」の画面で**種類の分け方・帰属・ID を与える候補**を尋ねられたときは、
   同じブロックに次の 3 つも入れられます(いずれも省略可能):
   ```{CONSULT_SUGGESTIONS_FENCE}
   {{"splits": [{{"from": "<分け元のマップ名>", "name": "<新しい種類の名前>",
@@ -1415,7 +1527,7 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
   のように聞き返してください。
 - 「## いま見ている画面」に文脈(ステップ・データセット名・骨格の要約・注目している列など)
   が添付されていれば、それに即して具体的かつ簡潔に答えてください。
-- 一般的な使い方の質問(文脈がない、または一般的な内容)には、上記6ステップの説明とマニュアルを
+- 一般的な使い方の質問(文脈がない、または一般的な内容)には、上記7ステップの説明とマニュアルを
   踏まえて答えてください。
 - 分野固有の略語や記号を聞かれたら、一般的な意味を
   説明したうえで、実データの値(添付されていれば)と整合するか一緒に考えてください。
@@ -1827,6 +1939,9 @@ def _discover_targets(
             continue
         if wanted and dsid not in wanted:
             skipped.append({"dataset_id": dsid, "reason": "not_requested"})
+        elif meta.get("is_shared_vocab"):
+            # 共有の言葉の項目はデータセットではない（ADR upper-structure-shared-terms §5）
+            skipped.append({"dataset_id": dsid, "reason": "shared_vocab"})
         elif meta.get("is_crosswalk"):
             skipped.append({"dataset_id": dsid, "reason": "crosswalk"})
         elif not meta.get("promoted"):
@@ -1930,7 +2045,7 @@ async def _kind_labels(
     model.yaml の投影（:func:`_model_yaml_labels`）が種類に付ける ``rdfs:label`` は
     いつもローカル名で、model.yaml に書いてある表示名を読まない。だから IR に
     表示名が無く model.yaml にある設計の種類は、``labels[class_iri]`` を読む図
-    （共通の言葉・データセットの詳細・ためす）でだけ、ワークスペースと違う名前に
+    （ことば・データセットの詳細・ためす）でだけ、ワークスペースと違う名前に
     なっていた。
 
     best-effort — 引けなかった種類と、ローカル名がそのまま返ってきた種類は結果に
@@ -4223,7 +4338,7 @@ async def _reshape_proposal_for_staging(sdir: Path, meta: dict, sources: list[st
     return proposal
 
 
-def _parse_column_meanings(raw: str) -> list[dict[str, str]]:
+def _parse_column_meanings(raw: str) -> list[dict[str, Any]]:
     """Parse the wizard's settled column meanings (a JSON form field on a design job).
 
     ``[{source, column, label?, unit?}]`` — the input layer of ADR
@@ -4243,7 +4358,7 @@ def _parse_column_meanings(raw: str) -> list[dict[str, str]]:
     return _settled_column_meanings(parsed)
 
 
-def _settled_column_meanings(parsed: object) -> list[dict[str, str]]:
+def _settled_column_meanings(parsed: object) -> list[dict[str, Any]]:
     """The checks behind :func:`_parse_column_meanings`, on an already-decoded value.
 
     ``/api/materialize`` carries the same list in its JSON body (it files the
@@ -4251,7 +4366,7 @@ def _settled_column_meanings(parsed: object) -> list[dict[str, str]]:
     """
     if not isinstance(parsed, list):
         raise HTTPException(422, "column_meanings must be a JSON array")
-    out: list[dict[str, str]] = []
+    out: list[dict[str, Any]] = []
     for entry in parsed:
         if not isinstance(entry, dict):
             raise HTTPException(422, "each column meaning must be a JSON object")
@@ -4259,11 +4374,21 @@ def _settled_column_meanings(parsed: object) -> list[dict[str, str]]:
         column = str(entry.get("column") or "").strip()
         if not source or not column:
             raise HTTPException(422, "each column meaning needs a source and a column")
-        row = {"source": source, "column": column}
+        row: dict[str, Any] = {"source": source, "column": column}
         for field_name in ("label", "unit"):
             text = str(entry.get(field_name) or "").strip()
             if text:
                 row[field_name] = text
+        # 上位構造 ADR §2.5.3: 人が受けた当てはめ。形が違えば 422（黙って落とさない）。
+        fit = entry.get("fit")
+        if fit is not None:
+            try:
+                row["fit"] = ColumnFit.model_validate(fit).model_dump()
+            except ValueError as exc:
+                raise HTTPException(
+                    422,
+                    "fit must be {term, kind: shared|standard|dataset, matched_by: label|column}",
+                ) from exc
         out.append(row)
     return out
 
@@ -5355,8 +5480,19 @@ def _merge_column_meanings(existing: list[dict], incoming: list[dict]) -> list[d
                 row[field_name] = text
             else:
                 row.pop(field_name, None)
+        # 当てはめ（上位構造 ADR §2.5.3）: 送らなければそのまま、``None`` で外す。
+        if "fit" in meaning:
+            fit = meaning.get("fit")
+            if isinstance(fit, dict) and fit.get("term"):
+                row["fit"] = {
+                    "term": str(fit["term"]),
+                    "kind": str(fit.get("kind") or ""),
+                    "matched_by": str(fit.get("matched_by") or ""),
+                }
+            else:
+                row.pop("fit", None)
         merged[key] = row
-    return [m for m in merged.values() if m.get("label") or m.get("unit")]
+    return [m for m in merged.values() if m.get("label") or m.get("unit") or m.get("fit")]
 
 
 def _remember_column_meanings(registry_root: Path, dataset_id: str, meanings: list[dict]) -> None:
@@ -5770,6 +5906,8 @@ def build_app(
             if moved or await substrate.graph_has_triples(client, legacy_iri):
                 await substrate.mark_graph_promoted(client, legacy_iri)
             for meta in registry.list_datasets(cfg.registry_root):
+                if meta.get("is_shared_vocab"):
+                    continue  # 共有の言葉は canonical ではない（公開済みの印を付けない）
                 if meta.get("promoted") and meta.get("status") != "retracted":
                     cg = meta.get("canonical_graph") or substrate.canonical_graph_iri(meta["id"])
                     # part5: restore the live version pointer too (a dataset promoted
@@ -5898,7 +6036,7 @@ def build_app(
 
         ``…/graph/canonical/<dataset_id>[/v<n>]`` → the dataset's own name (so
         the 出どころ column never shows ``dataset-9422ba7c``), and
-        ``…/graph/ontology/<id>`` → 「共通の言葉」. Unresolvable graphs are simply
+        ``…/graph/ontology/<id>`` → 「ことば」. Unresolvable graphs are simply
         omitted; the renderer then drops the column rather than showing an
         internal id. Resolution lives here so ``describe.py`` stays free of any
         registry dependency.
@@ -7964,6 +8102,26 @@ def build_app(
                         )
                         if _existing_handles_json:
                             artifacts["handles.json"] = _existing_handles_json
+                    # 上位構造 ADR §2.3 / §2.5.3: ``questions.json`` / ``upper.json`` も
+                    # ``handles`` と同じ運び方（送れば置換・省略なら既存を保つ — 省略した
+                    # キーは update_dataset_artifacts が触らない）。``upper`` は消費済みの
+                    # ``applied_at`` を引き継ぐ（送り直しで消費済みの線が復活しない）。
+                    if body.questions is not None:
+                        artifacts["questions.json"] = dump_questions(
+                            clean_questions(body.questions)
+                        )
+                    if body.upper is not None:
+                        _existing_for_upper = (
+                            registry.load_dataset(cfg.registry_root, body.dataset_id)
+                            if body.dataset_id
+                            else None
+                        )
+                        artifacts["upper.json"] = dump_upper(
+                            merge_upper(
+                                load_upper((_existing_for_upper or {}).get("artifacts") or {}),
+                                clean_upper(body.upper),
+                            )
+                        )
                     if body.dataset_id:
                         # Redesign: re-materialize the SAME dataset in place (keep its
                         # id / graphs / lifecycle / source). Re-design changes only the
@@ -8045,7 +8203,10 @@ def build_app(
         :func:`asterism.dataset_summary.list_entry_extras` — existing fields
         are never dropped.
         """
-        items = registry.list_datasets(cfg.registry_root)
+        # 共有の言葉（vocab-shared）はデータセットではないので一覧に出さない。ハブは従来どおり出る。
+        items = [
+            m for m in registry.list_datasets(cfg.registry_root) if not m.get("is_shared_vocab")
+        ]
         return {
             "count": len(items),
             "datasets": [{**item, **dataset_summary_mod.list_entry_extras(item)} for item in items],
@@ -9164,40 +9325,9 @@ def build_app(
         if not (meta.get("ingested") or meta.get("promoted")):
             return out
 
-        # Display enrichment — the same sources /rules merges: the IR's
-        # reviewed label/unit per predicate + the model.yaml rdfs:labels, and
-        # for the kinds the shared reader (:func:`_kind_labels`, below).
-        # All deterministic; all optional.
-        def display_meta() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
-            labels = _model_yaml_labels(
-                str(artifacts.get("model.yaml") or ""),
-                str(artifacts.get("mapping.rml.ttl") or ""),
-                str(artifacts.get("mie.yaml") or ""),
-            )
-            try:
-                ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
-            except Exception:
-                ir_meta = {}  # enrichment only — a broken IR must not block S7
-            return labels, ir_meta
-
-        labels, ir_meta = await asyncio.to_thread(display_meta)
-
-        def label_of(iri: str) -> str | None:
-            # ① authored label (K8) ② model.yaml projection ③ the source column
-            # heading ④ the term IRI read as words. The last two are new: the
-            # trial questions on S7 are read aloud by the person who made the
-            # file, and "hasSeebeckCoefficient の範囲は" is not their language
-            # when the server is holding the column heading they typed.
-            return (
-                (ir_meta.get(iri) or {}).get("label")
-                or labels.get(iri)
-                or (ir_meta.get(iri) or {}).get("column_label")
-                or _humanize_term_iri(iri)
-                or None
-            )
-
-        def unit_of(iri: str) -> str | None:
-            return (ir_meta.get(iri) or {}).get("unit") or None
+        # Display enrichment (:func:`_trial_display`); for the kinds the shared
+        # reader (:func:`_kind_labels`, below). All deterministic; all optional.
+        label_of, unit_of = await asyncio.to_thread(_trial_display, artifacts)
 
         def decorate(entry: dict[str, object], iri: str) -> dict[str, object]:
             got = label_of(iri)
@@ -9208,24 +9338,9 @@ def build_app(
                 entry["unit"] = unit
             return entry
 
-        staged_iri = (
-            meta.get("graph_iri")  # the staged draft (pre-promote)
-            or meta.get("live_graph")  # the live version graph (post-promote)
-            or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
-        )
-        # どちらのデータに問い合わせたか。新しい取り込みは必ず ``promoted`` を
-        # 下ろす（``mark_ingested``）ので、立っていれば公開した版、下りていれば
-        # 公開前の下書き。画面はこれを見て言い分ける — 公開済みのデータセットを
-        # 見直しで開き、何も作り直さずに「ためす」へ出ると、問いは公開した版に
-        # 走るのに、画面は「公開前の下書きに取り込めました」と言っていた（実機
-        # 2026-10-05）。公開をやめたデータセットは、読むのは公開した版のままだが
-        # いまは公開していないので、別に言う（画面は「公開済み」と言わない）。
-        if not meta.get("promoted"):
-            read_from = "draft"
-        elif meta.get("status") == "retracted":
-            read_from = "retracted"
-        else:
-            read_from = "published"
+        # どちらのデータに問い合わせたか — 画面はこれを見て言い分ける（理由は
+        # :func:`_trial_graph`。公開済みを見直しで開いた実機 2026-10-05 の件を含む）。
+        staged_iri, read_from = _trial_graph(dataset_id, meta)
         client: OxigraphClient = app.state.client
 
         async def select(q: str) -> list[dict] | None:
@@ -9419,6 +9534,147 @@ def build_app(
                 out["samples"] = samples
         return out
 
+    @app.post("/api/datasets/{dataset_id}/trial-queries/run")
+    async def dataset_trial_query_run(
+        dataset_id: str, body: TrialQueryRunBody
+    ) -> dict[str, object]:
+        """⑥「自分の問い」を、/trial-queries と同じ graph（staged の下書き。公開後は公開した版）で
+        1 回走らせる。決定論のテンプレート（LLM なし・自由記述の SPARQL なし）。
+
+        ``op`` = ``count``（種類の件数・``kind_iri`` 必須）/ ``range``（項目の数値の範囲・
+        ``property_iri`` 必須・``kind_iri`` で絞れる）/ ``top``（項目の上位の値 1 件と、その記録の
+        IRI を引用として）。IRI は埋め込む前に検査する（http(s) の IRI 以外・区切り文字入りは
+        422）。
+        答えは /trial-queries と同じ形 — ``classes`` / ``range`` / ``top`` のうち問いに当たる 1 つが
+        入り、ほかは ``null``。``sparql`` に流した SPARQL がそのまま付く。公開後は同じ問いが
+        公開済みのデータ（canonical）で答える ``q_`` ツールになる。
+
+        読むだけで、ストアが読めないときは 200 の ``available: false``（画面を止めない）。
+        知らないデータセットだけ 404。
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        problem = selection_error(body.op, body.kind_iri or None, body.property_iri or None)
+        if problem:
+            raise HTTPException(422, problem)
+        meta = data.get("meta") or {}
+        out: dict[str, object] = {
+            "dataset_id": dataset_id,
+            "op": body.op,
+            "available": False,
+            "read_from": None,
+            "classes": [],
+            "count_sparql": None,
+            "entities": None,
+            "range": None,
+            "top": None,
+            "samples": None,
+        }
+        if not (meta.get("ingested") or meta.get("promoted")):
+            return out
+        label_of, unit_of = await asyncio.to_thread(_trial_display, data.get("artifacts") or {})
+
+        def decorate(entry: dict[str, object], iri: str) -> dict[str, object]:
+            if got := label_of(iri):
+                entry["label"] = got
+            if unit := unit_of(iri):
+                entry["unit"] = unit
+            return entry
+
+        graph, read_from = _trial_graph(dataset_id, meta)
+        question = {"op": body.op, "kind_iri": body.kind_iri, "property_iri": body.property_iri}
+        sparql = build_question_sparql(question, graph=graph)
+        client: OxigraphClient = app.state.client
+
+        async def select(q: str) -> list[dict] | None:
+            try:
+                res = await client.sparql_select(q)
+            except Exception:
+                return None
+            bindings = (res.get("results") or {}).get("bindings") if isinstance(res, dict) else None
+            return bindings if isinstance(bindings, list) else []
+
+        rows = await select(sparql)
+        if rows is None:
+            return out  # store down → available: false, the UI offers retry
+        out["available"] = True
+        out["read_from"] = read_from
+
+        def val(b: dict, name: str) -> str | None:
+            v = (b.get(name) or {}).get("value")
+            return str(v) if v is not None else None
+
+        if body.op == "count":
+            kind = str(body.kind_iri)
+            n = 0
+            for b in rows:
+                try:
+                    n = int(val(b, "n") or 0)
+                except ValueError:
+                    n = 0
+            entry_c: dict[str, object] = {"iri": kind, "n": n}
+            # 種類の表示名は /trial-queries と同じ読み手（:func:`_kind_labels`）。
+            kind_names = await _kind_labels(
+                client,
+                cfg.registry_root,
+                str((data.get("artifacts") or {}).get("mapping.yaml") or ""),
+                [kind],
+            )
+            if got := kind_names.get(kind) or label_of(kind):
+                entry_c["label"] = got
+            out["classes"] = [entry_c]
+            out["count_sparql"] = sparql
+        elif body.op == "range":
+            prop = str(body.property_iri)
+            b = rows[0] if rows else {}
+            try:
+                n = int(val(b, "n") or 0)
+            except ValueError:
+                n = 0
+            entry: dict[str, object] = {
+                "predicate_iri": prop,
+                "n": n,
+                "min": val(b, "min") if n else None,
+                "max": val(b, "max") if n else None,
+                "sparql": sparql,
+            }
+            for src, dst in (("minSubject", "min_subject_iri"), ("maxSubject", "max_subject_iri")):
+                if n and val(b, src):
+                    entry[dst] = val(b, src)
+            out["range"] = decorate(entry, prop)
+        else:  # top
+            prop = str(body.property_iri)
+            subj = (rows[0].get("s") or {}) if rows else {}
+            subject_iri = str(subj["value"]) if subj.get("type") == "uri" else None
+            top_v = val(rows[0], "v") if rows else None
+            if subject_iri is not None and top_v is not None:
+                # 主語の IRI はストアが返した uri 型の値（利用者の入力ではない）。念のため
+                # 区切り文字が入っていれば付随の値は引かない。
+                detail_q = (
+                    None
+                    if any(c in subject_iri for c in '<>" \n')
+                    else f"SELECT ?p ?v WHERE {{ GRAPH <{graph}> {{ "
+                    f"<{subject_iri}> ?p ?v FILTER(isLiteral(?v)) }} }} ORDER BY ?p LIMIT 12"
+                )
+                details: list[dict[str, object]] = []
+                for db in (await select(detail_q) if detail_q else None) or []:
+                    dp, dv = val(db, "p"), val(db, "v")
+                    if dp is None or dv is None or dp == prop:
+                        continue  # the answer value itself is not context
+                    details.append(decorate({"predicate_iri": dp, "value": dv}, dp))
+                out["top"] = decorate(
+                    {
+                        "predicate_iri": prop,
+                        "value": top_v,
+                        "subject_iri": subject_iri,
+                        "subject_details": details,
+                        "sparql": sparql,
+                    },
+                    prop,
+                )
+        return out
+
     @app.get("/api/datasets/{dataset_id}/history")
     async def get_dataset_history(dataset_id: str) -> dict[str, object]:
         """Redesign snapshots (newest first) — metadata only, contents by id below."""
@@ -9532,6 +9788,15 @@ def build_app(
         canonical data yet → ``dry_run: null``)."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        # 予約名: 自動の 3 本（公開のたびに置き換わる）と、⑥「自分の問い」が公開で使う ``q_``
+        # 接頭辞（公開のたびに questions.json から作り直され、無いものは消える）。人の保存が
+        # この名前を取ると、次の公開で黙って上書き・削除される。
+        if is_reserved_tool_name(body.name):
+            raise HTTPException(
+                422,
+                f"tool name {body.name!r} is reserved (自動のツールと、自分の問いが公開で使う "
+                "'q_' で始まる名前は、保存するツールには使えません)",
+            )
         tool = body.model_dump()
         if tool.get("output_kind") is None:
             tool.pop("output_kind", None)
@@ -9542,7 +9807,11 @@ def build_app(
         lint = lint_query_tool(parsed[0])
         if lint.errors:
             raise HTTPException(400, "invalid query tool: " + "; ".join(lint.errors))
-        registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        try:
+            registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        except registry.QueryToolsUnreadable as exc:
+            # 読めない query_tools.yaml を空として上書きすると人のツールが消える
+            raise HTTPException(409, f"保存を中止しました: {exc}") from exc
         warnings = list(lint.warnings)
         dry_run: dict[str, object] | None = None
         client = getattr(app.state, "client", None)
@@ -9575,7 +9844,10 @@ def build_app(
         """Remove one declared query tool from a dataset."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
-        removed = registry.delete_query_tool(cfg.registry_root, dataset_id, tool_name)
+        try:
+            removed = registry.delete_query_tool(cfg.registry_root, dataset_id, tool_name)
+        except registry.QueryToolsUnreadable as exc:
+            raise HTTPException(409, f"削除を中止しました: {exc}") from exc
         if not removed:
             raise HTTPException(404, f"tool {tool_name!r} not found")
         return {
@@ -10559,6 +10831,33 @@ def build_app(
         except Exception:  # never block a publication on tool synthesis
             logger.exception("query tool synthesis failed for %s (continuing)", dataset_id)
 
+    async def _apply_upper_and_questions(
+        dataset_id: str, client: OxigraphClient
+    ) -> dict[str, object]:
+        """公開が書く 2 つ — ``upper.json`` の線と ``questions.json`` の ``q_`` ツール。
+
+        ``promote_dataset`` と名前だけの公開（``publish_dataset_names``）が**同じこの関数**を呼ぶ
+        （上位構造 ADR §2.3）。(a) ``applied_at`` が空の線だけを書き、書いたら ``applied_at`` を
+        記録する（1 回だけ消費 — 取り消した線は再公開で戻らない）。(b) 問いを ``q_<hash8>`` の
+        宣言ツールにして名前で upsert／削除する。どちらも失敗は ``warnings`` に載せるだけで公開は
+        止めない。線が書けたら ``wired.json`` の数え直しは呼ぶ側の ``_refresh_wired``
+        （従来どおり）。
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id) or {}
+        _, unit_of = await asyncio.to_thread(_trial_display, data.get("artifacts") or {})
+        upper = await apply_upper(client, cfg.registry_root, dataset_id)
+        questions = await asyncio.to_thread(
+            apply_questions, cfg.registry_root, dataset_id, unit_of=unit_of
+        )
+        return {
+            "upper": {"applied": upper["applied"], "skipped": upper["skipped"]},
+            "questions": {
+                "written": questions["written"],
+                "lint_errors": questions["lint_errors"],
+            },
+            "warnings": [*upper["warnings"], *questions["warnings"]],
+        }
+
     @app.post("/api/datasets/{dataset_id}/promote", dependencies=_write_auth)
     async def promote_dataset(dataset_id: str) -> JSONResponse:
         """Phase 5 (#15 S4): human-gated promotion of a staged version graph to citable.
@@ -10603,6 +10902,10 @@ def build_app(
             )
         except Exception:  # never block a promote on TBox projection
             logger.exception("ontology projection failed for %s (continuing)", dataset_id)
+        # 上位構造 ADR §2.3 / §2.5.3: ontology graph が出来たあと・mark_promoted の前に、
+        # 人が受けた当てはめの線（upper.json・1 回だけ消費）と自分の問い（questions.json →
+        # q_ ツール）を書く。名前だけの公開と同じ関数。失敗しても公開は止めない。
+        upper_questions = await _apply_upper_and_questions(dataset_id, client)
         # ADR dataset-description-in-the-store.md §4: promote is the ONE writer
         # that always (re-)writes the meta graph — the street's description is
         # confirmed at the moment of publication, same as published_subjects
@@ -10621,6 +10924,9 @@ def build_app(
             # then (ADR id-move-after-publish.md).
             published_subjects=_subjects_of_design(data.get("artifacts", {})),
         )
+        # 共有の言葉の「答えるデータセット数」（wired.json）は公開で変わる。失敗しても
+        # 公開は止めない（warning は _refresh_wired が出す）。
+        await _refresh_wired(client)
         # 契約メモ contract_pr_f15.md §1.4: before rebuilding whatever hub this
         # dataset already participates in, see whether its ☑ handles newly join
         # ANOTHER promoted dataset's ☑ handles and, if so, join the hub
@@ -10679,6 +10985,9 @@ def build_app(
             # 契約メモ contract_pr_f15.md §1.4: the ☑ handles auto-link report
             # (which perspectives were created/joined, or why none were).
             "autolink": autolink_report,
+            # 上位構造 ADR: 公開が書いた線（applied/skipped）と問いのツール（written/lint_errors）、
+            # 書けなかった理由（warnings）。
+            "upper_questions": upper_questions,
         }
         if togomcp is not None:
             payload["togomcp"] = togomcp
@@ -10769,7 +11078,16 @@ def build_app(
                 dataset_id,
                 {"names_published_at": datetime.now(UTC).isoformat()},
             )
-        return {"dataset_id": dataset_id, "updated": len(changes), "changes": changes}
+        # 上位構造 ADR §2.3 / §2.5.3: 名前だけの公開でも、人が受けた当てはめの線（1 回だけ消費）と
+        # 自分の問い（q_ ツール）は書く — promote と同じ関数。名前の違いが無くても走る。
+        upper_questions = await _apply_upper_and_questions(dataset_id, client)
+        await _refresh_wired(client)
+        return {
+            "dataset_id": dataset_id,
+            "updated": len(changes),
+            "changes": changes,
+            "upper_questions": upper_questions,
+        }
 
     @app.post("/api/datasets/{dataset_id}/retract", dependencies=_write_auth)
     async def retract_dataset(dataset_id: str) -> JSONResponse:
@@ -10794,6 +11112,8 @@ def build_app(
         now = datetime.now(UTC).isoformat()
         await substrate.retract_canonical(client, canonical_iri, invalidated_at=now)
         meta = registry.mark_retracted(cfg.registry_root, dataset_id, retracted_at=now)
+        # 引用対象から外れた分、共有の言葉の「答えるデータセット数」も減る。
+        await _refresh_wired(client)
         # A retracted dataset leaves the Ask scope — unlist it from the togomcp
         # catalog too (best-effort; reversed by /reinstate).
         if cfg.togomcp_dir is not None:
@@ -10812,6 +11132,7 @@ def build_app(
         meta = registry.mark_reinstated(
             cfg.registry_root, dataset_id, reinstated_at=datetime.now(UTC).isoformat()
         )
+        await _refresh_wired(client)  # 引用対象に戻った分、数え直す
         # Reverse the retract-time unlisting: republish the MIE against the live
         # graph that just came back into scope (best-effort).
         if cfg.togomcp_dir is not None:
@@ -10904,6 +11225,7 @@ def build_app(
         await substrate.drop_graph(client, substrate.meta_graph_iri(dataset_id))
         await substrate.drop_graph(client, substrate.ontology_graph_iri(dataset_id))
         registry.delete_dataset(cfg.registry_root, dataset_id)
+        await _refresh_wired(client)
         # A deleted dataset must not linger in the togomcp catalog (best-effort).
         if cfg.togomcp_dir is not None:
             await asyncio.to_thread(togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id)
@@ -11267,13 +11589,28 @@ def build_app(
         return {"dataset_id": dataset_id, "promoted": True, "fields": entry["predicates"]}
 
     @app.get("/api/crosswalk/alignments")
-    async def crosswalk_alignments() -> JSONResponse:
-        """The asserted schema alignments BETWEEN perspectives (Phase 2) + the closed
-        set of relations a human may assert. Read-only."""
+    async def crosswalk_alignments(
+        scope: str | None = Query(
+            default=None,
+            description='"perspective" | "standard" | "shared" | "dataset" (omit for all)',
+        ),
+    ) -> JSONResponse:
+        """The asserted schema alignments + the closed set of relations a human may
+        assert. Read-only. Each row carries ``source_kind`` / ``target_kind`` /
+        ``source_dataset`` / ``target_dataset`` / ``cq`` / ``broken`` (computed at read
+        time, so older rows get them too). ``scope`` narrows the list;
+        ``scope=perspective`` is the set the perspective screen can author on (both ends
+        are terms of a perspective that loads)."""
         client: OxigraphClient = app.state.client
+        try:
+            alignments = await crosswalk_runtime.list_alignments(
+                client, scope=scope, registry_root=cfg.registry_root
+            )
+        except ValueError as exc:  # unknown scope
+            raise HTTPException(422, str(exc)) from exc
         return JSONResponse(
             {
-                "alignments": await crosswalk_runtime.list_alignments(client),
+                "alignments": alignments,
                 "relations": sorted(crosswalk_runtime.ALIGN_RELATIONS),
             }
         )
@@ -11315,7 +11652,7 @@ def build_app(
 
     @app.post("/api/ground/terms")
     async def grounding_search_batch(body: GroundTermsBody) -> JSONResponse:
-        """Ground MANY term names in one round trip（共通の言葉の地図用）.
+        """Ground MANY term names in one round trip（ことばの地図用）.
 
         Each entry is ``{"name": ..., "kind": "class"|"property"(optional)}``; the reply
         maps each name to its best candidates. ``iris`` (optional) are looked up by IRI
@@ -11436,23 +11773,45 @@ def build_app(
         terms = grounding.ground_model_yaml(model_yaml) if model_yaml.strip() else []
         return JSONResponse({"terms": [t.to_dict() for t in terms]})
 
+    async def _refresh_wired(client: OxigraphClient) -> bool:
+        """線・語が変わったあとに ``wired.json`` を数え直す（ADR upper-structure-shared-terms
+        §2.3 の契機）。共有の言葉がまだ 1 つも無い（vocab-shared の項目が無い）ときは何も
+        しない。数え直しに失敗しても線そのものは書けているので、例外にはせず ``False`` を返す
+        （呼ぶ側が ``wired_stale`` として応答に載せる — 黙って古いままにしない）。"""
+        from asterism import shared_vocab
+
+        if not (cfg.registry_root / shared_vocab.REGISTRY_ID / "meta.json").is_file():
+            return True
+        try:
+            await shared_vocab.recompute_wired(client, cfg.registry_root)
+        except Exception:
+            logger.warning("wired.json の数え直しに失敗しました", exc_info=True)
+            return False
+        return True
+
     @app.post("/api/crosswalk/align", dependencies=_write_auth)
     async def crosswalk_align(body: CrosswalkAlignBody) -> JSONResponse:
         """Assert (or, with ``remove``, withdraw) a schema relationship between two
-        perspective terms — "視点をつなぐ". Additive, reversible, human-gated; stored in a
-        promoted alignment graph the FROM-merge unions (a citable, declared fact)."""
+        terms — "視点をつなぐ" / 共有の言葉へ結ぶ. Additive, reversible, human-gated; stored
+        in a promoted alignment graph the FROM-merge unions (a citable, declared fact).
+
+        Errors: a cycle through ⊑/≡ is 409; a shared term that was never minted, or a
+        class joined to a property, is 422; a bad relation / IRI stays 400. Any absolute
+        IRI (including one nothing knows) is still accepted."""
         client: OxigraphClient = app.state.client
         try:
             if body.remove:
                 await crosswalk_runtime.remove_alignment(
                     client, body.source, body.target, body.relation
                 )
+                stale = not await _refresh_wired(client)
                 return JSONResponse(
                     {
                         "removed": True,
                         "source": body.source,
                         "target": body.target,
                         "relation": body.relation,
+                        **({"wired_stale": True} if stale else {}),
                     }
                 )
             res = await crosswalk_runtime.assert_alignment(
@@ -11463,10 +11822,22 @@ def build_app(
                 at=datetime.now(UTC).isoformat(),
                 from_perspective=body.from_perspective,
                 to_perspective=body.to_perspective,
+                cq=body.cq,
             )
+            if not await _refresh_wired(client):
+                res = {**res, "wired_stale": True}
             return JSONResponse(res)
-        except ValueError as exc:  # bad relation / non-IRI term
-            raise HTTPException(400, str(exc)) from exc
+        except ValueError as exc:
+            msg = str(exc)
+            if msg == "cycle":
+                raise HTTPException(
+                    409, "循環になるので結べません。上位が下位の下に入ります"
+                ) from exc
+            if msg == "unminted shared term":
+                raise HTTPException(422, "まだ作っていない共有の言葉には結べません") from exc
+            if msg.startswith("kind mismatch"):
+                raise HTTPException(422, f"種類と項目は結べません: {msg}") from exc
+            raise HTTPException(400, msg) from exc  # bad relation / non-IRI term
         except Exception as exc:  # surface a store error
             raise HTTPException(502, f"alignment failed: {exc}") from exc
 
@@ -11663,6 +12034,7 @@ def build_app(
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
+    from asterism_api.vocab_routes import register_vocab  # 共有の言葉（上位構造 ADR §2）
 
     register_class_schema(app, cfg)
     # label_resolvers=_crosswalk_label_resolvers: 契約メモ contract_b_hub_names.md
@@ -11671,6 +12043,9 @@ def build_app(
     register_cards(app, cfg, label_resolvers=_crosswalk_label_resolvers)
     register_place(app, cfg)
     register_license(app, cfg)
+    register_vocab(app, cfg, write_auth=_write_auth)
+    register_questions(app, cfg, write_auth=_write_auth)  # ⑥ 自分の問い（questions.json）
+    register_upper(app, cfg, write_auth=_write_auth)  # ③⑤ の当てはめ（upper.json）
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）

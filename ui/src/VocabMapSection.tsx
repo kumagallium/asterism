@@ -1,4 +1,4 @@
-// 「共通のことば」ページの育つ地図の**節**（データ取得＋統計帯＋図＋凡例）。
+// 「ことば」ページの育つ地図の**節**（データ取得＋統計帯＋図＋凡例）。
 //
 // データ源はすべて決定論・読み取り専用（shared-vocab-graph.md §3）:
 //   ・各データセットの保存済み取り込みルール（⑤と同じ）
@@ -7,8 +7,10 @@
 //   ・接地候補は POST /api/ground/terms（exact 級のみ・1 往復）
 //   ・対応は crosswalk の alignment グラフ
 //   ・「全体」表示だけ、つながり（ハブ）の一覧 GET /api/crosswalks と、ハブの件数
+//   ・共有のことば（GET /api/vocab/shared）— 標準の帯の上の帯。データセットが 0 件でも描く
+//   ・線の起点: 「線を引く」で丸を 2 つ選ぶと LineForm（配置は変えない・選択状態はここが持つ）
 // どれかが取れなくても図は残りで描く（欠けは「線が無い」だけ — 嘘は描かない）。
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import { getAlignments, getCrosswalks } from './crosswalkApi'
@@ -17,6 +19,10 @@ import { getDatasetRules, getKindCounts } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
+import { LineForm } from './LineForm'
+import type { PickEnd } from './lineChoice'
+import type { SharedTerm } from './vocabApi'
+import { listTerms } from './vocabApi'
 import { KindOverview } from './KindOverviewMap'
 import { hubCountsOf, layoutKindOverview, overviewStats } from './kindOverview'
 import {
@@ -25,7 +31,7 @@ import {
   layoutDatasetOverview,
   type OverviewFocus,
 } from './kindOverviewScale'
-import { VocabMap } from './VocabMap'
+import { VocabMap, type VocabPick } from './VocabMap'
 import {
   collectMintedTermQueries,
   collectStandardIris,
@@ -47,6 +53,8 @@ interface Loaded {
   hubCounts: Record<string, number>
   /** つながり（ハブ）の一覧（「全体」表示）。取れなければ空 — ハブを描かないだけ。 */
   crosswalks: CrosswalkPerspective[]
+  /** 鋳造済みの共有のことば。取れなければ空（帯を描かないだけ）。 */
+  sharedTerms: SharedTerm[]
   /** 取り込みルールを読みに行ったデータセットの数。0 件なら地図は出さない、
    *  1 件以上あって 1 つも読めなかったならその事実を出す（黙って消えない）。 */
   attempted: number
@@ -70,6 +78,8 @@ export function VocabMapSection({
   onOpenDataset,
   onOpenKind,
   onOpenCrosswalk,
+  reloadKey = 0,
+  onChanged,
 }: {
   datasets: CatalogDataset[]
   schema: SchemaSummary | null
@@ -78,11 +88,16 @@ export function VocabMapSection({
   onOpenKind?: (classIri: string) => void
   /** 「全体」のハブを押したときの行き先（つながりの画面）。 */
   onOpenCrosswalk?: () => void
+  /** 親の版。変わったら（語・問い・線が別の節で変わったとき）地図を取り直す。 */
+  reloadKey?: number
+  /** 線を引けた（親が版を進め、ほかの節が読み直す）。 */
+  onChanged?: () => void
 }) {
   const { t } = useTranslation()
   const [view, setView] = useState<MapView>(readView)
   const chooseView = (v: MapView) => {
     setView(v)
+    setPicked([]) // 選んだ丸は切り替え先の図に無いことがある
     try {
       window.localStorage.setItem(VIEW_KEY, v)
     } catch {
@@ -90,6 +105,8 @@ export function VocabMapSection({
     }
   }
   const [loaded, setLoaded] = useState<Loaded | null>(null)
+  // 線を引いたあとの読み直し（地図は読み取りの結果なので、データを取り直して描き直す）。
+  const [reloadTick, setReloadTick] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -126,6 +143,7 @@ export function VocabMapSection({
       const countsByDataset = counts ? classCountsByCatalogId(counts, targets) : null
       const hubCounts = counts ? hubCountsOf(counts) : {}
       const crosswalks = await getCrosswalks().catch(() => [] as CrosswalkPerspective[])
+      const sharedTerms = await listTerms().catch(() => [] as SharedTerm[])
       if (!cancelled)
         setLoaded({
           datasets: withRules,
@@ -135,13 +153,14 @@ export function VocabMapSection({
           countsByDataset,
           hubCounts,
           crosswalks,
+          sharedTerms,
           attempted: targets.length,
         })
     })()
     return () => {
       cancelled = true
     }
-  }, [datasets])
+  }, [datasets, reloadTick, reloadKey])
 
   const classCounts = useMemo(() => {
     const m: Record<string, number> = {}
@@ -149,8 +168,11 @@ export function VocabMapSection({
     return m
   }, [schema])
 
+  // データセットが 0 件でも、共有のことばがあれば帯は描く。
+  const hasContent = !!loaded && (loaded.datasets.length > 0 || loaded.sharedTerms.length > 0)
+
   const shape = useMemo(() => {
-    if (!loaded || loaded.datasets.length === 0) return null
+    if (!loaded || !hasContent) return null
     return composeVocabGraph({
       datasets: loaded.datasets,
       classCounts,
@@ -158,18 +180,55 @@ export function VocabMapSection({
       candidates: loaded.candidates,
       standardNames: loaded.standardNames,
       alignments: loaded.alignments,
+      sharedTerms: loaded.sharedTerms,
       words: {
         more: (n) => t('vocab:map.moreFields', { n }),
         count: (n) => t('vocab:map.count', { n }),
         aligned: t('vocab:map.aligned'),
+        shared: (kids, orphan) =>
+          orphan ? t('vocabmap:sharedBand.orphan') : t('vocabmap:sharedBand.kids', { n: kids }),
       },
     })
-  }, [loaded, classCounts, t])
+  }, [loaded, hasContent, classCounts, t])
 
-  const [focusState, setFocus] = useState<OverviewFocus | null>(null)
+  const [focusState, setFocusState] = useState<OverviewFocus | null>(null)
+
+  // ── 線の起点: 丸を 2 つ選ぶ（選択状態はフォーカス状態と同じ置き場） ──
+  const [pickMode, setPickMode] = useState(false)
+  const [picked, setPicked] = useState<PickEnd[]>([])
+  const onPick = useCallback((end: PickEnd) => {
+    setPicked((prev) =>
+      prev.some((p) => p.id === end.id) ? prev.filter((p) => p.id !== end.id) : [...prev, end].slice(-2),
+    )
+  }, [])
+  const stopPicking = useCallback(() => {
+    setPickMode(false)
+    setPicked([])
+  }, [])
+  // 見ている図が変わったら（フォーカス・表示の切り替え）、選んだ丸は図に無いかもしれないので空にする。
+  const setFocus = useCallback((f: OverviewFocus | null) => {
+    setFocusState(f)
+    setPicked([])
+  }, [])
+  const pick = useMemo<VocabPick>(
+    () => ({ active: pickMode, picked: picked.map((p) => p.id), onPick }),
+    [pickMode, picked, onPick],
+  )
+  const cqChoices = useMemo(() => {
+    const seen = new Set<string>()
+    const out: { tool_name: string; title: string }[] = []
+    for (const term of loaded?.sharedTerms ?? []) {
+      for (const c of term.cqs ?? []) {
+        if (seen.has(c.tool_name)) continue
+        seen.add(c.tool_name)
+        out.push({ tool_name: c.tool_name, title: c.title })
+      }
+    }
+    return out
+  }, [loaded])
 
   const overviewInput = useMemo(() => {
-    if (!loaded || loaded.datasets.length === 0) return null
+    if (!loaded || !hasContent) return null
     return {
       datasets: loaded.datasets,
       classCounts,
@@ -178,9 +237,10 @@ export function VocabMapSection({
       hubCounts: loaded.hubCounts,
       standardNames: loaded.standardNames,
       alignments: loaded.alignments,
+      sharedTerms: loaded.sharedTerms,
       unnamedHub: t('vocab:overview.unnamedHub'),
     }
-  }, [loaded, classCounts, t])
+  }, [loaded, hasContent, classCounts, t])
 
   // 段は自動（小さければ種類まで・超えたらデータセットごと）。丸を押したらその周りだけを種類まで。
   // 押した先が今のデータに無ければ（読み直し後など）フォーカスは無いものとして俯瞰に戻る。
@@ -216,7 +276,7 @@ export function VocabMapSection({
   }
 
   const showOverview = view === 'overview' && overview !== null
-  const legend = showOverview
+  const legendBase = showOverview
     ? ([
         ...(overviewMode === 'dataset'
           ? []
@@ -238,6 +298,18 @@ export function VocabMapSection({
         { kind: 'alignment', dashed: true, text: t('vocab:map.legend.alignment') },
       ] as const)
 
+  // 上位への線（共有のことば・⊂）が図にあるときだけ凡例に足す。
+  const hasUpper = showOverview
+    ? overview.edges.some((e) => e.kind === 'upper')
+    : shape.edges.some((e) => e.kind === 'upper')
+  const hasShared = showOverview ? (overview.shared?.length ?? 0) > 0 : shape.stats.shared > 0
+  const legend: readonly { kind: string; dashed: boolean; text: string }[] = hasUpper
+    ? [...legendBase, { kind: 'upper', dashed: false, text: t('vocabmap:legend.upper') }]
+    : legendBase
+
+  // 線を引く選択は、丸を選べる図のときだけ（データセットごとの俯瞰は丸がデータセット）。
+  const canPick = !(showOverview && overviewMode === 'dataset')
+
   return (
     <div className="card vocab-map-card">
       <div className="vocab-card-head">
@@ -256,6 +328,27 @@ export function VocabMapSection({
           </button>
         ))}
       </div>
+      {canPick ? (
+        <div className="vocab-map-pickbar">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            aria-pressed={pickMode}
+            onClick={() => (pickMode ? stopPicking() : setPickMode(true))}
+          >
+            {pickMode ? t('vocabmap:pick.stop') : t('vocabmap:pick.start')}
+          </button>
+          {pickMode && (
+            <span className="vocab-map-pickbar-hint">
+              {picked.length < 2
+                ? `${t('vocabmap:pick.hint')} ${t('vocabmap:pick.count', { n: picked.length })}`
+                : t('vocabmap:pick.count', { n: picked.length })}
+            </span>
+          )}
+        </div>
+      ) : (
+        <p className="vocab-map-pickbar-hint">{t('vocabmap:pick.unavailable')}</p>
+      )}
       <p className="vocab-map-lead">
         {showOverview
           ? t(
@@ -283,6 +376,11 @@ export function VocabMapSection({
                 <span>
                   <strong>{st.hubs}</strong> {t('vocab:overview.stats.hubs')}
                 </span>
+                {overviewMode !== 'dataset' && (
+                  <span>
+                    <strong>{st.shared}</strong> {t('vocabmap:stats.shared')}
+                  </span>
+                )}
                 {overviewMode === 'kind' && (
                   <span>
                     <strong>{st.standards}</strong> {t('vocab:overview.stats.standards')}
@@ -317,6 +415,9 @@ export function VocabMapSection({
           <span>
             <strong>{shape.stats.alignments}</strong> {t('vocab:map.stats.alignments')}
           </span>
+          <span>
+            <strong>{shape.stats.shared}</strong> {t('vocabmap:stats.shared')}
+          </span>
         </div>
       )}
       {showOverview ? (
@@ -327,6 +428,7 @@ export function VocabMapSection({
           onOpenDataset={onOpenDataset}
           onOpenCrosswalk={onOpenCrosswalk}
           onFocus={setFocus}
+          pick={canPick ? pick : undefined}
           focus={
             focused
               ? {
@@ -339,7 +441,22 @@ export function VocabMapSection({
           }
         />
       ) : (
-        <VocabMap shape={shape} ariaLabel={t('vocab:map.aria')} onOpenDataset={onOpenDataset} />
+        <VocabMap shape={shape} ariaLabel={t('vocab:map.aria')} onOpenDataset={onOpenDataset} pick={pick} />
+      )}
+      {canPick && pickMode && picked.length === 2 && (
+        <LineForm
+          // 選び直したら状態（向き・関係・問い・エラー）を初期化する。
+          key={picked.map((p) => p.id).join('|')}
+          a={picked[0]}
+          b={picked[1]}
+          cqs={cqChoices}
+          onDone={() => {
+            stopPicking()
+            setReloadTick((n) => n + 1)
+            onChanged?.()
+          }}
+          onCancel={() => setPicked([])}
+        />
       )}
       <div className="vocab-map-legend">
         {legend.map((l) => (
@@ -358,6 +475,9 @@ export function VocabMapSection({
             {l.text}
           </span>
         ))}
+        {hasShared && showOverview && (
+          <span className="vocab-map-leg">{t('vocabmap:legend.sharedSize')}</span>
+        )}
         {showOverview && (
           <span className="vocab-map-leg">
             <svg width="34" height="16" aria-hidden>

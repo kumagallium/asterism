@@ -20,7 +20,7 @@
     "crosswalk": "Connections",
     "ask": "Ask",
     "network": "Graph",
-    "vocab": "Shared terms",
+    "vocab": "Words",
     "jobs": "Activity",
     "workbench": "Add data",
     "sparql": "Developer",
@@ -76,8 +76,8 @@
     },
     "vocab": {
       "eyebrow": "Shared",
-      "title": "Shared terms",
-      "sub": "Kinds of data and fields your datasets share"
+      "title": "Words",
+      "sub": "Place words from a question and link them across datasets"
     },
     "crosswalk": {
       "eyebrow": "Connect",

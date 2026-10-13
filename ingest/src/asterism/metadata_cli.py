@@ -54,6 +54,14 @@ class _Outcome:
     is_error: bool = False
 
 
+def _is_shared_vocab_dir(dataset_dir: Path) -> bool:
+    try:
+        meta = json.loads((dataset_dir / _META_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(meta, dict) and bool(meta.get("is_shared_vocab"))
+
+
 def _iter_dataset_dirs(registry: Path, only: set[str] | None) -> list[Path]:
     """One entry per top-level ``registry/{id}/`` with a ``meta.json``."""
     dirs = []
@@ -64,6 +72,8 @@ def _iter_dataset_dirs(registry: Path, only: set[str] | None) -> list[Path]:
             continue
         if only is not None and child.name not in only:
             continue
+        if _is_shared_vocab_dir(child):
+            continue  # 共有のことば（registry/vocab-shared）はデータセットではない
         dirs.append(child)
     return dirs
 

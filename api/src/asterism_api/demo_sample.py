@@ -1279,12 +1279,12 @@ async def _run_derivations(
                     remaining.append(item)
             elif item == PENDING_CROSSWALK:
                 # ``main._maybe_rebuild_crosswalk`` は中で例外を握りつぶす（失敗しても pending が
-                # 空になり、やり直されない）。観点ごとに直に呼んで、失敗を拾う。
+                # 空になり、やり直されない）。つながりごとに直に呼んで、失敗を拾う。
                 failure: Exception | None = None
                 for pid in m._perspective_ids_for_dataset(cfg.registry_root, dataset_id):
                     try:
                         await m._rebuild_crosswalk_now(client, cfg.registry_root, pid)
-                    except Exception as exc:  # 残りの観点は作り直してから、失敗として扱う
+                    except Exception as exc:  # 残りのつながりは作り直してから、失敗として扱う
                         logger.warning("refresh_bundled_sample: hub %s failed", pid, exc_info=True)
                         failure = failure or exc
                 if failure is not None:
@@ -1639,7 +1639,7 @@ async def _refresh(
     pending: list[str] = list(old["pending"]) if old else []
     if live_graph is not None:
         data_mark = {"live_graph": live_graph}
-        # つながりのハブは、見本が参加している観点が無ければ何もしない。
+        # つながりのハブは、見本が参加しているつながりが無ければ何もしない。
         todo = [PENDING_CROSSWALK]
         pending = [] if UNIT_DESIGN in reached else [PENDING_ONTOLOGY]
         if cfg.togomcp_dir is not None:

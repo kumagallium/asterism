@@ -65,5 +65,6 @@
     "note": "A different question from the field name. The unit is a strong hint, so even an abbreviated name can be found. Matching this lets people search across datasets for \"who measured thermal conductivity\".",
     "unitFits": "the unit fits ({{unit}})",
     "done": "Recorded that “{{source}}” measures {{target}}."
-  }
+  },
+  "toVocab": "Match with words →"
 }

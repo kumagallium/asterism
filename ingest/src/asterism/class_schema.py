@@ -342,7 +342,8 @@ def _promoted_metas(registry_root: Path) -> list[dict[str, Any]]:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if isinstance(meta, dict) and meta.get("promoted"):
+        # 共有のことば（is_shared_vocab）はデータセットではない。ハブはこれまでどおり。
+        if isinstance(meta, dict) and meta.get("promoted") and not meta.get("is_shared_vocab"):
             metas.append(meta)
     metas.sort(key=lambda m: str(m.get("promoted_at") or ""), reverse=True)
     return metas

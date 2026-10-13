@@ -57,7 +57,7 @@ describe('pageChatThreadsFor / pageChatThreadForCard', () => {
   it('createPageChatThreadForCard はターン 0・kind viewpoint の会話を作り、pageChatThreadForCard で引ける', async () => {
     const { createPageChatThreadForCard, pageChatThreadForCard } = await import('./pageChatThreads')
     const subject = uniq('subject')
-    const card = { card_id: uniq('card'), title: 'ある観点' }
+    const card = { card_id: uniq('card'), title: 'ある問い' }
     const thread = createPageChatThreadForCard(subject, card)
     expect(thread.turns).toEqual([])
     expect(thread.meta).toEqual({ subject_key: subject, card_id: card.card_id, kind: 'viewpoint' })
@@ -67,7 +67,7 @@ describe('pageChatThreadsFor / pageChatThreadForCard', () => {
   it('別の subjectKeys のスコープでは見えない', async () => {
     const { createPageChatThreadForCard, pageChatThreadForCard } = await import('./pageChatThreads')
     const subject = uniq('subject')
-    const card = { card_id: uniq('card'), title: 'ある観点' }
+    const card = { card_id: uniq('card'), title: 'ある問い' }
     createPageChatThreadForCard(subject, card)
     expect(pageChatThreadForCard([uniq('other-subject')], card.card_id)).toBeNull()
   })

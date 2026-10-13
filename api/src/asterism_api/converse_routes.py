@@ -270,7 +270,7 @@ async def _class_schema_or_none(
 async def _class_properties_map(
     client: OxigraphClient, registry_root: Any, resolved_subject: dict[str, Any]
 ) -> dict[str, list[dict[str, Any]]]:
-    """観点を作れる候補の種類ぶんの ``class_schema(...)['properties']``
+    """問いを作れる候補の種類ぶんの ``class_schema(...)['properties']``
     （``{class_iri: [property, ...]}``）——``own_class`` と、個体のページなら
     ``linking_kinds`` に出てくる種類のうち先頭 8 種類（契約 F14 §1.4「hops
     昇順で先頭 8 種類（同じ class は 1 回）」——選定は

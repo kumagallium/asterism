@@ -1,4 +1,4 @@
-// 「共通の言葉」の育つ地図の**データ**（shared-vocab-graph.md）。
+// 「ことば」の育つ地図の**データ**（shared-vocab-graph.md）。
 //
 // 複数データセットの保存済み取り込みルールを 1 枚の図に重ね、標準語彙との接点
 // （使用・候補）とデータセット間の対応を足す。描画（VocabGraph.tsx）とは切り離す —
@@ -8,7 +8,9 @@ import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, KindCounts, RuleMap, RuleProperty } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import type { ShapeEdge, ShapeField, ShapeNode } from './shapeGraph'
+import { isDirectedRelation, relationKey, sharedLines, standardTermKind, type PickEnd } from './lineChoice'
 import { linksTo } from './shapeGraph'
+import type { SharedTerm } from './vocabApi'
 import { knownVocabForIri, localName } from './vocab'
 
 /** カタログの `id` は表示用（`live-<登録 id>`）で、API が受け取る登録 id とは**違う**。
@@ -36,20 +38,41 @@ export const PLUMBING_NS = [
 const isPlumbing = (iri: string): boolean => PLUMBING_NS.some((ns) => iri.startsWith(ns))
 
 /** 辺の性格。灰＝データの中 / 緑＝標準語を使用（確定） / 琥珀点線＝接地の候補 /
- *  青点線＝データセット間の対応（crosswalk の既存色に合わせる）。 */
-export type VocabEdgeKind = 'link' | 'used' | 'candidate' | 'alignment'
+ *  青点線＝データセット間の対応（crosswalk の既存色に合わせる）/
+ *  青の実線＝上位への線（`upper`: 種類 → 共有のことば・共有のことば → 標準。⊂ は向きあり・≡ は両向き）。 */
+export type VocabEdgeKind = 'link' | 'used' | 'candidate' | 'alignment' | 'upper'
 
 export interface VocabEdge extends ShapeEdge {
   kind: VocabEdgeKind
-  /** 対応は両向き（どちらが先という話ではない）。 */
+  /** 対応・≡ は両向き（どちらが先という話ではない）。 */
   both?: boolean
+  /** `upper` の関係（短い名前）。 */
+  relation?: string
+}
+
+/** 共有のことばの節が持つ情報（帯の箱・選択・孤立の札に使う）。 */
+export interface VocabSharedInfo {
+  slug: string
+  kind: 'class' | 'property'
+  /** まだ線になっていない（答えるデータセットが 0）。 */
+  orphan: boolean
+  /** 下に掛かる種類の箱の数。 */
+  kids: number
+  /** 子の件数の合計（派生値）。件数のある子が無ければ undefined。 */
+  count?: number
 }
 
 export interface VocabNode extends ShapeNode {
   /** 所属データセット。標準語彙の節は持たない（下の帯に置かれる）。 */
   cluster?: string
-  /** 標準語彙の節だけが持つ: どの語彙か（QUDT / schema.org …）。 */
+  /** 標準語彙の節だけが持つ: どの語彙か（QUDT / schema.org …）。共有のことばの節は小見出し。 */
   vocab?: string
+  /** 種類の箱だけが持つ: その種類の IRI（線の起点に選ぶとき）。 */
+  iri?: string
+  /** 標準語彙の節だけが持つ: 種類か項目か（分かるときだけ。線を引く関係の絞り込みに使う）。 */
+  termKind?: 'class' | 'property'
+  /** 共有のことばの節だけが持つ（帯は標準の帯の上）。 */
+  shared?: VocabSharedInfo
 }
 
 export interface VocabCluster {
@@ -64,6 +87,8 @@ export interface VocabStats {
   used: number
   candidates: number
   alignments: number
+  /** 共有のことば（帯に描いた節）の数。 */
+  shared: number
 }
 
 export interface VocabShape {
@@ -188,12 +213,16 @@ export function composeVocabGraph(inputs: {
   /** 語 IRI → カタログの名前（POST /api/ground/terms の `names`）。 */
   standardNames?: Record<string, string>
   alignments?: Alignment[]
+  /** 鋳造済みの共有のことば（GET /api/vocab/shared の terms）。標準の帯の上に帯を足す。 */
+  sharedTerms?: SharedTerm[]
   /** 箱の中に並べる項目数の上限。超過分は 1 行の「…ほか N 項目」に畳む。 */
   maxFields?: number
   words: {
     more: (n: number) => string
     count: (n: number) => string
     aligned: string
+    /** 共有のことばの節の小見出し（省略時は空）。 */
+    shared?: (kids: number, orphan: boolean) => string
   }
 }): VocabShape {
   const {
@@ -226,7 +255,7 @@ export function composeVocabGraph(inputs: {
     const human = name.trim()
     if (human && !nameByIri.has(iri)) nameByIri.set(iri, human)
   }
-  const ensureStandard = (iri: string, vocabTitle: string): VocabNode => {
+  const ensureStandard = (iri: string, vocabTitle: string, termKind?: 'class' | 'property'): VocabNode => {
     let n = standard.get(iri)
     if (!n) {
       n = {
@@ -237,6 +266,7 @@ export function composeVocabGraph(inputs: {
       }
       standard.set(iri, n)
     }
+    if (termKind && !n.termKind) n.termKind = termKind
     return n
   }
   /** 語 IRI →（それを名乗る/使う）種類の節 id。対応の線の足場。 */
@@ -266,6 +296,7 @@ export function composeVocabGraph(inputs: {
         tone: 'record',
         fields,
         cluster: ds.id,
+        ...(classIri ? { iri: classIri } : {}),
       })
       if (classIri && !anchorByIri.has(classIri)) anchorByIri.set(classIri, nodeId)
       // 対応（alignment）の足場: この種類が名乗る/使う語はすべてここに繋がる。
@@ -288,59 +319,140 @@ export function composeVocabGraph(inputs: {
 
       // 標準語の使用（緑の実線・確定）: 既知名前空間の述語/クラス。配管は描かない。
       const usedHere = new Set<string>()
-      const markUsed = (iri: string, label: string) => {
+      const markUsed = (iri: string, label: string, termKind: 'class' | 'property') => {
         if (!iri || isPlumbing(iri) || usedHere.has(iri)) return
         const vocab = knownVocabForIri(iri)
         if (!vocab) return
         usedHere.add(iri)
-        ensureStandard(iri, vocab.prefix.replace(/:$/, ''))
+        ensureStandard(iri, vocab.prefix.replace(/:$/, ''), termKind)
         edges.push({ from: nodeId, to: iri, label, kind: 'used' })
         usedCount += 1
       }
-      for (const p of m.properties) markUsed(p.predicate_iri, termName(ds.rules, p))
-      for (const iri of m.subject.class_iris ?? []) markUsed(iri, kindLabel)
+      for (const p of m.properties) markUsed(p.predicate_iri, termName(ds.rules, p), 'property')
+      for (const iri of m.subject.class_iris ?? []) markUsed(iri, kindLabel, 'class')
 
       // 接地の候補（琥珀の点線・exact 級のみ）: 自前で鋳た語だけが対象。
       const candHere = new Set<string>()
-      const candidateOf = (name: string, mintedIri: string) => {
+      const candidateOf = (name: string, mintedIri: string, termKind: 'class' | 'property') => {
         if (!mintedIri || knownVocabForIri(mintedIri)) return
         const best = (candidates[name] ?? [])[0]
         if (!best || candHere.has(best.iri)) return
         candHere.add(best.iri)
-        ensureStandard(best.iri, best.vocab_title || best.prefix)
+        ensureStandard(best.iri, best.vocab_title || best.prefix, termKind)
         edges.push({ from: nodeId, to: best.iri, label: name, kind: 'candidate' })
         candCount += 1
       }
       for (const p of m.properties) {
-        if (!linkTarget(ds.rules, p)) candidateOf(termName(ds.rules, p), p.predicate_iri)
+        if (!linkTarget(ds.rules, p)) candidateOf(termName(ds.rules, p), p.predicate_iri, 'property')
       }
-      if (classIri) candidateOf(kindLabel, classIri)
+      if (classIri) candidateOf(kindLabel, classIri, 'class')
     }
   }
 
   // データセット間の対応（青の点線・両向き）: 両端が解決できる事実だけ描く。
+  // ⊂（subClassOf / subPropertyOf）は向きのない「対応」ではなく、上位への線（'upper'・向きあり）。
+  // 共有のことばを片端に持つ線は下の共有語の帯で描く。
+  const sharedTerms = inputs.sharedTerms ?? []
+  const sharedByIri = new Map(sharedTerms.map((t) => [t.iri, t]))
   let alignCount = 0
   const alignDrawn = new Set<string>()
+  const resolve = (iri: string, termKind?: 'class' | 'property'): string | undefined => {
+    const anchor = anchorByIri.get(iri)
+    if (anchor) return anchor
+    if (standard.has(iri)) return iri
+    const vocab = knownVocabForIri(iri)
+    if (vocab) return ensureStandard(iri, vocab.prefix.replace(/:$/, ''), termKind).id
+    return undefined
+  }
   for (const a of alignments) {
-    const resolve = (iri: string): string | undefined => {
-      const anchor = anchorByIri.get(iri)
-      if (anchor) return anchor
-      if (standard.has(iri)) return iri
-      const vocab = knownVocabForIri(iri)
-      if (vocab) return ensureStandard(iri, vocab.prefix.replace(/:$/, '')).id
-      return undefined
-    }
+    if (sharedByIri.has(a.source) || sharedByIri.has(a.target)) continue
     const from = resolve(a.source)
     const to = resolve(a.target)
     if (!from || !to || from === to) continue
-    const key = [from, to].sort().join(' ')
+    const directed = isDirectedRelation(a.relation)
+    const key = directed ? `up ${from} ${to}` : `eq ${[from, to].sort().join(' ')}`
     if (alignDrawn.has(key)) continue
     alignDrawn.add(key)
-    edges.push({ from, to, label: words.aligned, kind: 'alignment', both: true })
+    if (directed) {
+      const rel = relationKey(a.relation)
+      edges.push({ from, to, label: '⊂', kind: 'upper', relation: rel })
+    } else {
+      edges.push({ from, to, label: words.aligned, kind: 'alignment', both: true })
+    }
     alignCount += 1
   }
 
-  nodes.push(...standard.values())
+  // 共有のことば: 標準の帯の上の帯。語はすべて節にし（データセットが 0 件でも描く）、
+  // 線は両端が解決できるものだけ（種類の箱・標準の語。共有語どうしは「全体」の図で描く）。
+  const sharedNodes: VocabNode[] = []
+  const kindIds = new Set(nodes.filter((n) => n.cluster).map((n) => n.id))
+  const kidsOf = new Map<string, Set<string>>() // 共有語 → 掛かる種類の箱
+  const upperDrawn = new Set<string>()
+  const upperEdges: VocabEdge[] = []
+  const kindCount = new Map<string, number | undefined>() // 箱 id → 件数
+  for (const ds of datasets) {
+    const countSource = classCountsByDataset ? (classCountsByDataset[ds.id] ?? {}) : classCounts
+    for (const m of ds.rules.maps) {
+      const classIri = (m.subject.class_iris ?? [])[0] ?? ''
+      kindCount.set(`${ds.id}::${m.id}`, classIri ? countSource[classIri] : undefined)
+    }
+  }
+  for (const ln of sharedLines(sharedTerms, alignments)) {
+    const fromShared = sharedByIri.has(ln.from)
+    const toShared = sharedByIri.has(ln.to)
+    if (fromShared && toShared) continue
+    const sharedIri = fromShared ? ln.from : ln.to
+    const otherIri = fromShared ? ln.to : ln.from
+    const boxId = anchorByIri.get(otherIri)
+    const isStd = !boxId && !!knownVocabForIri(otherIri) && !isPlumbing(otherIri)
+    const other = boxId ?? (isStd ? otherIri : undefined)
+    if (!other) continue
+    const [from, to] = fromShared ? [sharedIri, other] : [other, sharedIri]
+    const rel = relationKey(ln.relation)
+    const key = `${from} ${to} ${rel}`
+    if (upperDrawn.has(key)) continue
+    upperDrawn.add(key)
+    const eq = !isDirectedRelation(ln.relation)
+    upperEdges.push({
+      from,
+      to,
+      label: eq ? '≡' : '⊂',
+      kind: 'upper',
+      relation: rel,
+      ...(eq ? { both: true } : {}),
+    })
+    if (isStd) {
+      const vocab = knownVocabForIri(otherIri)!
+      ensureStandard(otherIri, vocab.prefix.replace(/:$/, ''))
+    }
+    // 子: 共有語の下に掛かる種類の箱（⊂ で下から掛かるもの・≡）。
+    if (boxId && kindIds.has(boxId) && (!fromShared || eq)) {
+      const set = kidsOf.get(sharedIri) ?? new Set<string>()
+      set.add(boxId)
+      kidsOf.set(sharedIri, set)
+    }
+  }
+  for (const t of sharedTerms) {
+    const kids = kidsOf.get(t.iri) ?? new Set<string>()
+    let count: number | undefined
+    if (t.kind === 'class') {
+      for (const id of kids) {
+        const c = kindCount.get(id)
+        if (c != null) count = (count ?? 0) + c
+      }
+    }
+    sharedNodes.push({
+      id: t.iri,
+      label: t.label,
+      tone: 'record',
+      vocab: words.shared ? words.shared(kids.size, !t.wired) : '',
+      termKind: t.kind,
+      shared: { slug: t.slug, kind: t.kind, orphan: !t.wired, kids: kids.size, ...(count != null ? { count } : {}) },
+    })
+  }
+  edges.push(...upperEdges)
+
+  nodes.push(...sharedNodes, ...standard.values())
   return {
     nodes,
     edges,
@@ -352,6 +464,17 @@ export function composeVocabGraph(inputs: {
       used: usedCount,
       candidates: candCount,
       alignments: alignCount,
+      shared: sharedNodes.length,
     },
   }
+}
+
+/** 「詳しく」の節を、線の起点に選べる丸へ（種類の箱・共有のことば・標準の語）。選べない節は null。 */
+export function pickEndOfVocabNode(n: VocabNode | undefined): PickEnd | null {
+  if (!n) return null
+  if (n.shared) return { id: n.id, iri: n.id, label: n.label, role: 'shared', termKind: n.shared.kind }
+  if (n.cluster) {
+    return n.iri ? { id: n.id, iri: n.iri, label: n.label, role: 'dataset', termKind: 'class' } : null
+  }
+  return { id: n.id, iri: n.id, label: n.label, role: 'standard', termKind: standardTermKind(n.id, n.termKind) }
 }

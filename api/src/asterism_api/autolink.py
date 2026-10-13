@@ -309,7 +309,7 @@ async def maybe_autolink_handles(
             other_id = str(meta.get("id") or "")
             if not other_id or other_id == dataset_id:
                 continue
-            if not meta.get("promoted") or meta.get("is_crosswalk"):
+            if not meta.get("promoted") or registry.is_system_entry(meta):
                 continue
             other = registry.load_dataset(registry_root, other_id)
             if other is None:

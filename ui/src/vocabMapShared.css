@@ -1,0 +1,155 @@
+/* 「ことば」の地図の足し分（共有のことばの帯・上位への線・線を引く選択・LineForm）。
+   既存のトークンだけを使う（新しい色は作らない）。App.css の .kind-ov-* / .vocab-map-* は変えない。 */
+
+/* ── 共有のことば（全体）: 青緑の太い縁の丸。孤立（まだ線になっていない）は点線の縁 ── */
+.kind-ov-node--shared .kind-ov-circle {
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  color: var(--primary);
+}
+.kind-ov-node--shared:hover .kind-ov-circle {
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.kind-ov-node--shared.is-orphan .kind-ov-circle {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+}
+.kind-ov-node--shared .kind-ov-name {
+  font-weight: 700;
+}
+.kind-ov-band--shared {
+  background: color-mix(in srgb, var(--primary-softer) 80%, transparent);
+}
+
+/* ── 共有のことば（詳しく）: 標準の箱と同じ形・縁は主色 ── */
+.vocab-map-std--shared {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.vocab-map-std--shared.is-orphan {
+  border-style: dashed;
+}
+
+/* ── 上位への線（'upper'）: 実線の青。向きは矢じり（≡ は両端） ── */
+.vocab-map .kind-ov-edge--upper .react-flow__edge-path {
+  stroke: var(--link);
+  stroke-width: 1.8;
+}
+.vocab-map .vocab-map-edge--upper .react-flow__edge-path {
+  stroke: var(--link);
+  stroke-width: 1.8;
+}
+.vocab-map .vocab-map-edge--upper .react-flow__edge-text {
+  fill: var(--link);
+  font-weight: 700;
+}
+.vocab-map-leg-line--upper {
+  stroke: var(--link);
+}
+
+/* ── 線の起点に選んだ丸 ── */
+.vocab-map .react-flow__node.is-picked .kind-ov-circle {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary);
+}
+.vocab-map .react-flow__node.is-picked .vocab-map-std,
+.vocab-map .react-flow__node.is-picked > div {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+.vocab-map .react-flow__node.is-picked .kind-ov-node {
+  outline: none;
+}
+
+/* ── 選択モードの操作列と LineForm ── */
+.vocab-map-pickbar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.6rem;
+}
+.vocab-map-pickbar-hint {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.vocab-map-pickbar .btn[aria-pressed='true'] {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.line-form {
+  margin-top: 0.8rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.line-form-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.line-form-ends {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+}
+.line-form-end {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+}
+.line-form-end small {
+  margin-left: 0.4em;
+  color: var(--muted);
+}
+.line-form-arrow {
+  color: var(--link);
+  font-weight: 700;
+}
+.line-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.line-form-rels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.line-form-rel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--fg);
+}
+.line-form-field select {
+  max-width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+.line-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.line-form-err {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--error-fg);
+}

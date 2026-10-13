@@ -19,7 +19,7 @@
 // /demo/schema). Nothing is fabricated: when a signal is unavailable, the UI
 // shows "—" or an explicit empty state rather than a placeholder.
 
-import { fetchProposal } from './api'
+import { fetchProposal, type UpperQuestionsReport } from './api'
 import { authHeaders } from './authToken'
 import i18n from './i18n'
 import { deriveReuses, localName } from './vocab'
@@ -410,7 +410,11 @@ export async function getAlignment(datasetId: string): Promise<AlignmentReport> 
 /** Human-gated promotion: MOVE the draft graph into canonical so Ask can cite it. */
 export async function promoteDataset(
   datasetId: string,
-): Promise<{ triples_promoted: number; alignment: AlignmentReport }> {
+): Promise<{
+  triples_promoted: number
+  alignment: AlignmentReport
+  upper_questions?: UpperQuestionsReport
+}> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/promote`, {
     method: 'POST',
     headers: authHeaders(),
@@ -419,7 +423,11 @@ export async function promoteDataset(
     const detail = await res.text().catch(() => '')
     throw new Error(`promote failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
-  return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
+  return (await res.json()) as {
+    triples_promoted: number
+    alignment: AlignmentReport
+    upper_questions?: UpperQuestionsReport
+  }
 }
 
 /**
