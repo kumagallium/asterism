@@ -696,3 +696,38 @@ async def test_hub_has_no_dataset_id_even_if_typed_in_a_dataset_graph_too() -> N
     out = await network_view(_pyoxi_client({GRAPH_A: ttl, HUB_GRAPH: hub}))
     (h,) = _nodes(out, "hub")
     assert h["dataset_id"] is None
+
+
+async def test_alignment_graph_is_not_read_as_contents() -> None:
+    """線の graph は公開済みの印を持つが中身ではない:
+    線の記録・結んだ種類の IRI・align の値を点にしない。"""
+    from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
+    from asterism.shared_vocab import SV
+
+    lines = [PREFIXES, f"<{WX}Station> rdfs:subClassOf <{SV}site> ."]
+    for i in range(4):
+        lines.append(
+            f'<{R}align-{i}> a xw:Alignment ; xw:alignSourceKind "dataset" ; '
+            f'xw:alignTargetKind "shared" ; xw:source <{WX}Station> ; xw:target <{SV}site> .'
+        )
+    out = await network_view(
+        _pyoxi_client({GRAPH_A: _stations(6, zones=2), ALIGNMENT_GRAPH: "\n".join(lines)})
+    )
+    ids = {n["id"] for n in out["nodes"]}
+    assert not any("align-" in i for i in ids)
+    assert WX + "Station" not in ids and SV + "site" not in ids
+    assert not any(n["label"].startswith("align") for n in _nodes(out, "value"))
+    assert all("Alignment" not in (k["class_iri"] or "") for k in out["kinds"])
+    assert out["stats"]["published_graphs"] == 1
+
+
+async def test_upper_shared_term_kind_is_named_from_the_shared_vocab_graph() -> None:
+    from asterism.shared_vocab import SV
+    from asterism.substrate import SHARED_VOCAB_GRAPH
+
+    shared = PREFIXES + f'<{SV}site> rdfs:label "観測地点"@ja, "Site"@en .\n'
+    upper = {"classes": {WX + "Station": SV + "site"}, "properties": {}}
+    out = await network_view(
+        _pyoxi_client({GRAPH_A: _stations(6, zones=2), SHARED_VOCAB_GRAPH: shared}), upper=upper
+    )
+    assert [(k["class_iri"], k["class_label"]) for k in out["kinds"]] == [(SV + "site", "観測地点")]
