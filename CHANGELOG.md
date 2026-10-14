@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.53.0](https://github.com/kumagallium/asterism/compare/v0.52.0...v0.53.0) - 2026-10-14
+
+- ci: 各ジョブに上限時間、ingest と api の pytest にテスト 1 件の上限を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/699
+- docs(manual): v0.52.0 の節目とバッジ — 全体グラフ・同じ名前の種類の見分け by @kumagallium in https://github.com/kumagallium/asterism/pull/698
+- ci: ci.yml 以外の 5 ワークフローにも上限時間を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/702
+- feat(step0/ui): IRI 列を主語の元にする選択と json_array+iri の実機テスト — Graphium の主張を同じ IRI で取り込む by @kumagallium in https://github.com/kumagallium/asterism/pull/703
+- feat(vocab): 上位構造 PR 1 — 共有のことば・線の拡張・問い（CQ）の土台・schema_summary・/api/vocab/* by @kumagallium in https://github.com/kumagallium/asterism/pull/697
+- feat(ui): 上位構造 PR 2 — 「ことば」画面（問いから始める・共有のことば・線の移設・地図の帯と「線を引く」） by @kumagallium in https://github.com/kumagallium/asterism/pull/700
+- feat(kantan): 上位構造 PR 3 — 作る UI の流れ（③に ☑ と当てはめ・④は番号だけ・⑥に自分の問い・公開で線とツール）と「観点」→「問い」 by @kumagallium in https://github.com/kumagallium/asterism/pull/704
+- docs(roadmap): 上位構造の 3 PR のマージを反映する by @kumagallium in https://github.com/kumagallium/asterism/pull/705
+- fix(ingest): 0 件の回（空の配列・無いファイル）で取り込み全体を止めない — その map だけ外す by @kumagallium in https://github.com/kumagallium/asterism/pull/707
+- fix(network): 上位構造とつないだとき、線の graph を中身として読まず、共有のことばの名前を使う by @kumagallium in https://github.com/kumagallium/asterism/pull/706
+- fix(substrate): 線の graph をデータの中身として数えない by @kumagallium in https://github.com/kumagallium/asterism/pull/708
+- refactor(network): 線の graph の除外を共通の判定 substrate.without_alignment_graph に寄せる by @kumagallium in https://github.com/kumagallium/asterism/pull/709
+
 ## [v0.52.0](https://github.com/kumagallium/asterism/compare/v0.51.0...v0.52.0) - 2026-10-09
 
 - docs(manual): v0.51.0 の節目とバッジ — Word・PDF の取り込み・つながりの図・「全体」表示・意味だけの見直し by @kumagallium in https://github.com/kumagallium/asterism/pull/691
