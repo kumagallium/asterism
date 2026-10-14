@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.53.1](https://github.com/kumagallium/asterism/compare/v0.53.0...v0.53.1) - 2026-10-14
+
+- docs(manual): v0.53.0 の節目とバッジ — 「ことば」と作る流れ by @kumagallium in https://github.com/kumagallium/asterism/pull/710
+
 ## [v0.53.0](https://github.com/kumagallium/asterism/compare/v0.52.0...v0.53.0) - 2026-10-14
 
 - ci: 各ジョブに上限時間、ingest と api の pytest にテスト 1 件の上限を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/699
