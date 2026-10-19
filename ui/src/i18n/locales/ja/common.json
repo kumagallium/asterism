@@ -20,7 +20,7 @@
     "network": "全体グラフ",
     "vocab": "知りたいこと",
     "jobs": "アクティビティ",
-    "workbench": "データを追加",
+    "workbench": "データを置く",
     "sparql": "開発者向け",
     "sparqlTag": "SPARQL",
     "sparqlTitle": "開発者向け: クエリを直接書く画面です。ふつうの質問は「質問する」へ"
@@ -54,7 +54,7 @@
     },
     "workbench": {
       "eyebrow": "つくる",
-      "title": "データを追加",
+      "title": "データを置く",
       "sub": "手元の測定ファイルから、AI と一緒に「つながったデータ」を作る"
     },
     "ask": {

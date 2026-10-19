@@ -101,7 +101,7 @@
     "define": "定義を直す"
   },
   "place": {
-    "title": "データを追加",
+    "title": "データを置く",
     "reading": "{{name}} を読みました",
     "rows_cols": "{{rows}} 行・{{cols}} 列",
     "matched_type": "形は「{{type}}」型と一致（{{matched}}/{{total}} 列）",
