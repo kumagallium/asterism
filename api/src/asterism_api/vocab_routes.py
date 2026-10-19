@@ -1,15 +1,16 @@
 """``register_vocab(app, cfg, write_auth=…)`` — 共有の言葉（上位構造）の api
 （ADR upper-structure-shared-terms.md §2.1〜§2.5・契約 handoff §5/§6）。
 
-- ``GET /api/vocab/shared`` — 鋳造済みの語の一覧（下に掛かるもの・標準との線・問い・答える数）
+- ``GET /api/vocab/shared`` — 鋳造済みの語の一覧（別名・下に掛かるもの・標準との線・問い・答える数）
 - ``POST /api/vocab/shared`` — 語を 1 つ作る（問いを添えて 1 操作。問い無しは 422・同 slug は 409）
 - ``DELETE /api/vocab/shared/{slug}`` — 語を外す（線が残っていれば 409・問いは連動して消える）
 - ``POST /api/vocab/shared/{slug}/cq`` — 既定テンプレの問いを 1 本足す。``{from_dataset,
   question_id}`` を送ると、他データセットの問い（``questions.json``）の種類／項目を上位の共有語に
   置き換えて足す（「用語へ写す」・元は残す・上位がその語でなければ 409）
 - ``GET /api/vocab/upper`` — 全体グラフ向けの上位の対応表（線だけから作る）
-- ``GET /api/vocab/fit`` — 列を当てはめられる語の候補（完全一致のみ・表示専用）。``subject`` を
-  付けると、その対を外した提案（``dismissed.json``）は除く
+- ``GET /api/vocab/fit`` — 列を当てはめられる語の候補（完全一致のみ・表示専用。ja／en／別名）。
+  各候補の ``matched_by`` は ``label`` / ``alias`` / ``column``。``subject`` を付けると、その対を
+  外した提案（``dismissed.json``）は除く
 - ``POST /api/vocab/decide/preview`` — 「ひとこと決める」の帰結の試算（store には書かない）
 - ``POST /api/vocab/dismiss`` / ``DELETE /api/vocab/dismiss`` — 提案を外す／戻す（冪等）
 
@@ -73,6 +74,9 @@ class SharedTermBody(BaseModel):
     label_ja: str
     label_en: str | None = None
     comment: str | None = None
+    #: 別名（``skos:altLabel``）。列名のゆれ・言い換えを覚える手がかりで、``/api/vocab/fit`` が
+    #: 完全一致で当てる（部分一致では当てない）。
+    aliases: list[str] = Field(default_factory=list)
     declined_standard: DeclinedStandardBody | None = None
     cqs: list[CQBody] = Field(default_factory=list)
 
@@ -144,6 +148,7 @@ def register_vocab(
                 label=body.label_ja,
                 label_en=body.label_en,
                 comment=body.comment,
+                aliases=body.aliases,
                 declined_standard=body.declined_standard.iri if body.declined_standard else None,
                 declined_reason=body.declined_standard.reason if body.declined_standard else None,
                 cqs=[CQSpec(title=c.title, op=c.op) for c in body.cqs],

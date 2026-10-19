@@ -12034,6 +12034,7 @@ def build_app(
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
+    from asterism_api.themes_routes import register_themes  # 知りたいことから作る（テーマ）
     from asterism_api.vocab_routes import register_vocab  # 共有の言葉（上位構造 ADR §2）
 
     register_class_schema(app, cfg)
@@ -12044,6 +12045,7 @@ def build_app(
     register_place(app, cfg)
     register_license(app, cfg)
     register_vocab(app, cfg, write_auth=_write_auth)
+    register_themes(app, cfg, _resolve_llm, write_auth=_write_auth)  # テーマ（6 段・用語のページ）
     register_questions(app, cfg, write_auth=_write_auth)  # ⑥ 自分の問い（questions.json）
     register_upper(app, cfg, write_auth=_write_auth)  # ③⑤ の当てはめ（upper.json）
     register_export(app, cfg)
