@@ -18,11 +18,7 @@
     "crosswalk": "Connections",
     "ask": "Ask",
     "vocab": "Questions",
-    "workbench": "Add data",
-    "sparql": "Developer",
-    "sparqlTag": "SPARQL",
-    "sparqlTitle": "Developer: write queries directly. For everyday questions, use Ask",
-    "decisions": "Decisions"
+    "workbench": "Add data"
   },
   "status": {
     "mock": "Showing sample data"
@@ -47,59 +43,37 @@
   },
   "view": {
     "home": {
-      "eyebrow": "Home",
-      "title": "Sky chart",
-      "sub": "Your data and your questions, in one picture. Two ways in."
+      "title": "Sky chart"
     },
     "workbench": {
-      "eyebrow": "Create",
-      "title": "Add data",
-      "sub": "Turn your measurement files into connected data, with AI"
+      "title": "Add data"
     },
     "ask": {
-      "eyebrow": "Use",
-      "title": "Ask",
-      "sub": "Answer questions over your published data, with citations"
+      "title": "Ask"
     },
     "gallery": {
-      "eyebrow": "Build (from data)",
-      "title": "Data",
-      "sub": "Your datasets — open one to see its contents, files and connections"
+      "title": "Data"
     },
     "vocab": {
-      "eyebrow": "Build (from questions)",
-      "title": "Questions",
-      "sub": "Decide terms from a question, then link them to data and standard terms"
+      "title": "Questions"
     },
     "crosswalk": {
-      "eyebrow": "Build (from data)",
-      "title": "Connections",
-      "sub": "Connect separate datasets by a shared value"
+      "title": "Connections"
     },
     "map": {
-      "eyebrow": "Connect",
-      "title": "Overview",
-      "sub": "What data exists and how it connects"
+      "title": "Overview"
     },
     "sparql": {
-      "eyebrow": "Developer",
-      "title": "SPARQL",
-      "sub": "Write read-only queries directly. For everyday questions, use Ask"
+      "title": "SPARQL"
     },
     "cardsdemo": {
-      "eyebrow": "Sample",
-      "title": "Cards",
-      "sub": "The seven default cards, one per output kind"
+      "title": "Cards"
     },
     "cards": {
-      "eyebrow": "Use",
-      "title": "Browse",
-      "sub": "See a single item or a condition-based list as cards, with their sources"
+      "title": "Browse"
     },
     "decisions": {
-      "eyebrow": "Record",
-      "title": "Decisions",
-      "sub": "Relations people decided. Dated and undoable"
+      "title": "Decisions"
     }
   },
   "entries": {
@@ -108,6 +82,7 @@
   },
   "dataTabs": {
     "datasets": "Datasets",
-    "connections": "Connections"
+    "connections": "Connections",
+    "activity": "Log"
   }
 }

@@ -17,9 +17,6 @@ export const DECISION_FILTERS = [
 ] as const
 export type DecisionFilter = (typeof DECISION_FILTERS)[number]
 
-export const DECISION_TABS = ['decisions', 'activity'] as const
-export type DecisionsTab = (typeof DECISION_TABS)[number]
-
 const SUB = new Set(['subClassOf', 'subPropertyOf'])
 const SAME = new Set(['equivalentClass', 'equivalentProperty'])
 const KNOWN = new Set([...SUB, ...SAME, 'hasQuantityKind'])
@@ -97,28 +94,21 @@ export function questionCount(
   return terms.filter((term) => ends.has(term.iri)).reduce((n, term) => n + (term.cqs?.length ?? 0), 0)
 }
 
-/** `#/decisions?tab=activity&filter=perspective` の読み書き（クエリは `?` の後ろ）。 */
-export function parseDecisionsQuery(query: string): { tab: DecisionsTab; filter: DecisionFilter } {
-  const params = new URLSearchParams(query)
-  const tab = params.get('tab')
-  const filter = params.get('filter')
+/** `#/decisions?filter=perspective` の読み書き（クエリは `?` の後ろ）。 */
+export function parseDecisionsQuery(query: string): { filter: DecisionFilter } {
+  const filter = new URLSearchParams(query).get('filter')
   return {
-    tab: tab === 'activity' ? 'activity' : 'decisions',
     filter: (DECISION_FILTERS as readonly string[]).includes(filter ?? '')
       ? (filter as DecisionFilter)
       : 'all',
   }
 }
 
-export function decisionsQuery(tab: DecisionsTab, filter: DecisionFilter): string {
-  const params = new URLSearchParams()
-  if (tab === 'activity') params.set('tab', 'activity')
-  else if (filter !== 'all') params.set('filter', filter)
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+export function decisionsQuery(filter: DecisionFilter): string {
+  return filter !== 'all' ? `?filter=${filter}` : ''
 }
 
-/** 「つながり同士」の対応づけを開いた「決めたこと」への hash。 */
+/** 「決めたこと」への hash（絞り込みつき）。 */
 export function decisionsHash(filter: DecisionFilter = 'all'): string {
-  return `#/decisions${decisionsQuery('decisions', filter)}`
+  return `#/decisions${decisionsQuery(filter)}`
 }

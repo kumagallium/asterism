@@ -1,5 +1,5 @@
 {
-  "subtitle": "A record of every ingest. Adding data, appending to published data, and automatic pickup from a watched folder each add one row, so you can see when, what, and how much came in.",
+  "subtitle": "A record of every import: when, what, and how much came in.",
   "loading": "Loading history…",
   "empty": {
     "title": "No ingest records yet",

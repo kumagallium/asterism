@@ -707,3 +707,9 @@
   margin: 0 0 4px;
   font-weight: 600;
 }
+
+/* このサーバ・末尾の「開発者向け」リンク（左ナビから外した SPARQL の置き場）。 */
+.server-tab-dev {
+  margin: 1.25rem 0 0;
+  font-size: 0.85rem;
+}

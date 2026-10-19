@@ -11,7 +11,7 @@
     "draft": "Draft",
     "design": "Not loaded yet"
   },
-  "intro": "Your datasets. Open a card to check its contents, publish it, or add new measurements.",
+  "intro": "Your datasets.",
   "listError": {
     "title": "Could not load the list of datasets",
     "body": "Wait a moment, then press \"Reload\".",

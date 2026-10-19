@@ -124,12 +124,11 @@ describe('1 行 1 文', () => {
 
 describe('hash', () => {
   it('タブと絞り込みを往復する', () => {
-    expect(parseDecisionsQuery('')).toEqual({ tab: 'decisions', filter: 'all' })
-    expect(parseDecisionsQuery('tab=activity')).toEqual({ tab: 'activity', filter: 'all' })
-    expect(parseDecisionsQuery('filter=perspective')).toEqual({ tab: 'decisions', filter: 'perspective' })
+    expect(parseDecisionsQuery('')).toEqual({ filter: 'all' })
+    expect(parseDecisionsQuery('filter=perspective')).toEqual({ filter: 'perspective' })
     expect(parseDecisionsQuery('filter=bogus').filter).toBe('all')
-    expect(decisionsQuery('decisions', 'all')).toBe('')
-    expect(decisionsQuery('activity', 'broken')).toBe('?tab=activity')
+    expect(decisionsQuery('all')).toBe('')
+    expect(decisionsQuery('broken')).toBe('?filter=broken')
     expect(decisionsHash('perspective')).toBe('#/decisions?filter=perspective')
     expect(decisionsHash()).toBe('#/decisions')
   })

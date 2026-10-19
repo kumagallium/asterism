@@ -80,26 +80,6 @@ export function CatalogIcon(p: IconProps) {
   )
 }
 
-/** Clock-with-arc — activity / ingest history. */
-export function ActivityIcon(p: IconProps) {
-  return (
-    <Icon {...p}>
-      <path d="M3 3v5h5" />
-      <path d="M3.5 11a9 9 0 1 1 .5 4" />
-      <path d="M12 7v5l3 2" />
-    </Icon>
-  )
-}
-
-/** Angle brackets — raw query / SPARQL (developer). */
-export function CodeIcon(p: IconProps) {
-  return (
-    <Icon {...p}>
-      <path d="M8 6l-5 6 5 6M16 6l5 6-5 6" />
-    </Icon>
-  )
-}
-
 /** Sparkle — AI proposal / regenerate. */
 export function SparkIcon(p: IconProps) {
   return (

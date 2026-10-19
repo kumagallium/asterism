@@ -15,14 +15,10 @@ import { BackendDownBanner } from './desktop/BackendDownBanner'
 import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { LanguageToggle } from './i18n/LanguageToggle'
-import { ActivityIcon, BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
+import { BrandMark, ChevronIcon, GearIcon } from './icons'
 import { DecisionsView } from './DecisionsView'
-import {
-  type DecisionFilter,
-  type DecisionsTab,
-  decisionsQuery,
-  parseDecisionsQuery,
-} from './decide/decisionsModel'
+import { type DecisionFilter, decisionsQuery, parseDecisionsQuery } from './decide/decisionsModel'
+import { JobsView } from './JobsView'
 import { WorkbenchTier } from './kantan/WorkbenchTier'
 import { NAV_ITEMS } from './navGroups'
 import { addSubjectAndPersist } from './cards/subjectStore'
@@ -48,8 +44,8 @@ type Tab =
   | 'vocab'
   | 'crosswalk'
   | 'map'
-  /** 「決めたこと」（人が決めた関係の記録）。タブ「アクティビティ」に取り込みの履歴を持つ
-   *  （旧 `#/jobs` は `#/decisions?tab=activity` に置き換える）。 */
+  /** 「決めたこと」（人が決めた関係の記録）。左ナビには出さない——用語のページと
+   *  星の横からだけ辿る。 */
   | 'decisions'
   | 'sparql'
   /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
@@ -139,8 +135,9 @@ export interface Route {
    *  （`goBuildShelf`/`autoInspect`）はウィザード内部の別の returnTo をそのまま
    *  使うので触らない。 */
   returnTo?: string
-  /** `#/decisions?tab=activity` — 「決めたこと」画面のタブ（無ければ「決めたこと」）。 */
-  decisionsTab?: DecisionsTab
+  /** `#/data?tab=activity`（`tab: 'gallery'`）— データの 3 つ目のタブ「記録」（取り込みの履歴）。
+   *  旧 `#/jobs`・`#/decisions?tab=activity` はここへ置き換える。 */
+  activity?: boolean
   /** `#/decisions?filter=perspective` — 「決めたこと」の絞り込み（無ければ「すべて」）。 */
   decisionsFilter?: DecisionFilter
 }
@@ -192,6 +189,7 @@ export function parseHash(hash: string): Route {
   if (parts[0]?.startsWith('data?')) {
     const params = new URLSearchParams(parts[0].slice('data?'.length))
     if (params.get('tab') === 'connections') return { tab: 'crosswalk' }
+    if (params.get('tab') === 'activity') return { tab: 'gallery', activity: true }
     if (params.get('add') === '1') return { tab: 'gallery', add: true }
     return { tab: 'gallery' }
   }
@@ -304,15 +302,14 @@ export function parseHash(hash: string): Route {
   }
   // `#/questions?q=<題>` ・ `#/questions?scope=…&dataset=<id>` — 「知りたいこと」画面への
   // 持ち込み（上で解く）。クエリは画面（ThemesView）が自分で hash から読む。
-  // 旧 `#/jobs`（アクティビティ）は「決めたこと」のタブへ。
-  if (parts[0] === 'jobs') return { tab: 'decisions', decisionsTab: 'activity' }
+  // 旧 `#/jobs`（アクティビティ）は「データ」の 3 つ目のタブ「記録」へ。
+  if (parts[0] === 'jobs') return { tab: 'gallery', activity: true }
   if (parts[0] === 'decisions' || parts[0]?.startsWith('decisions?')) {
-    const q = parseDecisionsQuery(parts[0].includes('?') ? parts[0].slice(parts[0].indexOf('?') + 1) : '')
-    return {
-      tab: 'decisions',
-      ...(q.tab === 'activity' ? { decisionsTab: 'activity' as const } : {}),
-      ...(q.tab !== 'activity' && q.filter !== 'all' ? { decisionsFilter: q.filter } : {}),
-    }
+    const query = parts[0].includes('?') ? parts[0].slice(parts[0].indexOf('?') + 1) : ''
+    // 旧 `#/decisions?tab=activity` も「記録」へ。
+    if (new URLSearchParams(query).get('tab') === 'activity') return { tab: 'gallery', activity: true }
+    const q = parseDecisionsQuery(query)
+    return { tab: 'decisions', ...(q.filter !== 'all' ? { decisionsFilter: q.filter } : {}) }
   }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
@@ -330,6 +327,7 @@ export function routeToHash(r: Route): string {
     const base = `#/datasets/${encodeURIComponent(r.datasetId)}`
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
   }
+  if (r.tab === 'gallery' && r.activity) return '#/data?tab=activity'
   if (r.tab === 'gallery') return '#/datasets'
   if (r.tab === 'vocab') {
     if (r.termSlug) return `#/questions/term/${encodeURIComponent(r.termSlug)}`
@@ -337,7 +335,7 @@ export function routeToHash(r: Route): string {
     return r.newQuestion ? '#/questions?new=1' : '#/questions'
   }
   if (r.tab === 'decisions') {
-    return `#/decisions${decisionsQuery(r.decisionsTab ?? 'decisions', r.decisionsFilter ?? 'all')}`
+    return `#/decisions${decisionsQuery(r.decisionsFilter ?? 'all')}`
   }
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
@@ -378,13 +376,14 @@ export function routeToHash(r: Route): string {
 
 /**
  * 旧 hash を新しい綴りに直した文字列を返す（直す必要が無ければ null）。
- * `#/vocab…` → `#/questions…`（クエリは温存）、`#/jobs` → `#/decisions?tab=activity`、`#/data…` / `#/browse…` /
+ * `#/vocab…` → `#/questions…`（クエリは温存）、`#/jobs`・`#/decisions?tab=activity` → `#/data?tab=activity`、`#/data…` / `#/browse…` /
  * `#/network` → `routeToHash(parseHash(hash))`（`#/network` は `#/home?deep=1`）。`#/datasets…` は別物なので触らない。
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function legacyHashRewrite(hash: string): string | null {
   if (/^#\/vocab(?=[?/]|$)/.test(hash)) return hash.replace(/^#\/vocab/, '#/questions')
-  if (/^#\/jobs(?=[?/]|$)/.test(hash)) return '#/decisions?tab=activity'
+  if (/^#\/jobs(?=[?/]|$)/.test(hash)) return '#/data?tab=activity'
+  if (/^#\/decisions\?(?:.*&)?tab=activity(?:&|$)/.test(hash)) return '#/data?tab=activity'
   if (/^#\/(data|browse|network)(?=[?/]|$)/.test(hash)) {
     const next = routeToHash(parseHash(hash))
     return next === hash ? null : next
@@ -829,8 +828,8 @@ function App() {
           </nav>
 
           <div className="sidebar-foot">
-            {/* たたむ／ひろげる（契約メモ §1-2）。たたんだ状態でも設定／開発者向け
-                は下に残る（アイコンのみ・title/aria-label で名前は引ける）。 */}
+            {/* たたむ／ひろげる（契約メモ §1-2）。下段は「たたむ」と「設定」だけ。
+                たたんだ状態でも設定は残る（アイコンのみ・title/aria-label で名前は引ける）。 */}
             <button
               type="button"
               className="side-nav-item side-nav-collapse"
@@ -843,20 +842,6 @@ function App() {
               <ChevronIcon className={`side-nav-icon side-nav-collapse-icon${navCollapsed ? '' : ' side-nav-collapse-icon--open'}`} />
               <span className="side-nav-text">{t(navCollapsed ? 'nav.expand' : 'nav.collapse')}</span>
             </button>
-            {/* 決めたこと（人が決めた関係の記録。タブにアクティビティ＝取り込みの履歴）は
-                本線から下段へ。設定の上。 */}
-            <button
-              type="button"
-              className={`side-nav-item side-nav-decisions${tab === 'decisions' ? ' active' : ''}`}
-              onClick={() => navTo('decisions')}
-              aria-current={tab === 'decisions' ? 'page' : undefined}
-              aria-label={t('nav.decisions')}
-              title={t('nav.decisions')}
-            >
-              <ActivityIcon className="side-nav-icon" />
-              <span className="side-nav-text">{t('nav.decisions')}</span>
-              <span className="side-nav-en">{glossT('nav.decisions')}</span>
-            </button>
             <button
               type="button"
               className="side-nav-item side-nav-settings"
@@ -867,23 +852,6 @@ function App() {
               <GearIcon className="side-nav-icon" />
               <span className="side-nav-text">{tSettings('open')}</span>
               <span className="side-nav-en">{glossSettingsT('open')}</span>
-            </button>
-            {/* The gloss slot under every other nav item holds the same label in
-                the other language; under this one it holds "SPARQL", which says
-                nothing about what the screen is BEFORE you open it. The name
-                stays the plain one (ui-guidelines §2) and the tooltip carries
-                what it is for, so nobody has to open a code editor to find out. */}
-            <button
-              type="button"
-              className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
-              onClick={() => navTo('sparql')}
-              aria-current={tab === 'sparql' ? 'page' : undefined}
-              aria-label={t('nav.sparql')}
-              title={t('nav.sparqlTitle')}
-            >
-              <CodeIcon className="side-nav-icon" />
-              <span className="side-nav-text">{t('nav.sparql')}</span>
-              <span className="side-nav-en">{t('nav.sparqlTag')}</span>
             </button>
             {/* Only the sample-data notice is shown. The old green "データ稼働中"
                 came from a BUILD flag, not from the server: it stayed lit while
@@ -908,19 +876,13 @@ function App() {
           <div className="app-main-body" ref={mainRef}>
           <header className="topbar">
             <div className="topbar-titles">
-              <span
-                className={
-                  tab === 'cards' && route.datasetSub ? 'topbar-eyebrow topbar-eyebrow--crumb' : 'topbar-eyebrow'
-                }
-              >
-                {/* datasetSub（定義を直す／詳しい情報）中はパンくずに差し替える
-                    （契約メモ contract_pr_f5.md §1.2）: 「<データセット名> ›
-                    データの意味を定義する／詳しい情報」。未選択の既定文言は
-                    「見る」（契約メモ contract_pr_f9.md §1-7）。 */}
-                {tab === 'cards' && route.datasetSub
-                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '見る' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
-                  : t(`view.${tab}.eyebrow`)}
-              </span>
+              {/* ヘッダーは題と言語切替だけ（UI 再設計 PR 5）。見るの datasetSub 中だけ
+                  パンくず（「<データセット名> › データの意味を定義する／詳しい情報」）。 */}
+              {tab === 'cards' && route.datasetSub && (
+                <span className="topbar-eyebrow topbar-eyebrow--crumb">
+                  {`${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '見る' })} › ${t(`cards:topbar.${route.datasetSub}`)}`}
+                </span>
+              )}
               <h1 className="topbar-title">
                 {/* cards タブだけ見出しが動く（契約メモ contract_pr_f9.md §1-7）:
                     追加画面（`#/cards/add`）は「オブジェクトを追加」、種類の
@@ -934,8 +896,6 @@ function App() {
                   : t(`view.${tab}.title`)}
               </h1>
             </div>
-            {/* cards タブは sub を出さない（契約メモ §3）。 */}
-            {tab !== 'cards' && <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>}
             {/* datasetSub 中だけ「戻る」（データセットのページへ・契約メモ §1.2）。 */}
             {tab === 'cards' && route.datasetSub && route.datasetPageId && (
               <button
@@ -946,41 +906,18 @@ function App() {
                 {t('cards:topbar.back')}
               </button>
             )}
-            {/* 常設の 2 入口（どの画面でも出す）。データを置く・知りたいことを書く。 */}
-            <div className="topbar-entries">
-              <button
-                type="button"
-                className="btn btn--primary btn--sm"
-                onClick={() => {
-                  setGalleryFocus(null)
-                  navigate({ tab: 'gallery', add: true })
-                }}
-              >
-                {t('entries.data')}
-              </button>
-              <button
-                type="button"
-                className="btn btn--activity btn--sm"
-                onClick={() => {
-                  setGalleryFocus(null)
-                  navigate({ tab: 'vocab', newQuestion: true })
-                }}
-              >
-                {t('entries.question')}
-              </button>
-            </div>
             <LanguageToggle />
           </header>
 
-          {/* 「データ」の下のタブ: データセット／つながり。詳細・追加の画面では出さない。 */}
+          {/* 「データ」の下のタブ: データセット／つながり／記録。詳細・追加の画面では出さない。 */}
           {((tab === 'gallery' && !route.datasetId && !route.add) || tab === 'crosswalk') && (
             <div className="data-subtabs">
               <div className="ds-tabs" role="tablist">
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={tab === 'gallery'}
-                  className={`ds-tab${tab === 'gallery' ? ' active' : ''}`}
+                  aria-selected={tab === 'gallery' && !route.activity}
+                  className={`ds-tab${tab === 'gallery' && !route.activity ? ' active' : ''}`}
                   onClick={() => navTo('gallery')}
                 >
                   {t('dataTabs.datasets')}
@@ -993,6 +930,15 @@ function App() {
                   onClick={() => navTo('crosswalk')}
                 >
                   {t('dataTabs.connections')}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'gallery' && !!route.activity}
+                  className={`ds-tab${tab === 'gallery' && route.activity ? ' active' : ''}`}
+                  onClick={() => navigate({ tab: 'gallery', activity: true })}
+                >
+                  {t('dataTabs.activity')}
                 </button>
               </div>
             </div>
@@ -1070,7 +1016,8 @@ function App() {
                 }}
               />
             )}
-            {tab === 'gallery' && !route.add && (
+            {tab === 'gallery' && !route.add && route.activity && <JobsView />}
+            {tab === 'gallery' && !route.add && !route.activity && (
               <GalleryView
                 focusClass={galleryFocus}
                 selectedId={route.datasetId ?? null}
@@ -1134,11 +1081,7 @@ function App() {
             {tab === 'map' && <OntologyMapView onBack={() => navigate(mapReturn)} />}
             {tab === 'decisions' && (
               <DecisionsView
-                tab={route.decisionsTab ?? 'decisions'}
                 filter={route.decisionsFilter ?? 'all'}
-                onTabChange={(next) =>
-                  navigate({ tab: 'decisions', ...(next === 'activity' ? { decisionsTab: 'activity' } : {}) })
-                }
                 onFilterChange={(next) =>
                   navigate(
                     { tab: 'decisions', ...(next !== 'all' ? { decisionsFilter: next } : {}) },

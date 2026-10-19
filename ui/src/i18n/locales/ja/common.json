@@ -18,11 +18,7 @@
     "crosswalk": "つながり",
     "ask": "質問する",
     "vocab": "知りたいこと",
-    "workbench": "データを置く",
-    "sparql": "開発者向け",
-    "sparqlTag": "SPARQL",
-    "sparqlTitle": "開発者向け: クエリを直接書く画面です。ふつうの質問は「質問する」へ",
-    "decisions": "決めたこと"
+    "workbench": "データを置く"
   },
   "status": {
     "mock": "お試し用のサンプルデータを表示中"
@@ -47,59 +43,37 @@
   },
   "view": {
     "home": {
-      "eyebrow": "ホーム",
-      "title": "星図",
-      "sub": "あなたのデータと問いが、ひとつの図になっています。入口は 2 つ。"
+      "title": "星図"
     },
     "workbench": {
-      "eyebrow": "つくる",
-      "title": "データを置く",
-      "sub": "手元の測定ファイルから、AI と一緒に「つながったデータ」を作る"
+      "title": "データを置く"
     },
     "ask": {
-      "eyebrow": "つかう",
-      "title": "質問する",
-      "sub": "公開したデータに、根拠つきで答える"
+      "title": "質問する"
     },
     "gallery": {
-      "eyebrow": "つくる（データから）",
-      "title": "データ",
-      "sub": "あなたのデータセットの一覧。選ぶと中身・ファイル・つながりを見られます"
+      "title": "データ"
     },
     "vocab": {
-      "eyebrow": "つくる（問いから）",
-      "title": "知りたいこと",
-      "sub": "問いから用語を決め、データや標準用語と結ぶ"
+      "title": "知りたいこと"
     },
     "crosswalk": {
-      "eyebrow": "つくる（データから）",
-      "title": "つながり",
-      "sub": "別々のデータを、共通の値でつなぐ"
+      "title": "つながり"
     },
     "map": {
-      "eyebrow": "つなぐ",
-      "title": "全体像",
-      "sub": "どんなデータがあって、どうつながっているか"
+      "title": "全体像"
     },
     "sparql": {
-      "eyebrow": "開発者向け",
-      "title": "SPARQL",
-      "sub": "読み取り専用のクエリを直接書く画面です。ふつうの質問は「質問する」へ"
+      "title": "SPARQL"
     },
     "cardsdemo": {
-      "eyebrow": "見本",
-      "title": "カード",
-      "sub": "型から決まる既定のカード 7 種"
+      "title": "カード"
     },
     "cards": {
-      "eyebrow": "つかう",
-      "title": "見る",
-      "sub": "1 つのデータ・条件で集めた一覧を、出どころつきのカードで見る"
+      "title": "見る"
     },
     "decisions": {
-      "eyebrow": "記録",
-      "title": "決めたこと",
-      "sub": "人が決めた関係。日付つき・取り消せる"
+      "title": "決めたこと"
     }
   },
   "entries": {
@@ -108,6 +82,7 @@
   },
   "dataTabs": {
     "datasets": "データセット",
-    "connections": "つながり"
+    "connections": "つながり",
+    "activity": "記録"
   }
 }

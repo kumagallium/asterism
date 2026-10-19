@@ -191,26 +191,3 @@
   gap: 0.4rem;
   margin-top: 0.35rem;
 }
-.decisions-tabs {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--surface-sink);
-  border-radius: 999px;
-  align-self: flex-start;
-}
-.decisions-tab {
-  border: 0;
-  background: transparent;
-  border-radius: 999px;
-  padding: 0.35rem 0.9rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--muted);
-  cursor: pointer;
-}
-.decisions-tab[aria-pressed='true'] {
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: var(--shadow-soft);
-}

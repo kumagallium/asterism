@@ -5,7 +5,6 @@ import { type DecidePreview, effectText } from './decide/decide'
 import {
   DECISION_FILTERS,
   type DecisionFilter,
-  type DecisionsTab,
   decisionSentence,
   filterCounts,
   matchesFilter,
@@ -15,7 +14,6 @@ import {
 import { previewDecision } from './decide/decideApi'
 import './decide/decide.css'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
-import { JobsView } from './JobsView'
 import { type AlignRelation, relationKey } from './lineChoice'
 import { PerspectiveAlignment } from './PerspectiveAlignment'
 import { type SharedTerm, listTerms } from './vocabApi'
@@ -23,7 +21,7 @@ import { cqTitleMap } from './vocabQuestion'
 
 // 「決めたこと」（UI 再設計 PR 3）。人が決めた関係を 1 行 1 文で並べ、いつでも取り消せる。
 // 取り消す前に、答えられる問いの数がどう変わるかを見せる（試算は store に書かない）。
-// タブは「決めたこと」「アクティビティ」（取り込みの履歴 = 従来のアクティビティ画面）。
+// タブは無い（取り込みの履歴は「データ › 記録」）。入口は用語のページと星の横だけ。
 // 「つながり同士」の絞り込みでは、つながり（crosswalk）どうしの対応づけを出す。
 
 /** つながり同士の対応づけ。つながりの一覧を読んで PerspectiveAlignment に渡す。 */
@@ -304,19 +302,15 @@ function DecisionsPane({
 }
 
 /**
- * 「決めたこと」画面。`tab` と `filter` は hash（`#/decisions?tab=activity` ・`?filter=perspective`）が
+ * 「決めたこと」画面。`filter` は hash（`#/decisions?filter=perspective`）が
  * 唯一の真実源で、変えるときは親（App）が hash を書く。
  */
 export function DecisionsView({
-  tab,
   filter,
-  onTabChange,
   onFilterChange,
 }: {
-  tab: DecisionsTab
   /** `perspective`（つながり同士）のときだけ、一覧ではなく対応づけの画面を出す。 */
   filter: DecisionFilter
-  onTabChange: (tab: DecisionsTab) => void
   onFilterChange: (filter: DecisionFilter) => void
 }) {
   const { t } = useTranslation()
@@ -335,33 +329,14 @@ export function DecisionsView({
 
   return (
     <div className="decisions">
-      <div className="decisions-tabs" role="group" aria-label={t('decisions:tabsAria')}>
-        {(['decisions', 'activity'] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            className="decisions-tab"
-            aria-pressed={tab === k}
-            onClick={() => onTabChange(k)}
-          >
-            {t(`decisions:tab.${k}`)}
-          </button>
-        ))}
-      </div>
-      {tab === 'activity' ? (
-        <JobsView />
-      ) : (
-        <>
-          <p className="decisions-lead">{t('decisions:lead')}</p>
-          <DecisionsPane
-            filter={filter}
-            onFilterChange={onFilterChange}
-            reloadKey={version}
-            onChanged={onChanged}
-            cqTitles={cqTitles}
-          />
-        </>
-      )}
+      <p className="decisions-lead">{t('decisions:lead')}</p>
+      <DecisionsPane
+        filter={filter}
+        onFilterChange={onFilterChange}
+        reloadKey={version}
+        onChanged={onChanged}
+        cqTitles={cqTitles}
+      />
     </div>
   )
 }

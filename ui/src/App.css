@@ -205,7 +205,7 @@ button.side-nav-item.active:hover:not(:disabled) {
   gap: 0.5rem;
   padding-top: 0.5rem;
 }
-/* たたむ／ひろげる（契約メモ §1-2）。sidebar-foot の一番上・設定/開発者向けの
+/* たたむ／ひろげる（契約メモ §1-2）。sidebar-foot の一番上・設定の
    上に置く（区切り線で分ける）。 */
 .side-nav-collapse {
   border-bottom: 1px solid var(--border);
@@ -217,12 +217,6 @@ button.side-nav-item.active:hover:not(:disabled) {
 }
 .side-nav-collapse-icon--open {
   transform: rotate(180deg);
-}
-.side-nav-dev {
-  border: 1px solid var(--border);
-}
-.side-nav-dev:hover:not(.active) {
-  background: var(--surface-alt);
 }
 .graph-status {
   display: flex;
@@ -305,12 +299,6 @@ button.side-nav-item.active:hover:not(:disabled) {
   margin: 0;
   white-space: nowrap;
 }
-.topbar-sub {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 0.9rem;
-  color: var(--body);
-}
 
 /* 見るの枠の中で開いた「定義を直す」「詳しい情報」からデータセットのページへ
  * 戻る（topbar 右上・契約メモ contract_pr_f5.md §1.2・担当 ui-embed）。見た目は
@@ -319,19 +307,10 @@ button.side-nav-item.active:hover:not(:disabled) {
   margin-left: auto;
 }
 
-/* 常設の 2 入口（＋ データを置く／？ 知りたいことを書く）。どの画面でも言語トグルの
- * 左に出る。右寄せはここが担う（言語トグルは margin-left を持たない）。 */
-.topbar-entries {
-  display: flex;
-  align-items: center;
-  align-self: center;
-  gap: var(--space-2, 0.5rem);
-  margin-left: auto;
-  flex: none;
-}
-.topbar-back ~ .topbar-entries {
+.topbar-back ~ .lang-toggle {
   margin-left: 0;
 }
+
 /* 「？ 知りたいことを書く」＝知りたいこと側の青（--activity）。グローバルの
  * button:hover の緑塗りが漏れないよう、hover をここで明示する。 */
 .btn--activity {
@@ -345,7 +324,7 @@ button.side-nav-item.active:hover:not(:disabled) {
   color: #fff;
 }
 
-/* 「データ」の下のタブ（データセット／つながり）。topbar の下・本文の上。 */
+/* 「データ」の下のタブ（データセット／つながり／記録）。topbar の下・本文の上。 */
 .data-subtabs {
   padding: 0.75rem 2rem 0;
 }
@@ -357,6 +336,7 @@ button.side-nav-item.active:hover:not(:disabled) {
 /* 言語トグル: トップバー右端。ja/en の2値セグメント。 */
 .lang-toggle {
   align-self: center;
+  margin-left: auto;
   display: inline-flex;
   gap: 0.15rem;
   padding: 0.15rem;
@@ -652,7 +632,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
     justify-content: center;
     padding: 0.6rem 0;
   }
-  .side-nav-dev,
   .side-nav-collapse {
     border: none;
   }
@@ -680,18 +659,10 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   justify-content: center;
   padding: 0.6rem 0;
 }
-.sidebar--collapsed .side-nav-dev,
 .sidebar--collapsed .side-nav-collapse {
   border: none;
 }
 
-@media (max-width: 900px) {
-  /* 狭い画面では 2 入口の文字を短く詰める（折り返して崩れないように）。 */
-  .topbar-entries .btn {
-    padding: 0.3rem 0.5rem;
-    font-size: 0.75rem;
-  }
-}
 @media (max-width: 640px) {
   .data-subtabs {
     padding: 0.75rem 1.1rem 0;
@@ -700,9 +671,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
     padding: 0.9rem 1.1rem;
     flex-wrap: wrap;
     gap: 0.25rem 0.8rem;
-  }
-  .topbar-sub {
-    flex-basis: 100%;
   }
   .app-content {
     padding-left: 1.1rem;

@@ -480,16 +480,10 @@ describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
   })
 })
 
-describe('決めたこと（#/decisions）— 旧 #/jobs は アクティビティのタブへ', () => {
-  it('#/decisions は「決めたこと」タブ・すべて', () => {
+describe('決めたこと（#/decisions）と データの「記録」（#/data?tab=activity）', () => {
+  it('#/decisions は「決めたこと」・すべて', () => {
     expect(parseHash('#/decisions')).toEqual<Route>({ tab: 'decisions' })
     expect(routeToHash({ tab: 'decisions' })).toBe('#/decisions')
-  })
-
-  it('#/decisions?tab=activity はアクティビティのタブ（往復する）', () => {
-    const hash = '#/decisions?tab=activity'
-    expect(parseHash(hash)).toEqual<Route>({ tab: 'decisions', decisionsTab: 'activity' })
-    expect(roundTrip(hash)).toBe(hash)
   })
 
   it('#/decisions?filter=perspective は「つながり同士」の絞り込み（往復する）', () => {
@@ -499,10 +493,19 @@ describe('決めたこと（#/decisions）— 旧 #/jobs は アクティビテ�
     expect(parseHash('#/decisions?filter=bogus')).toEqual<Route>({ tab: 'decisions' })
   })
 
-  it('旧 #/jobs は #/decisions?tab=activity に置き換わる', () => {
-    expect(parseHash('#/jobs')).toEqual<Route>({ tab: 'decisions', decisionsTab: 'activity' })
-    expect(legacyHashRewrite('#/jobs')).toBe('#/decisions?tab=activity')
-    expect(legacyHashRewrite('#/decisions?tab=activity')).toBeNull()
+  it('#/data?tab=activity は データの「記録」タブ（往復する・書き換えない）', () => {
+    const hash = '#/data?tab=activity'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', activity: true })
+    expect(roundTrip(hash)).toBe(hash)
+    expect(legacyHashRewrite(hash)).toBeNull()
+  })
+
+  it('旧 #/jobs・#/decisions?tab=activity は #/data?tab=activity に置き換わる', () => {
+    expect(parseHash('#/jobs')).toEqual<Route>({ tab: 'gallery', activity: true })
+    expect(legacyHashRewrite('#/jobs')).toBe('#/data?tab=activity')
+    expect(parseHash('#/decisions?tab=activity')).toEqual<Route>({ tab: 'gallery', activity: true })
+    expect(legacyHashRewrite('#/decisions?tab=activity')).toBe('#/data?tab=activity')
     expect(legacyHashRewrite('#/decisions')).toBeNull()
+    expect(legacyHashRewrite('#/decisions?filter=perspective')).toBeNull()
   })
 })
