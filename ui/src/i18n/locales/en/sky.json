@@ -25,8 +25,8 @@
     "std": "Standard terms",
     "dataset": "Datasets"
   },
-  "quiet": "Quiet mode (no motion)",
-  "deep": "Look inside (value network)",
+  "quiet": "Quiet mode",
+  "deep": "See the contents",
   "deepBack": "Back to the sky chart",
   "deepLead": "A network linked by values. It shows individual records, not kinds.",
   "png": {
