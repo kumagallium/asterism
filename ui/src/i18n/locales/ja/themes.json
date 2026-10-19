@@ -77,9 +77,9 @@
   "write": {
     "lead": "テーマの名前と、知りたいことを 1 行ずつ。",
     "themeName": "テーマの名前",
-    "themeNamePlaceholder": "例: 電池材料",
+    "themeNamePlaceholder": "例: 熱電材料",
     "questions": "知りたいこと（1 行に 1 つ）",
-    "questionsPlaceholder": "例: 容量が最も大きいセルの正極材料は？",
+    "questionsPlaceholder": "例: ZT が最も高い試料の組成は？",
     "suggestNote": "AI の提案（押すと足します）",
     "aiOff": "AI が未設定です。手で書いて進められます。",
     "toRead": "AI に読ませる",

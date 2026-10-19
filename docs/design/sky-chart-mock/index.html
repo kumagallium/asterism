@@ -194,7 +194,7 @@ table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var
           <span><b id="f-names">5</b>用語</span>
           <span><b id="f-ds">5</b>データセット</span>
           <span><b>6,165</b>事実</span>
-          <button class="btn sm grow" id="replay">▶ 育つ瞬間を再生（電池のデータを公開）</button>
+          <button class="btn sm grow" id="replay">▶ 育つ瞬間を再生（献立のデータを公開）</button>
         </div>
         <div class="sky">
           <div class="chartwrap">
@@ -432,18 +432,18 @@ table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var
   }
   // ── 育つ瞬間（公開の再現） ──
   $('#replay').addEventListener('click', () => {
-    if (data.datasets.some((d) => d.id === 'ds:battery')) { toast('もう公開しています（ページを読み直すと戻ります）。'); return }
-    data.datasets.push({ id: 'ds:battery', label: '電池セル（新しい公開）', kinds: [
-      { id: 'k:bat/cell', label: 'セル', count: 320, links: ['k:bat/cathode'] },
-      { id: 'k:bat/cathode', label: '正極材料', count: 44, links: [] },
+    if (data.datasets.some((d) => d.id === 'ds:menu')) { toast('もう公開しています（ページを読み直すと戻ります）。'); return }
+    data.datasets.push({ id: 'ds:menu', label: '献立（新しい公開）', kinds: [
+      { id: 'k:menu/recipe', label: 'レシピ', count: 320, links: ['k:menu/ingredient'] },
+      { id: 'k:menu/ingredient', label: '食材', count: 44, links: [] },
     ] })
-    const nm = data.names.find((n) => n.id === 'n:battery-cell'); nm.members = ['k:bat/cell']
-    const q = data.cqs.find((x) => x.id === 'cq:cell-capacity'); q.answering = 1
-    log.unshift({ s: '「セル（電池セル）」は「電池セル」の一種（⑤で受けた提案・公開で書き込み）', d: '2026-10-19', q: 1 })
-    chart.setData(data); chart.grow(['k:bat/cell', 'k:bat/cathode', 'n:battery-cell'])
+    const nm = data.names.find((n) => n.id === 'n:ingredient'); nm.members = ['k:menu/ingredient']
+    const q = data.cqs.find((x) => x.id === 'cq:cheapest'); q.answering = 1
+    log.unshift({ s: '「食材（献立）」は「食材」の一種（⑤で受けた提案・公開で書き込み）', d: '2026-10-19', q: 1 })
+    chart.setData(data); chart.grow(['k:menu/recipe', 'k:menu/ingredient', 'n:ingredient'])
     renderQ(); renderFacts()
-    $('#recent').textContent = '2026-10-19 公開「電池セル」— 星 +2・『電池セル』に星が入った・答えられる問い +1（容量が最も大きいセルの正極材料は？）'
-    toast('公開しました: 電池セル（2 種類）。星 +2・『電池セル』に星が入りました・答えられるようになった問い +1', 6000)
+    $('#recent').textContent = '2026-10-19 公開「献立」— 星 +2・『食材』に星が入った・答えられる問い +1（いちばん安い食材は？）'
+    toast('公開しました: 献立（2 種類）。星 +2・『食材』に星が入りました・答えられるようになった問い +1', 6000)
   })
   // ── 入口 ──
   $('#e-data').addEventListener('click', () => { show('data'); toast('データを置く: ファイルを置くと、かんたんの 7 段（入れる → AI に読ませる → 意味をつける → …）が始まります。') })
@@ -454,25 +454,25 @@ table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var
   const STEPS = ['知りたいことを書く', 'AI に読ませる', '用語をたしかめる', '関係をたしかめる', 'ためす', '置く']
   let step = 0
   const wiz = {
-    ledger: '電池材料',
-    qs: ['容量が最も大きいセルの正極材料は？', 'サイクル数ごとの容量の推移は？', 'この論文が報告したセルは何件？'],
+    ledger: '献立',
+    qs: ['いちばん安い食材は？', 'にんじんを使うレシピは？', 'このレシピが使う食材は何種類？'],
     terms: [
-      { ja: '電池セル', en: 'battery cell', alias: 'cell, battery_cell', kind: '種類', match: null, choice: 'new', slug: 'battery_cell' },
-      { ja: '正極材料', en: 'cathode material', alias: 'cathode', kind: '種類', match: { kind: 'std', label: 'cmso:Material', note: '標準用語に完全一致' }, choice: 'std', slug: 'cathode_material' },
-      { ja: '容量', en: 'capacity', alias: 'cap, capacity_mAh', kind: '項目', match: { kind: 'qk', label: 'qudt:Capacity', note: '量の種類に完全一致' }, choice: 'std', slug: 'capacity' },
-      { ja: 'サイクル数', en: 'cycle number', alias: 'cycle, n_cycle', kind: '項目', match: null, choice: 'new', slug: 'cycle_number' },
-      { ja: '論文', en: 'paper', alias: 'paper, article', kind: '種類', match: { kind: 'name', label: '論文（既にある用語）', note: '既にある用語に完全一致' }, choice: 'existing', slug: 'paper' },
+      { ja: '食材', en: 'ingredient', alias: 'item, food', kind: '種類', match: null, choice: 'new', slug: 'ingredient' },
+      { ja: '調理法', en: 'cooking method', alias: 'method', kind: '種類', match: { kind: 'std', label: 'schema:HowToStep', note: '標準用語に完全一致' }, choice: 'std', slug: 'cooking_method' },
+      { ja: '価格', en: 'price', alias: 'cost, yen', kind: '項目', match: { kind: 'std', label: 'schema:price', note: '標準用語に完全一致' }, choice: 'std', slug: 'price' },
+      { ja: '調理時間', en: 'cooking time', alias: 'minutes, time', kind: '項目', match: { kind: 'qk', label: 'qudt:Time', note: '量の種類に完全一致' }, choice: 'std', slug: 'cooking_time' },
+      { ja: 'レシピ', en: 'recipe', alias: 'dish', kind: '種類', match: { kind: 'name', label: 'レシピ（既にある用語）', note: '既にある用語に完全一致' }, choice: 'existing', slug: 'recipe' },
     ],
     rels: [
-      { s: '「電池セル」は「試料」の一種', ok: true },
-      { s: '「正極材料」は「物質」の一種', ok: true },
-      { s: '「容量」の量は「qudt:Capacity」', ok: true },
-      { s: '「電池セル」は「論文」に報告される（項目: 報告する）', ok: null },
+      { s: '「食材」は「物」の一種', ok: true },
+      { s: '「調理法」は「手順」の一種', ok: true },
+      { s: '「調理時間」の量は「qudt:Time」', ok: true },
+      { s: '「レシピ」は「食材」を使う（項目: 使う）', ok: null },
     ],
     tries: [
-      { q: '容量が最も大きいセルの正極材料は？', op: '上位の値', kind: '電池セル', prop: '容量', exec: '電池セルのうち、容量がいちばん大きいものを出し、その正極材料を添えます（データセットごと）' },
-      { q: 'サイクル数ごとの容量の推移は？', op: '推移（〜ごと）', kind: '電池セル', prop: '容量', exec: '電池セルの容量を、サイクル数の順に並べます（データセットごと）' },
-      { q: 'この論文が報告したセルは何件？', op: '件数', kind: '電池セル', prop: '—', exec: '論文ごとに、報告する電池セルの件数を数えます' },
+      { q: 'いちばん安い食材は？', op: '上位の値', kind: '食材', prop: '価格', exec: '食材のうち、価格がいちばん低いものを出します（データセットごと）' },
+      { q: 'にんじんを使うレシピは？', op: '値で絞る', kind: 'レシピ', prop: '食材', exec: 'レシピのうち、食材が「にんじん」のものを並べます（データセットごと）' },
+      { q: 'このレシピが使う食材は何種類？', op: '件数', kind: '食材', prop: '—', exec: 'レシピごとに、使う食材の件数を数えます' },
     ],
   }
   function openWiz(prefill) {
@@ -490,7 +490,7 @@ table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var
         '<div class="sentence">テーマの名前 <input type="text" id="w-ledger" value="' + wiz.ledger + '" style="font:inherit;padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;width:16em"></div>' +
         '<textarea id="w-qs">' + wiz.qs.join('\n') + '</textarea>' +
         '<div class="note" style="margin-top:6px">AI の提案（押すと足します。足した文はあなたの問いになります。足すかどうかはあなたが決めます）</div>' +
-        '<div class="chips"><button class="chip" data-q="正極材料ごとの平均容量は？">＋ 正極材料ごとの平均容量は？</button><button class="chip" data-q="同じ正極材料で、容量が最も落ちにくいセルは？">＋ 同じ正極材料で、容量が最も落ちにくいセルは？</button></div>' + nav(false, 'AI に読ませる')
+        '<div class="chips"><button class="chip" data-q="調理時間が短いレシピは？">＋ 調理時間が短いレシピは？</button><button class="chip" data-q="食材ごとの平均価格は？">＋ 食材ごとの平均価格は？</button></div>' + nav(false, 'AI に読ませる')
       b.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { $('#w-qs').value += '\n' + c.dataset.q; c.remove() }))
     } else if (step === 1) {
       b.innerHTML = '<h2>② AI に読ませる</h2><p class="lead">問いから、答えに要る「種類」と「項目」、そのあいだの関係を AI が下書きします。英語名と別名（よくある列名）も下書きし、機械が標準用語・既にある用語と完全一致で照合します。</p>' +
@@ -505,7 +505,7 @@ table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var
     } else if (step === 3) {
       b.innerHTML = '<h2>④ 関係をたしかめる</h2><p class="lead">AI が下書きした文を、そのとおりなら「そう」、違えば「違う」。循環や、種類と項目の混在は機械が止めます。</p>' +
         wiz.rels.map((r, i) => '<div class="rel">' + r.s + ' <span class="ai">AI 下書き</span><span class="yn"><button class="' + (r.ok === true ? 'on' : '') + '" data-i="' + i + '" data-v="1">そう</button><button class="' + (r.ok === false ? 'on' : '') + '" data-i="' + i + '" data-v="0">違う</button></span></div>').join('') +
-        '<div class="effect">このテーマの上位構造（字下げ）:<br>　試料（既にある用語）<br>　　└ 電池セル ─ 容量（qudt:Capacity）・サイクル数 ─ 報告する → 論文<br>　物質（既にある用語）<br>　　└ 正極材料<br>用語はテーマをまたいで共有されます。まとめ名（例: 「蓄電デバイス」）は、問いが増えて要るときに AI が提案します。</div>' + nav(true, 'ためす')
+        '<div class="effect">このテーマの上位構造（字下げ）:<br>　物（既にある用語）<br>　　└ 食材 ─ 価格（schema:price）・調理時間（qudt:Time） ─ 使う → レシピ<br>　手順（既にある用語）<br>　　└ 調理法<br>用語はテーマをまたいで共有されます。まとめ名（例: 「食事」）は、問いが増えて要るときに AI が提案します。</div>' + nav(true, 'ためす')
       b.querySelectorAll('.yn button').forEach((x) => x.addEventListener('click', () => { wiz.rels[+x.dataset.i].ok = x.dataset.v === '1'; renderWiz() }))
     } else if (step === 4) {
       b.innerHTML = '<h2>⑤ ためす</h2><p class="lead">問いごとに、AI が下書きした「数え方 × 種類 × 項目」を確かめます。機械が組んだ「実行文」を必ず併記します。あなたの文と食い違っていたら、数え方を選び直してください。</p>' +
@@ -513,17 +513,17 @@ table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var
         '<p class="note">「推移（〜ごと）」「値で絞る」「結合 1 段」は、今の 3 つ（件数・範囲・上位の値）に足す数え方です。どれも決まった型から組み立てます。型に合わない問いは「メモの問い」として残り、公開されません。</p>' + nav(true, '星図に置く')
     } else if (step === 5) {
       b.innerHTML = '<h2>⑥ 置く</h2><p class="lead">テーマ「' + wiz.ledger + '」として、用語 2 つ・関係 3 つ・問い 3 つを保存します。まだ星はありません。データを置くと、ここに星が入ります。</p>' +
-        '<div class="effect">保存するもの:<br>・新しい用語「電池セル」<span class="mono" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint)">　ID battery_cell</span>・「サイクル数」<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint)">　ID cycle_number</span>（ID は変えられます。同じ ID は同じ用語を指します）<br>・関係「電池セル は 試料 の一種」「正極材料 は 物質 の一種」「容量 の量は qudt:Capacity」<br>・問い 3 件（答えるデータセット 0）と、その実行文<br>来歴に残すのは「AI 下書き → 人が確定」の印と日付だけ。AI の生の出力は保存しません。</div>' +
+        '<div class="effect">保存するもの:<br>・新しい用語「食材」<span class="mono" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint)">　ID ingredient</span>・「調理時間」<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint)">　ID cooking_time</span>（ID は変えられます。同じ ID は同じ用語を指します）<br>・関係「食材 は 物 の一種」「調理法 は 手順 の一種」「調理時間 の量は qudt:Time」<br>・問い 3 件（答えるデータセット 0）と、その実行文<br>来歴に残すのは「AI 下書き → 人が確定」の印と日付だけ。AI の生の出力は保存しません。</div>' +
         '<div class="actions"><button class="btn ghost" id="w-prev">戻る</button><button class="btn activity" id="w-done">置く</button></div>'
       $('#w-done').addEventListener('click', () => {
         $('#wiz').classList.remove('open')
-        if (!data.names.some((n) => n.id === 'n:cycle')) {
-          data.names.push({ id: 'n:cycle', label: 'サイクル数', kind: 'property', members: [], standard: null, relation: 'sub', cqs: [] })
-          data.cqs.push({ id: 'cq:cycle', ledger: '電池材料', title: 'サイクル数ごとの容量の推移は？', answering: 0, needs: ['n:cycle'], shape: '推移 × 電池セル × 容量' })
-          data.cqs.push({ id: 'cq:paper-cells', ledger: '電池材料', title: 'この論文が報告したセルは何件？', answering: 0, needs: ['n:battery-cell'], shape: '件数 × 電池セル' })
+        if (!data.names.some((n) => n.id === 'n:cooking-time')) {
+          data.names.push({ id: 'n:cooking-time', label: '調理時間', kind: 'property', members: [], standard: null, relation: 'sub', cqs: [] })
+          data.cqs.push({ id: 'cq:cooking-time', ledger: '献立', title: '調理時間が短いレシピは？', answering: 0, needs: ['n:cooking-time'], shape: '上位の値 × レシピ × 調理時間' })
+          data.cqs.push({ id: 'cq:menu-ingredients', ledger: '献立', title: 'このレシピが使う食材は何種類？', answering: 0, needs: ['n:ingredient'], shape: '件数 × 食材' })
         }
-        show('sky'); chart.setData(data); chart.grow(['n:battery-cell', 'n:cycle']); renderQ(); renderFacts()
-        toast('テーマ「電池材料」を置きました。用語 2 つ（まだ星がない）・問い 3 つ。データを置くと星が入ります。', 6000)
+        show('sky'); chart.setData(data); chart.grow(['n:ingredient', 'n:cooking-time']); renderQ(); renderFacts()
+        toast('テーマ「献立」を置きました。用語 2 つ（まだ星がない）・問い 3 つ。データを置くと星が入ります。', 6000)
       })
     }
     const p = $('#w-prev'); if (p) p.addEventListener('click', () => { step--; renderWiz() })

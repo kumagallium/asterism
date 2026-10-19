@@ -45,7 +45,7 @@ window.SKY_DATA = {
     { id: 'n:card', label: 'カード', kind: 'class', members: ['k:xrd/card', 'k:xc/card'], standard: null, relation: 'sub', cqs: ['cq:cards'] },
     { id: 'n:diffraction-point', label: '回折点', kind: 'class', members: ['k:xrd/record', 'k:xc/record'], standard: null, relation: 'sub', cqs: ['cq:diff-points'] },
     { id: 'n:composition', label: '組成', kind: 'property', members: ['k:sd/sample', 'k:xc/formula'], standard: null, relation: 'sub', cqs: ['cq:zt-max', 'cq:snse'] },
-    { id: 'n:battery-cell', label: '電池セル', kind: 'class', members: [], standard: null, relation: 'sub', cqs: ['cq:cell-capacity'] },
+    { id: 'n:ingredient', label: '食材', kind: 'class', members: [], standard: null, relation: 'sub', cqs: ['cq:cheapest'] },
   ],
   standards: [
     { id: 's:schema-article', label: 'ScholarlyArticle', prefix: 'schema' },
@@ -63,6 +63,6 @@ window.SKY_DATA = {
     { id: 'cq:seebeck-temp', ledger: '熱電材料', title: '組成 X の Seebeck 係数の温度依存は？', answering: 0, needs: ['n:composition'], shape: '推移 × 測定曲線 × 温度' },
     { id: 'cq:cards', ledger: 'XRD', title: 'カードは、どのデータにいくつあるか', answering: 2, needs: ['n:card'], shape: '件数 × カード' },
     { id: 'cq:diff-points', ledger: 'XRD', title: '回折点は、どのデータにいくつあるか', answering: 2, needs: ['n:diffraction-point'], shape: '件数 × 回折点' },
-    { id: 'cq:cell-capacity', ledger: '電池', title: '容量が最も大きいセルの正極材料は？', answering: 0, needs: ['n:battery-cell'], shape: '上位の値 × 電池セル × 容量' },
+    { id: 'cq:cheapest', ledger: '献立', title: 'いちばん安い食材は？', answering: 0, needs: ['n:ingredient'], shape: '上位の値 × 食材 × 価格' },
   ],
 }

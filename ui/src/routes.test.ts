@@ -422,18 +422,18 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
 
 describe('知りたいこと（テーマ・用語のページ）— UI 再設計 PR 4', () => {
   it('#/questions?new=1&q=<題> は newQuestion を立てる（題は画面が hash から読む）', () => {
-    const hash = '#/questions?new=1&q=' + encodeURIComponent('容量が最大のセルは？ A/B')
+    const hash = '#/questions?new=1&q=' + encodeURIComponent('ZT が最大の試料は？ A/B')
     expect(parseHash(hash)).toEqual<Route>({ tab: 'vocab', newQuestion: true })
     expect(legacyHashRewrite(hash)).toBeNull()
   })
 
   it('#/questions/term/<slug> は用語のページ・往復する（slug は符号化される）', () => {
-    expect(parseHash('#/questions/term/battery_cell')).toEqual<Route>({
+    expect(parseHash('#/questions/term/sample_composition')).toEqual<Route>({
       tab: 'vocab',
-      termSlug: 'battery_cell',
+      termSlug: 'sample_composition',
     })
-    expect(routeToHash({ tab: 'vocab', termSlug: 'battery_cell' })).toBe('#/questions/term/battery_cell')
-    expect(roundTrip('#/questions/term/battery_cell')).toBe('#/questions/term/battery_cell')
+    expect(routeToHash({ tab: 'vocab', termSlug: 'sample_composition' })).toBe('#/questions/term/sample_composition')
+    expect(roundTrip('#/questions/term/sample_composition')).toBe('#/questions/term/sample_composition')
     expect(parseHash('#/questions/term/a%20b')).toEqual<Route>({ tab: 'vocab', termSlug: 'a b' })
     expect(routeToHash({ tab: 'vocab', termSlug: 'a b' })).toBe('#/questions/term/a%20b')
   })

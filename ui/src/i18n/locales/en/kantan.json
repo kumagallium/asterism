@@ -447,7 +447,7 @@
       "property": "Which item?",
       "pick": "Pick one",
       "titleLabel": "Question",
-      "titlePlaceholder": "e.g. How many diffraction points are there?",
+      "titlePlaceholder": "e.g. How many samples are there?",
       "untitled": "(no question yet)",
       "try": "Try it",
       "add": "Add this question",

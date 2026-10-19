@@ -77,9 +77,9 @@
   "write": {
     "lead": "A theme name, and what you want to know, one per line.",
     "themeName": "Theme name",
-    "themeNamePlaceholder": "e.g. Battery materials",
+    "themeNamePlaceholder": "e.g. Thermoelectric materials",
     "questions": "What you want to know (one per line)",
-    "questionsPlaceholder": "e.g. What is the cathode material of the cell with the largest capacity?",
+    "questionsPlaceholder": "e.g. What is the composition of the sample with the highest ZT?",
     "suggestNote": "AI suggestions (press to add)",
     "aiOff": "No AI is set up. You can write by hand.",
     "toRead": "Let the AI read",

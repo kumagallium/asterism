@@ -8,7 +8,7 @@ describe('themeLabel', () => {
     expect(themeLabel({ id: 'first', label: 'はじめの問い' }, t)).toBe('First questions')
   })
   it('keeps a label a person wrote', () => {
-    expect(themeLabel({ id: 'first', label: '電池' }, t)).toBe('電池')
+    expect(themeLabel({ id: 'first', label: '熱電材料' }, t)).toBe('熱電材料')
     expect(themeLabel({ id: 'other', label: 'はじめの問い' }, t)).toBe('はじめの問い')
   })
 })

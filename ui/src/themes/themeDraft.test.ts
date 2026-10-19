@@ -117,7 +117,7 @@ describe('slug の導出（サーバの themes.slug_from_text と同じ例）', 
     ['hasSeebeckCoefficient', 'has_seebeck_coefficient'],
     ['3D shape', 'x_3d_shape'],
     ['試料', ''],
-    ['battery cell', 'battery_cell'],
+    ['seebeck coefficient', 'seebeck_coefficient'],
     ['  Cycle  number!! ', 'cycle_number'],
     ['XMLHttpRequest', 'xml_http_request'],
     ['café', 'cafe'],
@@ -127,9 +127,9 @@ describe('slug の導出（サーバの themes.slug_from_text と同じ例）', 
   })
 
   it('行の ID の既定: 英語名 → 別名の順・既存と重なれば _2', () => {
-    const row = { label_en: 'Battery cell', aliases: ['cell'] }
-    expect(suggestRowSlug(row, [])).toBe('battery_cell')
-    expect(suggestRowSlug(row, ['battery_cell'])).toBe('battery_cell_2')
+    const row = { label_en: 'Seebeck coefficient', aliases: ['S'] }
+    expect(suggestRowSlug(row, [])).toBe('seebeck_coefficient')
+    expect(suggestRowSlug(row, ['seebeck_coefficient'])).toBe('seebeck_coefficient_2')
     expect(suggestRowSlug({ label_en: '', aliases: ['col_name'] }, [])).toBe('col_name')
     expect(suggestRowSlug({ label_en: '', aliases: [] }, [])).toBe('')
   })
@@ -435,10 +435,10 @@ describe('⑤ 数え方', () => {
   })
 
   it('実行文の材料は、行の表示名（言語に合わせる）', () => {
-    const rows = [term('1', { label_ja: '電池セル', label_en: 'battery cell' }), term('2', { kind: 'property', label_ja: '容量', label_en: '' })]
+    const rows = [term('1', { label_ja: '試料', label_en: 'sample' }), term('2', { kind: 'property', label_ja: 'ZT', label_en: '' })]
     const s = sel('q', { op: 'top', kind: '1', property: '2' })
-    expect(selectionPayload(s, rows, 'ja')).toEqual({ op: 'top', kind: '電池セル', property: '容量', value: '' })
-    expect(selectionPayload(s, rows, 'en')).toEqual({ op: 'top', kind: 'battery cell', property: '容量', value: '' })
+    expect(selectionPayload(s, rows, 'ja')).toEqual({ op: 'top', kind: '試料', property: 'ZT', value: '' })
+    expect(selectionPayload(s, rows, 'en')).toEqual({ op: 'top', kind: 'sample', property: 'ZT', value: '' })
   })
 
   it('「いまは N データセットが答える」: 新しい用語は 0・既にある用語はその数', () => {
@@ -481,7 +481,7 @@ describe('⑥ 置く', () => {
   it('確定の body: 「そう」の関係だけ・型に合わない問いは機械の印つき・足すテーマ', () => {
     const d = draft({
       ai: {},
-      extend: 'battery',
+      extend: 'thermoelectric',
       terms: [term('1'), term('2')],
       relations: [rel('1', '2', { ok: true }), rel('2', '1', { ok: false }), rel('1', '2', { ok: null, relation: 'eq' })],
       selections: [
@@ -491,7 +491,7 @@ describe('⑥ 置く', () => {
       ],
     })
     const body = buildCommitBody(d, 'ja')
-    expect(body).toMatchObject({ label: 'テーマ', extend: 'battery', lang: 'ja', ai_drafted: true })
+    expect(body).toMatchObject({ label: 'テーマ', extend: 'thermoelectric', lang: 'ja', ai_drafted: true })
     expect(body.relations).toEqual([{ subject: '1', object: '2', relation: 'sub' }])
     expect(body.selections.map((s) => s.memo)).toEqual([null, 'op', 'none'])
     expect(buildCommitBody(draft(), 'en')).not.toHaveProperty('extend')
