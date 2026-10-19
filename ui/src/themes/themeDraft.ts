@@ -621,8 +621,6 @@ export interface PlaceSummary {
   lines: number
   published: number
   memo: number
-  /** AI の下書きを人が確定した、の印が付く用語があるか。 */
-  aiDrafted: boolean
 }
 
 export function placeSummary(draft: ThemeDraft): PlaceSummary {
@@ -634,7 +632,6 @@ export function placeSummary(draft: ThemeDraft): PlaceSummary {
     lines,
     published: draft.selections.length - memo,
     memo,
-    aiDrafted: draft.ai !== null && draft.terms.some((r) => termMints(r) && r.by === 'ai'),
   }
 }
 

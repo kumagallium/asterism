@@ -474,8 +474,7 @@ describe('⑥ 置く', () => {
         sel('b', { op: 'trend', kind: '1', property: '2', memo: null }),
       ],
     })
-    expect(placeSummary(d)).toEqual({ terms: 2, lines: 1, published: 1, memo: 1, aiDrafted: true })
-    expect(placeSummary({ ...d, ai: null }).aiDrafted).toBe(false)
+    expect(placeSummary(d)).toEqual({ terms: 2, lines: 1, published: 1, memo: 1 })
   })
 
   it('確定の body: 「そう」の関係だけ・型に合わない問いは機械の印つき・足すテーマ', () => {

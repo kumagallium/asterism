@@ -140,6 +140,8 @@ export interface Route {
   activity?: boolean
   /** `#/decisions?filter=perspective` — 「決めたこと」の絞り込み（無ければ「すべて」）。 */
   decisionsFilter?: DecisionFilter
+  /** `#/decisions?about=<IRI>` — その種類・用語に掛かる決めたことだけ。 */
+  decisionsAbout?: string
 }
 
 const TABS: readonly Tab[] = [
@@ -309,7 +311,11 @@ export function parseHash(hash: string): Route {
     // 旧 `#/decisions?tab=activity` も「記録」へ。
     if (new URLSearchParams(query).get('tab') === 'activity') return { tab: 'gallery', activity: true }
     const q = parseDecisionsQuery(query)
-    return { tab: 'decisions', ...(q.filter !== 'all' ? { decisionsFilter: q.filter } : {}) }
+    return {
+      tab: 'decisions',
+      ...(q.filter !== 'all' ? { decisionsFilter: q.filter } : {}),
+      ...(q.about ? { decisionsAbout: q.about } : {}),
+    }
   }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
@@ -335,7 +341,7 @@ export function routeToHash(r: Route): string {
     return r.newQuestion ? '#/questions?new=1' : '#/questions'
   }
   if (r.tab === 'decisions') {
-    return `#/decisions${decisionsQuery(r.decisionsFilter ?? 'all')}`
+    return `#/decisions${decisionsQuery(r.decisionsFilter ?? 'all', r.decisionsAbout)}`
   }
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
@@ -1083,9 +1089,23 @@ function App() {
             {tab === 'decisions' && (
               <DecisionsView
                 filter={route.decisionsFilter ?? 'all'}
+                about={route.decisionsAbout}
                 onFilterChange={(next) =>
                   navigate(
-                    { tab: 'decisions', ...(next !== 'all' ? { decisionsFilter: next } : {}) },
+                    {
+                      tab: 'decisions',
+                      ...(next !== 'all' ? { decisionsFilter: next } : {}),
+                      ...(route.decisionsAbout ? { decisionsAbout: route.decisionsAbout } : {}),
+                    },
+                    { replace: true },
+                  )
+                }
+                onClearAbout={() =>
+                  navigate(
+                    {
+                      tab: 'decisions',
+                      ...(route.decisionsFilter ? { decisionsFilter: route.decisionsFilter } : {}),
+                    },
                     { replace: true },
                   )
                 }

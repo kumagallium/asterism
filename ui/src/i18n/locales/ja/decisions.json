@@ -26,5 +26,7 @@
   "cancel": "やめる",
   "sentence": {
     "other": "「{{subject}}」と「{{target}}」（{{relation}}）"
-  }
+  },
+  "about": "「{{name}}」に掛かるものだけ",
+  "aboutClear": "すべて見る"
 }

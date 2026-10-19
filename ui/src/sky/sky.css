@@ -11,7 +11,7 @@
 .sky-facts {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-1) 1.4rem;
   font-size: 0.95rem;
   color: var(--muted);
@@ -137,23 +137,12 @@
   border-radius: 50%;
   vertical-align: -1px;
 }
-/* 入口 2 つ（図の左下・標準用語の帯の左）。狭い画面では図の下に横並び。 */
+/* 入口 2 つ（上の行の右）。図には重ねない（標準用語の星や札を覆うため）。 */
 .sky-entries {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-.sky-entries .btn {
-  box-shadow: var(--shadow-soft);
-}
-@media (max-width: 640px) {
-  .sky-entries {
-    position: static;
-    margin-top: var(--space-2);
-  }
+  margin-left: auto;
 }
 
 /* 図の右上の「…」（メニューは MoreMenu.tsx） */
@@ -414,6 +403,10 @@ button.sky-pill--data:hover:not(:disabled) {
   flex-direction: column;
   gap: var(--space-4);
   margin-top: var(--space-3);
+}
+.sky-tables-anchor {
+  scroll-margin-top: var(--space-3);
+  outline: none;
 }
 .sky-table-scroll {
   overflow-x: auto;

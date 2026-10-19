@@ -103,8 +103,8 @@ function ThemeCard({
       id={`theme-${theme.id}`}
       data-testid="theme-card"
     >
-      <h3 className="thm-card-h">
-        {themeLabel(theme, t)}
+      <div className="thm-card-h">
+        <h3>{themeLabel(theme, t)}</h3>
         <span className={`pill ${n > 0 && theme.answerable === n ? 'ok' : 'wait'}`}>
           {t('themes:card.answerable', { ok: theme.answerable, n })}
         </span>
@@ -121,7 +121,7 @@ function ThemeCard({
             { key: 'remove', label: t('themes:card.remove'), onSelect: () => void remove() },
           ]}
         />
-      </h3>
+      </div>
       {theme.questions.map((q) => (
         <QuestionRow key={q.tool_name} q={q} total={total} />
       ))}

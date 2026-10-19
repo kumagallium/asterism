@@ -1,8 +1,9 @@
 // 星図の右の欄: 1 枚だけ。点（星・丸・用語・標準用語）を選んでいれば「この星について」、
 // 選んでいなければ「知りたいこと」（問いの輪＋題＋札）。「ひとこと決める」は星の欄の下。
 import { useTranslation } from 'react-i18next'
-import { useEffect, useState } from 'react'
-import { getAlignments } from '../crosswalkApi'
+import { useState } from 'react'
+import type { Alignment } from '../crosswalkApi'
+import { decisionsHash, involves } from '../decide/decisionsModel'
 import { DecidePanel } from '../decide/DecidePanel'
 import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
 import type { SkyData, SkyQuestion } from './skyApi'
@@ -21,6 +22,8 @@ export interface RailProps {
   lang: 'ja' | 'en'
   /** 決めたあと・公開したあとに、答えられる問いが増えたとき（欄の上に 1 行・数秒だけ）。 */
   grown: { from: number; to: number } | null
+  /** 人が決めた関係（星の横の「決めたこと N 件 →」の数え元。ホームが 1 度だけ取る）。 */
+  alignments: readonly Alignment[]
   selectedId: string | null
   selectedQuestion: string | null
   onSelectNode: (id: string | null) => void
@@ -99,23 +102,14 @@ function TermPills({ terms, onSelect }: { terms: TermNode[]; onSelect: (id: stri
   )
 }
 
-/** 星の横の「決めたこと N 件 →」。この種類に掛かる決めたことが 1 件でもあるときだけ出す。 */
-function DecisionsLink({ iri, sky }: { iri: string; sky: SkyData }) {
+/** 星の横の「決めたこと N 件 →」。この種類に掛かる決めたことが 1 件でもあるときだけ出す。
+ *  押すと、その種類に掛かるものだけの一覧（件数と同じ範囲）に着く。 */
+function DecisionsLink({ iri, alignments }: { iri: string; alignments: readonly Alignment[] }) {
   const { t } = useTranslation('sky')
-  const [n, setN] = useState(0)
-  useEffect(() => {
-    let off = false
-    getAlignments()
-      .then((r) => !off && setN(r.alignments.filter((a) => a.source === iri || a.target === iri).length))
-      .catch(() => !off && setN(0))
-    return () => {
-      off = true
-    }
-    // 星図が取り直されたら（決めたあと）数え直す。
-  }, [iri, sky])
+  const n = alignments.filter((a) => involves(a, iri)).length
   if (n === 0) return null
   return (
-    <a className="link-btn sky-decisions-link" href="#/decisions">
+    <a className="link-btn sky-decisions-link" href={decisionsHash('all', iri)}>
       {t('about.decisions', { n })}
     </a>
   )
@@ -135,7 +129,7 @@ function KindAbout(p: RailProps & { node: KindNode }) {
         <button type="button" className="btn btn--primary btn--sm" onClick={() => p.onOpenKind(node.iri)}>
           {t('about.viewKind', { name: node.label })}
         </button>
-        <DecisionsLink iri={node.iri} sky={p.sky} />
+        <DecisionsLink iri={node.iri} alignments={p.alignments} />
       </div>
       <dl className="sky-kv">
         <dt>{t('about.dataset')}</dt>

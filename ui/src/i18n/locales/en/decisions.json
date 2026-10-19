@@ -26,5 +26,7 @@
   "cancel": "Cancel",
   "sentence": {
     "other": "\"{{subject}}\" and \"{{target}}\" ({{relation}})"
-  }
+  },
+  "about": "Only those involving “{{name}}”",
+  "aboutClear": "Show all"
 }

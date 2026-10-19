@@ -41,6 +41,10 @@
   margin: 0;
   font-size: 1rem;
 }
+.thm-card-h h3 {
+  margin: 0;
+  font-size: inherit;
+}
 .thm-card-h .pill {
   margin-left: auto;
 }

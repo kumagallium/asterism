@@ -7,6 +7,7 @@ import {
   type DecisionFilter,
   decisionSentence,
   filterCounts,
+  involves,
   matchesFilter,
   newestFirst,
   questionCount,
@@ -15,6 +16,7 @@ import { previewDecision } from './decide/decideApi'
 import './decide/decide.css'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { type AlignRelation, relationKey } from './lineChoice'
+import { endLabel } from './vocabQuestion'
 import { PerspectiveAlignment } from './PerspectiveAlignment'
 import { type SharedTerm, listTerms } from './vocabApi'
 import { cqTitleMap } from './vocabQuestion'
@@ -151,13 +153,17 @@ function DecisionRow({
 
 function DecisionsPane({
   filter,
+  about,
   onFilterChange,
+  onClearAbout,
   reloadKey,
   onChanged,
   cqTitles,
 }: {
   filter: DecisionFilter
+  about?: string
   onFilterChange: (filter: DecisionFilter) => void
+  onClearAbout: () => void
   reloadKey: number
   onChanged: () => void
   cqTitles: Record<string, string>
@@ -205,10 +211,20 @@ function DecisionsPane({
     }
     return m
   }, [datasets])
-  const counts = useMemo(() => filterCounts(list ?? []), [list])
+  // 星の横から来たときは、その種類・用語に掛かるものだけを土台にする（件数も絞り込みもその中で）。
+  const scoped = useMemo(() => (about ? (list ?? []).filter((a) => involves(a, about)) : (list ?? [])), [list, about])
+  const aboutName = useMemo(() => {
+    if (!about) return ''
+    const hit = (list ?? []).find((a) => involves(a, about))
+    if (!hit) return endLabel(about)
+    return hit.source === about
+      ? endLabel(about, hit.source_kind, hit.source_label)
+      : endLabel(about, hit.target_kind, hit.target_label)
+  }, [list, about])
+  const counts = useMemo(() => filterCounts(scoped), [scoped])
   const shown = useMemo(
-    () => newestFirst((list ?? []).filter((a) => matchesFilter(a, filter))),
-    [list, filter],
+    () => newestFirst(scoped.filter((a) => matchesFilter(a, filter))),
+    [scoped, filter],
   )
 
   const askUndo = useCallback((a: Alignment) => {
@@ -244,6 +260,14 @@ function DecisionsPane({
 
   return (
     <>
+      {about && (
+        <div className="decisions-about">
+          <span>{t('decisions:about', { name: aboutName })}</span>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onClearAbout}>
+            {t('decisions:aboutClear')}
+          </button>
+        </div>
+      )}
       <div className="decisions-pills" role="group" aria-label={t('decisions:filterAria')}>
         {DECISION_FILTERS.map((f) => (
           <button
@@ -307,11 +331,16 @@ function DecisionsPane({
  */
 export function DecisionsView({
   filter,
+  about,
   onFilterChange,
+  onClearAbout,
 }: {
   /** `perspective`（つながり同士）のときだけ、一覧ではなく対応づけの画面を出す。 */
   filter: DecisionFilter
+  /** その種類・用語の IRI に掛かるものだけ（`#/decisions?about=…`）。 */
+  about?: string
   onFilterChange: (filter: DecisionFilter) => void
+  onClearAbout: () => void
 }) {
   const { t } = useTranslation()
   const [version, setVersion] = useState(0)
@@ -332,7 +361,9 @@ export function DecisionsView({
       <p className="decisions-lead">{t('decisions:lead')}</p>
       <DecisionsPane
         filter={filter}
+        about={about}
         onFilterChange={onFilterChange}
+        onClearAbout={onClearAbout}
         reloadKey={version}
         onChanged={onChanged}
         cqTitles={cqTitles}

@@ -493,6 +493,15 @@ describe('決めたこと（#/decisions）と データの「記録」（#/data?
     expect(parseHash('#/decisions?filter=bogus')).toEqual<Route>({ tab: 'decisions' })
   })
 
+  it('#/decisions?about=<IRI> は、その種類・用語に掛かるものだけ（往復する）', () => {
+    const hash = '#/decisions?about=http%3A%2F%2Fexample.org%2Fns%23Sample'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'decisions', decisionsAbout: 'http://example.org/ns#Sample' })
+    expect(roundTrip(hash)).toBe(hash)
+    const both = '#/decisions?filter=same&about=urn%3Ak'
+    expect(parseHash(both)).toEqual<Route>({ tab: 'decisions', decisionsFilter: 'same', decisionsAbout: 'urn:k' })
+    expect(roundTrip(both)).toBe(both)
+  })
+
   it('#/data?tab=activity は データの「記録」タブ（往復する・書き換えない）', () => {
     const hash = '#/data?tab=activity'
     expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', activity: true })

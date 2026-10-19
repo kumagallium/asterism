@@ -7,6 +7,7 @@ import {
   decisionsHash,
   decisionsQuery,
   endName,
+  involves,
   filterCounts,
   matchesFilter,
   newestFirst,
@@ -131,5 +132,20 @@ describe('hash', () => {
     expect(decisionsQuery('broken')).toBe('?filter=broken')
     expect(decisionsHash('perspective')).toBe('#/decisions?filter=perspective')
     expect(decisionsHash()).toBe('#/decisions')
+    // 種類・用語に掛かるものだけ（about）
+    expect(parseDecisionsQuery('about=urn%3Ak')).toEqual({ filter: 'all', about: 'urn:k' })
+    expect(decisionsHash('all', 'urn:k')).toBe('#/decisions?about=urn%3Ak')
+    expect(parseDecisionsQuery(decisionsQuery('same', 'http://x/y#z').slice(1))).toEqual({
+      filter: 'same',
+      about: 'http://x/y#z',
+    })
+  })
+})
+
+describe('involves', () => {
+  it('source か target が IRI に一致する行だけ', () => {
+    expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:a')).toBe(true)
+    expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:b')).toBe(true)
+    expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:c')).toBe(false)
   })
 })

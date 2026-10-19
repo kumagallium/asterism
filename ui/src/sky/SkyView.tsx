@@ -1,12 +1,13 @@
 // ホーム＝星図（UI 再設計 PR 2・PR 5 で削った）。参考実装 `docs/design/sky-chart-mock/`。
-//   ・上: 「答えられる問い N / M」だけ（大きく 1 行）
-//   ・左: 星図（canvas 2D・決定論の配置）。入口 2 つ（データを置く・知りたいことを書く）は図の
-//     左下、「…」（静かな表示・画像で保存・数で見る・中身まで見る）は図の右上。直下に凡例 1 行。
+//   ・上: 「答えられる問い N / M」を大きく 1 行。その右に入口 2 つ（データを置く・知りたいことを書く）
+//   ・左: 星図（canvas 2D・決定論の配置）。「…」（静かな表示・画像で保存・数で見る・中身まで見る）は
+//     図の右上。直下に凡例 1 行。入口を図に重ねないのは、標準用語の帯の星や札を覆わないため。
 //   ・右: 欄は 1 枚だけ。点を選んでいれば「この星について」、選んでいなければ「知りたいこと」。
 // 配置は skyLayout.ts（純関数）、描画は skyDraw.ts。ここは取得・状態・DOM だけ。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isTauri } from '../desktop/updater'
+import { getAlignments, type Alignment } from '../crosswalkApi'
 import { MoreMenu } from '../MoreMenu'
 import { SkyRail } from './SkyRail'
 import { SkyTables } from './SkyTables'
@@ -432,7 +433,27 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
     return n
   }, [sky])
 
+  // 星の横の「決めたこと N 件 →」の数え元（星図を取り直すたびに 1 回だけ。星ごとには取らない）。
+  const [alignments, setAlignments] = useState<Alignment[]>([])
+  useEffect(() => {
+    let off = false
+    getAlignments()
+      .then((r) => !off && setAlignments(r.alignments))
+      .catch(() => !off && setAlignments([]))
+    return () => {
+      off = true
+    }
+  }, [sky])
+
   const [tablesOpen, setTablesOpen] = useState(false)
+  // 「数で見る」を押したら、開いた表の見出しへ移る（図は画面より高く、表は下に出るため）。
+  const tablesRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = tablesRef.current
+    if (!tablesOpen || !el) return
+    el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
+    el.focus({ preventScroll: true })
+  }, [tablesOpen, reduced])
   const f = sky.facts
   const ariaLabel = nothing
     ? t('chart.ariaSample')
@@ -471,6 +492,8 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
         ) : (
           <span className="sky-facts-none">{t('facts.none')}</span>
         )}
+        {/* 入口 2 つ。図の中に重ねると星や札を覆うので、図の上の行の右に置く（空の状態は中央のカード）。 */}
+        {!nothing && <div className="sky-entries">{entries}</div>}
       </div>
 
       {note && <p className="sky-note">{note}</p>}
@@ -497,7 +520,6 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
                 </div>
               </>
             )}
-            {!nothing && <div className="sky-entries">{entries}</div>}
             <MoreMenu
               className="sky-more"
               label={t('more.label')}
@@ -549,6 +571,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
           layout={layout}
           lang={lang}
           grown={grown}
+          alignments={alignments}
           selectedId={activeId}
           selectedQuestion={selectedQuestion}
           onSelectNode={selectNode}
@@ -561,7 +584,11 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
         />
       </div>
 
-      {tablesOpen && <SkyTables tables={tables} sky={sky} onClose={() => setTablesOpen(false)} />}
+      {tablesOpen && (
+        <div ref={tablesRef} tabIndex={-1} className="sky-tables-anchor">
+          <SkyTables tables={tables} sky={sky} onClose={() => setTablesOpen(false)} />
+        </div>
+      )}
     </div>
   )
 }
