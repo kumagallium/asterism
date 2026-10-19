@@ -6990,6 +6990,20 @@ button.ds-artifact:disabled {
   padding: 0.12rem 0.55rem;
   border-top: 1px solid var(--border);
 }
+.kz-links-mini tfoot td {
+  vertical-align: top;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.kz-links-verdict {
+  font-weight: 600;
+}
+.kz-links-verdict--ok {
+  color: var(--primary);
+}
+.kz-links-verdict--ng {
+  color: var(--muted);
+}
 .kz-links-hl {
   color: var(--primary);
   font-weight: 700;
