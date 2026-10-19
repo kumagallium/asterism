@@ -8,6 +8,7 @@ import { VocabMapSection } from './VocabMapSection'
 import { VocabQuestionEntry } from './VocabQuestionEntry'
 import { VocabTermsSection } from './VocabTermsSection'
 import type { AttachChoice } from './decide/AttachKind'
+import { isSystemKindIri } from './decide/decide'
 import { bumpVersion, parseVocabHash } from './vocabQuestion'
 
 const STATUS_KEY: Record<CatalogDataset['statusKind'], string> = {
@@ -150,8 +151,9 @@ export function SharedVocabView({
   // 「この用語に種類（項目）を入れる」の候補: 全データセットの種類・項目（公開済みの語彙から）。
   const attach = useMemo(() => {
     if (!schema) return undefined
+    // 系統用の型（つながりの内部・来歴・用語そのもの）は候補にしない。
     const pick = (terms: SchemaTerm[], termKind: 'class' | 'property'): AttachChoice[] =>
-      terms.map((term) => ({
+      terms.filter((term) => !isSystemKindIri(term.iri)).map((term) => ({
         id: term.iri,
         iri: term.iri,
         label: term.label || humanizeLocalName(localName(term.iri)),

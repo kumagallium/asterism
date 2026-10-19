@@ -22,7 +22,7 @@ import {
   reasonText,
   relationChoices,
   sentence,
-} from './decide'
+ isSystemKindIri } from './decide'
 
 // 純関数（文・候補の並び・帰結）と DecidePanel の初期表示。テストデータは架空。
 
@@ -258,5 +258,18 @@ describe('試算の状態と「そう決める」の可否', () => {
     expect(decideGate({ ...base, current: null }).canDecide).toBe(true)
     expect(decideGate({ ...base, current: { key: 'k', status: 'error' } }).canDecide).toBe(true)
     expect(decideGate({ ...base, picked: NONE, current: null }).canDecide).toBe(true)
+  })
+})
+
+describe('isSystemKindIri — 系統用の型は候補にしない', () => {
+  it('つながりの内部・来歴・用語そのもの・RDF の配管は true', () => {
+    expect(isSystemKindIri('https://kumagallium.github.io/asterism/crosswalk/ontology#CrosswalkLink')).toBe(true)
+    expect(isSystemKindIri('http://www.w3.org/ns/prov#Activity')).toBe(true)
+    expect(isSystemKindIri('https://kumagallium.github.io/asterism/vocab/shared#record')).toBe(true)
+    expect(isSystemKindIri('http://www.w3.org/2002/07/owl#Class')).toBe(true)
+  })
+  it('データセットの種類は false', () => {
+    expect(isSystemKindIri('https://asterism.invalid/datasets/prices/ontology#Food')).toBe(false)
+    expect(isSystemKindIri('https://kumagallium.github.io/asterism/world/ontology#Country')).toBe(false)
   })
 })

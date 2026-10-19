@@ -25,6 +25,22 @@ export type DecideChoice = AlignRelation | typeof NONE
 const ROLE_ORDER: Record<EndRole, number> = { standard: 0, shared: 1, dataset: 2 }
 
 /** 名前の完全一致の判定に使う正規化（NFKC・小文字・空白をたたむ。api の normalize_label と同じ向き）。 */
+/** 系統用の型の名前空間。つながりの内部（xw:）・来歴（prov:）・用語そのもの（sv:）・RDF の配管は、
+ *  「この用語に種類を入れる」の候補にしない（画面に Crosswalk Link が先頭で出た・実機 2026-10-19）。 */
+export const SYSTEM_KIND_NS: readonly string[] = [
+  'https://kumagallium.github.io/asterism/crosswalk/ontology#',
+  'http://www.w3.org/ns/prov#',
+  'https://kumagallium.github.io/asterism/vocab/shared#',
+  'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+  'http://www.w3.org/2000/01/rdf-schema#',
+  'http://www.w3.org/2002/07/owl#',
+]
+
+/** 候補にしない系統用の型か。 */
+export function isSystemKindIri(iri: string): boolean {
+  return SYSTEM_KIND_NS.some((ns) => iri.startsWith(ns))
+}
+
 export function normalizeName(s: string): string {
   return s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
 }
