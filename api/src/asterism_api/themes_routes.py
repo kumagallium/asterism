@@ -206,9 +206,11 @@ def register_themes(
                 for n in theme.get("questions") or []
                 if n in tool_by_name
             ]
+            support = [n for n in theme.get("support_questions") or [] if n in tool_by_name]
             assigned.update(q["tool_name"] for q in qs)
+            assigned.update(support)
             need: dict[str, dict] = {}
-            for n in theme.get("questions") or []:
+            for n in [*(theme.get("questions") or []), *support]:
                 for iri in (tool_by_name.get(n) or {}).get("for_terms") or []:
                     if str(iri) in term_by_iri:
                         t = term_by_iri[str(iri)]

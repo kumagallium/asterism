@@ -192,7 +192,10 @@ def test_fit_matches_an_alias_exactly_by_label_or_column_never_partially() -> No
         )
 
     assert fit("", "comp_str")[0]["matched_by"] == "alias"  # the column name is an alias
+    assert fit("", "comp_str")[0]["alias"] == "comp_str"
     assert fit("formula", "")[0]["matched_by"] == "alias"  # the meaning is an alias
+    assert fit("formula", "")[0]["alias"] == "Formula"  # spelled as the person wrote it
+    assert "alias" not in fit("組成", "x")[0]
     assert fit("組成", "x")[0]["matched_by"] == "label"  # the label still wins
     assert fit("", "comp") == []  # partial, never
     assert fit("", "comp_str_2") == []
@@ -826,7 +829,10 @@ async def test_template_files_are_header_rows_per_kind(tmp_path: Path) -> None:
     rows = await sv.list_terms(c, tmp_path)
     tools = sv.read_registry_raw_tools(tmp_path, sv.REGISTRY_ID) or []
     files = themes.template_files(out["theme"], rows, tools)
-    assert files == {"battery_cell.csv": ["battery_cell_id", "capacity"]}
+    assert files == {
+        "battery_cell.csv": ["battery_cell_id", "capacity"],
+        "cathode_material.csv": ["cathode_material_id"],  # needed by the theme (a default question)
+    }
     # a theme without recorded selections: kinds get an id column, items go to other.csv
     legacy = {"questions": ["cq_battery_cell_count", "cq_capacity_values"]}
     assert themes.template_files(legacy, rows, tools) == {

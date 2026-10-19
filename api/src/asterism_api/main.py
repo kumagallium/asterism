@@ -370,7 +370,7 @@ class ColumnFit(BaseModel):
 
     term: str
     kind: Literal["shared", "standard", "dataset"]
-    matched_by: Literal["label", "column"]
+    matched_by: Literal["label", "alias", "column"]
 
 
 class ColumnMeaning(BaseModel):
@@ -4387,7 +4387,8 @@ def _settled_column_meanings(parsed: object) -> list[dict[str, Any]]:
             except ValueError as exc:
                 raise HTTPException(
                     422,
-                    "fit must be {term, kind: shared|standard|dataset, matched_by: label|column}",
+                    "fit must be {term, kind: shared|standard|dataset, "
+                    "matched_by: label|alias|column}",
                 ) from exc
         out.append(row)
     return out

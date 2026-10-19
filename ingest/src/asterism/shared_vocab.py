@@ -1193,11 +1193,13 @@ def fit_candidates(
                 return by
         return None
 
-    def alias_hit(aliases: Iterable[str]) -> bool:
-        """別名は、人が「この名前で呼ばれる／この列名で来る」と書いたもの。意味（label）にも列名
-        にも完全一致で当てる（部分一致は出さない・D2）。"""
-        norms = {normalize_label(a) for a in aliases if a}
-        return any(k and k in norms for k in (nl, nc))
+    def alias_hit(aliases: Iterable[str]) -> str | None:
+        """当たった別名（書いたままの綴り）。別名は、人が「この名前で呼ばれる／この列名で来る」と
+        書いたもの。意味（label）にも列名にも完全一致で当てる（部分一致は出さない・D2）。"""
+        for a in aliases:
+            if a and normalize_label(a) in (nl, nc) and normalize_label(a):
+                return a
+        return None
 
     out: list[dict] = []
     seen: set[str] = set()
@@ -1215,18 +1217,22 @@ def fit_candidates(
                 }
             )
     for t in sorted(shared_terms, key=lambda t: t.iri):
-        by = matched_by(t.label, t.label_en) or ("alias" if alias_hit(t.aliases) else None)
+        by = matched_by(t.label, t.label_en)
+        hit = None if by else alias_hit(t.aliases)
+        if hit is not None:
+            by = "alias"
         if by and t.iri not in seen:
             seen.add(t.iri)
-            out.append(
-                {
-                    "term": t.iri,
-                    "kind": "shared",
-                    "term_kind": t.kind,
-                    "label": t.label,
-                    "matched_by": by,
-                }
-            )
+            cand = {
+                "term": t.iri,
+                "kind": "shared",
+                "term_kind": t.kind,
+                "label": t.label,
+                "matched_by": by,
+            }
+            if hit is not None:
+                cand["alias"] = hit  # 「（別名 composition が一致）」と言うための綴り
+            out.append(cand)
     for d in sorted(dataset_terms, key=lambda d: (str(d.get("dataset_id")), str(d.get("iri")))):
         by = matched_by(d.get("label"))
         iri = d.get("iri")

@@ -330,7 +330,9 @@ def test_commit_places_terms_lines_questions_and_the_theme(tmp_path: Path) -> No
             "電池セルのうち、容量がいちばん大きいものを出します（データセットごと）"
         )
         assert theme["memo_questions"][0]["title"] == "容量の推移は？"
-        assert {t["slug"] for t in theme["terms"]} == {"capacity"}
+        # a term no question is about still counts as needed (it carries a default question)
+        assert {t["slug"] for t in theme["terms"]} == {"battery_cell", "capacity"}
+        assert listing["unassigned_questions"] == []
         # the terms carry the draft mark and the aliases
         terms = {t["slug"]: t for t in client.get("/api/vocab/shared").json()["terms"]}
         assert terms["battery_cell"]["aliases"] == ["cell"]
@@ -440,6 +442,6 @@ def test_template_zip_is_one_header_row_per_kind(tmp_path: Path) -> None:
         z = client.get(f"/api/themes/{d['id']}/template.csv.zip")
         assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
         with zipfile.ZipFile(io.BytesIO(z.content)) as zf:
-            assert zf.namelist() == ["battery_cell.csv"]
+            assert zf.namelist() == ["battery_cell.csv"]  # (this body has no helper kind)
             assert zf.read("battery_cell.csv").decode().splitlines() == ["battery_cell_id,capacity"]
         assert client.get("/api/themes/ghost/template.csv.zip").status_code == 404

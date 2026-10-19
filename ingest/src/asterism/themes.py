@@ -1120,11 +1120,17 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         q_tools.append(name)
         q_sel[name] = summary
 
+    # a new term that no question of this theme is about carries a default question; the theme
+    # remembers it (so the term is "needed" and the question is not listed as homeless) but
+    # does not show it as one of the person's questions
+    hosted_keys = {k for _, k, _ in hosted}
+    support = [cq_names[r.key][0] for r in rows if r.mint and r.key not in hosted_keys]
     theme = {
         "id": theme_id,
         "label": label,
         "created_at": at,
         "questions": q_tools,
+        "support_questions": support,
         "selections": q_sel,
         "memo_questions": memo,
     }
@@ -1136,6 +1142,10 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         theme = {
             **prior,
             "questions": [*have_q, *[n for n in q_tools if n not in have_q]],
+            "support_questions": [
+                *(prior.get("support_questions") or []),
+                *[n for n in support if n not in (prior.get("support_questions") or [])],
+            ],
             "selections": {**(prior.get("selections") or {}), **q_sel},
             "memo_questions": [*have_m, *[m for m in memo if m["id"] not in have_m_ids]],
         }
@@ -1267,8 +1277,9 @@ def template_files(theme: dict, terms: list[dict], tools: list[dict]) -> dict[st
     by_iri = {t["iri"]: t for t in terms}
     name = lambda t: (t.get("label_en") or t["slug"]).strip()  # noqa: E731
     need: dict[str, dict] = {}
+    mine = [*(theme.get("questions") or []), *(theme.get("support_questions") or [])]
     for tool in tools:
-        if str(tool.get("name")) not in (theme.get("questions") or []):
+        if str(tool.get("name")) not in mine:
             continue
         for iri in tool.get("for_terms") or []:
             if iri in by_iri:
