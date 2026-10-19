@@ -1,53 +1,25 @@
-import {
-  ActivityIcon,
-  AskIcon,
-  ConnectIcon,
-  DataIcon,
-  HomeIcon,
-  LayersIcon,
-  NetworkIcon,
-  TermsIcon,
-} from './icons'
+import { AskIcon, DataIcon, HomeIcon, LayersIcon, TermsIcon } from './icons'
 
-/** 左ナビの項目 1 つ（契約メモ contract_pr_f7.md §1）。`id` は App.tsx の hash
- *  ルータが使う `Tab` の一部（ここに出す項目だけの部分集合）。 */
+/** 左ナビの項目 1 つ。`id` は App.tsx の hash ルータが使う `Tab` の一部
+ *  （ここに出す項目だけの部分集合）。 */
 export interface NavItem {
-  id: 'home' | 'gallery' | 'crosswalk' | 'vocab' | 'jobs' | 'cards' | 'network' | 'ask'
+  id: 'home' | 'vocab' | 'gallery' | 'cards' | 'ask'
   icon: typeof HomeIcon
 }
 
-/** 左ナビの見出し 1 つ分（契約メモ §1: 「作る」「使う」）。`key` から
- *  i18n キー `nav.group_${key}` を組み立てる。 */
-export interface NavGroup {
-  key: 'build' | 'use'
-  items: NavItem[]
-}
-
 /**
- * 左ナビは 1 本・どの画面でも同じ（契約メモ contract_pr_f7.md §1）。純データ
- * ——「1 回 Read すれば済む」判断（何を作るか・つなぐか）と「使う」（見る・問う）
- * を見出しで分ける、というユーザーの指摘をそのまま形にする。
+ * 左ナビは 1 本・5 つ・順序固定・どの画面でも同じ（UI 再設計 PR 1）。純データ。
+ * 見出し「作る」「使う」は廃止した——順序そのものが「問い→データ→見る→質問する」
+ * の流れを表す。つながり（crosswalk）は「データ」の下のタブ、全体グラフ（network）は
+ * ホームの「全体グラフを見る」、全体像（map）はデータセット画面から入る。
+ * かんたんウィザード（`workbench`）も出さない（上部バーの常設入口から入る）。
  *
- * かんたんウィザード（`workbench`）はここに出さない（契約メモ §1 注記どおり）
- * ——データ（gallery）・ワークスペース（cards）から入る導線のまま。
+ * 下段（たたむ・アクティビティ・設定・開発者向け）は App.tsx が直に描く。
  */
-export const NAV_GROUPS: readonly NavGroup[] = [
-  {
-    key: 'build',
-    items: [
-      { id: 'home', icon: HomeIcon },
-      { id: 'gallery', icon: DataIcon },
-      { id: 'crosswalk', icon: ConnectIcon },
-      { id: 'vocab', icon: TermsIcon },
-      { id: 'jobs', icon: ActivityIcon },
-    ],
-  },
-  {
-    key: 'use',
-    items: [
-      { id: 'cards', icon: LayersIcon },
-      { id: 'network', icon: NetworkIcon },
-      { id: 'ask', icon: AskIcon },
-    ],
-  },
+export const NAV_ITEMS: readonly NavItem[] = [
+  { id: 'home', icon: HomeIcon },
+  { id: 'vocab', icon: TermsIcon },
+  { id: 'gallery', icon: DataIcon },
+  { id: 'cards', icon: LayersIcon },
+  { id: 'ask', icon: AskIcon },
 ]

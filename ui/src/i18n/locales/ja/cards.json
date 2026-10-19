@@ -18,7 +18,7 @@
     "flow": "手順"
   },
   "topbar": {
-    "unselected": "ワークスペース",
+    "unselected": "見る",
     "add": "オブジェクトを追加",
     "back": "戻る",
     "define": "データの意味を定義する",

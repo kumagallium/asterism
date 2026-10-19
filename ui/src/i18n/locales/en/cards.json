@@ -18,7 +18,7 @@
     "flow": "Steps"
   },
   "topbar": {
-    "unselected": "Workspace",
+    "unselected": "Browse",
     "add": "Add an object",
     "back": "Back",
     "define": "Define what the data means",

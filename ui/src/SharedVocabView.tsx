@@ -76,7 +76,17 @@ function humanizeLocalName(name: string): string {
  * reused external vocabularies are derived from the live term namespaces. There
  * is no hardcoded starrydata fixture here.
  */
-export function SharedVocabView({ onBack }: { onBack?: () => void }) {
+export function SharedVocabView({
+  onBack,
+  autoFocusQuestion,
+  onAutoFocusConsumed,
+}: {
+  onBack?: () => void
+  /** 上部バーの「？ 知りたいことを書く」から来たとき、問いの入力欄に自動でフォーカスする。 */
+  autoFocusQuestion?: boolean
+  /** フォーカスし終えたとき（親が `?new=1` を hash から消す）。 */
+  onAutoFocusConsumed?: () => void
+}) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[]>([])
   const [schema, setSchema] = useState<SchemaSummary | null>(null)
@@ -84,7 +94,7 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
   const [loaded, setLoaded] = useState(false)
   // Bumped by the retry button; the fetch effect re-runs on every change.
   const [reloadKey, setReloadKey] = useState(0)
-  // 他の画面から持ち込まれた題・絞り込み（`#/vocab?q=…` `#/vocab?scope=…&dataset=…`）。
+  // 他の画面から持ち込まれた題・絞り込み（`#/questions?q=…` `#/questions?scope=…&dataset=…`）。
   // タブは同じまま hash だけ変わることがあるので、hashchange で読み直す。
   const [params, setParams] = useState(() => parseVocabHash(window.location.hash))
   // 語・問い・線のどれかが変わったら 1 つ進める。地図・ことば・線の節がこれを見て読み直す
@@ -177,6 +187,8 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         key={params.q}
         initialQuestion={params.q}
         onChanged={onChanged}
+        autoFocus={autoFocusQuestion}
+        onAutoFocused={onAutoFocusConsumed}
       />
 
       {!schemaTried && (

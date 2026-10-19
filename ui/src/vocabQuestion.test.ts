@@ -214,9 +214,9 @@ describe('線の絞り込み（scope）', () => {
 describe('導線の hash', () => {
   it('Ask から題を運ぶ（解釈せずそのまま・エンコードして）', () => {
     expect(vocabQuestionHash('試料は何件？ A/B')).toBe(
-      `#/vocab?q=${encodeURIComponent('試料は何件？ A/B')}`,
+      `#/questions?q=${encodeURIComponent('試料は何件？ A/B')}`,
     )
-    expect(vocabQuestionHash('  ')).toBe('#/vocab')
+    expect(vocabQuestionHash('  ')).toBe('#/questions')
   })
 
   it('運んだ題を読み戻せる・scope と dataset も読む', () => {
@@ -231,7 +231,8 @@ describe('導線の hash', () => {
     expect(parseVocabHash('#/vocab?scope=bogus').scope).toBeNull()
   })
 
-  it('ルータは #/vocab?… を「ことば」画面として開く', () => {
+  it('ルータは #/questions?…（旧 #/vocab?…も）を「知りたいこと」画面として開く', () => {
+    expect(parseHash('#/questions?q=abc')).toEqual({ tab: 'vocab' })
     expect(parseHash('#/vocab?q=abc')).toEqual({ tab: 'vocab' })
     expect(parseHash('#/vocab?scope=standard&dataset=x')).toEqual({ tab: 'vocab' })
     expect(parseHash('#/vocab')).toEqual({ tab: 'vocab' })
@@ -245,8 +246,8 @@ describe('節の再読み込み（版の伝播）', () => {
   })
 
   it('つながり画面から「つながり同士」を開いた線の節へ送る', () => {
-    expect(vocabScopeHash('perspective')).toBe('#/vocab?scope=perspective')
-    expect(vocabScopeHash('all')).toBe('#/vocab')
+    expect(vocabScopeHash('perspective')).toBe('#/questions?scope=perspective')
+    expect(vocabScopeHash('all')).toBe('#/questions')
     expect(parseVocabHash(vocabScopeHash('perspective')).scope).toBe('perspective')
   })
 })
