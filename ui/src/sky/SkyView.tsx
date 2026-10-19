@@ -83,6 +83,12 @@ export function SkyView(props: SkyViewProps) {
     }
   }, [])
   useEffect(() => fetchSky(), [fetchSky])
+  // 選択を保ったまま取り直す（読み込み中の表示には戻さない）。
+  const refresh = useCallback(() => {
+    getSky()
+      .then((sky) => setLoad({ status: 'ok', sky }))
+      .catch(() => undefined)
+  }, [])
   const retry = () => {
     setLoad({ status: 'loading' })
     fetchSky()
@@ -124,10 +130,10 @@ export function SkyView(props: SkyViewProps) {
       </div>
     )
   }
-  return <SkyBody sky={load.sky} lang={lang} {...props} />
+  return <SkyBody sky={load.sky} lang={lang} onRefresh={refresh} {...props} />
 }
 
-function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en' }) {
+function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefresh: () => void }) {
   const { sky, lang } = props
   const { t } = useTranslation('sky')
   const nothing = sky.datasets.length === 0 && sky.questions.length === 0
@@ -268,6 +274,26 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en' }) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
   }, [schedule])
+
+  // ── 決めたあとの輪: 取り直した星図が届いたら、その用語と星に 1 度だけ出す ──
+  const growRef = useRef<{ iris: string[]; from: SkyData } | null>(null)
+  const { onRefresh } = props
+  const grow = useCallback(
+    (iris: string[]) => {
+      growRef.current = { iris, from: sky }
+      onRefresh()
+    },
+    [sky, onRefresh],
+  )
+  useEffect(() => {
+    const g = growRef.current
+    if (!g || g.from === sky) return
+    growRef.current = null
+    if (reduced) return
+    const now = performance.now()
+    for (const id of nodeIdsForIris(layout, g.iris)) bornRef.current.set(id, now)
+    schedule()
+  }, [sky, layout, reduced, schedule])
 
   // ── 生まれた輪（`#/home?new=…`・1 度だけ） ──
   const consumedRef = useRef<string>('')
@@ -478,6 +504,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en' }) {
           onOpenKind={props.onOpenKind}
           onOpenDataset={props.onOpenDataset}
           onOpenQuestions={props.onOpenQuestions}
+          onDecided={grow}
         />
       </div>
 

@@ -51,6 +51,11 @@
     "dataOnly": "{{n}} kinds have no term yet. Write what you want to know and they get a name.",
     "questionsOnly": "No data answers yet. Put your data here and Asterism looks for matching kinds."
   },
+  "decide": {
+    "noTerms": "No terms yet. You can make one in “Questions”.",
+    "openQuestions": "Open “Questions”",
+    "attachKind": "To put a kind into this term, open “Questions”."
+  },
   "about": {
     "hint": "Click a kind, term or standard term to see the details here.",
     "titleKind": "About this star",
