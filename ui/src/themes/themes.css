@@ -490,3 +490,28 @@ a.thm-term-chip:hover {
 .thm-card-actions a.btn {
   text-decoration: none;
 }
+
+/* 畳んだメモの問い（1 行・押すと開く） */
+.thm-memos > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+/* 用語のページの「詳しく」（ID・履歴・外す操作） */
+.thm-term-more > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* 「閉じる」を押したときの、下書きの扱いの確認（捨てる操作はここに畳んだ） */
+.thm-closing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+}

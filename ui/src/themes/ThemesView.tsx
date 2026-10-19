@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getSchema, type SchemaSummary } from '../demoApi'
-import { type CatalogDataset, getCatalogDatasets } from '../galleryApi'
-import { VocabMapSection } from '../VocabMapSection'
-import { VocabTermsSection } from '../VocabTermsSection'
+import { MoreMenu } from '../MoreMenu'
 import { parseVocabHash } from '../vocabQuestion'
 import { ThemeWizard } from './ThemeWizard'
 import {
@@ -18,13 +15,16 @@ import {
   templateUrl,
   themeLabel,
 } from './themesApi'
+import '../vocabTerms.css'
 import './themes.css'
 
 // 「知りたいこと」（#/questions）— テーマごとの問いの帳。UI 再設計 PR 4（design.md §3）。
 //
 // テーマ（問いの束）ごとに カード: 問いの輪（答えるデータセット数／全体）・題・実行文・要る用語・
-// メモの問い。右上の「？ 新しいテーマを作る」で 6 段（ThemeWizard）が開く。用語はテーマの持ち物では
-// ないので、テーマを外しても用語・関係・問いは残る。下の「用語の地図」「用語の一覧」は折りたたみ。
+// 畳んだメモの問い。主ボタンは「問いを足す」だけで、答えを見る・型紙・テーマを外す は「…」。
+// 右上の「？ 新しいテーマを作る」で 6 段（ThemeWizard）が開く。用語はテーマの持ち物ではないので、
+// テーマを外しても用語・関係・問いは残る。用語の地図は「データ › データセットの詳細 › 中身」の末尾へ、
+// 用語の一覧は無くした（用語は札 → 用語のページ）。
 
 function goTo(hash: string): void {
   if (window.location.hash !== hash) window.location.hash = hash
@@ -47,15 +47,7 @@ function Ring({ n, total }: { n: number; total: number }) {
   )
 }
 
-function QuestionRow({
-  q,
-  total,
-  onAsk,
-}: {
-  q: ThemeQuestion
-  total: number
-  onAsk: (title: string) => void
-}) {
+function QuestionRow({ q, total }: { q: ThemeQuestion; total: number }) {
   const { t } = useTranslation()
   return (
     <div className="thm-qrow" data-testid="theme-question">
@@ -69,9 +61,6 @@ function QuestionRow({
           ? t('themes:card.answering', { n: q.answering_datasets })
           : t('themes:card.notYet')}
       </span>
-      <button type="button" className="link-btn" onClick={() => onAsk(q.title)}>
-        {t('themes:card.ask')}
-      </button>
     </div>
   )
 }
@@ -119,9 +108,22 @@ function ThemeCard({
         <span className={`pill ${n > 0 && theme.answerable === n ? 'ok' : 'wait'}`}>
           {t('themes:card.answerable', { ok: theme.answerable, n })}
         </span>
+        <MoreMenu
+          label={t('themes:card.more')}
+          items={[
+            {
+              key: 'answer',
+              label: t('themes:card.seeAnswer'),
+              disabled: !firstAnswerable,
+              onSelect: () => firstAnswerable && onAsk(firstAnswerable.title),
+            },
+            { key: 'template', label: t('themes:card.template'), href: templateUrl(theme.id), download: true },
+            { key: 'remove', label: t('themes:card.remove'), onSelect: () => void remove() },
+          ]}
+        />
       </h3>
       {theme.questions.map((q) => (
-        <QuestionRow key={q.tool_name} q={q} total={total} onAsk={onAsk} />
+        <QuestionRow key={q.tool_name} q={q} total={total} />
       ))}
       {n === 0 && <p className="ds-empty-note">{t('themes:card.noQuestions')}</p>}
       {theme.terms.length > 0 && (
@@ -135,43 +137,27 @@ function ThemeCard({
               title={term.slug}
             >
               {term.label}
-              <span className="vocab-field-hint">
-                {' '}
-                {t(`themes:kind.${term.kind}`)}
-              </span>
+              {term.kind === 'property' && (
+                <span className="vocab-field-hint"> {t('themes:kind.property')}</span>
+              )}
             </a>
           ))}
         </p>
       )}
       {theme.memo_questions.length > 0 && (
-        <div className="thm-memos" data-testid="theme-memos">
-          <div className="vocab-field-hint">{t('themes:card.memoTitle')}</div>
+        <details className="thm-memos" data-testid="theme-memos">
+          <summary>{t('themes:card.memoTitle', { n: theme.memo_questions.length })}</summary>
           {theme.memo_questions.map((m) => (
             <div key={m.id} className="thm-memo-row">
               <span className="pill wait">{t('themes:try.memoBadge')}</span> {m.title}
               {m.reason && <span className="vocab-field-hint"> — {m.reason}</span>}
             </div>
           ))}
-        </div>
+        </details>
       )}
       <div className="thm-card-actions">
         <button type="button" className="btn btn--sm" onClick={() => onAddQuestion(theme)}>
           {t('themes:card.addQuestion')}
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={!firstAnswerable}
-          onClick={() => firstAnswerable && onAsk(firstAnswerable.title)}
-          title={t('themes:card.seeAnswerHint')}
-        >
-          {t('themes:card.seeAnswer')}
-        </button>
-        <a className="btn btn--ghost btn--sm" href={templateUrl(theme.id)} download title={t('themes:card.templateHint')}>
-          {t('themes:card.template')}
-        </a>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={() => void remove()}>
-          {t('themes:card.remove')}
         </button>
       </div>
       {err && <p className="promote-err">{err}</p>}
@@ -180,59 +166,6 @@ function ThemeCard({
 }
 
 type WizardOpen = { resumeId?: string; extend?: { id: string; label: string } }
-
-/** 地図と一覧は、開いたときに読む（初期の読み込みを重くしない）。 */
-function Folds({ version }: { version: number }) {
-  const { t } = useTranslation()
-  const [mapOpen, setMapOpen] = useState(false)
-  const [datasets, setDatasets] = useState<CatalogDataset[]>([])
-  const [schema, setSchema] = useState<SchemaSummary | null>(null)
-  const [ready, setReady] = useState(false)
-  // 用語の一覧で用語を外す・問いを足したとき、一覧だけ読み直す（地図は開き直したときに読む）。
-  const [termsKey, setTermsKey] = useState(0)
-
-  useEffect(() => {
-    if (!mapOpen) return
-    let off = false
-    Promise.allSettled([getCatalogDatasets(), getSchema()]).then(([ds, sc]) => {
-      if (off) return
-      if (ds.status === 'fulfilled') setDatasets(ds.value)
-      if (sc.status === 'fulfilled') setSchema(sc.value)
-      setReady(true)
-    })
-    return () => {
-      off = true
-    }
-  }, [mapOpen])
-
-  return (
-    <div className="thm-folds">
-      <details onToggle={(e) => setMapOpen((e.currentTarget as HTMLDetailsElement).open)}>
-        <summary>{t('themes:folds.map')}</summary>
-        {mapOpen && !ready && (
-          <p className="loading-row">
-            <span className="spinner" />
-            {t('themes:loading')}
-          </p>
-        )}
-        {mapOpen && ready && (
-          <VocabMapSection
-            datasets={datasets}
-            schema={schema}
-            onOpenDataset={(id) => goTo(`#/datasets/${encodeURIComponent(id)}`)}
-            onOpenKind={(iri) => goTo(`#/cards/k/${encodeURIComponent(iri)}`)}
-            onOpenCrosswalk={() => goTo('#/crosswalk')}
-            reloadKey={version}
-          />
-        )}
-      </details>
-      <details>
-        <summary>{t('themes:folds.terms')}</summary>
-        <VocabTermsSection reloadKey={version + termsKey} onChanged={() => setTermsKey((k) => k + 1)} />
-      </details>
-    </div>
-  )
-}
 
 export function ThemesView({
   newQuestion,
@@ -412,16 +345,14 @@ export function ThemesView({
           {listing.unassigned_questions.length > 0 && (
             <div className="card thm-card-theme" data-testid="unassigned-card">
               <h3 className="thm-card-h">{t('themes:unassigned.title')}</h3>
-              <p className="vocab-field-hint">{t('themes:unassigned.note')}</p>
               {listing.unassigned_questions.map((q) => (
-                <QuestionRow key={q.tool_name} q={q} total={total} onAsk={onOpenAsk} />
+                <QuestionRow key={q.tool_name} q={q} total={total} />
               ))}
             </div>
           )}
         </div>
       )}
 
-      <Folds version={reloadKey} />
     </div>
   )
 }

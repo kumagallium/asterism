@@ -156,57 +156,11 @@
   }
 }
 
-/* 図の右上の「…」 */
-.sky-more {
+/* 図の右上の「…」（メニューは MoreMenu.tsx） */
+.sky-figure .sky-more {
   position: absolute;
   top: 8px;
   right: 8px;
-}
-.sky-more-btn {
-  min-width: 2rem;
-  font-weight: 700;
-  line-height: 1;
-}
-.sky-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 3;
-  display: flex;
-  min-width: 11rem;
-  flex-direction: column;
-  padding: var(--space-1);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-.sky-menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 6px var(--space-2);
-  font-size: 0.8rem;
-  font-weight: 400;
-  text-align: left;
-  color: var(--fg);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.sky-menu-item:hover:not(:disabled) {
-  background: var(--surface-alt);
-  color: var(--fg);
-}
-.sky-menu-item:disabled {
-  color: var(--faint);
-  cursor: default;
-}
-.sky-menu-check {
-  display: inline-block;
-  width: 1em;
-  color: var(--accent-strong);
 }
 .sky-png-note {
   margin: var(--space-1) 0 0;

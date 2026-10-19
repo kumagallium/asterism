@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isTauri } from '../desktop/updater'
+import { MoreMenu } from '../MoreMenu'
 import { SkyRail } from './SkyRail'
 import { SkyTables } from './SkyTables'
 import { SAMPLE_SKY } from './sample'
@@ -498,6 +499,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
             )}
             {!nothing && <div className="sky-entries">{entries}</div>}
             <MoreMenu
+              className="sky-more"
               label={t('more.label')}
               items={[
                 {
@@ -560,73 +562,6 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
       </div>
 
       {tablesOpen && <SkyTables tables={tables} sky={sky} onClose={() => setTablesOpen(false)} />}
-    </div>
-  )
-}
-
-interface MenuItem {
-  key: string
-  label: string
-  onSelect: () => void
-  checked?: boolean
-  disabled?: boolean
-  title?: string
-}
-
-/** 図の右上の「…」。常時出すボタンやチェックボックスの代わりに、操作をここへまとめる。 */
-function MoreMenu({ label, items }: { label: string; items: MenuItem[] }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-  return (
-    <div className="sky-more" ref={ref}>
-      <button
-        type="button"
-        className="btn btn--ghost btn--sm sky-more-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={label}
-        title={label}
-        onClick={() => setOpen((o) => !o)}
-      >
-        …
-      </button>
-      {open && (
-        <div className="sky-menu" role="menu">
-          {items.map((it) => (
-            <button
-              key={it.key}
-              type="button"
-              role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-              aria-checked={it.checked}
-              className="sky-menu-item"
-              disabled={it.disabled}
-              title={it.title}
-              onClick={() => {
-                setOpen(false)
-                it.onSelect()
-              }}
-            >
-              <span className="sky-menu-check">{it.checked ? '✓' : ''}</span>
-              {it.label}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

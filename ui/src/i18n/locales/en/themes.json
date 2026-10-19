@@ -1,5 +1,5 @@
 {
-  "lead": "Gather what you want to know into themes. Each theme lists the questions it can answer and the terms they need. Terms are shared across themes and stay when a theme is removed.",
+  "lead": "Each theme lists its questions and how many datasets can answer them.",
   "newTheme": "? Make a new theme",
   "loading": "Loading…",
   "loadError": "Could not load the themes.",
@@ -42,34 +42,29 @@
     "answerable": "Answerable {{ok}} / {{n}}",
     "noQuestions": "This theme has no questions yet.",
     "needs": "Terms needed",
-    "memoTitle": "Memo questions (not published)",
+    "memoTitle": "{{n}} note questions",
     "addQuestion": "Add a question",
     "seeAnswer": "See the answer (with sources)",
-    "seeAnswerHint": "Carries this theme's question over to Ask",
     "template": "Export templates",
-    "templateHint": "Writes the header rows (CSV) of the tables this theme's terms imply — a starting point when you build from data.",
     "remove": "Remove the theme",
     "removeConfirm": "Remove the theme “{{label}}”? Its terms, relations and questions stay.",
-    "ask": "Ask"
+    "more": "More"
   },
   "unassigned": {
-    "title": "Questions in no theme",
-    "note": "Shared questions that no theme includes."
-  },
-  "folds": {
-    "map": "Term map",
-    "terms": "All terms"
+    "title": "Questions in no theme"
   },
   "wizard": {
     "aria": "Build from what you want to know",
     "title": "Build from what you want to know (theme)",
-    "close": "Close (the draft stays)",
-    "discard": "Discard the draft",
-    "discardConfirm": "Discard this draft?",
+    "close": "Close",
     "back": "Back",
     "here": "You are here",
     "recipe": "The 6 steps of a theme",
-    "saveErr": "Could not save the draft: {{detail}}"
+    "saveErr": "Could not save the draft: {{detail}}",
+    "closeAsk": "Closing. What about the draft?",
+    "keepClose": "Keep it and close",
+    "discardClose": "Discard and close",
+    "keepGoing": "Keep going"
   },
   "steps": {
     "write": "Write what you want to know",
@@ -80,19 +75,18 @@
     "place": "Place"
   },
   "write": {
-    "lead": "A name for the theme, and what you want answered, one per line. No data is needed yet.",
+    "lead": "A theme name, and what you want to know, one per line.",
     "themeName": "Theme name",
     "themeNamePlaceholder": "e.g. Battery materials",
-    "extendNote": "Adding questions to “{{label}}” (its name cannot change).",
     "questions": "What you want to know (one per line)",
     "questionsPlaceholder": "e.g. What is the cathode material of the cell with the largest capacity?",
-    "suggestNote": "AI suggestions (press to add; an added sentence becomes your own question, and adding is your choice)",
-    "aiOff": "The AI is not set up yet. “Write by hand, without the AI” lets you write the terms yourself; once it is set up, the AI drafts them.",
+    "suggestNote": "AI suggestions (press to add)",
+    "aiOff": "No AI is set up. You can write by hand.",
     "toRead": "Let the AI read",
     "manual": "Write by hand, without the AI"
   },
   "read": {
-    "lead": "From the questions, the AI drafts the kinds and items the answers need and the relations between them. It also drafts English names and aliases (common column names), and the machine matches them exactly against standard terms and existing terms.",
+    "lead": "The AI drafts the kinds, fields and relations your questions need.",
     "running": "Reading…",
     "done": "Drafted from {{questions}} questions: {{terms}} terms and {{relations}} relations. You check them one by one next.",
     "badShape": "The AI's answer was not in the fixed shape.",
@@ -108,12 +102,11 @@
       "detail": "Technical details"
     },
     "retry": "Let it read again",
-    "note": "Only the question sentences and the names of existing and standard terms go to the AI — no values from your data. The AI never writes SPARQL, code or IRIs.",
     "next": "Check the names",
     "again": "Let it read again"
   },
   "terms": {
-    "lead": "One decision per row. A row that matches a standard or existing term uses it by default. The ID is made from the English name and checked at the end, in “Place” (meaning first, ID after).",
+    "lead": "Check each term, one per row.",
     "empty": "No terms yet. Add them with the buttons below.",
     "colJa": "Japanese name",
     "colEn": "English name · aliases",
@@ -138,11 +131,11 @@
     "remove": "Remove this row",
     "addClass": "+ Add a kind",
     "addProperty": "+ Add an item",
-    "summary": "{{n}} new terms ({{total}} rows). A row that uses an existing term adds no term. Aliases help match column names when you put data in later.",
+    "summary": "{{n}} new terms (of {{total}} rows).",
     "next": "Check the relations"
   },
   "relations": {
-    "lead": "Answer “Yes” to a sentence the AI drafted if it is right, “No” if not. The machine stops loops and a kind mixed with an item. Nothing is placed until you choose.",
+    "lead": "If a drafted sentence is right, choose “Yes”; if not, “No”.",
     "empty": "No relations to check. You can add one below.",
     "fromTerms": "(a relation with the standard term chosen in step 3)",
     "problem": {
@@ -162,7 +155,6 @@
     "addGo": "Add",
     "kindSub": "is a kind of",
     "kindEq": "is the same as",
-    "groupNote": "A grouping name is suggested: two or more terms need the same parent. Adding it is your choice.",
     "groupName": "Grouping name",
     "groupAdd": "Add a term that groups “{{names}}”",
     "structure": "This theme's upper structure (indented):",
@@ -172,7 +164,6 @@
       "eq": "same as",
       "quantity": "quantity"
     },
-    "structureNote": "Terms are shared across themes.",
     "next": "Try"
   },
   "rel": {
@@ -183,7 +174,7 @@
     }
   },
   "try": {
-    "lead": "For each question, check the AI's draft of “way of counting × kind × item”. The machine always shows the execution sentence it built. If it differs from what you meant, choose another way of counting.",
+    "lead": "For each question, check how it is counted, and the kind and field.",
     "op": "Way of counting",
     "kind": "Kind",
     "property": "Item",
@@ -208,12 +199,11 @@
       "human": "You chose to keep it as a memo (not published)."
     },
     "keepMemo": "Keep it as a memo question (do not publish)",
-    "note": "The ways of counting that can be published now are {{ops}}. “Trend”, “Filter by value”, “One-step join” and others stay as memo questions, not published, until they fit.",
     "next": "Place"
   },
   "place": {
-    "lead": "Saves the theme “{{label}}”: {{terms}} new terms, {{lines}} relations and {{questions}} questions ({{memo}} memo questions are not published). Put data in, and more of the questions become answerable.",
-    "leadExtend": "Adds {{questions}} questions to the theme “{{label}}” ({{memo}} memo questions are not published). Also saves {{terms}} new terms and {{lines}} relations.",
+    "lead": "Saves the theme “{{label}}” ({{terms}} new terms, {{lines}} relations, {{questions}} questions).",
+    "leadExtend": "Adds {{questions}} questions to “{{label}}” ({{terms}} new terms, {{lines}} relations).",
     "listTitle": "What is saved:",
     "newTerm": "New term “{{label}}”",
     "id": "ID",
@@ -221,11 +211,9 @@
     "idBad": "An ID starts with a lowercase letter and uses only lowercase letters, digits and _.",
     "idTaken": "This ID is already used. Choose another.",
     "idDuplicate": "Two terms have the same ID.",
-    "idNote": "You can change an ID. The same ID points to the same term.",
     "relation": "Relation “{{sentence}}”",
     "question": "Question “{{title}}”",
     "memoQuestion": "Memo question “{{title}}” (not published)",
-    "aiMark": "Only the mark “AI draft → confirmed by a person” and its date ({{date}}) are kept as provenance. The AI's raw output is not saved.",
     "blocker": {
       "label": "A term has no name. Go back to step 3 and fix it.",
       "slug": "A term has an ID in the wrong form.",
@@ -246,11 +234,10 @@
     "comment": "Description",
     "aliases": "Aliases",
     "id": "ID",
-    "none": "None",
     "questions": "Questions that use it",
     "membersClass": "Kinds that fit in",
     "membersProperty": "Items that fit in",
-    "noMembers": "Nothing fits in yet. The button below ties a kind or item of your data to it.",
+    "noMembers": "None yet.",
     "decisions": "Decisions",
     "noDecisions": "No decisions about this term yet.",
     "toDecisions": "See all decisions",
@@ -259,7 +246,8 @@
     "draftedBy": "On {{date}}, a person confirmed an AI draft",
     "byHand": "Made by a person, by hand",
     "remove": "Remove the term",
-    "open": "Open the term's page"
+    "open": "Open the term's page",
+    "more": "Details"
   },
   "firstThemeLabel": "First questions"
 }

@@ -1,7 +1,7 @@
 {
   "title": "Decide in one line",
   "loading": "Loading candidates…",
-  "noCandidates": "No terms to choose from yet. Create a term in \"Questions\" and you can link to it here.",
+  "noCandidates": "No terms to choose from yet.",
   "targetAria": "Target term",
   "choiceAria": "How to decide",
   "role": {
@@ -37,7 +37,7 @@
     "noQuestion": "No question depends on this term yet, so the number of datasets that can answer does not change.",
     "changed": "Datasets that can answer \"{{title}}\": {{before}} → {{after}}",
     "unchanged": "Datasets that can answer \"{{title}}\": {{n}} (no change)",
-    "publish": "Once published, more datasets are expected to answer \"{{title}}\" (now {{n}}; no change if this dataset already answers it another way)",
+    "publish": "Publishing should add datasets that answer “{{title}}” (now {{n}}).",
     "publishNoQuestion": "Settled when you publish. No question depends on this term yet."
   },
   "reason": {
@@ -53,7 +53,7 @@
   "later": "Decide later",
   "savedNote": "Nothing is saved until you press the button",
   "done": {
-    "decided": "Decided: {{sentence}}. You can undo it in \"Decisions\".",
+    "decided": "Decided: {{sentence}}",
     "none": "Dropped: \"{{target}}\" will not be suggested for \"{{subject}}\".",
     "link": "Decisions →"
   },
@@ -70,7 +70,7 @@
     "class": "kind",
     "property": "field",
     "pick": "The {{what}} to put in",
-    "none": "No {{what}} to put in yet. Once you add data you can pick one here.",
+    "none": "No {{what}} to add yet.",
     "close": "Close",
     "openClass": "Put a kind under this term",
     "openProperty": "Put a field under this term"

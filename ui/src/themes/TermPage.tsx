@@ -163,27 +163,24 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
               <dd>{term.label}</dd>
             </>
           )}
-          <dt>{t('themes:term.comment')}</dt>
-          <dd>{term.comment || <span className="vocab-field-hint">{t('themes:term.none')}</span>}</dd>
-          <dt>{t('themes:term.aliases')}</dt>
-          <dd>
-            {term.aliases && term.aliases.length > 0 ? (
-              term.aliases.map((a) => (
-                <span key={a} className="thm-term-chip">
-                  {a}
-                </span>
-              ))
-            ) : (
-              <span className="vocab-field-hint">{t('themes:term.none')}</span>
-            )}
-          </dd>
-          <dt>{t('themes:term.id')}</dt>
-          <dd>
-            <code>{term.slug}</code>
-            <div className="vocab-field-hint" title={term.iri}>
-              {term.iri}
-            </div>
-          </dd>
+          {term.comment && (
+            <>
+              <dt>{t('themes:term.comment')}</dt>
+              <dd>{term.comment}</dd>
+            </>
+          )}
+          {term.aliases && term.aliases.length > 0 && (
+            <>
+              <dt>{t('themes:term.aliases')}</dt>
+              <dd>
+                {term.aliases.map((a) => (
+                  <span key={a} className="thm-term-chip">
+                    {a}
+                  </span>
+                ))}
+              </dd>
+            </>
+          )}
         </dl>
       </div>
 
@@ -265,37 +262,47 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
         </p>
       </section>
 
-      <section className="vocab-sec" aria-labelledby="term-history-h">
-        <h3 className="vocab-sec-h" id="term-history-h">
-          {t('themes:term.history')}
-        </h3>
-        <ul className="vocab-term-cqs" data-testid="term-history">
-          {term.created_at && <li>{t('themes:term.createdAt', { date: term.created_at.slice(0, 10) })}</li>}
-          {term.drafted_by === 'ai' && (
-            <li>
-              {t('themes:term.draftedBy', { date: (term.confirmed_at ?? term.created_at).slice(0, 10) })}
-            </li>
+      {/* ID・IRI・履歴・外す操作は「詳しく」に畳む（ふだんは見せない）。 */}
+      <details className="thm-term-more">
+        <summary>{t('themes:term.more')}</summary>
+        <dl className="thm-kv">
+          <dt>{t('themes:term.id')}</dt>
+          <dd>
+            <code>{term.slug}</code>
+            <div className="vocab-field-hint" title={term.iri}>
+              {term.iri}
+            </div>
+          </dd>
+          <dt>{t('themes:term.history')}</dt>
+          <dd data-testid="term-history">
+            <ul className="vocab-term-cqs">
+              {term.created_at && <li>{t('themes:term.createdAt', { date: term.created_at.slice(0, 10) })}</li>}
+              {term.drafted_by === 'ai' && (
+                <li>
+                  {t('themes:term.draftedBy', { date: (term.confirmed_at ?? term.created_at).slice(0, 10) })}
+                </li>
+              )}
+              {term.drafted_by !== 'ai' && <li>{t('themes:term.byHand')}</li>}
+            </ul>
+          </dd>
+        </dl>
+        <div className="vocab-term-actions">
+          {confirming ? (
+            <>
+              <button type="button" className="btn btn--ghost btn--sm" disabled={removing} onClick={() => void remove()}>
+                {removing ? t('vocab:term.removing') : t('vocab:term.remove_confirm')}
+              </button>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirming(false)}>
+                {t('vocab:term.cancel')}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirming(true)}>
+              {t('themes:term.remove')}
+            </button>
           )}
-          {term.drafted_by !== 'ai' && <li>{t('themes:term.byHand')}</li>}
-        </ul>
-      </section>
-
-      <div className="vocab-term-actions">
-        {confirming ? (
-          <>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={removing} onClick={() => void remove()}>
-              {removing ? t('vocab:term.removing') : t('vocab:term.remove_confirm')}
-            </button>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirming(false)}>
-              {t('vocab:term.cancel')}
-            </button>
-          </>
-        ) : (
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirming(true)}>
-            {t('themes:term.remove')}
-          </button>
-        )}
-      </div>
+        </div>
+      </details>
       {actErr && <p className="promote-err">{actErr}</p>}
     </div>
   )

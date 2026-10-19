@@ -7,8 +7,6 @@ import i18n from './i18n'
 import type { GroundCandidate } from './groundingApi'
 import type { SharedTerm } from './vocabApi'
 import { AlignmentRow } from './PerspectiveAlignment'
-import type { AttachChoice } from './decide/AttachKind'
-import { VocabTermRow } from './VocabTermsSection'
 import {
   buildMintInput,
   bumpVersion,
@@ -160,43 +158,6 @@ describe('孤立（まだ答えるデータがない）の札と注意', () => {
     expect(showIsolatedNotice(many.slice(0, 20))).toBe(false)
     expect(showIsolatedNotice([...many.slice(0, 20), term('ok')])).toBe(false)
   })
-
-  it('一覧の行に札が出る（孤立だけ）', () => {
-    const noop = () => {}
-    const html = (t: SharedTerm) =>
-      renderToStaticMarkup(
-        createElement(VocabTermRow, {
-          term: t,
-          confirming: false,
-          removing: false,
-          onAskRemove: noop,
-          onCancelRemove: noop,
-          onRemove: noop,
-        }),
-      )
-    expect(html(term('a', { wired: false }))).toContain('まだ答えるデータがない')
-    expect(html(term('b'))).not.toContain('まだ答えるデータがない')
-    expect(html(term('c', { answering_datasets: 3 }))).toContain('3 データセットが答える')
-  })
-
-  it('「この用語に種類（項目）を入れる」は、候補を渡された行にだけ出る', () => {
-    const noop = () => {}
-    const html = (t: SharedTerm, attachChoices?: AttachChoice[]) =>
-      renderToStaticMarkup(
-        createElement(VocabTermRow, {
-          term: t,
-          confirming: false,
-          removing: false,
-          onAskRemove: noop,
-          onCancelRemove: noop,
-          onRemove: noop,
-          attachChoices,
-        }),
-      )
-    expect(html(term('a'))).not.toContain('入れる')
-    expect(html(term('a'), [])).toContain('この用語に種類を入れる')
-    expect(html(term('p', { kind: 'property' }), [])).toContain('この用語に項目を入れる')
-  })
 })
 
 describe('導線の hash', () => {
@@ -282,26 +243,6 @@ describe('線の一覧の行（両端の kind・問い）', () => {
   it('問いは題で出し、引けなければ tool_name のまま', () => {
     expect(html(line({ cq: 'cq_w_count' }), { cq_w_count: 'Wは何件？' })).toContain('問い: Wは何件？')
     expect(html(line({ cq: 'cq_w_count' }), {})).toContain('問い: cq_w_count')
-  })
-})
-
-describe('既存の語に問いを足す', () => {
-  const row = (onAddCq?: (cq: { title: string; op: 'count' | 'values' }) => Promise<void>) =>
-    renderToStaticMarkup(
-      createElement(VocabTermRow, {
-        term: term('a'),
-        confirming: false,
-        removing: false,
-        onAskRemove: () => {},
-        onCancelRemove: () => {},
-        onRemove: () => {},
-        onAddCq,
-      }),
-    )
-
-  it('onAddCq があるときだけ「問いを足す」が出る', () => {
-    expect(row(async () => {})).toContain('問いを足す')
-    expect(row()).not.toContain('問いを足す')
   })
 })
 

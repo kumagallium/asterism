@@ -22,7 +22,6 @@ import {
   type TermKind,
   type TermRow,
   type ThemeDraft,
-  FITTING_OPS,
   SELECTION_OPS,
   acceptedRelations,
   addGroup,
@@ -370,8 +369,10 @@ export function ThemeWizard({
     onClose()
   }
 
+  // 「閉じる」を押すと、下書きを残すか捨てるかをここで聞く（捨てる操作は閉じるの中に畳んだ）。
+  const [closing, setClosing] = useState(false)
+
   async function discard() {
-    if (!window.confirm(t('themes:wizard.discardConfirm'))) return
     if (draft.id) {
       try {
         await deleteDraft(draft.id)
@@ -470,7 +471,6 @@ export function ThemeWizard({
             onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
           />
         </label>
-        {extend && <p className="vocab-field-hint">{t('themes:write.extendNote', { label: extend.label })}</p>}
         <label className="vocab-field">
           <span>{t('themes:write.questions')}</span>
           <textarea
@@ -578,7 +578,6 @@ export function ThemeWizard({
             </div>
           </section>
         )}
-        <p className="vocab-field-hint">{t('themes:read.note')}</p>
         {nav({
           prev: goBack,
           next: { label: t('themes:read.next'), onClick: goNext, disabled: !canAdvance(draft, 2, ctx) || ai.status === 'running' },
@@ -834,7 +833,6 @@ export function ThemeWizard({
         )}
         {groups.length > 0 && (
           <div>
-            <p className="vocab-field-hint">{t('themes:relations.groupNote')}</p>
             <div className="thm-chips">
               {groups.map((g) => (
                 <span key={g.label_ja} className="thm-group">
@@ -879,7 +877,6 @@ export function ThemeWizard({
               </div>
             ))
           )}
-          <div className="vocab-field-hint">{t('themes:relations.structureNote')}</div>
         </div>
         {nav({
           prev: goBack,
@@ -996,7 +993,6 @@ export function ThemeWizard({
             </div>
           )
         })}
-        <p className="vocab-field-hint">{t('themes:try.note', { ops: FITTING_OPS.map((o) => t(`themes:try.opName.${o}`)).join('・') })}</p>
         {nav({
           prev: goBack,
           next: { label: t('themes:try.next'), onClick: goNext, disabled: !canAdvance(draft, 5, ctx) },
@@ -1009,7 +1005,6 @@ export function ThemeWizard({
     const accepted = acceptedRelations(draft.relations, rows)
     const implicit = implicitRelations(rows)
     const blocker = placeBlocker(draft, ctx)
-    const today = new Date().toISOString().slice(0, 10)
     body = (
       <>
         <h2 className="thm-h">
@@ -1052,7 +1047,6 @@ export function ThemeWizard({
                   )}
                 </div>
               ))}
-              <div className="vocab-field-hint">{t('themes:place.idNote')}</div>
             </div>
           )}
           {[...implicit.map((r) => ({ subject: r.subject, object: r.curie, relation: (r.quantity ? 'quantity' : 'eq') as RelationKind })), ...accepted].map((r) => (
@@ -1066,11 +1060,6 @@ export function ThemeWizard({
               {sentences[i] ? <span className="vocab-field-hint"> — {sentences[i]}</span> : null}
             </div>
           ))}
-          {summary.aiDrafted && (
-            <div className="vocab-field-hint" data-testid="theme-ai-mark">
-              {t('themes:place.aiMark', { date: today })}
-            </div>
-          )}
         </div>
         {saveErr && <p className="promote-err">{t('themes:wizard.saveErr', { detail: saveErr })}</p>}
         {placeErr && (
@@ -1101,14 +1090,25 @@ export function ThemeWizard({
       <header className="thm-wizard-head">
         <h2 className="thm-title">{t('themes:wizard.title')}</h2>
         <span className="thm-wizard-actions">
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void discard()}>
-            {t('themes:wizard.discard')}
-          </button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void close()}>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setClosing(true)}>
             {t('themes:wizard.close')}
           </button>
         </span>
       </header>
+      {closing && (
+        <div className="thm-closing" role="group" aria-label={t('themes:wizard.closeAsk')}>
+          <span>{t('themes:wizard.closeAsk')}</span>
+          <button type="button" className="btn btn--sm" onClick={() => void close()}>
+            {t('themes:wizard.keepClose')}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void discard()}>
+            {t('themes:wizard.discardClose')}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setClosing(false)}>
+            {t('themes:wizard.keepGoing')}
+          </button>
+        </div>
+      )}
       <ol className="kz-recipe thm-recipe" aria-label={t('themes:wizard.recipe')}>
         {STEP_KEYS.map((key, i) => {
           const n = i + 1

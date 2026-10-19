@@ -73,6 +73,7 @@ import {
   useDocumentFormats,
 } from './documentFormats'
 import { usePdfRuntime } from './pdfRuntime'
+import { RelationMapFold } from './RelationMapFold'
 
 export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
@@ -1701,6 +1702,9 @@ function DatasetDetail({
             dataset.live.meta.status !== 'retracted' && (
               <AskAboutDataset meta={dataset.live.meta} />
             )}
+
+          {/* 用語の地図は、ここの末尾に 1 行の見出しで畳む（「知りたいこと」からは外した）。 */}
+          <RelationMapFold />
         </div>
       )}
 
