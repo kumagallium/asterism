@@ -391,6 +391,16 @@ async def test_unpublished_and_retracted_datasets_are_not_listed(tmp_path: Path)
     assert [d["id"] for d in out["datasets"]] == ["wx-a", "wy-b"]
 
 
+async def test_published_graphs_skips_graphs_of_retracted_datasets(tmp_path: Path) -> None:
+    client, root = await _world(tmp_path)
+    before = (await sky_view(client, root))["facts"]["published_graphs"]
+    _meta(root, "wz-old", name="取り下げ", promoted=True, status="retracted")
+    await _publish(client, "wz-old", "r:o-1 a wx:Station .\n")  # store だけ公開のまま
+    out = await sky_view(client, root)
+    assert out["facts"]["published_graphs"] == before  # registry で取り下げの graph は数えない
+    assert out["facts"]["datasets"] == 2
+
+
 # --- (4) 版 graph を二重に数えない ----------------------------------------------------------
 
 
@@ -462,7 +472,7 @@ async def test_dataset_without_a_registry_entry_is_not_listed(tmp_path: Path) ->
     await _publish(client, "stray", "r:s-1 a wx:Station .\n")  # 登録が無い版 graph
     out = await sky_view(client, root)
     assert [d["id"] for d in out["datasets"]] == ["wx-a", "wy-b"]
-    assert out["facts"]["published_graphs"] == 4  # store の公開 graph の数はそのまま
+    assert out["facts"]["published_graphs"] == 3  # 登録の無い graph は datasets と同じく数えない
 
 
 def test_perspective_helpers_are_the_ones_sky_view_reads() -> None:

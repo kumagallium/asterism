@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from asterism import crosswalk_runtime
+from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
 from asterism.kind_counts import kind_counts
@@ -47,7 +48,6 @@ from asterism.shared_vocab import (
 )
 from asterism.subject_tools import (
     _cell,
-    _class_labels,
     _fallback_label,
     _ref,
     _rows,
@@ -56,6 +56,8 @@ from asterism.subjects import resolve_dataset_label, valid_dataset_id
 from asterism.substrate import (
     SupportsSparql,
     canonical_graphs,
+    dataset_id_of_canonical_graph,
+    is_hub_graph,
     ontology_graph_iri,
     without_alignment_graph,
 )
@@ -310,7 +312,13 @@ async def sky_view(
         return _empty()  # 公開 0 件: store には問い合わせない
     ds_ids = {d["id"] for d in published}
 
-    graphs = without_alignment_graph(await canonical_graphs(client))
+    # 公開 graph の数は datasets・kinds と同じ「公開済み」で数える
+    # （registry に公開済みの登録がある graph とハブの graph だけ。登録なし・取り下げは数えない）。
+    graphs = [
+        g
+        for g in without_alignment_graph(await canonical_graphs(client))
+        if is_hub_graph(g) or dataset_id_of_canonical_graph(g) in ds_ids
+    ]
 
     # --- 種類（データセット × 種類 × 件数）-------------------------------------------------
     raw_counts = await kind_counts(client)
@@ -337,7 +345,11 @@ async def sky_view(
     shown_kinds = {iri for _d, iri in pairs}
 
     links = await _links_by_dataset(client, kinds_by_ds)
-    kind_label = await _class_labels(client, root, shown_kinds)
+    # 種類の名前は一括で引く（種類ごとに registry 走査・問い合わせしない）。引けなければ読みくだし。
+    try:
+        kind_label = await class_labels(client, root, shown_kinds)
+    except Exception:
+        kind_label = {}
 
     # --- 線（直接の線だけ）と標準 ----------------------------------------------------------
     alignments = await crosswalk_runtime.list_alignments(client, registry_root=root)

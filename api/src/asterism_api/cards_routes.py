@@ -20,6 +20,7 @@ constant-time comparison) against the ``cfg`` this module already receives.
 from __future__ import annotations
 
 import hmac
+import importlib.util
 import inspect
 import json
 import logging
@@ -793,9 +794,14 @@ def register_cards(
     async def _sky_impl() -> dict[str, Any]:
         try:
             from asterism import sky_view as sky_view_mod  # type: ignore[attr-defined]
-        except ImportError as exc:
+        except ImportError:
             # まだ無い（モジュールが無い）は静かに。中の import が壊れているなら見えるように。
-            if exc.name == "asterism.sky_view":
+            # （ImportError.name は submodule 欠落だと親の "asterism" になるので find_spec で見る）
+            try:
+                absent = importlib.util.find_spec("asterism.sky_view") is None
+            except (ImportError, ValueError):
+                absent = True
+            if absent:
                 logger.debug("sky: asterism.sky_view not available yet")
             else:
                 logger.warning("sky: sky_view failed to import; returning empty", exc_info=True)

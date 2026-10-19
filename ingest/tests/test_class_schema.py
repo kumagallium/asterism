@@ -1085,3 +1085,36 @@ def test_class_property_labels_uses_a_column_less_edit_for_the_link_row(tmp_path
         display_meta={"edits": [{"predicate": "dcterms:isPartOf", "label": "人が直した名前"}]},
     )
     assert class_property_labels(root, LEND_ITEM_CLASS)[IS_PART_OF_PRED] == "人が直した名前"
+
+
+async def test_class_labels_bulk_matches_one_at_a_time(market_registry_root: Path) -> None:
+    """一括版は 1 件ずつ class_label で引いた結果と同じ（4 つの出どころ・不正な IRI を混ぜる）。"""
+    from asterism.class_schema import class_labels
+
+    hub_graph = crosswalk_graph_iri("shelf-view")
+    onto_ttl = f"""
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    <{GHOST_CLASS}> a rdfs:Class ; rdfs:label "亡霊" .
+    """
+    legacy_class = "https://ex/shelf#LegacyHubName"
+    hub_ttl = f"""
+    @prefix owl: <http://www.w3.org/2002/07/owl#> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    <{SHARED_NAME_CLASS}> a owl:Class ; rdfs:label "品名" .
+    <{legacy_class}> a owl:Class ; rdfs:label "legacy_name (crosswalk)" .
+    """
+    client = _pyoxi_client({ONTOLOGY_GRAPH_BASE + GHOST_DATASET: onto_ttl, hub_graph: hub_ttl})
+    iris = {
+        STALL_CLASS,  # registry の model.yaml
+        GHOST_CLASS,  # ontology の rdfs:label
+        SHARED_NAME_CLASS,  # ハブの rdfs:label
+        legacy_class,  # 古い実装の語 → 読みくだし
+        UNKNOWN_MARKET_CLASS,  # どこにも無い → 読みくだし
+        "http://evil.example/p> } SELECT * WHERE { ?s ?p ?o",  # 不正
+    }
+    bulk = await class_labels(client, market_registry_root, iris)
+    assert set(bulk) == iris
+    for iri in iris:
+        assert bulk[iri] == await class_label(client, market_registry_root, iri), iri
+    assert bulk[STALL_CLASS] == "屋台" and bulk[SHARED_NAME_CLASS] == "品名"
+    assert await class_labels(client, None, set()) == {}
