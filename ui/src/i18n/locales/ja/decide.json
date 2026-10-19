@@ -1,0 +1,78 @@
+{
+  "title": "ひとこと決める",
+  "loading": "候補を読み込んでいます…",
+  "noCandidates": "選べる用語がまだありません。「知りたいこと」で用語を作ると、ここから結べます。",
+  "targetAria": "行き先の用語",
+  "choiceAria": "どう決めるか",
+  "role": {
+    "shared": "（用語）",
+    "standard": "（標準用語）",
+    "dataset": "（データセット）"
+  },
+  "lead": {
+    "class": "「{{subject}}」は",
+    "property": "「{{subject}}」の値は",
+    "quantity": "この項目「{{subject}}」の量は"
+  },
+  "option": {
+    "subClassOf": "の一種です",
+    "equivalentClass": "と同じものです",
+    "subPropertyOf": "の一種です",
+    "equivalentProperty": "と同じです",
+    "hasQuantityKind": "です",
+    "none": "当てはまるものは無い"
+  },
+  "sentence": {
+    "subClassOf": "「{{subject}}」は「{{target}}」の一種",
+    "equivalentClass": "「{{subject}}」は「{{target}}」と同じもの",
+    "subPropertyOf": "「{{subject}}」の値は「{{target}}」の一種",
+    "equivalentProperty": "「{{subject}}」の値は「{{target}}」と同じ",
+    "hasQuantityKind": "「{{subject}}」の量は「{{target}}」"
+  },
+  "effect": {
+    "idle": "選ぶと、ここに「そう決めるとどうなるか」が出ます。",
+    "none": "この提案を外します。次から出ません（用語は、あとからでも付けられます）。",
+    "loading": "どうなるか数えています…",
+    "error": "どうなるかを数えられませんでした。決めることはできます。",
+    "noQuestion": "この用語に結びつく問いはまだないので、答えられる数は変わりません。",
+    "changed": "問い「{{title}}」に答えるデータセット {{before}} → {{after}}",
+    "unchanged": "問い「{{title}}」に答えるデータセット {{n}}（変わりません）",
+    "publish": "公開すると、問い「{{title}}」に答えるデータセット {{before}} → {{after}}",
+    "publishNoQuestion": "公開のときに決まります。この用語に結びつく問いはまだありません。"
+  },
+  "reason": {
+    "mixed": "種類と項目はつなげません。",
+    "cycle": "循環になります。",
+    "unminted": "まだ作っていない用語です。",
+    "same": "同じものどうしは決められません。",
+    "invalid": "この組み合わせは決められません（まだ作っていない用語を含むか、種類と項目が混ざっています）。",
+    "unknown": "この組み合わせは決められません。"
+  },
+  "go": "そう決める",
+  "deciding": "決めています…",
+  "later": "あとで決める",
+  "savedNote": "押すまで何も保存されません",
+  "done": {
+    "decided": "決めました: {{sentence}}。取り消しは「決めたこと」から。",
+    "none": "外しました: 「{{subject}}」には「{{target}}」を提案しません。",
+    "link": "決めたこと →"
+  },
+  "error": {
+    "failed": "{{op}}に失敗しました (HTTP {{status}}){{detail}}",
+    "generic": "決められませんでした{{detail}}",
+    "ops": {
+      "preview": "帰結の試算",
+      "dismiss": "提案を外すこと",
+      "undismiss": "提案を戻すこと"
+    }
+  },
+  "attach": {
+    "class": "種類",
+    "property": "項目",
+    "pick": "入れる{{what}}",
+    "none": "入れられる{{what}}がまだありません。データを置くと、ここから選べます。",
+    "close": "閉じる",
+    "openClass": "この用語に種類を入れる",
+    "openProperty": "この用語に項目を入れる"
+  }
+}

@@ -166,12 +166,13 @@
     "separate": "Make them separate kinds"
   },
   "kindFit": {
-    "ask": "Make this a kind of the existing \"{{label}}\"?",
+    "ask": "Is the kind “{{kind}}” a kind of the term “{{label}}”?",
     "sub": "Make it a kind of it",
-    "same": "Tie as the same kind",
-    "note": "If you accept, a relation between the kinds is decided when you publish (you can undo it in Questions). Nothing is written here.",
+    "same": "Make it the same",
+    "note": "If you accept, the relation between the kinds is decided when you publish (you can undo it any time in “Decisions”). Nothing is written here.",
     "acceptedSub": "Will be a kind of \"{{label}}\" (the relation is decided when you publish).",
     "acceptedSame": "Will be tied as the same kind as \"{{label}}\" (the relation is decided when you publish).",
-    "clear": "Undo"
+    "clear": "Undo",
+    "none": "Nothing fits"
   }
 }

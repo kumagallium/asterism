@@ -415,3 +415,30 @@ describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
     expect(legacyHashRewrite('#/home')).toBeNull()
   })
 })
+
+describe('決めたこと（#/decisions）— 旧 #/jobs は アクティビティのタブへ', () => {
+  it('#/decisions は「決めたこと」タブ・すべて', () => {
+    expect(parseHash('#/decisions')).toEqual<Route>({ tab: 'decisions' })
+    expect(routeToHash({ tab: 'decisions' })).toBe('#/decisions')
+  })
+
+  it('#/decisions?tab=activity はアクティビティのタブ（往復する）', () => {
+    const hash = '#/decisions?tab=activity'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'decisions', decisionsTab: 'activity' })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('#/decisions?filter=perspective は「つながり同士」の絞り込み（往復する）', () => {
+    const hash = '#/decisions?filter=perspective'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'decisions', decisionsFilter: 'perspective' })
+    expect(roundTrip(hash)).toBe(hash)
+    expect(parseHash('#/decisions?filter=bogus')).toEqual<Route>({ tab: 'decisions' })
+  })
+
+  it('旧 #/jobs は #/decisions?tab=activity に置き換わる', () => {
+    expect(parseHash('#/jobs')).toEqual<Route>({ tab: 'decisions', decisionsTab: 'activity' })
+    expect(legacyHashRewrite('#/jobs')).toBe('#/decisions?tab=activity')
+    expect(legacyHashRewrite('#/decisions?tab=activity')).toBeNull()
+    expect(legacyHashRewrite('#/decisions')).toBeNull()
+  })
+})

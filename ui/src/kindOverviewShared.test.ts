@@ -4,7 +4,6 @@ import type { DatasetRules, RuleMap } from './galleryApi'
 import {
   layoutKindOverview,
   overviewStats,
-  pickEndOfOverview,
   R_MAX,
   R_MIN,
   type OverviewInput,
@@ -295,24 +294,5 @@ describe('周りだけ開く — 描いている種類につながる共有の�
     const f = focusOverview(input, { type: 'dataset', id: 'live-x1' })!
     expect(f.input.onlyLinkedShared).toBe(true)
     expect(layoutKindOverview(f.input).shared!.map((s) => s.slug)).toEqual(['linked'])
-  })
-})
-
-describe('pickEndOfOverview — 地図の丸から線の端へ', () => {
-  const l = layoutKindOverview(
-    base({
-      sharedTerms: [term('dp'), term('mass', { kind: 'property' })],
-      alignments: [al(sv('dp'), STD, 'equivalentClass')],
-    }),
-  )
-  it('種類の丸 / 共有のことば / 標準の語 の素性と kind を返す', () => {
-    const c = l.circles[0]
-    expect(pickEndOfOverview(l, c.id)).toMatchObject({ role: 'dataset', termKind: 'class', iri: c.classIri })
-    expect(pickEndOfOverview(l, sv('mass'))).toMatchObject({ role: 'shared', termKind: 'property' })
-    expect(pickEndOfOverview(l, STD)).toMatchObject({ role: 'standard' })
-  })
-  it('枠・ハブ・データセットごとの丸は選べない', () => {
-    expect(pickEndOfOverview(l, 'live-x1')).toBeNull()
-    expect(pickEndOfOverview(layoutDatasetOverview(base()), 'live-x1')).toBeNull()
   })
 })

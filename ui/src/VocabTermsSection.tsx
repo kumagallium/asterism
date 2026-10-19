@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { AttachKind, type AttachChoice } from './decide/AttachKind'
 import { VocabTermForm } from './VocabTermForm'
 import {
   type CqInput,
@@ -93,6 +94,8 @@ export function VocabTermRow({
   onCancelRemove,
   onRemove,
   onAddCq,
+  attachChoices,
+  onDecided,
 }: {
   term: SharedTerm
   confirming: boolean
@@ -102,9 +105,14 @@ export function VocabTermRow({
   onRemove: () => void
   /** あれば「問いを足す」が出る（題と op を送る。失敗は投げる）。 */
   onAddCq?: (cq: CqInput) => Promise<void>
+  /** あれば「この用語に種類（項目）を入れる」が出る（用語の種類に合う候補）。 */
+  attachChoices?: AttachChoice[]
+  /** 種類（項目）を入れる関係を決めた／提案を外した。 */
+  onDecided?: () => void
 }) {
   const { t } = useTranslation()
   const [addingCq, setAddingCq] = useState(false)
+  const [attaching, setAttaching] = useState(false)
   return (
     <div className="vocab-term" data-slug={term.slug}>
       <div className="vocab-term-head">
@@ -141,7 +149,20 @@ export function VocabTermRow({
       {addingCq && onAddCq && (
         <AddCqForm term={term} onAdd={onAddCq} onClose={() => setAddingCq(false)} />
       )}
+      {attaching && attachChoices && (
+        <AttachKind
+          term={term}
+          choices={attachChoices}
+          onDecided={() => onDecided?.()}
+          onClose={() => setAttaching(false)}
+        />
+      )}
       <div className="vocab-term-actions">
+        {attachChoices && !attaching && (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAttaching(true)}>
+            {t(term.kind === 'class' ? 'decide:attach.openClass' : 'decide:attach.openProperty')}
+          </button>
+        )}
         {onAddCq && !addingCq && (
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAddingCq(true)}>
             {t('vocab:term.add_cq')}
@@ -175,11 +196,14 @@ export function VocabTermRow({
 export function VocabTermsSection({
   reloadKey = 0,
   onChanged,
+  attach,
 }: {
   /** 親の版。語・問い・線がどの節で変わっても、変わったら読み直す。 */
   reloadKey?: number
   /** 語を作った／外した／問いを足した（親が版を進める）。 */
   onChanged: () => void
+  /** 「この用語に種類（項目）を入れる」の候補。無ければ出さない。 */
+  attach?: { classes: AttachChoice[]; properties: AttachChoice[] }
 }) {
   const { t } = useTranslation()
   const [terms, setTerms] = useState<SharedTerm[] | null>(null)
@@ -267,6 +291,8 @@ export function VocabTermsSection({
               onCancelRemove={() => setConfirm('')}
               onRemove={() => void remove(term)}
               onAddCq={(cq) => addQuestion(term, cq)}
+              attachChoices={attach ? (term.kind === 'class' ? attach.classes : attach.properties) : undefined}
+              onDecided={onChanged}
             />
           ))}
         </div>

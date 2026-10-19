@@ -2,7 +2,6 @@ import { knownVocabForIri, localName as _localName } from './vocab'
 // 「ことば」画面の純関数（ADR upper-structure-shared-terms.md §2.1・§2.3・§2.5.1）。
 // 描画から切り離してあるので、既定の問い・標準語を先に出す分岐・孤立の判定・hash の読み書きを
 // vitest でそのまま固定できる。LLM は使わない（すべて決定論）。
-import type { Alignment, AlignmentScope } from './crosswalkApi'
 import type { GroundCandidate } from './groundingApi'
 import type { CqInput, CqOp, MintTermInput, SharedTerm, SharedTermKind } from './vocabApi'
 
@@ -124,60 +123,25 @@ export function showIsolatedNotice(terms: SharedTerm[]): boolean {
   return isolatedCount(terms) > ISOLATED_NOTICE_OVER
 }
 
-// ---- 線の絞り込み ------------------------------------------------------------
-
-/** 「線」の節の絞り込み。`all` は api に scope を送らない（全部）。 */
-export type LineScope = 'all' | AlignmentScope
-
-export const LINE_SCOPES: readonly LineScope[] = [
-  'all',
-  'perspective',
-  'standard',
-  'shared',
-  'dataset',
-]
-
-/** 画面の絞り込みを api の引数にする（all＝省略）。 */
-export function apiScope(scope: LineScope): AlignmentScope | undefined {
-  return scope === 'all' ? undefined : scope
-}
-
-/** 切れている線を先頭に（気づけるように）。それ以外の順は api のまま（安定）。 */
-export function orderLines(lines: Alignment[]): Alignment[] {
-  const broken = lines.filter((a) => a.broken)
-  return [...broken, ...lines.filter((a) => !a.broken)]
-}
-
 // ---- hash の読み書き ---------------------------------------------------------
 
 export interface VocabHashParams {
   /** 持ち込まれた題（空＝無し）。 */
   q: string
-  scope: LineScope | null
-  dataset: string | null
 }
 
-/** `#/questions?q=…&scope=…&dataset=…`（旧 `#/vocab?…` も）を読む。`?` が無ければ全部空。 */
+/** `#/questions?q=…`（旧 `#/vocab?…` も）を読む。`?` が無ければ空。旧 `scope` / `dataset` は
+ *  「決めたこと」へ移ったので読まない。 */
 export function parseVocabHash(hash: string): VocabHashParams {
   const i = hash.indexOf('?')
   const params = new URLSearchParams(i === -1 ? '' : hash.slice(i + 1))
-  const scope = params.get('scope')
-  return {
-    q: params.get('q') ?? '',
-    scope: scope && (LINE_SCOPES as readonly string[]).includes(scope) ? (scope as LineScope) : null,
-    dataset: params.get('dataset'),
-  }
+  return { q: params.get('q') ?? '' }
 }
 
 /** Ask などから「この問いに答えられるように、ことばをつなぐ」の行き先。題だけ運ぶ。 */
 export function vocabQuestionHash(question: string): string {
   const q = question.trim()
   return q ? `#/questions?q=${encodeURIComponent(q)}` : '#/questions'
-}
-
-/** 線の絞り込みを開いた状態で「知りたいこと」画面へ送る。`#/questions?scope=…`。 */
-export function vocabScopeHash(scope: LineScope): string {
-  return scope === 'all' ? '#/questions' : `#/questions?scope=${scope}`
 }
 
 // ---- 節の再読み込み ----------------------------------------------------------

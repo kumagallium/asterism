@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { dismiss } from '../decide/decideApi'
+import { effectAfterPublish } from '../decide/decide'
+import { type PublishQuestion, questionsOfTerm } from '../decide/publishEffect'
 import { fit as fetchFit, type FitCandidate } from '../vocabApi'
 import {
   type KindFitPick,
@@ -47,7 +50,39 @@ export function KindFitSuggestion({
   // 出さなくする（打ち直しの間、前の名前への「一種にする」が押せてしまうのを防ぐ）。
   const inputKey = `${label.trim()}\u0000${ownIri ?? ''}`
   const [found, setFound] = useState<{ key: string; list: FitCandidate[] }>({ key: '', list: [] })
-  const candidates = found.key === inputKey ? found.list : []
+  // 外した提案（この画面の中で）。次に引くときは API が除く。
+  const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set())
+  const candidates = (found.key === inputKey ? found.list : []).filter((c) => !dropped.has(c.term))
+  // 主語の鍵: 公開される IRI（無ければ名前）。「当てはまるものは無い」を覚えるのに使う。
+  const subjectKey = ownIri ?? `kind:${label.trim()}`
+  const [dismissErr, setDismissErr] = useState('')
+  // 結ぶ先の問い（公開すると答えるデータセットが 1 つ増える見込みを言う）。
+  const effectTerm = pick?.term ?? ''
+  const [effects, setEffects] = useState<Record<string, PublishQuestion[]>>({})
+  const wanted = (pick ? [pick.term] : candidates.slice(0, MAX_SHOWN).map((c) => c.term)).join('|')
+  useEffect(() => {
+    let stale = false
+    for (const term of wanted ? wanted.split('|') : []) {
+      void questionsOfTerm(term).then((list) => {
+        if (!stale) setEffects((prev) => ({ ...prev, [term]: list }))
+      })
+    }
+    return () => {
+      stale = true
+    }
+  }, [wanted])
+  const effectLine = (term: string) =>
+    term in effects ? effectAfterPublish(effects[term], t) : null
+
+  async function onDismiss(c: FitCandidate) {
+    setDismissErr('')
+    try {
+      await dismiss(subjectKey, c.term)
+      setDropped((prev) => new Set([...prev, c.term]))
+    } catch (e) {
+      setDismissErr(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   useEffect(() => {
     const l = label.trim()
@@ -55,7 +90,7 @@ export function KindFitSuggestion({
     const key = `${l}\u0000${ownIri ?? ''}`
     let stale = false
     const timer = setTimeout(() => {
-      void Promise.all([fetchFit(l, ''), classIris()])
+      void Promise.all([fetchFit(l, '', subjectKey), classIris()])
         .then(([list, iris]) => {
           if (!stale) setFound({ key, list: kindFitCandidates(list, iris, ownIri) })
         })
@@ -68,7 +103,7 @@ export function KindFitSuggestion({
       stale = true
       clearTimeout(timer)
     }
-  }, [label, ownIri])
+  }, [label, ownIri, subjectKey])
 
   if (pick) {
     return (
@@ -84,6 +119,12 @@ export function KindFitSuggestion({
         <button type="button" className="btn btn--ghost btn--sm" onClick={() => onPick(null)}>
           {t('skeletongate:kindFit.clear')}
         </button>
+        {effectLine(effectTerm) && (
+          <>
+            <br />
+            <span data-testid="kind-fit-effect">{effectLine(effectTerm)}</span>
+          </>
+        )}
       </p>
     )
   }
@@ -94,7 +135,7 @@ export function KindFitSuggestion({
     <div className="skeleton-evidence-line skeleton-evidence-muted" data-testid="kind-fit">
       {candidates.slice(0, MAX_SHOWN).map((c) => (
         <div key={c.term}>
-          <span>{t('skeletongate:kindFit.ask', { label: c.label })}</span>{' '}
+          <span>{t('skeletongate:kindFit.ask', { kind: label.trim(), label: c.label })}</span>{' '}
           <button
             type="button"
             className="btn btn--ghost btn--sm"
@@ -108,9 +149,16 @@ export function KindFitSuggestion({
             onClick={() => accept(c, 'equivalentClass')}
           >
             {t('skeletongate:kindFit.same')}
+          </button>{' '}
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void onDismiss(c)}>
+            {t('skeletongate:kindFit.none')}
           </button>
+          {effectLine(c.term) && (
+            <div data-testid="kind-fit-effect">{effectLine(c.term)}</div>
+          )}
         </div>
       ))}
+      {dismissErr && <p role="alert">{dismissErr}</p>}
       <p>{t('skeletongate:kindFit.note')}</p>
     </div>
   )

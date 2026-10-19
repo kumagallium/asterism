@@ -17,7 +17,13 @@ import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
 import { ActivityIcon, BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
-import { JobsView } from './JobsView'
+import { DecisionsView } from './DecisionsView'
+import {
+  type DecisionFilter,
+  type DecisionsTab,
+  decisionsQuery,
+  parseDecisionsQuery,
+} from './decide/decisionsModel'
 import { WorkbenchTier } from './kantan/WorkbenchTier'
 import { NAV_ITEMS } from './navGroups'
 import { addSubjectAndPersist } from './cards/subjectStore'
@@ -41,7 +47,9 @@ type Tab =
   | 'network'
   | 'crosswalk'
   | 'map'
-  | 'jobs'
+  /** 「決めたこと」（人が決めた関係の記録）。タブ「アクティビティ」に取り込みの履歴を持つ
+   *  （旧 `#/jobs` は `#/decisions?tab=activity` に置き換える）。 */
+  | 'decisions'
   | 'sparql'
   /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
   | 'cardsdemo'
@@ -121,6 +129,10 @@ export interface Route {
    *  （`goBuildShelf`/`autoInspect`）はウィザード内部の別の returnTo をそのまま
    *  使うので触らない。 */
   returnTo?: string
+  /** `#/decisions?tab=activity` — 「決めたこと」画面のタブ（無ければ「決めたこと」）。 */
+  decisionsTab?: DecisionsTab
+  /** `#/decisions?filter=perspective` — 「決めたこと」の絞り込み（無ければ「すべて」）。 */
+  decisionsFilter?: DecisionFilter
 }
 
 const TABS: readonly Tab[] = [
@@ -132,7 +144,7 @@ const TABS: readonly Tab[] = [
   'network',
   'crosswalk',
   'map',
-  'jobs',
+  'decisions',
   'sparql',
   'cardsdemo',
   'cards',
@@ -264,6 +276,16 @@ export function parseHash(hash: string): Route {
   }
   // `#/questions?q=<題>` ・ `#/questions?scope=…&dataset=<id>` — 「知りたいこと」画面への
   // 持ち込み（上で解く）。クエリは画面（SharedVocabView）が自分で hash から読む。
+  // 旧 `#/jobs`（アクティビティ）は「決めたこと」のタブへ。
+  if (parts[0] === 'jobs') return { tab: 'decisions', decisionsTab: 'activity' }
+  if (parts[0] === 'decisions' || parts[0]?.startsWith('decisions?')) {
+    const q = parseDecisionsQuery(parts[0].includes('?') ? parts[0].slice(parts[0].indexOf('?') + 1) : '')
+    return {
+      tab: 'decisions',
+      ...(q.tab === 'activity' ? { decisionsTab: 'activity' as const } : {}),
+      ...(q.tab !== 'activity' && q.filter !== 'all' ? { decisionsFilter: q.filter } : {}),
+    }
+  }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
 }
@@ -281,6 +303,9 @@ export function routeToHash(r: Route): string {
   }
   if (r.tab === 'gallery') return '#/datasets'
   if (r.tab === 'vocab') return r.newQuestion ? '#/questions?new=1' : '#/questions'
+  if (r.tab === 'decisions') {
+    return `#/decisions${decisionsQuery(r.decisionsTab ?? 'decisions', r.decisionsFilter ?? 'all')}`
+  }
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
   if (r.tab === 'workbench' && r.returnTo) return `#/workbench?returnTo=${encodeURIComponent(r.returnTo)}`
@@ -320,12 +345,13 @@ export function routeToHash(r: Route): string {
 
 /**
  * 旧 hash を新しい綴りに直した文字列を返す（直す必要が無ければ null）。
- * `#/vocab…` → `#/questions…`（クエリは温存）、`#/data…` / `#/browse…` →
+ * `#/vocab…` → `#/questions…`（クエリは温存）、`#/jobs` → `#/decisions?tab=activity`、`#/data…` / `#/browse…` →
  * `routeToHash(parseHash(hash))`。`#/datasets…` は別物なので触らない。
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function legacyHashRewrite(hash: string): string | null {
   if (/^#\/vocab(?=[?/]|$)/.test(hash)) return hash.replace(/^#\/vocab/, '#/questions')
+  if (/^#\/jobs(?=[?/]|$)/.test(hash)) return '#/decisions?tab=activity'
   if (/^#\/(data|browse)(?=[?/]|$)/.test(hash)) {
     const next = routeToHash(parseHash(hash))
     return next === hash ? null : next
@@ -784,18 +810,19 @@ function App() {
               <ChevronIcon className={`side-nav-icon side-nav-collapse-icon${navCollapsed ? '' : ' side-nav-collapse-icon--open'}`} />
               <span className="side-nav-text">{t(navCollapsed ? 'nav.expand' : 'nav.collapse')}</span>
             </button>
-            {/* アクティビティ（取り込みの履歴）は本線から下段へ。設定の上。 */}
+            {/* 決めたこと（人が決めた関係の記録。タブにアクティビティ＝取り込みの履歴）は
+                本線から下段へ。設定の上。 */}
             <button
               type="button"
-              className={`side-nav-item side-nav-jobs${tab === 'jobs' ? ' active' : ''}`}
-              onClick={() => navTo('jobs')}
-              aria-current={tab === 'jobs' ? 'page' : undefined}
-              aria-label={t('nav.jobs')}
-              title={t('nav.jobs')}
+              className={`side-nav-item side-nav-decisions${tab === 'decisions' ? ' active' : ''}`}
+              onClick={() => navTo('decisions')}
+              aria-current={tab === 'decisions' ? 'page' : undefined}
+              aria-label={t('nav.decisions')}
+              title={t('nav.decisions')}
             >
               <ActivityIcon className="side-nav-icon" />
-              <span className="side-nav-text">{t('nav.jobs')}</span>
-              <span className="side-nav-en">{glossT('nav.jobs')}</span>
+              <span className="side-nav-text">{t('nav.decisions')}</span>
+              <span className="side-nav-en">{glossT('nav.decisions')}</span>
             </button>
             <button
               type="button"
@@ -1052,7 +1079,21 @@ function App() {
               />
             )}
             {tab === 'map' && <OntologyMapView onBack={() => navigate(mapReturn)} />}
-            {tab === 'jobs' && <JobsView />}
+            {tab === 'decisions' && (
+              <DecisionsView
+                tab={route.decisionsTab ?? 'decisions'}
+                filter={route.decisionsFilter ?? 'all'}
+                onTabChange={(next) =>
+                  navigate({ tab: 'decisions', ...(next === 'activity' ? { decisionsTab: 'activity' } : {}) })
+                }
+                onFilterChange={(next) =>
+                  navigate(
+                    { tab: 'decisions', ...(next !== 'all' ? { decisionsFilter: next } : {}) },
+                    { replace: true },
+                  )
+                }
+              />
+            )}
             {tab === 'sparql' && <SparqlView />}
             {tab === 'cardsdemo' && <CardsGallery />}
             {/* 「意味を定義する」「詳しい情報」も見るの枠（SubjectRail・topbar）の

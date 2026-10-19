@@ -1,0 +1,216 @@
+/* 「ひとこと決める」と「決めたこと」。色・角は既存のトークンだけを使う（見た目の正: モックの
+   「この星について › ひとこと決める」「決めたこと」）。 */
+.decide {
+  border-top: 1px solid var(--border);
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  font-size: 0.8125rem;
+}
+.decide-h {
+  margin: 0 0 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--accent-strong);
+}
+.decide-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  color: var(--fg);
+}
+.decide-select {
+  font: inherit;
+  font-size: 0.8125rem;
+  max-width: 100%;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+}
+.decide-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.decide-choice label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--fg);
+}
+.decide-choice label:has(input:checked) {
+  border-color: var(--activity);
+  background: var(--activity-soft);
+}
+.decide-effect {
+  margin: 0.5rem 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--body);
+  line-height: 1.6;
+}
+.decide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.decide-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.decide-err {
+  margin: 0 0 0.4rem;
+  color: var(--error-fg);
+}
+.decide-done {
+  margin: 0 0 0.3rem;
+  color: var(--success-fg);
+}
+
+/* 決めたこと（1 行 1 文） */
+.decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.decisions-lead {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--body);
+  line-height: 1.7;
+}
+.decisions-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 3px;
+  background: var(--surface-sink);
+  border-radius: 999px;
+  align-self: flex-start;
+}
+.decisions-pill {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.decisions-pill[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-soft);
+}
+.decisions-list {
+  display: flex;
+  flex-direction: column;
+}
+.decisions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.decisions-row:first-child {
+  border-top: 0;
+}
+.decisions-row--broken {
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding-inline: 0.5rem;
+}
+.decisions-sentence {
+  flex: 1 1 18rem;
+  min-width: 0;
+  color: var(--fg);
+  line-height: 1.6;
+}
+.decisions-tag {
+  display: inline-block;
+  margin-left: 0.3rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.decisions-pill-q {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--activity-soft);
+  color: var(--activity);
+  white-space: nowrap;
+}
+.decisions-broken {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  white-space: nowrap;
+}
+.decisions-date {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+  margin-left: auto;
+}
+.decisions-undo {
+  flex: 1 1 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--body);
+  line-height: 1.6;
+}
+.decisions-undo-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+.decisions-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-sink);
+  border-radius: 999px;
+  align-self: flex-start;
+}
+.decisions-tab {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.decisions-tab[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-soft);
+}

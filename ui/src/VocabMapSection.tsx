@@ -8,9 +8,8 @@
 //   ・対応は crosswalk の alignment グラフ
 //   ・「全体」表示だけ、つながり（ハブ）の一覧 GET /api/crosswalks と、ハブの件数
 //   ・共有のことば（GET /api/vocab/shared）— 標準の帯の上の帯。データセットが 0 件でも描く
-//   ・線の起点: 「線を引く」で丸を 2 つ選ぶと LineForm（配置は変えない・選択状態はここが持つ）
 // どれかが取れなくても図は残りで描く（欠けは「線が無い」だけ — 嘘は描かない）。
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import { getAlignments, getCrosswalks } from './crosswalkApi'
@@ -19,8 +18,6 @@ import { getDatasetRules, getKindCounts } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import { groundTermsBatch } from './groundingApi'
 import type { SchemaSummary } from './demoApi'
-import { LineForm } from './LineForm'
-import type { PickEnd } from './lineChoice'
 import type { SharedTerm } from './vocabApi'
 import { listTerms } from './vocabApi'
 import { KindOverview } from './KindOverviewMap'
@@ -31,7 +28,7 @@ import {
   layoutDatasetOverview,
   type OverviewFocus,
 } from './kindOverviewScale'
-import { VocabMap, type VocabPick } from './VocabMap'
+import { VocabMap } from './VocabMap'
 import {
   collectMintedTermQueries,
   collectStandardIris,
@@ -79,7 +76,6 @@ export function VocabMapSection({
   onOpenKind,
   onOpenCrosswalk,
   reloadKey = 0,
-  onChanged,
 }: {
   datasets: CatalogDataset[]
   schema: SchemaSummary | null
@@ -90,14 +86,11 @@ export function VocabMapSection({
   onOpenCrosswalk?: () => void
   /** 親の版。変わったら（語・問い・線が別の節で変わったとき）地図を取り直す。 */
   reloadKey?: number
-  /** 線を引けた（親が版を進め、ほかの節が読み直す）。 */
-  onChanged?: () => void
 }) {
   const { t } = useTranslation()
   const [view, setView] = useState<MapView>(readView)
   const chooseView = (v: MapView) => {
     setView(v)
-    setPicked([]) // 選んだ丸は切り替え先の図に無いことがある
     try {
       window.localStorage.setItem(VIEW_KEY, v)
     } catch {
@@ -105,8 +98,6 @@ export function VocabMapSection({
     }
   }
   const [loaded, setLoaded] = useState<Loaded | null>(null)
-  // 線を引いたあとの読み直し（地図は読み取りの結果なので、データを取り直して描き直す）。
-  const [reloadTick, setReloadTick] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -160,7 +151,7 @@ export function VocabMapSection({
     return () => {
       cancelled = true
     }
-  }, [datasets, reloadTick, reloadKey])
+  }, [datasets, reloadKey])
 
   const classCounts = useMemo(() => {
     const m: Record<string, number> = {}
@@ -192,40 +183,6 @@ export function VocabMapSection({
   }, [loaded, hasContent, classCounts, t])
 
   const [focusState, setFocusState] = useState<OverviewFocus | null>(null)
-
-  // ── 線の起点: 丸を 2 つ選ぶ（選択状態はフォーカス状態と同じ置き場） ──
-  const [pickMode, setPickMode] = useState(false)
-  const [picked, setPicked] = useState<PickEnd[]>([])
-  const onPick = useCallback((end: PickEnd) => {
-    setPicked((prev) =>
-      prev.some((p) => p.id === end.id) ? prev.filter((p) => p.id !== end.id) : [...prev, end].slice(-2),
-    )
-  }, [])
-  const stopPicking = useCallback(() => {
-    setPickMode(false)
-    setPicked([])
-  }, [])
-  // 見ている図が変わったら（フォーカス・表示の切り替え）、選んだ丸は図に無いかもしれないので空にする。
-  const setFocus = useCallback((f: OverviewFocus | null) => {
-    setFocusState(f)
-    setPicked([])
-  }, [])
-  const pick = useMemo<VocabPick>(
-    () => ({ active: pickMode, picked: picked.map((p) => p.id), onPick }),
-    [pickMode, picked, onPick],
-  )
-  const cqChoices = useMemo(() => {
-    const seen = new Set<string>()
-    const out: { tool_name: string; title: string }[] = []
-    for (const term of loaded?.sharedTerms ?? []) {
-      for (const c of term.cqs ?? []) {
-        if (seen.has(c.tool_name)) continue
-        seen.add(c.tool_name)
-        out.push({ tool_name: c.tool_name, title: c.title })
-      }
-    }
-    return out
-  }, [loaded])
 
   const overviewInput = useMemo(() => {
     if (!loaded || !hasContent) return null
@@ -307,9 +264,6 @@ export function VocabMapSection({
     ? [...legendBase, { kind: 'upper', dashed: false, text: t('vocabmap:legend.upper') }]
     : legendBase
 
-  // 線を引く選択は、丸を選べる図のときだけ（データセットごとの俯瞰は丸がデータセット）。
-  const canPick = !(showOverview && overviewMode === 'dataset')
-
   return (
     <div className="card vocab-map-card">
       <div className="vocab-card-head">
@@ -328,27 +282,6 @@ export function VocabMapSection({
           </button>
         ))}
       </div>
-      {canPick ? (
-        <div className="vocab-map-pickbar">
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            aria-pressed={pickMode}
-            onClick={() => (pickMode ? stopPicking() : setPickMode(true))}
-          >
-            {pickMode ? t('vocabmap:pick.stop') : t('vocabmap:pick.start')}
-          </button>
-          {pickMode && (
-            <span className="vocab-map-pickbar-hint">
-              {picked.length < 2
-                ? `${t('vocabmap:pick.hint')} ${t('vocabmap:pick.count', { n: picked.length })}`
-                : t('vocabmap:pick.count', { n: picked.length })}
-            </span>
-          )}
-        </div>
-      ) : (
-        <p className="vocab-map-pickbar-hint">{t('vocabmap:pick.unavailable')}</p>
-      )}
       <p className="vocab-map-lead">
         {showOverview
           ? t(
@@ -427,13 +360,12 @@ export function VocabMapSection({
           onOpenKind={onOpenKind}
           onOpenDataset={onOpenDataset}
           onOpenCrosswalk={onOpenCrosswalk}
-          onFocus={setFocus}
-          pick={canPick ? pick : undefined}
+          onFocus={setFocusState}
           focus={
             focused
               ? {
                   label: focused.label,
-                  onBack: () => setFocus(null),
+                  onBack: () => setFocusState(null),
                   hiddenDatasets: focused.hiddenDatasets,
                   hiddenHubs: focused.hiddenHubs,
                 }
@@ -441,22 +373,7 @@ export function VocabMapSection({
           }
         />
       ) : (
-        <VocabMap shape={shape} ariaLabel={t('vocab:map.aria')} onOpenDataset={onOpenDataset} pick={pick} />
-      )}
-      {canPick && pickMode && picked.length === 2 && (
-        <LineForm
-          // 選び直したら状態（向き・関係・問い・エラー）を初期化する。
-          key={picked.map((p) => p.id).join('|')}
-          a={picked[0]}
-          b={picked[1]}
-          cqs={cqChoices}
-          onDone={() => {
-            stopPicking()
-            setReloadTick((n) => n + 1)
-            onChanged?.()
-          }}
-          onCancel={() => setPicked([])}
-        />
+        <VocabMap shape={shape} ariaLabel={t('vocab:map.aria')} onOpenDataset={onOpenDataset} />
       )}
       <div className="vocab-map-legend">
         {legend.map((l) => (

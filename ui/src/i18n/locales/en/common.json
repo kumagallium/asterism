@@ -19,11 +19,11 @@
     "ask": "Ask",
     "network": "Graph",
     "vocab": "Questions",
-    "jobs": "Activity",
     "workbench": "Add data",
     "sparql": "Developer",
     "sparqlTag": "SPARQL",
-    "sparqlTitle": "Developer: write queries directly. For everyday questions, use Ask"
+    "sparqlTitle": "Developer: write queries directly. For everyday questions, use Ask",
+    "decisions": "Decisions"
   },
   "status": {
     "mock": "Showing sample data"
@@ -87,11 +87,6 @@
       "title": "Overview",
       "sub": "What data exists and how it connects"
     },
-    "jobs": {
-      "eyebrow": "Manage",
-      "title": "Activity",
-      "sub": "When and what was ingested"
-    },
     "sparql": {
       "eyebrow": "Developer",
       "title": "SPARQL",
@@ -106,6 +101,11 @@
       "eyebrow": "Use",
       "title": "Browse",
       "sub": "See a single item or a condition-based list as cards, with their sources"
+    },
+    "decisions": {
+      "eyebrow": "Record",
+      "title": "Decisions",
+      "sub": "Relations people decided. Dated and undoable"
     }
   },
   "entries": {

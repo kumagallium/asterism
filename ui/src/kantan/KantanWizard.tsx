@@ -7519,6 +7519,7 @@ export function KantanWizard({
                           {!measured && !dropped && (
                             <FitSuggestion
                               colSpan={6}
+                              subjectKey={`column:${row.source}/${row.column}`}
                               label={current?.label ?? ''}
                               column={row.named === false ? '' : row.column}
                               accepted={current?.fit}

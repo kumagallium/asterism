@@ -1,0 +1,35 @@
+{
+  "tab": {
+    "decisions": "Decisions",
+    "activity": "Activity"
+  },
+  "tabsAria": "Switch between Decisions and Activity",
+  "lead": "A record of the relations people decided. Each keeps its date and can be undone any time (undoing changes how many questions can be answered).",
+  "filterAria": "Filter decisions",
+  "filter": {
+    "all": "All",
+    "sub": "Kind of",
+    "same": "Same as",
+    "quantity": "Quantity",
+    "standard": "Standard terms",
+    "perspective": "Connection to connection",
+    "broken": "Broken"
+  },
+  "loading": "Loading decisions…",
+  "loadingPerspectives": "Loading connections…",
+  "empty": "Nothing decided yet. You can decide in one line from a star or a term.",
+  "emptyFilter": "Nothing matches this filter.",
+  "broken": "Broken",
+  "brokenHint": "What this was linked to can no longer be found. You can still undo it.",
+  "questions": "Questions {{n}}",
+  "undo": "Undo",
+  "undoAria": "Confirm undo",
+  "undoLead": "If you undo this, {{effect}}",
+  "undoNoCount": "This will be undone. Could not count how many questions would change.",
+  "undoConfirm": "Undo",
+  "undoing": "Undoing…",
+  "cancel": "Cancel",
+  "sentence": {
+    "other": "\"{{subject}}\" and \"{{target}}\" ({{relation}})"
+  }
+}
