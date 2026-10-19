@@ -125,7 +125,7 @@ describe('newQuestion', () => {
   })
 })
 
-describe('「ことばへ写す」の行き先', () => {
+describe('「用語へ写す」の行き先', () => {
   const upper = {
     classes: { [K]: 'https://example.org/sv/sample', [K2]: K2 },
     properties: { [P]: 'https://example.org/sv/strength' },
@@ -168,7 +168,7 @@ describe('hasAnswer', () => {
   })
 })
 
-describe('⑦ 公開ダイアログ「線 N 本・問い M 件を書きます」', () => {
+describe('⑦ 公開ダイアログ「関係 N 件・問い M 件を書きます」', () => {
   const line = (applied_at: string | null = null): UpperItem => ({
     subject: K,
     term: 'https://example.org/sv/sample',
@@ -218,8 +218,8 @@ describe('⑦ 公開ダイアログ「線 N 本・問い M 件を書きます」
     ).toEqual({ lines: 1, questions: 0 })
   })
 
-  it('ja の文言は「線 N 本・問い M 件を書きます」', () => {
-    expect(ja.s8.writesBoth).toBe('線 {{lines}} 本・問い {{questions}} 件を書きます')
+  it('ja の文言は「関係 N 件・問い M 件を書きます」', () => {
+    expect(ja.s8.writesBoth).toBe('関係 {{lines}} 件・問い {{questions}} 件を書きます')
   })
 })
 
@@ -288,7 +288,7 @@ describe('公開の応答（upper_questions）を画面の言葉にする', () =
     })
   }
 
-  it('ja の入口の文言は「線 N 本・問い M 件を公開に書き込みます」', () => {
-    expect(ja.s7.writesBoth).toBe('線 {{lines}} 本・問い {{questions}} 件を公開に書き込みます')
+  it('ja の入口の文言は「関係 N 件・問い M 件を公開に書き込みます」', () => {
+    expect(ja.s7.writesBoth).toBe('関係 {{lines}} 件・問い {{questions}} 件を公開に書き込みます')
   })
 })

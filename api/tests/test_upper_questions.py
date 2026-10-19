@@ -1,5 +1,5 @@
 """上位構造 PR 3 の api 側 — ``questions.json`` / ``upper.json`` / handles の ``via`` /
-列の ``fit`` / ⑥ の staged 実行 / 公開での消費 / 予約名 / 「ことばへ写す」
+列の ``fit`` / ⑥ の staged 実行 / 公開での消費 / 予約名 / 「用語へ写す」
 （ADR upper-structure-shared-terms.md §2.3・§2.5.2・§2.5.3・契約 handoff §5.3・§5.5）。
 
 ストアは本物の ``pyoxigraph.Store``（``test_cards_api`` と同じ型）なので、問いの SPARQL・線の
@@ -477,7 +477,7 @@ def test_promote_consumes_upper_once_and_a_removed_line_does_not_come_back(
         lines = client.get("/api/crosswalk/alignments").json()["alignments"]
         assert [(a["source"], a["target"]) for a in lines] == [(line["subject"], line["term"])]
 
-        # 人が「ことば」で線を取り消す → 再公開しても復活しない
+        # 人が「知りたいこと」で線を取り消す → 再公開しても復活しない
         rm = client.post(
             "/api/crosswalk/align",
             json={
@@ -690,7 +690,7 @@ def test_copy_a_question_to_the_shared_term_above_it(tmp_path: Path) -> None:
 
         # 上位がまだ無い → 409 と案内
         r = client.post(url, json=body)
-        assert r.status_code == 409 and "線を引いて" in r.json()["detail"]
+        assert r.status_code == 409 and "関係を決めてください" in r.json()["detail"]
 
         # 線を引く（種類 → 語）
         align = client.post(

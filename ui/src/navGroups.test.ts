@@ -1,44 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { NAV_GROUPS } from './navGroups'
+import { NAV_ITEMS } from './navGroups'
 
-// 契約メモ contract_pr_f7.md §1: 見出し 2 つ・順序・所属・全 Tab が 1 度だけ出る・
-// workbench はここに出ない。navGroups.ts は純データなので描画抜きで検証できる。
+// 左ナビは 5 つ・順序固定（UI 再設計 PR 1）。navGroups.ts は純データなので描画抜きで検証できる。
 
-describe('NAV_GROUPS', () => {
-  it('見出しは build → use の順に 2 つだけ', () => {
-    expect(NAV_GROUPS.map((g) => g.key)).toEqual(['build', 'use'])
+describe('NAV_ITEMS', () => {
+  it('ホーム / 知りたいこと(vocab) / データ(gallery) / 見る(cards) / 質問する(ask)（この順）', () => {
+    expect(NAV_ITEMS.map((it) => it.id)).toEqual(['home', 'vocab', 'gallery', 'cards', 'ask'])
   })
 
-  it('build＝ホーム/データ/つながり/ことば/アクティビティ（この順）', () => {
-    expect(NAV_GROUPS[0].items.map((it) => it.id)).toEqual([
-      'home',
-      'gallery',
-      'crosswalk',
-      'vocab',
-      'jobs',
-    ])
+  it('全項目（5 つ）がちょうど 1 度だけ出る', () => {
+    const ids = NAV_ITEMS.map((it) => it.id)
+    expect(ids).toHaveLength(5)
+    expect(new Set(ids).size).toBe(5)
   })
 
-  it('use＝ワークスペース(cards)/全体グラフ(network)/質問する(ask)（この順）', () => {
-    expect(NAV_GROUPS[1].items.map((it) => it.id)).toEqual(['cards', 'network', 'ask'])
-  })
-
-  it('全項目（8 つ）がちょうど 1 度だけ出る', () => {
-    const ids = NAV_GROUPS.flatMap((g) => g.items.map((it) => it.id))
-    expect(ids).toHaveLength(8)
-    expect(new Set(ids).size).toBe(8)
-  })
-
-  it('workbench（かんたんウィザード）はどの見出しにも出ない', () => {
-    const ids = NAV_GROUPS.flatMap((g) => g.items.map((it) => it.id))
-    expect(ids).not.toContain('workbench')
+  it('つながり・全体グラフ・かんたんウィザード・アクティビティは本線に出ない', () => {
+    const ids: string[] = NAV_ITEMS.map((it) => it.id)
+    for (const hidden of ['crosswalk', 'network', 'map', 'workbench', 'jobs', 'sparql']) {
+      expect(ids).not.toContain(hidden)
+    }
   })
 
   it('各項目に icon コンポーネントが紐づく', () => {
-    for (const g of NAV_GROUPS) {
-      for (const item of g.items) {
-        expect(typeof item.icon).toBe('function')
-      }
+    for (const item of NAV_ITEMS) {
+      expect(typeof item.icon).toBe('function')
     }
   })
 })

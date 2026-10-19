@@ -176,18 +176,18 @@
   },
   "align": {
     "head": "Match up two connections",
-    "hint": "When words from two separately built connections mean the same thing, you can record that match (it becomes a citable fact, and you can undo it later).",
+    "hint": "When terms from two separately built connections mean the same thing, you can record that match (it becomes a citable fact, and you can undo it later).",
     "sourceLabel": "Connection on the left",
     "targetLabel": "Connection on the right",
     "termOption": "{{kind}} · {{name}}",
     "assert": "Match them up",
     "asserting": "Matching up…",
     "assertNote": "Matched up: {{source}} {{relation}} {{target}}",
-    "noSrcTerms": "This connection has no words that can be matched up.",
+    "noSrcTerms": "This connection has no terms that can be matched up.",
     "noTgtTerms": "Nothing of the same sort (kind / field) on the other side. Pick a different connection on the right.",
-    "pickDistinct": "Pick a different word on the left and on the right.",
+    "pickDistinct": "Pick a different term on the left and on the right.",
     "needTwo": "Once you have two or more connections, you can match them up here (you have {{count}}).",
-    "sameTerm": "These two already use the same word — nothing to match up.",
+    "sameTerm": "These two already use the same term — nothing to match up.",
     "actErr": "Operation failed: {{detail}}",
     "perspArrow": "{{from}} → {{to}}",
     "remove": "Undo",
@@ -195,12 +195,12 @@
     "none": "Nothing matched up yet.",
     "a11y": {
       "srcPerspective": "Connection on the left",
-      "srcTerm": "Word on the left",
+      "srcTerm": "Term on the left",
       "relation": "Relation type",
       "tgtPerspective": "Connection on the right",
-      "tgtTerm": "Word on the right"
+      "tgtTerm": "Term on the right"
     },
-    "toVocab": "Match with words →"
+    "toVocab": "Match with terms →"
   },
   "builder": {
     "subtitle": "Pick <0>two or more existing datasets</0>, declare the <1>concept to connect</1> (a sample name, an author, an instrument…) and the column that represents it, and you can build a <2>bridge that connects across datasets (a crosswalk)</2> on the shared value. It is an ontology built <3>from data you already have</3>, not from a new CSV.",
@@ -215,7 +215,7 @@
     "step2": "2. Decide the \"concept\" to connect",
     "step2Hint": "e.g. composition / crystal_system / author (an alphanumeric key)",
     "conceptPlaceholder": "composition",
-    "conceptVocab": "Words auto-minted from \"{{key}}\" → kind <0>xw:{{className}}</0> · linking field <1>xw:has{{className}}</1>",
+    "conceptVocab": "Terms auto-created from \"{{key}}\" → kind <0>xw:{{className}}</0> · linking field <1>xw:has{{className}}</1>",
     "conceptInvalid": "Enter an alphanumeric key (e.g. crystal_system). Put a Japanese display name into \"this perspective's name\".",
     "step3": "3. For each dataset, pick \"the field that carries {{key}}\"",
     "step3Hint": "(a mapping a human reviews)",

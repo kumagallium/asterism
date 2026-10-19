@@ -5,7 +5,7 @@
   形は ``{"version": 1, "upper": [{subject, term, relation, applied_at, skipped?}]}``
   （``handles.json`` と同じ wrapper。読み手は bare list も受ける）。
 - ``apply_upper`` — 公開（``promote`` と名前だけの公開）が呼ぶ。``applied_at`` が空の項目だけ
-  ``assert_alignment`` で線にして ``applied_at`` を書き戻す。**1 回だけ消費**する — 人が「ことば」で
+  ``assert_alignment`` で線にして ``applied_at`` を書き戻す。**1 回だけ消費**する — 人が「知りたいこと」で
   線を取り消しても、再公開で復活しない（``applied_at`` が残っているため）。
 
 ``applied_at`` / ``skipped`` は**サーバが書く**値。``PUT`` で送られても信じず、同じ

@@ -10,17 +10,15 @@
     "en": "English"
   },
   "nav": {
-    "group_build": "Build",
-    "group_use": "Use",
     "collapse": "Collapse",
     "expand": "Expand",
-    "cards": "Workspace",
+    "cards": "Browse",
     "home": "Home",
-    "gallery": "Datasets",
+    "gallery": "Data",
     "crosswalk": "Connections",
     "ask": "Ask",
     "network": "Graph",
-    "vocab": "Words",
+    "vocab": "Questions",
     "jobs": "Activity",
     "workbench": "Add data",
     "sparql": "Developer",
@@ -65,8 +63,8 @@
       "sub": "Answer questions over your published data, with citations"
     },
     "gallery": {
-      "eyebrow": "Data",
-      "title": "Datasets",
+      "eyebrow": "Build (from data)",
+      "title": "Data",
       "sub": "Your datasets — open one to see its contents, files and connections"
     },
     "network": {
@@ -75,12 +73,12 @@
       "sub": "A network linked by shared values. Categories become points, so you can see which items sit close together"
     },
     "vocab": {
-      "eyebrow": "Shared",
-      "title": "Words",
-      "sub": "Place words from a question and link them across datasets"
+      "eyebrow": "Build (from questions)",
+      "title": "Questions",
+      "sub": "Decide terms from a question, then link them to data and standard terms"
     },
     "crosswalk": {
-      "eyebrow": "Connect",
+      "eyebrow": "Build (from data)",
       "title": "Connections",
       "sub": "Connect separate datasets by a shared value"
     },
@@ -105,9 +103,17 @@
       "sub": "The seven default cards, one per output kind"
     },
     "cards": {
-      "eyebrow": "Workspace",
-      "title": "Workspace",
+      "eyebrow": "Use",
+      "title": "Browse",
       "sub": "See a single item or a condition-based list as cards, with their sources"
     }
+  },
+  "entries": {
+    "data": "+ Add data",
+    "question": "? Ask a question to grow"
+  },
+  "dataTabs": {
+    "datasets": "Datasets",
+    "connections": "Connections"
   }
 }

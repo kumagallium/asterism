@@ -6,7 +6,7 @@
 - ``DELETE /api/vocab/shared/{slug}`` — 語を外す（線が残っていれば 409・問いは連動して消える）
 - ``POST /api/vocab/shared/{slug}/cq`` — 既定テンプレの問いを 1 本足す。``{from_dataset,
   question_id}`` を送ると、他データセットの問い（``questions.json``）の種類／項目を上位の共有語に
-  置き換えて足す（「ことばへ写す」・元は残す・上位がその語でなければ 409）
+  置き換えて足す（「用語へ写す」・元は残す・上位がその語でなければ 409）
 - ``GET /api/vocab/upper`` — 全体グラフ向けの上位の対応表（線だけから作る）
 - ``GET /api/vocab/fit`` — 列を当てはめられる語の候補（完全一致のみ・表示専用）
 
@@ -191,7 +191,7 @@ def register_vocab(
                 409,
                 f"この問いの{where}の上位が「{term_row['slug']}」ではありません"
                 + (
-                    "（上位に共有の語がありません）。先に「ことば」で語を作り、線を引いてください。"
+                    "（上位に用語がありません）。先に「知りたいこと」で用語を作り、関係を決めてください。"
                     if mapped == subject
                     else f"（上位は {mapped} です）。写す先の語を選び直してください。"
                 ),
@@ -202,11 +202,11 @@ def register_vocab(
         """既定テンプレの問いを 1 本足す（名前は ``cq_<slug>_<op>``・同じ op が既にあれば
         ``_2`` …）。
 
-        ``from_dataset`` + ``question_id`` を送ると「ことばへ写す」: そのデータセットの
+        ``from_dataset`` + ``question_id`` を送ると「用語へ写す」: そのデータセットの
         ``questions.json`` の問いの種類（``kind_iri``）／項目（``property_iri``）を ``upper_map`` で
         上位の共有語に置き換え、その語が ``slug`` の語なら ``slug`` への問いとして足す（元の問いは
         データセットのツールとして残る＝コピー）。上位が ``slug`` の語でなければ 409 で案内する
-        （語が無ければ「ことば」で鋳造、線が無ければ線を引く）。
+        （用語が無ければ「知りたいこと」で鋳造、関係が無ければ関係を決める）。
         """
         copy_from = bool(body.from_dataset or body.question_id)
         if copy_from and not (body.from_dataset and body.question_id):
@@ -223,7 +223,7 @@ def register_vocab(
             raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
         row = next((r for r in rows if r["iri"] == iri), None)
         if row is None:
-            raise HTTPException(404, f"{slug!r} ということばはありません")
+            raise HTTPException(404, f"{slug!r} という用語はありません")
         title = (body.title or "").strip()
         op = body.op or ""
         if copy_from:
