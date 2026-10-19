@@ -712,6 +712,34 @@ async def test_preview_matches_the_real_assert_and_recompute_0_1_2(tmp_path: Pat
         assert real[iri] == p["terms"][0]["after"] == want_after
 
 
+async def test_preview_does_not_depend_on_the_kind_counts_row_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """種類の使われ方は kind_counts（5000 行で打ち切る）を通らず、語だけに絞って引く。
+    打ち切りで後ろの graph の種類が欠け、試算が小さくなる穴を固定する。"""
+    import asterism.kind_counts as kc
+
+    async def boom(*_a: object, **_k: object) -> dict:
+        raise AssertionError("preview must not read kind_counts")
+
+    monkeypatch.setattr(kc, "kind_counts", boom)
+    client = _Client()
+    await _seed_two_datasets(client)
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    p = await sv.preview_alignment(client, tmp_path, A_REC, iri, "subClassOf")
+    assert p["valid"] is True and p["terms"][0]["after"] == 1
+
+
+async def test_preview_unminted_is_judged_before_same(tmp_path: Path) -> None:
+    """assert_alignment と同じ順（未鋳造が先）。未鋳造の語どうしを同じ IRI で結ぶと unminted。"""
+    client = _Client()
+    await _seed_two_datasets(client)
+    ghost = sv.term_iri("never_minted")
+    p = await sv.preview_alignment(client, tmp_path, ghost, ghost, "equivalentClass")
+    assert p["valid"] is False and p["reason"] == "unminted"
+
+
 async def test_preview_counts_properties_and_equivalence_both_ways(tmp_path: Path) -> None:
     client = _Client()
     await _seed_two_datasets(client)

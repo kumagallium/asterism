@@ -5,12 +5,15 @@ import { httpStatusOf } from '../lineChoice'
 import { listTerms } from '../vocabApi'
 import {
   type DecideChoice,
-  type DecidePreview,
+  type PreviewState,
   NONE,
   effectText,
   leadText,
+  currentPreview,
+  decideGate,
   optionLabel,
   orderCandidates,
+  previewKeyOf,
   reasonText,
   relationChoices,
   sentence,
@@ -30,10 +33,6 @@ export interface DecidedInfo {
   target: PickEnd
   choice: DecideChoice
 }
-
-type PreviewState =
-  | { key: string; status: 'ok'; preview: DecidePreview }
-  | { key: string; status: 'error' }
 
 export function DecidePanel({
   subject,
@@ -96,7 +95,7 @@ export function DecidePanel({
   const picked: DecideChoice | null =
     choice === null || choice === NONE || relations.includes(choice) ? choice : null
 
-  const previewKey = target && picked && picked !== NONE ? `${subject.iri}|${target.iri}|${picked}` : ''
+  const previewKey = previewKeyOf(subject.iri, target?.iri, picked)
   useEffect(() => {
     if (!previewKey || !target || !picked || picked === NONE) return
     let stale = false
@@ -109,7 +108,7 @@ export function DecidePanel({
     // target / picked は previewKey に畳まれている。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewKey, subject.iri])
-  const current = previewState && previewState.key === previewKey ? previewState : null
+  const current = currentPreview(previewState, previewKey)
 
   let effect = t('decide:effect.idle')
   if (picked === NONE) effect = t('decide:effect.none')
@@ -119,8 +118,7 @@ export function DecidePanel({
     else if (!current.preview.valid) effect = reasonText(current.preview.reason, t)
     else effect = effectText(current.preview, t)
   }
-  const blocked = current?.status === 'ok' && !current.preview.valid
-  const canDecide = !busy && !!target && picked !== null && !blocked
+  const { canDecide } = decideGate({ busy, hasTarget: !!target, picked, current })
 
   async function submit() {
     if (!target || picked === null || !canDecide) return

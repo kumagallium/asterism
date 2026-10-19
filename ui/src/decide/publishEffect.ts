@@ -1,6 +1,6 @@
 // 公開前の列・種類（まだ store に無い）の帰結。api の試算は「store にあるデータ」を数えるので、
 // 公開前のものは数えられない。かわりに、結ぶ先の用語の問いと、今それに答えるデータセットの数
-// （GET /api/vocab/shared）を読み、公開すると 1 つ増える見込みを言う（decide.effectAfterPublish）。
+// （GET /api/vocab/shared）を読み、公開すると増える見込み（と今の数）を言う（decide.effectAfterPublish）。
 import { type SharedTerm, listTerms } from '../vocabApi'
 
 /** 問い（題・今答えるデータセット数）。 */

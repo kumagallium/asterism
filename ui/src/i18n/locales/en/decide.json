@@ -37,7 +37,7 @@
     "noQuestion": "No question depends on this term yet, so the number of datasets that can answer does not change.",
     "changed": "Datasets that can answer \"{{title}}\": {{before}} → {{after}}",
     "unchanged": "Datasets that can answer \"{{title}}\": {{n}} (no change)",
-    "publish": "Once published, datasets that can answer \"{{title}}\": {{before}} → {{after}}",
+    "publish": "Once published, more datasets are expected to answer \"{{title}}\" (now {{n}}; no change if this dataset already answers it another way)",
     "publishNoQuestion": "Settled when you publish. No question depends on this term yet."
   },
   "reason": {

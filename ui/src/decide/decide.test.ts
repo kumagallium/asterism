@@ -9,7 +9,11 @@ import { DecidePanel } from './DecidePanel'
 import {
   NONE,
   type DecidePreview,
+  currentPreview,
+  decideGate,
   effectAfterPublish,
+  previewKeyOf,
+  type PreviewState,
   effectText,
   leadText,
   normalizeName,
@@ -123,10 +127,10 @@ describe('帰結の文', () => {
     expect(effectText(base, t)).toContain('変わりません')
   })
 
-  it('公開前は「公開すると」＋ 今の数 → 今の数 + 1', () => {
-    expect(effectAfterPublish([{ title: '組成は？', answering_datasets: 1 }], t)).toBe(
-      '公開すると、問い「組成は？」に答えるデータセット 1 → 2',
-    )
+  it('公開前は「増える見込み」と今の数だけを言い、「1 → 2」と断定しない', () => {
+    const s = effectAfterPublish([{ title: '組成は？', answering_datasets: 1 }], t)
+    expect(s).toContain('増える見込みです（今は 1')
+    expect(s).not.toContain('→')
     expect(effectAfterPublish([], t)).toContain('公開のときに決まります')
   })
 
@@ -212,5 +216,47 @@ describe('AttachKind — この用語に種類を入れる', () => {
     const h = html([])
     expect(h).toContain('入れられる種類がまだありません')
     expect(h).not.toContain('type="radio"')
+  })
+})
+
+describe('試算の状態と「そう決める」の可否', () => {
+  const okPreview: DecidePreview = { valid: true, reason: null, questions: [], terms: [] }
+  const ng: PreviewState = {
+    key: 'a|b|subClassOf',
+    status: 'ok',
+    preview: { valid: false, reason: 'cycle', questions: [], terms: [] },
+  }
+  const ok: PreviewState = { key: 'a|b|subClassOf', status: 'ok', preview: okPreview }
+
+  it('選ぶたびに鍵が変わる。「当てはまるものは無い」と未選択は試算しない', () => {
+    expect(previewKeyOf('a', 'b', 'subClassOf')).toBe('a|b|subClassOf')
+    expect(previewKeyOf('a', 'b', 'equivalentClass')).toBe('a|b|equivalentClass')
+    expect(previewKeyOf('a', 'c', 'subClassOf')).toBe('a|c|subClassOf')
+    expect(previewKeyOf('a', 'b', NONE)).toBe('')
+    expect(previewKeyOf('a', 'b', null)).toBe('')
+    expect(previewKeyOf('a', undefined, 'subClassOf')).toBe('')
+  })
+
+  it('古い鍵の結果は採らない', () => {
+    expect(currentPreview(ok, 'a|b|equivalentClass')).toBeNull()
+    expect(currentPreview(ok, '')).toBeNull()
+    expect(currentPreview(ok, 'a|b|subClassOf')).toBe(ok)
+    expect(currentPreview(null, 'a|b|subClassOf')).toBeNull()
+  })
+
+  it('未選択・結ぶ先なし・処理中・結べない試算では押せない', () => {
+    const base = { busy: false, hasTarget: true, picked: 'subClassOf' as const, current: ok }
+    expect(decideGate(base)).toEqual({ blocked: false, canDecide: true })
+    expect(decideGate({ ...base, picked: null }).canDecide).toBe(false)
+    expect(decideGate({ ...base, hasTarget: false }).canDecide).toBe(false)
+    expect(decideGate({ ...base, busy: true }).canDecide).toBe(false)
+    expect(decideGate({ ...base, current: ng })).toEqual({ blocked: true, canDecide: false })
+  })
+
+  it('試算がまだ・失敗でも決められる。「当てはまるものは無い」は試算なしで押せる', () => {
+    const base = { busy: false, hasTarget: true, picked: 'subClassOf' as const }
+    expect(decideGate({ ...base, current: null }).canDecide).toBe(true)
+    expect(decideGate({ ...base, current: { key: 'k', status: 'error' } }).canDecide).toBe(true)
+    expect(decideGate({ ...base, picked: NONE, current: null }).canDecide).toBe(true)
   })
 })

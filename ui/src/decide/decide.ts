@@ -110,8 +110,8 @@ export function effectText(preview: DecidePreview, t: Translate): string {
     .join(' / ')
 }
 
-/** 公開前の列・種類（まだ store に無い）の帰結の 1 行。公開すると、結んだ先の問いに答えるデータセットが
- *  1 つ増える見込みを、今の数 → 今の数 + 1 で言う。 */
+/** 公開前の列・種類（まだ store に無い）の帰結の 1 行。数を断定せず、「増える見込み」と今の数だけを言う
+ *  （すでに別の経路で答えているデータセットは増えないため）。 */
 export function effectAfterPublish(
   questions: { title: string; answering_datasets: number }[],
   t: Translate,
@@ -121,8 +121,7 @@ export function effectAfterPublish(
     .map((q) =>
       t('decide:effect.publish', {
         title: q.title,
-        before: q.answering_datasets,
-        after: q.answering_datasets + 1,
+        n: q.answering_datasets,
       }),
     )
     .join(' / ')
@@ -136,4 +135,34 @@ export function reasonText(reason: DecideReason | null, t: Translate): string {
 /** 日付（ISO）の日の部分。空なら空。 */
 export function dayOf(at: string): string {
   return at ? at.slice(0, 10) : ''
+}
+
+/** 試算の状態（`key` はそのときの「主語|結ぶ先|関係」）。 */
+export type PreviewState =
+  | { key: string; status: 'ok'; preview: DecidePreview }
+  | { key: string; status: 'error' }
+
+/** 試算の鍵。結ぶ先・関係が無い／「当てはまるものは無い」なら空（試算しない）。 */
+export function previewKeyOf(
+  subjectIri: string,
+  targetIri: string | undefined,
+  picked: DecideChoice | null,
+): string {
+  return targetIri && picked && picked !== NONE ? `${subjectIri}|${targetIri}|${picked}` : ''
+}
+
+/** 今の鍵に対する試算だけを採る（候補・関係を替えたあとの古い結果は捨てる）。 */
+export function currentPreview(state: PreviewState | null, key: string): PreviewState | null {
+  return state && key !== '' && state.key === key ? state : null
+}
+
+/** 「そう決める」を押せるか。結べない（valid=false）試算が今の選択に付いていれば止める。 */
+export function decideGate(a: {
+  busy: boolean
+  hasTarget: boolean
+  picked: DecideChoice | null
+  current: PreviewState | null
+}): { blocked: boolean; canDecide: boolean } {
+  const blocked = a.current?.status === 'ok' && !a.current.preview.valid
+  return { blocked, canDecide: !a.busy && a.hasTarget && a.picked !== null && !blocked }
 }

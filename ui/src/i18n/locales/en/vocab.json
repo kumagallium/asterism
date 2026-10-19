@@ -170,7 +170,7 @@
     "std_found": "A standard term was found",
     "std_searching": "Looking for a standard term…",
     "std_use_note": "This standard term can be used as it is, so no term is created. To match a kind or field to it, pick it in the dataset's details (Contents).",
-    "std_goto_lines": "Go to dataset details",
+    "std_goto_lines": "Go to datasets",
     "std_reason_required": "Write why you are not using it (kept as a record).",
     "std_from_column": "column \"{{column}}\"",
     "cancel": "Cancel",

@@ -44,7 +44,6 @@ from asterism.crosswalk_runtime import (
     _kind_of,
     _sparql_str,
 )
-from asterism.kind_counts import kind_counts
 from asterism.query_tools import (
     lint_query_tool,
     parse_query_tools,
@@ -864,26 +863,32 @@ async def _usage_by_dataset(
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """データセット id → 使っている種類の集合・項目（``predicates`` のうち）の集合。
 
-    種類は :func:`asterism.kind_counts.kind_counts`（公開済みの版 graph・ハブと線の graph
-    を除く）、項目は同じ範囲の graph で ``predicates`` だけを引く。版 graph はデータセット
-    id に畳む（1 つのデータセットは 1 回）。"""
-    class_use: dict[str, set[str]] = {}
-    for g in (await kind_counts(client)).get("graphs", []):
-        did = g.get("dataset_id")
-        if g.get("hub") or not did:
-            continue
-        class_use.setdefault(did, set()).update(k["class_iri"] for k in g["kinds"])
-    prop_use: dict[str, set[str]] = {}
-    preds = sorted({p for p in predicates if _IRI.match(p)})
+    種類・項目とも、公開済みの版 graph（ハブと線の graph を除く）を、``predicates`` の
+    語だけに絞った SPARQL（``VALUES``）で引く。``kind_counts`` の行数上限（5000 行で打ち切り）
+    には従わない — 打ち切られると後ろの graph の種類が丸ごと欠け、試算が実際の
+    :func:`recompute_wired` より小さくなるため。版 graph はデータセット id に畳む（1 つの
+    データセットは 1 回）。"""
+    terms = sorted({p for p in predicates if _IRI.match(p)})
     graphs = [g for g in await substrate.canonical_graphs(client) if not _is_hub_or_alignment(g)]
     graphs = [g for g in graphs if substrate.dataset_id_of_canonical_graph(g)]
-    if preds and graphs:
+    class_use: dict[str, set[str]] = {}
+    prop_use: dict[str, set[str]] = {}
+    if terms and graphs:
         g_values = " ".join(f"<{g}>" for g in sorted(set(graphs)))
-        p_values = " ".join(f"<{p}>" for p in preds)
+        t_values = " ".join(f"<{p}>" for p in terms)
+        rows = await _bindings(
+            client,
+            f"SELECT DISTINCT ?g ?c WHERE {{ VALUES ?g {{ {g_values} }} "
+            f"VALUES ?c {{ {t_values} }} GRAPH ?g {{ ?e a ?c }} }}",
+        )
+        for b in rows:
+            did = substrate.dataset_id_of_canonical_graph(b["g"]["value"])
+            if did:
+                class_use.setdefault(did, set()).add(b["c"]["value"])
         rows = await _bindings(
             client,
             f"SELECT DISTINCT ?g ?p WHERE {{ VALUES ?g {{ {g_values} }} "
-            f"VALUES ?p {{ {p_values} }} GRAPH ?g {{ ?e ?p ?v }} }}",
+            f"VALUES ?p {{ {t_values} }} GRAPH ?g {{ ?e ?p ?v }} }}",
         )
         for b in rows:
             did = substrate.dataset_id_of_canonical_graph(b["g"]["value"])
@@ -928,11 +933,11 @@ async def preview_alignment(
     if remove:
         after_edges = edges - {one}
     else:
-        if source == target:
-            return refused("same")
         ctx = await _endpoint_context(client)
         if "shared_unminted" in (_kind_of(source, ctx)[0], _kind_of(target, ctx)[0]):
             return refused("unminted")
+        if source == target:
+            return refused("same")
         try:
             _check_same_shape(
                 relation, source, target, await _declared_shapes(client, [source, target])
