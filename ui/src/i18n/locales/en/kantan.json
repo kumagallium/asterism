@@ -16,12 +16,12 @@
     "step1": "Put it in",
     "step2": "Let the AI read",
     "step3": "Give meanings",
-    "step4": "Pick the number",
+    "step4": "Pick the data's ID",
     "step5": "Confirm the shape",
     "step6": "Try it",
     "step7": "Publish",
-    "step4Auto": "Number picked automatically",
-    "step4Placeholder": "Number is provisional (check in ⑤)"
+    "step4Auto": "ID picked automatically",
+    "step4Placeholder": "ID is provisional (check in ⑤)"
   },
   "shortcut_title": "This matches the shape of \"{{kind}}\", which you already have",
   "shortcut_body": "You can add it as-is, with no design step",
@@ -604,11 +604,13 @@
       "exampleColDish": "Dish",
       "exampleColFood": "Ingredient",
       "exampleColPrice": "Price",
-      "askConsultPrefill": "Which values for this one item are likely to appear in other data with the same spelling (values worth giving an ID)? Look at the columns and real values.",
+      "askConsultPrefill": "Which values in one row are likely to appear in other data with the same spelling (values worth giving an ID)? Look at the columns and real values.",
       "promise": "Tick it once and it connects as soon as the data is taken in.",
       "exampleSummary": "See an example",
-      "numberLocked": "Already ticked — it is the number",
-      "askConsult": "Ask the AI if unsure"
+      "numberLocked": "This is the ID column — already ticked",
+      "askConsult": "Ask the AI if unsure",
+      "exampleDish1": "Curry",
+      "exampleDish2": "Stew"
     },
     "fit": {
       "same": "Same item as the existing “{{label}}”",
@@ -621,10 +623,10 @@
     }
   },
   "links": {
-    "title": "Pick the number",
-    "keyLead": "Something that can always name the same one item later, by the same number: a serial number, model number, catalogue number. Measured values can't be picked.",
-    "keyQuestion": "Which number names this one item?",
-    "keyMissing": "No naming number has been picked yet. Choose one from the candidates above.",
+    "title": "Pick the data's ID",
+    "keyLead": "One row of the table is one piece of data. Pick the column that can always call that row by the same value later. Choose a column whose values never repeat across rows. Measured numbers can't be picked.",
+    "keyQuestion": "Which column is the data's ID?",
+    "keyMissing": "No ID column has been picked yet. Choose one from the candidates above.",
     "proceed": "Done choosing — assemble the shape",
     "back": "← Back to column meanings",
     "askConsult": "Ask the AI if unsure",
@@ -642,7 +644,18 @@
       "values_do_not_match": "prefix + row ID does not reproduce the original IRI"
     },
     "assembleFailed": "Could not assemble the shape",
-    "keyConsultPrefill": "Which value names this one item (something I can always call by the same number later)? Look at the columns and real values."
+    "keyConsultPrefill": "Which column can be the ID of this data (values never repeat across rows, and I can always call a row by the same value later)? Look at the columns and real values.",
+    "exampleSummary": "See an example",
+    "exampleTitle": "Recipes",
+    "exampleColId": "Recipe no.",
+    "exampleColDish": "Dish",
+    "exampleColFood": "Ingredient",
+    "exampleId1": "R-001",
+    "exampleId2": "R-002",
+    "exampleFood": "carrot",
+    "exampleIdOk": "✓ differs in every row → can be the ID",
+    "exampleFoodNg": "✕ “carrot” is in 2 rows → not an ID",
+    "exampleCaption": "In a recipe table, “Recipe no.” is the ID: the value differs in every row and never changes later. “Ingredient” can’t be the ID because the same “carrot” appears in 2 rows — that is the link hint you tick in ③, a different thing."
   },
   "publishResult": {
     "applied": "Wrote {{n}} relation(s) to the published data.",

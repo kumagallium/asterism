@@ -1,7 +1,7 @@
 // 手順バーの名前と、その段で開く画面の見出しは同じ言葉にする
 // （ADR meaning-before-identity §11 K47 の訂正）。同じ 1 画面を指す文言のキーが
 // 2 つあり、片方だけ変えると食い違う — 実際に手順バーと見出しが別の名前の
-// まま出荷された（④の旧名）。④は「番号を選ぶ」で、畳んだときの理由も辞書にある。
+// まま出荷された（④の旧名）。④は「データの ID を選ぶ」で、畳んだときの理由も辞書にある。
 import { describe, expect, it } from 'vitest'
 import en from '../i18n/locales/en/kantan.json'
 import ja from '../i18n/locales/ja/kantan.json'
@@ -57,8 +57,8 @@ describe('④を畳んだときの手順バーの言葉', () => {
     })
   }
 
-  it('ja: 手順バーの名前は「番号を選ぶ」', () => {
-    expect(ja.recipe.step4).toBe('番号を選ぶ')
-    expect(en.recipe.step4).toBe('Pick the number')
+  it('ja: 手順バーの名前は「データの ID を選ぶ」', () => {
+    expect(ja.recipe.step4).toBe('データの ID を選ぶ')
+    expect(en.recipe.step4).toBe("Pick the data's ID")
   })
 })

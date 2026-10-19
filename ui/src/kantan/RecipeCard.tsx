@@ -42,7 +42,7 @@ export function RecipeCard({
    *  stay indicative (forward-only: no jumping to un-reached steps). Omitted →
    *  the recipe is purely a progress indicator (backward compatible). */
   onStepClick?: (step: RecipeStep) => void
-  /** ④「番号を選ぶ」を畳んだ理由: `auto` = 候補が 1 つで自動で決まった／
+  /** ④「データの ID を選ぶ」を畳んだ理由: `auto` = 候補が 1 つで自動で決まった／
    *  `placeholder` = 候補が無く仮置き（⑤で確認）。無ければ④は通常どおり。 */
   step4Fold?: 'auto' | 'placeholder'
 }) {
