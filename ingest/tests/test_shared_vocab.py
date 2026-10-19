@@ -746,7 +746,9 @@ async def test_preview_remove_is_the_reverse_direction(tmp_path: Path) -> None:
 async def test_preview_refuses_with_a_reason_and_empty_lists(tmp_path: Path) -> None:
     client = _Client()
     await _seed_two_datasets(client)
-    _ontology(client, "xrd-a", [(A_REC, RDFS + "Class", "記録"), (A_PROP, RDF + "Property", "強度")])
+    _ontology(
+        client, "xrd-a", [(A_REC, RDFS + "Class", "記録"), (A_PROP, RDF + "Property", "強度")]
+    )
     await _mint_class(client, tmp_path)
     iri = sv.term_iri("diffraction_point")
     up = sv.term_iri("upper_word")
@@ -796,7 +798,13 @@ def test_dismiss_is_atomic_idempotent_and_reversible(tmp_path: Path) -> None:
     assert sv.undismiss_fit(tmp_path, A_REC, B_REC) is True
     assert sv.undismiss_fit(tmp_path, A_REC, B_REC) is False
     assert sv.load_dismissed(tmp_path) == []
+    # 公開前の列の鍵も受ける。空・制御文字は不可、term は IRI
+    assert sv.dismiss_fit(tmp_path, "column:a.csv/dp", B_REC, at=AT) is True
+    for bad in ("", "  ", "a\nb"):
+        with pytest.raises(ValueError):
+            sv.dismiss_fit(tmp_path, bad, B_REC, at=AT)
     with pytest.raises(ValueError):
-        sv.dismiss_fit(tmp_path, "bad", B_REC, at=AT)
+        sv.dismiss_fit(tmp_path, A_REC, "not an iri", at=AT)
+    assert sv.undismiss_fit(tmp_path, "column:a.csv/dp", B_REC) is True
     (tmp_path / sv.REGISTRY_ID / "dismissed.json").write_text("{broken", encoding="utf-8")
     assert sv.load_dismissed(tmp_path) == []

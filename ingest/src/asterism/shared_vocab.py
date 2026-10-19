@@ -1002,8 +1002,17 @@ def _save_dismissed(root: Path | str, rows: list[dict]) -> None:
 
 def dismiss_fit(root: Path | str, subject: str, term: str, *, at: str) -> bool:
     """「当てはまるものは無い」: ``subject`` に ``term`` を提案しないと決める。冪等（同じ対は
-    1 件・最初の ``at`` を残す）。新しく足したら ``True``。"""
-    _check_iri(subject)
+    1 件・最初の ``at`` を残す）。新しく足したら ``True``。
+
+    ``term`` は絶対 IRI。``subject`` は提案を受ける側の鍵 — 公開済みの種類・項目なら IRI、
+    まだ公開前の列・種類なら画面が付ける鍵（``column:…``）でもよい（空・制御文字は不可）。"""
+    if (
+        not isinstance(subject, str)
+        or not subject.strip()
+        or len(subject) > 1000
+        or any(ord(c) < 32 for c in subject)
+    ):
+        raise ValueError(f"subject must be a non-empty key: {subject!r}")
     _check_iri(term)
     rows = load_dismissed(root)
     if any(r["subject"] == subject and r["term"] == term for r in rows):

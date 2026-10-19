@@ -853,8 +853,10 @@ def test_dismiss_removes_the_candidate_and_can_be_reverted(tmp_path: Path) -> No
         back = client.request("DELETE", "/api/vocab/dismiss", json=pair)
         assert back.status_code == 200 and back.json()["removed"] is True
         assert terms(subject=subject) == [term]
-        bad = client.post("/api/vocab/dismiss", json={"subject": "x", "term": term})
+        bad = client.post("/api/vocab/dismiss", json={"subject": "", "term": term})
         assert bad.status_code == 400
+        bad_term = client.post("/api/vocab/dismiss", json={"subject": subject, "term": "x"})
+        assert bad_term.status_code == 400
 
         with TestClient(app) as anon:  # トークン無しは書けない
             assert anon.post("/api/vocab/dismiss", json=pair).status_code == 401
