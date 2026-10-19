@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime
+from asterism import crosswalk_runtime, substrate
 from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
@@ -220,7 +220,12 @@ async def _links_by_dataset(
 
 async def _count_triples(client: SupportsSparql) -> int:
     """ホームの事実の数（``getGraphStats`` と同じ数え方）。"""
-    raw = await client.sparql_select("SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }")
+    # `/api/sparql` と同じく、公開済み graph の FROM 合併を読む（素の default graph は
+    # 本物の Oxigraph では空）。
+    query = await substrate.canonical_merge_query(
+        client, "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }"
+    )
+    raw = await client.sparql_select(query)
     rows = _rows(raw)
     try:
         return int(_cell(rows[0], "n") or 0) if rows else 0
