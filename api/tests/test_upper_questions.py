@@ -373,9 +373,16 @@ def test_column_meaning_fit_round_trips_and_clears(tmp_path: Path, healthy_clien
         client.post(url, json={"meanings": [{**row, "fit": None}]})
         cleared = next(m for m in client.get(url).json()["meanings"] if m["column"] == "channel")
         assert "fit" not in cleared and cleared["label"] == "チャンネル"
+        # 別名で当たった当てはめも受ける（matched_by は label / alias / column）
+        by_alias = {**_FIT, "matched_by": "alias"}
+        assert client.post(url, json={"meanings": [{**row, "fit": by_alias}]}).status_code == 200
+        again = next(m for m in client.get(url).json()["meanings"] if m["column"] == "channel")
+        assert again["fit"] == by_alias
         # 形が違えば 422
         bad = client.post(url, json={"meanings": [{**row, "fit": {**_FIT, "kind": "other"}}]})
         assert bad.status_code == 422
+        worse = client.post(url, json={"meanings": [{**row, "fit": {**_FIT, "matched_by": "x"}}]})
+        assert worse.status_code == 422
 
 
 # ---------------------------------------------------------------------------

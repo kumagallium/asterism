@@ -508,7 +508,7 @@ export interface ColumnMeaning {
 export interface ColumnFit {
   term: string
   kind: 'shared' | 'standard' | 'dataset'
-  matched_by: 'label' | 'column'
+  matched_by: 'label' | 'alias' | 'column'
 }
 
 /** Result payload carried by the SSE `done` event for a column-meanings job. */

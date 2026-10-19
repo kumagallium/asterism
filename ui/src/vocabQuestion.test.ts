@@ -202,9 +202,10 @@ describe('孤立（まだ答えるデータがない）の札と注意', () => {
 describe('導線の hash', () => {
   it('Ask から題を運ぶ（解釈せずそのまま・エンコードして）', () => {
     expect(vocabQuestionHash('試料は何件？ A/B')).toBe(
-      `#/questions?q=${encodeURIComponent('試料は何件？ A/B')}`,
+      `#/questions?new=1&q=${encodeURIComponent('試料は何件？ A/B')}`,
     )
-    expect(vocabQuestionHash('  ')).toBe('#/questions')
+    // 題が無くても、6 段（①）を開く入口のまま
+    expect(vocabQuestionHash('  ')).toBe('#/questions?new=1')
   })
 
   it('運んだ題を読み戻せる・scope と dataset も読む', () => {

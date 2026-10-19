@@ -1,5 +1,5 @@
 // Shared vocabulary helpers — used by both the Shared-vocabulary board
-// (SharedVocabView) and the per-dataset Catalog detail (GalleryView).
+// (ThemesView) and the per-dataset Catalog detail (GalleryView).
 //
 // These derive the "reuse" story straight from REAL term IRIs (the namespaces
 // actually present in the live data), so neither view needs a hardcoded fixture:

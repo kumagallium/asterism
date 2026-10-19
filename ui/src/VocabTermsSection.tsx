@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AttachKind, type AttachChoice } from './decide/AttachKind'
-import { VocabTermForm } from './VocabTermForm'
 import {
   type CqInput,
   type CqOp,
@@ -116,7 +115,13 @@ export function VocabTermRow({
   return (
     <div className="vocab-term" data-slug={term.slug}>
       <div className="vocab-term-head">
-        <span className="vocab-term-label">{term.label}</span>
+        <a
+          className="vocab-term-label"
+          href={`#/questions/term/${encodeURIComponent(term.slug)}`}
+          title={t('themes:term.open')}
+        >
+          {term.label}
+        </a>
         <span className="vocab-term-slug">{term.slug}</span>
         <span className="vocab-term-kind">{t(`vocab:term.kind_badge.${term.kind}`)}</span>
         {!term.wired && <span className="vocab-term-isolated">{t('vocab:term.isolated')}</span>}
@@ -192,7 +197,8 @@ export function VocabTermRow({
   )
 }
 
-/** 共有のことば（一覧・作る・外す）。ADR upper-structure-shared-terms.md §2.5.1 (4)。 */
+/** 用語の一覧（読む・問いを足す・種類を入れる・外す）。鋳造は「知りたいこと」の 6 段から行う
+ *  （ここに作るフォームは無い）。ADR upper-structure-shared-terms.md §2.5.1 (4)。 */
 export function VocabTermsSection({
   reloadKey = 0,
   onChanged,
@@ -208,7 +214,6 @@ export function VocabTermsSection({
   const { t } = useTranslation()
   const [terms, setTerms] = useState<SharedTerm[] | null>(null)
   const [loadErr, setLoadErr] = useState('')
-  const [creating, setCreating] = useState(false)
   const [confirm, setConfirm] = useState('')
   const [removing, setRemoving] = useState('')
   const [actErr, setActErr] = useState('')
@@ -299,22 +304,6 @@ export function VocabTermsSection({
       )}
       {actErr && <p className="promote-err">{actErr}</p>}
       {note && <p className="lifecycle-ok">{note}</p>}
-      {creating ? (
-        <VocabTermForm
-          onCancel={() => setCreating(false)}
-          onMinted={(term) => {
-            setCreating(false)
-            setNote(t('vocab:term.created', { label: term.label }))
-            onChanged()
-          }}
-        />
-      ) : (
-        <p>
-          <button type="button" className="btn btn--sm" onClick={() => setCreating(true)}>
-            {t('vocab:term.open_form')}
-          </button>
-        </p>
-      )}
     </section>
   )
 }

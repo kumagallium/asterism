@@ -32,8 +32,9 @@ import { OntologyMapView } from './OntologyMapView'
 import { SkyView } from './sky/SkyView'
 import { homeHash, parseHomeQuery } from './sky/skyRoute'
 import { useLlmSettings } from './settings/context'
-import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
+import { TermPage } from './themes/TermPage'
+import { ThemesView } from './themes/ThemesView'
 import type { RedesignTarget } from './WorkbenchView'
 
 // sigma（WebGL）は全体グラフを開くときだけ読む（初期の読み込みを重くしない・テストの node でも落ちない）。
@@ -95,6 +96,10 @@ export interface Route {
   /** `#/questions?new=1`（`tab: 'vocab'`）— 上部バーの「？ 知りたいことを書く」から
    *  入ったとき、「問いから始める」の入力欄に自動でフォーカスする。 */
   newQuestion?: boolean
+  /** `#/questions/term/<slug>`（`tab: 'vocab'`）— 用語のページ。 */
+  termSlug?: string
+  /** `#/questions/<theme>`（`tab: 'vocab'`）— そのテーマのカードを見せる。 */
+  themeId?: string
   /** `#/cards/add?kind=<class_iri>` — 種類のページの「＋ 追加」から、その種類を
    *  開いた状態で追加画面に入る（PR F9）。 */
   addClassIri?: string
@@ -167,7 +172,16 @@ export function parseHash(hash: string): Route {
   // 新しい綴り（UI 再設計 PR 1）。画面名＝綴り: 知りたいこと=#/questions、
   // データ=#/data（つながりは ?tab=connections）、見る=#/browse。内部の Tab id は
   // そのまま（vocab / gallery / crosswalk / cards）。旧 `#/vocab…` も同じ結果（互換）。
-  if (parts[0] === 'questions' || parts[0] === 'vocab') return { tab: 'vocab' }
+  if (parts[0] === 'questions' || parts[0] === 'vocab') {
+    // `#/questions/term/<slug>` — 用語のページ。`#/questions/<theme>` — テーマのカードへ。
+    if (parts[1] === 'term' && parts[2]) {
+      return { tab: 'vocab', termSlug: decodeURIComponent(parts[2].split('?')[0]) }
+    }
+    if (parts[1] && parts[1] !== 'term') {
+      return { tab: 'vocab', themeId: decodeURIComponent(parts[1].split('?')[0]) }
+    }
+    return { tab: 'vocab' }
+  }
   if (parts[0]?.startsWith('questions?') || parts[0]?.startsWith('vocab?')) {
     const query = parts[0].slice(parts[0].indexOf('?') + 1)
     return new URLSearchParams(query).get('new') === '1'
@@ -289,7 +303,7 @@ export function parseHash(hash: string): Route {
     return { tab: 'cards' }
   }
   // `#/questions?q=<題>` ・ `#/questions?scope=…&dataset=<id>` — 「知りたいこと」画面への
-  // 持ち込み（上で解く）。クエリは画面（SharedVocabView）が自分で hash から読む。
+  // 持ち込み（上で解く）。クエリは画面（ThemesView）が自分で hash から読む。
   // 旧 `#/jobs`（アクティビティ）は「決めたこと」のタブへ。
   if (parts[0] === 'jobs') return { tab: 'decisions', decisionsTab: 'activity' }
   if (parts[0] === 'decisions' || parts[0]?.startsWith('decisions?')) {
@@ -317,7 +331,11 @@ export function routeToHash(r: Route): string {
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
   }
   if (r.tab === 'gallery') return '#/datasets'
-  if (r.tab === 'vocab') return r.newQuestion ? '#/questions?new=1' : '#/questions'
+  if (r.tab === 'vocab') {
+    if (r.termSlug) return `#/questions/term/${encodeURIComponent(r.termSlug)}`
+    if (r.themeId) return `#/questions/${encodeURIComponent(r.themeId)}`
+    return r.newQuestion ? '#/questions?new=1' : '#/questions'
+  }
   if (r.tab === 'decisions') {
     return `#/decisions${decisionsQuery(r.decisionsTab ?? 'decisions', r.decisionsFilter ?? 'all')}`
   }
@@ -1075,23 +1093,32 @@ function App() {
                 onDetailFocusConsumed={() => setDetailFocus(null)}
               />
             )}
-            {tab === 'vocab' && (
-              <SharedVocabView
-                autoFocusQuestion={!!route.newQuestion}
-                onAutoFocusConsumed={() => {
-                  // new だけを外す。同居する q・scope（#/questions?q=…&new=1）は残す。
-                  const h = window.location.hash
-                  const qi = h.indexOf('?')
-                  if (qi >= 0) {
-                    const params = new URLSearchParams(h.slice(qi + 1))
-                    params.delete('new')
-                    const rest = params.toString()
-                    window.history.replaceState(null, '', rest ? `${h.slice(0, qi)}?${rest}` : h.slice(0, qi))
-                  }
-                  setRoute({ tab: 'vocab' })
-                }}
-              />
-            )}
+            {tab === 'vocab' &&
+              (route.termSlug ? (
+                <TermPage
+                  slug={route.termSlug}
+                  onBack={() => navigate({ tab: 'vocab' })}
+                />
+              ) : (
+                <ThemesView
+                  newQuestion={!!route.newQuestion}
+                  focusTheme={route.themeId}
+                  onCloseNew={() => {
+                    // 6 段を閉じた: `new` と持ち込まれた題 `q` を hash から外す。
+                    const h = window.location.hash
+                    const qi = h.indexOf('?')
+                    if (qi >= 0) {
+                      const params = new URLSearchParams(h.slice(qi + 1))
+                      params.delete('new')
+                      params.delete('q')
+                      const rest = params.toString()
+                      window.history.replaceState(null, '', rest ? `${h.slice(0, qi)}?${rest}` : h.slice(0, qi))
+                    }
+                    setRoute((r) => ({ ...r, newQuestion: undefined }))
+                  }}
+                  onOpenAsk={openAsk}
+                />
+              ))}
             {tab === 'crosswalk' && (
               <CrosswalkView
                 createMode={!!route.create}
