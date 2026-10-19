@@ -338,10 +338,39 @@ describe('parseHash / routeToHash — 既存の route を壊さない', () => {
   })
 })
 
-describe('#/network（全体グラフ）', () => {
-  it('parseHash / routeToHash が往復する', () => {
-    expect(parseHash('#/network')).toEqual({ tab: 'network' })
-    expect(routeToHash({ tab: 'network' })).toBe('#/network')
+describe('#/home（星図）— deep・new・旧 #/network', () => {
+  it('素の #/home は何も足さない', () => {
+    expect(parseHash('#/home')).toEqual<Route>({ tab: 'home' })
+    expect(routeToHash({ tab: 'home' })).toBe('#/home')
+  })
+
+  it('#/home?deep=1 は「中身まで見る」（往復する）', () => {
+    expect(parseHash('#/home?deep=1')).toEqual<Route>({ tab: 'home', deep: true })
+    expect(routeToHash({ tab: 'home', deep: true })).toBe('#/home?deep=1')
+    expect(roundTrip('#/home?deep=1')).toBe('#/home?deep=1')
+  })
+
+  it('旧 #/network は #/home?deep=1 に着く（置き換え）', () => {
+    expect(parseHash('#/network')).toEqual<Route>({ tab: 'home', deep: true })
+    expect(legacyHashRewrite('#/network')).toBe('#/home?deep=1')
+    expect(legacyHashRewrite('#/home?deep=1')).toBeNull()
+  })
+
+  it('#/home?new=<iri>,<iri> は生まれた輪の対象（IRI の # や / があっても往復する）', () => {
+    const iris = ['https://example.org/a#K1', 'https://example.org/b/K2']
+    const hash = routeToHash({ tab: 'home', newIris: iris })
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', newIris: iris })
+    expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('deep と new は同居できる', () => {
+    const hash = routeToHash({ tab: 'home', deep: true, newIris: ['x:y'] })
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', deep: true, newIris: ['x:y'] })
+  })
+
+  it('new だけを外した hash は deep を残す', () => {
+    expect(routeToHash({ tab: 'home', deep: true })).toBe('#/home?deep=1')
+    expect(routeToHash({ tab: 'home' })).toBe('#/home')
   })
 })
 

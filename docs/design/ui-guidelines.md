@@ -30,6 +30,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 | カード/パネル | `--surface` | #ffffff |
 | 薄い面（入力/コード） | `--surface-alt` | #f4f8f1 |
 | 沈んだ面（タブ列/表頭） | `--surface-sink` | #eaf0e8 |
+| 星図の地（紙の星図・canvas の背景） | `--paper` | #f7f9f4 |
 | 見出し・強調 | `--fg` | #16241a |
 | **本文（段落）** | `--body` | #33453a |
 | 補助テキスト | `--muted` | #54695b |

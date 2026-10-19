@@ -1,0 +1,453 @@
+/* 星図（ホーム）。色は index.css のトークンから（紙の地は --paper）。 */
+
+.sky-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-family: var(--font-ui);
+}
+
+/* 事実の帯（答えられる問い N/M が先頭） */
+.sky-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) 1.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.sky-facts b {
+  margin-right: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+.sky-facts .sky-facts-lead b {
+  color: var(--activity);
+}
+
+.sky-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.85rem;
+  color: var(--body);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* 図と右レール */
+.sky-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 14px;
+  align-items: start;
+}
+.sky-chartwrap {
+  position: relative;
+  min-width: 0;
+}
+.sky-canvas {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.sky-canvas--hit {
+  cursor: pointer;
+}
+.sky-placeholder {
+  display: flex;
+  min-height: 620px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: var(--space-4);
+}
+
+/* 空の状態: 見本を薄く重ねた上の案内 */
+.sky-empty-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  max-width: min(30rem, 86%);
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.sky-empty-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.sky-empty-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--body);
+}
+.sky-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.sky-sample-tag {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+/* 凡例・操作 */
+.sky-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-2);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.sky-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+.sky-legend-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-left: auto;
+}
+.sky-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+.sky-png-note {
+  margin: var(--space-1) 0 0;
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+
+/* 右レール */
+.sky-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.sky-card {
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+.sky-card h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.sky-card h3 .sky-meta {
+  font-weight: 400;
+}
+.sky-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.sky-about-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.sky-about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.sky-kv {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+}
+.sky-kv dt {
+  color: var(--muted);
+}
+.sky-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sky-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sky-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-align: left;
+}
+button.sky-pill {
+  cursor: pointer;
+}
+.sky-pill--term {
+  color: var(--activity);
+  background: var(--activity-soft);
+}
+button.sky-pill--term:hover:not(:disabled) {
+  background: var(--activity-soft);
+  border-color: var(--activity);
+  color: var(--activity);
+}
+.sky-pill--wait {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+.sky-pill--data {
+  color: var(--entity);
+  background: var(--entity-soft);
+}
+button.sky-pill--data:hover:not(:disabled) {
+  background: var(--entity-soft);
+  border-color: var(--entity);
+  color: var(--entity);
+}
+.sky-std {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent-strong);
+}
+.sky-linkrow {
+  display: block;
+  padding: 0;
+  font-size: 0.78rem;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--activity);
+  cursor: pointer;
+}
+.sky-linkrow:hover:not(:disabled) {
+  background: none;
+  color: var(--fg);
+  text-decoration: underline;
+}
+.sky-hint {
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+  color: var(--body);
+}
+/* 「ひとこと決める」の置き場（PR 3 で中身が入る）。いまは何も出さない。 */
+.sky-decide-slot:empty {
+  display: none;
+}
+
+/* 知りたいこと */
+.sky-qrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 0;
+  text-align: left;
+  color: var(--fg);
+  font-weight: 400;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+}
+.sky-qrow:first-of-type {
+  border-top: none;
+}
+.sky-qrow:hover:not(:disabled),
+.sky-qrow--on {
+  background: var(--surface-alt);
+}
+.sky-qrow-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.sky-qrow-sub {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--faint);
+}
+.sky-ring {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(var(--activity) calc(var(--p) * 1%), var(--activity-soft) 0);
+}
+.sky-ring::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.sky-ring--none {
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+}
+.sky-ring--none::after {
+  display: none;
+}
+.sky-ring--lg {
+  width: 30px;
+  height: 30px;
+}
+.sky-ring--lg::after {
+  inset: 7px;
+}
+
+/* 最近の育ち */
+.sky-recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sky-recent li {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  border-top: 1px solid var(--border);
+}
+.sky-recent li:first-child {
+  border-top: none;
+}
+.sky-recent time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--faint);
+  padding-top: 2px;
+}
+
+/* 図と同じ内容の表 */
+.sky-table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+}
+.sky-table-wrap > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.sky-tables {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+.sky-table-scroll {
+  overflow-x: auto;
+}
+.sky-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.sky-table caption {
+  padding-bottom: var(--space-1);
+  text-align: left;
+  font-weight: 600;
+  color: var(--body);
+}
+.sky-table th,
+.sky-table td {
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.sky-table th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-sink);
+}
+.sky-table td.num {
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 中身まで見る */
+.sky-deep-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.85rem;
+  color: var(--body);
+}
+
+@media (min-width: 1101px) {
+  .sky-rail {
+    position: sticky;
+    top: var(--space-2);
+    max-height: calc(100vh - var(--space-4));
+    overflow-y: auto;
+  }
+}
+@media (max-width: 1100px) {
+  .sky-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

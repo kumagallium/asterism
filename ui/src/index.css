@@ -11,6 +11,7 @@
   --surface: #ffffff; /* cards / panels */
   --surface-alt: #f4f8f1; /* faint fill: inputs, code blocks, soft panels */
   --surface-sink: #eaf0e8; /* sunken fill: tab tracks, table headers */
+  --paper: #f7f9f4; /* 星図の地（紙の星図。夜空の暗色は使わない） */
   --fg: #16241a; /* headings / strong text */
   --body: #33453a; /* paragraph copy — much darker than the old muted */
   --muted: #54695b; /* secondary text */

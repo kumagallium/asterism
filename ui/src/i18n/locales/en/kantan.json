@@ -527,6 +527,7 @@
     "replace": "Replace everything (search keeps working during the swap)",
     "growHint": "Add = your earlier data stays; replace = everything is swapped for the new file.",
     "openDataset": "View the dataset page",
+    "viewSky": "See it on the sky chart",
     "startNew": "Add different new data",
     "returnToPage": "Back to the page",
     "connectTitle": "Connect it to your other data",
