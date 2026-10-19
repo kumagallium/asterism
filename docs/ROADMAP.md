@@ -82,6 +82,7 @@
 
 ## 更新 log
 
+- 2026-10-19: **UI 全面再設計の段階 4（テーマ・知りたいことから作る 6 段）を branch `feat/themes-topdown` で実装**（#719 の上）。保存形 `asterism.themes`（themes.json・下書き・「はじめの問い」への冪等な移行）・AI 下書き `POST /api/themes/draft`（`step0/theme_propose.py`・閉じた JSON schema・データの値は渡さない・SPARQL／IRI／コードを弾く）・手入力でも照合 `POST /api/themes/match`・1 操作の確定 `commit`（失敗で元に戻す）・別名 `skos:altLabel`・実行文 `describe_selection`・型紙・6 段のウィザード・用語のページ・かんたん ⑥「テーマに入れる」。実機（AI 未設定）で ①〜⑥ を手で通し「置く」まで確認。
 - 2026-10-19: **UI 全面再設計の段階 3（ひとこと決める＋決めたこと）を branch `feat/decide-and-decisions` で実装**（#717 の上・#718 とは独立）。帰結の試算 `POST /api/vocab/decide/preview`（store に書かず Python で上位パスを辿る・試算＝保存後を実 rdflib で固定）・提案を外す `dismiss`・共通部品 `DecidePanel`（3 文・初期選択なし・帰結）・「決めたこと」画面（1 行 1 文・取り消しの帰結・アクティビティは隣のタブ）・かんたん ③⑤ の文・地図の選択モードと線の 5 タブの削除。
 - 2026-10-19: **UI 全面再設計の段階 1（名詞と導線）を branch `feat/nouns-and-nav` で実装**（ADR `sky-chart-two-entries.md`・利用者裁定 A）。ナビを 5 つ（ホーム・知りたいこと・データ・見る・質問する）に、上部バー右に常設の 2 入口「＋ データを置く」「？ 知りたいことを書く」、旧 hash（`#/vocab`・`#/data`・`#/browse`）の置き換え、名詞を 用語／標準用語／関係（文）に（ja/en・api の表示名・マニュアル・相談プロンプト）。全体グラフはナビから外しホームのリンクに（段階 2 で星図の「中身まで見る」へ）。検査＝ui の lint／i18n parity／tsc／vitest・api 全体・ingest の shared_vocab・check_manual・test_design_consult が green。並行して段階 2 の API（`asterism.sky_view`・`GET /api/sky`）を branch `feat/sky-chart` で実装中。
 - 2026-10-19: **④の名前を「データの ID を選ぶ」に改め、ID の例の図を足した（branch `fix/kantan-id-step-wording`）**。利用者の指摘（「番号」も「1 件」も分かりにくい／③の「例を見る」の図は最初から見えてよい）。④の見出し・手順バー・畳んだときの言葉（「ID は自動で決まりました」「ID は仮置き」）・問い（「データの ID になる列はどれですか？」）を⑤の「ID」にそろえ、④の問いの上にレシピ表の例の図（最初から開く）を置いた。③の「例を見る」も最初から開く。manual/ja・設計相談の知識（api）・ADR も追随。スクショは撮り直し待ち。
