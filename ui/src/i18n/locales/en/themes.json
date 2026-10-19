@@ -249,7 +249,7 @@
     "questions": "Questions that use it",
     "membersClass": "Kinds that fit in",
     "membersProperty": "Items that fit in",
-    "noMembers": "Nothing fits in yet. “Put a kind into this term” ties a kind of your data to it.",
+    "noMembers": "Nothing fits in yet. The button below ties a kind or item of your data to it.",
     "decisions": "Decisions",
     "noDecisions": "No decisions about this term yet.",
     "toDecisions": "See all decisions",

@@ -249,7 +249,7 @@
     "questions": "使う問い",
     "membersClass": "入っている種類",
     "membersProperty": "入っている項目",
-    "noMembers": "まだ入っていません。「この用語に種類を入れる」で、データの種類を結べます。",
+    "noMembers": "まだ入っていません。下のボタンで、データの種類・項目を結べます。",
     "decisions": "決めたこと",
     "noDecisions": "この用語に関する決めたことは、まだありません。",
     "toDecisions": "決めたことをすべて見る",
