@@ -747,3 +747,115 @@ def test_tools_routes_map_an_unreadable_yaml_to_409(tmp_path: Path) -> None:
         assert r.status_code == 409, r.text
         assert client.delete(f"/api/datasets/{dsid}/tools/t1").status_code == 409
     assert path.read_text(encoding="utf-8") == "tools: [unclosed"
+
+
+# ---------------------------------------------------------------------------
+# ひとこと決める: 帰結の試算・提案を外す
+# ---------------------------------------------------------------------------
+
+
+def _preview(client, source, target, relation="subPropertyOf", **extra):
+    return client.post(
+        "/api/vocab/decide/preview",
+        json={"source": source, "target": target, "relation": relation, **extra},
+    )
+
+
+def test_decide_preview_matches_the_saved_count_and_writes_nothing(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    # 2 つのデータセットが同じ項目 PRED を使う（どちらも、その項目を結べば答える）
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "x")])
+    _seed_promoted(ds, tmp_path / "registry", "ds-b", [("urn:b1", "y")])
+    app, _ = _app(tmp_path, ds)
+    term = SV + "intensity"
+    with TestClient(app, headers=_AUTH) as client:
+        _mint(client, slug="intensity", kind="property", cqs=[CQ_VALUES])
+        quads_before = len(list(ds.quads((None, None, None, None))))
+        wired_before = (tmp_path / "registry" / "vocab-shared" / "wired.json").read_text("utf-8")
+
+        # anonymous でも試算は読める（書き込みではない）
+        with TestClient(app) as anon:
+            assert _preview(anon, PRED, term).status_code == 200
+        p = _preview(client, PRED, term).json()
+        assert p["valid"] is True and p["reason"] is None
+        assert [(t["iri"], t["before"], t["after"]) for t in p["terms"]] == [(term, 0, 2)]
+        assert [(q["title"], q["before"], q["after"]) for q in p["questions"]] == [
+            (CQ_VALUES["title"], 0, 2)
+        ]
+        assert len(list(ds.quads((None, None, None, None)))) == quads_before
+        assert (tmp_path / "registry" / "vocab-shared" / "wired.json").read_text(
+            "utf-8"
+        ) == wired_before
+
+        # 保存した後の数え直しと一致する
+        assert _align(client, PRED, term, "subPropertyOf").status_code == 200
+        (listed,) = client.get("/api/vocab/shared").json()["terms"]
+        assert listed["answering_datasets"] == p["terms"][0]["after"] == 2
+
+        # 取り消す側の試算（逆向き）
+        rm = _preview(client, PRED, term, remove=True).json()
+        assert rm["valid"] is True
+        assert [(t["before"], t["after"]) for t in rm["terms"]] == [(2, 0)]
+
+
+def test_decide_preview_reasons_and_bad_input(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)
+    cls, prop = SV + "diffraction_point", SV + "intensity"
+    with TestClient(app, headers=_AUTH) as client:
+        _mint(client)
+        _mint(client, slug="intensity", kind="property", cqs=[CQ_VALUES])
+        for body, reason in [
+            ((cls, cls, "subClassOf"), "same"),
+            (("https://example.org/xrd#R", SV + "nothing", "subClassOf"), "unminted"),
+            ((cls, prop, "equivalentClass"), "mixed"),
+        ]:
+            r = _preview(client, body[0], body[1], body[2])
+            assert r.status_code == 200, r.text
+            assert r.json() == {"valid": False, "reason": reason, "questions": [], "terms": []}
+        # 循環: 下→上を結んだあとの 上→下
+        rec = "https://example.org/xrd#Record"
+        assert _align(client, rec, cls).status_code == 200
+        cyc = _preview(client, cls, rec, "subClassOf").json()
+        assert cyc["valid"] is False and cyc["reason"] == "cycle"
+        # 保存の側も同じ判断（試算と食い違わない）
+        assert _align(client, cls, rec).status_code == 409
+        # 形の不正は 400
+        assert _preview(client, cls, rec, "sameAs").status_code == 400
+        assert _preview(client, "not an iri", rec).status_code == 400
+
+
+def test_dismiss_removes_the_candidate_and_can_be_reverted(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)
+    subject = "https://example.org/xrd-a#Record"
+    term = SV + "diffraction_point"
+    with TestClient(app, headers=_AUTH) as client:
+        _mint(client)
+
+        def terms(**params) -> list[str]:
+            got = client.get("/api/vocab/fit", params={"label": "回折点", **params}).json()
+            return [c["term"] for c in got["candidates"]]
+
+        assert terms() == [term] and terms(subject=subject) == [term]
+        r = client.post("/api/vocab/dismiss", json={"subject": subject, "term": term})
+        assert r.status_code == 200 and r.json()["added"] is True
+        again = client.post("/api/vocab/dismiss", json={"subject": subject, "term": term})
+        assert again.json()["added"] is False  # 冪等
+        stored = json.loads(
+            (tmp_path / "registry" / "vocab-shared" / "dismissed.json").read_text("utf-8")
+        )
+        assert [(d["subject"], d["term"]) for d in stored] == [(subject, term)]
+        # その対だけ除く（別の主語・主語なしには出る）
+        assert terms(subject=subject) == []
+        assert terms(subject="https://example.org/other#Thing") == [term]
+        assert terms() == [term]
+
+        pair = {"subject": subject, "term": term}
+        back = client.request("DELETE", "/api/vocab/dismiss", json=pair)
+        assert back.status_code == 200 and back.json()["removed"] is True
+        assert terms(subject=subject) == [term]
+        bad = client.post("/api/vocab/dismiss", json={"subject": "x", "term": term})
+        assert bad.status_code == 400
+
+        with TestClient(app) as anon:  # トークン無しは書けない
+            assert anon.post("/api/vocab/dismiss", json=pair).status_code == 401
+            assert anon.request("DELETE", "/api/vocab/dismiss", json=pair).status_code == 401

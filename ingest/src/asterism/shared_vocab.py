@@ -35,7 +35,16 @@ from typing import Any
 
 from asterism import substrate
 from asterism.crosswalk import XW
-from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH, _sparql_str
+from asterism.crosswalk_runtime import (
+    ALIGN_RELATIONS,
+    ALIGNMENT_GRAPH,
+    _check_same_shape,
+    _declared_shapes,
+    _endpoint_context,
+    _kind_of,
+    _sparql_str,
+)
+from asterism.kind_counts import kind_counts
 from asterism.query_tools import (
     lint_query_tool,
     parse_query_tools,
@@ -88,6 +97,7 @@ _IRI = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+\Z', re.IGNORECASE)
 _META_FILE = "meta.json"
 _TOOLS_FILE = "query_tools.yaml"
 _WIRED_FILE = "wired.json"
+_DISMISSED_FILE = "dismissed.json"
 _SHARED_NAME = "用語"
 
 _CLASS_RELS = ("subClassOf", "equivalentClass")
@@ -798,6 +808,226 @@ async def recompute_wired(
 
 
 # ---------------------------------------------------------------------------
+# 「ひとこと決める」の帰結の試算（store には書かない）と、外した提案
+# ---------------------------------------------------------------------------
+
+_SUBSUMPTION_RELS = ("subClassOf", "subPropertyOf")
+_Edge = tuple[str, str, str]
+
+
+def _down_set(term: str, edges: Iterable[_Edge], rels: tuple[str, ...]) -> set[str]:
+    """``term`` へ上位パス（⊂ ・≡ の両向き）で届く語の集合（``term`` 自身を含む）。
+
+    :data:`UPPER_PATH_CLASS` / :data:`UPPER_PATH_PROPERTY` と同じ意味を Python で辿る:
+    ``(s ⊂ t)`` は s → t の 1 歩、``(s ≡ t)`` は両向きの 1 歩。store には何も書かない。"""
+    preds: dict[str, set[str]] = {}
+    for s, r, t in edges:
+        if r not in rels:
+            continue
+        preds.setdefault(t, set()).add(s)
+        if r.startswith("equivalent"):
+            preds.setdefault(s, set()).add(t)
+    seen = {term}
+    stack = [term]
+    while stack:
+        cur = stack.pop()
+        for p in preds.get(cur, ()):
+            if p not in seen:
+                seen.add(p)
+                stack.append(p)
+    return seen
+
+
+def _count_answering(
+    terms: Iterable[str],
+    edges: set[_Edge],
+    class_use: dict[str, set[str]],
+    prop_use: dict[str, set[str]],
+) -> dict[str, int]:
+    """:func:`answering_datasets` と同じ規則を、線の集合 ``edges`` の上で数える。
+
+    データセットは、その種類（``class_use``）が上位パスで語に届く、または項目
+    （``prop_use``）が項目の上位パスで語に届くとき、その語に答える（長さ 0 を含む）。"""
+    out: dict[str, int] = {}
+    for t in terms:
+        dc = _down_set(t, edges, _CLASS_RELS)
+        dp = _down_set(t, edges, _PROP_RELS)
+        hit = {d for d, ks in class_use.items() if ks & dc} | {
+            d for d, ps in prop_use.items() if ps & dp
+        }
+        out[t] = len(hit)
+    return out
+
+
+async def _usage_by_dataset(
+    client: Any, predicates: Iterable[str]
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """データセット id → 使っている種類の集合・項目（``predicates`` のうち）の集合。
+
+    種類は :func:`asterism.kind_counts.kind_counts`（公開済みの版 graph・ハブと線の graph
+    を除く）、項目は同じ範囲の graph で ``predicates`` だけを引く。版 graph はデータセット
+    id に畳む（1 つのデータセットは 1 回）。"""
+    class_use: dict[str, set[str]] = {}
+    for g in (await kind_counts(client)).get("graphs", []):
+        did = g.get("dataset_id")
+        if g.get("hub") or not did:
+            continue
+        class_use.setdefault(did, set()).update(k["class_iri"] for k in g["kinds"])
+    prop_use: dict[str, set[str]] = {}
+    preds = sorted({p for p in predicates if _IRI.match(p)})
+    graphs = [g for g in await substrate.canonical_graphs(client) if not _is_hub_or_alignment(g)]
+    graphs = [g for g in graphs if substrate.dataset_id_of_canonical_graph(g)]
+    if preds and graphs:
+        g_values = " ".join(f"<{g}>" for g in sorted(set(graphs)))
+        p_values = " ".join(f"<{p}>" for p in preds)
+        rows = await _bindings(
+            client,
+            f"SELECT DISTINCT ?g ?p WHERE {{ VALUES ?g {{ {g_values} }} "
+            f"VALUES ?p {{ {p_values} }} GRAPH ?g {{ ?e ?p ?v }} }}",
+        )
+        for b in rows:
+            did = substrate.dataset_id_of_canonical_graph(b["g"]["value"])
+            if did:
+                prop_use.setdefault(did, set()).add(b["p"]["value"])
+    return class_use, prop_use
+
+
+async def preview_alignment(
+    client: Any,
+    registry_root: Path | str,
+    source: str,
+    target: str,
+    relation: str,
+    *,
+    remove: bool = False,
+) -> dict:
+    """線を 1 本足した（``remove=True`` なら外した）あとの「用語ごとの答えるデータセット数」
+    を、**store に書かずに**試算する。
+
+    現在の線（:func:`_alignment_lines`）と種類・項目の使われ方（:func:`_usage_by_dataset`）
+    を読み、仮の線 1 本を足し引きした集合の上で Python が上位パスを辿って数える。結果は、
+    実際に ``assert_alignment`` → :func:`recompute_wired` した値と一致する（統合テストで固定）。
+
+    戻り値: ``{valid, reason, questions: [{tool_name, title, before, after}],
+    terms: [{iri, label, before, after}]}``。``reason`` は ``same`` / ``unminted`` /
+    ``mixed`` / ``cycle``（``valid`` のときは ``None``）。``valid=False`` では ``questions`` と
+    ``terms`` は空。``before`` は ``wired.json``（その語が無ければ同じ計算）。
+
+    ``ValueError`` — 関係が閉集合に無い・IRI の形が不正。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+
+    def refused(reason: str) -> dict:
+        return {"valid": False, "reason": reason, "questions": [], "terms": []}
+
+    lines = await _alignment_lines(client)
+    edges: set[_Edge] = set(lines)
+    one: _Edge = (source, relation, target)
+    if remove:
+        after_edges = edges - {one}
+    else:
+        if source == target:
+            return refused("same")
+        ctx = await _endpoint_context(client)
+        if "shared_unminted" in (_kind_of(source, ctx)[0], _kind_of(target, ctx)[0]):
+            return refused("unminted")
+        try:
+            _check_same_shape(
+                relation, source, target, await _declared_shapes(client, [source, target])
+            )
+        except ValueError:
+            return refused("mixed")
+        if relation in _SUBSUMPTION_RELS:
+            rels = _CLASS_RELS if relation == "subClassOf" else _PROP_RELS
+            if target in _down_set(source, edges, rels):
+                return refused("cycle")
+        after_edges = edges | {one}
+
+    minted = await minted_iris(client)
+    nodes = {x for e in edges | after_edges for x in (e[0], e[2])} | set(minted)
+    class_use, prop_use = await _usage_by_dataset(client, nodes)
+    computed = _count_answering(minted, edges, class_use, prop_use)
+    after = _count_answering(minted, after_edges, class_use, prop_use)
+    wired = load_wired(registry_root)
+    before = {i: wired[i] if i in wired else computed[i] for i in minted}
+
+    shown = {i for i in minted if before[i] != after[i] or i in (source, target)}
+    label_of = {t.iri: t.label for t in await _read_terms(client)}
+    terms = [
+        {"iri": i, "label": label_of.get(i, _local(i)), "before": before[i], "after": after[i]}
+        for i in sorted(shown)
+    ]
+    try:
+        raw_tools = _read_cq_tools(registry_root)
+    except TermError:
+        raw_tools = []
+    questions: list[dict] = []
+    for tool in raw_tools:
+        for_terms = [str(x) for x in (tool.get("for_terms") or [])]
+        if not shown.intersection(for_terms):
+            continue
+        questions.append(
+            {
+                "tool_name": str(tool.get("name")),
+                "title": str(tool.get("title", tool.get("name"))),
+                "before": max((before.get(x, 0) for x in for_terms), default=0),
+                "after": max((after.get(x, 0) for x in for_terms), default=0),
+            }
+        )
+    return {"valid": True, "reason": None, "questions": questions, "terms": terms}
+
+
+def load_dismissed(root: Path | str) -> list[dict]:
+    """外した提案 ``[{subject, term, at}]``（``dismissed.json``・無い／壊れていれば ``[]``）。"""
+    try:
+        data = json.loads((_dir(root) / _DISMISSED_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [
+        {"subject": d["subject"], "term": d["term"], "at": str(d.get("at", ""))}
+        for d in data
+        if isinstance(d, dict)
+        and isinstance(d.get("subject"), str)
+        and isinstance(d.get("term"), str)
+    ]
+
+
+def _save_dismissed(root: Path | str, rows: list[dict]) -> None:
+    _atomic_write(_dir(root) / _DISMISSED_FILE, json.dumps(rows, indent=2, ensure_ascii=False))
+
+
+def dismiss_fit(root: Path | str, subject: str, term: str, *, at: str) -> bool:
+    """「当てはまるものは無い」: ``subject`` に ``term`` を提案しないと決める。冪等（同じ対は
+    1 件・最初の ``at`` を残す）。新しく足したら ``True``。"""
+    _check_iri(subject)
+    _check_iri(term)
+    rows = load_dismissed(root)
+    if any(r["subject"] == subject and r["term"] == term for r in rows):
+        return False
+    rows.append({"subject": subject, "term": term, "at": at})
+    _save_dismissed(root, rows)
+    return True
+
+
+def undismiss_fit(root: Path | str, subject: str, term: str) -> bool:
+    """外した提案を戻す。冪等。消したら ``True``。"""
+    rows = load_dismissed(root)
+    kept = [r for r in rows if not (r["subject"] == subject and r["term"] == term)]
+    if len(kept) == len(rows):
+        return False
+    _save_dismissed(root, kept)
+    return True
+
+
+def is_dismissed(dismissed: Iterable[dict], subject: str, term: str) -> bool:
+    return any(r["subject"] == subject and r["term"] == term for r in dismissed)
+
+
+# ---------------------------------------------------------------------------
 # Upper map (ADR §2.6) — collapses dataset terms onto the top shared term
 # ---------------------------------------------------------------------------
 
@@ -950,20 +1180,25 @@ __all__ = [
     "answering_datasets",
     "classify_endpoint",
     "default_cq_tools",
+    "dismiss_fit",
     "fit_candidates",
+    "is_dismissed",
     "is_shared_iri",
     "is_system_entry",
     "is_wired",
     "known_namespaces",
     "list_terms",
+    "load_dismissed",
     "load_wired",
     "mint_term",
     "minted_iris",
     "normalize_label",
     "ontology_terms",
+    "preview_alignment",
     "recompute_wired",
     "remove_term",
     "slug_of",
     "term_iri",
+    "undismiss_fit",
     "upper_map",
 ]

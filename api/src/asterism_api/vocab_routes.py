@@ -8,7 +8,10 @@
   question_id}`` を送ると、他データセットの問い（``questions.json``）の種類／項目を上位の共有語に
   置き換えて足す（「用語へ写す」・元は残す・上位がその語でなければ 409）
 - ``GET /api/vocab/upper`` — 全体グラフ向けの上位の対応表（線だけから作る）
-- ``GET /api/vocab/fit`` — 列を当てはめられる語の候補（完全一致のみ・表示専用）
+- ``GET /api/vocab/fit`` — 列を当てはめられる語の候補（完全一致のみ・表示専用）。``subject`` を
+  付けると、その対を外した提案（``dismissed.json``）は除く
+- ``POST /api/vocab/decide/preview`` — 「ひとこと決める」の帰結の試算（store には書かない）
+- ``POST /api/vocab/dismiss`` / ``DELETE /api/vocab/dismiss`` — 提案を外す／戻す（冪等）
 
 ``shared_vocab``（ingest）は決定論・LLM なし。ここは受け取りと HTTP への写像だけを持つ。
 書き込みの認証は呼ぶ側（``build_app``）が渡す ``write_auth``（既存の ``/api/crosswalk/align``
@@ -82,6 +85,22 @@ class AddCqBody(BaseModel):
     op: str | None = None
     from_dataset: str | None = None
     question_id: str | None = None
+
+
+class DecidePreviewBody(BaseModel):
+    """帰結の試算の入力。``remove`` は「その線を取り消したら」の試算（決めたこと画面）。"""
+
+    source: str
+    target: str
+    relation: str
+    remove: bool = False
+
+
+class DismissBody(BaseModel):
+    """「当てはまるものは無い」— ``subject`` に ``term`` を提案しない対。"""
+
+    subject: str
+    term: str
 
 
 def _term_from_row(row: dict) -> SharedTerm:
@@ -320,6 +339,9 @@ def register_vocab(
     async def vocab_fit(
         label: str = Query(default="", description="利用者が付けた表示名"),
         column: str = Query(default="", description="列名（英語のことが多い）"),
+        subject: str = Query(
+            default="", description="提案を受ける側の IRI（外した提案を除くのに使う。任意）"
+        ),
     ) -> JSONResponse:
         """この列を当てはめられる既存の語の候補。**完全一致だけ**（正規化後）で、曖昧な
         一致は出さない。表示専用 — 受けるかどうかは人が決める（受けて初めて線になる）。
@@ -345,14 +367,60 @@ def register_vocab(
                 for c in grounding.ground_terms(column, limit=8)
                 if c.score == _EXACT_SCORE
             ]
-        return JSONResponse(
-            {
-                "candidates": shared_vocab.fit_candidates(
-                    label,
-                    column,
-                    shared_terms=[_term_from_row(r) for r in rows],
-                    dataset_terms=dataset_terms,
-                    standard_hits=standard_hits,
-                )
-            }
+        candidates = shared_vocab.fit_candidates(
+            label,
+            column,
+            shared_terms=[_term_from_row(r) for r in rows],
+            dataset_terms=dataset_terms,
+            standard_hits=standard_hits,
         )
+        if subject.strip():
+            dismissed = shared_vocab.load_dismissed(cfg.registry_root)
+            candidates = [
+                c
+                for c in candidates
+                if not shared_vocab.is_dismissed(dismissed, subject, c["term"])
+            ]
+        return JSONResponse({"candidates": candidates})
+
+    @app.post("/api/vocab/decide/preview")
+    async def vocab_decide_preview(body: DecidePreviewBody) -> JSONResponse:
+        """線を 1 本足したら（``remove`` なら外したら）、用語ごとの答えるデータセット数と
+        問いの答える数がどう変わるか。**store には何も書かない**（Python で上位パスを辿る）。
+        結べない組み合わせは ``valid=false`` と ``reason``（``same`` / ``unminted`` /
+        ``mixed`` / ``cycle``）で返す（HTTP は 200。保存の側が 409 / 422 で止める）。"""
+        try:
+            out = await shared_vocab.preview_alignment(
+                _client(),
+                cfg.registry_root,
+                body.source,
+                body.target,
+                body.relation,
+                remove=body.remove,
+            )
+        except ValueError as exc:  # 関係が閉集合に無い・IRI の形が不正
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            logger.warning("decide preview failed", exc_info=True)
+            raise HTTPException(502, f"decide preview failed: {exc}") from exc
+        return JSONResponse(out)
+
+    @app.post("/api/vocab/dismiss", dependencies=list(write_auth))
+    async def vocab_dismiss(body: DismissBody) -> JSONResponse:
+        """この提案（``subject`` に ``term``）を外す。同じ対は 1 件（冪等）。"""
+        try:
+            added = shared_vocab.dismiss_fit(cfg.registry_root, body.subject, body.term, at=_now())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(502, f"dismiss write failed: {exc}") from exc
+        return JSONResponse({"subject": body.subject, "term": body.term, "added": added})
+
+    @app.delete("/api/vocab/dismiss", dependencies=list(write_auth))
+    async def vocab_undismiss(body: DismissBody) -> JSONResponse:
+        """外した提案を戻す（冪等）。"""
+        try:
+            removed = shared_vocab.undismiss_fit(cfg.registry_root, body.subject, body.term)
+        except OSError as exc:
+            raise HTTPException(502, f"dismiss write failed: {exc}") from exc
+        return JSONResponse({"subject": body.subject, "term": body.term, "removed": removed})
