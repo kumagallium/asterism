@@ -273,7 +273,15 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en' }) {
   const consumedRef = useRef<string>('')
   const { newIris, onNewConsumed } = props
   useEffect(() => {
-    if (newIris.length === 0 || nothing) return
+    if (newIris.length === 0) {
+      consumedRef.current = ''
+      return
+    }
+    if (nothing) {
+      // 描く星が無くても、hash に new を残さない
+      onNewConsumed()
+      return
+    }
     const key = newIris.join('\n')
     if (consumedRef.current === key) return
     consumedRef.current = key

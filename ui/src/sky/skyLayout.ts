@@ -291,6 +291,11 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
   const boxes = datasets.map((d) => {
     const n = d.kinds.length
     let w = Math.max(104, 46 * Math.sqrt(n) + 58, Math.min(240, approxLabelWidth(d.label) + 20))
+    // 星の名前（11px × 文字数）が 2 列は並べる幅にする。名前が重なって出なくなるのを減らす。
+    if (n > 1) {
+      const nameW = Math.max(...d.kinds.map((k) => Math.min(190, Math.max(approxLabelWidth(k.label), 56))))
+      w = Math.max(w, Math.min(W - PAD * 2, 2 * nameW + 30))
+    }
     // 星が多い（9 つ以上）星座は、縦に伸びすぎないよう横にも広げる（図の幅まで）。
     if (n > 8) w = Math.max(w, Math.min(W - PAD * 2, Math.sqrt(n * starArea(n) * 1.4)))
     const h = Math.max(CLUSTER_H_MIN, (n * starArea(n)) / w)
@@ -411,6 +416,9 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
         }
       })
       const byIri = new Map(pts.map((p) => [p.k.iri, p]))
+      // 星どうしの間隔。名前（丸の下に 2 行）が隣の丸・名前に被らないよう 110px 空ける。
+      // 星が多い（9 つ以上）星座は面積が足りないので、72px まで詰める。
+      const wantGap = 110 - 38 * Math.min(1, Math.max(0, (pts.length - 8) / 32))
       const hx = b.w / 2 - 30
       const hy = ch / 2 - 26
       for (let it = 0; it < relaxIterations(pts.length); it++) {
@@ -431,7 +439,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
               d2 = 0.34
             }
             const d = Math.sqrt(d2)
-            const want = 72
+            const want = wantGap
             if (d < want) {
               const f = ((want - d) / d) * 0.5
               a.vx -= dx * f

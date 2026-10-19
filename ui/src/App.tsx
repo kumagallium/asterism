@@ -172,7 +172,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'browse' || parts[0]?.startsWith('browse?')) return { tab: 'cards' }
   // 星図（ホーム）。`#/home?deep=1` = 中身まで見る・`#/home?new=…` = 生まれた輪。
   // 旧 `#/network`（全体グラフ）はホームの「中身まで見る」に統合した。
-  if (parts[0] === 'network') return { tab: 'home', deep: true }
+  if (parts[0] === 'network' || parts[0]?.startsWith('network?')) return { tab: 'home', deep: true }
   if (parts[0]?.startsWith('home?')) {
     const q = parseHomeQuery(parts[0].slice('home?'.length))
     const r: Route = { tab: 'home' }

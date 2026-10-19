@@ -79,14 +79,10 @@ _LINE_RELATIONS = ("subClassOf", "equivalentClass", "subPropertyOf", "equivalent
 _SUBSUMPTION = ("subClassOf", "subPropertyOf")
 _UNPUBLISHED_STATUS = ("retracted", "deleted")
 
-#: 「決めたこと」の言い回し（関係 → 1 行）。
-_DECISION_TEXT = {
-    "equivalentClass": "「{a}」は「{b}」と同じ",
-    "equivalentProperty": "「{a}」は「{b}」と同じ",
-    "subClassOf": "「{a}」は「{b}」の一種",
-    "subPropertyOf": "「{a}」は「{b}」の一種",
-    "hasQuantityKind": "「{a}」の値は「{b}」という量",
-}
+#: 「決めたこと」として出す関係。文は画面（UI）が言語に合わせて組む。
+_DECISION_RELATIONS = frozenset(
+    {"equivalentClass", "equivalentProperty", "subClassOf", "subPropertyOf", "hasQuantityKind"}
+)
 
 
 def _facts(**over: int) -> dict[str, int]:
@@ -478,22 +474,29 @@ async def sky_view(
 def _recent(
     published: list[dict[str, Any]], shared: list[Any], alignments: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
-    """直近の公開・用語の鋳造・決めたこと（新しい順に :data:`RECENT_LIMIT` 件）。"""
-    items: list[tuple[datetime, str, str, str]] = []
+    """直近の公開・用語の鋳造・決めたこと（新しい順に :data:`RECENT_LIMIT` 件）。
+
+    文は組まない（言語は画面が決める）。``a`` は主たる名前、``b`` は決めたことの相手の名前
+    （それ以外は空）。``relation`` は決めたことの関係（それ以外は空）。
+    """
+    items: list[tuple[datetime, str, str, str, str, str]] = []
     for d in published:
         raw = d["promoted_at"] or d["created_at"]
         if (at := _parse_at(raw)) is not None:
-            items.append((at, raw, "publish", f"データセット「{d['label']}」を公開した"))
+            items.append((at, raw, "publish", d["label"], "", ""))
     for t in shared:
         if (at := _parse_at(t.created_at)) is not None:
-            items.append((at, t.created_at, "term", f"ことば「{t.label}」を作った"))
-    for a in alignments:
-        template = _DECISION_TEXT.get(a["relation"])
-        if template is None or (at := _parse_at(a.get("at", ""))) is None:
+            items.append((at, t.created_at, "term", t.label, "", ""))
+    for al in alignments:
+        if al["relation"] not in _DECISION_RELATIONS:
             continue
-        text = template.format(a=a["source_label"], b=a["target_label"])
-        items.append((at, a["at"], "decision", text))
-    items.sort(key=lambda x: (x[0], x[2], x[3]), reverse=True)
+        if (at := _parse_at(al.get("at", ""))) is None:
+            continue
+        items.append(
+            (at, al["at"], "decision", al["source_label"], al["target_label"], al["relation"])
+        )
+    items.sort(key=lambda x: (x[0], x[2], x[3], x[4], x[5]), reverse=True)
     return [
-        {"at": raw, "kind": kind, "text": text} for _at, raw, kind, text in items[:RECENT_LIMIT]
+        {"at": raw, "kind": kind, "a": a, "b": b, "relation": rel}
+        for _at, raw, kind, a, b, rel in items[:RECENT_LIMIT]
     ]

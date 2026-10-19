@@ -10,6 +10,7 @@ describe('静かな表示の表は図と同じ内容', () => {
     ['S', makeSky(SCALES.S.datasets, SCALES.S.kinds)],
     ['M', makeSky(SCALES.M.datasets, SCALES.M.kinds)],
     ['L', makeSky(SCALES.L.datasets, SCALES.L.kinds)],
+    ['XL', makeSky(SCALES.XL.datasets, SCALES.XL.kinds)],
   ]
   it.each(cases)('%s: 星・用語・標準用語・ハブの数が図の点と同じ', (_name, sky) => {
     const t = buildSkyTables(sky)

@@ -1,7 +1,8 @@
 // 星図の右レール: 「この星について」「知りたいこと」「最近の育ち」。
 // 「ひとこと決める」（PR 3）の置き場は about の下に空けてある（中身が無いうちは何も出ない）。
 import { useTranslation } from 'react-i18next'
-import type { SkyData, SkyQuestion } from './skyApi'
+import type { TFunction } from 'i18next'
+import type { SkyData, SkyQuestion, SkyRecent } from './skyApi'
 import {
   type DatasetNode,
   type HubNode,
@@ -381,6 +382,21 @@ function QuestionsCard(p: RailProps) {
   )
 }
 
+/** 最近の育ちの 1 行を、画面の言語で組む（API は名前と関係だけを返す）。 */
+function recentText(t: TFunction<'sky'>, r: SkyRecent): string {
+  if (r.kind === 'publish') return t('recent.publish', { a: r.a })
+  if (r.kind === 'term') return t('recent.term', { a: r.a })
+  const key =
+    r.relation === 'equivalentClass' || r.relation === 'equivalentProperty'
+      ? 'same'
+      : r.relation === 'subClassOf' || r.relation === 'subPropertyOf'
+        ? 'kindOf'
+        : r.relation === 'hasQuantityKind'
+          ? 'quantity'
+          : 'other'
+  return t(`recent.decision.${key}`, { a: r.a, b: r.b })
+}
+
 // ── 最近の育ち ──────────────────────────────────────────────────
 function RecentCard({ sky }: { sky: SkyData }) {
   const { t } = useTranslation('sky')
@@ -394,7 +410,7 @@ function RecentCard({ sky }: { sky: SkyData }) {
           {sky.recent.map((r, i) => (
             <li key={`${r.at}-${i}`}>
               <time dateTime={r.at}>{r.at.slice(0, 10)}</time>
-              <span>{r.text}</span>
+              <span>{recentText(t, r)}</span>
             </li>
           ))}
         </ul>

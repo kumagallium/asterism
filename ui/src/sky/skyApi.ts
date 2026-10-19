@@ -79,7 +79,12 @@ export interface SkyFacts {
 export interface SkyRecent {
   at: string
   kind: 'publish' | 'term' | 'decision'
-  text: string
+  /** 主たる名前（データセット名・用語・決めたことの左側）。 */
+  a: string
+  /** 決めたことの相手の名前（それ以外は空）。 */
+  b: string
+  /** 決めたことの関係（equivalentClass など。それ以外は空）。 */
+  relation: string
 }
 
 export interface SkyData {

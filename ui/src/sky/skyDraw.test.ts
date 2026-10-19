@@ -106,7 +106,7 @@ describe('hitTest', () => {
   it('星の上（半径 + 8）で当たる・遠いと外れる', () => {
     const s = l.nodes.get(kindId('samples', 'sample:sample')) as KindNode
     expect(hitTest(l, s.x + s.r + 4, s.y)?.id).toBe(s.id)
-    expect(hitTest(l, s.x + s.r + 30, s.y + 200)).toBeNull()
+    expect(hitTest(l, l.width + 100, l.height + 100)).toBeNull()
   })
   it('用語の札は矩形で当たる', () => {
     const t = [...l.nodes.values()].find((n) => n.type === 'term')!

@@ -96,6 +96,16 @@ describe.each(sizes)('規模 %s', (size) => {
     expect(visiblePointLabels(l).has(biggest.id)).toBe(true)
   })
 
+  // 重ならないだけなら、名前を全部隠しても通る。出る割合の下限を固定する（実測は S 100%・M 85%）。
+  // L・XL は丸モード（1 丸 1 名前）なので全部出る。
+  const FLOOR: Record<(typeof sizes)[number], number> = { S: 0.8, M: 0.7, L: 0.9, XL: 0.9 }
+  it.each(WIDTHS)(`名前が出る割合が下限を割らない（幅 %i）`, (w) => {
+    const l = layoutSky(sky, { width: w })
+    const points = [...l.nodes.values()].filter((n) => n.type === 'kind' || n.type === 'dataset')
+    const ratio = visiblePointLabels(l).size / points.length
+    expect(ratio).toBeGreaterThanOrEqual(FLOOR[size])
+  })
+
   it('同じデータ・同じ幅は同じ絵', () => {
     const a = layoutSky(sky, { width: 1000 })
     const b = layoutSky(makeSky(datasets, kinds), { width: 1000 })

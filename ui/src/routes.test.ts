@@ -352,6 +352,7 @@ describe('#/home（星図）— deep・new・旧 #/network', () => {
 
   it('旧 #/network は #/home?deep=1 に着く（置き換え）', () => {
     expect(parseHash('#/network')).toEqual<Route>({ tab: 'home', deep: true })
+    expect(parseHash('#/network?x=1')).toEqual<Route>({ tab: 'home', deep: true })
     expect(legacyHashRewrite('#/network')).toBe('#/home?deep=1')
     expect(legacyHashRewrite('#/home?deep=1')).toBeNull()
   })

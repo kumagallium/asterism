@@ -356,7 +356,8 @@ async def test_two_datasets_one_term_lines_standard_and_hub(tmp_path: Path) -> N
         ("decision", z(AT_LINE_1)),
         ("term", z(AT_TERM)),
     ]
-    assert all(set(r) == {"at", "kind", "text"} and r["text"] for r in out["recent"])
+    assert all(set(r) == {"at", "kind", "a", "b", "relation"} and r["a"] for r in out["recent"])
+    assert all((r["kind"] == "decision") == bool(r["b"] and r["relation"]) for r in out["recent"])
 
 
 async def test_same_input_gives_the_same_output(tmp_path: Path) -> None:
@@ -493,6 +494,6 @@ async def test_recent_lists_publishes_when_nothing_else_happened(tmp_path: Path)
         ("publish", "2026-10-02"),
         ("publish", "2026-10-01T09:00:00Z"),
     ]
-    assert "地点データ" in out["recent"][0]["text"]
+    assert out["recent"][0]["a"] == "地点データ"
     assert out["terms"] == [] and out["questions"] == [] and out["hubs"] == []
     assert out["facts"]["published_graphs"] == 2

@@ -13,7 +13,7 @@
   },
   "facts": {
     "answerable": "answerable questions",
-    "kinds": "kinds (stars)",
+    "kinds": "kinds",
     "terms": "terms",
     "datasets": "datasets",
     "triples": "facts"
@@ -22,7 +22,7 @@
     "kind": "Kind (size = count)",
     "term": "Term (top band) · connection",
     "std": "Standard term (horizon)",
-    "lines": "Lines in the chart mean “is a kind of” or “is the same as”. Click a dot to see it on the right",
+    "lines": "Click a dot and what it connects to gets darker; details appear on the right",
     "circles": "There are many datasets, so each one is a single circle. Click a circle to see its kinds on the right"
   },
   "quiet": "Quiet mode (no motion)",
@@ -52,7 +52,7 @@
     "questionsOnly": "No data answers yet. Put your data here and Asterism looks for matching kinds."
   },
   "about": {
-    "hint": "Click a star, term or standard term to see the details here.",
+    "hint": "Click a kind, term or standard term to see the details here.",
     "titleKind": "About this star",
     "titleDataset": "About this dataset",
     "titleTerm": "About this term",
@@ -76,7 +76,7 @@
     "members": "Kinds taking part",
     "termStars": "{{n}} kinds inside",
     "termNoStar": "No stars yet",
-    "termNoStarHint": "Put data that fits this term here and a star appears.",
+    "termNoStarHint": "Put data that fits this term here and a kind appears.",
     "needs": "Terms it needs",
     "answeredBy": "{{n}} answer",
     "notYet": "Not yet",
@@ -96,17 +96,25 @@
   },
   "recent": {
     "head": "Recent growth",
-    "empty": "Nothing yet. Publish a dataset and it shows up here."
+    "empty": "Nothing yet. Publish a dataset and it shows up here.",
+    "publish": "Published the dataset “{{a}}”",
+    "term": "Created the term “{{a}}”",
+    "decision": {
+      "same": "“{{a}}” is the same as “{{b}}”",
+      "kindOf": "“{{a}}” is a kind of “{{b}}”",
+      "quantity": "The values of “{{a}}” are the quantity “{{b}}”",
+      "other": "Decided how “{{a}}” and “{{b}}” relate"
+    }
   },
   "table": {
     "summary": "Table with the same content as the chart",
     "empty": "Nothing to list yet.",
-    "stars": "Constellations and stars (kinds)",
+    "stars": "Datasets and kinds",
     "terms": "Terms",
     "standards": "Standard terms",
     "hubs": "Connections",
-    "colDataset": "Constellation (dataset)",
-    "colKind": "Star (kind)",
+    "colDataset": "Dataset",
+    "colKind": "Kind",
     "colCount": "Rows",
     "colTerms": "Terms",
     "colStandard": "Standard term",
