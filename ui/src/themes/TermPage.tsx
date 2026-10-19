@@ -9,7 +9,7 @@ import { type CatalogDataset, getCatalogDatasets } from '../galleryApi'
 import { ArrowIcon } from '../icons'
 import { type SharedTerm, VocabApiError, listTerms, removeTerm } from '../vocabApi'
 import { localName } from '../vocab'
-import { type ThemeSummary, listThemes } from './themesApi'
+import { type ThemeSummary, listThemes, themeLabel } from './themesApi'
 import './themes.css'
 
 // 用語のページ（#/questions/term/<slug>）。用語 1 つの名前・英語名・説明・別名・ID・使う問い・
@@ -200,7 +200,7 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
                 {cq.title} — {t('vocab:term.answering', { n: cq.answering_datasets })}
                 {themesOf(cq.tool_name).map((th) => (
                   <a key={th.id} className="thm-term-chip" href={`#/questions/${encodeURIComponent(th.id)}`}>
-                    {th.label}
+                    {themeLabel(th, t)}
                   </a>
                 ))}
               </li>

@@ -16,6 +16,7 @@ import {
   deleteTheme,
   listThemes,
   templateUrl,
+  themeLabel,
 } from './themesApi'
 import './themes.css'
 
@@ -95,7 +96,7 @@ function ThemeCard({
   const n = theme.questions.length
 
   async function remove() {
-    if (!window.confirm(t('themes:card.removeConfirm', { label: theme.label }))) return
+    if (!window.confirm(t('themes:card.removeConfirm', { label: themeLabel(theme, t) }))) return
     setErr('')
     try {
       await deleteTheme(theme.id)
@@ -114,7 +115,7 @@ function ThemeCard({
       data-testid="theme-card"
     >
       <h3 className="thm-card-h">
-        {theme.label}
+        {themeLabel(theme, t)}
         <span className={`pill ${n > 0 && theme.answerable === n ? 'ok' : 'wait'}`}>
           {t('themes:card.answerable', { ok: theme.answerable, n })}
         </span>
@@ -294,7 +295,7 @@ export function ThemesView({
   function placed(result: CommitResult) {
     setNote(
       t('themes:placedNote', {
-        label: result.theme.label,
+        label: themeLabel(result.theme, t),
         terms: result.minted.length,
         lines: result.lines,
         questions: result.questions.length,

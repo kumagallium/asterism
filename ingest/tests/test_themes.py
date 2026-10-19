@@ -58,6 +58,8 @@ def _snapshot(client: _Client, root: Path) -> dict:
         # an emptied file and a missing one say the same thing
         "tools": (yaml.safe_load(text("query_tools.yaml") or "tools: []") or {}).get("tools") or [],
         "themes": text("themes.json"),
+        # ``at`` (a timestamp) is not state a commit has to restore
+        "wired": {k: v for k, v in (json.loads(text("wired.json") or "{}")).items() if k != "at"},
     }
 
 
@@ -126,6 +128,25 @@ def test_slug_from_text_matches_the_ts_rule() -> None:
     assert themes.slug_from_text("XMLHttpRequest") == "xml_http_request"
     assert themes.slug_from_text("café") == "cafe"  # NFKD drops the accent
     assert themes.slug_from_text("") == ""
+
+
+def test_new_theme_id_caps_length_and_avoids_reserved_words() -> None:
+    long_id = themes.new_theme_id("Battery cathode material capacity relationship study", set())
+    assert len(long_id) <= 40 and themes._ID_RE.match(long_id)
+    # the cut id collides: the numbered one still fits
+    again = themes.new_theme_id("Battery cathode material capacity relationship study", {long_id})
+    assert again != long_id and len(again) <= 40 and again.endswith("_2")
+    assert themes.new_theme_id("Term", set()) == "term_2"
+    assert themes.new_theme_id("Drafts", {"drafts_2"}) == "drafts_3"
+    assert themes.new_theme_id("日本語", set()) == "theme"
+
+
+def test_create_draft_with_a_long_english_label(tmp_path: Path) -> None:
+    d = themes.create_draft(
+        tmp_path, "Battery cathode material capacity relationship study", ["q?"], at="t"
+    )
+    assert len(d["id"]) <= 40
+    assert themes.create_draft(tmp_path, "Term", ["q?"], at="t")["id"] == "term_2"
 
 
 def test_unique_slug_numbers_a_collision() -> None:

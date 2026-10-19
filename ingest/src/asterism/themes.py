@@ -59,6 +59,9 @@ FITTING_OPS = ("count", "range", "top")
 RELATION_KINDS = ("sub", "eq", "quantity")
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}\Z")
+_ID_MAX = 40
+#: ルート ``#/questions/<…>`` の予約語（用語のページ・下書き）。テーマ id にしない。
+RESERVED_IDS = frozenset({"term", "drafts", "draft"})
 _LABEL_MAX = 80
 _QUESTION_MAX = 300
 _MAX_QUESTIONS = 40
@@ -108,6 +111,22 @@ def unique_slug(base: str, taken: Iterable[str]) -> str:
     return f"{base}_{n}"
 
 
+def new_theme_id(label: str, taken: Iterable[str]) -> str:
+    """A fresh theme/draft id from ``label``: at most 40 chars (the ``_ID_RE`` limit),
+    never a reserved route word, unique among ``taken`` (``_2`` … keeps the length)."""
+    used = set(taken) | RESERVED_IDS
+    base = slug_from_text(label)[:_ID_MAX].rstrip("_") or "theme"
+    if base not in used:
+        return base
+    n = 2
+    while True:
+        suffix = f"_{n}"
+        cand = base[: _ID_MAX - len(suffix)].rstrip("_") + suffix
+        if cand not in used:
+            return cand
+        n += 1
+
+
 def _norm_set(*texts: str | None) -> set[str]:
     return {k for t in texts if t and (k := normalize_label(t)) and k not in sv.GENERIC_LABELS}
 
@@ -143,6 +162,25 @@ def read_themes_text(root: Path | str) -> str | None:
 
 def _write_themes_text(root: Path | str, text: str | None) -> None:
     path = _themes_path(root)
+    if text is None:
+        path.unlink(missing_ok=True)
+        return
+    sv._atomic_write(path, text)
+
+
+def _wired_path(root: Path | str) -> Path:
+    return sv._dir(root) / sv._WIRED_FILE
+
+
+def _read_wired_text(root: Path | str) -> str | None:
+    try:
+        return _wired_path(root).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _write_wired_text(root: Path | str, text: str | None) -> None:
+    path = _wired_path(root)
     if text is None:
         path.unlink(missing_ok=True)
         return
@@ -295,7 +333,7 @@ def create_draft(
     label = _clean_label(label)
     taken = {t["id"] for t in ensure_migrated(root)["themes"]}
     taken |= {d["id"] for d in list_drafts(root)}
-    draft_id = unique_slug(slug_from_text(label) or "theme", taken)
+    draft_id = new_theme_id(label, taken)
     draft = {
         "id": draft_id,
         "label": label,
@@ -415,9 +453,7 @@ def std_by_curie(curie: str) -> StdRef | None:
     return None
 
 
-def std_exact(
-    label_ja: str, label_en: str, aliases: Iterable[str], kind: str
-) -> StdRef | None:
+def std_exact(label_ja: str, label_en: str, aliases: Iterable[str], kind: str) -> StdRef | None:
     """The standard term whose name equals this row's English name (or an alias) exactly
     — after :func:`normalize_label`, never fuzzy. For a property row a QUDT quantity kind
     with the same name counts too (the line is then ``hasQuantityKind``). ``None`` when
@@ -712,9 +748,7 @@ def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTe
         )
 
     asked = {normalize_label(q) for q in questions}
-    suggested = [
-        q for q in ai.get("suggested_questions", []) if normalize_label(q) not in asked
-    ]
+    suggested = [q for q in ai.get("suggested_questions", []) if normalize_label(q) not in asked]
     return {
         "terms": rows,
         "relations": rels,
@@ -838,6 +872,8 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
     extend_id = body.get("extend") if isinstance(body.get("extend"), str) else None
     if draft_id is not None and not _ID_RE.match(draft_id):
         raise ThemeError(f"id must match {_ID_RE.pattern}: {draft_id!r}")
+    if draft_id in RESERVED_IDS:
+        raise ThemeError(f"id {draft_id!r} は予約語です（別の id にしてください）")
     if extend_id:  # 「問いを足す」: the questions join an existing theme instead of a new one
         theme_id = extend_id
         if extend_id not in theme_ids:
@@ -847,7 +883,7 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             raise ThemeError(f"テーマ {draft_id!r} はすでにあります", 409)
         theme_id = draft_id
     else:
-        theme_id = unique_slug(slug_from_text(label) or "theme", theme_ids)
+        theme_id = new_theme_id(label, theme_ids)
     try:
         sv._read_cq_tools(root)
     except sv.TermError as exc:
@@ -1181,6 +1217,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
     (after the rollback)."""
     plan = await _plan_commit(client, root, body, at=at)
     prior_themes_text = read_themes_text(root)
+    prior_wired_text = _read_wired_text(root)
     minted: list[str] = []
     added_lines: list[_Line] = []
     added_tools: list[str] = []
@@ -1218,7 +1255,9 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         _save_themes(root, {**plan.base, "themes": placed})
         await sv.recompute_wired(client, root, at=at)
     except BaseException:
-        await _rollback(client, root, minted, added_lines, added_tools, prior_themes_text)
+        await _rollback(
+            client, root, minted, added_lines, added_tools, prior_themes_text, prior_wired_text
+        )
         raise
     if plan.draft_id:
         delete_draft(root, plan.draft_id)
@@ -1238,6 +1277,7 @@ async def _rollback(
     added_lines: list[_Line],
     added_tools: list[str],
     prior_themes_text: str | None,
+    prior_wired_text: str | None,
 ) -> None:
     """Take back what a failed commit wrote. Best effort and never raises: the original
     failure is what the caller must see."""
@@ -1258,7 +1298,8 @@ async def _rollback(
             logger.warning("themes: rollback of a term failed", exc_info=True)
     try:
         _write_themes_text(root, prior_themes_text)
-        await sv.recompute_wired(client, root)
+        # 元の写しへ戻す（数え直すと、無かったファイルが空で出来てしまう）
+        _write_wired_text(root, prior_wired_text)
     except Exception:
         logger.warning("themes: rollback of themes.json / wired.json failed", exc_info=True)
 
@@ -1315,6 +1356,7 @@ __all__ = [
     "FIRST_THEME_ID",
     "FIRST_THEME_LABEL",
     "FITTING_OPS",
+    "RESERVED_IDS",
     "StdRef",
     "ThemeError",
     "add_questions_to_theme",
@@ -1328,6 +1370,7 @@ __all__ = [
     "list_drafts",
     "load_draft",
     "load_themes_file",
+    "new_theme_id",
     "postprocess_draft",
     "remove_theme",
     "save_draft",

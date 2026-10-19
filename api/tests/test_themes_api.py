@@ -445,3 +445,11 @@ def test_template_zip_is_one_header_row_per_kind(tmp_path: Path) -> None:
             assert zf.namelist() == ["battery_cell.csv"]  # (this body has no helper kind)
             assert zf.read("battery_cell.csv").decode().splitlines() == ["battery_cell_id,capacity"]
         assert client.get("/api/themes/ghost/template.csv.zip").status_code == 404
+
+
+def test_csv_header_cells_never_start_a_spreadsheet_formula() -> None:
+    from asterism_api.themes_routes import _csv_line
+
+    assert _csv_line(["cell_id", "=SUM(A1)", "@x", "+1", "-1", "ok"]) == (
+        "cell_id,'=SUM(A1),'@x,'+1,'-1,ok\r\n"
+    )

@@ -259,5 +259,6 @@
     "byHand": "Made by a person, by hand",
     "remove": "Remove the term",
     "open": "Open the term's page"
-  }
+  },
+  "firstThemeLabel": "First questions"
 }

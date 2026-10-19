@@ -289,7 +289,7 @@ export function parseHash(hash: string): Route {
     return { tab: 'cards' }
   }
   // `#/questions?q=<題>` ・ `#/questions?scope=…&dataset=<id>` — 「知りたいこと」画面への
-  // 持ち込み（上で解く）。クエリは画面（SharedVocabView）が自分で hash から読む。
+  // 持ち込み（上で解く）。クエリは画面（ThemesView）が自分で hash から読む。
   // 旧 `#/jobs`（アクティビティ）は「決めたこと」のタブへ。
   if (parts[0] === 'jobs') return { tab: 'decisions', decisionsTab: 'activity' }
   if (parts[0] === 'decisions' || parts[0]?.startsWith('decisions?')) {

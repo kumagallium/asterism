@@ -423,6 +423,9 @@ def register_themes(
 
 def _csv_line(cells: list[str]) -> str:
     def q(c: str) -> str:
+        # 表計算が式として評価しないように、= + - @ で始まるセルは ' を付ける
+        if c[:1] in ("=", "+", "-", "@"):
+            c = "'" + c
         return '"' + c.replace('"', '""') + '"' if any(ch in c for ch in ',"\n') else c
 
     return ",".join(q(c) for c in cells) + "\r\n"

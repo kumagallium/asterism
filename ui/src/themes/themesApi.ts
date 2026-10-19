@@ -88,6 +88,16 @@ export interface ThemesListing {
   unassigned_questions: ThemeQuestion[]
 }
 
+/** 移行で作る最初のテーマ（id=first）の題はサーバが日本語で保存する。既定の題のままなら
+ * 表示側で UI 言語に合わせる（利用者が付け直した題はそのまま）。 */
+export const FIRST_THEME_ID = 'first'
+export const FIRST_THEME_DEFAULT_LABEL = 'はじめの問い'
+export function themeLabel(theme: { id: string; label: string }, t: (key: string) => string): string {
+  return theme.id === FIRST_THEME_ID && theme.label === FIRST_THEME_DEFAULT_LABEL
+    ? t('themes:firstThemeLabel')
+    : theme.label
+}
+
 export async function listThemes(lang: string): Promise<ThemesListing> {
   const res = await fetch(`${API_BASE}/api/themes?lang=${encodeURIComponent(lang)}`)
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.list'))
