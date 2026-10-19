@@ -152,4 +152,14 @@ describe('④を畳むときの行き先（ADR upper-structure-shared-terms §2.
     const body = source.slice(at, at + 400)
     expect(body).toContain('setStep(step4Needed() ? 11 : 10)')
   })
+  it('④の ID の例の図は、問いが出る mode===ask の枝にだけあり、最初から開いている', () => {
+    const lead = source.indexOf("t('kantan:links.keyLead')")
+    const example = source.indexOf("t('kantan:links.exampleSummary')")
+    const folded = source.indexOf("'kantan:recipe.step4Auto'", lead)
+    expect(example).toBeGreaterThan(lead)
+    expect(example).toBeLessThan(folded)
+    expect(source).toMatch(/<details open className="kz-links-idexample">/)
+    // ③の「例を見る」も最初から開いている
+    expect(source).toMatch(/<details open>\s*<summary>\{t\('kantan:meanings\.link\.exampleSummary'\)\}/)
+  })
 })

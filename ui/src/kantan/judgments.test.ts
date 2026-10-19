@@ -106,11 +106,11 @@ describe('④の畳み（numberStepMode）', () => {
     expect(numberStepMode([pre('a'), pre('b')], [])).toBe('ask')
   })
 
-  it('候補が 1 つなら auto（番号は自動で決まりました）', () => {
+  it('候補が 1 つなら auto（ID は自動で決まりました）', () => {
     expect(numberStepMode([pre('a'), tab('c')], [])).toBe('auto')
   })
 
-  it('候補が 0 なら placeholder（番号は仮置き・⑤で確認）', () => {
+  it('候補が 0 なら placeholder（ID は仮置き・⑤で確認）', () => {
     expect(numberStepMode([tab('a'), tab('b')], [])).toBe('placeholder')
     expect(numberStepMode([pre('t', '1.5')], [])).toBe('placeholder')
   })
