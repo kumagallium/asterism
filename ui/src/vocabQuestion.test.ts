@@ -156,7 +156,7 @@ describe('slug の既定値と鋳造の入力', () => {
   })
 })
 
-describe('孤立（まだ線になっていない）の札と注意', () => {
+describe('孤立（まだ答えるデータがない）の札と注意', () => {
   it('wired=false を数え、20 を超えたときだけ注意を出す', () => {
     const many = Array.from({ length: 21 }, (_, i) => term(`t${i}`, { wired: false }))
     expect(isolatedCount(many)).toBe(21)
@@ -178,8 +178,8 @@ describe('孤立（まだ線になっていない）の札と注意', () => {
           onRemove: noop,
         }),
       )
-    expect(html(term('a', { wired: false }))).toContain('まだ線になっていない')
-    expect(html(term('b'))).not.toContain('まだ線になっていない')
+    expect(html(term('a', { wired: false }))).toContain('まだ答えるデータがない')
+    expect(html(term('b'))).not.toContain('まだ答えるデータがない')
     expect(html(term('c', { answering_datasets: 3 }))).toContain('3 データセットが答える')
   })
 })
@@ -197,7 +197,7 @@ describe('線の絞り込み（scope）', () => {
     )
     expect(html.match(/<button/g)).toHaveLength(5)
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
-    expect(html).toMatch(/aria-pressed="true"[^>]*>ことばへ</)
+    expect(html).toMatch(/aria-pressed="true"[^>]*>用語へ</)
   })
 
   it('切れている線を先頭に・ほかの順は変えない', () => {
@@ -292,7 +292,7 @@ describe('線の一覧の行（両端の kind・問い）', () => {
       line({ source_kind: 'dataset', source_dataset: 'ds1', target_kind: 'shared' }),
     )
     expect(out).toContain('データセット · ds1')
-    expect(out).toContain('>ことば<')
+    expect(out).toContain('>用語<')
   })
 
   it('unknown と未設定は札なし', () => {

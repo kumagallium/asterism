@@ -162,7 +162,7 @@ export function SharedVocabView({
         <div>
           <div className="vocab-banner-title">
             <Trans i18nKey="vocab:banner.title">
-              データをまたいで使われている<span className="vocab-banner-hl">ことば</span>
+              データをまたいで使われている<span className="vocab-banner-hl">用語</span>
             </Trans>
           </div>
           <div className="vocab-banner-sub">

@@ -180,7 +180,7 @@ describe('⑦ の件数と応答', () => {
   })
 })
 
-describe('「ことばへ写す」の重複', () => {
+describe('「用語へ写す」の重複', () => {
   it('写したあとは押せず、api が 200（既存）なら「すでに写してあります」を出す', () => {
     expect(builderSource).toMatch(/mapBusy === q\.id \|\| note\?\.kind === 'done'/)
     expect(builderSource).toMatch(/note\.existed \? 'kantan:s7\.own\.mapExisted'/)

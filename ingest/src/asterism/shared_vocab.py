@@ -88,7 +88,7 @@ _IRI = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+\Z', re.IGNORECASE)
 _META_FILE = "meta.json"
 _TOOLS_FILE = "query_tools.yaml"
 _WIRED_FILE = "wired.json"
-_SHARED_NAME = "ことば"
+_SHARED_NAME = "用語"
 
 _CLASS_RELS = ("subClassOf", "equivalentClass")
 _PROP_RELS = ("subPropertyOf", "equivalentProperty")
@@ -461,7 +461,7 @@ async def mint_term(
     if declined_standard:
         _check_iri(declined_standard)
     if not cqs:
-        raise TermError("共有のことばは、問いを 1 つ以上添えて作ります")
+        raise TermError("用語は、問いを 1 つ以上添えて作ります")
     term = SharedTerm(
         iri=iri,
         slug=slug,
@@ -477,7 +477,7 @@ async def mint_term(
     _lint_or_raise(tools)
     _read_cq_tools(root)  # abort now if the yaml is unreadable (nothing written yet)
     if await _ask(client, f"ASK {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} }}"):
-        raise TermExists(f"{slug!r} はすでにあります。既存のことばを使ってください")
+        raise TermExists(f"{slug!r} はすでにあります。既存の用語を使ってください")
 
     rdf_type = f"{_RDFS}Class" if kind == "class" else f"{_RDF}Property"
     triples = [
@@ -709,7 +709,7 @@ async def remove_term(client: Any, root: Path | str, slug: str) -> None:
     tool over several terms just loses this one from ``for_terms``."""
     iri = term_iri(slug)
     if not await _ask(client, f"ASK {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} }}"):
-        raise TermNotFound(f"{slug!r} ということばはありません")
+        raise TermNotFound(f"{slug!r} という用語はありません")
     if await _ask(
         client,
         f"ASK {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {{ <{iri}> ?p ?o }} UNION {{ ?s ?p <{iri}> }} }} }}",

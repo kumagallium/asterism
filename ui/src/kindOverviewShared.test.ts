@@ -108,7 +108,7 @@ describe('共有のことばの帯 — 配置は決定論', () => {
     }
   })
 
-  it('孤立の語（まだ線になっていない）も帯に出て、札のもとの orphan が立つ', () => {
+  it('孤立の語（まだ答えるデータがない）も帯に出て、札のもとの orphan が立つ', () => {
     const l = layoutKindOverview(
       base({ sharedTerms: [term('lonely', { wired: false, answering_datasets: 0 })] }),
     )

@@ -4,8 +4,8 @@
     "untitled": "(無題)",
     "traceHint": "出どころ",
     "fromDataset": "{{name}} より",
-    "vocabTitle": "データセットで「{{className}}」のことばを表示",
-    "vocabLink": "この種類のことばを見る →"
+    "vocabTitle": "データセットで「{{className}}」の用語を表示",
+    "vocabLink": "この種類の用語を見る →"
   },
   "trace": {
     "ariaLabel": "出どころ",
@@ -16,8 +16,8 @@
     "loading": "出どころを調べています…",
     "legendData": "データ",
     "legendProcess": "処理",
-    "vocabTitle": "データセットで「{{className}}」のことばを表示",
-    "vocabLink": "ことばを見る",
+    "vocabTitle": "データセットで「{{className}}」の用語を表示",
+    "vocabLink": "用語を見る",
     "noRecord": "この項目の出どころは、ここには記録されていません。ID は下からコピーできます。",
     "openDataset": "データセットを開く",
     "failed": "出どころを取得できませんでした。",

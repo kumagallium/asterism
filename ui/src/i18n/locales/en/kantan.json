@@ -458,19 +458,19 @@
       "noAnswer": "No matching data.",
       "noChoices": "There are no kinds or items to pick yet.",
       "lintError": "The shape of the data changed, so this question cannot be published as is. Pick again and re-add it.",
-      "map": "Copy to shared words",
-      "mapHint": "Copy this question as a question about a shared word that other datasets can answer too. The original stays.",
+      "map": "Copy to terms",
+      "mapHint": "Copy this question as a question about a term that other datasets can answer too. The original stays.",
       "mapDone": "Copied as a question on \"{{term}}\". The original stays in this dataset.",
-      "mapGuide": "There is no shared word above this question's kind or item yet. Mint a word in Shared words and draw a line first, then you can copy it.",
-      "mapGuideLink": "Mint it in Shared words",
+      "mapGuide": "There is no term above this question's kind or item yet. Create a term in Questions and decide a relation first, then you can copy it.",
+      "mapGuideLink": "Create it in Questions",
       "mapExisted": "Already copied as a question on \"{{term}}\"."
     },
-    "writesTitle": "Some lines or questions are not written to the published data yet",
-    "writesBoth": "Write {{lines}} line(s) and {{questions}} question(s) to the published data",
-    "writesLines": "Write {{lines}} line(s) to the published data",
+    "writesTitle": "Some relations or questions are not written to the published data yet",
+    "writesBoth": "Write {{lines}} relation(s) and {{questions}} question(s) to the published data",
+    "writesLines": "Write {{lines}} relation(s) to the published data",
     "writesQuestions": "Write {{questions}} question(s) to the published data",
     "writesPublish": "Write to the published data",
-    "writesNote": "The data is not taken in again — only the lines you accepted and your own questions are written."
+    "writesNote": "The data is not taken in again — only the relations you accepted and your own questions are written."
   },
   "s8": {
     "title": "Publish",
@@ -480,11 +480,11 @@
     "needName": "Give it a name to show in the public list, and you can publish.",
     "contentLabel": "Contents",
     "contentUnknown": "The counts could not be read (you can still publish; “Back to Try it” lets you check again)",
-    "wordsLabel": "Words",
-    "words": "Used {{reuse}} common standard words as they are, and made {{added}} new words for this data.",
+    "wordsLabel": "Terms",
+    "words": "Used {{reuse}} common standard terms as they are, and created {{added}} new terms for this data.",
     "wordsList": "See the list",
-    "wordsReuse": "Standard words (used as is)",
-    "wordsNew": "New words for this data only",
+    "wordsReuse": "Standard terms (used as is)",
+    "wordsNew": "New terms for this data only",
     "idMoveTitle": "IDs are moving",
     "idMoveForwarded": "This update changes {{n}} IDs. Anyone who opens an earlier ID still reaches the new content.",
     "idMoveBroken": "These cannot be reached from their earlier IDs any more:",
@@ -505,8 +505,8 @@
     "backToMeanings": "Back to item meanings",
     "back": "Back to Try it",
     "writesLabel": "Written on publish",
-    "writesBoth": "Writes {{lines}} line(s) and {{questions}} question(s)",
-    "writesLines": "Writes {{lines}} line(s)",
+    "writesBoth": "Writes {{lines}} relation(s) and {{questions}} question(s)",
+    "writesLines": "Writes {{lines}} relation(s)",
     "writesQuestions": "Writes {{questions}} question(s)"
   },
   "s9": {
@@ -532,9 +532,9 @@
     "connectTitle": "Connect it to your other data",
     "connectBody": "You now have {{count}} published datasets. Connect them on a shared value and questions can span both.",
     "connectBtn": "Connect your data",
-    "groundTitle": "Match it to the world's standard words",
-    "groundBody": "Right now this data is written in words minted for this dataset alone. Matching them to well-known standard words (QUDT, schema.org, …) lets outside data and tools read them as the same thing.",
-    "groundBtn": "Match to a standard",
+    "groundTitle": "Match it to the world's standard terms",
+    "groundBody": "Right now this data is written in terms created for this dataset alone. Matching them to well-known standard terms (QUDT, schema.org, …) lets outside data and tools read them as the same thing.",
+    "groundBtn": "Match to standard terms",
     "groundHint": "On the dataset page under 中身 (contents), you just pick from the candidates. You can undo it later."
   },
   "redesign": {
@@ -558,7 +558,7 @@
   },
   "meanings": {
     "title": "Give meanings",
-    "lead": "Check what value each column holds. The words you settle here are what search and citation will show.",
+    "lead": "Check what value each column holds. The names you settle here are what search and citation will show.",
     "note": "The AI drafted these. Edit any cell directly (no AI runs here). To leave a column out, clear the checkbox on the right.",
     "noDraft": "No draft arrived from the AI. Fill the blanks in yourself and you can carry straight on.",
     "zone_preamble": "① Values for the whole file",
@@ -617,7 +617,7 @@
       "accepted": "Linked",
       "clear": "Undo",
       "tick": "Also link by value",
-      "reviewNote": "Fits become lines when you rebuild after 'Review the design first'"
+      "reviewNote": "Fits become relations when you rebuild after 'Review the design first'"
     }
   },
   "links": {
@@ -645,13 +645,13 @@
     "keyConsultPrefill": "Which value names this one item (something I can always call by the same number later)? Look at the columns and real values."
   },
   "publishResult": {
-    "applied": "Wrote {{n}} line(s) to the published data.",
+    "applied": "Wrote {{n}} relation(s) to the published data.",
     "written": "Published {{n}} of your own question(s).",
-    "skippedHead": "{{n}} line(s) could not be written.",
+    "skippedHead": "{{n}} relation(s) could not be written.",
     "skippedItem": "\"{{subject}}\" → \"{{term}}\": {{reason}}",
     "reason": {
       "predicateMissing": "This item was not found in the published design (it may be a column that is not taken in, or one used as the key)",
-      "subjectMissing": "The kind or item the line starts from was not found in the published data"
+      "subjectMissing": "The kind or item the relation starts from was not found in the published data"
     },
     "lintHead": "{{n}} question(s) did not pass the check and were not published.",
     "lintItem": "\"{{title}}\": no longer fits the shape of the data. Pick again and re-add it."

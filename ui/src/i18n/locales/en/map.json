@@ -1,7 +1,7 @@
 {
   "back": "Back",
   "title": "What data exists and how it connects",
-  "bannerSub": "Each dataset has its own words; <0>connections</0> link them across the values found in both. On the right are the <1>external standards</1> everyone shares.",
+  "bannerSub": "Each dataset has its own terms; <0>connections</0> link them across the values found in both. On the right are the <1>external standards</1> everyone shares.",
   "legend": {
     "datasets": "Datasets {{n}}",
     "crosswalks": "Connections {{n}}",
@@ -32,7 +32,7 @@
     "externalEn": "外部の標準"
   },
   "node": {
-    "connectStd": "uses standard words",
+    "connectStd": "uses standard terms",
     "crossBy": "connects on {{key}}",
     "kindsHead": "What is inside",
     "openDs": "Open {{name}} (and see what is inside it)",
@@ -40,7 +40,7 @@
   },
   "line": {
     "connect": "connect",
-    "reuse": "uses standard words",
+    "reuse": "uses standard terms",
     "selected": "highlighted"
   }
 }

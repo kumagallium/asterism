@@ -46,10 +46,10 @@
     "openSettings": "Open settings"
   },
   "vocab": {
-    "declared": "Registered the well-known words ({{names}}) as standard words.",
-    "renamed": "Registered the unfamiliar words ({{names}}) as new words for this data.",
-    "unresolved": "The AI's ID recipe uses words with no agreed meaning ({{names}}). As it is, saving will fail.",
-    "fix": "Register these words and fix it",
+    "declared": "Registered the well-known terms ({{names}}) as standard terms.",
+    "renamed": "Registered the unfamiliar terms ({{names}}) as new terms for this data.",
+    "unresolved": "The AI's ID recipe uses terms with no agreed meaning ({{names}}). As it is, saving will fail.",
+    "fix": "Register these terms and fix it",
     "declaredOwn": "Registered where this dataset issues its IDs ({{names}}). The IDs themselves are unchanged."
   },
   "filesGone": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{back}}” below to drop the files again.",
@@ -169,9 +169,9 @@
     "ask": "Make this a kind of the existing \"{{label}}\"?",
     "sub": "Make it a kind of it",
     "same": "Tie as the same kind",
-    "note": "If you accept, a line between the kinds is drawn when you publish (you can undo it in Shared words). Nothing is written here.",
-    "acceptedSub": "Will be a kind of \"{{label}}\" (the line is drawn when you publish).",
-    "acceptedSame": "Will be tied as the same kind as \"{{label}}\" (the line is drawn when you publish).",
+    "note": "If you accept, a relation between the kinds is decided when you publish (you can undo it in Questions). Nothing is written here.",
+    "acceptedSub": "Will be a kind of \"{{label}}\" (the relation is decided when you publish).",
+    "acceptedSame": "Will be tied as the same kind as \"{{label}}\" (the relation is decided when you publish).",
     "clear": "Undo"
   }
 }

@@ -344,7 +344,7 @@ async def test_mint_writes_tbox_scaffold_cq_and_wired(tmp_path: Path) -> None:
         "id": "vocab-shared",
         "is_shared_vocab": True,
         "promoted": True,
-        "name": "ことば",
+        "name": "用語",
     }
     raw = yaml.safe_load(
         (tmp_path / "vocab-shared" / "query_tools.yaml").read_text(encoding="utf-8")
@@ -448,7 +448,7 @@ async def test_remove_refused_while_a_line_exists_then_cascades_cqs(tmp_path: Pa
     await _mint_class(client, tmp_path, "alpha")
     await _mint_class(client, tmp_path, "beta")
     a, b = sv.term_iri("alpha"), sv.term_iri("beta")
-    # a CQ over both terms (what 「ことばへ写す」 will produce), appended by name
+    # a CQ over both terms (what 「用語へ写す」 will produce), appended by name
     multi = {**sv.default_cq_tools(_term("alpha", "x"), [CQSpec("両方", "count")])[0]}
     multi.update(name="cq_both", for_terms=[a, b])
     sv._write_cq_tools(tmp_path, [multi])

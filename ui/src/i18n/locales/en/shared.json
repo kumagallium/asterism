@@ -4,8 +4,8 @@
     "untitled": "(untitled)",
     "traceHint": "Source",
     "fromDataset": "from {{name}}",
-    "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
-    "vocabLink": "See the words for this kind →"
+    "vocabTitle": "Show the terms of \"{{className}}\" in Datasets",
+    "vocabLink": "See the terms for this kind →"
   },
   "trace": {
     "ariaLabel": "Source",
@@ -16,8 +16,8 @@
     "loading": "Finding the source…",
     "legendData": "Data",
     "legendProcess": "Process",
-    "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
-    "vocabLink": "View the words",
+    "vocabTitle": "Show the terms of \"{{className}}\" in Datasets",
+    "vocabLink": "View the terms",
     "noRecord": "No source trail is recorded here for this item. You can copy its ID below.",
     "openDataset": "Open the dataset",
     "failed": "Couldn't load the source.",
