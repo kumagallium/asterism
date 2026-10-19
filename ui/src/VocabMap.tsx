@@ -37,16 +37,7 @@ import {
   type Route,
 } from './shapeGraph'
 import './vocabMapShared.css'
-import type { PickEnd } from './lineChoice'
-import { pickEndOfVocabNode, type VocabEdge, type VocabEdgeKind, type VocabNode, type VocabShape } from './vocabGraph'
-
-/** 線の起点に丸を選ぶ操作（「ことば」画面の地図）。有効のあいだ、押すと選択（押した先の画面遷移はしない）。 */
-export interface VocabPick {
-  active: boolean
-  /** 選んでいる節の id（最大 2 つ）。 */
-  picked: string[]
-  onPick: (end: PickEnd) => void
-}
+import { type VocabEdge, type VocabEdgeKind, type VocabNode, type VocabShape } from './vocabGraph'
 
 const KIND_W = 232
 const STD_W = 224
@@ -549,7 +540,6 @@ function VocabMapInner({
   shape,
   ariaLabel,
   onOpenDataset,
-  pick,
   maxHeight = 620,
   expandable = true,
   zoomable = false,
@@ -558,8 +548,6 @@ function VocabMapInner({
   ariaLabel: string
   /** 種類の箱を押したときの行き先（データセット詳細）。 */
   onOpenDataset?: (datasetId: string) => void
-  /** 線の起点に丸を選ぶ操作。有効のあいだ、押すと選択になり画面遷移はしない。 */
-  pick?: VocabPick
   maxHeight?: number
   expandable?: boolean
   zoomable?: boolean
@@ -569,10 +557,7 @@ function VocabMapInner({
     () => place(shape),
     [shape],
   )
-  const byId = useMemo(() => new Map(shape.nodes.map((n) => [n.id, n])), [shape])
-  const pickedKey = (pick?.picked ?? []).join('|')
   const nodes = useMemo(() => {
-    const picked = new Set(pickedKey ? pickedKey.split('|') : [])
     return rawNodes.map((n) => {
       if (n.id === 'band:standard')
         return { ...n, data: { ...n.data, label: t('vocab:map.bandTitle'), hint: t('vocab:map.bandHint') } }
@@ -581,10 +566,9 @@ function VocabMapInner({
           ...n,
           data: { ...n.data, label: t('vocabmap:sharedBand.title'), hint: t('vocabmap:sharedBand.hint') },
         }
-      // 選んだ丸には className を付ける（見た目は CSS）。
-      return picked.has(n.id) ? { ...n, className: 'is-picked' } : n
+      return n
     })
-  }, [rawNodes, t, pickedKey])
+  }, [rawNodes, t])
   const edges: Edge[] = useMemo(() => {
     return shape.edges.map((e, i) => {
       return {
@@ -607,17 +591,11 @@ function VocabMapInner({
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {
-      // 線を引く選択のあいだは、押すと丸を選ぶだけ（枠・帯は選べない）。
-      if (pick?.active) {
-        const end = pickEndOfVocabNode(byId.get(node.id))
-        if (end) pick.onPick(end)
-        return
-      }
       if (!onOpenDataset || node.type !== 'shape') return
       const dsId = String(node.id).split('::')[0]
       if (dsId) onOpenDataset(dsId)
     },
-    [onOpenDataset, pick, byId],
+    [onOpenDataset],
   )
 
   const height = Math.min(maxHeight, Math.max(240, contentH + 48))
@@ -659,7 +637,6 @@ function VocabMapInner({
           shape={shape}
           ariaLabel={ariaLabel}
           onOpenDataset={onOpenDataset}
-          pick={pick}
           maxHeight={bigH}
           expandable={false}
           zoomable
@@ -682,7 +659,7 @@ function VocabMapInner({
         zoomOnDoubleClick={zoomable}
         preventScrolling={false}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={onOpenDataset || pick?.active ? handleClick : undefined}
+        onNodeClick={onOpenDataset ? handleClick : undefined}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
         <Controls
@@ -699,7 +676,6 @@ export function VocabMap(props: {
   shape: VocabShape
   ariaLabel: string
   onOpenDataset?: (datasetId: string) => void
-  pick?: VocabPick
   maxHeight?: number
   expandable?: boolean
   zoomable?: boolean

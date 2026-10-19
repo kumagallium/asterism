@@ -672,3 +672,167 @@ async def test_shared_graph_is_allowlisted_but_never_canonical(tmp_path: Path) -
         await substrate.canonical_merge_query(
             client, "SELECT ?s FROM <https://example.org/draft> WHERE { ?s ?p ?o }"
         )
+
+
+# ---------------------------------------------------------------------------
+# 「ひとこと決める」の試算（preview_alignment）・外した提案
+# ---------------------------------------------------------------------------
+
+
+def _quads(client: _Client) -> set[tuple]:
+    return set(client.ds.quads((None, None, None, None)))
+
+
+async def test_preview_matches_the_real_assert_and_recompute_0_1_2(tmp_path: Path) -> None:
+    """試算の after が、実際に assert_alignment して recompute_wired した値と一致する。"""
+    client = _Client()
+    await _seed_two_datasets(client)
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    wired_file = tmp_path / sv.REGISTRY_ID / "wired.json"
+    steps = [(A_REC, iri, "subClassOf", 0, 1), (iri, B_REC, "equivalentClass", 1, 2)]
+    for source, target, rel, want_before, want_after in steps:
+        quads, wired_text = _quads(client), wired_file.read_text(encoding="utf-8")
+        p = await sv.preview_alignment(client, tmp_path, source, target, rel)
+        # 試算は store にもファイルにも書かない
+        assert _quads(client) == quads
+        assert wired_file.read_text(encoding="utf-8") == wired_text
+        assert p["valid"] is True and p["reason"] is None
+        assert [(t["iri"], t["before"], t["after"]) for t in p["terms"]] == [
+            (iri, want_before, want_after)
+        ]
+        assert p["terms"][0]["label"] == "回折点"
+        assert [(q["tool_name"], q["before"], q["after"]) for q in p["questions"]] == [
+            ("cq_diffraction_point_count", want_before, want_after)
+        ]
+        assert p["questions"][0]["title"] == "回折点は、どのデータセットに何件あるか"
+        # 保存して数え直した値と一致する
+        await assert_alignment(client, source, target, rel, at=AT)
+        real = await sv.recompute_wired(client, tmp_path)
+        assert real[iri] == p["terms"][0]["after"] == want_after
+
+
+async def test_preview_does_not_depend_on_the_kind_counts_row_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """種類の使われ方は kind_counts（5000 行で打ち切る）を通らず、語だけに絞って引く。
+    打ち切りで後ろの graph の種類が欠け、試算が小さくなる穴を固定する。"""
+    import asterism.kind_counts as kc
+
+    async def boom(*_a: object, **_k: object) -> dict:
+        raise AssertionError("preview must not read kind_counts")
+
+    monkeypatch.setattr(kc, "kind_counts", boom)
+    client = _Client()
+    await _seed_two_datasets(client)
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    p = await sv.preview_alignment(client, tmp_path, A_REC, iri, "subClassOf")
+    assert p["valid"] is True and p["terms"][0]["after"] == 1
+
+
+async def test_preview_unminted_is_judged_before_same(tmp_path: Path) -> None:
+    """assert_alignment と同じ順（未鋳造が先）。未鋳造の語どうしを同じ IRI で結ぶと unminted。"""
+    client = _Client()
+    await _seed_two_datasets(client)
+    ghost = sv.term_iri("never_minted")
+    p = await sv.preview_alignment(client, tmp_path, ghost, ghost, "equivalentClass")
+    assert p["valid"] is False and p["reason"] == "unminted"
+
+
+async def test_preview_counts_properties_and_equivalence_both_ways(tmp_path: Path) -> None:
+    client = _Client()
+    await _seed_two_datasets(client)
+    p_term = sv.term_iri("peak_intensity")
+    _declare(client, p_term, kind="property")
+    await sv.recompute_wired(client, tmp_path)
+    await assert_alignment(client, A_PROP, p_term, "subPropertyOf", at=AT)
+    # 実際に足す前の試算（B の項目を ≡ で結ぶ）= 実際の数え直し
+    pre = await sv.preview_alignment(client, tmp_path, p_term, B_PROP, "equivalentProperty")
+    assert pre["valid"] is True
+    await assert_alignment(client, p_term, B_PROP, "equivalentProperty", at=AT)
+    real = await sv.recompute_wired(client, tmp_path)
+    assert real[p_term] == 2
+    assert [t["after"] for t in pre["terms"] if t["iri"] == p_term] == [2]
+
+
+async def test_preview_remove_is_the_reverse_direction(tmp_path: Path) -> None:
+    client = _Client()
+    await _seed_two_datasets(client)
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    await assert_alignment(client, A_REC, iri, "subClassOf", at=AT)
+    await sv.recompute_wired(client, tmp_path)
+    p = await sv.preview_alignment(client, tmp_path, A_REC, iri, "subClassOf", remove=True)
+    assert p["valid"] is True
+    assert [(t["before"], t["after"]) for t in p["terms"]] == [(1, 0)]
+    assert [(q["before"], q["after"]) for q in p["questions"]] == [(1, 0)]
+    await remove_alignment(client, A_REC, iri, "subClassOf")
+    assert (await sv.recompute_wired(client, tmp_path))[iri] == 0
+
+
+async def test_preview_refuses_with_a_reason_and_empty_lists(tmp_path: Path) -> None:
+    client = _Client()
+    await _seed_two_datasets(client)
+    _ontology(
+        client, "xrd-a", [(A_REC, RDFS + "Class", "記録"), (A_PROP, RDF + "Property", "強度")]
+    )
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    up = sv.term_iri("upper_word")
+    _declare(client, up)
+    await assert_alignment(client, A_REC, up, "subClassOf", at=AT)
+    await assert_alignment(client, up, iri, "subClassOf", at=AT)
+
+    async def reason(s: str, t: str, rel: str) -> str | None:
+        p = await sv.preview_alignment(client, tmp_path, s, t, rel)
+        assert p["valid"] is False
+        assert p["questions"] == [] and p["terms"] == []
+        return p["reason"]
+
+    assert await reason(iri, iri, "subClassOf") == "same"
+    assert await reason(A_REC, sv.term_iri("never_minted"), "subClassOf") == "unminted"
+    assert await reason(A_REC, A_PROP, "equivalentClass") == "mixed"
+    # iri は A_REC の上にある。iri ⊂ A_REC は循環
+    assert await reason(iri, A_REC, "subClassOf") == "cycle"
+    with pytest.raises(ValueError):
+        await sv.preview_alignment(client, tmp_path, A_REC, iri, "bogus")
+    with pytest.raises(ValueError):
+        await sv.preview_alignment(client, tmp_path, "not an iri", iri, "subClassOf")
+
+
+async def test_preview_prefers_wired_json_for_before(tmp_path: Path) -> None:
+    client = _Client()
+    await _seed_two_datasets(client)
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    wired_file = tmp_path / sv.REGISTRY_ID / "wired.json"
+    wired_file.write_text(json.dumps({"terms": {iri: 5}, "at": AT}), encoding="utf-8")
+    p = await sv.preview_alignment(client, tmp_path, A_REC, iri, "subClassOf")
+    assert [(t["before"], t["after"]) for t in p["terms"]] == [(5, 1)]
+    wired_file.unlink()  # 無ければ同じ計算
+    p = await sv.preview_alignment(client, tmp_path, A_REC, iri, "subClassOf")
+    assert [(t["before"], t["after"]) for t in p["terms"]] == [(0, 1)]
+
+
+def test_dismiss_is_atomic_idempotent_and_reversible(tmp_path: Path) -> None:
+    assert sv.load_dismissed(tmp_path) == []
+    assert sv.dismiss_fit(tmp_path, A_REC, B_REC, at=AT) is True
+    assert sv.dismiss_fit(tmp_path, A_REC, B_REC, at="2027-01-01T00:00:00+00:00") is False
+    assert sv.load_dismissed(tmp_path) == [{"subject": A_REC, "term": B_REC, "at": AT}]
+    assert not list((tmp_path / sv.REGISTRY_ID).glob("*.tmp"))
+    assert sv.is_dismissed(sv.load_dismissed(tmp_path), A_REC, B_REC)
+    assert not sv.is_dismissed(sv.load_dismissed(tmp_path), B_REC, A_REC)
+    assert sv.undismiss_fit(tmp_path, A_REC, B_REC) is True
+    assert sv.undismiss_fit(tmp_path, A_REC, B_REC) is False
+    assert sv.load_dismissed(tmp_path) == []
+    # 公開前の列の鍵も受ける。空・制御文字は不可、term は IRI
+    assert sv.dismiss_fit(tmp_path, "column:a.csv/dp", B_REC, at=AT) is True
+    for bad in ("", "  ", "a\nb"):
+        with pytest.raises(ValueError):
+            sv.dismiss_fit(tmp_path, bad, B_REC, at=AT)
+    with pytest.raises(ValueError):
+        sv.dismiss_fit(tmp_path, A_REC, "not an iri", at=AT)
+    assert sv.undismiss_fit(tmp_path, "column:a.csv/dp", B_REC) is True
+    (tmp_path / sv.REGISTRY_ID / "dismissed.json").write_text("{broken", encoding="utf-8")
+    assert sv.load_dismissed(tmp_path) == []

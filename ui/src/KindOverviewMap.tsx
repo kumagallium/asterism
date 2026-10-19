@@ -37,14 +37,12 @@ import {
   HUB_LABEL_W,
   LABEL_H,
   LABEL_W,
-  pickEndOfOverview,
   type OverviewEdge,
   type OverviewEdgeKind,
   type OverviewLayout,
 } from './kindOverview'
 import { BigViewOverlay, ExpandButton } from './BigView'
 import { useBigViewHeight } from './bigViewSize'
-import type { VocabPick } from './VocabMap'
 
 
 const EDGE_COLOR: Record<OverviewEdgeKind, string> = {
@@ -205,8 +203,6 @@ export function toFlow(
     /** 共有のことばの札「まだ線になっていない」。 */
     sharedOrphan?: string
   },
-  /** 選んでいる節の id（線を引く選択）。 */
-  picked: readonly string[] = [],
 ): { nodes: Node[]; edges: Edge[] } {
   const base = { draggable: false, selectable: false, connectable: false }
   const nodes: Node[] = []
@@ -286,7 +282,6 @@ export function toFlow(
       fullText: words.count(c.count),
     }
   }
-  const pickedSet = new Set(picked)
   const withOrphan = (t: Pick<CircleData, 'countText' | 'insideText' | 'fullText'>, orphan?: boolean) =>
     orphan && words.sharedOrphan
       ? { ...t, fullText: t.fullText ? `${t.fullText}・${words.sharedOrphan}` : words.sharedOrphan }
@@ -306,7 +301,6 @@ export function toFlow(
         kind,
         ...(c.orphan ? { orphan: true } : {}),
       } satisfies CircleData,
-      ...(pickedSet.has(c.id) ? { className: 'is-picked' } : {}),
       zIndex: 2,
       ...base,
     })
@@ -319,7 +313,6 @@ export function toFlow(
       type: 'std',
       position: { x: s.x, y: s.y },
       data: { label: s.label, vocab: s.vocab, width: s.w, height: s.h } satisfies StdData,
-      ...(pickedSet.has(s.id) ? { className: 'is-picked' } : {}),
       zIndex: 1,
       ...base,
     })
@@ -365,7 +358,6 @@ function KindOverviewInner({
   onOpenCrosswalk,
   onFocus,
   focus,
-  pick,
   maxHeight = 620,
   zoomable = false,
   expandable = true,
@@ -382,8 +374,6 @@ function KindOverviewInner({
   onFocus?: (f: OverviewFocus) => void
   /** 周りだけ開いているとき: いま見ているものの名前と、全体へ戻る操作。 */
   focus?: { label: string; onBack: () => void; hiddenDatasets?: number; hiddenHubs?: number }
-  /** 線の起点に丸を選ぶ操作。有効のあいだ、押すと選択になり画面遷移・フォーカスはしない。 */
-  pick?: VocabPick
   maxHeight?: number
   zoomable?: boolean
   /** 右上の「大きく見る」（重ね表示の中では出さない）。 */
@@ -396,8 +386,6 @@ function KindOverviewInner({
   // mouseleave が来なくても）古い id は無いものとして扱う。
   const [hover, setHover] = useState<{ layout: OverviewLayout; id: string } | null>(null)
   const active = hover && hover.layout === layout ? hover.id : null
-  const pickedKey = (pick?.picked ?? []).join('|')
-  const pickedList = useMemo(() => (pickedKey ? pickedKey.split('|') : []), [pickedKey])
   const { nodes, edges: baseEdges } = useMemo(
     () =>
       toFlow(layout, {
@@ -420,8 +408,8 @@ function KindOverviewInner({
             ? t('vocabmap:sharedBand.total', { n: n.toLocaleString('en-US') })
             : t('vocabmap:sharedBand.totalNone'),
         sharedOrphan: t('vocabmap:sharedBand.orphan'),
-      }, pickedList),
-    [layout, t, i18n.language, pickedList],
+      }),
+    [layout, t, i18n.language],
   )
   // 丸・ハブに載せたら、その丸につながる線を濃く・他を薄く（CSS のホバーは線に届かない）。
   const edges = useMemo(
@@ -437,12 +425,6 @@ function KindOverviewInner({
 
   const handleClick = useCallback(
     (_: unknown, node: Node) => {
-      // 線を引く選択のあいだは、押すと丸を選ぶだけ（遷移・フォーカスはしない）。
-      if (pick?.active) {
-        const end = pickEndOfOverview(layout, node.id)
-        if (end) pick.onPick(end)
-        return
-      }
       if (layout.level === 'dataset') {
         // データセットごとの俯瞰: 押すとその周りだけを種類まで開く。
         if (node.type === 'circle')
@@ -457,7 +439,7 @@ function KindOverviewInner({
         }
       } else if (node.type === 'frame') onOpenDataset?.(node.id)
     },
-    [layout, onOpenKind, onOpenDataset, onOpenCrosswalk, onFocus, pick],
+    [layout, onOpenKind, onOpenDataset, onOpenCrosswalk, onFocus],
   )
 
   const height = Math.min(maxHeight, Math.max(260, layout.height + 48))
@@ -512,7 +494,6 @@ function KindOverviewInner({
           onOpenCrosswalk={onOpenCrosswalk}
           onFocus={onFocus}
           focus={focus}
-          pick={pick}
           maxHeight={bigH}
           expandable={false}
           zoomable
@@ -558,7 +539,6 @@ export function KindOverview(props: {
   onOpenCrosswalk?: () => void
   onFocus?: (f: OverviewFocus) => void
   focus?: { label: string; onBack: () => void; hiddenDatasets?: number; hiddenHubs?: number }
-  pick?: VocabPick
   maxHeight?: number
   zoomable?: boolean
   expandable?: boolean

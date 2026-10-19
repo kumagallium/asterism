@@ -7,10 +7,9 @@ import i18n from './i18n'
 import type { GroundCandidate } from './groundingApi'
 import type { SharedTerm } from './vocabApi'
 import { AlignmentRow } from './PerspectiveAlignment'
-import { ScopeTabs } from './VocabLinesSection'
+import type { AttachChoice } from './decide/AttachKind'
 import { VocabTermRow } from './VocabTermsSection'
 import {
-  apiScope,
   buildMintInput,
   bumpVersion,
   cqLabel,
@@ -18,15 +17,12 @@ import {
   defaultCqTitle,
   initialCqTitle,
   isolatedCount,
-  LINE_SCOPES,
-  orderLines,
   parseVocabHash,
   pickExactStandard,
   showIsolatedNotice,
   slugFromText,
   suggestSlug,
   vocabQuestionHash,
-  vocabScopeHash,
 } from './vocabQuestion'
 
 // 架空の語だけを使う（分野語ゼロ）。
@@ -182,32 +178,24 @@ describe('孤立（まだ答えるデータがない）の札と注意', () => {
     expect(html(term('b'))).not.toContain('まだ答えるデータがない')
     expect(html(term('c', { answering_datasets: 3 }))).toContain('3 データセットが答える')
   })
-})
 
-describe('線の絞り込み（scope）', () => {
-  it('すべて＋ 4 つ。すべては api に scope を送らない', () => {
-    expect(LINE_SCOPES).toEqual(['all', 'perspective', 'standard', 'shared', 'dataset'])
-    expect(apiScope('all')).toBeUndefined()
-    expect(apiScope('shared')).toBe('shared')
-  })
-
-  it('切り替えは 5 つ並び、選んだものだけ pressed', () => {
-    const html = renderToStaticMarkup(
-      createElement(ScopeTabs, { scope: 'shared', onChange: () => {} }),
-    )
-    expect(html.match(/<button/g)).toHaveLength(5)
-    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
-    expect(html).toMatch(/aria-pressed="true"[^>]*>用語へ</)
-  })
-
-  it('切れている線を先頭に・ほかの順は変えない', () => {
-    const a = (id: string, broken?: boolean) => ({ alignment_iri: id, broken }) as Alignment
-    expect(orderLines([a('1'), a('2', true), a('3'), a('4', true)]).map((x) => x.alignment_iri)).toEqual([
-      '2',
-      '4',
-      '1',
-      '3',
-    ])
+  it('「この用語に種類（項目）を入れる」は、候補を渡された行にだけ出る', () => {
+    const noop = () => {}
+    const html = (t: SharedTerm, attachChoices?: AttachChoice[]) =>
+      renderToStaticMarkup(
+        createElement(VocabTermRow, {
+          term: t,
+          confirming: false,
+          removing: false,
+          onAskRemove: noop,
+          onCancelRemove: noop,
+          onRemove: noop,
+          attachChoices,
+        }),
+      )
+    expect(html(term('a'))).not.toContain('入れる')
+    expect(html(term('a'), [])).toContain('この用語に種類を入れる')
+    expect(html(term('p', { kind: 'property' }), [])).toContain('この用語に項目を入れる')
   })
 })
 
@@ -222,13 +210,9 @@ describe('導線の hash', () => {
   it('運んだ題を読み戻せる・scope と dataset も読む', () => {
     const q = '試料は何件？ A/B'
     expect(parseVocabHash(vocabQuestionHash(q)).q).toBe(q)
-    expect(parseVocabHash('#/vocab?scope=standard&dataset=ds1')).toEqual({
-      q: '',
-      scope: 'standard',
-      dataset: 'ds1',
-    })
-    expect(parseVocabHash('#/vocab').scope).toBeNull()
-    expect(parseVocabHash('#/vocab?scope=bogus').scope).toBeNull()
+    // 旧 scope / dataset は「決めたこと」へ移った（読まない）
+    expect(parseVocabHash('#/vocab?scope=standard&dataset=ds1')).toEqual({ q: '' })
+    expect(parseVocabHash('#/vocab')).toEqual({ q: '' })
   })
 
   it('ルータは #/questions?…（旧 #/vocab?…も）を「知りたいこと」画面として開く', () => {
@@ -243,12 +227,6 @@ describe('節の再読み込み（版の伝播）', () => {
   it('版は 1 ずつ進む（各節へ reloadKey として渡す値）', () => {
     expect(bumpVersion(0)).toBe(1)
     expect(bumpVersion(bumpVersion(0))).toBe(2)
-  })
-
-  it('つながり画面から「つながり同士」を開いた線の節へ送る', () => {
-    expect(vocabScopeHash('perspective')).toBe('#/questions?scope=perspective')
-    expect(vocabScopeHash('all')).toBe('#/questions')
-    expect(parseVocabHash(vocabScopeHash('perspective')).scope).toBe('perspective')
   })
 })
 

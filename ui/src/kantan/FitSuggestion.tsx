@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ColumnFit } from '../api'
+import { dismiss } from '../decide/decideApi'
+import { effectAfterPublish } from '../decide/decide'
+import { type PublishQuestion, questionsOfTerm } from '../decide/publishEffect'
 import { fit as fetchFit, type FitCandidate } from '../vocabApi'
 import { fitSentence, itemFitCandidates } from './kindFit'
 
@@ -8,6 +11,9 @@ import { fitSentence, itemFitCandidates } from './kindFit'
 // ADR upper-structure-shared-terms §2.5.3: 列の意味と列名が、既にある語・標準語・
 // 他データの項目と**完全一致**したときだけ出す（照合は API 側）。候補が無ければ
 // 何も出さない。☑ を自動で付けない — 受けるかどうかは人の指で決まる。
+// 「同じ項目として結ぶ」「値でもつなぐ」「当てはまるものは無い」の 3 つ。受けた直後に、
+// 公開するとどうなるか（結んだ先の問いに答えるデータセットの数）を 1 行で言う。
+// 「当てはまるものは無い」は、その提案を外す（次から出ない・`subjectKey` があるときだけ）。
 
 /** 打ち終わりを待つ時間。意味の欄は 1 文字ごとに変わるので、毎回は引かない。 */
 const DEBOUNCE_MS = 400
@@ -21,6 +27,7 @@ export function FitSuggestion({
   isTicked,
   reviewOnly = false,
   colSpan,
+  subjectKey,
   onAccept,
   onClear,
   onTick,
@@ -40,6 +47,9 @@ export function FitSuggestion({
   /** 表の行の下に、表の幅いっぱいの補助行（`<tr><td colSpan>`）として出すときの列数。
    *  ☑ のセルの中に出すと、文とボタンが狭い列からあふれて右端で切れた（実機 2026-10-09）。 */
   colSpan?: number
+  /** 「当てはまるものは無い」を覚える主語の鍵（公開前の列なので IRI は無い。例: `column:<file>/<列名>`）。
+   *  無ければそのボタンは出さない。 */
+  subjectKey?: string
   onAccept: (candidate: FitCandidate) => void
   onClear: () => void
   onTick: (candidate: FitCandidate) => void
@@ -50,7 +60,34 @@ export function FitSuggestion({
   // 残って、別の語への当てはめとして押せてしまうのを防ぐ）。
   const inputKey = `${label.trim()}\u0000${column.trim()}`
   const [found, setFound] = useState<{ key: string; list: FitCandidate[] }>({ key: '', list: [] })
-  const candidates = found.key === inputKey ? found.list : []
+  // 外した提案（この画面の中で）。次に引くときは API が除く。
+  const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set())
+  const candidates = (found.key === inputKey ? found.list : []).filter((c) => !dropped.has(c.term))
+  // 受けた当てはめの帰結（結んだ先の問い）。
+  const acceptedTerm = accepted?.term ?? ''
+  const [effect, setEffect] = useState<{ term: string; list: PublishQuestion[] } | null>(null)
+  useEffect(() => {
+    if (!acceptedTerm) return
+    let stale = false
+    void questionsOfTerm(acceptedTerm).then((list) => {
+      if (!stale) setEffect({ term: acceptedTerm, list })
+    })
+    return () => {
+      stale = true
+    }
+  }, [acceptedTerm])
+  const [dismissErr, setDismissErr] = useState('')
+
+  async function onDismiss(c: FitCandidate) {
+    if (!subjectKey) return
+    setDismissErr('')
+    try {
+      await dismiss(subjectKey, c.term)
+      setDropped((prev) => new Set([...prev, c.term]))
+    } catch (e) {
+      setDismissErr(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   useEffect(() => {
     const l = label.trim()
@@ -61,7 +98,7 @@ export function FitSuggestion({
     // 取り消し: 次の入力・離脱で古い応答を捨てる（fetch 自体は止めない）。
     let stale = false
     const timer = setTimeout(() => {
-      void fetchFit(l, c)
+      void fetchFit(l, c, subjectKey)
         .then((list) => {
           // 項目（property）の候補だけ。種類（class）は⑤で出す。
           if (!stale) setFound({ key, list: itemFitCandidates(list) })
@@ -75,7 +112,7 @@ export function FitSuggestion({
       stale = true
       clearTimeout(timer)
     }
-  }, [label, column])
+  }, [label, column, subjectKey])
 
   const hasInput = label.trim() !== '' || column.trim() !== ''
   if (!hasInput || candidates.length === 0) return null
@@ -89,6 +126,11 @@ export function FitSuggestion({
             {same ? (
               <>
                 <span role="status">{t('kantan:meanings.fit.accepted')}</span>{' '}
+                {effect?.term === c.term && (
+                  <span className="kz-fit-effect" data-testid="fit-effect">
+                    {effectAfterPublish(effect.list, t)}
+                  </span>
+                )}{' '}
                 {!reviewOnly && (
                   <button type="button" className="btn btn--ghost btn--sm" onClick={onClear}>
                     {t('kantan:meanings.fit.clear')}
@@ -112,10 +154,20 @@ export function FitSuggestion({
               >
                 {t('kantan:meanings.fit.tick')}
               </button>
+            )}{' '}
+            {!reviewOnly && !same && subjectKey && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => void onDismiss(c)}
+              >
+                {t('kantan:meanings.fit.none')}
+              </button>
             )}
           </div>
         )
       })}
+      {dismissErr && <p role="alert">{dismissErr}</p>}
       {reviewOnly && <p data-testid="fit-review-note">{t('kantan:meanings.fit.reviewNote')}</p>}
     </div>
   )

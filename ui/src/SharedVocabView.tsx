@@ -4,10 +4,11 @@ import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 import { deriveReuses, localName, knownVocabForIri } from './vocab'
-import { VocabLinesSection } from './VocabLinesSection'
 import { VocabMapSection } from './VocabMapSection'
 import { VocabQuestionEntry } from './VocabQuestionEntry'
 import { VocabTermsSection } from './VocabTermsSection'
+import type { AttachChoice } from './decide/AttachKind'
+import { isSystemKindIri } from './decide/decide'
 import { bumpVersion, parseVocabHash } from './vocabQuestion'
 
 const STATUS_KEY: Record<CatalogDataset['statusKind'], string> = {
@@ -147,6 +148,22 @@ export function SharedVocabView({
     return m
   }, [datasets])
 
+  // 「この用語に種類（項目）を入れる」の候補: 全データセットの種類・項目（公開済みの語彙から）。
+  const attach = useMemo(() => {
+    if (!schema) return undefined
+    // 系統用の型（つながりの内部・来歴・用語そのもの）は候補にしない。
+    const pick = (terms: SchemaTerm[], termKind: 'class' | 'property'): AttachChoice[] =>
+      terms.filter((term) => !isSystemKindIri(term.iri)).map((term) => ({
+        id: term.iri,
+        iri: term.iri,
+        label: term.label || humanizeLocalName(localName(term.iri)),
+        role: 'dataset' as const,
+        termKind,
+        datasetName: owners.get(term.iri)?.name,
+      }))
+    return { classes: pick(schema.classes, 'class'), properties: pick(schema.predicates, 'property') }
+  }, [schema, owners])
+
   return (
     <div className="vocab">
       {onBack && (
@@ -219,19 +236,17 @@ export function SharedVocabView({
           onOpenKind={(iri) => goTo(`#/cards/k/${encodeURIComponent(iri)}`)}
           onOpenCrosswalk={() => goTo('#/crosswalk')}
           reloadKey={version}
-          onChanged={onChanged}
         />
       )}
 
-      <VocabTermsSection reloadKey={version} onChanged={onChanged} />
+      <VocabTermsSection reloadKey={version} onChanged={onChanged} attach={attach} />
 
-      <VocabLinesSection
-        key={`${params.scope ?? ''}|${params.dataset ?? ''}`}
-        initialScope={params.scope}
-        initialDataset={params.dataset}
-        reloadKey={version}
-        onChanged={onChanged}
-      />
+      {/* 決めた関係の一覧・取り消しは「決めたこと」へ（この画面では 1 行の導線だけ）。 */}
+      <p className="vocab-sec-sub" data-testid="to-decisions">
+        <button type="button" className="link-btn" onClick={() => goTo('#/decisions')}>
+          {t('vocab:toDecisions')}
+        </button>
+      </p>
 
       {schema && (
         <div className="vocab-grid">

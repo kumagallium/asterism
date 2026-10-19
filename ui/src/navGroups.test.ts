@@ -16,7 +16,7 @@ describe('NAV_ITEMS', () => {
 
   it('つながり・全体グラフ・かんたんウィザード・アクティビティは本線に出ない', () => {
     const ids: string[] = NAV_ITEMS.map((it) => it.id)
-    for (const hidden of ['crosswalk', 'network', 'map', 'workbench', 'jobs', 'sparql']) {
+    for (const hidden of ['crosswalk', 'network', 'map', 'workbench', 'decisions', 'sparql']) {
       expect(ids).not.toContain(hidden)
     }
   })

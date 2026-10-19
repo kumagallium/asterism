@@ -1,0 +1,35 @@
+{
+  "tab": {
+    "decisions": "決めたこと",
+    "activity": "アクティビティ"
+  },
+  "tabsAria": "決めたこと・アクティビティの切り替え",
+  "lead": "人が決めた関係の記録です。日付つきで残り、いつでも取り消せます（取り消すと、答えられる問いの数が変わります）。",
+  "filterAria": "決めたことの絞り込み",
+  "filter": {
+    "all": "すべて",
+    "sub": "一種",
+    "same": "同じもの",
+    "quantity": "量",
+    "standard": "標準用語",
+    "perspective": "つながり同士",
+    "broken": "切れている"
+  },
+  "loading": "決めたことを読み込んでいます…",
+  "loadingPerspectives": "つながりを読み込んでいます…",
+  "empty": "まだ決めたことはありません。星や用語から「ひとこと決める」ができます。",
+  "emptyFilter": "この絞り込みに当てはまるものはありません。",
+  "broken": "切れている",
+  "brokenHint": "結ばれていた先が、今は見つかりません。取り消しはできます。",
+  "questions": "問い {{n}}",
+  "undo": "取り消す",
+  "undoAria": "取り消しの確認",
+  "undoLead": "取り消すと、{{effect}}",
+  "undoNoCount": "取り消します。答えられる問いの数は、試算できませんでした。",
+  "undoConfirm": "取り消す",
+  "undoing": "取り消しています…",
+  "cancel": "やめる",
+  "sentence": {
+    "other": "「{{subject}}」と「{{target}}」（{{relation}}）"
+  }
+}

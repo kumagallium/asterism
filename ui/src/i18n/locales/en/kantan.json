@@ -614,13 +614,14 @@
       "exampleDish2": "Stew"
     },
     "fit": {
-      "same": "Same item as the existing “{{label}}”",
-      "sameStandard": "Same item as the standard term “{{label}}”",
+      "same": "Same item as the existing term “{{label}}” (the names match)",
+      "sameStandard": "Same item as the standard term “{{label}}” (the names match)",
       "accept": "Treat as the same item",
       "accepted": "Linked",
       "clear": "Undo",
       "tick": "Also link by value",
-      "reviewNote": "Fits become relations when you rebuild after 'Review the design first'"
+      "reviewNote": "Fits become relations when you rebuild after 'Review the design first'",
+      "none": "Nothing fits"
     }
   },
   "links": {
