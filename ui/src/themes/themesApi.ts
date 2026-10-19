@@ -6,7 +6,7 @@
 import { authHeaders } from '../authToken'
 import i18n from '../i18n'
 import { type LlmCredentials, llmHeaders } from '../settings/store'
-import type { ThemeDraft, DraftResponse, SelectionRow, TermRow, RelationRow } from './themeDraft'
+import type { ThemeDraft, DraftResponse, SelectionRow, TermRow, RelationRow, MatchResult } from './themeDraft'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
@@ -117,6 +117,22 @@ export async function draftWithAi(
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.draft'))
   return (await res.json()) as DraftResponse
+}
+
+/**
+ * 手で書いた用語の行を、既にある用語・標準用語と完全一致で照合する（決定論・AI は呼ばない）。
+ * 失敗は呼ぶ側が黙って「なし」のままにする。
+ */
+export async function matchTerms(
+  terms: { key: string; label_ja: string; label_en: string; aliases: string[]; kind: string }[],
+): Promise<MatchResult[]> {
+  const res = await fetch(`${API_BASE}/api/themes/match`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terms }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.match'))
+  return ((await res.json()) as { terms: MatchResult[] }).terms
 }
 
 /** 閉じた選択の実行文（機械が組む）。足りなければ空文字。 */

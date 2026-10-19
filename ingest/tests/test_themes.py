@@ -512,6 +512,45 @@ def test_two_terms_wanting_the_same_missing_parent_suggest_a_grouping_name() -> 
     assert out["groups"] == [{"label_ja": "蓄電デバイス", "children": ["t1", "t2"]}]
 
 
+def test_match_rows_finds_exact_existing_and_standard_terms_for_hand_written_rows() -> None:
+    existing = [
+        sv.SharedTerm(
+            sv.SV + "record", "record", "class", "記録", "record", None, AT, aliases=("log",)
+        )
+    ]
+    out = themes.match_rows(
+        [
+            {"key": "a", "label_ja": "記録", "label_en": "", "aliases": [], "kind": "class"},
+            {"key": "b", "label_ja": "", "label_en": "Record", "aliases": [], "kind": "class"},
+            {"key": "c", "label_ja": "x", "label_en": "y", "aliases": ["LOG"], "kind": "class"},
+            {"key": "d", "label_ja": "温度", "label_en": "temperature", "aliases": [],
+             "kind": "property"},
+            {"key": "e", "label_ja": "記録の件数", "label_en": "", "aliases": [], "kind": "class"},
+            {"key": "f", "label_ja": "記録", "label_en": "", "aliases": [], "kind": "property"},
+        ],
+        existing=existing,
+    )  # fmt: skip
+    by = {r["key"]: r for r in out}
+    assert by["a"]["use"] == "existing:record"
+    assert by["a"]["match"] == {
+        "kind": "existing", "ref": "record", "label": "記録", "matched_by": "label",
+    }  # fmt: skip
+    assert by["b"]["use"] == "existing:record"  # the English name
+    assert by["c"]["match"]["matched_by"] == "alias"  # normalize_label: case-insensitive
+    assert by["d"]["use"] == "standard:quantitykind:Temperature"
+    assert by["d"]["match"]["kind"] == "quantity"
+    # a part of a name is never a match; the same name of the other kind is not one either
+    assert by["e"] == {"key": "e", "match": None, "use": "new"}
+    assert by["f"]["match"] is None
+
+
+def test_match_rows_gives_keys_to_rows_without_one() -> None:
+    rows = [{"label_ja": "なにか"}, {"key": "z", "label_ja": "なにか"}]
+    out = themes.match_rows(rows, existing=[])
+    assert [r["key"] for r in out] == ["t1", "z"]
+    assert all(r["match"] is None and r["use"] == "new" for r in out)
+
+
 def test_an_existing_term_the_model_only_names_becomes_a_row() -> None:
     existing = [sv.SharedTerm(sv.SV + "sample", "sample", "class", "試料", "sample", None, AT)]
     out = themes.postprocess_draft(

@@ -7,6 +7,8 @@
 - ``POST /api/themes/draft`` — 問いから AI が用語・関係・数え方の下書きを作る。AI は閉じた JSON
   だけを返し（SPARQL・IRI・コードを書かせない・データの値は渡さない）、機械が標準用語・既にある用語
   との完全一致で上書きして検査する。AI が未設定なら 503（画面は手入力へ）。
+- ``POST /api/themes/match`` — 手で書いた用語の行を、既にある用語・標準用語と完全一致で照合
+  （決定論・読み取り専用・AI を呼ばない）。
 - ``POST /api/themes/describe`` — 閉じた選択（数え方 × 種類 × 項目）の実行文（決定論）。
 - ``GET`` / ``POST`` / ``PUT`` / ``DELETE /api/themes/drafts…`` — 途中の下書き（閉じても続きから）。
 - ``POST /api/themes/{id}/commit`` — 下書きの確定。用語・関係・問い・テーマを**1 操作**で置く
@@ -107,6 +109,18 @@ class CommitBody(BaseModel):
     terms: list[dict[str, Any]] = Field(default_factory=list)
     relations: list[dict[str, Any]] = Field(default_factory=list)
     selections: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MatchTerm(BaseModel):
+    key: str | None = None
+    label_ja: str = ""
+    label_en: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    kind: str = "class"
+
+
+class MatchBody(BaseModel):
+    terms: list[MatchTerm] = Field(default_factory=list, max_length=200)
 
 
 class AddQuestionsBody(BaseModel):
@@ -315,6 +329,21 @@ def register_themes(
         return JSONResponse(
             {"sentences": [shared_vocab.describe_selection(s, lg) for s in body.selections[:200]]}
         )
+
+    @app.post("/api/themes/match")
+    async def themes_match(body: MatchBody) -> JSONResponse:
+        """手で書いた用語の行を、既にある用語・標準用語と**完全一致**で照合する（決定論）。
+
+        読み取り専用・トークン不要・AI は呼ばない。AI の下書きの後処理と同じ照合
+        （ja / en / 別名・部分一致は当てない）。``use`` は機械の勧め。"""
+        try:
+            existing = await shared_vocab._read_terms(_client())
+        except Exception as exc:
+            raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
+        out = await asyncio.to_thread(
+            themes.match_rows, [t.model_dump() for t in body.terms], existing=existing
+        )
+        return JSONResponse({"terms": out})
 
     # ---- 下書き（途中で閉じても続きから） --------------------------------------------
 

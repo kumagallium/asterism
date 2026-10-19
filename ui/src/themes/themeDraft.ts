@@ -44,6 +44,8 @@ export interface TermRow {
   reason: string
   match: TermMatch | null
   by: 'ai' | 'human'
+  /** `use` を決めたのは誰か。`human`＝人が select を触った（機械の照合で上書きしない）。 */
+  use_by?: 'machine' | 'human'
 }
 
 /** ④の 1 行（関係 1 つ）。`object` は行の key か標準用語の curie。`ok` は人の答え（null＝未決）。 */
@@ -343,8 +345,53 @@ export function renameRow(rows: TermRow[], key: string, patch: Partial<TermRow>)
 export function chooseUse(rows: TermRow[], key: string, use: string): TermRow[] {
   return rows.map((r) => {
     if (r.key !== key) return r
-    if (use.startsWith('existing:')) return { ...r, use, slug: use.slice('existing:'.length) }
-    return { ...r, use }
+    if (use.startsWith('existing:')) return { ...r, use, slug: use.slice('existing:'.length), use_by: 'human' }
+    return { ...r, use, use_by: 'human' }
+  })
+}
+
+/** 照合に出す行の中身（名前・別名・種類）。これが変わったら照合し直す。 */
+export function matchSignature(row: Pick<TermRow, 'label_ja' | 'label_en' | 'aliases' | 'kind'>): string {
+  return JSON.stringify([row.label_ja.trim(), row.label_en.trim(), row.aliases, row.kind])
+}
+
+/** `POST /api/themes/match` の 1 行分の答え（機械の照合と勧め）。 */
+export interface MatchResult {
+  key: string
+  match: TermMatch | null
+  use: string
+}
+
+/**
+ * 機械の照合を行に反映する（純関数）。`sent`＝照合に出した時点の行の中身（matchSignature）。
+ * いま行の中身がそれと違えば（打ち直された）その行は反映しない。`match` は常に機械の答え。
+ * `use` は人が触っていない行だけ機械の勧めに置き換える。人が選んだ `use` は、その候補が
+ * まだ選べる（照合に残っている）かぎり上書きしない・選べなくなったら勧めに戻す。
+ */
+export function applyMatches(
+  rows: TermRow[],
+  results: MatchResult[],
+  sent: Record<string, string>,
+  existingSlugs: Iterable<string> = [],
+): TermRow[] {
+  const byKey = new Map(results.map((m) => [m.key, m]))
+  const taken = new Set(existingSlugs)
+  return rows.map((row) => {
+    const res = byKey.get(row.key)
+    if (!res || sent[row.key] !== matchSignature(row)) return row
+    const next: TermRow = { ...row, match: res.match }
+    const stillOffered = termUseOptions(next).some((o) => o.value === row.use)
+    if (row.use_by === 'human' && stillOffered) return next
+    next.use = res.use
+    next.use_by = 'machine'
+    if (res.use.startsWith('existing:')) {
+      next.slug = res.use.slice('existing:'.length)
+    } else if (row.use.startsWith('existing:')) {
+      // 既にある用語から外れた: その用語の ID を引きずらない
+      const others = rows.filter((r) => r.key !== row.key).map((r) => r.slug)
+      next.slug = suggestRowSlug(row, [...others, ...taken])
+    }
+    return next
   })
 }
 

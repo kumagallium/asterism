@@ -11,12 +11,14 @@ import {
   addQuestion,
   answeringNow,
   applyDraftResponse,
+  applyMatches,
   buildCommitBody,
   canAdvance,
   chooseUse,
   idList,
   implicitRelations,
   isMemo,
+  matchSignature,
   memoReason,
   newTermRow,
   parseQuestionLines,
@@ -230,6 +232,46 @@ describe('③ 用語', () => {
     ])
     const qk = term('3', { match: { kind: 'quantity', ref: 'quantitykind:Capacity', label: 'Capacity', matched_by: 'label' } })
     expect(termUseOptions(qk)[1]).toEqual({ value: 'standard:quantitykind:Capacity', kind: 'quantity' })
+  })
+
+  describe('手で書いた行の照合（applyMatches）', () => {
+    const exact = { kind: 'existing' as const, ref: 'record', label: '記録', matched_by: 'label' as const }
+    const sentFor = (rows: TermRow[]) => Object.fromEntries(rows.map((r) => [r.key, matchSignature(r)]))
+
+    it('人が触っていない行は、機械の勧め（既にある用語）に置き換わる・ID も寄る', () => {
+      const rows = [term('1', { label_ja: '記録', by: 'human' })]
+      const out = applyMatches(rows, [{ key: '1', match: exact, use: 'existing:record' }], sentFor(rows))
+      expect(out[0]).toMatchObject({ use: 'existing:record', slug: 'record', match: exact, use_by: 'machine' })
+      expect(termUseOptions(out[0]).map((o) => o.value)).toEqual(['new', 'existing:record'])
+    })
+
+    it('標準用語の完全一致は standard: に置き換わる', () => {
+      const m = { kind: 'quantity' as const, ref: 'quantitykind:Temperature', label: 'Temperature', matched_by: 'label' as const }
+      const rows = [term('1', { kind: 'property', slug: 'temperature' })]
+      const out = applyMatches(rows, [{ key: '1', match: m, use: 'standard:quantitykind:Temperature' }], sentFor(rows))
+      expect(out[0]).toMatchObject({ use: 'standard:quantitykind:Temperature', slug: 'temperature' })
+    })
+
+    it('人が select を触った行の use は上書きしない（match は更新する）', () => {
+      const rows = chooseUse([term('1', { label_ja: '記録' })], '1', 'new')
+      expect(rows[0].use_by).toBe('human')
+      const out = applyMatches(rows, [{ key: '1', match: exact, use: 'existing:record' }], sentFor(rows))
+      expect(out[0]).toMatchObject({ use: 'new', match: exact, use_by: 'human' })
+    })
+
+    it('人が選んだ候補が照合から消えたら、機械の勧めに戻り ID も作り直す', () => {
+      const rows = chooseUse([term('1', { label_en: 'log' })], '1', 'existing:record')
+      const out = applyMatches(rows, [{ key: '1', match: null, use: 'new' }], sentFor(rows), ['record'])
+      expect(out[0]).toMatchObject({ use: 'new', match: null, slug: 'log', use_by: 'machine' })
+    })
+
+    it('照合に出したあとに打ち直された行・答えに無い行は触らない', () => {
+      const rows = [term('1', { label_ja: '記' }), term('2')]
+      const sent = sentFor(rows)
+      const edited = [{ ...rows[0], label_ja: '記録' }, rows[1]]
+      const out = applyMatches(edited, [{ key: '1', match: exact, use: 'existing:record' }], sent)
+      expect(out).toEqual(edited)
+    })
   })
 
   it('既にある用語を選ぶと、ID はその用語の ID に寄る', () => {

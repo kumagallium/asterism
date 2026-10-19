@@ -521,6 +521,47 @@ def _match_existing(
     return None
 
 
+def _machine_match(
+    label_ja: str, label_en: str, aliases: Iterable[str], kind: str, existing: list[SharedTerm]
+) -> tuple[dict | None, str, str, StdRef | None]:
+    """What the machine can say about one row by exact name alone (never fuzzy): an
+    existing shared term first, then a standard term. → ``(match, use, slug, std)``;
+    ``match`` is ``None`` (and ``use`` is ``"new"``) when nothing matches exactly."""
+    ex = _match_existing(label_ja, label_en, aliases, kind, existing)
+    if ex is not None:
+        e, how = ex
+        match = {"kind": "existing", "ref": e.slug, "label": e.label, "matched_by": how}
+        return match, f"{_USE_EXISTING}{e.slug}", e.slug, None
+    std = std_exact(label_ja, label_en, aliases, kind)
+    if std is not None:
+        match = {
+            "kind": "quantity" if std.kind == "quantity" else "standard",
+            "ref": std.curie,
+            "label": std.label,
+            "matched_by": "label",
+        }
+        return match, f"{_USE_STANDARD}{std.curie}", "", std
+    return None, "new", "", None
+
+
+def match_rows(rows: Iterable[dict], *, existing: list[SharedTerm]) -> list[dict]:
+    """Rows the person wrote by hand (``{key?, label_ja, label_en, aliases, kind}``) →
+    ``[{key, match, use}]``: the same exact-name check an AI draft gets (ja / en / aliases
+    through :func:`normalize_label` — a part of a name never matches). ``use`` is the
+    machine's advice (``existing:<slug>`` / ``standard:<curie>`` / ``new``). Read-only; no
+    model is involved."""
+    out: list[dict] = []
+    for i, r in enumerate(rows):
+        kind = "property" if r.get("kind") == "property" else "class"
+        aliases = list(sv.clean_aliases(r.get("aliases")))
+        match, use, _slug, _std = _machine_match(
+            str(r.get("label_ja") or ""), str(r.get("label_en") or ""), aliases, kind, existing
+        )
+        key = r.get("key") if r.get("key") is not None else f"t{i + 1}"
+        out.append({"key": key, "match": match, "use": use})
+    return out
+
+
 def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTerm]) -> dict:
     """The AI's closed JSON (already validated) → the wizard's working rows.
 
@@ -569,38 +610,22 @@ def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTe
         aliases = list(sv.clean_aliases(t.get("aliases")))
         label_en = t.get("label_en") or ""
         kind = t["kind"]
-        match: dict | None = None
-        use = "new"
-        slug = ""
-        ex = _match_existing(label_ja, label_en, aliases, kind, existing)
-        if ex is not None:
-            e, how = ex
-            use, slug = f"{_USE_EXISTING}{e.slug}", e.slug
-            match = {"kind": "existing", "ref": e.slug, "label": e.label, "matched_by": how}
-        else:
-            std = std_exact(label_ja, label_en, aliases, kind)
-            if std is not None:
-                use = f"{_USE_STANDARD}{std.curie}"
-                match = {
-                    "kind": "quantity" if std.kind == "quantity" else "standard",
-                    "ref": std.curie,
-                    "label": std.label,
-                    "matched_by": "label",
-                }
-                remember_std(std)
-            else:
-                claimed = t.get("use") or "new"
-                if claimed.startswith(_USE_EXISTING):
-                    e2 = by_slug.get(claimed[len(_USE_EXISTING) :])
-                    if e2 is not None and e2.kind == kind:
-                        use, slug = claimed, e2.slug
-                elif claimed.startswith(_USE_STANDARD):
-                    ref = std_by_curie(claimed[len(_USE_STANDARD) :])
-                    if ref is not None and (
-                        ref.kind == kind or (ref.kind == "quantity" and kind == "property")
-                    ):
-                        use = claimed
-                        remember_std(ref)
+        match, use, slug, std = _machine_match(label_ja, label_en, aliases, kind, existing)
+        if std is not None:
+            remember_std(std)
+        if match is None:
+            claimed = t.get("use") or "new"
+            if claimed.startswith(_USE_EXISTING):
+                e2 = by_slug.get(claimed[len(_USE_EXISTING) :])
+                if e2 is not None and e2.kind == kind:
+                    use, slug = claimed, e2.slug
+            elif claimed.startswith(_USE_STANDARD):
+                ref = std_by_curie(claimed[len(_USE_STANDARD) :])
+                if ref is not None and (
+                    ref.kind == kind or (ref.kind == "quantity" and kind == "property")
+                ):
+                    use = claimed
+                    remember_std(ref)
         if not slug:
             base = slug_from_text(label_en)
             if not base:

@@ -255,6 +255,35 @@ def test_an_answer_off_the_closed_shape_is_retried_once_then_502(tmp_path: Path)
     assert r.status_code == 502 and "決まった形" in r.json()["detail"]
 
 
+def test_match_finds_exact_names_without_a_token_and_without_the_ai(tmp_path: Path) -> None:
+    llm = _LLM()  # a call would pop from an empty list
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        client.post(
+            "/api/vocab/shared",
+            json={"slug": "record", "kind": "class", "label_ja": "記録", "label_en": "record",
+                  "cqs": [{"title": "記録は何件？", "op": "count"}]},
+        )  # fmt: skip
+    with TestClient(app) as anon:  # no token at all
+        r = anon.post(
+            "/api/themes/match",
+            json={"terms": [
+                {"key": "a", "label_ja": "記録", "label_en": "", "aliases": [], "kind": "class"},
+                {"key": "b", "label_ja": "温度", "label_en": "temperature", "aliases": [],
+                 "kind": "property"},
+                {"key": "c", "label_ja": "記録の件", "label_en": "", "aliases": [],
+                 "kind": "class"},
+            ]},
+        )  # fmt: skip
+    assert r.status_code == 200
+    rows = {t["key"]: t for t in r.json()["terms"]}
+    assert set(r.json()) == {"terms"} and set(rows["a"]) == {"key", "match", "use"}
+    assert rows["a"]["use"] == "existing:record" and rows["a"]["match"]["kind"] == "existing"
+    assert rows["b"]["use"] == "standard:quantitykind:Temperature"
+    assert rows["c"] == {"key": "c", "match": None, "use": "new"}
+    assert llm.calls == []
+
+
 def test_describe_phrases_selections(tmp_path: Path) -> None:
     app, _ = _app(tmp_path)
     with TestClient(app) as client:

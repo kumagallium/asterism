@@ -18,6 +18,7 @@
       "list": "テーマの一覧の読み込み",
       "draft": "AI の下書き",
       "describe": "実行文の取得",
+      "match": "用語の照合",
       "saveDraft": "下書きの保存",
       "openDraft": "下書きを開くこと",
       "deleteDraft": "下書きを捨てること",

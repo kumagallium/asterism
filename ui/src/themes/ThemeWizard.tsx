@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from '../settings/context'
 import { type SharedTerm, listTerms } from '../vocabApi'
@@ -11,6 +11,7 @@ import {
   describeSelections,
   draftWithAi,
   getDraft,
+  matchTerms,
   saveDraft,
 } from './themesApi'
 import {
@@ -30,7 +31,9 @@ import {
   applyDraftResponse,
   buildCommitBody,
   canAdvance,
+  applyMatches,
   chooseUse,
+  matchSignature,
   draftGroups,
   draftStandards,
   draftSuggestions,
@@ -130,6 +133,8 @@ export function ThemeWizard({
   const [aliasText, setAliasText] = useState<Record<string, string>>({})
   const [relForm, setRelForm] = useState({ subject: '', relation: 'sub' as RelationKind, object: '' })
   const [groupName, setGroupName] = useState<Record<string, string>>({})
+  // 機械の照合に出した時点の行の中身（key → matchSignature）。同じ中身は出し直さない。
+  const matchedSigs = useRef<Record<string, string>>({})
 
   useEffect(() => {
     if (!resumeId) return
@@ -140,6 +145,8 @@ export function ThemeWizard({
         setDraft(d)
         setQText(d.questions.join('\n'))
         setAliasText(Object.fromEntries(d.terms.map((r) => [r.key, r.aliases.join(', ')])))
+        // 保存してある照合は、そのまま使う（開き直すたびに照合し直さない）
+        matchedSigs.current = Object.fromEntries(d.terms.map((r) => [r.key, matchSignature(r)]))
         setLoaded(true)
       })
       .catch((e) => {
@@ -187,6 +194,40 @@ export function ThemeWizard({
     }
   }, [step, draft.selections, draft.terms, lang])
 
+  // ③: 行の名前・別名・種類が変わったら、400ms 待って機械の照合（完全一致・AI は使わない）に出す。
+  // 失敗は黙って今のまま（停止カードにしない）。`use` は人が触っていない行だけ機械の勧めに寄る。
+  useEffect(() => {
+    if (step !== 3) return
+    const timer = window.setTimeout(() => {
+      const sent: Record<string, string> = {}
+      const batch: TermRow[] = []
+      for (const r of rows) {
+        const sig = matchSignature(r)
+        if (matchedSigs.current[r.key] === sig) continue
+        matchedSigs.current[r.key] = sig
+        // 名前がまだ何も無い行は、照合するものが無い
+        if (!r.label_ja.trim() && !r.label_en.trim() && r.aliases.length === 0 && r.match === null) continue
+        sent[r.key] = sig
+        batch.push(r)
+      }
+      if (batch.length === 0) return
+      matchTerms(
+        batch.map((r) => ({
+          key: r.key,
+          label_ja: r.label_ja,
+          label_en: r.label_en,
+          aliases: r.aliases,
+          kind: r.kind,
+        })),
+      )
+        .then((results) =>
+          setDraft((d) => ({ ...d, terms: applyMatches(d.terms, results, sent, existingSlugs) })),
+        )
+        .catch(() => {})
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [step, rows, existingSlugs])
+
   const problems = rowProblems(rows, existingSlugs)
   const problemCount = Object.keys(problems).length
 
@@ -230,6 +271,7 @@ export function ThemeWizard({
       }
       const applied = applyDraftResponse(base, res)
       setAliasText(Object.fromEntries(applied.terms.map((r) => [r.key, r.aliases.join(', ')])))
+      matchedSigs.current = Object.fromEntries(applied.terms.map((r) => [r.key, matchSignature(r)]))
       setAi({ status: 'ok' })
       await persist({ ...applied, step: 2 })
     } catch (e) {
@@ -249,6 +291,7 @@ export function ThemeWizard({
     }
     if (!useAi) {
       setAliasText({})
+      matchedSigs.current = {}
       await go(3, base.selections.length > 0 ? base : startManual(base))
       return
     }
@@ -775,6 +818,7 @@ export function ThemeWizard({
                 .map((r) => (
                   <option key={r.key} value={r.key}>
                     {nameOf(r.key)}
+                    {termMints(r) ? '' : ` ${t('themes:relations.tagExisting').trim()}`}
                   </option>
                 ))}
             </select>

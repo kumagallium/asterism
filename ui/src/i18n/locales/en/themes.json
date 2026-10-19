@@ -18,6 +18,7 @@
       "list": "Loading the themes",
       "draft": "The AI draft",
       "describe": "Getting the execution sentence",
+      "match": "Matching the terms",
       "saveDraft": "Saving the draft",
       "openDraft": "Opening the draft",
       "deleteDraft": "Discarding the draft",
