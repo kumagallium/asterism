@@ -3316,7 +3316,7 @@ export function KantanWizard({
     }
   }
 
-  /** The reader is done naming columns / ticking links → ④「番号を選ぶ」へ。
+  /** The reader is done naming columns / ticking links → ④「データの ID を選ぶ」へ。
    *  骨格の生成はもう LLM の仕事ではない（ADR skeleton-from-easy-judgments D5）:
    *  ③の ☑・④の番号と検査の事実から runAssemble が決定論で組み立てる。
    *  番号の候補が 2 つ未満のファイルしか無いとき④は畳まれている（選ぶ余地が無い）—
@@ -5171,7 +5171,7 @@ export function KantanWizard({
   // ---- render -----------------------------------------------------------------
 
   // Recipe position (ADR meaning-before-identity / upper-structure-shared-terms
-  // §2.5.2: ③ 意味をつける → ④ 番号を選ぶ → ⑤ かたちをたしかめる).
+  // §2.5.2: ③ 意味をつける → ④ データの ID を選ぶ → ⑤ かたちをたしかめる).
   // S10 is the meaning screen (with the ☑ links) — the one human gate that comes
   // BEFORE any design. S11 is ④ (pick the number; folded away when no file has
   // 2+ candidates — see numberMode below). S4 (the shape gate) and S5 (the machine
@@ -5192,7 +5192,7 @@ export function KantanWizard({
               : step === 7
                 ? 6
                 : 7
-  // ④「番号を選ぶ」が畳まれているか（候補が 2 つ未満）。手順バーに薄く出す。
+  // ④「データの ID を選ぶ」が畳まれているか（候補が 2 つ未満）。手順バーに薄く出す。
   // 列の事実がまだ無い間（①②）は言わない。
   const numberMode =
     recipePos >= 3 ? numberStepMode(meaningRows(), excludedColumns) : null
@@ -7324,7 +7324,7 @@ export function KantanWizard({
           <h4 className="kz-next-title">{t('kantan:meanings.link.title')}</h4>
           <p className="kz-lead">{t('kantan:meanings.link.lead')}</p>
           <p className="kz-note kz-prose">{t('kantan:meanings.link.promise')}</p>
-          <details>
+          <details open>
             <summary>{t('kantan:meanings.link.exampleSummary')}</summary>
             <div className="kz-links-example" aria-hidden="true">
               {/* ミニ表にも列名ヘッダを出す — 下の実表は「元の列名」ヘッダを持つのに
@@ -7340,8 +7340,8 @@ export function KantanWizard({
                     </tr>
                   </thead>
                   <tbody>
-                    <tr><td>カレー</td><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td></tr>
-                    <tr><td>シチュー</td><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td></tr>
+                    <tr><td>{t('kantan:meanings.link.exampleDish1')}</td><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td></tr>
+                    <tr><td>{t('kantan:meanings.link.exampleDish2')}</td><td className="kz-links-hl">{t('kantan:meanings.link.exampleWord')}</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -7630,9 +7630,9 @@ export function KantanWizard({
         </section>
       ) : step === 11 ? (
         <section className="kz-card">
-          {/* 4 — 番号を選ぶ（見出しは手順の名前と同じ。ADR meaning-before-identity K47 /
+          {/* 4 — データの ID を選ぶ（見出しは手順の名前と同じ。ADR meaning-before-identity K47 /
               skeleton-from-easy-judgments D2〜D5 / upper-structure-shared-terms §2.5.2）。
-              問は「この 1 件を名指す番号はどれ？」だけ。旧版の問②（他のデータとつながる
+              問は「データの ID になる列はどれ？」だけ。旧版の問②（他のデータとつながる
               手がかりの ☑）は③へ移した — ③の「意味」と同じ表で、列を見ながら付ける方が
               自然なため。番号の候補（測定値を除く前置き列）が 2 つ以上のファイルがある
               ときだけこの画面を出し、1 つなら「自動で決まりました」、0 なら「仮置き」
@@ -7653,7 +7653,48 @@ export function KantanWizard({
             return (
               <>
                 {mode === 'ask' ? (
-                  <p className="kz-lead">{t('kantan:links.keyLead')}</p>
+                  <>
+                    <p className="kz-lead">{t('kantan:links.keyLead')}</p>
+                    {/* ID の例 — レシピ番号は行ごとに違うので ID になり、食材名は同じ
+                        値が 2 行に出るので ID にならない。色だけに頼らず ✓／✕ でも区別。 */}
+                    <details open className="kz-links-idexample">
+                      <summary>{t('kantan:links.exampleSummary')}</summary>
+                      <div className="kz-links-example" aria-hidden="true">
+                        <div className="kz-links-mini">
+                          <p className="kz-links-mini-title">{t('kantan:links.exampleTitle')}</p>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th className="kz-links-hl">{t('kantan:links.exampleColId')}</th>
+                                <th>{t('kantan:links.exampleColDish')}</th>
+                                <th>{t('kantan:links.exampleColFood')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td className="kz-links-hl">{t('kantan:links.exampleId1')}</td>
+                                <td>{t('kantan:meanings.link.exampleDish1')}</td>
+                                <td>{t('kantan:links.exampleFood')}</td>
+                              </tr>
+                              <tr>
+                                <td className="kz-links-hl">{t('kantan:links.exampleId2')}</td>
+                                <td>{t('kantan:meanings.link.exampleDish2')}</td>
+                                <td>{t('kantan:links.exampleFood')}</td>
+                              </tr>
+                            </tbody>
+                            <tfoot>
+                              <tr>
+                                <td className="kz-links-verdict kz-links-verdict--ok">{t('kantan:links.exampleIdOk')}</td>
+                                <td />
+                                <td className="kz-links-verdict kz-links-verdict--ng">{t('kantan:links.exampleFoodNg')}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                      <p className="kz-note kz-prose">{t('kantan:links.exampleCaption')}</p>
+                    </details>
+                  </>
                 ) : (
                   <p className="kz-note kz-prose">
                     {t(mode === 'auto' ? 'kantan:recipe.step4Auto' : 'kantan:recipe.step4Placeholder')}

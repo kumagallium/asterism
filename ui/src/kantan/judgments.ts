@@ -3,7 +3,7 @@
 // 骨格の受け口（`linkable`）と、自動つなぎの材料（`handles.json`）は、別々の意味を
 // 持つ 2 つの集合から作る（ADR upper-structure-shared-terms §2.5.2・K47／K48）:
 //   ticked  = 人が自分で付けた ☑（handles.json に入る。出どころ via／term を添える）
-//   numbers = 「この 1 件を名指す番号」の列（機械が決めたものも含む。handles には入れない）
+//   numbers = 「データの ID」の列（機械が決めたものも含む。handles には入れない）
 //   linkable = ticked ∪ numbers      handles = ticked だけ
 // 2 つの意味は変えない。出どころを 1 か所にして、`runAssemble` と材料の送信が別々に
 // 計算して食い違うのを防ぐだけ。UI は DOM を持たないこのファイルを呼ぶ。
@@ -74,10 +74,10 @@ export function sourcesOf(rows: JudgmentRow[]): string[] {
   return [...new Set(rows.map((r) => r.source))]
 }
 
-/** ④（番号を選ぶ）の出方。
+/** ④（データの ID を選ぶ）の出方。
  *   ask         候補が 2 つ以上のファイルがある → 段を出して選ばせる
- *   auto        全ファイルが候補ちょうど 1 つ → 畳む（「番号は自動で決まりました」）
- *   placeholder 候補 0 のファイルがある → 畳む（「番号は仮置き（⑤で確認）」）
+ *   auto        全ファイルが候補ちょうど 1 つ → 畳む（「ID は自動で決まりました」）
+ *   placeholder 候補 0 のファイルがある → 畳む（「ID は仮置き（⑤で確認）」）
  *  列の事実がまだ無いとき（ファイルを読む前）は null — 手順バーに何も言わない。 */
 export type NumberStepMode = 'ask' | 'auto' | 'placeholder'
 
