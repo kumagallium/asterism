@@ -13,13 +13,13 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-1) 1.4rem;
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   color: var(--muted);
 }
 .sky-facts b {
-  margin-right: 0.25rem;
+  margin-right: 0.4rem;
   font-family: var(--font-mono);
-  font-size: 1.25rem;
+  font-size: 1.75rem;
   font-weight: 500;
   color: var(--fg);
 }
@@ -45,8 +45,10 @@
   align-items: start;
 }
 .sky-chartwrap {
-  position: relative;
   min-width: 0;
+}
+.sky-figure {
+  position: relative;
 }
 .sky-canvas {
   display: block;
@@ -112,7 +114,7 @@
 .sky-sample-tag {
   position: absolute;
   top: 10px;
-  right: 12px;
+  left: 12px;
   font-size: 0.7rem;
   color: var(--faint);
 }
@@ -135,18 +137,76 @@
   border-radius: 50%;
   vertical-align: -1px;
 }
-.sky-legend-end {
+/* 入口 2 つ（図の左下・標準用語の帯の左）。狭い画面では図の下に横並び。 */
+.sky-entries {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  margin-left: auto;
+  gap: var(--space-2);
 }
-.sky-quiet {
-  display: inline-flex;
+.sky-entries .btn {
+  box-shadow: var(--shadow-soft);
+}
+@media (max-width: 640px) {
+  .sky-entries {
+    position: static;
+    margin-top: var(--space-2);
+  }
+}
+
+/* 図の右上の「…」 */
+.sky-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.sky-more-btn {
+  min-width: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.sky-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 3;
+  display: flex;
+  min-width: 11rem;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.sky-menu-item {
+  display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-align: left;
+  color: var(--fg);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+}
+.sky-menu-item:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+.sky-menu-item:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+.sky-menu-check {
+  display: inline-block;
+  width: 1em;
+  color: var(--accent-strong);
 }
 .sky-png-note {
   margin: var(--space-1) 0 0;
@@ -277,12 +337,28 @@ button.sky-pill--data:hover:not(:disabled) {
   color: var(--fg);
   text-decoration: underline;
 }
+.sky-decisions-link {
+  font-size: 0.78rem;
+}
+/* 育ったことの 1 行（6 秒だけ） */
+.sky-grown {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--activity);
+  background: var(--activity-soft);
+  border-radius: var(--radius-sm);
+}
+.sky-qneeds {
+  padding: 0 0 var(--space-2) 32px;
+}
 .sky-hint {
   margin: var(--space-2) 0 0;
   font-size: 0.78rem;
   color: var(--body);
 }
-/* 「ひとこと決める」の置き場（PR 3 で中身が入る）。いまは何も出さない。 */
+/* 「ひとこと決める」の置き場。中身が無いうちは何も出さない。 */
 .sky-decide-slot:empty {
   display: none;
 }
@@ -351,31 +427,6 @@ button.sky-pill--data:hover:not(:disabled) {
   inset: 7px;
 }
 
-/* 最近の育ち */
-.sky-recent {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.sky-recent li {
-  display: flex;
-  gap: 8px;
-  padding: 6px 0;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  border-top: 1px solid var(--border);
-}
-.sky-recent li:first-child {
-  border-top: none;
-}
-.sky-recent time {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--faint);
-  padding-top: 2px;
-}
-
 /* 図と同じ内容の表 */
 .sky-table-wrap {
   background: var(--surface);
@@ -383,10 +434,25 @@ button.sky-pill--data:hover:not(:disabled) {
   border-radius: var(--radius);
   padding: var(--space-3) var(--space-4);
 }
-.sky-table-wrap > summary {
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
+.sky-table-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.sky-table-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.sky-table-counts b {
+  margin-right: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 500;
   color: var(--fg);
 }
 .sky-tables {

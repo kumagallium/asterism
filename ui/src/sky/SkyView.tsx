@@ -1,7 +1,8 @@
-// ホーム＝星図（UI 再設計 PR 2）。参考実装 `docs/design/sky-chart-mock/`。
-//   ・上: 事実の帯（答えられる問い N/M が先頭）
-//   ・左: 星図（canvas 2D・決定論の配置）。右: 「この星について」「知りたいこと」「最近の育ち」
-//   ・下: 図と同じ内容の表（静かな表示）・「画像で保存」・「中身まで見る」（値の網）
+// ホーム＝星図（UI 再設計 PR 2・PR 5 で削った）。参考実装 `docs/design/sky-chart-mock/`。
+//   ・上: 「答えられる問い N / M」だけ（大きく 1 行）
+//   ・左: 星図（canvas 2D・決定論の配置）。入口 2 つ（データを置く・知りたいことを書く）は図の
+//     左下、「…」（静かな表示・画像で保存・数で見る・中身まで見る）は図の右上。直下に凡例 1 行。
+//   ・右: 欄は 1 枚だけ。点を選んでいれば「この星について」、選んでいなければ「知りたいこと」。
 // 配置は skyLayout.ts（純関数）、描画は skyDraw.ts。ここは取得・状態・DOM だけ。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,6 +37,7 @@ export interface SkyViewProps {
   onWriteQuestion: () => void
   onOpenKind: (iri: string) => void
   onOpenDataset: (id: string) => void
+  onOpenTerm: (slug: string) => void
   onOpenQuestions: () => void
   /** 「中身まで見る」の中身（NetworkView）。 */
   deepView: ReactNode
@@ -65,6 +67,27 @@ function prefersReducedMotion(): boolean {
     return false
   }
 }
+
+/** 前に見たときの「答えられる問い」の数（公開した直後に「5 → 6」を 1 度だけ言うため）。 */
+const ANSWERABLE_KEY = 'asterism.sky.answerable'
+function readAnswerable(): number | null {
+  try {
+    const raw = localStorage.getItem(ANSWERABLE_KEY)
+    const n = raw === null ? NaN : Number(raw)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+function writeAnswerable(n: number): void {
+  try {
+    localStorage.setItem(ANSWERABLE_KEY, String(n))
+  } catch {
+    /* 保存できなくても今回の表示には効く */
+  }
+}
+/** 育ったことを右の欄の上に出しておく時間。 */
+const GROWN_MS = 6000
 
 type Load = { status: 'loading' } | { status: 'error' } | { status: 'ok'; sky: SkyData }
 
@@ -275,6 +298,26 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
     }
   }, [schedule])
 
+  // ── 育ったことの 1 行（右の欄の上に 6 秒だけ）: 答えられる問い 5 → 6 ──
+  const [grown, setGrown] = useState<{ from: number; to: number } | null>(null)
+  const grownTimer = useRef(0)
+  const showGrown = useCallback((from: number, to: number) => {
+    window.clearTimeout(grownTimer.current)
+    // effect の中から同期的に setState しない（描画のあとに回す）
+    grownTimer.current = window.setTimeout(() => {
+      setGrown({ from, to })
+      grownTimer.current = window.setTimeout(() => setGrown(null), GROWN_MS)
+    }, 0)
+  }, [])
+  useEffect(() => () => window.clearTimeout(grownTimer.current), [])
+  // 前に見たときの数（この画面を開いた時点のもの）。公開直後の「5 → 6」に使う。
+  const prevAnswerable = useRef<number | null | undefined>(undefined)
+  if (prevAnswerable.current === undefined) prevAnswerable.current = readAnswerable()
+  const answerableNow = sky.facts.questions_answerable
+  useEffect(() => {
+    if (!nothing) writeAnswerable(answerableNow)
+  }, [answerableNow, nothing])
+
   // ── 決めたあとの輪: 取り直した星図が届いたら、その用語と星に 1 度だけ出す ──
   const growRef = useRef<{ iris: string[]; from: SkyData } | null>(null)
   const { onRefresh } = props
@@ -289,11 +332,14 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
     const g = growRef.current
     if (!g || g.from === sky) return
     growRef.current = null
+    if (sky.facts.questions_answerable > g.from.facts.questions_answerable) {
+      showGrown(g.from.facts.questions_answerable, sky.facts.questions_answerable)
+    }
     if (reduced) return
     const now = performance.now()
     for (const id of nodeIdsForIris(layout, g.iris)) bornRef.current.set(id, now)
     schedule()
-  }, [sky, layout, reduced, schedule])
+  }, [sky, layout, reduced, schedule, showGrown])
 
   // ── 生まれた輪（`#/home?new=…`・1 度だけ） ──
   const consumedRef = useRef<string>('')
@@ -311,13 +357,15 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
     const key = newIris.join('\n')
     if (consumedRef.current === key) return
     consumedRef.current = key
+    const prev = prevAnswerable.current
+    if (typeof prev === 'number' && answerableNow > prev) showGrown(prev, answerableNow)
     if (!reduced) {
       const now = performance.now()
       for (const id of nodeIdsForIris(layout, newIris)) bornRef.current.set(id, now)
       schedule()
     }
     onNewConsumed()
-  }, [newIris, onNewConsumed, layout, reduced, nothing, schedule])
+  }, [newIris, onNewConsumed, layout, reduced, nothing, schedule, answerableNow, showGrown])
 
   // ── ポインタ ──
   const localPoint = (ev: React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } => {
@@ -383,78 +431,101 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
     return n
   }, [sky])
 
+  const [tablesOpen, setTablesOpen] = useState(false)
   const f = sky.facts
-  const fmt = (n: number): string => n.toLocaleString('en-US')
   const ariaLabel = nothing
     ? t('chart.ariaSample')
     : t('chart.aria', { datasets: sky.datasets.length, kinds: f.kinds, terms: f.terms })
+  // 説明の 1 行は 1 つだけ（状態の注記が重ならないように）。
+  const note =
+    sky.datasets.length > 0 && sky.questions.length === 0 && kindsWithoutTerm > 0
+      ? t('empty.dataOnly', { n: kindsWithoutTerm })
+      : sky.datasets.length === 0 && sky.questions.length > 0
+        ? t('empty.questionsOnly')
+        : sky.truncated
+          ? t('state.truncated')
+          : null
+
+  const entries = (
+    <>
+      <button type="button" className="btn btn--primary btn--sm" onClick={props.onAddData}>
+        {t('common:entries.data')}
+      </button>
+      <button type="button" className="btn btn--activity btn--sm" onClick={props.onWriteQuestion}>
+        {t('common:entries.question')}
+      </button>
+    </>
+  )
 
   return (
     <div className="sky-page">
       <div className="sky-facts">
-        <span className="sky-facts-lead">
-          <b>
-            {f.questions_answerable}/{f.questions_total}
-          </b>
-          {t('facts.answerable')}
-        </span>
-        <span>
-          <b>{fmt(f.kinds)}</b>
-          {t('facts.kinds')}
-        </span>
-        <span>
-          <b>{fmt(f.terms)}</b>
-          {t('facts.terms')}
-        </span>
-        <span>
-          <b>{fmt(sky.datasets.length)}</b>
-          {t('facts.datasets')}
-        </span>
-        <span>
-          <b>{fmt(f.triples)}</b>
-          {t('facts.triples')}
-        </span>
+        {f.questions_total > 0 ? (
+          <span className="sky-facts-lead">
+            <b>
+              {f.questions_answerable} / {f.questions_total}
+            </b>
+            {t('facts.answerable')}
+          </span>
+        ) : (
+          <span className="sky-facts-none">{t('facts.none')}</span>
+        )}
       </div>
 
-      {sky.datasets.length > 0 && sky.questions.length === 0 && kindsWithoutTerm > 0 && (
-        <p className="sky-note">{t('empty.dataOnly', { n: kindsWithoutTerm })}</p>
-      )}
-      {sky.datasets.length === 0 && sky.questions.length > 0 && <p className="sky-note">{t('empty.questionsOnly')}</p>}
-      {sky.truncated && <p className="sky-note">{t('state.truncated')}</p>}
+      {note && <p className="sky-note">{note}</p>}
 
       <div className="sky-grid">
         <div className="sky-chartwrap" ref={wrapRef}>
-          <canvas
-            ref={canvasRef}
-            className="sky-canvas"
-            style={{ height: layout.height }}
-            role="img"
-            aria-label={ariaLabel}
-            onMouseMove={onMove}
-            onMouseLeave={onLeave}
-            onClick={onClick}
-          />
-          {nothing && (
-            <>
-              <span className="sky-sample-tag">{t('empty.sample')}</span>
-              <div className="sky-empty-card">
-                <h2 className="sky-empty-title">{t('empty.none')}</h2>
-                <p className="sky-empty-sub">{t('empty.noneSub')}</p>
-                <div className="sky-empty-actions">
-                  <button type="button" className="btn btn--primary btn--sm" onClick={props.onAddData}>
-                    {t('common:entries.data')}
-                  </button>
-                  <button type="button" className="btn btn--activity btn--sm" onClick={props.onWriteQuestion}>
-                    {t('common:entries.question')}
-                  </button>
+          <div className="sky-figure">
+            <canvas
+              ref={canvasRef}
+              className="sky-canvas"
+              style={{ height: layout.height }}
+              role="img"
+              aria-label={ariaLabel}
+              onMouseMove={onMove}
+              onMouseLeave={onLeave}
+              onClick={onClick}
+            />
+            {nothing && (
+              <>
+                <span className="sky-sample-tag">{t('empty.sample')}</span>
+                <div className="sky-empty-card">
+                  <h2 className="sky-empty-title">{t('empty.none')}</h2>
+                  <div className="sky-empty-actions">{entries}</div>
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
+            {!nothing && <div className="sky-entries">{entries}</div>}
+            <MoreMenu
+              label={t('more.label')}
+              items={[
+                {
+                  key: 'quiet',
+                  label: t('quiet'),
+                  checked: reduced,
+                  disabled: osQuiet,
+                  onSelect: () => {
+                    setQuiet(!reduced)
+                    writeQuiet(!reduced)
+                  },
+                },
+                {
+                  key: 'png',
+                  label: t('png.button'),
+                  disabled: tauri || nothing,
+                  title: tauri ? t('png.desktop') : undefined,
+                  onSelect: savePng,
+                },
+                { key: 'numbers', label: t('more.numbers'), onSelect: () => setTablesOpen(true) },
+                { key: 'deep', label: t('deep'), onSelect: () => props.onDeep(true) },
+              ]}
+            />
+          </div>
           <div className="sky-legend">
             <span>
               <i style={{ background: 'var(--entity)' }} />
-              {t('legend.kind')}
+              {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
             </span>
             <span>
               <i style={{ background: 'var(--activity)' }} />
@@ -464,29 +535,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
               <i style={{ background: 'var(--accent)' }} />
               {t('legend.std')}
             </span>
-            <span>{layout.mode === 'circles' ? t('legend.circles') : t('legend.lines')}</span>
-            <span className="sky-legend-end">
-              <label className="sky-quiet">
-                <input
-                  type="checkbox"
-                  checked={reduced}
-                  disabled={osQuiet}
-                  onChange={(e) => {
-                    setQuiet(e.target.checked)
-                    writeQuiet(e.target.checked)
-                  }}
-                />
-                {t('quiet')}
-              </label>
-              <button type="button" className="btn btn--ghost btn--sm" onClick={savePng} disabled={tauri || nothing}>
-                {t('png.button')}
-              </button>
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => props.onDeep(true)}>
-                {t('deep')}
-              </button>
-            </span>
           </div>
-          {tauri && <p className="sky-png-note">{t('png.desktop')}</p>}
           {pngError && (
             <p className="sky-png-note" role="alert">
               {t('png.failed')}
@@ -497,19 +546,87 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
           sky={sky}
           layout={layout}
           lang={lang}
+          grown={grown}
           selectedId={activeId}
           selectedQuestion={selectedQuestion}
           onSelectNode={selectNode}
           onSelectQuestion={selectQuestion}
           onOpenKind={props.onOpenKind}
           onOpenDataset={props.onOpenDataset}
+          onOpenTerm={props.onOpenTerm}
           onOpenQuestions={props.onOpenQuestions}
           onDecided={grow}
         />
       </div>
 
-      <SkyTables tables={tables} />
+      {tablesOpen && <SkyTables tables={tables} sky={sky} onClose={() => setTablesOpen(false)} />}
     </div>
   )
 }
 
+interface MenuItem {
+  key: string
+  label: string
+  onSelect: () => void
+  checked?: boolean
+  disabled?: boolean
+  title?: string
+}
+
+/** 図の右上の「…」。常時出すボタンやチェックボックスの代わりに、操作をここへまとめる。 */
+function MoreMenu({ label, items }: { label: string; items: MenuItem[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div className="sky-more" ref={ref}>
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm sky-more-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((o) => !o)}
+      >
+        …
+      </button>
+      {open && (
+        <div className="sky-menu" role="menu">
+          {items.map((it) => (
+            <button
+              key={it.key}
+              type="button"
+              role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+              aria-checked={it.checked}
+              className="sky-menu-item"
+              disabled={it.disabled}
+              title={it.title}
+              onClick={() => {
+                setOpen(false)
+                it.onSelect()
+              }}
+            >
+              <span className="sky-menu-check">{it.checked ? '✓' : ''}</span>
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -16,14 +16,14 @@
     "kinds": "kinds",
     "terms": "terms",
     "datasets": "datasets",
-    "triples": "facts"
+    "triples": "facts",
+    "none": "No questions yet"
   },
   "legend": {
-    "kind": "Kind (size = count)",
-    "term": "Term (top band) · connection",
-    "std": "Standard term (horizon)",
-    "lines": "Click a dot and what it connects to gets darker; details appear on the right",
-    "circles": "There are many datasets, so each one is a single circle. Click a circle to see its kinds on the right"
+    "kind": "Kinds",
+    "term": "Terms and links",
+    "std": "Standard terms",
+    "dataset": "Datasets"
   },
   "quiet": "Quiet mode (no motion)",
   "deep": "Look inside (value network)",
@@ -46,26 +46,21 @@
   },
   "empty": {
     "none": "Your sky chart grows here, from your data and your questions",
-    "noneSub": "Two ways in: put your data here, or write what you want to know.",
     "sample": "A sample (not your data)",
     "dataOnly": "{{n}} kinds have no term yet. Write what you want to know and they get a name.",
     "questionsOnly": "No data answers yet. Put your data here and Asterism looks for matching kinds."
   },
   "decide": {
     "noTerms": "No terms yet. You can make one in “Questions”.",
-    "openQuestions": "Open “Questions”",
-    "attachKind": "To put a kind into this term, open “Questions”."
+    "openQuestions": "Open “Questions”"
   },
   "about": {
-    "hint": "Click a kind, term or standard term to see the details here.",
     "titleKind": "About this star",
     "titleDataset": "About this dataset",
     "titleTerm": "About this term",
     "titleStd": "Standard term",
     "titleHub": "Connection",
-    "titleQuestion": "About this question",
     "viewKind": "View {{name}} →",
-    "viewKindHint": "One record at a time · list · graph",
     "viewDataset": "View {{name}} →",
     "dataset": "Dataset",
     "count": "Rows",
@@ -73,43 +68,29 @@
     "terms": "Terms",
     "noTerm": "None yet",
     "standard": "Standard term",
-    "noStandard": "None",
     "kindsIn": "Kinds inside",
     "questions": "Questions it answers",
     "noQuestion": "None",
-    "datasetsAnswering": "Datasets that answer",
     "members": "Kinds taking part",
     "termStars": "{{n}} kinds inside",
     "termNoStar": "No stars yet",
     "termNoStarHint": "Put data that fits this term here and a kind appears.",
-    "needs": "Terms it needs",
     "answeredBy": "{{n}} answer",
     "notYet": "Not yet",
-    "stdHint": "A vocabulary shared worldwide. The more of your terms point here, the more your data is understood by outside tools and AI.",
+    "stdHint": "A vocabulary shared worldwide.",
     "stdBound": "Linked to",
     "hubHint": "Records from separate datasets are linked by shared values.",
-    "decideSlot": "Decide in one sentence"
+    "decideSlot": "Decide in one sentence",
+    "decisions": "{{n}} decisions →",
+    "viewTerm": "See {{name}} →"
   },
   "questions": {
     "head": "What you want to know",
-    "count": "Answerable {{n}} / {{total}}",
-    "empty": "No questions yet. Start with “Write what you want to know” above.",
+    "empty": "No questions yet.",
     "all": "See all themes →",
     "ring": "{{n}} of {{total}} datasets answer",
     "ringNone": "No data answers yet",
     "theme": "First questions"
-  },
-  "recent": {
-    "head": "Recent growth",
-    "empty": "Nothing yet. Publish a dataset and it shows up here.",
-    "publish": "Published the dataset “{{a}}”",
-    "term": "Created the term “{{a}}”",
-    "decision": {
-      "same": "“{{a}}” is the same as “{{b}}”",
-      "kindOf": "“{{a}}” is a kind of “{{b}}”",
-      "quantity": "The values of “{{a}}” are the quantity “{{b}}”",
-      "other": "Decided how “{{a}}” and “{{b}}” relate"
-    }
   },
   "table": {
     "summary": "Table with the same content as the chart",
@@ -131,6 +112,12 @@
     "colHub": "Connection",
     "colMembers": "Kinds taking part",
     "typeClass": "kind",
-    "typeProperty": "field"
-  }
+    "typeProperty": "field",
+    "close": "Close"
+  },
+  "more": {
+    "label": "More",
+    "numbers": "See the numbers"
+  },
+  "grown": "Answerable questions {{from}} → {{to}}"
 }

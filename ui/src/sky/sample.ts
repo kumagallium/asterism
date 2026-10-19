@@ -1,5 +1,5 @@
-// 空の状態（データ 0・問い 0）で薄く重ねる見本の星図。`docs/design/sky-chart-mock/data.js` の写し。
-// 実在のデータではない（件数は本番の規模感に合わせた仮の数）。読み取り専用・何にも書き込まない。
+// 空の状態（データ 0・問い 0）で薄く重ねる見本の星図（熱電材料と献立）。`docs/design/sky-chart-mock/data.js` の写し。
+// 実在のデータではない（件数は規模感に合わせた仮の数）。読み取り専用・何にも書き込まない。
 import type { SkyData, SkyKind, SkyTerm } from './skyApi'
 
 const kind = (iri: string, label: string, count: number, links: string[] = [], standard: string | null = null): SkyKind => ({
@@ -58,37 +58,37 @@ export const SAMPLE_SKY: SkyData = {
       ],
     },
     {
-      id: 'xrd',
-      label: 'XRD 実験',
+      id: 'menu',
+      label: '献立',
       created_at: '2026-01-04T00:00:00Z',
-      kinds: [kind('xrd-card', 'Card', 1, ['xrd-record']), kind('xrd-record', 'Record', 3001)],
+      kinds: [kind('menu-recipe', 'レシピ', 320, ['menu-ingredient']), kind('menu-ingredient', '食材', 480)],
     },
     {
-      id: 'xrd-cards',
-      label: 'XRD 参照カード',
+      id: 'pantry',
+      label: '買い物メモ',
       created_at: '2026-01-05T00:00:00Z',
       kinds: [
-        kind('xc-card', 'Card', 2, ['xc-record', 'xc-formula']),
-        kind('xc-record', 'Record', 47),
-        kind('xc-formula', '化学式', 2),
+        kind('pantry-recipe', 'レシピ', 12, ['pantry-ingredient', 'pantry-amount']),
+        kind('pantry-ingredient', '食材', 95),
+        kind('pantry-amount', '分量', 2),
       ],
     },
   ],
   terms: [
     term('sample', '試料', 'Sample', 'class', [['samples', 'sample']], 'cmso-material'),
-    term('card', 'カード', 'Card', 'class', [
-      ['xrd', 'xrd-card'],
-      ['xrd-cards', 'xc-card'],
+    term('recipe', 'レシピ', 'Recipe', 'class', [
+      ['menu', 'menu-recipe'],
+      ['pantry', 'pantry-recipe'],
     ]),
-    term('diffraction-point', '回折点', 'Diffraction point', 'class', [
-      ['xrd', 'xrd-record'],
-      ['xrd-cards', 'xc-record'],
+    term('ingredient', '食材', 'Ingredient', 'class', [
+      ['menu', 'menu-ingredient'],
+      ['pantry', 'pantry-ingredient'],
     ]),
     term('composition', '組成', 'Composition', 'property', [
       ['samples', 'sample'],
-      ['xrd-cards', 'xc-formula'],
+      ['pantry', 'pantry-amount'],
     ]),
-    term('battery-cell', '電池セル', 'Battery cell', 'class', []),
+    term('cooking-method', '調理法', 'Cooking method', 'class', []),
   ],
   standards: [
     { iri: 'sample:schema-article', label: 'ScholarlyArticle', prefix: 'schema' },
@@ -96,7 +96,7 @@ export const SAMPLE_SKY: SkyData = {
     { iri: 'sample:qudt-qk', label: 'QuantityKind', prefix: 'qudt' },
     { iri: 'sample:qudt-unit', label: 'Unit', prefix: 'qudt' },
   ],
-  hubs: [{ id: 'composition', label: '組成', members: ['sample:sample', 'sample:xc-formula'] }],
+  hubs: [{ id: 'composition', label: '組成', members: ['sample:sample', 'sample:pantry-amount'] }],
   questions: [],
   facts: {
     triples: 0,

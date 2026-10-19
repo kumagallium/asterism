@@ -963,6 +963,7 @@ function App() {
                 onWriteQuestion={() => navigate({ tab: 'vocab', newQuestion: true })}
                 onOpenKind={(iri) => navigate({ tab: 'cards', classPageIri: iri })}
                 onOpenDataset={(id) => navigate({ tab: 'cards', datasetPageId: id })}
+                onOpenTerm={(slug) => navigate({ tab: 'vocab', termSlug: slug })}
                 onOpenQuestions={() => navigate({ tab: 'vocab' })}
                 deepView={
                   <Suspense fallback={null}>
