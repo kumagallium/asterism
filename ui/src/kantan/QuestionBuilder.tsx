@@ -3,6 +3,12 @@ import { useTranslation } from 'react-i18next'
 import type { QuestionDraft, QuestionOp, QuestionSelection, TrialQueries } from '../api'
 import { runTrialQuestion } from '../api'
 import type { DatasetRules } from '../galleryApi'
+import {
+  type ThemeSummary,
+  addQuestionsToTheme,
+  describeSelections,
+  listThemes,
+} from '../themes/themesApi'
 import { VocabApiError, copyCqFromDataset, getUpper, listTerms } from '../vocabApi'
 import { vocabQuestionHash } from '../vocabQuestion'
 import {
@@ -22,6 +28,9 @@ import {
 // テンプレートで組む（LLM なし・自由記述なし）。答えは下書きの graph で見せ、公開後は
 // 公開済みのデータで答える。保存は下書き（questions.json）— 宣言ツールにするのは公開のとき。
 
+/** 「テーマに入れる」の選択肢に足す「新しいテーマを作る」（6 段へ題を持ち込む）。 */
+const NEW_THEME = '__new__'
+
 /** 答え 1 件（カードの本文）。ウィザードの `buildTrialQAs` と同じ文に整える。 */
 export interface QuestionAnswer {
   a: string
@@ -35,7 +44,7 @@ type RunState =
   | { state: 'error'; message: string; key: string }
 
 type MapNote =
-  | { kind: 'done'; term: string; existed: boolean }
+  | { kind: 'done'; term: string; theme: string; existed: boolean }
   | { kind: 'guide'; title: string }
   | { kind: 'error'; message: string }
 
@@ -58,8 +67,14 @@ export function QuestionBuilder({
   /** 種類の IRI → 画面に出す名前（ウィザードの `classLabel`）。 */
   kindLabel: (iri: string) => string
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language.startsWith('en') ? 'en' : 'ja'
   const choices = useMemo(() => questionChoices(rules), [rules])
+  // 「テーマに入れる」の行き先（既にあるテーマ）と、問いごとに選んだテーマ。初期選択は無い。
+  const [themes, setThemes] = useState<ThemeSummary[]>([])
+  const [themeOf, setThemeOf] = useState<Record<string, string>>({})
+  // 問いごとの実行文（機械が組む・api）。選択から決まるので、問いが変わったときだけ取り直す。
+  const [sentences, setSentences] = useState<Record<string, string>>({})
 
   const [op, setOp] = useState<QuestionOp>('count')
   const [kindIri, setKindIri] = useState('')
@@ -90,6 +105,42 @@ export function QuestionBuilder({
   useEffect(() => {
     setPreview(null)
   }, [op, kindIri, propertyIri])
+
+  useEffect(() => {
+    let off = false
+    listThemes(lang)
+      .then((l) => !off && setThemes(l.themes))
+      .catch(() => !off && setThemes([]))
+    return () => {
+      off = true
+    }
+  }, [lang])
+
+  const propLabel = (iri: string | undefined): string =>
+    iri ? (choices.properties.find((p) => p.iri === iri)?.label ?? '') : ''
+  useEffect(() => {
+    if (questions.length === 0) return
+    let off = false
+    describeSelections(
+      questions.map((q) => ({
+        op: q.op,
+        kind: q.kind_iri ? kindLabel(q.kind_iri) : '',
+        property: propLabel(q.property_iri),
+        value: '',
+      })),
+      lang,
+    )
+      .then((list) => {
+        if (off) return
+        setSentences(Object.fromEntries(questions.map((q, i) => [q.id, list[i] ?? ''])))
+      })
+      .catch(() => !off && setSentences({}))
+    return () => {
+      off = true
+    }
+    // kindLabel と choices は questions と一緒に変わる（rules から作る）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions, lang, choices])
 
   // 保存済みの問いの答えを、まだ引いていないものだけ引く。
   useEffect(() => {
@@ -163,9 +214,17 @@ export function QuestionBuilder({
     }
   }
 
-  /** 「ことばへ写す」: 上位の対応表で写す先の語を見つけ、あれば写す。無ければ鋳造フォームへ。 */
+  /** 「テーマに入れる」: 上位の対応表で写す先の用語を見つけ、あれば問いを用語へ写して、選んだ
+   *  テーマに足す。用語が無ければ、「知りたいこと」の 6 段へ題を持ち込む。 */
   async function mapToVocab(q: QuestionDraft) {
     if (mapBusy) return
+    const themeId = themeOf[q.id]
+    if (!themeId) return
+    if (themeId === NEW_THEME) {
+      window.location.hash = vocabQuestionHash(q.title)
+      return
+    }
+    const theme = themes.find((x) => x.id === themeId)
     setMapBusy(q.id)
     const guide: MapNote = { kind: 'guide', title: q.title }
     try {
@@ -177,12 +236,19 @@ export function QuestionBuilder({
         return
       }
       const copied = await copyCqFromDataset(term.slug, datasetId, q.id)
+      await addQuestionsToTheme(themeId, [copied.cq.tool_name], {
+        [copied.cq.tool_name]: {
+          op: q.op,
+          kind: q.kind_iri ? kindLabel(q.kind_iri) : '',
+          property: propLabel(q.property_iri),
+        },
+      })
       setMapNotes((cur) => ({
         ...cur,
-        [q.id]: { kind: 'done', term: term.label, existed: copied.existed },
+        [q.id]: { kind: 'done', term: term.label, theme: theme?.label ?? themeId, existed: copied.existed },
       }))
     } catch (e) {
-      // 409 = 上位が写す先の語ではない（語が無い・線が無い）— 行き止まりにせず案内する。
+      // 409 = 上位が写す先の用語ではない（用語が無い・関係が無い）— 行き止まりにせず案内する。
       if (e instanceof VocabApiError && e.status === 409) {
         setMapNotes((cur) => ({ ...cur, [q.id]: guide }))
       } else {
@@ -235,17 +301,36 @@ export function QuestionBuilder({
         return (
           <div key={q.id} className="kz-own-question" data-testid="own-question">
             {answerCard(q.title, answers[q.id])}
+            {sentences[q.id] && (
+              <p className="kz-note" data-testid="own-question-exec">
+                {t('kantan:s7.own.exec', { sentence: sentences[q.id] })}
+              </p>
+            )}
             {q.lint_error && (
               <p className="kz-note kz-pub-err" role="alert">
                 {t('kantan:s7.own.lintError')}
               </p>
             )}
             <div className="kz-actions">
+              <select
+                className="skeleton-gate-input"
+                aria-label={t('kantan:s7.own.themeLabel')}
+                value={themeOf[q.id] ?? ''}
+                onChange={(e) => setThemeOf((cur) => ({ ...cur, [q.id]: e.target.value }))}
+              >
+                <option value="">{t('kantan:s7.own.themePick')}</option>
+                {themes.map((th) => (
+                  <option key={th.id} value={th.id}>
+                    {th.label}
+                  </option>
+                ))}
+                <option value={NEW_THEME}>{t('kantan:s7.own.themeNew')}</option>
+              </select>
               <button
                 type="button"
                 className="btn btn--ghost btn--sm"
-                // 写したあとは押せない（同じ問いが重ねて足されない）。
-                disabled={mapBusy === q.id || note?.kind === 'done'}
+                // テーマを選ぶまで・写したあとは押せない（同じ問いが重ねて足されない）。
+                disabled={!themeOf[q.id] || mapBusy === q.id || note?.kind === 'done'}
                 onClick={() => void mapToVocab(q)}
                 title={t('kantan:s7.own.mapHint')}
               >
@@ -264,6 +349,7 @@ export function QuestionBuilder({
               <p className="kz-note" role="status">
                 {t(note.existed ? 'kantan:s7.own.mapExisted' : 'kantan:s7.own.mapDone', {
                   term: note.term,
+                  theme: note.theme,
                 })}
               </p>
             )}

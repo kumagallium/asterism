@@ -130,7 +130,7 @@ export interface VocabHashParams {
   q: string
 }
 
-/** `#/questions?q=…`（旧 `#/vocab?…` も）を読む。`?` が無ければ空。旧 `scope` / `dataset` は
+/** `#/questions?new=1&q=…`（旧 `#/vocab?…` も）を読む。`?` が無ければ空。旧 `scope` / `dataset` は
  *  「決めたこと」へ移ったので読まない。 */
 export function parseVocabHash(hash: string): VocabHashParams {
   const i = hash.indexOf('?')
@@ -138,10 +138,11 @@ export function parseVocabHash(hash: string): VocabHashParams {
   return { q: params.get('q') ?? '' }
 }
 
-/** Ask などから「この問いに答えられるように、ことばをつなぐ」の行き先。題だけ運ぶ。 */
+/** 質問する・かんたん ⑥ などから「テーマに入れて育てる」の行き先。題だけ運び、「知りたいことから
+ *  作る」の 6 段（①）を、その題を入れて開く（`#/questions?new=1&q=<題>`）。 */
 export function vocabQuestionHash(question: string): string {
   const q = question.trim()
-  return q ? `#/questions?q=${encodeURIComponent(q)}` : '#/questions'
+  return q ? `#/questions?new=1&q=${encodeURIComponent(q)}` : '#/questions?new=1'
 }
 
 // ---- 節の再読み込み ----------------------------------------------------------

@@ -390,6 +390,40 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
   })
 })
 
+describe('知りたいこと（テーマ・用語のページ）— UI 再設計 PR 4', () => {
+  it('#/questions?new=1&q=<題> は newQuestion を立てる（題は画面が hash から読む）', () => {
+    const hash = '#/questions?new=1&q=' + encodeURIComponent('容量が最大のセルは？ A/B')
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(legacyHashRewrite(hash)).toBeNull()
+  })
+
+  it('#/questions/term/<slug> は用語のページ・往復する（slug は符号化される）', () => {
+    expect(parseHash('#/questions/term/battery_cell')).toEqual<Route>({
+      tab: 'vocab',
+      termSlug: 'battery_cell',
+    })
+    expect(routeToHash({ tab: 'vocab', termSlug: 'battery_cell' })).toBe('#/questions/term/battery_cell')
+    expect(roundTrip('#/questions/term/battery_cell')).toBe('#/questions/term/battery_cell')
+    expect(parseHash('#/questions/term/a%20b')).toEqual<Route>({ tab: 'vocab', termSlug: 'a b' })
+    expect(routeToHash({ tab: 'vocab', termSlug: 'a b' })).toBe('#/questions/term/a%20b')
+  })
+
+  it('#/questions/<theme> はそのテーマのカードへ（term は予約語）', () => {
+    expect(parseHash('#/questions/first')).toEqual<Route>({ tab: 'vocab', themeId: 'first' })
+    expect(routeToHash({ tab: 'vocab', themeId: 'first' })).toBe('#/questions/first')
+    expect(roundTrip('#/questions/first')).toBe('#/questions/first')
+    expect(parseHash('#/questions/term')).toEqual<Route>({ tab: 'vocab' })
+    expect(parseHash('#/questions/first?x=1')).toEqual<Route>({ tab: 'vocab', themeId: 'first' })
+  })
+
+  it('旧 #/vocab/… も同じ結果で、#/questions/… に書き換わる（互換）', () => {
+    expect(parseHash('#/vocab/term/x')).toEqual<Route>({ tab: 'vocab', termSlug: 'x' })
+    expect(legacyHashRewrite('#/vocab/term/x')).toBe('#/questions/term/x')
+    expect(legacyHashRewrite('#/questions/term/x')).toBeNull()
+    expect(legacyHashRewrite('#/questions/first')).toBeNull()
+  })
+})
+
 describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
   it('#/vocab → #/questions（クエリは温存）', () => {
     expect(legacyHashRewrite('#/vocab')).toBe('#/questions')

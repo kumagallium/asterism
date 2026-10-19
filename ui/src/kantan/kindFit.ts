@@ -206,5 +206,9 @@ export function fitSentence(t: (key: string, opts?: Record<string, unknown>) => 
     const label = v ? `${v.prefix}${localName(c.term)}` : c.label
     return t('kantan:meanings.fit.sameStandard', { label })
   }
+  // 別名で当たったときは、どの別名が一致したかも言う（「別名 composition が一致」）。
+  if (c.matched_by === 'alias' && c.alias) {
+    return t('kantan:meanings.fit.sameByAlias', { label: c.label, alias: c.alias })
+  }
   return t('kantan:meanings.fit.same', { label: c.label })
 }
