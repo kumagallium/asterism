@@ -1017,7 +1017,18 @@ function App() {
             {tab === 'vocab' && (
               <SharedVocabView
                 autoFocusQuestion={!!route.newQuestion}
-                onAutoFocusConsumed={() => navigate({ tab: 'vocab' }, { replace: true })}
+                onAutoFocusConsumed={() => {
+                  // new だけを外す。同居する q・scope（#/questions?q=…&new=1）は残す。
+                  const h = window.location.hash
+                  const qi = h.indexOf('?')
+                  if (qi >= 0) {
+                    const params = new URLSearchParams(h.slice(qi + 1))
+                    params.delete('new')
+                    const rest = params.toString()
+                    window.history.replaceState(null, '', rest ? `${h.slice(0, qi)}?${rest}` : h.slice(0, qi))
+                  }
+                  setRoute({ tab: 'vocab' })
+                }}
               />
             )}
             {tab === 'network' && (
