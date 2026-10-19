@@ -408,6 +408,28 @@ def _store_query_syntax_error_to_400(exc: Exception) -> HTTPException | None:
     return None
 
 
+def _empty_sky() -> dict[str, Any]:
+    """`GET /api/sky` の空の形（`asterism.sky_view` が無いとき・契約 pr2-contract.md §A）。"""
+    return {
+        "datasets": [],
+        "terms": [],
+        "standards": [],
+        "hubs": [],
+        "questions": [],
+        "facts": {
+            "triples": 0,
+            "datasets": 0,
+            "kinds": 0,
+            "terms": 0,
+            "questions_answerable": 0,
+            "questions_total": 0,
+            "published_graphs": 0,
+        },
+        "recent": [],
+        "truncated": False,
+    }
+
+
 async def _run_read(coro: Awaitable[_T]) -> _T:
     """Run a read-only route body, mapping the same store-rejected-the-query
     failure :func:`_store_query_syntax_error_to_400` maps for ``cards_run`` —
@@ -755,6 +777,31 @@ def register_cards(
                 if label := await _hub_name(kind.get("class_iri")):
                     kind["class_label"] = label
         return out
+
+    # ------------------------------------------------------------------
+    # GET /api/sky — 「星図」（ホーム・pr2-contract.md §B）
+    #
+    # 公開済みのデータセット・種類・ことば・標準用語・視点・問いを 1 回で返す読み取り専用の
+    # ルート。組み立ては asterism.sky_view.sky_view。`/api/network` と同じくトークン不要。
+    # sky_view が無い（古い ingest）ときは 503 でなく空の形を返す。
+    # ------------------------------------------------------------------
+
+    @app.get("/api/sky")
+    async def sky() -> dict[str, Any]:
+        return await _run_read(_sky_impl())
+
+    async def _sky_impl() -> dict[str, Any]:
+        try:
+            from asterism import sky_view as sky_view_mod  # type: ignore[attr-defined]
+        except ImportError as exc:
+            # まだ無い（モジュールが無い）は静かに。中の import が壊れているなら見えるように。
+            if exc.name == "asterism.sky_view":
+                logger.debug("sky: asterism.sky_view not available yet")
+            else:
+                logger.warning("sky: sky_view failed to import; returning empty", exc_info=True)
+            return _empty_sky()
+        client: OxigraphClient = app.state.client
+        return await sky_view_mod.sky_view(client, cfg.registry_root)
 
     # ------------------------------------------------------------------
     # §3.4 — GET /api/subjects/search

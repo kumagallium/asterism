@@ -14,6 +14,7 @@ per query shape. Fixture data spans two unrelated fictional domains (§0).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -1914,3 +1915,78 @@ def test_network_datasets_carry_the_registry_name(tmp_path: Path) -> None:
         body = client.get("/api/network").json()
         assert {"id": LIB_DATASET, "label": "貸出記録"} in body["datasets"]
         assert all(LIB_DATASET in k["dataset_ids"] for k in body["kinds"] if k["dataset_ids"])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sky — 「星図」（pr2-contract.md §B・§C）
+# ---------------------------------------------------------------------------
+
+_SKY_KEYS = {
+    "datasets",
+    "terms",
+    "standards",
+    "hubs",
+    "questions",
+    "facts",
+    "recent",
+    "truncated",
+}
+_SKY_FACT_KEYS = {
+    "triples",
+    "datasets",
+    "kinds",
+    "terms",
+    "questions_answerable",
+    "questions_total",
+    "published_graphs",
+}
+
+
+def test_sky_with_no_published_dataset_is_the_empty_shape(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)  # registry が空 = 公開 0 件
+    app = build_app(settings, oxigraph_client=_pyoxi_client({}), start_watcher=False)
+    register_cards(app, settings)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get("/api/sky")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body) == _SKY_KEYS
+        assert set(body["facts"]) == _SKY_FACT_KEYS
+        assert body["datasets"] == [] and body["terms"] == [] and body["questions"] == []
+        assert body["facts"]["datasets"] == 0 and body["truncated"] is False
+
+
+def test_sky_one_published_dataset_returns_its_kinds_and_facts(tmp_path: Path) -> None:
+    with _network_client(tmp_path) as client:
+        r = client.get("/api/sky")  # トークン不要（/api/network と同じ扱い）
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body) == _SKY_KEYS
+        assert set(body["facts"]) == _SKY_FACT_KEYS
+        (ds,) = body["datasets"]
+        assert ds["id"] == LIB_DATASET and ds["label"] == "貸出記録"
+        assert set(ds) == {"id", "label", "created_at", "kinds"}
+        kind = next(k for k in ds["kinds"] if k["iri"] == CHECKOUT_CLASS)
+        assert set(kind) == {"iri", "label", "count", "links", "standard"}
+        assert kind["count"] == 2 and kind["links"] == [] and kind["standard"] is None
+        assert body["facts"]["datasets"] == 1
+        assert body["facts"]["kinds"] == len(ds["kinds"])
+        # triples はホームと同じ数え方（default graph の ?s ?p ?o）。この試験用の store は
+        # default graph を union にしないので 0 になりうる（本物の oxigraph は union）。
+        assert isinstance(body["facts"]["triples"], int)
+        assert body["facts"]["published_graphs"] >= 1
+        assert body["terms"] == [] and body["hubs"] == [] and body["standards"] == []
+
+
+def test_sky_returns_the_empty_shape_when_sky_view_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asterism
+
+    monkeypatch.delattr(asterism, "sky_view", raising=False)
+    monkeypatch.setitem(sys.modules, "asterism.sky_view", None)  # import が ImportError になる
+    with _network_client(tmp_path) as client:
+        r = client.get("/api/sky")
+        assert r.status_code == 200, r.text  # 503 でなく空の形
+        body = r.json()
+        assert set(body) == _SKY_KEYS and body["datasets"] == []
