@@ -39,6 +39,7 @@ from asterism.crosswalk import XW
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
+    KNOWLEDGE_RELATIONS,
     _check_same_shape,
     _declared_shapes,
     _endpoint_context,
@@ -112,6 +113,7 @@ _IRI = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+\Z', re.IGNORECASE)
 _META_FILE = "meta.json"
 _TOOLS_FILE = "query_tools.yaml"
 _WIRED_FILE = "wired.json"
+_KNOWLEDGE_FILE = "knowledge.json"
 _DISMISSED_FILE = "dismissed.json"
 _SHARED_NAME = "用語"
 
@@ -375,6 +377,26 @@ def load_wired(root: Path | str) -> dict[str, int]:
     }
 
 
+def load_knowledge(root: Path | str) -> dict[str, int]:
+    """term IRI → number of confirmed knowledge lines (``isPartOf`` / ``lowers`` /
+    ``raises`` / ``affects``) from ``knowledge.json`` ({} when absent or unreadable —
+    which reads as "no knowledge", the pre-knowledge behaviour). Same two shapes as
+    :func:`load_wired`."""
+    path = _dir(root) / _KNOWLEDGE_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    terms = data.get("terms") if isinstance(data.get("terms"), dict) else data
+    return {
+        str(k): int(v)
+        for k, v in terms.items()
+        if isinstance(v, int) and not isinstance(v, bool) and k != "at"
+    }
+
+
 # ---------------------------------------------------------------------------
 # CQ templates (ADR §2.3)
 # ---------------------------------------------------------------------------
@@ -492,13 +514,22 @@ async def mint_term(
     declined_reason: str | None = None,
     aliases: Iterable[str] | None = None,
     drafted_by: str | None = None,
+    theme_id: str | None = None,
 ) -> dict:
-    """Mint ``sv:<slug>`` together with its first CQ(s) in ONE operation (ADR §2.1):
+    """Mint ``sv:<slug>`` (ADR §2.1, 改訂 design.md §15.2 / 利用者裁定 2026-10-20):
 
-    * ``ValueError`` — bad slug (a reserved one included: :data:`RESERVED_SLUGS`) / kind /
-      label / ``at`` / IRI;
-    * :class:`TermError` — no ``cqs`` (422), a CQ that does not lint, or an unreadable
-      ``query_tools.yaml``; :class:`TermExists` — the slug is already minted (409).
+    The gate is "a term that is not tied to a theme's question by a relation is not
+    made". Here that means: either ``cqs`` (the first CQ(s), stored with the term in
+    ONE operation) or a ``theme_id`` (the term belongs to a theme and answers no
+    question of its own — a factor is placed by its relations alone). Whether the
+    relations really reach a question's target is checked by ``themes`` (the caller);
+    this function only requires one of the two.
+
+    * ``ValueError`` — bad slug (a reserved one included: :data:`RESERVED_SLUGS`) /
+      kind / label / ``at`` / IRI;
+    * :class:`TermError` — neither ``cqs`` nor ``theme_id`` (422), a CQ that does not
+      lint, or an unreadable ``query_tools.yaml``; :class:`TermExists` — the slug is
+      already minted (409).
 
     ``aliases`` are written as ``skos:altLabel`` (the exact-match hints of
     :func:`fit_candidates`). ``drafted_by="ai"`` records that a person adopted an AI
@@ -520,8 +551,11 @@ async def mint_term(
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}: {drafted_by!r}")
     if slug in RESERVED_SLUGS:
         raise ValueError(f"slug {slug!r} は予約語です（知識の関係の名前と取り違えるため）")
-    if not cqs:
-        raise TermError("用語は、問いを 1 つ以上添えて作ります")
+    if not cqs and not theme_id:
+        raise TermError(
+            "用語は、問いを 1 つ以上添えて作ります"
+            "（テーマの問いに関係でつなぐ場合は theme_id を渡す）"
+        )
     term = SharedTerm(
         iri=iri,
         slug=slug,
@@ -564,13 +598,15 @@ async def mint_term(
     # fails the CQs just written are taken back out by name, so a retry is not a
     # TermExists and no CQ outlives a term that was never minted.
     _scaffold(root)
-    _write_cq_tools(root, tools)
+    if tools:  # theme_id 付きで問い 0 件の語は、書くツールが無い（要因の概念）
+        _write_cq_tools(root, tools)
     try:
         await client.sparql_update(
             f"INSERT DATA {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ {' . '.join(triples)} }} }}"
         )
     except BaseException:
-        remove_registry_query_tools_by_name(root, REGISTRY_ID, [t["name"] for t in tools])
+        if tools:
+            remove_registry_query_tools_by_name(root, REGISTRY_ID, [t["name"] for t in tools])
         raise
     await recompute_wired(client, root)
     out = asdict(term)
@@ -862,17 +898,46 @@ async def answering_datasets(client: Any, term_iris: list[str]) -> dict[str, int
     return {i: len(seen[i]) for i in iris}
 
 
+async def knowledge_counts(client: Any) -> dict[str, int]:
+    """term IRI → number of confirmed KNOWLEDGE lines the term is an end of (``to`` or
+    ``from``) in the alignment graph: ``isPartOf`` / ``lowers`` / ``raises`` /
+    ``affects`` (:data:`~asterism.crosswalk_runtime.KNOWLEDGE_RELATIONS`).
+
+    A term with one or more is not an orphan even when no dataset answers it (利用者裁定
+    2026-10-20・design.md §15.2): Ask / MCP answer "knowledge N, data 0" with who decided
+    it and when. A term no knowledge line touches is absent. Reads the alignment graph
+    only — never a dataset's data graph — so it works with no published dataset."""
+    values = " ".join(f"<{ALIGN_RELATIONS[r]}>" for r in KNOWLEDGE_RELATIONS)
+    rows = await _bindings(
+        client,
+        f"SELECT DISTINCT ?s ?r ?t WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?s ?r ?t }} "
+        f"VALUES ?r {{ {values} }} FILTER(isIRI(?s) && isIRI(?t)) }}",
+    )
+    out: dict[str, int] = {}
+    for b in rows:
+        for end in {b["s"]["value"], b["t"]["value"]}:  # a line counts once per end
+            out[end] = out.get(end, 0) + 1
+    return out
+
+
 async def recompute_wired(
     client: Any, root: Path | str, *, at: str | None = None
 ) -> dict[str, int]:
     """Recount every minted term's answering datasets and write
     ``registry/vocab-shared/wired.json`` (``{"terms": {iri: n}, "at": …}``, tmp →
-    replace). Returns ``{iri: n}``."""
+    replace), and beside it ``knowledge.json`` (same shape: term → confirmed knowledge
+    lines, :func:`knowledge_counts`). Returns the wired ``{iri: n}`` (what callers have
+    always got; read the knowledge with :func:`load_knowledge`)."""
     counts = await answering_datasets(client, await minted_iris(client))
+    knowledge = await knowledge_counts(client)
     stamp = at or datetime.now(UTC).isoformat()
     _atomic_write(
         _dir(root) / _WIRED_FILE,
         json.dumps({"terms": counts, "at": stamp}, indent=2, ensure_ascii=False, sort_keys=True),
+    )
+    _atomic_write(
+        _dir(root) / _KNOWLEDGE_FILE,
+        json.dumps({"terms": knowledge, "at": stamp}, indent=2, ensure_ascii=False, sort_keys=True),
     )
     return counts
 
@@ -1432,9 +1497,11 @@ __all__ = [
     "is_shared_iri",
     "is_system_entry",
     "is_wired",
+    "knowledge_counts",
     "known_namespaces",
     "list_terms",
     "load_dismissed",
+    "load_knowledge",
     "load_wired",
     "mint_term",
     "minted_iris",

@@ -1132,7 +1132,17 @@ async def test_schema_summary_shared_terms_and_lines_shape() -> None:
     assert [t["iri"] for t in out["shared_terms"]] == [_SV + "diffraction_point", _SV + "intensity"]
     assert _SV + "orphan_term" not in by_iri
     dp = by_iri[_SV + "diffraction_point"]
-    assert set(dp) == {"iri", "label", "comment", "kind", "narrower", "standards", "cqs"}
+    assert set(dp) == {
+        "iri",
+        "label",
+        "comment",
+        "kind",
+        "narrower",
+        "standards",
+        "cqs",
+        "knowledge_lines",
+    }
+    assert dp["knowledge_lines"] == 0
     assert (dp["label"], dp["comment"], dp["kind"]) == ("回折点", "回折で得た 1 点", "class")
     assert dp["narrower"] == [
         {"iri": _A_REC, "dataset_id": "xrd-a", "label": "回折点A"},
@@ -1145,6 +1155,60 @@ async def test_schema_summary_shared_terms_and_lines_shape() -> None:
     assert it["standards"] == [_QK]
     # lines: only dataset <-> dataset ones (a line to a shared word / standard is not one)
     assert out["lines"] == [{"source": _B_REC, "relation": "equivalentClass", "target": _A_REC}]
+
+
+async def test_schema_summary_keeps_a_term_with_knowledge_lines_though_no_dataset_answers() -> None:
+    """孤立の定義の改訂（利用者裁定 2026-10-20）: 確定した知識の関係が 1 本以上ある語は、
+    答えるデータセットが 0 でも残り、``knowledge_lines`` に本数が出る。"""
+    import rdflib
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH
+
+    client = await _seed_shared_store()
+    u = rdflib.URIRef
+    ag = client.ds.graph(u(ALIGNMENT_GRAPH))
+    # 孤立語 lowers 強度、強度 isPartOf 回折点（知識の線。データの線ではない）
+    ag.add((u(_SV + "orphan_term"), u(ALIGN_RELATIONS["lowers"]), u(_SV + "intensity")))
+    ag.add((u(_SV + "intensity"), u(ALIGN_RELATIONS["isPartOf"]), u(_SV + "diffraction_point")))
+
+    out = await schema_summary(client)
+
+    by_iri = {t["iri"]: t for t in out["shared_terms"]}
+    assert sorted(by_iri) == [
+        _SV + "diffraction_point",
+        _SV + "intensity",
+        _SV + "orphan_term",
+    ]
+    assert by_iri[_SV + "orphan_term"]["knowledge_lines"] == 1
+    assert by_iri[_SV + "intensity"]["knowledge_lines"] == 2
+    assert by_iri[_SV + "diffraction_point"]["knowledge_lines"] == 1
+    # 知識の線は narrower にも lines にも入らない（データの線ではない）
+    assert by_iri[_SV + "orphan_term"]["narrower"] == []
+    assert out["lines"] == [{"source": _B_REC, "relation": "equivalentClass", "target": _A_REC}]
+
+
+async def test_schema_summary_knowledge_only_term_with_no_dataset_at_all() -> None:
+    import rdflib
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH
+
+    client = await _seed_shared_store(answering=False)
+    client.ds.graph(rdflib.URIRef(ALIGNMENT_GRAPH)).add(
+        (
+            rdflib.URIRef(_SV + "orphan_term"),
+            rdflib.URIRef(ALIGN_RELATIONS["raises"]),
+            rdflib.URIRef(_SV + "intensity"),
+        )
+    )
+
+    out = await schema_summary(client)
+
+    assert [t["iri"] for t in out["shared_terms"]] == [_SV + "intensity", _SV + "orphan_term"]
+    assert [t["knowledge_lines"] for t in out["shared_terms"]] == [1, 1]
+
+
+def test_mcp_reads_all_nine_relations() -> None:
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+
+    assert len(ALIGN_RELATIONS) == 9  # tools.py の rel_by_iri はこれを読む
 
 
 async def test_schema_summary_shared_narrower_is_capped_by_max_classes() -> None:

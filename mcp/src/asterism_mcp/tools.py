@@ -881,8 +881,9 @@ async def _shared_vocab_overview(
 
     Words come from the shared-vocab graph, lines from the alignment graph, the
     answering-dataset count from :func:`asterism.shared_vocab.answering_datasets`
-    (a word with 0 is an orphan and is left out). Deterministic: sorted by IRI,
-    no LLM.
+    and the confirmed-knowledge-line count from
+    :func:`asterism.shared_vocab.knowledge_counts` (a word with 0 of BOTH is an orphan
+    and is left out — 利用者裁定 2026-10-20). Deterministic: sorted by IRI, no LLM.
     """
     # --- minted words ---------------------------------------------------------
     terms_q = (
@@ -949,7 +950,8 @@ async def _shared_vocab_overview(
 
     # --- orphans out ----------------------------------------------------------
     counts = await _sv.answering_datasets(client, sorted(acc))
-    live = [iri for iri in sorted(acc) if counts.get(iri, 0) >= 1]
+    knowledge = await _sv.knowledge_counts(client)
+    live = [iri for iri in sorted(acc) if counts.get(iri, 0) >= 1 or knowledge.get(iri, 0) >= 1]
     if not live:
         return [], lines
 
@@ -987,6 +989,7 @@ async def _shared_vocab_overview(
                 "narrower": nar,
                 "standards": sorted(standards[iri]),
                 "cqs": cqs_by_term.get(iri, []),
+                "knowledge_lines": knowledge.get(iri, 0),
             }
         )
     return shared_terms, lines
