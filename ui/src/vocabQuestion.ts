@@ -157,7 +157,7 @@ export interface VocabHashParams {
   dataset: string | null
 }
 
-/** `#/vocab?q=…&scope=…&dataset=…` を読む。`?` が無ければ全部空。 */
+/** `#/questions?q=…&scope=…&dataset=…`（旧 `#/vocab?…` も）を読む。`?` が無ければ全部空。 */
 export function parseVocabHash(hash: string): VocabHashParams {
   const i = hash.indexOf('?')
   const params = new URLSearchParams(i === -1 ? '' : hash.slice(i + 1))
@@ -172,12 +172,12 @@ export function parseVocabHash(hash: string): VocabHashParams {
 /** Ask などから「この問いに答えられるように、ことばをつなぐ」の行き先。題だけ運ぶ。 */
 export function vocabQuestionHash(question: string): string {
   const q = question.trim()
-  return q ? `#/vocab?q=${encodeURIComponent(q)}` : '#/vocab'
+  return q ? `#/questions?q=${encodeURIComponent(q)}` : '#/questions'
 }
 
-/** 線の絞り込みを開いた状態で「ことば」画面へ送る。`#/vocab?scope=…`。 */
+/** 線の絞り込みを開いた状態で「知りたいこと」画面へ送る。`#/questions?scope=…`。 */
 export function vocabScopeHash(scope: LineScope): string {
-  return scope === 'all' ? '#/vocab' : `#/vocab?scope=${scope}`
+  return scope === 'all' ? '#/questions' : `#/questions?scope=${scope}`
 }
 
 // ---- 節の再読み込み ----------------------------------------------------------

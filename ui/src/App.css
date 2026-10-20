@@ -319,9 +319,48 @@ button.side-nav-item.active:hover:not(:disabled) {
   margin-left: auto;
 }
 
+/* 常設の 2 入口（＋ データを置く／？ 知りたいことを書く）。どの画面でも言語トグルの
+ * 左に出る。右寄せはここが担う（言語トグルは margin-left を持たない）。 */
+.topbar-entries {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: var(--space-2, 0.5rem);
+  margin-left: auto;
+  flex: none;
+}
+.topbar-back ~ .topbar-entries {
+  margin-left: 0;
+}
+/* 「？ 知りたいことを書く」＝知りたいこと側の青（--activity）。グローバルの
+ * button:hover の緑塗りが漏れないよう、hover をここで明示する。 */
+.btn--activity {
+  background: var(--activity);
+  color: #fff;
+  border-color: var(--activity);
+}
+.btn--activity:hover:not(:disabled) {
+  background: #2b567d;
+  border-color: #2b567d;
+  color: #fff;
+}
+
+/* 「データ」の下のタブ（データセット／つながり）。topbar の下・本文の上。 */
+.data-subtabs {
+  padding: 0.75rem 2rem 0;
+}
+.data-subtabs .ds-tabs {
+  width: auto;
+  display: inline-flex;
+}
+
+/* ホームの集計帯の見出し行: 右端に「全体グラフを見る →」。 */
+.home-band-network {
+  margin-left: auto;
+}
+
 /* 言語トグル: トップバー右端。ja/en の2値セグメント。 */
 .lang-toggle {
-  margin-left: auto;
   align-self: center;
   display: inline-flex;
   gap: 0.15rem;
@@ -651,7 +690,17 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   border: none;
 }
 
+@media (max-width: 900px) {
+  /* 狭い画面では 2 入口の文字を短く詰める（折り返して崩れないように）。 */
+  .topbar-entries .btn {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.75rem;
+  }
+}
 @media (max-width: 640px) {
+  .data-subtabs {
+    padding: 0.75rem 1.1rem 0;
+  }
   .topbar {
     padding: 0.9rem 1.1rem;
     flex-wrap: wrap;
@@ -3355,6 +3404,9 @@ button.trace-iri-copy:hover:not(:disabled) {
   padding: 1.1rem 1.35rem;
 }
 .home-band-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
   font-size: 0.875rem;
   color: var(--body);
   margin-bottom: 0.75rem;

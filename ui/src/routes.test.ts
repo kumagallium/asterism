@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseHash, routeToHash, type Route } from './App'
+import { legacyHashRewrite, parseHash, routeToHash, type Route } from './App'
 
 // parseHash/routeToHash の往復（契約メモ contract_pr_c.md §6.2・§6.4）。cards の
 // route（subjectKey/cardId/place）を中心に、既存の route も壊していないことを
@@ -342,5 +342,76 @@ describe('#/network（全体グラフ）', () => {
   it('parseHash / routeToHash が往復する', () => {
     expect(parseHash('#/network')).toEqual({ tab: 'network' })
     expect(routeToHash({ tab: 'network' })).toBe('#/network')
+  })
+})
+
+describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', () => {
+  it('#/questions は vocab タブ（routeToHash は #/questions に戻す）', () => {
+    expect(parseHash('#/questions')).toEqual<Route>({ tab: 'vocab' })
+    expect(routeToHash({ tab: 'vocab' })).toBe('#/questions')
+  })
+
+  it('#/questions?new=1 は newQuestion を立てる・往復する', () => {
+    expect(parseHash('#/questions?new=1')).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(routeToHash({ tab: 'vocab', newQuestion: true })).toBe('#/questions?new=1')
+    expect(roundTrip('#/questions?new=1')).toBe('#/questions?new=1')
+  })
+
+  it('#/questions?q=… ・ scope は newQuestion を立てない（画面が hash から読む）', () => {
+    expect(parseHash('#/questions?q=abc')).toEqual<Route>({ tab: 'vocab' })
+    expect(parseHash('#/questions?scope=standard&dataset=x')).toEqual<Route>({ tab: 'vocab' })
+  })
+
+  it('旧 #/vocab・#/vocab?… も同じ結果（互換）', () => {
+    expect(parseHash('#/vocab')).toEqual<Route>({ tab: 'vocab' })
+    expect(parseHash('#/vocab?q=x')).toEqual<Route>({ tab: 'vocab' })
+    expect(parseHash('#/vocab?new=1')).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+  })
+
+  it('#/data は gallery', () => {
+    expect(parseHash('#/data')).toEqual<Route>({ tab: 'gallery' })
+  })
+
+  it('#/data?tab=connections は crosswalk', () => {
+    expect(parseHash('#/data?tab=connections')).toEqual<Route>({ tab: 'crosswalk' })
+  })
+
+  it('#/data?add=1 は gallery + add', () => {
+    expect(parseHash('#/data?add=1')).toEqual<Route>({ tab: 'gallery', add: true })
+  })
+
+  it('#/browse は cards', () => {
+    expect(parseHash('#/browse')).toEqual<Route>({ tab: 'cards' })
+  })
+
+  it('#/datasets は #/data に巻き込まれない（別の綴りのまま）', () => {
+    expect(parseHash('#/datasets')).toEqual<Route>({ tab: 'gallery' })
+    expect(routeToHash({ tab: 'gallery' })).toBe('#/datasets')
+  })
+})
+
+describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
+  it('#/vocab → #/questions（クエリは温存）', () => {
+    expect(legacyHashRewrite('#/vocab')).toBe('#/questions')
+    expect(legacyHashRewrite('#/vocab?q=x')).toBe('#/questions?q=x')
+    expect(legacyHashRewrite('#/vocab?scope=standard&dataset=d1')).toBe(
+      '#/questions?scope=standard&dataset=d1',
+    )
+  })
+
+  it('#/data / #/browse は routeToHash(parseHash(…)) の綴りへ', () => {
+    expect(legacyHashRewrite('#/data')).toBe('#/datasets')
+    expect(legacyHashRewrite('#/data?tab=connections')).toBe('#/crosswalk')
+    expect(legacyHashRewrite('#/data?add=1')).toBe('#/datasets/add')
+    expect(legacyHashRewrite('#/browse')).toBe('#/cards')
+  })
+
+  it('新しい綴り・無関係な hash は触らない（#/datasets は #/data ではない）', () => {
+    expect(legacyHashRewrite('#/questions')).toBeNull()
+    expect(legacyHashRewrite('#/questions?new=1')).toBeNull()
+    expect(legacyHashRewrite('#/datasets')).toBeNull()
+    expect(legacyHashRewrite('#/datasets/add')).toBeNull()
+    expect(legacyHashRewrite('#/cards')).toBeNull()
+    expect(legacyHashRewrite('#/home')).toBeNull()
   })
 })

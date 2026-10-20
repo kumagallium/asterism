@@ -41,7 +41,7 @@ export function HomeView({
   onOpenDataset,
   onCreateCrosswalk,
 }: {
-  onNavigate: (tab: 'workbench' | 'ask' | 'gallery') => void
+  onNavigate: (tab: 'workbench' | 'ask' | 'gallery' | 'network') => void
   /** 最近の行から当該データセットの詳細へ直行（従来は一覧に飛ぶだけで探し直しだった） */
   onOpenDataset?: (id: string) => void
   /** つながりを作る導線。公開ずみが 2 件以上あるときだけ出す（1 件では作れない
@@ -114,7 +114,13 @@ export function HomeView({
         </section>
       ) : (
         <section className="home-band">
-          <div className="home-band-head">{t('home:band.head')}</div>
+          <div className="home-band-head">
+            {t('home:band.head')}
+            {/* ナビから全体グラフが消えたので、ここが唯一の入口。 */}
+            <button type="button" className="link-btn home-band-network" onClick={() => onNavigate('network')}>
+              {t('home:band.network')}
+            </button>
+          </div>
           <div className="home-stats">
             <Stat
               value={fmt(stats?.facts)}

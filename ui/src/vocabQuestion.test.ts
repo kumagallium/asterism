@@ -156,7 +156,7 @@ describe('slug の既定値と鋳造の入力', () => {
   })
 })
 
-describe('孤立（まだ線になっていない）の札と注意', () => {
+describe('孤立（まだ答えるデータがない）の札と注意', () => {
   it('wired=false を数え、20 を超えたときだけ注意を出す', () => {
     const many = Array.from({ length: 21 }, (_, i) => term(`t${i}`, { wired: false }))
     expect(isolatedCount(many)).toBe(21)
@@ -178,8 +178,8 @@ describe('孤立（まだ線になっていない）の札と注意', () => {
           onRemove: noop,
         }),
       )
-    expect(html(term('a', { wired: false }))).toContain('まだ線になっていない')
-    expect(html(term('b'))).not.toContain('まだ線になっていない')
+    expect(html(term('a', { wired: false }))).toContain('まだ答えるデータがない')
+    expect(html(term('b'))).not.toContain('まだ答えるデータがない')
     expect(html(term('c', { answering_datasets: 3 }))).toContain('3 データセットが答える')
   })
 })
@@ -197,7 +197,7 @@ describe('線の絞り込み（scope）', () => {
     )
     expect(html.match(/<button/g)).toHaveLength(5)
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
-    expect(html).toMatch(/aria-pressed="true"[^>]*>ことばへ</)
+    expect(html).toMatch(/aria-pressed="true"[^>]*>用語へ</)
   })
 
   it('切れている線を先頭に・ほかの順は変えない', () => {
@@ -214,9 +214,9 @@ describe('線の絞り込み（scope）', () => {
 describe('導線の hash', () => {
   it('Ask から題を運ぶ（解釈せずそのまま・エンコードして）', () => {
     expect(vocabQuestionHash('試料は何件？ A/B')).toBe(
-      `#/vocab?q=${encodeURIComponent('試料は何件？ A/B')}`,
+      `#/questions?q=${encodeURIComponent('試料は何件？ A/B')}`,
     )
-    expect(vocabQuestionHash('  ')).toBe('#/vocab')
+    expect(vocabQuestionHash('  ')).toBe('#/questions')
   })
 
   it('運んだ題を読み戻せる・scope と dataset も読む', () => {
@@ -231,7 +231,8 @@ describe('導線の hash', () => {
     expect(parseVocabHash('#/vocab?scope=bogus').scope).toBeNull()
   })
 
-  it('ルータは #/vocab?… を「ことば」画面として開く', () => {
+  it('ルータは #/questions?…（旧 #/vocab?…も）を「知りたいこと」画面として開く', () => {
+    expect(parseHash('#/questions?q=abc')).toEqual({ tab: 'vocab' })
     expect(parseHash('#/vocab?q=abc')).toEqual({ tab: 'vocab' })
     expect(parseHash('#/vocab?scope=standard&dataset=x')).toEqual({ tab: 'vocab' })
     expect(parseHash('#/vocab')).toEqual({ tab: 'vocab' })
@@ -245,8 +246,8 @@ describe('節の再読み込み（版の伝播）', () => {
   })
 
   it('つながり画面から「つながり同士」を開いた線の節へ送る', () => {
-    expect(vocabScopeHash('perspective')).toBe('#/vocab?scope=perspective')
-    expect(vocabScopeHash('all')).toBe('#/vocab')
+    expect(vocabScopeHash('perspective')).toBe('#/questions?scope=perspective')
+    expect(vocabScopeHash('all')).toBe('#/questions')
     expect(parseVocabHash(vocabScopeHash('perspective')).scope).toBe('perspective')
   })
 })
@@ -291,7 +292,7 @@ describe('線の一覧の行（両端の kind・問い）', () => {
       line({ source_kind: 'dataset', source_dataset: 'ds1', target_kind: 'shared' }),
     )
     expect(out).toContain('データセット · ds1')
-    expect(out).toContain('>ことば<')
+    expect(out).toContain('>用語<')
   })
 
   it('unknown と未設定は札なし', () => {

@@ -16,10 +16,10 @@ import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
-import { BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
+import { ActivityIcon, BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
 import { JobsView } from './JobsView'
 import { WorkbenchTier } from './kantan/WorkbenchTier'
-import { NAV_GROUPS } from './navGroups'
+import { NAV_ITEMS } from './navGroups'
 import { addSubjectAndPersist } from './cards/subjectStore'
 import { formatSetTitle } from './cards/setTitle'
 import type { SetResolveResult } from './cards/cardsApi'
@@ -43,11 +43,10 @@ type Tab =
   | 'map'
   | 'jobs'
   | 'sparql'
-  /** 裏タブ（NAV_GROUPS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
+  /** 裏タブ（NAV_ITEMS には出さない）。カード描画器 3 つの見本ページ・スクショ用。 */
   | 'cardsdemo'
   /** 「1 件／絞り込み × カード」の使う画面（object-cards-ui.md）。既定ルート
-   *  （契約メモ contract_pr_e.md §3）— 左ナビ「使う」見出しの「ワークスペース」
-   *  （旧「見る」・契約メモ contract_pr_f7.md §1）から入る。 */
+   *  （契約メモ contract_pr_e.md §3）— 左ナビ「見る」から入る。 */
   | 'cards'
 
 // ---- hash ルーティング -------------------------------------------------------
@@ -80,6 +79,9 @@ export interface Route {
    *  契約メモ contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに
    *  読み替える（`datasetId`/`subjectKey` 等と同じ流儀）。 */
   add?: boolean
+  /** `#/questions?new=1`（`tab: 'vocab'`）— 上部バーの「？ 知りたいことを書く」から
+   *  入ったとき、「問いから始める」の入力欄に自動でフォーカスする。 */
+  newQuestion?: boolean
   /** `#/cards/add?kind=<class_iri>` — 種類のページの「＋ 追加」から、その種類を
    *  開いた状態で追加画面に入る（PR F9）。 */
   addClassIri?: string
@@ -146,6 +148,24 @@ export function parseHash(hash: string): Route {
   // 既定ルート（`''`・`#/`）は「見る」（cards）— ユーザー指示。既存の各画面
   // （`#/home` 等）を明示した場合はそのまま尊重し、これは hash が空のときだけ効く。
   if (parts.length === 0) return { tab: 'cards' }
+  // 新しい綴り（UI 再設計 PR 1）。画面名＝綴り: 知りたいこと=#/questions、
+  // データ=#/data（つながりは ?tab=connections）、見る=#/browse。内部の Tab id は
+  // そのまま（vocab / gallery / crosswalk / cards）。旧 `#/vocab…` も同じ結果（互換）。
+  if (parts[0] === 'questions' || parts[0] === 'vocab') return { tab: 'vocab' }
+  if (parts[0]?.startsWith('questions?') || parts[0]?.startsWith('vocab?')) {
+    const query = parts[0].slice(parts[0].indexOf('?') + 1)
+    return new URLSearchParams(query).get('new') === '1'
+      ? { tab: 'vocab', newQuestion: true }
+      : { tab: 'vocab' }
+  }
+  if (parts[0] === 'data') return { tab: 'gallery' }
+  if (parts[0]?.startsWith('data?')) {
+    const params = new URLSearchParams(parts[0].slice('data?'.length))
+    if (params.get('tab') === 'connections') return { tab: 'crosswalk' }
+    if (params.get('add') === '1') return { tab: 'gallery', add: true }
+    return { tab: 'gallery' }
+  }
+  if (parts[0] === 'browse' || parts[0]?.startsWith('browse?')) return { tab: 'cards' }
   if (parts[0] === 'datasets' && parts[1]) {
     // `#/datasets/add[?dataset=<id>]` — データが入る唯一の入口（契約メモ
     // contract_pr_f8.md §1.1）。`add` は予約語として `<id>` の一般形より先に見る
@@ -242,9 +262,8 @@ export function parseHash(hash: string): Route {
     }
     return { tab: 'cards' }
   }
-  // `#/vocab?q=<題>` ・ `#/vocab?scope=…&dataset=<id>` — 「ことば」画面への持ち込み。クエリは
-  // 画面（SharedVocabView）が自分で hash から読む。route はタブだけ持つ。
-  if (parts[0]?.startsWith('vocab?')) return { tab: 'vocab' }
+  // `#/questions?q=<題>` ・ `#/questions?scope=…&dataset=<id>` — 「知りたいこと」画面への
+  // 持ち込み（上で解く）。クエリは画面（SharedVocabView）が自分で hash から読む。
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
 }
@@ -261,6 +280,7 @@ export function routeToHash(r: Route): string {
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
   }
   if (r.tab === 'gallery') return '#/datasets'
+  if (r.tab === 'vocab') return r.newQuestion ? '#/questions?new=1' : '#/questions'
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
   if (r.tab === 'workbench' && r.returnTo) return `#/workbench?returnTo=${encodeURIComponent(r.returnTo)}`
@@ -296,6 +316,27 @@ export function routeToHash(r: Route): string {
     return '#/cards'
   }
   return `#/${r.tab}`
+}
+
+/**
+ * 旧 hash を新しい綴りに直した文字列を返す（直す必要が無ければ null）。
+ * `#/vocab…` → `#/questions…`（クエリは温存）、`#/data…` / `#/browse…` →
+ * `routeToHash(parseHash(hash))`。`#/datasets…` は別物なので触らない。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function legacyHashRewrite(hash: string): string | null {
+  if (/^#\/vocab(?=[?/]|$)/.test(hash)) return hash.replace(/^#\/vocab/, '#/questions')
+  if (/^#\/(data|browse)(?=[?/]|$)/.test(hash)) {
+    const next = routeToHash(parseHash(hash))
+    return next === hash ? null : next
+  }
+  return null
+}
+
+/** 起動時と hashchange で呼ぶ。旧 hash なら `replaceState` で置き換える（戻る履歴を汚さない）。 */
+function applyLegacyHashRewrite(): void {
+  const next = legacyHashRewrite(window.location.hash)
+  if (next) window.history.replaceState(null, '', next)
 }
 
 // v2 IA (design_handoff_asterism_ux/v2): a flat, object-axis nav — the sidebar
@@ -440,14 +481,20 @@ function App() {
   const otherLng = i18n.language.startsWith('en') ? 'ja' : 'en'
   const glossT = i18n.getFixedT(otherLng, 'common')
   // hash が唯一の真実源（リロード/戻る/進む/ディープリンクが全て効く）
-  const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash))
+  const [route, setRoute] = useState<Route>(() => {
+    applyLegacyHashRewrite()
+    return parseHash(window.location.hash)
+  })
   const tab = route.tab
   const { openSettings } = useLlmSettings()
   const tSettings = i18n.getFixedT(i18n.language, 'settings')
   const glossSettingsT = i18n.getFixedT(otherLng, 'settings')
 
   useEffect(() => {
-    const onHash = () => setRoute(parseHash(window.location.hash))
+    const onHash = () => {
+      applyLegacyHashRewrite()
+      setRoute(parseHash(window.location.hash))
+    }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -690,38 +737,36 @@ function App() {
             </span>
           </div>
 
-          {/* 左ナビは 1 本・常に同じ（契約メモ §1・O52）: 見出し「作る」「使う」
-              ＋ navGroups.ts の NAV_GROUPS。tab === 'cards' でも差し替えない
-              ——「使う」の「ワークスペース」がここへの戻り道を兼ねる。 */}
+          {/* 左ナビは 1 本・5 つ・常に同じ（navGroups.ts の NAV_ITEMS）。
+              tab === 'cards' でも差し替えない——「見る」がここへの戻り道を兼ねる。
+              つながり（crosswalk）は「データ」の子なので、そのときは「データ」を active に。 */}
           <nav className="side-nav" id="app-side-nav">
-            {NAV_GROUPS.map((group) => (
-              <div className="side-nav-group" key={group.key}>
-                <h2 className="side-nav-group-title">{t(`nav.group_${group.key}`)}</h2>
-                {group.items.map((it) => {
-                  const Icon = it.icon
-                  const navLabel = t(`nav.${it.id}`)
-                  const navGloss = glossT(`nav.${it.id}`)
-                  return (
-                    <button
-                      key={it.id}
-                      type="button"
-                      className={`side-nav-item${tab === it.id ? ' active' : ''}`}
-                      onClick={() => navTo(it.id)}
-                      aria-current={tab === it.id ? 'page' : undefined}
-                      // たたんだ状態・860px 以下でラベルが display:none になる
-                      // アイコンレールでも名前が残るように（ツールチップ兼
-                      // スクリーンリーダー名・契約メモ §1-2）。
-                      aria-label={navLabel}
-                      title={navLabel}
-                    >
-                      <Icon className="side-nav-icon" />
-                      <span className="side-nav-text">{navLabel}</span>
-                      <span className="side-nav-en">{navGloss}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
+            <div className="side-nav-group">
+              {NAV_ITEMS.map((it) => {
+                const Icon = it.icon
+                const navLabel = t(`nav.${it.id}`)
+                const navGloss = glossT(`nav.${it.id}`)
+                const isActive = tab === it.id || (it.id === 'gallery' && tab === 'crosswalk')
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    className={`side-nav-item${isActive ? ' active' : ''}`}
+                    onClick={() => navTo(it.id)}
+                    aria-current={isActive ? 'page' : undefined}
+                    // たたんだ状態・860px 以下でラベルが display:none になる
+                    // アイコンレールでも名前が残るように（ツールチップ兼
+                    // スクリーンリーダー名・契約メモ §1-2）。
+                    aria-label={navLabel}
+                    title={navLabel}
+                  >
+                    <Icon className="side-nav-icon" />
+                    <span className="side-nav-text">{navLabel}</span>
+                    <span className="side-nav-en">{navGloss}</span>
+                  </button>
+                )
+              })}
+            </div>
           </nav>
 
           <div className="sidebar-foot">
@@ -738,6 +783,19 @@ function App() {
             >
               <ChevronIcon className={`side-nav-icon side-nav-collapse-icon${navCollapsed ? '' : ' side-nav-collapse-icon--open'}`} />
               <span className="side-nav-text">{t(navCollapsed ? 'nav.expand' : 'nav.collapse')}</span>
+            </button>
+            {/* アクティビティ（取り込みの履歴）は本線から下段へ。設定の上。 */}
+            <button
+              type="button"
+              className={`side-nav-item side-nav-jobs${tab === 'jobs' ? ' active' : ''}`}
+              onClick={() => navTo('jobs')}
+              aria-current={tab === 'jobs' ? 'page' : undefined}
+              aria-label={t('nav.jobs')}
+              title={t('nav.jobs')}
+            >
+              <ActivityIcon className="side-nav-icon" />
+              <span className="side-nav-text">{t('nav.jobs')}</span>
+              <span className="side-nav-en">{glossT('nav.jobs')}</span>
             </button>
             <button
               type="button"
@@ -798,21 +856,21 @@ function App() {
                 {/* datasetSub（定義を直す／詳しい情報）中はパンくずに差し替える
                     （契約メモ contract_pr_f5.md §1.2）: 「<データセット名> ›
                     データの意味を定義する／詳しい情報」。未選択の既定文言は
-                    「ワークスペース」（契約メモ contract_pr_f9.md §1-7）。 */}
+                    「見る」（契約メモ contract_pr_f9.md §1-7）。 */}
                 {tab === 'cards' && route.datasetSub
-                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: 'ワークスペース' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
+                  ? `${cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '見る' })} › ${t(`cards:topbar.${route.datasetSub}`)}`
                   : t(`view.${tab}.eyebrow`)}
               </span>
               <h1 className="topbar-title">
                 {/* cards タブだけ見出しが動く（契約メモ contract_pr_f9.md §1-7）:
                     追加画面（`#/cards/add`）は「オブジェクトを追加」、種類の
                     ページ・オブジェクトのページは onLabel が上げた名前
-                    （cardsLabel）、未選択は「ワークスペース」。datasetSub 中も
+                    （cardsLabel）、未選択は「見る」。datasetSub 中も
                     見出しはデータセットの名前のまま（§1.2）。 */}
                 {tab === 'cards'
                   ? route.add
                     ? t('cards:topbar.add', { defaultValue: 'オブジェクトを追加' })
-                    : (cardsLabel ?? t('cards:topbar.unselected', { defaultValue: 'ワークスペース' }))
+                    : (cardsLabel ?? t('cards:topbar.unselected', { defaultValue: '見る' }))
                   : t(`view.${tab}.title`)}
               </h1>
             </div>
@@ -828,8 +886,57 @@ function App() {
                 {t('cards:topbar.back')}
               </button>
             )}
+            {/* 常設の 2 入口（どの画面でも出す）。データを置く・知りたいことを書く。 */}
+            <div className="topbar-entries">
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => {
+                  setGalleryFocus(null)
+                  navigate({ tab: 'gallery', add: true })
+                }}
+              >
+                {t('entries.data')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--activity btn--sm"
+                onClick={() => {
+                  setGalleryFocus(null)
+                  navigate({ tab: 'vocab', newQuestion: true })
+                }}
+              >
+                {t('entries.question')}
+              </button>
+            </div>
             <LanguageToggle />
           </header>
+
+          {/* 「データ」の下のタブ: データセット／つながり。詳細・追加の画面では出さない。 */}
+          {((tab === 'gallery' && !route.datasetId && !route.add) || tab === 'crosswalk') && (
+            <div className="data-subtabs">
+              <div className="ds-tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'gallery'}
+                  className={`ds-tab${tab === 'gallery' ? ' active' : ''}`}
+                  onClick={() => navTo('gallery')}
+                >
+                  {t('dataTabs.datasets')}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'crosswalk'}
+                  className={`ds-tab${tab === 'crosswalk' ? ' active' : ''}`}
+                  onClick={() => navTo('crosswalk')}
+                >
+                  {t('dataTabs.connections')}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 質問する（チャット）は画面の残り高さを使い切り、各列が内側でスクロール
               する（メッセージ一覧はスクロール・入力欄は下に固定）。他画面は従来通り
@@ -907,7 +1014,23 @@ function App() {
                 onDetailFocusConsumed={() => setDetailFocus(null)}
               />
             )}
-            {tab === 'vocab' && <SharedVocabView />}
+            {tab === 'vocab' && (
+              <SharedVocabView
+                autoFocusQuestion={!!route.newQuestion}
+                onAutoFocusConsumed={() => {
+                  // new だけを外す。同居する q・scope（#/questions?q=…&new=1）は残す。
+                  const h = window.location.hash
+                  const qi = h.indexOf('?')
+                  if (qi >= 0) {
+                    const params = new URLSearchParams(h.slice(qi + 1))
+                    params.delete('new')
+                    const rest = params.toString()
+                    window.history.replaceState(null, '', rest ? `${h.slice(0, qi)}?${rest}` : h.slice(0, qi))
+                  }
+                  setRoute({ tab: 'vocab' })
+                }}
+              />
+            )}
             {tab === 'network' && (
               <Suspense fallback={null}>
                 <NetworkView

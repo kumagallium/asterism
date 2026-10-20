@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Asterism 星図</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* 配置: 左に細いナビ・上に常駐の 2 入口・中央は星図（紙の星図＝forest 単一テーマを守る） */
+:root {
+  color-scheme: light;
+  --bg: #eef3ec; --surface: #ffffff; --surface-alt: #f4f8f1; --surface-sink: #eaf0e8; --paper: #f7f9f4;
+  --fg: #16241a; --body: #33453a; --muted: #54695b; --faint: #728579;
+  --border: #dde6da; --border-strong: #c7d4c4;
+  --primary: #3f6f49; --primary-fg: #fff; --primary-soft: #e6efe4;
+  --accent: #b3722b; --accent-strong: #8a5620; --accent-soft: #f6ecd9;
+  --entity: #3a7a4c; --entity-soft: #e5f0e6; --activity: #356794; --activity-soft: #e4eef6;
+  --font-ui: 'Hanken Grotesk','Zen Kaku Gothic New','Noto Sans JP',system-ui,sans-serif;
+  --font-mono: 'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --radius: 12px; --radius-sm: 8px; --shadow-soft: 0 1px 2px rgba(22,36,26,.06), 0 4px 14px rgba(22,36,26,.05);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px; line-height: 1.55; }
+button { font: inherit; cursor: pointer; }
+.app { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
+/* ナビ */
+.nav { background: var(--surface); border-right: 1px solid var(--border); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; }
+.brand b { font-size: 18px; letter-spacing: .01em; }
+.brand small { display: block; color: var(--muted); font-size: 11px; }
+.nav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--radius-sm); padding: 9px 10px; color: var(--body); font-weight: 500; }
+.nav button .en { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
+.nav button.active { background: var(--primary-soft); color: var(--fg); }
+.nav button:hover:not(.active) { background: var(--surface-alt); }
+.nav .sp { flex: 1; }
+.nav .foot { border-top: 1px solid var(--border); padding-top: 8px; }
+.nav .foot button { font-size: 13px; color: var(--muted); }
+/* 上部バー: 常駐の 2 入口 */
+.top { display: flex; align-items: center; gap: 14px; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+.top .eyebrow { color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
+.top h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.top .sub { color: var(--body); font-size: 12.5px; }
+.top .entries { margin-left: auto; display: flex; gap: 8px; }
+.btn { border: 1px solid var(--border-strong); background: var(--surface); color: var(--fg); border-radius: var(--radius-sm); padding: 8px 14px; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
+.btn:hover { background: var(--surface-alt); }
+.btn.entity { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); }
+.btn.entity:hover { background: #356040; }
+.btn.activity { background: var(--activity); border-color: var(--activity); color: #fff; }
+.btn.activity:hover { background: #2b567d; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.sm { padding: 5px 10px; font-size: 12px; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.main { padding: 18px 24px 40px; min-width: 0; }
+.view { display: none; }
+.view.active { display: block; }
+/* 成績の帯（事実の数） */
+.facts { display: flex; gap: 22px; align-items: baseline; flex-wrap: wrap; margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+.facts b { font-size: 20px; color: var(--fg); font-family: var(--font-mono); font-weight: 500; margin-right: 4px; }
+.facts .lead b { color: var(--activity); }
+.facts .grow { margin-left: auto; }
+/* 星図と右レール */
+.sky { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; align-items: start; }
+.chartwrap { position: relative; }
+canvas.chart { width: 100%; height: 620px; display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--paper); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 8px; align-items: center; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.rail { display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-soft); padding: 14px 16px; }
+.card h3 { margin: 0 0 8px; font-size: 13.5px; }
+.card .meta { color: var(--muted); font-size: 12px; }
+.qrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); cursor: pointer; }
+.qrow:first-of-type { border-top: 0; }
+.qrow .title { flex: 1; min-width: 0; font-size: 12.5px; }
+.qrow .ledger { color: var(--faint); font-size: 10.5px; display: block; }
+.ring { width: 22px; height: 22px; border-radius: 50%; flex: none; background: conic-gradient(var(--activity) calc(var(--p) * 1%), var(--activity-soft) 0); position: relative; }
+.ring::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: var(--surface); }
+.ring.none { background: var(--surface); border: 1.5px solid var(--accent); }
+.ring.none::after { display: none; }
+.pill { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.pill.ok { background: var(--activity-soft); color: var(--activity); }
+.pill.wait { background: var(--accent-soft); color: var(--accent-strong); }
+.pill.data { background: var(--entity-soft); color: var(--entity); }
+/* この星について・ひとこと決める */
+.about .name { font-size: 16px; font-weight: 700; }
+.about .kv { display: grid; grid-template-columns: 5.5em 1fr; gap: 3px 10px; font-size: 12.5px; margin: 8px 0; }
+.about .kv dt { color: var(--muted); } .about .kv dd { margin: 0; }
+.decide { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; }
+.decide h4 { margin: 0 0 6px; font-size: 12.5px; color: var(--accent-strong); }
+.sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 8px; }
+.sentence select { font: inherit; font-size: 12.5px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); }
+.choice { display: flex; flex-direction: column; gap: 4px; }
+.choice label { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.choice label:has(input:checked) { border-color: var(--activity); background: var(--activity-soft); }
+.effect { font-size: 12px; color: var(--body); background: var(--surface-alt); border-radius: 6px; padding: 6px 8px; margin: 8px 0; }
+.effect b { font-family: var(--font-mono); font-weight: 500; }
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--fg); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.2); opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 20; max-width: min(92vw, 640px); }
+.toast.show { opacity: 1; }
+/* 知りたいこと（帳） */
+.ledgers { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.ledger-card h3 { display: flex; align-items: center; gap: 8px; }
+.ledger-card h3 .pill { margin-left: auto; }
+.tabs { display: inline-flex; background: var(--surface-sink); border-radius: 999px; padding: 3px; gap: 2px; margin: 0 0 12px; }
+.tabs button { border: 0; background: transparent; border-radius: 999px; padding: 5px 12px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.tabs button.active { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-soft); }
+table.meet { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.meet th, table.meet td { border-bottom: 1px solid var(--border); padding: 7px 8px; text-align: left; vertical-align: middle; }
+table.meet th { color: var(--muted); font-weight: 600; font-size: 11.5px; background: var(--surface-sink); }
+table.meet td.c { text-align: center; }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -2px; }
+.dot.on { background: var(--activity); }
+.dot.maybe { border: 1.5px solid var(--accent); }
+.dot.off { border: 1px solid var(--border-strong); }
+/* データ（③⑤の行） */
+.row3 { display: grid; grid-template-columns: 110px 1fr 1fr 90px 90px; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.row3 .col { font-family: var(--font-mono); font-size: 12px; }
+.row3 .ex { color: var(--muted); font-size: 12px; }
+.row3 input[type=text] { width: 100%; font: inherit; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 6px; }
+.fit { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--body); }
+.fit .ai { color: var(--accent-strong); font-size: 11px; border: 1px dashed var(--accent); border-radius: 4px; padding: 0 5px; }
+.hd { display: grid; grid-template-columns: 110px 1fr 1fr 90px 90px; gap: 10px; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+/* ウィザード */
+.wiz { position: fixed; inset: 0; background: rgba(22,36,26,.35); display: none; z-index: 30; align-items: flex-start; justify-content: center; padding: 30px 16px; overflow: auto; }
+.wiz.open { display: flex; }
+.wiz .panel { background: var(--bg); border-radius: 16px; width: min(960px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.wiz .head { background: var(--surface); border-radius: 16px 16px 0 0; padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+.steps { display: flex; gap: 4px; flex-wrap: wrap; }
+.steps span { font-size: 11.5px; color: var(--faint); padding: 3px 8px; border-radius: 999px; }
+.steps span.cur { background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; }
+.steps span.done { color: var(--muted); }
+.wiz .body { padding: 20px; }
+.wiz h2 { margin: 0 0 4px; font-size: 20px; }
+.wiz .lead { color: var(--body); font-size: 14px; margin: 0 0 14px; }
+.wiz textarea { width: 100%; min-height: 150px; font: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); resize: vertical; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 0; }
+.chip { border: 1px dashed var(--accent); color: var(--accent-strong); background: var(--surface); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.chip:hover { background: var(--accent-soft); }
+.wiz .actions { display: flex; gap: 8px; margin-top: 16px; }
+.wiz .note { font-size: 12.5px; color: var(--muted); }
+table.terms { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface); border-radius: var(--radius-sm); overflow: hidden; }
+table.terms th { text-align: left; font-size: 11.5px; color: var(--muted); background: var(--surface-sink); padding: 8px 10px; }
+table.terms td { padding: 8px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+table.terms input[type=text] { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--border-strong); border-radius: 6px; width: 100%; }
+table.terms .mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--faint); }
+.rel { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13.5px; }
+.rel .ai { color: var(--accent-strong); font-size: 11px; border: 1px dashed var(--accent); border-radius: 4px; padding: 0 5px; }
+.rel .yn { margin-left: auto; display: flex; gap: 4px; }
+.rel .yn button { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 6px; padding: 3px 9px; font-size: 12px; }
+.rel .yn button.on { background: var(--primary-soft); border-color: var(--primary); }
+.try { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 8px; }
+.try .q { font-weight: 600; font-size: 13.5px; }
+.try .shape { font-size: 12.5px; color: var(--body); margin: 4px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.try .shape select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border-strong); }
+.try .ans { font-size: 12.5px; color: var(--muted); }
+.log .row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.log .row:first-child { border-top: 0; }
+.log .row .d { font-family: var(--font-mono); font-size: 11.5px; color: var(--faint); margin-left: auto; }
+.empty-hint { padding: 20px; color: var(--muted); font-size: 13px; }
+@media (max-width: 1100px) { .sky { grid-template-columns: 1fr; } .app { grid-template-columns: 1fr; } .nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px 12px; } .nav .brand { padding: 0 8px 0 0; } .nav button { width: auto; padding: 6px 10px; } .nav button .en { display: none; } .nav .sp { display: none; } .nav .foot { border-top: 0; padding-top: 0; display: flex; gap: 2px; margin-left: auto; } .top { flex-wrap: wrap; } .top .entries { margin-left: 0; } canvas.chart { height: 520px; } }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="nav">
+    <div class="brand"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="7" cy="20" r="3.5" fill="#3a7a4c"/><circle cx="16" cy="8" r="3" fill="#3a7a4c"/><circle cx="24" cy="18" r="2.5" fill="#356794"/><path d="M7 20 L16 8 L24 18" stroke="#c7d4c4" fill="none"/></svg><div><b>asterism</b><small>研究データを、つながりに</small></div></div>
+    <button class="active" data-view="sky">ホーム <span class="en">Home</span></button>
+    <button data-view="ledger">知りたいこと <span class="en">Questions</span></button>
+    <button data-view="data">データ <span class="en">Data</span></button>
+    <button data-view="see">見る <span class="en">Browse</span></button>
+    <button data-view="ask">質問する <span class="en">Ask</span></button>
+    <div class="sp"></div>
+    <div class="foot">
+      <button data-view="log">決めたこと <span class="en">Log</span></button>
+      <button>設定 <span class="en">Settings</span></button>
+      <button>開発者向け <span class="en">SPARQL</span></button>
+    </div>
+  </nav>
+  <div>
+    <header class="top">
+      <div><div class="eyebrow" id="eyebrow">ホーム</div><h1 id="title">星図</h1></div>
+      <div class="sub" id="sub">あなたのデータと問いが、ひとつの図になっています。入口は 2 つ。</div>
+      <div class="entries">
+        <button class="btn entity" id="e-data">＋ データを置く</button>
+        <button class="btn activity" id="e-q">？ 知りたいことを書く</button>
+      </div>
+    </header>
+    <main class="main">
+      <!-- 星図 -->
+      <section class="view active" id="v-sky">
+        <div class="facts">
+          <span class="lead"><b id="f-q">5/7</b>答えられる問い</span>
+          <span><b id="f-kinds">12</b>種類（星）</span>
+          <span><b id="f-names">5</b>用語</span>
+          <span><b id="f-ds">5</b>データセット</span>
+          <span><b>6,165</b>事実</span>
+          <button class="btn sm grow" id="replay">▶ 育つ瞬間を再生（電池のデータを公開）</button>
+        </div>
+        <div class="sky">
+          <div class="chartwrap">
+            <canvas id="chart" class="chart"></canvas>
+            <div class="legend">
+              <span><i style="background:var(--entity)"></i>種類（大きさ＝件数）</span>
+              <span><i style="background:var(--activity)"></i>用語（上の帯）・つながり</span>
+              <span><i style="background:var(--accent)"></i>標準用語（地平線）</span>
+              <span>線＝「〜の一種」「同じもの」。点を押すと右に出ます</span>
+              <label style="margin-left:auto"><input type="checkbox" id="quiet"> 静かな表示（動かさない）</label>
+              <button class="btn sm ghost" id="deep">中身まで見る（値の網）</button>
+            </div>
+          </div>
+          <aside class="rail">
+            <div class="card about" id="about">
+              <h3>この星について</h3>
+              <div class="meta">図の星・用語・標準用語を押すと、ここで「ひとこと決める」ができます。</div>
+            </div>
+            <div class="card">
+              <h3>知りたいこと <span class="meta">答えられる <span id="r-count">5</span> / 7</span></h3>
+              <div id="qlist"></div>
+              <div style="margin-top:8px"><button class="btn sm" data-view="ledger">テーマを全部見る →</button></div>
+            </div>
+            <div class="card">
+              <h3>最近の育ち</h3>
+              <div class="meta" id="recent">2026-10-14 公開「XRD 参照カード」— 星 +3・用語『カード』『回折点』に星が入った・答えられる問い +2</div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- 知りたいこと -->
+      <section class="view" id="v-ledger">
+        <div class="tabs"><button class="active" data-tab="ledgers">テーマごと</button><button data-tab="meet">出会いの表（問い × データ）</button></div>
+        <div id="tab-ledgers" class="ledgers"></div>
+        <div id="tab-meet" style="display:none" class="card">
+          <table class="meet" id="meet"></table>
+          <p class="meta" style="margin:10px 0 0">● 答えられる（件数つき）　○ 当てはまりそう（まだ決めていない。押すと「ひとこと決める」）　空＝答えるデータがない（押すと「データを置く」）</p>
+        </div>
+      </section>
+
+      <!-- データ（かんたん③⑤の出会い） -->
+      <section class="view" id="v-data">
+        <div class="card">
+          <h3>③ 意味をつける — 試料（starrydata_samples.csv）</h3>
+          <div class="meta" style="margin-bottom:8px">各列が何の値かを確かめます。既にある用語・標準用語と同じなら、その行に提案が出ます（名前・別名の完全一致。AI は使いません）。</div>
+          <div class="hd"><span>元の列名</span><span>実データの例</span><span>この値の意味</span><span>単位</span><span>取り込む</span></div>
+          <div class="row3"><span class="col">composition</span><span class="ex">Bi2Te3 / SnSe / PbTe</span><input type="text" id="c1" value="組成"><span></span><label><input type="checkbox" checked> 取り込む</label>
+            <div class="fit">既にある用語「組成」と同じ項目（別名 composition が一致） <button class="btn sm">同じ項目として結ぶ</button> <button class="btn sm ghost">値でもつなぐ</button></div></div>
+          <div class="row3"><span class="col">sample_id</span><span class="ex">S-00412 / S-00413</span><input type="text" id="c2" value="試料番号"><span></span><label><input type="checkbox" checked> 取り込む</label></div>
+          <div class="row3"><span class="col">temperature</span><span class="ex">300 / 350 / 400</span><input type="text" id="c3" value="温度"><input type="text" id="u3" value="K"><label><input type="checkbox" checked> 取り込む</label>
+            <div class="fit">標準用語「qudt:Temperature」の量（単位 K から） <button class="btn sm">この量にする</button></div></div>
+          <div class="row3"><span class="col">zt</span><span class="ex">0.8 / 1.2 / 2.6</span><input type="text" id="c4" value="ZT"><span></span><label><input type="checkbox" checked> 取り込む</label>
+            <div class="fit">既にある用語「ZT」と同じ項目（別名 zt が一致） <button class="btn sm">同じ項目として結ぶ</button></div></div>
+          <div class="actions" style="margin-top:12px;display:flex;gap:8px"><button class="btn entity">この意味で進む</button><button class="btn ghost">読み方の設定に戻る</button></div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <h3>⑤ かたちをたしかめる — 種類の提案</h3>
+          <div class="rel">この種類「Sample（1 行が 1 つの試料）」は、用語 <b>「試料」</b> の一種ですか <span class="ai">別名 sample が一致</span>
+            <span class="yn"><button>一種にする</button><button>同じものにする</button><button>当てはまるものは無い</button></span></div>
+          <div class="effect">「一種にする」を選ぶと: 問い「ZT が最も高い試料の組成は？」に答えるデータセット <b>0 → 1</b>・用語『試料』に星が入ります（公開のとき）。何も選ばなくても進めます。</div>
+        </div>
+      </section>
+
+      <section class="view" id="v-see"><div class="card empty-hint">「見る」は今のワークスペース（種類 › オブジェクト › 問い）のままです。このモックでは省略。星図の星を押すと、その種類のページがここに開きます。</div></section>
+      <section class="view" id="v-ask"><div class="card">
+        <h3>質問する</h3>
+        <div class="meta">公開したデータに、ふつうの言葉で聞きます。答えには出どころが付きます。</div>
+        <div class="sentence" style="margin-top:10px"><input type="text" id="askq" value="組成 X の Seebeck 係数の温度依存は？" style="flex:1;font:inherit;padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px"><button class="btn entity">聞く</button></div>
+        <div class="effect">この問いには、まだ答えられるデータがありません。<button class="btn sm activity" id="ask-to-ledger">「知りたいこと」のテーマに入れて、答えられるように育てる →</button></div>
+      </div></section>
+
+      <section class="view" id="v-log"><div class="card log">
+        <h3>決めたこと</h3>
+        <div class="meta" style="margin-bottom:6px">人が決めた関係の記録です。日付つきで残り、いつでも取り消せます（取り消すと、答えられる問いの数が変わります）。</div>
+        <div id="logrows"></div>
+      </div></section>
+    </main>
+  </div>
+</div>
+
+<!-- 知りたいことから作る（6 段） -->
+<div class="wiz" id="wiz">
+  <div class="panel">
+    <div class="head">
+      <b style="font-size:14px">知りたいことから作る（テーマ）</b>
+      <div class="steps" id="steps"></div>
+      <button class="btn sm ghost" id="wiz-close" style="margin-left:auto">やめる</button>
+    </div>
+    <div class="body" id="wiz-body"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="skychart.js"></script>
+<script src="data.js"></script>
+<script>
+(function () {
+  const data = JSON.parse(JSON.stringify(window.SKY_DATA))
+  const $ = (s) => document.querySelector(s)
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const log = [
+    { s: '「Record（XRD 実験）」は「回折点」の一種', d: '2026-10-14', q: 1 },
+    { s: '「Record（XRD 参照カード）」は「回折点」の一種', d: '2026-10-14', q: 1 },
+    { s: '「Card（XRD 実験）」は「カード」の一種', d: '2026-10-14', q: 1 },
+    { s: '「Card（XRD 参照カード）」は「カード」の一種', d: '2026-10-14', q: 1 },
+    { s: '「Sample（Starrydata）」は「試料」の一種', d: '2026-10-09', q: 2 },
+    { s: '「試料」は標準の語「cmso:Material」と同じもの', d: '2026-10-09', q: 0 },
+    { s: '「composition（Starrydata）」は「組成」の一種（項目）', d: '2026-10-09', q: 2 },
+  ]
+  function toast(msg, ms) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show')
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms || 4200)
+  }
+  // ── ナビ ──
+  const titles = {
+    sky: ['ホーム', '星図', 'あなたのデータと問いが、ひとつの図になっています。入口は 2 つ。'],
+    ledger: ['つくる（問いから）', '知りたいこと', 'テーマ（問いのリスト）ごとに、用語と関係が育ちます'],
+    data: ['つくる（データから）', 'データ', '手元のファイルから。既にある用語には、その場で出会います'],
+    see: ['つかう', '見る', '1 件・一覧・カード'],
+    ask: ['つかう', '質問する', '公開したデータに、根拠つきで答える'],
+    log: ['記録', '決めたこと', '人が決めた関係。日付つき・取り消せる'],
+  }
+  function show(v) {
+    document.querySelectorAll('.view').forEach((x) => x.classList.toggle('active', x.id === 'v-' + v))
+    document.querySelectorAll('.nav button[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v))
+    const t = titles[v]; $('#eyebrow').textContent = t[0]; $('#title').textContent = t[1]; $('#sub').textContent = t[2]
+    if (v === 'sky') setTimeout(() => chart.resize(), 0)
+    if (v === 'log') renderLog()
+  }
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => show(b.dataset.view)))
+  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b))
+    $('#tab-ledgers').style.display = b.dataset.tab === 'ledgers' ? '' : 'none'
+    $('#tab-meet').style.display = b.dataset.tab === 'meet' ? '' : 'none'
+  }))
+
+  // ── 星図 ──
+  const chart = SkyChart.create($('#chart'), { data, reducedMotion: reduced, onSelect: about, labels: { names: '用語（上の帯）', mid: 'データ（星座）', std: '標準用語（地平線）', empty: 'まだ星がない' } })
+  window.addEventListener('resize', () => chart.resize())
+  function dsLabel(id) { const d = data.datasets.find((x) => x.id === id); return d ? d.label : '' }
+  function nameOfKind(kid) { return data.names.filter((n) => n.members.includes(kid)) }
+  function about(n) {
+    const el = $('#about')
+    if (!n) { el.innerHTML = '<h3>この星について</h3><div class="meta">図の星・用語・標準用語を押すと、ここで「ひとこと決める」ができます。</div>'; return }
+    if (n.type === 'kind') {
+      const names = nameOfKind(n.id)
+      const opts = data.names.filter((x) => x.kind === 'class').map((x) => '<option value="' + x.id + '">' + x.label + '</option>').join('')
+      el.innerHTML = '<h3>この星について</h3><div class="name">' + n.label + '</div>' +
+        '<div style="margin:8px 0"><button class="btn sm entity">' + n.label + ' を見る →</button> <span class="meta">1 件ずつ・一覧・グラフ</span></div>' +
+        '<dl class="kv"><dt>データセット</dt><dd>' + dsLabel(n.dataset) + '</dd><dt>件数</dt><dd>' + n.count.toLocaleString() + ' 件</dd><dt>用語</dt><dd>' + (names.length ? names.map((x) => '<span class="pill ok">' + x.label + '</span>').join(' ') : '<span class="pill wait">まだありません</span>') + '</dd></dl>' +
+        '<div class="decide"><h4>ひとこと決める</h4>' +
+        '<div class="sentence">「' + n.label + '」は <select id="d-target">' + opts + '<option value="__new">（新しい用語を作る…）</option></select> の</div>' +
+        '<div class="choice"><label><input type="radio" name="rel" value="sub"> 一種です<span class="meta">（例: Record は 回折点 の一種）</span></label>' +
+        '<label><input type="radio" name="rel" value="eq"> 同じものです<span class="meta">（名前が違うだけ）</span></label>' +
+        '<label><input type="radio" name="rel" value="no"> 当てはまるものは無い<span class="meta">（提案を外す。次から出ません）</span></label></div>' +
+        '<div class="effect" id="d-effect">選ぶと、ここに「そう決めるとどうなるか」が出ます。</div>' +
+        '<button class="btn sm activity" id="d-go" disabled>そう決める</button> <button class="btn sm ghost" id="d-later">あとで決める</button> <span class="meta">押すまで何も保存されません</span></div>'
+      const upd = () => {
+        const rel = (document.querySelector('input[name=rel]:checked') || {}).value
+        const tid = $('#d-target').value
+        const nm = data.names.find((x) => x.id === tid)
+        const eff = $('#d-effect')
+        if (!rel) return
+        if (rel === 'no') { eff.textContent = '提案を外します。この星には用語が付きません（あとで付けられます）。'; $('#d-go').disabled = false; return }
+        const cqs = nm ? data.cqs.filter((q) => q.needs.includes(nm.id)) : []
+        eff.innerHTML = nm ? '問い ' + cqs.map((q) => '「' + q.title + '」').join('・') + ' に答えるデータセット <b>' + cqs.map((q) => q.answering + ' → ' + (q.answering + 1)).join(' / ') + '</b>。『' + nm.label + '』に星が入ります。' : '新しい用語を作ります。問いを 1 つ添えると、答えられるかどうかが数えられます。'
+        $('#d-go').disabled = false
+      }
+      el.querySelectorAll('input[name=rel], #d-target').forEach((x) => x.addEventListener('change', upd))
+      $('#d-later').addEventListener('click', () => { chart.select(null); about(null) })
+      $('#d-go').addEventListener('click', () => {
+        const rel = (document.querySelector('input[name=rel]:checked') || {}).value
+        const tid = $('#d-target').value
+        const nm = data.names.find((x) => x.id === tid)
+        if (rel === 'no' || !nm) { toast('外しました。'); return }
+        if (!nm.members.includes(n.id)) nm.members.push(n.id)
+        for (const q of data.cqs) if (q.needs.includes(nm.id)) q.answering += 1
+        log.unshift({ s: '「' + n.label + '（' + dsLabel(n.dataset) + '）」は「' + nm.label + '」の' + (rel === 'sub' ? '一種' : '同じもの'), d: '2026-10-19', q: data.cqs.filter((q) => q.needs.includes(nm.id)).length })
+        chart.setData(data); chart.grow([nm.id, n.id]); renderQ(); renderFacts()
+        toast('決めました: 「' + n.label + '」は「' + nm.label + '」の' + (rel === 'sub' ? '一種' : '同じもの') + '。取り消しは「決めたこと」から。')
+        about(chart.node(n.id))
+      })
+    } else if (n.type === 'name') {
+      const cqs = data.cqs.filter((q) => q.needs.includes(n.id))
+      el.innerHTML = '<h3>この用語について</h3><div class="name">' + n.label + ' <span class="pill ' + (n.members.length ? 'ok' : 'wait') + '">' + (n.members.length ? n.members.length + ' つの種類が入っている' : 'まだ星がない') + '</span></div>' +
+        '<dl class="kv"><dt>答える問い</dt><dd>' + (cqs.length ? cqs.map((q) => '「' + q.title + '」（' + q.answering + ' データセット）').join('<br>') : 'なし') + '</dd>' +
+        '<dt>標準用語</dt><dd>' + (n.standard ? '≡ ' + n.standard.replace('s:', '') : '<button class="btn sm">標準用語と同じにする…</button>') + '</dd></dl>' +
+        '<div style="margin:6px 0"><button class="btn sm ghost">用語のページを開く（名前・説明・別名・履歴）</button></div>' +
+        (n.members.length ? '' : '<div class="effect">この用語に当てはまるデータを置くと、星が入ります。<br><button class="btn sm entity" id="d-put">＋ この問いに答えるデータを置く</button></div>')
+      const b = $('#d-put'); if (b) b.addEventListener('click', () => show('data'))
+    } else if (n.type === 'std') {
+      el.innerHTML = '<h3>標準用語</h3><div class="name">' + n.prefix + ':' + n.label + '</div><div class="meta">世界共通の語彙です。ここに結ばれるほど、あなたのデータは外のツールや AI にそのまま通じます。</div>'
+    } else if (n.type === 'hub') {
+      el.innerHTML = '<h3>つながり</h3><div class="name">' + n.label + '</div><div class="meta">同じ値（組成の文字列）を手がかりに、別々のデータの件どうしを結んでいます。③で ☑ を付けた列から自動で作られました。</div>'
+    }
+  }
+  // ── 問いの帳 ──
+  function ring(q) {
+    const total = data.datasets.length
+    return q.answering > 0 ? '<span class="ring" style="--p:' + Math.round(100 * q.answering / total) + '" title="' + q.answering + ' / ' + total + '"></span>' : '<span class="ring none" title="まだ答えるデータがない"></span>'
+  }
+  function renderQ() {
+    $('#qlist').innerHTML = data.cqs.map((q) => '<div class="qrow" data-q="' + q.id + '">' + ring(q) + '<span class="title">' + q.title + '<span class="ledger">' + q.ledger + '・' + q.shape + '</span></span><span class="pill ' + (q.answering ? 'ok' : 'wait') + '">' + (q.answering ? q.answering + ' が答える' : 'まだ') + '</span></div>').join('')
+    $('#r-count').textContent = data.cqs.filter((q) => q.answering > 0).length
+    document.querySelectorAll('#qlist .qrow').forEach((r) => r.addEventListener('click', () => { const q = data.cqs.find((x) => x.id === r.dataset.q); chart.select(q.needs[0]); about(chart.node(q.needs[0])) }))
+    // 帳ごと
+    const ledgers = [...new Set(data.cqs.map((q) => q.ledger))]
+    $('#tab-ledgers').innerHTML = ledgers.map((l) => {
+      const qs = data.cqs.filter((q) => q.ledger === l)
+      const ok = qs.filter((q) => q.answering > 0).length
+      return '<div class="card ledger-card"><h3>' + l + '<span class="pill ' + (ok === qs.length ? 'ok' : 'wait') + '">答えられる ' + ok + ' / ' + qs.length + '</span></h3>' +
+        qs.map((q) => '<div class="qrow">' + ring(q) + '<span class="title">' + q.title + '<span class="ledger">要る用語: ' + q.needs.map((n) => (data.names.find((x) => x.id === n) || {}).label).join('・') + '　数え方: ' + q.shape + '</span></span></div>').join('') +
+        '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm">問いを足す</button><button class="btn sm ghost">答えを見る（出典つき）</button><button class="btn sm ghost tpl">型紙を書き出す（CSV の見出し）</button></div></div>'
+    }).join('') + '<div class="card" style="display:flex;align-items:center;justify-content:center"><button class="btn activity" id="new-ledger">？ 新しいテーマを作る</button></div>'
+    $('#new-ledger').addEventListener('click', openWiz)
+    document.querySelectorAll('.tpl').forEach((b) => b.addEventListener('click', () => toast('型紙: このテーマの用語から、取り込む表の見出し（例: 試料.csv = 試料番号, 組成, ZT, 温度）を書き出します。データから作るときの出発点になります。', 6000)))
+    // 出会いの表
+    const ds = data.datasets
+    $('#meet').innerHTML = '<tr><th>問い</th>' + ds.map((d) => '<th>' + d.label.replace('（Starrydata）', '') + '</th>').join('') + '</tr>' +
+      data.cqs.map((q) => '<tr><td>' + q.title + '<br><span class="meta">' + q.ledger + '</span></td>' + ds.map((d) => {
+        const member = q.needs.some((nid) => { const nm = data.names.find((x) => x.id === nid); return nm && nm.members.some((m) => d.kinds.some((k) => k.id === m)) })
+        const maybe = !member && q.needs.some((nid) => { const nm = data.names.find((x) => x.id === nid); return nm && d.kinds.some((k) => k.label === nm.label || (nm.label === '試料' && k.label === '試料')) })
+        return '<td class="c">' + (member ? '<span class="dot on" title="答えられる"></span>' : maybe ? '<span class="dot maybe" title="当てはまりそう"></span>' : '<span class="dot off"></span>') + '</td>'
+      }).join('') + '</tr>').join('')
+  }
+  function renderFacts() {
+    $('#f-q').textContent = data.cqs.filter((q) => q.answering > 0).length + '/' + data.cqs.length
+    $('#f-kinds').textContent = data.datasets.reduce((s, d) => s + d.kinds.length, 0)
+    $('#f-names').textContent = data.names.length
+    $('#f-ds').textContent = data.datasets.length
+  }
+  function renderLog() {
+    $('#logrows').innerHTML = log.map((r) => '<div class="row"><span>' + r.s + '</span><span class="pill ok">問い ' + r.q + '</span><span class="d">' + r.d + '</span><button class="btn sm ghost">取り消す</button></div>').join('')
+  }
+  // ── 育つ瞬間（公開の再現） ──
+  $('#replay').addEventListener('click', () => {
+    if (data.datasets.some((d) => d.id === 'ds:battery')) { toast('もう公開しています（ページを読み直すと戻ります）。'); return }
+    data.datasets.push({ id: 'ds:battery', label: '電池セル（新しい公開）', kinds: [
+      { id: 'k:bat/cell', label: 'セル', count: 320, links: ['k:bat/cathode'] },
+      { id: 'k:bat/cathode', label: '正極材料', count: 44, links: [] },
+    ] })
+    const nm = data.names.find((n) => n.id === 'n:battery-cell'); nm.members = ['k:bat/cell']
+    const q = data.cqs.find((x) => x.id === 'cq:cell-capacity'); q.answering = 1
+    log.unshift({ s: '「セル（電池セル）」は「電池セル」の一種（⑤で受けた提案・公開で書き込み）', d: '2026-10-19', q: 1 })
+    chart.setData(data); chart.grow(['k:bat/cell', 'k:bat/cathode', 'n:battery-cell'])
+    renderQ(); renderFacts()
+    $('#recent').textContent = '2026-10-19 公開「電池セル」— 星 +2・『電池セル』に星が入った・答えられる問い +1（容量が最も大きいセルの正極材料は？）'
+    toast('公開しました: 電池セル（2 種類）。星 +2・『電池セル』に星が入りました・答えられるようになった問い +1', 6000)
+  })
+  // ── 入口 ──
+  $('#e-data').addEventListener('click', () => { show('data'); toast('データを置く: ファイルを置くと、かんたんの 7 段（入れる → AI に読ませる → 意味をつける → …）が始まります。') })
+  $('#e-q').addEventListener('click', openWiz)
+  $('#ask-to-ledger').addEventListener('click', () => { openWiz($('#askq').value) })
+
+  // ── 知りたいことから作る（6 段） ──
+  const STEPS = ['知りたいことを書く', 'AI に読ませる', '用語をたしかめる', '関係をたしかめる', 'ためす', '置く']
+  let step = 0
+  const wiz = {
+    ledger: '電池材料',
+    qs: ['容量が最も大きいセルの正極材料は？', 'サイクル数ごとの容量の推移は？', 'この論文が報告したセルは何件？'],
+    terms: [
+      { ja: '電池セル', en: 'battery cell', alias: 'cell, battery_cell', kind: '種類', match: null, choice: 'new', slug: 'battery_cell' },
+      { ja: '正極材料', en: 'cathode material', alias: 'cathode', kind: '種類', match: { kind: 'std', label: 'cmso:Material', note: '標準用語に完全一致' }, choice: 'std', slug: 'cathode_material' },
+      { ja: '容量', en: 'capacity', alias: 'cap, capacity_mAh', kind: '項目', match: { kind: 'qk', label: 'qudt:Capacity', note: '量の種類に完全一致' }, choice: 'std', slug: 'capacity' },
+      { ja: 'サイクル数', en: 'cycle number', alias: 'cycle, n_cycle', kind: '項目', match: null, choice: 'new', slug: 'cycle_number' },
+      { ja: '論文', en: 'paper', alias: 'paper, article', kind: '種類', match: { kind: 'name', label: '論文（既にある用語）', note: '既にある用語に完全一致' }, choice: 'existing', slug: 'paper' },
+    ],
+    rels: [
+      { s: '「電池セル」は「試料」の一種', ok: true },
+      { s: '「正極材料」は「物質」の一種', ok: true },
+      { s: '「容量」の量は「qudt:Capacity」', ok: true },
+      { s: '「電池セル」は「論文」に報告される（項目: 報告する）', ok: null },
+    ],
+    tries: [
+      { q: '容量が最も大きいセルの正極材料は？', op: '上位の値', kind: '電池セル', prop: '容量', exec: '電池セルのうち、容量がいちばん大きいものを出し、その正極材料を添えます（データセットごと）' },
+      { q: 'サイクル数ごとの容量の推移は？', op: '推移（〜ごと）', kind: '電池セル', prop: '容量', exec: '電池セルの容量を、サイクル数の順に並べます（データセットごと）' },
+      { q: 'この論文が報告したセルは何件？', op: '件数', kind: '電池セル', prop: '—', exec: '論文ごとに、報告する電池セルの件数を数えます' },
+    ],
+  }
+  function openWiz(prefill) {
+    step = 0
+    if (typeof prefill === 'string' && prefill) wiz.qs = [prefill, ...wiz.qs.filter((q) => q !== prefill)]
+    $('#wiz').classList.add('open'); renderWiz()
+  }
+  $('#wiz-close').addEventListener('click', () => $('#wiz').classList.remove('open'))
+  function renderWiz() {
+    $('#steps').innerHTML = STEPS.map((s, i) => '<span class="' + (i === step ? 'cur' : i < step ? 'done' : '') + '">' + '①②③④⑤⑥'[i] + ' ' + s + '</span>').join('')
+    const b = $('#wiz-body')
+    const nav = (prevOk, nextLabel) => '<div class="actions">' + (prevOk ? '<button class="btn ghost" id="w-prev">戻る</button>' : '') + '<button class="btn accent" id="w-next">' + nextLabel + '</button></div>'
+    if (step === 0) {
+      b.innerHTML = '<h2>① 知りたいことを書く</h2><p class="lead">テーマの名前と、答えてほしいことを 1 行ずつ。データはまだ無くて構いません。</p>' +
+        '<div class="sentence">テーマの名前 <input type="text" id="w-ledger" value="' + wiz.ledger + '" style="font:inherit;padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;width:16em"></div>' +
+        '<textarea id="w-qs">' + wiz.qs.join('\n') + '</textarea>' +
+        '<div class="note" style="margin-top:6px">AI の提案（押すと足します。足した文はあなたの問いになります。足すかどうかはあなたが決めます）</div>' +
+        '<div class="chips"><button class="chip" data-q="正極材料ごとの平均容量は？">＋ 正極材料ごとの平均容量は？</button><button class="chip" data-q="同じ正極材料で、容量が最も落ちにくいセルは？">＋ 同じ正極材料で、容量が最も落ちにくいセルは？</button></div>' + nav(false, 'AI に読ませる')
+      b.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { $('#w-qs').value += '\n' + c.dataset.q; c.remove() }))
+    } else if (step === 1) {
+      b.innerHTML = '<h2>② AI に読ませる</h2><p class="lead">問いから、答えに要る「種類」と「項目」、そのあいだの関係を AI が下書きします。英語名と別名（よくある列名）も下書きし、機械が標準用語・既にある用語と完全一致で照合します。</p>' +
+        '<div class="try"><div class="q">読んでいます…</div><div class="ans">問い 3 件 → 種類 3・項目 2・関係 4 の下書きができました。次で 1 行ずつ確かめます。</div></div>' +
+        '<p class="note">AI に渡すのは問いの文と、既にある用語・標準用語の名前だけです。データの値は渡しません。AI が未設定なら、表を空のまま手で書けます。AI は SPARQL・コード・IRI を書きません。</p>' + nav(true, '名前をたしかめる')
+    } else if (step === 2) {
+      b.innerHTML = '<h2>③ 用語をたしかめる</h2><p class="lead">1 行に 1 つの判断。標準用語や既にある用語に当たる行は、それを使うのが既定です。ID は英語名から機械が作り、最後の「置く」で確かめます（意味を先に・ID を後に）。</p>' +
+        '<table class="terms"><tr><th>日本語の名前</th><th>英語の名前・別名</th><th>種類／項目</th><th>既にあるもの（完全一致）</th><th>どうする</th></tr>' +
+        wiz.terms.map((t, i) => '<tr><td><input type="text" value="' + t.ja + '"></td><td><input type="text" value="' + t.en + '"><div class="mono">別名: ' + t.alias + '</div></td><td>' + t.kind + '</td><td>' + (t.match ? '<b>' + t.match.label + '</b><br><span class="meta">' + t.match.note + '</span>' : '<span class="meta">なし</span>') + '</td><td>' +
+          '<select data-i="' + i + '">' + (t.match ? '<option value="std"' + (t.choice !== 'new' ? ' selected' : '') + '>' + (t.match.kind === 'name' ? '既にある名前を使う' : '標準の語を使う') + '</option>' : '') + '<option value="new"' + (t.choice === 'new' ? ' selected' : '') + '>新しく作る</option></select></td></tr>').join('') + '</table>' +
+        '<p class="note" style="margin-top:8px">「新しく作る」が 2 件。残りは標準用語か既にある用語をそのまま使うので、用語は増えません。別名は、あとでデータを置いたとき列名と突き合わせる手がかりです。</p>' + nav(true, '関係をたしかめる')
+    } else if (step === 3) {
+      b.innerHTML = '<h2>④ 関係をたしかめる</h2><p class="lead">AI が下書きした文を、そのとおりなら「そう」、違えば「違う」。循環や、種類と項目の混在は機械が止めます。</p>' +
+        wiz.rels.map((r, i) => '<div class="rel">' + r.s + ' <span class="ai">AI 下書き</span><span class="yn"><button class="' + (r.ok === true ? 'on' : '') + '" data-i="' + i + '" data-v="1">そう</button><button class="' + (r.ok === false ? 'on' : '') + '" data-i="' + i + '" data-v="0">違う</button></span></div>').join('') +
+        '<div class="effect">このテーマの上位構造（字下げ）:<br>　試料（既にある用語）<br>　　└ 電池セル ─ 容量（qudt:Capacity）・サイクル数 ─ 報告する → 論文<br>　物質（既にある用語）<br>　　└ 正極材料<br>用語はテーマをまたいで共有されます。まとめ名（例: 「蓄電デバイス」）は、問いが増えて要るときに AI が提案します。</div>' + nav(true, 'ためす')
+      b.querySelectorAll('.yn button').forEach((x) => x.addEventListener('click', () => { wiz.rels[+x.dataset.i].ok = x.dataset.v === '1'; renderWiz() }))
+    } else if (step === 4) {
+      b.innerHTML = '<h2>⑤ ためす</h2><p class="lead">問いごとに、AI が下書きした「数え方 × 種類 × 項目」を確かめます。機械が組んだ「実行文」を必ず併記します。あなたの文と食い違っていたら、数え方を選び直してください。</p>' +
+        wiz.tries.map((t) => '<div class="try"><div class="q">' + t.q + '</div><div class="shape">数え方 <select><option>' + t.op + '</option><option>件数</option><option>範囲</option><option>上位の値</option><option>値で絞る</option><option>推移（〜ごと）</option><option>結合 1 段</option></select> 種類 <select><option>' + t.kind + '</option></select> 項目 <select><option>' + t.prop + '</option></select> <span class="ai" style="color:var(--accent-strong);font-size:11px;border:1px dashed var(--accent);border-radius:4px;padding:0 5px">AI 下書き</span></div><div class="ans">実行文（機械が組む）: ' + t.exec + '<br>いまは <b>0 データセット</b> が答えます（まだ星がありません）。</div></div>').join('') +
+        '<p class="note">「推移（〜ごと）」「値で絞る」「結合 1 段」は、今の 3 つ（件数・範囲・上位の値）に足す数え方です。どれも決まった型から組み立てます。型に合わない問いは「メモの問い」として残り、公開されません。</p>' + nav(true, '星図に置く')
+    } else if (step === 5) {
+      b.innerHTML = '<h2>⑥ 置く</h2><p class="lead">テーマ「' + wiz.ledger + '」として、用語 2 つ・関係 3 つ・問い 3 つを保存します。まだ星はありません。データを置くと、ここに星が入ります。</p>' +
+        '<div class="effect">保存するもの:<br>・新しい用語「電池セル」<span class="mono" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint)">　ID battery_cell</span>・「サイクル数」<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint)">　ID cycle_number</span>（ID は変えられます。同じ ID は同じ用語を指します）<br>・関係「電池セル は 試料 の一種」「正極材料 は 物質 の一種」「容量 の量は qudt:Capacity」<br>・問い 3 件（答えるデータセット 0）と、その実行文<br>来歴に残すのは「AI 下書き → 人が確定」の印と日付だけ。AI の生の出力は保存しません。</div>' +
+        '<div class="actions"><button class="btn ghost" id="w-prev">戻る</button><button class="btn activity" id="w-done">置く</button></div>'
+      $('#w-done').addEventListener('click', () => {
+        $('#wiz').classList.remove('open')
+        if (!data.names.some((n) => n.id === 'n:cycle')) {
+          data.names.push({ id: 'n:cycle', label: 'サイクル数', kind: 'property', members: [], standard: null, relation: 'sub', cqs: [] })
+          data.cqs.push({ id: 'cq:cycle', ledger: '電池材料', title: 'サイクル数ごとの容量の推移は？', answering: 0, needs: ['n:cycle'], shape: '推移 × 電池セル × 容量' })
+          data.cqs.push({ id: 'cq:paper-cells', ledger: '電池材料', title: 'この論文が報告したセルは何件？', answering: 0, needs: ['n:battery-cell'], shape: '件数 × 電池セル' })
+        }
+        show('sky'); chart.setData(data); chart.grow(['n:battery-cell', 'n:cycle']); renderQ(); renderFacts()
+        toast('テーマ「電池材料」を置きました。用語 2 つ（まだ星がない）・問い 3 つ。データを置くと星が入ります。', 6000)
+      })
+    }
+    const p = $('#w-prev'); if (p) p.addEventListener('click', () => { step--; renderWiz() })
+    const n = $('#w-next'); if (n) n.addEventListener('click', () => { step++; renderWiz() })
+  }
+
+  $('#quiet').addEventListener('change', (e) => { chart.setQuiet(e.target.checked) })
+  $('#deep').addEventListener('click', () => toast('中身まで見る: 今の「全体グラフ」（値でつなぐ網）を、選んだ種類だけで重ねて描きます。このモックでは省略。'))
+  renderQ(); renderFacts()
+})()
+</script>
+</body>
+</html>

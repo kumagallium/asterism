@@ -329,9 +329,9 @@ export function PlaceView({ navigate, onPlaced, datasetId }: PlaceViewProps) {
 
   return (
     <section className="place-view">
-      {/* 「作る › データセット › データを追加」— データが入る唯一の入口の見出し
+      {/* 「作る › データセット › データを置く」— データが入る唯一の入口の見出し
        *  （契約メモ contract_pr_f8.md §1.1・§3）。 */}
-      <h2 className="place-heading">{t('cards:place.title', { defaultValue: 'データを追加' })}</h2>
+      <h2 className="place-heading">{t('cards:place.title', { defaultValue: 'データを置く' })}</h2>
       {!datasetId && !inspectResult && (
         <label
           className={`kz-drop${dragOver ? ' drag' : ''}`}

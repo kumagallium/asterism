@@ -30,10 +30,10 @@
     "head": "Datasets"
   },
   "sharedBand": {
-    "title": "Words",
-    "en": "words",
+    "title": "Terms",
+    "en": "terms",
     "warn": "Changes affect everything · handle with care",
-    "sub": "The words multiple datasets share. Keeping them aligned lets you <1>search and compare across datasets</1>.",
+    "sub": "The terms multiple datasets share. Keeping them aligned lets you <1>search and compare across datasets</1>.",
     "users": "<0>{{n}}</0> kinds shared",
     "open": "Open"
   },
@@ -254,7 +254,7 @@
     "okVersion": " · version {{version}}",
     "repromoteNote": "A new draft of your data is ready. Press \"Update publication\" and answers switch to the new data (answers keep working during the switch).",
     "note": "Once published, answers to questions can cite this data with its source. If you spot a mistake, you can withdraw it from citation at any time.",
-    "alignmentLoading": "Checking the words this data uses…",
+    "alignmentLoading": "Checking the terms this data uses…",
     "repromoteSubmit": "Update publication",
     "submit": "Publish",
     "repromoteError": "Updating the publication failed",
