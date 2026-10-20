@@ -468,6 +468,33 @@ def test_drafts_round_trip_and_survive_a_reopen(tmp_path: Path) -> None:
         assert client.get(f"/api/themes/drafts/{did}").status_code == 404
 
 
+def test_a_draft_saves_the_thin_rows_and_can_forget_the_chat(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)
+    with TestClient(app, headers=_AUTH) as client:
+        made = client.post("/api/themes/drafts", json={"label": "電池", "questions": ["a"]})
+        did = made.json()["id"]
+        url = f"/api/themes/drafts/{did}"
+        base = {"label": "電池", "step": 2, "questions": ["a"], "concepts": [{"key": "n1"}]}
+        assert "pending" not in client.put(url, json=base).json()  # 送っていない — 欄が無い
+        thin = {"concepts": ["n1"], "relations": [["n1", "lowers", "n2"]]}
+        assert client.put(url, json={**base, "pending": thin}).json()["pending"] == thin
+        assert client.get(url).json()["pending"] == thin
+        # 送らない保存では残る・空は「全部本物」として残る
+        assert client.put(url, json=base).json()["pending"] == thin
+        empty = {"concepts": [], "relations": []}
+        assert client.put(url, json={**base, "pending": empty}).json()["pending"] == empty
+        # 会話は reset_chat でだけ空になる（下書きの会話はサーバが持つ — 直接置いて確かめる）
+        path = themes._draft_path(tmp_path / "registry", did)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        said = {"role": "user", "content": "広げて", "at": "t"}
+        data["chat"] = {"messages": [said], "proposals": []}
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        assert client.put(url, json=base).json()["chat"]["messages"][0]["content"] == "広げて"
+        redo = client.put(url, json={**base, "reset_chat": True, "pending": thin}).json()
+        assert "chat" not in redo and redo["pending"] == thin
+        assert "chat" not in client.get(url).json()
+
+
 def test_a_draft_may_start_without_a_name(tmp_path: Path) -> None:
     app, _ = _app(tmp_path)
     with TestClient(app, headers=_AUTH) as client:

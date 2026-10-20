@@ -113,6 +113,11 @@ class DraftSaveBody(BaseModel):
     answers: list[dict[str, Any]] = Field(default_factory=list)
     suggested_questions: list[str] = Field(default_factory=list)
     standards: dict[str, Any] = Field(default_factory=dict)
+    #: true なら保存済みの会話を空にする（「もう一度読ませる」: 消えた行についての会話を戻さない）。
+    reset_chat: bool = False
+    #: まだ「提案（薄い）」のままの行 `{concepts: [key], relations: [[from, rel, to]]}`。
+    #: 送らなければ保存済みのものをそのまま残す（空の `{}` 形も「全部本物」という答え）。
+    pending: dict[str, Any] | None = None
 
 
 class DescribeBody(BaseModel):
@@ -600,9 +605,12 @@ def register_themes(
         if themes.load_draft(cfg.registry_root, draft_id) is None:
             raise HTTPException(404, "下書きがありません")
         try:
+            fields = body.model_dump()
+            if body.pending is None:  # 送られなかった — 保存済みの薄い状態を残す
+                del fields["pending"]
             async with lock:
                 saved = themes.save_draft(
-                    cfg.registry_root, {**body.model_dump(), "id": draft_id, "updated_at": _now()}
+                    cfg.registry_root, {**fields, "id": draft_id, "updated_at": _now()}
                 )
         except themes.ThemeError as exc:
             raise _fail(exc) from exc

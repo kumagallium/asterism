@@ -448,6 +448,22 @@ def _chat_of(v: Any) -> dict:
     return {"messages": messages, "proposals": proposals} if messages or proposals else {}
 
 
+def _pending_of(v: Any) -> dict | None:
+    """The part of the draft still "thin" (the AI's proposal the person has not yet said yes
+    to; ui-redesign PR 7b): ``{concepts: [key], relations: [[from, rel, to]]}``. ``None`` when
+    the caller did not say (a thing that is not an object) — an empty ``{concepts: [],
+    relations: []}`` is a real answer ("everything is accepted") and is kept as such."""
+    if not isinstance(v, dict):
+        return None
+    concepts = [c for c in v.get("concepts") or [] if isinstance(c, str) and c][:MAX_CONCEPTS]
+    relations = [
+        [str(x) for x in r]
+        for r in v.get("relations") or []
+        if isinstance(r, (list, tuple)) and len(r) == 3 and all(isinstance(x, str) and x for x in r)
+    ][:_MAX_DRAFT_RELATIONS]
+    return {"concepts": concepts, "relations": relations}
+
+
 def save_draft(root: Path | str, draft: dict) -> dict:
     """Write a (v2) draft as given (the shape is the wizard's own; only the frame is
     checked). The model's raw output is NEVER stored — a caller that passes ``ai`` has it
@@ -455,7 +471,12 @@ def save_draft(root: Path | str, draft: dict) -> dict:
 
     ``chat`` (the conversation with the workspace's partner — :func:`_chat_of`) is kept as
     given when the caller passes it, and carried over from the saved draft when the caller
-    does not (an ordinary save of the rows must not lose the conversation)."""
+    does not (an ordinary save of the rows must not lose the conversation). ``reset_chat``
+    (true) empties it instead: re-reading the questions starts a new draft, and the old
+    conversation (about rows that are gone) must not come back.
+
+    ``pending`` (:func:`_pending_of`) is the same kind of thing — kept as given, carried over
+    when the caller does not pass it, and absent until someone passes it (an old draft)."""
     path = _draft_path(root, str(draft.get("id")))
     step = draft.get("step")
     if not isinstance(step, int) or not 1 <= step <= 3:
@@ -471,11 +492,15 @@ def save_draft(root: Path | str, draft: dict) -> dict:
     if len(answers) > _MAX_QUESTIONS:
         raise ThemeError(f"問いの答え方は {_MAX_QUESTIONS} 件までです")
     suggested = [str(q) for q in (draft.get("suggested_questions") or []) if isinstance(q, str)]
-    if "chat" in draft:
+    carried = "chat" in draft and "pending" in draft
+    prior = None if carried else load_draft(root, str(draft.get("id")))
+    if draft.get("reset_chat") is True:
+        chat = {}
+    elif "chat" in draft:
         chat = _chat_of(draft["chat"])
     else:
-        prior = load_draft(root, str(draft.get("id")))
         chat = _chat_of((prior or {}).get("chat"))
+    pending = _pending_of(draft["pending"] if "pending" in draft else (prior or {}).get("pending"))
     out = {
         "version": DRAFT_VERSION,
         "id": draft["id"],
@@ -489,6 +514,7 @@ def save_draft(root: Path | str, draft: dict) -> dict:
         "suggested_questions": suggested[:5],
         "standards": _standards_of(draft.get("standards")),
         **({"chat": chat} if chat else {}),
+        **({"pending": pending} if pending is not None else {}),
         "updated_at": str(draft.get("updated_at") or _now_default()),
     }
     sv._scaffold(root)

@@ -356,6 +356,33 @@ def test_drafts_keep_the_wizard_where_it_was(tmp_path: Path) -> None:
     assert themes.load_draft(tmp_path, "../evil") is None  # an id is never a path
 
 
+def test_a_draft_keeps_its_chat_and_thin_rows_until_told_otherwise(tmp_path: Path) -> None:
+    d = themes.create_draft(tmp_path, "熱電", ["q?"], at=AT)
+    chat = {
+        "messages": [{"role": "user", "content": "もっと広げて", "at": AT}],
+        "proposals": [{"proposal_id": "p1", "ops": [{"op": "remove"}], "at": AT, "by": "ai"}],
+    }
+    pending = {"concepts": ["n1", 3, ""], "relations": [["n1", "lowers", "n2"], ["x", "y"], "bad"]}
+    saved = themes.save_draft(tmp_path, {**d, "chat": chat, "pending": pending})
+    assert saved["pending"] == {"concepts": ["n1"], "relations": [["n1", "lowers", "n2"]]}
+    assert len(saved["chat"]["proposals"]) == 1
+    # 行だけの保存: 会話も薄い状態も残る
+    again = themes.save_draft(tmp_path, {**d, "step": 2})
+    assert again["chat"] == saved["chat"] and again["pending"] == saved["pending"]
+    # 空の薄い状態は「全部本物」という答え（無いのとは違う）
+    done = themes.save_draft(tmp_path, {**d, "pending": {"concepts": [], "relations": []}})
+    assert done["pending"] == {"concepts": [], "relations": []}
+    # 「もう一度読ませる」: 会話だけ空にする（薄い状態は一緒に送られたものになる）
+    reread = themes.save_draft(
+        tmp_path, {**d, "reset_chat": True, "pending": {"concepts": ["n1"], "relations": []}}
+    )
+    assert "chat" not in reread and reread["pending"] == {"concepts": ["n1"], "relations": []}
+    assert "chat" not in themes.save_draft(tmp_path, {**d})  # 空のままが残る
+    # 一度も送られていない下書きには pending の欄が無い（古い下書きと同じ）
+    fresh = themes.create_draft(tmp_path, "電池", ["q?"], at=AT)
+    assert "pending" not in fresh and "pending" not in themes.save_draft(tmp_path, fresh)
+
+
 def test_an_empty_theme_name_is_the_first_20_characters_of_the_first_question(
     tmp_path: Path,
 ) -> None:
