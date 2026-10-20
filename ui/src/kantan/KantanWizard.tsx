@@ -81,6 +81,7 @@ import {
   getAlignment,
   getCatalogDatasets,
   getDatasetRules,
+  getKindCounts,
   promoteDataset,
   renameDataset,
   type AlignmentReport,
@@ -98,6 +99,7 @@ import { useLlmSettings } from '../settings/context'
 import { usePdfRuntime } from '../pdfRuntime'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
+import { homeHash } from '../sky/skyRoute'
 import { basename } from '../skeletonContainment'
 import { rowKindLabels } from './rowKindLabels'
 import {
@@ -4645,6 +4647,29 @@ export function KantanWizard({
     onOpenDataset?.(kzDatasetId, tab, focus)
   }
 
+  /** 公開した種類を、星図で 1 度だけ灯して見せる（`#/home?new=<種類の IRI>,…`）。
+   *  種類が引けなくても星図だけは開く（灯らないだけ）。ここから先は書き込まない。 */
+  async function openSky() {
+    let iris: string[] = []
+    if (kzDatasetId) {
+      try {
+        const counts = await getKindCounts()
+        iris = counts.graphs
+          .filter((g) => !g.hub && g.dataset_id === kzDatasetId)
+          .flatMap((g) => g.kinds.map((k) => k.class_iri))
+      } catch {
+        /* 灯さずに星図だけ開く */
+      }
+    }
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    void clearSourceFiles()
+    window.location.hash = homeHash({ newIris: iris })
+  }
+
   // ---- かんたん見直し (catalog 見直す → the S6 re-check flow) -----------------
 
   /** Leave the review and land back on the dataset's catalog page. Nothing is
@@ -6740,6 +6765,10 @@ export function KantanWizard({
           <div className="kz-actions">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => openGrow()}>
               {t('kantan:s9.openDataset')}
+            </button>
+            {/* 公開した種類が星図でどこに入ったかを見せる（小さく）。 */}
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void openSky()}>
+              {t('kantan:s9.viewSky')}
             </button>
             <button type="button" className="btn btn--ghost btn--sm" onClick={startFresh}>
               {t('kantan:s9.startNew')}

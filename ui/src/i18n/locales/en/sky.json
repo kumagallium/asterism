@@ -1,0 +1,131 @@
+{
+  "bands": {
+    "names": "Terms (top band)",
+    "data": "Data (constellations)",
+    "dataCircles": "Data (one circle = one dataset)",
+    "std": "Standard terms (horizon)",
+    "noStar": "No stars yet",
+    "property": "field"
+  },
+  "unit": {
+    "count": "{{n}} rows",
+    "kinds": "{{n}} kinds"
+  },
+  "facts": {
+    "answerable": "answerable questions",
+    "kinds": "kinds",
+    "terms": "terms",
+    "datasets": "datasets",
+    "triples": "facts"
+  },
+  "legend": {
+    "kind": "Kind (size = count)",
+    "term": "Term (top band) · connection",
+    "std": "Standard term (horizon)",
+    "lines": "Click a dot and what it connects to gets darker; details appear on the right",
+    "circles": "There are many datasets, so each one is a single circle. Click a circle to see its kinds on the right"
+  },
+  "quiet": "Quiet mode (no motion)",
+  "deep": "Look inside (value network)",
+  "deepBack": "Back to the sky chart",
+  "deepLead": "A network linked by values. It shows individual records, not kinds.",
+  "png": {
+    "button": "Save as image",
+    "desktop": "Saving an image is not supported in the desktop app. Use the browser version to save it.",
+    "failed": "Could not create the image."
+  },
+  "state": {
+    "loading": "Loading the sky chart…",
+    "failed": "Could not load the sky chart. Wait a moment and try again.",
+    "retry": "Load again",
+    "truncated": "There are many kinds, so only those with the most records are drawn."
+  },
+  "chart": {
+    "aria": "Sky chart. {{datasets}} datasets, {{kinds}} kinds, {{terms}} terms. A table with the same content is below the chart.",
+    "ariaSample": "Sample sky chart (not your data)"
+  },
+  "empty": {
+    "none": "Your sky chart grows here, from your data and your questions",
+    "noneSub": "Two ways in: put your data here, or write what you want to know.",
+    "sample": "A sample (not your data)",
+    "dataOnly": "{{n}} kinds have no term yet. Write what you want to know and they get a name.",
+    "questionsOnly": "No data answers yet. Put your data here and Asterism looks for matching kinds."
+  },
+  "about": {
+    "hint": "Click a kind, term or standard term to see the details here.",
+    "titleKind": "About this star",
+    "titleDataset": "About this dataset",
+    "titleTerm": "About this term",
+    "titleStd": "Standard term",
+    "titleHub": "Connection",
+    "titleQuestion": "About this question",
+    "viewKind": "View {{name}} →",
+    "viewKindHint": "One record at a time · list · graph",
+    "viewDataset": "View {{name}} →",
+    "dataset": "Dataset",
+    "count": "Rows",
+    "kinds": "Kinds",
+    "terms": "Terms",
+    "noTerm": "None yet",
+    "standard": "Standard term",
+    "noStandard": "None",
+    "kindsIn": "Kinds inside",
+    "questions": "Questions it answers",
+    "noQuestion": "None",
+    "datasetsAnswering": "Datasets that answer",
+    "members": "Kinds taking part",
+    "termStars": "{{n}} kinds inside",
+    "termNoStar": "No stars yet",
+    "termNoStarHint": "Put data that fits this term here and a kind appears.",
+    "needs": "Terms it needs",
+    "answeredBy": "{{n}} answer",
+    "notYet": "Not yet",
+    "stdHint": "A vocabulary shared worldwide. The more of your terms point here, the more your data is understood by outside tools and AI.",
+    "stdBound": "Linked to",
+    "hubHint": "Records from separate datasets are linked by shared values.",
+    "decideSlot": "Decide in one sentence"
+  },
+  "questions": {
+    "head": "What you want to know",
+    "count": "Answerable {{n}} / {{total}}",
+    "empty": "No questions yet. Start with “Write what you want to know” above.",
+    "all": "See all themes →",
+    "ring": "{{n}} of {{total}} datasets answer",
+    "ringNone": "No data answers yet",
+    "theme": "First questions"
+  },
+  "recent": {
+    "head": "Recent growth",
+    "empty": "Nothing yet. Publish a dataset and it shows up here.",
+    "publish": "Published the dataset “{{a}}”",
+    "term": "Created the term “{{a}}”",
+    "decision": {
+      "same": "“{{a}}” is the same as “{{b}}”",
+      "kindOf": "“{{a}}” is a kind of “{{b}}”",
+      "quantity": "The values of “{{a}}” are the quantity “{{b}}”",
+      "other": "Decided how “{{a}}” and “{{b}}” relate"
+    }
+  },
+  "table": {
+    "summary": "Table with the same content as the chart",
+    "empty": "Nothing to list yet.",
+    "stars": "Datasets and kinds",
+    "terms": "Terms",
+    "standards": "Standard terms",
+    "hubs": "Connections",
+    "colDataset": "Dataset",
+    "colKind": "Kind",
+    "colCount": "Rows",
+    "colTerms": "Terms",
+    "colStandard": "Standard term",
+    "colTerm": "Term",
+    "colType": "Type",
+    "colKinds": "Kinds inside",
+    "colQuestions": "Questions it answers",
+    "colBound": "Linked to",
+    "colHub": "Connection",
+    "colMembers": "Kinds taking part",
+    "typeClass": "kind",
+    "typeProperty": "field"
+  }
+}

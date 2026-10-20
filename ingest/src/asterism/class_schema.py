@@ -453,7 +453,16 @@ def _model_yaml_class_label(registry_root: Path, class_iri: str) -> str | None:
     ``classes.<curie>.label`` を探す（最初に見つかったもの — ``_promoted_metas``
     と同じ「新しい方が先」の並び）。CURIE の展開は同じデータセットの
     ``mapping.yaml`` の ``prefixes`` を（あれば）使う。"""
+    return _model_yaml_class_labels(registry_root, {class_iri}).get(class_iri)
+
+
+def _model_yaml_class_labels(registry_root: Path, class_iris: set[str]) -> dict[str, str]:
+    """:func:`_model_yaml_class_label` の複数版 — registry の走査（model.yaml・
+    mapping.yaml の読み）を 1 回にまとめる。各種類は「最初に見つかったもの」。"""
+    found: dict[str, str] = {}
     for meta in _promoted_metas(registry_root):
+        if len(found) == len(class_iris):
+            break
         dataset_id = str(meta.get("id") or "")
         if not _ID_RE.fullmatch(dataset_id):
             continue
@@ -481,9 +490,12 @@ def _model_yaml_class_label(registry_root: Path, class_iri: str) -> str | None:
             if not isinstance(spec, dict):
                 continue
             label = spec.get("label")
-            if label and _expand(str(curie), prefixes) == class_iri:
-                return str(label)
-    return None
+            if not label:
+                continue
+            iri = _expand(str(curie), prefixes)
+            if iri in class_iris and iri not in found:
+                found[iri] = str(label)
+    return found
 
 
 async def _ontology_class_label(client: SupportsSparql, class_iri: str) -> str | None:
@@ -583,6 +595,88 @@ async def class_label_or_none(
     if label:
         return label
     return await _hub_graph_class_label(client, safe_class_iri)
+
+
+_LABEL_CHUNK = 100  # VALUES に並べる種類の数（1 クエリあたり）
+
+
+async def class_labels(
+    client: SupportsSparql, registry_root: Path | None, class_iris: set[str]
+) -> dict[str, str]:
+    """:func:`class_label` の一括版（星図のように数百の種類の名前を一度に引く読み手のため）。
+
+    読み順と結果は 1 件ずつ :func:`class_label` で引いたものと同じ（registry の
+    ``model.yaml`` → ontology の ``rdfs:label`` → ハブ graph の ``rdfs:label`` →
+    ローカル名の人間化）。違うのは回数だけ: registry の走査は 1 回、SPARQL は
+    ontology・ハブそれぞれ ``_LABEL_CHUNK`` 種類ごとに 1 回。
+    """
+    out: dict[str, str] = {}
+    safe: dict[str, str] = {}  # 元の IRI → 検査済みの IRI
+    for iri in class_iris:
+        checked = _safe_iri(iri)
+        if checked is None:
+            out[iri] = _fallback_label(iri)
+        else:
+            safe[iri] = checked
+    wanted = set(safe.values())
+    labels: dict[str, str] = {}
+    if registry_root is not None and wanted:
+        # 同期のファイル読み — 呼ぶ側のイベントループを止めない。
+        labels.update(await asyncio.to_thread(_model_yaml_class_labels, registry_root, wanted))
+    for source in (_ontology_class_labels, _hub_graph_class_labels):
+        missing = sorted(wanted - set(labels))
+        for i in range(0, len(missing), _LABEL_CHUNK):
+            labels.update(await source(client, missing[i : i + _LABEL_CHUNK]))
+    for iri, checked in safe.items():
+        out[iri] = labels.get(checked) or _fallback_label(checked)
+    return out
+
+
+def _values_clause(class_iris: list[str]) -> str:
+    refs = [r for r in (_ref(c) for c in class_iris) if r]
+    return "VALUES ?c { " + " ".join(refs) + " } "
+
+
+async def _ontology_class_labels(client: SupportsSparql, class_iris: list[str]) -> dict[str, str]:
+    """:func:`_ontology_class_label` の複数版（``?label`` の並びで最初の空でない値）。"""
+    if not class_iris:
+        return {}
+    q = (
+        "SELECT ?c ?label WHERE { "
+        + _values_clause(class_iris)
+        + f"GRAPH ?g {{ ?c a {_RDFS_CLASS_REF} . "
+        f"OPTIONAL {{ ?c {_RDFS_LABEL_REF} ?label }} "
+        "} "
+        f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) '
+        "} ORDER BY ?c ?label"
+    )
+    out: dict[str, str] = {}
+    for row in await _run_select(client, q):
+        c, v = _cell(row, "c"), _cell(row, "label")
+        if c and v and c not in out:
+            out[c] = v
+    return out
+
+
+async def _hub_graph_class_labels(client: SupportsSparql, class_iris: list[str]) -> dict[str, str]:
+    """:func:`_hub_graph_class_label` の複数版（古い実装の語のままの値は使わない）。"""
+    if not class_iris:
+        return {}
+    q = (
+        "SELECT ?c ?g ?label WHERE { "
+        + _values_clause(class_iris)
+        + f"GRAPH ?g {{ ?c {_RDFS_LABEL_REF} ?label }} "
+        f'FILTER(STRSTARTS(STR(?g), "{_HUB_GRAPH_PREFIX}")) '
+        "} ORDER BY ?c ?g ?label"
+    )
+    out: dict[str, str] = {}
+    for row in await _run_select(client, q):
+        c, g, v = _cell(row, "c"), _cell(row, "g"), _cell(row, "label")
+        if not c or c in out or not g or not is_hub_graph(g):
+            continue
+        if v and not v.endswith(_LEGACY_HUB_LABEL_SUFFIX):
+            out[c] = v
+    return out
 
 
 def _designed_label(prop: PropertyView, edit: dict[str, Any]) -> str | None:

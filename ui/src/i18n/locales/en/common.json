@@ -17,7 +17,6 @@
     "gallery": "Data",
     "crosswalk": "Connections",
     "ask": "Ask",
-    "network": "Graph",
     "vocab": "Questions",
     "jobs": "Activity",
     "workbench": "Add data",
@@ -48,9 +47,9 @@
   },
   "view": {
     "home": {
-      "eyebrow": "Start",
-      "title": "Home",
-      "sub": "Your connected data, and what to do next"
+      "eyebrow": "Home",
+      "title": "Sky chart",
+      "sub": "Your data and your questions, in one picture. Two ways in."
     },
     "workbench": {
       "eyebrow": "Create",
@@ -66,11 +65,6 @@
       "eyebrow": "Build (from data)",
       "title": "Data",
       "sub": "Your datasets — open one to see its contents, files and connections"
-    },
-    "network": {
-      "eyebrow": "Use",
-      "title": "Graph",
-      "sub": "A network linked by shared values. Categories become points, so you can see which items sit close together"
     },
     "vocab": {
       "eyebrow": "Build (from questions)",

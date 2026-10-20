@@ -14,7 +14,6 @@ import { isMockMode } from './demoApi'
 import { BackendDownBanner } from './desktop/BackendDownBanner'
 import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
-import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
 import { ActivityIcon, BrandMark, ChevronIcon, CodeIcon, GearIcon } from './icons'
 import { JobsView } from './JobsView'
@@ -24,6 +23,8 @@ import { addSubjectAndPersist } from './cards/subjectStore'
 import { formatSetTitle } from './cards/setTitle'
 import type { SetResolveResult } from './cards/cardsApi'
 import { OntologyMapView } from './OntologyMapView'
+import { SkyView } from './sky/SkyView'
+import { homeHash, parseHomeQuery } from './sky/skyRoute'
 import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
@@ -38,7 +39,6 @@ type Tab =
   | 'ask'
   | 'gallery'
   | 'vocab'
-  | 'network'
   | 'crosswalk'
   | 'map'
   | 'jobs'
@@ -60,6 +60,11 @@ type Tab =
 
 export interface Route {
   tab: Tab
+  /** `#/home?deep=1`（`tab: 'home'`）— 星図の同じ場所に「中身まで見る」（値の網）を出す。
+   *  旧 `#/network` はここへ置き換える。 */
+  deep?: boolean
+  /** `#/home?new=<iri>,<iri>`（`tab: 'home'`）— 公開直後の星図で、その種類・用語を 1 度だけ灯す。 */
+  newIris?: string[]
   datasetId?: string
   detailTab?: DetailTab
   /** `#/crosswalk/new` — the guided "make a connection" flow, deep-linkable so other
@@ -129,7 +134,6 @@ const TABS: readonly Tab[] = [
   'ask',
   'gallery',
   'vocab',
-  'network',
   'crosswalk',
   'map',
   'jobs',
@@ -166,6 +170,16 @@ export function parseHash(hash: string): Route {
     return { tab: 'gallery' }
   }
   if (parts[0] === 'browse' || parts[0]?.startsWith('browse?')) return { tab: 'cards' }
+  // 星図（ホーム）。`#/home?deep=1` = 中身まで見る・`#/home?new=…` = 生まれた輪。
+  // 旧 `#/network`（全体グラフ）はホームの「中身まで見る」に統合した。
+  if (parts[0] === 'network' || parts[0]?.startsWith('network?')) return { tab: 'home', deep: true }
+  if (parts[0]?.startsWith('home?')) {
+    const q = parseHomeQuery(parts[0].slice('home?'.length))
+    const r: Route = { tab: 'home' }
+    if (q.deep) r.deep = true
+    if (q.newIris.length > 0) r.newIris = q.newIris
+    return r
+  }
   if (parts[0] === 'datasets' && parts[1]) {
     // `#/datasets/add[?dataset=<id>]` — データが入る唯一の入口（契約メモ
     // contract_pr_f8.md §1.1）。`add` は予約語として `<id>` の一般形より先に見る
@@ -270,6 +284,7 @@ export function parseHash(hash: string): Route {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function routeToHash(r: Route): string {
+  if (r.tab === 'home') return homeHash({ deep: r.deep, newIris: r.newIris })
   if (r.tab === 'gallery' && r.add) {
     return r.placeDatasetId
       ? `#/datasets/add?dataset=${encodeURIComponent(r.placeDatasetId)}`
@@ -320,13 +335,13 @@ export function routeToHash(r: Route): string {
 
 /**
  * 旧 hash を新しい綴りに直した文字列を返す（直す必要が無ければ null）。
- * `#/vocab…` → `#/questions…`（クエリは温存）、`#/data…` / `#/browse…` →
- * `routeToHash(parseHash(hash))`。`#/datasets…` は別物なので触らない。
+ * `#/vocab…` → `#/questions…`（クエリは温存）、`#/data…` / `#/browse…` / `#/network` →
+ * `routeToHash(parseHash(hash))`（`#/network` は `#/home?deep=1`）。`#/datasets…` は別物なので触らない。
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function legacyHashRewrite(hash: string): string | null {
   if (/^#\/vocab(?=[?/]|$)/.test(hash)) return hash.replace(/^#\/vocab/, '#/questions')
-  if (/^#\/(data|browse)(?=[?/]|$)/.test(hash)) {
+  if (/^#\/(data|browse|network)(?=[?/]|$)/.test(hash)) {
     const next = routeToHash(parseHash(hash))
     return next === hash ? null : next
   }
@@ -943,10 +958,29 @@ function App() {
               .app-main-body がスクロールコンテナ。 */}
           <main className={`app-content${tab === 'ask' ? ' app-content--chat' : ''}`}>
             {tab === 'home' && (
-              <HomeView
-                onNavigate={navTo}
-                onOpenDataset={openDataset}
-                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+              <SkyView
+                deep={!!route.deep}
+                onDeep={(on) => navigate(on ? { tab: 'home', deep: true } : { tab: 'home' })}
+                newIris={route.newIris ?? []}
+                onNewConsumed={() => {
+                  // new だけを外す（deep は残す）。履歴は積まない。
+                  const next = routeToHash({ tab: 'home', deep: route.deep })
+                  if (window.location.hash !== next) window.history.replaceState(null, '', next)
+                  setRoute({ tab: 'home', deep: route.deep })
+                }}
+                onAddData={() => navigate({ tab: 'gallery', add: true })}
+                onWriteQuestion={() => navigate({ tab: 'vocab', newQuestion: true })}
+                onOpenKind={(iri) => navigate({ tab: 'cards', classPageIri: iri })}
+                onOpenDataset={(id) => navigate({ tab: 'cards', datasetPageId: id })}
+                onOpenQuestions={() => navigate({ tab: 'vocab' })}
+                deepView={
+                  <Suspense fallback={null}>
+                    <NetworkView
+                      onOpenSubject={(iri) => navigate({ tab: 'cards', subjectKey: `i:${iri}` })}
+                      onOpenSet={openNetworkSet}
+                    />
+                  </Suspense>
+                }
               />
             )}
             {tab === 'workbench' && (
@@ -1030,14 +1064,6 @@ function App() {
                   setRoute({ tab: 'vocab' })
                 }}
               />
-            )}
-            {tab === 'network' && (
-              <Suspense fallback={null}>
-                <NetworkView
-                  onOpenSubject={(iri) => navigate({ tab: 'cards', subjectKey: `i:${iri}` })}
-                  onOpenSet={openNetworkSet}
-                />
-              </Suspense>
             )}
             {tab === 'crosswalk' && (
               <CrosswalkView

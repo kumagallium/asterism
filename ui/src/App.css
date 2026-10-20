@@ -354,11 +354,6 @@ button.side-nav-item.active:hover:not(:disabled) {
   display: inline-flex;
 }
 
-/* ホームの集計帯の見出し行: 右端に「全体グラフを見る →」。 */
-.home-band-network {
-  margin-left: auto;
-}
-
 /* 言語トグル: トップバー右端。ja/en の2値セグメント。 */
 .lang-toggle {
   align-self: center;
@@ -3390,152 +3385,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   background: var(--surface-alt);
 }
 
-/* ---- Home ---- */
-.home {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.home-band {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-soft);
-  padding: 1.1rem 1.35rem;
-}
-.home-band-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  font-size: 0.875rem;
-  color: var(--body);
-  margin-bottom: 0.75rem;
-}
-.home-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 2.5rem;
-}
-.home-stats-note {
-  margin: var(--space-2) 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.home-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-.home-stat-value {
-  font-family: var(--font-mono);
-  font-size: 1.65rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-}
-.home-stat-value--primary {
-  color: var(--primary);
-}
-.home-stat-value--entity {
-  color: var(--entity);
-}
-.home-stat-label {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.home-actions {
-  display: flex;
-  gap: 1rem;
-}
-.home-action {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  align-items: flex-start;
-  text-align: left;
-  min-height: 130px;
-  padding: 1.25rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: var(--shadow-soft);
-  position: relative;
-  cursor: pointer;
-}
-.home-action:hover:not(:disabled) {
-  background: var(--surface);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow);
-}
-.home-action--primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-fg);
-  box-shadow: var(--shadow);
-}
-.home-action--primary:hover:not(:disabled) {
-  background: #356040;
-  border-color: #356040;
-}
-.home-action-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-.home-action--primary .home-action-icon {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-}
-/* Keep prose clear of the absolutely-positioned arrow at the card's right edge:
-   at the larger body size the last line of the longer card ran right into it. */
-.home-action-body {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding-right: 1.6rem;
-}
-.home-action-title {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.home-action-sub {
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.home-action--primary .home-action-sub {
-  color: rgba(255, 255, 255, 0.82);
-}
-.home-action-arrow {
-  position: absolute;
-  right: 1.1rem;
-  bottom: 1.1rem;
-  color: var(--accent);
-  display: flex;
-}
-.home-action--primary .home-action-arrow {
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.home-recent-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
-}
-
-/* dataset rows (Home + reused in Catalog list) */
+/* dataset rows (reused in Catalog list) */
 .ds-rows {
   display: flex;
   flex-direction: column;
@@ -3617,9 +3467,6 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 
 @media (max-width: 720px) {
-  .home-actions {
-    flex-direction: column;
-  }
   .ds-row-name {
     flex-basis: 8rem;
   }
