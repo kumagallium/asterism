@@ -673,8 +673,8 @@ export function drawSky(
 }
 
 /**
- * 「結べそうな線」（公開のあとに機械が数えた名前の完全一致）を、薄い点線で重ねる。星 → 用語の札。
- * 確かめていないものの符号は 6b の下書きの札と同じ（枠・点線・薄い）— 線になるのは人が決めたあと。
+ * 「結べそうな線」（公開のあとに機械が数えた名前の完全一致）を、薄い実線で重ねる。星 → 用語の札。
+ * 確かめていないものの符号は 6b の下書きの札と同じ（薄い。点線は使わない — 利用者の好み）— 線になるのは人が決めたあと。
  * 選んでいる点があれば、その点につながる線だけを少し濃くする。
  */
 export function drawSuggestions(
@@ -687,14 +687,13 @@ export function drawSuggestions(
   if (edges.length === 0) return
   ctx.save()
   ctx.lineWidth = 1.2
-  ctx.setLineDash([4, 4])
   ctx.strokeStyle = pal.activity
   for (const e of edges) {
     const a = layout.nodes.get(e.from)
     const c = layout.nodes.get(e.to)
     if (!a || !c) continue
     const on = !!focusId && (e.from === focusId || e.to === focusId)
-    ctx.globalAlpha = on ? 0.85 : 0.4
+    ctx.globalAlpha = on ? 0.6 : 0.22
     ctx.beginPath()
     ctx.moveTo(a.x, a.y)
     ctx.bezierCurveTo(a.x, a.y - 70, c.x, c.y + 80, c.x, c.y + 14)
