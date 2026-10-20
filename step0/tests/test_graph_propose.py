@@ -21,6 +21,7 @@ from asterism_step0.graph_propose import (
     GRAPH_DIFF_SYSTEM_PROMPT,
     OP_NAMES,
     GraphDiffError,
+    filter_ops_for_screen,
     graph_diff_json_schema,
     graph_diff_user_message,
     propose_graph_diff,
@@ -317,3 +318,47 @@ def test_validation_does_not_mutate_its_input() -> None:
     raw = copy.deepcopy(RETARGET)
     validate_graph_diff(raw, known_keys=KEYS)
     assert raw == RETARGET
+
+
+def test_a_resent_add_concept_key_passes_only_when_the_apply_step_allows_it() -> None:
+    add = {"op": "add_concept", "key": "c1", "label_ja": "熱伝導率", "label_en": "", "aliases": [],
+           "kind": "property", "use": "new", "reason": ""}  # fmt: skip
+    raw = {"reply": "", "ops": [add]}
+    with pytest.raises(GraphDiffError):
+        validate_graph_diff(raw, known_keys=["c1"])
+    assert validate_graph_diff(raw, known_keys=["c1"], allow_taken_keys=True)["ops"][0]["key"]
+    twice = {"reply": "", "ops": [add, add]}  # a key repeated in one diff is still refused
+    with pytest.raises(GraphDiffError):
+        validate_graph_diff(twice, known_keys=["c1"], allow_taken_keys=True)
+
+
+def test_the_proposal_is_cut_to_what_the_screen_can_take() -> None:
+    rel = {"op": "add_relation", "from": "a", "rel": "part", "to": "b", "reason": ""}
+    gone = {"op": "remove", "target": "relation", "from": "a", "rel": "part", "to": "b",
+            "reason": ""}  # fmt: skip
+    concept = {"op": "remove", "target": "concept", "key": "a", "reason": ""}
+    bind = {"op": "bind_column", "column": "k", "to": "a", "rel": "eq", "reason": ""}
+    ops = [rel, gone, concept, bind, {**bind, "rel": "sub"}, {**bind, "rel": "quantity"}]
+    assert filter_ops_for_screen(ops, "home") == [rel, gone]
+    assert filter_ops_for_screen(ops, "dataset") == [bind, {**bind, "rel": "sub"}]
+    assert filter_ops_for_screen(ops, "theme") == [rel, gone, concept]
+
+
+def test_propose_drops_the_operations_the_screen_cannot_take() -> None:
+    mixed = {"reply": "", "ops": [
+        {"op": "bind_column", "column": "kappa", "to": "thermal", "rel": "quantity",
+         "reason": ""},
+        {"op": "bind_column", "column": "kappa", "to": "thermal", "rel": "eq", "reason": ""},
+        {"op": "rename", "key": "thermal", "label_ja": "熱", "label_en": "", "aliases": [],
+         "reason": ""},
+    ]}  # fmt: skip
+    out = _propose(
+        _LLM(json.dumps(mixed)),
+        screen="dataset",
+        graph={"concepts": [], "relations": [], "questions": []},
+        existing_terms=[
+            {"slug": "thermal", "label_ja": "熱伝導率", "label_en": "", "kind": "property"}
+        ],
+        columns=[{"name": "kappa", "kind_hint": "number"}],
+    )
+    assert [o["op"] for o in out["ops"]] == ["bind_column"] and out["ops"][0]["rel"] == "eq"

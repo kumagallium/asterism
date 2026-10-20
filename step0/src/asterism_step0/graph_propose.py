@@ -53,6 +53,7 @@ __all__ = [
     "OP_NAMES",
     "SCREENS",
     "GraphDiffError",
+    "filter_ops_for_screen",
     "graph_diff_json_schema",
     "graph_diff_user_message",
     "propose_graph_diff",
@@ -419,7 +420,13 @@ def _op(o: Any, p: str, keys: set[str], new_keys: set[str]) -> dict:
     }
 
 
-def validate_graph_diff(raw: Any, *, known_keys: Iterable[str], expand: bool = False) -> dict:
+def validate_graph_diff(
+    raw: Any,
+    *,
+    known_keys: Iterable[str],
+    expand: bool = False,
+    allow_taken_keys: bool = False,
+) -> dict:
     """Check ``raw`` against the closed diff and return a normalised copy ``{reply, ops}``
     (only the fields of each operation; strings whitespace-folded). Raises
     :class:`GraphDiffError`.
@@ -431,7 +438,10 @@ def validate_graph_diff(raw: Any, *, known_keys: Iterable[str], expand: bool = F
     IRI are refused outright; ``reason`` / ``wanted_data`` / ``reply`` are only cut. A ``to`` /
     ``new_to`` that is not a key may be a curie (``prefix:name``) — whether it is really in the
     closed list of standard terms is the apply step's check. With ``expand=True`` only the
-    additive operations are accepted, at most 10."""
+    additive operations are accepted, at most 10. ``allow_taken_keys=True`` (the apply step
+    only) lets an ``add_concept`` key that is already on the graph through: a resent diff is a
+    no-op for the applier to report, not a refusal (a key repeated inside one diff is still
+    refused)."""
     if not isinstance(raw, dict):
         raise _fail("$", "must be an object")
     known = {str(k) for k in known_keys}
@@ -448,7 +458,7 @@ def validate_graph_diff(raw: Any, *, known_keys: Iterable[str], expand: bool = F
             key = o.get("key")
             if not isinstance(key, str) or not _KEY_RE.match(key):
                 raise _fail(f"ops[{i}].key", "must be a short id like n1 (letters, digits, _)")
-            if key in known or key in new_keys:
+            if (key in known and not allow_taken_keys) or key in new_keys:
                 raise _fail(f"ops[{i}].key", f"{key!r} is already used")
             new_keys.add(key)
     keys = known | new_keys
@@ -458,6 +468,23 @@ def validate_graph_diff(raw: Any, *, known_keys: Iterable[str], expand: bool = F
             raise _fail(f"ops[{i}].op", f"must be one of {_ADDITIVE_OPS} here")
         ops.append(_op(o, f"ops[{i}]", keys, new_keys))
     return {"reply": _cut(raw.get("reply", ""), "reply", _LEN_REPLY), "ops": ops}
+
+
+def filter_ops_for_screen(ops: list[dict], screen: str) -> list[dict]:
+    """Keep only the operations a screen can take. home = ``add_relation`` and ``remove`` of a
+    relation; dataset = ``bind_column`` with rel ``eq`` / ``sub`` (``upper.json`` holds nothing
+    else); theme = everything but ``bind_column``. The rest is not returned at all (a card the
+    person could never accept is noise)."""
+
+    def keep(op: dict) -> bool:
+        name = op.get("op")
+        if screen == "home":
+            return name == "add_relation" or (name == "remove" and op.get("target") == "relation")
+        if screen == "dataset":
+            return name == "bind_column" and op.get("rel") in ("eq", "sub")
+        return name != "bind_column"
+
+    return [op for op in ops if keep(op)]
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +582,8 @@ def propose_graph_diff(
     message: str,
     lang: str | None = None,
 ) -> dict:
-    """One guided call (one retry when the shape is refused) → ``{reply, ops}`` validated.
+    """One guided call (one retry when the shape is refused) → ``{reply, ops}`` validated, with
+    the ops cut to what the screen can take (:func:`filter_ops_for_screen`).
 
     ``graph`` = ``{concepts[{key,label_ja,label_en,kind,use}], relations[{from,rel,to}],
     questions[…]}`` — what is on the person's screen; ``existing_terms`` = ``{slug,label_ja,
@@ -590,7 +618,8 @@ def propose_graph_diff(
         )
         text = _complete_guided(client, system, user, schema)
         try:
-            return validate_graph_diff(_extract_json_object(text), known_keys=keys)
+            diff = validate_graph_diff(_extract_json_object(text), known_keys=keys)
+            return {**diff, "ops": filter_ops_for_screen(diff["ops"], screen)}
         except (GraphDiffError, ThemeDraftError) as exc:
             last = exc if isinstance(exc, GraphDiffError) else GraphDiffError(str(exc))
             problem = str(exc)
