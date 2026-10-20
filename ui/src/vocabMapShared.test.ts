@@ -4,7 +4,7 @@ import type { DatasetRules, RuleMap } from './galleryApi'
 import { SV_NS } from './lineChoice'
 import { place } from './VocabMap'
 import type { SharedTerm } from './vocabApi'
-import { composeVocabGraph, pickEndOfVocabNode } from './vocabGraph'
+import { composeVocabGraph } from './vocabGraph'
 
 /** 「詳しく」の地図に足した共有のことばの帯: 標準の帯の上・データセット 0 件でも描く・
  *  上位への線（upper）は向きあり（≡ は両向き）・配置は決定論。 */
@@ -127,22 +127,6 @@ describe('composeVocabGraph — 共有のことば', () => {
     })
     expect(shape.nodes.find((n) => n.id === STD)!.termKind).toBe('class')
     expect(shape.nodes.find((n) => n.id === 'https://schema.org/name')!.termKind).toBe('property')
-  })
-})
-
-describe('pickEndOfVocabNode', () => {
-  const shape = composeVocabGraph({ datasets, sharedTerms: [term('dp')], words: WORDS })
-  it('種類の箱は dataset・共有語は shared', () => {
-    expect(pickEndOfVocabNode(shape.nodes.find((n) => n.id === 'live-x1::Record'))).toMatchObject({
-      role: 'dataset',
-      iri: `${NS}Record`,
-      termKind: 'class',
-    })
-    expect(pickEndOfVocabNode(shape.nodes.find((n) => n.id === sv('dp')))).toMatchObject({
-      role: 'shared',
-      iri: sv('dp'),
-    })
-    expect(pickEndOfVocabNode(undefined)).toBeNull()
   })
 })
 

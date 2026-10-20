@@ -18,7 +18,7 @@
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import { conceptName, perspectiveDisplayName } from './crosswalkLabels'
 import type { DatasetRules, KindCounts } from './galleryApi'
-import { isDirectedRelation, relationKey, sharedLines, standardTermKind, type PickEnd } from './lineChoice'
+import { isDirectedRelation, relationKey, sharedLines } from './lineChoice'
 import { rulesShape } from './shapeGraph'
 import type { SharedTerm } from './vocabApi'
 import { knownVocabForIri, localName } from './vocab'
@@ -942,16 +942,4 @@ export function overviewStats(layout: OverviewLayout): {
     shared: layout.shared?.length ?? 0,
     records: layout.circles.reduce((sum, c) => sum + (c.count ?? 0), 0),
   }
-}
-
-/** 「全体」の丸・標準の箱を、線の起点に選べる丸へ。選べない節（枠・ハブ・データセットごとの俯瞰の丸）は null。 */
-export function pickEndOfOverview(layout: OverviewLayout, id: string): PickEnd | null {
-  if (layout.level === 'dataset') return null
-  const c = layout.circles.find((x) => x.id === id)
-  if (c) return c.classIri ? { id, iri: c.classIri, label: c.label, role: 'dataset', termKind: 'class' } : null
-  const sh = layout.shared?.find((x) => x.id === id)
-  if (sh) return { id, iri: sh.id, label: sh.label, role: 'shared', termKind: sh.termKind }
-  const st = layout.stds.find((x) => x.id === id)
-  if (st) return { id, iri: st.id, label: st.label, role: 'standard', termKind: standardTermKind(st.id) }
-  return null
 }

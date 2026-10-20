@@ -2,6 +2,9 @@
 // 「ひとこと決める」（PR 3）の置き場は about の下に空けてある（中身が無いうちは何も出ない）。
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
+import { useState } from 'react'
+import { DecidePanel } from '../decide/DecidePanel'
+import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
 import type { SkyData, SkyQuestion, SkyRecent } from './skyApi'
 import {
   type DatasetNode,
@@ -23,6 +26,8 @@ export interface RailProps {
   onOpenKind: (iri: string) => void
   onOpenDataset: (id: string) => void
   onOpenQuestions: () => void
+  /** 「そう決める」のあと: 星図を取り直し、用語と星の輪を 1 度だけ出す。 */
+  onDecided: (iris: string[]) => void
 }
 
 const fmt = (n: number): string => n.toLocaleString('en-US')
@@ -138,9 +143,36 @@ function KindAbout(p: RailProps & { node: KindNode }) {
           </>
         )}
       </dl>
-      {/* 「ひとこと決める」の置き場（PR 3）。 */}
-      <div className="sky-decide-slot" data-slot="decide" />
+      <DecideSlot key={node.id} {...p} node={node} />
     </section>
+  )
+}
+
+/** 星（種類）の「ひとこと決める」。用語が無ければ案内、「あとで決める」で畳む（選択は保つ）。 */
+function DecideSlot(p: RailProps & { node: KindNode }) {
+  const { t } = useTranslation('sky')
+  const [folded, setFolded] = useState(false)
+  const subject = decideSubjectOf(p.node)
+  if (!subject || folded) return <div className="sky-decide-slot" data-slot="decide" />
+  const candidates = decideCandidatesOf(p.sky.terms, subject, p.lang)
+  return (
+    <div className="sky-decide-slot" data-slot="decide">
+      {candidates.length === 0 ? (
+        <>
+          <p className="sky-hint">{t('decide.noTerms')}</p>
+          <a className="link-btn" href="#/questions">
+            {t('decide.openQuestions')}
+          </a>
+        </>
+      ) : (
+        <DecidePanel
+          subject={subject}
+          candidates={candidates}
+          onDecided={(info) => p.onDecided([info.target.iri, info.subject.iri])}
+          onLater={() => setFolded(true)}
+        />
+      )}
+    </div>
   )
 }
 
@@ -230,7 +262,12 @@ function TermAbout(p: RailProps & { node: TermNode }) {
         <dt>{t('about.standard')}</dt>
         <dd className={std ? 'sky-std' : undefined}>{std ?? t('about.noStandard')}</dd>
       </dl>
-      <div className="sky-decide-slot" data-slot="decide" />
+      <div className="sky-decide-slot" data-slot="decide">
+        <p className="sky-hint">{t('decide.attachKind')}</p>
+        <a className="link-btn" href="#/questions">
+          {t('decide.openQuestions')}
+        </a>
+      </div>
     </section>
   )
 }

@@ -1,5 +1,5 @@
-// 「線を引く」の**選び方**と、共有のことばに掛かる線の読み方（純関数・決定論）。
-// ADR upper-structure-shared-terms.md §2.2・§2.5.1 3。画面（LineForm・地図）はこれを呼ぶだけ。
+// 関係の**選び方**と、共有のことばに掛かる線の読み方（純関数・決定論）。
+// ADR upper-structure-shared-terms.md §2.2・§2.5.1 3。画面（ひとこと決める＝decide/）はこれを呼ぶだけ。
 //
 // 関係は閉集合（api の ALIGN_RELATIONS）から、両端の kind で絞る:
 //   種類どうし → equivalentClass / subClassOf

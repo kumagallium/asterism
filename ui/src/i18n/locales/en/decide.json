@@ -1,0 +1,78 @@
+{
+  "title": "Decide in one line",
+  "loading": "Loading candidates…",
+  "noCandidates": "No terms to choose from yet. Create a term in \"Questions\" and you can link to it here.",
+  "targetAria": "Target term",
+  "choiceAria": "How to decide",
+  "role": {
+    "shared": " (term)",
+    "standard": " (standard term)",
+    "dataset": " (dataset)"
+  },
+  "lead": {
+    "class": "\"{{subject}}\" is",
+    "property": "The values of \"{{subject}}\" are",
+    "quantity": "The quantity of the field \"{{subject}}\" is"
+  },
+  "option": {
+    "subClassOf": "a kind of it",
+    "equivalentClass": "the same thing",
+    "subPropertyOf": "a kind of it",
+    "equivalentProperty": "the same thing",
+    "hasQuantityKind": "this quantity",
+    "none": "Nothing fits"
+  },
+  "sentence": {
+    "subClassOf": "\"{{subject}}\" is a kind of \"{{target}}\"",
+    "equivalentClass": "\"{{subject}}\" is the same as \"{{target}}\"",
+    "subPropertyOf": "The values of \"{{subject}}\" are a kind of \"{{target}}\"",
+    "equivalentProperty": "The values of \"{{subject}}\" are the same as \"{{target}}\"",
+    "hasQuantityKind": "The quantity of \"{{subject}}\" is \"{{target}}\""
+  },
+  "effect": {
+    "idle": "Pick one and what it would change shows up here.",
+    "none": "This suggestion is dropped and will not show again (you can still attach a term later).",
+    "loading": "Counting what would change…",
+    "error": "Could not count what would change. You can still decide.",
+    "noQuestion": "No question depends on this term yet, so the number of datasets that can answer does not change.",
+    "changed": "Datasets that can answer \"{{title}}\": {{before}} → {{after}}",
+    "unchanged": "Datasets that can answer \"{{title}}\": {{n}} (no change)",
+    "publish": "Once published, more datasets are expected to answer \"{{title}}\" (now {{n}}; no change if this dataset already answers it another way)",
+    "publishNoQuestion": "Settled when you publish. No question depends on this term yet."
+  },
+  "reason": {
+    "mixed": "A kind and a field cannot be joined.",
+    "cycle": "That would make a loop.",
+    "unminted": "That term has not been created yet.",
+    "same": "A thing cannot be decided against itself.",
+    "invalid": "This combination cannot be decided (it includes a term that has not been created, or mixes a kind and a field).",
+    "unknown": "This combination cannot be decided."
+  },
+  "go": "Decide",
+  "deciding": "Deciding…",
+  "later": "Decide later",
+  "savedNote": "Nothing is saved until you press the button",
+  "done": {
+    "decided": "Decided: {{sentence}}. You can undo it in \"Decisions\".",
+    "none": "Dropped: \"{{target}}\" will not be suggested for \"{{subject}}\".",
+    "link": "Decisions →"
+  },
+  "error": {
+    "failed": "{{op}} failed (HTTP {{status}}){{detail}}",
+    "generic": "Could not decide{{detail}}",
+    "ops": {
+      "preview": "Counting what would change",
+      "dismiss": "Dropping the suggestion",
+      "undismiss": "Restoring the suggestion"
+    }
+  },
+  "attach": {
+    "class": "kind",
+    "property": "field",
+    "pick": "The {{what}} to put in",
+    "none": "No {{what}} to put in yet. Once you add data you can pick one here.",
+    "close": "Close",
+    "openClass": "Put a kind under this term",
+    "openProperty": "Put a field under this term"
+  }
+}

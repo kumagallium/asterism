@@ -22,7 +22,7 @@ import { ArrowIcon, ConnectIcon, LinkIcon } from './icons'
 import { OntologyMapView } from './OntologyMapView'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
-import { vocabScopeHash } from './vocabQuestion'
+import { decisionsHash } from './decide/decisionsModel'
 import { XwLinkDiagram } from './XwLinkDiagram'
 
 /** The connection the address bar names, when it names one. The overview links to a
@@ -579,13 +579,13 @@ export function CrosswalkView({
               <CrosswalkBuilder key={seedKey} seed={seed} />
             </>
           )}
-          {/* つながりどうしの対応づけ（旧 PerspectiveAlignment）は「ことば」画面の「線」へ移った。 */}
+          {/* つながりどうしの対応づけ（旧 PerspectiveAlignment）は「決めたこと」の「つながり同士」へ移った。 */}
           <p className="xw-manual-note">
             <button
               type="button"
               className="link-btn"
               onClick={() => {
-                window.location.hash = vocabScopeHash('perspective')
+                window.location.hash = decisionsHash('perspective')
               }}
             >
               {t('crosswalk:align.toVocab')}

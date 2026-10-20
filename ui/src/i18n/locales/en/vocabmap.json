@@ -13,49 +13,5 @@
   "legend": {
     "upper": "Line to a broader term (⊂ points the way; ≡ is two-way)",
     "sharedSize": "Term circle = total count of its children (derived)"
-  },
-  "pick": {
-    "start": "Decide a relation",
-    "stop": "Stop selecting",
-    "hint": "Pick two circles to relate (a kind, a term or a standard term). While selecting, clicking a circle does not leave this page.",
-    "count": "{{n}} / 2 selected",
-    "unavailable": "Circles can't be selected at this level (per dataset). Click a dataset circle to open its surroundings, then select."
-  },
-  "line": {
-    "title": "Decide a relation",
-    "from": "Relation starts at",
-    "to": "Relation ends at",
-    "role": {
-      "dataset": "kind",
-      "shared": "term",
-      "standard": "standard term"
-    },
-    "termKind": {
-      "class": "kind",
-      "property": "item",
-      "quantity": "quantity kind",
-      "unknown": ""
-    },
-    "swap": "Swap direction",
-    "relation": "Relation type",
-    "relations": {
-      "equivalentClass": "≡ Same meaning (kinds)",
-      "subClassOf": "⊂ Start is a kind of the end (kinds)",
-      "equivalentProperty": "≡ Same meaning (items)",
-      "subPropertyOf": "⊂ Start is a kind of the end (items)",
-      "hasQuantityKind": "→ Quantity kind of this item"
-    },
-    "cq": "Question this relation answers (optional)",
-    "cqNone": "None",
-    "submit": "Decide the relation",
-    "submitting": "Deciding…",
-    "cancel": "Cancel",
-    "error": {
-      "same": "A term can't be related to itself. Pick a different circle.",
-      "mixed": "A kind and an item can't be related. Pick two kinds, two items (or an item and a quantity kind).",
-      "cycle": "This relation would form a loop (the end is already below the start). Check the direction.",
-      "invalid": "This pair can't be related (it includes a term that hasn't been created, or mixes a kind with an item).",
-      "generic": "Couldn't decide the relation{{detail}}"
-    }
   }
 }

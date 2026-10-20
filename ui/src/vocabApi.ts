@@ -177,9 +177,11 @@ export async function getUpper(): Promise<UpperMap> {
   return (await res.json()) as UpperMap
 }
 
-/** この列を当てはめられる語の候補（完全一致のみ）。label か column のどちらかは要る。 */
-export async function fit(label: string, column = ''): Promise<FitCandidate[]> {
-  const qs = new URLSearchParams({ label, column })
+/** この列を当てはめられる語の候補（完全一致のみ）。label か column のどちらかは要る。
+ *  `subject`＝提案を受ける側の鍵（外した提案を除くのに使う・任意）。 */
+export async function fit(label: string, column = '', subject = ''): Promise<FitCandidate[]> {
+  // `subject` を付けると、その主語に「当てはまるものは無い」と外した提案は除かれる。
+  const qs = new URLSearchParams({ label, column, ...(subject ? { subject } : {}) })
   const res = await fetch(`${API_BASE}/api/vocab/fit?${qs.toString()}`)
   if (!res.ok) throw await asError(res, i18n.t('vocab:error.ops.fit'))
   return ((await res.json()) as { candidates?: FitCandidate[] }).candidates ?? []

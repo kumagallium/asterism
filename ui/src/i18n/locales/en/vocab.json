@@ -121,8 +121,7 @@
   "title": "Questions",
   "sections": {
     "question": "Start from a question",
-    "terms": "Terms",
-    "lines": "Decisions"
+    "terms": "Terms"
   },
   "question": {
     "titleLabel": "Question",
@@ -170,8 +169,8 @@
     "cq_hint": "Answers are counted from datasets connected by relations. With no relation yet, it reads \"0 datasets\".",
     "std_found": "A standard term was found",
     "std_searching": "Looking for a standard term…",
-    "std_use_note": "This standard term can be used as it is, so no term is created. To decide a relation between kinds, pick this standard term in the \"Decisions\" section.",
-    "std_goto_lines": "Go to \"Decisions\"",
+    "std_use_note": "This standard term can be used as it is, so no term is created. To match a kind or field to it, pick it in the dataset's details (Contents).",
+    "std_goto_lines": "Go to datasets",
     "std_reason_required": "Write why you are not using it (kept as a record).",
     "std_from_column": "column \"{{column}}\"",
     "cancel": "Cancel",
@@ -198,23 +197,9 @@
     "cq_added": "Added the question."
   },
   "lines": {
-    "scope": {
-      "perspective": "Between connections",
-      "standard": "To standard terms",
-      "shared": "To terms",
-      "dataset": "Between datasets",
-      "all": "All"
-    },
     "broken": "Broken",
     "brokenHint": "The term this relation pointed to can no longer be found.",
-    "empty": "No relations of this kind yet.",
-    "lead": "Relations decided between terms, datasets and standard terms. Filter them by kind. A relation stays as a citable fact and can be withdrawn later.",
     "cq": "Question: {{cq}}",
-    "datasetPick": "Dataset",
-    "datasetNone": "No dataset can be matched to a standard term yet.",
-    "loading": "Loading relations…",
-    "perspectiveLoading": "Loading connections…",
-    "standardLead": "Match the kinds and fields a dataset made itself to widely used standard terms.",
     "kind_badge": {
       "dataset": "Dataset",
       "perspective": "Connection",
@@ -232,5 +217,6 @@
       "upper": "Loading the upper map",
       "fit": "Searching candidates"
     }
-  }
+  },
+  "toDecisions": "Decisions →"
 }

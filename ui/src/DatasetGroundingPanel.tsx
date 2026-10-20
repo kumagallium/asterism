@@ -15,9 +15,8 @@ import { plainError } from './kantan/errorMessages'
 import { labelFor } from './termLabels'
 import { knownVocabForIri, localName } from './vocab'
 
-// 旧 DatasetGrounding の中身をそのまま「ことば」画面の「線」の節（標準の語へ）へ移したもの
-// （ADR upper-structure-shared-terms.md §2.5.1 (5)）。データセット詳細の DatasetGrounding は
-// 「ことばで対応づける →」の導線だけが残る。
+// データセット詳細 › 中身の DatasetGrounding が直に出す（元の場所。UI 再設計 PR 3 で、いったん
+// 「ことば」画面の「線」の節へ移していたのを戻した）。合わせた結果は「決めたこと」に並ぶ。
 
 /**
  * 外部の標準に合わせる (ground to a standard) — design_handoff v2 ScreenGround. Map this

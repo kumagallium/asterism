@@ -111,7 +111,8 @@ export function VocabTermForm({
   }
 
   function gotoLines() {
-    document.getElementById('vocab-lines')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // 標準用語に合わせるのは、データセットの詳細 › 中身（旧「線」の節は「決めたこと」へ移った）。
+    window.location.hash = '#/datasets'
   }
 
   const slugBad = slug !== '' && !isValidSlug(slug)

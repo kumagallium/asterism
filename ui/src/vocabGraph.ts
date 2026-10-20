@@ -8,7 +8,7 @@ import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, KindCounts, RuleMap, RuleProperty } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import type { ShapeEdge, ShapeField, ShapeNode } from './shapeGraph'
-import { isDirectedRelation, relationKey, sharedLines, standardTermKind, type PickEnd } from './lineChoice'
+import { isDirectedRelation, relationKey, sharedLines } from './lineChoice'
 import { linksTo } from './shapeGraph'
 import type { SharedTerm } from './vocabApi'
 import { knownVocabForIri, localName } from './vocab'
@@ -467,14 +467,4 @@ export function composeVocabGraph(inputs: {
       shared: sharedNodes.length,
     },
   }
-}
-
-/** 「詳しく」の節を、線の起点に選べる丸へ（種類の箱・共有のことば・標準の語）。選べない節は null。 */
-export function pickEndOfVocabNode(n: VocabNode | undefined): PickEnd | null {
-  if (!n) return null
-  if (n.shared) return { id: n.id, iri: n.id, label: n.label, role: 'shared', termKind: n.shared.kind }
-  if (n.cluster) {
-    return n.iri ? { id: n.id, iri: n.iri, label: n.label, role: 'dataset', termKind: 'class' } : null
-  }
-  return { id: n.id, iri: n.id, label: n.label, role: 'standard', termKind: standardTermKind(n.id, n.termKind) }
 }
