@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.54.0](https://github.com/kumagallium/asterism/compare/v0.53.1...v0.54.0) - 2026-10-20
+
+- build(deps): Bump Songmu/tagpr from 1.21.0 to 1.21.2 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/714
+- build(deps): Bump actions/upload-artifact from 7.0.1 to 7.0.2 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/712
+- build(deps): Bump astral-sh/setup-uv from 10.2.0 to 10.3.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/713
+- build(deps): Bump actions/setup-node from 7.0.0 to 7.1.0 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/715
+- feat(ui): ナビを 5 つに・常設の 2 入口・名詞を 用語／標準用語／関係 に（UI 全面再設計 段階 1） by @kumagallium in https://github.com/kumagallium/asterism/pull/717
+- feat(ui): ホームを星図にする — GET /api/sky と決定論の配置・右レール・中身まで見る（UI 全面再設計 段階 2） by @kumagallium in https://github.com/kumagallium/asterism/pull/718
+- feat(ui): 星図の右レールに「ひとこと決める」を置く — 星図（#718）とひとこと決める（#719）の合流 by @kumagallium in https://github.com/kumagallium/asterism/pull/720
+- feat(ui): 関係を文で決める「ひとこと決める」と台帳「決めたこと」— 帰結の試算 API・線の選択モードと 5 タブの廃止（UI 全面再設計 段階 3） by @kumagallium in https://github.com/kumagallium/asterism/pull/719
+- feat(ui): シンプルにする — ナビ 5＋設定・ヘッダーは題だけ・入口はホームの 1 か所・「…」に畳む・例を熱電材料と献立に（UI 全面再設計 5） by @kumagallium in https://github.com/kumagallium/asterism/pull/724
+- feat(ui): 「知りたいことから作る」6 段 — テーマ・AI 下書きの閉じた JSON・1 操作の確定・別名・実行文・用語のページ（UI 全面再設計 段階 4） by @kumagallium in https://github.com/kumagallium/asterism/pull/722
+- feat: 問いから育てる v2 — 3 段・AI の知識の図（9 関係）・下書きの札・知識で答える（UI 全面再設計 6a＋6b） by @kumagallium in https://github.com/kumagallium/asterism/pull/725
+
 ## [v0.53.1](https://github.com/kumagallium/asterism/compare/v0.53.0...v0.53.1) - 2026-10-19
 
 - docs(manual): v0.53.0 の節目とバッジ — 「ことば」と作る流れ by @kumagallium in https://github.com/kumagallium/asterism/pull/710
