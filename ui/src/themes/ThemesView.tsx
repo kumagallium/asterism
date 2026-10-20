@@ -82,7 +82,7 @@ function KnowledgeAnswer({ answer }: { answer: QuestionAnswer | undefined }) {
             {t(`themes:rel.sentence.${SENTENCE_KEY[it.relation] ?? 'other'}`, { subject: it.label, object: it.via_label })}
           </div>
           <div className="thm-reason">
-            {t(it.drafted_by === 'ai' ? 'themes:card.byAi' : 'themes:card.byHuman')}
+            {t(it.drafted_by === 'ai' ? 'themes:card.byAi' : it.drafted_by === 'machine' ? 'themes:card.byMachine' : 'themes:card.byHuman')}
             {it.at ? ` · ${it.at.slice(0, 10)}` : ''}
             {it.reason ? ` · ${it.reason}` : ''}
           </div>

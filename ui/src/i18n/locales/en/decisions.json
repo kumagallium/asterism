@@ -33,6 +33,7 @@
   "batch": "Confirmed together ({{n}})",
   "batchBy": {
     "ai": "A person confirmed an AI draft",
+    "machine": "A person confirmed a name match",
     "human": "Confirmed by a person"
   },
   "batchOpen": "See what is inside",

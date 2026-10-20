@@ -333,7 +333,7 @@ function DecisionsPane({
               <details key={`batch-${entry.batch}`} className="decisions-batch" data-testid="decision-batch">
                 <summary>
                   <span className="decisions-batch-title">{t('decisions:batch', { n: entry.items.length })}</span>
-                  <span className="decisions-batch-by">{t(`decisions:batchBy.${entry.draftedBy === 'ai' ? 'ai' : 'human'}`)}</span>
+                  <span className="decisions-batch-by">{t(`decisions:batchBy.${entry.draftedBy === 'ai' || entry.draftedBy === 'machine' ? entry.draftedBy : 'human'}`)}</span>
                   <span className="decisions-date">{entry.at ? entry.at.slice(0, 10) : ''}</span>
                 </summary>
                 {entry.items.map(row)}

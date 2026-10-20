@@ -143,6 +143,7 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
       <div className="thm-reason" title={t('decisions:reasonLabel')}>
         {a.reason}
         {a.drafted_by === 'ai' && <span className="thm-ai">{t('themes:term.knowledgeAi')}</span>}
+        {a.drafted_by === 'machine' && <span className="thm-ai">{t('themes:term.knowledgeMachine')}</span>}
       </div>
     ) : null
   const themesOf = (tool: string) => themes.filter((th) => th.questions.some((q) => q.tool_name === tool))
