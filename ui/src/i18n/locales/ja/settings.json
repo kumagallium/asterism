@@ -18,8 +18,12 @@
     "baseHint": {
       "anthropic": "https://api.anthropic.com",
       "openai": "https://api.openai.com/v1",
-      "openaiCompatible": "https://api.openai.iniad.org/v1（例: さくら = https://api.ai.sakura.ad.jp/v1）"
-    }
+      "openaiCompatible": "https://api.openai.iniad.org/v1（例: さくら = https://api.ai.sakura.ad.jp/v1）",
+      "gemini": "（固定のため入力不要）",
+      "copilotSubscription": "（入力不要）"
+    },
+    "gemini": "Google Gemini",
+    "copilotSubscription": "GitHub Copilot（サブスク・このパソコンのみ）"
   },
   "models": {
     "intro": "使う AI をここに登録します。登録したものの中から選んだ 1 つが、「データを置く」「質問する」など全機能で使われます。",
@@ -33,7 +37,8 @@
     "edit": "編集",
     "delete": "削除",
     "confirmDelete": "削除する",
-    "add": "追加"
+    "add": "追加",
+    "keySubscription": "キー不要（Copilot のプランの枠で使用）"
   },
   "form": {
     "addTitle": "モデルを追加",
@@ -69,7 +74,15 @@
     "currency": "通貨",
     "share": "このサーバのみんなで使う",
     "shareHelp": "キーはこのサーバに保存され、使う人が自分で用意しなくても AI が使えるようになります。キーの中身は誰の画面にも表示されません。",
-    "useLocalAi": "このパソコンで動かしている AI を使う"
+    "useLocalAi": "このパソコンで動かしている AI を使う",
+    "geminiHelp": "Google AI Studio で作ったキーを貼ってください。アドレスは決まっているので入力しません。",
+    "copilotHelp": "このパソコンの GitHub Copilot を使います。キーは要りません。使った分は Copilot のプランの枠に数えられます。",
+    "copilotError": {
+      "copilot_cli_missing": "Copilot のアプリ（CLI）が見つかりません。ターミナルで npm install -g @github/copilot を実行してから、もう一度お試しください。",
+      "copilot_not_signed_in": "Copilot にログインしていません。ターミナルで copilot を実行し、/login と入力してログインしてください。",
+      "copilot_unavailable": "Copilot はデスクトップ版（このパソコンだけで使う形）でしか使えません。別のモデルを選んでください。",
+      "copilot_error": "Copilot のアプリ（CLI）が応答しません。少し待ってからやり直すか、ターミナルで copilot を起動して状態を確かめてください。"
+    }
   },
   "usage": {
     "placeholder": "使用量ダッシュボードは Phase C で実装します。",
@@ -99,7 +112,8 @@
       "ask": "質問する"
     },
     "otherFeature": "その他（{{id}}）",
-    "unratedNote": "※ 単価未設定のモデルの使用分（{{tokens}} トークン）は概算コストに含まれていません。モデルの編集で単価を設定すると反映されます。"
+    "unratedNote": "※ 単価未設定のモデルの使用分（{{tokens}} トークン）は概算コストに含まれていません。モデルの編集で単価を設定すると反映されます。",
+    "subscription": "サブスク（従量課金なし）"
   },
   "gate": {
     "using": "使用モデル:",

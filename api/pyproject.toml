@@ -15,6 +15,9 @@ dependencies = [
     # has them; step0 lazy-imports them inside complete().
     "anthropic>=0.40",
     "openai>=1.40",
+    # GitHub Copilot サブスク経路（公式 SDK・単一ユーザー=デスクトップ専用）。遅延 import。
+    # SDK 同梱の CLI 自動ダウンロードは使わない（利用者の `copilot` CLI を使う）。
+    "github-copilot-sdk>=1.0.23,<2",
     "fastapi>=0.110",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",

@@ -249,6 +249,25 @@ pandoc も Docling も同梱せず、Finder から起動したアプリの PATH
 **この形にした理由**: 可否が実際の状態で決まるので、あとで pandoc を同梱すれば
 画面は作り直さずに Word を受け付けるようになる（§7）。
 
+## 6.4 決定: AI の選択肢に Gemini と GitHub Copilot サブスクを足す（2026-10-20）
+
+姉妹アプリ Graphium の AI プロバイダに揃える。ID は `gemini` と `copilot-subscription`。
+
+| 項目 | 決定 |
+|---|---|
+| `gemini` | Google の OpenAI 互換エンドポイント `https://generativelanguage.googleapis.com/v1beta/openai/` に**固定**。利用者は base を入れない（入れても無視）・キー必須。中身は既存の `OpenAICompatibleLLMClient`。固定 base なので SSRF 検査の対象外。モデル一覧は `models/` 接頭辞を剥がす。共有キー（`server_keys`）の対象に加える |
+| `copilot-subscription` | **GitHub 公式 SDK（PyPI `github-copilot-sdk`）** 経由で、利用者の手元の `copilot` CLI のログイン（`gh` のログインも可）を使う。キー無し・base 無し。共有キーの対象外 |
+| 使える場所 | **単一ユーザー（`ASTERISM_SINGLE_USER=1`＝デスクトップ）だけ**。共有サーバでは 1 人のサブスクを全員が使うことになるので、LLM を作る前に 400（`detail.code = copilot_unavailable`）。`GET /api/llm/capabilities` が `{"copilot_subscription": bool}` を返す |
+| 内蔵ツール禁止 | Copilot 内蔵のシェル・ファイル操作は**一切使わせない**。`available_tools` は空（Ask は自前ツール名だけ）・権限要求は全拒否・system は replace。自前ツールは SDK の `Tool`（handler 付き）として既存の `execute_tool` に流す |
+| CLI の解決 | **SDK の CLI 自動ダウンロードは使わない**（`COPILOT_SKIP_CLI_DOWNLOAD=1`）。`ASTERISM_COPILOT_CLI` → PATH → `/opt/homebrew/bin` など既知の場所 → `npm prefix -g` の順に探す（Finder 起動のアプリは PATH が貧弱）。子プロセスの PATH にも同じ場所と `gh` の場所を足す。見つからなければ `copilot_cli_missing`、未ログインなら `copilot_not_signed_in`（`POST /api/models/available` の `detail` は `{code, message}`） |
+| Claude サブスク | **入れない**。サブスクの一次クライアントを装う経路は規約に触れ、アカウント停止のおそれがある（Copilot は公式 SDK という許された経路があるので別） |
+| 構造化出力 | Copilot に `response_format` の口は無い。Anthropic 経路と同じくプロンプト任せ |
+| 使用量台帳 | provider 文字列は `copilot-subscription` / `gemini` のまま記録（Copilot は `assistant.usage` イベントの合算） |
+
+共通部品（CLI 解決・クライアント生成・使用量の写像）は `step0/src/asterism_step0/copilot_support.py`。
+api と demo-agent が同じものを使う（デスクトップ同梱は同じ site-packages）。Docker 版の demo-agent は
+step0 を持たないが、Copilot は単一ユーザー限定なので影響しない。
+
 ## 7. スコープと残
 
 - **Phase 2（デスクトップシェル）**: **v1 実装済 = `desktop/`（Tauri v2）**。シェルの契約は 1 つだけ＝`asterism-local` を spawn（起動器が Oxigraph/demo-agent の孫を監督）→空きポートの HTTP readiness を待つ→そのループバック URL でネイティブウィンドウを開く。終了時は **SIGTERM**（SIGKILL は孫をみなしごにする）。起動器の解決順= `ASTERISM_LOCAL_CMD` → 実行ファイルから祖先を遡って `api/.venv/bin/asterism-local`（`tauri dev` と repo 内ビルドの .app を両カバー）→ PATH。バックエンドログは app log dir（`~/Library/Logs/com.kumagallium.asterism/backend.log`）。**v2 追補=自己完結バンドル実装済**: `scripts/bundle-backend.sh`（`beforeBuildCommand`）が `src-tauri/backend/` を組み立て（uv 管理の standalone CPython+全パッケージ非 editable install・Oxigraph 単一バイナリ・demo-agent・datasets・SPA）、Tauri resource として .app に同梱（約 370MB）。シェルは同梱 backend を最優先で解決し `python3 -m asterism_api.local` で起動（console script の shebang は再配置で壊れるため使わない）。env で全ペイロードをバンドルに向ける（`ASTERISM_UI_DIST`/`ASTERISM_OXIGRAPH_BIN`/`ASTERISM_DEMO_AGENT_DIR`/`ASTERISM_DATASETS_ROOT`。demo-agent の env override は本追補で `local.py` に追加）。**リポジトリ外・環境変数なしで全スタック起動を実機実証**（repo も Python も Docker も Homebrew も不要）。`tauri dev` はバンドルせず checkout 解決＝反復は速いまま。**v3 追補=署名/公証/updater 完了**: 自動アップデートは実装済（#338 クライアント＋#339 release workflow。フィードは §6.1 の Pages 固定 URL・日常導線は §6.2 の SPA バナー）。署名/公証は #346 で完了＝同梱バイナリ 133 個の deep-sign＋app/dmg の公証＋staple・実機で `spctl` = Notarized Developer ID を確認（Resources 内バイナリの署名カバレッジは前例どおり Graphium の node 同梱に倣った・secret 名も Graphium と同一を流用）。自動 dispatch（#342/#344）込みで次リリースから全自動。**残**= Windows（Job Object・バンドル script の asset 名）・Docling のオプショナルダウンロード。※Ask 実接続は Phase 1 追補で実装済（§3）。

@@ -300,6 +300,27 @@ export interface AskHistoryTurn {
   content: string
 }
 
+/** Ask failed: when the agent returns a structured `detail` (`{code, message}`,
+ *  e.g. Copilot CLI missing / not signed in), show the same plain-words guidance
+ *  as the settings screen; otherwise keep the raw "ask failed (HTTP …)" text. */
+export function askFailureMessage(status: number, body: string): string {
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown }).detail
+    if (detail && typeof detail === 'object') {
+      const { code, message } = detail as { code?: unknown; message?: unknown }
+      const fallback = typeof message === 'string' ? message : ''
+      if (typeof code === 'string' && code.startsWith('copilot_')) {
+        const key = `settings:form.copilotError.${code}`
+        if (i18n.exists(key)) return i18n.t(key)
+      }
+      if (fallback) return fallback
+    }
+  } catch {
+    // not JSON: fall through to the raw text
+  }
+  return `ask failed (HTTP ${status})${body ? `: ${body}` : ''}`
+}
+
 /** Ask a natural-language question; get a grounded answer + citations + notes.
  *
  * The deterministic typed path needs no key. When it finds nothing (e.g. a
@@ -344,7 +365,7 @@ export async function ask(
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
-    throw new Error(`ask failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+    throw new Error(askFailureMessage(res.status, detail))
   }
   return normalizeAsk(await res.json())
 }

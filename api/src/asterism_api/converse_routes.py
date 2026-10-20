@@ -173,7 +173,14 @@ def _record_usage(
     usage = getattr(llm, "last_usage", None)
     if usage is None or getattr(usage, "total_tokens", 0) <= 0:
         return
-    model_id = getattr(llm, "model", None) or model_hint or provider
+    # copilot の ``auto`` は実際に使われたモデル名が取れていればそれを台帳に残す。
+    used = getattr(llm, "last_model", None)
+    model_id = (
+        (used if isinstance(used, str) and used else None)
+        or getattr(llm, "model", None)
+        or model_hint
+        or provider
+    )
     try:
         usage_ledger.record_usage(
             registry_root,
