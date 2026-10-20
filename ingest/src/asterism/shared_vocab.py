@@ -1421,14 +1421,48 @@ _EXEC_NEEDS = {
 }
 
 
+#: 知識で答える問い（``asterism.knowledge`` の走者）の実行文の型。``factors`` は向き（下げる／
+#: 上げる／変える）で文が変わる。
+_KNOWLEDGE_SENTENCES: dict[str, dict[str, dict[str, str]]] = {
+    "factors": {
+        "ja": {"lowers": "を下げるもの", "raises": "を上げるもの", "affects": "を変えるもの"},
+        "en": {
+            "lowers": "What lowers {t}",
+            "raises": "What raises {t}",
+            "affects": "What changes {t}",
+        },
+    },
+    "parts": {"ja": {"": "の一部"}, "en": {"": "Parts of {t}"}},
+    "kinds": {"ja": {"": "の一種"}, "en": {"": "Kinds of {t}"}},
+}
+
+
+def _describe_knowledge(selection: dict, lang: str) -> str:
+    """知識の問いの文: 「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」。
+    ``target`` = 画面に出す名前、``direction`` は ``factors`` だけ。足りなければ ``""``。"""
+    op = str(selection.get("op"))
+    target = str(selection.get("target") or selection.get("kind") or "").strip()
+    direction = str(selection.get("direction") or "") if op == "factors" else ""
+    table = _KNOWLEDGE_SENTENCES[op]["en" if lang.startswith("en") else "ja"]
+    if not target or direction not in table:
+        return ""
+    if lang.startswith("en"):
+        return table[direction].format(t=target)
+    return f"{target} {table[direction]}"
+
+
 def describe_selection(selection: dict, lang: str = "ja") -> str:
     """閉じた選択（数え方 × 種類 × 項目）を、機械が組む「実行文」に直す（決定論・LLM なし）。
 
     ``selection`` は ``{"op", "kind", "property", "value"}``（``kind`` / ``property`` は画面に
     出す名前）。例 ja:「電池セルのうち、容量がいちばん大きいものを出します（データセットごと）」。
+    知識で答える問い（``op`` = ``factors`` / ``parts`` / ``kinds``・``target`` と ``direction``）は
+    「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」。
     数え方が閉集合に無い・足りない部分がある（``count`` に種類が無い等）ときは ``""``。
     データの値は読まない — 選んだ名前を型に流し込むだけ。"""
     op = selection.get("op")
+    if op in _KNOWLEDGE_SENTENCES:
+        return _describe_knowledge(selection, lang)
     if op not in _EXEC_NEEDS:
         return ""
     k = str(selection.get("kind") or "").strip()
