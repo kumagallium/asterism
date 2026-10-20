@@ -824,6 +824,41 @@ def test_decide_preview_reasons_and_bad_input(tmp_path: Path) -> None:
         assert _preview(client, "not an iri", rec).status_code == 400
 
 
+def test_dismiss_keeps_a_relation_or_a_concept_apart_from_the_plain_pair(tmp_path: Path) -> None:
+    """下書きの ✕（design.md §15.2）: 関係の却下は ``relation`` つきの別の行・概念の却下は
+    ``concept:<名前>`` ＋ ``term="concept"``。従来の「当てはまるものは無い」の行とは混ざらない。"""
+    app, _ = _app(tmp_path)
+    a, b = "concept:粒界散乱", "concept:格子熱伝導率"
+    path = tmp_path / "registry" / "vocab-shared" / "dismissed.json"
+    with TestClient(app, headers=_AUTH) as client:
+        rel = {"subject": a, "term": b, "relation": "lowers"}
+        r = client.post("/api/vocab/dismiss", json=rel)
+        assert r.status_code == 200 and r.json()["added"] is True and r.json()["relation"] == "lowers"
+        assert client.post("/api/vocab/dismiss", json=rel).json()["added"] is False  # 冪等
+        # 述語が違えば別の行（概念の鍵どうしでも通る）
+        assert client.post("/api/vocab/dismiss", json={**rel, "relation": "affects"}).json()["added"]
+        # 概念の却下は relation なし
+        con = client.post("/api/vocab/dismiss", json={"subject": a, "term": "concept"})
+        assert con.status_code == 200 and con.json()["added"] is True
+        stored = json.loads(path.read_text("utf-8"))
+        assert [(d["subject"], d["term"], d.get("relation")) for d in stored] == [
+            (a, b, "lowers"),
+            (a, b, "affects"),
+            (a, "concept", None),
+        ]
+        # 閉集合の外の述語は 400
+        bad = client.post("/api/vocab/dismiss", json={**rel, "relation": "sameAs"})
+        assert bad.status_code == 400
+        # 戻すときも relation が鍵: 関係の行だけが消える
+        back = client.request("DELETE", "/api/vocab/dismiss", json=rel)
+        assert back.status_code == 200 and back.json()["removed"] is True
+        left = json.loads(path.read_text("utf-8"))
+        assert [(d["subject"], d["term"], d.get("relation")) for d in left] == [
+            (a, b, "affects"),
+            (a, "concept", None),
+        ]
+
+
 def test_dismiss_removes_the_candidate_and_can_be_reverted(tmp_path: Path) -> None:
     app, _ = _app(tmp_path)
     subject = "https://example.org/xrd-a#Record"
