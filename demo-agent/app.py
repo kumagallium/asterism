@@ -54,7 +54,23 @@ _ASK_MODEL = os.environ.get("ASTERISM_ASK_MODEL", "claude-sonnet-4-6")
 # Default model when the request selects an OpenAI / OpenAI-compatible provider
 # but pins no model id (the UI normally sends the active model's id via header).
 _OPENAI_ASK_MODEL = os.environ.get("ASTERISM_OPENAI_ASK_MODEL", "gpt-4o")
-_OPENAI_PROVIDERS = frozenset({"openai", "openai-compatible", "openai_compatible", "sakura"})
+_OPENAI_PROVIDERS = frozenset(
+    {"openai", "openai-compatible", "openai_compatible", "sakura", "gemini", "google"}
+)
+# Gemini は Google の OpenAI 互換エンドポイント固定（利用者指定の base は使わない。
+# asterism_step0.llm.GEMINI_OPENAI_BASE と同じ値 — Docker 版は step0 を持たないので複製）。
+_GEMINI_PROVIDERS = frozenset({"gemini", "google"})
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+_GEMINI_ASK_MODEL = os.environ.get("ASTERISM_GEMINI_ASK_MODEL", "gemini-2.5-flash")
+# GitHub Copilot サブスク（公式 SDK）。キー無し・単一ユーザー（デスクトップ）専用。
+_COPILOT_PROVIDERS = frozenset({"copilot-subscription", "copilot"})
+_COPILOT_ASK_MODEL = os.environ.get("ASTERISM_COPILOT_ASK_MODEL", "auto")
+# Copilot の 1 回の Ask が待つ上限秒（ツール往復を含む）。
+_COPILOT_TIMEOUT_S = 300.0
+
+
+def _single_user() -> bool:
+    return (os.environ.get("ASTERISM_SINGLE_USER") or "").strip().lower() in ("1", "true", "yes")
 # 打ち切りまでのツール往復数。5 では足りない実例が出た（ZT 最大値のような集計は
 # スキーマ内省 → 述語特定 → 集計 → 結合で 4〜6 クエリかかり、弱いモデルほど
 # やり直しも挟む — 利用者報告 2026-09-02）。最終ステップは submit_answer を強制。
@@ -543,6 +559,9 @@ def _openai_client(api_key: str, base_url: str | None):
         return factory(api_key, base_url)
     from openai import OpenAI
 
+    if base_url == _GEMINI_BASE and not (api_key or "").strip():
+        # SDK が環境変数 OPENAI_API_KEY を拾って Google に送るのを防ぐ。
+        raise HTTPException(400, "Gemini needs an API key — set one in Settings")
     return OpenAI(api_key=api_key, base_url=base_url or None)
 
 
@@ -924,9 +943,21 @@ async def _llm_answer_via(
     # re-derive facts with tools in this turn (the system prompt says so).
     prior = _prior_messages(history)
 
-    if provider in _OPENAI_PROVIDERS:
+    if provider in _COPILOT_PROVIDERS:
+        answer = await _copilot_agent_loop(
+            model or _COPILOT_ASK_MODEL,
+            system,
+            tools,
+            question,
+            execute_tool,
+            usage,
+            finalize,
+            finalize_text,
+            prior=prior,
+        )
+    elif provider in _OPENAI_PROVIDERS:
         answer = await _openai_agent_loop(
-            _openai_client(api_key, api_base),
+            _openai_client(api_key, _GEMINI_BASE if provider in _GEMINI_PROVIDERS else api_base),
             model or _OPENAI_ASK_MODEL,
             system,
             _to_openai_tools(tools),
@@ -1116,6 +1147,112 @@ async def _openai_agent_loop(
         return finalize_text("")
 
 
+def _copilot_session_factory():
+    """起動・ログイン確認済みの CopilotClient を返す async コンテキスト。
+    テストは ``_state['copilot_factory']`` で偽物に差し替える。"""
+    factory = _state.get("copilot_factory")
+    if factory is not None:
+        return factory()
+    from asterism_step0.copilot_support import copilot_client
+
+    return copilot_client()
+
+
+async def _copilot_agent_loop(
+    model,
+    system,
+    tools,
+    question,
+    execute_tool,
+    usage,
+    finalize,
+    finalize_text,
+    prior=(),
+):
+    """GitHub Copilot（公式 SDK）版の Ask ループ。入出力は他のループと同じ。
+
+    ツールは SDK の ``Tool``（handler 付き）として既存の ``execute_tool`` に流す。
+    ``available_tools`` は**自前ツール名だけ**（Copilot 内蔵のシェル・ファイル操作は
+    使わせない）。権限要求は全拒否。submit_answer の呼び出しは終端ツールとして扱う。
+    """
+    from asterism_step0 import copilot_support as cs
+    from copilot import Tool, ToolResult
+
+    submitted: dict = {}
+    steps = {"n": 0}
+
+    def make_handler(name: str):
+        async def handler(invocation):
+            args = invocation.arguments if isinstance(invocation.arguments, dict) else {}
+            if name == "submit_answer":
+                submitted.update(args)
+                return ToolResult(text_result_for_llm="受け付けました。")
+            steps["n"] += 1
+            if steps["n"] >= _ASK_MAX_STEPS:
+                return ToolResult(text_result_for_llm=json.dumps(
+                    {"error": "調査の上限に達しました。submit_answer で答えを提出してください。"},
+                    ensure_ascii=False,
+                ))
+            result = await execute_tool(name, args)
+            return ToolResult(text_result_for_llm=json.dumps(result, ensure_ascii=False))
+
+        return handler
+
+    sdk_tools = [
+        Tool(
+            name=t["name"],
+            description=t.get("description", ""),
+            parameters=t["input_schema"],
+            handler=make_handler(t["name"]),
+            skip_permission=True,
+            is_terminal=t["name"] == "submit_answer",
+        )
+        for t in tools
+    ]
+    # 過去のターンは本文に書き写す（SDK のセッションは 1 往復ごとに作り直す）。
+    transcript = "".join(
+        f"[{m.get('role', 'user')}] {m.get('content', '')}\n" for m in prior
+    )
+    prompt = (
+        f"これまでの会話:\n{transcript}\n質問:\n{question}" if transcript else question
+    )
+
+    text = ""
+    try:
+        async with _copilot_session_factory() as client:
+            session = await client.create_session(
+                model=model,
+                tools=sdk_tools,
+                available_tools=[t["name"] for t in tools],
+                system_message={"mode": "replace", "content": system},
+                on_permission_request=cs.deny_all,
+            )
+            collector = cs.UsageCollector()
+            session.on(collector)
+            try:
+                reply = await session.send_and_wait(prompt, timeout=_COPILOT_TIMEOUT_S)
+            finally:
+                with contextlib.suppress(Exception):
+                    await session.disconnect()
+            usage["input_tokens"] += collector.total.input_tokens
+            usage["output_tokens"] += collector.total.output_tokens
+            usage["cache_read_tokens"] += collector.total.cache_read_tokens
+            usage["cache_write_tokens"] += collector.total.cache_write_tokens
+            if collector.model:
+                usage["_model"] = collector.model  # 台帳には実モデル名を残す（auto 対策）
+            text = getattr(getattr(reply, "data", None), "content", None) or ""
+    except Exception as exc:
+        # CLI 不在・未ログインは利用者が直せるので、そのまま伝える（HTTP 400 にはせず
+        # 回答カードで「答えられません」にしない）。
+        code = getattr(exc, "code", None)
+        if code in ("copilot_cli_missing", "copilot_not_signed_in"):
+            raise HTTPException(400, {"code": code, "message": str(exc)}) from exc
+        raise
+    if submitted:
+        return finalize(submitted)
+    return finalize_text(text)
+
+
 # ---------------------------------------------------------------------------
 # endpoints
 # ---------------------------------------------------------------------------
@@ -1240,23 +1377,39 @@ async def ask(
     # pinned (don't send the shared key to a per-request endpoint).
     key = x_api_key
     api_base = x_llm_api_base
-    if not key:
+    is_copilot = provider in _COPILOT_PROVIDERS
+    if is_copilot and not _single_user():
+        raise HTTPException(
+            400,
+            {
+                "code": "copilot_unavailable",
+                "message": "GitHub Copilot サブスクはデスクトップ版（単一ユーザー）でのみ使えます。",
+            },
+        )
+    if not key and not is_copilot:
         key, pinned = _server_llm(provider)
         if pinned:
             api_base = pinned
-    if key:
-        model = x_llm_model or (
-            _OPENAI_ASK_MODEL if provider in _OPENAI_PROVIDERS else _ASK_MODEL
-        )
+    if key or is_copilot:
+        if is_copilot:
+            default_model = _COPILOT_ASK_MODEL
+        elif provider in _GEMINI_PROVIDERS:
+            default_model = _GEMINI_ASK_MODEL
+        elif provider in _OPENAI_PROVIDERS:
+            default_model = _OPENAI_ASK_MODEL
+        else:
+            default_model = _ASK_MODEL
+        model = x_llm_model or default_model
         answer, usage = await _llm_answer_via(
             req.question,
-            key,
+            key or "",
             provider=provider,
             model=model,
             api_base=api_base,
             history=req.history,
         )
-        await _post_usage(provider, model, usage)
+        used_model = usage.pop("_model", None)
+        await _post_usage(provider, used_model if isinstance(used_model, str) else model, usage)
         return answer
 
     # No key: the free, deterministic typed showcase (the example chips). A question

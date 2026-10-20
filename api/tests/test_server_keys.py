@@ -76,6 +76,7 @@ def test_configured_providers(monkeypatch: pytest.MonkeyPatch) -> None:
         "anthropic": False,
         "openai": True,
         "openai-compatible": False,
+        "gemini": False,
     }
 
 

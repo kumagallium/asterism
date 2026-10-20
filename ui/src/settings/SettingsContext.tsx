@@ -13,11 +13,14 @@ import {
   type ServerDefaultModels,
   type ServerKeyProviders,
 } from './serverKeysApi'
+import { fetchLlmCapabilities } from './capabilitiesApi'
 import {
   cleanupLegacySeed,
   getKey,
   groupOfModel,
   hasKey,
+  isModelReady,
+  providerNeedsKey,
   loadModelsState,
   migrateLegacy,
   saveModelsState,
@@ -53,6 +56,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshServerKeys()
   }, [refreshServerKeys])
+
+  // Copilot (サブスク) is offered only where the server says it can run it.
+  const [copilotAvailable, setCopilotAvailable] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetchLlmCapabilities().then((c) => !cancelled && setCopilotAvailable(c.copilotSubscription))
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // In single-user mode the model registry lives on disk (ADR app-data-on-disk
   // D1) and that read is async, so what this provider started with — the
@@ -90,7 +103,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // id from the server, since its ids are endpoint-specific and guessing one
   // would just fail at call time.
   const fallbackProvider = useMemo(() => {
-    const preference = ['anthropic', 'openai', 'openai-compatible']
+    const preference = ['anthropic', 'openai', 'gemini', 'openai-compatible']
     return (
       preference.find((p) => {
         if (!serverKeyProviders[p]) return false
@@ -119,28 +132,34 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       // No browser key is OK when the server has one for this provider: send the
       // other coordinates with an empty key so llmHeaders omits X-API-Key and the
       // backend falls back to its operator key.
-      if (!apiKey && !hasServerKey(activeModel.provider)) return null
+      if (!isModelReady(activeModel.provider, !!apiKey, hasServerKey(activeModel.provider), copilotAvailable)) return null
       return {
         provider: activeModel.provider,
         modelId: activeModel.modelId,
         apiBase: activeModel.apiBase,
-        apiKey,
+        // Copilot never sends a key (the CLI on this computer is the login).
+        apiKey: providerNeedsKey(activeModel.provider) ? apiKey : '',
         maxTokens: activeModel.maxTokens ?? null,
       }
     }
     const activeHasBrowserKey = !!activeModel && hasKey(groupOfModel(activeModel))
     const activeHasServerKey = !!activeModel && hasServerKey(activeModel.provider)
+    const activeKeyless = !!activeModel && !providerNeedsKey(activeModel.provider)
     return {
       models: state.models,
       activeModelId: state.activeModelId,
       activeModel,
       getActiveCredentials,
-      isReady: activeHasBrowserKey || activeHasServerKey || usesServerFallback,
+      isReady:
+        (activeKeyless ? copilotAvailable : activeHasBrowserKey || activeHasServerKey) ||
+        usesServerFallback,
       serverKeyProviders,
       serverDefaultModels,
-      activeUsesServerKey: usesServerFallback || (!activeHasBrowserKey && activeHasServerKey),
+      activeUsesServerKey:
+        usesServerFallback || (!activeHasBrowserKey && activeHasServerKey && !activeKeyless),
       usesServerFallback,
       hasServerKey,
+      copilotAvailable,
       refreshServerKeys,
       setActiveModel: (id) => persist({ ...state, activeModelId: id }),
       addModel: (m) =>
@@ -181,6 +200,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     serverKeyProviders,
     serverDefaultModels,
     fallbackProvider,
+    copilotAvailable,
     refreshServerKeys,
   ])
 

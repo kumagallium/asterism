@@ -18,8 +18,12 @@
     "baseHint": {
       "anthropic": "https://api.anthropic.com",
       "openai": "https://api.openai.com/v1",
-      "openaiCompatible": "https://api.openai.iniad.org/v1 (e.g. Sakura = https://api.ai.sakura.ad.jp/v1)"
-    }
+      "openaiCompatible": "https://api.openai.iniad.org/v1 (e.g. Sakura = https://api.ai.sakura.ad.jp/v1)",
+      "gemini": "(fixed — nothing to enter)",
+      "copilotSubscription": "(nothing to enter)"
+    },
+    "gemini": "Google Gemini",
+    "copilotSubscription": "GitHub Copilot (subscription, this computer only)"
   },
   "models": {
     "intro": "Register the AIs you use. Whichever one you pick here is the one every feature uses.",
@@ -33,7 +37,8 @@
     "edit": "Edit",
     "delete": "Delete",
     "confirmDelete": "Delete",
-    "add": "Add"
+    "add": "Add",
+    "keySubscription": "no key needed (uses your Copilot plan's allowance)"
   },
   "form": {
     "addTitle": "Add model",
@@ -70,7 +75,15 @@
     "currency": "Currency",
     "share": "Share with everyone on this server",
     "shareHelp": "The key is kept on this server, so people can use the AI without bringing one of their own. Its value is never shown on anyone's screen.",
-    "useLocalAi": "Use the AI running on this computer"
+    "useLocalAi": "Use the AI running on this computer",
+    "geminiHelp": "Paste a key made in Google AI Studio. The address is fixed, so there is nothing else to enter.",
+    "copilotHelp": "Uses GitHub Copilot on this computer. No key needed. Usage counts against your Copilot plan's allowance.",
+    "copilotError": {
+      "copilot_cli_missing": "The Copilot app (CLI) was not found. Run npm install -g @github/copilot in a terminal, then try again.",
+      "copilot_not_signed_in": "You are not signed in to Copilot. Run copilot in a terminal and type /login to sign in.",
+      "copilot_unavailable": "Copilot is only available in the desktop app (single-user). Pick another model.",
+      "copilot_error": "The Copilot app (CLI) is not responding. Wait a moment and try again, or start copilot in a terminal to check it."
+    }
   },
   "usage": {
     "placeholder": "The usage dashboard ships in Phase C.",
@@ -100,7 +113,8 @@
       "ask": "Asking a question"
     },
     "otherFeature": "Other ({{id}})",
-    "unratedNote": "Note: usage on models without a configured rate ({{tokens}} tokens) is NOT included in the estimated cost. Set a rate in the model editor to include it."
+    "unratedNote": "Note: usage on models without a configured rate ({{tokens}} tokens) is NOT included in the estimated cost. Set a rate in the model editor to include it.",
+    "subscription": "subscription (no per-use charge)"
   },
   "gate": {
     "using": "Model:",

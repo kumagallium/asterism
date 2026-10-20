@@ -10,9 +10,21 @@ export interface AvailableModel {
   display_name: string
 }
 
+/** A failed listing. `code` is the server's machine-readable reason when it
+ *  sends one (`copilot_cli_missing` / `copilot_not_signed_in`), so the form can
+ *  show the matching next step instead of the raw message. */
+export class AvailableModelsError extends Error {
+  readonly code: string | null
+  constructor(message: string, code: string | null) {
+    super(message)
+    this.name = 'AvailableModelsError'
+    this.code = code
+  }
+}
+
 /**
  * List the models the given credentials can use. Throws with the server's
- * detail message on failure (bad key → 502, SSRF-blocked base URL → 400) so the
+ * detail message on failure (bad key → 502, SSRF-blocked base URL → 400; Copilot → a `code`) so the
  * form can surface it next to the "fetch" button.
  */
 export async function fetchAvailableModels(
@@ -28,13 +40,19 @@ export async function fetchAvailableModels(
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     let detail = text
+    let code: string | null = null
     try {
       const j = JSON.parse(text) as { detail?: unknown }
       if (j && typeof j.detail === 'string') detail = j.detail
+      else if (j && j.detail && typeof j.detail === 'object') {
+        const d = j.detail as { code?: unknown; message?: unknown }
+        if (typeof d.code === 'string') code = d.code
+        if (typeof d.message === 'string') detail = d.message
+      }
     } catch {
       /* not JSON — keep raw text */
     }
-    throw new Error(detail || `HTTP ${res.status}`)
+    throw new AvailableModelsError(detail || `HTTP ${res.status}`, code)
   }
   return ((await res.json()) as { models?: AvailableModel[] }).models ?? []
 }

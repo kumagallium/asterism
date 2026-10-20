@@ -101,7 +101,9 @@ from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.instance_iri import DEFAULT_IRI_BASE, normalize_iri_base
 from asterism_step0.llm import (
     DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_GEMINI_MODEL,
     DEFAULT_OPENAI_MODEL,
+    CopilotUnavailableError,
     as_completion,
     list_available_models,
 )
@@ -1332,6 +1334,32 @@ def _llm_coords(
     return provider, (x_llm_model or None), api_base, key
 
 
+COPILOT_PROVIDER = "copilot-subscription"
+# 固定 base の OpenAI 互換。利用者の api_base は無視する（SSRF 検査も不要）。
+_FIXED_BASE_PROVIDERS = frozenset({"gemini", "google", COPILOT_PROVIDER, "copilot"})
+
+
+def _is_copilot(provider: str | None) -> bool:
+    return (provider or "").strip().lower() in (COPILOT_PROVIDER, "copilot")
+
+
+def _copilot_unavailable() -> HTTPException:
+    return HTTPException(
+        400,
+        {
+            "code": "copilot_unavailable",
+            "message": (
+                "GitHub Copilot サブスクは、デスクトップ版 (単一ユーザー) でのみ使えます。"
+                "共有サーバでは使えません。"
+            ),
+        },
+    )
+
+
+def _copilot_error(exc: CopilotUnavailableError) -> HTTPException:
+    return HTTPException(400, {"code": exc.code, "message": str(exc)})
+
+
 def _default_llm_models() -> dict[str, str | None]:
     """Non-secret per-provider default model ids, advertised to the browser.
 
@@ -1346,6 +1374,7 @@ def _default_llm_models() -> dict[str, str | None]:
         "anthropic": DEFAULT_ANTHROPIC_MODEL,
         "openai": DEFAULT_OPENAI_MODEL,
         "openai-compatible": None,
+        "gemini": DEFAULT_GEMINI_MODEL,
     }
     resolved: dict[str, str | None] = {}
     for provider, fallback in builtin.items():
@@ -1746,7 +1775,14 @@ def _record_llm_usage(
     usage = getattr(llm, "last_usage", None)
     if usage is None or getattr(usage, "total_tokens", 0) <= 0:
         return
-    model_id = getattr(llm, "model", None) or model_hint or provider
+    # copilot の ``auto`` は実際に使われたモデル名が取れていればそれを台帳に残す。
+    used = getattr(llm, "last_model", None)
+    model_id = (
+        (used if isinstance(used, str) and used else None)
+        or getattr(llm, "model", None)
+        or model_hint
+        or provider
+    )
     try:
         usage_ledger.record_usage(
             registry_root,
@@ -5865,6 +5901,24 @@ def build_app(
                 max_tokens=max_tokens,
             )
 
+    # Copilot サブスクは単一ユーザー（デスクトップ）専用。共有サーバでは LLM を作る前に 400。
+    # 全ルート（converse_routes 等に渡す resolver も含む）がこの 1 か所を通る。
+    _resolve_llm_inner = _resolve_llm
+
+    def _resolve_llm(  # type: ignore[no-redef]
+        provider: str,
+        model: str | None,
+        api_base: str | None,
+        api_key: str | None,
+        max_tokens: int | None = None,
+    ) -> LLMClient:
+        if _is_copilot(provider) and not cfg.single_user:
+            raise _copilot_unavailable()
+        if provider.strip().lower() in ("gemini", "google") and not (api_key or "").strip():
+            # openai SDK の環境変数 OPENAI_API_KEY フォールバックを Google に送らせない。
+            raise HTTPException(400, "Gemini needs an API key — set one in Settings")
+        return _resolve_llm_inner(provider, model, api_base, api_key, max_tokens=max_tokens)
+
     watcher_cfg = WatcherConfig(
         drop_root=cfg.drop_root,
         rdf_root=cfg.rdf_root,
@@ -6794,6 +6848,23 @@ def build_app(
         provider = (body.provider or "anthropic").strip().lower()
         api_key = body.api_key
         api_base = body.api_base
+        if _is_copilot(provider):
+            # キー無し・base 無し。単一ユーザー限定。CLI 不在・未ログインは detail.code。
+            if not cfg.single_user:
+                raise _copilot_unavailable()
+            try:
+                return JSONResponse(
+                    {"models": list_available_models(provider)}
+                )
+            except CopilotUnavailableError as exc:
+                raise _copilot_error(exc) from exc
+            except Exception as exc:
+                raise HTTPException(
+                    502,
+                    {"code": "copilot_error", "message": f"could not list models: {exc}"},
+                ) from exc
+        if provider in _FIXED_BASE_PROVIDERS:
+            api_base = None  # gemini: base は固定（利用者指定は無視）
         if not api_key:
             # Fall back to the operator's shared key. For openai-compatible the
             # shared key is PINNED to one endpoint, so it must never be sent to a
@@ -6822,6 +6893,14 @@ def build_app(
         except Exception as exc:  # network / auth / provider-side failure
             raise HTTPException(502, f"could not list models: {exc}") from exc
         return JSONResponse({"models": models})
+
+    @app.get("/api/llm/capabilities")
+    def llm_capabilities() -> JSONResponse:
+        """この api で使える LLM 経路の可否（認証不要・read-only）。
+
+        ``copilot_subscription`` は単一ユーザー（``ASTERISM_SINGLE_USER=1``）のときだけ true。
+        CLI の有無・ログイン状態はここでは調べない（``/api/models/available`` が返す）。"""
+        return JSONResponse({"copilot_subscription": bool(cfg.single_user)})
 
     @app.get("/api/llm/server-keys")
     def llm_server_keys() -> JSONResponse:
@@ -9891,7 +9970,7 @@ def build_app(
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
-        if not key:
+        if not key and not _is_copilot(provider):
             raise HTTPException(
                 400,
                 "AI draft needs an API key — set one in Settings, or have the "
@@ -11508,7 +11587,7 @@ def build_app(
         provider, model, api_base, api_key_val = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
-        if not api_key_val:
+        if not api_key_val and not _is_copilot(provider):
             raise HTTPException(
                 400,
                 "AI suggestion needs an API key — set one in Settings, or have the "

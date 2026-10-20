@@ -8,7 +8,7 @@ import { InstanceSection } from './InstanceSection'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
-import { fetchAvailableModels, type AvailableModel } from './modelsApi'
+import { AvailableModelsError, fetchAvailableModels, type AvailableModel } from './modelsApi'
 import { initAppData } from '../appdata'
 import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 import { setServerKey } from './serverKeysApi'
@@ -21,11 +21,14 @@ import {
   type Provider,
   type RateCurrency,
   type TokenRate,
+  COPILOT_PROVIDER,
   credentialGroup,
   getKey,
   isRemembered,
   listCredentialGroups,
   makeModel,
+  providerAsksApiBase,
+  providerNeedsKey,
 } from './store'
 
 // Tabs named after what the user came to do: "AI" (what answers), "this server"
@@ -275,6 +278,7 @@ function ModelsTab() {
           {settings.models.map((m) => {
             const active = m.id === settings.activeModelId
             const keySet = settings.hasKeyForModel(m)
+            const keyless = !providerNeedsKey(m.provider)
             const viaServer = !keySet && settings.hasServerKey(m.provider)
             return (
               <li key={m.id} className={`model-row${active ? ' active' : ''}`}>
@@ -300,8 +304,10 @@ function ModelsTab() {
                   </div>
                   {/* A model the server holds a key for works as it is; marking
                       it "missing" reads as broken and sends people hunting. */}
-                  <div className={`model-key ${keySet || viaServer ? 'ok' : 'missing'}`}>
-                    {keySet
+                  <div className={`model-key ${keySet || viaServer || keyless ? 'ok' : 'missing'}`}>
+                    {keyless
+                      ? t('models.keySubscription')
+                      : keySet
                       ? t('models.keySet')
                       : viaServer
                         ? t('models.keyServer')
@@ -475,7 +481,13 @@ function ModelForm({
 
   const providerMeta = PROVIDERS.find((p) => p.id === provider)
   const needsApiBase = providerMeta?.needsApiBase ?? false
-  const baseNormalized = apiBase.trim() || null
+  // Gemini's address is fixed by the server and Copilot has none, so those never
+  // ask (and never send) a base URL — a stale one typed for another provider is
+  // dropped here rather than saved under the wrong group.
+  const asksApiBase = providerAsksApiBase(provider)
+  const needsKey = providerNeedsKey(provider)
+  const baseNormalized = asksApiBase ? apiBase.trim() || null : null
+  const [modelsErrorCode, setModelsErrorCode] = useState<string | null>(null)
   // When the server has an operator key for this provider, a browser key is
   // optional: the fetch button and LLM calls fall back to the server key.
   const providerHasServerKey = settings.hasServerKey(provider)
@@ -486,6 +498,7 @@ function ModelForm({
   function clearFetchedModels() {
     setAvailableModels([])
     setModelsError('')
+    setModelsErrorCode(null)
   }
 
   // When provider/apiBase change (in the add form), prefill the key from that
@@ -540,10 +553,14 @@ function ModelForm({
   async function onFetchModels() {
     setFetchingModels(true)
     setModelsError('')
+    setModelsErrorCode(null)
     try {
-      setAvailableModels(await fetchAvailableModels(provider, apiKey.trim(), baseNormalized))
+      setAvailableModels(
+        await fetchAvailableModels(provider, needsKey ? apiKey.trim() : '', baseNormalized),
+      )
     } catch (e) {
       setModelsError(e instanceof Error ? e.message : String(e))
+      setModelsErrorCode(e instanceof AvailableModelsError ? e.code : null)
     } finally {
       setFetchingModels(false)
     }
@@ -575,11 +592,13 @@ function ModelForm({
         rate,
         maxTokens: buildMaxTokens(),
       })
-      settings.setKeyForModel(
-        { ...model, provider, apiBase: baseNormalized },
-        apiKey.trim(),
-        remember,
-      )
+      if (needsKey) {
+        settings.setKeyForModel(
+          { ...model, provider, apiBase: baseNormalized },
+          apiKey.trim(),
+          remember,
+        )
+      }
     } else {
       const created = makeModel({
         provider,
@@ -590,7 +609,9 @@ function ModelForm({
         maxTokens: buildMaxTokens(),
       })
       settings.addModel(created)
-      if (canShare && share && apiKey.trim()) {
+      if (!needsKey) {
+        // Copilot: nothing secret to keep.
+      } else if (canShare && share && apiKey.trim()) {
         // Server-side: the api resolves it for anyone who brings none of their
         // own, so the entry itself needs no browser key.
         void setServerKey(provider, apiKey.trim(), baseNormalized)
@@ -650,11 +671,17 @@ function ModelForm({
               onChange={(e) => {
                 const next = e.target.value as Provider
                 setProvider(next)
-                onProviderOrBaseChange(next, apiBase)
+                onProviderOrBaseChange(next, providerAsksApiBase(next) ? apiBase : '')
                 clearFetchedModels()
+                // Copilot picks its own model; "auto" is the sensible start.
+                if (next === COPILOT_PROVIDER && !modelId.trim()) setModelId('auto')
               }}
             >
-              {PROVIDERS.map((p) => (
+              {PROVIDERS.filter(
+                // Copilot appears only where the server can run it (desktop /
+                // single-user) — or when editing a model already on it.
+                (p) => p.id !== COPILOT_PROVIDER || settings.copilotAvailable || p.id === provider,
+              ).map((p) => (
                 <option key={p.id} value={p.id}>
                   {t(p.nameKey)}
                 </option>
@@ -662,55 +689,64 @@ function ModelForm({
             </select>
           </label>
 
-          <label className="field">
-            <span>
-              {t('form.apiBase')}
-              {needsApiBase && <em className="req"> *</em>}
-            </span>
-            <input
-              type="text"
-              value={apiBase}
-              placeholder={providerMeta ? t(providerMeta.baseHintKey) : ''}
-              onChange={(e) => {
-                setApiBase(e.target.value)
-                clearFetchedModels()
-              }}
-              onBlur={() => onProviderOrBaseChange(provider, apiBase)}
-            />
-            {/* An AI running on this machine has a fixed address nobody should
-                have to remember. Fills the two fields; the rest of the form is
-                the same as any other endpoint. */}
-            {instance?.desktop && provider === 'openai-compatible' && (
-              <button
-                type="button"
-                className="linklike"
-                onClick={() => {
-                  setApiBase(LOCAL_AI_BASE)
-                  setApiKey(LOCAL_AI_KEY)
-                  onProviderOrBaseChange(provider, LOCAL_AI_BASE)
+          {asksApiBase && (
+            <>
+            <label className="field">
+              <span>
+                {t('form.apiBase')}
+                {needsApiBase && <em className="req"> *</em>}
+              </span>
+              <input
+                type="text"
+                value={apiBase}
+                placeholder={providerMeta ? t(providerMeta.baseHintKey) : ''}
+                onChange={(e) => {
+                  setApiBase(e.target.value)
                   clearFetchedModels()
                 }}
-              >
-                {t('form.useLocalAi')}
-              </button>
-            )}
-          </label>
+                onBlur={() => onProviderOrBaseChange(provider, apiBase)}
+              />
+              {/* An AI running on this machine has a fixed address nobody should
+                  have to remember. Fills the two fields; the rest of the form is
+                  the same as any other endpoint. */}
+              {instance?.desktop && provider === 'openai-compatible' && (
+                <button
+                  type="button"
+                  className="linklike"
+                  onClick={() => {
+                    setApiBase(LOCAL_AI_BASE)
+                    setApiKey(LOCAL_AI_KEY)
+                    onProviderOrBaseChange(provider, LOCAL_AI_BASE)
+                    clearFetchedModels()
+                  }}
+                >
+                  {t('form.useLocalAi')}
+                </button>
+              )}
+            </label>
+            </>
+          )}
 
-          <label className="field">
-            <span>{t('form.apiKey')}</span>
-            <input
-              type="password"
-              value={apiKey}
-              autoComplete="off"
-              placeholder={apiKeyPlaceholder(provider)}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            {providerHasServerKey && !apiKey.trim() && (
-              <p className="field-help">{t('form.apiKeyServerHint')}</p>
-            )}
-          </label>
+          {needsKey && (
+            <label className="field">
+              <span>{t('form.apiKey')}</span>
+              <input
+                type="password"
+                value={apiKey}
+                autoComplete="off"
+                placeholder={apiKeyPlaceholder(provider)}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              {providerHasServerKey && !apiKey.trim() && (
+                <p className="field-help">{t('form.apiKeyServerHint')}</p>
+              )}
+            </label>
+          )}
 
-          {canShare && (
+          {!needsKey && <p className="field-help">{t('form.copilotHelp')}</p>}
+          {provider === 'gemini' && <p className="field-help">{t('form.geminiHelp')}</p>}
+
+          {canShare && needsKey && (
             <>
               <label className="field-check">
                 <input
@@ -735,12 +771,20 @@ function ModelForm({
         disabled={
           fetchingModels ||
           (needsApiBase && baseNormalized === null) ||
-          (!apiKey.trim() && !providerHasServerKey)
+          (needsKey && !apiKey.trim() && !providerHasServerKey)
         }
       >
         {fetchingModels ? t('form.fetchingModels') : t('form.fetchModels')}
       </button>
-      {modelsError && <p className="field-help field-error">{modelsError}</p>}
+      {modelsError && (
+        <p className="field-help field-error">
+          {/* Copilot's two known failures get the next step in plain words;
+              anything else shows the server's own message. */}
+          {modelsErrorCode === 'copilot_cli_missing' || modelsErrorCode === 'copilot_not_signed_in'
+            ? t(`form.copilotError.${modelsErrorCode}`)
+            : modelsError}
+        </p>
+      )}
 
       {/* Native <select> (not a <datalist>): a datalist filters its options by
           the input's current value, so once a full id is chosen you can't see
@@ -784,22 +828,25 @@ function ModelForm({
         />
       </label>
 
-      <label className="field">
-        <span>{t('form.maxTokens')}</span>
-        <input
-          type="number"
-          step="1"
-          min="1"
-          value={maxTokens}
-          placeholder="96000"
-          onChange={(e) => setMaxTokens(e.target.value)}
-        />
-        <p className="field-help">{t('form.maxTokensHelp')}</p>
-      </label>
+      {/* Copilot（キー不要＝サブスク）は出力上限を Copilot 側が決めるので出さない。 */}
+      {needsKey && (
+        <label className="field">
+          <span>{t('form.maxTokens')}</span>
+          <input
+            type="number"
+            step="1"
+            min="1"
+            value={maxTokens}
+            placeholder="96000"
+            onChange={(e) => setMaxTokens(e.target.value)}
+          />
+          <p className="field-help">{t('form.maxTokensHelp')}</p>
+        </label>
+      )}
 
       {/* キーを入力しない（登録済みを使う）モードでは、その接続先で決めた保存先を
           そのまま引き継ぐので出さない。 */}
-      {!preset && (
+      {!preset && needsKey && (
         <>
           <label className="field-check">
             <input
@@ -813,6 +860,7 @@ function ModelForm({
         </>
       )}
 
+      {needsKey && (
       <fieldset className="rate-fieldset">
         <legend>{t('form.rate')}</legend>
         <p className="field-help">{t('form.rateHelp')}</p>
@@ -854,6 +902,7 @@ function ModelForm({
           </div>
         </div>
       </fieldset>
+      )}
 
       <div className="form-actions">
         <button type="button" className="btn" disabled={!canSave} onClick={onSubmit}>
@@ -870,9 +919,12 @@ function ModelForm({
 function modelIdPlaceholder(provider: string): string {
   if (provider === 'anthropic') return 'claude-opus-4-7'
   if (provider === 'openai') return 'gpt-4o'
+  if (provider === 'gemini') return 'gemini-2.5-flash'
+  if (provider === 'copilot-subscription') return 'auto'
   return 'gpt-oss-120b'
 }
 
 function apiKeyPlaceholder(provider: string): string {
+  if (provider === 'gemini') return 'AIza...'
   return provider === 'anthropic' ? 'sk-ant-...' : 'sk-...'
 }

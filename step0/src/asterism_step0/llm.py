@@ -16,6 +16,11 @@ Providers:
     (国内向け), Groq, Ollama, vLLM, LM Studio, … No Anthropic-only params
     (``thinking`` / ``output_config`` / ``cache_control``) are ever sent there.
 
+  * ``gemini`` — Google's OpenAI-compatible endpoint (fixed base, key required).
+  * ``copilot-subscription`` — GitHub Copilot via the official ``github-copilot-sdk``
+    and the user's own ``copilot`` CLI login (no key; single-user desktop only —
+    enforced by the api). Built-in Copilot tools are never enabled.
+
 Token usage (input / output / cache) is captured off each response and exposed
 two ways: on the returned :class:`LLMCompletion` AND on the client's
 ``last_usage`` attribute. The api reads ``last_usage`` to append one event to the
@@ -30,6 +35,7 @@ without ``anthropic`` / ``openai`` present.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import re
@@ -42,6 +48,11 @@ from typing import Protocol, runtime_checkable
 # path is unchanged.
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-7"
 DEFAULT_OPENAI_MODEL = "gpt-4o"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_COPILOT_MODEL = "auto"
+
+# Google Gemini の OpenAI 互換エンドポイント（固定）。利用者は base を入れない。
+GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 # Output token cap for a single generation. A full schema proposal ends with the
 # §9 RML mapping (the longest block), so the cap must be generous: a small cap
@@ -51,6 +62,9 @@ DEFAULT_OPENAI_MODEL = "gpt-4o"
 # thinking tokens and rely on streaming (no ~10-min non-streaming timeout) plus
 # the continuation loop below to finish proposals that still exceed one cap.
 DEFAULT_MAX_TOKENS = 96000
+# Gemini 2.5 系の maxOutputTokens 上限は 65,536。96000 を送ると 400 になるので、
+# 利用者指定が無いときの gemini の既定はこちらにする。
+GEMINI_DEFAULT_MAX_TOKENS = 65536
 
 # How many times complete() will ask the model to CONTINUE after a max_tokens
 # stop before giving up. A large proposal usually finishes within one or two
@@ -103,6 +117,30 @@ class LLMEmptyOutputError(RuntimeError):
     cause is not."""
 
 
+class CopilotUnavailableError(RuntimeError):
+    """Copilot 経路が使えない状態の基底。``code`` は UI が出し分けに使う安定コード。"""
+
+    code: str = "copilot_unavailable"
+
+
+class CopilotCliMissingError(CopilotUnavailableError):
+    """`copilot` CLI が見つからない。"""
+
+    code = "copilot_cli_missing"
+
+
+class CopilotNotSignedInError(CopilotUnavailableError):
+    """CLI はあるが GitHub Copilot にサインインしていない。"""
+
+    code = "copilot_not_signed_in"
+
+
+class CopilotTimeoutError(CopilotUnavailableError):
+    """CLI の起動・認証確認・モデル一覧が時間内に返らない（子プロセスは止めてある）。"""
+
+    code = "copilot_error"
+
+
 # ---------------------------------------------------------------------------
 # Machine-readable classification of an LLM failure
 # ---------------------------------------------------------------------------
@@ -124,6 +162,8 @@ ERROR_CODE_BY_CLASS: dict[str, str] = {
     "LLMTruncatedError": "llm.truncated",
     "LLMEmptyOutputError": "llm.empty",
     "LLMCancelledError": "llm.cancelled",
+    "CopilotCliMissingError": "llm.copilot_cli_missing",
+    "CopilotNotSignedInError": "llm.copilot_not_signed_in",
     "AuthenticationError": "llm.auth",
     "PermissionDeniedError": "llm.auth",
     "RateLimitError": "llm.rate_limit",
@@ -836,13 +876,102 @@ class OpenAICompatibleLLMClient:
         )
 
 
+@dataclass
+class CopilotLLMClient:
+    """GitHub Copilot サブスク経由の :class:`LLMClient`（公式 SDK ``github-copilot-sdk``）。
+
+    利用者の手元の ``copilot`` CLI のログインを使う。1 回の ``complete()`` で CLI を起動し、
+    セッションを 1 つ作って 1 往復し、閉じる。同期 API だが中身は asyncio なので、
+    呼び出し元にイベントループがあっても壊れないよう専用スレッドで回す
+    （:func:`asterism_step0.copilot_support.run_sync`）。
+
+    * Copilot 内蔵ツール（シェル・ファイル操作）は使わせない:
+      ``available_tools=[]`` ＋ 権限要求は全拒否 ＋ system は replace。
+    * 構造化出力（``response_schema``）の口は無い。Anthropic 経路と同じくプロンプト任せ
+      （属性は受け取るだけで送らない）。
+    * 出力トークン上限・継続（max_tokens continuation）の概念は無く、1 回で返る。
+    """
+
+    model: str = DEFAULT_COPILOT_MODEL
+    # 互換のため受け取る（Copilot 側では使わない）。
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    max_continuations: int = MAX_CONTINUATIONS
+    should_cancel: Callable[[], bool] | None = field(default=None, compare=False)
+    on_generation: Callable[[int, int], None] | None = field(default=None, compare=False)
+    on_note: Callable[[str], None] | None = field(default=None, compare=False)
+    response_schema: dict | None = field(default=None, compare=False)
+    last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
+    # 実際に使われたモデル名（``auto`` のとき台帳に実名を残す用）。取れなければ None。
+    last_model: str | None = field(default=None, init=False, compare=False)
+
+    def complete(self, system_prompt: str, user_message: str) -> LLMCompletion:
+        from asterism_step0 import copilot_support as cs
+
+        if self.should_cancel and self.should_cancel():
+            raise LLMCancelledError("cancelled")
+        if self.on_generation:
+            with contextlib.suppress(Exception):
+                self.on_generation(1, 1)
+        timeout, _ = _sdk_client_settings()
+        should_cancel = self.should_cancel
+        model = self.model or DEFAULT_COPILOT_MODEL
+
+        async def go() -> tuple[str, LLMUsage, str | None]:
+            async with cs.copilot_client(should_cancel=should_cancel) as client:
+                session = await client.create_session(
+                    model=model,
+                    available_tools=[],
+                    system_message={"mode": "replace", "content": system_prompt},
+                    on_permission_request=cs.deny_all,
+                )
+                collector = cs.UsageCollector()
+                session.on(collector)
+                try:
+                    task = asyncio.ensure_future(
+                        session.send_and_wait(user_message, timeout=timeout)
+                    )
+                    while True:
+                        done, _pending = await asyncio.wait({task}, timeout=0.5)
+                        if done:
+                            break
+                        if should_cancel and should_cancel():
+                            with contextlib.suppress(Exception):
+                                await session.abort()
+                            task.cancel()
+                            with contextlib.suppress(BaseException):
+                                await task
+                            raise LLMCancelledError("cancelled")
+                    reply = task.result()
+                finally:
+                    with contextlib.suppress(Exception):
+                        await session.disconnect()
+                content = getattr(getattr(reply, "data", None), "content", None) or ""
+                return content, collector.total, collector.model
+
+        text, usage, used_model = cs.run_sync(go)
+        self.last_usage = usage
+        self.last_model = used_model
+        if not text.strip():
+            raise LLMEmptyOutputError(
+                "Copilot returned no answer text. Pick another model or retry."
+            )
+        return LLMCompletion(text, usage)
+
+
 # Provider aliases accepted by make_llm (case-insensitive). Everything in the
 # OpenAI-compatible family routes to OpenAICompatibleLLMClient; the only thing
 # that differs at runtime is the base_url the caller supplies.
 _ANTHROPIC_ALIASES = frozenset({"", "anthropic", "claude"})
+_GEMINI_ALIASES = frozenset({"gemini", "google"})
+_COPILOT_ALIASES = frozenset({"copilot-subscription", "copilot"})
 _OPENAI_ALIASES = frozenset(
     {"openai", "openai-compatible", "openai_compatible", "compatible", "sakura", "groq", "ollama"}
 )
+
+
+def _require_gemini_key(api_key: str | None) -> None:
+    if not (api_key or "").strip():
+        raise ValueError("Gemini requires an API key (no environment fallback)")
 
 
 def make_llm(
@@ -882,6 +1011,22 @@ def make_llm(
             base_url=api_base or None,
             max_tokens=resolved_max_tokens,
         )
+    if p in _GEMINI_ALIASES:
+        # openai SDK はキーが空だと環境変数 OPENAI_API_KEY を拾う → Google へ漏れるので止める。
+        _require_gemini_key(api_key)
+        # base は固定（利用者指定の api_base は無視する）。
+        return OpenAICompatibleLLMClient(
+            model=model or DEFAULT_GEMINI_MODEL,
+            api_key=api_key,
+            base_url=GEMINI_OPENAI_BASE,
+            max_tokens=(
+                max_tokens
+                if max_tokens is not None and max_tokens > 0
+                else GEMINI_DEFAULT_MAX_TOKENS
+            ),
+        )
+    if p in _COPILOT_ALIASES:
+        return CopilotLLMClient(model=model or DEFAULT_COPILOT_MODEL)
     raise ValueError(f"unknown LLM provider: {provider!r}")
 
 
@@ -921,4 +1066,20 @@ def list_available_models(
             for m in client.models.list().data
             if getattr(m, "id", None)
         ]
+    if p in _GEMINI_ALIASES:
+        _require_gemini_key(api_key)
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, base_url=GEMINI_OPENAI_BASE)
+        out: list[dict[str, str]] = []
+        for m in client.models.list().data:
+            mid = getattr(m, "id", None)
+            if mid:
+                mid = mid.removeprefix("models/")
+                out.append({"id": mid, "display_name": mid})
+        return out
+    if p in _COPILOT_ALIASES:
+        from asterism_step0.copilot_support import list_models_sync
+
+        return list_models_sync()
     raise ValueError(f"unknown LLM provider: {provider!r}")
