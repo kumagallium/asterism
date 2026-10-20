@@ -88,3 +88,11 @@
     box-shadow: var(--shadow);
   }
 }
+
+/* 375px: ③の意味の表は 6 列の決め打ち幅（App.css）で、狭い画面では列が 1 文字幅につぶれる。
+   表の最小の幅を戻し、はみ出す分は表の箱（.kz-preview-tablewrap）の中で横にスクロールさせる。 */
+@media (max-width: 720px) {
+  .kz-ws-main .kz-meaning-table {
+    min-width: 38rem;
+  }
+}
