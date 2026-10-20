@@ -64,6 +64,8 @@ export interface MapEdgeOut {
   path: string
   /** 札（↓ ↑ など）を置く点。 */
   mid: { x: number; y: number }
+  /** 線の終わり（`to` の札につく端）。ここを持ってドラッグすると付け替えになる。 */
+  end: { x: number; y: number }
   /** 同じもの（矢じりが両端）。 */
   both: boolean
   problem: boolean
@@ -100,6 +102,13 @@ export interface MapLayoutOptions {
   /** 段（行）を中央に寄せる（既定）か、左端にそろえるか。幅が足りず横にスクロールさせるときは左端にそろえる
    * （中央寄せだと、細い画面で 2 段目が右の見えない所に出る）。 */
   align?: 'center' | 'start'
+  /**
+   * 図の幅の上限（余白を含む）。超える段は、**段の中で折り返して**複数の行にする。
+   * 折り返しは、横の線でつながる一かたまり（原因 → 相手 → 結果）の境目を優先し、1 かたまりだけで
+   * 超えるときだけ列の境目で割る。折り返しても段の前後（一種・一部の上下）は変わらない。
+   * 省略すると折り返さない。
+   */
+  maxWidth?: number
 }
 
 export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: MapLayoutOptions = {}): MapLayout {
@@ -156,27 +165,60 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: Map
     }
     return [...left.reverse(), [anchor], ...right]
   }
-  // 段 = 列の並び（列 = 縦に積む札）
-  const rowCols: string[][][] = hierRows.map((row) => row.flatMap((k) => clusterOf(k)))
+  // 段 = かたまり（横の線でつながる列の並び）の並び。列 = 縦に積む札
+  const rowGroups: string[][][][] = hierRows.map((row) => row.map((k) => clusterOf(k)))
 
   // ③ 段をもつ概念につながらない小さな図は、その図だけの段を下に足す
   const sideKeys = new Set(side.flatMap((r) => [r.from, r.to]))
   for (const n of nodes) {
     if (placed.has(n.key) || !sideKeys.has(n.key)) continue
     placed.add(n.key)
-    rowCols.push(clusterOf(n.key))
+    rowGroups.push([clusterOf(n.key)])
   }
-  // ④ 線のない概念は一番下に折り返して並べる
+  // ④ 線のない概念は一番下に折り返して並べる（幅の上限があればその幅で・無ければ 1 行 5 つ）
   const loose = nodes.filter((n) => !placed.has(n.key)).map((n) => n.key)
-  for (let i = 0; i < loose.length; i += MAP_LOOSE_PER_ROW) {
-    rowCols.push(loose.slice(i, i + MAP_LOOSE_PER_ROW).map((k) => [k]))
+  if (opts.maxWidth === undefined) {
+    for (let i = 0; i < loose.length; i += MAP_LOOSE_PER_ROW) {
+      rowGroups.push(loose.slice(i, i + MAP_LOOSE_PER_ROW).map((k) => [[k]]))
+    }
+  } else if (loose.length > 0) {
+    rowGroups.push(loose.map((k) => [[k]]))
   }
 
   // ⑤ 座標: 列の幅は札の最大幅・段の高さは最も高い列・段ごとに中央寄せ
   const widthOf = new Map(nodes.map((n) => [n.key, nodeWidth(n.label, n.mark)]))
   const colW = (col: string[]): number => Math.max(...col.map((k) => widthOf.get(k) ?? 76))
   const colH = (col: string[]): number => col.length * MAP_NODE_H + (col.length - 1) * MAP_STACK_GAP
-  const rowW = rowCols.map((cols) => cols.reduce((s, c) => s + colW(c), 0) + Math.max(0, cols.length - 1) * MAP_GAP_X)
+  const colsW = (cols: string[][]): number =>
+    cols.reduce((s, c) => s + colW(c), 0) + Math.max(0, cols.length - 1) * MAP_GAP_X
+  // 幅の上限を超える段は折り返す（かたまりの境目を優先・1 かたまりで超えるなら列の境目で割る）
+  const limit = opts.maxWidth === undefined ? Infinity : Math.max(0, opts.maxWidth - MAP_PAD * 2)
+  const wrap = (groups: string[][][]): string[][][] => {
+    const lines: string[][][] = []
+    let cur: string[][] = []
+    const flush = () => {
+      if (cur.length > 0) lines.push(cur)
+      cur = []
+    }
+    for (const g of groups) {
+      if (cur.length > 0 && colsW([...cur, ...g]) <= limit) {
+        cur = [...cur, ...g]
+      } else if (colsW(g) <= limit) {
+        flush()
+        cur = [...g]
+      } else {
+        flush()
+        for (const col of g) {
+          if (cur.length > 0 && colsW([...cur, col]) > limit) flush()
+          cur = [...cur, col]
+        }
+      }
+    }
+    flush()
+    return lines
+  }
+  const rowCols: string[][][] = rowGroups.flatMap((groups) => (limit === Infinity ? [groups.flat()] : wrap(groups)))
+  const rowW = rowCols.map(colsW)
   const rowH = rowCols.map((cols) => Math.max(...cols.map(colH)))
   const inner = Math.max(0, ...rowW)
   const width = inner + MAP_PAD * 2
@@ -214,6 +256,7 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: Map
     let kind: 'hier' | 'side' = isHier(r) ? 'hier' : 'side'
     let path: string
     let mid: Pt
+    let endPt: Pt
     const horizontal = a.row === b.row && colOf.get(r.from) !== colOf.get(r.to)
     if (horizontal) {
       // 同じ段の別の列: 向かい合う辺のまん中どうしを、横向きの曲線で結ぶ
@@ -226,6 +269,7 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: Map
       const c2 = { x: p3.x - dx, y: p3.y }
       path = `M${f(p0.x)},${f(p0.y)} C${f(c1.x)},${f(c1.y)} ${f(c2.x)},${f(c2.y)} ${f(p3.x)},${f(p3.y)}`
       mid = cubicMid(p0, c1, c2, p3)
+      endPt = p3
     } else if (a.row === b.row) {
       // 同じ列に積まれた 2 つ: 縦にまっすぐ
       kind = 'side'
@@ -234,6 +278,7 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: Map
       const p3 = { x: b.x + b.w / 2, y: downward ? b.y : b.y + b.h }
       path = `M${f(p0.x)},${f(p0.y)} L${f(p3.x)},${f(p3.y)}`
       mid = { x: (p0.x + p3.x) / 2, y: (p0.y + p3.y) / 2 }
+      endPt = p3
     } else {
       // 段をまたぐ: 上の段の下辺から下の段の上辺へ
       const aboveIsFrom = a.row < b.row
@@ -247,8 +292,9 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: Map
       const c2 = { x: p3.x, y: p3.y + (aboveIsFrom ? -c : c) }
       path = `M${f(p0.x)},${f(p0.y)} C${f(c1.x)},${f(c1.y)} ${f(c2.x)},${f(c2.y)} ${f(p3.x)},${f(p3.y)}`
       mid = cubicMid(p0, c1, c2, p3)
+      endPt = p3
     }
-    edges.push({ index: r.index, from: r.from, to: r.to, rel: r.rel, kind, path, mid, both, problem })
+    edges.push({ index: r.index, from: r.from, to: r.to, rel: r.rel, kind, path, mid, end: endPt, both, problem })
   }
 
   return { width, height, nodes: placedNodes, byKey, edges, rows: rowCols.map((cols) => cols.flat()) }

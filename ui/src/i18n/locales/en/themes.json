@@ -25,7 +25,10 @@
       "addQuestions": "Adding questions to the theme",
       "deleteTheme": "Removing the theme",
       "expand": "Growing from a concept",
-      "answers": "Fetching the answers"
+      "answers": "Fetching the answers",
+      "consult": "The consultation",
+      "consultApply": "Applying the suggestion",
+      "consultDismiss": "Saving the dismissal"
     }
   },
   "draft": {

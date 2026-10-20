@@ -96,6 +96,12 @@ export interface DraftResponse {
   dropped: { concepts: unknown[]; relations: unknown[] }
 }
 
+/** 作業場の会話の保存（7a）。人の発言と、適用した差分だけ。AI の散文は保存しない。 */
+export interface DraftChat {
+  messages: { role: 'user'; content: string; at: string }[]
+  proposals: { proposal_id: string; ops: Record<string, unknown>[]; at: string; by: 'ai' | 'human' }[]
+}
+
 /** 保存する下書き（GET/PUT /api/themes/drafts/{id}）。 */
 export interface ThemeDraft {
   id: string
@@ -109,6 +115,8 @@ export interface ThemeDraft {
   answers: AnswerRow[]
   suggested_questions: string[]
   standards: Record<string, StandardInfo>
+  /** 作業場の会話（サーバが持つ。PUT では送らず、適用の返り値で更新される）。 */
+  chat?: DraftChat
   updated_at: string
 }
 
@@ -251,6 +259,24 @@ export function validateDraftResponse(raw: unknown): DraftResponse | null {
   }
 }
 
+function chatOf(raw: unknown): DraftChat | undefined {
+  if (!isObj(raw)) return undefined
+  const messages = (Array.isArray(raw.messages) ? raw.messages : [])
+    .filter(isObj)
+    .filter((m) => isStr(m.content) && m.content.trim() !== '')
+    .map((m) => ({ role: 'user' as const, content: str(m.content), at: str(m.at) }))
+  const proposals = (Array.isArray(raw.proposals) ? raw.proposals : [])
+    .filter(isObj)
+    .filter((p) => isStr(p.proposal_id) && Array.isArray(p.ops))
+    .map((p) => ({
+      proposal_id: str(p.proposal_id),
+      ops: (p.ops as unknown[]).filter(isObj),
+      at: str(p.at),
+      by: p.by === 'human' ? ('human' as const) : ('ai' as const),
+    }))
+  return messages.length > 0 || proposals.length > 0 ? { messages, proposals } : undefined
+}
+
 /** GET/PUT/expand が返す保存済み下書きを、画面の形に整える（壊れた行は落とす）。 */
 export function normalizeDraft(raw: unknown): ThemeDraft | null {
   if (!isObj(raw) || !isStr(raw.id)) return null
@@ -279,6 +305,7 @@ export function normalizeDraft(raw: unknown): ThemeDraft | null {
     answers: syncAnswers(answers, questions),
     suggested_questions: Array.isArray(raw.suggested_questions) ? raw.suggested_questions.filter(isStr) : [],
     standards: standardsOf(raw.standards),
+    ...(chatOf(raw.chat) ? { chat: chatOf(raw.chat) } : {}),
     updated_at: str(raw.updated_at),
   }
 }

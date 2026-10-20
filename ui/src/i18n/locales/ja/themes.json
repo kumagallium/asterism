@@ -25,7 +25,10 @@
       "addQuestions": "問いをテーマに足すこと",
       "deleteTheme": "テーマを外すこと",
       "expand": "「ここを広げる」",
-      "answers": "問いの答えの取得"
+      "answers": "問いの答えの取得",
+      "consult": "相談",
+      "consultApply": "「そう」の反映",
+      "consultDismiss": "「違う」の保存"
     }
   },
   "draft": {
