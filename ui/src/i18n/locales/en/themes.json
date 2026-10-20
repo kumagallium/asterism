@@ -203,7 +203,8 @@
     "confirm": "Confirm {{n}} together",
     "confirmNone": "Place the questions only",
     "confirmNote": "Pressing it goes to the screen (step 3) that confirms {{concepts}} concepts and {{relations}} relations.",
-    "unlinkedNote": "{{n}} concepts that do not connect to a question are left out."
+    "unlinkedNote": "{{n}} concepts that do not connect to a question are left out.",
+    "leadHand": "Add concepts, choose how each question is answered, then confirm them together."
   },
   "answer": {
     "label": "Answered as:",

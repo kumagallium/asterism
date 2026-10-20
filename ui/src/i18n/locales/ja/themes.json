@@ -203,7 +203,8 @@
     "confirm": "{{n}} 件をまとめて確定",
     "confirmNone": "問いだけを置く",
     "confirmNote": "押すと、概念 {{concepts}} 件と関係 {{relations}} 件を確定する画面（③）に進みます。",
-    "unlinkedNote": "問いにつながらない概念 {{n}} 件は含みません。"
+    "unlinkedNote": "問いにつながらない概念 {{n}} 件は含みません。",
+    "leadHand": "概念を足して、問いごとの答え方を選び、まとめて確定します。"
   },
   "answer": {
     "label": "答え方:",

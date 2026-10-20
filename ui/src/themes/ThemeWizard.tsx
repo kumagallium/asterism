@@ -552,12 +552,13 @@ export function ThemeWizard({
     )
   } else if (step === 2) {
     const hasMap = concepts.length > 0
+    const byAi = concepts.some((c) => c.by === 'ai')
     body = (
       <>
         <h2 className="thm-h">
           {CIRCLED[1]} {t('themes:steps.review')}
         </h2>
-        <p className="thm-lead">{t(hasMap ? 'themes:review.lead' : 'themes:review.leadEmpty')}</p>
+        <p className="thm-lead">{t(!hasMap ? 'themes:review.leadEmpty' : byAi ? 'themes:review.lead' : 'themes:review.leadHand')}</p>
 
         {ai.status === 'running' && (
           <div className="thm-try" role="status" aria-live="polite">
