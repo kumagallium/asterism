@@ -675,5 +675,17 @@
     },
     "lintHead": "{{n}} question(s) did not pass the check and were not published.",
     "lintItem": "\"{{title}}\": no longer fits the shape of the data. Pick again and re-add it."
+  },
+  "chat": {
+    "title": "Link columns by talking to AI",
+    "lead": "Say in a sentence what a column means, and AI proposes \"this column is the same as X\". AI only gets the column headings and types, never the values. Nothing is decided until you say Yes, and a line is made when you publish.",
+    "example": "For example: \"this column is grain size, an index of grain boundary scattering\" or \"the price column is the same as Price\"",
+    "candidates": "{{n}} candidates match by name",
+    "candidatesNote": "They are shown under each row of the table (counted by a machine, no AI). You decide whether to take them.",
+    "bound": "Link: {{column}} ≡ {{term}}",
+    "boundSub": "Link: {{column}} is a kind of {{term}}",
+    "boundWhen": "becomes a line when you publish",
+    "boundByAi": "(an AI proposal you accepted)",
+    "ask": "Link columns by talking to AI"
   }
 }

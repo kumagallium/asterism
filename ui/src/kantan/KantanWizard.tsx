@@ -142,6 +142,8 @@ import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
 import { FitSuggestion } from './FitSuggestion'
+import { DatasetChat } from './DatasetChat'
+import { bindingsForColumn, columnBindings } from './chatBindings'
 import { type KindFitPick, itemFitsToUpper, picksToUpper, upperToPicks } from './kindFit'
 import { QuestionBuilder } from './QuestionBuilder'
 import { publishWriteCounts } from './questions'
@@ -1182,6 +1184,10 @@ export function KantanWizard({
   const [upperBase, setUpperBase] = useState<UpperItem[] | null>(null)
   const [upperLabels, setUpperLabels] = useState<Record<string, string>>({})
   const [upperTouched, setUpperTouched] = useState(false)
+  // ③の会話（AI に相談して結ぶ）。最初のカード「名前が一致する候補 N 件」の数え元（行 → 候補の数・
+  // 機械の数え・AI なし）と、外のボタンから会話を開く合図。
+  const [fitFound, setFitFound] = useState<Record<string, number>>({})
+  const [chatOpenSignal, setChatOpenSignal] = useState(0)
   const redesignOpenedDatasetIdRef = useRef<string | null>(null)
   const [assembleBusy, setAssembleBusy] = useState(false)
   const [assembleErr, setAssembleErr] = useState('')
@@ -3187,6 +3193,39 @@ export function KantanWizard({
     }
   }
 
+  /** ③の会話で「そう」を押したあと・③を開いたとき: 保管済みの当てはめ（upper.json）を読み戻して、
+   *  表の行に「結ぶ: 粒径 ≡ …」の印を出す。作り直しの `upper` が会話で受けた線を落とさないよう、
+   *  読み戻した一覧は `upperBase` にも入れる。読めなくても印が出ないだけ。 */
+  async function refreshChatBound(datasetId: string) {
+    try {
+      const [items, terms] = await Promise.all([
+        fetchDatasetUpper(datasetId),
+        listTerms().catch(() => []),
+      ])
+      if (kzDatasetIdRef.current !== datasetId) return
+      setUpperLabels(Object.fromEntries(terms.map((term) => [term.iri, term.label])))
+      setUpperBase(items)
+    } catch {
+      /* 印が出ないだけ */
+    }
+  }
+
+  // ③を開いたとき（設計ができていて datasetId がある）、会話で受けた結びつきを読み戻す。
+  useEffect(() => {
+    if (step !== 10 || !kzDatasetId) return
+    let stale = false
+    void Promise.all([fetchDatasetUpper(kzDatasetId), listTerms().catch(() => [])])
+      .then(([items, terms]) => {
+        if (stale) return
+        setUpperLabels(Object.fromEntries(terms.map((term) => [term.iri, term.label])))
+        setUpperBase(items)
+      })
+      .catch(() => undefined) // 印が出ないだけ
+    return () => {
+      stale = true
+    }
+  }, [step, kzDatasetId])
+
   /** ⑤に出す・送る、種類ごとの当てはめ（保管済み + 人がこの回で受けた／外したもの）。 */
   function currentKindFits(sk: MappingSkeleton, base: UpperItem[] | null) {
     const labelOf = (iri: string) => upperLabels[iri] ?? humanizeLocal(localName(iri))
@@ -5084,6 +5123,7 @@ export function KantanWizard({
     setUpperTouched(false)
     setUpperBase(null)
     setUpperLabels({})
+    setFitFound({})
     setLinkFitTerms({})
     setLinkChecked(new Set())
     setLinkKeyPick({})
@@ -5210,6 +5250,9 @@ export function KantanWizard({
   // The questions ran and found NOTHING: an empty draft (KZ-B-33).
   const trialEmpty = !trialLoading && !!trial?.available && trialQAs.length === 0
   // ⑦ 公開で書くもの（未消費の線・自分の問い）。0 件なら null（行を出さない）。
+  // ③の会話: 表の行の印（会話で受けた結びつき）と、最初のカードの件数
+  const boundAll = columnBindings(upperBase ?? [])
+  const fitCandidateTotal = Object.values(fitFound).reduce((a, b) => a + b, 0)
   const writeCounts = publishWriteCounts(pendingUpper, publishQuestions)
   // 見直し（公開済みの版を読んでいて、作り直していない）で、名前の差が無くても公開に
   // まだ書けるもの: 未消費の線と問い。名前だけの公開の入口（PublishedNamesNotice）に出す。
@@ -7311,7 +7354,11 @@ export function KantanWizard({
                 <button
                   type="button"
                   className="btn btn--ghost btn--sm"
-                  onClick={() => requestConsult(t('kantan:meanings.askConsultPrefill'))}
+                  onClick={() =>
+                    kzDatasetId
+                      ? setChatOpenSignal((n) => n + 1)
+                      : requestConsult(t('kantan:meanings.askConsultPrefill'))
+                  }
                 >
                   {t('kantan:meanings.askConsult')}
                 </button>
@@ -7376,11 +7423,18 @@ export function KantanWizard({
             <button
               type="button"
               className="btn btn--ghost btn--sm"
-              onClick={() => requestConsult(t('kantan:meanings.link.askConsultPrefill'))}
+              onClick={() =>
+                kzDatasetId
+                  ? setChatOpenSignal((n) => n + 1)
+                  : requestConsult(t('kantan:meanings.link.askConsultPrefill'))
+              }
             >
               {t('kantan:meanings.link.askConsult')}
             </button>
           </div>
+          {/* 左に表・右に会話（design.md §16.2）。会話は設計ができてから（api が mapping.yaml を読む）。 */}
+          <div className={kzDatasetId ? 'kz-ws' : 'kz-ws kz-ws--solo'}>
+          <div className="kz-ws-main">
           {(['preamble', 'table'] as const).map((origin) => {
             const rows = meaningRows().filter((r) => r.origin === origin)
             if (rows.length === 0) return null
@@ -7549,6 +7603,12 @@ export function KantanWizard({
                             <FitSuggestion
                               colSpan={6}
                               subjectKey={`column:${row.source}/${row.column}`}
+                              onFound={(n) =>
+                                setFitFound((prev) => {
+                                  const k = meaningKey(row.source, row.column)
+                                  return (prev[k] ?? 0) === n ? prev : { ...prev, [k]: n }
+                                })
+                              }
                               label={current?.label ?? ''}
                               column={row.named === false ? '' : row.column}
                               accepted={current?.fit}
@@ -7566,6 +7626,32 @@ export function KantanWizard({
                               onTick={(c) => tickViaFit(row.source, row.column, c.term)}
                             />
                           )}
+                          {/* 会話で受けた結びつき（upper.json）の印。公開で線になる。 */}
+                          {!measured &&
+                            !dropped &&
+                            bindingsForColumn(boundAll, row.column, current?.fit?.term).map((b) => (
+                              <tr key={`${b.term}|${b.relation}`} className="kz-fit-row">
+                                <td colSpan={6}>
+                                  <div className="kz-note kz-fit-note" data-testid="chat-bound">
+                                    <span role="status">
+                                      {t(
+                                        b.relation === 'equivalentProperty'
+                                          ? 'kantan:chat.bound'
+                                          : 'kantan:chat.boundSub',
+                                        {
+                                          column: row.column,
+                                          term: upperLabels[b.term] ?? humanizeLocal(localName(b.term)),
+                                        },
+                                      )}
+                                    </span>{' '}
+                                    <span className="kz-cols-origin">
+                                      {b.fromChat ? `${t('kantan:chat.boundByAi')} ` : ''}
+                                      {t('kantan:chat.boundWhen')}
+                                    </span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
                           </Fragment>
                         )
                       })}
@@ -7575,6 +7661,19 @@ export function KantanWizard({
               </div>
             )
           })}
+          </div>
+          {kzDatasetId && (
+            <aside className="kz-ws-side" aria-label={t('kantan:chat.title')}>
+              <DatasetChat
+                datasetId={kzDatasetId}
+                lang={i18n.language.startsWith('en') ? 'en' : 'ja'}
+                candidates={fitCandidateTotal}
+                openSignal={chatOpenSignal}
+                onApplied={() => void refreshChatBound(kzDatasetId)}
+              />
+            </aside>
+          )}
+          </div>
           {meaningSaveErr && (
             <div role="alert">
               <p className="kz-note">{t('kantan:meanings.saveFailed')}</p>

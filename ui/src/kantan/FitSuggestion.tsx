@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ColumnFit } from '../api'
 import { dismiss } from '../decide/decideApi'
@@ -28,6 +28,7 @@ export function FitSuggestion({
   reviewOnly = false,
   colSpan,
   subjectKey,
+  onFound,
   onAccept,
   onClear,
   onTick,
@@ -50,6 +51,9 @@ export function FitSuggestion({
   /** 「当てはまるものは無い」を覚える主語の鍵（公開前の列なので IRI は無い。例: `column:<file>/<列名>`）。
    *  無ければそのボタンは出さない。 */
   subjectKey?: string
+  /** いま出している候補の数が変わったとき（会話の最初のカード「名前が一致する候補 N 件」の数え元）。
+   *  行が消えるとき（外した列など）は 0 を返す。 */
+  onFound?: (n: number) => void
   onAccept: (candidate: FitCandidate) => void
   onClear: () => void
   onTick: (candidate: FitCandidate) => void
@@ -77,6 +81,17 @@ export function FitSuggestion({
     }
   }, [acceptedTerm])
   const [dismissErr, setDismissErr] = useState('')
+
+  // 数を親へ（会話の最初のカード用）。最新の関数を ref で持つので、親の再描画では回さない。
+  const onFoundRef = useRef(onFound)
+  useEffect(() => {
+    onFoundRef.current = onFound
+  })
+  const shown = label.trim() !== '' || column.trim() !== '' ? Math.min(candidates.length, MAX_SHOWN) : 0
+  useEffect(() => {
+    onFoundRef.current?.(shown)
+  }, [shown])
+  useEffect(() => () => onFoundRef.current?.(0), [])
 
   async function onDismiss(c: FitCandidate) {
     if (!subjectKey) return
