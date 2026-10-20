@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from asterism import substrate
-from asterism.crosswalk_runtime import assert_alignment
+from asterism.crosswalk_runtime import BATCH_MAX, REASON_MAX, assert_alignment
 from asterism.mapping_ir_read import BUILTIN_PREFIXES, MappingIRView, expand, read_mapping_ir
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -105,10 +105,38 @@ def _key(item: dict) -> tuple[str, str, str]:
     return item["subject"], item["term"], item["relation"]
 
 
+#: 来歴（会話で受けた線の「誰が・どのまとめで・なぜ」）。公開で ``assert_alignment`` に渡す。
+#: 人が表で直に受けた線には付かない（``assert_alignment`` の既定 = ``human``）。
+_PROVENANCE = ("drafted_by", "batch", "reason")
+_UPPER_DRAFTED_BY = ("ai", "human")
+
+
+def _clean_provenance(item: dict) -> dict[str, str]:
+    """``drafted_by`` / ``batch`` / ``reason`` のうち、形の正しいものだけ（不正は静かに落とす）。
+    ``batch`` は 1 行・``BATCH_MAX`` 字まで・制御文字なし、``reason`` は折って
+    ``REASON_MAX`` 字まで。"""
+    out: dict[str, str] = {}
+    by = item.get("drafted_by")
+    if by in _UPPER_DRAFTED_BY:
+        out["drafted_by"] = by
+    batch = item.get("batch")
+    if isinstance(batch, str):
+        b = batch.strip()
+        if b and len(b) <= BATCH_MAX and not any(ord(c) < 32 for c in b):
+            out["batch"] = b
+    reason = item.get("reason")
+    if isinstance(reason, str):
+        r = " ".join(reason.split())
+        if r:
+            out["reason"] = r[:REASON_MAX]
+    return out
+
+
 def clean_upper(raw: Any) -> list[dict]:
     """生の値 → 形の正しい項目だけの list（不正・重複は静かに落とす）。
 
-    ``applied_at`` は文字列だけ、``skipped`` は文字列だけ残す。
+    ``applied_at`` は文字列だけ、``skipped`` は文字列だけ残す。来歴（``drafted_by`` / ``batch`` /
+    ``reason``）は形の正しいものだけ残す。
     """
     if isinstance(raw, dict):
         raw = raw.get("upper")
@@ -138,6 +166,7 @@ def clean_upper(raw: Any) -> list[dict]:
         }
         if not row["applied_at"] and isinstance(item.get("skipped"), str) and item["skipped"]:
             row["skipped"] = item["skipped"]
+        row.update(_clean_provenance(item))
         if _key(row) in seen:
             continue
         seen.add(_key(row))
@@ -175,6 +204,9 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
         for e in existing
         if not e.get("applied_at") and isinstance(e.get("skipped"), str) and e["skipped"]
     }
+    # 来歴は、送られたものを優先し、無ければ同じ線の既存のものを引き継ぐ（表の PUT が、
+    # 会話で受けた線の来歴を落とさない）。
+    kept = {_key(e): _clean_provenance(e) for e in existing}
     out: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
     for item in clean_upper(list(incoming)):
@@ -190,6 +222,7 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
         }
         if k not in applied and k in skipped:
             row["skipped"] = skipped[k]
+        row.update(_clean_provenance(item) or kept.get(k, {}))
         out.append(row)
     return out
 
@@ -250,7 +283,16 @@ async def apply_upper(
                 if not await _subject_in_ontology(client, dataset_id, subject):
                     results[k] = {"skipped": "subject missing"}
                     continue
-                await assert_alignment(client, subject, item["term"], item["relation"], at=now)
+                await assert_alignment(
+                    client,
+                    subject,
+                    item["term"],
+                    item["relation"],
+                    at=now,
+                    drafted_by=item.get("drafted_by") or "human",
+                    batch=item.get("batch"),
+                    reason=item.get("reason"),
+                )
                 results[k] = {"applied_at": now}
             except ValueError as exc:  # 閉じた規則で断られた（cycle など）
                 results[k] = {"skipped": str(exc)}
@@ -293,6 +335,10 @@ class UpperItem(BaseModel):
     # 受け取るが使わない — applied_at / skipped はサーバが書く値（merge_upper 参照）。
     applied_at: str | None = None
     skipped: str | None = None
+    # 会話（作業場の「そう」）で受けた線の来歴。公開で ``xw:`` の来歴になる。
+    drafted_by: Literal["ai", "human"] | None = None
+    batch: str | None = None
+    reason: str | None = None
 
 
 class UpperBody(BaseModel):

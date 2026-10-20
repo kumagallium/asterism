@@ -86,6 +86,8 @@ _PRED_TO_REL = {
 #: 当てはめ（``upper.json``）に置ける関係 — 項目の列だけ（種類は図で扱う）
 _BIND_TO_UPPER = {"eq": "equivalentProperty", "sub": "subPropertyOf"}
 _MAX_COLUMNS = 200
+#: AI に見せる種類（星）の行の上限（選んでいる星が先頭・残りは件数の多い順）
+_MAX_KIND_ROWS = 150
 _MAX_BATCH = 100
 #: 同じ意味を向きなしで結ぶ述語（``a eq b`` があれば ``b eq a`` も同じ線）
 _SYMMETRIC = frozenset({"equivalentClass", "equivalentProperty"})
@@ -99,6 +101,9 @@ class ConsultMessage(BaseModel):
 class GraphContext(BaseModel):
     draft_id: str | None = None
     dataset_id: str | None = None
+    #: home のとき、人が星図で選んでいる種類（星）の IRI。AI には「いま選んでいる」と知らせるだけ
+    #: （図の文脈の並びと印）。無くてよい・公開済みの種類でなければ無視する。
+    focus_kind: str | None = None
 
 
 class ProposeBody(BaseModel):
@@ -255,24 +260,84 @@ def register_consult_graph(
 
     # ---- 図の文脈（サーバが組む・名前だけ） -----------------------------------------------
 
-    async def _home_graph(terms: list[shared_vocab.SharedTerm]) -> dict:
+    async def _kinds() -> list[dict]:
+        """公開済みの種類（星）— ``sky_view`` の ``datasets[].kinds[]``（IRI・表示名・件数・所属
+        データセット名）。値は渡さない。同じ IRI が複数のデータセットにあれば 1 つにまとめる。
+        読めなければ ``[]``（用語だけの会話は止めない）。"""
+        try:
+            from asterism import sky_view as sky_view_mod
+
+            sky = await sky_view_mod.sky_view(_client(), cfg.registry_root)
+        except Exception:
+            logger.warning("consult graph: published kinds unavailable", exc_info=True)
+            return []
+        out: dict[str, dict] = {}
+        for ds in sky.get("datasets") or []:
+            for k in ds.get("kinds") or []:
+                iri = str(k.get("iri") or "")
+                if not iri:
+                    continue
+                key = graph_diff.kind_key(iri)
+                row = out.get(key)
+                if row is None:
+                    out[key] = {
+                        "key": key,
+                        "iri": iri,
+                        "label": str(k.get("label") or iri),
+                        "count": int(k.get("count") or 0),
+                        "datasets": [str(ds.get("label") or ds.get("id") or "")],
+                    }
+                else:
+                    row["count"] += int(k.get("count") or 0)
+                    row["datasets"].append(str(ds.get("label") or ds.get("id") or ""))
+        return list(out.values())
+
+    def _kind_row(k: dict, *, focus: bool) -> dict:
+        """AI に見せる 1 行（key は短い鍵。IRI は渡さない）。``use`` に「どのデータセットの何件の
+        種類か」を書く（同名の種類を見分ける材料）。"""
+        where = "、".join(d for d in k["datasets"] if d)[:60]
+        note = f'a published KIND (a star) of dataset "{where}", {k["count"]} records'
+        if focus:
+            note += " — the one the person is looking at now"
+        return {
+            "key": k["key"],
+            "label_ja": k["label"],
+            "label_en": "",
+            "kind": "class",
+            "use": note,
+        }
+
+    async def _home_graph(
+        terms: list[shared_vocab.SharedTerm],
+        kinds: list[dict],
+        *,
+        focus_iri: str | None = None,
+    ) -> dict:
         slug_of = {t.iri: t.slug for t in terms}
+        key_of = {k["iri"]: k["key"] for k in kinds}
         try:
             lines = await crosswalk_runtime.list_alignments(_client())
         except Exception as exc:
             raise HTTPException(502, f"alignment read failed: {exc}") from exc
+
+        def end(iri: str) -> str | None:
+            return slug_of.get(iri) or key_of.get(iri)
+
         relations = [
             {
-                "from": slug_of[ln["source"]],
+                "from": end(ln["source"]),
                 "rel": _PRED_TO_REL[ln["relation"]],
-                "to": slug_of[ln["target"]],
+                "to": end(ln["target"]),
             }
             for ln in lines
-            if ln["relation"] in _PRED_TO_REL
-            and ln["source"] in slug_of
-            and ln["target"] in slug_of
+            if ln["relation"] in _PRED_TO_REL and end(ln["source"]) and end(ln["target"])
         ]
-        return {"concepts": [_term_row(t) for t in terms], "relations": relations, "questions": []}
+        # 選んでいる星を先頭に、あとは件数の多い順（行数の上限で切れても、選んだ星は残る）
+        ordered = sorted(kinds, key=lambda k: (k["iri"] != focus_iri, -k["count"], k["key"]))
+        concepts = [
+            _kind_row(k, focus=k["iri"] == focus_iri) for k in ordered[:_MAX_KIND_ROWS]
+        ] + [_term_row(t) for t in terms]
+        return {"concepts": concepts, "relations": relations, "questions": []}
 
     def _dataset_graph(record: dict, view: MappingIRView, terms: list) -> dict:
         slug_of = {t.iri: t.slug for t in terms}
@@ -340,7 +405,8 @@ def register_consult_graph(
             }
             standards = themes.default_standards(list(draft.get("questions") or []))
         elif body.screen == "home":
-            graph = await _home_graph(terms)
+            kinds = await _kinds()
+            graph = await _home_graph(terms, kinds, focus_iri=body.context.focus_kind)
             standards = themes.default_standards([])
         else:
             record, view = _dataset_ir(body.context)
@@ -477,9 +543,13 @@ def register_consult_graph(
         if any(o.get("op") == "add_concept" for o in body.ops):
             raise HTTPException(422, "知りたいことで作ってください（ホームでは概念を足せません）")
         terms = await _terms()
-        ops = _check_ops(body.ops, [t.slug for t in terms])
+        kinds = {k["key"]: k for k in await _kinds()}
+        ops = _check_ops(body.ops, [*(t.slug for t in terms), *kinds])
         plans, dropped = graph_diff.plan_term_relations(
-            ops, terms=terms, dismissed=shared_vocab.load_dismissed(cfg.registry_root)
+            ops,
+            terms=terms,
+            dismissed=shared_vocab.load_dismissed(cfg.registry_root),
+            kinds=kinds,
         )
         batch = (body.batch or "").strip() or f"chat-{body.proposal_id}"[:_MAX_BATCH]
         at = _now()
@@ -565,6 +635,7 @@ def register_consult_graph(
         terms = await _terms()
         by_slug = {t.slug: t for t in terms}
         dismissed = shared_vocab.load_dismissed(cfg.registry_root)
+        batch = (body.batch or "").strip() or f"chat-{body.proposal_id}"[:_MAX_BATCH]
         dropped: list[dict] = []
         incoming: list[dict] = []
         # 読み→書きは themes と同じ鍵で 1 つずつ（upper.json の取りこぼしを防ぐ）
@@ -611,7 +682,17 @@ def register_consult_graph(
                     drop(i, "duplicate")
                     continue
                 have.add((subject, term, relation))
-                incoming.append({"subject": subject, "term": term, "relation": relation})
+                incoming.append(
+                    {
+                        "subject": subject,
+                        "term": term,
+                        "relation": relation,
+                        # 来歴: 会話で受けた線は、公開で線の来歴まで届く
+                        "drafted_by": body.drafted_by,
+                        "batch": batch,
+                        "reason": op.get("reason") or "",
+                    }
+                )
             if incoming:
                 merged = merge_upper(existing, [*existing, *incoming])
                 registry.write_artifact(
@@ -643,8 +724,9 @@ def register_consult_graph(
             )
             keys = graph_diff.dismissal_keys(draft, ops, existing=terms)
         elif body.screen == "home":
-            ops = _check_ops(body.ops, [t.slug for t in terms])
-            plans, _dropped = graph_diff.plan_term_relations(ops, terms=terms)
+            kinds = {k["key"]: k for k in await _kinds()}
+            ops = _check_ops(body.ops, [*(t.slug for t in terms), *kinds])
+            plans, _dropped = graph_diff.plan_term_relations(ops, terms=terms, kinds=kinds)
             keys = [
                 {"subject": p["source"], "term": p["target"], "relation": p["relation"]}
                 for p in plans

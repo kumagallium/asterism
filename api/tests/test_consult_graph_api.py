@@ -24,7 +24,7 @@ from asterism_api.main import build_app
 from asterism_api.upper_routes import dump_upper
 from tests.test_crosswalk_api import _AUTH, _settings
 from tests.test_themes_api import _LLM, AI_JSON, KEY, Q_LOWER
-from tests.test_upper_questions import SV, _dataset, _OxClient
+from tests.test_upper_questions import EX, SV, _dataset, _OxClient, _stage
 
 #: 熱伝導率の例のうち、粒界散乱・点欠陥散乱・ナノ析出物が「熱伝導率」そのものを下げる線になっている
 #: 下書き（「散乱因子は格子熱伝導率に紐づくはず」と人が言う前）
@@ -392,6 +392,80 @@ def test_home_applies_lines_straight_to_the_alignment_graph_with_provenance(
     assert (SV + "lattice", "isPartOf", SV + "thermal") in left
 
 
+def test_home_takes_published_kinds_as_the_end_of_a_line_and_never_shows_their_iris(
+    tmp_path: Path,
+) -> None:
+    """A1: 公開済みの種類（星）は短い鍵 ``kind:…`` で AI に見せる（IRI は渡さない）。線の元に使え、
+    適用は alignment graph に種類の IRI のまま・来歴つきで書く。公開済みでない鍵は 422。"""
+    from asterism.graph_diff import kind_key
+
+    key = kind_key(EX + "Sample")
+    assert key.startswith("kind:") and "http" not in key and len(key) < 20
+    same = {"op": "add_relation", "from": key, "rel": "eq", "to": "specimen", "reason": "同じ試料"}
+    llm = _LLM(json.dumps({"reply": "同じものと見てよさそうです。", "ops": [same]}))
+    app, store = _app(tmp_path, llm)
+    dsid = _dataset(tmp_path)
+    _stage(tmp_path, store, dsid)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint(client, "specimen", "試料の語", kind="class")  # 名前が違う — 完全一致の候補ではない
+        assert client.post(f"/api/datasets/{dsid}/promote").status_code == 200
+        out = _propose(
+            client, "home", {"focus_kind": EX + "Sample"}, "この種類は 試料の語 と同じもの？"
+        ).json()
+        assert out["ops"] == [same]
+        assert out["sentences"] == ["試料 と 試料の語 は同じもの"]
+        system, user = llm.calls[0]
+        assert f"{key} | 試料 |" in user and "the one the person is looking at now" in user
+        assert 'dataset "' in user and "records" in user  # どのデータセットの何件の種類か
+        assert EX not in system + user  # IRI は AI に渡さない
+        assert _lines(store) == []
+
+        res = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "home", "context": {}, "ops": out["ops"], "batch": "b-kind",
+                  "proposal_id": out["proposal_id"]},
+        ).json()  # fmt: skip
+        assert (res["applied"], res["dropped"]) == (1, [])
+        line = next(ln for ln in _lines(store) if ln["source"] == EX + "Sample")
+        assert (line["target"], line["relation"]) == (SV + "specimen", "equivalentClass")
+        assert (line["drafted_by"], line["batch"], line["reason"]) == ("ai", "b-kind", "同じ試料")
+        # 同じ線をもう一度 → duplicate。公開済みでない鍵は検査で 422、項目の語への種類は mixed
+        dup = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "home", "context": {}, "ops": [same], "proposal_id": "again"},
+        ).json()
+        assert dup["duplicate"] is True
+        ghost = {**same, "from": "kind:0000000000"}
+        bad = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "home", "context": {}, "ops": [ghost], "proposal_id": "g"},
+        )
+        assert bad.status_code == 422
+        # ✕ は種類の IRI で保存され、次の適用で効く
+        other = {**same, "to": "specimen", "rel": "sub", "reason": ""}
+        assert client.post("/api/consult/graph/dismiss",
+                           json={"screen": "home", "context": {}, "ops": [other]}
+                           ).json() == {"dismissed": 1}  # fmt: skip
+        res2 = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "home", "context": {}, "ops": [other], "proposal_id": "o"},
+        ).json()
+        assert [d["reason"] for d in res2["dropped"]] == ["dismissed"]
+        # 外す（線は種類の IRI のまま消える）
+        rm = {"op": "remove", "target": "relation", "from": key, "rel": "eq", "to": "specimen",
+              "reason": "違った"}  # fmt: skip
+        res3 = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "home", "context": {}, "ops": [rm], "proposal_id": "r"},
+        ).json()
+        assert res3["applied"] == 1
+    assert [ln for ln in _lines(store) if ln["source"] == EX + "Sample"] == []
+    dismissed = shared_vocab.load_dismissed(tmp_path / "registry")
+    assert [(d["subject"], d["term"], d.get("relation")) for d in dismissed] == [
+        (EX + "Sample", SV + "specimen", "subClassOf")
+    ]
+
+
 def test_home_does_not_add_concepts_and_only_takes_lines(tmp_path: Path) -> None:
     app, store = _app(tmp_path, _LLM())
     with TestClient(app, headers={**_AUTH, **KEY}) as client:
@@ -458,14 +532,15 @@ def test_dataset_binds_a_column_into_upper_json_and_the_prompt_has_headings_only
         res = client.post(
             "/api/consult/graph/apply",
             json={"screen": "dataset", "context": ctx, "ops": out["ops"],
-                  "proposal_id": out["proposal_id"]},
+                  "proposal_id": out["proposal_id"], "batch": "b-ds"},
         ).json()  # fmt: skip
         assert (res["applied"], res["dropped"]) == (1, [])
         upper = client.get(f"/api/datasets/{dsid}/upper").json()["upper"]
         assert upper == [
             {"subject": "property:SampleMap/price", "term": SV + "cost",
-             "relation": "equivalentProperty", "applied_at": None}
-        ]  # fmt: skip
+             "relation": "equivalentProperty", "applied_at": None,
+             "drafted_by": "ai", "batch": "b-ds", "reason": "価格の列"}
+        ]  # fmt: skip (the provenance rides to the publication — see test_upper_provenance)
         # the same binding again is a duplicate; a class, a quantity kind and a stranger are refused
         more = [
             bind,
@@ -692,3 +767,42 @@ def test_dataset_apply_keeps_the_skipped_reason_of_other_lines(tmp_path: Path) -
                   "proposal_id": "p2"},
         ).json()  # fmt: skip
         assert (again["applied"], again["duplicate"]) == (0, True)
+
+
+def test_upper_provenance_rides_from_the_chat_to_the_published_line(tmp_path: Path) -> None:
+    """C2: 会話で受けた当てはめの来歴（drafted_by・batch・reason）は ``upper.json`` に残り、表からの
+    PUT で落ちず、公開で ``assert_alignment`` に届く。表で直に受けた線は従来どおり ``human``。"""
+    from tests.test_upper_questions import _stage
+
+    bind = {"op": "bind_column", "column": "price", "to": "cost", "rel": "sub",
+            "reason": "価格の列"}  # fmt: skip
+    app, store = _app(tmp_path, _LLM())
+    dsid = _dataset(tmp_path)
+    _stage(tmp_path, store, dsid)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint(client, "cost", "費用")
+        ctx = {"dataset_id": dsid}
+        res = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "dataset", "context": ctx, "ops": [bind], "proposal_id": "p",
+                  "batch": "b-ds", "drafted_by": "ai"},
+        ).json()  # fmt: skip
+        assert res["applied"] == 1
+        hand = {"subject": "property:SampleMap/weight", "term": SV + "cost",
+                "relation": "equivalentProperty"}  # fmt: skip
+        # 表の PUT は来歴を知らない（送らない）— 既存の線の来歴は落ちない
+        cur = client.get(f"/api/datasets/{dsid}/upper").json()["upper"]
+        plain = [{k: v for k, v in u.items() if k in ("subject", "term", "relation")} for u in cur]
+        put = client.put(f"/api/datasets/{dsid}/upper", json={"upper": [*plain, hand]}).json()
+        rows = {u["subject"]: u for u in put["upper"]}
+        assert rows["property:SampleMap/price"]["drafted_by"] == "ai"
+        assert "drafted_by" not in rows["property:SampleMap/weight"]
+
+        assert client.post(f"/api/datasets/{dsid}/promote").status_code == 200
+    lines = {ln["source"]: ln for ln in _lines(store)}
+    price = lines[EX + "price"]
+    assert (price["relation"], price["drafted_by"], price["batch"], price["reason"]) == (
+        "subPropertyOf", "ai", "b-ds", "価格の列",
+    )  # fmt: skip
+    weight = lines[EX + "weight"]
+    assert (weight["drafted_by"], weight["batch"]) == ("human", None)
