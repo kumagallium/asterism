@@ -188,6 +188,7 @@ def register_themes(
 ) -> None:
     """Register the ``/api/themes/*`` routes on ``app`` (called once from ``build_app``)."""
     lock = asyncio.Lock()  # 置く・足す・外すは 1 つずつ（themes.json は 1 ファイル）
+    app.state.themes_lock = lock  # 作業場の会話（consult_graph_routes）が同じ鍵で下書きを書く
 
     def _client() -> OxigraphClient:
         return app.state.client

@@ -12032,6 +12032,7 @@ def build_app(
     # 用意したルートを、統合段としてここでまとめて配線する。
     # ------------------------------------------------------------------
     # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
+    from asterism_api.consult_graph_routes import register_consult_graph  # 作業場の会話
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
@@ -12047,6 +12048,8 @@ def build_app(
     register_license(app, cfg)
     register_vocab(app, cfg, write_auth=_write_auth)
     register_themes(app, cfg, _resolve_llm, write_auth=_write_auth)  # テーマ（6 段・用語のページ）
+    # 作業場の会話（左に図・右に会話）の差分の提案・適用・却下（ui-redesign PR 7a）
+    register_consult_graph(app, cfg, _resolve_llm, write_auth=_write_auth)
     register_questions(app, cfg, write_auth=_write_auth)  # ⑥ 自分の問い（questions.json）
     register_upper(app, cfg, write_auth=_write_auth)  # ③⑤ の当てはめ（upper.json）
     register_export(app, cfg)
