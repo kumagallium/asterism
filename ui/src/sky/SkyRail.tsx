@@ -16,6 +16,7 @@ import {
   type SkyLayout,
   type StdNode,
   type TermNode,
+  termLabel,
 } from './skyLayout'
 
 export interface RailProps {
@@ -231,11 +232,51 @@ function DatasetAbout(p: RailProps & { node: DatasetNode }) {
   )
 }
 
+/** 問いの答えの印。知識の問いは「知識 N」（データで答えるものがあれば「N が答える」も）。データの問いは従来どおり。 */
+function AnswerPills({ q }: { q: SkyQuestion }) {
+  const { t } = useTranslation('sky')
+  if (q.mode === 'knowledge') {
+    const k = q.knowledge ?? 0
+    return (
+      <>
+        <span
+          className={`sky-pill ${k > 0 ? 'sky-pill--term' : 'sky-pill--wait'}`}
+          title={t('questions.knowledgeTitle', { n: k })}
+          data-testid="knowledge-pill"
+        >
+          {t('about.answeredByKnowledge', { n: k })}
+        </span>
+        {q.answering > 0 && <span className="sky-pill sky-pill--term">{t('about.answeredBy', { n: q.answering })}</span>}
+      </>
+    )
+  }
+  return (
+    <span className={`sky-pill ${q.answering > 0 ? 'sky-pill--term' : 'sky-pill--wait'}`}>
+      {q.answering > 0 ? t('about.answeredBy', { n: q.answering }) : t('about.notYet')}
+    </span>
+  )
+}
+
+/** この用語がつながる知識の関係を文で（「粒界散乱 は 格子熱伝導率 を下げる」）。 */
+function termKnowledgeSentences(sky: SkyData, iri: string, lang: 'ja' | 'en'): { key: string; relation: string; subject: string; object: string; reason: string | null }[] {
+  const label = new Map(sky.terms.map((x) => [x.iri, termLabel(x, lang)]))
+  return (sky.edges ?? [])
+    .filter((e) => (e.from === iri || e.to === iri) && label.has(e.from) && label.has(e.to))
+    .map((e) => ({
+      key: `${e.from}|${e.relation}|${e.to}`,
+      relation: e.relation,
+      subject: label.get(e.from) as string,
+      object: label.get(e.to) as string,
+      reason: e.reason,
+    }))
+}
+
 function TermAbout(p: RailProps & { node: TermNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
   const term = p.sky.terms.find((x) => x.iri === node.iri)
   const qs = term ? p.sky.questions.filter((q) => q.needs.includes(term.iri)) : []
+  const known = term ? termKnowledgeSentences(p.sky, term.iri, p.lang) : []
   const std = stdText(p, node.stdId ? node.stdId.slice(2) : null)
   const empty = node.memberIds.length === 0
   return (
@@ -277,13 +318,23 @@ function TermAbout(p: RailProps & { node: TermNode }) {
           {qs.length === 0 && t('about.noQuestion')}
           {qs.map((q) => (
             <button key={q.tool_name} type="button" className="sky-linkrow" onClick={() => p.onSelectQuestion(q.tool_name)}>
-              {q.title}{' '}
-              <span className="sky-meta">
-                {q.answering > 0 ? t('about.answeredBy', { n: q.answering }) : t('about.notYet')}
-              </span>
+              {q.title} <AnswerPills q={q} />
             </button>
           ))}
         </dd>
+        {known.length > 0 && (
+          <>
+            <dt>{t('about.knowledgeLines')}</dt>
+            <dd data-testid="term-knowledge">
+              {known.map((k) => (
+                <div key={k.key} title={k.reason ?? undefined}>
+                  {t(`line.sentence.${k.relation}`, { subject: k.subject, object: k.object })}
+                  {k.reason && <span className="sky-meta"> · {k.reason}</span>}
+                </div>
+              ))}
+            </dd>
+          </>
+        )}
         {std && (
           <>
             <dt>{t('about.standard')}</dt>
@@ -447,9 +498,7 @@ function QuestionsCard(p: RailProps) {
               >
                 <Ring q={q} />
                 <span className="sky-qrow-title">{q.title}</span>
-                <span className={`sky-pill ${q.answering > 0 ? 'sky-pill--term' : 'sky-pill--wait'}`}>
-                  {q.answering > 0 ? t('about.answeredBy', { n: q.answering }) : t('about.notYet')}
-                </span>
+                <AnswerPills q={q} />
               </button>
               {/* 選んだ問いが要る用語の札（押すとその用語の星へ）。 */}
               {p.selectedQuestion === q.tool_name && (

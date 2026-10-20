@@ -91,7 +91,9 @@
     "draftCount": "{{n}} 件",
     "draftQuestions": "問い",
     "draftHint": "まだ確かめていません。②で図と文を見て、まとめて確定すると、本物の札になります。",
-    "draftOpen": "たしかめる →"
+    "draftOpen": "たしかめる →",
+    "knowledgeLines": "知っていること",
+    "answeredByKnowledge": "知識 {{n}}"
   },
   "questions": {
     "head": "知りたいこと",
@@ -99,7 +101,9 @@
     "all": "テーマを全部見る →",
     "ring": "{{n}} / {{total}} のデータセットが答える",
     "ringNone": "まだ答えるデータがない",
-    "theme": "はじめの問い"
+    "theme": "はじめの問い",
+    "knowledgeN": "知識 {{n}}",
+    "knowledgeTitle": "確定した知識の関係 {{n}} 件で答える"
   },
   "table": {
     "summary": "図と同じ内容の表",
@@ -122,7 +126,10 @@
     "colMembers": "参加している種類",
     "typeClass": "種類",
     "typeProperty": "項目",
-    "close": "閉じる"
+    "close": "閉じる",
+    "lines": "知識の関係",
+    "colLine": "関係",
+    "colReason": "理由"
   },
   "more": {
     "label": "その他の操作",
@@ -131,5 +138,14 @@
   "grown": "答えられる問い {{from}} → {{to}}",
   "drafts": {
     "review": "たしかめるものが {{n}} 件 →"
+  },
+  "line": {
+    "partOf": "一部",
+    "sentence": {
+      "isPartOf": "{{subject}} は {{object}} の一部",
+      "lowers": "{{subject}} は {{object}} を下げる",
+      "raises": "{{subject}} は {{object}} を上げる",
+      "affects": "{{subject}} は {{object}} を変える"
+    }
   }
 }

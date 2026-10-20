@@ -4,6 +4,7 @@ import { EMPTY_SKY, type DraftSky, type SkyData } from './skyApi'
 import { makeSky } from './skyFixture'
 import {
   chooseMode,
+  conceptEdgeGeom,
   draftCardConcepts,
   draftNodeId,
   hash01,
@@ -331,5 +332,78 @@ describe('下書きの札（上の帯・枠だけ）', () => {
         expect(Math.abs(p.x - q.x)).toBeGreaterThanOrEqual((p.w + q.w) / 2)
       }
     }
+  })
+})
+
+describe('layoutSky — 語どうしの知識の線（一部・下げる・上げる・変える）', () => {
+  const base = makeSky(3, 12)
+  const [a, b, c] = base.terms
+  const withEdges = (edges: SkyData['edges']): SkyData => ({ ...base, edges })
+
+  it('線は kind=concept・relation つきで足され、札の位置は動かない', () => {
+    const none = layoutSky(withEdges([]), { width: 1000 })
+    const l = layoutSky(
+      withEdges([
+        { from: a.iri, to: b.iri, relation: 'lowers', reason: null },
+        { from: b.iri, to: c.iri, relation: 'isPartOf', reason: '粒の中' },
+      ]),
+      { width: 1000 },
+    )
+    expect(positions(l)).toEqual(positions(none))
+    expect(l.height).toBe(none.height)
+    const cs = l.edges.filter((e) => e.kind === 'concept')
+    expect(cs.map((e) => [e.from, e.to, e.relation])).toEqual([
+      [termId(a.iri), termId(b.iri), 'lowers'],
+      [termId(b.iri), termId(c.iri), 'isPartOf'],
+    ])
+    // 他の線は 1 本も減らない
+    expect(l.edges.filter((e) => e.kind !== 'concept')).toEqual(none.edges.filter((e) => e.kind !== 'concept'))
+  })
+
+  it('札の無い語・自分自身・重複の線は足さない', () => {
+    const l = layoutSky(
+      withEdges([
+        { from: a.iri, to: 'urn:none', relation: 'raises', reason: null },
+        { from: a.iri, to: a.iri, relation: 'affects', reason: null },
+        { from: a.iri, to: b.iri, relation: 'raises', reason: null },
+        { from: a.iri, to: b.iri, relation: 'raises', reason: null },
+      ]),
+      { width: 1000 },
+    )
+    expect(l.edges.filter((e) => e.kind === 'concept')).toHaveLength(1)
+  })
+
+  it('edges が無い古いサーバの形でも動く', () => {
+    const old = { ...base } as Partial<SkyData>
+    delete old.edges
+    expect(layoutSky(old as SkyData, { width: 1000 }).edges.some((e) => e.kind === 'concept')).toBe(false)
+  })
+
+  it('線の形は札の縁から縁へ・決定論・逆向きの線は別の側に曲がる', () => {
+    const l = layoutSky(
+      withEdges([
+        { from: a.iri, to: b.iri, relation: 'lowers', reason: null },
+        { from: b.iri, to: a.iri, relation: 'raises', reason: null },
+      ]),
+      { width: 1000 },
+    )
+    const [e1, e2] = l.edges.filter((e) => e.kind === 'concept')
+    const g1 = conceptEdgeGeom(l, e1)!
+    const g1b = conceptEdgeGeom(l, e1)!
+    expect(g1).toEqual(g1b)
+    const na = l.nodes.get(termId(a.iri))!
+    const nb = l.nodes.get(termId(b.iri))!
+    // 始点は a の札の外側（中心でない）・終点は b の札の縁
+    expect(Math.abs(g1.x1 - na.x) > 1 || Math.abs(g1.y1 - na.y) > 1).toBe(true)
+    expect(Math.abs(g1.x2 - nb.x) > 1 || Math.abs(g1.y2 - nb.y) > 1).toBe(true)
+    const g2 = conceptEdgeGeom(l, e2)!
+    expect(Math.sign(g1.cy - (g1.y1 + g1.y2) / 2) + Math.sign(g2.cy - (g2.y1 + g2.y2) / 2)).toBe(0)
+    // 用語の札でないものは null
+    expect(conceptEdgeGeom(l, { kind: 'concept', from: 'k|x|y', to: termId(a.iri) })).toBeNull()
+  })
+
+  it('線でつながる札は近傍に入る（選ぶとつながる語が濃く残る）', () => {
+    const l = layoutSky(withEdges([{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }]), { width: 1000 })
+    expect(neighborhood(l, termId(b.iri)).has(termId(a.iri))).toBe(true)
   })
 })

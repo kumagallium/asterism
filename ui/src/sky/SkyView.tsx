@@ -225,6 +225,7 @@ function SkyBody(
       empty: t('bands.noStar'),
       property: t('bands.property'),
       draft: t('bands.draft'),
+      partOf: t('line.partOf'),
       count: (n) => t('unit.count', { n: formatCount(n, lang) }),
       kinds: (n) => t('unit.kinds', { n }),
     }),

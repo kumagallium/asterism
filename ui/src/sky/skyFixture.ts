@@ -1,6 +1,6 @@
 // 星図の試験に使う作り物（架空の分野）。種つき（`hash01` と同じ決定論）で、時刻・乱数は使わない。
 // テストのファイルから import すると、そのファイルのテストがもう一度走るので、ここに置く。
-import type { SkyData, SkyDataset, SkyHub, SkyKind, SkyStandard, SkyTerm } from './skyApi'
+import type { SkyData, SkyDataset, SkyHub, SkyKind, SkyLine, SkyQuestion, SkyStandard, SkyTerm } from './skyApi'
 import { hash01 } from './skyLayout'
 
 const NS = 'https://example.org/sky#'
@@ -83,6 +83,32 @@ export function makeSky(datasets: number, kinds: number, salt = 'sky'): SkyData 
       questions: [],
     } as SkyTerm
   })
+  // 語どうしの知識の線（約 1/5 の語から、別の語へ）と、知識で答える問い 1 つ（データ 0・知識 2）
+  const relations: SkyLine['relation'][] = ['isPartOf', 'lowers', 'raises', 'affects']
+  const edges: SkyLine[] = []
+  for (let t = 0; t < nTerms && nTerms > 1; t++) {
+    if (hash01(`t${t}`, salt + 'le') >= 0.2) continue
+    const to = (t + 1 + Math.floor(hash01(`t${t}`, salt + 'lt') * (nTerms - 1))) % nTerms
+    edges.push({
+      from: terms[t].iri,
+      to: terms[to].iri,
+      relation: relations[Math.floor(hash01(`t${t}`, salt + 'lr') * relations.length)],
+      reason: null,
+    })
+  }
+  const kq: SkyQuestion = {
+    tool_name: 'kq_term_000_factors_lowers',
+    title: `${terms[0].label}を下げるものは？`,
+    mode: 'knowledge',
+    theme_id: 'fixture',
+    theme_label: '作り物のテーマ',
+    answering: 0,
+    knowledge: 2,
+    total_datasets: datasets,
+    needs: [terms[0].iri],
+    shape: '',
+  }
+  terms[0].questions = [kq.tool_name]
   const nHubs = Math.max(1, Math.round(datasets / 4))
   const hubs: SkyHub[] = Array.from({ length: nHubs }, (_, h) => {
     const members: string[] = []
@@ -97,14 +123,15 @@ export function makeSky(datasets: number, kinds: number, salt = 'sky'): SkyData 
     terms,
     standards: stds,
     hubs,
-    questions: [],
+    questions: [kq],
+    edges,
     facts: {
       triples: 0,
       datasets,
       kinds,
       terms: nTerms,
-      questions_answerable: 0,
-      questions_total: 0,
+      questions_answerable: 1,
+      questions_total: 1,
       published_graphs: datasets,
     },
     recent: [],

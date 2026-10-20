@@ -5,6 +5,7 @@
 // 色は CSS 変数から（`readSkyPalette`）。配置は `skyLayout.ts`（描画は何も決めない）。
 import {
   approxLabelWidth,
+  conceptEdgeGeom,
   type DatasetNode,
   type KindNode,
   type SkyLayout,
@@ -82,6 +83,8 @@ export interface SkyLabels {
   property: string
   /** 下書きの札の印（枠だけの札の上）。 */
   draft: string
+  /** 知識の線の小さな札（「一部」）。下げる／上げる／変えるは記号（↓ ↑ ↕）。 */
+  partOf: string
   /** 件数の単位つき文字列（`46,200 件`）。 */
   count: (n: number) => string
   /** データセットの丸の下（`3 種類`）。 */
@@ -400,6 +403,33 @@ export function drawSky(
     ctx.restore()
   }
 
+  // 語どうしの知識の線（一部＝細い線＋矢じり、下げる／上げる／変える＝線＋矢じり）。札の下に敷く。
+  // 静かな表示では薄くする。小さな札（一部・↓ ↑ ↕）は用語の札のあとに重ねる。
+  const quietK = st.reducedMotion ? 0.5 : 1
+  for (const e of layout.edges) {
+    if (e.kind !== 'concept') continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    const part = e.relation === 'isPartOf'
+    ctx.save()
+    ctx.globalAlpha = Math.min(alphaOf(e.from), alphaOf(e.to)) * (part ? 0.75 : 0.9) * quietK * A
+    ctx.strokeStyle = part ? pal.body : pal.activity
+    ctx.fillStyle = ctx.strokeStyle
+    ctx.lineWidth = near && near.has(e.from) && near.has(e.to) && focus ? 1.8 : part ? 1 : 1.4
+    ctx.beginPath()
+    ctx.moveTo(g.x1, g.y1)
+    ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2)
+    ctx.stroke()
+    const ang = Math.atan2(g.y2 - g.cy, g.x2 - g.cx)
+    ctx.beginPath()
+    ctx.moveTo(g.x2, g.y2)
+    ctx.lineTo(g.x2 - 8 * Math.cos(ang - 0.4), g.y2 - 8 * Math.sin(ang - 0.4))
+    ctx.lineTo(g.x2 - 8 * Math.cos(ang + 0.4), g.y2 - 8 * Math.sin(ang + 0.4))
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+  }
+
   // 星（種類）・丸（データセット）
   ctx.textAlign = 'center'
   for (const n of layout.nodes.values()) {
@@ -538,6 +568,29 @@ export function drawSky(
       ctx.textBaseline = 'top'
       ctx.fillText(fitText(ctx, `≡ ${std.prefix}:${std.label}`, n.w + 8), n.x, y + h + 3)
     }
+    ctx.restore()
+  }
+
+  // 知識の線の小さな札（線の中ほど）
+  for (const e of layout.edges) {
+    if (e.kind !== 'concept') continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    const text = e.relation === 'isPartOf' ? labels.partOf : e.relation === 'lowers' ? '↓' : e.relation === 'raises' ? '↑' : '↕'
+    ctx.save()
+    ctx.globalAlpha = Math.min(alphaOf(e.from), alphaOf(e.to)) * quietK * A
+    ctx.font = `600 ${e.relation === 'isPartOf' ? 9.5 : 11}px ${pal.font}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const w = ctx.measureText(text).width + 10
+    roundRect(ctx, g.mx - w / 2, g.my - 8, w, 16, 8)
+    ctx.fillStyle = pal.surface
+    ctx.fill()
+    ctx.strokeStyle = e.relation === 'isPartOf' ? pal.body : pal.activity
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.fillStyle = e.relation === 'isPartOf' ? pal.body : pal.activity
+    ctx.fillText(text, g.mx, g.my + 0.5)
     ctx.restore()
   }
 

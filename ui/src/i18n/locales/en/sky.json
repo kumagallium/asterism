@@ -91,7 +91,9 @@
     "draftCount": "{{n}}",
     "draftQuestions": "Questions",
     "draftHint": "Not checked yet. Look at the map and sentences in step 2 and confirm them together to make it a real card.",
-    "draftOpen": "Check it →"
+    "draftOpen": "Check it →",
+    "knowledgeLines": "What is known",
+    "answeredByKnowledge": "Knowledge {{n}}"
   },
   "questions": {
     "head": "What you want to know",
@@ -99,7 +101,9 @@
     "all": "See all themes →",
     "ring": "{{n}} of {{total}} datasets answer",
     "ringNone": "No data answers yet",
-    "theme": "First questions"
+    "theme": "First questions",
+    "knowledgeN": "Knowledge {{n}}",
+    "knowledgeTitle": "Answered by {{n}} confirmed knowledge relations"
   },
   "table": {
     "summary": "Table with the same content as the chart",
@@ -122,7 +126,10 @@
     "colMembers": "Kinds taking part",
     "typeClass": "kind",
     "typeProperty": "field",
-    "close": "Close"
+    "close": "Close",
+    "lines": "Knowledge relations",
+    "colLine": "Relation",
+    "colReason": "Reason"
   },
   "more": {
     "label": "More",
@@ -131,5 +138,14 @@
   "grown": "Answerable questions {{from}} → {{to}}",
   "drafts": {
     "review": "{{n}} to check →"
+  },
+  "line": {
+    "partOf": "part",
+    "sentence": {
+      "isPartOf": "{{subject}} is a part of {{object}}",
+      "lowers": "{{subject}} lowers {{object}}",
+      "raises": "{{subject}} raises {{object}}",
+      "affects": "{{subject}} changes {{object}}"
+    }
   }
 }

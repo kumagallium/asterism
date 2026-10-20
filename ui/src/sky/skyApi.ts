@@ -55,12 +55,29 @@ export interface SkyHub {
   members: string[]
 }
 
+/** 語どうしの知識の線の関係（一部・下げる・上げる・変える）。 */
+export type SkyKnowledgeRelation = 'isPartOf' | 'lowers' | 'raises' | 'affects'
+
+/** 語（用語）どうしの知識の線。`from` が `to` を下げる／上げる／変える、`from` は `to` の一部。 */
+export interface SkyLine {
+  from: string
+  to: string
+  relation: SkyKnowledgeRelation
+  /** 確定したときの理由 1 行（無ければ null）。 */
+  reason: string | null
+}
+
 export interface SkyQuestion {
   tool_name: string
   title: string
+  /** `data`＝データで答える問い。`knowledge`＝確定した知識の線で答える問い（`kq_…`）。 */
+  mode?: 'data' | 'knowledge'
   theme_id: string | null
   theme_label: string
+  /** 答えるデータセットの数（輪はこの数）。 */
   answering: number
+  /** 対象の語の確定した知識の線の数（データの問いは 0）。 */
+  knowledge?: number
   total_datasets: number
   /** 要る用語の IRI。 */
   needs: string[]
@@ -94,6 +111,8 @@ export interface SkyData {
   standards: SkyStandard[]
   hubs: SkyHub[]
   questions: SkyQuestion[]
+  /** 語どうしの知識の線（古いサーバでは無い）。 */
+  edges?: SkyLine[]
   facts: SkyFacts
   recent: SkyRecent[]
   truncated: boolean
@@ -105,6 +124,7 @@ export const EMPTY_SKY: SkyData = {
   standards: [],
   hubs: [],
   questions: [],
+  edges: [],
   facts: {
     triples: 0,
     datasets: 0,
@@ -116,6 +136,11 @@ export const EMPTY_SKY: SkyData = {
   },
   recent: [],
   truncated: false,
+}
+
+/** 問いが答えられるか = データ ≥ 1 または 知識 ≥ 1（`sky_view` と同じ定義）。 */
+export function isAnswerable(q: Pick<SkyQuestion, 'answering' | 'knowledge'>): boolean {
+  return q.answering >= 1 || (q.knowledge ?? 0) >= 1
 }
 
 export async function getSky(): Promise<SkyData> {

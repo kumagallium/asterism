@@ -10,7 +10,7 @@
 //     （帯の札・ハブは重心に置くため、星が増えれば動いてよい）。
 //   ・規模: 種類 ≤ 60 かつ データセット ≤ 8 は星のまま。超えたらデータセットを 1 つの丸に畳む。
 //   ・帯の札は重ならない。横に並べきれなければ段（レーン）を足して帯を押し広げる。
-import type { DraftSky, SkyData, SkyDataset, SkyHub, SkyTerm } from './skyApi'
+import type { DraftSky, SkyData, SkyDataset, SkyHub, SkyKnowledgeRelation, SkyTerm } from './skyApi'
 
 // ── 決定論のハッシュ（モックと同じ） ──────────────────────────────
 export function fnv1a(str: string, seed?: number): number {
@@ -144,7 +144,7 @@ export interface DraftNode extends NodeBase {
 }
 export type SkyNode = KindNode | DatasetNode | TermNode | StdNode | HubNode | DraftNode
 
-export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub'
+export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub' | 'concept'
 export interface SkyEdge {
   kind: SkyEdgeKind
   /** member: 点（星・丸）→ 用語。termStd: 用語 → 標準用語。kindStd: 点 → 標準用語。hub: 点 → ハブ。link: 星 → 星。 */
@@ -152,6 +152,8 @@ export interface SkyEdge {
   to: string
   /** member だけ: 同じもの（矢じり無し）。 */
   eq?: boolean
+  /** concept だけ（用語 → 用語の知識の線）: 一部・下げる・上げる・変える。`from` が主語。 */
+  relation?: SkyKnowledgeRelation
 }
 
 export interface SkyCluster {
@@ -751,7 +753,60 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     for (const mid of m.memberIds) edges.push({ kind: 'hub', from: mid, to: p.id })
   }
 
+  // 語どうしの知識の線（一部・下げる・上げる・変える）。札の位置は動かさず、線だけを足す。
+  const conceptSeen = new Set<string>()
+  for (const l of sky.edges ?? []) {
+    const from = termId(l.from)
+    const to = termId(l.to)
+    const key = `${from}>${to}>${l.relation}`
+    if (from === to || conceptSeen.has(key) || nodes.get(from)?.type !== 'term' || nodes.get(to)?.type !== 'term') continue
+    conceptSeen.add(key)
+    edges.push({ kind: 'concept', from, to, relation: l.relation })
+  }
+
   return { width: W, height, mode, bands, nodes, clusters, edges }
+}
+
+export interface ConceptEdgeGeom {
+  /** 始点・終点（札の縁）と、曲げの制御点。 */
+  x1: number
+  y1: number
+  cx: number
+  cy: number
+  x2: number
+  y2: number
+  /** 線の中ほど（小さな札を置く所）。 */
+  mx: number
+  my: number
+}
+
+/** 札の中心から相手へ向かう線が、札の縁（半幅 hw・半高 hh）と交わる点。 */
+function clipToCard(x: number, y: number, hw: number, hh: number, tx: number, ty: number): { x: number; y: number } {
+  const dx = tx - x
+  const dy = ty - y
+  if (dx === 0 && dy === 0) return { x, y }
+  const k = Math.min(dx === 0 ? Infinity : hw / Math.abs(dx), dy === 0 ? Infinity : hh / Math.abs(dy))
+  return { x: x + dx * k, y: y + dy * k }
+}
+
+/**
+ * 用語の札 2 つを結ぶ知識の線の形（札の縁から縁へ・少し曲げる）。曲げる向きは進む向きで決まる
+ * （同じ 2 点を逆向きに結ぶ線は反対の側に曲がり、重ならない）。決定論。どちらかが用語の札でなければ null。
+ */
+export function conceptEdgeGeom(layout: SkyLayout, e: SkyEdge): ConceptEdgeGeom | null {
+  const a = layout.nodes.get(e.from)
+  const c = layout.nodes.get(e.to)
+  if (!a || !c || a.type !== 'term' || c.type !== 'term') return null
+  const pad = 3
+  const p1 = clipToCard(a.x, a.y, a.w / 2 + pad, a.h / 2 + pad, c.x, c.y)
+  const p2 = clipToCard(c.x, c.y, c.w / 2 + pad, c.h / 2 + pad, a.x, a.y)
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const len = Math.hypot(dx, dy) || 1
+  const bow = Math.min(26, len * 0.14) // 進む向きの左へ。逆向きの線は反対の側に曲がる
+  const cx = (p1.x + p2.x) / 2 - (dy / len) * bow
+  const cy = (p1.y + p2.y) / 2 + (dx / len) * bow
+  return { x1: p1.x, y1: p1.y, cx, cy, x2: p2.x, y2: p2.y, mx: 0.25 * p1.x + 0.5 * cx + 0.25 * p2.x, my: 0.25 * p1.y + 0.5 * cy + 0.25 * p2.y }
 }
 
 // ── 近傍（hover・選択の濃淡） ─────────────────────────────────────
