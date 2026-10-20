@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { layoutConceptMap } from './conceptMapLayout'
-import { type ConceptRow, type RelKind, type RelationRow, conceptName } from './themeDraft'
+import { type ConceptRow, type RelKind, type RelationRow, type StandardInfo, conceptName } from './themeDraft'
 
 // 知識の図（②の左 2/3）。星図と同じ紙の見た目。札＝概念（種類は --entity、項目は --activity の薄塗り、
 // 標準用語に一致したものは地平線の色の枠）、線＝関係。一種・一部は矢じり付きで段をまたぎ、
@@ -9,8 +9,11 @@ import { type ConceptRow, type RelKind, type RelationRow, conceptName } from './
 // 配置は conceptMapLayout.ts（純関数）。点を押すと右の文が光り、押した点の下に
 // 「ここを広げる」「外す」が出る。問いにつながらない概念には印を付け、確定の数から外す。
 
-/** 図を縮める下限（これより小さくなるなら、縮めずに横へスクロールさせる）。 */
-const MIN_SCALE = 0.55
+/**
+ * 図を縮める下限。これより小さくなるなら縮めず、図の中で横へスクロールさせる（ページははみ出さない）。
+ * 0.85 より小さいと 375px 幅で札の文字（0.78rem）が読めなくなる。
+ */
+const MIN_SCALE = 0.85
 
 const PILL: Partial<Record<RelKind, string>> = {
   lowers: '↓',
@@ -22,6 +25,8 @@ const PILL: Partial<Record<RelKind, string>> = {
 export interface ConceptMapProps {
   concepts: ConceptRow[]
   relations: RelationRow[]
+  /** 標準の語（curie → 表示名）。関係の端にあれば、地平線の色の小さな札として図に出す。 */
+  standards: Record<string, StandardInfo>
   lang: string
   selectedKey: string | null
   /** 右の文に重ねたポインタ。その関係の線を光らせる。 */
@@ -44,10 +49,26 @@ function isStandardMatched(c: ConceptRow): boolean {
 export function ConceptMap(p: ConceptMapProps) {
   const { t } = useTranslation()
   const rowByKey = useMemo(() => new Map(p.concepts.map((c) => [c.key, c])), [p.concepts])
+  // 関係の端が概念でなく標準の語（curie）なら、その語を小さな札として足す（文の「…は Thermal Conductivity（標準）」と図の線を対応させる）
+  const stdWords = useMemo(() => {
+    const keys = new Set(p.concepts.map((c) => c.key))
+    const out = new Map<string, string>()
+    for (const r of p.relations) {
+      for (const end of [r.from, r.to]) {
+        if (keys.has(end) || out.has(end) || !end.includes(':')) continue
+        const info = p.standards[end]
+        out.set(end, info?.label || end.slice(end.indexOf(':') + 1))
+      }
+    }
+    return out
+  }, [p.concepts, p.relations, p.standards])
   const layout = useMemo(
     () =>
       layoutConceptMap(
-        p.concepts.map((c) => ({ key: c.key, label: conceptName(c, p.lang), mark: c.kind === 'property' })),
+        [
+          ...p.concepts.map((c) => ({ key: c.key, label: conceptName(c, p.lang), mark: c.kind === 'property' })),
+          ...[...stdWords].map(([key, label]) => ({ key, label, std: true })),
+        ],
         p.relations.map((r, index) => ({
           index,
           from: r.from,
@@ -56,7 +77,7 @@ export function ConceptMap(p: ConceptMapProps) {
           problem: r.problem !== null,
         })),
       ),
-    [p.concepts, p.relations, p.lang],
+    [p.concepts, p.relations, p.lang, stdWords],
   )
 
   // 図は置き場の幅に縮めて収める（縮める下限を下回るときだけ横にスクロール）
@@ -138,7 +159,7 @@ export function ConceptMap(p: ConceptMapProps) {
               })}
             </svg>
             {layout.edges.map((e) => {
-              const text = e.problem ? '×' : e.kind === 'hier' ? t(`themes:map.pill.${e.rel}`) : PILL[e.rel]
+              const text = e.problem ? '×' : e.kind === 'hier' || e.rel === 'quantity' ? t(`themes:map.pill.${e.rel}`) : PILL[e.rel]
               if (!text) return null
               const lit = p.litRelation === e.index || touches(e)
               return (
@@ -154,6 +175,21 @@ export function ConceptMap(p: ConceptMapProps) {
             })}
             {layout.nodes.map((n) => {
               const c = rowByKey.get(n.key)
+              if (!c && n.std) {
+                return (
+                  <div
+                    key={n.key}
+                    className="thm-node thm-node--word"
+                    style={{ left: n.x, top: n.y + 5, width: n.w, height: n.h - 10 }}
+                    data-key={n.key}
+                    data-testid="std-word"
+                    title={t('themes:rel.stdName', { name: stdWords.get(n.key) ?? n.key })}
+                    onClick={(ev) => ev.stopPropagation()}
+                  >
+                    <span className="thm-node-name">{stdWords.get(n.key)}</span>
+                  </div>
+                )
+              }
               if (!c) return null
               const lonely = p.unlinked.has(n.key)
               const std = isStandardMatched(c)

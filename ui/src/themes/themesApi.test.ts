@@ -6,9 +6,16 @@ import {
   deleteTheme,
   draftWithAi,
   expandDraft,
+  getDraft,
   getThemeAnswers,
   themeLabel,
 } from './themesApi'
+
+// 書き込み用の鍵が設定されている状態にする（実際の鍵の置き場は sessionStorage で、この環境には無い）
+vi.mock('../authToken', async (orig) => ({
+  ...(await orig<typeof import('../authToken')>()),
+  authHeaders: () => ({ 'X-Asterism-Token': 'tok' }),
+}))
 
 const t = (key: string) => (key === 'themes:firstThemeLabel' ? 'First questions' : key)
 
@@ -111,5 +118,16 @@ describe('the v2 api client (6a)', () => {
     const a = await getThemeAnswers('t 1', 'en')
     expect(a[0].tool_name).toBe('kq_x')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/themes/t%201/answers?lang=en')
+  })
+
+  it('sends the write token when it opens a saved draft (the api gates GET /drafts/{id})', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      json({ id: 'x', label: 'L', step: 1, questions: [], concepts: [], relations: [], answers: [] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await getDraft('x 1')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/themes/drafts/x%201')
+    expect((init as RequestInit).headers).toMatchObject({ 'X-Asterism-Token': 'tok' })
   })
 })

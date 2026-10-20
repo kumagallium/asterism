@@ -81,6 +81,8 @@ export interface AnswerRow {
 export interface StandardInfo {
   label: string
   kind: string
+  /** api が返す標準の語の IRI（無ければ `STD_NAMESPACES` の表で組む。古い下書きのための予備）。 */
+  iri?: string
 }
 
 /** POST /api/themes/draft の返り値（機械の後処理まで済んだ行）。 */
@@ -220,7 +222,10 @@ function listOf<T>(raw: unknown, f: (o: Record<string, unknown>) => T | null): T
 function standardsOf(raw: unknown): Record<string, StandardInfo> {
   if (!isObj(raw)) return {}
   const out: Record<string, StandardInfo> = {}
-  for (const [k, v] of Object.entries(raw)) if (isObj(v)) out[k] = { label: str(v.label), kind: str(v.kind) }
+  for (const [k, v] of Object.entries(raw)) {
+    if (!isObj(v)) continue
+    out[k] = { label: str(v.label), kind: str(v.kind), ...(isStr(v.iri) && v.iri ? { iri: v.iri } : {}) }
+  }
   return out
 }
 
@@ -483,8 +488,13 @@ export function unlinkedKeys(draft: ThemeDraft): Set<string> {
   return new Set(draft.concepts.filter((c) => !reach.has(c.key)).map((c) => c.key))
 }
 
-/** 確定に送る概念（問いの対象につながるもの）。 */
+/**
+ * 確定に送る概念（問いの対象につながるもの）。問いを足す（`extend`）ときは、既に置いたテーマの線を
+ * 画面は持たないので、ここで外さず全部送る（つながっているかは api が保存済みの線も見て判定し、
+ * だめなら 422 で理由を返す）。印（`unlinkedKeys`）だけは出す。
+ */
 export function sentConcepts(draft: ThemeDraft): ConceptRow[] {
+  if (draft.extend) return draft.concepts
   const reach = reachableKeys(draft)
   return draft.concepts.filter((c) => reach.has(c.key))
 }
@@ -664,7 +674,9 @@ const STD_NAMESPACES: Record<string, string> = {
   bibo: 'http://purl.org/ontology/bibo/',
 }
 
-export function standardIri(curie: string): string | null {
+export function standardIri(curie: string, standards?: Record<string, StandardInfo>): string | null {
+  const fromApi = standards?.[curie]?.iri
+  if (fromApi) return fromApi
   const i = curie.indexOf(':')
   const ns = i > 0 ? STD_NAMESPACES[curie.slice(0, i)] : undefined
   return ns && i < curie.length - 1 ? ns + curie.slice(i + 1) : null
@@ -680,12 +692,16 @@ export function conceptDismissKey(label_ja: string): string {
  * `concept:<名前>`（api の `concept_end_key` と同じ規則 — 次の下書きで同じ関係を出さない）。
  * `ref` は関係の端そのもの（概念の key か標準の語の curie）。
  */
-export function dismissEndKey(row: ConceptRow | undefined, ref: string): string {
-  if (!row) return standardIri(ref) ?? ref
+export function dismissEndKey(
+  row: ConceptRow | undefined,
+  ref: string,
+  standards?: Record<string, StandardInfo>,
+): string {
+  if (!row) return standardIri(ref, standards) ?? ref
   if (row.use.startsWith('existing:') && row.slug) return `${SV_NS}${row.slug}`
   const m = row.match
   if (m && (m.kind === 'standard' || m.kind === 'quantity')) {
-    const iri = standardIri(m.ref)
+    const iri = standardIri(m.ref, standards)
     if (iri) return iri
   }
   return conceptDismissKey(row.label_ja)

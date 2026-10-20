@@ -79,7 +79,7 @@ function KnowledgeAnswer({ answer }: { answer: QuestionAnswer | undefined }) {
       {items.map((it) => (
         <li key={`${it.iri}|${it.relation}|${it.via}`}>
           <div>
-            {t(`themes:rel.sentence.${SENTENCE_KEY[it.relation] ?? 'sub'}`, { subject: it.label, object: it.via_label })}
+            {t(`themes:rel.sentence.${SENTENCE_KEY[it.relation] ?? 'other'}`, { subject: it.label, object: it.via_label })}
           </div>
           <div className="thm-reason">
             {t(it.drafted_by === 'ai' ? 'themes:card.byAi' : 'themes:card.byHuman')}
@@ -166,9 +166,7 @@ function ThemeCard({
   const [answers, setAnswers] = useState<QuestionAnswer[] | null | undefined>(undefined)
   const n = theme.questions.length
 
-  function loadAnswers() {
-    if (answers !== undefined) return
-    setAnswers(null)
+  function fetchAnswers() {
     getThemeAnswers(theme.id, lang)
       .then(setAnswers)
       .catch((e) => {
@@ -176,6 +174,20 @@ function ThemeCard({
         setErr(e instanceof Error ? e.message : String(e))
       })
   }
+
+  function loadAnswers() {
+    if (answers !== undefined) return
+    setAnswers(null)
+    fetchAnswers()
+  }
+
+  // 一度でも「答えを見る」を開いたカードは、一覧を取り直したとき（reload）に答えも取り直す
+  // （問いを足した・関係を確定したあとに古い答えが残らない）。
+  useEffect(() => {
+    if (answers === undefined) return
+    fetchAnswers()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme])
 
   async function remove() {
     if (!window.confirm(t('themes:card.removeConfirm', { label: themeLabel(theme, t) }))) return

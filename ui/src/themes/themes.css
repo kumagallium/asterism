@@ -471,7 +471,7 @@ a.thm-term-chip:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 0.35rem 1.8rem 0.35rem 0.6rem;
+  padding: 0.35rem 2.2rem 0.35rem 0.6rem;
   font-size: 0.8125rem;
   display: flex;
   flex-direction: column;
@@ -505,15 +505,21 @@ a.thm-term-chip:hover {
 }
 .thm-x {
   position: absolute;
-  top: 0.2rem;
-  right: 0.3rem;
+  top: 0.1rem;
+  right: 0.15rem;
+  /* 指で押せる大きさ（28px 角以上） */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
   border: 0;
   background: transparent;
   color: var(--faint);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   line-height: 1;
-  padding: 0.2rem 0.3rem;
+  padding: 0;
   border-radius: 4px;
 }
 .thm-x:hover {
@@ -547,9 +553,6 @@ a.thm-term-chip:hover {
   cursor: pointer;
   font-size: 0.75rem;
   color: var(--muted);
-}
-.thm-confirm-note {
-  margin: 0;
 }
 
 /* 知識の図（星図と同じ紙の地） */
@@ -665,6 +668,16 @@ a.thm-term-chip:hover {
 .thm-node--std {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-soft);
+}
+/* 標準の語: 地平線の色の小さな札（概念ではない・関係の端として出すだけ） */
+.thm-node--word {
+  cursor: default;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
 }
 .thm-node.is-on {
   outline: 2.5px solid var(--primary);

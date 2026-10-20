@@ -118,8 +118,10 @@
       "part": "{{subject}} は {{object}} の一部",
       "lowers": "{{subject}} は {{object}} を下げる",
       "raises": "{{subject}} は {{object}} を上げる",
-      "affects": "{{subject}} は {{object}} を変える"
-    }
+      "affects": "{{subject}} は {{object}} を変える",
+      "other": "{{subject}} と {{object}} の関係"
+    },
+    "stdName": "{{name}}（標準）"
   },
   "place": {
     "lead": "テーマ「{{label}}」に、概念 {{concepts}} 件と関係 {{relations}} 件を確定します（問い {{questions}} 件）。",
@@ -167,7 +169,6 @@
     "remove": "用語を外す",
     "open": "用語のページを開く",
     "more": "詳しく",
-    "knowledge": "この語につながる知識",
     "knowledgeAi": "AI 下書きを確定"
   },
   "firstThemeLabel": "はじめの問い",
@@ -202,7 +203,6 @@
     "aiOff": "AI が未設定のため「ここを広げる」は使えません。手で足せます。",
     "confirm": "{{n}} 件をまとめて確定",
     "confirmNone": "問いだけを置く",
-    "confirmNote": "押すと、概念 {{concepts}} 件と関係 {{relations}} 件を確定する画面（③）に進みます。",
     "unlinkedNote": "問いにつながらない概念 {{n}} 件は含みません。",
     "leadHand": "概念を足して、問いごとの答え方を選び、まとめて確定します。"
   },
@@ -250,7 +250,8 @@
     "legendStd": "標準の語に一致",
     "pill": {
       "sub": "一種",
-      "part": "一部"
+      "part": "一部",
+      "quantity": "量"
     },
     "pillTitle": {
       "sub": "一種（細かい → 粗い）",

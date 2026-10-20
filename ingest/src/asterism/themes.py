@@ -401,7 +401,11 @@ def _standards_of(v: Any) -> dict[str, dict]:
     if not isinstance(v, dict):
         return {}
     return {
-        str(k): {"label": str(d.get("label") or ""), "kind": str(d.get("kind") or "")}
+        str(k): {
+            "label": str(d.get("label") or ""),
+            "iri": str(d.get("iri") or ""),
+            "kind": str(d.get("kind") or ""),
+        }
         for k, d in v.items()
         if isinstance(d, dict)
     }
@@ -772,7 +776,7 @@ def postprocess_draft(
         return None
 
     def remember_std(ref: StdRef) -> None:
-        standards[ref.curie] = {"label": ref.label, "kind": ref.kind}
+        standards[ref.curie] = {"label": ref.label, "iri": ref.iri, "kind": ref.kind}
 
     for t in ai.get("concepts", []):
         label_ja = t["label_ja"]

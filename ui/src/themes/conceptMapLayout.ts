@@ -16,6 +16,8 @@ export interface MapNodeIn {
   label: string
   /** 札に「項目」の小さな印を付ける（その分だけ幅を足す）。 */
   mark?: boolean
+  /** 標準の語（地平線の色の小さな札）。概念ではない — 関係の端として図に出すだけ。 */
+  std?: boolean
 }
 export interface MapRelIn {
   /** 描く線の識別子（文の一覧の行と結ぶ）。 */
@@ -47,6 +49,8 @@ export interface MapNodePos {
   w: number
   h: number
   row: number
+  /** 標準の語の札か。 */
+  std: boolean
 }
 
 export interface MapEdgeOut {
@@ -94,6 +98,7 @@ const cubicMid = (p0: Pt, c1: Pt, c2: Pt, p3: Pt): Pt => ({
 
 export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[]): MapLayout {
   const known = new Set(nodes.map((n) => n.key))
+  const stdKeys = new Set(nodes.filter((n) => n.std).map((n) => n.key))
   const valid = rels.filter((r) => r.from !== r.to && known.has(r.from) && known.has(r.to))
   const isHier = (r: MapRelIn): boolean => (r.rel === 'sub' || r.rel === 'part') && !r.problem
   const hier = valid.filter(isHier)
@@ -181,7 +186,7 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[]): MapLayou
       for (const k of col) {
         const w = widthOf.get(k) ?? 76
         // 列の中では、札を列の幅の中央に置く
-        const p: MapNodePos = { key: k, x: x + (cw - w) / 2, y, w, h: MAP_NODE_H, row: r }
+        const p: MapNodePos = { key: k, x: x + (cw - w) / 2, y, w, h: MAP_NODE_H, row: r, std: stdKeys.has(k) }
         placedNodes.push(p)
         byKey.set(k, p)
         colOf.set(k, ci)

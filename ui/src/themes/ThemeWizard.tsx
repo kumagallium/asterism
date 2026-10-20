@@ -125,6 +125,9 @@ export function ThemeWizard({
   const [ai, setAi] = useState<AiState>({ status: 'idle' })
   const [saveErr, setSaveErr] = useState('')
   const [placing, setPlacing] = useState(false)
+  // ①の主ボタンを押してから下書きを保存し終えるまで（二重の下書きを作らない）
+  const [starting, setStarting] = useState(false)
+  const startingRef = useRef(false)
   const [placeErr, setPlaceErr] = useState('')
   // ②
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -261,21 +264,29 @@ export function ThemeWizard({
 
   // ① → ②。すでに下書きの概念があれば、そのまま見せる（読み直しは②の「もう一度読ませる」）。
   async function fromWrite(useAi: boolean) {
+    if (startingRef.current) return
     const questions = questionsFromText()
     if (!canStart(questions)) return
-    const label = labelText.trim()
-    const base: ThemeDraft = {
-      ...draft,
-      label,
-      questions,
-      answers: syncAnswers(draft.answers, questions),
+    startingRef.current = true
+    setStarting(true)
+    try {
+      const label = labelText.trim()
+      const base: ThemeDraft = {
+        ...draft,
+        label,
+        questions,
+        answers: syncAnswers(draft.answers, questions),
+      }
+      if (!useAi) {
+        await go(2, startManual({ ...base, label: label || defaultLabel(questions) }))
+        return
+      }
+      const saved = await persist({ ...base, step: 2 })
+      if (saved.concepts.length === 0 && saved.relations.length === 0) void runAi({ ...saved, label })
+    } finally {
+      startingRef.current = false
+      setStarting(false)
     }
-    if (!useAi) {
-      await go(2, startManual({ ...base, label: label || defaultLabel(questions) }))
-      return
-    }
-    const saved = await persist({ ...base, step: 2 })
-    if (saved.concepts.length === 0 && saved.relations.length === 0) void runAi({ ...saved, label })
   }
 
   // ---- ②の編集 ----
@@ -283,8 +294,11 @@ export function ThemeWizard({
   const nameOf = (key: string): string => {
     const row = concepts.find((r) => r.key === key)
     if (row) return conceptName(row, lang)
+    // 標準の語は表示名で（生の curie は出さない）。情報が無い古い下書きは curie の名前の部分だけ
     const std = draft.standards[key]
-    return std ? `${key}（${std.label}）` : key
+    if (std) return t('themes:rel.stdName', { name: std.label || key.slice(key.indexOf(':') + 1) })
+    const i = key.indexOf(':')
+    return i > 0 ? t('themes:rel.stdName', { name: key.slice(i + 1) }) : key
   }
 
   async function dismissSafely(subject: string, term: string, relation?: string) {
@@ -316,10 +330,11 @@ export function ThemeWizard({
     const from = concepts.find((r) => r.key === rel.from)
     if (rel.by === 'ai' && from) {
       await dismissSafely(
-        dismissEndKey(from, rel.from),
+        dismissEndKey(from, rel.from, draft.standards),
         dismissEndKey(
           concepts.find((r) => r.key === rel.to),
           rel.to,
+          draft.standards,
         ),
         relationPredicate(rel.rel, from.kind),
       )
@@ -383,7 +398,10 @@ export function ThemeWizard({
       const result = await commitTheme(saved.id, buildCommitBody(draft, lang))
       onPlaced(result)
     } catch (e) {
-      setPlaceErr(e instanceof ThemesApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e))
+      const msg = e instanceof ThemesApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e)
+      setPlaceErr(msg)
+      // 置けない組み合わせ（422・問いにつながらない概念など）は、戻った②にも理由を残す
+      if (e instanceof ThemesApiError && e.status === 422) setActionErr(msg)
     } finally {
       setPlacing(false)
     }
@@ -523,7 +541,7 @@ export function ThemeWizard({
               <button
                 type="button"
                 className="btn btn--accent"
-                disabled={count === 0}
+                disabled={count === 0 || starting || ai.status === 'running'}
                 onClick={() => void fromWrite(true)}
               >
                 {t('themes:write.toRead')}
@@ -531,7 +549,7 @@ export function ThemeWizard({
               <button
                 type="button"
                 className="btn btn--ghost"
-                disabled={count === 0}
+                disabled={count === 0 || starting || ai.status === 'running'}
                 onClick={() => void fromWrite(false)}
               >
                 {t('themes:write.manual')}
@@ -541,7 +559,7 @@ export function ThemeWizard({
             <button
               type="button"
               className="btn btn--accent"
-              disabled={count === 0}
+              disabled={count === 0 || starting}
               onClick={() => void fromWrite(false)}
             >
               {t('themes:write.manual')}
@@ -558,7 +576,18 @@ export function ThemeWizard({
         <h2 className="thm-h">
           {CIRCLED[1]} {t('themes:steps.review')}
         </h2>
-        <p className="thm-lead">{t(!hasMap ? 'themes:review.leadEmpty' : byAi ? 'themes:review.lead' : 'themes:review.leadHand')}</p>
+        {/* 説明は 1 行だけ。AI が未設定のときは「ここを広げる」が使えない旨に差し替える（2 行にしない） */}
+        <p className="thm-lead">
+          {t(
+            !hasMap
+              ? 'themes:review.leadEmpty'
+              : !isReady
+                ? 'themes:review.aiOff'
+                : byAi
+                  ? 'themes:review.lead'
+                  : 'themes:review.leadHand',
+          )}
+        </p>
 
         {ai.status === 'running' && (
           <div className="thm-try" role="status" aria-live="polite">
@@ -699,6 +728,7 @@ export function ThemeWizard({
             <ConceptMap
               concepts={concepts}
               relations={draft.relations}
+              standards={draft.standards}
               lang={lang}
               selectedKey={selectedKey}
               litRelation={litRel}
@@ -814,7 +844,6 @@ export function ThemeWizard({
             </div>
           </details>
         </div>
-        {!isReady && hasMap && <p className="vocab-field-hint">{t('themes:review.aiOff')}</p>}
         {saveErr && <p className="promote-err">{t('themes:wizard.saveErr', { detail: saveErr })}</p>}
         <div className="kz-actions thm-nav">
           <button type="button" className="btn btn--ghost" onClick={goBack}>
@@ -835,15 +864,12 @@ export function ThemeWizard({
             className="btn btn--accent"
             disabled={ai.status === 'running' || draft.questions.length === 0}
             data-testid="confirm-all"
+            title={unlinked.size > 0 ? t('themes:review.unlinkedNote', { n: unlinked.size }) : undefined}
             onClick={() => void go(nextStep(step))}
           >
             {counts.total > 0 ? t('themes:review.confirm', { n: counts.total }) : t('themes:review.confirmNone')}
           </button>
         </div>
-        <p className="vocab-field-hint thm-confirm-note">
-          {t('themes:review.confirmNote', { concepts: counts.concepts, relations: counts.relations })}
-          {unlinked.size > 0 && ` ${t('themes:review.unlinkedNote', { n: unlinked.size })}`}
-        </p>
       </>
     )
   } else {

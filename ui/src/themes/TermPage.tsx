@@ -4,7 +4,6 @@ import { type Alignment, getAlignments } from '../crosswalkApi'
 import { AttachKind, type AttachChoice } from '../decide/AttachKind'
 import { isSystemKindIri } from '../decide/decide'
 import { decisionSentence } from '../decide/decisionsModel'
-import { isKnowledgeRelation } from '../lineChoice'
 import { type SchemaSummary, getSchema } from '../demoApi'
 import { type CatalogDataset, getCatalogDatasets } from '../galleryApi'
 import { ArrowIcon } from '../icons'
@@ -138,8 +137,7 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
   }
 
   const mine = lines.filter((a) => a.source === term.iri || a.target === term.iri)
-  // 問いから育てた知識の線（一部・下げる・上げる・変える）。「入っている種類」の下に文で並べる。
-  const knowledgeLines = mine.filter((a) => isKnowledgeRelation(a.relation))
+  // 知識の線（一部・下げる・上げる・変える）は「決めたこと」の 1 か所だけに文で出す（二重にしない）。
   const reasonLine = (a: Alignment) =>
     a.reason ? (
       <div className="thm-reason" title={t('decisions:reasonLabel')}>
@@ -231,20 +229,6 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
               </li>
             ))}
           </ul>
-        )}
-        {knowledgeLines.length > 0 && (
-          <div className="thm-term-knowledge" data-testid="term-knowledge">
-            <h4 className="thm-sub-h">{t('themes:term.knowledge')}</h4>
-            <ul className="vocab-term-cqs">
-              {knowledgeLines.map((a) => (
-                <li key={a.alignment_iri}>
-                  {decisionSentence(a, names, t)}
-                  {a.at && <span className="vocab-field-hint"> {a.at.slice(0, 10)}</span>}
-                  {reasonLine(a)}
-                </li>
-              ))}
-            </ul>
-          </div>
         )}
         {attach &&
           (attaching ? (

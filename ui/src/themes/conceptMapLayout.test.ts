@@ -114,4 +114,21 @@ describe('layoutConceptMap', () => {
     const r = layoutConceptMap(nodes, [{ index: 0, from: 'c1', to: 'quantitykind:Foo', rel: 'quantity' }])
     expect(r.edges).toEqual([])
   })
+
+  it('draws a standard word as a small card at the end of a quantity line (the line matches the sentence)', () => {
+    const r = layoutConceptMap(
+      [...nodes, { key: 'quantitykind:ThermalConductivity', label: 'Thermal Conductivity', std: true }],
+      [...rels, { index: 6, from: 'c1', to: 'quantitykind:ThermalConductivity', rel: 'quantity' }],
+    )
+    const std = r.byKey.get('quantitykind:ThermalConductivity')!
+    expect(std.std).toBe(true)
+    expect(r.byKey.get('c1')!.std).toBe(false)
+    // 量の線は段を作らず、概念の右（結果の側）の同じ段に置く
+    expect(std.row).toBe(r.byKey.get('c1')!.row)
+    expect(std.x).toBeGreaterThan(r.byKey.get('c1')!.x)
+    const e = r.edges.find((x) => x.index === 6)!
+    expect(e.kind).toBe('side')
+    expect(e.to).toBe('quantitykind:ThermalConductivity')
+    for (const a of r.nodes) for (const b of r.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
+  })
 })

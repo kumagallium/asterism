@@ -206,7 +206,7 @@ export async function createDraft(
 }
 
 export async function getDraft(id: string): Promise<ThemeDraft> {
-  const res = await fetch(`${API_BASE}/api/themes/drafts/${encodeURIComponent(id)}`)
+  const res = await fetch(`${API_BASE}/api/themes/drafts/${encodeURIComponent(id)}`, { headers: authHeaders() })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.openDraft'))
   const d = normalizeDraft(await res.json())
   if (!d) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')

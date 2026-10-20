@@ -218,6 +218,14 @@ describe('what the problem relations and the lonely concepts do', () => {
     expect(sentConcepts(d).map((c) => c.key)).not.toContain('c8')
     expect(buildCommitBody(d, 'ja').concepts.map((c) => c.key)).not.toContain('c8')
   })
+  it('when adding questions to an existing theme (extend), a lone concept is only marked, never dropped', () => {
+    // 既に置いたテーマの線は画面にない。つながっているかは api が保存済みの線も見て決める（だめなら 422）
+    const d: ThemeDraft = { ...thermal(), extend: 'heat', concepts: [...thermal().concepts, concept('c8', '孤立した概念', 'class')] }
+    expect([...unlinkedKeys(d)]).toEqual(['c8']) // 印は出す
+    expect(sentConcepts(d).map((c) => c.key)).toContain('c8')
+    expect(buildCommitBody(d, 'ja').concepts.map((c) => c.key)).toContain('c8')
+    expect(confirmCounts(d).concepts).toBe(7)
+  })
   it('does not send a relation the machine stopped, and what hangs on it is lonely', () => {
     const d = thermal()
     d.relations[2] = rel('c4', 'lowers', 'c2', { problem: 'target_not_property' })
@@ -330,6 +338,11 @@ describe('dismissal keys (the ✕ is kept for the next draft)', () => {
     expect(standardIri('quantitykind:ThermalConductivity')).toBe('http://qudt.org/vocab/quantitykind/ThermalConductivity')
     expect(standardIri('sosa:Sample')).toBe('http://www.w3.org/ns/sosa/Sample')
     expect(standardIri('nope:x')).toBeNull()
+    // api が返した IRI を先に使う（表は古い下書きのための予備）
+    const std = { 'ex:Foo': { label: 'Foo', kind: 'class', iri: 'https://example.org/foo#Foo' } }
+    expect(standardIri('ex:Foo', std)).toBe('https://example.org/foo#Foo')
+    expect(standardIri('sosa:Sample', std)).toBe('http://www.w3.org/ns/sosa/Sample')
+    expect(dismissEndKey(undefined, 'ex:Foo', std)).toBe('https://example.org/foo#Foo')
     // 概念でない端（標準の語の curie）は IRI に
     expect(dismissEndKey(undefined, 'sosa:Sample')).toBe('http://www.w3.org/ns/sosa/Sample')
     // 標準の語に一致した新しい概念は標準の語の IRI

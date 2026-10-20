@@ -118,8 +118,10 @@
       "part": "{{subject}} is a part of {{object}}",
       "lowers": "{{subject}} lowers {{object}}",
       "raises": "{{subject}} raises {{object}}",
-      "affects": "{{subject}} changes {{object}}"
-    }
+      "affects": "{{subject}} changes {{object}}",
+      "other": "{{subject}} and {{object}} are related"
+    },
+    "stdName": "{{name}} (standard)"
   },
   "place": {
     "lead": "Confirms {{concepts}} concepts and {{relations}} relations in the theme “{{label}}” ({{questions}} questions).",
@@ -167,7 +169,6 @@
     "remove": "Remove the term",
     "open": "Open the term's page",
     "more": "Details",
-    "knowledge": "Knowledge tied to this term",
     "knowledgeAi": "AI draft, confirmed"
   },
   "firstThemeLabel": "First questions",
@@ -202,7 +203,6 @@
     "aiOff": "No AI is set up, so “Grow from here” is off. You can add by hand.",
     "confirm": "Confirm {{n}} together",
     "confirmNone": "Place the questions only",
-    "confirmNote": "Pressing it goes to the screen (step 3) that confirms {{concepts}} concepts and {{relations}} relations.",
     "unlinkedNote": "{{n}} concepts that do not connect to a question are left out.",
     "leadHand": "Add concepts, choose how each question is answered, then confirm them together."
   },
@@ -250,7 +250,8 @@
     "legendStd": "Matches a standard term",
     "pill": {
       "sub": "kind of",
-      "part": "part of"
+      "part": "part of",
+      "quantity": "qty"
     },
     "pillTitle": {
       "sub": "Kind of (narrow → broad)",

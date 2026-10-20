@@ -235,6 +235,10 @@ def test_draft_returns_the_knowledge_map_after_the_machines_checks(tmp_path: Pat
     # the machine's exact match with a quantity kind beats the model's "new"
     assert rows["熱伝導率"]["use"] == "standard:quantitykind:ThermalConductivity"
     assert out["standards"]["quantitykind:ThermalConductivity"]["kind"] == "quantity"
+    # 画面が curie を IRI に直す表を持たなくて済むよう、標準の語の IRI も返す
+    assert out["standards"]["quantitykind:ThermalConductivity"]["iri"].endswith(
+        "/quantitykind/ThermalConductivity"
+    )
     assert rows["粒界散乱"]["use"] == "new"
     assert rows["粒界散乱"]["slug"] == "grain_boundary_scattering"
     assert [r["rel"] for r in out["relations"]] == ["part", "part", "lowers", "lowers", "raises"]
