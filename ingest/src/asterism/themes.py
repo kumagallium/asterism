@@ -411,10 +411,51 @@ def _standards_of(v: Any) -> dict[str, dict]:
     }
 
 
+_CHAT_MESSAGES_MAX = 200
+_CHAT_CONTENT_MAX = 2000
+_CHAT_PROPOSALS_MAX = 100
+_CHAT_OPS_MAX = 30
+
+
+def _chat_of(v: Any) -> dict:
+    """The conversation kept with a draft (ui-redesign PR 7a・design.md §16): what the PERSON
+    said and the diffs they accepted — never the model's prose. ``{messages: [{role: "user",
+    content, at}], proposals: [{proposal_id, ops, at, by}]}``; ``{}`` when there is nothing."""
+    if not isinstance(v, dict):
+        return {}
+    messages = [
+        {
+            "role": "user",
+            "content": " ".join(str(m["content"]).split())[:_CHAT_CONTENT_MAX],
+            "at": str(m.get("at") or ""),
+        }
+        for m in v.get("messages") or []
+        if isinstance(m, dict)
+        and m.get("role") == "user"
+        and isinstance(m.get("content"), str)
+        and m["content"].strip()
+    ][-_CHAT_MESSAGES_MAX:]
+    proposals = [
+        {
+            "proposal_id": str(p["proposal_id"]),
+            "ops": [o for o in p.get("ops") or [] if isinstance(o, dict)][:_CHAT_OPS_MAX],
+            "at": str(p.get("at") or ""),
+            "by": "human" if p.get("by") == "human" else "ai",
+        }
+        for p in v.get("proposals") or []
+        if isinstance(p, dict) and isinstance(p.get("proposal_id"), str) and p["proposal_id"]
+    ][-_CHAT_PROPOSALS_MAX:]
+    return {"messages": messages, "proposals": proposals} if messages or proposals else {}
+
+
 def save_draft(root: Path | str, draft: dict) -> dict:
     """Write a (v2) draft as given (the shape is the wizard's own; only the frame is
     checked). The model's raw output is NEVER stored — a caller that passes ``ai`` has it
-    ignored here (design.md §15.3: the draft keeps the post-processed rows, nothing else)."""
+    ignored here (design.md §15.3: the draft keeps the post-processed rows, nothing else).
+
+    ``chat`` (the conversation with the workspace's partner — :func:`_chat_of`) is kept as
+    given when the caller passes it, and carried over from the saved draft when the caller
+    does not (an ordinary save of the rows must not lose the conversation)."""
     path = _draft_path(root, str(draft.get("id")))
     step = draft.get("step")
     if not isinstance(step, int) or not 1 <= step <= 3:
@@ -430,6 +471,11 @@ def save_draft(root: Path | str, draft: dict) -> dict:
     if len(answers) > _MAX_QUESTIONS:
         raise ThemeError(f"問いの答え方は {_MAX_QUESTIONS} 件までです")
     suggested = [str(q) for q in (draft.get("suggested_questions") or []) if isinstance(q, str)]
+    if "chat" in draft:
+        chat = _chat_of(draft["chat"])
+    else:
+        prior = load_draft(root, str(draft.get("id")))
+        chat = _chat_of((prior or {}).get("chat"))
     out = {
         "version": DRAFT_VERSION,
         "id": draft["id"],
@@ -442,6 +488,7 @@ def save_draft(root: Path | str, draft: dict) -> dict:
         "answers": answers,
         "suggested_questions": suggested[:5],
         "standards": _standards_of(draft.get("standards")),
+        **({"chat": chat} if chat else {}),
         "updated_at": str(draft.get("updated_at") or _now_default()),
     }
     sv._scaffold(root)
