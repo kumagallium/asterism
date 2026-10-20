@@ -88,6 +88,15 @@ UPPER_PATH_PROPERTY = (
     f"(<{_RDFS}subPropertyOf>|<{_OWL}equivalentProperty>|^<{_OWL}equivalentProperty>)*"
 )
 
+#: ``isPartOf``（BFO part of）の経路。上位パスではない — 上位パス（``UPPER_PATH_*``）は
+#: sub / eq のままで、``isPartOf`` は「答えるデータセット」の数に入れない。循環の検査
+#: （:func:`asterism.crosswalk_runtime._upper_path_reaches`）だけが使う。
+PART_OF_PATH = f"(<{ALIGN_RELATIONS['isPartOf']}>)*"
+
+#: ``sv:`` の slug に使えない予約語。知識の関係の名前（述語は ``sv:`` に置かない）と
+#: 取り違えないため。``mint_term`` と ``themes`` の slug 検査が拒む。
+RESERVED_SLUGS = frozenset({"part_of", "lowers", "raises", "affects", "regulates"})
+
 #: Labels too generic to suggest a fit (already :func:`normalize_label`-ed).
 GENERIC_LABELS = frozenset(
     {"name", "id", "type", "date", "value", "no", "名前", "番号", "種類", "日付", "値"}
@@ -108,6 +117,7 @@ _SHARED_NAME = "用語"
 
 _CLASS_RELS = ("subClassOf", "equivalentClass")
 _PROP_RELS = ("subPropertyOf", "equivalentProperty")
+_PART_RELS = ("isPartOf",)
 
 
 # ---------------------------------------------------------------------------
@@ -485,7 +495,8 @@ async def mint_term(
 ) -> dict:
     """Mint ``sv:<slug>`` together with its first CQ(s) in ONE operation (ADR §2.1):
 
-    * ``ValueError`` — bad slug / kind / label / ``at`` / IRI;
+    * ``ValueError`` — bad slug (a reserved one included: :data:`RESERVED_SLUGS`) / kind /
+      label / ``at`` / IRI;
     * :class:`TermError` — no ``cqs`` (422), a CQ that does not lint, or an unreadable
       ``query_tools.yaml``; :class:`TermExists` — the slug is already minted (409).
 
@@ -507,6 +518,8 @@ async def mint_term(
         _check_iri(declined_standard)
     if drafted_by is not None and drafted_by not in DRAFTED_BY:
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}: {drafted_by!r}")
+    if slug in RESERVED_SLUGS:
+        raise ValueError(f"slug {slug!r} は予約語です（知識の関係の名前と取り違えるため）")
     if not cqs:
         raise TermError("用語は、問いを 1 つ以上添えて作ります")
     term = SharedTerm(
@@ -868,8 +881,21 @@ async def recompute_wired(
 # 「ひとこと決める」の帰結の試算（store には書かない）と、外した提案
 # ---------------------------------------------------------------------------
 
-_SUBSUMPTION_RELS = ("subClassOf", "subPropertyOf")
+_SUBSUMPTION_RELS = ("subClassOf", "subPropertyOf", "isPartOf")
 _Edge = tuple[str, str, str]
+
+
+def cycle_rels(relation: str) -> tuple[str, ...] | None:
+    """``relation`` の線を足したとき循環を調べる辺の種類（:func:`_down_set` の ``rels``）。
+    循環を拒まない述語（``lowers`` / ``raises`` / ``affects`` ほか）は ``None``。
+    ``assert_alignment`` の検査（:data:`~asterism.crosswalk_runtime._SUBSUMPTION`）と同じ表。"""
+    if relation == "subClassOf":
+        return _CLASS_RELS
+    if relation == "subPropertyOf":
+        return _PROP_RELS
+    if relation == "isPartOf":
+        return _PART_RELS
+    return None
 
 
 def _down_set(term: str, edges: Iterable[_Edge], rels: tuple[str, ...]) -> set[str]:
@@ -1002,10 +1028,9 @@ async def preview_alignment(
             )
         except ValueError:
             return refused("mixed")
-        if relation in _SUBSUMPTION_RELS:
-            rels = _CLASS_RELS if relation == "subClassOf" else _PROP_RELS
-            if target in _down_set(source, edges, rels):
-                return refused("cycle")
+        rels = cycle_rels(relation)
+        if rels is not None and target in _down_set(source, edges, rels):
+            return refused("cycle")
         after_edges = edges | {one}
 
     minted = await minted_iris(client)
@@ -1042,33 +1067,66 @@ async def preview_alignment(
     return {"valid": True, "reason": None, "questions": questions, "terms": terms}
 
 
+#: 概念の却下（「この概念は出さない」）の ``term`` の固定値。鍵は ``subject``
+#: （``concept:<normalize_label(label_ja)>``）に持つ。
+CONCEPT_DISMISS_TERM = "concept"
+CONCEPT_SUBJECT_PREFIX = "concept:"
+
+
+def concept_subject(label_ja: str) -> str:
+    """概念の却下の鍵 ``concept:<normalize_label(label_ja)>``。"""
+    return f"{CONCEPT_SUBJECT_PREFIX}{normalize_label(label_ja)}"
+
+
 def load_dismissed(root: Path | str) -> list[dict]:
-    """外した提案 ``[{subject, term, at}]``（``dismissed.json``・無い／壊れていれば ``[]``）。"""
+    """外した提案 ``[{subject, term, at, relation?}]``（``dismissed.json``・無い／壊れていれば
+    ``[]``）。``relation`` が無い行は従来の「当てはまるものは無い」、あれば関係の却下
+    （その述語で ``subject`` → ``term`` と結ばない）。概念の却下は ``term="concept"``。"""
     try:
         data = json.loads((_dir(root) / _DISMISSED_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
     if not isinstance(data, list):
         return []
-    return [
-        {"subject": d["subject"], "term": d["term"], "at": str(d.get("at", ""))}
-        for d in data
-        if isinstance(d, dict)
-        and isinstance(d.get("subject"), str)
-        and isinstance(d.get("term"), str)
-    ]
+    out: list[dict] = []
+    for d in data:
+        if not (
+            isinstance(d, dict)
+            and isinstance(d.get("subject"), str)
+            and isinstance(d.get("term"), str)
+        ):
+            continue
+        row = {"subject": d["subject"], "term": d["term"], "at": str(d.get("at", ""))}
+        if isinstance(d.get("relation"), str) and d["relation"]:
+            row["relation"] = d["relation"]
+        out.append(row)
+    return out
 
 
 def _save_dismissed(root: Path | str, rows: list[dict]) -> None:
     _atomic_write(_dir(root) / _DISMISSED_FILE, json.dumps(rows, indent=2, ensure_ascii=False))
 
 
-def dismiss_fit(root: Path | str, subject: str, term: str, *, at: str) -> bool:
+def _same_dismissal(r: dict, subject: str, term: str, relation: str | None) -> bool:
+    return r["subject"] == subject and r["term"] == term and r.get("relation") == relation
+
+
+def dismiss_fit(
+    root: Path | str, subject: str, term: str, *, at: str, relation: str | None = None
+) -> bool:
     """「当てはまるものは無い」: ``subject`` に ``term`` を提案しないと決める。冪等（同じ対は
     1 件・最初の ``at`` を残す）。新しく足したら ``True``。
 
     ``term`` は絶対 IRI。``subject`` は提案を受ける側の鍵 — 公開済みの種類・項目なら IRI、
-    まだ公開前の列・種類なら画面が付ける鍵（``column:…``）でもよい（空・制御文字は不可）。"""
+    まだ公開前の列・種類なら画面が付ける鍵（``column:…``）でもよい（空・制御文字は不可）。
+
+    拡張（design.md §15.2 却下の保存）:
+
+    * ``relation`` を渡すと **関係の却下**（:data:`ALIGN_RELATIONS` の述語で
+      ``subject`` → ``term`` と結ぶ下書きを次から出さない）。同じ対でも ``relation`` が違えば
+      別の行。``term`` は IRI か、概念の鍵（``concept:…``。まだ置かれていない概念どうしの関係）。
+    * **概念の却下**は ``subject=concept_subject(label)``・``term="concept"`` の固定値
+      （``relation`` なし）。鍵は ``subject``。"""
     if (
         not isinstance(subject, str)
         or not subject.strip()
@@ -1076,27 +1134,50 @@ def dismiss_fit(root: Path | str, subject: str, term: str, *, at: str) -> bool:
         or any(ord(c) < 32 for c in subject)
     ):
         raise ValueError(f"subject must be a non-empty key: {subject!r}")
-    _check_iri(term)
+    if relation is not None:
+        if relation not in ALIGN_RELATIONS:
+            raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}: {relation!r}")
+        if not term.startswith(CONCEPT_SUBJECT_PREFIX):
+            _check_iri(term)
+        elif not term[len(CONCEPT_SUBJECT_PREFIX) :].strip() or any(ord(c) < 32 for c in term):
+            raise ValueError(f"term must be a non-empty key: {term!r}")
+    elif subject.startswith(CONCEPT_SUBJECT_PREFIX):
+        if subject == CONCEPT_SUBJECT_PREFIX or term != CONCEPT_DISMISS_TERM:
+            raise ValueError(
+                f"a concept dismissal needs term={CONCEPT_DISMISS_TERM!r}: {subject!r}, {term!r}"
+            )
+    else:
+        _check_iri(term)
     rows = load_dismissed(root)
-    if any(r["subject"] == subject and r["term"] == term for r in rows):
+    if any(_same_dismissal(r, subject, term, relation) for r in rows):
         return False
-    rows.append({"subject": subject, "term": term, "at": at})
+    row = {"subject": subject, "term": term, "at": at}
+    if relation is not None:
+        row["relation"] = relation
+    rows.append(row)
     _save_dismissed(root, rows)
     return True
 
 
-def undismiss_fit(root: Path | str, subject: str, term: str) -> bool:
-    """外した提案を戻す。冪等。消したら ``True``。"""
+def undismiss_fit(
+    root: Path | str, subject: str, term: str, *, relation: str | None = None
+) -> bool:
+    """外した提案を戻す。冪等。消したら ``True``。``relation`` は :func:`dismiss_fit` と同じ
+    対応（無ければ従来の行だけ、あれば関係の行だけを消す）。"""
     rows = load_dismissed(root)
-    kept = [r for r in rows if not (r["subject"] == subject and r["term"] == term)]
+    kept = [r for r in rows if not _same_dismissal(r, subject, term, relation)]
     if len(kept) == len(rows):
         return False
     _save_dismissed(root, kept)
     return True
 
 
-def is_dismissed(dismissed: Iterable[dict], subject: str, term: str) -> bool:
-    return any(r["subject"] == subject and r["term"] == term for r in dismissed)
+def is_dismissed(
+    dismissed: Iterable[dict], subject: str, term: str, relation: str | None = None
+) -> bool:
+    """``(subject, term)``（``relation`` 付きなら関係の行）が外されているか。``relation``
+    無しは従来どおり — 関係の行は数えない（「当てはまるものは無い」とは別の決め）。"""
+    return any(_same_dismissal(r, subject, term, relation) for r in dismissed)
 
 
 # ---------------------------------------------------------------------------
@@ -1321,8 +1402,11 @@ def describe_selection(selection: dict, lang: str = "ja") -> str:
 
 
 __all__ = [
+    "CONCEPT_DISMISS_TERM",
     "GENERIC_LABELS",
+    "PART_OF_PATH",
     "REGISTRY_ID",
+    "RESERVED_SLUGS",
     "SELECTION_OPS",
     "SHARED_VOCAB_GRAPH",
     "SLUG_RE",
@@ -1338,6 +1422,8 @@ __all__ = [
     "answering_datasets",
     "classify_endpoint",
     "clean_aliases",
+    "concept_subject",
+    "cycle_rels",
     "default_cq_tools",
     "describe_selection",
     "dismiss_fit",

@@ -38,6 +38,7 @@ from asterism import shared_vocab as sv
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
+    _check_same_shape,
     _declared_shapes,
     assert_alignment,
     remove_alignment,
@@ -630,7 +631,7 @@ def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTe
             base = slug_from_text(label_en)
             if not base:
                 base = next((s for a in aliases if (s := slug_from_text(a))), "")
-            slug = unique_slug(base, taken) if base else ""
+            slug = unique_slug(base, taken | sv.RESERVED_SLUGS) if base else ""
             taken.add(slug) if slug else None
         add_row(
             label_ja=label_ja,
@@ -960,6 +961,8 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                 raise ThemeError(
                     f"「{label_ja}」の ID は {sv.SLUG_RE} の形にしてください: {slug!r}"
                 )
+            if slug in sv.RESERVED_SLUGS:
+                raise ThemeError(f"ID「{slug}」は予約語です。別の ID にしてください")
             if slug in by_slug or slug in planned_slugs:
                 raise ThemeError(f"ID「{slug}」はすでに使われています。別の ID にしてください", 409)
             planned_slugs.add(slug)
@@ -1051,19 +1054,16 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
     store_ends = sorted({e.iri for e in existing if e.iri in touched})
     shapes = await _declared_shapes(client, store_ends) if store_ends else {}
     for ln in lines:
-        if ln.relation == "hasQuantityKind":
-            continue
-        wrong = "property" if ln.relation in ("equivalentClass", "subClassOf") else "class"
-        for end in (ln.source, ln.target):
-            if shapes.get(end) == {wrong}:
-                raise ThemeError("種類と項目は結べません")
+        try:  # 述語ごとの種別表（crosswalk_runtime.RELATION_SHAPES）
+            _check_same_shape(ln.relation, ln.source, ln.target, shapes)
+        except ValueError as e:
+            raise ThemeError("種類と項目は結べません") from e
     # cycles: the stored lines plus the ones planned, asserted in order
     edges = set(await sv._alignment_lines(client))
     for ln in lines:
-        if ln.relation in ("subClassOf", "subPropertyOf"):
-            rels = sv._CLASS_RELS if ln.relation == "subClassOf" else sv._PROP_RELS
-            if ln.target in sv._down_set(ln.source, edges, rels):
-                raise ThemeError("その関係を置くと、一周してしまいます（循環）")
+        rels = sv.cycle_rels(ln.relation)  # sub / isPartOf だけ（lowers 系は循環を許す）
+        if rels is not None and ln.target in sv._down_set(ln.source, edges, rels):
+            raise ThemeError("その関係を置くと、一周してしまいます（循環）")
         edges.add((ln.source, ln.relation, ln.target))
 
     # --- selections → CQs --------------------------------------------------------
