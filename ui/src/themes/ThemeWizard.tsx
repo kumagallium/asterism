@@ -1,9 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { dismiss } from '../decide/decideApi'
 import { useLlmSettings } from '../settings/context'
 import { type SharedTerm, listTerms } from '../vocabApi'
-import { ConceptMap } from './ConceptMap'
+import { ThemeWorkspace } from './ThemeWorkspace'
 import {
   type CommitResult,
   ThemesApiError,
@@ -11,7 +10,6 @@ import {
   createDraft,
   deleteDraft,
   draftWithAi,
-  expandDraft,
   getDraft,
   matchTerms,
   saveDraft,
@@ -22,12 +20,10 @@ import {
   type ConceptRow,
   type RelationRow,
   type Step,
-  type TermKind,
   type ThemeDraft,
   ANSWER_WAYS,
   EXAMPLE_QUESTIONS_EN,
   EXAMPLE_QUESTIONS_JA,
-  addConcept,
   addQuestion,
   answerComplete,
   answerHost,
@@ -36,14 +32,11 @@ import {
   applyMatches,
   buildCommitBody,
   canStart,
-  conceptDismissKey,
   conceptMints,
   conceptName,
   conceptsFor,
   confirmCounts,
   defaultLabel,
-  dismissEndKey,
-  hasConceptNamed,
   idList,
   knowledgeEstimate,
   matchSignature,
@@ -51,9 +44,6 @@ import {
   parseQuestionLines,
   placeBlocker,
   prevStep,
-  relationPredicate,
-  removeConcept,
-  removeRelation,
   rowProblems,
   sentConcepts,
   sentRelations,
@@ -65,6 +55,15 @@ import {
   wayNeeds,
   wayOf,
 } from './themeDraft'
+import {
+  NO_PENDING,
+  type Pending,
+  loadPending,
+  pendingOf,
+  pendingTotal,
+  realDraft,
+  savePending,
+} from './workspaceState'
 import './themes.css'
 
 // 「知りたいことから作る」3 段（design.md §15.2・§15.4）:
@@ -130,12 +129,14 @@ export function ThemeWizard({
   const startingRef = useRef(false)
   const [placeErr, setPlaceErr] = useState('')
   // ②
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [litRel, setLitRel] = useState<number | null>(null)
-  const [expandingKey, setExpandingKey] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState('')
   const [openAnswer, setOpenAnswer] = useState<number | null>(null)
-  const [hand, setHand] = useState({ name: '', kind: 'class' as TermKind, en: '', aliases: '' })
+  // ②に入った時点の AI の下書きは「提案（薄い）」。「そう」で本物になる（本物だけを確定に送る）
+  const [pending, setPendingState] = useState<Pending>(NO_PENDING)
+  const [firstDraft, setFirstDraft] = useState<{ concepts: number; relations: number } | null>(null)
+  // AI の下書きを読み直すたびに増える（作業場の会話の 1 枚目を作り直す）
+  const [draftRun, setDraftRun] = useState(0)
+  const setPending = useCallback((f: (p: Pending) => Pending) => setPendingState(f), [])
   // 機械の照合に出した時点の行の中身（key → matchSignature）。同じ中身は出し直さない。
   const matchedSigs = useRef<Record<string, string>>({})
 
@@ -150,6 +151,10 @@ export function ThemeWizard({
         setLabelText(d.label)
         // 保存してある照合は、そのまま使う（開き直すたびに照合し直さない）
         matchedSigs.current = Object.fromEntries(d.concepts.map((r) => [r.key, matchSignature(r)]))
+        // 薄いままの提案は、この端末に残してある（続きから見る）
+        const left = loadPending(d.id)
+        setPendingState(left)
+        if (pendingTotal(left) > 0) setFirstDraft({ concepts: left.concepts.length, relations: left.relations.length })
         setLoaded(true)
       })
       .catch((e) => {
@@ -170,6 +175,17 @@ export function ThemeWizard({
     return () => {
       off = true
     }
+  }, [])
+
+  // 提案（薄い）の状態は、下書きごとにこの端末へ置く（再開で続きから）
+  useEffect(() => {
+    if (draft.id) savePending(draft.id, pending)
+  }, [draft.id, pending])
+
+  // 作業場の会話がこの画面の相談役: 右下の「AI に相談」（全画面）は、開いている間は隠す（二重にしない）
+  useEffect(() => {
+    document.body.classList.add('thm-wizard-open')
+    return () => document.body.classList.remove('thm-wizard-open')
   }, [])
 
   const existingSlugs = useMemo(() => new Set(existing.map((e) => e.slug)), [existing])
@@ -212,10 +228,13 @@ export function ThemeWizard({
     return () => window.clearTimeout(timer)
   }, [step, concepts])
 
-  const problems = rowProblems(sentConcepts(draft), existingSlugs)
+  // 確定（③・件数）に使うのは本物だけ（提案（薄い）は含めない）
+  const real = useMemo(() => realDraft(draft, pending), [draft, pending])
+  const problems = rowProblems(sentConcepts(real), existingSlugs)
   const problemCount = Object.keys(problems).length
-  const unlinked = useMemo(() => unlinkedKeys(draft), [draft])
-  const counts = useMemo(() => confirmCounts(draft), [draft])
+  const unlinked = useMemo(() => unlinkedKeys(real), [real])
+  const counts = useMemo(() => confirmCounts(real), [real])
+  const thin = pendingTotal(pending)
 
   /** 下書きを保存する（まだ id が無ければ作る）。失敗しても進める — 置くときに id が要る。 */
   const persist = useCallback(async (next: ThemeDraft): Promise<ThemeDraft> => {
@@ -254,8 +273,11 @@ export function ThemeWizard({
       matchedSigs.current = Object.fromEntries(applied.concepts.map((r) => [r.key, matchSignature(r)]))
       setAi({ status: 'ok' })
       if (!labelText.trim()) setLabelText(applied.label)
-      setSelectedKey(null)
+      // 下書きを先に置いてから、全部「提案（薄い）」にする（先に薄くすると、まだ空の下書きに合わせて外される）
       await persist({ ...applied, step: 2 })
+      setPendingState(pendingOf(applied))
+      setFirstDraft({ concepts: applied.concepts.length, relations: applied.relations.length })
+      setDraftRun((n) => n + 1)
     } catch (e) {
       if (e instanceof ThemesApiError && e.status === 503) setAi({ status: 'unconfigured' })
       else setAi({ status: 'failed', detail: e instanceof Error ? e.message : String(e) })
@@ -301,82 +323,6 @@ export function ThemeWizard({
     return i > 0 ? t('themes:rel.stdName', { name: key.slice(i + 1) }) : key
   }
 
-  async function dismissSafely(subject: string, term: string, relation?: string) {
-    try {
-      await dismiss(subject, term, relation)
-    } catch (e) {
-      // 却下を保存できなくても、下書きからは外す（次の下書きでまた出ることがあるだけ）
-      setActionErr(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  async function removeConceptRow(key: string) {
-    const row = concepts.find((r) => r.key === key)
-    if (!row) return
-    setActionErr('')
-    setSelectedKey(null)
-    setDraft((d) => removeConcept(d, key))
-    // AI が出した新しい概念だけ、次の下書きで出さない
-    if (row.by === 'ai' && row.use === 'new' && row.match === null) {
-      await dismissSafely(conceptDismissKey(row.label_ja), 'concept')
-    }
-  }
-
-  async function removeRelationRow(index: number) {
-    const rel = draft.relations[index]
-    if (!rel) return
-    setActionErr('')
-    setDraft((d) => removeRelation(d, index))
-    const from = concepts.find((r) => r.key === rel.from)
-    if (rel.by === 'ai' && from) {
-      await dismissSafely(
-        dismissEndKey(from, rel.from, draft.standards),
-        dismissEndKey(
-          concepts.find((r) => r.key === rel.to),
-          rel.to,
-          draft.standards,
-        ),
-        relationPredicate(rel.rel, from.kind),
-      )
-    }
-  }
-
-  async function expand(key: string) {
-    if (expandingKey !== null) return
-    setActionErr('')
-    setExpandingKey(key)
-    try {
-      const saved = await persist(draft)
-      const res = await expandDraft(saved.id, key, lang, getActiveCredentials())
-      matchedSigs.current = Object.fromEntries(res.draft.concepts.map((r) => [r.key, matchSignature(r)]))
-      setDraft({ ...res.draft, step: 2 })
-      setSelectedKey(res.addedConcepts[0] ?? key)
-    } catch (e) {
-      if (e instanceof ThemesApiError && e.status === 503) setAi({ status: 'unconfigured' })
-      setActionErr(e instanceof ThemesApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e))
-    } finally {
-      setExpandingKey(null)
-    }
-  }
-
-  function addHand() {
-    const name = hand.name.trim()
-    if (!name || hasConceptNamed(concepts, name)) return
-    const aliases = hand.aliases
-      .split(/[,、]/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-    setDraft((d) => {
-      const next = addConcept(d, name, hand.kind)
-      const added = next.concepts[next.concepts.length - 1]
-      return {
-        ...next,
-        concepts: next.concepts.map((c) => (c === added ? { ...c, label_en: hand.en.trim(), aliases } : c)),
-      }
-    })
-    setHand((h) => ({ ...h, name: '', en: '', aliases: '' }))
-  }
-
   function updateAnswer(index: number, fn: (a: AnswerRow) => AnswerRow) {
     setDraft((d) => ({ ...d, answers: d.answers.map((a, i) => (i === index ? fn(a) : a)) }))
   }
@@ -395,7 +341,7 @@ export function ThemeWizard({
         setPlaceErr(saveErr || t('themes:place.noDraft'))
         return
       }
-      const result = await commitTheme(saved.id, buildCommitBody(draft, lang))
+      const result = await commitTheme(saved.id, buildCommitBody(real, lang))
       onPlaced(result)
     } catch (e) {
       const msg = e instanceof ThemesApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e)
@@ -571,11 +517,8 @@ export function ThemeWizard({
   } else if (step === 2) {
     const hasMap = concepts.length > 0
     const byAi = concepts.some((c) => c.by === 'ai')
-    body = (
+    const top = (
       <>
-        <h2 className="thm-h">
-          {CIRCLED[1]} {t('themes:steps.review')}
-        </h2>
         {/* 説明は 1 行だけ。AI が未設定のときは「ここを広げる」が使えない旨に差し替える（2 行にしない） */}
         <p className="thm-lead">
           {t(
@@ -583,7 +526,7 @@ export function ThemeWizard({
               ? 'themes:review.leadEmpty'
               : !isReady
                 ? 'themes:review.aiOff'
-                : byAi
+                : byAi || thin > 0
                   ? 'themes:review.lead'
                   : 'themes:review.leadHand',
           )}
@@ -629,7 +572,7 @@ export function ThemeWizard({
           </section>
         )}
 
-        {/* 上: 問いごとの答え方 */}
+        {/* 上 1 行: 問いごとの答え方 */}
         <section className="thm-aqs" aria-label={t('themes:review.questionsAria')} data-testid="theme-answers">
           {draft.answers.map((a, i) => {
             const state = answerState(a)
@@ -722,129 +665,12 @@ export function ThemeWizard({
           })}
         </section>
 
-        {/* 左 2/3: 図・右 1/3: 文の一覧 */}
-        <div className="thm-review">
-          <div className="thm-review-map">
-            <ConceptMap
-              concepts={concepts}
-              relations={draft.relations}
-              standards={draft.standards}
-              lang={lang}
-              selectedKey={selectedKey}
-              litRelation={litRel}
-              unlinked={unlinked}
-              expandingKey={expandingKey}
-              canExpand={isReady}
-              onSelect={setSelectedKey}
-              onExpand={(k) => void expand(k)}
-              onRemove={(k) => void removeConceptRow(k)}
-            />
-          </div>
-          <aside className="thm-review-sentences" aria-label={t('themes:review.sentencesAria')}>
-            <h3 className="thm-sub-h">{t('themes:review.sentences', { n: draft.relations.length })}</h3>
-            {draft.relations.length === 0 ? (
-              <p className="ds-empty-note">{t('themes:review.noSentences')}</p>
-            ) : (
-              <ul className="thm-sentences" data-testid="theme-sentences">
-                {draft.relations.map((r, i) => {
-                  const lit = !!selectedKey && (r.from === selectedKey || r.to === selectedKey)
-                  return (
-                    <li
-                      key={`${i}-${r.from}|${r.rel}|${r.to}`}
-                      className={`thm-sentence${lit ? ' is-lit' : ''}${r.problem ? ' is-bad' : ''}`}
-                      onMouseEnter={() => setLitRel(i)}
-                      onMouseLeave={() => setLitRel(null)}
-                    >
-                      <button
-                        type="button"
-                        className="thm-sentence-text"
-                        onClick={() => setSelectedKey(selectedKey === r.from ? null : r.from)}
-                      >
-                        {relationSentence(r)}
-                      </button>
-                      <button
-                        type="button"
-                        className="thm-x"
-                        aria-label={t('themes:review.dismissAria', { sentence: relationSentence(r) })}
-                        title={t('themes:review.dismiss')}
-                        onClick={() => void removeRelationRow(i)}
-                      >
-                        ✕
-                      </button>
-                      {r.problem && (
-                        <span className="promote-err thm-sentence-note">
-                          {t(`themes:review.problem.${r.problem}`)}
-                        </span>
-                      )}
-                      {r.reason && <span className="thm-reason">{r.reason}</span>}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </aside>
-        </div>
-        {actionErr && (
-          <p className="promote-err" role="alert">
-            {actionErr}
-          </p>
-        )}
-
-        {/* 下: 手で足す・まとめて確定 */}
-        <div className="thm-hand">
-          <span className="thm-sub-h">{t('themes:review.add')}</span>
-          <div className="thm-hand-row">
-            <input
-              type="text"
-              aria-label={t('themes:review.addName')}
-              placeholder={t('themes:review.addNamePlaceholder')}
-              value={hand.name}
-              onChange={(e) => setHand((h) => ({ ...h, name: e.target.value }))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  addHand()
-                }
-              }}
-            />
-            <select
-              aria-label={t('themes:review.addKind')}
-              value={hand.kind}
-              onChange={(e) => setHand((h) => ({ ...h, kind: e.target.value as TermKind }))}
-            >
-              <option value="class">{t('themes:kind.class')}</option>
-              <option value="property">{t('themes:kind.property')}</option>
-            </select>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={!hand.name.trim() || hasConceptNamed(concepts, hand.name)}
-              onClick={addHand}
-            >
-              {t('themes:review.addGo')}
-            </button>
-          </div>
-          <details className="thm-hand-more">
-            <summary>{t('themes:review.addMore')}</summary>
-            <div className="thm-hand-row">
-              <input
-                type="text"
-                aria-label={t('themes:review.addEn')}
-                placeholder={t('themes:review.addEn')}
-                value={hand.en}
-                onChange={(e) => setHand((h) => ({ ...h, en: e.target.value }))}
-              />
-              <input
-                type="text"
-                aria-label={t('themes:review.addAliases')}
-                placeholder={t('themes:review.addAliasesPlaceholder')}
-                value={hand.aliases}
-                onChange={(e) => setHand((h) => ({ ...h, aliases: e.target.value }))}
-              />
-            </div>
-          </details>
-        </div>
+      </>
+    )
+    const bottom = (
+      <>
         {saveErr && <p className="promote-err">{t('themes:wizard.saveErr', { detail: saveErr })}</p>}
+        {thin > 0 && <p className="vocab-field-hint">{t('themes:review.thinNote', { n: thin })}</p>}
         <div className="kz-actions thm-nav">
           <button type="button" className="btn btn--ghost" onClick={goBack}>
             {t('themes:wizard.back')}
@@ -872,10 +698,30 @@ export function ThemeWizard({
         </div>
       </>
     )
+    body = (
+      <>
+        <h2 className="thm-h">
+          {CIRCLED[1]} {t('themes:steps.review')}
+        </h2>
+        <ThemeWorkspace
+          key={draftRun}
+          draft={draft}
+          setDraft={setDraft}
+          persist={persist}
+          lang={lang}
+          pending={pending}
+          setPending={setPending}
+          firstDraft={firstDraft}
+          top={top}
+          bottom={bottom}
+          notice={actionErr}
+        />
+      </>
+    )
   } else {
-    const ids = idList(draft)
-    const sent = sentRelations(draft)
-    const blocker = placeBlocker(draft, existingSlugs)
+    const ids = idList(real)
+    const sent = sentRelations(real)
+    const blocker = placeBlocker(real, existingSlugs)
     const label = labelText.trim() || draft.label || defaultLabel(draft.questions)
     body = (
       <>

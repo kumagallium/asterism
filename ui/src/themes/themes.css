@@ -163,13 +163,13 @@ a.thm-term-chip:hover {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 1.5rem 1rem;
+  padding: 1.5rem 16px;
   overflow: auto;
   background: rgba(22, 36, 26, 0.35);
 }
 .thm-panel {
-  /* ②は図と文を並べるので、幅を広く取る */
-  width: min(1180px, 100%);
+  /* ②は左に図・右に会話を並べるので、画面幅いっぱい（左右 16px の余白）を使う */
+  width: 100%;
   background: var(--bg);
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
@@ -441,21 +441,6 @@ a.thm-term-chip:hover {
   font-size: 0.8rem;
   max-width: 14rem;
 }
-.thm-review {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 0.8rem;
-  align-items: start;
-}
-.thm-review-map,
-.thm-review-sentences {
-  min-width: 0;
-}
-@media (max-width: 860px) {
-  .thm-review {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 .thm-sentences {
   list-style: none;
   margin: 0;
@@ -526,11 +511,6 @@ a.thm-term-chip:hover {
   color: var(--error-fg);
   background: var(--error-bg);
 }
-.thm-hand {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
 .thm-hand-row {
   display: flex;
   flex-wrap: wrap;
@@ -548,11 +528,6 @@ a.thm-term-chip:hover {
 }
 .thm-hand-row input {
   flex: 1 1 11rem;
-}
-.thm-hand-more summary {
-  cursor: pointer;
-  font-size: 0.75rem;
-  color: var(--muted);
 }
 
 /* 知識の図（星図と同じ紙の地） */
@@ -716,17 +691,6 @@ a.thm-term-chip:hover {
   white-space: nowrap;
   text-align: center;
   pointer-events: none;
-}
-.thm-map-actions {
-  position: absolute;
-  display: flex;
-  gap: 0.3rem;
-  z-index: 3;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 0.25rem;
-  box-shadow: var(--shadow-soft);
 }
 .thm-map-hint {
   margin: 0.25rem 0 0;
@@ -902,4 +866,365 @@ a.thm-term-chip:hover {
   stroke: var(--primary);
   stroke-width: 2;
   stroke-dasharray: 5 4;
+}
+
+/* ---- 作業場: 上＝問い・左＝図・右＝会話・下＝戻る／まとめて確定（design.md §16） ---- */
+/* 作業場が開いている間は、右下の「AI に相談」（全画面）を隠す。会話は作業場の右にある。 */
+body.thm-wizard-open .consult-fab,
+body.thm-wizard-open .consult-drawer,
+body.thm-wizard-open .consult-backdrop {
+  display: none;
+}
+body.thm-wizard-open.consult-open .app-main {
+  margin-right: 0;
+}
+.thm-ws {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-areas:
+    'top top'
+    'fig chat'
+    'bottom bottom';
+  gap: 0.8rem;
+  align-items: start;
+}
+.thm-ws.is-folded {
+  grid-template-columns: minmax(0, 1fr) 0;
+  column-gap: 0;
+}
+.thm-ws-top {
+  grid-area: top;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.thm-ws-fig {
+  grid-area: fig;
+  position: relative;
+  min-width: 0;
+}
+.thm-ws-bottom {
+  grid-area: bottom;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+/* 上の 1 行: 問いは並べて、1 問が 1 つの帯 */
+.thm-ws-top .thm-aqs {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.thm-ws-top .thm-aq {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+.thm-ws-open {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.thm-ws-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+/* 図の紙は、右の会話と同じ高さまで広げる（短い図でも下が空かない） */
+.thm-ws-fig .thm-map {
+  min-height: calc(100vh - 17rem);
+  box-sizing: border-box;
+}
+/* 右: 会話 */
+.thm-chat {
+  grid-area: chat;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* 図と同じ高さの目安。履歴が長くなったら中でスクロールする */
+  height: calc(100vh - 17rem);
+  min-height: 30rem;
+  overflow: hidden;
+}
+.thm-chat-head,
+.thm-chat-focus,
+.thm-chat-tools,
+.thm-chat-foot {
+  flex: none;
+}
+.thm-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.thm-chat-scroll {
+  flex: 1 1 auto;
+  min-height: 6rem;
+}
+.thm-bubble-ai {
+  color: var(--muted);
+  background: transparent !important;
+  padding-left: 0;
+}
+.thm-chat-focus {
+  border-top: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: 0.55rem 0.75rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+.thm-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+}
+.thm-focus-name,
+.thm-focus-sentence {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.thm-focus-rels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.thm-focus-edit {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.4rem;
+}
+.thm-focus-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.thm-focus-edit select {
+  font: inherit;
+  font-size: 0.78rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.thm-focus-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.thm-chat-tools {
+  border-top: 1px solid var(--border);
+  padding: 0.3rem 0.75rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  font-size: 0.78rem;
+}
+.thm-chat-more > summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0.15rem 0;
+}
+.thm-chat-more .thm-sentences {
+  max-height: 9rem;
+}
+.thm-chat-foot {
+  padding: 0.5rem 0.75rem;
+}
+.thm-chat-unset {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--body);
+}
+/* 提案カード */
+.thm-card-p {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+}
+.thm-card-p--done {
+  background: var(--surface-alt);
+  border-color: var(--border);
+  color: var(--muted);
+  padding: 0.35rem 0.65rem;
+}
+.thm-card-p--done > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+.thm-card-p--draft {
+  border-color: var(--accent);
+}
+.thm-card-p-h {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.thm-card-p-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.thm-card-p-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.5rem;
+  padding-right: 4.2rem;
+  line-height: 1.5;
+}
+.thm-card-p-row .thm-reason {
+  flex: 1 1 100%;
+}
+.thm-card-p-row.is-no .thm-card-p-text {
+  text-decoration: line-through;
+  color: var(--faint);
+}
+.thm-card-p-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.thm-card-p-kind {
+  font-size: 0.68rem;
+  color: var(--faint);
+}
+.thm-card-p-ticks {
+  position: absolute;
+  top: -0.15rem;
+  right: 0;
+  display: inline-flex;
+  gap: 0.2rem;
+}
+.thm-tick {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.thm-tick--no {
+  color: var(--faint);
+}
+.thm-tick:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+.thm-tick--no:hover:not(:disabled) {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+.thm-card-p-mark {
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.thm-card-p-note {
+  flex: 1 1 100%;
+  font-size: 0.72rem;
+  color: var(--warn-fg);
+}
+.thm-card-p-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.thm-card-p-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+}
+.thm-card-p-chip {
+  font-size: 0.72rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--entity);
+  background: var(--entity-soft);
+}
+.thm-card-p-chip--property {
+  border-color: var(--activity);
+  background: var(--activity-soft);
+}
+
+/* 375px: 会話は下からのシート（開くと画面の 60%・たためる）。ページは横にはみ出さない */
+@media (max-width: 720px) {
+  .thm-overlay {
+    padding: 0;
+  }
+  .thm-panel {
+    border-radius: 0;
+  }
+  .thm-wizard {
+    padding: 0.8rem 16px 5rem;
+  }
+  .thm-ws,
+  .thm-ws.is-folded {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'top'
+      'fig'
+      'bottom';
+  }
+  .thm-chat {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    height: 60vh;
+    min-height: 0;
+    max-height: 60vh;
+    border-radius: 14px 14px 0 0;
+    border-bottom: 0;
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+  }
+  .thm-ws-open {
+    position: fixed;
+    top: auto;
+    right: 16px;
+    bottom: 16px;
+    z-index: 55;
+    box-shadow: var(--shadow);
+  }
+  .thm-focus-edit {
+    grid-template-columns: 1fr;
+  }
+  .thm-map-scroll {
+    max-height: none;
+  }
+  .thm-ws-fig .thm-map {
+    min-height: 0;
+  }
 }

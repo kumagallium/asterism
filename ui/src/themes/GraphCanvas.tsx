@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { layoutConceptMap } from './conceptMapLayout'
 import { type RelKind, type StandardInfo, conceptName } from './themeDraft'
@@ -138,6 +138,35 @@ export function GraphCanvas(p: GraphCanvasProps) {
     [layout],
   )
   const edgeOf = (index: number) => relations[index]
+  // ドラッグ中は window で動きを受ける（指やマウスが図の外に出ても追う・捕まえ損ねない）
+  const dragIndex = drag?.index ?? null
+  const { onRetarget } = p
+  useEffect(() => {
+    if (dragIndex === null) return
+    const at = (ev: PointerEvent) => toCanvas(ev.clientX, ev.clientY)
+    const move = (ev: PointerEvent) => {
+      const pt = at(ev)
+      setDrag({ index: dragIndex, ...pt, over: nodeAt(pt.x, pt.y) })
+    }
+    const up = (ev: PointerEvent) => {
+      const pt = at(ev)
+      const target = nodeAt(pt.x, pt.y)
+      const rel = relations[dragIndex]
+      setDrag(null)
+      if (target && rel && rel.draftIndex !== null && target !== rel.row.to && target !== rel.row.from) {
+        onRetarget(rel.draftIndex, target)
+      }
+    }
+    const cancel = () => setDrag(null)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [dragIndex, toCanvas, nodeAt, relations, onRetarget])
 
   if (isEmpty) {
     return (
@@ -366,25 +395,11 @@ export function GraphCanvas(p: GraphCanvasProps) {
                   onPointerDown={(ev) => {
                     ev.stopPropagation()
                     ev.preventDefault()
-                    ;(ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId)
                     const pt = toCanvas(ev.clientX, ev.clientY)
                     p.onSelect(null)
                     p.onSelectEdge(di)
                     setDrag({ index: e.index, ...pt, over: null })
                   }}
-                  onPointerMove={(ev) => {
-                    if (!dragging) return
-                    const pt = toCanvas(ev.clientX, ev.clientY)
-                    setDrag({ index: e.index, ...pt, over: nodeAt(pt.x, pt.y) })
-                  }}
-                  onPointerUp={(ev) => {
-                    if (!dragging) return
-                    const pt = toCanvas(ev.clientX, ev.clientY)
-                    const target = nodeAt(pt.x, pt.y)
-                    setDrag(null)
-                    if (target && target !== rel.row.to && target !== rel.row.from) p.onRetarget(di, target)
-                  }}
-                  onPointerCancel={() => setDrag(null)}
                 />
               )
             })}
