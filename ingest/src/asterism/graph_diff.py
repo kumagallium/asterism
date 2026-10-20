@@ -40,6 +40,7 @@ __all__ = [
     "apply_to_draft",
     "dismissal_keys",
     "end_iri",
+    "op_ref",
     "ops_to_sentences",
     "plan_term_relations",
     "proposal_id",
@@ -61,7 +62,7 @@ def proposal_id(ops: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _ref_text(op: dict) -> str:
+def op_ref(op: dict) -> str:
     name = op.get("op")
     if name == "add_concept":
         return str(op.get("label_ja") or op.get("key") or "")
@@ -119,7 +120,7 @@ class _Applier:
 
     def drop(self, i: int, op: dict, reason: str) -> None:
         self.dropped.append(
-            {"index": i, "op": op.get("op"), "reason": reason, "ref": _ref_text(op)}
+            {"index": i, "op": op.get("op"), "reason": reason, "ref": op_ref(op)}
         )
 
     def row_by_key(self, key: str) -> dict | None:
