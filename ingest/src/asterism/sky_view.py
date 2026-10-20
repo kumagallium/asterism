@@ -77,6 +77,8 @@ _QK_PREFIX = "quantitykind"
 _XW_LINK_CLASS = _XW_NS + "CrosswalkLink"
 _LINE_RELATIONS = ("subClassOf", "equivalentClass", "subPropertyOf", "equivalentProperty")
 _SUBSUMPTION = ("subClassOf", "subPropertyOf")
+#: 「標準用語に一致」と数える線。lowers / isPartOf など、同じものを言わない線は含めない
+_STANDARD_MATCH_RELATIONS = frozenset({"equivalentClass", "equivalentProperty", "hasQuantityKind"})
 _UNPUBLISHED_STATUS = ("retracted", "deleted")
 
 #: 「決めたこと」として出す関係。文は画面（UI）が言語に合わせて組む。
@@ -390,7 +392,9 @@ async def sky_view(
 
     for row in alignments:
         rel, src, tgt = row["relation"], row["source"], row["target"]
-        if src in term_iris and is_standard(tgt):  # 標準への線（量の種類 hasQuantityKind も）
+        if (
+            src in term_iris and is_standard(tgt) and rel in _STANDARD_MATCH_RELATIONS
+        ):  # 標準への「一致」の線（量の種類 hasQuantityKind も。lowers / isPartOf は除く）
             cur = term_standard.get(src)
             if cur is None or (tgt, rel) < (cur["iri"], cur["relation"]):
                 term_standard[src] = {"iri": tgt, "relation": rel}

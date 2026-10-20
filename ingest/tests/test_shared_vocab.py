@@ -474,6 +474,19 @@ async def test_remove_refused_while_a_line_exists_then_cascades_cqs(tmp_path: Pa
         await sv.remove_term(client, tmp_path, "alpha")
 
 
+async def test_list_terms_standards_are_same_as_lines_only(tmp_path: Path) -> None:
+    client = _Client()
+    await _mint_class(client, tmp_path)
+    iri = sv.term_iri("diffraction_point")
+    std = sv.known_namespaces()[0] + "Thing"
+    await assert_alignment(client, iri, std, "isPartOf", at=AT)  # 一致ではない線
+    (term,) = await sv.list_terms(client, tmp_path)
+    assert term["standards"] == []
+    await assert_alignment(client, iri, std, "equivalentClass", at=AT)
+    (term,) = await sv.list_terms(client, tmp_path)
+    assert term["standards"] == [{"iri": std, "relation": "equivalentClass"}]
+
+
 async def test_list_terms_reports_narrower_standards_cqs_and_wired(tmp_path: Path) -> None:
     client = _Client()
     await _seed_two_datasets(client)

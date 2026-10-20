@@ -572,7 +572,7 @@ def register_themes(
             )
         return JSONResponse({"drafts": out})
 
-    @app.get("/api/themes/drafts/{draft_id}")
+    @app.get("/api/themes/drafts/{draft_id}", dependencies=list(write_auth))
     async def draft_get(draft_id: str) -> JSONResponse:
         draft = themes.load_draft(cfg.registry_root, draft_id)
         if draft is None:

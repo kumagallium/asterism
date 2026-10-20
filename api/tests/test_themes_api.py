@@ -515,6 +515,8 @@ def test_writes_need_the_token(tmp_path: Path) -> None:
     app, _ = _app(tmp_path)
     with TestClient(app) as client:  # no token
         assert client.post("/api/themes/drafts", json={"label": "x"}).status_code in (401, 503)
+        # 下書きの中身（概念・関係）を読むのも書き込み側の鍵が要る
+        assert client.get("/api/themes/drafts/anything").status_code in (401, 503)
         assert client.post("/api/themes/x/commit", json=_cell_body()).status_code in (401, 503)
         assert client.delete("/api/themes/x").status_code in (401, 503)
 

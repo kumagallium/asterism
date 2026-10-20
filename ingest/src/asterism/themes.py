@@ -525,6 +525,11 @@ def std_by_curie(curie: str) -> StdRef | None:
     return None
 
 
+def _too_short_ascii(q: str) -> bool:
+    t = q.strip()
+    return len(t) <= 2 and t.isascii()
+
+
 def std_exact(label_ja: str, label_en: str, aliases: Iterable[str], kind: str) -> StdRef | None:
     """The standard term whose name equals this row's English name (or an alias) exactly
     — after :func:`normalize_label`, never fuzzy. For a property row a QUDT quantity kind
@@ -533,6 +538,8 @@ def std_exact(label_ja: str, label_en: str, aliases: Iterable[str], kind: str) -
     from asterism import grounding
     from asterism.grounding import quantity_kinds
 
+    # 2 文字以下の ASCII の別名（"n" など）は短すぎて何にでも当たる（#636 と同じ趣旨）
+    aliases = [a for a in aliases if not _too_short_ascii(a)]
     queries = [q for q in (label_en, *aliases, label_ja) if q and q.strip()]
     for q in queries:
         if normalize_label(q) in sv.GENERIC_LABELS:
@@ -751,11 +758,13 @@ def postprocess_draft(
         rows.append(row)
         return row
 
-    def find_row(label: str) -> dict | None:
+    def find_row(label: str, kind: str | None = None) -> dict | None:
         n = normalize_label(label)
         if not n:
             return None
         for r in all_rows():
+            if kind is not None and r.get("kind") != kind:  # 同名でも種類と項目は別の行
+                continue
             if n in _norm_set(r["label_ja"], r.get("label_en")) or n == normalize_label(
                 r["label_ja"]
             ):
@@ -767,7 +776,7 @@ def postprocess_draft(
 
     for t in ai.get("concepts", []):
         label_ja = t["label_ja"]
-        dup = find_row(label_ja)
+        dup = find_row(label_ja, t["kind"])
         if dup is not None:
             keymap[t["key"]] = dup["key"]
             continue
@@ -823,7 +832,7 @@ def postprocess_draft(
         if ref in keymap:
             k = keymap[ref]
             return (row_by_key(k) if k is not None else None), k is None
-        row = row_by_key(ref) or find_row(ref)
+        row = row_by_key(ref) or find_row(ref, kind_hint)
         if row is not None:
             return row, False
         n = _norm_set(ref)
@@ -1049,6 +1058,7 @@ _MEMO_REASONS = {
         "ai": "決めた型に合わない問いのため、メモとして残します。",
         "none": "数え方が決まっていないため、メモとして残します。",
         "human": "あなたの判断で、メモとして残します。",
+        "duplicate": "同じ答え方の問いが既にあります。メモとして残します。",
     },
     "en": {
         "op": "The current ways of counting (count, range, top value) cannot answer it, "
@@ -1056,6 +1066,8 @@ _MEMO_REASONS = {
         "ai": "It does not fit a fixed shape, so it stays as a memo.",
         "none": "No way of counting was chosen, so it stays as a memo.",
         "human": "You chose to keep it as a memo.",
+        "duplicate": "A question with the same way of answering already exists, "
+        "so it stays as a memo.",
     },
 }
 
@@ -1338,6 +1350,13 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         if rel == "quantity":
             if subj.kind != "property" or obj_std is None or obj_std.kind != "quantity":
                 raise ThemeError("「量」の関係は、項目から量の種類（QUDT）へだけ結べます")
+        elif obj_std is not None and obj_std.kind == "quantity":
+            # 量の種類（QUDT）へ結べるのは「量」だけ（postprocess の target_not_property /
+            # mixed と同じ判定を、確定でも検証し直す）
+            raise ThemeError(
+                f"「{subj.label_ja}」から標準の量の種類へは「量」の関係でしか結べません"
+                f"（{rel} は使えません）"
+            )
         elif obj_row is not None and rel in ("sub", "eq", "part") and obj_row.kind != subj.kind:
             raise ThemeError(
                 f"「{subj.label_ja}」と相手は、種類と項目が合いません（種類と項目は結べません）"
@@ -1423,13 +1442,16 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                     "title": q,
                     **({"direction": direction} if op == "factors" else {}),
                 }
-                if name not in knowledge_seen:  # two phrasings of one question: the first title
+                if name in knowledge_seen:
+                    # 同じ（対象, 向き, 操作）の 2 つ目の問い: 黙って消さず、メモに落とす
+                    why = "duplicate"
+                else:
                     knowledge_seen[name] = summary
                     ordered.append((q, ("knowledge", name, summary)))
-                if want:
-                    wanted.setdefault(name, want)
-                target_iris.add(t.iri)
-                continue
+                    if want:
+                        wanted.setdefault(name, want)
+                    target_iris.add(t.iri)
+                    continue
             elif mode == "data" and op in FITTING_OPS:
                 host: _Row | None = None
                 cq_op = "count"
@@ -1475,6 +1497,10 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             prior_tools = {str(t.get("name")): t for t in raw_tools}
             for n in prior.get("questions") or []:
                 anchors.update(str(i) for i in (prior_tools.get(n) or {}).get("for_terms") or [])
+        if not anchors:  # 答え方の決まった問いが 1 つも無い（メモの問いだけ）
+            raise ThemeError(
+                "答え方が決まった問いが無いため、用語を置けません。先に問いの答え方を選んでください"
+            )
         reach = _connected(anchors, [(a, c) for a, _r, c in edges])
         lonely = [r.label_ja for r in rows if r.mint and r.iri not in reach]
         if lonely:
@@ -1618,6 +1644,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         for row in plan.rows:
             if not row.mint:
                 continue
+            minted.append(row.slug)  # 鋳造の前に積む（途中で落ちても巻き戻しが拾う）
             await sv.mint_term(
                 client,
                 root,
@@ -1632,7 +1659,6 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
                 theme_id=plan.theme["id"],
                 at=at,
             )
-            minted.append(row.slug)
         for row in plan.rows:
             if row.mint or row.key not in plan.cq_tools:
                 continue
@@ -1740,6 +1766,8 @@ async def _rollback(
     for slug in reversed(minted):
         try:
             await sv.remove_term(client, root, slug)
+        except sv.TermNotFound:  # 鋳造の前に落ちた: 無い語は消さなくてよい
+            pass
         except Exception:
             logger.warning("themes: rollback of a term failed", exc_info=True)
     try:

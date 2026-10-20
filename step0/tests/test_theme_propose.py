@@ -385,3 +385,16 @@ def test_expand_retries_once_then_gives_up() -> None:
         propose_theme_expand(
             llm2, focus_key="c1", concepts=ON_MAP, questions=[], existing=[], standards=[]
         )
+
+
+def test_an_addition_never_reuses_a_key_already_on_the_map() -> None:
+    clash = {**ADD, "concepts": [{**ADD["concepts"][0], "key": "c2"}]}
+    with pytest.raises(ThemeDraftError, match="used twice"):
+        validate_theme_draft(clash, expand=True, existing_keys=["c1", "c2"])
+    assert validate_theme_draft(clash, expand=True)["concepts"][0]["key"] == "c2"  # 既知の鍵なし
+    # propose_theme_expand は地図の鍵を渡す: 衝突する答えは 1 回やり直し、2 回目が通れば返す
+    llm = _FakeLLM(json.dumps(clash), json.dumps(ADD))
+    out = propose_theme_expand(
+        llm, focus_key="c1", concepts=ON_MAP, questions=[], existing=[], standards=[]
+    )
+    assert [c["key"] for c in out["concepts"]] == ["n1"] and len(llm.calls) == 2

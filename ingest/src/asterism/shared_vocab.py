@@ -781,7 +781,11 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
                         "kind": kind_of(other)[0],
                         "dataset_id": kind_of(other)[1],
                     }
-        if src in standards and kind_of(tgt)[0] == "standard":
+        if (
+            src in standards
+            and rel in ("equivalentClass", "equivalentProperty", "hasQuantityKind")
+            and kind_of(tgt)[0] == "standard"
+        ):
             standards[src].append({"iri": tgt, "relation": rel})
 
     need = sorted({n for per in narrower.values() for n in per})

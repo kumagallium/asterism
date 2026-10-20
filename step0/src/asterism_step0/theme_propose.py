@@ -422,7 +422,9 @@ def _answer(a: Any, p: str) -> dict:
     }
 
 
-def validate_theme_draft(raw: Any, *, expand: bool = False) -> dict:
+def validate_theme_draft(
+    raw: Any, *, expand: bool = False, existing_keys: Iterable[str] = ()
+) -> dict:
     """Check ``raw`` against the closed shape (v2) and return a normalised copy (only the
     keys of the shape; strings whitespace-folded). Raises :class:`ThemeDraftError`.
 
@@ -431,12 +433,13 @@ def validate_theme_draft(raw: Any, *, expand: bool = False) -> dict:
     ``reason`` and ``wanted_data`` are only cut to 200 characters. ``filter`` / ``group`` /
     ``trend`` / ``join`` are accepted and folded into ``mode="memo"`` (they cannot be run
     yet). With ``expand=True`` the limits are those of an addition (10 concepts, 20
-    relations) and no answers are taken."""
+    relations) and no answers are taken; a concept key that ``existing_keys`` (the keys
+    already on the map) already uses is refused — an addition never overwrites a row."""
     if not isinstance(raw, dict):
         raise _fail("$", "must be an object")
     max_concepts = _MAX_EXPAND_CONCEPTS if expand else _MAX_CONCEPTS
     max_relations = _MAX_EXPAND_RELATIONS if expand else _MAX_RELATIONS
-    seen_keys: set[str] = set()
+    seen_keys: set[str] = set(existing_keys) if expand else set()
     concepts = [
         _concept(t, f"concepts[{i}]", seen_keys)
         for i, t in enumerate(_list(raw.get("concepts", []), "concepts", max_concepts))
@@ -675,7 +678,11 @@ def propose_theme_expand(
         )
         text = _complete_guided(llm, THEME_EXPAND_SYSTEM_PROMPT, user, schema)
         try:
-            return validate_theme_draft(_extract_json_object(text), expand=True)
+            return validate_theme_draft(
+                _extract_json_object(text),
+                expand=True,
+                existing_keys=[str(c.get("key")) for c in concepts],
+            )
         except ThemeDraftError as exc:
             last, problem = exc, str(exc)
     assert last is not None

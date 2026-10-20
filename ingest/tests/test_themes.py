@@ -467,8 +467,9 @@ def test_exact_match_with_an_existing_term_beats_the_models_use() -> None:
     assert rows["サンプル"]["match"] == {
         "kind": "existing", "ref": "sample", "label": "試料", "matched_by": "alias",
     }  # fmt: skip
-    # the second 試料 is the same name as the first row → folded, so one row only
-    assert [r["label_ja"] for r in out["concepts"]].count("試料") == 1
+    # 同名でも種類（class）と項目（property）は別の行（kind が違えば畳まない）
+    same = [(r["key"], r["kind"]) for r in out["concepts"] if r["label_ja"] == "試料"]
+    assert same == [("b", "class"), ("c", "property")]
     assert rows["サンプル"]["slug"] == "sample"
 
 
@@ -923,7 +924,7 @@ async def test_a_concept_the_questions_cannot_reach_is_refused(tmp_path: Path) -
     assert "stray" in out["minted"]
     # a theme whose questions are all memos cannot place a concept at all
     only_memo = _heat(answers=[_a(Q_LOWER, "memo")])
-    with pytest.raises(ThemeError, match="つながらない"):
+    with pytest.raises(ThemeError, match="答え方が決まった問いが無いため、用語を置けません"):
         await themes.commit_theme(_Client(), tmp_path / "fresh", only_memo, at=AT)
 
 
@@ -937,6 +938,11 @@ async def test_relations_are_checked_against_the_table_at_commit(tmp_path: Path)
         ({"from": "c2", "rel": "part", "to": "c4"}, "種類と項目"),
         ({"from": "c4", "rel": "sub", "to": "c2"}, "種類と項目"),
         ({"from": "c2", "rel": "part", "to": "c2"}, "自分自身"),
+        # 標準の量の種類へ結べるのは「量」だけ（postprocess の印と同じ判定）
+        *(
+            ({"from": "c2", "rel": r, "to": "quantitykind:ThermalConductivity"}, "量の種類")
+            for r in ("sub", "eq", "part", "lowers", "raises", "affects")
+        ),
         ({"from": "c2", "rel": "nope", "to": "c1"}, "rel"),
         ({"from": "zz", "rel": "part", "to": "c1"}, "from"),
         ({"from": "c2", "rel": "part", "to": "nobody"}, "to"),
@@ -1515,3 +1521,77 @@ async def test_a_template_is_made_from_the_questions_targets_not_the_factors(
     assert themes.template_files(out["theme"], rows, tools) == {
         "other.csv": ["id", "Thermal Conductivity"]
     }
+
+
+# --- review fixes (PR 6a) -----------------------------------------------------------------
+
+
+def test_a_same_name_class_and_property_stay_two_rows_with_their_own_keys() -> None:
+    out = themes.postprocess_draft(
+        _ai(
+            concepts=[
+                _t("a", "粒径", "grain size", "class"),
+                _t("b", "粒径", "grain size", "property"),
+            ],
+            relations=[_r("a", "affects", "b"), _r("b", "eq", "a")],
+        ),
+        questions=[],
+        existing=[],
+    )
+    assert [(r["key"], r["kind"]) for r in out["concepts"]] == [("a", "class"), ("b", "property")]
+    rels = {(r["from"], r["rel"], r["to"]): r["problem"] for r in out["relations"]}
+    assert rels[("a", "affects", "b")] is None  # 張り替わらない（a→a の "same" にならない）
+    assert rels[("b", "eq", "a")] == "mixed"
+
+
+def test_a_two_letter_ascii_alias_does_not_match_a_standard_term() -> None:
+    assert themes.std_exact("キャリア濃度", "carrier concentration", ["n"], "property") is None
+    out = themes.postprocess_draft(
+        _ai(
+            concepts=[_t("c6", "キャリア濃度", "carrier concentration", "property", aliases=["n"])]
+        ),
+        questions=[],
+        existing=[],
+    )
+    (row,) = out["concepts"]
+    assert row["match"] is None and "prov:n" not in out["standards"]
+
+
+async def test_a_second_knowledge_question_with_one_answer_shape_falls_to_the_memo(
+    tmp_path: Path,
+) -> None:
+    c = _Client()
+    themes.ensure_migrated(tmp_path, at=AT)
+    q2 = "熱伝導率を下げるものは何か？"
+    body = _heat(questions=[Q_LOWER, q2])
+    body["answers"].append(
+        {"question": q2, "mode": "knowledge", "op": "factors", "target": "c1",
+         "direction": "lowers", "wanted_data": ""}
+    )  # fmt: skip
+    out = await themes.commit_theme(c, tmp_path, body, at=AT)
+    assert len(out["theme"]["selections"]) == 1
+    (memo,) = out["theme"]["memo_questions"]
+    assert memo["title"] == q2
+    assert memo["reason"] == "同じ答え方の問いが既にあります。メモとして残します。"
+
+
+async def test_a_mint_failing_after_its_insert_leaves_no_term_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = _Client()
+    themes.ensure_migrated(tmp_path, at=AT)
+    before = _snapshot(c, tmp_path)
+    real = sv.recompute_wired
+    calls = {"n": 0}
+
+    async def flaky(*a: object, **k: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == 3:  # 3 つ目の語は INSERT 済みで、数え直しで落ちる
+            raise RuntimeError("count went away")
+        return await real(*a, **k)
+
+    monkeypatch.setattr(sv, "recompute_wired", flaky)
+    with pytest.raises(RuntimeError, match="count went away"):
+        await themes.commit_theme(c, tmp_path, _heat(), at=AT)
+    assert calls["n"] >= 3
+    assert _snapshot(c, tmp_path) == before  # 語が 1 つも残らない

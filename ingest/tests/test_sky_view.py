@@ -360,6 +360,25 @@ async def test_two_datasets_one_term_lines_standard_and_hub(tmp_path: Path) -> N
     assert all((r["kind"] == "decision") == bool(r["b"] and r["relation"]) for r in out["recent"])
 
 
+async def test_only_a_same_as_line_to_a_standard_counts_as_matching_it(tmp_path: Path) -> None:
+    client, root = await _world(tmp_path)
+    await shared_vocab.mint_term(
+        client,
+        root,
+        slug="region",
+        kind="class",
+        label="地域",
+        cqs=[CQSpec("地域は何件か", "count")],
+        at=AT_TERM,
+    )
+    region = shared_vocab.term_iri("region")
+    await assert_alignment(client, region, PLACE_STD, "isPartOf", at=AT_LINE_2)  # 一致ではない
+    out = await sky_view(client, root)
+    by_slug = {t["slug"]: t for t in out["terms"]}
+    assert by_slug["region"]["standard"] is None
+    assert by_slug["place"]["standard"] == {"iri": PLACE_STD, "relation": "equivalentClass"}
+
+
 async def test_same_input_gives_the_same_output(tmp_path: Path) -> None:
     client, root = await _world(tmp_path)
     assert await sky_view(client, root) == await sky_view(client, root)
