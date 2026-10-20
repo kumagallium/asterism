@@ -567,8 +567,10 @@ a.thm-term-chip:hover {
   padding: 0.8rem;
 }
 .thm-map-scroll {
-  overflow-x: auto;
+  overflow: auto;
   max-width: 100%;
+  max-height: calc(100vh - 17rem);
+  min-height: 12rem;
 }
 .thm-map-fit {
   position: relative;
@@ -783,4 +785,121 @@ a.thm-term-chip:hover {
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.8125rem;
+}
+
+/* 作業場の図（GraphCanvas）: 全体を収める・線を押す・提案を薄く重ねる・線の端のドラッグ */
+.thm-map-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0.1rem 0.3rem;
+}
+.thm-map-tools .btn.is-on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.thm-line-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.thm-line.is-on {
+  stroke: var(--primary);
+  stroke-width: 3;
+}
+.thm-pill--click {
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* 提案: 足す線は薄く・付け替える線は薄い線と「→」・離れる元の線はさらに薄く・外す線は打ち消し */
+.thm-line--ghost-add {
+  opacity: 0.45;
+}
+.thm-line--ghost-retarget {
+  opacity: 0.6;
+}
+.thm-line--ghost-moved {
+  opacity: 0.22;
+}
+.thm-line--ghost-remove {
+  opacity: 0.3;
+  stroke-dasharray: 4 3;
+}
+.thm-pill--ghost-add {
+  opacity: 0.55;
+}
+.thm-pill--ghost-retarget {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+.thm-pill--ghost-moved,
+.thm-pill--ghost-remove {
+  opacity: 0.35;
+}
+.thm-node--ghost-add {
+  opacity: 0.6;
+}
+.thm-node--ghost-remove {
+  opacity: 0.5;
+  border-color: var(--error-border);
+}
+.thm-node--ghost-remove .thm-node-name {
+  text-decoration: line-through;
+}
+.thm-node-tag {
+  position: absolute;
+  top: -9px;
+  left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--paper);
+  color: var(--accent-strong);
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.thm-node--ghost-remove .thm-node-tag {
+  border-color: var(--error-border);
+  color: var(--error-fg);
+}
+.thm-sw--ghost {
+  opacity: 0.5;
+}
+/* 線の端（持って別の札に落とすと付け替え） */
+.thm-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2.5px solid var(--primary);
+  box-shadow: var(--shadow-soft);
+  cursor: grab;
+  touch-action: none;
+  z-index: 4;
+}
+.thm-handle::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+.thm-handle.is-drag {
+  cursor: grabbing;
+  background: var(--primary);
+}
+.thm-node.is-drop {
+  outline: 2.5px dashed var(--primary);
+  outline-offset: 2px;
+}
+.thm-drag-line {
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
 }

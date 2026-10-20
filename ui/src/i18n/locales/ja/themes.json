@@ -265,6 +265,12 @@
       "eq": "同じもの",
       "quantity": "量"
     },
-    "scrollHint": "図は横にスクロールできます →"
+    "scrollHint": "図は横にスクロールできます →",
+    "fitAll": "全体を収める",
+    "tagProposal": "提案",
+    "tagRemove": "外す提案",
+    "legendGhost": "提案（薄い）",
+    "handle": "線の端：持って別の札に落とすと付け替え",
+    "pillRetarget": "付け替える（提案）"
   }
 }

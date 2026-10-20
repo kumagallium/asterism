@@ -265,6 +265,12 @@
       "eq": "Same as",
       "quantity": "Quantity"
     },
-    "scrollHint": "Scroll the map sideways →"
+    "scrollHint": "Scroll the map sideways →",
+    "fitAll": "Fit everything",
+    "tagProposal": "Proposal",
+    "tagRemove": "Proposed removal",
+    "legendGhost": "Proposal (faint)",
+    "handle": "Line end: drag onto another card to re-point it",
+    "pillRetarget": "Re-point (proposal)"
   }
 }
