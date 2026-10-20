@@ -15,6 +15,11 @@ import {
   dropReason,
   dropsByOriginal,
   expandMessage,
+  ghostOpsOf,
+  historyOf,
+  newProposalItem,
+  openRows,
+  restoreItems,
   loadPending,
   newProposalId,
   nextConceptKey,
@@ -275,5 +280,58 @@ describe('reading the apply result', () => {
   it('the expand message follows the language', () => {
     expect(expandMessage('格子熱伝導率', 'ja')).toBe('格子熱伝導率 の周りを広げて')
     expect(expandMessage('Lattice', 'en')).toBe('Expand around Lattice')
+  })
+})
+
+describe('the conversation items', () => {
+  const op1 = retarget('c4', 'c1', 'c2')
+  const op2 = retarget('c5', 'c1', 'c2')
+
+  it('only undecided rows of waiting proposals are drawn thin on the figure', () => {
+    const a = newProposalItem({ proposalId: 'p1', ops: [op1, op2], sentences: ['s1', 's2'], by: 'ai' })
+    const b = { ...newProposalItem({ proposalId: 'p2', ops: [op1], sentences: ['s'], by: 'ai' }), decided: ['yes' as const] }
+    expect(openRows(a)).toEqual([0, 1])
+    expect(ghostOpsOf([a, b])).toEqual([op1, op2])
+    const half = { ...a, decided: ['yes' as const, null] }
+    expect(ghostOpsOf([half])).toEqual([op2])
+  })
+
+  it('sends the person’s words and the partner’s prose only (never a proposal card)', () => {
+    const items = [
+      { kind: 'user' as const, id: '1', text: '散乱は格子に紐づく気がする' },
+      { kind: 'ai' as const, id: '2', text: '格子の分に効きます' },
+      newProposalItem({ proposalId: 'p', ops: [op1], sentences: ['s'], by: 'ai' }),
+      { kind: 'ai' as const, id: '3', text: '  ' },
+    ]
+    expect(historyOf(items)).toEqual([
+      { role: 'user', content: '散乱は格子に紐づく気がする' },
+      { role: 'assistant', content: '格子の分に効きます' },
+    ])
+  })
+
+  it('restores a saved conversation in time order, a person’s words before the proposal they led to', () => {
+    const items = restoreItems(
+      {
+        messages: [
+          { role: 'user', content: '一言目', at: '2026-10-20T10:00:00Z' },
+          { role: 'user', content: '二言目', at: '2026-10-20T10:05:00Z' },
+        ],
+        proposals: [
+          { proposal_id: 'p1', ops: [op1], at: '2026-10-20T10:00:00Z', by: 'ai' },
+          { proposal_id: 'h-1', ops: [op2], at: '2026-10-20T10:06:00Z', by: 'human' },
+        ],
+      },
+      (o) => `sentence of ${String(o.from)}`,
+    )
+    expect(items.map((i) => (i.kind === 'user' ? i.text : i.kind === 'proposal' ? `P:${i.proposalId}` : '?'))).toEqual([
+      '一言目',
+      'P:p1',
+      '二言目',
+      'P:h-1',
+    ])
+    const first = items[1]
+    expect(first.kind === 'proposal' && first.decided).toEqual(['yes'])
+    expect(first.kind === 'proposal' && first.sentences).toEqual(['sentence of c4'])
+    expect(restoreItems(undefined, () => '')).toEqual([])
   })
 })

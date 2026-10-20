@@ -332,3 +332,106 @@ export function withDependencies(ops: GraphOp[], index: number, decided: readonl
   })
   return [...out].sort((a, b) => a - b)
 }
+
+// ---- 会話の中身 ----------------------------------------------------------------------------
+
+/** 提案の 1 行（1 操作）への返事。`dropped`＝検査で落ちた（理由は note）。 */
+export type RowDecision = null | 'yes' | 'no' | 'dropped'
+
+/** 差分の提案カード（AI の提案・人の直接編集の記録）。 */
+export interface ProposalItem {
+  kind: 'proposal'
+  id: string
+  proposalId: string
+  ops: GraphOp[]
+  /** サーバが ops と同じ順で組んだ 1 操作 1 文（UI は組まない。人の直接編集・復元だけ UI が文にする）。 */
+  sentences: string[]
+  decided: RowDecision[]
+  /** 落ちた理由（`dropReason` のコード）。 */
+  notes: (string | null)[]
+  /** 「1 件ずつ」の最中（各行に ✓／✕）。 */
+  per: boolean
+  busy: boolean
+  by: 'ai' | 'human'
+}
+
+export type ChatItem =
+  | { kind: 'user'; id: string; text: string }
+  | { kind: 'ai'; id: string; text: string }
+  | { kind: 'note'; id: string; text: string }
+  | { kind: 'error'; id: string; text: string }
+  | { kind: 'draft'; id: string; per: boolean }
+  | ProposalItem
+
+let itemSeq = 0
+export const nextItemId = (): string => `i${(itemSeq += 1)}`
+
+export function newProposalItem(p: {
+  proposalId: string
+  ops: GraphOp[]
+  sentences: string[]
+  by: 'ai' | 'human'
+  decided?: RowDecision
+}): ProposalItem {
+  return {
+    kind: 'proposal',
+    id: nextItemId(),
+    proposalId: p.proposalId,
+    ops: p.ops,
+    sentences: p.sentences,
+    decided: p.ops.map(() => p.decided ?? null),
+    notes: p.ops.map(() => null),
+    per: false,
+    busy: false,
+    by: p.by,
+  }
+}
+
+/** まだ返事をしていない行の添字。 */
+export const openRows = (it: ProposalItem): number[] =>
+  it.decided.flatMap((d, i) => (d === null ? [i] : []))
+
+/** 図に薄く重ねる差分: 返事を待っている提案カードの、まだ決めていない操作。 */
+export function ghostOpsOf(items: ChatItem[]): GraphOp[] {
+  return items.flatMap((it) => (it.kind === 'proposal' ? openRows(it).map((i) => it.ops[i]) : []))
+}
+
+/** 会話の履歴（api に送る）: 人の一言と AI の散文だけ。提案カードの差分は送らない。 */
+export function historyOf(items: ChatItem[]): { role: 'user' | 'assistant'; content: string }[] {
+  const out: { role: 'user' | 'assistant'; content: string }[] = []
+  for (const it of items) {
+    if (it.kind === 'user') out.push({ role: 'user', content: it.text })
+    else if (it.kind === 'ai' && it.text.trim()) out.push({ role: 'assistant', content: it.text })
+  }
+  return out
+}
+
+/** 保存された会話（`draft.chat`）から、会話を復元する。時刻順・人の発言と適用した差分。 */
+export function restoreItems(
+  chat: ThemeDraft['chat'],
+  sentenceOf: (op: GraphOp) => string,
+): ChatItem[] {
+  if (!chat) return []
+  const events: { at: string; item: ChatItem }[] = [
+    ...chat.messages.map((m) => ({ at: m.at, item: { kind: 'user', id: nextItemId(), text: m.content } as ChatItem })),
+    ...chat.proposals.map((p) => ({
+      at: p.at,
+      item: newProposalItem({
+        proposalId: p.proposal_id,
+        ops: p.ops as GraphOp[],
+        sentences: (p.ops as GraphOp[]).map(sentenceOf),
+        by: p.by,
+        decided: 'yes',
+      }),
+    })),
+  ]
+  // 同じ時刻なら、人の発言が先（発言 → その提案の順）
+  return events
+    .map((e, i) => ({ ...e, i }))
+    .sort((a, b) => {
+      if (a.at !== b.at) return a.at < b.at ? -1 : 1
+      const rank = (k: ChatItem['kind']) => (k === 'user' ? 0 : 1)
+      return rank(a.item.kind) - rank(b.item.kind) || a.i - b.i
+    })
+    .map((e) => e.item)
+}
