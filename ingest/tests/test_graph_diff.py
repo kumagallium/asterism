@@ -84,11 +84,20 @@ def test_three_retargets_move_the_scattering_factors_to_the_lattice_part() -> No
 
 
 def test_a_retarget_of_a_line_that_is_not_there_is_dropped() -> None:
-    out, report = _apply(_draft(wrong=False), [_retarget("c4", "c1", "c2")])
+    # the old line is gone and the new one is not there either → not_found
+    out, report = _apply(_draft(wrong=False), [_retarget("c4", "c3", "c1")])
     assert report["applied"] == 0
     assert [(d["op"], d["reason"], d["index"]) for d in report["dropped"]] == [
         ("retarget", "not_found", 0)
     ]
+    assert _rel(out, "c4", "lowers") == ["c2"]
+
+
+def test_a_retarget_that_is_already_applied_is_a_duplicate() -> None:
+    # replay: the old line moved already and the new one is there → a no-op, not "not found"
+    out, report = _apply(_draft(wrong=False), [_retarget("c4", "c1", "c2")])
+    assert report["applied"] == 0
+    assert [d["reason"] for d in report["dropped"]] == ["duplicate"]
     assert _rel(out, "c4", "lowers") == ["c2"]
 
 
@@ -422,6 +431,35 @@ def test_dismissal_keys_name_concepts_and_both_ends_of_a_line() -> None:
     # what a ✕ saves is exactly what the apply step then refuses
     _out, rep = _apply(draft, ops[:2], dismissed=[{**k, "at": AT} for k in keys])
     assert [d["reason"] for d in rep["dropped"]] == ["dismissed", "dismissed"]
+
+
+def test_dismissal_keys_resolve_use_like_apply_for_a_concept_on_an_existing_term() -> None:
+    draft = _draft(wrong=False)
+    terms = [sv.SharedTerm(sv.SV + "lt", "lt", "property", "フォノンの熱", None, None, AT)]
+    ops = [
+        {"op": "add_concept", "key": "n1", "label_ja": "格子の熱", "label_en": "", "aliases": [],
+         "kind": "property", "use": "existing:lt", "reason": ""},
+        {"op": "add_relation", "from": "n1", "rel": "part", "to": "c1", "reason": ""},
+    ]  # fmt: skip
+    keys = gd.dismissal_keys(draft, ops, existing=terms)
+    assert keys[-1]["subject"] == sv.SV + "lt"  # the term's IRI, not concept:<name>
+    _out, rep = gd.apply_to_draft(
+        draft, ops, existing=terms, dismissed=[{**k, "at": AT} for k in keys[1:]]
+    )
+    assert [d["reason"] for d in rep["dropped"]] == ["dismissed"]  # the ✕ is what apply refuses
+
+
+def test_an_eq_line_is_the_same_line_in_either_direction() -> None:
+    eq = {"op": "add_relation", "from": "c2", "rel": "eq", "to": "c3", "reason": ""}
+    out, rep = _apply(_draft(), [eq])
+    assert rep["applied"] == 1
+    back = {**eq, "from": "c3", "to": "c2"}
+    _out, rep2 = _apply(out, [back])
+    assert [d["reason"] for d in rep2["dropped"]] == ["duplicate"]
+    # part is directional: the reverse is a different (here cyclic) line, not a duplicate
+    rev = {"op": "add_relation", "from": "c1", "rel": "part", "to": "c2", "reason": ""}
+    _o, rep3 = _apply(_draft(), [rev])
+    assert [d["reason"] for d in rep3["dropped"]] == ["cycle"]
 
 
 def test_end_iri_reads_a_term_slug_or_a_standard_curie() -> None:

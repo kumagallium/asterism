@@ -51,6 +51,26 @@ _USE_STANDARD = "standard:"
 _PLACEHOLDER_SLUG = re.compile(r"^t\d+\Z")
 
 
+def _claimed_use(
+    op: dict, kind: str, by_slug: dict[str, SharedTerm]
+) -> tuple[str, str | None, themes.StdRef | None] | None:
+    """``add_concept`` が名乗る ``use``（``existing:<slug>`` / ``standard:<curie>``）を検査する →
+    ``(use, slug, 標準の語)``。名乗りが閉じた一覧・同じ種別に当たらなければ ``None``。
+    ``apply_to_draft`` と :func:`dismissal_keys` が同じ解決をするための 1 か所。"""
+    claimed = str(op.get("use") or "new")
+    if claimed.startswith(_USE_EXISTING):
+        e2 = by_slug.get(claimed[len(_USE_EXISTING) :])
+        if e2 is not None and e2.kind == kind:
+            return claimed, e2.slug, None
+    elif claimed.startswith(_USE_STANDARD):
+        ref = themes.std_by_curie(claimed[len(_USE_STANDARD) :])
+        if ref is not None and (
+            ref.kind == kind or (ref.kind == "quantity" and kind == "property")
+        ):
+            return claimed, None, ref
+    return None
+
+
 def proposal_id(ops: list[dict]) -> str:
     """差分の ID — ``sha1(ops)[:12]``（キーを並べた JSON）。適用の冪等の鍵。"""
     text = json.dumps(ops, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -247,17 +267,12 @@ class _Applier:
         if std is not None:
             self.remember_std(std)
         if match is None:
-            claimed = op.get("use") or "new"
-            if claimed.startswith(_USE_EXISTING):
-                e2 = self.by_slug.get(claimed[len(_USE_EXISTING) :])
-                if e2 is not None and e2.kind == kind:
-                    use, slug = claimed, e2.slug
-            elif claimed.startswith(_USE_STANDARD):
-                ref = themes.std_by_curie(claimed[len(_USE_STANDARD) :])
-                if ref is not None and (
-                    ref.kind == kind or (ref.kind == "quantity" and kind == "property")
-                ):
-                    use = claimed
+            got = _claimed_use(op, kind, self.by_slug)
+            if got is not None:
+                use, slug_c, ref = got
+                if slug_c:
+                    slug = slug_c
+                if ref is not None:
                     self.remember_std(ref)
         if not slug:
             slug = themes.derive_slug(label_en, aliases, self.taken_slugs, len(self.rows) + 1)
@@ -294,6 +309,11 @@ class _Applier:
             return None
         return subj, obj, std
 
+    def has_relation(self, frm: str, rel: str, to: str) -> bool:
+        """同じ関係が下書きにあるか（``eq`` は向きを問わない）。"""
+        have = {(r.get("from"), r.get("to"), r.get("rel")) for r in self.rels}
+        return (frm, to, rel) in have or (rel == "eq" and (to, frm, rel) in have)
+
     def add_relation(self, i: int, op: dict) -> None:
         got = self._resolve_pair(i, op, op["from"], op["to"])
         if got is None:
@@ -302,10 +322,7 @@ class _Applier:
         if std is not None:
             self.remember_std(std)
         obj_key = std.curie if std is not None else str(obj["key"])  # type: ignore[index]
-        if any(
-            (r.get("from"), r.get("to"), r.get("rel")) == (subj["key"], obj_key, op["rel"])
-            for r in self.rels
-        ):
+        if self.has_relation(str(subj["key"]), op["rel"], obj_key):
             return self.drop(i, op, "duplicate")
         problem = self.check_relation(subj, op["rel"], obj, std)
         if problem:
@@ -342,6 +359,9 @@ class _Applier:
     def retarget(self, i: int, op: dict) -> None:
         old = self._find_relation(op["from"], op["rel"], op["to"])
         if old is None:
+            # 元の線が無い — 付け替えの先に同じ線が既にあれば、再送（もう当たっている）
+            if self._find_relation(op["from"], op["rel"], op["new_to"]) is not None:
+                return self.drop(i, op, "duplicate")
             return self.drop(i, op, "not_found")
         got = self._resolve_pair(i, op, op["from"], op["new_to"])
         if got is None:
@@ -352,10 +372,7 @@ class _Applier:
         new_key = std.curie if std is not None else str(obj["key"])  # type: ignore[index]
         if new_key == old["to"]:
             return self.drop(i, op, "duplicate")
-        if any(
-            (r.get("from"), r.get("to"), r.get("rel")) == (subj["key"], new_key, op["rel"])
-            for r in self.rels
-        ):
+        if self.has_relation(str(subj["key"]), op["rel"], new_key):
             return self.drop(i, op, "duplicate")
         problem = self.check_relation(subj, op["rel"], obj, std, without=old)
         if problem:
@@ -616,6 +633,7 @@ def dismissal_keys(
         for r in draft.get("concepts") or []
         if isinstance(r, dict) and r.get("key")
     }
+    by_slug = {e.slug: e for e in existing}
     out: list[dict] = []
     seen: set[tuple[str, str, str | None]] = set()
 
@@ -635,6 +653,10 @@ def dismissal_keys(
         match, use, slug, _std = themes._machine_match(
             label_ja, str(op.get("label_en") or ""), aliases, kind, existing
         )
+        if match is None:  # apply と同じ解決: 既存の語に結んだ概念は IRI で指す
+            claimed = _claimed_use(op, kind, by_slug)
+            if claimed is not None:
+                use, slug = claimed[0], claimed[1] or slug
         rows[str(op["key"])] = {
             "key": op["key"], "label_ja": label_ja, "kind": kind, "use": use, "slug": slug,
             "match": match,
