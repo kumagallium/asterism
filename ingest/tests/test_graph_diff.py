@@ -549,3 +549,35 @@ def test_home_drops_what_the_tables_or_the_dismissals_refuse_and_what_is_not_a_l
         (0, "target_not_property"), (1, "mixed"), (2, "unknown_key"), (3, "dismissed"),
         (4, "unsupported"),
     ]  # fmt: skip
+
+
+def test_home_plans_a_published_kind_as_the_end_of_a_line_by_its_iri() -> None:
+    """7c A1: 公開済みの種類（星）は ``kind:<…>`` の鍵で線の元（先）に使える。線の端・却下の鍵は
+    種類の IRI そのもの（``concept:…`` の仮の名前ではない）。"""
+    star = "https://ex/onto#Ingredient"
+    key = gd.kind_key(star)
+    assert key == gd.kind_key(star) and key.startswith("kind:") and "/" not in key
+    kinds = {key: {"iri": star, "label": "食材の名前"}}
+    ops = [
+        {"op": "add_relation", "from": key, "rel": "eq", "to": "grain_boundary", "reason": "r1"},
+        {"op": "add_relation", "from": key, "rel": "sub", "to": "grain_boundary", "reason": ""},
+        {"op": "add_relation", "from": key, "rel": "eq", "to": "lattice_tc", "reason": ""},
+        {"op": "add_relation", "from": key, "rel": "lowers", "to": "lattice_tc", "reason": ""},
+        {"op": "remove", "target": "relation", "from": key, "rel": "eq", "to": "grain_boundary",
+         "reason": ""},
+    ]  # fmt: skip
+    dismissed = [{"subject": star, "term": sv.SV + "grain_boundary",
+                  "relation": "subClassOf", "at": AT}]  # fmt: skip
+    plans, dropped = gd.plan_term_relations(ops, terms=_terms(), dismissed=dismissed, kinds=kinds)
+    assert [(p["index"], p["action"], p["relation"]) for p in plans] == [
+        (0, "add", "equivalentClass"), (3, "add", "lowers"), (4, "remove", "equivalentClass"),
+    ]  # fmt: skip  (a kind may lower an item: the table says "from: a class or a property")
+    assert (plans[0]["source"], plans[0]["target"]) == (star, sv.SV + "grain_boundary")
+    assert plans[0]["reason"] == "r1"
+    assert [(d["index"], d["reason"]) for d in dropped] == [
+        (1, "dismissed"),  # 種類の IRI で書いた却下が効く
+        (2, "mixed"),  # 同じものと言えるのは同じ種別どうしだけ（種類 ≡ 項目は不可）
+    ]
+    # kinds を渡さなければ、種類の鍵は図に無い鍵（従来どおり）
+    _plans, none = gd.plan_term_relations(ops[:1], terms=_terms())
+    assert [d["reason"] for d in none] == ["unknown_key"]

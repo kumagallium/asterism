@@ -37,9 +37,11 @@ from asterism import themes
 from asterism.shared_vocab import SharedTerm, normalize_label
 
 __all__ = [
+    "KIND_KEY_PREFIX",
     "apply_to_draft",
     "dismissal_keys",
     "end_iri",
+    "kind_key",
     "op_ref",
     "ops_to_sentences",
     "plan_term_relations",
@@ -554,16 +556,33 @@ def apply_to_draft(
 # ---------------------------------------------------------------------------
 
 
+KIND_KEY_PREFIX = "kind:"
+
+
+def kind_key(iri: str) -> str:
+    """公開済みの種類（星）の鍵 ``kind:<sha1(IRI)[:10]>``。AI は IRI を書かない（書けない）ので、
+    図の文脈には IRI の代わりにこの短い鍵を渡し、適用のときに公開済みの種類の集合へ引き戻す。
+    同じ IRI は同じ鍵（決定論）。"""
+    return KIND_KEY_PREFIX + hashlib.sha1(iri.encode("utf-8")).hexdigest()[:10]
+
+
 def plan_term_relations(
-    ops: list[dict], *, terms: list[SharedTerm], dismissed: Iterable[dict] = ()
+    ops: list[dict],
+    *,
+    terms: list[SharedTerm],
+    dismissed: Iterable[dict] = (),
+    kinds: dict[str, dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """ホームの差分（``add_relation`` / ``remove`` の関係だけ）を、alignment graph に書く
     **計画**にする → ``(plans, dropped)``。key は公開済みの用語の slug（関係の先は標準の語の
-    curie でもよい）。種別表・却下済みで落とすのはテーマと同じ規則（循環は store を読む
-    ``assert_alignment`` が拒む）。``plans`` の 1 件 = ``{index, action: "add"|"remove", source,
-    target, relation, reason}``（``source`` / ``target`` は IRI・``relation`` は
-    :data:`~asterism.crosswalk_runtime.ALIGN_RELATIONS` の鍵）。それ以外の操作は
-    ``unsupported`` で落とす。何も書かない。"""
+    curie でもよい）。``kinds`` = 公開済みの種類 ``{kind_key(iri): {iri, label}}``（星）— 渡すと、
+    ``kind:<…>`` の鍵を**関係の元（または先）**に使える。種類は「種類（class）」として検査し
+    （種別表・循環は用語と同じ規則）、却下の鍵・線の端は種類の IRI そのもの。種別表・却下済みで
+    落とすのはテーマと同じ規則（循環は store を読む ``assert_alignment`` が拒む）。``plans`` の
+    1 件 = ``{index, action: "add"|"remove", source, target, relation, reason}``（``source`` /
+    ``target`` は IRI・``relation`` は :data:`~asterism.crosswalk_runtime.ALIGN_RELATIONS` の鍵）。
+    それ以外の操作は ``unsupported`` で落とす。何も書かない。"""
+    kinds = kinds or {}
     rows = [
         {
             "key": t.slug, "label_ja": t.label, "label_en": t.label_en or "",
@@ -571,8 +590,15 @@ def plan_term_relations(
             "slug": t.slug, "match": None, "by": "ai",
         }
         for t in terms
+    ] + [
+        {
+            "key": key, "label_ja": str(k.get("label") or ""), "label_en": "", "aliases": [],
+            "kind": "class", "use": "new", "slug": "", "match": None, "by": "ai",
+        }
+        for key, k in kinds.items()
     ]  # fmt: skip
     ap = _Applier({"concepts": rows, "relations": []}, existing=terms, dismissed=dismissed, by="ai")
+    dismissed_rows = list(dismissed)
     plans: list[dict] = []
     for i, op in enumerate(ops):
         name = op.get("op")
@@ -581,21 +607,33 @@ def plan_term_relations(
             if got is None:
                 continue
             subj, obj, std = got
+            from_kind = kinds.get(str(op["from"]))
+            to_kind = kinds.get(str(op["to"]))
             if name == "add_relation":
                 problem = ap.check_relation(subj, op["rel"], obj, std)
                 if problem:
                     ap.drop(i, op, problem)
                     continue
-                if ap.is_dismissed(subj, op["rel"], obj, std):
+            source = str(from_kind["iri"]) if from_kind else themes.concept_end_key(subj)
+            target = (
+                str(to_kind["iri"]) if to_kind else ap.end_key_of(obj, std)  # type: ignore[arg-type]
+            )
+            relation = themes.relation_predicate(str(op["rel"]), str(subj["kind"]))
+            if name == "add_relation":
+                if from_kind or to_kind:  # 種類の端は IRI のまま比べる
+                    gone = sv.is_dismissed(dismissed_rows, source, target, relation=relation)
+                else:
+                    gone = ap.is_dismissed(subj, op["rel"], obj, std)
+                if gone:
                     ap.drop(i, op, "dismissed")
                     continue
             plans.append(
                 {
                     "index": i,
                     "action": "add" if name == "add_relation" else "remove",
-                    "source": themes.concept_end_key(subj),
-                    "target": ap.end_key_of(obj, std),
-                    "relation": themes.relation_predicate(str(op["rel"]), str(subj["kind"])),
+                    "source": source,
+                    "target": target,
+                    "relation": relation,
                     "reason": op.get("reason") or "",
                 }
             )
