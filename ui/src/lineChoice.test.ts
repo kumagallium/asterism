@@ -3,6 +3,9 @@ import type { Alignment } from './crosswalkApi'
 import {
   httpStatusOf,
   isDirectedRelation,
+  isKnowledgeRelation,
+  knowledgeRelationsFor,
+  RELATION_ORDER,
   lineChoice,
   orientPicks,
   QUANTITY_KIND_NS,
@@ -166,5 +169,37 @@ describe('sharedLines — 共有のことばに掛かる線', () => {
       narrower: [{ iri: 'https://example.org/m', kind: 'dataset', dataset_id: 'd1', label: 'm' }],
     })
     expect(sharedLines([t], [])[0].relation).toBe('subPropertyOf')
+  })
+})
+
+describe('知識の関係（一部・下げる・上げる・変える）', () => {
+  it('閉集合は 9 述語で、知識の 4 つは後ろに足してある', () => {
+    expect(RELATION_ORDER).toHaveLength(9)
+    expect(RELATION_ORDER.slice(5)).toEqual(['isPartOf', 'lowers', 'raises', 'affects'])
+    expect(isKnowledgeRelation('lowers')).toBe(true)
+    expect(isKnowledgeRelation('http://purl.obolibrary.org/obo/BFO_0000050')).toBe(false) // 述語名で持つ
+    expect(isKnowledgeRelation('subClassOf')).toBe(false)
+  })
+  it('一部は同じ種別どうし・下げる系は「種類か項目 → 項目」（api の述語ごとの表と同じ）', () => {
+    expect(knowledgeRelationsFor('class', 'class')).toEqual(['isPartOf'])
+    expect(knowledgeRelationsFor('property', 'property')).toEqual(['isPartOf', 'lowers', 'raises', 'affects'])
+    expect(knowledgeRelationsFor('class', 'property')).toEqual(['lowers', 'raises', 'affects'])
+    expect(knowledgeRelationsFor('property', 'class')).toEqual([])
+    expect(knowledgeRelationsFor('quantity', 'property')).toEqual([])
+  })
+  it('ひとこと決める（relationsFor）は従来の 3 文のまま・知識の関係を混ぜない', () => {
+    for (const a of ['class', 'property', 'quantity', 'unknown'] as const) {
+      for (const b of ['class', 'property', 'quantity', 'unknown'] as const) {
+        expect(relationsFor(a, b).some((r) => isKnowledgeRelation(r))).toBe(false)
+      }
+    }
+  })
+  it('知識の関係は向きがあり、記号で読める', () => {
+    expect(isDirectedRelation('lowers')).toBe(true)
+    expect(isDirectedRelation('isPartOf')).toBe(true)
+    expect(relationSymbol('lowers')).toBe('↓')
+    expect(relationSymbol('raises')).toBe('↑')
+    expect(relationSymbol('affects')).toBe('↕')
+    expect(relationSymbol('isPartOf')).toBe('⊂')
   })
 })

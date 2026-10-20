@@ -8,7 +8,8 @@
     "quantity": "Quantity",
     "standard": "Standard terms",
     "perspective": "Connection to connection",
-    "broken": "Broken"
+    "broken": "Broken",
+    "knowledge": "Knowledge"
   },
   "loading": "Loading decisions…",
   "loadingPerspectives": "Loading connections…",
@@ -28,5 +29,12 @@
     "other": "\"{{subject}}\" and \"{{target}}\" ({{relation}})"
   },
   "about": "Only those involving “{{name}}”",
-  "aboutClear": "Show all"
+  "aboutClear": "Show all",
+  "batch": "Confirmed together ({{n}})",
+  "batchBy": {
+    "ai": "A person confirmed an AI draft",
+    "human": "Confirmed by a person"
+  },
+  "batchOpen": "See what is inside",
+  "reasonLabel": "Why"
 }

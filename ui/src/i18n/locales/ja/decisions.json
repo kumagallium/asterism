@@ -8,7 +8,8 @@
     "quantity": "量",
     "standard": "標準用語",
     "perspective": "つながり同士",
-    "broken": "切れている"
+    "broken": "切れている",
+    "knowledge": "知識"
   },
   "loading": "決めたことを読み込んでいます…",
   "loadingPerspectives": "つながりを読み込んでいます…",
@@ -28,5 +29,12 @@
     "other": "「{{subject}}」と「{{target}}」（{{relation}}）"
   },
   "about": "「{{name}}」に掛かるものだけ",
-  "aboutClear": "すべて見る"
+  "aboutClear": "すべて見る",
+  "batch": "まとめて確定（{{n}} 件）",
+  "batchBy": {
+    "ai": "AI の下書きを人が確定",
+    "human": "人が確定"
+  },
+  "batchOpen": "中身を見る",
+  "reasonLabel": "理由"
 }

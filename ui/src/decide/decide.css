@@ -201,3 +201,36 @@
   font-size: 0.85rem;
   color: var(--body);
 }
+
+/* 理由 1 行（問いから育てる）と、まとめて確定の束 */
+.decisions-reason {
+  font-size: 0.72rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.decisions-batch {
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.decisions-batch > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  padding: 0.55rem 0;
+  cursor: pointer;
+}
+.decisions-batch-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+.decisions-batch-by {
+  font-size: 0.72rem;
+  color: var(--accent-strong);
+}
+.decisions-batch[open] > summary {
+  border-bottom: 1px dashed var(--border);
+}
+.decisions-batch .decisions-row {
+  padding-left: 0.9rem;
+}

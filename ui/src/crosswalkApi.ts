@@ -169,6 +169,12 @@ export interface Alignment {
   /** 端の表示名（rdfs:label・日本語優先）。古いサーバは返さない。 */
   source_label?: string
   target_label?: string
+  /** 来歴（問いから育てる）: 誰が決めたか（`ai` = AI の下書きを人が確定・`human`）。古いサーバは省略。 */
+  drafted_by?: string
+  /** 「まとめて確定」の ID。同じ ID の線は同じ操作で決めた。 */
+  batch?: string | null
+  /** 理由 1 行。 */
+  reason?: string | null
 }
 
 /** 線の端の種類（鋳造済みの共有語＝shared、標準語＝standard、素性不明＝unknown）。 */

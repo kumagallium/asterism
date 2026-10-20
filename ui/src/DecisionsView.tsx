@@ -7,6 +7,7 @@ import {
   type DecisionFilter,
   decisionSentence,
   filterCounts,
+  groupByBatch,
   involves,
   matchesFilter,
   newestFirst,
@@ -105,6 +106,11 @@ function DecisionRow({
         {decisionSentence(a, names, t)}
         {tag(a.source_kind)}
         {tag(a.target_kind)}
+        {a.reason && (
+          <div className="decisions-reason" title={t('decisions:reasonLabel')}>
+            {a.reason}
+          </div>
+        )}
       </div>
       {a.broken && (
         <span className="decisions-broken" title={t('decisions:brokenHint')}>
@@ -226,6 +232,8 @@ function DecisionsPane({
     () => newestFirst(scoped.filter((a) => matchesFilter(a, filter))),
     [scoped, filter],
   )
+  // 同じ「まとめて確定」の線は 1 行に畳む
+  const entries = useMemo(() => groupByBatch(shown), [shown])
 
   const askUndo = useCallback((a: Alignment) => {
     setErr('')
@@ -306,19 +314,32 @@ function DecisionsPane({
       )}
       {filter !== 'perspective' && shown.length > 0 && (
         <div className="decisions-list">
-          {shown.map((a) => (
-            <DecisionRow
-              key={a.alignment_iri}
-              a={a}
-              names={names}
-              terms={terms}
-              undo={undo}
-              removing={removing === a.alignment_iri}
-              onAskUndo={askUndo}
-              onCancelUndo={() => setUndo(null)}
-              onUndo={(x) => void doUndo(x)}
-            />
-          ))}
+          {entries.map((entry) => {
+            const row = (a: Alignment) => (
+              <DecisionRow
+                key={a.alignment_iri}
+                a={a}
+                names={names}
+                terms={terms}
+                undo={undo}
+                removing={removing === a.alignment_iri}
+                onAskUndo={askUndo}
+                onCancelUndo={() => setUndo(null)}
+                onUndo={(x) => void doUndo(x)}
+              />
+            )
+            if (entry.kind === 'one') return row(entry.a)
+            return (
+              <details key={`batch-${entry.batch}`} className="decisions-batch" data-testid="decision-batch">
+                <summary>
+                  <span className="decisions-batch-title">{t('decisions:batch', { n: entry.items.length })}</span>
+                  <span className="decisions-batch-by">{t(`decisions:batchBy.${entry.draftedBy === 'ai' ? 'ai' : 'human'}`)}</span>
+                  <span className="decisions-date">{entry.at ? entry.at.slice(0, 10) : ''}</span>
+                </summary>
+                {entry.items.map(row)}
+              </details>
+            )
+          })}
         </div>
       )}
     </>

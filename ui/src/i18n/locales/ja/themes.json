@@ -50,7 +50,14 @@
     "remove": "テーマを外す",
     "removeConfirm": "テーマ「{{label}}」を外します。ほかのテーマ・データが使っていない概念と関係も消えます。よろしいですか？",
     "more": "その他の操作",
-    "memoBadge": "メモの問い"
+    "memoBadge": "メモの問い",
+    "counts": "知識 {{k}}・データ {{d}}",
+    "seeKnowledge": "答えを見る",
+    "knowledgeNone": "まだ確定した知識がありません。",
+    "byAi": "AI の下書きを人が確定",
+    "byHuman": "人が確定",
+    "knowledgeTotal": "知識 {{n}} 件",
+    "removed": "テーマ「{{label}}」を外しました。ほかで使っていない概念 {{concepts}} 件と関係 {{relations}} 件も消えました（残したもの {{kept}} 件）。"
   },
   "unassigned": {
     "title": "テーマに入っていない問い"
@@ -159,7 +166,9 @@
     "byHand": "人が手で作りました",
     "remove": "用語を外す",
     "open": "用語のページを開く",
-    "more": "詳しく"
+    "more": "詳しく",
+    "knowledge": "この語につながる知識",
+    "knowledgeAi": "AI 下書きを確定"
   },
   "firstThemeLabel": "はじめの問い",
   "review": {

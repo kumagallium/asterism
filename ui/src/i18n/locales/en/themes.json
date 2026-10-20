@@ -50,7 +50,14 @@
     "remove": "Remove the theme",
     "removeConfirm": "Remove the theme “{{label}}”? Concepts and relations that no other theme or data uses are removed too.",
     "more": "More",
-    "memoBadge": "Note question"
+    "memoBadge": "Note question",
+    "counts": "Knowledge {{k}} · Data {{d}}",
+    "seeKnowledge": "See the answer",
+    "knowledgeNone": "No confirmed knowledge yet.",
+    "byAi": "A person confirmed an AI draft",
+    "byHuman": "Confirmed by a person",
+    "knowledgeTotal": "Knowledge {{n}}",
+    "removed": "Removed the theme “{{label}}”. {{concepts}} concepts and {{relations}} relations that nothing else uses are gone too ({{kept}} concepts kept)."
   },
   "unassigned": {
     "title": "Questions in no theme"
@@ -159,7 +166,9 @@
     "byHand": "Made by a person, by hand",
     "remove": "Remove the term",
     "open": "Open the term's page",
-    "more": "Details"
+    "more": "Details",
+    "knowledge": "Knowledge tied to this term",
+    "knowledgeAi": "AI draft, confirmed"
   },
   "firstThemeLabel": "First questions",
   "review": {
