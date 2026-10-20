@@ -6,7 +6,14 @@
 import { authHeaders } from '../authToken'
 import i18n from '../i18n'
 import { type LlmCredentials, llmHeaders } from '../settings/store'
-import type { ThemeDraft, DraftResponse, SelectionRow, TermRow, RelationRow, MatchResult } from './themeDraft'
+import {
+  type DraftResponse,
+  buildCommitBody,
+  type MatchResult,
+  type ThemeDraft,
+  normalizeDraft,
+  validateDraftResponse,
+} from './themeDraft'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
@@ -46,6 +53,12 @@ export interface ThemeQuestion {
   /** 機械が組む実行文（空＝まだ組めない）。 */
   shape: string
   terms: string[]
+  /** `knowledge`（確定した関係の線から答える）／ `data`（宣言ツール）。古いサーバは省略。 */
+  mode?: 'knowledge' | 'data'
+  /** 知識の問いだけ: 確定した線から出る答えの件数。 */
+  knowledge_count?: number
+  /** 「欲しいデータ」1 行（無ければ空）。 */
+  wanted_data?: string
 }
 
 export interface ThemeTerm {
@@ -60,6 +73,7 @@ export interface MemoQuestion {
   id: string
   title: string
   reason: string
+  wanted_data?: string
 }
 
 export interface ThemeSummary {
@@ -69,6 +83,8 @@ export interface ThemeSummary {
   questions: ThemeQuestion[]
   /** 答えられる（1 データセット以上が答える）問いの数。 */
   answerable: number
+  /** 知識で答えられる件数の合計（知識の問いの knowledge_count の和）。 */
+  knowledge_total?: number
   terms: ThemeTerm[]
   memo_questions: MemoQuestion[]
 }
@@ -104,19 +120,43 @@ export async function listThemes(lang: string): Promise<ThemesListing> {
   return (await res.json()) as ThemesListing
 }
 
-/** 問いから AI が下書きを作る。503＝AI が未設定（画面は手入力へ）・502＝答えが決まった形にならない。 */
+/** 問いから AI が知識の図の下書きを作る。503＝AI が未設定（画面は手入力へ）・502＝答えが決まった形にならない。 */
 export async function draftWithAi(
   questions: string[],
+  label: string,
   lang: string,
   creds: LlmCredentials | null,
 ): Promise<DraftResponse> {
   const res = await fetch(`${API_BASE}/api/themes/draft`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
-    body: JSON.stringify({ questions, lang }),
+    body: JSON.stringify({ questions, label, lang }),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.draft'))
-  return (await res.json()) as DraftResponse
+  const body = validateDraftResponse(await res.json())
+  if (!body) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')
+  return body
+}
+
+/** 「ここを広げる」— 下書きの概念のまわりを AI に足させる。保存済みの下書きと足し分の key を返す。 */
+export async function expandDraft(
+  draftId: string,
+  focusKey: string,
+  lang: string,
+  creds: LlmCredentials | null,
+): Promise<{ draft: ThemeDraft; addedConcepts: string[] }> {
+  const res = await fetch(`${API_BASE}/api/themes/expand`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
+    body: JSON.stringify({ draft_id: draftId, focus_key: focusKey, lang }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.expand'))
+  const raw = (await res.json()) as Record<string, unknown>
+  const draft = normalizeDraft(raw)
+  if (!draft) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')
+  const added = raw.added as { concepts?: { key?: unknown }[] } | undefined
+  const addedConcepts = (added?.concepts ?? []).map((c) => String(c.key ?? '')).filter(Boolean)
+  return { draft, addedConcepts }
 }
 
 /**
@@ -160,24 +200,40 @@ export async function createDraft(
     body: JSON.stringify({ label, questions, ...(extend ? { extend } : {}) }),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.saveDraft'))
-  return (await res.json()) as ThemeDraft
+  const d = normalizeDraft(await res.json())
+  if (!d) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')
+  return d
 }
 
 export async function getDraft(id: string): Promise<ThemeDraft> {
   const res = await fetch(`${API_BASE}/api/themes/drafts/${encodeURIComponent(id)}`)
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.openDraft'))
-  return (await res.json()) as ThemeDraft
+  const d = normalizeDraft(await res.json())
+  if (!d) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')
+  return d
 }
 
 export async function saveDraft(draft: ThemeDraft): Promise<ThemeDraft> {
-  const { id, label, step, extend, questions, ai, terms, relations, selections } = draft
+  const { id, label, step, extend, questions, concepts, relations, answers, suggested_questions, standards } = draft
   const res = await fetch(`${API_BASE}/api/themes/drafts/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ label, step, extend, questions, ai, terms, relations, selections }),
+    body: JSON.stringify({
+      label,
+      step,
+      extend,
+      questions,
+      concepts,
+      relations,
+      answers,
+      suggested_questions,
+      standards,
+    }),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.saveDraft'))
-  return (await res.json()) as ThemeDraft
+  const d = normalizeDraft(await res.json())
+  if (!d) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')
+  return d
 }
 
 export async function deleteDraft(id: string): Promise<void> {
@@ -189,17 +245,7 @@ export async function deleteDraft(id: string): Promise<void> {
 }
 
 /** 確定するときに送る下書きの最終形（themeDraft.buildCommitBody が作る）。 */
-export interface CommitBody {
-  label: string
-  /** 既にあるテーマの id（あればそのテーマに問いを足す）。 */
-  extend?: string
-  lang: string
-  ai_drafted: boolean
-  questions: string[]
-  terms: TermRow[]
-  relations: Pick<RelationRow, 'subject' | 'object' | 'relation'>[]
-  selections: SelectionRow[]
-}
+export type CommitBody = ReturnType<typeof buildCommitBody>
 
 export interface CommitResult {
   theme: { id: string; label: string }
@@ -207,9 +253,10 @@ export interface CommitResult {
   lines: number
   questions: string[]
   memo: number
+  batch?: string
 }
 
-/** 用語・関係・問い・テーマを 1 操作で置く。409＝ID が重なる・422＝置けない組み合わせ。 */
+/** 概念・関係・問い・テーマを 1 操作で置く。409＝ID が重なる・422＝置けない組み合わせ（問いにつながらない概念など）。 */
 export async function commitTheme(id: string, body: CommitBody): Promise<CommitResult> {
   const res = await fetch(`${API_BASE}/api/themes/${encodeURIComponent(id)}/commit`, {
     method: 'POST',
@@ -234,13 +281,54 @@ export async function addQuestionsToTheme(
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.addQuestions'))
 }
 
-/** テーマを外す。用語・関係・問いは残る。 */
-export async function deleteTheme(id: string): Promise<void> {
+/** テーマ単位の取り消しの結果。ほかのテーマ・データが使っている概念と関係は残る。 */
+export interface RemovedTheme {
+  removed_concepts: { slug: string; label: string }[]
+  kept_concepts: { slug: string; label: string; reason: string }[]
+  removed_relations: { from: string; relation: string; to: string }[]
+  kept_relations: { from: string; relation: string; to: string }[]
+}
+
+/** テーマを外す。ほかのテーマの問い・データの線に使われていない概念と関係も消える。 */
+export async function deleteTheme(id: string): Promise<RemovedTheme | null> {
   const res = await fetch(`${API_BASE}/api/themes/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.deleteTheme'))
+  // 200 で結果を返す（古いサーバは 204）。読めなければ結果なし。
+  return (await res.json().catch(() => null)) as RemovedTheme | null
+}
+
+/** 問いごとの答え（知識 N・データ N）。 */
+export interface KnowledgeItem {
+  iri: string
+  label: string
+  relation: string
+  via: string
+  via_label: string
+  reason: string | null
+  drafted_by: string
+  at: string
+  batch: string | null
+}
+
+export interface QuestionAnswer {
+  tool_name: string
+  title: string
+  mode: 'knowledge' | 'data'
+  shape: string
+  knowledge: { count: number; items: KnowledgeItem[] } | null
+  data: { answering: number; total_datasets: number } | null
+  wanted_data: string
+}
+
+export async function getThemeAnswers(themeId: string, lang: string): Promise<QuestionAnswer[]> {
+  const res = await fetch(
+    `${API_BASE}/api/themes/${encodeURIComponent(themeId)}/answers?lang=${encodeURIComponent(lang)}`,
+  )
+  if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.answers'))
+  return ((await res.json()) as { answers?: QuestionAnswer[] }).answers ?? []
 }
 
 /** 型紙（CSV の見出し行だけ）の取得先。 */

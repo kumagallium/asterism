@@ -165,7 +165,7 @@ describe('導線の hash', () => {
     expect(vocabQuestionHash('試料は何件？ A/B')).toBe(
       `#/questions?new=1&q=${encodeURIComponent('試料は何件？ A/B')}`,
     )
-    // 題が無くても、6 段（①）を開く入口のまま
+    // 題が無くても、3 段（①）を開く入口のまま
     expect(vocabQuestionHash('  ')).toBe('#/questions?new=1')
   })
 

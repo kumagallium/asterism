@@ -1058,7 +1058,7 @@ function App() {
                   newQuestion={!!route.newQuestion}
                   focusTheme={route.themeId}
                   onCloseNew={() => {
-                    // 6 段を閉じた: `new` と持ち込まれた題 `q` を hash から外す。
+                    // 3 段を閉じた: `new` と持ち込まれた題 `q` を hash から外す。
                     const h = window.location.hash
                     const qi = h.indexOf('?')
                     if (qi >= 0) {

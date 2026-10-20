@@ -139,7 +139,7 @@ export function parseVocabHash(hash: string): VocabHashParams {
 }
 
 /** 質問する・かんたん ⑥ などから「テーマに入れて育てる」の行き先。題だけ運び、「知りたいことから
- *  作る」の 6 段（①）を、その題を入れて開く（`#/questions?new=1&q=<題>`）。 */
+ *  作る」の 3 段（①）を、その題を入れて開く（`#/questions?new=1&q=<題>`）。 */
 export function vocabQuestionHash(question: string): string {
   const q = question.trim()
   return q ? `#/questions?new=1&q=${encodeURIComponent(q)}` : '#/questions?new=1'

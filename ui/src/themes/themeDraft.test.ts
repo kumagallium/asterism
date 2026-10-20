@@ -1,537 +1,351 @@
 import { describe, expect, it } from 'vitest'
-import { slugFromText } from '../vocabQuestion'
 import {
-  type DraftResponse,
+  type AnswerRow,
+  type ConceptRow,
   type RelationRow,
-  type SelectionRow,
-  type TermRow,
   type ThemeDraft,
-  acceptedRelations,
-  addGroup,
+  addConcept,
   addQuestion,
-  answeringNow,
+  answerComplete,
+  answerState,
   applyDraftResponse,
   applyMatches,
   buildCommitBody,
-  canAdvance,
-  chooseUse,
+  confirmCounts,
+  conceptDismissKey,
+  defaultLabel,
+  dismissEndKey,
+  hasConceptNamed,
   idList,
-  implicitRelations,
-  isMemo,
+  knowledgeEstimate,
   matchSignature,
-  memoReason,
-  newTermRow,
+  normalizeDraft,
   parseQuestionLines,
   placeBlocker,
-  placeSummary,
-  relationApplies,
-  relationsReady,
-  removeRow,
-  renameRow,
+  reachableKeys,
+  relationPredicate,
+  removeConcept,
+  removeRelation,
   rowProblems,
-  selectionComplete,
-  selectionFits,
-  selectionPayload,
-  selectionsReady,
-  setRelation,
-  setSelection,
+  sentConcepts,
+  sentRelations,
+  setAnswerTarget,
+  setWay,
+  standardIri,
   startManual,
-  suggestRowSlug,
-  syncSelections,
-  termMints,
-  termUseOptions,
-  upperStructure,
+  syncAnswers,
+  unlinkedKeys,
   validateDraftResponse,
-  visibleGroups,
+  wayOf,
 } from './themeDraft'
 
-// 架空の語だけを使う（分野語ゼロ）。
-
-function term(key: string, over: Partial<TermRow> = {}): TermRow {
-  return {
-    key,
-    label_ja: `語${key}`,
-    label_en: `word ${key}`,
-    aliases: [],
-    kind: 'class',
-    use: 'new',
-    slug: `word_${key}`,
-    reason: '',
-    match: null,
-    by: 'ai',
-    ...over,
-  }
-}
-
-function rel(subject: string, object: string, over: Partial<RelationRow> = {}): RelationRow {
-  return { subject, object, relation: 'sub', problem: null, by: 'ai', ok: null, ...over }
-}
-
-function sel(question: string, over: Partial<SelectionRow> = {}): SelectionRow {
-  return {
-    question,
-    op: '',
-    kind: '',
-    property: '',
-    value: '',
-    fits: false,
-    memo: 'none',
-    reason: '',
-    by: 'ai',
-    ...over,
-  }
-}
-
-function draft(over: Partial<ThemeDraft> = {}): ThemeDraft {
-  return {
-    id: 'd1',
-    label: 'テーマ',
-    step: 1,
-    questions: ['問い A', '問い B'],
-    ai: null,
-    terms: [],
-    relations: [],
-    selections: [],
-    updated_at: '',
-    ...over,
-  }
-}
-
-const CTX = { existingSlugs: new Set<string>() }
-
-describe('① 問いの入力', () => {
-  it('1 行 1 問・空と重複（大小・全半角の違い）を落とす', () => {
-    expect(parseQuestionLines('  問い A \n\n問い  B\nＡｂｃ\nabc\n')).toEqual(['問い A', '問い B', 'Ａｂｃ'])
-    expect(parseQuestionLines('')).toEqual([])
-  })
-
-  it('AI の案を足す: すでにあれば足さない', () => {
-    expect(addQuestion(['a'], 'b')).toEqual(['a', 'b'])
-    expect(addQuestion(['a'], ' A ')).toEqual(['a'])
-  })
+const concept = (key: string, label: string, kind: 'class' | 'property', extra: Partial<ConceptRow> = {}): ConceptRow => ({
+  key,
+  label_ja: label,
+  label_en: '',
+  aliases: [],
+  kind,
+  use: 'new',
+  slug: `s_${key}`,
+  reason: '',
+  match: null,
+  by: 'ai',
+  ...extra,
+})
+const rel = (from: string, r: RelationRow['rel'], to: string, extra: Partial<RelationRow> = {}): RelationRow => ({
+  from,
+  rel: r,
+  to,
+  reason: '',
+  problem: null,
+  by: 'ai',
+  ...extra,
+})
+const ans = (q: string, extra: Partial<AnswerRow> = {}): AnswerRow => ({
+  question: q,
+  mode: 'memo',
+  op: '',
+  target: '',
+  direction: '',
+  kind: '',
+  property: '',
+  value: '',
+  memo: 'none',
+  wanted_data: '',
+  reason: '',
+  by: 'ai',
+  ...extra,
 })
 
-describe('slug の導出（サーバの themes.slug_from_text と同じ例）', () => {
-  it.each([
-    ['Sample composition', 'sample_composition'],
-    ['hasSeebeckCoefficient', 'has_seebeck_coefficient'],
-    ['3D shape', 'x_3d_shape'],
-    ['試料', ''],
-    ['seebeck coefficient', 'seebeck_coefficient'],
-    ['  Cycle  number!! ', 'cycle_number'],
-    ['XMLHttpRequest', 'xml_http_request'],
-    ['café', 'cafe'],
-    ['', ''],
-  ])('%s → %s', (text, slug) => {
-    expect(slugFromText(text)).toBe(slug)
-  })
-
-  it('行の ID の既定: 英語名 → 別名の順・既存と重なれば _2', () => {
-    const row = { label_en: 'Seebeck coefficient', aliases: ['S'] }
-    expect(suggestRowSlug(row, [])).toBe('seebeck_coefficient')
-    expect(suggestRowSlug(row, ['seebeck_coefficient'])).toBe('seebeck_coefficient_2')
-    expect(suggestRowSlug({ label_en: '', aliases: ['col_name'] }, [])).toBe('col_name')
-    expect(suggestRowSlug({ label_en: '', aliases: [] }, [])).toBe('')
-  })
-})
-
-describe('閉じた JSON の検証', () => {
-  const good = {
-    ai: { terms: [] },
-    terms: [
-      { key: 't1', label_ja: '語', label_en: 'word', aliases: ['w'], kind: 'class', use: 'new', slug: 'word', reason: '', match: null },
+const Q = '熱伝導率を下げる要素になり得るのは？'
+/** スタブ AI と同じ熱伝導率の例。 */
+function thermal(): ThemeDraft {
+  return {
+    id: 'thermo',
+    label: '熱電材料',
+    step: 2,
+    questions: [Q],
+    concepts: [
+      concept('c1', '熱伝導率', 'property', { use: 'standard:quantitykind:ThermalConductivity', slug: 'thermal_conductivity' }),
+      concept('c2', '格子熱伝導率', 'property'),
+      concept('c3', '電子熱伝導率', 'property'),
+      concept('c4', '粒界散乱', 'class'),
+      concept('c5', '点欠陥散乱', 'class'),
+      concept('c6', 'キャリア濃度', 'property'),
+      concept('c7', '試料', 'class', { use: 'existing:sample', slug: 'sample' }),
     ],
-    relations: [{ subject: 't1', object: 'cmso:Material', relation: 'sub', problem: null }],
-    selections: [{ question: 'q', op: 'top', kind: 't1', property: '', value: '', fits: true, memo: null, reason: '' }],
-    suggested_questions: ['次の問い'],
-    standards: { 'cmso:Material': { label: 'Material', kind: 'class' } },
-    groups: [{ label_ja: 'まとめ', children: ['t1', 't2'] }],
+    relations: [
+      rel('c2', 'part', 'c1'),
+      rel('c3', 'part', 'c1'),
+      rel('c4', 'lowers', 'c2'),
+      rel('c5', 'lowers', 'c2'),
+      rel('c6', 'raises', 'c3'),
+      rel('c7', 'affects', 'c1'),
+    ],
+    answers: [
+      ans(Q, { mode: 'knowledge', op: 'factors', target: 'c1', direction: 'lowers', memo: null, wanted_data: '試料ごとの 粒径・熱伝導率 の表' }),
+    ],
+    suggested_questions: [],
+    standards: {},
+    updated_at: '',
   }
+}
 
-  it('決まった形ならそのまま読める（関係は未決・AI 下書きの印）', () => {
-    const res = validateDraftResponse(good) as DraftResponse
-    expect(res.terms[0]).toMatchObject({ key: 't1', by: 'ai', aliases: ['w'] })
-    expect(res.relations[0]).toMatchObject({ ok: null, by: 'ai' })
-    expect(res.selections[0].fits).toBe(true)
-    expect(res.standards['cmso:Material'].label).toBe('Material')
-    expect(res.groups).toHaveLength(1)
+describe('questions', () => {
+  it('splits lines, trims and drops blanks and duplicates', () => {
+    expect(parseQuestionLines('  A?  \n\nB?\nＡ?\n')).toEqual(['A?', 'B?'])
+    expect(addQuestion(['A?'], 'A?')).toEqual(['A?'])
+    expect(addQuestion(['A?'], 'B?')).toEqual(['A?', 'B?'])
   })
-
-  it.each([
-    ['配列でない', { ...good, terms: 'x' }],
-    ['kind が列挙の外', { ...good, terms: [{ ...good.terms[0], kind: 'thing' }] }],
-    ['relation が列挙の外', { ...good, relations: [{ ...good.relations[0], relation: 'partOf' }] }],
-    ['use が文字列でない', { ...good, terms: [{ ...good.terms[0], use: 3 }] }],
-    ['object でない', null],
-  ])('形が合わなければ null（手入力へ）: %s', (_name, raw) => {
-    expect(validateDraftResponse(raw)).toBeNull()
+  it('names an empty theme after the first 20 characters of the first question', () => {
+    expect(defaultLabel([Q, 'x'])).toBe('熱伝導率を下げる要素になり得るのは？')
+    expect(defaultLabel(['あ'.repeat(30)])).toBe('あ'.repeat(20))
+    expect(defaultLabel([])).toBe('')
   })
+})
 
-  it('数え方が列挙の外なら空にして、型に合うとは言わない', () => {
-    const res = validateDraftResponse({
-      ...good,
-      selections: [{ ...good.selections[0], op: 'delete', fits: true }],
-    }) as DraftResponse
-    expect(res.selections[0]).toMatchObject({ op: '', fits: false, memo: 'none' })
+describe('the closed JSON v2', () => {
+  const raw = {
+    theme_label: '熱電材料',
+    concepts: [{ key: 'c1', label_ja: '熱伝導率', label_en: 'k', aliases: ['kappa'], kind: 'property', use: 'new', slug: 'k', reason: 'r', match: null, by: 'ai' }],
+    relations: [{ from: 'c1', rel: 'lowers', to: 'c1', reason: '', problem: 'same', by: 'ai' }],
+    answers: [{ question: Q, mode: 'knowledge', op: 'factors', target: 'c1', direction: 'lowers', kind: null, property: null, memo: null, wanted_data: 'w', reason: '', by: 'ai' }],
+    suggested_questions: ['別の問い？'],
+    standards: { 'quantitykind:Foo': { label: 'Foo', kind: 'quantity' } },
+    dropped: { concepts: [], relations: [] },
+  }
+  it('accepts the 6a shape and keeps problem marks', () => {
+    const r = validateDraftResponse(raw)!
+    expect(r.concepts[0].key).toBe('c1')
+    expect(r.relations[0].problem).toBe('same')
+    expect(r.answers[0].kind).toBe('') // null は空に
+    expect(r.standards['quantitykind:Foo'].label).toBe('Foo')
   })
-
-  it('今の型（件数・範囲・上位の値）に無い数え方は fits にしない', () => {
-    const res = validateDraftResponse({
-      ...good,
-      selections: [{ ...good.selections[0], op: 'trend', fits: true }],
-    }) as DraftResponse
-    expect(res.selections[0].fits).toBe(false)
+  it('refuses a shape it cannot read (the screen falls back to writing by hand)', () => {
+    expect(validateDraftResponse(null)).toBeNull()
+    expect(validateDraftResponse({ ...raw, concepts: 'x' })).toBeNull()
+    expect(validateDraftResponse({ ...raw, concepts: [{ key: 'c1', label_ja: 'a', kind: 'weird' }] })).toBeNull()
+    expect(validateDraftResponse({ ...raw, relations: [{ from: 'a', to: 'b', rel: 'sameAs' }] })).toBeNull()
   })
+  it('puts the AI draft into the draft; a name the person typed wins over the AI name', () => {
+    const base = { ...thermal(), label: '', concepts: [], relations: [], answers: [] }
+    const res = validateDraftResponse(raw)!
+    expect(applyDraftResponse(base, res).label).toBe('熱電材料')
+    expect(applyDraftResponse({ ...base, label: '自分の名前' }, res).label).toBe('自分の名前')
+    expect(applyDraftResponse(base, res).answers).toHaveLength(1)
+  })
+  it('normalizes a saved draft and keeps one answer row per question', () => {
+    const d = normalizeDraft({ id: 'x', label: 'L', step: 9, questions: ['A?', 'B?'], concepts: [{ key: 'c1', label_ja: 'a', kind: 'class' }], relations: [], answers: [] })!
+    expect(d.step).toBe(1)
+    expect(d.answers.map((a) => a.question)).toEqual(['A?', 'B?'])
+    expect(d.answers.every((a) => a.mode === 'memo')).toBe(true)
+    expect(normalizeDraft({})).toBeNull()
+  })
+})
 
-  it('下書きに取り込む: 関係は未決（機械が止めたものは最初から「違う」）', () => {
-    const res = validateDraftResponse({
-      ...good,
-      relations: [
-        { subject: 't1', object: 't2', relation: 'sub', problem: null },
-        { subject: 't2', object: 't1', relation: 'sub', problem: 'cycle' },
+describe('answers', () => {
+  it('syncs the answer rows with the questions', () => {
+    const rows = syncAnswers([ans('A?', { mode: 'data', op: 'count', kind: 'k1' })], ['B?', 'A?'])
+    expect(rows.map((a) => a.question)).toEqual(['B?', 'A?'])
+    expect(rows[0].mode).toBe('memo')
+    expect(rows[1].op).toBe('count')
+  })
+  it('knows when a way is decided, and reads the way back', () => {
+    const a = thermal().answers[0]
+    expect(answerComplete(a)).toBe(true)
+    expect(wayOf(a)).toBe('lowers')
+    expect(answerState(a)).toBe('knowledge')
+    expect(answerState({ ...a, target: '' })).toBe('memo') // 対象が無ければ「まだ」
+    expect(answerState(ans('x'))).toBe('memo')
+  })
+  it('changes the way and the target', () => {
+    const a = ans('x')
+    const raised = setWay(a, 'raises')
+    expect(raised).toMatchObject({ mode: 'knowledge', op: 'factors', direction: 'raises', by: 'human' })
+    expect(answerComplete(raised)).toBe(false)
+    const decided = setAnswerTarget(raised, { target: 'c1' })
+    expect(answerComplete(decided)).toBe(true)
+    const count = setWay(decided, 'count')
+    expect(count).toMatchObject({ mode: 'data', op: 'count', target: '' })
+    expect(answerComplete(setAnswerTarget(count, { kind: 'c4' }))).toBe(true)
+    expect(setWay(decided, 'memo')).toMatchObject({ mode: 'memo', memo: 'human', target: '' })
+    // 範囲は項目が要る（種類は任意）
+    expect(answerComplete(setAnswerTarget(setWay(a, 'range'), { property: 'c2' }))).toBe(true)
+    expect(answerComplete(setAnswerTarget(setWay(a, 'top'), { kind: 'c4' }))).toBe(false)
+  })
+  it('estimates how many lines answer a knowledge question (one step through the parts)', () => {
+    const d = thermal()
+    // 熱伝導率を下げる: 格子・電子は「一部」なので、格子を下げる 2 本（粒界・点欠陥）が数に入る
+    expect(knowledgeEstimate(d, d.answers[0])).toBe(2)
+    // 変える: 下げる・上げる・変える の 3 述語すべて = 2（格子を下げる）+1（電子を上げる）+1（試料が熱伝導率を変える）
+    expect(knowledgeEstimate(d, { ...d.answers[0], direction: 'affects' })).toBe(4)
+    expect(knowledgeEstimate(d, { ...d.answers[0], op: 'parts', direction: '' })).toBe(2)
+    expect(knowledgeEstimate(d, { ...d.answers[0], op: 'kinds', direction: '' })).toBe(0)
+    expect(knowledgeEstimate(d, ans('x'))).toBe(0)
+  })
+})
+
+describe('what the problem relations and the lonely concepts do', () => {
+  it('reaches every concept of the thermal example from the question target', () => {
+    const d = thermal()
+    expect([...reachableKeys(d)].sort()).toEqual(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
+    expect(unlinkedKeys(d).size).toBe(0)
+    expect(confirmCounts(d)).toEqual({ concepts: 6, relations: 6, total: 12 }) // 試料は既にある用語なので作らない
+  })
+  it('marks a concept that no relation joins to the question, and does not send it', () => {
+    const d = { ...thermal(), concepts: [...thermal().concepts, concept('c8', '孤立した概念', 'class')] }
+    expect([...unlinkedKeys(d)]).toEqual(['c8'])
+    expect(sentConcepts(d).map((c) => c.key)).not.toContain('c8')
+    expect(buildCommitBody(d, 'ja').concepts.map((c) => c.key)).not.toContain('c8')
+  })
+  it('does not send a relation the machine stopped, and what hangs on it is lonely', () => {
+    const d = thermal()
+    d.relations[2] = rel('c4', 'lowers', 'c2', { problem: 'target_not_property' })
+    d.relations[4] = rel('c6', 'raises', 'c3', { problem: 'cycle' })
+    expect(unlinkedKeys(d)).toEqual(new Set(['c4', 'c6'])) // c5 は別の線でつながる
+    expect(sentRelations(d)).toHaveLength(4)
+    expect(buildCommitBody(d, 'ja').relations).toHaveLength(4)
+  })
+  it('starts from a data question: a hand-added kind that a count points at is connected by itself', () => {
+    let d: ThemeDraft = { ...thermal(), concepts: [], relations: [], answers: [ans('件数は？')] }
+    d = addConcept(d, '記録', 'class')
+    expect(unlinkedKeys(d)).toEqual(new Set(['h1']))
+    d = { ...d, answers: [setAnswerTarget(setWay(d.answers[0], 'count'), { kind: 'h1' })] }
+    expect(unlinkedKeys(d).size).toBe(0)
+  })
+  it('ties two concepts that share a standard term (the api counts that line too)', () => {
+    const d: ThemeDraft = {
+      ...thermal(),
+      concepts: [
+        concept('a', '主', 'property', { use: 'standard:quantitykind:X' }),
+        concept('b', '従', 'property', { use: 'standard:quantitykind:X' }),
       ],
-    }) as DraftResponse
-    const out = applyDraftResponse(draft(), res)
-    expect(out.relations.map((r) => r.ok)).toEqual([null, false])
-    expect(out.ai?.suggested_questions).toEqual(['次の問い'])
-    expect(out.terms).toHaveLength(1)
+      relations: [],
+      answers: [ans(Q, { mode: 'knowledge', op: 'parts', target: 'a', memo: null })],
+    }
+    expect(unlinkedKeys(d).size).toBe(0)
   })
 })
 
-describe('手で書く・問いが変わったとき', () => {
-  it('問いの数だけ空の行を作る（用語は③で足す）', () => {
-    const out = startManual(draft())
-    expect(out.ai).toBeNull()
-    expect(out.selections.map((s) => [s.question, s.op, s.by])).toEqual([
-      ['問い A', '', 'human'],
-      ['問い B', '', 'human'],
-    ])
+describe('editing the map', () => {
+  it('removes a concept with its relations and sends the answers that pointed at it back to "not yet"', () => {
+    const next = removeConcept(thermal(), 'c1')
+    expect(next.concepts.some((c) => c.key === 'c1')).toBe(false)
+    expect(next.relations.every((r) => r.from !== 'c1' && r.to !== 'c1')).toBe(true)
+    expect(next.answers[0].mode).toBe('memo')
+    expect(next.answers[0].wanted_data).toBe('試料ごとの 粒径・熱伝導率 の表')
   })
-
-  it('消えた問いの行は落とし、増えた問いは空の行を足す（残る行はそのまま）', () => {
-    const kept = sel('問い A', { op: 'count', kind: 't1', memo: null })
-    const out = syncSelections([kept, sel('古い問い')], ['問い A', '新しい問い'])
-    expect(out[0]).toBe(kept)
-    expect(out.map((s) => s.question)).toEqual(['問い A', '新しい問い'])
+  it('removes one relation', () => {
+    expect(removeRelation(thermal(), 0).relations).toHaveLength(5)
   })
-})
-
-describe('③ 用語', () => {
-  it('既にある用語を使う行は、新しい用語を作らない', () => {
-    expect(termMints(term('1', { use: 'new' }))).toBe(true)
-    expect(termMints(term('1', { use: 'standard:cmso:Material' }))).toBe(true)
-    expect(termMints(term('1', { use: 'existing:sample' }))).toBe(false)
+  it('adds a hand concept once per name', () => {
+    const d = addConcept(thermal(), '  新しい概念 ', 'class')
+    expect(d.concepts.at(-1)).toMatchObject({ key: 'h1', label_ja: '新しい概念', by: 'human', use: 'new' })
+    expect(addConcept(d, '新しい概念', 'property')).toBe(d)
+    expect(hasConceptNamed(d.concepts, '熱伝導率')).toBe(true)
+    expect(addConcept(d, '   ', 'class')).toBe(d)
   })
-
-  it('どうするの候補: 完全一致を見つけた行だけ、その候補が増える', () => {
-    expect(termUseOptions(term('1')).map((o) => o.kind)).toEqual(['new'])
-    const ex = term('2', { match: { kind: 'existing', ref: 'sample', label: '試料', matched_by: 'label' } })
-    expect(termUseOptions(ex)).toEqual([
-      { value: 'new', kind: 'new' },
-      { value: 'existing:sample', kind: 'existing' },
-    ])
-    const qk = term('3', { match: { kind: 'quantity', ref: 'quantitykind:Capacity', label: 'Capacity', matched_by: 'label' } })
-    expect(termUseOptions(qk)[1]).toEqual({ value: 'standard:quantitykind:Capacity', kind: 'quantity' })
-  })
-
-  describe('手で書いた行の照合（applyMatches）', () => {
-    const exact = { kind: 'existing' as const, ref: 'record', label: '記録', matched_by: 'label' as const }
-    const sentFor = (rows: TermRow[]) => Object.fromEntries(rows.map((r) => [r.key, matchSignature(r)]))
-
-    it('人が触っていない行は、機械の勧め（既にある用語）に置き換わる・ID も寄る', () => {
-      const rows = [term('1', { label_ja: '記録', by: 'human' })]
-      const out = applyMatches(rows, [{ key: '1', match: exact, use: 'existing:record' }], sentFor(rows))
-      expect(out[0]).toMatchObject({ use: 'existing:record', slug: 'record', match: exact, use_by: 'machine' })
-      expect(termUseOptions(out[0]).map((o) => o.value)).toEqual(['new', 'existing:record'])
-    })
-
-    it('標準用語の完全一致は standard: に置き換わる', () => {
-      const m = { kind: 'quantity' as const, ref: 'quantitykind:Temperature', label: 'Temperature', matched_by: 'label' as const }
-      const rows = [term('1', { kind: 'property', slug: 'temperature' })]
-      const out = applyMatches(rows, [{ key: '1', match: m, use: 'standard:quantitykind:Temperature' }], sentFor(rows))
-      expect(out[0]).toMatchObject({ use: 'standard:quantitykind:Temperature', slug: 'temperature' })
-    })
-
-    it('人が select を触った行の use は上書きしない（match は更新する）', () => {
-      const rows = chooseUse([term('1', { label_ja: '記録' })], '1', 'new')
-      expect(rows[0].use_by).toBe('human')
-      const out = applyMatches(rows, [{ key: '1', match: exact, use: 'existing:record' }], sentFor(rows))
-      expect(out[0]).toMatchObject({ use: 'new', match: exact, use_by: 'human' })
-    })
-
-    it('人が選んだ候補が照合から消えたら、機械の勧めに戻り ID も作り直す', () => {
-      const rows = chooseUse([term('1', { label_en: 'log' })], '1', 'existing:record')
-      const out = applyMatches(rows, [{ key: '1', match: null, use: 'new' }], sentFor(rows), ['record'])
-      expect(out[0]).toMatchObject({ use: 'new', match: null, slug: 'log', use_by: 'machine' })
-    })
-
-    it('照合に出したあとに打ち直された行・答えに無い行は触らない', () => {
-      const rows = [term('1', { label_ja: '記' }), term('2')]
-      const sent = sentFor(rows)
-      const edited = [{ ...rows[0], label_ja: '記録' }, rows[1]]
-      const out = applyMatches(edited, [{ key: '1', match: exact, use: 'existing:record' }], sent)
-      expect(out).toEqual(edited)
-    })
-  })
-
-  it('既にある用語を選ぶと、ID はその用語の ID に寄る', () => {
-    const rows = chooseUse([term('1', { slug: 'mine' })], '1', 'existing:sample')
-    expect(rows[0]).toMatchObject({ use: 'existing:sample', slug: 'sample' })
-    expect(chooseUse(rows, '1', 'new')[0].slug).toBe('sample')
-  })
-
-  it('行の問題: 名前が空・ID の形・すでにある・重複（既にある用語を使う行は ID を見ない）', () => {
-    const rows = [
-      term('1', { label_ja: ' ' }),
-      term('2', { slug: 'Bad Slug' }),
-      term('3', { slug: 'taken' }),
-      term('4', { slug: 'dup' }),
-      term('5', { slug: 'dup' }),
-      term('6', { use: 'existing:x', slug: 'Bad Slug' }),
-      term('7', { slug: 'fine' }),
-    ]
-    expect(rowProblems(rows, new Set(['taken']))).toEqual({
-      '1': 'label',
-      '2': 'slug',
-      '3': 'taken',
-      '5': 'duplicate',
-    })
-  })
-
-  it('行を外すと、その行を使う関係と選択も外れる', () => {
-    const d = draft({
-      terms: [term('1'), term('2', { kind: 'property' })],
-      relations: [rel('1', '2'), rel('2', '1'), rel('2', 'cmso:Material')],
-      selections: [sel('q', { op: 'top', kind: '1', property: '2', memo: null })],
-    })
-    const out = removeRow(d, '1')
-    expect(out.terms.map((r) => r.key)).toEqual(['2'])
-    expect(out.relations).toEqual([rel('2', 'cmso:Material')])
-    expect(out.selections[0]).toMatchObject({ kind: '', property: '2' })
-  })
-
-  it('新しい行と名前の変更', () => {
-    const rows = [term('1'), newTermRow([term('1')], 'property')]
-    expect(rows[1]).toMatchObject({ key: 't2', kind: 'property', use: 'new', by: 'human' })
-    expect(renameRow(rows, '1', { label_ja: '新名' })[0].label_ja).toBe('新名')
+  it('applies the machine match to a hand row, but never over a choice the person made', () => {
+    const row = concept('h1', '記録', 'class', { by: 'human', slug: '', use: 'new' })
+    const sig = { h1: matchSignature(row) }
+    const res = [{ key: 'h1', match: { kind: 'existing' as const, ref: 'record', label: '記録', matched_by: 'label' as const }, use: 'existing:record', slug: 'record' }]
+    const [m] = applyMatches([row], res, sig)
+    expect(m).toMatchObject({ use: 'existing:record', slug: 'record', use_by: 'machine' })
+    const [kept] = applyMatches([{ ...row, use_by: 'human' }], res, sig)
+    expect(kept.use).toBe('new')
+    // 打ち直された行は反映しない
+    const [typed] = applyMatches([{ ...row, label_ja: '別' }], res, sig)
+    expect(typed.use).toBe('new')
   })
 })
 
-describe('④ 関係', () => {
-  const rows = [term('1'), term('2'), term('3', { use: 'existing:sample', slug: 'sample' })]
-
-  it('置けるのは、主語が新しく作る用語で、機械が止めていない関係だけ', () => {
-    expect(relationApplies(rel('1', '2'), rows)).toBe(true)
-    expect(relationApplies(rel('3', '1'), rows)).toBe(false)
-    expect(relationApplies(rel('1', '2', { problem: 'cycle' }), rows)).toBe(false)
-    expect(relationApplies(rel('9', '1'), rows)).toBe(false)
+describe('placing (step 3)', () => {
+  it('lists the IDs of the concepts that will be made, and finds bad ones', () => {
+    const d = thermal()
+    expect(idList(d).map((l) => l.key)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5', 'c6']) // 試料(既存)は作らない
+    expect(placeBlocker(d, new Set())).toBeNull()
+    d.concepts[1] = { ...d.concepts[1], slug: 'Bad Slug' }
+    expect(placeBlocker(d, new Set())).toBe('slug')
+    d.concepts[1] = { ...d.concepts[1], slug: 'thermal_conductivity' }
+    expect(rowProblems(sentConcepts(d), new Set())).toEqual({ c2: 'duplicate' })
+    expect(rowProblems(sentConcepts(d), new Set(['thermal_conductivity']))).toMatchObject({ c1: 'taken' })
   })
-
-  it('初期選択なし: 置ける関係がすべて「そう／違う」になるまで進めない', () => {
-    const rels = [rel('1', '2'), rel('3', '1'), rel('2', '1', { problem: 'cycle', ok: false })]
-    expect(relationsReady(rels, rows)).toBe(false)
-    const answered = setRelation(rels, 0, true)
-    expect(relationsReady(answered, rows)).toBe(true) // 置けない関係・止められた関係は聞かない
-    expect(acceptedRelations(answered, rows).map((r) => r.object)).toEqual(['2'])
-    expect(relationsReady([], rows)).toBe(true)
-  })
-
-  it('標準の語と同じ／量の種類と結ぶ関係は、③の選択から決まる', () => {
-    const rs = [
-      term('1', { use: 'standard:cmso:Material', match: { kind: 'standard', ref: 'cmso:Material', label: 'Material', matched_by: 'label' } }),
-      term('2', { kind: 'property', use: 'standard:quantitykind:Capacity' }),
-      term('3'),
-    ]
-    expect(implicitRelations(rs)).toEqual([
-      { subject: '1', curie: 'cmso:Material', quantity: false },
-      { subject: '2', curie: 'quantitykind:Capacity', quantity: true },
-    ])
-  })
-
-  it('まとめ名の chip: 同じ親を要る用語が 2 つ以上のときだけ・足すと関係は「そう」', () => {
-    const groups = [{ label_ja: '蓄電デバイス', children: ['1', '2'] }, { label_ja: '文書', children: ['1'] }]
-    expect(visibleGroups(groups, rows)).toEqual([groups[0]])
-    const out = addGroup(draft({ terms: rows }), groups[0])
-    const added = out.terms.at(-1) as TermRow
-    expect(added).toMatchObject({ label_ja: '蓄電デバイス', kind: 'class', use: 'new', by: 'human' })
-    expect(out.relations.map((r) => [r.subject, r.object, r.ok])).toEqual([
-      ['1', added.key, true],
-      ['2', added.key, true],
-    ])
-    // 足したあとは、もう提案しない
-    expect(visibleGroups(groups, out.terms)).toEqual([])
-  })
-
-  it('上位構造: 「そう」の関係だけを、親 → 子の字下げで', () => {
-    const rs = [
-      term('1', { label_ja: '子' }),
-      term('2', { label_ja: '親' }),
-      term('3', { label_ja: '孫' }),
-      term('4', { label_ja: '外', kind: 'property', use: 'standard:quantitykind:Capacity' }),
-    ]
-    const d = draft({
-      terms: rs,
-      relations: [
-        rel('1', '2', { ok: true }),
-        rel('3', '1', { ok: true }),
-        rel('2', '3', { ok: false }),
-      ],
-      ai: { standards: {} },
+  it('builds the commit body the api asks for (6a)', () => {
+    const body = buildCommitBody(thermal(), 'ja')
+    expect(body).toMatchObject({ label: '熱電材料', lang: 'ja', ai_drafted: true, questions: [Q] })
+    expect(body.concepts[0]).toEqual({
+      key: 'c1', label_ja: '熱伝導率', label_en: '', aliases: [], kind: 'property',
+      use: 'standard:quantitykind:ThermalConductivity', slug: 'thermal_conductivity', by: 'ai',
     })
-    expect(upperStructure(d).map((l) => [l.depth, l.label])).toEqual([
-      [0, '親'],
-      [1, '子'],
-      [2, '孫'],
-      [0, '外'],
-    ])
-    expect(upperStructure(d).at(-1)?.notes).toEqual([{ relation: 'quantity', curie: 'quantitykind:Capacity' }])
-    expect(upperStructure(draft({ terms: rs, relations: [rel('1', '2', { ok: null })] }))).toEqual([
-      expect.objectContaining({ label: '外' }),
-    ])
+    // 既にある用語の行は ID を送らない
+    expect(body.concepts.find((c) => c.key === 'c7')).toMatchObject({ use: 'existing:sample', slug: '' })
+    expect(body.relations[2]).toEqual({ from: 'c4', rel: 'lowers', to: 'c2', reason: '', by: 'ai' })
+    expect(body.answers[0]).toMatchObject({ mode: 'knowledge', op: 'factors', target: 'c1', direction: 'lowers', memo: null })
+    expect('batch' in body).toBe(false)
+  })
+  it('sends an undecided answer as a memo question, not dropped', () => {
+    const d = { ...thermal(), answers: [ans(Q, { mode: 'knowledge', op: 'factors', direction: 'lowers' })] }
+    expect(buildCommitBody(d, 'ja').answers[0]).toMatchObject({ mode: 'memo', memo: 'none' })
+  })
+  it('falls back to the first 20 characters when no name was given, and carries extend', () => {
+    const body = buildCommitBody({ ...thermal(), label: ' ', extend: 'first' }, 'en')
+    expect(body.label).toBe(defaultLabel([Q]))
+    expect(body.extend).toBe('first')
+    expect(body.lang).toBe('en')
+  })
+  it('manual mode keeps one "not yet" row per question and a default name', () => {
+    const d = startManual({ ...thermal(), label: '', concepts: [], relations: [], answers: [] })
+    expect(d.label).toBe(defaultLabel([Q]))
+    expect(d.answers).toHaveLength(1)
+    expect(d.answers[0].mode).toBe('memo')
   })
 })
 
-describe('⑤ 数え方', () => {
-  it('数え方ごとに、要る部分が足りているか', () => {
-    expect(selectionComplete(sel('q'))).toBe(false)
-    expect(selectionComplete(sel('q', { op: 'count' }))).toBe(false)
-    expect(selectionComplete(sel('q', { op: 'count', kind: 't1' }))).toBe(true)
-    expect(selectionComplete(sel('q', { op: 'top', property: 't2' }))).toBe(true) // 種類は任意
-    expect(selectionComplete(sel('q', { op: 'filter', kind: 't1', property: 't2' }))).toBe(false)
-    expect(selectionComplete(sel('q', { op: 'filter', kind: 't1', property: 't2', value: 'x' }))).toBe(true)
-    expect(selectionComplete(sel('q', { op: 'trend', kind: 't1' }))).toBe(false)
+describe('dismissal keys (the ✕ is kept for the next draft)', () => {
+  it('uses the same rule as the api: concept:<normalized name>, IRI for existing and standard ends', () => {
+    expect(conceptDismissKey('  粒界　散乱 ')).toBe('concept:粒界 散乱')
+    const d = thermal()
+    expect(dismissEndKey(d.concepts[3], 'c4')).toBe('concept:粒界散乱')
+    expect(dismissEndKey(d.concepts[6], 'c7')).toBe('https://kumagallium.github.io/asterism/vocab/shared#sample')
+    expect(standardIri('quantitykind:ThermalConductivity')).toBe('http://qudt.org/vocab/quantitykind/ThermalConductivity')
+    expect(standardIri('sosa:Sample')).toBe('http://www.w3.org/ns/sosa/Sample')
+    expect(standardIri('nope:x')).toBeNull()
+    // 概念でない端（標準の語の curie）は IRI に
+    expect(dismissEndKey(undefined, 'sosa:Sample')).toBe('http://www.w3.org/ns/sosa/Sample')
+    // 標準の語に一致した新しい概念は標準の語の IRI
+    expect(
+      dismissEndKey(concept('c', 'x', 'class', { match: { kind: 'standard', ref: 'sosa:Sample', label: 'Sample', matched_by: 'label' } }), 'c'),
+    ).toBe('http://www.w3.org/ns/sosa/Sample')
   })
-
-  it('公開できるのは 件数・範囲・上位の値 だけ。残りはメモの問い', () => {
-    const top = sel('q', { op: 'top', property: 't2', memo: null })
-    expect(selectionFits(top)).toBe(true)
-    expect(isMemo(top)).toBe(false)
-    const trend = sel('q', { op: 'trend', kind: 't1', property: 't2', memo: null })
-    expect(selectionFits(trend)).toBe(false)
-    expect(isMemo(trend)).toBe(true)
-    expect(memoReason(trend)).toBe('op')
-    expect(memoReason(sel('q'))).toBe('none')
-    expect(memoReason({ ...top, memo: 'human' })).toBe('human')
-  })
-
-  it('選び直すと、メモの印は型に合うかで決まり直す', () => {
-    const base = sel('q', { op: 'top', property: 't2', memo: 'ai' })
-    const toTrend = setSelection(base, { op: 'trend', kind: 't1' })
-    expect(toTrend).toMatchObject({ op: 'trend', memo: 'op', fits: false, by: 'human' })
-    const back = setSelection(toTrend, { op: 'count', kind: 't1' })
-    expect(back).toMatchObject({ memo: null, fits: true })
-    // 人が「メモにする」を選ぶ・外す
-    expect(setSelection(back, { memo: 'human' })).toMatchObject({ memo: 'human', fits: false })
-    expect(setSelection(setSelection(back, { memo: 'human' }), { memo: null }).fits).toBe(true)
-    // まだ決まっていない行を選び直しても、型に合わないとは言わない
-    expect(setSelection(sel('q'), { op: 'filter' }).memo).toBeNull()
-  })
-
-  it('⑤を進める条件: すべての問いが、決まっているか、メモと決めてある', () => {
-    expect(selectionsReady([sel('a'), sel('b')])).toBe(true) // 既定ではメモ（none）
-    expect(selectionsReady([sel('a', { memo: null })])).toBe(false)
-    expect(selectionsReady([sel('a', { memo: null, op: 'count', kind: 't1' })])).toBe(true)
-    expect(selectionsReady([])).toBe(true)
-  })
-
-  it('実行文の材料は、行の表示名（言語に合わせる）', () => {
-    const rows = [term('1', { label_ja: '試料', label_en: 'sample' }), term('2', { kind: 'property', label_ja: 'ZT', label_en: '' })]
-    const s = sel('q', { op: 'top', kind: '1', property: '2' })
-    expect(selectionPayload(s, rows, 'ja')).toEqual({ op: 'top', kind: '試料', property: 'ZT', value: '' })
-    expect(selectionPayload(s, rows, 'en')).toEqual({ op: 'top', kind: 'sample', property: 'ZT', value: '' })
-  })
-
-  it('「いまは N データセットが答える」: 新しい用語は 0・既にある用語はその数', () => {
-    const rows = [
-      term('1'),
-      term('2', { use: 'existing:sample', slug: 'sample' }),
-      term('3', { kind: 'property', use: 'existing:price', slug: 'price' }),
-    ]
-    const known = { sample: 4, price: 2 }
-    expect(answeringNow(sel('q', { op: 'count', kind: '1' }), rows, known)).toBe(0)
-    expect(answeringNow(sel('q', { op: 'count', kind: '2' }), rows, known)).toBe(4)
-    expect(answeringNow(sel('q', { op: 'top', kind: '1', property: '3' }), rows, known)).toBe(2)
-    expect(answeringNow(sel('q', { op: 'trend', kind: '2', property: '3' }), rows, known)).toBe(0)
-  })
-})
-
-describe('⑥ 置く', () => {
-  it('ID 一覧は、新しく作る用語だけ（既にある用語は出さない）', () => {
-    const rows = [term('1'), term('2', { use: 'existing:sample', slug: 'sample' }), term('3', { use: 'standard:cmso:Material', slug: 'material' })]
-    expect(idList(rows)).toEqual([
-      { key: '1', label: '語1', slug: 'word_1' },
-      { key: '3', label: '語3', slug: 'material' },
-    ])
-  })
-
-  it('保存するものの数と、AI 下書きの印', () => {
-    const d = draft({
-      ai: {},
-      terms: [term('1'), term('2'), term('3', { use: 'existing:sample', slug: 'sample' })],
-      relations: [rel('1', '2', { ok: true }), rel('2', '1', { ok: false })],
-      selections: [
-        sel('a', { op: 'count', kind: '1', memo: null }),
-        sel('b', { op: 'trend', kind: '1', property: '2', memo: null }),
-      ],
-    })
-    expect(placeSummary(d)).toEqual({ terms: 2, lines: 1, published: 1, memo: 1 })
-  })
-
-  it('確定の body: 「そう」の関係だけ・型に合わない問いは機械の印つき・足すテーマ', () => {
-    const d = draft({
-      ai: {},
-      extend: 'thermoelectric',
-      terms: [term('1'), term('2')],
-      relations: [rel('1', '2', { ok: true }), rel('2', '1', { ok: false }), rel('1', '2', { ok: null, relation: 'eq' })],
-      selections: [
-        sel('a', { op: 'count', kind: '1', memo: null }),
-        sel('b', { op: 'trend', kind: '1', property: '2', memo: null }),
-        sel('c'),
-      ],
-    })
-    const body = buildCommitBody(d, 'ja')
-    expect(body).toMatchObject({ label: 'テーマ', extend: 'thermoelectric', lang: 'ja', ai_drafted: true })
-    expect(body.relations).toEqual([{ subject: '1', object: '2', relation: 'sub' }])
-    expect(body.selections.map((s) => s.memo)).toEqual([null, 'op', 'none'])
-    expect(buildCommitBody(draft(), 'en')).not.toHaveProperty('extend')
-    expect(buildCommitBody(draft(), 'en').ai_drafted).toBe(false)
-  })
-})
-
-describe('段の進める条件', () => {
-  it('① テーマ名と問いが 1 つ以上', () => {
-    expect(canAdvance(draft(), 1, CTX)).toBe(true)
-    expect(canAdvance(draft({ label: ' ' }), 1, CTX)).toBe(false)
-    expect(canAdvance(draft({ questions: [] }), 1, CTX)).toBe(false)
-  })
-
-  it('② AI に読ませた（または手で書くと決めた）あと: ⑤の行が問いの数だけある', () => {
-    expect(canAdvance(draft(), 2, CTX)).toBe(false)
-    expect(canAdvance(startManual(draft()), 2, CTX)).toBe(true)
-    expect(canAdvance(draft({ selections: [sel('問い A')] }), 2, CTX)).toBe(false)
-  })
-
-  it('③ 名前が空の行があれば進めない（ID の形は⑥の「置く」が止める）', () => {
-    expect(canAdvance(draft({ terms: [term('1')] }), 3, CTX)).toBe(true)
-    expect(canAdvance(draft({ terms: [term('1', { label_ja: '' })] }), 3, CTX)).toBe(false)
-    expect(canAdvance(draft({ terms: [term('1', { slug: '' })] }), 3, CTX)).toBe(true)
-  })
-
-  it('④ 置ける関係に答えるまで・⑤ すべての問いが決まるまで', () => {
-    const terms = [term('1'), term('2')]
-    expect(canAdvance(draft({ terms, relations: [rel('1', '2')] }), 4, CTX)).toBe(false)
-    expect(canAdvance(draft({ terms, relations: [rel('1', '2', { ok: false })] }), 4, CTX)).toBe(true)
-    expect(canAdvance(draft({ selections: [sel('a', { memo: null })] }), 5, CTX)).toBe(false)
-    expect(canAdvance(draft({ selections: [sel('a', { memo: 'human' })] }), 5, CTX)).toBe(true)
-  })
-
-  it('⑥ ID に問題が無いとき置ける・最初の問題が理由になる', () => {
-    const ok = draft({ terms: [term('1')] })
-    expect(canAdvance(ok, 6, CTX)).toBe(true)
-    expect(placeBlocker(ok, CTX)).toBeNull()
-    const taken = { existingSlugs: new Set(['word_1']) }
-    expect(canAdvance(ok, 6, taken)).toBe(false)
-    expect(placeBlocker(ok, taken)).toBe('taken')
-    expect(placeBlocker(draft({ terms: [term('1', { slug: '' })] }), CTX)).toBe('slug')
+  it('maps the draft relations to the predicate names of the api', () => {
+    expect(relationPredicate('sub', 'class')).toBe('subClassOf')
+    expect(relationPredicate('sub', 'property')).toBe('subPropertyOf')
+    expect(relationPredicate('eq', 'class')).toBe('equivalentClass')
+    expect(relationPredicate('eq', 'property')).toBe('equivalentProperty')
+    expect(relationPredicate('quantity', 'property')).toBe('hasQuantityKind')
+    expect(relationPredicate('part', 'class')).toBe('isPartOf')
+    expect(relationPredicate('lowers', 'class')).toBe('lowers')
+    expect(relationPredicate('raises', 'property')).toBe('raises')
+    expect(relationPredicate('affects', 'property')).toBe('affects')
   })
 })

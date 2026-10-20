@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MoreMenu } from '../MoreMenu'
+import { SV_NS } from '../lineChoice'
+import { homeHash } from '../sky/skyRoute'
 import { parseVocabHash } from '../vocabQuestion'
 import { ThemeWizard } from './ThemeWizard'
 import {
@@ -22,7 +24,7 @@ import './themes.css'
 //
 // テーマ（問いの束）ごとに カード: 問いの輪（答えるデータセット数／全体）・題・実行文・要る用語・
 // 畳んだメモの問い。主ボタンは「問いを足す」だけで、答えを見る・型紙・テーマを外す は「…」。
-// 右上の「？ 新しいテーマを作る」で 6 段（ThemeWizard）が開く。用語はテーマの持ち物ではないので、
+// 右上の「？ 新しいテーマを作る」で 3 段（ThemeWizard）が開く。用語はテーマの持ち物ではないので、
 // テーマを外しても用語・関係・問いは残る。用語の地図は「データ › データセットの詳細 › 中身」の末尾へ、
 // 用語の一覧は無くした（用語は札 → 用語のページ）。
 
@@ -149,7 +151,7 @@ function ThemeCard({
           <summary>{t('themes:card.memoTitle', { n: theme.memo_questions.length })}</summary>
           {theme.memo_questions.map((m) => (
             <div key={m.id} className="thm-memo-row">
-              <span className="pill wait">{t('themes:try.memoBadge')}</span> {m.title}
+              <span className="pill wait">{t('themes:card.memoBadge')}</span> {m.title}
               {m.reason && <span className="vocab-field-hint"> — {m.reason}</span>}
             </div>
           ))}
@@ -173,11 +175,11 @@ export function ThemesView({
   onCloseNew,
   onOpenAsk,
 }: {
-  /** `#/questions?new=1[&q=題]` — 6 段を開く（上部の「？ 知りたいことを書く」・質問するから）。 */
+  /** `#/questions?new=1[&q=題]` — 3 段を開く（上部の「？ 知りたいことを書く」・質問するから）。 */
   newQuestion?: boolean
   /** `#/questions/<theme>` — そのテーマのカードを見せる。 */
   focusTheme?: string
-  /** `new` を hash から外す（6 段を閉じた・置いたとき）。 */
+  /** `new` を hash から外す（3 段を閉じた・置いたとき）。 */
   onCloseNew: () => void
   /** 「答えを見る」: 質問するへ題を持ち越す。 */
   onOpenAsk: (question: string) => void
@@ -188,7 +190,6 @@ export function ThemesView({
   const [err, setErr] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [local, setLocal] = useState<WizardOpen | null>(null)
-  const [note, setNote] = useState('')
 
   useEffect(() => {
     let off = false
@@ -215,7 +216,7 @@ export function ThemesView({
   }, [focusTheme, listing])
 
   const reload = () => setReloadKey((k) => k + 1)
-  // 6 段は、hash の `new=1`（題つき）か、この画面で開いた下書き・「問いを足す」で開く。
+  // 3 段は、hash の `new=1`（題つき）か、この画面で開いた下書き・「問いを足す」で開く。
   const fromHash = newQuestion ? { question: parseVocabHash(window.location.hash).q } : null
   const wizardOpen = fromHash !== null || local !== null
 
@@ -225,19 +226,11 @@ export function ThemesView({
     reload()
   }
 
+  // 置いたら星図へ（置いた概念の札を 1 度だけ灯す）。
   function placed(result: CommitResult) {
-    setNote(
-      t('themes:placedNote', {
-        label: themeLabel(result.theme, t),
-        terms: result.minted.length,
-        lines: result.lines,
-        questions: result.questions.length,
-      }),
-    )
     setLocal(null)
     if (newQuestion) onCloseNew()
-    goTo(`#/questions/${encodeURIComponent(result.theme.id)}`)
-    reload()
+    goTo(homeHash({ newIris: result.minted.map((slug) => `${SV_NS}${slug}`) }))
   }
 
   async function discardDraft(d: DraftSummary) {
@@ -265,12 +258,6 @@ export function ThemesView({
           {t('themes:newTheme')}
         </button>
       </div>
-
-      {note && (
-        <p className="lifecycle-ok" role="status" data-testid="theme-placed">
-          {note}
-        </p>
-      )}
 
       {wizardOpen && (
         <div className="thm-overlay" role="dialog" aria-modal="true" aria-label={t('themes:wizard.aria')}>

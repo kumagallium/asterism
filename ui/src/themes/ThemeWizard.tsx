@@ -1,97 +1,99 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { dismiss } from '../decide/decideApi'
 import { useLlmSettings } from '../settings/context'
 import { type SharedTerm, listTerms } from '../vocabApi'
+import { ConceptMap } from './ConceptMap'
 import {
   type CommitResult,
   ThemesApiError,
   commitTheme,
   createDraft,
   deleteDraft,
-  describeSelections,
   draftWithAi,
+  expandDraft,
   getDraft,
   matchTerms,
   saveDraft,
 } from './themesApi'
 import {
-  type RelationKind,
+  type AnswerRow,
+  type AnswerWay,
+  type ConceptRow,
   type RelationRow,
-  type SelectionRow,
   type Step,
   type TermKind,
-  type TermRow,
   type ThemeDraft,
-  SELECTION_OPS,
-  acceptedRelations,
-  addGroup,
+  ANSWER_WAYS,
+  EXAMPLE_QUESTIONS_EN,
+  EXAMPLE_QUESTIONS_JA,
+  addConcept,
   addQuestion,
-  answeringNow,
+  answerComplete,
+  answerHost,
+  answerState,
   applyDraftResponse,
-  buildCommitBody,
-  canAdvance,
   applyMatches,
-  chooseUse,
-  matchSignature,
-  draftGroups,
-  draftStandards,
-  draftSuggestions,
+  buildCommitBody,
+  canStart,
+  conceptDismissKey,
+  conceptMints,
+  conceptName,
+  conceptsFor,
+  confirmCounts,
+  defaultLabel,
+  dismissEndKey,
+  hasConceptNamed,
   idList,
-  implicitRelations,
-  isMemo,
-  kindOptional,
-  memoReason,
-  needsKind,
-  needsProperty,
-  needsValue,
-  newTermRow,
+  knowledgeEstimate,
+  matchSignature,
   nextStep,
   parseQuestionLines,
   placeBlocker,
-  placeSummary,
   prevStep,
-  relationApplies,
-  removeRow,
-  renameRow,
+  relationPredicate,
+  removeConcept,
+  removeRelation,
   rowProblems,
-  selectionPayload,
-  setRelation,
-  setSelection,
+  sentConcepts,
+  sentRelations,
+  setAnswerTarget,
+  setWay,
   startManual,
-  suggestRowSlug,
-  syncSelections,
-  termMints,
-  upperStructure,
-  termUseOptions,
-  validateDraftResponse,
-  visibleGroups,
+  syncAnswers,
+  unlinkedKeys,
+  wayNeeds,
+  wayOf,
 } from './themeDraft'
 import './themes.css'
 
-// 「知りたいことから作る」6 段（モック index.html の openWiz / renderWiz）:
-//   ① 知りたいことを書く → ② AI に読ませる → ③ 用語をたしかめる → ④ 関係をたしかめる
-//   → ⑤ ためす → ⑥ 置く
-// 手順バーは かんたんの RecipeCard と同じ見た目（.kz-recipe）。1 問 1 画面にはしない（③は用語の
-// 表、⑤は問いの一覧が 1 枚に並ぶ）。途中で閉じても、下書きが残って続きから開ける。
+// 「知りたいことから作る」3 段（design.md §15.2・§15.4）:
+//   ① 書く → ② 下書きをたしかめる → ③ 置く
+// ②は上＝問いごとの答え方・左＝知識の図（ConceptMap）・右＝文の一覧・下＝手で足す＋
+// 「N 件をまとめて確定」。✕ は却下を保存して下書きから消す（次の下書きで出さない）。
+// 手順バーは かんたんの RecipeCard と同じ見た目（.kz-recipe）。途中で閉じても下書きが残って続きから開ける。
 // AI は閉じた JSON だけ（api が検証・機械の後処理まで済ませて返す）。未設定なら「手で書く」へ。
 
-const STEP_KEYS = ['write', 'read', 'terms', 'relations', 'try', 'place'] as const
-const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥']
+const STEP_KEYS = ['write', 'review', 'place'] as const
+const CIRCLED = ['①', '②', '③']
 
-function blankDraft(label: string, extend: string | undefined, question: string): ThemeDraft {
+function blankDraft(extend: string | undefined, question: string): ThemeDraft {
   return {
     id: '',
-    label,
+    label: '',
     step: 1,
     ...(extend ? { extend } : {}),
     questions: question ? [question] : [],
-    ai: null,
-    terms: [],
+    concepts: [],
     relations: [],
-    selections: [],
+    answers: [],
+    suggested_questions: [],
+    standards: {},
     updated_at: '',
   }
 }
+
+type AiState = { status: 'idle' | 'running' | 'ok' | 'unconfigured' | 'failed'; detail?: string }
 
 export function ThemeWizard({
   initialQuestion = '',
@@ -113,25 +115,24 @@ export function ThemeWizard({
   const lang = i18n.language.startsWith('en') ? 'en' : 'ja'
   const { isReady, getActiveCredentials, openSettings } = useLlmSettings()
 
-  const [draft, setDraft] = useState<ThemeDraft>(() =>
-    blankDraft(extend?.label ?? '', extend?.id, initialQuestion),
-  )
-  // ①の入力欄（1 行 1 問）。段を進めるときに draft.questions へ整える。
+  const [draft, setDraft] = useState<ThemeDraft>(() => blankDraft(extend?.id, initialQuestion))
+  // ①の入力欄。段を進めるときに draft へ整える。
   const [qText, setQText] = useState(initialQuestion)
+  const [labelText, setLabelText] = useState(extend?.label ?? '')
   const [loaded, setLoaded] = useState(!resumeId)
   const [loadErr, setLoadErr] = useState('')
   const [existing, setExisting] = useState<SharedTerm[]>([])
-  const [ai, setAi] = useState<{ status: 'idle' | 'running' | 'ok' | 'unconfigured' | 'failed'; detail?: string }>({
-    status: 'idle',
-  })
+  const [ai, setAi] = useState<AiState>({ status: 'idle' })
   const [saveErr, setSaveErr] = useState('')
-  const [sentences, setSentences] = useState<string[]>([])
   const [placing, setPlacing] = useState(false)
   const [placeErr, setPlaceErr] = useState('')
-  // ③の別名欄は打っている途中の文字列を持つ（カンマの途中で整えてしまわないため）。
-  const [aliasText, setAliasText] = useState<Record<string, string>>({})
-  const [relForm, setRelForm] = useState({ subject: '', relation: 'sub' as RelationKind, object: '' })
-  const [groupName, setGroupName] = useState<Record<string, string>>({})
+  // ②
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [litRel, setLitRel] = useState<number | null>(null)
+  const [expandingKey, setExpandingKey] = useState<string | null>(null)
+  const [actionErr, setActionErr] = useState('')
+  const [openAnswer, setOpenAnswer] = useState<number | null>(null)
+  const [hand, setHand] = useState({ name: '', kind: 'class' as TermKind, en: '', aliases: '' })
   // 機械の照合に出した時点の行の中身（key → matchSignature）。同じ中身は出し直さない。
   const matchedSigs = useRef<Record<string, string>>({})
 
@@ -143,9 +144,9 @@ export function ThemeWizard({
         if (off) return
         setDraft(d)
         setQText(d.questions.join('\n'))
-        setAliasText(Object.fromEntries(d.terms.map((r) => [r.key, r.aliases.join(', ')])))
+        setLabelText(d.label)
         // 保存してある照合は、そのまま使う（開き直すたびに照合し直さない）
-        matchedSigs.current = Object.fromEntries(d.terms.map((r) => [r.key, matchSignature(r)]))
+        matchedSigs.current = Object.fromEntries(d.concepts.map((r) => [r.key, matchSignature(r)]))
         setLoaded(true)
       })
       .catch((e) => {
@@ -173,39 +174,22 @@ export function ThemeWizard({
     () => Object.fromEntries(existing.map((e) => [e.slug, e.answering_datasets])),
     [existing],
   )
-  const ctx = useMemo(() => ({ existingSlugs }), [existingSlugs])
   const step = draft.step
-  const rows = draft.terms
-  const standards = draftStandards(draft)
+  const concepts = draft.concepts
 
-  // ⑤⑥: 実行文は機械が組む（api）。選択か用語の名前が変わるたび組み直す。
+  // ②: 手で足した行の名前・別名・種類が変わったら、400ms 待って機械の照合（完全一致・AI は使わない）に出す。
+  // 失敗は黙って今のまま。`use` は人が触っていない行だけ機械の勧めに寄る。
   useEffect(() => {
-    if (step < 5) return
-    let off = false
-    describeSelections(
-      draft.selections.map((s) => selectionPayload(s, draft.terms, lang)),
-      lang,
-    )
-      .then((s) => !off && setSentences(s))
-      .catch(() => !off && setSentences([]))
-    return () => {
-      off = true
-    }
-  }, [step, draft.selections, draft.terms, lang])
-
-  // ③: 行の名前・別名・種類が変わったら、400ms 待って機械の照合（完全一致・AI は使わない）に出す。
-  // 失敗は黙って今のまま（停止カードにしない）。`use` は人が触っていない行だけ機械の勧めに寄る。
-  useEffect(() => {
-    if (step !== 3) return
+    if (step !== 2) return
     const timer = window.setTimeout(() => {
       const sent: Record<string, string> = {}
-      const batch: TermRow[] = []
-      for (const r of rows) {
+      const batch: ConceptRow[] = []
+      for (const r of concepts) {
+        if (r.by !== 'human') continue
         const sig = matchSignature(r)
         if (matchedSigs.current[r.key] === sig) continue
         matchedSigs.current[r.key] = sig
-        // 名前がまだ何も無い行は、照合するものが無い
-        if (!r.label_ja.trim() && !r.label_en.trim() && r.aliases.length === 0 && r.match === null) continue
+        if (!r.label_ja.trim() && !r.label_en.trim() && r.aliases.length === 0) continue
         sent[r.key] = sig
         batch.push(r)
       }
@@ -219,24 +203,24 @@ export function ThemeWizard({
           kind: r.kind,
         })),
       )
-        .then((results) =>
-          setDraft((d) => ({ ...d, terms: applyMatches(d.terms, results, sent, existingSlugs) })),
-        )
+        .then((results) => setDraft((d) => ({ ...d, concepts: applyMatches(d.concepts, results, sent) })))
         .catch(() => {})
     }, 400)
     return () => window.clearTimeout(timer)
-  }, [step, rows, existingSlugs])
+  }, [step, concepts])
 
-  const problems = rowProblems(rows, existingSlugs)
+  const problems = rowProblems(sentConcepts(draft), existingSlugs)
   const problemCount = Object.keys(problems).length
+  const unlinked = useMemo(() => unlinkedKeys(draft), [draft])
+  const counts = useMemo(() => confirmCounts(draft), [draft])
 
   /** 下書きを保存する（まだ id が無ければ作る）。失敗しても進める — 置くときに id が要る。 */
-  async function persist(next: ThemeDraft): Promise<ThemeDraft> {
+  const persist = useCallback(async (next: ThemeDraft): Promise<ThemeDraft> => {
     setSaveErr('')
     try {
       if (!next.id) {
         const created = await createDraft(next.label, next.questions, next.extend)
-        next = { ...next, id: created.id }
+        next = { ...next, id: created.id, label: next.label.trim() ? next.label : created.label }
       }
       const saved = await saveDraft(next)
       next = { ...next, updated_at: saved.updated_at }
@@ -245,7 +229,7 @@ export function ThemeWizard({
     }
     setDraft(next)
     return next
-  }
+  }, [])
 
   async function go(to: Step, base: ThemeDraft = draft) {
     await persist({ ...base, step: to })
@@ -262,16 +246,12 @@ export function ThemeWizard({
     }
     setAi({ status: 'running' })
     try {
-      const raw = await draftWithAi(base.questions, lang, getActiveCredentials())
-      const res = validateDraftResponse(raw)
-      if (!res) {
-        setAi({ status: 'failed', detail: t('themes:read.badShape') })
-        return
-      }
-      const applied = applyDraftResponse(base, res)
-      setAliasText(Object.fromEntries(applied.terms.map((r) => [r.key, r.aliases.join(', ')])))
-      matchedSigs.current = Object.fromEntries(applied.terms.map((r) => [r.key, matchSignature(r)]))
+      const res = await draftWithAi(base.questions, labelText.trim(), lang, getActiveCredentials())
+      const applied = applyDraftResponse({ ...base, label: labelText.trim() }, res)
+      matchedSigs.current = Object.fromEntries(applied.concepts.map((r) => [r.key, matchSignature(r)]))
       setAi({ status: 'ok' })
+      if (!labelText.trim()) setLabelText(applied.label)
+      setSelectedKey(null)
       await persist({ ...applied, step: 2 })
     } catch (e) {
       if (e instanceof ThemesApiError && e.status === 503) setAi({ status: 'unconfigured' })
@@ -279,68 +259,115 @@ export function ThemeWizard({
     }
   }
 
-  // ① → ②（AI に読ませる）／③（手で書く）。すでに読ませた下書きなら、そのまま見せる
-  // （読み直しは②のボタン）。手で書くときも、ここまでの用語・関係は消さない。
+  // ① → ②。すでに下書きの概念があれば、そのまま見せる（読み直しは②の「もう一度読ませる」）。
   async function fromWrite(useAi: boolean) {
     const questions = questionsFromText()
+    if (!canStart(questions)) return
+    const label = labelText.trim()
     const base: ThemeDraft = {
       ...draft,
+      label,
       questions,
-      selections: draft.selections.length > 0 ? syncSelections(draft.selections, questions) : [],
+      answers: syncAnswers(draft.answers, questions),
     }
     if (!useAi) {
-      setAliasText({})
-      matchedSigs.current = {}
-      await go(3, base.selections.length > 0 ? base : startManual(base))
+      await go(2, startManual({ ...base, label: label || defaultLabel(questions) }))
       return
     }
     const saved = await persist({ ...base, step: 2 })
-    if (saved.ai === null && saved.selections.length === 0) void runAi(saved)
+    if (saved.concepts.length === 0 && saved.relations.length === 0) void runAi({ ...saved, label })
   }
 
-  function updateRow(key: string, patch: Partial<TermRow>) {
-    setDraft((d) => ({ ...d, terms: renameRow(d.terms, key, patch) }))
+  // ---- ②の編集 ----
+
+  const nameOf = (key: string): string => {
+    const row = concepts.find((r) => r.key === key)
+    if (row) return conceptName(row, lang)
+    const std = draft.standards[key]
+    return std ? `${key}（${std.label}）` : key
   }
 
-  function addRow(kind: TermKind) {
-    setDraft((d) => ({ ...d, terms: [...d.terms, newTermRow(d.terms, kind)] }))
+  async function dismissSafely(subject: string, term: string, relation?: string) {
+    try {
+      await dismiss(subject, term, relation)
+    } catch (e) {
+      // 却下を保存できなくても、下書きからは外す（次の下書きでまた出ることがあるだけ）
+      setActionErr(e instanceof Error ? e.message : String(e))
+    }
   }
 
-  function setLabelEn(row: TermRow, value: string) {
-    // ID が空か、前の英語名からの既定のままなら、新しい英語名に合わせて作り直す。
-    const others = rows.filter((r) => r.key !== row.key).map((r) => r.slug)
-    const wasAuto = row.slug === '' || row.slug === suggestRowSlug(row, others)
-    const patch: Partial<TermRow> = { label_en: value }
-    if (wasAuto && termMints(row)) patch.slug = suggestRowSlug({ ...row, label_en: value }, [...others, ...existingSlugs])
-    updateRow(row.key, patch)
+  async function removeConceptRow(key: string) {
+    const row = concepts.find((r) => r.key === key)
+    if (!row) return
+    setActionErr('')
+    setSelectedKey(null)
+    setDraft((d) => removeConcept(d, key))
+    // AI が出した新しい概念だけ、次の下書きで出さない
+    if (row.by === 'ai' && row.use === 'new' && row.match === null) {
+      await dismissSafely(conceptDismissKey(row.label_ja), 'concept')
+    }
   }
 
-  function setAliases(key: string, text: string) {
-    setAliasText((a) => ({ ...a, [key]: text }))
-    updateRow(
-      key,
-      { aliases: text.split(/[,、]/).map((s) => s.trim()).filter(Boolean) },
-    )
+  async function removeRelationRow(index: number) {
+    const rel = draft.relations[index]
+    if (!rel) return
+    setActionErr('')
+    setDraft((d) => removeRelation(d, index))
+    const from = concepts.find((r) => r.key === rel.from)
+    if (rel.by === 'ai' && from) {
+      await dismissSafely(
+        dismissEndKey(from, rel.from),
+        dismissEndKey(
+          concepts.find((r) => r.key === rel.to),
+          rel.to,
+        ),
+        relationPredicate(rel.rel, from.kind),
+      )
+    }
   }
 
-  function addRelation() {
-    const { subject, relation, object } = relForm
-    if (!subject || !object || subject === object) return
-    setDraft((d) => ({
-      ...d,
-      relations: [
-        ...d.relations,
-        { subject, object, relation, problem: null, by: 'human', ok: true } satisfies RelationRow,
-      ],
-    }))
-    setRelForm({ subject: '', relation: 'sub', object: '' })
+  async function expand(key: string) {
+    if (expandingKey !== null) return
+    setActionErr('')
+    setExpandingKey(key)
+    try {
+      const saved = await persist(draft)
+      const res = await expandDraft(saved.id, key, lang, getActiveCredentials())
+      matchedSigs.current = Object.fromEntries(res.draft.concepts.map((r) => [r.key, matchSignature(r)]))
+      setDraft({ ...res.draft, step: 2 })
+      setSelectedKey(res.addedConcepts[0] ?? key)
+    } catch (e) {
+      if (e instanceof ThemesApiError && e.status === 503) setAi({ status: 'unconfigured' })
+      setActionErr(e instanceof ThemesApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e))
+    } finally {
+      setExpandingKey(null)
+    }
   }
 
-  function updateSelection(index: number, patch: Partial<SelectionRow>) {
-    setDraft((d) => ({
-      ...d,
-      selections: d.selections.map((s, i) => (i === index ? setSelection(s, patch) : s)),
-    }))
+  function addHand() {
+    const name = hand.name.trim()
+    if (!name || hasConceptNamed(concepts, name)) return
+    const aliases = hand.aliases
+      .split(/[,、]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    setDraft((d) => {
+      const next = addConcept(d, name, hand.kind)
+      const added = next.concepts[next.concepts.length - 1]
+      return {
+        ...next,
+        concepts: next.concepts.map((c) => (c === added ? { ...c, label_en: hand.en.trim(), aliases } : c)),
+      }
+    })
+    setHand((h) => ({ ...h, name: '', en: '', aliases: '' }))
+  }
+
+  function updateAnswer(index: number, fn: (a: AnswerRow) => AnswerRow) {
+    setDraft((d) => ({ ...d, answers: d.answers.map((a, i) => (i === index ? fn(a) : a)) }))
+  }
+
+  function updateSlug(key: string, slug: string) {
+    setDraft((d) => ({ ...d, concepts: d.concepts.map((c) => (c.key === key ? { ...c, slug } : c)) }))
   }
 
   async function place() {
@@ -364,8 +391,9 @@ export function ThemeWizard({
 
   async function close() {
     const questions = questionsFromText()
-    if (draft.id) await persist(step === 1 ? { ...draft, questions } : draft)
-    else if (draft.label.trim() && questions.length > 0) await persist({ ...draft, questions })
+    const label = labelText.trim()
+    if (draft.id) await persist(step === 1 ? { ...draft, questions, label: label || draft.label } : draft)
+    else if (questions.length > 0) await persist({ ...draft, questions, label })
     onClose()
   }
 
@@ -406,71 +434,39 @@ export function ThemeWizard({
 
   // ---- 部品 --------------------------------------------------------------------
 
-  const nameOf = (ref: string): string => {
-    const row = rows.find((r) => r.key === ref)
-    if (row) return lang === 'en' ? row.label_en || row.label_ja : row.label_ja
-    return ref
-  }
+  const relationSentence = (rel: RelationRow): string =>
+    t(`themes:rel.sentence.${rel.rel}`, { subject: nameOf(rel.from), object: nameOf(rel.to) })
 
-  function relationSentence(rel: { subject: string; object: string; relation: RelationKind }): string {
-    const std = standards[rel.object]
-    const object = rows.some((r) => r.key === rel.object)
-      ? nameOf(rel.object)
-      : std
-        ? `${rel.object}（${std.label}）`
-        : rel.object
-    return t(`themes:rel.sentence.${rel.relation}`, { subject: nameOf(rel.subject), object })
+  /** 「熱伝導率 を下げるもの」「格子 の件数」…（答え方の言葉）。 */
+  const wayText = (a: AnswerRow): string => {
+    const way = wayOf(a)
+    if (a.mode === 'memo' || !answerComplete(a)) return t('themes:answer.way.none')
+    const target = nameOf(a.target)
+    const kind = nameOf(a.kind)
+    const property = nameOf(a.property)
+    if (way === 'range' || way === 'top') {
+      return t(`themes:answer.way.${way}${a.kind ? '' : 'Only'}`, { kind, property })
+    }
+    return t(`themes:answer.way.${way}`, { target, kind, property })
   }
-
-  const nav = (opts: {
-    prev?: () => void
-    next?: { label: string; onClick: () => void; disabled?: boolean }
-  }) => (
-    <div className="kz-actions thm-nav">
-      {opts.prev && (
-        <button type="button" className="btn btn--ghost" onClick={opts.prev}>
-          {t('themes:wizard.back')}
-        </button>
-      )}
-      {opts.next && (
-        <button
-          type="button"
-          className="btn btn--accent"
-          disabled={opts.next.disabled}
-          onClick={opts.next.onClick}
-        >
-          {opts.next.label}
-        </button>
-      )}
-    </div>
-  )
 
   const goBack = () => void go(prevStep(step))
-  const goNext = () => void go(nextStep(step))
 
   // ---- 各段 --------------------------------------------------------------------
 
   let body: ReactNode
 
   if (step === 1) {
-    const suggestions = draftSuggestions(draft)
-    const count = questionsFromText().length
+    const questions = questionsFromText()
+    const count = questions.length
+    const examples = lang === 'en' ? EXAMPLE_QUESTIONS_EN : EXAMPLE_QUESTIONS_JA
+    const suggestions = draft.suggested_questions.filter((q) => !questions.includes(q))
     body = (
       <>
         <h2 className="thm-h">
           {CIRCLED[0]} {t('themes:steps.write')}
         </h2>
         <p className="thm-lead">{t('themes:write.lead')}</p>
-        <label className="vocab-field">
-          <span>{t('themes:write.themeName')}</span>
-          <input
-            type="text"
-            value={draft.label}
-            readOnly={!!extend}
-            placeholder={t('themes:write.themeNamePlaceholder')}
-            onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
-          />
-        </label>
         <label className="vocab-field">
           <span>{t('themes:write.questions')}</span>
           <textarea
@@ -481,59 +477,88 @@ export function ThemeWizard({
             onChange={(e) => setQText(e.target.value)}
           />
         </label>
-        {suggestions.length > 0 && (
-          <div>
-            <p className="vocab-field-hint">{t('themes:write.suggestNote')}</p>
-            <div className="thm-chips">
-              {suggestions
-                .filter((q) => !questionsFromText().includes(q))
-                .map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    className="thm-chip"
-                    onClick={() => setQText(addQuestion(questionsFromText(), q).join('\n'))}
-                  >
-                    ＋ {q}
-                  </button>
-                ))}
-            </div>
+        <div>
+          <p className="vocab-field-hint">{t('themes:write.examples')}</p>
+          <div className="thm-chips">
+            {examples
+              .filter((q) => !questions.includes(q))
+              .map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="thm-chip"
+                  onClick={() => setQText(addQuestion(questions, q).join('\n'))}
+                >
+                  ＋ {q}
+                </button>
+              ))}
+            {suggestions.map((q) => (
+              <button
+                key={q}
+                type="button"
+                className="thm-chip"
+                title={t('themes:write.suggestNote')}
+                onClick={() => setQText(addQuestion(questions, q).join('\n'))}
+              >
+                ＋ {q}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
+        <label className="vocab-field">
+          <span>{t('themes:write.themeName')}</span>
+          <input
+            type="text"
+            value={labelText}
+            readOnly={!!extend}
+            placeholder={t('themes:write.themeNamePlaceholder')}
+            onChange={(e) => setLabelText(e.target.value)}
+          />
+        </label>
         {!isReady && <p className="vocab-field-hint">{t('themes:write.aiOff')}</p>}
         {saveErr && <p className="promote-err">{t('themes:wizard.saveErr', { detail: saveErr })}</p>}
         <div className="kz-actions thm-nav">
-          <button
-            type="button"
-            className={`btn ${isReady ? 'btn--accent' : 'btn--ghost'}`}
-            disabled={!draft.label.trim() || count === 0}
-            onClick={() => void fromWrite(true)}
-          >
-            {t('themes:write.toRead')}
-          </button>
-          <button
-            type="button"
-            className={`btn ${isReady ? 'btn--ghost' : 'btn--accent'}`}
-            disabled={!draft.label.trim() || count === 0}
-            onClick={() => void fromWrite(false)}
-          >
-            {t('themes:write.manual')}
-          </button>
+          {isReady ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--accent"
+                disabled={count === 0}
+                onClick={() => void fromWrite(true)}
+              >
+                {t('themes:write.toRead')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={count === 0}
+                onClick={() => void fromWrite(false)}
+              >
+                {t('themes:write.manual')}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--accent"
+              disabled={count === 0}
+              onClick={() => void fromWrite(false)}
+            >
+              {t('themes:write.manual')}
+            </button>
+          )}
         </div>
       </>
     )
   } else if (step === 2) {
-    const summary = t('themes:read.done', {
-      questions: draft.questions.length,
-      terms: rows.length,
-      relations: draft.relations.length,
-    })
+    const hasMap = concepts.length > 0
     body = (
       <>
         <h2 className="thm-h">
-          {CIRCLED[1]} {t('themes:steps.read')}
+          {CIRCLED[1]} {t('themes:steps.review')}
         </h2>
-        <p className="thm-lead">{t('themes:read.lead')}</p>
+        <p className="thm-lead">{t(hasMap ? 'themes:review.lead' : 'themes:review.leadEmpty')}</p>
+
         {ai.status === 'running' && (
           <div className="thm-try" role="status" aria-live="polite">
             <p className="thm-q">
@@ -541,21 +566,16 @@ export function ThemeWizard({
             </p>
           </div>
         )}
-        {ai.status !== 'running' && ai.status !== 'unconfigured' && ai.status !== 'failed' && draft.ai !== null && (
-          <div className="thm-try" data-testid="theme-ai-done">
-            <p className="thm-ans">{summary}</p>
-          </div>
-        )}
         {ai.status === 'unconfigured' && (
           <section className="kz-card kz-stop" role="alert" data-testid="theme-ai-unconfigured">
             <h3 className="kz-title">{t('themes:read.unconfigured.title')}</h3>
             <p className="kz-note">{t('themes:read.unconfigured.body')}</p>
             <div className="kz-actions">
-              <button type="button" className="btn btn--accent" onClick={() => void go(3, startManual(draft))}>
-                {t('themes:read.manual')}
-              </button>
               <button type="button" className="btn btn--ghost" onClick={() => openSettings()}>
                 {t('themes:read.openSettings')}
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={() => setAi({ status: 'idle' })}>
+                {t('themes:read.dismiss')}
               </button>
             </div>
           </section>
@@ -572,492 +592,338 @@ export function ThemeWizard({
               <button type="button" className="btn btn--accent" onClick={() => void runAi(draft)}>
                 {t('themes:read.retry')}
               </button>
-              <button type="button" className="btn btn--ghost" onClick={() => void go(3, startManual(draft))}>
+              <button type="button" className="btn btn--ghost" onClick={() => setAi({ status: 'idle' })}>
                 {t('themes:read.manual')}
               </button>
             </div>
           </section>
         )}
-        {nav({
-          prev: goBack,
-          next: { label: t('themes:read.next'), onClick: goNext, disabled: !canAdvance(draft, 2, ctx) || ai.status === 'running' },
-        })}
-        {ai.status === 'ok' && (
-          <p className="vocab-field-hint">
-            <button type="button" className="link-btn" onClick={() => void runAi(draft)}>
-              {t('themes:read.again')}
-            </button>
-          </p>
-        )}
-        {ai.status === 'idle' && draft.ai !== null && (
-          <p className="vocab-field-hint">
-            <button type="button" className="link-btn" onClick={() => void runAi(draft)}>
-              {t('themes:read.again')}
-            </button>
-          </p>
-        )}
-      </>
-    )
-  } else if (step === 3) {
-    const newCount = rows.filter(termMints).length
-    body = (
-      <>
-        <h2 className="thm-h">
-          {CIRCLED[2]} {t('themes:steps.terms')}
-        </h2>
-        <p className="thm-lead">{t('themes:terms.lead')}</p>
-        {rows.length === 0 ? (
-          <p className="ds-empty-note">{t('themes:terms.empty')}</p>
-        ) : (
-          <div className="thm-table-wrap">
-            <table className="thm-table" data-testid="theme-terms">
-              <thead>
-                <tr>
-                  <th>{t('themes:terms.colJa')}</th>
-                  <th>{t('themes:terms.colEn')}</th>
-                  <th>{t('themes:terms.colKind')}</th>
-                  <th>{t('themes:terms.colMatch')}</th>
-                  <th>{t('themes:terms.colUse')}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.key} data-key={r.key} className={problems[r.key] === 'label' ? 'thm-row--bad' : ''}>
-                    <td>
-                      <input
-                        type="text"
-                        aria-label={t('themes:terms.colJa')}
-                        value={r.label_ja}
-                        onChange={(e) => updateRow(r.key, { label_ja: e.target.value })}
-                      />
-                      {r.by === 'ai' && <span className="thm-ai">{t('themes:aiMark')}</span>}
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        aria-label={t('themes:terms.colEn')}
-                        value={r.label_en}
-                        onChange={(e) => setLabelEn(r, e.target.value)}
-                      />
-                      <input
-                        type="text"
-                        className="thm-alias"
-                        aria-label={t('themes:terms.aliases')}
-                        placeholder={t('themes:terms.aliasesPlaceholder')}
-                        value={aliasText[r.key] ?? r.aliases.join(', ')}
-                        onChange={(e) => setAliases(r.key, e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      {r.by === 'human' ? (
-                        <select
-                          aria-label={t('themes:terms.colKind')}
-                          value={r.kind}
-                          onChange={(e) => updateRow(r.key, { kind: e.target.value as TermKind })}
-                        >
-                          <option value="class">{t('themes:kind.class')}</option>
-                          <option value="property">{t('themes:kind.property')}</option>
-                        </select>
-                      ) : (
-                        t(`themes:kind.${r.kind}`)
-                      )}
-                    </td>
-                    <td>
-                      {r.match ? (
-                        <>
-                          <b>{r.match.kind === 'existing' ? r.match.label : r.match.ref}</b>
-                          <br />
-                          <span className="vocab-field-hint">
-                            {t(`themes:terms.match.${r.match.kind}`)}
-                            {r.match.matched_by === 'alias' ? t('themes:terms.match.byAlias') : ''}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="vocab-field-hint">{t('themes:terms.none')}</span>
-                      )}
-                    </td>
-                    <td>
+
+        {/* 上: 問いごとの答え方 */}
+        <section className="thm-aqs" aria-label={t('themes:review.questionsAria')} data-testid="theme-answers">
+          {draft.answers.map((a, i) => {
+            const state = answerState(a)
+            const way = wayOf(a)
+            const host = answerHost(a)
+            const hostRow = concepts.find((c) => c.key === host)
+            const dataN = hostRow && !conceptMints(hostRow) ? (answering[hostRow.slug] ?? 0) : 0
+            const open = openAnswer === i
+            const needs = wayNeeds(way)
+            return (
+              <div className="thm-aq" key={a.question} data-testid="theme-answer">
+                <div className="thm-aq-head">
+                  <span className="thm-aq-text">{a.question}</span>
+                  {state === 'memo' ? (
+                    <span className="pill wait">{t('themes:review.still')}</span>
+                  ) : (
+                    <span className="pill ok">
+                      {t('themes:review.counts', {
+                        k: state === 'knowledge' ? knowledgeEstimate(draft, a) : 0,
+                        d: dataN,
+                      })}
+                    </span>
+                  )}
+                  {a.by === 'ai' && state !== 'memo' && <span className="thm-ai">{t('themes:aiMark')}</span>}
+                </div>
+                <div className="thm-aq-way">
+                  <span className="vocab-field-hint">{t('themes:answer.label')}</span>{' '}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    aria-expanded={open}
+                    onClick={() => setOpenAnswer(open ? null : i)}
+                  >
+                    {wayText(a)} ▾
+                  </button>
+                </div>
+                {a.wanted_data && (
+                  <div className="thm-aq-want">{t('themes:review.wanted', { text: a.wanted_data })}</div>
+                )}
+                {open && (
+                  <div className="thm-aq-edit">
+                    <label>
+                      {t('themes:answer.pickWay')}{' '}
                       <select
-                        aria-label={t('themes:terms.colUse')}
-                        value={r.use}
-                        onChange={(e) =>
-                          setDraft((d) => ({ ...d, terms: chooseUse(d.terms, r.key, e.target.value) }))
-                        }
+                        value={way}
+                        onChange={(e) => updateAnswer(i, (x) => setWay(x, e.target.value as AnswerWay))}
                       >
-                        {termUseOptions(r).map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {t(`themes:terms.use.${o.kind}`, { ref: r.match?.ref ?? '' })}
+                        {ANSWER_WAYS.map((w) => (
+                          <option key={w} value={w}>
+                            {t(`themes:answer.option.${w}`)}
                           </option>
                         ))}
                       </select>
-                    </td>
-                    <td>
+                    </label>
+                    {needs.target && (
+                      <ConceptSelect
+                        label={t('themes:answer.pickTarget')}
+                        value={a.target}
+                        options={conceptsFor(draft, way, 'target')}
+                        lang={lang}
+                        onChange={(v) => updateAnswer(i, (x) => setAnswerTarget(x, { target: v }))}
+                      />
+                    )}
+                    {needs.kind && (
+                      <ConceptSelect
+                        label={t('themes:answer.pickKind')}
+                        value={a.kind}
+                        options={conceptsFor(draft, way, 'kind')}
+                        lang={lang}
+                        optional={needs.kindOptional}
+                        onChange={(v) => updateAnswer(i, (x) => setAnswerTarget(x, { kind: v }))}
+                      />
+                    )}
+                    {needs.property && (
+                      <ConceptSelect
+                        label={t('themes:answer.pickProperty')}
+                        value={a.property}
+                        options={conceptsFor(draft, way, 'property')}
+                        lang={lang}
+                        onChange={(v) => updateAnswer(i, (x) => setAnswerTarget(x, { property: v }))}
+                      />
+                    )}
+                    {concepts.length === 0 && way !== 'memo' && (
+                      <span className="vocab-field-hint">{t('themes:answer.noConcepts')}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </section>
+
+        {/* 左 2/3: 図・右 1/3: 文の一覧 */}
+        <div className="thm-review">
+          <div className="thm-review-map">
+            <ConceptMap
+              concepts={concepts}
+              relations={draft.relations}
+              lang={lang}
+              selectedKey={selectedKey}
+              litRelation={litRel}
+              unlinked={unlinked}
+              expandingKey={expandingKey}
+              canExpand={isReady}
+              onSelect={setSelectedKey}
+              onExpand={(k) => void expand(k)}
+              onRemove={(k) => void removeConceptRow(k)}
+            />
+          </div>
+          <aside className="thm-review-sentences" aria-label={t('themes:review.sentencesAria')}>
+            <h3 className="thm-sub-h">{t('themes:review.sentences', { n: draft.relations.length })}</h3>
+            {draft.relations.length === 0 ? (
+              <p className="ds-empty-note">{t('themes:review.noSentences')}</p>
+            ) : (
+              <ul className="thm-sentences" data-testid="theme-sentences">
+                {draft.relations.map((r, i) => {
+                  const lit = !!selectedKey && (r.from === selectedKey || r.to === selectedKey)
+                  return (
+                    <li
+                      key={`${i}-${r.from}|${r.rel}|${r.to}`}
+                      className={`thm-sentence${lit ? ' is-lit' : ''}${r.problem ? ' is-bad' : ''}`}
+                      onMouseEnter={() => setLitRel(i)}
+                      onMouseLeave={() => setLitRel(null)}
+                    >
                       <button
                         type="button"
-                        className="btn btn--ghost btn--sm"
-                        aria-label={t('themes:terms.remove')}
-                        title={t('themes:terms.remove')}
-                        onClick={() => setDraft((d) => removeRow(d, r.key))}
+                        className="thm-sentence-text"
+                        onClick={() => setSelectedKey(selectedKey === r.from ? null : r.from)}
+                      >
+                        {relationSentence(r)}
+                      </button>
+                      <button
+                        type="button"
+                        className="thm-x"
+                        aria-label={t('themes:review.dismissAria', { sentence: relationSentence(r) })}
+                        title={t('themes:review.dismiss')}
+                        onClick={() => void removeRelationRow(i)}
                       >
                         ✕
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="kz-actions">
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => addRow('class')}>
-            {t('themes:terms.addClass')}
-          </button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => addRow('property')}>
-            {t('themes:terms.addProperty')}
-          </button>
+                      {r.problem && (
+                        <span className="promote-err thm-sentence-note">
+                          {t(`themes:review.problem.${r.problem}`)}
+                        </span>
+                      )}
+                      {r.reason && <span className="thm-reason">{r.reason}</span>}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </aside>
         </div>
-        <p className="vocab-field-hint">{t('themes:terms.summary', { n: newCount, total: rows.length })}</p>
-        {nav({
-          prev: goBack,
-          next: { label: t('themes:terms.next'), onClick: goNext, disabled: !canAdvance(draft, 3, ctx) },
-        })}
-      </>
-    )
-  } else if (step === 4) {
-    const structure = upperStructure(draft)
-    const groups = visibleGroups(draftGroups(draft), rows)
-    const subjects = rows.filter(termMints)
-    const objects = rows
-    const implicit = implicitRelations(rows)
-    body = (
-      <>
-        <h2 className="thm-h">
-          {CIRCLED[3]} {t('themes:steps.relations')}
-        </h2>
-        <p className="thm-lead">{t('themes:relations.lead')}</p>
-        {draft.relations.length === 0 && implicit.length === 0 && (
-          <p className="ds-empty-note">{t('themes:relations.empty')}</p>
+        {actionErr && (
+          <p className="promote-err" role="alert">
+            {actionErr}
+          </p>
         )}
-        {implicit.map((r) => (
-          <div className="thm-rel" key={`i-${r.subject}`}>
-            <span>
-              {relationSentence({ subject: r.subject, object: r.curie, relation: r.quantity ? 'quantity' : 'eq' })}
-            </span>
-            <span className="vocab-field-hint">{t('themes:relations.fromTerms')}</span>
-          </div>
-        ))}
-        {draft.relations.map((r, i) => {
-          const applies = relationApplies(r, rows)
-          return (
-            <div
-              className={`thm-rel${applies ? '' : ' thm-rel--off'}`}
-              key={`${i}-${r.subject}|${r.object}|${r.relation}`}
-            >
-              <span>{relationSentence(r)}</span>
-              {r.by === 'ai' && <span className="thm-ai">{t('themes:aiMark')}</span>}
-              {r.problem && <span className="promote-err">{t(`themes:relations.problem.${r.problem}`)}</span>}
-              {!r.problem && !applies && (
-                <span className="vocab-field-hint">{t('themes:relations.notPlaced')}</span>
-              )}
-              {applies && (
-                <span className="thm-yn" role="group" aria-label={t('themes:relations.ask')}>
-                  <button
-                    type="button"
-                    className={r.ok === true ? 'on' : ''}
-                    aria-pressed={r.ok === true}
-                    onClick={() => setDraft((d) => ({ ...d, relations: setRelation(d.relations, i, true) }))}
-                  >
-                    {t('themes:relations.yes')}
-                  </button>
-                  <button
-                    type="button"
-                    className={r.ok === false ? 'on' : ''}
-                    aria-pressed={r.ok === false}
-                    onClick={() => setDraft((d) => ({ ...d, relations: setRelation(d.relations, i, false) }))}
-                  >
-                    {t('themes:relations.no')}
-                  </button>
-                </span>
-              )}
-            </div>
-          )
-        })}
-        {subjects.length > 0 && (
-          <div className="thm-addrel">
-            <span className="vocab-field-hint">{t('themes:relations.add')}</span>
+
+        {/* 下: 手で足す・まとめて確定 */}
+        <div className="thm-hand">
+          <span className="thm-sub-h">{t('themes:review.add')}</span>
+          <div className="thm-hand-row">
+            <input
+              type="text"
+              aria-label={t('themes:review.addName')}
+              placeholder={t('themes:review.addNamePlaceholder')}
+              value={hand.name}
+              onChange={(e) => setHand((h) => ({ ...h, name: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addHand()
+                }
+              }}
+            />
             <select
-              aria-label={t('themes:relations.addSubject')}
-              value={relForm.subject}
-              onChange={(e) => setRelForm((f) => ({ ...f, subject: e.target.value }))}
+              aria-label={t('themes:review.addKind')}
+              value={hand.kind}
+              onChange={(e) => setHand((h) => ({ ...h, kind: e.target.value as TermKind }))}
             >
-              <option value="">{t('themes:pick')}</option>
-              {subjects.map((r) => (
-                <option key={r.key} value={r.key}>
-                  {nameOf(r.key)}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label={t('themes:relations.addKind')}
-              value={relForm.relation}
-              onChange={(e) => setRelForm((f) => ({ ...f, relation: e.target.value as RelationKind }))}
-            >
-              <option value="sub">{t('themes:relations.kindSub')}</option>
-              <option value="eq">{t('themes:relations.kindEq')}</option>
-            </select>
-            <select
-              aria-label={t('themes:relations.addObject')}
-              value={relForm.object}
-              onChange={(e) => setRelForm((f) => ({ ...f, object: e.target.value }))}
-            >
-              <option value="">{t('themes:pick')}</option>
-              {objects
-                .filter((r) => r.key !== relForm.subject)
-                .map((r) => (
-                  <option key={r.key} value={r.key}>
-                    {nameOf(r.key)}
-                    {termMints(r) ? '' : ` ${t('themes:relations.tagExisting').trim()}`}
-                  </option>
-                ))}
+              <option value="class">{t('themes:kind.class')}</option>
+              <option value="property">{t('themes:kind.property')}</option>
             </select>
             <button
               type="button"
               className="btn btn--ghost btn--sm"
-              disabled={!relForm.subject || !relForm.object}
-              onClick={addRelation}
+              disabled={!hand.name.trim() || hasConceptNamed(concepts, hand.name)}
+              onClick={addHand}
             >
-              {t('themes:relations.addGo')}
+              {t('themes:review.addGo')}
             </button>
           </div>
-        )}
-        {groups.length > 0 && (
-          <div>
-            <div className="thm-chips">
-              {groups.map((g) => (
-                <span key={g.label_ja} className="thm-group">
-                  <input
-                    type="text"
-                    aria-label={t('themes:relations.groupName')}
-                    value={groupName[g.label_ja] ?? g.label_ja}
-                    onChange={(e) => setGroupName((n) => ({ ...n, [g.label_ja]: e.target.value }))}
-                  />
-                  <button
-                    type="button"
-                    className="thm-chip"
-                    onClick={() =>
-                      setDraft((d) =>
-                        addGroup(d, { ...g, label_ja: (groupName[g.label_ja] ?? g.label_ja).trim() || g.label_ja }),
-                      )
-                    }
-                  >
-                    {t('themes:relations.groupAdd', { names: g.children.map(nameOf).join('・') })}
-                  </button>
-                </span>
-              ))}
+          <details className="thm-hand-more">
+            <summary>{t('themes:review.addMore')}</summary>
+            <div className="thm-hand-row">
+              <input
+                type="text"
+                aria-label={t('themes:review.addEn')}
+                placeholder={t('themes:review.addEn')}
+                value={hand.en}
+                onChange={(e) => setHand((h) => ({ ...h, en: e.target.value }))}
+              />
+              <input
+                type="text"
+                aria-label={t('themes:review.addAliases')}
+                placeholder={t('themes:review.addAliasesPlaceholder')}
+                value={hand.aliases}
+                onChange={(e) => setHand((h) => ({ ...h, aliases: e.target.value }))}
+              />
             </div>
-          </div>
-        )}
-        <div className="thm-effect" data-testid="theme-structure">
-          <div>{t('themes:relations.structure')}</div>
-          {structure.length === 0 ? (
-            <div className="vocab-field-hint">{t('themes:relations.structureNone')}</div>
-          ) : (
-            structure.map((l) => (
-              <div key={`${l.ref}-${l.depth}`} style={{ paddingLeft: `${l.depth * 1.2}rem` }}>
-                {l.depth > 0 ? '└ ' : ''}
-                {standards[l.ref] ? l.ref : l.label}
-                {l.tag === 'existing' && <span className="vocab-field-hint">{t('themes:relations.tagExisting')}</span>}
-                {l.notes.map((n) => (
-                  <span key={`${n.relation}-${n.curie}`} className="vocab-field-hint">
-                    {' '}
-                    ─ {t(`themes:relations.note.${n.relation}`)} {n.curie}
-                  </span>
-                ))}
-              </div>
-            ))
-          )}
+          </details>
         </div>
-        {nav({
-          prev: goBack,
-          next: { label: t('themes:relations.next'), onClick: goNext, disabled: !canAdvance(draft, 4, ctx) },
-        })}
-      </>
-    )
-  } else if (step === 5) {
-    const classRows = rows.filter((r) => r.kind === 'class')
-    const propRows = rows.filter((r) => r.kind === 'property')
-    body = (
-      <>
-        <h2 className="thm-h">
-          {CIRCLED[4]} {t('themes:steps.try')}
-        </h2>
-        <p className="thm-lead">{t('themes:try.lead')}</p>
-        {draft.selections.map((s, i) => {
-          const memo = isMemo(s)
-          const sentence = sentences[i] ?? ''
-          const n = answeringNow(s, rows, answering)
-          return (
-            <div className="thm-try" key={s.question} data-testid="theme-try">
-              <div className="thm-q">{s.question}</div>
-              <div className="thm-shape">
-                <label>
-                  {t('themes:try.op')}{' '}
-                  <select
-                    aria-label={t('themes:try.op')}
-                    value={s.op}
-                    onChange={(e) => updateSelection(i, { op: e.target.value as SelectionRow['op'] })}
-                  >
-                    <option value="">{t('themes:pick')}</option>
-                    {SELECTION_OPS.map((o) => (
-                      <option key={o} value={o}>
-                        {t(`themes:try.opName.${o}`)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {(needsKind(s.op) || kindOptional(s.op) || s.op === '') && (
-                  <label>
-                    {t('themes:try.kind')}{' '}
-                    <select
-                      aria-label={t('themes:try.kind')}
-                      value={s.kind}
-                      onChange={(e) => updateSelection(i, { kind: e.target.value })}
-                    >
-                      <option value="">{t('themes:pick')}</option>
-                      {classRows.map((r) => (
-                        <option key={r.key} value={r.key}>
-                          {nameOf(r.key)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {(needsProperty(s.op) || s.op === '') && (
-                  <label>
-                    {t('themes:try.property')}{' '}
-                    <select
-                      aria-label={t('themes:try.property')}
-                      value={s.property}
-                      onChange={(e) => updateSelection(i, { property: e.target.value })}
-                    >
-                      <option value="">{t('themes:pick')}</option>
-                      {propRows.map((r) => (
-                        <option key={r.key} value={r.key}>
-                          {nameOf(r.key)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {needsValue(s.op) && (
-                  <label>
-                    {t('themes:try.value')}{' '}
-                    <input
-                      type="text"
-                      value={s.value}
-                      onChange={(e) => updateSelection(i, { value: e.target.value })}
-                    />
-                  </label>
-                )}
-                {s.by === 'ai' && s.op !== '' && <span className="thm-ai">{t('themes:aiMark')}</span>}
-              </div>
-              <div className="thm-ans" data-testid="theme-exec">
-                {sentence ? (
-                  <>
-                    {t('themes:try.exec', { sentence })}
-                    <br />
-                    {memo ? null : (
-                      <span>{t('themes:try.answeringNow', { n })}</span>
-                    )}
-                  </>
-                ) : (
-                  <span className="vocab-field-hint">{t('themes:try.execNone')}</span>
-                )}
-              </div>
-              {memo && (
-                <div className="thm-memo" data-testid="theme-memo">
-                  <span className="pill wait">{t('themes:try.memoBadge')}</span>{' '}
-                  {t(`themes:try.memoReason.${memoReason(s)}`)}
-                  {s.reason && s.memo === 'ai' ? ` ${s.reason}` : ''}
-                </div>
-              )}
-              <label className="thm-memo-toggle">
-                <input
-                  type="checkbox"
-                  checked={s.memo !== null}
-                  onChange={(e) => updateSelection(i, { memo: e.target.checked ? 'human' : null })}
-                />{' '}
-                {t('themes:try.keepMemo')}
-              </label>
-            </div>
-          )
-        })}
-        {nav({
-          prev: goBack,
-          next: { label: t('themes:try.next'), onClick: goNext, disabled: !canAdvance(draft, 5, ctx) },
-        })}
+        {!isReady && hasMap && <p className="vocab-field-hint">{t('themes:review.aiOff')}</p>}
+        {saveErr && <p className="promote-err">{t('themes:wizard.saveErr', { detail: saveErr })}</p>}
+        <div className="kz-actions thm-nav">
+          <button type="button" className="btn btn--ghost" onClick={goBack}>
+            {t('themes:wizard.back')}
+          </button>
+          {isReady && (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={ai.status === 'running'}
+              onClick={() => void runAi({ ...draft, label: labelText.trim() })}
+            >
+              {t('themes:read.again')}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn--accent"
+            disabled={ai.status === 'running' || draft.questions.length === 0}
+            data-testid="confirm-all"
+            onClick={() => void go(nextStep(step))}
+          >
+            {counts.total > 0 ? t('themes:review.confirm', { n: counts.total }) : t('themes:review.confirmNone')}
+          </button>
+        </div>
+        <p className="vocab-field-hint thm-confirm-note">
+          {t('themes:review.confirmNote', { concepts: counts.concepts, relations: counts.relations })}
+          {unlinked.size > 0 && ` ${t('themes:review.unlinkedNote', { n: unlinked.size })}`}
+        </p>
       </>
     )
   } else {
-    const summary = placeSummary(draft)
-    const ids = idList(rows)
-    const accepted = acceptedRelations(draft.relations, rows)
-    const implicit = implicitRelations(rows)
-    const blocker = placeBlocker(draft, ctx)
+    const ids = idList(draft)
+    const sent = sentRelations(draft)
+    const blocker = placeBlocker(draft, existingSlugs)
+    const label = labelText.trim() || draft.label || defaultLabel(draft.questions)
     body = (
       <>
         <h2 className="thm-h">
-          {CIRCLED[5]} {t('themes:steps.place')}
+          {CIRCLED[2]} {t('themes:steps.place')}
         </h2>
-        <p className="thm-lead">
+        <p className="thm-lead" data-testid="theme-place-lead">
           {t(extend ? 'themes:place.leadExtend' : 'themes:place.lead', {
-            label: draft.label,
-            terms: summary.terms,
-            lines: summary.lines,
-            questions: summary.published,
-            memo: summary.memo,
+            label,
+            concepts: counts.concepts,
+            relations: counts.relations,
+            questions: draft.questions.length,
           })}
         </p>
+        {!extend && (
+          <label className="vocab-field">
+            <span>{t('themes:write.themeName')}</span>
+            <input
+              type="text"
+              value={draft.label}
+              onChange={(e) => {
+                setLabelText(e.target.value)
+                setDraft((d) => ({ ...d, label: e.target.value }))
+              }}
+            />
+          </label>
+        )}
         <div className="thm-effect" data-testid="theme-place-list">
-          <div>{t('themes:place.listTitle')}</div>
           {ids.length > 0 && (
-            <div className="thm-ids">
-              {ids.map((l) => (
-                <div key={l.key} className="thm-id">
-                  <span>{t('themes:place.newTerm', { label: l.label })}</span>
-                  <label className="thm-idfield">
-                    <span className="vocab-field-hint">{t('themes:place.id')}</span>
-                    <input
-                      type="text"
-                      aria-label={t('themes:place.idAria', { label: l.label })}
-                      className={problems[l.key] ? 'thm-input--bad' : ''}
-                      value={l.slug}
-                      onChange={(e) => updateRow(l.key, { slug: e.target.value })}
-                    />
-                  </label>
-                  {problems[l.key] === 'slug' && (
-                    <span className="promote-err">{t('themes:place.idBad')}</span>
-                  )}
-                  {problems[l.key] === 'taken' && (
-                    <span className="promote-err">{t('themes:place.idTaken')}</span>
-                  )}
-                  {problems[l.key] === 'duplicate' && (
-                    <span className="promote-err">{t('themes:place.idDuplicate')}</span>
-                  )}
+            <>
+              <div className="thm-sub-h">{t('themes:place.concepts')}</div>
+              <div className="thm-ids">
+                {ids.map((l) => (
+                  <div key={l.key} className="thm-id">
+                    <span>{l.label}</span>
+                    <label className="thm-idfield">
+                      <span className="vocab-field-hint">{t('themes:place.id')}</span>
+                      <input
+                        type="text"
+                        aria-label={t('themes:place.idAria', { label: l.label })}
+                        className={problems[l.key] ? 'thm-input--bad' : ''}
+                        value={l.slug}
+                        onChange={(e) => updateSlug(l.key, e.target.value)}
+                      />
+                    </label>
+                    {problems[l.key] === 'slug' && <span className="promote-err">{t('themes:place.idBad')}</span>}
+                    {problems[l.key] === 'taken' && <span className="promote-err">{t('themes:place.idTaken')}</span>}
+                    {problems[l.key] === 'duplicate' && (
+                      <span className="promote-err">{t('themes:place.idDuplicate')}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {sent.length > 0 && (
+            <>
+              <div className="thm-sub-h">{t('themes:place.relations')}</div>
+              {sent.map((r, i) => (
+                <div key={`${i}-${r.from}|${r.rel}|${r.to}`}>
+                  ・{relationSentence(r)}
+                  {r.reason && <span className="thm-reason"> — {r.reason}</span>}
                 </div>
               ))}
-            </div>
+            </>
           )}
-          {[...implicit.map((r) => ({ subject: r.subject, object: r.curie, relation: (r.quantity ? 'quantity' : 'eq') as RelationKind })), ...accepted].map((r) => (
-            <div key={`${r.subject}|${r.object}|${r.relation}`}>
-              ・{t('themes:place.relation', { sentence: relationSentence(r) })}
-            </div>
-          ))}
-          {draft.selections.map((s, i) => (
-            <div key={s.question}>
-              ・{t(isMemo(s) ? 'themes:place.memoQuestion' : 'themes:place.question', { title: s.question })}
-              {sentences[i] ? <span className="vocab-field-hint"> — {sentences[i]}</span> : null}
+          <div className="thm-sub-h">{t('themes:place.questions')}</div>
+          {draft.answers.map((a) => (
+            <div key={a.question}>
+              ・{a.question}
+              <span className="vocab-field-hint">
+                {' '}
+                — {answerState(a) === 'memo' ? t('themes:place.memoQuestion') : wayText(a)}
+              </span>
+              {a.wanted_data && <div className="thm-reason">{t('themes:review.wanted', { text: a.wanted_data })}</div>}
             </div>
           ))}
         </div>
@@ -1131,5 +997,37 @@ export function ThemeWizard({
       </ol>
       <div className="kz-card thm-card">{body}</div>
     </section>
+  )
+}
+
+/** 答え方の対象を選ぶ（概念の一覧から）。 */
+function ConceptSelect({
+  label,
+  value,
+  options,
+  lang,
+  optional,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: ConceptRow[]
+  lang: string
+  optional?: boolean
+  onChange: (key: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <label>
+      {label}{' '}
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+        <option value="">{optional ? t('themes:answer.none') : t('themes:pick')}</option>
+        {options.map((c) => (
+          <option key={c.key} value={c.key}>
+            {conceptName(c, lang)}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
