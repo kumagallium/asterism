@@ -18,6 +18,7 @@ from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
     _decode_array,
+    answer_knowledge_question,
     dataset_descriptions,
     property_ranking,
     provenance_of,
@@ -1288,3 +1289,95 @@ async def test_schema_summary_cqs_empty_without_registry_root() -> None:
     out = await schema_summary(client)
 
     assert all(t["cqs"] == [] for t in out["shared_terms"])
+
+
+# ----------------------------------------------------------------------------
+# answer_knowledge_question (themes.json selections -> the closed knowledge runner)
+# ----------------------------------------------------------------------------
+
+
+def _write_themes(root, selections: dict) -> None:
+    from asterism import shared_vocab as sv
+
+    path = sv._dir(root) / "themes.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"themes": [{"id": "t1", "selections": selections}], "migrated": True}
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+
+_LOWERS = "http://purl.obolibrary.org/obo/RO_0002212"
+
+
+def _kq_client(captured: list[str]) -> OxigraphClient:
+    from asterism import shared_vocab as sv
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request.content.decode("utf-8", "ignore") + str(request.url))
+        lattice = sv.term_iri("lattice_tc")
+        row = {
+            "from": {"type": "uri", "value": sv.term_iri("grain_boundary")},
+            "rel": {"type": "uri", "value": _LOWERS},
+            "via": {"type": "uri", "value": lattice},
+            "lbl": {"type": "literal", "value": "粒界散乱", "xml:lang": "ja"},
+            "vlbl": {"type": "literal", "value": "格子熱伝導率", "xml:lang": "ja"},
+            "who": {"type": "literal", "value": "ai"},
+            "reason": {"type": "literal", "value": "粒界でフォノンが散乱"},
+            "at": {"type": "literal", "value": "2026-10-20T00:00:00+00:00"},
+        }
+        body = {
+            "head": {"vars": list(row)},
+            "results": {"bindings": [row]},
+        }
+        return httpx.Response(
+            200, text=json.dumps(body), headers={"content-type": "application/sparql-results+json"}
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+async def test_answer_knowledge_question_reads_the_theme_and_runs_the_closed_template(
+    tmp_path,
+) -> None:
+    _write_themes(
+        tmp_path,
+        {
+            "kq_thermal_conductivity_factors_lowers": {
+                "mode": "knowledge", "op": "factors", "target_slug": "thermal_conductivity",
+                "target": "熱伝導率", "title": "熱伝導率を下げるものは何か", "direction": "lowers",
+            },
+            "cq_sample_count": {"op": "count", "kind_slug": "sample"},  # データの問い
+        },
+    )  # fmt: skip
+    seen: list[str] = []
+    out = await answer_knowledge_question(
+        "kq_thermal_conductivity_factors_lowers", _kq_client(seen), registry_root=tmp_path
+    )
+    assert out["found"] is True
+    assert out["question"] == "熱伝導率を下げるものは何か"
+    assert (out["op"], out["target"], out["direction"], out["count"]) == (
+        "factors", "熱伝導率", "lowers", 1,
+    )  # fmt: skip
+    assert out["items"] == [
+        {
+            "label": "粒界散乱", "relation": "lowers", "via_label": "格子熱伝導率",
+            "reason": "粒界でフォノンが散乱", "drafted_by": "ai", "at": "2026-10-20T00:00:00+00:00",
+        }
+    ]  # fmt: skip
+    # the runner reads the alignment graph only (a confirmed line), over the closed template
+    from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
+
+    assert seen and ALIGNMENT_GRAPH in seen[0]
+
+
+async def test_answer_knowledge_question_refuses_what_is_not_a_knowledge_question(
+    tmp_path,
+) -> None:
+    _write_themes(tmp_path, {"cq_sample_count": {"op": "count", "kind_slug": "sample"}})
+    seen: list[str] = []
+    for name in ("cq_sample_count", "kq_nothing", ""):
+        out = await answer_knowledge_question(name, _kq_client(seen), registry_root=tmp_path)
+        assert out["found"] is False and "error" in out
+    none = await answer_knowledge_question("kq_x", _kq_client(seen))  # no registry root
+    assert none["found"] is False
+    assert seen == []  # the store was never asked
