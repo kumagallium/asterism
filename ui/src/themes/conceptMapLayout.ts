@@ -1,7 +1,8 @@
-// 知識の図（②）の配置。純関数 — 描画（ConceptMap）から切り離して vitest で固定する。
+// 知識の図（②）の配置。純関数 — 描画（GraphCanvas）から切り離して vitest で固定する。
 //
 // 段は `shapeGraph.rowsOf`（かんたん層の「形」の図と同じ段配置）で決める。段を作る線は
-// 「一種」「一部」だけ（子 → 親。細かいものが上、粗いものが下）。「下げる／上げる／変える／同じもの」は
+// 「一種」「一部」だけ（from → to。**to（全体・粗いもの）が上、from（一部・細かいもの）が下** —
+// 星図 `sky/skyKnowledge.ts` の「from が下」と同じ向き）。「下げる／上げる／変える／同じもの」は
 // 段を作らず、**同じ段の横の線**にする — 段の中で、相手の概念の左（原因）と右（結果）に、縦に積んだ
 // 列として置く（左から右へ「原因 → 結果」と読める）。多対多で交わっても段は崩れない（design.md §15.2）。
 // 横の線でつながる相手が段をもつ概念に無いとき（独立の小さな図）は、その図だけの段を下に足す。
@@ -120,11 +121,13 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: Map
   const hier = valid.filter(isHier)
   const side = valid.filter((r) => !isHier(r))
 
-  // ① 段をつくる線だけで段を決める（rowsOf: 子が上・親が下）
+  // ① 段をつくる線だけで段を決める。rowsOf は「from が上・to が下」に積むので、向きを逆にして渡す
+  //    （to＝全体が上の段・from＝一部が下の段になる）
+
   const hierKeys = new Set(hier.flatMap((r) => [r.from, r.to]))
   const shape: Shape = {
     nodes: nodes.filter((n) => hierKeys.has(n.key)).map((n) => ({ id: n.key, label: n.label, tone: 'record' as const })),
-    edges: hier.map((r) => ({ from: r.from, to: r.to })),
+    edges: hier.map((r) => ({ from: r.to, to: r.from })),
   }
   const hierRows = shape.nodes.length > 0 ? rowsOf(shape).filter((r) => r.length > 0) : []
 

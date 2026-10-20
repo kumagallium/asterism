@@ -7,6 +7,7 @@ import { authHeaders } from '../authToken'
 import i18n from '../i18n'
 import { type LlmCredentials, llmHeaders } from '../settings/store'
 import {
+  type DraftPending,
   type DraftResponse,
   buildCommitBody,
   type MatchResult,
@@ -138,27 +139,6 @@ export async function draftWithAi(
   return body
 }
 
-/** 「ここを広げる」— 下書きの概念のまわりを AI に足させる。保存済みの下書きと足し分の key を返す。 */
-export async function expandDraft(
-  draftId: string,
-  focusKey: string,
-  lang: string,
-  creds: LlmCredentials | null,
-): Promise<{ draft: ThemeDraft; addedConcepts: string[] }> {
-  const res = await fetch(`${API_BASE}/api/themes/expand`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
-    body: JSON.stringify({ draft_id: draftId, focus_key: focusKey, lang }),
-  })
-  if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.expand'))
-  const raw = (await res.json()) as Record<string, unknown>
-  const draft = normalizeDraft(raw)
-  if (!draft) throw new ThemesApiError(i18n.t('themes:read.badShape'), 502, '')
-  const added = raw.added as { concepts?: { key?: unknown }[] } | undefined
-  const addedConcepts = (added?.concepts ?? []).map((c) => String(c.key ?? '')).filter(Boolean)
-  return { draft, addedConcepts }
-}
-
 /**
  * 手で書いた用語の行を、既にある用語・標準用語と完全一致で照合する（決定論・AI は呼ばない）。
  * 失敗は呼ぶ側が黙って「なし」のままにする。
@@ -213,7 +193,14 @@ export async function getDraft(id: string): Promise<ThemeDraft> {
   return d
 }
 
-export async function saveDraft(draft: ThemeDraft): Promise<ThemeDraft> {
+/**
+ * 下書きを保存する。`pending` は提案（薄い）のまま残る行（送らなければサーバの控えを残す）・
+ * `resetChat` は保存済みの会話を空にする（「もう一度読ませる」: 消えた行についての会話を戻さない）。
+ */
+export async function saveDraft(
+  draft: ThemeDraft,
+  extra: { pending?: DraftPending; resetChat?: boolean } = {},
+): Promise<ThemeDraft> {
   const { id, label, step, extend, questions, concepts, relations, answers, suggested_questions, standards } = draft
   const res = await fetch(`${API_BASE}/api/themes/drafts/${encodeURIComponent(id)}`, {
     method: 'PUT',
@@ -228,6 +215,8 @@ export async function saveDraft(draft: ThemeDraft): Promise<ThemeDraft> {
       answers,
       suggested_questions,
       standards,
+      ...(extra.pending ? { pending: extra.pending } : {}),
+      ...(extra.resetChat ? { reset_chat: true } : {}),
     }),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.saveDraft'))

@@ -24,7 +24,6 @@
       "commit": "テーマを置くこと",
       "addQuestions": "問いをテーマに足すこと",
       "deleteTheme": "テーマを外すこと",
-      "expand": "「ここを広げる」",
       "answers": "問いの答えの取得",
       "consult": "相談",
       "consultApply": "「そう」の反映",
@@ -182,7 +181,6 @@
     "still": "まだ",
     "counts": "知識 {{k}}・データ {{d}}",
     "wanted": "欲しいデータ: {{text}}",
-    "sentencesAria": "関係の文の一覧",
     "sentences": "文 {{n}} 件",
     "noSentences": "まだ関係がありません。",
     "dismiss": "外す（次から出しません）",
@@ -199,7 +197,6 @@
     "addNamePlaceholder": "名前（例: 粒界散乱）",
     "addKind": "種類か項目か",
     "addGo": "足す",
-    "addMore": "英語名・別名",
     "addEn": "英語名",
     "addAliases": "別名",
     "addAliasesPlaceholder": "別名（カンマ区切り）",
@@ -208,7 +205,9 @@
     "confirmNone": "問いだけを置く",
     "unlinkedNote": "問いにつながらない概念 {{n}} 件は含みません。",
     "leadHand": "概念を足して、問いごとの答え方を選び、まとめて確定します。",
-    "thinNote": "提案（薄い）{{n}} 件は、「そう」と返事をするまで確定に含みません。"
+    "thinNote": "提案（薄い）{{n}} 件は、「そう」と返事をするまで確定に含みません。",
+    "leadNarrow": "図を見て、下で相談しながら直し、まとめて確定します。",
+    "leadEmptyNarrow": "まだ概念がありません。下の会話で相談するか、「手で足す」から足してください。"
   },
   "answer": {
     "label": "答え方:",
@@ -248,7 +247,6 @@
     "lonely": "問いにつながっていません",
     "std": "標準の語 {{ref}} と同じ",
     "expand": "ここを広げる",
-    "expanding": "広げています…",
     "expandOff": "AI が未設定のため使えません",
     "remove": "外す",
     "legendStd": "標準の語に一致",
@@ -272,7 +270,8 @@
     "tagRemove": "外す提案",
     "legendGhost": "提案（薄い）",
     "handle": "関係の端：持って別の札に落とすと付け替え",
-    "pillRetarget": "付け替える（提案）"
+    "pillRetarget": "付け替える（提案）",
+    "emptyNarrow": "まだ図がありません。下の会話で相談するか、「手で足す」から概念を足してください。"
   },
   "chat": {
     "aria": "AI との会話",
@@ -329,6 +328,28 @@
       "remove_concept": "「{{name}}」を外す",
       "rename": "「{{name}}」を「{{to}}」に直す",
       "add_question": "問いを足す：{{question}}"
+    },
+    "goneConcept": "（外した概念）",
+    "draftTitleLeft": "AI の下書き（残り {{n}} 件）",
+    "draftDoneLeft": "AI の下書き：確定済み",
+    "doneSome": "確定 {{n}} 件・できなかった {{m}} 件",
+    "failedAll": "適用できませんでした（{{reason}}）",
+    "failedEach": "理由は各行に",
+    "allExist": "すべて既にあります",
+    "droppedShort": {
+      "unknown_key": "図に無い概念が入っている",
+      "same": "自分自身には結べない",
+      "mixed": "種類と項目は結べない",
+      "cycle": "一周してしまう",
+      "quantity_target": "「量」は項目から量の種類へだけ",
+      "target_not_property": "相手は項目だけ",
+      "dismissed": "前に外した内容",
+      "duplicate": "すでにある",
+      "not_found": "もう無い",
+      "limit": "上限に達した",
+      "not_renamable": "名前を変えられない",
+      "dataset_only": "データの会話でだけ使える",
+      "unsupported": "この画面では当てられない"
     }
   }
 }

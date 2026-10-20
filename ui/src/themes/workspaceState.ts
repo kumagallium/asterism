@@ -8,7 +8,7 @@
 //   - 本物の関係は両端も本物（関係を受けると両端の概念も本物になる）。
 //   - 人の直接の編集（プルダウン・ドラッグ・手で足す）は AI の提案と同じ形の差分（`GraphOp`）。
 import type { GraphDropped, GraphOp } from './consultGraphApi'
-import type { ConceptRow, RelKind, RelationRow, TermKind, ThemeDraft } from './themeDraft'
+import type { ConceptRow, DraftPending, RelKind, RelationRow, TermKind, ThemeDraft } from './themeDraft'
 
 // ---- 提案（薄い）と本物 -------------------------------------------------------------------
 
@@ -68,22 +68,49 @@ export function opKeys(op: GraphOp): string[] {
 }
 
 /**
- * 差分が当たったあとの提案の状態。当たった差分が触れた概念・線は本物になる
- * （人が「そう」と言った・自分で直した、ということ）。触れた概念どうしの間の薄い線も本物にする。
+ * 差分が**明示的に触る**概念と線（人が「そう」と言った・自分で直した、ということ）。
+ * 線の相手（retarget の旧 to・外す線の両端）は触ったことにならない。
+ */
+export function touchedBy(op: GraphOp): { keys: string[]; relations: string[] } {
+  const v = (f: string): string => (typeof op[f] === 'string' ? (op[f] as string) : '')
+  const keys: string[] = []
+  const relations: string[] = []
+  const line = (from: string, rel: string, to: string) => {
+    if (from && rel && to) relations.push(relId({ from, rel, to }))
+  }
+  switch (op.op) {
+    case 'add_concept':
+    case 'rename':
+      keys.push(v('key'))
+      break
+    case 'add_relation':
+      line(v('from'), v('rel'), v('to'))
+      keys.push(v('from'), v('to'))
+      break
+    case 'retarget': // 付け替えた先の線。旧 to は線から離れるので含めない
+      line(v('from'), v('rel'), v('new_to'))
+      keys.push(v('from'), v('new_to'))
+      break
+    case 'add_question':
+      keys.push(v('target'), v('kind'), v('property'))
+      break
+  }
+  return { keys: keys.filter(Boolean), relations }
+}
+
+/**
+ * 差分が当たったあとの提案の状態。差分が明示的に触れた概念と線だけが本物になる
+ * （本物の線の両端の概念も本物）。触れた概念どうしの間の薄い線は、薄いまま。
  * 下書きから消えた行は外す。
  */
 export function settlePending(p: Pending, applied: GraphOp[], after: Pick<ThemeDraft, 'concepts' | 'relations'>): Pending {
-  const keys = applied.flatMap(opKeys)
+  const keys: string[] = []
   const rels: string[] = []
   for (const op of applied) {
-    if (op.op === 'add_relation' && typeof op.from === 'string') rels.push(relId({ from: op.from, rel: String(op.rel), to: String(op.to) }))
-    if (op.op === 'retarget' && typeof op.from === 'string') {
-      rels.push(relId({ from: op.from, rel: String(op.rel), to: String(op.new_to) }))
-    }
+    const t = touchedBy(op)
+    keys.push(...t.keys)
+    rels.push(...t.relations)
   }
-  // 触れた概念どうしを結ぶ、まだ薄い線も本物にする（触れた 2 つの間の線だけ薄いままだと、図がつながらない）
-  const touched = new Set(keys)
-  for (const r of after.relations) if (touched.has(r.from) && touched.has(r.to)) rels.push(relId(r))
   return pruneToDraft(acceptRelations(acceptConcepts(p, keys), rels, after), after)
 }
 
@@ -99,34 +126,59 @@ export function realDraft(draft: ThemeDraft, p: Pending): ThemeDraft {
   }
 }
 
-// ---- 提案の保存（この端末・下書きごと） -----------------------------------------------------
+// ---- 提案の保存（サーバの下書き → この端末） -------------------------------------------------
+
+/** サーバに置く形（`PUT /api/themes/drafts/{id}` の `pending`）。関係は `[from, rel, to]`。 */
+export type PendingWire = DraftPending
+
+export function pendingToWire(p: Pending): PendingWire {
+  return {
+    concepts: p.concepts,
+    relations: p.relations.flatMap((id) => {
+      const parts = id.split('|')
+      return parts.length === 3 ? [parts] : []
+    }),
+  }
+}
+
+/** サーバの `pending`（無い・壊れていれば null）。空の `{concepts: [], relations: []}` は「全部本物」という答え。 */
+export function pendingFromWire(raw: unknown): Pending | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  const r = raw as { concepts?: unknown; relations?: unknown }
+  const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  const relations = (Array.isArray(r.relations) ? r.relations : []).flatMap((x) =>
+    Array.isArray(x) && x.length === 3 && x.every((y) => typeof y === 'string') ? [(x as string[]).join('|')] : [],
+  )
+  return { concepts: strs(r.concepts), relations }
+}
 
 const STORE_PREFIX = 'asterism.themePending.'
 
-/** 再開で続きから見られるよう、提案（薄い）の状態を下書きの id ごとに端末へ置く。壊れていれば無し。 */
-export function loadPending(draftId: string, storage: Pick<Storage, 'getItem'> | null = safeStorage()): Pending {
-  if (!draftId || !storage) return NO_PENDING
+/**
+ * 端末に置いた提案（薄い）の状態（サーバの控え）。置いていなければ null（全部本物とは読まない）。
+ * 壊れていても null。
+ */
+export function loadPending(draftId: string, storage: Pick<Storage, 'getItem'> | null = safeStorage()): Pending | null {
+  if (!draftId || !storage) return null
   try {
-    const raw = JSON.parse(storage.getItem(STORE_PREFIX + draftId) ?? 'null') as Partial<Pending> | null
-    if (!raw) return NO_PENDING
-    const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-    return { concepts: strs(raw.concepts), relations: strs(raw.relations) }
+    const raw = storage.getItem(STORE_PREFIX + draftId)
+    return raw === null ? null : pendingFromWire(JSON.parse(raw))
   } catch {
-    return NO_PENDING
+    return null
   }
 }
 
 export function savePending(
   draftId: string,
   p: Pending,
-  storage: Pick<Storage, 'setItem' | 'removeItem'> | null = safeStorage(),
+  storage: Pick<Storage, 'setItem'> | null = safeStorage(),
 ): void {
   if (!draftId || !storage) return
   try {
-    if (pendingTotal(p) === 0) storage.removeItem(STORE_PREFIX + draftId)
-    else storage.setItem(STORE_PREFIX + draftId, JSON.stringify(p))
+    // 空でも置く（「全部本物にした」と「何も置いていない」は別）
+    storage.setItem(STORE_PREFIX + draftId, JSON.stringify(pendingToWire(p)))
   } catch {
-    /* 置けなくても進める（再開で全部本物として見えるだけ） */
+    /* 置けなくても進める（再開で、次の控えに倒れるだけ） */
   }
 }
 
@@ -138,12 +190,34 @@ function safeStorage(): Storage | null {
   }
 }
 
+/** AI の行だけを薄くした状態（人が自分で足した行は本物）。 */
+export function aiPendingOf(draft: Pick<ThemeDraft, 'concepts' | 'relations'>): Pending {
+  return {
+    concepts: draft.concepts.filter((c) => c.by === 'ai').map((c) => c.key),
+    relations: draft.relations.filter((r) => r.by === 'ai').map(relId),
+  }
+}
+
+/**
+ * 下書きを開き直したときの提案（薄い）の状態。**サーバ → 端末 → 無ければ AI の行は全部薄い**
+ * （本物に倒さない — 何も覚えていないときに、確認していない行を確定へ入れない）。
+ */
+export function restorePending(
+  draft: Pick<ThemeDraft, 'id' | 'concepts' | 'relations'> & { pending?: unknown },
+  storage?: Pick<Storage, 'getItem'> | null,
+): Pending {
+  const kept = pendingFromWire(draft.pending) ?? loadPending(draft.id, storage)
+  return pruneToDraft(kept ?? aiPendingOf(draft), draft)
+}
+
 // ---- 図に重ねる薄い差分 ---------------------------------------------------------------------
 
 export interface CanvasConcept {
   row: ConceptRow
   /** `add`＝提案（薄い塗り＋「提案」の印）・`remove`＝外す提案（打ち消し）。 */
   ghost?: 'add' | 'remove'
+  /** まだ下書きに無い提案の札（返事を待つカードの add_concept）。線の落とし先にはしない。 */
+  proposed?: true
 }
 
 export interface CanvasRelation {
@@ -184,6 +258,7 @@ export function buildCanvas(draft: ThemeDraft, pending: Pending, ghostOps: Graph
       if (!key || conceptAt(key) >= 0) continue
       concepts.push({
         ghost: 'add',
+        proposed: true,
         row: {
           key,
           label_ja: sv(op.label_ja),
@@ -406,12 +481,32 @@ export function historyOf(items: ChatItem[]): { role: 'user' | 'assistant'; cont
   return out
 }
 
-/** 保存された会話（`draft.chat`）から、会話を復元する。時刻順・人の発言と適用した差分。 */
+/**
+ * 保存された会話に出る概念の名前（key → 名前）。足した（add_concept）・直した（rename）操作の
+ * 名前だけ。いまの下書きに無い概念（あとで外した）の文を組むのに使う — key をそのまま出さないため。
+ */
+export function chatLabels(chat: ThemeDraft['chat']): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const p of chat?.proposals ?? []) {
+    for (const op of p.ops as GraphOp[]) {
+      if ((op.op === 'add_concept' || op.op === 'rename') && typeof op.key === 'string' && sv(op.label_ja)) {
+        out.set(op.key, sv(op.label_ja))
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * 保存された会話（`draft.chat`）から、会話を復元する。時刻順・人の発言と適用した差分。
+ * 文はサーバが保存しないので UI が組む（`sentenceOf` に、会話に出る名前を渡す）。
+ */
 export function restoreItems(
   chat: ThemeDraft['chat'],
-  sentenceOf: (op: GraphOp) => string,
+  sentenceOf: (op: GraphOp, labels: ReadonlyMap<string, string>) => string,
 ): ChatItem[] {
   if (!chat) return []
+  const labels = chatLabels(chat)
   const events: { at: string; item: ChatItem }[] = [
     ...chat.messages.map((m) => ({ at: m.at, item: { kind: 'user', id: nextItemId(), text: m.content } as ChatItem })),
     ...chat.proposals.map((p) => ({
@@ -419,7 +514,7 @@ export function restoreItems(
       item: newProposalItem({
         proposalId: p.proposal_id,
         ops: p.ops as GraphOp[],
-        sentences: (p.ops as GraphOp[]).map(sentenceOf),
+        sentences: (p.ops as GraphOp[]).map((op) => sentenceOf(op, labels)),
         by: p.by,
         decided: 'yes',
       }),

@@ -7,14 +7,24 @@ import { type ThemeDraft, conceptName } from './themeDraft'
 
 export type TFn = (key: string, opts?: Record<string, unknown>) => string
 
-/** 概念の表示名。標準の語は「…（標準）」。key が下書きに無ければ key のまま。 */
-export function nameOfKey(draft: Pick<ThemeDraft, 'concepts' | 'standards'>, key: string, lang: string, t: TFn): string {
+/**
+ * 概念の表示名。標準の語は「…（標準）」。key が下書きに無ければ、会話に出た名前（`labels`）、
+ * それも無ければ「（外した概念）」。**生の key（n1・h2 など）は出さない。**
+ */
+export function nameOfKey(
+  draft: Pick<ThemeDraft, 'concepts' | 'standards'>,
+  key: string,
+  lang: string,
+  t: TFn,
+  labels?: ReadonlyMap<string, string>,
+): string {
   const row = draft.concepts.find((r) => r.key === key)
   if (row) return conceptName(row, lang)
   const std = draft.standards[key]
   if (std) return t('themes:rel.stdName', { name: std.label || key.slice(key.indexOf(':') + 1) })
   const i = key.indexOf(':')
-  return i > 0 ? t('themes:rel.stdName', { name: key.slice(i + 1) }) : key
+  if (i > 0) return t('themes:rel.stdName', { name: key.slice(i + 1) })
+  return labels?.get(key) ?? t('themes:chat.goneConcept')
 }
 
 export function relationSentenceOf(
@@ -22,25 +32,32 @@ export function relationSentenceOf(
   rel: { from: string; rel: string; to: string },
   lang: string,
   t: TFn,
+  labels?: ReadonlyMap<string, string>,
 ): string {
   return t(`themes:rel.sentence.${rel.rel}`, {
-    subject: nameOfKey(draft, rel.from, lang, t),
-    object: nameOfKey(draft, rel.to, lang, t),
+    subject: nameOfKey(draft, rel.from, lang, t, labels),
+    object: nameOfKey(draft, rel.to, lang, t, labels),
   })
 }
 
 const s = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /** 差分 1 操作の 1 文（人の直接編集の記録・会話の復元用）。 */
-export function opSentence(draft: Pick<ThemeDraft, 'concepts' | 'standards'>, op: GraphOp, lang: string, t: TFn): string {
-  const nm = (key: string) => nameOfKey(draft, key, lang, t)
+export function opSentence(
+  draft: Pick<ThemeDraft, 'concepts' | 'standards'>,
+  op: GraphOp,
+  lang: string,
+  t: TFn,
+  labels?: ReadonlyMap<string, string>,
+): string {
+  const nm = (key: string) => nameOfKey(draft, key, lang, t, labels)
   switch (op.op) {
     case 'add_concept': {
       const name = lang.startsWith('en') ? s(op.label_en) || s(op.label_ja) : s(op.label_ja)
       return t('themes:chat.op.add_concept', { name, kind: t(`themes:kind.${op.kind === 'property' ? 'property' : 'class'}`) })
     }
     case 'add_relation':
-      return relationSentenceOf(draft, { from: s(op.from), rel: s(op.rel), to: s(op.to) }, lang, t)
+      return relationSentenceOf(draft, { from: s(op.from), rel: s(op.rel), to: s(op.to) }, lang, t, labels)
     case 'retarget':
       return t('themes:chat.op.retarget', {
         subject: nm(s(op.from)),
@@ -51,7 +68,7 @@ export function opSentence(draft: Pick<ThemeDraft, 'concepts' | 'standards'>, op
     case 'remove':
       return op.target === 'relation'
         ? t('themes:chat.op.remove_relation', {
-            sentence: relationSentenceOf(draft, { from: s(op.from), rel: s(op.rel), to: s(op.to) }, lang, t),
+            sentence: relationSentenceOf(draft, { from: s(op.from), rel: s(op.rel), to: s(op.to) }, lang, t, labels),
           })
         : t('themes:chat.op.remove_concept', { name: nm(s(op.key)) })
     case 'rename':

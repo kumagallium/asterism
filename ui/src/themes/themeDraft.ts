@@ -102,6 +102,12 @@ export interface DraftChat {
   proposals: { proposal_id: string; ops: Record<string, unknown>[]; at: string; by: 'ai' | 'human' }[]
 }
 
+/** まだ「提案（薄い）」の行（サーバが下書きと一緒に持つ）。関係は `[from, rel, to]`。無ければ「覚えていない」。 */
+export interface DraftPending {
+  concepts: string[]
+  relations: string[][]
+}
+
 /** 保存する下書き（GET/PUT /api/themes/drafts/{id}）。 */
 export interface ThemeDraft {
   id: string
@@ -117,6 +123,8 @@ export interface ThemeDraft {
   standards: Record<string, StandardInfo>
   /** 作業場の会話（サーバが持つ。PUT では送らず、適用の返り値で更新される）。 */
   chat?: DraftChat
+  /** 提案（薄い）のまま残る行（PUT で送り、GET で返る。無ければ覚えていない）。 */
+  pending?: DraftPending
   updated_at: string
 }
 
@@ -277,7 +285,17 @@ function chatOf(raw: unknown): DraftChat | undefined {
   return messages.length > 0 || proposals.length > 0 ? { messages, proposals } : undefined
 }
 
-/** GET/PUT/expand が返す保存済み下書きを、画面の形に整える（壊れた行は落とす）。 */
+function pendingOfRaw(raw: unknown): DraftPending | undefined {
+  if (!isObj(raw)) return undefined
+  return {
+    concepts: (Array.isArray(raw.concepts) ? raw.concepts : []).filter(isStr),
+    relations: (Array.isArray(raw.relations) ? raw.relations : []).flatMap((r) =>
+      Array.isArray(r) && r.length === 3 && r.every(isStr) ? [r as string[]] : [],
+    ),
+  }
+}
+
+/** GET/PUT が返す保存済み下書きを、画面の形に整える（壊れた行は落とす）。 */
 export function normalizeDraft(raw: unknown): ThemeDraft | null {
   if (!isObj(raw) || !isStr(raw.id)) return null
   const step = raw.step === 2 || raw.step === 3 ? raw.step : 1
@@ -306,6 +324,7 @@ export function normalizeDraft(raw: unknown): ThemeDraft | null {
     suggested_questions: Array.isArray(raw.suggested_questions) ? raw.suggested_questions.filter(isStr) : [],
     standards: standardsOf(raw.standards),
     ...(chatOf(raw.chat) ? { chat: chatOf(raw.chat) } : {}),
+    ...(pendingOfRaw(raw.pending) ? { pending: pendingOfRaw(raw.pending) } : {}),
     updated_at: str(raw.updated_at),
   }
 }

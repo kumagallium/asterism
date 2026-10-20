@@ -24,7 +24,6 @@
       "commit": "Placing the theme",
       "addQuestions": "Adding questions to the theme",
       "deleteTheme": "Removing the theme",
-      "expand": "Growing from a concept",
       "answers": "Fetching the answers",
       "consult": "The consultation",
       "consultApply": "Applying the suggestion",
@@ -182,7 +181,6 @@
     "still": "Not yet",
     "counts": "Knowledge {{k}} · Data {{d}}",
     "wanted": "Data you want: {{text}}",
-    "sentencesAria": "Sentences of the relations",
     "sentences": "{{n}} sentences",
     "noSentences": "No relations yet.",
     "dismiss": "Remove (do not suggest again)",
@@ -199,7 +197,6 @@
     "addNamePlaceholder": "Name (e.g. grain boundary scattering)",
     "addKind": "Kind or item",
     "addGo": "Add",
-    "addMore": "English name and aliases",
     "addEn": "English name",
     "addAliases": "Aliases",
     "addAliasesPlaceholder": "Aliases (comma separated)",
@@ -208,7 +205,9 @@
     "confirmNone": "Place the questions only",
     "unlinkedNote": "{{n}} concepts that do not connect to a question are left out.",
     "leadHand": "Add concepts, choose how each question is answered, then confirm them together.",
-    "thinNote": "{{n}} faint proposals are not counted until you answer \"Yes\"."
+    "thinNote": "{{n}} faint proposals are not counted until you answer \"Yes\".",
+    "leadNarrow": "Look at the figure, fix it by talking below, then confirm everything at once.",
+    "leadEmptyNarrow": "No concepts yet. Talk it over below, or add one with \"Add by hand\"."
   },
   "answer": {
     "label": "Answered as:",
@@ -248,7 +247,6 @@
     "lonely": "Not connected to a question",
     "std": "Same as the standard term {{ref}}",
     "expand": "Grow from here",
-    "expanding": "Growing…",
     "expandOff": "Needs an AI to be set up",
     "remove": "Remove",
     "legendStd": "Matches a standard term",
@@ -272,7 +270,8 @@
     "tagRemove": "Proposed removal",
     "legendGhost": "Proposal (faint)",
     "handle": "End of the relation: drag onto another card to re-point it",
-    "pillRetarget": "Re-point (proposal)"
+    "pillRetarget": "Re-point (proposal)",
+    "emptyNarrow": "No figure yet. Talk it over below, or add a concept with \"Add by hand\"."
   },
   "chat": {
     "aria": "Conversation with the AI",
@@ -329,6 +328,28 @@
       "remove_concept": "Remove \"{{name}}\"",
       "rename": "Rename \"{{name}}\" to \"{{to}}\"",
       "add_question": "Add a question: {{question}}"
+    },
+    "goneConcept": "(a removed concept)",
+    "draftTitleLeft": "AI draft ({{n}} left)",
+    "draftDoneLeft": "AI draft: confirmed",
+    "doneSome": "{{n}} confirmed · {{m}} could not be applied",
+    "failedAll": "Could not be applied ({{reason}})",
+    "failedEach": "reasons are on each line",
+    "allExist": "Everything is already there",
+    "droppedShort": {
+      "unknown_key": "names a concept that is not on the figure",
+      "same": "cannot be tied to itself",
+      "mixed": "a kind and a property cannot be tied",
+      "cycle": "it would go around in a circle",
+      "quantity_target": "\"quantity\" only ties a property to a quantity kind",
+      "target_not_property": "the other end must be a property",
+      "dismissed": "you removed it before",
+      "duplicate": "already there",
+      "not_found": "no longer there",
+      "limit": "the limit was reached",
+      "not_renamable": "cannot be renamed",
+      "dataset_only": "only in the data conversation",
+      "unsupported": "cannot be applied on this screen"
     }
   }
 }

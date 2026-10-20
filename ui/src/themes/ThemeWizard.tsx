@@ -55,13 +55,15 @@ import {
   wayNeeds,
   wayOf,
 } from './themeDraft'
+import { useNarrow } from './useNarrow'
 import {
   NO_PENDING,
   type Pending,
-  loadPending,
   pendingOf,
+  pendingToWire,
   pendingTotal,
   realDraft,
+  restorePending,
   savePending,
 } from './workspaceState'
 import './themes.css'
@@ -133,10 +135,19 @@ export function ThemeWizard({
   const [openAnswer, setOpenAnswer] = useState<number | null>(null)
   // ②に入った時点の AI の下書きは「提案（薄い）」。「そう」で本物になる（本物だけを確定に送る）
   const [pending, setPendingState] = useState<Pending>(NO_PENDING)
-  const [firstDraft, setFirstDraft] = useState<{ concepts: number; relations: number } | null>(null)
+  const [firstDraft, setFirstDraft] = useState<{ concepts: number; relations: number; resumed?: boolean } | null>(null)
   // AI の下書きを読み直すたびに増える（作業場の会話の 1 枚目を作り直す）
   const [draftRun, setDraftRun] = useState(0)
-  const setPending = useCallback((f: (p: Pending) => Pending) => setPendingState(f), [])
+  // 提案（薄い）の状態を、いつ覚えさせてよいか: 開き直して読んだあと・AI の下書きを置いたあと・人が返事をしたあと。
+  // それまでは（まだ AI の行が薄くなっていない）空の状態を「全部本物」と覚えさせない。
+  const pendingKnown = useRef(false)
+  // サーバに置いた最後の薄い状態（同じものを送り直さない）
+  const serverPending = useRef('')
+  const narrow = useNarrow()
+  const setPending = useCallback((f: (p: Pending) => Pending) => {
+    pendingKnown.current = true
+    setPendingState(f)
+  }, [])
   // 機械の照合に出した時点の行の中身（key → matchSignature）。同じ中身は出し直さない。
   const matchedSigs = useRef<Record<string, string>>({})
 
@@ -151,10 +162,14 @@ export function ThemeWizard({
         setLabelText(d.label)
         // 保存してある照合は、そのまま使う（開き直すたびに照合し直さない）
         matchedSigs.current = Object.fromEntries(d.concepts.map((r) => [r.key, matchSignature(r)]))
-        // 薄いままの提案は、この端末に残してある（続きから見る）
-        const left = loadPending(d.id)
+        // 薄いままの提案: サーバ → この端末 → 無ければ AI の行は全部薄い（本物に倒さない）
+        const left = restorePending(d)
+        pendingKnown.current = true
+        serverPending.current = d.pending ? JSON.stringify(pendingToWire(left)) : ''
         setPendingState(left)
-        if (pendingTotal(left) > 0) setFirstDraft({ concepts: left.concepts.length, relations: left.relations.length })
+        if (pendingTotal(left) > 0) {
+          setFirstDraft({ concepts: left.concepts.length, relations: left.relations.length, resumed: true })
+        }
         setLoaded(true)
       })
       .catch((e) => {
@@ -177,9 +192,21 @@ export function ThemeWizard({
     }
   }, [])
 
-  // 提案（薄い）の状態は、下書きごとにこの端末へ置く（再開で続きから）
+  // 提案（薄い）の状態は、サーバの下書きと、この端末（控え）に置く（再開で続きから）
+  const draftLatest = useRef(draft)
   useEffect(() => {
-    if (draft.id) savePending(draft.id, pending)
+    draftLatest.current = draft
+  }, [draft])
+  useEffect(() => {
+    if (!draft.id || !pendingKnown.current) return
+    savePending(draft.id, pending)
+    const wire = pendingToWire(pending)
+    const sig = JSON.stringify(wire)
+    if (sig === serverPending.current) return
+    serverPending.current = sig
+    saveDraft(draftLatest.current, { pending: wire }).catch(() => {
+      serverPending.current = '' // 置けなかった — 次の変化でもう一度
+    })
   }, [draft.id, pending])
 
   // 作業場の会話がこの画面の相談役: 右下の「AI に相談」（全画面）は、開いている間は隠す（二重にしない）
@@ -237,14 +264,19 @@ export function ThemeWizard({
   const thin = pendingTotal(pending)
 
   /** 下書きを保存する（まだ id が無ければ作る）。失敗しても進める — 置くときに id が要る。 */
-  const persist = useCallback(async (next: ThemeDraft): Promise<ThemeDraft> => {
+  const persist = useCallback(async (
+    next: ThemeDraft,
+    extra?: { pending?: Pending; resetChat?: boolean },
+  ): Promise<ThemeDraft> => {
     setSaveErr('')
     try {
       if (!next.id) {
         const created = await createDraft(next.label, next.questions, next.extend)
         next = { ...next, id: created.id, label: next.label.trim() ? next.label : created.label }
       }
-      const saved = await saveDraft(next)
+      const wire = extra?.pending ? pendingToWire(extra.pending) : undefined
+      const saved = await saveDraft(next, { pending: wire, resetChat: extra?.resetChat })
+      if (wire) serverPending.current = JSON.stringify(wire)
       next = { ...next, updated_at: saved.updated_at }
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : String(e))
@@ -269,13 +301,17 @@ export function ThemeWizard({
     setAi({ status: 'running' })
     try {
       const res = await draftWithAi(base.questions, labelText.trim(), lang, getActiveCredentials())
-      const applied = applyDraftResponse({ ...base, label: labelText.trim() }, res)
+      // 読み直した下書きは新しい下書き: 古い会話（消えた行についての話）は戻さない
+      const applied: ThemeDraft = { ...applyDraftResponse({ ...base, label: labelText.trim() }, res), chat: undefined }
       matchedSigs.current = Object.fromEntries(applied.concepts.map((r) => [r.key, matchSignature(r)]))
       setAi({ status: 'ok' })
       if (!labelText.trim()) setLabelText(applied.label)
-      // 下書きを先に置いてから、全部「提案（薄い）」にする（先に薄くすると、まだ空の下書きに合わせて外される）
-      await persist({ ...applied, step: 2 })
-      setPendingState(pendingOf(applied))
+      // 下書きを先に置いてから、全部「提案（薄い）」にする（先に薄くすると、まだ空の下書きに合わせて外される）。
+      // 薄い状態も一緒にサーバへ置き、古い会話は空にする
+      const thin = pendingOf(applied)
+      await persist({ ...applied, step: 2 }, { pending: thin, resetChat: true })
+      pendingKnown.current = true
+      setPendingState(thin)
       setFirstDraft({ concepts: applied.concepts.length, relations: applied.relations.length })
       setDraftRun((n) => n + 1)
     } catch (e) {
@@ -523,11 +559,15 @@ export function ThemeWizard({
         <p className="thm-lead">
           {t(
             !hasMap
-              ? 'themes:review.leadEmpty'
+              ? narrow
+                ? 'themes:review.leadEmptyNarrow'
+                : 'themes:review.leadEmpty'
               : !isReady
                 ? 'themes:review.aiOff'
                 : byAi || thin > 0
-                  ? 'themes:review.lead'
+                  ? narrow
+                    ? 'themes:review.leadNarrow'
+                    : 'themes:review.lead'
                   : 'themes:review.leadHand',
           )}
         </p>

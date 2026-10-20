@@ -27,11 +27,11 @@ const overlaps = (a: MapNodePos, b: MapNodePos) =>
 describe('layoutConceptMap', () => {
   const m = layoutConceptMap(nodes, rels)
 
-  it('puts 一部 on rows (part above whole) and causes beside what they change', () => {
+  it('puts the whole (to) above its parts (from), like the star chart, and causes beside what they change', () => {
     const row = (k: string) => m.byKey.get(k)!.row
-    expect(row('c2')).toBe(0)
-    expect(row('c3')).toBe(0)
-    expect(row('c1')).toBe(1)
+    expect(row('c1')).toBe(0)
+    expect(row('c2')).toBe(1)
+    expect(row('c3')).toBe(1)
     // 下げる・上げる・変える は段を作らない: 相手と同じ段
     expect(row('c4')).toBe(row('c2'))
     expect(row('c5')).toBe(row('c2'))
@@ -92,7 +92,7 @@ describe('layoutConceptMap', () => {
     expect(bad.problem).toBe(true)
     expect(bad.kind).toBe('side')
     // 機械が止めた「一種」は段を作らない
-    expect(more.byKey.get('c2')!.row).toBe(0)
+    expect(more.byKey.get('c2')!.row).toBe(1)
   })
 
   it('handles eq as two-way and a map with no relations at all', () => {
@@ -139,11 +139,11 @@ describe('layoutConceptMap', () => {
     const leftOf = (l: typeof centre, row: number) => Math.min(...l.nodes.filter((n) => n.row === row).map((n) => n.x))
     expect(leftOf(start, 0)).toBe(16)
     expect(leftOf(start, 1)).toBe(16)
-    expect(leftOf(centre, 1)).toBeGreaterThan(16) // 狭い段は中央寄せ
+    expect(leftOf(centre, 0)).toBeGreaterThan(16) // 狭い段（全体の段）は中央寄せ
     for (const a of start.nodes) for (const b of start.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
   })
 
-  it('maxWidth wraps a wide row into several rows: nothing is wider than the limit, nothing overlaps, 一部 still runs top to bottom', () => {
+  it('maxWidth wraps a wide row into several rows: nothing is wider than the limit, nothing overlaps, the whole is still above its parts', () => {
     const wide = layoutConceptMap(nodes, rels)
     const limit = 420
     expect(wide.width).toBeGreaterThan(limit)
@@ -151,9 +151,9 @@ describe('layoutConceptMap', () => {
     expect(w.width).toBeLessThanOrEqual(limit)
     expect(w.rows.length).toBeGreaterThan(wide.rows.length)
     for (const a of w.nodes) for (const b of w.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
-    // 一種・一部の線は、子（from）が上・親（to）が下のまま
+    // 一種・一部の線は、from（一部）が to（全体）より下の段のまま
     for (const e of w.edges.filter((x) => x.kind === 'hier')) {
-      expect(w.byKey.get(e.from)!.row).toBeLessThan(w.byKey.get(e.to)!.row)
+      expect(w.byKey.get(e.from)!.row).toBeGreaterThan(w.byKey.get(e.to)!.row)
     }
     // どの札も図の中に収まる
     for (const n of w.nodes) {

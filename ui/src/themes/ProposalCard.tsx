@@ -31,6 +31,38 @@ export function ProposalCard({
   const lock = disabled || item.busy
 
   if (done) {
+    const dropped = item.decided.filter((d) => d === 'dropped').length
+    const reasons = new Set(item.notes.flatMap((n, i) => (item.decided[i] === 'dropped' && n ? [dropReason(n)] : [])))
+    // 全部が「すでにある」＝再送。1 行だけ言う
+    if (dropped > 0 && dropped === item.ops.length && reasons.size === 1 && reasons.has('duplicate')) {
+      return (
+        <p className="thm-card-p thm-card-p--done thm-card-p--note" data-testid="proposal-exists">
+          {t('themes:chat.allExist')}
+        </p>
+      )
+    }
+    // できなかった行があるときは畳まない — 理由を各行に薄く出す
+    if (dropped > 0 && item.by !== 'human') {
+      const reason =
+        reasons.size === 1 ? t(`themes:chat.droppedShort.${[...reasons][0]}`) : t('themes:chat.failedEach')
+      const title =
+        yes > 0 ? t('themes:chat.doneSome', { n: yes, m: dropped }) : t('themes:chat.failedAll', { reason })
+      return (
+        <section className="thm-card-p thm-card-p--done thm-card-p--failed" data-testid="proposal-failed">
+          <p className="thm-card-p-h">{title}</p>
+          <ul className="thm-card-p-rows">
+            {item.sentences.map((s, i) => (
+              <li key={i} className={`thm-card-p-row is-${item.decided[i] ?? 'yes'}`}>
+                <span className="thm-card-p-text">{s}</span>
+                {item.decided[i] === 'dropped' && item.notes[i] && (
+                  <span className="thm-card-p-note">{t(`themes:chat.dropped.${dropReason(item.notes[i]!)}`)}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )
+    }
     const title =
       item.by === 'human'
         ? t('themes:chat.doneHuman', { n: item.ops.length })
@@ -44,7 +76,6 @@ export function ProposalCard({
           {item.sentences.map((s, i) => (
             <li key={i} className={`thm-card-p-row is-${item.decided[i] ?? 'yes'}`}>
               <span className="thm-card-p-text">{s}</span>
-              {item.notes[i] && <span className="thm-card-p-note">{t(`themes:chat.dropped.${dropReason(item.notes[i]!)}`)}</span>}
             </li>
           ))}
         </ul>
@@ -129,8 +160,8 @@ export function DraftCard({
   /** まだ提案（薄い）の関係の文。`index` は下書きの関係の添字。 */
   relationSentences: { id: string; index: number; sentence: string; reason: string }[]
   per: boolean
-  /** 最初の下書きの概念・関係の数。 */
-  total: { concepts: number; relations: number }
+  /** 最初の下書きの概念・関係の数。`resumed`＝開き直した下書き（数は残りなので「残り N 件」と言う）。 */
+  total: { concepts: number; relations: number; resumed?: boolean }
   left: number
   onYesAll: () => void
   onPer: () => void
@@ -141,13 +172,21 @@ export function DraftCard({
   if (left === 0) {
     return (
       <details className="thm-card-p thm-card-p--done" data-testid="draft-done">
-        <summary>{t('themes:chat.draftDone', { m: total.concepts, n: total.relations })}</summary>
+        <summary>
+          {total.resumed
+            ? t('themes:chat.draftDoneLeft')
+            : t('themes:chat.draftDone', { m: total.concepts, n: total.relations })}
+        </summary>
       </details>
     )
   }
   return (
     <section className="thm-card-p thm-card-p--draft" data-testid="draft-card">
-      <h3 className="thm-card-p-h">{t('themes:chat.draftTitle', { m: total.concepts, n: total.relations })}</h3>
+      <h3 className="thm-card-p-h">
+        {total.resumed
+          ? t('themes:chat.draftTitleLeft', { n: left })
+          : t('themes:chat.draftTitle', { m: total.concepts, n: total.relations })}
+      </h3>
       {!per && conceptNames.length > 0 && (
         <p className="thm-card-p-concepts">
           {conceptNames.map((c) => (

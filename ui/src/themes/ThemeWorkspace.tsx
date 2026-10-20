@@ -36,6 +36,7 @@ import {
   unlinkedKeys,
 } from './themeDraft'
 import { ThemesApiError } from './themesApi'
+import { useNarrow } from './useNarrow'
 import {
   type ChatItem,
   type Pending,
@@ -59,6 +60,7 @@ import {
   realDraft,
   relId,
   relationEditSteps,
+  removeRelationOp,
   restoreItems,
   settlePending,
   withDependencies,
@@ -86,7 +88,7 @@ export interface ThemeWorkspaceProps {
   /** 更新関数で受ける（非同期の続きから古い値を上書きしない）。 */
   setPending: (f: (p: Pending) => Pending) => void
   /** 最初の AI の下書きの大きさ（会話の 1 枚目のカード）。無ければ出さない。 */
-  firstDraft: { concepts: number; relations: number } | null
+  firstDraft: { concepts: number; relations: number; resumed?: boolean } | null
   /** 上の 1 行（問い・答え方）と、AI の下書きの状態の表示。 */
   top: ReactNode
   /** 下（戻る・まとめて確定）。 */
@@ -112,21 +114,26 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
   }, [draft])
 
   const [items, setItems] = useState<ChatItem[]>(() => [
-    ...restoreItems(draft.chat, (op) => opSentence(draft, op, lang, tf)),
+    ...restoreItems(draft.chat, (op, labels) => opSentence(draft, op, lang, tf, labels)),
   ])
   const [thinking, setThinking] = useState(false)
   const [applying, setApplying] = useState(false)
   const [ai, setAi] = useState<AiState>('ok')
   const [actionErr, setActionErr] = useState('')
   const [draftPer, setDraftPer] = useState(false)
-  const [open, setOpen] = useState(() =>
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(min-width: 721px)').matches
-      : true,
-  )
-  // 選んだ札・線・文に重ねたポインタ
+  // 375px では会話は下からのシート。開くのは「相談を開く」と、新しい提案カードが来たときだけ
+  // （札や線を押したり、ドラッグしたりしても開かない）
+  const narrow = useNarrow()
+  const [open, setOpen] = useState(!narrow)
+  const firstNarrow = useRef(narrow)
+  useEffect(() => {
+    if (firstNarrow.current === narrow) return
+    firstNarrow.current = narrow
+    setOpen(!narrow)
+  }, [narrow])
+  // 選んだ札・線・文に重ねたポインタ（線は from|rel|to で持つ — 下書きが変わっても同じ線を指す）
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [selectedEdge, setSelectedEdge] = useState<number | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null)
   const [litRel, setLitRel] = useState<number | null>(null)
   const [edit, setEdit] = useState<{ id: string; from: string; rel: RelKind; to: string } | null>(null)
   const [hand, setHand] = useState({ name: '', kind: 'class' as TermKind, en: '', aliases: '' })
@@ -172,8 +179,9 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
     draftRef.current = next
     p.setDraft(next)
     const gone = new Set(res.dropped.map((d) => d.index))
-    const applied = ops.filter((_, i) => !gone.has(i))
-    p.setPending((q) => settlePending(q, applied, next))
+    // もう当たっている再送（duplicate）は何も変えない — 薄い線は薄いまま
+    const applied = res.duplicate ? [] : ops.filter((_, i) => !gone.has(i))
+    if (applied.length > 0) p.setPending((q) => settlePending(q, applied, next))
     return res
   }
 
@@ -193,6 +201,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
       const saved = await p.persist(draftRef.current)
       if (!saved.id) throw new Error(t('themes:place.noDraft'))
       const prop = await proposeGraph('theme', { draft_id: saved.id }, history, lang, getActiveCredentials())
+      if (prop.ops.length > 0) setOpen(true) // 新しい提案カードが来たら、シートも開く
       setItems((l) => [
         ...l,
         ...(prop.reply ? [{ kind: 'ai' as const, id: nextItemId(), text: prop.reply }] : []),
@@ -225,6 +234,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
       )
       unsaid.current = unsaid.current.slice(said.length)
       const drops = dropsByOriginal(res.dropped, rows)
+      if (res.duplicate) for (const i of rows) if (!drops.has(i)) drops.set(i, { index: -1, op: '', reason: 'duplicate', ref: '' })
       patch(item.id, (it) => ({
         ...it,
         busy: false,
@@ -262,26 +272,40 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
 
   // ---- 人の直接編集（同じ形の差分で適用） -------------------------------------------------------------
 
-  async function applyHuman(steps: GraphOp[][]): Promise<boolean> {
+  /**
+   * `rollback`: あとの段が失敗したとき、すでに当たった段を戻す差分（線の直しで、足した線を外す —
+   * 二重の線を残さない）。
+   */
+  async function applyHuman(steps: GraphOp[][], rollback?: GraphOp[]): Promise<boolean> {
     if (busy || steps.length === 0) return false
     setActionErr('')
     setApplying(true)
     const done: GraphOp[] = []
+    let failed = false
     try {
       for (const ops of steps) {
         const res = await applyOps(ops, newProposalId(), 'human', [])
         if (res.dropped.length > 0) {
           setActionErr(t(`themes:chat.dropped.${dropReason(res.dropped[0].reason)}`))
+          failed = true
           break
         }
         done.push(...ops)
       }
     } catch (e) {
+      failed = true
       if (e instanceof ThemesApiError && e.status === 404) setActionErr(t('themes:chat.noDraft'))
       else setActionErr(errText(e))
-    } finally {
-      setApplying(false)
     }
+    if (failed && rollback && done.length > 0) {
+      try {
+        await applyOps(rollback, newProposalId(), 'human', [])
+        done.length = 0 // 足した線は戻した — 記録に残す直しは無い
+      } catch {
+        /* 戻せなかったときは、足した線が残っていることを記録のカードで見せる */
+      }
+    }
+    setApplying(false)
     if (done.length === 0) return false
     const after = draftRef.current
     setItems((l) => [
@@ -294,18 +318,19 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
         decided: 'yes',
       }),
     ])
-    return true
+    return !failed
   }
 
   /** 関係の A・関係・B を直す（B だけなら retarget）。ドラッグでも同じ。 */
   async function editRelation(index: number, next: { from: string; rel: RelKind; to: string }) {
     const old = draftRef.current.relations[index]
     if (!old) return
-    const ok = await applyHuman(relationEditSteps(old, next))
+    const steps = relationEditSteps(old, next)
+    // 足してから外す 2 段のとき、外すが失敗したら足した線を戻す
+    const ok = await applyHuman(steps, steps.length > 1 ? [removeRelationOp(next)] : undefined)
     if (ok) {
-      const i = draftRef.current.relations.findIndex((r) => relId(r) === relId(next))
       setEdit(null)
-      setSelectedEdge(i >= 0 ? i : null)
+      setSelectedEdge(draftRef.current.relations.some((r) => relId(r) === relId(next)) ? relId(next) : null)
     }
   }
 
@@ -445,10 +470,11 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
 
   // ---- 選んだ札・線の欄 -------------------------------------------------------------------------------
 
-  const edgeRow = selectedEdge !== null ? draft.relations[selectedEdge] : undefined
+  const edgeIndex = selectedEdge !== null ? draft.relations.findIndex((r) => relId(r) === selectedEdge) : -1
+  const edgeRow = edgeIndex >= 0 ? draft.relations[edgeIndex] : undefined
   const keyRow = selectedKey ? draft.concepts.find((c) => c.key === selectedKey) : undefined
   let focus: ReactNode = null
-  if (edgeRow && selectedEdge !== null) {
+  if (edgeRow) {
     const id = relId(edgeRow)
     const cur = edit && edit.id === id ? edit : { id, from: edgeRow.from, rel: edgeRow.rel, to: edgeRow.to }
     const changed = relId(cur) !== id
@@ -517,11 +543,11 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
             className="btn btn--sm"
             disabled={!changed || busy || cur.from === cur.to}
             data-testid="edge-apply"
-            onClick={() => void editRelation(selectedEdge, cur)}
+            onClick={() => void editRelation(edgeIndex, cur)}
           >
             {t('themes:chat.edgeApply')}
           </button>
-          <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void removeRelationRow(selectedEdge)}>
+          <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void removeRelationRow(edgeIndex)}>
             {t('themes:chat.edgeRemove')}
           </button>
           <span className="vocab-field-hint">{t('themes:chat.edgeDragHint')}</span>
@@ -542,7 +568,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
           <ul className="thm-focus-rels">
             {touching.map(({ r, i }) => (
               <li key={`${i}-${relId(r)}`}>
-                <button type="button" className="link-btn" onClick={() => { setSelectedKey(null); setSelectedEdge(i) }}>
+                <button type="button" className="link-btn" onClick={() => { setSelectedKey(null); setSelectedEdge(relId(r)) }}>
                   {sentenceOfRel(r)}
                 </button>
               </li>
@@ -579,7 +605,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
         ) : (
           <ul className="thm-sentences" data-testid="theme-sentences">
             {draft.relations.map((r, i) => {
-              const lit = (!!selectedKey && (r.from === selectedKey || r.to === selectedKey)) || selectedEdge === i
+              const lit = (!!selectedKey && (r.from === selectedKey || r.to === selectedKey)) || selectedEdge === relId(r)
               return (
                 <li
                   key={`${i}-${relId(r)}`}
@@ -592,7 +618,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
                     className="thm-sentence-text"
                     onClick={() => {
                       setSelectedKey(null)
-                      setSelectedEdge(selectedEdge === i ? null : i)
+                      setSelectedEdge(selectedEdge === relId(r) ? null : relId(r))
                     }}
                   >
                     {sentenceOfRel(r)}
@@ -670,7 +696,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
   const thinCount = pendingTotal(pending)
 
   return (
-    <div className={`thm-ws${open ? '' : ' is-folded'}`} data-testid="theme-workspace">
+    <div className={`thm-ws${open ? '' : ' is-folded'}${narrow && focus ? ' has-band' : ''}`} data-testid="theme-workspace">
       <div className="thm-ws-top">{p.top}</div>
       <div className="thm-ws-fig">
         <GraphCanvas
@@ -683,14 +709,19 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
           unlinked={unlinked}
           onSelect={(k) => {
             setSelectedKey(k)
-            if (k) setOpen(true)
+            if (k && !narrow) setOpen(true) // 375px ではシートを開かない（欄は図の下の帯）
           }}
-          onSelectEdge={(i) => {
-            setSelectedEdge(i)
-            if (i !== null) setOpen(true)
+          onSelectEdge={(id) => {
+            setSelectedEdge(id)
+            if (id !== null && !narrow) setOpen(true)
           }}
           onRetarget={(i, to) => void editRelation(i, { from: draft.relations[i].from, rel: draft.relations[i].rel, to })}
         />
+        {narrow && focus && (
+          <div className="thm-ws-band" data-testid="focus-band">
+            {focus}
+          </div>
+        )}
         {!open && (
           <button type="button" className="btn thm-ws-open" onClick={() => setOpen(true)} data-testid="chat-open">
             {t('themes:chat.open')}
@@ -700,7 +731,7 @@ export function ThemeWorkspace(p: ThemeWorkspaceProps) {
       </div>
       {open && (
         <GraphChat
-          focus={focus}
+          focus={narrow ? null : focus}
           tools={tools}
           aiReady={aiReady}
           thinking={thinking}

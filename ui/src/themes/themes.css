@@ -1221,10 +1221,44 @@ body.thm-wizard-open.consult-open .app-main {
   .thm-focus-edit {
     grid-template-columns: 1fr;
   }
+  /* 札や線を押したときの欄: 会話のシートでなく、図の下の小さな帯（高さ固定・図は見えたまま） */
+  .thm-ws-band {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    box-sizing: border-box;
+    height: 8.5rem;
+    margin-top: 0.4rem;
+    overflow-y: auto;
+    padding: 0.45rem 0.6rem;
+    background: var(--surface-alt);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.1);
+  }
+  .thm-ws-band .thm-focus-edit {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .thm-ws.has-band .thm-ws-open {
+    bottom: calc(8.5rem + 28px);
+  }
   .thm-map-scroll {
     max-height: none;
   }
   .thm-ws-fig .thm-map {
     min-height: 0;
   }
+}
+
+/* できなかった行のある提案カード（畳まず、理由を各行に薄く出す）・「すべて既にあります」の 1 行 */
+.thm-card-p--failed .thm-card-p-h {
+  font-weight: 500;
+  color: var(--muted);
+}
+.thm-card-p--failed .thm-card-p-note {
+  color: var(--muted);
+}
+.thm-card-p--note {
+  margin: 0;
+  font-size: 0.78rem;
 }

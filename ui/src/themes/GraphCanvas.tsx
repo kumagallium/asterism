@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useTranslation } from 'react-i18next'
 import { layoutConceptMap } from './conceptMapLayout'
 import { type RelKind, type StandardInfo, conceptName } from './themeDraft'
-import type { CanvasModel } from './workspaceState'
+import { type CanvasModel, relId } from './workspaceState'
 
 // 知識の図（②の左）。星図と同じ紙の見た目。札＝概念（種類は --entity、項目は --activity の薄塗り、
 // 標準用語に一致したものは地平線の色の枠）、線＝関係。一種・一部は矢じり付きで段をまたぎ、
@@ -10,7 +10,7 @@ import type { CanvasModel } from './workspaceState'
 // 配置は conceptMapLayout.ts（純関数）。段の中は幅に合わせて**折り返す**。
 //
 // 提案は薄く重ねる（足す札＝薄い塗り＋「提案」の印・付け替える線＝薄い線と「→」・外す札＝打ち消し）。
-// 札を押す → 右の会話にその概念の文。線を押す → その文を右に出して A・関係・B を直せる。
+// 札を押す → その概念の文。線を押す → その文を出して A・関係・B を直せる（欄は呼ぶ側が置く）。
 // 線の端（選んだ線の矢じりのそばの丸）を持って別の札に落とすと、付け替え（retarget）。
 
 /**
@@ -32,14 +32,14 @@ export interface GraphCanvasProps {
   standards: Record<string, StandardInfo>
   lang: string
   selectedKey: string | null
-  /** 選んだ線（下書きの関係の添字）。 */
-  selectedEdge: number | null
+  /** 選んだ線（`relId`＝from|rel|to。添字でなく中身で持つ — 下書きが変わっても同じ線を指す）。 */
+  selectedEdge: string | null
   /** 右の文に重ねたポインタ。その関係（下書きの添字）の線を光らせる。 */
   litRelation: number | null
   /** 問いにつながっていない概念。 */
   unlinked: ReadonlySet<string>
   onSelect: (key: string | null) => void
-  onSelectEdge: (draftIndex: number | null) => void
+  onSelectEdge: (id: string | null) => void
   /** 線の端を別の札に落とした（下書きの関係の添字・新しい相手の key か curie）。 */
   onRetarget: (draftIndex: number, newTo: string) => void
 }
@@ -130,12 +130,17 @@ export function GraphCanvas(p: GraphCanvasProps) {
     },
     [scale],
   )
+  // 返事を待つ提案の札（まだ下書きに無い）は、線の落とし先にしない
+  const proposedKeys = useMemo(() => new Set(concepts.filter((c) => c.proposed).map((c) => c.row.key)), [concepts])
   const nodeAt = useCallback(
     (x: number, y: number): string | null => {
-      for (const n of layout.nodes) if (x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h) return n.key
+      for (const n of layout.nodes) {
+        if (proposedKeys.has(n.key)) continue
+        if (x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h) return n.key
+      }
       return null
     },
-    [layout],
+    [layout, proposedKeys],
   )
   const edgeOf = (index: number) => relations[index]
   // ドラッグ中は window で動きを受ける（指やマウスが図の外に出ても追う・捕まえ損ねない）
@@ -179,8 +184,8 @@ export function GraphCanvas(p: GraphCanvasProps) {
   const touches = (e: { from: string; to: string }) =>
     !!p.selectedKey && (e.from === p.selectedKey || e.to === p.selectedKey)
   const isSelectedEdge = (index: number) => {
-    const di = relations[index]?.draftIndex ?? null
-    return di !== null && p.selectedEdge === di
+    const r = relations[index]
+    return !!r && r.draftIndex !== null && p.selectedEdge === relId(r.row)
   }
   const isLit = (index: number, e: { from: string; to: string }) => {
     const di = relations[index]?.draftIndex ?? null
@@ -240,6 +245,7 @@ export function GraphCanvas(p: GraphCanvasProps) {
                 const lit = isLit(e.index, e)
                 const ghost = edgeOf(e.index)?.ghost
                 const di = edgeOf(e.index)?.draftIndex ?? null
+                const edgeId = di !== null ? relId(edgeOf(e.index)!.row) : ''
                 return (
                   <g key={e.index}>
                     <path
@@ -260,7 +266,7 @@ export function GraphCanvas(p: GraphCanvasProps) {
                         onClick={(ev) => {
                           ev.stopPropagation()
                           p.onSelect(null)
-                          p.onSelectEdge(p.selectedEdge === di ? null : di)
+                          p.onSelectEdge(p.selectedEdge === edgeId ? null : edgeId)
                         }}
                       />
                     )}
@@ -293,6 +299,7 @@ export function GraphCanvas(p: GraphCanvasProps) {
               if (!text) return null
               const lit = isLit(e.index, e)
               const di = rel?.draftIndex ?? null
+              const edgeId = rel && di !== null ? relId(rel.row) : ''
               return (
                 <span
                   key={e.index}
@@ -310,7 +317,7 @@ export function GraphCanvas(p: GraphCanvasProps) {
                       ? (ev) => {
                           ev.stopPropagation()
                           p.onSelect(null)
-                          p.onSelectEdge(p.selectedEdge === di ? null : di)
+                          p.onSelectEdge(p.selectedEdge === edgeId ? null : edgeId)
                         }
                       : undefined
                   }
@@ -352,7 +359,9 @@ export function GraphCanvas(p: GraphCanvasProps) {
                   aria-pressed={on}
                   data-key={n.key}
                   data-ghost={cc.ghost}
-                  title={std && c.match ? t('themes:map.std', { ref: c.match.ref }) : c.reason || undefined}
+                  title={
+                    std && c.match ? t('themes:map.std', { ref: c.match.label || conceptName(c, p.lang) }) : c.reason || undefined
+                  }
                   onClick={(ev) => {
                     ev.stopPropagation()
                     p.onSelectEdge(null)
@@ -386,9 +395,7 @@ export function GraphCanvas(p: GraphCanvasProps) {
                   key={`h${e.index}`}
                   className={`thm-handle${dragging ? ' is-drag' : ''}`}
                   style={{ left: dragging ? drag.x : e.end.x, top: dragging ? drag.y : e.end.y }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={t('themes:map.handle')}
+                  aria-hidden="true"
                   title={t('themes:map.handle')}
                   data-testid="edge-handle"
                   onClick={(ev) => ev.stopPropagation()}
@@ -397,7 +404,7 @@ export function GraphCanvas(p: GraphCanvasProps) {
                     ev.preventDefault()
                     const pt = toCanvas(ev.clientX, ev.clientY)
                     p.onSelect(null)
-                    p.onSelectEdge(di)
+                    p.onSelectEdge(relId(rel!.row))
                     setDrag({ index: e.index, ...pt, over: null })
                   }}
                 />
