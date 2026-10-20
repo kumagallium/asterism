@@ -164,10 +164,17 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
     """送られた一覧で置き換える（送れば置換）。ただし ``applied_at`` は既存から引き継ぐ。
 
     送られてきた ``applied_at`` / ``skipped`` は捨てる（サーバだけが書く）。同じ線が既存で
-    消費済みなら ``applied_at`` を残す — 消費済みの線を PUT で「未消費」に戻せない。一覧から
-    外した項目は消え、あとで入れ直せば新しい（未消費の）項目になる。
+    消費済みなら ``applied_at`` を残す — 消費済みの線を PUT で「未消費」に戻せない。同じ線が
+    既存で未消費かつ見送り済み（``skipped``）なら、その理由も残す（別の線を足しただけで、
+    見送りの理由が消えない）。一覧から外した項目は消え、あとで入れ直せば新しい（未消費の）
+    項目になる。
     """
     applied = {_key(e): e["applied_at"] for e in existing if e.get("applied_at")}
+    skipped = {
+        _key(e): e["skipped"]
+        for e in existing
+        if not e.get("applied_at") and isinstance(e.get("skipped"), str) and e["skipped"]
+    }
     out: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
     for item in clean_upper(list(incoming)):
@@ -175,14 +182,15 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
         if k in seen:
             continue
         seen.add(k)
-        out.append(
-            {
-                "subject": item["subject"],
-                "term": item["term"],
-                "relation": item["relation"],
-                "applied_at": applied.get(k),
-            }
-        )
+        row = {
+            "subject": item["subject"],
+            "term": item["term"],
+            "relation": item["relation"],
+            "applied_at": applied.get(k),
+        }
+        if k not in applied and k in skipped:
+            row["skipped"] = skipped[k]
+        out.append(row)
     return out
 
 

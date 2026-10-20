@@ -19,7 +19,9 @@ import pyoxigraph as ox
 from asterism import crosswalk_runtime, shared_vocab, substrate
 from fastapi.testclient import TestClient
 
+from asterism_api import registry
 from asterism_api.main import build_app
+from asterism_api.upper_routes import dump_upper
 from tests.test_crosswalk_api import _AUTH, _settings
 from tests.test_themes_api import _LLM, AI_JSON, KEY, Q_LOWER
 from tests.test_upper_questions import SV, _dataset, _OxClient
@@ -229,12 +231,16 @@ def test_without_an_ai_it_is_503_and_a_missing_context_is_404_422(tmp_path: Path
     assert llm.calls == []
 
 
-def test_writes_need_the_token_but_a_proposal_does_not(tmp_path: Path) -> None:
+def test_writes_need_the_token_but_a_home_proposal_does_not(tmp_path: Path) -> None:
     llm = _LLM(json.dumps({"reply": "同じ意味です。", "ops": []}))
     app, _ = _app(tmp_path, llm)
     with TestClient(app, headers=KEY) as anon:  # an AI key, no token
         r = _propose(anon, "home", {})
         assert r.status_code == 200 and r.json()["ops"] == []
+        # a theme / dataset proposal hands a draft / a dataset's headings to the model → a token
+        assert _propose(anon, "theme", {"draft_id": "x"}).status_code == 401
+        assert _propose(anon, "dataset", {"dataset_id": "x"}).status_code == 401
+        assert llm.calls == [llm.calls[0]]  # only the home one reached the model
         body = {"screen": "home", "context": {}, "ops": [], "proposal_id": "p"}
         assert anon.post("/api/consult/graph/apply", json=body).status_code == 401
         dismiss = {"screen": "home", "context": {}, "ops": []}
@@ -492,3 +498,197 @@ def test_dataset_binds_a_column_into_upper_json_and_the_prompt_has_headings_only
     assert shared_vocab.load_dismissed(tmp_path / "registry")[0]["subject"] == (
         "property:SampleMap/weight"
     )
+
+
+# ---- 7a の指摘: 冪等・認証・画面での絞り込み ---------------------------------------------------
+
+
+def test_a_theme_proposal_needs_the_token_and_without_a_token_configured_it_is_503(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path, _LLM())
+    settings = _settings(tmp_path / "x")
+    settings.api_token = None
+    app2 = build_app(settings, oxigraph_client=_OxClient(ox.Store()), start_watcher=False)
+    with TestClient(app, headers=KEY) as anon:
+        assert _propose(anon, "theme", {"draft_id": "x"}).status_code == 401
+    with TestClient(app2, headers=KEY) as closed:  # no token configured → the route is closed
+        assert _propose(closed, "theme", {"draft_id": "x"}).status_code == 503
+
+
+def test_the_proposal_is_cut_to_what_each_screen_takes(tmp_path: Path) -> None:
+    rename = {"op": "rename", "key": "thermal", "label_ja": "熱", "label_en": "", "aliases": [],
+              "reason": ""}  # fmt: skip
+    line = {"op": "add_relation", "from": "lattice", "rel": "part", "to": "thermal", "reason": ""}
+    llm = _LLM(json.dumps({"reply": "", "ops": [rename, line]}))
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _home_terms(client)
+        out = _propose(client, "home", {}, "直して").json()
+    assert [o["op"] for o in out["ops"]] == ["add_relation"] and len(out["sentences"]) == 1
+
+
+def test_a_replayed_theme_diff_is_a_no_op_on_the_current_draft_not_a_422(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(WRONG))
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        draft = _theme_draft(client)
+        ctx = {"draft_id": draft["id"]}
+        add = {"op": "add_concept", "key": "n1", "label_ja": "結晶粒径", "label_en": "grain size",
+               "aliases": [], "kind": "property", "use": "new", "reason": ""}  # fmt: skip
+        rel = {"op": "add_relation", "from": "n1", "rel": "affects", "to": "c2", "reason": ""}
+        bad = {"op": "add_relation", "from": "c4", "rel": "part", "to": "c2", "reason": ""}
+        post = lambda ops, pid: client.post(  # noqa: E731
+            "/api/consult/graph/apply",
+            json={"screen": "theme", "context": ctx, "ops": ops, "proposal_id": pid},
+        )
+        first = post([add, rel, bad], "p1").json()
+        assert (first["applied"], [d["reason"] for d in first["dropped"]]) == (2, ["mixed"])
+        # the history keeps only what was applied (the refused line is not in it)
+        (proposal,) = first["draft"]["chat"]["proposals"]
+        assert [o["op"] for o in proposal["ops"]] == ["add_concept", "add_relation"]
+
+        # the same ops again — and under another id — are duplicates (the key n1 is taken: not 422)
+        for pid in ("p1", "p2"):
+            again = post([add, rel], pid)
+            assert again.status_code == 200, again.text
+            body = again.json()
+            assert (body["applied"], body["duplicate"]) == (0, True)
+            assert [d["reason"] for d in body["dropped"]] == ["duplicate", "duplicate"]
+            assert body["draft"]["chat"] == first["draft"]["chat"]  # nothing saved
+
+        # an old proposal id is not a block: once the line is gone, the same ops apply again
+        gone = {"op": "remove", "target": "relation", "from": "n1", "rel": "affects", "to": "c2",
+                "reason": ""}  # fmt: skip
+        assert post([gone], "p3").json()["applied"] == 1
+        back = post([rel], "p1").json()
+        assert (back["applied"], "duplicate" in back) == (1, False)
+        # removing what is not there is not_found
+        res = post([gone, gone], "p4").json()
+        assert (res["applied"], [d["reason"] for d in res["dropped"]]) == (1, ["not_found"])
+        # a retarget of a line that is not there at all is not_found, and not a duplicate
+        miss = {"op": "retarget", "from": "c4", "rel": "lowers", "to": "c3", "new_to": "c2",
+                "reason": ""}  # fmt: skip
+        res2 = post([miss], "p5").json()
+        assert [d["reason"] for d in res2["dropped"]] == ["not_found"] and "duplicate" not in res2
+
+
+def test_home_keeps_the_provenance_of_a_line_that_is_already_there(tmp_path: Path) -> None:
+    app, store = _app(tmp_path, _LLM())
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _home_terms(client)
+        part = {"op": "add_relation", "from": "lattice", "rel": "part", "to": "thermal",
+                "reason": "人の理由"}  # fmt: skip
+
+        def post(ops, pid, **kw):
+            return client.post(
+                "/api/consult/graph/apply",
+                json={"screen": "home", "context": {}, "ops": ops, "proposal_id": pid, **kw},
+            ).json()
+
+        first = post([part], "a", batch="b-human", drafted_by="human")
+        assert first["applied"] == 1
+        again = post([{**part, "reason": "AI の別の理由"}], "b", batch="b-ai")
+        assert (again["applied"], again["duplicate"]) == (0, True)
+        assert [d["reason"] for d in again["dropped"]] == ["duplicate"]
+        row = {(r["source"], r["relation"], r["target"]): r for r in _lines(store)}[
+            (SV + "lattice", "isPartOf", SV + "thermal")
+        ]
+        assert (row["drafted_by"], row["batch"], row["reason"]) == ("human", "b-human", "人の理由")
+
+        # a mix: the line that is there is dropped, the new one is written
+        scatter = {"op": "add_relation", "from": "scatter", "rel": "lowers", "to": "lattice",
+                   "reason": ""}  # fmt: skip
+        mix = post([part, scatter], "c")
+        assert mix["applied"] == 1 and "duplicate" not in mix
+        assert [(d["index"], d["reason"]) for d in mix["dropped"]] == [(0, "duplicate")]
+
+        # eq is the same line in both directions
+        eq = {"op": "add_relation", "from": "thermal", "rel": "eq", "to": "lattice", "reason": ""}
+        assert post([eq], "d")["applied"] == 1
+        back = post([{**eq, "from": "lattice", "to": "thermal"}], "e")
+        assert (back["applied"], back["duplicate"]) == (0, True)
+
+        # remove: a line that is not there is not_found; one that is there goes
+        gone = {"op": "remove", "target": "relation", "from": "scatter", "rel": "lowers",
+                "to": "lattice", "reason": ""}  # fmt: skip
+        nope = {**gone, "from": "lattice", "to": "scatter"}
+        res = post([nope, gone], "f")
+        assert (res["applied"], [d["reason"] for d in res["dropped"]]) == (1, ["not_found"])
+        assert post([gone], "g")["dropped"][0]["reason"] == "not_found"
+        # removing an eq line by the other direction removes it
+        res2 = post([{**gone, "from": "lattice", "rel": "eq", "to": "thermal"}], "h")
+        assert res2["applied"] == 1
+    assert (SV + "thermal", "equivalentProperty", SV + "lattice") not in {
+        (r["source"], r["relation"], r["target"]) for r in _lines(store)
+    }
+
+
+def test_batch_is_one_short_line(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _LLM())
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        def post(batch):
+            return client.post(
+                "/api/consult/graph/apply",
+                json={"screen": "home", "context": {}, "ops": [], "proposal_id": "p",
+                      "batch": batch},
+            ).status_code
+        assert post("b-1") == 200
+        assert post("x" * 101) == 422
+        assert post("a\nb") == 422
+        assert post("a\x00b") == 422
+        assert post("a\u2028b") == 422
+
+
+def test_dismiss_checks_every_key_before_it_saves_any(tmp_path: Path, monkeypatch) -> None:
+    app, _ = _app(tmp_path, _LLM())
+    real = shared_vocab.dismiss_fit
+
+    def picky(root, subject, term, **kw):
+        if term.endswith("thermal"):
+            raise ValueError("refused")
+        return real(root, subject, term, **kw)
+
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _home_terms(client)
+        monkeypatch.setattr(shared_vocab, "dismiss_fit", picky)
+        first = {"op": "add_relation", "from": "scatter", "rel": "lowers", "to": "lattice",
+                 "reason": ""}  # fmt: skip
+        second = {"op": "add_relation", "from": "lattice", "rel": "part", "to": "thermal",
+                  "reason": ""}  # fmt: skip
+        r = client.post("/api/consult/graph/dismiss",
+                        json={"screen": "home", "context": {}, "ops": [first, second]})  # fmt: skip
+        assert r.status_code == 422
+        assert shared_vocab.load_dismissed(tmp_path / "registry") == []  # not even the first
+        monkeypatch.setattr(shared_vocab, "dismiss_fit", real)
+        both = {"screen": "home", "context": {}, "ops": [first, second]}
+        assert client.post("/api/consult/graph/dismiss", json=both).json() == {"dismissed": 2}
+
+
+def test_dataset_apply_keeps_the_skipped_reason_of_other_lines(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _LLM())
+    dsid = _dataset(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint(client, "cost", "費用")
+        _mint(client, "mass", "質量")
+        old = {"subject": "property:SampleMap/weight", "term": SV + "mass",
+               "relation": "equivalentProperty", "applied_at": None,
+               "skipped": "subject missing"}  # fmt: skip
+        registry.write_artifact(tmp_path / "registry", dsid, "upper.json", dump_upper([old]))
+        bind = {"op": "bind_column", "column": "price", "to": "cost", "rel": "eq", "reason": ""}
+        r = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "dataset", "context": {"dataset_id": dsid}, "ops": [bind],
+                  "proposal_id": "p"},
+        ).json()  # fmt: skip
+        assert r["applied"] == 1
+        upper = {u["subject"]: u for u in client.get(f"/api/datasets/{dsid}/upper").json()["upper"]}
+        assert upper["property:SampleMap/weight"]["skipped"] == "subject missing"
+        assert "skipped" not in upper["property:SampleMap/price"]
+        # the same binding again → duplicate, and the whole call is a no-op
+        again = client.post(
+            "/api/consult/graph/apply",
+            json={"screen": "dataset", "context": {"dataset_id": dsid}, "ops": [bind],
+                  "proposal_id": "p2"},
+        ).json()  # fmt: skip
+        assert (again["applied"], again["duplicate"]) == (0, True)

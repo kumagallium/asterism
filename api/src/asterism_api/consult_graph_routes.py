@@ -2,7 +2,9 @@
 会話の api（ui-redesign PR 7a・design.md §16）。
 
 - ``POST /api/consult/graph`` — 人の一言に、AI が**差分の提案**（閉じた 7 操作）を返す。
-  認証は要らない（``/api/design/consult`` と同じ。LLM の鍵の解決も同じ）。サーバが画面の図を組む:
+  ``home`` は認証が要らない（``/api/design/consult`` と同じ。LLM の鍵の解決も同じ）。``theme`` /
+  ``dataset`` は下書き・データセットの中身を AI に渡すので ``write_auth``（``GET
+  /api/themes/drafts/{id}`` と同じ）。サーバが画面の図を組む:
   ``theme`` = 下書きの概念・関係・問い（AI の生は無い）、``home`` = 公開済みの用語と、用語どうしの
   線、``dataset`` = データセットの列の**見出しと型**（値は渡さない）と既にある当てはめ。AI は
   SPARQL・コード・IRI を書かず、データの値も見ない。返し ``{reply, ops[], sentences[],
@@ -10,7 +12,8 @@
 - ``POST /api/consult/graph/apply`` — 人の「そう」。差分を決定論の検査（種別・循環・却下済み）に
   通して当てる（``write_auth``）。``theme`` は下書きに当てて保存し、``home`` は alignment graph に
   ``assert_alignment`` / ``remove_alignment`` で直結（来歴 = draftedBy・batch・reason）、
-  ``dataset`` は ``upper.json`` に当てはめを足す。``proposal_id`` の二重適用は何もしない。
+  ``dataset`` は ``upper.json`` に当てはめを足す。再送は「いまの図に対して何も変わらない」ことで
+  止める（``duplicate``）— 過去に受けた ``proposal_id`` の記録には頼らない。
 - ``POST /api/consult/graph/dismiss`` — 「✕」。却下を ``shared_vocab.dismiss_fit`` の鍵で保存する
   （``write_auth``）。次の提案・適用で出ない。
 
@@ -24,8 +27,11 @@ AI の散文（``reply``）は保存しない。会話の保存はテーマの�
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
+import tempfile
+import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -37,9 +43,9 @@ from asterism_step0.graph_propose import (
     propose_graph_diff,
     validate_graph_diff,
 )
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from asterism_api import registry
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
@@ -80,6 +86,9 @@ _PRED_TO_REL = {
 #: 当てはめ（``upper.json``）に置ける関係 — 項目の列だけ（種類は図で扱う）
 _BIND_TO_UPPER = {"eq": "equivalentProperty", "sub": "subPropertyOf"}
 _MAX_COLUMNS = 200
+_MAX_BATCH = 100
+#: 同じ意味を向きなしで結ぶ述語（``a eq b`` があれば ``b eq a`` も同じ線）
+_SYMMETRIC = frozenset({"equivalentClass", "equivalentProperty"})
 
 
 class ConsultMessage(BaseModel):
@@ -112,6 +121,18 @@ class ApplyBody(BaseModel):
     drafted_by: Literal["ai", "human"] = "ai"
     #: この提案に至った人の発言（前の適用から今まで・テーマの下書きにだけ残る。AI の返事は不要）
     messages: list[ConsultMessage] = Field(default_factory=list, max_length=_MAX_MESSAGES)
+
+    @field_validator("batch")
+    @classmethod
+    def _batch_is_one_short_line(cls, v: str | None) -> str | None:
+        """来歴に残す文字列 — 1 行・100 字まで・制御文字なし。"""
+        if v is None:
+            return v
+        if len(v) > _MAX_BATCH or any(
+            unicodedata.category(c) == "Cc" or c in "\u2028\u2029" for c in v
+        ):
+            raise ValueError(f"batch は 1 行 {_MAX_BATCH} 字までで、制御文字を含めません")
+        return v
 
 
 class DismissBody(BaseModel):
@@ -216,6 +237,22 @@ def register_consult_graph(
             raise HTTPException(422, "データの形（mapping.yaml）が読めません") from exc
         return record, view
 
+    async def _require_write(request: Request) -> None:
+        """``write_auth`` と同じ検査（``build_app`` が渡す依存をそのまま呼ぶ）。propose は画面で
+        分ける（``home`` は不要・``theme`` / ``dataset`` は要る）ので、依存でなく route の中で通す。
+        依存が読む header を、引数の名前（``x_asterism_token`` → ``x-asterism-token``）で渡す。"""
+        for dep in write_auth:
+            fn = getattr(dep, "dependency", None)
+            if fn is None:
+                continue
+            kwargs = {
+                name: request.headers.get(name.replace("_", "-"))
+                for name in inspect.signature(fn).parameters
+            }
+            out = fn(**kwargs)
+            if inspect.isawaitable(out):
+                await out
+
     # ---- 図の文脈（サーバが組む・名前だけ） -----------------------------------------------
 
     async def _home_graph(terms: list[shared_vocab.SharedTerm]) -> dict:
@@ -254,6 +291,7 @@ def register_consult_graph(
     @app.post("/api/consult/graph")
     async def consult_graph(
         body: ProposeBody,
+        request: Request,
         x_api_key: str | None = Header(default=None),
         x_llm_provider: str | None = Header(default=None),
         x_llm_model: str | None = Header(default=None),
@@ -265,7 +303,11 @@ def register_consult_graph(
         AI に渡すのは図の名前（概念の key・名前・種別・使い方、関係、問い）・既にある用語と
         標準用語の名前・（dataset のとき）列の見出しと型のヒントだけ。データの値は渡さない。
         AI の答えは閉じた差分だけ（SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・
-        1 回だけ言い直させる）。未設定なら 503。"""
+        1 回だけ言い直させる）。未設定なら 503。``theme`` / ``dataset`` は ``write_auth``
+        （401 / 503）。返す操作は画面が受けられるものだけ（home = 線の追加・外し／dataset =
+        列の当てはめ eq・sub／theme = 当てはめ以外）。"""
+        if body.screen != "home":
+            await _require_write(request)
         turns = [
             {"role": m.role, "content": m.content[:_MAX_CONTENT]}
             for m in body.messages
@@ -348,10 +390,16 @@ def register_consult_graph(
 
     # ---- apply -----------------------------------------------------------------------------
 
-    def _check_ops(ops: list[dict], known_keys: list[str]) -> list[dict]:
-        """適用の前に、提案のときと同じ閉じた検査を通す（クライアントの ``ops`` は信用しない）。"""
+    def _check_ops(
+        ops: list[dict], known_keys: list[str], *, allow_taken_keys: bool = False
+    ) -> list[dict]:
+        """適用の前に、提案のときと同じ閉じた検査を通す（クライアントの ``ops`` は信用しない）。
+        ``allow_taken_keys`` = 既にある key の ``add_concept``（再送）を弾かず、適用側に
+        ``duplicate`` と言わせる。"""
         try:
-            return validate_graph_diff({"ops": ops}, known_keys=known_keys)["ops"]
+            return validate_graph_diff(
+                {"ops": ops}, known_keys=known_keys, allow_taken_keys=allow_taken_keys
+            )["ops"]
         except GraphDiffError as exc:
             raise HTTPException(422, f"差分が決まった形ではありません: {exc}") from exc
 
@@ -380,44 +428,43 @@ def register_consult_graph(
             return await _apply_home(body)
         return await _apply_dataset(body)
 
+    def _all_duplicate(dropped: list[dict]) -> bool:
+        return bool(dropped) and all(d["reason"] == "duplicate" for d in dropped)
+
     async def _apply_theme(body: ApplyBody) -> JSONResponse:
         existing = await _terms()
         async with lock:
             draft = _draft_or_404(body.context)
             keys = [str(c.get("key")) for c in draft.get("concepts") or []]
-            ops = _check_ops(body.ops, keys)
+            ops = _check_ops(body.ops, keys, allow_taken_keys=True)
             pid = _effective_id(body.proposal_id, ops)
             dismissed = shared_vocab.load_dismissed(cfg.registry_root)
-            chat = draft.get("chat") or {}
-            if any(p.get("proposal_id") == pid for p in chat.get("proposals") or []):
-                _d, report = graph_diff.apply_to_draft(
-                    draft, [], existing=existing, dismissed=dismissed
-                )
-                return JSONResponse(
-                    {
-                        "applied": 0,
-                        "dropped": [],
-                        "unlinked": report["unlinked"],
-                        "draft": draft,
-                        "duplicate": True,
-                    }
-                )
             new, report = graph_diff.apply_to_draft(
                 draft, ops, existing=existing, dismissed=dismissed, by=body.drafted_by
             )
-            if report["applied"] == 0:  # 何も変わらない — 保存しない
-                return JSONResponse({**report, "draft": draft})
+            if report["applied"] == 0:  # いまの下書きに対して何も変わらない — 保存しない
+                out = {**report, "draft": draft}
+                if _all_duplicate(report["dropped"]):  # 再送（もう当たっている）
+                    out["duplicate"] = True
+                return JSONResponse(out)
             at = _now()
+            gone = {d["index"] for d in report["dropped"]}
             said = [
                 {"role": "user", "content": m.content[:_MAX_CONTENT], "at": at}
                 for m in body.messages
                 if m.role == "user" and m.content.strip()
             ]
+            chat = draft.get("chat") or {}
             new["chat"] = {
                 "messages": [*(chat.get("messages") or []), *said],
                 "proposals": [
                     *(chat.get("proposals") or []),
-                    {"proposal_id": pid, "ops": ops, "at": at, "by": body.drafted_by},
+                    {  # 適用した操作だけを残す（落とした操作は履歴に入れない）
+                        "proposal_id": pid,
+                        "ops": [o for i, o in enumerate(ops) if i not in gone],
+                        "at": at,
+                        "by": body.drafted_by,
+                    },
                 ],
             }
             try:
@@ -434,11 +481,43 @@ def register_consult_graph(
         plans, dropped = graph_diff.plan_term_relations(
             ops, terms=terms, dismissed=shared_vocab.load_dismissed(cfg.registry_root)
         )
-        batch = (body.batch or "").strip() or f"chat-{body.proposal_id}"[:100]
+        batch = (body.batch or "").strip() or f"chat-{body.proposal_id}"[:_MAX_BATCH]
         at = _now()
         applied = 0
         client = _client()
+        try:
+            lines = await crosswalk_runtime.list_alignments(client)
+        except Exception as exc:
+            raise HTTPException(502, f"alignment read failed: {exc}") from exc
+        have = {(ln["source"], ln["relation"], ln["target"]) for ln in lines}
+
+        def drop(plan: dict, reason: str) -> None:
+            op = ops[plan["index"]]
+            dropped.append(
+                {
+                    "index": plan["index"],
+                    "op": op["op"],
+                    "reason": reason,
+                    "ref": graph_diff.op_ref(op),
+                }
+            )
+
+        def found(plan: dict) -> tuple[str, str, str] | None:
+            """既にある同じ線（``eq`` の述語は向きを問わない）。無ければ ``None``。"""
+            exact = (plan["source"], plan["relation"], plan["target"])
+            if exact in have:
+                return exact
+            back = (plan["target"], plan["relation"], plan["source"])
+            return back if plan["relation"] in _SYMMETRIC and back in have else None
+
         for plan in plans:
+            here = found(plan)
+            if plan["action"] == "add" and here is not None:
+                drop(plan, "duplicate")  # 来歴（人の draftedBy・batch・reason）を上書きしない
+                continue
+            if plan["action"] == "remove" and here is None:
+                drop(plan, "not_found")
+                continue
             try:
                 if plan["action"] == "add":
                     await crosswalk_runtime.assert_alignment(
@@ -451,10 +530,11 @@ def register_consult_graph(
                         batch=batch,
                         reason=plan["reason"] or None,
                     )
+                    have.add((plan["source"], plan["relation"], plan["target"]))
                 else:
-                    await crosswalk_runtime.remove_alignment(
-                        client, plan["source"], plan["target"], plan["relation"]
-                    )
+                    assert here is not None
+                    await crosswalk_runtime.remove_alignment(client, here[0], here[2], here[1])
+                    have.discard(here)
                 applied += 1
             except ValueError as exc:  # 閉じた規則で断られた（循環・種別・まだ作っていない用語 …）
                 msg = str(exc)
@@ -465,15 +545,7 @@ def register_consult_graph(
                     reason = "mixed"
                 elif msg == "unminted shared term":
                     reason = "unknown_key"
-                op = ops[plan["index"]]
-                dropped.append(
-                    {
-                        "index": plan["index"],
-                        "op": op["op"],
-                        "reason": reason,
-                        "ref": graph_diff.op_ref(op),
-                    }
-                )
+                drop(plan, reason)
             except Exception as exc:
                 logger.warning("consult graph: alignment write failed", exc_info=True)
                 raise HTTPException(502, f"alignment write failed: {exc}") from exc
@@ -484,58 +556,74 @@ def register_consult_graph(
             except Exception:
                 logger.warning("consult graph: recompute_wired failed", exc_info=True)
         dropped.sort(key=lambda d: d["index"])
-        return JSONResponse({"applied": applied, "dropped": dropped, "unlinked": []})
+        out: dict[str, Any] = {"applied": applied, "dropped": dropped, "unlinked": []}
+        if applied == 0 and _all_duplicate(dropped):
+            out["duplicate"] = True
+        return JSONResponse(out)
 
     async def _apply_dataset(body: ApplyBody) -> JSONResponse:
-        record, view = _dataset_ir(body.context)
         terms = await _terms()
         by_slug = {t.slug: t for t in terms}
-        ops = _check_ops(body.ops, list(by_slug))
         dismissed = shared_vocab.load_dismissed(cfg.registry_root)
         dropped: list[dict] = []
         incoming: list[dict] = []
-        existing = load_upper(record.get("artifacts") or {})
-        have = {(e["subject"], e["term"], e["relation"]) for e in existing}
+        # 読み→書きは themes と同じ鍵で 1 つずつ（upper.json の取りこぼしを防ぐ）
+        async with lock:
+            record, view = _dataset_ir(body.context)
+            ops = _check_ops(body.ops, list(by_slug))
+            existing = load_upper(record.get("artifacts") or {})
+            have = {(e["subject"], e["term"], e["relation"]) for e in existing}
 
-        def drop(i: int, why: str) -> None:
-            dropped.append(
-                {"index": i, "op": ops[i]["op"], "reason": why, "ref": graph_diff.op_ref(ops[i])}
-            )
+            def drop(i: int, why: str) -> None:
+                dropped.append(
+                    {
+                        "index": i,
+                        "op": ops[i]["op"],
+                        "reason": why,
+                        "ref": graph_diff.op_ref(ops[i]),
+                    }
+                )
 
-        for i, op in enumerate(ops):
-            if op["op"] != "bind_column":
-                drop(i, "unsupported")
-                continue
-            relation = _BIND_TO_UPPER.get(op["rel"])
-            if relation is None:  # quantity: upper.json は項目どうしの線だけを持つ
-                drop(i, "unsupported")
-                continue
-            subject = _property_subject(view, op["column"])
-            end_row, std = by_slug.get(op["to"]), None
-            if end_row is None:
-                std = themes.std_by_curie(op["to"]) if ":" in op["to"] else None
-            if subject is None or (end_row is None and std is None):
-                drop(i, "unknown_key")
-                continue
-            kind = end_row.kind if end_row is not None else std.kind  # type: ignore[union-attr]
-            if kind != "property":  # 列は項目 — 種類・量の種類には結べない
-                drop(i, "mixed")
-                continue
-            term = end_row.iri if end_row is not None else std.iri  # type: ignore[union-attr]
-            if shared_vocab.is_dismissed(dismissed, subject, term):
-                drop(i, "dismissed")
-                continue
-            if (subject, term, relation) in have:
-                drop(i, "duplicate")
-                continue
-            have.add((subject, term, relation))
-            incoming.append({"subject": subject, "term": term, "relation": relation})
-        if incoming:
-            merged = merge_upper(existing, [*existing, *incoming])
-            registry.write_artifact(
-                cfg.registry_root, str(body.context.dataset_id), "upper.json", dump_upper(merged)
-            )
-        return JSONResponse({"applied": len(incoming), "dropped": dropped, "unlinked": []})
+            for i, op in enumerate(ops):
+                if op["op"] != "bind_column":
+                    drop(i, "unsupported")
+                    continue
+                relation = _BIND_TO_UPPER.get(op["rel"])
+                if relation is None:  # quantity: upper.json は項目どうしの線だけを持つ
+                    drop(i, "unsupported")
+                    continue
+                subject = _property_subject(view, op["column"])
+                end_row, std = by_slug.get(op["to"]), None
+                if end_row is None:
+                    std = themes.std_by_curie(op["to"]) if ":" in op["to"] else None
+                if subject is None or (end_row is None and std is None):
+                    drop(i, "unknown_key")
+                    continue
+                kind = end_row.kind if end_row is not None else std.kind  # type: ignore[union-attr]
+                if kind != "property":  # 列は項目 — 種類・量の種類には結べない
+                    drop(i, "mixed")
+                    continue
+                term = end_row.iri if end_row is not None else std.iri  # type: ignore[union-attr]
+                if shared_vocab.is_dismissed(dismissed, subject, term):
+                    drop(i, "dismissed")
+                    continue
+                if (subject, term, relation) in have:
+                    drop(i, "duplicate")
+                    continue
+                have.add((subject, term, relation))
+                incoming.append({"subject": subject, "term": term, "relation": relation})
+            if incoming:
+                merged = merge_upper(existing, [*existing, *incoming])
+                registry.write_artifact(
+                    cfg.registry_root,
+                    str(body.context.dataset_id),
+                    "upper.json",
+                    dump_upper(merged),
+                )
+        out: dict[str, Any] = {"applied": len(incoming), "dropped": dropped, "unlinked": []}
+        if not incoming and _all_duplicate(dropped):
+            out["duplicate"] = True
+        return JSONResponse(out)
 
     # ---- dismiss ---------------------------------------------------------------------------
 
@@ -576,6 +664,16 @@ def register_consult_graph(
                     end = std.iri if std is not None else None
                 if subject and end:
                     keys.append({"subject": subject, "term": end})
+        # 先に全件を検査する（途中で断られて一部だけ保存された状態を残さない）。同じ規則
+        # （``dismiss_fit``）を、使い捨ての置き場に当てて確かめる。
+        with tempfile.TemporaryDirectory() as scratch:
+            for k in keys:
+                try:
+                    shared_vocab.dismiss_fit(
+                        scratch, k["subject"], k["term"], at=at, relation=k.get("relation")
+                    )
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc)) from exc
         added = 0
         async with lock:
             for k in keys:
