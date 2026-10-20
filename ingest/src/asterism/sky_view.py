@@ -18,8 +18,8 @@
 * 視点（ハブ）= :func:`asterism.crosswalk_runtime.list_perspectives`。参加者の種類が ``members``。
 * 問い = ``registry/vocab-shared/query_tools.yaml`` の ``for_terms`` 付きの問い（``mode`` =
   ``data``。答えるデータセットの数は ``wired.json``）と、``themes.json`` の知識の問い
-  （``mode`` = ``knowledge``・tool_name ``kq_…``。対象の語の確定した知識の線の数は
-  ``knowledge.json``）。「答えられる」は データ ≥ 1 **または** 知識 ≥ 1。
+  （``mode`` = ``knowledge``・tool_name ``kq_…``。知識で答えた数は ``asterism.knowledge`` の走者で、
+  読めなければ ``knowledge.json``）。「答えられる」は データ ≥ 1 **または** 知識 ≥ 1。
 * 知識の線 = 語どうしの ``isPartOf`` / ``lowers`` / ``raises`` / ``affects``（``edges[]``）。
 
 公開済みのデータセットが 0 件なら、store に 1 回も問い合わせず空の形を返す（空の
@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime, substrate, themes
+from asterism import crosswalk_runtime, knowledge, substrate, themes
 from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
@@ -242,10 +242,23 @@ async def _count_triples(client: SupportsSparql) -> int:
 # --- 問い ------------------------------------------------------------------------------------
 
 
-def _questions(
+async def _knowledge_count(
+    client: SupportsSparql, sel: dict[str, Any], target: str, fallback: dict[str, int]
+) -> int:
+    """知識の問いの答えの数 — ``/api/themes`` の「知識 N」と同じ決定論の走者
+    （``asterism.knowledge``）。走者が読めなければ、対象の語の確定した知識の線の数（``knowledge.json``）に戻す。"""
+    try:
+        spec = {"op": sel.get("op"), "target": target, "direction": sel.get("direction")}
+        return int((await knowledge.knowledge_answer(client, spec))["count"])
+    except Exception:
+        return fallback.get(target, 0)
+
+
+async def _questions(
+    client: SupportsSparql,
     root: Path,
     wired: dict[str, int],
-    knowledge: dict[str, int],
+    known_counts: dict[str, int],
     total_datasets: int,
     term_iris: set[str],
 ) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
@@ -253,8 +266,9 @@ def _questions(
 
     データの問い（``for_terms`` 付き・``mode`` = ``data``）と、``themes.json`` の知識の問い
     （``selections[tool_name].mode == "knowledge"``・``mode`` = ``knowledge``）。知識の問いの
-    ``answering`` は対象の語のデータの数（``wired.json``）のまま、``knowledge`` に対象の語の確定した
-    知識の線の数（``knowledge.json``）を入れる。データの問いの ``knowledge`` は 0。
+    ``answering`` は対象の語のデータの数（``wired.json``）のまま、``knowledge`` に知識で答えた数
+    （``/api/themes`` の「知識 N」と同じ走者・読めなければ ``knowledge.json``）を入れる。
+    データの問いの ``knowledge`` は 0。
     """
     tools = read_registry_raw_tools(root, _VOCAB_REGISTRY_ID) or []
     questions: list[dict[str, Any]] = []
@@ -309,7 +323,7 @@ def _questions(
                     "theme_id": str(theme.get("id") or "") or None,
                     "theme_label": str(theme.get("label") or theme.get("id") or ""),
                     "answering": wired.get(target, 0),
-                    "knowledge": knowledge.get(target, 0),
+                    "knowledge": await _knowledge_count(client, sel, target, known_counts),
                     "total_datasets": total_datasets,
                     "needs": [target],
                     "shape": title,
@@ -450,8 +464,8 @@ async def sky_view(
     shared = await _read_terms(client)
     term_iris = {t.iri for t in shared}
     wired = load_wired(root)
-    questions, questions_by_term = _questions(
-        root, wired, load_knowledge(root), len(published), term_iris
+    questions, questions_by_term = await _questions(
+        client, root, wired, load_knowledge(root), len(published), term_iris
     )
 
     members: dict[str, set[tuple[str, str, str]]] = {t.iri: set() for t in shared}

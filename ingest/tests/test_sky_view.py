@@ -570,7 +570,8 @@ async def test_knowledge_questions_and_term_to_term_lines(tmp_path: Path) -> Non
     out = await sky_view(client, root)
     q = next(x for x in out["questions"] if x["tool_name"] == name)
     assert q["mode"] == "knowledge" and q["theme_id"] == "heat" and q["needs"] == [thermal]
-    assert q["answering"] == 0 and q["knowledge"] == 2  # データ 0・知識 2（knowledge.json）
+    # データ 0・知識 1（走者で答えた数。/api/themes の「知識 N」と同じ。2 は線の数）
+    assert q["answering"] == 0 and q["knowledge"] == 1
     assert all(x["mode"] == "data" and x["knowledge"] == 0 for x in out["questions"] if x is not q)
     assert not any(x["tool_name"] == "kq_gone_parts" for x in out["questions"])  # 語の無い問い
     assert name in next(t for t in out["terms"] if t["slug"] == "thermal")["questions"]
