@@ -574,7 +574,8 @@ def test_a_knowledge_theme_commits_and_answers_know_n_data_n(tmp_path: Path) -> 
         (q,) = theme["questions"]
         assert q["mode"] == "knowledge" and q["knowledge_count"] == 2
         assert q["shape"] == "熱伝導率 を下げるもの" and q["wanted_data"].startswith("試料ごとの")
-        assert theme["knowledge_total"] == 2 and theme["answerable"] == 0
+        # 知識だけで答えた問いも「答えられる」に数える（データ 0・知識 2）
+        assert theme["knowledge_total"] == 2 and theme["answerable"] == 1
         assert {t["slug"] for t in theme["terms"]} == {"thermal_conductivity"}
         # the answers: knowledge 2 (one closure step), data 0
         a = client.get(f"/api/themes/{d['id']}/answers").json()

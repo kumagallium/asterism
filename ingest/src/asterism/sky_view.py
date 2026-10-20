@@ -16,8 +16,11 @@
   畳まない（上位パスをたどらない）。
 * 標準用語 = 線の graph の端が ``grounding`` の名前空間にあるもの。
 * 視点（ハブ）= :func:`asterism.crosswalk_runtime.list_perspectives`。参加者の種類が ``members``。
-* 問い = ``registry/vocab-shared/query_tools.yaml`` の ``for_terms`` 付きの問い。答えるデータ
-  セットの数は ``wired.json``。
+* 問い = ``registry/vocab-shared/query_tools.yaml`` の ``for_terms`` 付きの問い（``mode`` =
+  ``data``。答えるデータセットの数は ``wired.json``）と、``themes.json`` の知識の問い
+  （``mode`` = ``knowledge``・tool_name ``kq_…``。対象の語の確定した知識の線の数は
+  ``knowledge.json``）。「答えられる」は データ ≥ 1 **または** 知識 ≥ 1。
+* 知識の線 = 語どうしの ``isPartOf`` / ``lowers`` / ``raises`` / ``affects``（``edges[]``）。
 
 公開済みのデータセットが 0 件なら、store に 1 回も問い合わせず空の形を返す（空の
 ``FROM NAMED`` は draft まで読んでしまうため）。
@@ -30,7 +33,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime, substrate
+from asterism import crosswalk_runtime, substrate, themes
 from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
@@ -44,7 +47,9 @@ from asterism.shared_vocab import (
     _read_terms,
     is_system_entry,
     known_namespaces,
+    load_knowledge,
     load_wired,
+    term_iri,
 )
 from asterism.subject_tools import (
     _cell,
@@ -77,6 +82,8 @@ _QK_PREFIX = "quantitykind"
 _XW_LINK_CLASS = _XW_NS + "CrosswalkLink"
 _LINE_RELATIONS = ("subClassOf", "equivalentClass", "subPropertyOf", "equivalentProperty")
 _SUBSUMPTION = ("subClassOf", "subPropertyOf")
+#: 語どうしの「知識の線」として ``edges[]`` に返す関係（一部・下げる・上げる・変える）。
+_EDGE_RELATIONS = frozenset(crosswalk_runtime.KNOWLEDGE_RELATIONS)
 #: 「標準用語に一致」と数える線。lowers / isPartOf など、同じものを言わない線は含めない
 _STANDARD_MATCH_RELATIONS = frozenset({"equivalentClass", "equivalentProperty", "hasQuantityKind"})
 _UNPUBLISHED_STATUS = ("retracted", "deleted")
@@ -108,6 +115,7 @@ def _empty() -> dict[str, Any]:
         "standards": [],
         "hubs": [],
         "questions": [],
+        "edges": [],
         "facts": _facts(),
         "recent": [],
         "truncated": False,
@@ -235,9 +243,19 @@ async def _count_triples(client: SupportsSparql) -> int:
 
 
 def _questions(
-    root: Path, wired: dict[str, int], total_datasets: int
+    root: Path,
+    wired: dict[str, int],
+    knowledge: dict[str, int],
+    total_datasets: int,
+    term_iris: set[str],
 ) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
-    """``questions[]`` と 語 → その語の問い（tool_name）。``for_terms`` 付きの問いだけ。"""
+    """``questions[]`` と 語 → その語の問い（tool_name）。
+
+    データの問い（``for_terms`` 付き・``mode`` = ``data``）と、``themes.json`` の知識の問い
+    （``selections[tool_name].mode == "knowledge"``・``mode`` = ``knowledge``）。知識の問いの
+    ``answering`` は対象の語のデータの数（``wired.json``）のまま、``knowledge`` に対象の語の確定した
+    知識の線の数（``knowledge.json``）を入れる。データの問いの ``knowledge`` は 0。
+    """
     tools = read_registry_raw_tools(root, _VOCAB_REGISTRY_ID) or []
     questions: list[dict[str, Any]] = []
     by_term: dict[str, list[str]] = {}
@@ -253,9 +271,11 @@ def _questions(
             {
                 "tool_name": name,
                 "title": title,
+                "mode": "data",
                 "theme_id": None,
                 "theme_label": FIRST_QUESTIONS_LABEL,
                 "answering": max((wired.get(x, 0) for x in needs), default=0),
+                "knowledge": 0,
                 "total_datasets": total_datasets,
                 "needs": needs,
                 "shape": title,
@@ -263,8 +283,60 @@ def _questions(
         )
         for iri in needs:
             by_term.setdefault(iri, []).append(name)
+    seen = {q["tool_name"] for q in questions}
+    stored = themes.load_themes_file(root)
+    for theme in (stored or {}).get("themes", []):
+        selections = theme.get("selections")
+        if not isinstance(selections, dict):
+            continue
+        for name in theme.get("questions") or []:
+            sel = selections.get(name)
+            if not (isinstance(sel, dict) and sel.get("mode") == "knowledge") or name in seen:
+                continue
+            try:
+                target = term_iri(str(sel.get("target_slug") or ""))
+            except ValueError:
+                continue
+            if target not in term_iris:  # 語が無い（外された）問いは出さない
+                continue
+            title = str(sel.get("title") or name)
+            seen.add(name)
+            questions.append(
+                {
+                    "tool_name": str(name),
+                    "title": title,
+                    "mode": "knowledge",
+                    "theme_id": str(theme.get("id") or "") or None,
+                    "theme_label": str(theme.get("label") or theme.get("id") or ""),
+                    "answering": wired.get(target, 0),
+                    "knowledge": knowledge.get(target, 0),
+                    "total_datasets": total_datasets,
+                    "needs": [target],
+                    "shape": title,
+                }
+            )
+            by_term.setdefault(target, []).append(str(name))
     questions.sort(key=lambda q: q["tool_name"])
     return questions, {k: sorted(set(v)) for k, v in by_term.items()}
+
+
+def _answerable(q: dict[str, Any]) -> bool:
+    """答えられる = データで 1 つ以上 **または** 知識で 1 つ以上。"""
+    return q["answering"] >= 1 or q["knowledge"] >= 1
+
+
+def _edges(alignments: list[dict[str, Any]], term_iris: set[str]) -> list[dict[str, Any]]:
+    """語どうしの知識の線（``isPartOf`` / ``lowers`` / ``raises`` / ``affects``）。決定論の順。"""
+    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in alignments:
+        rel, src, tgt = row["relation"], row["source"], row["target"]
+        if rel not in _EDGE_RELATIONS or src not in term_iris or tgt not in term_iris:
+            continue
+        seen.setdefault(
+            (src, tgt, rel),
+            {"from": src, "to": tgt, "relation": rel, "reason": row.get("reason") or None},
+        )
+    return [seen[k] for k in sorted(seen)]
 
 
 # --- 視点（ハブ）-----------------------------------------------------------------------------
@@ -378,7 +450,9 @@ async def sky_view(
     shared = await _read_terms(client)
     term_iris = {t.iri for t in shared}
     wired = load_wired(root)
-    questions, questions_by_term = _questions(root, wired, len(published))
+    questions, questions_by_term = _questions(
+        root, wired, load_knowledge(root), len(published), term_iris
+    )
 
     members: dict[str, set[tuple[str, str, str]]] = {t.iri: set() for t in shared}
     term_standard: dict[str, dict[str, str]] = {}
@@ -457,7 +531,7 @@ async def sky_view(
         datasets=len(published),
         kinds=len(shown_kinds),
         terms=len(terms),
-        questions_answerable=sum(1 for q in questions if q["answering"] >= 1),
+        questions_answerable=sum(1 for q in questions if _answerable(q)),
         questions_total=len(questions),
         published_graphs=len(graphs),
     )
@@ -469,6 +543,7 @@ async def sky_view(
         "standards": standards,
         "hubs": hubs,
         "questions": questions,
+        "edges": _edges(alignments, term_iris),
         "facts": facts,
         "recent": recent,
         "truncated": truncated,

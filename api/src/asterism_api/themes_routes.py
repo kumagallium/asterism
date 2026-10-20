@@ -312,8 +312,12 @@ def register_themes(
                     "label": theme.get("label", theme["id"]),
                     "created_at": theme.get("created_at", ""),
                     "questions": qs,
-                    # 「データで答えられる問い」の数。知識の件数は knowledge_total
-                    "answerable": sum(1 for q in qs if q["answering_datasets"] > 0),
+                    # 答えられる問い = データ ≥ 1 または 知識 ≥ 1。知識の件数は knowledge_total
+                    "answerable": sum(
+                        1
+                        for q in qs
+                        if q["answering_datasets"] > 0 or q.get("knowledge_count", 0) > 0
+                    ),
                     "knowledge_total": sum(q.get("knowledge_count", 0) for q in qs),
                     "terms": sorted(need.values(), key=lambda t: t["slug"]),
                     "memo_questions": theme.get("memo_questions") or [],
