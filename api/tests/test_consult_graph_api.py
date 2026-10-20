@@ -426,6 +426,10 @@ def test_home_takes_published_kinds_as_the_end_of_a_line_and_never_shows_their_i
                   "proposal_id": out["proposal_id"]},
         ).json()  # fmt: skip
         assert (res["applied"], res["dropped"]) == (1, [])
+        assert res["lines"] == [  # 画面が星図を取り直し、この 2 点に輪を出す
+            {"action": "add", "source": EX + "Sample", "target": SV + "specimen",
+             "relation": "equivalentClass"}
+        ]  # fmt: skip
         line = next(ln for ln in _lines(store) if ln["source"] == EX + "Sample")
         assert (line["target"], line["relation"]) == (SV + "specimen", "equivalentClass")
         assert (line["drafted_by"], line["batch"], line["reason"]) == ("ai", "b-kind", "同じ試料")

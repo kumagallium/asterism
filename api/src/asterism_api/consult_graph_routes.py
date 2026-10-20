@@ -480,7 +480,8 @@ def register_consult_graph(
     @app.post("/api/consult/graph/apply", dependencies=list(write_auth))
     async def consult_graph_apply(body: ApplyBody) -> JSONResponse:
         """人の「そう」— 差分を当てる。検査に通らない操作は**落として**理由を返す（残りは当てる）。
-        返し ``{applied, dropped[{index, op, reason, ref}], unlinked[], draft?, duplicate?}``。
+        返し ``{applied, dropped[{index, op, reason, ref}], unlinked[], draft?, duplicate?}``
+        （home は ``lines[{action, source, target, relation}]`` も — 書いた・外した線の端の IRI）。
 
         * ``theme`` — 下書きに当てて保存（``draft`` を返す）。適用した差分と人の発言を
           ``draft["chat"]`` に残す。同じ提案は 2 度当てない（``duplicate: true``）。
@@ -554,6 +555,7 @@ def register_consult_graph(
         batch = (body.batch or "").strip() or f"chat-{body.proposal_id}"[:_MAX_BATCH]
         at = _now()
         applied = 0
+        written: list[dict] = []  # 書いた線の端（画面が星図を取り直して輪を出す）
         client = _client()
         try:
             lines = await crosswalk_runtime.list_alignments(client)
@@ -606,6 +608,14 @@ def register_consult_graph(
                     await crosswalk_runtime.remove_alignment(client, here[0], here[2], here[1])
                     have.discard(here)
                 applied += 1
+                written.append(
+                    {
+                        "action": plan["action"],
+                        "source": plan["source"],
+                        "target": plan["target"],
+                        "relation": plan["relation"],
+                    }
+                )
             except ValueError as exc:  # 閉じた規則で断られた（循環・種別・まだ作っていない用語 …）
                 msg = str(exc)
                 reason = "invalid"
@@ -626,7 +636,12 @@ def register_consult_graph(
             except Exception:
                 logger.warning("consult graph: recompute_wired failed", exc_info=True)
         dropped.sort(key=lambda d: d["index"])
-        out: dict[str, Any] = {"applied": applied, "dropped": dropped, "unlinked": []}
+        out: dict[str, Any] = {
+            "applied": applied,
+            "dropped": dropped,
+            "unlinked": [],
+            "lines": written,
+        }
         if applied == 0 and _all_duplicate(dropped):
             out["duplicate"] = True
         return JSONResponse(out)
