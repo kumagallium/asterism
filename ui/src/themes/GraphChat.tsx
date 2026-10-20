@@ -20,6 +20,10 @@ export function GraphChat({
   onSend,
   onOpenSettings,
   onFold,
+  headAction,
+  placeholder,
+  hideEmptyHistory = false,
+  focusSignal = 0,
 }: {
   /** 履歴（吹き出し・提案カード）。呼ぶ側が並べる。 */
   children: ReactNode
@@ -36,17 +40,32 @@ export function GraphChat({
   onSend: (text: string) => void
   onOpenSettings: () => void
   onFold: () => void
+  /** 見出し（相談）の右に置く小さな操作（「AI に結ばせる」など）。 */
+  headAction?: ReactNode
+  /** 入力欄の placeholder（無ければ既定の一言）。 */
+  placeholder?: string
+  /** 履歴が空のあいだは履歴の枠を出さない（大きな空白を出さない）。作業場は従来どおり出す。 */
+  hideEmptyHistory?: boolean
+  /** 値が増えるたびに入力欄へフォーカスする（外の「相談」ボタンが、開いたままの会話を指したとき）。 */
+  focusSignal?: number
 }) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const count = Array.isArray(children) ? children.length : children ? 1 : 0
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
   }, [count, thinking])
 
+  useEffect(() => {
+    if (focusSignal > 0) inputRef.current?.focus()
+  }, [focusSignal])
+
   const busy = thinking || locked
+  const showHistory = !(hideEmptyHistory && count === 0 && !thinking)
+  const hint = placeholder ?? t('themes:chat.placeholder')
   const send = () => {
     const v = text.trim()
     if (!v || busy || !aiReady) return
@@ -61,21 +80,26 @@ export function GraphChat({
           <Sparkles size={15} className="consult-fab-icon" aria-hidden="true" />
           {t('themes:chat.title')}
         </span>
-        <button type="button" className="btn btn--ghost btn--sm thm-chat-fold" onClick={onFold} data-testid="chat-fold">
-          {t('themes:chat.fold')}
-        </button>
+        <span className="thm-chat-head-actions">
+          {headAction}
+          <button type="button" className="btn btn--ghost btn--sm thm-chat-fold" onClick={onFold} data-testid="chat-fold">
+            {t('themes:chat.fold')}
+          </button>
+        </span>
       </header>
-      <div className="consult-scroll thm-chat-scroll" ref={scrollRef} data-testid="chat-scroll">
-        {children}
-        {thinking && (
-          <div className="consult-msg consult-msg--assistant">
-            <div className="consult-bubble consult-bubble--pending" role="status" aria-live="polite">
-              <span className="consult-spinner" aria-hidden="true" />
-              {t('themes:chat.thinking')}
+      {showHistory && (
+        <div className="consult-scroll thm-chat-scroll" ref={scrollRef} data-testid="chat-scroll">
+          {children}
+          {thinking && (
+            <div className="consult-msg consult-msg--assistant">
+              <div className="consult-bubble consult-bubble--pending" role="status" aria-live="polite">
+                <span className="consult-spinner" aria-hidden="true" />
+                {t('themes:chat.thinking')}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
       {focus && <div className="thm-chat-focus">{focus}</div>}
       <div className="thm-chat-tools">{tools}</div>
       <div className="consult-foot thm-chat-foot">
@@ -92,8 +116,9 @@ export function GraphChat({
               rows={2}
               value={text}
               disabled={busy}
-              aria-label={t('themes:chat.placeholder')}
-              placeholder={t('themes:chat.placeholder')}
+              ref={inputRef}
+              aria-label={hint}
+              placeholder={hint}
               data-testid="chat-input"
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {

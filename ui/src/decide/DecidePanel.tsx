@@ -40,6 +40,7 @@ export function DecidePanel({
   dismissKey,
   onDecided,
   onLater,
+  hideTitle = false,
 }: {
   /** 決める側（星・種類・項目）。 */
   subject: PickEnd
@@ -51,6 +52,8 @@ export function DecidePanel({
   onDecided?: (info: DecidedInfo) => void
   /** 「あとで決める」。何も保存しない。 */
   onLater?: () => void
+  /** 見出し（ひとこと決める）を出さない — 外の見出し（「手で決める ▸」）が代わりをするとき。 */
+  hideTitle?: boolean
 }) {
   const { t } = useTranslation()
   const groupName = useId()
@@ -165,7 +168,7 @@ export function DecidePanel({
 
   return (
     <div className="decide" data-testid="decide-panel">
-      <h4 className="decide-h">{t('decide:title')}</h4>
+      {!hideTitle && <h4 className="decide-h">{t('decide:title')}</h4>}
       {ordered.length === 0 ? (
         <p className="decide-meta" data-testid="decide-no-candidates">
           {candidates || loaded ? t('decide:noCandidates') : t('decide:loading')}

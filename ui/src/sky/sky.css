@@ -510,6 +510,21 @@ button.sky-pill--data:hover:not(:disabled) {
   gap: var(--space-2, 0.5rem);
   min-width: 0;
 }
-.sky-chat-bind {
-  display: flex;
+/* 手で決める ▸（相談の下に畳んだ 6b の「ひとこと決める」） */
+.sky-manual {
+  margin-top: var(--space-2, 0.5rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.4rem 0.75rem;
+  min-width: 0;
+}
+.sky-manual > summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--body);
+}
+.sky-manual[open] > summary {
+  margin-bottom: var(--space-2, 0.5rem);
 }

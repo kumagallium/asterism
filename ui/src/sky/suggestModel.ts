@@ -46,3 +46,25 @@ export function withoutKeys<T extends SuggestionKey>(list: readonly T[], done: r
   const gone = new Set(done.map((d) => `${d.subject}\u0000${d.term}\u0000${d.relation}`))
   return list.filter((s) => !gone.has(`${s.subject}\u0000${s.term}\u0000${s.relation}`))
 }
+
+/** 閉じた規則で断られた理由（api の `reason`）。`not_found`（もう候補に無い）は断りではない。 */
+const REFUSED = ['cycle', 'mixed', 'invalid'] as const
+
+/**
+ * 「まとめて確定」「1 件ずつ」で断られたものを 1 行に（黙って消さない）。理由ごとに数えて
+ * 「N 件は結べませんでした（輪になる 1・種類が違う 2）」。断られたものが無ければ空文字。
+ */
+export function refusedText(
+  dropped: readonly { index: number; reason: string }[],
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  const parts: string[] = []
+  let total = 0
+  for (const r of REFUSED) {
+    const n = dropped.filter((d) => d.reason === r).length
+    if (n === 0) continue
+    total += n
+    parts.push(`${t(`sky:suggest.refusedWhy.${r}`)} ${n}`)
+  }
+  return total === 0 ? '' : t('sky:suggest.refused', { n: total, why: parts.join(' / ') })
+}

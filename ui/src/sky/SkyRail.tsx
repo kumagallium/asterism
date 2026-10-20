@@ -6,6 +6,7 @@ import type { Alignment } from '../crosswalkApi'
 import { decisionsHash, involves } from '../decide/decisionsModel'
 import { resumeDraftHash } from '../vocabQuestion'
 import { DecidePanel } from '../decide/DecidePanel'
+import { useLlmSettings } from '../settings/context'
 import { SkyChat } from './SkyChat'
 import { SkySuggestions } from './SkySuggestions'
 import type { Suggestion, SuggestionKey } from './suggestApi'
@@ -60,6 +61,7 @@ export function SkyRail(props: RailProps) {
   // 「結べそうな線が N 件 →」を押すと、欄の中身が一覧に替わる（選択は保つ）。0 件になったら戻る。
   const [showSuggest, setShowSuggest] = useState(false)
   const suggestOpen = showSuggest && props.suggestions.length > 0
+  const { isReady } = useLlmSettings()
   return (
     <aside className="sky-rail">
       {props.grown && (
@@ -87,12 +89,15 @@ export function SkyRail(props: RailProps) {
         <QuestionsCard {...props} />
       )}
       <SkyChat
-        sky={props.sky}
         node={node}
         lang={props.lang}
         unlinkedKinds={props.unlinkedKinds}
         onDecided={props.onDecided}
       />
+      {/* 手で決める ▸ は相談の下（星のときだけ）。AI 未設定なら開いた状態 */}
+      {node?.type === 'kind' && !suggestOpen && (
+        <ManualDecide key={node.id} {...props} node={node} aiReady={isReady} />
+      )}
     </aside>
   )
 }
@@ -201,36 +206,45 @@ function KindAbout(p: RailProps & { node: KindNode }) {
           </>
         )}
       </dl>
-      <DecideSlot key={node.id} {...p} node={node} />
     </section>
   )
 }
 
-/** 星（種類）の「ひとこと決める」。用語が無ければ案内、「あとで決める」で畳む（選択は保つ）。 */
-function DecideSlot(p: RailProps & { node: KindNode }) {
+/** 星（種類）の「手で決める ▸」（6b の「ひとこと決める」を畳んだもの）。相談（会話）の下に置く。
+ *  AI が未設定のときは相談が出ないので、開いた状態で出す。用語が無ければ案内。「あとで決める」で閉じる。 */
+function ManualDecide(p: RailProps & { node: KindNode; aiReady: boolean }) {
   const { t } = useTranslation('sky')
-  const [folded, setFolded] = useState(false)
+  const [open, setOpen] = useState(!p.aiReady)
   const subject = decideSubjectOf(p.node)
-  if (!subject || folded) return <div className="sky-decide-slot" data-slot="decide" />
+  if (!subject) return null
   const candidates = decideCandidatesOf(p.sky.terms, subject, p.lang)
   return (
-    <div className="sky-decide-slot" data-slot="decide">
-      {candidates.length === 0 ? (
-        <>
-          <p className="sky-hint">{t('decide.noTerms')}</p>
-          <a className="link-btn" href="#/questions">
-            {t('decide.openQuestions')}
-          </a>
-        </>
-      ) : (
-        <DecidePanel
-          subject={subject}
-          candidates={candidates}
-          onDecided={(info) => p.onDecided([info.target.iri, info.subject.iri])}
-          onLater={() => setFolded(true)}
-        />
-      )}
-    </div>
+    <details
+      className="sky-manual"
+      data-testid="manual-decide"
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary>{t('decide.manual')}</summary>
+      <div className="sky-decide-slot" data-slot="decide">
+        {candidates.length === 0 ? (
+          <>
+            <p className="sky-hint">{t('decide.noTerms')}</p>
+            <a className="link-btn" href="#/questions">
+              {t('decide.openQuestions')}
+            </a>
+          </>
+        ) : (
+          <DecidePanel
+            subject={subject}
+            candidates={candidates}
+            onDecided={(info) => p.onDecided([info.target.iri, info.subject.iri])}
+            onLater={() => setOpen(false)}
+            hideTitle
+          />
+        )}
+      </div>
+    </details>
   )
 }
 

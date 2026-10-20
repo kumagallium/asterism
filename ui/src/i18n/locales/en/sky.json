@@ -53,7 +53,8 @@
   },
   "decide": {
     "noTerms": "No terms yet. You can make one in “Questions”.",
-    "openQuestions": "Open “Questions”"
+    "openQuestions": "Open “Questions”",
+    "manual": "Decide by hand"
   },
   "about": {
     "titleKind": "About this star",
@@ -149,11 +150,9 @@
     }
   },
   "chat": {
-    "selected": "Selected star: {{name}}",
-    "pick": "Pick a star and say one thing. Without one, you can still talk about how terms relate.",
-    "example": "For example: \"Is this kind the same as Specimen?\" or \"Isn't lattice conductivity part of thermal conductivity?\"",
-    "bind": "Let AI link (kinds not linked yet: {{n}})",
-    "bindHint": "AI proposes links for published kinds that no term has been linked to yet. It only proposes: nothing is written until you press Yes."
+    "example": "For example: \"Is this kind the same as Specimen?\"",
+    "bind": "Let AI link",
+    "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press Yes."
   },
   "suggest": {
     "link": "{{n}} links could be made →",
@@ -166,6 +165,12 @@
     "no": "No",
     "back": "Back",
     "empty": "No more links to make.",
-    "done": "{{n}} linked."
+    "done": "{{n}} linked.",
+    "refused": "{{n}} could not be linked ({{why}})",
+    "refusedWhy": {
+      "cycle": "would make a loop",
+      "mixed": "kind and item mixed",
+      "invalid": "does not fit"
+    }
   }
 }

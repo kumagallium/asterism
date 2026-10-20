@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { makeSky } from './skyFixture'
 import { kindId, layoutSky, termId } from './skyLayout'
 import { readSuggestions, suggestionKey, type Suggestion } from './suggestApi'
-import { irisOfKeys, overlayEdges, suggestBatchId, withoutKeys } from './suggestModel'
+import { irisOfKeys, overlayEdges, refusedText, suggestBatchId, withoutKeys } from './suggestModel'
 
 const sug = (over: Partial<Suggestion>): Suggestion => ({
   subject: 's',
@@ -56,5 +56,21 @@ describe('結べそうな線（純関数）', () => {
     expect(readSuggestions({ suggestions: [{ subject: 's' }, null, { subject: 's', term: 't', relation: 'equivalentClass' }] })).toEqual([
       sug({ subject_label: 's', term_label: 't', dataset_id: '', dataset_label: '', version: '' }),
     ])
+  })
+
+  it('断られた理由は 1 行に数える（もう候補に無いものは断りではない）', () => {
+    const tt = (k: string, o?: Record<string, unknown>) => (o ? `${k}:${JSON.stringify(o)}` : k)
+    expect(refusedText([{ index: 0, reason: 'not_found' }], tt)).toBe('')
+    expect(
+      refusedText(
+        [
+          { index: 0, reason: 'cycle' },
+          { index: 1, reason: 'mixed' },
+          { index: 2, reason: 'cycle' },
+          { index: 3, reason: 'not_found' },
+        ],
+        tt,
+      ),
+    ).toBe('sky:suggest.refused:{"n":3,"why":"sky:suggest.refusedWhy.cycle 2 / sky:suggest.refusedWhy.mixed 1"}')
   })
 })

@@ -53,6 +53,10 @@ export interface WorkspaceChatProps {
   onApplied?: (done: { ops: GraphOp[]; result: ApplyOnScreenResult }) => void
   /** 外のボタンが会話を開く合図（値が変わるたびに開く）。広い画面だけ最初から開き、375px は閉じて始める。 */
   openSignal?: number
+  /** 見出し（相談）の右の小さな操作。 */
+  headAction?: ReactNode
+  /** 入力欄の placeholder（例を入れる）。 */
+  placeholder?: string
   className?: string
   testId?: string
 }
@@ -78,6 +82,8 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
   const [ai, setAi] = useState<AiState>('ok')
   const [actionErr, setActionErr] = useState('')
   const [open, setOpen] = useState(isWide())
+  // 開いたままのときも、外の「相談」ボタンで入力欄へフォーカスする
+  const [focusTick, setFocusTick] = useState(0)
   const aiReady = isReady && ai === 'ok'
   const busy = thinking || applying
 
@@ -144,6 +150,7 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
     if ((p.openSignal ?? 0) !== sawOpen.current) {
       sawOpen.current = p.openSignal ?? 0
       setOpen(true)
+      setFocusTick((n) => n + 1)
     }
   }, [p.openSignal])
 
@@ -243,6 +250,10 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
           onSend={(text) => void send(text)}
           onOpenSettings={() => openSettings('ai')}
           onFold={() => setOpen(false)}
+          headAction={p.headAction}
+          placeholder={p.placeholder}
+          hideEmptyHistory
+          focusSignal={focusTick}
         >
           {history}
         </GraphChat>

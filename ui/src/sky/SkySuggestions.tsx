@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { applySuggestions, dismissSuggestions, suggestionKey, type Suggestion, type SuggestionKey } from './suggestApi'
-import { suggestBatchId } from './suggestModel'
+import { refusedText, suggestBatchId } from './suggestModel'
 
 // 右の欄の「結べそうな線が N 件 →」を押すと出る一覧（契約 pr7c B2）。
 // 公開したデータの種類・項目の名前が、用語の名前と**完全に一致**したものを、機械が数えて置いてある
@@ -26,6 +26,8 @@ export function SkySuggestions({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
+  // 閉じた規則で断られたもの（循環・種類違い・形違い）の 1 行。黙って消さない
+  const [refused, setRefused] = useState('')
 
   const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -34,6 +36,7 @@ export function SkySuggestions({
     setBusy(true)
     setErr('')
     setNote('')
+    setRefused('')
     try {
       const res = await applySuggestions(items, suggestBatchId())
       const gone = new Set(res.dropped.map((d) => d.index))
@@ -43,6 +46,8 @@ export function SkySuggestions({
       const stale = items.filter((_, i) => gone.has(i))
       if (stale.length > 0) onDismissed(stale)
       setNote(t('suggest.done', { n: res.applied }))
+      const why = refusedText(res.dropped, t)
+      if (why) setRefused(why)
     } catch (e) {
       setErr(errText(e))
     } finally {
@@ -101,6 +106,11 @@ export function SkySuggestions({
         </p>
       )}
       {note && suggestions.length > 0 && <p className="sky-meta">{note}</p>}
+      {refused && (
+        <p className="sky-meta" role="status" data-testid="suggestions-refused">
+          {refused}
+        </p>
+      )}
       <div className="sky-about-actions">
         {suggestions.length > 0 && (
           <button
