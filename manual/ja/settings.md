@@ -35,13 +35,13 @@ sessionStorage のみになります。「このサーバのみんなで使う�
 になります（キーの中身は誰の画面にも表示されません）。トークン単価を
 設定すると、使った分のコストを概算できるようになります。
 
-### Google Gemini を使う
+### Google Gemini を使う <Badge type="tip" text="v0.55.0 (2026-10-20) で追加" />
 
 プロバイダで「Google Gemini」を選び、Google AI Studio で作ったキー
 （`AIza` で始まります）を貼ります。アドレスは決まっているので入力しません。
 「モデル一覧を取得」で使えるモデルが出るので、1 つ選んで保存します。
 
-### GitHub Copilot（サブスク）を使う
+### GitHub Copilot（サブスク）を使う <Badge type="tip" text="v0.55.0 (2026-10-20) で追加" />
 
 すでに GitHub Copilot を契約しているなら、キーなしで使えます。このパソコンの
 `copilot` CLI のログインを借りるので、使った分は Copilot のプランの枠に数えられ、
