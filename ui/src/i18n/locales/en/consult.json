@@ -35,5 +35,8 @@
     "delete": "Delete this chat",
     "searchPlaceholder": "Search chats…",
     "noMatch": "No matching chats."
+  },
+  "workspace": {
+    "noProposal": "No change to propose from that. Try saying it differently."
   }
 }

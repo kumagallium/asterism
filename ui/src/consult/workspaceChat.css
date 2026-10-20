@@ -1,0 +1,73 @@
+/* 作業場の会話（WorkspaceChat）をホーム・データの右の欄に置くときの寸法。
+   見た目（吹き出し・提案カード・入力欄）は themes.css の .thm-chat / .thm-card-p を使う。 */
+.ws-chat {
+  margin-top: var(--space-3, 0.75rem);
+  min-width: 0;
+}
+.ws-chat-open {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+/* 広い画面: 右の欄の幅のまま、高さは履歴に合わせる（7b の作業場は図と同じ高さに伸ばす） */
+@media (min-width: 721px) {
+  .ws-chat .thm-chat {
+    height: auto;
+    min-height: 18rem;
+    max-height: 32rem;
+  }
+}
+.ws-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.ws-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+}
+.ws-focus-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* データ（かんたん ③）: 左に表・右に会話。会話は設計ができてから（kz-ws--solo は表だけ）。 */
+.kz-ws {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: var(--space-4, 1rem);
+  align-items: start;
+}
+.kz-ws--solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+.kz-ws-main {
+  min-width: 0;
+}
+.kz-ws-side {
+  position: sticky;
+  top: var(--space-2, 0.5rem);
+  min-width: 0;
+}
+.kz-ws-side .ws-chat {
+  margin-top: 0;
+}
+@media (max-width: 1100px) {
+  .kz-ws {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kz-ws-side {
+    position: static;
+  }
+}
+/* 履歴が空のあいだは、会話の欄を大きく取らない */
+@media (min-width: 721px) {
+  .ws-chat .thm-chat {
+    min-height: 0;
+  }
+}

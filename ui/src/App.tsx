@@ -9,6 +9,7 @@ import { CardsView } from './cards/CardsView'
 import './cards/embed.css'
 import { SubjectRail } from './cards/SubjectRail'
 import { ConsultDrawer } from './consult/ConsultDrawer'
+import { useWorkspaceChatShown } from './consult/workspaceChatActive'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
 import { BackendDownBanner } from './desktop/BackendDownBanner'
@@ -550,6 +551,8 @@ function App() {
     return parseHash(window.location.hash)
   })
   const tab = route.tab
+  const workspaceChatShown = useWorkspaceChatShown()
+  const showGlobalConsult = tab !== 'cards' && tab !== 'home' && tab !== 'vocab' && !workspaceChatShown
   const { openSettings } = useLlmSettings()
   const tSettings = i18n.getFixedT(i18n.language, 'settings')
   const glossSettingsT = i18n.getFixedT(otherLng, 'settings')
@@ -1187,8 +1190,11 @@ function App() {
       {/* Global right-drawer AI consult (ADR design-consult-chat.md D1): available
           on every screen, not just the かんたん wizard — a domain expert can also
           ask "what does this column mean" from the Gallery or Ask. cards タブ
-          （見る）だけは出さない（契約メモ §3: 質問窓口を 1 つにする §7）。 */}
-      {tab !== 'cards' && <ConsultDrawer />}
+          （見る）だけは出さない（契約メモ §3: 質問窓口を 1 つにする §7）。
+          ホーム（星図）・知りたいこと（テーマ）は、画面の中に「左に図・右に会話」の会話があるので
+          出さない。データ（かんたん）は、会話（③の「AI に相談して結ぶ」）が出ているあいだだけ
+          隠す（契約 pr7c A3: 会話が 2 つにならない）。 */}
+      {showGlobalConsult && <ConsultDrawer />}
     </div>
   )
 }

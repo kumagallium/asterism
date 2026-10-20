@@ -147,5 +147,25 @@
       "raises": "{{subject}} raises {{object}}",
       "affects": "{{subject}} changes {{object}}"
     }
+  },
+  "chat": {
+    "selected": "Selected star: {{name}}",
+    "pick": "Pick a star and say one thing. Without one, you can still talk about how terms relate.",
+    "example": "For example: \"Is this kind the same as Specimen?\" or \"Isn't lattice conductivity part of thermal conductivity?\"",
+    "bind": "Let AI link (kinds not linked yet: {{n}})",
+    "bindHint": "AI proposes links for published kinds that no term has been linked to yet. It only proposes: nothing is written until you press Yes."
+  },
+  "suggest": {
+    "link": "{{n}} links could be made →",
+    "title": "Links that could be made",
+    "lead": "Names in the data you published match term names exactly (counted by a machine, no AI). You decide. They are drawn on the map as faint dotted lines.",
+    "sentence": "\"{{subject}}\" is the same as \"{{term}}\"",
+    "all": "Confirm all {{n}} together",
+    "per": "One by one",
+    "one": "Link",
+    "no": "No",
+    "back": "Back",
+    "empty": "No more links to make.",
+    "done": "{{n}} linked."
   }
 }

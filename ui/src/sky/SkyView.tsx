@@ -11,11 +11,14 @@ import { getAlignments, type Alignment } from '../crosswalkApi'
 import { MoreMenu } from '../MoreMenu'
 import { SkyRail } from './SkyRail'
 import { SkyTables } from './SkyTables'
+import { fetchSuggestions, type Suggestion } from './suggestApi'
+import { irisOfKeys, overlayEdges, withoutKeys, type OverlayEdge } from './suggestModel'
 import { SAMPLE_SKY } from './sample'
 import { fetchDraftSky, getSky, type DraftSky, type SkyData } from './skyApi'
 import {
   bornAlive,
   drawSky,
+  drawSuggestions,
   formatCount,
   hitTest,
   readSkyPalette,
@@ -99,6 +102,8 @@ export function SkyView(props: SkyViewProps) {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   // まだ確かめていない下書き（認証つきの別口）。星図が読めなくても、取れた分だけで描く。
   const [drafts, setDrafts] = useState<DraftSky[]>([])
+  // 公開のあとに機械が数えた「結べそうな線」（認証つき・鍵が無ければ空）。星図が読めなくても取れた分だけ使う。
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
 
   const fetchSky = useCallback(() => {
     let cancelled = false
@@ -106,6 +111,7 @@ export function SkyView(props: SkyViewProps) {
       .then((sky) => !cancelled && setLoad({ status: 'ok', sky }))
       .catch(() => !cancelled && setLoad({ status: 'error' }))
     void fetchDraftSky(lang).then((d) => !cancelled && setDrafts(d))
+    void fetchSuggestions().then((s) => !cancelled && setSuggestions(s))
     return () => {
       cancelled = true
     }
@@ -117,6 +123,7 @@ export function SkyView(props: SkyViewProps) {
       .then((sky) => setLoad({ status: 'ok', sky }))
       .catch(() => undefined)
     void fetchDraftSky(lang).then(setDrafts)
+    void fetchSuggestions().then(setSuggestions)
   }, [lang])
   const retry = () => {
     setLoad({ status: 'loading' })
@@ -159,13 +166,30 @@ export function SkyView(props: SkyViewProps) {
       </div>
     )
   }
-  return <SkyBody sky={load.sky} drafts={drafts} lang={lang} onRefresh={refresh} {...props} />
+  return (
+    <SkyBody
+      sky={load.sky}
+      drafts={drafts}
+      suggestions={suggestions}
+      setSuggestions={setSuggestions}
+      lang={lang}
+      onRefresh={refresh}
+      {...props}
+    />
+  )
 }
 
 function SkyBody(
-  props: SkyViewProps & { sky: SkyData; drafts: DraftSky[]; lang: 'ja' | 'en'; onRefresh: () => void },
+  props: SkyViewProps & {
+    sky: SkyData
+    drafts: DraftSky[]
+    suggestions: Suggestion[]
+    setSuggestions: (f: (s: Suggestion[]) => Suggestion[]) => void
+    lang: 'ja' | 'en'
+    onRefresh: () => void
+  },
 ) {
-  const { sky, lang, drafts } = props
+  const { sky, lang, drafts, suggestions } = props
   const { t } = useTranslation('sky')
   // 下書きだけでも図を描く（見本は出さない）
   const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && drafts.length === 0
@@ -250,6 +274,8 @@ function SkyBody(
     questionNear: ReadonlySet<string> | null
     reduced: boolean
     nothing: boolean
+    /** 薄い線で重ねる「結べそうな線」（星 → 用語の札）。 */
+    overlay: readonly OverlayEdge[]
   }
   const stateRef = useRef<PaintState | null>(null)
 
@@ -287,16 +313,18 @@ function SkyBody(
       },
       s.visible,
     )
+    if (!s.nothing) drawSuggestions(ctx, s.layout, paletteRef.current, s.overlay, focusId)
     if (!s.reduced && bornAlive(bornRef.current, now)) rafRef.current = requestAnimationFrame(paintFrame)
   }, [])
   const schedule = useCallback(() => {
     if (!rafRef.current) rafRef.current = requestAnimationFrame(paint)
   }, [paint])
 
+  const overlay = useMemo(() => overlayEdges(layout, suggestions), [layout, suggestions])
   useEffect(() => {
-    stateRef.current = { layout, labels, visible, selectedId: activeId, questionNear, reduced, nothing }
+    stateRef.current = { layout, labels, visible, selectedId: activeId, questionNear, reduced, nothing, overlay }
     schedule()
-  }, [layout, labels, visible, activeId, questionNear, reduced, nothing, schedule])
+  }, [layout, labels, visible, activeId, questionNear, reduced, nothing, overlay, schedule])
   // フォントが届いたら描き直す（札の幅が変わる）。
   useEffect(() => {
     let alive = true
@@ -591,6 +619,13 @@ function SkyBody(
           onOpenTerm={props.onOpenTerm}
           onOpenQuestions={props.onOpenQuestions}
           onDecided={grow}
+          suggestions={suggestions}
+          unlinkedKinds={kindsWithoutTerm}
+          onSuggestionsApplied={(keys) => {
+            props.setSuggestions((l) => withoutKeys(l, keys))
+            grow(irisOfKeys(keys))
+          }}
+          onSuggestionsDismissed={(keys) => props.setSuggestions((l) => withoutKeys(l, keys))}
         />
       </div>
 

@@ -6,6 +6,9 @@ import type { Alignment } from '../crosswalkApi'
 import { decisionsHash, involves } from '../decide/decisionsModel'
 import { resumeDraftHash } from '../vocabQuestion'
 import { DecidePanel } from '../decide/DecidePanel'
+import { SkyChat } from './SkyChat'
+import { SkySuggestions } from './SkySuggestions'
+import type { Suggestion, SuggestionKey } from './suggestApi'
 import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
 import type { DraftSky, SkyData, SkyQuestion } from './skyApi'
 import {
@@ -39,6 +42,14 @@ export interface RailProps {
   onOpenQuestions: () => void
   /** 「そう決める」のあと: 星図を取り直し、用語と星の輪を 1 度だけ出す。 */
   onDecided: (iris: string[]) => void
+  /** 公開のあとに機械が数えた「結べそうな線」（名前の完全一致・鍵が無ければ空）。 */
+  suggestions: readonly Suggestion[]
+  /** 用語にまだ結ばれていない種類の数（「AI に結ばせる」の件数）。 */
+  unlinkedKinds: number
+  /** 候補を線にした（星図を取り直す・一覧から外す）。 */
+  onSuggestionsApplied: (keys: SuggestionKey[]) => void
+  /** 候補を外した（一覧から外す）。 */
+  onSuggestionsDismissed: (keys: SuggestionKey[]) => void
 }
 
 const fmt = (n: number): string => n.toLocaleString('en-US')
@@ -46,6 +57,9 @@ const fmt = (n: number): string => n.toLocaleString('en-US')
 export function SkyRail(props: RailProps) {
   const { t } = useTranslation('sky')
   const node = props.selectedId ? props.layout.nodes.get(props.selectedId) : undefined
+  // 「結べそうな線が N 件 →」を押すと、欄の中身が一覧に替わる（選択は保つ）。0 件になったら戻る。
+  const [showSuggest, setShowSuggest] = useState(false)
+  const suggestOpen = showSuggest && props.suggestions.length > 0
   return (
     <aside className="sky-rail">
       {props.grown && (
@@ -53,7 +67,32 @@ export function SkyRail(props: RailProps) {
           {t('grown', { from: props.grown.from, to: props.grown.to })}
         </p>
       )}
-      {node ? <AboutCard {...props} node={node} /> : <QuestionsCard {...props} />}
+      {props.suggestions.length > 0 && (
+        <p className="sky-review" data-testid="suggest-link">
+          <button type="button" className="link-btn" onClick={() => setShowSuggest(!suggestOpen)}>
+            {t('suggest.link', { n: props.suggestions.length })}
+          </button>
+        </p>
+      )}
+      {suggestOpen ? (
+        <SkySuggestions
+          suggestions={props.suggestions}
+          onClose={() => setShowSuggest(false)}
+          onApplied={props.onSuggestionsApplied}
+          onDismissed={props.onSuggestionsDismissed}
+        />
+      ) : node ? (
+        <AboutCard {...props} node={node} />
+      ) : (
+        <QuestionsCard {...props} />
+      )}
+      <SkyChat
+        sky={props.sky}
+        node={node}
+        lang={props.lang}
+        unlinkedKinds={props.unlinkedKinds}
+        onDecided={props.onDecided}
+      />
     </aside>
   )
 }
