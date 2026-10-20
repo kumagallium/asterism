@@ -209,8 +209,9 @@ describe('③ の会話（AI に相談して結ぶ・契約 pr7c C1・C3）', ()
   })
 
   it('最初のカード「名前が一致する候補 N 件」は決定論（FitSuggestion の数）で、AI を呼ばない', () => {
-    expect(fitSource).toMatch(/onFoundRef\.current\?\.\(shown\)/)
-    expect(source).toMatch(/onFound=\{\(n\) =>/)
+    expect(fitSource).toMatch(/onFoundRef\.current\?\.\(/)
+    expect(source).toMatch(/onFound=\{\(terms\) =>/)
+    expect(source).toMatch(/countFitPairs\(Object\.values\(fitFound\)\)/)
     expect(source).toMatch(/candidates=\{fitCandidateTotal\}/)
     expect(chatSource).toMatch(/kantan:chat\.candidates/)
     // 数えるだけ: 会話の送信（proposeOnScreen）はここでは呼ばない
@@ -228,7 +229,9 @@ describe('③ の会話（AI に相談して結ぶ・契約 pr7c C1・C3）', ()
     expect(source.match(/setChatOpenSignal\(\(n\) => n \+ 1\)/g)).toHaveLength(2)
     expect(workspaceChatSource).toMatch(/registerWorkspaceChat\(\)/)
     expect(appSource).toMatch(/!workspaceChatShown/)
-    expect(appSource).toMatch(/tab !== 'home' && tab !== 'vocab'/)
+    // 隠すのは会話の mount 中（と、body クラスで作業場）だけ。用語のページ・テーマ一覧（vocab）には出す
+    expect(appSource).toMatch(/const showGlobalConsult = tab !== 'cards' && !workspaceChatShown/)
+    expect(appSource).not.toMatch(/tab !== 'vocab'/)
   })
 
   it('当てはめの適用は人が「そう」を押したときだけ（会話は提案を出すだけ）', () => {

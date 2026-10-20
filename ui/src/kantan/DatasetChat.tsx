@@ -9,6 +9,7 @@ import type { GraphOp } from '../themes/consultGraphApi'
 //
 // 最初のカードは、機械が数えた「名前が一致する候補 N 件」（D2・AI を呼ばない）。候補そのものは
 // 表の各行の下（FitSuggestion）に出ていて、ここは件数と行き先を言うだけ。
+// 説明は 1 行（渡す情報の範囲はその行の title）。入力欄の placeholder に例。
 // 設計（mapping.yaml）がまだ無い間は api が 422 を返すので、会話は設計ができてから（呼ぶ側が出す）。
 
 export function DatasetChat({
@@ -37,9 +38,9 @@ export function DatasetChat({
     ) : null
   const focus = (
     <div className="ws-focus">
-      <p className="ws-focus-name">{t('kantan:chat.title')}</p>
-      <p className="ws-hint">{t('kantan:chat.lead')}</p>
-      <p className="ws-hint">{t('kantan:chat.example')}</p>
+      <p className="ws-hint" title={t('kantan:chat.privacy')}>
+        {t('kantan:chat.lead')}
+      </p>
     </div>
   )
   return (
@@ -49,6 +50,7 @@ export function DatasetChat({
       lang={lang}
       intro={intro}
       focus={focus}
+      placeholder={t('kantan:chat.example')}
       openSignal={openSignal}
       onApplied={({ ops }) => onApplied(ops)}
       testId="dataset-chat"

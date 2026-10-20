@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UpperItem } from '../api'
-import { bindingsForColumn, columnBindings, columnOfRef } from './chatBindings'
+import { bindingsForColumn, columnBindings, columnOfRef, countFitPairs, sameFound } from './chatBindings'
 import { hasChatProvenance, picksToUpper, upperToPicks } from './kindFit'
 import type { MappingSkeleton } from '../api'
 
@@ -24,9 +24,36 @@ describe('会話で受けた列の結びつき', () => {
       item('https://ex/onto#Sample', 'https://sv#specimen', 'subClassOf'),
     ])
     expect(rows).toEqual([
-      { column: '粒径', term: T, relation: 'equivalentProperty', fromChat: true },
-      { column: '重さ', term: T, relation: 'subPropertyOf', fromChat: false },
+      { subjects: ['property:M/粒径'], column: '粒径', term: T, relation: 'equivalentProperty', fromChat: true, applied: false, skipped: null },
+      { subjects: ['property:M/重さ'], column: '重さ', term: T, relation: 'subPropertyOf', fromChat: false, applied: false, skipped: null },
     ])
+  })
+
+  it('公開で線になった・見送りになった・まだ、を持つ（外すに送る subject は同じ見出しの全 map）', () => {
+    const rows = columnBindings([
+      item('property:M/粒径', T, 'equivalentProperty', { drafted_by: 'ai', applied_at: '2026-10-20T00:00:00Z' }),
+      item('property:M/重さ', T, 'subPropertyOf', { drafted_by: 'ai', skipped: 'subject missing' }),
+      item('property:M/重さ', T, 'subPropertyOf', { applied_at: '2026-10-20T00:00:00Z', skipped: 'x' }),
+      item('property:N/重さ', T, 'subPropertyOf', { drafted_by: 'ai' }),
+    ])
+    expect(rows.map((r) => [r.column, r.applied, r.skipped])).toEqual([
+      ['粒径', true, null],
+      ['重さ', false, 'subject missing'],
+    ])
+    expect(rows[1].subjects).toEqual(['property:M/重さ', 'property:N/重さ'])
+  })
+
+  it('最初のカードの N は（列, 用語）の組で重複を除く', () => {
+    const rows = [
+      { column: '食材', terms: ['t1', 't2'] },
+      { column: '食材', terms: ['t1'] }, // 別のファイルの同じ見出し — 同じ組は 1 件
+      { column: '価格', terms: ['t1'] },
+    ]
+    expect(countFitPairs(rows)).toBe(3)
+    expect(countFitPairs([])).toBe(0)
+    expect(sameFound(undefined, [])).toBe(true)
+    expect(sameFound({ column: 'a', terms: ['x'] }, ['x'])).toBe(true)
+    expect(sameFound({ column: 'a', terms: ['x'] }, ['x', 'y'])).toBe(false)
   })
 
   it('行の印は、その列の分だけ・表で受けた fit と同じ語は出さない', () => {

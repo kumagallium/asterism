@@ -552,7 +552,10 @@ function App() {
   })
   const tab = route.tab
   const workspaceChatShown = useWorkspaceChatShown()
-  const showGlobalConsult = tab !== 'cards' && tab !== 'home' && tab !== 'vocab' && !workspaceChatShown
+  // 右下の「AI に相談」を隠すのは、会話が画面の中にあるときだけ: ホーム／③の会話（mount されている間）と、
+  // 作業場（ThemeWorkspace が開いている間は body に `thm-wizard-open` が付き、CSS が隠す）。用語のページ・
+  // テーマ一覧など、ほかの画面には出す。
+  const showGlobalConsult = tab !== 'cards' && !workspaceChatShown
   const { openSettings } = useLlmSettings()
   const tSettings = i18n.getFixedT(i18n.language, 'settings')
   const glossSettingsT = i18n.getFixedT(otherLng, 'settings')
@@ -1191,9 +1194,8 @@ function App() {
           on every screen, not just the かんたん wizard — a domain expert can also
           ask "what does this column mean" from the Gallery or Ask. cards タブ
           （見る）だけは出さない（契約メモ §3: 質問窓口を 1 つにする §7）。
-          ホーム（星図）・知りたいこと（テーマ）は、画面の中に「左に図・右に会話」の会話があるので
-          出さない。データ（かんたん）は、会話（③の「AI に相談して結ぶ」）が出ているあいだだけ
-          隠す（契約 pr7c A3: 会話が 2 つにならない）。 */}
+          ホーム・③の会話が mount されているあいだと、作業場が開いているあいだだけ隠す
+          （契約 pr7c A3: 会話が 2 つにならない）。用語のページ・テーマ一覧には出す。 */}
       {showGlobalConsult && <ConsultDrawer />}
     </div>
   )

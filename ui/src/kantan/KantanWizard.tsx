@@ -10,6 +10,7 @@ import {
   fetchDatasetHandles,
   fetchDatasetQuestions,
   fetchDatasetUpper,
+  removeDatasetUpper,
   saveDatasetQuestions,
   saveDatasetHandles,
   generateColumnMeanings,
@@ -143,10 +144,17 @@ import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
 import { FitSuggestion } from './FitSuggestion'
 import { DatasetChat } from './DatasetChat'
-import { bindingsForColumn, columnBindings } from './chatBindings'
+import {
+  type ColumnBinding,
+  type FitFound,
+  bindingsForColumn,
+  columnBindings,
+  countFitPairs,
+  sameFound,
+} from './chatBindings'
 import { type KindFitPick, itemFitsToUpper, picksToUpper, upperToPicks } from './kindFit'
 import { QuestionBuilder } from './QuestionBuilder'
-import { publishWriteCounts } from './questions'
+import { publishWriteCounts, skipReasonKind } from './questions'
 import { listTerms } from '../vocabApi'
 import {
   canTick,
@@ -1186,8 +1194,9 @@ export function KantanWizard({
   const [upperTouched, setUpperTouched] = useState(false)
   // ③の会話（AI に相談して結ぶ）。最初のカード「名前が一致する候補 N 件」の数え元（行 → 候補の数・
   // 機械の数え・AI なし）と、外のボタンから会話を開く合図。
-  const [fitFound, setFitFound] = useState<Record<string, number>>({})
+  const [fitFound, setFitFound] = useState<Record<string, FitFound>>({})
   const [chatOpenSignal, setChatOpenSignal] = useState(0)
+  const [chatBoundErr, setChatBoundErr] = useState('')
   const redesignOpenedDatasetIdRef = useRef<string | null>(null)
   const [assembleBusy, setAssembleBusy] = useState(false)
   const [assembleErr, setAssembleErr] = useState('')
@@ -3208,6 +3217,26 @@ export function KantanWizard({
     } catch {
       /* 印が出ないだけ */
     }
+  }
+
+  /** 会話で受けた当てはめを外す（`PUT /upper` の remove）。外したら読み戻して印を消す。 */
+  async function removeChatBound(datasetId: string, b: ColumnBinding) {
+    setChatBoundErr('')
+    try {
+      await removeDatasetUpper(
+        datasetId,
+        b.subjects.map((subject) => ({ subject, term: b.term, relation: b.relation })),
+      )
+      await refreshChatBound(datasetId)
+    } catch (e) {
+      setChatBoundErr(t('kantan:chat.boundRemoveFailed', { detail: errText(e) }))
+    }
+  }
+
+  /** 公開で線にできなかった理由 → 画面の言葉（api の決まった言い方だけ言い換え、他はそのまま）。 */
+  function skipText(reason: string): string {
+    const kind = skipReasonKind(reason)
+    return kind === 'other' ? reason : t(`kantan:chat.skipReason.${kind}`)
   }
 
   // ③を開いたとき（設計ができていて datasetId がある）、会話で受けた結びつきを読み戻す。
@@ -5252,7 +5281,7 @@ export function KantanWizard({
   // ⑦ 公開で書くもの（未消費の線・自分の問い）。0 件なら null（行を出さない）。
   // ③の会話: 表の行の印（会話で受けた結びつき）と、最初のカードの件数
   const boundAll = columnBindings(upperBase ?? [])
-  const fitCandidateTotal = Object.values(fitFound).reduce((a, b) => a + b, 0)
+  const fitCandidateTotal = countFitPairs(Object.values(fitFound))
   const writeCounts = publishWriteCounts(pendingUpper, publishQuestions)
   // 見直し（公開済みの版を読んでいて、作り直していない）で、名前の差が無くても公開に
   // まだ書けるもの: 未消費の線と問い。名前だけの公開の入口（PublishedNamesNotice）に出す。
@@ -7603,10 +7632,10 @@ export function KantanWizard({
                             <FitSuggestion
                               colSpan={6}
                               subjectKey={`column:${row.source}/${row.column}`}
-                              onFound={(n) =>
+                              onFound={(terms) =>
                                 setFitFound((prev) => {
                                   const k = meaningKey(row.source, row.column)
-                                  return (prev[k] ?? 0) === n ? prev : { ...prev, [k]: n }
+                                  return sameFound(prev[k], terms) ? prev : { ...prev, [k]: { column: row.column, terms } }
                                 })
                               }
                               label={current?.label ?? ''}
@@ -7646,8 +7675,26 @@ export function KantanWizard({
                                     </span>{' '}
                                     <span className="kz-cols-origin">
                                       {b.fromChat ? `${t('kantan:chat.boundByAi')} ` : ''}
-                                      {t('kantan:chat.boundWhen')}
+                                      {b.applied
+                                        ? t('kantan:chat.boundDone')
+                                        : b.skipped
+                                          ? t('kantan:chat.boundSkipped', { reason: skipText(b.skipped) })
+                                          : t('kantan:chat.boundWhen')}
                                     </span>
+                                    {/* 会話で受けた当てはめは、公開の前なら外せる（公開で線になったものは外せない） */}
+                                    {b.fromChat && !b.applied && kzDatasetId && (
+                                      <>
+                                        {' '}
+                                        <button
+                                          type="button"
+                                          className="link-btn"
+                                          data-testid="chat-bound-remove"
+                                          onClick={() => void removeChatBound(kzDatasetId, b)}
+                                        >
+                                          {t('kantan:chat.boundRemove')}
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -7674,6 +7721,11 @@ export function KantanWizard({
             </aside>
           )}
           </div>
+          {chatBoundErr && (
+            <div role="alert">
+              <p className="kz-note">{chatBoundErr}</p>
+            </div>
+          )}
           {meaningSaveErr && (
             <div role="alert">
               <p className="kz-note">{t('kantan:meanings.saveFailed')}</p>

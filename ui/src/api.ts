@@ -1390,6 +1390,21 @@ export interface UpperItem {
   skipped?: string
 }
 
+/** 当てはめを 1 本外す（`PUT /upper` の `remove: true`）。未消費の同じ線だけが消え、消費済み（もう
+ *  公開で線になったもの）と、ほかの項目は残る。会話で受けた当てはめを、③の表から外すのに使う。 */
+export async function removeDatasetUpper(
+  datasetId: string,
+  items: readonly Pick<UpperItem, 'subject' | 'term' | 'relation'>[],
+): Promise<UpperItem[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/upper`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ upper: items.map((i) => ({ ...i, remove: true })) }),
+  })
+  if (!res.ok) await throwApiError(res, 'remove upper')
+  return ((await res.json()) as { upper?: UpperItem[] }).upper ?? []
+}
+
 /** 公開（promote／publish-names）が線と問いを書いた結果（応答の `upper_questions`）。
  *  書けなかった線の理由・検査で落ちた問い・警告を、画面が言うための材料。 */
 export interface UpperQuestionsReport {

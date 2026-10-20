@@ -51,9 +51,10 @@ export function FitSuggestion({
   /** 「当てはまるものは無い」を覚える主語の鍵（公開前の列なので IRI は無い。例: `column:<file>/<列名>`）。
    *  無ければそのボタンは出さない。 */
   subjectKey?: string
-  /** いま出している候補の数が変わったとき（会話の最初のカード「名前が一致する候補 N 件」の数え元）。
-   *  行が消えるとき（外した列など）は 0 を返す。 */
-  onFound?: (n: number) => void
+  /** いま出している候補（用語の IRI）が変わったとき（会話の最初のカード「名前が一致する候補 N 件」の
+   *  数え元。同じ（列, 用語）の組は呼ぶ側が重複を除いて数える）。行が消えるとき（外した列など）は
+   *  空を返す。 */
+  onFound?: (terms: string[]) => void
   onAccept: (candidate: FitCandidate) => void
   onClear: () => void
   onTick: (candidate: FitCandidate) => void
@@ -87,11 +88,13 @@ export function FitSuggestion({
   useEffect(() => {
     onFoundRef.current = onFound
   })
-  const shown = label.trim() !== '' || column.trim() !== '' ? Math.min(candidates.length, MAX_SHOWN) : 0
+  const shownTerms =
+    label.trim() !== '' || column.trim() !== '' ? candidates.slice(0, MAX_SHOWN).map((c) => c.term) : []
+  const shownKey = shownTerms.join('\u0000')
   useEffect(() => {
-    onFoundRef.current?.(shown)
-  }, [shown])
-  useEffect(() => () => onFoundRef.current?.(0), [])
+    onFoundRef.current?.(shownKey === '' ? [] : shownKey.split('\u0000'))
+  }, [shownKey])
+  useEffect(() => () => onFoundRef.current?.([]), [])
 
   async function onDismiss(c: FitCandidate) {
     if (!subjectKey) return
