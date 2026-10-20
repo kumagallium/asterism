@@ -105,9 +105,9 @@ class DismissBody(BaseModel):
 
     subject: str
     term: str
-    #: 関係の却下（下書きの線の ✕）。述語名（``isPartOf`` / ``lowers`` / ``subClassOf`` …）。無ければ
-    #: 従来の「当てはまるものは無い」。概念の却下は ``subject="concept:<正規化した名前>"``・
-    #: ``term="concept"``（``relation`` なし）。
+    #: 関係の却下（下書きの線の ✕）。述語名（``isPartOf`` / ``lowers`` / ``subClassOf`` …）。
+    #: 無ければ従来の「当てはまるものは無い」。概念の却下は
+    #: ``subject="concept:<正規化した名前>"``・``term="concept"``（``relation`` なし）。
     relation: str | None = None
 
 

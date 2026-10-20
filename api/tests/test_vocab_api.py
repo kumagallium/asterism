@@ -833,10 +833,12 @@ def test_dismiss_keeps_a_relation_or_a_concept_apart_from_the_plain_pair(tmp_pat
     with TestClient(app, headers=_AUTH) as client:
         rel = {"subject": a, "term": b, "relation": "lowers"}
         r = client.post("/api/vocab/dismiss", json=rel)
-        assert r.status_code == 200 and r.json()["added"] is True and r.json()["relation"] == "lowers"
+        assert r.status_code == 200
+        assert r.json()["added"] is True and r.json()["relation"] == "lowers"
         assert client.post("/api/vocab/dismiss", json=rel).json()["added"] is False  # 冪等
         # 述語が違えば別の行（概念の鍵どうしでも通る）
-        assert client.post("/api/vocab/dismiss", json={**rel, "relation": "affects"}).json()["added"]
+        other = client.post("/api/vocab/dismiss", json={**rel, "relation": "affects"})
+        assert other.json()["added"]
         # 概念の却下は relation なし
         con = client.post("/api/vocab/dismiss", json={"subject": a, "term": "concept"})
         assert con.status_code == 200 and con.json()["added"] is True
