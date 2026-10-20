@@ -50,7 +50,6 @@ export function DatasetChat({
       intro={intro}
       focus={focus}
       openSignal={openSignal}
-      defaultOpen
       onApplied={({ ops }) => onApplied(ops)}
       testId="dataset-chat"
     />

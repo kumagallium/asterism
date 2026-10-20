@@ -39,7 +39,7 @@
 /* データ（かんたん ③）: 左に表・右に会話。会話は設計ができてから（kz-ws--solo は表だけ）。 */
 .kz-ws {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22rem;
+  grid-template-columns: minmax(0, 1fr) 19rem;
   gap: var(--space-4, 1rem);
   align-items: start;
 }
@@ -69,5 +69,17 @@
 @media (min-width: 721px) {
   .ws-chat .thm-chat {
     min-height: 0;
+  }
+}
+
+/* 375px: 会話は下からのシート（themes.css の .thm-chat）。閉じているあいだの「開く」は右下に浮かせる */
+@media (max-width: 720px) {
+  .ws-chat-open {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: auto;
+    z-index: 55;
+    box-shadow: var(--shadow);
   }
 }

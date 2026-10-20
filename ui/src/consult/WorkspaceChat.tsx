@@ -51,9 +51,7 @@ export interface WorkspaceChatProps {
   request?: { id: number; text: string } | null
   /** 「そう」で当たったあと（画面が取り直す）。`ops` は当たった操作（落ちたものを除く）。 */
   onApplied?: (done: { ops: GraphOp[]; result: ApplyOnScreenResult }) => void
-  /** 開いた状態の初期値。既定は広い画面だけ開く。 */
-  defaultOpen?: boolean
-  /** 開く・たたむの印（外の「AI と相談」ボタンが開けるように）。 */
+  /** 外のボタンが会話を開く合図（値が変わるたびに開く）。広い画面だけ最初から開き、375px は閉じて始める。 */
   openSignal?: number
   className?: string
   testId?: string
@@ -79,7 +77,7 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
   const [applying, setApplying] = useState(false)
   const [ai, setAi] = useState<AiState>('ok')
   const [actionErr, setActionErr] = useState('')
-  const [open, setOpen] = useState(p.defaultOpen ?? isWide())
+  const [open, setOpen] = useState(isWide())
   const aiReady = isReady && ai === 'ok'
   const busy = thinking || applying
 
