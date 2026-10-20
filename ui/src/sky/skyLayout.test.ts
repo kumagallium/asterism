@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { SAMPLE_SKY } from './sample'
-import { EMPTY_SKY, type SkyData } from './skyApi'
+import { EMPTY_SKY, type DraftSky, type SkyData } from './skyApi'
 import { makeSky } from './skyFixture'
 import {
   chooseMode,
+  draftCardConcepts,
+  draftNodeId,
   hash01,
   kindId,
   layoutSky,
@@ -16,6 +18,7 @@ import {
   STAR_MAX_DATASETS,
   STAR_MAX_KINDS,
   termId,
+  type DraftNode,
   type KindNode,
   type SkyLayout,
 } from './skyLayout'
@@ -267,5 +270,66 @@ describe('neighborhood / nodeIdsForIris', () => {
     const c = layoutSky(sky, { width: 1000 })
     const iri = sky.datasets[3].kinds[0].iri
     expect(nodeIdsForIris(c, [iri])).toContain('d|d003')
+  })
+})
+
+describe('下書きの札（上の帯・枠だけ）', () => {
+  const thermal: DraftSky = {
+    draft_id: 'thermo',
+    theme_label: '熱電材料',
+    concepts: [
+      { key: 'c1', label: '熱伝導率', kind: 'property', use: 'standard:quantitykind:ThermalConductivity' },
+      { key: 'c2', label: '格子熱伝導率', kind: 'property', use: 'new' },
+      { key: 'c4', label: '粒界散乱', kind: 'class', use: 'new' },
+      { key: 'c7', label: '試料', kind: 'class', use: 'existing:sample' },
+    ],
+    relations: [{ from: 'c2', to: 'c1', rel: 'part' }],
+    questions: ['熱伝導率を下げる要素になり得るのは？'],
+  }
+
+  it('既にある語は札にしない（新しく作る語・標準の語と結ぶ語だけ）', () => {
+    expect(draftCardConcepts(thermal).map((c) => c.key)).toEqual(['c1', 'c2', 'c4'])
+  })
+
+  it('データが 0 件でも描く（上の帯に重ならずに並び、図の中に収まる）', () => {
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [thermal] })
+    const cards = [...l.nodes.values()].filter((n): n is DraftNode => n.type === 'draft')
+    expect(cards.map((n) => n.id).sort()).toEqual(
+      ['c1', 'c2', 'c4'].map((k) => draftNodeId('thermo', k)).sort(),
+    )
+    for (const n of cards) {
+      expect(n.themeLabel).toBe('熱電材料')
+      expect(n.conceptCount).toBe(3)
+      expect(n.x - n.w / 2).toBeGreaterThanOrEqual(0)
+      expect(n.x + n.w / 2).toBeLessThanOrEqual(l.width)
+      expect(n.y).toBeLessThan(l.bands.midTop)
+    }
+    for (const a of cards) {
+      for (const b of cards) {
+        if (a.id === b.id || a.lane !== b.lane) continue
+        expect(Math.abs(a.x - b.x)).toBeGreaterThanOrEqual((a.w + b.w) / 2)
+      }
+    }
+  })
+
+  it('下書きが無ければ今までと同じ配置（見本・本物の札を動かさない）', () => {
+    const sky = makeSky(3, 10)
+    expect(positions(layoutSky(sky, { width: 960, drafts: [] }))).toEqual(positions(layoutSky(sky, { width: 960 })))
+  })
+
+  it('決定論で、本物の用語の札とも重ならない', () => {
+    const sky = makeSky(3, 12)
+    const a = layoutSky(sky, { width: 960, drafts: [thermal] })
+    expect(positions(layoutSky(sky, { width: 960, drafts: [thermal] }))).toEqual(positions(a))
+    const band = [...a.nodes.values()].filter((n) => n.type === 'term' || n.type === 'draft') as (
+      | DraftNode
+      | { type: 'term'; id: string; x: number; w: number; lane: number }
+    )[]
+    for (const p of band) {
+      for (const q of band) {
+        if (p.id === q.id || p.lane !== q.lane) continue
+        expect(Math.abs(p.x - q.x)).toBeGreaterThanOrEqual((p.w + q.w) / 2)
+      }
+    }
   })
 })

@@ -217,7 +217,9 @@ export function ThemesView({
 
   const reload = () => setReloadKey((k) => k + 1)
   // 3 段は、hash の `new=1`（題つき）か、この画面で開いた下書き・「問いを足す」で開く。
-  const fromHash = newQuestion ? { question: parseVocabHash(window.location.hash).q } : null
+  const fromHash = newQuestion
+    ? (({ q, resume }) => ({ question: q, resume }))(parseVocabHash(window.location.hash))
+    : null
   const wizardOpen = fromHash !== null || local !== null
 
   function closeWizard() {
@@ -263,9 +265,9 @@ export function ThemesView({
         <div className="thm-overlay" role="dialog" aria-modal="true" aria-label={t('themes:wizard.aria')}>
           <div className="thm-panel">
             <ThemeWizard
-              key={`${local?.resumeId ?? ''}|${local?.extend?.id ?? ''}|${fromHash ? 'h' : ''}`}
+              key={`${local?.resumeId ?? fromHash?.resume ?? ''}|${local?.extend?.id ?? ''}|${fromHash ? 'h' : ''}`}
               initialQuestion={local ? '' : (fromHash?.question ?? '')}
-              resumeId={local?.resumeId}
+              resumeId={local?.resumeId ?? (fromHash?.resume || undefined)}
               extend={local?.extend}
               onClose={closeWizard}
               onPlaced={placed}

@@ -4,11 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import type { Alignment } from '../crosswalkApi'
 import { decisionsHash, involves } from '../decide/decisionsModel'
+import { resumeDraftHash } from '../vocabQuestion'
 import { DecidePanel } from '../decide/DecidePanel'
 import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
-import type { SkyData, SkyQuestion } from './skyApi'
+import type { DraftSky, SkyData, SkyQuestion } from './skyApi'
 import {
   type DatasetNode,
+  type DraftNode,
   type HubNode,
   type KindNode,
   type SkyLayout,
@@ -24,6 +26,8 @@ export interface RailProps {
   grown: { from: number; to: number } | null
   /** 人が決めた関係（星の横の「決めたこと N 件 →」の数え元。ホームが 1 度だけ取る）。 */
   alignments: readonly Alignment[]
+  /** まだ確かめていない下書き（右の欄の上の「たしかめるもの N 件」と、下書きの札の欄に使う）。 */
+  drafts: readonly DraftSky[]
   selectedId: string | null
   selectedQuestion: string | null
   onSelectNode: (id: string | null) => void
@@ -67,6 +71,8 @@ function AboutCard(p: RailProps & { node: NonNullable<ReturnType<SkyLayout['node
       return <StdAbout {...p} node={node} />
     case 'hub':
       return <HubAbout {...p} node={node} />
+    case 'draft':
+      return <DraftAbout {...p} node={node} />
   }
 }
 
@@ -352,6 +358,51 @@ function HubAbout(p: RailProps & { node: HubNode }) {
   )
 }
 
+/** 下書きの札の欄: テーマ名・概念の数・「たしかめる →」（②を開く）。 */
+function DraftAbout(p: RailProps & { node: DraftNode }) {
+  const { t } = useTranslation('sky')
+  const { node } = p
+  const draft = p.drafts.find((d) => d.draft_id === node.draftId)
+  return (
+    <section className="sky-card" aria-live="polite" data-testid="draft-about">
+      <h3>{t('about.titleDraft')}</h3>
+      <div className="sky-about-name">
+        {node.label}
+        <span className="sky-pill sky-pill--wait">{t('about.draftMark')}</span>
+        {node.termKind === 'property' && <span className="sky-meta">{t('bands.property')}</span>}
+      </div>
+      <dl className="sky-kv">
+        <dt>{t('about.draftTheme')}</dt>
+        <dd>{node.themeLabel}</dd>
+        <dt>{t('about.draftConcepts')}</dt>
+        <dd>{t('about.draftCount', { n: draft?.concepts.length ?? node.conceptCount })}</dd>
+        {draft && draft.questions.length > 0 && (
+          <>
+            <dt>{t('about.draftQuestions')}</dt>
+            <dd>
+              {draft.questions.map((q) => (
+                <div key={q}>{q}</div>
+              ))}
+            </dd>
+          </>
+        )}
+      </dl>
+      <p className="sky-hint">{t('about.draftHint')}</p>
+      <div className="sky-about-actions">
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          onClick={() => {
+            window.location.hash = resumeDraftHash(node.draftId)
+          }}
+        >
+          {t('about.draftOpen')}
+        </button>
+      </div>
+    </section>
+  )
+}
+
 // ── 知りたいこと ────────────────────────────────────────────────
 function Ring({ q, large }: { q: SkyQuestion; large?: boolean }) {
   const { t } = useTranslation('sky')
@@ -374,6 +425,13 @@ function QuestionsCard(p: RailProps) {
   const qs = p.sky.questions
   return (
     <section className="sky-card">
+      {p.drafts.length > 0 && (
+        <p className="sky-review" data-testid="draft-review">
+          <a className="link-btn" href={p.drafts.length === 1 ? resumeDraftHash(p.drafts[0].draft_id) : '#/questions'}>
+            {t('drafts.review', { n: p.drafts.length })}
+          </a>
+        </p>
+      )}
       <h3>{t('questions.head')}</h3>
       {qs.length === 0 ? (
         <div className="sky-meta">{t('questions.empty')}</div>

@@ -17,6 +17,7 @@ import {
   isolatedCount,
   parseVocabHash,
   pickExactStandard,
+  resumeDraftHash,
   showIsolatedNotice,
   slugFromText,
   suggestSlug,
@@ -173,8 +174,14 @@ describe('導線の hash', () => {
     const q = '試料は何件？ A/B'
     expect(parseVocabHash(vocabQuestionHash(q)).q).toBe(q)
     // 旧 scope / dataset は「決めたこと」へ移った（読まない）
-    expect(parseVocabHash('#/vocab?scope=standard&dataset=ds1')).toEqual({ q: '' })
-    expect(parseVocabHash('#/vocab')).toEqual({ q: '' })
+    expect(parseVocabHash('#/vocab?scope=standard&dataset=ds1')).toEqual({ q: '', resume: '' })
+    expect(parseVocabHash('#/vocab')).toEqual({ q: '', resume: '' })
+  })
+
+  it('ホームの下書きの札から、続き（②）を開く hash を作って読み戻せる', () => {
+    expect(parseVocabHash(resumeDraftHash('thermo-1'))).toEqual({ q: '', resume: 'thermo-1' })
+    expect(resumeDraftHash('a b')).toBe('#/questions?new=1&resume=a%20b')
+    expect(parseHash(resumeDraftHash('thermo-1'))).toEqual({ tab: 'vocab', newQuestion: true })
   })
 
   it('ルータは #/questions?…（旧 #/vocab?…も）を「知りたいこと」画面として開く', () => {

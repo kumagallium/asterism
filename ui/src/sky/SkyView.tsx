@@ -12,7 +12,7 @@ import { MoreMenu } from '../MoreMenu'
 import { SkyRail } from './SkyRail'
 import { SkyTables } from './SkyTables'
 import { SAMPLE_SKY } from './sample'
-import { getSky, type SkyData } from './skyApi'
+import { fetchDraftSky, getSky, type DraftSky, type SkyData } from './skyApi'
 import {
   bornAlive,
   drawSky,
@@ -97,23 +97,27 @@ export function SkyView(props: SkyViewProps) {
   const { t, i18n } = useTranslation('sky')
   const lang: 'ja' | 'en' = i18n.language.startsWith('en') ? 'en' : 'ja'
   const [load, setLoad] = useState<Load>({ status: 'loading' })
+  // まだ確かめていない下書き（認証つきの別口）。星図が読めなくても、取れた分だけで描く。
+  const [drafts, setDrafts] = useState<DraftSky[]>([])
 
   const fetchSky = useCallback(() => {
     let cancelled = false
     getSky()
       .then((sky) => !cancelled && setLoad({ status: 'ok', sky }))
       .catch(() => !cancelled && setLoad({ status: 'error' }))
+    void fetchDraftSky(lang).then((d) => !cancelled && setDrafts(d))
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [lang])
   useEffect(() => fetchSky(), [fetchSky])
   // 選択を保ったまま取り直す（読み込み中の表示には戻さない）。
   const refresh = useCallback(() => {
     getSky()
       .then((sky) => setLoad({ status: 'ok', sky }))
       .catch(() => undefined)
-  }, [])
+    void fetchDraftSky(lang).then(setDrafts)
+  }, [lang])
   const retry = () => {
     setLoad({ status: 'loading' })
     fetchSky()
@@ -155,13 +159,16 @@ export function SkyView(props: SkyViewProps) {
       </div>
     )
   }
-  return <SkyBody sky={load.sky} lang={lang} onRefresh={refresh} {...props} />
+  return <SkyBody sky={load.sky} drafts={drafts} lang={lang} onRefresh={refresh} {...props} />
 }
 
-function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefresh: () => void }) {
-  const { sky, lang } = props
+function SkyBody(
+  props: SkyViewProps & { sky: SkyData; drafts: DraftSky[]; lang: 'ja' | 'en'; onRefresh: () => void },
+) {
+  const { sky, lang, drafts } = props
   const { t } = useTranslation('sky')
-  const nothing = sky.datasets.length === 0 && sky.questions.length === 0
+  // 下書きだけでも図を描く（見本は出さない）
+  const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && drafts.length === 0
   const drawn = nothing ? SAMPLE_SKY : sky
 
   // ── 幅（図の列の幅に追従） ──
@@ -181,7 +188,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
     return () => ro.disconnect()
   }, [])
 
-  const layout = useMemo<SkyLayout>(() => layoutSky(drawn, { width, lang }), [drawn, width, lang])
+  const layout = useMemo<SkyLayout>(() => layoutSky(drawn, { width, lang, drafts: nothing ? [] : drafts }), [drawn, width, lang, drafts, nothing])
   const tables = useMemo(() => buildSkyTables(sky, lang), [sky, lang])
 
   // ── 静かな表示 ──
@@ -217,6 +224,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
       std: t('bands.std'),
       empty: t('bands.noStar'),
       property: t('bands.property'),
+      draft: t('bands.draft'),
       count: (n) => t('unit.count', { n: formatCount(n, lang) }),
       kinds: (n) => t('unit.kinds', { n }),
     }),
@@ -572,6 +580,7 @@ function SkyBody(props: SkyViewProps & { sky: SkyData; lang: 'ja' | 'en'; onRefr
           lang={lang}
           grown={grown}
           alignments={alignments}
+          drafts={drafts}
           selectedId={activeId}
           selectedQuestion={selectedQuestion}
           onSelectNode={selectNode}

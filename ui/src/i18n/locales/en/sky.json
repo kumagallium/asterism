@@ -5,7 +5,8 @@
     "dataCircles": "Data (one circle = one dataset)",
     "std": "Standard terms (horizon)",
     "noStar": "No stars yet",
-    "property": "field"
+    "property": "field",
+    "draft": "draft"
   },
   "unit": {
     "count": "{{n}} rows",
@@ -82,7 +83,15 @@
     "hubHint": "Records from separate datasets are linked by shared values.",
     "decideSlot": "Decide in one sentence",
     "decisions": "{{n}} decisions →",
-    "viewTerm": "See {{name}} →"
+    "viewTerm": "See {{name}} →",
+    "titleDraft": "Draft card",
+    "draftMark": "draft",
+    "draftTheme": "Theme",
+    "draftConcepts": "Concepts",
+    "draftCount": "{{n}}",
+    "draftQuestions": "Questions",
+    "draftHint": "Not checked yet. Look at the map and sentences in step 2 and confirm them together to make it a real card.",
+    "draftOpen": "Check it →"
   },
   "questions": {
     "head": "What you want to know",
@@ -119,5 +128,8 @@
     "label": "More",
     "numbers": "See the numbers"
   },
-  "grown": "Answerable questions {{from}} → {{to}}"
+  "grown": "Answerable questions {{from}} → {{to}}",
+  "drafts": {
+    "review": "{{n}} to check →"
+  }
 }

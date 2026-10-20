@@ -80,6 +80,8 @@ export interface SkyLabels {
   empty: string
   /** 項目（property）の用語の札の上。 */
   property: string
+  /** 下書きの札の印（枠だけの札の上）。 */
+  draft: string
   /** 件数の単位つき文字列（`46,200 件`）。 */
   count: (n: number) => string
   /** データセットの丸の下（`3 種類`）。 */
@@ -536,6 +538,36 @@ export function drawSky(
       ctx.textBaseline = 'top'
       ctx.fillText(fitText(ctx, `≡ ${std.prefix}:${std.label}`, n.w + 8), n.x, y + h + 3)
     }
+    ctx.restore()
+  }
+
+  // 下書きの札（上の帯）: 枠だけ（塗らない）＋「下書き」の印。置いたが星なしの札（薄塗り）とは別の符号。
+  for (const n of layout.nodes.values()) {
+    if (n.type !== 'draft') continue
+    const sc = scaleOf(n.id)
+    ctx.save()
+    ctx.globalAlpha = alphaOf(n.id) * A
+    ctx.font = `600 12px ${pal.font}`
+    const text = fitText(ctx, n.label, n.w - 26)
+    const tw = ctx.measureText(text).width
+    const w = Math.min(n.w, tw + 26) * sc
+    const h = n.h * sc
+    const x = n.x - w / 2
+    const y = n.y - h / 2
+    roundRect(ctx, x, y, w, h, 14)
+    ctx.fillStyle = pal.paper
+    ctx.fill()
+    ctx.strokeStyle = pal.activity
+    ctx.lineWidth = focus === n.id ? 2.5 : 1.4
+    ctx.stroke()
+    ctx.fillStyle = pal.activity
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, n.x, n.y + 0.5)
+    // 「下書き」の印（札の上）。項目の札は、印の右に「項目」を添える
+    ctx.font = `500 9px ${pal.mono}`
+    ctx.fillStyle = pal.accent
+    ctx.textBaseline = 'bottom'
+    ctx.fillText(n.termKind === 'property' ? `${labels.draft} · ${labels.property}` : labels.draft, n.x, y - 2)
     ctx.restore()
   }
 

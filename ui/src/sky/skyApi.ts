@@ -1,6 +1,7 @@
 // 星図（ホーム）の読み取り。`GET /api/sky`（契約 pr2-contract.md §A・§B、実装は
 // `asterism.sky_view`）。公開済みのものだけが来る。draft は含まれない。
 import { throwApiError } from '../api'
+import { authHeaders } from '../authToken'
 
 /** 種類（星）。`links` は同じデータセットの中の別の種類（星座の線）。 */
 export interface SkyKind {
@@ -126,5 +127,39 @@ export async function getSky(): Promise<SkyData> {
     ...EMPTY_SKY,
     ...body,
     facts: { ...EMPTY_SKY.facts, ...(body.facts ?? {}) },
+  }
+}
+
+/** 下書きの札 1 つ分の概念（`GET /api/themes/drafts/sky`）。`use` は `new` / `existing:<slug>` / `standard:<curie>`。 */
+export interface DraftSkyConcept {
+  key: string
+  label: string
+  kind: 'class' | 'property'
+  use: string
+}
+
+/** まだ確かめていない下書き 1 件（テーマ）。星図の上の帯に、枠だけの札＋「下書き」の印で描く。 */
+export interface DraftSky {
+  draft_id: string
+  theme_label: string
+  concepts: DraftSkyConcept[]
+  relations: { from: string; to: string; rel: string }[]
+  questions: string[]
+}
+
+/**
+ * 下書きの札（認証つきの別口）。`GET /api/sky` は公開済みだけのまま、下書きは書き込み用の鍵を持つ
+ * 人にだけ返る。鍵が無い・読めない・古いサーバのときは空（札を出さないだけ — 星図は止めない）。
+ */
+export async function fetchDraftSky(lang: 'ja' | 'en'): Promise<DraftSky[]> {
+  try {
+    const res = await fetch(`/api/themes/drafts/sky?lang=${lang}`, { headers: authHeaders() })
+    if (!res.ok) return []
+    const body = (await res.json()) as { drafts?: DraftSky[] }
+    return (body.drafts ?? []).filter(
+      (d) => d && typeof d.draft_id === 'string' && Array.isArray(d.concepts),
+    )
+  } catch {
+    return []
   }
 }

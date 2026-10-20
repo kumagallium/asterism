@@ -10,7 +10,7 @@
 //     （帯の札・ハブは重心に置くため、星が増えれば動いてよい）。
 //   ・規模: 種類 ≤ 60 かつ データセット ≤ 8 は星のまま。超えたらデータセットを 1 つの丸に畳む。
 //   ・帯の札は重ならない。横に並べきれなければ段（レーン）を足して帯を押し広げる。
-import type { SkyData, SkyDataset, SkyHub, SkyTerm } from './skyApi'
+import type { DraftSky, SkyData, SkyDataset, SkyHub, SkyTerm } from './skyApi'
 
 // ── 決定論のハッシュ（モックと同じ） ──────────────────────────────
 export function fnv1a(str: string, seed?: number): number {
@@ -77,7 +77,7 @@ export function approxLabelWidth(text: string, px: number = LABEL_PX): number {
 }
 
 // ── 型 ───────────────────────────────────────────────────────────
-export type SkyNodeType = 'kind' | 'dataset' | 'term' | 'std' | 'hub'
+export type SkyNodeType = 'kind' | 'dataset' | 'term' | 'std' | 'hub' | 'draft'
 
 interface NodeBase {
   id: string
@@ -129,7 +129,20 @@ export interface HubNode extends NodeBase {
   w: number
   lane: number
 }
-export type SkyNode = KindNode | DatasetNode | TermNode | StdNode | HubNode
+/** 下書きの札（まだ確かめていない概念）。枠だけで描き、押すと「下書きの札」の欄が出る。 */
+export interface DraftNode extends NodeBase {
+  type: 'draft'
+  draftId: string
+  themeLabel: string
+  conceptKey: string
+  termKind: 'class' | 'property'
+  /** この下書きの、札になる概念の数。 */
+  conceptCount: number
+  w: number
+  h: number
+  lane: number
+}
+export type SkyNode = KindNode | DatasetNode | TermNode | StdNode | HubNode | DraftNode
 
 export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub'
 export interface SkyEdge {
@@ -188,6 +201,8 @@ export interface LayoutOptions {
   minHeight?: number
   /** 星／丸の強制（試験用）。 */
   mode?: SkyMode | 'auto'
+  /** 下書きの札（`GET /api/themes/drafts/sky`）。上の帯に、用語の札のあいだへ足す。 */
+  drafts?: readonly DraftSky[]
 }
 
 // ── id ───────────────────────────────────────────────────────────
@@ -196,6 +211,12 @@ export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 export const termId = (iri: string): string => `t|${iri}`
 export const stdId = (iri: string): string => `s|${iri}`
 export const hubNodeId = (id: string): string => `h|${id}`
+export const draftNodeId = (draftId: string, key: string): string => `draft|${draftId}|${key}`
+
+/** 下書きの概念のうち札にするもの（新しく作る語・標準の語と結んで作る語）。既にある語は札を足さない。 */
+export function draftCardConcepts(d: DraftSky): DraftSky['concepts'] {
+  return d.concepts.filter((c) => !c.use.startsWith('existing:'))
+}
 
 /** 用語の表示名（言語に合わせる。無ければ日本語名・slug）。 */
 export function termLabel(t: SkyTerm, lang: 'ja' | 'en' = 'ja'): string {
@@ -561,6 +582,18 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     termItems.push({ id: termId(t.iri), x, w })
     termMeta.set(termId(t.iri), { t, label, w, memberIds, stdId: std })
   }
+  // 下書きの札: 同じ下書きは同じ x に置きたがる（ハッシュ）。札どうしは重ならない
+  const draftMeta = new Map<string, { d: DraftSky; c: DraftSky['concepts'][number]; w: number; count: number }>()
+  for (const d of opts.drafts ?? []) {
+    const cards = draftCardConcepts(d)
+    const base = PAD + 60 + (W - PAD * 2 - 120) * hash01(d.draft_id, 'draftx')
+    for (const c of cards) {
+      const id = draftNodeId(d.draft_id, c.key)
+      const w = Math.min(TERM_MAX_W, approxLabelWidth(c.label, 13) + 26)
+      termItems.push({ id, x: base, w })
+      draftMeta.set(id, { d, c, w, count: cards.length })
+    }
+  }
   const termPlace = placeLanes(termItems, W)
 
   // ── 標準用語（下の帯） ──
@@ -633,8 +666,28 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
 
   // 用語の札: 段 0 が星に近い（下）・最上段が NAMES_Y0
   for (const p of termPlace.placed) {
-    const m = termMeta.get(p.id)!
     const y = NAMES_Y0 + (namesLanes - 1 - p.lane) * laneH
+    const dm = draftMeta.get(p.id)
+    if (dm) {
+      const node: DraftNode = {
+        id: p.id,
+        type: 'draft',
+        x: p.x,
+        y,
+        label: dm.c.label,
+        draftId: dm.d.draft_id,
+        themeLabel: dm.d.theme_label,
+        conceptKey: dm.c.key,
+        termKind: dm.c.kind,
+        conceptCount: dm.count,
+        w: dm.w,
+        h: TERM_H,
+        lane: p.lane,
+      }
+      nodes.set(p.id, node)
+      continue
+    }
+    const m = termMeta.get(p.id)!
     const node: TermNode = {
       id: p.id,
       type: 'term',

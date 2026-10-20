@@ -5,7 +5,8 @@
     "dataCircles": "データ（1 つの丸＝1 データセット）",
     "std": "標準用語（地平線）",
     "noStar": "まだ星がない",
-    "property": "項目"
+    "property": "項目",
+    "draft": "下書き"
   },
   "unit": {
     "count": "{{n}} 件",
@@ -82,7 +83,15 @@
     "hubHint": "同じ値を手がかりに、別々のデータの件どうしを結んでいます。",
     "decideSlot": "ひとこと決める",
     "decisions": "決めたこと {{n}} 件 →",
-    "viewTerm": "{{name}} を見る →"
+    "viewTerm": "{{name}} を見る →",
+    "titleDraft": "下書きの札",
+    "draftMark": "下書き",
+    "draftTheme": "テーマ",
+    "draftConcepts": "概念の数",
+    "draftCount": "{{n}} 件",
+    "draftQuestions": "問い",
+    "draftHint": "まだ確かめていません。②で図と文を見て、まとめて確定すると、本物の札になります。",
+    "draftOpen": "たしかめる →"
   },
   "questions": {
     "head": "知りたいこと",
@@ -119,5 +128,8 @@
     "label": "その他の操作",
     "numbers": "数で見る"
   },
-  "grown": "答えられる問い {{from}} → {{to}}"
+  "grown": "答えられる問い {{from}} → {{to}}",
+  "drafts": {
+    "review": "たしかめるものが {{n}} 件 →"
+  }
 }
