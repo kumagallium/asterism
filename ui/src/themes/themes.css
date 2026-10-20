@@ -1,0 +1,521 @@
+/* 「知りたいこと」（テーマ）と、6 段で作る画面・用語のページ。色・角は既存のトークンだけを使う
+   （見た目の正: ui-redesign のモック「知りたいことから作る」6 段・「知りたいこと」画面）。 */
+
+.thm-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.thm-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.thm-head .vocab-sec-sub {
+  flex: 1 1 24rem;
+  max-width: 46rem;
+}
+
+/* テーマのカード */
+.thm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
+  gap: 0.9rem;
+  align-items: start;
+}
+.thm-card-theme {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.thm-card-theme--focus {
+  outline: 2px solid var(--activity);
+  outline-offset: 2px;
+}
+.thm-card-h {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1rem;
+}
+.thm-card-h h3 {
+  margin: 0;
+  font-size: inherit;
+}
+.thm-card-h .pill {
+  margin-left: auto;
+}
+.thm-qrow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+.thm-qrow:first-of-type {
+  border-top: 0;
+}
+.thm-qtitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+}
+.thm-qshape {
+  display: block;
+  color: var(--faint);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.thm-ring {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  position: relative;
+  background: conic-gradient(var(--activity) calc(var(--p) * 1%), var(--activity-soft) 0);
+}
+.thm-ring::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.thm-ring--none {
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+}
+.thm-ring--none::after {
+  display: none;
+}
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill.ok {
+  background: var(--activity-soft);
+  color: var(--activity);
+}
+.pill.wait {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.thm-needs {
+  margin: 0.2rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.thm-term-chip {
+  display: inline-block;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0 0.55rem;
+  margin: 0 0.25rem 0 0;
+  font-size: 0.75rem;
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+}
+a.thm-term-chip:hover {
+  background: var(--surface-alt);
+}
+.thm-memos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  font-size: 0.8rem;
+}
+.thm-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+.thm-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.thm-draft-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.thm-folds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.thm-folds summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+/* 6 段（モーダル） */
+.thm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  overflow: auto;
+  background: rgba(22, 36, 26, 0.35);
+}
+.thm-panel {
+  width: min(960px, 100%);
+  background: var(--bg);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+.thm-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem 1.2rem 1.2rem;
+}
+.thm-wizard-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+.thm-title {
+  margin: 0;
+  font-size: 1.1rem;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.thm-wizard-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.thm-recipe {
+  flex-wrap: wrap;
+}
+.thm-card {
+  gap: 0.8rem;
+}
+.thm-h {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.thm-lead {
+  margin: 0;
+  color: var(--body);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.thm-questions {
+  width: 100%;
+  min-height: 8rem;
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+.thm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+.thm-chip {
+  border: 1px dashed var(--accent);
+  color: var(--accent-strong);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.thm-chip:hover {
+  background: var(--accent-soft);
+}
+.thm-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.thm-group input {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  width: 9rem;
+}
+.thm-nav {
+  margin-top: 0.4rem;
+}
+.thm-ai {
+  display: inline-block;
+  margin-left: 0.4rem;
+  color: var(--accent-strong);
+  font-size: 0.7rem;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+
+/* ③ 用語の表 */
+.thm-table-wrap {
+  overflow-x: auto;
+}
+.thm-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8125rem;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+.thm-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface-sink, var(--surface-alt));
+  padding: 0.5rem 0.6rem;
+}
+.thm-table td {
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+}
+.thm-table input[type='text'] {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  width: 100%;
+  min-width: 7rem;
+}
+.thm-table select {
+  font: inherit;
+  font-size: 0.8rem;
+  max-width: 16rem;
+}
+.thm-alias {
+  margin-top: 0.25rem;
+  color: var(--faint);
+}
+.thm-row--bad td {
+  background: var(--error-bg, var(--accent-soft));
+}
+
+/* ④ 関係 */
+.thm-rel {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+.thm-rel--off {
+  opacity: 0.6;
+}
+.thm-yn {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.25rem;
+}
+.thm-yn button {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.thm-yn button.on {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+.thm-addrel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.thm-addrel select {
+  font: inherit;
+  font-size: 0.8rem;
+  max-width: 14rem;
+}
+.thm-effect {
+  font-size: 0.8rem;
+  color: var(--body);
+  background: var(--surface-alt);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  line-height: 1.7;
+}
+
+/* ⑤ ためす */
+.thm-try {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.thm-q {
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin: 0;
+}
+.thm-shape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--body);
+}
+.thm-shape select,
+.thm-shape input[type='text'] {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  max-width: 14rem;
+}
+.thm-ans {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+.thm-memo {
+  font-size: 0.78rem;
+  color: var(--body);
+}
+.thm-memo-toggle {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ⑥ 置く */
+.thm-ids {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+}
+.thm-id {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.thm-idfield {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.thm-idfield input {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  padding: 0.15rem 0.4rem;
+  width: 12rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+.thm-input--bad {
+  border-color: var(--error-border, #c0392b) !important;
+}
+
+/* 用語のページ */
+.thm-term-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.thm-kv {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.thm-kv dt {
+  color: var(--muted);
+}
+.thm-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .thm-kv {
+    grid-template-columns: 1fr;
+  }
+  .thm-overlay {
+    padding: 0;
+  }
+  .thm-panel {
+    border-radius: 0;
+    min-height: 100%;
+  }
+}
+
+/* 6 段の入力欄は、縦に並べたとき高さを分け合わない（.vocab-field の flex-basis は横並び用）。 */
+.thm-card .vocab-field {
+  flex: none;
+}
+.thm-card-actions a.btn {
+  text-decoration: none;
+}
+
+/* 畳んだメモの問い（1 行・押すと開く） */
+.thm-memos > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+/* 用語のページの「詳しく」（ID・履歴・外す操作） */
+.thm-term-more > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* 「閉じる」を押したときの、下書きの扱いの確認（捨てる操作はここに畳んだ） */
+.thm-closing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+}

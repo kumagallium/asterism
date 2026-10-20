@@ -17,9 +17,6 @@ export const DECISION_FILTERS = [
 ] as const
 export type DecisionFilter = (typeof DECISION_FILTERS)[number]
 
-export const DECISION_TABS = ['decisions', 'activity'] as const
-export type DecisionsTab = (typeof DECISION_TABS)[number]
-
 const SUB = new Set(['subClassOf', 'subPropertyOf'])
 const SAME = new Set(['equivalentClass', 'equivalentProperty'])
 const KNOWN = new Set([...SUB, ...SAME, 'hasQuantityKind'])
@@ -97,28 +94,34 @@ export function questionCount(
   return terms.filter((term) => ends.has(term.iri)).reduce((n, term) => n + (term.cqs?.length ?? 0), 0)
 }
 
-/** `#/decisions?tab=activity&filter=perspective` の読み書き（クエリは `?` の後ろ）。 */
-export function parseDecisionsQuery(query: string): { tab: DecisionsTab; filter: DecisionFilter } {
+/** 1 つの種類・用語に掛かる行か（`#/decisions?about=<IRI>`）。 */
+export function involves(a: Alignment, iri: string): boolean {
+  return a.source === iri || a.target === iri
+}
+
+/** `#/decisions?filter=perspective&about=<IRI>` の読み書き（クエリは `?` の後ろ）。
+ *  `about` はその IRI に掛かる決めたことだけに絞る（星の横の「決めたこと N 件 →」の着地先）。 */
+export function parseDecisionsQuery(query: string): { filter: DecisionFilter; about?: string } {
   const params = new URLSearchParams(query)
-  const tab = params.get('tab')
   const filter = params.get('filter')
+  const about = params.get('about')
   return {
-    tab: tab === 'activity' ? 'activity' : 'decisions',
     filter: (DECISION_FILTERS as readonly string[]).includes(filter ?? '')
       ? (filter as DecisionFilter)
       : 'all',
+    ...(about ? { about } : {}),
   }
 }
 
-export function decisionsQuery(tab: DecisionsTab, filter: DecisionFilter): string {
+export function decisionsQuery(filter: DecisionFilter, about?: string): string {
   const params = new URLSearchParams()
-  if (tab === 'activity') params.set('tab', 'activity')
-  else if (filter !== 'all') params.set('filter', filter)
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+  if (filter !== 'all') params.set('filter', filter)
+  if (about) params.set('about', about)
+  const q = params.toString()
+  return q ? `?${q}` : ''
 }
 
-/** 「つながり同士」の対応づけを開いた「決めたこと」への hash。 */
-export function decisionsHash(filter: DecisionFilter = 'all'): string {
-  return `#/decisions${decisionsQuery('decisions', filter)}`
+/** 「決めたこと」への hash（絞り込みつき）。 */
+export function decisionsHash(filter: DecisionFilter = 'all', about?: string): string {
+  return `#/decisions${decisionsQuery(filter, about)}`
 }

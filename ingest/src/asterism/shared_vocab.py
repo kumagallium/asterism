@@ -21,6 +21,7 @@ Invariants (ADR §2.1〜§2.3, handoff §7):
 * A term is *wired* when at least one published dataset answers its CQ.
 """
 
+# ruff: noqa: RUF001
 from __future__ import annotations
 
 import json
@@ -72,6 +73,12 @@ _OWL = "http://www.w3.org/2002/07/owl#"
 _PROV = "http://www.w3.org/ns/prov#"
 _XSD = "http://www.w3.org/2001/XMLSchema#"
 _QUDT_QK = "http://qudt.org/vocab/quantitykind/"
+_SKOS_ALT = "http://www.w3.org/2004/02/skos/core#altLabel"
+#: ``xw:draftedBy`` の値は閉じた集合（AI の下書きを人が採用した、の印だけ）。
+DRAFTED_BY = ("ai",)
+#: 別名（``skos:altLabel``）の数・長さの上限。列名のゆれを覚えるための手がかりで、説明文ではない。
+ALIAS_MAX = 20
+ALIAS_MAX_LEN = 80
 
 #: The upward path (ADR §2.2). ``≡`` is stored as ONE directed triple, so the walk
 #: also goes backwards over it (``^``). Length 0 is included, so a term used directly
@@ -144,6 +151,11 @@ class SharedTerm:
     created_at: str
     declined_standard: str | None = None
     declined_reason: str | None = None
+    #: 別名（``skos:altLabel``）。``/api/vocab/fit`` の完全一致に効く（部分一致には使わない）。
+    aliases: tuple[str, ...] = ()
+    #: ``xw:draftedBy``（``"ai"`` = AI の下書きを人が採用）と ``xw:confirmedAt``（確定した日時）。
+    drafted_by: str | None = None
+    confirmed_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +168,23 @@ def normalize_label(s: str) -> str:
     ``skeleton_annotate._meaning_key`` (a test pins the two together). Symbols are
     not dropped."""
     return " ".join(unicodedata.normalize("NFKC", s).casefold().split())
+
+
+def clean_aliases(aliases: Iterable[str] | None) -> tuple[str, ...]:
+    """別名を整える: 前後の空白を落とし、空・長すぎるものを除き、:func:`normalize_label` が
+    同じものは先の 1 つだけ残す（順序は保つ）。件数は :data:`ALIAS_MAX` まで。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in aliases or ():
+        a = " ".join(str(raw).split())
+        key = normalize_label(a)
+        if not a or len(a) > ALIAS_MAX_LEN or key in seen:
+            continue
+        seen.add(key)
+        out.append(a)
+        if len(out) >= ALIAS_MAX:
+            break
+    return tuple(out)
 
 
 def is_system_entry(meta: dict) -> bool:
@@ -451,12 +480,19 @@ async def mint_term(
     comment: str | None = None,
     declined_standard: str | None = None,
     declined_reason: str | None = None,
+    aliases: Iterable[str] | None = None,
+    drafted_by: str | None = None,
 ) -> dict:
     """Mint ``sv:<slug>`` together with its first CQ(s) in ONE operation (ADR §2.1):
 
     * ``ValueError`` — bad slug / kind / label / ``at`` / IRI;
     * :class:`TermError` — no ``cqs`` (422), a CQ that does not lint, or an unreadable
       ``query_tools.yaml``; :class:`TermExists` — the slug is already minted (409).
+
+    ``aliases`` are written as ``skos:altLabel`` (the exact-match hints of
+    :func:`fit_candidates`). ``drafted_by="ai"`` records that a person adopted an AI
+    draft: ``xw:draftedBy`` plus ``xw:confirmedAt`` (= ``at``). Nothing else about the
+    draft (the raw output, the rejected suggestions) is kept.
 
     Everything that can be refused is checked before the first write. Returns the
     :class:`SharedTerm` as a dict."""
@@ -469,6 +505,8 @@ async def mint_term(
         raise ValueError(f"at must be an ISO datetime: {at!r}")
     if declined_standard:
         _check_iri(declined_standard)
+    if drafted_by is not None and drafted_by not in DRAFTED_BY:
+        raise ValueError(f"drafted_by must be one of {DRAFTED_BY}: {drafted_by!r}")
     if not cqs:
         raise TermError("用語は、問いを 1 つ以上添えて作ります")
     term = SharedTerm(
@@ -481,6 +519,9 @@ async def mint_term(
         created_at=at,
         declined_standard=declined_standard or None,
         declined_reason=(declined_reason or "").strip() or None,
+        aliases=clean_aliases(aliases),
+        drafted_by=drafted_by,
+        confirmed_at=at if drafted_by else None,
     )
     tools = default_cq_tools(term, cqs)
     _lint_or_raise(tools)
@@ -501,6 +542,10 @@ async def mint_term(
         triples.append(f"<{iri}> <{XW}declinedStandard> <{term.declined_standard}>")
     if term.declined_reason:
         triples.append(f"<{iri}> <{XW}declinedReason> {_lit(term.declined_reason)}")
+    triples.extend(f"<{iri}> <{_SKOS_ALT}> {_lit(a)}" for a in term.aliases)
+    if term.drafted_by:
+        triples.append(f"<{iri}> <{XW}draftedBy> {_lit(term.drafted_by)}")
+        triples.append(f'<{iri}> <{XW}confirmedAt> "{at}"^^<{_XSD}dateTime>')
     triples.append(f'<{iri}> <{_PROV}generatedAtTime> "{at}"^^<{_XSD}dateTime>')
     # Order: files first (scaffold + CQ upsert), then the store INSERT. If the INSERT
     # fails the CQs just written are taken back out by name, so a retry is not a
@@ -515,7 +560,9 @@ async def mint_term(
         remove_registry_query_tools_by_name(root, REGISTRY_ID, [t["name"] for t in tools])
         raise
     await recompute_wired(client, root)
-    return asdict(term)
+    out = asdict(term)
+    out["aliases"] = list(term.aliases)
+    return out
 
 
 async def _read_terms(client: Any) -> list[SharedTerm]:
@@ -531,7 +578,8 @@ async def _read_terms(client: Any) -> list[SharedTerm]:
         if slug is None:
             continue
         d = acc.setdefault(
-            s, {"slug": slug, "kind": None, "ja": [], "en": [], "plain": [], "comment": []}
+            s,
+            {"slug": slug, "kind": None, "ja": [], "en": [], "plain": [], "comment": [], "alt": []},
         )
         p, o = b["p"]["value"], b["o"]
         v = o["value"]
@@ -551,6 +599,12 @@ async def _read_terms(client: Any) -> list[SharedTerm]:
             d["ds"] = v
         elif p == f"{XW}declinedReason":
             d["dr"] = v
+        elif p == _SKOS_ALT:
+            d["alt"].append(v)
+        elif p == f"{XW}draftedBy":
+            d["by"] = v
+        elif p == f"{XW}confirmedAt":
+            d["conf"] = v
         elif p == f"{_PROV}generatedAtTime":
             d["at"] = v
     out: list[SharedTerm] = []
@@ -567,6 +621,9 @@ async def _read_terms(client: Any) -> list[SharedTerm]:
                 created_at=d.get("at", ""),
                 declined_standard=d.get("ds"),
                 declined_reason=d.get("dr"),
+                aliases=tuple(sorted(set(d["alt"]), key=lambda a: (normalize_label(a), a))),
+                drafted_by=d.get("by"),
+                confirmed_at=d.get("conf"),
             )
         )
     return sorted(out, key=lambda t: t.slug)
@@ -702,6 +759,7 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
         ]
         d = asdict(t)
         d.update(
+            aliases=list(t.aliases),
             narrower=nar,
             standards=sorted(standards[t.iri], key=lambda e: (e["iri"], e["relation"])),
             cqs=cqs,
@@ -1111,7 +1169,10 @@ def fit_candidates(
     ``standard``, then shared terms (``label`` / ``label_en``), then other datasets'
     item labels (``dataset_terms``: ``{iri, label, dataset_id, kind}``) — these two
     are matched against the column's MEANING (``label``) only, never the column name.
-    Every candidate carries ``term_kind`` (``"class"`` | ``"property"``) so the caller
+    A shared term also matches on its aliases (``skos:altLabel``) — against the meaning
+    OR the column name, because an alias is what a person wrote down as "this term
+    arrives under that name" (``matched_by`` is then ``"alias"``). Every candidate
+    carries ``term_kind`` (``"class"`` | ``"property"``) so the caller
     can tell a kind from an item; ``standard_hits`` pass theirs as ``kind``. A label or
     column that is generic (:data:`GENERIC_LABELS`) yields nothing at all."""
     nl, nc = normalize_label(label or ""), normalize_label(column or "")
@@ -1132,6 +1193,14 @@ def fit_candidates(
                 return by
         return None
 
+    def alias_hit(aliases: Iterable[str]) -> str | None:
+        """当たった別名（書いたままの綴り）。別名は、人が「この名前で呼ばれる／この列名で来る」と
+        書いたもの。意味（label）にも列名にも完全一致で当てる（部分一致は出さない・D2）。"""
+        for a in aliases:
+            if a and normalize_label(a) in (nl, nc) and normalize_label(a):
+                return a
+        return None
+
     out: list[dict] = []
     seen: set[str] = set()
     for h in standard_hits:
@@ -1149,17 +1218,21 @@ def fit_candidates(
             )
     for t in sorted(shared_terms, key=lambda t: t.iri):
         by = matched_by(t.label, t.label_en)
+        hit = None if by else alias_hit(t.aliases)
+        if hit is not None:
+            by = "alias"
         if by and t.iri not in seen:
             seen.add(t.iri)
-            out.append(
-                {
-                    "term": t.iri,
-                    "kind": "shared",
-                    "term_kind": t.kind,
-                    "label": t.label,
-                    "matched_by": by,
-                }
-            )
+            cand = {
+                "term": t.iri,
+                "kind": "shared",
+                "term_kind": t.kind,
+                "label": t.label,
+                "matched_by": by,
+            }
+            if hit is not None:
+                cand["alias"] = hit  # 「（別名 composition が一致）」と言うための綴り
+            out.append(cand)
     for d in sorted(dataset_terms, key=lambda d: (str(d.get("dataset_id")), str(d.get("iri")))):
         by = matched_by(d.get("label"))
         iri = d.get("iri")
@@ -1177,9 +1250,80 @@ def fit_candidates(
     return out
 
 
+# ---------------------------------------------------------------------------
+# 問いの実行文（決定論・⑤と問いの一覧で必ず併記する）
+# ---------------------------------------------------------------------------
+
+#: 閉じた選択の「数え方」。``count`` / ``range`` / ``top`` は今の宣言ツールで答えられ、残りは
+#: 文だけを組める（公開できるのは前者・後者は「メモの問い」）。``values`` は項目の語に付く
+#: 既定の問い（項目の値がどのデータセットにいくつあるか）。
+SELECTION_OPS = ("count", "range", "top", "filter", "group", "trend", "join", "values")
+
+_PER_JA = "（データセットごと）"
+_PER_EN = " (per dataset)."
+
+#: 数え方ごとに、足りなければならない部分（``kind`` / ``property`` / ``value``）。
+_EXEC_NEEDS = {
+    "count": ("kind",),
+    "values": ("property",),
+    "range": ("property",),
+    "top": ("property",),
+    "filter": ("kind", "property", "value"),
+    "group": ("kind", "property"),
+    "trend": ("kind", "property"),
+    "join": ("kind", "property"),
+}
+
+
+def describe_selection(selection: dict, lang: str = "ja") -> str:
+    """閉じた選択（数え方 × 種類 × 項目）を、機械が組む「実行文」に直す（決定論・LLM なし）。
+
+    ``selection`` は ``{"op", "kind", "property", "value"}``（``kind`` / ``property`` は画面に
+    出す名前）。例 ja:「電池セルのうち、容量がいちばん大きいものを出します（データセットごと）」。
+    数え方が閉集合に無い・足りない部分がある（``count`` に種類が無い等）ときは ``""``。
+    データの値は読まない — 選んだ名前を型に流し込むだけ。"""
+    op = selection.get("op")
+    if op not in _EXEC_NEEDS:
+        return ""
+    k = str(selection.get("kind") or "").strip()
+    p = str(selection.get("property") or "").strip()
+    v = str(selection.get("value") or "").strip()
+    have = {"kind": k, "property": p, "value": v}
+    if any(not have[need] for need in _EXEC_NEEDS[op]):
+        return ""
+    if lang.startswith("en"):
+        what = k or "one"
+        of_kind = f" of {k}" if k else ""
+        by = {
+            "count": f"Counts the {k}",
+            "values": f"Counts how many values of {p} each dataset has.",
+            "range": f"Gives the minimum and maximum {p}{of_kind}",
+            "top": f"Gives the {what} with the largest {p}",
+            "filter": f'Gives the {k} whose {p} is "{v}"',
+            "group": f"Counts the {k}, grouped by {p}",
+            "trend": f"Lists {p}{of_kind}{f' in order of {v}' if v else ''} as a trend",
+            "join": f"Follows {p} from the {k} one step and gives what it reaches",
+        }[op]
+        return by if op == "values" else by + _PER_EN
+    k_of = f"{k}の" if k else ""
+    k_in = f"{k}のうち、" if k else ""
+    by = {
+        "count": f"{k}の件数を数えます",
+        "values": f"{p}の値が、どのデータセットにいくつあるかを数えます",
+        "range": f"{k_of}{p}の最小と最大を出します",
+        "top": f"{k_in}{p}がいちばん大きいものを出します",
+        "filter": f"{k_in}{p}が「{v}」のものを出します",
+        "group": f"{k}を、{p}ごとに数えます",
+        "trend": f"{k_of}{p}を、{f'{v}の' if v else ''}順に並べて推移を出します",
+        "join": f"{k}に、{p}でつながるものを 1 段たどって出します",
+    }[op]
+    return by if op == "values" else by + _PER_JA
+
+
 __all__ = [
     "GENERIC_LABELS",
     "REGISTRY_ID",
+    "SELECTION_OPS",
     "SHARED_VOCAB_GRAPH",
     "SLUG_RE",
     "SV",
@@ -1193,7 +1337,9 @@ __all__ = [
     "TermNotFound",
     "answering_datasets",
     "classify_endpoint",
+    "clean_aliases",
     "default_cq_tools",
+    "describe_selection",
     "dismiss_fit",
     "fit_candidates",
     "is_dismissed",

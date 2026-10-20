@@ -5,9 +5,9 @@ import { type DecidePreview, effectText } from './decide/decide'
 import {
   DECISION_FILTERS,
   type DecisionFilter,
-  type DecisionsTab,
   decisionSentence,
   filterCounts,
+  involves,
   matchesFilter,
   newestFirst,
   questionCount,
@@ -15,15 +15,15 @@ import {
 import { previewDecision } from './decide/decideApi'
 import './decide/decide.css'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
-import { JobsView } from './JobsView'
 import { type AlignRelation, relationKey } from './lineChoice'
+import { endLabel } from './vocabQuestion'
 import { PerspectiveAlignment } from './PerspectiveAlignment'
 import { type SharedTerm, listTerms } from './vocabApi'
 import { cqTitleMap } from './vocabQuestion'
 
 // 「決めたこと」（UI 再設計 PR 3）。人が決めた関係を 1 行 1 文で並べ、いつでも取り消せる。
 // 取り消す前に、答えられる問いの数がどう変わるかを見せる（試算は store に書かない）。
-// タブは「決めたこと」「アクティビティ」（取り込みの履歴 = 従来のアクティビティ画面）。
+// タブは無い（取り込みの履歴は「データ › 記録」）。入口は用語のページと星の横だけ。
 // 「つながり同士」の絞り込みでは、つながり（crosswalk）どうしの対応づけを出す。
 
 /** つながり同士の対応づけ。つながりの一覧を読んで PerspectiveAlignment に渡す。 */
@@ -153,13 +153,17 @@ function DecisionRow({
 
 function DecisionsPane({
   filter,
+  about,
   onFilterChange,
+  onClearAbout,
   reloadKey,
   onChanged,
   cqTitles,
 }: {
   filter: DecisionFilter
+  about?: string
   onFilterChange: (filter: DecisionFilter) => void
+  onClearAbout: () => void
   reloadKey: number
   onChanged: () => void
   cqTitles: Record<string, string>
@@ -207,10 +211,20 @@ function DecisionsPane({
     }
     return m
   }, [datasets])
-  const counts = useMemo(() => filterCounts(list ?? []), [list])
+  // 星の横から来たときは、その種類・用語に掛かるものだけを土台にする（件数も絞り込みもその中で）。
+  const scoped = useMemo(() => (about ? (list ?? []).filter((a) => involves(a, about)) : (list ?? [])), [list, about])
+  const aboutName = useMemo(() => {
+    if (!about) return ''
+    const hit = (list ?? []).find((a) => involves(a, about))
+    if (!hit) return endLabel(about)
+    return hit.source === about
+      ? endLabel(about, hit.source_kind, hit.source_label)
+      : endLabel(about, hit.target_kind, hit.target_label)
+  }, [list, about])
+  const counts = useMemo(() => filterCounts(scoped), [scoped])
   const shown = useMemo(
-    () => newestFirst((list ?? []).filter((a) => matchesFilter(a, filter))),
-    [list, filter],
+    () => newestFirst(scoped.filter((a) => matchesFilter(a, filter))),
+    [scoped, filter],
   )
 
   const askUndo = useCallback((a: Alignment) => {
@@ -246,6 +260,14 @@ function DecisionsPane({
 
   return (
     <>
+      {about && (
+        <div className="decisions-about">
+          <span>{t('decisions:about', { name: aboutName })}</span>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onClearAbout}>
+            {t('decisions:aboutClear')}
+          </button>
+        </div>
+      )}
       <div className="decisions-pills" role="group" aria-label={t('decisions:filterAria')}>
         {DECISION_FILTERS.map((f) => (
           <button
@@ -304,20 +326,21 @@ function DecisionsPane({
 }
 
 /**
- * 「決めたこと」画面。`tab` と `filter` は hash（`#/decisions?tab=activity` ・`?filter=perspective`）が
+ * 「決めたこと」画面。`filter` は hash（`#/decisions?filter=perspective`）が
  * 唯一の真実源で、変えるときは親（App）が hash を書く。
  */
 export function DecisionsView({
-  tab,
   filter,
-  onTabChange,
+  about,
   onFilterChange,
+  onClearAbout,
 }: {
-  tab: DecisionsTab
   /** `perspective`（つながり同士）のときだけ、一覧ではなく対応づけの画面を出す。 */
   filter: DecisionFilter
-  onTabChange: (tab: DecisionsTab) => void
+  /** その種類・用語の IRI に掛かるものだけ（`#/decisions?about=…`）。 */
+  about?: string
   onFilterChange: (filter: DecisionFilter) => void
+  onClearAbout: () => void
 }) {
   const { t } = useTranslation()
   const [version, setVersion] = useState(0)
@@ -335,33 +358,16 @@ export function DecisionsView({
 
   return (
     <div className="decisions">
-      <div className="decisions-tabs" role="group" aria-label={t('decisions:tabsAria')}>
-        {(['decisions', 'activity'] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            className="decisions-tab"
-            aria-pressed={tab === k}
-            onClick={() => onTabChange(k)}
-          >
-            {t(`decisions:tab.${k}`)}
-          </button>
-        ))}
-      </div>
-      {tab === 'activity' ? (
-        <JobsView />
-      ) : (
-        <>
-          <p className="decisions-lead">{t('decisions:lead')}</p>
-          <DecisionsPane
-            filter={filter}
-            onFilterChange={onFilterChange}
-            reloadKey={version}
-            onChanged={onChanged}
-            cqTitles={cqTitles}
-          />
-        </>
-      )}
+      <p className="decisions-lead">{t('decisions:lead')}</p>
+      <DecisionsPane
+        filter={filter}
+        about={about}
+        onFilterChange={onFilterChange}
+        onClearAbout={onClearAbout}
+        reloadKey={version}
+        onChanged={onChanged}
+        cqTitles={cqTitles}
+      />
     </div>
   )
 }

@@ -173,7 +173,7 @@ export function SettingsModal({
         </nav>
         <div className="settings-body">
           {tab === 'ai' && <AiTab />}
-          {tab === 'server' && <ServerTab />}
+          {tab === 'server' && <ServerTab onClose={onClose} />}
           {tab === 'usage' && (
             <div id={SECTION_ANCHOR.usage}>
               <UsageTab />
@@ -210,7 +210,8 @@ function AiTab() {
 // least one of them always does (a current api answers /api/instance, so "where
 // IDs are issued from" shows; an older one has no write gate to report, so the
 // access code shows), which is why there is no empty-tab case to hide.
-function ServerTab() {
+function ServerTab({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation('settings')
   return (
     <div className="server-tab">
       {/* The shared key is set where an AI is registered (「みんなで使う」 on the
@@ -222,6 +223,17 @@ function ServerTab() {
       <div id={SECTION_ANCHOR['server-instance']}>
         <InstanceSection />
       </div>
+      {/* 開発者向け（SPARQL を直接書く画面）は左ナビから外し、ここだけに置く。 */}
+      <p className="server-tab-dev">
+        <a
+          href="#/sparql"
+          onClick={() => {
+            onClose()
+          }}
+        >
+          {t('developer.sparqlLink')}
+        </a>
+      </p>
     </div>
   )
 }

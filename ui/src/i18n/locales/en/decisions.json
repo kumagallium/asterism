@@ -1,10 +1,5 @@
 {
-  "tab": {
-    "decisions": "Decisions",
-    "activity": "Activity"
-  },
-  "tabsAria": "Switch between Decisions and Activity",
-  "lead": "A record of the relations people decided. Each keeps its date and can be undone any time (undoing changes how many questions can be answered).",
+  "lead": "The relations you decided, newest first. You can undo any of them.",
   "filterAria": "Filter decisions",
   "filter": {
     "all": "All",
@@ -31,5 +26,7 @@
   "cancel": "Cancel",
   "sentence": {
     "other": "\"{{subject}}\" and \"{{target}}\" ({{relation}})"
-  }
+  },
+  "about": "Only those involving “{{name}}”",
+  "aboutClear": "Show all"
 }

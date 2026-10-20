@@ -274,6 +274,17 @@ describe('③ 標準の語は語彙の接頭辞つきで言う', () => {
       fitSentence(t, { term: 'x', kind: 'shared', term_kind: 'property', label: '食材の名前', matched_by: 'label' }),
     ).toBe('kantan:meanings.fit.same:食材の名前')
   })
+
+  it('別名で当たったときは、どの別名が一致したかを言う（別名が無い・ラベル一致なら従来の文）', async () => {
+    const { fitSentence } = await import('./kindFit')
+    const t = (k: string, o?: Record<string, unknown>) => `${k}:${String(o?.label)}:${String(o?.alias)}`
+    const base = { term: 'x', kind: 'shared', term_kind: 'property', label: '組成' } as const
+    expect(fitSentence(t, { ...base, matched_by: 'alias', alias: 'composition' })).toBe(
+      'kantan:meanings.fit.sameByAlias:組成:composition',
+    )
+    expect(fitSentence(t, { ...base, matched_by: 'alias' })).toBe('kantan:meanings.fit.same:組成:undefined')
+    expect(fitSentence(t, { ...base, matched_by: 'label' })).toBe('kantan:meanings.fit.same:組成:undefined')
+  })
 })
 
 describe('③ 項目の当てはめの持ち主（ID のテンプレートで探す）', () => {

@@ -120,15 +120,15 @@ describe('layoutSky — モックと同じ寸法（1 行・幅 1000）', () => {
     }
   })
   it('用語は入っている星の重心の上に置かれる（近いものは押し広げる）', () => {
-    const t = l.nodes.get(termId('sample:card'))!
-    const members = [kindId('xrd', 'sample:xrd-card'), kindId('xrd-cards', 'sample:xc-card')].map((i) => l.nodes.get(i)!)
+    const t = l.nodes.get(termId('sample:recipe'))!
+    const members = [kindId('menu', 'sample:menu-recipe'), kindId('pantry', 'sample:pantry-recipe')].map((i) => l.nodes.get(i)!)
     const cx = members.reduce((s, n) => s + n.x, 0) / members.length
     expect(Math.abs(t.x - cx)).toBeLessThan(80)
   })
   it('星の無い用語は member の線を持たない', () => {
-    const t = l.nodes.get(termId('sample:battery-cell'))
+    const t = l.nodes.get(termId('sample:cooking-method'))
     expect(t?.type).toBe('term')
-    expect(l.edges.some((e) => e.kind === 'member' && e.to === termId('sample:battery-cell'))).toBe(false)
+    expect(l.edges.some((e) => e.kind === 'member' && e.to === termId('sample:cooking-method'))).toBe(false)
   })
 })
 
@@ -242,9 +242,9 @@ describe('neighborhood / nodeIdsForIris', () => {
     expect(near.has(kindId('papers', 'sample:paper'))).toBe(false)
   })
   it('用語: 入っている星と標準用語', () => {
-    const near = neighborhood(l, termId('sample:card'))
-    expect(near.has(kindId('xrd', 'sample:xrd-card'))).toBe(true)
-    expect(near.has(kindId('xrd-cards', 'sample:xc-card'))).toBe(true)
+    const near = neighborhood(l, termId('sample:recipe'))
+    expect(near.has(kindId('menu', 'sample:menu-recipe'))).toBe(true)
+    expect(near.has(kindId('pantry', 'sample:pantry-recipe'))).toBe(true)
     expect(near.size).toBe(3)
   })
   it('標準用語: 結ばれている用語と種類', () => {
@@ -254,14 +254,14 @@ describe('neighborhood / nodeIdsForIris', () => {
   it('ハブ: 参加している星', () => {
     const near = neighborhood(l, 'h|composition')
     expect(near.has(kindId('samples', 'sample:sample'))).toBe(true)
-    expect(near.has(kindId('xrd-cards', 'sample:xc-formula'))).toBe(true)
+    expect(near.has(kindId('pantry', 'sample:pantry-amount'))).toBe(true)
   })
   it('無い id は空', () => {
     expect(neighborhood(l, 'nope').size).toBe(0)
     expect(neighborhood(l, null).size).toBe(0)
   })
   it('IRI から点の id を引く（種類・用語。丸モードではその種類を持つ丸）', () => {
-    expect(nodeIdsForIris(l, ['sample:xc-card']).sort()).toEqual([kindId('xrd-cards', 'sample:xc-card')])
+    expect(nodeIdsForIris(l, ['sample:pantry-recipe']).sort()).toEqual([kindId('pantry', 'sample:pantry-recipe')])
     expect(nodeIdsForIris(l, ['sample:composition'])).toEqual([termId('sample:composition')])
     const sky = makeSky(12, 36)
     const c = layoutSky(sky, { width: 1000 })

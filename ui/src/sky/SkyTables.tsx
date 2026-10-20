@@ -1,17 +1,35 @@
-// 「静かな表示」の表: 図と同じ内容（星座・星・件数・用語・標準用語）。読み上げ・コピー用。
+// 「数で見る」の表（「…」から開く）: 図と同じ内容（星座・星・件数・用語・標準用語）。読み上げ・コピー用。
 import { useTranslation } from 'react-i18next'
+import type { SkyData } from './skyApi'
 import type { SkyTables as Tables } from './skyTable'
 
 const fmt = (n: number): string => n.toLocaleString('en-US')
 
-export function SkyTables({ tables }: { tables: Tables }) {
+export function SkyTables({ tables, sky, onClose }: { tables: Tables; sky: SkyData; onClose: () => void }) {
   const { t } = useTranslation('sky')
   const none = <span className="sky-meta">—</span>
   const empty =
     tables.stars.length === 0 && tables.terms.length === 0 && tables.standards.length === 0 && tables.hubs.length === 0
   return (
-    <details className="sky-table-wrap">
-      <summary>{t('table.summary')}</summary>
+    <section className="sky-table-wrap" aria-label={t('table.summary')}>
+      <div className="sky-table-head">
+        <span className="sky-table-counts">
+          {[
+            [sky.facts.kinds, 'facts.kinds'],
+            [sky.facts.terms, 'facts.terms'],
+            [sky.datasets.length, 'facts.datasets'],
+            [sky.facts.triples, 'facts.triples'],
+          ].map(([n, key]) => (
+            <span key={key}>
+              <b>{fmt(n as number)}</b>
+              {t(key as string)}
+            </span>
+          ))}
+        </span>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>
+          {t('table.close')}
+        </button>
+      </div>
       {empty ? (
         <p className="sky-hint">{t('table.empty')}</p>
       ) : (
@@ -114,6 +132,6 @@ export function SkyTables({ tables }: { tables: Tables }) {
           )}
         </div>
       )}
-    </details>
+    </section>
   )
 }

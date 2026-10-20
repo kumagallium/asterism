@@ -15,7 +15,7 @@
 // designed vocabulary (model.yaml → classes), class diagram (diagram.md), and
 // the external vocabularies they actually reuse (derived from the real term
 // IRIs in each dataset's alignment report). The shared, cross-dataset vocabulary
-// is introspected live from the store by SharedVocabView (demo-agent
+// is introspected live from the store by ThemesView (demo-agent
 // /demo/schema). Nothing is fabricated: when a signal is unavailable, the UI
 // shows "—" or an explicit empty state rather than a placeholder.
 

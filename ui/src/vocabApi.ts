@@ -49,6 +49,11 @@ export interface SharedTerm {
   narrower: SharedTermNarrower[]
   standards: SharedTermStandard[]
   cqs: SharedTermCq[]
+  /** 別名（skos:altLabel）。列名のゆれ・言い換え。完全一致で当てる手がかり。 */
+  aliases?: string[]
+  /** `ai`＝AI の下書きを人が採用した。`confirmed_at`＝その確定の日時。 */
+  drafted_by?: 'ai' | null
+  confirmed_at?: string | null
 }
 
 /** 問いのテンプレ。`op` は閉じた選択（種類＝count・項目＝values）。 */
@@ -86,7 +91,9 @@ export interface FitCandidate {
    *  class だけを出すための区別。 */
   term_kind: 'class' | 'property'
   label: string
-  matched_by: 'label' | 'column'
+  matched_by: 'label' | 'alias' | 'column'
+  /** `matched_by` が `alias` のとき、当たった別名（書いたままの綴り）。 */
+  alias?: string
 }
 
 /** GET /api/vocab/upper — 各 IRI を、線だけから決めた最上位の共有語へ畳む対応表。 */

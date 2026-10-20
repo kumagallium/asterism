@@ -1,11 +1,12 @@
-// 星図の右レール: 「この星について」「知りたいこと」「最近の育ち」。
-// 「ひとこと決める」（PR 3）の置き場は about の下に空けてある（中身が無いうちは何も出ない）。
+// 星図の右の欄: 1 枚だけ。点（星・丸・用語・標準用語）を選んでいれば「この星について」、
+// 選んでいなければ「知りたいこと」（問いの輪＋題＋札）。「ひとこと決める」は星の欄の下。
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { useState } from 'react'
+import type { Alignment } from '../crosswalkApi'
+import { decisionsHash, involves } from '../decide/decisionsModel'
 import { DecidePanel } from '../decide/DecidePanel'
 import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
-import type { SkyData, SkyQuestion, SkyRecent } from './skyApi'
+import type { SkyData, SkyQuestion } from './skyApi'
 import {
   type DatasetNode,
   type HubNode,
@@ -19,12 +20,17 @@ export interface RailProps {
   sky: SkyData
   layout: SkyLayout
   lang: 'ja' | 'en'
+  /** 決めたあと・公開したあとに、答えられる問いが増えたとき（欄の上に 1 行・数秒だけ）。 */
+  grown: { from: number; to: number } | null
+  /** 人が決めた関係（星の横の「決めたこと N 件 →」の数え元。ホームが 1 度だけ取る）。 */
+  alignments: readonly Alignment[]
   selectedId: string | null
   selectedQuestion: string | null
   onSelectNode: (id: string | null) => void
   onSelectQuestion: (tool: string | null) => void
   onOpenKind: (iri: string) => void
   onOpenDataset: (id: string) => void
+  onOpenTerm: (slug: string) => void
   onOpenQuestions: () => void
   /** 「そう決める」のあと: 星図を取り直し、用語と星の輪を 1 度だけ出す。 */
   onDecided: (iris: string[]) => void
@@ -33,30 +39,23 @@ export interface RailProps {
 const fmt = (n: number): string => n.toLocaleString('en-US')
 
 export function SkyRail(props: RailProps) {
+  const { t } = useTranslation('sky')
+  const node = props.selectedId ? props.layout.nodes.get(props.selectedId) : undefined
   return (
     <aside className="sky-rail">
-      <AboutCard {...props} />
-      <QuestionsCard {...props} />
-      <RecentCard sky={props.sky} />
+      {props.grown && (
+        <p className="sky-grown" role="status">
+          {t('grown', { from: props.grown.from, to: props.grown.to })}
+        </p>
+      )}
+      {node ? <AboutCard {...props} node={node} /> : <QuestionsCard {...props} />}
     </aside>
   )
 }
 
 // ── この星について ──────────────────────────────────────────────
-function AboutCard(p: RailProps) {
-  const { t } = useTranslation('sky')
-  const node = p.selectedId ? p.layout.nodes.get(p.selectedId) : undefined
-  const question = p.selectedQuestion ? p.sky.questions.find((q) => q.tool_name === p.selectedQuestion) : undefined
-
-  if (question) return <QuestionAbout {...p} question={question} />
-  if (!node) {
-    return (
-      <section className="sky-card" aria-live="polite">
-        <h3>{t('about.titleKind')}</h3>
-        <div className="sky-meta">{t('about.hint')}</div>
-      </section>
-    )
-  }
+function AboutCard(p: RailProps & { node: NonNullable<ReturnType<SkyLayout['nodes']['get']>> }) {
+  const node = p.node
   switch (node.type) {
     case 'kind':
       return <KindAbout {...p} node={node} />
@@ -103,6 +102,19 @@ function TermPills({ terms, onSelect }: { terms: TermNode[]; onSelect: (id: stri
   )
 }
 
+/** 星の横の「決めたこと N 件 →」。この種類に掛かる決めたことが 1 件でもあるときだけ出す。
+ *  押すと、その種類に掛かるものだけの一覧（件数と同じ範囲）に着く。 */
+function DecisionsLink({ iri, alignments }: { iri: string; alignments: readonly Alignment[] }) {
+  const { t } = useTranslation('sky')
+  const n = alignments.filter((a) => involves(a, iri)).length
+  if (n === 0) return null
+  return (
+    <a className="link-btn sky-decisions-link" href={decisionsHash('all', iri)}>
+      {t('about.decisions', { n })}
+    </a>
+  )
+}
+
 function KindAbout(p: RailProps & { node: KindNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
@@ -117,7 +129,7 @@ function KindAbout(p: RailProps & { node: KindNode }) {
         <button type="button" className="btn btn--primary btn--sm" onClick={() => p.onOpenKind(node.iri)}>
           {t('about.viewKind', { name: node.label })}
         </button>
-        <span className="sky-meta">{t('about.viewKindHint')}</span>
+        <DecisionsLink iri={node.iri} alignments={p.alignments} />
       </div>
       <dl className="sky-kv">
         <dt>{t('about.dataset')}</dt>
@@ -230,6 +242,13 @@ function TermAbout(p: RailProps & { node: TermNode }) {
         </span>
         {node.termKind === 'property' && <span className="sky-meta">{t('bands.property')}</span>}
       </div>
+      {term && (
+        <div className="sky-about-actions">
+          <button type="button" className="btn btn--primary btn--sm" onClick={() => p.onOpenTerm(term.slug)}>
+            {t('about.viewTerm', { name: node.label })}
+          </button>
+        </div>
+      )}
       <dl className="sky-kv">
         <dt>{t('about.kindsIn')}</dt>
         <dd>
@@ -259,15 +278,13 @@ function TermAbout(p: RailProps & { node: TermNode }) {
             </button>
           ))}
         </dd>
-        <dt>{t('about.standard')}</dt>
-        <dd className={std ? 'sky-std' : undefined}>{std ?? t('about.noStandard')}</dd>
+        {std && (
+          <>
+            <dt>{t('about.standard')}</dt>
+            <dd className="sky-std">{std}</dd>
+          </>
+        )}
       </dl>
-      <div className="sky-decide-slot" data-slot="decide">
-        <p className="sky-hint">{t('decide.attachKind')}</p>
-        <a className="link-btn" href="#/questions">
-          {t('decide.openQuestions')}
-        </a>
-      </div>
     </section>
   )
 }
@@ -335,33 +352,6 @@ function HubAbout(p: RailProps & { node: HubNode }) {
   )
 }
 
-function QuestionAbout(p: RailProps & { question: SkyQuestion }) {
-  const { t } = useTranslation('sky')
-  const q = p.question
-  const needs = q.needs
-    .map((iri) => p.layout.nodes.get(`t|${iri}`))
-    .filter((n): n is TermNode => n?.type === 'term')
-  return (
-    <section className="sky-card" aria-live="polite">
-      <h3>{t('about.titleQuestion')}</h3>
-      <div className="sky-about-name">
-        <Ring q={q} large />
-        {q.title}
-      </div>
-      <dl className="sky-kv">
-        <dt>{t('about.datasetsAnswering')}</dt>
-        <dd>
-          {q.answering} / {q.total_datasets}
-        </dd>
-        <dt>{t('about.needs')}</dt>
-        <dd>
-          <TermPills terms={needs} onSelect={p.onSelectNode} />
-        </dd>
-      </dl>
-    </section>
-  )
-}
-
 // ── 知りたいこと ────────────────────────────────────────────────
 function Ring({ q, large }: { q: SkyQuestion; large?: boolean }) {
   const { t } = useTranslation('sky')
@@ -382,31 +372,39 @@ function Ring({ q, large }: { q: SkyQuestion; large?: boolean }) {
 function QuestionsCard(p: RailProps) {
   const { t } = useTranslation('sky')
   const qs = p.sky.questions
-  const answerable = qs.filter((q) => q.answering > 0).length
   return (
     <section className="sky-card">
-      <h3>
-        {t('questions.head')}
-        <span className="sky-meta">{t('questions.count', { n: answerable, total: qs.length })}</span>
-      </h3>
+      <h3>{t('questions.head')}</h3>
       {qs.length === 0 ? (
         <div className="sky-meta">{t('questions.empty')}</div>
       ) : (
         <div>
           {qs.map((q) => (
-            <button
-              key={q.tool_name}
-              type="button"
-              className={`sky-qrow${p.selectedQuestion === q.tool_name ? ' sky-qrow--on' : ''}`}
-              aria-pressed={p.selectedQuestion === q.tool_name}
-              onClick={() => p.onSelectQuestion(p.selectedQuestion === q.tool_name ? null : q.tool_name)}
-            >
-              <Ring q={q} />
-              <span className="sky-qrow-title">{q.title}</span>
-              <span className={`sky-pill ${q.answering > 0 ? 'sky-pill--term' : 'sky-pill--wait'}`}>
-                {q.answering > 0 ? t('about.answeredBy', { n: q.answering }) : t('about.notYet')}
-              </span>
-            </button>
+            <div key={q.tool_name}>
+              <button
+                type="button"
+                className={`sky-qrow${p.selectedQuestion === q.tool_name ? ' sky-qrow--on' : ''}`}
+                aria-pressed={p.selectedQuestion === q.tool_name}
+                onClick={() => p.onSelectQuestion(p.selectedQuestion === q.tool_name ? null : q.tool_name)}
+              >
+                <Ring q={q} />
+                <span className="sky-qrow-title">{q.title}</span>
+                <span className={`sky-pill ${q.answering > 0 ? 'sky-pill--term' : 'sky-pill--wait'}`}>
+                  {q.answering > 0 ? t('about.answeredBy', { n: q.answering }) : t('about.notYet')}
+                </span>
+              </button>
+              {/* 選んだ問いが要る用語の札（押すとその用語の星へ）。 */}
+              {p.selectedQuestion === q.tool_name && (
+                <div className="sky-qneeds">
+                  <TermPills
+                    terms={q.needs
+                      .map((iri) => p.layout.nodes.get(`t|${iri}`))
+                      .filter((n): n is TermNode => n?.type === 'term')}
+                    onSelect={p.onSelectNode}
+                  />
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -418,41 +416,3 @@ function QuestionsCard(p: RailProps) {
     </section>
   )
 }
-
-/** 最近の育ちの 1 行を、画面の言語で組む（API は名前と関係だけを返す）。 */
-function recentText(t: TFunction<'sky'>, r: SkyRecent): string {
-  if (r.kind === 'publish') return t('recent.publish', { a: r.a })
-  if (r.kind === 'term') return t('recent.term', { a: r.a })
-  const key =
-    r.relation === 'equivalentClass' || r.relation === 'equivalentProperty'
-      ? 'same'
-      : r.relation === 'subClassOf' || r.relation === 'subPropertyOf'
-        ? 'kindOf'
-        : r.relation === 'hasQuantityKind'
-          ? 'quantity'
-          : 'other'
-  return t(`recent.decision.${key}`, { a: r.a, b: r.b })
-}
-
-// ── 最近の育ち ──────────────────────────────────────────────────
-function RecentCard({ sky }: { sky: SkyData }) {
-  const { t } = useTranslation('sky')
-  return (
-    <section className="sky-card">
-      <h3>{t('recent.head')}</h3>
-      {sky.recent.length === 0 ? (
-        <div className="sky-meta">{t('recent.empty')}</div>
-      ) : (
-        <ul className="sky-recent">
-          {sky.recent.map((r, i) => (
-            <li key={`${r.at}-${i}`}>
-              <time dateTime={r.at}>{r.at.slice(0, 10)}</time>
-              <span>{recentText(t, r)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
-

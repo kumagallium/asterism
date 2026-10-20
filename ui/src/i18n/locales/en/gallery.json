@@ -11,7 +11,7 @@
     "draft": "Draft",
     "design": "Not loaded yet"
   },
-  "intro": "Your datasets. Open a card to check its contents, publish it, or add new measurements.",
+  "intro": "Your datasets.",
   "listError": {
     "title": "Could not load the list of datasets",
     "body": "Wait a moment, then press \"Reload\".",
@@ -366,5 +366,6 @@
     "shapeWrongClass": "“{{subject}}” points at a different kind of thing than the design expects.",
     "shapeDatatype": "“{{subject}}” holds values of a different type than the design declares, so comparing them by size will not work.",
     "rawSummary": "The notes as written (technical)"
-  }
+  },
+  "relationMap": "How this connects to other datasets"
 }

@@ -27,13 +27,13 @@ describe('静かな表示の表は図と同じ内容', () => {
 
   it('図の線と同じつながりが表の列に出る（用語 ↔ 種類・標準用語）', () => {
     const t = buildSkyTables(SAMPLE_SKY)
-    const card = t.terms.find((r) => r.label === 'カード')!
-    expect(card.kinds).toEqual(['Card（XRD 実験）', 'Card（XRD 参照カード）'])
+    const card = t.terms.find((r) => r.label === 'レシピ')!
+    expect(card.kinds).toEqual(['レシピ（献立）', 'レシピ（買い物メモ）'])
     expect(t.terms.find((r) => r.label === '試料')!.standard).toBe('cmso:Material')
     expect(t.stars.find((r) => r.kind === '試料')!.terms).toEqual(['試料', '組成'])
     expect(t.stars.find((r) => r.kind === '物性')!.standard).toBe('qudt:QuantityKind')
     expect(t.standards.find((r) => r.label === 'qudt:Unit')!.bound).toEqual(['単位（測定曲線）'])
-    expect(t.hubs[0].members).toEqual(['試料（試料）', '化学式（XRD 参照カード）'])
+    expect(t.hubs[0].members).toEqual(['試料（試料）', '分量（買い物メモ）'])
   })
 
   it('言語で用語名が変わる', () => {

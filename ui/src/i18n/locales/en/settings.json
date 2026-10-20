@@ -253,5 +253,8 @@
     "retry": "Try again",
     "logPath": "Details: {{path}}",
     "requestFailed": "That did not work. Please wait a moment and try again."
+  },
+  "developer": {
+    "sparqlLink": "For developers: write SPARQL directly →"
   }
 }

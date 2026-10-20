@@ -7,6 +7,7 @@ import {
   decisionsHash,
   decisionsQuery,
   endName,
+  involves,
   filterCounts,
   matchesFilter,
   newestFirst,
@@ -124,13 +125,27 @@ describe('1 行 1 文', () => {
 
 describe('hash', () => {
   it('タブと絞り込みを往復する', () => {
-    expect(parseDecisionsQuery('')).toEqual({ tab: 'decisions', filter: 'all' })
-    expect(parseDecisionsQuery('tab=activity')).toEqual({ tab: 'activity', filter: 'all' })
-    expect(parseDecisionsQuery('filter=perspective')).toEqual({ tab: 'decisions', filter: 'perspective' })
+    expect(parseDecisionsQuery('')).toEqual({ filter: 'all' })
+    expect(parseDecisionsQuery('filter=perspective')).toEqual({ filter: 'perspective' })
     expect(parseDecisionsQuery('filter=bogus').filter).toBe('all')
-    expect(decisionsQuery('decisions', 'all')).toBe('')
-    expect(decisionsQuery('activity', 'broken')).toBe('?tab=activity')
+    expect(decisionsQuery('all')).toBe('')
+    expect(decisionsQuery('broken')).toBe('?filter=broken')
     expect(decisionsHash('perspective')).toBe('#/decisions?filter=perspective')
     expect(decisionsHash()).toBe('#/decisions')
+    // 種類・用語に掛かるものだけ（about）
+    expect(parseDecisionsQuery('about=urn%3Ak')).toEqual({ filter: 'all', about: 'urn:k' })
+    expect(decisionsHash('all', 'urn:k')).toBe('#/decisions?about=urn%3Ak')
+    expect(parseDecisionsQuery(decisionsQuery('same', 'http://x/y#z').slice(1))).toEqual({
+      filter: 'same',
+      about: 'http://x/y#z',
+    })
+  })
+})
+
+describe('involves', () => {
+  it('source か target が IRI に一致する行だけ', () => {
+    expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:a')).toBe(true)
+    expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:b')).toBe(true)
+    expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:c')).toBe(false)
   })
 })

@@ -420,6 +420,40 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
   })
 })
 
+describe('知りたいこと（テーマ・用語のページ）— UI 再設計 PR 4', () => {
+  it('#/questions?new=1&q=<題> は newQuestion を立てる（題は画面が hash から読む）', () => {
+    const hash = '#/questions?new=1&q=' + encodeURIComponent('ZT が最大の試料は？ A/B')
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(legacyHashRewrite(hash)).toBeNull()
+  })
+
+  it('#/questions/term/<slug> は用語のページ・往復する（slug は符号化される）', () => {
+    expect(parseHash('#/questions/term/sample_composition')).toEqual<Route>({
+      tab: 'vocab',
+      termSlug: 'sample_composition',
+    })
+    expect(routeToHash({ tab: 'vocab', termSlug: 'sample_composition' })).toBe('#/questions/term/sample_composition')
+    expect(roundTrip('#/questions/term/sample_composition')).toBe('#/questions/term/sample_composition')
+    expect(parseHash('#/questions/term/a%20b')).toEqual<Route>({ tab: 'vocab', termSlug: 'a b' })
+    expect(routeToHash({ tab: 'vocab', termSlug: 'a b' })).toBe('#/questions/term/a%20b')
+  })
+
+  it('#/questions/<theme> はそのテーマのカードへ（term は予約語）', () => {
+    expect(parseHash('#/questions/first')).toEqual<Route>({ tab: 'vocab', themeId: 'first' })
+    expect(routeToHash({ tab: 'vocab', themeId: 'first' })).toBe('#/questions/first')
+    expect(roundTrip('#/questions/first')).toBe('#/questions/first')
+    expect(parseHash('#/questions/term')).toEqual<Route>({ tab: 'vocab' })
+    expect(parseHash('#/questions/first?x=1')).toEqual<Route>({ tab: 'vocab', themeId: 'first' })
+  })
+
+  it('旧 #/vocab/… も同じ結果で、#/questions/… に書き換わる（互換）', () => {
+    expect(parseHash('#/vocab/term/x')).toEqual<Route>({ tab: 'vocab', termSlug: 'x' })
+    expect(legacyHashRewrite('#/vocab/term/x')).toBe('#/questions/term/x')
+    expect(legacyHashRewrite('#/questions/term/x')).toBeNull()
+    expect(legacyHashRewrite('#/questions/first')).toBeNull()
+  })
+})
+
 describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
   it('#/vocab → #/questions（クエリは温存）', () => {
     expect(legacyHashRewrite('#/vocab')).toBe('#/questions')
@@ -446,16 +480,10 @@ describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
   })
 })
 
-describe('決めたこと（#/decisions）— 旧 #/jobs は アクティビティのタブへ', () => {
-  it('#/decisions は「決めたこと」タブ・すべて', () => {
+describe('決めたこと（#/decisions）と データの「記録」（#/data?tab=activity）', () => {
+  it('#/decisions は「決めたこと」・すべて', () => {
     expect(parseHash('#/decisions')).toEqual<Route>({ tab: 'decisions' })
     expect(routeToHash({ tab: 'decisions' })).toBe('#/decisions')
-  })
-
-  it('#/decisions?tab=activity はアクティビティのタブ（往復する）', () => {
-    const hash = '#/decisions?tab=activity'
-    expect(parseHash(hash)).toEqual<Route>({ tab: 'decisions', decisionsTab: 'activity' })
-    expect(roundTrip(hash)).toBe(hash)
   })
 
   it('#/decisions?filter=perspective は「つながり同士」の絞り込み（往復する）', () => {
@@ -465,10 +493,28 @@ describe('決めたこと（#/decisions）— 旧 #/jobs は アクティビテ�
     expect(parseHash('#/decisions?filter=bogus')).toEqual<Route>({ tab: 'decisions' })
   })
 
-  it('旧 #/jobs は #/decisions?tab=activity に置き換わる', () => {
-    expect(parseHash('#/jobs')).toEqual<Route>({ tab: 'decisions', decisionsTab: 'activity' })
-    expect(legacyHashRewrite('#/jobs')).toBe('#/decisions?tab=activity')
-    expect(legacyHashRewrite('#/decisions?tab=activity')).toBeNull()
+  it('#/decisions?about=<IRI> は、その種類・用語に掛かるものだけ（往復する）', () => {
+    const hash = '#/decisions?about=http%3A%2F%2Fexample.org%2Fns%23Sample'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'decisions', decisionsAbout: 'http://example.org/ns#Sample' })
+    expect(roundTrip(hash)).toBe(hash)
+    const both = '#/decisions?filter=same&about=urn%3Ak'
+    expect(parseHash(both)).toEqual<Route>({ tab: 'decisions', decisionsFilter: 'same', decisionsAbout: 'urn:k' })
+    expect(roundTrip(both)).toBe(both)
+  })
+
+  it('#/data?tab=activity は データの「記録」タブ（往復する・書き換えない）', () => {
+    const hash = '#/data?tab=activity'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', activity: true })
+    expect(roundTrip(hash)).toBe(hash)
+    expect(legacyHashRewrite(hash)).toBeNull()
+  })
+
+  it('旧 #/jobs・#/decisions?tab=activity は #/data?tab=activity に置き換わる', () => {
+    expect(parseHash('#/jobs')).toEqual<Route>({ tab: 'gallery', activity: true })
+    expect(legacyHashRewrite('#/jobs')).toBe('#/data?tab=activity')
+    expect(parseHash('#/decisions?tab=activity')).toEqual<Route>({ tab: 'gallery', activity: true })
+    expect(legacyHashRewrite('#/decisions?tab=activity')).toBe('#/data?tab=activity')
     expect(legacyHashRewrite('#/decisions')).toBeNull()
+    expect(legacyHashRewrite('#/decisions?filter=perspective')).toBeNull()
   })
 })
