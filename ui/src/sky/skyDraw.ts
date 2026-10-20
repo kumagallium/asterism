@@ -168,6 +168,16 @@ export function formatCount(n: number, lang: 'ja' | 'en' = 'ja'): string {
   return n.toLocaleString('en-US')
 }
 
+/** 小さな字の縁取り（紙の色）。下に線が通っても字が読める。 */
+function halo(ctx: Ctx, text: string, x: number, y: number, paper: string): void {
+  ctx.save()
+  ctx.lineWidth = 3
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = withAlpha(paper, 0.9)
+  ctx.strokeText(text, x, y)
+  ctx.restore()
+}
+
 function fitText(ctx: Ctx, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text
   const chars = [...text]
@@ -555,6 +565,7 @@ export function drawSky(
       ctx.font = `500 9px ${pal.mono}`
       ctx.fillStyle = pal.faint
       ctx.textBaseline = 'bottom'
+      halo(ctx, labels.property, n.x, y - 2, pal.paper)
       ctx.fillText(labels.property, n.x, y - 2)
     }
     const std = n.stdId ? layout.nodes.get(n.stdId) : undefined
@@ -562,12 +573,15 @@ export function drawSky(
       ctx.font = `500 10px ${pal.font}`
       ctx.fillStyle = pal.faint
       ctx.textBaseline = 'top'
+      halo(ctx, labels.empty, n.x, y + h + 3, pal.paper)
       ctx.fillText(labels.empty, n.x, y + h + 3)
     } else if (std && std.type === 'std') {
       ctx.font = `500 9.5px ${pal.mono}`
       ctx.fillStyle = pal.accent
       ctx.textBaseline = 'top'
-      ctx.fillText(fitText(ctx, `≡ ${std.prefix}:${std.label}`, n.w + 8), n.x, y + h + 3)
+      const cap = fitText(ctx, `≡ ${std.prefix}:${std.label}`, n.w + 8)
+      halo(ctx, cap, n.x, y + h + 3, pal.paper)
+      ctx.fillText(cap, n.x, y + h + 3)
     }
     ctx.restore()
   }
@@ -584,7 +598,8 @@ export function drawSky(
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     const w = ctx.measureText(text).width + 10
-    const pos = conceptPillPos(layout, g, w)
+    // 置き場所は layoutSky が決めている（他の小さな札・札・札の下の字を避けてある）。無い古い形だけ従来の探し方。
+    const pos = e.pill !== undefined ? e.pill : conceptPillPos(layout, g, w)
     if (!pos) {
       ctx.restore()
       continue

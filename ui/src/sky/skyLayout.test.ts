@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { SAMPLE_SKY } from './sample'
-import { EMPTY_SKY, type DraftSky, type SkyData } from './skyApi'
+import { EMPTY_SKY, type DraftSky, type SkyData, type SkyLine } from './skyApi'
 import { makeSky } from './skyFixture'
+import { KNOW_PITCH } from './skyKnowledge'
 import {
   chooseMode,
   conceptEdgeGeom,
+  conceptEdgePointAt,
   conceptPillPos,
   draftCardConcepts,
   draftNodeId,
@@ -22,6 +24,7 @@ import {
   termId,
   type DraftNode,
   type KindNode,
+  type TermNode,
   type SkyLayout,
 } from './skyLayout'
 
@@ -341,8 +344,11 @@ describe('layoutSky — 語どうしの知識の線（一部・下げる・上�
   const [a, b, c] = base.terms
   const withEdges = (edges: SkyData['edges']): SkyData => ({ ...base, edges })
 
-  it('線は kind=concept・relation つきで足され、札の位置は動かない', () => {
+  it('線は kind=concept・relation つきで足される（線が無ければ今までの配置のまま）', () => {
     const none = layoutSky(withEdges([]), { width: 1000 })
+    const old = { ...base } as Partial<SkyData>
+    delete old.edges
+    expect(positions(layoutSky(old as SkyData, { width: 1000 }))).toEqual(positions(none))
     const l = layoutSky(
       withEdges([
         { from: a.iri, to: b.iri, relation: 'lowers', reason: null },
@@ -350,8 +356,16 @@ describe('layoutSky — 語どうしの知識の線（一部・下げる・上�
       ]),
       { width: 1000 },
     )
-    expect(positions(l)).toEqual(positions(none))
-    expect(l.height).toBe(none.height)
+    // 星・星座は動かない（上の帯の札と、その下の標準用語だけが知識の段に従う）
+    const notTerm = (x: SkyLayout) => positions(x).filter((k) => !k.startsWith('t|') && !k.startsWith('s|'))
+    expect(notTerm(l).length).toBeGreaterThan(0)
+    const dy = l.bands.midTop - none.bands.midTop
+    expect(notTerm(l)).toEqual(
+      notTerm(none).map((k) => {
+        const m = /^(.*)@([-\d.]+),([-\d.]+)$/.exec(k)!
+        return `${m[1]}@${m[2]},${(Number(m[3]) + dy).toFixed(3)}`
+      }),
+    )
     const cs = l.edges.filter((e) => e.kind === 'concept')
     expect(cs.map((e) => [e.from, e.to, e.relation])).toEqual([
       [termId(a.iri), termId(b.iri), 'lowers'],
@@ -420,9 +434,195 @@ describe('layoutSky — 語どうしの知識の線（一部・下げる・上�
         expect(hit).toBe(false)
       }
     }
-    // 線の全体が札に覆われる（札の幅がとても広い）なら null
-    const wide = conceptPillPos(l, g, 5000)
-    expect(wide).toBeNull()
+    // 線の全体が札に覆われる（2 つの札が同じ段で、札の幅がとても広い）なら null
+    const nb = l.nodes.get(e.to)!
+    nb.y = (l.nodes.get(e.from)! as typeof nb).y
+    const g2 = conceptEdgeGeom(l, { ...e, geom: undefined })!
+    expect(conceptPillPos(l, g2, 5000)).toBeNull()
     expect(conceptPillPos(l, g, 20)).toEqual(pos) // 決定論
+  })
+})
+
+
+// ── 上の帯を知識の段で並べる ────────────────────────────────────────
+describe('layoutSky — 上の帯の知識の段（結果が上・原因が下）', () => {
+  const mk = (slug: string, label: string, kind: 'class' | 'property' = 'class') =>
+    ({
+      iri: `https://example.org/k#${slug}`,
+      slug,
+      label,
+      label_en: slug,
+      kind,
+      members: [],
+      standard: null,
+      answering: 0,
+      questions: [],
+    }) as SkyData['terms'][number]
+  const T = {
+    cond: mk('cond', '熱伝導率', 'property'),
+    lat: mk('lat', '格子熱伝導率', 'property'),
+    ele: mk('ele', '電子熱伝導率', 'property'),
+    gb: mk('gb', '粒界散乱'),
+    pd: mk('pd', '点欠陥散乱'),
+    car: mk('car', 'キャリア濃度', 'property'),
+    smp: mk('smp', '試料'),
+  }
+  const iri = (k: keyof typeof T): string => T[k].iri
+  const line = (from: keyof typeof T, to: keyof typeof T, relation: SkyLine['relation']): SkyLine => ({
+    from: iri(from),
+    to: iri(to),
+    relation,
+    reason: null,
+  })
+  const thermal = (): SkyData => ({
+    ...makeSky(1, 3),
+    terms: Object.values(T),
+    hubs: [],
+    edges: [
+      line('lat', 'cond', 'isPartOf'),
+      line('ele', 'cond', 'isPartOf'),
+      line('gb', 'lat', 'lowers'),
+      line('pd', 'lat', 'lowers'),
+      line('car', 'ele', 'raises'),
+    ],
+  })
+  const nodeOf = (l: SkyLayout, k: keyof typeof T) => l.nodes.get(termId(iri(k))) as TermNode
+  const rectOf = (n: TermNode, pad = 0) => ({ l: n.x - n.w / 2 - pad, r: n.x + n.w / 2 + pad, t: n.y - n.h / 2 - pad, b: n.y + n.h / 2 + pad })
+  const inside = (p: { x: number; y: number }, r: { l: number; r: number; t: number; b: number }) =>
+    p.x > r.l && p.x < r.r && p.y > r.t && p.y < r.b
+  /** 札の下の小さな字（まだ星がない）の矩形。 */
+  const capOf = (n: TermNode) => ({ l: n.x - 30, r: n.x + 30, t: n.y + n.h / 2, b: n.y + n.h / 2 + 16 })
+
+  it('原因は結果より下の段・全体は上の段（熱伝導率の例）', () => {
+    const l = layoutSky(thermal(), { width: 1000 })
+    const y = (k: keyof typeof T) => nodeOf(l, k).y
+    expect(y('cond')).toBeLessThan(y('lat'))
+    expect(y('cond')).toBeLessThan(y('ele'))
+    expect(y('lat')).toBeLessThan(y('gb'))
+    expect(y('lat')).toBeLessThan(y('pd'))
+    expect(y('ele')).toBeLessThan(y('car'))
+    expect(y('gb')).toBe(y('pd'))
+    // 線でつながらない札（試料）は段に入らず、従来どおり段詰め
+    expect(nodeOf(l, 'smp').lane).toBeLessThan(1000)
+    // 結果の真下に原因: 全体は 2 つの一部のあいだ・原因は結果の近く
+    expect(nodeOf(l, 'cond').x).toBeGreaterThan(Math.min(nodeOf(l, 'lat').x, nodeOf(l, 'ele').x))
+    expect(nodeOf(l, 'cond').x).toBeLessThan(Math.max(nodeOf(l, 'lat').x, nodeOf(l, 'ele').x))
+    const near = (a: keyof typeof T, b: keyof typeof T) => Math.abs(nodeOf(l, a).x - nodeOf(l, b).x)
+    expect(near('gb', 'lat')).toBeLessThan(near('gb', 'ele'))
+    expect(near('car', 'ele')).toBeLessThan(near('car', 'lat'))
+  })
+
+  it('上の帯の高さは段の数で増え、データの帯はその分だけ下がる・決定論', () => {
+    const none = layoutSky({ ...thermal(), edges: [] }, { width: 1000 })
+    const l = layoutSky(thermal(), { width: 1000 })
+    expect(l.bands.midTop).toBeGreaterThan(none.bands.midTop)
+    expect(l.bands.midTop).toBe(MID_TOP0 + 2 * KNOW_PITCH)
+    expect(l.bands.namesLanes).toBeGreaterThan(none.bands.namesLanes)
+    expect(l.height).toBeGreaterThanOrEqual(none.height)
+    expect(positions(layoutSky(thermal(), { width: 1000 }))).toEqual(positions(l))
+  })
+
+  it('線は札を横切らない（札・札の下の字）・小さな札は札・字・ほかの小さな札に重ならない', () => {
+    for (const width of [1440, 1000, 375]) {
+      const l = layoutSky(thermal(), { width })
+      const cards = [...l.nodes.values()].filter((n): n is TermNode => n.type === 'term')
+      const pills: { l: number; r: number; t: number; b: number }[] = []
+      const cs = l.edges.filter((e) => e.kind === 'concept')
+      expect(cs).toHaveLength(5)
+      for (const e of cs) {
+        const g = conceptEdgeGeom(l, e)!
+        for (let i = 1; i < 30; i++) {
+          const p = conceptEdgePointAt(g, i / 30)
+          for (const n of cards) {
+            if (n.id === e.from || n.id === e.to) continue
+            expect(inside(p, rectOf(n, 1))).toBe(false)
+            expect(inside(p, capOf(n))).toBe(false)
+          }
+        }
+        if (!e.pill) continue
+        const w = e.relation === 'isPartOf' ? 36 : 24
+        const r = { l: e.pill.x - w / 2, r: e.pill.x + w / 2, t: e.pill.y - 8, b: e.pill.y + 8 }
+        const ov = (a: typeof r, b: typeof r) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t
+        for (const n of cards) {
+          expect(ov(r, rectOf(n))).toBe(false)
+          expect(ov(r, capOf(n))).toBe(false)
+        }
+        for (const q of pills) expect(ov(r, q)).toBe(false)
+        pills.push(r)
+      }
+      // この例では 5 本とも小さな札を置ける
+      expect(pills).toHaveLength(5)
+    }
+  })
+
+  it('375px でも札は重ならず、枠の中に収まる（段の中で折り返す）', () => {
+    const l = layoutSky(thermal(), { width: 375 })
+    const cards = [...l.nodes.values()].filter((n): n is TermNode => n.type === 'term')
+    for (const n of cards) {
+      expect(n.x - n.w / 2).toBeGreaterThanOrEqual(0)
+      expect(n.x + n.w / 2).toBeLessThanOrEqual(375)
+    }
+    for (const a of cards) {
+      for (const b of cards) {
+        if (a.id >= b.id) continue
+        const ov = Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2
+        expect(ov).toBe(false)
+      }
+    }
+    // 結果が上・原因が下は幅が狭くても保つ
+    expect(nodeOf(l, 'cond').y).toBeLessThan(nodeOf(l, 'lat').y)
+    expect(nodeOf(l, 'lat').y).toBeLessThan(nodeOf(l, 'gb').y)
+    expect(nodeOf(l, 'ele').y).toBeLessThan(nodeOf(l, 'car').y)
+  })
+
+  it('段をまたぐ長い線は、あいだの札を避けて曲がる', () => {
+    const sky: SkyData = {
+      ...thermal(),
+      edges: [line('lat', 'cond', 'isPartOf'), line('gb', 'lat', 'lowers'), line('gb', 'cond', 'affects')],
+    }
+    const l = layoutSky(sky, { width: 1000 })
+    const e = l.edges.find((x) => x.kind === 'concept' && x.relation === 'affects')!
+    const g = conceptEdgeGeom(l, e)!
+    for (let i = 1; i < 30; i++) {
+      const p = conceptEdgePointAt(g, i / 30)
+      expect(inside(p, rectOf(nodeOf(l, 'lat'), 1))).toBe(false)
+    }
+  })
+
+  it('輪になる線（a→b と b→a）でも段が決まり、札は重ならない', () => {
+    const sky: SkyData = { ...thermal(), edges: [line('gb', 'lat', 'lowers'), line('lat', 'gb', 'raises')] }
+    const l = layoutSky(sky, { width: 1000 })
+    expect(nodeOf(l, 'lat').y).not.toBe(nodeOf(l, 'gb').y)
+    expect(l.edges.filter((e) => e.kind === 'concept')).toHaveLength(2)
+  })
+
+  it('札が 20 を超える成分は、超えた分を段詰めに戻す（崩れない）', () => {
+    const many = Array.from({ length: 26 }, (_, i) => mk(`n${String(i).padStart(2, '0')}`, `語${i}`))
+    const sky: SkyData = {
+      ...makeSky(1, 3),
+      terms: many,
+      hubs: [],
+      edges: many.slice(1).map((t, i) => ({ from: t.iri, to: many[Math.floor(i / 2)].iri, relation: 'lowers' as const, reason: null })),
+    }
+    for (const width of [1000, 375]) {
+      const l = layoutSky(sky, { width })
+      const cards = [...l.nodes.values()].filter((n): n is TermNode => n.type === 'term')
+      expect(cards.filter((n) => n.lane >= 1000)).toHaveLength(20)
+      expect(cards.filter((n) => n.lane < 1000)).toHaveLength(6)
+      for (const a of cards) {
+        expect(a.x - a.w / 2).toBeGreaterThanOrEqual(-0.5)
+        expect(a.x + a.w / 2).toBeLessThanOrEqual(width + 0.5)
+        for (const b of cards) {
+          if (a.id >= b.id) continue
+          expect(Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2).toBe(false)
+        }
+      }
+    }
+  })
+
+  it('標準用語（下の帯）は札の動きに従い、線の無い札と標準用語の線は残る', () => {
+    const l = layoutSky(thermal(), { width: 1000 })
+    expect(l.edges.filter((e) => e.kind === 'termStd')).toHaveLength(0)
+    expect(l.height).toBeGreaterThanOrEqual(620)
   })
 })
