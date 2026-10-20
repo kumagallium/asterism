@@ -10869,16 +10869,29 @@ def build_app(
         try:
             meta = (registry.load_dataset(cfg.registry_root, dataset_id) or {}).get("meta") or {}
             at = datetime.now(UTC).isoformat()
-            rows = await suggested_lines.compute_for_dataset(
-                client,
-                dataset_id,
-                version=suggested_lines.version_of(meta),
-                at=at,
-                registry_root=cfg.registry_root,
+            # 計算に時間の上限（超えたら警告だけ・公開は止めない）
+            rows = await asyncio.wait_for(
+                suggested_lines.compute_for_dataset(
+                    client,
+                    dataset_id,
+                    version=suggested_lines.version_of(meta),
+                    at=at,
+                    registry_root=cfg.registry_root,
+                ),
+                10,
             )
+            # 旧版の行は置き換える（0 件でも旧い行を消す）
             return await asyncio.to_thread(
-                suggested_lines.record_for_dataset, cfg.registry_root, rows
+                partial(
+                    suggested_lines.record_for_dataset,
+                    cfg.registry_root,
+                    rows,
+                    dataset_id=dataset_id,
+                )
             )
+        except TimeoutError:
+            logger.warning("結べそうな線の計算が 10 秒を超えたので見送りました (%s)", dataset_id)
+            return 0
         except Exception:
             logger.warning("結べそうな線の計算に失敗しました (%s)", dataset_id, exc_info=True)
             return 0

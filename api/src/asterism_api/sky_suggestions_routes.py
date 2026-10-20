@@ -43,6 +43,8 @@ __all__ = ["register_sky_suggestions"]
 logger = logging.getLogger(__name__)
 
 _MAX_ITEMS = 200
+#: 「まとめて確定」は 1 回で 1000 件まで（候補の上限は 1 データセット 200 件）
+_MAX_APPLY = 1000
 _MAX_BATCH = 100
 
 
@@ -53,7 +55,7 @@ class SuggestionItem(BaseModel):
 
 
 class ApplyBody(BaseModel):
-    items: list[SuggestionItem] = Field(max_length=_MAX_ITEMS)
+    items: list[SuggestionItem] = Field(max_length=_MAX_APPLY)
     #: 「まとめて確定」の ID（来歴）。無ければサーバが付ける
     batch: str | None = None
 
@@ -98,12 +100,19 @@ def register_sky_suggestions(
         except Exception as exc:
             raise HTTPException(502, f"store read failed: {exc}") from exc
         live = {d["id"] for d in await asyncio.to_thread(_published_datasets, _root())}
+        try:  # 種類・項目が、いまの公開済みの ontology に在るか（直して消えたものは出さない）
+            subjects = await suggested_lines.published_subjects(
+                _client(), {r["dataset_id"] for r in rows if r["dataset_id"] in live}
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"store read failed: {exc}") from exc
         out = suggested_lines.pending(
             rows,
             lines=lines,
             dismissed=shared_vocab.load_dismissed(_root()),
             terms=terms,
             live_datasets=live,
+            live_subjects=subjects,
         )
         return out, terms
 
@@ -141,7 +150,8 @@ def register_sky_suggestions(
     @app.post("/api/sky/suggestions/apply", dependencies=list(write_auth))
     async def apply_suggestions(body: ApplyBody) -> JSONResponse:
         """人の「まとめて確定」「1 件ずつ」。いまの候補にあるものだけを線にする。返し
-        ``{applied, dropped[{index, reason}], batch}``（``reason`` = ``not_found``〔候補に無い〕・
+        ``{applied, dropped[{index, reason}], batch}``（``reason`` = ``not_found``
+        〔候補に無い・種類や項目がもう無い〕・
         ``cycle`` / ``mixed`` / ``invalid``〔閉じた規則で断られた〕）。"""
         batch = (body.batch or "").strip() or f"suggest-{datetime.now(UTC):%Y%m%dT%H%M%S}"
         async with lock:

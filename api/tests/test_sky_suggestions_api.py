@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from asterism import suggested_lines
+from asterism import substrate, suggested_lines
 from fastapi.testclient import TestClient
 
 from tests.test_crosswalk_api import _AUTH
@@ -65,6 +65,9 @@ def test_publish_places_exact_name_candidates_once_and_a_person_confirms_them(
         _stage(tmp_path, store, dsid, seq=1)
         assert client.post(f"/api/datasets/{dsid}/promote").status_code == 200
         assert len(suggested_lines.load_suggestions(tmp_path / "registry")) == stored
+        # 新しい版は旧版の行を置き換える（版が 1 つだけ残る）
+        kept = suggested_lines.load_suggestions(tmp_path / "registry")
+        assert len({r["version"] for r in kept}) == 1
         assert len(_got(client)) == 2
 
         # 「まとめて確定」— 候補にあるものだけが線になる。作り物の候補は not_found
@@ -124,3 +127,25 @@ def test_the_routes_need_the_write_token_and_a_forged_subject_is_refused(tmp_pat
         assert client.post("/api/sky/suggestions/dismiss", json={"items": [bad]}).status_code == 422
         too_long = {"items": [item], "batch": "x" * 101}
         assert client.post("/api/sky/suggestions/apply", json=too_long).status_code == 422
+
+
+def test_a_kind_that_vanished_from_the_ontology_is_neither_listed_nor_applied(
+    tmp_path: Path,
+) -> None:
+    dsid = _dataset(tmp_path)
+    app, store = _app(tmp_path)
+    _stage(tmp_path, store, dsid)
+    with TestClient(app, headers=_AUTH) as client:
+        _mint(client, "specimen", "試料", "class")
+        client.post(f"/api/datasets/{dsid}/promote")
+        (only,) = _got(client)
+        item = {k: only[k] for k in ("subject", "term", "relation")}
+        # 設計を直して、種類が公開済みの ontology から消えた
+        graph = substrate.ontology_graph_iri(dsid)
+        store.update(
+            f"WITH <{graph}> DELETE {{ ?s ?p ?o }} WHERE {{ ?s ?p ?o . FILTER(?s = <{EX}Sample>) }}"
+        )
+        assert _got(client) == []
+        res = client.post("/api/sky/suggestions/apply", json={"items": [item]}).json()
+        assert res["applied"] == 0 and res["dropped"] == [{"index": 0, "reason": "not_found"}]
+        assert client.get("/api/crosswalk/alignments").json()["alignments"] == []

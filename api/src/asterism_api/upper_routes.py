@@ -197,7 +197,16 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
     既存で未消費かつ見送り済み（``skipped``）なら、その理由も残す（別の線を足しただけで、
     見送りの理由が消えない）。一覧から外した項目は消え、あとで入れ直せば新しい（未消費の）
     項目になる。
+
+    ``remove: true`` の項目は「この線を外す」の印: 同じ（subject, term, relation）の**未消費**の
+    既存項目を消す（会話で受けた当てはめを外す）。**消費済み**（``applied_at`` あり）は消さない
+    （もう線になっている — 外すのは線の側の操作）。印だけを送った（印でない項目が 1 つも無い）
+    ときは置換でなく「その線だけ消す」— ほかの既存項目はそのまま残す。
     """
+    removes = {_key(i) for i in clean_upper([x for x in incoming if x.get("remove") is True])}
+    incoming = [x for x in incoming if x.get("remove") is not True]
+    if removes and not incoming:
+        incoming = list(existing)  # 印だけ → 既存を土台に、その線だけ消す
     applied = {_key(e): e["applied_at"] for e in existing if e.get("applied_at")}
     skipped = {
         _key(e): e["skipped"]
@@ -214,6 +223,8 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
         if k in seen:
             continue
         seen.add(k)
+        if k in removes and k not in applied:
+            continue  # 外す（未消費だけ）
         row = {
             "subject": item["subject"],
             "term": item["term"],
@@ -224,6 +235,12 @@ def merge_upper(existing: Sequence[dict], incoming: Sequence[dict]) -> list[dict
             row["skipped"] = skipped[k]
         row.update(_clean_provenance(item) or kept.get(k, {}))
         out.append(row)
+    # 消費済みの線を外す印は何もしない — 置換で送り忘れていても、消費済みの線は残す
+    for e in clean_upper(list(existing)):
+        k = _key(e)
+        if k in removes and k in applied and k not in seen:
+            seen.add(k)
+            out.append({**e, "applied_at": applied[k]})
     return out
 
 
@@ -339,6 +356,9 @@ class UpperItem(BaseModel):
     drafted_by: Literal["ai", "human"] | None = None
     batch: str | None = None
     reason: str | None = None
+    # true = この線を外す（未消費の同じ線を消す・消費済みは消さない）。
+    # 印だけを送れば、その線だけ消える。
+    remove: bool | None = None
 
 
 class UpperBody(BaseModel):
