@@ -131,4 +131,16 @@ describe('layoutConceptMap', () => {
     expect(e.to).toBe('quantitykind:ThermalConductivity')
     for (const a of r.nodes) for (const b of r.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
   })
+
+  it('align: start puts every row at the left edge (for a map that scrolls sideways); the default centres them', () => {
+    const centre = layoutConceptMap(nodes, rels)
+    const start = layoutConceptMap(nodes, rels, { align: 'start' })
+    expect(start.width).toBe(centre.width)
+    const leftOf = (l: typeof centre, row: number) => Math.min(...l.nodes.filter((n) => n.row === row).map((n) => n.x))
+    expect(leftOf(start, 0)).toBe(16)
+    expect(leftOf(start, 1)).toBe(16)
+    expect(leftOf(centre, 1)).toBeGreaterThan(16) // 狭い段は中央寄せ
+    for (const a of start.nodes) for (const b of start.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
+  })
 })
+

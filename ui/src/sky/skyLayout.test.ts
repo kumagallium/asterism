@@ -5,6 +5,7 @@ import { makeSky } from './skyFixture'
 import {
   chooseMode,
   conceptEdgeGeom,
+  conceptPillPos,
   draftCardConcepts,
   draftNodeId,
   hash01,
@@ -405,5 +406,23 @@ describe('layoutSky — 語どうしの知識の線（一部・下げる・上�
   it('線でつながる札は近傍に入る（選ぶとつながる語が濃く残る）', () => {
     const l = layoutSky(withEdges([{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }]), { width: 1000 })
     expect(neighborhood(l, termId(b.iri)).has(termId(a.iri))).toBe(true)
+  })
+
+  it('小さな札は用語の札に重ならない所に置く（札の下の小さな字は、置けるなら避ける。置けなければ出さない）', () => {
+    const l = layoutSky(withEdges([{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }]), { width: 1000 })
+    const e = l.edges.find((x) => x.kind === 'concept')!
+    const g = conceptEdgeGeom(l, e)!
+    const pos = conceptPillPos(l, g, 20)
+    if (pos) {
+      for (const n of l.nodes.values()) {
+        if (n.type !== 'term') continue
+        const hit = Math.abs(pos.x - n.x) < (n.w + 20) / 2 && Math.abs(pos.y - n.y) < (n.h + 16) / 2
+        expect(hit).toBe(false)
+      }
+    }
+    // 線の全体が札に覆われる（札の幅がとても広い）なら null
+    const wide = conceptPillPos(l, g, 5000)
+    expect(wide).toBeNull()
+    expect(conceptPillPos(l, g, 20)).toEqual(pos) // 決定論
   })
 })

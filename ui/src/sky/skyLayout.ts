@@ -789,6 +789,40 @@ function clipToCard(x: number, y: number, hw: number, hh: number, tx: number, ty
   return { x: x + dx * k, y: y + dy * k }
 }
 
+/** 線（2 次ベジェ）の t の点。 */
+export function conceptEdgePointAt(g: ConceptEdgeGeom, t: number): { x: number; y: number } {
+  const u = 1 - t
+  return {
+    x: u * u * g.x1 + 2 * u * t * g.cx + t * t * g.x2,
+    y: u * u * g.y1 + 2 * u * t * g.cy + t * t * g.y2,
+  }
+}
+
+/**
+ * 線の小さな札（幅 w・高さ h）を置く点。線の中ほどが用語の札に重なるときは、線に沿って寄せて空いた所を探す。
+ * 見つからなければ null（札は出さない。線の色と矢じりで向きは読める。文は右の欄に出る）。決定論。
+ */
+export function conceptPillPos(
+  layout: SkyLayout,
+  g: ConceptEdgeGeom,
+  w: number,
+  h = 16,
+): { x: number; y: number } | null {
+  const cards = [...layout.nodes.values()].filter((n): n is TermNode | DraftNode => n.type === 'term' || n.type === 'draft')
+  // 1 回目: 札の下の小さな字（「まだ星がない」「≡ 標準用語」・約 14px）も避ける。置けなければ 2 回目: 札だけ避ける。
+  for (const caption of [14, 0]) {
+    for (const t of [0.5, 0.38, 0.62, 0.28, 0.72]) {
+      const p = conceptEdgePointAt(g, t)
+      const clear = cards.every(
+        (n) =>
+          Math.abs(p.x - n.x) >= (n.w + w) / 2 + 1 || Math.abs(p.y - (n.y + caption / 2)) >= (n.h + caption + h) / 2 + 1,
+      )
+      if (clear) return p
+    }
+  }
+  return null
+}
+
 /**
  * 用語の札 2 つを結ぶ知識の線の形（札の縁から縁へ・少し曲げる）。曲げる向きは進む向きで決まる
  * （同じ 2 点を逆向きに結ぶ線は反対の側に曲がり、重ならない）。決定論。どちらかが用語の札でなければ null。

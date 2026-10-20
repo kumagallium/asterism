@@ -62,23 +62,23 @@ export function ConceptMap(p: ConceptMapProps) {
     }
     return out
   }, [p.concepts, p.relations, p.standards])
-  const layout = useMemo(
-    () =>
-      layoutConceptMap(
-        [
-          ...p.concepts.map((c) => ({ key: c.key, label: conceptName(c, p.lang), mark: c.kind === 'property' })),
-          ...[...stdWords].map(([key, label]) => ({ key, label, std: true })),
-        ],
-        p.relations.map((r, index) => ({
-          index,
-          from: r.from,
-          to: r.to,
-          rel: r.rel,
-          problem: r.problem !== null,
-        })),
-      ),
+  const mapIn = useMemo(
+    () => ({
+      nodes: [
+        ...p.concepts.map((c) => ({ key: c.key, label: conceptName(c, p.lang), mark: c.kind === 'property' })),
+        ...[...stdWords].map(([key, label]) => ({ key, label, std: true })),
+      ],
+      rels: p.relations.map((r, index) => ({
+        index,
+        from: r.from,
+        to: r.to,
+        rel: r.rel,
+        problem: r.problem !== null,
+      })),
+    }),
     [p.concepts, p.relations, p.lang, stdWords],
   )
+  const centered = useMemo(() => layoutConceptMap(mapIn.nodes, mapIn.rels), [mapIn])
 
   // 図は置き場の幅に縮めて収める（縮める下限を下回るときだけ横にスクロール）
   const isEmpty = p.concepts.length === 0
@@ -94,6 +94,13 @@ export function ConceptMap(p: ConceptMapProps) {
     ro.observe(el)
     return () => ro.disconnect()
   }, [isEmpty])
+  // 縮める下限でも収まらないなら、図の中で横にスクロールさせる。そのときは段を左端にそろえる
+  // （中央寄せだと、細い画面では 2 段目が右の見えない所に出る）。
+  const scrolls = avail > 0 && centered.width * MIN_SCALE > avail
+  const layout = useMemo(
+    () => (scrolls ? layoutConceptMap(mapIn.nodes, mapIn.rels, { align: 'start' }) : centered),
+    [scrolls, centered, mapIn],
+  )
   const scale = avail > 0 && layout.width > avail ? Math.max(MIN_SCALE, avail / layout.width) : 1
 
   if (isEmpty) {
@@ -244,6 +251,7 @@ export function ConceptMap(p: ConceptMapProps) {
           )}
         </div>
       </div>
+      {scrolls && <p className="thm-map-hint">{t('themes:map.scrollHint')}</p>}
       <div className="thm-map-legend" aria-hidden="true">
         <span>
           <i className="thm-sw thm-sw--class" />

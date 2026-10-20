@@ -261,6 +261,7 @@
       "affects": "Changes",
       "eq": "Same as",
       "quantity": "Quantity"
-    }
+    },
+    "scrollHint": "Scroll the map sideways →"
   }
 }

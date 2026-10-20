@@ -6,6 +6,7 @@
 import {
   approxLabelWidth,
   conceptEdgeGeom,
+  conceptPillPos,
   type DatasetNode,
   type KindNode,
   type SkyLayout,
@@ -583,14 +584,19 @@ export function drawSky(
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     const w = ctx.measureText(text).width + 10
-    roundRect(ctx, g.mx - w / 2, g.my - 8, w, 16, 8)
+    const pos = conceptPillPos(layout, g, w)
+    if (!pos) {
+      ctx.restore()
+      continue
+    }
+    roundRect(ctx, pos.x - w / 2, pos.y - 8, w, 16, 8)
     ctx.fillStyle = pal.surface
     ctx.fill()
     ctx.strokeStyle = e.relation === 'isPartOf' ? pal.body : pal.activity
     ctx.lineWidth = 1
     ctx.stroke()
     ctx.fillStyle = e.relation === 'isPartOf' ? pal.body : pal.activity
-    ctx.fillText(text, g.mx, g.my + 0.5)
+    ctx.fillText(text, pos.x, pos.y + 0.5)
     ctx.restore()
   }
 

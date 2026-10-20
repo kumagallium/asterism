@@ -726,6 +726,12 @@ a.thm-term-chip:hover {
   padding: 0.25rem;
   box-shadow: var(--shadow-soft);
 }
+.thm-map-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  color: var(--faint);
+  text-align: right;
+}
 .thm-map-legend {
   display: flex;
   gap: 0.9rem;

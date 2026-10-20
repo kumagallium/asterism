@@ -96,7 +96,13 @@ const cubicMid = (p0: Pt, c1: Pt, c2: Pt, p3: Pt): Pt => ({
   y: 0.125 * p0.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * p3.y,
 })
 
-export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[]): MapLayout {
+export interface MapLayoutOptions {
+  /** 段（行）を中央に寄せる（既定）か、左端にそろえるか。幅が足りず横にスクロールさせるときは左端にそろえる
+   * （中央寄せだと、細い画面で 2 段目が右の見えない所に出る）。 */
+  align?: 'center' | 'start'
+}
+
+export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[], opts: MapLayoutOptions = {}): MapLayout {
   const known = new Set(nodes.map((n) => n.key))
   const stdKeys = new Set(nodes.filter((n) => n.std).map((n) => n.key))
   const valid = rels.filter((r) => r.from !== r.to && known.has(r.from) && known.has(r.to))
@@ -179,7 +185,7 @@ export function layoutConceptMap(nodes: MapNodeIn[], rels: MapRelIn[]): MapLayou
   const colOf = new Map<string, number>()
   let y0 = MAP_TOP
   rowCols.forEach((cols, r) => {
-    let x = MAP_PAD + (inner - rowW[r]) / 2
+    let x = MAP_PAD + (opts.align === 'start' ? 0 : (inner - rowW[r]) / 2)
     cols.forEach((col, ci) => {
       const cw = colW(col)
       let y = y0 + (rowH[r] - colH(col)) / 2
