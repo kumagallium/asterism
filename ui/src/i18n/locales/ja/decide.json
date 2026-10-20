@@ -20,14 +20,22 @@
     "subPropertyOf": "の一種です",
     "equivalentProperty": "と同じです",
     "hasQuantityKind": "です",
-    "none": "当てはまるものは無い"
+    "none": "当てはまるものは無い",
+    "isPartOf": "の一部です",
+    "lowers": "を下げます",
+    "raises": "を上げます",
+    "affects": "を変えます"
   },
   "sentence": {
     "subClassOf": "「{{subject}}」は「{{target}}」の一種",
     "equivalentClass": "「{{subject}}」は「{{target}}」と同じもの",
     "subPropertyOf": "「{{subject}}」の値は「{{target}}」の一種",
     "equivalentProperty": "「{{subject}}」の値は「{{target}}」と同じ",
-    "hasQuantityKind": "「{{subject}}」の量は「{{target}}」"
+    "hasQuantityKind": "「{{subject}}」の量は「{{target}}」",
+    "isPartOf": "「{{subject}}」は「{{target}}」の一部",
+    "lowers": "「{{subject}}」は「{{target}}」を下げる",
+    "raises": "「{{subject}}」は「{{target}}」を上げる",
+    "affects": "「{{subject}}」は「{{target}}」を変える"
   },
   "effect": {
     "idle": "選ぶと、ここに「そう決めるとどうなるか」が出ます。",

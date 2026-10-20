@@ -5,7 +5,6 @@
   "loadError": "Could not load the themes.",
   "reload": "Load again",
   "empty": "No themes yet. Use “Make a new theme” and write what you want to know.",
-  "placedNote": "Placed the theme “{{label}}”. New terms {{terms}} · relations {{lines}} · questions {{questions}}. Put data in, and more of the questions become answerable.",
   "aiMark": "AI draft",
   "pick": "Choose",
   "kind": {
@@ -24,12 +23,14 @@
       "deleteDraft": "Discarding the draft",
       "commit": "Placing the theme",
       "addQuestions": "Adding questions to the theme",
-      "deleteTheme": "Removing the theme"
+      "deleteTheme": "Removing the theme",
+      "expand": "Growing from a concept",
+      "answers": "Fetching the answers"
     }
   },
   "draft": {
     "title": "Drafts to continue",
-    "step": "Up to step {{n}} of 6",
+    "step": "Up to step {{n}} of 3",
     "continue": "Continue",
     "discard": "Discard",
     "discardConfirm": "Discard the draft “{{label}}”?"
@@ -47,8 +48,16 @@
     "seeAnswer": "See the answer (with sources)",
     "template": "Export templates",
     "remove": "Remove the theme",
-    "removeConfirm": "Remove the theme “{{label}}”? Its terms, relations and questions stay.",
-    "more": "More"
+    "removeConfirm": "Remove the theme “{{label}}”? Concepts and relations that no other theme or data uses are removed too.",
+    "more": "More",
+    "memoBadge": "Note question",
+    "counts": "Knowledge {{k}} · Data {{d}}",
+    "seeKnowledge": "See the answer",
+    "knowledgeNone": "No confirmed knowledge yet.",
+    "byAi": "A person confirmed an AI draft",
+    "byHuman": "Confirmed by a person",
+    "knowledgeTotal": "Knowledge {{n}}",
+    "removed": "Removed the theme “{{label}}”. {{concepts}} concepts and {{relations}} relations that nothing else uses are gone too ({{kept}} concepts kept)."
   },
   "unassigned": {
     "title": "Questions in no theme"
@@ -59,7 +68,7 @@
     "close": "Close",
     "back": "Back",
     "here": "You are here",
-    "recipe": "The 6 steps of a theme",
+    "recipe": "The 3 steps of a theme",
     "saveErr": "Could not save the draft: {{detail}}",
     "closeAsk": "Closing. What about the draft?",
     "keepClose": "Keep it and close",
@@ -67,158 +76,70 @@
     "keepGoing": "Keep going"
   },
   "steps": {
-    "write": "Write what you want to know",
-    "read": "Let the AI read",
-    "terms": "Check the terms",
-    "relations": "Check the relations",
-    "try": "Try",
+    "write": "Write",
+    "review": "Check the draft",
     "place": "Place"
   },
   "write": {
-    "lead": "A theme name, and what you want to know, one per line.",
-    "themeName": "Theme name",
-    "themeNamePlaceholder": "e.g. Thermoelectric materials",
+    "lead": "Write what you want to know, one per line. The theme name can stay empty.",
+    "themeName": "Theme name (optional)",
+    "themeNamePlaceholder": "If empty, the AI names it (e.g. Thermoelectric materials)",
     "questions": "What you want to know (one per line)",
-    "questionsPlaceholder": "e.g. What is the composition of the sample with the highest ZT?",
+    "questionsPlaceholder": "e.g. What can lower thermal conductivity?",
+    "examples": "Examples (press to add)",
     "suggestNote": "AI suggestions (press to add)",
     "aiOff": "No AI is set up. You can write by hand.",
     "toRead": "Let the AI read",
-    "manual": "Write by hand, without the AI"
+    "manual": "Write by hand"
   },
   "read": {
-    "lead": "The AI drafts the kinds, fields and relations your questions need.",
     "running": "Reading…",
-    "done": "Drafted from {{questions}} questions: {{terms}} terms and {{relations}} relations. You check them one by one next.",
     "badShape": "The AI's answer was not in the fixed shape.",
     "unconfigured": {
       "title": "The AI is not set up",
-      "body": "It cannot read the questions because no AI is set up. You can write the terms yourself (set it up any time from Settings)."
+      "body": "It cannot read the questions because no AI is set up. You can add concepts yourself (set it up any time from Settings)."
     },
     "manual": "Write by hand",
     "openSettings": "Open settings",
+    "dismiss": "Close",
     "failed": {
       "title": "Could not make the AI draft",
       "body": "Try again, or write by hand. Your questions are kept as they are.",
       "detail": "Technical details"
     },
     "retry": "Let it read again",
-    "next": "Check the names",
     "again": "Let it read again"
-  },
-  "terms": {
-    "lead": "Check each term, one per row.",
-    "empty": "No terms yet. Add them with the buttons below.",
-    "colJa": "Japanese name",
-    "colEn": "English name · aliases",
-    "colKind": "Kind / item",
-    "colMatch": "Already exists (exact match)",
-    "colUse": "What to do",
-    "aliases": "Aliases",
-    "aliasesPlaceholder": "Aliases (comma-separated; common column names)",
-    "match": {
-      "existing": "Exact match with an existing term",
-      "standard": "Exact match with a standard term",
-      "quantity": "Exact match with a quantity kind",
-      "byAlias": " (an alias matches)"
-    },
-    "none": "None",
-    "use": {
-      "new": "Make a new one",
-      "existing": "Use the existing term",
-      "standard": "Make it the same as the standard term {{ref}}",
-      "quantity": "Make it, tied to the quantity kind {{ref}}"
-    },
-    "remove": "Remove this row",
-    "addClass": "+ Add a kind",
-    "addProperty": "+ Add an item",
-    "summary": "{{n}} new terms (of {{total}} rows).",
-    "next": "Check the relations"
-  },
-  "relations": {
-    "lead": "If a drafted sentence is right, choose “Yes”; if not, “No”.",
-    "empty": "No relations to check. You can add one below.",
-    "fromTerms": "(a relation with the standard term chosen in step 3)",
-    "problem": {
-      "same": "A term cannot be tied to itself",
-      "mixed": "A kind and an item cannot be tied",
-      "cycle": "The machine stopped it: it would go round in a loop",
-      "quantity_target": "“Quantity” ties only an item to a quantity kind (QUDT)"
-    },
-    "notPlaced": "Relations of an existing term are not placed here (decide them on the term's page)",
-    "ask": "Place this relation?",
-    "yes": "Yes",
-    "no": "No",
-    "add": "Add a relation:",
-    "addSubject": "Which term",
-    "addKind": "Relation",
-    "addObject": "To which term",
-    "addGo": "Add",
-    "kindSub": "is a kind of",
-    "kindEq": "is the same as",
-    "groupName": "Grouping name",
-    "groupAdd": "Add a term that groups “{{names}}”",
-    "structure": "This theme's upper structure (indented):",
-    "structureNone": "Nothing yet. Relations you answered “Yes” to line up here.",
-    "tagExisting": " (existing term)",
-    "note": {
-      "eq": "same as",
-      "quantity": "quantity"
-    },
-    "next": "Try"
   },
   "rel": {
     "sentence": {
-      "sub": "“{{subject}}” is a kind of “{{object}}”",
-      "eq": "“{{subject}}” is the same as “{{object}}”",
-      "quantity": "The quantity of “{{subject}}” is “{{object}}”"
-    }
-  },
-  "try": {
-    "lead": "For each question, check how it is counted, and the kind and field.",
-    "op": "Way of counting",
-    "kind": "Kind",
-    "property": "Item",
-    "value": "Value",
-    "opName": {
-      "count": "Count",
-      "range": "Range",
-      "top": "Top value",
-      "filter": "Filter by value",
-      "group": "Count per value",
-      "trend": "Trend (per …)",
-      "join": "One-step join"
+      "sub": "{{subject}} is a kind of {{object}}",
+      "eq": "{{subject}} is the same as {{object}}",
+      "quantity": "The quantity of {{subject}} is {{object}}",
+      "part": "{{subject}} is a part of {{object}}",
+      "lowers": "{{subject}} lowers {{object}}",
+      "raises": "{{subject}} raises {{object}}",
+      "affects": "{{subject}} changes {{object}}",
+      "other": "{{subject}} and {{object}} are related"
     },
-    "exec": "Execution sentence (built by the machine): {{sentence}}",
-    "execNone": "Choose the way of counting, kind and item to see the execution sentence.",
-    "answeringNow": "{{n}} datasets answer it now.",
-    "memoBadge": "Memo question",
-    "memoReason": {
-      "op": "The current ways of counting (count, range, top value) cannot answer it, so it stays as a memo (not published).",
-      "ai": "It does not fit a fixed shape, so it stays as a memo (not published).",
-      "none": "No way of counting is chosen, so it stays as a memo (not published).",
-      "human": "You chose to keep it as a memo (not published)."
-    },
-    "keepMemo": "Keep it as a memo question (do not publish)",
-    "next": "Place"
+    "stdName": "{{name}} (standard)"
   },
   "place": {
-    "lead": "Saves the theme “{{label}}” ({{terms}} new terms, {{lines}} relations, {{questions}} questions).",
-    "leadExtend": "Adds {{questions}} questions to “{{label}}” ({{terms}} new terms, {{lines}} relations).",
-    "listTitle": "What is saved:",
-    "newTerm": "New term “{{label}}”",
+    "lead": "Confirms {{concepts}} concepts and {{relations}} relations in the theme “{{label}}” ({{questions}} questions).",
+    "leadExtend": "Confirms {{concepts}} concepts and {{relations}} relations in “{{label}}” and adds {{questions}} questions.",
+    "concepts": "New concepts and their IDs",
+    "relations": "Relations",
+    "questions": "Questions and how they are answered",
     "id": "ID",
     "idAria": "ID of “{{label}}”",
     "idBad": "An ID starts with a lowercase letter and uses only lowercase letters, digits and _.",
     "idTaken": "This ID is already used. Choose another.",
-    "idDuplicate": "Two terms have the same ID.",
-    "relation": "Relation “{{sentence}}”",
-    "question": "Question “{{title}}”",
-    "memoQuestion": "Memo question “{{title}}” (not published)",
+    "idDuplicate": "Two concepts have the same ID.",
+    "memoQuestion": "Memo question (no way of answering yet)",
     "blocker": {
-      "label": "A term has no name. Go back to step 3 and fix it.",
-      "slug": "A term has an ID in the wrong form.",
+      "label": "A concept has no name. Go back to step 2 and fix it.",
+      "slug": "A concept has an ID in the wrong form.",
       "taken": "An ID is already used.",
-      "duplicate": "Two terms share an ID."
+      "duplicate": "Two concepts share an ID."
     },
     "placing": "Placing…",
     "go": "Place",
@@ -247,7 +168,100 @@
     "byHand": "Made by a person, by hand",
     "remove": "Remove the term",
     "open": "Open the term's page",
-    "more": "Details"
+    "more": "Details",
+    "knowledgeAi": "AI draft, confirmed"
   },
-  "firstThemeLabel": "First questions"
+  "firstThemeLabel": "First questions",
+  "review": {
+    "lead": "A knowledge map is drafted from your questions. Look at the map and sentences, remove what you do not need with ✕, then confirm them together.",
+    "leadEmpty": "No concepts yet. Choose how a question is answered, or add some below.",
+    "questionsAria": "How each question is answered",
+    "still": "Not yet",
+    "counts": "Knowledge {{k}} · Data {{d}}",
+    "wanted": "Data you want: {{text}}",
+    "sentencesAria": "Sentences of the relations",
+    "sentences": "{{n}} sentences",
+    "noSentences": "No relations yet.",
+    "dismiss": "Remove (do not suggest again)",
+    "dismissAria": "Remove “{{sentence}}”",
+    "problem": {
+      "same": "Cannot join a concept to itself (will not be confirmed)",
+      "mixed": "A kind and an item cannot be joined (will not be confirmed)",
+      "cycle": "It would go in a circle (will not be confirmed)",
+      "quantity_target": "“Quantity” joins an item to a quantity kind only (will not be confirmed)",
+      "target_not_property": "Lowers, raises and changes need an item as the other end (will not be confirmed)"
+    },
+    "add": "Add by hand",
+    "addName": "Concept name",
+    "addNamePlaceholder": "Name (e.g. grain boundary scattering)",
+    "addKind": "Kind or item",
+    "addGo": "Add",
+    "addMore": "English name and aliases",
+    "addEn": "English name",
+    "addAliases": "Aliases",
+    "addAliasesPlaceholder": "Aliases (comma separated)",
+    "aiOff": "No AI is set up, so “Grow from here” is off. You can add by hand.",
+    "confirm": "Confirm {{n}} together",
+    "confirmNone": "Place the questions only",
+    "unlinkedNote": "{{n}} concepts that do not connect to a question are left out.",
+    "leadHand": "Add concepts, choose how each question is answered, then confirm them together."
+  },
+  "answer": {
+    "label": "Answered as:",
+    "pickWay": "Way",
+    "pickTarget": "About",
+    "pickKind": "Kind",
+    "pickProperty": "Item",
+    "none": "(none)",
+    "noConcepts": "Add a concept first, then you can pick it.",
+    "option": {
+      "lowers": "what lowers …",
+      "raises": "what raises …",
+      "affects": "what changes …",
+      "parts": "the parts of …",
+      "kinds": "the kinds of …",
+      "count": "the count of …",
+      "range": "the range of … in …",
+      "top": "the top … of …",
+      "memo": "Decide later (memo)"
+    },
+    "way": {
+      "lowers": "What lowers {{target}}",
+      "raises": "What raises {{target}}",
+      "affects": "What changes {{target}}",
+      "parts": "The parts of {{target}}",
+      "kinds": "The kinds of {{target}}",
+      "count": "The count of {{kind}}",
+      "range": "The range of {{property}} of {{kind}}",
+      "rangeOnly": "The range of {{property}}",
+      "top": "The top {{property}} of {{kind}}",
+      "topOnly": "The top {{property}}",
+      "none": "Not decided yet"
+    }
+  },
+  "map": {
+    "empty": "No map yet. Let the AI read, or add concepts below.",
+    "lonely": "Not connected to a question",
+    "std": "Same as the standard term {{ref}}",
+    "expand": "Grow from here",
+    "expanding": "Growing…",
+    "expandOff": "Needs an AI to be set up",
+    "remove": "Remove",
+    "legendStd": "Matches a standard term",
+    "pill": {
+      "sub": "kind of",
+      "part": "part of",
+      "quantity": "qty"
+    },
+    "pillTitle": {
+      "sub": "Kind of (narrow → broad)",
+      "part": "Part of (part → whole)",
+      "lowers": "Lowers",
+      "raises": "Raises",
+      "affects": "Changes",
+      "eq": "Same as",
+      "quantity": "Quantity"
+    },
+    "scrollHint": "Scroll the map sideways →"
+  }
 }

@@ -328,3 +328,23 @@ async def test_find_datasets_store_failure_degrades_to_empty_descriptions(
     assert body is not None
     assert [ds["name"] for ds in body["datasets"]] == ["ZEM"]
     assert body["datasets"][0]["description"] == ""
+
+
+async def test_answer_knowledge_question_is_registered_in_both_exposure_profiles() -> None:
+    for raw in ("0", "1"):
+        mcp = build_server(
+            Settings({"ASTERISM_EXPOSE_RAW_SPARQL": raw}),
+            oxigraph_client=_mock_client(lambda r: _sparql_select_response([])),
+        )
+        tools = {t.name: t for t in await mcp.list_tools()}
+        assert "answer_knowledge_question" in tools
+        assert "tool_name" in tools["answer_knowledge_question"].parameters["properties"]
+
+
+async def test_answer_knowledge_question_unknown_name_is_not_found(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(tmp_path))
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _sparql_select_response([]))
+    )
+    result = await mcp.call_tool("answer_knowledge_question", {"tool_name": "kq_nothing"})
+    assert result.structured_content["found"] is False

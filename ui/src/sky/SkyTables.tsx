@@ -9,7 +9,11 @@ export function SkyTables({ tables, sky, onClose }: { tables: Tables; sky: SkyDa
   const { t } = useTranslation('sky')
   const none = <span className="sky-meta">—</span>
   const empty =
-    tables.stars.length === 0 && tables.terms.length === 0 && tables.standards.length === 0 && tables.hubs.length === 0
+    tables.stars.length === 0 &&
+    tables.terms.length === 0 &&
+    tables.standards.length === 0 &&
+    tables.hubs.length === 0 &&
+    tables.lines.length === 0
   return (
     <section className="sky-table-wrap" aria-label={t('table.summary')}>
       <div className="sky-table-head">
@@ -81,7 +85,13 @@ export function SkyTables({ tables, sky, onClose }: { tables: Tables; sky: SkyDa
                       <td>{r.type === 'property' ? t('table.typeProperty') : t('table.typeClass')}</td>
                       <td>{r.kinds.length ? r.kinds.join('・') : none}</td>
                       <td>{r.standard ?? none}</td>
-                      <td>{r.questions.length ? r.questions.join('・') : none}</td>
+                      <td>
+                        {r.questions.length
+                          ? r.questions
+                              .map((q) => (q.mode === 'knowledge' ? `${q.title}（${t('questions.knowledgeN', { n: q.knowledge })}）` : q.title))
+                              .join('・')
+                          : none}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -103,6 +113,27 @@ export function SkyTables({ tables, sky, onClose }: { tables: Tables; sky: SkyDa
                     <tr key={r.iri}>
                       <td>{r.label}</td>
                       <td>{r.bound.length ? r.bound.join('・') : none}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {tables.lines.length > 0 && (
+            <div className="sky-table-scroll">
+              <table className="sky-table">
+                <caption>{t('table.lines')}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('table.colLine')}</th>
+                    <th scope="col">{t('table.colReason')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tables.lines.map((r, i) => (
+                    <tr key={`${r.from}-${r.relation}-${r.to}-${i}`}>
+                      <td>{t(`line.sentence.${r.relation}`, { subject: r.from, object: r.to })}</td>
+                      <td>{r.reason ?? none}</td>
                     </tr>
                   ))}
                 </tbody>

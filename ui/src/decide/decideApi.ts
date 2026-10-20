@@ -65,12 +65,14 @@ export async function decide(source: string, target: string, relation: AlignRela
   }
 }
 
-/** 「当てはまるものは無い」— この主語（IRI か、公開前の列・種類の鍵）にその用語を提案しない。冪等。 */
-export async function dismiss(subject: string, term: string): Promise<void> {
+/** 「当てはまるものは無い」— この主語（IRI か、公開前の列・種類の鍵）にその用語を提案しない。冪等。
+ * `relation`（述語名）を付けると関係の却下（下書きの線の ✕）、概念の却下は `subject="concept:<名前>"`・
+ * `term="concept"`。 */
+export async function dismiss(subject: string, term: string, relation?: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/vocab/dismiss`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ subject, term }),
+    body: JSON.stringify({ subject, term, ...(relation ? { relation } : {}) }),
   })
   if (!res.ok) throw await asError(res, i18n.t('decide:error.ops.dismiss'))
 }

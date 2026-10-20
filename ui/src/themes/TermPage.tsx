@@ -137,6 +137,14 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
   }
 
   const mine = lines.filter((a) => a.source === term.iri || a.target === term.iri)
+  // 知識の線（一部・下げる・上げる・変える）は「決めたこと」の 1 か所だけに文で出す（二重にしない）。
+  const reasonLine = (a: Alignment) =>
+    a.reason ? (
+      <div className="thm-reason" title={t('decisions:reasonLabel')}>
+        {a.reason}
+        {a.drafted_by === 'ai' && <span className="thm-ai">{t('themes:term.knowledgeAi')}</span>}
+      </div>
+    ) : null
   const themesOf = (tool: string) => themes.filter((th) => th.questions.some((q) => q.tool_name === tool))
 
   return (
@@ -251,6 +259,7 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
               <li key={a.alignment_iri}>
                 {decisionSentence(a, names, t)}
                 {a.at && <span className="vocab-field-hint"> {a.at.slice(0, 10)}</span>}
+                {reasonLine(a)}
               </li>
             ))}
           </ul>

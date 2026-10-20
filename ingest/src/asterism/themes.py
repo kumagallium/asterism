@@ -1,19 +1,24 @@
-"""Themes — 「知りたいことから作る」(ui-redesign PR 4・design.md §3).
+"""Themes — 「知りたいことから作る」(ui-redesign PR 4・PR 6a v2・design.md §15).
 
-A *theme* is a named group of questions a person wants answered. It does NOT own anything
-it names: terms (``sv:<slug>``), the lines between them and the competency questions
-(CQs) live in the shared vocabulary and outlive the theme — deleting a theme only drops
-its references. This module holds
+A *theme* is a named group of questions a person wants answered. A question is answered by
+the DATA (a count / range / top over declared tools) or by KNOWLEDGE (the confirmed
+relations — part of / lowers / raises / affects / kind of — read by ``asterism.knowledge``).
+A theme does not own the terms (``sv:<slug>``), lines and competency questions (CQs) it
+names in the way a dataset does, but it remembers what it MADE (``minted`` terms, the
+``relations`` it added) so that taking the theme away takes back what nobody else uses. This
+module holds
 
 * the stored shape (``registry/vocab-shared/themes.json`` + one working draft per theme
-  being made under ``themes/<id>/draft.json``) and the idempotent first migration;
-* the deterministic post-process of an AI draft (slug derivation, exact matches against
-  the standards and the existing terms — which beat the model's own ``use`` — kind and
-  cycle checks, operations the declarative tools cannot answer yet → memo questions);
-* the ONE operation that turns a confirmed draft into stored terms, lines, CQs and a
-  theme record (:func:`commit_theme`) — everything that can be refused is checked before
-  the first write, and a failure while writing takes back what was written;
-* the CSV "templates" (header rows only) a theme implies.
+  being made under ``themes/<id>/draft.json``, v2) and the idempotent first migration;
+* the deterministic post-process of an AI draft (concepts by ``key``, slug derivation, exact
+  matches against the standards and the existing terms — which beat the model's ``use`` —,
+  a kind check per relation, cycle checks, dismissed concepts / relations dropped, one
+  answer per question; operations that cannot be run yet → memo questions);
+* the ONE operation that turns a confirmed draft into stored terms, lines (with who / when /
+  which batch / why), CQs and a theme record (:func:`commit_theme`) — everything that can be
+  refused is checked before the first write, and a failure while writing takes back what was
+  written — and its inverse for a whole theme (:func:`remove_theme_cascade`);
+* the CSV "templates" (header rows only) a theme implies — from the questions' targets only.
 
 Nothing here calls a model or writes generated code: the AI only ever fills the closed
 JSON of ``asterism_step0.theme_propose``; every IRI used below comes from the store, the
@@ -38,6 +43,8 @@ from asterism import shared_vocab as sv
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
+    REASON_MAX,
+    _check_same_shape,
     _declared_shapes,
     assert_alignment,
     remove_alignment,
@@ -56,12 +63,24 @@ FIRST_THEME_LABEL = "はじめの問い"
 #: 今の宣言ツールで答えられる数え方（``api/questions_routes.QUESTION_OPS`` と同じ・api の
 #: テストが固定する）。これ以外は公開せず「メモの問い」に残す（PR 5 で広げる）。
 FITTING_OPS = ("count", "range", "top")
-RELATION_KINDS = ("sub", "eq", "quantity")
+#: 知識で答える（``asterism.knowledge`` の走者・``theme_propose.KNOWLEDGE_OPS`` と同じ）。
+KNOWLEDGE_OPS = ("factors", "parts", "kinds")
+KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
+#: 下書きの関係の名前（``theme_propose.RELATIONS`` と同じ）。ストアの述語には
+#: :func:`relation_predicate` で写す。
+RELATION_KINDS = ("sub", "eq", "quantity", "part", "lowers", "raises", "affects")
+#: 1 つのテーマに置ける概念の上限（累積）。
+MAX_CONCEPTS = 120
+_MAX_DRAFT_RELATIONS = 400
+DRAFT_VERSION = 2
+#: 知識の問いのツール名の頭（データの宣言ツール ``cq_`` とは別・ツールは作らない）。
+KNOWLEDGE_TOOL_PREFIX = "kq_"
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}\Z")
 _ID_MAX = 40
-#: ルート ``#/questions/<…>`` の予約語（用語のページ・下書き）。テーマ id にしない。
-RESERVED_IDS = frozenset({"term", "drafts", "draft"})
+#: ルート ``#/questions/<…>`` の予約語（用語のページ・下書き）と、``/api/themes/drafts/sky`` の
+#: ``sky``。テーマ id・下書き id にしない。
+RESERVED_IDS = frozenset({"term", "drafts", "draft", "sky"})
 _LABEL_MAX = 80
 _QUESTION_MAX = 300
 _MAX_QUESTIONS = 40
@@ -284,8 +303,9 @@ def add_questions_to_theme(
 
 
 def remove_theme(root: Path | str, theme_id: str) -> None:
-    """Drop the theme record — and ONLY that. Its terms, lines and CQs stay (a term is not
-    the theme's possession). Also removes an unfinished draft of the same id."""
+    """Drop the theme record — and ONLY that. Its terms, lines and CQs stay. Also removes an
+    unfinished draft of the same id. (:func:`remove_theme_cascade` is the theme-level undo
+    that also takes back what only this theme needed; it calls this one.)"""
     data = ensure_migrated(root)
     kept = [t for t in data["themes"] if t["id"] != theme_id]
     if len(kept) == len(data["themes"]):
@@ -317,20 +337,46 @@ def list_drafts(root: Path | str) -> list[dict]:
 
 
 def load_draft(root: Path | str, draft_id: str) -> dict | None:
+    """The working draft, or ``None`` when absent, unreadable or NOT v2.
+
+    A v1 ``draft.json`` (steps 1–6, ``terms`` / ``selections``, the model's raw ``ai``) is
+    dropped here and not migrated: its rows were the six-step wizard's table, which the
+    three-step wizard no longer has, and a half-made draft is cheap to write again (the
+    questions are one line each). It is left on disk untouched; a new draft with the same
+    id replaces it."""
     try:
         path = _draft_path(root, draft_id)
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, ThemeError):
         return None
-    return data if isinstance(data, dict) and data.get("id") == draft_id else None
+    if not isinstance(data, dict) or data.get("id") != draft_id:
+        return None
+    if data.get("version") != DRAFT_VERSION:
+        return None
+    return data
+
+
+def default_label(questions: Iterable[str]) -> str:
+    """テーマ名が空のとき（AI 未設定・AI が名前を返さなかったとき）の名前 — 最初の問いの
+    先頭 20 字。問いも無ければ空。"""
+    for q in clean_questions(questions):
+        return q[:20].rstrip()
+    return ""
+
+
+def _label_or_default(label: str, questions: Iterable[str]) -> str:
+    folded = " ".join((label or "").split())
+    return _clean_label(folded or default_label(questions) or "")
 
 
 def create_draft(
     root: Path | str, label: str, questions: list[str], *, at: str, extend: str | None = None
 ) -> dict:
-    """A new draft with a fresh id (from the label; unique among themes and drafts).
+    """A new (v2) draft with a fresh id (from the label; unique among themes and drafts).
+    The label may be empty: the first question's first 20 characters stand in for it.
     ``extend`` = the id of a theme the questions will be added to (「問いを足す」)."""
-    label = _clean_label(label)
+    cleaned = clean_questions(questions)
+    label = _label_or_default(label, cleaned)
     taken = {t["id"] for t in ensure_migrated(root)["themes"]}
     taken |= {d["id"] for d in list_drafts(root)}
     draft_id = new_theme_id(label, taken)
@@ -338,11 +384,12 @@ def create_draft(
         "id": draft_id,
         "label": label,
         "step": 1,
-        "questions": clean_questions(questions),
-        "ai": None,
-        "terms": [],
+        "questions": cleaned,
+        "concepts": [],
         "relations": [],
-        "selections": [],
+        "answers": [],
+        "suggested_questions": [],
+        "standards": {},
         "updated_at": at,
     }
     if extend:
@@ -350,22 +397,51 @@ def create_draft(
     return save_draft(root, draft)
 
 
+def _standards_of(v: Any) -> dict[str, dict]:
+    if not isinstance(v, dict):
+        return {}
+    return {
+        str(k): {
+            "label": str(d.get("label") or ""),
+            "iri": str(d.get("iri") or ""),
+            "kind": str(d.get("kind") or ""),
+        }
+        for k, d in v.items()
+        if isinstance(d, dict)
+    }
+
+
 def save_draft(root: Path | str, draft: dict) -> dict:
-    """Write a draft as given (the shape is the wizard's own; only the frame is checked)."""
+    """Write a (v2) draft as given (the shape is the wizard's own; only the frame is
+    checked). The model's raw output is NEVER stored — a caller that passes ``ai`` has it
+    ignored here (design.md §15.3: the draft keeps the post-processed rows, nothing else)."""
     path = _draft_path(root, str(draft.get("id")))
     step = draft.get("step")
-    if not isinstance(step, int) or not 1 <= step <= 6:
-        raise ThemeError("step は 1〜6 です")
+    if not isinstance(step, int) or not 1 <= step <= 3:
+        raise ThemeError("step は 1〜3 です")
+    questions = clean_questions(draft.get("questions") or [])
+    concepts = _list_of_dicts(draft.get("concepts"))
+    relations = _list_of_dicts(draft.get("relations"))
+    answers = _list_of_dicts(draft.get("answers"))
+    if len(concepts) > MAX_CONCEPTS:
+        raise ThemeError(f"概念は {MAX_CONCEPTS} 件までです")
+    if len(relations) > _MAX_DRAFT_RELATIONS:
+        raise ThemeError(f"関係は {_MAX_DRAFT_RELATIONS} 件までです")
+    if len(answers) > _MAX_QUESTIONS:
+        raise ThemeError(f"問いの答え方は {_MAX_QUESTIONS} 件までです")
+    suggested = [str(q) for q in (draft.get("suggested_questions") or []) if isinstance(q, str)]
     out = {
+        "version": DRAFT_VERSION,
         "id": draft["id"],
-        "label": _clean_label(str(draft.get("label") or "")),
+        "label": _label_or_default(str(draft.get("label") or ""), questions),
         "step": step,
-        "questions": clean_questions(draft.get("questions") or []),
-        "ai": draft.get("ai") if isinstance(draft.get("ai"), dict) else None,
+        "questions": questions,
         **({"extend": draft["extend"]} if _ID_RE.match(str(draft.get("extend") or "")) else {}),
-        "terms": _list_of_dicts(draft.get("terms")),
-        "relations": _list_of_dicts(draft.get("relations")),
-        "selections": _list_of_dicts(draft.get("selections")),
+        "concepts": concepts,
+        "relations": relations,
+        "answers": answers,
+        "suggested_questions": suggested[:5],
+        "standards": _standards_of(draft.get("standards")),
         "updated_at": str(draft.get("updated_at") or _now_default()),
     }
     sv._scaffold(root)
@@ -453,6 +529,11 @@ def std_by_curie(curie: str) -> StdRef | None:
     return None
 
 
+def _too_short_ascii(q: str) -> bool:
+    t = q.strip()
+    return len(t) <= 2 and t.isascii()
+
+
 def std_exact(label_ja: str, label_en: str, aliases: Iterable[str], kind: str) -> StdRef | None:
     """The standard term whose name equals this row's English name (or an alias) exactly
     — after :func:`normalize_label`, never fuzzy. For a property row a QUDT quantity kind
@@ -461,6 +542,8 @@ def std_exact(label_ja: str, label_en: str, aliases: Iterable[str], kind: str) -
     from asterism import grounding
     from asterism.grounding import quantity_kinds
 
+    # 2 文字以下の ASCII の別名（"n" など）は短すぎて何にでも当たる（#636 と同じ趣旨）
+    aliases = [a for a in aliases if not _too_short_ascii(a)]
     queries = [q for q in (label_en, *aliases, label_ja) if q and q.strip()]
     for q in queries:
         if normalize_label(q) in sv.GENERIC_LABELS:
@@ -544,73 +627,173 @@ def _machine_match(
     return None, "new", "", None
 
 
+def derive_slug(label_en: str, aliases: Iterable[str], taken: Iterable[str], n: int) -> str:
+    """The slug a new concept gets when nobody typed one: from the English name, else the
+    first alias that gives one, else ``t<n>`` (a placeholder the person can fix in the
+    last step). Unique among ``taken`` and never a reserved slug. Always returns a slug."""
+    base = slug_from_text(label_en) or next(
+        (x for a in aliases if (x := slug_from_text(a))), ""
+    )
+    return unique_slug(base or f"t{n}", {*taken, *sv.RESERVED_SLUGS})
+
+
 def match_rows(rows: Iterable[dict], *, existing: list[SharedTerm]) -> list[dict]:
     """Rows the person wrote by hand (``{key?, label_ja, label_en, aliases, kind}``) →
-    ``[{key, match, use}]``: the same exact-name check an AI draft gets (ja / en / aliases
-    through :func:`normalize_label` — a part of a name never matches). ``use`` is the
-    machine's advice (``existing:<slug>`` / ``standard:<curie>`` / ``new``). Read-only; no
-    model is involved."""
+    ``[{key, match, use, slug}]``: the same exact-name check an AI draft gets (ja / en /
+    aliases through :func:`normalize_label` — a part of a name never matches). ``use`` is the
+    machine's advice (``existing:<slug>`` / ``standard:<curie>`` / ``new``); ``slug`` is the
+    existing term's, or the one :func:`derive_slug` would give a new concept (``t<n>`` when
+    there is no English name). Read-only; no model is involved."""
     out: list[dict] = []
+    taken = {e.slug for e in existing}
     for i, r in enumerate(rows):
         kind = "property" if r.get("kind") == "property" else "class"
         aliases = list(sv.clean_aliases(r.get("aliases")))
-        match, use, _slug, _std = _machine_match(
+        match, use, slug, _std = _machine_match(
             str(r.get("label_ja") or ""), str(r.get("label_en") or ""), aliases, kind, existing
         )
+        if not slug:
+            slug = derive_slug(str(r.get("label_en") or ""), aliases, taken, i + 1)
+            taken.add(slug)
         key = r.get("key") if r.get("key") is not None else f"t{i + 1}"
-        out.append({"key": key, "match": match, "use": use})
+        out.append({"key": key, "match": match, "use": use, "slug": slug})
     return out
 
 
-def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTerm]) -> dict:
-    """The AI's closed JSON (already validated) → the wizard's working rows.
+def relation_predicate(rel: str, kind: str) -> str:
+    """A draft relation (``sub`` / ``eq`` / ``quantity`` / ``part`` / ``lowers`` / ``raises``
+    / ``affects``) → the key of :data:`ALIGN_RELATIONS` (the standard predicate), by the kind
+    (``class`` | ``property``) of the subject."""
+    if rel == "sub":
+        return "subClassOf" if kind == "class" else "subPropertyOf"
+    if rel == "eq":
+        return "equivalentClass" if kind == "class" else "equivalentProperty"
+    try:
+        return {
+            "quantity": "hasQuantityKind",
+            "part": "isPartOf",
+            "lowers": "lowers",
+            "raises": "raises",
+            "affects": "affects",
+        }[rel]
+    except KeyError:
+        raise ThemeError(f"関係は {RELATION_KINDS} のどれかです: {rel!r}") from None
+
+
+def concept_end_key(row: dict) -> str:
+    """The key under which a dismissal names one end of a relation: the IRI of an existing /
+    standard term the row is tied to, else ``concept:<normalized Japanese name>`` (the
+    concept is not placed yet). The same function on the way in (``dismissed.json``) and on
+    the way out (the post-process), so a ✕ stays a ✕."""
+    use = str(row.get("use") or "")
+    if use.startswith(_USE_EXISTING) and row.get("slug"):
+        return sv.term_iri(str(row["slug"]))
+    m = row.get("match") or {}
+    if m.get("kind") in ("standard", "quantity") and m.get("ref"):
+        ref = std_by_curie(str(m["ref"]))
+        if ref is not None:
+            return ref.iri
+    return sv.concept_subject(str(row.get("label_ja") or ""))
+
+
+def _fresh_key(taken: set[str], prefix: str = "c") -> str:
+    n = 1
+    while f"{prefix}{n}" in taken:
+        n += 1
+    taken.add(f"{prefix}{n}")
+    return f"{prefix}{n}"
+
+
+def postprocess_draft(
+    ai: dict,
+    *,
+    questions: list[str],
+    existing: list[SharedTerm],
+    dismissed: Iterable[dict] = (),
+    base: dict | None = None,
+) -> dict:
+    """The AI's closed JSON v2 (already validated) → the wizard's working rows.
 
     Machine facts beat the model's claims: an exact match with an existing shared term (ja
     / en / aliases, :func:`normalize_label`) or with a standard term decides ``use``; only
     when there is no such match does a ``use`` the model named stand — and then only if it
-    points into the closed set. Returns ``{"terms", "relations", "selections",
-    "suggested_questions", "standards", "groups"}``:
+    points into the closed set. References between rows are by ``key``.
 
-    * term rows ``{key, label_ja, label_en, aliases, kind, use, slug, reason, match, by}``
+    ``dismissed`` = :func:`~asterism.shared_vocab.load_dismissed`: a NEW concept the person
+    dismissed before (``concept_subject`` of its Japanese name) and a relation they
+    dismissed (:func:`concept_end_key` of both ends + the predicate) are dropped, and
+    counted in ``dropped``. ``base`` (「ここを広げる」) = the draft being grown: its rows are
+    the references the addition may point at, its keys are never reused, and the result
+    holds only what is NEW.
+
+    Returns ``{"theme_label", "concepts", "relations", "answers", "suggested_questions",
+    "standards", "dropped"}``:
+
+    * concept rows ``{key, label_ja, label_en, aliases, kind, use, slug, reason, match, by}``
       (``match`` = what the machine found: ``{kind: existing|standard|quantity, ref, label,
-      matched_by}`` or ``None``);
-    * relations ``{subject: <key>, object: <key | curie>, relation, problem, by}`` where
-      ``problem`` is ``same`` / ``mixed`` / ``cycle`` / ``quantity_target`` or ``None``;
-    * one selection per question ``{question, op, kind, property, value, fits, memo,
-      reason, by}`` (``kind`` / ``property`` are term keys; ``memo`` says why a question
-      cannot be published: ``op`` = no declarative tool yet, ``ai`` = the model said it
-      does not fit, ``none`` = nothing was chosen).
-    """
+      matched_by}`` or ``None``; ``slug`` is never empty — ``t<n>`` stands in);
+    * relations ``{from: <key>, rel, to: <key | curie>, reason, problem, by}`` where
+      ``problem`` is ``same`` / ``mixed`` (kinds do not fit) / ``cycle`` / ``quantity_target``
+      / ``target_not_property`` (lowers / raises / affects need a property) or ``None``;
+    * one answer per question ``{question, mode, op, target, direction, kind, property,
+      value, memo, wanted_data, reason, by}`` — ``mode`` is ``knowledge`` / ``data`` /
+      ``memo``; ``memo`` says why a question cannot be answered (``op`` = it needs a way of
+      counting that is not there yet, ``ai`` = the model's answer does not fit the closed
+      shape, ``none`` = no answer came for it)."""
+    dismissed = list(dismissed)
+    base_rows = [r for r in (base or {}).get("concepts") or [] if isinstance(r, dict)]
+    base_rels = [r for r in (base or {}).get("relations") or [] if isinstance(r, dict)]
     by_slug = {e.slug: e for e in existing}
-    rows: list[dict] = []
-    taken = set(by_slug)
+    rows: list[dict] = []  # the NEW rows (the references also see base_rows)
+    taken_keys = {str(r.get("key")) for r in base_rows}
+    taken = set(by_slug) | {str(r.get("slug")) for r in base_rows if r.get("slug")}
     standards: dict[str, dict] = {}
+    dropped: dict[str, list] = {"concepts": [], "relations": []}
+    keymap: dict[str, str | None] = {}  # the model's key → our key (None = dismissed)
 
-    def add_row(**kw: Any) -> dict:
-        row = {"key": f"t{len(rows) + 1}", **kw}
+    def all_rows() -> list[dict]:
+        return [*base_rows, *rows]
+
+    def add_row(*, key: str | None = None, **kw: Any) -> dict:
+        if key is None or key in taken_keys:
+            key = _fresh_key(taken_keys)
+        taken_keys.add(key)
+        row = {"key": key, **kw}
         rows.append(row)
         return row
 
-    def find_row(label: str) -> dict | None:
+    def find_row(label: str, kind: str | None = None) -> dict | None:
         n = normalize_label(label)
         if not n:
             return None
-        for r in rows:
-            if n in _norm_set(r["label_ja"], r["label_en"]) or n == normalize_label(r["label_ja"]):
+        for r in all_rows():
+            if kind is not None and r.get("kind") != kind:  # 同名でも種類と項目は別の行
+                continue
+            if n in _norm_set(r["label_ja"], r.get("label_en")) or n == normalize_label(
+                r["label_ja"]
+            ):
                 return r
         return None
 
     def remember_std(ref: StdRef) -> None:
-        standards[ref.curie] = {"label": ref.label, "kind": ref.kind}
+        standards[ref.curie] = {"label": ref.label, "iri": ref.iri, "kind": ref.kind}
 
-    for t in ai.get("terms", []):
+    for t in ai.get("concepts", []):
         label_ja = t["label_ja"]
-        if find_row(label_ja) is not None:
+        dup = find_row(label_ja, t["kind"])
+        if dup is not None:
+            keymap[t["key"]] = dup["key"]
             continue
         aliases = list(sv.clean_aliases(t.get("aliases")))
         label_en = t.get("label_en") or ""
         kind = t["kind"]
         match, use, slug, std = _machine_match(label_ja, label_en, aliases, kind, existing)
+        if match is None and sv.is_dismissed(
+            dismissed, sv.concept_subject(label_ja), sv.CONCEPT_DISMISS_TERM
+        ):
+            keymap[t["key"]] = None
+            dropped["concepts"].append(label_ja)
+            continue
         if std is not None:
             remember_std(std)
         if match is None:
@@ -627,12 +810,10 @@ def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTe
                     use = claimed
                     remember_std(ref)
         if not slug:
-            base = slug_from_text(label_en)
-            if not base:
-                base = next((s for a in aliases if (s := slug_from_text(a))), "")
-            slug = unique_slug(base, taken) if base else ""
-            taken.add(slug) if slug else None
-        add_row(
+            slug = derive_slug(label_en, aliases, taken, len(base_rows) + len(rows) + 1)
+            taken.add(slug)
+        row = add_row(
+            key=t["key"],  # the model's own key when it is free (a stable reading)
             label_ja=label_ja,
             label_en=label_en,
             aliases=aliases,
@@ -643,146 +824,213 @@ def postprocess_draft(ai: dict, *, questions: list[str], existing: list[SharedTe
             match=match,
             by="ai",
         )
+        keymap[t["key"]] = row["key"]
 
-    def resolve(label: str, kind_hint: str | None = None) -> dict | None:
-        """A name the model used → a row (adding one for an existing shared term that the
-        model referred to without listing it)."""
-        row = find_row(label)
+    def row_by_key(key: str) -> dict | None:
+        return next((r for r in all_rows() if r["key"] == key), None)
+
+    def resolve(ref: str, kind_hint: str | None = None) -> tuple[dict | None, bool]:
+        """A reference the model made → ``(row, dismissed)``. By key first, then by name
+        (a lenient fallback: the model named a concept instead of giving its key), adding a
+        row for an existing shared term that the model referred to without listing it."""
+        if ref in keymap:
+            k = keymap[ref]
+            return (row_by_key(k) if k is not None else None), k is None
+        row = row_by_key(ref) or find_row(ref, kind_hint)
         if row is not None:
-            return row
-        n = _norm_set(label)
+            return row, False
+        n = _norm_set(ref)
         for e in sorted(existing, key=lambda x: x.slug):
-            if n & _term_norms(e) and (kind_hint is None or e.kind == kind_hint):
-                return add_row(
-                    label_ja=e.label,
-                    label_en=e.label_en or "",
-                    aliases=list(e.aliases),
-                    kind=e.kind,
-                    use=f"{_USE_EXISTING}{e.slug}",
-                    slug=e.slug,
-                    reason="",
-                    match={
-                        "kind": "existing",
-                        "ref": e.slug,
-                        "label": e.label,
-                        "matched_by": "label",
-                    },
-                    by="ai",
+            if n and n & _term_norms(e) and (kind_hint is None or e.kind == kind_hint):
+                return (
+                    add_row(
+                        label_ja=e.label,
+                        label_en=e.label_en or "",
+                        aliases=list(e.aliases),
+                        kind=e.kind,
+                        use=f"{_USE_EXISTING}{e.slug}",
+                        slug=e.slug,
+                        reason="",
+                        match={
+                            "kind": "existing",
+                            "ref": e.slug,
+                            "label": e.label,
+                            "matched_by": "label",
+                        },
+                        by="ai",
+                    ),
+                    False,
                 )
-        return None
+        return None, False
 
-    # relations
-    wanted: dict[str, dict] = {}  # a parent the model named but nobody has: label → children
+    # relations — the draft's own sub / part edges (and the base's) feed the cycle check
     rels: list[dict] = []
-    seen_rel: set[tuple[str, str, str]] = set()
-    sub_edges: set[tuple[str, str]] = set()
+    seen_rel: set[tuple[str, str, str]] = {
+        (str(r.get("from")), str(r.get("to")), str(r.get("rel"))) for r in base_rels
+    }
+    edges: dict[str, set[tuple[str, str]]] = {"sub": set(), "part": set()}
+    for r in base_rels:
+        if r.get("rel") in edges and not r.get("problem"):
+            edges[r["rel"]].add((str(r["from"]), str(r["to"])))
     for r in ai.get("relations", []):
-        subj = resolve(r["subject"])
-        if subj is None:
+        rel = r["rel"]
+        subj, gone_s = resolve(r["from"])
+        obj_ref = r["to"]
+        std = std_by_curie(obj_ref) if ":" in obj_ref and obj_ref not in keymap else None
+        obj, gone_o = (None, False) if std is not None else resolve(obj_ref)
+        if gone_s or gone_o:
+            dropped["relations"].append({"from": r["from"], "rel": rel, "to": obj_ref})
             continue
-        obj_ref = r["object"]
-        obj_key: str | None = None
-        std = std_by_curie(obj_ref) if ":" in obj_ref else None
+        if subj is None or (obj is None and std is None):
+            continue
         if std is not None:
             remember_std(std)
             obj_key = std.curie
         else:
-            obj = resolve(obj_ref)
-            if obj is None:
-                if r["relation"] == "sub":  # "these need a parent that does not exist yet"
-                    w = wanted.setdefault(
-                        normalize_label(obj_ref), {"label_ja": obj_ref, "children": []}
-                    )
-                    if subj["key"] not in w["children"] and subj["kind"] == "class":
-                        w["children"].append(subj["key"])
-                continue
+            assert obj is not None
             obj_key = obj["key"]
-        trip = (subj["key"], obj_key, r["relation"])
+        trip = (subj["key"], obj_key, rel)
         if trip in seen_rel:
             continue
         seen_rel.add(trip)
+        obj_kind = std.kind if std is not None else obj["kind"]  # type: ignore[index]
         problem: str | None = None
         if obj_key == subj["key"]:
             problem = "same"
-        elif r["relation"] == "quantity":
+        elif rel == "quantity":
             if subj["kind"] != "property" or std is None or std.kind != "quantity":
                 problem = "quantity_target"
-        else:
-            obj_kind = (
-                std.kind
-                if std is not None
-                else next(x["kind"] for x in rows if x["key"] == obj_key)
-            )
-            if obj_kind != subj["kind"]:
-                problem = "mixed"
-            elif r["relation"] == "sub" and std is None:
-                if _reaches(sub_edges, obj_key, subj["key"]):
-                    problem = "cycle"
-                else:
-                    sub_edges.add((subj["key"], obj_key))
+        elif rel in ("lowers", "raises", "affects"):
+            if obj_kind != "property":
+                problem = "target_not_property"
+        elif obj_kind != subj["kind"]:  # sub / eq / part join the same kind of thing
+            problem = "mixed"
+        end = concept_end_key(obj) if std is None else std.iri  # type: ignore[arg-type]
+        if sv.is_dismissed(
+            dismissed,
+            concept_end_key(subj),
+            end,
+            relation=relation_predicate(rel, subj["kind"]),
+        ):
+            dropped["relations"].append({"from": r["from"], "rel": rel, "to": obj_ref})
+            continue
+        if problem is None and rel in edges and std is None:
+            if _reaches(edges[rel], obj_key, subj["key"]):
+                problem = "cycle"
+            else:
+                edges[rel].add((subj["key"], obj_key))
         rels.append(
             {
-                "subject": subj["key"],
-                "object": obj_key,
-                "relation": r["relation"],
+                "from": subj["key"],
+                "rel": rel,
+                "to": obj_key,
+                "reason": r.get("reason") or "",
                 "problem": problem,
                 "by": "ai",
             }
         )
 
-    # selections — one per question, in the person's order
-    by_q = {normalize_label(s["question"]): s for s in ai.get("selections", [])}
-    sels: list[dict] = []
+    # answers — exactly one per question, in the person's order
+    by_q = {normalize_label(a["question"]): a for a in ai.get("answers", [])}
+    out_answers: list[dict] = []
     for q in questions:
-        s = by_q.get(normalize_label(q))
-        if s is None:
-            sels.append(
-                {
-                    "question": q,
-                    "op": "",
-                    "kind": "",
-                    "property": "",
-                    "value": "",
-                    "fits": False,
-                    "memo": "none",
-                    "reason": "",
-                    "by": "ai",
-                }
-            )
+        a = by_q.get(normalize_label(q))
+        if a is None:
+            out_answers.append(_answer_row(q, "memo", memo="none"))
             continue
-        k_row = resolve(s["kind"], "class") if s.get("kind") else None
-        p_row = resolve(s["property"], "property") if s.get("property") else None
+        mode, op = a["mode"], a.get("op")
+        t_row = resolve(a["target"])[0] if a.get("target") else None
+        k_row = resolve(a["kind"], "class")[0] if a.get("kind") else None
+        p_row = resolve(a["property"], "property")[0] if a.get("property") else None
         if k_row is not None and k_row["kind"] != "class":
             k_row = None
         if p_row is not None and p_row["kind"] != "property":
             p_row = None
-        supported = s["op"] in FITTING_OPS
-        memo = None if (s["fits"] and supported) else ("ai" if not s["fits"] else "op")
-        sels.append(
-            {
-                "question": q,
-                "op": s["op"],
-                "kind": k_row["key"] if k_row else "",
-                "property": p_row["key"] if p_row else "",
-                "value": s.get("value") or "",
-                "fits": memo is None,
-                "memo": memo,
-                "reason": s.get("reason") or "",
-                "by": "ai",
-            }
+        direction = a.get("direction")
+        memo: str | None
+        if mode == "knowledge":
+            good = op in KNOWLEDGE_OPS and t_row is not None
+            if op == "factors":
+                good = good and direction in KNOWLEDGE_DIRECTIONS
+            memo = None if good else "ai"
+        elif mode == "data":
+            good = (
+                (op == "count" and k_row is not None)
+                or (op == "range" and p_row is not None)
+                or (op == "top" and p_row is not None)
+            )
+            memo = None if good else "ai"
+        else:
+            memo = "op" if op is not None and op not in (*FITTING_OPS, *KNOWLEDGE_OPS) else "ai"
+        out_answers.append(
+            _answer_row(
+                q,
+                "memo" if memo else mode,
+                op=op,
+                target=t_row["key"] if t_row and mode == "knowledge" else "",
+                direction=direction if mode == "knowledge" and op == "factors" else "",
+                kind=k_row["key"] if k_row and mode == "data" else "",
+                prop=p_row["key"] if p_row and mode == "data" else "",
+                memo=memo,
+                wanted_data=a.get("wanted_data") or "",
+                reason=a.get("reason") or "",
+            )
         )
 
     asked = {normalize_label(q) for q in questions}
     suggested = [q for q in ai.get("suggested_questions", []) if normalize_label(q) not in asked]
     return {
-        "terms": rows,
+        "theme_label": ai.get("theme_label") or "",
+        "concepts": rows,
         "relations": rels,
-        "selections": sels,
+        "answers": out_answers,
         "suggested_questions": suggested[:5],
         "standards": standards,
-        # a grouping name is only SUGGESTED, and only when two or more terms want the same
-        # parent that nobody has (the person decides whether to add it — never generated)
-        "groups": [g for g in wanted.values() if len(g["children"]) >= 2],
+        "dropped": dropped,
+    }
+
+
+def _answer_row(
+    question: str,
+    mode: str,
+    *,
+    op: str | None = None,
+    target: str = "",
+    direction: str | None = "",
+    kind: str = "",
+    prop: str = "",
+    memo: str | None = None,
+    wanted_data: str = "",
+    reason: str = "",
+) -> dict:
+    return {
+        "question": question,
+        "mode": mode,
+        "op": op or "",
+        "target": target,
+        "direction": direction or "",
+        "kind": kind,
+        "property": prop,
+        "value": "",
+        "memo": memo,
+        "wanted_data": wanted_data,
+        "reason": reason,
+        "by": "ai",
+    }
+
+
+def merge_expansion(draft: dict, added: dict) -> dict:
+    """「ここを広げる」: the post-processed addition (``postprocess_draft(..., base=draft)``)
+    joined to the draft — concepts and relations appended, standards merged. Refuses a
+    draft that would pass :data:`MAX_CONCEPTS`. Returns a new dict (nothing is saved)."""
+    concepts = [*(draft.get("concepts") or []), *added.get("concepts", [])]
+    if len(concepts) > MAX_CONCEPTS:
+        raise ThemeError(f"概念は {MAX_CONCEPTS} 件までです（これ以上は広げられません）")
+    return {
+        **draft,
+        "concepts": concepts,
+        "relations": [*(draft.get("relations") or []), *added.get("relations", [])],
+        "standards": {**(draft.get("standards") or {}), **added.get("standards", {})},
     }
 
 
@@ -814,6 +1062,7 @@ _MEMO_REASONS = {
         "ai": "決めた型に合わない問いのため、メモとして残します。",
         "none": "数え方が決まっていないため、メモとして残します。",
         "human": "あなたの判断で、メモとして残します。",
+        "duplicate": "同じ答え方の問いが既にあります。メモとして残します。",
     },
     "en": {
         "op": "The current ways of counting (count, range, top value) cannot answer it, "
@@ -821,6 +1070,8 @@ _MEMO_REASONS = {
         "ai": "It does not fit a fixed shape, so it stays as a memo.",
         "none": "No way of counting was chosen, so it stays as a memo.",
         "human": "You chose to keep it as a memo.",
+        "duplicate": "A question with the same way of answering already exists, "
+        "so it stays as a memo.",
     },
 }
 
@@ -862,6 +1113,8 @@ class _Line:
     source: str
     target: str
     relation: str  # a key of ALIGN_RELATIONS
+    reason: str | None = None
+    ai: bool = False
 
 
 @dataclass
@@ -869,7 +1122,7 @@ class _Plan:
     theme: dict
     rows: list[_Row]
     lines: list[_Line]
-    #: term key → CQSpecs (title, op) to attach, in order
+    #: term key → CQSpecs (title, op) to attach, in order (only data questions have any)
     cqs: dict[str, list[CQSpec]]
     #: term key → the planned CQ declarations (same order; only an existing term's are written
     #: as they stand — a new term's are rebuilt by ``mint_term`` to the same names)
@@ -878,17 +1131,68 @@ class _Plan:
     #: ``themes.json`` as it was (or as the first migration makes it) BEFORE any write —
     #: so the CQs this commit mints are never swept into the migrated "first" theme.
     base: dict
+    batch: str
+    #: lines other themes already list (a line that exists and is theirs is shared)
+    shared_lines: set[tuple[str, str, str]]
 
 
 def _display_label(row_label_ja: str, row_label_en: str, lang: str) -> str:
     return (row_label_en or row_label_ja) if lang.startswith("en") else row_label_ja
 
 
+def _line_reason(text: Any) -> str | None:
+    """A relation's one-line reason → what ``assert_alignment`` takes: line breaks folded to
+    spaces and CUT at :data:`REASON_MAX` (that function refuses a longer one — the AI's
+    reason is only ever shortened here, never rejected)."""
+    one = " ".join(str(text or "").split())[:REASON_MAX].rstrip()
+    return one or None
+
+
+def knowledge_tool_name(target_slug: str, op: str, direction: str | None = None) -> str:
+    """The name a knowledge question is kept under in the theme: ``kq_<target>_<op>`` plus
+    ``_<direction>`` for ``factors``. Not a declared tool — the name only keys the theme's
+    ``selections`` / ``wanted``."""
+    base = f"{KNOWLEDGE_TOOL_PREFIX}{target_slug}_{op}"
+    return f"{base}_{direction}" if op == "factors" and direction else base
+
+
+def _check_line_shapes(lines: list[_Line], shapes: dict[str, set[str]]) -> None:
+    for ln in lines:
+        try:  # 述語ごとの種別表（crosswalk_runtime.RELATION_SHAPES）
+            _check_same_shape(ln.relation, ln.source, ln.target, shapes)
+        except ValueError as e:
+            if ln.relation in ("lowers", "raises", "affects"):
+                raise ThemeError("下げる・上げる・変えるの相手は、項目だけです") from e
+            raise ThemeError("種類と項目は結べません") from e
+
+
+def _connected(start: set[str], edges: Iterable[tuple[str, str]]) -> set[str]:
+    """Everything reachable from ``start`` over ``edges`` taken in either direction."""
+    adj: dict[str, set[str]] = {}
+    for a, b in edges:
+        adj.setdefault(a, set()).add(b)
+        adj.setdefault(b, set()).add(a)
+    seen = set(start)
+    stack = list(start)
+    while stack:
+        cur = stack.pop()
+        for nxt in adj.get(cur, ()):
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return seen
+
+
 async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) -> _Plan:
-    """Everything that can be refused, checked with NO write. Raises :class:`ThemeError`."""
+    """Everything that can be refused, checked with NO write. Raises :class:`ThemeError`.
+
+    ``body`` (v2): ``{id?, extend?, label?, lang, ai_drafted, batch?, questions[],
+    concepts[{key, label_ja, label_en, aliases, kind, use, slug?, by?, comment?}],
+    relations[{from, rel, to, reason?, by?}], answers[{question, mode, op, target,
+    direction, kind, property, memo?, wanted_data?}]}``."""
     lang = "en" if str(body.get("lang") or "ja").startswith("en") else "ja"
-    label = _clean_label(str(body.get("label") or ""))
     questions = clean_questions(body.get("questions") or [])
+    label = _label_or_default(str(body.get("label") or ""), questions)
     data, _fresh = _migration_view(root, at)  # reads only: a refused commit writes nothing
     if not data.get("migrated"):
         raise ThemeError("共有の問いの宣言（query_tools.yaml）が読めないため置けません", 409)
@@ -909,6 +1213,9 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         theme_id = draft_id
     else:
         theme_id = new_theme_id(label, theme_ids)
+    batch = " ".join(str(body.get("batch") or "").split()) or f"{theme_id}@{at}"[:100]
+    if len(batch) > 100:
+        raise ThemeError("batch は 100 文字までです")
     try:
         sv._read_cq_tools(root)
     except sv.TermError as exc:
@@ -917,23 +1224,25 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
     existing = await sv._read_terms(client)
     by_slug = {t.slug: t for t in existing}
     ai_drafted = bool(body.get("ai_drafted"))
+    prior = next((t for t in data["themes"] if t["id"] == extend_id), None) if extend_id else None
 
-    # --- term rows -----------------------------------------------------------
+    # --- concept rows ----------------------------------------------------------
     rows: list[_Row] = []
     by_key: dict[str, _Row] = {}
     planned_slugs: set[str] = set()
-    for i, raw in enumerate(body.get("terms") or []):
+    derived: list[tuple[_Row, str, tuple[str, ...]]] = []  # rows that still need a slug
+    for i, raw in enumerate(body.get("concepts") or []):
         if not isinstance(raw, dict):
-            raise ThemeError(f"terms[{i}] が不正です")
+            raise ThemeError(f"concepts[{i}] が不正です")
         key = str(raw.get("key") or f"t{i + 1}")
         if key in by_key:
-            raise ThemeError(f"用語の key が重複しています: {key}")
+            raise ThemeError(f"概念の key が重複しています: {key}")
         kind = raw.get("kind")
         if kind not in ("class", "property"):
-            raise ThemeError(f"terms[{i}].kind は class か property です")
+            raise ThemeError(f"concepts[{i}].kind は class か property です")
         label_ja = " ".join(str(raw.get("label_ja") or "").split())
         if not label_ja or len(label_ja) > _LABEL_MAX:
-            raise ThemeError(f"terms[{i}] の日本語名が空か長すぎます")
+            raise ThemeError(f"concepts[{i}] の日本語名が空か長すぎます")
         label_en = " ".join(str(raw.get("label_en") or "").split())[:_LABEL_MAX]
         aliases = sv.clean_aliases(raw.get("aliases"))
         use = str(raw.get("use") or "new")
@@ -953,22 +1262,24 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         elif use.startswith(_USE_EXISTING):
             mint = False
         else:
-            raise ThemeError(f"terms[{i}].use が不正です: {use!r}")
-        if mint:
-            slug = str(raw.get("slug") or "")
+            raise ThemeError(f"concepts[{i}].use が不正です: {use!r}")
+        slug = str(raw.get("slug") or "")
+        if mint and slug:
             if not re.match(sv.SLUG_RE, slug):
                 raise ThemeError(
                     f"「{label_ja}」の ID は {sv.SLUG_RE} の形にしてください: {slug!r}"
                 )
+            if slug in sv.RESERVED_SLUGS:
+                raise ThemeError(f"ID「{slug}」は予約語です。別の ID にしてください")
             if slug in by_slug or slug in planned_slugs:
                 raise ThemeError(f"ID「{slug}」はすでに使われています。別の ID にしてください", 409)
             planned_slugs.add(slug)
-        else:
+        elif not mint:
             slug = use[len(_USE_EXISTING) :]
             e = by_slug.get(slug)
             if e is None:
                 raise ThemeError(f"既にある用語「{slug}」が見つかりません")
-            if e.kind != kind:
+            if e.kind != kind:  # an existing term's kind is never changed
                 raise ThemeError(
                     f"「{label_ja}」と既にある用語「{e.label}」は種類と項目が合いません"
                 )
@@ -984,114 +1295,168 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             comment=(str(raw.get("comment") or "").strip() or None),
             mint=mint,
             std=std,
-            iri=sv.term_iri(slug),
+            iri=sv.term_iri(slug) if slug else "",
         )
         rows.append(row)
         by_key[key] = row
+        if mint and not slug:
+            derived.append((row, label_en, aliases))
+    # a typed-in row with no ID gets the one the machine would suggest (``t<n>`` when there is
+    # no English name) — the last step shows it and lets the person fix it
+    for n, (row, label_en, aliases) in enumerate(derived, start=1):
+        row.slug = derive_slug(label_en, aliases, {*by_slug, *planned_slugs}, n)
+        row.iri = sv.term_iri(row.slug)
+        planned_slugs.add(row.slug)
+    have = set(prior.get("uses") or []) if prior is not None else set()
+    if len(have | {r.slug for r in rows}) > MAX_CONCEPTS:
+        raise ThemeError(f"概念は 1 つのテーマに {MAX_CONCEPTS} 件までです")
 
     # --- lines -----------------------------------------------------------------
-    def rel_name(kind: str, relation: str) -> str:
-        pair = {
-            "sub": ("subClassOf", "subPropertyOf"),
-            "eq": ("equivalentClass", "equivalentProperty"),
-        }[relation]
-        return pair[0] if kind == "class" else pair[1]
-
     lines: list[_Line] = []
     seen_lines: set[tuple[str, str, str]] = set()
 
-    def add_line(source: str, target: str, relation: str) -> None:
+    def add_line(
+        source: str, target: str, relation: str, *, reason: str | None = None, ai: bool = False
+    ) -> None:
         t = (source, relation, target)
         if t not in seen_lines:
             seen_lines.add(t)
-            lines.append(_Line(source, target, relation))
+            lines.append(_Line(source, target, relation, reason, ai))
 
     for row in rows:  # the machine's own "same as the standard" lines
         if row.std is not None:
-            if row.std.kind == "quantity":
-                add_line(row.iri, row.std.iri, "hasQuantityKind")
-            else:
-                add_line(row.iri, row.std.iri, rel_name(row.kind, "eq"))
+            pred = (
+                "hasQuantityKind"
+                if row.std.kind == "quantity"
+                else relation_predicate("eq", row.kind)
+            )
+            add_line(row.iri, row.std.iri, pred, ai=row.ai)
+    std_ends: dict[str, StdRef] = {}
     for i, raw in enumerate(body.get("relations") or []):
         if not isinstance(raw, dict):
             raise ThemeError(f"relations[{i}] が不正です")
-        rel = raw.get("relation")
+        rel = raw.get("rel")
         if rel not in RELATION_KINDS:
-            raise ThemeError(f"relations[{i}].relation は {RELATION_KINDS} のどれかです")
-        subj = by_key.get(str(raw.get("subject")))
+            raise ThemeError(f"relations[{i}].rel は {RELATION_KINDS} のどれかです")
+        subj = by_key.get(str(raw.get("from")))
         if subj is None:
-            raise ThemeError(f"relations[{i}] の主語が用語にありません")
-        if not subj.mint:
-            raise ThemeError(
-                f"「{subj.label_ja}」は既にある用語です。既にある用語の関係は、ここでは足せません"
-                "（用語のページで決められます）"
-            )
-        obj_ref = str(raw.get("object"))
-        obj_row = by_key.get(obj_ref)
-        obj_std = None if obj_row is not None else std_by_curie(obj_ref)
+            raise ThemeError(f"relations[{i}] の from が概念にありません")
+        to_ref = str(raw.get("to"))
+        obj_row = by_key.get(to_ref)
+        obj_std = None if obj_row is not None else std_by_curie(to_ref)
         if obj_row is None and obj_std is None:
-            raise ThemeError(f"relations[{i}] の相手が見つかりません: {obj_ref!r}")
+            raise ThemeError(f"relations[{i}] の to が見つかりません: {to_ref!r}")
         target_iri = obj_row.iri if obj_row is not None else obj_std.iri  # type: ignore[union-attr]
-        target_kind = obj_row.kind if obj_row is not None else obj_std.kind  # type: ignore[union-attr]
+        if obj_std is not None:
+            std_ends[obj_std.iri] = obj_std
         if target_iri == subj.iri:
             raise ThemeError(f"「{subj.label_ja}」を自分自身には結べません")
         if rel == "quantity":
             if subj.kind != "property" or obj_std is None or obj_std.kind != "quantity":
                 raise ThemeError("「量」の関係は、項目から量の種類（QUDT）へだけ結べます")
-            add_line(subj.iri, target_iri, "hasQuantityKind")
-        else:
-            if target_kind != subj.kind:
-                raise ThemeError(
-                    f"「{subj.label_ja}」と相手は、種類と項目が合いません（種類と項目は結べません）"
-                )
-            add_line(subj.iri, target_iri, rel_name(subj.kind, rel))
+        elif obj_std is not None and obj_std.kind == "quantity":
+            # 量の種類（QUDT）へ結べるのは「量」だけ（postprocess の target_not_property /
+            # mixed と同じ判定を、確定でも検証し直す）
+            raise ThemeError(
+                f"「{subj.label_ja}」から標準の量の種類へは「量」の関係でしか結べません"
+                f"（{rel} は使えません）"
+            )
+        elif obj_row is not None and rel in ("sub", "eq", "part") and obj_row.kind != subj.kind:
+            raise ThemeError(
+                f"「{subj.label_ja}」と相手は、種類と項目が合いません（種類と項目は結べません）"
+            )
+        add_line(
+            subj.iri,
+            target_iri,
+            relation_predicate(rel, subj.kind),
+            reason=_line_reason(raw.get("reason")),
+            ai=ai_drafted and raw.get("by") == "ai",
+        )
 
-    # shapes of the ends that already exist (the store's own check re-runs at write time)
-    touched = {x for ln in lines for x in (ln.source, ln.target)}
-    store_ends = sorted({e.iri for e in existing if e.iri in touched})
-    shapes = await _declared_shapes(client, store_ends) if store_ends else {}
-    for ln in lines:
-        if ln.relation == "hasQuantityKind":
-            continue
-        wrong = "property" if ln.relation in ("equivalentClass", "subClassOf") else "class"
-        for end in (ln.source, ln.target):
-            if shapes.get(end) == {wrong}:
-                raise ThemeError("種類と項目は結べません")
+    # shapes: the store's declarations for the ends that already exist; the rows this commit
+    # makes are declared here (they are in the store only after the write), and a standard's
+    # kind comes from the catalog
+    minted_iris = {r.iri for r in rows if r.mint}
+    touched = {x for ln in lines for x in (ln.source, ln.target)} - minted_iris
+    shapes = await _declared_shapes(client, sorted(touched)) if touched else {}
+    for r in rows:
+        if r.mint:
+            shapes.setdefault(r.iri, set()).add(r.kind)
+    for iri, ref in std_ends.items():
+        if ref.kind in ("class", "property"):
+            shapes.setdefault(iri, set()).add(ref.kind)
+    _check_line_shapes(lines, shapes)
     # cycles: the stored lines plus the ones planned, asserted in order
     edges = set(await sv._alignment_lines(client))
     for ln in lines:
-        if ln.relation in ("subClassOf", "subPropertyOf"):
-            rels = sv._CLASS_RELS if ln.relation == "subClassOf" else sv._PROP_RELS
-            if ln.target in sv._down_set(ln.source, edges, rels):
-                raise ThemeError("その関係を置くと、一周してしまいます（循環）")
+        rels = sv.cycle_rels(ln.relation)  # sub / isPartOf だけ（lowers 系は循環を許す）
+        if rels is not None and ln.target in sv._down_set(ln.source, edges, rels):
+            raise ThemeError("その関係を置くと、一周してしまいます（循環）")
         edges.add((ln.source, ln.relation, ln.target))
 
-    # --- selections → CQs --------------------------------------------------------
-    sel_by_q = {
-        normalize_label(str(s.get("question") or "")): s
-        for s in body.get("selections") or []
-        if isinstance(s, dict)
+    # --- answers → CQs / knowledge questions / memos -----------------------------
+    ans_by_q = {
+        normalize_label(str(a.get("question") or "")): a
+        for a in body.get("answers") or []
+        if isinstance(a, dict)
     }
     cqs: dict[str, list[CQSpec]] = {}
-    hosted: list[tuple[str, str, dict]] = []  # (question, term key, selection summary)
+    #: (question, ("data", host_key, summary, wanted) | ("knowledge", name, summary))
+    ordered: list[tuple[str, tuple]] = []
     memo: list[dict] = []
+    wanted: dict[str, str] = {}
+    target_iris: set[str] = set()  # the terms the questions are about
+    knowledge_seen: dict[str, dict] = {}
     for q in questions:
-        s = sel_by_q.get(normalize_label(q))
+        a = ans_by_q.get(normalize_label(q))
         why = "none"
-        if s is not None:
-            op = s.get("op")
-            k = by_key.get(str(s.get("kind"))) if s.get("kind") else None
-            p = by_key.get(str(s.get("property"))) if s.get("property") else None
-            if (s.get("kind") and k is None) or (s.get("property") and p is None):
-                raise ThemeError(f"問い「{q}」の種類か項目が用語にありません")
+        want = " ".join(str((a or {}).get("wanted_data") or "").split())[:_QUESTION_MAX]
+        if a is not None:
+            mode, op = a.get("mode"), a.get("op")
+            k = by_key.get(str(a.get("kind"))) if a.get("kind") else None
+            p = by_key.get(str(a.get("property"))) if a.get("property") else None
+            t = by_key.get(str(a.get("target"))) if a.get("target") else None
+            if (a.get("kind") and k is None) or (a.get("property") and p is None):
+                raise ThemeError(f"問い「{q}」の種類か項目が概念にありません")
+            if a.get("target") and t is None:
+                raise ThemeError(f"問い「{q}」の対象が概念にありません")
             if k is not None and k.kind != "class":
                 raise ThemeError(f"問い「{q}」の種類に項目が選ばれています")
             if p is not None and p.kind != "property":
                 raise ThemeError(f"問い「{q}」の項目に種類が選ばれています")
-            flagged = s.get("memo")
-            if flagged in _MEMO_REASONS["ja"]:
-                why = flagged
-            elif op in FITTING_OPS and s.get("fits", True):
+            flagged = a.get("memo")
+            if mode == "memo" or flagged in _MEMO_REASONS["ja"]:
+                why = flagged if flagged in _MEMO_REASONS["ja"] else (
+                    "op" if op not in (None, "", *FITTING_OPS, *KNOWLEDGE_OPS) else "ai"
+                )
+            elif mode == "knowledge":
+                direction = a.get("direction") or None
+                if op not in KNOWLEDGE_OPS:
+                    raise ThemeError(f"問い「{q}」の答え方は {KNOWLEDGE_OPS} のどれかです")
+                if t is None:
+                    raise ThemeError(f"問い「{q}」の対象の概念がありません")
+                if op == "factors" and direction not in KNOWLEDGE_DIRECTIONS:
+                    raise ThemeError(f"問い「{q}」の向きは {KNOWLEDGE_DIRECTIONS} のどれかです")
+                name = knowledge_tool_name(t.slug, op, direction)
+                summary = {
+                    "mode": "knowledge",
+                    "op": op,
+                    "target_slug": t.slug,
+                    "target": _display_label(t.label_ja, t.label_en, lang),
+                    "title": q,
+                    **({"direction": direction} if op == "factors" else {}),
+                }
+                if name in knowledge_seen:
+                    # 同じ（対象, 向き, 操作）の 2 つ目の問い: 黙って消さず、メモに落とす
+                    why = "duplicate"
+                else:
+                    knowledge_seen[name] = summary
+                    ordered.append((q, ("knowledge", name, summary)))
+                    if want:
+                        wanted.setdefault(name, want)
+                    target_iris.add(t.iri)
+                    continue
+            elif mode == "data" and op in FITTING_OPS:
                 host: _Row | None = None
                 cq_op = "count"
                 if op == "count" and k is not None:
@@ -1100,44 +1465,60 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                     host, cq_op = p, "values"
                 if host is not None:
                     cqs.setdefault(host.key, []).append(CQSpec(q, cq_op))
-                    hosted.append(
-                        (
-                            q,
-                            host.key,
-                            {
-                                "op": op,
-                                "kind": _display_label(k.label_ja, k.label_en, lang) if k else "",
-                                "property": (
-                                    _display_label(p.label_ja, p.label_en, lang) if p else ""
-                                ),
-                                "value": str(s.get("value") or ""),
-                                "kind_slug": k.slug if k else "",
-                                "property_slug": p.slug if p else "",
-                            },
-                        )
-                    )
+                    summary = {
+                        "op": op,
+                        "kind": _display_label(k.label_ja, k.label_en, lang) if k else "",
+                        "property": _display_label(p.label_ja, p.label_en, lang) if p else "",
+                        "value": str(a.get("value") or ""),
+                        "kind_slug": k.slug if k else "",
+                        "property_slug": p.slug if p else "",
+                    }
+                    ordered.append((q, ("data", host.key, summary, want)))
+                    target_iris.update(x.iri for x in (k, p) if x is not None)
                     continue
-            elif op in sv.SELECTION_OPS:
-                why = "op" if op not in FITTING_OPS else "ai"
-        memo.append(
-            {
-                "id": "m_" + hashlib.sha1(q.encode("utf-8")).hexdigest()[:8],
-                "title": q,
-                "reason": _MEMO_REASONS[lang][why],
-            }
-        )
+                why = "ai"
+            elif mode == "data":
+                why = "op" if op in sv.SELECTION_OPS else "ai"
+        item = {
+            "id": "m_" + hashlib.sha1(q.encode("utf-8")).hexdigest()[:8],
+            "title": q,
+            "reason": _MEMO_REASONS[lang][why],
+        }
+        if want:
+            item["wanted_data"] = want
+        memo.append(item)
+
+    # --- a concept that no question's target can be reached from is refused -------
+    # (design.md §15.2: "テーマの問いに関係でつながらない用語は作らない"). Relations are read
+    # as a graph, direction ignored: the planned lines plus the stored ones.
+    if any(r.mint for r in rows):
+        anchors = set(target_iris)
+        if prior is not None:
+            for sel in (prior.get("selections") or {}).values():
+                if isinstance(sel, dict) and sel.get("target_slug"):
+                    anchors.add(sv.term_iri(str(sel["target_slug"])))
+            raw_tools = sv.read_registry_raw_tools(root, sv.REGISTRY_ID) or []
+            prior_tools = {str(t.get("name")): t for t in raw_tools}
+            for n in prior.get("questions") or []:
+                anchors.update(str(i) for i in (prior_tools.get(n) or {}).get("for_terms") or [])
+        if not anchors:  # 答え方の決まった問いが 1 つも無い（メモの問いだけ）
+            raise ThemeError(
+                "答え方が決まった問いが無いため、用語を置けません。先に問いの答え方を選んでください"
+            )
+        reach = _connected(anchors, [(a, c) for a, _r, c in edges])
+        lonely = [r.label_ja for r in rows if r.mint and r.iri not in reach]
+        if lonely:
+            raise ThemeError(
+                "問いに関係でつながらない概念があります（問いの対象か、それにつながる関係を"
+                f"足してください）: {'、'.join(lonely[:5])}",
+            )
 
     # --- CQ tool names, lint -------------------------------------------------------
     taken_names = {str(t.get("name")) for t in sv._read_cq_tools(root)}
     cq_tools: dict[str, list[dict]] = {}
     for row in rows:
         specs = list(cqs.get(row.key, []))
-        if row.mint and not specs:  # a term is never made without a question (§2.1)
-            shown = _display_label(row.label_ja, row.label_en, lang)
-            title = default_cq_title(row.kind, shown, lang)
-            specs = [CQSpec(title, "count" if row.kind == "class" else "values")]
-            cqs[row.key] = specs
-        if not specs:
+        if not specs:  # a factor is placed by its relations alone — no default question
             continue
         shared_term = SharedTerm(
             iri=row.iri,
@@ -1167,11 +1548,17 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             raise ThemeError(str(exc)) from exc
         cq_tools[row.key] = tools
     cq_names = {k: [t["name"] for t in v] for k, v in cq_tools.items()}
-    # the theme's own questions, in the person's order, with the tool each one became
+    # the theme's own questions, in the person's order, with the name each one became
     q_tools: list[str] = []
     q_sel: dict[str, dict] = {}
     cursor: dict[str, int] = {}
-    for q, host_key, summary in hosted:
+    for q, item in ordered:
+        if item[0] == "knowledge":
+            _, name, summary = item
+            q_tools.append(name)
+            q_sel[name] = summary
+            continue
+        _, host_key, summary, want = item
         specs = cqs[host_key]
         idx = next(
             i for i, sp in enumerate(specs) if sp.title == q and i >= cursor.get(host_key, 0)
@@ -1180,36 +1567,43 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         name = cq_names[host_key][idx]
         q_tools.append(name)
         q_sel[name] = summary
+        if want:
+            wanted[name] = want
 
-    # a new term that no question of this theme is about carries a default question; the theme
-    # remembers it (so the term is "needed" and the question is not listed as homeless) but
-    # does not show it as one of the person's questions
-    hosted_keys = {k for _, k, _ in hosted}
-    support = [cq_names[r.key][0] for r in rows if r.mint and r.key not in hosted_keys]
     theme = {
         "id": theme_id,
         "label": label,
         "created_at": at,
         "questions": q_tools,
-        "support_questions": support,
+        "support_questions": [],
         "selections": q_sel,
         "memo_questions": memo,
+        "wanted": wanted,
+        "minted": [r.slug for r in rows if r.mint],
+        "uses": [r.slug for r in rows],
+        "relations": [],  # filled by commit_theme with the lines it really added
     }
-    if extend_id:
-        prior = next(t for t in data["themes"] if t["id"] == extend_id)
+    if prior is not None:
         have_q = list(prior.get("questions") or [])
         have_m = list(prior.get("memo_questions") or [])
         have_m_ids = {m["id"] for m in have_m}
         theme = {
             **prior,
             "questions": [*have_q, *[n for n in q_tools if n not in have_q]],
-            "support_questions": [
-                *(prior.get("support_questions") or []),
-                *[n for n in support if n not in (prior.get("support_questions") or [])],
-            ],
             "selections": {**(prior.get("selections") or {}), **q_sel},
             "memo_questions": [*have_m, *[m for m in memo if m["id"] not in have_m_ids]],
+            "wanted": {**(prior.get("wanted") or {}), **wanted},
+            "minted": [*(prior.get("minted") or []), *theme["minted"]],
+            "uses": sorted({*(prior.get("uses") or []), *theme["uses"]}),
+            "relations": list(prior.get("relations") or []),
         }
+    shared_lines = {
+        (str(ln.get("from")), str(ln.get("relation")), str(ln.get("to")))
+        for t in data["themes"]
+        if t["id"] != theme["id"]
+        for ln in t.get("relations") or []
+        if isinstance(ln, dict)
+    }
     return _Plan(
         theme=theme,
         rows=rows,
@@ -1218,6 +1612,8 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         cq_tools=cq_tools,
         draft_id=draft_id,
         base=data,
+        batch=batch,
+        shared_lines=shared_lines,
     )
 
 
@@ -1231,18 +1627,20 @@ async def _line_exists(client: Any, ln: _Line) -> bool:
 
 async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) -> dict:
     """Turn a confirmed draft into stored terms, lines, CQs and a theme record — as ONE
-    operation. Returns ``{"theme", "minted": [slug], "lines": n, "questions": [tool],
-    "memo": n}``.
+    operation. Returns ``{"theme", "minted": [slug], "lines": n, "questions": [name],
+    "memo": n, "batch": id}``.
 
     Everything that can be refused is checked first (:func:`_plan_commit`, no write). Then
-    the writes run in a fixed order — new terms (with their CQs) → CQs of existing terms →
-    lines → ``themes.json`` → ``wired.json`` — and if any of them fails, what was written
-    is taken back (lines, CQs, terms, ``themes.json``): a mint is never left without its
-    lines. Raises :class:`ThemeError` (nothing written) or re-raises the write failure
-    (after the rollback)."""
+    the writes run in a fixed order — new terms (with their CQs, if any) → CQs of existing
+    terms → lines (each with who / when / which batch / why) → ``themes.json`` →
+    ``wired.json`` and ``knowledge.json`` — and if any of them fails, what was written is
+    taken back in the reverse order (lines → CQs → terms → ``themes.json`` → the two
+    counts): a mint is never left without its lines. A knowledge question writes no tool;
+    it is kept in the theme record only. Raises :class:`ThemeError` (nothing written) or
+    re-raises the write failure (after the rollback)."""
     plan = await _plan_commit(client, root, body, at=at)
     prior_themes_text = read_themes_text(root)
-    prior_wired_text = _read_wired_text(root)
+    prior_counts = (_read_wired_text(root), _read_knowledge_text(root))
     minted: list[str] = []
     added_lines: list[_Line] = []
     added_tools: list[str] = []
@@ -1250,6 +1648,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         for row in plan.rows:
             if not row.mint:
                 continue
+            minted.append(row.slug)  # 鋳造の前に積む（途中で落ちても巻き戻しが拾う）
             await sv.mint_term(
                 client,
                 root,
@@ -1258,22 +1657,37 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
                 label=row.label_ja,
                 label_en=row.label_en or None,
                 comment=row.comment,
-                cqs=plan.cqs[row.key],
+                cqs=plan.cqs.get(row.key, []),
                 aliases=row.aliases,
                 drafted_by="ai" if row.ai else None,
+                theme_id=plan.theme["id"],
                 at=at,
             )
-            minted.append(row.slug)
         for row in plan.rows:
             if row.mint or row.key not in plan.cq_tools:
                 continue
             sv._write_cq_tools(root, plan.cq_tools[row.key])
             added_tools.extend(t["name"] for t in plan.cq_tools[row.key])
+        owned = list(plan.theme.get("relations") or [])
         for ln in plan.lines:
+            trip = (ln.source, ln.relation, ln.target)
             if await _line_exists(client, ln):
+                if trip in plan.shared_lines:  # another theme's line this one relies on too
+                    owned.append(_line_record(ln))
                 continue
-            await assert_alignment(client, ln.source, ln.target, ln.relation, at=at)
+            await assert_alignment(
+                client,
+                ln.source,
+                ln.target,
+                ln.relation,
+                at=at,
+                drafted_by="ai" if ln.ai else "human",
+                batch=plan.batch,
+                reason=ln.reason,
+            )
             added_lines.append(ln)
+            owned.append(_line_record(ln))
+        plan.theme["relations"] = _dedupe_records(owned)
         placed = [plan.theme if t["id"] == plan.theme["id"] else t for t in plan.base["themes"]]
         if plan.theme["id"] not in {t["id"] for t in plan.base["themes"]}:
             placed.append(plan.theme)
@@ -1281,7 +1695,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         await sv.recompute_wired(client, root, at=at)
     except BaseException:
         await _rollback(
-            client, root, minted, added_lines, added_tools, prior_themes_text, prior_wired_text
+            client, root, minted, added_lines, added_tools, prior_themes_text, prior_counts
         )
         raise
     if plan.draft_id:
@@ -1292,7 +1706,42 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         "lines": len(plan.lines),
         "questions": plan.theme["questions"],
         "memo": len(plan.theme["memo_questions"]),
+        "batch": plan.batch,
     }
+
+
+def _line_record(ln: _Line) -> dict:
+    return {"from": ln.source, "relation": ln.relation, "to": ln.target}
+
+
+def _dedupe_records(recs: list[dict]) -> list[dict]:
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict] = []
+    for r in recs:
+        k = (r["from"], r["relation"], r["to"])
+        if k not in seen:
+            seen.add(k)
+            out.append(r)
+    return out
+
+
+def _knowledge_path(root: Path | str) -> Path:
+    return sv._dir(root) / sv._KNOWLEDGE_FILE
+
+
+def _read_knowledge_text(root: Path | str) -> str | None:
+    try:
+        return _knowledge_path(root).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _write_knowledge_text(root: Path | str, text: str | None) -> None:
+    path = _knowledge_path(root)
+    if text is None:
+        path.unlink(missing_ok=True)
+        return
+    sv._atomic_write(path, text)
 
 
 async def _rollback(
@@ -1302,9 +1751,11 @@ async def _rollback(
     added_lines: list[_Line],
     added_tools: list[str],
     prior_themes_text: str | None,
-    prior_wired_text: str | None,
+    prior_counts: tuple[str | None, str | None],
 ) -> None:
-    """Take back what a failed commit wrote. Best effort and never raises: the original
+    """Take back what a failed commit wrote: lines, then CQs, then terms (a term cannot be
+    withdrawn while a line touches it), then ``themes.json`` and the two counts
+    (``wired.json`` / ``knowledge.json``). Best effort and never raises: the original
     failure is what the caller must see."""
     for ln in reversed(added_lines):
         try:
@@ -1319,14 +1770,102 @@ async def _rollback(
     for slug in reversed(minted):
         try:
             await sv.remove_term(client, root, slug)
+        except sv.TermNotFound:  # 鋳造の前に落ちた: 無い語は消さなくてよい
+            pass
         except Exception:
             logger.warning("themes: rollback of a term failed", exc_info=True)
     try:
         _write_themes_text(root, prior_themes_text)
         # 元の写しへ戻す（数え直すと、無かったファイルが空で出来てしまう）
-        _write_wired_text(root, prior_wired_text)
+        _write_wired_text(root, prior_counts[0])
+        _write_knowledge_text(root, prior_counts[1])
     except Exception:
         logger.warning("themes: rollback of themes.json / wired.json failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Taking a whole theme away
+# ---------------------------------------------------------------------------
+
+
+async def remove_theme_cascade(client: Any, root: Path | str, theme_id: str) -> dict:
+    """Take a theme away AND what only it needed (テーマ単位の取り消し・design.md §15.2).
+
+    The theme record goes (:func:`remove_theme`: its unfinished draft too). Then, of what
+    the theme made:
+
+    * each LINE it added is withdrawn unless another theme lists it too;
+    * each term it MINTED is withdrawn unless another theme uses it, a question outside this
+      theme is about it (a CQ tool still names it), or a line nobody here owns still touches it
+      (a dataset's column joined to it) — that is the data's use, and it stays.
+
+    A term withdrawn takes its own CQs with it (``remove_term``). Returns
+    ``{"removed_concepts": [{slug, label}], "kept_concepts": [{slug, label, reason}],
+    "removed_relations": [{from, relation, to}], "kept_relations": [...]}``
+    (``reason`` = ``other_theme`` / ``other_question`` / ``has_lines``). Raises
+    :class:`ThemeError` 404 for an unknown theme."""
+    data = ensure_migrated(root)
+    theme = next((t for t in data["themes"] if t["id"] == theme_id), None)
+    if theme is None:
+        raise ThemeError(f"テーマ {theme_id!r} はありません", 404)
+    others = [t for t in data["themes"] if t["id"] != theme_id]
+    other_lines = {
+        (str(r.get("from")), str(r.get("relation")), str(r.get("to")))
+        for t in others
+        for r in t.get("relations") or []
+        if isinstance(r, dict)
+    }
+    other_uses = {s for t in others for s in (t.get("uses") or [])}
+    own_tools = {*(theme.get("questions") or []), *(theme.get("support_questions") or [])}
+    tools = sv.read_registry_raw_tools(root, sv.REGISTRY_ID) or []
+    labels = {t.slug: t.label for t in await sv._read_terms(client)}
+
+    remove_theme(root, theme_id)  # the record (and its draft) first: the rest is best effort
+    removed_rel: list[dict] = []
+    kept_rel: list[dict] = []
+    for r in theme.get("relations") or []:
+        if not isinstance(r, dict):
+            continue
+        rec = {"from": r.get("from"), "relation": r.get("relation"), "to": r.get("to")}
+        if (str(rec["from"]), str(rec["relation"]), str(rec["to"])) in other_lines:
+            kept_rel.append(rec)
+            continue
+        try:
+            await remove_alignment(client, str(rec["from"]), str(rec["to"]), str(rec["relation"]))
+            removed_rel.append(rec)
+        except Exception:
+            logger.warning("themes: removing a line of a theme failed", exc_info=True)
+            kept_rel.append(rec)
+    removed_c: list[dict] = []
+    kept_c: list[dict] = []
+    for slug in theme.get("minted") or []:
+        iri = sv.term_iri(slug)
+        row = {"slug": slug, "label": labels.get(slug, slug)}
+        if slug in other_uses:
+            kept_c.append({**row, "reason": "other_theme"})
+            continue
+        if any(
+            iri in [str(x) for x in (t.get("for_terms") or [])]
+            and str(t.get("name")) not in own_tools
+            for t in tools
+        ):
+            kept_c.append({**row, "reason": "other_question"})
+            continue
+        try:
+            await sv.remove_term(client, root, slug)
+            removed_c.append(row)
+        except sv.TermHasLines:
+            kept_c.append({**row, "reason": "has_lines"})
+        except sv.TermNotFound:
+            continue
+    if removed_rel and not removed_c:
+        await sv.recompute_wired(client, root)  # a withdrawn line changes the knowledge counts
+    return {
+        "removed_concepts": removed_c,
+        "kept_concepts": kept_c,
+        "removed_relations": removed_rel,
+        "kept_relations": kept_rel,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1339,7 +1878,12 @@ def template_files(theme: dict, terms: list[dict], tools: list[dict]) -> dict[st
     needs, the first column ``<kind>_id`` then the items tied to that kind (by the
     theme's own questions), named by their English name (else the slug). Items with no
     kind of their own go to ``other.csv``. Header rows only — a starting point for a
-    person's file, never data."""
+    person's file, never data.
+
+    Built from the questions' TARGETS only (design.md §15.2): the term a data question is
+    about, and the term a knowledge question is about (「熱伝導率を下げるもの」→ the
+    thermal conductivity column). A factor that the theme only places by its relations
+    (a scattering mechanism) gets no table of its own."""
     by_iri = {t["iri"]: t for t in terms}
     name = lambda t: (t.get("label_en") or t["slug"]).strip()  # noqa: E731
     need: dict[str, dict] = {}
@@ -1352,6 +1896,10 @@ def template_files(theme: dict, terms: list[dict], tools: list[dict]) -> dict[st
                 need[iri] = by_iri[iri]
     sels = theme.get("selections") or {}
     by_slug = {t["slug"]: t for t in terms}
+    for s in sels.values():  # a knowledge question's target is a column / a table too
+        if isinstance(s, dict) and s.get("target_slug") in by_slug:
+            t = by_slug[s["target_slug"]]
+            need[t["iri"]] = t
     kind_cols: dict[str, list[str]] = {}
     loose: list[str] = []
     for t in need.values():
@@ -1378,26 +1926,39 @@ def template_files(theme: dict, terms: list[dict], tools: list[dict]) -> dict[st
 
 
 __all__ = [
+    "DRAFT_VERSION",
     "FIRST_THEME_ID",
     "FIRST_THEME_LABEL",
     "FITTING_OPS",
+    "KNOWLEDGE_DIRECTIONS",
+    "KNOWLEDGE_OPS",
+    "MAX_CONCEPTS",
+    "RELATION_KINDS",
     "RESERVED_IDS",
     "StdRef",
     "ThemeError",
     "add_questions_to_theme",
     "clean_questions",
     "commit_theme",
+    "concept_end_key",
     "create_draft",
     "default_cq_title",
+    "default_label",
     "default_standards",
     "delete_draft",
+    "derive_slug",
     "ensure_migrated",
+    "knowledge_tool_name",
     "list_drafts",
     "load_draft",
     "load_themes_file",
+    "match_rows",
+    "merge_expansion",
     "new_theme_id",
     "postprocess_draft",
+    "relation_predicate",
     "remove_theme",
+    "remove_theme_cascade",
     "save_draft",
     "slug_from_text",
     "std_by_curie",

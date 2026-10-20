@@ -1923,6 +1923,7 @@ def test_network_datasets_carry_the_registry_name(tmp_path: Path) -> None:
 
 _SKY_KEYS = {
     "datasets",
+    "edges",  # 知識の線（用語 ↔ 用語・v2）
     "terms",
     "standards",
     "hubs",

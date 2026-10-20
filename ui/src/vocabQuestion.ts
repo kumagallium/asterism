@@ -128,6 +128,8 @@ export function showIsolatedNotice(terms: SharedTerm[]): boolean {
 export interface VocabHashParams {
   /** 持ち込まれた題（空＝無し）。 */
   q: string
+  /** 続きを開く下書きの id（空＝無し）。ホームの「たしかめる →」から来る。 */
+  resume: string
 }
 
 /** `#/questions?new=1&q=…`（旧 `#/vocab?…` も）を読む。`?` が無ければ空。旧 `scope` / `dataset` は
@@ -135,11 +137,16 @@ export interface VocabHashParams {
 export function parseVocabHash(hash: string): VocabHashParams {
   const i = hash.indexOf('?')
   const params = new URLSearchParams(i === -1 ? '' : hash.slice(i + 1))
-  return { q: params.get('q') ?? '' }
+  return { q: params.get('q') ?? '', resume: params.get('resume') ?? '' }
+}
+
+/** 下書きの続き（②）を開く（`#/questions?new=1&resume=<id>`）。ホームの下書きの札から来る。 */
+export function resumeDraftHash(draftId: string): string {
+  return `#/questions?new=1&resume=${encodeURIComponent(draftId)}`
 }
 
 /** 質問する・かんたん ⑥ などから「テーマに入れて育てる」の行き先。題だけ運び、「知りたいことから
- *  作る」の 6 段（①）を、その題を入れて開く（`#/questions?new=1&q=<題>`）。 */
+ *  作る」の 3 段（①）を、その題を入れて開く（`#/questions?new=1&q=<題>`）。 */
 export function vocabQuestionHash(question: string): string {
   const q = question.trim()
   return q ? `#/questions?new=1&q=${encodeURIComponent(q)}` : '#/questions?new=1'

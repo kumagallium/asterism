@@ -1,7 +1,7 @@
 // 「静かな表示」の表: 星図と同じ内容を文字で出す（読み上げ・コピー用）。純関数。
 // 図は配置（座標）を持つが、表は `SkyData` だけから作る。図の点と 1 対 1 になることは
 // skyTable.test.ts で固定する。
-import type { SkyData } from './skyApi'
+import type { SkyData, SkyKnowledgeRelation } from './skyApi'
 import { termLabel } from './skyLayout'
 
 export interface StarRow {
@@ -18,7 +18,20 @@ export interface TermRow {
   type: 'class' | 'property'
   kinds: string[]
   standard: string | null
-  questions: string[]
+  questions: TableQuestion[]
+}
+/** 問い 1 つ。`knowledge` は知識の線の数（データの問いは 0）。 */
+export interface TableQuestion {
+  title: string
+  mode: 'data' | 'knowledge'
+  knowledge: number
+}
+/** 語どうしの知識の線（図の線と 1 対 1）。 */
+export interface LineRow {
+  from: string
+  to: string
+  relation: SkyKnowledgeRelation
+  reason: string | null
 }
 export interface StandardRow {
   iri: string
@@ -34,6 +47,7 @@ export interface SkyTables {
   terms: TermRow[]
   standards: StandardRow[]
   hubs: HubRow[]
+  lines: LineRow[]
 }
 
 const stdName = (s: { prefix: string; label: string }): string => `${s.prefix}:${s.label}`
@@ -70,7 +84,7 @@ export function buildSkyTables(sky: SkyData, lang: 'ja' | 'en' = 'ja'): SkyTable
     }
   }
 
-  const qTitle = new Map(sky.questions.map((q) => [q.tool_name, q.title]))
+  const qByName = new Map(sky.questions.map((q) => [q.tool_name, q]))
   const terms: TermRow[] = sky.terms.map((t) => {
     const std = t.standard ? stdByIri.get(t.standard.iri) : undefined
     const kinds: string[] = []
@@ -84,7 +98,10 @@ export function buildSkyTables(sky: SkyData, lang: 'ja' | 'en' = 'ja'): SkyTable
       type: t.kind,
       kinds,
       standard: std ? stdName(std) : null,
-      questions: t.questions.map((q) => qTitle.get(q) ?? q),
+      questions: t.questions.map((name) => {
+        const q = qByName.get(name)
+        return { title: q?.title ?? name, mode: q?.mode ?? 'data', knowledge: q?.knowledge ?? 0 }
+      }),
     }
   })
 
@@ -106,5 +123,15 @@ export function buildSkyTables(sky: SkyData, lang: 'ja' | 'en' = 'ja'): SkyTable
     }),
   }))
 
-  return { stars, terms, standards, hubs }
+  const labelOf = new Map(sky.terms.map((t) => [t.iri, termLabel(t, lang)]))
+  const lines: LineRow[] = (sky.edges ?? [])
+    .filter((e) => labelOf.has(e.from) && labelOf.has(e.to))
+    .map((e) => ({
+      from: labelOf.get(e.from) as string,
+      to: labelOf.get(e.to) as string,
+      relation: e.relation,
+      reason: e.reason,
+    }))
+
+  return { stars, terms, standards, hubs, lines }
 }

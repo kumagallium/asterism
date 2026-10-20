@@ -39,6 +39,7 @@ from pydantic import Field
 from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
+    answer_knowledge_question,
     dataset_descriptions,
     provenance_of,
     schema_summary,
@@ -241,6 +242,32 @@ def build_server(
             limit=limit,
             descriptions=descriptions,
         )
+
+    @mcp.tool(
+        name="answer_knowledge_question",
+        description=(
+            "Answer a KNOWLEDGE question a theme kept (its name starts with kq_, e.g. "
+            "kq_thermal_conductivity_factors_lowers) from the lines a person confirmed: "
+            "what lowers / raises / affects a term, what it is made of, or what kinds of "
+            "it there are. Returns the question, the term it is about, a count and the "
+            "items — each with its label, the relation, the part it goes through "
+            "(via_label), the reason, who drafted it (ai / human) and when. Drafts and "
+            "unconfirmed lines never appear. Takes only the question's name — no query. "
+            "Data questions are NOT answered here (use their typed tools)."
+        ),
+    )
+    async def _answer_knowledge_question(
+        tool_name: Annotated[
+            str,
+            Field(description="The knowledge question's name, e.g. kq_<term>_factors_lowers."),
+        ],
+    ) -> dict[str, object]:
+        try:
+            return await answer_knowledge_question(
+                tool_name, get_client(), registry_root=registry_root()
+            )
+        except ValueError as exc:
+            return {"tool_name": tool_name, "found": False, "error": str(exc)}
 
     # The arbitrary-SPARQL escape hatch is gated by the deployment exposure
     # profile: a sensitive store (topology B) sets ASTERISM_EXPOSE_RAW_SPARQL=0

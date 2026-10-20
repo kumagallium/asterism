@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SAMPLE_SKY } from './sample'
+import { EMPTY_SKY } from './skyApi'
 import {
   BORN_RING_MS,
   bornAlive,
@@ -117,6 +118,22 @@ describe('hitTest', () => {
     expect(hitTest(l, s.x, s.y)?.id).toBe(s.id)
     const h = [...l.nodes.values()].find((n) => n.type === 'hub')!
     expect(hitTest(l, h.x + 3, h.y + 3)?.id).toBe(h.id)
+  })
+  it('下書きの札も矩形で当たる', () => {
+    const d = layoutSky(EMPTY_SKY, {
+      width: 800,
+      drafts: [
+        {
+          draft_id: 'x',
+          theme_label: 'T',
+          concepts: [{ key: 'c1', label: '熱伝導率', kind: 'property', use: 'new' }],
+          relations: [],
+          questions: [],
+        },
+      ],
+    })
+    const n = [...d.nodes.values()].find((x) => x.type === 'draft')!
+    expect(hitTest(d, n.x, n.y)?.id).toBe(n.id)
   })
   it('何も無い所は null', () => {
     expect(hitTest(l, 1, 1)).toBeNull()

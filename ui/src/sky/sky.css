@@ -465,3 +465,9 @@ button.sky-pill--data:hover:not(:disabled) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* 下書きの札: 右の欄の上の「たしかめるものが N 件 →」 */
+.sky-review {
+  margin: 0 0 var(--space-2, 0.5rem);
+  font-size: 0.8125rem;
+}

@@ -1,21 +1,28 @@
 """``register_themes(app, cfg, resolve_llm, write_auth=…)`` — 「知りたいことから作る」の api
-（ui-redesign PR 4・design.md §3）。
+（ui-redesign PR 4・PR 6a v2・design.md §15）。
 
-- ``GET /api/themes`` — テーマごとの問い（答えるデータセット数・実行文）・要る用語・メモの問い・
-  続きの下書き・どのテーマにも入っていない問い。最初に呼ばれたとき、``themes.json`` が無ければ
-  既存の共有の問いを 1 つのテーマ「はじめの問い」にまとめる（冪等）。
-- ``POST /api/themes/draft`` — 問いから AI が用語・関係・数え方の下書きを作る。AI は閉じた JSON
-  だけを返し（SPARQL・IRI・コードを書かせない・データの値は渡さない）、機械が標準用語・既にある用語
-  との完全一致で上書きして検査する。AI が未設定なら 503（画面は手入力へ）。
-- ``POST /api/themes/match`` — 手で書いた用語の行を、既にある用語・標準用語と完全一致で照合
+- ``GET /api/themes`` — テーマごとの問い（``mode`` = ``data`` | ``knowledge``・答える
+  データセット数・実行文・``wanted_data``）・要る用語・メモの問い・``knowledge_total``・続きの下書き・どのテーマにも
+  入っていない問い。最初に呼ばれたとき、``themes.json`` が無ければ既存の共有の問いを 1 つの
+  テーマ「はじめの問い」にまとめる（冪等）。
+- ``POST /api/themes/draft`` — 問いから AI が**知識の図**（概念・関係・答え方・欲しいデータ）の
+  下書きを作る。AI は閉じた JSON だけを返し（SPARQL・IRI・コードを書かせない・データの値は
+  渡さない）、機械が標準用語・既にある用語との完全一致・述語ごとの種別・循環・却下済みで
+  検査する。AI の生の出力は返さない・保存しない。AI が未設定なら 503（画面は手入力へ）。
+- ``POST /api/themes/expand`` — 「ここを広げる」: 下書きの 1 つの概念のまわりを AI に足させ、
+  足し分を下書きに合成して保存する（write）。
+- ``POST /api/themes/match`` — 手で書いた概念の行を、既にある用語・標準用語と完全一致で照合
   （決定論・読み取り専用・AI を呼ばない）。
-- ``POST /api/themes/describe`` — 閉じた選択（数え方 × 種類 × 項目）の実行文（決定論）。
+- ``POST /api/themes/describe`` — 閉じた選択（数え方 × 種類 × 項目、知識の問い）の実行文（決定論）。
 - ``GET`` / ``POST`` / ``PUT`` / ``DELETE /api/themes/drafts…`` — 途中の下書き（閉じても続きから）。
-- ``POST /api/themes/{id}/commit`` — 下書きの確定。用語・関係・問い・テーマを**1 操作**で置く
-  （先に全部検査・失敗したら何も書かない）。
+- ``GET /api/themes/drafts/sky`` — 未確定の下書きを星図の札の形で返す（write・データ 0 件でも返す・
+  ``GET /api/sky`` は公開済みだけのまま）。
+- ``POST /api/themes/{id}/commit`` — 下書きの確定。概念・関係（来歴つき）・問い・テーマを**1 操作**
+  で置く（先に全部検査・失敗したら何も書かない）。
+- ``GET /api/themes/{id}/answers`` — 問いごとの「知識 N・データ N」（知識は決定論の走者で答える）。
 - ``POST /api/themes/{id}/questions`` — 作った問いをテーマに足す（かんたん ⑥）。
-- ``DELETE /api/themes/{id}`` — テーマを外す（用語・線・問いは残る）。
-- ``GET /api/themes/{id}/template.csv.zip`` — テーマが要る種類ごとの CSV の型紙（見出し行だけ）。
+- ``DELETE /api/themes/{id}`` — テーマ単位の取り消し: テーマと、ほかが使っていない概念・関係を消す。
+- ``GET /api/themes/{id}/template.csv.zip`` — 問いの対象の語から作る CSV の型紙（見出し行だけ）。
 
 保存は ``asterism.themes``（ingest）。ここは受け取りと HTTP への写像、AI 呼び出しの座標の解決
 だけを持つ。書き込みの認証は呼ぶ側（``build_app``）が渡す ``write_auth``。
@@ -31,8 +38,12 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from asterism import shared_vocab, themes
-from asterism_step0.theme_propose import ThemeDraftError, propose_theme_draft
+from asterism import knowledge, shared_vocab, themes
+from asterism_step0.theme_propose import (
+    ThemeDraftError,
+    propose_theme_draft,
+    propose_theme_expand,
+)
 from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -65,30 +76,43 @@ class KnownStandard(BaseModel):
 
 class DraftBody(BaseModel):
     questions: list[str]
+    #: テーマ名（空なら AI が付ける・AI が付けなければ最初の問いの先頭 20 字）
+    label: str = ""
     #: サーバが自分で埋めてもよい（既にある用語・標準用語の名前）。送れば上書きする。
     known_terms: list[KnownTerm] | None = None
     known_standards: list[KnownStandard] | None = None
     lang: str = "ja"
 
 
+class ExpandBody(BaseModel):
+    draft_id: str
+    focus_key: str
+    known_terms: list[KnownTerm] | None = None
+    known_standards: list[KnownStandard] | None = None
+    lang: str = "ja"
+
+
 class DraftCreateBody(BaseModel):
-    label: str
+    #: 空でよい（最初の問いの先頭 20 字が名前になる）
+    label: str = ""
     questions: list[str] = Field(default_factory=list)
     #: 既にあるテーマの id（「問いを足す」: 確定すると、そのテーマに問いが加わる）
     extend: str | None = None
 
 
 class DraftSaveBody(BaseModel):
-    """作業中の下書き。形はウィザードのもの（枠だけ検査する）。"""
+    """作業中の下書き（v2）。形はウィザードのもの（枠だけ検査する）。AI の生の出力の欄は無い
+    （送られても読まない）。"""
 
-    label: str
+    label: str = ""
     step: int
     questions: list[str] = Field(default_factory=list)
-    ai: dict[str, Any] | None = None
     extend: str | None = None
-    terms: list[dict[str, Any]] = Field(default_factory=list)
+    concepts: list[dict[str, Any]] = Field(default_factory=list)
     relations: list[dict[str, Any]] = Field(default_factory=list)
-    selections: list[dict[str, Any]] = Field(default_factory=list)
+    answers: list[dict[str, Any]] = Field(default_factory=list)
+    suggested_questions: list[str] = Field(default_factory=list)
+    standards: dict[str, Any] = Field(default_factory=dict)
 
 
 class DescribeBody(BaseModel):
@@ -97,18 +121,22 @@ class DescribeBody(BaseModel):
 
 
 class CommitBody(BaseModel):
-    """下書きの最終形。``terms`` / ``relations`` / ``selections`` はウィザードの行（key で結ぶ）"""
+    """下書きの最終形（v2）。``concepts`` / ``relations`` / ``answers`` はウィザードの行
+    （key で結ぶ）"""
 
     id: str | None = None
     #: 既にあるテーマの id。あれば新しいテーマは作らず、そのテーマに問いを足す。
     extend: str | None = None
-    label: str
+    #: 空でよい（最初の問いの先頭 20 字）
+    label: str = ""
     lang: str = "ja"
     ai_drafted: bool = False
+    #: 「まとめて確定」の ID（来歴に残る）。無ければサーバが付ける。
+    batch: str | None = None
     questions: list[str] = Field(default_factory=list)
-    terms: list[dict[str, Any]] = Field(default_factory=list)
+    concepts: list[dict[str, Any]] = Field(default_factory=list)
     relations: list[dict[str, Any]] = Field(default_factory=list)
-    selections: list[dict[str, Any]] = Field(default_factory=list)
+    answers: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MatchTerm(BaseModel):
@@ -172,6 +200,25 @@ def register_themes(
 
     # ---- 一覧 -----------------------------------------------------------------
 
+    async def _knowledge_run(sel: dict) -> dict:
+        """記録された知識の問い（``selections[kq_…]``）を、決定論の走者で答える。読めなければ
+        0 件（一覧を壊さない）。"""
+        try:
+            spec = {
+                "op": sel.get("op"),
+                "target": shared_vocab.term_iri(str(sel.get("target_slug"))),
+                "direction": sel.get("direction"),
+            }
+            return await knowledge.knowledge_answer(_client(), spec)
+        except Exception:
+            logger.warning("knowledge question failed", exc_info=True)
+            return {"items": [], "count": 0, "op": sel.get("op"), "target": None,
+                    "direction": sel.get("direction")}  # fmt: skip
+
+    def _is_knowledge(theme: dict, name: str) -> bool:
+        sel = (theme.get("selections") or {}).get(name)
+        return isinstance(sel, dict) and sel.get("mode") == "knowledge"
+
     @app.get("/api/themes")
     async def themes_list(lang: str = Query(default="ja")) -> JSONResponse:
         lg = _lang(lang)
@@ -194,17 +241,42 @@ def register_themes(
             }
             for r in rows
         }
+        term_by_slug = {t["slug"]: t for t in term_by_iri.values()}
         wired = shared_vocab.load_wired(cfg.registry_root)
 
         def question(theme: dict, tool: dict) -> dict:
             for_terms = [str(x) for x in (tool.get("for_terms") or [])]
             sel = _selection_of(theme, tool, term_by_iri)
+            name = str(tool.get("name"))
             return {
-                "tool_name": str(tool.get("name")),
+                "tool_name": name,
                 "title": str(tool.get("title", tool.get("name"))),
+                "mode": "data",
                 "answering_datasets": max((wired.get(x, 0) for x in for_terms), default=0),
                 "shape": shared_vocab.describe_selection(sel, lg),
                 "terms": [term_by_iri[i]["slug"] for i in for_terms if i in term_by_iri],
+                "wanted_data": str((theme.get("wanted") or {}).get(name) or ""),
+            }
+
+        async def knowledge_question(theme: dict, name: str) -> dict:
+            sel = theme["selections"][name]
+            target = term_by_slug.get(str(sel.get("target_slug")))
+            shown = target["label"] if target else str(sel.get("target") or "")
+            run = await _knowledge_run(sel)
+            return {
+                "tool_name": name,
+                "title": str(sel.get("title") or name),
+                "mode": "knowledge",
+                # the data side of a knowledge question = datasets that answer its target
+                "answering_datasets": wired.get(shared_vocab.term_iri(sel["target_slug"]), 0)
+                if target
+                else 0,
+                "knowledge_count": run["count"],
+                "shape": shared_vocab.describe_selection(
+                    {"op": sel.get("op"), "target": shown, "direction": sel.get("direction")}, lg
+                ),
+                "terms": [target["slug"]] if target else [],
+                "wanted_data": str((theme.get("wanted") or {}).get(name) or ""),
             }
 
         total = sum(
@@ -215,11 +287,12 @@ def register_themes(
         out: list[dict] = []
         assigned: set[str] = set()
         for theme in data["themes"]:
-            qs = [
-                question(theme, tool_by_name[n])
-                for n in theme.get("questions") or []
-                if n in tool_by_name
-            ]
+            qs: list[dict] = []
+            for n in theme.get("questions") or []:
+                if _is_knowledge(theme, n):
+                    qs.append(await knowledge_question(theme, n))
+                elif n in tool_by_name:
+                    qs.append(question(theme, tool_by_name[n]))
             support = [n for n in theme.get("support_questions") or [] if n in tool_by_name]
             assigned.update(q["tool_name"] for q in qs)
             assigned.update(support)
@@ -229,13 +302,23 @@ def register_themes(
                     if str(iri) in term_by_iri:
                         t = term_by_iri[str(iri)]
                         need[t["slug"]] = t
+            for q in qs:
+                for slug in q["terms"] if q["mode"] == "knowledge" else []:
+                    if slug in term_by_slug:
+                        need[slug] = term_by_slug[slug]
             out.append(
                 {
                     "id": theme["id"],
                     "label": theme.get("label", theme["id"]),
                     "created_at": theme.get("created_at", ""),
                     "questions": qs,
-                    "answerable": sum(1 for q in qs if q["answering_datasets"] > 0),
+                    # 答えられる問い = データ ≥ 1 または 知識 ≥ 1。知識の件数は knowledge_total
+                    "answerable": sum(
+                        1
+                        for q in qs
+                        if q["answering_datasets"] > 0 or q.get("knowledge_count", 0) > 0
+                    ),
+                    "knowledge_total": sum(q.get("knowledge_count", 0) for q in qs),
                     "terms": sorted(need.values(), key=lambda t: t["slug"]),
                     "memo_questions": theme.get("memo_questions") or [],
                 }
@@ -256,6 +339,36 @@ def register_themes(
 
     # ---- AI の下書き --------------------------------------------------------------
 
+    def _ai_unset(key: str | None, provider: str, api_base: str | None) -> bool:
+        # キーが無い（かつ手元の互換サーバでもない）= AI は未設定。画面は手入力に切り替える。
+        return key is None and not (provider != "anthropic" and api_base)
+
+    async def _known_names(
+        questions: list[str],
+        known_terms: list[KnownTerm] | None,
+        known_standards: list[KnownStandard] | None,
+    ) -> tuple[list, list[dict], list[dict]]:
+        """AI に渡す名前（既にある用語・標準用語）。送られていればそれを使う。→ ``(existing,
+        known_terms, known_standards)``（``existing`` は後処理の照合に使う ``SharedTerm``）。"""
+        try:
+            existing = await shared_vocab._read_terms(_client())
+        except Exception as exc:
+            raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
+        terms = (
+            [t.model_dump() for t in known_terms]
+            if known_terms is not None
+            else [
+                {"slug": e.slug, "label_ja": e.label, "label_en": e.label_en or "", "kind": e.kind}
+                for e in existing
+            ]
+        )
+        standards = (
+            [s.model_dump() for s in known_standards]
+            if known_standards is not None
+            else themes.default_standards(questions)
+        )
+        return existing, terms, standards
+
     @app.post("/api/themes/draft", dependencies=list(write_auth))
     async def themes_draft(
         body: DraftBody,
@@ -265,12 +378,15 @@ def register_themes(
         x_llm_api_base: str | None = Header(default=None),
         x_llm_max_tokens: str | None = Header(default=None),
     ) -> JSONResponse:
-        """問いの文から、用語・関係・数え方の下書きを作る。未設定なら 503。
+        """問いの文から、知識の図（概念・関係・答え方・欲しいデータ）の下書きを作る。未設定なら
+        503。
 
         AI に渡すのは問いの文と、既にある用語・標準用語の**名前**だけ（データの値は渡さない）。
         AI の答えは閉じた JSON だけ（schema に SPARQL・IRI・コードの欄は無く、そう見える文字列は
-        弾く）。機械が、標準用語・既にある用語との完全一致で ``use`` を上書きし、種類と項目の混在・
-        循環・今の数え方に無いもの（メモの問いへ）を見分ける。"""
+        弾く）。機械が、標準用語・既にある用語との完全一致で ``use`` を上書きし、述語ごとの種別・
+        循環・今の数え方に無いもの（メモの問いへ）・却下済みの概念と関係を見分ける。返すのは
+        後処理済みの行だけ（AI の生の出力は返さない）。``theme_label`` は ``label``（あれば）→ AI →
+        最初の問いの先頭 20 字の順。"""
         try:
             questions = themes.clean_questions(body.questions)
         except themes.ThemeError as exc:
@@ -280,25 +396,10 @@ def register_themes(
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
-        # キーが無い（かつ手元の互換サーバでもない）= AI は未設定。画面は手入力に切り替える。
-        if key is None and not (provider != "anthropic" and api_base):
+        if _ai_unset(key, provider, api_base):
             raise HTTPException(503, "AI が設定されていません。手で書くこともできます")
-        try:
-            existing = await shared_vocab._read_terms(_client())
-        except Exception as exc:
-            raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
-        known_terms = (
-            [t.model_dump() for t in body.known_terms]
-            if body.known_terms is not None
-            else [
-                {"slug": e.slug, "label_ja": e.label, "label_en": e.label_en or "", "kind": e.kind}
-                for e in existing
-            ]
-        )
-        known_standards = (
-            [s.model_dump() for s in body.known_standards]
-            if body.known_standards is not None
-            else themes.default_standards(questions)
+        existing, known_terms, known_standards = await _known_names(
+            questions, body.known_terms, body.known_standards
         )
         llm = resolve_llm(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
@@ -311,6 +412,7 @@ def register_themes(
                 known_terms=known_terms,
                 known_standards=known_standards,
                 language=_lang(body.lang),
+                label=body.label,
             )
         except ThemeDraftError as exc:
             raise HTTPException(502, f"AI の答えが決まった形になりませんでした: {exc}") from exc
@@ -319,8 +421,97 @@ def register_themes(
         await asyncio.to_thread(
             _record_usage, cfg.registry_root, "themes.draft", provider, llm, model
         )
-        out = themes.postprocess_draft(ai, questions=questions, existing=existing)
-        return JSONResponse({"ai": ai, **out})
+        out = themes.postprocess_draft(
+            ai,
+            questions=questions,
+            existing=existing,
+            dismissed=shared_vocab.load_dismissed(cfg.registry_root),
+        )
+        given = " ".join(body.label.split())
+        out["theme_label"] = (given or out["theme_label"] or themes.default_label(questions))[:80]
+        return JSONResponse(out)
+
+    @app.post("/api/themes/expand", dependencies=list(write_auth))
+    async def themes_expand(
+        body: ExpandBody,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """「ここを広げる」— 下書きの概念 ``focus_key`` のまわりを AI に足させ、足し分（概念 ≤ 10・
+        関係 ≤ 20）を下書きに合成して**保存**し、返す。AI に渡すのは図にある概念の名前と key・問い・
+        用語の名前だけ。足し分も同じ後処理（完全一致・種別・循環・却下済み）を通る。未設定なら 503。
+        返し: 保存した下書き（``GET /api/themes/drafts/{id}`` と同じ形）＋ ``added``（足した概念と
+        関係の行）。"""
+        draft = themes.load_draft(cfg.registry_root, body.draft_id)
+        if draft is None:
+            raise HTTPException(404, "下書きがありません")
+        on_map = [c for c in draft.get("concepts") or [] if isinstance(c, dict)]
+        if not any(c.get("key") == body.focus_key for c in on_map):
+            raise HTTPException(422, "広げる概念が下書きにありません")
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        if _ai_unset(key, provider, api_base):
+            raise HTTPException(503, "AI が設定されていません。手で足すこともできます")
+        questions = list(draft.get("questions") or [])
+        existing, known_terms, known_standards = await _known_names(
+            questions, body.known_terms, body.known_standards
+        )
+        llm = resolve_llm(
+            provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+        )
+        try:
+            ai = await asyncio.to_thread(
+                propose_theme_expand,
+                llm,
+                focus_key=body.focus_key,
+                concepts=[
+                    {k: c.get(k) for k in ("key", "label_ja", "label_en", "kind")} for c in on_map
+                ],
+                questions=questions,
+                existing=known_terms,
+                standards=known_standards,
+                language=_lang(body.lang),
+            )
+        except ThemeDraftError as exc:
+            raise HTTPException(502, f"AI の答えが決まった形になりませんでした: {exc}") from exc
+        except Exception as exc:
+            raise HTTPException(502, f"AI failed: {exc}") from exc
+        await asyncio.to_thread(
+            _record_usage, cfg.registry_root, "themes.expand", provider, llm, model
+        )
+        try:
+            async with lock:
+                # AI を待つあいだに人が下書きを直したかもしれない — 最新を読み直して合成する
+                fresh = themes.load_draft(cfg.registry_root, body.draft_id)
+                if fresh is None:
+                    raise HTTPException(404, "下書きがありません")
+                added = themes.postprocess_draft(
+                    ai,
+                    questions=[],
+                    existing=existing,
+                    dismissed=shared_vocab.load_dismissed(cfg.registry_root),
+                    base=fresh,
+                )
+                merged = themes.merge_expansion(fresh, added)
+                saved = themes.save_draft(
+                    cfg.registry_root, {**merged, "updated_at": _now()}
+                )
+        except themes.ThemeError as exc:
+            raise _fail(exc) from exc
+        return JSONResponse(
+            {
+                **saved,
+                "added": {
+                    "concepts": added["concepts"],
+                    "relations": added["relations"],
+                    "dropped": added["dropped"],
+                },
+            }
+        )
 
     @app.post("/api/themes/describe")
     async def themes_describe(body: DescribeBody) -> JSONResponse:
@@ -347,7 +538,45 @@ def register_themes(
 
     # ---- 下書き（途中で閉じても続きから） --------------------------------------------
 
-    @app.get("/api/themes/drafts/{draft_id}")
+    @app.get("/api/themes/drafts/sky", dependencies=list(write_auth))
+    async def drafts_sky(lang: str = Query(default="ja")) -> JSONResponse:
+        """未確定の下書きを**星図の札の形**で返す（枠だけの札＋「下書き」の印を UI が描く）。
+
+        認証つき（write token）の別口 — ``GET /api/sky`` は公開済みの事実だけのまま、下書きは
+        確かめるまで Ask / MCP にも星図にも出さない。データ 0 件でも返す（ストアを読まない・
+        ``themes/<id>/draft.json`` だけ）。概念が 1 つも無い下書き（まだ①の途中）は札が無いので
+        載せない。"""
+        lg = _lang(lang)
+        out: list[dict] = []
+        for item in themes.list_drafts(cfg.registry_root):
+            draft = themes.load_draft(cfg.registry_root, item["id"])
+            if draft is None or not draft.get("concepts"):
+                continue
+            out.append(
+                {
+                    "draft_id": draft["id"],
+                    "theme_label": draft["label"],
+                    "concepts": [
+                        {
+                            "key": c.get("key"),
+                            "label": (c.get("label_en") or c.get("label_ja") or "")
+                            if lg == "en"
+                            else (c.get("label_ja") or ""),
+                            "kind": c.get("kind"),
+                            "use": c.get("use") or "new",
+                        }
+                        for c in draft["concepts"]
+                    ],
+                    "relations": [
+                        {"from": r.get("from"), "to": r.get("to"), "rel": r.get("rel")}
+                        for r in draft.get("relations") or []
+                    ],
+                    "questions": list(draft.get("questions") or []),
+                }
+            )
+        return JSONResponse({"drafts": out})
+
+    @app.get("/api/themes/drafts/{draft_id}", dependencies=list(write_auth))
     async def draft_get(draft_id: str) -> JSONResponse:
         draft = themes.load_draft(cfg.registry_root, draft_id)
         if draft is None:
@@ -404,6 +633,103 @@ def register_themes(
             raise HTTPException(502, f"theme write failed: {exc}") from exc
         return JSONResponse(out, status_code=201)
 
+    @app.get("/api/themes/{theme_id}/answers")
+    async def theme_answers(theme_id: str, lang: str = Query(default="ja")) -> JSONResponse:
+        """問いごとの答えの数 — 「知識 N・データ N」。
+
+        各問い ``{tool_name, title, mode, knowledge, data, wanted_data}``（読み取り専用）:
+
+        * ``mode`` = ``knowledge``（確定した関係の線から決定論で答える）| ``data``（宣言ツール）;
+        * ``knowledge`` = ``{count, items[]}``（知識の問いだけ・データの問いは ``null``）。
+          ``items`` は ``asterism.knowledge`` の行 ``{iri, label, relation, via, via_label, reason,
+          drafted_by, at, batch}``（誰が・いつ・何をまとめて・なぜ）。公開済みデータセットが
+          0 件でも答える;
+        * ``data`` = ``{answering, total_datasets}`` — データの問いは答えるデータセット数
+          （``wired.json``）、知識の問いはその対象の語に答えるデータセット数。"""
+        lg = _lang(lang)
+        data = themes.ensure_migrated(cfg.registry_root, at=_now())
+        theme = next((t for t in data["themes"] if t["id"] == theme_id), None)
+        if theme is None:
+            raise HTTPException(404, "テーマがありません")
+        try:
+            terms = await shared_vocab._read_terms(_client())
+        except Exception as exc:
+            raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
+        by_slug = {t.slug: t for t in terms}
+        tools = shared_vocab.read_registry_raw_tools(cfg.registry_root, shared_vocab.REGISTRY_ID)
+        tool_by_name = {str(t.get("name")): t for t in (tools or [])}
+        wired = shared_vocab.load_wired(cfg.registry_root)
+        total = sum(
+            1
+            for m in registry.list_datasets(cfg.registry_root)
+            if m.get("promoted") and not shared_vocab.is_system_entry(m)
+        )
+        by_iri = {t.iri: t for t in terms}
+        wanted = theme.get("wanted") or {}
+        out: list[dict] = []
+        for name in theme.get("questions") or []:
+            if _is_knowledge(theme, name):
+                sel = theme["selections"][name]
+                target = by_slug.get(str(sel.get("target_slug")))
+                run = await _knowledge_run(sel)
+                items = run["items"]
+                if lg == "en":  # 英語名があれば英語名で（無ければ日本語のまま）
+                    for it in items:
+                        for field, iri_key in (("label", "iri"), ("via_label", "via")):
+                            en = by_iri.get(it[iri_key])
+                            if en is not None and en.label_en:
+                                it[field] = en.label_en
+                shown = (
+                    (target.label_en or target.label) if lg == "en" and target else
+                    (target.label if target else str(sel.get("target") or ""))
+                )
+                out.append(
+                    {
+                        "tool_name": name,
+                        "title": str(sel.get("title") or name),
+                        "mode": "knowledge",
+                        "shape": shared_vocab.describe_selection(
+                            {
+                                "op": sel.get("op"),
+                                "target": shown,
+                                "direction": sel.get("direction"),
+                            },
+                            lg,
+                        ),
+                        "knowledge": {"count": run["count"], "items": items},
+                        "data": {
+                            "answering": wired.get(target.iri, 0) if target else 0,
+                            "total_datasets": total,
+                        },
+                        "wanted_data": str(wanted.get(name) or ""),
+                    }
+                )
+            elif name in tool_by_name:
+                tool = tool_by_name[name]
+                for_terms = [str(x) for x in (tool.get("for_terms") or [])]
+                term_by_iri = {
+                    t.iri: {"label": (t.label_en or t.label) if lg == "en" else t.label,
+                            "kind": t.kind}
+                    for t in terms
+                }  # fmt: skip
+                out.append(
+                    {
+                        "tool_name": name,
+                        "title": str(tool.get("title", name)),
+                        "mode": "data",
+                        "shape": shared_vocab.describe_selection(
+                            _selection_of(theme, tool, term_by_iri), lg
+                        ),
+                        "knowledge": None,
+                        "data": {
+                            "answering": max((wired.get(x, 0) for x in for_terms), default=0),
+                            "total_datasets": total,
+                        },
+                        "wanted_data": str(wanted.get(name) or ""),
+                    }
+                )
+        return JSONResponse({"theme_id": theme_id, "answers": out})
+
     @app.post("/api/themes/{theme_id}/questions", dependencies=list(write_auth))
     async def theme_add_questions(theme_id: str, body: AddQuestionsBody) -> JSONResponse:
         try:
@@ -416,14 +742,20 @@ def register_themes(
         return JSONResponse({"theme": theme})
 
     @app.delete("/api/themes/{theme_id}", dependencies=list(write_auth))
-    async def theme_delete(theme_id: str) -> Response:
-        """テーマを外す。用語・線・問いは**残る**（用語はテーマの持ち物ではない）。"""
+    async def theme_delete(theme_id: str) -> JSONResponse:
+        """テーマ単位の取り消し。テーマと、**ほかのテーマの問いにもデータの線にも使われていない**
+        概念・関係を消す。返し: ``{removed_concepts, kept_concepts[{slug, label, reason}],
+        removed_relations, kept_relations}``（``reason`` = ``other_theme`` / ``other_question``
+        / ``has_lines``）。"""
         try:
             async with lock:
-                themes.remove_theme(cfg.registry_root, theme_id)
+                result = await themes.remove_theme_cascade(_client(), cfg.registry_root, theme_id)
         except themes.ThemeError as exc:
             raise _fail(exc) from exc
-        return Response(status_code=204)
+        except Exception as exc:
+            logger.warning("theme removal failed", exc_info=True)
+            raise HTTPException(502, f"theme removal failed: {exc}") from exc
+        return JSONResponse(result)
 
     # ---- 型紙 -----------------------------------------------------------------------
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MoreMenu } from '../MoreMenu'
+import { SV_NS } from '../lineChoice'
+import { homeHash } from '../sky/skyRoute'
 import { parseVocabHash } from '../vocabQuestion'
 import { ThemeWizard } from './ThemeWizard'
 import {
@@ -10,7 +12,9 @@ import {
   type ThemeSummary,
   type ThemesListing,
   deleteDraft,
+  type QuestionAnswer,
   deleteTheme,
+  getThemeAnswers,
   listThemes,
   templateUrl,
   themeLabel,
@@ -22,7 +26,7 @@ import './themes.css'
 //
 // テーマ（問いの束）ごとに カード: 問いの輪（答えるデータセット数／全体）・題・実行文・要る用語・
 // 畳んだメモの問い。主ボタンは「問いを足す」だけで、答えを見る・型紙・テーマを外す は「…」。
-// 右上の「？ 新しいテーマを作る」で 6 段（ThemeWizard）が開く。用語はテーマの持ち物ではないので、
+// 右上の「？ 新しいテーマを作る」で 3 段（ThemeWizard）が開く。用語はテーマの持ち物ではないので、
 // テーマを外しても用語・関係・問いは残る。用語の地図は「データ › データセットの詳細 › 中身」の末尾へ、
 // 用語の一覧は無くした（用語は札 → 用語のページ）。
 
@@ -47,20 +51,95 @@ function Ring({ n, total }: { n: number; total: number }) {
   )
 }
 
-function QuestionRow({ q, total }: { q: ThemeQuestion; total: number }) {
+/** 知識の関係の名前 → 文（`themes:rel.sentence.*`）の鍵。 */
+const SENTENCE_KEY: Record<string, string> = {
+  isPartOf: 'part',
+  lowers: 'lowers',
+  raises: 'raises',
+  affects: 'affects',
+  subClassOf: 'sub',
+  subPropertyOf: 'sub',
+}
+
+/** 知識の問いの答え（誰が・いつ・何をまとめて・なぜ）。「答えを見る」で開く。 */
+function KnowledgeAnswer({ answer }: { answer: QuestionAnswer | undefined }) {
   const { t } = useTranslation()
+  const items = answer?.knowledge?.items ?? []
+  if (!answer) {
+    return (
+      <p className="loading-row thm-kanswer">
+        <span className="spinner" />
+        {t('themes:loading')}
+      </p>
+    )
+  }
+  if (items.length === 0) return <p className="ds-empty-note thm-kanswer">{t('themes:card.knowledgeNone')}</p>
   return (
-    <div className="thm-qrow" data-testid="theme-question">
-      <Ring n={q.answering_datasets} total={total} />
-      <span className="thm-qtitle">
-        {q.title}
-        {q.shape && <span className="thm-qshape">{q.shape}</span>}
-      </span>
-      <span className={`pill ${q.answering_datasets > 0 ? 'ok' : 'wait'}`}>
-        {q.answering_datasets > 0
-          ? t('themes:card.answering', { n: q.answering_datasets })
-          : t('themes:card.notYet')}
-      </span>
+    <ul className="thm-kanswer" data-testid="knowledge-answer">
+      {items.map((it) => (
+        <li key={`${it.iri}|${it.relation}|${it.via}`}>
+          <div>
+            {t(`themes:rel.sentence.${SENTENCE_KEY[it.relation] ?? 'other'}`, { subject: it.label, object: it.via_label })}
+          </div>
+          <div className="thm-reason">
+            {t(it.drafted_by === 'ai' ? 'themes:card.byAi' : 'themes:card.byHuman')}
+            {it.at ? ` · ${it.at.slice(0, 10)}` : ''}
+            {it.reason ? ` · ${it.reason}` : ''}
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function QuestionRow({
+  q,
+  total,
+  answers,
+  onSeeAnswer,
+}: {
+  q: ThemeQuestion
+  total: number
+  /** 知識の問いの「答えを見る」（このテーマの答え。取れたら入る）。 */
+  answers?: QuestionAnswer[] | null
+  onSeeAnswer?: () => void
+}) {
+  const { t } = useTranslation()
+  const knowledge = q.mode === 'knowledge'
+  const [open, setOpen] = useState(false)
+  const n = q.knowledge_count ?? 0
+  const good = knowledge ? n > 0 || q.answering_datasets > 0 : q.answering_datasets > 0
+  return (
+    <div className="thm-qrow-wrap">
+      <div className="thm-qrow" data-testid="theme-question">
+        <Ring n={q.answering_datasets} total={total} />
+        <span className="thm-qtitle">
+          {q.title}
+          {q.shape && <span className="thm-qshape">{q.shape}</span>}
+        </span>
+        <span className={`pill ${good ? 'ok' : 'wait'}`}>
+          {knowledge
+            ? t('themes:card.counts', { k: n, d: q.answering_datasets })
+            : q.answering_datasets > 0
+              ? t('themes:card.answering', { n: q.answering_datasets })
+              : t('themes:card.notYet')}
+        </span>
+        {knowledge && (
+          <button
+            type="button"
+            className="link-btn thm-see"
+            aria-expanded={open}
+            onClick={() => {
+              if (!open) onSeeAnswer?.()
+              setOpen(!open)
+            }}
+          >
+            {t('themes:card.seeKnowledge')}
+          </button>
+        )}
+      </div>
+      {q.wanted_data && <div className="thm-qwant">{t('themes:review.wanted', { text: q.wanted_data })}</div>}
+      {knowledge && open && <KnowledgeAnswer answer={answers?.find((a) => a.tool_name === q.tool_name)} />}
     </div>
   )
 }
@@ -78,18 +157,53 @@ function ThemeCard({
   focused: boolean
   onAsk: (title: string) => void
   onAddQuestion: (theme: ThemeSummary) => void
-  onRemoved: () => void
+  onRemoved: (note: string) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language.startsWith('en') ? 'en' : 'ja'
   const [err, setErr] = useState('')
+  // 知識の問いの答え（誰が・いつ・理由）。「答えを見る」を押したときだけ 1 度取る。
+  const [answers, setAnswers] = useState<QuestionAnswer[] | null | undefined>(undefined)
   const n = theme.questions.length
+
+  function fetchAnswers() {
+    getThemeAnswers(theme.id, lang)
+      .then(setAnswers)
+      .catch((e) => {
+        setAnswers([])
+        setErr(e instanceof Error ? e.message : String(e))
+      })
+  }
+
+  function loadAnswers() {
+    if (answers !== undefined) return
+    setAnswers(null)
+    fetchAnswers()
+  }
+
+  // 一度でも「答えを見る」を開いたカードは、一覧を取り直したとき（reload）に答えも取り直す
+  // （問いを足した・関係を確定したあとに古い答えが残らない）。
+  useEffect(() => {
+    if (answers === undefined) return
+    fetchAnswers()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme])
 
   async function remove() {
     if (!window.confirm(t('themes:card.removeConfirm', { label: themeLabel(theme, t) }))) return
     setErr('')
     try {
-      await deleteTheme(theme.id)
-      onRemoved()
+      const res = await deleteTheme(theme.id)
+      onRemoved(
+        res
+          ? t('themes:card.removed', {
+              label: themeLabel(theme, t),
+              concepts: res.removed_concepts.length,
+              relations: res.removed_relations.length,
+              kept: res.kept_concepts.length,
+            })
+          : '',
+      )
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     }
@@ -108,6 +222,11 @@ function ThemeCard({
         <span className={`pill ${n > 0 && theme.answerable === n ? 'ok' : 'wait'}`}>
           {t('themes:card.answerable', { ok: theme.answerable, n })}
         </span>
+        {(theme.knowledge_total ?? 0) > 0 && (
+          <span className="pill ok" data-testid="theme-knowledge-total">
+            {t('themes:card.knowledgeTotal', { n: theme.knowledge_total })}
+          </span>
+        )}
         <MoreMenu
           label={t('themes:card.more')}
           items={[
@@ -123,7 +242,7 @@ function ThemeCard({
         />
       </div>
       {theme.questions.map((q) => (
-        <QuestionRow key={q.tool_name} q={q} total={total} />
+        <QuestionRow key={q.tool_name} q={q} total={total} answers={answers} onSeeAnswer={loadAnswers} />
       ))}
       {n === 0 && <p className="ds-empty-note">{t('themes:card.noQuestions')}</p>}
       {theme.terms.length > 0 && (
@@ -149,8 +268,9 @@ function ThemeCard({
           <summary>{t('themes:card.memoTitle', { n: theme.memo_questions.length })}</summary>
           {theme.memo_questions.map((m) => (
             <div key={m.id} className="thm-memo-row">
-              <span className="pill wait">{t('themes:try.memoBadge')}</span> {m.title}
+              <span className="pill wait">{t('themes:card.memoBadge')}</span> {m.title}
               {m.reason && <span className="vocab-field-hint"> — {m.reason}</span>}
+              {m.wanted_data && <div className="thm-qwant">{t('themes:review.wanted', { text: m.wanted_data })}</div>}
             </div>
           ))}
         </details>
@@ -173,11 +293,11 @@ export function ThemesView({
   onCloseNew,
   onOpenAsk,
 }: {
-  /** `#/questions?new=1[&q=題]` — 6 段を開く（上部の「？ 知りたいことを書く」・質問するから）。 */
+  /** `#/questions?new=1[&q=題]` — 3 段を開く（上部の「？ 知りたいことを書く」・質問するから）。 */
   newQuestion?: boolean
   /** `#/questions/<theme>` — そのテーマのカードを見せる。 */
   focusTheme?: string
-  /** `new` を hash から外す（6 段を閉じた・置いたとき）。 */
+  /** `new` を hash から外す（3 段を閉じた・置いたとき）。 */
   onCloseNew: () => void
   /** 「答えを見る」: 質問するへ題を持ち越す。 */
   onOpenAsk: (question: string) => void
@@ -215,8 +335,10 @@ export function ThemesView({
   }, [focusTheme, listing])
 
   const reload = () => setReloadKey((k) => k + 1)
-  // 6 段は、hash の `new=1`（題つき）か、この画面で開いた下書き・「問いを足す」で開く。
-  const fromHash = newQuestion ? { question: parseVocabHash(window.location.hash).q } : null
+  // 3 段は、hash の `new=1`（題つき）か、この画面で開いた下書き・「問いを足す」で開く。
+  const fromHash = newQuestion
+    ? (({ q, resume }) => ({ question: q, resume }))(parseVocabHash(window.location.hash))
+    : null
   const wizardOpen = fromHash !== null || local !== null
 
   function closeWizard() {
@@ -225,19 +347,11 @@ export function ThemesView({
     reload()
   }
 
+  // 置いたら星図へ（置いた概念の札を 1 度だけ灯す）。
   function placed(result: CommitResult) {
-    setNote(
-      t('themes:placedNote', {
-        label: themeLabel(result.theme, t),
-        terms: result.minted.length,
-        lines: result.lines,
-        questions: result.questions.length,
-      }),
-    )
     setLocal(null)
     if (newQuestion) onCloseNew()
-    goTo(`#/questions/${encodeURIComponent(result.theme.id)}`)
-    reload()
+    goTo(homeHash({ newIris: result.minted.map((slug) => `${SV_NS}${slug}`) }))
   }
 
   async function discardDraft(d: DraftSummary) {
@@ -267,7 +381,7 @@ export function ThemesView({
       </div>
 
       {note && (
-        <p className="lifecycle-ok" role="status" data-testid="theme-placed">
+        <p className="lifecycle-ok" role="status" data-testid="theme-removed">
           {note}
         </p>
       )}
@@ -276,9 +390,9 @@ export function ThemesView({
         <div className="thm-overlay" role="dialog" aria-modal="true" aria-label={t('themes:wizard.aria')}>
           <div className="thm-panel">
             <ThemeWizard
-              key={`${local?.resumeId ?? ''}|${local?.extend?.id ?? ''}|${fromHash ? 'h' : ''}`}
+              key={`${local?.resumeId ?? fromHash?.resume ?? ''}|${local?.extend?.id ?? ''}|${fromHash ? 'h' : ''}`}
               initialQuestion={local ? '' : (fromHash?.question ?? '')}
-              resumeId={local?.resumeId}
+              resumeId={local?.resumeId ?? (fromHash?.resume || undefined)}
               extend={local?.extend}
               onClose={closeWizard}
               onPlaced={placed}
@@ -339,7 +453,10 @@ export function ThemesView({
               focused={focusTheme === theme.id}
               onAsk={onOpenAsk}
               onAddQuestion={(th) => setLocal({ extend: { id: th.id, label: th.label } })}
-              onRemoved={reload}
+              onRemoved={(msg) => {
+                setNote(msg)
+                reload()
+              }}
             />
           ))}
           {listing.unassigned_questions.length > 0 && (

@@ -417,6 +417,7 @@ def _empty_sky() -> dict[str, Any]:
         "standards": [],
         "hubs": [],
         "questions": [],
+        "edges": [],
         "facts": {
             "triples": 0,
             "datasets": 0,

@@ -636,6 +636,71 @@ async def provenance_of(
 # them in a later increment (the schema_summary output is exactly the context
 # that escape will ground on).
 
+async def answer_knowledge_question(
+    tool_name: str,
+    client: OxigraphClient,
+    *,
+    registry_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Answer a theme's KNOWLEDGE question (``kq_…``) from the confirmed lines.
+
+    The question is read from the registry's ``themes.json`` (``selections[tool_name]``,
+    ``mode == "knowledge"``) and answered by the closed runner
+    :func:`asterism.knowledge.knowledge_answer` — a fixed template over the alignment graph
+    only, so only lines a person CONFIRMED can appear (a draft never reaches the store).
+    No SPARQL is taken from the caller.
+
+    Returns ``{found: True, tool_name, question, op, target, target_iri, direction, count,
+    items}`` where ``items`` is ``[{label, relation, via_label, reason, drafted_by, at}]``
+    (``drafted_by`` = ``ai`` / ``human``; ``reason`` / ``at`` may be ``None``), or
+    ``{found: False, tool_name, error}`` when the registry has no such knowledge question.
+    """
+    from asterism.knowledge import knowledge_answer
+    from asterism.themes import load_themes_file
+
+    if registry_root is None:
+        return {"tool_name": tool_name, "found": False, "error": "no registry root is configured"}
+    data = load_themes_file(registry_root)
+    sel: dict[str, Any] | None = None
+    for theme in (data or {}).get("themes") or []:
+        cand = (theme.get("selections") or {}).get(tool_name)
+        if isinstance(cand, dict) and cand.get("mode") == "knowledge":
+            sel = cand
+            break
+    if sel is None or not sel.get("target_slug"):
+        return {
+            "tool_name": tool_name,
+            "found": False,
+            "error": "no knowledge question with this name (see the themes of this registry)",
+        }
+    target_iri = _sv.term_iri(str(sel["target_slug"]))
+    answer = await knowledge_answer(
+        client,
+        {"op": sel.get("op"), "target": target_iri, "direction": sel.get("direction")},
+    )
+    return {
+        "found": True,
+        "tool_name": tool_name,
+        "question": sel.get("title") or tool_name,
+        "op": answer["op"],
+        "target": sel.get("target") or target_iri,
+        "target_iri": target_iri,
+        "direction": answer["direction"],
+        "count": answer["count"],
+        "items": [
+            {
+                "label": it["label"],
+                "relation": it["relation"],
+                "via_label": it["via_label"],
+                "reason": it["reason"],
+                "drafted_by": it["drafted_by"],
+                "at": it["at"],
+            }
+            for it in answer["items"]
+        ],
+    }
+
+
 
 class SparqlNotReadOnlyError(Exception):
     """Raised when ``sparql_query`` is handed an update-form query."""
@@ -881,8 +946,9 @@ async def _shared_vocab_overview(
 
     Words come from the shared-vocab graph, lines from the alignment graph, the
     answering-dataset count from :func:`asterism.shared_vocab.answering_datasets`
-    (a word with 0 is an orphan and is left out). Deterministic: sorted by IRI,
-    no LLM.
+    and the confirmed-knowledge-line count from
+    :func:`asterism.shared_vocab.knowledge_counts` (a word with 0 of BOTH is an orphan
+    and is left out — 利用者裁定 2026-10-20). Deterministic: sorted by IRI, no LLM.
     """
     # --- minted words ---------------------------------------------------------
     terms_q = (
@@ -949,7 +1015,8 @@ async def _shared_vocab_overview(
 
     # --- orphans out ----------------------------------------------------------
     counts = await _sv.answering_datasets(client, sorted(acc))
-    live = [iri for iri in sorted(acc) if counts.get(iri, 0) >= 1]
+    knowledge = await _sv.knowledge_counts(client)
+    live = [iri for iri in sorted(acc) if counts.get(iri, 0) >= 1 or knowledge.get(iri, 0) >= 1]
     if not live:
         return [], lines
 
@@ -987,6 +1054,7 @@ async def _shared_vocab_overview(
                 "narrower": nar,
                 "standards": sorted(standards[iri]),
                 "cqs": cqs_by_term.get(iri, []),
+                "knowledge_lines": knowledge.get(iri, 0),
             }
         )
     return shared_terms, lines

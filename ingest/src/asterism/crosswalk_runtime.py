@@ -773,7 +773,17 @@ ALIGN_RELATIONS: dict[str, str] = {
     "equivalentProperty": "http://www.w3.org/2002/07/owl#equivalentProperty",
     "subPropertyOf": "http://www.w3.org/2000/01/rdf-schema#subPropertyOf",
     "hasQuantityKind": "http://qudt.org/schema/qudt/hasQuantityKind",
+    # 知識の関係（問いから育てる・design.md §15.2）。自前の述語は作らず標準を使う
+    # （``sv:`` に述語は置かない）。BFO の part of と RO の regulates 系。
+    "isPartOf": "http://purl.obolibrary.org/obo/BFO_0000050",
+    "lowers": "http://purl.obolibrary.org/obo/RO_0002212",  # negatively regulates
+    "raises": "http://purl.obolibrary.org/obo/RO_0002213",  # positively regulates
+    "affects": "http://purl.obolibrary.org/obo/RO_0002211",  # regulates
 }
+
+#: 人が確定する「知識の関係」。データの宣言（``wired.json``）には数えず、``knowledge.json``
+#: に数える（孤立の定義の改訂・利用者裁定 2026-10-20）。
+KNOWLEDGE_RELATIONS: tuple[str, ...] = ("isPartOf", "lowers", "raises", "affects")
 
 # An absolute IRI safe to inject into a SPARQL ``<...>`` (scheme + no delimiters).
 _IRI_RE = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+$', re.IGNORECASE)
@@ -791,11 +801,16 @@ def _alignment_iri(source: str, relation: str, target: str) -> str:
     return f"{_ALIGN_RESOURCE}{h}"
 
 
-_CLASS_RELATIONS = ("equivalentClass", "subClassOf")
-_PROPERTY_RELATIONS = ("equivalentProperty", "subPropertyOf")
-_SUBSUMPTION = ("subClassOf", "subPropertyOf")
+#: 循環を拒む述語（上へ辿って自分に戻る線）。``lowers`` / ``raises`` / ``affects`` は含めない —
+#: フィードバック（A が B を下げ、B が A を下げる）は正当なので循環を許す。
+_SUBSUMPTION = ("subClassOf", "subPropertyOf", "isPartOf")
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+#: 来歴の ``drafted_by`` の閉じた値。``reason`` / ``batch`` の長さの上限。
+DRAFTED_BY = ("ai", "human")
+REASON_MAX = 200
+BATCH_MAX = 100
 
 ALIGN_SCOPES = ("perspective", "standard", "shared", "dataset")
 
@@ -845,30 +860,62 @@ async def _declared_shapes(client, iris: list[str]) -> dict[str, set[str]]:
     return out
 
 
-def _check_same_shape(relation: str, source: str, target: str, shapes: dict[str, set[str]]) -> None:
-    """Refuse a line that mixes a CLASS with a PROPERTY, as far as it is decidable.
+_CLASS_ONLY = frozenset({"class"})
+_PROPERTY_ONLY = frozenset({"property"})
+_EITHER = frozenset({"class", "property"})
+_UNCHECKED: frozenset[str] = frozenset()  # 空 = その端は検査しない
 
-    A class relation rejects an end declared only as a property; a property relation
-    rejects an end declared only as a class. An end declared as both, or nowhere,
-    passes (undecidable). ``hasQuantityKind`` is exempt: it joins an item to an
-    individual (a QUDT quantity kind), which is neither."""
-    if relation == "hasQuantityKind":
-        return
-    wrong = "property" if relation in _CLASS_RELATIONS else "class"
-    for iri in (source, target):
-        if shapes.get(iri) == {wrong}:
-            raise ValueError(f"kind mismatch: {relation} cannot join {iri} (a {wrong})")
+#: 述語ごとの「端の許す種別」``(from, to)``。端の宣言が決まるとき（データセットの ontology
+#: graph か共有語彙 graph に ``rdfs:Class`` / ``rdf:Property`` として宣言があるとき）だけ検査し、
+#: 宣言が無い端・両方で宣言された端は通す。``isPartOf`` は表に加えて「両端が同じ種別」
+#: （:data:`SAME_SHAPE_RELATIONS`）も求める。``hasQuantityKind`` の to は QUDT の量の種類
+#: （個体）なので検査しない。
+RELATION_SHAPES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "subClassOf": (_CLASS_ONLY, _CLASS_ONLY),
+    "equivalentClass": (_CLASS_ONLY, _CLASS_ONLY),
+    "subPropertyOf": (_PROPERTY_ONLY, _PROPERTY_ONLY),
+    "equivalentProperty": (_PROPERTY_ONLY, _PROPERTY_ONLY),
+    "hasQuantityKind": (_PROPERTY_ONLY, _UNCHECKED),
+    "isPartOf": (_EITHER, _EITHER),
+    # 種類か項目が、項目を下げる／上げる／変える（to が種類と宣言されていれば拒む）
+    "lowers": (_EITHER, _PROPERTY_ONLY),
+    "raises": (_EITHER, _PROPERTY_ONLY),
+    "affects": (_EITHER, _PROPERTY_ONLY),
+}
+SAME_SHAPE_RELATIONS = frozenset({"isPartOf"})
+assert set(RELATION_SHAPES) == set(ALIGN_RELATIONS)  # 述語を足したら表も足す
+
+
+def _check_same_shape(relation: str, source: str, target: str, shapes: dict[str, set[str]]) -> None:
+    """Refuse a line whose ends do not fit :data:`RELATION_SHAPES`, as far as decidable.
+
+    An end whose declared shapes (``shapes``) have NO overlap with what the relation
+    allows is refused; an end declared as both, or nowhere, passes (undecidable).
+    ``isPartOf`` additionally refuses a class joined to a property when both ends are
+    declared."""
+    allowed_from, allowed_to = RELATION_SHAPES[relation]
+    for iri, allowed in ((source, allowed_from), (target, allowed_to)):
+        declared = shapes.get(iri)
+        if allowed and declared and not (declared & allowed):
+            kind = "/".join(sorted(declared))
+            raise ValueError(f"kind mismatch: {relation} cannot join {iri} (a {kind})")
+    if relation in SAME_SHAPE_RELATIONS:
+        s_decl, t_decl = shapes.get(source), shapes.get(target)
+        if s_decl and t_decl and not (s_decl & t_decl):
+            raise ValueError(f"kind mismatch: {relation} joins a class to a property")
 
 
 async def _upper_path_reaches(client, relation: str, start: str, goal: str) -> bool:
-    """``start`` reaches ``goal`` going UP (⊑ / ≡) over the alignment lines alone."""
+    """``start`` reaches ``goal`` going UP over the alignment lines alone: ⊑ / ≡ for
+    ``subClassOf`` / ``subPropertyOf``, ``isPartOf`` hops alone for ``isPartOf``."""
     from asterism import shared_vocab
 
-    path = (
-        shared_vocab.UPPER_PATH_CLASS
-        if relation == "subClassOf"
-        else shared_vocab.UPPER_PATH_PROPERTY
-    )
+    if relation == "isPartOf":
+        path = shared_vocab.PART_OF_PATH
+    elif relation == "subClassOf":
+        path = shared_vocab.UPPER_PATH_CLASS
+    else:
+        path = shared_vocab.UPPER_PATH_PROPERTY
     data = await client.sparql_select(
         f"ASK {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{start}> {path} <{goal}> }} }}"
     )
@@ -885,6 +932,9 @@ async def assert_alignment(
     from_perspective: str = "",
     to_perspective: str = "",
     cq: str | None = None,
+    drafted_by: str = "human",
+    batch: str | None = None,
+    reason: str | None = None,
 ) -> dict:
     """Assert a schema relationship (``relation`` from :data:`ALIGN_RELATIONS`) between
     two terms (``source`` -> ``target``, both absolute IRIs). Additive, idempotent
@@ -894,15 +944,30 @@ async def assert_alignment(
     - a bad relation / IRI;
     - ``"unminted shared term"`` — an end is in the ``sv:`` namespace but was never
       minted;
-    - ``"kind mismatch"`` — a class joined to a property (as far as decidable);
-    - ``"cycle"`` — ``subClassOf`` / ``subPropertyOf`` whose target already reaches the
-      source going up (``≡`` included), or a term under itself.
+    - ``"kind mismatch"`` — the ends do not fit :data:`RELATION_SHAPES` (as far as decidable);
+    - ``"cycle"`` — ``subClassOf`` / ``subPropertyOf`` / ``isPartOf`` whose target already
+      reaches the source going up (``≡`` included for the first two), or a term under
+      itself. ``lowers`` / ``raises`` / ``affects`` allow cycles (feedback is legitimate).
 
     The provenance node also records what each end was at assertion time
     (``xw:alignSourceKind`` / ``alignTargetKind``, plus ``…Dataset`` for a dataset
-    end) and the optional competency question the line answers (``xw:answersCq``)."""
+    end) and the optional competency question the line answers (``xw:answersCq``).
+
+    Who decided it, in which batch, and why (design.md §15.2 来歴): ``drafted_by``
+    (``"ai"`` = an AI draft a person confirmed, ``"human"``) is always written as
+    ``xw:draftedBy``; ``batch`` (the id of the "decide these together" operation) as
+    ``xw:batch``; ``reason`` (one line, at most :data:`REASON_MAX` characters, line breaks
+    folded to spaces) as ``xw:reason``. The date is ``prov:endedAtTime`` (``at``)."""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if drafted_by not in DRAFTED_BY:
+        raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")
+    batch_text = (batch or "").strip()
+    if len(batch_text) > BATCH_MAX or any(ord(c) < 32 for c in batch_text):
+        raise ValueError(f"batch must be a single line of at most {BATCH_MAX} characters")
+    reason_text = " ".join((reason or "").split())
+    if len(reason_text) > REASON_MAX:
+        raise ValueError(f"reason must be at most {REASON_MAX} characters")
     _check_iri(source)
     _check_iri(target)
     ctx = await _endpoint_context(client)
@@ -925,6 +990,11 @@ async def assert_alignment(
     cq_text = (cq or "").strip()
     if cq_text:
         extra += f'<{XW}answersCq> "{_sparql_str(cq_text)}" ; '
+    extra += f'<{XW}draftedBy> "{drafted_by}" ; '
+    if batch_text:
+        extra += f'<{XW}batch> "{_sparql_str(batch_text)}" ; '
+    if reason_text:
+        extra += f'<{XW}reason> "{_sparql_str(reason_text)}" ; '
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} ;"
         f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
@@ -951,6 +1021,9 @@ async def assert_alignment(
         "source_dataset": s_dataset,
         "target_dataset": t_dataset,
         "cq": cq_text or None,
+        "drafted_by": drafted_by,
+        "batch": batch_text or None,
+        "reason": reason_text or None,
         "at": at,
     }
 
@@ -983,7 +1056,8 @@ async def list_alignments(
 
     Each row also carries ``source_kind`` / ``target_kind`` / ``source_dataset`` /
     ``target_dataset`` / ``cq`` / ``broken``, computed AT READ TIME so older rows get
-    them too. ``broken`` = an end recorded as ``dataset`` / ``shared`` at assertion
+    them too, and the provenance ``drafted_by`` (``human`` when none was recorded) /
+    ``batch`` / ``reason``. ``broken`` = an end recorded as ``dataset`` / ``shared`` at assertion
     can no longer be classified (its ontology or term is gone); rows with no record
     (written before kinds were recorded) are never broken.
 
@@ -999,7 +1073,8 @@ async def list_alignments(
     if scope is not None and scope not in ALIGN_SCOPES:
         raise ValueError(f"scope must be one of {list(ALIGN_SCOPES)}, got {scope!r}")
     q = (
-        f"SELECT ?a ?source ?target ?relation ?from ?to ?at ?sk ?tk ?cq WHERE {{ "
+        f"SELECT ?a ?source ?target ?relation ?from ?to ?at ?sk ?tk ?cq "
+        f"?drafter ?batch ?reason WHERE {{ "
         f"GRAPH <{ALIGNMENT_GRAPH}> {{ "
         f"?a a <{XW}Alignment> ; <{XW}alignSource> ?source ; <{XW}alignTarget> ?target ; "
         f"<{XW}alignRelation> ?relation . "
@@ -1008,7 +1083,10 @@ async def list_alignments(
         f"OPTIONAL {{ ?a <{_PROV}endedAtTime> ?at }} "
         f"OPTIONAL {{ ?a <{XW}alignSourceKind> ?sk }} "
         f"OPTIONAL {{ ?a <{XW}alignTargetKind> ?tk }} "
-        f"OPTIONAL {{ ?a <{XW}answersCq> ?cq }} }} }} ORDER BY ?at"
+        f"OPTIONAL {{ ?a <{XW}answersCq> ?cq }} "
+        f"OPTIONAL {{ ?a <{XW}draftedBy> ?drafter }} "
+        f"OPTIONAL {{ ?a <{XW}batch> ?batch }} "
+        f"OPTIONAL {{ ?a <{XW}reason> ?reason }} }} }} ORDER BY ?at"
     )
     bindings = await _select_bindings(client, q)
     ctx = await _endpoint_context(client)
@@ -1052,6 +1130,10 @@ async def list_alignments(
                 "source_dataset": s_dataset,
                 "target_dataset": t_dataset,
                 "cq": b.get("cq", {}).get("value") or None,
+                # 来歴（誰が・どのまとめで・なぜ）。書かれる前の線は human（人が置いた）
+                "drafted_by": b.get("drafter", {}).get("value") or "human",
+                "batch": b.get("batch", {}).get("value") or None,
+                "reason": b.get("reason", {}).get("value") or None,
                 "broken": broken,
             }
         )

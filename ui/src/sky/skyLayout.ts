@@ -10,7 +10,17 @@
 //     （帯の札・ハブは重心に置くため、星が増えれば動いてよい）。
 //   ・規模: 種類 ≤ 60 かつ データセット ≤ 8 は星のまま。超えたらデータセットを 1 つの丸に畳む。
 //   ・帯の札は重ならない。横に並べきれなければ段（レーン）を足して帯を押し広げる。
-import type { SkyData, SkyDataset, SkyHub, SkyTerm } from './skyApi'
+import type { DraftSky, SkyData, SkyDataset, SkyHub, SkyKnowledgeRelation, SkyTerm } from './skyApi'
+import {
+  KNOW_PITCH,
+  planKnowledge,
+  routeConceptEdges,
+  type ConceptEdgeGeom,
+  clipToCard,
+  type RouteCard,
+} from './skyKnowledge'
+
+export type { ConceptEdgeGeom } from './skyKnowledge'
 
 // ── 決定論のハッシュ（モックと同じ） ──────────────────────────────
 export function fnv1a(str: string, seed?: number): number {
@@ -77,7 +87,7 @@ export function approxLabelWidth(text: string, px: number = LABEL_PX): number {
 }
 
 // ── 型 ───────────────────────────────────────────────────────────
-export type SkyNodeType = 'kind' | 'dataset' | 'term' | 'std' | 'hub'
+export type SkyNodeType = 'kind' | 'dataset' | 'term' | 'std' | 'hub' | 'draft'
 
 interface NodeBase {
   id: string
@@ -129,9 +139,22 @@ export interface HubNode extends NodeBase {
   w: number
   lane: number
 }
-export type SkyNode = KindNode | DatasetNode | TermNode | StdNode | HubNode
+/** 下書きの札（まだ確かめていない概念）。枠だけで描き、押すと「下書きの札」の欄が出る。 */
+export interface DraftNode extends NodeBase {
+  type: 'draft'
+  draftId: string
+  themeLabel: string
+  conceptKey: string
+  termKind: 'class' | 'property'
+  /** この下書きの、札になる概念の数。 */
+  conceptCount: number
+  w: number
+  h: number
+  lane: number
+}
+export type SkyNode = KindNode | DatasetNode | TermNode | StdNode | HubNode | DraftNode
 
-export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub'
+export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub' | 'concept'
 export interface SkyEdge {
   kind: SkyEdgeKind
   /** member: 点（星・丸）→ 用語。termStd: 用語 → 標準用語。kindStd: 点 → 標準用語。hub: 点 → ハブ。link: 星 → 星。 */
@@ -139,6 +162,11 @@ export interface SkyEdge {
   to: string
   /** member だけ: 同じもの（矢じり無し）。 */
   eq?: boolean
+  /** concept だけ（用語 → 用語の知識の線）: 一部・下げる・上げる・変える。`from` が主語。 */
+  relation?: SkyKnowledgeRelation
+  /** concept だけ: 線の道すじ（札の縁から縁へ）と、小さな札の位置（置けないなら null）。layoutSky が決める。 */
+  geom?: ConceptEdgeGeom
+  pill?: { x: number; y: number } | null
 }
 
 export interface SkyCluster {
@@ -188,6 +216,8 @@ export interface LayoutOptions {
   minHeight?: number
   /** 星／丸の強制（試験用）。 */
   mode?: SkyMode | 'auto'
+  /** 下書きの札（`GET /api/themes/drafts/sky`）。上の帯に、用語の札のあいだへ足す。 */
+  drafts?: readonly DraftSky[]
 }
 
 // ── id ───────────────────────────────────────────────────────────
@@ -196,6 +226,12 @@ export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 export const termId = (iri: string): string => `t|${iri}`
 export const stdId = (iri: string): string => `s|${iri}`
 export const hubNodeId = (id: string): string => `h|${id}`
+export const draftNodeId = (draftId: string, key: string): string => `draft|${draftId}|${key}`
+
+/** 下書きの概念のうち札にするもの（新しく作る語・標準の語と結んで作る語）。既にある語は札を足さない。 */
+export function draftCardConcepts(d: DraftSky): DraftSky['concepts'] {
+  return d.concepts.filter((c) => !c.use.startsWith('existing:'))
+}
 
 /** 用語の表示名（言語に合わせる。無ければ日本語名・slug）。 */
 export function termLabel(t: SkyTerm, lang: 'ja' | 'en' = 'ja'): string {
@@ -238,13 +274,18 @@ const LANE_PENALTY = 160
  * 段を増やすより、いまある段で ${LANE_PENALTY}px ずらすほうを選ぶ（帯を高くしすぎない）。
  * 段の数はここで決まり、帯の高さはそれに従う。札どうしは重ならない・枠の外に出ない。
  */
-export function placeLanes(items: LaneItem[], width: number, gap = 12): { placed: LanePlaced[]; lanes: number } {
+export function placeLanes(
+  items: LaneItem[],
+  width: number,
+  gap = 12,
+  left: number = PAD,
+): { placed: LanePlaced[]; lanes: number } {
   const sorted = [...items].sort((a, b) => a.x - b.x || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const lanes: { l: number; r: number }[][] = []
   const placed: LanePlaced[] = []
   for (const it of sorted) {
     const half = it.w / 2
-    const lo = PAD + half
+    const lo = left + half
     const hi = Math.max(lo, width - PAD - half)
     const want = Math.min(hi, Math.max(lo, it.x))
     let best: { lane: number; x: number; cost: number } | null = null
@@ -561,7 +602,47 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     termItems.push({ id: termId(t.iri), x, w })
     termMeta.set(termId(t.iri), { t, label, w, memberIds, stdId: std })
   }
-  const termPlace = placeLanes(termItems, W)
+  // 下書きの札: 同じ下書きは同じ x に置きたがる（ハッシュ）。札どうしは重ならない
+  const draftMeta = new Map<string, { d: DraftSky; c: DraftSky['concepts'][number]; w: number; count: number }>()
+  for (const d of opts.drafts ?? []) {
+    const cards = draftCardConcepts(d)
+    const base = PAD + 60 + (W - PAD * 2 - 120) * hash01(d.draft_id, 'draftx')
+    for (const c of cards) {
+      const id = draftNodeId(d.draft_id, c.key)
+      const w = Math.min(TERM_MAX_W, approxLabelWidth(c.label, 13) + 26)
+      termItems.push({ id, x: base, w })
+      draftMeta.set(id, { d, c, w, count: cards.length })
+    }
+  }
+  // 知識の線でつながる札は、知識の段（結果が上・原因が下）に並べる。残りは従来どおり段詰め。
+  const conceptLinks: { from: string; to: string }[] = []
+  for (const l of sky.edges ?? []) {
+    const from = termId(l.from)
+    const to = termId(l.to)
+    if (termMeta.has(from) && termMeta.has(to)) conceptLinks.push({ from, to })
+  }
+  const know = planKnowledge(
+    termItems.filter((it) => termMeta.has(it.id)),
+    conceptLinks,
+    W,
+    PAD,
+  )
+  const hasKnow = know.rows > 0
+  const restItems = hasKnow ? termItems.filter((it) => !know.pos.has(it.id)) : termItems
+  // 残りの札は、知識の段の右が空いていれば右側に（星の重心の並びは保つ）。入らなければ知識の段の下に。
+  const sideLeft = know.right + 40
+  const restWidest = Math.max(0, ...restItems.map((it) => it.w))
+  const side = hasKnow && W - PAD - sideLeft >= Math.max(restWidest + 24, 150)
+  const restRegion = side ? sideLeft : PAD
+  const restPlace = placeLanes(
+    side
+      ? restItems.map((it) => ({ ...it, x: restRegion + ((it.x - PAD) / Math.max(1, W - PAD * 2)) * (W - PAD - restRegion) }))
+      : restItems,
+    W,
+    12,
+    restRegion,
+  )
+  const termPlace = { placed: restPlace.placed, lanes: restPlace.lanes }
 
   // ── 標準用語（下の帯） ──
   const stdItems: LaneItem[] = []
@@ -569,7 +650,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
   const stdXs = new Map<string, number[]>()
   for (const [tid, m] of termMeta) {
     if (!m.stdId) continue
-    const x = termPlace.placed.find((p) => p.id === tid)?.x
+    const x = know.pos.get(tid)?.x ?? termPlace.placed.find((p) => p.id === tid)?.x
     if (x !== undefined) stdXs.set(m.stdId, [...(stdXs.get(m.stdId) ?? []), x])
   }
   for (const e of edges) {
@@ -604,8 +685,17 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
 
   // ── 帯の y ──（丸モードは札が多いので段の間隔を詰める）
   const laneH = mode === 'stars' ? LANE_H : LANE_H_COMPACT
-  const namesLanes = Math.max(1, termPlace.lanes)
-  const midTop = MID_TOP0 + (namesLanes - 1) * laneH
+  // 上の帯の高さ（最上段の札の y から星に一番近い段までの距離）。知識の段があれば、その分だけ増やす。
+  const restLanes = termPlace.lanes
+  let span = (Math.max(1, restLanes) - 1) * laneH
+  if (hasKnow) {
+    const kSpan = (know.rows - 1) * KNOW_PITCH
+    span = side ? Math.max(kSpan, restLanes > 0 ? (restLanes - 1) * laneH : 0) : kSpan + restLanes * laneH
+  }
+  const namesLanes = Math.max(1, Math.round(span / laneH) + 1)
+  const midTop = MID_TOP0 + span
+  // 知識の段の一番下の y（段 0 が一番上）
+  const knowBottomY = NAMES_Y0 + span - (hasKnow && !side ? restLanes * laneH : 0)
   const midBot = midTop + midHeight
   const hubLanes = hubPlace.lanes
   const hubTop = midBot + HUB_OFFSET
@@ -631,10 +721,39 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
   }
   for (const c of clusters) c.cy += midTop
 
-  // 用語の札: 段 0 が星に近い（下）・最上段が NAMES_Y0
-  for (const p of termPlace.placed) {
+  // 用語の札: 段 0 が星に近い（下）・最上段が NAMES_Y0。知識の段は、結果が上・原因が下。
+  const termPlaced: { id: string; x: number; y: number; lane: number }[] = termPlace.placed.map((p) => ({
+    id: p.id,
+    x: p.x,
+    y: NAMES_Y0 + span - p.lane * laneH,
+    lane: p.lane,
+  }))
+  for (const [id, k] of know.pos) {
+    termPlaced.push({ id, x: k.x, y: knowBottomY - (know.rows - 1 - k.row) * KNOW_PITCH, lane: 1000 + k.row })
+  }
+  for (const p of termPlaced) {
+    const y = p.y
+    const dm = draftMeta.get(p.id)
+    if (dm) {
+      const node: DraftNode = {
+        id: p.id,
+        type: 'draft',
+        x: p.x,
+        y,
+        label: dm.c.label,
+        draftId: dm.d.draft_id,
+        themeLabel: dm.d.theme_label,
+        conceptKey: dm.c.key,
+        termKind: dm.c.kind,
+        conceptCount: dm.count,
+        w: dm.w,
+        h: TERM_H,
+        lane: p.lane,
+      }
+      nodes.set(p.id, node)
+      continue
+    }
     const m = termMeta.get(p.id)!
-    const y = NAMES_Y0 + (namesLanes - 1 - p.lane) * laneH
     const node: TermNode = {
       id: p.id,
       type: 'term',
@@ -698,7 +817,109 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     for (const mid of m.memberIds) edges.push({ kind: 'hub', from: mid, to: p.id })
   }
 
+  // 語どうしの知識の線（一部・下げる・上げる・変える）。札の位置は動かさず、線だけを足す。
+  const conceptSeen = new Set<string>()
+  for (const l of sky.edges ?? []) {
+    const from = termId(l.from)
+    const to = termId(l.to)
+    const key = `${from}>${to}>${l.relation}`
+    if (from === to || conceptSeen.has(key) || nodes.get(from)?.type !== 'term' || nodes.get(to)?.type !== 'term') continue
+    conceptSeen.add(key)
+    edges.push({ kind: 'concept', from, to, relation: l.relation })
+  }
+  // 線の道すじと小さな札の位置（札の縁から縁へ・札と札の下の字を通らない・小さな札どうしが重ならない）
+  const conceptEdges = edges.filter((e) => e.kind === 'concept')
+  if (conceptEdges.length > 0) {
+    const cards: RouteCard[] = []
+    for (const n of nodes.values()) {
+      if (n.type === 'term') {
+        const capHalf = n.memberIds.length === 0 ? 30 : n.stdId ? Math.min(n.w / 2 + 4, 90) : 0
+        cards.push({ id: n.id, x: n.x, y: n.y, w: drawnWidth(n.label, n.w), h: n.h, capHalf, topHalf: n.termKind === 'property' ? 22 : 0 })
+      } else if (n.type === 'draft') {
+        cards.push({ id: n.id, x: n.x, y: n.y, w: drawnWidth(n.label, n.w), h: n.h, capHalf: 0, topHalf: 40 })
+      }
+    }
+    const routed = routeConceptEdges(
+      cards,
+      conceptEdges.map((e) => ({ from: e.from, to: e.to, pillW: e.relation === 'isPartOf' ? PILL_W_PART : PILL_W_ARROW })),
+      W,
+    )
+    conceptEdges.forEach((e, i) => {
+      e.geom = routed[i].geom
+      e.pill = routed[i].pill
+    })
+  }
+
   return { width: W, height, mode, bands, nodes, clusters, edges }
+}
+
+/**
+ * 札が実際に描かれる幅の見積もり（字の幅 + 余白 26。全角 12px・半角 6.6px）。`w` は標準用語の字の幅も見込んだ
+ * 余裕のある幅で、描く札はそれより狭いことが多い。線は描かれる札の縁につなぐ。
+ */
+function drawnWidth(label: string, w: number): number {
+  let t = 0
+  for (const ch of label) t += (ch.codePointAt(0) ?? 0) > 0xff ? 12 : 6.6
+  return Math.min(w, t + 26)
+}
+
+/** 知識の線の小さな札の幅（「一部」「part」・↓ ↑ ↕）。置き場所を決めるときに見込む。 */
+const PILL_W_PART = 36
+const PILL_W_ARROW = 24
+
+/** 線（2 次ベジェ）の t の点。 */
+export function conceptEdgePointAt(g: ConceptEdgeGeom, t: number): { x: number; y: number } {
+  const u = 1 - t
+  return {
+    x: u * u * g.x1 + 2 * u * t * g.cx + t * t * g.x2,
+    y: u * u * g.y1 + 2 * u * t * g.cy + t * t * g.y2,
+  }
+}
+
+/**
+ * 線の小さな札（幅 w・高さ h）を置く点。線の中ほどが用語の札に重なるときは、線に沿って寄せて空いた所を探す。
+ * 見つからなければ null（札は出さない。線の色と矢じりで向きは読める。文は右の欄に出る）。決定論。
+ */
+export function conceptPillPos(
+  layout: SkyLayout,
+  g: ConceptEdgeGeom,
+  w: number,
+  h = 16,
+): { x: number; y: number } | null {
+  const cards = [...layout.nodes.values()].filter((n): n is TermNode | DraftNode => n.type === 'term' || n.type === 'draft')
+  // 1 回目: 札の下の小さな字（「まだ星がない」「≡ 標準用語」・約 14px）も避ける。置けなければ 2 回目: 札だけ避ける。
+  for (const caption of [14, 0]) {
+    for (const t of [0.5, 0.38, 0.62, 0.28, 0.72]) {
+      const p = conceptEdgePointAt(g, t)
+      const clear = cards.every(
+        (n) =>
+          Math.abs(p.x - n.x) >= (n.w + w) / 2 + 1 || Math.abs(p.y - (n.y + caption / 2)) >= (n.h + caption + h) / 2 + 1,
+      )
+      if (clear) return p
+    }
+  }
+  return null
+}
+
+/**
+ * 用語の札 2 つを結ぶ知識の線の形（札の縁から縁へ・少し曲げる）。曲げる向きは進む向きで決まる
+ * （同じ 2 点を逆向きに結ぶ線は反対の側に曲がり、重ならない）。決定論。どちらかが用語の札でなければ null。
+ */
+export function conceptEdgeGeom(layout: SkyLayout, e: SkyEdge): ConceptEdgeGeom | null {
+  const a = layout.nodes.get(e.from)
+  const c = layout.nodes.get(e.to)
+  if (!a || !c || a.type !== 'term' || c.type !== 'term') return null
+  if (e.geom) return e.geom
+  const pad = 3
+  const p1 = clipToCard(a.x, a.y, a.w / 2 + pad, a.h / 2 + pad, c.x, c.y)
+  const p2 = clipToCard(c.x, c.y, c.w / 2 + pad, c.h / 2 + pad, a.x, a.y)
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const len = Math.hypot(dx, dy) || 1
+  const bow = Math.min(26, len * 0.14) // 進む向きの左へ。逆向きの線は反対の側に曲がる
+  const cx = (p1.x + p2.x) / 2 - (dy / len) * bow
+  const cy = (p1.y + p2.y) / 2 + (dx / len) * bow
+  return { x1: p1.x, y1: p1.y, cx, cy, x2: p2.x, y2: p2.y, mx: 0.25 * p1.x + 0.5 * cx + 0.25 * p2.x, my: 0.25 * p1.y + 0.5 * cy + 0.25 * p2.y }
 }
 
 // ── 近傍（hover・選択の濃淡） ─────────────────────────────────────

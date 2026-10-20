@@ -9,6 +9,7 @@ import {
   endName,
   involves,
   filterCounts,
+  groupByBatch,
   matchesFilter,
   newestFirst,
   parseDecisionsQuery,
@@ -147,5 +148,41 @@ describe('involves', () => {
     expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:a')).toBe(true)
     expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:b')).toBe(true)
     expect(involves(row({ source: 'urn:a', target: 'urn:b' }), 'urn:c')).toBe(false)
+  })
+})
+
+describe('9 関係の文と、まとめて確定の束（問いから育てる）', () => {
+  const k = (relation: string, extra: Partial<Alignment> = {}) =>
+    row({ relation, source_label: '粒界散乱', target_label: '格子熱伝導率', ...extra })
+
+  it('一部・下げる・上げる・変えるは文にする（生の関係名を出さない）', () => {
+    const say = (rel: string) => decisionSentence(k(rel), {}, t)
+    expect(say('isPartOf')).toBe('「粒界散乱」は「格子熱伝導率」の一部')
+    expect(say('lowers')).toBe('「粒界散乱」は「格子熱伝導率」を下げる')
+    expect(say('raises')).toBe('「粒界散乱」は「格子熱伝導率」を上げる')
+    expect(say('affects')).toBe('「粒界散乱」は「格子熱伝導率」を変える')
+    for (const rel of ['isPartOf', 'lowers', 'raises', 'affects']) expect(say(rel)).not.toContain(rel)
+  })
+
+  it('「知識」の絞り込みは一部・下げる・上げる・変えるだけ', () => {
+    const list = [k('isPartOf'), k('lowers'), k('raises'), k('affects'), k('subClassOf'), k('hasQuantityKind')]
+    expect(list.filter((a) => matchesFilter(a, 'knowledge'))).toHaveLength(4)
+    expect(filterCounts(list).knowledge).toBe(4)
+  })
+
+  it('同じ batch の 2 本以上は 1 つの束に畳み、1 本だけの batch・batch 無しは 1 行のまま', () => {
+    const a = k('lowers', { batch: 'b1', drafted_by: 'ai', at: '2026-10-20T10:00:00+00:00' })
+    const b = k('lowers', { batch: 'b1', drafted_by: 'ai', at: '2026-10-20T10:00:00+00:00' })
+    const solo = k('raises', { batch: 'b2' })
+    const plain = k('isPartOf')
+    const c = k('affects', { batch: 'b1', drafted_by: 'ai' })
+    const entries = groupByBatch([a, solo, b, plain, c])
+    expect(entries.map((e) => e.kind)).toEqual(['batch', 'one', 'one'])
+    const batch = entries[0]
+    expect(batch.kind === 'batch' && batch.items).toEqual([a, b, c])
+    expect(batch.kind === 'batch' && batch.draftedBy).toBe('ai')
+    expect(t('decisions:batch', { n: 3 })).toBe('まとめて確定（3 件）')
+    // 束の位置は、束のいちばん新しい線（入力で先に出たもの）のところ
+    expect(entries[1]).toEqual({ kind: 'one', a: solo })
   })
 })

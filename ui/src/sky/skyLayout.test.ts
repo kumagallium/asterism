@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { SAMPLE_SKY } from './sample'
-import { EMPTY_SKY, type SkyData } from './skyApi'
+import { EMPTY_SKY, type DraftSky, type SkyData, type SkyLine } from './skyApi'
 import { makeSky } from './skyFixture'
+import { KNOW_PITCH } from './skyKnowledge'
 import {
   chooseMode,
+  conceptEdgeGeom,
+  conceptEdgePointAt,
+  conceptPillPos,
+  draftCardConcepts,
+  draftNodeId,
   hash01,
   kindId,
   layoutSky,
@@ -16,7 +22,9 @@ import {
   STAR_MAX_DATASETS,
   STAR_MAX_KINDS,
   termId,
+  type DraftNode,
   type KindNode,
+  type TermNode,
   type SkyLayout,
 } from './skyLayout'
 
@@ -267,5 +275,354 @@ describe('neighborhood / nodeIdsForIris', () => {
     const c = layoutSky(sky, { width: 1000 })
     const iri = sky.datasets[3].kinds[0].iri
     expect(nodeIdsForIris(c, [iri])).toContain('d|d003')
+  })
+})
+
+describe('下書きの札（上の帯・枠だけ）', () => {
+  const thermal: DraftSky = {
+    draft_id: 'thermo',
+    theme_label: '熱電材料',
+    concepts: [
+      { key: 'c1', label: '熱伝導率', kind: 'property', use: 'standard:quantitykind:ThermalConductivity' },
+      { key: 'c2', label: '格子熱伝導率', kind: 'property', use: 'new' },
+      { key: 'c4', label: '粒界散乱', kind: 'class', use: 'new' },
+      { key: 'c7', label: '試料', kind: 'class', use: 'existing:sample' },
+    ],
+    relations: [{ from: 'c2', to: 'c1', rel: 'part' }],
+    questions: ['熱伝導率を下げる要素になり得るのは？'],
+  }
+
+  it('既にある語は札にしない（新しく作る語・標準の語と結ぶ語だけ）', () => {
+    expect(draftCardConcepts(thermal).map((c) => c.key)).toEqual(['c1', 'c2', 'c4'])
+  })
+
+  it('データが 0 件でも描く（上の帯に重ならずに並び、図の中に収まる）', () => {
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [thermal] })
+    const cards = [...l.nodes.values()].filter((n): n is DraftNode => n.type === 'draft')
+    expect(cards.map((n) => n.id).sort()).toEqual(
+      ['c1', 'c2', 'c4'].map((k) => draftNodeId('thermo', k)).sort(),
+    )
+    for (const n of cards) {
+      expect(n.themeLabel).toBe('熱電材料')
+      expect(n.conceptCount).toBe(3)
+      expect(n.x - n.w / 2).toBeGreaterThanOrEqual(0)
+      expect(n.x + n.w / 2).toBeLessThanOrEqual(l.width)
+      expect(n.y).toBeLessThan(l.bands.midTop)
+    }
+    for (const a of cards) {
+      for (const b of cards) {
+        if (a.id === b.id || a.lane !== b.lane) continue
+        expect(Math.abs(a.x - b.x)).toBeGreaterThanOrEqual((a.w + b.w) / 2)
+      }
+    }
+  })
+
+  it('下書きが無ければ今までと同じ配置（見本・本物の札を動かさない）', () => {
+    const sky = makeSky(3, 10)
+    expect(positions(layoutSky(sky, { width: 960, drafts: [] }))).toEqual(positions(layoutSky(sky, { width: 960 })))
+  })
+
+  it('決定論で、本物の用語の札とも重ならない', () => {
+    const sky = makeSky(3, 12)
+    const a = layoutSky(sky, { width: 960, drafts: [thermal] })
+    expect(positions(layoutSky(sky, { width: 960, drafts: [thermal] }))).toEqual(positions(a))
+    const band = [...a.nodes.values()].filter((n) => n.type === 'term' || n.type === 'draft') as (
+      | DraftNode
+      | { type: 'term'; id: string; x: number; w: number; lane: number }
+    )[]
+    for (const p of band) {
+      for (const q of band) {
+        if (p.id === q.id || p.lane !== q.lane) continue
+        expect(Math.abs(p.x - q.x)).toBeGreaterThanOrEqual((p.w + q.w) / 2)
+      }
+    }
+  })
+})
+
+describe('layoutSky — 語どうしの知識の線（一部・下げる・上げる・変える）', () => {
+  const base = makeSky(3, 12)
+  const [a, b, c] = base.terms
+  const withEdges = (edges: SkyData['edges']): SkyData => ({ ...base, edges })
+
+  it('線は kind=concept・relation つきで足される（線が無ければ今までの配置のまま）', () => {
+    const none = layoutSky(withEdges([]), { width: 1000 })
+    const old = { ...base } as Partial<SkyData>
+    delete old.edges
+    expect(positions(layoutSky(old as SkyData, { width: 1000 }))).toEqual(positions(none))
+    const l = layoutSky(
+      withEdges([
+        { from: a.iri, to: b.iri, relation: 'lowers', reason: null },
+        { from: b.iri, to: c.iri, relation: 'isPartOf', reason: '粒の中' },
+      ]),
+      { width: 1000 },
+    )
+    // 星・星座は動かない（上の帯の札と、その下の標準用語だけが知識の段に従う）
+    const notTerm = (x: SkyLayout) => positions(x).filter((k) => !k.startsWith('t|') && !k.startsWith('s|'))
+    expect(notTerm(l).length).toBeGreaterThan(0)
+    const dy = l.bands.midTop - none.bands.midTop
+    expect(notTerm(l)).toEqual(
+      notTerm(none).map((k) => {
+        const m = /^(.*)@([-\d.]+),([-\d.]+)$/.exec(k)!
+        return `${m[1]}@${m[2]},${(Number(m[3]) + dy).toFixed(3)}`
+      }),
+    )
+    const cs = l.edges.filter((e) => e.kind === 'concept')
+    expect(cs.map((e) => [e.from, e.to, e.relation])).toEqual([
+      [termId(a.iri), termId(b.iri), 'lowers'],
+      [termId(b.iri), termId(c.iri), 'isPartOf'],
+    ])
+    // 他の線は 1 本も減らない
+    expect(l.edges.filter((e) => e.kind !== 'concept')).toEqual(none.edges.filter((e) => e.kind !== 'concept'))
+  })
+
+  it('札の無い語・自分自身・重複の線は足さない', () => {
+    const l = layoutSky(
+      withEdges([
+        { from: a.iri, to: 'urn:none', relation: 'raises', reason: null },
+        { from: a.iri, to: a.iri, relation: 'affects', reason: null },
+        { from: a.iri, to: b.iri, relation: 'raises', reason: null },
+        { from: a.iri, to: b.iri, relation: 'raises', reason: null },
+      ]),
+      { width: 1000 },
+    )
+    expect(l.edges.filter((e) => e.kind === 'concept')).toHaveLength(1)
+  })
+
+  it('edges が無い古いサーバの形でも動く', () => {
+    const old = { ...base } as Partial<SkyData>
+    delete old.edges
+    expect(layoutSky(old as SkyData, { width: 1000 }).edges.some((e) => e.kind === 'concept')).toBe(false)
+  })
+
+  it('線の形は札の縁から縁へ・決定論・逆向きの線は別の側に曲がる', () => {
+    const l = layoutSky(
+      withEdges([
+        { from: a.iri, to: b.iri, relation: 'lowers', reason: null },
+        { from: b.iri, to: a.iri, relation: 'raises', reason: null },
+      ]),
+      { width: 1000 },
+    )
+    const [e1, e2] = l.edges.filter((e) => e.kind === 'concept')
+    const g1 = conceptEdgeGeom(l, e1)!
+    const g1b = conceptEdgeGeom(l, e1)!
+    expect(g1).toEqual(g1b)
+    const na = l.nodes.get(termId(a.iri))!
+    const nb = l.nodes.get(termId(b.iri))!
+    // 始点は a の札の外側（中心でない）・終点は b の札の縁
+    expect(Math.abs(g1.x1 - na.x) > 1 || Math.abs(g1.y1 - na.y) > 1).toBe(true)
+    expect(Math.abs(g1.x2 - nb.x) > 1 || Math.abs(g1.y2 - nb.y) > 1).toBe(true)
+    const g2 = conceptEdgeGeom(l, e2)!
+    expect(Math.sign(g1.cy - (g1.y1 + g1.y2) / 2) + Math.sign(g2.cy - (g2.y1 + g2.y2) / 2)).toBe(0)
+    // 用語の札でないものは null
+    expect(conceptEdgeGeom(l, { kind: 'concept', from: 'k|x|y', to: termId(a.iri) })).toBeNull()
+  })
+
+  it('線でつながる札は近傍に入る（選ぶとつながる語が濃く残る）', () => {
+    const l = layoutSky(withEdges([{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }]), { width: 1000 })
+    expect(neighborhood(l, termId(b.iri)).has(termId(a.iri))).toBe(true)
+  })
+
+  it('小さな札は用語の札に重ならない所に置く（札の下の小さな字は、置けるなら避ける。置けなければ出さない）', () => {
+    const l = layoutSky(withEdges([{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }]), { width: 1000 })
+    const e = l.edges.find((x) => x.kind === 'concept')!
+    const g = conceptEdgeGeom(l, e)!
+    const pos = conceptPillPos(l, g, 20)
+    if (pos) {
+      for (const n of l.nodes.values()) {
+        if (n.type !== 'term') continue
+        const hit = Math.abs(pos.x - n.x) < (n.w + 20) / 2 && Math.abs(pos.y - n.y) < (n.h + 16) / 2
+        expect(hit).toBe(false)
+      }
+    }
+    // 線の全体が札に覆われる（2 つの札が同じ段で、札の幅がとても広い）なら null
+    const nb = l.nodes.get(e.to)!
+    nb.y = (l.nodes.get(e.from)! as typeof nb).y
+    const g2 = conceptEdgeGeom(l, { ...e, geom: undefined })!
+    expect(conceptPillPos(l, g2, 5000)).toBeNull()
+    expect(conceptPillPos(l, g, 20)).toEqual(pos) // 決定論
+  })
+})
+
+
+// ── 上の帯を知識の段で並べる ────────────────────────────────────────
+describe('layoutSky — 上の帯の知識の段（結果が上・原因が下）', () => {
+  const mk = (slug: string, label: string, kind: 'class' | 'property' = 'class') =>
+    ({
+      iri: `https://example.org/k#${slug}`,
+      slug,
+      label,
+      label_en: slug,
+      kind,
+      members: [],
+      standard: null,
+      answering: 0,
+      questions: [],
+    }) as SkyData['terms'][number]
+  const T = {
+    cond: mk('cond', '熱伝導率', 'property'),
+    lat: mk('lat', '格子熱伝導率', 'property'),
+    ele: mk('ele', '電子熱伝導率', 'property'),
+    gb: mk('gb', '粒界散乱'),
+    pd: mk('pd', '点欠陥散乱'),
+    car: mk('car', 'キャリア濃度', 'property'),
+    smp: mk('smp', '試料'),
+  }
+  const iri = (k: keyof typeof T): string => T[k].iri
+  const line = (from: keyof typeof T, to: keyof typeof T, relation: SkyLine['relation']): SkyLine => ({
+    from: iri(from),
+    to: iri(to),
+    relation,
+    reason: null,
+  })
+  const thermal = (): SkyData => ({
+    ...makeSky(1, 3),
+    terms: Object.values(T),
+    hubs: [],
+    edges: [
+      line('lat', 'cond', 'isPartOf'),
+      line('ele', 'cond', 'isPartOf'),
+      line('gb', 'lat', 'lowers'),
+      line('pd', 'lat', 'lowers'),
+      line('car', 'ele', 'raises'),
+    ],
+  })
+  const nodeOf = (l: SkyLayout, k: keyof typeof T) => l.nodes.get(termId(iri(k))) as TermNode
+  const rectOf = (n: TermNode, pad = 0) => ({ l: n.x - n.w / 2 - pad, r: n.x + n.w / 2 + pad, t: n.y - n.h / 2 - pad, b: n.y + n.h / 2 + pad })
+  const inside = (p: { x: number; y: number }, r: { l: number; r: number; t: number; b: number }) =>
+    p.x > r.l && p.x < r.r && p.y > r.t && p.y < r.b
+  /** 札の下の小さな字（まだ星がない）の矩形。 */
+  const capOf = (n: TermNode) => ({ l: n.x - 30, r: n.x + 30, t: n.y + n.h / 2, b: n.y + n.h / 2 + 16 })
+
+  it('原因は結果より下の段・全体は上の段（熱伝導率の例）', () => {
+    const l = layoutSky(thermal(), { width: 1000 })
+    const y = (k: keyof typeof T) => nodeOf(l, k).y
+    expect(y('cond')).toBeLessThan(y('lat'))
+    expect(y('cond')).toBeLessThan(y('ele'))
+    expect(y('lat')).toBeLessThan(y('gb'))
+    expect(y('lat')).toBeLessThan(y('pd'))
+    expect(y('ele')).toBeLessThan(y('car'))
+    expect(y('gb')).toBe(y('pd'))
+    // 線でつながらない札（試料）は段に入らず、従来どおり段詰め
+    expect(nodeOf(l, 'smp').lane).toBeLessThan(1000)
+    // 結果の真下に原因: 全体は 2 つの一部のあいだ・原因は結果の近く
+    expect(nodeOf(l, 'cond').x).toBeGreaterThan(Math.min(nodeOf(l, 'lat').x, nodeOf(l, 'ele').x))
+    expect(nodeOf(l, 'cond').x).toBeLessThan(Math.max(nodeOf(l, 'lat').x, nodeOf(l, 'ele').x))
+    const near = (a: keyof typeof T, b: keyof typeof T) => Math.abs(nodeOf(l, a).x - nodeOf(l, b).x)
+    expect(near('gb', 'lat')).toBeLessThan(near('gb', 'ele'))
+    expect(near('car', 'ele')).toBeLessThan(near('car', 'lat'))
+  })
+
+  it('上の帯の高さは段の数で増え、データの帯はその分だけ下がる・決定論', () => {
+    const none = layoutSky({ ...thermal(), edges: [] }, { width: 1000 })
+    const l = layoutSky(thermal(), { width: 1000 })
+    expect(l.bands.midTop).toBeGreaterThan(none.bands.midTop)
+    expect(l.bands.midTop).toBe(MID_TOP0 + 2 * KNOW_PITCH)
+    expect(l.bands.namesLanes).toBeGreaterThan(none.bands.namesLanes)
+    expect(l.height).toBeGreaterThanOrEqual(none.height)
+    expect(positions(layoutSky(thermal(), { width: 1000 }))).toEqual(positions(l))
+  })
+
+  it('線は札を横切らない（札・札の下の字）・小さな札は札・字・ほかの小さな札に重ならない', () => {
+    for (const width of [1440, 1000, 375]) {
+      const l = layoutSky(thermal(), { width })
+      const cards = [...l.nodes.values()].filter((n): n is TermNode => n.type === 'term')
+      const pills: { l: number; r: number; t: number; b: number }[] = []
+      const cs = l.edges.filter((e) => e.kind === 'concept')
+      expect(cs).toHaveLength(5)
+      for (const e of cs) {
+        const g = conceptEdgeGeom(l, e)!
+        for (let i = 1; i < 30; i++) {
+          const p = conceptEdgePointAt(g, i / 30)
+          for (const n of cards) {
+            if (n.id === e.from || n.id === e.to) continue
+            expect(inside(p, rectOf(n, 1))).toBe(false)
+            expect(inside(p, capOf(n))).toBe(false)
+          }
+        }
+        if (!e.pill) continue
+        const w = e.relation === 'isPartOf' ? 36 : 24
+        const r = { l: e.pill.x - w / 2, r: e.pill.x + w / 2, t: e.pill.y - 8, b: e.pill.y + 8 }
+        const ov = (a: typeof r, b: typeof r) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t
+        for (const n of cards) {
+          expect(ov(r, rectOf(n))).toBe(false)
+          expect(ov(r, capOf(n))).toBe(false)
+        }
+        for (const q of pills) expect(ov(r, q)).toBe(false)
+        pills.push(r)
+      }
+      // この例では 5 本とも小さな札を置ける
+      expect(pills).toHaveLength(5)
+    }
+  })
+
+  it('375px でも札は重ならず、枠の中に収まる（段の中で折り返す）', () => {
+    const l = layoutSky(thermal(), { width: 375 })
+    const cards = [...l.nodes.values()].filter((n): n is TermNode => n.type === 'term')
+    for (const n of cards) {
+      expect(n.x - n.w / 2).toBeGreaterThanOrEqual(0)
+      expect(n.x + n.w / 2).toBeLessThanOrEqual(375)
+    }
+    for (const a of cards) {
+      for (const b of cards) {
+        if (a.id >= b.id) continue
+        const ov = Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2
+        expect(ov).toBe(false)
+      }
+    }
+    // 結果が上・原因が下は幅が狭くても保つ
+    expect(nodeOf(l, 'cond').y).toBeLessThan(nodeOf(l, 'lat').y)
+    expect(nodeOf(l, 'lat').y).toBeLessThan(nodeOf(l, 'gb').y)
+    expect(nodeOf(l, 'ele').y).toBeLessThan(nodeOf(l, 'car').y)
+  })
+
+  it('段をまたぐ長い線は、あいだの札を避けて曲がる', () => {
+    const sky: SkyData = {
+      ...thermal(),
+      edges: [line('lat', 'cond', 'isPartOf'), line('gb', 'lat', 'lowers'), line('gb', 'cond', 'affects')],
+    }
+    const l = layoutSky(sky, { width: 1000 })
+    const e = l.edges.find((x) => x.kind === 'concept' && x.relation === 'affects')!
+    const g = conceptEdgeGeom(l, e)!
+    for (let i = 1; i < 30; i++) {
+      const p = conceptEdgePointAt(g, i / 30)
+      expect(inside(p, rectOf(nodeOf(l, 'lat'), 1))).toBe(false)
+    }
+  })
+
+  it('輪になる線（a→b と b→a）でも段が決まり、札は重ならない', () => {
+    const sky: SkyData = { ...thermal(), edges: [line('gb', 'lat', 'lowers'), line('lat', 'gb', 'raises')] }
+    const l = layoutSky(sky, { width: 1000 })
+    expect(nodeOf(l, 'lat').y).not.toBe(nodeOf(l, 'gb').y)
+    expect(l.edges.filter((e) => e.kind === 'concept')).toHaveLength(2)
+  })
+
+  it('札が 20 を超える成分は、超えた分を段詰めに戻す（崩れない）', () => {
+    const many = Array.from({ length: 26 }, (_, i) => mk(`n${String(i).padStart(2, '0')}`, `語${i}`))
+    const sky: SkyData = {
+      ...makeSky(1, 3),
+      terms: many,
+      hubs: [],
+      edges: many.slice(1).map((t, i) => ({ from: t.iri, to: many[Math.floor(i / 2)].iri, relation: 'lowers' as const, reason: null })),
+    }
+    for (const width of [1000, 375]) {
+      const l = layoutSky(sky, { width })
+      const cards = [...l.nodes.values()].filter((n): n is TermNode => n.type === 'term')
+      expect(cards.filter((n) => n.lane >= 1000)).toHaveLength(20)
+      expect(cards.filter((n) => n.lane < 1000)).toHaveLength(6)
+      for (const a of cards) {
+        expect(a.x - a.w / 2).toBeGreaterThanOrEqual(-0.5)
+        expect(a.x + a.w / 2).toBeLessThanOrEqual(width + 0.5)
+        for (const b of cards) {
+          if (a.id >= b.id) continue
+          expect(Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2).toBe(false)
+        }
+      }
+    }
+  })
+
+  it('標準用語（下の帯）は札の動きに従い、線の無い札と標準用語の線は残る', () => {
+    const l = layoutSky(thermal(), { width: 1000 })
+    expect(l.edges.filter((e) => e.kind === 'termStd')).toHaveLength(0)
+    expect(l.height).toBeGreaterThanOrEqual(620)
   })
 })

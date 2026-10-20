@@ -5,7 +5,6 @@
   "loadError": "テーマの一覧を読み込めませんでした。",
   "reload": "もう一度読み込む",
   "empty": "まだテーマがありません。「新しいテーマを作る」から、知りたいことを書いてみてください。",
-  "placedNote": "テーマ「{{label}}」を置きました。新しい用語 {{terms}}・関係 {{lines}}・問い {{questions}}。データを置くと、答えられる問いが増えます。",
   "aiMark": "AI 下書き",
   "pick": "選んでください",
   "kind": {
@@ -24,12 +23,14 @@
       "deleteDraft": "下書きを捨てること",
       "commit": "テーマを置くこと",
       "addQuestions": "問いをテーマに足すこと",
-      "deleteTheme": "テーマを外すこと"
+      "deleteTheme": "テーマを外すこと",
+      "expand": "「ここを広げる」",
+      "answers": "問いの答えの取得"
     }
   },
   "draft": {
     "title": "続きの下書き",
-    "step": "{{n}} / 6 段まで",
+    "step": "{{n}} / 3 段まで",
     "continue": "続ける",
     "discard": "捨てる",
     "discardConfirm": "下書き「{{label}}」を捨てます。よろしいですか？"
@@ -47,8 +48,16 @@
     "seeAnswer": "答えを見る（出典つき）",
     "template": "型紙を書き出す",
     "remove": "テーマを外す",
-    "removeConfirm": "テーマ「{{label}}」を外します。用語・関係・問いは残ります。よろしいですか？",
-    "more": "その他の操作"
+    "removeConfirm": "テーマ「{{label}}」を外します。ほかのテーマ・データが使っていない概念と関係も消えます。よろしいですか？",
+    "more": "その他の操作",
+    "memoBadge": "メモの問い",
+    "counts": "知識 {{k}}・データ {{d}}",
+    "seeKnowledge": "答えを見る",
+    "knowledgeNone": "まだ確定した知識がありません。",
+    "byAi": "AI の下書きを人が確定",
+    "byHuman": "人が確定",
+    "knowledgeTotal": "知識 {{n}} 件",
+    "removed": "テーマ「{{label}}」を外しました。ほかで使っていない概念 {{concepts}} 件と関係 {{relations}} 件も消えました（残したもの {{kept}} 件）。"
   },
   "unassigned": {
     "title": "テーマに入っていない問い"
@@ -59,7 +68,7 @@
     "close": "閉じる",
     "back": "戻る",
     "here": "現在地",
-    "recipe": "テーマを作る 6 段",
+    "recipe": "テーマを作る 3 段",
     "saveErr": "下書きを保存できませんでした: {{detail}}",
     "closeAsk": "閉じます。下書きは？",
     "keepClose": "残して閉じる",
@@ -67,158 +76,70 @@
     "keepGoing": "続ける"
   },
   "steps": {
-    "write": "知りたいことを書く",
-    "read": "AI に読ませる",
-    "terms": "用語をたしかめる",
-    "relations": "関係をたしかめる",
-    "try": "ためす",
+    "write": "書く",
+    "review": "下書きをたしかめる",
     "place": "置く"
   },
   "write": {
-    "lead": "テーマの名前と、知りたいことを 1 行ずつ。",
-    "themeName": "テーマの名前",
-    "themeNamePlaceholder": "例: 熱電材料",
+    "lead": "知りたいことを 1 行ずつ書きます。テーマの名前は空でも構いません。",
+    "themeName": "テーマの名前（任意）",
+    "themeNamePlaceholder": "空なら AI が付けます（例: 熱電材料）",
     "questions": "知りたいこと（1 行に 1 つ）",
-    "questionsPlaceholder": "例: ZT が最も高い試料の組成は？",
+    "questionsPlaceholder": "例: 熱伝導率を下げる要素になり得るのは？",
+    "examples": "例（押すと足します）",
     "suggestNote": "AI の提案（押すと足します）",
     "aiOff": "AI が未設定です。手で書いて進められます。",
     "toRead": "AI に読ませる",
-    "manual": "AI を使わず手で書く"
+    "manual": "手で書く"
   },
   "read": {
-    "lead": "AI が、問いに要る種類と項目、そのあいだの関係を下書きします。",
     "running": "読んでいます…",
-    "done": "問い {{questions}} 件 → 用語 {{terms}}・関係 {{relations}} の下書きができました。次で 1 行ずつ確かめます。",
     "badShape": "AI の答えが決まった形ではありませんでした。",
     "unconfigured": {
       "title": "AI が未設定です",
-      "body": "AI が設定されていないため、読ませられません。用語を自分で書いて進められます（設定は「設定」からいつでも）。"
+      "body": "AI が設定されていないため、読ませられません。概念を自分で足して進められます（設定は「設定」からいつでも）。"
     },
     "manual": "手で書く",
     "openSettings": "設定を開く",
+    "dismiss": "閉じる",
     "failed": {
       "title": "AI の下書きを作れませんでした",
       "body": "もう一度試すか、手で書いて進められます。書いた問いはそのまま残っています。",
       "detail": "技術的な詳細"
     },
     "retry": "もう一度読ませる",
-    "next": "名前をたしかめる",
     "again": "もう一度読ませる"
-  },
-  "terms": {
-    "lead": "1 行に 1 つ、使う用語をたしかめます。",
-    "empty": "まだ用語がありません。下のボタンで足してください。",
-    "colJa": "日本語の名前",
-    "colEn": "英語の名前・別名",
-    "colKind": "種類／項目",
-    "colMatch": "既にあるもの（完全一致）",
-    "colUse": "どうする",
-    "aliases": "別名",
-    "aliasesPlaceholder": "別名（カンマ区切り。よくある列名）",
-    "match": {
-      "existing": "既にある用語に完全一致",
-      "standard": "標準用語に完全一致",
-      "quantity": "量の種類に完全一致",
-      "byAlias": "（別名が一致）"
-    },
-    "none": "なし",
-    "use": {
-      "new": "新しく作る",
-      "existing": "既にある用語を使う",
-      "standard": "標準の語 {{ref}} と同じものとして作る",
-      "quantity": "量の種類 {{ref}} と結んで作る"
-    },
-    "remove": "この行を外す",
-    "addClass": "＋ 種類を足す",
-    "addProperty": "＋ 項目を足す",
-    "summary": "新しく作る用語は {{n}} 件（全 {{total}} 行）。",
-    "next": "関係をたしかめる"
-  },
-  "relations": {
-    "lead": "下書きの文が、そのとおりなら「そう」、違えば「違う」。",
-    "empty": "確かめる関係はありません。下から足せます。",
-    "fromTerms": "（③で選んだ標準用語との関係）",
-    "problem": {
-      "same": "自分自身には結べません",
-      "mixed": "種類と項目は結べません",
-      "cycle": "一周してしまう（循環）ため、機械が止めました",
-      "quantity_target": "「量」は、項目から量の種類（QUDT）へだけ結べます"
-    },
-    "notPlaced": "既にある用語の関係は、ここでは置きません（用語のページで決められます）",
-    "ask": "この関係を置くか",
-    "yes": "そう",
-    "no": "違う",
-    "add": "関係を足す:",
-    "addSubject": "どの用語が",
-    "addKind": "関係",
-    "addObject": "どの用語へ",
-    "addGo": "足す",
-    "kindSub": "は〜の一種",
-    "kindEq": "は〜と同じもの",
-    "groupName": "まとめ名",
-    "groupAdd": "「{{names}}」をまとめる用語を足す",
-    "structure": "このテーマの上位構造（字下げ）:",
-    "structureNone": "まだありません。「そう」と答えた関係が、ここに並びます。",
-    "tagExisting": "（既にある用語）",
-    "note": {
-      "eq": "同じもの",
-      "quantity": "量"
-    },
-    "next": "ためす"
   },
   "rel": {
     "sentence": {
-      "sub": "「{{subject}}」は「{{object}}」の一種",
-      "eq": "「{{subject}}」は「{{object}}」と同じもの",
-      "quantity": "「{{subject}}」の量は「{{object}}」"
-    }
-  },
-  "try": {
-    "lead": "問いごとに、数え方・種類・項目をたしかめます。",
-    "op": "数え方",
-    "kind": "種類",
-    "property": "項目",
-    "value": "値",
-    "opName": {
-      "count": "件数",
-      "range": "範囲",
-      "top": "上位の値",
-      "filter": "値で絞る",
-      "group": "値ごとに数える",
-      "trend": "推移（〜ごと）",
-      "join": "結合 1 段"
+      "sub": "{{subject}} は {{object}} の一種",
+      "eq": "{{subject}} と {{object}} は同じもの",
+      "quantity": "{{subject}} の量は {{object}}",
+      "part": "{{subject}} は {{object}} の一部",
+      "lowers": "{{subject}} は {{object}} を下げる",
+      "raises": "{{subject}} は {{object}} を上げる",
+      "affects": "{{subject}} は {{object}} を変える",
+      "other": "{{subject}} と {{object}} の関係"
     },
-    "exec": "実行文（機械が組む）: {{sentence}}",
-    "execNone": "数え方・種類・項目を選ぶと、実行文が出ます。",
-    "answeringNow": "いまは {{n}} データセットが答えます。",
-    "memoBadge": "メモの問い",
-    "memoReason": {
-      "op": "いまの数え方（件数・範囲・上位の値）では答えられないため、メモとして残ります（公開されません）。",
-      "ai": "型に合わない問いなので、メモとして残ります（公開されません）。",
-      "none": "数え方が決まっていないので、メモとして残ります（公開されません）。",
-      "human": "あなたの判断で、メモとして残します（公開されません）。"
-    },
-    "keepMemo": "メモの問いとして残す（公開しない）",
-    "next": "置く"
+    "stdName": "{{name}}（標準）"
   },
   "place": {
-    "lead": "テーマ「{{label}}」を保存します（新しい用語 {{terms}}・関係 {{lines}}・問い {{questions}}）。",
-    "leadExtend": "テーマ「{{label}}」に問い {{questions}} 件を足します（新しい用語 {{terms}}・関係 {{lines}}）。",
-    "listTitle": "保存するもの:",
-    "newTerm": "新しい用語「{{label}}」",
+    "lead": "テーマ「{{label}}」に、概念 {{concepts}} 件と関係 {{relations}} 件を確定します（問い {{questions}} 件）。",
+    "leadExtend": "テーマ「{{label}}」に、概念 {{concepts}} 件と関係 {{relations}} 件を確定し、問い {{questions}} 件を足します。",
+    "concepts": "新しい概念と ID",
+    "relations": "関係",
+    "questions": "問いと答え方",
     "id": "ID",
     "idAria": "「{{label}}」の ID",
     "idBad": "ID は英小文字で始まり、英小文字・数字・_ だけにしてください。",
     "idTaken": "この ID はすでに使われています。別の ID にしてください。",
-    "idDuplicate": "同じ ID の用語が 2 つあります。",
-    "relation": "関係「{{sentence}}」",
-    "question": "問い「{{title}}」",
-    "memoQuestion": "メモの問い「{{title}}」（公開しない）",
+    "idDuplicate": "同じ ID の概念が 2 つあります。",
+    "memoQuestion": "メモの問い（答え方は決めていません）",
     "blocker": {
-      "label": "名前が空の用語があります。③に戻って直してください。",
-      "slug": "ID の形が正しくない用語があります。",
+      "label": "名前が空の概念があります。②に戻って直してください。",
+      "slug": "ID の形が正しくない概念があります。",
       "taken": "すでに使われている ID があります。",
-      "duplicate": "同じ ID の用語があります。"
+      "duplicate": "同じ ID の概念があります。"
     },
     "placing": "置いています…",
     "go": "置く",
@@ -247,7 +168,100 @@
     "byHand": "人が手で作りました",
     "remove": "用語を外す",
     "open": "用語のページを開く",
-    "more": "詳しく"
+    "more": "詳しく",
+    "knowledgeAi": "AI 下書きを確定"
   },
-  "firstThemeLabel": "はじめの問い"
+  "firstThemeLabel": "はじめの問い",
+  "review": {
+    "lead": "問いから知識の図を下書きしました。図と文を見て、要らないものを ✕ で外し、まとめて確定します。",
+    "leadEmpty": "まだ概念がありません。答え方を選ぶか、下から足してください。",
+    "questionsAria": "問いごとの答え方",
+    "still": "まだ",
+    "counts": "知識 {{k}}・データ {{d}}",
+    "wanted": "欲しいデータ: {{text}}",
+    "sentencesAria": "関係の文の一覧",
+    "sentences": "文 {{n}} 件",
+    "noSentences": "まだ関係がありません。",
+    "dismiss": "外す（次から出しません）",
+    "dismissAria": "「{{sentence}}」を外す",
+    "problem": {
+      "same": "自分自身には結べません（確定しません）",
+      "mixed": "種類と項目は結べません（確定しません）",
+      "cycle": "一周してしまう（循環）ため、確定しません",
+      "quantity_target": "「量」は、項目から量の種類へだけ結べます（確定しません）",
+      "target_not_property": "下げる・上げる・変えるの相手は項目だけです（確定しません）"
+    },
+    "add": "手で足す",
+    "addName": "概念の名前",
+    "addNamePlaceholder": "名前（例: 粒界散乱）",
+    "addKind": "種類か項目か",
+    "addGo": "足す",
+    "addMore": "英語名・別名",
+    "addEn": "英語名",
+    "addAliases": "別名",
+    "addAliasesPlaceholder": "別名（カンマ区切り）",
+    "aiOff": "AI が未設定のため「ここを広げる」は使えません。手で足せます。",
+    "confirm": "{{n}} 件をまとめて確定",
+    "confirmNone": "問いだけを置く",
+    "unlinkedNote": "問いにつながらない概念 {{n}} 件は含みません。",
+    "leadHand": "概念を足して、問いごとの答え方を選び、まとめて確定します。"
+  },
+  "answer": {
+    "label": "答え方:",
+    "pickWay": "答え方",
+    "pickTarget": "対象",
+    "pickKind": "種類",
+    "pickProperty": "項目",
+    "none": "（指定しない）",
+    "noConcepts": "先に概念を足すと、選べます。",
+    "option": {
+      "lowers": "〜を下げるもの",
+      "raises": "〜を上げるもの",
+      "affects": "〜を変えるもの",
+      "parts": "〜の一部",
+      "kinds": "〜の一種",
+      "count": "〜の件数",
+      "range": "〜の〜の範囲",
+      "top": "〜の〜が最大",
+      "memo": "まだ決めない（メモ）"
+    },
+    "way": {
+      "lowers": "{{target}} を下げるもの",
+      "raises": "{{target}} を上げるもの",
+      "affects": "{{target}} を変えるもの",
+      "parts": "{{target}} の一部",
+      "kinds": "{{target}} の一種",
+      "count": "{{kind}} の件数",
+      "range": "{{kind}} の {{property}} の範囲",
+      "rangeOnly": "{{property}} の範囲",
+      "top": "{{kind}} の {{property}} が最大",
+      "topOnly": "{{property}} が最大",
+      "none": "まだ決まっていません"
+    }
+  },
+  "map": {
+    "empty": "まだ図がありません。AI に読ませるか、下から概念を足してください。",
+    "lonely": "問いにつながっていません",
+    "std": "標準の語 {{ref}} と同じ",
+    "expand": "ここを広げる",
+    "expanding": "広げています…",
+    "expandOff": "AI が未設定のため使えません",
+    "remove": "外す",
+    "legendStd": "標準の語に一致",
+    "pill": {
+      "sub": "一種",
+      "part": "一部",
+      "quantity": "量"
+    },
+    "pillTitle": {
+      "sub": "一種（細かい → 粗い）",
+      "part": "一部（部分 → 全体）",
+      "lowers": "下げる",
+      "raises": "上げる",
+      "affects": "変える",
+      "eq": "同じもの",
+      "quantity": "量"
+    },
+    "scrollHint": "図は横にスクロールできます →"
+  }
 }

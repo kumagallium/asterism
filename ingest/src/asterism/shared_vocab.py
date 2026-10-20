@@ -39,6 +39,7 @@ from asterism.crosswalk import XW
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
+    KNOWLEDGE_RELATIONS,
     _check_same_shape,
     _declared_shapes,
     _endpoint_context,
@@ -88,6 +89,15 @@ UPPER_PATH_PROPERTY = (
     f"(<{_RDFS}subPropertyOf>|<{_OWL}equivalentProperty>|^<{_OWL}equivalentProperty>)*"
 )
 
+#: ``isPartOf``（BFO part of）の経路。上位パスではない — 上位パス（``UPPER_PATH_*``）は
+#: sub / eq のままで、``isPartOf`` は「答えるデータセット」の数に入れない。循環の検査
+#: （:func:`asterism.crosswalk_runtime._upper_path_reaches`）だけが使う。
+PART_OF_PATH = f"(<{ALIGN_RELATIONS['isPartOf']}>)*"
+
+#: ``sv:`` の slug に使えない予約語。知識の関係の名前（述語は ``sv:`` に置かない）と
+#: 取り違えないため。``mint_term`` と ``themes`` の slug 検査が拒む。
+RESERVED_SLUGS = frozenset({"part_of", "lowers", "raises", "affects", "regulates"})
+
 #: Labels too generic to suggest a fit (already :func:`normalize_label`-ed).
 GENERIC_LABELS = frozenset(
     {"name", "id", "type", "date", "value", "no", "名前", "番号", "種類", "日付", "値"}
@@ -103,11 +113,13 @@ _IRI = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+\Z', re.IGNORECASE)
 _META_FILE = "meta.json"
 _TOOLS_FILE = "query_tools.yaml"
 _WIRED_FILE = "wired.json"
+_KNOWLEDGE_FILE = "knowledge.json"
 _DISMISSED_FILE = "dismissed.json"
 _SHARED_NAME = "用語"
 
 _CLASS_RELS = ("subClassOf", "equivalentClass")
 _PROP_RELS = ("subPropertyOf", "equivalentProperty")
+_PART_RELS = ("isPartOf",)
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +377,26 @@ def load_wired(root: Path | str) -> dict[str, int]:
     }
 
 
+def load_knowledge(root: Path | str) -> dict[str, int]:
+    """term IRI → number of confirmed knowledge lines (``isPartOf`` / ``lowers`` /
+    ``raises`` / ``affects``) from ``knowledge.json`` ({} when absent or unreadable —
+    which reads as "no knowledge", the pre-knowledge behaviour). Same two shapes as
+    :func:`load_wired`."""
+    path = _dir(root) / _KNOWLEDGE_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    terms = data.get("terms") if isinstance(data.get("terms"), dict) else data
+    return {
+        str(k): int(v)
+        for k, v in terms.items()
+        if isinstance(v, int) and not isinstance(v, bool) and k != "at"
+    }
+
+
 # ---------------------------------------------------------------------------
 # CQ templates (ADR §2.3)
 # ---------------------------------------------------------------------------
@@ -482,12 +514,22 @@ async def mint_term(
     declined_reason: str | None = None,
     aliases: Iterable[str] | None = None,
     drafted_by: str | None = None,
+    theme_id: str | None = None,
 ) -> dict:
-    """Mint ``sv:<slug>`` together with its first CQ(s) in ONE operation (ADR §2.1):
+    """Mint ``sv:<slug>`` (ADR §2.1, 改訂 design.md §15.2 / 利用者裁定 2026-10-20):
 
-    * ``ValueError`` — bad slug / kind / label / ``at`` / IRI;
-    * :class:`TermError` — no ``cqs`` (422), a CQ that does not lint, or an unreadable
-      ``query_tools.yaml``; :class:`TermExists` — the slug is already minted (409).
+    The gate is "a term that is not tied to a theme's question by a relation is not
+    made". Here that means: either ``cqs`` (the first CQ(s), stored with the term in
+    ONE operation) or a ``theme_id`` (the term belongs to a theme and answers no
+    question of its own — a factor is placed by its relations alone). Whether the
+    relations really reach a question's target is checked by ``themes`` (the caller);
+    this function only requires one of the two.
+
+    * ``ValueError`` — bad slug (a reserved one included: :data:`RESERVED_SLUGS`) /
+      kind / label / ``at`` / IRI;
+    * :class:`TermError` — neither ``cqs`` nor ``theme_id`` (422), a CQ that does not
+      lint, or an unreadable ``query_tools.yaml``; :class:`TermExists` — the slug is
+      already minted (409).
 
     ``aliases`` are written as ``skos:altLabel`` (the exact-match hints of
     :func:`fit_candidates`). ``drafted_by="ai"`` records that a person adopted an AI
@@ -507,8 +549,13 @@ async def mint_term(
         _check_iri(declined_standard)
     if drafted_by is not None and drafted_by not in DRAFTED_BY:
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}: {drafted_by!r}")
-    if not cqs:
-        raise TermError("用語は、問いを 1 つ以上添えて作ります")
+    if slug in RESERVED_SLUGS:
+        raise ValueError(f"slug {slug!r} は予約語です（知識の関係の名前と取り違えるため）")
+    if not cqs and not theme_id:
+        raise TermError(
+            "用語は、問いを 1 つ以上添えて作ります"
+            "（テーマの問いに関係でつなぐ場合は theme_id を渡す）"
+        )
     term = SharedTerm(
         iri=iri,
         slug=slug,
@@ -551,13 +598,15 @@ async def mint_term(
     # fails the CQs just written are taken back out by name, so a retry is not a
     # TermExists and no CQ outlives a term that was never minted.
     _scaffold(root)
-    _write_cq_tools(root, tools)
+    if tools:  # theme_id 付きで問い 0 件の語は、書くツールが無い（要因の概念）
+        _write_cq_tools(root, tools)
     try:
         await client.sparql_update(
             f"INSERT DATA {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ {' . '.join(triples)} }} }}"
         )
     except BaseException:
-        remove_registry_query_tools_by_name(root, REGISTRY_ID, [t["name"] for t in tools])
+        if tools:
+            remove_registry_query_tools_by_name(root, REGISTRY_ID, [t["name"] for t in tools])
         raise
     await recompute_wired(client, root)
     out = asdict(term)
@@ -732,7 +781,11 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
                         "kind": kind_of(other)[0],
                         "dataset_id": kind_of(other)[1],
                     }
-        if src in standards and kind_of(tgt)[0] == "standard":
+        if (
+            src in standards
+            and rel in ("equivalentClass", "equivalentProperty", "hasQuantityKind")
+            and kind_of(tgt)[0] == "standard"
+        ):
             standards[src].append({"iri": tgt, "relation": rel})
 
     need = sorted({n for per in narrower.values() for n in per})
@@ -849,17 +902,46 @@ async def answering_datasets(client: Any, term_iris: list[str]) -> dict[str, int
     return {i: len(seen[i]) for i in iris}
 
 
+async def knowledge_counts(client: Any) -> dict[str, int]:
+    """term IRI → number of confirmed KNOWLEDGE lines the term is an end of (``to`` or
+    ``from``) in the alignment graph: ``isPartOf`` / ``lowers`` / ``raises`` /
+    ``affects`` (:data:`~asterism.crosswalk_runtime.KNOWLEDGE_RELATIONS`).
+
+    A term with one or more is not an orphan even when no dataset answers it (利用者裁定
+    2026-10-20・design.md §15.2): Ask / MCP answer "knowledge N, data 0" with who decided
+    it and when. A term no knowledge line touches is absent. Reads the alignment graph
+    only — never a dataset's data graph — so it works with no published dataset."""
+    values = " ".join(f"<{ALIGN_RELATIONS[r]}>" for r in KNOWLEDGE_RELATIONS)
+    rows = await _bindings(
+        client,
+        f"SELECT DISTINCT ?s ?r ?t WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?s ?r ?t }} "
+        f"VALUES ?r {{ {values} }} FILTER(isIRI(?s) && isIRI(?t)) }}",
+    )
+    out: dict[str, int] = {}
+    for b in rows:
+        for end in {b["s"]["value"], b["t"]["value"]}:  # a line counts once per end
+            out[end] = out.get(end, 0) + 1
+    return out
+
+
 async def recompute_wired(
     client: Any, root: Path | str, *, at: str | None = None
 ) -> dict[str, int]:
     """Recount every minted term's answering datasets and write
     ``registry/vocab-shared/wired.json`` (``{"terms": {iri: n}, "at": …}``, tmp →
-    replace). Returns ``{iri: n}``."""
+    replace), and beside it ``knowledge.json`` (same shape: term → confirmed knowledge
+    lines, :func:`knowledge_counts`). Returns the wired ``{iri: n}`` (what callers have
+    always got; read the knowledge with :func:`load_knowledge`)."""
     counts = await answering_datasets(client, await minted_iris(client))
+    knowledge = await knowledge_counts(client)
     stamp = at or datetime.now(UTC).isoformat()
     _atomic_write(
         _dir(root) / _WIRED_FILE,
         json.dumps({"terms": counts, "at": stamp}, indent=2, ensure_ascii=False, sort_keys=True),
+    )
+    _atomic_write(
+        _dir(root) / _KNOWLEDGE_FILE,
+        json.dumps({"terms": knowledge, "at": stamp}, indent=2, ensure_ascii=False, sort_keys=True),
     )
     return counts
 
@@ -868,8 +950,21 @@ async def recompute_wired(
 # 「ひとこと決める」の帰結の試算（store には書かない）と、外した提案
 # ---------------------------------------------------------------------------
 
-_SUBSUMPTION_RELS = ("subClassOf", "subPropertyOf")
+_SUBSUMPTION_RELS = ("subClassOf", "subPropertyOf", "isPartOf")
 _Edge = tuple[str, str, str]
+
+
+def cycle_rels(relation: str) -> tuple[str, ...] | None:
+    """``relation`` の線を足したとき循環を調べる辺の種類（:func:`_down_set` の ``rels``）。
+    循環を拒まない述語（``lowers`` / ``raises`` / ``affects`` ほか）は ``None``。
+    ``assert_alignment`` の検査（:data:`~asterism.crosswalk_runtime._SUBSUMPTION`）と同じ表。"""
+    if relation == "subClassOf":
+        return _CLASS_RELS
+    if relation == "subPropertyOf":
+        return _PROP_RELS
+    if relation == "isPartOf":
+        return _PART_RELS
+    return None
 
 
 def _down_set(term: str, edges: Iterable[_Edge], rels: tuple[str, ...]) -> set[str]:
@@ -1002,10 +1097,9 @@ async def preview_alignment(
             )
         except ValueError:
             return refused("mixed")
-        if relation in _SUBSUMPTION_RELS:
-            rels = _CLASS_RELS if relation == "subClassOf" else _PROP_RELS
-            if target in _down_set(source, edges, rels):
-                return refused("cycle")
+        rels = cycle_rels(relation)
+        if rels is not None and target in _down_set(source, edges, rels):
+            return refused("cycle")
         after_edges = edges | {one}
 
     minted = await minted_iris(client)
@@ -1042,33 +1136,66 @@ async def preview_alignment(
     return {"valid": True, "reason": None, "questions": questions, "terms": terms}
 
 
+#: 概念の却下（「この概念は出さない」）の ``term`` の固定値。鍵は ``subject``
+#: （``concept:<normalize_label(label_ja)>``）に持つ。
+CONCEPT_DISMISS_TERM = "concept"
+CONCEPT_SUBJECT_PREFIX = "concept:"
+
+
+def concept_subject(label_ja: str) -> str:
+    """概念の却下の鍵 ``concept:<normalize_label(label_ja)>``。"""
+    return f"{CONCEPT_SUBJECT_PREFIX}{normalize_label(label_ja)}"
+
+
 def load_dismissed(root: Path | str) -> list[dict]:
-    """外した提案 ``[{subject, term, at}]``（``dismissed.json``・無い／壊れていれば ``[]``）。"""
+    """外した提案 ``[{subject, term, at, relation?}]``（``dismissed.json``・無い／壊れていれば
+    ``[]``）。``relation`` が無い行は従来の「当てはまるものは無い」、あれば関係の却下
+    （その述語で ``subject`` → ``term`` と結ばない）。概念の却下は ``term="concept"``。"""
     try:
         data = json.loads((_dir(root) / _DISMISSED_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
     if not isinstance(data, list):
         return []
-    return [
-        {"subject": d["subject"], "term": d["term"], "at": str(d.get("at", ""))}
-        for d in data
-        if isinstance(d, dict)
-        and isinstance(d.get("subject"), str)
-        and isinstance(d.get("term"), str)
-    ]
+    out: list[dict] = []
+    for d in data:
+        if not (
+            isinstance(d, dict)
+            and isinstance(d.get("subject"), str)
+            and isinstance(d.get("term"), str)
+        ):
+            continue
+        row = {"subject": d["subject"], "term": d["term"], "at": str(d.get("at", ""))}
+        if isinstance(d.get("relation"), str) and d["relation"]:
+            row["relation"] = d["relation"]
+        out.append(row)
+    return out
 
 
 def _save_dismissed(root: Path | str, rows: list[dict]) -> None:
     _atomic_write(_dir(root) / _DISMISSED_FILE, json.dumps(rows, indent=2, ensure_ascii=False))
 
 
-def dismiss_fit(root: Path | str, subject: str, term: str, *, at: str) -> bool:
+def _same_dismissal(r: dict, subject: str, term: str, relation: str | None) -> bool:
+    return r["subject"] == subject and r["term"] == term and r.get("relation") == relation
+
+
+def dismiss_fit(
+    root: Path | str, subject: str, term: str, *, at: str, relation: str | None = None
+) -> bool:
     """「当てはまるものは無い」: ``subject`` に ``term`` を提案しないと決める。冪等（同じ対は
     1 件・最初の ``at`` を残す）。新しく足したら ``True``。
 
     ``term`` は絶対 IRI。``subject`` は提案を受ける側の鍵 — 公開済みの種類・項目なら IRI、
-    まだ公開前の列・種類なら画面が付ける鍵（``column:…``）でもよい（空・制御文字は不可）。"""
+    まだ公開前の列・種類なら画面が付ける鍵（``column:…``）でもよい（空・制御文字は不可）。
+
+    拡張（design.md §15.2 却下の保存）:
+
+    * ``relation`` を渡すと **関係の却下**（:data:`ALIGN_RELATIONS` の述語で
+      ``subject`` → ``term`` と結ぶ下書きを次から出さない）。同じ対でも ``relation`` が違えば
+      別の行。``term`` は IRI か、概念の鍵（``concept:…``。まだ置かれていない概念どうしの関係）。
+    * **概念の却下**は ``subject=concept_subject(label)``・``term="concept"`` の固定値
+      （``relation`` なし）。鍵は ``subject``。"""
     if (
         not isinstance(subject, str)
         or not subject.strip()
@@ -1076,27 +1203,50 @@ def dismiss_fit(root: Path | str, subject: str, term: str, *, at: str) -> bool:
         or any(ord(c) < 32 for c in subject)
     ):
         raise ValueError(f"subject must be a non-empty key: {subject!r}")
-    _check_iri(term)
+    if relation is not None:
+        if relation not in ALIGN_RELATIONS:
+            raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}: {relation!r}")
+        if not term.startswith(CONCEPT_SUBJECT_PREFIX):
+            _check_iri(term)
+        elif not term[len(CONCEPT_SUBJECT_PREFIX) :].strip() or any(ord(c) < 32 for c in term):
+            raise ValueError(f"term must be a non-empty key: {term!r}")
+    elif subject.startswith(CONCEPT_SUBJECT_PREFIX):
+        if subject == CONCEPT_SUBJECT_PREFIX or term != CONCEPT_DISMISS_TERM:
+            raise ValueError(
+                f"a concept dismissal needs term={CONCEPT_DISMISS_TERM!r}: {subject!r}, {term!r}"
+            )
+    else:
+        _check_iri(term)
     rows = load_dismissed(root)
-    if any(r["subject"] == subject and r["term"] == term for r in rows):
+    if any(_same_dismissal(r, subject, term, relation) for r in rows):
         return False
-    rows.append({"subject": subject, "term": term, "at": at})
+    row = {"subject": subject, "term": term, "at": at}
+    if relation is not None:
+        row["relation"] = relation
+    rows.append(row)
     _save_dismissed(root, rows)
     return True
 
 
-def undismiss_fit(root: Path | str, subject: str, term: str) -> bool:
-    """外した提案を戻す。冪等。消したら ``True``。"""
+def undismiss_fit(
+    root: Path | str, subject: str, term: str, *, relation: str | None = None
+) -> bool:
+    """外した提案を戻す。冪等。消したら ``True``。``relation`` は :func:`dismiss_fit` と同じ
+    対応（無ければ従来の行だけ、あれば関係の行だけを消す）。"""
     rows = load_dismissed(root)
-    kept = [r for r in rows if not (r["subject"] == subject and r["term"] == term)]
+    kept = [r for r in rows if not _same_dismissal(r, subject, term, relation)]
     if len(kept) == len(rows):
         return False
     _save_dismissed(root, kept)
     return True
 
 
-def is_dismissed(dismissed: Iterable[dict], subject: str, term: str) -> bool:
-    return any(r["subject"] == subject and r["term"] == term for r in dismissed)
+def is_dismissed(
+    dismissed: Iterable[dict], subject: str, term: str, relation: str | None = None
+) -> bool:
+    """``(subject, term)``（``relation`` 付きなら関係の行）が外されているか。``relation``
+    無しは従来どおり — 関係の行は数えない（「当てはまるものは無い」とは別の決め）。"""
+    return any(_same_dismissal(r, subject, term, relation) for r in dismissed)
 
 
 # ---------------------------------------------------------------------------
@@ -1275,14 +1425,48 @@ _EXEC_NEEDS = {
 }
 
 
+#: 知識で答える問い（``asterism.knowledge`` の走者）の実行文の型。``factors`` は向き（下げる／
+#: 上げる／変える）で文が変わる。
+_KNOWLEDGE_SENTENCES: dict[str, dict[str, dict[str, str]]] = {
+    "factors": {
+        "ja": {"lowers": "を下げるもの", "raises": "を上げるもの", "affects": "を変えるもの"},
+        "en": {
+            "lowers": "What lowers {t}",
+            "raises": "What raises {t}",
+            "affects": "What changes {t}",
+        },
+    },
+    "parts": {"ja": {"": "の一部"}, "en": {"": "Parts of {t}"}},
+    "kinds": {"ja": {"": "の一種"}, "en": {"": "Kinds of {t}"}},
+}
+
+
+def _describe_knowledge(selection: dict, lang: str) -> str:
+    """知識の問いの文: 「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」。
+    ``target`` = 画面に出す名前、``direction`` は ``factors`` だけ。足りなければ ``""``。"""
+    op = str(selection.get("op"))
+    target = str(selection.get("target") or selection.get("kind") or "").strip()
+    direction = str(selection.get("direction") or "") if op == "factors" else ""
+    table = _KNOWLEDGE_SENTENCES[op]["en" if lang.startswith("en") else "ja"]
+    if not target or direction not in table:
+        return ""
+    if lang.startswith("en"):
+        return table[direction].format(t=target)
+    return f"{target} {table[direction]}"
+
+
 def describe_selection(selection: dict, lang: str = "ja") -> str:
     """閉じた選択（数え方 × 種類 × 項目）を、機械が組む「実行文」に直す（決定論・LLM なし）。
 
     ``selection`` は ``{"op", "kind", "property", "value"}``（``kind`` / ``property`` は画面に
     出す名前）。例 ja:「電池セルのうち、容量がいちばん大きいものを出します（データセットごと）」。
+    知識で答える問い（``op`` = ``factors`` / ``parts`` / ``kinds``・``target`` と ``direction``）は
+    「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」。
     数え方が閉集合に無い・足りない部分がある（``count`` に種類が無い等）ときは ``""``。
     データの値は読まない — 選んだ名前を型に流し込むだけ。"""
     op = selection.get("op")
+    if op in _KNOWLEDGE_SENTENCES:
+        return _describe_knowledge(selection, lang)
     if op not in _EXEC_NEEDS:
         return ""
     k = str(selection.get("kind") or "").strip()
@@ -1321,8 +1505,11 @@ def describe_selection(selection: dict, lang: str = "ja") -> str:
 
 
 __all__ = [
+    "CONCEPT_DISMISS_TERM",
     "GENERIC_LABELS",
+    "PART_OF_PATH",
     "REGISTRY_ID",
+    "RESERVED_SLUGS",
     "SELECTION_OPS",
     "SHARED_VOCAB_GRAPH",
     "SLUG_RE",
@@ -1338,6 +1525,8 @@ __all__ = [
     "answering_datasets",
     "classify_endpoint",
     "clean_aliases",
+    "concept_subject",
+    "cycle_rels",
     "default_cq_tools",
     "describe_selection",
     "dismiss_fit",
@@ -1346,9 +1535,11 @@ __all__ = [
     "is_shared_iri",
     "is_system_entry",
     "is_wired",
+    "knowledge_counts",
     "known_namespaces",
     "list_terms",
     "load_dismissed",
+    "load_knowledge",
     "load_wired",
     "mint_term",
     "minted_iris",

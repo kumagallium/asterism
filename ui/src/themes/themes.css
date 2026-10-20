@@ -1,5 +1,5 @@
-/* 「知りたいこと」（テーマ）と、6 段で作る画面・用語のページ。色・角は既存のトークンだけを使う
-   （見た目の正: ui-redesign のモック「知りたいことから作る」6 段・「知りたいこと」画面）。 */
+/* 「知りたいこと」（テーマ）と、3 段で作る画面・用語のページ。色・角は既存のトークンだけを使う
+   （見た目の正: ui-redesign のモック「知りたいことから作る」3 段・「知りたいこと」画面）。 */
 
 .thm-view {
   display: flex;
@@ -154,19 +154,8 @@ a.thm-term-chip:hover {
   gap: 0.6rem;
   flex-wrap: wrap;
 }
-.thm-folds {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-.thm-folds summary {
-  cursor: pointer;
-  font-weight: 700;
-  color: var(--fg);
-}
 
-/* 6 段（モーダル） */
+/* 3 段（モーダル） */
 .thm-overlay {
   position: fixed;
   inset: 0;
@@ -179,7 +168,8 @@ a.thm-term-chip:hover {
   background: rgba(22, 36, 26, 0.35);
 }
 .thm-panel {
-  width: min(960px, 100%);
+  /* ②は図と文を並べるので、幅を広く取る */
+  width: min(1180px, 100%);
   background: var(--bg);
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
@@ -252,17 +242,7 @@ a.thm-term-chip:hover {
 .thm-chip:hover {
   background: var(--accent-soft);
 }
-.thm-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-.thm-group input {
-  font: inherit;
-  font-size: 0.75rem;
-  padding: 0.1rem 0.4rem;
-  width: 9rem;
-}
+
 .thm-nav {
   margin-top: 0.4rem;
 }
@@ -277,95 +257,8 @@ a.thm-term-chip:hover {
   white-space: nowrap;
 }
 
-/* ③ 用語の表 */
-.thm-table-wrap {
-  overflow-x: auto;
-}
-.thm-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 0.8125rem;
-  background: var(--surface);
-  border-radius: var(--radius-sm);
-}
-.thm-table th {
-  text-align: left;
-  font-size: 0.72rem;
-  color: var(--muted);
-  background: var(--surface-sink, var(--surface-alt));
-  padding: 0.5rem 0.6rem;
-}
-.thm-table td {
-  padding: 0.5rem 0.6rem;
-  border-top: 1px solid var(--border);
-  vertical-align: top;
-}
-.thm-table input[type='text'] {
-  font: inherit;
-  font-size: 0.8125rem;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  width: 100%;
-  min-width: 7rem;
-}
-.thm-table select {
-  font: inherit;
-  font-size: 0.8rem;
-  max-width: 16rem;
-}
-.thm-alias {
-  margin-top: 0.25rem;
-  color: var(--faint);
-}
-.thm-row--bad td {
-  background: var(--error-bg, var(--accent-soft));
-}
 
-/* ④ 関係 */
-.thm-rel {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  padding: 0.55rem 0.75rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-}
-.thm-rel--off {
-  opacity: 0.6;
-}
-.thm-yn {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 0.25rem;
-}
-.thm-yn button {
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--fg);
-  border-radius: 6px;
-  padding: 0.15rem 0.65rem;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-.thm-yn button.on {
-  background: var(--primary-soft);
-  border-color: var(--primary);
-}
-.thm-addrel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-.thm-addrel select {
-  font: inherit;
-  font-size: 0.8rem;
-  max-width: 14rem;
-}
+
 .thm-effect {
   font-size: 0.8rem;
   color: var(--body);
@@ -375,7 +268,7 @@ a.thm-term-chip:hover {
   line-height: 1.7;
 }
 
-/* ⑤ ためす */
+/* ② 取り組み中の表示 */
 .thm-try {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -390,39 +283,13 @@ a.thm-term-chip:hover {
   font-size: 0.875rem;
   margin: 0;
 }
-.thm-shape {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  font-size: 0.8rem;
-  color: var(--body);
-}
-.thm-shape select,
-.thm-shape input[type='text'] {
-  font: inherit;
-  font-size: 0.78rem;
-  padding: 0.15rem 0.4rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  max-width: 14rem;
-}
-.thm-ans {
-  font-size: 0.8rem;
-  color: var(--muted);
-  line-height: 1.6;
-  margin: 0;
-}
+
 .thm-memo {
   font-size: 0.78rem;
   color: var(--body);
 }
-.thm-memo-toggle {
-  font-size: 0.78rem;
-  color: var(--muted);
-}
 
-/* ⑥ 置く */
+/* ③ 置く（ID） */
 .thm-ids {
   display: flex;
   flex-direction: column;
@@ -487,7 +354,7 @@ a.thm-term-chip:hover {
   }
 }
 
-/* 6 段の入力欄は、縦に並べたとき高さを分け合わない（.vocab-field の flex-basis は横並び用）。 */
+/* 3 段の入力欄は、縦に並べたとき高さを分け合わない（.vocab-field の flex-basis は横並び用）。 */
 .thm-card .vocab-field {
   flex: none;
 }
@@ -518,4 +385,402 @@ a.thm-term-chip:hover {
   font-size: 0.85rem;
   background: var(--surface-alt);
   border-radius: var(--radius-sm);
+}
+
+/* ② 下書きをたしかめる（design.md §15.4）: 上＝問いの答え方・左 2/3＝図・右 1/3＝文・下＝手で足す＋確定 */
+.thm-sub-h {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 0 0.3rem;
+}
+.thm-aqs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.thm-aq {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.thm-aq-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.thm-aq-text {
+  font-weight: 600;
+  font-size: 0.875rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.thm-aq-way {
+  font-size: 0.8125rem;
+}
+.thm-aq-want {
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+.thm-aq-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+}
+.thm-aq-edit select {
+  font: inherit;
+  font-size: 0.8rem;
+  max-width: 14rem;
+}
+.thm-review {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+.thm-review-map,
+.thm-review-sentences {
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .thm-review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.thm-sentences {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 26rem;
+  overflow-y: auto;
+}
+.thm-sentence {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 2.2rem 0.35rem 0.6rem;
+  font-size: 0.8125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.thm-sentence.is-lit {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.thm-sentence.is-bad {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+.thm-sentence-text {
+  all: unset;
+  cursor: pointer;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.thm-sentence-text:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.thm-sentence-note {
+  font-size: 0.72rem;
+}
+.thm-reason {
+  font-size: 0.72rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.thm-x {
+  position: absolute;
+  top: 0.1rem;
+  right: 0.15rem;
+  /* 指で押せる大きさ（28px 角以上） */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0;
+  border-radius: 4px;
+}
+.thm-x:hover {
+  color: var(--error-fg);
+  background: var(--error-bg);
+}
+.thm-hand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.thm-hand-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.thm-hand-row input,
+.thm-hand-row select {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  min-width: 0;
+}
+.thm-hand-row input {
+  flex: 1 1 11rem;
+}
+.thm-hand-more summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* 知識の図（星図と同じ紙の地） */
+.thm-map {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.4rem 0.5rem;
+  min-width: 0;
+}
+.thm-map--empty {
+  padding: 0.8rem;
+}
+.thm-map-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.thm-map-fit {
+  position: relative;
+  margin: 0 auto;
+}
+.thm-map-canvas {
+  position: relative;
+  transform-origin: 0 0;
+}
+.thm-map-lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.thm-line {
+  fill: none;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.thm-line--hier {
+  stroke: var(--muted);
+}
+.thm-line--side {
+  stroke: var(--activity);
+}
+.thm-line--bad {
+  stroke: var(--error-fg);
+}
+.thm-line.is-lit {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+}
+.thm-line.is-dim,
+.thm-pill.is-dim {
+  opacity: 0.3;
+}
+.thm-arrow--hier {
+  fill: var(--muted);
+}
+.thm-arrow--side {
+  fill: var(--activity);
+}
+.thm-arrow--bad {
+  fill: var(--error-fg);
+}
+.thm-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0.18rem 0.4rem;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--activity);
+  color: var(--activity);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.thm-pill--hier {
+  border-color: var(--border-strong);
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+.thm-pill--bad {
+  border-color: var(--error-fg);
+  color: var(--error-fg);
+}
+.thm-pill.is-lit {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.thm-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0 0.4rem;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--fg);
+  border: 1.5px solid var(--entity);
+  background: var(--entity-soft);
+  text-align: center;
+}
+.thm-node--property {
+  border-color: var(--activity);
+  background: var(--activity-soft);
+}
+.thm-node--std {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+/* 標準の語: 地平線の色の小さな札（概念ではない・関係の端として出すだけ） */
+.thm-node--word {
+  cursor: default;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+.thm-node.is-on {
+  outline: 2.5px solid var(--primary);
+  outline-offset: 1px;
+}
+.thm-node.is-lonely {
+  opacity: 0.7;
+}
+.thm-node:focus-visible {
+  outline: 2.5px solid var(--primary);
+  outline-offset: 1px;
+}
+.thm-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.thm-node-kind {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--faint);
+  flex: none;
+}
+.thm-node-warn {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--warn-fg);
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+}
+.thm-map-actions {
+  position: absolute;
+  display: flex;
+  gap: 0.3rem;
+  z-index: 3;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem;
+  box-shadow: var(--shadow-soft);
+}
+.thm-map-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  color: var(--faint);
+  text-align: right;
+}
+.thm-map-legend {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  font-size: 0.7rem;
+  color: var(--faint);
+  padding: 0.3rem 0.3rem 0;
+}
+.thm-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.thm-sw {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.6rem;
+  border-radius: 3px;
+  border: 1.5px solid var(--entity);
+  background: var(--entity-soft);
+}
+.thm-sw--property {
+  border-color: var(--activity);
+  background: var(--activity-soft);
+}
+.thm-sw--std {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+/* 知りたいこと: 答え方の印・欲しいデータ・知識の一覧 */
+.thm-qwant {
+  font-size: 0.75rem;
+  color: var(--faint);
+  margin: 0 0 0.3rem 1.9rem;
+}
+.thm-qrow-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.thm-see {
+  font-size: 0.75rem;
+}
+.thm-kanswer {
+  list-style: none;
+  margin: 0.2rem 0 0.4rem 1.9rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
 }

@@ -6,6 +6,8 @@
 //   項目どうし → equivalentProperty / subPropertyOf
 //   項目 → 量の種類 → hasQuantityKind
 //   種類と項目の混在 → 無し（api は 422）
+// 知識の関係（問いから育てる・design.md §15.2）は `knowledgeRelationsFor` が別に持つ。ひとこと決める
+// （DecidePanel）は従来の 3 文（一種・同じ・量）のまま、知識の文は②（下書きをたしかめる）で決める。
 import type { Alignment } from './crosswalkApi'
 import type { SharedTerm } from './vocabApi'
 
@@ -29,14 +31,25 @@ export interface PickEnd {
   termKind: TermKind
 }
 
+/** 閉集合の 9 述語（api の ALIGN_RELATIONS）。後ろの 4 つが知識の関係（標準の述語: BFO part of・RO regulates 系）。 */
 export const RELATION_ORDER = [
   'equivalentClass',
   'subClassOf',
   'equivalentProperty',
   'subPropertyOf',
   'hasQuantityKind',
+  'isPartOf',
+  'lowers',
+  'raises',
+  'affects',
 ] as const
 export type AlignRelation = (typeof RELATION_ORDER)[number]
+
+/** 人が確定する「知識の関係」（データの宣言には数えず、knowledge.json に数える）。 */
+export const KNOWLEDGE_RELATIONS = ['isPartOf', 'lowers', 'raises', 'affects'] as const
+export type KnowledgeRelation = (typeof KNOWLEDGE_RELATIONS)[number]
+export const isKnowledgeRelation = (relation: string | null | undefined): relation is KnowledgeRelation =>
+  (KNOWLEDGE_RELATIONS as readonly string[]).includes(relationKey(relation))
 
 /** 標準の語の kind を IRI から推す（量の種類だけ分かる。他は呼び手が知っていれば渡す）。 */
 export function standardTermKind(iri: string, known?: 'class' | 'property'): TermKind {
@@ -53,7 +66,12 @@ export function relationKey(relation: string | null | undefined): string {
 /** 向きのある関係か（⊂ と量の種類）。それ以外（≡・未知の対応）は両向きとして描く。 */
 export function isDirectedRelation(relation: string | null | undefined): boolean {
   const k = relationKey(relation)
-  return k === 'subClassOf' || k === 'subPropertyOf' || k === 'hasQuantityKind'
+  return (
+    k === 'subClassOf' ||
+    k === 'subPropertyOf' ||
+    k === 'hasQuantityKind' ||
+    (KNOWLEDGE_RELATIONS as readonly string[]).includes(k)
+  )
 }
 
 /** 関係の記号（title・一覧用）。 */
@@ -61,11 +79,32 @@ export function relationSymbol(relation: string | null | undefined): string {
   const k = relationKey(relation)
   if (k === 'subClassOf' || k === 'subPropertyOf') return '⊂'
   if (k === 'hasQuantityKind') return '→'
+  if (k === 'isPartOf') return '⊂'
+  if (k === 'lowers') return '↓'
+  if (k === 'raises') return '↑'
+  if (k === 'affects') return '↕'
   return '≡'
 }
 
 const isClassy = (k: TermKind) => k === 'class' || k === 'quantity'
 
+/**
+ * 知識の関係で引ける関係（api の述語ごとの種別表と同じ）: 一部は同じ種別どうし（種類どうし・項目どうし）、
+ * 下げる・上げる・変えるは「種類か項目 → 項目」。空なら引けない。
+ */
+export function knowledgeRelationsFor(source: TermKind, target: TermKind): KnowledgeRelation[] {
+  const out: KnowledgeRelation[] = []
+  const sameShape =
+    (isClassy(source) && isClassy(target)) || (source === 'property' && target === 'property')
+  if (sameShape) out.push('isPartOf')
+  // 見分けられない端は、分かっている側に合わせる（api が最後の砦）
+  if (source === 'unknown' && target !== 'unknown') out.push('isPartOf')
+  if (target === 'unknown' && source !== 'unknown') out.push('isPartOf')
+  if (target === 'property' || target === 'unknown') {
+    if (source !== 'quantity') out.push('lowers', 'raises', 'affects')
+  }
+  return [...new Set(out)]
+}
 /** `source → target` の向きで引ける関係（閉集合から kind で絞る）。空なら引けない。 */
 export function relationsFor(source: TermKind, target: TermKind): AlignRelation[] {
   if (source === 'property' && target === 'quantity') return ['hasQuantityKind']

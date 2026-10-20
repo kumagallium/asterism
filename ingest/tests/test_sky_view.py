@@ -233,6 +233,7 @@ async def test_zero_published_returns_the_empty_shape_without_any_sparql(tmp_pat
         "standards",
         "hubs",
         "questions",
+        "edges",
         "facts",
         "recent",
         "truncated",
@@ -322,9 +323,11 @@ async def test_two_datasets_one_term_lines_standard_and_hub(tmp_path: Path) -> N
     assert q == {
         "tool_name": "cq_place_count",
         "title": "場所は、どのデータセットに何件あるか",
+        "mode": "data",
         "theme_id": None,
         "theme_label": "はじめの問い",
         "answering": 2,
+        "knowledge": 0,
         "total_datasets": 2,
         "needs": [place],
         "shape": "場所は、どのデータセットに何件あるか",
@@ -358,6 +361,25 @@ async def test_two_datasets_one_term_lines_standard_and_hub(tmp_path: Path) -> N
     ]
     assert all(set(r) == {"at", "kind", "a", "b", "relation"} and r["a"] for r in out["recent"])
     assert all((r["kind"] == "decision") == bool(r["b"] and r["relation"]) for r in out["recent"])
+
+
+async def test_only_a_same_as_line_to_a_standard_counts_as_matching_it(tmp_path: Path) -> None:
+    client, root = await _world(tmp_path)
+    await shared_vocab.mint_term(
+        client,
+        root,
+        slug="region",
+        kind="class",
+        label="地域",
+        cqs=[CQSpec("地域は何件か", "count")],
+        at=AT_TERM,
+    )
+    region = shared_vocab.term_iri("region")
+    await assert_alignment(client, region, PLACE_STD, "isPartOf", at=AT_LINE_2)  # 一致ではない
+    out = await sky_view(client, root)
+    by_slug = {t["slug"]: t for t in out["terms"]}
+    assert by_slug["region"]["standard"] is None
+    assert by_slug["place"]["standard"] == {"iri": PLACE_STD, "relation": "equivalentClass"}
 
 
 async def test_same_input_gives_the_same_output(tmp_path: Path) -> None:
@@ -497,3 +519,70 @@ async def test_recent_lists_publishes_when_nothing_else_happened(tmp_path: Path)
     assert out["recent"][0]["a"] == "地点データ"
     assert out["terms"] == [] and out["questions"] == [] and out["hubs"] == []
     assert out["facts"]["published_graphs"] == 2
+
+
+# --- 知識の問い・知識の線（A1・A2） ----------------------------------------------------------
+
+
+async def test_knowledge_questions_and_term_to_term_lines(tmp_path: Path) -> None:
+    client, root = await _world(tmp_path)
+    at = "2026-10-14T00:00:00+00:00"
+    names = (("thermal", "熱伝導率"), ("grain", "粒界散乱"), ("lattice", "格子熱伝導率"))
+    for slug, label in names:
+        await shared_vocab.mint_term(
+            client, root, slug=slug, kind="property", label=label, cqs=[], theme_id="heat", at=at
+        )
+    thermal, grain, lattice = (shared_vocab.term_iri(s) for s in ("thermal", "grain", "lattice"))
+    await assert_alignment(client, grain, thermal, "lowers", at=at, reason="粒界で散乱される")
+    await assert_alignment(client, lattice, thermal, "isPartOf", at=at)
+    await assert_alignment(client, thermal, grain, "subPropertyOf", at=at)  # 知識の線ではない
+    await shared_vocab.recompute_wired(client, root)
+    name = "kq_thermal_factors_lowers"
+    (root / "vocab-shared" / "themes.json").write_text(
+        json.dumps(
+            {
+                "themes": [
+                    {
+                        "id": "heat",
+                        "label": "熱電材料",
+                        "questions": [name, "kq_gone_parts"],
+                        "selections": {
+                            name: {
+                                "mode": "knowledge",
+                                "op": "factors",
+                                "target_slug": "thermal",
+                                "direction": "lowers",
+                                "title": "熱伝導率を下げる要素は何か",
+                            },
+                            "kq_gone_parts": {
+                                "mode": "knowledge",
+                                "op": "parts",
+                                "target_slug": "gone",
+                                "title": "外された語の問い",
+                            },
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = await sky_view(client, root)
+    q = next(x for x in out["questions"] if x["tool_name"] == name)
+    assert q["mode"] == "knowledge" and q["theme_id"] == "heat" and q["needs"] == [thermal]
+    # データ 0・知識 1（走者で答えた数。/api/themes の「知識 N」と同じ。2 は線の数）
+    assert q["answering"] == 0 and q["knowledge"] == 1
+    assert all(x["mode"] == "data" and x["knowledge"] == 0 for x in out["questions"] if x is not q)
+    assert not any(x["tool_name"] == "kq_gone_parts" for x in out["questions"])  # 語の無い問い
+    assert name in next(t for t in out["terms"] if t["slug"] == "thermal")["questions"]
+    f = out["facts"]
+    assert f["questions_total"] == len(out["questions"])
+    assert f["questions_answerable"] == 1 + sum(  # 知識の問い 1 + データで答えられる問い
+        1 for x in out["questions"] if x["mode"] == "data" and x["answering"] >= 1
+    )
+    # 語どうしの知識の線だけ（sub/eq は含めない）。決定論の順
+    assert [(e["from"], e["to"], e["relation"]) for e in out["edges"]] == sorted(
+        [(grain, thermal, "lowers"), (lattice, thermal, "isPartOf")]
+    )
+    lowers = next(e for e in out["edges"] if e["relation"] == "lowers")
+    assert lowers["reason"] == "粒界で散乱される"

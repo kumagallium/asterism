@@ -20,14 +20,22 @@
     "subPropertyOf": "a kind of it",
     "equivalentProperty": "the same thing",
     "hasQuantityKind": "this quantity",
-    "none": "Nothing fits"
+    "none": "Nothing fits",
+    "isPartOf": "is a part of it",
+    "lowers": "lowers it",
+    "raises": "raises it",
+    "affects": "changes it"
   },
   "sentence": {
     "subClassOf": "\"{{subject}}\" is a kind of \"{{target}}\"",
     "equivalentClass": "\"{{subject}}\" is the same as \"{{target}}\"",
     "subPropertyOf": "The values of \"{{subject}}\" are a kind of \"{{target}}\"",
     "equivalentProperty": "The values of \"{{subject}}\" are the same as \"{{target}}\"",
-    "hasQuantityKind": "The quantity of \"{{subject}}\" is \"{{target}}\""
+    "hasQuantityKind": "The quantity of \"{{subject}}\" is \"{{target}}\"",
+    "isPartOf": "“{{subject}}” is a part of “{{target}}”",
+    "lowers": "“{{subject}}” lowers “{{target}}”",
+    "raises": "“{{subject}}” raises “{{target}}”",
+    "affects": "“{{subject}}” changes “{{target}}”"
   },
   "effect": {
     "idle": "Pick one and what it would change shows up here.",

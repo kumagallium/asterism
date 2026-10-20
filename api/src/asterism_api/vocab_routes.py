@@ -105,6 +105,10 @@ class DismissBody(BaseModel):
 
     subject: str
     term: str
+    #: 関係の却下（下書きの線の ✕）。述語名（``isPartOf`` / ``lowers`` / ``subClassOf`` …）。
+    #: 無ければ従来の「当てはまるものは無い」。概念の却下は
+    #: ``subject="concept:<正規化した名前>"``・``term="concept"``（``relation`` なし）。
+    relation: str | None = None
 
 
 def _term_from_row(row: dict) -> SharedTerm:
@@ -414,18 +418,29 @@ def register_vocab(
     async def vocab_dismiss(body: DismissBody) -> JSONResponse:
         """この提案（``subject`` に ``term``）を外す。同じ対は 1 件（冪等）。"""
         try:
-            added = shared_vocab.dismiss_fit(cfg.registry_root, body.subject, body.term, at=_now())
+            added = shared_vocab.dismiss_fit(
+                cfg.registry_root, body.subject, body.term, at=_now(), relation=body.relation
+            )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except OSError as exc:
             raise HTTPException(502, f"dismiss write failed: {exc}") from exc
-        return JSONResponse({"subject": body.subject, "term": body.term, "added": added})
+        return JSONResponse(
+            {
+                "subject": body.subject,
+                "term": body.term,
+                **({"relation": body.relation} if body.relation else {}),
+                "added": added,
+            }
+        )
 
     @app.delete("/api/vocab/dismiss", dependencies=list(write_auth))
     async def vocab_undismiss(body: DismissBody) -> JSONResponse:
         """外した提案を戻す（冪等）。"""
         try:
-            removed = shared_vocab.undismiss_fit(cfg.registry_root, body.subject, body.term)
+            removed = shared_vocab.undismiss_fit(
+                cfg.registry_root, body.subject, body.term, relation=body.relation
+            )
         except OSError as exc:
             raise HTTPException(502, f"dismiss write failed: {exc}") from exc
         return JSONResponse({"subject": body.subject, "term": body.term, "removed": removed})

@@ -1,7 +1,7 @@
 // 「決めたこと」画面の純関数（絞り込み・1 行 1 文・hash）。描画（DecisionsView）から切り離して
 // vitest で固定する。LLM は使わない。
 import type { Alignment } from '../crosswalkApi'
-import { relationKey } from '../lineChoice'
+import { KNOWLEDGE_RELATIONS, relationKey } from '../lineChoice'
 import { endLabel } from '../vocabQuestion'
 import type { Translate } from './decide'
 
@@ -11,6 +11,7 @@ export const DECISION_FILTERS = [
   'sub',
   'same',
   'quantity',
+  'knowledge',
   'standard',
   'perspective',
   'broken',
@@ -19,7 +20,8 @@ export type DecisionFilter = (typeof DECISION_FILTERS)[number]
 
 const SUB = new Set(['subClassOf', 'subPropertyOf'])
 const SAME = new Set(['equivalentClass', 'equivalentProperty'])
-const KNOWN = new Set([...SUB, ...SAME, 'hasQuantityKind'])
+const KNOWLEDGE = new Set<string>(KNOWLEDGE_RELATIONS)
+const KNOWN = new Set([...SUB, ...SAME, 'hasQuantityKind', ...KNOWLEDGE])
 
 /** 1 行の絞り込みの判定。`perspective` は一覧では使わない（常に false）。 */
 export function matchesFilter(a: Alignment, filter: DecisionFilter): boolean {
@@ -33,6 +35,8 @@ export function matchesFilter(a: Alignment, filter: DecisionFilter): boolean {
       return SAME.has(rel)
     case 'quantity':
       return rel === 'hasQuantityKind'
+    case 'knowledge':
+      return KNOWLEDGE.has(rel)
     case 'standard':
       return a.source_kind === 'standard' || a.target_kind === 'standard'
     case 'broken':
@@ -72,7 +76,8 @@ export function endName(
   return kind === 'dataset' && dsName ? `${name}（${dsName}）` : name
 }
 
-/** 1 行 1 文: 「『Sample（Starrydata）』は『試料』の一種」。閉集合に無い関係は関係名のまま挟む。 */
+/** 1 行 1 文: 「『Sample（Starrydata）』は『試料』の一種」。9 関係（一種・同じ・量・一部・下げる・上げる・変える）は
+ *  文にする。閉集合に無い関係だけ関係名のまま挟む（生の `lowers` は出さない）。 */
 export function decisionSentence(
   a: Alignment,
   datasetNames: Record<string, string>,
@@ -83,6 +88,36 @@ export function decisionSentence(
   const rel = relationKey(a.relation)
   if (!KNOWN.has(rel)) return t('decisions:sentence.other', { subject, target, relation: rel })
   return t(`decide:sentence.${rel}`, { subject, target })
+}
+
+/** 決めたことの並び（新しい順）の 1 項目: 1 本の線か、同じ「まとめて確定」で決めた線の束。 */
+export type DecisionEntry =
+  | { kind: 'one'; a: Alignment }
+  | { kind: 'batch'; batch: string; items: Alignment[]; at: string; draftedBy: string }
+
+/**
+ * 同じ「まとめて確定」（`batch`）の線を 1 つに畳む。2 本以上あるものだけ束にする（1 本は 1 行のまま）。
+ * 束の位置は、束の中でいちばん新しい線のところ（並びは入力のまま — 新しい順に渡せば新しい順）。
+ */
+export function groupByBatch(list: readonly Alignment[]): DecisionEntry[] {
+  const size = new Map<string, number>()
+  for (const a of list) if (a.batch) size.set(a.batch, (size.get(a.batch) ?? 0) + 1)
+  const out: DecisionEntry[] = []
+  const at = new Map<string, Extract<DecisionEntry, { kind: 'batch' }>>()
+  for (const a of list) {
+    if (!a.batch || (size.get(a.batch) ?? 0) < 2) {
+      out.push({ kind: 'one', a })
+      continue
+    }
+    let g = at.get(a.batch)
+    if (!g) {
+      g = { kind: 'batch', batch: a.batch, items: [], at: a.at || '', draftedBy: a.drafted_by ?? 'human' }
+      at.set(a.batch, g)
+      out.push(g)
+    }
+    g.items.push(a)
+  }
+  return out
 }
 
 /** 共有の用語（=問いを持つ側）に掛かる問いの数。用語が端に無い・問いが無ければ 0。 */

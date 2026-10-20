@@ -18,6 +18,7 @@ from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
     _decode_array,
+    answer_knowledge_question,
     dataset_descriptions,
     property_ranking,
     provenance_of,
@@ -1132,7 +1133,17 @@ async def test_schema_summary_shared_terms_and_lines_shape() -> None:
     assert [t["iri"] for t in out["shared_terms"]] == [_SV + "diffraction_point", _SV + "intensity"]
     assert _SV + "orphan_term" not in by_iri
     dp = by_iri[_SV + "diffraction_point"]
-    assert set(dp) == {"iri", "label", "comment", "kind", "narrower", "standards", "cqs"}
+    assert set(dp) == {
+        "iri",
+        "label",
+        "comment",
+        "kind",
+        "narrower",
+        "standards",
+        "cqs",
+        "knowledge_lines",
+    }
+    assert dp["knowledge_lines"] == 0
     assert (dp["label"], dp["comment"], dp["kind"]) == ("回折点", "回折で得た 1 点", "class")
     assert dp["narrower"] == [
         {"iri": _A_REC, "dataset_id": "xrd-a", "label": "回折点A"},
@@ -1145,6 +1156,60 @@ async def test_schema_summary_shared_terms_and_lines_shape() -> None:
     assert it["standards"] == [_QK]
     # lines: only dataset <-> dataset ones (a line to a shared word / standard is not one)
     assert out["lines"] == [{"source": _B_REC, "relation": "equivalentClass", "target": _A_REC}]
+
+
+async def test_schema_summary_keeps_a_term_with_knowledge_lines_though_no_dataset_answers() -> None:
+    """孤立の定義の改訂（利用者裁定 2026-10-20）: 確定した知識の関係が 1 本以上ある語は、
+    答えるデータセットが 0 でも残り、``knowledge_lines`` に本数が出る。"""
+    import rdflib
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH
+
+    client = await _seed_shared_store()
+    u = rdflib.URIRef
+    ag = client.ds.graph(u(ALIGNMENT_GRAPH))
+    # 孤立語 lowers 強度、強度 isPartOf 回折点（知識の線。データの線ではない）
+    ag.add((u(_SV + "orphan_term"), u(ALIGN_RELATIONS["lowers"]), u(_SV + "intensity")))
+    ag.add((u(_SV + "intensity"), u(ALIGN_RELATIONS["isPartOf"]), u(_SV + "diffraction_point")))
+
+    out = await schema_summary(client)
+
+    by_iri = {t["iri"]: t for t in out["shared_terms"]}
+    assert sorted(by_iri) == [
+        _SV + "diffraction_point",
+        _SV + "intensity",
+        _SV + "orphan_term",
+    ]
+    assert by_iri[_SV + "orphan_term"]["knowledge_lines"] == 1
+    assert by_iri[_SV + "intensity"]["knowledge_lines"] == 2
+    assert by_iri[_SV + "diffraction_point"]["knowledge_lines"] == 1
+    # 知識の線は narrower にも lines にも入らない（データの線ではない）
+    assert by_iri[_SV + "orphan_term"]["narrower"] == []
+    assert out["lines"] == [{"source": _B_REC, "relation": "equivalentClass", "target": _A_REC}]
+
+
+async def test_schema_summary_knowledge_only_term_with_no_dataset_at_all() -> None:
+    import rdflib
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH
+
+    client = await _seed_shared_store(answering=False)
+    client.ds.graph(rdflib.URIRef(ALIGNMENT_GRAPH)).add(
+        (
+            rdflib.URIRef(_SV + "orphan_term"),
+            rdflib.URIRef(ALIGN_RELATIONS["raises"]),
+            rdflib.URIRef(_SV + "intensity"),
+        )
+    )
+
+    out = await schema_summary(client)
+
+    assert [t["iri"] for t in out["shared_terms"]] == [_SV + "intensity", _SV + "orphan_term"]
+    assert [t["knowledge_lines"] for t in out["shared_terms"]] == [1, 1]
+
+
+def test_mcp_reads_all_nine_relations() -> None:
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+
+    assert len(ALIGN_RELATIONS) == 9  # tools.py の rel_by_iri はこれを読む
 
 
 async def test_schema_summary_shared_narrower_is_capped_by_max_classes() -> None:
@@ -1224,3 +1289,95 @@ async def test_schema_summary_cqs_empty_without_registry_root() -> None:
     out = await schema_summary(client)
 
     assert all(t["cqs"] == [] for t in out["shared_terms"])
+
+
+# ----------------------------------------------------------------------------
+# answer_knowledge_question (themes.json selections -> the closed knowledge runner)
+# ----------------------------------------------------------------------------
+
+
+def _write_themes(root, selections: dict) -> None:
+    from asterism import shared_vocab as sv
+
+    path = sv._dir(root) / "themes.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"themes": [{"id": "t1", "selections": selections}], "migrated": True}
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+
+_LOWERS = "http://purl.obolibrary.org/obo/RO_0002212"
+
+
+def _kq_client(captured: list[str]) -> OxigraphClient:
+    from asterism import shared_vocab as sv
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request.content.decode("utf-8", "ignore") + str(request.url))
+        lattice = sv.term_iri("lattice_tc")
+        row = {
+            "from": {"type": "uri", "value": sv.term_iri("grain_boundary")},
+            "rel": {"type": "uri", "value": _LOWERS},
+            "via": {"type": "uri", "value": lattice},
+            "lbl": {"type": "literal", "value": "粒界散乱", "xml:lang": "ja"},
+            "vlbl": {"type": "literal", "value": "格子熱伝導率", "xml:lang": "ja"},
+            "who": {"type": "literal", "value": "ai"},
+            "reason": {"type": "literal", "value": "粒界でフォノンが散乱"},
+            "at": {"type": "literal", "value": "2026-10-20T00:00:00+00:00"},
+        }
+        body = {
+            "head": {"vars": list(row)},
+            "results": {"bindings": [row]},
+        }
+        return httpx.Response(
+            200, text=json.dumps(body), headers={"content-type": "application/sparql-results+json"}
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+async def test_answer_knowledge_question_reads_the_theme_and_runs_the_closed_template(
+    tmp_path,
+) -> None:
+    _write_themes(
+        tmp_path,
+        {
+            "kq_thermal_conductivity_factors_lowers": {
+                "mode": "knowledge", "op": "factors", "target_slug": "thermal_conductivity",
+                "target": "熱伝導率", "title": "熱伝導率を下げるものは何か", "direction": "lowers",
+            },
+            "cq_sample_count": {"op": "count", "kind_slug": "sample"},  # データの問い
+        },
+    )  # fmt: skip
+    seen: list[str] = []
+    out = await answer_knowledge_question(
+        "kq_thermal_conductivity_factors_lowers", _kq_client(seen), registry_root=tmp_path
+    )
+    assert out["found"] is True
+    assert out["question"] == "熱伝導率を下げるものは何か"
+    assert (out["op"], out["target"], out["direction"], out["count"]) == (
+        "factors", "熱伝導率", "lowers", 1,
+    )  # fmt: skip
+    assert out["items"] == [
+        {
+            "label": "粒界散乱", "relation": "lowers", "via_label": "格子熱伝導率",
+            "reason": "粒界でフォノンが散乱", "drafted_by": "ai", "at": "2026-10-20T00:00:00+00:00",
+        }
+    ]  # fmt: skip
+    # the runner reads the alignment graph only (a confirmed line), over the closed template
+    from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
+
+    assert seen and ALIGNMENT_GRAPH in seen[0]
+
+
+async def test_answer_knowledge_question_refuses_what_is_not_a_knowledge_question(
+    tmp_path,
+) -> None:
+    _write_themes(tmp_path, {"cq_sample_count": {"op": "count", "kind_slug": "sample"}})
+    seen: list[str] = []
+    for name in ("cq_sample_count", "kq_nothing", ""):
+        out = await answer_knowledge_question(name, _kq_client(seen), registry_root=tmp_path)
+        assert out["found"] is False and "error" in out
+    none = await answer_knowledge_question("kq_x", _kq_client(seen))  # no registry root
+    assert none["found"] is False
+    assert seen == []  # the store was never asked

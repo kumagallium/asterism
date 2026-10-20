@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { isAnswerable } from './skyApi'
 import { SAMPLE_SKY } from './sample'
 import { makeSky, SCALES } from './skyFixture'
 import { layoutSky } from './skyLayout'
@@ -42,6 +43,34 @@ describe('静かな表示の表は図と同じ内容', () => {
 
   it('空は空の表', () => {
     const t = buildSkyTables({ ...SAMPLE_SKY, datasets: [], terms: [], standards: [], hubs: [] })
-    expect(t).toEqual({ stars: [], terms: [], standards: [], hubs: [] })
+    expect(t).toEqual({ stars: [], terms: [], standards: [], hubs: [], lines: [] })
   })
 })
+
+describe('知識の問いと知識の線', () => {
+  const sky = makeSky(2, 6)
+  const [a, b] = sky.terms
+
+  it('知識の問いは「知識 N」つきで用語の行に出る・線は文の素（主語・目的語・関係・理由）で出る', () => {
+    const t = buildSkyTables({
+      ...sky,
+      edges: [{ from: a.iri, to: b.iri, relation: 'lowers', reason: '散乱' }],
+    })
+    const row = t.terms.find((r) => r.iri === a.iri)!
+    expect(row.questions).toEqual([{ title: sky.questions[0].title, mode: 'knowledge', knowledge: 2 }])
+    expect(t.lines).toEqual([{ from: a.label, to: b.label, relation: 'lowers', reason: '散乱' }])
+  })
+
+  it('線の端の語が無ければ出さない', () => {
+    const t = buildSkyTables({ ...sky, edges: [{ from: a.iri, to: 'urn:none', relation: 'affects', reason: null }] })
+    expect(t.lines).toEqual([])
+  })
+
+  it('答えられる = データ ≥ 1 または 知識 ≥ 1', () => {
+    expect(isAnswerable({ answering: 0, knowledge: 2 })).toBe(true)
+    expect(isAnswerable({ answering: 1, knowledge: 0 })).toBe(true)
+    expect(isAnswerable({ answering: 0, knowledge: 0 })).toBe(false)
+    expect(isAnswerable({ answering: 0 })).toBe(false)
+  })
+})
+

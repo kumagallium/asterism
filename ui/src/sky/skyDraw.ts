@@ -5,6 +5,8 @@
 // 色は CSS 変数から（`readSkyPalette`）。配置は `skyLayout.ts`（描画は何も決めない）。
 import {
   approxLabelWidth,
+  conceptEdgeGeom,
+  conceptPillPos,
   type DatasetNode,
   type KindNode,
   type SkyLayout,
@@ -80,6 +82,10 @@ export interface SkyLabels {
   empty: string
   /** 項目（property）の用語の札の上。 */
   property: string
+  /** 下書きの札の印（枠だけの札の上）。 */
+  draft: string
+  /** 知識の線の小さな札（「一部」）。下げる／上げる／変えるは記号（↓ ↑ ↕）。 */
+  partOf: string
   /** 件数の単位つき文字列（`46,200 件`）。 */
   count: (n: number) => string
   /** データセットの丸の下（`3 種類`）。 */
@@ -160,6 +166,16 @@ export function formatCount(n: number, lang: 'ja' | 'en' = 'ja'): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 10_000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
   return n.toLocaleString('en-US')
+}
+
+/** 小さな字の縁取り（紙の色）。下に線が通っても字が読める。 */
+function halo(ctx: Ctx, text: string, x: number, y: number, paper: string): void {
+  ctx.save()
+  ctx.lineWidth = 3
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = withAlpha(paper, 0.9)
+  ctx.strokeText(text, x, y)
+  ctx.restore()
 }
 
 function fitText(ctx: Ctx, text: string, maxW: number): string {
@@ -398,6 +414,33 @@ export function drawSky(
     ctx.restore()
   }
 
+  // 語どうしの知識の線（一部＝細い線＋矢じり、下げる／上げる／変える＝線＋矢じり）。札の下に敷く。
+  // 静かな表示では薄くする。小さな札（一部・↓ ↑ ↕）は用語の札のあとに重ねる。
+  const quietK = st.reducedMotion ? 0.5 : 1
+  for (const e of layout.edges) {
+    if (e.kind !== 'concept') continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    const part = e.relation === 'isPartOf'
+    ctx.save()
+    ctx.globalAlpha = Math.min(alphaOf(e.from), alphaOf(e.to)) * (part ? 0.75 : 0.9) * quietK * A
+    ctx.strokeStyle = part ? pal.body : pal.activity
+    ctx.fillStyle = ctx.strokeStyle
+    ctx.lineWidth = near && near.has(e.from) && near.has(e.to) && focus ? 1.8 : part ? 1 : 1.4
+    ctx.beginPath()
+    ctx.moveTo(g.x1, g.y1)
+    ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2)
+    ctx.stroke()
+    const ang = Math.atan2(g.y2 - g.cy, g.x2 - g.cx)
+    ctx.beginPath()
+    ctx.moveTo(g.x2, g.y2)
+    ctx.lineTo(g.x2 - 8 * Math.cos(ang - 0.4), g.y2 - 8 * Math.sin(ang - 0.4))
+    ctx.lineTo(g.x2 - 8 * Math.cos(ang + 0.4), g.y2 - 8 * Math.sin(ang + 0.4))
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+  }
+
   // 星（種類）・丸（データセット）
   ctx.textAlign = 'center'
   for (const n of layout.nodes.values()) {
@@ -522,6 +565,7 @@ export function drawSky(
       ctx.font = `500 9px ${pal.mono}`
       ctx.fillStyle = pal.faint
       ctx.textBaseline = 'bottom'
+      halo(ctx, labels.property, n.x, y - 2, pal.paper)
       ctx.fillText(labels.property, n.x, y - 2)
     }
     const std = n.stdId ? layout.nodes.get(n.stdId) : undefined
@@ -529,13 +573,75 @@ export function drawSky(
       ctx.font = `500 10px ${pal.font}`
       ctx.fillStyle = pal.faint
       ctx.textBaseline = 'top'
+      halo(ctx, labels.empty, n.x, y + h + 3, pal.paper)
       ctx.fillText(labels.empty, n.x, y + h + 3)
     } else if (std && std.type === 'std') {
       ctx.font = `500 9.5px ${pal.mono}`
       ctx.fillStyle = pal.accent
       ctx.textBaseline = 'top'
-      ctx.fillText(fitText(ctx, `≡ ${std.prefix}:${std.label}`, n.w + 8), n.x, y + h + 3)
+      const cap = fitText(ctx, `≡ ${std.prefix}:${std.label}`, n.w + 8)
+      halo(ctx, cap, n.x, y + h + 3, pal.paper)
+      ctx.fillText(cap, n.x, y + h + 3)
     }
+    ctx.restore()
+  }
+
+  // 知識の線の小さな札（線の中ほど）
+  for (const e of layout.edges) {
+    if (e.kind !== 'concept') continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    const text = e.relation === 'isPartOf' ? labels.partOf : e.relation === 'lowers' ? '↓' : e.relation === 'raises' ? '↑' : '↕'
+    ctx.save()
+    ctx.globalAlpha = Math.min(alphaOf(e.from), alphaOf(e.to)) * quietK * A
+    ctx.font = `600 ${e.relation === 'isPartOf' ? 9.5 : 11}px ${pal.font}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const w = ctx.measureText(text).width + 10
+    // 置き場所は layoutSky が決めている（他の小さな札・札・札の下の字を避けてある）。無い古い形だけ従来の探し方。
+    const pos = e.pill !== undefined ? e.pill : conceptPillPos(layout, g, w)
+    if (!pos) {
+      ctx.restore()
+      continue
+    }
+    roundRect(ctx, pos.x - w / 2, pos.y - 8, w, 16, 8)
+    ctx.fillStyle = pal.surface
+    ctx.fill()
+    ctx.strokeStyle = e.relation === 'isPartOf' ? pal.body : pal.activity
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.fillStyle = e.relation === 'isPartOf' ? pal.body : pal.activity
+    ctx.fillText(text, pos.x, pos.y + 0.5)
+    ctx.restore()
+  }
+
+  // 下書きの札（上の帯）: 枠だけ（塗らない）＋「下書き」の印。置いたが星なしの札（薄塗り）とは別の符号。
+  for (const n of layout.nodes.values()) {
+    if (n.type !== 'draft') continue
+    const sc = scaleOf(n.id)
+    ctx.save()
+    ctx.globalAlpha = alphaOf(n.id) * A
+    ctx.font = `600 12px ${pal.font}`
+    const text = fitText(ctx, n.label, n.w - 26)
+    const tw = ctx.measureText(text).width
+    const w = Math.min(n.w, tw + 26) * sc
+    const h = n.h * sc
+    const x = n.x - w / 2
+    const y = n.y - h / 2
+    roundRect(ctx, x, y, w, h, 14)
+    ctx.fillStyle = pal.paper
+    ctx.fill()
+    ctx.strokeStyle = pal.activity
+    ctx.lineWidth = focus === n.id ? 2.5 : 1.4
+    ctx.stroke()
+    ctx.fillStyle = pal.activity
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, n.x, n.y + 0.5)
+    // 「下書き」の印（札の上）。項目の札は、印の右に「項目」を添える
+    ctx.font = `500 9px ${pal.mono}`
+    ctx.fillStyle = pal.accent
+    ctx.textBaseline = 'bottom'
+    ctx.fillText(n.termKind === 'property' ? `${labels.draft} · ${labels.property}` : labels.draft, n.x, y - 2)
     ctx.restore()
   }
 
