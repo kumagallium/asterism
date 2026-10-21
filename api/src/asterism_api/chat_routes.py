@@ -155,7 +155,9 @@ def register_chat(
         draft = themes.load_draft(root, draft_id) if draft_id else None
         if draft is None:
             return None
-        return {**draft_sky_card(draft, lang), "session_id": session["id"]}
+        seed = session.get("seed")
+        seed = seed if isinstance(seed, dict) and seed.get("draft_id") == draft["id"] else None
+        return {**draft_sky_card(draft, lang, seed), "session_id": session["id"]}
 
     def _save_after_confirm(session: dict, commit: dict | None, lang: str) -> dict:
         """✓ のあとの保存。落ちたら 1 度だけやり直し、それでも落ちたら 500。"""

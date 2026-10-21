@@ -41,6 +41,7 @@ __all__ = [
     "SESSION_VERSION",
     "TURN_STATES",
     "delete_session",
+    "draft_seed_map",
     "draft_session_map",
     "list_sessions",
     "load_session",
@@ -48,6 +49,7 @@ __all__ = [
     "new_session_id",
     "new_turn_id",
     "save_session",
+    "seed_of_draft",
     "session_of_draft",
 ]
 
@@ -197,3 +199,19 @@ def draft_session_map(root: Path | str) -> dict[str, str]:
 def session_of_draft(root: Path | str, draft_id: str) -> str | None:
     """その下書きを育てている話の id（無ければ ``None``）。"""
     return draft_session_map(root).get(draft_id)
+
+
+def draft_seed_map(root: Path | str) -> dict[str, dict]:
+    """下書きの id → その話が持つ種の控え（``session["seed"]``・下書きと組のものだけ）。"""
+    out: dict[str, dict] = {}
+    for s in _all(root):
+        seed = s.get("seed")
+        d = s.get("draft_id")
+        if isinstance(seed, dict) and d and seed.get("draft_id") == d and str(d) not in out:
+            out[str(d)] = seed
+    return out
+
+
+def seed_of_draft(root: Path | str, draft_id: str) -> dict | None:
+    """その下書きの種の控え（無ければ ``None``）。"""
+    return draft_seed_map(root).get(draft_id)
