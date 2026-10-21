@@ -7,6 +7,7 @@
 //     （`Pending`）で「提案（薄い）」として扱い、「そう」で本物にする。③に進むときは**本物だけ**を送る。
 //   - 本物の関係は両端も本物（関係を受けると両端の概念も本物になる）。
 //   - 人の直接の編集（プルダウン・ドラッグ・手で足す）は AI の提案と同じ形の差分（`GraphOp`）。
+import type { QuestionScreen, QuestionSuggestion } from '../consult/graphChatApi'
 import type { GraphDropped, GraphOp } from '../themes/consultGraphApi'
 import type { ConceptRow, DraftPending, RelKind, RelationRow, TermKind, ThemeDraft } from '../themes/themeDraft'
 
@@ -432,6 +433,18 @@ export interface ProposalItem {
   screen?: 'home' | 'theme' | 'dataset'
 }
 
+/** 「こんな問いはどうですか」のカード。`label` は提案の元のデータセット名。 */
+export interface SuggestItem {
+  kind: 'suggest'
+  id: string
+  label: string
+  status: 'running' | 'done' | 'failed'
+  rows: QuestionSuggestion[]
+  detail: string
+  /** どの画面の提案か（「問いなし」の文を出し分ける）。無ければ `dataset`。 */
+  screen?: QuestionScreen
+}
+
 export type ChatItem =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'ai'; id: string; text: string }
@@ -440,6 +453,8 @@ export type ChatItem =
   | { kind: 'draft'; id: string; per: boolean }
   /** 問いごとの答え方・欲しいデータ（下書きの道の最初の 1 枚）。 */
   | { kind: 'answers'; id: string }
+  /** 「問いを提案してもらう」のカード（PR 10a）。一時的 — 提案の文は保存しない。人が押したときだけ作られる。 */
+  | SuggestItem
   | ProposalItem
 
 let itemSeq = 0

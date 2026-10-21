@@ -1032,3 +1032,197 @@ def test_render_schema_without_shared_keys_is_unchanged() -> None:
     out = demo._render_schema(schema)
     assert "Shared terms" not in out and "Alignment lines" not in out
     assert demo._render_shared_terms({"shared_terms": [], "lines": []}) == []
+
+
+# --- GitHub Copilot（公式 SDK）ループ ------------------------------------------
+
+
+class _FakeCopilotSession:
+    """SDK の Tool を受け取り、モデルの代わりに脚本どおり handler を呼ぶ。"""
+
+    def __init__(self, kwargs: dict, script: list) -> None:
+        self.kwargs = kwargs
+        self.script = script
+        self.handlers: list = []
+        self.prompt = ""
+        self.disconnected = False
+
+    def on(self, handler):
+        self.handlers.append(handler)
+        return lambda: None
+
+    async def send_and_wait(self, prompt, *, timeout=60.0):
+        self.prompt = prompt
+        tools = {t.name: t for t in self.kwargs["tools"]}
+        for name, args in self.script:
+            inv = types.SimpleNamespace(arguments=args, tool_name=name)
+            res = await tools[name].handler(inv)
+            assert res.text_result_for_llm
+        for h in self.handlers:
+            h(
+                types.SimpleNamespace(
+                    type=types.SimpleNamespace(value="assistant.usage"),
+                    data=types.SimpleNamespace(
+                        model="m", input_tokens=50, output_tokens=9,
+                        cache_read_tokens=None, cache_write_tokens=None,
+                    ),
+                )
+            )
+        return types.SimpleNamespace(data=types.SimpleNamespace(content="（本文）"))
+
+    async def disconnect(self):
+        self.disconnected = True
+
+
+def _copilot_factory(script: list, sessions: list):
+    class _Ctx:
+        async def __aenter__(self):
+            outer = self
+
+            class _Client:
+                async def create_session(self, **kwargs):
+                    s = _FakeCopilotSession(kwargs, script)
+                    sessions.append(s)
+                    return s
+
+            outer.client = _Client()
+            return outer.client
+
+        async def __aexit__(self, *exc):
+            return False
+
+    return _Ctx
+
+
+def _copilot_setup(monkeypatch, script: list, sessions: list) -> None:
+    import sys
+
+    # 実 SDK の無い環境でも Tool / ToolResult / deny_all が使えるように偽物を差す。
+    class _Tool:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+    class _ToolResult:
+        def __init__(self, text_result_for_llm="", **kw):
+            self.text_result_for_llm = text_result_for_llm
+
+    sdk = types.ModuleType("copilot")
+    sdk.Tool = _Tool
+    sdk.ToolResult = _ToolResult
+    gen = types.ModuleType("copilot.generated")
+    rpc = types.ModuleType("copilot.generated.rpc")
+    rpc.PermissionDecisionReject = lambda feedback="": ("reject", feedback)
+    monkeypatch.setitem(sys.modules, "copilot", sdk)
+    monkeypatch.setitem(sys.modules, "copilot.generated", gen)
+    monkeypatch.setitem(sys.modules, "copilot.generated.rpc", rpc)
+    monkeypatch.setitem(demo._state, "copilot_factory", _copilot_factory(script, sessions))
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+
+
+def test_copilot_loop_routes_tools_to_execute_tool_and_blocks_builtins(monkeypatch) -> None:
+    select = f"SELECT ?w ?n WHERE {{ ?w a <{_EX}Widget> ; <{_EX}name> ?n }}"
+    sessions: list = []
+    script = [
+        ("run_sparql", {"query": select}),
+        ("submit_answer", {"answer": "Widget は 2 件です。",
+                           "citations": [{"iri": f"{_EX}w1", "kind": "Widget", "label": "alpha"}]}),
+    ]
+    _copilot_setup(monkeypatch, script, sessions)
+    monkeypatch.setattr(demo, "_EXPOSE_RAW_SPARQL", True)
+    monkeypatch.setenv("ASTERISM_SINGLE_USER", "1")
+    posted: list = []
+
+    async def fake_post(provider, model, usage):
+        posted.append((provider, model, dict(usage)))
+
+    monkeypatch.setattr(demo, "_post_usage", fake_post)
+
+    body = TestClient(demo.app).post(
+        "/demo/ask",
+        json={"question": "Widget は何件？"},
+        headers={"X-LLM-Provider": "copilot-subscription"},  # キー無し
+    ).json()
+
+    assert body["answer"] == "Widget は 2 件です。"
+    assert body["citations"][0]["iri"] == f"{_EX}w1"
+    assert select in body["sparql"]  # execute_tool に流れた
+    kw = sessions[0].kwargs
+    # 内蔵ツールは許可しない: available_tools は自前ツール名だけ
+    assert set(kw["available_tools"]) == {t.name for t in kw["tools"]}
+    assert "run_sparql" in kw["available_tools"] and "submit_answer" in kw["available_tools"]
+    assert not {"shell", "bash", "view", "edit", "create"} & set(kw["available_tools"])
+    assert kw["system_message"]["mode"] == "replace"
+    assert kw["on_permission_request"](None, None) == ("reject", "Asterism does not allow built-in tools.")
+    assert all(t.skip_permission for t in kw["tools"])
+    assert sessions[0].disconnected
+    assert posted == [
+        ("copilot-subscription", "m",  # 実際に使われたモデル名（auto ではなく）
+         {"input_tokens": 50, "output_tokens": 9, "cache_read_tokens": 0, "cache_write_tokens": 0})
+    ]
+
+
+def test_copilot_falls_back_to_text_when_no_submit(monkeypatch) -> None:
+    sessions: list = []
+    _copilot_setup(monkeypatch, [], sessions)
+    monkeypatch.setenv("ASTERISM_SINGLE_USER", "1")
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "q"}, headers={"X-LLM-Provider": "copilot-subscription"}
+    ).json()
+    assert body["answer"] == "（本文）"
+
+
+def test_copilot_refused_when_not_single_user(monkeypatch) -> None:
+    monkeypatch.delenv("ASTERISM_SINGLE_USER", raising=False)
+    monkeypatch.setattr(demo, "_REAL", True)
+    r = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "q"}, headers={"X-LLM-Provider": "copilot-subscription"}
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "copilot_unavailable"
+
+
+def test_gemini_ask_uses_fixed_base_via_openai_loop(monkeypatch) -> None:
+    captured: list = []
+    fake = _FakeOpenAI([_oai_resp(content="こんにちは")])
+    monkeypatch.setattr(demo, "_REAL", True)
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+
+    def factory(api_key, base_url):
+        captured.append((api_key, base_url))
+        return fake
+
+    monkeypatch.setitem(demo._state, "openai_factory", factory)
+    TestClient(demo.app).post(
+        "/demo/ask",
+        json={"question": "q"},
+        headers={
+            "X-API-Key": "gk",
+            "X-LLM-Provider": "gemini",
+            "X-LLM-Api-Base": "http://evil.example/v1",  # 無視される
+        },
+    )
+    assert captured == [("gk", "https://generativelanguage.googleapis.com/v1beta/openai/")]
+    assert fake.calls[0]["model"].startswith("gemini-")
+
+
+def test_gemini_without_key_never_builds_the_sdk_client(monkeypatch) -> None:
+    import sys
+
+    import pytest
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    built: list = []
+    mod = types.ModuleType("openai")
+    mod.OpenAI = lambda **kw: built.append(kw)
+    monkeypatch.setitem(sys.modules, "openai", mod)
+    monkeypatch.delitem(demo._state, "openai_factory", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        demo._openai_client("", demo._GEMINI_BASE)
+    assert ei.value.status_code == 400
+    assert built == []

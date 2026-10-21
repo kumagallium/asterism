@@ -228,5 +228,18 @@
   "place": {
     "content": "What will be placed",
     "thin": "{{n}} still proposals"
+  },
+  "suggestQ": {
+    "ask": "Suggest questions",
+    "askPaper": "Suggest questions from this paper",
+    "askTerm": "Suggest what to ask about this term",
+    "title": "How about these questions?",
+    "start": "Start with this question",
+    "running": "Thinking of questions",
+    "none": "No question to suggest",
+    "nonePaper": "No question found in this paper's abstract and conclusion",
+    "noneTerm": "No question found from this term and its relations",
+    "close": "Close",
+    "failed": "Could not suggest questions: {{detail}}"
   }
 }

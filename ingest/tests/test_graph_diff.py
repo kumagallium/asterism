@@ -227,6 +227,29 @@ def test_a_question_the_machine_cannot_answer_stays_as_a_memo_question() -> None
     assert (out2["answers"][-1]["mode"], out2["answers"][-1]["property"]) == ("data", "c2")
 
 
+def test_add_question_keeps_the_word_and_the_other_ends_of_the_wider_shapes() -> None:
+    base = {"op": "add_question", "mode": "data", "target": None, "direction": None,
+            "kind": "c4", "property": "c2", "value": "", "match": None, "property2": None,
+            "kind2": None, "wanted_data": "", "reason": ""}  # fmt: skip
+    filt = {**base, "question": "格子の値が 0.5 を含む散乱は？", "op_kind": "filter",
+            "value": "0.5", "match": "exact"}  # fmt: skip
+    out, _ = _apply(_draft(), [filt])
+    a = out["answers"][-1]
+    assert (a["mode"], a["op"], a["value"], a["match"]) == ("data", "filter", "0.5", "exact")
+    join = {**base, "question": "散乱がつなぐ散乱は？", "op_kind": "join", "kind2": "c5"}
+    out, _ = _apply(out, [join])
+    assert (out["answers"][-1]["mode"], out["answers"][-1]["kind2"]) == ("data", "c5")
+    # y が無い推移・値の無い filter は、メモの問いに落ちる
+    out, _ = _apply(out, [{**base, "question": "推移は？", "op_kind": "trend"}])
+    assert (out["answers"][-1]["mode"], out["answers"][-1]["memo"]) == ("memo", "ai")
+    out, _ = _apply(out, [{**base, "question": "絞る？", "op_kind": "filter"}])
+    assert out["answers"][-1]["mode"] == "memo"
+    # 概念を外すと、その概念を使っていた問いの欄はメモに戻る
+    out2, _ = _apply(out, [{"op": "remove", "target": "concept", "key": "c5", "reason": ""}])
+    last = next(x for x in out2["answers"] if x["question"] == "散乱がつなぐ散乱は？")
+    assert (last["mode"], last["kind2"], last["value"]) == ("memo", "", "")
+
+
 def test_add_concept_matches_exact_names_and_the_match_beats_the_models_use() -> None:
     op = {"op": "add_concept", "key": "n1", "label_ja": "温度", "label_en": "Temperature",
           "aliases": [], "kind": "property", "use": "new", "reason": "条件"}  # fmt: skip

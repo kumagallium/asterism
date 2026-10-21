@@ -101,6 +101,7 @@ import { useLlmSettings } from '../settings/context'
 import { usePdfRuntime } from '../pdfRuntime'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
+import { QuestionSuggestBlock } from '../sky/QuestionSuggest'
 import { homeHash } from '../sky/skyRoute'
 import { basename } from '../skeletonContainment'
 import { rowKindLabels } from './rowKindLabels'
@@ -4718,7 +4719,7 @@ export function KantanWizard({
 
   /** 公開した種類を、星図で 1 度だけ灯して見せる（`#/home?new=<種類の IRI>,…`）。
    *  種類が引けなくても星図だけは開く（灯らないだけ）。ここから先は書き込まない。 */
-  async function openSky() {
+  async function openSky(startQuestion?: string) {
     let iris: string[] = []
     if (kzDatasetId) {
       try {
@@ -4736,7 +4737,11 @@ export function KantanWizard({
       /* non-fatal */
     }
     void clearSourceFiles()
-    window.location.hash = homeHash({ newIris: iris })
+    // 「この問いで始める」（問いの提案）で来たときは、同じ道で問いを書く会話へ（`#/home?write=1&q=`）
+    window.location.hash = homeHash({
+      newIris: iris,
+      ...(startQuestion ? { write: { q: startQuestion, resume: '', extend: null } } : {}),
+    })
   }
 
   // ---- かんたん見直し (catalog 見直す → the S6 re-check flow) -----------------
@@ -6767,6 +6772,10 @@ export function KantanWizard({
               モックは 3 枚だが「つながりを作る」を落とすと、2 件目以降を公開した
               人から crosswalk の入口が消えるので 4 枚目として残す（条件つきなので
               初回公開では 3 枚に見える）。 */}
+          {/* 問いの提案（AI 設定ずみのときだけ・人が押したときだけ AI を呼ぶ）。押すと問いを書く会話へ */}
+          {kzDatasetId && (
+            <QuestionSuggestBlock datasetId={kzDatasetId} onStart={(q) => void openSky(q)} />
+          )}
           <div className="kz-next">
           {onCreateCrosswalk && publishedCount !== null && publishedCount >= 2 && (
             <div className="kz-next-card">

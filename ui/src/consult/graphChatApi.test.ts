@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyOnScreen, dismissOnScreen, proposeOnScreen } from './graphChatApi'
+import { applyOnScreen, dismissOnScreen, proposeOnScreen, suggestQuestions } from './graphChatApi'
 
 vi.mock('../authToken', async (orig) => ({
   ...(await orig<typeof import('../authToken')>()),
@@ -62,5 +62,58 @@ describe('/api/consult/graph（home・dataset）', () => {
     await expect(applyOnScreen({ screen: 'dataset', context: { dataset_id: 'zz' }, ops: [REL], proposalId: 'p' })).rejects.toMatchObject({
       status: 404,
     })
+  })
+})
+
+describe('/api/consult/suggest-questions（問いの提案）', () => {
+  it('列の見出しの文脈（データセット）と言語を送り、後処理済みの問いを読む。形の悪い行は落とす', async () => {
+    const fetchMock = vi.fn(() =>
+      json({
+        suggestions: [
+          { question: '食材ごとに記録は何件ある？', mode: 'data', op: 'group', shape: '値段の記録を 食材の名前 ごとに数える', kind: '値段の記録' },
+          { question: '値段を下げるものは？', mode: 'knowledge', op: 'factors', shape: '値段 を下げるもの' },
+          { mode: 'data', op: 'count' },
+          { question: '  ' },
+          null,
+        ],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = await suggestQuestions('prices-1', 'ja', null)
+    expect(rows).toEqual([
+      { question: '食材ごとに記録は何件ある？', mode: 'data', op: 'group', shape: '値段の記録を 食材の名前 ごとに数える' },
+      { question: '値段を下げるものは？', mode: 'knowledge', op: 'factors', shape: '値段 を下げるもの' },
+    ])
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/consult/suggest-questions')
+    expect(JSON.parse(String(init.body))).toEqual({ screen: 'dataset', context: { dataset_id: 'prices-1' }, lang: 'ja' })
+    expect((init.headers as Record<string, string>)['X-Asterism-Token']).toBe('tok')
+  })
+
+  it('論文は screen=paper で文書型のデータセットを指す（本文も値も送らない）', async () => {
+    const fetchMock = vi.fn(() => json({ suggestions: [{ question: '粒界は熱伝導率を下げる？', mode: 'knowledge', op: 'factors', shape: '熱伝導率 を下げるもの' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = await suggestQuestions('paper-1', 'ja', null, 'paper')
+    expect(rows.map((r) => r.question)).toEqual(['粒界は熱伝導率を下げる？'])
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ screen: 'paper', context: { dataset_id: 'paper-1' }, lang: 'ja' })
+  })
+
+  it('用語（図の穴）は screen=term で用語の鍵を送る。問いのある用語は 409 の 1 行', async () => {
+    const fetchMock = vi.fn(() => json({ suggestions: [{ question: '熱伝導率を下げるものは？', mode: 'knowledge', op: 'factors', shape: '熱伝導率 を下げるもの' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = await suggestQuestions('thermal', 'ja', null, 'term')
+    expect(rows.map((r) => r.question)).toEqual(['熱伝導率を下げるものは？'])
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ screen: 'term', context: { term_slug: 'thermal' }, lang: 'ja' })
+    vi.stubGlobal('fetch', vi.fn(() => json({ detail: 'この用語には問いがあります' }, 409)))
+    await expect(suggestQuestions('thermal', 'ja', null, 'term')).rejects.toMatchObject({ status: 409, detail: 'この用語には問いがあります' })
+  })
+
+  it('返りの形が違えば空。AI 未設定（503）は状態つきの失敗', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => json({ nope: 1 })))
+    expect(await suggestQuestions('d', 'ja', null)).toEqual([])
+    vi.stubGlobal('fetch', vi.fn(() => json({ detail: 'AI が設定されていません' }, 503)))
+    await expect(suggestQuestions('d', 'ja', null)).rejects.toMatchObject({ status: 503, detail: 'AI が設定されていません' })
   })
 })

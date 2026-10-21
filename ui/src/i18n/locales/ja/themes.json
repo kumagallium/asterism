@@ -27,7 +27,8 @@
       "answers": "問いの答えの取得",
       "consult": "相談",
       "consultApply": "「図に入れる」の反映",
-      "consultDismiss": "「入れない」の保存"
+      "consultDismiss": "「入れない」の保存",
+      "suggestQuestions": "問いの提案"
     }
   },
   "draft": {
@@ -149,6 +150,7 @@
     "remove": "用語を外す",
     "open": "用語のページを開く",
     "more": "詳しく",
+    "knowledgeCount": "知識 {{n}} 件が答える",
     "knowledgeAi": "AI 下書きを確定",
     "knowledgeMachine": "名前の一致を人が確定"
   },
@@ -199,6 +201,10 @@
       "count": "〜の件数",
       "range": "〜の〜の範囲",
       "top": "〜の〜が最大",
+      "filter": "〜のうち〜に値を含むもの",
+      "group": "〜を〜ごとに数える",
+      "trend": "〜の〜と〜の並び",
+      "join": "〜が〜で別の種類へつなぐ",
       "memo": "まだ決めない（メモ）"
     },
     "way": {
@@ -212,7 +218,28 @@
       "rangeOnly": "{{property}} の範囲",
       "top": "{{kind}} の {{property}} が最大",
       "topOnly": "{{property}} が最大",
+      "filter": "{{kind}} のうち、{{property}} に {{value}} を含むもの",
+      "filterExact": "{{kind}} のうち、{{property}} が {{value}} のもの",
+      "group": "{{kind}} を {{property}} ごとに数える",
+      "trend": "{{kind}} の {{property}} と {{property2}} の並び",
+      "join": "{{kind}} が {{property}} {{kind2}}",
       "none": "まだ決まっていません"
+    },
+    "pickValue": "値（問いの文にある語）",
+    "pickMatch": "一致のしかた",
+    "pickPropertyX": "項目（横）",
+    "pickPropertyY": "項目（縦）",
+    "pickLink": "つなぐ項目",
+    "pickKind2": "つなぐ先の種類",
+    "match": {
+      "contains": "含む",
+      "exact": "ちょうど同じ"
+    },
+    "hint": {
+      "filter": "値の欄には、問いの文にある語を書きます（データの値は見ません）。",
+      "group": "項目の値ごとに、データセットごとの件数を数えます。",
+      "trend": "横の項目の順に、縦の項目の値を並べます。",
+      "join": "種類の項目がつなぐ先の種類まで、1 段だけたどって数えます。"
     }
   },
   "map": {

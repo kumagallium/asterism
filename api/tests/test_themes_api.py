@@ -147,8 +147,10 @@ def _draft_and_commit(client: TestClient, body: dict | None = None):
 # ---------------------------------------------------------------------------
 
 
-def test_fitting_ops_are_the_ops_the_declarative_tools_answer_today() -> None:
-    assert themes.FITTING_OPS == QUESTION_OPS
+def test_fitting_ops_are_the_ops_the_declarative_tools_answer() -> None:
+    # かんたんの問いづくり（questions_routes）の 3 つ + テーマの 4 つ（絞る・〜ごと・推移・結合）
+    assert themes.FITTING_OPS[: len(QUESTION_OPS)] == QUESTION_OPS
+    assert themes.FITTING_OPS[len(QUESTION_OPS) :] == ("filter", "group", "trend", "join")
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +212,35 @@ def test_draft_without_an_ai_is_503_so_the_screen_goes_manual(tmp_path: Path) ->
         r = client.post("/api/themes/draft", json={"questions": ["セルは何件？"]})
         assert r.status_code == 503
         assert "AI" in r.json()["detail"]
+
+
+def _copilot_app(tmp_path: Path, *, single_user: bool, llm: _LLM):
+    cfg = _settings(tmp_path)
+    cfg.single_user = single_user
+    return build_app(
+        cfg,
+        oxigraph_client=_DatasetClient(rdflib.Dataset()),
+        start_watcher=False,
+        llm_factory=lambda key: llm,
+    )
+
+
+def test_draft_with_copilot_is_not_503_without_a_key(tmp_path: Path) -> None:
+    # copilot はキー無しで「設定済み」。単一ユーザーなら AI が走る。
+    llm = _LLM(json.dumps(AI_JSON))
+    app = _copilot_app(tmp_path, single_user=True, llm=llm)
+    with TestClient(app, headers={**_AUTH, "X-LLM-Provider": "copilot-subscription"}) as client:
+        r = client.post("/api/themes/draft", json={"questions": [Q_LOWER], "lang": "ja"})
+    assert r.status_code == 200
+    assert llm.calls
+
+
+def test_draft_with_copilot_on_a_shared_server_is_400_not_503(tmp_path: Path) -> None:
+    app = _copilot_app(tmp_path, single_user=False, llm=_LLM())
+    with TestClient(app, headers={**_AUTH, "X-LLM-Provider": "copilot-subscription"}) as client:
+        r = client.post("/api/themes/draft", json={"questions": [Q_LOWER]})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "copilot_unavailable"
 
 
 def test_draft_needs_a_question(tmp_path: Path) -> None:
@@ -437,6 +468,31 @@ def test_describe_phrases_selections_data_and_knowledge(tmp_path: Path) -> None:
             "熱伝導率 の一種",
         ]
     }
+
+
+def test_describe_phrases_the_four_wider_shapes(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/themes/describe",
+            json={
+                "selections": [
+                    {"op": "filter", "kind": "試料", "property": "組成", "value": "SnSe"},
+                    {"op": "group", "kind": "試料", "property": "組成"},
+                    {"op": "trend", "kind": "測定曲線", "property": "温度",
+                     "property2": "Seebeck 係数"},
+                    {"op": "join", "kind": "論文", "property": "報告する", "kind2": "試料"},
+                    {"op": "join", "kind": "論文", "property": "報告する"},
+                ]
+            },
+        )  # fmt: skip
+    assert r.json()["sentences"] == [
+        "試料のうち、組成に SnSe を含むもの",
+        "試料を 組成 ごとに数える",
+        "測定曲線の 温度 と Seebeck 係数 の並び",
+        "論文 が 報告する 試料",
+        "",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -793,3 +849,90 @@ def test_csv_header_cells_never_start_a_spreadsheet_formula() -> None:
     assert _csv_line(["cell_id", "=SUM(A1)", "@x", "+1", "-1", "ok"]) == (
         "cell_id,'=SUM(A1),'@x,'+1,'-1,ok\r\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# データで答える 4 つの形（値で絞る・〜ごと・推移・結合 1 段）
+# ---------------------------------------------------------------------------
+
+
+def _wide_body() -> dict:
+    qs = ["組成に SnSe を含む試料は？", "試料は組成ごとに何件？", "論文が報告する試料は？"]
+
+    def c(key: str, ja: str, en: str, kind: str, slug: str) -> dict:
+        return {"key": key, "label_ja": ja, "label_en": en, "aliases": [], "kind": kind,
+                "use": "new", "slug": slug}  # fmt: skip
+
+    return {
+        "label": "熱電",
+        "lang": "ja",
+        "ai_drafted": False,
+        "questions": qs,
+        "concepts": [
+            c("t1", "試料", "sample", "class", "sample"),
+            c("t2", "組成", "composition", "property", "composition"),
+            c("t3", "論文", "paper", "class", "paper"),
+            c("t4", "報告する", "reports", "property", "reports"),
+        ],
+        "relations": [],
+        "answers": [
+            {"question": qs[0], "mode": "data", "op": "filter", "kind": "t1", "property": "t2",
+             "value": "SnSe", "match": "contains"},
+            {"question": qs[1], "mode": "data", "op": "group", "kind": "t1", "property": "t2"},
+            {"question": qs[2], "mode": "data", "op": "join", "kind": "t3", "property": "t4",
+             "kind2": "t1"},
+        ],
+    }  # fmt: skip
+
+
+def test_wide_shapes_commit_and_answers_carry_the_sentence_and_data_n(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)
+    with TestClient(app, headers=_AUTH) as client:
+        d, r = _draft_and_commit(client, _wide_body())
+        assert r.status_code == 201, r.text
+        assert r.json()["questions"] == ["cq_sample_filter", "cq_sample_group", "cq_paper_join"]
+        got = client.get(f"/api/themes/{d['id']}/answers").json()["answers"]
+        assert [a["shape"] for a in got] == [
+            "試料のうち、組成に SnSe を含むもの",
+            "試料を 組成 ごとに数える",
+            "論文 が 報告する 試料",
+        ]
+        assert all(a["mode"] == "data" and a["data"]["answering"] == 0 for a in got)
+        listing = client.get("/api/themes").json()
+        theme = next(t for t in listing["themes"] if t["id"] == d["id"])
+        assert [q["shape"] for q in theme["questions"]] == [a["shape"] for a in got]
+        # 宣言ツールとして出る（MCP の形は変えない）: for_terms は関わる語の全部
+        tools = client.get("/api/vocab/shared").json()
+        names = {c["tool_name"] for t in tools["terms"] for c in t["cqs"]}
+        assert {"cq_sample_filter", "cq_sample_group", "cq_paper_join"} <= names
+        # 実行文を記録していないテーマに足しても、宣言ツールから組み直せる
+        other = client.post(
+            "/api/themes/drafts", json={"label": "別", "questions": ["q"]}
+        ).json()
+        client.post(f"/api/themes/{other['id']}/commit", json=_cell_body(label="別"))
+        client.post(
+            f"/api/themes/{other['id']}/questions",
+            json={"tool_names": ["cq_sample_filter", "cq_paper_join"]},
+        )
+        ans = client.get(f"/api/themes/{other['id']}/answers").json()["answers"]
+        shapes = {a["tool_name"]: a["shape"] for a in ans}
+        assert shapes["cq_sample_filter"] == "試料のうち、組成に SnSe を含むもの"
+        assert shapes["cq_paper_join"] == "論文 が 報告する 試料"
+
+
+def test_wide_selection_reads_terms_by_iri_not_by_position() -> None:
+    """一覧に無い語（ずれの元）があっても、位置でなく IRI で引く。"""
+    from asterism_api.themes_routes import _wide_selection
+
+    k, p, p2 = "urn:k", "urn:p", "urn:p2"
+    tool = {"name": "cq_curve_trend", "for_terms": [k, p, p2]}
+    by = {k: {"label": "曲線", "kind": "class"}, p: {"label": "温度", "kind": "property"},
+          p2: {"label": "Seebeck", "kind": "property"}}  # fmt: skip
+    assert _wide_selection(tool, by) == {
+        "op": "trend", "kind": "曲線", "property": "温度", "property2": "Seebeck",
+    }  # fmt: skip
+    # 2 つ目の項目だけ一覧に無い: 3 番目の語を「項目」に詰めない
+    no_p = {i: v for i, v in by.items() if i != p}
+    assert _wide_selection(tool, no_p) == {}
+    no_p2 = {i: v for i, v in by.items() if i != p2}
+    assert _wide_selection(tool, no_p2) == {"op": "trend", "kind": "曲線", "property": "温度"}

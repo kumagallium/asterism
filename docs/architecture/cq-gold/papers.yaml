@@ -1,0 +1,65 @@
+# 熱電の論文 2 本分の金標準。text は**自分で書いた要約**（要旨と結論の趣旨を短くまとめたもの）で、
+# 原文の文は 1 つも入れていない（著作権・再配布の理由）。実在する特定の論文の写しではなく、
+# 熱電材料の論文で典型的に述べられる主張を題材にしている（数値は書かない）。実際の論文で測るときは
+# paper_ref に DOI を入れ、text を自分の言葉で書き直した要約に差し替える。
+# terms = 図に既にある用語（AI に名前だけ渡す・問いの kind / property / target はこの名前から選ぶ）。
+# 形は README を見る。
+dataset: papers
+cases:
+  - id: pp-snse
+    source:
+      screen: paper
+      dataset_label: 論文 A（SnSe の単結晶）
+      paper_ref: null
+      text: >-
+        この論文は、層状の結晶構造をもつ SnSe の単結晶で熱電性能を調べたものである。結晶の
+        ある方向では、格子の非調和性が強く、フォノンが強く散乱されるため、格子熱伝導率が
+        非常に低くなると述べている。その結果、温度を上げると無次元性能指数 ZT が大きく
+        伸び、高温側で高い値に達するとまとめている。Seebeck 係数と電気抵抗率の温度依存も
+        あわせて示し、低い格子熱伝導率が高い ZT の主因だと結論している。
+      terms:
+        - {label: 熱伝導率, kind: property}
+        - {label: 格子熱伝導率, kind: property}
+        - {label: ZT, kind: property}
+        - {label: Seebeck 係数, kind: property}
+        - {label: 組成, kind: property}
+        - {label: 温度, kind: property}
+        - {label: 試料, kind: class}
+        - {label: 測定点, kind: class}
+    gold_cqs:
+      - 格子熱伝導率を下げる要因は？
+      - ZT は温度でどう変わるか？
+      - SnSe を含む組成の試料は？
+    expected_answers:
+      - {op: factors, mode: knowledge, target: 格子熱伝導率, direction: lowers, closed: true}
+      - {op: trend, mode: data, kind: 測定点, property: 温度, property2: ZT, closed: true}
+      - {op: filter, mode: data, kind: 試料, property: 組成, value: SnSe, match: contains, closed: true}
+
+  - id: pp-nano
+    source:
+      screen: paper
+      dataset_label: 論文 B（ナノ構造化による熱伝導率の低減）
+      paper_ref: null
+      text: >-
+        この論文は、熱電材料の結晶粒を小さくし、粒界やナノ析出物を意図して増やすことで、
+        熱伝導率を下げる試みを報告している。熱伝導率は格子の分と電子の分の和であり、粒界・
+        点欠陥・ナノ析出物が中から長い波長のフォノンを散乱して、格子の分を減らすと説明
+        している。電子の分は大きく変わらないため、全体の熱伝導率が下がり、同じ組成でも
+        粒径が小さい試料ほど熱伝導率が低い傾向を示したとまとめている。
+      terms:
+        - {label: 熱伝導率, kind: property}
+        - {label: 格子熱伝導率, kind: property}
+        - {label: 電子熱伝導率, kind: property}
+        - {label: 粒径, kind: property}
+        - {label: 粒界散乱, kind: class}
+        - {label: 点欠陥散乱, kind: class}
+        - {label: ナノ析出物散乱, kind: class}
+        - {label: 試料, kind: class}
+    gold_cqs:
+      - 熱伝導率を下げる要素は何か？
+      - 熱伝導率は何でできているか？
+      - 粒径と熱伝導率の関係は？
+    expected_answers:
+      - {op: factors, mode: knowledge, target: 熱伝導率, direction: lowers, closed: true}
+      - {op: parts, mode: knowledge, target: 熱伝導率, closed: true}
+      - {op: trend, mode: data, kind: 試料, property: 粒径, property2: 熱伝導率, closed: true}

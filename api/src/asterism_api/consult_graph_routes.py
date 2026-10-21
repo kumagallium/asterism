@@ -16,6 +16,13 @@
   止める（``duplicate``）— 過去に受けた ``proposal_id`` の記録には頼らない。
 - ``POST /api/consult/graph/dismiss`` — 「✕」。却下を ``shared_vocab.dismiss_fit`` の鍵で保存する
   （``write_auth``）。次の提案・適用で出ない。
+- ``POST /api/consult/suggest-questions`` — 「問いを提案してもらう」（ui-redesign PR 10a・design.md
+  §18・``write_auth``）。``{screen: "dataset", context: {dataset_id}, lang}`` → データセットの
+  列の**見出しと型**（値は渡さない）・名前・既にある問いと用語の名前を AI に渡し、閉じた形の問いを
+  3〜5 本返させ、機械（``asterism.question_suggest``）が閉じた形・名前の実在・重複で絞った
+  ``{suggestions: [{question, mode, op, shape, kind, property, …}]}`` を返す。**何も保存しない**
+  （提案の文・却下は残さない）。人が押したときだけ呼ばれる（公開の処理の中では呼ばない）。
+  AI 未設定は 503。
 
 AI の散文（``reply``）は保存しない。会話の保存はテーマの下書き（``draft["chat"]`` = 人の発言と
 適用した差分だけ）。home・dataset は保存しない。AI が返した ``ops`` は信用せず、適用の前に
@@ -36,13 +43,24 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import crosswalk_runtime, graph_diff, shared_vocab, themes
+from asterism import (
+    crosswalk_runtime,
+    graph_diff,
+    paper_sections,
+    question_suggest,
+    shared_vocab,
+    sky_view,
+    themes,
+)
+from asterism.grounding import term_display_name
 from asterism.mapping_ir_read import MappingIRView, read_mapping_ir
 from asterism_step0.graph_propose import (
     GraphDiffError,
     propose_graph_diff,
     validate_graph_diff,
 )
+from asterism_step0.question_suggest import propose_questions
+from asterism_step0.theme_propose import ThemeDraftError
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -71,21 +89,13 @@ _MAX_OPS = 30
 _MAX_MESSAGES = 12
 _MAX_CONTENT = 2000
 _PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,60}\Z")
-#: ホームの用語どうしの線に載せる述語 → 図の関係名（``themes.relation_predicate`` の逆）
-_PRED_TO_REL = {
-    "subClassOf": "sub",
-    "subPropertyOf": "sub",
-    "equivalentClass": "eq",
-    "equivalentProperty": "eq",
-    "hasQuantityKind": "quantity",
-    "isPartOf": "part",
-    "lowers": "lowers",
-    "raises": "raises",
-    "affects": "affects",
-}
 #: 当てはめ（``upper.json``）に置ける関係 — 項目の列だけ（種類は図で扱う）
 _BIND_TO_UPPER = {"eq": "equivalentProperty", "sub": "subPropertyOf"}
+#: 種類が用語に「入る」線（種類 ⊂ 用語・種類 ≡ 用語）の述語
+_SUBSUMPTION_RELATIONS = frozenset({"subClassOf", "equivalentClass"})
 _MAX_COLUMNS = 200
+#: 図の穴（``screen: "term"``）で出す提案の上限
+_TERM_HOLE_LIMIT = 3
 #: AI に見せる種類（星）の行の上限（選んでいる星が先頭・残りは件数の多い順）
 _MAX_KIND_ROWS = 150
 _MAX_BATCH = 100
@@ -104,6 +114,8 @@ class GraphContext(BaseModel):
     #: home のとき、人が星図で選んでいる種類（星）の IRI。AI には「いま選んでいる」と知らせるだけ
     #: （図の文脈の並びと印）。無くてよい・公開済みの種類でなければ無視する。
     focus_kind: str | None = None
+    #: ``suggest-questions`` の ``screen: "term"`` で、問いを提案する用語の鍵（slug）。
+    term_slug: str | None = None
 
 
 class ProposeBody(BaseModel):
@@ -138,6 +150,14 @@ class ApplyBody(BaseModel):
         ):
             raise ValueError(f"batch は 1 行 {_MAX_BATCH} 字までで、制御文字を含めません")
         return v
+
+
+class SuggestBody(BaseModel):
+    #: ``dataset`` = データ（10a）・``paper`` = 文書型のデータセットの要旨と結論（10b）・
+    #: ``term`` = 問いの無い用語（図の穴・10c。``context.term_slug``）
+    screen: Literal["dataset", "paper", "term"] = "dataset"
+    context: GraphContext = Field(default_factory=GraphContext)
+    lang: str = "ja"
 
 
 class DismissBody(BaseModel):
@@ -186,6 +206,24 @@ def _ir_columns(view: MappingIRView) -> list[dict]:
                     seen.add(col)
                     out.append({"name": col, "map": tm.name, "kind_hint": _column_hint(prop)})
     return out[:_MAX_COLUMNS]
+
+
+def _ir_link_items(view: MappingIRView) -> list[dict]:
+    """列を持たない項目（``object_template`` だけの線 = 別の種類へつなぐ項目）→ ``[{name,
+    kind_hint}]``。名前だけで、値は無い（``join`` の「つなぐ項目」の手がかり）。列と同じ名前や
+    重なりは 1 つにする。"""
+    cols = {c["name"] for c in _ir_columns(view)}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for tm in view.maps:
+        for prop in tm.properties:
+            if prop.column or prop.columns or prop.object_template is None:
+                continue
+            name = prop.label or prop.link_label
+            if name and name not in cols and name not in seen:
+                seen.add(name)
+                out.append({"name": name, "kind_hint": "link to another kind"})
+    return out
 
 
 def _property_subject(view: MappingIRView, column: str) -> str | None:
@@ -326,11 +364,11 @@ def register_consult_graph(
         relations = [
             {
                 "from": end(ln["source"]),
-                "rel": _PRED_TO_REL[ln["relation"]],
+                "rel": graph_diff.PRED_TO_REL[ln["relation"]],
                 "to": end(ln["target"]),
             }
             for ln in lines
-            if ln["relation"] in _PRED_TO_REL and end(ln["source"]) and end(ln["target"])
+            if ln["relation"] in graph_diff.PRED_TO_REL and end(ln["source"]) and end(ln["target"])
         ]
         # 選んでいる星を先頭に、あとは件数の多い順（行数の上限で切れても、選んだ星は残る）
         ordered = sorted(kinds, key=lambda k: (k["iri"] != focus_iri, -k["count"], k["key"]))
@@ -451,6 +489,248 @@ def register_consult_graph(
                 "ops": diff["ops"],
                 "sentences": graph_diff.ops_to_sentences(diff["ops"], sentence_graph, lang),
                 "proposal_id": graph_diff.proposal_id(diff["ops"]),
+            }
+        )
+
+    # ---- suggest questions (10a) -------------------------------------------------------------
+
+    def _existing_questions() -> list[str]:
+        """既にある問いの文（置いた問い・知識の問い・メモの問い・途中の下書き）。重ねて出さないために
+        AI に見せ、後処理でも突き合わせる。保存はしない。"""
+        out: list[str] = []
+        tools = shared_vocab.read_registry_raw_tools(cfg.registry_root, shared_vocab.REGISTRY_ID)
+        out += [str(t.get("title") or "") for t in tools or [] if t.get("for_terms")]
+        for th in (themes.load_themes_file(cfg.registry_root) or {}).get("themes", []):
+            out += [
+                str(m.get("title") or "")
+                for m in th.get("memo_questions") or []
+                if isinstance(m, dict)
+            ]
+            out += [
+                str(sel.get("title") or "")
+                for sel in (th.get("selections") or {}).values()
+                if isinstance(sel, dict) and sel.get("mode") == "knowledge"
+            ]
+        for d in themes.list_drafts(cfg.registry_root):
+            draft = themes.load_draft(cfg.registry_root, d["id"]) or {}
+            out += [str(q) for q in draft.get("questions") or []]
+        return [q for q in dict.fromkeys(" ".join(q.split()) for q in out) if q]
+
+    def _paper_of(ctx: GraphContext) -> tuple[dict, paper_sections.PaperText]:
+        """文書型のデータセットの、取り込み済みの文書から要旨と結論の文を取る（決定論・書かない）。
+        ``.xml``（JATS・Word は変換済み）はそのまま、``.pdf`` は取り込みのときに控えた変換結果
+        （``<name>.pdf.jats``）から読む。データセットか文書が無ければ 404・文書型でなければ 422。"""
+        if not ctx.dataset_id:
+            raise HTTPException(422, "context.dataset_id が要ります")
+        record = registry.load_dataset(cfg.registry_root, ctx.dataset_id)
+        if record is None:
+            raise HTTPException(404, "unknown dataset_id")
+        if str((record.get("meta") or {}).get("source_kind") or "csv") != "xml":
+            raise HTTPException(422, "文書型のデータセットではありません")
+        for path in registry.list_source_files(cfg.registry_root, ctx.dataset_id):
+            suffix = path.suffix.lower()
+            if suffix == ".pdf":
+                path = path.with_name(path.name + ".jats")
+            elif suffix != ".xml":
+                continue
+            try:
+                found = paper_sections.extract_from_jats(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):  # 読めない文書は飛ばす（最後は 404）
+                continue
+            if found:
+                return record, found
+        raise HTTPException(
+            404, "要旨と結論を読める文書がありません（PDF は取り込み直すと読めるようになります）"
+        )
+
+    async def _term_facts(
+        ctx: GraphContext, terms: list[shared_vocab.SharedTerm], lang: str
+    ) -> str:
+        """用語 1 つの事実（名前・種別・標準用語の一致・周りの関係の文・入っている種類の名前）を
+        1 行 1 事実の文にする（決定論・書かない・データの値は無い）。用語が無ければ 404・既に問いが
+        あれば 409（図の穴だけに出す）。"""
+        slug = (ctx.term_slug or "").strip()
+        if not slug:
+            raise HTTPException(422, "context.term_slug が要ります")
+        term = next((t for t in terms if t.slug == slug), None)
+        if term is None:
+            raise HTTPException(404, "unknown term_slug")
+        if sky_view.questions_of_term(cfg.registry_root, term.iri):  # 星図と同じ数え方
+            raise HTTPException(409, "この用語には問いがあります")
+        kinds = {k["iri"]: k["label"] for k in await _kinds()}
+        try:
+            lines = await crosswalk_runtime.list_alignments(
+                _client(), registry_root=cfg.registry_root
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"alignment read failed: {exc}") from exc
+        en = lang == "en"
+
+        def shown(t: shared_vocab.SharedTerm) -> str:
+            return (t.label_en or t.label) if en else t.label
+
+        names: dict[str, str] = {t.iri: shown(t) for t in terms}
+        std_ns = shared_vocab.known_namespaces()
+
+        def is_standard(iri: str) -> bool:
+            return any(iri.startswith(ns) for ns in std_ns)
+
+        def name(iri: str) -> str:
+            if names.get(iri):
+                return names[iri]
+            if kinds.get(iri):
+                return kinds[iri]
+            return term_display_name(iri) or re.split(r"[/#]", iri.rstrip("/#"))[-1] or iri
+
+        kind_word = ("kind of thing" if en else "種類") if term.kind == "class" else (
+            "property" if en else "項目"
+        )
+        facts = [f"{'Term' if en else '用語'}: {shown(term)}（{kind_word}）"]
+        mine = [ln for ln in lines if term.iri in (ln["source"], ln["target"])]
+        std = next(
+            (
+                ln
+                for ln in mine
+                if ln["source"] == term.iri
+                and ln["relation"] in ("equivalentClass", "equivalentProperty", "hasQuantityKind")
+                and is_standard(str(ln["target"]))
+            ),
+            None,
+        )
+        if std is not None:
+            head = "Standard term" if en else "標準用語の一致"
+            facts.append(f"{head}: {name(str(std['target']))}（{std['relation']}）")
+        sentences = graph_diff.REL_SENTENCE["en" if en else "ja"]
+        seen: set[str] = set()
+        for ln in mine:
+            rel = graph_diff.PRED_TO_REL.get(str(ln.get("relation")))
+            if rel is None:
+                continue
+            text = sentences[rel].format(s=name(str(ln["source"])), o=name(str(ln["target"])))
+            if text not in seen and len(seen) < 20:
+                seen.add(text)
+                facts.append(text)
+        filed = list(
+            dict.fromkeys(
+                kinds[str(ln["source"])]
+                for ln in mine
+                if ln["target"] == term.iri
+                and ln["relation"] in _SUBSUMPTION_RELATIONS
+                and str(ln["source"]) in kinds
+            )
+        )[:20]
+        if filed:
+            head = "Kinds filed under it" if en else "入っている種類"
+            facts.append(f"{head}: " + "、".join(filed))
+        return "\n".join(facts)
+
+    @app.post("/api/consult/suggest-questions", dependencies=list(write_auth))
+    async def consult_suggest_questions(
+        body: SuggestBody,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """「問いを提案してもらう」→ ``{suggestions[{question, mode, op, shape, kind, property,
+        property2, kind2, value, match, target, direction}]}``。何も書かない・保存しない。
+
+        AI に渡すのは、データセットの名前・列の**見出しと型のヒント**・何の行か（種類の名前）・既に
+        ある問いの文・用語と標準用語の名前だけ（データの値は渡さない）。``screen: "paper"``（10b）は
+        ``context.dataset_id`` の文書の**要旨と結論の文**（合計 2,500 字まで）と既存の名前だけで、
+        列と種類は無い（本文全体は渡さない）。``screen: "term"``（10c・図の穴）は
+        ``context.term_slug`` の**問いの無い用語**の名前・種別・標準用語の一致・周りの関係の文・
+        入っている種類の名前だけ（問いのある用語は 409・用語が無ければ 404）。返す問いはその用語に
+        ついてのもの（知識の問いは対象がその用語・データの問いは種類か項目がその用語）だけ・
+        多くて 3 本。
+        AI の答えは閉じた JSON だけ
+        （SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・1 回だけ言い直させる）。機械が
+        閉じた形（7 つのデータの形・3 つの知識の形）に落ちるもの・名前が列や用語に実在するもの・
+        既存の問いと重ならないものだけに絞る。未設定なら 503。"""
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        if _ai_unset(key, provider, api_base):
+            raise HTTPException(503, "AI が設定されていません")
+        lang = _lang(body.lang)
+        paper_text: str | None = None
+        columns: list[dict] | None
+        screen = body.screen
+        terms: list[shared_vocab.SharedTerm] | None = None
+        only_term: shared_vocab.SharedTerm | None = None
+        if screen == "dataset" and body.context.dataset_id:
+            # 星の札（10a）は ``dataset`` で呼ぶ。文書型には表が無いので、論文として読む
+            rec = registry.load_dataset(cfg.registry_root, body.context.dataset_id)
+            if rec and str((rec.get("meta") or {}).get("source_kind") or "csv") == "xml":
+                screen = "paper"
+        if screen == "term":
+            # 図の穴 = 問いの無い用語 1 つ。列も種類も無い。渡すのは用語の名前・種別・標準用語の
+            # 一致・周りの関係の文・入っている種類の名前だけ（データの値は渡さない）
+            terms = await _terms()
+            record = {"meta": {"name": ""}}
+            paper_text = await _term_facts(body.context, terms, lang)
+            only_term = next(t for t in terms if t.slug == (body.context.term_slug or "").strip())
+            columns, kind_names, prop_names = None, [], []
+            standards = [s["label"] for s in themes.default_standards([])]
+        elif screen == "paper":
+            # 論文 = 列も種類も無い。渡すのは要旨と結論の文と既存の名前だけ（本文全体は渡さない）
+            record, paper = await asyncio.to_thread(_paper_of, body.context)
+            paper_text = paper.text
+            columns, kind_names, prop_names = None, [], []
+            standards = [s["label"] for s in themes.default_standards([])]
+        else:
+            record, view = _dataset_ir(body.context)
+            columns = [{"name": c["name"], "kind_hint": c["kind_hint"]} for c in _ir_columns(view)]
+            standards = [s["label"] for s in themes.default_standards([c["name"] for c in columns])]
+            # 列の無い項目（別の種類へつなぐ線）も名前だけ渡す — join の「つなぐ項目」になる
+            columns = [*columns, *_ir_link_items(view)][:_MAX_COLUMNS]
+            kind_names, prop_names = question_suggest.dataset_names(view)
+        dataset_name = (record.get("meta") or {}).get("name") or body.context.dataset_id or ""
+        if terms is None:
+            terms = await _terms()
+        existing = _existing_questions()
+        llm = resolve_llm(
+            provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+        )
+        try:
+            ai = await asyncio.to_thread(
+                propose_questions,
+                llm,
+                screen=screen,
+                columns=columns,
+                dataset_label=str(dataset_name),
+                existing_questions=existing,
+                terms=[
+                    {"label": (t.label_en or t.label) if lang == "en" else t.label, "kind": t.kind}
+                    for t in terms
+                ],
+                standards=standards,
+                kinds=None if screen in ("paper", "term") else [k for k, _ in kind_names],
+                text=paper_text,
+                lang=lang,
+            )
+        except ThemeDraftError as exc:
+            raise HTTPException(502, f"AI の答えが決まった形になりませんでした: {exc}") from exc
+        except Exception as exc:  # LLM unreachable / provider error
+            raise HTTPException(502, f"AI failed: {exc}") from exc
+        await asyncio.to_thread(
+            _record_usage, cfg.registry_root, "consult.suggest_questions", provider, llm, model
+        )
+        limit = _TERM_HOLE_LIMIT if only_term is not None else question_suggest.MAX_SUGGESTIONS
+        return JSONResponse(
+            {
+                "suggestions": question_suggest.postprocess_questions(
+                    ai,
+                    kinds=kind_names,
+                    properties=prop_names,
+                    terms=terms,
+                    existing_questions=existing,
+                    lang=lang,
+                    # 図の穴は、その用語についての問いだけ・多くて 3 本
+                    only_term=only_term,
+                    limit=limit,
+                )
             }
         )
 

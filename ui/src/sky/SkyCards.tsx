@@ -7,6 +7,7 @@ import type { Alignment } from '../crosswalkApi'
 import { decisionsHash, involves } from '../decide/decisionsModel'
 import { resumeDraftHash } from '../vocabQuestion'
 import { DecidePanel } from '../decide/DecidePanel'
+import { SuggestButton } from './QuestionSuggest'
 import { SkySuggestions } from './SkySuggestions'
 import type { Suggestion, SuggestionKey } from './suggestApi'
 import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
@@ -46,6 +47,12 @@ export interface CardProps {
   onSuggestionsApplied: (keys: SuggestionKey[]) => void
   /** 候補を外した（一覧から外す）。 */
   onSuggestionsDismissed: (keys: SuggestionKey[]) => void
+  /** 「問いを提案してもらう」（星の札・AI 設定ずみのときだけ渡す）。人が押したときだけ AI を呼ぶ。 */
+  onSuggestQuestions?: (datasetId: string, datasetLabel: string) => void
+  /** 「この用語で聞けることを提案してもらう」（問いの無い用語の札・AI 設定ずみのときだけ渡す）。 */
+  onSuggestTerm?: (slug: string, label: string) => void
+  /** 提案を待っている最中（ボタンを止める）。 */
+  suggesting?: boolean
 }
 
 const fmt = (n: number): string => n.toLocaleString('en-US')
@@ -187,6 +194,9 @@ function KindAbout(p: CardProps & { node: KindNode }) {
           {t('about.viewKind', { name: node.label })}
         </button>
         <DecisionsLink iri={node.iri} alignments={p.alignments} />
+        {p.onSuggestQuestions && (
+          <SuggestButton onAsk={() => p.onSuggestQuestions?.(node.datasetId, ds?.label ?? '')} disabled={p.suggesting} />
+        )}
       </div>
       <dl className="sky-kv">
         <dt>{t('about.dataset')}</dt>
@@ -353,6 +363,9 @@ function TermAbout(p: CardProps & { node: TermNode }) {
           <button type="button" className="btn btn--primary btn--sm" onClick={() => p.onOpenTerm(term.slug)}>
             {t('about.viewTerm', { name: node.label })}
           </button>
+          {qs.length === 0 && p.onSuggestTerm && (
+            <SuggestButton screen="term" onAsk={() => p.onSuggestTerm?.(term.slug, node.label)} disabled={p.suggesting} />
+          )}
         </div>
       )}
       <dl className="sky-kv">

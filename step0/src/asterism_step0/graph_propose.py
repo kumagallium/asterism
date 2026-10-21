@@ -30,11 +30,13 @@ from typing import Any
 from asterism_step0.llm import LLMClient
 from asterism_step0.theme_propose import (
     _CODE_LIKE,
+    _QUESTION_LIKE,
     _USE_RE,
     ANSWER_MODES,
     DATA_OPS,
     DIRECTIONS,
     KNOWLEDGE_OPS,
+    MATCH_MODES,
     RELATIONS,
     TERM_KINDS,
     ThemeDraftError,
@@ -88,6 +90,7 @@ _LEN_REF = 80
 _LEN_KEY = 40  # a home key is a term slug (up to 40 characters)
 _LEN_QUESTION = 300
 _LEN_COLUMN = 120
+_LEN_VALUE = 120  # a ``filter`` word taken from the question (``theme_propose._LEN_VALUE``)
 _LEN_MESSAGE = 2000
 _MAX_ALIASES = 12
 _MAX_GRAPH_ROWS = 300  # concepts / relations the prompt carries (it is names only, but bounded)
@@ -120,9 +123,12 @@ _SHAPE = """\
   {"op": "rename", "key": "<key>", "label_ja": "...", "label_en": "...", "aliases": ["..."],
    "reason": "..."},
   {"op": "add_question", "question": "<a sentence>", "mode": "knowledge|data",
-   "op_kind": "factors|parts|kinds|count|range|top", "target": "<key> or null",
-   "direction": "lowers|raises|affects or null", "kind": "<key of a class> or null",
-   "property": "<key of a property> or null", "wanted_data": "...", "reason": "..."},
+   "op_kind": "factors|parts|kinds|count|range|top|filter|group|trend|join",
+   "target": "<key> or null", "direction": "lowers|raises|affects or null",
+   "kind": "<key of a class> or null", "property": "<key of a property> or null",
+   "value": "<a word from the question> or null", "match": "contains|exact or null",
+   "property2": "<key of a property> or null", "kind2": "<key of a class> or null",
+   "wanted_data": "...", "reason": "..."},
   {"op": "bind_column", "column": "<a column heading>", "to": "<key or curie>",
    "rel": "eq|sub|quantity", "reason": "..."}
  ]}"""
@@ -146,7 +152,11 @@ Meaning:
 - "remove" takes a concept (its relations go with it) or one relation away.
 - "add_question": a question the graph should answer. mode "knowledge": op "factors" (with
   direction: what lowers / raises / changes the target), "parts" or "kinds"; "target" is a key.
-  mode "data": op "count" (give "kind"), "range" or "top" (give "property"). Unused fields: null.
+  mode "data": op "count" (give "kind"), "range" or "top" (give "property"), "filter" (give
+  "kind", "property", "value" = a word WRITTEN IN THE QUESTION, "match" contains or exact),
+  "group" (give "kind", "property"), "trend" (give "kind", "property" = x, "property2" = y) or
+  "join" (give "kind" = start, "property" = the link, "kind2" = end). Never invent a value.
+  Unused fields: null.
 - Every operation has a one-line "reason" a person can check.
 - When the person asks "is it true?" or says "I think it is ...", answer in "reply" in one to
   three sentences with the grounds; add operations only when the graph should change. An empty
@@ -246,6 +256,10 @@ def graph_diff_json_schema(*, expand: bool = False) -> dict:
                         "op_kind": {"type": ["string", "null"], "enum": [*_QUESTION_OPS, None]},
                         "direction": {"type": ["string", "null"], "enum": [*DIRECTIONS, None]},
                         "property": _string(_LEN_KEY, nullable=True),
+                        "value": _string(_LEN_VALUE, nullable=True),
+                        "match": {"type": ["string", "null"], "enum": [*MATCH_MODES, None]},
+                        "property2": _string(_LEN_KEY, nullable=True),
+                        "kind2": _string(_LEN_KEY, nullable=True),
                         "wanted_data": _string(_LEN_REASON, nullable=True),
                         "column": _string(_LEN_COLUMN, nullable=True),
                     },
@@ -264,7 +278,9 @@ def _fail(path: str, why: str) -> GraphDiffError:
     return GraphDiffError(f"{path}: {why}")
 
 
-def _name(v: Any, path: str, max_len: int, *, required: bool = True) -> str:
+def _name(
+    v: Any, path: str, max_len: int, *, required: bool = True, sentence: bool = False
+) -> str:
     """A name the person will read (label / alias / column / question): a string, whitespace
     folded, with no code or IRI in it."""
     if v is None and not required:
@@ -274,7 +290,7 @@ def _name(v: Any, path: str, max_len: int, *, required: bool = True) -> str:
     s = " ".join(v.split())
     if len(s) > max_len:
         raise _fail(path, f"longer than {max_len} characters")
-    if _CODE_LIKE.search(s):
+    if (_QUESTION_LIKE if sentence else _CODE_LIKE).search(s):
         raise _fail(path, "looks like code or an IRI (names only)")
     if required and not s:
         raise _fail(path, "is empty")
@@ -398,15 +414,23 @@ def _op(o: Any, p: str, keys: set[str], new_keys: set[str]) -> dict:
         direction = o.get("direction") or None
         if direction is not None and direction not in DIRECTIONS:
             raise _fail(f"{p}.direction", f"must be one of {DIRECTIONS}")
+        match = o.get("match") or None
+        if match is not None and match not in MATCH_MODES:
+            raise _fail(f"{p}.match", f"must be one of {MATCH_MODES}")
         return {
             "op": name,
-            "question": _name(o.get("question"), f"{p}.question", _LEN_QUESTION),
+            "question": _name(o.get("question"), f"{p}.question", _LEN_QUESTION, sentence=True),
             "mode": mode,
             "op_kind": op_kind,
             "target": _opt_ref(o.get("target"), f"{p}.target", keys),
             "direction": direction,
             "kind": _opt_ref(o.get("kind"), f"{p}.kind", keys),
             "property": _opt_ref(o.get("property"), f"{p}.property", keys),
+            # 値は問いの文に書かれていた語（コード・IRI は拒む・データの値ではない）
+            "value": _name(o.get("value"), f"{p}.value", _LEN_VALUE, required=False),
+            "match": match,
+            "property2": _opt_ref(o.get("property2"), f"{p}.property2", keys),
+            "kind2": _opt_ref(o.get("kind2"), f"{p}.kind2", keys),
             "wanted_data": _cut(o.get("wanted_data", ""), f"{p}.wanted_data", _LEN_REASON),
             "reason": reason,
         }

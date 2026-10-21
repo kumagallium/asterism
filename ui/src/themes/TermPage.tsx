@@ -7,8 +7,11 @@ import { decisionSentence } from '../decide/decisionsModel'
 import { type SchemaSummary, getSchema } from '../demoApi'
 import { type CatalogDataset, getCatalogDatasets } from '../galleryApi'
 import { ArrowIcon } from '../icons'
+import { QuestionSuggestBlock } from '../sky/QuestionSuggest'
+import { startQuestionHash } from '../sky/skyRoute'
 import { type SharedTerm, VocabApiError, listTerms, removeTerm } from '../vocabApi'
 import { localName } from '../vocab'
+import { knowledgeQuestionsOf } from './termQuestions'
 import { type ThemeSummary, listThemes, themeLabel } from './themesApi'
 import './themes.css'
 
@@ -49,6 +52,9 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
   const [datasets, setDatasets] = useState<CatalogDataset[]>([])
   const [schema, setSchema] = useState<SchemaSummary | null>(null)
   const [themes, setThemes] = useState<ThemeSummary[]>([])
+  // テーマを読み終えるまで知識の問いの有無が分からない（読む前に「問いが無い」と見て提案のボタンが一瞬出るのを防ぐ）
+  const [themesFor, setThemesFor] = useState<string | null>(null)
+  const themesReady = themesFor === slug
   const [version, setVersion] = useState(0)
   const [attaching, setAttaching] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -80,6 +86,7 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
     listThemes(lang)
       .then((l) => !off && setThemes(l.themes))
       .catch(() => !off && setThemes([]))
+      .finally(() => !off && setThemesFor(slug))
     return () => {
       off = true
     }
@@ -147,6 +154,8 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
       </div>
     ) : null
   const themesOf = (tool: string) => themes.filter((th) => th.questions.some((q) => q.tool_name === tool))
+  // 使う問い = データの問い（term.cqs）＋ 知識の問い（この用語が対象のもの）
+  const knowledgeQs = knowledgeQuestionsOf(themes, term.slug)
 
   return (
     <div className="vocab thm-view" data-testid="term-page">
@@ -197,14 +206,37 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
         <h3 className="vocab-sec-h" id="term-questions-h">
           {t('themes:term.questions')}
         </h3>
-        {term.cqs.length === 0 ? (
-          <p className="ds-empty-note">{t('vocab:term.no_cq')}</p>
+        {term.cqs.length === 0 && knowledgeQs.length === 0 ? (
+          <>
+            <p className="ds-empty-note">{t('vocab:term.no_cq')}</p>
+            {/* 図の穴の問い（PR 10c・AI 設定ずみのときだけ・人が押したときだけ AI を呼ぶ）。押すと問いを書く会話へ */}
+            {themesReady && (
+              <QuestionSuggestBlock
+                key={term.slug}
+                screen="term"
+                termSlug={term.slug}
+                onStart={(q) => {
+                  window.location.hash = startQuestionHash(q)
+                }}
+              />
+            )}
+          </>
         ) : (
-          <ul className="vocab-term-cqs">
+          <ul className="vocab-term-cqs" data-testid="term-questions">
             {term.cqs.map((cq) => (
               <li key={cq.tool_name}>
                 {cq.title} — {t('vocab:term.answering', { n: cq.answering_datasets })}
                 {themesOf(cq.tool_name).map((th) => (
+                  <a key={th.id} className="thm-term-chip" href={`#/questions/${encodeURIComponent(th.id)}`}>
+                    {themeLabel(th, t)}
+                  </a>
+                ))}
+              </li>
+            ))}
+            {knowledgeQs.map(({ q, themes: ths }) => (
+              <li key={q.tool_name} data-testid="term-knowledge-question">
+                {q.title} — {t('themes:term.knowledgeCount', { n: q.knowledge_count ?? 0 })}
+                {ths.map((th) => (
                   <a key={th.id} className="thm-term-chip" href={`#/questions/${encodeURIComponent(th.id)}`}>
                     {themeLabel(th, t)}
                   </a>

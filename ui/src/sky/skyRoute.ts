@@ -97,3 +97,7 @@ export function homeHash(q: Partial<HomeQuery> = {}): string {
   }
   return parts.length ? `#/home?${parts.join('&')}` : '#/home'
 }
+
+/** 「この問いで始める」（問いの提案）の行き先: 問い `q` を入れて「問いを書く」の会話を開く
+ *  （`#/home?write=1&q=<問い>`）。開いている下書きがあれば、ホームが確かめてから切り替える。 */
+export const startQuestionHash = (q: string): string => homeHash({ write: { q, resume: '', extend: null } })

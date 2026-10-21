@@ -810,3 +810,461 @@ def test_upper_provenance_rides_from_the_chat_to_the_published_line(tmp_path: Pa
     )  # fmt: skip
     weight = lines[EX + "weight"]
     assert (weight["drafted_by"], weight["batch"]) == ("human", None)
+
+
+# ---- suggest questions (PR 10a) ----------------------------------------------------------------
+
+_PRICES_IR = """\
+version: 1
+prefixes:
+  prices: "https://example.org/prices#"
+  pricesr: "https://example.org/prices/r/"
+maps:
+  - name: record
+    source: prices.csv
+    subject:
+      template: "pricesr:record/{no}"
+      classes: [prices:Record]
+      label: "値段の記録"
+    properties:
+      - {predicate: "prices:no", column: "no", label: "行の通し番号"}
+      - {predicate: "prices:price", column: price, datatype: "xsd:integer",
+         label: "1 つあたりの値段"}
+      - {predicate: "prices:shop", column: shop, label: "店の名前"}
+      - {predicate: "prices:date", column: date, label: "値段を調べた日"}
+      - {predicate: "prices:hasFood", object_template: "pricesr:food/{food}", label: "食材の名前"}
+  - name: food
+    source: prices.csv
+    subject:
+      template: "pricesr:food/{food}"
+      classes: [prices:Food]
+      label: "食材の名前"
+    properties:
+      - {predicate: "prices:food", column: food, label: "食材の名前"}
+"""
+
+
+def _q(question: str, mode: str, op: str, **kw: object) -> dict:
+    base = {"question": question, "mode": mode, "op": op, "kind": None, "property": None,
+            "property2": None, "kind2": None, "value": None, "match": None, "target": None,
+            "direction": None, "reason": "知りたくなる"}  # fmt: skip
+    return {**base, **kw}
+
+
+#: 「スーパーの価格表」への AI の提案（閉じた形に落ちる 4 本・落ちない 3 本）
+SUGGESTED = {
+    "questions": [
+        _q("いちばん高い値段の記録は？", "data", "top", kind="値段の記録", property="price"),
+        _q("食材ごとに記録は何件ある？", "data", "group", kind="値段の記録", property="食材の名前"),
+        _q("店の名前に「北」を含む記録は？", "data", "filter", kind="値段の記録",
+           property="shop", value="北", match="contains"),
+        _q("食材は何種類ある？", "data", "count", kind="食材の名前"),
+        _q("粘度が高い記録は？", "data", "top", kind="値段の記録", property="粘度"),  # no such col
+    ]
+}  # fmt: skip
+
+
+def _prices(tmp_path: Path) -> str:
+    meta = registry.save_dataset(
+        tmp_path / "registry", "スーパーの価格表", {"mapping.yaml": _PRICES_IR},
+        complete=True, warnings=[], traps=[], exit_code=0,
+        created_at="2026-10-21T00:00:00+00:00",
+    )  # fmt: skip
+    return meta["id"]
+
+
+def _files(root: Path) -> dict[str, bytes]:
+    paths = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    return {str(p.relative_to(root)): p.read_bytes() for p in paths}
+
+
+def _suggest(client: TestClient, dsid: str, **kw):
+    return client.post(
+        "/api/consult/suggest-questions",
+        json={"screen": "dataset", "context": {"dataset_id": dsid}, "lang": "ja", **kw},
+    )
+
+
+def test_suggest_questions_gives_closed_shapes_and_saves_nothing_and_sends_no_value(
+    tmp_path: Path,
+) -> None:
+    sentinel = "SENTINEL-VALUE-55501"
+    llm = _LLM(json.dumps(SUGGESTED))
+    app, store = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    store.add(ox.Quad(  # a value of the table sits in the store — it must never reach the model
+        ox.NamedNode("https://example.org/prices/r/record/1"),
+        ox.NamedNode("https://example.org/prices#shop"),
+        ox.Literal(sentinel),
+        ox.NamedNode(substrate.versioned_graph_iri(dsid, 1)),
+    ))  # fmt: skip
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        before = _files(tmp_path)
+        r = _suggest(client, dsid)
+        assert r.status_code == 200, r.text
+        out = r.json()["suggestions"]
+        assert [(s["op"], s["shape"]) for s in out] == [
+            ("top", "値段の記録のうち、1 つあたりの値段がいちばん大きいものを出します"
+                    "（データセットごと）"),
+            ("group", "値段の記録を 食材の名前 ごとに数える"),
+            ("filter", "値段の記録のうち、店の名前に 北 を含むもの"),
+            ("count", "食材の名前の件数を数えます（データセットごと）"),
+        ]  # the one with a column that does not exist is not offered
+        assert len(out) >= 3 and all(s["mode"] == "data" for s in out)
+        assert set(out[0]) == {"question", "mode", "op", "shape", "kind", "property", "property2",
+                               "kind2", "value", "match", "target", "direction"}  # fmt: skip
+        # nothing is kept: the sentences, a refusal, nothing
+        assert _files(tmp_path) == before
+        assert client.get("/api/themes").json()["drafts"] == []
+        system, user = llm.calls[0]
+        assert "# Column headings" in user and "price | " in user and "shop | " in user
+        assert "スーパーの価格表" in user and "値段の記録" in user  # names, not values
+        assert sentinel not in system + user
+        assert "Do NOT write SPARQL" in system
+        assert len(llm.calls) == 1
+
+
+def test_suggest_questions_hides_what_is_already_asked_and_tells_the_model(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        d = client.post(
+            "/api/themes/drafts",
+            json={"label": "", "questions": ["食材は何種類ある？"]},
+        ).json()
+        assert d["id"]
+        out = _suggest(client, dsid).json()["suggestions"]
+        assert "食材は何種類ある？" in llm.calls[0][1]  # shown so it is not repeated
+        assert [s["op"] for s in out] == ["top", "group", "filter"]  # and filtered again
+
+
+def test_suggest_questions_needs_the_token_an_ai_and_a_known_dataset(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)  # no AI
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers=KEY) as anon:
+        assert _suggest(anon, dsid).status_code == 401
+    with TestClient(app, headers=_AUTH) as client:
+        r = _suggest(client, dsid)
+        assert r.status_code == 503 and "AI" in r.json()["detail"]
+    llm = _LLM()
+    app2, _ = _app(tmp_path / "b", llm)
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        assert _suggest(client, "nope").status_code == 404
+        no_ctx = client.post("/api/consult/suggest-questions", json={"screen": "dataset"})
+        assert no_ctx.status_code == 422
+    assert llm.calls == []
+
+
+def test_suggest_questions_retries_once_then_502_on_an_off_shape_answer(tmp_path: Path) -> None:
+    bad = json.dumps({"questions": [_q("SELECT ?s WHERE { ?s ?p ?o }", "data", "count",
+                                       kind="値段の記録")]})  # fmt: skip
+    llm = _LLM(bad, bad)
+    app, _ = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        r = _suggest(client, dsid)
+        assert r.status_code == 502 and "決まった形" in r.json()["detail"]
+        assert len(llm.calls) == 2
+    llm2 = _LLM(bad, json.dumps(SUGGESTED))
+    app2, _ = _app(tmp_path / "c", llm2)
+    dsid2 = _prices(tmp_path / "c")
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        assert len(_suggest(client, dsid2).json()["suggestions"]) == 4
+
+
+# ---- suggest questions from a paper (PR 10b) ---------------------------------------------------
+
+#: このテストのために自分で書いた短い要約（実在の論文の本文ではない）
+PAPER_ABSTRACT = "Bi2Te3 に Sb を加えた試料で、粒界の密度が増えると熱伝導率が下がり ZT が上がった。"
+PAPER_CONCLUSION = "粒界でのフォノン散乱が格子熱伝導率を下げ、ZT の向上につながると結論した。"
+PAPER_METHODS = "SENTINEL-METHODS-77: 試料は焼結で作り、レーザーフラッシュ法で測った。"
+
+
+def _paper_jats() -> str:
+    return (
+        "<article><front><article-meta><abstract>"
+        f"<p>{PAPER_ABSTRACT}</p></abstract></article-meta></front><body>"
+        f"<sec><title>2. Methods</title><p>{PAPER_METHODS}</p></sec>"
+        f"<sec><title>4. Conclusions</title><p>{PAPER_CONCLUSION}</p></sec></body></article>"
+    )
+
+
+def _paper(tmp_path: Path, *, suffix: str = ".xml", cached: bool = True) -> str:
+    """文書型のデータセット（JATS の ``.xml``、または PDF + 取り込みで控えた変換結果）。"""
+    root = tmp_path / "registry"
+    meta = registry.save_dataset(
+        root, "熱電の論文", {"diagram.md": "classDiagram\n  class Document"},
+        complete=True, warnings=[], traps=[], exit_code=0,
+        created_at="2026-10-21T00:00:00+00:00",
+    )  # fmt: skip
+    sdir = registry.source_dir(root, meta["id"])
+    assert sdir is not None
+    sdir.mkdir(parents=True, exist_ok=True)
+    name = f"paper{suffix}"
+    if suffix == ".pdf":
+        (sdir / name).write_bytes(b"%PDF-1.4 not read")
+        if cached:
+            (sdir / f"{name}.jats").write_text(_paper_jats(), encoding="utf-8")
+    else:
+        (sdir / name).write_text(_paper_jats(), encoding="utf-8")
+    registry.mark_source_saved(root, meta["id"], [name])
+    return meta["id"]
+
+
+def _suggest_paper(client: TestClient, dsid: str | None, **kw):
+    ctx = {"dataset_id": dsid} if dsid else {}
+    return client.post(
+        "/api/consult/suggest-questions",
+        json={"screen": "paper", "context": ctx, "lang": "ja", **kw},
+    )
+
+
+def _paper_terms(client: TestClient) -> None:
+    _mint(client, "thermal", "熱伝導率")
+    _mint(client, "lattice", "格子熱伝導率")
+    _mint(client, "grain", "粒界散乱", kind="class")
+
+
+PAPER_SUGGESTED = {
+    "questions": [
+        _q("粒界散乱は格子熱伝導率を下げる？", "knowledge", "factors", target="格子熱伝導率",
+           direction="lowers"),
+        _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
+        _q("粒界散乱にはどんな種類がある？", "knowledge", "kinds", target="粒界散乱"),
+        _q("ZT を上げるものは？", "knowledge", "factors", target="ZT", direction="raises"),
+        _q("試料ごとの Sb 量は？", "data", "group", kind="試料", property="Sb 量"),
+    ]
+}  # fmt: skip
+
+
+def test_suggest_questions_from_a_paper_gives_three_knowledge_questions_from_the_abstract_only(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        before = _files(tmp_path)
+        r = _suggest_paper(client, dsid)
+        assert r.status_code == 200, r.text
+        out = r.json()["suggestions"]
+        assert [(s["mode"], s["op"], s["target"]) for s in out] == [
+            ("knowledge", "factors", "格子熱伝導率"),
+            ("knowledge", "parts", "熱伝導率"),
+            ("knowledge", "kinds", "粒界散乱"),
+        ]  # a target no term names, and a table's column the paper does not have, are not offered
+        assert all(s["question"] and s["shape"] for s in out)
+        assert _files(tmp_path) == before  # nothing is kept
+        assert client.get("/api/themes").json()["drafts"] == []
+        system, user = llm.calls[0]
+        assert "PAPER" in system and "Do NOT write SPARQL" in system
+        asked = f"# Text to ask about\nAbstract: {PAPER_ABSTRACT} Conclusion: {PAPER_CONCLUSION}"
+        assert asked in user
+        assert "SENTINEL-METHODS-77" not in system + user  # the body is never passed
+        assert "熱電の論文" in user and "格子熱伝導率 | " in user  # the data set's name, term names
+        assert "Column headings" not in user and "Kinds of thing a row" not in user
+        assert len(llm.calls) == 1
+
+
+def test_suggest_questions_from_a_pdf_reads_the_conversion_kept_at_ingest(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path, suffix=".pdf")
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        assert len(_suggest_paper(client, dsid).json()["suggestions"]) == 3
+        assert PAPER_CONCLUSION in llm.calls[0][1]
+    # a PDF that was ingested before the conversion was kept: nothing to read → 404, no AI call
+    llm2 = _LLM()
+    app2, _ = _app(tmp_path / "b", llm2)
+    old = _paper(tmp_path / "b", suffix=".pdf", cached=False)
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        r = _suggest_paper(client, old)
+        assert r.status_code == 404 and "取り込み直" in r.json()["detail"]
+    assert llm2.calls == []
+    # the kept conversion exists after ingest (the .pdf.jats beside the .pdf)
+    assert any(f.name.endswith(".pdf.jats") for f in (tmp_path / "registry").rglob("*"))
+    # a kept file that cannot be read as text is "no readable document" (404), not a 500
+    for f in (tmp_path / "registry").rglob("*.pdf.jats"):
+        f.write_bytes(b"\xff\xfe\x00bad")
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        assert _suggest_paper(client, dsid).status_code == 404
+
+
+def test_suggest_questions_from_a_paper_hides_what_is_already_asked(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        client.post(
+            "/api/themes/drafts",
+            json={"label": "", "questions": ["熱伝導率はどんな成分でできている？"]},
+        )
+        out = _suggest_paper(client, dsid).json()["suggestions"]
+        assert "熱伝導率はどんな成分でできている？" in llm.calls[0][1]
+        assert [s["op"] for s in out] == ["factors", "kinds"]
+
+
+def test_suggest_questions_from_a_paper_needs_the_token_an_ai_and_a_document(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path)  # no AI
+    doc = _paper(tmp_path)
+    table = _prices(tmp_path)
+    with TestClient(app, headers=KEY) as anon:
+        assert _suggest_paper(anon, doc).status_code == 401
+    with TestClient(app, headers=_AUTH) as client:
+        assert _suggest_paper(client, doc).status_code == 503
+    llm = _LLM()
+    app2, _ = _app(tmp_path / "b", llm)
+    doc2 = _paper(tmp_path / "b")
+    table2 = _prices(tmp_path / "b")
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        assert _suggest_paper(client, "nope").status_code == 404
+        assert _suggest_paper(client, None).status_code == 422
+        r = _suggest_paper(client, table2)  # a table is not a paper
+        assert r.status_code == 422 and "文書型" in r.json()["detail"]
+    assert llm.calls == [] and doc2 and table and doc  # every refusal came before the AI was asked
+
+
+def test_a_star_of_a_document_dataset_asks_with_screen_dataset_and_is_read_as_a_paper(
+    tmp_path: Path,
+) -> None:
+    """星の札（10a）は ``dataset`` で呼ぶ。文書型は表が無いので 422 にせず、論文として読む。"""
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        r = _suggest(client, dsid)
+        assert r.status_code == 200, r.text
+        assert [s["op"] for s in r.json()["suggestions"]] == ["factors", "parts", "kinds"]
+        assert "PAPER" in llm.calls[0][0] and PAPER_CONCLUSION in llm.calls[0][1]
+
+
+# ---- suggest questions for a term with none (PR 10c) -------------------------------------------
+
+
+def _mint_bare(
+    tmp_path: Path, store: ox.Store, slug: str, label: str, kind: str = "property"
+) -> None:
+    """問い（cq）を持たない用語 — 画面からは、テーマの問いに関係でつなぐ形（``theme_id``）で
+    できる。api の ``/api/vocab/shared`` は問い 1 つ以上を要るので、道具の層で直に作る。"""
+    asyncio.run(
+        shared_vocab.mint_term(
+            _OxClient(store), tmp_path / "registry", slug=slug, kind=kind, label=label,
+            cqs=[], theme_id="th-1", at="2026-10-21T00:00:00+00:00",
+        )
+    )
+
+
+def _suggest_term(client: TestClient, slug: str | None, **kw):
+    ctx = {"term_slug": slug} if slug else {}
+    return client.post(
+        "/api/consult/suggest-questions",
+        json={"screen": "term", "context": ctx, "lang": "ja", **kw},
+    )
+
+
+def _term_lines(client: TestClient) -> None:
+    """熱伝導率（問い無し）に掛かる線 2 本（格子は一部・粒界散乱は下げる）。"""
+    ops = [
+        {"op": "add_relation", "from": "lattice", "rel": "part", "to": "thermal", "reason": ""},
+        {"op": "add_relation", "from": "scatter", "rel": "lowers", "to": "thermal", "reason": ""},
+    ]  # fmt: skip
+    res = client.post(
+        "/api/consult/graph/apply",
+        json={"screen": "home", "context": {}, "ops": ops, "proposal_id": "p-term"},
+    ).json()
+    assert res["applied"] == 2, res
+
+
+TERM_SUGGESTED = {
+    "questions": [
+        _q("熱伝導率を下げるものは？", "knowledge", "factors", target="熱伝導率",
+           direction="lowers"),
+        _q("粒界散乱は熱伝導率を下げる？", "knowledge", "factors", target="粒界散乱",
+           direction="lowers"),  # a neighbour, not this term
+        _q("熱伝導率の最大は？", "data", "top", kind="試料", property="熱伝導率"),  # no such kind
+        _q("熱伝導率の最小と最大は？", "data", "range", property="熱伝導率"),  # a term as item
+        _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
+    ]
+}  # fmt: skip
+
+
+def test_suggest_questions_for_a_term_with_none_reads_its_lines_and_gives_closed_shapes(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(json.dumps(TERM_SUGGESTED))
+    app, store = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint_bare(tmp_path, store, "thermal", "熱伝導率")
+        _mint_bare(tmp_path, store, "lattice", "格子熱伝導率")
+        _mint_bare(tmp_path, store, "scatter", "粒界散乱", kind="class")
+        _term_lines(client)
+        before = _files(tmp_path)
+        lines_before = _lines(store)
+        r = _suggest_term(client, "thermal")
+        assert r.status_code == 200, r.text
+        out = r.json()["suggestions"]
+        assert [(s["op"], s["target"]) for s in out] == [
+            ("factors", "熱伝導率"), ("range", ""), ("parts", "熱伝導率"),
+        ]  # only this term (a neighbour is dropped) · a kind not on the map dropped
+        assert all(s["question"] and s["shape"] for s in out)
+        assert _files(tmp_path) == before and _lines(store) == lines_before  # nothing kept
+        system, user = llm.calls[0]
+        assert "ONE TERM" in system and "# Name of the data set" not in user
+        facts = user.split("# The term and its surroundings (one fact per line)\n")[1]
+        facts = facts.split("\n\n")[0].splitlines()
+        assert facts[0] == "用語: 熱伝導率（項目）"
+        assert "格子熱伝導率 は 熱伝導率 の一部" in facts
+        assert "粒界散乱 は 熱伝導率 を下げる" in facts
+        assert len(llm.calls) == 1
+
+
+def test_suggest_questions_for_a_term_that_has_a_question_is_409_before_the_ai(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(json.dumps(TERM_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint(client, "thermal", "熱伝導率")  # with a competency question
+        r = _suggest_term(client, "thermal")
+        assert r.status_code == 409 and "問いがあります" in r.json()["detail"]
+    assert llm.calls == []
+
+
+def test_suggest_questions_for_a_term_needs_the_token_an_ai_and_a_known_term(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path)  # no AI
+    with TestClient(app, headers=KEY) as anon:
+        assert _suggest_term(anon, "thermal").status_code == 401
+    with TestClient(app, headers=_AUTH) as client:
+        assert _suggest_term(client, "thermal").status_code == 503
+    llm = _LLM()
+    app2, store2 = _app(tmp_path / "b", llm)
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        _mint_bare(tmp_path / "b", store2, "thermal", "熱伝導率")
+        assert _suggest_term(client, "nope").status_code == 404
+        assert _suggest_term(client, None).status_code == 422
+    assert llm.calls == []
+
+
+def test_suggest_questions_for_a_dataset_also_names_the_link_items_without_values(
+    tmp_path: Path,
+) -> None:
+    """列の無い項目（別の種類へつなぐ線）も、名前だけ「つなぐ項目」として AI に渡す。"""
+    join = _q("値段の記録が指す食材は？", "data", "join", kind="値段の記録", property="食材の名前",
+              kind2="食材の名前")  # fmt: skip
+    llm = _LLM(json.dumps({"questions": [join]}))
+    app, _ = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        out = _suggest(client, dsid).json()["suggestions"]
+        assert [s["op"] for s in out] == ["join"]
+        user = llm.calls[0][1]
+        assert "食材の名前 | link to another kind" in user

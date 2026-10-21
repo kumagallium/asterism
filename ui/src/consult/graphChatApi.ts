@@ -135,3 +135,62 @@ export async function dismissOnScreen(
   const j = (await res.json()) as { dismissed?: unknown }
   return typeof j.dismissed === 'number' ? j.dismissed : 0
 }
+
+/** 「問いを提案してもらう」の 1 本（api の後処理を通ったもの）。`shape` は機械が組む実行文。使わない欄は空。 */
+export interface QuestionSuggestion {
+  question: string
+  mode: 'data' | 'knowledge'
+  op: string
+  shape: string
+}
+
+/** 返りを読める形に（問いの文が無い・形の悪い行は落とす）。 */
+export function readQuestionSuggestions(raw: unknown): QuestionSuggestion[] {
+  const rows = (raw as { suggestions?: unknown } | null)?.suggestions
+  if (!Array.isArray(rows)) return []
+  const out: QuestionSuggestion[] = []
+  for (const r of rows as Record<string, unknown>[]) {
+    if (!r || typeof r.question !== 'string' || !r.question.trim()) continue
+    out.push({
+      question: r.question,
+      mode: r.mode === 'knowledge' ? 'knowledge' : 'data',
+      op: typeof r.op === 'string' ? r.op : '',
+      shape: typeof r.shape === 'string' ? r.shape : '',
+    })
+  }
+  return out
+}
+
+/**
+ * 提案の元。`dataset` = 表の列の見出し（10a）・`paper` = 文書型のデータセットの要旨と結論の文（10b）・
+ * `term` = 問いの無い用語と、その周りの関係（図の穴・10c）。
+ */
+export type QuestionScreen = 'dataset' | 'paper' | 'term'
+
+/**
+ * データセットの列の見出し（`screen: 'paper'` なら文書の要旨と結論の文・`'term'` なら用語の名前と周りの関係の文）から、
+ * AI に問いを提案させる
+ * （`POST /api/consult/suggest-questions`）。人が押したときだけ呼ぶ。何も保存されない（提案の文・却下は
+ * 残さない）。データの値・論文の本文全体は AI に渡らない。
+ * `subjectId` は、`term` のときは用語の鍵（slug）、それ以外はデータセットの ID。
+ * 失敗は ThemesApiError（503＝AI 未設定・401＝鍵・404＝データセット／用語／読める文書が無い・422＝文書型でない・
+ * 409＝その用語には問いがある・502＝AI の答えが形にならない）。
+ */
+export async function suggestQuestions(
+  subjectId: string,
+  lang: string,
+  creds: LlmCredentials | null,
+  screen: QuestionScreen = 'dataset',
+): Promise<QuestionSuggestion[]> {
+  const res = await fetch(`${API_BASE}/api/consult/suggest-questions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
+    body: JSON.stringify({
+      screen,
+      context: screen === 'term' ? { term_slug: subjectId } : { dataset_id: subjectId },
+      lang,
+    }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.suggestQuestions'))
+  return readQuestionSuggestions(await res.json())
+}

@@ -12,7 +12,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { dismiss } from '../decide/decideApi'
-import { type ChatScreen, applyOnScreen, dismissOnScreen, proposeOnScreen } from '../consult/graphChatApi'
+import {
+  type ChatScreen,
+  type QuestionScreen,
+  applyOnScreen,
+  dismissOnScreen,
+  proposeOnScreen,
+  suggestQuestions,
+} from '../consult/graphChatApi'
 import { bindUnlinkedMessage, settleRows } from '../consult/workspaceChatState'
 import { useLlmSettings } from '../settings/context'
 import { type GraphApplyResult, type GraphOp, applyGraph, dismissGraph, proposeGraph } from '../themes/consultGraphApi'
@@ -64,6 +71,7 @@ import {
   NO_PENDING,
   type Pending,
   type ProposalItem,
+  type SuggestItem,
   buildCanvas,
   dropReason,
   dropsByOriginal,
@@ -124,7 +132,14 @@ export interface HomeWorkspaceOptions {
 }
 
 /** 下書きを切り替える前の確認（いまの下書きをとっておくか）。 */
-export type SwitchAsk = { kind: 'write'; extend: { id: string; label: string } | null } | { kind: 'open'; id: string }
+export type SwitchAsk =
+  | {
+      kind: 'write'
+      extend: { id: string; label: string } | null
+      /** 「問いを書く」側に決まったあとだけ呼ぶ（提案の問いを入力欄へ入れる、など）。そのままを選んだら呼ばない。 */
+      then?: () => void
+    }
+  | { kind: 'open'; id: string }
 
 function blankDraft(extend: string | undefined, label: string, questions: string[]): ThemeDraft {
   return {
@@ -465,10 +480,16 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     if (cur) setSwitchAsk({ kind: 'open', id })
     else void resume(id)
   }
-  /** 「？ 問いを書く」（下書きが開いていれば、とっておいて書くか確かめる）。 */
-  function requestWriting(ext?: { id: string; label: string } | null): void {
-    if (draftRef.current) setSwitchAsk({ kind: 'write', extend: ext ?? null })
-    else beginWriting(ext)
+  /**
+   * 「？ 問いを書く」（下書きが開いていれば、とっておいて書くか確かめる）。`then` は問いを書く側に決まった
+   * あとだけ呼ぶ（確認で「そのまま」を選んだら呼ばない）。
+   */
+  function requestWriting(ext?: { id: string; label: string } | null, then?: () => void): void {
+    if (draftRef.current) setSwitchAsk({ kind: 'write', extend: ext ?? null, then })
+    else {
+      beginWriting(ext)
+      then?.()
+    }
   }
   /** 切り替えの確認の返事。「とっておく」なら閉じて（残して）から次へ。 */
   async function answerSwitch(yes: boolean): Promise<void> {
@@ -477,7 +498,10 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     if (!yes || !a) return
     await closeSession(true)
     if (a.kind === 'open') await resume(a.id)
-    else beginWriting(a.extend)
+    else {
+      beginWriting(a.extend)
+      a.then?.()
+    }
   }
   /** 開いていない下書きを捨てる（確認は呼ぶ側の札で取る）。 */
   async function discardOther(id: string): Promise<void> {
@@ -557,6 +581,25 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
       setThinking(false)
     }
   }
+
+  /**
+   * 「問いを提案してもらう」（PR 10a）。人が押したときだけ呼ぶ。会話にカードを 1 枚足し、返ってきたら
+   * 中身を入れる。何も保存しない（カードは一時的・閉じれば消える）。下書きは触らない。
+   */
+  async function askQuestions(subjectId: string, label: string, screen: QuestionScreen = 'dataset'): Promise<void> {
+    const id = nextItemId()
+    const patch = (p: Partial<SuggestItem>) =>
+      setItems((l) => l.map((it) => (it.kind === 'suggest' && it.id === id ? { ...it, ...p } : it)))
+    setItems((l) => [...l, { kind: 'suggest', id, label, status: 'running', rows: [], detail: '', screen }])
+    try {
+      const rows = await suggestQuestions(subjectId, lang, getActiveCredentials(), screen)
+      patch({ status: 'done', rows })
+    } catch (e) {
+      if (e instanceof ThemesApiError && e.status === 503 && e.detail.includes(AI_UNSET)) setAi('unconfigured')
+      patch({ status: 'failed', detail: errText(e) })
+    }
+  }
+  const closeSuggest = (id: string): void => setItems((l) => l.filter((it) => !(it.kind === 'suggest' && it.id === id)))
 
   /**
    * 人の一言。送り先は `conversationPath`（conversationContext.ts）で決まる — 下書きがあれば下書きの相談・
@@ -867,6 +910,8 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     aiReady,
     actionErr,
     send,
+    askQuestions,
+    closeSuggest,
     bindByAi,
     yesRows,
     noRows,

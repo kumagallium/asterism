@@ -22,7 +22,12 @@
 
 import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 
-export type Provider = 'anthropic' | 'openai' | 'openai-compatible'
+export type Provider =
+  | 'anthropic'
+  | 'openai'
+  | 'openai-compatible'
+  | 'gemini'
+  | 'copilot-subscription'
 export type RateCurrency = 'usd' | 'jpy'
 
 /** Token unit price per 1M tokens. Currency lets a domestic provider (Sakura AI
@@ -69,6 +74,39 @@ export interface ProviderMeta {
   baseHintKey: string
   /** When true the base URL is required (no public default endpoint). */
   needsApiBase: boolean
+  /** When true the endpoint is fixed by the server, so the form never asks for
+   *  a base URL (Gemini; Copilot has no endpoint at all). */
+  fixedApiBase?: boolean
+  /** When false no API key is involved (Copilot: the signed-in `copilot` CLI
+   *  on this computer carries the call, billed to the user's plan). */
+  needsKey?: boolean
+}
+
+/** The provider id of the Copilot subscription path (desktop / single-user). */
+export const COPILOT_PROVIDER: Provider = 'copilot-subscription'
+
+/** Does this provider need an API key at all? Copilot does not. */
+export function providerNeedsKey(provider: string): boolean {
+  return provider !== COPILOT_PROVIDER
+}
+
+/** Does the form ask for a base URL for this provider? */
+export function providerAsksApiBase(provider: string): boolean {
+  return provider !== COPILOT_PROVIDER && provider !== 'gemini'
+}
+
+/** Can an AI call go out with this model? A key typed here, a server-side key,
+ *  or a provider that needs no key (Copilot, where the server can run it) is enough. */
+export function isModelReady(
+  provider: string,
+  hasBrowserKey: boolean,
+  hasServerKey: boolean,
+  copilotAvailable = true,
+): boolean {
+  // Copilot needs no key, but only a single-user (desktop) server can run it —
+  // a copilot model left over after connecting to a shared server is not ready.
+  if (!providerNeedsKey(provider)) return copilotAvailable
+  return hasBrowserKey || hasServerKey
 }
 
 /** Build the per-request LLM headers from the active credentials (or {} when
@@ -107,6 +145,21 @@ export const PROVIDERS: ProviderMeta[] = [
     nameKey: 'provider.openaiCompatible',
     baseHintKey: 'provider.baseHint.openaiCompatible',
     needsApiBase: true,
+  },
+  {
+    id: 'gemini',
+    nameKey: 'provider.gemini',
+    baseHintKey: 'provider.baseHint.gemini',
+    needsApiBase: false,
+    fixedApiBase: true,
+  },
+  {
+    id: 'copilot-subscription',
+    nameKey: 'provider.copilotSubscription',
+    baseHintKey: 'provider.baseHint.copilotSubscription',
+    needsApiBase: false,
+    fixedApiBase: true,
+    needsKey: false,
   },
 ]
 
@@ -159,10 +212,11 @@ export function groupOfModel(m: LlmModelConfig): string {
 
 /** Guess which service a pasted key belongs to, so the first-run setup can ask
  *  for one thing (the key) instead of a provider + endpoint + model id.
- *  Anthropic keys start with `sk-ant-`, OpenAI's with `sk-`; anything else is
+ *  Anthropic keys start with `sk-ant-`, OpenAI's with `sk-`, Gemini's with `AIza`; anything else is
  *  unknown and the user picks. */
 export function providerOfPastedKey(key: string): Provider | null {
   const k = key.trim()
+  if (k.startsWith('AIza')) return 'gemini'
   if (k.startsWith('sk-ant-')) return 'anthropic'
   if (k.startsWith('sk-')) return 'openai'
   return null

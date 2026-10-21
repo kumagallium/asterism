@@ -665,21 +665,28 @@ button.sky-pill--data:hover:not(:disabled) {
   }
 }
 
-/* 履歴は常に会話の欄の 40% 以上見える。上の札・下の道具・置く欄・選んだ札の欄は、足りなければ中でスクロールして縮む */
+/* 会話の欄の高さの配り方（星の札＋提案カード＋下書きの線の札が同時に開く 1280×720・375×667 でも、
+   下の固定欄が欄の外へ出ず、履歴が潰れない）:
+   ・下の固定欄（選んだ札・道具・置く欄・切替・たとえば・入力）は潰れない（flex 0 0 auto）。大きすぎるときだけ
+     上限を超えた分が中でスクロールする
+   ・履歴は最低 6rem（約 4 行）は見える。残りを取る（足りなければ縮む・中でスクロールする）
+   ・先頭の札（A・関係・B の札・確認・提案カード）は内容に合わせて伸びる（高さは 45% まで）が、履歴の 6rem を
+     守るために足りなければ札が縮み、札の中でスクロールする */
 .sky-conv .thm-chat-scroll {
-  flex: 1 1 auto;
-  min-height: 40%;
+  flex: 1 1 0; /* 基準 0 = 履歴の中身の長さで札を縮ませない。残りを取り、最低 6rem は守る */
+  min-height: 6rem;
 }
-.sky-conv .thm-chat-pinned,
+.sky-conv .thm-chat-pinned {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow-y: auto;
+}
 .sky-conv .thm-chat-focus,
 .sky-conv .thm-chat-tools,
 .sky-conv .thm-chat-bar {
-  flex: 0 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
   overflow-y: auto;
-}
-.sky-conv .thm-chat-pinned {
-  max-height: 40%;
 }
 .sky-conv .thm-chat-tools {
   max-height: 40%;

@@ -453,6 +453,8 @@ def test_ingest_pdf_converts_via_sidecar(tmp_path: Path, monkeypatch) -> None:
     sdir = registry.source_dir(tmp_path / "registry", dataset_id)
     conv = json.loads((sdir / "paper.pdf.conversion").read_text(encoding="utf-8"))
     assert conv["sourceFormat"] == "pdf" and conv["converter"].startswith("docling/")
+    # the conversion is kept beside the PDF — "この論文から問いを提案" (10b) reads it afterwards
+    assert (sdir / "paper.pdf.jats").read_text(encoding="utf-8") == _JATS_DOC
 
 
 def test_sanitize_document_name_accepts_any_filename() -> None:
@@ -593,6 +595,35 @@ def test_append_document_requires_promoted(tmp_path: Path) -> None:
         )
         assert r.status_code == 409, r.text
     assert oxi.store_calls == []  # nothing merged before the gate
+
+
+def test_append_pdf_keeps_the_conversion_beside_the_pdf(tmp_path: Path, monkeypatch) -> None:
+    # Appending a PDF to a promoted document dataset keeps the sidecar's JATS as
+    # ``<name>.pdf.jats`` (the question suggestion reads a PDF's abstract/conclusion from it).
+    monkeypatch.setattr(
+        "asterism.documents.convert_pdf_to_jats",
+        lambda pdf_bytes, *, sidecar_url, timeout=600.0: (_JATS_DOC2, "docling/2.x (test)"),
+    )
+    dataset_id = _save_document_dataset(tmp_path, "appendpdf")
+    registry.mark_promoted(
+        tmp_path / "registry", dataset_id, triples_promoted=1,
+        alignment={"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}},
+        promoted_at="2026-01-01T00:00:00",
+    )  # fmt: skip
+    oxi = _RecordingOxi()
+    app = build_app(
+        _settings_with_docling(tmp_path, "http://docling-test"),
+        oxigraph_client=oxi.client,
+        start_watcher=False,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/documents",
+            files={"file": ("added.pdf", _PDF_BYTES, "application/pdf")},
+        )
+        assert r.status_code == 200, r.text
+    sdir = registry.source_dir(tmp_path / "registry", dataset_id)
+    assert (sdir / "added.pdf.jats").read_text(encoding="utf-8") == _JATS_DOC2
 
 
 def test_append_document_rejects_non_document_dataset(tmp_path: Path) -> None:

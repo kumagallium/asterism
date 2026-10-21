@@ -79,6 +79,10 @@ export function AnswerLines({ ws, draft, lang }: { ws: HomeWorkspace; draft: The
     const kind = nameOf(a.kind)
     const property = nameOf(a.property)
     if (way === 'range' || way === 'top') return t(`themes:answer.way.${way}${a.kind ? '' : 'Only'}`, { kind, property })
+    // 値で絞る・〜ごと・推移・結合 1 段: 機械が組む実行文（api の describe_selection）と同じ言い方
+    if (way === 'filter') return t(`themes:answer.way.filter${a.match === 'exact' ? 'Exact' : ''}`, { kind, property, value: a.value })
+    if (way === 'trend') return t('themes:answer.way.trend', { kind, property, property2: nameOf(a.property2) })
+    if (way === 'join') return t('themes:answer.way.join', { kind, property, kind2: nameOf(a.kind2) })
     return t(`themes:answer.way.${way}`, { target, kind, property })
   }
   if (draft.answers.length === 0) return null
@@ -142,13 +146,62 @@ export function AnswerLines({ ws, draft, lang }: { ws: HomeWorkspace; draft: The
                 )}
                 {needs.property && (
                   <ConceptSelect
-                    label={t('themes:answer.pickProperty')}
+                    label={t(way === 'trend' ? 'themes:answer.pickPropertyX' : way === 'join' ? 'themes:answer.pickLink' : 'themes:answer.pickProperty')}
                     value={a.property}
                     options={conceptsFor(draft, way, 'property')}
                     lang={lang}
                     onChange={(v) => ws.updateAnswer(i, (x) => setAnswerTarget(x, { property: v }))}
                   />
                 )}
+                {needs.value && (
+                  <>
+                    <label>
+                      {t('themes:answer.pickValue')}{' '}
+                      <input
+                        type="text"
+                        value={a.value}
+                        maxLength={120}
+                        aria-label={t('themes:answer.pickValue')}
+                        data-testid="answer-value"
+                        onChange={(e) => ws.updateAnswer(i, (x) => setAnswerTarget(x, { value: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      {t('themes:answer.pickMatch')}{' '}
+                      <select
+                        value={a.match === 'exact' ? 'exact' : 'contains'}
+                        aria-label={t('themes:answer.pickMatch')}
+                        onChange={(e) => ws.updateAnswer(i, (x) => setAnswerTarget(x, { match: e.target.value }))}
+                      >
+                        <option value="contains">{t('themes:answer.match.contains')}</option>
+                        <option value="exact">{t('themes:answer.match.exact')}</option>
+                      </select>
+                    </label>
+                  </>
+                )}
+                {needs.property2 && (
+                  <ConceptSelect
+                    label={t('themes:answer.pickPropertyY')}
+                    value={a.property2}
+                    options={conceptsFor(draft, way, 'property2')}
+                    lang={lang}
+                    onChange={(v) => ws.updateAnswer(i, (x) => setAnswerTarget(x, { property2: v }))}
+                  />
+                )}
+                {needs.kind2 && (
+                  <ConceptSelect
+                    label={t('themes:answer.pickKind2')}
+                    value={a.kind2}
+                    options={conceptsFor(draft, way, 'kind2')}
+                    lang={lang}
+                    onChange={(v) => ws.updateAnswer(i, (x) => setAnswerTarget(x, { kind2: v }))}
+                  />
+                )}
+                {way === 'filter' || way === 'group' || way === 'trend' || way === 'join' ? (
+                  <span className="vocab-field-hint" data-testid="answer-hint">
+                    {t(`themes:answer.hint.${way}`)}
+                  </span>
+                ) : null}
                 {draft.concepts.length === 0 && way !== 'memo' && <span className="vocab-field-hint">{t('themes:answer.noConcepts')}</span>}
               </div>
             )}

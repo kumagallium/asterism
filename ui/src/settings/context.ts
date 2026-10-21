@@ -34,6 +34,9 @@ export interface LlmSettings {
   usesServerFallback: boolean
   /** True if the given provider has a server-side key (form/gate helper). */
   hasServerKey: (provider: string) => boolean
+  /** True when GitHub Copilot (the signed-in `copilot` CLI on this computer)
+   *  can be used: desktop / single-user only. False until known / on failure. */
+  copilotAvailable: boolean
   /** Re-fetch the server-side key providers (after setting/clearing one). */
   refreshServerKeys: () => void
   setActiveModel: (id: string) => void

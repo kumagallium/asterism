@@ -115,8 +115,8 @@ Word / PDF などの文書もここから取り込めます（デスクトップ
 
 ## 使う AI（プロバイダ）を設定・変更する
 
-左下の「設定」を開き「AI」タブで、使う AI（Anthropic / OpenAI / OpenAI 互換
-など）と、そのキーを登録・変更できます。詳細は [settings.md](./settings.md)。
+左下の「設定」を開き「AI」タブで、使う AI（Anthropic / OpenAI / Google Gemini / OpenAI 互換 /
+GitHub Copilot など）と、そのキーを登録・変更できます。詳細は [settings.md](./settings.md)。
 
 ## このサーバへの書き込みに必要な利用許可コードを設定する
 

@@ -38,6 +38,8 @@ from asterism.shared_vocab import SharedTerm, normalize_label
 
 __all__ = [
     "KIND_KEY_PREFIX",
+    "PRED_TO_REL",
+    "REL_SENTENCE",
     "apply_to_draft",
     "dismissal_keys",
     "end_iri",
@@ -402,10 +404,14 @@ class _Applier:
         self.rows.remove(row)
         self.rels = [r for r in self.rels if key not in (r.get("from"), r.get("to"))]
         for a in self.answers:  # 概念を失った問いの答え方は、メモに戻す
-            if key in (a.get("target"), a.get("kind"), a.get("property")):
+            if key in (
+                a.get("target"), a.get("kind"), a.get("property"), a.get("property2"),
+                a.get("kind2"),
+            ):  # fmt: skip
                 a.update(
-                    mode="memo", memo="ai", target="", kind="", property="", direction="", op=""
-                )
+                    mode="memo", memo="ai", target="", kind="", property="", direction="", op="",
+                    value="", match="", property2="", kind2="",
+                )  # fmt: skip
         self.applied += 1
 
     def rename(self, i: int, op: dict) -> None:
@@ -460,16 +466,17 @@ class _Applier:
         mode, op_kind = op["mode"], op["op_kind"]
         t_row, k_row = pick(op.get("target")), pick(op.get("kind"), "class")
         p_row = pick(op.get("property"), "property")
+        p2_row = pick(op.get("property2"), "property")
+        k2_row = pick(op.get("kind2"), "class")
+        value = themes._clean_value(op.get("value"))
         direction = op.get("direction")
         if mode == "knowledge":
             good = op_kind in themes.KNOWLEDGE_OPS and t_row is not None
             if op_kind == "factors":
                 good = good and direction in themes.KNOWLEDGE_DIRECTIONS
         else:
-            good = (
-                (op_kind == "count" and k_row is not None)
-                or (op_kind == "range" and p_row is not None)
-                or (op_kind == "top" and p_row is not None)
+            good = themes.data_answer_complete(
+                op_kind, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value
             )
         self.questions.append(question[0])
         self.answers.append(
@@ -481,6 +488,14 @@ class _Applier:
                 direction=direction if mode == "knowledge" and op_kind == "factors" else "",
                 kind=k_row["key"] if k_row and mode == "data" else "",
                 prop=p_row["key"] if p_row and mode == "data" else "",
+                value=value if mode == "data" and op_kind == "filter" else "",
+                match=(
+                    themes._clean_match(op.get("match"))
+                    if mode == "data" and op_kind == "filter"
+                    else ""
+                ),
+                prop2=p2_row["key"] if p2_row and mode == "data" and op_kind == "trend" else "",
+                kind2=k2_row["key"] if k2_row and mode == "data" and op_kind == "join" else "",
                 memo=None if good else "ai",
                 wanted_data=op.get("wanted_data") or "",
                 reason=op.get("reason") or "",
@@ -496,7 +511,7 @@ class _Applier:
         targets = {
             str(a[f])
             for a in self.answers
-            for f in ("target", "kind", "property")
+            for f in ("target", "kind", "property", "property2", "kind2")
             if a.get(f) and self.row_by_key(str(a[f])) is not None
         }
         if not targets:
@@ -729,7 +744,21 @@ def dismissal_keys(
 # 提案カードの文
 # ---------------------------------------------------------------------------
 
-_REL_SENTENCE = {
+#: 述語（``crosswalk`` の線の ``relation``）→ 図の関係名（``themes.relation_predicate`` の逆）。
+#: 画面に出す線はこの 9 つの述語だけ。
+PRED_TO_REL = {
+    "subClassOf": "sub",
+    "subPropertyOf": "sub",
+    "equivalentClass": "eq",
+    "equivalentProperty": "eq",
+    "hasQuantityKind": "quantity",
+    "isPartOf": "part",
+    "lowers": "lowers",
+    "raises": "raises",
+    "affects": "affects",
+}
+#: 図の関係名 → 線を言い表す文（``{s}`` = 主語の名前・``{o}`` = 目的語の名前）。
+REL_SENTENCE = {
     "ja": {
         "sub": "{s} は {o} の一種",
         "eq": "{s} と {o} は同じもの",
@@ -781,7 +810,7 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
         return ref
 
     def rel(frm: Any, r: Any, to: Any) -> str:
-        return _REL_SENTENCE[lg].get(str(r), "{s} - {o}").format(s=label(frm), o=label(to))
+        return REL_SENTENCE[lg].get(str(r), "{s} - {o}").format(s=label(frm), o=label(to))
 
     out: list[str] = []
     for op in ops:
@@ -819,7 +848,7 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
             col = op.get("column")
             subject = f"列「{col}」" if lg == "ja" else f"Column {col}"
             r = str(op.get("rel"))
-            text = _REL_SENTENCE[lg].get(r, "{s} - {o}").format(s=subject, o=label(op["to"]))
+            text = REL_SENTENCE[lg].get(r, "{s} - {o}").format(s=subject, o=label(op["to"]))
             out.append(text)
         else:
             out.append("")

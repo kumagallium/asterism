@@ -1,0 +1,77 @@
+# 見本の問い 8 本（見本 4 データセット × 2 本）。データセットは manualdemo-v0.47 の
+# スーパーの価格表・店の一覧・レシピカード・世界の国（Gapminder）。問いは各データセットの
+# query_tools.yaml（counts_by_kind・value_range・top_value・countries_by_region …）と、
+# 設計で付けた項目の名前（mapping.yaml の label）から。列の名前は kind_hint の label を表示名に。
+# 形は README を見る。入力は列の見出しと型のヒントだけ（値は入れない）。
+dataset: samples
+cases:
+  - id: sm-prices
+    source:
+      screen: dataset
+      dataset_label: スーパーの価格表
+      kinds: [値段の記録, 食材の名前]
+      columns:
+        - {name: price, label: 1 つあたりの値段, kind_hint: "xsd:integer, 1 つあたりの値段"}
+        - {name: shop, label: 店の名前, kind_hint: "text, 店の名前"}
+        - {name: date, label: 値段を調べた日, kind_hint: "text, 値段を調べた日"}
+        - {name: food, label: 食材の名前, kind_hint: "reference, 食材の名前"}
+    gold_cqs:
+      - 1 つあたりの値段がいちばん高い記録は？
+      - 店の名前ごとに値段の記録は何件ある？
+    expected_answers:
+      - {op: top, mode: data, kind: 値段の記録, property: 1 つあたりの値段, closed: true, from: query_tools.top_value}
+      - {op: group, mode: data, kind: 値段の記録, property: 店の名前, closed: true}
+
+  - id: sm-shops
+    source:
+      screen: dataset
+      dataset_label: 店の一覧
+      kinds: [店]
+      columns:
+        - {name: shop, label: 店の名前, kind_hint: "text, 店の名前"}
+        - {name: address, label: 店の住所, kind_hint: "text, 店の住所"}
+        - {name: closed_on, label: 店の休みの曜日, kind_hint: "text, 店の休みの曜日"}
+    gold_cqs:
+      - 店は何軒ある？
+      - 休みの曜日ごとに店は何軒ある？
+    expected_answers:
+      - {op: count, mode: data, kind: 店, closed: true, from: query_tools.counts_by_kind}
+      - {op: group, mode: data, kind: 店, property: 店の休みの曜日, closed: true}
+
+  - id: sm-recipe
+    source:
+      screen: dataset
+      dataset_label: レシピカード
+      kinds: [レシピ, 材料]
+      columns:
+        - {name: dish, label: 料理の名前, kind_hint: "text, 料理の名前"}
+        - {name: category, label: 料理の分類, kind_hint: "text, 料理の分類"}
+        - {name: servings, label: 何人分か, kind_hint: "xsd:integer, 何人分か"}
+        - {name: amount, label: 使う量, kind_hint: "xsd:integer, 使う量"}
+        - {name: unit, label: 量の単位, kind_hint: "text, 量の単位"}
+        - {name: food, label: 食材の名前, kind_hint: "text, 食材の名前"}
+    gold_cqs:
+      - 使う量がいちばん多い材料は？
+      - 料理の分類ごとにレシピは何件ある？
+    expected_answers:
+      - {op: top, mode: data, kind: 材料, property: 使う量, closed: true, from: query_tools.top_value}
+      - {op: group, mode: data, kind: レシピ, property: 料理の分類, closed: true}
+
+  - id: sm-world
+    source:
+      screen: dataset
+      dataset_label: 世界の国（Gapminder）
+      kinds: [国, 観測]
+      columns:
+        - {name: country_ja, label: 国名, kind_hint: "text, 国名"}
+        - {name: region_ja, label: 地域, kind_hint: "text, 地域"}
+        - {name: year, label: 年, kind_hint: "xsd:integer, 年"}
+        - {name: population, label: 人口, kind_hint: "xsd:integer, 人口"}
+        - {name: life_expectancy, label: 平均寿命, kind_hint: "xsd:double, 平均寿命"}
+        - {name: fertility, label: 出生率, kind_hint: "xsd:double, 出生率"}
+    gold_cqs:
+      - 年ごとの平均寿命の推移は？
+      - 地域ごとに国は何か国ある？
+    expected_answers:
+      - {op: trend, mode: data, kind: 観測, property: 年, property2: 平均寿命, closed: true, from: query_tools.life_expectancy_by_year}
+      - {op: group, mode: data, kind: 国, property: 地域, closed: true, from: query_tools.countries_by_region}

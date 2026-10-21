@@ -616,8 +616,10 @@ function SkyBody(
     setChatOpen(true)
     if (write.resume) ws.openDraft(write.resume)
     else {
-      ws.requestWriting(write.extend)
-      if (write.q) setPrefill((p) => ({ id: (p?.id ?? 0) + 1, text: write.q }))
+      // 提案の問いを入力欄へ入れるのは、問いを書く側に決まったあとだけ（下書きが開いていて
+      // 確認で「そのまま」を選んだら、入れない）
+      const q = write.q
+      ws.requestWriting(write.extend, q ? () => setPrefill((p) => ({ id: (p?.id ?? 0) + 1, text: q })) : undefined)
       setFocusTick((n) => n + 1)
     }
     onWriteConsumed()
@@ -795,6 +797,21 @@ function SkyBody(
       grow(irisOfKeys(keys))
     },
     onSuggestionsDismissed: (keys: Parameters<typeof irisOfKeys>[0]) => props.setSuggestions((l) => withoutKeys(l, keys)),
+    // 星の札の「問いを提案してもらう」（AI 設定ずみのときだけ）。会話を開いて、カードを足す
+    onSuggestQuestions: ws.aiReady
+      ? (datasetId: string, datasetLabel: string) => {
+          setChatOpen(true)
+          void ws.askQuestions(datasetId, datasetLabel)
+        }
+      : undefined,
+    // 問いの無い用語の札の「この用語で聞けることを提案してもらう」（図の穴・AI 設定ずみのときだけ）
+    onSuggestTerm: ws.aiReady
+      ? (slug: string, termLabel: string) => {
+          setChatOpen(true)
+          void ws.askQuestions(slug, termLabel, 'term')
+        }
+      : undefined,
+    suggesting: ws.items.some((it) => it.kind === 'suggest' && it.status === 'running'),
   }
   let focusCard: ReactNode = null
   if (ws.draft && edgeIndex >= 0) {

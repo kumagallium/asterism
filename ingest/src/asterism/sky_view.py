@@ -45,6 +45,7 @@ from asterism.shared_vocab import (
 )
 from asterism.shared_vocab import (
     _read_terms,
+    answering_of,
     is_system_entry,
     known_namespaces,
     load_knowledge,
@@ -254,6 +255,53 @@ async def _knowledge_count(
         return fallback.get(target, 0)
 
 
+def _data_question_tools(root: Path) -> list[tuple[str, dict[str, Any], list[str]]]:
+    """データの問い = 共有の語の registry の道具のうち ``for_terms`` を持つもの
+    → ``[(tool_name, 道具, 語の IRI（昇順）)]``。"""
+    out: list[tuple[str, dict[str, Any], list[str]]] = []
+    for tool in read_registry_raw_tools(root, _VOCAB_REGISTRY_ID) or []:
+        if not isinstance(tool, dict):
+            continue
+        needs = sorted({str(x) for x in (tool.get("for_terms") or [])})
+        name = str(tool.get("name") or "")
+        if needs and name:
+            out.append((name, tool, needs))
+    return out
+
+
+def _knowledge_question_selections(
+    root: Path,
+) -> list[tuple[dict[str, Any], str, dict[str, Any], str]]:
+    """知識の問い = ``themes.json`` の ``selections[tool_name].mode == "knowledge"``
+    → ``[(テーマ, tool_name, 選び方, 対象の語の IRI)]``。対象の slug が読めないものは数えない。"""
+    out: list[tuple[dict[str, Any], str, dict[str, Any], str]] = []
+    for theme in (themes.load_themes_file(root) or {}).get("themes", []):
+        selections = theme.get("selections")
+        if not isinstance(selections, dict):
+            continue
+        for name in theme.get("questions") or []:
+            sel = selections.get(name)
+            if not (isinstance(sel, dict) and sel.get("mode") == "knowledge"):
+                continue
+            try:
+                target = term_iri(str(sel.get("target_slug") or ""))
+            except ValueError:
+                continue
+            out.append((theme, str(name), sel, target))
+    return out
+
+
+def questions_of_term(root: Path, iri: str) -> list[str]:
+    """語 1 つの問い（tool_name・昇順）— 星図の ``terms[].questions`` と同じ数え方（データの問い =
+    ``for_terms`` にこの語を持つ道具・知識の問い = 対象がこの語）。星図は公開済みのデータセットが
+    無いと空になるので、API が直に数えたいときはこちら（SPARQL を引かない）。"""
+    names = {n for n, _tool, needs in _data_question_tools(root) if iri in needs}
+    for _theme, n, _sel, target in _knowledge_question_selections(root):
+        if target == iri:
+            names.add(n)
+    return sorted(names)
+
+
 async def _questions(
     client: SupportsSparql,
     root: Path,
@@ -270,16 +318,9 @@ async def _questions(
     （``/api/themes`` の「知識 N」と同じ走者・読めなければ ``knowledge.json``）を入れる。
     データの問いの ``knowledge`` は 0。
     """
-    tools = read_registry_raw_tools(root, _VOCAB_REGISTRY_ID) or []
     questions: list[dict[str, Any]] = []
     by_term: dict[str, list[str]] = {}
-    for tool in tools:
-        if not isinstance(tool, dict):
-            continue
-        needs = sorted({str(x) for x in (tool.get("for_terms") or [])})
-        name = str(tool.get("name") or "")
-        if not needs or not name:
-            continue
+    for name, tool, needs in _data_question_tools(root):
         title = str(tool.get("title") or name)
         questions.append(
             {
@@ -288,7 +329,7 @@ async def _questions(
                 "mode": "data",
                 "theme_id": None,
                 "theme_label": FIRST_QUESTIONS_LABEL,
-                "answering": max((wired.get(x, 0) for x in needs), default=0),
+                "answering": answering_of(wired, needs),
                 "knowledge": 0,
                 "total_datasets": total_datasets,
                 "needs": needs,
@@ -298,38 +339,26 @@ async def _questions(
         for iri in needs:
             by_term.setdefault(iri, []).append(name)
     seen = {q["tool_name"] for q in questions}
-    stored = themes.load_themes_file(root)
-    for theme in (stored or {}).get("themes", []):
-        selections = theme.get("selections")
-        if not isinstance(selections, dict):
+    for theme, name, sel, target in _knowledge_question_selections(root):
+        if name in seen or target not in term_iris:  # 語が無い（外された）問いは出さない
             continue
-        for name in theme.get("questions") or []:
-            sel = selections.get(name)
-            if not (isinstance(sel, dict) and sel.get("mode") == "knowledge") or name in seen:
-                continue
-            try:
-                target = term_iri(str(sel.get("target_slug") or ""))
-            except ValueError:
-                continue
-            if target not in term_iris:  # 語が無い（外された）問いは出さない
-                continue
-            title = str(sel.get("title") or name)
-            seen.add(name)
-            questions.append(
-                {
-                    "tool_name": str(name),
-                    "title": title,
-                    "mode": "knowledge",
-                    "theme_id": str(theme.get("id") or "") or None,
-                    "theme_label": str(theme.get("label") or theme.get("id") or ""),
-                    "answering": wired.get(target, 0),
-                    "knowledge": await _knowledge_count(client, sel, target, known_counts),
-                    "total_datasets": total_datasets,
-                    "needs": [target],
-                    "shape": title,
-                }
-            )
-            by_term.setdefault(target, []).append(str(name))
+        title = str(sel.get("title") or name)
+        seen.add(name)
+        questions.append(
+            {
+                "tool_name": name,
+                "title": title,
+                "mode": "knowledge",
+                "theme_id": str(theme.get("id") or "") or None,
+                "theme_label": str(theme.get("label") or theme.get("id") or ""),
+                "answering": wired.get(target, 0),
+                "knowledge": await _knowledge_count(client, sel, target, known_counts),
+                "total_datasets": total_datasets,
+                "needs": [target],
+                "shape": title,
+            }
+        )
+        by_term.setdefault(target, []).append(name)
     questions.sort(key=lambda q: q["tool_name"])
     return questions, {k: sorted(set(v)) for k, v in by_term.items()}
 

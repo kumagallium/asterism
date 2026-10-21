@@ -196,9 +196,7 @@ def test_describe_selection_is_deterministic_and_phrases_each_way() -> None:
         "容量の最小と最大を出します（データセットごと）"
     )
     filt = {"op": "filter", "kind": "セル", "property": "正極", "value": "LFP"}
-    assert sv.describe_selection(filt) == (
-        "セルのうち、正極が「LFP」のものを出します（データセットごと）"
-    )
+    assert sv.describe_selection(filt) == "セルのうち、正極に LFP を含むもの"
     # not enough to phrase → empty (the screen says "pick a way of counting")
     assert sv.describe_selection({"op": "count"}) == ""
     assert sv.describe_selection({"op": "nonsense", "kind": "x"}) == ""
@@ -627,7 +625,7 @@ def test_answers_one_per_question_knowledge_data_and_memo() -> None:
                    wanted_data="試料ごとの粒径の表", reason="要因"),
                 _a(qs[1], "knowledge", op="parts", target="c1", direction="lowers"),
                 _a(qs[2], "data", op="top", kind="c2", property="c3"),
-                _a(qs[3], "memo", op="trend", kind="c2", property="c3"),
+                _a(qs[3], "memo", op="unknown_op", kind="c2", property="c3"),
                 _a(qs[4], "knowledge", op="factors", target="c1"),  # factors need a direction
                 _a("勝手に書いた別の問い", "data", op="count", kind="c2"),
             ],
@@ -647,7 +645,7 @@ def test_answers_one_per_question_knowledge_data_and_memo() -> None:
     assert (p["mode"], p["op"], p["direction"]) == ("knowledge", "parts", "")  # not for parts
     t = a[qs[2]]
     assert (t["mode"], t["kind"], t["property"], t["memo"]) == ("data", "c2", "c3", None)
-    assert (a[qs[3]]["mode"], a[qs[3]]["memo"]) == ("memo", "op")  # no way to run a trend yet
+    assert (a[qs[3]]["mode"], a[qs[3]]["memo"]) == ("memo", "op")  # an op nothing can run
     assert (a[qs[4]]["mode"], a[qs[4]]["memo"]) == ("memo", "ai")
     assert (a[qs[5]]["mode"], a[qs[5]]["memo"]) == ("memo", "none")  # the model skipped it
     assert a[qs[6]]["memo"] == "none"
