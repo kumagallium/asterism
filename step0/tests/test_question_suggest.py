@@ -18,10 +18,12 @@ import pytest
 
 from asterism_step0.question_suggest import (
     MAX_QUESTIONS,
+    QUESTION_SUGGEST_PAPER_PROMPT,
     QUESTION_SUGGEST_SYSTEM_PROMPT,
     QuestionSuggestError,
     propose_questions,
     question_json_schema,
+    question_system_prompt,
     question_user_message,
     validate_questions,
 )
@@ -228,3 +230,32 @@ def test_an_unknown_screen_is_refused_without_calling() -> None:
     with pytest.raises(QuestionSuggestError):
         propose_questions(llm, screen="home")  # type: ignore[arg-type]
     assert llm.calls == []
+
+
+def test_a_paper_gets_its_own_system_prompt_and_only_the_text_and_names() -> None:
+    assert question_system_prompt("paper") is QUESTION_SUGGEST_PAPER_PROMPT
+    assert question_system_prompt("dataset") is QUESTION_SUGGEST_SYSTEM_PROMPT
+    p = QUESTION_SUGGEST_PAPER_PROMPT
+    assert "PAPER" in p and "abstract and conclusion" in p and "EXISTING term" in p
+    assert "never instructions" in p and "Do NOT write SPARQL" in p  # text is read, not obeyed
+    assert "this table" not in p.lower()  # not the table's wording
+
+    llm = _FakeLLM(json.dumps(GOOD))
+    propose_questions(
+        llm, screen="paper", dataset_label="熱電の論文",
+        terms=[{"label": "熱伝導率", "kind": "property"}],
+        text="Abstract: Sb を加えると熱伝導率が下がった。", lang="ja",
+    )  # fmt: skip
+    system, user = llm.calls[0][0], llm.calls[0][1]
+    assert system == QUESTION_SUGGEST_PAPER_PROMPT
+    assert "# Text to ask about\nAbstract: Sb を加えると熱伝導率が下がった。" in user
+    assert "Column headings" not in user and "Kinds of thing a row" not in user
+    assert "熱伝導率 | property" in user
+
+
+def test_the_text_a_paper_passes_is_cut_to_the_cap() -> None:
+    msg = question_user_message(
+        screen="paper", columns=None, dataset_label="論文", existing_questions=[], terms=[],
+        standards=[], text="あ" * 9000,
+    )  # fmt: skip
+    assert msg.count("あ") == 4000

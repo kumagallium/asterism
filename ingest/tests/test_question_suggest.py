@@ -231,3 +231,27 @@ def test_english_shapes_use_the_english_names() -> None:
         kinds=kinds, properties=props, terms=terms, lang="en",
     )  # fmt: skip
     assert out[0]["kind"] == "meal" and out[0]["shape"] == "Counts the meal (per dataset)."
+
+
+def test_a_paper_has_no_table_so_only_names_of_existing_terms_stand() -> None:
+    """論文（10b）は ``terms=`` だけ渡す。知識の問いが主で、データの形は既存の用語の名前に当たる
+    ときだけ。表の列を言い当てた名前や、用語に無い対象は出ない。"""
+    terms = [
+        _term("thermal", "熱伝導率", "property", "thermal conductivity"),
+        _term("grain", "粒界", "class", "grain boundary"),
+    ]
+    out = postprocess_questions(
+        {"questions": [
+            _q("粒界は熱伝導率を下げる？", "knowledge", "factors", target="熱伝導率",
+               direction="lowers"),
+            _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
+            _q("粒界の種類は？", "knowledge", "kinds", target="粒界"),
+            _q("ZT を上げるものは？", "knowledge", "factors", target="ZT", direction="raises"),
+            _q("粒界ごとの熱伝導率の幅は？", "data", "range", kind="粒界", property="熱伝導率"),
+            _q("試料ごとの Sb 量は？", "data", "group", kind="試料", property="Sb 量"),
+        ]},
+        terms=terms,
+    )  # fmt: skip
+    assert [(o["mode"], o["op"]) for o in out] == [
+        ("knowledge", "factors"), ("knowledge", "parts"), ("knowledge", "kinds"), ("data", "range"),
+    ]  # the target no term names, and the table's own columns, are not offered
