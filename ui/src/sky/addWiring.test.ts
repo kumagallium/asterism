@@ -109,7 +109,9 @@ describe('8c の直し（8d）', () => {
   })
 
   it('星図の読み込み中でも、データを置くときはウィザードを出す。「N → M」の基準は取り直すたびに進む', () => {
-    expect(skyViewSource).toMatch(/status === 'loading'\) \{[^]*?if \(adding\) \{[^]*?<AddArea/)
+    // 別の木（AddArea だけ）にすると、星図が届いたときにウィザードが作り直される — 同じ SkyBody に空の星図を仮に渡す
+    expect(skyViewSource).toMatch(/status === 'loading'\) \{[^]*?if \(adding\) \{[^]*?<SkyBody\s+sky=\{EMPTY_SKY\}\s+provisional/)
+    expect(skyViewSource).toMatch(/const skip = wasProvisional\.current \|\| !!provisional/)
     expect(skyViewSource).toMatch(/prevAnswerable\.current = lastAnswerable\.current/)
   })
 

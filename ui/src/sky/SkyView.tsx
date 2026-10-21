@@ -26,7 +26,7 @@ import { SkyTables } from './SkyTables'
 import { fetchSuggestions, type Suggestion } from './suggestApi'
 import { irisOfKeys, overlayEdges, withoutKeys, type OverlayEdge } from './suggestModel'
 import { SAMPLE_SKY } from './sample'
-import { fetchDraftSky, getSky, type DraftSky, type SkyData } from './skyApi'
+import { EMPTY_SKY, fetchDraftSky, getSky, type DraftSky, type SkyData } from './skyApi'
 import { NEW_DRAFT_ID, draftSkyOf, edgeIndexOf, relOfSkyEdge, retargetKeyOf, skyEdgeId } from './skyDraft'
 import {
   bornAlive,
@@ -203,14 +203,22 @@ export function SkyView(props: SkyViewProps) {
   }
 
   if (load.status === 'loading') {
-    // 冷間の #/home?add=1 でも、星図を待たずにデータを置く道を出す（星図の取得は裏で続く）
+    // 冷間の #/home?add=1 でも、星図を待たずにデータを置く道を出す（星図の取得は裏で続く）。
+    // 描く木は「星図が届いたあと」と同じ SkyBody のまま（空の星図を仮に渡す）— 別の木にすると、星図が届いた瞬間に
+    // ウィザードが作り直されて（置いたファイル・見直しの途中が）消える。
     if (adding) {
       return (
-        <div className="sky-page">
-          <AddArea onClose={props.onCloseAdd} hosted={false}>
-            {props.addView}
-          </AddArea>
-        </div>
+        <SkyBody
+          sky={EMPTY_SKY}
+          provisional
+          drafts={drafts}
+          suggestions={suggestions}
+          setSuggestions={setSuggestions}
+          lang={lang}
+          onRefresh={refresh}
+          {...props}
+          newIris={[]}
+        />
       )
     }
     return (
@@ -266,6 +274,8 @@ function SkyBody(
     setSuggestions: (f: (s: Suggestion[]) => Suggestion[]) => void
     lang: 'ja' | 'en'
     onRefresh: () => void
+    /** 星図がまだ届いていない（空の星図を仮に渡している）。データを置く道だけが出ている。 */
+    provisional?: boolean
   },
 ) {
   const { sky, lang, suggestions, adding } = props
@@ -528,14 +538,19 @@ function SkyBody(
   // 星図を取り直して数が変わるたびに、基準を「変わる直前の値」へ進める（2 回目以降の公開でも「N → M」が正しい）。
   // 「生まれた輪」の effect より前に置く（同じ描画で両方が変わったときも、基準が先に進む）。
   const lastAnswerable = useRef(answerableNow)
+  const wasProvisional = useRef(!!props.provisional)
+  const { provisional } = props
   useEffect(() => {
+    // 仮の（空の）星図から本物が届いた変化は「公開による増え」ではない — 基準を進めない
+    const skip = wasProvisional.current || !!provisional
+    wasProvisional.current = !!provisional
     if (lastAnswerable.current === answerableNow) return
-    prevAnswerable.current = lastAnswerable.current
+    if (!skip) prevAnswerable.current = lastAnswerable.current
     lastAnswerable.current = answerableNow
-  }, [answerableNow])
+  }, [answerableNow, provisional])
   useEffect(() => {
-    if (!nothing) writeAnswerable(answerableNow)
-  }, [answerableNow, nothing])
+    if (!nothing && !provisional) writeAnswerable(answerableNow)
+  }, [answerableNow, nothing, provisional])
 
   useEffect(() => {
     const g = growRef.current
