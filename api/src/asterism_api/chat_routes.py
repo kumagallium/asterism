@@ -259,11 +259,12 @@ def register_chat(
         existing = await _terms()
         dismissed = shared_vocab.load_dismissed(root)
 
-        def _done(session: dict, turn: dict) -> JSONResponse:
+        def _done(session: dict, turn: dict, reverted: list[str] | None = None) -> JSONResponse:
             saved = chat_sessions.save_session(root, session)
             card = _draft_card(saved, body.lang)
             return JSONResponse(
-                {"turn": turn, "session": _head(saved), "draft": card}, status_code=201
+                {"turn": turn, "session": _head(saved), "draft": card, "reverted": reverted or []},
+                status_code=201,
             )
 
         # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
@@ -288,8 +289,10 @@ def register_chat(
                     await asyncio.to_thread(
                         _record_usage, root, "chat.turn", provider, llm, model
                     )
-            async with lock:  # 3. 適用（話と下書きを読み直す）
+            async with lock:  # 3. 適用（話・下書き・用語・外したものを読み直す）
                 session = _session_or_404(session_id)
+                existing = await _terms()
+                dismissed = shared_vocab.load_dismissed(root)
                 try:
                     turn = chat_turns.apply_text_turn(
                         session,
@@ -307,11 +310,18 @@ def register_chat(
         async with lock:
             session = _session_or_404(session_id)
             at = _now()
+            reverted: list[str] = []
             try:
                 if has_text and chat_turns.is_undo(text):
+                    was = {t["id"] for t in session["turns"] if t.get("state") == "proposed"}
                     turn = chat_turns.run_undo_turn(
                         session, text, root=root, at=at, lang=body.lang
                     )
+                    reverted = [
+                        t["id"]
+                        for t in session["turns"]
+                        if t["id"] in was and t.get("state") == "reverted"
+                    ]
                 elif has_text:
                     turn = chat_turns.run_text_turn(
                         session, text, lang=body.lang, root=root, at=at
@@ -336,7 +346,7 @@ def register_chat(
                     )
             except chat_turns.TurnRefused as exc:
                 raise _refused(exc) from exc
-            return _done(session, turn)
+            return _done(session, turn, reverted)
 
     @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/confirm", dependencies=deps)
     async def chat_confirm(

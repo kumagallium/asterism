@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,8 @@ from asterism_step0.graph_propose import (
 from asterism_step0.theme_propose import ThemeDraftError, propose_theme_draft
 
 from asterism_api import chat_seed
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "PreparedTurn",
@@ -330,8 +333,12 @@ def run_text_turn(
 
 _MAX_HISTORY = 12  # AI に見せる話の手番（最近）
 _MAX_CONTENT = 2000
-_UNDO_JA = re.compile(r"^(さっきの|前の|今の|それ)[をは]?(戻して|取り消して|やめて)[。！!]?$")
-_UNDO_EN = re.compile(r"^(undo|revert)\b", re.IGNORECASE)
+_UNDO_JA = re.compile(
+    r"^(さっきの|前の|今の|それ|元に)[をは]?(戻して|取り消して|やめて)(ください|くれ)?[。！!]?$"
+)
+_UNDO_EN = re.compile(
+    r"^(undo|revert)( that| it| this| the last( step| one)?)?[.!]?$", re.IGNORECASE
+)
 
 
 def is_undo(text: str) -> bool:
@@ -420,9 +427,15 @@ class PreparedTurn:
 
 
 def _history(session: dict) -> list[dict]:
-    """話の手番を古い順に ``user`` → ``assistant``（``user`` が無い手番は飛ばす・最近 12 件）。"""
+    """話の手番を古い順に ``user`` → ``assistant``。
+    ``user`` が無い・戻した・機械の手番は飛ばす（最近 12 件）。"""
     out: list[dict] = []
-    for t in (session.get("turns") or [])[-_MAX_HISTORY:]:
+    kept = [
+        t
+        for t in (session.get("turns") or [])
+        if t.get("state") != "reverted" and t.get("by") != "machine"
+    ]
+    for t in kept[-_MAX_HISTORY:]:
         said = (t.get("user") or {}).get("text")
         if not said:
             continue
@@ -568,7 +581,11 @@ def _answer_shape(answer: dict, concepts: list[dict], lg: str) -> str:
 
 
 def _draft_ops(draft: dict) -> list[dict]:
-    """下書きの行を差分の形に写す（概念 → 関係（止めていないもの）→ 答え方）。"""
+    """下書きの行を差分の形に写す（概念 → 関係（止めていないもの）→ 答え方）。
+
+    返事の ``ops`` は**表示用**（再送しない・件数の上限は付けない）。``add_question`` は
+    答え方が決まった問い（``mode`` が knowledge / data）だけ。決まっていない問いは
+    :func:`_undecided_questions` が注記にする。"""
     ops: list[dict] = []
     for c in draft.get("concepts") or []:
         ops.append(
@@ -595,6 +612,8 @@ def _draft_ops(draft: dict) -> list[dict]:
                 }
             )
     for a in draft.get("answers") or []:
+        if a.get("mode") not in ("knowledge", "data"):
+            continue
         ops.append(
             {
                 "op": "add_question",
@@ -605,11 +624,24 @@ def _draft_ops(draft: dict) -> list[dict]:
                 "direction": a.get("direction") or "",
                 "kind": a.get("kind") or "",
                 "property": a.get("property") or "",
+                "value": a.get("value") or "",
+                "match": a.get("match") or "",
+                "property2": a.get("property2") or "",
+                "kind2": a.get("kind2") or "",
                 "wanted_data": a.get("wanted_data") or "",
                 "reason": a.get("reason") or "",
             }
         )
     return ops
+
+
+def _undecided_questions(draft: dict) -> list[str]:
+    """答え方がまだ決まっていない問い（``mode`` が knowledge / data でない）。"""
+    return [
+        str(a.get("question"))
+        for a in draft.get("answers") or []
+        if a.get("mode") not in ("knowledge", "data") and a.get("question")
+    ]
 
 
 def _chips(questions: list[str] | None) -> list[str]:
@@ -620,12 +652,12 @@ def _chips(questions: list[str] | None) -> list[str]:
 
 _AI_FAILED = {
     "ja": {
-        "shape": "AI の答えが決まった形になりませんでした: ",
-        "network": "AI に届きませんでした: ",
+        "shape": "AI の答えが決まった形になりませんでした",
+        "network": "AI に届きませんでした",
     },
     "en": {
-        "shape": "The AI's answer did not take the expected shape: ",
-        "network": "Could not reach the AI: ",
+        "shape": "The AI's answer did not take the expected shape",
+        "network": "Could not reach the AI",
     },
 }
 
@@ -666,9 +698,9 @@ def apply_text_turn(
         )
     assert ai_result is not None
     if not ai_result.get("ok"):
-        detail = _AI_FAILED[lg][ai_result.get("reason") or "network"] + str(
-            ai_result.get("detail") or ""
-        )
+        reason = ai_result.get("reason") or "network"
+        detail = _AI_FAILED[lg][reason]  # 詳細は session.json に残さない
+        logger.warning("chat turn: AI failed (%s): %s", reason, ai_result.get("detail") or "")
         said = "今回は図を変えられませんでした。" if lg == "ja" else "The chart was not changed."
         return _machine_turn(session, text, said, lg, [note("ai_failed", detail)], at)
     draft = _current_draft(session, root)
@@ -678,6 +710,12 @@ def apply_text_turn(
     if seeded and (theme is None or theme.get("id") != prepared.theme_id):
         went_on = True
     if prepared.mode == "create" and theme is not None:
+        went_on = True
+    if prepared.mode == "diff" and (
+        draft is None
+        or prepared.draft_id != session.get("draft_id")
+        or prepared.draft_id != draft.get("id")
+    ):  # 待つあいだに別の下書きに替わった
         went_on = True
     if went_on:  # 待つあいだに話が進んだ
         said = (
@@ -871,6 +909,27 @@ def _created_turn(
         if wanted:
             said += f"Data needed: {wanted}"
     notes = list(extra_notes)
+    undecided = _undecided_questions(ops_of)
+    if undecided:
+        joined = " / ".join(undecided)
+        notes.append(
+            note(
+                "info",
+                f"答え方がまだ決まっていない問い: {joined}"
+                if lg == "ja"
+                else f"Questions without a way to answer yet: {joined}",
+            )
+        )
+    bad_rels = sum(1 for r in ops_of.get("relations") or [] if r.get("problem") is not None)
+    if bad_rels:
+        notes.append(
+            note(
+                "info",
+                f"形が合わない関係を {bad_rels} 件除きました"
+                if lg == "ja"
+                else f"Left out {bad_rels} relations whose shape does not fit",
+            )
+        )
     gone = out["dropped"]
     gc, gr = len(gone.get("concepts") or []), len(gone.get("relations") or [])
     if gc or gr:
@@ -946,7 +1005,14 @@ def _apply_diff(
                 },
             ],
         }
-        draft = _save(root, new, at)
+        try:
+            draft = _save(root, new, at)
+        except TurnRefused:
+            if fresh_seed is not None:  # 作った種つきの下書きを残さない（話は何も採用していない）
+                themes.delete_draft(root, draft["id"])
+                session["draft_id"] = None
+                session.pop("seed", None)
+            raise
         state = "proposed"
         _adopt_draft(session, draft)
         if fresh_seed is not None:

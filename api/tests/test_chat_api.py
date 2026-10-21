@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 
 from asterism import chat_sessions, shared_vocab, themes
+from asterism_step0.graph_propose import validate_graph_diff
 from fastapi.testclient import TestClient
 
 from asterism_api import chat_turns
@@ -772,7 +773,9 @@ def test_second_turn_retargets_and_undo_does_not_call_the_ai(tmp_path: Path) -> 
         assert sum(1 for r in now["relations"] if r["rel"] == "lowers" and r["to"] == c2) == 3
         assert now["chat"]["proposals"][-1]["by"] == "ai"
         # 「さっきのを戻して」は AI を呼ばずに戻る
-        u = _say(client, sid, "さっきのを戻して")["turn"]
+        said_undo = _say(client, sid, "さっきのを戻して")
+        u = said_undo["turn"]
+        assert said_undo["reverted"] == ["t2"]
         assert len(llm.calls) == 2
         assert u["state"] == "none" and u["by"] == "machine"
         assert u["reply"]["text"] == "1 つ前に戻しました"
@@ -797,6 +800,7 @@ def test_ai_failure_is_a_note_and_makes_no_draft(tmp_path: Path) -> None:
         assert turn["state"] == "none" and turn["before"] is None and turn["by"] == "machine"
         (n,) = turn["reply"]["notes"]
         assert n["kind"] == "ai_failed" and "決まった形になりませんでした" in n["text"]
+        assert n["text"] == "AI の答えが決まった形になりませんでした"  # 詳細は残さない
         assert out["session"]["draft_id"] is None and out["draft"] is None
         assert _draft_ids(tmp_path) == []
         assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None
@@ -811,7 +815,7 @@ def test_ai_unreachable_is_a_note_and_leaves_the_draft(tmp_path: Path) -> None:
         before = themes.load_draft(tmp_path / "registry", did)
         out = _say(client, sid, "もっと広げて")
         (n,) = out["turn"]["reply"]["notes"]
-        assert n["kind"] == "ai_failed" and "届きませんでした" in n["text"]
+        assert n["kind"] == "ai_failed" and n["text"] == "AI に届きませんでした"
         assert out["turn"]["state"] == "none" and out["turn"]["before"] is None
         assert themes.load_draft(tmp_path / "registry", did) == before
 
@@ -1051,3 +1055,98 @@ def test_a_question_after_confirm_grows_the_seeded_draft(tmp_path: Path) -> None
         assert "概念 1" in turn["reply"]["text"] and "関係 1" in turn["reply"]["text"]
         (card,) = client.get("/api/sky").json()["proposed"]
         assert card["removals"] == {"terms": [], "lines": []}
+
+
+# ---- 11b の穴の直し ------------------------------------------------------------------------------
+
+
+def test_undo_phrases() -> None:
+    for yes in ("元に戻して", "さっきのを戻してください", "undo", "Revert the last step"):
+        assert chat_turns.is_undo(yes), yes
+    for no in (
+        "粒界散乱を前の位置に戻して",
+        "revert the Seebeck coefficient relation",
+        "戻して欲しい関係がある",
+        "undo the grain boundary link",
+    ):
+        assert not chat_turns.is_undo(no), no
+
+
+def test_unreverted_undo_returns_empty_reverted(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        assert _say(client, sid, "undo")["reverted"] == []
+        assert _say(client, sid, Q_LOWER)["reverted"] == []
+
+
+def test_draft_replaced_while_waiting_is_not_applied(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    client, _ = _ai_client(tmp_path, json.dumps(AI_JSON))
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        session = chat_sessions.load_session(root, sid)
+        prepared = chat_turns.prepare_text_turn(
+            session, "もっと広げて", root=root, existing=[], lang="ja"
+        )
+        assert prepared.mode == "diff"
+        other = themes.create_draft(root, "", ["別の問い"], at="2026-01-01T00:00:00Z")
+        session["draft_id"] = other["id"]
+        before = themes.load_draft(root, other["id"])
+        turn = chat_turns.apply_text_turn(
+            session,
+            prepared,
+            {"ok": True, "value": {"reply": "x", "ops": []}},
+            root=root,
+            existing=[],
+            dismissed=[],
+            at="2026-01-01T00:00:01Z",
+            lang="ja",
+        )
+        assert turn["state"] == "none" and turn["by"] == "machine"
+        assert "先に進みました" in turn["reply"]["notes"][0]["text"]
+        assert themes.load_draft(root, other["id"]) == before
+
+
+def test_first_reply_ops_validate_and_memo_goes_to_a_note(tmp_path: Path) -> None:
+    memo = {
+        **AI_JSON,
+        "answers": [
+            {"question": Q_LOWER, "mode": "knowledge", "op": "factors", "target": None,
+             "direction": "lowers", "kind": None, "property": None,
+             "wanted_data": "", "reason": ""},
+        ],
+    }  # fmt: skip
+    client, _ = _ai_client(tmp_path, json.dumps(AI_JSON), json.dumps(memo))
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, Q_LOWER)
+        ops = out["turn"]["reply"]["ops"]
+        stored = themes.load_draft(tmp_path / "registry", out["draft"]["draft_id"])
+        keys = [c["key"] for c in stored["concepts"]]
+        validate_graph_diff({"ops": ops}, known_keys=keys, allow_taken_keys=True)
+        q = next(o for o in ops if o["op"] == "add_question")
+        assert {"value", "match", "property2", "kind2"} <= set(q)
+        sid2 = _new(client)
+        out2 = _say(client, sid2, Q_LOWER)
+        r2 = out2["turn"]["reply"]
+        assert all(o["op"] != "add_question" for o in r2["ops"])
+        (n,) = [n for n in r2["notes"] if n["kind"] == "info"]
+        assert n["text"] == f"答え方がまだ決まっていない問い: {Q_LOWER}"
+
+
+def test_history_skips_reverted_and_machine_turns() -> None:
+    def t(i: str, state: str, by: str) -> dict:
+        return {
+            "id": i, "state": state, "by": by,
+            "user": {"text": f"u{i}"}, "reply": {"text": f"r{i}"},
+        }  # fmt: skip
+
+    session = {
+        "turns": [t("1", "reverted", "ai"), t("2", "none", "machine"), t("3", "proposed", "ai")]
+    }
+    assert chat_turns._history(session) == [
+        {"role": "user", "content": "u3"},
+        {"role": "assistant", "content": "r3"},
+    ]
