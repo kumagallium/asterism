@@ -56,7 +56,9 @@ CHAT_DIR = "chat"
 ID_RE = re.compile(r"^c[a-z0-9]{8,12}\Z")
 
 #: ``notes[].kind`` の閉集合（11c で増える）
-NOTE_KINDS = frozenset({"ai_unset", "dropped", "no_question", "commit_error", "info"})
+NOTE_KINDS = frozenset(
+    {"ai_unset", "ai_failed", "dropped", "no_question", "commit_error", "info"}
+)
 TURN_STATES = ("none", "proposed", "confirmed", "reverted")
 
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"

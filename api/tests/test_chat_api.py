@@ -11,6 +11,7 @@ themes.json にテーマ・用語が鋳造され来歴の batch が ``<話>:<手
 # ruff: noqa: RUF001
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -18,8 +19,9 @@ from asterism import chat_sessions, themes
 from fastapi.testclient import TestClient
 
 from asterism_api import chat_turns
+from tests.test_consult_graph_api import RETARGETS, SAY, WRONG
 from tests.test_crosswalk_api import _AUTH
-from tests.test_themes_api import Q_LOWER, _app
+from tests.test_themes_api import _LLM, AI_JSON, KEY, Q_LOWER, _app
 
 Q2 = "格子熱伝導率を下げる要素は？"
 
@@ -711,3 +713,185 @@ def test_bind_column_by_hand_is_dropped_for_a_theme(tmp_path: Path) -> None:
         (note,) = out["reply"]["notes"]
         assert note["kind"] == "dropped" and "表の列だけに使えます" in note["text"]
         assert out["state"] == "none"
+
+
+# ---- 11b: AI の返事 -----------------------------------------------------------------------------
+
+
+def _ai_client(tmp_path: Path, *responses: str):
+    llm = _LLM(*responses)
+    app, _ = _app(tmp_path, llm)
+    return TestClient(app, headers={**_AUTH, **KEY}), llm
+
+
+def test_first_turn_with_an_ai_proposes_the_whole_map(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON))
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, Q_LOWER)
+        turn, session, draft = out["turn"], out["session"], out["draft"]
+        assert len(llm.calls) == 1 and Q_LOWER in llm.calls[0][1]
+        assert turn["by"] == "ai" and turn["state"] == "proposed" and turn["before"] is None
+        reply = turn["reply"]
+        assert [o["op"] for o in reply["ops"]] == ["add_concept"] * 6 + ["add_relation"] * 5 + [
+            "add_question"
+        ]
+        assert len(reply["sentences"]) == 12
+        assert reply["questions"] == ["組成ごとの熱伝導率の最小値は？"]
+        assert reply["notes"] == []
+        assert "概念 6" in reply["text"] and "関係 5" in reply["text"]
+        assert "熱伝導率 を下げるもの" in reply["text"]  # 答え方の実行文
+        assert "試料ごとの 粒径・熱伝導率 の表" in reply["text"]  # 欲しいデータ
+        assert session["title"] == "熱電材料" and session["draft_id"] == draft["draft_id"]
+        stored = themes.load_draft(tmp_path / "registry", draft["draft_id"])
+        assert len(stored["concepts"]) == 6 and len(stored["relations"]) == 5
+        assert stored["label"] == "熱電材料" and stored["step"] == 2
+        said = json.dumps([reply["text"], reply["sentences"]], ensure_ascii=False)
+        for word in ("そう", "線", "ことば", "下書き", "置く"):
+            assert word not in said, word
+
+
+def test_second_turn_retargets_and_undo_does_not_call_the_ai(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(WRONG), json.dumps(RETARGETS))
+    with client:
+        sid = _new(client)
+        first = _say(client, sid, Q_LOWER)
+        did = first["draft"]["draft_id"]
+        t2 = _say(client, sid, SAY)["turn"]
+        assert len(llm.calls) == 2
+        assert t2["state"] == "proposed" and t2["by"] == "ai"
+        assert [o["op"] for o in t2["reply"]["ops"]] == ["retarget"] * 3
+        assert t2["reply"]["text"].startswith("粒界・点欠陥")
+        assert t2["reply"]["questions"] == []
+        assert t2["before"]["id"] == did and len(t2["before"]["relations"]) == 5
+        # 2 度目の AI の呼び出しに、話の最初の手番が入っている・理由は送らない
+        assert Q_LOWER in llm.calls[1][1] and "フォノンが運ぶ分" not in llm.calls[1][1]
+        now = themes.load_draft(tmp_path / "registry", did)
+        c2 = next(c["key"] for c in now["concepts"] if c["label_ja"] == "格子熱伝導率")
+        assert sum(1 for r in now["relations"] if r["rel"] == "lowers" and r["to"] == c2) == 3
+        assert now["chat"]["proposals"][-1]["by"] == "ai"
+        # 「さっきのを戻して」は AI を呼ばずに戻る
+        u = _say(client, sid, "さっきのを戻して")["turn"]
+        assert len(llm.calls) == 2
+        assert u["state"] == "none" and u["by"] == "machine"
+        assert u["reply"]["text"] == "1 つ前に戻しました"
+        back = themes.load_draft(tmp_path / "registry", did)
+        assert back["relations"] == t2["before"]["relations"]
+        got = client.get(f"/api/chat/sessions/{sid}").json()
+        assert [t["state"] for t in got["turns"]] == ["proposed", "reverted", "none"]
+        # もう戻すものが 1 つ（最初の返事）。戻すと下書きごと消える
+        again = _say(client, sid, "undo")["turn"]
+        assert again["reply"]["text"] == "1 つ前に戻しました" and len(llm.calls) == 2
+        assert _draft_ids(tmp_path) == []
+        nothing = _say(client, sid, "前のを取り消して")["turn"]
+        assert nothing["reply"]["notes"][0]["kind"] == "info" and len(llm.calls) == 2
+
+
+def test_ai_failure_is_a_note_and_makes_no_draft(tmp_path: Path) -> None:
+    client, _ = _ai_client(tmp_path, "not json", "still not json")
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, Q_LOWER)
+        turn = out["turn"]
+        assert turn["state"] == "none" and turn["before"] is None and turn["by"] == "machine"
+        (n,) = turn["reply"]["notes"]
+        assert n["kind"] == "ai_failed" and "決まった形になりませんでした" in n["text"]
+        assert out["session"]["draft_id"] is None and out["draft"] is None
+        assert _draft_ids(tmp_path) == []
+        assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None
+
+
+def test_ai_unreachable_is_a_note_and_leaves_the_draft(tmp_path: Path) -> None:
+    client, _ = _ai_client(tmp_path, json.dumps(AI_JSON))  # 2 度目は応答切れ → 届かない
+    with client:
+        sid = _new(client)
+        first = _say(client, sid, Q_LOWER)
+        did = first["draft"]["draft_id"]
+        before = themes.load_draft(tmp_path / "registry", did)
+        out = _say(client, sid, "もっと広げて")
+        (n,) = out["turn"]["reply"]["notes"]
+        assert n["kind"] == "ai_failed" and "届きませんでした" in n["text"]
+        assert out["turn"]["state"] == "none" and out["turn"]["before"] is None
+        assert themes.load_draft(tmp_path / "registry", did) == before
+
+
+def test_text_only_reply_is_state_none(tmp_path: Path) -> None:
+    only_words = {"reply": "格子の分は、フォノンが運ぶ熱です。", "ops": []}
+    client, _ = _ai_client(tmp_path, json.dumps(AI_JSON), json.dumps(only_words))
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        t = _say(client, sid, "本当？")["turn"]
+        assert t["state"] == "none" and t["reply"]["text"].startswith("格子の分")
+        assert t["reply"]["ops"] == [] and t["before"] is None
+
+
+def test_confirm_after_ai_mints_with_ai_provenance_and_extend_passes_known_terms(
+    tmp_path: Path,
+) -> None:
+    q2 = "電子熱伝導率を上げる要素は？"
+    second = json.loads(json.dumps(AI_JSON))
+    second["answers"][0]["question"] = q2
+    second["suggested_questions"] = []
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), json.dumps(second))
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER)["turn"]
+        did = chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"]
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/confirm", json={})
+        assert r.status_code == 200, r.text
+        commit = r.json()["commit"]
+        assert commit is not None and commit["batch"] == f"{sid}:t1" and commit["minted"]
+        a = client.get(f"/api/themes/{did}/answers").json()
+        knowledge = next(x for x in a["answers"] if x["mode"] == "knowledge")
+        assert {i["drafted_by"] for i in knowledge["knowledge"]["items"]} == {"ai"}
+        # ✓ のあとの 2 問目 — extend 付き・鋳造した slug が known_terms で渡る
+        out = _say(client, sid, q2)
+        stored = themes.load_draft(tmp_path / "registry", out["draft"]["draft_id"])
+        assert stored["extend"] == did and out["turn"]["before"] is None
+        slug = commit["minted"][0]
+        assert slug in llm.calls[1][1] and slug not in llm.calls[0][1]
+
+
+def test_without_a_key_the_text_turn_stays_on_the_11a_path(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(AI_JSON))
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers=_AUTH) as client:  # 鍵のヘッダが無い
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER)["turn"]
+        assert t["by"] == "human" and llm.calls == []
+        assert [n["kind"] for n in t["reply"]["notes"]] == ["ai_unset"]
+
+
+def test_long_question_with_an_ai_is_a_note_not_a_draft(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON))
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, "あ" * 301)
+        assert out["turn"]["state"] == "none" and llm.calls == []
+        assert out["turn"]["reply"]["notes"][0]["kind"] == "info"
+        assert "300 字" in out["turn"]["reply"]["notes"][0]["text"]
+        assert out["draft"] is None and _draft_ids(tmp_path) == []
+
+
+def test_the_ai_is_called_outside_the_lock_in_three_steps(tmp_path: Path) -> None:
+    """準備 → AI → 適用 が別の関数で、AI の関数は話にも下書きにも触らない。"""
+    root = tmp_path / "registry"
+    session = chat_sessions.new_session("", at="2026-10-22T00:00:00+00:00")
+    llm = _LLM(json.dumps(AI_JSON))
+    prepared = chat_turns.prepare_text_turn(session, Q_LOWER, root=root, existing=[], lang="ja")
+    assert prepared.mode == "create" and session["turns"] == [] and not themes.list_drafts(root)
+    result = asyncio.run(chat_turns.ai_text_turn(prepared, llm))
+    assert result["ok"] and session["turns"] == [] and not themes.list_drafts(root)
+    turn = chat_turns.apply_text_turn(
+        session, prepared, result, root=root, existing=[], dismissed=[],
+        at="2026-10-22T00:00:01+00:00", lang="ja",
+    )  # fmt: skip
+    assert turn["state"] == "proposed" and session["draft_id"]
+    assert len(themes.list_drafts(root)) == 1
+    # 待つあいだに話が進んでいたら、当てずに一言（下書きを重ねて作らない）
+    stale = chat_turns.apply_text_turn(
+        session, prepared, result, root=root, existing=[], dismissed=[],
+        at="2026-10-22T00:00:02+00:00", lang="ja",
+    )  # fmt: skip
+    assert stale["state"] == "none" and len(themes.list_drafts(root)) == 1
