@@ -262,7 +262,7 @@ function PlaceRedirect({
   navigate: (route: Route, opts?: { replace?: boolean }) => void
 }) {
   useEffect(() => {
-    navigate({ tab: 'gallery', add: true, placeDatasetId }, { replace: true })
+    navigate({ tab: 'home', add: true, placeDatasetId }, { replace: true })
   }, [placeDatasetId, navigate])
   return null
 }

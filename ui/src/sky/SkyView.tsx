@@ -5,6 +5,8 @@
 //   ・右: 星図（canvas 2D・決定論の配置）。「…」（静かな表示・画像で保存・数で見る・中身まで見る）は図の右上。
 //     下書き（提案）は上の帯に薄い札と薄い線で重なり、「図に入れる」で濃くなる。直下に凡例 1 行、その下に
 //     「答えられる問い N / M・テーマを見る →」の帯。
+// 「＋ データを置く」（`#/home?add=1`）のあいだは、右の領域が星図の代わりに「かんたん」の札（addView）になり、左の会話は
+// AddConversation（段で送り先が決まる）に変わる。星図の状態（canvas・選択・会話の下書き）は mount したまま隠すだけ。
 // 配置は skyLayout.ts（純関数）、描画は skyDraw.ts、会話の状態は useHomeWorkspace.ts。ここは取得・状態・DOM だけ。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -14,6 +16,9 @@ import { MoreMenu } from '../MoreMenu'
 import { SV_NS } from '../lineChoice'
 import { relId } from '../workspace/workspaceState'
 import { useSheet } from '../workspace/useNarrow'
+import { ChatSlotContext } from '../kantan/hostedStage'
+import { useLlmSettings } from '../settings/context'
+import { AddConversation } from './AddConversation'
 import { HomeConversation } from './HomeConversation'
 import { ConceptCard, EdgeCard, OtherDraftCard } from './SessionCards'
 import { SkyPinned } from './SkyCards'
@@ -65,6 +70,12 @@ export interface SkyViewProps {
   /** 会話に渡したら（1 度だけ）hash から write を外す。 */
   onWriteConsumed: () => void
   onAddData: () => void
+  /** `#/home?add=1` — 右の領域をかんたん（データを置く）にする。 */
+  adding: boolean
+  /** かんたんの札（WorkbenchTier）。`adding` のときだけ渡る。 */
+  addView: ReactNode
+  /** 右の領域の「閉じる」（星図に戻る。かんたんの途中は残る）。 */
+  onCloseAdd: () => void
   onOpenKind: (iri: string) => void
   onOpenDataset: (id: string) => void
   onOpenTerm: (slug: string) => void
@@ -154,8 +165,30 @@ export function SkyView(props: SkyViewProps) {
     setLoad({ status: 'loading' })
     fetchSky()
   }
+  // データを置き終えて（または閉じて）星図に戻ったら、取り直す。公開で星が増えているので、「生まれた輪」（new）は
+  // 新しい星図が届くまで渡さない（古い配置には灯す星が無い）。
+  const adding = props.adding
+  const [prevAdding, setPrevAdding] = useState(adding)
+  const [stale, setStale] = useState(false)
+  if (adding !== prevAdding) {
+    setPrevAdding(adding)
+    if (!adding) setStale(true)
+  }
+  useEffect(() => {
+    if (!stale) return
+    let off = false
+    getSky()
+      .then((sky) => !off && setLoad({ status: 'ok', sky }))
+      .catch(() => undefined)
+      .finally(() => !off && setStale(false))
+    void fetchDraftSky(lang).then((d) => !off && setDrafts(d))
+    void fetchSuggestions().then((s) => !off && setSuggestions(s))
+    return () => {
+      off = true
+    }
+  }, [stale, lang])
 
-  if (props.deep) {
+  if (props.deep && !adding) {
     return (
       <div className="sky-page">
         <div className="sky-deep-head">
@@ -180,6 +213,16 @@ export function SkyView(props: SkyViewProps) {
   }
   // 障害を「まだデータがありません」という誤った空状態にしない。
   if (load.status === 'error') {
+    // 星図が読めなくても、データを置く道は止めない（会話なし・かんたんの札だけ。③の会話は従来どおり表の右）
+    if (adding) {
+      return (
+        <div className="sky-page">
+          <AddArea onClose={props.onCloseAdd} hosted={false}>
+            {props.addView}
+          </AddArea>
+        </div>
+      )
+    }
     return (
       <div className="sky-page">
         <div className="sky-placeholder" role="alert">
@@ -200,6 +243,7 @@ export function SkyView(props: SkyViewProps) {
       lang={lang}
       onRefresh={refresh}
       {...props}
+      newIris={stale ? [] : props.newIris}
     />
   )
 }
@@ -214,8 +258,11 @@ function SkyBody(
     onRefresh: () => void
   },
 ) {
-  const { sky, lang, suggestions } = props
+  const { sky, lang, suggestions, adding } = props
   const { t } = useTranslation('sky')
+  const { isReady } = useLlmSettings()
+  // データを置いているあいだ、③の会話の置き場（左の欄の div）。DatasetChat がここへ portal する。
+  const [chatSlot, setChatSlot] = useState<HTMLElement | null>(null)
 
   // ── 選択（星図の点・提案の線・問い） ──
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -508,6 +555,13 @@ function SkyBody(
   // ── 会話の開閉・「問いを書く」の合図（`#/home?write=1…`） ──
   const sheet = useSheet()
   const [chatOpen, setChatOpen] = useState(() => !sheetNow())
+  // AI が未設定でも、人が左の欄を開いたなら開いておく（データを置いているあいだだけの記憶）
+  const [addAsked, setAddAsked] = useState(false)
+  const [prevAdding, setPrevAdding] = useState(adding)
+  if (adding !== prevAdding) {
+    setPrevAdding(adding)
+    if (!adding) setAddAsked(false)
+  }
   const firstSheet = useRef(sheet)
   useEffect(() => {
     if (firstSheet.current === sheet) return
@@ -737,124 +791,150 @@ function SkyBody(
 
   const selectedKey = activeNode?.type === 'draft' && activeNode.draftId === sessionId ? activeNode.conceptKey : null
 
+  // データを置いているときの左の欄: AI が使えない（未設定）なら閉じて始める（チップと札だけで進める。開けば設定の案内が出る）
+  const addOpen = chatOpen && (isReady || addAsked)
+
   return (
     <div className="sky-page">
-      <div className="sky-facts">
-        {f.questions_total > 0 ? (
-          <span className="sky-facts-lead">
-            <b>
-              {f.questions_answerable} / {f.questions_total}
-            </b>
-            {t('facts.answerable')}
-          </span>
+      {!adding && (
+        <div className="sky-facts">
+          {f.questions_total > 0 ? (
+            <span className="sky-facts-lead">
+              <b>
+                {f.questions_answerable} / {f.questions_total}
+              </b>
+              {t('facts.answerable')}
+            </span>
+          ) : (
+            <span className="sky-facts-none">{t('facts.none')}</span>
+          )}
+        </div>
+      )}
+
+      {note && !adding && <p className="sky-note">{note}</p>}
+
+      <div className={`sky-ws${(adding ? addOpen : chatOpen) ? '' : ' is-folded'}`}>
+        {adding ? (
+          <AddConversation
+            open={addOpen}
+            onOpen={() => {
+              setAddAsked(true)
+              setChatOpen(true)
+            }}
+            onFold={() => setChatOpen(false)}
+            setSlot={setChatSlot}
+          />
         ) : (
-          <span className="sky-facts-none">{t('facts.none')}</span>
+          <HomeConversation
+            ws={ws}
+            lang={lang}
+            pinned={chatOpen && hasPinned ? pinned : null}
+            open={chatOpen}
+            onOpen={() => setChatOpen(true)}
+            onFold={() => setChatOpen(false)}
+            selectedKey={selectedKey}
+            selectedEdge={activeEdge}
+            onSelectEdge={selectEdge}
+            unlinkedKinds={kindsWithoutTerm}
+            onAddData={props.onAddData}
+            prefill={prefill}
+            focusTick={focusTick}
+          />
         )}
-      </div>
-
-      {note && <p className="sky-note">{note}</p>}
-
-      <div className={`sky-ws${chatOpen ? '' : ' is-folded'}`}>
-        <HomeConversation
-          ws={ws}
-          lang={lang}
-          pinned={chatOpen && hasPinned ? pinned : null}
-          open={chatOpen}
-          onOpen={() => setChatOpen(true)}
-          onFold={() => setChatOpen(false)}
-          selectedKey={selectedKey}
-          selectedEdge={activeEdge}
-          onSelectEdge={selectEdge}
-          unlinkedKinds={kindsWithoutTerm}
-          onAddData={props.onAddData}
-          prefill={prefill}
-          focusTick={focusTick}
-        />
         <div className="sky-main">
-          <div className="sky-chartwrap" ref={wrapRef}>
-            <div className="sky-figure">
-              <canvas
-                ref={canvasRef}
-                className="sky-canvas"
-                style={{ height: layout.height }}
-                role="img"
-                aria-label={ariaLabel}
-                onPointerDown={onPointerDown}
-                onPointerMove={onMove}
-                onPointerUp={(ev) => finishDrag(ev, true)}
-                onPointerCancel={(ev) => finishDrag(ev, false)}
-                onPointerLeave={onLeave}
-                onClick={onClick}
-              />
-              {nothing && (
-                <>
-                  <span className="sky-sample-tag">{t('empty.sample')}</span>
-                  <div className="sky-empty-card">
-                    <h2 className="sky-empty-title">{t('empty.none')}</h2>
-                  </div>
-                </>
-              )}
-              <MoreMenu
-                className="sky-more"
-                label={t('more.label')}
-                items={[
-                  {
-                    key: 'quiet',
-                    label: t('quiet'),
-                    checked: reduced,
-                    disabled: osQuiet,
-                    onSelect: () => {
-                      setQuiet(!reduced)
-                      writeQuiet(!reduced)
+          {adding && (
+            <ChatSlotContext.Provider value={chatSlot}>
+              <AddArea onClose={props.onCloseAdd} hosted={chatSlot !== null}>
+                {props.addView}
+              </AddArea>
+            </ChatSlotContext.Provider>
+          )}
+          <div className="sky-sky" hidden={adding}>
+            <div className="sky-chartwrap" ref={wrapRef}>
+              <div className="sky-figure">
+                <canvas
+                  ref={canvasRef}
+                  className="sky-canvas"
+                  style={{ height: layout.height }}
+                  role="img"
+                  aria-label={ariaLabel}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onMove}
+                  onPointerUp={(ev) => finishDrag(ev, true)}
+                  onPointerCancel={(ev) => finishDrag(ev, false)}
+                  onPointerLeave={onLeave}
+                  onClick={onClick}
+                />
+                {nothing && (
+                  <>
+                    <span className="sky-sample-tag">{t('empty.sample')}</span>
+                    <div className="sky-empty-card">
+                      <h2 className="sky-empty-title">{t('empty.none')}</h2>
+                    </div>
+                  </>
+                )}
+                <MoreMenu
+                  className="sky-more"
+                  label={t('more.label')}
+                  items={[
+                    {
+                      key: 'quiet',
+                      label: t('quiet'),
+                      checked: reduced,
+                      disabled: osQuiet,
+                      onSelect: () => {
+                        setQuiet(!reduced)
+                        writeQuiet(!reduced)
+                      },
                     },
-                  },
-                  {
-                    key: 'png',
-                    label: t('png.button'),
-                    disabled: tauri || nothing,
-                    title: tauri ? t('png.desktop') : undefined,
-                    onSelect: savePng,
-                  },
-                  { key: 'numbers', label: t('more.numbers'), onSelect: () => setTablesOpen(true) },
-                  { key: 'deep', label: t('deep'), onSelect: () => props.onDeep(true) },
-                ]}
-              />
+                    {
+                      key: 'png',
+                      label: t('png.button'),
+                      disabled: tauri || nothing,
+                      title: tauri ? t('png.desktop') : undefined,
+                      onSelect: savePng,
+                    },
+                    { key: 'numbers', label: t('more.numbers'), onSelect: () => setTablesOpen(true) },
+                    { key: 'deep', label: t('deep'), onSelect: () => props.onDeep(true) },
+                  ]}
+                />
+              </div>
+              <div className="sky-legend">
+                <span>
+                  <i style={{ background: 'var(--entity)' }} />
+                  {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
+                </span>
+                <span>
+                  <i style={{ background: 'var(--activity)' }} />
+                  {t('legend.term')}
+                </span>
+                <span>
+                  <i style={{ background: 'var(--accent)' }} />
+                  {t('legend.std')}
+                </span>
+              </div>
+              {pngError && (
+                <p className="sky-png-note" role="alert">
+                  {t('png.failed')}
+                </p>
+              )}
             </div>
-            <div className="sky-legend">
-              <span>
-                <i style={{ background: 'var(--entity)' }} />
-                {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
-              </span>
-              <span>
-                <i style={{ background: 'var(--activity)' }} />
-                {t('legend.term')}
-              </span>
-              <span>
-                <i style={{ background: 'var(--accent)' }} />
-                {t('legend.std')}
-              </span>
-            </div>
-            {pngError && (
-              <p className="sky-png-note" role="alert">
-                {t('png.failed')}
+            {f.questions_total > 0 && (
+              <p className="sky-band" data-testid="questions-band">
+                <span>
+                  {t('band.answerable', { ok: f.questions_answerable, total: f.questions_total })}
+                </span>
+                <button type="button" className="link-btn" onClick={props.onOpenQuestions}>
+                  {t('band.themes')}
+                </button>
               </p>
             )}
+            {bandPinned && !adding && (
+              <div className="sky-sheetband" data-testid="pinned-band">
+                {pinned}
+              </div>
+            )}
           </div>
-          {f.questions_total > 0 && (
-            <p className="sky-band" data-testid="questions-band">
-              <span>
-                {t('band.answerable', { ok: f.questions_answerable, total: f.questions_total })}
-              </span>
-              <button type="button" className="link-btn" onClick={props.onOpenQuestions}>
-                {t('band.themes')}
-              </button>
-            </p>
-          )}
-          {bandPinned && (
-            <div className="sky-sheetband" data-testid="pinned-band">
-              {pinned}
-            </div>
-          )}
         </div>
       </div>
 
@@ -874,4 +954,21 @@ function sheetNow(): boolean {
   } catch {
     return false
   }
+}
+
+/** 右の領域（データを置く）。かんたんの札（children）を星図と同じ幅のページのまま描き、閉じるを添える。 */
+function AddArea({ onClose, hosted, children }: { onClose: () => void; hosted: boolean; children: ReactNode }) {
+  const { t } = useTranslation('sky')
+  return (
+    <section className={`sky-add-area${hosted ? ' is-hosted' : ''}`} aria-label={t('add.area')} data-testid="add-area">
+      <div className="sky-add-head">
+        <span className="sky-add-title">{t('add.area')}</span>
+        <span className="sky-add-hint">{t('add.closeHint')}</span>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} data-testid="add-close">
+          {t('add.close')}
+        </button>
+      </div>
+      {children}
+    </section>
+  )
 }
