@@ -1048,6 +1048,9 @@ def postprocess_draft(
                 op, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value
             )
             memo = None if good else "ai"
+            if good and op == "filter" and normalize_label(value) not in normalize_label(q):
+                # 値は問いの文に書かれていた語だけ（データの値を AI が持ち込んだら採らない）
+                memo = "value"
         else:
             memo = "op" if op is not None and op not in (*FITTING_OPS, *KNOWLEDGE_OPS) else "ai"
         out_answers.append(
@@ -1204,6 +1207,7 @@ _MEMO_REASONS = {
         "none": "数え方が決まっていないため、メモとして残します。",
         "human": "あなたの判断で、メモとして残します。",
         "duplicate": "同じ答え方の問いが既にあります。メモとして残します。",
+        "value": "値が問いの文にありません。メモとして残します。",
     },
     "en": {
         "op": "The current ways of counting (count, range, top value) cannot answer it, "
@@ -1213,6 +1217,7 @@ _MEMO_REASONS = {
         "human": "You chose to keep it as a memo.",
         "duplicate": "A question with the same way of answering already exists, "
         "so it stays as a memo.",
+        "value": "The value is not in the question's sentence, so it stays as a memo.",
     },
 }
 

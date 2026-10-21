@@ -201,15 +201,19 @@ def test_the_four_wider_shapes_are_data_answers_with_their_extra_fields(op: str)
 
 def test_value_and_match_are_closed() -> None:
     for over in (
-        {"value": "https://example.org/x"},
-        {"value": "SELECT * WHERE"},
-        {"value": "<script>"},
-        {"value": "x" * 121},
         {"match": "regex"},
         {"op": "sparql"},
     ):
         with pytest.raises(ThemeDraftError):
             validate_theme_draft(_bad(answers=[_ans(**{"mode": "data", "op": "filter", **over})]))
+    # 値のコード・IRI・長すぎは、下書き全体を拒まず、その問いの値を空にしてメモに落とす
+    for bad in ("https://example.org/x", "SELECT * WHERE", "<script>", "x" * 121):
+        raw = _bad(answers=[_ans(mode="data", op="filter", kind="c3", property="c2", value=bad)])
+        a = validate_theme_draft(raw)["answers"][0]
+        assert (a["value"], a["mode"], a["op"]) == (None, "memo", "filter")
+    # 値のない count などの問いは、値が壊れていても止まらない（値は捨てる）
+    raw = _bad(answers=[_ans(mode="data", op="count", kind="c3", value="<x>")])
+    assert validate_theme_draft(raw)["answers"][0]["value"] is None
     # 新しい欄は無くてもよい（無ければ None）
     a = validate_theme_draft(_bad(answers=[_ans(mode="data", op="count", kind="c3")]))["answers"][0]
     assert (a["value"], a["match"], a["property2"], a["kind2"]) == (None, None, None, None)

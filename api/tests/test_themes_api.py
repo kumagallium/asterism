@@ -889,3 +889,21 @@ def test_wide_shapes_commit_and_answers_carry_the_sentence_and_data_n(tmp_path: 
         shapes = {a["tool_name"]: a["shape"] for a in ans}
         assert shapes["cq_sample_filter"] == "試料のうち、組成に SnSe を含むもの"
         assert shapes["cq_paper_join"] == "論文 が 報告する 試料"
+
+
+def test_wide_selection_reads_terms_by_iri_not_by_position() -> None:
+    """一覧に無い語（ずれの元）があっても、位置でなく IRI で引く。"""
+    from asterism_api.themes_routes import _wide_selection
+
+    k, p, p2 = "urn:k", "urn:p", "urn:p2"
+    tool = {"name": "cq_curve_trend", "for_terms": [k, p, p2]}
+    by = {k: {"label": "曲線", "kind": "class"}, p: {"label": "温度", "kind": "property"},
+          p2: {"label": "Seebeck", "kind": "property"}}  # fmt: skip
+    assert _wide_selection(tool, by) == {
+        "op": "trend", "kind": "曲線", "property": "温度", "property2": "Seebeck",
+    }  # fmt: skip
+    # 2 つ目の項目だけ一覧に無い: 3 番目の語を「項目」に詰めない
+    no_p = {i: v for i, v in by.items() if i != p}
+    assert _wide_selection(tool, no_p) == {}
+    no_p2 = {i: v for i, v in by.items() if i != p2}
+    assert _wide_selection(tool, no_p2) == {"op": "trend", "kind": "曲線", "property": "温度"}

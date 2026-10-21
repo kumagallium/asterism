@@ -415,9 +415,14 @@ def test_postprocess_checks_the_new_fields_and_drops_what_does_not_fit() -> None
         ],
         "relations": [],
         "answers": [
-            {"question": "q1", "mode": "data", "op": "filter", "target": None, "direction": None,
-             "kind": "c1", "property": "c2", "value": " SnSe  ", "match": "exact",
-             "property2": None, "kind2": None, "wanted_data": "", "reason": ""},
+            {"question": "q1 は SnSe の試料？", "mode": "data", "op": "filter", "target": None,
+             "direction": None, "kind": "c1", "property": "c2", "value": " snse  ",
+             "match": "exact", "property2": None, "kind2": None, "wanted_data": "", "reason": ""},
+            # 値が問いの文に無い filter（AI がデータの値を持ち込んだ）は、その問いだけメモへ
+            {"question": "q3 は組成の試料？", "mode": "data", "op": "filter", "target": None,
+             "direction": None, "kind": "c1", "property": "c2", "value": "PbTe",
+             "match": "contains", "property2": None, "kind2": None, "wanted_data": "",
+             "reason": ""},
             # kind2 に項目を選んだ join は、検査に合わずメモへ
             {"question": "q2", "mode": "data", "op": "join", "target": None, "direction": None,
              "kind": "c3", "property": "c2", "value": None, "match": None,
@@ -425,7 +430,12 @@ def test_postprocess_checks_the_new_fields_and_drops_what_does_not_fit() -> None
         ],
         "suggested_questions": [],
     }  # fmt: skip
-    out = themes.postprocess_draft(ai, questions=["q1", "q2"], existing=[])
+    qs = ["q1 は SnSe の試料？", "q2", "q3 は組成の試料？"]
+    out = themes.postprocess_draft(ai, questions=qs, existing=[])
     a = {x["question"]: x for x in out["answers"]}
-    assert (a["q1"]["mode"], a["q1"]["value"], a["q1"]["match"]) == ("data", "SnSe", "exact")
+    # 値は空白を畳み・大文字小文字を畳んで問いの文に含まれれば通る（持ち込んだ値は採らない）
+    q1 = a[qs[0]]
+    assert (q1["mode"], q1["value"], q1["match"]) == ("data", "snse", "exact")
+    assert (a[qs[2]]["mode"], a[qs[2]]["memo"]) == ("memo", "value")
+    assert themes._MEMO_REASONS["ja"]["value"] == "値が問いの文にありません。メモとして残します。"
     assert (a["q2"]["mode"], a["q2"]["memo"], a["q2"]["kind2"]) == ("memo", "ai", "")
