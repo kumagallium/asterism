@@ -110,6 +110,9 @@ export interface RevertResponse {
   reverted: string[]
 }
 
+/** 鍵が無い（401/503）。話を保存できない。 */
+export const isKeyMissing = (e: unknown): boolean => e instanceof ThemesApiError && (e.status === 401 || e.status === 503)
+
 // ── 検査 ────────────────────────────────────────────────────────
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)

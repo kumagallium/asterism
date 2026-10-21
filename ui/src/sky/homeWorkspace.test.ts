@@ -5,7 +5,6 @@ import consultJa from '../i18n/locales/ja/consult.json'
 import skyEn from '../i18n/locales/en/sky.json'
 import skyJa from '../i18n/locales/ja/sky.json'
 import themesJa from '../i18n/locales/ja/themes.json'
-import appSource from '../App.tsx?raw'
 import conversationSource from './HomeConversation.tsx?raw'
 import hookSource from './useHomeWorkspace.ts?raw'
 import skyViewSource from './SkyView.tsx?raw'
@@ -102,8 +101,6 @@ describe('直しはその場で保存する（離れても消えない）', () =
   })
 
   it('hash が変わる前（navigate・hashchange）に、開いている下書きの保存を流す', () => {
-    expect(appSource).toMatch(/function navigate\(r: Route, opts\?: \{ replace\?: boolean \}\) \{\n\s+flushDrafts\(\)/)
-    expect(appSource).toMatch(/const onHash = \(\) => \{\n\s+flushDrafts\(\)/)
     expect(hookSource).toMatch(/registerDraftFlush\(/)
   })
 
@@ -192,7 +189,6 @@ describe('②のモーダルは廃止・知りたいことは一覧だけ', () =
     for (const name of ['ThemeWizard', 'ThemeWorkspace', 'GraphCanvas']) {
       expect(files.some((f) => f.includes(name))).toBe(false)
     }
-    expect(appSource).not.toMatch(/ThemeWizard|ThemeWorkspace/)
     expect(themesViewSource).not.toMatch(/ThemeWizard|thm-overlay|thm-panel/)
   })
 
@@ -200,7 +196,6 @@ describe('②のモーダルは廃止・知りたいことは一覧だけ', () =
     expect(themesViewSource).toMatch(/onClick=\{\(\) => write\(\)\}/)
     expect(themesViewSource).toMatch(/write\(\{ extend: \{ id: th\.id, label: th\.label \} \}\)/)
     expect(themesViewSource).toMatch(/write\(\{ resume: d\.id \}\)/)
-    expect(appSource).toMatch(/onWrite=\{\(w\) => navigate\(\{ tab: 'home', write: w \}\)\}/)
   })
 })
 

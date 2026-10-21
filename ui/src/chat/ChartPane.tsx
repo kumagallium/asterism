@@ -1,0 +1,396 @@
+// 右の領域＝図（PR 11a）。星図の canvas だけを新しく書く（配置・描画・表は sky/ の純関数と部品を import で流用）。
+// `GET /api/sky`（鍵つき）の `proposed` を未確認の薄い札として重ねる。`refreshKey` が変わるたびに取り直し、
+// 増えた用語・種類の点に「生まれた輪」を 1 度出す。線のドラッグ・札は載せない（11b 以降）。
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { isTauri } from '../desktop/updater'
+import { MoreMenu } from '../MoreMenu'
+import { SAMPLE_SKY } from '../sky/sample'
+import { EMPTY_SKY, type SkyData } from '../sky/skyApi'
+import { bornAlive, drawSky, formatCount, hitTest, readSkyPalette, visiblePointLabels, type SkyLabels, type SkyPalette } from '../sky/skyDraw'
+import { layoutSky, neighborhood, nodeIdsForIris, type SkyLayout, type SkyNode } from '../sky/skyLayout'
+import { SkyTables } from '../sky/SkyTables'
+import { buildSkyTables } from '../sky/skyTable'
+import '../sky/sky.css'
+import { getSkyWithProposed, type SkyDraft } from './chatApi'
+
+// sigma（WebGL）は「中身まで見る」を開くときだけ読む。
+const NetworkView = lazy(() => import('../NetworkView').then((m) => ({ default: m.NetworkView })))
+
+const QUIET_KEY = 'asterism.sky.quiet'
+const DEFAULT_WIDTH = 640
+
+const readQuiet = (): boolean => {
+  try {
+    return localStorage.getItem(QUIET_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+const writeQuiet = (on: boolean): void => {
+  try {
+    localStorage.setItem(QUIET_KEY, on ? '1' : '0')
+  } catch {
+    /* 保存できなくても今回の表示には効く */
+  }
+}
+const prefersReducedMotion = (): boolean => {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
+type Load = { status: 'loading' } | { status: 'error' } | { status: 'ok'; sky: SkyData; proposed: SkyDraft[] }
+
+/** 星図に出ている種類・用語の IRI（増えたものに輪を出すため）。 */
+function irisOf(sky: SkyData): Set<string> {
+  const out = new Set<string>()
+  for (const t of sky.terms) out.add(t.iri)
+  for (const d of sky.datasets) for (const k of d.kinds) out.add(k.iri)
+  return out
+}
+
+export interface ChartPaneProps {
+  lang: 'ja' | 'en'
+  /** 変わるたびに図を取り直す（手番・✓・戻すのあと）。 */
+  refreshKey: number
+  /** 取り直した未確認の札を知らせる（手で足すフォームが、いまある概念を選べるように）。 */
+  onProposed?: (drafts: SkyDraft[]) => void
+  /** 点を押した（この PR では濃淡だけ。札は 11d）。 */
+  onSelect?: (node: SkyNode | null) => void
+}
+
+export function ChartPane({ lang, refreshKey, onProposed, onSelect }: ChartPaneProps) {
+  const { t } = useTranslation('sky')
+  const { t: tc } = useTranslation('chat')
+  const [load, setLoad] = useState<Load>({ status: 'loading' })
+  const [retryTick, setRetryTick] = useState(0)
+  const [deep, setDeep] = useState(false)
+  const prevIris = useRef<Set<string> | null>(null)
+  const bornIris = useRef<string[]>([])
+  const onProposedRef = useRef(onProposed)
+  useEffect(() => {
+    onProposedRef.current = onProposed
+  })
+
+  useEffect(() => {
+    let off = false
+    getSkyWithProposed(lang)
+      .then(({ sky, proposed }) => {
+        if (off) return
+        const now = irisOf(sky)
+        // 取り直したあとに増えた点（最初の読み込みは除く）に輪を出す
+        bornIris.current = prevIris.current ? [...now].filter((i) => !prevIris.current!.has(i)) : []
+        prevIris.current = now
+        setLoad({ status: 'ok', sky, proposed })
+        onProposedRef.current?.(proposed)
+      })
+      // 取り直しの失敗では、いま描いている図を消さない（最初の読み込みだけエラーにする）
+      .catch(() => !off && setLoad((cur) => (cur.status === 'ok' ? cur : { status: 'error' })))
+    return () => {
+      off = true
+    }
+  }, [lang, refreshKey, retryTick])
+
+  const sky = load.status === 'ok' ? load.sky : EMPTY_SKY
+  const proposed = useMemo<SkyDraft[]>(() => (load.status === 'ok' ? load.proposed : []), [load])
+  const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && proposed.length === 0
+  const drawn = nothing ? SAMPLE_SKY : sky
+
+  // ── 幅（図の列の幅に追従） ──
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const apply = () => {
+      const w = Math.round(el.getBoundingClientRect().width)
+      if (w > 0) setWidth(w)
+    }
+    apply()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [load.status, deep])
+
+  const layout = useMemo<SkyLayout>(
+    () => layoutSky(drawn, { width, lang, minHeight: 360, drafts: nothing ? [] : proposed }),
+    [drawn, width, lang, proposed, nothing],
+  )
+  const tables = useMemo(() => buildSkyTables(sky, lang), [sky, lang])
+  const visible = useMemo(() => visiblePointLabels(layout), [layout])
+
+  const [quiet, setQuiet] = useState(readQuiet)
+  const [osQuiet] = useState(prefersReducedMotion)
+  const reduced = quiet || osQuiet
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const activeId = selectedId && layout.nodes.has(selectedId) ? selectedId : null
+
+  const labels = useMemo<SkyLabels>(
+    () => ({
+      names: t('bands.names'),
+      mid: t('bands.data'),
+      midCircles: t('bands.dataCircles'),
+      std: t('bands.std'),
+      empty: t('bands.noStar'),
+      property: t('bands.property'),
+      draft: t('bands.draft'),
+      draftRemove: t('bands.draftRemove'),
+      partOf: t('line.partOf'),
+      relSub: t('line.sub'),
+      relQuantity: t('line.quantity'),
+      count: (n) => t('unit.count', { n: formatCount(n, lang) }),
+      kinds: (n) => t('unit.kinds', { n }),
+    }),
+    [t, lang],
+  )
+
+  // ── 描画 ──
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const paletteRef = useRef<SkyPalette | null>(null)
+  const hoverRef = useRef<string | null>(null)
+  const bornRef = useRef<Map<string, number>>(new Map())
+  const rafRef = useRef(0)
+  const stateRef = useRef<{ layout: SkyLayout; labels: SkyLabels; visible: ReadonlySet<string>; selectedId: string | null; reduced: boolean; nothing: boolean } | null>(null)
+
+  const paint = useCallback(function paintFrame() {
+    rafRef.current = 0
+    const canvas = canvasRef.current
+    const s = stateRef.current
+    if (!canvas || !s) return
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    const w = s.layout.width
+    const h = s.layout.height
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+    }
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    paletteRef.current ??= readSkyPalette()
+    const now = performance.now()
+    const focusId = s.nothing ? null : (hoverRef.current ?? s.selectedId)
+    const near = focusId ? neighborhood(s.layout, focusId) : null
+    drawSky(
+      ctx,
+      s.layout,
+      paletteRef.current,
+      s.labels,
+      { focusId, near, born: bornRef.current, now, reducedMotion: s.reduced, alpha: s.nothing ? 0.38 : 1 },
+      s.visible,
+    )
+    if (!s.reduced && bornAlive(bornRef.current, now)) rafRef.current = requestAnimationFrame(paintFrame)
+  }, [])
+  const schedule = useCallback(() => {
+    if (!rafRef.current) rafRef.current = requestAnimationFrame(paint)
+  }, [paint])
+
+  useEffect(() => {
+    stateRef.current = { layout, labels, visible, selectedId: activeId, reduced, nothing }
+    schedule()
+  }, [layout, labels, visible, activeId, reduced, nothing, schedule])
+  useEffect(() => {
+    let alive = true
+    void document.fonts?.ready.then(() => alive && schedule())
+    return () => {
+      alive = false
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [schedule])
+
+  // 取り直しで増えた点に、生まれた輪を 1 度だけ
+  useEffect(() => {
+    const iris = bornIris.current
+    if (iris.length === 0 || reduced || nothing) return
+    bornIris.current = []
+    const now = performance.now()
+    for (const id of nodeIdsForIris(layout, iris)) bornRef.current.set(id, now)
+    schedule()
+  }, [layout, reduced, nothing, schedule])
+
+  // ── ポインタ（hover で近傍を濃く・押して選ぶ） ──
+  const localPoint = (ev: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+    const r = ev.currentTarget.getBoundingClientRect()
+    return { x: ((ev.clientX - r.left) * layout.width) / (r.width || layout.width), y: ev.clientY - r.top }
+  }
+  const onMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
+    if (nothing) return
+    const p = localPoint(ev)
+    const id = hitTest(layout, p.x, p.y)?.id ?? null
+    if (id !== hoverRef.current) {
+      hoverRef.current = id
+      schedule()
+    }
+    ev.currentTarget.classList.toggle('sky-canvas--hit', !!id)
+  }
+  const onLeave = () => {
+    if (hoverRef.current) {
+      hoverRef.current = null
+      schedule()
+    }
+  }
+  const onClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
+    if (nothing) return
+    const p = localPoint(ev)
+    const n = hitTest(layout, p.x, p.y)
+    setSelectedId(n?.id ?? null)
+    onSelect?.(n)
+  }
+
+  // ── 画像で保存 ──
+  const tauri = isTauri()
+  const [pngError, setPngError] = useState(false)
+  const savePng = () => {
+    setPngError(false)
+    const off = document.createElement('canvas')
+    const scale = 2
+    off.width = Math.round(layout.width * scale)
+    off.height = Math.round(layout.height * scale)
+    const ctx = off.getContext('2d')
+    if (!ctx) return setPngError(true)
+    ctx.setTransform(scale, 0, 0, scale, 0, 0)
+    paletteRef.current ??= readSkyPalette()
+    drawSky(ctx, layout, paletteRef.current, labels, { focusId: null, near: null, born: new Map(), now: 0, reducedMotion: true, alpha: nothing ? 0.38 : 1 }, visible)
+    off.toBlob((blob) => {
+      if (!blob) return setPngError(true)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'asterism-sky.png'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+    }, 'image/png')
+  }
+
+  const [tablesOpen, setTablesOpen] = useState(false)
+  const tablesRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = tablesRef.current
+    if (!tablesOpen || !el) return
+    el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
+    el.focus({ preventScroll: true })
+  }, [tablesOpen, reduced])
+
+  if (deep) {
+    return (
+      <div className="chart-pane chart-pane--deep">
+        <div className="sky-deep-head">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setDeep(false)}>
+            ← {tc('chart.back')}
+          </button>
+          <span>{t('deepLead')}</span>
+        </div>
+        <Suspense fallback={null}>
+          <NetworkView onOpenSubject={() => undefined} onOpenSet={() => undefined} />
+        </Suspense>
+      </div>
+    )
+  }
+
+  if (load.status === 'loading') {
+    return (
+      <div className="chart-pane">
+        <div className="sky-placeholder chart-placeholder" role="status">
+          {t('state.loading')}
+        </div>
+      </div>
+    )
+  }
+  if (load.status === 'error') {
+    return (
+      <div className="chart-pane">
+        <div className="sky-placeholder chart-placeholder" role="alert">
+          <span>{tc('chart.failed')}</span>
+          <button type="button" className="btn btn--sm" onClick={() => setRetryTick((n) => n + 1)}>
+            {tc('chart.retry')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const f = sky.facts
+  const ariaLabel = nothing ? t('chart.ariaSample') : t('chart.aria', { datasets: sky.datasets.length, kinds: f.kinds, terms: f.terms })
+  return (
+    <div className="chart-pane">
+      <div className="sky-facts">
+        {f.questions_total > 0 ? (
+          <span className="sky-facts-lead">
+            <b>
+              {f.questions_answerable} / {f.questions_total}
+            </b>
+            {t('facts.answerable')}
+          </span>
+        ) : (
+          <span className="sky-facts-none">{t('facts.none')}</span>
+        )}
+      </div>
+      <div className="sky-chartwrap" ref={wrapRef}>
+        <div className="sky-figure">
+          <canvas
+            ref={canvasRef}
+            className="sky-canvas"
+            data-testid="chart-canvas"
+            style={{ height: layout.height }}
+            role="img"
+            aria-label={ariaLabel}
+            onPointerMove={onMove}
+            onPointerLeave={onLeave}
+            onClick={onClick}
+          />
+          {nothing && <span className="sky-sample-tag">{t('empty.sample')}</span>}
+          <MoreMenu
+            className="sky-more"
+            label={t('more.label')}
+            items={[
+              {
+                key: 'quiet',
+                label: t('quiet'),
+                checked: reduced,
+                disabled: osQuiet,
+                onSelect: () => {
+                  setQuiet(!reduced)
+                  writeQuiet(!reduced)
+                },
+              },
+              { key: 'png', label: t('png.button'), disabled: tauri || nothing, title: tauri ? t('png.desktop') : undefined, onSelect: savePng },
+              { key: 'numbers', label: t('more.numbers'), onSelect: () => setTablesOpen(true) },
+              { key: 'deep', label: t('deep'), onSelect: () => setDeep(true) },
+            ]}
+          />
+        </div>
+        <div className="sky-legend">
+          <span>
+            <i style={{ background: 'var(--entity)' }} />
+            {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
+          </span>
+          <span>
+            <i style={{ background: 'var(--activity)' }} />
+            {t('legend.term')}
+          </span>
+          <span>
+            <i style={{ background: 'var(--accent)' }} />
+            {t('legend.std')}
+          </span>
+        </div>
+        {pngError && (
+          <p className="sky-png-note" role="alert">
+            {t('png.failed')}
+          </p>
+        )}
+      </div>
+      {tablesOpen && (
+        <div ref={tablesRef} tabIndex={-1} className="sky-tables-anchor">
+          <SkyTables tables={tables} sky={sky} onClose={() => setTablesOpen(false)} />
+        </div>
+      )}
+    </div>
+  )
+}

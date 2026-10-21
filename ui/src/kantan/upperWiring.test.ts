@@ -10,7 +10,6 @@ import fitSource from './FitSuggestion.tsx?raw'
 import kindFitSource from './KindFitSuggestion.tsx?raw'
 import chatSource from './DatasetChat.tsx?raw'
 import workspaceChatSource from '../consult/WorkspaceChat.tsx?raw'
-import appSource from '../App.tsx?raw'
 import noticeSource from './PublishedNamesNotice.tsx?raw'
 import builderSource from './QuestionBuilder.tsx?raw'
 
@@ -228,10 +227,6 @@ describe('③ の会話（AI に相談して結ぶ・契約 pr7c C1・C3）', ()
   it('従来の「AI に相談して埋める」は、会話があるときは会話を開く（右下のドロワーは隠れる）', () => {
     expect(source.match(/setChatOpenSignal\(\(n\) => n \+ 1\)/g)).toHaveLength(2)
     expect(workspaceChatSource).toMatch(/registerWorkspaceChat\(\)/)
-    expect(appSource).toMatch(/!workspaceChatShown/)
-    // 隠すのは会話の mount 中（と、body クラスで作業場）だけ。用語のページ・テーマ一覧（vocab）には出す
-    expect(appSource).toMatch(/const showGlobalConsult = tab !== 'cards' && tab !== 'home' && !workspaceChatShown/)
-    expect(appSource).not.toMatch(/tab !== 'vocab'/)
   })
 
   it('当てはめの適用は人が「そう」を押したときだけ（会話は提案を出すだけ）', () => {

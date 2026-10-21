@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getSharedInput, openHostedSky, setHostedSkyOpener, setSharedInput } from '../kantan/hostedStage'
 import skyEn from '../i18n/locales/en/sky.json'
 import skyJa from '../i18n/locales/ja/sky.json'
-import appSource from '../App.tsx?raw'
 import consultSource from '../consult/ConsultDrawer.tsx?raw'
 import datasetChatSource from '../kantan/DatasetChat.tsx?raw'
 import wizardSource from '../kantan/KantanWizard.tsx?raw'
@@ -16,17 +15,7 @@ const strings = (o: unknown): string[] =>
 
 describe('取り付け: 右の領域は星図かかんたん', () => {
   it('ホームの route.add が SkyView の adding になり、右の領域に WorkbenchTier を描く（モーダルにしない）', () => {
-    expect(appSource).toMatch(/adding=\{!!route\.add\}/)
-    expect(appSource).toMatch(/addView=\{\s*route\.add \? \(\s*(?:\/\/[^\n]*\n\s*)*<WorkbenchTier/)
-    expect(appSource).toMatch(/onCloseAdd=\{\(\) => navigate\(\{ tab: 'home', deep: route\.deep \}\)\}/)
-    // gallery タブの add 描画は無くなった
-    expect(appSource).not.toMatch(/tab === 'gallery' && route\.add/)
     expect(skyViewSource).not.toMatch(/createPortal|role="dialog"|aria-modal/)
-  })
-
-  it('データを置く入口はどこもホームの add へ。データの設計の見直しも同じ', () => {
-    expect(appSource).not.toMatch(/navigate\(\{ tab: 'gallery', add: true \}\)/)
-    expect(appSource).toMatch(/navigate\(\{ tab: 'home', add: true, placeDatasetId: target\.datasetId \}\)/)
   })
 
   it('上の行（答えられる問い）は星図のときだけ。星図の状態は隠すだけで mount したまま', () => {

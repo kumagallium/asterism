@@ -189,6 +189,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setModalSection(typeof section === 'string' ? section : null)
         setModalOpen(true)
       },
+      settingsOpen: modalOpen,
     }
     // keysVersion is a dependency so key-derived fields recompute on key writes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -202,6 +203,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     fallbackProvider,
     copilotAvailable,
     refreshServerKeys,
+    modalOpen,
   ])
 
   return (
