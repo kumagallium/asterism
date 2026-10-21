@@ -1136,3 +1136,126 @@ def test_a_star_of_a_document_dataset_asks_with_screen_dataset_and_is_read_as_a_
         assert r.status_code == 200, r.text
         assert [s["op"] for s in r.json()["suggestions"]] == ["factors", "parts", "kinds"]
         assert "PAPER" in llm.calls[0][0] and PAPER_CONCLUSION in llm.calls[0][1]
+
+
+# ---- suggest questions for a term with none (PR 10c) -------------------------------------------
+
+
+def _mint_bare(
+    tmp_path: Path, store: ox.Store, slug: str, label: str, kind: str = "property"
+) -> None:
+    """問い（cq）を持たない用語 — 画面からは、テーマの問いに関係でつなぐ形（``theme_id``）で
+    できる。api の ``/api/vocab/shared`` は問い 1 つ以上を要るので、道具の層で直に作る。"""
+    asyncio.run(
+        shared_vocab.mint_term(
+            _OxClient(store), tmp_path / "registry", slug=slug, kind=kind, label=label,
+            cqs=[], theme_id="th-1", at="2026-10-21T00:00:00+00:00",
+        )
+    )
+
+
+def _suggest_term(client: TestClient, slug: str | None, **kw):
+    ctx = {"term_slug": slug} if slug else {}
+    return client.post(
+        "/api/consult/suggest-questions",
+        json={"screen": "term", "context": ctx, "lang": "ja", **kw},
+    )
+
+
+def _term_lines(client: TestClient) -> None:
+    """熱伝導率（問い無し）に掛かる線 2 本（格子は一部・粒界散乱は下げる）。"""
+    ops = [
+        {"op": "add_relation", "from": "lattice", "rel": "part", "to": "thermal", "reason": ""},
+        {"op": "add_relation", "from": "scatter", "rel": "lowers", "to": "thermal", "reason": ""},
+    ]  # fmt: skip
+    res = client.post(
+        "/api/consult/graph/apply",
+        json={"screen": "home", "context": {}, "ops": ops, "proposal_id": "p-term"},
+    ).json()
+    assert res["applied"] == 2, res
+
+
+TERM_SUGGESTED = {
+    "questions": [
+        _q("熱伝導率を下げるものは？", "knowledge", "factors", target="熱伝導率",
+           direction="lowers"),
+        _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
+        _q("熱伝導率の最大は？", "data", "top", kind="試料", property="熱伝導率"),  # no such kind
+        _q("熱伝導率の最小と最大は？", "data", "range", property="熱伝導率"),  # a term as item
+    ]
+}  # fmt: skip
+
+
+def test_suggest_questions_for_a_term_with_none_reads_its_lines_and_gives_closed_shapes(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(json.dumps(TERM_SUGGESTED))
+    app, store = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint_bare(tmp_path, store, "thermal", "熱伝導率")
+        _mint_bare(tmp_path, store, "lattice", "格子熱伝導率")
+        _mint_bare(tmp_path, store, "scatter", "粒界散乱", kind="class")
+        _term_lines(client)
+        before = _files(tmp_path)
+        lines_before = _lines(store)
+        r = _suggest_term(client, "thermal")
+        assert r.status_code == 200, r.text
+        out = r.json()["suggestions"]
+        assert [(s["op"], s["target"]) for s in out] == [
+            ("factors", "熱伝導率"), ("parts", "熱伝導率"), ("range", ""),
+        ]  # a kind that is not on the map is dropped; a term can stand as the item
+        assert all(s["question"] and s["shape"] for s in out)
+        assert _files(tmp_path) == before and _lines(store) == lines_before  # nothing kept
+        system, user = llm.calls[0]
+        assert "ONE TERM" in system and "# Name of the data set" not in user
+        facts = user.split("# The term and its surroundings (one fact per line)\n")[1]
+        facts = facts.split("\n\n")[0].splitlines()
+        assert facts[0] == "用語: 熱伝導率（項目）"
+        assert "格子熱伝導率 は 熱伝導率 の一部" in facts
+        assert "粒界散乱 は 熱伝導率 を下げる" in facts
+        assert len(llm.calls) == 1
+
+
+def test_suggest_questions_for_a_term_that_has_a_question_is_409_before_the_ai(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(json.dumps(TERM_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _mint(client, "thermal", "熱伝導率")  # with a competency question
+        r = _suggest_term(client, "thermal")
+        assert r.status_code == 409 and "問いがあります" in r.json()["detail"]
+    assert llm.calls == []
+
+
+def test_suggest_questions_for_a_term_needs_the_token_an_ai_and_a_known_term(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path)  # no AI
+    with TestClient(app, headers=KEY) as anon:
+        assert _suggest_term(anon, "thermal").status_code == 401
+    with TestClient(app, headers=_AUTH) as client:
+        assert _suggest_term(client, "thermal").status_code == 503
+    llm = _LLM()
+    app2, store2 = _app(tmp_path / "b", llm)
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        _mint_bare(tmp_path / "b", store2, "thermal", "熱伝導率")
+        assert _suggest_term(client, "nope").status_code == 404
+        assert _suggest_term(client, None).status_code == 422
+    assert llm.calls == []
+
+
+def test_suggest_questions_for_a_dataset_also_names_the_link_items_without_values(
+    tmp_path: Path,
+) -> None:
+    """列の無い項目（別の種類へつなぐ線）も、名前だけ「つなぐ項目」として AI に渡す。"""
+    join = _q("値段の記録が指す食材は？", "data", "join", kind="値段の記録", property="食材の名前",
+              kind2="食材の名前")  # fmt: skip
+    llm = _LLM(json.dumps({"questions": [join]}))
+    app, _ = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        out = _suggest(client, dsid).json()["suggestions"]
+        assert [s["op"] for s in out] == ["join"]
+        user = llm.calls[0][1]
+        assert "食材の名前 | link to another kind" in user

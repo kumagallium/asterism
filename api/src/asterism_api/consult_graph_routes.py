@@ -51,6 +51,7 @@ from asterism import (
     shared_vocab,
     themes,
 )
+from asterism.grounding import term_display_name
 from asterism.mapping_ir_read import MappingIRView, read_mapping_ir
 from asterism_step0.graph_propose import (
     GraphDiffError,
@@ -101,6 +102,8 @@ _PRED_TO_REL = {
 }
 #: 当てはめ（``upper.json``）に置ける関係 — 項目の列だけ（種類は図で扱う）
 _BIND_TO_UPPER = {"eq": "equivalentProperty", "sub": "subPropertyOf"}
+#: 種類が用語に「入る」線（種類 ⊂ 用語・種類 ≡ 用語）の述語
+_SUBSUMPTION_RELATIONS = frozenset({"subClassOf", "equivalentClass"})
 _MAX_COLUMNS = 200
 #: AI に見せる種類（星）の行の上限（選んでいる星が先頭・残りは件数の多い順）
 _MAX_KIND_ROWS = 150
@@ -120,6 +123,8 @@ class GraphContext(BaseModel):
     #: home のとき、人が星図で選んでいる種類（星）の IRI。AI には「いま選んでいる」と知らせるだけ
     #: （図の文脈の並びと印）。無くてよい・公開済みの種類でなければ無視する。
     focus_kind: str | None = None
+    #: ``suggest-questions`` の ``screen: "term"`` で、問いを提案する用語の鍵（slug）。
+    term_slug: str | None = None
 
 
 class ProposeBody(BaseModel):
@@ -157,8 +162,9 @@ class ApplyBody(BaseModel):
 
 
 class SuggestBody(BaseModel):
-    #: ``dataset`` = データ（10a）・``paper`` = 文書型のデータセットの要旨と結論（10b）。用語は 10c
-    screen: Literal["dataset", "paper"] = "dataset"
+    #: ``dataset`` = データ（10a）・``paper`` = 文書型のデータセットの要旨と結論（10b）・
+    #: ``term`` = 問いの無い用語（図の穴・10c。``context.term_slug``）
+    screen: Literal["dataset", "paper", "term"] = "dataset"
     context: GraphContext = Field(default_factory=GraphContext)
     lang: str = "ja"
 
@@ -209,6 +215,24 @@ def _ir_columns(view: MappingIRView) -> list[dict]:
                     seen.add(col)
                     out.append({"name": col, "map": tm.name, "kind_hint": _column_hint(prop)})
     return out[:_MAX_COLUMNS]
+
+
+def _ir_link_items(view: MappingIRView) -> list[dict]:
+    """列を持たない項目（``object_template`` だけの線 = 別の種類へつなぐ項目）→ ``[{name,
+    kind_hint}]``。名前だけで、値は無い（``join`` の「つなぐ項目」の手がかり）。列と同じ名前や
+    重なりは 1 つにする。"""
+    cols = {c["name"] for c in _ir_columns(view)}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for tm in view.maps:
+        for prop in tm.properties:
+            if prop.column or prop.columns or prop.object_template is None:
+                continue
+            name = prop.label or prop.link_label
+            if name and name not in cols and name not in seen:
+                seen.add(name)
+                out.append({"name": name, "kind_hint": "link to another kind"})
+    return out
 
 
 def _property_subject(view: MappingIRView, column: str) -> str | None:
@@ -528,6 +552,108 @@ def register_consult_graph(
             404, "要旨と結論を読める文書がありません（PDF は取り込み直すと読めるようになります）"
         )
 
+    def _term_has_question(term: shared_vocab.SharedTerm) -> bool:
+        """この用語に問いがあるか — 星図の ``terms[].questions`` と同じ数え方（データの問い =
+        ``for_terms`` に用語の IRI を持つ道具・知識の問い = ``themes.json`` の ``selections`` で
+        対象がこの用語）。星図は公開済みのデータセットが無いと空になるので、ここで直に数える。"""
+        tools = shared_vocab.read_registry_raw_tools(cfg.registry_root, shared_vocab.REGISTRY_ID)
+        if any(term.iri in (t.get("for_terms") or []) for t in tools or [] if isinstance(t, dict)):
+            return True
+        for th in (themes.load_themes_file(cfg.registry_root) or {}).get("themes", []):
+            sels = th.get("selections")
+            if not isinstance(sels, dict):
+                continue
+            for name in th.get("questions") or []:
+                sel = sels.get(name)
+                if isinstance(sel, dict) and sel.get("mode") == "knowledge":
+                    try:
+                        if shared_vocab.term_iri(str(sel.get("target_slug") or "")) == term.iri:
+                            return True
+                    except ValueError:
+                        continue
+        return False
+
+    async def _term_facts(
+        ctx: GraphContext, terms: list[shared_vocab.SharedTerm], lang: str
+    ) -> str:
+        """用語 1 つの事実（名前・種別・標準用語の一致・周りの関係の文・入っている種類の名前）を
+        1 行 1 事実の文にする（決定論・書かない・データの値は無い）。用語が無ければ 404・既に問いが
+        あれば 409（図の穴だけに出す）。"""
+        slug = (ctx.term_slug or "").strip()
+        if not slug:
+            raise HTTPException(422, "context.term_slug が要ります")
+        term = next((t for t in terms if t.slug == slug), None)
+        if term is None:
+            raise HTTPException(404, "unknown term_slug")
+        if _term_has_question(term):
+            raise HTTPException(409, "この用語には問いがあります")
+        kinds = {k["iri"]: k["label"] for k in await _kinds()}
+        try:
+            lines = await crosswalk_runtime.list_alignments(
+                _client(), registry_root=cfg.registry_root
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"alignment read failed: {exc}") from exc
+        en = lang == "en"
+
+        def shown(t: shared_vocab.SharedTerm) -> str:
+            return (t.label_en or t.label) if en else t.label
+
+        names: dict[str, str] = {t.iri: shown(t) for t in terms}
+        std_ns = shared_vocab.known_namespaces()
+
+        def is_standard(iri: str) -> bool:
+            return any(iri.startswith(ns) for ns in std_ns)
+
+        def name(iri: str) -> str:
+            if names.get(iri):
+                return names[iri]
+            if kinds.get(iri):
+                return kinds[iri]
+            return term_display_name(iri) or re.split(r"[/#]", iri.rstrip("/#"))[-1] or iri
+
+        kind_word = ("kind of thing" if en else "種類") if term.kind == "class" else (
+            "property" if en else "項目"
+        )
+        facts = [f"{'Term' if en else '用語'}: {shown(term)}（{kind_word}）"]
+        mine = [ln for ln in lines if term.iri in (ln["source"], ln["target"])]
+        std = next(
+            (
+                ln
+                for ln in mine
+                if ln["source"] == term.iri
+                and ln["relation"] in ("equivalentClass", "equivalentProperty", "hasQuantityKind")
+                and is_standard(str(ln["target"]))
+            ),
+            None,
+        )
+        if std is not None:
+            head = "Standard term" if en else "標準用語の一致"
+            facts.append(f"{head}: {name(str(std['target']))}（{std['relation']}）")
+        sentences = graph_diff._REL_SENTENCE["en" if en else "ja"]
+        seen: set[str] = set()
+        for ln in mine:
+            rel = _PRED_TO_REL.get(str(ln.get("relation")))
+            if rel is None:
+                continue
+            text = sentences[rel].format(s=name(str(ln["source"])), o=name(str(ln["target"])))
+            if text not in seen and len(seen) < 20:
+                seen.add(text)
+                facts.append(text)
+        filed = list(
+            dict.fromkeys(
+                kinds[str(ln["source"])]
+                for ln in mine
+                if ln["target"] == term.iri
+                and ln["relation"] in _SUBSUMPTION_RELATIONS
+                and str(ln["source"]) in kinds
+            )
+        )[:20]
+        if filed:
+            head = "Kinds filed under it" if en else "入っている種類"
+            facts.append(f"{head}: " + "、".join(filed))
+        return "\n".join(facts)
+
     @app.post("/api/consult/suggest-questions", dependencies=list(write_auth))
     async def consult_suggest_questions(
         body: SuggestBody,
@@ -543,7 +669,10 @@ def register_consult_graph(
         AI に渡すのは、データセットの名前・列の**見出しと型のヒント**・何の行か（種類の名前）・既に
         ある問いの文・用語と標準用語の名前だけ（データの値は渡さない）。``screen: "paper"``（10b）は
         ``context.dataset_id`` の文書の**要旨と結論の文**（合計 2,500 字まで）と既存の名前だけで、
-        列と種類は無い（本文全体は渡さない）。AI の答えは閉じた JSON だけ
+        列と種類は無い（本文全体は渡さない）。``screen: "term"``（10c・図の穴）は
+        ``context.term_slug`` の**問いの無い用語**の名前・種別・標準用語の一致・周りの関係の文・
+        入っている種類の名前だけ（問いのある用語は 409・用語が無ければ 404）。
+        AI の答えは閉じた JSON だけ
         （SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・1 回だけ言い直させる）。機械が
         閉じた形（7 つのデータの形・3 つの知識の形）に落ちるもの・名前が列や用語に実在するもの・
         既存の問いと重ならないものだけに絞る。未設定なら 503。"""
@@ -556,12 +685,21 @@ def register_consult_graph(
         paper_text: str | None = None
         columns: list[dict] | None
         screen = body.screen
+        terms: list[shared_vocab.SharedTerm] | None = None
         if screen == "dataset" and body.context.dataset_id:
             # 星の札（10a）は ``dataset`` で呼ぶ。文書型には表が無いので、論文として読む
             rec = registry.load_dataset(cfg.registry_root, body.context.dataset_id)
             if rec and str((rec.get("meta") or {}).get("source_kind") or "csv") == "xml":
                 screen = "paper"
-        if screen == "paper":
+        if screen == "term":
+            # 図の穴 = 問いの無い用語 1 つ。列も種類も無い。渡すのは用語の名前・種別・標準用語の
+            # 一致・周りの関係の文・入っている種類の名前だけ（データの値は渡さない）
+            terms = await _terms()
+            record = {"meta": {"name": ""}}
+            paper_text = await _term_facts(body.context, terms, lang)
+            columns, kind_names, prop_names = None, [], []
+            standards = [s["label"] for s in themes.default_standards([])]
+        elif screen == "paper":
             # 論文 = 列も種類も無い。渡すのは要旨と結論の文と既存の名前だけ（本文全体は渡さない）
             record, paper = await asyncio.to_thread(_paper_of, body.context)
             paper_text = paper.text
@@ -570,10 +708,13 @@ def register_consult_graph(
         else:
             record, view = _dataset_ir(body.context)
             columns = [{"name": c["name"], "kind_hint": c["kind_hint"]} for c in _ir_columns(view)]
-            kind_names, prop_names = question_suggest.dataset_names(view)
             standards = [s["label"] for s in themes.default_standards([c["name"] for c in columns])]
+            # 列の無い項目（別の種類へつなぐ線）も名前だけ渡す — join の「つなぐ項目」になる
+            columns = [*columns, *_ir_link_items(view)][:_MAX_COLUMNS]
+            kind_names, prop_names = question_suggest.dataset_names(view)
         dataset_name = (record.get("meta") or {}).get("name") or body.context.dataset_id or ""
-        terms = await _terms()
+        if terms is None:
+            terms = await _terms()
         existing = _existing_questions()
         llm = resolve_llm(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
@@ -591,7 +732,7 @@ def register_consult_graph(
                     for t in terms
                 ],
                 standards=standards,
-                kinds=None if screen == "paper" else [k for k, _ in kind_names],
+                kinds=None if screen in ("paper", "term") else [k for k, _ in kind_names],
                 text=paper_text,
                 lang=lang,
             )
