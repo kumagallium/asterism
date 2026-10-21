@@ -465,7 +465,11 @@ def _reject_if_content_length_exceeds(request: Request, limit: int) -> None:
 
 
 def register_cards(
-    app: FastAPI, cfg: Settings, *, label_resolvers: LabelResolvers | None = None
+    app: FastAPI,
+    cfg: Settings,
+    *,
+    label_resolvers: LabelResolvers | None = None,
+    credential_ok: Callable[[str | None, str | None], bool] | None = None,
 ) -> None:
     """Register every object-cards-ui §3/§5 route on ``app``.
 
@@ -478,6 +482,11 @@ def register_cards(
     循環になる — モジュール docstring 参照）ので、ここでは受け取るだけ。
     省略時は :func:`_no_op_label_resolvers`（R2 が常にキーの人向け直しに
     落ちる）。
+
+    ``credential_ok(authorization, x_asterism_token)``: 書き込みの鍵が正しいか
+    （``asterism_api.main._write_credential_ok`` を cfg で包んで渡す・同じ循環の理由）。
+    ``GET /api/sky`` が鍵つきのときだけ ``proposed``（未確認の下書き）を足すのに使う。
+    省略時は常に「鍵なし」（``proposed`` の欄を出さない）。
     """
     resolve_labels = label_resolvers or _no_op_label_resolvers
 
@@ -789,8 +798,26 @@ def register_cards(
     # ------------------------------------------------------------------
 
     @app.get("/api/sky")
-    async def sky() -> dict[str, Any]:
-        return await _run_read(_sky_impl())
+    async def sky(
+        lang: str = Query(default="ja"),
+        authorization: str | None = Header(default=None),
+        x_asterism_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        out = await _run_read(_sky_impl())
+        # 未確認の提案（話の下書き）は、書き込みの鍵が正しいときだけ。鍵が無い・合わない・
+        # 未設定なら欄ごと無し（公開済みの事実だけの形のまま）。
+        if credential_ok is not None and credential_ok(authorization, x_asterism_token):
+            from asterism import chat_sessions
+
+            from asterism_api.themes_routes import draft_sky_rows
+
+            rows = draft_sky_rows(cfg.registry_root, lang)
+            for row in rows:
+                row["session_id"] = chat_sessions.session_of_draft(
+                    cfg.registry_root, row["draft_id"]
+                )
+            out = {**out, "proposed": rows}
+        return out
 
     async def _sky_impl() -> dict[str, Any]:
         try:

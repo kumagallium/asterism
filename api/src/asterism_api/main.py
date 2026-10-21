@@ -12171,7 +12171,13 @@ def build_app(
     # label_resolvers=_crosswalk_label_resolvers: 契約メモ contract_b_hub_names.md
     # の R1/R3（ハブとつながりの表示名）が項目の表示名を引くのに使う。cards_routes /
     # classes_routes は main.py を import できない（循環）ので、ここで渡す。
-    register_cards(app, cfg, label_resolvers=_crosswalk_label_resolvers)
+    register_cards(
+        app,
+        cfg,
+        label_resolvers=_crosswalk_label_resolvers,
+        # GET /api/sky の proposed（鍵つきだけ）。main を import できない cards_routes へ渡す
+        credential_ok=lambda authorization, token: _write_credential_ok(cfg, authorization, token),
+    )
     register_place(app, cfg)
     register_license(app, cfg)
     register_vocab(app, cfg, write_auth=_write_auth)
