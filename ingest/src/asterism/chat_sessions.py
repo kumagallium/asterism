@@ -12,7 +12,7 @@
      "turns": [{"id": "t1", "at": iso, "user": {"text", "attachments"}|None,
                 "reply": {text, ops, sentences, questions, bindings, notes, answer, table},
                 "batch": "<話の id>:<手番の id>",
-                "state": "none"|"proposed"|"confirmed"|"reverted",
+                "state": "none"|"running"|"proposed"|"confirmed"|"reverted",
                 "before": <下書きの控え>|None, "commit": {…}|None,
                 "by": "ai"|"human"|"machine"}]}
 
@@ -59,9 +59,23 @@ ID_RE = re.compile(r"^c[a-z0-9]{8,12}\Z")
 
 #: ``notes[].kind`` の閉集合（11c で増える）
 NOTE_KINDS = frozenset(
-    {"ai_unset", "ai_failed", "dropped", "no_question", "commit_error", "info"}
+    {
+        "ai_unset",
+        "ai_failed",
+        "dropped",
+        "no_question",
+        "commit_error",
+        "info",
+        # 11c — 📎 でデータ
+        "choice_id",
+        "choice_owner",
+        "shape",
+        "ingest_stop",
+        "attach_failed",
+        "unsupported",
+    }
 )
-TURN_STATES = ("none", "proposed", "confirmed", "reverted")
+TURN_STATES = ("none", "running", "proposed", "confirmed", "reverted")
 
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 

@@ -21,17 +21,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from asterism import chat_sessions, shared_vocab, themes
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from asterism_api import chat_turns
+from asterism_api import chat_attach, chat_turns
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
 
@@ -90,15 +91,31 @@ class SetAnswerBody(BaseModel):
     kind2: str = ""
 
 
+class ChoiceBody(BaseModel):
+    """返事の中の小さな選択（ラジオ 1 組）の答え。``notes[note_index].choice`` に記録する。"""
+
+    turn_id: str
+    note_index: int = Field(ge=0)
+    value: str = Field(min_length=1, max_length=200)
+
+
 class TurnBody(BaseModel):
     text: str | None = None
     set_answer: SetAnswerBody | None = None
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
+    choice: ChoiceBody | None = None
     lang: Literal["ja", "en"] = "ja"
+
+
+class BindingDecision(BaseModel):
+    column: str
+    decided: Literal["bind", "skip"]
 
 
 class ConfirmBody(BaseModel):
     lang: Literal["ja", "en"] = "ja"
+    #: 📎 の表の ✓ で、列ごとの「結ぶ／結ばない」
+    bindings: list[BindingDecision] | None = Field(default=None, max_length=500)
 
 
 def _ai_unset(key: str | None, provider: str, api_base: str | None) -> bool:
@@ -247,15 +264,33 @@ def register_chat(
         x_llm_max_tokens: str | None = Header(default=None),
     ) -> JSONResponse:
         has_text = body.text is not None
-        given = [body.text is not None, body.ops is not None, body.set_answer is not None]
+        given = [
+            body.text is not None,
+            body.ops is not None,
+            body.set_answer is not None,
+            body.choice is not None,
+        ]
         if sum(given) != 1:
-            raise HTTPException(422, "text・ops・set_answer のどれか 1 つを送ってください")
+            raise HTTPException(422, "text・ops・set_answer・choice のどれか 1 つを送ってください")
         text = (body.text or "").strip()
         if has_text and not 1 <= len(text) <= chat_turns.MAX_TEXT:
             raise HTTPException(422, f"文は 1〜{chat_turns.MAX_TEXT} 字です")
         if body.ops is not None and not body.ops:
             raise HTTPException(422, "ops が空です")
         _session_or_404(session_id)  # ストアを読む前に、話があるか
+        if body.choice is not None:
+            llm_headers = {
+                k: v
+                for k, v in {
+                    "x-api-key": x_api_key,
+                    "x-llm-provider": x_llm_provider,
+                    "x-llm-model": x_llm_model,
+                    "x-llm-api-base": x_llm_api_base,
+                    "x-llm-max-tokens": x_llm_max_tokens,
+                }.items()
+                if v
+            }
+            return await _choice_turn(session_id, body, llm_headers)
         existing = await _terms()
         dismissed = shared_vocab.load_dismissed(root)
 
@@ -350,11 +385,37 @@ def register_chat(
 
     @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/confirm", dependencies=deps)
     async def chat_confirm(
-        session_id: str, turn_id: str, body: ConfirmBody | None = None
+        session_id: str,
+        turn_id: str,
+        body: ConfirmBody | None = None,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
     ) -> JSONResponse:
         lang = body.lang if body else "ja"
         async with lock:
             session = _session_or_404(session_id)
+            target = next((t for t in session["turns"] if t.get("id") == turn_id), None)
+            if target is not None and target.get("state") == "proposed":
+                if (target.get("reply") or {}).get("suggestions"):
+                    return await _confirm_suggestion(session, target, lang)
+                if target.get("attachment") or target.get("attach_run"):
+                    llm_headers = {
+                        k: v
+                        for k, v in {
+                            "x-api-key": x_api_key,
+                            "x-llm-provider": x_llm_provider,
+                            "x-llm-model": x_llm_model,
+                            "x-llm-api-base": x_llm_api_base,
+                            "x-llm-max-tokens": x_llm_max_tokens,
+                        }.items()
+                        if v
+                    }
+                    listed = (body.bindings if body else None) or []
+                    decisions = {d.column: d.decided for d in listed}
+                    return await _confirm_attach(session, target, lang, decisions, llm_headers)
             was = {t["id"] for t in session["turns"] if t.get("state") == "proposed"}
             try:
                 turn, commit = await chat_turns.confirm(
@@ -373,10 +434,75 @@ def register_chat(
             {"turn": turn, "session": _head(saved), "commit": commit, "confirmed": confirmed}
         )
 
+    async def _confirm_attach(
+        session: dict, turn: dict, lang: str, decisions: dict[str, str], llm_headers: dict[str, str]
+    ) -> JSONResponse:
+        """📎 の表の ✓ ＝ 公開（呼び手が ``lock`` を持っている）。"""
+        try:
+            turn, commit, followup = await chat_attach.confirm_attach(
+                app,
+                cfg,
+                session,
+                turn,
+                lang=lang,
+                decisions=decisions,
+                llm_headers=llm_headers,
+                token=cfg.api_token,
+                at=_now(),
+            )
+        except chat_turns.TurnRefused as exc:
+            raise _refused(exc) from exc
+        saved = _save_after_confirm(session, None, lang)
+        return JSONResponse(
+            {
+                "turn": turn,
+                "session": _head(saved),
+                "commit": commit,
+                "followup": followup,
+                "confirmed": [turn["id"]] if commit else [],
+            }
+        )
+
+    async def _confirm_suggestion(session: dict, turn: dict, lang: str) -> JSONResponse:
+        """機械の手番（名前が一致した関係）の ✓ ＝ ``/api/sky/suggestions/apply``。"""
+        try:
+            commit = await chat_attach.confirm_suggestion(
+                app, cfg, turn, lang=lang, token=cfg.api_token
+            )
+        except chat_turns.TurnRefused as exc:
+            raise _refused(exc) from exc
+        saved = _save_after_confirm(session, None, lang)
+        return JSONResponse(
+            {
+                "turn": turn,
+                "session": _head(saved),
+                "commit": commit,
+                "confirmed": [turn["id"]] if commit else [],
+            }
+        )
+
     @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/revert", dependencies=deps)
     async def chat_revert(session_id: str, turn_id: str, lang: str = "ja") -> JSONResponse:
         async with lock:
             session = _session_or_404(session_id)
+            target = next((t for t in session["turns"] if t.get("id") == turn_id), None)
+            if target is not None and target.get("state") == "proposed":
+                is_suggestion = bool((target.get("reply") or {}).get("suggestions"))
+                if is_suggestion or target.get("attachment") or target.get("attach_run"):
+                    if is_suggestion:
+                        await chat_attach.revert_suggestion(app, target, token=cfg.api_token)
+                    else:  # 📎 の表: 取り込んだ下書きはそのまま、返事だけ戻す
+                        target["state"] = "reverted"
+                        target["before"] = None
+                    saved = chat_sessions.save_session(root, session)
+                    return JSONResponse(
+                        {
+                            "turn": target,
+                            "session": _head(saved),
+                            "draft": _draft_card(saved, lang),
+                            "reverted": [turn_id],
+                        }
+                    )
             try:
                 turn, undone = chat_turns.revert(
                     session, turn_id, root=root, at=_now(), lang=lang
@@ -387,4 +513,143 @@ def register_chat(
             card = _draft_card(saved, lang)
         return JSONResponse(
             {"turn": turn, "session": _head(saved), "draft": card, "reverted": undone}
+        )
+
+    # ---- 📎 でデータ（PR 11c） -------------------------------------------------------------
+
+    def _start_attach_job(
+        session_id: str,
+        turn_id: str,
+        files: list[tuple[str, bytes]] | None,
+        lang: str,
+        llm_headers: dict[str, str],
+        resume: dict | None = None,
+    ) -> str:
+        jobs = app.state.jobs
+        return jobs.start_coro(
+            lambda emit, _cancel: chat_attach.run_attach(
+                app,
+                cfg,
+                session_id,
+                turn_id,
+                files,
+                lang=lang,
+                llm_headers=llm_headers,
+                token=cfg.api_token,
+                emit=emit,
+                resume=resume,
+            )
+        )
+
+    def _ai_ready(llm_headers: dict[str, str]) -> bool:
+        provider, _model, api_base, key = _llm_coords(
+            llm_headers.get("x-api-key"),
+            llm_headers.get("x-llm-provider"),
+            llm_headers.get("x-llm-model"),
+            llm_headers.get("x-llm-api-base"),
+            root,
+        )
+        return not _ai_unset(key, provider, api_base)
+
+    @app.post("/api/chat/sessions/{session_id}/attach", dependencies=deps)
+    async def chat_attach_files(session_id: str, request: Request) -> JSONResponse:
+        """📎 — 表を添える。人の手番（``state: running``）を作り、かんたんの段を通すジョブを始める。
+        multipart ``files``（``files[]`` も可）・``lang``・LLM ヘッダ。"""
+        form = await request.form()
+        uploads = [
+            f for f in [*form.getlist("files"), *form.getlist("files[]")] if hasattr(f, "filename")
+        ]
+        lang = "en" if str(form.get("lang") or "ja").lower().startswith("en") else "ja"
+        if not uploads:
+            raise HTTPException(422, "表のファイルがありません")
+        _session_or_404(session_id)
+        llm_headers = chat_attach.llm_headers_of(request.headers)
+        names = [os.path.basename(str(f.filename or "")) or "data" for f in uploads]
+        if not all(chat_attach.is_table_name(n) for n in names):
+            async with lock:
+                session = _session_or_404(session_id)
+                turn = chat_turns._append_turn(
+                    session,
+                    at=_now(),
+                    user={"text": "", "attachments": [{"name": n, "size": 0} for n in names]},
+                    reply=chat_turns._reply(
+                        "",
+                        notes=[
+                            chat_turns.note("unsupported", chat_attach.text(lang, "unsupported"))
+                        ],
+                    ),
+                    state="none",
+                    before=None,
+                    by="machine",
+                )
+                saved = chat_sessions.save_session(root, session)
+            return JSONResponse(
+                {"turn": turn, "session": _head(saved), "job_id": None}, status_code=201
+            )
+        if not _ai_ready(llm_headers):
+            raise HTTPException(503, "AI が設定されていません")
+        cap = int(os.environ.get("ASTERISM_MAX_UPLOAD_BYTES", str(1 << 30)))
+        data: list[tuple[str, bytes]] = []
+        total = 0
+        for name, f in zip(names, uploads, strict=True):
+            blob = await f.read()
+            total += len(blob)
+            if cap > 0 and total > cap:
+                raise HTTPException(413, "ファイルが大きすぎます")
+            data.append((name, blob))
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = chat_turns._append_turn(
+                session,
+                at=_now(),
+                user={"text": "", "attachments": [{"name": n, "size": len(b)} for n, b in data]},
+                reply=chat_turns._reply(""),
+                state="running",
+                before=None,
+                by="machine",
+            )
+            turn["attachment"] = None
+            job_id = _start_attach_job(session_id, turn["id"], data, lang, llm_headers)
+            turn["job_id"] = job_id
+            saved = chat_sessions.save_session(root, session)
+        return JSONResponse(
+            {"turn": turn, "session": _head(saved), "job_id": job_id}, status_code=201
+        )
+
+    async def _choice_turn(
+        session_id: str, body: TurnBody, llm_headers: dict[str, str]
+    ) -> JSONResponse:
+        """小さな選択の答え — 記録して、④ から続きを走らせる（同じ手番を更新する）。"""
+        choice = body.choice
+        assert choice is not None
+        if not _ai_ready(llm_headers):
+            raise HTTPException(503, "AI が設定されていません")
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = next((t for t in session["turns"] if t.get("id") == choice.turn_id), None)
+            if turn is None:
+                raise HTTPException(404, "その手番はありません")
+            notes = (turn.get("reply") or {}).get("notes") or []
+            if turn.get("state") != "proposed" or choice.note_index >= len(notes):
+                raise HTTPException(409, "この選択は受けられません")
+            note = notes[choice.note_index]
+            picked = note.get("choice")
+            if note.get("kind") != "choice_id" or not isinstance(picked, dict):
+                raise HTTPException(422, "この選択は受けられません")
+            if choice.value not in [o["value"] for o in picked.get("options") or []]:
+                raise HTTPException(422, "選べない値です")
+            picked["chosen"] = choice.value
+            turn["state"] = "running"
+            job_id = _start_attach_job(
+                session_id,
+                turn["id"],
+                None,
+                body.lang,
+                llm_headers,
+                {"note_index": choice.note_index, "value": choice.value},
+            )
+            turn["job_id"] = job_id
+            saved = chat_sessions.save_session(root, session)
+        return JSONResponse(
+            {"turn": turn, "session": _head(saved), "job_id": job_id}, status_code=201
         )
