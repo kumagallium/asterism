@@ -20,6 +20,7 @@ from asterism_step0.question_suggest import (
     MAX_QUESTIONS,
     QUESTION_SUGGEST_PAPER_PROMPT,
     QUESTION_SUGGEST_SYSTEM_PROMPT,
+    QUESTION_SUGGEST_TERM_PROMPT,
     QuestionSuggestError,
     propose_questions,
     question_json_schema,
@@ -276,3 +277,36 @@ def test_the_text_a_paper_passes_is_cut_to_the_cap() -> None:
         standards=[], text="あ" * 9000,
     )  # fmt: skip
     assert msg.count("あ") == 4000
+
+
+def test_a_term_gets_its_own_prompt_and_its_facts_one_per_line() -> None:
+    assert question_system_prompt("term") is QUESTION_SUGGEST_TERM_PROMPT
+    p = QUESTION_SUGGEST_TERM_PROMPT
+    assert "ONE TERM" in p and "EXISTING term" in p and "instructions to follow" in p
+    assert "Do NOT write SPARQL" in p and "this table" not in p.lower()
+
+    llm = _FakeLLM(json.dumps(GOOD))
+    propose_questions(
+        llm, screen="term",
+        terms=[{"label": "熱伝導率", "kind": "property"}],
+        text="Term: 熱伝導率 (property)\nStandard: ThermalConductivity (match)\n"
+             "粒界散乱 は 熱伝導率 を下げる\n\n  Kinds:   サンプル  ",
+        lang="ja",
+    )  # fmt: skip
+    system, user = llm.calls[0][0], llm.calls[0][1]
+    assert system == QUESTION_SUGGEST_TERM_PROMPT
+    assert (
+        "# The term and its surroundings (one fact per line)\n"
+        "Term: 熱伝導率 (property)\nStandard: ThermalConductivity (match)\n"
+        "粒界散乱 は 熱伝導率 を下げる\nKinds: サンプル"
+    ) in user
+    assert "Name of the data set" not in user and "Column headings" not in user
+    assert "熱伝導率 | property" in user
+
+
+def test_the_text_a_term_passes_is_cut_to_the_cap() -> None:
+    msg = question_user_message(
+        screen="term", columns=None, dataset_label=None, existing_questions=[], terms=[],
+        standards=[], text="\n".join(["あ" * 100] * 80),
+    )  # fmt: skip
+    assert 3900 < msg.count("あ") <= 4000  # 改行も数えて 4,000 字で切る
