@@ -21,6 +21,8 @@
     "noKey": "Enter the server key in Settings › Server to chat"
   },
   "reply": {
+    "byMachine": "Machine",
+    "thinking": "Thinking",
     "more": "{{n}} more",
     "confirm": "✓ Confirm",
     "count": "{{n}}",

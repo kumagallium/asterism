@@ -21,6 +21,8 @@
     "noKey": "設定 › サーバで鍵を入れると、話せます"
   },
   "reply": {
+    "byMachine": "機械",
+    "thinking": "考えています",
     "more": "ほか {{n}} 件",
     "confirm": "✓ 確認",
     "count": "{{n}} 件",

@@ -139,6 +139,8 @@ export function ChatApp() {
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
   const [chartDrafts, setChartDrafts] = useState<SkyDraft[]>([])
   const [chartTick, setChartTick] = useState(0)
+  // 生まれた輪は ✓ の直後だけ（手番の直後は薄い札が増えるだけ）
+  const [bornTick, setBornTick] = useState(0)
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
@@ -210,6 +212,7 @@ export function ChatApp() {
         const res = await confirmTurn(id, turnId, lang)
         update(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
+        setBornTick((n) => n + 1)
         afterChange()
       } catch (e) {
         setError(messageOf(e))
@@ -313,6 +316,7 @@ export function ChatApp() {
           loading={!!viewId && !session && !loadError}
           loadError={loadError}
           busy={busy !== null}
+          sending={busy === 'send'}
           error={error}
           noKey={noKey}
           onSend={onSend}
@@ -323,7 +327,7 @@ export function ChatApp() {
       </section>
       <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
         <div className="chat-right-scroll">
-          <ChartPane lang={lang} refreshKey={chartTick} onProposed={setChartDrafts} />
+          <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} />
         </div>
         {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>

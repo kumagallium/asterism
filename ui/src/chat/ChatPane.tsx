@@ -13,6 +13,8 @@ export interface ChatPaneProps {
   /** 読み込みの失敗（話が開けない）。 */
   loadError: string | null
   busy: boolean
+  /** 手番を送っている最中（返事を待っている）。 */
+  sending?: boolean
   /** 手番・✓・戻すの失敗の 1 行（入力欄の上）。 */
   error: string | null
   noKey: boolean
@@ -30,7 +32,7 @@ export function ChatPane(p: ChatPaneProps) {
   const endRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' })
-  }, [turns.length, p.busy])
+  }, [turns.length, p.busy, p.sending])
 
   return (
     <div className="chat-pane">
@@ -41,7 +43,7 @@ export function ChatPane(p: ChatPaneProps) {
           </p>
         ) : p.loading ? (
           <p className="chat-note-line">{t('list.loading')}</p>
-        ) : turns.length === 0 ? (
+        ) : turns.length === 0 && !p.sending ? (
           <p className="chat-empty">{t('empty.first')}</p>
         ) : (
           turns.map((turn) => (
@@ -62,6 +64,14 @@ export function ChatPane(p: ChatPaneProps) {
               />
             </div>
           ))
+        )}
+        {p.sending && (
+          <div className="consult-msg consult-msg--assistant" data-testid="reply-thinking">
+            <div className="consult-bubble consult-bubble--pending">
+              <span className="consult-spinner" aria-hidden="true" />
+              {t('reply.thinking')}
+            </div>
+          </div>
         )}
         <div ref={endRef} />
       </div>

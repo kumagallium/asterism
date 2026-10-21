@@ -54,10 +54,14 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
   const head = r.sentences.slice(0, SENTENCE_LIMIT)
   const rest = r.sentences.slice(SENTENCE_LIMIT)
   const proposed = turn.state === 'proposed'
+  const [sent, setSent] = useState<ReadonlySet<string>>(new Set())
+  // text と箇条書きが同じ内容なら片方だけ。人の手番（user が null）は箇条書き 1 行だけ
+  const sameAsOnly = r.sentences.length === 1 && r.text.trim() === r.sentences[0].trim()
+  const showText = !!r.text && !sameAsOnly && !(turn.user === null && r.sentences.length > 0)
   return (
     <div className="consult-msg consult-msg--assistant">
       <div className="chat-card" data-testid="reply-card" data-state={turn.state}>
-        {r.text && <p className="chat-card-text">{r.text}</p>}
+        {showText && <p className="chat-card-text">{r.text}</p>}
         {r.sentences.length > 0 && (
           <ul className="chat-sentences">
             {head.map((s, i) => (
@@ -80,7 +84,16 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
         {r.questions.length > 0 && (
           <div className="chat-chips">
             {r.questions.map((q) => (
-              <button key={q} type="button" className="chat-chip" disabled={busy} onClick={() => onAsk(q)}>
+              <button
+                key={q}
+                type="button"
+                className={`chat-chip${sent.has(q) ? ' is-sent' : ''}`}
+                disabled={busy || sent.has(q)}
+                onClick={() => {
+                  setSent(new Set([...sent, q]))
+                  onAsk(q)
+                }}
+              >
                 {q}
               </button>
             ))}
@@ -89,14 +102,15 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
         {r.notes.map((n, i) => (
           <NoteLine key={i} note={n} />
         ))}
-        {turn.state !== 'none' && (
+        {(turn.state !== 'none' || turn.by === 'machine') && (
           <div className="chat-card-foot">
+            {turn.by === 'machine' && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
             {turn.state === 'proposed' && <span className="chat-mark chat-mark--proposed">{t('reply.proposed')}</span>}
             {turn.state === 'confirmed' && (
               <span className="chat-mark chat-mark--confirmed">{t('reply.confirmed', { at: stamp(turn.commit?.at || turn.at, i18n.language) })}</span>
             )}
             {turn.state === 'reverted' && <span className="chat-mark chat-mark--reverted">{t('reply.reverted')}</span>}
-            {canConfirm && (
+            {canConfirm && turn.state !== 'none' && (
               <button type="button" className="btn btn--sm" data-testid="reply-confirm" disabled={busy} onClick={() => onConfirm(turn.id)}>
                 {t('reply.confirm')}
                 {count > 0 && ` ${t('reply.count', { n: count })}`}

@@ -166,4 +166,24 @@ describe('HandForm', () => {
     const html = renderToStaticMarkup(<HandForm draft={null} nextKey="h1" busy={false} onSubmit={async () => true} />)
     expect(html).not.toContain('value="lowers"')
   })
+
+  it('text と箇条書きが同じなら 1 回だけ・人の手番は箇条書きだけ', () => {
+    const same = text(card(turn({ reply: reply({ text: '足しました', sentences: ['足しました'] }) })))
+    expect(same.split('足しました').length - 1).toBe(1)
+    const hand = card(turn({ user: null, reply: reply({ text: '足しました', sentences: ['A を足す'] }) }))
+    expect(hand).not.toContain('chat-card-text')
+    expect(hand).toContain('A を足す')
+  })
+  it('機械の手番には印・state none には ✓ も戻すも出ない', () => {
+    const m = card(turn({ by: 'machine', state: 'none' }))
+    expect(text(m)).toContain('機械')
+    expect(m).not.toContain('reply-confirm')
+    expect(m).not.toContain('reply-revert')
+    expect(text(card(turn({ by: 'ai' })))).not.toContain('機械')
+  })
+  it('注記 ai_failed・info が描ける', () => {
+    const h = card(turn({ state: 'none', reply: reply({ notes: [{ kind: 'ai_failed', text: '失敗', choice: null }, { kind: 'info', text: '補足', choice: null }] }) }))
+    expect(h).toContain('data-note-kind="ai_failed"')
+    expect(h).toContain('data-note-kind="info"')
+  })
 })

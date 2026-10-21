@@ -56,19 +56,22 @@ export interface ChartPaneProps {
   lang: 'ja' | 'en'
   /** 変わるたびに図を取り直す（手番・✓・戻すのあと）。 */
   refreshKey: number
+  /** 変わったときの取り直しだけ、増えた点に生まれた輪を出す（✓ の直後）。 */
+  bornKey?: number
   /** 取り直した未確認の札を知らせる（手で足すフォームが、いまある概念を選べるように）。 */
   onProposed?: (drafts: SkyDraft[]) => void
   /** 点を押した（この PR では濃淡だけ。札は 11d）。 */
   onSelect?: (node: SkyNode | null) => void
 }
 
-export function ChartPane({ lang, refreshKey, onProposed, onSelect }: ChartPaneProps) {
+export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onSelect }: ChartPaneProps) {
   const { t } = useTranslation('sky')
   const { t: tc } = useTranslation('chat')
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   const [retryTick, setRetryTick] = useState(0)
   const [deep, setDeep] = useState(false)
   const prevIris = useRef<Set<string> | null>(null)
+  const lastBornKey = useRef(bornKey)
   const bornIris = useRef<string[]>([])
   const onProposedRef = useRef(onProposed)
   useEffect(() => {
@@ -82,7 +85,9 @@ export function ChartPane({ lang, refreshKey, onProposed, onSelect }: ChartPaneP
         if (off) return
         const now = irisOf(sky)
         // 取り直したあとに増えた点（最初の読み込みは除く）に輪を出す
-        bornIris.current = prevIris.current ? [...now].filter((i) => !prevIris.current!.has(i)) : []
+        const ring = bornKey !== lastBornKey.current
+        lastBornKey.current = bornKey
+        bornIris.current = ring && prevIris.current ? [...now].filter((i) => !prevIris.current!.has(i)) : []
         prevIris.current = now
         setLoad({ status: 'ok', sky, proposed })
         onProposedRef.current?.(proposed)
@@ -92,7 +97,7 @@ export function ChartPane({ lang, refreshKey, onProposed, onSelect }: ChartPaneP
     return () => {
       off = true
     }
-  }, [lang, refreshKey, retryTick])
+  }, [lang, refreshKey, bornKey, retryTick])
 
   const sky = load.status === 'ok' ? load.sky : EMPTY_SKY
   const proposed = useMemo<SkyDraft[]>(() => (load.status === 'ok' ? load.proposed : []), [load])

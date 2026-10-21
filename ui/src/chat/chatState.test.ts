@@ -118,5 +118,8 @@ describe('chatState', () => {
     expect(handFormShown(session([turn('t1', 'proposed', 0, ['ai_unset']), turn('t2', 'proposed', 1)]))).toBe(true)
     expect(handFormShown(session([turn('t1', 'proposed', 0, ['ai_unset']), { ...turn('t2', 'proposed', 1), by: 'ai' }]))).toBe(false)
     expect(handFormShown(session([]))).toBe(false)
+    // 最後の AI の返事が来ていれば、その前の ai_unset は効かない
+    expect(handFormShown(session([{ ...turn('t1', 'proposed', 1), by: 'ai' }]))).toBe(false)
+    expect(handFormShown(session([turn('t1', 'proposed', 0, ['ai_unset']), { ...turn('t2', 'none'), by: 'ai' }]))).toBe(false)
   })
 })
