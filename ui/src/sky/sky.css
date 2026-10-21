@@ -562,3 +562,78 @@ button.sky-pill--data:hover:not(:disabled) {
     box-shadow: var(--shadow);
   }
 }
+
+/* ── データを置く（PR 8c）: 右の領域がかんたんの札・左の欄は段で送り先が決まる ─────────────── */
+.sky-sky[hidden],
+.sky-addchat[hidden],
+.sky-add-slot[hidden],
+.sky-add-consult[hidden] {
+  display: none !important;
+}
+.sky-add-area {
+  min-width: 0;
+}
+.sky-add-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+.sky-add-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+.sky-add-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+/* 外側の枠は .sky-conv .thm-chat（高さ・シート）をそのまま使う。中に 2 つの話の置き場を縦に積む */
+.sky-addchat {
+  display: flex;
+  flex-direction: column;
+}
+.sky-addchat .thm-chat-head {
+  flex-wrap: wrap;
+}
+.sky-now {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.sky-add-slot,
+.sky-add-consult {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sky-add-slot > .ws-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0;
+}
+/* 置き場の中の会話は枠を持たない（外の枠が持つ） */
+.sky-conv .sky-addchat .thm-chat {
+  position: static;
+  z-index: auto;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* ③の表の右の列は、会話が左に出ているあいだ無くなる。表はその分広くなる */
+.sky-add-area.is-hosted .kz-ws {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sky-add-area.is-hosted .kz-ws-side {
+  display: none;
+}

@@ -182,5 +182,28 @@
   "band": {
     "answerable": "Answerable questions {{ok}} / {{total}}",
     "themes": "See themes →"
+  },
+  "add": {
+    "close": "Close",
+    "closeHint": "Where you are is kept. Press \"Add data\" again to continue.",
+    "area": "Add data"
+  },
+  "now": {
+    "data": "Now: {{mark}} {{step}} — {{hint}}",
+    "draft": "Now: draft \"{{name}}\" — add or fix with a line",
+    "star": "Now: star \"{{name}}\" — ask about this star",
+    "hint": {
+      "bind": "ask what a column is",
+      "s1": "ask about the design once a file is in",
+      "s2": "ask once it has been read",
+      "s3": "ask about the blank meanings",
+      "s4": "ask how to pick the ID",
+      "s5": "ask about the shape, e.g. what one row is",
+      "s6": "ask how to read the results",
+      "s7": "ask before publishing",
+      "done": "Published. Closing returns to the sky chart"
+    },
+    "toBind": "Ask about column links",
+    "toConsult": "Ask about the design"
   }
 }
