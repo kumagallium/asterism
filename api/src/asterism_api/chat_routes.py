@@ -148,6 +148,28 @@ def register_chat(
             return None
         return {**draft_sky_card(draft, lang), "session_id": session["id"]}
 
+    def _save_after_confirm(session: dict, commit: dict | None, lang: str) -> dict:
+        """✓ のあとの保存。落ちたら 1 度だけやり直し、それでも落ちたら 500。"""
+        for attempt in (1, 2):
+            try:
+                return chat_sessions.save_session(root, session)
+            except Exception:
+                logger.warning("chat save after confirm failed (%d)", attempt, exc_info=True)
+        tid = commit["theme_id"] if commit else ""
+        if lang == "en":
+            msg = (
+                f"Could not save the chat (theme {tid} is saved)"
+                if tid
+                else "Could not save the chat"
+            )
+        else:
+            msg = (
+                f"話を保存できませんでした（テーマ {tid} は保存されています）"
+                if tid
+                else "話を保存できませんでした"
+            )
+        raise HTTPException(500, msg)
+
     def _refused(exc: chat_turns.TurnRefused) -> HTTPException:
         return HTTPException(exc.status, str(exc))
 
@@ -214,6 +236,7 @@ def register_chat(
             raise HTTPException(422, f"文は 1〜{chat_turns.MAX_TEXT} 字です")
         if body.ops is not None and not body.ops:
             raise HTTPException(422, "ops が空です")
+        _session_or_404(session_id)  # ストアを読む前に、話があるか
         existing = await _terms()
         dismissed = shared_vocab.load_dismissed(root)
         async with lock:
@@ -272,7 +295,7 @@ def register_chat(
             except Exception as exc:  # 書き込みの失敗（commit_theme は巻き戻し済み）
                 logger.warning("chat confirm failed", exc_info=True)
                 raise HTTPException(502, f"theme write failed: {exc}") from exc
-            saved = chat_sessions.save_session(root, session)
+            saved = _save_after_confirm(session, commit, lang)
         confirmed = [
             t["id"] for t in saved["turns"] if t["id"] in was and t.get("state") == "confirmed"
         ]
@@ -285,7 +308,9 @@ def register_chat(
         async with lock:
             session = _session_or_404(session_id)
             try:
-                turn, undone = chat_turns.revert(session, turn_id, root=root, at=_now())
+                turn, undone = chat_turns.revert(
+                    session, turn_id, root=root, at=_now(), lang=lang
+                )
             except chat_turns.TurnRefused as exc:
                 raise _refused(exc) from exc
             saved = chat_sessions.save_session(root, session)

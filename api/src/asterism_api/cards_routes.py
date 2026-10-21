@@ -19,6 +19,7 @@ constant-time comparison) against the ``cfg`` this module already receives.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import importlib.util
 import inspect
@@ -34,7 +35,7 @@ from asterism import network_view as network_view_mod
 from asterism import query_tools as query_tools_mod
 from asterism import subjects as subjects_mod
 from asterism.crosswalk import XW as _XW_NS
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from asterism_api import appdata, crosswalk_names, describe
@@ -799,6 +800,7 @@ def register_cards(
 
     @app.get("/api/sky")
     async def sky(
+        response: Response,
         lang: str = Query(default="ja"),
         authorization: str | None = Header(default=None),
         x_asterism_token: str | None = Header(default=None),
@@ -812,11 +814,13 @@ def register_cards(
             from asterism_api.themes_routes import draft_sky_rows
 
             rows = draft_sky_rows(cfg.registry_root, lang)
+            owners = await asyncio.to_thread(chat_sessions.draft_session_map, cfg.registry_root)
             for row in rows:
-                row["session_id"] = chat_sessions.session_of_draft(
-                    cfg.registry_root, row["draft_id"]
-                )
+                row["session_id"] = owners.get(row["draft_id"])
             out = {**out, "proposed": rows}
+            # 鍵ごとに中身が違う — 共有キャッシュに残さない
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Vary"] = "X-Asterism-Token, Authorization"
         return out
 
     async def _sky_impl() -> dict[str, Any]:

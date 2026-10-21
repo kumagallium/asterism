@@ -488,3 +488,226 @@ def test_set_answer_without_a_draft_and_revert(tmp_path: Path) -> None:
         assert draft["answers"][0]["mode"] == "memo"
         for word in ("そう", "線", "ことば", "下書き", "置く", "pending"):
             assert word not in reply
+
+
+# ---- checker の指摘（S1〜S6・N3〜N8）の固定 -------------------------------------------------
+
+
+def test_question_length_300_ok_301_refused(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        url = f"/api/chat/sessions/{sid}/turns"
+        r = client.post(url, json={"text": "あ" * 301})
+        assert r.status_code == 422 and "問いは 300 字までです。短く書いてください" in r.text
+        r = client.post(url, json={"text": "a" * 301, "lang": "en"})
+        assert r.status_code == 422 and "300 characters" in r.text
+        assert client.get(f"/api/chat/sessions/{sid}").json()["turns"] == []
+        assert client.post(url, json={"text": "あ" * 300}).status_code == 201
+        # 201 字でも通る
+        assert client.post(url, json={"text": "い" * 201}).status_code == 201
+
+
+def test_question_with_iri_or_code_is_refused(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        url = f"/api/chat/sessions/{sid}/turns"
+        for bad in ("http://example.org/x を調べて", "SELECT ?s WHERE { ?s ?p ?o }"):
+            r = client.post(url, json={"text": bad})
+            assert r.status_code == 422 and "問いに IRI やコードは入れられません" in r.text
+        r = client.post(url, json={"text": "see https://x.test", "lang": "en"})
+        assert r.status_code == 422 and "IRI or code" in r.text
+        assert _draft_ids(tmp_path) == []
+
+
+def test_confirm_only_the_last_proposed_turn(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB, ASK])
+        _say(client, sid, Q2)
+        base = f"/api/chat/sessions/{sid}/turns"
+        r = client.post(f"{base}/t1/confirm", json={})
+        assert r.status_code == 409 and "最後の提案に ✓ してください" in r.text
+        r = client.post(f"{base}/t1/confirm", json={"lang": "en"})
+        assert r.status_code == 409 and "latest proposal" in r.text
+        r = client.post(f"{base}/t3/confirm", json={})
+        assert r.status_code == 200 and r.json()["confirmed"] == ["t1", "t2", "t3"]
+        assert r.json()["commit"]["batch"] == f"{sid}:t3"
+
+
+def test_confirm_or_revert_a_none_turn_is_409(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        dup = _say(client, sid, Q_LOWER)["turn"]
+        assert dup["state"] == "none"
+        base = f"/api/chat/sessions/{sid}/turns/{dup['id']}"
+        assert client.post(f"{base}/confirm", json={}).status_code == 409
+        assert client.post(f"{base}/revert").status_code == 409
+
+
+def test_revert_keeps_the_renamed_title(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _say(client, sid, Q2)
+        _say(client, sid, "電子熱伝導率は？")
+        url = f"/api/chat/sessions/{sid}"
+        assert client.patch(url, json={"title": "私の名前"}).status_code == 200
+        r = client.post(f"/api/chat/sessions/{sid}/turns/t2/revert")
+        assert r.status_code == 200, r.text
+        assert r.json()["draft"]["theme_label"] == "私の名前"
+        got = client.get(f"/api/chat/sessions/{sid}").json()
+        draft = themes.load_draft(tmp_path / "registry", got["draft_id"])
+        assert draft["label"] == "私の名前" and got["title"] == "私の名前"
+
+
+def test_save_failure_after_confirm_is_retried_once(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB, ASK])
+        real = chat_sessions.save_session
+        calls = {"n": 0}
+
+        def flaky(root, session):
+            calls["n"] += 1
+            if calls["n"] <= 1:
+                raise OSError("disk")
+            return real(root, session)
+
+        monkeypatch.setattr(chat_sessions, "save_session", flaky)
+        r = client.post(f"/api/chat/sessions/{sid}/turns/t2/confirm", json={})
+        assert r.status_code == 200, r.text
+        assert r.json()["confirmed"] == ["t1", "t2"] and calls["n"] == 2
+
+        # 2 度とも落ちたら 500・テーマは保存されている
+        s2 = _new(client)
+        _say(client, s2, "別の問い")
+        _ops(client, s2, [{**CONCEPT_A, "key": "h1", "label_ja": "電気伝導率"}, ASK])
+        monkeypatch.setattr(
+            chat_sessions, "save_session", lambda *a, **k: (_ for _ in ()).throw(OSError("x"))
+        )
+        r = client.post(f"/api/chat/sessions/{s2}/turns/t2/confirm", json={})
+        assert r.status_code == 500
+        assert "話を保存できませんでした（テーマ " in r.json()["detail"]
+        assert "は保存されています）" in r.json()["detail"]
+
+
+def test_revert_after_a_confirm_that_lost_its_save_is_409(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB, ASK])
+        monkeypatch.setattr(
+            chat_sessions, "save_session", lambda *a, **k: (_ for _ in ()).throw(OSError("x"))
+        )
+        assert client.post(f"/api/chat/sessions/{sid}/turns/t2/confirm", json={}).status_code == 500
+        monkeypatch.undo()
+        # 話はまだ proposed のまま・下書きは確認で消えている
+        r = client.post(f"/api/chat/sessions/{sid}/turns/t2/revert")
+        assert r.status_code == 409 and "この提案は確認済みです" in r.text
+        assert _draft_ids(tmp_path) == []
+
+
+def test_text_turn_after_the_theme_vanished_starts_a_new_one(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB, ASK])
+        assert client.post(f"/api/chat/sessions/{sid}/turns/t2/confirm", json={}).status_code == 200
+        data = themes.load_themes_file(tmp_path / "registry")
+        data["themes"] = []
+        themes._save_themes(tmp_path / "registry", data)
+        out = _say(client, sid, "電子熱伝導率は？")
+        notes = out["turn"]["reply"]["notes"]
+        assert any(n["kind"] == "info" and "前のテーマは消えています" in n["text"] for n in notes)
+        assert out["session"]["theme_id"] is None
+        assert themes.load_draft(tmp_path / "registry", out["draft"]["draft_id"]).get("extend") in (
+            None,
+            "",
+        )
+
+
+def test_turn_on_a_missing_session_is_404_before_the_store(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        r = client.post("/api/chat/sessions/cabcdefghi/turns", json={"text": "a"})
+        assert r.status_code == 404
+        assert client.get("/api/chat/sessions/cabcdefghi%0A").status_code in (404, 422)
+
+
+def test_sky_with_proposed_is_not_cached(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client, TestClient(client.app) as anon:
+        r = client.get("/api/sky")
+        assert r.headers["cache-control"] == "private, no-store"
+        assert r.headers["vary"] == "X-Asterism-Token, Authorization"
+        assert "no-store" not in anon.get("/api/sky").headers.get("cache-control", "")
+
+
+def test_sky_proposed_absent_for_empty_credentials_and_unset_token(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client, TestClient(client.app) as anon:
+        assert "proposed" not in anon.get("/api/sky", headers={"X-Asterism-Token": ""}).json()
+        assert "proposed" not in anon.get("/api/sky", headers={"Authorization": "Bearer "}).json()
+    import rdflib
+
+    from asterism_api.main import build_app
+    from tests.test_crosswalk_api import _DatasetClient, _settings
+
+    cfg = _settings(tmp_path / "x")
+    cfg.api_token = ""
+    app = build_app(cfg, oxigraph_client=_DatasetClient(rdflib.Dataset()), start_watcher=False)
+    with TestClient(app) as open_client:
+        assert "proposed" not in open_client.get("/api/sky").json()
+        hdr = {"X-Asterism-Token": ""}
+        assert "proposed" not in open_client.get("/api/sky", headers=hdr).json()
+
+
+def test_name_length_80_ok_81_refused(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        assert client.post("/api/chat/sessions", json={"title": "あ" * 80}).status_code == 201
+        assert client.post("/api/chat/sessions", json={"title": "あ" * 81}).status_code == 422
+        sid = _new(client)
+        url = f"/api/chat/sessions/{sid}"
+        assert client.patch(url, json={"title": "い" * 80}).status_code == 200
+        assert client.patch(url, json={"title": "い" * 81}).status_code == 422
+
+
+def test_english_ai_unset_and_dropped_notes(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER, lang="en")["turn"]
+        (unset,) = [n for n in t1["reply"]["notes"] if n["kind"] == "ai_unset"]
+        assert "AI is not set up" in unset["text"]
+        loop = {"op": "add_relation", "from": "h1", "rel": "lowers", "to": "h2", "reason": ""}
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B])
+        r = client.post(
+            f"/api/chat/sessions/{sid}/turns", json={"ops": [loop], "lang": "en"}
+        ).json()["turn"]
+        (note,) = r["reply"]["notes"]
+        assert note["kind"] == "dropped" and "the other end must be an item" in note["text"]
+
+
+def test_bind_column_by_hand_is_dropped_for_a_theme(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A])
+        bind = {"op": "bind_column", "column": "price", "to": "h1", "rel": "eq", "reason": ""}
+        out = _ops(client, sid, [bind])["turn"]
+        (note,) = out["reply"]["notes"]
+        assert note["kind"] == "dropped" and "表の列だけに使えます" in note["text"]
+        assert out["state"] == "none"

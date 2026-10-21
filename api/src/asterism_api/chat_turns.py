@@ -26,7 +26,7 @@ from typing import Any
 
 from asterism import chat_sessions, graph_diff, shared_vocab, themes
 from asterism.shared_vocab import SharedTerm, normalize_label
-from asterism_step0.graph_propose import GraphDiffError, validate_graph_diff
+from asterism_step0.graph_propose import _QUESTION_LIKE, GraphDiffError, validate_graph_diff
 
 __all__ = [
     "TurnRefused",
@@ -246,12 +246,42 @@ def run_text_turn(
         raise NotImplementedError("AI の道は 11b で足す")
     lg = _lg(lang)
     text = text.strip()
+    folded = " ".join(text.split())
+    if len(folded) > themes._QUESTION_MAX:
+        raise TurnRefused(
+            422,
+            f"問いは {themes._QUESTION_MAX} 字までです。短く書いてください"
+            if lg == "ja"
+            else f"A question is up to {themes._QUESTION_MAX} characters. Please shorten it.",
+        )
+    if _QUESTION_LIKE.search(folded):
+        raise TurnRefused(
+            422,
+            "問いに IRI やコードは入れられません"
+            if lg == "ja"
+            else "A question cannot contain an IRI or code.",
+        )
     draft = _current_draft(session, root)
     before: dict | None = None
     changed = True
+    extra_notes: list[dict] = []
     try:
         if draft is None:
-            made = themes.create_draft(root, "", [text], at=at, extend=session.get("theme_id"))
+            extend = session.get("theme_id")
+            if extend:
+                data = themes.load_themes_file(root)
+                if data is None or not any(t.get("id") == extend for t in data["themes"]):
+                    session["theme_id"] = None
+                    extend = None
+                    extra_notes.append(
+                        note(
+                            "info",
+                            "前のテーマは消えています。新しいテーマとして続けます"
+                            if lg == "ja"
+                            else "The previous theme is gone. Continuing as a new theme.",
+                        )
+                    )
+            made = themes.create_draft(root, "", [text], at=at, extend=extend)
             draft = _save(
                 root,
                 {**made, "step": 2, "answers": sync_answers([], made["questions"])},
@@ -288,7 +318,7 @@ def run_text_turn(
         session,
         at=at,
         user={"text": text, "attachments": []},
-        reply=_reply(said, notes=[note("ai_unset", _AI_UNSET[lg])]),
+        reply=_reply(said, notes=[note("ai_unset", _AI_UNSET[lg]), *extra_notes]),
         state="proposed" if changed else "none",
         before=before,
         by="human",
@@ -625,7 +655,17 @@ async def confirm(
     turn = _find(session, turn_id)
     draft = _current_draft(session, root)
     if turn.get("state") != "proposed" or draft is None:
-        raise TurnRefused(409, "確認するものがありません")
+        raise TurnRefused(
+            409, "確認するものがありません" if _lg(lang) == "ja" else "Nothing to confirm."
+        )
+    last = [t for t in session["turns"] if t.get("state") == "proposed"][-1]
+    if last is not turn:
+        raise TurnRefused(
+            409,
+            "最後の提案に ✓ してください"
+            if _lg(lang) == "ja"
+            else "Please confirm the latest proposal.",
+        )
     body = commit_body(draft, lang)
     body["batch"] = turn["batch"]
     notes = [n for n in turn["reply"].get("notes") or [] if n.get("kind") != "commit_error"]
@@ -653,7 +693,9 @@ async def confirm(
     return turn, record
 
 
-def revert(session: dict, turn_id: str, *, root: Any, at: str) -> tuple[dict, list[str]]:
+def revert(
+    session: dict, turn_id: str, *, root: Any, at: str, lang: str = "ja"
+) -> tuple[dict, list[str]]:
     """未確認の返事を、その返事の前の下書き（控え）に戻す。あとの未確認の返事も一緒に取り消す。
     返り = ``(手番, 取り消した手番の id)``。"""
     turn = _find(session, turn_id)
@@ -663,12 +705,25 @@ def revert(session: dict, turn_id: str, *, root: Any, at: str) -> tuple[dict, li
     start = turns.index(turn)
     undone = [t for t in turns[start:] if t.get("state") == "proposed"]
     before = turn.get("before")
+    # 確認で消えた下書きを、控えから作り直してはいけない
+    owner = before.get("id") if before is not None else session.get("draft_id")
+    if not owner or themes.load_draft(root, owner) is None:
+        raise TurnRefused(
+            409,
+            "この提案は確認済みです"
+            if _lg(lang) == "ja"
+            else "This proposal is already confirmed.",
+        )
     if before is None:  # この手番で下書きを作った — 下書きごと消す
         if session.get("draft_id"):
             themes.delete_draft(root, session["draft_id"])
         session["draft_id"] = None
     else:
-        saved = _save(root, copy.deepcopy(before), at)
+        restored = copy.deepcopy(before)
+        now = themes.load_draft(root, owner)
+        if now is not None:  # 直した名前は戻さない
+            restored["label"] = now.get("label", restored.get("label"))
+        saved = _save(root, restored, at)
         session["draft_id"] = saved["id"]
     for t in undone:
         t["state"] = "reverted"
