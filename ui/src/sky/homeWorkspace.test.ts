@@ -11,6 +11,8 @@ import hookSource from './useHomeWorkspace.ts?raw'
 import skyViewSource from './SkyView.tsx?raw'
 import themesViewSource from '../themes/ThemesView.tsx?raw'
 import themesApiSource from '../themes/themesApi.ts?raw'
+import blocksSource from './SessionBlocks.tsx?raw'
+
 
 const strings = (o: unknown): string[] =>
   typeof o === 'string' ? [o] : o && typeof o === 'object' ? Object.values(o).flatMap(strings) : []
@@ -112,6 +114,19 @@ describe('直しはその場で保存する（離れても消えない）', () =
     expect(hookSource).toMatch(/\.slice\(0, 400\)/)
     expect(hookSource).toMatch(/matchTerms\(\n[^]*?taken,\n\s+\)/)
     expect(themesApiSource).toMatch(/JSON\.stringify\(\{ terms, taken \}\)/)
+  })
+})
+
+describe('会話の履歴が狭くならない（常に欄の 40% 以上）', () => {
+  it('先頭の札は 1 枚だけ（確認 > 選んだ札 > 案内 > 書き込み欄）', () => {
+    expect(conversationSource).toMatch(/const card = switchCard \?\? pinned \?\? readStop \?\? writeForm/)
+  })
+
+  it('下の道具は 1 行の折りたたみ 1 つ・置く欄は「N 件を置く」1 行＋折りたたみ「置く内容」', () => {
+    expect(blocksSource.match(/<details className="thm-chat-more" data-testid="session-tools">/g)).toHaveLength(1)
+    expect(blocksSource).toMatch(/data-testid="place-go"[^]*<details className="thm-chat-more" data-testid="place-details"/)
+    expect(skyJa.tools.summary).toBe('文 {{n}} 件・手で足す')
+    expect(skyJa.place.content).toBe('置く内容')
   })
 })
 

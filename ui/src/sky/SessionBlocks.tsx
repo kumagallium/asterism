@@ -159,7 +159,10 @@ export function AnswerLines({ ws, draft, lang }: { ws: HomeWorkspace; draft: The
   )
 }
 
-/** 会話の下に固定する「N 件を置く」。置く内容（概念・関係・問い・ID・テーマ名）は畳んである。 */
+/**
+ * 会話の下に固定する「N 件を置く」。ボタン 1 行＋折りたたみ「置く内容」（概念・関係・問い・ID・テーマ名）。
+ * 履歴が狭くならないよう、ふだんはこの 2 行だけ（止まっている理由・エラーは出す）。ID の問題があれば開いて出す。
+ */
 export function PlaceBar({ ws, draft, lang }: { ws: HomeWorkspace; draft: ThemeDraft; lang: string }) {
   const { t } = useTranslation()
   const tf = t as unknown as TFn
@@ -176,10 +179,25 @@ export function PlaceBar({ ws, draft, lang }: { ws: HomeWorkspace; draft: ThemeD
         </p>
       )}
       {ws.blocker && <p className="vocab-field-hint">{t(`themes:place.blocker.${ws.blocker}`)}</p>}
-      {problemCount > 0 && <IdRows ws={ws} ids={ids.filter((l) => ws.problems[l.key])} />}
-      {ws.thin > 0 && <p className="vocab-field-hint">{t('themes:review.thinNote', { n: ws.thin })}</p>}
-      <details className="thm-chat-more" data-testid="place-details">
-        <summary>{t(extend ? 'themes:place.leadExtend' : 'themes:place.lead', { label, concepts: ws.counts.concepts, relations: ws.counts.relations, questions: draft.questions.length })}</summary>
+      <button
+        type="button"
+        className="btn btn--activity sky-place-go"
+        disabled={ws.placing || ws.busy || problemCount > 0 || draft.questions.length === 0}
+        data-testid="place-go"
+        title={ws.unlinked.size > 0 ? t('themes:review.unlinkedNote', { n: ws.unlinked.size }) : undefined}
+        onClick={() => void ws.place()}
+      >
+        {ws.placing ? t('themes:place.placing') : ws.counts.total > 0 ? t('themes:review.confirm', { n: ws.counts.total }) : t('themes:review.confirmNone')}
+      </button>
+      <details className="thm-chat-more" data-testid="place-details" open={problemCount > 0 ? true : undefined}>
+        <summary>
+          {t('sky:place.content')}
+          {ws.thin > 0 && <span className="vocab-field-hint"> · {t('sky:place.thin', { n: ws.thin })}</span>}
+        </summary>
+        <p className="vocab-field-hint">
+          {t(extend ? 'themes:place.leadExtend' : 'themes:place.lead', { label, concepts: ws.counts.concepts, relations: ws.counts.relations, questions: draft.questions.length })}
+        </p>
+        {ws.thin > 0 && <p className="vocab-field-hint">{t('themes:review.thinNote', { n: ws.thin })}</p>}
         {!extend && (
           <label className="vocab-field">
             <span>{t('themes:write.themeName')}</span>
@@ -204,16 +222,6 @@ export function PlaceBar({ ws, draft, lang }: { ws: HomeWorkspace; draft: ThemeD
           </>
         )}
       </details>
-      <button
-        type="button"
-        className="btn btn--activity sky-place-go"
-        disabled={ws.placing || ws.busy || problemCount > 0 || draft.questions.length === 0}
-        data-testid="place-go"
-        title={ws.unlinked.size > 0 ? t('themes:review.unlinkedNote', { n: ws.unlinked.size }) : undefined}
-        onClick={() => void ws.place()}
-      >
-        {ws.placing ? t('themes:place.placing') : ws.counts.total > 0 ? t('themes:review.confirm', { n: ws.counts.total }) : t('themes:review.confirmNone')}
-      </button>
     </div>
   )
 }
@@ -241,9 +249,10 @@ export function SessionTools({
     if (await ws.addHand(hand)) setHand((h) => ({ ...h, name: '', en: '', aliases: '' }))
   }
   return (
-    <>
-      <details className="thm-chat-more">
-        <summary>{t('themes:review.sentences', { n: draft.relations.length })}</summary>
+    <details className="thm-chat-more" data-testid="session-tools">
+      <summary>{t('sky:tools.summary', { n: draft.relations.length })}</summary>
+      <div className="thm-sub-h">{t('themes:review.sentences', { n: draft.relations.length })}</div>
+      <div>
         {draft.relations.length === 0 ? (
           <p className="ds-empty-note">{t('themes:review.noSentences')}</p>
         ) : (
@@ -272,9 +281,9 @@ export function SessionTools({
             })}
           </ul>
         )}
-      </details>
-      <details className="thm-chat-more" data-testid="hand-add">
-        <summary>{t('themes:review.add')}</summary>
+      </div>
+      <div className="thm-sub-h">{t('themes:review.add')}</div>
+      <div data-testid="hand-add">
         <div className="thm-hand-row">
           <input
             type="text"
@@ -315,8 +324,8 @@ export function SessionTools({
           />
         </div>
         <HandRelation ws={ws} draft={draft} lang={lang} />
-      </details>
-    </>
+      </div>
+    </details>
   )
 }
 

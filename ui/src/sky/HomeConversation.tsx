@@ -192,14 +192,15 @@ export function HomeConversation({
     </section>
   ) : null
   const writeForm = ws.writing && !ws.sessionOn && !isReady ? <WriteForm key="write" ws={ws} initial={prefill?.text ?? ''} placeholder={t('sky:chat.writePlaceholder')} /> : null
+  // 先頭の札は 1 枚だけ（履歴が狭くならないように）。優先: 切り替えの確認 > 選んだ星・線・札 > 読めなかった／AI 未設定の案内 >
+  // 書き込み欄。下書きの名前と「閉じる」の 1 行（sessionBar）はいつも出る。
+  const readStop = ws.read.status === 'failed' || ws.read.status === 'unconfigured' ? <ReadStop key="read" ws={ws} /> : null
+  const card = switchCard ?? pinned ?? readStop ?? writeForm
   const allPinned =
-    sessionBar || switchCard || writeForm || ws.read.status !== 'idle' || pinned ? (
+    sessionBar || card ? (
       <>
         {sessionBar}
-        {switchCard}
-        {writeForm}
-        {ws.read.status === 'failed' || ws.read.status === 'unconfigured' ? <ReadStop ws={ws} /> : null}
-        {pinned}
+        {card}
       </>
     ) : null
 

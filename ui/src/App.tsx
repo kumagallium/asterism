@@ -28,6 +28,7 @@ import type { SetResolveResult } from './cards/cardsApi'
 import { OntologyMapView } from './OntologyMapView'
 import { SkyView } from './sky/SkyView'
 import { flushDrafts } from './sky/draftFlush'
+import { publishNavCollapsed } from './workspace/navState'
 import { type WriteRequest, homeHash, parseHomeQuery } from './sky/skyRoute'
 import { useLlmSettings } from './settings/context'
 import { SparqlView } from './SparqlView'
@@ -582,13 +583,20 @@ function App() {
   const navCollapsedExplicit = useRef(loadNavCollapsed() !== null)
   const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
     const stored = loadNavCollapsed()
-    if (stored !== null) return stored
-    try {
-      return window.matchMedia(NAV_AUTO_COLLAPSE_QUERY).matches
-    } catch {
-      return false
+    let v: boolean
+    if (stored !== null) v = stored
+    else {
+      try {
+        v = window.matchMedia(NAV_AUTO_COLLAPSE_QUERY).matches
+      } catch {
+        v = false
+      }
     }
+    // ホームの会話をシートにする境がナビの幅で動く — 最初の描画から正しい境で判定できるよう、ここで知らせる
+    publishNavCollapsed(v)
+    return v
   })
+  useEffect(() => publishNavCollapsed(navCollapsed), [navCollapsed])
 
   useEffect(() => {
     if (navCollapsedExplicit.current) return

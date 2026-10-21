@@ -538,36 +538,36 @@ button.sky-pill--data:hover:not(:disabled) {
   box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.1);
 }
 
-/* 会話は下からのシート（星図が主）。幅が足りない画面ではこちら（375px も同じ） */
-@media (max-width: 980px) {
-  .sky-ws,
-  .sky-ws.is-folded {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .sky-conv {
-    position: static;
-  }
-  .sky-conv .thm-chat {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 60;
-    height: 70vh;
-    min-height: 0;
-    max-height: 70vh;
-    border-radius: 14px 14px 0 0;
-    border-bottom: 0;
-    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
-  }
-  .sky-conv .ws-chat-open {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    width: auto;
-    z-index: 55;
-    box-shadow: var(--shadow);
-  }
+/* 会話は下からのシート（星図が主）。幅が足りない画面ではこちら（375px も同じ）。境はナビの状態で変わるので、
+   CSS の @media には書かず、SkyView が `.sky-ws.is-sheet` を付ける（境の数字は workspace/navState.ts の 1 か所）。
+   :where() は特異性を 0 にする — 下の「置き場の中の会話」の上書き（.sky-conv .sky-addchat .thm-chat）に負けるまま。 */
+.sky-ws.is-sheet,
+.sky-ws.is-sheet.is-folded {
+  grid-template-columns: minmax(0, 1fr);
+}
+:where(.sky-ws.is-sheet) .sky-conv {
+  position: static;
+}
+:where(.sky-ws.is-sheet) .sky-conv .thm-chat {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  height: 70vh;
+  min-height: 0;
+  max-height: 70vh;
+  border-radius: 14px 14px 0 0;
+  border-bottom: 0;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+}
+:where(.sky-ws.is-sheet) .sky-conv .ws-chat-open {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: auto;
+  z-index: 55;
+  box-shadow: var(--shadow);
 }
 
 /* ── データを置く（PR 8c）: 右の領域がかんたんの札・左の欄は段で送り先が決まる ─────────────── */
@@ -657,6 +657,33 @@ button.sky-pill--data:hover:not(:disabled) {
     order: 3;
     flex-basis: 100%;
   }
+}
+
+/* 履歴は常に会話の欄の 40% 以上見える。上の札・下の道具・置く欄・選んだ札の欄は、足りなければ中でスクロールして縮む */
+.sky-conv .thm-chat-scroll {
+  flex: 1 1 auto;
+  min-height: 40%;
+}
+.sky-conv .thm-chat-pinned,
+.sky-conv .thm-chat-focus,
+.sky-conv .thm-chat-tools,
+.sky-conv .thm-chat-bar {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sky-conv .thm-chat-pinned {
+  max-height: 40%;
+}
+.sky-conv .thm-chat-tools {
+  max-height: 40%;
+}
+.sky-conv .thm-chat-bar {
+  max-height: 30%;
+}
+.sky-conv .thm-chat-head,
+.sky-conv .thm-chat-foot {
+  flex: none;
 }
 
 /* 星を選んでいるときの一言の送り先の切替（この星について聞く／問いを書く）。入力欄の上に小さく */

@@ -15,7 +15,7 @@ import { getAlignments, type Alignment } from '../crosswalkApi'
 import { MoreMenu } from '../MoreMenu'
 import { SV_NS } from '../lineChoice'
 import { relId } from '../workspace/workspaceState'
-import { useSheet } from '../workspace/useNarrow'
+import { sheetNow, useSheet } from '../workspace/useNarrow'
 import { ChatSlotContext } from '../kantan/hostedStage'
 import { useLlmSettings } from '../settings/context'
 import { AddConversation } from './AddConversation'
@@ -827,7 +827,7 @@ function SkyBody(
 
       {note && !adding && <p className="sky-note">{note}</p>}
 
-      <div className={`sky-ws${(adding ? addOpen : chatOpen) ? '' : ' is-folded'}`}>
+      <div className={`sky-ws${(adding ? addOpen : chatOpen) ? '' : ' is-folded'}${sheet ? ' is-sheet' : ''}`}>
         {adding ? (
           <AddConversation
             open={addOpen}
@@ -960,15 +960,6 @@ function SkyBody(
       )}
     </div>
   )
-}
-
-/** 起動時に、会話をシートにする幅か（最初の開閉の初期値に使う）。 */
-function sheetNow(): boolean {
-  try {
-    return window.matchMedia('(max-width: 980px)').matches
-  } catch {
-    return false
-  }
 }
 
 /** 右の領域（データを置く）。かんたんの札（children）を星図と同じ幅のページのまま描き、閉じるを添える。 */

@@ -220,5 +220,12 @@
     "write": "Keep the current draft and write a new question?",
     "keep": "Keep it",
     "stay": "Keep working"
+  },
+  "tools": {
+    "summary": "{{n}} sentences · add by hand"
+  },
+  "place": {
+    "content": "What will be placed",
+    "thin": "{{n}} still proposals"
   }
 }
