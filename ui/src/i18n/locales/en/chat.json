@@ -29,6 +29,8 @@
     "confirmed": "✓ Confirmed ({{at}})",
     "proposed": "Proposed",
     "reverted": "Undone",
+    "removed": "Removed: {{terms}} terms, {{lines}} relations",
+    "kept": "Kept: {{slug}} ({{reason}})",
     "revert": "Undo"
   },
   "tabs": {

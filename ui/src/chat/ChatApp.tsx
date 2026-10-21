@@ -142,6 +142,7 @@ export function ChatApp() {
   // 生まれた輪は ✓ の直後だけ（手番の直後は薄い札が増えるだけ）
   const [bornTick, setBornTick] = useState(0)
   const [busy, setBusy] = useState<Busy>(null)
+  const [pendingUser, setPendingUser] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
   const [tab, setTab] = useState<'chat' | 'chart'>('chat')
@@ -162,6 +163,7 @@ export function ChatApp() {
       if (view.kind === 'session' && !session) return false // 話を読み込み中
       setBusy('send')
       setError(null)
+      setPendingUser(input.text ?? null)
       try {
         let s = session
         let created = false
@@ -192,6 +194,7 @@ export function ChatApp() {
         setError(messageOf(e))
         return false
       } finally {
+        setPendingUser(null)
         setBusy(null)
       }
     },
@@ -317,6 +320,7 @@ export function ChatApp() {
           loadError={loadError}
           busy={busy !== null}
           sending={busy === 'send'}
+          pendingUser={pendingUser}
           error={error}
           noKey={noKey}
           onSend={onSend}

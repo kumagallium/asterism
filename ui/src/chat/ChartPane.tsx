@@ -4,6 +4,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isTauri } from '../desktop/updater'
+import { drawRemovals, removalOverlay } from '../chart/chartOverlay'
 import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData } from '../sky/skyApi'
@@ -125,6 +126,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onSelect 
     () => layoutSky(drawn, { width, lang, minHeight: 360, drafts: nothing ? [] : proposed }),
     [drawn, width, lang, proposed, nothing],
   )
+  const removals = useMemo(() => removalOverlay(layout, nothing ? [] : proposed), [layout, proposed, nothing])
   const tables = useMemo(() => buildSkyTables(sky, lang), [sky, lang])
   const visible = useMemo(() => visiblePointLabels(layout), [layout])
 
@@ -160,7 +162,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onSelect 
   const hoverRef = useRef<string | null>(null)
   const bornRef = useRef<Map<string, number>>(new Map())
   const rafRef = useRef(0)
-  const stateRef = useRef<{ layout: SkyLayout; labels: SkyLabels; visible: ReadonlySet<string>; selectedId: string | null; reduced: boolean; nothing: boolean } | null>(null)
+  const stateRef = useRef<{ layout: SkyLayout; labels: SkyLabels; visible: ReadonlySet<string>; removals: ReturnType<typeof removalOverlay>; selectedId: string | null; reduced: boolean; nothing: boolean } | null>(null)
 
   const paint = useCallback(function paintFrame() {
     rafRef.current = 0
@@ -189,6 +191,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onSelect 
       { focusId, near, born: bornRef.current, now, reducedMotion: s.reduced, alpha: s.nothing ? 0.38 : 1 },
       s.visible,
     )
+    drawRemovals(ctx, s.layout, paletteRef.current, s.removals, s.labels.draftRemove)
     if (!s.reduced && bornAlive(bornRef.current, now)) rafRef.current = requestAnimationFrame(paintFrame)
   }, [])
   const schedule = useCallback(() => {
@@ -196,9 +199,9 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onSelect 
   }, [paint])
 
   useEffect(() => {
-    stateRef.current = { layout, labels, visible, selectedId: activeId, reduced, nothing }
+    stateRef.current = { layout, labels, visible, removals, selectedId: activeId, reduced, nothing }
     schedule()
-  }, [layout, labels, visible, activeId, reduced, nothing, schedule])
+  }, [layout, labels, visible, removals, activeId, reduced, nothing, schedule])
   useEffect(() => {
     let alive = true
     void document.fonts?.ready.then(() => alive && schedule())
@@ -261,6 +264,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onSelect 
     ctx.setTransform(scale, 0, 0, scale, 0, 0)
     paletteRef.current ??= readSkyPalette()
     drawSky(ctx, layout, paletteRef.current, labels, { focusId: null, near: null, born: new Map(), now: 0, reducedMotion: true, alpha: nothing ? 0.38 : 1 }, visible)
+    drawRemovals(ctx, layout, paletteRef.current, removals, labels.draftRemove)
     off.toBlob((blob) => {
       if (!blob) return setPngError(true)
       const url = URL.createObjectURL(blob)

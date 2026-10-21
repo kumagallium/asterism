@@ -96,6 +96,23 @@ describe('chatState', () => {
     const s = applyRevert(base, { turn: turn('t2', 'reverted'), session: brief(), draft: null, reverted: ['t2'] })
     expect(confirmTarget(s.turns)).toBe('t1')
   })
+  it('✓ の返りの removed／kept を手番に保つ', () => {
+    const base = session([turn('t1', 'proposed', 1), turn('t2', 'proposed', 1)])
+    const commit = {
+      theme_id: 'th1',
+      minted: [],
+      lines: 1,
+      questions: [],
+      batch: 'b',
+      at: 'x',
+      removed: { lines: 2, terms: 1 },
+      kept: [{ slug: 'seebeck', reason: '使われている' }],
+    }
+    const s = applyConfirm(base, { turn: { ...turn('t2', 'confirmed', 1), commit }, session: brief(), commit, confirmed: ['t1', 't2'] })
+    expect(s.turns[0].commit?.removed).toEqual({ lines: 2, terms: 1 })
+    expect(s.turns[1].commit?.kept).toEqual([{ slug: 'seebeck', reason: '使われている' }])
+  })
+
   it('✓ の返りに commit が無いときは手番の commit を保つ', () => {
     const commit = { theme_id: 'th1', minted: [], lines: 1, questions: [], batch: 'b', at: 'x' }
     const base = session([turn('t1', 'proposed', 1), turn('t2', 'proposed', 1)])

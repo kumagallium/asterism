@@ -29,6 +29,8 @@
     "confirmed": "✓ 確認済み（{{at}}）",
     "proposed": "提案",
     "reverted": "取り消し済み",
+    "removed": "外しました: 用語 {{terms}}・関係 {{lines}}",
+    "kept": "残した: {{slug}}（{{reason}}）",
     "revert": "戻す"
   },
   "tabs": {

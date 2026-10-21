@@ -102,6 +102,17 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
         {r.notes.map((n, i) => (
           <NoteLine key={i} note={n} />
         ))}
+        {turn.state === 'confirmed' && turn.commit?.removed && (turn.commit.removed.terms > 0 || turn.commit.removed.lines > 0) && (
+          <p className="chat-note-line" data-testid="reply-removed">
+            {t('reply.removed', { terms: turn.commit.removed.terms, lines: turn.commit.removed.lines })}
+          </p>
+        )}
+        {turn.state === 'confirmed' &&
+          (turn.commit?.kept ?? []).map((k) => (
+            <p key={k.slug} className="chat-note-line" data-testid="reply-kept">
+              {t('reply.kept', { slug: k.slug, reason: k.reason })}
+            </p>
+          ))}
         {(turn.state !== 'none' || turn.by === 'machine') && (
           <div className="chat-card-foot">
             {turn.by === 'machine' && <span className="chat-by-machine">{t('reply.byMachine')}</span>}

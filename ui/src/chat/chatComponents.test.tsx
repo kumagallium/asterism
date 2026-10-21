@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import '../i18n'
 import { ThemesApiError } from '../themes/themesApi'
 import type { Reply, SessionSummary, Turn } from './chatApi'
+import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
 import { ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
 import { SessionList } from './SessionList'
@@ -185,5 +186,36 @@ describe('HandForm', () => {
     const h = card(turn({ state: 'none', reply: reply({ notes: [{ kind: 'ai_failed', text: '失敗', choice: null }, { kind: 'info', text: '補足', choice: null }] }) }))
     expect(h).toContain('data-note-kind="ai_failed"')
     expect(h).toContain('data-note-kind="info"')
+  })
+})
+
+describe('ChatPane の楽観表示', () => {
+  const pane = (over: Partial<Parameters<typeof ChatPane>[0]> = {}) =>
+    renderToStaticMarkup(
+      <ChatPane session={null} loading={false} loadError={null} busy sending error={null} noKey={false} onSend={async () => true} onConfirm={noop} onRevert={noop} onOpenSettings={noop} {...over} />,
+    )
+  it('送った文が末尾に出て、その下に「考えています」', () => {
+    const html = pane({ pendingUser: '熱伝導率を下げるには？' })
+    const t = text(html)
+    expect(html).toContain('data-testid="pending-user"')
+    expect(t.indexOf('熱伝導率を下げるには？')).toBeGreaterThanOrEqual(0)
+    expect(t.indexOf('考えています')).toBeGreaterThan(t.indexOf('熱伝導率を下げるには？'))
+  })
+  it('文が無ければ人の文は出さない', () => {
+    expect(pane({ sending: false, busy: false })).not.toContain('pending-user')
+  })
+})
+
+describe('ReplyCard の ✓ で外した件数', () => {
+  const commit = { theme_id: 't', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T00:00:00Z' }
+  it('外しました・残した', () => {
+    const t = text(
+      card(turn({ state: 'confirmed', commit: { ...commit, removed: { terms: 3, lines: 2 }, kept: [{ slug: 'seebeck', reason: '使われている' }] } }), false),
+    )
+    expect(t).toContain('外しました: 用語 3・関係 2')
+    expect(t).toContain('残した: seebeck（使われている）')
+  })
+  it('外していなければ出さない', () => {
+    expect(text(card(turn({ state: 'confirmed', commit }), false))).not.toContain('外しました')
   })
 })

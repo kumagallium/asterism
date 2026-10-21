@@ -191,6 +191,13 @@ export interface DraftSky {
   concepts: DraftSkyConcept[]
   relations: DraftSkyRelation[]
   questions: string[]
+  /** 外す提案（公開済みの用語の IRI と知識の線）。無ければ空として扱う。 */
+  removals?: DraftSkyRemovals
+}
+
+export interface DraftSkyRemovals {
+  terms: string[]
+  lines: { from: string; to: string; relation: string }[]
 }
 
 /**
