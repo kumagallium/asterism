@@ -57,7 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checking only
 
     from asterism_api.main import Settings
 
-__all__ = ["register_themes"]
+__all__ = ["draft_sky_card", "draft_sky_rows", "register_themes"]
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +223,44 @@ def _selection_of(theme: dict, tool: dict, term_by_iri: dict[str, dict]) -> dict
                 else {"op": "values", "property": term["label"]}
             )
     return {}
+
+
+def draft_sky_card(draft: dict, lang: str = "ja") -> dict:
+    """1 つの下書きを**星図の札の形**にする ``{draft_id, theme_label, concepts[{key, label, kind,
+    use}], relations[{from, to, rel}], questions[]}``（``drafts_sky`` と話の API が共有する）。"""
+    lg = _lang(lang)
+    return {
+        "draft_id": draft["id"],
+        "theme_label": draft["label"],
+        "concepts": [
+            {
+                "key": c.get("key"),
+                "label": (c.get("label_en") or c.get("label_ja") or "")
+                if lg == "en"
+                else (c.get("label_ja") or ""),
+                "kind": c.get("kind"),
+                "use": c.get("use") or "new",
+            }
+            for c in draft.get("concepts") or []
+        ],
+        "relations": [
+            {"from": r.get("from"), "to": r.get("to"), "rel": r.get("rel")}
+            for r in draft.get("relations") or []
+        ],
+        "questions": list(draft.get("questions") or []),
+    }
+
+
+def draft_sky_rows(root: Any, lang: str = "ja") -> list[dict]:
+    """未確定の下書き全部の札（概念が 1 つも無い下書きは載せない）。``GET /api/themes/drafts/sky``
+    と ``GET /api/sky`` の ``proposed`` が共有する。"""
+    out: list[dict] = []
+    for item in themes.list_drafts(root):
+        draft = themes.load_draft(root, item["id"])
+        if draft is None or not draft.get("concepts"):
+            continue
+        out.append(draft_sky_card(draft, lang))
+    return out
 
 
 def register_themes(
@@ -599,34 +637,7 @@ def register_themes(
         確かめるまで Ask / MCP にも星図にも出さない。データ 0 件でも返す（ストアを読まない・
         ``themes/<id>/draft.json`` だけ）。概念が 1 つも無い下書き（まだ①の途中）は札が無いので
         載せない。"""
-        lg = _lang(lang)
-        out: list[dict] = []
-        for item in themes.list_drafts(cfg.registry_root):
-            draft = themes.load_draft(cfg.registry_root, item["id"])
-            if draft is None or not draft.get("concepts"):
-                continue
-            out.append(
-                {
-                    "draft_id": draft["id"],
-                    "theme_label": draft["label"],
-                    "concepts": [
-                        {
-                            "key": c.get("key"),
-                            "label": (c.get("label_en") or c.get("label_ja") or "")
-                            if lg == "en"
-                            else (c.get("label_ja") or ""),
-                            "kind": c.get("kind"),
-                            "use": c.get("use") or "new",
-                        }
-                        for c in draft["concepts"]
-                    ],
-                    "relations": [
-                        {"from": r.get("from"), "to": r.get("to"), "rel": r.get("rel")}
-                        for r in draft.get("relations") or []
-                    ],
-                    "questions": list(draft.get("questions") or []),
-                }
-            )
+        out = draft_sky_rows(cfg.registry_root, lang)
         return JSONResponse({"drafts": out})
 
     @app.get("/api/themes/drafts/{draft_id}", dependencies=list(write_auth))
