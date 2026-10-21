@@ -625,3 +625,19 @@
 .consult-md-th {
   font-weight: 600;
 }
+
+/* 左の会話の欄の中に置く（embedded・UI 再設計 PR 8c）: 浮かぶボタンも右のドロワーも使わず、置かれた枠いっぱいに広がる。 */
+.consult-embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.consult-head--embedded {
+  padding: var(--space-2) var(--space-3);
+}
+/* 履歴の一覧の「新しいチャット」は実線にする（点線は使わない） */
+.consult-embedded .consult-list-new {
+  border-style: solid;
+}
