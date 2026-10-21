@@ -971,3 +971,153 @@ def test_suggest_questions_retries_once_then_502_on_an_off_shape_answer(tmp_path
     dsid2 = _prices(tmp_path / "c")
     with TestClient(app2, headers={**_AUTH, **KEY}) as client:
         assert len(_suggest(client, dsid2).json()["suggestions"]) == 4
+
+
+# ---- suggest questions from a paper (PR 10b) ---------------------------------------------------
+
+#: このテストのために自分で書いた短い要約（実在の論文の本文ではない）
+PAPER_ABSTRACT = "Bi2Te3 に Sb を加えた試料で、粒界の密度が増えると熱伝導率が下がり ZT が上がった。"
+PAPER_CONCLUSION = "粒界でのフォノン散乱が格子熱伝導率を下げ、ZT の向上につながると結論した。"
+PAPER_METHODS = "SENTINEL-METHODS-77: 試料は焼結で作り、レーザーフラッシュ法で測った。"
+
+
+def _paper_jats() -> str:
+    return (
+        "<article><front><article-meta><abstract>"
+        f"<p>{PAPER_ABSTRACT}</p></abstract></article-meta></front><body>"
+        f"<sec><title>2. Methods</title><p>{PAPER_METHODS}</p></sec>"
+        f"<sec><title>4. Conclusions</title><p>{PAPER_CONCLUSION}</p></sec></body></article>"
+    )
+
+
+def _paper(tmp_path: Path, *, suffix: str = ".xml", cached: bool = True) -> str:
+    """文書型のデータセット（JATS の ``.xml``、または PDF + 取り込みで控えた変換結果）。"""
+    root = tmp_path / "registry"
+    meta = registry.save_dataset(
+        root, "熱電の論文", {"diagram.md": "classDiagram\n  class Document"},
+        complete=True, warnings=[], traps=[], exit_code=0,
+        created_at="2026-10-21T00:00:00+00:00",
+    )  # fmt: skip
+    sdir = registry.source_dir(root, meta["id"])
+    assert sdir is not None
+    sdir.mkdir(parents=True, exist_ok=True)
+    name = f"paper{suffix}"
+    if suffix == ".pdf":
+        (sdir / name).write_bytes(b"%PDF-1.4 not read")
+        if cached:
+            (sdir / f"{name}.jats").write_text(_paper_jats(), encoding="utf-8")
+    else:
+        (sdir / name).write_text(_paper_jats(), encoding="utf-8")
+    registry.mark_source_saved(root, meta["id"], [name])
+    return meta["id"]
+
+
+def _suggest_paper(client: TestClient, dsid: str | None, **kw):
+    ctx = {"dataset_id": dsid} if dsid else {}
+    return client.post(
+        "/api/consult/suggest-questions",
+        json={"screen": "paper", "context": ctx, "lang": "ja", **kw},
+    )
+
+
+def _paper_terms(client: TestClient) -> None:
+    _mint(client, "thermal", "熱伝導率")
+    _mint(client, "lattice", "格子熱伝導率")
+    _mint(client, "grain", "粒界散乱", kind="class")
+
+
+PAPER_SUGGESTED = {
+    "questions": [
+        _q("粒界散乱は格子熱伝導率を下げる？", "knowledge", "factors", target="格子熱伝導率",
+           direction="lowers"),
+        _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
+        _q("粒界散乱にはどんな種類がある？", "knowledge", "kinds", target="粒界散乱"),
+        _q("ZT を上げるものは？", "knowledge", "factors", target="ZT", direction="raises"),
+        _q("試料ごとの Sb 量は？", "data", "group", kind="試料", property="Sb 量"),
+    ]
+}  # fmt: skip
+
+
+def test_suggest_questions_from_a_paper_gives_three_knowledge_questions_from_the_abstract_only(
+    tmp_path: Path,
+) -> None:
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        before = _files(tmp_path)
+        r = _suggest_paper(client, dsid)
+        assert r.status_code == 200, r.text
+        out = r.json()["suggestions"]
+        assert [(s["mode"], s["op"], s["target"]) for s in out] == [
+            ("knowledge", "factors", "格子熱伝導率"),
+            ("knowledge", "parts", "熱伝導率"),
+            ("knowledge", "kinds", "粒界散乱"),
+        ]  # a target no term names, and a table's column the paper does not have, are not offered
+        assert all(s["question"] and s["shape"] for s in out)
+        assert _files(tmp_path) == before  # nothing is kept
+        assert client.get("/api/themes").json()["drafts"] == []
+        system, user = llm.calls[0]
+        assert "PAPER" in system and "Do NOT write SPARQL" in system
+        asked = f"# Text to ask about\nAbstract: {PAPER_ABSTRACT} Conclusion: {PAPER_CONCLUSION}"
+        assert asked in user
+        assert "SENTINEL-METHODS-77" not in system + user  # the body is never passed
+        assert "熱電の論文" in user and "格子熱伝導率 | " in user  # the data set's name, term names
+        assert "Column headings" not in user and "Kinds of thing a row" not in user
+        assert len(llm.calls) == 1
+
+
+def test_suggest_questions_from_a_pdf_reads_the_conversion_kept_at_ingest(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path, suffix=".pdf")
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        assert len(_suggest_paper(client, dsid).json()["suggestions"]) == 3
+        assert PAPER_CONCLUSION in llm.calls[0][1]
+    # a PDF that was ingested before the conversion was kept: nothing to read → 404, no AI call
+    llm2 = _LLM()
+    app2, _ = _app(tmp_path / "b", llm2)
+    old = _paper(tmp_path / "b", suffix=".pdf", cached=False)
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        r = _suggest_paper(client, old)
+        assert r.status_code == 404 and "取り込み直" in r.json()["detail"]
+    assert llm2.calls == []
+
+
+def test_suggest_questions_from_a_paper_hides_what_is_already_asked(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        client.post(
+            "/api/themes/drafts",
+            json={"label": "", "questions": ["熱伝導率はどんな成分でできている？"]},
+        )
+        out = _suggest_paper(client, dsid).json()["suggestions"]
+        assert "熱伝導率はどんな成分でできている？" in llm.calls[0][1]
+        assert [s["op"] for s in out] == ["factors", "kinds"]
+
+
+def test_suggest_questions_from_a_paper_needs_the_token_an_ai_and_a_document(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path)  # no AI
+    doc = _paper(tmp_path)
+    table = _prices(tmp_path)
+    with TestClient(app, headers=KEY) as anon:
+        assert _suggest_paper(anon, doc).status_code == 401
+    with TestClient(app, headers=_AUTH) as client:
+        assert _suggest_paper(client, doc).status_code == 503
+    llm = _LLM()
+    app2, _ = _app(tmp_path / "b", llm)
+    doc2 = _paper(tmp_path / "b")
+    table2 = _prices(tmp_path / "b")
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        assert _suggest_paper(client, "nope").status_code == 404
+        assert _suggest_paper(client, None).status_code == 422
+        r = _suggest_paper(client, table2)  # a table is not a paper
+        assert r.status_code == 422 and "文書型" in r.json()["detail"]
+    assert llm.calls == [] and doc2 and table and doc  # every refusal came before the AI was asked

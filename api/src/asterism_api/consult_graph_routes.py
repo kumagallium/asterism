@@ -43,7 +43,14 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import crosswalk_runtime, graph_diff, question_suggest, shared_vocab, themes
+from asterism import (
+    crosswalk_runtime,
+    graph_diff,
+    paper_sections,
+    question_suggest,
+    shared_vocab,
+    themes,
+)
 from asterism.mapping_ir_read import MappingIRView, read_mapping_ir
 from asterism_step0.graph_propose import (
     GraphDiffError,
@@ -150,8 +157,8 @@ class ApplyBody(BaseModel):
 
 
 class SuggestBody(BaseModel):
-    #: 今は ``dataset`` だけ（論文 = 10b・用語 = 10c が足す）
-    screen: Literal["dataset"] = "dataset"
+    #: ``dataset`` = データ（10a）・``paper`` = 文書型のデータセットの要旨と結論（10b）。用語は 10c
+    screen: Literal["dataset", "paper"] = "dataset"
     context: GraphContext = Field(default_factory=GraphContext)
     lang: str = "ja"
 
@@ -494,6 +501,33 @@ def register_consult_graph(
             out += [str(q) for q in draft.get("questions") or []]
         return [q for q in dict.fromkeys(" ".join(q.split()) for q in out) if q]
 
+    def _paper_of(ctx: GraphContext) -> tuple[dict, paper_sections.PaperText]:
+        """文書型のデータセットの、取り込み済みの文書から要旨と結論の文を取る（決定論・書かない）。
+        ``.xml``（JATS・Word は変換済み）はそのまま、``.pdf`` は取り込みのときに控えた変換結果
+        （``<name>.pdf.jats``）から読む。データセットか文書が無ければ 404・文書型でなければ 422。"""
+        if not ctx.dataset_id:
+            raise HTTPException(422, "context.dataset_id が要ります")
+        record = registry.load_dataset(cfg.registry_root, ctx.dataset_id)
+        if record is None:
+            raise HTTPException(404, "unknown dataset_id")
+        if str((record.get("meta") or {}).get("source_kind") or "csv") != "xml":
+            raise HTTPException(422, "文書型のデータセットではありません")
+        for path in registry.list_source_files(cfg.registry_root, ctx.dataset_id):
+            suffix = path.suffix.lower()
+            if suffix == ".pdf":
+                path = path.with_name(path.name + ".jats")
+            elif suffix != ".xml":
+                continue
+            try:
+                found = paper_sections.extract_from_jats(path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            if found:
+                return record, found
+        raise HTTPException(
+            404, "要旨と結論を読める文書がありません（PDF は取り込み直すと読めるようになります）"
+        )
+
     @app.post("/api/consult/suggest-questions", dependencies=list(write_auth))
     async def consult_suggest_questions(
         body: SuggestBody,
@@ -507,7 +541,9 @@ def register_consult_graph(
         property2, kind2, value, match, target, direction}]}``。何も書かない・保存しない。
 
         AI に渡すのは、データセットの名前・列の**見出しと型のヒント**・何の行か（種類の名前）・既に
-        ある問いの文・用語と標準用語の名前だけ（データの値は渡さない）。AI の答えは閉じた JSON だけ
+        ある問いの文・用語と標準用語の名前だけ（データの値は渡さない）。``screen: "paper"``（10b）は
+        ``context.dataset_id`` の文書の**要旨と結論の文**（合計 2,500 字まで）と既存の名前だけで、
+        列と種類は無い（本文全体は渡さない）。AI の答えは閉じた JSON だけ
         （SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・1 回だけ言い直させる）。機械が
         閉じた形（7 つのデータの形・3 つの知識の形）に落ちるもの・名前が列や用語に実在するもの・
         既存の問いと重ならないものだけに絞る。未設定なら 503。"""
@@ -516,14 +552,23 @@ def register_consult_graph(
         )
         if _ai_unset(key, provider, api_base):
             raise HTTPException(503, "AI が設定されていません")
-        record, view = _dataset_ir(body.context)
-        dataset_name = (record.get("meta") or {}).get("name") or body.context.dataset_id or ""
         lang = _lang(body.lang)
+        paper_text: str | None = None
+        columns: list[dict] | None
+        if body.screen == "paper":
+            # 論文 = 列も種類も無い。渡すのは要旨と結論の文と既存の名前だけ（本文全体は渡さない）
+            record, paper = await asyncio.to_thread(_paper_of, body.context)
+            paper_text = paper.text
+            columns, kind_names, prop_names = None, [], []
+            standards = [s["label"] for s in themes.default_standards([])]
+        else:
+            record, view = _dataset_ir(body.context)
+            columns = [{"name": c["name"], "kind_hint": c["kind_hint"]} for c in _ir_columns(view)]
+            kind_names, prop_names = question_suggest.dataset_names(view)
+            standards = [s["label"] for s in themes.default_standards([c["name"] for c in columns])]
+        dataset_name = (record.get("meta") or {}).get("name") or body.context.dataset_id or ""
         terms = await _terms()
-        columns = [{"name": c["name"], "kind_hint": c["kind_hint"]} for c in _ir_columns(view)]
-        kind_names, prop_names = question_suggest.dataset_names(view)
         existing = _existing_questions()
-        standards = [s["label"] for s in themes.default_standards([c["name"] for c in columns])]
         llm = resolve_llm(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
         )
@@ -540,8 +585,8 @@ def register_consult_graph(
                     for t in terms
                 ],
                 standards=standards,
-                kinds=[k for k, _ in kind_names],
-                text=None,
+                kinds=None if body.screen == "paper" else [k for k, _ in kind_names],
+                text=paper_text,
                 lang=lang,
             )
         except ThemeDraftError as exc:

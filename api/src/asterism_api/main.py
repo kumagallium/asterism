@@ -5046,6 +5046,7 @@ async def _append_document_to_dataset(
             json.dumps(conversion, ensure_ascii=False),
             "utf-8",
         )
+        await asyncio.to_thread((sdir / f"{name}.jats").write_text, xml_text, "utf-8")
         xml_name = name
     else:
         await _save_upload(upload, sdir / name)
@@ -10541,6 +10542,13 @@ def build_app(
                             await asyncio.to_thread(
                                 (pdf_path.parent / f"{pdf_path.name}.conversion").write_text,
                                 json.dumps(conv, ensure_ascii=False),
+                                "utf-8",
+                            )
+                            # 変換結果（JATS）を控える — 「この論文から問いを提案」が要旨と結論を
+                            # 読むため（Docling を呼び直さない・source の接尾辞でない）
+                            await asyncio.to_thread(
+                                (pdf_path.parent / f"{pdf_path.name}.jats").write_text,
+                                jats,
                                 "utf-8",
                             )
                             doc_id = documents.derive_doc_id(jats, fallback=pdf_path.stem)
