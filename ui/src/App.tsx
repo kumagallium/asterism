@@ -27,6 +27,7 @@ import { formatSetTitle } from './cards/setTitle'
 import type { SetResolveResult } from './cards/cardsApi'
 import { OntologyMapView } from './OntologyMapView'
 import { SkyView } from './sky/SkyView'
+import { flushDrafts } from './sky/draftFlush'
 import { type WriteRequest, homeHash, parseHomeQuery } from './sky/skyRoute'
 import { useLlmSettings } from './settings/context'
 import { SparqlView } from './SparqlView'
@@ -567,6 +568,7 @@ function App() {
 
   useEffect(() => {
     const onHash = () => {
+      flushDrafts() // 戻る・進むでも、開いている下書きの直しを保存してから画面を替える
       applyLegacyHashRewrite()
       setRoute(parseHash(window.location.hash))
     }
@@ -620,6 +622,7 @@ function App() {
    *  ブラウザの戻る/進む・手入力 URL 用）。replace=true は履歴を積まない
    *  （詳細内タブ切替など、戻るボタンで巻き戻したくない細かな状態変更用）。 */
   function navigate(r: Route, opts?: { replace?: boolean }) {
+    flushDrafts() // hash が変わる前に、開いている下書きの直しを保存する（別の画面で消えない）
     const h = routeToHash(r)
     if (window.location.hash !== h) {
       if (opts?.replace) window.history.replaceState(null, '', h)

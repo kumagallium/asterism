@@ -145,11 +145,13 @@ export async function draftWithAi(
  */
 export async function matchTerms(
   terms: { key: string; label_ja: string; label_en: string; aliases: string[]; kind: string }[],
+  /** 同じ下書きで既に使っている ID（仮置きの `t<n>` を重ねないため）。 */
+  taken: string[] = [],
 ): Promise<MatchResult[]> {
   const res = await fetch(`${API_BASE}/api/themes/match`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ terms }),
+    body: JSON.stringify({ terms, taken }),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.match'))
   return ((await res.json()) as { terms: MatchResult[] }).terms

@@ -56,6 +56,8 @@ import {
 } from '../themes/themesApi'
 import { type SharedTerm, listTerms } from '../vocabApi'
 import { conversationPath } from './conversationContext'
+import { registerDraftFlush } from './draftFlush'
+import { createDraftSaver } from './draftSaver'
 import {
   type CanvasModel,
   type ChatItem,
@@ -94,6 +96,9 @@ import { opSentence } from '../workspace/workspaceText'
 
 /** api の 503（AI が未設定）の detail。鍵（write token）が無い 503 と見分ける。 */
 const AI_UNSET = 'AI が設定されていません'
+
+/** 直しを保存するまでの待ち（連続して打つあいだは待つ）。 */
+export const SAVE_DEBOUNCE_MS = 500
 
 type AiState = 'ok' | 'unconfigured'
 export type ReadState = { status: 'idle' | 'running' | 'unconfigured' | 'failed'; detail?: string }
@@ -165,6 +170,17 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   const serverPending = useRef('')
   const matchedSigs = useRef<Record<string, string>>({})
   const startingRef = useRef(false)
+  // 答え方・テーマ名・ID・確定済みの行の ✕ などの直しは、その場で（debounce）サーバの下書きに保存する。
+  // 離れる前（hash が変わる前・閉じる前・別の下書きを開く前）には flush() で待つ。
+  const [saver] = useState(() =>
+    createDraftSaver<ThemeDraft>({
+      current: () => draftRef.current,
+      save: (d) => saveDraft(d),
+      delay: SAVE_DEBOUNCE_MS,
+      onOk: () => setSaveErr(''),
+      onError: (e) => setSaveErr(errText(e)),
+    }),
+  )
 
   // ── 会話 ──
   const [items, setItems] = useState<ChatItem[]>([])
@@ -194,16 +210,30 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   const aiReady = isReady && ai === 'ok'
   const busy = thinking || applying
 
-  const setDraft = useCallback((f: ThemeDraft | ((d: ThemeDraft) => ThemeDraft)) => {
-    setDraftState((d) => {
-      if (typeof f !== 'function') return f
-      return d ? f(d) : d
-    })
-  }, [])
   const setPending = useCallback((f: (p: Pending) => Pending) => {
     pendingKnown.current = true
     setPendingState(f)
   }, [])
+  /** 下書きを直した（その場で state・ref に反映し、500ms 後に保存する）。 */
+  const edit = useCallback(
+    (fn: (d: ThemeDraft) => ThemeDraft) => {
+      const cur = draftRef.current
+      if (!cur) return
+      const next = fn(cur)
+      draftRef.current = next
+      setDraftState(next)
+      saver.mark()
+    },
+    [saver],
+  )
+  // 画面を離れる前（hash が変わる前）に保存を済ませる合図に、flush を登録する。外れるときにも 1 度流す。
+  useEffect(() => {
+    const off = registerDraftFlush(() => void saver.flush())
+    return () => {
+      off()
+      void saver.flush()
+    }
+  }, [saver])
   const say = useCallback((kind: 'note' | 'error' | 'ai', text: string) => {
     setItems((l) => [...l, { kind, id: nextItemId(), text }])
   }, [])
@@ -256,12 +286,18 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
         batch.push(r)
       }
       if (batch.length === 0) return
-      matchTerms(batch.map((r) => ({ key: r.key, label_ja: r.label_ja, label_en: r.label_en, aliases: r.aliases, kind: r.kind })))
-        .then((results) => setDraft((d) => ({ ...d, concepts: applyMatches(d.concepts, results, sent) })))
+      // 仮置きの ID（t<n>）が、下書きに既にある ID と重ならないように、照合に渡す（2 回に分けても重ならない）
+      const inBatch = new Set(batch.map((r) => r.key))
+      const taken = concepts.filter((r) => !inBatch.has(r.key) && r.slug).map((r) => r.slug).slice(0, 400)
+      matchTerms(
+        batch.map((r) => ({ key: r.key, label_ja: r.label_ja, label_en: r.label_en, aliases: r.aliases, kind: r.kind })),
+        taken,
+      )
+        .then((results) => edit((d) => ({ ...d, concepts: applyMatches(d.concepts, results, sent) })))
         .catch(() => {})
     }, 400)
     return () => window.clearTimeout(timer)
-  }, [concepts, setDraft])
+  }, [concepts, edit])
 
   // ── 導出 ──
   const real = useMemo(() => (draft ? realDraft(draft, pending) : null), [draft, pending])
@@ -277,6 +313,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   /** 下書きを保存する（まだ id が無ければ作る）。失敗しても進める — 置くときに id が要る。 */
   const persist = useCallback(async (next: ThemeDraft, extra?: { pending?: Pending; resetChat?: boolean }): Promise<ThemeDraft> => {
     setSaveErr('')
+    await saver.idle()
     try {
       if (!next.id) {
         const created = await createDraft(next.label, next.questions, next.extend)
@@ -286,13 +323,14 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
       const saved = await saveDraft(next, { pending: wire, resetChat: extra?.resetChat })
       if (wire) serverPending.current = JSON.stringify(wire)
       next = { ...next, updated_at: saved.updated_at }
+      saver.clear() // 全部を送った
     } catch (e) {
       setSaveErr(errText(e))
     }
     draftRef.current = next
     setDraftState(next)
     return next
-  }, [])
+  }, [saver])
 
   // ── ① 問いを書く → AI の下書き ──
   /** 「？ 問いを書く」を押した（次の一言は問い）。`extend`＝既にあるテーマに問いを足す。 */
@@ -373,6 +411,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     async (id: string): Promise<void> => {
       try {
         const d = await getDraft(id)
+        saver.clear()
         matchedSigs.current = Object.fromEntries(d.concepts.map((r) => [r.key, matchSignature(r)]))
         const left = restorePending(d)
         pendingKnown.current = true
@@ -398,12 +437,15 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
         setActionErr(errText(e))
       }
     },
-    [lang, tf],
+    [lang, tf, saver],
   )
 
   /** 下書きの道を終える。`keep=false` なら下書きを捨てる。 */
   async function closeSession(keep: boolean): Promise<void> {
     const d = draftRef.current
+    // とっておくなら直しを保存してから。捨てるなら、待っている保存は要らない
+    if (keep) await saver.flush()
+    else saver.clear()
     if (d?.id && !keep) {
       try {
         await deleteDraft(d.id)
@@ -449,6 +491,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   }
 
   function endSession(): void {
+    saver.clear()
     setSwitchAsk(null)
     draftRef.current = null
     setDraftState(null)
@@ -717,7 +760,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     const row = d?.concepts.find((r) => r.key === key)
     if (!d || !row) return
     setActionErr('')
-    setDraft((x) => removeConcept(x, key))
+    edit((x) => removeConcept(x, key))
     if (row.by === 'ai' && row.use === 'new' && row.match === null) {
       await dismissSafely(conceptDismissKey(row.label_ja), 'concept')
     }
@@ -728,7 +771,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     const rel = d?.relations[index]
     if (!d || !rel) return
     setActionErr('')
-    setDraft((x) => removeRelation(x, index))
+    edit((x) => removeRelation(x, index))
     const from = d.concepts.find((r) => r.key === rel.from)
     if (rel.by === 'ai' && from) {
       await dismissSafely(
@@ -751,11 +794,11 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
 
   // ── 答え方・テーマ名・ID の直し ──
   function updateAnswer(index: number, fn: (a: AnswerRow) => AnswerRow): void {
-    setDraft((d) => ({ ...d, answers: d.answers.map((a, i) => (i === index ? fn(a) : a)) }))
+    edit((d) => ({ ...d, answers: d.answers.map((a, i) => (i === index ? fn(a) : a)) }))
   }
   const updateSlug = (key: string, slug: string) =>
-    setDraft((d) => ({ ...d, concepts: d.concepts.map((c) => (c.key === key ? { ...c, slug } : c)) }))
-  const setLabel = (label: string) => setDraft((d) => ({ ...d, label }))
+    edit((d) => ({ ...d, concepts: d.concepts.map((c) => (c.key === key ? { ...c, slug } : c)) }))
+  const setLabel = (label: string) => edit((d) => ({ ...d, label }))
 
   // ── 置く ──
   /** 「N 件を置く」。本物だけを送る。置けたら下書きの道を終える（星図が育つ）。 */
@@ -764,6 +807,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     setPlacing(true)
     setPlaceErr('')
     try {
+      await saver.flush()
       const cur = draftRef.current
       const saved = cur.id ? cur : await persist(cur)
       if (!saved.id) {
@@ -808,6 +852,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     startFromText,
     resume,
     closeSession,
+    flush: saver.flush,
     switchAsk,
     openDraft,
     requestWriting,

@@ -10,6 +10,7 @@ import conversationSource from './HomeConversation.tsx?raw'
 import hookSource from './useHomeWorkspace.ts?raw'
 import skyViewSource from './SkyView.tsx?raw'
 import themesViewSource from '../themes/ThemesView.tsx?raw'
+import themesApiSource from '../themes/themesApi.ts?raw'
 
 const strings = (o: unknown): string[] =>
   typeof o === 'string' ? [o] : o && typeof o === 'object' ? Object.values(o).flatMap(strings) : []
@@ -83,6 +84,34 @@ describe('下書きの出入り（確認なしで置き換えない・閉じた�
 
   it('最初の一手のチップは下書きのセッション中も出る', () => {
     expect(conversationSource).toMatch(/const history: ReactNode\[\] = \[chips, \.\.\.bubbles\]/)
+  })
+})
+
+describe('直しはその場で保存する（離れても消えない）', () => {
+  it('答え方・テーマ名・ID・確定済みの行の ✕は edit() を通り、debounce 後に PUT される', () => {
+    for (const fn of ['updateAnswer', 'updateSlug', 'setLabel']) {
+      expect(hookSource).toMatch(new RegExp(`${fn}[^\\n]*\\n?[^\\n]*edit\\(`))
+    }
+    expect(hookSource).toMatch(/edit\(\(x\) => removeConcept\(x, key\)\)/)
+    expect(hookSource).toMatch(/edit\(\(x\) => removeRelation\(x, index\)\)/)
+    expect(hookSource).toMatch(/save: \(d\) => saveDraft\(d\)/)
+  })
+
+  it('hash が変わる前（navigate・hashchange）に、開いている下書きの保存を流す', () => {
+    expect(appSource).toMatch(/function navigate\(r: Route, opts\?: \{ replace\?: boolean \}\) \{\n\s+flushDrafts\(\)/)
+    expect(appSource).toMatch(/const onHash = \(\) => \{\n\s+flushDrafts\(\)/)
+    expect(hookSource).toMatch(/registerDraftFlush\(/)
+  })
+
+  it('閉じる（とっておく）・置くは保存を待ってから進む', () => {
+    expect(hookSource).toMatch(/if \(keep\) await saver\.flush\(\)/)
+    expect(hookSource).toMatch(/await saver\.flush\(\)\n\s+const cur = draftRef\.current/)
+  })
+
+  it('手入力の仮置き ID の照合に、下書きに既にある ID（taken）を渡す', () => {
+    expect(hookSource).toMatch(/\.slice\(0, 400\)/)
+    expect(hookSource).toMatch(/matchTerms\(\n[^]*?taken,\n\s+\)/)
+    expect(themesApiSource).toMatch(/JSON\.stringify\(\{ terms, taken \}\)/)
   })
 })
 
