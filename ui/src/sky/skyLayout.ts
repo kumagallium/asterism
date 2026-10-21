@@ -910,7 +910,8 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     edges.push({ kind: 'concept', from, to, relation: l.relation })
   }
   // 提案の線（薄い線）: 両端の札がある線だけ。同じ線は 1 本（同じ下書きの）。既にある本物の線と同じ関係なら、
-  // 提案としては引かない（二重に重ねない）。ほかの下書きの同じ線は別の線 — 開いている下書きの線を消さない。
+  // **薄い提案の線だけ**引かない（二重に重ねない）。本物の線はそのまま引き、図に入れた（solid）線は引く — 引かないと
+  // 星図からその線を選べず、直す札が出ない。ほかの下書きの同じ線は別の線 — 開いている下書きの線を消さない。
   const draftSeen = new Set<string>()
   for (const e of draftEdgesIn) {
     if (!nodes.has(e.from) || !nodes.has(e.to)) continue
@@ -918,7 +919,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     if (draftSeen.has(key)) continue
     draftSeen.add(key)
     const real = REAL_RELATION[e.info.rel]
-    if ((e.info.state === 'thin' || e.info.state === 'solid') && real && conceptSeen.has(`${e.from}>${e.to}>${real}`)) continue
+    if (e.info.state === 'thin' && real && conceptSeen.has(`${e.from}>${e.to}>${real}`)) continue
     edges.push({ kind: 'draft', from: e.from, to: e.to, draft: e.info })
   }
   // 線の道すじと小さな札の位置（札の縁から縁へ・札と札の下の字を通らない・小さな札どうしが重ならない）

@@ -425,23 +425,42 @@ describe('提案の線（薄い線・図に入れると濃くなる）', () => {
     expect(cardsOf(l).map((n) => n.conceptKey)).toEqual(['a'])
   })
 
-  it('既にある用語どうしの提案の線が、本物の線と同じ関係なら二重に引かない（違う関係・別の向きは引く）', () => {
+  it('既にある用語どうしの提案の線が、本物の線と同じ関係なら薄い線は二重に引かない（違う関係・別の向きは引く）', () => {
     const base = makeSky(3, 12)
     const [a, b] = base.terms
     const sky: SkyData = { ...base, edges: [{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }] }
-    const mk = (rel: string, from = 'a', to = 'b'): DraftSky => ({
+    const mk = (rel: string, from = 'a', to = 'b', state: 'thin' | 'solid' = 'thin'): DraftSky => ({
       draft_id: 'x',
       theme_label: 'x',
       concepts: [
         { key: 'a', label: a.label, kind: a.kind, use: `existing:${a.slug}`, state: 'solid' },
         { key: 'b', label: b.label, kind: b.kind, use: `existing:${b.slug}`, state: 'solid' },
       ],
-      relations: [{ from, to, rel, state: 'thin', index: 0 }],
+      relations: [{ from, to, rel, state, index: 0 }],
       questions: [],
     })
     expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('lowers')] }))).toHaveLength(0)
     expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('raises')] }))).toHaveLength(1)
     expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('lowers', 'b', 'a')] }))).toHaveLength(1)
+  })
+
+  it('図に入れた（solid）線は、本物の線と同じ関係でも引く（本物の線はそのまま残る・星図から選べる）', () => {
+    const base = makeSky(3, 12)
+    const [a, b] = base.terms
+    const sky: SkyData = { ...base, edges: [{ from: a.iri, to: b.iri, relation: 'lowers', reason: null }] }
+    const d: DraftSky = {
+      draft_id: 'x',
+      theme_label: 'x',
+      concepts: [
+        { key: 'a', label: a.label, kind: a.kind, use: `existing:${a.slug}`, state: 'solid' },
+        { key: 'b', label: b.label, kind: b.kind, use: `existing:${b.slug}`, state: 'solid' },
+      ],
+      relations: [{ from: 'a', to: 'b', rel: 'lowers', state: 'solid', index: 0 }],
+      questions: [],
+    }
+    const l = layoutSky(sky, { width: 1000, drafts: [d] })
+    expect(draftEdges(l)).toHaveLength(1)
+    expect(l.edges.filter((e) => e.kind === 'concept')).toHaveLength(1)
   })
 
   it('別の下書きの同じ線は別の線（先に並んだ下書きが、後ろの下書きの線を消さない）', () => {
