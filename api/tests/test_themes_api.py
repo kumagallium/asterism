@@ -214,6 +214,35 @@ def test_draft_without_an_ai_is_503_so_the_screen_goes_manual(tmp_path: Path) ->
         assert "AI" in r.json()["detail"]
 
 
+def _copilot_app(tmp_path: Path, *, single_user: bool, llm: _LLM):
+    cfg = _settings(tmp_path)
+    cfg.single_user = single_user
+    return build_app(
+        cfg,
+        oxigraph_client=_DatasetClient(rdflib.Dataset()),
+        start_watcher=False,
+        llm_factory=lambda key: llm,
+    )
+
+
+def test_draft_with_copilot_is_not_503_without_a_key(tmp_path: Path) -> None:
+    # copilot はキー無しで「設定済み」。単一ユーザーなら AI が走る。
+    llm = _LLM(json.dumps(AI_JSON))
+    app = _copilot_app(tmp_path, single_user=True, llm=llm)
+    with TestClient(app, headers={**_AUTH, "X-LLM-Provider": "copilot-subscription"}) as client:
+        r = client.post("/api/themes/draft", json={"questions": [Q_LOWER], "lang": "ja"})
+    assert r.status_code == 200
+    assert llm.calls
+
+
+def test_draft_with_copilot_on_a_shared_server_is_400_not_503(tmp_path: Path) -> None:
+    app = _copilot_app(tmp_path, single_user=False, llm=_LLM())
+    with TestClient(app, headers={**_AUTH, "X-LLM-Provider": "copilot-subscription"}) as client:
+        r = client.post("/api/themes/draft", json={"questions": [Q_LOWER]})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "copilot_unavailable"
+
+
 def test_draft_needs_a_question(tmp_path: Path) -> None:
     app, _ = _app(tmp_path, _LLM(json.dumps(AI_JSON)))
     with TestClient(app, headers={**_AUTH, **KEY}) as client:

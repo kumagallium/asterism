@@ -98,4 +98,4 @@ def test_openai_default_base(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_unknown_provider() -> None:
     with pytest.raises(ValueError):
-        list_available_models("gemini")
+        list_available_models("no-such-provider")

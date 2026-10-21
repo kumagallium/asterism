@@ -28,6 +28,11 @@ llm = [
     # them; the api installs this extra so its venv has both SDKs.
     "anthropic>=0.40",
     "openai>=1.40",
+    "github-copilot-sdk>=1.0.23,<2",
+]
+copilot = [
+    # GitHub Copilot サブスク経路（asterism_step0.copilot_support）。公式 SDK。遅延 import。
+    "github-copilot-sdk>=1.0.23,<2",
 ]
 validate = [
     # validate_schema parses TBox TTLs (rdflib) and MIE YAMLs (PyYAML).

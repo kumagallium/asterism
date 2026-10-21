@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 import { useLlmSettings } from './context'
 import { cacheMultipliers } from './model-pricing'
-import type { RateCurrency, TokenRate } from './store'
+import { COPILOT_PROVIDER, type RateCurrency, type TokenRate } from './store'
 import { type UsageEvent, fetchUsage } from './usageApi'
 
 type Granularity = 'day' | 'month' | 'year'
@@ -77,6 +77,8 @@ export function UsageTab() {
 
   const eventCost = useMemo(() => {
     return (ev: UsageEvent): number => {
+      // サブスク（Copilot）は従量課金なし。コストは計算しない。
+      if (ev.provider === COPILOT_PROVIDER) return 0
       const rate = rateFor(ev.provider, ev.model_id)
       if (!rate) return 0
       // Cache prices are a fixed fraction of the input price (provider-specific).
@@ -98,14 +100,19 @@ export function UsageTab() {
     let unratedTokens = 0
     const buckets = new Map<string, { tokens: number; cost: number }>()
     // feature -> modelId -> {tokens, cost}
-    const breakdown = new Map<string, Map<string, { tokens: number; cost: number }>>()
+    const breakdown = new Map<
+      string,
+      Map<string, { tokens: number; cost: number; sub: boolean }>
+    >()
     for (const ev of evs) {
       const tokens =
         ev.input_tokens + ev.output_tokens + ev.cache_read_tokens + ev.cache_write_tokens
       const cost = eventCost(ev)
       totalTokens += tokens
       totalCost += cost
-      if (!rateFor(ev.provider, ev.model_id)) unratedTokens += tokens
+      if (ev.provider !== COPILOT_PROVIDER && !rateFor(ev.provider, ev.model_id)) {
+        unratedTokens += tokens
+      }
       const bk = bucketKey(ev.ts, gran)
       const b = buckets.get(bk) ?? { tokens: 0, cost: 0 }
       b.tokens += tokens
@@ -117,7 +124,8 @@ export function UsageTab() {
         breakdown.set(ev.feature, byModel)
       }
       const mid = ev.model_id || '(unknown)'
-      const row = byModel.get(mid) ?? { tokens: 0, cost: 0 }
+      const row = byModel.get(mid) ?? { tokens: 0, cost: 0, sub: false }
+      if (ev.provider === COPILOT_PROVIDER) row.sub = true
       row.tokens += tokens
       row.cost += cost
       byModel.set(mid, row)
@@ -248,7 +256,11 @@ export function UsageTab() {
                       <td className="feat">{i === 0 ? featureLabel(t, feature) : ''}</td>
                       <td className="mdl">{modelId}</td>
                       <td className="num">{formatTokens(row.tokens)}</td>
-                      <td className="num">{formatCost(row.cost, currency)}</td>
+                      <td className="num">
+                        {row.sub && row.cost === 0
+                          ? t('usage.subscription')
+                          : formatCost(row.cost, currency)}
+                      </td>
                     </tr>
                   )),
               )}

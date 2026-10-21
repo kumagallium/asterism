@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.55.0](https://github.com/kumagallium/asterism/compare/v0.54.0...v0.55.0) - 2026-10-20
+
+- feat(ai): GitHub Copilot（サブスク）と Google Gemini をプロバイダに追加 by @kumagallium in https://github.com/kumagallium/asterism/pull/727
+
 ## [v0.54.0](https://github.com/kumagallium/asterism/compare/v0.53.1...v0.54.0) - 2026-10-20
 
 - build(deps): Bump Songmu/tagpr from 1.21.0 to 1.21.2 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/714

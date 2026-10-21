@@ -388,6 +388,9 @@ def register_themes(
 
     def _ai_unset(key: str | None, provider: str, api_base: str | None) -> bool:
         # キーが無い（かつ手元の互換サーバでもない）= AI は未設定。画面は手入力に切り替える。
+        # copilot-subscription はキー無しで使える（単一ユーザー限定の拒否は _resolve_llm が 400）。
+        if provider in ("copilot-subscription", "copilot"):
+            return False
         return key is None and not (provider != "anthropic" and api_base)
 
     async def _known_names(

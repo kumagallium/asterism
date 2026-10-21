@@ -22,7 +22,8 @@ import os
 from pathlib import Path
 
 # The providers the settings UI can register (mirrors ui store PROVIDERS).
-PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "openai-compatible")
+# gemini は固定 base の OpenAI 互換。copilot-subscription は鍵を持たないので対象外。
+PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "openai-compatible", "gemini")
 
 
 def _env_name(provider: str) -> str:
