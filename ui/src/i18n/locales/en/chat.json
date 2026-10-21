@@ -1,0 +1,68 @@
+{
+  "list": {
+    "new": "New chat",
+    "untitled": "New chat",
+    "proposed": "Proposed {{n}}",
+    "toggle": "Toggle the chat list",
+    "menu": "Actions for this chat",
+    "rename": "Rename",
+    "renameLabel": "Chat name",
+    "delete": "Delete",
+    "deleteAsk": "This chat will be deleted. Confirmed items stay.",
+    "deleteYes": "Delete",
+    "deleteNo": "Cancel",
+    "noKey": "Enter the server key in Settings › Server to save chats",
+    "loading": "Loading…",
+    "close": "Close"
+  },
+  "compose": {
+    "placeholder": "Write what you want to know (e.g. Which elements lower thermal conductivity?)",
+    "send": "Send",
+    "noKey": "Enter the server key in Settings › Server to chat"
+  },
+  "reply": {
+    "more": "{{n}} more",
+    "confirm": "✓ Confirm",
+    "count": "{{n}}",
+    "confirmed": "✓ Confirmed ({{at}})",
+    "proposed": "Proposed",
+    "reverted": "Undone",
+    "revert": "Undo"
+  },
+  "tabs": {
+    "label": "Area to show",
+    "chat": "Chat",
+    "chart": "Chart"
+  },
+  "chart": {
+    "back": "Back",
+    "failed": "Could not load the chart",
+    "retry": "Retry"
+  },
+  "hand": {
+    "lead": "Add without AI",
+    "name": "Name",
+    "kind": "Type",
+    "add": "Add",
+    "from": "A",
+    "to": "B",
+    "rel": "Relation"
+  },
+  "empty": {
+    "first": "Write what you want to know, or attach data, and the chart grows here"
+  },
+  "error": {
+    "badShape": "The server's reply was not in the expected shape",
+    "ops": {
+      "list": "Loading the chat list",
+      "create": "Creating the chat",
+      "read": "Loading the chat",
+      "rename": "Renaming",
+      "delete": "Deleting the chat",
+      "turn": "Sending",
+      "confirm": "Confirming",
+      "revert": "Undoing",
+      "sky": "Loading the chart"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "list": {
+    "new": "新しい話",
+    "untitled": "新しい話",
+    "proposed": "提案 {{n}}",
+    "toggle": "話の一覧を開閉",
+    "menu": "この話の操作",
+    "rename": "名前を直す",
+    "renameLabel": "話の名前",
+    "delete": "消す",
+    "deleteAsk": "この話を消します。確認済みのものは残ります。",
+    "deleteYes": "消す",
+    "deleteNo": "やめる",
+    "noKey": "設定 › サーバで鍵を入れると、話を保存できます",
+    "loading": "読み込み中…",
+    "close": "閉じる"
+  },
+  "compose": {
+    "placeholder": "知りたいことを書く（例: 熱伝導率を下げる要素は？）",
+    "send": "送る",
+    "noKey": "設定 › サーバで鍵を入れると、話せます"
+  },
+  "reply": {
+    "more": "ほか {{n}} 件",
+    "confirm": "✓ 確認",
+    "count": "{{n}} 件",
+    "confirmed": "✓ 確認済み（{{at}}）",
+    "proposed": "提案",
+    "reverted": "取り消し済み",
+    "revert": "戻す"
+  },
+  "tabs": {
+    "label": "表示する領域",
+    "chat": "チャット",
+    "chart": "図"
+  },
+  "chart": {
+    "back": "戻る",
+    "failed": "図を読み込めませんでした",
+    "retry": "もう一度"
+  },
+  "hand": {
+    "lead": "AI なしで足す",
+    "name": "名前",
+    "kind": "種別",
+    "add": "足す",
+    "from": "A",
+    "to": "B",
+    "rel": "関係"
+  },
+  "empty": {
+    "first": "知りたいことを書くか、データを添えると、ここに図が育ちます"
+  },
+  "error": {
+    "badShape": "サーバの返事の形が想定と違います",
+    "ops": {
+      "list": "話の一覧の読み込み",
+      "create": "話の作成",
+      "read": "話の読み込み",
+      "rename": "名前の変更",
+      "delete": "話の削除",
+      "turn": "送信",
+      "confirm": "確認",
+      "revert": "戻す操作",
+      "sky": "図の読み込み"
+    }
+  }
+}
