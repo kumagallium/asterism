@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { GraphOp } from '../themes/consultGraphApi'
 import type { ConceptRow, RelationRow, ThemeDraft } from '../themes/themeDraft'
 import { NO_PENDING, buildCanvas, pendingOf, relId } from '../workspace/workspaceState'
-import { draftSkyOf, edgeIndexOf, NEW_DRAFT_ID, retargetKeyOf } from './skyDraft'
+import { draftSkyOf, edgeIndexOf, NEW_DRAFT_ID, relOfSkyEdge, retargetKeyOf, skyEdgeId } from './skyDraft'
 import { EMPTY_SKY } from './skyApi'
 import { draftNodeId, layoutSky, termId } from './skyLayout'
 import { makeSky } from './skyFixture'
@@ -114,10 +114,17 @@ describe('retargetKeyOf — 線の端を落とした札が、下書きのどの�
 })
 
 describe('edgeIndexOf — 選んだ線の関係の添字', () => {
-  it('from|rel|to で引く。直して無くなった線・何も選んでいないときは -1', () => {
-    expect(edgeIndexOf(draft, 'c4|lowers|c1')).toBe(1)
-    expect(edgeIndexOf(draft, 'c4|lowers|c2')).toBe(-1)
-    expect(edgeIndexOf(draft, null)).toBe(-1)
-    expect(edgeIndexOf(null, 'c4|lowers|c1')).toBe(-1)
+  it('draftId|from|rel|to で引く。直して無くなった線・何も選んでいないときは -1', () => {
+    expect(edgeIndexOf(draft, 'd1|c4|lowers|c1', 'd1')).toBe(1)
+    expect(edgeIndexOf(draft, 'd1|c4|lowers|c2', 'd1')).toBe(-1)
+    expect(edgeIndexOf(draft, null, 'd1')).toBe(-1)
+    expect(edgeIndexOf(null, 'd1|c4|lowers|c1', 'd1')).toBe(-1)
+  })
+  it('開いていない下書きの線は、同じ from|rel|to でも開いている下書きの関係にしない', () => {
+    expect(edgeIndexOf(draft, 'old|c4|lowers|c1', 'd1')).toBe(-1)
+    expect(edgeIndexOf(draft, 'd1|c4|lowers|c1', '')).toBe(-1)
+    expect(relOfSkyEdge('d1|c4|lowers|c1', 'd1')).toBe('c4|lowers|c1')
+    expect(relOfSkyEdge('old|c4|lowers|c1', 'd1')).toBeNull()
+    expect(skyEdgeId('d1', 'c4|lowers|c1')).toBe('d1|c4|lowers|c1')
   })
 })

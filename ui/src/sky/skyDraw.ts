@@ -378,12 +378,16 @@ function distToCurve(g: { x1: number; y1: number; cx: number; cy: number; x2: nu
   return best
 }
 
-/** 押した所にある提案の線（直せる線だけ＝下書きの関係）。小さな札の上か、線から 7px 以内。 */
-export function hitDraftEdge(layout: SkyLayout, px: number, py: number): SkyEdge | null {
+/**
+ * 押した所にある提案の線（直せる線だけ＝**開いている下書き**の関係）。小さな札の上か、線から 7px 以内。
+ * 開いていない下書きの線は選べない（`openDraftId` が null なら、どの線も選べない）。
+ */
+export function hitDraftEdge(layout: SkyLayout, px: number, py: number, openDraftId: string | null): SkyEdge | null {
+  if (openDraftId === null) return null
   let best: SkyEdge | null = null
   let bd = Infinity
   for (const e of layout.edges) {
-    if (e.kind !== 'draft' || !e.draft || e.draft.index === null) continue
+    if (e.kind !== 'draft' || !e.draft || e.draft.index === null || e.draft.draftId !== openDraftId) continue
     const g = conceptEdgeGeom(layout, e)
     if (!g) continue
     let d = distToCurve(g, px, py)

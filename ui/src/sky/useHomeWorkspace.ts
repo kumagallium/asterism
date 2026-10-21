@@ -114,7 +114,12 @@ export interface HomeWorkspaceOptions {
   onHomeApplied: (iris: string[]) => void
   /** テーマを置いた（置いた概念の IRI は `minted`。星図を取り直して輪を出す）。 */
   onPlaced: (result: CommitResult) => void
+  /** 下書きを閉じた・捨てた（帯の下書きを取り直す）。 */
+  onDraftsChanged: () => void
 }
+
+/** 下書きを切り替える前の確認（いまの下書きをとっておくか）。 */
+export type SwitchAsk = { kind: 'write'; extend: { id: string; label: string } | null } | { kind: 'open'; id: string }
 
 function blankDraft(extend: string | undefined, label: string, questions: string[]): ThemeDraft {
   return {
@@ -152,6 +157,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   const [extend, setExtend] = useState<{ id: string; label: string } | null>(null)
   const [existing, setExisting] = useState<SharedTerm[]>([])
   const [saveErr, setSaveErr] = useState('')
+  const [switchAsk, setSwitchAsk] = useState<SwitchAsk | null>(null)
   const [placing, setPlacing] = useState(false)
   const [placeErr, setPlaceErr] = useState('')
   // 提案（薄い）の状態を、いつ覚えさせてよいか: 開き直して読んだあと・AI の下書きを置いたあと・人が返事をしたあと
@@ -406,8 +412,44 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
       }
     }
     endSession()
+    // 閉じた下書きは、星図の上の帯では開いていない下書きになる（捨てたら無くなる）— 古いまま残さない
+    o.onDraftsChanged()
   }
+
+  /** 別の下書きを開く。いま下書きが開いていれば、とっておくか確かめる（確認なしで置き換えない）。 */
+  function openDraft(id: string): void {
+    const cur = draftRef.current
+    if (cur && cur.id === id) return
+    if (cur) setSwitchAsk({ kind: 'open', id })
+    else void resume(id)
+  }
+  /** 「？ 問いを書く」（下書きが開いていれば、とっておいて書くか確かめる）。 */
+  function requestWriting(ext?: { id: string; label: string } | null): void {
+    if (draftRef.current) setSwitchAsk({ kind: 'write', extend: ext ?? null })
+    else beginWriting(ext)
+  }
+  /** 切り替えの確認の返事。「とっておく」なら閉じて（残して）から次へ。 */
+  async function answerSwitch(yes: boolean): Promise<void> {
+    const a = switchAsk
+    setSwitchAsk(null)
+    if (!yes || !a) return
+    await closeSession(true)
+    if (a.kind === 'open') await resume(a.id)
+    else beginWriting(a.extend)
+  }
+  /** 開いていない下書きを捨てる（確認は呼ぶ側の札で取る）。 */
+  async function discardOther(id: string): Promise<void> {
+    setActionErr('')
+    try {
+      await deleteDraft(id)
+    } catch (e) {
+      setActionErr(errText(e))
+    }
+    o.onDraftsChanged()
+  }
+
   function endSession(): void {
+    setSwitchAsk(null)
     draftRef.current = null
     setDraftState(null)
     setPendingState(NO_PENDING)
@@ -766,6 +808,11 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     startFromText,
     resume,
     closeSession,
+    switchAsk,
+    openDraft,
+    requestWriting,
+    answerSwitch,
+    discardOther,
     retryRead: () => draftRef.current && void runAi(draftRef.current, extend?.label ?? ''),
     // 会話
     items,

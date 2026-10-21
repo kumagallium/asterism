@@ -27,7 +27,7 @@ import { fetchSuggestions, type Suggestion } from './suggestApi'
 import { irisOfKeys, overlayEdges, withoutKeys, type OverlayEdge } from './suggestModel'
 import { SAMPLE_SKY } from './sample'
 import { fetchDraftSky, getSky, type DraftSky, type SkyData } from './skyApi'
-import { NEW_DRAFT_ID, draftSkyOf, edgeIndexOf, retargetKeyOf } from './skyDraft'
+import { NEW_DRAFT_ID, draftSkyOf, edgeIndexOf, relOfSkyEdge, retargetKeyOf, skyEdgeId } from './skyDraft'
 import {
   bornAlive,
   drawDraftOverlay,
@@ -302,6 +302,7 @@ function SkyBody(
     focusKind,
     onHomeApplied: grow,
     onPlaced: (result) => grow(result.minted.map((slug) => `${SV_NS}${slug}`)),
+    onDraftsChanged: onRefresh,
   })
 
   // 星図の上に描く下書き: 開いている下書き（本物と提案）＋ 開いていない下書き（全部提案）
@@ -344,8 +345,11 @@ function SkyBody(
   const activeId = selectedId && layout.nodes.has(selectedId) ? selectedId : null
   const activeNode = activeId ? layout.nodes.get(activeId) : undefined
   // 選んだ線は、下書きにまだあるときだけ（直したあと・外したあとは外れる）
-  const edgeIndex = edgeIndexOf(ws.draft, selectedEdge)
+  const edgeIndex = edgeIndexOf(ws.draft, selectedEdge, sessionId)
   const activeEdge = edgeIndex >= 0 ? selectedEdge : null
+  // 会話の札・文の一覧は下書きの中の ID（from|rel|to）で話す。星図の線の ID は頭に draftId が付く
+  const activeRel = relOfSkyEdge(activeEdge, sessionId)
+  const selectRel = useCallback((rel: string | null) => selectEdge(rel === null ? null : skyEdgeId(sessionId, rel)), [selectEdge, sessionId])
 
   // ── 描画 ──
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -389,11 +393,13 @@ function SkyBody(
     for (const e of layout.edges) {
       const d = e.kind === 'draft' ? e.draft : undefined
       if (!d || d.index === null || (d.state !== 'thin' && d.state !== 'solid')) continue
+      // 開いている下書きの線だけ（開いていない下書きの線は付け替えられない）
+      if (d.draftId !== sessionId) continue
       const touches = activeNode?.type === 'draft' && (e.from === activeNode.id || e.to === activeNode.id)
       if ((activeEdge && draftEdgeId(d) === activeEdge) || touches) out.push(e)
     }
     return out
-  }, [layout, activeEdge, activeNode])
+  }, [layout, activeEdge, activeNode, sessionId])
 
   // 選んだ線の両端だけを濃く残す
   const edgeNear = useMemo(() => {
@@ -575,9 +581,9 @@ function SkyBody(
   useEffect(() => {
     if (!write) return
     setChatOpen(true)
-    if (write.resume) void ws.resume(write.resume)
+    if (write.resume) ws.openDraft(write.resume)
     else {
-      ws.beginWriting(write.extend)
+      ws.requestWriting(write.extend)
       if (write.q) setPrefill((p) => ({ id: (p?.id ?? 0) + 1, text: write.q }))
       setFocusTick((n) => n + 1)
     }
@@ -592,6 +598,8 @@ function SkyBody(
     return { x: ((ev.clientX - r.left) * layout.width) / (r.width || layout.width), y: ev.clientY - r.top }
   }
   const justDragged = useRef(false)
+  // 選べる・ドラッグできる提案の線は、開いている下書きのものだけ
+  const openId = ws.draft ? sessionId : null
   /** 線の端を落とせる札（開いている下書きの概念になる札）の id。線の元の端・先の端は除く。 */
   const dropTargetAt = (edge: SkyEdge, x: number, y: number): string | null => {
     const n = hitTest(layout, x, y)
@@ -618,7 +626,7 @@ function SkyBody(
       return
     }
     const id = hitTest(layout, p.x, p.y)?.id ?? null
-    const onLine = !id && (hitDraftEdge(layout, p.x, p.y) !== null || hitHandle(layout, handleEdges, p.x, p.y) !== null)
+    const onLine = !id && (hitDraftEdge(layout, p.x, p.y, openId) !== null || hitHandle(layout, handleEdges, p.x, p.y) !== null)
     if (id !== hoverRef.current) {
       hoverRef.current = id
       schedule()
@@ -640,13 +648,13 @@ function SkyBody(
     window.setTimeout(() => (justDragged.current = false), 0)
     schedule()
     const info = drag.edge.draft
-    if (!drop || !info || info.index === null) return
+    if (!drop || !info || info.index === null || info.draftId !== sessionId) return
     const target = dropTargetAt(drag.edge, drag.x, drag.y)
     const key = target ? retargetKeyOf(layout.nodes.get(target), ws.draft, sky.terms, sessionId) : null
     const rel = ws.draft?.relations[info.index]
     if (!key || !rel || key === rel.from || key === rel.to) return
     void ws.editRelation(info.index, { from: rel.from, rel: rel.rel, to: key }).then((ok) => {
-      if (ok) setSelectedEdge(relId({ from: rel.from, rel: rel.rel, to: key }))
+      if (ok) setSelectedEdge(skyEdgeId(sessionId, relId({ from: rel.from, rel: rel.rel, to: key })))
     })
   }
   const onClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
@@ -654,7 +662,7 @@ function SkyBody(
     const p = localPoint(ev)
     const n = hitTest(layout, p.x, p.y)
     if (n) return selectNode(n.id)
-    const e = hitDraftEdge(layout, p.x, p.y)
+    const e = hitDraftEdge(layout, p.x, p.y, openId)
     if (e?.draft) return selectEdge(draftEdgeId(e.draft))
     selectNode(null)
   }
@@ -757,10 +765,10 @@ function SkyBody(
   }
   let focusCard: ReactNode = null
   if (ws.draft && edgeIndex >= 0) {
-    focusCard = <EdgeCard key={activeEdge} ws={ws} draft={ws.draft} index={edgeIndex} lang={lang} onSelectEdge={selectEdge} />
+    focusCard = <EdgeCard key={activeEdge} ws={ws} draft={ws.draft} index={edgeIndex} lang={lang} onSelectEdge={selectRel} />
   } else if (activeNode?.type === 'draft') {
     if (ws.draft && activeNode.draftId === sessionId) {
-      focusCard = <ConceptCard ws={ws} draft={ws.draft} conceptKey={activeNode.conceptKey} lang={lang} onSelectEdge={selectEdge} />
+      focusCard = <ConceptCard ws={ws} draft={ws.draft} conceptKey={activeNode.conceptKey} lang={lang} onSelectEdge={selectRel} />
     } else {
       const other = props.drafts.find((d) => d.draft_id === activeNode.draftId)
       if (other) {
@@ -770,7 +778,11 @@ function SkyBody(
             name={activeNode.label}
             onOpen={() => {
               setChatOpen(true)
-              void ws.resume(other.draft_id)
+              ws.openDraft(other.draft_id)
+            }}
+            onDiscard={() => {
+              void ws.discardOther(other.draft_id)
+              selectNode(null)
             }}
           />
         )
@@ -835,8 +847,8 @@ function SkyBody(
             onOpen={() => setChatOpen(true)}
             onFold={() => setChatOpen(false)}
             selectedKey={selectedKey}
-            selectedEdge={activeEdge}
-            onSelectEdge={selectEdge}
+            selectedEdge={activeRel}
+            onSelectEdge={selectRel}
             unlinkedKinds={kindsWithoutTerm}
             starSelected={focusKind !== null}
             onAddData={props.onAddData}
@@ -857,7 +869,7 @@ function SkyBody(
               <div className="sky-figure">
                 <canvas
                   ref={canvasRef}
-                  className="sky-canvas"
+                  className={`sky-canvas${handleEdges.length > 0 ? ' sky-canvas--handles' : ''}`}
                   style={{ height: layout.height }}
                   role="img"
                   aria-label={ariaLabel}

@@ -97,7 +97,11 @@
     "titleQuestion": "この問いについて",
     "questionBack": "選びなおす",
     "questionNeeds": "要る用語",
-    "titleProposal": "この提案について"
+    "titleProposal": "この提案について",
+    "draftDiscard": "捨てる",
+    "discardAsk": "この下書きを捨てます。もとに戻せません。",
+    "discardYes": "捨てる",
+    "discardNo": "やめる"
   },
   "questions": {
     "theme": "はじめの問い",
@@ -209,5 +213,12 @@
     },
     "toBind": "列の結びつきを聞く",
     "toConsult": "設計のことを相談する"
+  },
+  "switch": {
+    "aria": "下書きの切り替え",
+    "open": "いまの下書きをとっておいて、こちらを開きますか",
+    "write": "いまの下書きをとっておいて、新しい問いを書きますか",
+    "keep": "とっておく",
+    "stay": "このまま続ける"
   }
 }

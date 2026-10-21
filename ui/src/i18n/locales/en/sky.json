@@ -97,7 +97,11 @@
     "titleQuestion": "About this question",
     "questionBack": "Pick another",
     "questionNeeds": "Terms it needs",
-    "titleProposal": "About this proposal"
+    "titleProposal": "About this proposal",
+    "draftDiscard": "Discard",
+    "discardAsk": "This discards the draft. It cannot be undone.",
+    "discardYes": "Discard",
+    "discardNo": "Cancel"
   },
   "questions": {
     "theme": "First questions",
@@ -209,5 +213,12 @@
     },
     "toBind": "Ask about column links",
     "toConsult": "Ask about the design"
+  },
+  "switch": {
+    "aria": "Switch drafts",
+    "open": "Keep the current draft and open this one?",
+    "write": "Keep the current draft and write a new question?",
+    "keep": "Keep it",
+    "stay": "Keep working"
   }
 }

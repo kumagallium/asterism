@@ -143,14 +143,15 @@ export function HomeConversation({
         type="button"
         className="btn btn--activity btn--sm"
         aria-pressed={ws.writing}
-        onClick={() => (ws.writing ? ws.cancelWriting() : ws.beginWriting())}
+        onClick={() => (ws.writing ? ws.cancelWriting() : ws.requestWriting())}
         data-testid="chip-question"
       >
         {t('sky:chips.question')}
       </button>
     </div>
   )
-  const history: ReactNode[] = [...(idle ? [chips] : []), ...bubbles]
+  // 最初の一手のチップは、下書きのセッション中も出す（「？ 問いを書く」は、いまの下書きをとっておくか確かめてから切り替える）
+  const history: ReactNode[] = [chips, ...bubbles]
 
   // ── 先頭の札 ──
   const sessionBar = draft ? (
@@ -177,11 +178,25 @@ export function HomeConversation({
       )}
     </div>
   ) : null
+  const switchCard = ws.switchAsk ? (
+    <section className="sky-card sky-card--session" role="group" aria-label={t('sky:switch.aria')} key="switch" data-testid="switch-ask">
+      <p className="sky-hint">{t(ws.switchAsk.kind === 'open' ? 'sky:switch.open' : 'sky:switch.write')}</p>
+      <div className="sky-about-actions">
+        <button type="button" className="btn btn--primary btn--sm" onClick={() => void ws.answerSwitch(true)} data-testid="switch-yes">
+          {t('sky:switch.keep')}
+        </button>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={() => void ws.answerSwitch(false)} data-testid="switch-no">
+          {t('sky:switch.stay')}
+        </button>
+      </div>
+    </section>
+  ) : null
   const writeForm = ws.writing && !ws.sessionOn && !isReady ? <WriteForm key="write" ws={ws} initial={prefill?.text ?? ''} placeholder={t('sky:chat.writePlaceholder')} /> : null
   const allPinned =
-    sessionBar || writeForm || ws.read.status !== 'idle' || pinned ? (
+    sessionBar || switchCard || writeForm || ws.read.status !== 'idle' || pinned ? (
       <>
         {sessionBar}
+        {switchCard}
         {writeForm}
         {ws.read.status === 'failed' || ws.read.status === 'unconfigured' ? <ReadStop ws={ws} /> : null}
         {pinned}

@@ -61,9 +61,23 @@ export function retargetKeyOf(
   return null
 }
 
-/** 選んだ線（`from|rel|to`）の下書きの関係の添字（無ければ -1）。 */
-export function edgeIndexOf(draft: ThemeDraft | null, edgeId: string | null): number {
-  if (!draft || !edgeId) return -1
-  return draft.relations.findIndex((r) => `${r.from}|${r.rel}|${r.to}` === edgeId)
+/** 開いている下書きの関係の ID（`from|rel|to`＝relId）を、星図の線の ID（`draftId|from|rel|to`）にする。 */
+export const skyEdgeId = (draftId: string, rel: string): string => `${draftId}|${rel}`
+
+/** 星図の線の ID から、開いている下書きの関係の ID を取り出す。ほかの下書きの線・下書きが無いときは null。 */
+export function relOfSkyEdge(edgeId: string | null, openDraftId: string): string | null {
+  if (!edgeId || !openDraftId) return null
+  const head = `${openDraftId}|`
+  return edgeId.startsWith(head) ? edgeId.slice(head.length) : null
+}
+
+/**
+ * 選んだ線（星図の線の ID）の、開いている下書きの関係の添字（無ければ -1）。ほかの下書きの線は -1 —
+ * 開いていない下書きの線を、開いている下書きの関係として直さない。
+ */
+export function edgeIndexOf(draft: ThemeDraft | null, edgeId: string | null, openDraftId: string): number {
+  const rel = relOfSkyEdge(edgeId, openDraftId)
+  if (!draft || rel === null) return -1
+  return draft.relations.findIndex((r) => `${r.from}|${r.rel}|${r.to}` === rel)
 }
 

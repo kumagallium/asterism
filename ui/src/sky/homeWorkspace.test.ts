@@ -17,7 +17,7 @@ const strings = (o: unknown): string[] =>
 describe('ホームの左の会話（常設）', () => {
   it('先頭に最初の一手のチップ 2 つ: ＋ データを置く（いまの入口へ）・？ 問いを書く（入力欄へフォーカス）', () => {
     expect(conversationSource).toMatch(/onClick=\{onAddData\}/)
-    expect(conversationSource).toMatch(/ws\.writing \? ws\.cancelWriting\(\) : ws\.beginWriting\(\)/)
+    expect(conversationSource).toMatch(/ws\.writing \? ws\.cancelWriting\(\) : ws\.requestWriting\(\)/)
     expect(conversationSource).toMatch(/data-testid="chip-data"/)
     expect(conversationSource).toMatch(/data-testid="chip-question"/)
     expect(skyJa.chips).toEqual({ data: '＋ データを置く', question: '？ 問いを書く' })
@@ -54,7 +54,35 @@ describe('ホームの左の会話（常設）', () => {
     expect(skyViewSource).toMatch(/data-testid="questions-band"/)
     expect(skyViewSource).toMatch(/useSheet\(\)/)
     expect(skyViewSource).toMatch(/onWriteConsumed\(\)/)
-    expect(skyViewSource).toMatch(/ws\.resume\(write\.resume\)/)
+    expect(skyViewSource).toMatch(/ws\.openDraft\(write\.resume\)/)
+  })
+})
+
+describe('下書きの出入り（確認なしで置き換えない・閉じたら帯を取り直す・古い下書きを捨てられる）', () => {
+  it('下書きが開いているとき、別の下書きを開く・問いを書くは一文確認（とっておく／このまま続ける）を挟む', () => {
+    expect(hookSource).toMatch(/if \(cur\) setSwitchAsk\(\{ kind: 'open', id \}\)/)
+    expect(hookSource).toMatch(/if \(draftRef\.current\) setSwitchAsk\(\{ kind: 'write'/)
+    expect(hookSource).toMatch(/await closeSession\(true\)\n\s+if \(a\.kind === 'open'\) await resume\(a\.id\)/)
+    expect(conversationSource).toMatch(/data-testid="switch-yes"/)
+    expect(conversationSource).toMatch(/data-testid="switch-no"/)
+    expect(skyJa.switch.open).toBe('いまの下書きをとっておいて、こちらを開きますか')
+    // 札の「続きから開く」も、hash の resume も、確認の口を通る（直接 resume を呼ばない）
+    expect(skyViewSource).not.toMatch(/ws\.resume\(/)
+  })
+
+  it('下書きを閉じた・捨てたら、帯の下書きを取り直す（onDraftsChanged → refresh）', () => {
+    expect(hookSource).toMatch(/endSession\(\)\n\s+\/\/ 閉じた下書きは[^\n]*\n\s+o\.onDraftsChanged\(\)/)
+    expect(skyViewSource).toMatch(/onDraftsChanged: onRefresh/)
+  })
+
+  it('開いていない下書きの札から「捨てる」（確かめてから DELETE）', () => {
+    expect(hookSource).toMatch(/await deleteDraft\(id\)/)
+    expect(skyViewSource).toMatch(/ws\.discardOther\(other\.draft_id\)/)
+    expect(skyJa.about.discardAsk).toBe('この下書きを捨てます。もとに戻せません。')
+  })
+
+  it('最初の一手のチップは下書きのセッション中も出る', () => {
+    expect(conversationSource).toMatch(/const history: ReactNode\[\] = \[chips, \.\.\.bubbles\]/)
   })
 })
 

@@ -172,9 +172,20 @@ export function ConceptCard({
   )
 }
 
-/** 開いていない下書きの札を押したときの札: 続きから開く。 */
-export function OtherDraftCard({ draft, name, onOpen }: { draft: DraftSky; name: string; onOpen: () => void }) {
+/** 開いていない下書きの札を押したときの札: 続きから開く・捨てる（確かめてから。古い下書きをここから片づけられる）。 */
+export function OtherDraftCard({
+  draft,
+  name,
+  onOpen,
+  onDiscard,
+}: {
+  draft: DraftSky
+  name: string
+  onOpen: () => void
+  onDiscard: () => void
+}) {
   const { t } = useTranslation('sky')
+  const [discarding, setDiscarding] = useState(false)
   return (
     <section className="sky-card sky-card--session" aria-live="polite" data-testid="draft-about">
       <h3>{t('about.titleProposal')}</h3>
@@ -198,11 +209,26 @@ export function OtherDraftCard({ draft, name, onOpen }: { draft: DraftSky; name:
           </>
         )}
       </dl>
-      <div className="sky-about-actions">
-        <button type="button" className="btn btn--primary btn--sm" onClick={onOpen} data-testid="draft-open">
-          {t('about.draftOpen')}
-        </button>
-      </div>
+      {discarding ? (
+        <div className="sky-about-actions" role="group" aria-label={t('about.discardAsk')}>
+          <span className="sky-hint">{t('about.discardAsk')}</span>
+          <button type="button" className="btn btn--sm" onClick={onDiscard} data-testid="draft-discard-yes">
+            {t('about.discardYes')}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setDiscarding(false)}>
+            {t('about.discardNo')}
+          </button>
+        </div>
+      ) : (
+        <div className="sky-about-actions">
+          <button type="button" className="btn btn--primary btn--sm" onClick={onOpen} data-testid="draft-open">
+            {t('about.draftOpen')}
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setDiscarding(true)} data-testid="draft-discard">
+            {t('about.draftDiscard')}
+          </button>
+        </div>
+      )}
     </section>
   )
 }

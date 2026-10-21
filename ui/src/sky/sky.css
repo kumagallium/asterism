@@ -66,6 +66,10 @@
   border-radius: var(--radius);
   background: var(--paper);
 }
+/* 線の端の丸を出しているあいだだけ、指のドラッグを図が受ける（それ以外は縦のスクロールを奪わない） */
+.sky-canvas--handles {
+  touch-action: none;
+}
 .sky-canvas--hit {
   cursor: pointer;
 }

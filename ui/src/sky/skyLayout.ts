@@ -199,8 +199,12 @@ export interface DraftEdgeInfo {
   problem: boolean
 }
 
-/** 提案の線の ID（`from|rel|to`＝`workspaceState.relId`）。 */
-export const draftEdgeId = (i: Pick<DraftEdgeInfo, 'fromKey' | 'rel' | 'toKey'>): string => `${i.fromKey}|${i.rel}|${i.toKey}`
+/**
+ * 提案の線の ID（`draftId|from|rel|to`）。`from|rel|to` は `workspaceState.relId` — 下書きの中だけで一意なので、
+ * どの下書きの線かを頭に付ける（開いていない下書きの線を、開いている下書きの関係と取り違えない）。
+ */
+export const draftEdgeId = (i: Pick<DraftEdgeInfo, 'draftId' | 'fromKey' | 'rel' | 'toKey'>): string =>
+  `${i.draftId}|${i.fromKey}|${i.rel}|${i.toKey}`
 
 export interface SkyCluster {
   datasetId: string
@@ -905,13 +909,16 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     conceptSeen.add(key)
     edges.push({ kind: 'concept', from, to, relation: l.relation })
   }
-  // 提案の線（薄い線）: 両端の札がある線だけ。同じ線は 1 本
+  // 提案の線（薄い線）: 両端の札がある線だけ。同じ線は 1 本（同じ下書きの）。既にある本物の線と同じ関係なら、
+  // 提案としては引かない（二重に重ねない）。ほかの下書きの同じ線は別の線 — 開いている下書きの線を消さない。
   const draftSeen = new Set<string>()
   for (const e of draftEdgesIn) {
     if (!nodes.has(e.from) || !nodes.has(e.to)) continue
-    const key = `${e.from}>${e.to}>${e.info.rel}>${e.info.state}`
+    const key = `${e.info.draftId}>${e.from}>${e.to}>${e.info.rel}>${e.info.state}`
     if (draftSeen.has(key)) continue
     draftSeen.add(key)
+    const real = REAL_RELATION[e.info.rel]
+    if ((e.info.state === 'thin' || e.info.state === 'solid') && real && conceptSeen.has(`${e.from}>${e.to}>${real}`)) continue
     edges.push({ kind: 'draft', from: e.from, to: e.to, draft: e.info })
   }
   // 線の道すじと小さな札の位置（札の縁から縁へ・札と札の下の字を通らない・小さな札どうしが重ならない）
@@ -953,6 +960,9 @@ function drawnWidth(label: string, w: number): number {
   for (const ch of label) t += (ch.codePointAt(0) ?? 0) > 0xff ? 12 : 6.6
   return Math.min(w, t + 26)
 }
+
+/** 提案の線の関係 → 本物の知識の線の関係（同じ関係は二重に引かない）。 */
+const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = { part: 'isPartOf', lowers: 'lowers', raises: 'raises', affects: 'affects' }
 
 /** 知識の線の小さな札の幅（「一部」「part」・↓ ↑ ↕）。置き場所を決めるときに見込む。 */
 const PILL_W_PART = 36

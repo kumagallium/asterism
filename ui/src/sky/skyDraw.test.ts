@@ -191,14 +191,20 @@ describe('提案の線の当たり判定・端の丸・小さな札の字', () =
 
   it('線の上を押すと、その提案の線（直せる線＝下書きの関係）が当たる', () => {
     const p = mid(1)
-    expect(hitDraftEdge(l, p.x, p.y)).toBe(edge(1))
-    expect(draftEdgeId(hitDraftEdge(l, p.x, p.y)!.draft!)).toBe('c4|lowers|c2')
+    expect(hitDraftEdge(l, p.x, p.y, 'thermo')).toBe(edge(1))
+    expect(draftEdgeId(hitDraftEdge(l, p.x, p.y, 'thermo')!.draft!)).toBe('thermo|c4|lowers|c2')
+  })
+
+  it('開いていない下書きの線は選べない（開いている下書きが無いときも、どの線も当たらない）', () => {
+    const p = mid(1)
+    expect(hitDraftEdge(l, p.x, p.y, 'other')).toBeNull()
+    expect(hitDraftEdge(l, p.x, p.y, null)).toBeNull()
   })
 
   it('離れた所・提案の線（index が無い付け替えの新しい線）は当たらない', () => {
-    expect(hitDraftEdge(l, 5, 5)).toBeNull()
+    expect(hitDraftEdge(l, 5, 5, 'thermo')).toBeNull()
     const p = mid(2)
-    const got = hitDraftEdge(l, p.x, p.y)
+    const got = hitDraftEdge(l, p.x, p.y, 'thermo')
     // 付け替えの新しい線の真上でも、直せる線として当たるのは別の線（または当たらない）
     expect(got?.draft?.index === null).toBe(false)
   })
