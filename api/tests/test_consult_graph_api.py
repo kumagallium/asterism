@@ -810,3 +810,164 @@ def test_upper_provenance_rides_from_the_chat_to_the_published_line(tmp_path: Pa
     )  # fmt: skip
     weight = lines[EX + "weight"]
     assert (weight["drafted_by"], weight["batch"]) == ("human", None)
+
+
+# ---- suggest questions (PR 10a) ----------------------------------------------------------------
+
+_PRICES_IR = """\
+version: 1
+prefixes:
+  prices: "https://example.org/prices#"
+  pricesr: "https://example.org/prices/r/"
+maps:
+  - name: record
+    source: prices.csv
+    subject:
+      template: "pricesr:record/{no}"
+      classes: [prices:Record]
+      label: "値段の記録"
+    properties:
+      - {predicate: "prices:no", column: "no", label: "行の通し番号"}
+      - {predicate: "prices:price", column: price, datatype: "xsd:integer",
+         label: "1 つあたりの値段"}
+      - {predicate: "prices:shop", column: shop, label: "店の名前"}
+      - {predicate: "prices:date", column: date, label: "値段を調べた日"}
+      - {predicate: "prices:hasFood", object_template: "pricesr:food/{food}", label: "食材の名前"}
+  - name: food
+    source: prices.csv
+    subject:
+      template: "pricesr:food/{food}"
+      classes: [prices:Food]
+      label: "食材の名前"
+    properties:
+      - {predicate: "prices:food", column: food, label: "食材の名前"}
+"""
+
+
+def _q(question: str, mode: str, op: str, **kw: object) -> dict:
+    base = {"question": question, "mode": mode, "op": op, "kind": None, "property": None,
+            "property2": None, "kind2": None, "value": None, "match": None, "target": None,
+            "direction": None, "reason": "知りたくなる"}  # fmt: skip
+    return {**base, **kw}
+
+
+#: 「スーパーの価格表」への AI の提案（閉じた形に落ちる 4 本・落ちない 3 本）
+SUGGESTED = {
+    "questions": [
+        _q("いちばん高い値段の記録は？", "data", "top", kind="値段の記録", property="price"),
+        _q("食材ごとに記録は何件ある？", "data", "group", kind="値段の記録", property="食材の名前"),
+        _q("店の名前に「北」を含む記録は？", "data", "filter", kind="値段の記録",
+           property="shop", value="北", match="contains"),
+        _q("食材は何種類ある？", "data", "count", kind="食材の名前"),
+        _q("粘度が高い記録は？", "data", "top", kind="値段の記録", property="粘度"),  # no such col
+    ]
+}  # fmt: skip
+
+
+def _prices(tmp_path: Path) -> str:
+    meta = registry.save_dataset(
+        tmp_path / "registry", "スーパーの価格表", {"mapping.yaml": _PRICES_IR},
+        complete=True, warnings=[], traps=[], exit_code=0,
+        created_at="2026-10-21T00:00:00+00:00",
+    )  # fmt: skip
+    return meta["id"]
+
+
+def _files(root: Path) -> dict[str, bytes]:
+    paths = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    return {str(p.relative_to(root)): p.read_bytes() for p in paths}
+
+
+def _suggest(client: TestClient, dsid: str, **kw):
+    return client.post(
+        "/api/consult/suggest-questions",
+        json={"screen": "dataset", "context": {"dataset_id": dsid}, "lang": "ja", **kw},
+    )
+
+
+def test_suggest_questions_gives_closed_shapes_and_saves_nothing_and_sends_no_value(
+    tmp_path: Path,
+) -> None:
+    sentinel = "SENTINEL-VALUE-55501"
+    llm = _LLM(json.dumps(SUGGESTED))
+    app, store = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    store.add(ox.Quad(  # a value of the table sits in the store — it must never reach the model
+        ox.NamedNode("https://example.org/prices/r/record/1"),
+        ox.NamedNode("https://example.org/prices#shop"),
+        ox.Literal(sentinel),
+        ox.NamedNode(substrate.versioned_graph_iri(dsid, 1)),
+    ))  # fmt: skip
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        before = _files(tmp_path)
+        r = _suggest(client, dsid)
+        assert r.status_code == 200, r.text
+        out = r.json()["suggestions"]
+        assert [(s["op"], s["shape"]) for s in out] == [
+            ("top", "値段の記録のうち、1 つあたりの値段がいちばん大きいものを出します"
+                    "（データセットごと）"),
+            ("group", "値段の記録を 食材の名前 ごとに数える"),
+            ("filter", "値段の記録のうち、店の名前に 北 を含むもの"),
+            ("count", "食材の名前の件数を数えます（データセットごと）"),
+        ]  # the one with a column that does not exist is not offered
+        assert len(out) >= 3 and all(s["mode"] == "data" for s in out)
+        assert set(out[0]) == {"question", "mode", "op", "shape", "kind", "property", "property2",
+                               "kind2", "value", "match", "target", "direction"}  # fmt: skip
+        # nothing is kept: the sentences, a refusal, nothing
+        assert _files(tmp_path) == before
+        assert client.get("/api/themes").json()["drafts"] == []
+        system, user = llm.calls[0]
+        assert "# Column headings" in user and "price | " in user and "shop | " in user
+        assert "スーパーの価格表" in user and "値段の記録" in user  # names, not values
+        assert sentinel not in system + user
+        assert "Do NOT write SPARQL" in system
+        assert len(llm.calls) == 1
+
+
+def test_suggest_questions_hides_what_is_already_asked_and_tells_the_model(tmp_path: Path) -> None:
+    llm = _LLM(json.dumps(SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        d = client.post(
+            "/api/themes/drafts",
+            json={"label": "", "questions": ["食材は何種類ある？"]},
+        ).json()
+        assert d["id"]
+        out = _suggest(client, dsid).json()["suggestions"]
+        assert "食材は何種類ある？" in llm.calls[0][1]  # shown so it is not repeated
+        assert [s["op"] for s in out] == ["top", "group", "filter"]  # and filtered again
+
+
+def test_suggest_questions_needs_the_token_an_ai_and_a_known_dataset(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)  # no AI
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers=KEY) as anon:
+        assert _suggest(anon, dsid).status_code == 401
+    with TestClient(app, headers=_AUTH) as client:
+        r = _suggest(client, dsid)
+        assert r.status_code == 503 and "AI" in r.json()["detail"]
+    llm = _LLM()
+    app2, _ = _app(tmp_path / "b", llm)
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        assert _suggest(client, "nope").status_code == 404
+        no_ctx = client.post("/api/consult/suggest-questions", json={"screen": "dataset"})
+        assert no_ctx.status_code == 422
+    assert llm.calls == []
+
+
+def test_suggest_questions_retries_once_then_502_on_an_off_shape_answer(tmp_path: Path) -> None:
+    bad = json.dumps({"questions": [_q("SELECT ?s WHERE { ?s ?p ?o }", "data", "count",
+                                       kind="値段の記録")]})  # fmt: skip
+    llm = _LLM(bad, bad)
+    app, _ = _app(tmp_path, llm)
+    dsid = _prices(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        r = _suggest(client, dsid)
+        assert r.status_code == 502 and "決まった形" in r.json()["detail"]
+        assert len(llm.calls) == 2
+    llm2 = _LLM(bad, json.dumps(SUGGESTED))
+    app2, _ = _app(tmp_path / "c", llm2)
+    dsid2 = _prices(tmp_path / "c")
+    with TestClient(app2, headers={**_AUTH, **KEY}) as client:
+        assert len(_suggest(client, dsid2).json()["suggestions"]) == 4

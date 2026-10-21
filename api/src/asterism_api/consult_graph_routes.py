@@ -16,6 +16,13 @@
   止める（``duplicate``）— 過去に受けた ``proposal_id`` の記録には頼らない。
 - ``POST /api/consult/graph/dismiss`` — 「✕」。却下を ``shared_vocab.dismiss_fit`` の鍵で保存する
   （``write_auth``）。次の提案・適用で出ない。
+- ``POST /api/consult/suggest-questions`` — 「問いを提案してもらう」（ui-redesign PR 10a・design.md
+  §18・``write_auth``）。``{screen: "dataset", context: {dataset_id}, lang}`` → データセットの
+  列の**見出しと型**（値は渡さない）・名前・既にある問いと用語の名前を AI に渡し、閉じた形の問いを
+  3〜5 本返させ、機械（``asterism.question_suggest``）が閉じた形・名前の実在・重複で絞った
+  ``{suggestions: [{question, mode, op, shape, kind, property, …}]}`` を返す。**何も保存しない**
+  （提案の文・却下は残さない）。人が押したときだけ呼ばれる（公開の処理の中では呼ばない）。
+  AI 未設定は 503。
 
 AI の散文（``reply``）は保存しない。会話の保存はテーマの下書き（``draft["chat"]`` = 人の発言と
 適用した差分だけ）。home・dataset は保存しない。AI が返した ``ops`` は信用せず、適用の前に
@@ -36,13 +43,15 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import crosswalk_runtime, graph_diff, shared_vocab, themes
+from asterism import crosswalk_runtime, graph_diff, question_suggest, shared_vocab, themes
 from asterism.mapping_ir_read import MappingIRView, read_mapping_ir
 from asterism_step0.graph_propose import (
     GraphDiffError,
     propose_graph_diff,
     validate_graph_diff,
 )
+from asterism_step0.question_suggest import propose_questions
+from asterism_step0.theme_propose import ThemeDraftError
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -138,6 +147,13 @@ class ApplyBody(BaseModel):
         ):
             raise ValueError(f"batch は 1 行 {_MAX_BATCH} 字までで、制御文字を含めません")
         return v
+
+
+class SuggestBody(BaseModel):
+    #: 今は ``dataset`` だけ（論文 = 10b・用語 = 10c が足す）
+    screen: Literal["dataset"] = "dataset"
+    context: GraphContext = Field(default_factory=GraphContext)
+    lang: str = "ja"
 
 
 class DismissBody(BaseModel):
@@ -451,6 +467,100 @@ def register_consult_graph(
                 "ops": diff["ops"],
                 "sentences": graph_diff.ops_to_sentences(diff["ops"], sentence_graph, lang),
                 "proposal_id": graph_diff.proposal_id(diff["ops"]),
+            }
+        )
+
+    # ---- suggest questions (10a) -------------------------------------------------------------
+
+    def _existing_questions() -> list[str]:
+        """既にある問いの文（置いた問い・知識の問い・メモの問い・途中の下書き）。重ねて出さないために
+        AI に見せ、後処理でも突き合わせる。保存はしない。"""
+        out: list[str] = []
+        tools = shared_vocab.read_registry_raw_tools(cfg.registry_root, shared_vocab.REGISTRY_ID)
+        out += [str(t.get("title") or "") for t in tools or [] if t.get("for_terms")]
+        for th in (themes.load_themes_file(cfg.registry_root) or {}).get("themes", []):
+            out += [
+                str(m.get("title") or "")
+                for m in th.get("memo_questions") or []
+                if isinstance(m, dict)
+            ]
+            out += [
+                str(sel.get("title") or "")
+                for sel in (th.get("selections") or {}).values()
+                if isinstance(sel, dict) and sel.get("mode") == "knowledge"
+            ]
+        for d in themes.list_drafts(cfg.registry_root):
+            draft = themes.load_draft(cfg.registry_root, d["id"]) or {}
+            out += [str(q) for q in draft.get("questions") or []]
+        return [q for q in dict.fromkeys(" ".join(q.split()) for q in out) if q]
+
+    @app.post("/api/consult/suggest-questions", dependencies=list(write_auth))
+    async def consult_suggest_questions(
+        body: SuggestBody,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """「問いを提案してもらう」→ ``{suggestions[{question, mode, op, shape, kind, property,
+        property2, kind2, value, match, target, direction}]}``。何も書かない・保存しない。
+
+        AI に渡すのは、データセットの名前・列の**見出しと型のヒント**・何の行か（種類の名前）・既に
+        ある問いの文・用語と標準用語の名前だけ（データの値は渡さない）。AI の答えは閉じた JSON だけ
+        （SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・1 回だけ言い直させる）。機械が
+        閉じた形（7 つのデータの形・3 つの知識の形）に落ちるもの・名前が列や用語に実在するもの・
+        既存の問いと重ならないものだけに絞る。未設定なら 503。"""
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        if _ai_unset(key, provider, api_base):
+            raise HTTPException(503, "AI が設定されていません")
+        record, view = _dataset_ir(body.context)
+        dataset_name = (record.get("meta") or {}).get("name") or body.context.dataset_id or ""
+        lang = _lang(body.lang)
+        terms = await _terms()
+        columns = [{"name": c["name"], "kind_hint": c["kind_hint"]} for c in _ir_columns(view)]
+        kind_names, prop_names = question_suggest.dataset_names(view)
+        existing = _existing_questions()
+        standards = [s["label"] for s in themes.default_standards([c["name"] for c in columns])]
+        llm = resolve_llm(
+            provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+        )
+        try:
+            ai = await asyncio.to_thread(
+                propose_questions,
+                llm,
+                screen=body.screen,
+                columns=columns,
+                dataset_label=str(dataset_name),
+                existing_questions=existing,
+                terms=[
+                    {"label": (t.label_en or t.label) if lang == "en" else t.label, "kind": t.kind}
+                    for t in terms
+                ],
+                standards=standards,
+                kinds=[k for k, _ in kind_names],
+                text=None,
+                lang=lang,
+            )
+        except ThemeDraftError as exc:
+            raise HTTPException(502, f"AI の答えが決まった形になりませんでした: {exc}") from exc
+        except Exception as exc:  # LLM unreachable / provider error
+            raise HTTPException(502, f"AI failed: {exc}") from exc
+        await asyncio.to_thread(
+            _record_usage, cfg.registry_root, "consult.suggest_questions", provider, llm, model
+        )
+        return JSONResponse(
+            {
+                "suggestions": question_suggest.postprocess_questions(
+                    ai,
+                    kinds=kind_names,
+                    properties=prop_names,
+                    terms=terms,
+                    existing_questions=existing,
+                    lang=lang,
+                )
             }
         )
 
