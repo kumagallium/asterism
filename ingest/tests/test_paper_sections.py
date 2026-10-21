@@ -55,17 +55,21 @@ def test_headings_are_found_whatever_the_case_number_or_language(
     assert got.sections == [("Abstract", ABS), ("Conclusion", CON)]
 
 
-def test_a_conclusion_with_subsections_is_read_whole_and_a_nested_one_is_found() -> None:
+def test_only_top_level_sections_count_and_a_conclusion_reads_its_subsections() -> None:
     xml = (
         "<article><body>"
         "<sec><title>Discussion</title><p>議論の文。</p>"
         f"<sec><title>4.2 Conclusion</title><p>{CON}</p></sec></sec>"
-        "<sec><title>Conclusions</title><p>一つ目の文。</p>"
-        "<sec><title>Outlook</title><p>二つ目の文。</p></sec></sec>"
+        "<sec><title>手法</title><p>手法の文。</p>"
+        "<sec><title>2.1 概要</title><p>手法の概要の文。</p></sec></sec>"
+        "<sec><title>Methods</title><p>方法の文。</p>"
+        "<sec><title>Summary</title><p>方法の要約の文。</p></sec></sec>"
         "</body></article>"
     )
-    got = extract_from_jats(xml)
-    assert got.sections == [("Conclusion", f"{CON}")]  # the first conclusion in reading order
+    # a nested "Conclusion" / "概要" / "Summary" is not the abstract or the conclusion
+    assert extract_from_jats(xml).basis == "edges"
+    top = xml.replace("</body>", "<sec><title>結論</title><p>最上位の結論。</p></sec></body>")
+    assert extract_from_jats(top).sections == [("Conclusion", "最上位の結論。")]
 
     only = _jats(("Conclusions", "一つ目の文。"))
     only = only.replace("</sec>", "<sec><title>Outlook</title><p>二つ目の文。</p></sec></sec>")

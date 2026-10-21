@@ -11,9 +11,9 @@
 
 規則（見出しは小文字・章番号（``2.`` ``IV.`` ``第 3 章``）・末尾の記号を外してから比べる）:
 
-* 要旨 = JATS の ``<abstract>``、または見出しが ``Abstract`` / ``Summary`` / ``要旨`` / ``概要`` /
+* 要旨 = JATS の ``<abstract>``、または（body 直下の最上位の節で）見出しが ``Abstract`` / ``Summary`` / ``要旨`` / ``概要`` /
   ``アブストラクト`` の節。
-* 結論 = 見出しが ``Conclusion(s)``（``Conclusions and outlook`` のような続きも可）/
+* 結論 = （body 直下の最上位の節で）見出しが ``Conclusion(s)``（``Conclusions and outlook`` のような続きも可）/
   ``Concluding remarks`` / ``結論`` / ``結言`` / ``まとめ`` / ``おわりに`` の節（下の節も含む）。
 * 要旨も結論も見つからないときだけ、本文の先頭 2 段落＋末尾 2 段落（短い行は数えない）。
 * 合計（見出しの名前を含む）は :data:`MAX_CHARS` = 2,500 字まで。超えたら各節の**先頭から**残し、
@@ -168,21 +168,17 @@ def extract_from_jats(xml_text: str, *, max_chars: int = MAX_CHARS) -> PaperText
             abstract = ("Abstract", t)
             break
 
-    def walk(parent) -> None:
-        nonlocal abstract, conclusion
-        for sec in parent.findall("sec"):
+    # 最上位の節（body 直下の <sec>）だけを見る。入れ子の「2.1 概要」「Methods › Summary」は
+    # 要旨でも結論でもない。結論の下の小節は ``_paragraphs`` が結論に含める。
+    body = root.find(".//body")
+    if body is not None:
+        for sec in body.findall("sec"):
             title_el = sec.find("title")
             title = _squash("".join(title_el.itertext())) if title_el is not None else ""
             if abstract is None and title and _is_abstract(title):
                 abstract = ("Abstract", " ".join(_paragraphs(sec)))
             elif conclusion is None and title and _is_conclusion(title):
                 conclusion = ("Conclusion", " ".join(_paragraphs(sec)))
-            else:
-                walk(sec)
-
-    body = root.find(".//body")
-    if body is not None:
-        walk(body)
 
     found = [s for s in (abstract, conclusion) if s and s[1]]
     basis = "headings"
