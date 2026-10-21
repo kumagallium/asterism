@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>データの追加 — 対応ファイルと読み取りの確認 — Asterism マニュアル</title>
+<title>データの追加 — 作業場で置く・対応ファイル・読み取りの確認 — Asterism マニュアル</title>
 <link rel="stylesheet" href="../style.css">
 </head>
 <body class="page-add-data">
@@ -11,11 +11,16 @@
 <div class="cols">
 <nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a class="here" href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="workspace.html">見る</a></li><li><a href="graph.html">星図</a></li><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">知りたいこと</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
 <main>
-<h1 id="データの追加-対応ファイルと読み取りの確認">データの追加 — 対応ファイルと読み取りの確認</h1>
-<p>「入れる」ステップで置けるファイルの種類と、そのあとの「読み取りの確認」画面でできることをまとめます。手順そのものは<a href="./getting-started.html">getting-started.md</a> を参照してください。</p>
+<h1 id="データの追加-作業場で置く-対応ファイル-読み取りの確認">データの追加 — 作業場で置く・対応ファイル・読み取りの確認</h1>
+<p>ホームの「＋ データを置く」から始める流れと、「入れる」ステップで置けるファイルの種類、そのあとの「読み取りの確認」画面でできることをまとめます。7 ステップそのものは<a href="./getting-started.html">getting-started.md</a> を参照してください。</p>
+<h2 id="ホームで-データを置く">ホームで「＋ データを置く」</h2>
+<p>ホームの会話の先頭にある「＋ データを置く」ボタンを押すと、星図の代わりに、右にかんたんモード（7 ステップ）が開きます（「データ」画面の「データを置く」ボタンも同じです）。左の会話は残ります。</p>
+<figure><a href="../screenshots/add-data-workspace.png" title="原寸で開く"><img src="../screenshots/add-data-workspace.png" alt="データを置く。右にかんたんモード、左に会話"></a></figure>
+<ul><li>左の欄の上に「いま: ③ 意味をつける — …」のように、いまの段と、会話で相談できることが出ます。</li><li><strong>③ 意味をつける</strong>のあいだは、会話が列の結びつきを扱います。「price の列は 価格 と同じ意味です」のように書くと、提案カードが返り、「結ぶ（N 件）」か「結ばない」で返事をします。結んだ内容は③の表に入ります（データの値は AI に渡しません）。</li><li>ほかの段は、設計の相談です（列の意味・種類の名前・ID の候補を、表に反映できます）。欄の上の「列の結びつきを聞く」「設計のことを相談する」で切り替えます。</li></ul>
+<figure><a href="../screenshots/add-data-bind-chat.png" title="原寸で開く"><img src="../screenshots/add-data-bind-chat.png" alt="③の会話。列の結びつきを提案カードで決める"></a></figure>
+<ul><li>⑦で公開すると、「閉じる」ボタンで星図に戻り、星が灯ります。既にある用語と名前が完全に一致したときは、会話の先頭に「結べそうな線が N 件 →」が出ます（<a href="./graph.html">星図</a>）。</li><li>途中で閉じても、続きから開けます。AI が未設定のときは、会話の欄は閉じて始まります（開くと設定の案内が出ます）。</li><li>7 ステップの中身（決める内容と検査）は、会話があってもなくても同じです。</li></ul>
 <h2 id="対応しているファイル形式">対応しているファイル形式</h2>
 <ul><li>Excel・CSV・装置が出力したファイル（.txt / .dat）</li><li>文書 — 論文の XML（JATS）・Word・PDF。デスクトップ版で PDF を取り込むには、PDF を読み取る部品を 1 回入れます（下の「Word / PDF などの文書」）。画面は、いま取り込める形式だけを案内します</li><li>JSON</li></ul>
-<figure><a href="../screenshots/add-data-drop.png" title="原寸で開く"><img src="../screenshots/add-data-drop.png" alt="ファイルを置く入り口の画面"></a></figure>
 <p>種類のちがうファイルが混ざっているときは、表（Excel / CSV / 装置ファイル）・JSON・文書（Word / PDF / XML）を分けて置いてください。置いたら読み取りが始まりますが、公開するまで内容は誰にも見えません。</p>
 <p>置いたファイルが、既にあるデータセットと同じ形だと機械が判断したときは、同じ形であることを知らせる帯が出ます。次のどちらかを選べます。</p>
 <ul><li>「そのまま追加」ボタン — 設計の確認を飛ばして、既にあるデータセットに足す</li><li>「設計を見直してから」ボタン — いつもどおり確認してから進む</li></ul>
@@ -46,7 +51,7 @@
 <h2 id="問いを提案してもらう">問いを提案してもらう</h2>
 <p>データを公開したあと、AI に「このデータで聞けそうな問い」を出してもらえます（AI が設定されているときだけ。<a href="./settings.html">設定</a>）。</p>
 <ul><li><strong>表のデータ（⑦ 公開の完了）</strong> — 「公開しました」の完了画面の「問いを提案してもらう」。AI が読むのはデータセットの名前・列の見出しと型のヒント・何の行か・すでにある問いと用語の名前だけで、データの値は渡しません。公開の処理の中で自動では呼ばず、押したときだけです。ホームの星図で種類の星を選んだ札にも、同じボタンがあります。</li><li><strong>文書（論文）</strong> — 論文の PDF・Word・JATS を取り込み終えた画面と、そのデータの詳細に「この論文から問いを提案してもらう」が出ます。AI が読むのは文書の<strong>要旨と結論の文</strong>（合計 2,500 字まで）と、すでにある用語の名前だけです。本文全体は渡しません。表が無い文書型のデータセットは、星の札の「問いを提案してもらう」からも、論文として読まれます。</li></ul>
-<p>押すと「こんな問いはどうですか」のカード（3〜5 本）が出ます。「この問いで始める」で、その問いが入力欄に入った状態で<a href="./vocab-and-grounding.html#知りたいことから作る-6-段">問いを書く流れ</a>に移ります。気に入らなければ「閉じる」で、提案はどこにも残りません。出る問いは機械が「答えられる形」に絞ったものだけです。くわしくは<a href="./vocab-and-grounding.html#問いは-AI-に提案してもらえる">知りたいこと</a>を見てください。</p>
+<p>押すと「こんな問いはどうですか」のカード（3〜5 本）が出ます。「この問いで始める」で、その問いが入力欄に入った状態で<a href="./vocab-and-grounding.html#問いを書いて-図に入れて-置く">問いを書く流れ</a>に移ります。気に入らなければ「閉じる」で、提案はどこにも残りません。出る問いは機械が「答えられる形」に絞ったものだけです。くわしくは<a href="./vocab-and-grounding.html#問いは-AI-に提案してもらえる">知りたいこと</a>を見てください。</p>
 <h2 id="前回の続き">前回の続き <span class="badge">v0.16.0 (2026-08-17) で追加</span></h2>
 <p>前に置いたファイルがブラウザに残っているときは、「このファイルの続きから使う」か「新しいファイルを置く」かを選べます。同じファイルをもう一度置くと、前回の確認の続きから再開できます。</p>
 <h2 id="書き込みに利用許可コードが必要な環境">書き込みに利用許可コードが必要な環境</h2>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.56.0](https://github.com/kumagallium/asterism/compare/v0.55.0...v0.56.0) - 2026-10-21
+
+- feat: 問いの提案 — データ・論文・図の穴から AI が CQ を下書きし、閉じた形に落ちるものだけチップで出す（10a〜10d・金標準と物差し） by @kumagallium in https://github.com/kumagallium/asterism/pull/732
+- feat: 作業場の文法 — 左に図・右に会話。AI の差分の提案カードで図が育つ・線を直せる・ホームとかんたんも同じ会話（UI 全面再設計 7a〜7c） by @kumagallium in https://github.com/kumagallium/asterism/pull/726
+- docs(manual): マニュアルを作業場の UI（左に会話・右に星図）に書き換え・スクリーンショット 12 枚を撮り直し by @kumagallium in https://github.com/kumagallium/asterism/pull/730
+
 ## [v0.55.0](https://github.com/kumagallium/asterism/compare/v0.54.0...v0.55.0) - 2026-10-20
 
 - feat(ai): GitHub Copilot（サブスク）と Google Gemini をプロバイダに追加 by @kumagallium in https://github.com/kumagallium/asterism/pull/727

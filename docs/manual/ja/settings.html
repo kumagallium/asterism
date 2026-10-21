@@ -18,6 +18,7 @@
 <h2 id="AI-タブ">「AI」タブ <span class="badge">v0.7.0 (2026-07-14) で追加</span></h2>
 <p>使う AI をここに登録します。登録した中から選んだ 1 つが、「データを置く」「質問する」など全機能で使われます。プロバイダは次から選べます。</p>
 <div class="tablewrap"><table><thead><tr><th>プロバイダ</th><th>必要なもの</th></tr></thead><tbody><tr><td>Anthropic (Claude)</td><td>Anthropic の API キー</td></tr><tr><td>OpenAI</td><td>OpenAI の API キー</td></tr><tr><td>Google Gemini</td><td>Google AI Studio で作った API キー（アドレスの入力は不要）</td></tr><tr><td>OpenAI 互換（さくらの AI Engine / Groq / Ollama など）</td><td>エンドポイント（base URL）と、必要ならキー</td></tr><tr><td>GitHub Copilot（サブスク）</td><td>Copilot のプランと、このパソコンに入れてログイン済みの <code>copilot</code> CLI。キーは不要。デスクトップ版だけ</td></tr></tbody></table></div>
+<p>未設定のあいだ、ホームの会話の入力欄は閉じ、チップと手入力（「手で書く」「手で足す」）で進められます。</p>
 <p>「モデル一覧を取得」ボタンで、接続先から使えるモデルの一覧を取り寄せられます。サーバに既定のキーが設定済みのプロバイダは、キーを入力しなくてもそのまま使えます。「このブラウザに記憶する」をオンにするとキーはlocalStorage に保存されて再読み込み後も残り、オフだとタブを閉じるまでのsessionStorage のみになります。「このサーバのみんなで使う」を選ぶと、キーはサーバに保存され、使う人が自分でキーを用意しなくても AI が使えるようになります（キーの中身は誰の画面にも表示されません）。トークン単価を設定すると、使った分のコストを概算できるようになります。</p>
 <h3 id="Google-Gemini-を使う">Google Gemini を使う <span class="badge">v0.55.0 (2026-10-20) で追加</span></h3>
 <p>プロバイダで「Google Gemini」を選び、Google AI Studio で作ったキー（<code>AIza</code> で始まります）を貼ります。アドレスは決まっているので入力しません。「モデル一覧を取得」で使えるモデルが出るので、1 つ選んで保存します。</p>
