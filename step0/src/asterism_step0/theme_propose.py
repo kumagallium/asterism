@@ -94,6 +94,9 @@ _LEN_THEME_LABEL = 80
 _CODE_LIKE = re.compile(
     r"https?://|[<>{}`]|\b(?:SELECT|INSERT|DELETE|WHERE|PREFIX)\b", re.IGNORECASE
 )
+#: 問いの文・テーマ名に当てる検査。IRI とコードの記号だけ（"Where is the cheapest shop?" のような
+#: 英語の普通の文を SQL の語で落とさない）。名前・別名・値には上の ``_CODE_LIKE`` を当てる。
+_QUESTION_LIKE = re.compile(r"https?://|[<>{}`]", re.IGNORECASE)
 _USE_NEW = "new"
 _USE_RE = re.compile(r"^(?:new|existing:[a-z][a-z0-9_]*|standard:[A-Za-z][\w.\-]*:[\w.\-]+)\Z")
 _KEY_RE = re.compile(rf"^[A-Za-z][A-Za-z0-9_]{{0,{_LEN_KEY - 1}}}\Z")
@@ -330,7 +333,17 @@ def _fail(path: str, why: str) -> ThemeDraftError:
     return ThemeDraftError(f"{path}: {why}")
 
 
-def _str(v: Any, path: str, max_len: int, *, nullable: bool = False, allow_code: bool = False):
+def _str(
+    v: Any,
+    path: str,
+    max_len: int,
+    *,
+    nullable: bool = False,
+    allow_code: bool = False,
+    sentence: bool = False,
+):
+    """A string. ``sentence=True`` = a question / theme-name sentence: only IRIs and code
+    symbols are refused (``_QUESTION_LIKE``), not SQL words."""
     if v is None and nullable:
         return None
     if not isinstance(v, str):
@@ -338,7 +351,7 @@ def _str(v: Any, path: str, max_len: int, *, nullable: bool = False, allow_code:
     s = " ".join(v.split())
     if len(s) > max_len:
         raise _fail(path, f"longer than {max_len} characters")
-    if not allow_code and _CODE_LIKE.search(s):
+    if not allow_code and (_QUESTION_LIKE if sentence else _CODE_LIKE).search(s):
         raise _fail(path, "looks like code or an IRI (names only)")
     return s
 
@@ -500,11 +513,11 @@ def validate_theme_draft(
         for i, q in enumerate(
             _list(raw.get("suggested_questions", []), "suggested_questions", _MAX_SUGGESTED)
         ):
-            s = _str(q, f"suggested_questions[{i}]", _LEN_QUESTION)
+            s = _str(q, f"suggested_questions[{i}]", _LEN_QUESTION, sentence=True)
             if s:
                 suggested.append(s)
     label = _cut(raw.get("theme_label", ""), "theme_label", _LEN_THEME_LABEL)
-    if _CODE_LIKE.search(label):
+    if _QUESTION_LIKE.search(label):
         raise _fail("theme_label", "looks like code or an IRI (names only)")
     return {
         "theme_label": "" if expand else label,

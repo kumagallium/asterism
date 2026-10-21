@@ -30,6 +30,7 @@ from typing import Any
 from asterism_step0.llm import LLMClient
 from asterism_step0.theme_propose import (
     _CODE_LIKE,
+    _QUESTION_LIKE,
     _USE_RE,
     ANSWER_MODES,
     DATA_OPS,
@@ -277,7 +278,9 @@ def _fail(path: str, why: str) -> GraphDiffError:
     return GraphDiffError(f"{path}: {why}")
 
 
-def _name(v: Any, path: str, max_len: int, *, required: bool = True) -> str:
+def _name(
+    v: Any, path: str, max_len: int, *, required: bool = True, sentence: bool = False
+) -> str:
     """A name the person will read (label / alias / column / question): a string, whitespace
     folded, with no code or IRI in it."""
     if v is None and not required:
@@ -287,7 +290,7 @@ def _name(v: Any, path: str, max_len: int, *, required: bool = True) -> str:
     s = " ".join(v.split())
     if len(s) > max_len:
         raise _fail(path, f"longer than {max_len} characters")
-    if _CODE_LIKE.search(s):
+    if (_QUESTION_LIKE if sentence else _CODE_LIKE).search(s):
         raise _fail(path, "looks like code or an IRI (names only)")
     if required and not s:
         raise _fail(path, "is empty")
@@ -416,7 +419,7 @@ def _op(o: Any, p: str, keys: set[str], new_keys: set[str]) -> dict:
             raise _fail(f"{p}.match", f"must be one of {MATCH_MODES}")
         return {
             "op": name,
-            "question": _name(o.get("question"), f"{p}.question", _LEN_QUESTION),
+            "question": _name(o.get("question"), f"{p}.question", _LEN_QUESTION, sentence=True),
             "mode": mode,
             "op_kind": op_kind,
             "target": _opt_ref(o.get("target"), f"{p}.target", keys),

@@ -383,3 +383,12 @@ def test_propose_drops_the_operations_the_screen_cannot_take() -> None:
         columns=[{"name": "kappa", "kind_hint": "number"}],
     )
     assert [o["op"] for o in out["ops"]] == ["bind_column"] and out["ops"][0]["rel"] == "eq"
+
+
+def test_a_question_sentence_only_refuses_iri_and_code_symbols() -> None:
+    q = {"op": "add_question", "question": "Where is the cheapest shop?", "mode": "data",
+         "op_kind": "count", "kind": "c1", "property": None, "target": None, "direction": None,
+         "wanted_data": "", "reason": ""}  # fmt: skip
+    out = validate_graph_diff({"reply": "", "ops": [q]}, known_keys=KEYS)
+    assert out["ops"][0]["question"] == "Where is the cheapest shop?"
+    _bad({**q, "question": "see http://example.org/x"})

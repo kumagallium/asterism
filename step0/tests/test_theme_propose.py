@@ -431,3 +431,23 @@ def test_an_addition_never_reuses_a_key_already_on_the_map() -> None:
         llm, focus_key="c1", concepts=ON_MAP, questions=[], existing=[], standards=[]
     )
     assert [c["key"] for c in out["concepts"]] == ["n1"] and len(llm.calls) == 2
+
+
+def test_a_question_sentence_and_theme_name_only_refuse_iri_and_code_symbols() -> None:
+    # 英語の普通の文は SQL の語で落とさない（名前・別名には従来どおり当てる）
+    ok = validate_theme_draft(
+        _bad(
+            suggested_questions=["Where is the cheapest shop?"],
+            theme_label="Select materials",
+        )
+    )
+    assert ok["suggested_questions"] == ["Where is the cheapest shop?"]
+    assert ok["theme_label"] == "Select materials"
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(_bad(suggested_questions=["see http://example.org/x"]))
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(_bad(theme_label="<b>x</b>"))
+    bad_alias = copy.deepcopy(GOOD)
+    bad_alias["concepts"][0]["aliases"] = ["SELECT"]
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(bad_alias)

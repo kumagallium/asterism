@@ -43,7 +43,6 @@ from asterism_step0.theme_propose import (
     _cut,
     _extract_json_object,
     _lines,
-    _list,
     _opt,
     _problem_tail,
     _str,
@@ -246,8 +245,9 @@ def _question(q: Any, p: str) -> dict:
     match = q.get("match") or None
     if match is not None and match not in MATCH_MODES:
         raise _fail(f"{p}.match", f"must be one of {MATCH_MODES}")
-    # 問いの文は、コードや IRI に見える文字列を拒む（名前・値と同じ検査）
-    text = _str(q.get("question"), f"{p}.question", _LEN_QUESTION)
+    # 問いの文は IRI とコードの記号だけ拒む（英語の普通の文の "where" などは通す）。
+    # 名前・値は従来どおり SQL の語も拒む
+    text = _str(q.get("question"), f"{p}.question", _LEN_QUESTION, sentence=True)
     if not text:
         raise _fail(f"{p}.question", "is empty")
     return {
@@ -273,18 +273,28 @@ def validate_questions(raw: Any) -> dict:
     :class:`QuestionSuggestError`.
 
     Unknown keys are dropped, not read — the shape has no place for a query or an IRI. A
-    question / name / value that looks like code or an IRI is refused outright; ``reason`` is
-    only cut. Whether the names are real columns / kinds / terms, and whether the choice is
-    complete for its op, is the post-process's job (``asterism.question_suggest``)."""
+    question / name / value that looks like code or an IRI is dropped (that ONE question; the
+    others are kept) and ``reason`` is only cut. More than :data:`MAX_QUESTIONS` rows are cut to
+    the first five. When every row is refused the first reason is raised (the caller retries).
+    Whether the names are real columns / kinds / terms, and whether the choice is complete for
+    its op, is the post-process's job (``asterism.question_suggest``)."""
     if not isinstance(raw, dict):
         raise _fail("$", "must be an object")
-    try:  # theme_propose の部品は ThemeDraftError を出す — この画面の名前に直す
-        rows = _list(raw.get("questions", []), "questions", MAX_QUESTIONS)
-        return {"questions": [_question(q, f"questions[{i}]") for i, q in enumerate(rows)]}
-    except QuestionSuggestError:
-        raise
-    except ThemeDraftError as exc:
-        raise QuestionSuggestError(str(exc)) from None
+    rows = raw.get("questions", [])
+    if not isinstance(rows, list):
+        raise _fail("questions", "must be a list")
+    kept: list[dict] = []
+    first: QuestionSuggestError | None = None
+    for i, q in enumerate(rows[:MAX_QUESTIONS]):
+        try:  # theme_propose の部品は ThemeDraftError を出す — この画面の名前に直す
+            kept.append(_question(q, f"questions[{i}]"))
+        except QuestionSuggestError as exc:
+            first = first or exc
+        except ThemeDraftError as exc:
+            first = first or QuestionSuggestError(str(exc))
+    if rows and not kept and first is not None:
+        raise first
+    return {"questions": kept}
 
 
 # ---------------------------------------------------------------------------

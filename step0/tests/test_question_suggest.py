@@ -65,9 +65,8 @@ class _FakeLLM:
 
 
 def _with(**over: object) -> dict:
-    out = copy.deepcopy(GOOD)
-    out["questions"][0].update(over)
-    return out
+    """GOOD の 1 本目だけを変えた、1 本の答え（全部が不正なら検査は拒む）。"""
+    return {"questions": [{**copy.deepcopy(GOOD["questions"][0]), **over}]}
 
 
 def _call(llm: object, **kw: object) -> dict:
@@ -128,14 +127,32 @@ def test_an_off_shape_answer_is_refused(patch: dict) -> None:
         validate_questions(_with(**patch))
 
 
-def test_not_an_object_or_too_many_is_refused() -> None:
+def test_not_an_object_is_refused_and_too_many_are_cut_to_five() -> None:
     with pytest.raises(QuestionSuggestError):
         validate_questions([])
     many = {"questions": [GOOD["questions"][0]] * (MAX_QUESTIONS + 1)}
-    with pytest.raises(QuestionSuggestError):
-        validate_questions(many)
+    assert len(validate_questions(many)["questions"]) == MAX_QUESTIONS
     five = {"questions": [GOOD["questions"][0]] * MAX_QUESTIONS}
     assert len(validate_questions(five)["questions"]) == 5
+
+
+def test_an_english_question_with_sql_looking_words_passes() -> None:
+    # 問いの文には IRI とコードの記号だけを当てる（SQL の語は当てない）
+    q = {**GOOD["questions"][0], "question": "Where is the cheapest shop? Select the top one."}
+    out = validate_questions({"questions": [q]})
+    assert out["questions"][0]["question"].startswith("Where is the cheapest shop")
+
+
+def test_one_bad_question_is_dropped_and_the_rest_come_back() -> None:
+    bad = {**GOOD["questions"][1], "question": "http://example.org/x はいくつ？"}
+    out = validate_questions({"questions": [GOOD["questions"][0], bad, GOOD["questions"][2]]})
+    assert [q["op"] for q in out["questions"]] == ["top", "filter"]
+
+
+def test_a_name_still_refuses_sql_words_but_only_that_row_is_dropped() -> None:
+    bad = {**GOOD["questions"][1], "kind": "SELECT"}
+    out = validate_questions({"questions": [bad, GOOD["questions"][0]]})
+    assert [q["op"] for q in out["questions"]] == ["top"]
 
 
 def test_reason_is_cut_and_never_refused() -> None:
