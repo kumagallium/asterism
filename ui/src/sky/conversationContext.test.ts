@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canSwitch, conversationPath, dataDest, stageMark } from './conversationContext'
+import { canSwitch, conversationPath, dataDest, keepPick, stageMark } from './conversationContext'
 
 const h = (recipe: 1 | 2 | 3 | 4 | 5 | 6 | 7 | null, bindReady = false) => ({ recipe, bindReady })
 
@@ -17,6 +17,15 @@ describe('データの道の送り先は段で決まる', () => {
   it('人の選びは、選んだ段のあいだだけ効く', () => {
     expect(dataDest(h(3, true), { recipe: 3, dest: 'consult' })).toBe('consult')
     expect(dataDest(h(3, true), { recipe: 4, dest: 'consult' })).toBe('bind')
+  })
+  it('段が変わったら選びは消える（戻ってきても蘇らない）', () => {
+    const pick = { recipe: 3 as const, dest: 'consult' as const }
+    expect(keepPick(pick, 3)).toBe(pick)
+    expect(keepPick(pick, 4)).toBeNull()
+    expect(keepPick(pick, null)).toBeNull()
+    expect(keepPick(null, 3)).toBeNull()
+    // 4 に進んで消えたあと、③に戻っても選び（consult）は無く、既定の bind
+    expect(dataDest(h(3, true), keepPick(keepPick(pick, 4), 3))).toBe('bind')
   })
   it('切り替えられるのは③で設計ができているときだけ', () => {
     expect(canSwitch(h(3, true))).toBe(true)

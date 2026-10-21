@@ -197,6 +197,7 @@
     "area": "Add data"
   },
   "now": {
+    "detail": "Now: detailed mode",
     "data": "Now: {{mark}} {{step}} — {{hint}}",
     "draft": "Now: draft \"{{name}}\" — add or fix with a line",
     "star": "Now: star \"{{name}}\" — ask about this star",

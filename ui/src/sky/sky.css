@@ -658,6 +658,12 @@ button.sky-pill--data:hover:not(:disabled) {
     flex-basis: 100%;
   }
 }
+/* 375px 級: ひとこと（途中のところは残ります…）は 2 行に折れるので出さない（閉じても途中が残るのは変わらない） */
+@media (max-width: 480px) {
+  .sky-add-hint {
+    display: none;
+  }
+}
 
 /* 履歴は常に会話の欄の 40% 以上見える。上の札・下の道具・置く欄・選んだ札の欄は、足りなければ中でスクロールして縮む */
 .sky-conv .thm-chat-scroll {

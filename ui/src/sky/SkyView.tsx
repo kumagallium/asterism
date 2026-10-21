@@ -16,7 +16,7 @@ import { MoreMenu } from '../MoreMenu'
 import { SV_NS } from '../lineChoice'
 import { relId } from '../workspace/workspaceState'
 import { sheetNow, useSheet } from '../workspace/useNarrow'
-import { ChatSlotContext } from '../kantan/hostedStage'
+import { ChatSlotContext, openHostedSky, useHostedState } from '../kantan/hostedStage'
 import { useLlmSettings } from '../settings/context'
 import { AddConversation } from './AddConversation'
 import { HomeConversation } from './HomeConversation'
@@ -203,6 +203,16 @@ export function SkyView(props: SkyViewProps) {
   }
 
   if (load.status === 'loading') {
+    // 冷間の #/home?add=1 でも、星図を待たずにデータを置く道を出す（星図の取得は裏で続く）
+    if (adding) {
+      return (
+        <div className="sky-page">
+          <AddArea onClose={props.onCloseAdd} hosted={false}>
+            {props.addView}
+          </AddArea>
+        </div>
+      )
+    }
     return (
       <div className="sky-page">
         <div className="sky-placeholder" role="status">
@@ -515,6 +525,14 @@ function SkyBody(
   const prevAnswerable = useRef<number | null | undefined>(undefined)
   if (prevAnswerable.current === undefined) prevAnswerable.current = readAnswerable()
   const answerableNow = sky.facts.questions_answerable
+  // 星図を取り直して数が変わるたびに、基準を「変わる直前の値」へ進める（2 回目以降の公開でも「N → M」が正しい）。
+  // 「生まれた輪」の effect より前に置く（同じ描画で両方が変わったときも、基準が先に進む）。
+  const lastAnswerable = useRef(answerableNow)
+  useEffect(() => {
+    if (lastAnswerable.current === answerableNow) return
+    prevAnswerable.current = lastAnswerable.current
+    lastAnswerable.current = answerableNow
+  }, [answerableNow])
   useEffect(() => {
     if (!nothing) writeAnswerable(answerableNow)
   }, [answerableNow, nothing])
@@ -965,12 +983,18 @@ function SkyBody(
 /** 右の領域（データを置く）。かんたんの札（children）を星図と同じ幅のページのまま描き、閉じるを添える。 */
 function AddArea({ onClose, hosted, children }: { onClose: () => void; hosted: boolean; children: ReactNode }) {
   const { t } = useTranslation('sky')
+  const { done } = useHostedState()
+  // ⑦完了のときの「閉じる」は、⑦の「星図で見る」と同じ道（公開した種類を灯す）。途中のときは従来どおり閉じるだけ（途中は残る）
+  const close = () => {
+    if (done && openHostedSky()) return
+    onClose()
+  }
   return (
     <section className={`sky-add-area${hosted ? ' is-hosted' : ''}`} aria-label={t('add.area')} data-testid="add-area">
       <div className="sky-add-head">
         <span className="sky-add-title">{t('add.area')}</span>
-        <span className="sky-add-hint">{t('add.closeHint')}</span>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} data-testid="add-close">
+        {!done && <span className="sky-add-hint">{t('add.closeHint')}</span>}
+        <button type="button" className="btn btn--ghost btn--sm" onClick={close} data-testid="add-close">
           {t('add.close')}
         </button>
       </div>

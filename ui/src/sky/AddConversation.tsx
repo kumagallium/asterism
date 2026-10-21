@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ConsultDrawer } from '../consult/ConsultDrawer'
 import { registerWorkspaceChat } from '../consult/workspaceChatActive'
 import { useHostedState } from '../kantan/hostedStage'
-import { canSwitch, dataDest, stageMark, type DestPick } from './conversationContext'
+import { canSwitch, dataDest, keepPick, stageMark, type DestPick } from './conversationContext'
 
 // ホームの左の会話（データを置いているあいだ）。契約 pr8c §2。右にかんたんが出ている間、1 つの欄で 2 つの話を扱う:
 //   (b) ③の列の結びつき — DatasetChat（/api/consult/graph screen=dataset・bind_column の提案カード）。ウィザードが
@@ -30,6 +30,13 @@ export function AddConversation({
   // ホームは自分の欄に会話を持つ — 右下の「AI に相談」は出さない（会話が 2 つにならない）
   useEffect(() => registerWorkspaceChat(), [])
 
+  // 人の選びは「その段のあいだだけ」— 段が変わったら消す（描画の中で state を直す）
+  const [seenRecipe, setSeenRecipe] = useState(h.recipe)
+  if (h.recipe !== seenRecipe) {
+    setSeenRecipe(h.recipe)
+    setPick((p) => keepPick(p, h.recipe))
+  }
+
   // 「空欄の意味を AI に相談して埋める」（③の会話があるとき）— 列の結びつきの会話を前に出す
   const [seenAsks, setSeenAsks] = useState(h.bindAsks)
   if (h.bindAsks !== seenAsks) {
@@ -51,11 +58,16 @@ export function AddConversation({
   const dest = dataDest(h, pick)
   const stage = h.recipe ?? 1
   const hint = dest === 'bind' ? t('sky:now.hint.bind') : h.done ? t('sky:now.hint.done') : t(`sky:now.hint.s${stage}`)
-  const now = t('sky:now.data', { mark: stageMark(stage), step: t(`kantan:recipe.step${stage}`), hint })
+  // かんたんの段が無い（詳細モードで開いている）ときは、段を言わない
+  const now =
+    h.recipe === null ? t('sky:now.detail') : t('sky:now.data', { mark: stageMark(stage), step: t(`kantan:recipe.step${stage}`), hint })
+  // 設計の相談の欄の空表示は、段に合わせる（①②は「置いたあとで…」だけ。ほかは段のひとこと）
+  const emptyText = t(`sky:now.hint.s${stage <= 2 ? 1 : stage}`)
 
   return (
     <div className={`ws-chat sky-conv sky-conv--add${open ? '' : ' is-folded'}`} data-testid="add-chat" data-dest={dest}>
-      <aside className="thm-chat sky-addchat" aria-label={t('themes:chat.aria')} hidden={!open}>
+      {/* ③の会話（WorkspaceChat）が自分の aside（aria-label）を持つので、外側は aside にしない（同じ名前の入れ子を作らない） */}
+      <div className="thm-chat sky-addchat" hidden={!open}>
         <header className="thm-chat-head">
           <span className="sky-now" data-testid="now-line">
             {now}
@@ -78,9 +90,9 @@ export function AddConversation({
         </header>
         <div className="sky-add-slot" ref={setSlot} hidden={dest !== 'bind'} data-testid="add-slot" />
         <div className="sky-add-consult" hidden={dest !== 'consult'}>
-          <ConsultDrawer embedded onRequested={wantConsult} />
+          <ConsultDrawer embedded onRequested={wantConsult} emptyText={emptyText} />
         </div>
-      </aside>
+      </div>
       {!open && (
         <button type="button" className="btn ws-chat-open" onClick={onOpen} data-testid="chat-open">
           {t('themes:chat.open')}

@@ -22,6 +22,11 @@ export interface DestPick {
   dest: DataDest
 }
 
+/** 段が変わったら、人の選びは消す（「その段のあいだだけ」。戻ってきても前の選びを蘇らせない）。 */
+export function keepPick(pick: DestPick | null, recipe: StageNo | null): DestPick | null {
+  return pick && pick.recipe === recipe ? pick : null
+}
+
 /** データを置いているあいだの送り先。 */
 export function dataDest(h: Pick<HostedState, 'recipe' | 'bindReady'>, pick: DestPick | null): DataDest {
   const bindable = h.recipe === 3 && h.bindReady

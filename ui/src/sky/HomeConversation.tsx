@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { openProposalCount } from '../consult/workspaceChatState'
 import { registerWorkspaceChat } from '../consult/workspaceChatActive'
+import { useSharedInput } from '../kantan/hostedStage'
 import { useLlmSettings } from '../settings/context'
 import { conceptName, defaultLabel } from '../themes/themeDraft'
 import { GraphChat } from '../workspace/GraphChat'
@@ -57,6 +58,8 @@ export function HomeConversation({
   const tf = t as unknown as (k: string, o?: Record<string, unknown>) => string
   const { isReady, openSettings } = useLlmSettings()
   const [closing, setClosing] = useState(false)
+  // 入力欄の下書きは、データを置く間の会話の欄と共有する（左の欄が差し替わっても未送信の文字が残る）
+  const [input, setInput] = useSharedInput()
   // ホームは自分の欄に会話を持つ — 右下の「AI に相談」は出さない（会話が 2 つにならない）
   useEffect(() => registerWorkspaceChat(), [])
 
@@ -259,6 +262,8 @@ export function HomeConversation({
           placeholder={placeholder}
           hideEmptyHistory={false}
           focusSignal={focusTick}
+          value={input}
+          onValueChange={setInput}
         >
           {history}
         </GraphChat>

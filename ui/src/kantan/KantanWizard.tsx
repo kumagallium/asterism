@@ -71,7 +71,7 @@ import { assembleSkeleton } from '../api'
 import { commitAsKnownShape, matchKnownShape, type KnownShapeMatch } from '../cards/PlaceView'
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
-import { clearHostedStage, setHostedStage } from './hostedStage'
+import { clearHostedStage, setHostedSkyOpener, setHostedStage } from './hostedStage'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { compactClass, detectDatasetNamespace, expandClass } from '../datasetNamespace'
 import { type UnitResolution, resolveUnit } from '../groundingApi'
@@ -5280,6 +5280,11 @@ export function KantanWizard({
     setHostedStage(recipePos, step === 9)
   }, [recipePos, step])
   useEffect(() => () => clearHostedStage(), [])
+  // ⑦完了のあいだだけ、右の領域の「閉じる」が「星図で見る」と同じ道（openSky）を通れるよう口を置く（毎描画で最新の openSky を指す）
+  useEffect(() => {
+    setHostedSkyOpener(step === 9 ? () => void openSky() : null)
+  })
+  useEffect(() => () => setHostedSkyOpener(null), [])
 
   // S7 cards / S9 chips: assembled sentences over the deterministic results.
   const trialQAs = trial?.available ? buildTrialQAs(trial) : []

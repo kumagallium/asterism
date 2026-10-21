@@ -1,5 +1,6 @@
 // データを置くも作業場で（契約 pr8c）の配線（ソース文字列）と、画面に出さない言葉の検査。
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getSharedInput, openHostedSky, setHostedSkyOpener, setSharedInput } from '../kantan/hostedStage'
 import skyEn from '../i18n/locales/en/sky.json'
 import skyJa from '../i18n/locales/ja/sky.json'
 import appSource from '../App.tsx?raw'
@@ -7,6 +8,7 @@ import consultSource from '../consult/ConsultDrawer.tsx?raw'
 import datasetChatSource from '../kantan/DatasetChat.tsx?raw'
 import wizardSource from '../kantan/KantanWizard.tsx?raw'
 import addSource from './AddConversation.tsx?raw'
+import homeConvSource from './HomeConversation.tsx?raw'
 import skyViewSource from './SkyView.tsx?raw'
 
 const strings = (o: unknown): string[] =>
@@ -73,12 +75,57 @@ describe('左の会話は 1 つ: 段で送り先が決まる', () => {
   })
 })
 
+describe('8c の直し（8d）', () => {
+  afterEach(() => {
+    setSharedInput('')
+    setHostedSkyOpener(null)
+  })
+
+  it('入力欄の未送信の文字は、左の欄が差し替わっても残り、両方の欄が同じ値を持つ', () => {
+    setSharedInput('この列って何')
+    expect(getSharedInput()).toBe('この列って何')
+    // ホームの会話（GraphChat）と、データを置く間の設計の相談（埋め込みの ConsultDrawer）が、同じ置き場を読み書きする
+    expect(homeConvSource).toMatch(/useSharedInput\(\)/)
+    expect(homeConvSource).toMatch(/value=\{input\}/)
+    expect(consultSource).toMatch(/embedded \? sharedDraft : ownDraft/)
+    expect(consultSource).toMatch(/embedded \? setSharedDraft : setOwnDraft/)
+  })
+
+  it('⑦完了の「閉じる」は、口があれば openSky の道（星を灯す）を通る。口が無ければ従来どおり閉じる', () => {
+    expect(openHostedSky()).toBe(false)
+    const fn = vi.fn()
+    setHostedSkyOpener(fn)
+    expect(openHostedSky()).toBe(true)
+    expect(fn).toHaveBeenCalledTimes(1)
+    // ウィザードは⑦のあいだだけ口を置き、openSky（newIris・clearSourceFiles を通る道）を指す
+    expect(wizardSource).toMatch(/setHostedSkyOpener\(step === 9 \? \(\) => void openSky\(\) : null\)/)
+    // 完了のときだけ口を通り、「途中のところは残ります」は完了時には出さない
+    expect(skyViewSource).toMatch(/if \(done && openHostedSky\(\)\) return/)
+    expect(skyViewSource).toMatch(/\{!done && <span className="sky-add-hint">/)
+  })
+
+  it('人の送り先の選びは段が変わったら消す', () => {
+    expect(addSource).toMatch(/setPick\(\(p\) => keepPick\(p, h\.recipe\)\)/)
+  })
+
+  it('星図の読み込み中でも、データを置くときはウィザードを出す。「N → M」の基準は取り直すたびに進む', () => {
+    expect(skyViewSource).toMatch(/status === 'loading'\) \{[^]*?if \(adding\) \{[^]*?<AddArea/)
+    expect(skyViewSource).toMatch(/prevAnswerable\.current = lastAnswerable\.current/)
+  })
+
+  it('左の欄の外側は aside にしない（③の会話が同じ名前の aside を持つ）。詳細モードは段を言わない', () => {
+    expect(addSource).not.toMatch(/<aside/)
+    expect(addSource).toMatch(/h\.recipe === null \? t\('sky:now\.detail'\)/)
+  })
+})
+
 describe('文言', () => {
   it('ja・en とも「いま:」の行・段ごとの 1 行・閉じるを持つ。点線・専門語は出さない', () => {
     for (const d of [skyJa, skyEn]) {
       expect(Object.keys(d.now.hint).sort()).toEqual(['bind', 'done', 's1', 's2', 's3', 's4', 's5', 's6', 's7'])
       expect(d.now.data).toContain('{{hint}}')
       expect(d.add.close).toBeTruthy()
+      expect(d.now.detail).toBeTruthy()
     }
     const text = [...strings(skyJa.now), ...strings(skyJa.add)].join('\n')
     for (const bad of ['RML', 'IRI', 'SPARQL', 'モーダル', '点線']) expect(text).not.toContain(bad)

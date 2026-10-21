@@ -29,6 +29,8 @@ export function GraphChat({
   hideEmptyHistory = false,
   focusSignal = 0,
   compactHead = false,
+  value,
+  onValueChange,
 }: {
   /** 履歴（吹き出し・提案カード）。呼ぶ側が並べる。 */
   children: ReactNode
@@ -61,9 +63,14 @@ export function GraphChat({
   focusSignal?: number
   /** 見出し（相談・たたむ）を出さない。外の欄が自分の見出しを持っているとき（左の会話の欄に置いたとき）。 */
   compactHead?: boolean
+  /** 入力欄の文を外に持つ（左の欄が差し替わっても未送信の文字が残る）。無ければこの欄が自分で持つ。 */
+  value?: string
+  onValueChange?: (text: string) => void
 }) {
   const { t } = useTranslation()
-  const [text, setText] = useState('')
+  const [ownText, setOwnText] = useState('')
+  const text = value ?? ownText
+  const setText = onValueChange ?? setOwnText
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const count = Array.isArray(children) ? children.length : children ? 1 : 0

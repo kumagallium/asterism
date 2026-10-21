@@ -562,7 +562,8 @@ function App() {
   const workspaceChatShown = useWorkspaceChatShown()
   // 右下の「AI に相談」を隠すのは、会話が画面の中にあるときだけ: ホーム／③の会話（mount されている間）と、
   // 用語のページ・テーマ一覧など、ほかの画面には出す。
-  const showGlobalConsult = tab !== 'cards' && !workspaceChatShown
+  // ホームは自分の欄に会話を持つので、欄が register する前の最初の描画でも出さない（一瞬チラつく）
+  const showGlobalConsult = tab !== 'cards' && tab !== 'home' && !workspaceChatShown
   const { openSettings } = useLlmSettings()
   const tSettings = i18n.getFixedT(i18n.language, 'settings')
   const glossSettingsT = i18n.getFixedT(otherLng, 'settings')

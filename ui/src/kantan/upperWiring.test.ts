@@ -230,7 +230,7 @@ describe('③ の会話（AI に相談して結ぶ・契約 pr7c C1・C3）', ()
     expect(workspaceChatSource).toMatch(/registerWorkspaceChat\(\)/)
     expect(appSource).toMatch(/!workspaceChatShown/)
     // 隠すのは会話の mount 中（と、body クラスで作業場）だけ。用語のページ・テーマ一覧（vocab）には出す
-    expect(appSource).toMatch(/const showGlobalConsult = tab !== 'cards' && !workspaceChatShown/)
+    expect(appSource).toMatch(/const showGlobalConsult = tab !== 'cards' && tab !== 'home' && !workspaceChatShown/)
     expect(appSource).not.toMatch(/tab !== 'vocab'/)
   })
 

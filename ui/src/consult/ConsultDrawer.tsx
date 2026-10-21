@@ -12,6 +12,7 @@ import {
   parseSuggestionsBlock,
   type ApplySuggestionsResult,
 } from './consultApply'
+import { useSharedInput } from '../kantan/hostedStage'
 import { useConsultContext } from './consultContext'
 import { onConsultRequested } from './consultOpen'
 import { ConsultMarkdown } from './ConsultMarkdown'
@@ -70,12 +71,15 @@ function historyOf(thread: ConsultThread | undefined, beforeTurnId?: string): Co
 export function ConsultDrawer({
   embedded = false,
   onRequested,
+  emptyText,
 }: {
   /** 左の会話の欄の中に、ふだんの見た目（浮かぶボタン・右のドロワー）なしで置く（UI 再設計 PR 8c）。
    *  中身（履歴・入力・「この候補を表に反映」）は同じ。 */
   embedded?: boolean
   /** 「迷ったら AI に相談」などの外のボタンが相談を求めた（埋め込みの置き場が、この欄を前に出す）。 */
   onRequested?: () => void
+  /** 会話がまだ無いときの 1 行（無ければ既定の「この列って何？…」）。置き場が画面（段）に合わせて渡す。 */
+  emptyText?: string
 } = {}) {
   const { t, i18n } = useTranslation('consult')
   const [open, setOpen] = useState(embedded)
@@ -110,7 +114,11 @@ export function ConsultDrawer({
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => latestConsultThreadId())
   const thread = threads.find((th) => th.id === activeThreadId)
 
-  const [draft, setDraft] = useState('')
+  // 埋め込み（左の会話の欄）の下書きは、ホームの会話の欄と共有する（欄が差し替わっても未送信の文字が残る）
+  const [ownDraft, setOwnDraft] = useState('')
+  const [sharedDraft, setSharedDraft] = useSharedInput()
+  const draft = embedded ? sharedDraft : ownDraft
+  const setDraft = embedded ? setSharedDraft : setOwnDraft
   // 「空欄があったら相談で直せます」— その場から開く。文面は入れるが送らない。
   useEffect(
     () =>
@@ -119,7 +127,7 @@ export function ConsultDrawer({
         setDraft(prefill)
         onRequested?.()
       }),
-    [onRequested],
+    [onRequested, setDraft],
   )
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -255,7 +263,7 @@ export function ConsultDrawer({
         <>
           <div className="consult-scroll" ref={scrollRef}>
             {!thread || thread.turns.length === 0 ? (
-              <p className="consult-empty">{t('empty')}</p>
+              <p className="consult-empty">{emptyText ?? t('empty')}</p>
             ) : (
               thread.turns.map((tn) => (
                 <ConsultBubble
