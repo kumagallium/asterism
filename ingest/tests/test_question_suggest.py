@@ -137,6 +137,30 @@ def test_trend_and_join_with_both_ends() -> None:
     assert out[0]["property2"] == "1 つあたりの値段" and out[1]["kind2"] == "食材の名前"
 
 
+def test_a_kind_that_is_given_but_not_found_drops_top_and_range() -> None:
+    # 言ってあって当たらない kind を黙って空にすると、実行文が問いとずれる
+    out = _run([
+        _q("棚でいちばん高い値段は？", "data", "top", kind="棚", property="price"),
+        _q("棚の値段の幅は？", "data", "range", kind="棚", property="price"),
+    ])  # fmt: skip
+    assert out == []
+    ok = _run([
+        _q("いちばん高い値段は？", "data", "top", kind=None, property="price"),
+        _q("値段の幅は？", "data", "range", kind="値段の記録", property="price"),
+    ])  # fmt: skip
+    assert [o["op"] for o in ok] == ["top", "range"] and ok[0]["kind"] == ""
+
+
+def test_a_trend_on_the_same_column_and_a_join_to_the_same_kind_are_dropped() -> None:
+    out = _run([
+        _q("値段の推移は？", "data", "trend", kind="値段の記録", property="price",
+           property2="1 つあたりの値段"),
+        _q("記録から記録へ？", "data", "join", kind="値段の記録", property="食材の名前",
+           kind2="record"),
+    ])  # fmt: skip
+    assert out == []
+
+
 def test_a_filter_value_must_be_written_in_the_question() -> None:
     wrong = _q("店の名前に「北」を含む記録は？", "data", "filter", kind="値段の記録",
                property="shop", value="東京店", match="contains")  # fmt: skip

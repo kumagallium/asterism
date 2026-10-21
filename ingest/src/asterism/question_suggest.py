@@ -10,7 +10,9 @@ AI（``asterism_step0.question_suggest``）が返した閉じた JSON の問い�
 * 名前が実在する — ``kind`` / ``kind2`` は表の「何の行か」（または既にある種類の用語）、
   ``property`` / ``property2`` は表の列（見出し・表示名）か既にある項目の用語、``target`` は既に
   ある用語の名前に、:func:`~asterism.shared_vocab.normalize_label` で完全一致するものだけ。
-  当たらない名前を使う問いは落とす。出すのは当たった**正式な表示名**。
+  当たらない名前を使う問いは落とす（``range`` / ``top`` の任意の ``kind`` も、言ってあって当たらない
+  ときは落とす）。``trend`` の x と y が同じ列・``join`` の両端が同じ種類の問いも落とす。出すのは
+  当たった**正式な表示名**。
 * ``filter`` の ``value`` は**問いの文に書かれている語**だけ（データの値を言い当てても通さない）。
 * 既存の問い・同じ提案の中で文が重なるものは出さない（``normalize_label``）。同じ答え方（実行文が
   同じ）も 1 本だけ。「何件ある？」だけの問い（``count``）は 1 本まで。
@@ -150,6 +152,15 @@ def postprocess_questions(
             }[str(op)]
             optional = {"range": ("kind",), "top": ("kind",)}.get(str(op), ())
             if any(names[f] is None for f in used):
+                continue
+            # 任意の欄（range / top の kind）は、言ってあって当たらないなら問いごと落とす
+            # （黙って空にすると、AI が言った範囲と実行文がずれる）
+            if any(raw.get(o) and names[o] is None for o in optional):
+                continue
+            # 同じ列どうしの推移・同じ種類どうしのつなぎは問いにならない
+            if op == "trend" and names["property"] == names["property2"]:
+                continue
+            if op == "join" and names["kind"] == names["kind2"]:
                 continue
             sel.update({f: names[f] or "" for f in (*used, *(o for o in optional if names[o]))})
             if op == "filter":
