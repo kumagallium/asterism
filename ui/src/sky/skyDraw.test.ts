@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { SAMPLE_SKY } from './sample'
-import { EMPTY_SKY } from './skyApi'
+import { EMPTY_SKY, type DraftSky } from './skyApi'
 import {
   BORN_RING_MS,
   bornAlive,
+  draftHandlePos,
+  draftPillText,
   formatCount,
+  hitDraftEdge,
+  hitHandle,
   hitTest,
   pointLabelBox,
   visiblePointLabels,
   withAlpha,
 } from './skyDraw'
-import { kindId, layoutSky, type KindNode, type SkyLayout, type SkyNode } from './skyLayout'
+import { draftEdgeId, kindId, layoutSky, type DraftEdgeInfo, type KindNode, type SkyLayout, type SkyNode } from './skyLayout'
 
 const star = (id: string, x: number, y: number, label: string, count: number, r = 8): KindNode => ({
   id,
@@ -159,5 +163,68 @@ describe('小道具', () => {
     expect(bornAlive(born, 1000)).toBe(true)
     expect(bornAlive(born, 1000 + BORN_RING_MS + 200)).toBe(false)
     expect(bornAlive(new Map(), 0)).toBe(false)
+  })
+})
+
+describe('提案の線の当たり判定・端の丸・小さな札の字', () => {
+  const d: DraftSky = {
+    draft_id: 'thermo',
+    theme_label: '熱電材料',
+    concepts: [
+      { key: 'c1', label: '熱伝導率', kind: 'property', use: 'new', state: 'solid' },
+      { key: 'c2', label: '格子熱伝導率', kind: 'property', use: 'new', state: 'solid' },
+      { key: 'c4', label: '粒界散乱', kind: 'class', use: 'new', state: 'thin' },
+    ],
+    relations: [
+      { from: 'c2', to: 'c1', rel: 'part', state: 'solid', index: 0 },
+      { from: 'c4', to: 'c2', rel: 'lowers', state: 'thin', index: 1 },
+      { from: 'c4', to: 'c1', rel: 'lowers', state: 'retarget', index: null },
+    ],
+    questions: [],
+  }
+  const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [d] })
+  const edge = (i: number) => l.edges.filter((e) => e.kind === 'draft')[i]
+  const mid = (i: number) => {
+    const g = edge(i).geom!
+    return { x: g.mx, y: g.my }
+  }
+
+  it('線の上を押すと、その提案の線（直せる線＝下書きの関係）が当たる', () => {
+    const p = mid(1)
+    expect(hitDraftEdge(l, p.x, p.y)).toBe(edge(1))
+    expect(draftEdgeId(hitDraftEdge(l, p.x, p.y)!.draft!)).toBe('c4|lowers|c2')
+  })
+
+  it('離れた所・提案の線（index が無い付け替えの新しい線）は当たらない', () => {
+    expect(hitDraftEdge(l, 5, 5)).toBeNull()
+    const p = mid(2)
+    const got = hitDraftEdge(l, p.x, p.y)
+    // 付け替えの新しい線の真上でも、直せる線として当たるのは別の線（または当たらない）
+    expect(got?.draft?.index === null).toBe(false)
+  })
+
+  it('端の丸は線の終点（矢じりのそば）。持てるのは丸の近く（12px 以内）だけ', () => {
+    const h = draftHandlePos(l, edge(1))!
+    const g = edge(1).geom!
+    expect(h).toEqual({ x: g.x2, y: g.y2 })
+    expect(hitHandle(l, [edge(1)], h.x + 5, h.y)).toBe(edge(1))
+    expect(hitHandle(l, [edge(1)], h.x + 40, h.y)).toBeNull()
+    expect(hitHandle(l, [], h.x, h.y)).toBeNull()
+  })
+
+  it('小さな札の字: 一部・一種・量は文字、下げる・上げる・変える・同じものは記号、付け替えは →・外すは ×', () => {
+    const labels = { partOf: '一部', relSub: '一種', relQuantity: '量' } as Parameters<typeof draftPillText>[1]
+    const mk = (rel: string, state: DraftEdgeInfo['state'] = 'thin'): DraftEdgeInfo => ({ draftId: 'x', rel, state, index: 0, fromKey: 'a', toKey: 'b', problem: false })
+    expect(['part', 'sub', 'quantity', 'eq', 'lowers', 'raises', 'affects'].map((r) => draftPillText(mk(r), labels))).toEqual([
+      '一部',
+      '一種',
+      '量',
+      '＝',
+      '↓',
+      '↑',
+      '↕',
+    ])
+    expect(draftPillText(mk('lowers', 'retarget'), labels)).toBe('→')
+    expect(draftPillText(mk('lowers', 'remove'), labels)).toBe('×')
   })
 })

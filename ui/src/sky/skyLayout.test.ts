@@ -9,6 +9,7 @@ import {
   conceptEdgePointAt,
   conceptPillPos,
   draftCardConcepts,
+  draftEdgeId,
   draftNodeId,
   hash01,
   kindId,
@@ -278,7 +279,7 @@ describe('neighborhood / nodeIdsForIris', () => {
   })
 })
 
-describe('下書きの札（上の帯・枠だけ）', () => {
+describe('提案の札（上の帯・薄い塗り）', () => {
   const thermal: DraftSky = {
     draft_id: 'thermo',
     theme_label: '熱電材料',
@@ -338,6 +339,131 @@ describe('下書きの札（上の帯・枠だけ）', () => {
     }
   })
 })
+
+describe('提案の線（薄い線・図に入れると濃くなる）', () => {
+  const lowers: DraftSky = {
+    draft_id: 'thermo',
+    theme_label: '熱電材料',
+    concepts: [
+      { key: 'c1', label: '熱伝導率', kind: 'property', use: 'new', state: 'solid' },
+      { key: 'c2', label: '格子熱伝導率', kind: 'property', use: 'new', state: 'solid' },
+      { key: 'c4', label: '粒界散乱', kind: 'class', use: 'new', state: 'thin' },
+      { key: 'c5', label: '点欠陥散乱', kind: 'class', use: 'new', state: 'remove' },
+    ],
+    relations: [
+      { from: 'c2', to: 'c1', rel: 'part', state: 'solid', index: 0 },
+      { from: 'c4', to: 'c2', rel: 'lowers', state: 'thin', index: 1 },
+      { from: 'c5', to: 'c1', rel: 'lowers', state: 'thin', index: 2 },
+    ],
+    questions: [],
+  }
+  const cardsOf = (l: SkyLayout) => [...l.nodes.values()].filter((n): n is DraftNode => n.type === 'draft')
+  const draftEdges = (l: SkyLayout) => l.edges.filter((e) => e.kind === 'draft')
+
+  it('札は状態（提案・図に入れた・外す提案）を持ち、状態の無い札（開いていない下書き）は提案', () => {
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    const st = Object.fromEntries(cardsOf(l).map((n) => [n.conceptKey, n.state]))
+    expect(st).toEqual({ c1: 'solid', c2: 'solid', c4: 'thin', c5: 'remove' })
+    const bare = layoutSky(EMPTY_SKY, { width: 960, drafts: [{ ...thermalBare }] })
+    expect(cardsOf(bare).every((n) => n.state === 'thin' && !n.proposed)).toBe(true)
+  })
+
+  it('両端の札がある関係は kind=draft の線になり、道すじ（geom）と関係・状態・添字を持つ', () => {
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    const es = draftEdges(l)
+    expect(es).toHaveLength(3)
+    for (const e of es) {
+      expect(e.geom).toBeDefined()
+      expect(e.draft?.draftId).toBe('thermo')
+    }
+    expect(es.map((e) => [e.draft?.fromKey, e.draft?.rel, e.draft?.toKey, e.draft?.state, e.draft?.index])).toEqual([
+      ['c2', 'part', 'c1', 'solid', 0],
+      ['c4', 'lowers', 'c2', 'thin', 1],
+      ['c5', 'lowers', 'c1', 'thin', 2],
+    ])
+    expect(draftEdgeId(es[1].draft!)).toBe('c4|lowers|c2')
+  })
+
+  it('原因・一部は結果・全体の下の段に並ぶ（線 from → to は from が下）', () => {
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    const y = (k: string) => l.nodes.get(draftNodeId('thermo', k))!.y
+    expect(y('c2')).toBeGreaterThan(y('c1'))
+    expect(y('c4')).toBeGreaterThan(y('c2'))
+    expect(y('c5')).toBeGreaterThan(y('c1'))
+  })
+
+  it('標準の語（curie）・無い概念の端の線は足さない', () => {
+    const d: DraftSky = {
+      ...lowers,
+      relations: [
+        { from: 'c1', to: 'quantitykind:ThermalConductivity', rel: 'quantity', state: 'solid', index: 0 },
+        { from: 'c1', to: 'zzz', rel: 'lowers', state: 'solid', index: 1 },
+      ],
+    }
+    expect(draftEdges(layoutSky(EMPTY_SKY, { width: 960, drafts: [d] }))).toHaveLength(0)
+  })
+
+  it('既にある用語の札（existing:<slug>）の端は、その用語の札につながる', () => {
+    const base = makeSky(3, 12)
+    const t = base.terms[0]
+    const d: DraftSky = {
+      draft_id: 'x',
+      theme_label: 'x',
+      concepts: [
+        { key: 'a', label: '新しい因子', kind: 'class', use: 'new', state: 'thin' },
+        { key: 'b', label: t.label, kind: t.kind, use: `existing:${t.slug}`, state: 'solid' },
+      ],
+      relations: [{ from: 'a', to: 'b', rel: 'lowers', state: 'thin', index: 0 }],
+      questions: [],
+    }
+    const l = layoutSky(base, { width: 1000, drafts: [d] })
+    const e = draftEdges(l)
+    expect(e).toHaveLength(1)
+    expect(e[0].from).toBe(draftNodeId('x', 'a'))
+    expect(e[0].to).toBe(termId(t.iri))
+    // 既にある語の札は増えない
+    expect(cardsOf(l).map((n) => n.conceptKey)).toEqual(['a'])
+  })
+
+  it('付け替えの新しい線（retarget）は札の位置を動かさない・離れる元の線（moved）は形に残る', () => {
+    const plain = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    const moved: DraftSky = {
+      ...lowers,
+      relations: [
+        ...lowers.relations.slice(0, 1),
+        { from: 'c4', to: 'c2', rel: 'lowers', state: 'moved', index: 1 },
+        { from: 'c4', to: 'c1', rel: 'lowers', state: 'retarget', index: null },
+        lowers.relations[2],
+      ],
+    }
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [moved] })
+    expect(positions(l)).toEqual(positions(plain))
+    const states = draftEdges(l).map((e) => e.draft?.state)
+    expect(states).toEqual(['solid', 'moved', 'retarget', 'thin'])
+    // 提案の線（index が無い）は押しても直せない
+    expect(draftEdges(l)[2].draft?.index).toBeNull()
+  })
+
+  it('決定論（同じ入力は同じ道すじ）で、関係が無ければ線を足さない', () => {
+    const a = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    const b = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    expect(draftEdges(a).map((e) => e.geom)).toEqual(draftEdges(b).map((e) => e.geom))
+    expect(draftEdges(layoutSky(EMPTY_SKY, { width: 960, drafts: [{ ...lowers, relations: [] }] }))).toHaveLength(0)
+  })
+
+  it('conceptEdgeGeom は提案の札どうし（と用語の札）の線に形を返す', () => {
+    const l = layoutSky(EMPTY_SKY, { width: 960, drafts: [lowers] })
+    for (const e of draftEdges(l)) expect(conceptEdgeGeom(l, e)).not.toBeNull()
+  })
+})
+
+const thermalBare: DraftSky = {
+  draft_id: 'bare',
+  theme_label: 'x',
+  concepts: [{ key: 'c1', label: '熱伝導率', kind: 'property', use: 'new' }],
+  relations: [],
+  questions: [],
+}
 
 describe('layoutSky — 語どうしの知識の線（一部・下げる・上げる・変える）', () => {
   const base = makeSky(3, 12)
