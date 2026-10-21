@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { dismiss } from '../decide/decideApi'
-import { type ChatScreen, applyOnScreen, dismissOnScreen, proposeOnScreen } from '../consult/graphChatApi'
+import { type ChatScreen, applyOnScreen, dismissOnScreen, proposeOnScreen, suggestQuestions } from '../consult/graphChatApi'
 import { bindUnlinkedMessage, settleRows } from '../consult/workspaceChatState'
 import { useLlmSettings } from '../settings/context'
 import { type GraphApplyResult, type GraphOp, applyGraph, dismissGraph, proposeGraph } from '../themes/consultGraphApi'
@@ -64,6 +64,7 @@ import {
   NO_PENDING,
   type Pending,
   type ProposalItem,
+  type SuggestItem,
   buildCanvas,
   dropReason,
   dropsByOriginal,
@@ -559,6 +560,25 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   }
 
   /**
+   * 「問いを提案してもらう」（PR 10a）。人が押したときだけ呼ぶ。会話にカードを 1 枚足し、返ってきたら
+   * 中身を入れる。何も保存しない（カードは一時的・閉じれば消える）。下書きは触らない。
+   */
+  async function askQuestions(datasetId: string, label: string): Promise<void> {
+    const id = nextItemId()
+    const patch = (p: Partial<SuggestItem>) =>
+      setItems((l) => l.map((it) => (it.kind === 'suggest' && it.id === id ? { ...it, ...p } : it)))
+    setItems((l) => [...l, { kind: 'suggest', id, label, status: 'running', rows: [], detail: '' }])
+    try {
+      const rows = await suggestQuestions(datasetId, lang, getActiveCredentials())
+      patch({ status: 'done', rows })
+    } catch (e) {
+      if (e instanceof ThemesApiError && e.status === 503 && e.detail.includes(AI_UNSET)) setAi('unconfigured')
+      patch({ status: 'failed', detail: errText(e) })
+    }
+  }
+  const closeSuggest = (id: string): void => setItems((l) => l.filter((it) => !(it.kind === 'suggest' && it.id === id)))
+
+  /**
    * 人の一言。送り先は `conversationPath`（conversationContext.ts）で決まる — 下書きがあれば下書きの相談・
    * 星を選んでいれば星図の相談（「この種類は 試料 と同じもの？」。既定）・人が「問いを書く」を選んでいる、または
    * 星を選んでいなければ問い（下書きを作る）。星を選んだままの問いは、人が切替で選ぶ。
@@ -867,6 +887,8 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     aiReady,
     actionErr,
     send,
+    askQuestions,
+    closeSuggest,
     bindByAi,
     yesRows,
     noRows,

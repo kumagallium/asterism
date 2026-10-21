@@ -795,6 +795,14 @@ function SkyBody(
       grow(irisOfKeys(keys))
     },
     onSuggestionsDismissed: (keys: Parameters<typeof irisOfKeys>[0]) => props.setSuggestions((l) => withoutKeys(l, keys)),
+    // 星の札の「問いを提案してもらう」（AI 設定ずみのときだけ）。会話を開いて、カードを足す
+    onSuggestQuestions: ws.aiReady
+      ? (datasetId: string, datasetLabel: string) => {
+          setChatOpen(true)
+          void ws.askQuestions(datasetId, datasetLabel)
+        }
+      : undefined,
+    suggesting: ws.items.some((it) => it.kind === 'suggest' && it.status === 'running'),
   }
   let focusCard: ReactNode = null
   if (ws.draft && edgeIndex >= 0) {

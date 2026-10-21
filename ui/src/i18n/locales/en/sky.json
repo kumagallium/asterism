@@ -228,5 +228,14 @@
   "place": {
     "content": "What will be placed",
     "thin": "{{n}} still proposals"
+  },
+  "suggestQ": {
+    "ask": "Suggest questions",
+    "title": "How about these questions?",
+    "start": "Start with this question",
+    "running": "Thinking of questions",
+    "none": "No question to suggest",
+    "close": "Close",
+    "failed": "Could not suggest questions: {{detail}}"
   }
 }

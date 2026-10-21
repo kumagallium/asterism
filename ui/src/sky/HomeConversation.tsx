@@ -9,6 +9,8 @@ import { GraphChat } from '../workspace/GraphChat'
 import { DraftCard, ProposalCard } from '../workspace/ProposalCard'
 import { relId } from '../workspace/workspaceState'
 import { relationSentenceOf } from '../workspace/workspaceText'
+import { SuggestCard } from './QuestionSuggest'
+import { startQuestionHash } from './skyRoute'
 import { AnswerLines, PlaceBar, ReadStop, SessionTools, WriteForm } from './SessionBlocks'
 import type { HomeWorkspace } from './useHomeWorkspace'
 
@@ -134,6 +136,19 @@ export function HomeConversation({
       )
     }
     if (it.kind === 'answers' && draft) return <AnswerLines key={it.id} ws={ws} draft={draft} lang={lang} />
+    if (it.kind === 'suggest') {
+      // 「この問いで始める」→ 問いを書く道へ（`#/home?write=1&q=`）。開いている下書きがあれば、ホームが確かめてから切り替える
+      return (
+        <SuggestCard
+          key={it.id}
+          item={it}
+          onStart={(q) => {
+            window.location.hash = startQuestionHash(q)
+          }}
+          onClose={() => ws.closeSuggest(it.id)}
+        />
+      )
+    }
     return null
   })
 

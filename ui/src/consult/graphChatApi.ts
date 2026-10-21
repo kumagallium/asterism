@@ -135,3 +135,47 @@ export async function dismissOnScreen(
   const j = (await res.json()) as { dismissed?: unknown }
   return typeof j.dismissed === 'number' ? j.dismissed : 0
 }
+
+/** 「問いを提案してもらう」の 1 本（api の後処理を通ったもの）。`shape` は機械が組む実行文。使わない欄は空。 */
+export interface QuestionSuggestion {
+  question: string
+  mode: 'data' | 'knowledge'
+  op: string
+  shape: string
+}
+
+/** 返りを読める形に（問いの文が無い・形の悪い行は落とす）。 */
+export function readQuestionSuggestions(raw: unknown): QuestionSuggestion[] {
+  const rows = (raw as { suggestions?: unknown } | null)?.suggestions
+  if (!Array.isArray(rows)) return []
+  const out: QuestionSuggestion[] = []
+  for (const r of rows as Record<string, unknown>[]) {
+    if (!r || typeof r.question !== 'string' || !r.question.trim()) continue
+    out.push({
+      question: r.question,
+      mode: r.mode === 'knowledge' ? 'knowledge' : 'data',
+      op: typeof r.op === 'string' ? r.op : '',
+      shape: typeof r.shape === 'string' ? r.shape : '',
+    })
+  }
+  return out
+}
+
+/**
+ * データセットの列の見出しから、AI に問いを提案させる（`POST /api/consult/suggest-questions`）。
+ * 人が押したときだけ呼ぶ。何も保存されない（提案の文・却下は残さない）。値は AI に渡らない。
+ * 失敗は ThemesApiError（503＝AI 未設定・401＝鍵・404＝データセットが無い・502＝AI の答えが形にならない）。
+ */
+export async function suggestQuestions(
+  datasetId: string,
+  lang: string,
+  creds: LlmCredentials | null,
+): Promise<QuestionSuggestion[]> {
+  const res = await fetch(`${API_BASE}/api/consult/suggest-questions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
+    body: JSON.stringify({ screen: 'dataset', context: { dataset_id: datasetId }, lang }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.suggestQuestions'))
+  return readQuestionSuggestions(await res.json())
+}

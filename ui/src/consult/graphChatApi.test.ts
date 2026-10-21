@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyOnScreen, dismissOnScreen, proposeOnScreen } from './graphChatApi'
+import { applyOnScreen, dismissOnScreen, proposeOnScreen, suggestQuestions } from './graphChatApi'
 
 vi.mock('../authToken', async (orig) => ({
   ...(await orig<typeof import('../authToken')>()),
@@ -62,5 +62,38 @@ describe('/api/consult/graph（home・dataset）', () => {
     await expect(applyOnScreen({ screen: 'dataset', context: { dataset_id: 'zz' }, ops: [REL], proposalId: 'p' })).rejects.toMatchObject({
       status: 404,
     })
+  })
+})
+
+describe('/api/consult/suggest-questions（問いの提案）', () => {
+  it('列の見出しの文脈（データセット）と言語を送り、後処理済みの問いを読む。形の悪い行は落とす', async () => {
+    const fetchMock = vi.fn(() =>
+      json({
+        suggestions: [
+          { question: '食材ごとに記録は何件ある？', mode: 'data', op: 'group', shape: '値段の記録を 食材の名前 ごとに数える', kind: '値段の記録' },
+          { question: '値段を下げるものは？', mode: 'knowledge', op: 'factors', shape: '値段 を下げるもの' },
+          { mode: 'data', op: 'count' },
+          { question: '  ' },
+          null,
+        ],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = await suggestQuestions('prices-1', 'ja', null)
+    expect(rows).toEqual([
+      { question: '食材ごとに記録は何件ある？', mode: 'data', op: 'group', shape: '値段の記録を 食材の名前 ごとに数える' },
+      { question: '値段を下げるものは？', mode: 'knowledge', op: 'factors', shape: '値段 を下げるもの' },
+    ])
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/consult/suggest-questions')
+    expect(JSON.parse(String(init.body))).toEqual({ screen: 'dataset', context: { dataset_id: 'prices-1' }, lang: 'ja' })
+    expect((init.headers as Record<string, string>)['X-Asterism-Token']).toBe('tok')
+  })
+
+  it('返りの形が違えば空。AI 未設定（503）は状態つきの失敗', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => json({ nope: 1 })))
+    expect(await suggestQuestions('d', 'ja', null)).toEqual([])
+    vi.stubGlobal('fetch', vi.fn(() => json({ detail: 'AI が設定されていません' }, 503)))
+    await expect(suggestQuestions('d', 'ja', null)).rejects.toMatchObject({ status: 503, detail: 'AI が設定されていません' })
   })
 })

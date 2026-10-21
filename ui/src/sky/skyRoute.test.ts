@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { homeHash, parseHomeQuery } from './skyRoute'
+import { homeHash, parseHomeQuery, startQuestionHash } from './skyRoute'
 
 describe('星図の hash のクエリ', () => {
   it('素の #/home', () => {
@@ -45,5 +45,14 @@ describe('星図の hash のクエリ', () => {
   })
   it('壊れた % があっても落ちない', () => {
     expect(parseHomeQuery('new=%E0%A4%A').newIris).toEqual(['%E0%A4%A'])
+  })
+})
+
+describe('「この問いで始める」（問いの提案）', () => {
+  it('#/home?write=1&q=<問い> で、問いを書く道に問いが入る形で往復する', () => {
+    const q = '食材ごとに 値段の記録は何件ある？ (A&B)'
+    const h = startQuestionHash(q)
+    expect(h).toBe(`#/home?write=1&q=${encodeURIComponent(q)}`)
+    expect(parseHomeQuery(h.split('?')[1]).write).toEqual({ q, resume: '', extend: null })
   })
 })
