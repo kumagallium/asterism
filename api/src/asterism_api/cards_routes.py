@@ -817,7 +817,16 @@ def register_cards(
             owners = await asyncio.to_thread(chat_sessions.draft_session_map, cfg.registry_root)
             for row in rows:
                 row["session_id"] = owners.get(row["draft_id"])
-            out = {**out, "proposed": rows}
+            from asterism_api import chat_attach
+
+            out = {
+                **out,
+                "proposed": rows,
+                # 話に添えた表のうち、取り込み済みで未公開のもの（薄い星座）
+                "proposed_datasets": await asyncio.to_thread(
+                    chat_attach.proposed_datasets, cfg.registry_root
+                ),
+            }
             # 鍵ごとに中身が違う — 共有キャッシュに残さない
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["Vary"] = "X-Asterism-Token, Authorization"

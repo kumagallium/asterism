@@ -1951,8 +1951,9 @@ def test_sky_with_no_published_dataset_is_the_empty_shape(tmp_path: Path) -> Non
         r = client.get("/api/sky")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body) == _SKY_KEYS | {"proposed"}  # 鍵つき（_AUTH）は未確認の提案も
-        assert body["proposed"] == []
+        # 鍵つき（_AUTH）は未確認の提案と、添えて公開前の表も
+        assert set(body) == _SKY_KEYS | {"proposed", "proposed_datasets"}
+        assert body["proposed"] == [] and body["proposed_datasets"] == []
         assert set(body["facts"]) == _SKY_FACT_KEYS
         assert body["datasets"] == [] and body["terms"] == [] and body["questions"] == []
         assert body["facts"]["datasets"] == 0 and body["truncated"] is False
