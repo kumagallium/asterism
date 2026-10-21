@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { type ProposalItem, dropReason, openRows } from './workspaceState'
+import './workspace.css'
 
 // 会話の中の「提案カード」。サーバが組んだ文（sentences）を 1 行ずつ・理由を薄く出し、
 // 「図に入れる（N 件）」「入れない」「1 件ずつ選ぶ」で返事をする。「図に入れる」→ 図が変わりカードは「図に入れた N 件」に畳む。

@@ -1,33 +1,55 @@
-// ホーム＝星図（UI 再設計 PR 2・PR 5 で削った）。参考実装 `docs/design/sky-chart-mock/`。
-//   ・上: 「答えられる問い N / M」を大きく 1 行。その右に入口 2 つ（データを置く・知りたいことを書く）
-//   ・左: 星図（canvas 2D・決定論の配置）。「…」（静かな表示・画像で保存・数で見る・中身まで見る）は
-//     図の右上。直下に凡例 1 行。入口を図に重ねないのは、標準用語の帯の星や札を覆わないため。
-//   ・右: 欄は 1 枚だけ。点を選んでいれば「この星について」、選んでいなければ「知りたいこと」。
-// 配置は skyLayout.ts（純関数）、描画は skyDraw.ts。ここは取得・状態・DOM だけ。
+// ホーム＝作業場（UI 再設計 PR 2・PR 5 で削り、PR 8b で「左に会話・右に星図」に）。
+//   ・上: 「答えられる問い N / M」を大きく 1 行
+//   ・左: 会話（HomeConversation・常設 360px・たためる。375px は下からのシート）。最初の一手のチップ 2 つ
+//     （＋ データを置く／？ 問いを書く）・星を選ぶと先頭に「この星について」の札・下書きの「N 件を置く」
+//   ・右: 星図（canvas 2D・決定論の配置）。「…」（静かな表示・画像で保存・数で見る・中身まで見る）は図の右上。
+//     下書き（提案）は上の帯に薄い札と薄い線で重なり、「図に入れる」で濃くなる。直下に凡例 1 行、その下に
+//     「答えられる問い N / M・テーマを見る →」の帯。
+// 配置は skyLayout.ts（純関数）、描画は skyDraw.ts、会話の状態は useHomeWorkspace.ts。ここは取得・状態・DOM だけ。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isTauri } from '../desktop/updater'
 import { getAlignments, type Alignment } from '../crosswalkApi'
 import { MoreMenu } from '../MoreMenu'
-import { SkyRail } from './SkyRail'
+import { SV_NS } from '../lineChoice'
+import { relId } from '../workspace/workspaceState'
+import { useSheet } from '../workspace/useNarrow'
+import { HomeConversation } from './HomeConversation'
+import { ConceptCard, EdgeCard, OtherDraftCard } from './SessionCards'
+import { SkyPinned } from './SkyCards'
 import { SkyTables } from './SkyTables'
 import { fetchSuggestions, type Suggestion } from './suggestApi'
 import { irisOfKeys, overlayEdges, withoutKeys, type OverlayEdge } from './suggestModel'
 import { SAMPLE_SKY } from './sample'
 import { fetchDraftSky, getSky, type DraftSky, type SkyData } from './skyApi'
+import { NEW_DRAFT_ID, draftSkyOf, edgeIndexOf, retargetKeyOf } from './skyDraft'
 import {
   bornAlive,
+  drawDraftOverlay,
   drawSky,
   drawSuggestions,
   formatCount,
+  hitDraftEdge,
+  hitHandle,
   hitTest,
   readSkyPalette,
   visiblePointLabels,
+  type DraftOverlay,
   type SkyLabels,
   type SkyPalette,
 } from './skyDraw'
-import { layoutSky, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from './skyLayout'
+import {
+  draftEdgeId,
+  layoutSky,
+  neighborhood,
+  neighborhoodOf,
+  nodeIdsForIris,
+  type SkyEdge,
+  type SkyLayout,
+} from './skyLayout'
+import type { WriteRequest } from './skyRoute'
 import { buildSkyTables } from './skyTable'
+import { useHomeWorkspace } from './useHomeWorkspace'
 import './sky.css'
 
 export interface SkyViewProps {
@@ -38,8 +60,11 @@ export interface SkyViewProps {
   newIris: string[]
   /** 灯したら（1 度だけ）hash から new を外す。 */
   onNewConsumed: () => void
+  /** `#/home?write=1…` — 左の会話を「問いを書く」で開く（題・続きの下書き・問いを足すテーマ）。 */
+  write: WriteRequest | null
+  /** 会話に渡したら（1 度だけ）hash から write を外す。 */
+  onWriteConsumed: () => void
   onAddData: () => void
-  onWriteQuestion: () => void
   onOpenKind: (iri: string) => void
   onOpenDataset: (id: string) => void
   onOpenTerm: (slug: string) => void
@@ -189,8 +214,56 @@ function SkyBody(
     onRefresh: () => void
   },
 ) {
-  const { sky, lang, drafts, suggestions } = props
+  const { sky, lang, suggestions } = props
   const { t } = useTranslation('sky')
+
+  // ── 選択（星図の点・提案の線・問い） ──
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null)
+  const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null)
+  const selectNode = useCallback((id: string | null) => {
+    setSelectedId(id)
+    setSelectedEdge(null)
+    setSelectedQuestion(null)
+  }, [])
+  const selectEdge = useCallback((id: string | null) => {
+    setSelectedEdge(id)
+    setSelectedId(null)
+    setSelectedQuestion(null)
+  }, [])
+  const selectQuestion = useCallback((tool: string | null) => {
+    setSelectedQuestion(tool)
+    setSelectedId(null)
+    setSelectedEdge(null)
+  }, [])
+
+  // ── 決めたあとの輪: 取り直した星図が届いたら、その用語と星に 1 度だけ出す ──
+  const growRef = useRef<{ iris: string[]; from: SkyData } | null>(null)
+  const { onRefresh } = props
+  const grow = useCallback(
+    (iris: string[]) => {
+      growRef.current = { iris, from: sky }
+      onRefresh()
+    },
+    [sky, onRefresh],
+  )
+
+  // ── 会話（左）と下書きの道。星図の道の相談は、選んでいる星（種類）を文脈に持つ ──
+  const focusKind = selectedId?.startsWith('k|') ? selectedId.split('|').slice(2).join('|') : null
+  const ws = useHomeWorkspace({
+    lang,
+    focusKind,
+    onHomeApplied: grow,
+    onPlaced: (result) => grow(result.minted.map((slug) => `${SV_NS}${slug}`)),
+  })
+
+  // 星図の上に描く下書き: 開いている下書き（本物と提案）＋ 開いていない下書き（全部提案）
+  const sessionId = ws.draft ? ws.draft.id || NEW_DRAFT_ID : ''
+  const drafts = useMemo<DraftSky[]>(() => {
+    const others = props.drafts.filter((d) => d.draft_id !== sessionId)
+    return ws.draft && ws.model ? [...others, draftSkyOf(ws.draft, ws.model, lang)] : others
+  }, [props.drafts, ws.draft, ws.model, lang, sessionId])
+
   // 下書きだけでも図を描く（見本は出さない）
   const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && drafts.length === 0
   const drawn = nothing ? SAMPLE_SKY : sky
@@ -220,19 +293,12 @@ function SkyBody(
   const [osQuiet] = useState(prefersReducedMotion)
   const reduced = quiet || osQuiet
 
-  // ── 選択 ──
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null)
-  const selectNode = useCallback((id: string | null) => {
-    setSelectedId(id)
-    setSelectedQuestion(null)
-  }, [])
-  const selectQuestion = useCallback((tool: string | null) => {
-    setSelectedQuestion(tool)
-    setSelectedId(null)
-  }, [])
   // 配置が作り直されても、その点が残っていれば選択を保つ。無くなったら外す。
   const activeId = selectedId && layout.nodes.has(selectedId) ? selectedId : null
+  const activeNode = activeId ? layout.nodes.get(activeId) : undefined
+  // 選んだ線は、下書きにまだあるときだけ（直したあと・外したあとは外れる）
+  const edgeIndex = edgeIndexOf(ws.draft, selectedEdge)
+  const activeEdge = edgeIndex >= 0 ? selectedEdge : null
 
   // ── 描画 ──
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -240,6 +306,7 @@ function SkyBody(
   const hoverRef = useRef<string | null>(null)
   const bornRef = useRef<Map<string, number>>(new Map())
   const rafRef = useRef(0)
+  const dragRef = useRef<{ edge: SkyEdge; x: number; y: number; overId: string | null } | null>(null)
   const labels = useMemo<SkyLabels>(
     () => ({
       names: t('bands.names'),
@@ -249,7 +316,10 @@ function SkyBody(
       empty: t('bands.noStar'),
       property: t('bands.property'),
       draft: t('bands.draft'),
+      draftRemove: t('bands.draftRemove'),
       partOf: t('line.partOf'),
+      relSub: t('line.sub'),
+      relQuantity: t('line.quantity'),
       count: (n) => t('unit.count', { n: formatCount(n, lang) }),
       kinds: (n) => t('unit.kinds', { n }),
     }),
@@ -266,12 +336,34 @@ function SkyBody(
     return neighborhoodOf(layout, ids)
   }, [selectedQuestion, sky.questions, layout])
 
+  // 端の丸を出す提案の線: 選んだ線と、選んだ提案の札につながる線（付け替えは線の端を持って別の札に落とす）
+  const handleEdges = useMemo<SkyEdge[]>(() => {
+    const out: SkyEdge[] = []
+    for (const e of layout.edges) {
+      const d = e.kind === 'draft' ? e.draft : undefined
+      if (!d || d.index === null || (d.state !== 'thin' && d.state !== 'solid')) continue
+      const touches = activeNode?.type === 'draft' && (e.from === activeNode.id || e.to === activeNode.id)
+      if ((activeEdge && draftEdgeId(d) === activeEdge) || touches) out.push(e)
+    }
+    return out
+  }, [layout, activeEdge, activeNode])
+
+  // 選んだ線の両端だけを濃く残す
+  const edgeNear = useMemo(() => {
+    if (!activeEdge) return null
+    const e = layout.edges.find((x) => x.kind === 'draft' && x.draft && draftEdgeId(x.draft) === activeEdge)
+    return e ? new Set([e.from, e.to]) : null
+  }, [layout, activeEdge])
+
   interface PaintState {
     layout: SkyLayout
     labels: SkyLabels
     visible: ReadonlySet<string>
     selectedId: string | null
+    selectedEdge: string | null
     questionNear: ReadonlySet<string> | null
+    edgeNear: ReadonlySet<string> | null
+    handles: readonly SkyEdge[]
     reduced: boolean
     nothing: boolean
     /** 薄い線で重ねる「結べそうな線」（星 → 用語の札）。 */
@@ -297,7 +389,7 @@ function SkyBody(
     paletteRef.current ??= readSkyPalette()
     const now = performance.now()
     const focusId = s.nothing ? null : (hoverRef.current ?? s.selectedId)
-    const near = s.nothing ? null : focusId ? neighborhood(s.layout, focusId) : s.questionNear
+    const near = s.nothing ? null : focusId ? neighborhood(s.layout, focusId) : (s.edgeNear ?? s.questionNear)
     drawSky(
       ctx,
       s.layout,
@@ -310,10 +402,15 @@ function SkyBody(
         now,
         reducedMotion: s.reduced,
         alpha: s.nothing ? 0.38 : 1,
+        selectedEdge: s.selectedEdge,
       },
       s.visible,
     )
     if (!s.nothing) drawSuggestions(ctx, s.layout, paletteRef.current, s.overlay, focusId)
+    if (!s.nothing) {
+      const ov: DraftOverlay = { handles: s.handles, drag: dragRef.current }
+      drawDraftOverlay(ctx, s.layout, paletteRef.current, ov)
+    }
     if (!s.reduced && bornAlive(bornRef.current, now)) rafRef.current = requestAnimationFrame(paintFrame)
   }, [])
   const schedule = useCallback(() => {
@@ -322,9 +419,21 @@ function SkyBody(
 
   const overlay = useMemo(() => overlayEdges(layout, suggestions), [layout, suggestions])
   useEffect(() => {
-    stateRef.current = { layout, labels, visible, selectedId: activeId, questionNear, reduced, nothing, overlay }
+    stateRef.current = {
+      layout,
+      labels,
+      visible,
+      selectedId: activeId,
+      selectedEdge: activeEdge,
+      questionNear,
+      edgeNear,
+      handles: handleEdges,
+      reduced,
+      nothing,
+      overlay,
+    }
     schedule()
-  }, [layout, labels, visible, activeId, questionNear, reduced, nothing, overlay, schedule])
+  }, [layout, labels, visible, activeId, activeEdge, questionNear, edgeNear, handleEdges, reduced, nothing, overlay, schedule])
   // フォントが届いたら描き直す（札の幅が変わる）。
   useEffect(() => {
     let alive = true
@@ -337,7 +446,7 @@ function SkyBody(
     }
   }, [schedule])
 
-  // ── 育ったことの 1 行（右の欄の上に 6 秒だけ）: 答えられる問い 5 → 6 ──
+  // ── 育ったことの 1 行（会話の先頭に 6 秒だけ）: 答えられる問い 5 → 6 ──
   const [grown, setGrown] = useState<{ from: number; to: number } | null>(null)
   const grownTimer = useRef(0)
   const showGrown = useCallback((from: number, to: number) => {
@@ -357,16 +466,6 @@ function SkyBody(
     if (!nothing) writeAnswerable(answerableNow)
   }, [answerableNow, nothing])
 
-  // ── 決めたあとの輪: 取り直した星図が届いたら、その用語と星に 1 度だけ出す ──
-  const growRef = useRef<{ iris: string[]; from: SkyData } | null>(null)
-  const { onRefresh } = props
-  const grow = useCallback(
-    (iris: string[]) => {
-      growRef.current = { iris, from: sky }
-      onRefresh()
-    },
-    [sky, onRefresh],
-  )
   useEffect(() => {
     const g = growRef.current
     if (!g || g.from === sky) return
@@ -406,20 +505,71 @@ function SkyBody(
     onNewConsumed()
   }, [newIris, onNewConsumed, layout, reduced, nothing, schedule, answerableNow, showGrown])
 
+  // ── 会話の開閉・「問いを書く」の合図（`#/home?write=1…`） ──
+  const sheet = useSheet()
+  const [chatOpen, setChatOpen] = useState(() => !sheetNow())
+  const firstSheet = useRef(sheet)
+  useEffect(() => {
+    if (firstSheet.current === sheet) return
+    firstSheet.current = sheet
+    setChatOpen(!sheet)
+  }, [sheet])
+  const [prefill, setPrefill] = useState<{ id: number; text: string } | null>(null)
+  const [focusTick, setFocusTick] = useState(0)
+  const { write, onWriteConsumed } = props
+  const writeKey = write ? JSON.stringify(write) : ''
+  useEffect(() => {
+    if (!write) return
+    setChatOpen(true)
+    if (write.resume) void ws.resume(write.resume)
+    else {
+      ws.beginWriting(write.extend)
+      if (write.q) setPrefill((p) => ({ id: (p?.id ?? 0) + 1, text: write.q }))
+      setFocusTick((n) => n + 1)
+    }
+    onWriteConsumed()
+    // 合図は 1 度だけ（ws の関数は毎回作り直されるので、合図の中身だけで回す）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [writeKey])
+
   // ── ポインタ ──
-  const localPoint = (ev: React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } => {
+  const localPoint = (ev: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } => {
     const r = ev.currentTarget.getBoundingClientRect()
     return { x: ((ev.clientX - r.left) * layout.width) / (r.width || layout.width), y: ev.clientY - r.top }
   }
-  const onMove = (ev: React.MouseEvent<HTMLCanvasElement>) => {
+  const justDragged = useRef(false)
+  /** 線の端を落とせる札（開いている下書きの概念になる札）の id。線の元の端・先の端は除く。 */
+  const dropTargetAt = (edge: SkyEdge, x: number, y: number): string | null => {
+    const n = hitTest(layout, x, y)
+    if (!n || n.id === edge.from || n.id === edge.to) return null
+    return retargetKeyOf(n, ws.draft, sky.terms, sessionId) ? n.id : null
+  }
+  const onPointerDown = (ev: React.PointerEvent<HTMLCanvasElement>) => {
+    if (nothing || ev.button !== 0) return
+    const p = localPoint(ev)
+    const e = hitHandle(layout, handleEdges, p.x, p.y)
+    if (!e) return
+    ev.preventDefault()
+    ev.currentTarget.setPointerCapture?.(ev.pointerId)
+    dragRef.current = { edge: e, x: p.x, y: p.y, overId: null }
+    schedule()
+  }
+  const onMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     if (nothing) return
     const p = localPoint(ev)
+    const drag = dragRef.current
+    if (drag) {
+      dragRef.current = { ...drag, x: p.x, y: p.y, overId: dropTargetAt(drag.edge, p.x, p.y) }
+      schedule()
+      return
+    }
     const id = hitTest(layout, p.x, p.y)?.id ?? null
+    const onLine = !id && (hitDraftEdge(layout, p.x, p.y) !== null || hitHandle(layout, handleEdges, p.x, p.y) !== null)
     if (id !== hoverRef.current) {
       hoverRef.current = id
-      ev.currentTarget.classList.toggle('sky-canvas--hit', !!id)
       schedule()
     }
+    ev.currentTarget.classList.toggle('sky-canvas--hit', !!id || onLine)
   }
   const onLeave = () => {
     if (hoverRef.current) {
@@ -427,10 +577,32 @@ function SkyBody(
       schedule()
     }
   }
+  const finishDrag = (ev: React.PointerEvent<HTMLCanvasElement>, drop: boolean) => {
+    const drag = dragRef.current
+    if (!drag) return
+    dragRef.current = null
+    ev.currentTarget.releasePointerCapture?.(ev.pointerId)
+    justDragged.current = true
+    window.setTimeout(() => (justDragged.current = false), 0)
+    schedule()
+    const info = drag.edge.draft
+    if (!drop || !info || info.index === null) return
+    const target = dropTargetAt(drag.edge, drag.x, drag.y)
+    const key = target ? retargetKeyOf(layout.nodes.get(target), ws.draft, sky.terms, sessionId) : null
+    const rel = ws.draft?.relations[info.index]
+    if (!key || !rel || key === rel.from || key === rel.to) return
+    void ws.editRelation(info.index, { from: rel.from, rel: rel.rel, to: key }).then((ok) => {
+      if (ok) setSelectedEdge(relId({ from: rel.from, rel: rel.rel, to: key }))
+    })
+  }
   const onClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
-    if (nothing) return
+    if (nothing || justDragged.current) return
     const p = localPoint(ev)
-    selectNode(hitTest(layout, p.x, p.y)?.id ?? null)
+    const n = hitTest(layout, p.x, p.y)
+    if (n) return selectNode(n.id)
+    const e = hitDraftEdge(layout, p.x, p.y)
+    if (e?.draft) return selectEdge(draftEdgeId(e.draft))
+    selectNode(null)
   }
 
   // ── 画像で保存 ──
@@ -505,16 +677,67 @@ function SkyBody(
           ? t('state.truncated')
           : null
 
-  const entries = (
-    <>
-      <button type="button" className="btn btn--primary btn--sm" onClick={props.onAddData}>
-        {t('common:entries.data')}
-      </button>
-      <button type="button" className="btn btn--activity btn--sm" onClick={props.onWriteQuestion}>
-        {t('common:entries.question')}
-      </button>
-    </>
+  // ── 会話の先頭に差し込む札 ──
+  const cardProps = {
+    sky,
+    layout,
+    lang,
+    grown,
+    alignments,
+    drafts: props.drafts.filter((d) => d.draft_id !== sessionId),
+    selectedId: activeId,
+    selectedQuestion,
+    onSelectNode: selectNode,
+    onSelectQuestion: selectQuestion,
+    onOpenKind: props.onOpenKind,
+    onOpenDataset: props.onOpenDataset,
+    onOpenTerm: props.onOpenTerm,
+    onOpenQuestions: props.onOpenQuestions,
+    onDecided: grow,
+    suggestions,
+    unlinkedKinds: kindsWithoutTerm,
+    onSuggestionsApplied: (keys: Parameters<typeof irisOfKeys>[0]) => {
+      props.setSuggestions((l) => withoutKeys(l, keys))
+      grow(irisOfKeys(keys))
+    },
+    onSuggestionsDismissed: (keys: Parameters<typeof irisOfKeys>[0]) => props.setSuggestions((l) => withoutKeys(l, keys)),
+  }
+  let focusCard: ReactNode = null
+  if (ws.draft && edgeIndex >= 0) {
+    focusCard = <EdgeCard key={activeEdge} ws={ws} draft={ws.draft} index={edgeIndex} lang={lang} />
+  } else if (activeNode?.type === 'draft') {
+    if (ws.draft && activeNode.draftId === sessionId) {
+      focusCard = <ConceptCard ws={ws} draft={ws.draft} conceptKey={activeNode.conceptKey} lang={lang} onSelectEdge={selectEdge} />
+    } else {
+      const other = props.drafts.find((d) => d.draft_id === activeNode.draftId)
+      if (other) {
+        focusCard = (
+          <OtherDraftCard
+            draft={other}
+            name={activeNode.label}
+            onOpen={() => {
+              setChatOpen(true)
+              void ws.resume(other.draft_id)
+            }}
+          />
+        )
+      }
+    }
+  }
+  const pinned = (
+    <SkyPinned {...cardProps} focusCard={focusCard} aiReady={ws.aiReady} />
   )
+  const hasPinned =
+    !!focusCard ||
+    !!grown ||
+    suggestions.length > 0 ||
+    !!selectedQuestion ||
+    (!!activeNode && activeNode.type !== 'draft') ||
+    cardProps.drafts.length > 0
+  // 会話をたたんでいる（またはシートが閉じている）あいだは、札を図の下の帯に出す
+  const bandPinned = !chatOpen && hasPinned
+
+  const selectedKey = activeNode?.type === 'draft' && activeNode.draftId === sessionId ? activeNode.conceptKey : null
 
   return (
     <div className="sky-page">
@@ -529,104 +752,112 @@ function SkyBody(
         ) : (
           <span className="sky-facts-none">{t('facts.none')}</span>
         )}
-        {/* 入口 2 つ。図の中に重ねると星や札を覆うので、図の上の行の右に置く（空の状態は中央のカード）。 */}
-        {!nothing && <div className="sky-entries">{entries}</div>}
       </div>
 
       {note && <p className="sky-note">{note}</p>}
 
-      <div className="sky-grid">
-        <div className="sky-chartwrap" ref={wrapRef}>
-          <div className="sky-figure">
-            <canvas
-              ref={canvasRef}
-              className="sky-canvas"
-              style={{ height: layout.height }}
-              role="img"
-              aria-label={ariaLabel}
-              onMouseMove={onMove}
-              onMouseLeave={onLeave}
-              onClick={onClick}
-            />
-            {nothing && (
-              <>
-                <span className="sky-sample-tag">{t('empty.sample')}</span>
-                <div className="sky-empty-card">
-                  <h2 className="sky-empty-title">{t('empty.none')}</h2>
-                  <div className="sky-empty-actions">{entries}</div>
-                </div>
-              </>
-            )}
-            <MoreMenu
-              className="sky-more"
-              label={t('more.label')}
-              items={[
-                {
-                  key: 'quiet',
-                  label: t('quiet'),
-                  checked: reduced,
-                  disabled: osQuiet,
-                  onSelect: () => {
-                    setQuiet(!reduced)
-                    writeQuiet(!reduced)
+      <div className={`sky-ws${chatOpen ? '' : ' is-folded'}`}>
+        <HomeConversation
+          ws={ws}
+          lang={lang}
+          pinned={chatOpen && hasPinned ? pinned : null}
+          open={chatOpen}
+          onOpen={() => setChatOpen(true)}
+          onFold={() => setChatOpen(false)}
+          selectedKey={selectedKey}
+          selectedEdge={activeEdge}
+          onSelectEdge={selectEdge}
+          unlinkedKinds={kindsWithoutTerm}
+          onAddData={props.onAddData}
+          prefill={prefill}
+          focusTick={focusTick}
+        />
+        <div className="sky-main">
+          <div className="sky-chartwrap" ref={wrapRef}>
+            <div className="sky-figure">
+              <canvas
+                ref={canvasRef}
+                className="sky-canvas"
+                style={{ height: layout.height }}
+                role="img"
+                aria-label={ariaLabel}
+                onPointerDown={onPointerDown}
+                onPointerMove={onMove}
+                onPointerUp={(ev) => finishDrag(ev, true)}
+                onPointerCancel={(ev) => finishDrag(ev, false)}
+                onPointerLeave={onLeave}
+                onClick={onClick}
+              />
+              {nothing && (
+                <>
+                  <span className="sky-sample-tag">{t('empty.sample')}</span>
+                  <div className="sky-empty-card">
+                    <h2 className="sky-empty-title">{t('empty.none')}</h2>
+                  </div>
+                </>
+              )}
+              <MoreMenu
+                className="sky-more"
+                label={t('more.label')}
+                items={[
+                  {
+                    key: 'quiet',
+                    label: t('quiet'),
+                    checked: reduced,
+                    disabled: osQuiet,
+                    onSelect: () => {
+                      setQuiet(!reduced)
+                      writeQuiet(!reduced)
+                    },
                   },
-                },
-                {
-                  key: 'png',
-                  label: t('png.button'),
-                  disabled: tauri || nothing,
-                  title: tauri ? t('png.desktop') : undefined,
-                  onSelect: savePng,
-                },
-                { key: 'numbers', label: t('more.numbers'), onSelect: () => setTablesOpen(true) },
-                { key: 'deep', label: t('deep'), onSelect: () => props.onDeep(true) },
-              ]}
-            />
+                  {
+                    key: 'png',
+                    label: t('png.button'),
+                    disabled: tauri || nothing,
+                    title: tauri ? t('png.desktop') : undefined,
+                    onSelect: savePng,
+                  },
+                  { key: 'numbers', label: t('more.numbers'), onSelect: () => setTablesOpen(true) },
+                  { key: 'deep', label: t('deep'), onSelect: () => props.onDeep(true) },
+                ]}
+              />
+            </div>
+            <div className="sky-legend">
+              <span>
+                <i style={{ background: 'var(--entity)' }} />
+                {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
+              </span>
+              <span>
+                <i style={{ background: 'var(--activity)' }} />
+                {t('legend.term')}
+              </span>
+              <span>
+                <i style={{ background: 'var(--accent)' }} />
+                {t('legend.std')}
+              </span>
+            </div>
+            {pngError && (
+              <p className="sky-png-note" role="alert">
+                {t('png.failed')}
+              </p>
+            )}
           </div>
-          <div className="sky-legend">
-            <span>
-              <i style={{ background: 'var(--entity)' }} />
-              {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
-            </span>
-            <span>
-              <i style={{ background: 'var(--activity)' }} />
-              {t('legend.term')}
-            </span>
-            <span>
-              <i style={{ background: 'var(--accent)' }} />
-              {t('legend.std')}
-            </span>
-          </div>
-          {pngError && (
-            <p className="sky-png-note" role="alert">
-              {t('png.failed')}
+          {f.questions_total > 0 && (
+            <p className="sky-band" data-testid="questions-band">
+              <span>
+                {t('band.answerable', { ok: f.questions_answerable, total: f.questions_total })}
+              </span>
+              <button type="button" className="link-btn" onClick={props.onOpenQuestions}>
+                {t('band.themes')}
+              </button>
             </p>
           )}
+          {bandPinned && (
+            <div className="sky-sheetband" data-testid="pinned-band">
+              {pinned}
+            </div>
+          )}
         </div>
-        <SkyRail
-          sky={sky}
-          layout={layout}
-          lang={lang}
-          grown={grown}
-          alignments={alignments}
-          drafts={drafts}
-          selectedId={activeId}
-          selectedQuestion={selectedQuestion}
-          onSelectNode={selectNode}
-          onSelectQuestion={selectQuestion}
-          onOpenKind={props.onOpenKind}
-          onOpenDataset={props.onOpenDataset}
-          onOpenTerm={props.onOpenTerm}
-          onOpenQuestions={props.onOpenQuestions}
-          onDecided={grow}
-          suggestions={suggestions}
-          unlinkedKinds={kindsWithoutTerm}
-          onSuggestionsApplied={(keys) => {
-            props.setSuggestions((l) => withoutKeys(l, keys))
-            grow(irisOfKeys(keys))
-          }}
-          onSuggestionsDismissed={(keys) => props.setSuggestions((l) => withoutKeys(l, keys))}
-        />
       </div>
 
       {tablesOpen && (
@@ -636,4 +867,13 @@ function SkyBody(
       )}
     </div>
   )
+}
+
+/** 起動時に、会話をシートにする幅か（最初の開閉の初期値に使う）。 */
+function sheetNow(): boolean {
+  try {
+    return window.matchMedia('(max-width: 980px)').matches
+  } catch {
+    return false
+  }
 }

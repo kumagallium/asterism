@@ -66,52 +66,31 @@
     "title": "Questions in no theme"
   },
   "wizard": {
-    "aria": "Build from what you want to know",
-    "title": "Build from what you want to know (theme)",
     "close": "Close",
-    "back": "Back",
-    "here": "You are here",
-    "recipe": "The 3 steps of a theme",
     "saveErr": "Could not save the draft: {{detail}}",
     "closeAsk": "Closing. What about the draft?",
     "keepClose": "Keep it and close",
     "discardClose": "Discard and close",
     "keepGoing": "Keep going"
   },
-  "steps": {
-    "write": "Write",
-    "review": "Check the draft",
-    "place": "Place"
-  },
   "write": {
-    "lead": "Write what you want to know, one per line. The theme name can stay empty.",
     "themeName": "Theme name (optional)",
-    "themeNamePlaceholder": "If empty, the AI names it (e.g. Thermoelectric materials)",
-    "questions": "What you want to know (one per line)",
-    "questionsPlaceholder": "e.g. What can lower thermal conductivity?",
-    "examples": "Examples (press to add)",
-    "suggestNote": "AI suggestions (press to add)",
-    "aiOff": "No AI is set up. You can write by hand.",
-    "toRead": "Let the AI read",
     "manual": "Write by hand"
   },
   "read": {
-    "running": "Reading…",
     "badShape": "The AI's answer was not in the fixed shape.",
     "unconfigured": {
       "title": "The AI is not set up",
-      "body": "It cannot read the questions because no AI is set up. You can add concepts yourself (set it up any time from Settings)."
+      "body": "It cannot read the questions because no AI is set up. You can add concepts yourself (set it up any time from Settings).",
+      "short": "AI is not set up, so you write by hand. Add concepts from “Add by hand” below."
     },
-    "manual": "Write by hand",
     "openSettings": "Open settings",
-    "dismiss": "Close",
     "failed": {
       "title": "Could not make the AI draft",
       "body": "Try again, or write by hand. Your questions are kept as they are.",
       "detail": "Technical details"
     },
-    "retry": "Let it read again",
-    "again": "Let it read again"
+    "retry": "Let it read again"
   },
   "rel": {
     "sentence": {
@@ -131,13 +110,11 @@
     "leadExtend": "Places {{concepts}} concepts and {{relations}} relations in “{{label}}” and adds {{questions}} questions.",
     "concepts": "New concepts and their IDs",
     "relations": "Relations",
-    "questions": "Questions and how they are answered",
     "id": "ID",
     "idAria": "ID of “{{label}}”",
     "idBad": "An ID starts with a lowercase letter and uses only lowercase letters, digits and _.",
     "idTaken": "This ID is already used. Choose another.",
     "idDuplicate": "Two concepts have the same ID.",
-    "memoQuestion": "Memo question (no way of answering yet)",
     "blocker": {
       "label": "A concept has no name. Go back to step 2 and fix it.",
       "slug": "A concept has an ID in the wrong form.",
@@ -145,8 +122,8 @@
       "duplicate": "Two concepts share an ID."
     },
     "placing": "Placing…",
-    "go": "Place",
-    "noDraft": "The draft could not be saved, so it cannot be placed."
+    "noDraft": "The draft could not be saved, so it cannot be placed.",
+    "done": "Placed the theme “{{label}}”."
   },
   "term": {
     "back": "Back to what you want to know",
@@ -177,8 +154,6 @@
   },
   "firstThemeLabel": "First questions",
   "review": {
-    "lead": "Look at the figure, fix it by talking on the right, then place everything at once.",
-    "leadEmpty": "No concepts yet. Talk it over on the right, or add one with \"Add by hand\".",
     "questionsAria": "How each question is answered",
     "still": "Not yet",
     "counts": "Knowledge {{k}} · Data {{d}}",
@@ -202,14 +177,10 @@
     "addEn": "English name",
     "addAliases": "Aliases",
     "addAliasesPlaceholder": "Aliases (comma separated)",
-    "aiOff": "AI is not set up, so the conversation is off. You can still add by hand.",
     "confirm": "Place {{n}}",
     "confirmNone": "Place the questions only",
     "unlinkedNote": "{{n}} concepts that do not connect to a question are left out.",
-    "leadHand": "Add concepts, choose how each question is answered, then place them together.",
-    "thinNote": "{{n}} faint proposals are not placed until you answer \"Add to the map\".",
-    "leadNarrow": "Look at the figure, fix it by talking below, then place everything at once.",
-    "leadEmptyNarrow": "No concepts yet. Talk it over below, or add one with \"Add by hand\"."
+    "thinNote": "{{n}} proposals are not placed until you answer “Add to the map”."
   },
   "answer": {
     "label": "Answered as:",
@@ -245,18 +216,9 @@
     }
   },
   "map": {
-    "empty": "No figure yet. Talk it over on the right, or add a concept with \"Add by hand\".",
-    "lonely": "Not connected to a question",
-    "std": "Same as the standard term {{ref}}",
     "expand": "Grow from here",
     "expandOff": "Needs an AI to be set up",
     "remove": "Remove",
-    "legendStd": "Matches a standard term",
-    "pill": {
-      "sub": "kind of",
-      "part": "part of",
-      "quantity": "qty"
-    },
     "pillTitle": {
       "sub": "Kind of (narrow → broad)",
       "part": "Part of (part → whole)",
@@ -266,13 +228,7 @@
       "eq": "Same as",
       "quantity": "Quantity"
     },
-    "scrollHint": "Scroll the map sideways →",
-    "fitAll": "Fit everything",
     "tagProposal": "Proposal",
-    "tagRemove": "Proposed removal",
-    "legendGhost": "Proposal (faint)",
-    "handle": "End of the relation: drag onto another card to re-point it",
-    "pillRetarget": "Re-point (proposal)",
     "emptyNarrow": "No figure yet. Talk it over below, or add a concept with \"Add by hand\"."
   },
   "chat": {

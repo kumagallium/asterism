@@ -178,10 +178,10 @@ describe('導線の hash', () => {
     expect(parseVocabHash('#/vocab')).toEqual({ q: '', resume: '' })
   })
 
-  it('ホームの下書きの札から、続き（②）を開く hash を作って読み戻せる', () => {
+  it('ホームの下書きの札から、続きを会話で開く hash を作って読み戻せる', () => {
     expect(parseVocabHash(resumeDraftHash('thermo-1'))).toEqual({ q: '', resume: 'thermo-1' })
     expect(resumeDraftHash('a b')).toBe('#/questions?new=1&resume=a%20b')
-    expect(parseHash(resumeDraftHash('thermo-1'))).toEqual({ tab: 'vocab', newQuestion: true })
+    expect(parseHash(resumeDraftHash('thermo-1'))).toEqual({ tab: 'home', write: { q: '', resume: 'thermo-1', extend: null } })
   })
 
   it('ルータは #/questions?…（旧 #/vocab?…も）を「知りたいこと」画面として開く', () => {

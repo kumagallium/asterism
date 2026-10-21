@@ -2,6 +2,7 @@ import { Send, Sparkles } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import '../consult/ConsultDrawer.css'
+import './workspace.css'
 
 // 作業場の右（会話）の枠。人の一言・AI の散文（薄い）・提案カード（ProposalCard）の並びと入力欄。
 // 見た目（吹き出し・入力欄）は consult/ の部品の CSS を流用する（ConsultDrawer は使わない）。
@@ -12,6 +13,9 @@ import '../consult/ConsultDrawer.css'
 
 export function GraphChat({
   children,
+  pinned,
+  bar,
+  prefill,
   focus,
   tools,
   aiReady,
@@ -27,10 +31,16 @@ export function GraphChat({
 }: {
   /** 履歴（吹き出し・提案カード）。呼ぶ側が並べる。 */
   children: ReactNode
+  /** 会話の先頭に差し込む札（星を選んだときの「この星について」・線を選んだときの A・関係・B など）。無ければ出さない。 */
+  pinned?: ReactNode
+  /** 入力欄の上に固定する操作（「N 件を置く」）。無ければ出さない。 */
+  bar?: ReactNode
+  /** 入力欄に文を入れて、フォーカスする（`id` が変わるたびに 1 回）。 */
+  prefill?: { id: number; text: string } | null
   /** 選んだ札・線の欄。無ければ出さない。 */
-  focus: ReactNode
+  focus?: ReactNode
   /** 文の一覧・手で足す。 */
-  tools: ReactNode
+  tools?: ReactNode
   /** AI が使える（設定済みで、503 でもない）。 */
   aiReady: boolean
   /** AI の返事を待っている。 */
@@ -63,6 +73,17 @@ export function GraphChat({
     if (focusSignal > 0) inputRef.current?.focus()
   }, [focusSignal])
 
+  // 外から文を入れる（質問するから持ち込まれた題など）。送るのは人。同じ id では 1 回だけ。
+  const prefillId = prefill?.id ?? 0
+  const [seenPrefill, setSeenPrefill] = useState(0)
+  if (prefillId !== seenPrefill) {
+    setSeenPrefill(prefillId)
+    if (prefill) setText(prefill.text)
+  }
+  useEffect(() => {
+    if (prefillId > 0) inputRef.current?.focus()
+  }, [prefillId])
+
   const busy = thinking || locked
   const showHistory = !(hideEmptyHistory && count === 0 && !thinking)
   const hint = placeholder ?? t('themes:chat.placeholder')
@@ -87,6 +108,11 @@ export function GraphChat({
           </button>
         </span>
       </header>
+      {pinned && (
+        <div className="thm-chat-pinned" data-testid="chat-pinned">
+          {pinned}
+        </div>
+      )}
       {showHistory && (
         <div className="consult-scroll thm-chat-scroll" ref={scrollRef} data-testid="chat-scroll">
           {children}
@@ -101,7 +127,8 @@ export function GraphChat({
         </div>
       )}
       {focus && <div className="thm-chat-focus">{focus}</div>}
-      <div className="thm-chat-tools">{tools}</div>
+      {tools && <div className="thm-chat-tools">{tools}</div>}
+      {bar && <div className="thm-chat-bar">{bar}</div>}
       <div className="consult-foot thm-chat-foot">
         {aiReady ? (
           <form

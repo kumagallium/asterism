@@ -381,13 +381,14 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
     expect(routeToHash({ tab: 'vocab' })).toBe('#/questions')
   })
 
-  it('#/questions?new=1 は newQuestion を立てる・往復する', () => {
-    expect(parseHash('#/questions?new=1')).toEqual<Route>({ tab: 'vocab', newQuestion: true })
-    expect(routeToHash({ tab: 'vocab', newQuestion: true })).toBe('#/questions?new=1')
-    expect(roundTrip('#/questions?new=1')).toBe('#/questions?new=1')
+  it('#/questions?new=1 はホームの会話を「問いを書く」で開く（作る操作は作業場に寄せた）', () => {
+    const write = { q: '', resume: '', extend: null }
+    expect(parseHash('#/questions?new=1')).toEqual<Route>({ tab: 'home', write })
+    expect(routeToHash({ tab: 'home', write })).toBe('#/home?write=1')
+    expect(roundTrip('#/questions?new=1')).toBe('#/home?write=1')
   })
 
-  it('#/questions?q=… ・ scope は newQuestion を立てない（画面が hash から読む）', () => {
+  it('#/questions?q=… ・ scope は会話を開かない（一覧のまま）', () => {
     expect(parseHash('#/questions?q=abc')).toEqual<Route>({ tab: 'vocab' })
     expect(parseHash('#/questions?scope=standard&dataset=x')).toEqual<Route>({ tab: 'vocab' })
   })
@@ -395,7 +396,7 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
   it('旧 #/vocab・#/vocab?… も同じ結果（互換）', () => {
     expect(parseHash('#/vocab')).toEqual<Route>({ tab: 'vocab' })
     expect(parseHash('#/vocab?q=x')).toEqual<Route>({ tab: 'vocab' })
-    expect(parseHash('#/vocab?new=1')).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(parseHash('#/vocab?new=1')).toEqual<Route>({ tab: 'home', write: { q: '', resume: '', extend: null } })
   })
 
   it('#/data は gallery', () => {
@@ -421,10 +422,18 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
 })
 
 describe('知りたいこと（テーマ・用語のページ）— UI 再設計 PR 4', () => {
-  it('#/questions?new=1&q=<題> は newQuestion を立てる（題は画面が hash から読む）', () => {
+  it('#/questions?new=1&q=<題> は会話に題を運ぶ（質問するから）', () => {
     const hash = '#/questions?new=1&q=' + encodeURIComponent('ZT が最大の試料は？ A/B')
-    expect(parseHash(hash)).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', write: { q: 'ZT が最大の試料は？ A/B', resume: '', extend: null } })
     expect(legacyHashRewrite(hash)).toBeNull()
+  })
+
+  it('#/questions?new=1&resume=<id> は会話に続きの下書きを開く・問いを足すテーマは extend で運ぶ', () => {
+    expect(parseHash('#/questions?new=1&resume=d1')).toEqual<Route>({ tab: 'home', write: { q: '', resume: 'd1', extend: null } })
+    const w = { q: '', resume: '', extend: { id: 'first', label: 'はじめの問い' } }
+    const hash = routeToHash({ tab: 'home', write: w })
+    expect(hash).toBe('#/home?write=1&extend=first&label=%E3%81%AF%E3%81%98%E3%82%81%E3%81%AE%E5%95%8F%E3%81%84')
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', write: w })
   })
 
   it('#/questions/term/<slug> は用語のページ・往復する（slug は符号化される）', () => {

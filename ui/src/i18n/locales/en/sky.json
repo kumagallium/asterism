@@ -6,7 +6,8 @@
     "std": "Standard terms (horizon)",
     "noStar": "No stars yet",
     "property": "field",
-    "draft": "draft"
+    "draft": "proposal",
+    "draftRemove": "remove?"
   },
   "unit": {
     "count": "{{n}} rows",
@@ -46,7 +47,7 @@
     "ariaSample": "Sample sky chart (not your data)"
   },
   "empty": {
-    "none": "Your sky chart grows here, from your data and your questions",
+    "none": "Write a question or put in data, and the chart grows here",
     "sample": "A sample (not your data)",
     "dataOnly": "{{n}} kinds have no term yet. Write what you want to know and they get a name.",
     "questionsOnly": "No data answers yet. Put your data here and Asterism looks for matching kinds."
@@ -85,23 +86,20 @@
     "decideSlot": "Decide in one sentence",
     "decisions": "{{n}} decisions →",
     "viewTerm": "See {{name}} →",
-    "titleDraft": "Draft card",
-    "draftMark": "draft",
+    "draftMark": "proposal",
     "draftTheme": "Theme",
     "draftConcepts": "Concepts",
     "draftCount": "{{n}}",
     "draftQuestions": "Questions",
-    "draftHint": "Not checked yet. Look at the map and sentences in step 2 and press “Place” to make it a real card.",
-    "draftOpen": "Check it →",
+    "draftOpen": "Open where you left off →",
     "knowledgeLines": "What is known",
-    "answeredByKnowledge": "Knowledge {{n}}"
+    "answeredByKnowledge": "Knowledge {{n}}",
+    "titleQuestion": "About this question",
+    "questionBack": "Pick another",
+    "questionNeeds": "Terms it needs",
+    "titleProposal": "About this proposal"
   },
   "questions": {
-    "head": "What you want to know",
-    "empty": "No questions yet.",
-    "all": "See all themes →",
-    "ring": "{{n}} of {{total}} datasets answer",
-    "ringNone": "No data answers yet",
     "theme": "First questions",
     "knowledgeN": "Knowledge {{n}}",
     "knowledgeTitle": "Answered by {{n}} confirmed knowledge relations"
@@ -147,17 +145,21 @@
       "lowers": "{{subject}} lowers {{object}}",
       "raises": "{{subject}} raises {{object}}",
       "affects": "{{subject}} changes {{object}}"
-    }
+    },
+    "sub": "kind of",
+    "quantity": "quantity"
   },
   "chat": {
     "example": "For example: \"Is this kind the same as Specimen?\"",
     "bind": "Let AI link",
-    "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press “Add to the map”."
+    "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press “Add to the map”.",
+    "writePlaceholder": "What you want to know, in one line (e.g. What can lower thermal conductivity?)",
+    "consultPlaceholder": "Say it in a line (e.g. I think scattering factors tie to lattice thermal conductivity)"
   },
   "suggest": {
     "link": "{{n}} links could be made →",
     "title": "Links that could be made",
-    "lead": "Names in the data you published match term names exactly (counted by a machine, no AI). You decide. They are drawn on the map as faint dotted lines.",
+    "lead": "Names in the data you published match term names exactly (counted by a machine, no AI). You decide. They are drawn on the map as proposed lines.",
     "sentence": "\"{{subject}}\" is the same as \"{{term}}\"",
     "all": "Place {{n}}",
     "per": "Choose one by one",
@@ -172,5 +174,13 @@
       "mixed": "kind and item mixed",
       "invalid": "does not fit"
     }
+  },
+  "chips": {
+    "data": "+ Put in data",
+    "question": "? Write a question"
+  },
+  "band": {
+    "answerable": "Answerable questions {{ok}} / {{total}}",
+    "themes": "See themes →"
   }
 }

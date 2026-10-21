@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeDatasetUpper } from '../api'
 import chatSource from './DatasetChat.tsx?raw'
 import source from './KantanWizard.tsx?raw'
-import railSource from '../sky/SkyRail.tsx?raw'
-import skyChatSource from '../sky/SkyChat.tsx?raw'
+import cardsSource from '../sky/SkyCards.tsx?raw'
+import conversationSource from '../sky/HomeConversation.tsx?raw'
 import workspaceChatSource from '../consult/WorkspaceChat.tsx?raw'
 import graphChatSource from '../workspace/GraphChat.tsx?raw'
 
@@ -50,17 +50,16 @@ describe('配線（ソース文字列）', () => {
     expect(workspaceChatSource).toMatch(/placeholder=\{p\.placeholder\}/)
   })
 
-  it('ホームの右の欄の順: 星の欄 → 相談 → 手で決める。大きなボタンは相談の見出しの右の小さなボタン', () => {
-    const about = railSource.indexOf('<SkyChat')
-    const manual = railSource.indexOf('<ManualDecide')
+  it('ホームの左の会話の札の順: 星の札 → 手で決める ▸。大きなボタンは見出しの右の小さな「AI に結ばせる」', () => {
+    const about = cardsSource.indexOf('<AboutCard')
+    const manual = cardsSource.indexOf('<ManualDecide')
     expect(about).toBeGreaterThan(0)
     expect(manual).toBeGreaterThan(about)
-    expect(railSource).not.toMatch(/<DecideSlot/)
-    expect(railSource).toMatch(/open=\{open\}/)
-    expect(railSource).toMatch(/useState\(!p\.aiReady\)/)
-    expect(skyChatSource).toMatch(/headAction=\{bind\}/)
-    expect(skyChatSource).toMatch(/if \(!isReady\) return null/)
-    expect(skyChatSource).not.toMatch(/sky-chat-bind/)
+    expect(cardsSource).not.toMatch(/<DecideSlot/)
+    expect(cardsSource).toMatch(/open=\{open\}/)
+    expect(cardsSource).toMatch(/useState\(!p\.aiReady\)/)
+    expect(conversationSource).toMatch(/headAction=\{bind\}/)
+    expect(conversationSource).not.toMatch(/sky-chat-bind/)
   })
 
   it('履歴が空のあいだは履歴の枠を出さない・開いたままでも入力欄へフォーカスする', () => {

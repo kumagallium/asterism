@@ -27,7 +27,7 @@ import {
 } from './graphChatApi'
 import { openProposalCount, settleRows } from './workspaceChatState'
 import { registerWorkspaceChat } from './workspaceChatActive'
-import '../themes/themes.css'
+import '../workspace/workspace.css'
 import './workspaceChat.css'
 
 // 作業場（左に図・右に会話）の会話を、ホーム（星図）とデータ（かんたん ③）に置く部品（design.md §16・

@@ -27,7 +27,7 @@ import { formatSetTitle } from './cards/setTitle'
 import type { SetResolveResult } from './cards/cardsApi'
 import { OntologyMapView } from './OntologyMapView'
 import { SkyView } from './sky/SkyView'
-import { homeHash, parseHomeQuery } from './sky/skyRoute'
+import { type WriteRequest, homeHash, parseHomeQuery } from './sky/skyRoute'
 import { useLlmSettings } from './settings/context'
 import { SparqlView } from './SparqlView'
 import { TermPage } from './themes/TermPage'
@@ -90,9 +90,9 @@ export interface Route {
    *  契約メモ contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに
    *  読み替える（`datasetId`/`subjectKey` 等と同じ流儀）。 */
   add?: boolean
-  /** `#/questions?new=1`（`tab: 'vocab'`）— 上部バーの「？ 知りたいことを書く」から
-   *  入ったとき、「問いから始める」の入力欄に自動でフォーカスする。 */
-  newQuestion?: boolean
+  /** `#/home?write=1[&q=…][&resume=…]`（`tab: 'home'`）— 左の会話を「問いを書く」で開く。旧 `#/questions?new=1…`
+   *  （質問するから持ち込む題・続きの下書き）も、ここへ読み替える。 */
+  write?: WriteRequest
   /** `#/questions/term/<slug>`（`tab: 'vocab'`）— 用語のページ。 */
   termSlug?: string
   /** `#/questions/<theme>`（`tab: 'vocab'`）— そのテーマのカードを見せる。 */
@@ -184,9 +184,14 @@ export function parseHash(hash: string): Route {
   }
   if (parts[0]?.startsWith('questions?') || parts[0]?.startsWith('vocab?')) {
     const query = parts[0].slice(parts[0].indexOf('?') + 1)
-    return new URLSearchParams(query).get('new') === '1'
-      ? { tab: 'vocab', newQuestion: true }
-      : { tab: 'vocab' }
+    if (new URLSearchParams(query).get('new') !== '1') return { tab: 'vocab' }
+    // 作る操作は作業場（ホームの会話）に寄せた。題・続きの下書き・問いを足すテーマは会話へ運ぶ。
+    const params = new URLSearchParams(query)
+    const extend = params.get('extend')
+    return {
+      tab: 'home',
+      write: { q: params.get('q') ?? '', resume: params.get('resume') ?? '', extend: extend ? { id: extend, label: params.get('label') ?? '' } : null },
+    }
   }
   if (parts[0] === 'data') return { tab: 'gallery' }
   if (parts[0]?.startsWith('data?')) {
@@ -205,6 +210,7 @@ export function parseHash(hash: string): Route {
     const r: Route = { tab: 'home' }
     if (q.deep) r.deep = true
     if (q.newIris.length > 0) r.newIris = q.newIris
+    if (q.write) r.write = q.write
     return r
   }
   if (parts[0] === 'datasets' && parts[1]) {
@@ -324,7 +330,7 @@ export function parseHash(hash: string): Route {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function routeToHash(r: Route): string {
-  if (r.tab === 'home') return homeHash({ deep: r.deep, newIris: r.newIris })
+  if (r.tab === 'home') return homeHash({ deep: r.deep, newIris: r.newIris, write: r.write })
   if (r.tab === 'gallery' && r.add) {
     return r.placeDatasetId
       ? `#/datasets/add?dataset=${encodeURIComponent(r.placeDatasetId)}`
@@ -339,7 +345,7 @@ export function routeToHash(r: Route): string {
   if (r.tab === 'vocab') {
     if (r.termSlug) return `#/questions/term/${encodeURIComponent(r.termSlug)}`
     if (r.themeId) return `#/questions/${encodeURIComponent(r.themeId)}`
-    return r.newQuestion ? '#/questions?new=1' : '#/questions'
+    return '#/questions'
   }
   if (r.tab === 'decisions') {
     return `#/decisions${decisionsQuery(r.decisionsFilter ?? 'all', r.decisionsAbout)}`
@@ -553,8 +559,7 @@ function App() {
   const tab = route.tab
   const workspaceChatShown = useWorkspaceChatShown()
   // 右下の「AI に相談」を隠すのは、会話が画面の中にあるときだけ: ホーム／③の会話（mount されている間）と、
-  // 作業場（ThemeWorkspace が開いている間は body に `thm-wizard-open` が付き、CSS が隠す）。用語のページ・
-  // テーマ一覧など、ほかの画面には出す。
+  // 用語のページ・テーマ一覧など、ほかの画面には出す。
   const showGlobalConsult = tab !== 'cards' && !workspaceChatShown
   const { openSettings } = useLlmSettings()
   const tSettings = i18n.getFixedT(i18n.language, 'settings')
@@ -971,8 +976,14 @@ function App() {
                   if (window.location.hash !== next) window.history.replaceState(null, '', next)
                   setRoute({ tab: 'home', deep: route.deep })
                 }}
+                write={route.write ?? null}
+                onWriteConsumed={() => {
+                  // write だけを外す（deep は残す）。履歴は積まない。
+                  const next = routeToHash({ tab: 'home', deep: route.deep })
+                  if (window.location.hash !== next) window.history.replaceState(null, '', next)
+                  setRoute({ tab: 'home', deep: route.deep })
+                }}
                 onAddData={() => navigate({ tab: 'gallery', add: true })}
-                onWriteQuestion={() => navigate({ tab: 'vocab', newQuestion: true })}
                 onOpenKind={(iri) => navigate({ tab: 'cards', classPageIri: iri })}
                 onOpenDataset={(id) => navigate({ tab: 'cards', datasetPageId: id })}
                 onOpenTerm={(slug) => navigate({ tab: 'vocab', termSlug: slug })}
@@ -1061,23 +1072,9 @@ function App() {
                 />
               ) : (
                 <ThemesView
-                  newQuestion={!!route.newQuestion}
                   focusTheme={route.themeId}
-                  onCloseNew={() => {
-                    // 3 段を閉じた: `new`・持ち込まれた題 `q`・続きの下書き `resume` を hash から外す。
-                    const h = window.location.hash
-                    const qi = h.indexOf('?')
-                    if (qi >= 0) {
-                      const params = new URLSearchParams(h.slice(qi + 1))
-                      params.delete('new')
-                      params.delete('q')
-                      params.delete('resume')
-                      const rest = params.toString()
-                      window.history.replaceState(null, '', rest ? `${h.slice(0, qi)}?${rest}` : h.slice(0, qi))
-                    }
-                    setRoute((r) => ({ ...r, newQuestion: undefined }))
-                  }}
                   onOpenAsk={openAsk}
+                  onWrite={(w) => navigate({ tab: 'home', write: w })}
                 />
               ))}
             {tab === 'crosswalk' && (

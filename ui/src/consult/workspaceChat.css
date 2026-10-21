@@ -1,5 +1,5 @@
 /* 作業場の会話（WorkspaceChat）をホーム・データの右の欄に置くときの寸法。
-   見た目（吹き出し・提案カード・入力欄）は themes.css の .thm-chat / .thm-card-p を使う。 */
+   見た目（吹き出し・提案カード・入力欄）は workspace/workspace.css の .thm-chat / .thm-card-p を使う。 */
 .ws-chat {
   margin-top: var(--space-3, 0.75rem);
   min-width: 0;
@@ -77,7 +77,7 @@
   }
 }
 
-/* 375px: 会話は下からのシート（themes.css の .thm-chat）。閉じているあいだの「開く」は右下に浮かせる */
+/* 375px: 会話は下からのシート（workspace/workspace.css の .thm-chat）。閉じているあいだの「開く」は右下に浮かせる */
 @media (max-width: 720px) {
   .ws-chat-open {
     position: fixed;

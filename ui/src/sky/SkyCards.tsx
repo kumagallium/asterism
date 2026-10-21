@@ -1,20 +1,18 @@
-// 星図の右の欄: 1 枚だけ。点（星・丸・用語・標準用語）を選んでいれば「この星について」、
-// 選んでいなければ「知りたいこと」（問いの輪＋題＋札）。「ひとこと決める」は星の欄の下。
+// 会話の先頭に差し込む札（契約 pr8b §1）。星・丸・用語・標準用語を選ぶと「この星について」の札が出て、
+// 提案カードと同じ見た目で「◯◯ を見る →」「手で決める ▸」を持つ。右の欄は無くした。
+// 問いの輪の一覧は星図の下の 1 行の帯（SkyView）に畳んだ。
 import { useTranslation } from 'react-i18next'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import type { Alignment } from '../crosswalkApi'
 import { decisionsHash, involves } from '../decide/decisionsModel'
 import { resumeDraftHash } from '../vocabQuestion'
 import { DecidePanel } from '../decide/DecidePanel'
-import { useLlmSettings } from '../settings/context'
-import { SkyChat } from './SkyChat'
 import { SkySuggestions } from './SkySuggestions'
 import type { Suggestion, SuggestionKey } from './suggestApi'
 import { decideCandidatesOf, decideSubjectOf } from './skyDecide'
 import type { DraftSky, SkyData, SkyQuestion } from './skyApi'
 import {
   type DatasetNode,
-  type DraftNode,
   type HubNode,
   type KindNode,
   type SkyLayout,
@@ -23,7 +21,7 @@ import {
   termLabel,
 } from './skyLayout'
 
-export interface RailProps {
+export interface CardProps {
   sky: SkyData
   layout: SkyLayout
   lang: 'ja' | 'en'
@@ -55,15 +53,23 @@ export interface RailProps {
 
 const fmt = (n: number): string => n.toLocaleString('en-US')
 
-export function SkyRail(props: RailProps) {
+export interface PinnedProps extends CardProps {
+  /** 下書きの札・提案の線を選んでいるときの札（あれば「この星について」の代わりに出す）。 */
+  focusCard: ReactNode | null
+  /** 「AI に結ばせる」などの会話の操作が使えるか（手で決める ▸ を開いた状態で出すかの判断）。 */
+  aiReady: boolean
+}
+
+/** 会話の先頭に差し込む札の束。選んでいるものが無ければ空（何も出さない）。 */
+export function SkyPinned(props: PinnedProps) {
   const { t } = useTranslation('sky')
   const node = props.selectedId ? props.layout.nodes.get(props.selectedId) : undefined
-  // 「結べそうな線が N 件 →」を押すと、欄の中身が一覧に替わる（選択は保つ）。0 件になったら戻る。
+  // 「結べそうな線が N 件 →」を押すと、札が一覧に替わる（選択は保つ）。0 件になったら戻る。
   const [showSuggest, setShowSuggest] = useState(false)
   const suggestOpen = showSuggest && props.suggestions.length > 0
-  const { isReady } = useLlmSettings()
+  const question = props.selectedQuestion ? props.sky.questions.find((q) => q.tool_name === props.selectedQuestion) : undefined
   return (
-    <aside className="sky-rail">
+    <>
       {props.grown && (
         <p className="sky-grown" role="status">
           {t('grown', { from: props.grown.from, to: props.grown.to })}
@@ -83,27 +89,30 @@ export function SkyRail(props: RailProps) {
           onApplied={props.onSuggestionsApplied}
           onDismissed={props.onSuggestionsDismissed}
         />
-      ) : node ? (
+      ) : props.focusCard ? (
+        props.focusCard
+      ) : node && node.type !== 'draft' ? (
         <AboutCard {...props} node={node} />
-      ) : (
-        <QuestionsCard {...props} />
+      ) : question ? (
+        <QuestionCard {...props} q={question} />
+      ) : null}
+      {props.drafts.length > 0 && !props.focusCard && !node && !question && (
+        <p className="sky-review" data-testid="draft-review">
+          <a className="link-btn" href={props.drafts.length === 1 ? resumeDraftHash(props.drafts[0].draft_id) : '#/questions'}>
+            {t('drafts.review', { n: props.drafts.length })}
+          </a>
+        </p>
       )}
-      <SkyChat
-        node={node}
-        lang={props.lang}
-        unlinkedKinds={props.unlinkedKinds}
-        onDecided={props.onDecided}
-      />
-      {/* 手で決める ▸ は相談の下（星のときだけ）。AI 未設定なら開いた状態 */}
-      {node?.type === 'kind' && !suggestOpen && (
-        <ManualDecide key={node.id} {...props} node={node} aiReady={isReady} />
+      {/* 手で決める ▸ は星のときだけ。AI 未設定なら開いた状態 */}
+      {node?.type === 'kind' && !suggestOpen && !props.focusCard && (
+        <ManualDecide key={node.id} {...props} node={node} aiReady={props.aiReady} />
       )}
-    </aside>
+    </>
   )
 }
 
 // ── この星について ──────────────────────────────────────────────
-function AboutCard(p: RailProps & { node: NonNullable<ReturnType<SkyLayout['nodes']['get']>> }) {
+function AboutCard(p: CardProps & { node: NonNullable<ReturnType<SkyLayout['nodes']['get']>> }) {
   const node = p.node
   switch (node.type) {
     case 'kind':
@@ -117,7 +126,7 @@ function AboutCard(p: RailProps & { node: NonNullable<ReturnType<SkyLayout['node
     case 'hub':
       return <HubAbout {...p} node={node} />
     case 'draft':
-      return <DraftAbout {...p} node={node} />
+      return null
   }
 }
 
@@ -133,7 +142,7 @@ function termsOfPoint(layout: SkyLayout, id: string): TermNode[] {
   return out
 }
 
-function stdText(p: RailProps, iri: string | null | undefined): string | null {
+function stdText(p: CardProps, iri: string | null | undefined): string | null {
   if (!iri) return null
   const s = p.sky.standards.find((x) => x.iri === iri)
   return s ? `≡ ${s.prefix}:${s.label}` : null
@@ -166,7 +175,7 @@ function DecisionsLink({ iri, alignments }: { iri: string; alignments: readonly 
   )
 }
 
-function KindAbout(p: RailProps & { node: KindNode }) {
+function KindAbout(p: CardProps & { node: KindNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
   const ds = p.sky.datasets.find((d) => d.id === node.datasetId)
@@ -212,7 +221,7 @@ function KindAbout(p: RailProps & { node: KindNode }) {
 
 /** 星（種類）の「手で決める ▸」（6b の「ひとこと決める」を畳んだもの）。相談（会話）の下に置く。
  *  AI が未設定のときは相談が出ないので、開いた状態で出す。用語が無ければ案内。「あとで決める」で閉じる。 */
-function ManualDecide(p: RailProps & { node: KindNode; aiReady: boolean }) {
+function ManualDecide(p: CardProps & { node: KindNode; aiReady: boolean }) {
   const { t } = useTranslation('sky')
   const [open, setOpen] = useState(!p.aiReady)
   const subject = decideSubjectOf(p.node)
@@ -248,7 +257,7 @@ function ManualDecide(p: RailProps & { node: KindNode; aiReady: boolean }) {
   )
 }
 
-function DatasetAbout(p: RailProps & { node: DatasetNode }) {
+function DatasetAbout(p: CardProps & { node: DatasetNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
   const ds = p.sky.datasets.find((d) => d.id === node.datasetId)
@@ -324,7 +333,7 @@ function termKnowledgeSentences(sky: SkyData, iri: string, lang: 'ja' | 'en'): {
     }))
 }
 
-function TermAbout(p: RailProps & { node: TermNode }) {
+function TermAbout(p: CardProps & { node: TermNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
   const term = p.sky.terms.find((x) => x.iri === node.iri)
@@ -399,7 +408,7 @@ function TermAbout(p: RailProps & { node: TermNode }) {
   )
 }
 
-function StdAbout(p: RailProps & { node: StdNode }) {
+function StdAbout(p: CardProps & { node: StdNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
   const bound = [...p.layout.edges]
@@ -436,7 +445,7 @@ function StdAbout(p: RailProps & { node: StdNode }) {
   )
 }
 
-function HubAbout(p: RailProps & { node: HubNode }) {
+function HubAbout(p: CardProps & { node: HubNode }) {
   const { t } = useTranslation('sky')
   const { node } = p
   return (
@@ -462,117 +471,29 @@ function HubAbout(p: RailProps & { node: HubNode }) {
   )
 }
 
-/** 下書きの札の欄: テーマ名・概念の数・「たしかめる →」（②を開く）。 */
-function DraftAbout(p: RailProps & { node: DraftNode }) {
+// ── 選んだ問い ───────────────────────────────────────────────────
+/** 問いを選んだ（用語の札の「答える問い」から）。その問いが要る用語の札を押せる。 */
+function QuestionCard(p: CardProps & { q: SkyQuestion }) {
   const { t } = useTranslation('sky')
-  const { node } = p
-  const draft = p.drafts.find((d) => d.draft_id === node.draftId)
   return (
-    <section className="sky-card" aria-live="polite" data-testid="draft-about">
-      <h3>{t('about.titleDraft')}</h3>
-      <div className="sky-about-name">
-        {node.label}
-        <span className="sky-pill sky-pill--wait">{t('about.draftMark')}</span>
-        {node.termKind === 'property' && <span className="sky-meta">{t('bands.property')}</span>}
+    <section className="sky-card" aria-live="polite" data-testid="question-card">
+      <h3>{t('about.titleQuestion')}</h3>
+      <div className="sky-about-name">{p.q.title}</div>
+      <div className="sky-about-actions">
+        <AnswerPills q={p.q} />
+        <button type="button" className="link-btn" onClick={() => p.onSelectQuestion(null)}>
+          {t('about.questionBack')}
+        </button>
       </div>
       <dl className="sky-kv">
-        <dt>{t('about.draftTheme')}</dt>
-        <dd>{node.themeLabel}</dd>
-        <dt>{t('about.draftConcepts')}</dt>
-        <dd>{t('about.draftCount', { n: draft?.concepts.length ?? node.conceptCount })}</dd>
-        {draft && draft.questions.length > 0 && (
-          <>
-            <dt>{t('about.draftQuestions')}</dt>
-            <dd>
-              {draft.questions.map((q) => (
-                <div key={q}>{q}</div>
-              ))}
-            </dd>
-          </>
-        )}
+        <dt>{t('about.questionNeeds')}</dt>
+        <dd>
+          <TermPills
+            terms={p.q.needs.map((iri) => p.layout.nodes.get(`t|${iri}`)).filter((n): n is TermNode => n?.type === 'term')}
+            onSelect={p.onSelectNode}
+          />
+        </dd>
       </dl>
-      <p className="sky-hint">{t('about.draftHint')}</p>
-      <div className="sky-about-actions">
-        <button
-          type="button"
-          className="btn btn--primary btn--sm"
-          onClick={() => {
-            window.location.hash = resumeDraftHash(node.draftId)
-          }}
-        >
-          {t('about.draftOpen')}
-        </button>
-      </div>
-    </section>
-  )
-}
-
-// ── 知りたいこと ────────────────────────────────────────────────
-function Ring({ q, large }: { q: SkyQuestion; large?: boolean }) {
-  const { t } = useTranslation('sky')
-  const cls = `sky-ring${large ? ' sky-ring--lg' : ''}`
-  if (q.answering <= 0 || q.total_datasets <= 0) {
-    return <span className={`${cls} sky-ring--none`} title={t('questions.ringNone')} />
-  }
-  const pct = Math.min(100, Math.round((100 * q.answering) / q.total_datasets))
-  return (
-    <span
-      className={cls}
-      style={{ '--p': pct } as React.CSSProperties}
-      title={t('questions.ring', { n: q.answering, total: q.total_datasets })}
-    />
-  )
-}
-
-function QuestionsCard(p: RailProps) {
-  const { t } = useTranslation('sky')
-  const qs = p.sky.questions
-  return (
-    <section className="sky-card">
-      {p.drafts.length > 0 && (
-        <p className="sky-review" data-testid="draft-review">
-          <a className="link-btn" href={p.drafts.length === 1 ? resumeDraftHash(p.drafts[0].draft_id) : '#/questions'}>
-            {t('drafts.review', { n: p.drafts.length })}
-          </a>
-        </p>
-      )}
-      <h3>{t('questions.head')}</h3>
-      {qs.length === 0 ? (
-        <div className="sky-meta">{t('questions.empty')}</div>
-      ) : (
-        <div>
-          {qs.map((q) => (
-            <div key={q.tool_name}>
-              <button
-                type="button"
-                className={`sky-qrow${p.selectedQuestion === q.tool_name ? ' sky-qrow--on' : ''}`}
-                aria-pressed={p.selectedQuestion === q.tool_name}
-                onClick={() => p.onSelectQuestion(p.selectedQuestion === q.tool_name ? null : q.tool_name)}
-              >
-                <Ring q={q} />
-                <span className="sky-qrow-title">{q.title}</span>
-                <AnswerPills q={q} />
-              </button>
-              {/* 選んだ問いが要る用語の札（押すとその用語の星へ）。 */}
-              {p.selectedQuestion === q.tool_name && (
-                <div className="sky-qneeds">
-                  <TermPills
-                    terms={q.needs
-                      .map((iri) => p.layout.nodes.get(`t|${iri}`))
-                      .filter((n): n is TermNode => n?.type === 'term')}
-                    onSelect={p.onSelectNode}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ marginTop: 'var(--space-2)' }}>
-        <button type="button" className="btn btn--sm" onClick={p.onOpenQuestions}>
-          {t('questions.all')}
-        </button>
-      </div>
     </section>
   )
 }

@@ -428,6 +428,8 @@ export interface ProposalItem {
   per: boolean
   busy: boolean
   by: 'ai' | 'human'
+  /** どの道の提案か（ホームの会話は星図の道 `home` と下書きの道 `theme` の 2 つを 1 つの履歴に持つ）。 */
+  screen?: 'home' | 'theme' | 'dataset'
 }
 
 export type ChatItem =
@@ -436,6 +438,8 @@ export type ChatItem =
   | { kind: 'note'; id: string; text: string }
   | { kind: 'error'; id: string; text: string }
   | { kind: 'draft'; id: string; per: boolean }
+  /** 問いごとの答え方・欲しいデータ（下書きの道の最初の 1 枚）。 */
+  | { kind: 'answers'; id: string }
   | ProposalItem
 
 let itemSeq = 0

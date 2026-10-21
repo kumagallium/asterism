@@ -37,12 +37,18 @@
   border-radius: var(--radius-sm);
 }
 
-/* 図と右レール */
-.sky-grid {
+/* 作業場: 左に会話（360px・常設・たためる）・右に星図 */
+.sky-ws {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+}
+.sky-ws.is-folded {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.sky-main {
+  min-width: 0;
 }
 .sky-chartwrap {
   min-width: 0;
@@ -100,17 +106,6 @@
   font-weight: 700;
   color: var(--fg);
 }
-.sky-empty-sub {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--body);
-}
-.sky-empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-}
 .sky-sample-tag {
   position: absolute;
   top: 10px;
@@ -137,14 +132,6 @@
   border-radius: 50%;
   vertical-align: -1px;
 }
-/* 入口 2 つ（上の行の右）。図には重ねない（標準用語の星や札を覆うため）。 */
-.sky-entries {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-
 /* 図の右上の「…」（メニューは MoreMenu.tsx） */
 .sky-figure .sky-more {
   position: absolute;
@@ -157,13 +144,6 @@
   color: var(--faint);
 }
 
-/* 右レール */
-.sky-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-}
 .sky-card {
   padding: var(--space-4);
   background: var(--surface);
@@ -307,70 +287,6 @@ button.sky-pill--data:hover:not(:disabled) {
   display: none;
 }
 
-/* 知りたいこと */
-.sky-qrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 0;
-  text-align: left;
-  color: var(--fg);
-  font-weight: 400;
-  background: none;
-  border: none;
-  border-top: 1px solid var(--border);
-  border-radius: 0;
-  cursor: pointer;
-}
-.sky-qrow:first-of-type {
-  border-top: none;
-}
-.sky-qrow:hover:not(:disabled),
-.sky-qrow--on {
-  background: var(--surface-alt);
-}
-.sky-qrow-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-.sky-qrow-sub {
-  display: block;
-  font-size: 0.66rem;
-  color: var(--faint);
-}
-.sky-ring {
-  position: relative;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: conic-gradient(var(--activity) calc(var(--p) * 1%), var(--activity-soft) 0);
-}
-.sky-ring::after {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  background: var(--surface);
-}
-.sky-ring--none {
-  background: var(--surface);
-  border: 1.5px solid var(--accent);
-}
-.sky-ring--none::after {
-  display: none;
-}
-.sky-ring--lg {
-  width: 30px;
-  height: 30px;
-}
-.sky-ring--lg::after {
-  inset: 7px;
-}
-
 /* 図と同じ内容の表 */
 .sky-table-wrap {
   background: var(--surface);
@@ -452,21 +368,7 @@ button.sky-pill--data:hover:not(:disabled) {
   color: var(--body);
 }
 
-@media (min-width: 1101px) {
-  .sky-rail {
-    position: sticky;
-    top: var(--space-2);
-    max-height: calc(100vh - var(--space-4));
-    overflow-y: auto;
-  }
-}
-@media (max-width: 1100px) {
-  .sky-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* 下書きの札: 右の欄の上の「たしかめるものが N 件 →」 */
+/* 続きの下書き: 会話の先頭の「たしかめるものが N 件 →」 */
 .sky-review {
   margin: 0 0 var(--space-2, 0.5rem);
   font-size: 0.8125rem;
@@ -491,7 +393,7 @@ button.sky-pill--data:hover:not(:disabled) {
   font-size: 0.8125rem;
   line-height: 1.5;
   padding-bottom: var(--space-2, 0.5rem);
-  border-bottom: 1px dashed var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .sky-suggest-text {
   min-width: 0;
@@ -503,14 +405,7 @@ button.sky-pill--data:hover:not(:disabled) {
   flex: 1 1 100%;
 }
 
-/* ホームの右の欄の下の「AI と相談」 */
-.sky-chat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2, 0.5rem);
-  min-width: 0;
-}
-/* 手で決める ▸（相談の下に畳んだ 6b の「ひとこと決める」） */
+/* 手で決める ▸（星の札の下に畳んだ 6b の「ひとこと決める」） */
 .sky-manual {
   margin-top: var(--space-2, 0.5rem);
   border: 1px solid var(--border);
@@ -527,4 +422,143 @@ button.sky-pill--data:hover:not(:disabled) {
 }
 .sky-manual[open] > summary {
   margin-bottom: var(--space-2, 0.5rem);
+}
+
+/* ── 左の会話（HomeConversation・workspace/GraphChat） ───────────────────── */
+.sky-conv {
+  position: sticky;
+  /* 上端は画面ではなく上部バーの下（0 にするとスクロールした会話がバーの下へ潜り込む） */
+  top: calc(var(--topbar-h, 4.7rem) + var(--space-2));
+  min-width: 0;
+  margin-top: 0;
+}
+/* 入力欄まで 1 画面に収める（図の上の行・注記の分を引く）。履歴が長くなったら中でスクロールする */
+.sky-conv .thm-chat {
+  height: clamp(28rem, calc(100vh - 14rem), 52rem);
+  min-height: 0;
+  max-height: none;
+}
+.sky-chips .btn[aria-pressed='true'] {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--activity);
+}
+.sky-conv.is-folded {
+  position: static;
+}
+.sky-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.sky-conv .sky-card,
+.sky-sheetband .sky-card {
+  padding: 0.6rem 0.75rem;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+}
+.sky-conv .sky-manual {
+  margin-top: 0;
+}
+.sky-session-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+}
+.sky-session-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.sky-session-closing {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.sky-draft-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.sky-answers {
+  margin: 0;
+}
+/* 会話の下に固定する「N 件を置く」 */
+.sky-place {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.sky-place .thm-chat-more {
+  max-height: 11rem;
+  overflow-y: auto;
+}
+.sky-place-go {
+  width: 100%;
+}
+.sky-place summary {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+/* 星図の下の 1 行の帯 */
+.sky-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+/* 会話をたたんでいる／シートが閉じているあいだ、札は図の下の帯に出る */
+.sky-sheetband {
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  max-height: 11rem;
+  margin-top: var(--space-2);
+  padding: 0.45rem 0.6rem;
+  overflow-y: auto;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.1);
+}
+
+/* 会話は下からのシート（星図が主）。幅が足りない画面ではこちら（375px も同じ） */
+@media (max-width: 980px) {
+  .sky-ws,
+  .sky-ws.is-folded {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sky-conv {
+    position: static;
+  }
+  .sky-conv .thm-chat {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    height: 70vh;
+    min-height: 0;
+    max-height: 70vh;
+    border-radius: 14px 14px 0 0;
+    border-bottom: 0;
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+  }
+  .sky-conv .ws-chat-open {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: auto;
+    z-index: 55;
+    box-shadow: var(--shadow);
+  }
 }
