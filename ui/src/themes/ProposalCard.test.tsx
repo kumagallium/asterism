@@ -23,7 +23,7 @@ describe('a proposal after the person answered', () => {
   it('all dropped: says it could not be applied (with the reason), not "skipped", and shows each row’s reason', () => {
     const out = html(card({ decided: ['dropped', 'dropped'], notes: ['cycle', 'cycle'] }))
     expect(out).toContain('適用できませんでした（一周してしまう）')
-    expect(out).not.toContain('見送りました')
+    expect(out).not.toContain('入れませんでした')
     expect(out).not.toContain('<details')
     expect(out.match(/一周してしまう（循環）/g)).toHaveLength(2) // 各行に薄く
   })
@@ -35,8 +35,8 @@ describe('a proposal after the person answered', () => {
 
   it('partly dropped: counts both, and the reason stays on the row that failed', () => {
     const out = html(card({ decided: ['yes', 'dropped'], notes: [null, 'dismissed'] }))
-    expect(out).toContain('確定 1 件・できなかった 1 件')
-    expect(out).toContain('前に「違う」と返事をした内容')
+    expect(out).toContain('図に入れた 1 件・できなかった 1 件')
+    expect(out).toContain('前に「入れない」と返事をした内容')
   })
 
   it('everything already there is one line', () => {
@@ -46,8 +46,8 @@ describe('a proposal after the person answered', () => {
   })
 
   it('all yes stays folded; all "no" is "skipped"', () => {
-    expect(html(card({ decided: ['yes', 'yes'] }))).toContain('確定済み 2 件')
-    expect(html(card({ decided: ['no', 'no'] }))).toContain('見送りました')
+    expect(html(card({ decided: ['yes', 'yes'] }))).toContain('図に入れた 2 件')
+    expect(html(card({ decided: ['no', 'no'] }))).toContain('入れませんでした')
   })
 })
 

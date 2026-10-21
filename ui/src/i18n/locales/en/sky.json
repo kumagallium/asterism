@@ -91,7 +91,7 @@
     "draftConcepts": "Concepts",
     "draftCount": "{{n}}",
     "draftQuestions": "Questions",
-    "draftHint": "Not checked yet. Look at the map and sentences in step 2 and confirm them together to make it a real card.",
+    "draftHint": "Not checked yet. Look at the map and sentences in step 2 and press “Place” to make it a real card.",
     "draftOpen": "Check it →",
     "knowledgeLines": "What is known",
     "answeredByKnowledge": "Knowledge {{n}}"
@@ -152,17 +152,17 @@
   "chat": {
     "example": "For example: \"Is this kind the same as Specimen?\"",
     "bind": "Let AI link",
-    "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press Yes."
+    "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press “Add to the map”."
   },
   "suggest": {
     "link": "{{n}} links could be made →",
     "title": "Links that could be made",
     "lead": "Names in the data you published match term names exactly (counted by a machine, no AI). You decide. They are drawn on the map as faint dotted lines.",
     "sentence": "\"{{subject}}\" is the same as \"{{term}}\"",
-    "all": "Confirm all {{n}} together",
-    "per": "One by one",
+    "all": "Place {{n}}",
+    "per": "Choose one by one",
     "one": "Link",
-    "no": "No",
+    "no": "Don't add",
     "back": "Back",
     "empty": "No more links to make.",
     "done": "{{n}} linked.",

@@ -5,7 +5,7 @@ import { refusedText, suggestBatchId } from './suggestModel'
 
 // 右の欄の「結べそうな線が N 件 →」を押すと出る一覧（契約 pr7c B2）。
 // 公開したデータの種類・項目の名前が、用語の名前と**完全に一致**したものを、機械が数えて置いてある
-// （AI は呼んでいない）。人は「N 件をまとめて確定」か「1 件ずつ」で決める。確定は来歴つきの線
+// （AI は呼んでいない）。人は「N 件を置く」か「1 件ずつ選ぶ」で決める。確定は来歴つきの線
 // （drafted_by=machine・まとめの ID・理由）。星図には同じ線を薄く重ねてある。
 
 export function SkySuggestions({

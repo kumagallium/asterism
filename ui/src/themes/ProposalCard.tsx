@@ -2,8 +2,9 @@ import { useTranslation } from 'react-i18next'
 import { type ProposalItem, dropReason, openRows } from './workspaceState'
 
 // 会話の中の「提案カード」。サーバが組んだ文（sentences）を 1 行ずつ・理由を薄く出し、
-// 「そう（N 件）」「違う」「1 件ずつ」で返事をする。「そう」→ 図が変わりカードは「確定済み N 件」に畳む。
-// 「違う」→ 却下が保存され、次の提案に出ない。「1 件ずつ」→ 各行に ✓／✕。
+// 「図に入れる（N 件）」「入れない」「1 件ずつ選ぶ」で返事をする。「図に入れる」→ 図が変わりカードは「図に入れた N 件」に畳む。
+// 「入れない」→ 却下が保存され、次の提案に出ない。「1 件ずつ選ぶ」→ 各行に ✓／✕。
+// bind（かんたん③の列の結びつき）だけは「結ぶ（N 件）」「結ばない」。
 // 人の直接編集（文のプルダウン・線のドラッグ・手で足す）の記録も、同じカードの畳んだ形で残す。
 
 export function ProposalCard({
@@ -14,6 +15,7 @@ export function ProposalCard({
   onPer,
   onRowYes,
   onRowNo,
+  bind = false,
 }: {
   item: ProposalItem
   /** 別の操作の最中（二重に押させない）。 */
@@ -23,6 +25,8 @@ export function ProposalCard({
   onPer: () => void
   onRowYes: (index: number) => void
   onRowNo: (index: number) => void
+  /** かんたん③（列の結びつき）。返事の言葉を「結ぶ／結ばない」にする。 */
+  bind?: boolean
 }) {
   const { t } = useTranslation()
   const open = openRows(item)
@@ -67,8 +71,8 @@ export function ProposalCard({
       item.by === 'human'
         ? t('themes:chat.doneHuman', { n: item.ops.length })
         : yes > 0
-          ? t('themes:chat.done', { n: yes })
-          : t('themes:chat.skipped')
+          ? t(bind ? 'themes:chat.bindDone' : 'themes:chat.done', { n: yes })
+          : t(bind ? 'themes:chat.bindSkipped' : 'themes:chat.skipped')
     return (
       <details className="thm-card-p thm-card-p--done" data-testid="proposal-done">
         <summary>{title}</summary>
@@ -128,10 +132,10 @@ export function ProposalCard({
       </ul>
       <div className="thm-card-p-actions">
         <button type="button" className="btn btn--accent btn--sm" disabled={lock} onClick={onYes} data-testid="proposal-yes">
-          {t('themes:chat.yes', { n: open.length })}
+          {t(bind ? 'themes:chat.bindYes' : 'themes:chat.yes', { n: open.length })}
         </button>
         <button type="button" className="btn btn--ghost btn--sm" disabled={lock} onClick={onNo} data-testid="proposal-no">
-          {t('themes:chat.no')}
+          {t(bind ? 'themes:chat.bindNo' : 'themes:chat.no')}
         </button>
         {!item.per && open.length > 1 && (
           <button type="button" className="btn btn--ghost btn--sm" disabled={lock} onClick={onPer} data-testid="proposal-per">
@@ -143,7 +147,7 @@ export function ProposalCard({
   )
 }
 
-/** 最初の下書き（①→②）の 1 枚目のカード。提案（薄い）のまま見せ、「そう（全部）」で本物にする。 */
+/** 最初の下書き（①→②）の 1 枚目のカード。提案（薄い）のまま見せ、「全部図に入れる」で本物にする。 */
 export function DraftCard({
   conceptNames,
   relationSentences,

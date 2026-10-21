@@ -217,6 +217,7 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
           key={it.id}
           item={it}
           disabled={busy}
+          bind={screen === 'dataset'}
           onYes={() => void proposalYes(it, openRows(it))}
           onNo={() => void proposalNo(it, openRows(it))}
           onPer={() => patch(it.id, (x) => ({ ...x, per: true }))}

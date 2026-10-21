@@ -687,7 +687,7 @@
     "boundWhen": "becomes a line when you publish",
     "boundByAi": "(an AI proposal you accepted)",
     "ask": "Link columns by talking to AI",
-    "privacy": "AI only gets the column headings and types, never the values. Nothing is decided until you say Yes, and a line is made when you publish.",
+    "privacy": "AI only gets the column headings and types, never the values. Nothing is decided until you press Link, and a line is made when you publish.",
     "boundDone": "became a line on publish",
     "boundSkipped": "skipped ({{reason}})",
     "boundRemove": "Remove",

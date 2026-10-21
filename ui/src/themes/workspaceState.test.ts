@@ -114,7 +114,7 @@ describe('proposals (thin) versus real rows', () => {
     expect(confirmCounts(real).total).toBe(0)
   })
 
-  it('"そう（全部）" makes everything real: the confirm count is the whole draft', () => {
+  it('"全部図に入れる" makes everything real: the confirm count is the whole draft', () => {
     const real = realDraft(draft, NO_PENDING)
     expect(real).toBe(draft)
     expect(confirmCounts(real).total).toBe(4 + 3)
