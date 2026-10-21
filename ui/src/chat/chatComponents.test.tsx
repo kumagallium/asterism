@@ -4,6 +4,7 @@ import '../i18n'
 import { ThemesApiError } from '../themes/themesApi'
 import type { Reply, SessionSummary, Turn } from './chatApi'
 import { ChatPane } from './ChatPane'
+import { AddPanel } from './AddPanel'
 import { Composer } from './Composer'
 import { HandForm } from './HandForm'
 import { ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
@@ -172,6 +173,17 @@ describe('📎 表を添える', () => {
     const notes = card(turn({ reply: reply({ notes: kinds.map((kind) => ({ kind, text: `注記-${kind}`, choice: null })) }) }))
     for (const k of kinds) expect(notes).toContain(`chat-note chat-note--${k}`)
     expect(text(notes)).not.toMatch(/そう|線|ことば|下書き|置く|pending/)
+  })
+})
+
+describe('AddPanel（AI 未設定のとき右に出すかんたん）', () => {
+  it('上に「データを添える」と「閉じる」・sky-add-area の見た目', () => {
+    const html = renderToStaticMarkup(<AddPanel onClose={noop} />)
+    expect(html).toContain('class="sky-add-area chat-add-area"')
+    expect(html).toContain('data-testid="add-area"')
+    expect(html).toContain('data-testid="add-close"')
+    expect(text(html)).toContain('データを添える')
+    expect(text(html)).toContain('閉じる')
   })
 })
 

@@ -507,3 +507,13 @@
 .chat-note--unsupported {
   color: var(--muted);
 }
+
+.chat-right-scroll[hidden] {
+  display: none;
+}
+.chat-add-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+}

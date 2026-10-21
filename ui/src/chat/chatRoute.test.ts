@@ -8,6 +8,12 @@ describe('chatRoute', () => {
     expect(parseChatHash('#/t/cabc12345x')).toEqual({ kind: 'session', id: 'cabc12345x' })
     expect(parseChatHash('#/settings')).toEqual({ kind: 'settings' })
   })
+  it('?add=1 は右の領域にかんたんを出す印（新しい話・話）', () => {
+    expect(parseChatHash('#/?add=1')).toEqual({ kind: 'new', add: true })
+    expect(parseChatHash('#/t/cabc12345x?add=1')).toEqual({ kind: 'session', id: 'cabc12345x', add: true })
+    for (const h of ['#/?add=1', '#/t/cabc12345x?add=1']) expect(chatHash(parseChatHash(h))).toBe(h)
+    expect(parseChatHash('#/t/cabc12345x?add=0')).toEqual({ kind: 'session', id: 'cabc12345x' })
+  })
   it('壊れた id・知らない hash は新しい話', () => {
     expect(parseChatHash('#/t/')).toEqual({ kind: 'new' })
     expect(parseChatHash('#/t/XYZ')).toEqual({ kind: 'new' })

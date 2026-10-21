@@ -12,6 +12,7 @@ import {
   createSession,
   deleteSession,
   getSession,
+  isAiUnset,
   isKeyMissing,
   listSessions,
   postAttach,
@@ -27,6 +28,7 @@ import {
 } from './chatApi'
 import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
 import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
+import { AddPanel } from './AddPanel'
 import { ChartPane } from './ChartPane'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
@@ -47,7 +49,7 @@ export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
   const lang: 'ja' | 'en' = i18n.language.startsWith('en') ? 'en' : 'ja'
-  const { openSettings, settingsOpen, getActiveCredentials } = useLlmSettings()
+  const { openSettings, settingsOpen, getActiveCredentials, isReady } = useLlmSettings()
   const layout = useChatLayout()
 
   // ── ルート ──
@@ -255,11 +257,31 @@ export function ChatApp() {
   const onSendOps = useCallback((ops: GraphOp[]) => runTurn({ ops }), [runTurn])
   const onSendAnswer = useCallback((set_answer: SetAnswerBody) => runTurn({ set_answer }), [runTurn])
 
+  // ── AI 未設定: 右の領域に「データを添える」（かんたん）を出す ──
+  const addOpen = view.kind !== 'settings' && !!view.add
+  const openAdd = useCallback(() => {
+    navigate(view.kind === 'session' ? { kind: 'session', id: view.id, add: true } : { kind: 'new', add: true })
+    setTab('chart')
+  }, [view, navigate])
+  const closeAdd = useCallback(() => {
+    navigate(view.kind === 'session' ? { kind: 'session', id: view.id } : { kind: 'new' }, { replace: true })
+  }, [view, navigate])
+  // 閉じたら図を取り直す（かんたんの完了で `#/home?new=` → `#/` に転送された場合も含む）
+  const prevAdd = useRef(addOpen)
+  useEffect(() => {
+    if (prevAdd.current && !addOpen) afterChange()
+    prevAdd.current = addOpen
+  }, [addOpen, afterChange])
+
   /** 表を添える。選んだらすぐ送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら右にかんたんを出す。 */
   const onAttach = useCallback(
     async (files: File[]): Promise<boolean> => {
       if (busy) return false
       if (view.kind === 'session' && !session) return false // 話を読み込み中
+      if (!isReady) {
+        openAdd()
+        return false
+      }
       setBusy('send')
       setError(null)
       setPendingUser(files.map((f) => `📎 ${f.name}`).join('\n'))
@@ -286,6 +308,13 @@ export function ChatApp() {
             setLoaded(null)
             reloadSessions()
           }
+          if (isAiUnset(e)) {
+            // 作った話は消したので、新しい話のまま右に出す
+            if (created) navigate({ kind: 'new', add: true }, { replace: true })
+            else openAdd()
+            setTab('chart')
+            return false
+          }
           if (created) navigate({ kind: 'new' }, { replace: true })
           throw e
         }
@@ -298,7 +327,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [busy, view.kind, session, lang, getActiveCredentials, navigate, reread, watch, afterChange, reloadSessions],
+    [busy, view.kind, session, isReady, lang, getActiveCredentials, navigate, openAdd, reread, watch, afterChange, reloadSessions],
   )
 
   /** 返事の中の小さな選択を決める。続きがジョブで走る（読んでいます）。 */
@@ -453,7 +482,8 @@ export function ChatApp() {
         />
       </section>
       <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
-        <div className="chat-right-scroll">
+        {addOpen && <AddPanel onClose={closeAdd} />}
+        <div className="chat-right-scroll" hidden={addOpen}>
           <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} onTerms={setSkyTerms} />
         </div>
         {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
