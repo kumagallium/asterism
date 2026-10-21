@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 import zipfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -160,7 +161,8 @@ class MatchBody(BaseModel):
 
 class AddQuestionsBody(BaseModel):
     tool_names: list[str]
-    #: tool_name → ``{op, kind, property, value}``（実行文を組むための表示名・任意）
+    #: tool_name → ``{op, kind, property, value, match, property2, kind2}``
+    #: （実行文を組むための表示名・任意）
     selections: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -168,13 +170,47 @@ def _lang(lang: str | None) -> str:
     return "en" if (lang or "").lower().startswith("en") else "ja"
 
 
+_WIDE_NAME = re.compile(r"^cq_.+_(filter|group|trend|join)(?:_\d+)?\Z")
+_FILTER_WORD = re.compile(r'(?:LCASE\(|STR\(\?v\) = )"((?:[^"\\]|\\.)*)"')
+
+
+def _wide_selection(tool: dict, term_by_iri: dict[str, dict]) -> dict:
+    """値で絞る・〜ごと・推移・結合 1 段の問いが、テーマに実行文を記録していないとき
+    （別のテーマの問いを足した等）に、宣言ツールそのものから選択を組み直す。名前の末尾が数え方、
+    ``for_terms`` は [種類, 項目, (2 つ目の項目 | 2 つ目の種類)] の順（``default_cq_tools``）。"""
+    m = _WIDE_NAME.match(str(tool.get("name")))
+    if m is None:
+        return {}
+    labels = [
+        term_by_iri[str(i)]["label"] for i in tool.get("for_terms") or [] if str(i) in term_by_iri
+    ]
+    if len(labels) < 2:
+        return {}
+    op = m.group(1)
+    sel: dict[str, str] = {"op": op, "kind": labels[0], "property": labels[1]}
+    if op == "trend" and len(labels) > 2:
+        sel["property2"] = labels[2]
+    if op == "join" and len(labels) > 2:
+        sel["kind2"] = labels[2]
+    if op == "filter":
+        w = _FILTER_WORD.search(str(tool.get("query") or ""))
+        if w is not None:
+            sel["value"] = w.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        sel["match"] = "exact" if "STR(?v) = " in str(tool.get("query") or "") else "contains"
+    return sel
+
+
 def _selection_of(theme: dict, tool: dict, term_by_iri: dict[str, dict]) -> dict:
     """The selection a question was made with: the one the theme recorded, else the one its
-    template implies (a kind's CQ counts; an item's CQ counts the values)."""
+    template implies (a kind's CQ counts; an item's CQ counts the values; the four wider
+    shapes are read back off the tool)."""
     name = str(tool.get("name"))
     recorded = (theme.get("selections") or {}).get(name)
     if isinstance(recorded, dict) and recorded.get("op"):
         return recorded
+    wide = _wide_selection(tool, term_by_iri)
+    if wide:
+        return wide
     for iri in tool.get("for_terms") or []:
         term = term_by_iri.get(str(iri))
         if term is not None:
