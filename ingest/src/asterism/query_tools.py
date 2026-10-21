@@ -577,9 +577,11 @@ def prune_unwired_tools(tools: list[QueryTool], root: Path | str | None) -> list
     person has decided. A tool is kept when it has no ``for_terms`` (the ordinary case),
     or when AT LEAST ONE of its terms has a wired count >= 1 OR a knowledge count >= 1
     (孤立の定義の改訂・利用者裁定 2026-10-20: 確定した知識の関係が 1 本以上ある語は孤立で
-    ない). All terms at 0 in both — or missing from the files, or no files at all — drops
-    it: failing closed, so an unanswerable question is never advertised. A root without
-    ``knowledge.json`` behaves exactly as before (wired only).
+    ない). A tool about TWO OR MORE terms (推移・結合・値で絞る) is kept only when EVERY one
+    of its terms is wired (knowledge lines do not make data answer). All terms at 0 in
+    both — or missing from the files, or no files at all — drops it: failing closed, so
+    an unanswerable question is never advertised. A root without ``knowledge.json``
+    behaves exactly as before (wired only).
     """
     if not any(t.for_terms for t in tools):
         return tools
@@ -591,12 +593,15 @@ def prune_unwired_tools(tools: list[QueryTool], root: Path | str | None) -> list
 
     wired = load_wired(root) if root is not None else {}
     knowledge = load_knowledge(root) if root is not None else {}
-    return [
-        t
-        for t in tools
-        if not t.for_terms
-        or any(is_wired(wired.get(i, 0)) or knowledge.get(i, 0) >= 1 for i in t.for_terms)
-    ]
+
+    def keep(t: QueryTool) -> bool:
+        if not t.for_terms:
+            return True
+        if len(set(t.for_terms)) >= 2:  # 2 語以上の問いは、全部の語が答えるときだけ公開
+            return all(is_wired(wired.get(i, 0)) for i in set(t.for_terms))
+        return any(is_wired(wired.get(i, 0)) or knowledge.get(i, 0) >= 1 for i in t.for_terms)
+
+    return [t for t in tools if keep(t)]
 
 
 # ----------------------------------------------------------------------------

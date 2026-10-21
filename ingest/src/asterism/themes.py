@@ -2012,6 +2012,26 @@ async def remove_theme_cascade(client: Any, root: Path | str, theme_id: str) -> 
             kept_rel.append(rec)
     removed_c: list[dict] = []
     kept_c: list[dict] = []
+    # 2 語以上の自分の問いは語を外すと壊れる（remove_term は拒む）。外せる語を使うものは先に外す。
+    free = {
+        sv.term_iri(slug)
+        for slug in theme.get("minted") or []
+        if slug not in other_uses
+        and not any(
+            sv.term_iri(slug) in [str(x) for x in (t.get("for_terms") or [])]
+            and str(t.get("name")) not in own_tools
+            for t in tools
+        )
+    }
+    own_multi = [
+        str(t.get("name"))
+        for t in tools
+        if str(t.get("name")) in own_tools
+        and len({str(x) for x in (t.get("for_terms") or [])}) >= 2
+        and free.intersection(str(x) for x in (t.get("for_terms") or []))
+    ]
+    if own_multi:
+        remove_registry_query_tools_by_name(root, sv.REGISTRY_ID, own_multi)
     for slug in theme.get("minted") or []:
         iri = sv.term_iri(slug)
         row = {"slug": slug, "label": labels.get(slug, slug)}

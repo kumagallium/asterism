@@ -128,14 +128,41 @@ def test_prune_keeps_a_tool_whose_term_has_knowledge(tmp_path: Path) -> None:
     assert [t.name for t in prune_unwired_tools(tools, tmp_path)] == ["plain", "cq_a"]
     # 知識が 1 本以上あれば、データが 0 でも残す
     (d / "knowledge.json").write_text(json.dumps({"terms": {b: 2}}))
+    # （1 語の問いだけ。2 語以上の cq_c は、全部の語が答えるまで知識では公開しない）
     assert [t.name for t in prune_unwired_tools(tools, tmp_path)] == [
         "plain",
         "cq_a",
         "cq_b",
-        "cq_c",
     ]
     (d / "knowledge.json").write_text(json.dumps({"terms": {b: 0}}))
     assert [t.name for t in prune_unwired_tools(tools, tmp_path)] == ["plain", "cq_a"]
+
+
+def test_prune_publishes_a_multi_term_tool_only_when_every_term_is_wired(tmp_path: Path) -> None:
+    a, p, q = T("a"), T("p"), T("q")
+    d = tmp_path / sv.REGISTRY_ID
+    d.mkdir()
+    tools = [_tool("filter_ap", (a, p)), _tool("trend_apq", (a, p, q)), _tool("count_a", (a,))]
+    # A=5・P=0: 種類は答えるが項目は誰も答えない → 2 語の問いは出さない
+    (d / "wired.json").write_text(json.dumps({"terms": {a: 5, p: 0, q: 3}}))
+    assert [t.name for t in prune_unwired_tools(tools, tmp_path)] == ["count_a"]
+    (d / "wired.json").write_text(json.dumps({"terms": {a: 5, p: 2, q: 0}}))
+    assert [t.name for t in prune_unwired_tools(tools, tmp_path)] == ["filter_ap", "count_a"]
+    (d / "wired.json").write_text(json.dumps({"terms": {a: 5, p: 2, q: 1}}))
+    assert [t.name for t in prune_unwired_tools(tools, tmp_path)] == [
+        "filter_ap",
+        "trend_apq",
+        "count_a",
+    ]
+
+
+def test_answering_of_is_the_smallest_count_of_the_terms() -> None:
+    w = {"a": 5, "p": 0, "q": 3}
+    assert sv.answering_of(w, ["a"]) == 5
+    assert sv.answering_of(w, ["a", "p"]) == 0  # A=5・P=0 → 0
+    assert sv.answering_of(w, ["a", "q", "a"]) == 3
+    assert sv.answering_of(w, ["a", "zzz"]) == 0  # 数えていない語は 0
+    assert sv.answering_of(w, []) == 0
 
 
 async def test_mint_without_cqs_needs_a_theme(tmp_path: Path) -> None:

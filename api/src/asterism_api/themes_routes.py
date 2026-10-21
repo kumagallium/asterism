@@ -296,7 +296,7 @@ def register_themes(
                 "tool_name": name,
                 "title": str(tool.get("title", tool.get("name"))),
                 "mode": "data",
-                "answering_datasets": max((wired.get(x, 0) for x in for_terms), default=0),
+                "answering_datasets": shared_vocab.answering_of(wired, for_terms),
                 "shape": shared_vocab.describe_selection(sel, lg),
                 "terms": [term_by_iri[i]["slug"] for i in for_terms if i in term_by_iri],
                 "wanted_data": str((theme.get("wanted") or {}).get(name) or ""),
@@ -772,7 +772,7 @@ def register_themes(
                         ),
                         "knowledge": None,
                         "data": {
-                            "answering": max((wired.get(x, 0) for x in for_terms), default=0),
+                            "answering": shared_vocab.answering_of(wired, for_terms),
                             "total_datasets": total,
                         },
                         "wanted_data": str(wanted.get(name) or ""),
