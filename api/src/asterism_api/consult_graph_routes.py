@@ -49,6 +49,7 @@ from asterism import (
     paper_sections,
     question_suggest,
     shared_vocab,
+    sky_view,
     themes,
 )
 from asterism.grounding import term_display_name
@@ -88,23 +89,13 @@ _MAX_OPS = 30
 _MAX_MESSAGES = 12
 _MAX_CONTENT = 2000
 _PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,60}\Z")
-#: ホームの用語どうしの線に載せる述語 → 図の関係名（``themes.relation_predicate`` の逆）
-_PRED_TO_REL = {
-    "subClassOf": "sub",
-    "subPropertyOf": "sub",
-    "equivalentClass": "eq",
-    "equivalentProperty": "eq",
-    "hasQuantityKind": "quantity",
-    "isPartOf": "part",
-    "lowers": "lowers",
-    "raises": "raises",
-    "affects": "affects",
-}
 #: 当てはめ（``upper.json``）に置ける関係 — 項目の列だけ（種類は図で扱う）
 _BIND_TO_UPPER = {"eq": "equivalentProperty", "sub": "subPropertyOf"}
 #: 種類が用語に「入る」線（種類 ⊂ 用語・種類 ≡ 用語）の述語
 _SUBSUMPTION_RELATIONS = frozenset({"subClassOf", "equivalentClass"})
 _MAX_COLUMNS = 200
+#: 図の穴（``screen: "term"``）で出す提案の上限
+_TERM_HOLE_LIMIT = 3
 #: AI に見せる種類（星）の行の上限（選んでいる星が先頭・残りは件数の多い順）
 _MAX_KIND_ROWS = 150
 _MAX_BATCH = 100
@@ -373,11 +364,11 @@ def register_consult_graph(
         relations = [
             {
                 "from": end(ln["source"]),
-                "rel": _PRED_TO_REL[ln["relation"]],
+                "rel": graph_diff.PRED_TO_REL[ln["relation"]],
                 "to": end(ln["target"]),
             }
             for ln in lines
-            if ln["relation"] in _PRED_TO_REL and end(ln["source"]) and end(ln["target"])
+            if ln["relation"] in graph_diff.PRED_TO_REL and end(ln["source"]) and end(ln["target"])
         ]
         # 選んでいる星を先頭に、あとは件数の多い順（行数の上限で切れても、選んだ星は残る）
         ordered = sorted(kinds, key=lambda k: (k["iri"] != focus_iri, -k["count"], k["key"]))
@@ -544,34 +535,13 @@ def register_consult_graph(
                 continue
             try:
                 found = paper_sections.extract_from_jats(path.read_text(encoding="utf-8"))
-            except OSError:
+            except (OSError, UnicodeDecodeError):  # 読めない文書は飛ばす（最後は 404）
                 continue
             if found:
                 return record, found
         raise HTTPException(
             404, "要旨と結論を読める文書がありません（PDF は取り込み直すと読めるようになります）"
         )
-
-    def _term_has_question(term: shared_vocab.SharedTerm) -> bool:
-        """この用語に問いがあるか — 星図の ``terms[].questions`` と同じ数え方（データの問い =
-        ``for_terms`` に用語の IRI を持つ道具・知識の問い = ``themes.json`` の ``selections`` で
-        対象がこの用語）。星図は公開済みのデータセットが無いと空になるので、ここで直に数える。"""
-        tools = shared_vocab.read_registry_raw_tools(cfg.registry_root, shared_vocab.REGISTRY_ID)
-        if any(term.iri in (t.get("for_terms") or []) for t in tools or [] if isinstance(t, dict)):
-            return True
-        for th in (themes.load_themes_file(cfg.registry_root) or {}).get("themes", []):
-            sels = th.get("selections")
-            if not isinstance(sels, dict):
-                continue
-            for name in th.get("questions") or []:
-                sel = sels.get(name)
-                if isinstance(sel, dict) and sel.get("mode") == "knowledge":
-                    try:
-                        if shared_vocab.term_iri(str(sel.get("target_slug") or "")) == term.iri:
-                            return True
-                    except ValueError:
-                        continue
-        return False
 
     async def _term_facts(
         ctx: GraphContext, terms: list[shared_vocab.SharedTerm], lang: str
@@ -585,7 +555,7 @@ def register_consult_graph(
         term = next((t for t in terms if t.slug == slug), None)
         if term is None:
             raise HTTPException(404, "unknown term_slug")
-        if _term_has_question(term):
+        if sky_view.questions_of_term(cfg.registry_root, term.iri):  # 星図と同じ数え方
             raise HTTPException(409, "この用語には問いがあります")
         kinds = {k["iri"]: k["label"] for k in await _kinds()}
         try:
@@ -630,10 +600,10 @@ def register_consult_graph(
         if std is not None:
             head = "Standard term" if en else "標準用語の一致"
             facts.append(f"{head}: {name(str(std['target']))}（{std['relation']}）")
-        sentences = graph_diff._REL_SENTENCE["en" if en else "ja"]
+        sentences = graph_diff.REL_SENTENCE["en" if en else "ja"]
         seen: set[str] = set()
         for ln in mine:
-            rel = _PRED_TO_REL.get(str(ln.get("relation")))
+            rel = graph_diff.PRED_TO_REL.get(str(ln.get("relation")))
             if rel is None:
                 continue
             text = sentences[rel].format(s=name(str(ln["source"])), o=name(str(ln["target"])))
@@ -671,7 +641,9 @@ def register_consult_graph(
         ``context.dataset_id`` の文書の**要旨と結論の文**（合計 2,500 字まで）と既存の名前だけで、
         列と種類は無い（本文全体は渡さない）。``screen: "term"``（10c・図の穴）は
         ``context.term_slug`` の**問いの無い用語**の名前・種別・標準用語の一致・周りの関係の文・
-        入っている種類の名前だけ（問いのある用語は 409・用語が無ければ 404）。
+        入っている種類の名前だけ（問いのある用語は 409・用語が無ければ 404）。返す問いはその用語に
+        ついてのもの（知識の問いは対象がその用語・データの問いは種類か項目がその用語）だけ・
+        多くて 3 本。
         AI の答えは閉じた JSON だけ
         （SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・1 回だけ言い直させる）。機械が
         閉じた形（7 つのデータの形・3 つの知識の形）に落ちるもの・名前が列や用語に実在するもの・
@@ -686,6 +658,7 @@ def register_consult_graph(
         columns: list[dict] | None
         screen = body.screen
         terms: list[shared_vocab.SharedTerm] | None = None
+        only_term: shared_vocab.SharedTerm | None = None
         if screen == "dataset" and body.context.dataset_id:
             # 星の札（10a）は ``dataset`` で呼ぶ。文書型には表が無いので、論文として読む
             rec = registry.load_dataset(cfg.registry_root, body.context.dataset_id)
@@ -697,6 +670,7 @@ def register_consult_graph(
             terms = await _terms()
             record = {"meta": {"name": ""}}
             paper_text = await _term_facts(body.context, terms, lang)
+            only_term = next(t for t in terms if t.slug == (body.context.term_slug or "").strip())
             columns, kind_names, prop_names = None, [], []
             standards = [s["label"] for s in themes.default_standards([])]
         elif screen == "paper":
@@ -743,6 +717,7 @@ def register_consult_graph(
         await asyncio.to_thread(
             _record_usage, cfg.registry_root, "consult.suggest_questions", provider, llm, model
         )
+        limit = _TERM_HOLE_LIMIT if only_term is not None else question_suggest.MAX_SUGGESTIONS
         return JSONResponse(
             {
                 "suggestions": question_suggest.postprocess_questions(
@@ -752,6 +727,9 @@ def register_consult_graph(
                     terms=terms,
                     existing_questions=existing,
                     lang=lang,
+                    # 図の穴は、その用語についての問いだけ・多くて 3 本
+                    only_term=only_term,
+                    limit=limit,
                 )
             }
         )

@@ -38,6 +38,8 @@ from asterism.shared_vocab import SharedTerm, normalize_label
 
 __all__ = [
     "KIND_KEY_PREFIX",
+    "PRED_TO_REL",
+    "REL_SENTENCE",
     "apply_to_draft",
     "dismissal_keys",
     "end_iri",
@@ -742,7 +744,21 @@ def dismissal_keys(
 # 提案カードの文
 # ---------------------------------------------------------------------------
 
-_REL_SENTENCE = {
+#: 述語（``crosswalk`` の線の ``relation``）→ 図の関係名（``themes.relation_predicate`` の逆）。
+#: 画面に出す線はこの 9 つの述語だけ。
+PRED_TO_REL = {
+    "subClassOf": "sub",
+    "subPropertyOf": "sub",
+    "equivalentClass": "eq",
+    "equivalentProperty": "eq",
+    "hasQuantityKind": "quantity",
+    "isPartOf": "part",
+    "lowers": "lowers",
+    "raises": "raises",
+    "affects": "affects",
+}
+#: 図の関係名 → 線を言い表す文（``{s}`` = 主語の名前・``{o}`` = 目的語の名前）。
+REL_SENTENCE = {
     "ja": {
         "sub": "{s} は {o} の一種",
         "eq": "{s} と {o} は同じもの",
@@ -794,7 +810,7 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
         return ref
 
     def rel(frm: Any, r: Any, to: Any) -> str:
-        return _REL_SENTENCE[lg].get(str(r), "{s} - {o}").format(s=label(frm), o=label(to))
+        return REL_SENTENCE[lg].get(str(r), "{s} - {o}").format(s=label(frm), o=label(to))
 
     out: list[str] = []
     for op in ops:
@@ -832,7 +848,7 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
             col = op.get("column")
             subject = f"列「{col}」" if lg == "ja" else f"Column {col}"
             r = str(op.get("rel"))
-            text = _REL_SENTENCE[lg].get(r, "{s} - {o}").format(s=subject, o=label(op["to"]))
+            text = REL_SENTENCE[lg].get(r, "{s} - {o}").format(s=subject, o=label(op["to"]))
             out.append(text)
         else:
             out.append("")

@@ -1084,6 +1084,13 @@ def test_suggest_questions_from_a_pdf_reads_the_conversion_kept_at_ingest(tmp_pa
         r = _suggest_paper(client, old)
         assert r.status_code == 404 and "取り込み直" in r.json()["detail"]
     assert llm2.calls == []
+    # the kept conversion exists after ingest (the .pdf.jats beside the .pdf)
+    assert any(f.name.endswith(".pdf.jats") for f in (tmp_path / "registry").rglob("*"))
+    # a kept file that cannot be read as text is "no readable document" (404), not a 500
+    for f in (tmp_path / "registry").rglob("*.pdf.jats"):
+        f.write_bytes(b"\xff\xfe\x00bad")
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        assert _suggest_paper(client, dsid).status_code == 404
 
 
 def test_suggest_questions_from_a_paper_hides_what_is_already_asked(tmp_path: Path) -> None:
@@ -1179,9 +1186,11 @@ TERM_SUGGESTED = {
     "questions": [
         _q("熱伝導率を下げるものは？", "knowledge", "factors", target="熱伝導率",
            direction="lowers"),
-        _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
+        _q("粒界散乱は熱伝導率を下げる？", "knowledge", "factors", target="粒界散乱",
+           direction="lowers"),  # a neighbour, not this term
         _q("熱伝導率の最大は？", "data", "top", kind="試料", property="熱伝導率"),  # no such kind
         _q("熱伝導率の最小と最大は？", "data", "range", property="熱伝導率"),  # a term as item
+        _q("熱伝導率はどんな成分でできている？", "knowledge", "parts", target="熱伝導率"),
     ]
 }  # fmt: skip
 
@@ -1202,8 +1211,8 @@ def test_suggest_questions_for_a_term_with_none_reads_its_lines_and_gives_closed
         assert r.status_code == 200, r.text
         out = r.json()["suggestions"]
         assert [(s["op"], s["target"]) for s in out] == [
-            ("factors", "熱伝導率"), ("parts", "熱伝導率"), ("range", ""),
-        ]  # a kind that is not on the map is dropped; a term can stand as the item
+            ("factors", "熱伝導率"), ("range", ""), ("parts", "熱伝導率"),
+        ]  # only this term (a neighbour is dropped) · a kind not on the map dropped
         assert all(s["question"] and s["shape"] for s in out)
         assert _files(tmp_path) == before and _lines(store) == lines_before  # nothing kept
         system, user = llm.calls[0]
