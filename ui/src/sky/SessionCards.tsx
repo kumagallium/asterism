@@ -15,7 +15,20 @@ import type { HomeWorkspace } from './useHomeWorkspace'
 type TFn = (k: string, o?: Record<string, unknown>) => string
 
 /** 線の A・関係・B を直す札。`index` は下書きの関係の添字。 */
-export function EdgeCard({ ws, draft, index, lang }: { ws: HomeWorkspace; draft: ThemeDraft; index: number; lang: string }) {
+export function EdgeCard({
+  ws,
+  draft,
+  index,
+  lang,
+  onSelectEdge,
+}: {
+  ws: HomeWorkspace
+  draft: ThemeDraft
+  index: number
+  lang: string
+  /** 直したあと、直した線を選び直す（線の ID は A・関係・B で決まるので、直すと変わる）。 */
+  onSelectEdge: (id: string) => void
+}) {
   const { t } = useTranslation()
   const tf = t as unknown as TFn
   const row = draft.relations[index]
@@ -75,7 +88,13 @@ export function EdgeCard({ ws, draft, index, lang }: { ws: HomeWorkspace; draft:
           className="btn btn--sm"
           disabled={!changed || ws.busy || cur.from === cur.to}
           data-testid="edge-apply"
-          onClick={() => void ws.editRelation(index, cur).then((ok) => ok && setEdit(null))}
+          onClick={() =>
+            void ws.editRelation(index, cur).then((ok) => {
+              if (!ok) return
+              setEdit(null)
+              onSelectEdge(relId(cur))
+            })
+          }
         >
           {t('themes:chat.edgeApply')}
         </button>

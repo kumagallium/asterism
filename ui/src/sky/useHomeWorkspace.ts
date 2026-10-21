@@ -349,6 +349,8 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
       setWriting(false)
       if (isReady) {
         await runAi(saved, label)
+        // AI が下書きを作れなかったときも、答え方は手で選べる（会話に 1 枚足す）
+        setItems((l) => (l.some((i) => i.kind === 'answers') ? l : [...l, { kind: 'answers', id: nextItemId() }]))
       } else {
         await persist(startManual({ ...saved, label: label || defaultLabel(questions) }))
         say('note', t('themes:read.unconfigured.short'))

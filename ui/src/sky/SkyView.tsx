@@ -704,7 +704,7 @@ function SkyBody(
   }
   let focusCard: ReactNode = null
   if (ws.draft && edgeIndex >= 0) {
-    focusCard = <EdgeCard key={activeEdge} ws={ws} draft={ws.draft} index={edgeIndex} lang={lang} />
+    focusCard = <EdgeCard key={activeEdge} ws={ws} draft={ws.draft} index={edgeIndex} lang={lang} onSelectEdge={selectEdge} />
   } else if (activeNode?.type === 'draft') {
     if (ws.draft && activeNode.draftId === sessionId) {
       focusCard = <ConceptCard ws={ws} draft={ws.draft} conceptKey={activeNode.conceptKey} lang={lang} onSelectEdge={selectEdge} />
