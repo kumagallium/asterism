@@ -154,6 +154,8 @@ class MatchTerm(BaseModel):
 
 class MatchBody(BaseModel):
     terms: list[MatchTerm] = Field(default_factory=list, max_length=200)
+    #: 同じ下書きで既に使っている ID（仮置きの ``t<n>`` を重ねないため・任意）
+    taken: list[str] = Field(default_factory=list, max_length=400)
 
 
 class AddQuestionsBody(BaseModel):
@@ -538,7 +540,10 @@ def register_themes(
         except Exception as exc:
             raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
         out = await asyncio.to_thread(
-            themes.match_rows, [t.model_dump() for t in body.terms], existing=existing
+            themes.match_rows,
+            [t.model_dump() for t in body.terms],
+            existing=existing,
+            taken=body.taken,
         )
         return JSONResponse({"terms": out})
 

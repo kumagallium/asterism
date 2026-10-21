@@ -1622,3 +1622,14 @@ async def test_a_mint_failing_after_its_insert_leaves_no_term_behind(
         await themes.commit_theme(c, tmp_path, _heat(), at=AT)
     assert calls["n"] >= 3
     assert _snapshot(c, tmp_path) == before  # 語が 1 つも残らない
+
+
+def test_match_rows_placeholder_ids_do_not_repeat_across_batches() -> None:
+    """手入力を 2 回に分けても、仮置きの ID（t<n>）は重ならない（taken に前の分を渡す）。"""
+    first = themes.match_rows([{"label_ja": "粒界散乱", "kind": "class"}], existing=[])
+    assert first[0]["slug"] == "t1"
+    second = themes.match_rows(
+        [{"label_ja": "点欠陥散乱", "kind": "class"}], existing=[], taken=[first[0]["slug"]]
+    )
+    assert second[0]["slug"] != first[0]["slug"]
+    assert second[0]["slug"] == "t2"

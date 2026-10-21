@@ -710,15 +710,21 @@ def derive_slug(label_en: str, aliases: Iterable[str], taken: Iterable[str], n: 
     return unique_slug(base or f"t{n}", {*taken, *sv.RESERVED_SLUGS})
 
 
-def match_rows(rows: Iterable[dict], *, existing: list[SharedTerm]) -> list[dict]:
+def match_rows(
+    rows: Iterable[dict], *, existing: list[SharedTerm], taken: Iterable[str] = ()
+) -> list[dict]:
     """Rows the person wrote by hand (``{key?, label_ja, label_en, aliases, kind}``) →
     ``[{key, match, use, slug}]``: the same exact-name check an AI draft gets (ja / en /
     aliases through :func:`normalize_label` — a part of a name never matches). ``use`` is the
     machine's advice (``existing:<slug>`` / ``standard:<curie>`` / ``new``); ``slug`` is the
     existing term's, or the one :func:`derive_slug` would give a new concept (``t<n>`` when
-    there is no English name). Read-only; no model is involved."""
+    there is no English name). ``taken``: slugs already used by other rows of the same
+    draft (the placeholder ``t<n>`` must not repeat across batches). Read-only; no model
+    is involved."""
     out: list[dict] = []
-    taken = {e.slug for e in existing}
+    taken_all = {e.slug for e in existing}
+    taken_all.update(str(t) for t in taken)
+    start = len([t for t in taken_all if re.fullmatch(r"t\d+", t)])
     for i, r in enumerate(rows):
         kind = "property" if r.get("kind") == "property" else "class"
         aliases = list(sv.clean_aliases(r.get("aliases")))
@@ -726,8 +732,8 @@ def match_rows(rows: Iterable[dict], *, existing: list[SharedTerm]) -> list[dict
             str(r.get("label_ja") or ""), str(r.get("label_en") or ""), aliases, kind, existing
         )
         if not slug:
-            slug = derive_slug(str(r.get("label_en") or ""), aliases, taken, i + 1)
-            taken.add(slug)
+            slug = derive_slug(str(r.get("label_en") or ""), aliases, taken_all, start + i + 1)
+            taken_all.add(slug)
         key = r.get("key") if r.get("key") is not None else f"t{i + 1}"
         out.append({"key": key, "match": match, "use": use, "slug": slug})
     return out
