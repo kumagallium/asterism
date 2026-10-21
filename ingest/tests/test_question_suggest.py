@@ -279,3 +279,38 @@ def test_a_paper_has_no_table_so_only_names_of_existing_terms_stand() -> None:
     assert [(o["mode"], o["op"]) for o in out] == [
         ("knowledge", "factors"), ("knowledge", "parts"), ("knowledge", "kinds"), ("data", "range"),
     ]  # the target no term names, and the table's own columns, are not offered
+
+
+def test_a_term_hole_keeps_only_questions_about_that_term_and_at_most_three() -> None:
+    """図の穴（10c）は ``only_term``: 知識の問いは対象がその用語そのもの、データの問いは kind /
+    property / kind2 のどれかがその用語。周りの用語の問いは落とす。本数は ``limit``。"""
+    thermal = _term("thermal", "熱伝導率", "property", "thermal conductivity")
+    grain = _term("grain", "粒界", "class", "grain boundary")
+    terms = [thermal, grain, _term("zt", "ZT", "property")]
+    qs = [
+        _q("粒界は熱伝導率を下げる？", "knowledge", "factors", target="粒界", direction="lowers"),
+        _q("熱伝導率を下げるものは？", "knowledge", "factors", target="熱伝導率",
+           direction="lowers"),
+        _q("熱伝導率は何でできている？", "knowledge", "parts", target="thermal conductivity"),
+        _q("ZT の一種は？", "knowledge", "kinds", target="ZT"),
+        _q("粒界ごとの ZT の幅は？", "data", "range", kind="粒界", property="ZT"),
+        _q("粒界ごとの熱伝導率の幅は？", "data", "range", kind="粒界", property="熱伝導率"),
+        _q("熱伝導率の最大は？", "data", "top", property="熱伝導率"),
+        _q("熱伝導率の最小は？", "data", "top", property="熱伝導率", kind="粒界"),
+    ]  # fmt: skip
+    out = postprocess_questions({"questions": qs}, terms=terms, only_term=thermal)
+    assert [o["question"] for o in out] == [
+        "熱伝導率を下げるものは？", "熱伝導率は何でできている？",
+        "粒界ごとの熱伝導率の幅は？", "熱伝導率の最大は？", "熱伝導率の最小は？",
+    ]  # fmt: skip
+    capped = postprocess_questions({"questions": qs}, terms=terms, only_term=thermal, limit=3)
+    assert [o["question"] for o in capped] == [o["question"] for o in out[:3]]
+    # a class term: kind / kind2 count, and an unused field does not make a question "about" it
+    only_grain = postprocess_questions({"questions": qs}, terms=terms, only_term=grain)
+    assert [o["question"] for o in only_grain] == [
+        "粒界は熱伝導率を下げる？", "粒界ごとの ZT の幅は？", "粒界ごとの熱伝導率の幅は？",
+        "熱伝導率の最小は？",
+    ]
+    # without only_term nothing is narrowed
+    wide = postprocess_questions({"questions": qs}, terms=terms)
+    assert len(wide) == MAX_SUGGESTIONS and wide[0]["target"] == "粒界"

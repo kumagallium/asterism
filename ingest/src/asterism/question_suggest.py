@@ -17,6 +17,9 @@ AI（``asterism_step0.question_suggest``）が返した閉じた JSON の問い�
 * 既存の問い・同じ提案の中で文が重なるものは出さない（``normalize_label``）。同じ答え方（実行文が
   同じ）も 1 本だけ。「何件ある？」だけの問い（``count``）は 1 本まで。
 * 多くて 5 本。
+* 図の穴（``only_term`` を渡したとき）は**その用語に絞る**: 知識の問いは ``target`` がその用語
+  そのもの、データの問いは ``kind`` / ``property`` / ``kind2`` のどれかがその用語。それ以外は
+  落とす（周りの用語の問いは、その用語の穴を埋めない）。本数は ``limit``（呼び出し側が 3 を渡す）。
 
 返す行は ``{question, mode, op, shape, kind, property, property2, kind2, value, match, target,
 direction}``。``shape`` = 機械が組む実行文
@@ -108,11 +111,16 @@ def postprocess_questions(
     terms: Iterable[sv.SharedTerm] = (),
     existing_questions: Iterable[str] = (),
     lang: str = "ja",
+    only_term: sv.SharedTerm | None = None,
+    limit: int = MAX_SUGGESTIONS,
 ) -> list[dict]:
     """検査済みの AI の返し（``{"questions": [...]}``）→ 出してよい問いの行（最大 5）。規則は
     モジュールの説明を見る。``kinds`` / ``properties`` = :func:`dataset_names` の返し、``terms`` =
-    既にある用語（種類・項目・対象の名前の索引にもなる）。"""
+    既にある用語（種類・項目・対象の名前の索引にもなる）。``only_term`` = 図の穴の用語（この用語に
+    絞る）・``limit`` = 出す本数の上限。"""
     terms = list(terms)
+    limit = min(limit, MAX_SUGGESTIONS)
+    only_name = _term_entries([only_term], None, lang)[0][0] if only_term is not None else None
     kind_idx = name_index(
         [*kinds, *_term_entries(terms, "class", lang)],
     )
@@ -125,7 +133,7 @@ def postprocess_questions(
     out: list[dict] = []
     has_count = False
     for raw in ai.get("questions") or []:
-        if not isinstance(raw, dict) or len(out) >= MAX_SUGGESTIONS:
+        if not isinstance(raw, dict) or len(out) >= limit:
             continue
         question = " ".join(str(raw.get("question") or "").split())
         qkey = normalize_label(question)
@@ -163,6 +171,11 @@ def postprocess_questions(
             if op == "join" and names["kind"] == names["kind2"]:
                 continue
             sel.update({f: names[f] or "" for f in (*used, *(o for o in optional if names[o]))})
+            # 図の穴は、その用語を使う問いだけ（周りの用語の問いは落とす）
+            if only_name is not None and only_name not in (
+                sel.get("kind"), sel.get("property"), sel.get("kind2")
+            ):
+                continue
             if op == "filter":
                 value = themes._clean_value(raw.get("value"))
                 # 値は問いの文に書かれている語だけ（データの値を言い当てた語は通さない）
@@ -183,6 +196,8 @@ def postprocess_questions(
             target = _pick(target_idx, raw.get("target"))
             direction = raw.get("direction")
             if target is None or (op == "factors" and direction not in themes.KNOWLEDGE_DIRECTIONS):
+                continue
+            if only_name is not None and target != only_name:  # 図の穴は用語そのものだけ
                 continue
             sel["target"] = target
             if op == "factors":
