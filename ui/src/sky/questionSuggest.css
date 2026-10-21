@@ -36,13 +36,15 @@
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
-  flex: 1 1 12rem;
+  flex: 1 1 10rem;
 }
 .qs-q {
   overflow-wrap: anywhere;
+  font-size: 0.86rem;
+  line-height: 1.4;
 }
 .qs-shape {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   overflow-wrap: anywhere;
 }
