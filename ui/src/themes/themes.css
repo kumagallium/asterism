@@ -1,11 +1,11 @@
 /* 「知りたいこと」（テーマ）と、3 段で作る画面・用語のページ。色・角は既存のトークンだけを使う
    （見た目の正: ui-redesign のモック「知りたいことから作る」3 段・「知りたいこと」画面）。 */
-
 .thm-view {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
 }
+
 .thm-head {
   display: flex;
   align-items: flex-start;
@@ -13,6 +13,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
 }
+
 .thm-head .vocab-sec-sub {
   flex: 1 1 24rem;
   max-width: 46rem;
@@ -25,15 +26,18 @@
   gap: 0.9rem;
   align-items: start;
 }
+
 .thm-card-theme {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
 }
+
 .thm-card-theme--focus {
   outline: 2px solid var(--activity);
   outline-offset: 2px;
 }
+
 .thm-card-h {
   display: flex;
   align-items: center;
@@ -41,13 +45,16 @@
   margin: 0;
   font-size: 1rem;
 }
+
 .thm-card-h h3 {
   margin: 0;
   font-size: inherit;
 }
+
 .thm-card-h .pill {
   margin-left: auto;
 }
+
 .thm-qrow {
   display: flex;
   align-items: center;
@@ -55,20 +62,24 @@
   padding: 0.5rem 0;
   border-top: 1px solid var(--border);
 }
+
 .thm-qrow:first-of-type {
   border-top: 0;
 }
+
 .thm-qtitle {
   flex: 1;
   min-width: 0;
   font-size: 0.8125rem;
 }
+
 .thm-qshape {
   display: block;
   color: var(--faint);
   font-size: 0.7rem;
   line-height: 1.5;
 }
+
 .thm-ring {
   width: 22px;
   height: 22px;
@@ -77,6 +88,7 @@
   position: relative;
   background: conic-gradient(var(--activity) calc(var(--p) * 1%), var(--activity-soft) 0);
 }
+
 .thm-ring::after {
   content: '';
   position: absolute;
@@ -84,13 +96,16 @@
   border-radius: 50%;
   background: var(--surface);
 }
+
 .thm-ring--none {
   background: var(--surface);
   border: 1.5px solid var(--accent);
 }
+
 .thm-ring--none::after {
   display: none;
 }
+
 .pill {
   display: inline-block;
   border-radius: 999px;
@@ -99,14 +114,17 @@
   font-weight: 600;
   white-space: nowrap;
 }
+
 .pill.ok {
   background: var(--activity-soft);
   color: var(--activity);
 }
+
 .pill.wait {
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
+
 .thm-needs {
   margin: 0.2rem 0 0;
   display: flex;
@@ -114,6 +132,7 @@
   gap: 0.3rem;
   align-items: center;
 }
+
 .thm-term-chip {
   display: inline-block;
   border: 1px solid var(--border-strong);
@@ -125,9 +144,11 @@
   color: var(--fg);
   text-decoration: none;
 }
+
 a.thm-term-chip:hover {
   background: var(--surface-alt);
 }
+
 .thm-memos {
   display: flex;
   flex-direction: column;
@@ -137,17 +158,20 @@ a.thm-term-chip:hover {
   background: var(--surface-alt);
   font-size: 0.8rem;
 }
+
 .thm-card-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.3rem;
 }
+
 .thm-drafts {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
+
 .thm-draft-row {
   display: flex;
   align-items: center;
@@ -155,36 +179,6 @@ a.thm-term-chip:hover {
   flex-wrap: wrap;
 }
 
-/* 3 段（モーダル） */
-.thm-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 1.5rem 16px;
-  overflow: auto;
-  background: rgba(22, 36, 26, 0.35);
-}
-.thm-panel {
-  /* ②は左に図・右に会話を並べるので、画面幅いっぱい（左右 16px の余白）を使う */
-  width: 100%;
-  background: var(--bg);
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-}
-.thm-wizard {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  padding: 1rem 1.2rem 1.2rem;
-}
-.thm-wizard-head {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
 .thm-title {
   margin: 0;
   font-size: 1.1rem;
@@ -194,130 +188,6 @@ a.thm-term-chip:hover {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.thm-wizard-actions {
-  display: flex;
-  gap: 0.4rem;
-}
-.thm-recipe {
-  flex-wrap: wrap;
-}
-.thm-card {
-  gap: 0.8rem;
-}
-.thm-h {
-  margin: 0;
-  font-size: 1.15rem;
-}
-.thm-lead {
-  margin: 0;
-  color: var(--body);
-  font-size: 0.875rem;
-  line-height: 1.7;
-}
-.thm-questions {
-  width: 100%;
-  min-height: 8rem;
-  font: inherit;
-  font-size: 0.875rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  resize: vertical;
-}
-.thm-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.4rem;
-}
-.thm-chip {
-  border: 1px dashed var(--accent);
-  color: var(--accent-strong);
-  background: var(--surface);
-  border-radius: 999px;
-  padding: 0.15rem 0.7rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-.thm-chip:hover {
-  background: var(--accent-soft);
-}
-
-.thm-nav {
-  margin-top: 0.4rem;
-}
-.thm-ai {
-  display: inline-block;
-  margin-left: 0.4rem;
-  color: var(--accent-strong);
-  font-size: 0.7rem;
-  border: 1px dashed var(--accent);
-  border-radius: 4px;
-  padding: 0 5px;
-  white-space: nowrap;
-}
-
-
-
-.thm-effect {
-  font-size: 0.8rem;
-  color: var(--body);
-  background: var(--surface-alt);
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
-  line-height: 1.7;
-}
-
-/* ② 取り組み中の表示 */
-.thm-try {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.65rem 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.thm-q {
-  font-weight: 600;
-  font-size: 0.875rem;
-  margin: 0;
-}
-
-.thm-memo {
-  font-size: 0.78rem;
-  color: var(--body);
-}
-
-/* ③ 置く（ID） */
-.thm-ids {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  margin: 0.3rem 0;
-}
-.thm-id {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-.thm-idfield {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-.thm-idfield input {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.78rem;
-  padding: 0.15rem 0.4rem;
-  width: 12rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-}
-.thm-input--bad {
-  border-color: var(--error-border, #c0392b) !important;
-}
 
 /* 用語のページ */
 .thm-term-head {
@@ -325,6 +195,7 @@ a.thm-term-chip:hover {
   flex-direction: column;
   gap: 0.5rem;
 }
+
 .thm-kv {
   display: grid;
   grid-template-columns: 7rem 1fr;
@@ -332,9 +203,11 @@ a.thm-term-chip:hover {
   margin: 0;
   font-size: 0.85rem;
 }
+
 .thm-kv dt {
   color: var(--muted);
 }
+
 .thm-kv dd {
   margin: 0;
   min-width: 0;
@@ -345,19 +218,8 @@ a.thm-term-chip:hover {
   .thm-kv {
     grid-template-columns: 1fr;
   }
-  .thm-overlay {
-    padding: 0;
-  }
-  .thm-panel {
-    border-radius: 0;
-    min-height: 100%;
-  }
 }
 
-/* 3 段の入力欄は、縦に並べたとき高さを分け合わない（.vocab-field の flex-basis は横並び用）。 */
-.thm-card .vocab-field {
-  flex: none;
-}
 .thm-card-actions a.btn {
   text-decoration: none;
 }
@@ -375,372 +237,22 @@ a.thm-term-chip:hover {
   font-size: 0.85rem;
 }
 
-/* 「閉じる」を押したときの、下書きの扱いの確認（捨てる操作はここに畳んだ） */
-.thm-closing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
-  background: var(--surface-alt);
-  border-radius: var(--radius-sm);
-}
-
-/* ② 下書きをたしかめる（design.md §15.4）: 上＝問いの答え方・左 2/3＝図・右 1/3＝文・下＝手で足す＋確定 */
-.thm-sub-h {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--muted);
-  margin: 0 0 0.3rem;
-}
-.thm-aqs {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.thm-aq {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.55rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.thm-aq-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.thm-aq-text {
-  font-weight: 600;
-  font-size: 0.875rem;
-  flex: 1 1 14rem;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.thm-aq-way {
-  font-size: 0.8125rem;
-}
-.thm-aq-want {
-  font-size: 0.75rem;
-  color: var(--faint);
-}
-.thm-aq-edit {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.9rem;
-  align-items: center;
-  margin-top: 0.3rem;
-  font-size: 0.8rem;
-}
-.thm-aq-edit select {
-  font: inherit;
-  font-size: 0.8rem;
-  max-width: 14rem;
-}
-.thm-sentences {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  max-height: 26rem;
-  overflow-y: auto;
-}
-.thm-sentence {
-  position: relative;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.35rem 2.2rem 0.35rem 0.6rem;
-  font-size: 0.8125rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-.thm-sentence.is-lit {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-.thm-sentence.is-bad {
-  background: var(--error-bg);
-  border-color: var(--error-border);
-}
-.thm-sentence-text {
-  all: unset;
-  cursor: pointer;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.thm-sentence-text:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-.thm-sentence-note {
-  font-size: 0.72rem;
-}
-.thm-reason {
-  font-size: 0.72rem;
-  color: var(--faint);
-  line-height: 1.5;
-}
-.thm-x {
-  position: absolute;
-  top: 0.1rem;
-  right: 0.15rem;
-  /* 指で押せる大きさ（28px 角以上） */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  min-height: 28px;
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: 0.85rem;
-  line-height: 1;
-  padding: 0;
-  border-radius: 4px;
-}
-.thm-x:hover {
-  color: var(--error-fg);
-  background: var(--error-bg);
-}
-.thm-hand-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-}
-.thm-hand-row input,
-.thm-hand-row select {
-  font: inherit;
-  font-size: 0.8125rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  min-width: 0;
-}
-.thm-hand-row input {
-  flex: 1 1 11rem;
-}
-
-/* 知識の図（星図と同じ紙の地） */
-.thm-map {
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.4rem 0.4rem 0.5rem;
-  min-width: 0;
-}
-.thm-map--empty {
-  padding: 0.8rem;
-}
-.thm-map-scroll {
-  overflow: auto;
-  max-width: 100%;
-  max-height: calc(100vh - 17rem);
-  min-height: 12rem;
-}
-.thm-map-fit {
-  position: relative;
-  margin: 0 auto;
-}
-.thm-map-canvas {
-  position: relative;
-  transform-origin: 0 0;
-}
-.thm-map-lines {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-.thm-line {
-  fill: none;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-}
-.thm-line--hier {
-  stroke: var(--muted);
-}
-.thm-line--side {
-  stroke: var(--activity);
-}
-.thm-line--bad {
-  stroke: var(--error-fg);
-}
-.thm-line.is-lit {
-  stroke: var(--accent);
-  stroke-width: 2.6;
-}
-.thm-line.is-dim,
-.thm-pill.is-dim {
-  opacity: 0.3;
-}
-.thm-arrow--hier {
-  fill: var(--muted);
-}
-.thm-arrow--side {
-  fill: var(--activity);
-}
-.thm-arrow--bad {
-  fill: var(--error-fg);
-}
-.thm-pill {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  font-size: 0.7rem;
-  line-height: 1;
-  padding: 0.18rem 0.4rem;
-  border-radius: 999px;
-  background: var(--paper);
-  border: 1px solid var(--activity);
-  color: var(--activity);
-  pointer-events: none;
-  white-space: nowrap;
-}
-.thm-pill--hier {
-  border-color: var(--border-strong);
-  color: var(--muted);
-  font-size: 0.65rem;
-}
-.thm-pill--bad {
-  border-color: var(--error-fg);
-  color: var(--error-fg);
-}
-.thm-pill.is-lit {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-strong);
-}
-.thm-node {
-  position: absolute;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-  padding: 0 0.4rem;
-  border-radius: 10px;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--fg);
-  border: 1.5px solid var(--entity);
-  background: var(--entity-soft);
-  text-align: center;
-}
-.thm-node--property {
-  border-color: var(--activity);
-  background: var(--activity-soft);
-}
-.thm-node--std {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-soft);
-}
-/* 標準の語: 地平線の色の小さな札（概念ではない・関係の端として出すだけ） */
-.thm-node--word {
-  cursor: default;
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-}
-.thm-node.is-on {
-  outline: 2.5px solid var(--primary);
-  outline-offset: 1px;
-}
-.thm-node.is-lonely {
-  opacity: 0.7;
-}
-.thm-node:focus-visible {
-  outline: 2.5px solid var(--primary);
-  outline-offset: 1px;
-}
-.thm-node-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.thm-node-kind {
-  font-size: 0.6rem;
-  font-weight: 500;
-  color: var(--faint);
-  flex: none;
-}
-.thm-node-warn {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  margin-top: 2px;
-  font-size: 0.62rem;
-  font-weight: 500;
-  color: var(--warn-fg);
-  white-space: nowrap;
-  text-align: center;
-  pointer-events: none;
-}
-.thm-map-hint {
-  margin: 0.25rem 0 0;
-  font-size: 0.7rem;
-  color: var(--faint);
-  text-align: right;
-}
-.thm-map-legend {
-  display: flex;
-  gap: 0.9rem;
-  flex-wrap: wrap;
-  font-size: 0.7rem;
-  color: var(--faint);
-  padding: 0.3rem 0.3rem 0;
-}
-.thm-map-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-.thm-sw {
-  display: inline-block;
-  width: 0.8rem;
-  height: 0.6rem;
-  border-radius: 3px;
-  border: 1.5px solid var(--entity);
-  background: var(--entity-soft);
-}
-.thm-sw--property {
-  border-color: var(--activity);
-  background: var(--activity-soft);
-}
-.thm-sw--std {
-  border-color: var(--accent);
-  background: var(--surface);
-}
-
 /* 知りたいこと: 答え方の印・欲しいデータ・知識の一覧 */
 .thm-qwant {
   font-size: 0.75rem;
   color: var(--faint);
   margin: 0 0 0.3rem 1.9rem;
 }
+
 .thm-qrow-wrap {
   display: flex;
   flex-direction: column;
 }
+
 .thm-see {
   font-size: 0.75rem;
 }
+
 .thm-kanswer {
   list-style: none;
   margin: 0.2rem 0 0.4rem 1.9rem;
@@ -749,516 +261,4 @@ a.thm-term-chip:hover {
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.8125rem;
-}
-
-/* 作業場の図（GraphCanvas）: 全体を収める・線を押す・提案を薄く重ねる・線の端のドラッグ */
-.thm-map-tools {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 0.1rem 0.3rem;
-}
-.thm-map-tools .btn.is-on {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-.thm-line-hit {
-  fill: none;
-  stroke: transparent;
-  stroke-width: 16;
-  pointer-events: stroke;
-  cursor: pointer;
-}
-.thm-line.is-on {
-  stroke: var(--primary);
-  stroke-width: 3;
-}
-.thm-pill--click {
-  pointer-events: auto;
-  cursor: pointer;
-}
-/* 提案: 足す線は薄く・付け替える線は薄い線と「→」・離れる元の線はさらに薄く・外す線は打ち消し */
-.thm-line--ghost-add {
-  opacity: 0.45;
-}
-.thm-line--ghost-retarget {
-  opacity: 0.6;
-}
-.thm-line--ghost-moved {
-  opacity: 0.22;
-}
-.thm-line--ghost-remove {
-  opacity: 0.3;
-  stroke-dasharray: 4 3;
-}
-.thm-pill--ghost-add {
-  opacity: 0.55;
-}
-.thm-pill--ghost-retarget {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-strong);
-  font-weight: 700;
-}
-.thm-pill--ghost-moved,
-.thm-pill--ghost-remove {
-  opacity: 0.35;
-}
-.thm-node--ghost-add {
-  opacity: 0.6;
-}
-.thm-node--ghost-remove {
-  opacity: 0.5;
-  border-color: var(--error-border);
-}
-.thm-node--ghost-remove .thm-node-name {
-  text-decoration: line-through;
-}
-.thm-node-tag {
-  position: absolute;
-  top: -9px;
-  left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: var(--paper);
-  color: var(--accent-strong);
-  font-size: 0.58rem;
-  font-weight: 600;
-  line-height: 1.5;
-  white-space: nowrap;
-  pointer-events: none;
-}
-.thm-node--ghost-remove .thm-node-tag {
-  border-color: var(--error-border);
-  color: var(--error-fg);
-}
-.thm-sw--ghost {
-  opacity: 0.5;
-}
-/* 線の端（持って別の札に落とすと付け替え） */
-.thm-handle {
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  margin: -8px 0 0 -8px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 2.5px solid var(--primary);
-  box-shadow: var(--shadow-soft);
-  cursor: grab;
-  touch-action: none;
-  z-index: 4;
-}
-.thm-handle::after {
-  content: '';
-  position: absolute;
-  inset: -9px;
-}
-.thm-handle.is-drag {
-  cursor: grabbing;
-  background: var(--primary);
-}
-.thm-node.is-drop {
-  outline: 2.5px dashed var(--primary);
-  outline-offset: 2px;
-}
-.thm-drag-line {
-  stroke: var(--primary);
-  stroke-width: 2;
-  stroke-dasharray: 5 4;
-}
-
-/* ---- 作業場: 上＝問い・左＝図・右＝会話・下＝戻る／まとめて確定（design.md §16） ---- */
-/* 作業場が開いている間は、右下の「AI に相談」（全画面）を隠す。会話は作業場の右にある。 */
-body.thm-wizard-open .consult-fab,
-body.thm-wizard-open .consult-drawer,
-body.thm-wizard-open .consult-backdrop {
-  display: none;
-}
-body.thm-wizard-open.consult-open .app-main {
-  margin-right: 0;
-}
-.thm-ws {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  grid-template-areas:
-    'top top'
-    'fig chat'
-    'bottom bottom';
-  gap: 0.8rem;
-  align-items: start;
-}
-.thm-ws.is-folded {
-  grid-template-columns: minmax(0, 1fr) 0;
-  column-gap: 0;
-}
-.thm-ws-top {
-  grid-area: top;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-}
-.thm-ws-fig {
-  grid-area: fig;
-  position: relative;
-  min-width: 0;
-}
-.thm-ws-bottom {
-  grid-area: bottom;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-}
-/* 上の 1 行: 問いは並べて、1 問が 1 つの帯 */
-.thm-ws-top .thm-aqs {
-  flex-direction: row;
-  flex-wrap: wrap;
-}
-.thm-ws-top .thm-aq {
-  flex: 1 1 22rem;
-  min-width: 0;
-}
-.thm-ws-open {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.thm-ws-badge {
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-/* 図の紙は、右の会話と同じ高さまで広げる（短い図でも下が空かない） */
-.thm-ws-fig .thm-map {
-  min-height: calc(100vh - 17rem);
-  box-sizing: border-box;
-}
-/* 右: 会話 */
-.thm-chat {
-  grid-area: chat;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  /* 図と同じ高さの目安。履歴が長くなったら中でスクロールする */
-  height: calc(100vh - 17rem);
-  min-height: 30rem;
-  overflow: hidden;
-}
-.thm-chat-head,
-.thm-chat-focus,
-.thm-chat-tools,
-.thm-chat-foot {
-  flex: none;
-}
-.thm-chat-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-}
-.thm-chat-scroll {
-  flex: 1 1 auto;
-  min-height: 6rem;
-}
-.thm-bubble-ai {
-  color: var(--muted);
-  background: transparent !important;
-  padding-left: 0;
-}
-.thm-chat-focus {
-  border-top: 1px solid var(--border);
-  background: var(--surface-alt);
-  padding: 0.55rem 0.75rem;
-  max-height: 12rem;
-  overflow-y: auto;
-}
-.thm-focus {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  font-size: 0.8125rem;
-}
-.thm-focus-name,
-.thm-focus-sentence {
-  margin: 0;
-  font-weight: 600;
-  line-height: 1.5;
-}
-.thm-focus-rels {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-.thm-focus-edit {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.4rem;
-}
-.thm-focus-edit label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.7rem;
-  color: var(--muted);
-  min-width: 0;
-}
-.thm-focus-edit select {
-  font: inherit;
-  font-size: 0.78rem;
-  min-width: 0;
-  max-width: 100%;
-}
-.thm-focus-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-.thm-chat-tools {
-  border-top: 1px solid var(--border);
-  padding: 0.3rem 0.75rem;
-  max-height: 12rem;
-  overflow-y: auto;
-  font-size: 0.78rem;
-}
-.thm-chat-more > summary {
-  cursor: pointer;
-  color: var(--muted);
-  padding: 0.15rem 0;
-}
-.thm-chat-more .thm-sentences {
-  max-height: 9rem;
-}
-.thm-chat-foot {
-  padding: 0.5rem 0.75rem;
-}
-.thm-chat-unset {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  color: var(--body);
-}
-/* 提案カード */
-.thm-card-p {
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 0.55rem 0.65rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  font-size: 0.8125rem;
-}
-.thm-card-p--done {
-  background: var(--surface-alt);
-  border-color: var(--border);
-  color: var(--muted);
-  padding: 0.35rem 0.65rem;
-}
-.thm-card-p--done > summary {
-  cursor: pointer;
-  font-size: 0.78rem;
-}
-.thm-card-p--draft {
-  border-color: var(--accent);
-}
-.thm-card-p-h {
-  margin: 0;
-  font-size: 0.8125rem;
-}
-.thm-card-p-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.thm-card-p-row {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.1rem 0.5rem;
-  padding-right: 4.2rem;
-  line-height: 1.5;
-}
-.thm-card-p-row .thm-reason {
-  flex: 1 1 100%;
-}
-.thm-card-p-row.is-no .thm-card-p-text {
-  text-decoration: line-through;
-  color: var(--faint);
-}
-.thm-card-p-text {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.thm-card-p-kind {
-  font-size: 0.68rem;
-  color: var(--faint);
-}
-.thm-card-p-ticks {
-  position: absolute;
-  top: -0.15rem;
-  right: 0;
-  display: inline-flex;
-  gap: 0.2rem;
-}
-.thm-tick {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--primary);
-  cursor: pointer;
-  font-size: 0.85rem;
-  line-height: 1;
-}
-.thm-tick--no {
-  color: var(--faint);
-}
-.thm-tick:hover:not(:disabled) {
-  background: var(--primary-soft);
-}
-.thm-tick--no:hover:not(:disabled) {
-  background: var(--error-bg);
-  color: var(--error-fg);
-}
-.thm-card-p-mark {
-  font-size: 0.72rem;
-  color: var(--faint);
-}
-.thm-card-p-note {
-  flex: 1 1 100%;
-  font-size: 0.72rem;
-  color: var(--warn-fg);
-}
-.thm-card-p-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.thm-card-p-concepts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin: 0;
-}
-.thm-card-p-chip {
-  font-size: 0.72rem;
-  padding: 0.05rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid var(--entity);
-  background: var(--entity-soft);
-}
-.thm-card-p-chip--property {
-  border-color: var(--activity);
-  background: var(--activity-soft);
-}
-
-/* 375px: 会話は下からのシート（開くと画面の 60%・たためる）。ページは横にはみ出さない */
-@media (max-width: 720px) {
-  .thm-overlay {
-    padding: 0;
-  }
-  .thm-panel {
-    border-radius: 0;
-  }
-  .thm-wizard {
-    padding: 0.8rem 16px 5rem;
-  }
-  .thm-ws,
-  .thm-ws.is-folded {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      'top'
-      'fig'
-      'bottom';
-  }
-  .thm-chat {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 60;
-    height: 60vh;
-    min-height: 0;
-    max-height: 60vh;
-    border-radius: 14px 14px 0 0;
-    border-bottom: 0;
-    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
-  }
-  .thm-ws-open {
-    position: fixed;
-    top: auto;
-    right: 16px;
-    bottom: 16px;
-    z-index: 55;
-    box-shadow: var(--shadow);
-  }
-  .thm-focus-edit {
-    grid-template-columns: 1fr;
-  }
-  /* 札や線を押したときの欄: 会話のシートでなく、図の下の小さな帯（高さ固定・図は見えたまま） */
-  .thm-ws-band {
-    position: sticky;
-    bottom: 0;
-    z-index: 40;
-    box-sizing: border-box;
-    height: 8.5rem;
-    margin-top: 0.4rem;
-    overflow-y: auto;
-    padding: 0.45rem 0.6rem;
-    background: var(--surface-alt);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.1);
-  }
-  .thm-ws-band .thm-focus-edit {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-  .thm-ws.has-band .thm-ws-open {
-    bottom: calc(8.5rem + 28px);
-  }
-  .thm-map-scroll {
-    max-height: none;
-  }
-  .thm-ws-fig .thm-map {
-    min-height: 0;
-  }
-}
-
-/* できなかった行のある提案カード（畳まず、理由を各行に薄く出す）・「すべて既にあります」の 1 行 */
-.thm-card-p--failed .thm-card-p-h {
-  font-weight: 500;
-  color: var(--muted);
-}
-.thm-card-p--failed .thm-card-p-note {
-  color: var(--muted);
-}
-.thm-card-p--note {
-  margin: 0;
-  font-size: 0.78rem;
 }
