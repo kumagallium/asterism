@@ -1,4 +1,4 @@
-// 入力欄（PR 11a）。Enter で送る・Shift+Enter で改行・IME 変換中は送らない。📎 は 11c。
+// 入力欄（PR 11a）。Enter で送る・Shift+Enter で改行・IME 変換中は送らない。📎 は表を添える（隠し input・選ぶとすぐ送る）。
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GearIcon, SendIcon } from '../icons'
@@ -11,13 +11,16 @@ export interface ComposerProps {
   /** 鍵が無い（話を保存できない）。入力欄の代わりに 1 行。 */
   noKey: boolean
   onOpenSettings: () => void
+  /** 表を添えた（選ぶとすぐ）。 */
+  onAttach?: (files: File[]) => Promise<boolean> | boolean | void
 }
 
-export function Composer({ onSend, busy, noKey, onOpenSettings }: ComposerProps) {
+export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: ComposerProps) {
   const { t } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
   const [text, setText] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const wasBusy = useRef(false)
   // 送信などが終わって入力欄が使えるようになったら、フォーカスを返す
   useEffect(() => {
@@ -46,6 +49,34 @@ export function Composer({ onSend, busy, noKey, onOpenSettings }: ComposerProps)
 
   return (
     <div className="consult-composer chat-composer">
+      {onAttach && (
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            data-testid="chat-attach-input"
+            accept=".csv,.tsv,.xlsx,.xls,.json"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              if (files.length > 0) void onAttach(files)
+            }}
+          />
+          <button
+            type="button"
+            className="chat-icon-btn chat-attach"
+            data-testid="chat-attach"
+            disabled={busy}
+            onClick={() => fileInput.current?.click()}
+            aria-label={t('compose.attach')}
+            title={t('compose.attach')}
+          >
+            📎
+          </button>
+        </>
+      )}
       <textarea
         ref={area}
         className="consult-input"

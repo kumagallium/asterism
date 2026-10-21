@@ -5,7 +5,7 @@
 import { authHeaders } from '../authToken'
 import i18n from '../i18n'
 import { type LlmCredentials, llmHeaders } from '../settings/store'
-import { EMPTY_SKY, type DraftSky, type SkyData } from '../sky/skyApi'
+import { EMPTY_SKY, type DraftSky, type SkyData, type SkyDataset } from '../sky/skyApi'
 import { ThemesApiError } from '../themes/themesApi'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
@@ -19,6 +19,8 @@ export interface NoteChoice {
   label: string
   options: { value: string; label: string }[]
   default: string
+  /** 人が決めた値（決めたあと）。 */
+  chosen?: string
 }
 
 export interface Note {
@@ -36,15 +38,40 @@ export interface Reply {
   sentences: string[]
   /** 次に聞けること（チップ）。11b から。 */
   questions: string[]
-  /** 11c。 */
-  bindings: unknown[]
+  /** 11c: 列と用語の完全一致。 */
+  bindings: Binding[]
+  /** 機械の手番（公開後の名前の一致）。 */
+  suggestions: Suggestion[]
   notes: Note[]
   /** 11d。 */
   answer: unknown | null
   table: unknown | null
 }
 
-export type TurnState = 'none' | 'proposed' | 'confirmed' | 'reverted'
+/** 列と用語の一致 1 件。`decided` は既定（結ぶ／結ばない）で、✓ のときに人の選びを送る。 */
+export type Decided = 'bind' | 'skip'
+export interface Binding {
+  column: string
+  label: string
+  term: string
+  term_label: string
+  relation: string
+  decided: Decided
+}
+export interface Suggestion {
+  subject: string
+  term: string
+  relation: string
+}
+export interface Attachment {
+  dataset_id: string
+  name: string
+  rows: number
+  kinds: { iri: string; label: string; count: number }[]
+  id_column: string
+}
+
+export type TurnState = 'none' | 'running' | 'proposed' | 'confirmed' | 'reverted'
 
 export interface CommitRecord {
   theme_id: string
@@ -62,7 +89,11 @@ export interface CommitRecord {
 export interface Turn {
   id: string
   at: string
-  user: { text: string; attachments: unknown[] } | null
+  user: { text: string; attachments: { name: string; size: number }[] } | null
+  /** 添えた表（取り込み済み）。 */
+  attachment: Attachment | null
+  /** 走っているジョブ（`state: running` のとき）。 */
+  job_id: string | null
   reply: Reply
   batch: string
   state: TurnState
@@ -98,6 +129,13 @@ export interface TurnResponse {
   turn: Turn
   session: SessionBrief
   draft: SkyDraft | null
+  job_id?: string | null
+}
+
+export interface AttachResponse {
+  turn: Turn
+  session: SessionBrief
+  job_id: string
 }
 
 export interface ConfirmResponse {
@@ -105,6 +143,14 @@ export interface ConfirmResponse {
   session: SessionBrief
   commit?: CommitRecord
   confirmed?: string[]
+  /** 公開のあとの機械の手番（名前の一致）。 */
+  followup?: Turn | null
+}
+
+/** ✓ で送る、結ぶ／結ばないの選び。 */
+export interface BindingDecision {
+  column: string
+  decided: Decided
 }
 
 export interface RevertResponse {
@@ -123,7 +169,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d)
 const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null)
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-const STATES: readonly TurnState[] = ['none', 'proposed', 'confirmed', 'reverted']
+const STATES: readonly TurnState[] = ['none', 'running', 'proposed', 'confirmed', 'reverted']
 
 function badShape(): ThemesApiError {
   return new ThemesApiError(i18n.t('chat:error.badShape'), 502, '')
@@ -136,12 +182,37 @@ function note(v: unknown): Note | null {
     choice = {
       label: str(v.choice.label),
       default: str(v.choice.default),
+      ...(typeof v.choice.chosen === 'string' ? { chosen: v.choice.chosen } : {}),
       options: v.choice.options
         .filter(isObj)
         .map((o) => ({ value: str(o.value), label: str(o.label) })),
     }
   }
   return { kind: v.kind, text: str(v.text), choice }
+}
+
+function binding(o: Record<string, unknown>): Binding {
+  return {
+    column: str(o.column),
+    label: str(o.label),
+    term: str(o.term),
+    term_label: str(o.term_label),
+    relation: str(o.relation, 'eq'),
+    decided: o.decided === 'skip' ? 'skip' : 'bind',
+  }
+}
+
+function attachmentOf(v: unknown): Attachment | null {
+  if (!isObj(v)) return null
+  return {
+    dataset_id: str(v.dataset_id),
+    name: str(v.name),
+    rows: typeof v.rows === 'number' ? v.rows : 0,
+    kinds: Array.isArray(v.kinds)
+      ? v.kinds.filter(isObj).map((k) => ({ iri: str(k.iri), label: str(k.label), count: typeof k.count === 'number' ? k.count : 0 }))
+      : [],
+    id_column: str(v.id_column),
+  }
 }
 
 function reply(v: unknown): Reply | null {
@@ -151,7 +222,10 @@ function reply(v: unknown): Reply | null {
     ops: Array.isArray(v.ops) ? (v.ops.filter((o) => isObj(o) && typeof o.op === 'string') as GraphOp[]) : [],
     sentences: strs(v.sentences),
     questions: strs(v.questions),
-    bindings: Array.isArray(v.bindings) ? v.bindings : [],
+    bindings: Array.isArray(v.bindings) ? v.bindings.filter(isObj).map(binding).filter((b) => b.column !== '') : [],
+    suggestions: Array.isArray(v.suggestions)
+      ? v.suggestions.filter(isObj).map((x) => ({ subject: str(x.subject), term: str(x.term), relation: str(x.relation) }))
+      : [],
     notes: Array.isArray(v.notes) ? v.notes.map(note).filter((n): n is Note => n !== null) : [],
     answer: v.answer ?? null,
     table: v.table ?? null,
@@ -187,7 +261,12 @@ export function normalizeTurn(v: unknown): Turn | null {
   const state = STATES.includes(v.state as TurnState) ? (v.state as TurnState) : null
   if (!state) return null
   const user = isObj(v.user)
-    ? { text: str(v.user.text), attachments: Array.isArray(v.user.attachments) ? v.user.attachments : [] }
+    ? {
+        text: str(v.user.text),
+        attachments: Array.isArray(v.user.attachments)
+          ? v.user.attachments.filter(isObj).map((a) => ({ name: str(a.name), size: typeof a.size === 'number' ? a.size : 0 }))
+          : [],
+      }
     : null
   const by = v.by === 'ai' || v.by === 'machine' ? v.by : 'human'
   return {
@@ -200,6 +279,8 @@ export function normalizeTurn(v: unknown): Turn | null {
     before: v.before ?? null,
     commit: commitOf(v.commit),
     by,
+    attachment: attachmentOf(v.attachment),
+    job_id: strOrNull(v.job_id),
   }
 }
 
@@ -340,6 +421,8 @@ export interface TurnInput {
   text?: string
   ops?: GraphOp[]
   set_answer?: SetAnswerBody
+  /** 返事の中の小さな選択（ラジオ 1 組）。 */
+  choice?: { turn_id: string; note_index: number; value: string }
   lang?: 'ja' | 'en'
 }
 
@@ -354,20 +437,51 @@ export async function postTurn(id: string, input: TurnInput, creds: LlmCredentia
   const turn = isObj(body) ? normalizeTurn(body.turn) : null
   const session = isObj(body) ? brief(body.session) : null
   if (!turn || !session || !isObj(body)) throw badShape()
-  return { turn, session, draft: draftSky(body.draft) }
+  return { turn, session, draft: draftSky(body.draft), job_id: strOrNull(body.job_id) }
 }
 
-export async function confirmTurn(id: string, turnId: string, lang: 'ja' | 'en'): Promise<ConfirmResponse> {
+/** 表を添える（multipart）。201 で手番（running）とジョブの id が返る。AI 未設定は 503。 */
+export async function postAttach(id: string, files: File[], lang: 'ja' | 'en', creds: LlmCredentials | null): Promise<AttachResponse> {
+  const form = new FormData()
+  for (const f of files) form.append('files', f, f.name)
+  form.append('lang', lang)
+  const res = await call(
+    `/api/chat/sessions/${encodeURIComponent(id)}/attach`,
+    { method: 'POST', headers: { ...authHeaders(), ...llmHeaders(creds) }, body: form },
+    'attach',
+  )
+  const body: unknown = await res.json()
+  const turn = isObj(body) ? normalizeTurn(body.turn) : null
+  const session = isObj(body) ? brief(body.session) : null
+  if (!turn || !session || !isObj(body) || typeof body.job_id !== 'string') throw badShape()
+  return { turn, session, job_id: body.job_id }
+}
+
+/** AI が設定されていない（attach の 503）。鍵が無い 503 とは `detail` で見分ける。 */
+export const isAiUnset = (e: unknown): boolean => e instanceof ThemesApiError && e.status === 503 && e.detail.includes('AI')
+
+export async function confirmTurn(
+  id: string,
+  turnId: string,
+  lang: 'ja' | 'en',
+  bindings?: BindingDecision[],
+): Promise<ConfirmResponse> {
   const res = await call(
     `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/confirm`,
-    { method: 'POST', headers: json(), body: JSON.stringify({ lang }) },
+    { method: 'POST', headers: json(), body: JSON.stringify(bindings ? { lang, bindings } : { lang }) },
     'confirm',
   )
   const body: unknown = await res.json()
   const turn = isObj(body) ? normalizeTurn(body.turn) : null
   const session = isObj(body) ? brief(body.session) : null
   if (!turn || !session || !isObj(body)) throw badShape()
-  return { turn, session, commit: commitOf(body.commit) ?? undefined, confirmed: strs(body.confirmed) }
+  return {
+    turn,
+    session,
+    commit: commitOf(body.commit) ?? undefined,
+    confirmed: strs(body.confirmed),
+    followup: normalizeTurn(body.followup),
+  }
 }
 
 export async function revertTurn(id: string, turnId: string, lang: 'ja' | 'en' = 'ja'): Promise<RevertResponse> {
@@ -387,17 +501,39 @@ export async function revertTurn(id: string, turnId: string, lang: 'ja' | 'en' =
  * 星図。`GET /api/sky` は無認証のまま、鍵が付いていれば未確認の下書き（`proposed`）も返る。
  * （`sky/skyApi.ts` の `getSky` は鍵を付けないので、ここに別に持つ。）
  */
-export async function getSkyWithProposed(lang: 'ja' | 'en'): Promise<{ sky: SkyData; proposed: SkyDraft[] }> {
+export async function getSkyWithProposed(
+  lang: 'ja' | 'en',
+): Promise<{ sky: SkyData; proposed: SkyDraft[]; proposedDatasets: SkyDataset[] }> {
   const res = await fetch(`${API_BASE}/api/sky?lang=${lang}`, { headers: authHeaders() })
   if (!res.ok) throw await asError(res, i18n.t('chat:error.ops.sky'))
   const body = (await res.json()) as Partial<SkyData> & { proposed?: unknown }
   const proposed = Array.isArray(body.proposed)
     ? body.proposed.map(draftSky).filter((d): d is SkyDraft => d !== null)
     : []
-  const rest: Partial<SkyData> & { proposed?: unknown } = { ...body }
+  const proposedDatasets = proposedDatasetsOf((body as { proposed_datasets?: unknown }).proposed_datasets)
+  const rest: Partial<SkyData> & { proposed?: unknown; proposed_datasets?: unknown } = { ...body }
   delete rest.proposed
+  delete rest.proposed_datasets
   return {
     sky: { ...EMPTY_SKY, ...rest, facts: { ...EMPTY_SKY.facts, ...(body.facts ?? {}) } },
     proposed,
+    proposedDatasets,
   }
+}
+
+/** 取り込み済みで未公開のデータセットを、薄く描く `SkyDataset` の形にする。 */
+export function proposedDatasetsOf(v: unknown): SkyDataset[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter(isObj)
+    .filter((d) => typeof d.id === 'string' && d.id !== '')
+    .map((d) => ({
+      id: str(d.id),
+      label: str(d.label),
+      created_at: '',
+      kinds: (Array.isArray(d.kinds) ? d.kinds.filter(isObj) : [])
+        .filter((k) => typeof k.iri === 'string')
+        .map((k) => ({ iri: str(k.iri), label: str(k.label), count: typeof k.count === 'number' ? k.count : 0, links: [], standard: null })),
+      proposed: true,
+    }))
 }

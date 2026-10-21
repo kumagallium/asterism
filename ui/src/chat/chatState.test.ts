@@ -8,6 +8,8 @@ import {
   handFormShown,
   keptName,
   nameTable,
+  runningJobs,
+  bindingDecisions,
   preferReloaded,
   settleAsk,
   nextHandKey,
@@ -25,6 +27,7 @@ const turn = (id: string, state: TurnState, ops = 0, notes: string[] = []): Turn
     sentences: [],
     questions: [],
     bindings: [],
+    suggestions: [],
     notes: notes.map((kind) => ({ kind, text: 'n', choice: null })),
     answer: null,
     table: null,
@@ -34,6 +37,8 @@ const turn = (id: string, state: TurnState, ops = 0, notes: string[] = []): Turn
   before: state === 'proposed' ? {} : null,
   commit: null,
   by: 'human',
+  attachment: null,
+  job_id: null,
 })
 const session = (turns: Turn[], over: Partial<Session> = {}): Session => ({
   id: 'cabc12345x',
@@ -165,5 +170,31 @@ describe('話の読み直し・チップ・名前', () => {
     expect(keptName('dens', names)).toBe('密度')
     expect(keptName('zzz', names)).toBe('zzz')
     expect(keptName('zzz', undefined)).toBe('zzz')
+  })
+})
+
+describe('📎 表を添える', () => {
+  it('running の手番は ✓ の対象にならず、ジョブの id があれば購読し直す', () => {
+    const running: Turn = { ...turn('t1', 'running'), job_id: 'j1' }
+    const noJob = turn('t2', 'running')
+    expect(confirmTarget([running, noJob])).toBeNull()
+    expect(proposedCount([running])).toBe(0)
+    expect(runningJobs([running, noJob, turn('t3', 'proposed')])).toEqual([{ turnId: 't1', jobId: 'j1' }])
+  })
+  it('bindings の decided: 既定に人の選びを重ねる', () => {
+    const b = (column: string, decided: 'bind' | 'skip') => ({ column, label: column, term: column, term_label: column, relation: 'eq', decided })
+    const bs = [b('価格', 'bind'), b('産地', 'bind'), b('備考', 'skip')]
+    expect(bindingDecisions(bs, {})).toEqual([
+      { column: '価格', decided: 'bind' },
+      { column: '産地', decided: 'bind' },
+      { column: '備考', decided: 'skip' },
+    ])
+    expect(bindingDecisions(bs, { 産地: 'skip', 備考: 'bind' }).map((d) => d.decided)).toEqual(['bind', 'skip', 'bind'])
+  })
+  it('✓ の返りの followup（機械の手番）は話の末尾に足される', () => {
+    const t1 = turn('t1', 'proposed')
+    const follow: Turn = { ...turn('t9', 'proposed'), by: 'machine', user: null }
+    const s = applyConfirm(session([t1]), { turn: { ...t1, state: 'confirmed' }, session: brief(), followup: follow })
+    expect(s.turns.map((t) => t.id)).toEqual(['t1', 't9'])
   })
 })

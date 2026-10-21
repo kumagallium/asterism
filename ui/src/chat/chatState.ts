@@ -1,5 +1,5 @@
 // 話の状態の純関数（vitest で検査する）。画面は fetch の返りをここに通して話を更新する。
-import type { ConfirmResponse, RevertResponse, Session, SessionBrief, Turn, TurnResponse } from './chatApi'
+import type { Binding, BindingDecision, Decided, ConfirmResponse, RevertResponse, Session, SessionBrief, Turn, TurnResponse } from './chatApi'
 
 /** ✓ を出す手番の id（最後の未確認の返事）。無ければ null。 */
 export function confirmTarget(turns: readonly Turn[]): string | null {
@@ -40,9 +40,10 @@ export function applyTurnResponse(s: Session, res: TurnResponse): Session {
 export function applyConfirm(s: Session, res: ConfirmResponse): Session {
   const ids = new Set(res.confirmed ?? [])
   const commit = res.commit ?? res.turn.commit
-  const turns = withTurn(s.turns, res.turn).map((t) =>
+  let turns = withTurn(s.turns, res.turn).map((t) =>
     ids.has(t.id) && t.id !== res.turn.id ? { ...t, state: 'confirmed' as const, before: null, commit } : t,
   )
+  if (res.followup) turns = withTurn(turns, res.followup)
   return { ...withBrief(s, res.session), turns }
 }
 
@@ -113,4 +114,16 @@ export function handFormShown(s: Pick<Session, 'draft_id' | 'turns'>): boolean {
     if (t.reply.notes.some((n) => n.kind === 'ai_unset')) return true
   }
   return false
+}
+
+/** 読んでいる最中の手番（ジョブの id があるもの）。話を開き直したとき、これを購読し直す。 */
+export function runningJobs(turns: readonly Turn[]): { turnId: string; jobId: string }[] {
+  const out: { turnId: string; jobId: string }[] = []
+  for (const t of turns) if (t.state === 'running' && t.job_id) out.push({ turnId: t.id, jobId: t.job_id })
+  return out
+}
+
+/** 結ぶ／結ばないの選び: 人が変えたもの（`picked`）を既定（`decided`）に重ねる。✓ のときに送る。 */
+export function bindingDecisions(bindings: readonly Binding[], picked: Readonly<Record<string, Decided>>): BindingDecision[] {
+  return bindings.map((b) => ({ column: b.column, decided: picked[b.column] ?? b.decided }))
 }

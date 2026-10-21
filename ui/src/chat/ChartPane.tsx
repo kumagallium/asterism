@@ -7,7 +7,7 @@ import { isTauri } from '../desktop/updater'
 import { drawRemovals, removalOverlay } from '../chart/chartOverlay'
 import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
-import { EMPTY_SKY, type SkyData } from '../sky/skyApi'
+import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
 import { bornAlive, drawSky, formatCount, hitTest, readSkyPalette, visiblePointLabels, type SkyLabels, type SkyPalette } from '../sky/skyDraw'
 import { layoutSky, neighborhood, nodeIdsForIris, type SkyLayout, type SkyNode } from '../sky/skyLayout'
 import { SkyTables } from '../sky/SkyTables'
@@ -43,7 +43,7 @@ const prefersReducedMotion = (): boolean => {
   }
 }
 
-type Load = { status: 'loading' } | { status: 'error' } | { status: 'ok'; sky: SkyData; proposed: SkyDraft[] }
+type Load = { status: 'loading' } | { status: 'error' } | { status: 'ok'; sky: SkyData; proposed: SkyDraft[]; proposedDatasets: SkyDataset[] }
 
 /** 星図に出ている種類・用語の IRI（増えたものに輪を出すため）。 */
 function irisOf(sky: SkyData): Set<string> {
@@ -86,7 +86,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   useEffect(() => {
     let off = false
     getSkyWithProposed(lang)
-      .then(({ sky, proposed }) => {
+      .then(({ sky, proposed, proposedDatasets }) => {
         if (off) return
         const now = irisOf(sky)
         // 取り直したあとに増えた点（最初の読み込みは除く）に輪を出す
@@ -94,7 +94,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
         lastBornKey.current = bornKey
         bornIris.current = ring && prevIris.current ? [...now].filter((i) => !prevIris.current!.has(i)) : []
         prevIris.current = now
-        setLoad({ status: 'ok', sky, proposed })
+        setLoad({ status: 'ok', sky, proposed, proposedDatasets })
         onProposedRef.current?.(proposed)
         onTermsRef.current?.(sky.terms.map((x) => ({ slug: x.slug, label: x.label })))
       })
@@ -107,8 +107,14 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
 
   const sky = load.status === 'ok' ? load.sky : EMPTY_SKY
   const proposed = useMemo<SkyDraft[]>(() => (load.status === 'ok' ? load.proposed : []), [load])
-  const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && proposed.length === 0
-  const drawn = nothing ? SAMPLE_SKY : sky
+  const proposedDatasets = useMemo<SkyDataset[]>(() => (load.status === 'ok' ? load.proposedDatasets : []), [load])
+  const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && proposed.length === 0 && proposedDatasets.length === 0
+  // 取り込み済みで未公開のデータセットは、薄い星座として足す（公開すると datasets に移り濃くなる）
+  const withThin = useMemo<SkyData>(
+    () => (proposedDatasets.length === 0 ? sky : { ...sky, datasets: [...sky.datasets, ...proposedDatasets] }),
+    [sky, proposedDatasets],
+  )
+  const drawn = nothing ? SAMPLE_SKY : withThin
 
   // ── 幅（図の列の幅に追従） ──
   const wrapRef = useRef<HTMLDivElement | null>(null)

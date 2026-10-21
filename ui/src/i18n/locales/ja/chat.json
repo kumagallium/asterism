@@ -18,7 +18,8 @@
   "compose": {
     "placeholder": "知りたいことを書く（例: 熱伝導率を下げる要素は？）",
     "send": "送る",
-    "noKey": "設定 › サーバで鍵を入れると、話せます"
+    "noKey": "設定 › サーバで鍵を入れると、話せます",
+    "attach": "表を添える"
   },
   "reply": {
     "byMachine": "機械",
@@ -58,7 +59,7 @@
     "decide": "決める"
   },
   "empty": {
-    "first": "知りたいことを書くと、ここに図が育ちます"
+    "first": "知りたいことを書くか、表を添えると、ここに図が育ちます"
   },
   "error": {
     "badShape": "サーバの返事の形が想定と違います",
@@ -71,7 +72,23 @@
       "turn": "送信",
       "confirm": "確認",
       "revert": "戻す操作",
-      "sky": "図の読み込み"
+      "sky": "図の読み込み",
+      "attach": "表を添える操作"
     }
+  },
+  "attach": {
+    "reading": "読んでいます…",
+    "readingWith": "読んでいます…（{{message}}）",
+    "failed": "表を読めませんでした",
+    "unsupported": "文書はまだ添えられません（表を添えてください）",
+    "bind": "結ぶ",
+    "skip": "結ばない",
+    "decide": "決める",
+    "chosen": "決めた: {{label}}",
+    "area": "データを添える",
+    "close": "閉じる",
+    "rows": "{{n}} 行",
+    "bindLine": "列「{{column}}」は「{{term}}」と同じもの",
+    "suggestionLine": "「{{subject}}」は「{{term}}」と同じもの"
   }
 }
