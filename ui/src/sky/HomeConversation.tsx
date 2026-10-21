@@ -185,7 +185,8 @@ export function HomeConversation({
       </>
     ) : null
 
-  const focus = idle && !ws.writing ? <p className="ws-hint">{t('sky:chat.example')}</p> : null
+  // 例の 1 行は、相談できるとき（AI 設定ずみ）だけ
+  const focus = idle && !ws.writing && isReady ? <p className="ws-hint">{t('sky:chat.example')}</p> : null
   const tools = draft ? (
     <SessionTools ws={ws} draft={draft} lang={lang} selectedKey={selectedKey} selectedEdge={selectedEdge} onSelectEdge={onSelectEdge} />
   ) : ws.actionErr ? (
