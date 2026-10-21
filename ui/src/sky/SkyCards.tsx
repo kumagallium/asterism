@@ -29,7 +29,7 @@ export interface CardProps {
   grown: { from: number; to: number } | null
   /** 人が決めた関係（星の横の「決めたこと N 件 →」の数え元。ホームが 1 度だけ取る）。 */
   alignments: readonly Alignment[]
-  /** まだ確かめていない下書き（右の欄の上の「たしかめるもの N 件」と、下書きの札の欄に使う）。 */
+  /** 開いていない下書き（会話の先頭の「たしかめるもの N 件 →」に使う）。 */
   drafts: readonly DraftSky[]
   selectedId: string | null
   selectedQuestion: string | null
@@ -38,13 +38,10 @@ export interface CardProps {
   onOpenKind: (iri: string) => void
   onOpenDataset: (id: string) => void
   onOpenTerm: (slug: string) => void
-  onOpenQuestions: () => void
-  /** 「そう決める」のあと: 星図を取り直し、用語と星の輪を 1 度だけ出す。 */
+  /** 「手で決める」で決めたあと: 星図を取り直し、用語と星の輪を 1 度だけ出す。 */
   onDecided: (iris: string[]) => void
   /** 公開のあとに機械が数えた「結べそうな線」（名前の完全一致・鍵が無ければ空）。 */
   suggestions: readonly Suggestion[]
-  /** 用語にまだ結ばれていない種類の数（「AI に結ばせる」の件数）。 */
-  unlinkedKinds: number
   /** 候補を線にした（星図を取り直す・一覧から外す）。 */
   onSuggestionsApplied: (keys: SuggestionKey[]) => void
   /** 候補を外した（一覧から外す）。 */

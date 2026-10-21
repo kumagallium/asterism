@@ -472,11 +472,15 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     }
   }
 
-  /** 人の一言。問いを書くところなら下書きを作り、下書きがあれば下書きの相談、無ければ星図の相談。 */
+  /**
+   * 人の一言。下書きがあれば下書きの相談・「？ 問いを書く」のあとなら問い（下書きを作る）。どちらでもなければ、
+   * 星を選んでいれば星図の相談（「この種類は 試料 と同じもの？」）・選んでいなければ問いとして読む
+   * （入力欄の例にも「問いでも」とある。星のない一言は、相談の相手が無い）。
+   */
   async function send(text: string): Promise<void> {
     if (busy || !text.trim()) return
     if (draftRef.current) return sendTheme(text)
-    if (writing) return startFromText(text)
+    if (writing || !focusKindRef.current) return startFromText(text)
     return sendHome(text)
   }
 

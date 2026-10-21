@@ -974,7 +974,7 @@ export function conceptEdgePointAt(g: ConceptEdgeGeom, t: number): { x: number; 
 
 /**
  * 線の小さな札（幅 w・高さ h）を置く点。線の中ほどが用語の札に重なるときは、線に沿って寄せて空いた所を探す。
- * 見つからなければ null（札は出さない。線の色と矢じりで向きは読める。文は右の欄に出る）。決定論。
+ * 見つからなければ null（札は出さない。線の色と矢じりで向きは読める。文は会話の札に出る）。決定論。
  */
 export function conceptPillPos(
   layout: SkyLayout,

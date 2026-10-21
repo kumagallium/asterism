@@ -66,7 +66,7 @@ describe('問いを書く → 図に入れる → N 件を置く（api は変え
 
   it('提案の道は 2 つ（下書きがあれば theme・無ければ星図の home）を 1 つの会話で持つ', () => {
     expect(hookSource).toMatch(/if \(draftRef\.current\) return sendTheme\(text\)/)
-    expect(hookSource).toMatch(/if \(writing\) return startFromText\(text\)/)
+    expect(hookSource).toMatch(/if \(writing \|\| !focusKindRef\.current\) return startFromText\(text\)/)
     expect(hookSource).toMatch(/return sendHome\(text\)/)
     expect(hookSource).toMatch(/item\.screen === 'home'/)
   })

@@ -116,7 +116,7 @@ function writeAnswerable(n: number): void {
     /* 保存できなくても今回の表示には効く */
   }
 }
-/** 育ったことを右の欄の上に出しておく時間。 */
+/** 育ったことを会話の先頭に出しておく時間。 */
 const GROWN_MS = 6000
 
 type Load = { status: 'loading' } | { status: 'error' } | { status: 'ok'; sky: SkyData }
@@ -692,10 +692,8 @@ function SkyBody(
     onOpenKind: props.onOpenKind,
     onOpenDataset: props.onOpenDataset,
     onOpenTerm: props.onOpenTerm,
-    onOpenQuestions: props.onOpenQuestions,
     onDecided: grow,
     suggestions,
-    unlinkedKinds: kindsWithoutTerm,
     onSuggestionsApplied: (keys: Parameters<typeof irisOfKeys>[0]) => {
       props.setSuggestions((l) => withoutKeys(l, keys))
       grow(irisOfKeys(keys))
