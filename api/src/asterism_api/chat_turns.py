@@ -87,9 +87,9 @@ def _reply(
 
 
 _AI_UNSET = {
-    "ja": "AI が設定されていないので、概念と関係は右の欄で手で足せます。"
+    "ja": "AI が設定されていないので、概念と関係は図の下の欄で手で足せます。"
     "設定 › AI で鍵を入れると AI が提案します",
-    "en": "AI is not set up, so add concepts and relations by hand on the right. "
+    "en": "AI is not set up, so add concepts and relations by hand in the panel under the chart. "
     "Add a key in Settings › AI and the AI will propose them.",
 }
 
