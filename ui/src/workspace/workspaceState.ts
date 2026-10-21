@@ -7,8 +7,8 @@
 //     （`Pending`）で「提案（薄い）」として扱い、「そう」で本物にする。③に進むときは**本物だけ**を送る。
 //   - 本物の関係は両端も本物（関係を受けると両端の概念も本物になる）。
 //   - 人の直接の編集（プルダウン・ドラッグ・手で足す）は AI の提案と同じ形の差分（`GraphOp`）。
-import type { GraphDropped, GraphOp } from './consultGraphApi'
-import type { ConceptRow, DraftPending, RelKind, RelationRow, TermKind, ThemeDraft } from './themeDraft'
+import type { GraphDropped, GraphOp } from '../themes/consultGraphApi'
+import type { ConceptRow, DraftPending, RelKind, RelationRow, TermKind, ThemeDraft } from '../themes/themeDraft'
 
 // ---- 提案（薄い）と本物 -------------------------------------------------------------------
 

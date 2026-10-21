@@ -1,8 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from '../settings/context'
-import { GraphChat } from '../themes/GraphChat'
-import { ProposalCard } from '../themes/ProposalCard'
+import { GraphChat } from '../workspace/GraphChat'
+import { ProposalCard } from '../workspace/ProposalCard'
 import { ThemesApiError } from '../themes/themesApi'
 import type { GraphOp } from '../themes/consultGraphApi'
 import {
@@ -16,7 +16,7 @@ import {
   nextItemId,
   openRows,
   withDependencies,
-} from '../themes/workspaceState'
+} from '../workspace/workspaceState'
 import {
   type ApplyOnScreenResult,
   type ChatScreen,

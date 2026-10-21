@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { newProposalItem, type ChatItem } from '../themes/workspaceState'
+import { newProposalItem, type ChatItem } from '../workspace/workspaceState'
 import { appliedOps, bindUnlinkedMessage, openProposalCount, settleRows } from './workspaceChatState'
 
 const item = () =>

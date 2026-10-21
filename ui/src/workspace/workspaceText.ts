@@ -2,8 +2,8 @@
 // サーバが組む文（提案の sentences）とは別に、**UI が組むのは次の 2 つだけ**:
 //   - 人の直接編集の記録（プルダウン・ドラッグ・手で足す）
 //   - 保存された会話の復元（サーバは文を保存しない）
-import type { GraphOp } from './consultGraphApi'
-import { type ThemeDraft, conceptName } from './themeDraft'
+import type { GraphOp } from '../themes/consultGraphApi'
+import { type ThemeDraft, conceptName } from '../themes/themeDraft'
 
 export type TFn = (key: string, opts?: Record<string, unknown>) => string
 

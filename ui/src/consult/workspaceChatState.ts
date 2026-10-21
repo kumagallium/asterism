@@ -1,7 +1,7 @@
 // 作業場の会話（home・dataset）の状態の純関数。React から切り離してあるので vitest で固定できる。
 // 提案カード・履歴の形は 7b（themes/workspaceState.ts）のものをそのまま使う。
 import type { GraphOp } from '../themes/consultGraphApi'
-import type { ChatItem, ProposalItem, RowDecision } from '../themes/workspaceState'
+import type { ChatItem, ProposalItem, RowDecision } from '../workspace/workspaceState'
 
 /** 「AI に結ばせる」が送る定型の一言（契約 B3）。 */
 export function bindUnlinkedMessage(lang: string): string {

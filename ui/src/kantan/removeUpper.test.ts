@@ -6,7 +6,7 @@ import source from './KantanWizard.tsx?raw'
 import railSource from '../sky/SkyRail.tsx?raw'
 import skyChatSource from '../sky/SkyChat.tsx?raw'
 import workspaceChatSource from '../consult/WorkspaceChat.tsx?raw'
-import graphChatSource from '../themes/GraphChat.tsx?raw'
+import graphChatSource from '../workspace/GraphChat.tsx?raw'
 
 vi.mock('../authToken', async (orig) => ({
   ...(await orig<typeof import('../authToken')>()),

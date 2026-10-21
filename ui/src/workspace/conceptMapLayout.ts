@@ -10,7 +10,7 @@
 // `maxWidth` があれば、幅を超える段は段の中で折り返す（かたまりの境目を優先・線のある段も折り返してよい）。
 //
 // 決定論: 同じ下書きは毎回同じ絵（入力順で並べる）。
-import type { RelKind } from './themeDraft'
+import type { RelKind } from '../themes/themeDraft'
 import { rowsOf, type Shape } from '../shapeGraph'
 
 export interface MapNodeIn {

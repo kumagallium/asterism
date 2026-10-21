@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ThemeDraft } from './themeDraft'
+import type { ThemeDraft } from '../themes/themeDraft'
 import { nameOfKey, opSentence } from './workspaceText'
 
 // 復元した文に生の key（n1・h2）を出さない。

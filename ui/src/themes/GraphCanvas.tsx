@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { layoutConceptMap } from './conceptMapLayout'
+import { layoutConceptMap } from '../workspace/conceptMapLayout'
 import { type RelKind, type StandardInfo, conceptName } from './themeDraft'
-import { type CanvasModel, relId } from './workspaceState'
+import { type CanvasModel, relId } from '../workspace/workspaceState'
 
 // 知識の図（②の左）。星図と同じ紙の見た目。札＝概念（種類は --entity、項目は --activity の薄塗り、
 // 標準用語に一致したものは地平線の色の枠）、線＝関係。一種・一部は矢じり付きで段をまたぎ、

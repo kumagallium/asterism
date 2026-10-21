@@ -19,8 +19,8 @@ import {
   proposeGraph,
 } from './consultGraphApi'
 import { GraphCanvas } from './GraphCanvas'
-import { GraphChat } from './GraphChat'
-import { DraftCard, ProposalCard } from './ProposalCard'
+import { GraphChat } from '../workspace/GraphChat'
+import { DraftCard, ProposalCard } from '../workspace/ProposalCard'
 import {
   type RelKind,
   type TermKind,
@@ -36,7 +36,7 @@ import {
   unlinkedKeys,
 } from './themeDraft'
 import { ThemesApiError } from './themesApi'
-import { useNarrow } from './useNarrow'
+import { useNarrow } from '../workspace/useNarrow'
 import {
   type ChatItem,
   type Pending,
@@ -64,8 +64,8 @@ import {
   restoreItems,
   settlePending,
   withDependencies,
-} from './workspaceState'
-import { nameOfKey, opSentence, relationSentenceOf } from './workspaceText'
+} from '../workspace/workspaceState'
+import { nameOfKey, opSentence, relationSentenceOf } from '../workspace/workspaceText'
 
 // ②「下書きをたしかめる」の作業場 — 左に図・右に会話（design.md §16）。
 //   上＝問い（原文・答え方・知識 N・データ N・欲しいデータ）／左＝図（GraphCanvas）／

@@ -55,7 +55,7 @@ import {
   wayNeeds,
   wayOf,
 } from './themeDraft'
-import { useNarrow } from './useNarrow'
+import { useNarrow } from '../workspace/useNarrow'
 import {
   NO_PENDING,
   type Pending,
@@ -65,7 +65,7 @@ import {
   realDraft,
   restorePending,
   savePending,
-} from './workspaceState'
+} from '../workspace/workspaceState'
 import './themes.css'
 
 // 「知りたいことから作る」3 段（design.md §15.2・§15.4）:

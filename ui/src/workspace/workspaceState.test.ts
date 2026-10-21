@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GraphOp } from './consultGraphApi'
+import type { GraphOp } from '../themes/consultGraphApi'
 import {
   type ConceptRow,
   type RelationRow,
@@ -7,7 +7,7 @@ import {
   buildCommitBody,
   confirmCounts,
   unlinkedKeys,
-} from './themeDraft'
+} from '../themes/themeDraft'
 import {
   NO_PENDING,
   acceptRelations,
