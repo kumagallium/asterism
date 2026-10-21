@@ -27,7 +27,8 @@
       "answers": "問いの答えの取得",
       "consult": "相談",
       "consultApply": "「図に入れる」の反映",
-      "consultDismiss": "「入れない」の保存"
+      "consultDismiss": "「入れない」の保存",
+      "suggestQuestions": "問いの提案"
     }
   },
   "draft": {
@@ -149,6 +150,7 @@
     "remove": "用語を外す",
     "open": "用語のページを開く",
     "more": "詳しく",
+    "knowledgeCount": "知識 {{n}} 件が答える",
     "knowledgeAi": "AI 下書きを確定",
     "knowledgeMachine": "名前の一致を人が確定"
   },

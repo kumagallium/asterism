@@ -665,10 +665,11 @@ button.sky-pill--data:hover:not(:disabled) {
   }
 }
 
-/* 履歴は常に会話の欄の 40% 以上見える。上の札・下の道具・置く欄・選んだ札の欄は、足りなければ中でスクロールして縮む */
+/* 履歴は常に会話の欄の 30% 以上見える。先頭の札は内容に合わせて伸び（A・関係・B の札が切れない）、
+   縮むのは履歴の方。下の道具・置く欄・選んだ札の欄は、足りなければ中でスクロールして縮む */
 .sky-conv .thm-chat-scroll {
   flex: 1 1 auto;
-  min-height: 40%;
+  min-height: 30%;
 }
 .sky-conv .thm-chat-pinned,
 .sky-conv .thm-chat-focus,
@@ -679,7 +680,8 @@ button.sky-pill--data:hover:not(:disabled) {
   overflow-y: auto;
 }
 .sky-conv .thm-chat-pinned {
-  max-height: 40%;
+  flex: 0 0 auto;
+  max-height: 55%;
 }
 .sky-conv .thm-chat-tools {
   max-height: 40%;

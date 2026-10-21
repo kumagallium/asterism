@@ -27,7 +27,8 @@
       "answers": "Fetching the answers",
       "consult": "The consultation",
       "consultApply": "Adding to the map",
-      "consultDismiss": "Saving “Don't add”"
+      "consultDismiss": "Saving “Don't add”",
+      "suggestQuestions": "Suggesting questions"
     }
   },
   "draft": {
@@ -149,6 +150,7 @@
     "remove": "Remove the term",
     "open": "Open the term's page",
     "more": "Details",
+    "knowledgeCount": "{{n}} knowledge answer(s)",
     "knowledgeAi": "AI draft, confirmed",
     "knowledgeMachine": "A person confirmed a name match"
   },

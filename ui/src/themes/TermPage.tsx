@@ -9,6 +9,7 @@ import { type CatalogDataset, getCatalogDatasets } from '../galleryApi'
 import { ArrowIcon } from '../icons'
 import { type SharedTerm, VocabApiError, listTerms, removeTerm } from '../vocabApi'
 import { localName } from '../vocab'
+import { knowledgeQuestionsOf } from './termQuestions'
 import { type ThemeSummary, listThemes, themeLabel } from './themesApi'
 import './themes.css'
 
@@ -147,6 +148,8 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
       </div>
     ) : null
   const themesOf = (tool: string) => themes.filter((th) => th.questions.some((q) => q.tool_name === tool))
+  // 使う問い = データの問い（term.cqs）＋ 知識の問い（この用語が対象のもの）
+  const knowledgeQs = knowledgeQuestionsOf(themes, term.slug)
 
   return (
     <div className="vocab thm-view" data-testid="term-page">
@@ -197,14 +200,24 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
         <h3 className="vocab-sec-h" id="term-questions-h">
           {t('themes:term.questions')}
         </h3>
-        {term.cqs.length === 0 ? (
+        {term.cqs.length === 0 && knowledgeQs.length === 0 ? (
           <p className="ds-empty-note">{t('vocab:term.no_cq')}</p>
         ) : (
-          <ul className="vocab-term-cqs">
+          <ul className="vocab-term-cqs" data-testid="term-questions">
             {term.cqs.map((cq) => (
               <li key={cq.tool_name}>
                 {cq.title} — {t('vocab:term.answering', { n: cq.answering_datasets })}
                 {themesOf(cq.tool_name).map((th) => (
+                  <a key={th.id} className="thm-term-chip" href={`#/questions/${encodeURIComponent(th.id)}`}>
+                    {themeLabel(th, t)}
+                  </a>
+                ))}
+              </li>
+            ))}
+            {knowledgeQs.map(({ q, themes: ths }) => (
+              <li key={q.tool_name} data-testid="term-knowledge-question">
+                {q.title} — {t('themes:term.knowledgeCount', { n: q.knowledge_count ?? 0 })}
+                {ths.map((th) => (
                   <a key={th.id} className="thm-term-chip" href={`#/questions/${encodeURIComponent(th.id)}`}>
                     {themeLabel(th, t)}
                   </a>
