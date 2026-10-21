@@ -582,6 +582,7 @@ button.sky-pill--data:hover:not(:disabled) {
 .sky-add-title {
   font-weight: 600;
   color: var(--fg);
+  white-space: nowrap;
 }
 .sky-add-hint {
   flex: 1 1 auto;
@@ -636,4 +637,17 @@ button.sky-pill--data:hover:not(:disabled) {
 }
 .sky-add-area.is-hosted .kz-ws-side {
   display: none;
+}
+/* 375px: 見出しの題と閉じるを 1 行に、ひとことは下の行へ */
+@media (max-width: 720px) {
+  .sky-add-head {
+    flex-wrap: wrap;
+  }
+  .sky-add-title {
+    flex: 1 1 auto;
+  }
+  .sky-add-hint {
+    order: 3;
+    flex-basis: 100%;
+  }
 }
