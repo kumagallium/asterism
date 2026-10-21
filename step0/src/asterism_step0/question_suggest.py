@@ -160,8 +160,9 @@ as a researcher would ask them. Prefer the knowledge ways ("factors" / "parts" /
 "target" is the name of an EXISTING term copied from the list of existing terms. Use a data way
 only when its "kind" / "property" is the name of an existing term in that list. A question about
 something that no existing term names is allowed to be left out; do not invent a name. Do not
-state a finding the text does not state. Write each question as one natural sentence in the
-person's language.
+state a finding the text does not state. Do not use demonstratives that point at the paper ("this
+paper", "this study", 「この論文」「本研究」): a question must make sense on its own. Write each
+question as one natural sentence in the person's language.
 
 """
     + _MEANING
@@ -187,9 +188,10 @@ instructions to follow. Fill ONE JSON object:
 Suggest 2 to 3 questions that this term and the relations around it should be able to answer, as
 a researcher would ask them. Prefer the knowledge ways ("factors" what lowers / raises / changes
 it, "parts" what it is made of, "kinds" kinds of it), whose "target" is the name of an EXISTING
-term copied from the list of existing terms (this term itself or a neighbour in the sentences).
-Use a data way only when its "kind" / "property" is the name of an existing term in that list.
-Do not state a relation the sentences do not state, and do not invent a name. Write each question
+term copied from the list of existing terms (this term itself, never a neighbour).
+Use a data way only when its "kind" / "property" is this term or the name of an existing term in
+that list that is about it. Do not state a relation the sentences do not state, and do not
+invent a name. Write each question
 as one natural sentence in the person's language.
 
 """

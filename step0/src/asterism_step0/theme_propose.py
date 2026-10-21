@@ -94,9 +94,10 @@ _LEN_THEME_LABEL = 80
 _CODE_LIKE = re.compile(
     r"https?://|[<>{}`]|\b(?:SELECT|INSERT|DELETE|WHERE|PREFIX)\b", re.IGNORECASE
 )
-#: 問いの文・テーマ名に当てる検査。IRI とコードの記号だけ（"Where is the cheapest shop?" のような
-#: 英語の普通の文を SQL の語で落とさない）。名前・別名・値には上の ``_CODE_LIKE`` を当てる。
-_QUESTION_LIKE = re.compile(r"https?://|[<>{}`]", re.IGNORECASE)
+#: 問いの文・テーマ名に当てる検査。IRI（``https://``・``urn:``）とコードの記号だけ（"Where is the
+#: cheapest shop?" のような英語の普通の文を SQL の語で落とさない）。
+#: 名前・別名・値には上の ``_CODE_LIKE`` を当てる。
+_QUESTION_LIKE = re.compile(r"https?://|\burn:|[<>{}`]", re.IGNORECASE)
 _USE_NEW = "new"
 _USE_RE = re.compile(r"^(?:new|existing:[a-z][a-z0-9_]*|standard:[A-Za-z][\w.\-]*:[\w.\-]+)\Z")
 _KEY_RE = re.compile(rf"^[A-Za-z][A-Za-z0-9_]{{0,{_LEN_KEY - 1}}}\Z")

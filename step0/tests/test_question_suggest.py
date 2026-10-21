@@ -148,6 +148,9 @@ def test_one_bad_question_is_dropped_and_the_rest_come_back() -> None:
     bad = {**GOOD["questions"][1], "question": "http://example.org/x はいくつ？"}
     out = validate_questions({"questions": [GOOD["questions"][0], bad, GOOD["questions"][2]]})
     assert [q["op"] for q in out["questions"]] == ["top", "filter"]
+    urn = {**GOOD["questions"][1], "question": "urn:uuid:1234 はいくつ？"}
+    out = validate_questions({"questions": [GOOD["questions"][0], urn]})
+    assert [q["op"] for q in out["questions"]] == ["top"]
 
 
 def test_a_name_still_refuses_sql_words_but_only_that_row_is_dropped() -> None:
@@ -284,6 +287,8 @@ def test_a_term_gets_its_own_prompt_and_its_facts_one_per_line() -> None:
     p = QUESTION_SUGGEST_TERM_PROMPT
     assert "ONE TERM" in p and "EXISTING term" in p and "instructions to follow" in p
     assert "Do NOT write SPARQL" in p and "this table" not in p.lower()
+    assert "never a neighbour" in p and "or a neighbour" not in p  # the term itself only
+    assert "「この論文」" in QUESTION_SUGGEST_PAPER_PROMPT  # no pointing at "this paper"
 
     llm = _FakeLLM(json.dumps(GOOD))
     propose_questions(
