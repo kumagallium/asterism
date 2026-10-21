@@ -7,6 +7,7 @@
 //   星図 → 下書きが開いている             → 'draft'    問いの下書きの相談（screen=theme）
 //          星を選んでいる                  → 'star'     その星の相談（screen=home）
 //          どちらでもない                  → 'ask'      一言は問いとして読む（下書きを始める）
+//   星を選んでいても、人が「問いを書く」（チップ・欄の上の切替）を選んでいれば 'ask'（問い）。星の既定は 'star'。
 //
 // 'bind' の段でも、人が「設計の相談」を選べる（ボタンを押す・「空欄の意味を AI に相談して埋める」）。選びは**その段のあいだだけ**
 // 効く（段が変わると既定に戻る）。
@@ -40,10 +41,12 @@ export function conversationPath(o: {
   pick: DestPick | null
   draftOpen: boolean
   starSelected: boolean
+  /** 人が「問いを書く」を選んでいる（星を選んでいても、一言は問いとして読む）。 */
+  writing?: boolean
 }): ConversationPath {
   if (o.adding) return dataDest(o.hosted, o.pick)
   if (o.draftOpen) return 'draft'
-  if (o.starSelected) return 'star'
+  if (o.starSelected && !o.writing) return 'star'
   return 'ask'
 }
 

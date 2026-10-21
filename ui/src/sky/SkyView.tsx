@@ -722,8 +722,9 @@ function SkyBody(
     ? t('chart.ariaSample')
     : t('chart.aria', { datasets: sky.datasets.length, kinds: f.kinds, terms: f.terms })
   // 説明の 1 行は 1 つだけ（状態の注記が重ならないように）。
+  const dataOnly = sky.datasets.length > 0 && sky.questions.length === 0 && kindsWithoutTerm > 0
   const note =
-    sky.datasets.length > 0 && sky.questions.length === 0 && kindsWithoutTerm > 0
+    dataOnly
       ? t('empty.dataOnly', { n: kindsWithoutTerm })
       : sky.datasets.length === 0 && sky.questions.length > 0
         ? t('empty.questionsOnly')
@@ -805,7 +806,8 @@ function SkyBody(
               </b>
               {t('facts.answerable')}
             </span>
-          ) : (
+          ) : dataOnly ? null : (
+            // 説明の 2 行（「問いはまだありません」＋「用語の無い種類が…」）は 1 行に — 問いが 0 で種類の注記が出るときは後者だけ
             <span className="sky-facts-none">{t('facts.none')}</span>
           )}
         </div>
@@ -836,6 +838,7 @@ function SkyBody(
             selectedEdge={activeEdge}
             onSelectEdge={selectEdge}
             unlinkedKinds={kindsWithoutTerm}
+            starSelected={focusKind !== null}
             onAddData={props.onAddData}
             prefill={prefill}
             focusTick={focusTick}

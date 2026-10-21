@@ -28,6 +28,7 @@ export function HomeConversation({
   selectedEdge,
   onSelectEdge,
   unlinkedKinds,
+  starSelected,
   onAddData,
   prefill,
   focusTick,
@@ -44,6 +45,8 @@ export function HomeConversation({
   onSelectEdge: (id: string | null) => void
   /** 用語にまだ結ばれていない種類の数（「AI に結ばせる」の件数）。 */
   unlinkedKinds: number
+  /** 星（種類）を選んでいる。一言の送り先の既定は「その星について」になり、欄の上に切替が出る。 */
+  starSelected: boolean
   onAddData: () => void
   /** 入力欄に入れる文（質問するから持ち込まれた題）。 */
   prefill: { id: number; text: string } | null
@@ -185,8 +188,8 @@ export function HomeConversation({
       </>
     ) : null
 
-  // 例の 1 行は、相談できるとき（AI 設定ずみ）だけ
-  const focus = idle && !ws.writing && isReady ? <p className="ws-hint">{t('sky:chat.example')}</p> : null
+  // 例の 1 行は、相談できるとき（AI 設定ずみで、使えると分かっている）だけ
+  const focus = idle && !ws.writing && ws.aiReady ? <p className="ws-hint">{t('sky:chat.example')}</p> : null
   const tools = draft ? (
     <SessionTools ws={ws} draft={draft} lang={lang} selectedKey={selectedKey} selectedEdge={selectedEdge} onSelectEdge={onSelectEdge} />
   ) : ws.actionErr ? (
@@ -207,7 +210,19 @@ export function HomeConversation({
     </button>
   ) : null
 
-  const placeholder = ws.writing && idle ? t('sky:chat.writePlaceholder') : draft ? t('sky:chat.consultPlaceholder') : undefined
+  // 星を選んでいるときの一言の送り先は人が選ぶ（既定は「この星について」。「問いを書く」で問いの道に切り替える）
+  const askStar = idle && starSelected && ws.aiReady
+  const placeholder = ws.writing && idle ? t('sky:chat.writePlaceholder') : draft ? t('sky:chat.consultPlaceholder') : askStar ? t('sky:chat.starPlaceholder') : undefined
+  const starToggle = askStar ? (
+    <div className="sky-ask-toggle" role="group" aria-label={t('sky:chat.askAria')} data-testid="ask-toggle">
+      <button type="button" className="btn btn--sm" aria-pressed={!ws.writing} onClick={ws.cancelWriting} data-testid="ask-star">
+        {t('sky:chat.askStar')}
+      </button>
+      <button type="button" className="btn btn--sm" aria-pressed={ws.writing} onClick={() => ws.beginWriting()} data-testid="ask-question">
+        {t('sky:chat.askQuestion')}
+      </button>
+    </div>
+  ) : null
 
   return (
     <div className={`ws-chat sky-conv${open ? '' : ' is-folded'}`} data-testid="home-chat">
@@ -216,7 +231,7 @@ export function HomeConversation({
           pinned={allPinned}
           focus={focus}
           tools={tools}
-          bar={draft ? <PlaceBar ws={ws} draft={draft} lang={lang} /> : null}
+          bar={draft ? <PlaceBar ws={ws} draft={draft} lang={lang} /> : starToggle}
           prefill={prefill}
           aiReady={ws.aiReady}
           thinking={ws.thinking}

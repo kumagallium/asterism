@@ -32,6 +32,12 @@ describe('左の会話の道', () => {
     expect(conversationPath({ ...base, starSelected: true })).toBe('star')
     expect(conversationPath({ ...base, starSelected: true, draftOpen: true })).toBe('draft')
   })
+  it('星を選んでいても、人が「問いを書く」を選んでいれば問い（既定は星について聞く）', () => {
+    expect(conversationPath({ ...base, starSelected: true, writing: false })).toBe('star')
+    expect(conversationPath({ ...base, starSelected: true, writing: true })).toBe('ask')
+    // 下書きが開いていれば下書きの相談が先（問いを書くは下書きの外の話）
+    expect(conversationPath({ ...base, starSelected: true, writing: true, draftOpen: true })).toBe('draft')
+  })
   it('データを置いている間は、星・下書きより段が先', () => {
     expect(conversationPath({ ...base, adding: true, draftOpen: true, starSelected: true, hosted: h(3, true) })).toBe('bind')
     expect(conversationPath({ ...base, adding: true, draftOpen: true, hosted: h(5, true) })).toBe('consult')

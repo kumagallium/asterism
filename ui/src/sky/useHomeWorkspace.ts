@@ -55,6 +55,7 @@ import {
   saveDraft,
 } from '../themes/themesApi'
 import { type SharedTerm, listTerms } from '../vocabApi'
+import { conversationPath } from './conversationContext'
 import {
   type CanvasModel,
   type ChatItem,
@@ -473,15 +474,23 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
   }
 
   /**
-   * 人の一言。下書きがあれば下書きの相談・「？ 問いを書く」のあとなら問い（下書きを作る）。どちらでもなければ、
-   * 星を選んでいれば星図の相談（「この種類は 試料 と同じもの？」）・選んでいなければ問いとして読む
-   * （入力欄の例にも「問いでも」とある。星のない一言は、相談の相手が無い）。
+   * 人の一言。送り先は `conversationPath`（conversationContext.ts）で決まる — 下書きがあれば下書きの相談・
+   * 星を選んでいれば星図の相談（「この種類は 試料 と同じもの？」。既定）・人が「問いを書く」を選んでいる、または
+   * 星を選んでいなければ問い（下書きを作る）。星を選んだままの問いは、人が切替で選ぶ。
    */
   async function send(text: string): Promise<void> {
     if (busy || !text.trim()) return
-    if (draftRef.current) return sendTheme(text)
-    if (writing || !focusKindRef.current) return startFromText(text)
-    return sendHome(text)
+    const path = conversationPath({
+      adding: false,
+      hosted: { recipe: null, bindReady: false },
+      pick: null,
+      draftOpen: !!draftRef.current,
+      starSelected: !!focusKindRef.current,
+      writing,
+    })
+    if (path === 'draft') return sendTheme(text)
+    if (path === 'star') return sendHome(text)
+    return startFromText(text)
   }
 
   /** 「AI に結ばせる」（星図の道の定型の一言）。 */

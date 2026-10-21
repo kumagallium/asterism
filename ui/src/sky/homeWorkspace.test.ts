@@ -24,6 +24,19 @@ describe('ホームの左の会話（常設）', () => {
     expect(skyJa.chat.writePlaceholder).toBe('知りたいことを 1 行で（例: 熱伝導率を下げる要素になり得るのは？）')
   })
 
+  it('星を選んでいるときは入力欄の上に切替（この星について聞く／問いを書く）。placeholder は星の一言。問いのチップは常に出る', () => {
+    expect(conversationSource).toMatch(/data-testid="ask-star"/)
+    expect(conversationSource).toMatch(/data-testid="ask-question"/)
+    expect(conversationSource).toMatch(/bar=\{draft \? <PlaceBar ws=\{ws\} draft=\{draft\} lang=\{lang\} \/> : starToggle\}/)
+    expect(skyJa.chat.starPlaceholder).toBe('この星について一言（例: この種類は 試料 と同じもの？）')
+    expect(skyJa.chat.askStar).toBe('この星について聞く')
+    expect(skyJa.chat.askQuestion).toBe('問いを書く')
+  })
+
+  it('説明は 1 行: 問いが 0 で「用語の無い種類」の注記が出るときは「問いはまだありません」を重ねない', () => {
+    expect(skyViewSource).toMatch(/\) : dataOnly \? null : \(/)
+  })
+
   it('右下の「AI に相談」はホームでは出さない（会話が 2 つにならない）', () => {
     expect(conversationSource).toMatch(/registerWorkspaceChat\(\)/)
   })
@@ -65,9 +78,10 @@ describe('問いを書く → 図に入れる → N 件を置く（api は変え
   })
 
   it('提案の道は 2 つ（下書きがあれば theme・無ければ星図の home）を 1 つの会話で持つ', () => {
-    expect(hookSource).toMatch(/if \(draftRef\.current\) return sendTheme\(text\)/)
-    expect(hookSource).toMatch(/if \(writing \|\| !focusKindRef\.current\) return startFromText\(text\)/)
-    expect(hookSource).toMatch(/return sendHome\(text\)/)
+    expect(hookSource).toMatch(/conversationPath\(\{/)
+    expect(hookSource).toMatch(/if \(path === 'draft'\) return sendTheme\(text\)/)
+    expect(hookSource).toMatch(/if \(path === 'star'\) return sendHome\(text\)/)
+    expect(hookSource).toMatch(/return startFromText\(text\)/)
     expect(hookSource).toMatch(/item\.screen === 'home'/)
   })
 })
