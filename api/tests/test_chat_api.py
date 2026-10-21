@@ -430,3 +430,61 @@ def test_sky_proposed_only_with_the_key(tmp_path: Path) -> None:
         chat_sessions.delete_session(tmp_path / "registry", sid)
         (orphan,) = client.get("/api/sky").json()["proposed"]
         assert orphan["session_id"] is None
+
+
+def _set(client: TestClient, sid: str, **answer: object):
+    return client.post(f"/api/chat/sessions/{sid}/turns", json={"set_answer": answer})
+
+
+def test_set_answer_decides_a_question_and_the_check_passes(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB])
+        mine = {"question": Q_LOWER, "mode": "knowledge", "op": "factors", "direction": "lowers"}
+        # 存在しない問い・無い概念・種別違い・排他は 422
+        nope = _set(client, sid, **{**mine, "question": "ない問い", "target": "h1"})
+        assert nope.status_code == 422 and "この話にありません" in nope.text
+        assert _set(client, sid, **{**mine, "target": "zz"}).status_code == 422
+        bad = _set(client, sid, question=Q_LOWER, mode="data", op="count", property="h1")
+        assert bad.status_code == 422 and "答え方が決まっていません" in bad.text
+        both = client.post(
+            f"/api/chat/sessions/{sid}/turns",
+            json={"text": "x", "set_answer": {**mine, "target": "h1"}},
+        )
+        assert both.status_code == 422
+        # data: kind に property の key は無効（count は kind=class）
+        wrong = _set(client, sid, question=Q_LOWER, mode="data", op="count", kind="h1")
+        assert wrong.status_code == 422
+        ok = _set(client, sid, **{**mine, "target": "h1"})
+        assert ok.status_code == 201, ok.text
+        turn = ok.json()["turn"]
+        assert turn["state"] == "proposed" and turn["user"] is None and turn["before"]
+        assert "熱伝導率" in turn["reply"]["text"] and turn["reply"]["ops"] == []
+        draft = themes.load_draft(tmp_path / "registry", ok.json()["draft"]["draft_id"])
+        (row,) = draft["answers"]
+        assert row["mode"] == "knowledge" and row["target"] == "h1" and row["by"] == "human"
+        # ✓ が通る
+        c = client.post(f"/api/chat/sessions/{sid}/turns/{turn['id']}/confirm", json={})
+        assert c.status_code == 200, c.text
+        assert c.json()["commit"] is not None and c.json()["commit"]["theme_id"]
+
+
+def test_set_answer_without_a_draft_and_revert(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        r = _set(client, sid, question=Q_LOWER, mode="knowledge", op="parts", target="h1")
+        assert r.status_code == 422 and "先に問いを書いてください" in r.text
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A])
+        t = _set(client, sid, question=Q_LOWER, mode="data", op="range", property="h1").json()
+        reply = t["turn"]["reply"]["text"]
+        assert "熱伝導率" in reply
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{t['turn']['id']}/revert")
+        assert r.status_code == 200, r.text
+        draft = themes.load_draft(tmp_path / "registry", r.json()["draft"]["draft_id"])
+        assert draft["answers"][0]["mode"] == "memo"
+        for word in ("そう", "線", "ことば", "下書き", "置く", "pending"):
+            assert word not in reply

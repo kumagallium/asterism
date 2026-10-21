@@ -9,6 +9,7 @@
   入れ、機械の文を返す）。11b が ``ai`` の枝を足す（下書きが無ければ ``propose_theme_draft``・
   あれば ``propose_graph_diff``）。**AI を呼ぶ口はこの関数の引数 ``ai`` 1 つ**。
 * :func:`run_ops_turn` — 人の直接編集（差分を当てる）。
+* :func:`run_set_answer_turn` — 既にある問いの答え方を人が決める（AI 無しでも ✓ が通る）。
 * :func:`commit_body` — ✓ の本文（UI の ``buildCommitBody`` の移植）。
 * :func:`confirm` — ✓。未確認の返事をまとめて確認済みにする。
 * :func:`revert` — 未確認の返事を控えに戻す。
@@ -23,7 +24,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from asterism import chat_sessions, graph_diff, themes
+from asterism import chat_sessions, graph_diff, shared_vocab, themes
 from asterism.shared_vocab import SharedTerm, normalize_label
 from asterism_step0.graph_propose import GraphDiffError, validate_graph_diff
 
@@ -34,6 +35,7 @@ __all__ = [
     "confirm",
     "revert",
     "run_ops_turn",
+    "run_set_answer_turn",
     "run_text_turn",
     "sync_answers",
 ]
@@ -350,6 +352,162 @@ def run_ops_turn(
             notes=notes,
         ),
         state=state,
+        before=before,
+        by="human",
+    )
+
+
+# ---- 答え方を決める手番 --------------------------------------------------------------------------
+
+#: データの答え方で、op ごとに要る欄（``themes.data_answer_complete`` と同じ）
+_DATA_NEEDS = {
+    "count": ("kind",),
+    "range": ("property",),
+    "top": ("property",),
+    "filter": ("kind", "property", "value"),
+    "group": ("kind", "property"),
+    "trend": ("kind", "property", "property2"),
+    "join": ("kind", "property", "kind2"),
+}
+
+
+def _undecided(field: str) -> TurnRefused:
+    return TurnRefused(422, f"答え方が決まっていません: {field}")
+
+
+def run_set_answer_turn(
+    session: dict,
+    body: dict,
+    *,
+    root: Any,
+    at: str,
+    lang: str,
+) -> dict:
+    """既にある問いの答え方を人が決める手番（``session`` を書き換える・保存は呼ぶ側）。
+
+    検査は ``graph_diff._Applier.add_question`` と同じ規則。通れば答えの行を置き換えて下書きを
+    保存する。"""
+    lg = _lg(lang)
+    draft = _current_draft(session, root)
+    if draft is None:
+        raise TurnRefused(422, "先に問いを書いてください")
+    want = normalize_label(str(body.get("question") or ""))
+    answers = list(draft.get("answers") or [])
+    idx = next(
+        (i for i, a in enumerate(answers) if normalize_label(str(a.get("question") or "")) == want),
+        None,
+    )
+    if idx is None:
+        raise TurnRefused(422, "その問いはこの話にありません")
+    old = answers[idx]
+    concepts = {str(c.get("key")): c for c in draft.get("concepts") or [] if isinstance(c, dict)}
+
+    def pick(field: str, kind: str | None = None) -> dict | None:
+        ref = body.get(field)
+        if not ref:
+            return None
+        row = concepts.get(str(ref))
+        if row is None or (kind is not None and row.get("kind") != kind):
+            raise _undecided(field)
+        return row
+
+    mode, op = body.get("mode"), str(body.get("op") or "")
+    direction = body.get("direction")
+    if mode == "knowledge":
+        if op not in themes.KNOWLEDGE_OPS:
+            raise _undecided("op")
+        t_row = pick("target")
+        if t_row is None:
+            raise _undecided("target")
+        if op == "factors" and direction not in themes.KNOWLEDGE_DIRECTIONS:
+            raise _undecided("direction")
+        row = themes._answer_row(
+            old["question"],
+            "knowledge",
+            op=op,
+            target=str(t_row["key"]),
+            direction=direction if op == "factors" else "",
+            memo=None,
+            wanted_data=old.get("wanted_data") or "",
+            reason=old.get("reason") or "",
+        )
+        shown = (
+            (t_row.get("label_en") or t_row.get("label_ja") or "")
+            if lg == "en"
+            else (t_row.get("label_ja") or t_row.get("label_en") or "")
+        )
+        selection: dict = {"op": op, "target": shown, "direction": row["direction"]}
+    elif mode == "data":
+        if op not in _DATA_NEEDS:
+            raise _undecided("op")
+        k_row = pick("kind", "class")
+        p_row = pick("property", "property")
+        p2_row = pick("property2", "property")
+        k2_row = pick("kind2", "class")
+        value = themes._clean_value(body.get("value"))
+        if not themes.data_answer_complete(
+            op, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value
+        ):
+            have = {
+                "kind": k_row,
+                "property": p_row,
+                "property2": p2_row,
+                "kind2": k2_row,
+                "value": value,
+            }
+            missing = next((f for f in _DATA_NEEDS[op] if not have[f]), op)
+            raise _undecided(missing)
+        row = themes._answer_row(
+            old["question"],
+            "data",
+            op=op,
+            kind=str(k_row["key"]) if k_row else "",
+            prop=str(p_row["key"]) if p_row else "",
+            value=value if op == "filter" else "",
+            match=themes._clean_match(body.get("match")) if op == "filter" else "",
+            prop2=str(p2_row["key"]) if p2_row and op == "trend" else "",
+            kind2=str(k2_row["key"]) if k2_row and op == "join" else "",
+            memo=None,
+            wanted_data=old.get("wanted_data") or "",
+            reason=old.get("reason") or "",
+        )
+
+        def name(r: dict | None) -> str:
+            if not r:
+                return ""
+            if lg == "en":
+                return str(r.get("label_en") or r.get("label_ja") or "")
+            return str(r.get("label_ja") or r.get("label_en") or "")
+
+        selection = {
+            "op": op,
+            "kind": name(k_row),
+            "property": name(p_row),
+            "value": row["value"],
+            "match": row["match"],
+            "property2": name(p2_row) if op == "trend" else "",
+            "kind2": name(k2_row) if op == "join" else "",
+        }
+    else:
+        raise _undecided("mode")
+    row["by"] = "human"
+    before = copy.deepcopy(draft)
+    answers[idx] = row
+    draft = _save(root, {**draft, "answers": answers}, at)
+    _adopt_draft(session, draft)
+    shape = shared_vocab.describe_selection(selection, lg)
+    question = str(old["question"])
+    said = (
+        f"問い「{_quote(question)}」の答え方: {shape}"
+        if lg == "ja"
+        else f'Answer for "{_quote(question)}": {shape}'
+    )
+    return _append_turn(
+        session,
+        at=at,
+        user=None,
+        reply=_reply(said, sentences=[said]),
+        state="proposed",
         before=before,
         by="human",
     )

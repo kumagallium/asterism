@@ -74,8 +74,23 @@ class RenameBody(BaseModel):
         return v
 
 
+class SetAnswerBody(BaseModel):
+    question: str
+    mode: Literal["knowledge", "data"]
+    op: str
+    target: str = ""
+    direction: str = ""
+    kind: str = ""
+    property: str = ""
+    value: str = ""
+    match: str = ""
+    property2: str = ""
+    kind2: str = ""
+
+
 class TurnBody(BaseModel):
     text: str | None = None
+    set_answer: SetAnswerBody | None = None
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
     lang: Literal["ja", "en"] = "ja"
 
@@ -191,8 +206,9 @@ def register_chat(
     @app.post("/api/chat/sessions/{session_id}/turns", dependencies=deps)
     async def chat_turn(session_id: str, body: TurnBody) -> JSONResponse:
         has_text = body.text is not None
-        if has_text == (body.ops is not None):
-            raise HTTPException(422, "text か ops のどちらか 1 つを送ってください")
+        given = [body.text is not None, body.ops is not None, body.set_answer is not None]
+        if sum(given) != 1:
+            raise HTTPException(422, "text・ops・set_answer のどれか 1 つを送ってください")
         text = (body.text or "").strip()
         if has_text and not 1 <= len(text) <= chat_turns.MAX_TEXT:
             raise HTTPException(422, f"文は 1〜{chat_turns.MAX_TEXT} 字です")
@@ -214,6 +230,14 @@ def register_chat(
                         existing=existing,
                         dismissed=dismissed,
                         at=at,
+                    )
+                elif body.set_answer is not None:
+                    turn = chat_turns.run_set_answer_turn(
+                        session,
+                        body.set_answer.model_dump(),
+                        root=root,
+                        at=at,
+                        lang=body.lang,
                     )
                 else:
                     turn = chat_turns.run_ops_turn(
