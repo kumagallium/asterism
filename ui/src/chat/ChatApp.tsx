@@ -15,6 +15,7 @@ import {
   postTurn,
   revertTurn,
   type GraphOp,
+  type SetAnswerBody,
   type Session,
   type SessionSummary,
   type SkyDraft,
@@ -179,6 +180,7 @@ export function ChatApp() {
 
   const onSend = useCallback((text: string) => runTurn({ text }), [runTurn])
   const onSendOps = useCallback((ops: GraphOp[]) => runTurn({ ops }), [runTurn])
+  const onSendAnswer = useCallback((set_answer: SetAnswerBody) => runTurn({ set_answer }), [runTurn])
 
   const onConfirm = useCallback(
     async (turnId: string) => {
@@ -305,7 +307,7 @@ export function ChatApp() {
         <div className="chat-right-scroll">
           <ChartPane lang={lang} refreshKey={chartTick} onProposed={setChartDrafts} />
         </div>
-        {showHand && <HandForm draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} />}
+        {showHand && <HandForm draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>
     </div>
   )

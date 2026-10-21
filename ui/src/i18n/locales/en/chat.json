@@ -46,7 +46,12 @@
     "add": "Add",
     "from": "A",
     "to": "B",
-    "rel": "Relation"
+    "rel": "Relation",
+    "answer": "Answer",
+    "question": "Question",
+    "way": "Way",
+    "target": "Target",
+    "decide": "Decide"
   },
   "empty": {
     "first": "Write what you want to know, or attach data, and the chart grows here"

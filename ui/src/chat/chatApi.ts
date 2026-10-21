@@ -298,9 +298,25 @@ export async function deleteSession(id: string): Promise<void> {
   await call(`/api/chat/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeaders() }, 'delete')
 }
 
+/** 既にある問いの答え方を人が決める（`set_answer`）。欄は下書きの概念の key。 */
+export interface SetAnswerBody {
+  question: string
+  mode: 'knowledge' | 'data'
+  op: string
+  target?: string
+  direction?: string
+  kind?: string
+  property?: string
+  value?: string
+  match?: string
+  property2?: string
+  kind2?: string
+}
+
 export interface TurnInput {
   text?: string
   ops?: GraphOp[]
+  set_answer?: SetAnswerBody
   lang?: 'ja' | 'en'
 }
 

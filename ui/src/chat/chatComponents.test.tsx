@@ -152,6 +152,16 @@ describe('HandForm', () => {
     expect((html.match(/<option value="(sub|eq|quantity|part|lowers|raises|affects)"/g) ?? []).length).toBe(7)
     expect(text(html)).toContain('下げる')
   })
+  it('問いがあれば 3 行目「答え方」（8 つの方法）と testid が出る', () => {
+    const withQ = { ...draft, questions: ['熱伝導率を下げるものは？'] }
+    const html = renderToStaticMarkup(<HandForm draft={withQ} nextKey="h3" busy={false} onSubmit={async () => true} onAnswer={async () => true} />)
+    for (const id of ['hand-answer-q', 'hand-answer-way', 'hand-answer-target', 'hand-answer', 'hand-name', 'hand-kind', 'hand-add', 'hand-rel-from', 'hand-rel-kind', 'hand-rel-to', 'hand-rel-add']) {
+      expect(html).toContain(`data-testid="${id}"`)
+    }
+    expect((html.match(/<option value="(factors:(lowers|raises|affects)|parts|kinds|count|range|top)"/g) ?? []).length).toBe(8)
+    const none = renderToStaticMarkup(<HandForm draft={draft} nextKey="h3" busy={false} onSubmit={async () => true} onAnswer={async () => true} />)
+    expect(none).not.toContain('hand-answer')
+  })
   it('概念が無いうちは名前の行だけ', () => {
     const html = renderToStaticMarkup(<HandForm draft={null} nextKey="h1" busy={false} onSubmit={async () => true} />)
     expect(html).not.toContain('value="lowers"')
