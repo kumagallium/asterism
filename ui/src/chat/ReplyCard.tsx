@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Note, Turn } from './chatApi'
+import { keptName, settleAsk } from './chatState'
 
 /** 箇条書きで出す文の数（それ以上は「ほか N 件」の折りたたみ）。 */
 export const SENTENCE_LIMIT = 6
@@ -18,7 +19,10 @@ export interface ReplyCardProps {
   onConfirm: (turnId: string) => void
   onRevert: (turnId: string) => void
   /** チップを押した（その文を送る）。 */
-  onAsk: (question: string) => void
+  /** 送れたら true（失敗なら false で、チップの印を戻す）。 */
+  onAsk: (question: string) => Promise<boolean> | boolean | void
+  /** 残した語の slug → 名前（引けなければ slug のまま）。 */
+  names?: ReadonlyMap<string, string>
 }
 
 function stamp(iso: string, lang: string): string {
@@ -48,13 +52,21 @@ function NoteLine({ note }: { note: Note }) {
   )
 }
 
-export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk }: ReplyCardProps) {
+export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names }: ReplyCardProps) {
   const { t, i18n } = useTranslation('chat')
   const r = turn.reply
   const head = r.sentences.slice(0, SENTENCE_LIMIT)
   const rest = r.sentences.slice(SENTENCE_LIMIT)
   const proposed = turn.state === 'proposed'
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set())
+  const unsend = (q: string) =>
+    setSent((cur) => {
+      const n = new Set(cur)
+      n.delete(q)
+      return n
+    })
+  // 機械の手番は text と注記の先頭が同じ文になる。二重に出さない
+  const notes = turn.by === 'machine' && r.notes[0] && r.notes[0].text.trim() === r.text.trim() ? r.notes.slice(1) : r.notes
   // text と箇条書きが同じ内容なら片方だけ。人の手番（user が null）は箇条書き 1 行だけ
   const sameAsOnly = r.sentences.length === 1 && r.text.trim() === r.sentences[0].trim()
   const showText = !!r.text && !sameAsOnly && !(turn.user === null && r.sentences.length > 0)
@@ -90,8 +102,10 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
                 className={`chat-chip${sent.has(q) ? ' is-sent' : ''}`}
                 disabled={busy || sent.has(q)}
                 onClick={() => {
-                  setSent(new Set([...sent, q]))
-                  onAsk(q)
+                  setSent((cur) => new Set([...cur, q]))
+                  void settleAsk(() => onAsk(q)).then((ok) => {
+                    if (!ok) unsend(q)
+                  })
                 }}
               >
                 {q}
@@ -99,7 +113,7 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
             ))}
           </div>
         )}
-        {r.notes.map((n, i) => (
+        {notes.map((n, i) => (
           <NoteLine key={i} note={n} />
         ))}
         {turn.state === 'confirmed' && turn.commit?.removed && (turn.commit.removed.terms > 0 || turn.commit.removed.lines > 0) && (
@@ -110,7 +124,7 @@ export function ReplyCard({ turn, canConfirm, count, busy, onConfirm, onRevert, 
         {turn.state === 'confirmed' &&
           (turn.commit?.kept ?? []).map((k) => (
             <p key={k.slug} className="chat-note-line" data-testid="reply-kept">
-              {t('reply.kept', { slug: k.slug, reason: k.reason })}
+              {t('reply.kept', { slug: keptName(k.slug, names), reason: k.reason })}
             </p>
           ))}
         {(turn.state !== 'none' || turn.by === 'machine') && (

@@ -6,6 +6,10 @@ import {
   applyTurnResponse,
   confirmTarget,
   handFormShown,
+  keptName,
+  nameTable,
+  preferReloaded,
+  settleAsk,
   nextHandKey,
   proposedCount,
   sessionTitle,
@@ -138,5 +142,28 @@ describe('chatState', () => {
     // 最後の AI の返事が来ていれば、その前の ai_unset は効かない
     expect(handFormShown(session([{ ...turn('t1', 'proposed', 1), by: 'ai' }]))).toBe(false)
     expect(handFormShown(session([turn('t1', 'proposed', 0, ['ai_unset']), { ...turn('t2', 'none'), by: 'ai' }]))).toBe(false)
+  })
+})
+
+describe('話の読み直し・チップ・名前', () => {
+  it('読み直した話が返りより優先される（戻された手番が残らない）。読み直せなければ返りのまま', () => {
+    const base = session([turn('t1', 'proposed'), turn('t2', 'proposed')])
+    const applied = applyTurnResponse(base, { turn: turn('t3', 'proposed'), session: brief(), draft: null })
+    const fresh = session([turn('t1', 'reverted'), turn('t2', 'reverted'), turn('t3', 'proposed')])
+    expect(preferReloaded(applied, fresh).turns.map((t) => t.state)).toEqual(['reverted', 'reverted', 'proposed'])
+    expect(preferReloaded(applied, null)).toBe(applied)
+  })
+  it('チップ: 失敗・例外は false（印を戻す）、成功と void は true', async () => {
+    expect(await settleAsk(async () => false)).toBe(false)
+    expect(await settleAsk(async () => { throw new Error('x') })).toBe(false)
+    expect(await settleAsk(async () => true)).toBe(true)
+    expect(await settleAsk(() => undefined)).toBe(true)
+  })
+  it('残した名前: 図の語と下書きの札から引き、無ければ slug のまま', () => {
+    const names = nameTable([{ slug: 'thermal', label: '熱伝導率' }], { concepts: [{ key: 'h1', label: '密度', use: 'existing:dens' }] })
+    expect(keptName('thermal', names)).toBe('熱伝導率')
+    expect(keptName('dens', names)).toBe('密度')
+    expect(keptName('zzz', names)).toBe('zzz')
+    expect(keptName('zzz', undefined)).toBe('zzz')
   })
 })

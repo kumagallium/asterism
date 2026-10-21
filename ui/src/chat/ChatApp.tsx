@@ -2,7 +2,7 @@
 // hash が唯一の真実源（`#/` 新しい話・`#/t/<id>` 保存した話・`#/settings` 設定）。`navigate()` が pushState/replaceState で
 // hash を書き、hashchange（戻る・進む・手入力）でも state に反映する。
 // 話の状態（手番・題・テーマ・未確認の下書き）はサーバが持つ。ここは取得・状態・DOM だけで、変換は chatState.ts の純関数。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from '../settings/context'
 import { ThemesApiError } from '../themes/themesApi'
@@ -23,7 +23,7 @@ import {
   type TurnInput,
 } from './chatApi'
 import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
-import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nextHandKey } from './chatState'
+import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded } from './chatState'
 import { ChartPane } from './ChartPane'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
@@ -138,6 +138,7 @@ export function ChatApp() {
   // 未確認の図: 手番の返りのもの（すぐ使える）と、図を取り直して届いたもの（再読み込みのあとでも拾える）
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
   const [chartDrafts, setChartDrafts] = useState<SkyDraft[]>([])
+  const [skyTerms, setSkyTerms] = useState<{ slug: string; label: string }[]>([])
   const [chartTick, setChartTick] = useState(0)
   // 生まれた輪は ✓ の直後だけ（手番の直後は薄い札が増えるだけ）
   const [bornTick, setBornTick] = useState(0)
@@ -152,8 +153,10 @@ export function ChatApp() {
     reloadSessions()
   }, [reloadSessions])
 
-  const update = useCallback((id: string, fn: (s: Session) => Session) => {
-    setLoaded((cur) => (cur && cur.id === id ? { id, session: fn(cur.session) } : cur))
+  /** 手番・✓・戻すのあとは話をサーバから読み直して置き換える（他の手番の状態や下書きが変わるため）。読み直せなければ返りのまま。 */
+  const reread = useCallback(async (id: string, applied: (cur: Session) => Session) => {
+    const fresh = await getSession(id).catch(() => null)
+    setLoaded((cur) => (cur && cur.id === id ? { id, session: preferReloaded(applied(cur.session), fresh) } : cur))
   }, [])
 
   /** 手番を送る。最初の送信では話を作り、hash を `#/t/<id>` に置き換えてから手番を送る。 */
@@ -176,7 +179,7 @@ export function ChatApp() {
         const id = s.id
         try {
           const res = await postTurn(id, { ...input, lang }, getActiveCredentials())
-          update(id, (cur) => applyTurnResponse(cur, res))
+          await reread(id, (cur) => applyTurnResponse(cur, res))
           setDraft(res.draft)
           afterChange()
           return true
@@ -198,7 +201,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [busy, view.kind, session, lang, getActiveCredentials, navigate, update, afterChange, reloadSessions],
+    [busy, view.kind, session, lang, getActiveCredentials, navigate, reread, afterChange, reloadSessions],
   )
 
   const onSend = useCallback((text: string) => runTurn({ text }), [runTurn])
@@ -213,7 +216,7 @@ export function ChatApp() {
       setError(null)
       try {
         const res = await confirmTurn(id, turnId, lang)
-        update(id, (cur) => applyConfirm(cur, res))
+        await reread(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
         setBornTick((n) => n + 1)
         afterChange()
@@ -223,7 +226,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [session, busy, lang, update, afterChange],
+    [session, busy, lang, reread, afterChange],
   )
 
   const onRevert = useCallback(
@@ -234,7 +237,7 @@ export function ChatApp() {
       setError(null)
       try {
         const res = await revertTurn(id, turnId, lang)
-        update(id, (cur) => applyRevert(cur, res))
+        await reread(id, (cur) => applyRevert(cur, res))
         setDraft(res.draft)
         afterChange()
       } catch (e) {
@@ -243,7 +246,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [session, busy, lang, update, afterChange],
+    [session, busy, lang, reread, afterChange],
   )
 
   const newChat = () => {
@@ -269,6 +272,7 @@ export function ChatApp() {
     ...(sessionDraft?.concepts.map((c) => c.key) ?? []),
     ...(session?.turns.flatMap((x) => x.reply.ops.map((o) => (typeof o.key === 'string' ? o.key : ''))) ?? []),
   ]
+  const names = useMemo(() => nameTable(skyTerms, sessionDraft), [skyTerms, sessionDraft])
   const showHand = !!session && handFormShown(session)
   const noKey = isKeyMissing(listError)
 
@@ -319,10 +323,11 @@ export function ChatApp() {
           loading={!!viewId && !session && !loadError}
           loadError={loadError}
           busy={busy !== null}
-          sending={busy === 'send'}
+          sending={busy === 'send' && pendingUser !== null}
           pendingUser={pendingUser}
           error={error}
           noKey={noKey}
+          names={names}
           onSend={onSend}
           onConfirm={(id) => void onConfirm(id)}
           onRevert={(id) => void onRevert(id)}
@@ -331,7 +336,7 @@ export function ChatApp() {
       </section>
       <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
         <div className="chat-right-scroll">
-          <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} />
+          <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} onTerms={setSkyTerms} />
         </div>
         {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>

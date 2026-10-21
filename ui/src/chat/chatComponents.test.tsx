@@ -182,6 +182,19 @@ describe('HandForm', () => {
     expect(m).not.toContain('reply-revert')
     expect(text(card(turn({ by: 'ai' })))).not.toContain('機械')
   })
+  it('機械の手番の text と同じ注記は二重に出さない（違う注記は残す）', () => {
+    const same = card(turn({ by: 'machine', state: 'none', reply: reply({ text: '同じ文です', notes: [{ kind: 'info', text: '同じ文です', choice: null }] }) }))
+    expect(same.split('同じ文です').length - 1).toBe(1)
+    const diff = card(turn({ by: 'machine', state: 'none', reply: reply({ text: '本文', notes: [{ kind: 'info', text: '別の注記', choice: null }] }) }))
+    expect(diff).toContain('別の注記')
+  })
+  it('残した語は名前で出る（引けなければ slug）', () => {
+    const t = turn({ state: 'confirmed', commit: { at: '2026-10-22T00:00:00Z', kept: [{ slug: 'thermal', reason: '使用中' }, { slug: 'zzz', reason: '使用中' }] } as Turn['commit'] })
+    const html = renderToStaticMarkup(<ReplyCard turn={t} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} names={new Map([['thermal', '熱伝導率']])} />)
+    expect(text(html)).toContain('熱伝導率')
+    expect(text(html)).toContain('zzz')
+    expect(text(html)).not.toContain('thermal')
+  })
   it('注記 ai_failed・info が描ける', () => {
     const h = card(turn({ state: 'none', reply: reply({ notes: [{ kind: 'ai_failed', text: '失敗', choice: null }, { kind: 'info', text: '補足', choice: null }] }) }))
     expect(h).toContain('data-note-kind="ai_failed"')

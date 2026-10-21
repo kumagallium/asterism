@@ -21,6 +21,8 @@ export interface ChatPaneProps {
   error: string | null
   noKey: boolean
   onSend: (text: string) => Promise<boolean>
+  /** 残した語の slug → 名前。 */
+  names?: ReadonlyMap<string, string>
   onConfirm: (turnId: string) => void
   onRevert: (turnId: string) => void
   onOpenSettings: () => void
@@ -62,7 +64,8 @@ export function ChatPane(p: ChatPaneProps) {
                 busy={p.busy}
                 onConfirm={p.onConfirm}
                 onRevert={p.onRevert}
-                onAsk={(q) => void p.onSend(q)}
+                onAsk={(q) => p.onSend(q)}
+                names={p.names}
               />
             </div>
           ))
@@ -72,7 +75,7 @@ export function ChatPane(p: ChatPaneProps) {
             <div className="consult-bubble">{p.pendingUser}</div>
           </div>
         )}
-        {p.sending && (
+        {p.sending && !!p.pendingUser && (
           <div className="consult-msg consult-msg--assistant" data-testid="reply-thinking">
             <div className="consult-bubble consult-bubble--pending">
               <span className="consult-spinner" aria-hidden="true" />
