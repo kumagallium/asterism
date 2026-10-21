@@ -435,6 +435,14 @@ def _answer(a: Any, p: str) -> dict:
         raise _fail(f"{p}.match", f"must be one of {MATCH_MODES}")
     if op in _MEMO_OPS:  # 受けるが実行しない — 検証は通し、メモに落とす
         mode = "memo"
+    # 値は問いの文に書かれていた語（データの値ではない）。コード・IRI・長すぎる値は、下書き全体
+    # を拒まず、その問いの値を空にしてメモに落とす（ほかの欄の不足と同じ扱い）
+    try:
+        value = _opt(a.get("value"), f"{p}.value", _LEN_VALUE)
+    except ThemeDraftError:
+        value = None
+        if op == "filter" and mode == "data":
+            mode = "memo"
     return {
         # 問いの原文はユーザーの文（記号を含みうる）— 照合は原文との一致で行う。
         "question": _str(a.get("question"), f"{p}.question", _LEN_QUESTION, allow_code=True),
@@ -444,8 +452,7 @@ def _answer(a: Any, p: str) -> dict:
         "direction": direction,
         "kind": _opt(a.get("kind"), f"{p}.kind", _LEN_KEY),
         "property": _opt(a.get("property"), f"{p}.property", _LEN_KEY),
-        # 値は問いの文に書かれていた語（データの値ではない）。コード・IRI は拒む
-        "value": _opt(a.get("value"), f"{p}.value", _LEN_VALUE),
+        "value": value,
         "match": match,
         "property2": _opt(a.get("property2"), f"{p}.property2", _LEN_KEY),
         "kind2": _opt(a.get("kind2"), f"{p}.kind2", _LEN_KEY),

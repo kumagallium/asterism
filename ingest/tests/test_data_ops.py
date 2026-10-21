@@ -132,7 +132,8 @@ def test_group_counts_per_dataset_and_value() -> None:
     ds = _store()
     (tool,) = sv.default_cq_tools(SAMPLE, [CQSpec("組成ごとの試料数", "group", property=COMP)])
     _linted(tool)
-    assert "GROUP BY ?dataset_graph ?v" in tool["query"] and "LIMIT 200" in tool["query"]
+    assert "GROUP BY ?dataset_graph ?v" in tool["query"] and "LIMIT 500" in tool["query"]
+    assert "ORDER BY DESC(?entities) ?dataset_graph ?v" in tool["query"]
     rows = _run(ds, tool)
     got = {(r["dataset_graph"], r["v"]): int(r["entities"]) for r in rows}
     assert got == {
@@ -152,10 +153,60 @@ def test_trend_returns_x_y_pairs_ordered_by_x() -> None:
     )
     _linted(tool)
     assert tool["for_terms"] == [curve.iri, t, z]
-    assert "ORDER BY ?dataset_graph ?x" in tool["query"] and "LIMIT 2000" in tool["query"]
+    assert "?xn" in tool["query"] and "LIMIT 2000" in tool["query"]
     rows = _run(ds, tool)
     assert [(float(r["x"]), float(r["y"])) for r in rows] == [(300, -10), (300, -5), (400, -20)]
     assert {r["dataset_graph"] for r in rows} == {_graph("starry")}
+
+
+def test_trend_orders_untyped_string_x_by_number_not_by_text() -> None:
+    """型なしの文字列 "1000"・"300"・"40" は、文字の順（1000<300<40）でなく数の順に。
+    数に直せない値は、そのデータセットの末尾。"""
+    ds = _store()
+    g = ds.graph(_u(_graph("starry")))
+    for c in ("c1", "c2", "c3"):  # 最初の数値の曲線は外し、文字列だけで固定する
+        for p in ("temperature", "seebeck"):
+            g.remove((_u(f"urn:{c}"), _u(NS + p), None))
+    for i, x in enumerate(("1000", "300", "n/a", "40")):
+        g.add((_u(f"urn:t{i}"), RDF_TYPE, _u(NS + "Curve")))
+        g.add((_u(f"urn:t{i}"), _u(NS + "temperature"), rdflib.Literal(x)))
+        g.add((_u(f"urn:t{i}"), _u(NS + "seebeck"), rdflib.Literal(str(i))))
+    curve = _term("curve", "測定曲線")
+    t, z = sv.SV + "temperature", sv.SV + "seebeck"
+    (tool,) = sv.default_cq_tools(curve, [CQSpec("q", "trend", property=t, property2=z)])
+    _linted(tool)
+    assert [r["x"] for r in _run(ds, tool)] == ["40", "300", "1000", "n/a"]
+    assert "先頭 2000 点" in tool["description"]
+
+
+async def test_run_query_tool_marks_a_query_limit_that_was_reached(monkeypatch) -> None:
+    """推移の LIMIT 2000 に届いた結果は truncated: true（先がある印）。届かなければ false。"""
+    from asterism import query_tools as qt_mod
+
+    curve = _term("curve", "測定曲線")
+    t, z = sv.SV + "temperature", sv.SV + "seebeck"
+    (tool,) = sv.default_cq_tools(curve, [CQSpec("q", "trend", property=t, property2=z)])
+    (qt,) = parse_query_tools({"tools": [tool]})
+
+    async def passthrough(_client, sparql):
+        return sparql
+
+    monkeypatch.setattr(qt_mod, "canonical_merge_query", passthrough)
+
+    def rows(n: int) -> dict:
+        b = {"type": "literal", "value": "1"}
+        return {"results": {"bindings": [{"x": b, "y": b}] * n}}
+
+    class Client:
+        def __init__(self, n: int) -> None:
+            self.n = n
+
+        async def sparql_select(self, _q):
+            return rows(self.n)
+
+    full = await qt_mod.run_query_tool(Client(sv.TREND_LIMIT), qt, {}, max_rows=2000)
+    short = await qt_mod.run_query_tool(Client(5), qt, {}, max_rows=2000)
+    assert full["truncated"] is True and short["truncated"] is False
 
 
 def test_join_counts_pairs_a_to_b() -> None:
@@ -364,9 +415,14 @@ def test_postprocess_checks_the_new_fields_and_drops_what_does_not_fit() -> None
         ],
         "relations": [],
         "answers": [
-            {"question": "q1", "mode": "data", "op": "filter", "target": None, "direction": None,
-             "kind": "c1", "property": "c2", "value": " SnSe  ", "match": "exact",
-             "property2": None, "kind2": None, "wanted_data": "", "reason": ""},
+            {"question": "q1 は SnSe の試料？", "mode": "data", "op": "filter", "target": None,
+             "direction": None, "kind": "c1", "property": "c2", "value": " snse  ",
+             "match": "exact", "property2": None, "kind2": None, "wanted_data": "", "reason": ""},
+            # 値が問いの文に無い filter（AI がデータの値を持ち込んだ）は、その問いだけメモへ
+            {"question": "q3 は組成の試料？", "mode": "data", "op": "filter", "target": None,
+             "direction": None, "kind": "c1", "property": "c2", "value": "PbTe",
+             "match": "contains", "property2": None, "kind2": None, "wanted_data": "",
+             "reason": ""},
             # kind2 に項目を選んだ join は、検査に合わずメモへ
             {"question": "q2", "mode": "data", "op": "join", "target": None, "direction": None,
              "kind": "c3", "property": "c2", "value": None, "match": None,
@@ -374,7 +430,12 @@ def test_postprocess_checks_the_new_fields_and_drops_what_does_not_fit() -> None
         ],
         "suggested_questions": [],
     }  # fmt: skip
-    out = themes.postprocess_draft(ai, questions=["q1", "q2"], existing=[])
+    qs = ["q1 は SnSe の試料？", "q2", "q3 は組成の試料？"]
+    out = themes.postprocess_draft(ai, questions=qs, existing=[])
     a = {x["question"]: x for x in out["answers"]}
-    assert (a["q1"]["mode"], a["q1"]["value"], a["q1"]["match"]) == ("data", "SnSe", "exact")
+    # 値は空白を畳み・大文字小文字を畳んで問いの文に含まれれば通る（持ち込んだ値は採らない）
+    q1 = a[qs[0]]
+    assert (q1["mode"], q1["value"], q1["match"]) == ("data", "snse", "exact")
+    assert (a[qs[2]]["mode"], a[qs[2]]["memo"]) == ("memo", "value")
+    assert themes._MEMO_REASONS["ja"]["value"] == "値が問いの文にありません。メモとして残します。"
     assert (a["q2"]["mode"], a["q2"]["memo"], a["q2"]["kind2"]) == ("memo", "ai", "")

@@ -20,7 +20,11 @@ from asterism import shared_vocab as sv
 from asterism import substrate
 from asterism.crosswalk import XW
 from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, assert_alignment, remove_alignment
-from asterism.query_tools import lint_query_tool, parse_query_tools
+from asterism.query_tools import (
+    lint_query_tool,
+    parse_query_tools,
+    remove_registry_query_tools_by_name,
+)
 from asterism.shared_vocab import (
     CQSpec,
     SharedTerm,
@@ -442,7 +446,7 @@ async def test_mint_aborts_on_an_unreadable_query_tools_file(tmp_path: Path) -> 
     assert len(client.ds.graph(rdflib.URIRef(sv.SHARED_VOCAB_GRAPH))) == 0
 
 
-async def test_remove_refused_while_a_line_exists_then_cascades_cqs(tmp_path: Path) -> None:
+async def test_remove_refused_while_a_line_or_a_multi_term_question_uses_it(tmp_path: Path) -> None:
     client = _Client()
     await _seed_two_datasets(client)
     await _mint_class(client, tmp_path, "alpha")
@@ -458,6 +462,13 @@ async def test_remove_refused_while_a_line_exists_then_cascades_cqs(tmp_path: Pa
         await sv.remove_term(client, tmp_path, "alpha")
     await remove_alignment(client, A_REC, a, "subClassOf")
 
+    # 2 語にまたがる問いが使っている語は外せない（壊れた問いを残さない）
+    with pytest.raises(TermHasLines, match=r"問い『.+』が使っています"):
+        await sv.remove_term(client, tmp_path, "alpha")
+    g = client.ds.graph(rdflib.URIRef(sv.SHARED_VOCAB_GRAPH))
+    assert (rdflib.URIRef(a), None, None) in g  # 何も消えていない
+    remove_registry_query_tools_by_name(tmp_path, sv.REGISTRY_ID, ["cq_both"])
+
     await sv.remove_term(client, tmp_path, "alpha")
     g = client.ds.graph(rdflib.URIRef(sv.SHARED_VOCAB_GRAPH))
     assert (rdflib.URIRef(a), None, None) not in g and (rdflib.URIRef(b), None, None) in g
@@ -467,8 +478,7 @@ async def test_remove_refused_while_a_line_exists_then_cascades_cqs(tmp_path: Pa
             (tmp_path / "vocab-shared" / "query_tools.yaml").read_text("utf-8")
         )["tools"]
     }
-    assert set(tools) == {"cq_beta_count", "cq_both"}  # alpha's own CQ is gone
-    assert tools["cq_both"]["for_terms"] == [b]  # the shared CQ just loses alpha
+    assert set(tools) == {"cq_beta_count"}  # alpha's own CQ is gone
     assert set(sv.load_wired(tmp_path)) == {b}
     with pytest.raises(TermNotFound):
         await sv.remove_term(client, tmp_path, "alpha")

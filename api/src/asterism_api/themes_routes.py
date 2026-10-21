@@ -181,17 +181,20 @@ def _wide_selection(tool: dict, term_by_iri: dict[str, dict]) -> dict:
     m = _WIDE_NAME.match(str(tool.get("name")))
     if m is None:
         return {}
-    labels = [
-        term_by_iri[str(i)]["label"] for i in tool.get("for_terms") or [] if str(i) in term_by_iri
-    ]
-    if len(labels) < 2:
+    iris = [str(i) for i in tool.get("for_terms") or []]
+    if len(iris) < 2 or iris[0] not in term_by_iri or iris[1] not in term_by_iri:
         return {}
+
+    def label_at(n: int) -> str | None:  # 位置は for_terms の順（語が無くてもずらさない）
+        return term_by_iri[iris[n]]["label"] if len(iris) > n and iris[n] in term_by_iri else None
+
     op = m.group(1)
-    sel: dict[str, str] = {"op": op, "kind": labels[0], "property": labels[1]}
-    if op == "trend" and len(labels) > 2:
-        sel["property2"] = labels[2]
-    if op == "join" and len(labels) > 2:
-        sel["kind2"] = labels[2]
+    sel: dict[str, str] = {"op": op, "kind": label_at(0) or "", "property": label_at(1) or ""}
+    third = label_at(2)
+    if op == "trend" and third:
+        sel["property2"] = third
+    if op == "join" and third:
+        sel["kind2"] = third
     if op == "filter":
         w = _FILTER_WORD.search(str(tool.get("query") or ""))
         if w is not None:
@@ -296,7 +299,7 @@ def register_themes(
                 "tool_name": name,
                 "title": str(tool.get("title", tool.get("name"))),
                 "mode": "data",
-                "answering_datasets": max((wired.get(x, 0) for x in for_terms), default=0),
+                "answering_datasets": shared_vocab.answering_of(wired, for_terms),
                 "shape": shared_vocab.describe_selection(sel, lg),
                 "terms": [term_by_iri[i]["slug"] for i in for_terms if i in term_by_iri],
                 "wanted_data": str((theme.get("wanted") or {}).get(name) or ""),
@@ -772,7 +775,7 @@ def register_themes(
                         ),
                         "knowledge": None,
                         "data": {
-                            "answering": max((wired.get(x, 0) for x in for_terms), default=0),
+                            "answering": shared_vocab.answering_of(wired, for_terms),
                             "total_datasets": total,
                         },
                         "wanted_data": str(wanted.get(name) or ""),

@@ -45,6 +45,7 @@ from asterism.shared_vocab import (
 )
 from asterism.shared_vocab import (
     _read_terms,
+    answering_of,
     is_system_entry,
     known_namespaces,
     load_knowledge,
@@ -288,7 +289,7 @@ async def _questions(
                 "mode": "data",
                 "theme_id": None,
                 "theme_label": FIRST_QUESTIONS_LABEL,
-                "answering": max((wired.get(x, 0) for x in needs), default=0),
+                "answering": answering_of(wired, needs),
                 "knowledge": 0,
                 "total_datasets": total_datasets,
                 "needs": needs,

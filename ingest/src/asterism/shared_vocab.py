@@ -28,7 +28,7 @@ import json
 import os
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -114,8 +114,9 @@ MATCH_MODES = ("contains", "exact")
 #: ``filter`` の値の長さの上限（問いの文に書かれていた語・データの値ではない）。
 VALUE_MAX = 120
 #: ``group`` の行数・``trend`` の行数の上限（SPARQL の LIMIT・固定）。
-GROUP_LIMIT = 200
+GROUP_LIMIT = 500
 TREND_LIMIT = 2000
+_XSD_DOUBLE = "http://www.w3.org/2001/XMLSchema#double"
 _SLUG = re.compile(_SLUG_PATTERN)
 _ISO_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})?\Z")
 _LANGTAG_OK = re.compile(r"^[a-z]{2,3}$")
@@ -250,6 +251,15 @@ def is_shared_iri(iri: str) -> bool:
 def is_wired(n: int) -> bool:
     """A term is wired (not isolated) when at least one dataset answers its CQ."""
     return n >= 1
+
+
+def answering_of(counts: Mapping[str, int], for_terms: Iterable[str]) -> int:
+    """「データ N」: 問いが関わる語が **全部** そろって答えるデータセット数。
+
+    語が 1 つなら、その語の数（``wired.json`` のまま）。2 語以上（推移・結合・値で絞る）は
+    **どれか 1 語が 0 なら 0**、そうでなければ最も少ない語の数（全部の語を答えるデータセットは
+    それ以下 — 数え上げずに安全側に倒す下限）。``counts`` に無い語は 0。"""
+    return min((counts.get(x, 0) for x in set(for_terms)), default=0)
 
 
 def known_namespaces() -> list[str]:
@@ -491,11 +501,12 @@ def _data_op_query(term: SharedTerm, cq: CQSpec) -> tuple[str, str, dict, list[s
             f"  FILTER({flt})\n"
             "}\n"
             "GROUP BY ?dataset_graph ?v\n"
-            "ORDER BY ?dataset_graph DESC(?entities)\n"
+            "ORDER BY DESC(?entities) ?dataset_graph ?v\n"
             f"LIMIT {GROUP_LIMIT}\n"
         )
         describe = (
-            f"「{label}」を、項目の値ごとに数えます（データセットごと・上位 {GROUP_LIMIT} 行）。"
+            f"「{label}」を、項目の値ごとに数えます"
+            f"（件数の多い {GROUP_LIMIT} 行・データセット横断）。"
         )
         item = {
             "dataset_graph": "dataset_graph",
@@ -516,11 +527,15 @@ def _data_op_query(term: SharedTerm, cq: CQSpec) -> tuple[str, str, dict, list[s
             f"  ?py {UPPER_PATH_PROPERTY} <{prop2}> .\n"
             "  GRAPH ?dataset_graph { ?e a ?k . ?e ?px ?x . ?e ?py ?y }\n"
             f"  FILTER({flt})\n"
+            f"  BIND(<{_XSD_DOUBLE}>(STR(?x)) AS ?xn)\n"
             "}\n"
-            "ORDER BY ?dataset_graph ?x\n"
+            "ORDER BY ?dataset_graph (!BOUND(?xn)) ?xn ?x\n"
             f"LIMIT {TREND_LIMIT}\n"
         )
-        describe = f"「{label}」の 2 つの項目の値の組を、1 つ目の順に並べます（データセットごと）。"
+        describe = (
+            f"「{label}」の 2 つの項目の値の組を、1 つ目の値の大きさの順に並べます"
+            f"（データセットごと・先頭 {TREND_LIMIT} 点まで）。"
+        )
         item = {
             "dataset_graph": "dataset_graph",
             "x": {"var": "x", "number": True},
@@ -970,7 +985,7 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
                     {
                         "tool_name": str(tool.get("name")),
                         "title": str(tool.get("title", tool.get("name"))),
-                        "answering_datasets": max((wired.get(x, 0) for x in for_terms), default=0),
+                        "answering_datasets": answering_of(wired, for_terms),
                     }
                 )
         nar = [
@@ -993,7 +1008,9 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
 async def remove_term(client: Any, root: Path | str, slug: str) -> None:
     """Withdraw a minted term. Refused (:class:`TermHasLines`) while ANY alignment
     line touches it. Its CQs go with it: a tool whose only term this is is deleted, a
-    tool over several terms just loses this one from ``for_terms``."""
+    tool over several terms is NOT edited (that would leave a question whose shape no
+    longer matches its query): a term such a question uses cannot be withdrawn
+    (:class:`TermHasLines`, "問い『…』が使っています") until the question goes."""
     iri = term_iri(slug)
     if not await _ask(client, f"ASK {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} }}"):
         raise TermNotFound(f"{slug!r} という用語はありません")
@@ -1003,16 +1020,14 @@ async def remove_term(client: Any, root: Path | str, slug: str) -> None:
     ):
         raise TermHasLines("線が残っています。先に線を外してください")
     existing = _read_cq_tools(root)  # abort before writing when unreadable
+    for tool in existing:
+        for_terms = {str(x) for x in (tool.get("for_terms") or [])}
+        if iri in for_terms and len(for_terms) >= 2:
+            raise TermHasLines(f"問い『{tool.get('title') or tool.get('name')}』が使っています")
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} }}"
     )
-    kept: list[dict] = []
-    for tool in existing:
-        for_terms = [str(x) for x in (tool.get("for_terms") or [])]
-        if iri not in for_terms:
-            kept.append(tool)
-        elif for_terms != [iri]:
-            kept.append({**tool, "for_terms": [x for x in for_terms if x != iri]})
+    kept = [t for t in existing if iri not in [str(x) for x in (t.get("for_terms") or [])]]
     if kept != existing:
         _save_cq_tools(root, kept)
     await recompute_wired(client, root)
@@ -1296,8 +1311,8 @@ async def preview_alignment(
             {
                 "tool_name": str(tool.get("name")),
                 "title": str(tool.get("title", tool.get("name"))),
-                "before": max((before.get(x, 0) for x in for_terms), default=0),
-                "after": max((after.get(x, 0) for x in for_terms), default=0),
+                "before": answering_of(before, for_terms),
+                "after": answering_of(after, for_terms),
             }
         )
     return {"valid": True, "reason": None, "questions": questions, "terms": terms}
@@ -1710,6 +1725,7 @@ __all__ = [
     "TermHasLines",
     "TermNotFound",
     "answering_datasets",
+    "answering_of",
     "classify_endpoint",
     "clean_aliases",
     "concept_subject",
