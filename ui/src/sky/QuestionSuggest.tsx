@@ -13,6 +13,19 @@ import './questionSuggest.css'
 //   ・⑦の完了: ボタンとカードを完了カードの中に（`QuestionSuggestBlock`・自分の状態）
 //   ・文書（PR 10b）: 同じブロックを `screen="paper"` で、文書の取り込み完了とデータの詳細に。
 //     AI に渡るのは文書の要旨と結論の文だけ（本文全体は渡さない）。
+//   ・図の穴（PR 10c）: 問いの無い用語の札と用語のページで `screen="term"`。AI に渡るのは用語の名前・種別・標準用語の
+//     一致・周りの関係の文・入っている種類の名前だけ。問いのある用語には出さない（api は 409）。
+
+const NONE_KEY: Record<QuestionScreen, string> = {
+  dataset: 'suggestQ.none',
+  paper: 'suggestQ.nonePaper',
+  term: 'suggestQ.noneTerm',
+}
+const ASK_KEY: Record<QuestionScreen, string> = {
+  dataset: 'suggestQ.ask',
+  paper: 'suggestQ.askPaper',
+  term: 'suggestQ.askTerm',
+}
 
 function Rows({
   rows,
@@ -24,7 +37,7 @@ function Rows({
   screen?: QuestionScreen
 }) {
   const { t } = useTranslation('sky')
-  if (rows.length === 0) return <p className="sky-hint">{t(screen === 'paper' ? 'suggestQ.nonePaper' : 'suggestQ.none')}</p>
+  if (rows.length === 0) return <p className="sky-hint">{t(NONE_KEY[screen])}</p>
   return (
     <ul className="qs-list" data-testid="suggest-rows">
       {rows.map((r) => (
@@ -94,7 +107,7 @@ export function SuggestButton({
   const { t } = useTranslation('sky')
   return (
     <button type="button" className="btn btn--sm" onClick={onAsk} disabled={disabled} data-testid="suggest-ask">
-      {t(screen === 'paper' ? 'suggestQ.askPaper' : 'suggestQ.ask')}
+      {t(ASK_KEY[screen])}
     </button>
   )
 }
@@ -103,13 +116,18 @@ export function SuggestButton({
  * ⑦の完了カードの中のブロック（AI 設定ずみのときだけ出す）。ボタン → 同じ場所にカード。
  * `onStart` は「この問いで始める」（⑦を片づけてからホームの問いを書く道へ行く）。
  * `screen="paper"`（PR 10b）は文書型のデータセットの要旨と結論の文から（「この論文から問いを提案してもらう」）。
+ * `screen="term"`（PR 10c）は問いの無い用語から（「この用語で聞けることを提案してもらう」・用語のページの「使う問い」が空のとき）。
  */
 export function QuestionSuggestBlock({
   datasetId,
+  termSlug,
   onStart,
   screen = 'dataset',
 }: {
-  datasetId: string
+  /** `screen` が `dataset` / `paper` のとき。 */
+  datasetId?: string
+  /** `screen="term"` のとき（問いの無い用語の鍵）。 */
+  termSlug?: string
   onStart: (q: string) => void
   screen?: QuestionScreen
 }) {
@@ -123,7 +141,7 @@ export function QuestionSuggestBlock({
   if (!isReady) return null
   const ask = () => {
     setState({ status: 'running', rows: [], detail: '' })
-    suggestQuestions(datasetId, i18n.language.startsWith('en') ? 'en' : 'ja', getActiveCredentials(), screen)
+    suggestQuestions((screen === 'term' ? termSlug : datasetId) ?? '', i18n.language.startsWith('en') ? 'en' : 'ja', getActiveCredentials(), screen)
       .then((rows) => setState({ status: 'done', rows, detail: '' }))
       .catch((e: unknown) =>
         setState({

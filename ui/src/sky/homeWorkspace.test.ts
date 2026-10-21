@@ -12,6 +12,8 @@ import skyViewSource from './SkyView.tsx?raw'
 import themesViewSource from '../themes/ThemesView.tsx?raw'
 import themesApiSource from '../themes/themesApi.ts?raw'
 import blocksSource from './SessionBlocks.tsx?raw'
+import cardsSource from './SkyCards.tsx?raw'
+import termPageSource from '../themes/TermPage.tsx?raw'
 
 
 const strings = (o: unknown): string[] =>
@@ -127,6 +129,32 @@ describe('会話の履歴が狭くならない（常に欄の 40% 以上）', ()
     expect(blocksSource).toMatch(/data-testid="place-go"[^]*<details className="thm-chat-more" data-testid="place-details"/)
     expect(skyJa.tools.summary).toBe('文 {{n}} 件・手で足す')
     expect(skyJa.place.content).toBe('置く内容')
+  })
+})
+
+describe('提案の問いを入力欄へ入れるのは、問いを書く側に決まったあとだけ', () => {
+  it('下書きが開いていて確認で「そのまま」を選んだら入れない（then は書く側のときだけ呼ぶ）', () => {
+    expect(skyViewSource).toMatch(/ws\.requestWriting\(write\.extend, q \? \(\) => setPrefill/)
+    expect(skyViewSource).not.toMatch(/if \(write\.q\) setPrefill/)
+    expect(hookSource).toMatch(/function requestWriting\(ext\?: [^)]*\| null, then\?: \(\) => void\)/)
+    expect(hookSource).toMatch(/setSwitchAsk\(\{ kind: 'write', extend: ext \?\? null, then \}\)/)
+    // 「そのまま」（yes=false）は then に触れずに戻る
+    expect(hookSource).toMatch(/if \(!yes \|\| !a\) return[^]*beginWriting\(a\.extend\)\s*a\.then\?\.\(\)/)
+  })
+})
+
+describe('図の穴の問い（問いの無い用語の札）', () => {
+  it('用語の札のボタンは、問いが 0 件で AI 設定ずみのときだけ。押すと会話を開いて term のカードを足す', () => {
+    expect(cardsSource).toMatch(/qs\.length === 0 && p\.onSuggestTerm && \(/)
+    expect(cardsSource).toMatch(/<SuggestButton screen="term"/)
+    expect(skyViewSource).toMatch(/onSuggestTerm: ws\.aiReady/)
+    expect(skyViewSource).toMatch(/ws\.askQuestions\(slug, termLabel, 'term'\)/)
+    expect(skyJa.suggestQ.askTerm).toBe('この用語で聞けることを提案してもらう')
+    expect(skyEn.suggestQ.askTerm).toBe('Suggest what to ask about this term')
+    expect(skyJa.suggestQ.noneTerm).toBeTruthy()
+  })
+  it('用語のページは「使う問い」が空のときだけブロックを出す（問いがあれば出さない）', () => {
+    expect(termPageSource).toMatch(/term\.cqs\.length === 0 && knowledgeQs\.length === 0 \? \([^]*<QuestionSuggestBlock[^]*screen="term"[^]*termSlug=\{term\.slug\}/)
   })
 })
 

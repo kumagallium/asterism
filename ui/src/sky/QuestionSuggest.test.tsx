@@ -42,6 +42,11 @@ describe('問いの提案カード', () => {
   it('ボタンは「問いを提案してもらう」', () => {
     expect(renderToStaticMarkup(<SuggestButton onAsk={() => {}} />)).toContain('問いを提案してもらう')
   })
+  it('用語（図の穴）のボタンは「この用語で聞けることを提案してもらう」・0 本の文は用語の言い方', () => {
+    const out = renderToStaticMarkup(<SuggestButton onAsk={() => {}} screen="term" />)
+    expect(out).toContain('この用語で聞けることを提案してもらう')
+    expect(html(item({ rows: [] }))).not.toContain('この用語と周りの関係から')
+  })
   it('論文（文書）のボタンは「この論文から問いを提案してもらう」', () => {
     const out = renderToStaticMarkup(<SuggestButton onAsk={() => {}} screen="paper" />)
     expect(out).toContain('この論文から問いを提案してもらう')

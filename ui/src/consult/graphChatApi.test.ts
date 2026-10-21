@@ -99,6 +99,17 @@ describe('/api/consult/suggest-questions（問いの提案）', () => {
     expect(JSON.parse(String(init.body))).toEqual({ screen: 'paper', context: { dataset_id: 'paper-1' }, lang: 'ja' })
   })
 
+  it('用語（図の穴）は screen=term で用語の鍵を送る。問いのある用語は 409 の 1 行', async () => {
+    const fetchMock = vi.fn(() => json({ suggestions: [{ question: '熱伝導率を下げるものは？', mode: 'knowledge', op: 'factors', shape: '熱伝導率 を下げるもの' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = await suggestQuestions('thermal', 'ja', null, 'term')
+    expect(rows.map((r) => r.question)).toEqual(['熱伝導率を下げるものは？'])
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ screen: 'term', context: { term_slug: 'thermal' }, lang: 'ja' })
+    vi.stubGlobal('fetch', vi.fn(() => json({ detail: 'この用語には問いがあります' }, 409)))
+    await expect(suggestQuestions('thermal', 'ja', null, 'term')).rejects.toMatchObject({ status: 409, detail: 'この用語には問いがあります' })
+  })
+
   it('返りの形が違えば空。AI 未設定（503）は状態つきの失敗', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json({ nope: 1 })))
     expect(await suggestQuestions('d', 'ja', null)).toEqual([])

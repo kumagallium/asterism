@@ -49,6 +49,8 @@ export interface CardProps {
   onSuggestionsDismissed: (keys: SuggestionKey[]) => void
   /** 「問いを提案してもらう」（星の札・AI 設定ずみのときだけ渡す）。人が押したときだけ AI を呼ぶ。 */
   onSuggestQuestions?: (datasetId: string, datasetLabel: string) => void
+  /** 「この用語で聞けることを提案してもらう」（問いの無い用語の札・AI 設定ずみのときだけ渡す）。 */
+  onSuggestTerm?: (slug: string, label: string) => void
   /** 提案を待っている最中（ボタンを止める）。 */
   suggesting?: boolean
 }
@@ -361,6 +363,9 @@ function TermAbout(p: CardProps & { node: TermNode }) {
           <button type="button" className="btn btn--primary btn--sm" onClick={() => p.onOpenTerm(term.slug)}>
             {t('about.viewTerm', { name: node.label })}
           </button>
+          {qs.length === 0 && p.onSuggestTerm && (
+            <SuggestButton screen="term" onAsk={() => p.onSuggestTerm?.(term.slug, node.label)} disabled={p.suggesting} />
+          )}
         </div>
       )}
       <dl className="sky-kv">
