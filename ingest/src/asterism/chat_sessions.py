@@ -41,6 +41,7 @@ __all__ = [
     "SESSION_VERSION",
     "TURN_STATES",
     "delete_session",
+    "draft_session_map",
     "list_sessions",
     "load_session",
     "new_session",
@@ -52,7 +53,7 @@ __all__ = [
 
 SESSION_VERSION = 1
 CHAT_DIR = "chat"
-ID_RE = re.compile(r"^c[a-z0-9]{8,12}$")
+ID_RE = re.compile(r"^c[a-z0-9]{8,12}\Z")
 
 #: ``notes[].kind`` の閉集合（11c で増える）
 NOTE_KINDS = frozenset({"ai_unset", "dropped", "no_question", "commit_error", "info"})
@@ -181,9 +182,16 @@ def list_sessions(root: Path | str) -> list[dict]:
     return rows
 
 
+def draft_session_map(root: Path | str) -> dict[str, str]:
+    """下書きの id → それを育てている話の id（全部の話を 1 度だけ読む）。"""
+    out: dict[str, str] = {}
+    for s in _all(root):
+        d = s.get("draft_id")
+        if d and str(d) not in out:
+            out[str(d)] = str(s["id"])
+    return out
+
+
 def session_of_draft(root: Path | str, draft_id: str) -> str | None:
     """その下書きを育てている話の id（無ければ ``None``）。"""
-    for s in _all(root):
-        if s.get("draft_id") == draft_id:
-            return str(s["id"])
-    return None
+    return draft_session_map(root).get(draft_id)

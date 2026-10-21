@@ -83,3 +83,16 @@ def test_write_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         cs.save_session(tmp_path, {**s, "title": "新しい名前"})
     monkeypatch.undo()
     assert cs.load_session(tmp_path, s["id"])["title"] == "前の名前"
+
+
+def test_draft_session_map_reads_once_and_id_re_rejects_trailing_newline(tmp_path: Path) -> None:
+    a = cs.new_session("")
+    a["draft_id"] = "d-one"
+    a = cs.save_session(tmp_path, a)
+    b = cs.save_session(tmp_path, cs.new_session(""))
+    assert cs.draft_session_map(tmp_path) == {"d-one": a["id"]}
+    assert cs.session_of_draft(tmp_path, "d-one") == a["id"]
+    assert cs.session_of_draft(tmp_path, "nope") is None
+    assert b["id"] not in cs.draft_session_map(tmp_path).values()
+    assert not cs.ID_RE.match(a["id"] + "\n")
+    assert cs.load_session(tmp_path, a["id"] + "\n") is None
