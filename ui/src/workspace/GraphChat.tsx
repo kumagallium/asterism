@@ -28,6 +28,7 @@ export function GraphChat({
   placeholder,
   hideEmptyHistory = false,
   focusSignal = 0,
+  compactHead = false,
 }: {
   /** 履歴（吹き出し・提案カード）。呼ぶ側が並べる。 */
   children: ReactNode
@@ -58,6 +59,8 @@ export function GraphChat({
   hideEmptyHistory?: boolean
   /** 値が増えるたびに入力欄へフォーカスする（外の「相談」ボタンが、開いたままの会話を指したとき）。 */
   focusSignal?: number
+  /** 見出し（相談・たたむ）を出さない。外の欄が自分の見出しを持っているとき（左の会話の欄に置いたとき）。 */
+  compactHead?: boolean
 }) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
@@ -96,18 +99,20 @@ export function GraphChat({
 
   return (
     <aside className="thm-chat" aria-label={t('themes:chat.aria')} data-testid="graph-chat">
-      <header className="thm-chat-head">
-        <span className="consult-head-title">
-          <Sparkles size={15} className="consult-fab-icon" aria-hidden="true" />
-          {t('themes:chat.title')}
-        </span>
-        <span className="thm-chat-head-actions">
-          {headAction}
-          <button type="button" className="btn btn--ghost btn--sm thm-chat-fold" onClick={onFold} data-testid="chat-fold">
-            {t('themes:chat.fold')}
-          </button>
-        </span>
-      </header>
+      {!compactHead && (
+        <header className="thm-chat-head">
+          <span className="consult-head-title">
+            <Sparkles size={15} className="consult-fab-icon" aria-hidden="true" />
+            {t('themes:chat.title')}
+          </span>
+          <span className="thm-chat-head-actions">
+            {headAction}
+            <button type="button" className="btn btn--ghost btn--sm thm-chat-fold" onClick={onFold} data-testid="chat-fold">
+              {t('themes:chat.fold')}
+            </button>
+          </span>
+        </header>
+      )}
       {pinned && (
         <div className="thm-chat-pinned" data-testid="chat-pinned">
           {pinned}

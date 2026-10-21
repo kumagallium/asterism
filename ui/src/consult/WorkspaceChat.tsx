@@ -59,6 +59,8 @@ export interface WorkspaceChatProps {
   placeholder?: string
   className?: string
   testId?: string
+  /** 左の会話の欄の中に置く（UI 再設計 PR 8c）。見出しとたたむは外の欄が持つので、ここでは出さず、いつも開く。 */
+  embedded?: boolean
 }
 
 type AiState = 'ok' | 'unconfigured'
@@ -81,7 +83,7 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
   const [applying, setApplying] = useState(false)
   const [ai, setAi] = useState<AiState>('ok')
   const [actionErr, setActionErr] = useState('')
-  const [open, setOpen] = useState(isWide())
+  const [open, setOpen] = useState(p.embedded || isWide())
   // 開いたままのときも、外の「相談」ボタンで入力欄へフォーカスする
   const [focusTick, setFocusTick] = useState(0)
   const aiReady = isReady && ai === 'ok'
@@ -251,6 +253,7 @@ export function WorkspaceChat(p: WorkspaceChatProps) {
           onSend={(text) => void send(text)}
           onOpenSettings={() => openSettings('ai')}
           onFold={() => setOpen(false)}
+          compactHead={p.embedded}
           headAction={p.headAction}
           placeholder={p.placeholder}
           hideEmptyHistory

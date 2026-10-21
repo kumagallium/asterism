@@ -1,6 +1,9 @@
+import { useContext, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceChat } from '../consult/WorkspaceChat'
 import type { GraphOp } from '../themes/consultGraphApi'
+import { ChatSlotContext, askBind, setBindReady } from './hostedStage'
 
 // ③「意味をつける」の右に置く「AI に相談して結ぶ」（design.md §16.2「データ」・契約 pr7c C1）。
 // 列の意味を一言で伝える（「この列は粒径で、粒界散乱の指標」）→ AI が `bind_column` を提案 →
@@ -11,6 +14,10 @@ import type { GraphOp } from '../themes/consultGraphApi'
 // 表の各行の下（FitSuggestion）に出ていて、ここは件数と行き先を言うだけ。
 // 説明は 1 行（渡す情報の範囲はその行の title）。入力欄の placeholder に例。
 // 設計（mapping.yaml）がまだ無い間は api が 422 を返すので、会話は設計ができてから（呼ぶ側が出す）。
+//
+// ホームの右の領域にかんたんが出ているとき（UI 再設計 PR 8c）は、左の会話の欄の置き場（ChatSlotContext）へ
+// portal する — 表の右の列は無くなり、会話は左に 1 つ。state（提案カード・履歴）はここに残り、表の更新（onApplied）
+// もウィザードのままつながる。置き場が無ければ（ホームの外）従来どおり表の右に置く。
 
 export function DatasetChat({
   datasetId,
@@ -29,6 +36,19 @@ export function DatasetChat({
   onApplied: (ops: GraphOp[]) => void
 }) {
   const { t } = useTranslation()
+  const slot = useContext(ChatSlotContext)
+  // 左の欄に「③の会話が出ている」ことを伝える（送り先の既定が bind になる）
+  useEffect(() => {
+    setBindReady(true)
+    return () => setBindReady(false)
+  }, [])
+  // 「空欄の意味を AI に相談して埋める」（外のボタン）で開く合図 → 左の欄がこの会話を前に出す
+  const seenSignal = useRef(openSignal)
+  useEffect(() => {
+    if (openSignal === seenSignal.current) return
+    seenSignal.current = openSignal
+    askBind()
+  }, [openSignal])
   const intro =
     candidates > 0 ? (
       <section className="thm-card-p" data-testid="fit-candidates-card">
@@ -43,7 +63,7 @@ export function DatasetChat({
       </p>
     </div>
   )
-  return (
+  const chat = (
     <WorkspaceChat
       screen="dataset"
       context={{ dataset_id: datasetId }}
@@ -54,6 +74,8 @@ export function DatasetChat({
       openSignal={openSignal}
       onApplied={({ ops }) => onApplied(ops)}
       testId="dataset-chat"
+      embedded={!!slot}
     />
   )
+  return slot ? createPortal(chat, slot) : chat
 }

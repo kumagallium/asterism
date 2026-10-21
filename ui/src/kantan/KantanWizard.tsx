@@ -71,6 +71,7 @@ import { assembleSkeleton } from '../api'
 import { commitAsKnownShape, matchKnownShape, type KnownShapeMatch } from '../cards/PlaceView'
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
+import { clearHostedStage, setHostedStage } from './hostedStage'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { compactClass, detectDatasetNamespace, expandClass } from '../datasetNamespace'
 import { type UnitResolution, resolveUnit } from '../groundingApi'
@@ -5272,6 +5273,13 @@ export function KantanWizard({
       : undefined
   const resumeAvailable = !!skeleton && !hasSource && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
+
+  // ホームの右の領域に出ているとき、左の会話が「いまどの段か」を知る（UI 再設計 PR 8c）。一方向の押し出しで、
+  // ここは読み戻さない（段の遷移・描画には効かない）。
+  useEffect(() => {
+    setHostedStage(recipePos, step === 9)
+  }, [recipePos, step])
+  useEffect(() => () => clearHostedStage(), [])
 
   // S7 cards / S9 chips: assembled sentences over the deterministic results.
   const trialQAs = trial?.available ? buildTrialQAs(trial) : []
