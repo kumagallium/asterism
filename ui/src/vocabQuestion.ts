@@ -140,7 +140,7 @@ export function parseVocabHash(hash: string): VocabHashParams {
   return { q: params.get('q') ?? '', resume: params.get('resume') ?? '' }
 }
 
-/** 下書きの続き（②）を開く（`#/questions?new=1&resume=<id>`）。ホームの下書きの札から来る。 */
+/** 下書きの続きを、ホームの会話で開く（`#/questions?new=1&resume=<id>`）。ホームの下書きの札から来る。 */
 export function resumeDraftHash(draftId: string): string {
   return `#/questions?new=1&resume=${encodeURIComponent(draftId)}`
 }

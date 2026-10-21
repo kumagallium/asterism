@@ -12,6 +12,7 @@ import {
   parseSuggestionsBlock,
   type ApplySuggestionsResult,
 } from './consultApply'
+import { useSharedInput } from '../kantan/hostedStage'
 import { useConsultContext } from './consultContext'
 import { onConsultRequested } from './consultOpen'
 import { ConsultMarkdown } from './ConsultMarkdown'
@@ -67,9 +68,21 @@ function historyOf(thread: ConsultThread | undefined, beforeTurnId?: string): Co
   return out.slice(-MAX_HISTORY_TURNS)
 }
 
-export function ConsultDrawer() {
+export function ConsultDrawer({
+  embedded = false,
+  onRequested,
+  emptyText,
+}: {
+  /** 左の会話の欄の中に、ふだんの見た目（浮かぶボタン・右のドロワー）なしで置く（UI 再設計 PR 8c）。
+   *  中身（履歴・入力・「この候補を表に反映」）は同じ。 */
+  embedded?: boolean
+  /** 「迷ったら AI に相談」などの外のボタンが相談を求めた（埋め込みの置き場が、この欄を前に出す）。 */
+  onRequested?: () => void
+  /** 会話がまだ無いときの 1 行（無ければ既定の「この列って何？…」）。置き場が画面（段）に合わせて渡す。 */
+  emptyText?: string
+} = {}) {
   const { t, i18n } = useTranslation('consult')
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(embedded)
   const [view, setView] = useState<'chat' | 'list'>('chat')
   const { isReady, getActiveCredentials } = useLlmSettings()
   const ctx = useConsultContext()
@@ -101,15 +114,20 @@ export function ConsultDrawer() {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => latestConsultThreadId())
   const thread = threads.find((th) => th.id === activeThreadId)
 
-  const [draft, setDraft] = useState('')
+  // 埋め込み（左の会話の欄）の下書きは、ホームの会話の欄と共有する（欄が差し替わっても未送信の文字が残る）
+  const [ownDraft, setOwnDraft] = useState('')
+  const [sharedDraft, setSharedDraft] = useSharedInput()
+  const draft = embedded ? sharedDraft : ownDraft
+  const setDraft = embedded ? setSharedDraft : setOwnDraft
   // 「空欄があったら相談で直せます」— その場から開く。文面は入れるが送らない。
   useEffect(
     () =>
       onConsultRequested((prefill) => {
         setOpen(true)
         setDraft(prefill)
+        onRequested?.()
       }),
-    [],
+    [onRequested, setDraft],
   )
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -118,22 +136,23 @@ export function ConsultDrawer() {
   )
 
   useEffect(() => {
-    if (!open) return
+    if (!open || embedded) return
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  }, [open, embedded])
 
   // 横幅に余裕がある画面では、開いている間 `.app-main` に右マージンを空けて
   // **重ねずに横へ並べる**（CSS 側 `body.consult-open`）。AI の答えを見ながら
   // 表を操作したいのに、被せる形では表の右側が隠れ、backdrop が外側クリックを
   // 「閉じる」に食っていた（利用者指摘 2026-08-31）。
   useEffect(() => {
+    if (embedded) return
     document.body.classList.toggle('consult-open', open)
     return () => document.body.classList.remove('consult-open')
-  }, [open])
+  }, [open, embedded])
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
@@ -229,6 +248,129 @@ export function ConsultDrawer() {
 
   const canSend = !busy && isReady && draft.trim().length > 0
 
+  // 履歴の一覧と、会話（吹き出し・入力欄）。ドロワーと左の会話の欄で同じものを使う。
+  const bodyNode = (
+    <>
+      {view === 'list' ? (
+        <ConsultChatList
+          threads={threads}
+          lang={i18n.language}
+          onSelect={selectThreadFromList}
+          onNewChat={startNewChat}
+          onDelete={removeThread}
+        />
+      ) : (
+        <>
+          <div className="consult-scroll" ref={scrollRef}>
+            {!thread || thread.turns.length === 0 ? (
+              <p className="consult-empty">{emptyText ?? t('empty')}</p>
+            ) : (
+              thread.turns.map((tn) => (
+                <ConsultBubble
+                  key={tn.id}
+                  turn={tn}
+                  busy={busy}
+                  editing={editingTurnId === tn.id}
+                  screenColumnNames={screenColumnNames}
+                  emptyKindMaps={emptyKindMaps}
+                  screenMapNames={screenMapNames}
+                  onStartEdit={() => setEditingTurnId(tn.id)}
+                  onCancelEdit={() => setEditingTurnId(null)}
+                  onEditResend={(text) => editResend(tn.id, text)}
+                  onRegenerate={() => regenerate(tn.id)}
+                />
+              ))
+            )}
+          </div>
+
+          <div className="consult-foot">
+            {!isReady ? (
+              <div className="consult-gate">
+                <LlmGate />
+              </div>
+            ) : (
+              <form
+                className="consult-composer"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  send()
+                }}
+              >
+                <textarea
+                  className="consult-input"
+                  rows={2}
+                  value={draft}
+                  placeholder={t('inputPlaceholder')}
+                  aria-label={t('inputPlaceholder')}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Cmd/Ctrl+Enter で送信。素の Enter は改行のまま
+                    // （Graphium 準拠）。IME 変換確定の Enter は無視。
+                    if (
+                      e.key === 'Enter' &&
+                      (e.metaKey || e.ctrlKey) &&
+                      !e.nativeEvent.isComposing
+                    ) {
+                      e.preventDefault()
+                      send()
+                    }
+                  }}
+                />
+                {busy ? (
+                  <button
+                    type="button"
+                    className="consult-send consult-send--stop"
+                    onClick={stop}
+                    aria-label={t('stop')}
+                    title={t('stop')}
+                  >
+                    <Square size={16} className="consult-send-icon-fill" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="consult-send"
+                    disabled={!canSend}
+                    aria-label={t('send')}
+                    title={t('send')}
+                  >
+                    <Send size={16} />
+                  </button>
+                )}
+              </form>
+            )}
+            <p className="consult-hint">{t('hint')}</p>
+          </div>
+        </>
+      )}
+    </>
+  )
+
+  if (embedded) {
+    return (
+      <section className="consult-embedded" aria-label={t('open')} data-testid="consult-embedded">
+        <div className="consult-head consult-head--embedded">
+          <span className="consult-head-title">
+            <Sparkles size={15} className="consult-fab-icon" aria-hidden="true" />
+            {t('open')}
+          </span>
+          <div className="consult-head-actions">
+            <button
+              type="button"
+              className={`consult-icon-btn${view === 'list' ? ' active' : ''}`}
+              onClick={() => setView((v) => (v === 'list' ? 'chat' : 'list'))}
+              aria-label={t('history')}
+              title={t('history')}
+            >
+              <ThreadsIcon size={15} />
+            </button>
+          </div>
+        </div>
+        {bodyNode}
+      </section>
+    )
+  }
+
   return (
     <>
       <button
@@ -273,98 +415,7 @@ export function ConsultDrawer() {
               </div>
             </div>
 
-            {view === 'list' ? (
-              <ConsultChatList
-                threads={threads}
-                lang={i18n.language}
-                onSelect={selectThreadFromList}
-                onNewChat={startNewChat}
-                onDelete={removeThread}
-              />
-            ) : (
-              <>
-                <div className="consult-scroll" ref={scrollRef}>
-                  {!thread || thread.turns.length === 0 ? (
-                    <p className="consult-empty">{t('empty')}</p>
-                  ) : (
-                    thread.turns.map((tn) => (
-                      <ConsultBubble
-                        key={tn.id}
-                        turn={tn}
-                        busy={busy}
-                        editing={editingTurnId === tn.id}
-                        screenColumnNames={screenColumnNames}
-                        emptyKindMaps={emptyKindMaps}
-                        screenMapNames={screenMapNames}
-                        onStartEdit={() => setEditingTurnId(tn.id)}
-                        onCancelEdit={() => setEditingTurnId(null)}
-                        onEditResend={(text) => editResend(tn.id, text)}
-                        onRegenerate={() => regenerate(tn.id)}
-                      />
-                    ))
-                  )}
-                </div>
-
-                <div className="consult-foot">
-                  {!isReady ? (
-                    <div className="consult-gate">
-                      <LlmGate />
-                    </div>
-                  ) : (
-                    <form
-                      className="consult-composer"
-                      onSubmit={(e) => {
-                        e.preventDefault()
-                        send()
-                      }}
-                    >
-                      <textarea
-                        className="consult-input"
-                        rows={2}
-                        value={draft}
-                        placeholder={t('inputPlaceholder')}
-                        aria-label={t('inputPlaceholder')}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          // Cmd/Ctrl+Enter で送信。素の Enter は改行のまま
-                          // （Graphium 準拠）。IME 変換確定の Enter は無視。
-                          if (
-                            e.key === 'Enter' &&
-                            (e.metaKey || e.ctrlKey) &&
-                            !e.nativeEvent.isComposing
-                          ) {
-                            e.preventDefault()
-                            send()
-                          }
-                        }}
-                      />
-                      {busy ? (
-                        <button
-                          type="button"
-                          className="consult-send consult-send--stop"
-                          onClick={stop}
-                          aria-label={t('stop')}
-                          title={t('stop')}
-                        >
-                          <Square size={16} className="consult-send-icon-fill" />
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          className="consult-send"
-                          disabled={!canSend}
-                          aria-label={t('send')}
-                          title={t('send')}
-                        >
-                          <Send size={16} />
-                        </button>
-                      )}
-                    </form>
-                  )}
-                  <p className="consult-hint">{t('hint')}</p>
-                </div>
-              </>
-            )}
+            {bodyNode}
           </aside>
         </>
       )}

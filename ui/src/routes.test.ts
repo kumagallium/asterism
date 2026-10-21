@@ -278,22 +278,32 @@ describe('parseHash / routeToHash — workbench の returnTo（契約メモ §2.
   })
 })
 
-describe('parseHash / routeToHash — cards/add（データを追加・唯一の入口・契約メモ contract_pr_f8.md §1.1）', () => {
-  it('#/datasets/add は gallery タブ + add', () => {
-    expect(parseHash('#/datasets/add')).toEqual<Route>({ tab: 'gallery', add: true })
-    expect(roundTrip('#/datasets/add')).toBe('#/datasets/add')
+describe('parseHash / routeToHash — データを追加（唯一の入口・PR 8c でホームの右の領域になった）', () => {
+  it('#/home?add=1 は home タブ + add', () => {
+    expect(parseHash('#/home?add=1')).toEqual<Route>({ tab: 'home', add: true })
+    expect(roundTrip('#/home?add=1')).toBe('#/home?add=1')
   })
 
-  it('#/datasets/add?dataset=<id> は placeDatasetId も持つ', () => {
-    const hash = '#/datasets/add?dataset=ds-42'
-    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', add: true, placeDatasetId: 'ds-42' })
+  it('旧 #/datasets/add は #/home?add=1 へ読み替える', () => {
+    expect(parseHash('#/datasets/add')).toEqual<Route>({ tab: 'home', add: true })
+    expect(roundTrip('#/datasets/add')).toBe('#/home?add=1')
+  })
+
+  it('#/home?add=1&dataset=<id>（設計を見直す）は placeDatasetId も持つ。旧 #/datasets/add?dataset= も同じ', () => {
+    const hash = '#/home?add=1&dataset=ds-42'
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', add: true, placeDatasetId: 'ds-42' })
     expect(roundTrip(hash)).toBe(hash)
+    expect(parseHash('#/datasets/add?dataset=ds-42')).toEqual<Route>({ tab: 'home', add: true, placeDatasetId: 'ds-42' })
   })
 
   it('id に記号が入っていても往復する', () => {
-    const hash = `#/datasets/add?dataset=${encodeURIComponent('ds/中央 42')}`
-    expect(parseHash(hash)).toEqual<Route>({ tab: 'gallery', add: true, placeDatasetId: 'ds/中央 42' })
+    const hash = `#/home?add=1&dataset=${encodeURIComponent('ds/中央 42')}`
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', add: true, placeDatasetId: 'ds/中央 42' })
     expect(roundTrip(hash)).toBe(hash)
+  })
+
+  it('dataset だけで add が無ければ見直しにしない', () => {
+    expect(parseHash('#/home?dataset=ds-42')).toEqual<Route>({ tab: 'home' })
   })
 
   it('`add` は予約語 — 実在のデータセット id と誤検出しない', () => {
@@ -381,13 +391,14 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
     expect(routeToHash({ tab: 'vocab' })).toBe('#/questions')
   })
 
-  it('#/questions?new=1 は newQuestion を立てる・往復する', () => {
-    expect(parseHash('#/questions?new=1')).toEqual<Route>({ tab: 'vocab', newQuestion: true })
-    expect(routeToHash({ tab: 'vocab', newQuestion: true })).toBe('#/questions?new=1')
-    expect(roundTrip('#/questions?new=1')).toBe('#/questions?new=1')
+  it('#/questions?new=1 はホームの会話を「問いを書く」で開く（作る操作は作業場に寄せた）', () => {
+    const write = { q: '', resume: '', extend: null }
+    expect(parseHash('#/questions?new=1')).toEqual<Route>({ tab: 'home', write })
+    expect(routeToHash({ tab: 'home', write })).toBe('#/home?write=1')
+    expect(roundTrip('#/questions?new=1')).toBe('#/home?write=1')
   })
 
-  it('#/questions?q=… ・ scope は newQuestion を立てない（画面が hash から読む）', () => {
+  it('#/questions?q=… ・ scope は会話を開かない（一覧のまま）', () => {
     expect(parseHash('#/questions?q=abc')).toEqual<Route>({ tab: 'vocab' })
     expect(parseHash('#/questions?scope=standard&dataset=x')).toEqual<Route>({ tab: 'vocab' })
   })
@@ -395,7 +406,7 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
   it('旧 #/vocab・#/vocab?… も同じ結果（互換）', () => {
     expect(parseHash('#/vocab')).toEqual<Route>({ tab: 'vocab' })
     expect(parseHash('#/vocab?q=x')).toEqual<Route>({ tab: 'vocab' })
-    expect(parseHash('#/vocab?new=1')).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(parseHash('#/vocab?new=1')).toEqual<Route>({ tab: 'home', write: { q: '', resume: '', extend: null } })
   })
 
   it('#/data は gallery', () => {
@@ -406,8 +417,8 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
     expect(parseHash('#/data?tab=connections')).toEqual<Route>({ tab: 'crosswalk' })
   })
 
-  it('#/data?add=1 は gallery + add', () => {
-    expect(parseHash('#/data?add=1')).toEqual<Route>({ tab: 'gallery', add: true })
+  it('#/data?add=1 は home + add', () => {
+    expect(parseHash('#/data?add=1')).toEqual<Route>({ tab: 'home', add: true })
   })
 
   it('#/browse は cards', () => {
@@ -421,10 +432,18 @@ describe('新しい綴り（UI 再設計 PR 1）— questions / data / browse', 
 })
 
 describe('知りたいこと（テーマ・用語のページ）— UI 再設計 PR 4', () => {
-  it('#/questions?new=1&q=<題> は newQuestion を立てる（題は画面が hash から読む）', () => {
+  it('#/questions?new=1&q=<題> は会話に題を運ぶ（質問するから）', () => {
     const hash = '#/questions?new=1&q=' + encodeURIComponent('ZT が最大の試料は？ A/B')
-    expect(parseHash(hash)).toEqual<Route>({ tab: 'vocab', newQuestion: true })
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', write: { q: 'ZT が最大の試料は？ A/B', resume: '', extend: null } })
     expect(legacyHashRewrite(hash)).toBeNull()
+  })
+
+  it('#/questions?new=1&resume=<id> は会話に続きの下書きを開く・問いを足すテーマは extend で運ぶ', () => {
+    expect(parseHash('#/questions?new=1&resume=d1')).toEqual<Route>({ tab: 'home', write: { q: '', resume: 'd1', extend: null } })
+    const w = { q: '', resume: '', extend: { id: 'first', label: 'はじめの問い' } }
+    const hash = routeToHash({ tab: 'home', write: w })
+    expect(hash).toBe('#/home?write=1&extend=first&label=%E3%81%AF%E3%81%98%E3%82%81%E3%81%AE%E5%95%8F%E3%81%84')
+    expect(parseHash(hash)).toEqual<Route>({ tab: 'home', write: w })
   })
 
   it('#/questions/term/<slug> は用語のページ・往復する（slug は符号化される）', () => {
@@ -466,7 +485,7 @@ describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
   it('#/data / #/browse は routeToHash(parseHash(…)) の綴りへ', () => {
     expect(legacyHashRewrite('#/data')).toBe('#/datasets')
     expect(legacyHashRewrite('#/data?tab=connections')).toBe('#/crosswalk')
-    expect(legacyHashRewrite('#/data?add=1')).toBe('#/datasets/add')
+    expect(legacyHashRewrite('#/data?add=1')).toBe('#/home?add=1')
     expect(legacyHashRewrite('#/browse')).toBe('#/cards')
   })
 
@@ -475,6 +494,7 @@ describe('legacyHashRewrite — 旧 hash の書き換え先', () => {
     expect(legacyHashRewrite('#/questions?new=1')).toBeNull()
     expect(legacyHashRewrite('#/datasets')).toBeNull()
     expect(legacyHashRewrite('#/datasets/add')).toBeNull()
+    expect(legacyHashRewrite('#/home?add=1')).toBeNull()
     expect(legacyHashRewrite('#/cards')).toBeNull()
     expect(legacyHashRewrite('#/home')).toBeNull()
   })

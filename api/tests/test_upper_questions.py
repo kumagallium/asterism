@@ -272,6 +272,42 @@ def test_upper_put_get_and_applied_at_is_server_owned(tmp_path: Path) -> None:
         assert client.get("/api/datasets/nope/upper").status_code == 404
 
 
+def test_upper_put_remove_drops_an_unconsumed_line_but_never_a_consumed_one(
+    tmp_path: Path,
+) -> None:
+    dsid = _dataset(tmp_path)
+    app, _ = _app(tmp_path)
+    chat = {"subject": EX + "price", "term": SV + "intensity", "relation": "subPropertyOf",
+            "drafted_by": "ai", "batch": "b1", "reason": "会話で受けた"}  # fmt: skip
+    other = {"subject": EX + "weight", "term": SV + "mass", "relation": "equivalentProperty"}
+    used = {"subject": EX + "Sample", "term": SV + "specimen", "relation": "equivalentClass"}
+    with TestClient(app, headers=_AUTH) as client:
+        url = f"/api/datasets/{dsid}/upper"
+        client.put(url, json={"upper": [chat, other, used]})
+        path = tmp_path / "registry" / dsid / "upper.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        for row in stored["upper"]:
+            if row["subject"] == used["subject"]:
+                row["applied_at"] = "2026-10-09T00:00:00+00:00"  # サーバが消費した
+        path.write_text(json.dumps(stored), encoding="utf-8")
+
+        # 印だけを送れば、その線だけ消える（ほかは残る）
+        got = client.put(url, json={"upper": [{**chat, "remove": True}]}).json()["upper"]
+        assert [r["subject"] for r in got] == [EX + "weight", EX + "Sample"]
+        assert client.get(url).json()["upper"] == got
+        # 消費済みの線は、印を送っても消えない
+        got = client.put(url, json={"upper": [{**used, "remove": True}]}).json()["upper"]
+        assert [r["subject"] for r in got] == [EX + "weight", EX + "Sample"]
+        assert got[1]["applied_at"] == "2026-10-09T00:00:00+00:00"
+        # 全部を送る置換でも、印をつけた未消費は消え、消費済みは送り忘れても残る
+        got = client.put(
+            url, json={"upper": [{**other, "remove": True}, chat, {**used, "remove": True}]}
+        ).json()["upper"]
+        assert [r["subject"] for r in got] == [EX + "price", EX + "Sample"]
+        # 無い線の印は何もしない
+        assert client.put(url, json={"upper": [{**other, "remove": True}]}).json()["upper"] == got
+
+
 # ---------------------------------------------------------------------------
 # 2. handles の via
 # ---------------------------------------------------------------------------

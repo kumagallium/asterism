@@ -196,9 +196,7 @@ def test_describe_selection_is_deterministic_and_phrases_each_way() -> None:
         "容量の最小と最大を出します（データセットごと）"
     )
     filt = {"op": "filter", "kind": "セル", "property": "正極", "value": "LFP"}
-    assert sv.describe_selection(filt) == (
-        "セルのうち、正極が「LFP」のものを出します（データセットごと）"
-    )
+    assert sv.describe_selection(filt) == "セルのうち、正極に LFP を含むもの"
     # not enough to phrase → empty (the screen says "pick a way of counting")
     assert sv.describe_selection({"op": "count"}) == ""
     assert sv.describe_selection({"op": "nonsense", "kind": "x"}) == ""
@@ -354,6 +352,33 @@ def test_drafts_keep_the_wizard_where_it_was(tmp_path: Path) -> None:
     with pytest.raises(ThemeError):
         themes.save_draft(tmp_path, {**d, "step": 0})
     assert themes.load_draft(tmp_path, "../evil") is None  # an id is never a path
+
+
+def test_a_draft_keeps_its_chat_and_thin_rows_until_told_otherwise(tmp_path: Path) -> None:
+    d = themes.create_draft(tmp_path, "熱電", ["q?"], at=AT)
+    chat = {
+        "messages": [{"role": "user", "content": "もっと広げて", "at": AT}],
+        "proposals": [{"proposal_id": "p1", "ops": [{"op": "remove"}], "at": AT, "by": "ai"}],
+    }
+    pending = {"concepts": ["n1", 3, ""], "relations": [["n1", "lowers", "n2"], ["x", "y"], "bad"]}
+    saved = themes.save_draft(tmp_path, {**d, "chat": chat, "pending": pending})
+    assert saved["pending"] == {"concepts": ["n1"], "relations": [["n1", "lowers", "n2"]]}
+    assert len(saved["chat"]["proposals"]) == 1
+    # 行だけの保存: 会話も薄い状態も残る
+    again = themes.save_draft(tmp_path, {**d, "step": 2})
+    assert again["chat"] == saved["chat"] and again["pending"] == saved["pending"]
+    # 空の薄い状態は「全部本物」という答え（無いのとは違う）
+    done = themes.save_draft(tmp_path, {**d, "pending": {"concepts": [], "relations": []}})
+    assert done["pending"] == {"concepts": [], "relations": []}
+    # 「もう一度読ませる」: 会話だけ空にする（薄い状態は一緒に送られたものになる）
+    reread = themes.save_draft(
+        tmp_path, {**d, "reset_chat": True, "pending": {"concepts": ["n1"], "relations": []}}
+    )
+    assert "chat" not in reread and reread["pending"] == {"concepts": ["n1"], "relations": []}
+    assert "chat" not in themes.save_draft(tmp_path, {**d})  # 空のままが残る
+    # 一度も送られていない下書きには pending の欄が無い（古い下書きと同じ）
+    fresh = themes.create_draft(tmp_path, "電池", ["q?"], at=AT)
+    assert "pending" not in fresh and "pending" not in themes.save_draft(tmp_path, fresh)
 
 
 def test_an_empty_theme_name_is_the_first_20_characters_of_the_first_question(
@@ -600,7 +625,7 @@ def test_answers_one_per_question_knowledge_data_and_memo() -> None:
                    wanted_data="試料ごとの粒径の表", reason="要因"),
                 _a(qs[1], "knowledge", op="parts", target="c1", direction="lowers"),
                 _a(qs[2], "data", op="top", kind="c2", property="c3"),
-                _a(qs[3], "memo", op="trend", kind="c2", property="c3"),
+                _a(qs[3], "memo", op="unknown_op", kind="c2", property="c3"),
                 _a(qs[4], "knowledge", op="factors", target="c1"),  # factors need a direction
                 _a("勝手に書いた別の問い", "data", op="count", kind="c2"),
             ],
@@ -620,7 +645,7 @@ def test_answers_one_per_question_knowledge_data_and_memo() -> None:
     assert (p["mode"], p["op"], p["direction"]) == ("knowledge", "parts", "")  # not for parts
     t = a[qs[2]]
     assert (t["mode"], t["kind"], t["property"], t["memo"]) == ("data", "c2", "c3", None)
-    assert (a[qs[3]]["mode"], a[qs[3]]["memo"]) == ("memo", "op")  # no way to run a trend yet
+    assert (a[qs[3]]["mode"], a[qs[3]]["memo"]) == ("memo", "op")  # an op nothing can run
     assert (a[qs[4]]["mode"], a[qs[4]]["memo"]) == ("memo", "ai")
     assert (a[qs[5]]["mode"], a[qs[5]]["memo"]) == ("memo", "none")  # the model skipped it
     assert a[qs[6]]["memo"] == "none"
@@ -1595,3 +1620,14 @@ async def test_a_mint_failing_after_its_insert_leaves_no_term_behind(
         await themes.commit_theme(c, tmp_path, _heat(), at=AT)
     assert calls["n"] >= 3
     assert _snapshot(c, tmp_path) == before  # 語が 1 つも残らない
+
+
+def test_match_rows_placeholder_ids_do_not_repeat_across_batches() -> None:
+    """手入力を 2 回に分けても、仮置きの ID（t<n>）は重ならない（taken に前の分を渡す）。"""
+    first = themes.match_rows([{"label_ja": "粒界散乱", "kind": "class"}], existing=[])
+    assert first[0]["slug"] == "t1"
+    second = themes.match_rows(
+        [{"label_ja": "点欠陥散乱", "kind": "class"}], existing=[], taken=[first[0]["slug"]]
+    )
+    assert second[0]["slug"] != first[0]["slug"]
+    assert second[0]["slug"] == "t2"

@@ -69,6 +69,20 @@ export function isPropertyRef(subject: string): boolean {
   return subject.startsWith(PROPERTY_REF)
 }
 
+/** 会話（作業場の「そう」）で受けた当てはめは、来歴（`drafted_by`）が付いている。表の ③ の
+ *  fit とは別の入口なので、作り直し（materialize）の `upper` から落とさない。 */
+export function hasChatProvenance(item: UpperItem): boolean {
+  return typeof (item as { drafted_by?: unknown }).drafted_by === 'string'
+}
+
+/** 来歴（drafted_by・batch・reason）だけを `from` から `to` へ写す（持っていなければ何もしない）。 */
+function withProvenance(to: UpperItem, from: UpperItem): UpperItem {
+  const f = from as unknown as Record<string, unknown>
+  const out: Record<string, unknown> = { ...to }
+  for (const k of ['drafted_by', 'batch', 'reason']) if (typeof f[k] === 'string') out[k] = f[k]
+  return out as unknown as UpperItem
+}
+
 /** その列を持つ map。列を明示で持たせた map（`owns`）が先、無ければそのファイルの最初の
  *  map。ファイルが合わなくても、骨格のファイルが 1 つだけで列のファイルも 1 つだけなら
  *  それ（名前の食い違いで黙って落とさない）。 */
@@ -134,7 +148,10 @@ export function picksToUpper(
   let carried = [...other]
   if (itemFits) {
     const wanted = new Set(itemFits.map(tripleKey))
-    carried = carried.filter((u) => !isPropertyRef(u.subject) || wanted.has(tripleKey(u)))
+    // 会話で受けた項目の当てはめ（来歴つき）は、③の表を通らないので残す
+    carried = carried.filter(
+      (u) => !isPropertyRef(u.subject) || wanted.has(tripleKey(u)) || hasChatProvenance(u),
+    )
   }
   const out: UpperItem[] = carried
   const seen = new Set(out.map(tripleKey))
@@ -178,7 +195,9 @@ export function upperToPicks(
         label: labelOf(item.term),
       }
     } else {
-      other.push({ subject: item.subject, term: item.term, relation: item.relation })
+      other.push(
+        withProvenance({ subject: item.subject, term: item.term, relation: item.relation }, item),
+      )
     }
   }
   return { picks, other }

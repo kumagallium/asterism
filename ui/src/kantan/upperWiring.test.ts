@@ -8,6 +8,9 @@ import vocabApiSource from '../vocabApi.ts?raw'
 import source from './KantanWizard.tsx?raw'
 import fitSource from './FitSuggestion.tsx?raw'
 import kindFitSource from './KindFitSuggestion.tsx?raw'
+import chatSource from './DatasetChat.tsx?raw'
+import workspaceChatSource from '../consult/WorkspaceChat.tsx?raw'
+import appSource from '../App.tsx?raw'
 import noticeSource from './PublishedNamesNotice.tsx?raw'
 import builderSource from './QuestionBuilder.tsx?raw'
 
@@ -195,5 +198,46 @@ describe('③ 当てはめ提案の置き場（表からあふれない）', () 
     // ☑ のセル（kz-links-checkcell）の中には置かない
     const cell = source.slice(source.indexOf('kz-links-checkcell'), source.indexOf('kz-cols-keep'))
     expect(cell).not.toMatch(/<FitSuggestion/)
+  })
+})
+
+describe('③ の会話（AI に相談して結ぶ・契約 pr7c C1・C3）', () => {
+  it('会話は設計ができてから（datasetId がある）表の右に置く。screen は dataset・文脈は dataset_id', () => {
+    expect(source).toMatch(/\{kzDatasetId && \(\s*<aside className="kz-ws-side"[\s\S]*?<DatasetChat\s+datasetId=\{kzDatasetId\}/)
+    expect(chatSource).toMatch(/screen="dataset"/)
+    expect(chatSource).toMatch(/context=\{\{ dataset_id: datasetId \}\}/)
+  })
+
+  it('最初のカード「名前が一致する候補 N 件」は決定論（FitSuggestion の数）で、AI を呼ばない', () => {
+    expect(fitSource).toMatch(/onFoundRef\.current\?\.\(/)
+    expect(source).toMatch(/onFound=\{\(terms\) =>/)
+    expect(source).toMatch(/countFitPairs\(Object\.values\(fitFound\)\)/)
+    expect(source).toMatch(/candidates=\{fitCandidateTotal\}/)
+    expect(chatSource).toMatch(/kantan:chat\.candidates/)
+    // 数えるだけ: 会話の送信（proposeOnScreen）はここでは呼ばない
+    expect(chatSource).not.toMatch(/proposeOnScreen/)
+  })
+
+  it('「そう」のあと upper.json を読み戻し（fetchDatasetUpper）、表の行に「結ぶ」の印を出す', () => {
+    expect(source).toMatch(/onApplied=\{\(\) => void refreshChatBound\(kzDatasetId\)\}/)
+    expect(bodyOf(source, 'refreshChatBound')).toMatch(/fetchDatasetUpper\(datasetId\)/)
+    expect(bodyOf(source, 'refreshChatBound')).toMatch(/setUpperBase\(items\)/)
+    expect(source).toMatch(/bindingsForColumn\(boundAll, row\.column, current\?\.fit\?\.term\)/)
+  })
+
+  it('従来の「AI に相談して埋める」は、会話があるときは会話を開く（右下のドロワーは隠れる）', () => {
+    expect(source.match(/setChatOpenSignal\(\(n\) => n \+ 1\)/g)).toHaveLength(2)
+    expect(workspaceChatSource).toMatch(/registerWorkspaceChat\(\)/)
+    expect(appSource).toMatch(/!workspaceChatShown/)
+    // 隠すのは会話の mount 中（と、body クラスで作業場）だけ。用語のページ・テーマ一覧（vocab）には出す
+    expect(appSource).toMatch(/const showGlobalConsult = tab !== 'cards' && tab !== 'home' && !workspaceChatShown/)
+    expect(appSource).not.toMatch(/tab !== 'vocab'/)
+  })
+
+  it('当てはめの適用は人が「そう」を押したときだけ（会話は提案を出すだけ）', () => {
+    expect(workspaceChatSource).toMatch(/onYes=\{\(\) => void proposalYes\(it, openRows\(it\)\)\}/)
+    // 自動で適用しない: applyOnScreen を呼ぶのは proposalYes の中だけ
+    expect(workspaceChatSource.match(/applyOnScreen\(/g)).toHaveLength(1)
+    expect(bodyOf(workspaceChatSource, 'proposalYes')).toMatch(/applyOnScreen\(/)
   })
 })

@@ -25,6 +25,8 @@ import {
   useDocumentFormats,
 } from './documentFormats'
 import { usePdfRuntime } from './pdfRuntime'
+import { QuestionSuggestBlock } from './sky/QuestionSuggest'
+import { startQuestionHash } from './sky/skyRoute'
 import { plainError } from './kantan/errorMessages'
 
 // The "文書を追加" flow (PR-3): a JATS (.xml) or Word (.docx) document needs NO
@@ -418,6 +420,15 @@ export function DocumentPanel({
               {t('document:openDataset')}
             </button>
           </div>
+          {/* 問いの提案（PR 10b・AI 設定ずみのときだけ・人が押したときだけ AI を呼ぶ）。AI に渡るのは
+              この文書の要旨と結論の文だけ。押すと問いを書く会話へ（押さなければ何も残らない） */}
+          <QuestionSuggestBlock
+            datasetId={result.id}
+            screen="paper"
+            onStart={(q) => {
+              window.location.hash = startQuestionHash(q)
+            }}
+          />
         </section>
       )}
     </section>

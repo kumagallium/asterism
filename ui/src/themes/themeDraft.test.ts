@@ -7,6 +7,7 @@ import {
   addConcept,
   addQuestion,
   answerComplete,
+  answerHost,
   answerState,
   applyDraftResponse,
   applyMatches,
@@ -36,6 +37,7 @@ import {
   syncAnswers,
   unlinkedKeys,
   validateDraftResponse,
+  wayNeeds,
   wayOf,
 } from './themeDraft'
 
@@ -70,6 +72,9 @@ const ans = (q: string, extra: Partial<AnswerRow> = {}): AnswerRow => ({
   kind: '',
   property: '',
   value: '',
+  match: '',
+  property2: '',
+  kind2: '',
   memo: 'none',
   wanted_data: '',
   reason: '',
@@ -192,6 +197,35 @@ describe('answers', () => {
     // 範囲は項目が要る（種類は任意）
     expect(answerComplete(setAnswerTarget(setWay(a, 'range'), { property: 'c2' }))).toBe(true)
     expect(answerComplete(setAnswerTarget(setWay(a, 'top'), { kind: 'c4' }))).toBe(false)
+  })
+  it('knows the four wider data ways (filter / group / trend / join) and what each one needs', () => {
+    const a = ans('x')
+    const filter = setWay(a, 'filter')
+    expect(filter).toMatchObject({ mode: 'data', op: 'filter', match: 'contains', value: '' })
+    expect(wayNeeds('filter')).toMatchObject({ kind: true, property: true, value: true, property2: false, kind2: false })
+    expect(answerComplete(setAnswerTarget(filter, { kind: 'k', property: 'p' }))).toBe(false) // 値が要る
+    const filled = setAnswerTarget(filter, { kind: 'k', property: 'p', value: 'SnSe' })
+    expect(answerComplete(filled)).toBe(true)
+    expect(wayOf(filled)).toBe('filter')
+    expect(answerHost(filled)).toBe('k') // 土台は種類
+    expect(answerComplete(setAnswerTarget(filled, { value: '   ' }))).toBe(false)
+    const group = setWay(a, 'group')
+    expect(answerComplete(setAnswerTarget(group, { kind: 'k' }))).toBe(false)
+    expect(answerComplete(setAnswerTarget(group, { kind: 'k', property: 'p' }))).toBe(true)
+    const trend = setAnswerTarget(setWay(a, 'trend'), { kind: 'k', property: 'p' })
+    expect(wayNeeds('trend').property2).toBe(true)
+    expect(answerComplete(trend)).toBe(false) // y が要る
+    expect(answerComplete(setAnswerTarget(trend, { property2: 'q' }))).toBe(true)
+    const join = setAnswerTarget(setWay(a, 'join'), { kind: 'k', property: 'p' })
+    expect(wayNeeds('join').kind2).toBe(true)
+    expect(answerComplete(join)).toBe(false) // つなぐ先が要る
+    expect(answerComplete(setAnswerTarget(join, { kind2: 'k2' }))).toBe(true)
+    // 型を選び直すと、前の型の欄は消える
+    expect(setWay(filled, 'group')).toMatchObject({ value: '', match: '', op: 'group' })
+    // 余った欄を持つ概念を外すと、その問いは「まだ」に戻る
+    const d = { ...thermal(), answers: [setAnswerTarget(join, { kind2: 'k2' })], concepts: [] }
+    expect(removeConcept(d, 'k2').answers[0].mode).toBe('memo')
+    expect(removeConcept(d, 'zzz').answers[0].mode).toBe('data')
   })
   it('estimates how many lines answer a knowledge question (one step through the parts)', () => {
     const d = thermal()

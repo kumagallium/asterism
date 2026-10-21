@@ -6,7 +6,8 @@
     "std": "Standard terms (horizon)",
     "noStar": "No stars yet",
     "property": "field",
-    "draft": "draft"
+    "draft": "proposal",
+    "draftRemove": "remove?"
   },
   "unit": {
     "count": "{{n}} rows",
@@ -46,14 +47,15 @@
     "ariaSample": "Sample sky chart (not your data)"
   },
   "empty": {
-    "none": "Your sky chart grows here, from your data and your questions",
+    "none": "Write a question or put in data, and the chart grows here",
     "sample": "A sample (not your data)",
     "dataOnly": "{{n}} kinds have no term yet. Write what you want to know and they get a name.",
     "questionsOnly": "No data answers yet. Put your data here and Asterism looks for matching kinds."
   },
   "decide": {
     "noTerms": "No terms yet. You can make one in “Questions”.",
-    "openQuestions": "Open “Questions”"
+    "openQuestions": "Open “Questions”",
+    "manual": "Decide by hand"
   },
   "about": {
     "titleKind": "About this star",
@@ -84,23 +86,24 @@
     "decideSlot": "Decide in one sentence",
     "decisions": "{{n}} decisions →",
     "viewTerm": "See {{name}} →",
-    "titleDraft": "Draft card",
-    "draftMark": "draft",
+    "draftMark": "proposal",
     "draftTheme": "Theme",
     "draftConcepts": "Concepts",
     "draftCount": "{{n}}",
     "draftQuestions": "Questions",
-    "draftHint": "Not checked yet. Look at the map and sentences in step 2 and confirm them together to make it a real card.",
-    "draftOpen": "Check it →",
+    "draftOpen": "Open where you left off →",
     "knowledgeLines": "What is known",
-    "answeredByKnowledge": "Knowledge {{n}}"
+    "answeredByKnowledge": "Knowledge {{n}}",
+    "titleQuestion": "About this question",
+    "questionBack": "Pick another",
+    "questionNeeds": "Terms it needs",
+    "titleProposal": "About this proposal",
+    "draftDiscard": "Discard",
+    "discardAsk": "This discards the draft. It cannot be undone.",
+    "discardYes": "Discard",
+    "discardNo": "Cancel"
   },
   "questions": {
-    "head": "What you want to know",
-    "empty": "No questions yet.",
-    "all": "See all themes →",
-    "ring": "{{n}} of {{total}} datasets answer",
-    "ringNone": "No data answers yet",
     "theme": "First questions",
     "knowledgeN": "Knowledge {{n}}",
     "knowledgeTitle": "Answered by {{n}} confirmed knowledge relations"
@@ -146,6 +149,97 @@
       "lowers": "{{subject}} lowers {{object}}",
       "raises": "{{subject}} raises {{object}}",
       "affects": "{{subject}} changes {{object}}"
+    },
+    "sub": "kind of",
+    "quantity": "quantity"
+  },
+  "chat": {
+    "example": "For example: \"Is this kind the same as Specimen?\"",
+    "bind": "Let AI link",
+    "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press “Add to the map”.",
+    "writePlaceholder": "What you want to know, in one line (e.g. What can lower thermal conductivity?)",
+    "consultPlaceholder": "Say it in a line (e.g. I think scattering factors tie to lattice thermal conductivity)",
+    "askStar": "Ask about this star",
+    "askQuestion": "Write a question",
+    "starPlaceholder": "A line about this star (e.g. Is this kind the same as Specimen?)",
+    "askAria": "Where this line goes"
+  },
+  "suggest": {
+    "link": "{{n}} links could be made →",
+    "title": "Links that could be made",
+    "lead": "Names in the data you published match term names exactly (counted by a machine, no AI). You decide. They are drawn on the map as proposed lines.",
+    "sentence": "\"{{subject}}\" is the same as \"{{term}}\"",
+    "all": "Place {{n}}",
+    "per": "Choose one by one",
+    "one": "Link",
+    "no": "Don't add",
+    "back": "Back",
+    "empty": "No more links to make.",
+    "done": "{{n}} linked.",
+    "refused": "{{n}} could not be linked ({{why}})",
+    "refusedWhy": {
+      "cycle": "would make a loop",
+      "mixed": "kind and item mixed",
+      "invalid": "does not fit"
     }
+  },
+  "chips": {
+    "data": "+ Put in data",
+    "question": "? Write a question"
+  },
+  "band": {
+    "answerable": "Answerable questions {{ok}} / {{total}}",
+    "themes": "See themes →"
+  },
+  "add": {
+    "close": "Close",
+    "closeHint": "Where you are is kept. Press \"Add data\" again to continue.",
+    "area": "Add data"
+  },
+  "now": {
+    "detail": "Now: detailed mode",
+    "data": "Now: {{mark}} {{step}} — {{hint}}",
+    "draft": "Now: draft \"{{name}}\" — add or fix with a line",
+    "star": "Now: star \"{{name}}\" — ask about this star",
+    "hint": {
+      "bind": "ask what a column is",
+      "s1": "ask about the design once a file is in",
+      "s2": "ask once it has been read",
+      "s3": "ask about the blank meanings",
+      "s4": "ask how to pick the ID",
+      "s5": "ask about the shape, e.g. what one row is",
+      "s6": "ask how to read the results",
+      "s7": "ask before publishing",
+      "done": "Published. Closing returns to the sky chart"
+    },
+    "toBind": "Ask about column links",
+    "toConsult": "Ask about the design"
+  },
+  "switch": {
+    "aria": "Switch drafts",
+    "open": "Keep the current draft and open this one?",
+    "write": "Keep the current draft and write a new question?",
+    "keep": "Keep it",
+    "stay": "Keep working"
+  },
+  "tools": {
+    "summary": "{{n}} sentences · add by hand"
+  },
+  "place": {
+    "content": "What will be placed",
+    "thin": "{{n}} still proposals"
+  },
+  "suggestQ": {
+    "ask": "Suggest questions",
+    "askPaper": "Suggest questions from this paper",
+    "askTerm": "Suggest what to ask about this term",
+    "title": "How about these questions?",
+    "start": "Start with this question",
+    "running": "Thinking of questions",
+    "none": "No question to suggest",
+    "nonePaper": "No question found in this paper's abstract and conclusion",
+    "noneTerm": "No question found from this term and its relations",
+    "close": "Close",
+    "failed": "Could not suggest questions: {{detail}}"
   }
 }

@@ -807,8 +807,9 @@ _SUBSUMPTION = ("subClassOf", "subPropertyOf", "isPartOf")
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
-#: 来歴の ``drafted_by`` の閉じた値。``reason`` / ``batch`` の長さの上限。
-DRAFTED_BY = ("ai", "human")
+#: 来歴の ``drafted_by`` の閉じた値（``machine`` = 公開のあとの名前の完全一致を機械が計算した
+#: 候補を、人が「まとめて確定」したもの。AI は呼んでいない）。``reason`` / ``batch`` の長さの上限。
+DRAFTED_BY = ("ai", "human", "machine")
 REASON_MAX = 200
 BATCH_MAX = 100
 
@@ -954,7 +955,8 @@ async def assert_alignment(
     end) and the optional competency question the line answers (``xw:answersCq``).
 
     Who decided it, in which batch, and why (design.md §15.2 来歴): ``drafted_by``
-    (``"ai"`` = an AI draft a person confirmed, ``"human"``) is always written as
+    (``"ai"`` = an AI draft a person confirmed, ``"machine"`` = a deterministic exact-name
+    candidate a person confirmed, ``"human"``) is always written as
     ``xw:draftedBy``; ``batch`` (the id of the "decide these together" operation) as
     ``xw:batch``; ``reason`` (one line, at most :data:`REASON_MAX` characters, line breaks
     folded to spaces) as ``xw:reason``. The date is ``prov:endedAtTime`` (``at``)."""

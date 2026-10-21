@@ -10,7 +10,16 @@
 //     （帯の札・ハブは重心に置くため、星が増えれば動いてよい）。
 //   ・規模: 種類 ≤ 60 かつ データセット ≤ 8 は星のまま。超えたらデータセットを 1 つの丸に畳む。
 //   ・帯の札は重ならない。横に並べきれなければ段（レーン）を足して帯を押し広げる。
-import type { DraftSky, SkyData, SkyDataset, SkyHub, SkyKnowledgeRelation, SkyTerm } from './skyApi'
+import type {
+  DraftLineState,
+  DraftSky,
+  DraftState,
+  SkyData,
+  SkyDataset,
+  SkyHub,
+  SkyKnowledgeRelation,
+  SkyTerm,
+} from './skyApi'
 import {
   KNOW_PITCH,
   planKnowledge,
@@ -139,10 +148,17 @@ export interface HubNode extends NodeBase {
   w: number
   lane: number
 }
-/** 下書きの札（まだ確かめていない概念）。枠だけで描き、押すと「下書きの札」の欄が出る。 */
+/**
+ * 提案の札（まだ置いていない概念）。薄い塗り＋「提案」の印（図に入れたものは濃く・印なし）で描き、押すと
+ * 会話の先頭に札が出る。
+ */
 export interface DraftNode extends NodeBase {
   type: 'draft'
   draftId: string
+  /** 提案（薄い）／図に入れた／外す提案。 */
+  state: DraftState
+  /** 返事を待つ提案の札（まだ下書きに無い）。 */
+  proposed: boolean
   themeLabel: string
   conceptKey: string
   termKind: 'class' | 'property'
@@ -154,7 +170,7 @@ export interface DraftNode extends NodeBase {
 }
 export type SkyNode = KindNode | DatasetNode | TermNode | StdNode | HubNode | DraftNode
 
-export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub' | 'concept'
+export type SkyEdgeKind = 'link' | 'member' | 'termStd' | 'kindStd' | 'hub' | 'concept' | 'draft'
 export interface SkyEdge {
   kind: SkyEdgeKind
   /** member: 点（星・丸）→ 用語。termStd: 用語 → 標準用語。kindStd: 点 → 標準用語。hub: 点 → ハブ。link: 星 → 星。 */
@@ -164,10 +180,31 @@ export interface SkyEdge {
   eq?: boolean
   /** concept だけ（用語 → 用語の知識の線）: 一部・下げる・上げる・変える。`from` が主語。 */
   relation?: SkyKnowledgeRelation
-  /** concept だけ: 線の道すじ（札の縁から縁へ）と、小さな札の位置（置けないなら null）。layoutSky が決める。 */
+  /** draft だけ（提案の線）: どの下書きの・どの関係か。 */
+  draft?: DraftEdgeInfo
+  /** concept・draft だけ: 線の道すじ（札の縁から縁へ）と、小さな札の位置（置けないなら null）。layoutSky が決める。 */
   geom?: ConceptEdgeGeom
   pill?: { x: number; y: number } | null
 }
+
+/** 提案の線 1 本の素性。`fromKey`/`toKey` は下書きの概念の key（標準の語は curie）。 */
+export interface DraftEdgeInfo {
+  draftId: string
+  rel: string
+  state: DraftLineState
+  /** 下書きの関係の添字（提案の線は null＝押しても直せない）。 */
+  index: number | null
+  fromKey: string
+  toKey: string
+  problem: boolean
+}
+
+/**
+ * 提案の線の ID（`draftId|from|rel|to`）。`from|rel|to` は `workspaceState.relId` — 下書きの中だけで一意なので、
+ * どの下書きの線かを頭に付ける（開いていない下書きの線を、開いている下書きの関係と取り違えない）。
+ */
+export const draftEdgeId = (i: Pick<DraftEdgeInfo, 'draftId' | 'fromKey' | 'rel' | 'toKey'>): string =>
+  `${i.draftId}|${i.fromKey}|${i.rel}|${i.toKey}`
 
 export interface SkyCluster {
   datasetId: string
@@ -602,17 +639,56 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     termItems.push({ id: termId(t.iri), x, w })
     termMeta.set(termId(t.iri), { t, label, w, memberIds, stdId: std })
   }
-  // 下書きの札: 同じ下書きは同じ x に置きたがる（ハッシュ）。札どうしは重ならない
+  // 提案の札: 同じ下書きは同じ x に置きたがる（ハッシュ）。札どうしは重ならない
   const draftMeta = new Map<string, { d: DraftSky; c: DraftSky['concepts'][number]; w: number; count: number }>()
+  // 提案の線の端: 下書きの概念の key → 札の id（作る札は下書きの札・既にある用語は用語の札。標準の語は札を持たない）
+  const termBySlug = new Map(sky.terms.map((t) => [t.slug, t]))
+  const draftEnds = new Map<string, Map<string, string>>()
   for (const d of opts.drafts ?? []) {
     const cards = draftCardConcepts(d)
     const base = PAD + 60 + (W - PAD * 2 - 120) * hash01(d.draft_id, 'draftx')
+    const ends = new Map<string, string>()
+    draftEnds.set(d.draft_id, ends)
     for (const c of cards) {
       const id = draftNodeId(d.draft_id, c.key)
       const w = Math.min(TERM_MAX_W, approxLabelWidth(c.label, 13) + 26)
       termItems.push({ id, x: base, w })
       draftMeta.set(id, { d, c, w, count: cards.length })
+      ends.set(c.key, id)
     }
+    for (const c of d.concepts) {
+      if (!c.use.startsWith('existing:')) continue
+      const t = termBySlug.get(c.use.slice('existing:'.length))
+      if (t && termMeta.has(termId(t.iri))) ends.set(c.key, termId(t.iri))
+    }
+  }
+  // 提案の線（札の位置は図の形で決まる）: 結果 ← 原因 の向きの段に並べる。付け替えの新しい線（まだ無い線）は形を動かさない。
+  interface DraftEdgeIn {
+    from: string
+    to: string
+    info: DraftEdgeInfo
+  }
+  const draftEdgesIn: DraftEdgeIn[] = []
+  for (const d of opts.drafts ?? []) {
+    const ends = draftEnds.get(d.draft_id) as Map<string, string>
+    d.relations.forEach((r, i) => {
+      const a = ends.get(r.from)
+      const b = ends.get(r.to)
+      if (!a || !b || a === b) return
+      draftEdgesIn.push({
+        from: a,
+        to: b,
+        info: {
+          draftId: d.draft_id,
+          rel: r.rel,
+          state: r.state ?? 'thin',
+          index: r.index === undefined ? i : r.index,
+          fromKey: r.from,
+          toKey: r.to,
+          problem: r.problem === true,
+        },
+      })
+    })
   }
   // 知識の線でつながる札は、知識の段（結果が上・原因が下）に並べる。残りは従来どおり段詰め。
   const conceptLinks: { from: string; to: string }[] = []
@@ -621,8 +697,12 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     const to = termId(l.to)
     if (termMeta.has(from) && termMeta.has(to)) conceptLinks.push({ from, to })
   }
+  for (const e of draftEdgesIn) {
+    if (e.info.rel === 'quantity' || e.info.state === 'retarget') continue
+    conceptLinks.push({ from: e.from, to: e.to })
+  }
   const know = planKnowledge(
-    termItems.filter((it) => termMeta.has(it.id)),
+    termItems.filter((it) => termMeta.has(it.id) || draftMeta.has(it.id)),
     conceptLinks,
     W,
     PAD,
@@ -744,6 +824,8 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
         draftId: dm.d.draft_id,
         themeLabel: dm.d.theme_label,
         conceptKey: dm.c.key,
+        state: dm.c.state ?? 'thin',
+        proposed: dm.c.proposed === true,
         termKind: dm.c.kind,
         conceptCount: dm.count,
         w: dm.w,
@@ -827,8 +909,21 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     conceptSeen.add(key)
     edges.push({ kind: 'concept', from, to, relation: l.relation })
   }
+  // 提案の線（薄い線）: 両端の札がある線だけ。同じ線は 1 本（同じ下書きの）。既にある本物の線と同じ関係なら、
+  // **薄い提案の線だけ**引かない（二重に重ねない）。本物の線はそのまま引き、図に入れた（solid）線は引く — 引かないと
+  // 星図からその線を選べず、直す札が出ない。ほかの下書きの同じ線は別の線 — 開いている下書きの線を消さない。
+  const draftSeen = new Set<string>()
+  for (const e of draftEdgesIn) {
+    if (!nodes.has(e.from) || !nodes.has(e.to)) continue
+    const key = `${e.info.draftId}>${e.from}>${e.to}>${e.info.rel}>${e.info.state}`
+    if (draftSeen.has(key)) continue
+    draftSeen.add(key)
+    const real = REAL_RELATION[e.info.rel]
+    if (e.info.state === 'thin' && real && conceptSeen.has(`${e.from}>${e.to}>${real}`)) continue
+    edges.push({ kind: 'draft', from: e.from, to: e.to, draft: e.info })
+  }
   // 線の道すじと小さな札の位置（札の縁から縁へ・札と札の下の字を通らない・小さな札どうしが重ならない）
-  const conceptEdges = edges.filter((e) => e.kind === 'concept')
+  const conceptEdges = edges.filter((e) => e.kind === 'concept' || e.kind === 'draft')
   if (conceptEdges.length > 0) {
     const cards: RouteCard[] = []
     for (const n of nodes.values()) {
@@ -841,7 +936,11 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     }
     const routed = routeConceptEdges(
       cards,
-      conceptEdges.map((e) => ({ from: e.from, to: e.to, pillW: e.relation === 'isPartOf' ? PILL_W_PART : PILL_W_ARROW })),
+      conceptEdges.map((e) => ({
+        from: e.from,
+        to: e.to,
+        pillW: e.kind === 'draft' ? draftPillW(e.draft as DraftEdgeInfo) : e.relation === 'isPartOf' ? PILL_W_PART : PILL_W_ARROW,
+      })),
       W,
     )
     conceptEdges.forEach((e, i) => {
@@ -863,9 +962,17 @@ function drawnWidth(label: string, w: number): number {
   return Math.min(w, t + 26)
 }
 
+/** 提案の線の関係 → 本物の知識の線の関係（同じ関係は二重に引かない）。 */
+const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = { part: 'isPartOf', lowers: 'lowers', raises: 'raises', affects: 'affects' }
+
 /** 知識の線の小さな札の幅（「一部」「part」・↓ ↑ ↕）。置き場所を決めるときに見込む。 */
 const PILL_W_PART = 36
 const PILL_W_ARROW = 24
+/** 提案の線の小さな札の幅（一種・一部・量は文字、ほかは記号）。 */
+function draftPillW(i: DraftEdgeInfo): number {
+  if (i.state === 'retarget' || i.state === 'remove') return PILL_W_ARROW
+  return i.rel === 'sub' || i.rel === 'part' || i.rel === 'quantity' ? PILL_W_PART : PILL_W_ARROW
+}
 
 /** 線（2 次ベジェ）の t の点。 */
 export function conceptEdgePointAt(g: ConceptEdgeGeom, t: number): { x: number; y: number } {
@@ -878,7 +985,7 @@ export function conceptEdgePointAt(g: ConceptEdgeGeom, t: number): { x: number; 
 
 /**
  * 線の小さな札（幅 w・高さ h）を置く点。線の中ほどが用語の札に重なるときは、線に沿って寄せて空いた所を探す。
- * 見つからなければ null（札は出さない。線の色と矢じりで向きは読める。文は右の欄に出る）。決定論。
+ * 見つからなければ null（札は出さない。線の色と矢じりで向きは読める。文は会話の札に出る）。決定論。
  */
 export function conceptPillPos(
   layout: SkyLayout,
@@ -903,12 +1010,13 @@ export function conceptPillPos(
 
 /**
  * 用語の札 2 つを結ぶ知識の線の形（札の縁から縁へ・少し曲げる）。曲げる向きは進む向きで決まる
- * （同じ 2 点を逆向きに結ぶ線は反対の側に曲がり、重ならない）。決定論。どちらかが用語の札でなければ null。
+ * （同じ 2 点を逆向きに結ぶ線は反対の側に曲がり、重ならない）。決定論。どちらかが用語の札（提案の札を含む）でなければ null。
  */
 export function conceptEdgeGeom(layout: SkyLayout, e: SkyEdge): ConceptEdgeGeom | null {
   const a = layout.nodes.get(e.from)
   const c = layout.nodes.get(e.to)
-  if (!a || !c || a.type !== 'term' || c.type !== 'term') return null
+  const isCard = (n: SkyNode | undefined): n is TermNode | DraftNode => n?.type === 'term' || n?.type === 'draft'
+  if (!isCard(a) || !isCard(c)) return null
   if (e.geom) return e.geom
   const pad = 3
   const p1 = clipToCard(a.x, a.y, a.w / 2 + pad, a.h / 2 + pad, c.x, c.y)

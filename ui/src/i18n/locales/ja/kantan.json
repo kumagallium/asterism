@@ -675,5 +675,26 @@
     },
     "lintHead": "検査で通らず、公開できなかった問いが {{n}} 件あります。",
     "lintItem": "「{{title}}」: データの形に合わなくなっています。選び直して足し直してください。"
+  },
+  "chat": {
+    "title": "AI に相談して結ぶ",
+    "lead": "一言で伝えると、AI が「この列は○○と同じ」を提案します",
+    "example": "例：「この列は粒径で、粒界散乱の指標」「価格の列は 価格 と同じ」",
+    "candidates": "名前が一致する候補 {{n}} 件",
+    "candidatesNote": "表の各行の下に出ています（機械が数えたもので、AI は使っていません）。受けるかどうかは人が決めます。",
+    "bound": "結ぶ: {{column}} ≡ {{term}}",
+    "boundSub": "結ぶ: {{column}} は {{term}} の一種",
+    "boundWhen": "公開で線になります",
+    "boundByAi": "（AI の提案を受けました）",
+    "ask": "AI に相談して結ぶ",
+    "privacy": "AI に渡すのは列の見出しと型だけで、列の値は渡しません。「結ぶ」と言うまでは何も決まらず、線になるのは公開のときです。",
+    "boundDone": "公開で線になりました",
+    "boundSkipped": "見送り（{{reason}}）",
+    "boundRemove": "外す",
+    "boundRemoveFailed": "外せませんでした: {{detail}}",
+    "skipReason": {
+      "subjectMissing": "元の項目が見つかりません",
+      "predicateMissing": "用語が見つかりません"
+    }
   }
 }

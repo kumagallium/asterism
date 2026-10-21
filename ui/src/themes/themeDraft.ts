@@ -6,7 +6,7 @@
 //   - 3 段: ① 書く → ② 下書きをたしかめる（知識の図＋文＋答え方）→ ③ 置く。
 //   - AI は閉じた JSON だけ。機械の完全一致（標準用語・既にある用語）が AI の use に勝つ。
 //   - 参照は key（同名の種類と項目を区別する）。「そう／違う」は問わない — 下書きは初期未確定のまま、
-//     人は ✕ で外し、「N 件をまとめて確定」で一括して決める（来歴に AI 下書き・日付・理由が残る）。
+//     人は ✕ で外し、「N 件を置く」で一括して決める（来歴に AI 下書き・日付・理由が残る）。
 //   - 確定は「問いの対象に関係でつながらない新概念」を 422 で拒む。②で先にその印を出し、送らない。
 //   - 関係は閉集合 9 述語（一種・同じ・量・一部・下げる・上げる・変える）。標準の述語を使う。
 import { normalizeName } from '../decide/decide'
@@ -64,14 +64,21 @@ export interface RelationRow {
 export interface AnswerRow {
   question: string
   mode: AnswerMode
-  /** knowledge: factors|parts|kinds・data: count|range|top。 */
+  /** knowledge: factors|parts|kinds・data: count|range|top|filter|group|trend|join。 */
   op: string
   target: string
   /** factors の向き: lowers|raises|affects。 */
   direction: string
   kind: string
   property: string
+  /** filter: 問いの文に書かれていた語（データの値ではない）。 */
   value: string
+  /** filter の一致のしかた: contains（既定）|exact。 */
+  match: string
+  /** trend: 2 つ目の項目（y）。 */
+  property2: string
+  /** join: つなぐ先の種類。 */
+  kind2: string
   memo: MemoCode | null
   wanted_data: string
   reason: string
@@ -96,6 +103,18 @@ export interface DraftResponse {
   dropped: { concepts: unknown[]; relations: unknown[] }
 }
 
+/** 作業場の会話の保存（7a）。人の発言と、適用した差分だけ。AI の散文は保存しない。 */
+export interface DraftChat {
+  messages: { role: 'user'; content: string; at: string }[]
+  proposals: { proposal_id: string; ops: Record<string, unknown>[]; at: string; by: 'ai' | 'human' }[]
+}
+
+/** まだ「提案（薄い）」の行（サーバが下書きと一緒に持つ）。関係は `[from, rel, to]`。無ければ「覚えていない」。 */
+export interface DraftPending {
+  concepts: string[]
+  relations: string[][]
+}
+
 /** 保存する下書き（GET/PUT /api/themes/drafts/{id}）。 */
 export interface ThemeDraft {
   id: string
@@ -109,6 +128,10 @@ export interface ThemeDraft {
   answers: AnswerRow[]
   suggested_questions: string[]
   standards: Record<string, StandardInfo>
+  /** 作業場の会話（サーバが持つ。PUT では送らず、適用の返り値で更新される）。 */
+  chat?: DraftChat
+  /** 提案（薄い）のまま残る行（PUT で送り、GET で返る。無ければ覚えていない）。 */
+  pending?: DraftPending
   updated_at: string
 }
 
@@ -200,6 +223,9 @@ function answerOf(a: Record<string, unknown>): AnswerRow | null {
     kind: str(a.kind),
     property: str(a.property),
     value: str(a.value),
+    match: str(a.match),
+    property2: str(a.property2),
+    kind2: str(a.kind2),
     memo: isStr(a.memo) && a.memo ? (a.memo as MemoCode) : mode === 'memo' ? 'none' : null,
     wanted_data: str(a.wanted_data),
     reason: str(a.reason),
@@ -251,7 +277,35 @@ export function validateDraftResponse(raw: unknown): DraftResponse | null {
   }
 }
 
-/** GET/PUT/expand が返す保存済み下書きを、画面の形に整える（壊れた行は落とす）。 */
+function chatOf(raw: unknown): DraftChat | undefined {
+  if (!isObj(raw)) return undefined
+  const messages = (Array.isArray(raw.messages) ? raw.messages : [])
+    .filter(isObj)
+    .filter((m) => isStr(m.content) && m.content.trim() !== '')
+    .map((m) => ({ role: 'user' as const, content: str(m.content), at: str(m.at) }))
+  const proposals = (Array.isArray(raw.proposals) ? raw.proposals : [])
+    .filter(isObj)
+    .filter((p) => isStr(p.proposal_id) && Array.isArray(p.ops))
+    .map((p) => ({
+      proposal_id: str(p.proposal_id),
+      ops: (p.ops as unknown[]).filter(isObj),
+      at: str(p.at),
+      by: p.by === 'human' ? ('human' as const) : ('ai' as const),
+    }))
+  return messages.length > 0 || proposals.length > 0 ? { messages, proposals } : undefined
+}
+
+function pendingOfRaw(raw: unknown): DraftPending | undefined {
+  if (!isObj(raw)) return undefined
+  return {
+    concepts: (Array.isArray(raw.concepts) ? raw.concepts : []).filter(isStr),
+    relations: (Array.isArray(raw.relations) ? raw.relations : []).flatMap((r) =>
+      Array.isArray(r) && r.length === 3 && r.every(isStr) ? [r as string[]] : [],
+    ),
+  }
+}
+
+/** GET/PUT が返す保存済み下書きを、画面の形に整える（壊れた行は落とす）。 */
 export function normalizeDraft(raw: unknown): ThemeDraft | null {
   if (!isObj(raw) || !isStr(raw.id)) return null
   const step = raw.step === 2 || raw.step === 3 ? raw.step : 1
@@ -279,6 +333,8 @@ export function normalizeDraft(raw: unknown): ThemeDraft | null {
     answers: syncAnswers(answers, questions),
     suggested_questions: Array.isArray(raw.suggested_questions) ? raw.suggested_questions.filter(isStr) : [],
     standards: standardsOf(raw.standards),
+    ...(chatOf(raw.chat) ? { chat: chatOf(raw.chat) } : {}),
+    ...(pendingOfRaw(raw.pending) ? { pending: pendingOfRaw(raw.pending) } : {}),
     updated_at: str(raw.updated_at),
   }
 }
@@ -306,6 +362,9 @@ export function blankAnswer(question: string): AnswerRow {
     kind: '',
     property: '',
     value: '',
+    match: '',
+    property2: '',
+    kind2: '',
     memo: 'none',
     wanted_data: '',
     reason: '',
@@ -387,7 +446,7 @@ export function removeConcept(draft: ThemeDraft, key: string): ThemeDraft {
     concepts: draft.concepts.filter((c) => c.key !== key),
     relations: draft.relations.filter((r) => r.from !== key && r.to !== key),
     answers: draft.answers.map((a) =>
-      a.target === key || a.kind === key || a.property === key
+      a.target === key || a.kind === key || a.property === key || a.property2 === key || a.kind2 === key
         ? { ...blankAnswer(a.question), wanted_data: a.wanted_data, by: 'human' as const }
         : a,
     ),
@@ -450,7 +509,7 @@ export function answerRoots(draft: ThemeDraft): Set<string> {
   const out = new Set<string>()
   for (const a of draft.answers) {
     if (!answerComplete(a)) continue
-    for (const k of [a.target, a.kind, a.property]) if (k && keys.has(k)) out.add(k)
+    for (const k of [a.target, a.kind, a.property, a.property2, a.kind2]) if (k && keys.has(k)) out.add(k)
   }
   return out
 }
@@ -510,7 +569,7 @@ export interface ConfirmCounts {
   /** 新しく作る概念。 */
   concepts: number
   relations: number
-  /** 「N 件をまとめて確定」の N（概念＋関係）。 */
+  /** 「N 件を置く」の N（概念＋関係）。 */
   total: number
 }
 
@@ -522,8 +581,22 @@ export function confirmCounts(draft: ThemeDraft): ConfirmCounts {
 
 // ---- 答え方（②の上の行） ------------------------------------------------------------
 
-/** 答え方の型。knowledge の 5 つ（向き 3 つ・一部・一種）、data の 3 つ、メモ。 */
-export const ANSWER_WAYS = ['lowers', 'raises', 'affects', 'parts', 'kinds', 'count', 'range', 'top', 'memo'] as const
+/** 答え方の型。knowledge の 5 つ（向き 3 つ・一部・一種）、data の 7 つ（件数・範囲・最大・絞る・〜ごと・推移・結合）、メモ。 */
+export const ANSWER_WAYS = [
+  'lowers',
+  'raises',
+  'affects',
+  'parts',
+  'kinds',
+  'count',
+  'range',
+  'top',
+  'filter',
+  'group',
+  'trend',
+  'join',
+  'memo',
+] as const
 export type AnswerWay = (typeof ANSWER_WAYS)[number]
 
 /** いまの答え方の型（不完全でも op から読む）。 */
@@ -536,26 +609,44 @@ export function wayOf(a: AnswerRow): AnswerWay {
     return 'lowers'
   }
   if (a.mode === 'data') {
-    if (a.op === 'range') return 'range'
-    if (a.op === 'top') return 'top'
+    if (a.op === 'range' || a.op === 'top' || a.op === 'filter' || a.op === 'group' || a.op === 'trend' || a.op === 'join') return a.op
     return 'count'
   }
   return 'memo'
 }
 
-/** その型が選ぶ概念: target（knowledge）・kind（件数・範囲・最大）・property（範囲・最大）。 */
-export function wayNeeds(way: AnswerWay): { target: boolean; kind: boolean; property: boolean; kindOptional: boolean } {
+/** 値で絞る・〜ごと・推移・結合（種類に付き、ほかの端を欄で選ぶ）。 */
+const WIDE_WAYS: readonly AnswerWay[] = ['filter', 'group', 'trend', 'join']
+
+export interface WayNeeds {
+  target: boolean
+  kind: boolean
+  property: boolean
+  kindOptional: boolean
+  /** filter: 値の欄と一致のしかた。 */
+  value: boolean
+  /** trend: 2 つ目の項目。 */
+  property2: boolean
+  /** join: つなぐ先の種類。 */
+  kind2: boolean
+}
+
+/** その型が選ぶ概念: target（knowledge）・kind（件数・範囲・最大・絞る・〜ごと・推移・結合）・property ほか。 */
+export function wayNeeds(way: AnswerWay): WayNeeds {
   return {
     target: ['lowers', 'raises', 'affects', 'parts', 'kinds'].includes(way),
-    kind: way === 'count' || way === 'range' || way === 'top',
-    property: way === 'range' || way === 'top',
+    kind: way === 'count' || way === 'range' || way === 'top' || WIDE_WAYS.includes(way),
+    property: way === 'range' || way === 'top' || WIDE_WAYS.includes(way),
     kindOptional: way === 'range' || way === 'top',
+    value: way === 'filter',
+    property2: way === 'trend',
+    kind2: way === 'join',
   }
 }
 
 /** 型を選び直す。 */
 export function setWay(a: AnswerRow, way: AnswerWay): AnswerRow {
-  const base = { ...a, by: 'human' as const, value: '', reason: a.reason }
+  const base = { ...a, by: 'human' as const, value: '', match: '', property2: '', kind2: '', reason: a.reason }
   switch (way) {
     case 'lowers':
     case 'raises':
@@ -568,7 +659,12 @@ export function setWay(a: AnswerRow, way: AnswerWay): AnswerRow {
       return { ...base, mode: 'data', op: 'count', direction: '', target: '', property: '', memo: null }
     case 'range':
     case 'top':
+    case 'group':
+    case 'trend':
+    case 'join':
       return { ...base, mode: 'data', op: way, direction: '', target: '', memo: null }
+    case 'filter':
+      return { ...base, mode: 'data', op: way, direction: '', target: '', match: 'contains', memo: null }
     case 'memo':
       return { ...base, mode: 'memo', op: '', direction: '', target: '', kind: '', property: '', memo: 'human' }
   }
@@ -577,7 +673,7 @@ export function setWay(a: AnswerRow, way: AnswerWay): AnswerRow {
 /** 概念の選択を変える。 */
 export function setAnswerTarget(
   a: AnswerRow,
-  patch: Partial<Pick<AnswerRow, 'target' | 'kind' | 'property'>>,
+  patch: Partial<Pick<AnswerRow, 'target' | 'kind' | 'property' | 'value' | 'match' | 'property2' | 'kind2'>>,
 ): AnswerRow {
   return { ...a, ...patch, by: 'human' }
 }
@@ -592,6 +688,10 @@ export function answerComplete(a: AnswerRow): boolean {
   if (a.mode === 'data') {
     if (a.op === 'count') return !!a.kind
     if (a.op === 'range' || a.op === 'top') return !!a.property
+    if (a.op === 'filter') return !!(a.kind && a.property && a.value.trim())
+    if (a.op === 'group') return !!(a.kind && a.property)
+    if (a.op === 'trend') return !!(a.kind && a.property && a.property2)
+    if (a.op === 'join') return !!(a.kind && a.property && a.kind2)
     return false
   }
   return false
@@ -614,10 +714,10 @@ export function knowledgeEstimate(draft: ThemeDraft, a: AnswerRow): number {
   return seen.size
 }
 
-/** 答え方が土台にする概念（知識は target・件数は kind・範囲と最大は property）。 */
+/** 答え方が土台にする概念（知識は target・件数と絞る・〜ごと・推移・結合は kind・範囲と最大は property）。 */
 export function answerHost(a: AnswerRow): string {
   if (a.mode === 'knowledge') return a.target
-  if (a.mode === 'data') return a.op === 'count' ? a.kind : a.property
+  if (a.mode === 'data') return a.op === 'range' || a.op === 'top' ? a.property : a.kind
   return ''
 }
 
@@ -628,11 +728,15 @@ export function answerState(a: AnswerRow): 'knowledge' | 'data' | 'memo' {
 }
 
 /** 型ごとに選べる概念（件数の種類・範囲の項目・下げる系の対象は項目）。 */
-export function conceptsFor(draft: ThemeDraft, way: AnswerWay, slot: 'target' | 'kind' | 'property'): ConceptRow[] {
+export function conceptsFor(
+  draft: ThemeDraft,
+  way: AnswerWay,
+  slot: 'target' | 'kind' | 'property' | 'property2' | 'kind2',
+): ConceptRow[] {
   const want: TermKind | null =
-    slot === 'kind'
+    slot === 'kind' || slot === 'kind2'
       ? 'class'
-      : slot === 'property'
+      : slot === 'property' || slot === 'property2'
         ? 'property'
         : way === 'lowers' || way === 'raises' || way === 'affects'
           ? 'property'
@@ -771,7 +875,7 @@ export function buildCommitBody(draft: ThemeDraft, lang: string) {
     })),
     relations: relations.map((r) => ({ from: r.from, rel: r.rel, to: r.to, reason: r.reason, by: r.by })),
     answers: draft.answers.map((a) => {
-      const ok = answerComplete(a) && [a.target, a.kind, a.property].every((k) => !k || keys.has(k))
+      const ok = answerComplete(a) && [a.target, a.kind, a.property, a.property2, a.kind2].every((k) => !k || keys.has(k))
       // 決まっていない答え方は、メモの問いとして送る（問いは捨てない）
       return ok ? { ...a, memo: null } : { ...a, mode: 'memo' as const, memo: a.memo ?? 'none' }
     }),

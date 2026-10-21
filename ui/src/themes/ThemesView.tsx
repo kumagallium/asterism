@@ -1,12 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MoreMenu } from '../MoreMenu'
-import { SV_NS } from '../lineChoice'
-import { homeHash } from '../sky/skyRoute'
-import { parseVocabHash } from '../vocabQuestion'
-import { ThemeWizard } from './ThemeWizard'
+import type { WriteRequest } from '../sky/skyRoute'
 import {
-  type CommitResult,
   type DraftSummary,
   type ThemeQuestion,
   type ThemeSummary,
@@ -20,19 +16,17 @@ import {
   themeLabel,
 } from './themesApi'
 import '../vocabTerms.css'
+import '../workspace/workspace.css'
 import './themes.css'
 
 // 「知りたいこと」（#/questions）— テーマごとの問いの帳。UI 再設計 PR 4（design.md §3）。
 //
 // テーマ（問いの束）ごとに カード: 問いの輪（答えるデータセット数／全体）・題・実行文・要る用語・
 // 畳んだメモの問い。主ボタンは「問いを足す」だけで、答えを見る・型紙・テーマを外す は「…」。
-// 右上の「？ 新しいテーマを作る」で 3 段（ThemeWizard）が開く。用語はテーマの持ち物ではないので、
-// テーマを外しても用語・関係・問いは残る。用語の地図は「データ › データセットの詳細 › 中身」の末尾へ、
-// 用語の一覧は無くした（用語は札 → 用語のページ）。
-
-function goTo(hash: string): void {
-  if (window.location.hash !== hash) window.location.hash = hash
-}
+// 作る・育てる操作はホームの作業場（左の会話）に寄せた（design.md §17）。ここは一覧だけ:
+// 「？ 新しいテーマを作る」「問いを足す」「続ける」はホームの会話に遷移して、問いを書く／続きを開く。
+// 用語はテーマの持ち物ではないので、テーマを外しても用語・関係・問いは残る。用語の地図は
+// 「データ › データセットの詳細 › 中身」の末尾へ、用語の一覧は無くした（用語は札 → 用語のページ）。
 
 /** 問いの輪: 答えるデータセット数 / 全体。まだ誰も答えないときは空の輪。 */
 function Ring({ n, total }: { n: number; total: number }) {
@@ -82,7 +76,7 @@ function KnowledgeAnswer({ answer }: { answer: QuestionAnswer | undefined }) {
             {t(`themes:rel.sentence.${SENTENCE_KEY[it.relation] ?? 'other'}`, { subject: it.label, object: it.via_label })}
           </div>
           <div className="thm-reason">
-            {t(it.drafted_by === 'ai' ? 'themes:card.byAi' : 'themes:card.byHuman')}
+            {t(it.drafted_by === 'ai' ? 'themes:card.byAi' : it.drafted_by === 'machine' ? 'themes:card.byMachine' : 'themes:card.byHuman')}
             {it.at ? ` · ${it.at.slice(0, 10)}` : ''}
             {it.reason ? ` · ${it.reason}` : ''}
           </div>
@@ -285,29 +279,23 @@ function ThemeCard({
   )
 }
 
-type WizardOpen = { resumeId?: string; extend?: { id: string; label: string } }
-
 export function ThemesView({
-  newQuestion,
   focusTheme,
-  onCloseNew,
   onOpenAsk,
+  onWrite,
 }: {
-  /** `#/questions?new=1[&q=題]` — 3 段を開く（上部の「？ 知りたいことを書く」・質問するから）。 */
-  newQuestion?: boolean
   /** `#/questions/<theme>` — そのテーマのカードを見せる。 */
   focusTheme?: string
-  /** `new` を hash から外す（3 段を閉じた・置いたとき）。 */
-  onCloseNew: () => void
   /** 「答えを見る」: 質問するへ題を持ち越す。 */
   onOpenAsk: (question: string) => void
+  /** ホームの会話に遷移する（問いを書く・問いを足す・続きの下書きを開く）。 */
+  onWrite: (w: WriteRequest) => void
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language.startsWith('en') ? 'en' : 'ja'
   const [listing, setListing] = useState<ThemesListing | null>(null)
   const [err, setErr] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
-  const [local, setLocal] = useState<WizardOpen | null>(null)
   const [note, setNote] = useState('')
 
   useEffect(() => {
@@ -335,24 +323,7 @@ export function ThemesView({
   }, [focusTheme, listing])
 
   const reload = () => setReloadKey((k) => k + 1)
-  // 3 段は、hash の `new=1`（題つき）か、この画面で開いた下書き・「問いを足す」で開く。
-  const fromHash = newQuestion
-    ? (({ q, resume }) => ({ question: q, resume }))(parseVocabHash(window.location.hash))
-    : null
-  const wizardOpen = fromHash !== null || local !== null
-
-  function closeWizard() {
-    setLocal(null)
-    if (newQuestion) onCloseNew()
-    reload()
-  }
-
-  // 置いたら星図へ（置いた概念の札を 1 度だけ灯す）。
-  function placed(result: CommitResult) {
-    setLocal(null)
-    if (newQuestion) onCloseNew()
-    goTo(homeHash({ newIris: result.minted.map((slug) => `${SV_NS}${slug}`) }))
-  }
+  const write = (over: Partial<WriteRequest> = {}) => onWrite({ q: '', resume: '', extend: null, ...over })
 
   async function discardDraft(d: DraftSummary) {
     if (!window.confirm(t('themes:draft.discardConfirm', { label: d.label }))) return
@@ -373,7 +344,7 @@ export function ThemesView({
         <button
           type="button"
           className="btn btn--activity"
-          onClick={() => setLocal({})}
+          onClick={() => write()}
           data-testid="new-theme"
         >
           {t('themes:newTheme')}
@@ -384,21 +355,6 @@ export function ThemesView({
         <p className="lifecycle-ok" role="status" data-testid="theme-removed">
           {note}
         </p>
-      )}
-
-      {wizardOpen && (
-        <div className="thm-overlay" role="dialog" aria-modal="true" aria-label={t('themes:wizard.aria')}>
-          <div className="thm-panel">
-            <ThemeWizard
-              key={`${local?.resumeId ?? fromHash?.resume ?? ''}|${local?.extend?.id ?? ''}|${fromHash ? 'h' : ''}`}
-              initialQuestion={local ? '' : (fromHash?.question ?? '')}
-              resumeId={local?.resumeId ?? (fromHash?.resume || undefined)}
-              extend={local?.extend}
-              onClose={closeWizard}
-              onPlaced={placed}
-            />
-          </div>
-        </div>
       )}
 
       {!listing && !err && (
@@ -426,7 +382,7 @@ export function ThemesView({
             <div key={d.id} className="thm-draft-row">
               <span>{d.label}</span>
               <span className="vocab-field-hint">{t('themes:draft.step', { n: d.step })}</span>
-              <button type="button" className="btn btn--sm" onClick={() => setLocal({ resumeId: d.id })}>
+              <button type="button" className="btn btn--sm" onClick={() => write({ resume: d.id })}>
                 {t('themes:draft.continue')}
               </button>
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => void discardDraft(d)}>
@@ -452,7 +408,7 @@ export function ThemesView({
               total={total}
               focused={focusTheme === theme.id}
               onAsk={onOpenAsk}
-              onAddQuestion={(th) => setLocal({ extend: { id: th.id, label: th.label } })}
+              onAddQuestion={(th) => write({ extend: { id: th.id, label: th.label } })}
               onRemoved={(msg) => {
                 setNote(msg)
                 reload()

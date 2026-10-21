@@ -122,7 +122,7 @@ def test_a_good_answer_passes_and_is_normalised() -> None:
 def test_the_vocabulary_is_the_closed_one_of_the_design() -> None:
     assert RELATIONS == ("sub", "eq", "quantity", "part", "lowers", "raises", "affects")
     assert KNOWLEDGE_OPS == ("factors", "parts", "kinds")
-    assert DATA_OPS == ("count", "range", "top")
+    assert DATA_OPS == ("count", "range", "top", "filter", "group", "trend", "join")
 
 
 def test_unknown_keys_are_dropped_not_read() -> None:
@@ -188,10 +188,43 @@ def test_reason_and_wanted_data_are_cut_to_the_length_and_never_refused() -> Non
 
 
 @pytest.mark.parametrize("op", ["filter", "group", "trend", "join"])
-def test_ops_that_cannot_run_yet_are_accepted_and_folded_into_memo(op: str) -> None:
-    raw = _bad(answers=[_ans(mode="data", op=op, target=None, kind="c3", property="c2")])
+def test_the_four_wider_shapes_are_data_answers_with_their_extra_fields(op: str) -> None:
+    full = _ans(
+        mode="data", op=op, target=None, kind="c3", property="c2", value=" SnSe ",
+        match="exact", property2="c2", kind2="c3",
+    )  # fmt: skip
+    raw = _bad(answers=[full])
     a = validate_theme_draft(raw)["answers"][0]
-    assert a["mode"] == "memo" and a["op"] == op
+    assert (a["mode"], a["op"], a["value"], a["match"]) == ("data", op, "SnSe", "exact")
+    assert (a["property2"], a["kind2"]) == ("c2", "c3")
+
+
+def test_value_and_match_are_closed() -> None:
+    for over in (
+        {"match": "regex"},
+        {"op": "sparql"},
+    ):
+        with pytest.raises(ThemeDraftError):
+            validate_theme_draft(_bad(answers=[_ans(**{"mode": "data", "op": "filter", **over})]))
+    # 値のコード・IRI・長すぎは、下書き全体を拒まず、その問いの値を空にしてメモに落とす
+    for bad in ("https://example.org/x", "SELECT * WHERE", "<script>", "x" * 121):
+        raw = _bad(answers=[_ans(mode="data", op="filter", kind="c3", property="c2", value=bad)])
+        a = validate_theme_draft(raw)["answers"][0]
+        assert (a["value"], a["mode"], a["op"]) == (None, "memo", "filter")
+    # 値のない count などの問いは、値が壊れていても止まらない（値は捨てる）
+    raw = _bad(answers=[_ans(mode="data", op="count", kind="c3", value="<x>")])
+    assert validate_theme_draft(raw)["answers"][0]["value"] is None
+    # 新しい欄は無くてもよい（無ければ None）
+    a = validate_theme_draft(_bad(answers=[_ans(mode="data", op="count", kind="c3")]))["answers"][0]
+    assert (a["value"], a["match"], a["property2"], a["kind2"]) == (None, None, None, None)
+
+
+def test_the_schema_lists_the_new_fields_and_stays_closed() -> None:
+    item = theme_draft_json_schema()["properties"]["answers"]["items"]
+    assert item["additionalProperties"] is False
+    for f in ("value", "match", "property2", "kind2"):
+        assert f in item["properties"] and f in item["required"]
+    assert item["properties"]["match"]["enum"] == ["contains", "exact", None]
 
 
 def test_a_memo_answer_may_have_no_op() -> None:
@@ -398,3 +431,23 @@ def test_an_addition_never_reuses_a_key_already_on_the_map() -> None:
         llm, focus_key="c1", concepts=ON_MAP, questions=[], existing=[], standards=[]
     )
     assert [c["key"] for c in out["concepts"]] == ["n1"] and len(llm.calls) == 2
+
+
+def test_a_question_sentence_and_theme_name_only_refuse_iri_and_code_symbols() -> None:
+    # 英語の普通の文は SQL の語で落とさない（名前・別名には従来どおり当てる）
+    ok = validate_theme_draft(
+        _bad(
+            suggested_questions=["Where is the cheapest shop?"],
+            theme_label="Select materials",
+        )
+    )
+    assert ok["suggested_questions"] == ["Where is the cheapest shop?"]
+    assert ok["theme_label"] == "Select materials"
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(_bad(suggested_questions=["see http://example.org/x"]))
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(_bad(theme_label="<b>x</b>"))
+    bad_alias = copy.deepcopy(GOOD)
+    bad_alias["concepts"][0]["aliases"] = ["SELECT"]
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(bad_alias)

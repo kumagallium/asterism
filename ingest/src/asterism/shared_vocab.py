@@ -28,7 +28,7 @@ import json
 import os
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,6 +105,18 @@ GENERIC_LABELS = frozenset(
 
 _KINDS = ("class", "property")
 _OPS = {"class": "count", "property": "values"}
+#: データで答える形のうち、種類（class）の語に付くもの。``count`` の他に、値で絞る・〜ごと・推移・
+#: 結合 1 段（design.md §3「閉じた形の拡張」）。項目（property）の語には ``values`` だけ。
+DATA_OPS = ("filter", "group", "trend", "join")
+_CLASS_OPS = ("count", *DATA_OPS)
+#: ``filter`` の一致のしかた（部分一致か完全一致）。
+MATCH_MODES = ("contains", "exact")
+#: ``filter`` の値の長さの上限（問いの文に書かれていた語・データの値ではない）。
+VALUE_MAX = 120
+#: ``group`` の行数・``trend`` の行数の上限（SPARQL の LIMIT・固定）。
+GROUP_LIMIT = 500
+TREND_LIMIT = 2000
+_XSD_DOUBLE = "http://www.w3.org/2001/XMLSchema#double"
 _SLUG = re.compile(_SLUG_PATTERN)
 _ISO_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})?\Z")
 _LANGTAG_OK = re.compile(r"^[a-z]{2,3}$")
@@ -146,10 +158,22 @@ class TermNotFound(TermError):
 @dataclass(frozen=True)
 class CQSpec:
     """One competency question: ``title`` is human text, ``op`` is a closed choice
-    (``"count"`` for a class, ``"values"`` for a property)."""
+    (``"count"`` for a class, ``"values"`` for a property).
+
+    The four wider shapes (:data:`DATA_OPS`) hang on a CLASS term — the kind the question is
+    about — and carry the other ends as IRIs the caller picked from the closed list of
+    terms (never typed SQL): ``property`` (the item to filter / group / put on the x axis /
+    follow from the kind), ``property2`` (``trend``: the y item), ``kind2`` (``join``: the
+    kind the item points to), ``value`` + ``match`` (``filter``: the word and
+    ``contains`` / ``exact``)."""
 
     title: str
     op: str
+    property: str | None = None
+    property2: str | None = None
+    kind2: str | None = None
+    value: str | None = None
+    match: str = "contains"
 
 
 @dataclass(frozen=True)
@@ -227,6 +251,15 @@ def is_shared_iri(iri: str) -> bool:
 def is_wired(n: int) -> bool:
     """A term is wired (not isolated) when at least one dataset answers its CQ."""
     return n >= 1
+
+
+def answering_of(counts: Mapping[str, int], for_terms: Iterable[str]) -> int:
+    """「データ N」: 問いが関わる語が **全部** そろって答えるデータセット数。
+
+    語が 1 つなら、その語の数（``wired.json`` のまま）。2 語以上（推移・結合・値で絞る）は
+    **どれか 1 語が 0 なら 0**、そうでなければ最も少ない語の数（全部の語を答えるデータセットは
+    それ以下 — 数え上げずに安全側に倒す下限）。``counts`` に無い語は 0。"""
+    return min((counts.get(x, 0) for x in set(for_terms)), default=0)
 
 
 def known_namespaces() -> list[str]:
@@ -402,10 +435,151 @@ def load_knowledge(root: Path | str) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
+def _data_op_query(term: SharedTerm, cq: CQSpec) -> tuple[str, str, dict, list[str]]:
+    """``(query, description, result.item, for_terms)`` of one of the four wider shapes
+    (:data:`DATA_OPS`) hung on the class ``term``. A fixed template — the strings put into
+    it are IRIs checked by :func:`_check_iri` and one word escaped by ``_sparql_str``; the
+    upward path (:data:`UPPER_PATH_CLASS` / :data:`UPPER_PATH_PROPERTY`) is what makes a
+    line answer, exactly as for ``count`` / ``values``."""
+    op = cq.op
+
+    def check(x: str) -> None:
+        try:
+            _check_iri(x)
+        except ValueError as exc:  # 選んだ語が IRI でない = 問いの形の誤り（422）
+            raise TermError(str(exc)) from exc
+
+    iri = term.iri
+    check(iri)
+    prop = cq.property
+    if not prop:
+        raise TermError(f"{op} の問いには、項目が要ります")
+    check(prop)
+    flt = _hub_filter("?dataset_graph")
+    label = term.label
+    kind_path = f"  ?k {UPPER_PATH_CLASS} <{iri}> .\n"
+    prop_path = f"  ?p {UPPER_PATH_PROPERTY} <{prop}> .\n"
+    for_terms = [iri, prop]
+    if op == "filter":
+        value = " ".join((cq.value or "").split())
+        if not value:
+            raise TermError("filter の問いには、値が要ります")
+        if len(value) > VALUE_MAX:
+            raise TermError(f"filter の値は {VALUE_MAX} 文字までです")
+        if cq.match not in MATCH_MODES:
+            raise TermError(f"match は {MATCH_MODES} のどれかです ({cq.match!r})")
+        lit = f'"{_sparql_str(value)}"'
+        cond = (
+            f"STR(?v) = {lit}"
+            if cq.match == "exact"
+            else f"CONTAINS(LCASE(STR(?v)), LCASE({lit}))"
+        )
+        query = (
+            "SELECT ?dataset_graph (COUNT(DISTINCT ?e) AS ?entities)\n"
+            "WHERE {\n"
+            f"{kind_path}{prop_path}"
+            "  GRAPH ?dataset_graph { ?e a ?k . ?e ?p ?v }\n"
+            f"  FILTER({flt} && {cond})\n"
+            "}\n"
+            "GROUP BY ?dataset_graph\n"
+            "ORDER BY DESC(?entities)\n"
+        )
+        how = "に一致する" if cq.match == "exact" else "を含む"
+        describe = (
+            f"「{label}」のうち、項目の値が「{value}」{how}ものを、データセットごとに数えます。"
+        )
+        item: dict = {
+            "dataset_graph": "dataset_graph",
+            "entities": {"var": "entities", "number": True},
+        }
+    elif op == "group":
+        query = (
+            "SELECT ?dataset_graph ?v (COUNT(DISTINCT ?e) AS ?entities)\n"
+            "WHERE {\n"
+            f"{kind_path}{prop_path}"
+            "  GRAPH ?dataset_graph { ?e a ?k . ?e ?p ?v }\n"
+            f"  FILTER({flt})\n"
+            "}\n"
+            "GROUP BY ?dataset_graph ?v\n"
+            "ORDER BY DESC(?entities) ?dataset_graph ?v\n"
+            f"LIMIT {GROUP_LIMIT}\n"
+        )
+        describe = (
+            f"「{label}」を、項目の値ごとに数えます"
+            f"（件数の多い {GROUP_LIMIT} 行・データセット横断）。"
+        )
+        item = {
+            "dataset_graph": "dataset_graph",
+            "value": "v",
+            "entities": {"var": "entities", "number": True},
+        }
+    elif op == "trend":
+        prop2 = cq.property2
+        if not prop2:
+            raise TermError("trend の問いには、2 つ目の項目が要ります")
+        check(prop2)
+        for_terms.append(prop2)
+        query = (
+            "SELECT ?dataset_graph ?x ?y\n"
+            "WHERE {\n"
+            f"{kind_path}"
+            f"  ?px {UPPER_PATH_PROPERTY} <{prop}> .\n"
+            f"  ?py {UPPER_PATH_PROPERTY} <{prop2}> .\n"
+            "  GRAPH ?dataset_graph { ?e a ?k . ?e ?px ?x . ?e ?py ?y }\n"
+            f"  FILTER({flt})\n"
+            f"  BIND(<{_XSD_DOUBLE}>(STR(?x)) AS ?xn)\n"
+            "}\n"
+            "ORDER BY ?dataset_graph (!BOUND(?xn)) ?xn ?x\n"
+            f"LIMIT {TREND_LIMIT}\n"
+        )
+        describe = (
+            f"「{label}」の 2 つの項目の値の組を、1 つ目の値の大きさの順に並べます"
+            f"（データセットごと・先頭 {TREND_LIMIT} 点まで）。"
+        )
+        item = {
+            "dataset_graph": "dataset_graph",
+            "x": {"var": "x", "number": True},
+            "y": {"var": "y", "number": True},
+        }
+    else:  # join
+        kind2 = cq.kind2
+        if not kind2:
+            raise TermError("join の問いには、つなぐ先の種類が要ります")
+        check(kind2)
+        for_terms.append(kind2)
+        query = (
+            "SELECT ?dataset_graph (COUNT(DISTINCT ?pair) AS ?pairs)\n"
+            "WHERE {\n"
+            f"  ?ka {UPPER_PATH_CLASS} <{iri}> .\n"
+            f"{prop_path}"
+            f"  ?kb {UPPER_PATH_CLASS} <{kind2}> .\n"
+            "  GRAPH ?dataset_graph { ?a a ?ka . ?a ?p ?b . ?b a ?kb }\n"
+            '  BIND(CONCAT(STR(?a), " ", STR(?b)) AS ?pair)\n'
+            f"  FILTER({flt})\n"
+            "}\n"
+            "GROUP BY ?dataset_graph\n"
+            "ORDER BY DESC(?pairs)\n"
+        )
+        describe = (
+            f"「{label}」から、項目でつながる別の種類へ 1 段たどった組を、"
+            "データセットごとに数えます。"
+        )
+        item = {
+            "dataset_graph": "dataset_graph",
+            "pairs": {"var": "pairs", "number": True},
+        }
+    return query, describe, item, for_terms
+
+
 def default_cq_tools(term: SharedTerm, cqs: list[CQSpec]) -> list[dict]:
     """The declarative query tools for ``term``'s CQs (raw ``query_tools.yaml``
-    entries, ``for_terms: [<iri>]``). A fixed template filled from a closed choice —
-    nothing is generated. Names are ``cq_<slug>_<op>`` (a repeated op gets ``_2``…).
+    entries, ``for_terms``: the IRIs of every term the question is about). A fixed template
+    filled from a closed choice — nothing is generated. Names are ``cq_<slug>_<op>`` (a
+    repeated op gets ``_2``…).
+
+    A class term takes ``count`` (how many of the kind) and the four wider shapes
+    (:data:`DATA_OPS`: ``filter`` / ``group`` / ``trend`` / ``join``, see
+    :func:`_data_op_query`); a property term takes ``values``.
 
     The query reads the dataset graphs ``?dataset_graph`` (the hub graphs, old and new
     form, and the alignment graph are filtered out) and walks the upward path to the
@@ -413,6 +587,7 @@ def default_cq_tools(term: SharedTerm, cqs: list[CQSpec]) -> list[dict]:
     if term.kind not in _KINDS:
         raise TermError(f"kind must be one of {_KINDS}: {term.kind!r}")
     op = _OPS[term.kind]
+    allowed = _CLASS_OPS if term.kind == "class" else (op,)
     path = UPPER_PATH_CLASS if term.kind == "class" else UPPER_PATH_PROPERTY
     iri = term.iri
     _check_iri(iri)
@@ -442,27 +617,34 @@ def default_cq_tools(term: SharedTerm, cqs: list[CQSpec]) -> list[dict]:
     tools: list[dict] = []
     seen: dict[str, int] = {}
     for cq in cqs:
-        if cq.op != op:
-            raise TermError(f"{term.kind} の問いの op は {op!r} です ({cq.op!r} は使えません)")
+        if cq.op not in allowed:
+            raise TermError(
+                f"{term.kind} の問いの op は {' / '.join(repr(a) for a in allowed)} です"
+                f" ({cq.op!r} は使えません)"
+            )
         if not cq.title.strip():
             raise TermError("問いの題が空です")
         n = seen.get(cq.op, 0) + 1
         seen[cq.op] = n
         name = f"cq_{term.slug}_{cq.op}" + ("" if n == 1 else f"_{n}")
+        if cq.op in DATA_OPS:
+            q, desc, item, for_terms = _data_op_query(term, cq)
+        else:
+            q, desc = query, describe
+            item = {
+                "dataset_graph": "dataset_graph",
+                out_var: {"var": out_var, "number": True},
+            }
+            for_terms = [iri]
         tools.append(
             {
                 "name": name,
                 "title": cq.title.strip(),
-                "description": describe,
-                "for_terms": [iri],
+                "description": desc,
+                "for_terms": for_terms,
                 "parameters": [],
-                "query": query,
-                "result": {
-                    "item": {
-                        "dataset_graph": "dataset_graph",
-                        out_var: {"var": out_var, "number": True},
-                    }
-                },
+                "query": q,
+                "result": {"item": item},
             }
         )
     return tools
@@ -803,7 +985,7 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
                     {
                         "tool_name": str(tool.get("name")),
                         "title": str(tool.get("title", tool.get("name"))),
-                        "answering_datasets": max((wired.get(x, 0) for x in for_terms), default=0),
+                        "answering_datasets": answering_of(wired, for_terms),
                     }
                 )
         nar = [
@@ -826,7 +1008,9 @@ async def list_terms(client: Any, root: Path | str) -> list[dict]:
 async def remove_term(client: Any, root: Path | str, slug: str) -> None:
     """Withdraw a minted term. Refused (:class:`TermHasLines`) while ANY alignment
     line touches it. Its CQs go with it: a tool whose only term this is is deleted, a
-    tool over several terms just loses this one from ``for_terms``."""
+    tool over several terms is NOT edited (that would leave a question whose shape no
+    longer matches its query): a term such a question uses cannot be withdrawn
+    (:class:`TermHasLines`, "問い『…』が使っています") until the question goes."""
     iri = term_iri(slug)
     if not await _ask(client, f"ASK {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} }}"):
         raise TermNotFound(f"{slug!r} という用語はありません")
@@ -836,16 +1020,14 @@ async def remove_term(client: Any, root: Path | str, slug: str) -> None:
     ):
         raise TermHasLines("線が残っています。先に線を外してください")
     existing = _read_cq_tools(root)  # abort before writing when unreadable
+    for tool in existing:
+        for_terms = {str(x) for x in (tool.get("for_terms") or [])}
+        if iri in for_terms and len(for_terms) >= 2:
+            raise TermHasLines(f"問い『{tool.get('title') or tool.get('name')}』が使っています")
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} }}"
     )
-    kept: list[dict] = []
-    for tool in existing:
-        for_terms = [str(x) for x in (tool.get("for_terms") or [])]
-        if iri not in for_terms:
-            kept.append(tool)
-        elif for_terms != [iri]:
-            kept.append({**tool, "for_terms": [x for x in for_terms if x != iri]})
+    kept = [t for t in existing if iri not in [str(x) for x in (t.get("for_terms") or [])]]
     if kept != existing:
         _save_cq_tools(root, kept)
     await recompute_wired(client, root)
@@ -1129,8 +1311,8 @@ async def preview_alignment(
             {
                 "tool_name": str(tool.get("name")),
                 "title": str(tool.get("title", tool.get("name"))),
-                "before": max((before.get(x, 0) for x in for_terms), default=0),
-                "after": max((after.get(x, 0) for x in for_terms), default=0),
+                "before": answering_of(before, for_terms),
+                "after": answering_of(after, for_terms),
             }
         )
     return {"valid": True, "reason": None, "questions": questions, "terms": terms}
@@ -1404,15 +1586,17 @@ def fit_candidates(
 # 問いの実行文（決定論・⑤と問いの一覧で必ず併記する）
 # ---------------------------------------------------------------------------
 
-#: 閉じた選択の「数え方」。``count`` / ``range`` / ``top`` は今の宣言ツールで答えられ、残りは
-#: 文だけを組める（公開できるのは前者・後者は「メモの問い」）。``values`` は項目の語に付く
-#: 既定の問い（項目の値がどのデータセットにいくつあるか）。
+#: 閉じた選択の「数え方」。``count`` / ``range`` / ``top`` / ``filter`` / ``group`` / ``trend`` /
+#: ``join`` はどれも宣言ツールで答えられる（``filter`` 以降は :func:`default_cq_tools` の
+#: テンプレート・``themes.FITTING_OPS``）。``values`` は項目の語に付く既定の問い（項目の値が
+#: どのデータセットにいくつあるか）。
 SELECTION_OPS = ("count", "range", "top", "filter", "group", "trend", "join", "values")
 
 _PER_JA = "（データセットごと）"
 _PER_EN = " (per dataset)."
 
-#: 数え方ごとに、足りなければならない部分（``kind`` / ``property`` / ``value``）。
+#: 数え方ごとに、足りなければならない部分（``kind`` / ``property`` / ``value`` /
+#: ``property2`` / ``kind2``）。
 _EXEC_NEEDS = {
     "count": ("kind",),
     "values": ("property",),
@@ -1420,8 +1604,8 @@ _EXEC_NEEDS = {
     "top": ("property",),
     "filter": ("kind", "property", "value"),
     "group": ("kind", "property"),
-    "trend": ("kind", "property"),
-    "join": ("kind", "property"),
+    "trend": ("kind", "property", "property2"),
+    "join": ("kind", "property", "kind2"),
 }
 
 
@@ -1458,8 +1642,12 @@ def _describe_knowledge(selection: dict, lang: str) -> str:
 def describe_selection(selection: dict, lang: str = "ja") -> str:
     """閉じた選択（数え方 × 種類 × 項目）を、機械が組む「実行文」に直す（決定論・LLM なし）。
 
-    ``selection`` は ``{"op", "kind", "property", "value"}``（``kind`` / ``property`` は画面に
-    出す名前）。例 ja:「電池セルのうち、容量がいちばん大きいものを出します（データセットごと）」。
+    ``selection`` は ``{"op", "kind", "property", "value", "match", "property2", "kind2"}``
+    （``kind`` / ``property`` / ``property2`` / ``kind2`` は画面に出す名前・``match`` は
+    ``contains`` | ``exact``）。例 ja:「電池セルのうち、容量がいちばん大きいものを出します
+    （データセットごと）」。値で絞る・〜ごと・推移・結合 1 段は名詞句で言い切る:
+    「試料のうち、組成に SnSe を含むもの」「試料を 組成 ごとに数える」
+    「測定曲線の 温度 と Seebeck 係数 の並び」「論文 が 報告する 試料」。
     知識で答える問い（``op`` = ``factors`` / ``parts`` / ``kinds``・``target`` と ``direction``）は
     「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」。
     数え方が閉集合に無い・足りない部分がある（``count`` に種類が無い等）ときは ``""``。
@@ -1472,10 +1660,21 @@ def describe_selection(selection: dict, lang: str = "ja") -> str:
     k = str(selection.get("kind") or "").strip()
     p = str(selection.get("property") or "").strip()
     v = str(selection.get("value") or "").strip()
-    have = {"kind": k, "property": p, "value": v}
+    p2 = str(selection.get("property2") or "").strip()
+    k2 = str(selection.get("kind2") or "").strip()
+    exact = selection.get("match") == "exact"
+    have = {"kind": k, "property": p, "value": v, "property2": p2, "kind2": k2}
     if any(not have[need] for need in _EXEC_NEEDS[op]):
         return ""
     if lang.startswith("en"):
+        if op == "filter":
+            return f'{k}: {p} is "{v}"' if exact else f'{k}: {p} contains "{v}"'
+        if op == "group":
+            return f"Count {k} by {p}"
+        if op == "trend":
+            return f"{k}: {p} and {p2}, in order"
+        if op == "join":
+            return f"{k} {p} {k2}"
         what = k or "one"
         of_kind = f" of {k}" if k else ""
         by = {
@@ -1483,12 +1682,17 @@ def describe_selection(selection: dict, lang: str = "ja") -> str:
             "values": f"Counts how many values of {p} each dataset has.",
             "range": f"Gives the minimum and maximum {p}{of_kind}",
             "top": f"Gives the {what} with the largest {p}",
-            "filter": f'Gives the {k} whose {p} is "{v}"',
-            "group": f"Counts the {k}, grouped by {p}",
-            "trend": f"Lists {p}{of_kind}{f' in order of {v}' if v else ''} as a trend",
-            "join": f"Follows {p} from the {k} one step and gives what it reaches",
         }[op]
         return by if op == "values" else by + _PER_EN
+    # データで答える 4 つの形（値で絞る・〜ごと・推移・結合 1 段）は名詞句で言い切る
+    if op == "filter":
+        return f"{k}のうち、{p}が {v} のもの" if exact else f"{k}のうち、{p}に {v} を含むもの"
+    if op == "group":
+        return f"{k}を {p} ごとに数える"
+    if op == "trend":
+        return f"{k}の {p} と {p2} の並び"
+    if op == "join":
+        return f"{k} が {p} {k2}"
     k_of = f"{k}の" if k else ""
     k_in = f"{k}のうち、" if k else ""
     by = {
@@ -1496,17 +1700,15 @@ def describe_selection(selection: dict, lang: str = "ja") -> str:
         "values": f"{p}の値が、どのデータセットにいくつあるかを数えます",
         "range": f"{k_of}{p}の最小と最大を出します",
         "top": f"{k_in}{p}がいちばん大きいものを出します",
-        "filter": f"{k_in}{p}が「{v}」のものを出します",
-        "group": f"{k}を、{p}ごとに数えます",
-        "trend": f"{k_of}{p}を、{f'{v}の' if v else ''}順に並べて推移を出します",
-        "join": f"{k}に、{p}でつながるものを 1 段たどって出します",
     }[op]
     return by if op == "values" else by + _PER_JA
 
 
 __all__ = [
     "CONCEPT_DISMISS_TERM",
+    "DATA_OPS",
     "GENERIC_LABELS",
+    "MATCH_MODES",
     "PART_OF_PATH",
     "REGISTRY_ID",
     "RESERVED_SLUGS",
@@ -1523,6 +1725,7 @@ __all__ = [
     "TermHasLines",
     "TermNotFound",
     "answering_datasets",
+    "answering_of",
     "classify_endpoint",
     "clean_aliases",
     "concept_subject",

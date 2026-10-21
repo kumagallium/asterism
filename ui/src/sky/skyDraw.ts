@@ -7,8 +7,12 @@ import {
   approxLabelWidth,
   conceptEdgeGeom,
   conceptPillPos,
+  draftEdgeId,
   type DatasetNode,
+  type DraftEdgeInfo,
+  type DraftNode,
   type KindNode,
+  type SkyEdge,
   type SkyLayout,
   type SkyNode,
 } from './skyLayout'
@@ -82,10 +86,15 @@ export interface SkyLabels {
   empty: string
   /** 項目（property）の用語の札の上。 */
   property: string
-  /** 下書きの札の印（枠だけの札の上）。 */
+  /** 提案の札の印（薄い札の上）。 */
   draft: string
+  /** 外す提案の札の印。 */
+  draftRemove: string
   /** 知識の線の小さな札（「一部」）。下げる／上げる／変えるは記号（↓ ↑ ↕）。 */
   partOf: string
+  /** 提案の線の小さな札（一種・量）。同じもの・付け替え・外すは記号。 */
+  relSub: string
+  relQuantity: string
   /** 件数の単位つき文字列（`46,200 件`）。 */
   count: (n: number) => string
   /** データセットの丸の下（`3 種類`）。 */
@@ -104,6 +113,8 @@ export interface DrawState {
   reducedMotion: boolean
   /** 全体の濃さ（見本を薄く重ねるとき）。 */
   alpha?: number
+  /** 選んでいる提案の線（`from|rel|to`）。太く描く。 */
+  selectedEdge?: string | null
 }
 
 // ── 小道具 ───────────────────────────────────────────────────────
@@ -244,6 +255,216 @@ export function visiblePointLabels(layout: SkyLayout): Set<string> {
     out.add(p.id)
   }
   return out
+}
+
+// ── 提案の札・線 ─────────────────────────────────────────────────
+function arrowHead(ctx: Ctx, x: number, y: number, ang: number): void {
+  ctx.beginPath()
+  ctx.moveTo(x, y)
+  ctx.lineTo(x - 8 * Math.cos(ang - 0.4), y - 8 * Math.sin(ang - 0.4))
+  ctx.lineTo(x - 8 * Math.cos(ang + 0.4), y - 8 * Math.sin(ang + 0.4))
+  ctx.closePath()
+  ctx.fill()
+}
+
+/** 提案の線の濃さ。図に入れたものは濃く、提案は薄く、付け替えで離れる元の線はさらに薄い。選んだ線は濃い。 */
+function draftLineAlpha(d: DraftEdgeInfo, selected: boolean): number {
+  if (selected) return 0.95
+  switch (d.state) {
+    case 'solid':
+      return 0.85
+    case 'retarget':
+      return 0.6
+    case 'moved':
+      return 0.2
+    case 'remove':
+      return 0.3
+    default:
+      return 0.42
+  }
+}
+
+/** 提案の線の小さな札の字。 */
+export function draftPillText(d: DraftEdgeInfo, labels: SkyLabels): string {
+  if (d.state === 'retarget') return '→'
+  if (d.state === 'remove') return '×'
+  switch (d.rel) {
+    case 'part':
+      return labels.partOf
+    case 'sub':
+      return labels.relSub
+    case 'quantity':
+      return labels.relQuantity
+    case 'eq':
+      return '＝'
+    case 'lowers':
+      return '↓'
+    case 'raises':
+      return '↑'
+    case 'affects':
+      return '↕'
+    default:
+      return ''
+  }
+}
+
+function drawDraftCard(
+  ctx: Ctx,
+  n: DraftNode,
+  pal: SkyPalette,
+  labels: SkyLabels,
+  focused: boolean,
+  alpha: number,
+  sc: number,
+): void {
+  const thin = n.state === 'thin' || n.proposed
+  ctx.save()
+  ctx.globalAlpha = alpha * (thin ? 0.72 : n.state === 'remove' ? 0.55 : 1)
+  ctx.font = `600 12px ${pal.font}`
+  const text = fitText(ctx, n.label, n.w - 26)
+  const tw = ctx.measureText(text).width
+  const w = Math.min(n.w, tw + 26) * sc
+  const h = n.h * sc
+  const x = n.x - w / 2
+  const y = n.y - h / 2
+  roundRect(ctx, x, y, w, h, 14)
+  ctx.fillStyle = thin ? withAlpha(pal.activitySoft, 0.55) : pal.activitySoft
+  ctx.fill()
+  ctx.strokeStyle = n.state === 'remove' ? pal.accent : pal.activity
+  ctx.lineWidth = focused ? 2.5 : thin ? 1.1 : 1.6
+  ctx.stroke()
+  ctx.fillStyle = pal.activity
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, n.x, n.y + 0.5)
+  if (n.state === 'remove') {
+    ctx.strokeStyle = pal.accent
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    ctx.moveTo(n.x - tw / 2, n.y + 0.5)
+    ctx.lineTo(n.x + tw / 2, n.y + 0.5)
+    ctx.stroke()
+  }
+  // 印（札の上）: 提案・外す提案。図に入れたものには付けない。項目の札は、印の右に「項目」を添える
+  const mark = n.state === 'remove' ? labels.draftRemove : thin ? labels.draft : ''
+  const caption = mark ? (n.termKind === 'property' ? `${mark} · ${labels.property}` : mark) : n.termKind === 'property' ? labels.property : ''
+  if (caption) {
+    ctx.font = `500 9px ${pal.mono}`
+    ctx.fillStyle = mark ? pal.accent : pal.faint
+    ctx.textBaseline = 'bottom'
+    ctx.fillText(caption, n.x, y - 2)
+  }
+  ctx.restore()
+}
+
+// ── 提案の線の当たり判定・端の丸 ───────────────────────────────────
+const HANDLE_R = 7
+
+/** 線（2 次ベジェ）の点 p からの最短距離（折れ線で近似）。 */
+function distToCurve(g: { x1: number; y1: number; cx: number; cy: number; x2: number; y2: number }, px: number, py: number): number {
+  let best = Infinity
+  let prev = { x: g.x1, y: g.y1 }
+  for (let i = 1; i <= 24; i++) {
+    const t = i / 24
+    const u = 1 - t
+    const q = { x: u * u * g.x1 + 2 * u * t * g.cx + t * t * g.x2, y: u * u * g.y1 + 2 * u * t * g.cy + t * t * g.y2 }
+    const dx = q.x - prev.x
+    const dy = q.y - prev.y
+    const len2 = dx * dx + dy * dy || 1
+    const k = Math.max(0, Math.min(1, ((px - prev.x) * dx + (py - prev.y) * dy) / len2))
+    best = Math.min(best, Math.hypot(px - (prev.x + dx * k), py - (prev.y + dy * k)))
+    prev = q
+  }
+  return best
+}
+
+/**
+ * 押した所にある提案の線（直せる線だけ＝**開いている下書き**の関係）。小さな札の上か、線から 7px 以内。
+ * 開いていない下書きの線は選べない（`openDraftId` が null なら、どの線も選べない）。
+ */
+export function hitDraftEdge(layout: SkyLayout, px: number, py: number, openDraftId: string | null): SkyEdge | null {
+  if (openDraftId === null) return null
+  let best: SkyEdge | null = null
+  let bd = Infinity
+  for (const e of layout.edges) {
+    if (e.kind !== 'draft' || !e.draft || e.draft.index === null || e.draft.draftId !== openDraftId) continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    let d = distToCurve(g, px, py)
+    if (e.pill && Math.abs(px - e.pill.x) <= 16 && Math.abs(py - e.pill.y) <= 9) d = Math.min(d, 0)
+    if (d <= 7 && d < bd) {
+      bd = d
+      best = e
+    }
+  }
+  return best
+}
+
+/** 線の端の丸（矢じりのそば）の位置。 */
+export function draftHandlePos(layout: SkyLayout, e: SkyEdge): { x: number; y: number } | null {
+  const g = conceptEdgeGeom(layout, e)
+  return g ? { x: g.x2, y: g.y2 } : null
+}
+
+/** 押した所にある端の丸（持って別の札に落とす）。`edges` は丸を出している線。 */
+export function hitHandle(layout: SkyLayout, edges: readonly SkyEdge[], px: number, py: number): SkyEdge | null {
+  for (const e of edges) {
+    const h = draftHandlePos(layout, e)
+    if (h && Math.hypot(px - h.x, py - h.y) <= HANDLE_R + 5) return e
+  }
+  return null
+}
+
+export interface DraftOverlay {
+  /** 端の丸を出す線（選んだ線・選んだ札の線）。 */
+  handles: readonly SkyEdge[]
+  /** 持っている最中: どの線を・いまの位置・落とし先の札。 */
+  drag: { edge: SkyEdge; x: number; y: number; overId: string | null } | null
+}
+
+/** 端の丸と、持っている最中の線・落とし先の枠を重ねる。drawSky のあとに呼ぶ。 */
+export function drawDraftOverlay(ctx: Ctx, layout: SkyLayout, pal: SkyPalette, ov: DraftOverlay): void {
+  ctx.save()
+  for (const e of ov.handles) {
+    const h = draftHandlePos(layout, e)
+    if (!h) continue
+    const dragging = ov.drag?.edge === e
+    const x = dragging ? ov.drag!.x : h.x
+    const y = dragging ? ov.drag!.y : h.y
+    ctx.beginPath()
+    ctx.arc(x, y, HANDLE_R, 0, Math.PI * 2)
+    ctx.fillStyle = pal.surface
+    ctx.fill()
+    ctx.strokeStyle = pal.accent
+    ctx.lineWidth = 2
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2)
+    ctx.fillStyle = pal.accent
+    ctx.fill()
+  }
+  const d = ov.drag
+  if (d) {
+    const from = layout.nodes.get(d.edge.from)
+    if (from) {
+      ctx.strokeStyle = pal.accent
+      ctx.globalAlpha = 0.7
+      ctx.lineWidth = 1.6
+      ctx.beginPath()
+      ctx.moveTo(from.x, from.y)
+      ctx.lineTo(d.x, d.y)
+      ctx.stroke()
+    }
+    const over = d.overId ? layout.nodes.get(d.overId) : undefined
+    if (over && (over.type === 'draft' || over.type === 'term')) {
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = pal.accent
+      ctx.lineWidth = 2.5
+      roundRect(ctx, over.x - over.w / 2 - 3, over.y - over.h / 2 - 3, over.w + 6, over.h + 6, 16)
+      ctx.stroke()
+    }
+  }
+  ctx.restore()
 }
 
 // ── 当たり判定 ───────────────────────────────────────────────────
@@ -441,6 +662,29 @@ export function drawSky(
     ctx.restore()
   }
 
+  // 提案の線（薄い実線）。確かめるまでは薄く、図に入れたものは濃く。付け替えで離れる元の線はさらに薄く。
+  // 点線は使わない（利用者の好み）。小さな札は用語の札のあとに重ねる。
+  for (const e of layout.edges) {
+    if (e.kind !== 'draft' || !e.draft) continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    const d = e.draft
+    const part = d.rel === 'part' || d.rel === 'sub'
+    const on = st.selectedEdge === draftEdgeId(d)
+    ctx.save()
+    ctx.globalAlpha = Math.min(alphaOf(e.from), alphaOf(e.to)) * draftLineAlpha(d, on) * A
+    ctx.strokeStyle = d.problem ? pal.accent : part ? pal.body : pal.activity
+    ctx.fillStyle = ctx.strokeStyle
+    ctx.lineWidth = on ? 2.4 : d.state === 'solid' ? 1.4 : 1.2
+    ctx.beginPath()
+    ctx.moveTo(g.x1, g.y1)
+    ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2)
+    ctx.stroke()
+    arrowHead(ctx, g.x2, g.y2, Math.atan2(g.y2 - g.cy, g.x2 - g.cx))
+    if (d.rel === 'eq') arrowHead(ctx, g.x1, g.y1, Math.atan2(g.y1 - g.cy, g.x1 - g.cx))
+    ctx.restore()
+  }
+
   // 星（種類）・丸（データセット）
   ctx.textAlign = 'center'
   for (const n of layout.nodes.values()) {
@@ -615,33 +859,40 @@ export function drawSky(
     ctx.restore()
   }
 
-  // 下書きの札（上の帯）: 枠だけ（塗らない）＋「下書き」の印。置いたが星なしの札（薄塗り）とは別の符号。
+  // 提案の札（上の帯）: 提案は薄い塗り＋「提案」の印、図に入れたものは濃く（印なし）。外す提案は打ち消し。
   for (const n of layout.nodes.values()) {
     if (n.type !== 'draft') continue
-    const sc = scaleOf(n.id)
+    drawDraftCard(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id))
+  }
+
+  // 提案の線の小さな札（線の中ほど）
+  for (const e of layout.edges) {
+    if (e.kind !== 'draft' || !e.draft) continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    const d = e.draft
+    const text = draftPillText(d, labels)
+    if (!text) continue
+    const part = d.rel === 'part' || d.rel === 'sub'
     ctx.save()
-    ctx.globalAlpha = alphaOf(n.id) * A
-    ctx.font = `600 12px ${pal.font}`
-    const text = fitText(ctx, n.label, n.w - 26)
-    const tw = ctx.measureText(text).width
-    const w = Math.min(n.w, tw + 26) * sc
-    const h = n.h * sc
-    const x = n.x - w / 2
-    const y = n.y - h / 2
-    roundRect(ctx, x, y, w, h, 14)
-    ctx.fillStyle = pal.paper
-    ctx.fill()
-    ctx.strokeStyle = pal.activity
-    ctx.lineWidth = focus === n.id ? 2.5 : 1.4
-    ctx.stroke()
-    ctx.fillStyle = pal.activity
+    ctx.globalAlpha = Math.min(alphaOf(e.from), alphaOf(e.to)) * draftLineAlpha(d, st.selectedEdge === draftEdgeId(d)) * A
+    ctx.font = `600 ${text.length > 1 ? 9.5 : 11}px ${pal.font}`
+    ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(text, n.x, n.y + 0.5)
-    // 「下書き」の印（札の上）。項目の札は、印の右に「項目」を添える
-    ctx.font = `500 9px ${pal.mono}`
-    ctx.fillStyle = pal.accent
-    ctx.textBaseline = 'bottom'
-    ctx.fillText(n.termKind === 'property' ? `${labels.draft} · ${labels.property}` : labels.draft, n.x, y - 2)
+    const w = ctx.measureText(text).width + 10
+    const pos = e.pill !== undefined ? e.pill : conceptPillPos(layout, g, w)
+    if (!pos) {
+      ctx.restore()
+      continue
+    }
+    roundRect(ctx, pos.x - w / 2, pos.y - 8, w, 16, 8)
+    ctx.fillStyle = pal.surface
+    ctx.fill()
+    ctx.strokeStyle = d.problem ? pal.accent : part ? pal.body : pal.activity
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.fillStyle = ctx.strokeStyle
+    ctx.fillText(text, pos.x, pos.y + 0.5)
     ctx.restore()
   }
 
@@ -670,4 +921,34 @@ export function drawSky(
     ctx.restore()
   }
   ctx.textAlign = 'start'
+}
+
+/**
+ * 「結べそうな線」（公開のあとに機械が数えた名前の完全一致）を、薄い実線で重ねる。星 → 用語の札。
+ * 確かめていないものの符号は 6b の下書きの札と同じ（薄い。点線は使わない — 利用者の好み）— 線になるのは人が決めたあと。
+ * 選んでいる点があれば、その点につながる線だけを少し濃くする。
+ */
+export function drawSuggestions(
+  ctx: CanvasRenderingContext2D,
+  layout: SkyLayout,
+  pal: SkyPalette,
+  edges: readonly { from: string; to: string }[],
+  focusId: string | null,
+): void {
+  if (edges.length === 0) return
+  ctx.save()
+  ctx.lineWidth = 1.2
+  ctx.strokeStyle = pal.activity
+  for (const e of edges) {
+    const a = layout.nodes.get(e.from)
+    const c = layout.nodes.get(e.to)
+    if (!a || !c) continue
+    const on = !!focusId && (e.from === focusId || e.to === focusId)
+    ctx.globalAlpha = on ? 0.6 : 0.22
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.bezierCurveTo(a.x, a.y - 70, c.x, c.y + 80, c.x, c.y + 14)
+    ctx.stroke()
+  }
+  ctx.restore()
 }

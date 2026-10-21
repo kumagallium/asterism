@@ -5,9 +5,9 @@ import {
   createDraft,
   deleteTheme,
   draftWithAi,
-  expandDraft,
   getDraft,
   getThemeAnswers,
+  saveDraft,
   themeLabel,
 } from './themesApi'
 
@@ -74,26 +74,24 @@ describe('the v2 api client (6a)', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ questions: ['Q?'], label: 'T', lang: 'en' })
   })
 
-  it('reads the saved draft and the added concepts after "ここを広げる"', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        json({
-          id: 'x',
-          label: 'L',
-          step: 2,
-          questions: ['Q?'],
-          concepts: [{ key: 'c1', label_ja: 'a', kind: 'class' }, { key: 'e1', label_ja: 'b', kind: 'class' }],
-          relations: [],
-          answers: [],
-          added: { concepts: [{ key: 'e1' }], relations: [] },
-        }),
-      ),
+  it('sends the thin rows and "forget the chat" with a save, and reads the thin rows back', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      json({
+        id: 'x', label: 'L', step: 2, questions: ['Q?'], concepts: [], relations: [], answers: [],
+        pending: { concepts: ['n1'], relations: [['n1', 'lowers', 'n2'], ['bad']] },
+      }),
     )
-    const res = await expandDraft('x', 'c1', 'ja', null)
-    expect(res.addedConcepts).toEqual(['e1'])
-    expect(res.draft.concepts).toHaveLength(2)
-    expect(res.draft.answers).toHaveLength(1) // 問いごとに 1 行
+    vi.stubGlobal('fetch', fetchMock)
+    const draft = await getDraft('x')
+    expect(draft.pending).toEqual({ concepts: ['n1'], relations: [['n1', 'lowers', 'n2']] })
+    const pending = { concepts: ['n1'], relations: [['n1', 'lowers', 'n2']] }
+    await saveDraft(draft, { pending, resetChat: true })
+    const sent = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)
+    expect(sent.pending).toEqual(pending)
+    expect(sent.reset_chat).toBe(true)
+    await saveDraft(draft)
+    const plain = JSON.parse((fetchMock.mock.calls[2][1] as RequestInit).body as string)
+    expect('pending' in plain || 'reset_chat' in plain).toBe(false) // 送らなければサーバの控えを残す
   })
 
   it('makes a draft and reads the commit result (batch included)', async () => {

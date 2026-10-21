@@ -234,12 +234,13 @@ def test_for_terms_tools_are_hidden_without_wired_json_and_when_all_terms_are_ze
     assert _served(reg) == {"plain_tool"}
 
 
-def test_for_terms_tool_is_served_when_any_of_its_terms_is_wired(tmp_path) -> None:
+def test_for_terms_tool_is_served_when_its_terms_are_wired(tmp_path) -> None:
     reg = _registry(tmp_path)
     _vocab_with_cqs(reg)
     _wired(reg, {T1: 2, T2: 0})
-    # 「すべて 0」のときだけ除く。語が 1 つでも答えるなら載る。
-    assert _served(reg) == {"plain_tool", "cq_sample_count", "cq_both"}
+    # 1 語の問いは、その語が答えるときに載る。2 語以上の問い（cq_both）は全部の語が
+    # 答えるときだけ（T2 が 0 なので載らない）。
+    assert _served(reg) == {"plain_tool", "cq_sample_count"}
     _wired(reg, {T1: 1, T2: 3})
     assert _served(reg) == {"plain_tool", "cq_sample_count", "cq_hardness_values", "cq_both"}
 
@@ -255,8 +256,7 @@ def test_tool_sources_applies_the_same_rule_and_a_flat_wired_file_is_read(
     assert {t.name for t in tool_sources(reg)["vocab-shared"]} == {
         "plain_tool",
         "cq_hardness_values",
-        "cq_both",
-    }
+    }  # cq_both は T1 も答えるまで載らない
 
 
 # --- 共有のことばをデータセットとして返さない --------------------------------------

@@ -155,20 +155,41 @@ export async function getSky(): Promise<SkyData> {
   }
 }
 
+/** 提案の札の状態。`thin`＝提案（薄い・まだ図に入れていない）／`solid`＝図に入れた（まだ置いていない）／`remove`＝外す提案。 */
+export type DraftState = 'thin' | 'solid' | 'remove'
+/** 提案の線の状態。`retarget`＝付け替えの新しい線／`moved`＝付け替えで離れる元の線。 */
+export type DraftLineState = 'thin' | 'solid' | 'retarget' | 'moved' | 'remove'
+
 /** 下書きの札 1 つ分の概念（`GET /api/themes/drafts/sky`）。`use` は `new` / `existing:<slug>` / `standard:<curie>`。 */
 export interface DraftSkyConcept {
   key: string
   label: string
   kind: 'class' | 'property'
   use: string
+  /** 無ければ `thin`（開いていない下書きは全部提案）。 */
+  state?: DraftState
+  /** 返事を待つ提案の札（まだ下書きに無い）。線の落とし先にしない。 */
+  proposed?: boolean
 }
 
-/** まだ確かめていない下書き 1 件（テーマ）。星図の上の帯に、枠だけの札＋「下書き」の印で描く。 */
+/** 下書きの関係 1 本。`from`/`to` は概念の key（標準の語は curie）。`rel` は sub|eq|quantity|part|lowers|raises|affects。 */
+export interface DraftSkyRelation {
+  from: string
+  to: string
+  rel: string
+  state?: DraftLineState
+  /** 下書きの関係の添字（提案の線は null）。 */
+  index?: number | null
+  /** 機械が確定から外す印（種類と項目の混在・循環など）。 */
+  problem?: boolean
+}
+
+/** まだ置いていない下書き 1 件（テーマ）。星図の上の帯に、薄い札と薄い線（提案）で描く。 */
 export interface DraftSky {
   draft_id: string
   theme_label: string
   concepts: DraftSkyConcept[]
-  relations: { from: string; to: string; rel: string }[]
+  relations: DraftSkyRelation[]
   questions: string[]
 }
 
@@ -181,9 +202,9 @@ export async function fetchDraftSky(lang: 'ja' | 'en'): Promise<DraftSky[]> {
     const res = await fetch(`/api/themes/drafts/sky?lang=${lang}`, { headers: authHeaders() })
     if (!res.ok) return []
     const body = (await res.json()) as { drafts?: DraftSky[] }
-    return (body.drafts ?? []).filter(
-      (d) => d && typeof d.draft_id === 'string' && Array.isArray(d.concepts),
-    )
+    return (body.drafts ?? [])
+      .filter((d) => d && typeof d.draft_id === 'string' && Array.isArray(d.concepts))
+      .map((d) => ({ ...d, relations: Array.isArray(d.relations) ? d.relations : [], questions: d.questions ?? [] }))
   } catch {
     return []
   }

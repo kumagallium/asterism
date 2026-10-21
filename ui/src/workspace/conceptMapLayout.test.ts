@@ -27,11 +27,11 @@ const overlaps = (a: MapNodePos, b: MapNodePos) =>
 describe('layoutConceptMap', () => {
   const m = layoutConceptMap(nodes, rels)
 
-  it('puts 一部 on rows (part above whole) and causes beside what they change', () => {
+  it('puts the whole (to) above its parts (from), like the star chart, and causes beside what they change', () => {
     const row = (k: string) => m.byKey.get(k)!.row
-    expect(row('c2')).toBe(0)
-    expect(row('c3')).toBe(0)
-    expect(row('c1')).toBe(1)
+    expect(row('c1')).toBe(0)
+    expect(row('c2')).toBe(1)
+    expect(row('c3')).toBe(1)
     // 下げる・上げる・変える は段を作らない: 相手と同じ段
     expect(row('c4')).toBe(row('c2'))
     expect(row('c5')).toBe(row('c2'))
@@ -92,7 +92,7 @@ describe('layoutConceptMap', () => {
     expect(bad.problem).toBe(true)
     expect(bad.kind).toBe('side')
     // 機械が止めた「一種」は段を作らない
-    expect(more.byKey.get('c2')!.row).toBe(0)
+    expect(more.byKey.get('c2')!.row).toBe(1)
   })
 
   it('handles eq as two-way and a map with no relations at all', () => {
@@ -139,8 +139,62 @@ describe('layoutConceptMap', () => {
     const leftOf = (l: typeof centre, row: number) => Math.min(...l.nodes.filter((n) => n.row === row).map((n) => n.x))
     expect(leftOf(start, 0)).toBe(16)
     expect(leftOf(start, 1)).toBe(16)
-    expect(leftOf(centre, 1)).toBeGreaterThan(16) // 狭い段は中央寄せ
+    expect(leftOf(centre, 0)).toBeGreaterThan(16) // 狭い段（全体の段）は中央寄せ
     for (const a of start.nodes) for (const b of start.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
   })
-})
 
+  it('maxWidth wraps a wide row into several rows: nothing is wider than the limit, nothing overlaps, the whole is still above its parts', () => {
+    const wide = layoutConceptMap(nodes, rels)
+    const limit = 420
+    expect(wide.width).toBeGreaterThan(limit)
+    const w = layoutConceptMap(nodes, rels, { maxWidth: limit })
+    expect(w.width).toBeLessThanOrEqual(limit)
+    expect(w.rows.length).toBeGreaterThan(wide.rows.length)
+    for (const a of w.nodes) for (const b of w.nodes) if (a.key !== b.key) expect(overlaps(a, b)).toBe(false)
+    // 一種・一部の線は、from（一部）が to（全体）より下の段のまま
+    for (const e of w.edges.filter((x) => x.kind === 'hier')) {
+      expect(w.byKey.get(e.from)!.row).toBeGreaterThan(w.byKey.get(e.to)!.row)
+    }
+    // どの札も図の中に収まる
+    for (const n of w.nodes) {
+      expect(n.x).toBeGreaterThanOrEqual(0)
+      expect(n.x + n.w).toBeLessThanOrEqual(w.width)
+    }
+    // 折り返して離れた同じかたまりの線も、端はかならず相手の札についている
+    for (const e of w.edges) expect(Number.isFinite(e.end.x + e.end.y)).toBe(true)
+  })
+
+  it('maxWidth wide enough changes nothing; without it nothing wraps', () => {
+    const plain = layoutConceptMap(nodes, rels)
+    const roomy = layoutConceptMap(nodes, rels, { maxWidth: plain.width + 50 })
+    expect(roomy.rows).toEqual(plain.rows)
+    expect(roomy.width).toBe(plain.width)
+  })
+
+  it('maxWidth packs loose cards by width instead of five per row', () => {
+    const loose = Array.from({ length: 9 }, (_, i) => ({ key: `l${i}`, label: `概念${i}` }))
+    expect(layoutConceptMap(loose, []).rows.map((r) => r.length)).toEqual([5, 4])
+    const w = layoutConceptMap(loose, [], { maxWidth: 300 })
+    expect(w.width).toBeLessThanOrEqual(300)
+    expect(w.rows.length).toBeGreaterThan(2)
+    expect(w.rows.flat().sort()).toEqual(loose.map((n) => n.key).sort())
+  })
+
+  it('a cluster that is wider than the limit by itself is split at a column boundary', () => {
+    const ns = [
+      { key: 'a', label: '原因の概念その一' },
+      { key: 'b', label: '真ん中の概念' },
+      { key: 'c', label: '結果の概念その一' },
+    ]
+    const rs = [
+      { index: 0, from: 'a', to: 'b', rel: 'lowers' as const },
+      { index: 1, from: 'b', to: 'c', rel: 'raises' as const },
+    ]
+    const flat = layoutConceptMap(ns, rs)
+    expect(flat.rows.length).toBe(1)
+    const w = layoutConceptMap(ns, rs, { maxWidth: 320 })
+    expect(w.rows.length).toBeGreaterThan(1)
+    expect(w.width).toBeLessThanOrEqual(320)
+    expect(w.edges.length).toBe(2)
+  })
+})

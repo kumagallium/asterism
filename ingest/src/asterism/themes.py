@@ -60,9 +60,13 @@ DRAFT_FILE = "draft.json"
 FIRST_THEME_ID = "first"
 FIRST_THEME_LABEL = "はじめの問い"
 
-#: 今の宣言ツールで答えられる数え方（``api/questions_routes.QUESTION_OPS`` と同じ・api の
-#: テストが固定する）。これ以外は公開せず「メモの問い」に残す（PR 5 で広げる）。
-FITTING_OPS = ("count", "range", "top")
+#: データで答える数え方（宣言ツールで答えられるもの・``count`` / ``range`` / ``top`` は
+#: ``api/questions_routes.QUESTION_OPS`` と同じ・api のテストが固定する）。``filter`` /
+#: ``group`` / ``trend`` / ``join`` は :func:`asterism.shared_vocab.default_cq_tools` の
+#: テンプレート（値で絞る・〜ごと・推移・結合 1 段）。これ以外は公開せず「メモの問い」に残す。
+FITTING_OPS = ("count", "range", "top", *sv.DATA_OPS)
+#: ``themes.json`` の ``selections`` に残す欄（実行文を組む表示名と値）。
+_SELECTION_KEYS = ("op", "kind", "property", "value", "match", "property2", "kind2")
 #: 知識で答える（``asterism.knowledge`` の走者・``theme_propose.KNOWLEDGE_OPS`` と同じ）。
 KNOWLEDGE_OPS = ("factors", "parts", "kinds")
 KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
@@ -275,8 +279,8 @@ def add_questions_to_theme(
 ) -> dict:
     """Put already-minted CQs (by tool name) into an existing theme
     （かんたん ⑥「テーマに入れる」）.
-    Idempotent. ``selections`` (tool name → ``{op, kind, property, value}``) is kept to
-    phrase the execution sentence later. Unknown tool names are a 422."""
+    Idempotent. ``selections`` (tool name → ``{op, kind, property, value, match, property2,
+    kind2}``) is kept to phrase the execution sentence later. Unknown tool names are a 422."""
     data = ensure_migrated(root)
     theme = next((t for t in data["themes"] if t["id"] == theme_id), None)
     if theme is None:
@@ -297,7 +301,7 @@ def add_questions_to_theme(
         sel = theme.setdefault("selections", {})
         for name, s in selections.items():
             if name in tool_names and isinstance(s, dict):
-                sel[name] = {k: s.get(k) for k in ("op", "kind", "property", "value") if s.get(k)}
+                sel[name] = {k: s.get(k) for k in _SELECTION_KEYS if s.get(k)}
     _save_themes(root, data)
     return theme
 
@@ -411,10 +415,72 @@ def _standards_of(v: Any) -> dict[str, dict]:
     }
 
 
+_CHAT_MESSAGES_MAX = 200
+_CHAT_CONTENT_MAX = 2000
+_CHAT_PROPOSALS_MAX = 100
+_CHAT_OPS_MAX = 30
+
+
+def _chat_of(v: Any) -> dict:
+    """The conversation kept with a draft (ui-redesign PR 7a・design.md §16): what the PERSON
+    said and the diffs they accepted — never the model's prose. ``{messages: [{role: "user",
+    content, at}], proposals: [{proposal_id, ops, at, by}]}``; ``{}`` when there is nothing."""
+    if not isinstance(v, dict):
+        return {}
+    messages = [
+        {
+            "role": "user",
+            "content": " ".join(str(m["content"]).split())[:_CHAT_CONTENT_MAX],
+            "at": str(m.get("at") or ""),
+        }
+        for m in v.get("messages") or []
+        if isinstance(m, dict)
+        and m.get("role") == "user"
+        and isinstance(m.get("content"), str)
+        and m["content"].strip()
+    ][-_CHAT_MESSAGES_MAX:]
+    proposals = [
+        {
+            "proposal_id": str(p["proposal_id"]),
+            "ops": [o for o in p.get("ops") or [] if isinstance(o, dict)][:_CHAT_OPS_MAX],
+            "at": str(p.get("at") or ""),
+            "by": "human" if p.get("by") == "human" else "ai",
+        }
+        for p in v.get("proposals") or []
+        if isinstance(p, dict) and isinstance(p.get("proposal_id"), str) and p["proposal_id"]
+    ][-_CHAT_PROPOSALS_MAX:]
+    return {"messages": messages, "proposals": proposals} if messages or proposals else {}
+
+
+def _pending_of(v: Any) -> dict | None:
+    """The part of the draft still "thin" (the AI's proposal the person has not yet said yes
+    to; ui-redesign PR 7b): ``{concepts: [key], relations: [[from, rel, to]]}``. ``None`` when
+    the caller did not say (a thing that is not an object) — an empty ``{concepts: [],
+    relations: []}`` is a real answer ("everything is accepted") and is kept as such."""
+    if not isinstance(v, dict):
+        return None
+    concepts = [c for c in v.get("concepts") or [] if isinstance(c, str) and c][:MAX_CONCEPTS]
+    relations = [
+        [str(x) for x in r]
+        for r in v.get("relations") or []
+        if isinstance(r, (list, tuple)) and len(r) == 3 and all(isinstance(x, str) and x for x in r)
+    ][:_MAX_DRAFT_RELATIONS]
+    return {"concepts": concepts, "relations": relations}
+
+
 def save_draft(root: Path | str, draft: dict) -> dict:
     """Write a (v2) draft as given (the shape is the wizard's own; only the frame is
     checked). The model's raw output is NEVER stored — a caller that passes ``ai`` has it
-    ignored here (design.md §15.3: the draft keeps the post-processed rows, nothing else)."""
+    ignored here (design.md §15.3: the draft keeps the post-processed rows, nothing else).
+
+    ``chat`` (the conversation with the workspace's partner — :func:`_chat_of`) is kept as
+    given when the caller passes it, and carried over from the saved draft when the caller
+    does not (an ordinary save of the rows must not lose the conversation). ``reset_chat``
+    (true) empties it instead: re-reading the questions starts a new draft, and the old
+    conversation (about rows that are gone) must not come back.
+
+    ``pending`` (:func:`_pending_of`) is the same kind of thing — kept as given, carried over
+    when the caller does not pass it, and absent until someone passes it (an old draft)."""
     path = _draft_path(root, str(draft.get("id")))
     step = draft.get("step")
     if not isinstance(step, int) or not 1 <= step <= 3:
@@ -430,6 +496,15 @@ def save_draft(root: Path | str, draft: dict) -> dict:
     if len(answers) > _MAX_QUESTIONS:
         raise ThemeError(f"問いの答え方は {_MAX_QUESTIONS} 件までです")
     suggested = [str(q) for q in (draft.get("suggested_questions") or []) if isinstance(q, str)]
+    carried = "chat" in draft and "pending" in draft
+    prior = None if carried else load_draft(root, str(draft.get("id")))
+    if draft.get("reset_chat") is True:
+        chat = {}
+    elif "chat" in draft:
+        chat = _chat_of(draft["chat"])
+    else:
+        chat = _chat_of((prior or {}).get("chat"))
+    pending = _pending_of(draft["pending"] if "pending" in draft else (prior or {}).get("pending"))
     out = {
         "version": DRAFT_VERSION,
         "id": draft["id"],
@@ -442,6 +517,8 @@ def save_draft(root: Path | str, draft: dict) -> dict:
         "answers": answers,
         "suggested_questions": suggested[:5],
         "standards": _standards_of(draft.get("standards")),
+        **({"chat": chat} if chat else {}),
+        **({"pending": pending} if pending is not None else {}),
         "updated_at": str(draft.get("updated_at") or _now_default()),
     }
     sv._scaffold(root)
@@ -637,15 +714,21 @@ def derive_slug(label_en: str, aliases: Iterable[str], taken: Iterable[str], n: 
     return unique_slug(base or f"t{n}", {*taken, *sv.RESERVED_SLUGS})
 
 
-def match_rows(rows: Iterable[dict], *, existing: list[SharedTerm]) -> list[dict]:
+def match_rows(
+    rows: Iterable[dict], *, existing: list[SharedTerm], taken: Iterable[str] = ()
+) -> list[dict]:
     """Rows the person wrote by hand (``{key?, label_ja, label_en, aliases, kind}``) →
     ``[{key, match, use, slug}]``: the same exact-name check an AI draft gets (ja / en /
     aliases through :func:`normalize_label` — a part of a name never matches). ``use`` is the
     machine's advice (``existing:<slug>`` / ``standard:<curie>`` / ``new``); ``slug`` is the
     existing term's, or the one :func:`derive_slug` would give a new concept (``t<n>`` when
-    there is no English name). Read-only; no model is involved."""
+    there is no English name). ``taken``: slugs already used by other rows of the same
+    draft (the placeholder ``t<n>`` must not repeat across batches). Read-only; no model
+    is involved."""
     out: list[dict] = []
-    taken = {e.slug for e in existing}
+    taken_all = {e.slug for e in existing}
+    taken_all.update(str(t) for t in taken)
+    start = len([t for t in taken_all if re.fullmatch(r"t\d+", t)])
     for i, r in enumerate(rows):
         kind = "property" if r.get("kind") == "property" else "class"
         aliases = list(sv.clean_aliases(r.get("aliases")))
@@ -653,8 +736,8 @@ def match_rows(rows: Iterable[dict], *, existing: list[SharedTerm]) -> list[dict
             str(r.get("label_ja") or ""), str(r.get("label_en") or ""), aliases, kind, existing
         )
         if not slug:
-            slug = derive_slug(str(r.get("label_en") or ""), aliases, taken, i + 1)
-            taken.add(slug)
+            slug = derive_slug(str(r.get("label_en") or ""), aliases, taken_all, start + i + 1)
+            taken_all.add(slug)
         key = r.get("key") if r.get("key") is not None else f"t{i + 1}"
         out.append({"key": key, "match": match, "use": use, "slug": slug})
     return out
@@ -942,10 +1025,17 @@ def postprocess_draft(
         t_row = resolve(a["target"])[0] if a.get("target") else None
         k_row = resolve(a["kind"], "class")[0] if a.get("kind") else None
         p_row = resolve(a["property"], "property")[0] if a.get("property") else None
+        p2_row = resolve(a["property2"], "property")[0] if a.get("property2") else None
+        k2_row = resolve(a["kind2"], "class")[0] if a.get("kind2") else None
         if k_row is not None and k_row["kind"] != "class":
             k_row = None
+        if k2_row is not None and k2_row["kind"] != "class":
+            k2_row = None
         if p_row is not None and p_row["kind"] != "property":
             p_row = None
+        if p2_row is not None and p2_row["kind"] != "property":
+            p2_row = None
+        value = _clean_value(a.get("value"))
         direction = a.get("direction")
         memo: str | None
         if mode == "knowledge":
@@ -954,12 +1044,13 @@ def postprocess_draft(
                 good = good and direction in KNOWLEDGE_DIRECTIONS
             memo = None if good else "ai"
         elif mode == "data":
-            good = (
-                (op == "count" and k_row is not None)
-                or (op == "range" and p_row is not None)
-                or (op == "top" and p_row is not None)
+            good = data_answer_complete(
+                op, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value
             )
             memo = None if good else "ai"
+            if good and op == "filter" and normalize_label(value) not in normalize_label(q):
+                # 値は問いの文に書かれていた語だけ（データの値を AI が持ち込んだら採らない）
+                memo = "value"
         else:
             memo = "op" if op is not None and op not in (*FITTING_OPS, *KNOWLEDGE_OPS) else "ai"
         out_answers.append(
@@ -971,6 +1062,10 @@ def postprocess_draft(
                 direction=direction if mode == "knowledge" and op == "factors" else "",
                 kind=k_row["key"] if k_row and mode == "data" else "",
                 prop=p_row["key"] if p_row and mode == "data" else "",
+                value=value if mode == "data" and op == "filter" else "",
+                match=_clean_match(a.get("match")) if mode == "data" and op == "filter" else "",
+                prop2=p2_row["key"] if p2_row and mode == "data" and op == "trend" else "",
+                kind2=k2_row["key"] if k2_row and mode == "data" and op == "join" else "",
                 memo=memo,
                 wanted_data=a.get("wanted_data") or "",
                 reason=a.get("reason") or "",
@@ -990,6 +1085,48 @@ def postprocess_draft(
     }
 
 
+def _clean_value(v: Any) -> str:
+    """The word a ``filter`` question looks for: whitespace folded to single spaces. It is the
+    sentence of the question (typed by a person, or copied by the AI from it), never a value
+    read from the data. Over-long → ``""`` (the question falls to a memo)."""
+    s = " ".join(str(v or "").split())
+    return s if len(s) <= sv.VALUE_MAX else ""
+
+
+def _clean_match(v: Any) -> str:
+    """``contains`` (the default) or ``exact`` — anything else is ``contains``."""
+    return v if v in sv.MATCH_MODES else "contains"
+
+
+def data_answer_complete(
+    op: Any,
+    *,
+    kind: Any = None,
+    prop: Any = None,
+    prop2: Any = None,
+    kind2: Any = None,
+    value: str = "",
+) -> bool:
+    """Is a data answer's closed choice complete for its ``op``? ``count`` needs a kind;
+    ``range`` / ``top`` a property; ``filter`` a kind + property + value; ``group`` a kind +
+    property; ``trend`` a kind + two properties; ``join`` a kind + property + a second kind.
+    The arguments are only tested for presence (a row, a key or a name). The shapes mirror
+    :data:`asterism.shared_vocab._EXEC_NEEDS`."""
+    if op == "count":
+        return bool(kind)
+    if op in ("range", "top"):
+        return bool(prop)
+    if op == "filter":
+        return bool(kind and prop and value)
+    if op == "group":
+        return bool(kind and prop)
+    if op == "trend":
+        return bool(kind and prop and prop2)
+    if op == "join":
+        return bool(kind and prop and kind2)
+    return False
+
+
 def _answer_row(
     question: str,
     mode: str,
@@ -999,6 +1136,10 @@ def _answer_row(
     direction: str | None = "",
     kind: str = "",
     prop: str = "",
+    value: str = "",
+    match: str = "",
+    prop2: str = "",
+    kind2: str = "",
     memo: str | None = None,
     wanted_data: str = "",
     reason: str = "",
@@ -1011,7 +1152,10 @@ def _answer_row(
         "direction": direction or "",
         "kind": kind,
         "property": prop,
-        "value": "",
+        "value": value,
+        "match": match,
+        "property2": prop2,
+        "kind2": kind2,
         "memo": memo,
         "wanted_data": wanted_data,
         "reason": reason,
@@ -1063,6 +1207,7 @@ _MEMO_REASONS = {
         "none": "数え方が決まっていないため、メモとして残します。",
         "human": "あなたの判断で、メモとして残します。",
         "duplicate": "同じ答え方の問いが既にあります。メモとして残します。",
+        "value": "値が問いの文にありません。メモとして残します。",
     },
     "en": {
         "op": "The current ways of counting (count, range, top value) cannot answer it, "
@@ -1072,6 +1217,7 @@ _MEMO_REASONS = {
         "human": "You chose to keep it as a memo.",
         "duplicate": "A question with the same way of answering already exists, "
         "so it stays as a memo.",
+        "value": "The value is not in the question's sentence, so it stays as a memo.",
     },
 }
 
@@ -1416,7 +1562,14 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             k = by_key.get(str(a.get("kind"))) if a.get("kind") else None
             p = by_key.get(str(a.get("property"))) if a.get("property") else None
             t = by_key.get(str(a.get("target"))) if a.get("target") else None
-            if (a.get("kind") and k is None) or (a.get("property") and p is None):
+            p2 = by_key.get(str(a.get("property2"))) if a.get("property2") else None
+            k2 = by_key.get(str(a.get("kind2"))) if a.get("kind2") else None
+            if (
+                (a.get("kind") and k is None)
+                or (a.get("property") and p is None)
+                or (a.get("property2") and p2 is None)
+                or (a.get("kind2") and k2 is None)
+            ):
                 raise ThemeError(f"問い「{q}」の種類か項目が概念にありません")
             if a.get("target") and t is None:
                 raise ThemeError(f"問い「{q}」の対象が概念にありません")
@@ -1424,6 +1577,10 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                 raise ThemeError(f"問い「{q}」の種類に項目が選ばれています")
             if p is not None and p.kind != "property":
                 raise ThemeError(f"問い「{q}」の項目に種類が選ばれています")
+            if p2 is not None and p2.kind != "property":
+                raise ThemeError(f"問い「{q}」の 2 つ目の項目に種類が選ばれています")
+            if k2 is not None and k2.kind != "class":
+                raise ThemeError(f"問い「{q}」の 2 つ目の種類に項目が選ばれています")
             flagged = a.get("memo")
             if mode == "memo" or flagged in _MEMO_REASONS["ja"]:
                 why = flagged if flagged in _MEMO_REASONS["ja"] else (
@@ -1459,22 +1616,44 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             elif mode == "data" and op in FITTING_OPS:
                 host: _Row | None = None
                 cq_op = "count"
+                value = _clean_value(a.get("value")) if op == "filter" else ""
+                match = _clean_match(a.get("match")) if op == "filter" else ""
+                spec_kw: dict[str, str] = {}
                 if op == "count" and k is not None:
                     host = k
                 elif op in ("range", "top") and p is not None:
                     host, cq_op = p, "values"
+                elif op in sv.DATA_OPS and data_answer_complete(
+                    op, kind=k, prop=p, prop2=p2, kind2=k2, value=value
+                ):
+                    # 値で絞る・〜ごと・推移・結合 1 段: 種類 k に付け、ほかの端は IRI で渡す
+                    host, cq_op = k, op
+                    spec_kw = {"property": p.iri}  # type: ignore[union-attr]
+                    if op == "filter":
+                        spec_kw.update(value=value, match=match)
+                    elif op == "trend":
+                        spec_kw["property2"] = p2.iri  # type: ignore[union-attr]
+                    elif op == "join":
+                        spec_kw["kind2"] = k2.iri  # type: ignore[union-attr]
                 if host is not None:
-                    cqs.setdefault(host.key, []).append(CQSpec(q, cq_op))
+                    cqs.setdefault(host.key, []).append(CQSpec(q, cq_op, **spec_kw))
+                    shown = lambda r: _display_label(r.label_ja, r.label_en, lang) if r else ""  # noqa: E731
                     summary = {
                         "op": op,
-                        "kind": _display_label(k.label_ja, k.label_en, lang) if k else "",
-                        "property": _display_label(p.label_ja, p.label_en, lang) if p else "",
-                        "value": str(a.get("value") or ""),
+                        "kind": shown(k),
+                        "property": shown(p),
+                        "value": value,
                         "kind_slug": k.slug if k else "",
                         "property_slug": p.slug if p else "",
                     }
+                    if op == "filter":
+                        summary["match"] = match
+                    if op == "trend" and p2 is not None:
+                        summary.update(property2=shown(p2), property2_slug=p2.slug)
+                    if op == "join" and k2 is not None:
+                        summary.update(kind2=shown(k2), kind2_slug=k2.slug)
                     ordered.append((q, ("data", host.key, summary, want)))
-                    target_iris.update(x.iri for x in (k, p) if x is not None)
+                    target_iris.update(x.iri for x in (k, p, p2, k2) if x is not None)
                     continue
                 why = "ai"
             elif mode == "data":
@@ -1529,20 +1708,20 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             comment=None,
             created_at=at,
         )
-        if row.mint:
-            tools = sv.default_cq_tools(shared_term, specs)
-        else:
-            tools, used = [], set(taken_names)
-            for spec in specs:
-                cand = None
-                for n in range(1, 100):
-                    cand = sv.default_cq_tools(shared_term, [spec] * n)[-1]
-                    if cand["name"] not in used:
-                        break
-                assert cand is not None
-                used.add(cand["name"])
-                tools.append(cand)
         try:
+            if row.mint:
+                tools = sv.default_cq_tools(shared_term, specs)
+            else:
+                tools, used = [], set(taken_names)
+                for spec in specs:
+                    cand = None
+                    for n in range(1, 100):
+                        cand = sv.default_cq_tools(shared_term, [spec] * n)[-1]
+                        if cand["name"] not in used:
+                            break
+                    assert cand is not None
+                    used.add(cand["name"])
+                    tools.append(cand)
             sv._lint_or_raise(tools)
         except sv.TermError as exc:
             raise ThemeError(str(exc)) from exc
@@ -1838,6 +2017,26 @@ async def remove_theme_cascade(client: Any, root: Path | str, theme_id: str) -> 
             kept_rel.append(rec)
     removed_c: list[dict] = []
     kept_c: list[dict] = []
+    # 2 語以上の自分の問いは語を外すと壊れる（remove_term は拒む）。外せる語を使うものは先に外す。
+    free = {
+        sv.term_iri(slug)
+        for slug in theme.get("minted") or []
+        if slug not in other_uses
+        and not any(
+            sv.term_iri(slug) in [str(x) for x in (t.get("for_terms") or [])]
+            and str(t.get("name")) not in own_tools
+            for t in tools
+        )
+    }
+    own_multi = [
+        str(t.get("name"))
+        for t in tools
+        if str(t.get("name")) in own_tools
+        and len({str(x) for x in (t.get("for_terms") or [])}) >= 2
+        and free.intersection(str(x) for x in (t.get("for_terms") or []))
+    ]
+    if own_multi:
+        remove_registry_query_tools_by_name(root, sv.REGISTRY_ID, own_multi)
     for slug in theme.get("minted") or []:
         iri = sv.term_iri(slug)
         row = {"slug": slug, "label": labels.get(slug, slug)}
@@ -1909,8 +2108,14 @@ def template_files(theme: dict, terms: list[dict], tools: list[dict]) -> dict[st
         k, p = by_slug.get(s.get("kind_slug") or ""), by_slug.get(s.get("property_slug") or "")
         if k is not None and k["kind"] == "class":
             kind_cols.setdefault(k["slug"], [])
-            if p is not None and name(p) not in kind_cols[k["slug"]]:
-                kind_cols[k["slug"]].append(name(p))
+            # 推移の 2 つ目の項目も同じ種類の列。結合は「つなぐ項目」が A の列で、B は別の表
+            second = by_slug.get(s.get("property2_slug") or "")
+            for col in (p, second):
+                if col is not None and name(col) not in kind_cols[k["slug"]]:
+                    kind_cols[k["slug"]].append(name(col))
+            k2 = by_slug.get(s.get("kind2_slug") or "")
+            if k2 is not None and k2["kind"] == "class":
+                kind_cols.setdefault(k2["slug"], [])
         elif p is not None and name(p) not in loose:
             loose.append(name(p))
     tied = {c for cols in kind_cols.values() for c in cols}

@@ -6,7 +6,8 @@
     "std": "標準用語（地平線）",
     "noStar": "まだ星がない",
     "property": "項目",
-    "draft": "下書き"
+    "draft": "提案",
+    "draftRemove": "外す提案"
   },
   "unit": {
     "count": "{{n}} 件",
@@ -46,14 +47,15 @@
     "ariaSample": "見本の星図（実際のデータではありません）"
   },
   "empty": {
-    "none": "ここに、データと問いから星図が育ちます",
+    "none": "問いを書くか、データを置くと、ここに図が育ちます",
     "sample": "見本です（実際のデータではありません）",
     "dataOnly": "用語の無い種類が {{n}} 個あります。知りたいことを書くと、名前が付きます。",
     "questionsOnly": "答えるデータがまだありません。データを置くと、合う種類を探します。"
   },
   "decide": {
     "noTerms": "用語がまだありません。「知りたいこと」で作れます",
-    "openQuestions": "「知りたいこと」を開く"
+    "openQuestions": "「知りたいこと」を開く",
+    "manual": "手で決める"
   },
   "about": {
     "titleKind": "この星について",
@@ -84,23 +86,24 @@
     "decideSlot": "ひとこと決める",
     "decisions": "決めたこと {{n}} 件 →",
     "viewTerm": "{{name}} を見る →",
-    "titleDraft": "下書きの札",
-    "draftMark": "下書き",
+    "draftMark": "提案",
     "draftTheme": "テーマ",
     "draftConcepts": "概念の数",
     "draftCount": "{{n}} 件",
     "draftQuestions": "問い",
-    "draftHint": "まだ確かめていません。②で図と文を見て、まとめて確定すると、本物の札になります。",
-    "draftOpen": "たしかめる →",
+    "draftOpen": "続きから開く →",
     "knowledgeLines": "知っていること",
-    "answeredByKnowledge": "知識 {{n}}"
+    "answeredByKnowledge": "知識 {{n}}",
+    "titleQuestion": "この問いについて",
+    "questionBack": "選びなおす",
+    "questionNeeds": "要る用語",
+    "titleProposal": "この提案について",
+    "draftDiscard": "捨てる",
+    "discardAsk": "この下書きを捨てます。もとに戻せません。",
+    "discardYes": "捨てる",
+    "discardNo": "やめる"
   },
   "questions": {
-    "head": "知りたいこと",
-    "empty": "まだ問いがありません。",
-    "all": "テーマを全部見る →",
-    "ring": "{{n}} / {{total}} のデータセットが答える",
-    "ringNone": "まだ答えるデータがない",
     "theme": "はじめの問い",
     "knowledgeN": "知識 {{n}}",
     "knowledgeTitle": "確定した知識の関係 {{n}} 件で答える"
@@ -146,6 +149,97 @@
       "lowers": "{{subject}} は {{object}} を下げる",
       "raises": "{{subject}} は {{object}} を上げる",
       "affects": "{{subject}} は {{object}} を変える"
+    },
+    "sub": "一種",
+    "quantity": "量"
+  },
+  "chat": {
+    "example": "たとえば「この種類は 試料 と同じもの？」",
+    "bind": "AI に結ばせる",
+    "bindHint": "公開済みの種類で、用語にまだ結ばれていないもの（{{n}} 件）を AI が結びます。提案が出るだけで、「図に入れる」を押すまで何も書きません。",
+    "writePlaceholder": "知りたいことを 1 行で（例: 熱伝導率を下げる要素になり得るのは？）",
+    "consultPlaceholder": "一言で相談（例: 散乱因子は格子熱伝導率に紐づく気がする）",
+    "askStar": "この星について聞く",
+    "askQuestion": "問いを書く",
+    "starPlaceholder": "この星について一言（例: この種類は 試料 と同じもの？）",
+    "askAria": "この一言の送り先"
+  },
+  "suggest": {
+    "link": "結べそうな線が {{n}} 件 →",
+    "title": "結べそうな線",
+    "lead": "公開したデータの名前が、用語の名前と完全に一致しました（機械が数えたもので、AI は使っていません）。決めるのは人です。星図には提案の線として重ねてあります。",
+    "sentence": "「{{subject}}」は「{{term}}」と同じもの",
+    "all": "{{n}} 件を置く",
+    "per": "1 件ずつ選ぶ",
+    "one": "結ぶ",
+    "no": "入れない",
+    "back": "戻る",
+    "empty": "結べそうな線はもうありません。",
+    "done": "{{n}} 件を結びました。",
+    "refused": "{{n}} 件は結べませんでした（{{why}}）",
+    "refusedWhy": {
+      "cycle": "輪になる",
+      "mixed": "種類と項目が混ざる",
+      "invalid": "形が合わない"
     }
+  },
+  "chips": {
+    "data": "＋ データを置く",
+    "question": "？ 問いを書く"
+  },
+  "band": {
+    "answerable": "答えられる問い {{ok}} / {{total}}",
+    "themes": "テーマを見る →"
+  },
+  "add": {
+    "close": "閉じる",
+    "closeHint": "途中のところは残ります。もう一度「データを置く」で続きから",
+    "area": "データを置く"
+  },
+  "now": {
+    "detail": "いま: 詳細モード",
+    "data": "いま: {{mark}} {{step}} — {{hint}}",
+    "draft": "いま: 下書き「{{name}}」 — 一言で足したり直したりできます",
+    "star": "いま: 星「{{name}}」 — この星のことを聞けます",
+    "hint": {
+      "bind": "この列は何？と聞けます",
+      "s1": "置いたあとで設計のことを相談できます",
+      "s2": "読み終えたら相談できます",
+      "s3": "空欄の意味を相談できます",
+      "s4": "ID の選びかたを相談できます",
+      "s5": "1 行は何？など、形を相談できます",
+      "s6": "結果の見かたを相談できます",
+      "s7": "公開の前に相談できます",
+      "done": "公開できました。閉じると星図に戻ります"
+    },
+    "toBind": "列の結びつきを聞く",
+    "toConsult": "設計のことを相談する"
+  },
+  "switch": {
+    "aria": "下書きの切り替え",
+    "open": "いまの下書きをとっておいて、こちらを開きますか",
+    "write": "いまの下書きをとっておいて、新しい問いを書きますか",
+    "keep": "とっておく",
+    "stay": "このまま続ける"
+  },
+  "tools": {
+    "summary": "文 {{n}} 件・手で足す"
+  },
+  "place": {
+    "content": "置く内容",
+    "thin": "提案のまま {{n}} 件"
+  },
+  "suggestQ": {
+    "ask": "問いを提案してもらう",
+    "askPaper": "この論文から問いを提案してもらう",
+    "askTerm": "この用語で聞けることを提案してもらう",
+    "title": "こんな問いはどうですか",
+    "start": "この問いで始める",
+    "running": "問いを考えています",
+    "none": "出せる問いが見つかりませんでした",
+    "nonePaper": "この論文の要旨と結論から出せる問いが見つかりませんでした",
+    "noneTerm": "この用語と周りの関係から出せる問いが見つかりませんでした",
+    "close": "閉じる",
+    "failed": "問いを出せませんでした: {{detail}}"
   }
 }

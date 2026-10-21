@@ -130,7 +130,7 @@ export function JobsView() {
           <p className="empty-title">{t('jobs:empty.title')}</p>
           <p className="empty-sub">{t('jobs:empty.sub')}</p>
           <p>
-            <button type="button" className="btn btn--sm" onClick={() => goTo('#/datasets/add')}>
+            <button type="button" className="btn btn--sm" onClick={() => goTo('#/home?add=1')}>
               {t('jobs:empty.cta')}
             </button>
           </p>

@@ -1,11 +1,28 @@
-// ホーム（星図）の hash のクエリ。`#/home?deep=1` は「中身まで見る」（値の網）、
-// `#/home?new=<iri>,<iri>` は公開直後の「生まれた輪」（その点だけを 1 度灯す）。
+// ホーム（作業場）の hash のクエリ。`#/home?deep=1` は「中身まで見る」（値の網）、
+// `#/home?new=<iri>,<iri>` は公開直後の「生まれた輪」（その点だけを 1 度灯す）、
+// `#/home?write=1[&q=<題>][&resume=<下書きの id>][&extend=<テーマの id>&label=<名前>]` は左の会話を
+// 「問いを書く」で開く（旧 `#/questions?new=1…` も同じ）。
+// `#/home?add=1[&dataset=<データセットの id>]` は右の領域に「かんたん」の札を出す（データを置く。`dataset` は
+// 設計を見直すデータセット。旧 `#/datasets/add[?dataset=…]` もここへ転送する）。
 // App.tsx の `parseHash`／`routeToHash` と、かんたんの完了画面（星図を見る）が同じ形を使う。
+
+/** 「問いを書く」で会話を開く合図。`resume`＝続きの下書き・`extend`＝既にあるテーマに問いを足す。 */
+export interface WriteRequest {
+  q: string
+  resume: string
+  extend: { id: string; label: string } | null
+}
 
 export interface HomeQuery {
   deep: boolean
   /** 灯す種類・用語の IRI。 */
   newIris: string[]
+  /** 会話を「問いを書く」で開く（無ければ null）。 */
+  write: WriteRequest | null
+  /** 右の領域をかんたん（データを置く）にする。 */
+  add: boolean
+  /** 見直すデータセットの id（`add` と組。無ければ空）。 */
+  dataset: string
 }
 
 /** `?` の後ろ（`deep=1&new=a,b`）を読む。IRI は 1 つずつ encodeURIComponent されているので、
@@ -13,6 +30,20 @@ export interface HomeQuery {
 export function parseHomeQuery(query: string): HomeQuery {
   let deep = false
   let newIris: string[] = []
+  let write = false
+  let q = ''
+  let resume = ''
+  let extendId = ''
+  let label = ''
+  let add = false
+  let dataset = ''
+  const dec = (s: string): string => {
+    try {
+      return decodeURIComponent(s.replace(/\+/g, ' '))
+    } catch {
+      return s
+    }
+  }
   for (const pair of query.split('&')) {
     const eq = pair.indexOf('=')
     const key = eq === -1 ? pair : pair.slice(0, eq)
@@ -29,15 +60,44 @@ export function parseHomeQuery(query: string): HomeQuery {
             return s
           }
         })
-    }
+    } else if (key === 'write') write = raw === '1'
+    else if (key === 'q') q = dec(raw)
+    else if (key === 'resume') resume = dec(raw)
+    else if (key === 'extend') extendId = dec(raw)
+    else if (key === 'label') label = dec(raw)
+    else if (key === 'add') add = raw === '1'
+    else if (key === 'dataset') dataset = dec(raw)
   }
-  return { deep, newIris }
+  return {
+    deep,
+    newIris,
+    write: write ? { q, resume, extend: extendId ? { id: extendId, label } : null } : null,
+    add,
+    dataset: add ? dataset : '',
+  }
 }
 
-/** `#/home` の hash（クエリは deep → new の順）。 */
+/** `#/home` の hash（クエリは deep → new → write → add の順）。 */
 export function homeHash(q: Partial<HomeQuery> = {}): string {
   const parts: string[] = []
   if (q.deep) parts.push('deep=1')
   if (q.newIris && q.newIris.length > 0) parts.push(`new=${q.newIris.map(encodeURIComponent).join(',')}`)
+  if (q.write) {
+    parts.push('write=1')
+    if (q.write.q) parts.push(`q=${encodeURIComponent(q.write.q)}`)
+    if (q.write.resume) parts.push(`resume=${encodeURIComponent(q.write.resume)}`)
+    if (q.write.extend) {
+      parts.push(`extend=${encodeURIComponent(q.write.extend.id)}`)
+      if (q.write.extend.label) parts.push(`label=${encodeURIComponent(q.write.extend.label)}`)
+    }
+  }
+  if (q.add) {
+    parts.push('add=1')
+    if (q.dataset) parts.push(`dataset=${encodeURIComponent(q.dataset)}`)
+  }
   return parts.length ? `#/home?${parts.join('&')}` : '#/home'
 }
+
+/** 「この問いで始める」（問いの提案）の行き先: 問い `q` を入れて「問いを書く」の会話を開く
+ *  （`#/home?write=1&q=<問い>`）。開いている下書きがあれば、ホームが確かめてから切り替える。 */
+export const startQuestionHash = (q: string): string => homeHash({ write: { q, resume: '', extend: null } })

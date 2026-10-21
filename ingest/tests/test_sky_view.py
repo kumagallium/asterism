@@ -23,7 +23,7 @@ from asterism.crosswalk_runtime import (
     save_config,
 )
 from asterism.shared_vocab import CQSpec
-from asterism.sky_view import sky_view
+from asterism.sky_view import questions_of_term, sky_view
 
 pyoxigraph = pytest.importorskip("pyoxigraph")
 
@@ -486,6 +486,7 @@ async def test_a_term_with_no_lines_still_appears_and_questions_need_it(tmp_path
     assert speed["answering"] == 0 and speed["label_en"] is None
     q = next(q for q in out["questions"] if q["tool_name"] == "cq_speed_values")
     assert q["answering"] == 0 and q["needs"] == [shared_vocab.term_iri("speed")]
+    assert questions_of_term(root, shared_vocab.term_iri("speed")) == ["cq_speed_values"]
     assert out["facts"]["questions_total"] == 2 and out["facts"]["questions_answerable"] == 1
     assert out["recent"][0]["kind"] == "term"  # いちばん新しい
 
@@ -575,6 +576,10 @@ async def test_knowledge_questions_and_term_to_term_lines(tmp_path: Path) -> Non
     assert all(x["mode"] == "data" and x["knowledge"] == 0 for x in out["questions"] if x is not q)
     assert not any(x["tool_name"] == "kq_gone_parts" for x in out["questions"])  # 語の無い問い
     assert name in next(t for t in out["terms"] if t["slug"] == "thermal")["questions"]
+    # 星図を引かずに数える関数は、星図の terms[].questions と同じ数え方
+    for t in out["terms"]:
+        assert questions_of_term(root, t["iri"]) == t["questions"]
+    assert questions_of_term(root, thermal) == [name] and questions_of_term(root, grain) == []
     f = out["facts"]
     assert f["questions_total"] == len(out["questions"])
     assert f["questions_answerable"] == 1 + sum(  # 知識の問い 1 + データで答えられる問い

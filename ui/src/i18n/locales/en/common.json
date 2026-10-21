@@ -76,10 +76,6 @@
       "title": "Decisions"
     }
   },
-  "entries": {
-    "data": "+ Add data",
-    "question": "? Ask a question to grow"
-  },
   "dataTabs": {
     "datasets": "Datasets",
     "connections": "Connections",

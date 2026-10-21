@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 import zipfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -113,6 +114,11 @@ class DraftSaveBody(BaseModel):
     answers: list[dict[str, Any]] = Field(default_factory=list)
     suggested_questions: list[str] = Field(default_factory=list)
     standards: dict[str, Any] = Field(default_factory=dict)
+    #: true なら保存済みの会話を空にする（「もう一度読ませる」: 消えた行についての会話を戻さない）。
+    reset_chat: bool = False
+    #: まだ「提案（薄い）」のままの行 `{concepts: [key], relations: [[from, rel, to]]}`。
+    #: 送らなければ保存済みのものをそのまま残す（空の `{}` 形も「全部本物」という答え）。
+    pending: dict[str, Any] | None = None
 
 
 class DescribeBody(BaseModel):
@@ -149,11 +155,14 @@ class MatchTerm(BaseModel):
 
 class MatchBody(BaseModel):
     terms: list[MatchTerm] = Field(default_factory=list, max_length=200)
+    #: 同じ下書きで既に使っている ID（仮置きの ``t<n>`` を重ねないため・任意）
+    taken: list[str] = Field(default_factory=list, max_length=400)
 
 
 class AddQuestionsBody(BaseModel):
     tool_names: list[str]
-    #: tool_name → ``{op, kind, property, value}``（実行文を組むための表示名・任意）
+    #: tool_name → ``{op, kind, property, value, match, property2, kind2}``
+    #: （実行文を組むための表示名・任意）
     selections: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -161,13 +170,50 @@ def _lang(lang: str | None) -> str:
     return "en" if (lang or "").lower().startswith("en") else "ja"
 
 
+_WIDE_NAME = re.compile(r"^cq_.+_(filter|group|trend|join)(?:_\d+)?\Z")
+_FILTER_WORD = re.compile(r'(?:LCASE\(|STR\(\?v\) = )"((?:[^"\\]|\\.)*)"')
+
+
+def _wide_selection(tool: dict, term_by_iri: dict[str, dict]) -> dict:
+    """値で絞る・〜ごと・推移・結合 1 段の問いが、テーマに実行文を記録していないとき
+    （別のテーマの問いを足した等）に、宣言ツールそのものから選択を組み直す。名前の末尾が数え方、
+    ``for_terms`` は [種類, 項目, (2 つ目の項目 | 2 つ目の種類)] の順（``default_cq_tools``）。"""
+    m = _WIDE_NAME.match(str(tool.get("name")))
+    if m is None:
+        return {}
+    iris = [str(i) for i in tool.get("for_terms") or []]
+    if len(iris) < 2 or iris[0] not in term_by_iri or iris[1] not in term_by_iri:
+        return {}
+
+    def label_at(n: int) -> str | None:  # 位置は for_terms の順（語が無くてもずらさない）
+        return term_by_iri[iris[n]]["label"] if len(iris) > n and iris[n] in term_by_iri else None
+
+    op = m.group(1)
+    sel: dict[str, str] = {"op": op, "kind": label_at(0) or "", "property": label_at(1) or ""}
+    third = label_at(2)
+    if op == "trend" and third:
+        sel["property2"] = third
+    if op == "join" and third:
+        sel["kind2"] = third
+    if op == "filter":
+        w = _FILTER_WORD.search(str(tool.get("query") or ""))
+        if w is not None:
+            sel["value"] = w.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        sel["match"] = "exact" if "STR(?v) = " in str(tool.get("query") or "") else "contains"
+    return sel
+
+
 def _selection_of(theme: dict, tool: dict, term_by_iri: dict[str, dict]) -> dict:
     """The selection a question was made with: the one the theme recorded, else the one its
-    template implies (a kind's CQ counts; an item's CQ counts the values)."""
+    template implies (a kind's CQ counts; an item's CQ counts the values; the four wider
+    shapes are read back off the tool)."""
     name = str(tool.get("name"))
     recorded = (theme.get("selections") or {}).get(name)
     if isinstance(recorded, dict) and recorded.get("op"):
         return recorded
+    wide = _wide_selection(tool, term_by_iri)
+    if wide:
+        return wide
     for iri in tool.get("for_terms") or []:
         term = term_by_iri.get(str(iri))
         if term is not None:
@@ -188,6 +234,7 @@ def register_themes(
 ) -> None:
     """Register the ``/api/themes/*`` routes on ``app`` (called once from ``build_app``)."""
     lock = asyncio.Lock()  # 置く・足す・外すは 1 つずつ（themes.json は 1 ファイル）
+    app.state.themes_lock = lock  # 作業場の会話（consult_graph_routes）が同じ鍵で下書きを書く
 
     def _client() -> OxigraphClient:
         return app.state.client
@@ -252,7 +299,7 @@ def register_themes(
                 "tool_name": name,
                 "title": str(tool.get("title", tool.get("name"))),
                 "mode": "data",
-                "answering_datasets": max((wired.get(x, 0) for x in for_terms), default=0),
+                "answering_datasets": shared_vocab.answering_of(wired, for_terms),
                 "shape": shared_vocab.describe_selection(sel, lg),
                 "terms": [term_by_iri[i]["slug"] for i in for_terms if i in term_by_iri],
                 "wanted_data": str((theme.get("wanted") or {}).get(name) or ""),
@@ -535,7 +582,10 @@ def register_themes(
         except Exception as exc:
             raise HTTPException(502, f"shared vocab read failed: {exc}") from exc
         out = await asyncio.to_thread(
-            themes.match_rows, [t.model_dump() for t in body.terms], existing=existing
+            themes.match_rows,
+            [t.model_dump() for t in body.terms],
+            existing=existing,
+            taken=body.taken,
         )
         return JSONResponse({"terms": out})
 
@@ -602,9 +652,12 @@ def register_themes(
         if themes.load_draft(cfg.registry_root, draft_id) is None:
             raise HTTPException(404, "下書きがありません")
         try:
+            fields = body.model_dump()
+            if body.pending is None:  # 送られなかった — 保存済みの薄い状態を残す
+                del fields["pending"]
             async with lock:
                 saved = themes.save_draft(
-                    cfg.registry_root, {**body.model_dump(), "id": draft_id, "updated_at": _now()}
+                    cfg.registry_root, {**fields, "id": draft_id, "updated_at": _now()}
                 )
         except themes.ThemeError as exc:
             raise _fail(exc) from exc
@@ -725,7 +778,7 @@ def register_themes(
                         ),
                         "knowledge": None,
                         "data": {
-                            "answering": max((wired.get(x, 0) for x in for_terms), default=0),
+                            "answering": shared_vocab.answering_of(wired, for_terms),
                             "total_datasets": total,
                         },
                         "wanted_data": str(wanted.get(name) or ""),

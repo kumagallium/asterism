@@ -24,6 +24,8 @@ import {
 import { plainAdvisories, type TermLabels } from './advisoryPlain'
 import { validateDesign } from './api'
 import { prefillAskQuestion } from './askPrefill'
+import { QuestionSuggestBlock } from './sky/QuestionSuggest'
+import { startQuestionHash } from './sky/skyRoute'
 import { plainError } from './kantan/errorMessages'
 import { useIdMove } from './idMove'
 import { IdMoveNotice } from './IdMoveNotice'
@@ -1701,6 +1703,19 @@ function DatasetDetail({
           {dataset.live && datasetStage(dataset.live.meta) === 'promoted' &&
             dataset.live.meta.status !== 'retracted' && (
               <AskAboutDataset meta={dataset.live.meta} />
+            )}
+
+          {/* 文書（論文）のときだけ: 要旨と結論の文から問いを提案してもらう（PR 10b・AI 設定ずみのときだけ）。
+              押すと問いを書く会話へ。人が押したときだけ AI を呼び、何も残らない。 */}
+          {dataset.live && datasetStage(dataset.live.meta) === 'promoted' &&
+            dataset.live.meta.status !== 'retracted' && dataset.live.meta.source_kind === 'xml' && (
+              <QuestionSuggestBlock
+                datasetId={dataset.live.meta.id}
+                screen="paper"
+                onStart={(q) => {
+                  window.location.hash = startQuestionHash(q)
+                }}
+              />
             )}
 
           {/* 用語の地図は、ここの末尾に 1 行の見出しで畳む（「知りたいこと」からは外した）。 */}

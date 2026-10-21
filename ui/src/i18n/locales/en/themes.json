@@ -24,8 +24,11 @@
       "commit": "Placing the theme",
       "addQuestions": "Adding questions to the theme",
       "deleteTheme": "Removing the theme",
-      "expand": "Growing from a concept",
-      "answers": "Fetching the answers"
+      "answers": "Fetching the answers",
+      "consult": "The consultation",
+      "consultApply": "Adding to the map",
+      "consultDismiss": "Saving “Don't add”",
+      "suggestQuestions": "Suggesting questions"
     }
   },
   "draft": {
@@ -55,6 +58,7 @@
     "seeKnowledge": "See the answer",
     "knowledgeNone": "No confirmed knowledge yet.",
     "byAi": "A person confirmed an AI draft",
+    "byMachine": "A person confirmed a name match",
     "byHuman": "Confirmed by a person",
     "knowledgeTotal": "Knowledge {{n}}",
     "removed": "Removed the theme “{{label}}”. {{concepts}} concepts and {{relations}} relations that nothing else uses are gone too ({{kept}} concepts kept)."
@@ -63,52 +67,31 @@
     "title": "Questions in no theme"
   },
   "wizard": {
-    "aria": "Build from what you want to know",
-    "title": "Build from what you want to know (theme)",
     "close": "Close",
-    "back": "Back",
-    "here": "You are here",
-    "recipe": "The 3 steps of a theme",
     "saveErr": "Could not save the draft: {{detail}}",
     "closeAsk": "Closing. What about the draft?",
     "keepClose": "Keep it and close",
     "discardClose": "Discard and close",
     "keepGoing": "Keep going"
   },
-  "steps": {
-    "write": "Write",
-    "review": "Check the draft",
-    "place": "Place"
-  },
   "write": {
-    "lead": "Write what you want to know, one per line. The theme name can stay empty.",
     "themeName": "Theme name (optional)",
-    "themeNamePlaceholder": "If empty, the AI names it (e.g. Thermoelectric materials)",
-    "questions": "What you want to know (one per line)",
-    "questionsPlaceholder": "e.g. What can lower thermal conductivity?",
-    "examples": "Examples (press to add)",
-    "suggestNote": "AI suggestions (press to add)",
-    "aiOff": "No AI is set up. You can write by hand.",
-    "toRead": "Let the AI read",
     "manual": "Write by hand"
   },
   "read": {
-    "running": "Reading…",
     "badShape": "The AI's answer was not in the fixed shape.",
     "unconfigured": {
       "title": "The AI is not set up",
-      "body": "It cannot read the questions because no AI is set up. You can add concepts yourself (set it up any time from Settings)."
+      "body": "It cannot read the questions because no AI is set up. You can add concepts yourself (set it up any time from Settings).",
+      "short": "AI is not set up, so you write by hand. Add concepts from “Add by hand” below."
     },
-    "manual": "Write by hand",
     "openSettings": "Open settings",
-    "dismiss": "Close",
     "failed": {
       "title": "Could not make the AI draft",
       "body": "Try again, or write by hand. Your questions are kept as they are.",
       "detail": "Technical details"
     },
-    "retry": "Let it read again",
-    "again": "Let it read again"
+    "retry": "Let it read again"
   },
   "rel": {
     "sentence": {
@@ -124,17 +107,15 @@
     "stdName": "{{name}} (standard)"
   },
   "place": {
-    "lead": "Confirms {{concepts}} concepts and {{relations}} relations in the theme “{{label}}” ({{questions}} questions).",
-    "leadExtend": "Confirms {{concepts}} concepts and {{relations}} relations in “{{label}}” and adds {{questions}} questions.",
+    "lead": "Places {{concepts}} concepts and {{relations}} relations in the theme “{{label}}” ({{questions}} questions).",
+    "leadExtend": "Places {{concepts}} concepts and {{relations}} relations in “{{label}}” and adds {{questions}} questions.",
     "concepts": "New concepts and their IDs",
     "relations": "Relations",
-    "questions": "Questions and how they are answered",
     "id": "ID",
     "idAria": "ID of “{{label}}”",
     "idBad": "An ID starts with a lowercase letter and uses only lowercase letters, digits and _.",
     "idTaken": "This ID is already used. Choose another.",
     "idDuplicate": "Two concepts have the same ID.",
-    "memoQuestion": "Memo question (no way of answering yet)",
     "blocker": {
       "label": "A concept has no name. Go back to step 2 and fix it.",
       "slug": "A concept has an ID in the wrong form.",
@@ -142,8 +123,8 @@
       "duplicate": "Two concepts share an ID."
     },
     "placing": "Placing…",
-    "go": "Place",
-    "noDraft": "The draft could not be saved, so it cannot be placed."
+    "noDraft": "The draft could not be saved, so it cannot be placed.",
+    "done": "Placed the theme “{{label}}”."
   },
   "term": {
     "back": "Back to what you want to know",
@@ -169,17 +150,16 @@
     "remove": "Remove the term",
     "open": "Open the term's page",
     "more": "Details",
-    "knowledgeAi": "AI draft, confirmed"
+    "knowledgeCount": "{{n}} knowledge answer(s)",
+    "knowledgeAi": "AI draft, confirmed",
+    "knowledgeMachine": "A person confirmed a name match"
   },
   "firstThemeLabel": "First questions",
   "review": {
-    "lead": "A knowledge map is drafted from your questions. Look at the map and sentences, remove what you do not need with ✕, then confirm them together.",
-    "leadEmpty": "No concepts yet. Choose how a question is answered, or add some below.",
     "questionsAria": "How each question is answered",
     "still": "Not yet",
     "counts": "Knowledge {{k}} · Data {{d}}",
     "wanted": "Data you want: {{text}}",
-    "sentencesAria": "Sentences of the relations",
     "sentences": "{{n}} sentences",
     "noSentences": "No relations yet.",
     "dismiss": "Remove (do not suggest again)",
@@ -196,15 +176,13 @@
     "addNamePlaceholder": "Name (e.g. grain boundary scattering)",
     "addKind": "Kind or item",
     "addGo": "Add",
-    "addMore": "English name and aliases",
     "addEn": "English name",
     "addAliases": "Aliases",
     "addAliasesPlaceholder": "Aliases (comma separated)",
-    "aiOff": "No AI is set up, so “Grow from here” is off. You can add by hand.",
-    "confirm": "Confirm {{n}} together",
+    "confirm": "Place {{n}}",
     "confirmNone": "Place the questions only",
     "unlinkedNote": "{{n}} concepts that do not connect to a question are left out.",
-    "leadHand": "Add concepts, choose how each question is answered, then confirm them together."
+    "thinNote": "{{n}} proposals are not placed until you answer “Add to the map”."
   },
   "answer": {
     "label": "Answered as:",
@@ -223,6 +201,10 @@
       "count": "the count of …",
       "range": "the range of … in …",
       "top": "the top … of …",
+      "filter": "the … whose … contains a value",
+      "group": "the … counted by …",
+      "trend": "… against … of the …",
+      "join": "the … linked by … to another kind",
       "memo": "Decide later (memo)"
     },
     "way": {
@@ -236,23 +218,34 @@
       "rangeOnly": "The range of {{property}}",
       "top": "The top {{property}} of {{kind}}",
       "topOnly": "The top {{property}}",
+      "filter": "{{kind}}: {{property}} contains \"{{value}}\"",
+      "filterExact": "{{kind}}: {{property}} is \"{{value}}\"",
+      "group": "Count {{kind}} by {{property}}",
+      "trend": "{{kind}}: {{property}} and {{property2}}, in order",
+      "join": "{{kind}} {{property}} {{kind2}}",
       "none": "Not decided yet"
+    },
+    "pickValue": "Value (a word from the question)",
+    "pickMatch": "Match",
+    "pickPropertyX": "Item (x)",
+    "pickPropertyY": "Item (y)",
+    "pickLink": "Linking item",
+    "pickKind2": "Kind it points to",
+    "match": {
+      "contains": "contains",
+      "exact": "is exactly"
+    },
+    "hint": {
+      "filter": "Write a word that is in the question (the data's values are not read).",
+      "group": "Counts per value of the item, dataset by dataset.",
+      "trend": "Lists the y item's values in the order of the x item.",
+      "join": "Follows the kind's item one step to the other kind and counts the pairs."
     }
   },
   "map": {
-    "empty": "No map yet. Let the AI read, or add concepts below.",
-    "lonely": "Not connected to a question",
-    "std": "Same as the standard term {{ref}}",
     "expand": "Grow from here",
-    "expanding": "Growing…",
     "expandOff": "Needs an AI to be set up",
     "remove": "Remove",
-    "legendStd": "Matches a standard term",
-    "pill": {
-      "sub": "kind of",
-      "part": "part of",
-      "quantity": "qty"
-    },
     "pillTitle": {
       "sub": "Kind of (narrow → broad)",
       "part": "Part of (part → whole)",
@@ -262,6 +255,90 @@
       "eq": "Same as",
       "quantity": "Quantity"
     },
-    "scrollHint": "Scroll the map sideways →"
+    "tagProposal": "Proposal",
+    "emptyNarrow": "No figure yet. Talk it over below, or add a concept with \"Add by hand\"."
+  },
+  "chat": {
+    "aria": "Conversation with the AI",
+    "title": "Consult",
+    "fold": "Fold",
+    "open": "Open the conversation",
+    "openBadge": "{{n}} proposed",
+    "placeholder": "Write a line (a question, a fix, or \"is it true that …?\")",
+    "send": "Send",
+    "thinking": "Thinking…",
+    "unset": "Add a key in Settings › AI to consult",
+    "openSettings": "Open settings",
+    "failed": "Could not make a proposal. Please rephrase and try again. {{detail}}",
+    "noDraft": "The draft was not found. Close it and reopen from where you left off.",
+    "yes": "Add to the map ({{n}})",
+    "bindYes": "Link ({{n}})",
+    "yesAll": "Add all to the map",
+    "no": "Don't add",
+    "bindNo": "Don't link",
+    "per": "Choose one at a time",
+    "rowYes": "Add this one to the map",
+    "rowNo": "Don't add this one",
+    "rowDone": "Added",
+    "rowSkipped": "Not added",
+    "done": "{{n}} added to the map",
+    "bindDone": "{{n}} linked",
+    "doneHuman": "Edited ({{n}})",
+    "skipped": "Not added",
+    "bindSkipped": "Not linked",
+    "draftTitle": "AI draft ({{m}} concepts · {{n}} relations)",
+    "draftDone": "AI draft: added to the map ({{m}} concepts · {{n}} relations)",
+    "edgeA": "A",
+    "edgeRel": "Relation",
+    "edgeB": "B",
+    "edgeApply": "Apply",
+    "edgeRemove": "Remove this relation",
+    "edgeDragHint": "You can also drag the ring at the arrowhead onto another card.",
+    "noRelations": "No relations yet.",
+    "dropped": {
+      "unknown_key": "It named a concept that is not on the figure, so it was not applied",
+      "same": "A concept cannot be tied to itself",
+      "mixed": "A kind and a property cannot be tied together",
+      "cycle": "It would go around in a circle, so it was not applied",
+      "quantity_target": "\"Quantity\" only ties a property to a quantity kind",
+      "target_not_property": "Lowers, raises and changes only take a property",
+      "dismissed": "You said \"Don't add\" to this before, so it was not applied",
+      "duplicate": "It is already there",
+      "not_found": "It was not found on the figure, so it was not applied",
+      "limit": "The limit was reached, so it was not applied",
+      "not_renamable": "This concept cannot be renamed",
+      "dataset_only": "Only available in the data conversation",
+      "unsupported": "Cannot be applied on this screen"
+    },
+    "op": {
+      "add_concept": "Add \"{{name}}\" ({{kind}})",
+      "retarget": "Re-point \"{{rel}}\" of {{subject}} from {{from}} to {{to}}",
+      "remove_relation": "Remove: {{sentence}}",
+      "remove_concept": "Remove \"{{name}}\"",
+      "rename": "Rename \"{{name}}\" to \"{{to}}\"",
+      "add_question": "Add a question: {{question}}"
+    },
+    "goneConcept": "(a removed concept)",
+    "draftTitleLeft": "AI draft ({{n}} left)",
+    "draftDoneLeft": "AI draft: added to the map",
+    "doneSome": "{{n}} added to the map · {{m}} could not be applied",
+    "failedAll": "Could not be applied ({{reason}})",
+    "failedEach": "reasons are on each line",
+    "allExist": "Everything is already there",
+    "droppedShort": {
+      "unknown_key": "names a concept that is not on the figure",
+      "same": "cannot be tied to itself",
+      "mixed": "a kind and a property cannot be tied",
+      "cycle": "it would go around in a circle",
+      "quantity_target": "\"quantity\" only ties a property to a quantity kind",
+      "target_not_property": "the other end must be a property",
+      "dismissed": "you removed it before",
+      "duplicate": "already there",
+      "not_found": "no longer there",
+      "limit": "the limit was reached",
+      "not_renamable": "cannot be renamed",
+      "dataset_only": "only in the data conversation",
+      "unsupported": "cannot be applied on this screen"
+    }
   }
 }

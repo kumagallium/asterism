@@ -9,6 +9,7 @@ import { CardsView } from './cards/CardsView'
 import './cards/embed.css'
 import { SubjectRail } from './cards/SubjectRail'
 import { ConsultDrawer } from './consult/ConsultDrawer'
+import { useWorkspaceChatShown } from './consult/workspaceChatActive'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
 import { BackendDownBanner } from './desktop/BackendDownBanner'
@@ -26,7 +27,9 @@ import { formatSetTitle } from './cards/setTitle'
 import type { SetResolveResult } from './cards/cardsApi'
 import { OntologyMapView } from './OntologyMapView'
 import { SkyView } from './sky/SkyView'
-import { homeHash, parseHomeQuery } from './sky/skyRoute'
+import { flushDrafts } from './sky/draftFlush'
+import { publishNavCollapsed } from './workspace/navState'
+import { type WriteRequest, homeHash, parseHomeQuery } from './sky/skyRoute'
 import { useLlmSettings } from './settings/context'
 import { SparqlView } from './SparqlView'
 import { TermPage } from './themes/TermPage'
@@ -81,17 +84,15 @@ export interface Route {
    *  旧 URL 互換のためだけに残す — 開いたら `#/datasets/add` に置き換える
    *  （契約メモ contract_pr_f8.md §1.2）。新しい入口は下の `add`。 */
   place?: boolean
-  /** `#/datasets/add`（`tab: 'gallery'`）— データが入る唯一の入口「作る ›
-   *  データセット › データを追加」。中身はかんたんウィザードの S1（ファイルを
-   *  置く）を直接出す `WorkbenchTier`（契約メモ contract_pr_f10.md §1.2 —
-   *  旧 PlaceView の中間画面は撤去。「同じ形なら設計なしで追加」の近道は S1 の
-   *  帯が担う）。`tab: 'cards'` のときは `#/cards/add`（オブジェクトを追加・
-   *  契約メモ contract_pr_f9.md §1-3）を指す — 同じフィールドを tab ごとに
-   *  読み替える（`datasetId`/`subjectKey` 等と同じ流儀）。 */
+  /** `#/home?add=1`（`tab: 'home'`）— データが入る唯一の入口。ホームの右の領域に、かんたんウィザードの
+   *  S1（ファイルを置く）から出す `WorkbenchTier` を描く（左の会話は残る。UI 再設計 PR 8c）。旧 `#/datasets/add`・
+   *  `#/data?add=1` もここへ読み替える。「同じ形なら設計なしで追加」の近道は S1 の帯が担う。
+   *  `tab: 'cards'` のときは `#/cards/add`（オブジェクトを追加・契約メモ contract_pr_f9.md §1-3）を指す —
+   *  同じフィールドを tab ごとに読み替える（`datasetId`/`subjectKey` 等と同じ流儀）。 */
   add?: boolean
-  /** `#/questions?new=1`（`tab: 'vocab'`）— 上部バーの「？ 知りたいことを書く」から
-   *  入ったとき、「問いから始める」の入力欄に自動でフォーカスする。 */
-  newQuestion?: boolean
+  /** `#/home?write=1[&q=…][&resume=…]`（`tab: 'home'`）— 左の会話を「問いを書く」で開く。旧 `#/questions?new=1…`
+   *  （質問するから持ち込む題・続きの下書き）も、ここへ読み替える。 */
+  write?: WriteRequest
   /** `#/questions/term/<slug>`（`tab: 'vocab'`）— 用語のページ。 */
   termSlug?: string
   /** `#/questions/<theme>`（`tab: 'vocab'`）— そのテーマのカードを見せる。 */
@@ -102,7 +103,7 @@ export interface Route {
   /** `#/cards/k/<encoded class_iri>` — 種類のページ（契約メモ
    *  contract_pr_f9.md §1-4）。 */
   classPageIri?: string
-  /** `#/cards/place?dataset=<id>` | `#/datasets/add?dataset=<id>` — かんたん
+  /** `#/cards/place?dataset=<id>` | `#/home?add=1&dataset=<id>` — かんたん
    *  ウィザードから「ページに戻る」で入ってきたときの、既に棚にあるデータセット
    *  （契約メモ §6.3 の `KantanWizard.tsx` の `returnTo + datasetId`）。`place`
    *  または `add` と組で使う。 */
@@ -183,16 +184,21 @@ export function parseHash(hash: string): Route {
   }
   if (parts[0]?.startsWith('questions?') || parts[0]?.startsWith('vocab?')) {
     const query = parts[0].slice(parts[0].indexOf('?') + 1)
-    return new URLSearchParams(query).get('new') === '1'
-      ? { tab: 'vocab', newQuestion: true }
-      : { tab: 'vocab' }
+    if (new URLSearchParams(query).get('new') !== '1') return { tab: 'vocab' }
+    // 作る操作は作業場（ホームの会話）に寄せた。題・続きの下書き・問いを足すテーマは会話へ運ぶ。
+    const params = new URLSearchParams(query)
+    const extend = params.get('extend')
+    return {
+      tab: 'home',
+      write: { q: params.get('q') ?? '', resume: params.get('resume') ?? '', extend: extend ? { id: extend, label: params.get('label') ?? '' } : null },
+    }
   }
   if (parts[0] === 'data') return { tab: 'gallery' }
   if (parts[0]?.startsWith('data?')) {
     const params = new URLSearchParams(parts[0].slice('data?'.length))
     if (params.get('tab') === 'connections') return { tab: 'crosswalk' }
     if (params.get('tab') === 'activity') return { tab: 'gallery', activity: true }
-    if (params.get('add') === '1') return { tab: 'gallery', add: true }
+    if (params.get('add') === '1') return { tab: 'home', add: true }
     return { tab: 'gallery' }
   }
   if (parts[0] === 'browse' || parts[0]?.startsWith('browse?')) return { tab: 'cards' }
@@ -204,20 +210,24 @@ export function parseHash(hash: string): Route {
     const r: Route = { tab: 'home' }
     if (q.deep) r.deep = true
     if (q.newIris.length > 0) r.newIris = q.newIris
+    if (q.write) r.write = q.write
+    if (q.add) {
+      r.add = true
+      if (q.dataset) r.placeDatasetId = q.dataset
+    }
     return r
   }
   if (parts[0] === 'datasets' && parts[1]) {
-    // `#/datasets/add[?dataset=<id>]` — データが入る唯一の入口（契約メモ
-    // contract_pr_f8.md §1.1）。`add` は予約語として `<id>` の一般形より先に見る
-    // （`add` という id は実在しないが、`cards/place`・`cards/s/new` と同じ流儀で
-    // 明示的に区別する）。
-    if (parts[1] === 'add') return { tab: 'gallery', add: true }
+    // `#/datasets/add[?dataset=<id>]` — 旧 URL。データを置くのはホームの右の領域になった（`#/home?add=1`）ので、
+    // そちらへ読み替える。`add` は予約語として `<id>` の一般形より先に見る
+    // （`add` という id は実在しないが、`cards/place`・`cards/s/new` と同じ流儀で明示的に区別する）。
+    if (parts[1] === 'add') return { tab: 'home', add: true }
     if (parts[1].startsWith('add?')) {
       const query = parts[1].slice('add?'.length)
       const placeDatasetId = new URLSearchParams(query).get('dataset')
       return placeDatasetId
-        ? { tab: 'gallery', add: true, placeDatasetId }
-        : { tab: 'gallery', add: true }
+        ? { tab: 'home', add: true, placeDatasetId }
+        : { tab: 'home', add: true }
     }
     const detailTab = DETAIL_TABS.includes(parts[2] as DetailTab)
       ? (parts[2] as DetailTab)
@@ -323,12 +333,11 @@ export function parseHash(hash: string): Route {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function routeToHash(r: Route): string {
-  if (r.tab === 'home') return homeHash({ deep: r.deep, newIris: r.newIris })
-  if (r.tab === 'gallery' && r.add) {
-    return r.placeDatasetId
-      ? `#/datasets/add?dataset=${encodeURIComponent(r.placeDatasetId)}`
-      : '#/datasets/add'
+  if (r.tab === 'home') {
+    return homeHash({ deep: r.deep, newIris: r.newIris, write: r.write, add: r.add, dataset: r.placeDatasetId })
   }
+  // 旧形（`tab: 'gallery', add`）を作る呼び出しが残っても、ホームの hash に直す
+  if (r.tab === 'gallery' && r.add) return homeHash({ add: true, dataset: r.placeDatasetId })
   if (r.tab === 'gallery' && r.datasetId) {
     const base = `#/datasets/${encodeURIComponent(r.datasetId)}`
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
@@ -338,7 +347,7 @@ export function routeToHash(r: Route): string {
   if (r.tab === 'vocab') {
     if (r.termSlug) return `#/questions/term/${encodeURIComponent(r.termSlug)}`
     if (r.themeId) return `#/questions/${encodeURIComponent(r.themeId)}`
-    return r.newQuestion ? '#/questions?new=1' : '#/questions'
+    return '#/questions'
   }
   if (r.tab === 'decisions') {
     return `#/decisions${decisionsQuery(r.decisionsFilter ?? 'all', r.decisionsAbout)}`
@@ -550,12 +559,18 @@ function App() {
     return parseHash(window.location.hash)
   })
   const tab = route.tab
+  const workspaceChatShown = useWorkspaceChatShown()
+  // 右下の「AI に相談」を隠すのは、会話が画面の中にあるときだけ: ホーム／③の会話（mount されている間）と、
+  // 用語のページ・テーマ一覧など、ほかの画面には出す。
+  // ホームは自分の欄に会話を持つので、欄が register する前の最初の描画でも出さない（一瞬チラつく）
+  const showGlobalConsult = tab !== 'cards' && tab !== 'home' && !workspaceChatShown
   const { openSettings } = useLlmSettings()
   const tSettings = i18n.getFixedT(i18n.language, 'settings')
   const glossSettingsT = i18n.getFixedT(otherLng, 'settings')
 
   useEffect(() => {
     const onHash = () => {
+      flushDrafts() // 戻る・進むでも、開いている下書きの直しを保存してから画面を替える
       applyLegacyHashRewrite()
       setRoute(parseHash(window.location.hash))
     }
@@ -569,13 +584,20 @@ function App() {
   const navCollapsedExplicit = useRef(loadNavCollapsed() !== null)
   const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
     const stored = loadNavCollapsed()
-    if (stored !== null) return stored
-    try {
-      return window.matchMedia(NAV_AUTO_COLLAPSE_QUERY).matches
-    } catch {
-      return false
+    let v: boolean
+    if (stored !== null) v = stored
+    else {
+      try {
+        v = window.matchMedia(NAV_AUTO_COLLAPSE_QUERY).matches
+      } catch {
+        v = false
+      }
     }
+    // ホームの会話をシートにする境がナビの幅で動く — 最初の描画から正しい境で判定できるよう、ここで知らせる
+    publishNavCollapsed(v)
+    return v
   })
+  useEffect(() => publishNavCollapsed(navCollapsed), [navCollapsed])
 
   useEffect(() => {
     if (navCollapsedExplicit.current) return
@@ -609,6 +631,7 @@ function App() {
    *  ブラウザの戻る/進む・手入力 URL 用）。replace=true は履歴を積まない
    *  （詳細内タブ切替など、戻るボタンで巻き戻したくない細かな状態変更用）。 */
   function navigate(r: Route, opts?: { replace?: boolean }) {
+    flushDrafts() // hash が変わる前に、開いている下書きの直しを保存する（別の画面で消えない）
     const h = routeToHash(r)
     if (window.location.hash !== h) {
       if (opts?.replace) window.history.replaceState(null, '', h)
@@ -666,19 +689,12 @@ function App() {
   // 呼び出し側が立てる — 置く画面から入る既存の経路（GalleryView の「見直す」）は
   // 渡さないので、そちらの戻り先（カタログの当該データセット詳細）は変わらない。
   // WorkbenchTier が消費する redesignTarget の state だけを立てる（ナビゲーション
-  // はしない）。旧ナビの「見直す」（redesignDataset・下）と、見るの枠の中で開く
+  // はしない）。データのページの「設計を見直す」（ホームの右の領域・下）と、見るの枠の中で開く
   // 「定義を直す」（onDefine・下）の両方がこれを共有する（契約メモ
   // contract_pr_f5.md §1.4）。
   function setRedesignState(target: RedesignTarget) {
     setGalleryFocus(null)
     setRedesignTarget(target)
-  }
-
-  // Gallery→Workbench redesign link（旧ナビの「見直す」・置く画面から入る既存の
-  // 経路）: state を立てたうえで、従来どおり workbench タブへ移る。
-  function redesignDataset(target: RedesignTarget, returnTo?: string) {
-    setRedesignState(target)
-    navigate({ tab: 'workbench', returnTo })
   }
 
   // データセットのページの「定義を直す」「続きから」（契約メモ §2.2・§2.6・
@@ -916,7 +932,7 @@ function App() {
           </header>
 
           {/* 「データ」の下のタブ: データセット／つながり／記録。詳細・追加の画面では出さない。 */}
-          {((tab === 'gallery' && !route.datasetId && !route.add) || tab === 'crosswalk') && (
+          {((tab === 'gallery' && !route.datasetId) || tab === 'crosswalk') && (
             <div className="data-subtabs">
               <div className="ds-tabs" role="tablist">
                 <button
@@ -965,8 +981,36 @@ function App() {
                   if (window.location.hash !== next) window.history.replaceState(null, '', next)
                   setRoute({ tab: 'home', deep: route.deep })
                 }}
-                onAddData={() => navigate({ tab: 'gallery', add: true })}
-                onWriteQuestion={() => navigate({ tab: 'vocab', newQuestion: true })}
+                write={route.write ?? null}
+                onWriteConsumed={() => {
+                  // write だけを外す（deep は残す）。履歴は積まない。
+                  const next = routeToHash({ tab: 'home', deep: route.deep })
+                  if (window.location.hash !== next) window.history.replaceState(null, '', next)
+                  setRoute({ tab: 'home', deep: route.deep })
+                }}
+                onAddData={() => navigate({ tab: 'home', add: true })}
+                adding={!!route.add}
+                onCloseAdd={() => navigate({ tab: 'home', deep: route.deep })}
+                addView={
+                  route.add ? (
+                    // データを置く — ホームの右の領域に、かんたんの札をページのまま描く（UI 再設計 PR 8c）。
+                    // 「同じ形なら設計なしで追加」の近道は S1 の帯が担い、完了はその種類のページへ着地する。
+                    <WorkbenchTier
+                      redesignTarget={redesignTarget}
+                      onRedesignConsumed={() => setRedesignTarget(null)}
+                      onOpenDataset={onWorkbenchDone}
+                      onOpenAsk={openAsk}
+                      onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                      onShortcutDone={(target) => {
+                        navigate(
+                          target.classIri
+                            ? { tab: 'cards', classPageIri: target.classIri }
+                            : { tab: 'cards', datasetPageId: target.datasetId },
+                        )
+                      }}
+                    />
+                  ) : null
+                }
                 onOpenKind={(iri) => navigate({ tab: 'cards', classPageIri: iri })}
                 onOpenDataset={(id) => navigate({ tab: 'cards', datasetPageId: id })}
                 onOpenTerm={(slug) => navigate({ tab: 'vocab', termSlug: slug })}
@@ -997,34 +1041,12 @@ function App() {
                 onSelectThread={(id, opts) =>
                   navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
                 }
-                onAddData={() => navigate({ tab: 'gallery', add: true })}
+                onAddData={() => navigate({ tab: 'home', add: true })}
                 onOpenDataset={openDataset}
               />
             )}
-            {/* `#/datasets/add` — データが入る唯一の入口（契約メモ
-                contract_pr_f10.md §1.2）。PlaceView（形の一致の判定だけを先に
-                見せる中間画面）はもう出さず、かんたんウィザードの S1（ファイル
-                を置く）を直に出す。「同じ形なら設計なしで追加」の近道は S1 の
-                帯（KantanWizard.tsx）が担い、完了は `onShortcutDone` で
-                その種類のページへ着地する。 */}
-            {tab === 'gallery' && route.add && (
-              <WorkbenchTier
-                redesignTarget={redesignTarget}
-                onRedesignConsumed={() => setRedesignTarget(null)}
-                onOpenDataset={onWorkbenchDone}
-                onOpenAsk={openAsk}
-                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
-                onShortcutDone={(target) => {
-                  navigate(
-                    target.classIri
-                      ? { tab: 'cards', classPageIri: target.classIri }
-                      : { tab: 'cards', datasetPageId: target.datasetId },
-                  )
-                }}
-              />
-            )}
-            {tab === 'gallery' && !route.add && route.activity && <JobsView />}
-            {tab === 'gallery' && !route.add && !route.activity && (
+            {tab === 'gallery' && route.activity && <JobsView />}
+            {tab === 'gallery' && !route.activity && (
               <GalleryView
                 focusClass={galleryFocus}
                 selectedId={route.datasetId ?? null}
@@ -1041,8 +1063,12 @@ function App() {
                   setMapReturn(route)
                   navTo('map')
                 }}
-                onAddData={() => navigate({ tab: 'gallery', add: true })}
-                onRedesign={redesignDataset}
+                onAddData={() => navigate({ tab: 'home', add: true })}
+                // 「設計を見直す」もホームの右の領域で（`#/home?add=1&dataset=<id>`）
+                onRedesign={(target) => {
+                  setRedesignState(target)
+                  navigate({ tab: 'home', add: true, placeDatasetId: target.datasetId })
+                }}
                 detailFocus={detailFocus}
                 onDetailFocusConsumed={() => setDetailFocus(null)}
               />
@@ -1055,30 +1081,16 @@ function App() {
                 />
               ) : (
                 <ThemesView
-                  newQuestion={!!route.newQuestion}
                   focusTheme={route.themeId}
-                  onCloseNew={() => {
-                    // 3 段を閉じた: `new`・持ち込まれた題 `q`・続きの下書き `resume` を hash から外す。
-                    const h = window.location.hash
-                    const qi = h.indexOf('?')
-                    if (qi >= 0) {
-                      const params = new URLSearchParams(h.slice(qi + 1))
-                      params.delete('new')
-                      params.delete('q')
-                      params.delete('resume')
-                      const rest = params.toString()
-                      window.history.replaceState(null, '', rest ? `${h.slice(0, qi)}?${rest}` : h.slice(0, qi))
-                    }
-                    setRoute((r) => ({ ...r, newQuestion: undefined }))
-                  }}
                   onOpenAsk={openAsk}
+                  onWrite={(w) => navigate({ tab: 'home', write: w })}
                 />
               ))}
             {tab === 'crosswalk' && (
               <CrosswalkView
                 createMode={!!route.create}
                 onCreateMode={(on) => navigate({ tab: 'crosswalk', create: on })}
-                onAddData={() => navigate({ tab: 'gallery', add: true })}
+                onAddData={() => navigate({ tab: 'home', add: true })}
                 onOpenAsk={openAsk}
                 onOpenMap={() => {
                   setMapReturn({ tab: 'crosswalk' })
@@ -1157,7 +1169,7 @@ function App() {
                       setMapReturn(route)
                       navTo('map')
                     }}
-                    onAddData={() => navigate({ tab: 'gallery', add: true })}
+                    onAddData={() => navigate({ tab: 'home', add: true })}
                     // 詳しい情報（見るの枠に埋め込み）からの「見直す」は旧ナビの
                     // workbench タブへ切り替えない — 見るの枠（SubjectRail・
                     // topbar）のまま子ルート #/cards/d/<id>/define に留める
@@ -1187,8 +1199,10 @@ function App() {
       {/* Global right-drawer AI consult (ADR design-consult-chat.md D1): available
           on every screen, not just the かんたん wizard — a domain expert can also
           ask "what does this column mean" from the Gallery or Ask. cards タブ
-          （見る）だけは出さない（契約メモ §3: 質問窓口を 1 つにする §7）。 */}
-      {tab !== 'cards' && <ConsultDrawer />}
+          （見る）だけは出さない（契約メモ §3: 質問窓口を 1 つにする §7）。
+          ホーム・③の会話が mount されているあいだと、作業場が開いているあいだだけ隠す
+          （契約 pr7c A3: 会話が 2 つにならない）。用語のページ・テーマ一覧には出す。 */}
+      {showGlobalConsult && <ConsultDrawer />}
     </div>
   )
 }

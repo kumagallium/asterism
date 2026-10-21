@@ -5082,6 +5082,7 @@ async def _append_document_to_dataset(
             json.dumps(conversion, ensure_ascii=False),
             "utf-8",
         )
+        await asyncio.to_thread((sdir / f"{name}.jats").write_text, xml_text, "utf-8")
         xml_name = name
     else:
         await _save_upload(upload, sdir / name)
@@ -10622,6 +10623,13 @@ def build_app(
                                 json.dumps(conv, ensure_ascii=False),
                                 "utf-8",
                             )
+                            # 変換結果（JATS）を控える — 「この論文から問いを提案」が要旨と結論を
+                            # 読むため（Docling を呼び直さない・source の接尾辞でない）
+                            await asyncio.to_thread(
+                                (pdf_path.parent / f"{pdf_path.name}.jats").write_text,
+                                jats,
+                                "utf-8",
+                            )
                             doc_id = documents.derive_doc_id(jats, fallback=pdf_path.stem)
                             piri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
                             sub = work / f"pdf_{j}"
@@ -10938,6 +10946,43 @@ def build_app(
             "warnings": [*upper["warnings"], *questions["warnings"]],
         }
 
+    async def _suggest_lines(dataset_id: str, client: OxigraphClient) -> int:
+        """公開のあとの後処理（ui-redesign PR 7c・契約 B1）— そのデータセットの種類・項目と、
+        共有の用語（全テーマの概念）の**名前の完全一致**を機械が数えて ``suggested_lines.json`` に
+        置く。AI は呼ばない・値は読まない。失敗しても公開は止めない（警告だけ・0 件を返す）。
+        線にするのは人の「まとめて確定」だけ（``/api/sky/suggestions/apply``）。"""
+        from asterism import suggested_lines
+
+        try:
+            meta = (registry.load_dataset(cfg.registry_root, dataset_id) or {}).get("meta") or {}
+            at = datetime.now(UTC).isoformat()
+            # 計算に時間の上限（超えたら警告だけ・公開は止めない）
+            rows = await asyncio.wait_for(
+                suggested_lines.compute_for_dataset(
+                    client,
+                    dataset_id,
+                    version=suggested_lines.version_of(meta),
+                    at=at,
+                    registry_root=cfg.registry_root,
+                ),
+                10,
+            )
+            # 旧版の行は置き換える（0 件でも旧い行を消す）
+            return await asyncio.to_thread(
+                partial(
+                    suggested_lines.record_for_dataset,
+                    cfg.registry_root,
+                    rows,
+                    dataset_id=dataset_id,
+                )
+            )
+        except TimeoutError:
+            logger.warning("結べそうな線の計算が 10 秒を超えたので見送りました (%s)", dataset_id)
+            return 0
+        except Exception:
+            logger.warning("結べそうな線の計算に失敗しました (%s)", dataset_id, exc_info=True)
+            return 0
+
     @app.post("/api/datasets/{dataset_id}/promote", dependencies=_write_auth)
     async def promote_dataset(dataset_id: str) -> JSONResponse:
         """Phase 5 (#15 S4): human-gated promotion of a staged version graph to citable.
@@ -11007,6 +11052,7 @@ def build_app(
         # 共有の言葉の「答えるデータセット数」（wired.json）は公開で変わる。失敗しても
         # 公開は止めない（warning は _refresh_wired が出す）。
         await _refresh_wired(client)
+        await _suggest_lines(dataset_id, client)  # 完全一致の候補（AI なし・失敗は無視）
         # 契約メモ contract_pr_f15.md §1.4: before rebuilding whatever hub this
         # dataset already participates in, see whether its ☑ handles newly join
         # ANOTHER promoted dataset's ☑ handles and, if so, join the hub
@@ -11162,6 +11208,7 @@ def build_app(
         # 自分の問い（q_ ツール）は書く — promote と同じ関数。名前の違いが無くても走る。
         upper_questions = await _apply_upper_and_questions(dataset_id, client)
         await _refresh_wired(client)
+        await _suggest_lines(dataset_id, client)
         return {
             "dataset_id": dataset_id,
             "updated": len(changes),
@@ -12111,9 +12158,11 @@ def build_app(
     # 用意したルートを、統合段としてここでまとめて配線する。
     # ------------------------------------------------------------------
     # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
+    from asterism_api.consult_graph_routes import register_consult_graph  # 作業場の会話
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
+    from asterism_api.sky_suggestions_routes import register_sky_suggestions  # 結べそうな線
     from asterism_api.themes_routes import register_themes  # 知りたいことから作る（テーマ）
     from asterism_api.vocab_routes import register_vocab  # 共有の言葉（上位構造 ADR §2）
 
@@ -12126,8 +12175,11 @@ def build_app(
     register_license(app, cfg)
     register_vocab(app, cfg, write_auth=_write_auth)
     register_themes(app, cfg, _resolve_llm, write_auth=_write_auth)  # テーマ（6 段・用語のページ）
+    # 作業場の会話（左に図・右に会話）の差分の提案・適用・却下（ui-redesign PR 7a）
+    register_consult_graph(app, cfg, _resolve_llm, write_auth=_write_auth)
     register_questions(app, cfg, write_auth=_write_auth)  # ⑥ 自分の問い（questions.json）
     register_upper(app, cfg, write_auth=_write_auth)  # ③⑤ の当てはめ（upper.json）
+    register_sky_suggestions(app, cfg, write_auth=_write_auth)  # 公開のあとの「結べそうな線」
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）

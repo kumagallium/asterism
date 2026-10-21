@@ -1,0 +1,68 @@
+# Starrydata の金標準（問い 10 本）。由来は ADR sky-chart-two-entries.md §2.4e の表
+# 「Starrydata の問い 10 本」（design.md §7 の 4 本＋自分で足した 6 本）。
+# 形は README を見る。入力は列の見出しと型のヒントだけ（値は入れない）。列の名前は
+# starrydata_dataset/tidy/out/ の列の表示名（試料・論文・測定点の 3 種類）に当てた。
+# gold_cqs[i] と expected_answers[i] は同じ添字で対になる。closed: false は「データの形 7 つにも
+# 知識の形 3 つにも落ちない」問い（op の合成）で、評価の再現率の分母には入れない。
+dataset: starrydata
+adr: sky-chart-two-entries.md §2.4e
+cases:
+  - id: sd-samples
+    source:
+      screen: dataset
+      dataset_label: Starrydata 試料表
+      kinds: [試料]
+      columns:
+        - {name: 試料番号, kind_hint: xsd:string}
+        - {name: 組成, kind_hint: xsd:string}
+        - {name: 材料系, kind_hint: xsd:string}
+        - {name: 粒径, kind_hint: xsd:double}
+    gold_cqs:
+      - SnSe を含む組成の試料は？
+      - 材料系ごとの試料は何件？
+      - 粒径がいちばん大きい試料は？
+    expected_answers:
+      - {op: filter, mode: data, kind: 試料, property: 組成, value: SnSe, match: contains, closed: true, adr_row: 1}
+      - {op: group, mode: data, kind: 試料, property: 材料系, closed: true, adr_row: 4}
+      - {op: top, mode: data, kind: 試料, property: 粒径, closed: true, adr_row: 8}
+
+  - id: sd-papers
+    source:
+      screen: dataset
+      dataset_label: Starrydata 論文表
+      kinds: [論文, 試料]
+      columns:
+        - {name: DOI, kind_hint: xsd:string}
+        - {name: 題, kind_hint: xsd:string}
+        - {name: 出版年, kind_hint: xsd:integer}
+        - {name: 報告する, kind_hint: link to another kind}
+    gold_cqs:
+      - この論文が報告した試料は？
+      - 出版年ごとの論文は何本？
+      - 論文は何本あるか？
+    expected_answers:
+      - {op: join, mode: data, kind: 論文, property: 報告する, kind2: 試料, closed: true, adr_row: 2}
+      - {op: group, mode: data, kind: 論文, property: 出版年, closed: true, adr_row: 5}
+      - {op: count, mode: data, kind: 論文, closed: true, adr_row: 6}
+
+  - id: sd-points
+    source:
+      screen: dataset
+      dataset_label: Starrydata 測定点表
+      kinds: [測定点, 試料]
+      columns:
+        - {name: 温度, kind_hint: xsd:double}
+        - {name: Seebeck 係数, kind_hint: xsd:double}
+        - {name: ZT, kind_hint: xsd:double}
+        - {name: 組成, kind_hint: xsd:string}
+        - {name: 測る試料, kind_hint: link to another kind}
+    gold_cqs:
+      - Seebeck 係数の温度依存は？
+      - ZT の最小と最大は？
+      - ZT が最も高い試料の組成は？
+      - 組成 SnSe の Seebeck 係数の温度依存は？
+    expected_answers:
+      - {op: trend, mode: data, kind: 測定点, property: 温度, property2: Seebeck 係数, closed: true, adr_row: 3}
+      - {op: range, mode: data, kind: 測定点, property: ZT, closed: true, adr_row: 7}
+      - {op: null, mode: null, closed: false, adr_row: 9, reason: "「最大の点」（top）のあとにその試料の組成へたどる（join）が要る＝合成"}
+      - {op: null, mode: null, closed: false, adr_row: 10, reason: "組成で絞る（filter）→ 推移（trend）の 2 段＝合成"}
