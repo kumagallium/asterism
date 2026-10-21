@@ -1441,6 +1441,9 @@ def _shape_row(item_map: dict[str, dict[str, Any]], row: dict[str, Any]) -> dict
     return out
 
 
+_TRAILING_LIMIT = re.compile(r"\bLIMIT\s+(\d+)\s*\Z", re.IGNORECASE)
+
+
 async def run_query_tool(
     client: Any, tool: QueryTool, args: dict[str, Any], *, max_rows: int = 200
 ) -> dict[str, Any]:
@@ -1487,6 +1490,11 @@ async def run_query_tool(
         plotted = plot_result(shaped, dict(tool.item), max_points=max_rows, read_cap=None)
         return {"tool": tool.name, **plotted, "sparql": effective}
     truncated = len(bindings) > max_rows
+    # 宣言のクエリ自身が ``LIMIT n`` で打ち切る形（推移・〜ごと）は、n 行に届いたら
+    # 「まだ先がある」ものとして truncated を立てる（届いただけでは全部とは言えない）。
+    m_limit = _TRAILING_LIMIT.search(sparql)
+    if m_limit and len(bindings) >= int(m_limit.group(1)):
+        truncated = True
     rows = bindings[:max_rows]
     if tool.item:
         items = [_shape_row(tool.item, r) for r in rows]

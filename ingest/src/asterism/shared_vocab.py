@@ -114,8 +114,9 @@ MATCH_MODES = ("contains", "exact")
 #: ``filter`` の値の長さの上限（問いの文に書かれていた語・データの値ではない）。
 VALUE_MAX = 120
 #: ``group`` の行数・``trend`` の行数の上限（SPARQL の LIMIT・固定）。
-GROUP_LIMIT = 200
+GROUP_LIMIT = 500
 TREND_LIMIT = 2000
+_XSD_DOUBLE = "http://www.w3.org/2001/XMLSchema#double"
 _SLUG = re.compile(_SLUG_PATTERN)
 _ISO_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})?\Z")
 _LANGTAG_OK = re.compile(r"^[a-z]{2,3}$")
@@ -491,11 +492,11 @@ def _data_op_query(term: SharedTerm, cq: CQSpec) -> tuple[str, str, dict, list[s
             f"  FILTER({flt})\n"
             "}\n"
             "GROUP BY ?dataset_graph ?v\n"
-            "ORDER BY ?dataset_graph DESC(?entities)\n"
+            "ORDER BY DESC(?entities) ?dataset_graph ?v\n"
             f"LIMIT {GROUP_LIMIT}\n"
         )
         describe = (
-            f"「{label}」を、項目の値ごとに数えます（データセットごと・上位 {GROUP_LIMIT} 行）。"
+            f"「{label}」を、項目の値ごとに数えます（件数の多い {GROUP_LIMIT} 行・データセット横断）。"
         )
         item = {
             "dataset_graph": "dataset_graph",
@@ -516,11 +517,15 @@ def _data_op_query(term: SharedTerm, cq: CQSpec) -> tuple[str, str, dict, list[s
             f"  ?py {UPPER_PATH_PROPERTY} <{prop2}> .\n"
             "  GRAPH ?dataset_graph { ?e a ?k . ?e ?px ?x . ?e ?py ?y }\n"
             f"  FILTER({flt})\n"
+            f"  BIND(<{_XSD_DOUBLE}>(STR(?x)) AS ?xn)\n"
             "}\n"
-            "ORDER BY ?dataset_graph ?x\n"
+            "ORDER BY ?dataset_graph (!BOUND(?xn)) ?xn ?x\n"
             f"LIMIT {TREND_LIMIT}\n"
         )
-        describe = f"「{label}」の 2 つの項目の値の組を、1 つ目の順に並べます（データセットごと）。"
+        describe = (
+            f"「{label}」の 2 つの項目の値の組を、1 つ目の値の大きさの順に並べます"
+            f"（データセットごと・先頭 {TREND_LIMIT} 点まで）。"
+        )
         item = {
             "dataset_graph": "dataset_graph",
             "x": {"var": "x", "number": True},
