@@ -9,6 +9,7 @@ import { ThemesApiError } from '../themes/themesApi'
 import {
   confirmTurn,
   createSession,
+  deleteSession,
   getSession,
   isKeyMissing,
   listSessions,
@@ -118,7 +119,11 @@ export function ChatApp() {
     if (!viewId || loadedId === viewId) return
     let off = false
     getSession(viewId)
-      .then((s) => !off && setLoaded({ id: viewId, session: s }))
+      .then((s) => {
+        if (off) return
+        setLoaded({ id: viewId, session: s })
+        setFailed(null)
+      })
       .catch((e: unknown) => {
         if (off) return
         // 無い話（消した・別の PC）は新しい話に戻す
@@ -157,17 +162,30 @@ export function ChatApp() {
       setError(null)
       try {
         let s = session
+        let created = false
         if (!s) {
           s = await createSession('')
+          created = true
           setLoaded({ id: s.id, session: s })
           navigate({ kind: 'session', id: s.id }, { replace: true })
         }
         const id = s.id
-        const res = await postTurn(id, { ...input, lang }, getActiveCredentials())
-        update(id, (cur) => applyTurnResponse(cur, res))
-        setDraft(res.draft)
-        afterChange()
-        return true
+        try {
+          const res = await postTurn(id, { ...input, lang }, getActiveCredentials())
+          update(id, (cur) => applyTurnResponse(cur, res))
+          setDraft(res.draft)
+          afterChange()
+          return true
+        } catch (e) {
+          // 最初の送信で手番が通らなかったら、空の話は残さず新しい話へ戻す（入力欄の文は Composer が残す）
+          if (created) {
+            await deleteSession(id).catch(() => undefined)
+            navigate({ kind: 'new' }, { replace: true })
+            setLoaded(null)
+            reloadSessions()
+          }
+          throw e
+        }
       } catch (e) {
         setError(messageOf(e))
         return false
@@ -175,7 +193,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [busy, view.kind, session, lang, getActiveCredentials, navigate, update, afterChange],
+    [busy, view.kind, session, lang, getActiveCredentials, navigate, update, afterChange, reloadSessions],
   )
 
   const onSend = useCallback((text: string) => runTurn({ text }), [runTurn])
@@ -209,7 +227,7 @@ export function ChatApp() {
       setBusy('revert')
       setError(null)
       try {
-        const res = await revertTurn(id, turnId)
+        const res = await revertTurn(id, turnId, lang)
         update(id, (cur) => applyRevert(cur, res))
         setDraft(res.draft)
         afterChange()
@@ -219,7 +237,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [session, busy, update, afterChange],
+    [session, busy, lang, update, afterChange],
   )
 
   const newChat = () => {
@@ -287,7 +305,7 @@ export function ChatApp() {
         </div>
       )}
       {layout.sheetOpen && <button type="button" className="chat-scrim" aria-label={t('list.close')} onClick={layout.closeSheet} />}
-      <aside className={`chat-list${layout.sheetOpen ? ' is-open' : ''}`}>{list}</aside>
+      <aside className={`chat-list${layout.sheetOpen ? ' is-open' : ''}`} inert={layout.tabs && !layout.sheetOpen}>{list}</aside>
       <section className="chat-center" hidden={layout.tabs && tab !== 'chat'}>
         <ChatPane
           key={composerKey}
@@ -307,7 +325,7 @@ export function ChatApp() {
         <div className="chat-right-scroll">
           <ChartPane lang={lang} refreshKey={chartTick} onProposed={setChartDrafts} />
         </div>
-        {showHand && <HandForm draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
+        {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>
     </div>
   )

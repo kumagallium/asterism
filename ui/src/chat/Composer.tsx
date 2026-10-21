@@ -1,7 +1,7 @@
 // 入力欄（PR 11a）。Enter で送る・Shift+Enter で改行・IME 変換中は送らない。📎 は 11c。
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { SendIcon } from '../icons'
+import { GearIcon, SendIcon } from '../icons'
 
 export interface ComposerProps {
   /** 送れたら true（入力を消す）。失敗なら false（書いた文字は残す）。 */
@@ -17,13 +17,20 @@ export function Composer({ onSend, busy, noKey, onOpenSettings }: ComposerProps)
   const { t } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
   const [text, setText] = useState('')
+  const area = useRef<HTMLTextAreaElement>(null)
+  const wasBusy = useRef(false)
+  // 送信などが終わって入力欄が使えるようになったら、フォーカスを返す
+  useEffect(() => {
+    if (wasBusy.current && !busy) area.current?.focus()
+    wasBusy.current = busy
+  }, [busy])
 
   if (noKey) {
     return (
       <div className="chat-composer chat-composer--nokey">
         <span className="chat-note-line">{t('compose.noKey')}</span>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenSettings}>
-          {ts('open')}
+        <button type="button" className="chat-icon-btn" onClick={onOpenSettings} aria-label={ts('open')} title={ts('open')}>
+          <GearIcon size={16} />
         </button>
       </div>
     )
@@ -40,6 +47,7 @@ export function Composer({ onSend, busy, noKey, onOpenSettings }: ComposerProps)
   return (
     <div className="consult-composer chat-composer">
       <textarea
+        ref={area}
         className="consult-input"
         data-testid="chat-input"
         rows={2}

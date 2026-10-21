@@ -131,6 +131,11 @@
 .chat-row.is-active .chat-row-more {
   opacity: 1;
 }
+@media (hover: none) {
+  .chat-row-more {
+    opacity: 1;
+  }
+}
 .chat-row-input {
   flex: 1;
   min-width: 0;

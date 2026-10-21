@@ -38,7 +38,8 @@ export function HandForm({ draft, nextKey, busy, onSubmit, onAnswer }: HandFormP
   const [rel, setRel] = useState<string>(REL_KINDS[0])
   const [to, setTo] = useState('')
   const concepts = draft?.concepts ?? []
-  const a = from || concepts[0]?.key || ''
+  const has = (k: string) => concepts.some((c) => c.key === k)
+  const a = (has(from) ? from : '') || concepts[0]?.key || ''
   const questions = draft?.questions ?? []
   const [qSel, setQSel] = useState('')
   const [waySel, setWaySel] = useState<string>(WAYS[0].id)
@@ -47,7 +48,7 @@ export function HandForm({ draft, nextKey, busy, onSubmit, onAnswer }: HandFormP
   const targets = concepts.filter((c) => way.need === 'any' || c.kind === way.need)
   const question = questions.includes(qSel) ? qSel : (questions[0] ?? '')
   const target = targets.some((c) => c.key === targetSel) ? targetSel : (targets[0]?.key ?? '')
-  const b = to || concepts.find((c) => c.key !== a)?.key || ''
+  const b = (has(to) ? to : '') || concepts.find((c) => c.key !== a)?.key || ''
 
   async function addConcept() {
     const label = name.trim()

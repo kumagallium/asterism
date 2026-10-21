@@ -54,7 +54,7 @@
     "decide": "Decide"
   },
   "empty": {
-    "first": "Write what you want to know, or attach data, and the chart grows here"
+    "first": "Write what you want to know and the chart grows here"
   },
   "error": {
     "badShape": "The server's reply was not in the expected shape",

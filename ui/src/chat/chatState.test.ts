@@ -90,6 +90,23 @@ describe('chatState', () => {
     expect(s.turns.map((t) => t.state)).toEqual(['reverted', 'reverted'])
     expect(s.draft_id).toBeNull()
   })
+  it('戻したあと ✓ の対象は前の未確認へ移る', () => {
+    const base = session([turn('t1', 'proposed'), turn('t2', 'proposed')])
+    expect(confirmTarget(base.turns)).toBe('t2')
+    const s = applyRevert(base, { turn: turn('t2', 'reverted'), session: brief(), draft: null, reverted: ['t2'] })
+    expect(confirmTarget(s.turns)).toBe('t1')
+  })
+  it('✓ の返りに commit が無いときは手番の commit を保つ', () => {
+    const commit = { theme_id: 'th1', minted: [], lines: 1, questions: [], batch: 'b', at: 'x' }
+    const base = session([turn('t1', 'proposed', 1), turn('t2', 'proposed', 1)])
+    const s = applyConfirm(base, {
+      turn: { ...turn('t2', 'confirmed', 1), commit },
+      session: brief(),
+      confirmed: ['t1', 't2'],
+    })
+    expect(s.turns[0].commit).toEqual(commit)
+    expect(s.turns[1].commit).toEqual(commit)
+  })
   it('手で足す key は h<n> の次', () => {
     expect(nextHandKey([])).toBe('h1')
     expect(nextHandKey(['t1', 'h1', 'h4', 'hx'])).toBe('h5')

@@ -34,4 +34,10 @@ describe('chatRoute', () => {
     expect(legacyHashRewrite('#/t/cabc12345x')).toBeNull()
     expect(legacyHashRewrite('#/settings')).toBeNull()
   })
+  it('#/home（スラッシュ無し）は #/ に読み替え、#/homepage のような非該当は読み替えず新しい話として読む', () => {
+    expect(legacyHashRewrite('#/home')).toBe('#/')
+    expect(legacyHashRewrite('#/homepage')).toBeNull()
+    expect(legacyHashRewrite('#/home2')).toBeNull()
+    expect(parseChatHash('#/homepage')).toEqual({ kind: 'new' })
+  })
 })

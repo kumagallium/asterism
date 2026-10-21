@@ -347,9 +347,9 @@ export async function confirmTurn(id: string, turnId: string, lang: 'ja' | 'en')
   return { turn, session, commit: commitOf(body.commit) ?? undefined, confirmed: strs(body.confirmed) }
 }
 
-export async function revertTurn(id: string, turnId: string): Promise<RevertResponse> {
+export async function revertTurn(id: string, turnId: string, lang: 'ja' | 'en' = 'ja'): Promise<RevertResponse> {
   const res = await call(
-    `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/revert`,
+    `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/revert?lang=${lang}`,
     { method: 'POST', headers: json(), body: '{}' },
     'revert',
   )
