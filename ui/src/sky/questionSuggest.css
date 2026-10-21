@@ -48,3 +48,7 @@
   font-size: 0.74rem;
   overflow-wrap: anywhere;
 }
+/* データの詳細（文書）では「質問してみる」の下に置くので、少し離す */
+.qs-block {
+  margin-top: var(--space-3);
+}
