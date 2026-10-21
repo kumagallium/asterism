@@ -161,20 +161,26 @@ export function readQuestionSuggestions(raw: unknown): QuestionSuggestion[] {
   return out
 }
 
+/** 提案の元。`dataset` = 表の列の見出し（10a）・`paper` = 文書型のデータセットの要旨と結論の文（10b）。 */
+export type QuestionScreen = 'dataset' | 'paper'
+
 /**
- * データセットの列の見出しから、AI に問いを提案させる（`POST /api/consult/suggest-questions`）。
- * 人が押したときだけ呼ぶ。何も保存されない（提案の文・却下は残さない）。値は AI に渡らない。
- * 失敗は ThemesApiError（503＝AI 未設定・401＝鍵・404＝データセットが無い・502＝AI の答えが形にならない）。
+ * データセットの列の見出し（`screen: 'paper'` なら文書の要旨と結論の文）から、AI に問いを提案させる
+ * （`POST /api/consult/suggest-questions`）。人が押したときだけ呼ぶ。何も保存されない（提案の文・却下は
+ * 残さない）。データの値・論文の本文全体は AI に渡らない。
+ * 失敗は ThemesApiError（503＝AI 未設定・401＝鍵・404＝データセット／読める文書が無い・422＝文書型でない・
+ * 502＝AI の答えが形にならない）。
  */
 export async function suggestQuestions(
   datasetId: string,
   lang: string,
   creds: LlmCredentials | null,
+  screen: QuestionScreen = 'dataset',
 ): Promise<QuestionSuggestion[]> {
   const res = await fetch(`${API_BASE}/api/consult/suggest-questions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
-    body: JSON.stringify({ screen: 'dataset', context: { dataset_id: datasetId }, lang }),
+    body: JSON.stringify({ screen, context: { dataset_id: datasetId }, lang }),
   })
   if (!res.ok) throw await asError(res, i18n.t('themes:error.ops.suggestQuestions'))
   return readQuestionSuggestions(await res.json())

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type QuestionSuggestion, suggestQuestions } from '../consult/graphChatApi'
+import { type QuestionScreen, type QuestionSuggestion, suggestQuestions } from '../consult/graphChatApi'
 import { useLlmSettings } from '../settings/context'
 import { ThemesApiError } from '../themes/themesApi'
 import type { SuggestItem } from '../workspace/workspaceState'
@@ -11,10 +11,20 @@ import './questionSuggest.css'
 // 下書きの流れへ。押さなければ何も残らない（提案の文・却下は保存しない）。
 //   ・ホームの会話: 星を選んだときの札のボタン → 会話のカード（`SuggestCard`・ws.items の suggest）
 //   ・⑦の完了: ボタンとカードを完了カードの中に（`QuestionSuggestBlock`・自分の状態）
+//   ・文書（PR 10b）: 同じブロックを `screen="paper"` で、文書の取り込み完了とデータの詳細に。
+//     AI に渡るのは文書の要旨と結論の文だけ（本文全体は渡さない）。
 
-function Rows({ rows, onStart }: { rows: QuestionSuggestion[]; onStart: (q: string) => void }) {
+function Rows({
+  rows,
+  onStart,
+  screen = 'dataset',
+}: {
+  rows: QuestionSuggestion[]
+  onStart: (q: string) => void
+  screen?: QuestionScreen
+}) {
   const { t } = useTranslation('sky')
-  if (rows.length === 0) return <p className="sky-hint">{t('suggestQ.none')}</p>
+  if (rows.length === 0) return <p className="sky-hint">{t(screen === 'paper' ? 'suggestQ.nonePaper' : 'suggestQ.none')}</p>
   return (
     <ul className="qs-list" data-testid="suggest-rows">
       {rows.map((r) => (
@@ -72,11 +82,19 @@ export function SuggestCard({
 }
 
 /** 星の札・⑦の完了カードのボタン。 */
-export function SuggestButton({ onAsk, disabled }: { onAsk: () => void; disabled?: boolean }) {
+export function SuggestButton({
+  onAsk,
+  disabled,
+  screen = 'dataset',
+}: {
+  onAsk: () => void
+  disabled?: boolean
+  screen?: QuestionScreen
+}) {
   const { t } = useTranslation('sky')
   return (
     <button type="button" className="btn btn--sm" onClick={onAsk} disabled={disabled} data-testid="suggest-ask">
-      {t('suggestQ.ask')}
+      {t(screen === 'paper' ? 'suggestQ.askPaper' : 'suggestQ.ask')}
     </button>
   )
 }
@@ -84,8 +102,17 @@ export function SuggestButton({ onAsk, disabled }: { onAsk: () => void; disabled
 /**
  * ⑦の完了カードの中のブロック（AI 設定ずみのときだけ出す）。ボタン → 同じ場所にカード。
  * `onStart` は「この問いで始める」（⑦を片づけてからホームの問いを書く道へ行く）。
+ * `screen="paper"`（PR 10b）は文書型のデータセットの要旨と結論の文から（「この論文から問いを提案してもらう」）。
  */
-export function QuestionSuggestBlock({ datasetId, onStart }: { datasetId: string; onStart: (q: string) => void }) {
+export function QuestionSuggestBlock({
+  datasetId,
+  onStart,
+  screen = 'dataset',
+}: {
+  datasetId: string
+  onStart: (q: string) => void
+  screen?: QuestionScreen
+}) {
   const { t, i18n } = useTranslation('sky')
   const { isReady, getActiveCredentials } = useLlmSettings()
   const [state, setState] = useState<{ status: 'idle' | 'running' | 'done' | 'failed'; rows: QuestionSuggestion[]; detail: string }>({
@@ -96,7 +123,7 @@ export function QuestionSuggestBlock({ datasetId, onStart }: { datasetId: string
   if (!isReady) return null
   const ask = () => {
     setState({ status: 'running', rows: [], detail: '' })
-    suggestQuestions(datasetId, i18n.language.startsWith('en') ? 'en' : 'ja', getActiveCredentials())
+    suggestQuestions(datasetId, i18n.language.startsWith('en') ? 'en' : 'ja', getActiveCredentials(), screen)
       .then((rows) => setState({ status: 'done', rows, detail: '' }))
       .catch((e: unknown) =>
         setState({
@@ -110,7 +137,7 @@ export function QuestionSuggestBlock({ datasetId, onStart }: { datasetId: string
     <div className="kz-next-card qs-block" data-testid="suggest-block">
       {state.status === 'idle' || state.status === 'running' || state.status === 'failed' ? (
         <div className="kz-actions">
-          <SuggestButton onAsk={ask} disabled={state.status === 'running'} />
+          <SuggestButton onAsk={ask} disabled={state.status === 'running'} screen={screen} />
           {state.status === 'running' && (
             <span className="sky-hint" role="status">
               <span className="consult-spinner" aria-hidden="true" /> {t('suggestQ.running')}
@@ -126,7 +153,7 @@ export function QuestionSuggestBlock({ datasetId, onStart }: { datasetId: string
       {state.status === 'done' && (
         <>
           <h4 className="kz-next-title">{t('suggestQ.title')}</h4>
-          <Rows rows={state.rows} onStart={onStart} />
+          <Rows rows={state.rows} onStart={onStart} screen={screen} />
         </>
       )}
     </div>

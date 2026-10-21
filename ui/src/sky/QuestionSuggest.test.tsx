@@ -42,4 +42,8 @@ describe('問いの提案カード', () => {
   it('ボタンは「問いを提案してもらう」', () => {
     expect(renderToStaticMarkup(<SuggestButton onAsk={() => {}} />)).toContain('問いを提案してもらう')
   })
+  it('論文（文書）のボタンは「この論文から問いを提案してもらう」', () => {
+    const out = renderToStaticMarkup(<SuggestButton onAsk={() => {}} screen="paper" />)
+    expect(out).toContain('この論文から問いを提案してもらう')
+  })
 })

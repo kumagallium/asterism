@@ -90,6 +90,15 @@ describe('/api/consult/suggest-questions（問いの提案）', () => {
     expect((init.headers as Record<string, string>)['X-Asterism-Token']).toBe('tok')
   })
 
+  it('論文は screen=paper で文書型のデータセットを指す（本文も値も送らない）', async () => {
+    const fetchMock = vi.fn(() => json({ suggestions: [{ question: '粒界は熱伝導率を下げる？', mode: 'knowledge', op: 'factors', shape: '熱伝導率 を下げるもの' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = await suggestQuestions('paper-1', 'ja', null, 'paper')
+    expect(rows.map((r) => r.question)).toEqual(['粒界は熱伝導率を下げる？'])
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ screen: 'paper', context: { dataset_id: 'paper-1' }, lang: 'ja' })
+  })
+
   it('返りの形が違えば空。AI 未設定（503）は状態つきの失敗', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json({ nope: 1 })))
     expect(await suggestQuestions('d', 'ja', null)).toEqual([])
