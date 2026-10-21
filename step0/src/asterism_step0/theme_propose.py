@@ -40,6 +40,7 @@ __all__ = [
     "DATA_OPS",
     "DIRECTIONS",
     "KNOWLEDGE_OPS",
+    "MATCH_MODES",
     "RELATIONS",
     "SELECTION_OPS",
     "THEME_DRAFT_SYSTEM_PROMPT",
@@ -55,12 +56,15 @@ __all__ = [
 
 #: 知識で答える（決定論の走者 ``asterism.knowledge``）。
 KNOWLEDGE_OPS = ("factors", "parts", "kinds")
-#: データで答える（今の宣言ツールで答えられる）。
-DATA_OPS = ("count", "range", "top")
-#: 受けるが今は実行しない（検証は通し、``mode="memo"`` に正規化する）。
-_MEMO_OPS = ("filter", "group", "trend", "join")
+#: データで答える（決定論のテンプレートで宣言ツールになる・``asterism.shared_vocab``）。
+#: ``filter`` 値で絞る／``group`` 〜ごと／``trend`` 推移／``join`` 結合 1 段。
+DATA_OPS = ("count", "range", "top", "filter", "group", "trend", "join")
+#: 受けるが実行しない数え方（今は無い。検証は通し、``mode="memo"`` に正規化する）。
+_MEMO_OPS: tuple[str, ...] = ()
 #: 後方互換の名前 — 数え方の閉集合（データ側）。
 SELECTION_OPS = (*DATA_OPS, *_MEMO_OPS)
+#: ``filter`` の一致のしかた。
+MATCH_MODES = ("contains", "exact")
 ANSWER_MODES = ("knowledge", "data", "memo")
 DIRECTIONS = ("lowers", "raises", "affects")
 TERM_KINDS = ("class", "property")
@@ -73,6 +77,8 @@ _LEN_ALIAS = 60
 _LEN_REASON = 200
 _LEN_QUESTION = 300
 _LEN_KEY = 24
+#: ``filter`` の値（問いの文に書かれていた語）の長さ。``asterism.shared_vocab.VALUE_MAX`` と同じ。
+_LEN_VALUE = 120
 _MAX_CONCEPTS = 40
 _MAX_ALIASES = 12
 _MAX_RELATIONS = 60
@@ -109,6 +115,9 @@ _SHAPE = """\
               "op": "factors|parts|kinds|count|range|top|filter|group|trend|join or null",
               "target": "<key> or null", "direction": "lowers|raises|affects or null",
               "kind": "<key of a class> or null", "property": "<key of a property> or null",
+              "value": "<a word from the question> or null",
+              "match": "contains|exact or null",
+              "property2": "<key of a property> or null", "kind2": "<key of a class> or null",
               "wanted_data": "...", "reason": "..."}],
  "suggested_questions": ["..."]}"""
 
@@ -135,9 +144,16 @@ Meaning:
   raises / changes the target), "parts" (what the target is made of) or "kinds" (kinds of
   the target); "target" is the key of the concept the question is about.
   mode "data": op "count" (how many of a kind: give "kind"), "range" (min and max of a
-  property: give "property") or "top" (the one with the largest value: give "kind" and
-  "property").
-  mode "memo": anything else (op may be filter, group, trend, join, or null).
+  property: give "property"), "top" (the one with the largest value: give "kind" and
+  "property"), "filter" (the kind whose property contains / equals a word that is WRITTEN IN
+  THE QUESTION: give "kind", "property", "value" = that word copied from the question, and
+  "match" contains or exact), "group" (count a kind per value of a property: give "kind" and
+  "property"), "trend" (one property against another over a kind, in order of the first:
+  give "kind", "property" = the x axis and "property2" = the y axis) or "join" (a kind
+  followed one step through a property to another kind: give "kind" = where it starts,
+  "property" = the link, "kind2" = where it ends). Choose only keys of concepts you drafted;
+  never invent a value for "value" that the question does not contain.
+  mode "memo": anything else (op null).
   "wanted_data": ONE line saying which table of real data would answer the question with
   values (for example: a table of grain size and thermal conductivity per sample).
 - "suggested_questions": at most 3 further questions the same concepts could answer.
@@ -269,6 +285,10 @@ def theme_draft_json_schema(*, expand: bool = False) -> dict:
                         "direction",
                         "kind",
                         "property",
+                        "value",
+                        "match",
+                        "property2",
+                        "kind2",
                         "wanted_data",
                         "reason",
                     ],
@@ -283,6 +303,10 @@ def theme_draft_json_schema(*, expand: bool = False) -> dict:
                         "direction": {"type": ["string", "null"], "enum": [*DIRECTIONS, None]},
                         "kind": _string(_LEN_KEY, nullable=True),
                         "property": _string(_LEN_KEY, nullable=True),
+                        "value": _string(_LEN_VALUE, nullable=True),
+                        "match": {"type": ["string", "null"], "enum": [*MATCH_MODES, None]},
+                        "property2": _string(_LEN_KEY, nullable=True),
+                        "kind2": _string(_LEN_KEY, nullable=True),
                         "wanted_data": _string(_LEN_REASON),
                         "reason": _string(_LEN_REASON),
                     },
@@ -406,7 +430,10 @@ def _answer(a: Any, p: str) -> dict:
     direction = a.get("direction") or None
     if direction is not None and direction not in DIRECTIONS:
         raise _fail(f"{p}.direction", f"must be one of {DIRECTIONS}")
-    if op in _MEMO_OPS:  # 受けるが実行しない（6d）— 検証は通し、メモに落とす
+    match = a.get("match") or None
+    if match is not None and match not in MATCH_MODES:
+        raise _fail(f"{p}.match", f"must be one of {MATCH_MODES}")
+    if op in _MEMO_OPS:  # 受けるが実行しない — 検証は通し、メモに落とす
         mode = "memo"
     return {
         # 問いの原文はユーザーの文（記号を含みうる）— 照合は原文との一致で行う。
@@ -417,6 +444,11 @@ def _answer(a: Any, p: str) -> dict:
         "direction": direction,
         "kind": _opt(a.get("kind"), f"{p}.kind", _LEN_KEY),
         "property": _opt(a.get("property"), f"{p}.property", _LEN_KEY),
+        # 値は問いの文に書かれていた語（データの値ではない）。コード・IRI は拒む
+        "value": _opt(a.get("value"), f"{p}.value", _LEN_VALUE),
+        "match": match,
+        "property2": _opt(a.get("property2"), f"{p}.property2", _LEN_KEY),
+        "kind2": _opt(a.get("kind2"), f"{p}.kind2", _LEN_KEY),
         "wanted_data": _cut(a.get("wanted_data", ""), f"{p}.wanted_data", _LEN_REASON),
         "reason": _cut(a.get("reason", ""), f"{p}.reason", _LEN_REASON),
     }

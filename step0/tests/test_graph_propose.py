@@ -148,10 +148,31 @@ def test_relations_and_modes_are_closed_sets() -> None:
     _bad({"op": "bind_column", "column": "k", "to": "c1", "rel": "part", "reason": ""})
     _bad({"op": "add_question", "question": "q", "mode": "memo", "op_kind": "count",
           "kind": "c3", "reason": ""})  # fmt: skip
-    _bad({"op": "add_question", "question": "q", "mode": "data", "op_kind": "join",
+    _bad({"op": "add_question", "question": "q", "mode": "data", "op_kind": "regex",
           "reason": ""})  # fmt: skip
+    _bad({"op": "add_question", "question": "q", "mode": "data", "op_kind": "filter",
+          "match": "regex", "reason": ""})  # fmt: skip
+    _bad({"op": "add_question", "question": "q", "mode": "data", "op_kind": "filter",
+          "value": "https://x.example/", "reason": ""})  # fmt: skip
     _bad({"op": "sparql", "query": "SELECT *"})
     _bad({"op": "remove", "target": "everything", "reason": ""})
+
+
+def test_a_filter_question_carries_its_word_and_the_other_ends() -> None:
+    raw = {
+        "reply": "",
+        "ops": [
+            {"op": "add_question", "question": "粒界散乱を含む散乱は？", "mode": "data",
+             "op_kind": "filter", "kind": "c3", "property": "c2", "value": " 粒界 ",
+             "match": "contains", "property2": None, "kind2": "c3", "reason": "r"},
+        ],
+    }  # fmt: skip
+    q = validate_graph_diff(raw, known_keys=KEYS)["ops"][0]
+    assert (q["op_kind"], q["value"], q["match"]) == ("filter", "粒界", "contains")
+    assert q["kind2"] == "c3"
+    item = graph_diff_json_schema()["properties"]["ops"]["items"]
+    assert item["additionalProperties"] is False
+    assert {"value", "match", "property2", "kind2"} <= set(item["properties"])
 
 
 def test_a_curie_is_allowed_only_where_a_standard_term_belongs() -> None:

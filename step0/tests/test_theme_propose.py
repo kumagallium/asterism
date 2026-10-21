@@ -122,7 +122,7 @@ def test_a_good_answer_passes_and_is_normalised() -> None:
 def test_the_vocabulary_is_the_closed_one_of_the_design() -> None:
     assert RELATIONS == ("sub", "eq", "quantity", "part", "lowers", "raises", "affects")
     assert KNOWLEDGE_OPS == ("factors", "parts", "kinds")
-    assert DATA_OPS == ("count", "range", "top")
+    assert DATA_OPS == ("count", "range", "top", "filter", "group", "trend", "join")
 
 
 def test_unknown_keys_are_dropped_not_read() -> None:
@@ -188,10 +188,39 @@ def test_reason_and_wanted_data_are_cut_to_the_length_and_never_refused() -> Non
 
 
 @pytest.mark.parametrize("op", ["filter", "group", "trend", "join"])
-def test_ops_that_cannot_run_yet_are_accepted_and_folded_into_memo(op: str) -> None:
-    raw = _bad(answers=[_ans(mode="data", op=op, target=None, kind="c3", property="c2")])
+def test_the_four_wider_shapes_are_data_answers_with_their_extra_fields(op: str) -> None:
+    full = _ans(
+        mode="data", op=op, target=None, kind="c3", property="c2", value=" SnSe ",
+        match="exact", property2="c2", kind2="c3",
+    )  # fmt: skip
+    raw = _bad(answers=[full])
     a = validate_theme_draft(raw)["answers"][0]
-    assert a["mode"] == "memo" and a["op"] == op
+    assert (a["mode"], a["op"], a["value"], a["match"]) == ("data", op, "SnSe", "exact")
+    assert (a["property2"], a["kind2"]) == ("c2", "c3")
+
+
+def test_value_and_match_are_closed() -> None:
+    for over in (
+        {"value": "https://example.org/x"},
+        {"value": "SELECT * WHERE"},
+        {"value": "<script>"},
+        {"value": "x" * 121},
+        {"match": "regex"},
+        {"op": "sparql"},
+    ):
+        with pytest.raises(ThemeDraftError):
+            validate_theme_draft(_bad(answers=[_ans(**{"mode": "data", "op": "filter", **over})]))
+    # 新しい欄は無くてもよい（無ければ None）
+    a = validate_theme_draft(_bad(answers=[_ans(mode="data", op="count", kind="c3")]))["answers"][0]
+    assert (a["value"], a["match"], a["property2"], a["kind2"]) == (None, None, None, None)
+
+
+def test_the_schema_lists_the_new_fields_and_stays_closed() -> None:
+    item = theme_draft_json_schema()["properties"]["answers"]["items"]
+    assert item["additionalProperties"] is False
+    for f in ("value", "match", "property2", "kind2"):
+        assert f in item["properties"] and f in item["required"]
+    assert item["properties"]["match"]["enum"] == ["contains", "exact", None]
 
 
 def test_a_memo_answer_may_have_no_op() -> None:
