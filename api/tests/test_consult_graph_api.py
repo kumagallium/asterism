@@ -1121,3 +1121,18 @@ def test_suggest_questions_from_a_paper_needs_the_token_an_ai_and_a_document(
         r = _suggest_paper(client, table2)  # a table is not a paper
         assert r.status_code == 422 and "文書型" in r.json()["detail"]
     assert llm.calls == [] and doc2 and table and doc  # every refusal came before the AI was asked
+
+
+def test_a_star_of_a_document_dataset_asks_with_screen_dataset_and_is_read_as_a_paper(
+    tmp_path: Path,
+) -> None:
+    """星の札（10a）は ``dataset`` で呼ぶ。文書型は表が無いので 422 にせず、論文として読む。"""
+    llm = _LLM(json.dumps(PAPER_SUGGESTED))
+    app, _ = _app(tmp_path, llm)
+    dsid = _paper(tmp_path)
+    with TestClient(app, headers={**_AUTH, **KEY}) as client:
+        _paper_terms(client)
+        r = _suggest(client, dsid)
+        assert r.status_code == 200, r.text
+        assert [s["op"] for s in r.json()["suggestions"]] == ["factors", "parts", "kinds"]
+        assert "PAPER" in llm.calls[0][0] and PAPER_CONCLUSION in llm.calls[0][1]

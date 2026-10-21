@@ -555,7 +555,13 @@ def register_consult_graph(
         lang = _lang(body.lang)
         paper_text: str | None = None
         columns: list[dict] | None
-        if body.screen == "paper":
+        screen = body.screen
+        if screen == "dataset" and body.context.dataset_id:
+            # 星の札（10a）は ``dataset`` で呼ぶ。文書型には表が無いので、論文として読む
+            rec = registry.load_dataset(cfg.registry_root, body.context.dataset_id)
+            if rec and str((rec.get("meta") or {}).get("source_kind") or "csv") == "xml":
+                screen = "paper"
+        if screen == "paper":
             # 論文 = 列も種類も無い。渡すのは要旨と結論の文と既存の名前だけ（本文全体は渡さない）
             record, paper = await asyncio.to_thread(_paper_of, body.context)
             paper_text = paper.text
@@ -576,7 +582,7 @@ def register_consult_graph(
             ai = await asyncio.to_thread(
                 propose_questions,
                 llm,
-                screen=body.screen,
+                screen=screen,
                 columns=columns,
                 dataset_label=str(dataset_name),
                 existing_questions=existing,
@@ -585,7 +591,7 @@ def register_consult_graph(
                     for t in terms
                 ],
                 standards=standards,
-                kinds=None if body.screen == "paper" else [k for k, _ in kind_names],
+                kinds=None if screen == "paper" else [k for k, _ in kind_names],
                 text=paper_text,
                 lang=lang,
             )
