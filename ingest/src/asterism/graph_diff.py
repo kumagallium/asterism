@@ -402,10 +402,14 @@ class _Applier:
         self.rows.remove(row)
         self.rels = [r for r in self.rels if key not in (r.get("from"), r.get("to"))]
         for a in self.answers:  # 概念を失った問いの答え方は、メモに戻す
-            if key in (a.get("target"), a.get("kind"), a.get("property")):
+            if key in (
+                a.get("target"), a.get("kind"), a.get("property"), a.get("property2"),
+                a.get("kind2"),
+            ):  # fmt: skip
                 a.update(
-                    mode="memo", memo="ai", target="", kind="", property="", direction="", op=""
-                )
+                    mode="memo", memo="ai", target="", kind="", property="", direction="", op="",
+                    value="", match="", property2="", kind2="",
+                )  # fmt: skip
         self.applied += 1
 
     def rename(self, i: int, op: dict) -> None:
@@ -460,16 +464,17 @@ class _Applier:
         mode, op_kind = op["mode"], op["op_kind"]
         t_row, k_row = pick(op.get("target")), pick(op.get("kind"), "class")
         p_row = pick(op.get("property"), "property")
+        p2_row = pick(op.get("property2"), "property")
+        k2_row = pick(op.get("kind2"), "class")
+        value = themes._clean_value(op.get("value"))
         direction = op.get("direction")
         if mode == "knowledge":
             good = op_kind in themes.KNOWLEDGE_OPS and t_row is not None
             if op_kind == "factors":
                 good = good and direction in themes.KNOWLEDGE_DIRECTIONS
         else:
-            good = (
-                (op_kind == "count" and k_row is not None)
-                or (op_kind == "range" and p_row is not None)
-                or (op_kind == "top" and p_row is not None)
+            good = themes.data_answer_complete(
+                op_kind, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value
             )
         self.questions.append(question[0])
         self.answers.append(
@@ -481,6 +486,14 @@ class _Applier:
                 direction=direction if mode == "knowledge" and op_kind == "factors" else "",
                 kind=k_row["key"] if k_row and mode == "data" else "",
                 prop=p_row["key"] if p_row and mode == "data" else "",
+                value=value if mode == "data" and op_kind == "filter" else "",
+                match=(
+                    themes._clean_match(op.get("match"))
+                    if mode == "data" and op_kind == "filter"
+                    else ""
+                ),
+                prop2=p2_row["key"] if p2_row and mode == "data" and op_kind == "trend" else "",
+                kind2=k2_row["key"] if k2_row and mode == "data" and op_kind == "join" else "",
                 memo=None if good else "ai",
                 wanted_data=op.get("wanted_data") or "",
                 reason=op.get("reason") or "",
@@ -496,7 +509,7 @@ class _Applier:
         targets = {
             str(a[f])
             for a in self.answers
-            for f in ("target", "kind", "property")
+            for f in ("target", "kind", "property", "property2", "kind2")
             if a.get(f) and self.row_by_key(str(a[f])) is not None
         }
         if not targets:

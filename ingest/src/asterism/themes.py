@@ -60,9 +60,13 @@ DRAFT_FILE = "draft.json"
 FIRST_THEME_ID = "first"
 FIRST_THEME_LABEL = "はじめの問い"
 
-#: 今の宣言ツールで答えられる数え方（``api/questions_routes.QUESTION_OPS`` と同じ・api の
-#: テストが固定する）。これ以外は公開せず「メモの問い」に残す（PR 5 で広げる）。
-FITTING_OPS = ("count", "range", "top")
+#: データで答える数え方（宣言ツールで答えられるもの・``count`` / ``range`` / ``top`` は
+#: ``api/questions_routes.QUESTION_OPS`` と同じ・api のテストが固定する）。``filter`` /
+#: ``group`` / ``trend`` / ``join`` は :func:`asterism.shared_vocab.default_cq_tools` の
+#: テンプレート（値で絞る・〜ごと・推移・結合 1 段）。これ以外は公開せず「メモの問い」に残す。
+FITTING_OPS = ("count", "range", "top", *sv.DATA_OPS)
+#: ``themes.json`` の ``selections`` に残す欄（実行文を組む表示名と値）。
+_SELECTION_KEYS = ("op", "kind", "property", "value", "match", "property2", "kind2")
 #: 知識で答える（``asterism.knowledge`` の走者・``theme_propose.KNOWLEDGE_OPS`` と同じ）。
 KNOWLEDGE_OPS = ("factors", "parts", "kinds")
 KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
@@ -275,8 +279,8 @@ def add_questions_to_theme(
 ) -> dict:
     """Put already-minted CQs (by tool name) into an existing theme
     （かんたん ⑥「テーマに入れる」）.
-    Idempotent. ``selections`` (tool name → ``{op, kind, property, value}``) is kept to
-    phrase the execution sentence later. Unknown tool names are a 422."""
+    Idempotent. ``selections`` (tool name → ``{op, kind, property, value, match, property2,
+    kind2}``) is kept to phrase the execution sentence later. Unknown tool names are a 422."""
     data = ensure_migrated(root)
     theme = next((t for t in data["themes"] if t["id"] == theme_id), None)
     if theme is None:
@@ -297,7 +301,7 @@ def add_questions_to_theme(
         sel = theme.setdefault("selections", {})
         for name, s in selections.items():
             if name in tool_names and isinstance(s, dict):
-                sel[name] = {k: s.get(k) for k in ("op", "kind", "property", "value") if s.get(k)}
+                sel[name] = {k: s.get(k) for k in _SELECTION_KEYS if s.get(k)}
     _save_themes(root, data)
     return theme
 
@@ -1021,10 +1025,17 @@ def postprocess_draft(
         t_row = resolve(a["target"])[0] if a.get("target") else None
         k_row = resolve(a["kind"], "class")[0] if a.get("kind") else None
         p_row = resolve(a["property"], "property")[0] if a.get("property") else None
+        p2_row = resolve(a["property2"], "property")[0] if a.get("property2") else None
+        k2_row = resolve(a["kind2"], "class")[0] if a.get("kind2") else None
         if k_row is not None and k_row["kind"] != "class":
             k_row = None
+        if k2_row is not None and k2_row["kind"] != "class":
+            k2_row = None
         if p_row is not None and p_row["kind"] != "property":
             p_row = None
+        if p2_row is not None and p2_row["kind"] != "property":
+            p2_row = None
+        value = _clean_value(a.get("value"))
         direction = a.get("direction")
         memo: str | None
         if mode == "knowledge":
@@ -1033,10 +1044,8 @@ def postprocess_draft(
                 good = good and direction in KNOWLEDGE_DIRECTIONS
             memo = None if good else "ai"
         elif mode == "data":
-            good = (
-                (op == "count" and k_row is not None)
-                or (op == "range" and p_row is not None)
-                or (op == "top" and p_row is not None)
+            good = data_answer_complete(
+                op, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value
             )
             memo = None if good else "ai"
         else:
@@ -1050,6 +1059,10 @@ def postprocess_draft(
                 direction=direction if mode == "knowledge" and op == "factors" else "",
                 kind=k_row["key"] if k_row and mode == "data" else "",
                 prop=p_row["key"] if p_row and mode == "data" else "",
+                value=value if mode == "data" and op == "filter" else "",
+                match=_clean_match(a.get("match")) if mode == "data" and op == "filter" else "",
+                prop2=p2_row["key"] if p2_row and mode == "data" and op == "trend" else "",
+                kind2=k2_row["key"] if k2_row and mode == "data" and op == "join" else "",
                 memo=memo,
                 wanted_data=a.get("wanted_data") or "",
                 reason=a.get("reason") or "",
@@ -1069,6 +1082,48 @@ def postprocess_draft(
     }
 
 
+def _clean_value(v: Any) -> str:
+    """The word a ``filter`` question looks for: whitespace folded to single spaces. It is the
+    sentence of the question (typed by a person, or copied by the AI from it), never a value
+    read from the data. Over-long → ``""`` (the question falls to a memo)."""
+    s = " ".join(str(v or "").split())
+    return s if len(s) <= sv.VALUE_MAX else ""
+
+
+def _clean_match(v: Any) -> str:
+    """``contains`` (the default) or ``exact`` — anything else is ``contains``."""
+    return v if v in sv.MATCH_MODES else "contains"
+
+
+def data_answer_complete(
+    op: Any,
+    *,
+    kind: Any = None,
+    prop: Any = None,
+    prop2: Any = None,
+    kind2: Any = None,
+    value: str = "",
+) -> bool:
+    """Is a data answer's closed choice complete for its ``op``? ``count`` needs a kind;
+    ``range`` / ``top`` a property; ``filter`` a kind + property + value; ``group`` a kind +
+    property; ``trend`` a kind + two properties; ``join`` a kind + property + a second kind.
+    The arguments are only tested for presence (a row, a key or a name). The shapes mirror
+    :data:`asterism.shared_vocab._EXEC_NEEDS`."""
+    if op == "count":
+        return bool(kind)
+    if op in ("range", "top"):
+        return bool(prop)
+    if op == "filter":
+        return bool(kind and prop and value)
+    if op == "group":
+        return bool(kind and prop)
+    if op == "trend":
+        return bool(kind and prop and prop2)
+    if op == "join":
+        return bool(kind and prop and kind2)
+    return False
+
+
 def _answer_row(
     question: str,
     mode: str,
@@ -1078,6 +1133,10 @@ def _answer_row(
     direction: str | None = "",
     kind: str = "",
     prop: str = "",
+    value: str = "",
+    match: str = "",
+    prop2: str = "",
+    kind2: str = "",
     memo: str | None = None,
     wanted_data: str = "",
     reason: str = "",
@@ -1090,7 +1149,10 @@ def _answer_row(
         "direction": direction or "",
         "kind": kind,
         "property": prop,
-        "value": "",
+        "value": value,
+        "match": match,
+        "property2": prop2,
+        "kind2": kind2,
         "memo": memo,
         "wanted_data": wanted_data,
         "reason": reason,
@@ -1495,7 +1557,14 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             k = by_key.get(str(a.get("kind"))) if a.get("kind") else None
             p = by_key.get(str(a.get("property"))) if a.get("property") else None
             t = by_key.get(str(a.get("target"))) if a.get("target") else None
-            if (a.get("kind") and k is None) or (a.get("property") and p is None):
+            p2 = by_key.get(str(a.get("property2"))) if a.get("property2") else None
+            k2 = by_key.get(str(a.get("kind2"))) if a.get("kind2") else None
+            if (
+                (a.get("kind") and k is None)
+                or (a.get("property") and p is None)
+                or (a.get("property2") and p2 is None)
+                or (a.get("kind2") and k2 is None)
+            ):
                 raise ThemeError(f"問い「{q}」の種類か項目が概念にありません")
             if a.get("target") and t is None:
                 raise ThemeError(f"問い「{q}」の対象が概念にありません")
@@ -1503,6 +1572,10 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                 raise ThemeError(f"問い「{q}」の種類に項目が選ばれています")
             if p is not None and p.kind != "property":
                 raise ThemeError(f"問い「{q}」の項目に種類が選ばれています")
+            if p2 is not None and p2.kind != "property":
+                raise ThemeError(f"問い「{q}」の 2 つ目の項目に種類が選ばれています")
+            if k2 is not None and k2.kind != "class":
+                raise ThemeError(f"問い「{q}」の 2 つ目の種類に項目が選ばれています")
             flagged = a.get("memo")
             if mode == "memo" or flagged in _MEMO_REASONS["ja"]:
                 why = flagged if flagged in _MEMO_REASONS["ja"] else (
@@ -1538,22 +1611,44 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             elif mode == "data" and op in FITTING_OPS:
                 host: _Row | None = None
                 cq_op = "count"
+                value = _clean_value(a.get("value")) if op == "filter" else ""
+                match = _clean_match(a.get("match")) if op == "filter" else ""
+                spec_kw: dict[str, str] = {}
                 if op == "count" and k is not None:
                     host = k
                 elif op in ("range", "top") and p is not None:
                     host, cq_op = p, "values"
+                elif op in sv.DATA_OPS and data_answer_complete(
+                    op, kind=k, prop=p, prop2=p2, kind2=k2, value=value
+                ):
+                    # 値で絞る・〜ごと・推移・結合 1 段: 種類 k に付け、ほかの端は IRI で渡す
+                    host, cq_op = k, op
+                    spec_kw = {"property": p.iri}  # type: ignore[union-attr]
+                    if op == "filter":
+                        spec_kw.update(value=value, match=match)
+                    elif op == "trend":
+                        spec_kw["property2"] = p2.iri  # type: ignore[union-attr]
+                    elif op == "join":
+                        spec_kw["kind2"] = k2.iri  # type: ignore[union-attr]
                 if host is not None:
-                    cqs.setdefault(host.key, []).append(CQSpec(q, cq_op))
+                    cqs.setdefault(host.key, []).append(CQSpec(q, cq_op, **spec_kw))
+                    shown = lambda r: _display_label(r.label_ja, r.label_en, lang) if r else ""  # noqa: E731
                     summary = {
                         "op": op,
-                        "kind": _display_label(k.label_ja, k.label_en, lang) if k else "",
-                        "property": _display_label(p.label_ja, p.label_en, lang) if p else "",
-                        "value": str(a.get("value") or ""),
+                        "kind": shown(k),
+                        "property": shown(p),
+                        "value": value,
                         "kind_slug": k.slug if k else "",
                         "property_slug": p.slug if p else "",
                     }
+                    if op == "filter":
+                        summary["match"] = match
+                    if op == "trend" and p2 is not None:
+                        summary.update(property2=shown(p2), property2_slug=p2.slug)
+                    if op == "join" and k2 is not None:
+                        summary.update(kind2=shown(k2), kind2_slug=k2.slug)
                     ordered.append((q, ("data", host.key, summary, want)))
-                    target_iris.update(x.iri for x in (k, p) if x is not None)
+                    target_iris.update(x.iri for x in (k, p, p2, k2) if x is not None)
                     continue
                 why = "ai"
             elif mode == "data":
@@ -1608,20 +1703,20 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             comment=None,
             created_at=at,
         )
-        if row.mint:
-            tools = sv.default_cq_tools(shared_term, specs)
-        else:
-            tools, used = [], set(taken_names)
-            for spec in specs:
-                cand = None
-                for n in range(1, 100):
-                    cand = sv.default_cq_tools(shared_term, [spec] * n)[-1]
-                    if cand["name"] not in used:
-                        break
-                assert cand is not None
-                used.add(cand["name"])
-                tools.append(cand)
         try:
+            if row.mint:
+                tools = sv.default_cq_tools(shared_term, specs)
+            else:
+                tools, used = [], set(taken_names)
+                for spec in specs:
+                    cand = None
+                    for n in range(1, 100):
+                        cand = sv.default_cq_tools(shared_term, [spec] * n)[-1]
+                        if cand["name"] not in used:
+                            break
+                    assert cand is not None
+                    used.add(cand["name"])
+                    tools.append(cand)
             sv._lint_or_raise(tools)
         except sv.TermError as exc:
             raise ThemeError(str(exc)) from exc
@@ -1988,8 +2083,14 @@ def template_files(theme: dict, terms: list[dict], tools: list[dict]) -> dict[st
         k, p = by_slug.get(s.get("kind_slug") or ""), by_slug.get(s.get("property_slug") or "")
         if k is not None and k["kind"] == "class":
             kind_cols.setdefault(k["slug"], [])
-            if p is not None and name(p) not in kind_cols[k["slug"]]:
-                kind_cols[k["slug"]].append(name(p))
+            # 推移の 2 つ目の項目も同じ種類の列。結合は「つなぐ項目」が A の列で、B は別の表
+            second = by_slug.get(s.get("property2_slug") or "")
+            for col in (p, second):
+                if col is not None and name(col) not in kind_cols[k["slug"]]:
+                    kind_cols[k["slug"]].append(name(col))
+            k2 = by_slug.get(s.get("kind2_slug") or "")
+            if k2 is not None and k2["kind"] == "class":
+                kind_cols.setdefault(k2["slug"], [])
         elif p is not None and name(p) not in loose:
             loose.append(name(p))
     tied = {c for cols in kind_cols.values() for c in cols}
