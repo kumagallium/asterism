@@ -52,6 +52,9 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
   const [datasets, setDatasets] = useState<CatalogDataset[]>([])
   const [schema, setSchema] = useState<SchemaSummary | null>(null)
   const [themes, setThemes] = useState<ThemeSummary[]>([])
+  // テーマを読み終えるまで知識の問いの有無が分からない（読む前に「問いが無い」と見て提案のボタンが一瞬出るのを防ぐ）
+  const [themesFor, setThemesFor] = useState<string | null>(null)
+  const themesReady = themesFor === slug
   const [version, setVersion] = useState(0)
   const [attaching, setAttaching] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -83,6 +86,7 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
     listThemes(lang)
       .then((l) => !off && setThemes(l.themes))
       .catch(() => !off && setThemes([]))
+      .finally(() => !off && setThemesFor(slug))
     return () => {
       off = true
     }
@@ -206,13 +210,16 @@ export function TermPage({ slug, onBack }: { slug: string; onBack: () => void })
           <>
             <p className="ds-empty-note">{t('vocab:term.no_cq')}</p>
             {/* 図の穴の問い（PR 10c・AI 設定ずみのときだけ・人が押したときだけ AI を呼ぶ）。押すと問いを書く会話へ */}
-            <QuestionSuggestBlock
-              screen="term"
-              termSlug={term.slug}
-              onStart={(q) => {
-                window.location.hash = startQuestionHash(q)
-              }}
-            />
+            {themesReady && (
+              <QuestionSuggestBlock
+                key={term.slug}
+                screen="term"
+                termSlug={term.slug}
+                onStart={(q) => {
+                  window.location.hash = startQuestionHash(q)
+                }}
+              />
+            )}
           </>
         ) : (
           <ul className="vocab-term-cqs" data-testid="term-questions">

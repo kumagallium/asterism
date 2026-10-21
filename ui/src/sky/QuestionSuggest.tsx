@@ -82,7 +82,7 @@ export function SuggestCard({
           {t('suggestQ.failed', { detail: item.detail })}
         </p>
       )}
-      {item.status === 'done' && <Rows rows={item.rows} onStart={onStart} />}
+      {item.status === 'done' && <Rows rows={item.rows} onStart={onStart} screen={item.screen} />}
       {item.status !== 'running' && (
         <div className="sky-about-actions">
           <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} data-testid="suggest-close">

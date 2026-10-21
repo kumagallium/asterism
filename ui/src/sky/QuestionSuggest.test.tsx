@@ -46,6 +46,7 @@ describe('問いの提案カード', () => {
     const out = renderToStaticMarkup(<SuggestButton onAsk={() => {}} screen="term" />)
     expect(out).toContain('この用語で聞けることを提案してもらう')
     expect(html(item({ rows: [] }))).not.toContain('この用語と周りの関係から')
+    expect(html(item({ rows: [], screen: 'term' }))).toContain('この用語と周りの関係から') // 会話のカードにも screen が届く
   })
   it('論文（文書）のボタンは「この論文から問いを提案してもらう」', () => {
     const out = renderToStaticMarkup(<SuggestButton onAsk={() => {}} screen="paper" />)

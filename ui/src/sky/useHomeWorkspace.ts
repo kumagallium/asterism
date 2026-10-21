@@ -590,7 +590,7 @@ export function useHomeWorkspace(o: HomeWorkspaceOptions) {
     const id = nextItemId()
     const patch = (p: Partial<SuggestItem>) =>
       setItems((l) => l.map((it) => (it.kind === 'suggest' && it.id === id ? { ...it, ...p } : it)))
-    setItems((l) => [...l, { kind: 'suggest', id, label, status: 'running', rows: [], detail: '' }])
+    setItems((l) => [...l, { kind: 'suggest', id, label, status: 'running', rows: [], detail: '', screen }])
     try {
       const rows = await suggestQuestions(subjectId, lang, getActiveCredentials(), screen)
       patch({ status: 'done', rows })
