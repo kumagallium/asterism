@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next'
 import { isTauri } from '../desktop/updater'
 import { drawRemovals, removalOverlay } from '../chart/chartOverlay'
 import { MoreMenu } from '../MoreMenu'
-import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
 import type { SkyDraft } from './chatApi'
 import { bornAlive, formatCount, readSkyPalette, visiblePointLabels, type SkyPalette } from '../sky/skyDraw'
@@ -79,7 +78,7 @@ export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSele
     () => (proposedDatasets.length === 0 ? sky : { ...sky, datasets: [...sky.datasets, ...proposedDatasets] }),
     [sky, proposedDatasets],
   )
-  const drawn = nothing ? SAMPLE_SKY : withThin
+  const drawn = withThin
 
   // ── 幅（図の列の幅に追従） ──
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -99,10 +98,10 @@ export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSele
   }, [load.status, deep])
 
   const layout = useMemo<SkyLayout>(
-    () => layoutGraph(drawn, { width, lang, drafts: nothing ? [] : proposed }),
-    [drawn, width, lang, proposed, nothing],
+    () => layoutGraph(drawn, { width, lang, drafts: proposed }),
+    [drawn, width, lang, proposed],
   )
-  const removals = useMemo(() => removalOverlay(layout, nothing ? [] : proposed), [layout, proposed, nothing])
+  const removals = useMemo(() => removalOverlay(layout, proposed), [layout, proposed])
   // 外す提案の札は drawGraph が描く（札の形が変わるので）。線の「×」だけ drawRemovals で重ねる
   const removeNodeIds = useMemo<ReadonlySet<string>>(() => new Set(removals.nodeIds), [removals])
   const removalLines = useMemo(() => ({ nodeIds: [], edges: removals.edges }), [removals])
@@ -190,7 +189,7 @@ export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSele
       s.layout,
       paletteRef.current,
       s.labels,
-      { focusId, near, born: bornRef.current, now, reducedMotion: s.reduced, alpha: s.nothing ? 0.38 : 1, removeNodeIds: s.removeNodeIds },
+      { focusId, near, born: bornRef.current, now, reducedMotion: s.reduced, alpha: 1, removeNodeIds: s.removeNodeIds },
       s.visible,
     )
     drawRemovals(ctx, s.layout, paletteRef.current, s.removalLines, s.labels.draftRemove)
@@ -354,7 +353,7 @@ export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSele
   }
 
   const f = sky.facts
-  const ariaLabel = nothing ? t('chart.ariaSample') : t('chart.aria', { datasets: sky.datasets.length, kinds: f.kinds, terms: f.terms })
+  const ariaLabel = t('chart.aria', { datasets: sky.datasets.length, kinds: f.kinds, terms: f.terms })
   return (
     <div className="chart-pane">
       {!hideFacts && (
@@ -384,7 +383,6 @@ export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSele
             onPointerLeave={onLeave}
             onClick={onClick}
           />
-          {nothing && <span className="sky-sample-tag">{t('empty.sample')}</span>}
           <MoreMenu
             className="sky-more"
             label={t('more.label')}

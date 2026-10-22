@@ -122,6 +122,11 @@ export function localSky(
     kinds.add(kindKey(sel.k.ds, sel.k.iri))
     kindIris.add(sel.k.iri)
   }
+  if (sel.h) {
+    // 選んだ視点に入っている種類は、用語が無くても出す
+    const ms = new Set(sky.hubs.find((h) => h.id === sel.h)?.members ?? [])
+    for (const d of [...sky.datasets, ...proposedDatasets]) for (const k of d.kinds) if (ms.has(k.iri)) { kinds.add(kindKey(d.id, k.iri)); kindIris.add(k.iri) }
+  }
   const stdIris = new Set<string>()
   for (const t of keptTerms) if (t.standard) stdIris.add(t.standard.iri)
   const narrow = (ds: SkyDataset): SkyDataset | null => {

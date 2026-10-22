@@ -206,7 +206,7 @@ describe('AddPanel（AI 未設定のとき右に出すかんたん）', () => {
 })
 
 describe('SessionList', () => {
-  it('行・新しい話・提案の印・題が空なら「新しい話」', () => {
+  it('行・新しいチャット・提案の印・題が空なら「新しいチャット」', () => {
     const html = list()
     expect(html.match(/data-testid="session-row"/g)).toHaveLength(2)
     expect(html).toContain('data-testid="session-new"')
@@ -217,9 +217,9 @@ describe('SessionList', () => {
   it('鍵が無い（401）ときは一覧の代わりに 1 行', () => {
     const html = list({ error: new ThemesApiError('x', 401, '') })
     expect(html).not.toContain('session-row')
-    expect(text(html)).toContain('設定 › サーバで鍵を入れると、話を保存できます')
+    expect(text(html)).toContain('設定 › サーバで鍵を入れると、チャットを保存できます')
   })
-  it('たたむと一覧の開閉だけ（新しい話も一覧も出ない）', () => {
+  it('たたむと一覧の開閉だけ（新しいチャットも一覧も出ない）', () => {
     const html = list({ folded: true })
     expect(html).toContain('list-toggle')
     expect(html).not.toContain('session-new')
@@ -347,14 +347,14 @@ const pcard = (p: Point) =>
   renderToStaticMarkup(<PointCard point={p} busy={false} titleOf={() => '熱電材料'} onContents={noop} onRevert={noop} onRemove={noop} onHighlight={noop} />)
 
 describe('PointCard', () => {
-  it('用語: 名前・種別・文・来歴（話の題・日付・AI が足し）・話を開く・中身・戻す・問い・入っている種類', () => {
+  it('用語: 名前・種別・文・来歴（話の題・日付・AI が足し）・チャットを開く・中身・戻す・問い・入っている種類', () => {
     const html = pcard(point())
     const tx = text(html)
     expect(html).toContain('data-testid="point-card"')
     expect(tx).toContain('格子熱伝導率')
     expect(tx).toContain('項目')
     expect(tx).toContain('格子熱伝導率は熱伝導率の一部')
-    expect(tx).toContain('話「熱電材料」で 2026-10-22 に AI が足し、人が確認')
+    expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が足し、人が確認')
     expect(html).toContain('href="#/t/cabc12345x"')
     expect(html).toContain('data-testid="point-contents"')
     expect(html).toContain('data-testid="point-revert"')

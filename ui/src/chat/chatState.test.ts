@@ -72,9 +72,9 @@ describe('chatState', () => {
   it('件数は未確認の手番の差分の合計', () => {
     expect(proposedCount([turn('t1', 'proposed', 2), turn('t2', 'confirmed', 5), turn('t3', 'proposed', 1)])).toBe(3)
   })
-  it('題が空なら「新しい話」', () => {
-    expect(sessionTitle({ title: ' ' }, '新しい話')).toBe('新しい話')
-    expect(sessionTitle({ title: '熱電材料' }, '新しい話')).toBe('熱電材料')
+  it('題が空なら「新しいチャット」', () => {
+    expect(sessionTitle({ title: ' ' }, '新しいチャット')).toBe('新しいチャット')
+    expect(sessionTitle({ title: '熱電材料' }, '新しいチャット')).toBe('熱電材料')
   })
   it('手番の返りは足す（同じ id は置き換え）・題と下書きの欄が変わる', () => {
     const s = applyTurnResponse(session([]), { turn: turn('t1', 'proposed'), session: brief(), draft: null })

@@ -28,7 +28,7 @@ describe('LocalPanel', () => {
   it('既定は開く: 見出し・折りたたみボタン・中身', () => {
     stubStorage()
     const html = panel(['urn:a'])
-    expect(html).toContain('この話の周り')
+    expect(html).toContain('このチャットの図')
     expect(html).toContain('data-testid="local-toggle"')
     expect(html).toContain('aria-expanded="true"')
     expect(html).toContain('chart-pane')

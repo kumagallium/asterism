@@ -73,7 +73,7 @@ function readPalette(): Palette {
     accent: cssColor('--accent', '#d6452c'),
     edge: border,
     edgeOn: cssColor('--fg', '#16241a'),
-    faded: withAlpha(border, 0.6),
+    faded: withAlpha(cssColor('--border-strong', '#c7d4c4'), 0.9),
     label: cssColor('--fg', '#16241a'),
   }
 }

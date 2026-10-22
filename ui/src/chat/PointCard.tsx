@@ -61,7 +61,12 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
   // 確認済み（ストアにある）の用語・線は「外す提案」（✓ で確定）。未確認の札・線は、その提案の手番の取り消し。
   const canRemove = p.confirmed && (p.kind === 'term' || p.kind === 'line') && !!onRemove
   const canUndo = !p.confirmed && p.can_revert && !!p.revert
-  const provLine = prov
+  const isDraft = p.kind === 'draft'
+  const provLine = isDraft
+    ? prov
+      ? t('point.draftProv', { at: dayOf(prov.at) })
+      : null
+    : prov
     ? sessionId
       ? t('point.prov', { title: titleOf?.(sessionId) || t('point.untitled'), at: dayOf(prov.at), by: t(`point.${byKeyOf(prov.drafted_by)}`) })
       : t('point.provNoTitle', { at: dayOf(prov.at), by: t(`point.${byKeyOf(prov.drafted_by)}`) })
@@ -103,6 +108,11 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
             ))
           )}
         </ul>
+      )}
+      {isDraft && (
+        <p className="chat-point-prov" data-testid="point-draft-how">
+          {sessionId ? t('point.draftHow') : t('point.draftNoSession')}
+        </p>
       )}
       {provLine && (
         <p className="chat-point-prov" data-testid="point-prov">
