@@ -81,3 +81,12 @@ def test_history_is_last_six_turns_and_clips_reply() -> None:
     h = chat_route.history_of({"turns": turns})
     assert len(h) == 6 and all(len(x["assistant"]) == 200 for x in h)
     assert "gone" not in [x["user"] for x in h]
+
+
+def test_lenient_reading() -> None:
+    r, _ = _route('前置きです。 {"mode": " Chat ", "reply": "はい"} 以上です')
+    assert (r.mode, r.reply) == ("chat", "はい")
+    r, _ = _route(json.dumps({"mode": "PROPOSE", "reply": 3}))  # chat 以外は reply を見ない
+    assert (r.mode, r.reply) == ("propose", "")
+    r, _ = _route(json.dumps({"mode": "ask", "reply": None}))
+    assert r.mode == "ask"

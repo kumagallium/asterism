@@ -81,24 +81,25 @@ def _read(text: str) -> RouteResult:
     m = _FENCE.search(t)
     if m:
         t = m.group(1).strip()
+    i, j = t.find("{"), t.rfind("}")  # 前置き・後書きがあっても本文の {…} を読む
+    if i == -1 or j <= i:
+        raise RouteError("the router did not return JSON")
     try:
-        obj = json.loads(t)
+        obj = json.loads(t[i : j + 1])
     except json.JSONDecodeError:
         raise RouteError("the router did not return JSON") from None
     if not isinstance(obj, dict):
         raise RouteError("the router did not return a JSON object")
-    mode = obj.get("mode")
+    raw = obj.get("mode")
+    mode = raw.strip().lower() if isinstance(raw, str) else raw
     if mode not in _MODES:
-        raise RouteError(f"unknown mode: {mode!r}")
+        raise RouteError(f"unknown mode: {raw!r}")
+    if mode != "chat":  # reply は chat のときだけ見る
+        return RouteResult(mode, "")
     reply = obj.get("reply")
-    if reply is not None and not isinstance(reply, str):
-        raise RouteError("reply must be a string")
-    reply = (reply or "").strip()
-    if mode == "chat":
-        if not reply:
-            raise RouteError("chat needs a reply")
-        return RouteResult("chat", reply)
-    return RouteResult(mode, "")
+    if not isinstance(reply, str) or not reply.strip():
+        raise RouteError("chat needs a reply")
+    return RouteResult("chat", reply.strip())
 
 
 def route_message(

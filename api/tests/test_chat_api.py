@@ -16,6 +16,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from asterism import chat_sessions, shared_vocab, themes
 from asterism_step0.graph_propose import validate_graph_diff
 from fastapi.testclient import TestClient
@@ -1218,3 +1219,50 @@ def test_route_history_carries_recent_turns(tmp_path: Path) -> None:
         _say(client, sid, "ありがとう")
         user = llm.route_calls[1][1]
         assert "person: こんにちは" in user and "assistant: こんにちは。" in user
+
+
+@pytest.mark.parametrize("text", ["価格を図に足して", "店は外して"])
+def test_graph_words_skip_the_router(tmp_path: Path, text: str) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="chat", route_reply="x")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, text)["turn"]
+        assert t["state"] == "proposed" and llm.route_calls == []
+
+
+def test_router_gets_dataset_count(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="chat", route_reply="はい")
+    with client:
+        sid = _new(client)
+        _say(client, sid, "ありがとう")
+        assert "Datasets: 0" in llm.route_calls[0][1]
+
+
+def test_chat_turn_keeps_draft_and_cannot_be_confirmed_or_reverted(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="propose")
+    with client:
+        sid = _new(client)
+        did = _say(client, sid, Q_LOWER)["draft"]["draft_id"]
+        llm.route, llm.route_reply = "chat", "どうも。"
+        out = _say(client, sid, "ありがとう")
+        assert out["session"]["draft_id"] == did and out["draft"]["draft_id"] == did
+        tid = out["turn"]["id"]
+        for verb in ("confirm", "revert"):
+            r = client.post(f"/api/chat/sessions/{sid}/turns/{tid}/{verb}")
+            assert r.status_code == 409, (verb, r.text)
+
+
+def test_router_exception_falls_back_to_propose(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON))
+    orig = llm.routed
+
+    def boom(system: str, user: str):
+        if orig(system, user) is not None:
+            raise RuntimeError("down")
+        return None
+
+    llm.routed = boom
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER)["turn"]
+        assert t["state"] == "proposed" and len(llm.calls) == 1
