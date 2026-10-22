@@ -91,8 +91,12 @@ async def table_for_kind(
     *,
     limit: int = 20,
     lang: str = "ja",
+    graphs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """種類 1 つの表 → ``{kind, columns, rows, total, truncated}``（形は契約 A2）。"""
+    """種類 1 つの表 → ``{kind, columns, rows, total, truncated}``（形は契約 A2）。
+
+    ``graphs`` を渡すと、公開済みの版グラフの代わりにその graph だけを読む（中身の表が、
+    1 つのデータセットや、公開前の版グラフを読むため）。既定（``None``）は公開済み全部。"""
     check_iri(kind_iri)
     clause = subjects.class_type_clause(kind_iri)
     if clause is None:
@@ -106,7 +110,8 @@ async def table_for_kind(
         "total": 0,
         "truncated": False,
     }
-    graphs = await _published_graphs(client, root)
+    if graphs is None:
+        graphs = await _published_graphs(client, root)
     if not graphs:
         return out
     named = substrate.canonical_from_clauses(graphs, named=True)
