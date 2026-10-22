@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.57.0](https://github.com/kumagallium/asterism/compare/v0.56.0...v0.57.0) - 2026-10-22
+
+- feat: ゼロベースの殻 — 話の一覧／チャット／図の 3 領域・話の API・AI 無しの会話と ✓（UI 全面再設計 11a） by @kumagallium in https://github.com/kumagallium/asterism/pull/734
+- feat: 返事 1 枚 — AI の返事に提案を畳み、即座に図に薄く入れ、✓ で濃く。✓ のあとも話が続く（UI 全面再設計 11b） by @kumagallium in https://github.com/kumagallium/asterism/pull/735
+- feat: 📎 でデータ — 表を添えるとかんたんの段を順に通して返事 1 枚に畳み、✓ で公開（UI 全面再設計 11c） by @kumagallium in https://github.com/kumagallium/asterism/pull/736
+- feat: 点を押す 1 枚（文・来歴・中身・戻す）・「見せて」で表・Ask を同じチャットで出典つきに・確認済みの戻す（UI 全面再設計 11d） by @kumagallium in https://github.com/kumagallium/asterism/pull/737
+- feat: 図のゼロベース — 3 段をやめて 1 枚の知識の図に（UI 全面再設計 11f） by @kumagallium in https://github.com/kumagallium/asterism/pull/738
+- chore: 掃除 — ナビ・ページ・ウィザードの残骸・死んだ文言と CSS を消し、マニュアル・ADR §2.4g・ROADMAP を 3 領域に合わせる（UI 全面再設計 11e） by @kumagallium in https://github.com/kumagallium/asterism/pull/739
+- feat: チャットの詰め — 見慣れたチャットの文法に合わせ、入力欄の崩れと絵文字を無くす（UI 全面再設計 11g） by @kumagallium in https://github.com/kumagallium/asterism/pull/740
+- feat: 全体の地図を基本に、局所の図を補足のパネルに — 丸＋横の文字の地図（sigma・決定論）と「この話の周り」（UI 全面再設計 11h） by @kumagallium in https://github.com/kumagallium/asterism/pull/741
+
 ## [v0.56.0](https://github.com/kumagallium/asterism/compare/v0.55.0...v0.56.0) - 2026-10-21
 
 - feat: 問いの提案 — データ・論文・図の穴から AI が CQ を下書きし、閉じた形に落ちるものだけチップで出す（10a〜10d・金標準と物差し） by @kumagallium in https://github.com/kumagallium/asterism/pull/732
