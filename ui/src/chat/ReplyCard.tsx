@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BindingDecision, Decided, Note, Turn } from './chatApi'
-import { bindingDecisions, keptName, settleAsk, showMachineMark, turnKind } from './chatState'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { ReplyAnswer, ReplyTable } from './chatApi'
+import { bindingDecisions, keptName, settleAsk, showMachineMark, turnKind, type Highlight } from './chatState'
 
 /** 箇条書きで出す文の数（それ以上は「ほか N 件」の折りたたみ）。 */
 export const SENTENCE_LIMIT = 6
@@ -29,6 +32,8 @@ export interface ReplyCardProps {
   interrupted?: boolean
   /** 返事の中の小さな選択を決めた（手番・注記の番号・値）。 */
   onChoose?: (turnId: string, noteIndex: number, value: string) => void
+  /** 表の種類・出典を押した（図で濃く）。 */
+  onHighlight?: (h: Highlight | null) => void
 }
 
 function stamp(iso: string, lang: string): string {
@@ -71,6 +76,93 @@ function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; bu
   )
 }
 
+/** 「見せて」の表（20 行・横スクロール）。名前を押すとその種類を図で濃く。 */
+export function ReplyTableView({ table, onHighlight }: { table: ReplyTable; onHighlight?: (h: Highlight | null) => void }) {
+  const { t } = useTranslation('chat')
+  const more = Math.max(0, table.total - table.rows.length)
+  return (
+    <div className="chat-table" data-testid="reply-table">
+      <p className="chat-table-kind">
+        <button type="button" className="link-btn" onClick={() => onHighlight?.({ iris: [table.kind.iri] })}>
+          {table.kind.label || table.kind.iri}
+        </button>
+      </p>
+      {table.rows.length === 0 ? (
+        <p className="chat-note-line">{t('table.empty')}</p>
+      ) : (
+        <div className="chat-table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">{t('table.kindCol')}</th>
+                {table.columns.map((c) => (
+                  <th key={c.iri} scope="col">
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((r) => (
+                <tr key={r.iri}>
+                  <th scope="row">
+                    <button type="button" className="link-btn" onClick={() => onHighlight?.({ iris: [table.kind.iri] })}>
+                      {r.label || r.iri}
+                    </button>
+                  </th>
+                  {table.columns.map((c) => (
+                    <td key={c.iri}>{r.cells[c.iri] ?? ''}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {more > 0 && <p className="chat-note-line">{t('table.more', { n: more })}</p>}
+    </div>
+  )
+}
+
+/** Ask の答え（出典つき）。 */
+export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; onHighlight?: (h: Highlight | null) => void }) {
+  const { t } = useTranslation('chat')
+  return (
+    <div className="chat-answer" data-testid="reply-answer">
+      <div className="chat-answer-text answer-md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer.text}</ReactMarkdown>
+      </div>
+      {answer.citations.length > 0 && (
+        <ul className="chat-citations" data-testid="reply-citations" aria-label={t('ask.sources')}>
+          {answer.citations.map((c, i) => (
+            <li key={i}>
+              <button type="button" className="chat-citation" onClick={() => onHighlight?.({ iris: [c.iri] })}>
+                <span className="chat-citation-name">{c.label || c.iri}</span>
+                {c.dataset_label && <span className="sky-meta">{c.dataset_label}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {answer.warnings.map((w, i) => (
+        <p key={i} className="chat-answer-warning" role="note">
+          {w}
+        </p>
+      ))}
+      {answer.notes.map((n, i) => (
+        <p key={i} className="chat-note-line">
+          {n}
+        </p>
+      ))}
+      {answer.verified_tools.length > 0 && (
+        <span className="chat-mark chat-mark--confirmed" data-testid="reply-verified" title={answer.verified_tools.join(' · ')}>
+          {t('ask.verified')}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /** 表を読んでいる最中の手番（返事の場所に 1 行）。 */
 function Reading({ progress, interrupted }: { progress?: string; interrupted?: boolean }) {
   const { t } = useTranslation('chat')
@@ -94,7 +186,7 @@ export function ReplyCard(p: ReplyCardProps) {
   return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} /> : <ReplyBody {...p} />
 }
 
-function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names, onChoose }: ReplyCardProps) {
+function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names, onChoose, onHighlight }: ReplyCardProps) {
   const { t, i18n } = useTranslation('chat')
   const r = turn.reply
   // 結ぶ／結ばないの選び（変えたものだけ持つ。✓ のときに既定へ重ねて送る）
@@ -119,7 +211,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   const notes = turn.by === 'machine' && r.notes[0] && r.notes[0].text.trim() === r.text.trim() ? r.notes.slice(1) : r.notes
   // text と箇条書きが同じ内容なら片方だけ。人の手番（user が null）は箇条書き 1 行だけ
   const sameAsOnly = sentences.length === 1 && r.text.trim() === sentences[0].trim()
-  const showText = !!r.text && !sameAsOnly && !(turn.user === null && sentences.length > 0)
+  const showText = !!r.text && !r.answer && !sameAsOnly && !(turn.user === null && sentences.length > 0)
   return (
     <div className="consult-msg consult-msg--assistant">
       <div className="chat-card" data-testid="reply-card" data-state={turn.state}>
@@ -148,6 +240,8 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             )}
           </ul>
         )}
+        {r.table && <ReplyTableView table={r.table} onHighlight={onHighlight} />}
+        {r.answer && <ReplyAnswerView answer={r.answer} onHighlight={onHighlight} />}
         {r.suggestions.length > 0 && sentences.length === 0 && (
           <ul className="chat-sentences">
             {r.suggestions.map((sg, i) => (
