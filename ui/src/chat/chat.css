@@ -517,3 +517,119 @@
   overflow-y: auto;
   padding: var(--space-3);
 }
+
+/* 点を押した 1 枚（PR 11d）。会話の先頭に固定 */
+.chat-pinned {
+  flex: none;
+  max-height: 45%;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4) 0;
+}
+.chat-point-std,
+.chat-point-prov {
+  margin: var(--space-1) 0 0;
+  font-size: 0.78rem;
+}
+.chat-point-prov {
+  color: var(--muted);
+}
+.chat-point-sentences {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.82rem;
+}
+.chat-point-sentence {
+  text-align: left;
+  color: var(--fg);
+}
+.chat-point-sentence.is-lit {
+  font-weight: 700;
+}
+.chat-point-ask {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.78rem;
+}
+.chat-point-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* 返事の表（見せて）と Ask の答え */
+.chat-table-kind {
+  margin: 0 0 var(--space-1);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.chat-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.chat-table table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.chat-table th,
+.chat-table td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-weight: 400;
+}
+.chat-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.chat-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-answer-text > :first-child {
+  margin-top: 0;
+}
+.chat-answer-text > :last-child {
+  margin-bottom: 0;
+}
+.chat-citations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-citation {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg);
+}
+.chat-citation-name {
+  font-weight: 600;
+}
+.chat-answer-warning {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+}

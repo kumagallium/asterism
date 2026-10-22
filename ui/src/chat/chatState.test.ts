@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { Session, Turn, TurnState } from './chatApi'
 import {
   applyConfirm,
+  byKeyOf,
+  pointQueryOf,
+  sameSel,
+  showsContents,
   applyRevert,
   applyTurnResponse,
   confirmTargets,
@@ -238,5 +242,29 @@ describe('✓ の区分（話・表・機械）と選び待ち', () => {
     expect(showMachineMark({ ...table('t2'), by: 'machine' })).toBe(false)
     expect(showMachineMark({ ...waiting('t3'), by: 'machine' })).toBe(false)
     expect(showMachineMark(turn('t4', 'proposed'))).toBe(false)
+  })
+})
+
+
+describe('点の選択', () => {
+  it('pointQueryOf: 点は iri・線は from/relation/to', () => {
+    expect(pointQueryOf({ kind: 'term', iri: 'a', label: 'A' })).toEqual({ iri: 'a' })
+    expect(pointQueryOf({ kind: 'line', from: 'a', relation: 'isPartOf', to: 'b', label: 'x' })).toEqual({ from: 'a', relation: 'isPartOf', to: 'b' })
+  })
+  it('sameSel', () => {
+    const a = { kind: 'term', iri: 'a', label: 'A' } as const
+    expect(sameSel(a, { ...a, label: 'B' })).toBe(true)
+    expect(sameSel(a, { kind: 'kind', iri: 'a', label: 'A' })).toBe(false)
+    expect(sameSel(null, null)).toBe(true)
+    expect(sameSel(a, null)).toBe(false)
+  })
+  it('byKeyOf・showsContents', () => {
+    expect(byKeyOf('ai')).toBe('byAi')
+    expect(byKeyOf('machine')).toBe('byMachine')
+    expect(byKeyOf('human')).toBe('byHuman')
+    expect(showsContents('kind', 0)).toBe(true)
+    expect(showsContents('term', 0)).toBe(false)
+    expect(showsContents('term', 1)).toBe(true)
+    expect(showsContents('std', 3)).toBe(false)
   })
 })

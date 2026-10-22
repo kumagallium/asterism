@@ -74,7 +74,8 @@
       "confirm": "Confirming",
       "revert": "Undoing",
       "sky": "Loading the chart",
-      "attach": "attaching a table"
+      "attach": "attaching a table",
+      "point": "Loading the card"
     }
   },
   "attach": {
@@ -94,5 +95,44 @@
     "rows": "{{n}} rows",
     "bindLine": "Column \"{{column}}\" is the same as \"{{term}}\"",
     "suggestionLine": "\"{{subject}}\" is the same as \"{{term}}\""
+  },
+  "point": {
+    "titleTerm": "Term",
+    "titleKind": "Kind",
+    "titleStd": "Standard term",
+    "titleHub": "Link",
+    "titleLine": "Link",
+    "titleDraft": "Proposal",
+    "termClass": "kind",
+    "termProperty": "field",
+    "contents": "Contents",
+    "showText": "Show {{name}}",
+    "revert": "Undo",
+    "revertAsk": "This confirmation will be undone",
+    "revertYes": "Undo",
+    "revertNo": "Cancel",
+    "openSession": "Open the chat →",
+    "prov": "In chat \"{{title}}\", {{by}} on {{at}}",
+    "provNoTitle": "{{by}} on {{at}}",
+    "byAi": "added by AI, confirmed by a person ✓",
+    "byHuman": "confirmed by a person ✓",
+    "byMachine": "matched by name",
+    "questions": "Questions it answers",
+    "qKnowledge": "knowledge {{n}}",
+    "qData": "data {{n}}",
+    "members": "Kinds inside",
+    "standard": "Standard term",
+    "noSentence": "No sentences yet",
+    "untitled": "New chat"
+  },
+  "table": {
+    "more": "{{n}} more",
+    "empty": "No matching rows",
+    "kindCol": "Name"
+  },
+  "ask": {
+    "verified": "Answered with deterministic tools",
+    "noAnswer": "No answer came back",
+    "sources": "Sources"
   }
 }

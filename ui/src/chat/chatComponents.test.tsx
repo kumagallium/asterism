@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import '../i18n'
 import { ThemesApiError } from '../themes/themesApi'
-import type { Reply, SessionSummary, Turn } from './chatApi'
+import type { Point, Reply, SessionSummary, Turn } from './chatApi'
+import { PointCard } from './PointCard'
 import { ChatPane } from './ChatPane'
 import { AddPanel } from './AddPanel'
 import { Composer } from './Composer'
@@ -316,5 +317,115 @@ describe('ReplyCard の ✓ で外した件数', () => {
   })
   it('外していなければ出さない', () => {
     expect(text(card(turn({ state: 'confirmed', commit }), false))).not.toContain('外しました')
+  })
+})
+
+
+const point = (over: Partial<Point> = {}): Point => ({
+  iri: 'https://ex.org/term/lattice',
+  kind: 'term',
+  label: '格子熱伝導率',
+  term_kind: 'property',
+  sentences: [
+    { text: '格子熱伝導率は熱伝導率の一部', relation: 'isPartOf', source: 'https://ex.org/term/lattice', target: 'https://ex.org/term/kappa', drafted_by: 'ai', at: '2026-10-22T01:00:00Z', batch: 'cabc12345x:t1', reason: '', session_id: 'cabc12345x', turn_id: 't1' },
+  ],
+  provenance: { drafted_by: 'ai', at: '2026-10-22T01:00:00Z', theme_id: 'th', session_id: 'cabc12345x', turn_id: 't1' },
+  questions: [{ title: '熱伝導率を下げる要素は？', mode: 'knowledge', answering: 2, knowledge: 1 }],
+  members: [{ iri: 'https://ex.org/kind/sample', label: '試料', dataset_label: '熱電データ' }],
+  can_revert: true,
+  revert: { session_id: 'cabc12345x', turn_id: 't1' },
+  ...over,
+})
+const pcard = (p: Point) =>
+  renderToStaticMarkup(<PointCard point={p} busy={false} titleOf={() => '熱電材料'} onContents={noop} onRevert={noop} onHighlight={noop} />)
+
+describe('PointCard', () => {
+  it('用語: 名前・種別・文・来歴（話の題・日付・AI が足し）・話を開く・中身・戻す・問い・入っている種類', () => {
+    const html = pcard(point())
+    const tx = text(html)
+    expect(html).toContain('data-testid="point-card"')
+    expect(tx).toContain('格子熱伝導率')
+    expect(tx).toContain('項目')
+    expect(tx).toContain('格子熱伝導率は熱伝導率の一部')
+    expect(tx).toContain('話「熱電材料」で 2026-10-22 に AI が足し、人が ✓')
+    expect(html).toContain('href="#/t/cabc12345x"')
+    expect(html).toContain('data-testid="point-contents"')
+    expect(html).toContain('data-testid="point-revert"')
+    expect(tx).toContain('知識 1')
+    expect(tx).toContain('データ 2')
+    expect(tx).toContain('試料')
+  })
+  it('種類: 中身が出る・標準用語は出ない・禁句が画面に無い', () => {
+    const html = pcard(point({ kind: 'kind', members: [], can_revert: false, revert: null, sentences: [] }))
+    expect(html).toContain('data-testid="point-contents"')
+    expect(html).not.toContain('point-revert')
+    for (const w of ['線', 'ことば', '下書き', 'pending']) expect(text(html)).not.toContain(w)
+  })
+  it('標準用語・つながり・提案: 中身も戻すも出ない', () => {
+    for (const kind of ['std', 'hub', 'line', 'draft'] as const) {
+      const html = pcard(point({ kind, members: [], can_revert: false, revert: null, provenance: null, sentences: [] }))
+      expect(html).not.toContain('point-contents')
+      expect(html).not.toContain('point-revert')
+      expect(html).toContain(`data-kind="${kind}"`)
+    }
+  })
+  it('用語でも入っている種類が無ければ中身は出ない・戻すは revert が無ければ出ない', () => {
+    const html = pcard(point({ members: [], revert: null }))
+    expect(html).not.toContain('point-contents')
+    expect(html).not.toContain('point-revert')
+  })
+  it('機械の来歴は「名前の一致」', () => {
+    const html = pcard(point({ provenance: { drafted_by: 'machine', at: '2026-10-22T01:00:00Z', theme_id: null, session_id: null, turn_id: null } }))
+    expect(text(html)).toContain('に 名前の一致')
+    expect(html).not.toContain('point-open-session')
+  })
+})
+
+describe('ReplyCard の表と答え', () => {
+  it('表: 見出し・行・ほか N 件', () => {
+    const html = card(
+      turn({
+        state: 'none',
+        reply: reply({
+          table: {
+            kind: { iri: 'k', label: '試料' },
+            columns: [{ iri: 'p1', label: '組成' }],
+            rows: [{ iri: 's1', label: '試料1', cells: { p1: 'Bi2Te3' } }],
+            total: 25,
+            truncated: true,
+          },
+        }),
+      }),
+      false,
+    )
+    expect(html).toContain('data-testid="reply-table"')
+    expect(text(html)).toContain('組成')
+    expect(text(html)).toContain('Bi2Te3')
+    expect(text(html)).toContain('ほか 24 件')
+  })
+  it('答え: 本文・出典（名前とデータセット名）・警告・決定論の印。✓ も戻すも無い', () => {
+    const html = card(
+      turn({
+        state: 'none',
+        reply: reply({
+          text: '3 件です',
+          answer: {
+            text: '3 件です',
+            citations: [{ iri: 'k', label: '価格表', dataset_id: 'd1', dataset_label: 'スーパー' }],
+            notes: [],
+            warnings: ['一部の値は推定です'],
+            verified_tools: ['count'],
+          },
+        }),
+      }),
+      false,
+    )
+    expect(html).toContain('data-testid="reply-answer"')
+    expect(text(html)).toContain('価格表')
+    expect(text(html)).toContain('スーパー')
+    expect(text(html)).toContain('一部の値は推定です')
+    expect(html).toContain('data-testid="reply-verified"')
+    expect(html).not.toContain('reply-confirm')
+    expect(html).not.toContain('reply-revert')
   })
 })

@@ -74,7 +74,8 @@
       "confirm": "確認",
       "revert": "戻す操作",
       "sky": "図の読み込み",
-      "attach": "表を添える操作"
+      "attach": "表を添える操作",
+      "point": "点の読み込み"
     }
   },
   "attach": {
@@ -94,5 +95,44 @@
     "rows": "{{n}} 行",
     "bindLine": "列「{{column}}」は「{{term}}」と同じもの",
     "suggestionLine": "「{{subject}}」は「{{term}}」と同じもの"
+  },
+  "point": {
+    "titleTerm": "用語",
+    "titleKind": "種類",
+    "titleStd": "標準用語",
+    "titleHub": "つながり",
+    "titleLine": "つながり",
+    "titleDraft": "提案",
+    "termClass": "種類",
+    "termProperty": "項目",
+    "contents": "中身",
+    "showText": "{{name}}を見せて",
+    "revert": "戻す",
+    "revertAsk": "この確認を取り消します",
+    "revertYes": "戻す",
+    "revertNo": "やめる",
+    "openSession": "話を開く →",
+    "prov": "話「{{title}}」で {{at}} に {{by}}",
+    "provNoTitle": "{{at}} に {{by}}",
+    "byAi": "AI が足し、人が ✓",
+    "byHuman": "人が ✓",
+    "byMachine": "名前の一致",
+    "questions": "答える問い",
+    "qKnowledge": "知識 {{n}}",
+    "qData": "データ {{n}}",
+    "members": "入っている種類",
+    "standard": "標準用語",
+    "noSentence": "文はまだありません",
+    "untitled": "新しい話"
+  },
+  "table": {
+    "more": "ほか {{n}} 件",
+    "empty": "該当する行はありません",
+    "kindCol": "名前"
+  },
+  "ask": {
+    "verified": "決定論の道具で答えました",
+    "noAnswer": "答えが返りませんでした",
+    "sources": "出典"
   }
 }

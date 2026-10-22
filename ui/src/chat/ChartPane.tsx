@@ -8,12 +8,13 @@ import { drawRemovals, removalOverlay } from '../chart/chartOverlay'
 import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
-import { bornAlive, drawSky, formatCount, hitTest, readSkyPalette, visiblePointLabels, type SkyLabels, type SkyPalette } from '../sky/skyDraw'
-import { layoutSky, neighborhood, nodeIdsForIris, type SkyLayout, type SkyNode } from '../sky/skyLayout'
+import { bornAlive, drawSky, formatCount, hitLineEdge, hitTest, readSkyPalette, visiblePointLabels, type SkyLabels, type SkyPalette } from '../sky/skyDraw'
+import { layoutSky, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from '../sky/skyLayout'
 import { SkyTables } from '../sky/SkyTables'
 import { buildSkyTables } from '../sky/skyTable'
 import '../sky/sky.css'
 import { getSkyWithProposed, type SkyDraft } from './chatApi'
+import { selectionOfEdge, selectionOfNode, type Highlight, type PointSel } from './chatState'
 
 // sigma（WebGL）は「中身まで見る」を開くときだけ読む。
 const NetworkView = lazy(() => import('../NetworkView').then((m) => ({ default: m.NetworkView })))
@@ -63,11 +64,13 @@ export interface ChartPaneProps {
   onProposed?: (drafts: SkyDraft[]) => void
   /** 図の語（slug → 名前を引くため）を知らせる。 */
   onTerms?: (terms: { slug: string; label: string }[]) => void
-  /** 点を押した（この PR では濃淡だけ。札は 11d）。 */
-  onSelect?: (node: SkyNode | null) => void
+  /** 点か線を押した（空白を押すと null＝1 枚を閉じる）。 */
+  onSelect?: (sel: PointSel | null) => void
+  /** 1 枚の中の文・表・出典を押した: 図でそれを濃くする（null で戻す）。 */
+  highlight?: Highlight | null
 }
 
-export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, onSelect }: ChartPaneProps) {
+export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, onSelect, highlight = null }: ChartPaneProps) {
   const { t } = useTranslation('sky')
   const { t: tc } = useTranslation('chat')
   const [load, setLoad] = useState<Load>({ status: 'loading' })
@@ -145,6 +148,17 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const [osQuiet] = useState(prefersReducedMotion)
   const reduced = quiet || osQuiet
 
+  // 1 枚の中で押したもの（文の線・表の種類・出典）を濃くする
+  const hl = useMemo<{ focusId: string; near: ReadonlySet<string> } | null>(() => {
+    if (!highlight) return null
+    if ('edge' in highlight) {
+      const a = nodeIdsForIris(layout, [highlight.edge.from])[0]
+      const b = nodeIdsForIris(layout, [highlight.edge.to])[0]
+      return a && b ? { focusId: a, near: new Set([a, b]) } : null
+    }
+    const ids = nodeIdsForIris(layout, highlight.iris)
+    return ids.length > 0 ? { focusId: ids[0], near: neighborhoodOf(layout, ids) } : null
+  }, [highlight, layout])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const activeId = selectedId && layout.nodes.has(selectedId) ? selectedId : null
 
@@ -173,7 +187,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const hoverRef = useRef<string | null>(null)
   const bornRef = useRef<Map<string, number>>(new Map())
   const rafRef = useRef(0)
-  const stateRef = useRef<{ layout: SkyLayout; labels: SkyLabels; visible: ReadonlySet<string>; removals: ReturnType<typeof removalOverlay>; selectedId: string | null; reduced: boolean; nothing: boolean } | null>(null)
+  const stateRef = useRef<{ layout: SkyLayout; labels: SkyLabels; visible: ReadonlySet<string>; removals: ReturnType<typeof removalOverlay>; selectedId: string | null; hl: { focusId: string; near: ReadonlySet<string> } | null; reduced: boolean; nothing: boolean } | null>(null)
 
   const paint = useCallback(function paintFrame() {
     rafRef.current = 0
@@ -192,8 +206,9 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     paletteRef.current ??= readSkyPalette()
     const now = performance.now()
-    const focusId = s.nothing ? null : (hoverRef.current ?? s.selectedId)
-    const near = focusId ? neighborhood(s.layout, focusId) : null
+    const hover = hoverRef.current
+    const focusId = s.nothing ? null : (hover ?? s.hl?.focusId ?? s.selectedId)
+    const near = !focusId ? null : !hover && s.hl ? s.hl.near : neighborhood(s.layout, focusId)
     drawSky(
       ctx,
       s.layout,
@@ -210,9 +225,9 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   }, [paint])
 
   useEffect(() => {
-    stateRef.current = { layout, labels, visible, removals, selectedId: activeId, reduced, nothing }
+    stateRef.current = { layout, labels, visible, removals, selectedId: activeId, hl, reduced, nothing }
     schedule()
-  }, [layout, labels, visible, removals, activeId, reduced, nothing, schedule])
+  }, [layout, labels, visible, removals, activeId, hl, reduced, nothing, schedule])
   useEffect(() => {
     let alive = true
     void document.fonts?.ready.then(() => alive && schedule())
@@ -257,8 +272,16 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     if (nothing) return
     const p = localPoint(ev)
     const n = hitTest(layout, p.x, p.y)
-    setSelectedId(n?.id ?? null)
-    onSelect?.(n)
+    if (n) {
+      const sel = selectionOfNode(n)
+      setSelectedId(sel ? n.id : null)
+      onSelect?.(sel)
+      return
+    }
+    const e = hitLineEdge(layout, p.x, p.y)
+    const sel = e ? selectionOfEdge(layout, e) : null
+    setSelectedId(null)
+    onSelect?.(sel)
   }
 
   // ── 画像で保存 ──

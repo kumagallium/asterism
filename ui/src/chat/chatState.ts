@@ -1,4 +1,5 @@
 // 話の状態の純関数（vitest で検査する）。画面は fetch の返りをここに通して話を更新する。
+import type { SkyEdge, SkyLayout, SkyNode } from '../sky/skyLayout'
 import type { Binding, BindingDecision, Decided, ConfirmResponse, RevertResponse, Session, SessionBrief, Turn, TurnResponse } from './chatApi'
 
 export type TurnKind = 'theme' | 'table' | 'machine'
@@ -157,4 +158,70 @@ export function runningJobs(turns: readonly Turn[]): { turnId: string; jobId: st
 /** 結ぶ／結ばないの選び: 人が変えたもの（`picked`・並び順の番号が key）を既定（`decided`）に重ねる。✓ のときに送る。 */
 export function bindingDecisions(bindings: readonly Binding[], picked: Readonly<Record<string, Decided>>): BindingDecision[] {
   return bindings.map((b, i) => ({ column: b.column, subject: b.subject, decided: picked[String(i)] ?? b.decided }))
+}
+
+// ── 点を押した 1 枚（PR 11d） ─────────────────────────────────────
+
+/** 押した点か線。`line` は両端の IRI と関係（`GET /api/chat/point?from=&relation=&to=`）。 */
+export type PointSel =
+  | { kind: 'term' | 'kind' | 'std' | 'hub' | 'draft'; iri: string; label: string }
+  | { kind: 'line'; from: string; relation: string; to: string; label: string }
+
+/** 図で濃くするもの: 点（IRI）か、線（両端の IRI）。 */
+export type Highlight = { iris: string[] } | { edge: { from: string; to: string } }
+
+/** 図の点を 1 枚の対象にする。データセットの丸（IRI を持たない）は対象にしない。 */
+export function selectionOfNode(n: SkyNode): PointSel | null {
+  switch (n.type) {
+    case 'term':
+      return { kind: 'term', iri: n.iri, label: n.label }
+    case 'kind':
+      return { kind: 'kind', iri: n.iri, label: n.label }
+    case 'std':
+      return { kind: 'std', iri: n.iri, label: n.label }
+    case 'hub':
+      return { kind: 'hub', iri: n.hubId, label: n.label }
+    case 'draft':
+      return { kind: 'draft', iri: n.conceptKey, label: n.label }
+    default:
+      return null
+  }
+}
+
+/** 図の線（知識・提案）を 1 枚の対象にする。両端が引けなければ null。 */
+export function selectionOfEdge(layout: SkyLayout, e: SkyEdge): PointSel | null {
+  if (e.kind === 'concept' && e.relation) {
+    const a = layout.nodes.get(e.from)
+    const b = layout.nodes.get(e.to)
+    if (a?.type !== 'term' || b?.type !== 'term') return null
+    return { kind: 'line', from: a.iri, relation: e.relation, to: b.iri, label: `${a.label} → ${b.label}` }
+  }
+  if (e.kind === 'draft' && e.draft) {
+    const a = layout.nodes.get(e.from)
+    const b = layout.nodes.get(e.to)
+    return { kind: 'line', from: e.draft.fromKey, relation: e.draft.rel, to: e.draft.toKey, label: `${a?.label ?? e.draft.fromKey} → ${b?.label ?? e.draft.toKey}` }
+  }
+  return null
+}
+
+/** `GET /api/chat/point` の問い合わせ。 */
+export function pointQueryOf(sel: PointSel): { iri: string } | { from: string; relation: string; to: string } {
+  return sel.kind === 'line' ? { from: sel.from, relation: sel.relation, to: sel.to } : { iri: sel.iri }
+}
+
+/** 同じ対象か（取り直しの要否）。 */
+export function sameSel(a: PointSel | null, b: PointSel | null): boolean {
+  if (!a || !b) return a === b
+  if (a.kind === 'line' || b.kind === 'line') return a.kind === 'line' && b.kind === 'line' && a.from === b.from && a.relation === b.relation && a.to === b.to
+  return a.kind === b.kind && a.iri === b.iri
+}
+
+/** 来歴の「誰が」の鍵（`chat:point.by*`）。 */
+export function byKeyOf(draftedBy: string): 'byAi' | 'byHuman' | 'byMachine' {
+  return draftedBy === 'ai' ? 'byAi' : draftedBy === 'machine' ? 'byMachine' : 'byHuman'
+}
+
+/** 「中身」を出すか: 種類、または入っている種類のある用語。 */
+export function showsContents(kind: string, memberCount: number): boolean {
+  return kind === 'kind' || (kind === 'term' && memberCount > 0)
 }
