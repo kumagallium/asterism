@@ -2,6 +2,7 @@
 // 折りたたみは localStorage に覚える（既定は開く）。核が空なら何も出さない。
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronIcon } from '../icons'
 import { ChartPane } from './ChartPane'
 import type { Highlight, PointSel } from './chatState'
 import type { LocalSky } from './graph/neighborhood'
@@ -42,7 +43,7 @@ export function LocalPanel({ lang, local, born = NO_BORN, onSelect, highlight = 
         <h3>{t('local.title')}</h3>
         {local.more > 0 && <span className="chat-local-more">{t('local.more', { n: local.more })}</span>}
         <button type="button" className="chat-icon-btn" data-testid="local-toggle" aria-expanded={open} aria-label={label} title={label} onClick={toggle}>
-          {open ? '−' : '+'}
+          <ChevronIcon size={16} className={open ? 'chat-local-chevron is-open' : 'chat-local-chevron'} />
         </button>
       </div>
       {open && <ChartPane lang={lang} data={data} hideFacts onSelect={onSelect} highlight={highlight} />}

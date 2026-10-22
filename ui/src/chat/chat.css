@@ -918,3 +918,16 @@
   border-radius: var(--radius);
   font-size: 0.78rem;
 }
+
+/* 「この話の周り」の折りたたみ（右向き → 開いたら下向き） */
+.chat-local-chevron {
+  transition: transform 0.15s;
+}
+.chat-local-chevron.is-open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-local-chevron {
+    transition: none;
+  }
+}
