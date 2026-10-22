@@ -34,6 +34,8 @@ export interface MapNodeAttrs {
 export interface MapEdgeAttrs {
   kind: MapEdgeKind
   relation?: string
+  /** 関係の表示名（concept の線だけ。hover で出す。形ではないので signature・線の鍵には入れない）。 */
+  label?: string
   /** 提案の薄い線。 */
   thin?: boolean
 }
@@ -53,6 +55,18 @@ export const HUB_SIZE = 8
 /** データセット（表の名前）の丸。種類をまとめる要で、押しても 1 枚は出ない。 */
 export const DATASET_SIZE = 6
 export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
+
+/** 関係の短い表示名。sky.json の line.partOf／line.sub と同じ語（一部・一種）。下げる・上げる・変えるは sky.json に短い語が無いのでここで持つ。
+ *  i18n のシングルトンは module 直下で読まない罠があるので、lang 引数で引く辞書にしてある。 */
+const RELATION_LABEL: Record<'ja' | 'en', Record<string, string>> = {
+  ja: { isA: '一種', isPartOf: '一部', lowers: '下げる', raises: '上げる', affects: '変える' },
+  en: { isA: 'kind of', isPartOf: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes' },
+}
+
+/** 関係の表示名。引けなければ undefined。 */
+export function relationLabel(relation: string, lang: 'ja' | 'en'): string | undefined {
+  return RELATION_LABEL[lang][relation]
+}
 
 const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = {
   part: 'isPartOf',
@@ -148,7 +162,8 @@ export function buildMapGraph(
     const b = termId(l.to)
     if (a === b || !g.hasNode(a) || !g.hasNode(b)) continue
     conceptSeen.add(`${a}>${b}>${l.relation}`)
-    addEdge(a, b, { kind: 'concept', relation: l.relation }, true)
+    const label = relationLabel(l.relation, lang)
+    addEdge(a, b, { kind: 'concept', relation: l.relation, ...(label ? { label } : {}) }, true)
   }
 
   // 視点と入っている種類

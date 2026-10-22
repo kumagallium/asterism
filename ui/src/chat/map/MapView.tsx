@@ -101,6 +101,7 @@ export function MapView({
   const sigmaRef = useRef<Sigma | null>(null)
   const refreshRef = useRef<(() => void) | null>(null)
   const hovRef = useRef<string | null>(null)
+  const hovEdgeRef = useRef<string | null>(null)
   const laidRef = useRef<{ sig: string; graph: Graph } | null>(null)
   const roRef = useRef<ResizeObserver | null>(null)
   const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect })
@@ -126,6 +127,7 @@ export function MapView({
     sigmaRef.current = null
     refreshRef.current = null
     hovRef.current = null
+    hovEdgeRef.current = null
     layoutMap(fresh)
     laidRef.current = { sig, graph: fresh }
     const graph = fresh
@@ -154,7 +156,11 @@ export function MapView({
       sigma = new Sigma(graph, host, {
         // 隠れた容器（375 のタブ・データを添える欄の間）でも例外にしない。見えたら resize する
         allowInvalidContainer: true,
-        renderEdgeLabels: false,
+        enableEdgeEvents: true,
+        // 線の名前は hover 中の 1 本だけ出す（edgeReducer で他は ''）
+        renderEdgeLabels: true,
+        edgeLabelSize: 11,
+        edgeLabelColor: { color: pal.label },
         zIndex: true,
         labelSize: 12,
         labelFont: 'inherit',
@@ -197,6 +203,10 @@ export function MapView({
           return out
         },
         edgeReducer: (edge, data) => {
+          // 線の名前は hover 中の線だけ。その線は濃く少し太く
+          const hovered = edge === hovEdgeRef.current
+          if (hovered) return { ...data, color: pal.edgeOn, size: ((data.size as number | undefined) ?? 1) + 1, zIndex: 2 }
+          data = { ...data, label: '' }
           const em = emphasis()
           if (!em) return data
           const [s, t] = graph.extremities(edge)
@@ -227,6 +237,14 @@ export function MapView({
         refresh()
       },
     )
+    sigma.on('enterEdge', ({ edge }) => {
+      hovEdgeRef.current = edge
+      refresh()
+    })
+    sigma.on('leaveEdge', () => {
+      hovEdgeRef.current = null
+      refresh()
+    })
     sigmaRef.current = sigma
     // 容器が見えた（幅と高さが 0 でなくなった）・大きさが変わったときに測り直す
     if (typeof ResizeObserver !== 'undefined') {
