@@ -374,6 +374,8 @@ export function normalizeTurn(v: unknown): Turn | null {
     batch: str(v.batch),
     state,
     before: v.before ?? null,
+    // 11m: 振り分け（chat／ask）。無い・未知の値は省く
+    ...(v.route === 'chat' || v.route === 'ask' || v.route === 'propose' ? { route: v.route } : {}),
     commit: commitOf(v.commit),
     by,
     attachment: attachmentOf(v.attachment),
