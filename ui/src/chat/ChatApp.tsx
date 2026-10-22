@@ -38,6 +38,8 @@ import { AddPanel } from './AddPanel'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
 import { ContentsPanel } from './ContentsPanel'
+import { isAnswerable, type SkyQuestion } from '../sky/skyApi'
+import { QuestionsPanel } from './QuestionsPanel'
 import { contentsKeyOf } from './contentsKey'
 import { useContents } from './useContents'
 import { MapView as MapHost } from './map/MapView'
@@ -60,6 +62,7 @@ export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
   const { t: tsky } = useTranslation('sky')
+  const { t: tq } = useTranslation('questions')
   const lang: 'ja' | 'en' = i18n.language.startsWith('en') ? 'en' : 'ja'
   const { openSettings, settingsOpen, getActiveCredentials, isReady } = useLlmSettings()
   const layout = useChatLayout()
@@ -166,7 +169,9 @@ export function ChatApp() {
   const [interrupted, setInterrupted] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
-  const [tab, setTab] = useState<'chat' | 'chart'>('chat')
+  const [tab, setTab] = useState<'chat' | 'chart' | 'questions'>('chat')
+  // 右の領域の一番上のタブ（1,440）。375 では上のタブの行（tab）が兼ねる
+  const [rtab, setRtab] = useState<'graph' | 'questions'>('graph')
 
   // ── 点を押した 1 枚（図の点・線 → GET /api/chat/point → チャットの先頭） ──
   const [sel, setSel] = useState<PointSel | null>(null)
@@ -600,6 +605,27 @@ export function ChatApp() {
     }
   }, [layout.tabs, addOpen, tab])
 
+  // ── 問いのタブ（PR 11l） ──
+  const rightView: 'graph' | 'questions' = layout.tabs ? (tab === 'questions' ? 'questions' : 'graph') : rtab
+  const qAnswerable = okSky ? okSky.sky.questions.filter(isAnswerable).length : 0
+  const qTotal = okSky?.sky.questions.length ?? 0
+  const proposedQuestions = useMemo(
+    () => (sessionDraft ? (okSky?.proposed.find((d) => d.draft_id === sessionDraft.draft_id)?.questions ?? []) : []),
+    [okSky, sessionDraft],
+  )
+  /** 問いを押す: 知識グラフに切り替え、要る用語とそれに結ばれたデータの種類を光らせる。 */
+  const onPickQuestion = useCallback(
+    (q: SkyQuestion) => {
+      const members = (okSky?.sky.terms ?? []).filter((x) => q.needs.includes(x.iri)).flatMap((x) => x.members.map((m) => m.iri))
+      setHighlight({ iris: [...new Set([...q.needs, ...members])] })
+      if (layout.tabs) setTab('chart')
+      else setRtab('graph')
+    },
+    [okSky, layout.tabs],
+  )
+  /** 「答えて」: チャットへ送り、必ず Ask。 */
+  const onAskQuestion = useCallback((text: string) => runTurn({ text, intent: 'ask' }), [runTurn])
+
   const list = (
     <SessionList
       sessions={sessions}
@@ -630,7 +656,10 @@ export function ChatApp() {
               {t('tabs.chat')}
             </button>
             <button type="button" role="tab" data-testid="tab-chart" aria-selected={tab === 'chart'} className={`chat-tab${tab === 'chart' ? ' active' : ''}`} onClick={() => setTab('chart')}>
-              {t('tabs.chart')}
+              {tq('tab.graph')}
+            </button>
+            <button type="button" role="tab" data-testid="tab-questions" aria-selected={tab === 'questions'} className={`chat-tab${tab === 'questions' ? ' active' : ''}`} onClick={() => setTab('questions')}>
+              {tq('tab.questions', { n: qAnswerable, m: qTotal })}
             </button>
           </div>
           <button type="button" className="chat-icon-btn" onClick={() => openSettings()} aria-label={ts('open')} title={ts('open')}>
@@ -670,9 +699,24 @@ export function ChatApp() {
           onHighlight={setHighlight}
         />
       </section>
-      <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
+      <section className="chat-right" hidden={layout.tabs && tab === 'chat'}>
+        {!layout.tabs && !addOpen && (
+          <div className="chat-rtabs" role="tablist" aria-label={tq('tab.label')}>
+            <button type="button" role="tab" data-testid="tab-knowledge" aria-selected={rightView === 'graph'} className={`chat-tab${rightView === 'graph' ? ' active' : ''}`} onClick={() => setRtab('graph')}>
+              {tq('tab.graph')}
+            </button>
+            <button type="button" role="tab" data-testid="tab-questions" aria-selected={rightView === 'questions'} className={`chat-tab${rightView === 'questions' ? ' active' : ''}`} onClick={() => setRtab('questions')}>
+              {tq('tab.questions', { n: qAnswerable, m: qTotal })}
+            </button>
+          </div>
+        )}
         {addOpen && <AddPanel onClose={closeAdd} />}
-        <div className="chat-right-scroll" ref={scrollRef} hidden={addOpen}>
+        {okSky && !addOpen && rightView === 'questions' && (
+          <div className="chat-right-scroll">
+            <QuestionsPanel questions={okSky.sky.questions} sky={okSky.sky} proposed={proposedQuestions} onPick={onPickQuestion} onAsk={onAskQuestion} busy={busy !== null} />
+          </div>
+        )}
+        <div className="chat-right-scroll" ref={scrollRef} hidden={addOpen || rightView !== 'graph'}>
           {skyData.status === 'error' && (
             <div className="sky-placeholder chart-placeholder" role="alert">
               <span>{t('chart.failed')}</span>
@@ -688,18 +732,6 @@ export function ChatApp() {
           )}
           {okSky && (
             <>
-              <div className="sky-facts">
-                {okSky.sky.facts.questions_total > 0 ? (
-                  <span className="sky-facts-lead">
-                    <b>
-                      {okSky.sky.facts.questions_answerable} / {okSky.sky.facts.questions_total}
-                    </b>
-                    {tsky('facts.answerable')}
-                  </span>
-                ) : (
-                  <span className="sky-facts-none">{tsky('facts.none')}</span>
-                )}
-              </div>
               <MapHost
                 sky={okSky.sky}
                 drafts={okSky.proposed}

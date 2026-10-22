@@ -1,0 +1,19 @@
+{
+  "tab": {
+    "graph": "Knowledge graph",
+    "questions": "Questions {{n}} / {{m}}",
+    "label": "Right pane"
+  },
+  "row": {
+    "answeredBy": "Answerable from {{names}}",
+    "noData": "Terms exist, data is still missing",
+    "byKnowledge": "Answerable by relations ({{n}})",
+    "proposed": "Not approved yet",
+    "ask": "Answer",
+    "sent": "Sent",
+    "answerable": "Answerable",
+    "notYet": "Not answerable yet"
+  },
+  "empty": "No questions yet. Ask in the chat and \"Approve\" to add some",
+  "more": "{{n}} more"
+}

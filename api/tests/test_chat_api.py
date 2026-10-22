@@ -619,7 +619,7 @@ def test_revert_after_a_confirm_that_lost_its_save_is_409(tmp_path: Path, monkey
         monkeypatch.undo()
         # 話はまだ proposed のまま・下書きは確認で消えている
         r = client.post(f"/api/chat/sessions/{sid}/turns/t2/revert")
-        assert r.status_code == 409 and "この提案は確認済みです" in r.text
+        assert r.status_code == 409 and "この提案は承認済みです" in r.text
         assert _draft_ids(tmp_path) == []
 
 
@@ -959,7 +959,7 @@ def test_after_confirm_an_edit_is_a_diff_on_a_seeded_draft_and_confirm_removes(
         assert turn["before"] is None  # この手番で種つきの下書きを作った
         assert turn["reply"]["sentences"] == ["「粒界散乱」を外す"]
         assert [o["op"] for o in turn["reply"]["ops"]] == ["remove"]
-        assert "図に 用語" not in turn["reply"]["text"]
+        assert "知識グラフに 用語" not in turn["reply"]["text"]
         did = out["session"]["draft_id"]
         draft = themes.load_draft(root, did)
         assert draft["extend"] == out["session"]["theme_id"]
@@ -1152,3 +1152,13 @@ def test_history_skips_reverted_and_machine_turns() -> None:
         {"role": "user", "content": "u3"},
         {"role": "assistant", "content": "r3"},
     ]
+
+
+def test_intent_ask_skips_the_classifier(tmp_path: Path) -> None:
+    # 問いのタブの「答えて」: 問いらしい語が無い文でも Ask の道に入る（URL なしなら ask_unavailable）
+    client, _ = _ai_client(tmp_path)
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, "試料", intent="ask")["turn"]
+        (n,) = t["reply"]["notes"]
+        assert n["kind"] == "ask_unavailable"

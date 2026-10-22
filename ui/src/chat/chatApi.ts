@@ -520,6 +520,8 @@ export interface TurnInput {
   choice?: { turn_id: string; note_index: number; value: string }
   /** 確認済みの点（用語か線）を外す提案。 */
   remove?: { iri: string } | { from: string; relation: string; to: string }
+  /** 問いのタブの「答えて」: 振り分けを飛ばして必ず Ask へ。 */
+  intent?: 'ask'
   lang?: 'ja' | 'en'
 }
 
