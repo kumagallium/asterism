@@ -686,6 +686,8 @@ export interface Point {
   questions: { title: string; mode: string; answering: number; knowledge: number }[]
   members: { iri: string; label: string; dataset_label: string }[]
   can_revert: boolean
+  /** ストアにある（✓ 済みの用語・線・公開済みの種類・標準の語・視点）。提案の札・提案の線・薄い星は false。 */
+  confirmed: boolean
   dataset_id?: string
   /** 標準の語（あれば）。 */
   standard: { iri: string; label: string; prefix: string } | null
@@ -737,6 +739,7 @@ export function normalizePoint(v: unknown): Point | null {
       ? v.members.filter(isObj).map((m) => ({ iri: str(m.iri), label: str(m.label), dataset_label: str(m.dataset_label) }))
       : [],
     can_revert: v.can_revert === true,
+    confirmed: v.confirmed === true,
     ...(typeof v.dataset_id === 'string' ? { dataset_id: v.dataset_id } : {}),
     standard: isObj(v.standard) && typeof v.standard.iri === 'string' ? { iri: v.standard.iri, label: str(v.standard.label), prefix: str(v.standard.prefix) } : null,
     revert: rev,

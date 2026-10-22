@@ -333,12 +333,13 @@ const point = (over: Partial<Point> = {}): Point => ({
   questions: [{ title: '熱伝導率を下げる要素は？', mode: 'knowledge', answering: 2, knowledge: 1 }],
   members: [{ iri: 'https://ex.org/kind/sample', label: '試料', dataset_label: '熱電データ' }],
   can_revert: true,
+  confirmed: true,
   standard: null,
   revert: { session_id: 'cabc12345x', turn_id: 't1' },
   ...over,
 })
 const pcard = (p: Point) =>
-  renderToStaticMarkup(<PointCard point={p} busy={false} titleOf={() => '熱電材料'} onContents={noop} onRevert={noop} onHighlight={noop} />)
+  renderToStaticMarkup(<PointCard point={p} busy={false} titleOf={() => '熱電材料'} onContents={noop} onRevert={noop} onRemove={noop} onHighlight={noop} />)
 
 describe('PointCard', () => {
   it('用語: 名前・種別・文・来歴（話の題・日付・AI が足し）・話を開く・中身・戻す・問い・入っている種類', () => {
@@ -465,11 +466,12 @@ describe('点の 1 枚の穴（11d）', () => {
     expect(text(html)).toContain('まだ公開していません')
     expect(html).not.toContain('point-contents')
   })
-  it('戻す: 確認済み（revert なし）は外す提案の確認文・未確認は取り消し', () => {
+  it('戻す: 確認済み（confirmed）は外す提案の確認文・未確認は取り消し・標準の語には出ない', () => {
     const open = (p: Point) => renderToStaticMarkup(<PointCard point={p} busy={false} onContents={noop} onRevert={noop} onRemove={noop} onHighlight={noop} />)
-    expect(open(point({ revert: null }))).toContain('point-revert')
-    expect(open(point())).toContain('point-revert')
-    expect(open(point({ kind: 'std', revert: null }))).not.toContain('point-revert')
+    expect(open(point({ confirmed: true }))).toContain('point-revert')
+    expect(open(point({ confirmed: false, kind: 'draft', revert: { session_id: 'cabc12345x', turn_id: 't2' } }))).toContain('point-revert')
+    expect(open(point({ confirmed: false, kind: 'draft', revert: null }))).not.toContain('point-revert')
+    expect(open(point({ kind: 'std', confirmed: true, revert: null }))).not.toContain('point-revert')
   })
   it('確認済みの返事に「戻す」・戻した結果の 1 行・失敗は赤い 1 行', () => {
     const confirmed = turn({ state: 'confirmed', commit: { theme_id: 't', minted: ['a', 'b'], lines: 3, questions: [], batch: 'b', at: '2026-10-22T00:00:00Z' } })
