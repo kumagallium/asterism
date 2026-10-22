@@ -3,7 +3,9 @@
 ``GET /api/chat/contents`` の組み立て。AI は呼ばない・読むだけ。表は :func:`chat_tables.
 table_for_kind` をそのまま使う（チャットに差し込まれる表と同じ形）。押したものごとの出し方:
 
-* ``kind`` — 表の種類 1 つ（公開済みの全データ）。
+* ``kind`` 単独 — 表の種類 1 つ。持ち主の公開済みデータセットごとに、そのデータセットの graph
+  だけを読んだ表（同じ種類の IRI が複数にあっても行は混ざらない）。
+* ``dataset`` + ``kind`` — そのデータセットの graph だけを読んだ、その種類の表 1 つ。
 * ``term`` — 用語。members が種類ならデータセットごとのその種類の表。members が項目
   （property）なら、その項目を持つ種類を ``class_schema`` で引く（引けなければ ``tables: []``
   と ``note``）。
@@ -16,6 +18,7 @@ table_for_kind` をそのまま使う（チャットに差し込まれる表と�
 1 本（graph は決定論に決めたものだけ）で、利用者の文字列は埋め込まない。
 """
 
+# ruff: noqa: RUF001
 from __future__ import annotations
 
 import logging
@@ -82,20 +85,24 @@ async def _kinds_of(client: Any, graphs: list[str]) -> list[str]:
 
 async def targets_of_term(
     client: Any, root: Path, sky: dict, term_iri: str
-) -> tuple[dict | None, list[tuple[str, str]]]:
-    """用語 → ``(用語, [(dataset_id, 種類の IRI)])``。用語が星図に無ければ ``(None, [])``。
+) -> tuple[dict | None, list[tuple[str, str]], int]:
+    """用語 → ``(用語, [(dataset_id, 種類の IRI)], 引かずに残した数)``。
 
-    members が公開済みの種類ならそのまま。そうでなければ項目とみなし、そのデータセットの種類の
-    うち ``class_schema`` の性質にその項目を持つ最初の 1 つ。"""
+    用語が星図に無ければ ``(None, [], 0)``。members が公開済みの種類ならそのまま。そうでなければ
+    項目とみなし、そのデータセットの種類のうち ``class_schema`` の性質にその項目を持つ最初の 1 つ。
+    項目の members は :data:`MAX_TABLES` 件で打ち切ってから引く（逐次の読みを増やさない）。
+    残した数は 3 つ目より後の項目の members の数。"""
     term = next((t for t in sky.get("terms") or [] if t.get("iri") == term_iri), None)
     if term is None:
-        return None, []
+        return None, [], 0
     kinds_by_ds: dict[str, list[str]] = {
         str(d["id"]): [str(k["iri"]) for k in d.get("kinds") or []]
         for d in sky.get("datasets") or []
     }
     all_kinds = {k for ks in kinds_by_ds.values() for k in ks}
     out: list[tuple[str, str]] = []
+    props_seen = 0
+    skipped = 0
     for m in term.get("members") or []:
         iri, did = str(m.get("iri") or ""), str(m.get("dataset_id") or "")
         if not iri or not did:
@@ -104,6 +111,10 @@ async def targets_of_term(
             pair = (did, iri)
             if iri in kinds_by_ds.get(did, []) and pair not in out:
                 out.append(pair)
+            continue
+        props_seen += 1
+        if props_seen > MAX_TABLES:
+            skipped += 1
             continue
         for kind in kinds_by_ds.get(did, []):  # 項目: それを持つ種類を引く
             try:
@@ -116,7 +127,24 @@ async def targets_of_term(
                 if (did, kind) not in out:
                     out.append((did, kind))
                 break
-    return term, out
+    return term, out, skipped
+
+
+async def _owners_of_kind(client: Any, kind_iri: str, published: list[str]) -> list[str]:
+    """種類を持つ公開済みのデータセット id（版グラフごとに調べ、id の順）。"""
+    if not published:
+        return []
+    named = substrate.canonical_from_clauses(published, named=True)
+    raw = await client.sparql_select(
+        f"SELECT DISTINCT ?g\n{named}"
+        f"WHERE {{ GRAPH ?g {{ ?s <{_RDF_TYPE}> <{kind_iri}> }} }} LIMIT 200"
+    )
+    ids = {
+        substrate.dataset_id_of_canonical_graph(g)
+        for g in (chat_tables._v(r, "g") for r in chat_tables._rows(raw))
+        if g
+    }
+    return sorted(i for i in ids if i)
 
 
 def _last_attached(session: dict | None) -> str | None:
@@ -158,38 +186,49 @@ async def build_contents(
     lang: str = "ja",
     limit: int = chat_tables.MAX_ROWS,
 ) -> dict[str, Any]:
-    """押したもの 1 つ → ``{title, tables, more, note}``。
+    """押したもの → ``{title, tables, more, note}``。
 
-    ``kind`` / ``term`` / ``dataset`` / ``use_session`` のどれか 1 つ（``use_session`` のとき
-    ``session`` は読み込んだ話）。``term`` は ``sky``（``GET /api/sky`` の形）が要る。"""
+    指定は 5 通り: ``kind`` 単独・``term``・``dataset`` 単独・``use_session``（``session`` は
+    読み込んだ話）・``dataset`` + ``kind``（そのデータセットの graph だけを読む）。``term`` は
+    ``sky``（``GET /api/sky`` の形）が要る。表は (データセット, 種類) の対ごとに、そのデータセットの
+    graph だけを読む（同じ種類の IRI が複数のデータセットにあっても行が混ざらない）。"""
     root = Path(root)
-    chosen = [kind is not None, term is not None, dataset is not None, use_session]
+    chosen = [term is not None, use_session, dataset is None and kind is not None]
+    chosen.append(dataset is not None)  # dataset 単独と dataset + kind は 1 通りに数える
     if sum(chosen) != 1:
-        raise ContentsError(400, "kind・term・dataset・session のどれか 1 つを渡してください")
+        raise ContentsError(
+            400,
+            "kind・term・dataset・session のどれか 1 つ（dataset と kind は一緒に可）を渡す",
+        )
+    for iri in (kind, term):
+        if iri is not None:
+            try:
+                chat_tables.check_iri(iri)
+            except ValueError as exc:
+                raise ContentsError(400, str(exc)) from exc
     limit = max(1, min(int(limit), chat_tables.MAX_ROWS))
-    title, note = "", None
-    #: データセット id → 読む graph（無ければ公開済み全部）
+    title, note, skipped = "", None, 0
+    #: データセット id → 読む graph（下の表を読むとき必ず渡す）
     scoped: dict[str, list[str]] = {}
     pairs: list[tuple[str, str]] = []
-    if kind is not None:
-        try:
-            chat_tables.check_iri(kind)
-        except ValueError as exc:
-            raise ContentsError(400, str(exc)) from exc
-        pairs = [("", kind)]
+    published = await chat_tables._published_graphs(client, root)
+
+    def graphs_of(did: str) -> list[str]:
+        return [g for g in published if substrate.dataset_id_of_canonical_graph(g) == did]
+
+    if kind is not None and dataset is None:
+        owners = await _owners_of_kind(client, kind, published)
+        pairs = [(d, kind) for d in owners] or [("", kind)]
+        scoped = {d: graphs_of(d) for d in owners}
     elif term is not None:
-        try:
-            chat_tables.check_iri(term)
-        except ValueError as exc:
-            raise ContentsError(400, str(exc)) from exc
-        found, pairs = await targets_of_term(client, root, sky or {}, term)
+        found, pairs, skipped = await targets_of_term(client, root, sky or {}, term)
         title = _term_label(found, lang) if found else term
         if not pairs:
             note = _note(lang, "no_term")
+        scoped = {d: graphs_of(d) for d, _k in pairs}
     else:
         dataset_id = dataset if dataset is not None else _last_attached(session)
         if dataset_id is not None:
-            published = await chat_tables._published_graphs(client, root)
             try:
                 graphs, pairs, unread = await _dataset_targets(client, root, dataset_id, published)
             except ContentsError:
@@ -198,6 +237,8 @@ async def build_contents(
                 return {"title": "", "tables": [], "more": 0, "note": None}  # 添えた表が消えた
             title = resolve_dataset_label(root, dataset_id)
             scoped = {dataset_id: graphs}
+            if kind is not None:  # dataset + kind: その種類の表 1 つだけ
+                pairs = [(dataset_id, kind)]
             if unread:
                 note = _note(lang, "unpublished")
     tables: list[dict[str, Any]] = []
@@ -205,13 +246,15 @@ async def build_contents(
         table = await chat_tables.table_for_kind(
             client, root, kind_iri, limit=limit, lang=lang, graphs=scoped.get(did)
         )
-        if not did:  # 種類だけ指したとき: 持ち主は登録の設計から引く（無ければ空）
+        if kind is not None:
+            title = table["kind"]["label"]
+        if not did:  # 持ち主が見つからない種類: 登録の設計から引く（無ければ空）
             try:
                 schema = await class_schema(client, root, kind_iri)
             except Exception:
                 schema = None
             did = str((schema or {}).get("dataset_id") or "")
-            title = table["kind"]["label"]
         label = resolve_dataset_label(root, did) if did else ""
         tables.append({"dataset": {"id": did, "label": label}, "table": table})
-    return {"title": title, "tables": tables, "more": max(0, len(pairs) - MAX_TABLES), "note": note}
+    more = max(0, len(pairs) - MAX_TABLES) + skipped
+    return {"title": title, "tables": tables, "more": more, "note": note}

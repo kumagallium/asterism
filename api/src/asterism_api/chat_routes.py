@@ -326,8 +326,13 @@ def register_chat(
         limit: int = Query(default=chat_tables.MAX_ROWS, ge=1),
     ) -> JSONResponse:
         """押した点の中身の表（読むだけ・AI を呼ばない・ロック不要）。"""
-        if sum(x is not None for x in (kind, term, dataset, session)) != 1:
-            raise HTTPException(400, "kind・term・dataset・session のどれか 1 つを渡してください")
+        # 5 通り: kind 単独・term・dataset 単独・session・dataset + kind
+        if sum(x is not None for x in (term, session)) + (
+            1 if (kind is not None or dataset is not None) else 0
+        ) != 1:
+            raise HTTPException(
+                400, "kind・term・dataset・session のどれか 1 つ（dataset と kind は一緒に可）"
+            )
         found = _session_or_404(session) if session is not None else None
         sky: dict = {}
         try:

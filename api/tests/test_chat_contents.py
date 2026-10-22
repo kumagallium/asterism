@@ -18,13 +18,13 @@ import pyoxigraph as ox
 from asterism import chat_sessions, crosswalk_runtime, substrate
 from fastapi.testclient import TestClient
 
-from asterism_api import chat_tables
+from asterism_api import chat_tables, registry
 from asterism_api.main import build_app
 from tests.test_chat_api import _new
 from tests.test_chat_point import _published
 from tests.test_crosswalk_api import _AUTH, _settings
 from tests.test_themes_api import KEY
-from tests.test_upper_questions import EX, EXR, SV, _dataset, _OxClient, _stage
+from tests.test_upper_questions import _IR, EX, EXR, SV, _dataset, _OxClient, _stage
 
 RDF_TYPE = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
 
@@ -222,3 +222,80 @@ def test_session_gives_the_last_attached_table_or_nothing(tmp_path: Path) -> Non
         sid3 = _new(client)
         _attach(tmp_path, sid3, "gone-dataset")
         assert _get(client, session=sid3).json()["tables"] == []
+
+
+# ---- dataset + kind・同じ IRI が複数のデータセットにあるとき --------------------------------
+
+
+def _second_dataset(client: TestClient, tmp_path: Path, extra: int) -> str:
+    """同じ種類の IRI ``ex:Sample`` を持つ 2 つ目の公開済みデータセット（試料 3＋extra 件）。"""
+    meta = registry.save_dataset(
+        tmp_path / "registry", "samples-b", {"mapping.yaml": _IR},
+        complete=True, warnings=[], traps=[], exit_code=0,
+        created_at="2026-10-10T00:00:00+00:00",
+    )  # fmt: skip
+    dsid = meta["id"]
+    _stage(tmp_path, client.app.state.client.store, dsid)
+    for i in range(extra):
+        s = ox.NamedNode(f"{EXR}other/y{i:02d}")
+        graph = ox.NamedNode(substrate.versioned_graph_iri(dsid, 1))
+        client.app.state.client.store.add(ox.Quad(s, RDF_TYPE, ox.NamedNode(EX + "Sample"), graph))
+    assert client.post(f"/api/datasets/{dsid}/promote").status_code == 200
+    return dsid
+
+
+def test_dataset_and_kind_reads_only_that_datasets_graph(tmp_path: Path) -> None:
+    client, dsid = _published(tmp_path)
+    with client:
+        second = _second_dataset(client, tmp_path, 2)
+        a = _get(client, dataset=dsid, kind=EX + "Sample").json()
+        b = _get(client, dataset=second, kind=EX + "Sample").json()
+        (ta,), (tb,) = a["tables"], b["tables"]
+        assert ta["dataset"]["id"] == dsid and tb["dataset"]["id"] == second
+        assert ta["table"]["total"] == 3 and tb["table"]["total"] == 5
+        assert a["more"] == 0 and a["title"] == ta["table"]["kind"]["label"]
+        # kind 単独は持ち主ごとに表を分ける（混ざらない・重複しない）
+        alone = _get(client, kind=EX + "Sample").json()["tables"]
+        by_ds = {t["dataset"]["id"]: t["table"]["total"] for t in alone}
+        assert by_ds == {dsid: 3, second: 5}
+        # 指定の組み合わせは 5 通りだけ
+        assert _get(client, dataset=dsid, term=SV + "specimen").status_code == 400
+        assert _get(client, kind=EX + "Sample", session="x").status_code == 400
+
+
+def test_dataset_and_kind_of_an_unpublished_dataset_reads_the_staged_graph(tmp_path: Path) -> None:
+    client, dsid = _unpublished(tmp_path)
+    with client:
+        body = _get(client, dataset=dsid, kind=EX + "Sample").json()
+        (item,) = body["tables"]
+        assert item["dataset"]["id"] == dsid and item["table"]["total"] == 3
+        # 取り込み前は空＋note
+    client2, dsid2 = _unpublished(tmp_path / "x", ingested=False)
+    with client2:
+        body = _get(client2, dataset=dsid2, kind=EX + "Sample").json()
+        assert body["tables"][0]["table"]["total"] == 0 and body["note"]
+
+
+def test_a_property_term_resolves_at_most_three_members(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+
+    from asterism_api import chat_contents
+
+    calls: list[str] = []
+
+    async def fake_schema(client, root, kind):
+        calls.append(kind)
+        return {"properties": [{"iri": EX + "p"}]}
+
+    monkeypatch.setattr(chat_contents, "class_schema", fake_schema)
+    sky = {
+        "datasets": [{"id": f"d{i}", "kinds": [{"iri": f"{EX}K{i}"}]} for i in range(5)],
+        "terms": [
+            {
+                "iri": SV + "t",
+                "members": [{"iri": EX + "p", "dataset_id": f"d{i}"} for i in range(5)],
+            }
+        ],
+    }
+    term, pairs, skipped = asyncio.run(chat_contents.targets_of_term(None, tmp_path, sky, SV + "t"))
+    assert term is not None and len(calls) == 3 and len(pairs) == 3 and skipped == 2
