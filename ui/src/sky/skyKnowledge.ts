@@ -302,9 +302,14 @@ export interface ConceptEdgeGeom {
   /** 線の中ほど（小さな札を置く所）。 */
   mx: number
   my: number
-  /** 1 回折れる線（1 枚の知識の図）: 折れ目。あれば始点 → 折れ目 → 終点の折れ線で、`cx`/`cy` は折れ目と同じ。 */
+  /** 折れる線（1 枚の知識の図）: 1 つ目の折れ目。あれば始点 → 折れ目 → 終点の折れ線で、`cx`/`cy` は折れ目と同じ。 */
   bx?: number
   by?: number
+  /** 2 つ目の折れ目（同じ段を上からまたぐ線）。あれば 始点 → (bx,by) → (bx2,by2) → 終点。 */
+  bx2?: number
+  by2?: number
+  /** 折れ目が 3 つ以上の線（間の段の札の隙間を直角に通る線）: 始点から終点までの全部の点。あればこれが道すじ。 */
+  pts?: { x: number; y: number }[]
 }
 
 export interface RouteCard {

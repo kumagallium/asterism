@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_SKY, type DraftSky, type SkyData, type SkyTerm } from '../../sky/skyApi'
 import { PAD, kindId, termId, type KindNode, type SkyLayout, type SkyNode, type TermNode } from '../../sky/skyLayout'
 import { selectionOfEdge, selectionOfNode } from '../chatState'
-import { CARD_GAP, GRAPH_HEIGHT_MIN, geomPoints, layerDepths, layoutGraph, packCenters } from './graphLayout'
+import { CARD_GAP, CARD_PAD, GRAPH_HEIGHT_MIN, STAR_ROW_H, geomPoints, layerDepths, layoutGraph, markTextWidth, packCenters, rowStarRadius, starRadius } from './graphLayout'
 import { DATASETS, DRAFTS, THERMO, tIri } from './graphFixture'
 
 const cardsOf = (l: SkyLayout): (SkyNode & { w: number; h: number })[] =>
@@ -23,6 +23,7 @@ const bare = (slug: string, label = slug): SkyTerm => ({
   questions: [],
 })
 const part = (from: string, to: string) => ({ from: tIri(from), to: tIri(to), relation: 'isPartOf' as const, reason: null })
+const lowers = (from: string, to: string) => ({ from: tIri(from), to: tIri(to), relation: 'lowers' as const, reason: null })
 
 describe('段の割り当て（一種・一部だけが段を作る）', () => {
   it('to（全体）が上・from（一部）が下。最長の道', () => {
@@ -151,26 +152,39 @@ describe('折り返し・はみ出し・重なり', () => {
   })
 })
 
-describe('星の吊り・名前のない星・標準の語', () => {
+describe('札の中の星の行・名前のない星・標準の語', () => {
   const l = layoutGraph(THERMO, { width: 1280, lang: 'ja' })
   const star = (ds: string, name: string): KindNode => l.nodes.get(kindId(ds, `https://example.org/g#${ds}/${name}`)) as KindNode
 
-  it('概念に結ばれた星は、その札の直下（札の下・中心の x がそろう／複数は横に）', () => {
+  it('概念に結ばれた星は、その札の中の行（左の余白に星・名前の行の下・1 行に 1 つ）。札はその分だけ高い', () => {
     const t = term(l, 'thermal')
     const s = star('nims', 'Thermal')
-    expect(s.x).toBe(t.x)
-    expect(s.y).toBeGreaterThan(t.y + t.h / 2)
-    expect(s.y - (t.y + t.h / 2)).toBeLessThan(40)
+    expect(s.card).toBe(t.id)
+    expect(s.x).toBeCloseTo(t.x - t.w / 2 + CARD_PAD + s.r, 5)
+    expect(s.y).toBeGreaterThan(t.y - t.h / 2 + 44) // 名前と標準の語の行の下
+    expect(s.y).toBeLessThan(t.y + t.h / 2)
+    expect(s.rowW).toBeGreaterThan(40)
     const m = term(l, 'material')
     const s1 = star('sd', 'Sample')
     const s2 = star('mp', 'Material')
-    expect(s1.y).toBe(s2.y)
-    expect(Math.abs(s1.x - s2.x)).toBeGreaterThanOrEqual(22)
-    expect((s1.x + s2.x) / 2).toBeCloseTo(m.x, 5)
+    expect(s1.x).toBe(s2.x)
+    expect(Math.abs(s1.y - s2.y)).toBe(STAR_ROW_H)
+    expect(m.h).toBe(28 + 4 + 2 * STAR_ROW_H)
+    expect(term(l, 'zt').h).toBe(28) // 星の無い札
+    // 札の中の星には線が無い（別の札からの線だけ）
+    for (const e of l.edges) if (e.kind === 'member' && (l.nodes.get(e.from) as KindNode).card === e.to) expect(e.geom).toBeUndefined()
   })
-  it('星の大きさは件数の対数（多いほど大きい）', () => {
-    expect(star('sd', 'Curve').r).toBeGreaterThan(star('sd', 'Paper').r)
-    expect(star('sd', 'Paper').r).toBeGreaterThan(star('nims', 'Misc').r)
+  it('星の大きさは件数の固定の対数（多いほど大きい・ほかの星に依らない）', () => {
+    expect(starRadius(8120)).toBeGreaterThan(starRadius(640))
+    expect(starRadius(640)).toBeGreaterThan(starRadius(12))
+    expect(starRadius(238000)).toBe(13) // 上限
+    expect(rowStarRadius(640)).toBeGreaterThan(rowStarRadius(12))
+    expect(star('nims', 'Misc').r).toBe(starRadius(12)) // 最下段
+    expect(star('sd', 'Curve').r).toBe(rowStarRadius(238000)) // 札の中の行
+    // データセットを 1 つ足しても、既にある星の大きさは変わらない
+    const more: SkyData = { ...THERMO, datasets: [...DATASETS, { id: 'x', label: 'X', created_at: '2026-02-01T00:00:00Z', kinds: [{ iri: 'x:1', label: '巨大', count: 1e9, links: [], standard: null }] }] }
+    const l2 = layoutGraph(more, { width: 1280, lang: 'ja' })
+    for (const n of l.nodes.values()) if (n.type === 'kind') expect((l2.nodes.get(n.id) as KindNode).r).toBe(n.r)
   })
   it('結ばれていない星は最下段（札・吊りの星より下）にデータセットの順に左から', () => {
     const lonely = ['Author'].map((n) => star('sd', n)).concat([star('nims', 'Misc'), star('price', 'Price')])
@@ -246,13 +260,14 @@ describe('線', () => {
     expect(l.edges.filter((e) => e.kind === 'concept')).toHaveLength(7)
   })
   for (const w of WIDTHS) {
-    it(`幅 ${w}: 線は札の縁から縁へ・直線か 1 回折れ・札を貫かない・小さな札は道すじの上`, () => {
+    it(`幅 ${w}: 線は札の縁から縁へ・折れ線（曲線なし）・札を貫かない・小さな札は道すじの上`, () => {
       const l = layoutGraph(THERMO, { width: w, drafts: DRAFTS })
       for (const e of l.edges) {
         if (e.kind !== 'concept' && e.kind !== 'draft') continue
         expect(e.geom).toBeDefined()
         const pts = geomPoints(e.geom!)
-        expect(pts.length).toBeLessThanOrEqual(3)
+        expect(pts.length).toBeGreaterThanOrEqual(2)
+        expect(pts.length).toBeLessThanOrEqual(6)
         const a = l.nodes.get(e.from) as SkyNode & { w: number; h: number }
         const b = l.nodes.get(e.to) as SkyNode & { w: number; h: number }
         const onEdge = (n: typeof a, p: { x: number; y: number }): boolean =>
@@ -288,11 +303,41 @@ describe('線', () => {
     for (const w of WIDTHS) {
       const l = layoutGraph(THERMO, { width: w })
       expect(l.edges.filter((e) => e.kind === 'concept' && !e.pill)).toHaveLength(0)
+      for (const e of l.edges) if (e.kind === 'concept') expect(e.pillW).toBeGreaterThanOrEqual(24)
     }
   })
-  it('1,440 では 8 概念・7 関係・4 星座が 1 画面（高さ 480 以内）に収まる', () => {
-    expect(layoutGraph(THERMO, { width: 1440 }).height).toBeLessThanOrEqual(480)
-    expect(layoutGraph(THERMO, { width: 1280 }).height).toBeLessThanOrEqual(480)
+  it('図の列の幅（1,440 の画面で約 700・1,280 で約 530）で、8 概念・7 関係・4 星座が縦に 1 画面に収まる', () => {
+    expect(layoutGraph(THERMO, { width: 700 }).height).toBeLessThanOrEqual(600)
+    expect(layoutGraph(THERMO, { width: 700, drafts: DRAFTS }).height).toBeLessThanOrEqual(680)
+    expect(layoutGraph(THERMO, { width: 530 }).height).toBeLessThanOrEqual(680)
+  })
+  it('同じ段の離れた札を結ぶ線は、段の上を直角に 2 回折れてまたぐ（間の札を貫かない）', () => {
+    const sky = mini([bare('a', '原因'), bare('b', '途中'), bare('c', '結果')], [lowers('a', 'b'), lowers('b', 'c'), lowers('a', 'c')])
+    const l = layoutGraph(sky, { width: 1280 })
+    const a = term(l, 'a')
+    const c = term(l, 'c')
+    expect(a.y).toBe(c.y)
+    const e = l.edges.find((x) => x.kind === 'concept' && x.from === a.id && x.to === c.id)!
+    const pts = geomPoints(e.geom!)
+    expect(pts).toHaveLength(4)
+    expect(pts[1].x).toBe(pts[0].x)
+    expect(pts[2].x).toBe(pts[3].x)
+    expect(pts[1].y).toBe(pts[2].y)
+    expect(pts[1].y).toBeLessThan(a.y - a.h / 2 - 10)
+    expect(e.pill).not.toBeNull()
+    expect(e.pill!.y).toBe(pts[1].y)
+  })
+  it('提案の札（印つき）から出る線は、印の右から出る', () => {
+    for (const w of WIDTHS) {
+      const l = layoutGraph(THERMO, { width: w, lang: 'ja', drafts: DRAFTS })
+      for (const e of l.edges) {
+        if (e.kind !== 'draft' || !e.geom) continue
+        const from = l.nodes.get(e.from)!
+        if (from.type !== 'draft') continue
+        const pts = geomPoints(e.geom)
+        expect(pts[0].x).toBeGreaterThanOrEqual(from.x - from.w / 2 + markTextWidth('ja', false) + 12 - 0.5)
+      }
+    }
   })
   it('薄い提案が本物と同じ関係なら二重に引かない／図に入れた線は引く', () => {
     const dup: DraftSky[] = [
@@ -320,6 +365,16 @@ describe('決定論・選択の部品', () => {
       const b = layoutGraph(structuredClone(THERMO), { width: w, drafts: structuredClone(DRAFTS) })
       expect(JSON.stringify([...a.nodes.values()])).toBe(JSON.stringify([...b.nodes.values()]))
       expect(JSON.stringify(a.edges)).toBe(JSON.stringify(b.edges))
+      expect(a.height).toBe(b.height)
+    }
+  })
+  it('用語・線の並びを逆にしても座標は同じ（星をどの札に置くかも入力順に依らない）', () => {
+    const rev: SkyData = { ...THERMO, terms: [...THERMO.terms].reverse(), edges: [...(THERMO.edges ?? [])].reverse() }
+    for (const w of [375, 1280]) {
+      const a = layoutGraph(THERMO, { width: w, drafts: DRAFTS })
+      const b = layoutGraph(rev, { width: w, drafts: DRAFTS })
+      const sorted = (l: SkyLayout): string => JSON.stringify([...l.nodes.values()].sort((p, q) => (p.id < q.id ? -1 : 1)))
+      expect(sorted(a)).toBe(sorted(b))
       expect(a.height).toBe(b.height)
     }
   })

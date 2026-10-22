@@ -49,10 +49,10 @@ describe('drawGraph', () => {
   const pal = readSkyPalette()
   const st = { focusId: null, near: null, born: new Map<string, number>(), now: 0, reducedMotion: true }
 
-  it('札・星・最下段の見出し・標準の語の 1 行・提案の印を描く。点線は使わない', () => {
+  it('札・札の中の星の行（名前と件数）・最下段の見出し・標準の語の 1 行・提案の印を描く。点線は使わない', () => {
     const r = recorder()
-    drawGraph(r.ctx, l, pal, labels, st, new Set([...l.nodes.keys()]))
-    expect(r.texts).toEqual(expect.arrayContaining(['材料', '熱伝導率', '≡ qudt:ThermalConductivity', 'まだ名前のないデータ', 'Starrydata', '結晶構造', '提案']))
+    drawGraph(r.ctx, l, pal, labels, st, new Set())
+    expect(r.texts).toEqual(expect.arrayContaining(['材料', '熱伝導率', '≡ qudt:ThermalConductivity', 'まだ名前のないデータ', 'Starrydata', '結晶構造', '提案', '試料', '46200 件']))
     expect(r.calls).not.toContain('setLineDash')
     // 曲線は使わない
     expect(r.calls).not.toContain('quadraticCurveTo')

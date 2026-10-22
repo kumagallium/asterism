@@ -1,5 +1,5 @@
 // 1 枚の知識の図の配置（純関数・PR 11f）。3 段（用語の帯／データの星座／標準用語の地平線）をやめ、
-//   概念 = 札（一種・一部が段を作る）／ データ = 札の直下に吊る星 ／ 名前のない星 = 最下段 ／ 標準の語 = 札の中の 1 行。
+//   概念 = 札（一種・一部が段を作る）／ データ = 札の中の行に置く星（星・名前・件数）／ 名前のない星 = 最下段 ／ 標準の語 = 札の中の 1 行。
 //
 // 返す型は `sky/skyLayout.ts` の `SkyLayout` と同じ（`chatState`・`ChartPane` の選択・濃淡・輪・外す提案の印をそのまま動かすため）。
 // 新しいのは `nodes` の座標と `edges[].geom`（線の道すじ）だけ。
@@ -9,7 +9,8 @@
 //   ・段配置の規則は `shapeGraph.rowsOf`／`workspace/conceptMapLayout` と同じ: 一種・一部の線（from が下・to が上）だけが段を作り、
 //     下げる・上げる・変える・同じもの は段を作らない（同じ段の横か、段をまたぐ短い線）。段の中は重心（親の平均）で並べて交差を減らす。
 //   ・横幅に収まらない段は折り返す。全部の札の `x ± w/2` は `[PAD, width - PAD]` の内側。札どうしは 14px 以上あける。
-//   ・線は札の縁で止める（札を貫かない）。直線か 1 回折れ。曲線は使わない。
+//   ・線は札の縁で止める（札も印も貫かない）。段をまたぐ線は直線か 1 回折れ、同じ段の離れた札を結ぶ線は段の上を直角に 2 回折れてまたぐ。曲線は使わない。
+//   ・星の大きさは件数の固定の対数（ほかの星に依らない。データが増えても既にある星の大きさは変わらない）。
 import type { DraftSky, SkyData, SkyDataset, SkyKnowledgeRelation, SkyTerm } from '../../sky/skyApi'
 import type { ConceptEdgeGeom } from '../../sky/skyKnowledge'
 import {
@@ -48,14 +49,26 @@ export const CHANNEL = 48
 /** 図の上・下の余白。 */
 export const TOP = 44
 export const BOTTOM = 24
-/** 札の下から星の上まで・星の名前の行の高さ。 */
-export const STAR_GAP = 12
-export const STAR_LABEL_H = 28
-/** 星 1 つの横の幅（名前を出す・出さない）。 */
+/** 札の中の星の行（1 行に星 1 つ: 星・名前・件数）の高さと、名前の行との間。 */
+export const STAR_ROW_H = 16
+export const STAR_ROW_PAD = 4
+/** 最下段の星 1 つの横の幅と、名前（12px）＋件数（11px）の行の高さ。 */
 export const STAR_SLOT_WIDE = 58
-export const STAR_SLOT_NARROW = 24
+export const STAR_LABEL_H = 30
 /** 最下段の見出しの行の高さ。 */
 export const HEAD_H = 18
+/** 印（提案・外す提案）の字の幅（札の左上の外・11px）。線は印の右から出る。 */
+export const markTextWidth = (lang: 'ja' | 'en', remove: boolean): number => (lang === 'en' ? (remove ? 46 : 52) : remove ? 46 : 24)
+/** 同じ段の離れた札を結ぶ線が段の上をまたぐ高さ（札の上の縁から。離れるほど高く）。 */
+export const LIFT_BASE = 18
+export const LIFT_STEP = 8
+
+/** 最下段の星の半径（件数の固定の対数: 1 件 5・10 件 7・100 件 9・1,000 件 12・1 万件以上 13）。 */
+export const starRadius = (count: number): number => (count > 0 ? Math.min(13, 5 + 2.2 * Math.log10(count)) : 4)
+/** 札の中の行の星の半径（1 件 3・10 件 4・100 件 5・1,000 件以上 6）。 */
+export const rowStarRadius = (count: number): number => (count > 0 ? Math.min(6, 3 + Math.log10(count)) : 3)
+/** 件数の字の幅の見積もり（「1,234 件」）。 */
+const countTextW = (count: number): number => String(count).length * 7.5 + 18
 
 type Pt = { x: number; y: number }
 
@@ -68,9 +81,14 @@ export function textWidth(text: string, px: number): number {
 
 /** 折れ線の点（始点・折れ目・終点）。 */
 export function geomPoints(g: ConceptEdgeGeom): Pt[] {
-  return g.bx !== undefined && g.by !== undefined
-    ? [{ x: g.x1, y: g.y1 }, { x: g.bx, y: g.by }, { x: g.x2, y: g.y2 }]
-    : [{ x: g.x1, y: g.y1 }, { x: g.x2, y: g.y2 }]
+  if (g.pts && g.pts.length >= 2) return g.pts.map((p) => ({ x: p.x, y: p.y }))
+  const pts: Pt[] = [{ x: g.x1, y: g.y1 }]
+  if (g.bx !== undefined && g.by !== undefined) {
+    pts.push({ x: g.bx, y: g.by })
+    if (g.bx2 !== undefined && g.by2 !== undefined) pts.push({ x: g.bx2, y: g.by2 })
+  }
+  pts.push({ x: g.x2, y: g.y2 })
+  return pts
 }
 
 function geomOf(pts: Pt[], mid?: Pt): ConceptEdgeGeom {
@@ -81,7 +99,24 @@ function geomOf(pts: Pt[], mid?: Pt): ConceptEdgeGeom {
     return { x1: a.x, y1: a.y, cx: m.x, cy: m.y, x2: z.x, y2: z.y, mx: (mid ?? m).x, my: (mid ?? m).y }
   }
   const b = pts[1]
-  return { x1: a.x, y1: a.y, cx: b.x, cy: b.y, x2: z.x, y2: z.y, mx: (mid ?? b).x, my: (mid ?? b).y, bx: b.x, by: b.y }
+  const g: ConceptEdgeGeom = { x1: a.x, y1: a.y, cx: b.x, cy: b.y, x2: z.x, y2: z.y, mx: (mid ?? b).x, my: (mid ?? b).y, bx: b.x, by: b.y }
+  if (pts.length >= 4) {
+    g.bx2 = pts[2].x
+    g.by2 = pts[2].y
+  }
+  if (pts.length >= 5) g.pts = pts.map((q) => ({ x: q.x, y: q.y }))
+  return g
+}
+
+/** 同じ点が続く所を 1 つにする（折れ目が重なった道すじ）。 */
+function dedupe(pts: Pt[]): Pt[] {
+  const out: Pt[] = []
+  for (const q of pts) {
+    const last = out[out.length - 1]
+    if (last && Math.abs(last.x - q.x) < 0.5 && Math.abs(last.y - q.y) < 0.5) continue
+    out.push(q)
+  }
+  return out
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
@@ -156,7 +191,7 @@ export function layerDepths(ids: readonly string[], hier: readonly { lower: stri
     depth.set(id, v)
     return v
   }
-  for (const id of ids) if (linked.has(id)) depthOf(id)
+  for (const id of [...ids].sort(cmp)) if (linked.has(id)) depthOf(id)
   return depth
 }
 
@@ -301,15 +336,18 @@ const isEq = (rel: string): boolean => rel === 'equivalentClass' || rel === 'equ
 /** 提案の線の関係 → 本物の知識の線の関係（同じ関係は二重に引かない）。 */
 const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = { part: 'isPartOf', lowers: 'lowers', raises: 'raises', affects: 'affects' }
 
-/** 線の小さな札の幅（一部・一種・量は文字、ほかは記号）。 */
+/** 線の小さな札の幅（12px の字＋左右 6px。一部・一種・量は文字、ほかは記号 1 つ）。 */
 const PILL_W_MARK = 24
-const pillWText = (lang: 'ja' | 'en'): number => (lang === 'en' ? 64 : 36)
+const PILL_W_TEXT: Record<'ja' | 'en', Record<'part' | 'sub' | 'quantity', number>> = {
+  ja: { part: 38, sub: 38, quantity: 26 },
+  en: { part: 40, sub: 58, quantity: 64 },
+}
 function conceptPillW(rel: string | undefined, lang: 'ja' | 'en'): number {
-  return rel === 'isPartOf' ? pillWText(lang) : PILL_W_MARK
+  return rel === 'isPartOf' ? PILL_W_TEXT[lang].part : PILL_W_MARK
 }
 function draftPillW(i: DraftEdgeInfo, lang: 'ja' | 'en'): number {
   if (i.state === 'retarget' || i.state === 'remove') return PILL_W_MARK
-  return i.rel === 'sub' || i.rel === 'part' || i.rel === 'quantity' ? pillWText(lang) : PILL_W_MARK
+  return i.rel === 'sub' || i.rel === 'part' || i.rel === 'quantity' ? PILL_W_TEXT[lang][i.rel] : PILL_W_MARK
 }
 const PILL_H = 16
 
@@ -318,18 +356,20 @@ interface PCard {
   id: string
   label: string
   w: number
+  /** 札の高さ（名前の行＋標準の語の行＋星の行）。`baseH` は星の行を除いた高さ。 */
   h: number
-  /** 札の下に吊る星で広がる列の幅（札より星が広いとき）。 */
+  baseH: number
+  /** 行に詰めるときの幅（＝ w）。 */
   colW: number
   layer: number
   row: number
   col: number
   x: number
   cy: number
+  /** 札の中の行に置く星（データの種類）。 */
   hung: KindNode[]
-  slot: number
-  perLine: number
-  rMax: number
+  /** 札の左上に印（提案・外す提案）が出る札なら、その字の幅（無ければ 0）。線は印の右から出す。 */
+  markW: number
   term?: SkyTerm
   draft?: { d: DraftSky; c: DraftSky['concepts'][number]; count: number }
   stdIri?: string
@@ -355,15 +395,8 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
     datasets: [...sky.datasets, ...(opts.proposedDatasets ?? []).filter((d) => !have.has(d.id))],
   })
 
-  // 星（種類）。大きさは表示中の件数の最小〜最大で対数
-  const counts: number[] = []
-  for (const d of allDatasets) for (const k of d.kinds) if (k.count > 0) counts.push(Math.log10(k.count))
-  const lo = counts.length ? Math.min(...counts) : 0
-  const hi = counts.length ? Math.max(...counts) : 1
-  const starR = (count: number): number => {
-    const t = hi > lo && count > 0 ? (Math.log10(count) - lo) / (hi - lo) : 0.3
-    return 5 + 9 * Math.sqrt(t)
-  }
+  // 星（種類）。大きさは件数の固定の対数（札の中の行に置く星は後で小さい半径に替える）
+  const starR = starRadius
   const stars = new Map<string, KindNode>()
   const starOrder: string[] = []
   for (const d of allDatasets) {
@@ -394,7 +427,10 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   const memberIdsOf = new Map<string, string[]>()
   const relOfMember = new Map<string, Map<string, string>>()
   const hungBy = new Map<string, string>()
-  for (const t of sky.terms) {
+  const removedTerms = new Set<string>()
+  for (const d of opts.drafts ?? []) for (const iri of d.removals?.terms ?? []) removedTerms.add(iri)
+  const termsSorted = [...sky.terms].sort((a, b) => cmp(termId(a.iri), termId(b.iri)))
+  for (const t of termsSorted) {
     const id = termId(t.iri)
     const label = termLabel(t, lang)
     const seen = new Set<string>()
@@ -420,6 +456,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
       label,
       w,
       h: stdText ? CARD_H_STD : CARD_H,
+      baseH: stdText ? CARD_H_STD : CARD_H,
       colW: w,
       layer: 0,
       row: 0,
@@ -427,9 +464,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
       x: 0,
       cy: 0,
       hung: [],
-      slot: STAR_SLOT_NARROW,
-      perLine: 1,
-      rMax: 0,
+      markW: removedTerms.has(t.iri) ? markTextWidth(lang, true) : 0,
       term: t,
       ...(std ? { stdIri: std.iri, stdText: `${std.prefix}:${std.label}` } : {}),
     }
@@ -452,6 +487,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
         label: c.label,
         w,
         h: CARD_H,
+        baseH: CARD_H,
         colW: w,
         layer: 0,
         row: 0,
@@ -459,9 +495,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
         x: 0,
         cy: 0,
         hung: [],
-        slot: STAR_SLOT_NARROW,
-        perLine: 1,
-        rMax: 0,
+        markW: c.state === 'remove' ? markTextWidth(lang, true) : c.state === 'thin' || c.state === undefined || c.proposed === true ? markTextWidth(lang, false) : 0,
         draft: { d, c, count: cs.length },
       }
       cards.push(pc)
@@ -537,7 +571,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
     else side.push({ a: e.from, b: e.to })
   }
 
-  // ── 星を札の下に吊る ──
+  // ── 星を札の中の行に（1 行に星 1 つ: 星・名前・件数。札はその分だけ高く・必要なら広く） ──
   const hungOf = new Map<string, KindNode[]>()
   for (const sid of starOrder) {
     const tid = hungBy.get(sid)
@@ -548,13 +582,16 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
     const ks = hungOf.get(c.id) ?? []
     c.hung = ks
     if (ks.length === 0) continue
-    c.rMax = Math.max(...ks.map((k) => k.r))
-    c.slot =
-      ks.length <= 3
-        ? Math.min(96, Math.max(STAR_SLOT_WIDE, ...ks.map((k) => Math.ceil(textWidth(k.label, 11)))))
-        : STAR_SLOT_NARROW
-    c.perLine = Math.max(1, Math.min(ks.length, Math.floor(Math.min(avail, 320) / c.slot)))
-    c.colW = Math.min(avail, Math.max(c.w, c.perLine * c.slot))
+    let rowW = 0
+    for (const k of ks) {
+      k.card = c.id
+      k.r = rowStarRadius(k.count)
+      rowW = Math.max(rowW, 2 * k.r + 6 + textWidth(k.label, 12) + 6 + countTextW(k.count))
+    }
+    c.w = Math.min(cardMax, Math.max(c.w, Math.ceil(rowW + 2 * CARD_PAD)))
+    c.colW = c.w
+    c.h = c.baseH + STAR_ROW_PAD + ks.length * STAR_ROW_H
+    for (const k of ks) k.rowW = c.w - 2 * CARD_PAD - 2 * k.r - 6
   }
 
   // ── 段 → 段の中の並び（重心） ──
@@ -704,32 +741,23 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   for (const r of rows) {
     const cs = r.ids.map((id) => cardById.get(id) as PCard)
     const maxH = Math.max(...cs.map((c) => c.h))
-    let starsH = 0
-    for (const c of cs) {
-      if (c.hung.length === 0) continue
-      const lines = Math.ceil(c.hung.length / c.perLine)
-      starsH = Math.max(starsH, STAR_GAP + lines * 2 * c.rMax + (lines - 1) * 10 + 3 + STAR_LABEL_H)
-    }
     const cy = y + maxH / 2
     for (const c of cs) c.cy = cy
-    rowY.push({ cy, maxH, top: y, bottom: y + maxH + starsH })
-    y += maxH + starsH + CHANNEL
+    rowY.push({ cy, maxH, top: y, bottom: y + maxH })
+    y += maxH + CHANNEL
   }
   const conceptBottom = rows.length ? rowY[rowY.length - 1].bottom : 0
 
-  // ── 星の置き場所（札の直下） ──
+  // ── 星の置き場所（札の中の行: 左の余白に星、その右に名前と件数） ──
   const nodes = new Map<string, SkyNode>()
   const clusters: SkyCluster[] = []
   const edges: SkyEdge[] = []
   const hungIds = new Set<string>()
   for (const c of cards) {
-    const bottom = c.cy + c.h / 2
+    const top = c.cy - c.h / 2
     c.hung.forEach((k, i) => {
-      const line = Math.floor(i / c.perLine)
-      const inLine = Math.min(c.perLine, c.hung.length - line * c.perLine)
-      const j = i - line * c.perLine
-      k.x = c.x - (inLine * c.slot) / 2 + c.slot * (j + 0.5)
-      k.y = bottom + STAR_GAP + c.rMax + line * (2 * c.rMax + 10)
+      k.x = c.x - c.w / 2 + CARD_PAD + k.r
+      k.y = top + c.baseH + STAR_ROW_PAD + STAR_ROW_H * (i + 0.5)
       hungIds.add(k.id)
     })
   }
@@ -740,7 +768,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   let bottomHeadY = 0
   if (lonely.length > 0) {
     bottomHeadY = rows.length ? conceptBottom + 28 : TOP - 6
-    const slotOf = (k: KindNode): number => Math.min(96, Math.max(STAR_SLOT_WIDE, Math.ceil(textWidth(k.label, 11))))
+    const slotOf = (k: KindNode): number => Math.min(96, Math.max(STAR_SLOT_WIDE, Math.ceil(textWidth(k.label, 12)) + 4))
     interface Chunk {
       d: SkyDataset
       ks: KindNode[]
@@ -756,7 +784,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
       let first = true
       const flush = (): void => {
         if (cur.length === 0) return
-        const head = first ? Math.min(avail, textWidth(d.label, 11) + 12) : 0
+        const head = first ? Math.min(avail, textWidth(d.label, 12) + 12) : 0
         chunks.push({ d, ks: cur, w: Math.max(head, w), first })
         first = false
         cur = []
@@ -856,7 +884,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
         h: c.h,
         memberIds: memberIdsOf.get(c.id) as string[],
         stdId: c.stdIri ? `s|${c.stdIri}` : null,
-        ...(c.stdText ? { stdLabel: c.stdText } : {}),
+        ...(c.stdText ? { stdLabel: c.stdText, stdY: c.cy - c.h / 2 + 30 } : {}),
         lane: c.row,
       }
       nodes.set(c.id, node)
@@ -897,92 +925,161 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   for (const c of conceptsIn) edges.push({ kind: 'concept', from: c.from, to: c.to, relation: c.relation })
   for (const e of draftsKept) edges.push({ kind: 'draft', from: e.from, to: e.to, draft: e.info })
 
-  // 星 → 札: 札の真下の短い線。別の札に吊られた星から来る線は、星の縁から札の縁へ
+  // ── 線の道すじ ──
+  const rowOfCard = (c: PCard): RowY => rowY[c.row]
+  const box = (c: PCard): Rect => ({ l: c.x - c.w / 2 - 2, r: c.x + c.w / 2 + 2, t: c.cy - c.h / 2 - 2, b: c.cy + c.h / 2 + 2 })
+  /** 印（提案・外す提案）の字の場所（札の左上の外: 左の縁から 4px・上の縁の上 15px）。線も小さな札もここを通らない。 */
+  const markBox = (c: PCard): Rect | null =>
+    c.markW > 0 ? { l: c.x - c.w / 2 + 2, r: c.x - c.w / 2 + 6 + c.markW, t: c.cy - c.h / 2 - 15, b: c.cy - c.h / 2 } : null
+  /** 札の上の縁から線を出す x（印の右 6px から・縁の 10px 内側）。 */
+  const exitX = (v: number, c: PCard): number => {
+    const r = c.x + c.w / 2 - 10
+    const l = Math.min(r, c.x - c.w / 2 + (c.markW > 0 ? c.markW + 12 : 10))
+    return Math.min(r, Math.max(l, v))
+  }
+  /** 札の下の縁に線を入れる x（縁の 10px 内側）。 */
+  const entryX = (v: number, c: PCard): number => Math.min(c.x + c.w / 2 - 10, Math.max(c.x - c.w / 2 + 10, v))
+  interface Obstacle {
+    owner: PCard | null
+    q: Rect
+  }
+  const obstacles: Obstacle[] = []
+  for (const c of cards) {
+    obstacles.push({ owner: c, q: box(c) })
+    const m = markBox(c)
+    if (m) obstacles.push({ owner: c, q: m })
+  }
+  /** 線（折れ線）が、両端の札（本体と印）以外の札・印を貫かないか。両端の印は出口の選び方で避ける。 */
+  const clear = (pts: Pt[], a: PCard, b: PCard): boolean =>
+    !obstacles.some((o) => o.owner !== a && o.owner !== b && pts.slice(1).some((p, i) => segHitsRect(pts[i], p, o.q)))
+  /** 札の縁の上で、点 `p` に一番近い所（1px 外）。 */
+  const nearestEdge = (c: PCard, p: Pt): Pt => {
+    const l = c.x - c.w / 2
+    const r = c.x + c.w / 2
+    const t = c.cy - c.h / 2
+    const b = c.cy + c.h / 2
+    const x = Math.min(r, Math.max(l, p.x))
+    const y = Math.min(b, Math.max(t, p.y))
+    const d = [x - l, r - x, y - t, b - y]
+    const i = d.indexOf(Math.min(...d))
+    return i === 0 ? { x: l - 1, y } : i === 1 ? { x: r + 1, y } : i === 2 ? { x, y: t - 1 } : { x, y: b + 1 }
+  }
+
+  // 星 → 札: 札の中の行にある星は線を引かない（札の中にある）。別の札の中の星から来る線は、札の外へ出てから相手の近い縁へ
   for (const e of edges) {
     if (e.kind !== 'member') continue
     const k = stars.get(e.from) as KindNode
     const c = cardById.get(e.to) as PCard
-    const hereX = Math.min(c.x + c.w / 2 - 6, Math.max(c.x - c.w / 2 + 6, k.x))
-    const bottom = c.cy + c.h / 2
-    if (hungBy.get(k.id) === c.id) {
-      e.geom = geomOf([{ x: k.x, y: k.y - k.r - 1 }, { x: hereX, y: bottom + 1 }])
-    } else {
-      const above = c.cy < k.y
-      const from = { x: k.x, y: k.y + (above ? -k.r - 1 : k.r + 1) }
-      const to = { x: hereX, y: above ? bottom + 1 : c.cy - c.h / 2 - 1 }
-      e.geom = geomOf([from, to])
-    }
+    const host = k.card ? cardById.get(k.card) : undefined
+    if (!host || host === c) continue
+    const toward = c.x >= host.x
+    const start = { x: k.x + (toward ? k.r + 2 : -k.r - 2), y: k.y }
+    const out = { x: toward ? host.x + host.w / 2 + 12 : host.x - host.w / 2 - 12, y: k.y }
+    const endPt = nearestEdge(c, out)
+    const cands: Pt[][] = [[start, out, endPt], [start, endPt]]
+    e.geom = geomOf(cands.find((pts) => clear(pts, host, c)) ?? cands[0])
   }
 
-  const rowOfCard = (c: PCard): RowY => rowY[c.row]
-  const box = (c: PCard): Rect => ({ l: c.x - c.w / 2 - 2, r: c.x + c.w / 2 + 2, t: c.cy - c.h / 2 - 2, b: c.cy + c.h / 2 + 2 })
+  /** 間の行の札の隙間（左右の余白も）の中心 x。どの間の行の札からも 6px 以上離れた x だけ。`near` に近い順。 */
+  const gapXs = (between: readonly number[], near: number): number[] => {
+    const xs = new Set<number>()
+    for (const ri of between) {
+      const cs = rows[ri].ids.map((id) => cardById.get(id) as PCard).sort((p, q) => p.x - q.x)
+      let prev = PAD + 4
+      for (const c of cs) {
+        const l = c.x - c.w / 2
+        if (l - prev >= 12) xs.add((prev + l) / 2)
+        prev = c.x + c.w / 2
+      }
+      if (W - PAD - 4 - prev >= 12) xs.add((prev + W - PAD - 4) / 2)
+    }
+    const ok = (x: number): boolean =>
+      between.every((ri) => rows[ri].ids.every((id) => {
+        const c = cardById.get(id) as PCard
+        return x <= c.x - c.w / 2 - 6 || x >= c.x + c.w / 2 + 6
+      }))
+    return [...xs].filter(ok).sort((p, q) => Math.abs(p - near) - Math.abs(q - near) || p - q)
+  }
+
   const route = (a: PCard, b: PCard): { pts: Pt[]; at: Pt[] } => {
     if (a.row === b.row) {
       const left = a.x < b.x ? a : b
       const right = left === a ? b : a
       if (Math.abs(a.col - b.col) === 1) {
+        // 隣の札: 縁から縁へ水平の線
         const p1 = { x: left.x + left.w / 2, y: left.cy }
         const p2 = { x: right.x - right.w / 2, y: right.cy }
         const mid = { x: (p1.x + p2.x) / 2, y: p1.y }
         return { pts: left === a ? [p1, p2] : [p2, p1], at: [mid] }
       }
-      // 隣でない同じ段の札: 段の上を 1 回折れて越える
+      // 隣でない同じ段の札: 段の上を直角に 2 回折れてまたぐ（離れるほど高く。前の段の下から 8px は空ける）
       const span = Math.abs(a.col - b.col)
-      const top = rowOfCard(a).top
-      const apexY = top - (14 + 5 * Math.min(3, span - 1))
-      const pa = { x: a.x, y: a.cy - a.h / 2 }
-      const pb = { x: b.x, y: b.cy - b.h / 2 }
-      const apex = { x: (a.x + b.x) / 2, y: apexY }
-      return { pts: [pa, apex, pb], at: [apex, { x: (apex.x + pa.x) / 2, y: (apexY + pa.y) / 2 }, { x: (apex.x + pb.x) / 2, y: (apexY + pb.y) / 2 }] }
+      const rowTop = rowOfCard(a).top
+      const prevBottom = a.row > 0 ? rowY[a.row - 1].bottom : 0
+      const lift = Math.max(prevBottom + 8, rowTop - (LIFT_BASE + LIFT_STEP * Math.min(4, span - 1)))
+      const xa = exitX(a.x + (b.x > a.x ? a.w / 4 : -a.w / 4), a)
+      const xb = exitX(b.x + (a.x > b.x ? b.w / 4 : -b.w / 4), b)
+      const pa = { x: xa, y: a.cy - a.h / 2 }
+      const pb = { x: xb, y: b.cy - b.h / 2 }
+      const pts = [pa, { x: xa, y: lift }, { x: xb, y: lift }, pb]
+      return {
+        pts,
+        at: [{ x: (xa + xb) / 2, y: lift }, { x: xa + (xb - xa) / 3, y: lift }, { x: xa + (2 * (xb - xa)) / 3, y: lift }],
+      }
     }
     const reversed = a.row > b.row
     const up = reversed ? b : a
     const lo2 = reversed ? a : b
     const upBottom = up.cy + up.h / 2
     const loTop = lo2.cy - lo2.h / 2
-    const clamp = (v: number, c: PCard): number => Math.min(c.x + c.w / 2 - 10, Math.max(c.x - c.w / 2 + 10, v))
-    // 上の札の下に星が吊られていれば、その丸を避けた x から降ろす（無ければ相手に一番近い x）
-    const ideal = clamp(lo2.x, up)
-    const missStars = (x: number): boolean => up.hung.every((k) => Math.abs(x - k.x) > k.r + 4)
-    let ax = ideal
-    if (!missStars(ideal)) {
-      const l0 = up.x - up.w / 2 + 10
-      const h0 = up.x + up.w / 2 - 10
-      for (let d = 4; d <= up.w; d += 4) {
-        const c1 = ideal - d
-        const c2 = ideal + d
-        const ok1 = c1 >= l0 && missStars(c1)
-        const ok2 = c2 <= h0 && missStars(c2)
-        if (ok1 || ok2) {
-          ax = ok1 && (!ok2 || ideal - c1 <= c2 - ideal) ? c1 : c2
-          break
-        }
+    const ax = entryX(lo2.x, up)
+    const bx = exitX(up.x, lo2)
+    const yb = loTop - 26
+    const midY = (upBottom + loTop) / 2
+    const cands: Pt[][] = []
+    const bulges: Pt[][] = []
+    if (Math.abs(ax - bx) < 2) {
+      const x = (ax + bx) / 2
+      cands.push([{ x, y: upBottom }, { x, y: loTop }])
+      // まっすぐ降ろすと間の札を貫くなら、横にふくらませる
+      for (const d of [48, -48, 96, -96]) bulges.push([{ x, y: upBottom }, { x: x + d, y: midY }, { x, y: loTop }])
+    } else {
+      const vFirst = [{ x: ax, y: upBottom }, { x: ax, y: yb }, { x: bx, y: loTop }] // 上の札から垂直に降り、下の札へ斜め
+      const diag = [{ x: ax, y: upBottom }, { x: bx, y: loTop }]
+      const vLast = [{ x: ax, y: upBottom }, { x: bx, y: upBottom + 26 }, { x: bx, y: loTop }] // 斜めに降り、下の札へ垂直
+      // 下の札に印があって線が左から来るなら、斜めの線が印の字に掛かる。垂直に入る道を先に
+      cands.push(...(lo2.markW > 0 && ax < bx ? [vLast, vFirst, diag] : [vFirst, diag, vLast]))
+      for (const d of [48, -48, 96, -96]) bulges.push([{ x: ax, y: upBottom }, { x: (ax + bx) / 2 + d, y: midY }, { x: bx, y: loTop }])
+    }
+    // 2 つ以上の段をまたぐ線は、間の段の札の隙間を直角に通る道も試す（上の札の下の段のあいだ → 隙間 → 下の札の上の段のあいだ）
+    if (lo2.row - up.row >= 2) {
+      const between: number[] = []
+      for (let ri = up.row + 1; ri < lo2.row; ri++) between.push(ri)
+      // 横に走る所は、上の札の行（一番高い札）の下と、下の札の行の上（段のあいだの端）
+      const y1 = rowY[up.row].bottom + 12
+      const y2 = rowY[lo2.row].top - 12
+      for (const gx of gapXs(between, (ax + bx) / 2).slice(0, 4)) {
+        cands.push(dedupe([{ x: ax, y: upBottom }, { x: ax, y: y1 }, { x: gx, y: y1 }, { x: gx, y: y2 }, { x: bx, y: y2 }, { x: bx, y: loTop }]))
       }
     }
-    const bx = clamp(up.x, lo2)
-    const others = cards.filter((c) => c !== up && c !== lo2).map(box)
-    const clear = (pts: Pt[]): boolean => !others.some((q) => pts.slice(1).some((p, i) => segHitsRect(pts[i], p, q)))
-    const yb = loTop - 26
-    const cands: Pt[][] = []
-    if (Math.abs(ax - bx) < 2) cands.push([{ x: (ax + bx) / 2, y: upBottom }, { x: (ax + bx) / 2, y: loTop }])
-    else {
-      cands.push([{ x: ax, y: upBottom }, { x: ax, y: yb }, { x: bx, y: loTop }])
-      cands.push([{ x: ax, y: upBottom }, { x: bx, y: loTop }])
-      cands.push([{ x: ax, y: upBottom }, { x: bx, y: upBottom + 26 }, { x: bx, y: loTop }])
-    }
-    const pts = cands.find(clear) ?? cands[0]
-    // 小さな札は、下の札の手前（段のあいだ）から、線に沿って上へずらしながら置き場所を探す
+    cands.push(...bulges)
+    const pts = cands.find((c) => clear(c, up, lo2)) ?? cands[0]
+    // 小さな札は、下の札の手前（段のあいだ）から、線に沿って上へずらしながら置き場所を探す。最後に上の札の手前
     const at: Pt[] = []
-    for (const d of [22, 40, 58, 76, 94]) {
+    let total = 0
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+    for (const d of [22, 40, 58, 76, 94, 112, total - 22, total - 40]) {
+      if (d < 10 || d > total - 10) continue
       const p = alongFromEnd(pts, d)
       if (p) at.push(p)
     }
     return { pts: reversed ? [...pts].reverse() : pts, at }
   }
   const placedPills: Rect[] = []
-  const cardBoxes: Rect[] = [
+  const pillObstacles: Rect[] = [
     ...cards.map(box),
-    ...[...stars.values()].map((k) => ({ l: k.x - k.r - 2, r: k.x + k.r + 2, t: k.y - k.r - 2, b: k.y + k.r + 2 })),
+    ...cards.map(markBox).filter((b): b is Rect => b !== null),
+    ...[...stars.values()].filter((k) => !k.card).map((k) => ({ l: k.x - k.r - 2, r: k.x + k.r + 2, t: k.y - k.r - 2, b: k.y + k.r + 2 })),
   ]
   for (const e of edges) {
     if (e.kind !== 'concept' && e.kind !== 'draft') continue
@@ -996,13 +1093,14 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
       const q: Rect = { l: p.x - pw / 2, r: p.x + pw / 2, t: p.y - PILL_H / 2, b: p.y + PILL_H / 2 }
       const clashes = (o: Rect): boolean => q.l < o.r + 2 && q.r > o.l - 2 && q.t < o.b + 2 && q.b > o.t - 2
       if (q.l < 0 || q.r > W) continue
-      if (placedPills.some(clashes) || cardBoxes.some(clashes)) continue
+      if (placedPills.some(clashes) || pillObstacles.some(clashes)) continue
       placedPills.push(q)
       pill = p
       break
     }
     e.geom = geomOf(r.pts, pill ?? undefined)
     e.pill = pill
+    e.pillW = pw
   }
 
   const height = Math.max(opts.minHeight ?? GRAPH_HEIGHT_MIN, Math.ceil(end + BOTTOM))

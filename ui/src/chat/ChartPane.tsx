@@ -10,7 +10,7 @@ import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
 import { bornAlive, formatCount, readSkyPalette, visiblePointLabels, type SkyPalette } from '../sky/skyDraw'
-import { kindId, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from '../sky/skyLayout'
+import { kindId, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout, type SkyNode } from '../sky/skyLayout'
 import { SkyTables } from '../sky/SkyTables'
 import { buildSkyTables } from '../sky/skyTable'
 import '../sky/sky.css'
@@ -270,17 +270,27 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     const r = ev.currentTarget.getBoundingClientRect()
     return { x: ((ev.clientX - r.left) * layout.width) / (r.width || layout.width), y: ev.clientY - r.top }
   }
+  // hover の吹き出し（省いた名前の全文・標準の語・星のデータセットと件数）
+  const datasetLabels = useMemo(() => new Map(drawn.datasets.map((d) => [d.id, d.label])), [drawn])
+  const titleOf = (n: SkyNode): string => {
+    if (n.type === 'term') return n.stdLabel ? `${n.label} ≡ ${n.stdLabel}` : n.label
+    if (n.type === 'kind') return [n.label, n.count > 0 ? labels.count(n.count) : '', datasetLabels.get(n.datasetId) ?? ''].filter(Boolean).join(' · ')
+    return n.label
+  }
   const onMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     if (nothing) return
     const p = localPoint(ev)
-    const id = hitNode(layout, p.x, p.y)?.id ?? null
+    const n = hitNode(layout, p.x, p.y)
+    const id = n?.id ?? null
     if (id !== hoverRef.current) {
       hoverRef.current = id
       schedule()
+      ev.currentTarget.title = n ? titleOf(n) : ''
     }
     ev.currentTarget.classList.toggle('sky-canvas--hit', !!id)
   }
-  const onLeave = () => {
+  const onLeave = (ev: React.PointerEvent<HTMLCanvasElement>) => {
+    ev.currentTarget.title = ''
     if (hoverRef.current) {
       hoverRef.current = null
       schedule()

@@ -1,6 +1,6 @@
 // 1 枚の知識の図の描画（canvas 2D・PR 11f）。配置は `graphLayout.ts`（描画は何も決めない）。
 //
-// 紙の地（格子・帯・地平線は無し）に、札（概念）・札の直下に吊る星（データ）・最下段の名前のない星・線と小さな印の札を描く。
+// 紙の地（格子・帯・地平線は無し）に、札（概念）・札の中の行の星（データ: 星・名前・件数）・最下段の名前のない星・線と小さな印の札を描く。
 // 薄い（alpha 0.55）＝提案、濃い＝確認済み。外す提案は accent の枠＋打ち消し線。点線は使わない。
 // 部品（パレット・輪・件数の書式・当たり判定）は `sky/skyDraw.ts` から流用する。
 import {
@@ -166,7 +166,7 @@ export function drawGraph(
   if (layout.clusters.length > 0) {
     ctx.save()
     ctx.globalAlpha = A
-    ctx.font = `600 11px ${pal.font}`
+    ctx.font = `600 12px ${pal.font}`
     ctx.fillStyle = pal.bandText
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
@@ -176,7 +176,7 @@ export function drawGraph(
       const inCluster = cl.nodeIds.some((id) => !dimmed(id))
       ctx.save()
       ctx.globalAlpha = (near && !inCluster ? 0.25 : 1) * (cl.nodeIds.length ? thinOf(cl.nodeIds[0]) : 1) * A
-      ctx.font = `600 11px ${pal.font}`
+      ctx.font = `600 12px ${pal.font}`
       ctx.fillStyle = pal.body
       ctx.textAlign = 'left'
       ctx.textBaseline = 'top'
@@ -185,7 +185,21 @@ export function drawGraph(
     }
   }
 
-  // 星 → 札（短い線。同じものは矢じり無し）
+  // 視点（つながり）→ 入っている星: 細い線（視点は最下段の右）
+  for (const e of layout.edges) {
+    if (e.kind !== 'hub') continue
+    const a = node(e.from)
+    const h = node(e.to)
+    if (!a || !h || a.type !== 'kind' || h.type !== 'hub') continue
+    ctx.save()
+    ctx.globalAlpha = Math.min(alphaOf(e.to), alphaOf(e.from)) * 0.45 * A
+    ctx.strokeStyle = pal.activity
+    ctx.lineWidth = 1
+    strokePath(ctx, [{ x: a.x, y: a.y + a.r + 1 }, { x: h.x, y: h.y - 12 }])
+    ctx.restore()
+  }
+
+  // 別の札の中の星 → 札（札の中の行の星には線が無い。同じものは矢じり無し）
   for (const e of layout.edges) {
     if (e.kind !== 'member' || !e.geom) continue
     const a = node(e.from)
@@ -235,23 +249,23 @@ export function drawGraph(
     ctx.restore()
   }
 
-  // 星（札の直下・最下段）
+  // 札（概念）。星の行を持つ札は、その行の星を後で上に描く
+  for (const n of layout.nodes.values()) {
+    if (n.type === 'term') drawCard(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id), st, removed?.has(n.id) === true)
+    else if (n.type === 'draft') drawCard(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id), st, false)
+  }
+
+  // 星（札の中の行・最下段）
   ctx.textAlign = 'center'
   for (const n of layout.nodes.values()) {
     if (n.type !== 'kind') continue
-    drawStar(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id), st, visible.has(n.id) || focus === n.id)
+    drawStar(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id), st, !!n.card || visible.has(n.id) || focus === n.id)
   }
 
   // 視点（つながり）
   for (const n of layout.nodes.values()) {
     if (n.type !== 'hub') continue
     drawHub(ctx, n, pal, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id))
-  }
-
-  // 札（概念）
-  for (const n of layout.nodes.values()) {
-    if (n.type === 'term') drawCard(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id), st, removed?.has(n.id) === true)
-    else if (n.type === 'draft') drawCard(ctx, n, pal, labels, focus === n.id, alphaOf(n.id) * A, scaleOf(n.id), st, false)
   }
 
   // 線の小さな札（線の中ほど。紙の地で抜く）
@@ -301,11 +315,29 @@ function drawStar(
     ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2)
     ctx.stroke()
   }
-  if (showLabel) {
-    // 名前は星の下 3px、件数はその下。重なる星の名前は呼び手が出さない（hover・選択中は出す）
+  if (n.card) {
+    // 札の中の行: 星の右に名前、その右に件数（幅に収まらなければ名前を省く）
+    const count = n.count > 0 ? labels.count(n.count) : ''
+    ctx.font = `500 11px ${pal.mono}`
+    const cw = count ? ctx.measureText(count).width : 0
+    const avail = Math.max(12, (n.rowW ?? 120) - (count ? cw + 6 : 0))
+    ctx.font = `500 12px ${pal.font}`
+    ctx.fillStyle = pal.ink
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    const text = fitText(ctx, n.label, avail)
+    const x0 = n.x + n.r + 6
+    ctx.fillText(text, x0, n.y + 0.5)
+    if (count) {
+      ctx.font = `500 11px ${pal.mono}`
+      ctx.fillStyle = pal.faint
+      ctx.fillText(count, x0 + ctx.measureText(text).width + 6, n.y + 0.5)
+    }
+  } else if (showLabel) {
+    // 最下段: 名前は星の下 3px、件数はその下。重なる星の名前は呼び手が出さない（hover・選択中は出す）
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
-    ctx.font = `500 11px ${pal.font}`
+    ctx.font = `500 12px ${pal.font}`
     ctx.fillStyle = pal.ink
     ctx.lineWidth = 3
     ctx.lineJoin = 'round'
@@ -314,10 +346,10 @@ function drawStar(
     ctx.fillText(n.label, n.x, n.y + r + 3)
     if (n.count > 0) {
       const s = labels.count(n.count)
-      ctx.font = `500 10px ${pal.mono}`
+      ctx.font = `500 11px ${pal.mono}`
       ctx.fillStyle = pal.faint
-      ctx.strokeText(s, n.x, n.y + r + 16)
-      ctx.fillText(s, n.x, n.y + r + 16)
+      ctx.strokeText(s, n.x, n.y + r + 17)
+      ctx.fillText(s, n.x, n.y + r + 17)
     }
   }
   ctx.restore()
@@ -338,7 +370,7 @@ function drawHub(ctx: Ctx, n: HubNode, pal: SkyPalette, focused: boolean, alpha:
     star4(ctx, n.x, n.y, 15 * sc)
     ctx.stroke()
   }
-  ctx.font = `500 11px ${pal.font}`
+  ctx.font = `500 12px ${pal.font}`
   ctx.fillStyle = pal.activity
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
@@ -347,7 +379,7 @@ function drawHub(ctx: Ctx, n: HubNode, pal: SkyPalette, focused: boolean, alpha:
   ctx.restore()
 }
 
-/** 札（概念）。用語＝星があれば濃い塗り・無ければ薄い塗り。項目は角の小さい札。提案は薄く「提案」の印。 */
+/** 札（概念）。上から名前・標準の語の 1 行・星の行（星は drawStar が描く）。項目は角の小さい札。提案は薄く、左上に「提案」の印。 */
 function drawCard(
   ctx: Ctx,
   n: TermNode | DraftNode,
@@ -363,7 +395,6 @@ function drawCard(
   const draftThin = isDraft && (n.state === 'thin' || n.proposed)
   const draftRemove = isDraft && n.state === 'remove'
   const remove = removing || draftRemove
-  const solid = !isDraft && n.memberIds.length > 0 && !remove
   ctx.save()
   ctx.globalAlpha = alpha
   ctx.font = `600 12px ${pal.font}`
@@ -386,15 +417,15 @@ function drawCard(
     }
   }
   roundRect(ctx, x, y, w, h, radius)
-  ctx.fillStyle = solid ? pal.activity : draftThin ? withAlpha(pal.activitySoft, 0.55) : pal.activitySoft
+  ctx.fillStyle = draftThin ? withAlpha(pal.activitySoft, 0.55) : pal.activitySoft
   ctx.fill()
   ctx.strokeStyle = remove ? pal.accent : pal.activity
   ctx.lineWidth = focused ? 2.5 : remove ? 1.4 : draftThin ? 1.1 : 1.2
   ctx.stroke()
-  // 名前（標準の語の 1 行があれば札の上半分）
+  // 名前は上の行（中心は札の上から 14px）。標準の語はその下の行
   const std = !isDraft ? n.stdLabel : undefined
-  const nameY = std ? n.y - 8 : n.y
-  ctx.fillStyle = solid ? pal.surface : pal.activity
+  const nameY = y + 14 * sc
+  ctx.fillStyle = pal.activity
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(text, n.x, nameY + 0.5)
@@ -407,19 +438,20 @@ function drawCard(
     ctx.stroke()
   }
   if (std) {
-    // 札の中の 1 行「≡ prefix:label」（押すと標準の語の 1 枚）
+    // 札の中の 1 行「≡ prefix:label」（押すと標準の語の 1 枚）。行の中心は札の上から 30px
     ctx.font = `500 12px ${pal.font}`
-    ctx.fillStyle = solid ? pal.accentSoft : pal.accent
-    ctx.fillText(fitText(ctx, `≡ ${std}`, inner), n.x, n.y + 8.5)
+    ctx.fillStyle = pal.accent
+    ctx.fillText(fitText(ctx, `≡ ${std}`, inner), n.x, y + 30 * sc + 0.5)
   }
-  // 印（札の上）: 提案・外す提案。図に入れたものには付けない
+  // 印（札の左上の外）: 提案・外す提案。図に入れたものには付けない。線は印の右から出る（graphLayout の markTextWidth）
   const mark = remove ? labels.draftRemove : draftThin ? labels.draft : ''
   if (mark) {
-    ctx.font = `500 10px ${pal.mono}`
+    ctx.font = `500 11px ${pal.mono}`
     ctx.fillStyle = pal.accent
+    ctx.textAlign = 'left'
     ctx.textBaseline = 'bottom'
-    halo(ctx, mark, n.x, y - 2, pal.paper)
-    ctx.fillText(mark, n.x, y - 2)
+    halo(ctx, mark, x + 4, y - 2, pal.paper)
+    ctx.fillText(mark, x + 4, y - 2)
   }
   ctx.restore()
 }
@@ -443,7 +475,7 @@ function drawPill(ctx: Ctx, e: SkyEdge, pal: SkyPalette, labels: GraphLabels, st
   if (!text) return
   ctx.save()
   ctx.globalAlpha = a
-  ctx.font = `600 ${text.length > 1 ? 11 : 12}px ${pal.font}`
+  ctx.font = `600 12px ${pal.font}`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   const w = Math.max(24, ctx.measureText(text).width + 12)

@@ -17,16 +17,22 @@ describe('点の当たり判定', () => {
     expect(hitNode(l, s.x, s.y)?.id).toBe(s.id)
     expect(hitNode(l, 3, 3)).toBeNull()
   })
-  it('札の枠の中は、すぐ下の星より札を優先する', () => {
+  it('札の中の星の行（星から名前の右端まで）は星・名前の行は札', () => {
     const t = term('thermal')
-    expect(hitNode(l, t.x, t.y + t.h / 2 - 1)?.id).toBe(t.id)
+    const s = l.nodes.get(kindId('nims', 'https://example.org/g#nims/Thermal')) as KindNode
+    expect(s.card).toBe(t.id)
+    expect(hitNode(l, s.x, s.y)?.id).toBe(s.id)
+    expect(hitNode(l, s.x + s.r + 30, s.y)?.id).toBe(s.id) // 名前の字の上
+    expect(hitNode(l, t.x, t.y - t.h / 2 + 14)?.id).toBe(t.id) // 名前の行
+    expect(hitNode(l, t.x + t.w / 2 - 10, s.y)?.id).toBe(s.id) // 行の右端（余白の手前）まで星
   })
-  it('札の中の標準の語の 1 行（下半分）だけ標準の語。名前の行は札', () => {
+  it('札の中の標準の語の 1 行（stdY の ±8px）だけ標準の語。名前の行・星の行は札か星', () => {
     const t = term('thermal')
-    expect(hitStdLine(l, t.x, t.y + 10)?.id).toBe(t.id)
-    expect(hitStdLine(l, t.x, t.y - 8)).toBeNull()
+    expect(t.stdY).toBeDefined()
+    expect(hitStdLine(l, t.x, t.stdY!)?.id).toBe(t.id)
+    expect(hitStdLine(l, t.x, t.y - t.h / 2 + 14)).toBeNull()
     const p = term('paper')
-    expect(hitStdLine(l, p.x, p.y + 5)).toBeNull() // 標準の語を持たない札
+    expect(hitStdLine(l, p.x, p.y)).toBeNull() // 標準の語を持たない札
   })
 })
 
@@ -44,8 +50,10 @@ describe('線の当たり判定', () => {
     expect(hitEdge(l, px + EDGE_HIT - 1, py)).not.toBeNull()
     expect(hitEdge(l, mx + 400, my + 400)).toBeNull()
   })
-  it('小さな札の上でも押せる', () => {
+  it('小さな札の上（札の幅いっぱい）でも押せる', () => {
     const e = l.edges.find((x) => x.kind === 'draft' && x.pill)!
     expect(hitEdge(l, e.pill!.x, e.pill!.y)).not.toBeNull()
+    expect(e.pillW).toBeGreaterThanOrEqual(24)
+    expect(hitEdge(l, e.pill!.x + e.pillW! / 2 - 1, e.pill!.y + 8)).not.toBeNull()
   })
 })

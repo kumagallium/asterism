@@ -1,11 +1,11 @@
-// 1 枚の知識の図の当たり判定（PR 11f）。札は四角（±3px）、星は半径 + 6px、線は折れ線から 7px・小さな札の上。
+// 1 枚の知識の図の当たり判定（PR 11f）。札の中の行の星はその行（星から名前の右端まで）、札は四角（±3px）、最下段の星は半径 + 6px、線は折れ線から 7px・小さな札の上。
 import type { SkyEdge, SkyLayout, SkyNode, TermNode } from '../../sky/skyLayout'
 import { geomPoints } from './graphLayout'
 
 /** 線から押せる距離（px）。 */
 export const EDGE_HIT = 7
 
-/** 押した所にある点（札・星・視点）。札を先に（星は札の下にあるので、札の枠の中は札）。重なれば中心の近いほう。 */
+/** 押した所にある点（札・星・視点）。札の中の行の星 → 札 → 最下段の星 → 視点の順（行の星は札の中にあるので先に見る）。重なれば中心の近いほう。 */
 export function hitNode(layout: SkyLayout, px: number, py: number): SkyNode | null {
   let best: SkyNode | null = null
   let bd = Infinity
@@ -24,17 +24,18 @@ export function hitNode(layout: SkyLayout, px: number, py: number): SkyNode | nu
     return best
   }
   return (
+    pass((n, dx, dy) => n.type === 'kind' && !!n.card && Math.abs(dy) <= 8 && -dx >= -(n.r + 4) && -dx <= n.r + 6 + (n.rowW ?? 0)) ??
     pass((n, dx, dy) => (n.type === 'term' || n.type === 'draft') && Math.abs(dx) <= n.w / 2 + 3 && Math.abs(dy) <= n.h / 2 + 3) ??
-    pass((n, _dx, _dy, d) => n.type === 'kind' && d < n.r + 6) ??
+    pass((n, _dx, _dy, d) => n.type === 'kind' && !n.card && d < n.r + 6) ??
     pass((n, _dx, _dy, d) => n.type === 'hub' && d < 16)
   )
 }
 
-/** 札の中の標準の語の 1 行（札の下半分）を押したか。そうなら、その札。 */
+/** 札の中の標準の語の 1 行（行の中心 `stdY` から ±8px）を押したか。そうなら、その札。 */
 export function hitStdLine(layout: SkyLayout, px: number, py: number): TermNode | null {
   const n = hitNode(layout, px, py)
-  if (!n || n.type !== 'term' || !n.stdId || !n.stdLabel) return null
-  return py > n.y + 1 ? n : null
+  if (!n || n.type !== 'term' || !n.stdId || !n.stdLabel || n.stdY === undefined) return null
+  return Math.abs(py - n.stdY) <= 8 ? n : null
 }
 
 function distToPath(pts: { x: number; y: number }[], px: number, py: number): number {
@@ -58,7 +59,7 @@ export function hitEdge(layout: SkyLayout, px: number, py: number): SkyEdge | nu
   for (const e of layout.edges) {
     if ((e.kind !== 'concept' && e.kind !== 'draft') || !e.geom) continue
     let d = distToPath(geomPoints(e.geom), px, py)
-    if (e.pill && Math.abs(px - e.pill.x) <= 16 && Math.abs(py - e.pill.y) <= 9) d = Math.min(d, 0)
+    if (e.pill && Math.abs(px - e.pill.x) <= (e.pillW ?? 32) / 2 && Math.abs(py - e.pill.y) <= 9) d = Math.min(d, 0)
     if (d <= EDGE_HIT && d < bd) {
       bd = d
       best = e

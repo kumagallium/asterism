@@ -230,6 +230,8 @@ export function visiblePointLabels(layout: SkyLayout): Set<string> {
   const points: (KindNode | DatasetNode)[] = []
   for (const n of layout.nodes.values()) {
     if (n.type === 'kind' || n.type === 'dataset') {
+      // 札の中の行にある星（1 枚の知識の図）は名前を必ず出す。重なりの比べ合いには入れない
+      if (n.type === 'kind' && n.card) continue
       points.push(n)
       obstacles.push({
         id: n.id,
