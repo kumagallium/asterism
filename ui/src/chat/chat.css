@@ -457,6 +457,57 @@
 .chart-placeholder {
   min-height: 360px;
 }
+/* 地図（基本）と局所のパネル（補足）。11h */
+.chat-map {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.chat-map-fit {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  padding: 2px 10px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.chat-map-fit:hover {
+  color: var(--fg);
+}
+.chat-map-legend {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.chat-local {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-local-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.chat-local-head h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.chat-local-more {
+  flex: 1;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.chat-local-head .chat-icon-btn:last-child {
+  margin-left: auto;
+}
 /* 凡例の札の見本（角の丸い四角）と、薄い札の見本 */
 .chart-legend i.chart-legend-card {
   width: 14px;
@@ -863,4 +914,33 @@
   color: var(--accent-strong);
   border-radius: var(--radius);
   font-size: 0.78rem;
+}
+
+/* 「この話の周り」の折りたたみ（右向き → 開いたら下向き） */
+.chat-local-chevron {
+  transition: transform 0.15s;
+}
+.chat-local-chevron.is-open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-local-chevron {
+    transition: none;
+  }
+}
+
+/* 地図に点が 1 つも無いときの 1 行 */
+.chat-map-empty {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  text-align: center;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--muted);
+  pointer-events: none;
 }
