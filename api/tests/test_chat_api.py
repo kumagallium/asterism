@@ -722,8 +722,8 @@ def test_bind_column_by_hand_is_dropped_for_a_theme(tmp_path: Path) -> None:
 # ---- 11b: AI の返事 -----------------------------------------------------------------------------
 
 
-def _ai_client(tmp_path: Path, *responses: str):
-    llm = _LLM(*responses)
+def _ai_client(tmp_path: Path, *responses: str, route: str = "propose", route_reply: str = ""):
+    llm = _LLM(*responses, route=route, route_reply=route_reply)
     app, _ = _app(tmp_path, llm)
     return TestClient(app, headers={**_AUTH, **KEY}), llm
 
@@ -916,6 +916,9 @@ class _EditLLM(_LLM):
         self.seen: list[str] = []
 
     def complete(self, system_prompt: str, user_message: str) -> str:
+        r = self.routed(system_prompt, user_message)
+        if r is not None:
+            return r
         if not self.calls:
             return super().complete(system_prompt, user_message)
         self.calls.append((system_prompt, user_message))
@@ -1163,3 +1166,55 @@ def test_intent_ask_skips_the_classifier(tmp_path: Path) -> None:
         t = _say(client, sid, "試料", intent="ask")["turn"]
         (n,) = t["reply"]["notes"]
         assert n["kind"] == "ask_unavailable"
+
+
+# ---- 11m: 1 文の振り分け（会話／答える／提案） ------------------------------------------------
+
+
+def test_route_chat_makes_a_plain_reply_without_ops(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="chat", route_reply="どういたしまして。")
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, "ありがとう")
+        t = out["turn"]
+        assert t["route"] == "chat" and t["by"] == "ai" and t["state"] == "none"
+        assert t["before"] is None and t["reply"]["text"] == "どういたしまして。"
+        assert t["reply"]["ops"] == [] and t["reply"]["notes"] == []
+        assert out["draft"] is None or out["session"]["draft_id"] is None
+        assert llm.calls == [] and len(llm.route_calls) == 1  # 提案の AI は呼ばない
+
+
+def test_route_ask_goes_to_the_ask_path(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="ask")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, "試料は何件？")["turn"]
+        (n,) = t["reply"]["notes"]  # demo-agent の URL が無い環境
+        assert n["kind"] == "ask_unavailable" and t["route"] == "ask"
+        assert llm.calls == []
+
+
+def test_broken_route_falls_back_to_propose(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="broken")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER)["turn"]
+        assert t["state"] == "proposed" and len(llm.calls) == 1 and len(llm.route_calls) == 1
+
+
+def test_intent_propose_skips_the_router(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="chat", route_reply="x")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER, intent="propose")["turn"]
+        assert t["state"] == "proposed" and llm.route_calls == []
+
+
+def test_route_history_carries_recent_turns(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="chat", route_reply="こんにちは。")
+    with client:
+        sid = _new(client)
+        _say(client, sid, "こんにちは")
+        _say(client, sid, "ありがとう")
+        user = llm.route_calls[1][1]
+        assert "person: こんにちは" in user and "assistant: こんにちは。" in user

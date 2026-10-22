@@ -72,11 +72,28 @@ EXPAND_JSON = {
 
 
 class _LLM:
-    def __init__(self, *responses: str) -> None:
+    """応答のキューを順に返す。チャットの振り分け（system が ``# Asterism chat router``）は
+    キューを消費せず ``route`` の JSON を返す（``route_calls`` に残す）。"""
+
+    def __init__(self, *responses: str, route: str = "propose", route_reply: str = "") -> None:
         self.responses = list(responses)
         self.calls: list[tuple[str, str]] = []
+        self.route_calls: list[tuple[str, str]] = []
+        self.route = route
+        self.route_reply = route_reply
+
+    def routed(self, system_prompt: str, user_message: str) -> str | None:
+        if not system_prompt.startswith("# Asterism chat router"):
+            return None
+        self.route_calls.append((system_prompt, user_message))
+        if self.route == "broken":
+            return "not json"
+        return json.dumps({"mode": self.route, "reply": self.route_reply}, ensure_ascii=False)
 
     def complete(self, system_prompt: str, user_message: str) -> str:
+        r = self.routed(system_prompt, user_message)
+        if r is not None:
+            return r
         self.calls.append((system_prompt, user_message))
         return self.responses.pop(0)
 
