@@ -420,3 +420,102 @@ def test_the_theme_confirm_and_undo_ignore_table_turns(tmp_path: Path) -> None:
         assert _turn(client, sid, turn["id"])["state"] == "proposed"
         session = chat_sessions.load_session(tmp_path / "registry", sid)
         assert session is not None
+
+
+def test_the_row_kind_is_the_designs_name_and_the_id_says_when_it_is_provisional(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _run(client, sid, "価格表.csv", PRICES)
+        text = turn["reply"]["text"]
+        assert "1 行＝価格表 の 1 行）" in text and "Record" not in text
+        att = turn["attachment"]
+        assert att["kinds"][0]["label"] == "価格表 の 1 行"
+        # 行の種類は件数が最大の 1 つだけ
+        assert "、" not in text.split("1 行＝")[1].split("）")[0]
+        if "機械の仮置き" in text:
+            assert any(
+                n["kind"] == "shape" and "機械が仮に" in n["text"] for n in turn["reply"]["notes"]
+            )
+        else:
+            assert not any("機械が仮に" in n["text"] for n in turn["reply"]["notes"])
+
+
+def test_an_ai_failure_is_told_apart_from_a_reading_failure(tmp_path: Path) -> None:
+    class _Down:
+        def complete(self, system: str, user: str) -> str:
+            raise RuntimeError("AI down")
+
+    app, _ = _app(tmp_path, _Down())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _run(client, sid, "価格表.csv", PRICES)
+        assert turn["state"] == "none" and not turn.get("attachment")
+        (note,) = turn["reply"]["notes"]
+        assert note["kind"] == "ai_failed" and "設定 › AI" in note["text"]
+        assert "job_id" not in turn
+
+
+def test_a_running_turn_without_a_job_is_closed_when_read(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        session = chat_sessions.load_session(tmp_path / "registry", sid)
+        from asterism_api import chat_turns
+
+        turn = chat_turns._append_turn(
+            session,
+            at="2026-01-01T00:00:00+00:00",
+            user={"text": "", "attachments": [{"name": "a.csv", "size": 1}]},
+            reply=chat_turns._reply(""),
+            state="running",
+            before=None,
+            by="machine",
+        )
+        turn["job_id"] = "gone-job"
+        chat_sessions.save_session(tmp_path / "registry", session)
+        got = client.get(f"/api/chat/sessions/{sid}").json()
+        t = got["turns"][0]
+        assert t["state"] == "none" and t["job_id"] is None
+        (note,) = t["reply"]["notes"]
+        assert note["kind"] == "attach_failed" and "途中で止まりました" in note["text"]
+        saved = chat_sessions.load_session(tmp_path / "registry", sid)
+        assert saved["turns"][0]["state"] == "none"  # 保存もされている
+
+
+def test_reverting_or_deleting_removes_the_unpublished_dataset(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        root = tmp_path / "registry"
+        sid = _new(client)
+        turn = _run(client, sid, "価格表.csv", PRICES)
+        dsid = turn["attachment"]["dataset_id"]
+        assert (root / dsid / "meta.json").exists()
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{turn['id']}/revert")
+        assert r.status_code == 200 and r.json()["turn"]["state"] == "reverted"
+        assert not (root / dsid / "meta.json").exists()
+        # 話ごと消すときも
+        sid2 = _new(client)
+        turn2 = _run(client, sid2, "価格表.csv", PRICES)
+        dsid2 = turn2["attachment"]["dataset_id"]
+        assert (root / dsid2 / "meta.json").exists()
+        assert client.delete(f"/api/chat/sessions/{sid2}").status_code == 204
+        assert not (root / dsid2 / "meta.json").exists()
+
+
+def test_attach_to_a_missing_session_is_404(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        r = _attach(client, "no-such-session", "価格表.csv", PRICES)
+        assert r.status_code == 404
+
+
+def test_provisional_id_is_only_the_machines_placement() -> None:
+    f = chat_attach._provisional_ids
+    assert f("No", {"cards.csv": "No"}, {}) is True  # 機械の仮置き
+    assert f("No", {"cards.csv": "No"}, {"cards.csv": "No"}) is False  # 人が選んだ
+    assert f("食材", {}, {}) is False
+    text = chat_attach.text("ja", "id_provisional", id="No")
+    assert text == "No（機械の仮置き）"

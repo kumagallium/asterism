@@ -50,13 +50,17 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TABLE_EXTS",
+    "add_questions",
     "confirm_attach",
     "confirm_suggestion",
+    "discard_dataset",
     "id_candidates",
+    "interrupted_reply",
     "is_table_name",
     "proposed_datasets",
     "revert_suggestion",
     "run_attach",
+    "suggest_questions",
 ]
 
 logger = logging.getLogger(__name__)
@@ -96,6 +100,15 @@ _T: dict[str, dict[str, str]] = {
         "sentence": "列「{column}」は「{term}」と同じもの",
         "row_kind": "{stem} の 1 行",
         "attach_failed": "表を読み取れませんでした。形式を確かめて、もう一度添えてください。",
+        "interrupted": "読み取りが途中で止まりました。もう一度添えてください",
+        "ai_failed": (
+            "AI が列の意味／設計を作れませんでした。設定 › AI を確かめて、もう一度添えてください"
+        ),
+        "id_provisional": "{id}（機械の仮置き）",
+        "id_provisional_note": (
+            "ID は機械が仮に置きました。重なる行があれば別の列を ID にしてください"
+        ),
+        "leftover": "取り込んだデータを片づけられませんでした",
         "ingest_stop": "取り込みの途中で止まりました。表の中身を確かめて、もう一度添えてください。",
         "unsupported": "文書はまだ添えられません（表を添えてください）",
         "dup": "ID が重なっています（{n} 行が同じ ID になります）。",
@@ -133,6 +146,17 @@ _T: dict[str, dict[str, str]] = {
         "sentence": 'Column "{column}" is the same thing as "{term}"',
         "row_kind": "Row of {stem}",
         "attach_failed": "Could not read the table. Check its format and attach it again.",
+        "interrupted": "Reading stopped partway. Please attach it again",
+        "ai_failed": (
+            "The AI could not build the column meanings / design. "
+            "Check Settings > AI and attach it again"
+        ),
+        "id_provisional": "{id} (placed by the machine for now)",
+        "id_provisional_note": (
+            "The ID was placed by the machine for now. "
+            "If rows overlap, choose another column as the ID"
+        ),
+        "leftover": "Could not clean up the data that was loaded",
         "ingest_stop": "Loading stopped partway. Check the table and attach it again.",
         "unsupported": "Documents can't be attached yet (please attach a table)",
         "dup": "IDs overlap ({n} rows share an ID).",
@@ -297,7 +321,7 @@ def make_http(app: FastAPI, token: str | None, llm_headers: dict[str, str]) -> h
         transport=httpx.ASGITransport(app=app),
         base_url="http://127.0.0.1",
         headers=headers,
-        timeout=None,
+        timeout=httpx.Timeout(600, connect=10),
     )
 
 
@@ -322,14 +346,16 @@ async def _req(
     return res
 
 
-async def _job_result(ctx: _Ctx, job_id: str) -> Any:
-    """``app.state.jobs`` のジョブの終わりを待って結果を返す（失敗は ``AttachError``）。"""
+async def _job_result(ctx: _Ctx, job_id: str, *, ai: bool = False) -> Any:
+    """``app.state.jobs`` のジョブの終わりを待って結果を返す（失敗は ``AttachError``）。
+    ``ai=True`` は AI が作る段（列の意味・設計・直し）— 失敗は ``ai_failed`` と言い分ける。"""
+    kind = "ai_failed" if ai else "failed"
     job = ctx.app.state.jobs.get(job_id)
     if job is None or job.task is None:
-        raise AttachError("failed", f"unknown job {job_id}")
+        raise AttachError(kind, f"unknown job {job_id}")
     await job.task
     if job.status != "done":
-        raise AttachError("failed", f"job {job_id} {job.status}: {job.error}")
+        raise AttachError(kind, f"job {job_id} {job.status}: {job.error}")
     return job.result
 
 
@@ -376,7 +402,7 @@ async def _stage_place_and_read(ctx: _Ctx, files: list[tuple[str, bytes]], st: d
         "/api/design/column-meanings",
         data={"staging_id": st["staging_id"], "domain": "", "language": _lg(ctx.lang)},
     )
-    out = await _job_result(ctx, res.json()["job_id"])
+    out = await _job_result(ctx, res.json()["job_id"], ai=True)
     st["meanings"] = [
         {k: m[k] for k in ("source", "column", "label", "unit") if m.get(k)}
         for m in (out.get("meanings") or [])
@@ -492,7 +518,9 @@ async def _stage_skeleton_to_ingest(ctx: _Ctx, st: dict) -> list[dict]:
     )
     assembled = res.json()
     skeleton = assembled["skeleton"]
+    provisional = (assembled.get("metadata") or {}).get("provisional_card_keys") or {}
     st["id_column"] = _id_column(assembled, numbers, st)
+    st["id_provisional"] = _provisional_ids(st["id_column"], provisional, numbers)
     res = await _req(
         ctx,
         "POST",
@@ -500,6 +528,8 @@ async def _stage_skeleton_to_ingest(ctx: _Ctx, st: dict) -> list[dict]:
         data={"staging_id": sid, "skeleton": json.dumps(skeleton, ensure_ascii=False)},
     )
     shape = _shape_notes(res.json().get("annotations") or {}, ctx.lang)
+    if st["id_provisional"]:
+        shape.append(chat_turns.note("shape", text(ctx.lang, "id_provisional_note")))
 
     ctx.stage(6)
     data = {
@@ -512,7 +542,7 @@ async def _stage_skeleton_to_ingest(ctx: _Ctx, st: dict) -> list[dict]:
     if st["meanings"]:
         data["column_meanings"] = json.dumps(st["meanings"], ensure_ascii=False)
     res = await _req(ctx, "POST", "/api/propose/continue", data=data)
-    proposal_md = (await _job_result(ctx, res.json()["job_id"]))["proposal_md"]
+    proposal_md = (await _job_result(ctx, res.json()["job_id"], ai=True))["proposal_md"]
     await _save_and_ingest(ctx, st, proposal_md)
     return shape
 
@@ -526,6 +556,15 @@ def _id_column(assembled: dict, numbers: dict[str, str], st: dict) -> str:
             cols += re.findall(r"\{([^{}]+)\}", tpl)
             break
     return "、".join(dict.fromkeys(cols)) or text(st["lang"], "id_auto")
+
+
+def _provisional_ids(id_column: str, provisional: dict, numbers: dict[str, str]) -> bool:
+    """返事の ID の列が、機械の仮置き（``provisional_card_keys``）に当たるか。
+    人が選んだ・番号に決まった列（``numbers``）は仮置きでない。"""
+    cols = {str(c) for c in provisional.values() if c}
+    chosen = {c for c in numbers.values() if c}
+    ids = [c for c in id_column.split("、") if c]
+    return any(c in cols and c not in chosen for c in ids)
 
 
 def _materialize_problems(res: dict) -> list[str]:
@@ -581,7 +620,7 @@ async def _refine(ctx: _Ctx, st: dict, md: str, lines: list[str]) -> str:
     if st.get("dataset_id"):
         body["dataset_id"] = st["dataset_id"]
     res = await _req(ctx, "POST", "/api/refine", json=body)
-    out = await _job_result(ctx, res.json()["job_id"])
+    out = await _job_result(ctx, res.json()["job_id"], ai=True)
     if out.get("complete") is False:
         raise AttachError("ingest_stop", "refine truncated")
     return str(out.get("effective_schema_md") or out.get("refined_md") or md)
@@ -625,22 +664,52 @@ async def _save_and_ingest(ctx: _Ctx, st: dict, md: str) -> None:
         return
 
 
+def _authored_names(root: Any, dataset_id: str) -> dict[str, str]:
+    """設計の IR が種類に付けた名前（``subject.label``）— main.py の ``_kind_labels`` と同じ。"""
+    from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
+
+    data = registry.load_dataset(root, dataset_id)
+    yaml_text = ((data or {}).get("artifacts") or {}).get("mapping.yaml") or ""
+    if not yaml_text.strip():
+        return {}
+    try:
+        ir = parse_mapping_ir(yaml_text)
+    except Exception:
+        return {}
+    prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
+
+    def expand(term: str) -> str:
+        prefix, sep, rest = term.partition(":")
+        return prefixes[prefix] + rest if sep and prefix in prefixes else term
+
+    out: dict[str, str] = {}
+    for tm in ir.maps:
+        label = (tm.subject.label or "").strip()
+        if label:
+            for c in tm.subject.classes:
+                out.setdefault(expand(c), label)
+    return out
+
+
 async def _summary(ctx: _Ctx, st: dict) -> dict:
-    """⑥ 数 — ``draft-stats`` から行数と種類（名前つき）。"""
+    """⑥ 数 — ``draft-stats`` から行数と種類（名前つき）。名前は設計の IR の名前が先、
+    無ければ ``class_labels``。"""
     res = await _req(ctx, "GET", f"/api/datasets/{st['dataset_id']}/draft-stats")
     stats = res.json()
     rows = sum(int(v) for v in (stats.get("source_rows") or {}).values())
     iris = {str(c["iri"]) for c in stats.get("classes") or []}
+    authored = _authored_names(ctx.cfg.registry_root, st["dataset_id"])
     names: dict[str, str] = {}
-    if iris:
+    rest = {i for i in iris if i not in authored}
+    if rest:
         try:
-            names = await class_labels(ctx.app.state.client, ctx.cfg.registry_root, iris)
+            names = await class_labels(ctx.app.state.client, ctx.cfg.registry_root, rest)
         except Exception:
             logger.warning("attach: class labels unavailable", exc_info=True)
     kinds = [
         {
             "iri": c["iri"],
-            "label": names.get(c["iri"]) or c.get("curie") or c["iri"],
+            "label": authored.get(c["iri"]) or names.get(c["iri"]) or c.get("curie") or c["iri"],
             "count": c["n"],
         }
         for c in stats.get("classes") or []
@@ -679,7 +748,8 @@ def _public_binding(b: dict) -> dict:
 
 def _final_reply(ctx: _Ctx, st: dict, summary: dict, shape: list[dict]) -> tuple[dict, dict]:
     lang = ctx.lang
-    kind = "、".join(k["label"] for k in summary["kinds"][:2]) or "—"
+    biggest = max(summary["kinds"], key=lambda k: int(k["count"] or 0), default=None)
+    kind = biggest["label"] if biggest else "—"
     meanings = [
         f"{m['label']}（{m['column']}）" for m in st["meanings"] if m.get("label")
     ]
@@ -687,7 +757,12 @@ def _final_reply(ctx: _Ctx, st: dict, summary: dict, shape: list[dict]) -> tuple
     if len(meanings) > _MAX_MEANINGS_SHOWN:
         shown.append(text(lang, "more", n=len(meanings) - _MAX_MEANINGS_SHOWN))
     sep = ", " if _lg(lang) == "en" else "、"
-    common = {"name": st["name"], "rows": summary["rows"], "kind": kind, "id": st["id_column"]}
+    id_text = (
+        text(lang, "id_provisional", id=st["id_column"])
+        if st.get("id_provisional")
+        else st["id_column"]
+    )
+    common = {"name": st["name"], "rows": summary["rows"], "kind": kind, "id": id_text}
     body = (
         text(lang, "reply", meanings=sep.join(shown), **common)
         if shown
@@ -761,6 +836,7 @@ async def run_attach(
     root = cfg.registry_root
     st: dict = {}
     attachment: dict | None = None
+    cancelled: BaseException | None = None
     try:
         async with lock:
             session = chat_sessions.load_session(root, session_id)
@@ -789,20 +865,35 @@ async def run_attach(
             st.pop("rows", None)  # 例の値は、選び終わったあとは持たない
     except AttachError as exc:
         logger.warning("attach stopped (%s): %s", exc.kind, exc.detail)
-        stop = "ingest_stop" if exc.kind == "ingest_stop" else "attach_failed"
-        reply = chat_turns._reply("", notes=[chat_turns.note(stop, text(lang, stop))])
-        state = "none"
-    except Exception:
-        logger.warning("attach failed", exc_info=True)
-        reply = chat_turns._reply(
-            "", notes=[chat_turns.note("attach_failed", text(lang, "attach_failed"))]
-        )
+        if exc.kind == "ai_failed":
+            note = chat_turns.note("ai_failed", text(lang, "ai_failed"))
+        else:
+            stop = "ingest_stop" if exc.kind == "ingest_stop" else "attach_failed"
+            note = chat_turns.note(stop, text(lang, stop))
+        reply, state = chat_turns._reply("", notes=[note]), "none"
+    except BaseException as exc:  # CancelledError も — 手番が running のまま固まらないように
+        if isinstance(exc, Exception):
+            logger.warning("attach failed", exc_info=True)
+            key = "attach_failed"
+        else:
+            logger.warning("attach cancelled (%s)", type(exc).__name__)
+            key = "interrupted"
+            cancelled = exc
+        reply = chat_turns._reply("", notes=[chat_turns.note(key, text(lang, key))])
         state = "none"
     finally:
         await http.aclose()
+    if attachment is None and st.get("dataset_id"):  # 残さない手番の取り込み済みデータは片づける
+        if not await discard_dataset(app, cfg, st["dataset_id"], token=token):
+            reply["notes"].append(chat_turns.note("info", text(lang, "leftover")))
+        st.pop("dataset_id", None)
     async with lock:
         session = chat_sessions.load_session(root, session_id)
         if session is None:  # 話が捨てられた
+            if attachment is not None:
+                await discard_dataset(app, cfg, attachment["dataset_id"], token=token)
+            if cancelled is not None:
+                raise cancelled
             return {"state": "none"}
         turn = _find(session, turn_id)
         turn["reply"] = reply
@@ -812,7 +903,37 @@ async def run_attach(
         turn["attach_run"] = st or turn.get("attach_run")
         turn.pop("job_id", None)
         chat_sessions.save_session(root, session)
+    if cancelled is not None:
+        raise cancelled
     return {"state": state}
+
+
+async def discard_dataset(
+    app: FastAPI, cfg: Settings, dataset_id: str, *, token: str | None
+) -> bool:
+    """取り込み済みで未公開のデータセットを消す（``DELETE /api/datasets/{id}``）。
+    公開済みは触らない。消せたら ``True``。"""
+    data = registry.load_dataset(cfg.registry_root, dataset_id)
+    if data is None:
+        return True
+    if (data.get("meta") or {}).get("promoted"):
+        return True
+    http = make_http(app, token, {})
+    try:
+        res = await http.delete(f"/api/datasets/{dataset_id}")
+        return res.status_code in (200, 202, 204, 404)
+    except Exception:
+        logger.warning("attach: discard failed", exc_info=True)
+        return False
+    finally:
+        await http.aclose()
+
+
+def interrupted_reply(lang: str) -> dict:
+    """止まったまま残った手番（再起動・取り消し）の返事。"""
+    return chat_turns._reply(
+        "", notes=[chat_turns.note("attach_failed", text(lang, "interrupted"))]
+    )
 
 
 def _find(session: dict | None, turn_id: str) -> dict:
@@ -837,7 +958,8 @@ async def confirm_attach(
     token: str | None,
     at: str,
 ) -> tuple[dict, dict | None, dict | None]:
-    """✓ — 結ぶ列を ``upper.json`` に・``promote``。呼び手が ``themes_lock`` を持っている。
+    """✓ — 結ぶ列を ``upper.json`` に・``promote``・機械の手番。呼び手が ``themes_lock`` を持つ
+    （問いの提案は AI の往復が長いのでここに含めない — :func:`suggest_questions`）。
     返り = ``(手番, commit | None, followup | None)``。
     失敗は手番の ``commit_error``（``commit=None``）。"""
     lang = _lg(lang)
@@ -866,16 +988,12 @@ async def confirm_attach(
             "published_at": (data.get("meta") or {}).get("promoted_at") or at,
         }
         followup = await _followup(ctx, session, turn, dataset_id, at)
-        questions = await _suggest_questions(ctx, dataset_id)
     except Exception as exc:
         logger.warning("attach publish failed: %s", exc, exc_info=True)
         await http.aclose()
         reply["notes"] = [*notes, chat_turns.note("commit_error", text(lang, "commit_error"))]
         return turn, None, None
     await http.aclose()
-    if questions:
-        reply["questions"] = [*(reply.get("questions") or []), *(q["question"] for q in questions)]
-        reply["question_suggestions"] = questions
     turn["state"] = "confirmed"
     turn["before"] = None
     turn["commit"] = commit
@@ -957,12 +1075,22 @@ async def _followup(ctx: _Ctx, session: dict, turn: dict, dataset_id: str, at: s
     )
 
 
-async def _suggest_questions(ctx: _Ctx, dataset_id: str) -> list[dict]:
-    """10a — 公開のあとの問いの提案（AI の失敗・未設定は空）。"""
+async def suggest_questions(
+    app: FastAPI,
+    cfg: Settings,
+    dataset_id: str,
+    *,
+    lang: str,
+    llm_headers: dict[str, str],
+    token: str | None,
+) -> list[dict]:
+    """10a — 公開のあとの問いの提案（AI の失敗・未設定は空）。**ロックの外**で呼ぶ。"""
+    lang = _lg(lang)
+    http = make_http(app, token, llm_headers)
     try:
-        res = await ctx.http.post(
+        res = await http.post(
             "/api/consult/suggest-questions",
-            json={"screen": "dataset", "context": {"dataset_id": dataset_id}, "lang": ctx.lang},
+            json={"screen": "dataset", "context": {"dataset_id": dataset_id}, "lang": lang},
         )
         if res.status_code != 200:
             return []
@@ -971,6 +1099,15 @@ async def _suggest_questions(ctx: _Ctx, dataset_id: str) -> list[dict]:
     except Exception:
         logger.warning("attach: question suggestions failed", exc_info=True)
         return []
+    finally:
+        await http.aclose()
+
+
+def add_questions(turn: dict, questions: list[dict]) -> None:
+    """手番の返事に問いの提案を書き足す（呼び手が ``themes_lock`` を持つ）。"""
+    reply = turn["reply"]
+    reply["questions"] = [*(reply.get("questions") or []), *(q["question"] for q in questions)]
+    reply["question_suggestions"] = questions
 
 
 async def confirm_suggestion(

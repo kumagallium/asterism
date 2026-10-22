@@ -203,8 +203,46 @@ def register_chat(
 
     # ---- 一覧・作る・読む ---------------------------------------------------------------------
 
+    def _stale_running(session: dict) -> list[dict]:
+        """``running`` なのに、走っているジョブが無い（再起動で消えた・終わっている）手番。"""
+        jobs = app.state.jobs
+        out = []
+        for t in session.get("turns") or []:
+            if t.get("state") != "running":
+                continue
+            job = jobs.get(t["job_id"]) if t.get("job_id") else None
+            if job is None or job.status in ("done", "error", "cancelled"):
+                out.append(t)
+        return out
+
+    async def _settle(session_id: str) -> dict | None:
+        """読むときに、止まったまま残った ``running`` の手番を ``attach_failed`` に落とす。"""
+        session = chat_sessions.load_session(root, session_id)
+        if session is None or not _stale_running(session):
+            return session
+        leftovers: list[str] = []
+        async with lock:
+            session = chat_sessions.load_session(root, session_id)
+            if session is None:
+                return None
+            for t in _stale_running(session):
+                lang = (t.get("attach_run") or {}).get("lang") or "ja"
+                run = t.get("attach_run") or {}
+                if run.get("dataset_id"):
+                    leftovers.append(run["dataset_id"])
+                    run.pop("dataset_id", None)
+                t["reply"] = chat_attach.interrupted_reply(lang)
+                t["state"] = "none"
+                t["job_id"] = None
+            session = chat_sessions.save_session(root, session)
+        for dataset_id in leftovers:
+            await chat_attach.discard_dataset(app, cfg, dataset_id, token=cfg.api_token)
+        return session
+
     @app.get("/api/chat/sessions", dependencies=deps)
     async def chat_list() -> JSONResponse:
+        for head in chat_sessions.list_sessions(root):
+            await _settle(head["id"])
         return JSONResponse({"sessions": chat_sessions.list_sessions(root)})
 
     @app.post("/api/chat/sessions", dependencies=deps)
@@ -216,7 +254,10 @@ def register_chat(
 
     @app.get("/api/chat/sessions/{session_id}", dependencies=deps)
     async def chat_get(session_id: str) -> JSONResponse:
-        return JSONResponse(_session_or_404(session_id))
+        session = await _settle(session_id)
+        if session is None:
+            raise HTTPException(404, "その話はありません")
+        return JSONResponse(session)
 
     # ---- 名前・消す ---------------------------------------------------------------------------
 
@@ -249,6 +290,13 @@ def register_chat(
             if session.get("draft_id"):  # 未確認は捨てる。確認済み（テーマ）は残す
                 themes.delete_draft(root, session["draft_id"])
             chat_sessions.delete_session(root, session_id)
+            # 添えた表のうち、公開していない取り込み済みデータも片づける
+            for t in session.get("turns") or []:
+                dataset_id = (t.get("attachment") or {}).get("dataset_id")
+                if dataset_id and t.get("state") != "confirmed":
+                    await chat_attach.discard_dataset(
+                        app, cfg, dataset_id, token=cfg.api_token
+                    )
         return Response(status_code=204)
 
     # ---- 手番 ---------------------------------------------------------------------------------
@@ -395,6 +443,8 @@ def register_chat(
         x_llm_max_tokens: str | None = Header(default=None),
     ) -> JSONResponse:
         lang = body.lang if body else "ja"
+        attach_out: tuple[dict, dict | None, dict | None, dict] | None = None
+        llm_headers: dict[str, str] = {}
         async with lock:
             session = _session_or_404(session_id)
             target = next((t for t in session["turns"] if t.get("id") == turn_id), None)
@@ -415,18 +465,23 @@ def register_chat(
                     }
                     listed = (body.bindings if body else None) or []
                     decisions = {d.column: d.decided for d in listed}
-                    return await _confirm_attach(session, target, lang, decisions, llm_headers)
-            was = {t["id"] for t in session["turns"] if t.get("state") == "proposed"}
-            try:
-                turn, commit = await chat_turns.confirm(
-                    session, turn_id, client=_client(), lang=lang, root=root, at=_now()
-                )
-            except chat_turns.TurnRefused as exc:
-                raise _refused(exc) from exc
-            except Exception as exc:  # 書き込みの失敗（commit_theme は巻き戻し済み）
-                logger.warning("chat confirm failed", exc_info=True)
-                raise HTTPException(502, f"theme write failed: {exc}") from exc
-            saved = _save_after_confirm(session, commit, lang)
+                    attach_out = await _confirm_attach(
+                        session, target, lang, decisions, llm_headers
+                    )
+            if attach_out is None:
+                was = {t["id"] for t in session["turns"] if t.get("state") == "proposed"}
+                try:
+                    turn, commit = await chat_turns.confirm(
+                        session, turn_id, client=_client(), lang=lang, root=root, at=_now()
+                    )
+                except chat_turns.TurnRefused as exc:
+                    raise _refused(exc) from exc
+                except Exception as exc:  # 書き込みの失敗（commit_theme は巻き戻し済み）
+                    logger.warning("chat confirm failed", exc_info=True)
+                    raise HTTPException(502, f"theme write failed: {exc}") from exc
+                saved = _save_after_confirm(session, commit, lang)
+        if attach_out is not None:
+            return await _finish_attach(session_id, turn_id, lang, llm_headers, attach_out)
         confirmed = [
             t["id"] for t in saved["turns"] if t["id"] in was and t.get("state") == "confirmed"
         ]
@@ -436,8 +491,9 @@ def register_chat(
 
     async def _confirm_attach(
         session: dict, turn: dict, lang: str, decisions: dict[str, str], llm_headers: dict[str, str]
-    ) -> JSONResponse:
-        """📎 の表の ✓ ＝ 公開（呼び手が ``lock`` を持っている）。"""
+    ) -> tuple[dict, dict | None, dict | None, dict]:
+        """📎 の表の ✓ ＝ 公開の機械の手番まで（呼び手が ``lock`` を持っている）。
+        問いの提案は AI の往復が長いので、ロックの外で :func:`_finish_attach` が足す。"""
         try:
             turn, commit, followup = await chat_attach.confirm_attach(
                 app,
@@ -453,6 +509,33 @@ def register_chat(
         except chat_turns.TurnRefused as exc:
             raise _refused(exc) from exc
         saved = _save_after_confirm(session, None, lang)
+        return turn, commit, followup, saved
+
+    async def _finish_attach(
+        session_id: str,
+        turn_id: str,
+        lang: str,
+        llm_headers: dict[str, str],
+        out: tuple[dict, dict | None, dict | None, dict],
+    ) -> JSONResponse:
+        """公開できたら、ロックの外で問いの提案を取り、短いロックで手番に書き足す。"""
+        turn, commit, followup, saved = out
+        if commit:
+            questions = await chat_attach.suggest_questions(
+                app, cfg, commit["dataset_id"], lang=lang, llm_headers=llm_headers,
+                token=cfg.api_token,
+            )
+            if questions:
+                async with lock:
+                    again = chat_sessions.load_session(root, session_id)
+                    mine = next(
+                        (t for t in (again or {}).get("turns") or [] if t.get("id") == turn_id),
+                        None,
+                    )
+                    if again is not None and mine is not None:
+                        chat_attach.add_questions(mine, questions)
+                        saved = chat_sessions.save_session(root, again)
+                        turn = mine
         return JSONResponse(
             {
                 "turn": turn,
@@ -491,7 +574,14 @@ def register_chat(
                 if is_suggestion or target.get("attachment") or target.get("attach_run"):
                     if is_suggestion:
                         await chat_attach.revert_suggestion(app, target, token=cfg.api_token)
-                    else:  # 📎 の表: 取り込んだ下書きはそのまま、返事だけ戻す
+                    else:  # 📎 の表: 取り込んだ未公開のデータを消して、返事を戻す
+                        dataset_id = (target.get("attachment") or {}).get("dataset_id")
+                        if dataset_id and not await chat_attach.discard_dataset(
+                            app, cfg, dataset_id, token=cfg.api_token
+                        ):
+                            target["reply"].setdefault("notes", []).append(
+                                chat_turns.note("info", chat_attach.text(lang, "leftover"))
+                            )
                         target["state"] = "reverted"
                         target["before"] = None
                     saved = chat_sessions.save_session(root, session)
@@ -555,6 +645,7 @@ def register_chat(
     async def chat_attach_files(session_id: str, request: Request) -> JSONResponse:
         """📎 — 表を添える。人の手番（``state: running``）を作り、かんたんの段を通すジョブを始める。
         multipart ``files``（``files[]`` も可）・``lang``・LLM ヘッダ。"""
+        _session_or_404(session_id)  # 本体を読む前に、話があるか
         form = await request.form()
         uploads = [
             f for f in [*form.getlist("files"), *form.getlist("files[]")] if hasattr(f, "filename")
@@ -562,7 +653,6 @@ def register_chat(
         lang = "en" if str(form.get("lang") or "ja").lower().startswith("en") else "ja"
         if not uploads:
             raise HTTPException(422, "表のファイルがありません")
-        _session_or_404(session_id)
         llm_headers = chat_attach.llm_headers_of(request.headers)
         names = [os.path.basename(str(f.filename or "")) or "data" for f in uploads]
         if not all(chat_attach.is_table_name(n) for n in names):
