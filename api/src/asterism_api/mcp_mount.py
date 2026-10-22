@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from asterism_api.main import Settings
+
 logger = logging.getLogger(__name__)
 
 MCP_PATH = "/mcp"
@@ -66,7 +68,7 @@ class _FixedPathApp:
         await self._app(scope, receive, send)
 
 
-def attach_mcp(app: FastAPI) -> bool:
+def attach_mcp(app: FastAPI, settings: Settings | None = None) -> bool:
     """Mount the MCP streamable-HTTP endpoint on ``app`` at ``/mcp``.
 
     Returns False (and logs why) when the MCP tools are not installed — an api
@@ -89,7 +91,21 @@ def attach_mcp(app: FastAPI) -> bool:
 
     from starlette.routing import Mount, Route
 
-    mcp_app = build_server().http_app(path="/")
+    from asterism_api.main import Settings as SettingsCls
+    from asterism_api.main import _log_job
+    from asterism_api.mcp_write_tools import register_write_tools
+
+    cfg = settings or SettingsCls()
+    server = build_server()
+    # 書き込みツールはアプリ内の /mcp だけ（単独の MCP サーバは読み取り専用のまま）。
+    register_write_tools(
+        server,
+        registry_root=cfg.registry_root,
+        get_client=lambda: app.state.client,
+        get_rebuilder=lambda: getattr(app.state, "crosswalk_rebuilder", None),
+        log_job=lambda record: _log_job(cfg, record),
+    )
+    mcp_app = server.http_app(path="/")
 
     app.router.routes.append(
         Route(

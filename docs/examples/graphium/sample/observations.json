@@ -1,0 +1,52 @@
+[
+  {
+    "id": "obs-660k-decomposed",
+    "iri": "https://kumagallium.github.io/Graphium/claim/obs-660k-decomposed",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/claim/obs-660k-decomposed",
+    "type": "http://www.w3.org/ns/sosa/Observation",
+    "type_term": "sosa:Observation",
+    "title": "660 K で焼成した試料 A は分解した",
+    "statement_form": "instance",
+    "claim_role": [],
+    "epistemic_status": "observation",
+    "trigger_iri": [],
+    "action": null,
+    "rationale": null,
+    "rationale_rule_iri": [],
+    "outcome_iri": [],
+    "outcome_assessment": null,
+    "feature_of_interest": "試料A",
+    "evidence": [],
+    "review_state": "confirmed",
+    "source_note": [
+      "note-sintering-2026-10"
+    ],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  },
+  {
+    "id": "obs-660k-intact",
+    "iri": "https://kumagallium.github.io/Graphium/claim/obs-660k-intact",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/claim/obs-660k-intact",
+    "type": "http://www.w3.org/ns/sosa/Observation",
+    "type_term": "sosa:Observation",
+    "title": "660 K で焼成した試料 B は分解しなかった",
+    "statement_form": "instance",
+    "claim_role": [],
+    "epistemic_status": "observation",
+    "trigger_iri": [],
+    "action": null,
+    "rationale": null,
+    "rationale_rule_iri": [],
+    "outcome_iri": [],
+    "outcome_assessment": null,
+    "feature_of_interest": "試料B",
+    "evidence": [],
+    "review_state": "confirmed",
+    "source_note": [
+      "note-sintering-2026-10"
+    ],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  }
+]

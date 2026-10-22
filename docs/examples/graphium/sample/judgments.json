@@ -1,0 +1,33 @@
+[
+  {
+    "id": "judg-lower-to-620k",
+    "iri": "https://kumagallium.github.io/Graphium/claim/judg-lower-to-620k",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/claim/judg-lower-to-620k",
+    "type": "https://kumagallium.github.io/asterism/vocab/shared#judgment",
+    "type_term": "judgment",
+    "title": "焼成温度を 620 K に下げる",
+    "statement_form": "instance",
+    "claim_role": [
+      "decision"
+    ],
+    "epistemic_status": null,
+    "trigger_iri": [
+      "https://kumagallium.github.io/Graphium/claim/obs-660k-decomposed"
+    ],
+    "action": "焼成温度を 620 K に下げる",
+    "rationale": "650 K 以上で分解する規則に従う",
+    "rationale_rule_iri": [
+      "https://kumagallium.github.io/Graphium/claim/rule-firing-650k"
+    ],
+    "outcome_iri": [],
+    "outcome_assessment": null,
+    "feature_of_interest": null,
+    "evidence": [
+      "https://kumagallium.github.io/Graphium/claim/obs-660k-decomposed"
+    ],
+    "review_state": "confirmed",
+    "source_note": [],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  }
+]

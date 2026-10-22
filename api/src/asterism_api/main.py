@@ -3606,9 +3606,10 @@ def _accumulate_source_batch(
     canonical source file must GROW. For a batch whose name matches an existing tabular
     source read under the default rules (``_APPENDABLE_TABULAR`` — .csv/.tsv/.txt/.dat/
     .asc), we append the batch's data rows — dropping a repeated header line and inserting
-    a newline first if the existing file lacks a trailing one. Otherwise (a new name, or a
-    JSON batch) we write the file as-is. JSON array-merge compaction is a future step — a
-    JSON batch is recorded as its own file.
+    a newline first if the existing file lacks a trailing one. A JSON batch onto an existing
+    JSON source whose top level is an array on both sides is merged into one array (rows
+    already present are not repeated). Otherwise (a new name, or a non-array JSON) we
+    write the file as-is.
 
     A ``dialect`` (ADR source-dialect.md, "Append", plan B) switches to native
     accumulation: the file grows in its OWN dialect (CP932 / tab / preamble
@@ -3654,8 +3655,41 @@ def _accumulate_source_batch(
             if needs_nl:
                 fh.write(b"\n")
             fh.write(b"".join(lines))
+    elif dest.suffix.lower() == ".json" and dest.is_file():
+        merged = _merge_json_arrays(dest.read_bytes(), content)
+        dest.write_bytes(merged if merged is not None else content)
     else:
         dest.write_bytes(content)
+
+
+def _merge_json_arrays(existing: bytes, new: bytes) -> bytes | None:
+    """Join two JSON array files into one array.
+
+    None when the existing file is not a readable array; a non-array new side counts as
+    one row.
+
+    New rows that equal (as JSON) a row already present are not repeated, so a
+    re-delivered row never grows the persisted source. The result keeps the
+    existing rows first, in order."""
+    try:
+        old_rows = json.loads(existing)
+        new_rows = json.loads(new)
+    except ValueError:
+        return None
+    if not isinstance(old_rows, list):
+        return None
+    if not isinstance(new_rows, list):
+        # A lone object is one more row; never replace the accumulated array.
+        new_rows = [new_rows]
+    seen = {json.dumps(r, sort_keys=True, ensure_ascii=False) for r in old_rows}
+    out = list(old_rows)
+    for row in new_rows:
+        key = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return json.dumps(out, ensure_ascii=False, indent=2).encode("utf-8")
 
 
 # Per-dataset marker dir (under source/) recording which batch fingerprints have been
@@ -4687,6 +4721,24 @@ def _expected_columns_for_single_source(mapping_ir_yaml: str, source_name: str) 
     return cols
 
 
+def _json_sibling_source(name: str, sources: set[str], sdir: Path | None) -> str | None:
+    """The rml:source a ``.json`` batch file feeds, if the design reads its tabularized name.
+
+    A Mapping IR design names a JSON-fed source by its table (``judgments.csv``);
+    ingest tabularizes ``judgments.json`` into it. Returns that table name when
+    ``name`` is a ``.json`` file whose ``.csv`` sibling is one of ``sources`` AND the
+    source is JSON-fed: persisted as ``<stem>.json``, or no real ``<stem>.csv`` exists
+    (tabularize prefers a real CSV, so a JSON batch onto one would vanish on re-ingest)."""
+    if Path(name).suffix.lower() != ".json":
+        return None
+    table = Path(name).with_suffix(".csv").name
+    if table not in sources:
+        return None
+    if sdir is not None and not (sdir / name).is_file() and (sdir / table).is_file():
+        return None
+    return table
+
+
 class AppendError(Exception):
     """An append precondition / materialization failure carrying an HTTP status.
 
@@ -4849,7 +4901,7 @@ async def _append_batch_to_dataset(
             reshape_batch_counts.update(batch_counts)
             canonical.append((cname, content))  # A7: raw is always accumulated too
             continue
-        if sources and cname not in sources:
+        if sources and cname not in sources and _json_sibling_source(cname, sources, sdir) is None:
             # GAL-A-40: an instrument names each export differently (dates,
             # run numbers, …) — S9 promises "the same device's files, as-is",
             # so a single-source design machine-resolves the name instead of
@@ -4931,7 +4983,9 @@ async def _append_batch_to_dataset(
 
     work = Path(tempfile.mkdtemp(prefix="asterism-append-"))
     try:
-        provided = {n for n, _ in batch}
+        # Names of the rml:sources this batch covers; a JSON batch covers the
+        # table name the design reads it under (judgments.json -> judgments.csv).
+        provided = {_json_sibling_source(n, sources, sdir) or n for n, _ in batch}
         for name, content in batch:
             (work / name).write_bytes(content)
         # For a multi-source RML, give any source the batch does NOT cover a
@@ -4942,6 +4996,14 @@ async def _append_batch_to_dataset(
         # lines) so normalize_dialect_sources reads it to a header-only CSV; a clean
         # CSV stand-in is just its header row.
         for src in sources - provided:
+            if sdir and src.lower().endswith(".csv"):
+                json_sibling = sdir / (Path(src).stem + ".json")
+                if json_sibling.is_file():
+                    # A JSON-fed source (the design reads its tabularized name):
+                    # an empty array reads as 0 rows. Placed under the JSON name;
+                    # tabularize runs inside the materialize step.
+                    (work / json_sibling.name).write_bytes(b"[]")
+                    continue
             persisted = sdir / src if sdir else None
             if persisted is None or not persisted.is_file():
                 continue
@@ -4953,6 +5015,10 @@ async def _append_batch_to_dataset(
             elif persisted.suffix.lower() == ".csv":
                 with persisted.open("rb") as fh:
                     (work / src).write_bytes(fh.readline())
+            elif persisted.suffix.lower() == ".json":
+                # A JSON source the batch does not cover reads as 0 rows
+                # (prune_empty_sources drops an empty array).
+                (work / src).write_bytes(b"[]")
         try:
             # Pin the {__run_id__} provenance activity to a content-derived run-id so a
             # retried batch re-mints the SAME activity IRI (dedupe) instead of orphaning

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "rule-firing-650k",
+    "iri": "https://kumagallium.github.io/Graphium/claim/rule-firing-650k",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/claim/rule-firing-650k",
+    "type": "https://kumagallium.github.io/asterism/vocab/shared#rule",
+    "type_term": "rule",
+    "title": "焼成温度が 650 K 以上だと相が分解する",
+    "statement_form": "general",
+    "claim_role": [
+      "rule"
+    ],
+    "epistemic_status": null,
+    "trigger_iri": [],
+    "action": null,
+    "rationale": null,
+    "rationale_rule_iri": [],
+    "outcome_iri": [],
+    "outcome_assessment": null,
+    "feature_of_interest": null,
+    "evidence": [],
+    "review_state": "confirmed",
+    "source_note": [
+      "note-sintering-2026-10"
+    ],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  }
+]

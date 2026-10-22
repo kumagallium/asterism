@@ -1,0 +1,46 @@
+[
+  {
+    "observation_id": "obs-660k-decomposed",
+    "observation_iri": "https://kumagallium.github.io/Graphium/claim/obs-660k-decomposed",
+    "position": 0,
+    "item": "焼成温度",
+    "item_iri": "http://qudt.org/vocab/quantitykind/Temperature",
+    "comparator": null,
+    "value_number": 660,
+    "value_text": null,
+    "unit": "K"
+  },
+  {
+    "observation_id": "obs-660k-decomposed",
+    "observation_iri": "https://kumagallium.github.io/Graphium/claim/obs-660k-decomposed",
+    "position": 1,
+    "item": "分解",
+    "item_iri": null,
+    "comparator": null,
+    "value_number": null,
+    "value_text": "present",
+    "unit": null
+  },
+  {
+    "observation_id": "obs-660k-intact",
+    "observation_iri": "https://kumagallium.github.io/Graphium/claim/obs-660k-intact",
+    "position": 0,
+    "item": "焼成温度",
+    "item_iri": "http://qudt.org/vocab/quantitykind/Temperature",
+    "comparator": null,
+    "value_number": 660,
+    "value_text": null,
+    "unit": "K"
+  },
+  {
+    "observation_id": "obs-660k-intact",
+    "observation_iri": "https://kumagallium.github.io/Graphium/claim/obs-660k-intact",
+    "position": 1,
+    "item": "分解",
+    "item_iri": null,
+    "comparator": null,
+    "value_number": null,
+    "value_text": "absent",
+    "unit": null
+  }
+]
