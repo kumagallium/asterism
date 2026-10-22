@@ -6,12 +6,6 @@
   flex-direction: column;
   height: 100%;
 }
-.app-shell {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  background: var(--bg);
-}
 
 /* Desktop update banner (ui/src/desktop/UpdateBanner.tsx): shown only inside
    the Tauri window when a newer release is out. Success palette — it is good
@@ -96,66 +90,14 @@
   flex: none;
   color: var(--primary);
 }
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
 .brand-name {
   font-family: var(--font-display);
   font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
-.brand-tag {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
-}
-
-.side-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  flex: 1;
-}
-.side-nav-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
 /* 見出し「作る」「使う」（契約メモ contract_pr_f7.md §1）。rail-section-title
    と同じ house style（トークンのみ）。 */
-.side-nav-group-title {
-  margin: 0.2rem 0 0.1rem;
-  padding: 0 0.7rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.side-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  /* A nav label that breaks mid-word reads as damage. Keep it on one line and
-     let the mono echo be the thing that gives way when space is tight. */
-  white-space: nowrap;
-  width: 100%;
-  text-align: left;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--muted);
-  font-size: 0.875rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  padding: 0.55rem 0.7rem;
-  transition:
-    background-color 0.15s,
-    color 0.15s;
-}
 .side-nav-item:hover:not(.active) {
   background: var(--surface-alt);
   color: var(--fg);
@@ -175,69 +117,12 @@ button.side-nav-item.active:hover:not(:disabled) {
 .side-nav-item.active .side-nav-icon {
   color: var(--primary);
 }
-.side-nav-text {
-  flex: 1;
-  min-width: 0;
-}
-.side-nav-en {
-  font-family: var(--font-mono);
-  /* Deliberately below the 0.8rem label floor: this is a decorative echo of the
-     Japanese label next to it, and at 0.8rem the pair no longer fits 248px —
-     the Japanese label wrapped mid-word (「共通の言 葉」). Nothing is read here
-     that is not already said in full beside it. */
-  font-size: 0.72rem;
-  /* --faint に opacity を重ねると実効コントラスト約 2.2:1 まで沈む。素の --faint で。 */
-  color: var(--faint);
-}
 .side-nav-item.active .side-nav-en {
   color: var(--primary);
   opacity: 0.9;
 }
-.side-nav-icon {
-  flex: none;
-  color: inherit;
-}
-
-.sidebar-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding-top: 0.5rem;
-}
 /* たたむ／ひろげる（契約メモ §1-2）。sidebar-foot の一番上・設定の
    上に置く（区切り線で分ける）。 */
-.side-nav-collapse {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.7rem;
-  margin-bottom: 0.1rem;
-}
-.side-nav-collapse-icon {
-  transition: transform 0.15s ease;
-}
-.side-nav-collapse-icon--open {
-  transform: rotate(180deg);
-}
-.graph-status {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-  padding: 0.35rem 0.7rem;
-}
-.status-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  flex: none;
-}
-.status-dot--mock {
-  background: var(--accent);
-}
-.status-dot--live {
-  background: var(--entity);
-}
 
 /* ワークスペース（cards）の子ナビ（SubjectRail・rail.css の `.rail` が第 2 列
    としての幅と境界線を持つ）＋本文（.app-main-body）を横に並べる列（契約メモ
@@ -252,15 +137,6 @@ button.side-nav-item.active:hover:not(:disabled) {
   overflow: hidden;
 }
 
-.app-main-body {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
 .topbar {
   position: sticky;
   top: 0;
@@ -273,39 +149,12 @@ button.side-nav-item.active:hover:not(:disabled) {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.topbar-eyebrow {
-  display: block;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 0.1rem;
-}
 
 /* パンくず（データセット名 › 定義する／詳しい情報）は固有名なので大文字化しない */
-.topbar-eyebrow--crumb {
-  text-transform: none;
-  letter-spacing: normal;
-}
-.topbar-titles {
-  flex: none;
-}
-.topbar-title {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0;
-  white-space: nowrap;
-}
 
 /* 見るの枠の中で開いた「定義を直す」「詳しい情報」からデータセットのページへ
  * 戻る（topbar 右上・契約メモ contract_pr_f5.md §1.2・担当 ui-embed）。見た目は
  * 既存の .btn--ghost のまま、言語トグルと同じ「右へ寄せる」だけを足す。 */
-.topbar-back {
-  margin-left: auto;
-}
 
 .topbar-back ~ .lang-toggle {
   margin-left: 0;
@@ -325,9 +174,6 @@ button.side-nav-item.active:hover:not(:disabled) {
 }
 
 /* 「データ」の下のタブ（データセット／つながり／記録）。topbar の下・本文の上。 */
-.data-subtabs {
-  padding: 0.75rem 2rem 0;
-}
 .data-subtabs .ds-tabs {
   width: auto;
   display: inline-flex;
@@ -617,23 +463,9 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
     width: 60px;
     padding: 1rem 0.4rem;
   }
-  .brand-text,
-  .side-nav-group-title,
-  .side-nav-text,
-  .side-nav-en,
-  .graph-status {
-    display: none;
-  }
   .brand {
     justify-content: center;
     padding: 0.3rem 0 0.6rem;
-  }
-  .side-nav-item {
-    justify-content: center;
-    padding: 0.6rem 0;
-  }
-  .side-nav-collapse {
-    border: none;
   }
 }
 
@@ -664,9 +496,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 
 @media (max-width: 640px) {
-  .data-subtabs {
-    padding: 0.75rem 1.1rem 0;
-  }
   .topbar {
     padding: 0.9rem 1.1rem;
     flex-wrap: wrap;
@@ -679,31 +508,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 
 /* ---- M3 SPARQL editor ---- */
-.sparql-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-}
-.sparql-input {
-  width: 100%;
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  resize: vertical;
-  tab-size: 2;
-}
-.sparql-actions {
-  display: flex;
-  gap: 0.6rem;
-}
-.sparql-bool {
-  font-size: 1rem;
-  padding: 0.7rem 1rem;
-  background: var(--success-bg);
-  border: 1px solid var(--success-border);
-  border-radius: var(--radius);
-}
 .sparql-table .sparql-cell {
   display: inline-block;
   max-width: 30rem;
@@ -768,11 +572,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   color: var(--fg);
   margin: 0 0 0.3rem;
 }
-.empty-sub {
-  font-size: 0.88rem;
-  color: var(--body);
-  margin: 0;
-}
 
 .table-wrap {
   overflow-x: auto;
@@ -808,49 +607,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 .jobs-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-.job-kind {
-  font-weight: 600;
-}
-.job-status {
-  display: inline-block;
-  font-size: 0.8rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.08rem 0.5rem;
-}
-.job-status--ok {
-  color: var(--entity);
-  background: var(--entity-soft);
-}
-.job-status--warn {
-  color: var(--warn-fg);
-  background: var(--warn-bg);
-}
-.job-status--error {
-  color: var(--error-fg);
-  background: var(--error-bg);
-}
-.job-status--muted {
-  color: var(--muted);
-  background: var(--surface-alt);
-}
-.job-error {
-  display: inline-block;
-  max-width: 18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: bottom;
-  margin-left: 0.4rem;
-  font-size: 0.875rem;
-  color: var(--error-fg);
-}
-.job-file {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-}
-.job-err-count {
-  color: var(--warn-fg);
 }
 .job-time {
   color: var(--muted);
@@ -1647,18 +1403,6 @@ textarea:focus {
 }
 
 /* ---- Ask view (grounded answer + provenance panel) ---- */
-.demo-badge {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding: 0.05rem 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid rgba(192, 139, 62, 0.3);
-  border-radius: 999px;
-  vertical-align: middle;
-}
 
 /* ---- Ask = chat (ADR ask-chat-threads.md) ----
    Three panes: thread list | conversation (messages + composer) | provenance
@@ -1693,16 +1437,6 @@ textarea:focus {
   background: var(--surface);
   border-right: 1px solid var(--border);
 }
-.chat-threads-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) var(--space-2);
-}
-.chat-new-btn {
-  flex: 1;
-  justify-content: center;
-}
 /* (0,2,0) so the shared .chat-topline-btn display does not resurrect it. */
 .chat-threads .chat-threads-close {
   display: none;
@@ -1713,74 +1447,12 @@ textarea:focus {
   overflow-y: auto;
   padding: 0 var(--space-2) var(--space-4);
 }
-.chat-threads-empty {
-  margin: var(--space-4) var(--space-2);
-  font-size: 0.875rem;
-  color: var(--body);
-  line-height: 1.6;
-}
-.chat-threads-group-h {
-  margin: var(--space-3) var(--space-2) var(--space-1);
-  font-size: 0.875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--body);
-}
-.chat-threads-ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.chat-thread-item {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  border-radius: var(--radius-sm);
-}
-.chat-thread-item:hover {
-  background: var(--surface-alt);
-}
 .chat-thread-item.active {
   background: var(--primary-soft);
-}
-.chat-thread-btn {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 0.45rem 3.7rem 0.45rem 0.6rem; /* room for the rename/delete icons */
-  color: var(--fg);
-  font-size: 0.84rem;
-  font-weight: 500;
-}
-.chat-thread-btn:hover:not(:disabled) {
-  background: transparent;
 }
 .chat-thread-item.active .chat-thread-btn {
   color: var(--primary);
   font-weight: 600;
-}
-.chat-thread-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-thread-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
 }
 .chat-thread-meta .spinner {
   margin: 0;
@@ -1788,125 +1460,15 @@ textarea:focus {
   height: 0.7em;
 }
 /* Row actions (rename / delete): revealed on hover, focus, or the active row. */
-.chat-thread-actions {
-  position: absolute;
-  right: 0.3rem;
-  top: 50%;
-  transform: translateY(-50%);
-  display: inline-flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.chat-thread-item:hover .chat-thread-actions,
-.chat-thread-item.active .chat-thread-actions,
-.chat-thread-actions:focus-within {
+.chat-thread-item.active .chat-thread-actions {
   opacity: 1;
-}
-.chat-thread-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--faint);
-}
-.chat-thread-action:hover:not(:disabled) {
-  background: var(--surface);
-  color: var(--fg);
-}
-.chat-thread-action--danger:hover:not(:disabled) {
-  background: var(--error-bg);
-  color: var(--error-fg);
 }
 /* Inline rename: the row turns into a text field (Enter/blur commit, Esc cancel). */
 .chat-thread-item.editing {
   background: var(--surface);
 }
-.chat-thread-rename {
-  flex: 1;
-  min-width: 0;
-  margin: 0.2rem;
-  padding: 0.35rem 0.5rem;
-  border: 1.5px solid var(--primary);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--fg);
-}
-.chat-thread-rename:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.2);
-}
-.chat-thread-confirm {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.875rem;
-  color: var(--fg);
-}
-.chat-thread-confirm-text {
-  flex: 1 1 100%;
-}
 
 /* -- conversation (middle) -- */
-.chat-main {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  background: var(--bg);
-}
-.chat-topline {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 2.75rem;
-  padding: 0.5rem var(--space-6);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-.chat-topline-title {
-  margin: 0;
-  min-width: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-topline-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--muted);
-}
-.chat-topline-btn:hover:not(:disabled) {
-  background: var(--surface-alt);
-  border-color: var(--border-strong);
-  color: var(--fg);
-}
-.chat-topline .chat-threads-toggle {
-  display: none;
-}
 .chat-scroll {
   flex: 1;
   min-height: 0;
@@ -1942,55 +1504,7 @@ textarea:focus {
 .chat-msg--assistant {
   align-items: flex-start;
 }
-.chat-avatar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-top: 0.2rem;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--primary);
-}
-.chat-msg-body {
-  flex: 1;
-  min-width: 0;
-}
-.chat-pending {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-.chat-msg-error {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  padding: 0.6rem 0.9rem;
-  border-radius: var(--radius);
-  color: var(--error-fg);
-  background: var(--error-bg);
-  border: 1px solid var(--error-border);
-  font-size: 0.875rem;
-}
-.chat-msg-error-text {
-  flex: 1 1 16rem;
-  min-width: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 /* A stopped wait is not a failure — neutral tone, same retry affordance. */
-.chat-msg-error--stopped {
-  color: var(--muted);
-  background: var(--surface-alt);
-  border-color: var(--border);
-}
 
 /* empty state = a new chat: what this is, and (mock) example questions */
 .chat-empty {
@@ -2002,44 +1516,6 @@ textarea:focus {
   gap: var(--space-3);
   text-align: center;
 }
-.chat-empty-mark {
-  color: var(--primary);
-}
-.chat-empty-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.chat-empty-intro {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--body);
-  line-height: 1.7;
-  text-align: left;
-}
-.chat-examples {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.chat-example {
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--fg);
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-.chat-example:hover:not(:disabled) {
-  background: var(--primary-soft);
-  border-color: var(--primary-soft);
-  color: var(--primary);
-}
 
 /* -- composer (pinned at the bottom of the conversation) -- */
 .chat-composer {
@@ -2047,28 +1523,7 @@ textarea:focus {
   padding: var(--space-2) var(--space-6) var(--space-4);
   background: var(--bg);
 }
-.chat-composer-box {
-  max-width: 920px;
-  margin: 0 auto;
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-2);
-  padding: 0.5rem 0.5rem 0.5rem 1rem;
-  border-radius: 16px;
-  background: var(--surface);
-  border: 1.5px solid var(--border-strong);
-  box-shadow: var(--shadow);
-}
 /* 入力自体のリングは消しても、外枠がフォーカスを示す（WCAG 2.4.7） */
-.chat-composer-box:focus-within {
-  border-color: var(--primary);
-  box-shadow:
-    0 0 0 3px rgba(63, 111, 73, 0.2),
-    var(--shadow);
-}
-.chat-composer-box--disabled {
-  background: var(--surface-alt);
-}
 .chat-input {
   flex: 1;
   min-width: 0;
@@ -2121,23 +1576,6 @@ textarea:focus {
   background: #2a3d2e;
   border-color: #2a3d2e;
 }
-.chat-composer-foot {
-  max-width: 920px;
-  margin: var(--space-2) auto 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.chat-composer-hint {
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.chat-composer-gate {
-  flex: 1 1 24rem;
-  min-width: 0;
-}
 .chat-composer-gate .llm-gate {
   margin: 0;
   padding: 0.3rem 0.7rem;
@@ -2145,9 +1583,6 @@ textarea:focus {
 }
 
 /* -- narrow screens -- */
-.chat-threads-backdrop {
-  display: none;
-}
 /* Provenance panel becomes an overlay over the conversation (no third column):
    below ~1360px three columns beside the app sidebar leave the conversation too
    narrow to read an answer card. */
@@ -2185,28 +1620,13 @@ textarea:focus {
     transform: none;
     box-shadow: var(--shadow);
   }
-  .chat-threads-backdrop {
-    display: block;
-    position: absolute;
-    inset: 0;
-    z-index: 5;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    background: rgba(22, 36, 26, 0.25);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.18s ease;
-  }
   .chat--threads-open .chat-threads-backdrop {
     opacity: 1;
     pointer-events: auto;
   }
-  .chat-topline .chat-threads-toggle,
   .chat-threads .chat-threads-close {
     display: inline-flex;
   }
-  .chat-topline,
   .chat-scroll,
   .chat-composer {
     padding-left: var(--space-4);
@@ -2216,51 +1636,9 @@ textarea:focus {
     max-width: 88%;
   }
 }
-
-.answer-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  padding: 1.1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-}
-.answer-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.75rem;
-}
-.answer-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--entity);
-  background: var(--entity-soft);
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-}
-.answer-badge svg {
-  display: block;
-}
 /* P4-2b provenance: verified = green (base), unverified = amber. */
-.answer-badge-unverified {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
 /* ツールがデータそのものに付けた注意（型なしの数を並べ替えた等）。回答の直下に、
    モデルが触れたかどうかに関係なく出す＝最後の砦。 */
-.answer-warnings {
-  margin: 0.6rem 0 0.4rem;
-  padding: 0.55rem 0.8rem;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  border-radius: var(--radius-sm);
-}
 .answer-warning {
   margin: 0;
   font-size: 0.875rem;
@@ -2269,10 +1647,6 @@ textarea:focus {
 }
 .answer-warning + .answer-warning {
   margin-top: 0.35rem;
-}
-.answer-head-note {
-  font-size: 0.875rem;
-  color: var(--body);
 }
 
 .answer-text {
@@ -2327,51 +1701,10 @@ textarea:focus {
   color: var(--body);
   margin: 1.1rem 0 0.5rem;
 }
-.section-h-hint {
-  margin-left: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--body);
-  font-family: var(--font-mono);
-}
-
-.citation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
 
 /* The source of an AGGREGATE answer: no row to card, so the published dataset
    it was read from, plus the vetted way it was read. Same slot as the citation
    list, lighter weight — there is one line per dataset, not one per record. */
-.answer-sources {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.answer-source {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  width: 100%;
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-.answer-source:hover {
-  border-color: var(--accent, var(--border));
-}
 .answer-source.selected {
   border-color: var(--accent, var(--border));
   background: var(--surface-2, transparent);
@@ -2379,132 +1712,10 @@ textarea:focus {
 
 /* Right-hand panel body — same frame as the provenance trace (.ask-trace),
    different contents: a dataset, not a chain. */
-.source-panel-body {
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.source-panel-counts,
-.source-panel-tools {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.source-panel-count {
-  font-weight: 600;
-}
-.answer-source-name {
-  font-weight: 600;
-}
-.answer-source-via {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
 
-.citation-card {
-  flex: 1;
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  text-align: left;
-  color: var(--fg);
-  font-weight: 400;
-  box-shadow: var(--shadow-soft);
-  min-width: 0;
-  transition:
-    box-shadow 0.18s,
-    border-color 0.18s;
-}
-
-.citation-card:hover:not(:disabled),
 .citation-card.selected {
   border-color: var(--primary);
   box-shadow: var(--shadow);
-}
-
-.citation-bar {
-  width: 5px;
-  flex: none;
-}
-
-.citation-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.6rem 0.8rem;
-  /* min-width:0 lets the body (and its truncatable children) shrink below
-     content size inside the flex card, so long DOIs/IRIs ellipsis instead of
-     widening the card. */
-  min-width: 0;
-  flex: 1;
-}
-
-.citation-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.citation-kind {
-  flex: none;
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-}
-
-.citation-label {
-  font-weight: 700;
-  font-size: 0.9rem;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.citation-trace-hint {
-  margin-left: auto;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.875rem;
-  color: var(--body);
-}
-
-.citation-fields {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 0.85rem;
-}
-
-.citation-field {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  font-size: 0.875rem;
-  min-width: 0;
-}
-
-.citation-field-key {
-  color: var(--faint);
-  /* 語であって識別子ではない — mono は数値・ID・コードのためのもの
-     （ui-guidelines §5）。TSX 側のインライン指定はこれに伴って外した。 */
-  font-size: 0.8rem;
-  flex: none;
 }
 
 /* Long values (DOIs, full IRIs, titles) are truncated with ellipsis; the full
@@ -2512,42 +1723,8 @@ textarea:focus {
    min-width:0 makes the value shrink to the available card width (rather than a
    fixed cap that could exceed a narrow card and hide the ellipsis); 22rem just
    keeps it from sprawling on very wide screens. */
-.citation-field-val {
-  color: var(--fg);
-  font-weight: 600;
-  min-width: 0;
-  max-width: 22rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Ask⇄Gallery: card + a "→ 語彙" link beside it (separate buttons; no nesting). */
-.citation-card-wrap {
-  display: flex;
-  align-items: stretch;
-  gap: 0.5rem;
-}
-.citation-card-wrap .citation-card {
-  flex: 1;
-  min-width: 0;
-}
-.vocab-link {
-  flex: none;
-  align-self: center;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--primary);
-  font-size: 0.875rem;
-  font-weight: 600;
-  border-radius: 999px;
-  padding: 0.3rem 0.65rem;
-  white-space: nowrap;
-}
-.vocab-link:hover:not(:disabled) {
-  background: var(--primary-soft);
-  border-color: var(--primary-soft);
-}
 
 .vocab-focus-banner {
   display: flex;
@@ -2619,13 +1796,6 @@ textarea:focus {
   margin-top: 0;
 }
 
-.trace-vocab-link {
-  margin-left: auto;
-  align-self: center;
-  padding: 0.1rem 0.5rem;
-  font-size: 0.875rem;
-}
-
 .onto-class-chip--focus {
   background: var(--primary);
   color: var(--primary-fg);
@@ -2646,17 +1816,6 @@ textarea:focus {
   color: var(--accent);
 }
 
-.notes-list {
-  margin: 0;
-  padding-left: 1.1rem;
-}
-
-.notes-list li {
-  font-size: 0.875rem;
-  color: var(--fg);
-  margin: 0.15rem 0;
-}
-
 /* ---- #18 Ask: read-only SPARQL disclosure panel (escape path) ---- */
 .sparql-disclosure {
   margin-top: 0.9rem;
@@ -2674,21 +1833,6 @@ textarea:focus {
   align-items: center;
   gap: 0.5rem;
 }
-.sparql-disclosure-tag {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--activity);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.05rem 0.5rem;
-  font-family: var(--font-mono);
-}
-.sparql-disclosure-hint {
-  font-size: 0.875rem;
-  color: var(--body);
-  margin: 0.5rem 0;
-}
 .sparql-block {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2701,197 +1845,14 @@ textarea:focus {
   margin: 0.4rem 0 0;
   color: var(--fg);
 }
-.sparql-block-wrap {
-  position: relative;
-}
-.sparql-block-copy {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.5rem;
-}
 
 /* ---- provenance trace (right pane of the chat; own scroll) ---- */
-.ask-trace {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-}
-
-.trace-header {
-  position: relative;
-  padding: 0.95rem 2.75rem 0.95rem 1.1rem;
-  border-bottom: 1px solid var(--border);
-}
-.trace-close {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--muted);
-}
-.trace-close:hover:not(:disabled) {
-  background: var(--surface-alt);
-  border-color: var(--border-strong);
-  color: var(--fg);
-}
-.trace-eyebrow {
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.trace-title {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  margin: 0.2rem 0 0;
-}
-.trace-sub {
-  margin: 0.3rem 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-  line-height: 1.6;
-}
-
-.trace-body {
-  padding: 1.05rem 1.1rem 0.3rem;
-}
-.trace-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-  text-align: center;
-  padding: 2.25rem 1.1rem;
-  color: var(--body);
-  font-size: 0.875rem;
-}
-.trace-empty-icon {
-  color: var(--faint);
-}
 .trace-loading {
   color: var(--body);
   font-size: 0.875rem;
   padding: 1rem 1.1rem;
 }
-
-.trace-chain {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.trace-node {
-  display: flex;
-  gap: 0.8rem;
-}
-.trace-rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: none;
-  width: 16px;
-}
-.trace-dot {
-  width: 13px;
-  height: 13px;
-  border-radius: 999px;
-  margin-top: 2px;
-  flex: none;
-}
-.trace-line {
-  flex: 1;
-  width: 2px;
-  background: var(--border);
-  margin-top: 4px;
-  min-height: 1.5rem;
-}
-.trace-content {
-  padding-bottom: 1rem;
-  min-width: 0;
-}
-.trace-step-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.trace-step-badge {
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 0.1rem 0.45rem;
-}
-.trace-step-label {
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-.trace-detail {
-  font-size: 0.875rem;
-  color: var(--body);
-  margin-top: 0.2rem;
-}
-.trace-iri {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: 0.15rem;
-  word-break: break-all;
-  font-family: var(--font-mono);
-}
 /* IRI はクリックでコピー（button 化）— 見た目はテキストのまま */
-button.trace-iri-copy {
-  background: none;
-  border: none;
-  padding: 0;
-  text-align: left;
-  cursor: copy;
-  width: 100%;
-}
-button.trace-iri-copy:hover:not(:disabled) {
-  background: var(--surface-alt);
-  color: var(--fg);
-}
-.trace-iri-copied {
-  margin-left: 0.4rem;
-  color: var(--entity);
-  font-weight: 700;
-}
-
-.trace-foot {
-  margin-top: auto;
-  padding: 0.7rem 1.1rem;
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.trace-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.trace-legend-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  flex: none;
-}
 
 .onto-diagram {
   overflow-x: auto;
@@ -3027,12 +1988,6 @@ button.trace-iri-copy:hover:not(:disabled) {
 .alignment-summary {
   font-size: 0.82rem;
   color: var(--fg);
-}
-.alignment-new {
-  font-size: 0.875rem;
-  color: var(--body);
-  margin: 0.3rem 0 0;
-  word-break: break-word;
 }
 .promote-btn {
   align-self: flex-start;
@@ -3354,10 +2309,6 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 
 /* dataset rows (reused in Catalog list) */
-.ds-rows {
-  display: flex;
-  flex-direction: column;
-}
 .ds-row {
   display: flex;
   align-items: center;
@@ -3379,46 +2330,6 @@ button.trace-iri-copy:hover:not(:disabled) {
 .ds-row:hover:not(:disabled) {
   background: var(--surface-alt);
 }
-.ds-row-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-.ds-row-name {
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
-  flex: 0 0 13rem;
-  min-width: 0;
-}
-.ds-row-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ds-row-sub {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  color: var(--body);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ds-row-counts {
-  display: flex;
-  gap: 1rem;
-  flex: 1;
-  flex-wrap: wrap;
-}
 .ds-row-count {
   font-size: 0.8rem;
   color: var(--muted);
@@ -3427,20 +2338,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   font-family: var(--font-mono);
   font-weight: 700;
   color: var(--fg);
-}
-.ds-row-chevron {
-  color: var(--faint);
-  display: flex;
-  flex: none;
-}
-
-@media (max-width: 720px) {
-  .ds-row-name {
-    flex-basis: 8rem;
-  }
-  .ds-row-counts {
-    display: none;
-  }
 }
 
 .mono-strong {
@@ -3885,11 +2782,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--fg);
   box-shadow: var(--shadow-soft);
 }
-.ds-tab-en {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  opacity: 0.8;
-}
 
 .ds-purposes {
   padding: 0.85rem 1.1rem;
@@ -3972,29 +2864,6 @@ button.trace-iri-copy:hover:not(:disabled) {
 .card > .ds-subhead:first-child {
   margin-top: 0;
 }
-.ds-reuse-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.reuse-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.25rem 0.65rem;
-}
-.reuse-chip code {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--activity);
-}
-.reuse-chip-what {
-  color: var(--muted);
-}
 .ds-empty-note {
   font-size: 0.875rem;
   color: var(--body);
@@ -4014,11 +2883,6 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 
 /* 全体像 entry on the つながり banner (pushed to the right). */
-.crosswalk-map-btn {
-  margin-left: auto;
-  align-self: center;
-  flex: none;
-}
 
 /* ---- v2 ScreenGround: 外部の標準に合わせる ---- */
 .ground-banner {
@@ -4099,12 +2963,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   font-weight: 700;
   color: var(--body);
 }
-.ground-group-en {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
-  font-weight: 500;
-}
 .ground-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1.3fr);
@@ -4120,12 +2978,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--fg);
-}
-.ground-own-en {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
-  font-weight: 500;
 }
 .ground-arrow {
   text-align: center;
@@ -4198,9 +3050,6 @@ button.trace-iri-copy:hover:not(:disabled) {
    would break the line. `.ground-link-btn` was the first of these and keeps its
    name; new uses take the plain one. */
 /* The models a custom endpoint reported, to choose from. */
-.ai-setup-models {
-  margin-top: var(--space-2);
-}
 .linklike,
 .ground-link-btn {
   background: none;
@@ -4604,11 +3453,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--muted);
   font-weight: 500;
 }
-.ds-files-future {
-  margin: 0.7rem 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-}
 .ds-conn-list {
   display: flex;
   flex-direction: column;
@@ -4677,152 +3521,12 @@ button.trace-iri-copy:hover:not(:disabled) {
 .vocab-back-arrow {
   transform: rotate(180deg);
 }
-.vocab-banner {
-  display: flex;
-  gap: 0.9rem;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--activity);
-  border-radius: var(--radius);
-  padding: 0.9rem 1.1rem;
-}
-.vocab-banner-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  background: var(--activity-soft);
-  color: var(--activity);
-}
-.vocab-banner-title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  margin-bottom: 0.25rem;
-}
-.vocab-banner-hl {
-  color: var(--activity);
-}
-.vocab-banner-sub {
-  font-size: 0.875rem;
-  color: var(--body);
-  line-height: 1.7;
-}
-.vocab-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 1rem;
-  align-items: start;
-}
-.vocab-live-note {
-  margin: 0.25rem 0 0.75rem;
-  color: var(--body);
-  font-size: 0.875rem;
-}
-.vocab-live-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.vocab-live-term {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-}
-.vocab-live-label {
-  font-weight: 600;
-  color: var(--fg);
-}
-.vocab-live-iri {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-.vocab-live-count {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  color: var(--entity);
-  font-weight: 600;
-  font-size: 0.85rem;
-}
 .vocab-card-head {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   flex-wrap: wrap;
   margin-bottom: 0.8rem;
-}
-.vocab-card-meta {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
-}
-
-.vocab-user-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-.vocab-user {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  padding: 0.7rem 0.8rem;
-}
-.vocab-user-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.vocab-user-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-.vocab-user-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-}
-.vocab-user-src {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.vocab-caution {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  background: var(--accent-soft);
-  border: 1px solid rgba(192, 139, 62, 0.25);
-  border-radius: var(--radius-sm);
-  padding: 0.7rem 0.85rem;
-  font-size: 0.875rem;
-  color: var(--fg);
-  line-height: 1.6;
-}
-.vocab-caution-icon {
-  color: var(--accent);
-  flex: none;
-  margin-top: 0.1rem;
-}
-
-@media (max-width: 820px) {
-  .vocab-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* App-level error boundary fallback (replaces a white-screen render crash). */
@@ -5563,361 +4267,17 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 
 /* crosswalk management view */
-.crosswalk-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
 
 /* ontology map (俯瞰) */
-.ontomap-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.ontomap-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.ontomap-chip {
-  font-size: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.2rem 0.7rem;
-  background: var(--surface-alt);
-  color: var(--muted);
-}
-.ontomap-chip--ds {
-  border-color: transparent;
-  background: var(--entity-soft);
-  color: var(--entity);
-  font-weight: 600;
-}
-.ontomap-chip--xw {
-  border-color: transparent;
-  background: var(--link-soft);
-  color: var(--link);
-  font-weight: 600;
-}
-.ontomap-chip--ext {
-  border-color: var(--border);
-  background: var(--surface-alt);
-  color: var(--muted);
-}
-.ontomap-legend-keys {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.9rem;
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.ontomap-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-.ontomap-key-line {
-  width: 18px;
-  height: 0;
-  flex: none;
-}
-.ontomap-key-line--solid {
-  border-top: 2.4px solid var(--link);
-  border-radius: 2px;
-}
-.ontomap-key-line--dotted {
-  border-top: 2px dashed var(--faint);
-}
-.ontomap-key-box {
-  width: 13px;
-  height: 13px;
-  border-radius: 4px;
-  border: 1.5px solid var(--primary);
-  flex: none;
-}
-.ontomap-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.875rem;
-  color: var(--body);
-  cursor: pointer;
-  margin-left: auto;
-}
 
 /* ---- 3-lane overview map (v2 ScreenMap) ---- */
-.ontomap-card {
-  overflow: auto;
-  padding: 0.5rem;
-  background: #fbfdfa;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-soft);
-}
-.ontomap-canvas {
-  position: relative;
-  margin: 0 auto;
-}
-.ontomap-lane-head {
-  position: absolute;
-  top: 0;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-}
-.ontomap-lane-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
-  flex: none;
-}
-.ontomap-lane-label {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--fg);
-}
-.ontomap-lane-en {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
-}
-.ontomap-edges {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-.ontomap-edge {
-  fill: none;
-}
-.ontomap-edge--solid {
-  stroke: #9cc0dd;
-  stroke-width: 1.6;
-}
 .ontomap-edge--solid.is-on {
   stroke: var(--link);
   stroke-width: 2.4;
 }
-.ontomap-edge--dotted {
-  stroke: var(--faint);
-  stroke-width: 1.4;
-  stroke-dasharray: 2 5;
-}
-.ontomap-node {
-  position: absolute;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-soft);
-  padding: 0.7rem 0.8rem;
-  text-align: left;
-  overflow: hidden;
-}
-.ontomap-node--ds {
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.ontomap-node--ds:hover {
-  border-color: var(--border-strong);
-}
 .ontomap-node--ds.is-selected {
   border-color: var(--primary);
   box-shadow: var(--shadow);
-}
-.ontomap-node--hub {
-  background: var(--link-soft);
-  border-color: color-mix(in srgb, var(--link) 35%, transparent);
-  justify-content: center;
-  gap: 0.25rem;
-}
-.ontomap-node--ext {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.6rem;
-  border-radius: 999px;
-}
-.ontomap-node-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-.ontomap-node-chip {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-.ontomap-node-chip--ds {
-  background: var(--entity-soft);
-  color: var(--entity);
-}
-.ontomap-node-chip--hub {
-  background: var(--surface);
-  color: var(--link);
-}
-.ontomap-node-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.ontomap-node--ds .ontomap-node-badge {
-  display: none;
-}
-.ontomap-node--ds:hover .ontomap-node-badge,
-.ontomap-node--ds:focus-visible .ontomap-node-badge {
-  display: inline;
-}
-.ontomap-node-badge {
-  margin-left: auto;
-  flex: none;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--primary);
-  background: var(--primary-soft);
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.ontomap-node-pills {
-  display: flex;
-  gap: 0.3rem;
-  flex-wrap: wrap;
-}
-.ontomap-pill {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--entity);
-  background: var(--entity-soft);
-  padding: 0.12rem 0.5rem;
-  border-radius: 999px;
-}
-.ontomap-node-std {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: auto;
-  flex-wrap: wrap;
-}
-.ontomap-node-std-label {
-  font-size: 0.8rem;
-  color: var(--faint);
-}
-.ontomap-node-std-tok {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--link);
-}
-.ontomap-hub-key {
-  font-size: 0.8rem;
-  color: var(--body);
-  padding-left: 2rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ontomap-ext-tok {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--link);
-  flex: none;
-}
-.ontomap-ext-what {
-  font-size: 0.875rem;
-  color: var(--body);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.xw-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  padding: 0.4rem 0.2rem;
-}
-.xw-summary-stat {
-  display: flex;
-  flex-direction: column;
-}
-.xw-summary-num {
-  font-family: var(--font-display);
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--entity);
-}
-.xw-summary-label {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-.xw-summary-note {
-  margin: 0.5rem 0 0;
-  padding-top: 0.6rem;
-  border-top: 1px solid var(--border);
-  font-size: 0.8rem;
-  color: var(--muted);
-  line-height: 1.6;
-}
-.xw-concept {
-  display: flex;
-  flex-direction: column;
-}
-.xw-part-pred {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.xw-rebuild-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
-}
-.xw-built-at {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.xw-tools-head {
-  margin-top: 0.4rem;
-}
-.xw-persp-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.xw-persp-tab {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  text-align: left;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-soft);
-  padding: 0.5rem 0.8rem;
-  cursor: pointer;
-  color: var(--fg);
 }
 .xw-persp-tab:hover:not(.active) {
   border-color: var(--border-strong);
@@ -5927,296 +4287,25 @@ button.trace-iri-copy:hover:not(:disabled) {
   border-top-width: 3px;
   box-shadow: var(--shadow);
 }
-.xw-persp-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-}
-.xw-persp-meta {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--faint);
-}
 
 /* 視点をつなぐ (multi-perspective Phase 2 — schema alignment) */
-.xw-align {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  border-top: 1px solid var(--border);
-  padding-top: 1rem;
-  margin-top: 0.4rem;
-}
-.xw-align-form {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 0.8rem;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.8rem 0.9rem;
-}
-.xw-align-side {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 220px;
-  flex: 1;
-}
-.xw-align-side-label {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-.xw-align-rel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-}
-.xw-align-arrow {
-  color: var(--faint);
-}
-.xw-align-btn {
-  align-self: flex-end;
-}
 /* ---- つながりを作る（かんたん層）--------------------------------------------
    Cards reuse the kantan design system (.kz-card / .kz-title / .kz-note /
    .kz-actions) so the two guided flows look like one product. Only what is
    specific to a connection candidate lives here. Value chips deliberately mirror
    .skeleton-evidence-id's look without reusing its class — coupling the two
    features' styles would make either one unsafe to touch. */
-.xw-create {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.xw-create-band {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--link);
-  border-radius: var(--radius-sm);
-  padding: 0.7rem 0.9rem;
-  margin-bottom: var(--space-4);
-}
 /* No connections yet: the same band, given room to be the thing you notice. */
-.xw-create-band--hero {
-  flex-direction: column;
-  text-align: center;
-  gap: var(--space-2);
-  padding: var(--space-5) var(--space-4);
-  border-left-width: 1px;
-}
-.xw-create-band-icon {
-  color: var(--link);
-  display: flex;
-}
-.xw-create-band-text {
-  flex: 1;
-  min-width: 0;
-}
-.xw-create-band-title {
-  margin: 0;
-  font-weight: 600;
-}
-.xw-create-band-sub {
-  margin: 0.15rem 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.xw-create-band-actions {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  justify-content: center;
-}
 /* 候補カードは関係図を 1 枚抱えるようになったので、横並びに耐える下限を上げる
    （320px だとノード 2 つとリンクが縦に折り返してしまう）。 */
-.xw-cand-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr));
-  gap: var(--space-3);
-}
-.xw-cand-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-.xw-cand-skel {
-  min-height: 190px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
-}
-.xw-cand-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.xw-cand-label {
-  font-weight: 600;
-  font-size: 1.02rem;
-}
-.xw-cand-count {
-  color: var(--entity);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.xw-cand-vals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-.xw-cand-val {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  background: var(--surface-2, var(--bg));
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.1rem 0.4rem;
-}
-.xw-cand-note {
-  margin: 0.3rem 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.xw-cand-caution {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--accent);
-}
-.xw-cand-actions {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: 0.3rem;
-  flex-wrap: wrap;
-}
-.xw-cand-pick {
-  font-weight: 600;
-}
-.xw-confirm-row {
-  display: flex;
-  gap: var(--space-3);
-  padding: 0.3rem 0;
-  border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-.xw-confirm-label {
-  min-width: 9rem;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-.xw-confirm-value {
-  font-weight: 500;
-}
-.xw-confirm-name {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  margin-top: var(--space-3);
-}
 /* The detail tier, folded away: present in full, just not competing with the one
    decision most people came here to make. */
-.xw-manual {
-  margin-top: var(--space-5);
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-3);
-}
-.xw-manual-summary {
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-.xw-manual-note {
-  font-size: 0.875rem;
-  color: var(--body);
-  margin: 0.3rem 0 var(--space-3);
-}
-
-.xw-align-empty-hint,
-.xw-align-none,
-.xw-align-gate {
-  font-size: 0.875rem;
-  color: var(--body);
-  margin: 0;
-}
 /* Alignments this surface cannot author (grounding to an external standard, or a
    crosswalk whose config did not load): disclosed, never hidden — the withdrawal
    path has to stay reachable. */
-.xw-align-others {
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.7rem;
-}
-.xw-align-others > summary {
-  cursor: pointer;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-.xw-align-others[open] > summary {
-  margin-bottom: 0.5rem;
-}
 .xw-align-others .xw-hint-inline {
   display: block;
   margin-bottom: 0.4rem;
-}
-.xw-align-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.xw-align-row {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  flex-wrap: wrap;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--entity);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.7rem;
-}
-.xw-align-claim {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.xw-align-term {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--fg);
-}
-.xw-align-relchip {
-  font-size: 0.8rem;
-  color: var(--muted);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-}
-.xw-align-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  margin-left: auto;
-  text-align: right;
-}
-.xw-align-persp {
-  font-size: 0.875rem;
-  color: var(--body);
-}
-.xw-align-remove {
-  flex: none;
 }
 
 /* ---- ingest-rules transparency (RulesPanel: projection / viewer / history) ---- */
@@ -6841,10 +4930,6 @@ button.ds-artifact:disabled {
   font-size: 0.7rem;
   color: var(--muted);
 }
-.kz-links-table {
-  table-layout: fixed;
-  width: 100%;
-}
 /* ⭐.kz-preview-table td { white-space: nowrap } が後方（cascade で勝つ位置）に
    あるため、同詳細度の .kz-links-table td では解けない — 複合クラスで上げる。
    nowrap のままだと意味の長文がセルからあふれ、外側の tablewrap（overflow-x:
@@ -6903,9 +4988,6 @@ button.ds-artifact:disabled {
   color: var(--muted);
   font-size: 0.8rem;
 }
-.kz-links-meaning {
-  color: var(--muted);
-}
 .kz-links-keyq {
   margin-top: 0.8rem;
   padding: 0.9rem;
@@ -6940,10 +5022,6 @@ button.ds-artifact:disabled {
 }
 .skeleton-fix-head {
   margin-top: var(--space-4);
-}
-.skeleton-zone-actions {
-  margin: 0 0 var(--space-3);
-  gap: var(--space-2);
 }
 /* D4 の入口。相談の帯とは行を分ける — 「AI に頼む」の並びに人の操作が混ざると
    意図が読めない（利用者指摘 2026-08-31）。1 行のリードが「いつ使うか」を言う。 */
@@ -7088,11 +5166,6 @@ tr[data-map].skeleton-gate-row--added td {
 }
 .skeleton-gap-add:hover {
   filter: brightness(1.08);
-}
-.skeleton-entity-conflict-note {
-  display: block;
-  font-weight: 600;
-  font-size: 0.875rem;
 }
 .skeleton-entity-conflict-value {
   font-family: var(--font-mono);
@@ -7621,21 +5694,12 @@ tr[data-map].skeleton-gate-row--added td {
 
 /* S6: the column-meaning table. Reuses the preview table skin; a row whose
    meaning could not be read gets the amber marker (eye guidance, not a gate). */
-.kz-cols-caption {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--body);
-  margin-bottom: var(--space-1);
-}
 .kz-cols-table td {
   vertical-align: top;
 }
 .kz-cols-name {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.875rem;
-}
-.kz-cols-samples {
-  color: var(--muted);
 }
 .kz-cols-input,
 .kz-cols-table select {
@@ -7872,24 +5936,8 @@ tr.kz-cols-dropped td {
 
 /* Meaning decisions that only the data owner can make stay visually separate
    from the optional AI-assisted structural edit below them. */
-.kz-unmapped {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border: 1px solid var(--warn-border);
-  border-radius: var(--radius);
-  background: var(--warn-bg);
-}
 /* Every row settled: the warning tint would now be shouting at a finished
    table, so the panel calms down to the settled-state green. */
-.kz-unmapped--done {
-  border-color: var(--success-border);
-  background: var(--success-bg);
-}
-.kz-unmapped h4 {
-  margin: 0;
-}
 .kz-structure-fix {
   margin-top: var(--space-2);
   border-top: 1px solid var(--border);
@@ -7949,17 +5997,6 @@ tr.kz-cols-dropped td {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-}
-.kz-qa-cite {
-  display: inline-block;
-  margin-top: var(--space-1);
-  font-size: 0.875rem;
-  color: var(--primary);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-.kz-qa-cite:hover {
-  text-decoration: underline;
 }
 
 /* S8: publish — the name field, the 名前/中身/ことば rows, and the word list. */
@@ -8142,11 +6179,6 @@ tr.kz-cols-dropped td {
 }
 
 /* S9: done — chips are .kz-pill; the grow-the-dataset section below a rule. */
-.kz-divider {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: var(--space-4) 0 var(--space-3);
-}
 
 /* ---------------------------------------------------------------------------
    Dataset panels — plain-language layer (kantan everywhere / dataset-panels)
@@ -8345,10 +6377,6 @@ tr.kz-cols-dropped td {
 /* One-tap fill for a meaning the person cannot supply: it sits under the empty
    field it fills, so it reads as an answer to that field rather than a row
    action. */
-.kz-cols-usename {
-  display: block;
-  margin-top: 0.25rem;
-}
 
 /* Where a column came from when it is NOT one of the file's headings — the
    dialect layer broadcasts an instrument preamble onto every row, and a
@@ -8520,126 +6548,26 @@ tr.kz-cols-dropped td {
    3 状態（未判断／取り込む／取り込まない）は K22 のまま保つ。どちらの radio も
    checked でないことが「まだ決めていない」で、機械は既定を持たない。
    -------------------------------------------------------------------------- */
-.kz-unmapped-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.kz-unmapped-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
 /* まだ決まっていない 1 枚。パネル全体の色ではなく行の側で言う — パネルだけが
    黄色いと、10 件のうちどれが残っているのかが分からない。 */
 .kz-unmapped-row.kz-attn {
   border-color: var(--warn-border);
   box-shadow: inset 3px 0 0 var(--warn-fg);
 }
-.kz-unmapped-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.kz-unmapped-name {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--fg);
-}
 /* 実データ。判断の根拠なので消さないが、判断そのものより弱い声で、
    カードを縦に伸ばさないよう 1 行に収める。 */
-.kz-unmapped-samples {
-  flex: 1 1 8rem;
-  min-width: 0;
-  font-size: 0.8rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* 2 つの選択肢。native の radio なので、矢印キーでの移動も「どちらも選ばれて
    いない」の読み上げも素のまま効く。見た目だけをボタンに寄せる。 */
-.kz-decide {
-  display: flex;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-.kz-decide-opt {
-  display: inline-flex;
-  cursor: pointer;
-}
-.kz-decide-opt input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-.kz-decide-opt span {
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  padding: 0.3rem 0.85rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--body);
-  background: var(--surface);
-}
-.kz-decide-opt:hover span {
-  border-color: var(--primary);
-  background: var(--primary-softer);
-}
-.kz-decide-opt input:checked + span {
-  border-color: var(--primary);
-  background: var(--primary-soft);
-  color: var(--primary);
-}
 /* キーボードだけで操作している人に、いまどちらに居るかを見せる（input は
    視覚的に隠してあるので、フォーカスリングは span が代わりに描く）。 */
-.kz-decide-opt input:focus-visible + span {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-.kz-decide-opt input:disabled + span {
-  opacity: 0.5;
-  cursor: default;
-}
 /* 「取り込む」を選んだときだけ現れる欄。選ぶ前から disabled の空欄が並んでいると、
    何を求められているのかが読めない。 */
-.kz-unmapped-form {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border);
-}
-.kz-unmapped-form select {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.35rem 0.5rem;
-  font: inherit;
-  background: var(--surface);
-  color: var(--body);
-}
 
 /* S8: 「中身 / ことば / あとから」= 公開すると何がどうなるか、への 3 つの答え。
    1 つの表として読ませる（K23）。.kz-kv は S7 の引用詳細とも共有しているので、
    幅を揃えるのはこの 3 行だけに閉じる。 */
 .kz-s8-later .kz-kv-key {
   min-width: 3.5em;
-}
-.kz-promise {
-  color: var(--body);
 }
 
 /* S9:「次にできること」は並列な選択肢で、順番のある手順ではない。<hr> で縦に
@@ -8687,13 +6615,6 @@ tr.kz-cols-dropped td {
    なのに、参加チップの行・件数バッジ・同一視の 1 文が画面の別々の場所に散って
    いた。1 枚の絵に集める。
    -------------------------------------------------------------------------- */
-.xw-diagram {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  overflow: hidden;
-}
 .xw-diagram .react-flow__panel {
   display: none;
 }
@@ -8701,119 +6622,25 @@ tr.kz-cols-dropped td {
   opacity: 0;
   pointer-events: none;
 }
-.xw-diagram-node {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.1rem;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  text-align: center;
-}
-.xw-diagram-name {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--fg);
-  /* 名前の長さは読めない（利用者のデータ名）。2 行で省略し、全文は title に。 */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
 /* 項目名はファイル側の見出し＝人が書いた文字列なので、名前とは別の声で。 */
-.xw-diagram-field {
-  max-width: 100%;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* 中央。線は飾りではなく「つながっている」ことそのものなので、色はつながりの
    意味色（--link）を使う（ui-guidelines §1: 処理・つながり＝青）。 */
-.xw-diagram-hub {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.1rem;
-  padding: var(--space-2);
-  text-align: center;
-}
 .xw-diagram .react-flow__edge-path {
   stroke: var(--link);
   stroke-width: 1.5;
   fill: none;
 }
-.xw-diagram-head {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--link);
-}
-.xw-diagram-note {
-  font-size: 0.8rem;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
 
 /* つなぎ方の候補カード: 「つながるデータ / 両方にある値 / 同じとみなす」の 3 行。
    同じ 3 つを毎回同じ順で言う（どのカードを見ても同じ場所に同じ種類の事実）。 */
-.xw-cand-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0;
-}
 /* 見出しは値の上。カードは grid のトラックの中に居るので、ビューポートの幅からは
    カード自身の幅が読めない（container query が要る形）。2 段組にすると、狭い
    トラックで値の側が潰れて関係図がデータ名の途中で折り返す。 */
-.xw-cand-rows > dt {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-.xw-cand-rows > dd {
-  margin: 0 0 var(--space-2);
-  min-width: 0;
-}
-.xw-cand-rows > dd:last-child {
-  margin-bottom: 0;
-}
 
 /* ことば: その語が外の世界と共有されているかどうか。「まとめて質問しやすいか」
    を決めるのはここなので、一覧の下の再利用表と読み合わせずに済むよう語に付ける。 */
-.vocab-origin {
-  flex: none;
-  font-size: 0.75rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.05rem 0.5rem;
-  color: var(--muted);
-  background: var(--surface-alt);
-}
-.vocab-origin--std {
-  color: var(--success-fg);
-  background: var(--success-bg);
-}
 
 /* 引用カード: 見出しは人間の言葉、ID は副情報（引くときに要る文字列）。 */
-.citation-id {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* --------------------------------------------------------------------------
    アクティビティ: 1 行 1 事実のカード（K23）
@@ -8821,57 +6648,6 @@ tr.kz-cols-dropped td {
    6 列の表は「どれが失敗したか」を横に読ませ、状態は 2 列目の色付き文字でしか
    言っていなかった。状態を先頭のピルにして、1 件の顛末を 3 行で言い切る。
    -------------------------------------------------------------------------- */
-.job-cards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.job-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.job-card--warn {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
-}
-.job-card--bad {
-  border-color: var(--error-border);
-  background: var(--error-bg);
-}
-.job-card-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.job-card-head .job-file {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--fg);
-  overflow-wrap: anywhere;
-}
-.job-card-head .job-kind {
-  font-size: 0.8rem;
-  font-weight: 400;
-  color: var(--muted);
-}
-.job-card-fact {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--body);
-  font-variant-numeric: tabular-nums;
-}
-.job-card-meta {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 
 /* --------------------------------------------------------------------------
    S4「データの数えかた」— 1 種類 = 1 枚（K23 / 採用デザイン 改善案A）
@@ -9064,17 +6840,6 @@ tr.kz-cols-dropped td {
 /* 見出しに見出しの顔をさせる。畳みの summary と地の文が同じ 0.82rem / --muted
    だったので、「見取り図」も「進め方」も本文に埋もれていた（利用者評価
    2026-08-27「見出し感がなくて区別がつきづらい」「コントラストが低い」）。 */
-.skeleton-section-head {
-  margin: var(--space-2) 0 var(--space-1);
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--fg);
-}
-.skeleton-diagram-block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
 /* 畳みの見出しも本文と同じ濃さにする。--muted は「二次情報」の色だが、
    summary は押す場所なので、押せると分かる濃さが要る。 */
 .kz-fold > summary,
@@ -9101,15 +6866,6 @@ tr.kz-cols-dropped td {
 /* カードの行そのものを「種類にする」選択欄にする（2026-08-27）。候補の一覧を
    カードと別に並べると、同じ 17 行が値の一覧とチェックの一覧に二度出る。
    判断材料は値なので、値のとなりにチェックを置く。 */
-.skeleton-entity-pick {
-  width: 1.6rem;
-  padding: 0.12rem 0.35rem 0.12rem 0;
-  vertical-align: top;
-}
-.skeleton-entity-pick input {
-  margin: 0.15rem 0 0;
-  cursor: pointer;
-}
 
 /* K32 種類の選別ゾーン: タブの前に、ヘッダ表の全列を値つきで 1 回だけ並べる。
    チェック＝「この列をひとつの種類として数える」。AI の骨格は初期チェック。 */
@@ -9147,10 +6903,6 @@ tr.kz-cols-dropped td {
 }
 
 /* 名前の書き方の直し（K38）: 警告文のすぐ後ろに置く。 */
-.skeleton-name-fix {
-  margin-left: 0.5rem;
-  vertical-align: baseline;
-}
 
 /* S6 の構造的な指摘（K43）。表を触る前に読ませる 1 行。 */
 .kz-note--warn {
@@ -9385,13 +7137,6 @@ tr.kz-cols-dropped td {
 }
 
 /* 全体像も React Flow で描く（レーンの座標は自前のまま）。 */
-.ontomap-flow {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-alt);
-  overflow: hidden;
-}
 .ontomap-flow .react-flow__background path,
 .ontomap-flow .react-flow__background circle {
   fill: var(--border);
@@ -9407,10 +7152,6 @@ tr.kz-cols-dropped td {
   pointer-events: none;
 }
 /* 節の中身は従来のまま。位置決めだけ React Flow に渡したので、絶対配置は外す。 */
-.ontomap-flow .ontomap-node,
-.ontomap-flow .ontomap-lane-head {
-  position: static;
-}
 .ontomap-flow .react-flow__edge-path {
   stroke: var(--link);
   stroke-width: 1.6;
@@ -9890,14 +7631,6 @@ tr.kz-cols-dropped td {
 }
 
 /* つながりの削除 — 押し間違いを誘わない控えめな危険ボタン（confirm が本丸）。 */
-.xw-delete-btn {
-  color: var(--error-fg);
-  border-color: var(--error-border);
-}
-.xw-delete-btn:hover:not(:disabled) {
-  background: var(--error-bg);
-  border-color: var(--error-fg);
-}
 
 /* 構造図の項目に添える「実データの例」（Phase 2・中身タブ）。名前が主役なので
    例は縮む側に置き、長い値は省略する — 中身が「ある」ことが分かれば足りる。 */
