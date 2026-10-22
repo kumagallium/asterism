@@ -400,6 +400,24 @@ export function hitDraftEdge(layout: SkyLayout, px: number, py: number, openDraf
   return best
 }
 
+/** 押した所にある線（知識の線・提案の線）。小さな札の上か、線から 7px 以内。開いている下書きかどうかは問わない。 */
+export function hitLineEdge(layout: SkyLayout, px: number, py: number): SkyEdge | null {
+  let best: SkyEdge | null = null
+  let bd = Infinity
+  for (const e of layout.edges) {
+    if (e.kind !== 'concept' && e.kind !== 'draft') continue
+    const g = conceptEdgeGeom(layout, e)
+    if (!g) continue
+    let d = distToCurve(g, px, py)
+    if (e.pill && Math.abs(px - e.pill.x) <= 16 && Math.abs(py - e.pill.y) <= 9) d = Math.min(d, 0)
+    if (d <= 7 && d < bd) {
+      bd = d
+      best = e
+    }
+  }
+  return best
+}
+
 /** 線の端の丸（矢じりのそば）の位置。 */
 export function draftHandlePos(layout: SkyLayout, e: SkyEdge): { x: number; y: number } | null {
   const g = conceptEdgeGeom(layout, e)

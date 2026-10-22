@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import type { SkyEdge, SkyLayout, SkyNode } from '../sky/skyLayout'
 import type { Session, Turn, TurnState } from './chatApi'
 import {
   applyConfirm,
+  byKeyOf,
+  pointQueryOf,
+  removeOf,
+  selectionOfEdge,
+  selectionOfNode,
+  thinPointOf,
+  sameSel,
+  showsContents,
   applyRevert,
   applyTurnResponse,
   confirmTargets,
@@ -238,5 +247,60 @@ describe('✓ の区分（話・表・機械）と選び待ち', () => {
     expect(showMachineMark({ ...table('t2'), by: 'machine' })).toBe(false)
     expect(showMachineMark({ ...waiting('t3'), by: 'machine' })).toBe(false)
     expect(showMachineMark(turn('t4', 'proposed'))).toBe(false)
+  })
+})
+
+
+describe('点の選択', () => {
+  it('pointQueryOf: 確認済みの点は iri・提案の札は draft:<id>:<key>・視点は hub:<id>・線は from/relation/to', () => {
+    expect(pointQueryOf({ kind: 'term', iri: 'a', label: 'A' })).toEqual({ iri: 'a' })
+    expect(pointQueryOf({ kind: 'draft', iri: 'k1', draftId: 'd9', label: 'A' })).toEqual({ iri: 'draft:d9:k1' })
+    expect(pointQueryOf({ kind: 'hub', iri: 'h1', label: 'H' })).toEqual({ iri: 'hub:h1' })
+    expect(pointQueryOf({ kind: 'line', from: 'a', relation: 'isPartOf', to: 'b', label: 'x' })).toEqual({ from: 'a', relation: 'isPartOf', to: 'b' })
+    expect(pointQueryOf({ kind: 'line', from: 'draft:d9:k1', relation: 'lowers', to: 'qudt:Kelvin', label: 'x', draft: true })).toEqual({
+      from: 'draft:d9:k1',
+      relation: 'lowers',
+      to: 'qudt:Kelvin',
+    })
+  })
+  it('selectionOfEdge: 提案の線は draft: 形・標準の語は curie のまま', () => {
+    const nodes = new Map<string, SkyNode>([
+      ['a', { type: 'draft', id: 'a', label: 'A' } as unknown as SkyNode],
+      ['s', { type: 'std', id: 's', label: 'K' } as unknown as SkyNode],
+    ])
+    const layout = { nodes } as unknown as SkyLayout
+    const e = { kind: 'draft', from: 'a', to: 's', draft: { draftId: 'd9', rel: 'lowers', fromKey: 'k1', toKey: 'qudt:Kelvin' } } as unknown as SkyEdge
+    expect(selectionOfEdge(layout, e)).toMatchObject({ kind: 'line', from: 'draft:d9:k1', relation: 'lowers', to: 'qudt:Kelvin', draft: true })
+  })
+  it('selectionOfNode: 提案の札は draftId・薄い星は thin（api を呼ばない）', () => {
+    const d = { type: 'draft', id: 'x', label: 'A', draftId: 'd9', conceptKey: 'k1' } as unknown as SkyNode
+    expect(selectionOfNode(d)).toMatchObject({ kind: 'draft', draftId: 'd9', iri: 'k1' })
+    const layout = { nodes: new Map([['d|ds1', { label: '価格表' }]]) } as unknown as SkyLayout
+    const k = { type: 'kind', id: 'k', iri: 'https://k', label: '商品', datasetId: 'ds1', proposed: true } as unknown as SkyNode
+    const sel = selectionOfNode(k, layout)
+    expect(sel).toMatchObject({ kind: 'kind', thin: { dataset: '価格表' } })
+    expect(thinPointOf(sel as { iri: string; label: string; thin: { dataset: string } }).thin).toEqual({ dataset: '価格表' })
+  })
+  it('removeOf: 用語と確認済みの線だけ', () => {
+    expect(removeOf({ kind: 'term', iri: 'a', label: 'A' })).toEqual({ iri: 'a' })
+    expect(removeOf({ kind: 'line', from: 'a', relation: 'isPartOf', to: 'b', label: 'x' })).toEqual({ from: 'a', relation: 'isPartOf', to: 'b' })
+    expect(removeOf({ kind: 'line', from: 'a', relation: 'isPartOf', to: 'b', label: 'x', draft: true })).toBeNull()
+    expect(removeOf({ kind: 'kind', iri: 'a', label: 'A' })).toBeNull()
+  })
+  it('sameSel', () => {
+    const a = { kind: 'term', iri: 'a', label: 'A' } as const
+    expect(sameSel(a, { ...a, label: 'B' })).toBe(true)
+    expect(sameSel(a, { kind: 'kind', iri: 'a', label: 'A' })).toBe(false)
+    expect(sameSel(null, null)).toBe(true)
+    expect(sameSel(a, null)).toBe(false)
+  })
+  it('byKeyOf・showsContents', () => {
+    expect(byKeyOf('ai')).toBe('byAi')
+    expect(byKeyOf('machine')).toBe('byMachine')
+    expect(byKeyOf('human')).toBe('byHuman')
+    expect(showsContents('kind', 0)).toBe(true)
+    expect(showsContents('term', 0)).toBe(false)
+    expect(showsContents('term', 1)).toBe(true)
+    expect(showsContents('std', 3)).toBe(false)
   })
 })

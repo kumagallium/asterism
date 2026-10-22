@@ -860,6 +860,28 @@ async def _read_terms(client: Any) -> list[SharedTerm]:
     return sorted(out, key=lambda t: t.slug)
 
 
+async def term_provenance(client: Any, iri: str) -> dict[str, str] | None:
+    """A minted term's provenance, read only: ``{"drafted_by": "ai"|"human", "at": iso}``.
+
+    ``drafted_by`` is ``"ai"`` when ``xw:draftedBy`` was written (an AI draft a person
+    adopted), else ``"human"``; ``at`` is ``xw:confirmedAt`` (else ``prov:generatedAtTime``).
+    ``None`` when the term is not in the shared graph. Nothing is written."""
+    _check_iri(iri)
+    rows = await _bindings(
+        client,
+        f"SELECT ?p ?o WHERE {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> ?p ?o }} "
+        f"VALUES ?p {{ <{XW}draftedBy> <{XW}confirmedAt> <{_PROV}generatedAtTime> }} }}",
+    )
+    if not rows:
+        return None
+    got = {b["p"]["value"]: b["o"]["value"] for b in rows}
+    by = got.get(f"{XW}draftedBy")
+    return {
+        "drafted_by": by if by in DRAFTED_BY else "human",
+        "at": got.get(f"{XW}confirmedAt") or got.get(f"{_PROV}generatedAtTime") or "",
+    }
+
+
 async def ontology_terms(client: Any) -> dict[str, str]:
     """Every class / property in a dataset's ontology graph → that dataset's id (the
     last segment of ``…/graph/ontology/{id}``). On an IRI that two datasets declare,
@@ -1753,6 +1775,7 @@ __all__ = [
     "remove_term",
     "slug_of",
     "term_iri",
+    "term_provenance",
     "undismiss_fit",
     "upper_map",
 ]

@@ -31,7 +31,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from asterism import chat_sessions, graph_diff, shared_vocab, themes
+import httpx
+from asterism import chat_sessions, crosswalk_runtime, graph_diff, query_tools, shared_vocab, themes
 from asterism.shared_vocab import SharedTerm, normalize_label
 from asterism_step0.graph_propose import (
     _QUESTION_LIKE,
@@ -41,7 +42,7 @@ from asterism_step0.graph_propose import (
 )
 from asterism_step0.theme_propose import ThemeDraftError, propose_theme_draft
 
-from asterism_api import chat_seed
+from asterism_api import chat_intent, chat_seed
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +51,20 @@ __all__ = [
     "TurnRefused",
     "ai_text_turn",
     "apply_text_turn",
+    "ask_history",
+    "ask_remote",
     "blank_answer",
     "commit_body",
     "confirm",
     "is_undo",
     "prepare_text_turn",
     "revert",
+    "revert_confirmed",
+    "run_ask_turn",
+    "run_ask_unavailable_turn",
     "run_ops_turn",
     "run_set_answer_turn",
+    "run_show_turn",
     "run_text_turn",
     "run_undo_turn",
     "sync_answers",
@@ -333,18 +340,11 @@ def run_text_turn(
 
 _MAX_HISTORY = 12  # AI に見せる話の手番（最近）
 _MAX_CONTENT = 2000
-_UNDO_JA = re.compile(
-    r"^(さっきの|前の|今の|それ|元に)[をは]?(戻して|取り消して|やめて)(ください|くれ)?[。！!]?$"
-)
-_UNDO_EN = re.compile(
-    r"^(undo|revert)( that| it| this| the last( step| one)?)?[.!]?$", re.IGNORECASE
-)
 
 
 def is_undo(text: str) -> bool:
-    """「さっきのを戻して」か（決定論・AI を呼ばない）。"""
-    t = text.strip()
-    return bool(_UNDO_JA.match(t) or _UNDO_EN.match(t))
+    """「さっきのを戻して」か（決定論・AI を呼ばない）。規則は ``chat_intent`` にある。"""
+    return chat_intent.is_undo(text)
 
 
 _ASKING = re.compile(r"(?:[？?]|とは|か)[\s。.!！]*\Z")
@@ -428,12 +428,14 @@ class PreparedTurn:
 
 def _history(session: dict) -> list[dict]:
     """話の手番を古い順に ``user`` → ``assistant``。
-    ``user`` が無い・戻した・機械の手番は飛ばす（最近 12 件）。"""
+    ``user`` が無い・戻した・機械の手番・Ask の手番（``reply.answer``）は飛ばす（最近 12 件）。"""
     out: list[dict] = []
     kept = [
         t
         for t in (session.get("turns") or [])
-        if t.get("state") != "reverted" and t.get("by") != "machine"
+        if t.get("state") != "reverted"
+        and t.get("by") != "machine"
+        and not (t.get("reply") or {}).get("answer")  # Ask の手番は図の AI に見せない
     ]
     for t in kept[-_MAX_HISTORY:]:
         said = (t.get("user") or {}).get("text")
@@ -1115,6 +1117,158 @@ def run_ops_turn(
     )
 
 
+# ---- 点から外す手番（11d） ---------------------------------------------------------------------
+
+_REMOVE_TEXT = {
+    "ja": {
+        "draft": "未確認のものは、その提案を戻してください",
+        "std": "標準の語は外せません",
+        "no_term": "その用語はありません",
+        "no_relation": "その関係はありません",
+        "bad_relation": "その関係は外せません",
+        "outside": "この用語・関係が入っている図が見つかりません",
+        "not_here": "いま開いている提案には入っていません",
+    },
+    "en": {
+        "draft": "Something unconfirmed is undone by reverting its proposal",
+        "std": "A standard term cannot be removed",
+        "no_term": "No such term",
+        "no_relation": "No such relation",
+        "bad_relation": "That relation cannot be removed",
+        "outside": "No chart holds this term or relation",
+        "not_here": "It is not in the proposal that is open",
+    },
+}
+
+
+def _concept_slug(c: dict) -> str:
+    use = str(c.get("use") or "")
+    return str(c.get("slug") or (use[len("existing:") :] if use.startswith("existing:") else ""))
+
+
+def _remove_op(draft: dict, target: dict) -> dict | None:
+    """``target``（確認済みの用語 ``{"slug"}``／関係 ``{"from", "relation", "to"}`` の IRI）に
+    当たる ``remove`` の操作。この図に無ければ ``None``。"""
+    rows = [c for c in draft.get("concepts") or [] if isinstance(c, dict)]
+    slug_of = {str(c.get("key")): _concept_slug(c) for c in rows}
+    if "slug" in target:
+        key = next((k for k, sl in slug_of.items() if sl and sl == target["slug"]), None)
+        return None if key is None else {"op": "remove", "target": "concept", "key": key}
+    kinds = {_concept_slug(c): c.get("kind") for c in rows}
+    for r in draft.get("relations") or []:
+        f = slug_of.get(str(r.get("from")), "")
+        if not f:
+            continue
+        end = slug_of.get(str(r.get("to"))) or str(r.get("to"))
+        iris = chat_seed._line_iris({"kinds": kinds}, (f, str(r.get("rel")), end))
+        if iris == (target["from"], target["relation"], target["to"]):
+            return {
+                "op": "remove",
+                "target": "relation",
+                "from": str(r.get("from")),
+                "rel": str(r.get("rel")),
+                "to": str(r.get("to")),
+            }
+    return None
+
+
+def run_remove_turn(
+    session: dict,
+    remove: dict,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    published_kinds: set[str],
+    at: str,
+    lang: str,
+) -> dict:
+    """点から外す — 確認済みの用語・関係を**外す提案**にする（✓ でストアからも外れる・11b-2）。
+
+    いま開いている提案があればそこへ、無ければ確認済みのテーマを種にした下書き
+    （:func:`_seeded_draft`）を作って、その概念／関係に ``remove``（``by: human``）を当てる。
+    未確認のもの（``draft:``）・公開した種類・標準の語は 422。"""
+    lg = _lg(lang)
+    t = _REMOVE_TEXT[lg]
+    iri = remove.get("iri")
+    ends = [remove.get(k) for k in ("from", "to")]
+    if any(isinstance(x, str) and x.startswith("draft:") for x in (iri, *ends)):
+        raise TurnRefused(422, t["draft"])
+    target: dict
+    if iri is not None:
+        if iri in published_kinds:
+            raise TurnRefused(422, _DATA_NO_REVERT[lg])
+        if any(iri.startswith(ns) for ns in shared_vocab.known_namespaces()):
+            raise TurnRefused(422, t["std"])
+        term = next((x for x in existing if x.iri == iri), None)
+        if term is None:
+            raise TurnRefused(404, t["no_term"])
+        target = {"slug": term.slug}
+    else:
+        rel = graph_diff.PRED_TO_REL.get(str(remove.get("relation")))
+        if rel is None:
+            raise TurnRefused(422, t["bad_relation"])
+        if any(not isinstance(x, str) or not x for x in ends):
+            raise TurnRefused(422, t["no_relation"])
+        target = {"from": ends[0], "relation": remove["relation"], "to": ends[1]}
+    draft = _current_draft(session, root)
+    fresh: dict | None = None
+    if draft is None:
+        data = themes.load_themes_file(root) or {}
+        mine = _theme_of(session, root)
+        others = [x for x in data.get("themes") or [] if x is not mine]
+        found: tuple[dict, dict] | None = None
+        for theme in ([mine] if mine else []) + others:
+            seed = chat_seed.seed_from_theme(root, existing, theme)
+            if _remove_op(seed, target) is not None:
+                found = (theme, seed)
+                break
+        if found is None:
+            raise TurnRefused(404, t["outside"])
+        draft, fresh = _seeded_draft(found[0], found[1], [], root=root, at=at)
+    op = _remove_op(draft, target)
+    if op is None:
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise TurnRefused(409, t["not_here"])
+    keys = [str(c.get("key")) for c in draft.get("concepts") or []]
+    try:
+        clean = validate_graph_diff({"ops": [op]}, known_keys=keys, allow_taken_keys=True)["ops"]
+    except GraphDiffError as exc:
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise TurnRefused(422, f"差分が決まった形ではありません: {exc}") from exc
+    new, report = graph_diff.apply_to_draft(
+        draft, clean, existing=existing, dismissed=dismissed, by="human"
+    )
+    sentences = graph_diff.ops_to_sentences(clean, {"concepts": draft.get("concepts")}, lg)
+    if report["applied"] < 1:  # 当たらなかった（作った種つきの下書きは残さない）
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise TurnRefused(409, t["not_here"])
+    before = None if fresh is not None else copy.deepcopy(draft)
+    try:
+        saved = _save(root, new, at)
+    except TurnRefused:
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise
+    _adopt_draft(session, saved)
+    if fresh is not None:
+        _adopt_seed(session, saved, fresh)
+    return _append_turn(
+        session,
+        at=at,
+        user=None,
+        reply=_reply(
+            "・".join(sentences), ops=clean, sentences=sentences, notes=[]
+        ),
+        state="proposed",
+        before=before,
+        by="human",
+    )
+
+
 # ---- 答え方を決める手番 --------------------------------------------------------------------------
 
 #: データの答え方で、op ごとに要る欄（``themes.data_answer_complete`` と同じ）
@@ -1371,6 +1525,13 @@ def _is_theme_proposal(turn: dict) -> bool:
     )
 
 
+def _theme_by_id(root: Any, theme_id: Any) -> dict | None:
+    if not theme_id:
+        return None
+    data = themes.load_themes_file(root)
+    return next((t for t in (data or {}).get("themes") or [] if t.get("id") == theme_id), None)
+
+
 def _find(session: dict, turn_id: str) -> dict:
     for t in session.get("turns") or []:
         if t.get("id") == turn_id:
@@ -1407,6 +1568,7 @@ async def confirm(
         )
     body = commit_body(draft, lang)
     body["batch"] = turn["batch"]
+    prior = _theme_by_id(root, draft.get("extend"))
     notes = [n for n in turn["reply"].get("notes") or [] if n.get("kind") != "commit_error"]
     try:
         out = await themes.commit_theme(client, root, body, at=at)
@@ -1431,6 +1593,15 @@ async def confirm(
         "removed": removed,
         "kept": kept,
         "at": at,
+        # 戻す（11d）が取り消せるように、この ✓ で増えた問い（前のテーマに無かったもの）を控える
+        "new_questions": [
+            n for n in out["questions"] if n not in ((prior or {}).get("questions") or [])
+        ],
+        "new_memo": [
+            str(m["id"])
+            for m in out["theme"].get("memo_questions") or []
+            if m.get("id") not in {x.get("id") for x in (prior or {}).get("memo_questions") or []}
+        ],
     }
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
@@ -1479,3 +1650,364 @@ def revert(
         t["state"] = "reverted"
         t["before"] = None
     return turn, [t["id"] for t in undone]
+
+
+# ---- 「見せて」の表・Ask（11d） ----------------------------------------------------------------
+
+_ASK_HISTORY = 6  # demo-agent に見せる、話の Ask の手番（最近）
+_ASK_TIMEOUT = httpx.Timeout(600, connect=10)
+_LLM_HEADERS = ("x-api-key", "x-llm-provider", "x-llm-model", "x-llm-api-base", "x-llm-max-tokens")
+
+_ASK_TEXT = {
+    "ja": {
+        "unavailable": "質問の答えはこの環境では出せません",
+        "failed": "答えを取れませんでした。もう一度試してください",
+        "no_table": "表にできるものが見つかりませんでした",
+        "table": "「{name}」の表（{shown} 件・全 {total} 件）",
+        "via": "用語「{term}」に入っている種類「{kind}」の表",
+    },
+    "en": {
+        "unavailable": "Answers to questions are not available in this environment",
+        "failed": "Could not get an answer. Please try again",
+        "no_table": "Nothing to show as a table was found",
+        "table": "Table of \"{name}\" ({shown} of {total})",
+        "via": "Table of the kind \"{kind}\" inside the term \"{term}\"",
+    },
+}
+
+
+def run_show_turn(
+    session: dict,
+    text: str,
+    table: dict | None,
+    *,
+    via_term: str | None = None,
+    at: str,
+    lang: str,
+) -> dict:
+    """「<名前>を見せて」— AI を呼ばず、閉じたテンプレートの表を返事にする（``state: none``・
+    ``by: machine``）。``table`` が ``None`` なら一言だけ。用語から引いたときは ``via_term``
+    （用語の名前）。"""
+    lg = _lg(lang)
+    t = _ASK_TEXT[lg]
+    notes: list[dict] = []
+    if table is None:
+        said = t["no_table"]
+        notes.append(note("info", said))
+    else:
+        name = str(table["kind"]["label"])
+        said = t["table"].format(name=name, shown=len(table["rows"]), total=table["total"])
+        if via_term:
+            notes.append(note("info", t["via"].format(term=via_term, kind=name)))
+    reply = _reply(said, notes=notes)
+    reply["table"] = table
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text.strip(), "attachments": []},
+        reply=reply,
+        state="none",
+        before=None,
+        by="machine",
+    )
+
+
+def ask_history(session: dict) -> list[dict]:
+    """話の Ask の手番だけ（``reply.answer`` がある・戻していない）を古い順に
+    ``user`` → ``assistant``。最近 6 件。"""
+    kept = [
+        t
+        for t in session.get("turns") or []
+        if (t.get("reply") or {}).get("answer") and t.get("state") != "reverted"
+    ]
+    out: list[dict] = []
+    for t in kept[-_ASK_HISTORY:]:
+        said = (t.get("user") or {}).get("text")
+        answer = str(((t.get("reply") or {}).get("answer") or {}).get("text") or "").strip()
+        if said and answer:
+            out.append({"role": "user", "content": str(said)[:_MAX_CONTENT]})
+            out.append({"role": "assistant", "content": answer[:_MAX_CONTENT]})
+    return out
+
+
+async def ask_remote(
+    url: str,
+    question: str,
+    history: list[dict],
+    llm_headers: dict[str, str],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict:
+    """demo-agent の ``POST /demo/ask``（**ロックの外**）。返り = ``{"ok": True, "data": …}`` または
+    ``{"ok": False, "reason": "network"|"status"|"shape"}``（失敗は例外にしない・詳細はログ）。"""
+    headers = {k: v for k, v in llm_headers.items() if k.lower() in _LLM_HEADERS and v}
+    try:
+        async with httpx.AsyncClient(transport=transport, timeout=_ASK_TIMEOUT) as http:
+            res = await http.post(
+                url.rstrip("/") + "/demo/ask",
+                json={"question": question, "history": history},
+                headers=headers,
+            )
+    except httpx.HTTPError:
+        logger.warning("chat ask: demo-agent unreachable", exc_info=True)
+        return {"ok": False, "reason": "network"}
+    if res.status_code != 200:
+        logger.warning("chat ask: demo-agent answered %s: %s", res.status_code, res.text[:200])
+        return {"ok": False, "reason": "status"}
+    try:
+        data = res.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("answer"), str):
+        logger.warning("chat ask: unexpected body from demo-agent")
+        return {"ok": False, "reason": "shape"}
+    return {"ok": True, "data": data}
+
+
+def _short(iri: str) -> str:
+    return re.split(r"[#/]", iri.rstrip("/#"))[-1] or iri
+
+
+def _answer_of(data: dict, cited: dict[str, dict[str, str]]) -> dict:
+    """demo-agent の返事 → ``reply.answer``（出典の名前とデータセット名は ``cited`` から）。"""
+    citations = []
+    for c in data.get("citations") or []:
+        if not isinstance(c, dict) or not c.get("iri"):
+            continue
+        iri = str(c["iri"])
+        got = cited.get(iri) or {}
+        citations.append(
+            {
+                "iri": iri,
+                "label": str(c.get("label") or got.get("label") or _short(iri)),
+                "dataset_id": str(c.get("dataset_id") or got.get("dataset_id") or ""),
+                "dataset_label": str(c.get("dataset_label") or got.get("dataset_label") or ""),
+            }
+        )
+    warnings = []
+    for w in data.get("warnings") or []:
+        msg = w if isinstance(w, str) else (w or {}).get("message") or (w or {}).get("text")
+        if msg:
+            warnings.append({"message": str(msg)})
+    tools = []
+    for v in data.get("verified_tools") or []:
+        name = v if isinstance(v, str) else (v or {}).get("title") or (v or {}).get("name")
+        if name:
+            tools.append(str(name))
+    return {
+        "text": str(data.get("answer") or ""),
+        "citations": citations,
+        "notes": [str(n) for n in data.get("notes") or [] if isinstance(n, str)],
+        "warnings": warnings,
+        "verified_tools": tools,
+        "unverified_sparql": bool(data.get("unverified_sparql")),
+        "answered": bool(data.get("answered", True)),
+    }
+
+
+def run_ask_turn(
+    session: dict,
+    text: str,
+    outcome: dict,
+    *,
+    cited: dict[str, dict[str, str]] | None = None,
+    at: str,
+    lang: str,
+) -> dict:
+    """Ask の手番を足す。``outcome`` = :func:`ask_remote` の返り。何も保存しない（返事の記録だけ・
+    ``state: none``）。失敗は ``notes.ask_failed``（種別だけ）。"""
+    lg = _lg(lang)
+    user = {"text": text.strip(), "attachments": []}
+    if not outcome.get("ok"):
+        said = _ASK_TEXT[lg]["failed"]
+        return _append_turn(
+            session,
+            at=at,
+            user=user,
+            reply=_reply(said, notes=[note("ask_failed", said)]),
+            state="none",
+            before=None,
+            by="machine",
+        )
+    answer = _answer_of(outcome["data"], cited or {})
+    reply = _reply(answer["text"])
+    reply["answer"] = answer
+    return _append_turn(
+        session, at=at, user=user, reply=reply, state="none", before=None, by="ai"
+    )
+
+
+def run_ask_unavailable_turn(session: dict, text: str, *, at: str, lang: str) -> dict:
+    """demo-agent の URL が無い環境 — 一言だけ（``notes.ask_unavailable``・``state: none``）。"""
+    said = _ASK_TEXT[_lg(lang)]["unavailable"]
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text.strip(), "attachments": []},
+        reply=_reply(said, notes=[note("ask_unavailable", said)]),
+        state="none",
+        before=None,
+        by="machine",
+    )
+
+
+# ---- 確認済みの戻す（11d） ---------------------------------------------------------------------
+
+_DATA_NO_REVERT = {
+    "ja": "公開したデータは戻せません（データの削除で）",
+    "en": "Published data cannot be reverted (delete it from Data)",
+}
+
+
+_REVERT_FAILED = {"ja": "外せませんでした", "en": "could not be removed"}
+
+
+async def _term_name(client: Any, slug: str) -> str:
+    """外せなかった用語の名前（引けなければ slug）。"""
+    try:
+        iri = shared_vocab.term_iri(slug)
+        return next((t.label for t in await shared_vocab._read_terms(client) if t.iri == iri), slug)
+    except Exception:
+        return slug
+
+
+async def _line_name(client: Any, ln: dict, lg: str) -> str:
+    """外せなかった関係の一言（用語の名前で「A は B を下げる」の形）。引けなければ末尾の名前。"""
+    rel = graph_diff.PRED_TO_REL.get(str(ln.get("relation")))
+    try:
+        names = {t.iri: t.label for t in await shared_vocab._read_terms(client)}
+    except Exception:
+        names = {}
+
+    def name(iri: str) -> str:
+        return names.get(iri) or re.split(r"[#/]", iri.rstrip("/#"))[-1] or iri
+
+    if rel is None or rel not in graph_diff.REL_SENTENCE[lg]:
+        return f"{name(ln['source'])} - {name(ln['target'])}"
+    return graph_diff.REL_SENTENCE[lg][rel].format(s=name(ln["source"]), o=name(ln["target"]))
+
+
+async def revert_confirmed(
+    session: dict, turn_id: str, *, client: Any, root: Any, at: str, lang: str = "ja"
+) -> tuple[dict, dict, list[str]]:
+    """確認済みの手番を、``commit`` の記録から取り消す。返り = ``(手番, undone, 戻した手番の id)``。
+
+    線（同じ ``batch`` で足したもの）→ ``remove_alignment``・この ✓ で増えた問い → テーマから外す
+    （道具も外す）・この ✓ で鋳造した用語 → ``remove_term``（問い・ほかの関係が使っていれば残して
+    ``kept``）。同じ ``commit``（``batch``）を共有する手番は全部 ``reverted``。話の ``theme_id`` は
+    残す。公開したデータの手番は 409。"""
+    lg = _lg(lang)
+    turn = _find(session, turn_id)
+    if turn.get("attachment") or turn.get("attach_run"):
+        raise TurnRefused(409, _DATA_NO_REVERT[lg])
+    commit = turn.get("commit")
+    if turn.get("state") != "confirmed" or not isinstance(commit, dict):
+        raise TurnRefused(
+            409,
+            "戻せるのは確認済みの手番だけです"
+            if lg == "ja"
+            else "Only confirmed turns can be undone",
+        )
+    batch = commit.get("batch")
+    theme_id = commit.get("theme_id")
+    undone: dict = {"lines": 0, "terms": 0, "questions": 0, "kept": [], "failed": []}
+    minted = [str(x) for x in commit.get("minted") or []]
+    failed_why = _REVERT_FAILED[lg]
+
+    # 1. 線 — この ✓ の batch で足したものだけ
+    gone_lines: set[tuple[str, str, str]] = set()
+    if batch:
+        for ln in await crosswalk_runtime.list_alignments(client):
+            if ln.get("batch") != batch:
+                continue
+            try:
+                await crosswalk_runtime.remove_alignment(
+                    client, ln["source"], ln["target"], ln["relation"]
+                )
+            except Exception:
+                logger.warning("chat revert: remove_alignment failed", exc_info=True)
+                undone["failed"].append(
+                    {"what": await _line_name(client, ln, lg), "reason": failed_why}
+                )
+                continue
+            gone_lines.add((ln["source"], ln["relation"], ln["target"]))
+    undone["lines"] = len(gone_lines)
+
+    # 2. 問い — テーマの記録から外す（この ✓ で増えたものだけ）
+    new_q = [str(n) for n in commit.get("new_questions") or []]
+    new_memo = {str(m) for m in commit.get("new_memo") or []}
+    data = themes.load_themes_file(root)
+    if data is not None and theme_id:
+        others = [t for t in data["themes"] if t.get("id") != theme_id]
+        elsewhere = {
+            n
+            for t in others
+            for n in (*(t.get("questions") or []), *(t.get("support_questions") or []))
+        }
+        for t in data["themes"]:
+            if t.get("id") != theme_id:
+                continue
+            had = len(t.get("questions") or []) + len(t.get("memo_questions") or [])
+            t["questions"] = [n for n in t.get("questions") or [] if n not in new_q]
+            t["memo_questions"] = [
+                m for m in t.get("memo_questions") or [] if str(m.get("id")) not in new_memo
+            ]
+            for n in new_q:
+                (t.get("selections") or {}).pop(n, None)
+                (t.get("wanted") or {}).pop(n, None)
+            undone["questions"] = had - len(t["questions"]) - len(t["memo_questions"])
+            t["relations"] = [
+                r
+                for r in t.get("relations") or []
+                if (str(r.get("from")), str(r.get("relation")), str(r.get("to"))) not in gone_lines
+            ]
+        themes._save_themes(root, data)
+        drop = [n for n in new_q if n not in elsewhere]
+        if drop:
+            query_tools.remove_registry_query_tools_by_name(root, shared_vocab.REGISTRY_ID, drop)
+
+    # 3. 用語 — ほかが使っていれば残す
+    msg = chat_seed._KEPT[lg]
+    blocked = chat_seed._question_users(root) & set(minted)
+    gone_slugs: set[str] = set()
+    for slug in minted:
+        if slug in blocked:
+            undone["kept"].append({"slug": slug, "reason": msg["question"]})
+            continue
+        try:
+            await shared_vocab.remove_term(client, root, slug)
+        except shared_vocab.TermNotFound:
+            gone_slugs.add(slug)
+        except shared_vocab.TermHasLines:
+            undone["kept"].append({"slug": slug, "reason": msg["linked"]})
+        except Exception:
+            logger.warning("chat revert: remove_term failed", exc_info=True)
+            undone["failed"].append(
+                {"what": await _term_name(client, slug), "reason": failed_why}
+            )
+        else:
+            undone["terms"] += 1
+            gone_slugs.add(slug)
+    if gone_slugs:
+        data = themes.load_themes_file(root)
+        if data is not None:
+            for t in data["themes"]:
+                if t.get("id") == theme_id:
+                    for k in ("uses", "minted"):
+                        if k in t:
+                            t[k] = [s for s in t[k] if s not in gone_slugs]
+            themes._save_themes(root, data)
+    try:
+        await shared_vocab.recompute_wired(client, root, at=at)
+    except Exception:
+        logger.warning("chat revert: recompute_wired failed", exc_info=True)
+
+    reverted: list[str] = []
+    if undone["failed"]:  # 1 つでも外せなければ手番は戻さない（もう一度押せる）
+        return turn, undone, reverted
+    for t in session["turns"]:
+        c = t.get("commit")
+        if t.get("state") == "confirmed" and isinstance(c, dict) and c.get("batch") == batch:
+            t["state"] = "reverted"
+            reverted.append(t["id"])
+    return turn, undone, reverted

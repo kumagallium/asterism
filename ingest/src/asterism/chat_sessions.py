@@ -51,6 +51,8 @@ __all__ = [
     "save_session",
     "seed_of_draft",
     "session_of_draft",
+    "turn_of_batch",
+    "turn_of_minted",
 ]
 
 SESSION_VERSION = 1
@@ -73,6 +75,9 @@ NOTE_KINDS = frozenset(
         "ingest_stop",
         "attach_failed",
         "unsupported",
+        # 11d — 「見せて」の表と Ask
+        "ask_unavailable",
+        "ask_failed",
     }
 )
 TURN_STATES = ("none", "running", "proposed", "confirmed", "reverted")
@@ -229,3 +234,36 @@ def draft_seed_map(root: Path | str) -> dict[str, dict]:
 def seed_of_draft(root: Path | str, draft_id: str) -> dict | None:
     """その下書きの種の控え（無ければ ``None``）。"""
     return draft_seed_map(root).get(draft_id)
+
+
+def turn_of_batch(root: Path | str, batch: str | None) -> dict[str, str] | None:
+    """``<話の id>:<手番の id>`` の batch → ``{"session_id", "turn_id"}``。その手番が実際にある
+    ときだけ（形が違う・話が無い・手番が無いなら ``None``）。"""
+    if not batch or ":" not in batch:
+        return None
+    session_id, _, turn_id = str(batch).partition(":")
+    session = load_session(root, session_id)
+    if session is None:
+        return None
+    for t in session.get("turns") or []:
+        if t.get("id") == turn_id:
+            return {"session_id": session_id, "turn_id": turn_id}
+    return None
+
+
+def turn_of_minted(root: Path | str, slug: str) -> dict[str, Any] | None:
+    """その slug を鋳造した確認済みの手番 → ``{"session_id", "turn_id", "theme_id", "at"}``。
+    用語には batch が無いので、話の確認済みの手番の ``commit.minted`` から引く（最初の 1 件）。"""
+    for s in _all(root):
+        for t in s.get("turns") or []:
+            c = t.get("commit")
+            if t.get("state") == "confirmed" and isinstance(c, dict) and slug in (
+                c.get("minted") or []
+            ):
+                return {
+                    "session_id": s["id"],
+                    "turn_id": t["id"],
+                    "theme_id": c.get("theme_id"),
+                    "at": c.get("at") or t.get("at"),
+                }
+    return None

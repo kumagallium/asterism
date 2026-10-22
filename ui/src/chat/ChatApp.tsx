@@ -11,6 +11,7 @@ import {
   confirmTurn,
   createSession,
   deleteSession,
+  getPoint,
   getSession,
   isAiUnset,
   isKeyMissing,
@@ -20,6 +21,9 @@ import {
   revertTurn,
   type BindingDecision,
   type GraphOp,
+  type Point,
+  RevertFailedError,
+  type Undone,
   type SetAnswerBody,
   type Session,
   type SessionSummary,
@@ -27,6 +31,7 @@ import {
   type TurnInput,
 } from './chatApi'
 import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
+import { pointQueryOf, removeOf, sameSel, thinPointOf, type Highlight, type PointSel } from './chatState'
 import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
 import { AddPanel } from './AddPanel'
 import { ChartPane } from './ChartPane'
@@ -159,6 +164,36 @@ export function ChatApp() {
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
   const [tab, setTab] = useState<'chat' | 'chart'>('chat')
+
+  // ── 点を押した 1 枚（図の点・線 → GET /api/chat/point → チャットの先頭） ──
+  const [sel, setSel] = useState<PointSel | null>(null)
+  const [point, setPoint] = useState<Point | null>(null)
+  const [pointTick, setPointTick] = useState(0)
+  const [highlight, setHighlight] = useState<Highlight | null>(null)
+  /** 確認済みの手番を戻した結果（手番の id → 結果）。 */
+  const [undone, setUndone] = useState<Record<string, Undone>>({})
+  const onSelect = useCallback((next: PointSel | null) => {
+    setHighlight(null)
+    setSel((cur) => (sameSel(cur, next) ? cur : next))
+    if (!next) setPoint(null)
+    else if (layout.tabs) setTab('chat')
+  }, [layout.tabs])
+  useEffect(() => {
+    if (!sel) return
+    // 薄い星（未公開）は api を呼ばず、小さな 1 枚を作る
+    if (sel.kind === 'kind' && sel.thin) {
+      setPoint(thinPointOf(sel))
+      return
+    }
+    let off = false
+    getPoint(pointQueryOf(sel), lang)
+      .then((p) => !off && setPoint(p))
+      // 取れなければ 1 枚は出さない（消えた点・壊れた返り）
+      .catch(() => !off && setPoint(null))
+    return () => {
+      off = true
+    }
+  }, [sel, pointTick, lang])
 
   const afterChange = useCallback(() => {
     setChartTick((n) => n + 1)
@@ -397,11 +432,14 @@ export function ChatApp() {
       setError(null)
       try {
         const res = await revertTurn(id, turnId, lang)
+        if (res.undone) setUndone((cur) => ({ ...cur, [turnId]: res.undone as Undone }))
         await reread(id, (cur) => applyRevert(cur, res))
         setDraft(res.draft)
         afterChange()
       } catch (e) {
-        setError(messageOf(e))
+        // 戻せなかったものがあれば、その手番に赤い 1 行（「戻す」は残る）
+        if (e instanceof RevertFailedError) setUndone((cur) => ({ ...cur, [turnId]: e.undone }))
+        else setError(messageOf(e))
       } finally {
         setBusy(null)
       }
@@ -409,7 +447,42 @@ export function ChatApp() {
     [session, busy, lang, reread, afterChange],
   )
 
+  /** 1 枚の「戻す」: 手番の確認を取り消し、図・話・1 枚を取り直す。 */
+  const onPointRevert = useCallback(
+    async (p: Point) => {
+      if (!p.revert || busy) return
+      const { session_id: sid, turn_id: tid } = p.revert
+      setBusy('revert')
+      setError(null)
+      try {
+        await revertTurn(sid, tid, lang)
+        if (session && session.id === sid) await reread(sid, (cur) => cur)
+        afterChange()
+        setPointTick((n) => n + 1)
+      } catch (e) {
+        setError(messageOf(e))
+      } finally {
+        setBusy(null)
+      }
+    },
+    [busy, lang, session, reread, afterChange],
+  )
+  /** 1 枚の「戻す」（確認済みの用語・線）: 外す提案の手番を足す。✓ で確定する。 */
+  const onPointRemove = useCallback(
+    async () => {
+      if (!sel) return
+      const remove = removeOf(sel)
+      if (!remove) return
+      await runTurn({ remove })
+    },
+    [sel, runTurn],
+  )
+  const titleOf = useCallback((id: string) => sessions?.find((x) => x.id === id)?.title || undefined, [sessions])
+
   const newChat = () => {
+    setSel(null)
+    setPoint(null)
+    setHighlight(null)
     setComposerKey((n) => n + 1)
     setError(null)
     setDraft(null)
@@ -497,12 +570,19 @@ export function ChatApp() {
           onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}
+          point={sel ? point : null}
+          titleOf={titleOf}
+          onContents={(name) => void onSend(t('point.showText', { name }))}
+          onPointRevert={(p) => void onPointRevert(p)}
+          onPointRemove={() => void onPointRemove()}
+          undone={undone}
+          onHighlight={setHighlight}
         />
       </section>
       <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
         {addOpen && <AddPanel onClose={closeAdd} />}
         <div className="chat-right-scroll" hidden={addOpen}>
-          <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} onTerms={setSkyTerms} />
+          <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} onTerms={setSkyTerms} onSelect={onSelect} highlight={highlight} />
         </div>
         {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>

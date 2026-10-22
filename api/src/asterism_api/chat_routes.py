@@ -11,6 +11,11 @@
   設定されていれば AI の返事（準備＝ロックの中 → AI＝**ロックの外** → 適用＝ロックの中で読み直し）。
   未設定なら 11a の道（``notes.ai_unset``）。「さっきのを戻して」は AI を呼ばず決定論で戻す。
 * ``POST …/turns/{turn}/confirm`` — ✓。``POST …/turns/{turn}/revert`` — 未確認の返事を控えに戻す。
+  確認済みの手番は ``commit`` の記録から取り消す（線・用語・問い。ほかが使う用語は残す）。
+* ``GET  /api/chat/point`` — 点（用語・種類・標準用語・視点・線・未確認の札）の 1 枚。
+* 文の手番は ``chat_intent.classify`` で振り分ける: 「<名前>を見せて」は AI を呼ばず閉じた
+  テンプレートの表（``reply.table``）・「答えて」の問いは demo-agent の Ask（``reply.answer``）・
+  それ以外は図の提案（11b）。
 
 全部 ``write_auth``。下書き・テーマの読み書きは ``app.state.themes_lock`` で 1 つずつ。
 組み立ては :mod:`asterism_api.chat_turns`（ここは受け取りと HTTP への写像だけ）。
@@ -27,12 +32,12 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import chat_sessions, shared_vocab, themes
-from fastapi import FastAPI, Header, HTTPException, Request, Response
+from asterism import chat_sessions, crosswalk_runtime, shared_vocab, sky_view, themes
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from asterism_api import chat_attach, chat_turns
+from asterism_api import chat_attach, chat_intent, chat_point, chat_tables, chat_turns
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
 
@@ -99,11 +104,32 @@ class ChoiceBody(BaseModel):
     value: str = Field(min_length=1, max_length=200)
 
 
+class RemoveBody(BaseModel):
+    """点から外す — 確認済みの用語（``iri``）か関係（``from``・``relation``・``to``）。"""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    iri: str | None = Field(default=None, min_length=1, max_length=2000)
+    from_: str | None = Field(default=None, alias="from", min_length=1, max_length=2000)
+    relation: str | None = Field(default=None, min_length=1, max_length=2000)
+    to: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def _one_shape(self) -> RemoveBody:
+        line = [self.from_, self.relation, self.to]
+        by_iri = self.iri is not None and all(x is None for x in line)
+        by_line = self.iri is None and all(x is not None for x in line)
+        if not (by_iri or by_line):
+            raise ValueError("iri か、from・relation・to の 3 つのどちらかを送ってください")
+        return self
+
+
 class TurnBody(BaseModel):
     text: str | None = None
     set_answer: SetAnswerBody | None = None
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
     choice: ChoiceBody | None = None
+    remove: RemoveBody | None = None
     lang: Literal["ja", "en"] = "ja"
 
 
@@ -259,6 +285,27 @@ def register_chat(
             raise HTTPException(404, "その話はありません")
         return JSONResponse(session)
 
+    # ---- 点の 1 枚 ---------------------------------------------------------------------------
+
+    @app.get("/api/chat/point", dependencies=deps)
+    async def chat_point_card(
+        iri: str | None = Query(default=None),
+        from_: str | None = Query(default=None, alias="from"),
+        relation: str | None = Query(default=None),
+        to: str | None = Query(default=None),
+        lang: Literal["ja", "en"] = "ja",
+    ) -> JSONResponse:
+        try:
+            card = await chat_point.build_point(
+                _client(), root, iri=iri, source=from_, relation=relation, target=to, lang=lang
+            )
+        except chat_point.PointError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        except Exception as exc:
+            logger.warning("chat point failed", exc_info=True)
+            raise HTTPException(502, f"point read failed ({type(exc).__name__})") from exc
+        return JSONResponse(card)
+
     # ---- 名前・消す ---------------------------------------------------------------------------
 
     @app.patch("/api/chat/sessions/{session_id}", dependencies=deps)
@@ -301,10 +348,100 @@ def register_chat(
 
     # ---- 手番 ---------------------------------------------------------------------------------
 
+    async def _sky_names() -> tuple[dict, dict[str, dict[str, str]]]:
+        """公開済みの星図と、種類・用語の表示名 → ``{iri, kind}``（種類が先）。公開済みの種類は
+        ``kind: "dataset_kind"``、用語は ``"class"`` / ``"property"``。読めなければ空。"""
+        try:
+            sky = await sky_view.sky_view(_client(), root)
+        except Exception:
+            logger.warning("chat intent: sky read failed", exc_info=True)
+            return {}, {}
+        names: dict[str, dict[str, str]] = {}
+        for d in sky.get("datasets") or []:
+            for k in d.get("kinds") or []:
+                names.setdefault(str(k["label"]), {"iri": k["iri"], "kind": "dataset_kind"})
+        for t in sky.get("terms") or []:
+            for label in (t.get("label"), t.get("label_en")):
+                if label:
+                    names.setdefault(
+                        str(label), {"iri": t["iri"], "kind": str(t.get("kind") or "class")}
+                    )
+        return sky, names
+
+    def _demo_url() -> str | None:
+        return getattr(app.state, "demo_agent_url", None) or cfg.demo_agent_url
+
+    async def _show_turn(
+        session_id: str, text: str, lang: str, sky: dict, iri: str
+    ) -> tuple[dict, dict]:
+        """「<名前>を見せて」— 読むだけで表を作り（AI なし）、短いロックで手番を足す。"""
+        kinds = {k["iri"] for d in sky.get("datasets") or [] for k in d.get("kinds") or []}
+        via: str | None = None
+        kind_iri: str | None = iri if iri in kinds else None
+        if kind_iri is None:
+            kind_iri = chat_tables.kind_for_term(sky, iri)
+            term = next((t for t in sky.get("terms") or [] if t["iri"] == iri), None)
+            via = str((term or {}).get("label") or "") or None
+        table = None
+        if kind_iri is not None:
+            try:
+                table = await chat_tables.table_for_kind(_client(), root, kind_iri, lang=lang)
+            except Exception:
+                logger.warning("chat show: table failed", exc_info=True)
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = chat_turns.run_show_turn(
+                session, text, table, via_term=via if kind_iri != iri else None,
+                at=_now(), lang=lang,
+            )
+            saved = chat_sessions.save_session(root, session)
+        return turn, saved
+
+    async def _ask_turn(
+        session_id: str, text: str, lang: str, llm_headers: dict[str, str]
+    ) -> tuple[dict, dict]:
+        """「答えて」の問い — 既存の Ask（demo-agent）へ。呼び出しは**ロックの外**。"""
+        url = _demo_url()
+        if url is None:
+            async with lock:
+                session = _session_or_404(session_id)
+                turn = chat_turns.run_ask_unavailable_turn(session, text, at=_now(), lang=lang)
+                return turn, chat_sessions.save_session(root, session)
+        async with lock:
+            history = chat_turns.ask_history(_session_or_404(session_id))
+        outcome = await chat_turns.ask_remote(
+            url,
+            text,
+            history,
+            llm_headers,
+            transport=getattr(app.state, "ask_transport", None),
+        )
+        cited: dict[str, dict[str, str]] = {}
+        if outcome.get("ok"):
+            try:
+                cited = await chat_tables.resolve_cited(
+                    _client(),
+                    root,
+                    [
+                        str(c.get("iri"))
+                        for c in outcome["data"].get("citations") or []
+                        if isinstance(c, dict)
+                    ],
+                )
+            except Exception:
+                logger.warning("chat ask: citation names failed", exc_info=True)
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = chat_turns.run_ask_turn(
+                session, text, outcome, cited=cited, at=_now(), lang=lang
+            )
+            return turn, chat_sessions.save_session(root, session)
+
     @app.post("/api/chat/sessions/{session_id}/turns", dependencies=deps)
     async def chat_turn(
         session_id: str,
         body: TurnBody,
+        request: Request,
         x_api_key: str | None = Header(default=None),
         x_llm_provider: str | None = Header(default=None),
         x_llm_model: str | None = Header(default=None),
@@ -317,9 +454,12 @@ def register_chat(
             body.ops is not None,
             body.set_answer is not None,
             body.choice is not None,
+            body.remove is not None,
         ]
         if sum(given) != 1:
-            raise HTTPException(422, "text・ops・set_answer・choice のどれか 1 つを送ってください")
+            raise HTTPException(
+                422, "text・ops・set_answer・choice・remove のどれか 1 つを送ってください"
+            )
         text = (body.text or "").strip()
         if has_text and not 1 <= len(text) <= chat_turns.MAX_TEXT:
             raise HTTPException(422, f"文は 1〜{chat_turns.MAX_TEXT} 字です")
@@ -341,6 +481,39 @@ def register_chat(
             return await _choice_turn(session_id, body, llm_headers)
         existing = await _terms()
         dismissed = shared_vocab.load_dismissed(root)
+        if body.remove is not None:
+            sky: dict = {}
+            try:
+                sky = await sky_view.sky_view(_client(), root)
+            except Exception:
+                logger.warning("chat remove: sky read failed", exc_info=True)
+            kinds = {k["iri"] for d in sky.get("datasets") or [] for k in d.get("kinds") or []}
+            async with lock:
+                session = _session_or_404(session_id)
+                try:
+                    turn = chat_turns.run_remove_turn(
+                        session,
+                        {
+                            "iri": body.remove.iri,
+                            "from": body.remove.from_,
+                            "relation": body.remove.relation,
+                            "to": body.remove.to,
+                        },
+                        root=root,
+                        existing=existing,
+                        dismissed=dismissed,
+                        published_kinds=kinds,
+                        at=_now(),
+                        lang=body.lang,
+                    )
+                except chat_turns.TurnRefused as exc:
+                    raise _refused(exc) from exc
+                saved = chat_sessions.save_session(root, session)
+                return JSONResponse(
+                    {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                     "reverted": []},
+                    status_code=201,
+                )  # fmt: skip
 
         def _done(session: dict, turn: dict, reverted: list[str] | None = None) -> JSONResponse:
             saved = chat_sessions.save_session(root, session)
@@ -349,6 +522,35 @@ def register_chat(
                 {"turn": turn, "session": _head(saved), "draft": card, "reverted": reverted or []},
                 status_code=201,
             )
+
+        # 振り分け（決定論）: 「見せて」は表・「答えて」は Ask。AI（11b の道）は呼ばない
+        if has_text and not chat_turns.is_undo(text) and chat_intent.may_need_names(text):
+            sky, names = await _sky_names()
+            draft_id = _session_or_404(session_id).get("draft_id")
+            intent = chat_intent.classify(
+                text,
+                names=names,
+                draft_open=bool(draft_id and themes.load_draft(root, draft_id) is not None),
+            )
+            if intent == "show":
+                label = chat_intent.show_target(text, names)
+                turn, saved = await _show_turn(
+                    session_id, text, body.lang, sky, chat_intent.entry_iri(names, label)
+                )
+                return JSONResponse(
+                    {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                     "reverted": []},
+                    status_code=201,
+                )  # fmt: skip
+            if intent == "ask":
+                turn, saved = await _ask_turn(
+                    session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+                )
+                return JSONResponse(
+                    {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                     "reverted": []},
+                    status_code=201,
+                )  # fmt: skip
 
         # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
         llm: Any = None
@@ -564,6 +766,94 @@ def register_chat(
             }
         )
 
+    def _revert_failed(
+        session: dict,
+        turn: dict,
+        lang: str,
+        failed: list[dict[str, str]],
+        undone: dict | None = None,
+    ) -> JSONResponse:
+        """外せないものがあった戻す — 手番は戻さず 409（``undone.failed`` に何が外せなかったか）。
+        外せたものは外れたまま。もう一度押せる。"""
+        body_undone = undone or {"lines": 0, "terms": 0, "questions": 0, "kept": []}
+        body_undone = {**body_undone, "failed": failed}
+        return JSONResponse(
+            {
+                "detail": "外せないものがありました。もう一度試してください"
+                if lang != "en"
+                else "Some items could not be removed. Please try again.",
+                "turn": turn,
+                "session": _head(session),
+                "draft": _draft_card(session, lang),
+                "undone": body_undone,
+                "reverted": [],
+            },
+            status_code=409,
+        )
+
+    async def _revert_confirmed(session: dict, target: dict, lang: str) -> JSONResponse:
+        """確認済みの手番の戻す（呼び手が ``lock`` を持っている）。公開したデータは戻せない（409）。
+        機械の手番（名前が一致した関係）は、足した関係を外して次から出さない。テーマの手番は
+        ``commit`` の記録から取り消す。"""
+        suggestions = (target.get("reply") or {}).get("suggestions")
+        if target.get("attachment") or target.get("attach_run"):
+            raise HTTPException(409, chat_turns._DATA_NO_REVERT["en" if lang == "en" else "ja"])
+        if suggestions:
+            failed: list[dict[str, str]] = []
+            why = chat_turns._REVERT_FAILED["en" if lang == "en" else "ja"]
+            for item in suggestions:
+                try:
+                    await crosswalk_runtime.remove_alignment(
+                        _client(), item["subject"], item["term"], item["relation"]
+                    )
+                except Exception:
+                    logger.warning("chat revert: suggestion line not removed", exc_info=True)
+                    failed.append(
+                        {"what": f"{item.get('subject')} - {item.get('term')}", "reason": why}
+                    )
+            if not await chat_attach.revert_suggestion(app, target, token=cfg.api_token):
+                failed.append({"what": "dismiss", "reason": why})
+            if failed:  # 1 つでも外せなければ手番は戻さない（もう一度押せる）
+                return _revert_failed(session, target, lang, failed)
+            try:
+                await shared_vocab.recompute_wired(_client(), root, at=_now())
+            except Exception:
+                logger.warning("chat revert: recompute_wired failed", exc_info=True)
+            saved = chat_sessions.save_session(root, session)
+            return JSONResponse(
+                {
+                    "turn": target,
+                    "session": _head(saved),
+                    "draft": _draft_card(saved, lang),
+                    "undone": {
+                        "lines": len(suggestions), "terms": 0, "questions": 0, "kept": [],
+                        "failed": [],
+                    },
+                    "reverted": [target["id"]],
+                }
+            )
+        try:
+            turn, undone, reverted = await chat_turns.revert_confirmed(
+                session, target["id"], client=_client(), root=root, at=_now(), lang=lang
+            )
+        except chat_turns.TurnRefused as exc:
+            raise _refused(exc) from exc
+        except Exception as exc:  # ストアの書き込みの失敗
+            logger.warning("chat revert confirmed failed", exc_info=True)
+            raise HTTPException(502, f"revert failed: {exc}") from exc
+        if undone.get("failed"):
+            return _revert_failed(session, turn, lang, undone["failed"], undone)
+        saved = chat_sessions.save_session(root, session)
+        return JSONResponse(
+            {
+                "turn": turn,
+                "session": _head(saved),
+                "draft": _draft_card(saved, lang),
+                "undone": undone,
+                "reverted": reverted,
+            }
+        )
+
     @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/revert", dependencies=deps)
     async def chat_revert(session_id: str, turn_id: str, lang: str = "ja") -> JSONResponse:
         async with lock:
@@ -573,7 +863,13 @@ def register_chat(
                 is_suggestion = bool((target.get("reply") or {}).get("suggestions"))
                 if is_suggestion or target.get("attachment") or target.get("attach_run"):
                     if is_suggestion:
-                        await chat_attach.revert_suggestion(app, target, token=cfg.api_token)
+                        if not await chat_attach.revert_suggestion(
+                            app, target, token=cfg.api_token
+                        ):
+                            why = chat_turns._REVERT_FAILED["en" if lang == "en" else "ja"]
+                            return _revert_failed(
+                                session, target, lang, [{"what": "dismiss", "reason": why}]
+                            )
                     else:  # 📎 の表: 取り込んだ未公開のデータを消して、返事を戻す
                         dataset_id = (target.get("attachment") or {}).get("dataset_id")
                         if dataset_id and not await chat_attach.discard_dataset(
@@ -593,6 +889,8 @@ def register_chat(
                             "reverted": [turn_id],
                         }
                     )
+            if target is not None and target.get("state") == "confirmed":
+                return await _revert_confirmed(session, target, lang)
             try:
                 turn, undone = chat_turns.revert(
                     session, turn_id, root=root, at=_now(), lang=lang
