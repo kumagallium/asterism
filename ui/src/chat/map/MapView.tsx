@@ -57,6 +57,54 @@ interface Palette {
   edgeOn: string
   faded: string
   label: string
+  /** 線の名前の札の地と枠。 */
+  surface: string
+  border: string
+}
+
+type EdgeLabelCtx = CanvasRenderingContext2D
+type EdgeLabelData = { label?: string | null; size?: number }
+type EdgeLabelEnd = { x: number; y: number; size: number }
+type EdgeLabelSettings = { edgeLabelSize: number; edgeLabelFont: string; edgeLabelWeight: string }
+
+/** 線の名前を、線の長さに関わらず中点に横書きで出す（小さな札つき）。sigma の既定（線に沿って回し、線より長ければ「…」）は、
+ * 短い線で名前が出ないので使わない。hover 中の 1 本にだけ label が残るので、重なりは考えない。 */
+function makeEdgeLabelDrawer(pal: Palette) {
+  return (context: EdgeLabelCtx, edge: EdgeLabelData, source: EdgeLabelEnd, target: EdgeLabelEnd, settings: EdgeLabelSettings): void => {
+    const label = edge.label
+    if (!label) return
+    const px = settings.edgeLabelSize
+    context.font = `${settings.edgeLabelWeight} ${px}px ${settings.edgeLabelFont}`
+    const w = context.measureText(label).width + 10
+    const h = px + 6
+    const cx = (source.x + target.x) / 2
+    const cy = (source.y + target.y) / 2
+    const x = cx - w / 2
+    const y = cy - h / 2
+    const r = 4
+    context.beginPath()
+    context.moveTo(x + r, y)
+    context.lineTo(x + w - r, y)
+    context.quadraticCurveTo(x + w, y, x + w, y + r)
+    context.lineTo(x + w, y + h - r)
+    context.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+    context.lineTo(x + r, y + h)
+    context.quadraticCurveTo(x, y + h, x, y + h - r)
+    context.lineTo(x, y + r)
+    context.quadraticCurveTo(x, y, x + r, y)
+    context.closePath()
+    context.fillStyle = pal.surface
+    context.fill()
+    context.strokeStyle = pal.border
+    context.lineWidth = 1
+    context.stroke()
+    context.fillStyle = pal.label
+    context.textBaseline = 'middle'
+    context.textAlign = 'center'
+    context.fillText(label, cx, cy + 0.5)
+    context.textAlign = 'start'
+    context.textBaseline = 'alphabetic'
+  }
 }
 
 function readPalette(): Palette {
@@ -75,6 +123,8 @@ function readPalette(): Palette {
     edgeOn: cssColor('--fg', '#16241a'),
     faded: withAlpha(cssColor('--border-strong', '#c7d4c4'), 0.9),
     label: cssColor('--fg', '#16241a'),
+    surface: cssColor('--surface', '#ffffff'),
+    border,
   }
 }
 
@@ -161,6 +211,8 @@ export function MapView({
         renderEdgeLabels: true,
         edgeLabelSize: 11,
         edgeLabelColor: { color: pal.label },
+        edgeLabelFont: 'inherit',
+        defaultDrawEdgeLabel: makeEdgeLabelDrawer(pal),
         zIndex: true,
         labelSize: 12,
         labelFont: 'inherit',
