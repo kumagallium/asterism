@@ -56,7 +56,6 @@
     "modelId": "Model ID",
     "fetchModels": "Fetch models",
     "fetchingModels": "Fetching…",
-    "modelsFetched": "Fetched {{count}} models",
     "pickFetchedModel": "Pick from the fetched list ({{count}})",
     "name": "Display name",
     "namePlaceholder": "(defaults to the model ID)",
@@ -169,8 +168,7 @@
     "available": "Version {{version}} is available",
     "install": "Restart to update",
     "installing": "Downloading…",
-    "downloading": "Downloading… {{pct}}%",
-    "installFailed": "Update failed"
+    "downloading": "Downloading… {{pct}}%"
   },
   "backendDown": {
     "message": "The backend has stopped. What you see on screen is from before it stopped. Restarting will fix it.",
@@ -267,8 +265,5 @@
     "retry": "Try again",
     "logPath": "Details: {{path}}",
     "requestFailed": "That did not work. Please wait a moment and try again."
-  },
-  "developer": {
-    "sparqlLink": "For developers: write SPARQL directly →"
   }
 }

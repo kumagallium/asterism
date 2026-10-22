@@ -1,14 +1,7 @@
 {
   "title": "Decide in one line",
-  "loading": "Loading candidates…",
-  "noCandidates": "No terms to choose from yet.",
   "targetAria": "Target term",
   "choiceAria": "How to decide",
-  "role": {
-    "shared": " (term)",
-    "standard": " (standard term)",
-    "dataset": " (dataset)"
-  },
   "lead": {
     "class": "\"{{subject}}\" is",
     "property": "The values of \"{{subject}}\" are",
@@ -38,9 +31,6 @@
     "affects": "“{{subject}}” changes “{{target}}”"
   },
   "effect": {
-    "idle": "Pick one and what it would change shows up here.",
-    "none": "This suggestion is dropped and will not show again (you can still attach a term later).",
-    "loading": "Counting what would change…",
     "error": "Could not count what would change. You can still decide.",
     "noQuestion": "No question depends on this term yet, so the number of datasets that can answer does not change.",
     "changed": "Datasets that can answer \"{{title}}\": {{before}} → {{after}}",
@@ -56,10 +46,8 @@
     "invalid": "This combination cannot be decided (it includes a term that has not been created, or mixes a kind and a field).",
     "unknown": "This combination cannot be decided."
   },
-  "go": "Decide",
   "deciding": "Deciding…",
   "later": "Decide later",
-  "savedNote": "Nothing is saved until you press the button",
   "done": {
     "decided": "Decided: {{sentence}}",
     "none": "Dropped: \"{{target}}\" will not be suggested for \"{{subject}}\".",

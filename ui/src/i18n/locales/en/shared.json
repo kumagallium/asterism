@@ -30,18 +30,7 @@
     "close": "Close the source panel"
   },
   "step": {
-    "curve": "Measurement curve",
-    "sample": "Sample",
-    "paper": "Paper",
-    "digitization": "Digitization",
-    "ingestion": "Ingestion",
-    "activity": "Processing"
-  },
-  "activityLabel": {
-    "Activity": "Processing",
-    "IngestionActivity": "Ingestion",
-    "DigitizationActivity": "Digitization",
-    "DocumentParsingActivity": "Document reading"
+    "paper": "Paper"
   },
   "detailKey": {
     "atTime": "Date",
@@ -54,17 +43,7 @@
     "yMin": "Minimum"
   },
   "field": {
-    "propertyY": "Property",
-    "yMax": "Maximum",
-    "yMin": "Minimum",
-    "composition": "Composition",
-    "paper": "Paper",
-    "title": "Title",
-    "name": "Name",
-    "measurements": "Measurements",
-    "doi": "DOI",
-    "DOI": "DOI",
-    "id": "ID"
+    "paper": "Paper"
   },
   "count": {
     "file": "files"

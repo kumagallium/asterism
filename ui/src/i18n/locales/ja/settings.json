@@ -55,7 +55,6 @@
     "modelId": "モデルID",
     "fetchModels": "モデル一覧を取得",
     "fetchingModels": "取得中…",
-    "modelsFetched": "{{count}} 件のモデルを取得しました",
     "pickFetchedModel": "取得した一覧から選ぶ（{{count}} 件）",
     "name": "表示名",
     "namePlaceholder": "（省略するとモデルIDを表示）",
@@ -168,8 +167,7 @@
     "available": "新しいバージョン {{version}} があります",
     "install": "再起動して更新",
     "installing": "ダウンロード中…",
-    "downloading": "ダウンロード中… {{pct}}%",
-    "installFailed": "更新に失敗しました"
+    "downloading": "ダウンロード中… {{pct}}%"
   },
   "backendDown": {
     "message": "バックエンドが止まっています。いま画面に見えている内容は、止まる前のものです。再起動すれば直ります。",
@@ -266,8 +264,5 @@
     "retry": "もう一度試す",
     "logPath": "くわしい記録: {{path}}",
     "requestFailed": "操作できませんでした。少し待ってから、もう一度お試しください。"
-  },
-  "developer": {
-    "sparqlLink": "開発者向け: SPARQL を直接書く →"
   }
 }

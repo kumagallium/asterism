@@ -1,5 +1,4 @@
 {
-  "auto_linked": "Linked automatically from the handles you ticked",
   "view": {
     "back": "Back",
     "bannerTitle": "Connections",
@@ -155,7 +154,6 @@
       "seeBtn": "See this connection",
       "againBtn": "Build another"
     },
-    "defaultName": "connected on {{label}}",
     "defaultNamePair": "{{a}} and {{b}}, connected on a shared value",
     "manual": {
       "summary": "Fine-tune it (choose the combination myself)",
@@ -203,98 +201,7 @@
     "toVocab": "Match connections to each other in \"Decisions\" →"
   },
   "builder": {
-    "subtitle": "Pick <0>two or more existing datasets</0>, declare the <1>concept to connect</1> (a sample name, an author, an instrument…) and the column that represents it, and you can build a <2>bridge that connects across datasets (a crosswalk)</2> on the shared value. It is an ontology built <3>from data you already have</3>, not from a new CSV.",
-    "loading": "Loading datasets…",
-    "tooFew": {
-      "title": "Fewer than two shared datasets to connect",
-      "sub": "Once two or more datasets have been \"published for search\", you can build a cross-dataset crosswalk here."
-    },
-    "step1": "1. Pick the datasets to connect (two or more)",
-    "dsSub": "{{predicates}} fields · {{facts}} facts",
-    "factsUnknown": "?",
-    "step2": "2. Decide the \"concept\" to connect",
-    "step2Hint": "e.g. composition / crystal_system / author (an alphanumeric key)",
-    "conceptPlaceholder": "composition",
-    "conceptVocab": "Terms auto-created from \"{{key}}\" → kind <0>xw:{{className}}</0> · linking field <1>xw:has{{className}}</1>",
-    "conceptInvalid": "Enter an alphanumeric key (e.g. crystal_system). Put a Japanese display name into \"this perspective's name\".",
-    "step3": "3. For each dataset, pick \"the field that carries {{key}}\"",
-    "step3Hint": "(a mapping a human reviews)",
-    "apiKeyPlaceholder": "Anthropic API key (used for AI suggestions; stored only on this device)",
-    "propose": "Let AI suggest",
-    "proposing": "AI is suggesting…",
-    "proposeNote": "The AI suggested {{count}} fields (please review and adjust).",
-    "proposeNone": "The AI could not find a field carrying \"{{key}}\". Please pick one manually.",
-    "proposeErr": "AI suggestion failed: {{detail}}",
-    "selectPredicate": "— Select a field —",
-    "predicateSample": " (e.g. {{sample}})",
-    "sampleLabel": "e.g. {{sample}}",
-    "step4": "4. Criterion for treating values as the same (normalization)",
-    "step4Hint": "How far to treat surface variants as identical",
-    "normGroup": {
-      "generic": "Generic (any concept)",
-      "materials": "For materials",
-      "custom": "Build your own"
-    },
-    "norm": {
-      "identity": "Match as-is (only identical text)",
-      "casefold": "Ignore upper/lower case",
-      "whitespace": "Ignore whitespace differences (collapse leading/trailing and runs)",
-      "nfkc": "Normalize full-width / compatibility characters (NFKC)",
-      "loose_text": "Loose match (ignore case, whitespace and width together)",
-      "composition": "Align as composition formulas (absorb subscripts/whitespace)",
-      "element_canonical": "Align composition + element order too (Bi2Te3 = Te3Bi2)",
-      "recipe": "Custom (assemble the steps)…"
-    },
-    "normHint": {
-      "identity": "Joins only values that match exactly (the default usable for any concept).",
-      "casefold": "Ignores case differences only (e.g. FeO = feo). Not for values where case carries meaning (e.g. Co ≠ CO).",
-      "whitespace": "Ignores only leading/trailing and repeated whitespace differences.",
-      "nfkc": "Normalizes full-width and compatibility characters (e.g. half-width kana) before matching.",
-      "loose_text": "Loose match ignoring case, whitespace and width together (does not reorder).",
-      "composition": "Absorbs only subscript/whitespace differences (element order is distinguished).",
-      "element_canonical": "Joins as the same composition even if element order differs (formula = multiset).",
-      "recipe": "Arrange the steps (primitives) yourself to build your own \"treat as the same value\" criterion."
-    },
-    "recipePrimitive": {
-      "nfkc": "Normalize full-width / compatibility characters (NFKC)",
-      "casefold": "Remove upper/lower case",
-      "strip": "Trim leading/trailing whitespace",
-      "collapse_ws": "Collapse repeated whitespace into one",
-      "remove_ws": "Remove all whitespace",
-      "fold_subscripts": "Subscript digits to plain digits (₂→2)"
-    },
-    "recipeEmpty": "Assemble from \"Add a step\" below.",
-    "recipeUp": "Up",
-    "recipeDown": "Down",
-    "recipeDelete": "Delete",
-    "recipeAdd": "＋ Add a step…",
-    "recipePreviewLabel": "Preview",
-    "recipeSamplePlaceholder": "Sample value",
-    "extraCond": "Extra match conditions (all must match = AND)",
-    "extraCondHint": "e.g. sample name <0>and</0> measurement date. Leave empty to match on a single value.",
-    "condNamePlaceholder": "Condition name (alphanumeric, e.g. crystal_system)",
-    "condDelete": "Remove this condition",
-    "addCond": "+ Add a condition",
-    "extraCondIncomplete": "Give each condition a unique name (distinct from the concept) and a field per dataset.",
-    "step5": "5. This perspective's name",
-    "step5Hint": "You can keep multiple \"perspectives (ways to connect)\" distinct",
-    "perspectivePlaceholder": "e.g. Connect by sample name (blank = named automatically)",
-    "perspectiveNamed": "Creates a new independent perspective (its own data, listed with your datasets).",
-    "perspectiveDefault": "When blank, it is created as a new connection named \"{{name}}\".",
-    "perspectiveReplace": "Replace the standard connection instead",
-    "perspectiveReplaceHint": "When on, leaving the name blank creates/updates the standard \"composition\" perspective (replacing the existing one).",
-    "build": "Build crosswalk (across {{count}} datasets)",
-    "building": "Building…",
-    "buildHintInvalid": "Enter the concept as an alphanumeric key (e.g. crystal_system).",
-    "buildHintFewer": "You can build once two or more datasets have a field picked (currently {{count}}).",
-    "buildErr": "Build failed: {{detail}}",
-    "result": {
-      "head": "Crosswalk built",
-      "stat": "<0>{{shared}}</0> \"{{key}}\" values are shared across<1> {{count}} </1>datasets.",
-      "linkChip": "{{label}} <0>{{n}}</0> links",
-      "skipped": "Excluded: {{labels}} (out of scope, e.g. not published)",
-      "next": "In \"Crosswalk\" you can check the participating datasets and tools (which datasets report this value?)."
-    }
+    "apiKeyPlaceholder": "Anthropic API key (used for AI suggestions; stored only on this device)"
   },
   "error": {
     "failed": "{{op}} failed (HTTP {{status}}){{detail}}",

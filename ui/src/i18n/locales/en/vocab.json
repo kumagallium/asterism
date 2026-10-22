@@ -1,13 +1,8 @@
 {
   "back": "Back",
-  "addData": "Add data",
   "banner": {
-    "title": "<1>Terms</1> shared across datasets",
-    "sub": "Place <1>terms</1> starting from a question, and link them with relations to datasets' kinds and items or to standard terms. The more relations connect, the more cross-dataset questions can be answered.",
-    "fixNote": "The list below is collected automatically from imported data. To rename a term, open its dataset and use “Review the design”.",
     "fixLink": "Open the dataset list"
   },
-  "loading": "Loading…",
   "map": {
     "title": "Map of terms",
     "lead": "Your datasets' kinds and fields become one map. The more datasets connect, the more this map grows. The band at the bottom holds the world's standard vocabularies — the more relations gather there, the better your data speaks with the world.",
@@ -35,7 +30,6 @@
     "unavailable": "Couldn't draw the map right now — the datasets' ingest rules could not be read. Wait a moment and reload the page."
   },
   "schemaError": "Couldn't load the list of terms. Wait a moment, then press \"Reload\". If it keeps happening, tell whoever set this server up.",
-  "reload": "Reload",
   "classesCard": {
     "title": "Terms in use right now",
     "meta": "{{classes}} kinds · {{predicates}} fields",
@@ -46,15 +40,6 @@
     "reusesSubhead": "Reused standard terms",
     "emptyAll": "There is no published data yet, so there are no terms yet. Publish data via \"Add data\" and it will appear here.",
     "notesSummary": "How to read these numbers"
-  },
-  "usersCard": {
-    "title": "Datasets using these terms",
-    "empty": "No datasets yet. Add a file from \"Add data\" and it will appear here.",
-    "classCount": "{{n}} kinds",
-    "draftNote": "Once published, its terms also appear in the list on the left.",
-    "caution": {
-      "body": "The terms listed here are shared by several datasets. Renaming one affects search and answers for every dataset that uses it."
-    }
   },
   "status": {
     "pub": "Published",
@@ -119,10 +104,6 @@
     "leadFocus": "Showing only what is around your choice, as kind circles. Use \"Back to overview\" to return."
   },
   "title": "Questions",
-  "sections": {
-    "question": "Start from a question",
-    "terms": "Terms"
-  },
   "question": {
     "titleLabel": "Question",
     "titlePlaceholder": "e.g. How many records are there for each sample composition?",

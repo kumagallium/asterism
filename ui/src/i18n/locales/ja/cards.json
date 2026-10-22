@@ -25,33 +25,9 @@
     "details": "詳しい情報"
   },
   "rail": {
-    "objects_title": "オブジェクト",
-    "add_object": "＋ オブジェクトを追加",
-    "objects_empty": "まだありません。「＋ オブジェクトを追加」から選びます",
-    "own_title": "自分のデータ",
-    "own_empty": "まだありません。作る › データセットで追加すると、ここに並びます",
     "own_empty_link": "データセットへ",
-    "open_title": "オープンデータ",
     "search_placeholder": "名前か条件でさがす",
-    "filter_by_class": "「{{label}}」の条件で一覧を作る",
-    "searching": "さがしています…",
-    "search_error": "さがせませんでした",
-    "search_empty": "見つかりませんでした",
-    "unlabeled": "（名前なし）",
-    "legend_linked": "公開データと同じもの",
-    "legend_own_only": "自分のデータだけ",
-    "legend_ambiguous": "まだ同じものか確かめていない",
-    "legend_set": "条件で集めた一覧",
-    "advancedSettings": "データの意味を定義する（列・単位・名前）",
-    "kindSet": "一覧",
-    "sampleBadge": "見本",
-    "hub_pill": "つながり",
-    "state_draft": "まだ意味を定義していません",
-    "state_ingesting": "取り込み中",
-    "other_section": "その他",
-    "collect": "＋ 条件で集める",
-    "collapse": "たたむ",
-    "expand": "ひらく"
+    "search_error": "さがせませんでした"
   },
   "dataset": {
     "section_meaning": "データの意味を定義する",
@@ -185,19 +161,7 @@
     }
   },
   "setform": {
-    "op_gt": "より大きい",
-    "op_lt": "より小さい",
-    "op_between": "範囲",
-    "order_label": "並べ方",
-    "order_none": "指定しない",
-    "order_desc": "大きい順",
-    "order_asc": "小さい順",
-    "limit_label": "上限",
-    "cancel": "やめる",
-    "submit": "条件で集める",
-    "add_condition_hint": "この値を条件に足す",
-    "search_placeholder": "値を検索",
-    "show_more": "さらに表示"
+    "search_placeholder": "値を検索"
   },
   "detail": {
     "breadcrumb_cards": "カード",
@@ -254,59 +218,16 @@
     "mcp_json": "mcp.json — Claude などへの起動の設定"
   },
   "license": {
-    "unknown": "不明",
-    "write_label": "ライセンスを書く",
     "write_placeholder": "SPDX 識別子（例: CC-BY-4.0）",
-    "write_submit": "保存",
     "write_error": "保存できませんでした"
   },
   "export": {
-    "title": "AI に渡す一式を作る",
-    "intro": "表・グラフ・出どころをまとめたフォルダです。Claude などの AI に渡すと、この内容をもとに答えてくれます",
-    "share_label": "自分のデータの扱い",
-    "share_shareable": "自分のデータを除く（外に配れる）",
-    "share_full": "自分のデータを含む（研究室内向け）",
-    "lang_label": "言語",
-    "lang_ja": "日本語",
-    "lang_en": "English",
-    "cancel": "やめる",
-    "submit": "作る",
-    "building": "作っています…",
-    "not_shareable": "渡せませんでした — {{reasons}}",
     "error": "作れませんでした"
-  },
-  "builtin": {
-    "subject_facts": "読み取った値",
-    "subject_sources": "出どころ",
-    "subject_flow": "作られた手順",
-    "set_members": "一覧",
-    "set_breakdown": "内訳",
-    "set_count": "件数",
-    "value_missing": "（値なし）",
-    "fields": {
-      "property": "項目",
-      "value": "値",
-      "value_iri": "値",
-      "property_iri": "項目",
-      "category": "分類",
-      "count": "件数",
-      "label": "名前",
-      "source": "出どころ",
-      "subject_iri": "対象",
-      "dataset_label": "データセット",
-      "class_label": "種類"
-    },
-    "subject_hub_members": "同じものとして束ねたもの",
-    "subject_member_facts": "{{dataset}} での値"
   },
   "tile": {
     "show_all": "すべて見る（{{n}} 件）",
     "custom_view": "AI が書いた見せ方",
     "fix": "直す"
-  },
-  "share": {
-    "shareable": "人に渡せる",
-    "local_only": "自分だけ"
   },
   "ask": {
     "compose": "{{label}} について: {{text}}"
@@ -325,45 +246,8 @@
     }
   },
   "newcard": {
-    "button": "＋ 問いを足す",
-    "title": "問いを足す",
-    "lead": "グラフや表を、この種類への問いとして足します",
-    "step_shape": "① 見せ方",
-    "step_items": "② 項目",
-    "step_where": "③ 条件",
-    "shape_series": "推移",
-    "shape_ranked": "比べる",
-    "shape_breakdown": "内訳",
-    "shape_pairs": "散らばり",
-    "shape_quantity": "数字 1 つ",
-    "shape_facts": "表",
-    "axis_x": "横軸",
-    "axis_y": "縦軸",
-    "item": "項目",
-    "category": "分類",
-    "items": "項目（複数可）",
-    "agg_avg": "平均",
-    "agg_max": "最大",
-    "agg_min": "最小",
-    "agg_sum": "合計",
-    "agg_count": "件数",
-    "where_this_page": "このページの条件",
-    "where_this_one": "この 1 件",
     "kind_pick": "どの種類の記録から作りますか",
-    "path_direct": "この 1 件を指す記録",
-    "path_child_child": "この 1 件を指す{{via}}を、さらに指す記録",
-    "path_sibling": "同じ「{{anchor}}」を持つ記録",
-    "path_sibling_child": "同じ「{{anchor}}」を持つ{{via}}を指す記録",
-    "path_via_member": "{{dataset}}の「{{member}}」から: {{rest}}",
-    "submit": "作る",
-    "cancel": "やめる",
-    "title_series": "{{y}}の推移",
-    "title_ranked": "{{item}}が多い順",
-    "title_breakdown": "{{category}}ごとの件数",
-    "title_pairs": "{{x}}と{{y}}",
-    "title_quantity": "{{item}}の{{agg}}",
-    "title_facts": "{{items}}",
-    "path_direct_in_dataset": "{{dataset}}の、この 1 件を指す記録"
+    "path_via_member": "{{dataset}}の「{{member}}」から: {{rest}}"
   },
   "viewpoints": {
     "strip_title": "同じデータで使われている問い",
@@ -475,30 +359,8 @@
     "more": "{{shown}} 件を出しています。ほかにもあります。"
   },
   "explore": {
-    "button": "つながりを図で見る",
-    "button_close": "つながりの図を閉じる",
-    "title": "つながりの図",
-    "aria": "{{label}} のつながりの図",
-    "loading": "つながりを読み込んでいます…",
     "error": "つながりを読み込めませんでした。",
-    "empty": "この 1 件には、つながる先がまだありません。",
-    "bundle_name": "{{name}} {{count}} 件",
-    "bundle_rest": "ほか {{name}} {{count}} 件",
-    "hub_tag": "同じものとして束ねたもの",
-    "open_neighbors": "隣をひらく",
-    "collapse": "たたむ",
-    "open_page": "このページを開く",
-    "open_list": "一覧で開く",
     "peek": "中を見る",
-    "set_hint": "{{count}} 件あります。一覧で開くと全部を見られます。",
-    "peek_hint": "{{count}} 件あります。中を見ると、先頭の何件かを箱にします。",
-    "rest_note": "残り {{n}} 件は図に出していません。",
-    "limit": "図の箱が {{max}} を超えるので、これ以上はひらけません。いらない箱をたたむか、一覧で開いてください。",
-    "limit_initial": "つながりが多く、最初から図の箱が {{max}} を超えています。これ以上はひらけません。続きは、箱を選んで「このページを開く」で、その 1 件から見てください。",
-    "action_error": "うまく進められませんでした。もう一度試してください。",
-    "no_neighbors": "この箱には、ほかにつながる先がありません。",
-    "truncated": "つながりが多いため、一部の隣は図に出していません。",
-    "big_now": "大きく表示しています。",
-    "legend": "箱を押すと、下に操作が出ます。線の名前は、選んだ箱の線にだけ出します。点線の札は、中に何件かあるまとまりです。"
+    "action_error": "うまく進められませんでした。もう一度試してください。"
   }
 }

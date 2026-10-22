@@ -366,7 +366,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
           <span>{t('deepLead')}</span>
         </div>
         <Suspense fallback={null}>
-          <NetworkView onOpenSubject={() => undefined} onOpenSet={() => undefined} />
+          <NetworkView />
         </Suspense>
       </div>
     )

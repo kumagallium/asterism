@@ -1,8 +1,7 @@
 {
   "docTitle": "asterism — Turn research data into connected data",
   "brand": {
-    "name": "asterism",
-    "tag": "Research data, connected"
+    "name": "asterism"
   },
   "langToggle": {
     "label": "Language",
@@ -10,15 +9,8 @@
     "en": "English"
   },
   "nav": {
-    "collapse": "Collapse",
-    "expand": "Expand",
-    "cards": "Browse",
-    "home": "Home",
-    "gallery": "Data",
     "crosswalk": "Connections",
-    "ask": "Ask",
-    "vocab": "Questions",
-    "workbench": "Add data"
+    "ask": "Ask"
   },
   "status": {
     "mock": "Showing sample data"

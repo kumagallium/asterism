@@ -6,10 +6,6 @@
     "unit": "resolving the unit",
     "quantityKind": "resolving the quantity"
   },
-  "schema": {
-    "head": "Standard ontology candidates",
-    "hint": "For the terms this design newly mints, here are matching terms from famous standards (suggestions only — adopt them in the dataset after ingest)."
-  },
   "error": {
     "failed": "{{op}} failed ({{status}}){{detail}}"
   },

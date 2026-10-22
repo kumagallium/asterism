@@ -37,9 +37,9 @@ import './network.css'
 
 export interface NetworkViewProps {
   /** 「このページを開く」（1 件のページ）。 */
-  onOpenSubject: (iri: string) => void
+  onOpenSubject?: (iri: string) => void
   /** 「一覧で開く」— `resolveSet` の結果を受けて、絞り込みのページへ遷移する。 */
-  onOpenSet: (result: SetResolveResult) => void
+  onOpenSet?: (result: SetResolveResult) => void
 }
 
 
@@ -387,7 +387,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
   }, [graph, query, t])
 
   const onOpenList = useCallback(async () => {
-    if (!selected?.setSpec) return
+    if (!selected?.setSpec || !onOpenSet) return
     setBusy(true)
     setActionError(false)
     try {
@@ -499,7 +499,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
                     .join(' · ')}
                 </span>
                 <div className="network-bar-actions">
-                  {(selected.nodeKind === 'entity' || selected.nodeKind === 'hub') && (
+                  {onOpenSubject && (selected.nodeKind === 'entity' || selected.nodeKind === 'hub') && (
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -508,7 +508,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
                       {t('open_page')}
                     </button>
                   )}
-                  {(selected.nodeKind === 'value' || selected.nodeKind === 'bundle') && selected.setSpec && (
+                  {onOpenSet && (selected.nodeKind === 'value' || selected.nodeKind === 'bundle') && selected.setSpec && (
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"

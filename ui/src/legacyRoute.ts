@@ -1,6 +1,6 @@
 // 旧い画面の hash（#/home・#/cards/… など）の読み書き。App の殻は chat/chatRoute.ts の 3 つの hash だけになったが、
 // 旧 component（cards/*・vocabQuestion など）がこの `Route` の型と parseHash に依存している。11e で旧 component と一緒に消す。
-import type { DetailTab } from './GalleryView'
+import type { DetailTab } from './redesignTarget'
 import { type DecisionFilter, decisionsQuery, parseDecisionsQuery } from './decide/decisionsModel'
 import { type WriteRequest, homeHash, parseHomeQuery } from './sky/skyRoute'
 

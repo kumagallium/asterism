@@ -48,7 +48,6 @@ describe('④を畳んだときの手順バーの言葉', () => {
         ['lead', 'lead'],
         ['whenYes', 'whenYes'],
         ['colLink', 'colLink'],
-        ['askConsultPrefill', 'askConsultPrefill'],
       ]
       for (const [from, to] of moved) {
         expect(links[from]).toBeUndefined()
