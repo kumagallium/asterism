@@ -12185,7 +12185,8 @@ def build_app(
     register_place(app, cfg)
     register_license(app, cfg)
     register_vocab(app, cfg, write_auth=_write_auth)
-    register_themes(app, cfg, _resolve_llm, write_auth=_write_auth)  # テーマ（話の下書きと ✓ の記録。`GET /api/themes/drafts/sky` は外部向けに残す）
+    # テーマ（話の下書きと ✓ の記録。`GET /api/themes/drafts/sky` は外部向けに残す）
+    register_themes(app, cfg, _resolve_llm, write_auth=_write_auth)
     # 差分の提案・適用・却下（11b の返事 1 枚が使う。作業場の画面は 11e で無くなり、話のチャットだけ）
     register_consult_graph(app, cfg, _resolve_llm, write_auth=_write_auth)
     register_questions(app, cfg, write_auth=_write_auth)  # ⑥ 自分の問い（questions.json）
