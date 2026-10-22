@@ -34,7 +34,7 @@ describe('ContentsPanel', () => {
   it('何も押していない: 1 行の案内', () => {
     const h = html(<ContentsPanel target={null} state={{ status: 'idle' }} />)
     expect(h).toContain('data-testid="contents-panel"')
-    expect(h).toContain('地図の丸を押すと、その中身がここに出ます')
+    expect(h).toContain('知識グラフの点を押すと、そのデータがここに出ます')
     expect(h).not.toContain('reply-table')
   })
   it('複数の表: データセットごとの小見出し＋ReplyTableView', () => {
@@ -43,7 +43,7 @@ describe('ContentsPanel', () => {
     expect(h.match(/data-testid="reply-table"/g)).toHaveLength(2)
     expect(h).toContain('データ A')
     expect(h).toContain('データ B')
-    expect(h).toContain('熱伝導率 の中身')
+    expect(h).toContain('熱伝導率 のデータ')
   })
   it('小見出しは複数のデータセットにまたがるときだけ', () => {
     const one = load({ tables: [{ dataset: { id: 'a', label: 'データ A' }, table: table('試料') }, { dataset: { id: 'a', label: 'データ A' }, table: table('測定') }] })
@@ -52,12 +52,12 @@ describe('ContentsPanel', () => {
   })
   it('失敗: 文言と「もう一度」', () => {
     const h = html(<ContentsPanel target={{ term: 't' }} state={{ status: 'error' }} />)
-    expect(h).toContain('中身を読み込めませんでした')
+    expect(h).toContain('データを読み込めませんでした')
     expect(h).toContain('もう一度')
   })
-  it('ほか N 表は「中身まで見る」で', () => {
+  it('ほか N 表は「値のつながり」で', () => {
     const h = html(<ContentsPanel target={{ term: 't' }} state={{ status: 'ok', data: load({ more: 2 }) }} />)
-    expect(h).toContain('ほか 2 表は「中身まで見る」で')
+    expect(h).toContain('ほか 2 表は「値のつながり」で')
     expect(h).toContain('data-testid="contents-full"')
   })
   it('行が 0 件: 表の枠を出さず 1 行', () => {
@@ -68,7 +68,7 @@ describe('ContentsPanel', () => {
   })
   it('未公開の提案の用語: 公開を促す 1 行', () => {
     const h = html(<ContentsPanel target={UNPUBLISHED} state={{ status: 'idle' }} />)
-    expect(h).toContain('確認して公開すると、ここに行が出ます')
+    expect(h).toContain('承認して公開すると、ここに行が出ます')
   })
   it('折りたたみ: 既定は開く（aria-expanded=true）、覚えていれば閉じる', () => {
     expect(html(<ContentsPanel target={null} state={{ status: 'idle' }} />)).toContain('aria-expanded="true"')
@@ -79,6 +79,6 @@ describe('ContentsPanel', () => {
   })
   it('英語でも出る', async () => {
     await i18n.changeLanguage('en')
-    expect(html(<ContentsPanel target={null} state={{ status: 'idle' }} />)).toContain('Click a dot on the map')
+    expect(html(<ContentsPanel target={null} state={{ status: 'idle' }} />)).toContain('Click a dot in the knowledge graph')
   })
 })

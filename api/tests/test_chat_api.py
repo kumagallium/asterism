@@ -536,7 +536,7 @@ def test_confirm_only_the_last_proposed_turn(tmp_path: Path) -> None:
         _say(client, sid, Q2)
         base = f"/api/chat/sessions/{sid}/turns"
         r = client.post(f"{base}/t1/confirm", json={})
-        assert r.status_code == 409 and "最後の提案に ✓ してください" in r.text
+        assert r.status_code == 409 and "最後の提案を承認してください" in r.text
         r = client.post(f"{base}/t1/confirm", json={"lang": "en"})
         assert r.status_code == 409 and "latest proposal" in r.text
         r = client.post(f"{base}/t3/confirm", json={})

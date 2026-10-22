@@ -44,11 +44,11 @@ _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 _NOTES = {
     "ja": {
         "no_term": "この用語に結ばれた表はありません",
-        "unpublished": "確認して公開すると、ここに行が出ます",
+        "unpublished": "承認して公開すると、ここに行が出ます",
     },
     "en": {
         "no_term": "No table is linked to this term",
-        "unpublished": "Rows appear here once you confirm and publish",
+        "unpublished": "Rows appear here once you approve and publish",
     },
 }
 

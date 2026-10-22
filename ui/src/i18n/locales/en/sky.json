@@ -1,9 +1,5 @@
 {
-  "facts": {
-    "answerable": "confirmed questions (answerable / all)",
-    "none": "No confirmed questions yet (ask in the chat and press Confirm)"
-  },
-  "deep": "See the contents",
+  "deep": "Linked values",
   "deepBack": "Back to the sky chart",
   "state": {
     "loading": "Loading the sky chart…"

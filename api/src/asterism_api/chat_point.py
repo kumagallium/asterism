@@ -327,7 +327,7 @@ def _hub_point(ctx: _Ctx, iri: str, hub: dict[str, Any]) -> dict[str, Any]:
 def _line_point(ctx: _Ctx, ln: dict[str, Any]) -> dict[str, Any]:
     sentence = ctx.sentence(ln)
     if sentence is None:
-        raise PointError(404, "その関係は図に出していません")
+        raise PointError(404, "その関係は知識グラフに出していません")
     out = _base(
         f"{ln['source']}|{ln['relation']}|{ln['target']}", "line", sentence["text"]
     )
@@ -420,7 +420,7 @@ class _DraftView:
 def _split_draft_ref(ref: str) -> tuple[str, str]:
     parts = ref.split(":", 2)
     if len(parts) != 3 or not parts[1] or not parts[2]:
-        raise PointError(422, "未確認の札の形が合いません")
+        raise PointError(422, "承認していない提案の形が合いません")
     return parts[1], parts[2]
 
 
@@ -429,7 +429,7 @@ def _draft_point(root: Path, lg: str, iri: str) -> dict[str, Any]:
     view = _DraftView(root, lg, draft_id)
     concept = view.concepts.get(key)
     if concept is None:
-        raise PointError(404, "その札はありません")
+        raise PointError(404, "その提案はありません")
     mine = view.turn_for(key)
     out = _base(iri, "draft", view.label(concept))
     out["confirmed"] = False
@@ -457,7 +457,7 @@ def _draft_line_point(
     """提案の線 — ``from`` / ``to`` のどちらかまたは両方が ``draft:<id>:<key>``。"""
     ids = {_split_draft_ref(x)[0] for x in (source, target) if x.startswith("draft:")}
     if len(ids) != 1:
-        raise PointError(422, "線の両端が別の提案にまたがっています")
+        raise PointError(422, "関係の両端が別の提案にまたがっています")
     view = _DraftView(root, lg, ids.pop())
 
     def key_of(ref: str) -> str:
@@ -477,7 +477,7 @@ def _draft_line_point(
     mine = view.turn_for(want[0] if want[0] in view.concepts else None)
     sentence = view.sentence(found, mine)
     if sentence is None:
-        raise PointError(404, "その関係は図に出していません")
+        raise PointError(404, "その関係は知識グラフに出していません")
     out = _base(f"{source}|{relation}|{target}", "line", sentence["text"])
     out["confirmed"] = False
     out["sentences"] = [sentence]

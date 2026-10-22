@@ -76,8 +76,8 @@ describe('ReplyCard', () => {
     const html = card(turn({ reply: reply({ ops: [{ op: 'add_concept' }, { op: 'add_relation' }] }) }))
     expect(html).toContain('data-testid="reply-confirm"')
     expect(html).toContain('data-testid="reply-revert"')
-    expect(text(html)).toContain('確認 2 件')
-    expect(text(html)).toContain('図への提案 · 2 件')
+    expect(text(html)).toContain('承認 2 件')
+    expect(text(html)).toContain('知識グラフへの提案 · 2 件')
   })
   it('最後でない未確認の返事には ✓ を出さず、「戻す」は残る', () => {
     const html = card(turn(), false)
@@ -90,7 +90,7 @@ describe('ReplyCard', () => {
     expect(html).not.toContain('reply-revert')
   })
   it('確認済みは日時つきの印、取り消し済みはその印だけ', () => {
-    expect(text(card(turn({ state: 'confirmed', commit: { theme_id: 'x', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T09:30:00Z' } }), false))).toContain('確認済み ·')
+    expect(text(card(turn({ state: 'confirmed', commit: { theme_id: 'x', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T09:30:00Z' } }), false))).toContain('承認済み ·')
     const rev = card(turn({ state: 'reverted' }), false)
     expect(text(rev)).toContain('取り消し済み')
     expect(rev).not.toContain('reply-revert')
@@ -354,7 +354,7 @@ describe('PointCard', () => {
     expect(tx).toContain('格子熱伝導率')
     expect(tx).toContain('項目')
     expect(tx).toContain('格子熱伝導率は熱伝導率の一部')
-    expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が足し、人が確認')
+    expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が足し、人が承認')
     expect(html).toContain('href="#/t/cabc12345x"')
     expect(html).toContain('data-testid="point-contents"')
     expect(html).toContain('data-testid="point-revert"')

@@ -118,9 +118,10 @@ def _reply(
 
 
 _AI_UNSET = {
-    "ja": "AI が設定されていないので、用語と関係は図の下の欄で手で足せます。"
+    "ja": "AI が設定されていないので、用語と関係は知識グラフの下の欄で手で足せます。"
     "設定 › AI で鍵を入れると AI が提案します",
-    "en": "AI is not set up, so add terms and relations by hand in the panel under the chart. "
+    "en": "AI is not set up, so add terms and relations by hand in the panel "
+    "under the knowledge graph. "
     "Add a key in Settings › AI and the AI will propose them.",
 }
 
@@ -703,7 +704,11 @@ def apply_text_turn(
         reason = ai_result.get("reason") or "network"
         detail = _AI_FAILED[lg][reason]  # 詳細は session.json に残さない
         logger.warning("chat turn: AI failed (%s): %s", reason, ai_result.get("detail") or "")
-        said = "今回は図を変えられませんでした。" if lg == "ja" else "The chart was not changed."
+        said = (
+            "今回は知識グラフを変えられませんでした。"
+            if lg == "ja"
+            else "The knowledge graph was not changed."
+        )
         return _machine_turn(session, text, said, lg, [note("ai_failed", detail)], at)
     draft = _current_draft(session, root)
     theme = _theme_of(session, root)
@@ -901,12 +906,12 @@ def _created_turn(
     shape = _answer_shape(answer, draft["concepts"], lg)
     wanted = str(answer.get("wanted_data") or "").strip()
     if lg == "ja":
-        said = f"図に 用語 {n_concepts}・関係 {n_rels} を足しました。"
+        said = f"知識グラフに 用語 {n_concepts}・関係 {n_rels} を足しました。"
         said += f"答え方: {shape}。" if shape else "答え方: まだ決まっていません。"
         if wanted:
             said += f"欲しいデータ: {wanted}"
     else:
-        said = f"Added {n_concepts} concepts and {n_rels} relations to the chart. "
+        said = f"Added {n_concepts} concepts and {n_rels} relations to the knowledge graph. "
         said += f"How to answer: {shape}. " if shape else "How to answer: not decided yet. "
         if wanted:
             said += f"Data needed: {wanted}"
@@ -1025,9 +1030,13 @@ def _apply_diff(
     if not said:
         n = report["applied"]
         if lg == "ja":
-            said = f"図を {n} 件直しました。" if n else "図は変えていません。"
+            said = f"知識グラフを {n} 件直しました。" if n else "知識グラフは変えていません。"
         else:
-            said = f"Changed {n} things on the chart." if n else "The chart is unchanged."
+            said = (
+                f"Changed {n} things in the knowledge graph."
+                if n
+                else "The knowledge graph is unchanged."
+            )
     return _append_turn(
         session,
         at=at,
@@ -1121,21 +1130,21 @@ def run_ops_turn(
 
 _REMOVE_TEXT = {
     "ja": {
-        "draft": "未確認のものは、その提案を戻してください",
+        "draft": "承認していないものは、その提案を戻してください",
         "std": "標準の語は外せません",
         "no_term": "その用語はありません",
         "no_relation": "その関係はありません",
         "bad_relation": "その関係は外せません",
-        "outside": "この用語・関係が入っている図が見つかりません",
+        "outside": "この用語・関係が入っている知識グラフが見つかりません",
         "not_here": "いま開いている提案には入っていません",
     },
     "en": {
-        "draft": "Something unconfirmed is undone by reverting its proposal",
+        "draft": "Something not yet approved is undone by reverting its proposal",
         "std": "A standard term cannot be removed",
         "no_term": "No such term",
         "no_relation": "No such relation",
         "bad_relation": "That relation cannot be removed",
-        "outside": "No chart holds this term or relation",
+        "outside": "No knowledge graph holds this term or relation",
         "not_here": "It is not in the proposal that is open",
     },
 }
@@ -1556,15 +1565,15 @@ async def confirm(
     draft = _current_draft(session, root)
     if not _is_theme_proposal(turn) or draft is None:
         raise TurnRefused(
-            409, "確認するものがありません" if _lg(lang) == "ja" else "Nothing to confirm."
+            409, "承認するものがありません" if _lg(lang) == "ja" else "Nothing to approve."
         )
     last = [t for t in session["turns"] if _is_theme_proposal(t)][-1]
     if last is not turn:
         raise TurnRefused(
             409,
-            "最後の提案に ✓ してください"
+            "最後の提案を承認してください"
             if _lg(lang) == "ja"
-            else "Please confirm the latest proposal.",
+            else "Please approve the latest proposal.",
         )
     body = commit_body(draft, lang)
     body["batch"] = turn["batch"]
@@ -1620,7 +1629,7 @@ def revert(
     返り = ``(手番, 取り消した手番の id)``。"""
     turn = _find(session, turn_id)
     if turn.get("state") != "proposed":
-        raise TurnRefused(409, "取り消せるのは未確認の返事だけです")
+        raise TurnRefused(409, "取り消せるのは承認していない返事だけです")
     turns = session["turns"]
     start = turns.index(turn)
     undone = [t for t in turns[start:] if _is_theme_proposal(t)]
@@ -1630,9 +1639,9 @@ def revert(
     if not owner or themes.load_draft(root, owner) is None:
         raise TurnRefused(
             409,
-            "この提案は確認済みです"
+            "この提案は承認済みです"
             if _lg(lang) == "ja"
-            else "This proposal is already confirmed.",
+            else "This proposal is already approved.",
         )
     if before is None:  # この手番で下書きを作った — 下書きごと消す
         if session.get("draft_id"):
@@ -1904,9 +1913,9 @@ async def revert_confirmed(
     if turn.get("state") != "confirmed" or not isinstance(commit, dict):
         raise TurnRefused(
             409,
-            "戻せるのは確認済みの手番だけです"
+            "戻せるのは承認済みの手番だけです"
             if lg == "ja"
-            else "Only confirmed turns can be undone",
+            else "Only approved turns can be undone",
         )
     batch = commit.get("batch")
     theme_id = commit.get("theme_id")

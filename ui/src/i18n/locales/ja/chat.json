@@ -8,7 +8,7 @@
     "rename": "名前を直す",
     "renameLabel": "チャットの名前",
     "delete": "消す",
-    "deleteAsk": "このチャットを消します。確認済みのものは残ります。",
+    "deleteAsk": "このチャットを消します。承認済みのものは残ります。",
     "deleteYes": "消す",
     "deleteNo": "やめる",
     "noKey": "設定 › サーバで鍵を入れると、チャットを保存できます",
@@ -27,29 +27,29 @@
     "thinking": "考えています",
     "more": "ほか {{n}} 件",
     "publish": "公開",
-    "confirm": "確認",
+    "confirm": "承認",
     "count": "{{n}} 件",
-    "confirmed": "確認済み · {{at}}",
+    "confirmed": "承認済み · {{at}}",
     "proposed": "提案",
     "reverted": "取り消し済み",
     "removed": "外しました: 用語 {{terms}}・関係 {{lines}}",
     "kept": "残した: {{slug}}（{{reason}}）",
     "revert": "戻す",
-    "undoAsk": "この確認で足した 用語 {{terms}}・文 {{lines}} を戻します",
+    "undoAsk": "この承認で足した 用語 {{terms}}・文 {{lines}} を戻します",
     "undone": "戻しました: 文 {{lines}}・用語 {{terms}}",
     "undoneKept": "（残した: {{names}}）",
     "undoneFailed": "戻せませんでした: {{what}}（{{reason}}）",
-    "cardProposed": "図への提案 · {{n}} 件",
-    "cardProposedNone": "図への提案"
+    "cardProposed": "知識グラフへの提案 · {{n}} 件",
+    "cardProposedNone": "知識グラフへの提案"
   },
   "tabs": {
     "label": "表示する領域",
     "chat": "チャット",
-    "chart": "図"
+    "chart": "知識グラフ"
   },
   "chart": {
     "back": "戻る",
-    "failed": "図を読み込めませんでした",
+    "failed": "知識グラフを読み込めませんでした",
     "retry": "もう一度"
   },
   "hand": {
@@ -67,7 +67,7 @@
     "decide": "決める"
   },
   "empty": {
-    "first": "知りたいことを書くか、データの表（CSV・Excel）を添えてください。右の地図に用語とデータが増えていきます"
+    "first": "知りたいことを書くか、データの表（CSV・Excel）を添えてください。右の知識グラフに用語とデータが増えていきます"
   },
   "error": {
     "badShape": "サーバの返事の形が想定と違います",
@@ -78,12 +78,12 @@
       "rename": "名前の変更",
       "delete": "チャットの削除",
       "turn": "送信",
-      "confirm": "確認",
+      "confirm": "承認",
       "revert": "戻す操作",
-      "sky": "図の読み込み",
+      "sky": "知識グラフの読み込み",
       "attach": "表を添える操作",
       "point": "点の読み込み",
-      "contents": "中身の読み込み"
+      "contents": "データの読み込み"
     }
   },
   "attach": {
@@ -112,17 +112,17 @@
     "titleDraft": "提案",
     "termClass": "種類",
     "termProperty": "項目",
-    "contents": "中身を見る",
+    "contents": "データを見る",
     "showText": "{{name}}を見せて",
     "revert": "戻す",
-    "revertAsk": "この確認を取り消します",
+    "revertAsk": "この承認を取り消します",
     "revertYes": "戻す",
     "revertNo": "やめる",
     "openSession": "チャットを開く →",
     "prov": "チャット「{{title}}」で {{at}} に {{by}}",
     "provNoTitle": "{{at}} に {{by}}",
-    "byAi": "AI が足し、人が確認",
-    "byHuman": "人が確認",
+    "byAi": "AI が足し、人が承認",
+    "byHuman": "人が承認",
     "byMachine": "名前の一致",
     "questions": "答える問い",
     "qKnowledge": "知識 {{n}}",
@@ -131,12 +131,12 @@
     "standard": "標準用語",
     "noSentence": "文はまだありません",
     "untitled": "新しいチャット",
-    "removeAsk": "「{{name}}」を図から外す提案にします（確認で確定）",
+    "removeAsk": "「{{name}}」を知識グラフから外す提案にします（承認で確定）",
     "boundTerms": "結ばれた用語",
     "unpublished": "まだ公開していません",
-    "draftProv": "{{at}} に AI が提案（まだ確認していません）",
-    "draftNoSession": "チャットの外で作られた提案なので、ここでは確認できません",
-    "draftHow": "確認はチャットの返事の「確認」で"
+    "draftProv": "{{at}} に AI が提案（まだ承認していません）",
+    "draftNoSession": "チャットの外で作られた提案なので、ここでは承認できません",
+    "draftHow": "承認はチャットの返事の「承認」で"
   },
   "table": {
     "more": "ほか {{n}} 件",
@@ -151,20 +151,20 @@
   },
   "map": {
     "fit": "全体を見る",
-    "aria": "用語とデータの地図",
-    "legend": "青＝用語・緑＝データの種類・灰＝表の名前・淡い色＝まだ確認していない提案",
-    "empty": "まだ何もありません。問いを書くか表を添えると、ここに地図が育ちます"
+    "aria": "用語とデータの知識グラフ",
+    "legend": "青＝用語・緑＝データの種類・灰＝データセット・淡い色＝まだ承認していない提案",
+    "empty": "まだ何もありません。問いを書くか表を添えると、ここに知識グラフが育ちます"
   },
   "contents": {
-    "title": "中身",
-    "of": "{{name}} の中身",
-    "hint": "地図の丸を押すと、その中身がここに出ます",
+    "title": "データ",
+    "of": "{{name}} のデータ",
+    "hint": "知識グラフの点を押すと、そのデータがここに出ます",
     "empty": "まだ行がありません",
-    "unpublished": "確認して公開すると、ここに行が出ます",
-    "moreTables": "ほか {{n}} 表は「中身まで見る」で",
-    "full": "中身まで見る",
+    "unpublished": "承認して公開すると、ここに行が出ます",
+    "moreTables": "ほか {{n}} 表は「値のつながり」で",
+    "full": "値のつながり",
     "toggle": "開閉",
-    "failed": "中身を読み込めませんでした",
+    "failed": "データを読み込めませんでした",
     "retry": "もう一度"
   }
 }
