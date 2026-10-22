@@ -120,7 +120,7 @@ describe('ReplyCard', () => {
 })
 
 describe('📎 表を添える', () => {
-  const binding = (column: string, decided: 'bind' | 'skip' = 'bind') => ({ column, label: column, term: column, term_label: column, relation: 'eq', decided })
+  const binding = (column: string, decided: 'bind' | 'skip' = 'bind') => ({ column, label: column, term: column, term_label: column, relation: 'eq', subject: '', decided })
   it('入力欄に 📎（隠し input・表の拡張子だけ）がある', () => {
     const html = renderToStaticMarkup(<Composer onSend={async () => true} onAttach={noop} busy={false} noKey={false} onOpenSettings={noop} />)
     expect(html).toContain('data-testid="chat-attach"')
@@ -144,9 +144,9 @@ describe('📎 表を添える', () => {
     expect(text(html)).toContain('列「価格」は「価格」と同じもの')
     expect(text(html)).toContain('結ぶ')
     expect(text(html)).toContain('結ばない')
-    expect(html).toContain('name="bind-t1-価格"')
+    expect(html).toContain('name="bind-t1-0"')
     expect(text(html)).toContain('📎 価格表.csv・12 行')
-    const radios = [...html.matchAll(/<input[^>]*name="bind-t1-(価格|備考)"[^>]*>/g)].map((m) => m[0])
+    const radios = [...html.matchAll(/<input[^>]*name="bind-t1-(0|1)"[^>]*>/g)].map((m) => m[0])
     expect(radios.filter((r) => r.includes('checked'))).toHaveLength(2)
   })
   it('choice はラジオ 1 組＋「決める」・決めたあとは印だけ', () => {
@@ -165,6 +165,19 @@ describe('📎 表を添える', () => {
     )
     expect(done).not.toContain('choice-decide')
     expect(text(done)).toContain('決めた: 記号')
+  })
+  it('📎 の手番に「機械」は出ない・名前の一致には出る', () => {
+    const at = { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' }
+    expect(text(card(turn({ by: 'machine', attachment: at })))).not.toContain('機械')
+    expect(text(card(turn({ by: 'machine', user: null, reply: reply({ suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] }) })))).toContain('機械')
+  })
+  it('選び待ちに ✓ は無く、表の手番の ✓ は「公開」', () => {
+    const choice = { label: 'L', options: [{ value: 'a', label: 'A' }], default: 'a' }
+    const wait = card(turn({ reply: reply({ notes: [{ kind: 'choice_id', text: 'x', choice }] }) }), false)
+    expect(wait).not.toContain('reply-confirm')
+    const pub = card(turn({ attachment: { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' } }))
+    expect(text(pub)).toContain('✓ 公開')
+    expect(text(pub)).not.toContain('件')
   })
   it('機械の手番は suggestions を 1 行ずつ・新しい kind も描ける', () => {
     const html = card(turn({ by: 'machine', user: null, reply: reply({ text: '', suggestions: [{ subject: '価格', term: '値段', relation: 'eq' }] }) }))

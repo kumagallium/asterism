@@ -153,6 +153,9 @@ export function ChatApp() {
   // 読んでいる手番（表を添えた）の進み: 手番の id → 1 行
   const [progress, setProgress] = useState<Record<string, string>>({})
   const watching = useRef(new Map<string, JobHandle>())
+  // 購読を終えた手番（id → ジョブの id）。読み直しても running のままなら再購読しない
+  const finished = useRef(new Map<string, string>())
+  const [interrupted, setInterrupted] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
   const [tab, setTab] = useState<'chat' | 'chart'>('chat')
@@ -166,20 +169,32 @@ export function ChatApp() {
   const reread = useCallback(async (id: string, applied: (cur: Session) => Session) => {
     const fresh = await getSession(id).catch(() => null)
     setLoaded((cur) => (cur && cur.id === id ? { id, session: preferReloaded(applied(cur.session), fresh) } : cur))
+    return fresh
   }, [])
 
   /** 読んでいる手番のジョブを購読する。進みの 1 行を更新し、終わったら（失敗も）話を読み直す。 */
   const watch = useCallback(
     (sessionId: string, turnId: string, jobId: string) => {
-      if (watching.current.has(turnId)) return
+      if (watching.current.has(turnId) || finished.current.get(turnId) === jobId) return
+      setInterrupted((cur) => {
+        if (!cur[turnId]) return cur
+        const rest = { ...cur }
+        delete rest[turnId]
+        return rest
+      })
       const finish = () => {
         watching.current.delete(turnId)
+        finished.current.set(turnId, jobId)
         setProgress((cur) => {
           const rest = { ...cur }
           delete rest[turnId]
           return rest
         })
-        void reread(sessionId, (cur) => cur).then(afterChange)
+        void reread(sessionId, (cur) => cur).then((fresh) => {
+          // 読み直してもまだ読んでいる印なら、ジョブは止まっている（サーバが次の読み直しで落とす）
+          if (fresh?.turns.some((x) => x.id === turnId && x.state === 'running')) setInterrupted((cur) => ({ ...cur, [turnId]: true }))
+          afterChange()
+        })
       }
       watching.current.set(
         turnId,
@@ -296,13 +311,11 @@ export function ChatApp() {
           navigate({ kind: 'session', id: s.id }, { replace: true })
         }
         const id = s.id
+        let res: Awaited<ReturnType<typeof postAttach>>
         try {
-          const res = await postAttach(id, files, lang, getActiveCredentials())
-          await reread(id, (cur) => applyTurnResponse(cur, { turn: res.turn, session: res.session, draft: null }))
-          watch(id, res.turn.id, res.job_id)
-          afterChange()
-          return true
+          res = await postAttach(id, files, lang, getActiveCredentials())
         } catch (e) {
+          // 例外のときだけ空の話を消す（201 で job_id が無いのは成功）
           if (created) {
             await deleteSession(id).catch(() => undefined)
             setLoaded(null)
@@ -318,6 +331,10 @@ export function ChatApp() {
           if (created) navigate({ kind: 'new' }, { replace: true })
           throw e
         }
+        await reread(id, (cur) => applyTurnResponse(cur, { turn: res.turn, session: res.session, draft: null }))
+        if (res.job_id) watch(id, res.turn.id, res.job_id)
+        afterChange()
+        return true
       } catch (e) {
         setError(messageOf(e))
         return false
@@ -358,7 +375,7 @@ export function ChatApp() {
       setBusy('confirm')
       setError(null)
       try {
-        const res = await confirmTurn(id, turnId, lang, decisions)
+        const res = await confirmTurn(id, turnId, lang, decisions, getActiveCredentials())
         await reread(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
         setBornTick((n) => n + 1)
@@ -369,7 +386,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [session, busy, lang, reread, afterChange],
+    [session, busy, lang, getActiveCredentials, reread, afterChange],
   )
 
   const onRevert = useCallback(
@@ -470,6 +487,7 @@ export function ChatApp() {
           pendingUser={pendingUser}
           pendingReading={pendingReading}
           progress={progress}
+          interrupted={interrupted}
           onAttach={onAttach}
           onChoose={(turnId, i, v) => void onChoose(turnId, i, v)}
           error={error}

@@ -25,6 +25,7 @@
     "byMachine": "機械",
     "thinking": "考えています",
     "more": "ほか {{n}} 件",
+    "publish": "✓ 公開",
     "confirm": "✓ 確認",
     "count": "{{n}} 件",
     "confirmed": "✓ 確認済み（{{at}}）",
@@ -77,6 +78,9 @@
     }
   },
   "attach": {
+    "interrupted": "読み取りが途中で止まりました",
+    "attachFailed": "表を読めませんでした",
+    "aiFailed": "AI が答えられませんでした",
     "reading": "読んでいます…",
     "readingWith": "読んでいます…（{{message}}）",
     "failed": "表を読めませんでした",

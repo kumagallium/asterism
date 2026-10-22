@@ -56,6 +56,8 @@ export interface Binding {
   term: string
   term_label: string
   relation: string
+  /** 同名の列を見分ける主語（無ければ空）。 */
+  subject: string
   decided: Decided
 }
 export interface Suggestion {
@@ -135,7 +137,8 @@ export interface TurnResponse {
 export interface AttachResponse {
   turn: Turn
   session: SessionBrief
-  job_id: string
+  /** 無いとき（`unsupported` の手番）は購読しない。 */
+  job_id: string | null
 }
 
 export interface ConfirmResponse {
@@ -150,6 +153,7 @@ export interface ConfirmResponse {
 /** ✓ で送る、結ぶ／結ばないの選び。 */
 export interface BindingDecision {
   column: string
+  subject?: string
   decided: Decided
 }
 
@@ -198,6 +202,7 @@ function binding(o: Record<string, unknown>): Binding {
     term: str(o.term),
     term_label: str(o.term_label),
     relation: str(o.relation, 'eq'),
+    subject: str(o.subject),
     decided: o.decided === 'skip' ? 'skip' : 'bind',
   }
 }
@@ -453,8 +458,8 @@ export async function postAttach(id: string, files: File[], lang: 'ja' | 'en', c
   const body: unknown = await res.json()
   const turn = isObj(body) ? normalizeTurn(body.turn) : null
   const session = isObj(body) ? brief(body.session) : null
-  if (!turn || !session || !isObj(body) || typeof body.job_id !== 'string') throw badShape()
-  return { turn, session, job_id: body.job_id }
+  if (!turn || !session || !isObj(body)) throw badShape()
+  return { turn, session, job_id: strOrNull(body.job_id) }
 }
 
 /** AI が設定されていない（attach の 503）。鍵が無い 503 とは `detail` で見分ける。 */
@@ -465,10 +470,11 @@ export async function confirmTurn(
   turnId: string,
   lang: 'ja' | 'en',
   bindings?: BindingDecision[],
+  creds: LlmCredentials | null = null,
 ): Promise<ConfirmResponse> {
   const res = await call(
     `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/confirm`,
-    { method: 'POST', headers: json(), body: JSON.stringify(bindings ? { lang, bindings } : { lang }) },
+    { method: 'POST', headers: json(llmHeaders(creds)), body: JSON.stringify(bindings ? { lang, bindings } : { lang }) },
     'confirm',
   )
   const body: unknown = await res.json()

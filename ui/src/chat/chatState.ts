@@ -1,17 +1,48 @@
 // 話の状態の純関数（vitest で検査する）。画面は fetch の返りをここに通して話を更新する。
 import type { Binding, BindingDecision, Decided, ConfirmResponse, RevertResponse, Session, SessionBrief, Turn, TurnResponse } from './chatApi'
 
-/** ✓ を出す手番の id（最後の未確認の返事）。無ければ null。 */
-export function confirmTarget(turns: readonly Turn[]): string | null {
-  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].state === 'proposed') return turns[i].id
-  return null
+export type TurnKind = 'theme' | 'table' | 'machine'
+
+/** 手番の種類: 表の手番（表を添えた・ID の選び）／機械の手番（名前の一致）／話（テーマ）の提案。 */
+export function turnKind(t: Turn): TurnKind {
+  if (t.attachment || t.reply.notes.some((n) => n.kind === 'choice_id')) return 'table'
+  if (t.reply.suggestions.length > 0) return 'machine'
+  return 'theme'
 }
 
-/** ✓ で置く差分の数（未確認の手番の ops の合計）。 */
+/** 選び待ち: 選択のある注記で、まだ決めていないものがある。✓ は出さず「決める」だけ。 */
+export function awaitingChoice(t: Turn): boolean {
+  return t.reply.notes.some((n) => n.choice !== null && n.choice.chosen === undefined)
+}
+
+/**
+ * ✓ を出す手番の id。話（テーマ）の提案は最後の 1 つだけ、表の手番と機械の手番はそれぞれに。
+ * 選び待ちの手番には出さない。
+ */
+export function confirmTargets(turns: readonly Turn[]): Set<string> {
+  const out = new Set<string>()
+  let lastTheme: string | null = null
+  for (const t of turns) {
+    if (t.state !== 'proposed' || awaitingChoice(t)) continue
+    if (turnKind(t) === 'theme') lastTheme = t.id
+    else out.add(t.id)
+  }
+  if (lastTheme) out.add(lastTheme)
+  return out
+}
+
+/** ✓ で置く差分の数（話（テーマ）の未確認の手番の ops の合計）。表・機械の手番は数えない。 */
 export function proposedCount(turns: readonly Turn[]): number {
   let n = 0
-  for (const t of turns) if (t.state === 'proposed') n += t.reply.ops.length
+  for (const t of turns) if (t.state === 'proposed' && turnKind(t) === 'theme') n += t.reply.ops.length
   return n
+}
+
+/** 「機械」の印を出すか: 名前の一致や「戻して」などの機械の返事だけ。表の手番には付けない。 */
+export function showMachineMark(t: Turn): boolean {
+  if (t.by !== 'machine') return false
+  if (t.attachment) return false
+  return !t.reply.notes.some((n) => n.kind === 'choice_id' || n.kind === 'attach_failed' || n.kind === 'unsupported')
 }
 
 /** 一覧と見出しに出す題。空なら「新しい話」。 */
@@ -123,7 +154,7 @@ export function runningJobs(turns: readonly Turn[]): { turnId: string; jobId: st
   return out
 }
 
-/** 結ぶ／結ばないの選び: 人が変えたもの（`picked`）を既定（`decided`）に重ねる。✓ のときに送る。 */
+/** 結ぶ／結ばないの選び: 人が変えたもの（`picked`・並び順の番号が key）を既定（`decided`）に重ねる。✓ のときに送る。 */
 export function bindingDecisions(bindings: readonly Binding[], picked: Readonly<Record<string, Decided>>): BindingDecision[] {
-  return bindings.map((b) => ({ column: b.column, decided: picked[b.column] ?? b.decided }))
+  return bindings.map((b, i) => ({ column: b.column, subject: b.subject, decided: picked[String(i)] ?? b.decided }))
 }

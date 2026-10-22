@@ -3,14 +3,14 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BindingDecision, Decided, Note, Turn } from './chatApi'
-import { bindingDecisions, keptName, settleAsk } from './chatState'
+import { bindingDecisions, keptName, settleAsk, showMachineMark, turnKind } from './chatState'
 
 /** 箇条書きで出す文の数（それ以上は「ほか N 件」の折りたたみ）。 */
 export const SENTENCE_LIMIT = 6
 
 export interface ReplyCardProps {
   turn: Turn
-  /** この手番が「最後の未確認の返事」か（`chatState.confirmTarget`）。✓ はここにだけ出す。 */
+  /** この手番に ✓ を出すか（`chatState.confirmTargets`）。 */
   canConfirm: boolean
   /** ✓ で置く差分の数（`chatState.proposedCount`）。 */
   count: number
@@ -25,6 +25,8 @@ export interface ReplyCardProps {
   names?: ReadonlyMap<string, string>
   /** 読んでいる手番の進みの 1 行（`state: running`）。 */
   progress?: string
+  /** 読み取りが途中で止まった（購読を終えても読んでいる印のまま）。 */
+  interrupted?: boolean
   /** 返事の中の小さな選択を決めた（手番・注記の番号・値）。 */
   onChoose?: (turnId: string, noteIndex: number, value: string) => void
 }
@@ -70,8 +72,14 @@ function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; bu
 }
 
 /** 表を読んでいる最中の手番（返事の場所に 1 行）。 */
-function Reading({ progress }: { progress?: string }) {
+function Reading({ progress, interrupted }: { progress?: string; interrupted?: boolean }) {
   const { t } = useTranslation('chat')
+  if (interrupted)
+    return (
+      <div className="consult-msg consult-msg--assistant" data-testid="reply-interrupted">
+        <div className="consult-bubble">{t('attach.interrupted')}</div>
+      </div>
+    )
   return (
     <div className="consult-msg consult-msg--assistant" data-testid="reply-reading">
       <div className="consult-bubble consult-bubble--pending">
@@ -83,7 +91,7 @@ function Reading({ progress }: { progress?: string }) {
 }
 
 export function ReplyCard(p: ReplyCardProps) {
-  return p.turn.state === 'running' ? <Reading progress={p.progress} /> : <ReplyBody {...p} />
+  return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} /> : <ReplyBody {...p} />
 }
 
 function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names, onChoose }: ReplyCardProps) {
@@ -98,6 +106,8 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   const rest = sentences.slice(SENTENCE_LIMIT)
   const open = turn.state === 'proposed'
   const proposed = turn.state === 'proposed'
+  const machineMark = showMachineMark(turn)
+  const publish = turnKind(turn) !== 'theme'
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set())
   const unsend = (q: string) =>
     setSent((cur) => {
@@ -147,11 +157,11 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
         )}
         {r.bindings.length > 0 && (
           <ul className="chat-bindings" data-testid="reply-bindings">
-            {r.bindings.map((b) => {
-              const now = picked[b.column] ?? b.decided
-              const name = `bind-${turn.id}-${b.column}`
+            {r.bindings.map((b, bi) => {
+              const now = picked[String(bi)] ?? b.decided
+              const name = `bind-${turn.id}-${bi}`
               return (
-                <li key={b.column} className="chat-binding" data-column={b.column}>
+                <li key={bi} className="chat-binding" data-column={b.column}>
                   <span>{t('attach.bindLine', { column: b.column, term: b.term_label || b.label || b.term })}</span>
                   <span className="chat-binding-radios">
                     {(['bind', 'skip'] as const).map((d) => (
@@ -162,7 +172,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
                           value={d}
                           checked={now === d}
                           disabled={busy || !open}
-                          onChange={() => setPicked((cur) => ({ ...cur, [b.column]: d }))}
+                          onChange={() => setPicked((cur) => ({ ...cur, [String(bi)]: d }))}
                         />
                         {t(d === 'bind' ? 'attach.bind' : 'attach.skip')}
                       </label>
@@ -213,9 +223,9 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
               {t('reply.kept', { slug: keptName(k.slug, names), reason: k.reason })}
             </p>
           ))}
-        {(turn.state !== 'none' || turn.by === 'machine') && (
+        {(turn.state !== 'none' || machineMark) && (
           <div className="chat-card-foot">
-            {turn.by === 'machine' && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
+            {machineMark && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
             {turn.state === 'proposed' && <span className="chat-mark chat-mark--proposed">{t('reply.proposed')}</span>}
             {turn.state === 'confirmed' && (
               <span className="chat-mark chat-mark--confirmed">{t('reply.confirmed', { at: stamp(turn.commit?.at || turn.at, i18n.language) })}</span>
@@ -223,8 +233,8 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             {turn.state === 'reverted' && <span className="chat-mark chat-mark--reverted">{t('reply.reverted')}</span>}
             {canConfirm && turn.state !== 'none' && (
               <button type="button" className="btn btn--sm" data-testid="reply-confirm" disabled={busy} onClick={() => onConfirm(turn.id, r.bindings.length > 0 ? bindingDecisions(r.bindings, picked) : undefined)}>
-                {t('reply.confirm')}
-                {count > 0 && ` ${t('reply.count', { n: count })}`}
+                {publish ? t('reply.publish') : t('reply.confirm')}
+                {!publish && count > 0 && ` ${t('reply.count', { n: count })}`}
               </button>
             )}
             {proposed && (

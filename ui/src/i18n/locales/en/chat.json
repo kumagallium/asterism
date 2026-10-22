@@ -25,6 +25,7 @@
     "byMachine": "Machine",
     "thinking": "Thinking",
     "more": "{{n}} more",
+    "publish": "✓ Publish",
     "confirm": "✓ Confirm",
     "count": "{{n}}",
     "confirmed": "✓ Confirmed ({{at}})",
@@ -77,6 +78,9 @@
     }
   },
   "attach": {
+    "interrupted": "Reading stopped partway",
+    "attachFailed": "Could not read the table",
+    "aiFailed": "The AI could not answer",
     "reading": "Reading…",
     "readingWith": "Reading… ({{message}})",
     "failed": "Could not read the table",

@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BindingDecision, Session } from './chatApi'
-import { confirmTarget, proposedCount } from './chatState'
+import { confirmTargets, proposedCount } from './chatState'
 import { Composer } from './Composer'
 import { ReplyCard } from './ReplyCard'
 
@@ -27,6 +27,8 @@ export interface ChatPaneProps {
   onAttach?: (files: File[]) => Promise<boolean> | boolean | void
   /** 読んでいる手番の id → 進みの 1 行。 */
   progress?: Readonly<Record<string, string>>
+  /** 読み取りが途中で止まった手番の id。 */
+  interrupted?: Readonly<Record<string, boolean>>
   /** 返事の中の小さな選択を決めた。 */
   onChoose?: (turnId: string, noteIndex: number, value: string) => void
   /** 残した語の slug → 名前。 */
@@ -39,7 +41,7 @@ export interface ChatPaneProps {
 export function ChatPane(p: ChatPaneProps) {
   const { t } = useTranslation('chat')
   const turns = p.session?.turns ?? []
-  const target = confirmTarget(turns)
+  const targets = confirmTargets(turns)
   const count = proposedCount(turns)
   const endRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -74,7 +76,7 @@ export function ChatPane(p: ChatPaneProps) {
               )}
               <ReplyCard
                 turn={turn}
-                canConfirm={turn.id === target}
+                canConfirm={targets.has(turn.id)}
                 count={count}
                 busy={p.busy}
                 onConfirm={p.onConfirm}
@@ -82,6 +84,7 @@ export function ChatPane(p: ChatPaneProps) {
                 onAsk={(q) => p.onSend(q)}
                 names={p.names}
                 progress={p.progress?.[turn.id]}
+                interrupted={p.interrupted?.[turn.id]}
                 onChoose={p.onChoose}
               />
             </div>
