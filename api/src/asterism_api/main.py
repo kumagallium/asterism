@@ -12163,7 +12163,7 @@ def build_app(
     # ------------------------------------------------------------------
     # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     from asterism_api.chat_routes import register_chat  # 話（チャット・ui-redesign PR 11a）
-    from asterism_api.consult_graph_routes import register_consult_graph  # 話（チャット）の図の文脈と差分の提案
+    from asterism_api.consult_graph_routes import register_consult_graph  # 話の図の文脈・差分
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
