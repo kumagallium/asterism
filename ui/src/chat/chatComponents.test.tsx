@@ -363,18 +363,25 @@ describe('PointCard', () => {
     expect(html).not.toContain('point-revert')
     for (const w of ['線', 'ことば', '下書き', 'pending']) expect(text(html)).not.toContain(w)
   })
-  it('標準用語・つながり・提案: 中身も戻すも出ない', () => {
-    for (const kind of ['std', 'hub', 'line', 'draft'] as const) {
-      const html = pcard(point({ kind, members: [], can_revert: false, revert: null, provenance: null, sentences: [] }))
+  it('標準用語・つながり・未確認の提案（取り消す手番が無い）: 中身も戻すも出ない。確認済みの線は外す提案の戻すだけ', () => {
+    for (const kind of ['std', 'hub'] as const) {
+      const html = pcard(point({ kind, members: [], can_revert: false, confirmed: true, revert: null, provenance: null, sentences: [] }))
       expect(html).not.toContain('point-contents')
       expect(html).not.toContain('point-revert')
       expect(html).toContain(`data-kind="${kind}"`)
     }
+    const draft = pcard(point({ kind: 'draft', members: [], can_revert: false, confirmed: false, revert: null, provenance: null, sentences: [] }))
+    expect(draft).not.toContain('point-contents')
+    expect(draft).not.toContain('point-revert')
+    const line = pcard(point({ kind: 'line', members: [], can_revert: true, confirmed: true, revert: null, provenance: null, sentences: [] }))
+    expect(line).not.toContain('point-contents')
+    expect(line).toContain('point-revert')
   })
-  it('用語でも入っている種類が無ければ中身は出ない・戻すは revert が無ければ出ない', () => {
+  it('用語でも入っている種類が無ければ中身は出ない・確認済みの用語の戻すは外す提案として出る', () => {
     const html = pcard(point({ members: [], revert: null }))
     expect(html).not.toContain('point-contents')
-    expect(html).not.toContain('point-revert')
+    expect(html).toContain('point-revert')
+    expect(text(html)).not.toContain('この提案を取り消します')
   })
   it('機械の来歴は「名前の一致」', () => {
     const html = pcard(point({ provenance: { drafted_by: 'machine', at: '2026-10-22T01:00:00Z', theme_id: null, session_id: null, turn_id: null } }))
