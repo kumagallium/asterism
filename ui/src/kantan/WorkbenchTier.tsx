@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { DetailTab } from '../GalleryView'
+import type { DetailTab } from '../redesignTarget'
 import type { RedesignTarget } from '../redesignTarget'
 import { type GrowFocus, KantanWizard } from './KantanWizard'
 

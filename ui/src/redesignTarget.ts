@@ -1,3 +1,6 @@
+/** かんたんの「見せるページ」の tab 名（旧 GalleryView の型。ページは無くなった）。 */
+export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
+
 /**
  * A dataset whose stored design the workbench should reopen for a redesign
  * (refine/edit → re-materialize in place). Passed by the catalog's "見直す"

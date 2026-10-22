@@ -90,7 +90,7 @@ import {
   type RuleProperty,
   type RuleTerm,
 } from '../galleryApi'
-import type { DetailTab } from '../GalleryView'
+import type { DetailTab } from '../redesignTarget'
 import type { RedesignTarget } from '../redesignTarget'
 import { useIdMove } from '../idMove'
 import { IdMoveNotice } from '../IdMoveNotice'
