@@ -12,7 +12,9 @@
     "ask": "答えて",
     "sent": "送りました",
     "answerable": "答えられる",
-    "notYet": "まだ答えられない"
+    "notYet": "まだ答えられない",
+    "answeredByUnion": "{{names}} を合わせて答えられる",
+    "answeredByData": "データで答えられる"
   },
   "empty": "問いはまだありません。チャットで聞いて「承認」すると増えます",
   "more": "ほか {{n}}"

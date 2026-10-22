@@ -2,7 +2,7 @@
   "deep": "Linked values",
   "deepBack": "Back to the sky chart",
   "state": {
-    "loading": "Loading the sky chart…"
+    "loading": "Loading the knowledge graph…"
   },
   "chart": {
     "ariaSample": "Sample sky chart (not your data)"

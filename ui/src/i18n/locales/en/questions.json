@@ -12,7 +12,9 @@
     "ask": "Answer",
     "sent": "Sent",
     "answerable": "Answerable",
-    "notYet": "Not answerable yet"
+    "notYet": "Not answerable yet",
+    "answeredByUnion": "Answerable with {{names}} together",
+    "answeredByData": "Answerable from data"
   },
   "empty": "No questions yet. Ask in the chat and \"Approve\" to add some",
   "more": "{{n}} more"

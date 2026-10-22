@@ -40,6 +40,7 @@ import { HandForm } from './HandForm'
 import { ContentsPanel } from './ContentsPanel'
 import { isAnswerable, type SkyQuestion } from '../sky/skyApi'
 import { QuestionsPanel } from './QuestionsPanel'
+import { normalizeQuestion } from './questionsState'
 import { contentsKeyOf } from './contentsKey'
 import { useContents } from './useContents'
 import { MapView as MapHost } from './map/MapView'
@@ -610,7 +611,12 @@ export function ChatApp() {
   const qAnswerable = okSky ? okSky.sky.questions.filter(isAnswerable).length : 0
   const qTotal = okSky?.sky.questions.length ?? 0
   const proposedQuestions = useMemo(
-    () => (sessionDraft ? (okSky?.proposed.find((d) => d.draft_id === sessionDraft.draft_id)?.questions ?? []) : []),
+    () => {
+      if (!sessionDraft) return []
+      const own = sessionDraft.questions ?? okSky?.proposed.find((d) => d.draft_id === sessionDraft.draft_id)?.questions ?? []
+      const done = new Set((okSky?.sky.questions ?? []).map((q) => normalizeQuestion(q.title)))
+      return own.filter((q) => !done.has(normalizeQuestion(q)))
+    },
     [okSky, sessionDraft],
   )
   /** 問いを押す: 知識グラフに切り替え、要る用語とそれに結ばれたデータの種類を光らせる。 */
@@ -624,7 +630,15 @@ export function ChatApp() {
     [okSky, layout.tabs],
   )
   /** 「答えて」: チャットへ送り、必ず Ask。 */
-  const onAskQuestion = useCallback((text: string) => runTurn({ text, intent: 'ask' }), [runTurn])
+  const onAskQuestion = useCallback(
+    async (text: string) => {
+      const ok = await runTurn({ text, intent: 'ask' })
+      // 375 は答えも失敗もチャットに出るので、送れたらチャットへ
+      if (ok && layout.tabs) setTab('chat')
+      return ok
+    },
+    [runTurn, layout.tabs],
+  )
 
   const list = (
     <SessionList
@@ -711,25 +725,25 @@ export function ChatApp() {
           </div>
         )}
         {addOpen && <AddPanel onClose={closeAdd} />}
+        {skyData.status === 'error' && (
+          <div className="sky-placeholder chart-placeholder" role="alert">
+            <span>{t('chart.failed')}</span>
+            <button type="button" className="btn btn--sm" onClick={retrySky}>
+              {t('chart.retry')}
+            </button>
+          </div>
+        )}
+        {skyData.status === 'loading' && (
+          <div className="sky-placeholder chart-placeholder" role="status">
+            {tsky('state.loading')}
+          </div>
+        )}
         {okSky && !addOpen && rightView === 'questions' && (
           <div className="chat-right-scroll">
             <QuestionsPanel questions={okSky.sky.questions} sky={okSky.sky} proposed={proposedQuestions} onPick={onPickQuestion} onAsk={onAskQuestion} busy={busy !== null} />
           </div>
         )}
         <div className="chat-right-scroll" ref={scrollRef} hidden={addOpen || rightView !== 'graph'}>
-          {skyData.status === 'error' && (
-            <div className="sky-placeholder chart-placeholder" role="alert">
-              <span>{t('chart.failed')}</span>
-              <button type="button" className="btn btn--sm" onClick={retrySky}>
-                {t('chart.retry')}
-              </button>
-            </div>
-          )}
-          {skyData.status === 'loading' && (
-            <div className="sky-placeholder chart-placeholder" role="status">
-              {tsky('state.loading')}
-            </div>
-          )}
           {okSky && (
             <>
               <MapHost
@@ -752,7 +766,7 @@ export function ChatApp() {
             </>
           )}
         </div>
-        {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
+        {showHand && rightView === 'graph' && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>
     </div>
   )

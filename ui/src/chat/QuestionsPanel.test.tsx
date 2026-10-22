@@ -4,6 +4,7 @@ import '../i18n'
 import i18n from '../i18n'
 import { EMPTY_SKY, type SkyData, type SkyQuestion } from '../sky/skyApi'
 import { QuestionsPanel } from './QuestionsPanel'
+import { normalizeQuestion } from './questionsState'
 
 const q = (over: Partial<SkyQuestion>): SkyQuestion => ({
   tool_name: 'q1',
@@ -73,5 +74,22 @@ describe('QuestionsPanel', () => {
   it('busy の間は押せない', () => {
     const h = html(<QuestionsPanel {...props} busy questions={[q({ answering: 1, needs: ['t:a'] })]} />)
     expect(h).toContain('disabled')
+  })
+  it('知識の問いでも knowledge=0 で answering>=1 ならデータの文', () => {
+    const h = html(<QuestionsPanel {...props} questions={[q({ mode: 'knowledge', knowledge: 0, answering: 1, needs: ['t:a'] })]} />)
+    expect(h).toContain('で答えられる')
+    expect(h).not.toContain('関係で答えられる')
+  })
+  it('別々のデータセットにしか結ばれていない: 合わせて答えられる', () => {
+    const s = { ...sky(), terms: [term('t:a', ['d0']), term('t:b', ['d1'])] } as unknown as SkyData
+    const h = html(<QuestionsPanel {...props} sky={s} questions={[q({ answering: 1, needs: ['t:a', 't:b'] })]} />)
+    expect(h).toContain('データ0・データ1 を合わせて答えられる')
+  })
+  it('名前が引けない: データで答えられる', () => {
+    const h = html(<QuestionsPanel {...props} questions={[q({ answering: 1, needs: ['t:zzz'] })]} />)
+    expect(h).toContain('データで答えられる')
+  })
+  it('normalizeQuestion: 空白と全角・半角の ？ の差を無視', () => {
+    expect(normalizeQuestion(' 低い試料は？ ')).toBe(normalizeQuestion('低い試料は?'))
   })
 })

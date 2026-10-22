@@ -39,13 +39,14 @@ export function QuestionsPanel({ questions, sky, proposed, onPick, onAsk, busy }
     </button>
   )
   const noteOf = (q: SkyQuestion): string => {
-    if (q.mode === 'knowledge') return isAnswerable(q) ? t('row.byKnowledge', { n: q.knowledge ?? 0 }) : t('row.noData')
+    if (q.mode === 'knowledge' && (q.knowledge ?? 0) >= 1) return t('row.byKnowledge', { n: q.knowledge ?? 0 })
     if (q.answering < 1) return t('row.noData')
-    const names = datasetNamesOf(q, sky)
-    if (names.length === 0) return ''
+    const { names, union } = datasetNamesOf(q, sky)
+    if (names.length === 0) return t('row.answeredByData')
     const shown = names.slice(0, NAME_LIMIT).join('・')
     const rest = names.length - NAME_LIMIT
-    return t('row.answeredBy', { names: rest > 0 ? `${shown}・${t('more', { n: rest })}` : shown })
+    const text = rest > 0 ? `${shown}・${t('more', { n: rest })}` : shown
+    return t(union ? 'row.answeredByUnion' : 'row.answeredBy', { names: text })
   }
   return (
     <div className="chat-questions" data-testid="questions-panel">

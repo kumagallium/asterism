@@ -44,8 +44,7 @@
   },
   "tabs": {
     "label": "Area to show",
-    "chat": "Chat",
-    "chart": "Knowledge graph"
+    "chat": "Chat"
   },
   "chart": {
     "back": "Back",

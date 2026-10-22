@@ -1014,3 +1014,14 @@ button.chat-question-title:hover {
   color: var(--muted);
   cursor: default;
 }
+
+/* 375 でも 3 つのタブが溢れない */
+.chat-tabs .chat-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 0.6em;
+  padding-right: 0.6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
