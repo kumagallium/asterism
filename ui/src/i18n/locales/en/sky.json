@@ -14,12 +14,12 @@
     "kinds": "{{n}} kinds"
   },
   "facts": {
-    "answerable": "answerable questions",
+    "answerable": "confirmed questions (answerable / all)",
     "kinds": "kinds",
     "terms": "terms",
     "datasets": "datasets",
     "triples": "facts",
-    "none": "No questions yet"
+    "none": "No confirmed questions yet (ask in the chat and press Confirm)"
   },
   "quiet": "Quiet mode",
   "deep": "See the contents",

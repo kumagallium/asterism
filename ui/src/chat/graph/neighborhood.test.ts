@@ -47,7 +47,7 @@ describe('localSky', () => {
     expect(r.more).toBe(0)
   })
 
-  it('この話の用語＋知識の線の 1 ホップ。遠い用語は入らない', () => {
+  it('このチャットの用語＋知識の線の 1 ホップ。遠い用語は入らない', () => {
     const r = localSky(sky, [], [], focus({ termIris: new Set([`${NS}a`]) }))
     expect(slugs(r)).toEqual(['a', 'b'])
     expect(r.empty).toBe(false)
