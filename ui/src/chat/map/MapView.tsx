@@ -8,6 +8,9 @@ import type { PointSel } from '../chatState'
 import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature, safeResize, syncMapAttributes } from './mapModel'
 import type { MapNodeAttrs } from './mapModel'
 
+/** 全体を見るときのカメラの引き（1 より大きいと余白が出て、端の名前が切れない）。 */
+const FIT_RATIO = 1.15
+
 export interface MapViewProps {
   sky: SkyData
   drafts: readonly DraftSky[]
@@ -211,6 +214,8 @@ export function MapView({
       return
     }
     refreshRef.current = refresh
+    // 端の点の名前が切れないよう、少し引いて始める（全体を見るも同じ）
+    sigma.getCamera().setState({ x: 0.5, y: 0.5, ratio: FIT_RATIO })
     // 撮影と検証の道具のために、sigma を容器から引けるようにしておく（製品の動きには使わない）
     ;(host as HTMLDivElement & { sigma?: Sigma }).sigma = sigma
     bindMapEvents(
@@ -273,7 +278,7 @@ export function MapView({
         className="chat-map-fit"
         data-testid="map-fit"
         onClick={() => {
-          void sigmaRef.current?.getCamera().animatedReset()
+          void sigmaRef.current?.getCamera().animate({ x: 0.5, y: 0.5, ratio: FIT_RATIO, angle: 0 }, { duration: 300 })
         }}
       >
         {fitLabel}
