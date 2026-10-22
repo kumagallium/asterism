@@ -6,7 +6,6 @@ import type Sigma from 'sigma'
 import { hashPosition, layoutNetwork, neighborhoodOf } from '../../networkModel'
 import { draftCardConcepts, draftNodeId, hubNodeId, kindId, termId, termLabel } from '../../sky/skyLayout'
 import type { DraftSky, SkyData, SkyDataset, SkyKnowledgeRelation } from '../../sky/skyApi'
-import { starRadius } from '../graph/graphLayout'
 import type { PointSel } from '../chatState'
 
 export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub' | 'dataset'
@@ -39,6 +38,9 @@ export interface MapEdgeAttrs {
   /** 提案の薄い線。 */
   thin?: boolean
 }
+
+/** 件数の固定の対数の半径（1 件 5・10 件 7・100 件 9・1,000 件 12・1 万件以上 13）。11f の札の図から引き継いだ式。 */
+export const starRadius = (count: number): number => (count > 0 ? Math.min(13, 5 + 2.2 * Math.log10(count)) : 4)
 
 /** 種類の丸の大きさ（3〜12）。`starRadius`（5〜13・件数の固定の対数）を相対値に写す。 */
 export function kindSize(count: number): number {
