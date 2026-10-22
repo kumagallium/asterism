@@ -67,8 +67,8 @@ export const LIFT_STEP = 8
 export const starRadius = (count: number): number => (count > 0 ? Math.min(13, 5 + 2.2 * Math.log10(count)) : 4)
 /** 札の中の行の星の半径（1 件 3・10 件 4・100 件 5・1,000 件以上 6）。 */
 export const rowStarRadius = (count: number): number => (count > 0 ? Math.min(6, 3 + Math.log10(count)) : 3)
-/** 件数の字の幅の見積もり（「1,234 件」）。 */
-const countTextW = (count: number): number => String(count).length * 7.5 + 18
+/** 件数の字の幅の見積もり（「1,234 件」「4.6万 件」。11px の等幅＋単位。実フォントが太くても名前が削れないよう広めに）。 */
+const countTextW = (count: number): number => String(count).length * 8 + 26
 
 type Pt = { x: number; y: number }
 
@@ -120,6 +120,7 @@ function dedupe(pts: Pt[]): Pt[] {
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+const draftEdgeKey = (d: DraftEdgeInfo): string => `${d.draftId}|${d.rel}|${d.state}|${d.index}`
 const mean = (xs: number[]): number => xs.reduce((s, v) => s + v, 0) / xs.length
 
 // ── 線分と四角の交わり（線が札を貫かないかの確かめ） ──────────────
@@ -387,6 +388,8 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   const lang = opts.lang ?? 'ja'
   const avail = W - PAD * 2
   const cardMax = Math.min(TERM_MAX_W, Math.max(CARD_MIN_W, Math.floor((avail - CARD_GAP) / 2)))
+  /** 星の行を持つ札は、星の名前が削れにくいよう少し広くてよい（それでも 1 行に 2 枚は入る幅）。 */
+  const cardMaxStar = Math.min(TERM_MAX_W + 40, Math.max(CARD_MIN_W, Math.floor((avail - CARD_GAP) / 2)))
 
   // データセット（公開済み → 未公開の順・作成の古い順）
   const have = new Set(sky.datasets.map((d) => d.id))
@@ -588,7 +591,7 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
       k.r = rowStarRadius(k.count)
       rowW = Math.max(rowW, 2 * k.r + 6 + textWidth(k.label, 12) + 6 + countTextW(k.count))
     }
-    c.w = Math.min(cardMax, Math.max(c.w, Math.ceil(rowW + 2 * CARD_PAD)))
+    c.w = Math.min(cardMaxStar, Math.max(c.w, Math.ceil(rowW + 2 * CARD_PAD)))
     c.colW = c.w
     c.h = c.baseH + STAR_ROW_PAD + ks.length * STAR_ROW_H
     for (const k of ks) k.rowW = c.w - 2 * CARD_PAD - 2 * k.r - 6
@@ -729,7 +732,43 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   }
   for (let ri = 0; ri < rows.length; ri++) packRow(rows[ri], around(uppersOf))
 
-  // ── y: 行ごとに札の中心・星の吊り ──
+  // ── y: 行ごとに札の中心 ──
+  // 同じ行の離れた札を結ぶ線は行の上をまたぐ。横に重なる線どうしは別の高さ（短い線が下・長い線が上）にし、
+  // その高さの分だけ行の上の余白を広げる（最上段は図の上の余白）
+  const liftOf = (level: number): number => LIFT_BASE + LIFT_STEP * level
+  const jumpKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
+  const jumpLevel = new Map<string, number>()
+  const liftNeed: number[] = rows.map(() => 0)
+  interface Jump {
+    key: string
+    row: number
+    lo: number
+    hi: number
+    span: number
+  }
+  const jumps: Jump[] = []
+  const jumpSeen = new Set<string>()
+  for (const s2 of side) {
+    const a = cardById.get(s2.a)
+    const b = cardById.get(s2.b)
+    if (!a || !b || a.row !== b.row || Math.abs(a.col - b.col) < 2) continue
+    const key = jumpKey(a.id, b.id)
+    if (jumpSeen.has(key)) continue
+    jumpSeen.add(key)
+    jumps.push({ key, row: a.row, lo: Math.min(a.x, b.x), hi: Math.max(a.x, b.x), span: Math.abs(a.col - b.col) })
+  }
+  jumps.sort((p, q) => p.row - q.row || p.span - q.span || p.lo - q.lo || cmp(p.key, q.key))
+  for (const j of jumps) {
+    const used = new Set<number>()
+    for (const o of jumps) {
+      if (o === j || o.row !== j.row || !jumpLevel.has(o.key)) continue
+      if (o.lo < j.hi && o.hi > j.lo) used.add(jumpLevel.get(o.key) as number)
+    }
+    let level = 0
+    while (used.has(level)) level++
+    jumpLevel.set(j.key, level)
+    liftNeed[j.row] = Math.max(liftNeed[j.row], liftOf(level))
+  }
   interface RowY {
     cy: number
     maxH: number
@@ -737,15 +776,17 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
     bottom: number
   }
   const rowY: RowY[] = []
-  let y = TOP
-  for (const r of rows) {
+  let y = 0
+  rows.forEach((r, ri) => {
     const cs = r.ids.map((id) => cardById.get(id) as PCard)
     const maxH = Math.max(...cs.map((c) => c.h))
+    // 行の上の余白: 最上段は TOP、ほかは CHANNEL。またぐ線が高ければその分（＋線の上 8px）
+    y += Math.max(ri === 0 ? TOP : CHANNEL, liftNeed[ri] + 8)
     const cy = y + maxH / 2
     for (const c of cs) c.cy = cy
     rowY.push({ cy, maxH, top: y, bottom: y + maxH })
-    y += maxH + CHANNEL
-  }
+    y += maxH
+  })
   const conceptBottom = rows.length ? rowY[rowY.length - 1].bottom : 0
 
   // ── 星の置き場所（札の中の行: 左の余白に星、その右に名前と件数） ──
@@ -952,33 +993,6 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
   /** 線（折れ線）が、両端の札（本体と印）以外の札・印を貫かないか。両端の印は出口の選び方で避ける。 */
   const clear = (pts: Pt[], a: PCard, b: PCard): boolean =>
     !obstacles.some((o) => o.owner !== a && o.owner !== b && pts.slice(1).some((p, i) => segHitsRect(pts[i], p, o.q)))
-  /** 札の縁の上で、点 `p` に一番近い所（1px 外）。 */
-  const nearestEdge = (c: PCard, p: Pt): Pt => {
-    const l = c.x - c.w / 2
-    const r = c.x + c.w / 2
-    const t = c.cy - c.h / 2
-    const b = c.cy + c.h / 2
-    const x = Math.min(r, Math.max(l, p.x))
-    const y = Math.min(b, Math.max(t, p.y))
-    const d = [x - l, r - x, y - t, b - y]
-    const i = d.indexOf(Math.min(...d))
-    return i === 0 ? { x: l - 1, y } : i === 1 ? { x: r + 1, y } : i === 2 ? { x, y: t - 1 } : { x, y: b + 1 }
-  }
-
-  // 星 → 札: 札の中の行にある星は線を引かない（札の中にある）。別の札の中の星から来る線は、札の外へ出てから相手の近い縁へ
-  for (const e of edges) {
-    if (e.kind !== 'member') continue
-    const k = stars.get(e.from) as KindNode
-    const c = cardById.get(e.to) as PCard
-    const host = k.card ? cardById.get(k.card) : undefined
-    if (!host || host === c) continue
-    const toward = c.x >= host.x
-    const start = { x: k.x + (toward ? k.r + 2 : -k.r - 2), y: k.y }
-    const out = { x: toward ? host.x + host.w / 2 + 12 : host.x - host.w / 2 - 12, y: k.y }
-    const endPt = nearestEdge(c, out)
-    const cands: Pt[][] = [[start, out, endPt], [start, endPt]]
-    e.geom = geomOf(cands.find((pts) => clear(pts, host, c)) ?? cands[0])
-  }
 
   /** 間の行の札の隙間（左右の余白も）の中心 x。どの間の行の札からも 6px 以上離れた x だけ。`near` に近い順。 */
   const gapXs = (between: readonly number[], near: number): number[] => {
@@ -1012,11 +1026,10 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
         const mid = { x: (p1.x + p2.x) / 2, y: p1.y }
         return { pts: left === a ? [p1, p2] : [p2, p1], at: [mid] }
       }
-      // 隣でない同じ段の札: 段の上を直角に 2 回折れてまたぐ（離れるほど高く。前の段の下から 8px は空ける）
-      const span = Math.abs(a.col - b.col)
+      // 隣でない同じ段の札: 段の上を直角に 2 回折れてまたぐ（横に重なる線は別の高さ。行の上の余白はその分だけ広げてある）
       const rowTop = rowOfCard(a).top
       const prevBottom = a.row > 0 ? rowY[a.row - 1].bottom : 0
-      const lift = Math.max(prevBottom + 8, rowTop - (LIFT_BASE + LIFT_STEP * Math.min(4, span - 1)))
+      const lift = Math.max(prevBottom + 8, Math.min(rowTop - 16, rowTop - liftOf(jumpLevel.get(jumpKey(a.id, b.id)) ?? 0)))
       const xa = exitX(a.x + (b.x > a.x ? a.w / 4 : -a.w / 4), a)
       const xb = exitX(b.x + (a.x > b.x ? b.w / 4 : -b.w / 4), b)
       const pa = { x: xa, y: a.cy - a.h / 2 }
@@ -1049,15 +1062,18 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
       const vLast = [{ x: ax, y: upBottom }, { x: bx, y: upBottom + 26 }, { x: bx, y: loTop }] // 斜めに降り、下の札へ垂直
       // 下の札に印があって線が左から来るなら、斜めの線が印の字に掛かる。垂直に入る道を先に
       cands.push(...(lo2.markW > 0 && ax < bx ? [vLast, vFirst, diag] : [vFirst, diag, vLast]))
+      // 段のあいだ（行と行の間の真ん中）を直角に通る道（上から垂直 → 横 → 下の札へ垂直）
+      const midC = (rowY[up.row].bottom + rowY[lo2.row].top) / 2
+      cands.push([{ x: ax, y: upBottom }, { x: ax, y: midC }, { x: bx, y: midC }, { x: bx, y: loTop }])
       for (const d of [48, -48, 96, -96]) bulges.push([{ x: ax, y: upBottom }, { x: (ax + bx) / 2 + d, y: midY }, { x: bx, y: loTop }])
     }
     // 2 つ以上の段をまたぐ線は、間の段の札の隙間を直角に通る道も試す（上の札の下の段のあいだ → 隙間 → 下の札の上の段のあいだ）
     if (lo2.row - up.row >= 2) {
       const between: number[] = []
       for (let ri = up.row + 1; ri < lo2.row; ri++) between.push(ri)
-      // 横に走る所は、上の札の行（一番高い札）の下と、下の札の行の上（段のあいだの端）
+      // 横に走る所は、上の札の行（一番高い札）の下と、下の札の行の上（印の箱 15px より上）
       const y1 = rowY[up.row].bottom + 12
-      const y2 = rowY[lo2.row].top - 12
+      const y2 = rowY[lo2.row].top - 20
       for (const gx of gapXs(between, (ax + bx) / 2).slice(0, 4)) {
         cands.push(dedupe([{ x: ax, y: upBottom }, { x: ax, y: y1 }, { x: gx, y: y1 }, { x: gx, y: y2 }, { x: bx, y: y2 }, { x: bx, y: loTop }]))
       }
@@ -1081,8 +1097,19 @@ export function layoutGraph(sky: SkyData, opts: GraphOptions): SkyLayout {
     ...cards.map(markBox).filter((b): b is Rect => b !== null),
     ...[...stars.values()].filter((k) => !k.card).map((k) => ({ l: k.x - k.r - 2, r: k.x + k.r + 2, t: k.y - k.r - 2, b: k.y + k.r + 2 })),
   ]
+  // 別の札の中の星 → 札: 星の札から相手の札への道すじ（札の中の区間は札の塗りの下に隠れる）
   for (const e of edges) {
-    if (e.kind !== 'concept' && e.kind !== 'draft') continue
+    if (e.kind !== 'member') continue
+    const k = stars.get(e.from) as KindNode
+    const c = cardById.get(e.to) as PCard
+    const host = k.card ? cardById.get(k.card) : undefined
+    if (!host || host === c) continue
+    e.geom = geomOf(route(host, c).pts)
+  }
+  // 小さな札: 置き順は線の名前順（入力の順に依らない）
+  const edgeKey = (e: SkyEdge): string => `${e.kind}|${e.from}|${e.to}|${e.relation ?? ''}|${e.draft ? draftEdgeKey(e.draft) : ''}`
+  const lineEdges = edges.filter((e) => e.kind === 'concept' || e.kind === 'draft').sort((p, q) => cmp(edgeKey(p), edgeKey(q)))
+  for (const e of lineEdges) {
     const a = cardById.get(e.from)
     const b = cardById.get(e.to)
     if (!a || !b) continue

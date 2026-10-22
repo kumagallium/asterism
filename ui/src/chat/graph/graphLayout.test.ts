@@ -327,6 +327,79 @@ describe('線', () => {
     expect(e.pill).not.toBeNull()
     expect(e.pill!.y).toBe(pts[1].y)
   })
+  it('複数の概念に結ばれた星: 星は id 順で最初の札の行に。ほかの札へは、札どうしの道すじ（札の縁から縁へ・ほかの札を貫かない）', () => {
+    const K = 'https://example.org/g#sd/Sample'
+    const withK = (t: SkyTerm): SkyTerm => ({ ...t, members: [{ iri: K, dataset_id: 'sd', relation: 'subClassOf' }] })
+    const sky: SkyData = {
+      ...EMPTY_SKY,
+      datasets: [DATASETS[0]],
+      terms: [withK(bare('whole', '全体')), withK(bare('piece', '部分')), bare('other', 'ほか'), bare('other2', 'ほか2')],
+      edges: [part('piece', 'whole'), part('other', 'whole'), part('other2', 'whole')],
+    }
+    const l = layoutGraph(sky, { width: 700 })
+    const k = l.nodes.get(kindId('sd', K)) as KindNode
+    expect(k.card).toBe(termId(tIri('piece'))) // id 順（piece < whole）
+    const e = l.edges.find((x) => x.kind === 'member' && x.to === termId(tIri('whole')))!
+    expect(e.geom).toBeDefined()
+    const pts = geomPoints(e.geom!)
+    const host = term(l, 'piece')
+    const onEdge = (n: TermNode, p: { x: number; y: number }): boolean =>
+      Math.abs(p.x - n.x) <= n.w / 2 + 0.5 && Math.abs(p.y - n.y) <= n.h / 2 + 0.5 && (Math.abs(Math.abs(p.x - n.x) - n.w / 2) < 0.5 || Math.abs(Math.abs(p.y - n.y) - n.h / 2) < 0.5)
+    expect(onEdge(host, pts[0])).toBe(true)
+    expect(onEdge(term(l, 'whole'), pts[pts.length - 1])).toBe(true)
+    for (const c of cardsOf(l)) {
+      if (c.id === host.id || c.id === term(l, 'whole').id) continue
+      for (let i = 1; i < pts.length; i++)
+        for (let t = 0; t <= 1; t += 0.02) {
+          const x = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t
+          const y = pts[i - 1].y + (pts[i].y - pts[i - 1].y) * t
+          expect(Math.abs(x - c.x) < c.w / 2 && Math.abs(y - c.y) < c.h / 2).toBe(false)
+        }
+    }
+  })
+  it('同じ段のまたぐ線が横に重なるときは別の高さ（短い線が下）', () => {
+    const names = ['a', 'b', 'c', 'd', 'e', 'f']
+    const sky = mini(
+      names.map((n) => bare(n, `札${n}`)),
+      [lowers('a', 'c'), lowers('b', 'd'), lowers('c', 'e'), lowers('a', 'e'), lowers('d', 'f'), lowers('b', 'f')],
+    )
+    for (const w of [1280, 1440]) {
+      const l = layoutGraph(sky, { width: w })
+      const jumps = l.edges
+        .filter((e) => e.kind === 'concept' && e.geom)
+        .map((e) => ({ e, pts: geomPoints(e.geom!) }))
+        .filter((j) => j.pts.length === 4 && j.pts[1].y === j.pts[2].y)
+      expect(jumps.length).toBeGreaterThan(1)
+      for (let i = 0; i < jumps.length; i++)
+        for (let j = i + 1; j < jumps.length; j++) {
+          const p = jumps[i]
+          const q = jumps[j]
+          const lo1 = Math.min(p.pts[1].x, p.pts[2].x)
+          const hi1 = Math.max(p.pts[1].x, p.pts[2].x)
+          const lo2 = Math.min(q.pts[1].x, q.pts[2].x)
+          const hi2 = Math.max(q.pts[1].x, q.pts[2].x)
+          if (lo1 < hi2 && lo2 < hi1) expect(p.pts[1].y).not.toBe(q.pts[1].y)
+        }
+      // 行の上の余白は、一番高い線より上まである
+      const top = Math.min(...jumps.map((j) => j.pts[1].y))
+      expect(top).toBeGreaterThanOrEqual(8)
+    }
+  })
+  it('小さな札の位置も線の順に依らない', () => {
+    const rev: SkyData = { ...THERMO, edges: [...(THERMO.edges ?? [])].reverse() }
+    for (const w of [530, 700, 1280]) {
+      const a = layoutGraph(THERMO, { width: w, drafts: DRAFTS })
+      const b = layoutGraph(rev, { width: w, drafts: DRAFTS })
+      const pills = (l: SkyLayout): string =>
+        JSON.stringify(
+          l.edges
+            .filter((e) => e.kind === 'concept')
+            .map((e) => [e.from, e.to, e.relation, e.pill])
+            .sort((p, q) => (String(p) < String(q) ? -1 : 1)),
+        )
+      expect(pills(a)).toBe(pills(b))
+    }
+  })
   it('提案の札（印つき）から出る線は、印の右から出る', () => {
     for (const w of WIDTHS) {
       const l = layoutGraph(THERMO, { width: w, lang: 'ja', drafts: DRAFTS })

@@ -185,12 +185,12 @@ export function drawGraph(
     }
   }
 
-  // 視点（つながり）→ 入っている星: 細い線（視点は最下段の右）
+  // 視点（つながり）→ 入っている星: 細い線（視点は最下段の右。札の中の星へは引かない＝札を横切るので）
   for (const e of layout.edges) {
     if (e.kind !== 'hub') continue
     const a = node(e.from)
     const h = node(e.to)
-    if (!a || !h || a.type !== 'kind' || h.type !== 'hub') continue
+    if (!a || !h || a.type !== 'kind' || h.type !== 'hub' || a.card) continue
     ctx.save()
     ctx.globalAlpha = Math.min(alphaOf(e.to), alphaOf(e.from)) * 0.45 * A
     ctx.strokeStyle = pal.activity
