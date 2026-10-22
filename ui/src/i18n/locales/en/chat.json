@@ -8,7 +8,7 @@
     "rename": "Rename",
     "renameLabel": "Chat name",
     "delete": "Delete",
-    "deleteAsk": "Delete this chat. Confirmed items stay.",
+    "deleteAsk": "Delete this chat. Approved items stay.",
     "deleteYes": "Delete",
     "deleteNo": "Cancel",
     "noKey": "Settings › Server: enter the key to save chats",
@@ -16,7 +16,7 @@
     "close": "Close"
   },
   "compose": {
-    "placeholder": "Write what you want to know (e.g. Which elements lower thermal conductivity?)",
+    "placeholder": "Write what you want to know (e.g. Which shop sells potatoes cheapest?)",
     "send": "Send",
     "noKey": "Settings › Server: enter the key to chat",
     "attach": "Attach a table",
@@ -27,29 +27,28 @@
     "thinking": "Thinking",
     "more": "{{n}} more",
     "publish": "Publish",
-    "confirm": "Confirm",
+    "confirm": "Approve",
     "count": "{{n}}",
-    "confirmed": "Confirmed · {{at}}",
+    "confirmed": "Approved · {{at}}",
     "proposed": "Proposed",
     "reverted": "Undone",
     "removed": "Removed: {{terms}} terms, {{lines}} relations",
     "kept": "Kept: {{slug}} ({{reason}})",
     "revert": "Undo",
-    "undoAsk": "Undo the {{terms}} terms and {{lines}} sentences this confirmation added",
+    "undoAsk": "Undo the {{terms}} terms and {{lines}} sentences this approval added",
     "undone": "Undone: {{lines}} sentences, {{terms}} terms",
     "undoneKept": " (kept: {{names}})",
     "undoneFailed": "Could not undo: {{what}} ({{reason}})",
-    "cardProposed": "Proposed for the chart · {{n}}",
-    "cardProposedNone": "Proposed for the chart"
+    "cardProposed": "Proposed for the knowledge graph · {{n}}",
+    "cardProposedNone": "Proposed for the knowledge graph"
   },
   "tabs": {
     "label": "Area to show",
-    "chat": "Chat",
-    "chart": "Chart"
+    "chat": "Chat"
   },
   "chart": {
     "back": "Back",
-    "failed": "Could not load the chart",
+    "failed": "Could not load the knowledge graph",
     "retry": "Retry"
   },
   "hand": {
@@ -67,7 +66,7 @@
     "decide": "Decide"
   },
   "empty": {
-    "first": "Write what you want to know, or attach a data table (CSV, Excel). Terms and data grow on the map to the right"
+    "first": "Write what you want to know, or attach a data table (CSV, Excel). Terms and data grow in the knowledge graph to the right"
   },
   "error": {
     "badShape": "The server's reply was not in the expected shape",
@@ -78,12 +77,12 @@
       "rename": "Renaming",
       "delete": "deleting the chat",
       "turn": "Sending",
-      "confirm": "Confirming",
+      "confirm": "Approving",
       "revert": "Undoing",
-      "sky": "Loading the chart",
+      "sky": "Loading the knowledge graph",
       "attach": "attaching a table",
       "point": "Loading the card",
-      "contents": "Loading contents"
+      "contents": "Loading data"
     }
   },
   "attach": {
@@ -112,17 +111,17 @@
     "titleDraft": "Proposal",
     "termClass": "kind",
     "termProperty": "field",
-    "contents": "Show rows",
+    "contents": "View data",
     "showText": "Show {{name}}",
     "revert": "Undo",
-    "revertAsk": "This confirmation will be undone",
+    "revertAsk": "This approval will be undone",
     "revertYes": "Undo",
     "revertNo": "Cancel",
     "openSession": "Open the chat →",
     "prov": "In chat \"{{title}}\" on {{at}}, {{by}}",
     "provNoTitle": "{{by}} on {{at}}",
-    "byAi": "added by AI, confirmed by a person",
-    "byHuman": "confirmed by a person",
+    "byAi": "added by AI, approved by a person",
+    "byHuman": "approved by a person",
     "byMachine": "matched by name",
     "questions": "Questions it answers",
     "qKnowledge": "knowledge {{n}}",
@@ -131,12 +130,12 @@
     "standard": "Standard term",
     "noSentence": "No sentences yet",
     "untitled": "New chat",
-    "removeAsk": "Propose removing \"{{name}}\" from the chart (settle with Confirm)",
+    "removeAsk": "Propose removing \"{{name}}\" from the knowledge graph (settle with Approve)",
     "boundTerms": "Bound terms",
     "unpublished": "Not published yet",
-    "draftProv": "Proposed by AI on {{at}} (not confirmed yet)",
-    "draftNoSession": "This proposal was made outside a chat, so it cannot be confirmed here",
-    "draftHow": "Confirm it with \"Confirm\" in the chat reply"
+    "draftProv": "Proposed by AI on {{at}} (not approved yet)",
+    "draftNoSession": "This proposal was made outside a chat, so it cannot be approved here",
+    "draftHow": "Approve it with \"Approve\" in the chat reply"
   },
   "table": {
     "more": "{{n}} more",
@@ -151,20 +150,20 @@
   },
   "map": {
     "fit": "Fit all",
-    "aria": "Map of terms and data",
-    "legend": "Blue = term · Green = kind of data · Grey = table name · Faint = proposal not yet confirmed",
-    "empty": "Nothing yet. Write a question or attach a table and the map grows here"
+    "aria": "Knowledge graph of terms and data",
+    "legend": "Blue = term · Green = kind of data · Grey = dataset · Faint = proposal not yet approved",
+    "empty": "Nothing yet. Write a question or attach a table and the knowledge graph grows here"
   },
   "contents": {
-    "title": "Contents",
-    "of": "Contents of {{name}}",
-    "hint": "Click a dot on the map to see its contents here",
+    "title": "Data",
+    "of": "Data of {{name}}",
+    "hint": "Click a dot in the knowledge graph to see its data here",
     "empty": "No rows yet",
-    "unpublished": "Confirm and publish, and its rows will appear here",
-    "moreTables": "{{n}} more tables in \"See the contents\"",
-    "full": "See the contents",
+    "unpublished": "Approve and publish, and its rows will appear here",
+    "moreTables": "{{n}} more tables in \"Linked values\"",
+    "full": "Linked values",
     "toggle": "Open or close",
-    "failed": "Could not load the contents",
+    "failed": "Could not load the data",
     "retry": "Retry"
   }
 }

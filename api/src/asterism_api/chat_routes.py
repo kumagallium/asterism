@@ -138,6 +138,8 @@ class TurnBody(BaseModel):
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
     choice: ChoiceBody | None = None
     remove: RemoveBody | None = None
+    # 「答えて」ボタン: 振り分けを飛ばして必ず Ask へ（text と一緒に送る）
+    intent: Literal["ask"] | None = None
     lang: Literal["ja", "en"] = "ja"
 
 
@@ -573,6 +575,17 @@ def register_chat(
                 {"turn": turn, "session": _head(saved), "draft": card, "reverted": reverted or []},
                 status_code=201,
             )
+
+        # 問いのタブの「答えて」: 振り分けを飛ばして必ず Ask
+        if has_text and body.intent == "ask":
+            turn, saved = await _ask_turn(
+                session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+            )
+            return JSONResponse(
+                {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                 "reverted": []},
+                status_code=201,
+            )  # fmt: skip
 
         # 振り分け（決定論）: 「見せて」は表・「答えて」は Ask。AI（11b の道）は呼ばない
         if has_text and not chat_turns.is_undo(text) and chat_intent.may_need_names(text):

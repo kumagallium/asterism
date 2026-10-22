@@ -7,29 +7,6 @@
   font-family: var(--font-ui);
 }
 
-/* 事実の帯（答えられる問い N/M が先頭） */
-.sky-facts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) 1.4rem;
-  font-size: 0.95rem;
-  color: var(--muted);
-}
-.sky-facts:empty {
-  display: none;
-}
-.sky-facts b {
-  margin-right: 0.4rem;
-  font-family: var(--font-mono);
-  font-size: 1.75rem;
-  font-weight: 500;
-  color: var(--fg);
-}
-.sky-facts .sky-facts-lead b {
-  color: var(--activity);
-}
-
 .sky-note {
   margin: 0;
   padding: var(--space-2) var(--space-3);

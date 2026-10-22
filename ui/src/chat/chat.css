@@ -942,3 +942,86 @@
   color: var(--muted);
   pointer-events: none;
 }
+
+/* 右の領域の一番上のタブ（知識グラフ／問い）と、問いの一覧（PR 11l） */
+.chat-rtabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.chat-questions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.chat-questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-question {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.chat-question-mark {
+  flex: none;
+  width: 1.2em;
+  text-align: center;
+  color: var(--muted);
+}
+.chat-question-mark.is-ok {
+  color: var(--primary);
+  font-weight: 600;
+}
+.chat-question-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-question-title {
+  padding: 0;
+  font-size: 0.88rem;
+  text-align: left;
+  color: var(--fg);
+  background: none;
+  border: none;
+}
+button.chat-question-title:hover {
+  text-decoration: underline;
+}
+.chat-question-note {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.chat-question.is-proposed {
+  opacity: 0.55;
+}
+
+/* 問いの「答えて」は静かなリンク（行が増えても塗りのボタンが並ばない）。送ったあとは薄く */
+.chat-question-ask {
+  flex: none;
+  font-size: 0.85rem;
+}
+.chat-question-ask:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* 375 でも 3 つのタブが溢れない */
+.chat-tabs .chat-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 0.6em;
+  padding-right: 0.6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
