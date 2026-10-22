@@ -53,6 +53,10 @@ export interface CommitRecord {
   questions: string[]
   batch: string
   at: string
+  /** ✓ で外した件数（無ければ 0 件）。 */
+  removed?: { lines: number; terms: number }
+  /** 外さずに残したもの（slug と理由）。 */
+  kept?: { slug: string; reason: string }[]
 }
 
 export interface Turn {
@@ -163,7 +167,17 @@ function commitOf(c: unknown): CommitRecord | null {
     questions: strs(c.questions),
     batch: str(c.batch),
     at: str(c.at),
+    removed: removedOf(c.removed),
+    kept: Array.isArray(c.kept)
+      ? c.kept.filter(isObj).map((k) => ({ slug: str(k.slug), reason: str(k.reason) })).filter((k) => k.slug !== '')
+      : [],
   }
+}
+
+/** 件数か配列のどちらで来ても件数にする。 */
+function removedOf(v: unknown): { lines: number; terms: number } {
+  const n = (x: unknown): number => (typeof x === 'number' ? x : Array.isArray(x) ? x.length : 0)
+  return isObj(v) ? { lines: n(v.lines), terms: n(v.terms) } : { lines: 0, terms: 0 }
 }
 
 export function normalizeTurn(v: unknown): Turn | null {
@@ -219,12 +233,21 @@ function summary(v: unknown): SessionSummary | null {
   return { ...b, created_at: str(v.created_at), turns, proposed: typeof v.proposed === 'number' ? v.proposed : 0 }
 }
 
+function removalsOf(v: unknown): DraftSky['removals'] {
+  if (!isObj(v)) return { terms: [], lines: [] }
+  const lines = Array.isArray(v.lines)
+    ? v.lines.filter(isObj).map((l) => ({ from: str(l.from), to: str(l.to), relation: str(l.relation) })).filter((l) => l.from && l.to)
+    : []
+  return { terms: strs(v.terms), lines }
+}
+
 function draftSky(v: unknown): SkyDraft | null {
   if (!isObj(v) || typeof v.draft_id !== 'string' || !Array.isArray(v.concepts)) return null
   return {
     ...(v as unknown as DraftSky),
     relations: Array.isArray(v.relations) ? (v.relations as DraftSky['relations']) : [],
     questions: strs(v.questions),
+    removals: removalsOf(v.removals),
     session_id: typeof v.session_id === 'string' ? v.session_id : undefined,
   }
 }

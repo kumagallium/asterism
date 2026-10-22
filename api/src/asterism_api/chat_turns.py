@@ -5,9 +5,12 @@
 ``root`` を介して ``asterism.themes`` に任せる。話（``session``）は**書き換える**が、保存は
 呼ぶ側（ルート）がする。
 
-* :func:`run_text_turn` — 人の文の手番。11a は ``ai is None`` の枝だけ（文を問いとして下書きに
-  入れ、機械の文を返す）。11b が ``ai`` の枝を足す（下書きが無ければ ``propose_theme_draft``・
-  あれば ``propose_graph_diff``）。**AI を呼ぶ口はこの関数の引数 ``ai`` 1 つ**。
+* :func:`run_text_turn` — 人の文の手番（AI 無し・11a）。文を問いとして下書きに入れ、機械の文を返す。
+* :func:`prepare_text_turn` → :func:`ai_text_turn` → :func:`apply_text_turn` — 人の文の手番
+  （AI あり・11b）。準備（ロックの中・読むだけ）→ AI（**ロックの外**・``asyncio.to_thread``）→
+  適用（ロックの中で話と下書きを読み直して当てる）。下書きが無ければ ``propose_theme_draft``・あれば
+  ``propose_graph_diff``。AI が失敗したら下書きも作らない。
+* :func:`run_undo_turn` — 「さっきのを戻して」。AI を呼ばず決定論で最後の提案を戻す。
 * :func:`run_ops_turn` — 人の直接編集（差分を当てる）。
 * :func:`run_set_answer_turn` — 既にある問いの答え方を人が決める（AI 無しでも ✓ が通る）。
 * :func:`commit_body` — ✓ の本文（UI の ``buildCommitBody`` の移植）。
@@ -21,23 +24,44 @@ AI は差分と文だけ（SPARQL・コード・IRI を書かせない・値は�
 # ruff: noqa: RUF001
 from __future__ import annotations
 
+import asyncio
 import copy
+import logging
+import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from asterism import chat_sessions, graph_diff, shared_vocab, themes
 from asterism.shared_vocab import SharedTerm, normalize_label
-from asterism_step0.graph_propose import _QUESTION_LIKE, GraphDiffError, validate_graph_diff
+from asterism_step0.graph_propose import (
+    _QUESTION_LIKE,
+    GraphDiffError,
+    propose_graph_diff,
+    validate_graph_diff,
+)
+from asterism_step0.theme_propose import ThemeDraftError, propose_theme_draft
+
+from asterism_api import chat_seed
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
+    "PreparedTurn",
     "TurnRefused",
+    "ai_text_turn",
+    "apply_text_turn",
     "blank_answer",
     "commit_body",
     "confirm",
+    "is_undo",
+    "prepare_text_turn",
     "revert",
     "run_ops_turn",
     "run_set_answer_turn",
     "run_text_turn",
+    "run_undo_turn",
     "sync_answers",
+    "theme_context",
 ]
 
 MAX_TEXT = 2000
@@ -230,20 +254,13 @@ def run_text_turn(
     session: dict,
     text: str,
     *,
-    ai: Any | None,
     lang: str,
     root: Any,
-    existing: list[SharedTerm],
-    dismissed: list[dict],
     at: str,
 ) -> dict:
-    """人の文の手番を 1 つ足す（``session`` を書き換える・保存はしない）。返り = 手番。
+    """AI 無しの人の文の手番を 1 つ足す（``session`` を書き換える・保存はしない）。返り = 手番。
 
-    ``ai is None``（11a）: 文を問いとして下書きに入れる。下書きが無ければ作る
-    （``extend`` = 話のテーマ）。11b は ``ai is not None`` の枝を足す（``existing`` ・
-    ``dismissed`` はそのとき使う）。"""
-    if ai is not None:
-        raise NotImplementedError("AI の道は 11b で足す")
+    文を問いとして下書きに入れる。下書きが無ければ作る（``extend`` = 話のテーマ）。"""
     lg = _lg(lang)
     text = text.strip()
     folded = " ".join(text.split())
@@ -267,20 +284,7 @@ def run_text_turn(
     extra_notes: list[dict] = []
     try:
         if draft is None:
-            extend = session.get("theme_id")
-            if extend:
-                data = themes.load_themes_file(root)
-                if data is None or not any(t.get("id") == extend for t in data["themes"]):
-                    session["theme_id"] = None
-                    extend = None
-                    extra_notes.append(
-                        note(
-                            "info",
-                            "前のテーマは消えています。新しいテーマとして続けます"
-                            if lg == "ja"
-                            else "The previous theme is gone. Continuing as a new theme.",
-                        )
-                    )
+            extend, extra_notes = _resolve_extend(session, root, lg)
             made = themes.create_draft(root, "", [text], at=at, extend=extend)
             draft = _save(
                 root,
@@ -323,6 +327,730 @@ def run_text_turn(
         before=before,
         by="human",
     )
+
+
+# ---- 文の手番（AI あり・11b） -----------------------------------------------------------
+
+_MAX_HISTORY = 12  # AI に見せる話の手番（最近）
+_MAX_CONTENT = 2000
+_UNDO_JA = re.compile(
+    r"^(さっきの|前の|今の|それ|元に)[をは]?(戻して|取り消して|やめて)(ください|くれ)?[。！!]?$"
+)
+_UNDO_EN = re.compile(
+    r"^(undo|revert)( that| it| this| the last( step| one)?)?[.!]?$", re.IGNORECASE
+)
+
+
+def is_undo(text: str) -> bool:
+    """「さっきのを戻して」か（決定論・AI を呼ばない）。"""
+    t = text.strip()
+    return bool(_UNDO_JA.match(t) or _UNDO_EN.match(t))
+
+
+_ASKING = re.compile(r"(?:[？?]|とは|か)[\s。.!！]*\Z")
+
+
+def is_question(text: str) -> bool:
+    """文が問いか（末尾が ``？``/``?``・「〜とは」「〜か」）。それ以外は直し・外す・足す。"""
+    return bool(_ASKING.search(text.strip()))
+
+
+def _theme_of(session: dict, root: Any) -> dict | None:
+    """話の確認済みのテーマ（無い・消えていたら ``None``）。"""
+    tid = session.get("theme_id")
+    if not tid:
+        return None
+    data = themes.load_themes_file(root)
+    return next((t for t in (data or {}).get("themes") or [] if t.get("id") == tid), None)
+
+
+def _resolve_extend(session: dict, root: Any, lg: str) -> tuple[str | None, list[dict]]:
+    """話のテーマ（``extend``）がまだあるか。消えていたら外して一言（``session`` を書き換える）。"""
+    extend = session.get("theme_id")
+    if not extend:
+        return None, []
+    data = themes.load_themes_file(root)
+    if data is None or not any(t.get("id") == extend for t in data["themes"]):
+        session["theme_id"] = None
+        return None, [
+            note(
+                "info",
+                "前のテーマは消えています。新しいテーマとして続けます"
+                if lg == "ja"
+                else "The previous theme is gone. Continuing as a new theme.",
+            )
+        ]
+    return str(extend), []
+
+
+def theme_context(draft: dict) -> tuple[dict, list[dict]]:
+    """下書きを AI に見せる形にする → ``(graph, standards)``。``/api/consult/graph`` の
+    ``theme`` の枝と話の手番が共有する（名前だけ・データの値は無い）。"""
+    graph = {
+        "concepts": [
+            {k: c.get(k) for k in ("key", "label_ja", "label_en", "kind", "use")}
+            for c in draft.get("concepts") or []
+        ],
+        "relations": [
+            {k: r.get(k) for k in ("from", "rel", "to")} for r in draft.get("relations") or []
+        ],
+        "questions": [
+            {k: a.get(k) for k in ("question", "mode", "op", "direction", "target")}
+            for a in draft.get("answers") or []
+        ]
+        or list(draft.get("questions") or []),
+    }
+    return graph, themes.default_standards(list(draft.get("questions") or []))
+
+
+@dataclass
+class PreparedTurn:
+    """準備（ロックの中・読むだけ）の結果。``mode`` = ``create``（テーマも下書きも無い）/
+    ``expand``（確認済みのテーマだけある・文が問い）/ ``seed_diff``（確認済みのテーマだけある・
+    文が直し）/ ``diff``（下書きがある）/ ``refuse``（AI を呼ばず、``refusal`` の一言で終える）。
+    ``expand`` と ``seed_diff`` は、確認済みのテーマを種にした下書きを作って当てる。"""
+
+    mode: str
+    text: str
+    lang: str
+    draft_id: str | None = None
+    theme_id: str | None = None
+    # create / expand
+    known_terms: list[dict] = field(default_factory=list)
+    known_standards: list[dict] = field(default_factory=list)
+    # diff / seed_diff
+    graph: dict = field(default_factory=dict)
+    existing_terms: list[dict] = field(default_factory=list)
+    standards: list[dict] = field(default_factory=list)
+    messages: list[dict] = field(default_factory=list)
+    refusal: str = ""
+
+
+def _history(session: dict) -> list[dict]:
+    """話の手番を古い順に ``user`` → ``assistant``。
+    ``user`` が無い・戻した・機械の手番は飛ばす（最近 12 件）。"""
+    out: list[dict] = []
+    kept = [
+        t
+        for t in (session.get("turns") or [])
+        if t.get("state") != "reverted" and t.get("by") != "machine"
+    ]
+    for t in kept[-_MAX_HISTORY:]:
+        said = (t.get("user") or {}).get("text")
+        if not said:
+            continue
+        out.append({"role": "user", "content": str(said)[:_MAX_CONTENT]})
+        reply = str((t.get("reply") or {}).get("text") or "").strip()
+        if reply:
+            out.append({"role": "assistant", "content": reply[:_MAX_CONTENT]})
+    return out
+
+
+def prepare_text_turn(
+    session: dict,
+    text: str,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    lang: str,
+) -> PreparedTurn:
+    """AI に渡すものを組む（読むだけ・``session`` も下書きも書き換えない）。"""
+    lg = _lg(lang)
+    text = text.strip()
+    draft = themes.load_draft(root, session["draft_id"]) if session.get("draft_id") else None
+    terms = [
+        {"slug": t.slug, "label_ja": t.label, "label_en": t.label_en or "", "kind": t.kind}
+        for t in existing
+    ]
+    theme = _theme_of(session, root) if draft is None else None
+    if theme is not None and not is_question(text):  # 確認済みのテーマへの直し（種つきの差分）
+        seed = chat_seed.seed_from_theme(root, existing, theme)
+        graph, standards = theme_context(seed)
+        return PreparedTurn(
+            "seed_diff",
+            text,
+            lg,
+            theme_id=str(theme["id"]),
+            graph=graph,
+            existing_terms=terms,
+            standards=standards,
+            messages=_history(session),
+        )
+    if draft is None:
+        folded = " ".join(text.split())
+        if len(folded) > themes._QUESTION_MAX:
+            msg = (
+                f"問いは {themes._QUESTION_MAX} 字までです。短く書いてください"
+                if lg == "ja"
+                else f"A question is up to {themes._QUESTION_MAX} characters. Please shorten it."
+            )
+            return PreparedTurn("refuse", text, lg, refusal=msg)
+        if _QUESTION_LIKE.search(folded):
+            msg = (
+                "問いに IRI やコードは入れられません"
+                if lg == "ja"
+                else "A question cannot contain an IRI or code."
+            )
+            return PreparedTurn("refuse", text, lg, refusal=msg)
+        return PreparedTurn(
+            "expand" if theme is not None else "create",
+            text,
+            lg,
+            theme_id=str(theme["id"]) if theme is not None else None,
+            known_terms=terms,
+            known_standards=themes.default_standards([text]),
+        )
+    graph, standards = theme_context(draft)
+    return PreparedTurn(
+        "diff",
+        text,
+        lg,
+        draft_id=str(draft["id"]),
+        graph=graph,
+        existing_terms=terms,
+        standards=standards,
+        messages=_history(session),
+    )
+
+
+async def ai_text_turn(prepared: PreparedTurn, llm: Any) -> dict:
+    """AI を呼ぶ（**ロックの外**・純粋 — ストアにも話にも触らない）。
+    返り = ``{"ok": True, "value": …}`` または ``{"ok": False, "reason": "shape"|"network",
+    "detail": …}``（失敗は例外にしない）。"""
+    try:
+        if prepared.mode in ("create", "expand"):
+            value = await asyncio.to_thread(
+                propose_theme_draft,
+                llm,
+                questions=[prepared.text],
+                known_terms=prepared.known_terms,
+                known_standards=prepared.known_standards,
+                language=prepared.lang,
+                label="",
+            )
+        else:
+            value = await asyncio.to_thread(
+                propose_graph_diff,
+                llm,
+                screen="theme",
+                graph=prepared.graph,
+                existing_terms=prepared.existing_terms,
+                standards=prepared.standards,
+                columns=None,
+                messages=prepared.messages,
+                message=prepared.text,
+                lang=prepared.lang,
+            )
+    except (ThemeDraftError, GraphDiffError) as exc:
+        return {"ok": False, "reason": "shape", "detail": str(exc)}
+    except Exception as exc:  # LLM に届かない・プロバイダのエラー
+        return {"ok": False, "reason": "network", "detail": str(exc)}
+    return {"ok": True, "value": value}
+
+
+def _name(row: dict | None, lg: str) -> str:
+    if not row:
+        return ""
+    if lg == "en":
+        return str(row.get("label_en") or row.get("label_ja") or "")
+    return str(row.get("label_ja") or row.get("label_en") or "")
+
+
+def _answer_shape(answer: dict, concepts: list[dict], lg: str) -> str:
+    """答え方の実行文（``themes_routes`` の ``question()`` と同じ語彙）。未決定は ``""``。"""
+    if answer.get("mode") not in ("knowledge", "data"):
+        return ""
+    by_key = {str(c.get("key")): c for c in concepts}
+    if answer["mode"] == "knowledge":
+        sel = {
+            "op": answer.get("op"),
+            "target": _name(by_key.get(str(answer.get("target"))), lg),
+            "direction": answer.get("direction"),
+        }
+    else:
+        sel = {
+            "op": answer.get("op"),
+            "kind": _name(by_key.get(str(answer.get("kind"))), lg),
+            "property": _name(by_key.get(str(answer.get("property"))), lg),
+            "value": answer.get("value") or "",
+            "match": answer.get("match") or "",
+            "property2": _name(by_key.get(str(answer.get("property2"))), lg),
+            "kind2": _name(by_key.get(str(answer.get("kind2"))), lg),
+        }
+    return shared_vocab.describe_selection(sel, lg)
+
+
+def _draft_ops(draft: dict) -> list[dict]:
+    """下書きの行を差分の形に写す（概念 → 関係（止めていないもの）→ 答え方）。
+
+    返事の ``ops`` は**表示用**（再送しない・件数の上限は付けない）。``add_question`` は
+    答え方が決まった問い（``mode`` が knowledge / data）だけ。決まっていない問いは
+    :func:`_undecided_questions` が注記にする。"""
+    ops: list[dict] = []
+    for c in draft.get("concepts") or []:
+        ops.append(
+            {
+                "op": "add_concept",
+                "key": c.get("key"),
+                "label_ja": c.get("label_ja") or "",
+                "label_en": c.get("label_en") or "",
+                "aliases": list(c.get("aliases") or []),
+                "kind": c.get("kind"),
+                "use": c.get("use") or "new",
+                "reason": c.get("reason") or "",
+            }
+        )
+    for r in draft.get("relations") or []:
+        if r.get("problem") is None:
+            ops.append(
+                {
+                    "op": "add_relation",
+                    "from": r.get("from"),
+                    "rel": r.get("rel"),
+                    "to": r.get("to"),
+                    "reason": r.get("reason") or "",
+                }
+            )
+    for a in draft.get("answers") or []:
+        if a.get("mode") not in ("knowledge", "data"):
+            continue
+        ops.append(
+            {
+                "op": "add_question",
+                "question": a.get("question"),
+                "mode": a.get("mode"),
+                "op_kind": a.get("op") or "",
+                "target": a.get("target") or "",
+                "direction": a.get("direction") or "",
+                "kind": a.get("kind") or "",
+                "property": a.get("property") or "",
+                "value": a.get("value") or "",
+                "match": a.get("match") or "",
+                "property2": a.get("property2") or "",
+                "kind2": a.get("kind2") or "",
+                "wanted_data": a.get("wanted_data") or "",
+                "reason": a.get("reason") or "",
+            }
+        )
+    return ops
+
+
+def _undecided_questions(draft: dict) -> list[str]:
+    """答え方がまだ決まっていない問い（``mode`` が knowledge / data でない）。"""
+    return [
+        str(a.get("question"))
+        for a in draft.get("answers") or []
+        if a.get("mode") not in ("knowledge", "data") and a.get("question")
+    ]
+
+
+def _chips(questions: list[str] | None) -> list[str]:
+    """問いのチップは文だけ（IRI・コードに見えるものは落とす・最大 5）。"""
+    out = [q for q in (questions or []) if isinstance(q, str) and not _QUESTION_LIKE.search(q)]
+    return out[:5]
+
+
+_AI_FAILED = {
+    "ja": {
+        "shape": "AI の答えが決まった形になりませんでした",
+        "network": "AI に届きませんでした",
+    },
+    "en": {
+        "shape": "The AI's answer did not take the expected shape",
+        "network": "Could not reach the AI",
+    },
+}
+
+
+def _machine_turn(
+    session: dict, text: str, said: str, lg: str, notes: list[dict], at: str, *, by: str = "machine"
+) -> dict:
+    """空振りの手番（図は変えない・``state: none``）。"""
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text, "attachments": []},
+        reply=_reply(said, notes=notes),
+        state="none",
+        before=None,
+        by=by,
+    )
+
+
+def apply_text_turn(
+    session: dict,
+    prepared: PreparedTurn,
+    ai_result: dict | None,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    at: str,
+    lang: str,
+) -> dict:
+    """AI の答えを当てる（ロックの中・``session`` と下書きは**読み直した**もの）。返り = 手番。
+    ``session`` を書き換える（保存は呼ぶ側）。AI を待つあいだに人が直していたら、最新に当てる。"""
+    lg = _lg(lang)
+    text = prepared.text
+    if prepared.mode == "refuse":
+        return _machine_turn(
+            session, text, prepared.refusal, lg, [note("info", prepared.refusal)], at
+        )
+    assert ai_result is not None
+    if not ai_result.get("ok"):
+        reason = ai_result.get("reason") or "network"
+        detail = _AI_FAILED[lg][reason]  # 詳細は session.json に残さない
+        logger.warning("chat turn: AI failed (%s): %s", reason, ai_result.get("detail") or "")
+        said = "今回は図を変えられませんでした。" if lg == "ja" else "The chart was not changed."
+        return _machine_turn(session, text, said, lg, [note("ai_failed", detail)], at)
+    draft = _current_draft(session, root)
+    theme = _theme_of(session, root)
+    seeded = prepared.mode in ("expand", "seed_diff")
+    went_on = (prepared.mode != "diff") != (draft is None)
+    if seeded and (theme is None or theme.get("id") != prepared.theme_id):
+        went_on = True
+    if prepared.mode == "create" and theme is not None:
+        went_on = True
+    if prepared.mode == "diff" and (
+        draft is None
+        or prepared.draft_id != session.get("draft_id")
+        or prepared.draft_id != draft.get("id")
+    ):  # 待つあいだに別の下書きに替わった
+        went_on = True
+    if went_on:  # 待つあいだに話が進んだ
+        said = (
+            "別の手番が先に進みました。もう一度送ってください"
+            if lg == "ja"
+            else "Another step went ahead. Please send it again."
+        )
+        return _machine_turn(session, text, said, lg, [note("info", said)], at)
+    if prepared.mode == "expand":
+        assert theme is not None
+        return _apply_expand(
+            session, text, ai_result["value"], theme, root=root, existing=existing,
+            dismissed=dismissed, at=at, lg=lg,
+        )  # fmt: skip
+    if prepared.mode == "seed_diff":
+        assert theme is not None
+        seeded_draft = _seeded_draft(theme, chat_seed.seed_from_theme(root, existing, theme),
+                                     [], root=root, at=at)  # fmt: skip
+        return _apply_diff(
+            session, text, ai_result["value"], seeded_draft[0], root=root, existing=existing,
+            dismissed=dismissed, at=at, lg=lg, fresh_seed=seeded_draft[1],
+        )  # fmt: skip
+    if prepared.mode == "create":
+        return _apply_create(
+            session, text, ai_result["value"], root=root, existing=existing, dismissed=dismissed,
+            at=at, lg=lg,
+        )  # fmt: skip
+    assert draft is not None
+    return _apply_diff(
+        session, text, ai_result["value"], draft, root=root, existing=existing,
+        dismissed=dismissed, at=at, lg=lg,
+    )  # fmt: skip
+
+
+def _seeded_draft(
+    theme: dict, seed: dict, questions: list[str], *, root: Any, at: str
+) -> tuple[dict, dict]:
+    """確認済みのテーマを種にした下書きを作って保存する → ``(下書き, 種の控え)``。
+    控えに ``draft_id`` を組にして持たせるのは呼ぶ側（採用したとき）。"""
+    made: dict | None = None
+    try:
+        made = themes.create_draft(
+            root, str(theme.get("label") or ""), questions, at=at, extend=str(theme["id"])
+        )
+        draft = _save(
+            root,
+            {
+                **made,
+                "step": 2,
+                "concepts": seed["concepts"],
+                "relations": seed["relations"],
+                "standards": seed["standards"],
+                "answers": sync_answers([], made["questions"]),
+            },
+            at,
+        )
+    except themes.ThemeError as exc:
+        if made is not None:
+            themes.delete_draft(root, made["id"])
+        raise TurnRefused(exc.status, str(exc)) from exc
+    except TurnRefused:
+        if made is not None:
+            themes.delete_draft(root, made["id"])
+        raise
+    return draft, seed["seed"]
+
+
+def _adopt_seed(session: dict, draft: dict, seed: dict) -> None:
+    session["seed"] = {"draft_id": draft["id"], **seed}
+
+
+def _apply_expand(
+    session: dict,
+    text: str,
+    ai: dict,
+    theme: dict,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    at: str,
+    lg: str,
+) -> dict:
+    """確認済みのテーマを種にして、問いの答えを足す（「ここを広げる」と同じ合成・新しい行だけ）。"""
+    seed = chat_seed.seed_from_theme(root, existing, theme)
+    base, ctl = _seeded_draft(theme, seed, [text], root=root, at=at)
+    try:
+        out = themes.postprocess_draft(
+            ai, questions=base["questions"], existing=existing, dismissed=dismissed, base=base
+        )
+        merged = themes.merge_expansion(base, out)
+        draft = _save(
+            root,
+            {
+                **merged,
+                "answers": out["answers"],
+                "suggested_questions": out["suggested_questions"],
+            },
+            at,
+        )
+    except themes.ThemeError as exc:
+        themes.delete_draft(root, base["id"])
+        raise TurnRefused(exc.status, str(exc)) from exc
+    except TurnRefused:
+        themes.delete_draft(root, base["id"])
+        raise
+    _adopt_draft(session, draft)
+    _adopt_seed(session, draft, ctl)
+    return _created_turn(
+        session, text, draft, out, ops_of={
+            "concepts": out["concepts"], "relations": out["relations"], "answers": out["answers"],
+        }, extra_notes=[], at=at, lg=lg,
+    )  # fmt: skip
+
+
+def _apply_create(
+    session: dict,
+    text: str,
+    ai: dict,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    at: str,
+    lg: str,
+) -> dict:
+    extend, extra_notes = _resolve_extend(session, root, lg)
+    out = themes.postprocess_draft(ai, questions=[text], existing=existing, dismissed=dismissed)
+    label = out["theme_label"] or themes.default_label([text])
+    if extend:
+        data = themes.load_themes_file(root) or {"themes": []}
+        label = next((t.get("label") for t in data["themes"] if t.get("id") == extend), label)
+    made: dict | None = None
+    try:
+        made = themes.create_draft(root, "", [text], at=at, extend=extend)
+        draft = _save(
+            root,
+            {
+                **made,
+                "label": str(label)[:80],
+                "step": 2,
+                "concepts": out["concepts"],
+                "relations": out["relations"],
+                "answers": out["answers"],
+                "suggested_questions": out["suggested_questions"],
+                "standards": out["standards"],
+            },
+            at,
+        )
+    except themes.ThemeError as exc:
+        if made is not None:
+            themes.delete_draft(root, made["id"])
+        raise TurnRefused(exc.status, str(exc)) from exc
+    except TurnRefused:
+        if made is not None:
+            themes.delete_draft(root, made["id"])
+        raise
+    _adopt_draft(session, draft)
+    return _created_turn(
+        session, text, draft, out, ops_of=draft, extra_notes=extra_notes, at=at, lg=lg
+    )
+
+
+def _created_turn(
+    session: dict,
+    text: str,
+    draft: dict,
+    out: dict,
+    *,
+    ops_of: dict,
+    extra_notes: list[dict],
+    at: str,
+    lg: str,
+) -> dict:
+    """AI が図を足した手番の返事（``ops_of`` = 足した行・``draft`` = 図の全体）。"""
+    ops = _draft_ops(ops_of)
+    n_concepts = sum(1 for o in ops if o["op"] == "add_concept")
+    n_rels = sum(1 for o in ops if o["op"] == "add_relation")
+    sentences = graph_diff.ops_to_sentences(ops, {"concepts": draft["concepts"]}, lg)
+    answer = (draft.get("answers") or [{}])[0]
+    shape = _answer_shape(answer, draft["concepts"], lg)
+    wanted = str(answer.get("wanted_data") or "").strip()
+    if lg == "ja":
+        said = f"図に 概念 {n_concepts}・関係 {n_rels} を足しました。"
+        said += f"答え方: {shape}。" if shape else "答え方: まだ決まっていません。"
+        if wanted:
+            said += f"欲しいデータ: {wanted}"
+    else:
+        said = f"Added {n_concepts} concepts and {n_rels} relations to the chart. "
+        said += f"How to answer: {shape}. " if shape else "How to answer: not decided yet. "
+        if wanted:
+            said += f"Data needed: {wanted}"
+    notes = list(extra_notes)
+    undecided = _undecided_questions(ops_of)
+    if undecided:
+        joined = " / ".join(undecided)
+        notes.append(
+            note(
+                "info",
+                f"答え方がまだ決まっていない問い: {joined}"
+                if lg == "ja"
+                else f"Questions without a way to answer yet: {joined}",
+            )
+        )
+    bad_rels = sum(1 for r in ops_of.get("relations") or [] if r.get("problem") is not None)
+    if bad_rels:
+        notes.append(
+            note(
+                "info",
+                f"形が合わない関係を {bad_rels} 件除きました"
+                if lg == "ja"
+                else f"Left out {bad_rels} relations whose shape does not fit",
+            )
+        )
+    gone = out["dropped"]
+    gc, gr = len(gone.get("concepts") or []), len(gone.get("relations") or [])
+    if gc or gr:
+        notes.append(
+            note(
+                "dropped",
+                f"前に外したものは入れていません: 概念 {gc}・関係 {gr}"
+                if lg == "ja"
+                else f"Left out what you removed before: {gc} concepts, {gr} relations",
+            )
+        )
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text, "attachments": []},
+        reply=_reply(
+            said.strip(),
+            ops=ops,
+            sentences=sentences,
+            questions=_chips(draft.get("suggested_questions")),
+            notes=notes,
+        ),
+        state="proposed",
+        before=None,  # この手番で下書きを作った
+        by="ai",
+    )
+
+
+def _apply_diff(
+    session: dict,
+    text: str,
+    diff: dict,
+    draft: dict,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    at: str,
+    lg: str,
+    fresh_seed: dict | None = None,
+) -> dict:
+    """``fresh_seed`` = 確認済みのテーマを種に、この手番で作った下書き（当たらなければ捨てる）。"""
+    ops = list(diff.get("ops") or [])
+    new, report = graph_diff.apply_to_draft(
+        draft, ops, existing=existing, dismissed=dismissed, by="ai"
+    )
+    sentences = graph_diff.ops_to_sentences(ops, {"concepts": draft.get("concepts")}, lg)
+    gone = {d["index"]: d["reason"] for d in report["dropped"]}
+    kept = [i for i in range(len(ops)) if i not in gone]
+    notes = [
+        note("dropped", f"{sentences[i] if i < len(sentences) else ''}: {dropped_reason(r, lg)}")
+        for i, r in gone.items()
+    ]
+    applied_ops = [ops[i] for i in kept]
+    applied_sentences = [sentences[i] for i in kept if i < len(sentences)]
+    before: dict | None = None
+    state = "none"
+    if report["applied"] > 0:
+        before = None if fresh_seed is not None else copy.deepcopy(draft)
+        chat = draft.get("chat") or {}
+        new["chat"] = {
+            "messages": [
+                *(chat.get("messages") or []),
+                {"role": "user", "content": text[:_MAX_CONTENT], "at": at},
+            ],
+            "proposals": [
+                *(chat.get("proposals") or []),
+                {  # 適用した操作だけを残す
+                    "proposal_id": graph_diff.proposal_id(ops),
+                    "ops": applied_ops,
+                    "at": at,
+                    "by": "ai",
+                },
+            ],
+        }
+        try:
+            draft = _save(root, new, at)
+        except TurnRefused:
+            if fresh_seed is not None:  # 作った種つきの下書きを残さない（話は何も採用していない）
+                themes.delete_draft(root, draft["id"])
+                session["draft_id"] = None
+                session.pop("seed", None)
+            raise
+        state = "proposed"
+        _adopt_draft(session, draft)
+        if fresh_seed is not None:
+            _adopt_seed(session, draft, fresh_seed)
+    elif fresh_seed is not None:
+        themes.delete_draft(root, draft["id"])
+    said = str(diff.get("reply") or "").strip()
+    if not said:
+        n = report["applied"]
+        if lg == "ja":
+            said = f"図を {n} 件直しました。" if n else "図は変えていません。"
+        else:
+            said = f"Changed {n} things on the chart." if n else "The chart is unchanged."
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text, "attachments": []},
+        reply=_reply(said, ops=applied_ops, sentences=applied_sentences, notes=notes),
+        state=state,
+        before=before,
+        by="ai",
+    )
+
+
+def run_undo_turn(session: dict, text: str, *, root: Any, at: str, lang: str) -> dict:
+    """「さっきのを戻して」— AI を呼ばず、最後の未確認の返事を戻す（決定論）。無ければ一言。"""
+    lg = _lg(lang)
+    text = text.strip()
+    proposed = [t for t in session.get("turns") or [] if t.get("state") == "proposed"]
+    if proposed:
+        try:
+            revert(session, proposed[-1]["id"], root=root, at=at, lang=lang)
+        except TurnRefused as exc:
+            return _machine_turn(session, text, str(exc), lg, [note("info", str(exc))], at)
+        said = "1 つ前に戻しました" if lg == "ja" else "Undid the last step"
+        return _machine_turn(session, text, said, lg, [], at)
+    said = "戻すものがありません" if lg == "ja" else "There is nothing to undo"
+    return _machine_turn(session, text, said, lg, [note("info", said)], at)
 
 
 # ---- 手で足す手番 ------------------------------------------------------------------------------
@@ -675,12 +1403,22 @@ async def confirm(
         turn["reply"]["notes"] = [*notes, note("commit_error", str(exc))]
         return turn, None
     turn["reply"]["notes"] = notes
+    seed = session.get("seed")
+    removed, kept = {"lines": 0, "terms": 0}, []
+    if isinstance(seed, dict) and seed.get("draft_id") == draft["id"]:
+        # 種にあって下書きに無いものは、ストアからも外す
+        removed, kept = await chat_seed.apply_removals(
+            client, root, out["theme"]["id"], seed, draft, lang=lang, at=at
+        )
+    session.pop("seed", None)
     record = {
         "theme_id": out["theme"]["id"],
         "minted": list(out["minted"]),
         "lines": out["lines"],
         "questions": list(out["questions"]),
         "batch": out["batch"],
+        "removed": removed,
+        "kept": kept,
         "at": at,
     }
     session["theme_id"] = record["theme_id"]
@@ -718,6 +1456,7 @@ def revert(
         if session.get("draft_id"):
             themes.delete_draft(root, session["draft_id"])
         session["draft_id"] = None
+        session.pop("seed", None)
     else:
         restored = copy.deepcopy(before)
         now = themes.load_draft(root, owner)

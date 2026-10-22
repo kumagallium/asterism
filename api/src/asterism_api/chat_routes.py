@@ -7,8 +7,9 @@
 * ``GET  /api/chat/sessions`` — 一覧。
 * ``POST /api/chat/sessions`` — 空の話を作る（201）。
 * ``GET / PATCH / DELETE /api/chat/sessions/{id}`` — 読む・名前を直す・捨てる（確認済みは残す）。
-* ``POST /api/chat/sessions/{id}/turns`` — 手番（文 または 手で足す差分）。**11a は AI を呼ばない**
-  （``resolve_llm`` は 11b が使う口として受けるだけ）。
+* ``POST /api/chat/sessions/{id}/turns`` — 手番（文 または 手で足す差分）。文の手番は、AI が
+  設定されていれば AI の返事（準備＝ロックの中 → AI＝**ロックの外** → 適用＝ロックの中で読み直し）。
+  未設定なら 11a の道（``notes.ai_unset``）。「さっきのを戻して」は AI を呼ばず決定論で戻す。
 * ``POST …/turns/{turn}/confirm`` — ✓。``POST …/turns/{turn}/revert`` — 未確認の返事を控えに戻す。
 
 全部 ``write_auth``。下書き・テーマの読み書きは ``app.state.themes_lock`` で 1 つずつ。
@@ -26,11 +27,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from asterism import chat_sessions, shared_vocab, themes
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from asterism_api import chat_turns
+from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
 
 if TYPE_CHECKING:
@@ -99,6 +101,13 @@ class ConfirmBody(BaseModel):
     lang: Literal["ja", "en"] = "ja"
 
 
+def _ai_unset(key: str | None, provider: str, api_base: str | None) -> bool:
+    """キーが無い（かつ手元の互換サーバでもない）= AI は未設定。copilot はキー無しで使える。"""
+    if provider in ("copilot-subscription", "copilot"):
+        return False
+    return key is None and not (provider != "anthropic" and api_base)
+
+
 def _head(session: dict) -> dict:
     return {
         "id": session["id"],
@@ -146,7 +155,9 @@ def register_chat(
         draft = themes.load_draft(root, draft_id) if draft_id else None
         if draft is None:
             return None
-        return {**draft_sky_card(draft, lang), "session_id": session["id"]}
+        seed = session.get("seed")
+        seed = seed if isinstance(seed, dict) and seed.get("draft_id") == draft["id"] else None
+        return {**draft_sky_card(draft, lang, seed), "session_id": session["id"]}
 
     def _save_after_confirm(session: dict, commit: dict | None, lang: str) -> dict:
         """✓ のあとの保存。落ちたら 1 度だけやり直し、それでも落ちたら 500。"""
@@ -226,7 +237,15 @@ def register_chat(
     # ---- 手番 ---------------------------------------------------------------------------------
 
     @app.post("/api/chat/sessions/{session_id}/turns", dependencies=deps)
-    async def chat_turn(session_id: str, body: TurnBody) -> JSONResponse:
+    async def chat_turn(
+        session_id: str,
+        body: TurnBody,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
         has_text = body.text is not None
         given = [body.text is not None, body.ops is not None, body.set_answer is not None]
         if sum(given) != 1:
@@ -239,20 +258,73 @@ def register_chat(
         _session_or_404(session_id)  # ストアを読む前に、話があるか
         existing = await _terms()
         dismissed = shared_vocab.load_dismissed(root)
-        async with lock:
-            session = _session_or_404(session_id)
-            at = _now()
-            try:
-                if has_text:
-                    turn = chat_turns.run_text_turn(
+
+        def _done(session: dict, turn: dict, reverted: list[str] | None = None) -> JSONResponse:
+            saved = chat_sessions.save_session(root, session)
+            card = _draft_card(saved, body.lang)
+            return JSONResponse(
+                {"turn": turn, "session": _head(saved), "draft": card, "reverted": reverted or []},
+                status_code=201,
+            )
+
+        # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
+        llm: Any = None
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, root
+        )
+        if has_text and not chat_turns.is_undo(text) and not _ai_unset(key, provider, api_base):
+            llm = resolve_llm(
+                provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+            )
+        if llm is not None:
+            async with lock:  # 1. 準備（読むだけ）
+                session = _session_or_404(session_id)
+                prepared = chat_turns.prepare_text_turn(
+                    session, text, root=root, existing=existing, lang=body.lang
+                )
+            result: dict | None = None
+            if prepared.mode != "refuse":  # 2. AI（ロックの外）
+                result = await chat_turns.ai_text_turn(prepared, llm)
+                if result["ok"]:
+                    await asyncio.to_thread(
+                        _record_usage, root, "chat.turn", provider, llm, model
+                    )
+            async with lock:  # 3. 適用（話・下書き・用語・外したものを読み直す）
+                session = _session_or_404(session_id)
+                existing = await _terms()
+                dismissed = shared_vocab.load_dismissed(root)
+                try:
+                    turn = chat_turns.apply_text_turn(
                         session,
-                        text,
-                        ai=None,  # 11b が resolve_llm から作る
-                        lang=body.lang,
+                        prepared,
+                        result,
                         root=root,
                         existing=existing,
                         dismissed=dismissed,
-                        at=at,
+                        at=_now(),
+                        lang=body.lang,
+                    )
+                except chat_turns.TurnRefused as exc:
+                    raise _refused(exc) from exc
+                return _done(session, turn)
+        async with lock:
+            session = _session_or_404(session_id)
+            at = _now()
+            reverted: list[str] = []
+            try:
+                if has_text and chat_turns.is_undo(text):
+                    was = {t["id"] for t in session["turns"] if t.get("state") == "proposed"}
+                    turn = chat_turns.run_undo_turn(
+                        session, text, root=root, at=at, lang=body.lang
+                    )
+                    reverted = [
+                        t["id"]
+                        for t in session["turns"]
+                        if t["id"] in was and t.get("state") == "reverted"
+                    ]
+                elif has_text:
+                    turn = chat_turns.run_text_turn(
+                        session, text, lang=body.lang, root=root, at=at
                     )
                 elif body.set_answer is not None:
                     turn = chat_turns.run_set_answer_turn(
@@ -274,9 +346,7 @@ def register_chat(
                     )
             except chat_turns.TurnRefused as exc:
                 raise _refused(exc) from exc
-            saved = chat_sessions.save_session(root, session)
-            card = _draft_card(saved, body.lang)
-        return JSONResponse({"turn": turn, "session": _head(saved), "draft": card}, status_code=201)
+            return _done(session, turn, reverted)
 
     @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/confirm", dependencies=deps)
     async def chat_confirm(

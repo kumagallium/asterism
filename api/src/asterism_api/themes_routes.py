@@ -39,7 +39,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from asterism import knowledge, shared_vocab, themes
+from asterism import chat_sessions, knowledge, shared_vocab, themes
 from asterism_step0.theme_propose import (
     ThemeDraftError,
     propose_theme_draft,
@@ -49,7 +49,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from asterism_api import registry
+from asterism_api import chat_seed, registry
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 
 if TYPE_CHECKING:  # pragma: no cover - type-checking only
@@ -225,9 +225,11 @@ def _selection_of(theme: dict, tool: dict, term_by_iri: dict[str, dict]) -> dict
     return {}
 
 
-def draft_sky_card(draft: dict, lang: str = "ja") -> dict:
+def draft_sky_card(draft: dict, lang: str = "ja", seed: dict | None = None) -> dict:
     """1 つの下書きを**星図の札の形**にする ``{draft_id, theme_label, concepts[{key, label, kind,
-    use}], relations[{from, to, rel}], questions[]}``（``drafts_sky`` と話の API が共有する）。"""
+    use}], relations[{from, to, rel}], questions[], removals}``（``drafts_sky`` と話の API が共有
+    する）。``removals`` = 確認済みのテーマを種にした下書きで、種にあって下書きに無いもの
+    ``{"terms": [IRI], "lines": [{from, to, relation}]}``（種が無ければ空）。"""
     lg = _lang(lang)
     return {
         "draft_id": draft["id"],
@@ -248,6 +250,7 @@ def draft_sky_card(draft: dict, lang: str = "ja") -> dict:
             for r in draft.get("relations") or []
         ],
         "questions": list(draft.get("questions") or []),
+        "removals": chat_seed.sky_removals(seed, draft),
     }
 
 
@@ -255,11 +258,12 @@ def draft_sky_rows(root: Any, lang: str = "ja") -> list[dict]:
     """未確定の下書き全部の札（概念が 1 つも無い下書きは載せない）。``GET /api/themes/drafts/sky``
     と ``GET /api/sky`` の ``proposed`` が共有する。"""
     out: list[dict] = []
+    seeds = chat_sessions.draft_seed_map(root)
     for item in themes.list_drafts(root):
         draft = themes.load_draft(root, item["id"])
         if draft is None or not draft.get("concepts"):
             continue
-        out.append(draft_sky_card(draft, lang))
+        out.append(draft_sky_card(draft, lang, seeds.get(draft["id"])))
     return out
 
 

@@ -65,7 +65,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from asterism_api import registry
+from asterism_api import chat_turns, registry
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.upper_routes import (
     dump_upper,
@@ -429,19 +429,7 @@ def register_consult_graph(
         columns: list[dict] | None = None
         if body.screen == "theme":
             draft = _draft_or_404(body.context)
-            graph = {
-                "concepts": [_concept_row(c) for c in draft.get("concepts") or []],
-                "relations": [
-                    {k: r.get(k) for k in ("from", "rel", "to")}
-                    for r in draft.get("relations") or []
-                ],
-                "questions": [
-                    {k: a.get(k) for k in ("question", "mode", "op", "direction", "target")}
-                    for a in draft.get("answers") or []
-                ]
-                or list(draft.get("questions") or []),
-            }
-            standards = themes.default_standards(list(draft.get("questions") or []))
+            graph, standards = chat_turns.theme_context(draft)
         elif body.screen == "home":
             kinds = await _kinds()
             graph = await _home_graph(terms, kinds, focus_iri=body.context.focus_kind)

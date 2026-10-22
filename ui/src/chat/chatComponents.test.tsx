@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import '../i18n'
 import { ThemesApiError } from '../themes/themesApi'
 import type { Reply, SessionSummary, Turn } from './chatApi'
+import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
 import { ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
 import { SessionList } from './SessionList'
@@ -165,5 +166,69 @@ describe('HandForm', () => {
   it('概念が無いうちは名前の行だけ', () => {
     const html = renderToStaticMarkup(<HandForm draft={null} nextKey="h1" busy={false} onSubmit={async () => true} />)
     expect(html).not.toContain('value="lowers"')
+  })
+
+  it('text と箇条書きが同じなら 1 回だけ・人の手番は箇条書きだけ', () => {
+    const same = text(card(turn({ reply: reply({ text: '足しました', sentences: ['足しました'] }) })))
+    expect(same.split('足しました').length - 1).toBe(1)
+    const hand = card(turn({ user: null, reply: reply({ text: '足しました', sentences: ['A を足す'] }) }))
+    expect(hand).not.toContain('chat-card-text')
+    expect(hand).toContain('A を足す')
+  })
+  it('機械の手番には印・state none には ✓ も戻すも出ない', () => {
+    const m = card(turn({ by: 'machine', state: 'none' }))
+    expect(text(m)).toContain('機械')
+    expect(m).not.toContain('reply-confirm')
+    expect(m).not.toContain('reply-revert')
+    expect(text(card(turn({ by: 'ai' })))).not.toContain('機械')
+  })
+  it('機械の手番の text と同じ注記は二重に出さない（違う注記は残す）', () => {
+    const same = card(turn({ by: 'machine', state: 'none', reply: reply({ text: '同じ文です', notes: [{ kind: 'info', text: '同じ文です', choice: null }] }) }))
+    expect(same.split('同じ文です').length - 1).toBe(1)
+    const diff = card(turn({ by: 'machine', state: 'none', reply: reply({ text: '本文', notes: [{ kind: 'info', text: '別の注記', choice: null }] }) }))
+    expect(diff).toContain('別の注記')
+  })
+  it('残した語は名前で出る（引けなければ slug）', () => {
+    const t = turn({ state: 'confirmed', commit: { at: '2026-10-22T00:00:00Z', kept: [{ slug: 'thermal', reason: '使用中' }, { slug: 'zzz', reason: '使用中' }] } as Turn['commit'] })
+    const html = renderToStaticMarkup(<ReplyCard turn={t} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} names={new Map([['thermal', '熱伝導率']])} />)
+    expect(text(html)).toContain('熱伝導率')
+    expect(text(html)).toContain('zzz')
+    expect(text(html)).not.toContain('thermal')
+  })
+  it('注記 ai_failed・info が描ける', () => {
+    const h = card(turn({ state: 'none', reply: reply({ notes: [{ kind: 'ai_failed', text: '失敗', choice: null }, { kind: 'info', text: '補足', choice: null }] }) }))
+    expect(h).toContain('data-note-kind="ai_failed"')
+    expect(h).toContain('data-note-kind="info"')
+  })
+})
+
+describe('ChatPane の楽観表示', () => {
+  const pane = (over: Partial<Parameters<typeof ChatPane>[0]> = {}) =>
+    renderToStaticMarkup(
+      <ChatPane session={null} loading={false} loadError={null} busy sending error={null} noKey={false} onSend={async () => true} onConfirm={noop} onRevert={noop} onOpenSettings={noop} {...over} />,
+    )
+  it('送った文が末尾に出て、その下に「考えています」', () => {
+    const html = pane({ pendingUser: '熱伝導率を下げるには？' })
+    const t = text(html)
+    expect(html).toContain('data-testid="pending-user"')
+    expect(t.indexOf('熱伝導率を下げるには？')).toBeGreaterThanOrEqual(0)
+    expect(t.indexOf('考えています')).toBeGreaterThan(t.indexOf('熱伝導率を下げるには？'))
+  })
+  it('文が無ければ人の文は出さない', () => {
+    expect(pane({ sending: false, busy: false })).not.toContain('pending-user')
+  })
+})
+
+describe('ReplyCard の ✓ で外した件数', () => {
+  const commit = { theme_id: 't', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T00:00:00Z' }
+  it('外しました・残した', () => {
+    const t = text(
+      card(turn({ state: 'confirmed', commit: { ...commit, removed: { terms: 3, lines: 2 }, kept: [{ slug: 'seebeck', reason: '使われている' }] } }), false),
+    )
+    expect(t).toContain('外しました: 用語 3・関係 2')
+    expect(t).toContain('残した: seebeck（使われている）')
+  })
+  it('外していなければ出さない', () => {
+    expect(text(card(turn({ state: 'confirmed', commit }), false))).not.toContain('外しました')
   })
 })

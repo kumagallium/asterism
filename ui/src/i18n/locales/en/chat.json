@@ -21,12 +21,16 @@
     "noKey": "Enter the server key in Settings › Server to chat"
   },
   "reply": {
+    "byMachine": "Machine",
+    "thinking": "Thinking",
     "more": "{{n}} more",
     "confirm": "✓ Confirm",
     "count": "{{n}}",
     "confirmed": "✓ Confirmed ({{at}})",
     "proposed": "Proposed",
     "reverted": "Undone",
+    "removed": "Removed: {{terms}} terms, {{lines}} relations",
+    "kept": "Kept: {{slug}} ({{reason}})",
     "revert": "Undo"
   },
   "tabs": {

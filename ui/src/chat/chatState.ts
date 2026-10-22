@@ -55,6 +55,41 @@ export function applyRevert(s: Session, res: RevertResponse): Session {
   return { ...withBrief(s, res.session), turns }
 }
 
+/** 返りを当てた話より、読み直した話を優先する（サーバ側で他の手番の状態や下書きが変わるため）。読み直せなければ返りのまま。 */
+export function preferReloaded(applied: Session, reloaded: Session | null): Session {
+  return reloaded ?? applied
+}
+
+/** チップの送信結果を true/false に畳む（失敗・例外は false ＝ 送った印を戻す）。 */
+export async function settleAsk(run: () => Promise<boolean> | boolean | void): Promise<boolean> {
+  try {
+    return (await run()) !== false
+  } catch {
+    return false
+  }
+}
+
+/** 残した語の名前: 名前の表から引けたらその名前、引けなければ slug のまま。 */
+export function keptName(slug: string, names: ReadonlyMap<string, string> | undefined): string {
+  return names?.get(slug) || slug
+}
+
+/** 図の語と下書きの札から、slug（key・existing:<slug>）→名前の表を作る。 */
+export function nameTable(
+  terms: readonly { slug: string; label: string }[],
+  draft: { concepts: readonly { key: string; label: string; use?: string }[] } | null | undefined,
+): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const t of terms) if (t.slug && t.label) m.set(t.slug, t.label)
+  for (const c of draft?.concepts ?? []) {
+    if (!c.label) continue
+    m.set(c.key, c.label)
+    const u = /^existing:(.+)$/.exec(c.use ?? '')
+    if (u) m.set(u[1], c.label)
+  }
+  return m
+}
+
 /** 手で足す概念の次の key（`h1`, `h2` …）。 */
 export function nextHandKey(keys: readonly string[]): string {
   let max = 0

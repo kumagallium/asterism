@@ -444,3 +444,22 @@
     transition: none;
   }
 }
+
+.chat-chip.is-sent {
+  opacity: 0.45;
+}
+.chat-by-machine {
+  display: inline-block;
+  color: var(--accent-strong);
+  font-size: 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+.chat-note--info {
+  opacity: 0.8;
+}
+.chat-note--ai_failed {
+  font-weight: 500;
+}
