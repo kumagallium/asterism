@@ -240,7 +240,8 @@ def _base(iri: str, kind: str, label: str) -> dict[str, Any]:
         "questions": [],
         "members": [],
         "standard": None,
-        "confirmed": True,  # ストアにある（✓ 済み・公開済み・標準・視点）。未確認の札・提案の線は False
+        # ストアにある（✓ 済み・公開済み・標準・視点）。未確認の札・提案の線は False
+        "confirmed": True,
         "can_revert": False,
         "revert": None,
     }
