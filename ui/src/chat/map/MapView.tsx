@@ -257,7 +257,8 @@ export function MapView({
         edgeReducer: (edge, data) => {
           // 線の名前は hover 中の線だけ。その線は濃く少し太く
           const hovered = edge === hovEdgeRef.current
-          if (hovered) return { ...data, color: pal.edgeOn, size: ((data.size as number | undefined) ?? 1) + 1, zIndex: 2 }
+          // forceLabel: sigma は両端の名前が出ている線しか名前を描かない。hover 中の線は必ず描く
+          if (hovered) return { ...data, color: pal.edgeOn, size: ((data.size as number | undefined) ?? 1) + 1, zIndex: 2, forceLabel: true }
           data = { ...data, label: '' }
           const em = emphasis()
           if (!em) return data
