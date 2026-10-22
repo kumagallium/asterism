@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../i18n'
 import { contentsOf, fetchContents } from './chatApi'
-import { CACHE_MAX, keyString, putCache } from './useContents'
+import { CACHE_MAX, keyString, pickState, putCache } from './useContents'
 
 const table = (label: string) => ({
   kind: { iri: 'k:1', label },
@@ -24,6 +24,24 @@ describe('useContents の部品', () => {
     expect(m.size).toBe(CACHE_MAX)
     expect(m.has('k0')).toBe(false)
     expect(m.has(`k${CACHE_MAX + 4}`)).toBe(true)
+  })
+})
+
+describe('pickState', () => {
+  const data = { title: '', tables: [], more: 0, note: null }
+  const done = { id: 'ja|1|K', ks: 'K', state: { status: 'ok' as const, data } }
+  it('同じ組なら返りそのまま', () => {
+    expect(pickState(done, 'ja|1|K', 'K')).toBe(done.state)
+  })
+  it('signature だけ変わったら前の表を残して refreshing', () => {
+    expect(pickState(done, 'ja|2|K', 'K')).toEqual({ status: 'ok', data, refreshing: true })
+  })
+  it('key が変わったら loading、key が無ければ idle', () => {
+    expect(pickState(done, 'ja|2|J', 'J')).toEqual({ status: 'loading' })
+    expect(pickState(done, null, null)).toEqual({ status: 'idle' })
+  })
+  it('retry で done が空なら loading（失敗の表示を消す）', () => {
+    expect(pickState(null, 'ja|1|K', 'K')).toEqual({ status: 'loading' })
   })
 })
 

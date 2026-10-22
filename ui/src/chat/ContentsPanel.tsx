@@ -19,17 +19,27 @@ export interface ContentsPanelProps {
   /** 押した点の名前（見出し用。無ければ API の title）。 */
   name?: string
   onHighlight?: (h: Highlight | null) => void
+  /** 読み込み失敗の「もう一度」。 */
+  onRetry?: () => void
 }
 
-function bodyOf(t: (k: string, o?: Record<string, unknown>) => string, loading: string, target: ContentsTarget | null, state: ContentsState) {
+function bodyOf(t: (k: string, o?: Record<string, unknown>) => string, loading: string, target: ContentsTarget | null, state: ContentsState, onRetry?: () => void) {
   if (target === UNPUBLISHED) return <p className="chat-note-line">{t('contents.unpublished')}</p>
   if (!target || state.status === 'idle') return <p className="chat-note-line">{t('contents.hint')}</p>
   if (state.status === 'loading') return <p className="chat-note-line" role="status">{loading}</p>
-  if (state.status === 'error') return <p className="chat-note-line" role="alert">{t('chart.failed')}</p>
+  if (state.status === 'error')
+    return (
+      <p className="chat-note-line" role="alert">
+        {t('contents.failed')}{' '}
+        <button type="button" className="link-btn" onClick={() => onRetry?.()}>
+          {t('contents.retry')}
+        </button>
+      </p>
+    )
   return null
 }
 
-export function ContentsPanel({ target, state, name, onHighlight }: ContentsPanelProps) {
+export function ContentsPanel({ target, state, name, onHighlight, onRetry }: ContentsPanelProps) {
   const { t } = useTranslation('chat')
   const { t: tsky } = useTranslation('sky')
   const [open, setOpen] = useState(readOpen)
@@ -44,6 +54,8 @@ export function ContentsPanel({ target, state, name, onHighlight }: ContentsPane
   const title = name || data?.title || ''
   const label = t('contents.toggle')
   const shown = target !== UNPUBLISHED && !!target && !!data
+  // 小見出しは、表が 2 つ以上のデータセットにまたがるときだけ（同じ名前を 2 度出さない）
+  const multi = data ? new Set(data.tables.map((x) => x.dataset.id)).size > 1 : false
   const rowsTotal = data ? data.tables.reduce((n, x) => n + x.table.rows.length, 0) : 0
 
   if (deep) {
@@ -80,7 +92,7 @@ export function ContentsPanel({ target, state, name, onHighlight }: ContentsPane
             <>
               {data.tables.map((x) => (
                 <div key={`${x.dataset.id}|${x.table.kind.iri}`} className="chat-contents-table" data-testid="contents-table">
-                  <h4>{x.dataset.label}</h4>
+                  {multi && <h4>{x.dataset.label}</h4>}
                   <ReplyTableView table={x.table} onHighlight={onHighlight} />
                 </div>
               ))}
@@ -88,7 +100,7 @@ export function ContentsPanel({ target, state, name, onHighlight }: ContentsPane
             </>
           )
         ) : (
-          bodyOf(t, tsky('state.loading'), target, state)
+          bodyOf(t, tsky('state.loading'), target, state, onRetry)
         )}
       </div>
     </section>

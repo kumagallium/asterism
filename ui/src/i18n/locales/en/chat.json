@@ -163,6 +163,8 @@
     "unpublished": "Confirm and publish, and its rows will appear here",
     "moreTables": "{{n}} more tables in \"See the contents\"",
     "full": "See the contents",
-    "toggle": "Open or close"
+    "toggle": "Open or close",
+    "failed": "Could not load the contents",
+    "retry": "Retry"
   }
 }

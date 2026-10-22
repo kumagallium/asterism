@@ -1,14 +1,6 @@
 {
-  "unit": {
-    "count": "{{n}} rows",
-    "kinds": "{{n}} kinds"
-  },
   "facts": {
     "answerable": "confirmed questions (answerable / all)",
-    "kinds": "kinds",
-    "terms": "terms",
-    "datasets": "datasets",
-    "triples": "facts",
     "none": "No confirmed questions yet (ask in the chat and press Confirm)"
   },
   "deep": "See the contents",
@@ -78,48 +70,13 @@
   },
   "questions": {
     "theme": "First questions",
-    "knowledgeN": "Knowledge {{n}}",
     "knowledgeTitle": "Answered by {{n}} confirmed knowledge relations"
   },
   "table": {
-    "summary": "Table with the same content as the chart",
-    "empty": "Nothing to list yet.",
-    "stars": "Datasets and kinds",
-    "terms": "Terms",
-    "standards": "Standard terms",
-    "hubs": "Connections",
-    "colDataset": "Dataset",
-    "colKind": "Kind",
-    "colCount": "Rows",
-    "colTerms": "Terms",
-    "colStandard": "Standard term",
-    "colTerm": "Term",
-    "colType": "Type",
-    "colKinds": "Kinds inside",
-    "colQuestions": "Questions it answers",
-    "colBound": "Linked to",
-    "colHub": "Connection",
-    "colMembers": "Kinds taking part",
-    "typeClass": "kind",
-    "typeProperty": "field",
-    "close": "Close",
-    "lines": "Knowledge relations",
-    "colLine": "Relation",
-    "colReason": "Reason"
+    "empty": "Nothing to list yet."
   },
   "drafts": {
     "review": "{{n}} to check →"
-  },
-  "line": {
-    "partOf": "part",
-    "sentence": {
-      "isPartOf": "{{subject}} is a part of {{object}}",
-      "lowers": "{{subject}} lowers {{object}}",
-      "raises": "{{subject}} raises {{object}}",
-      "affects": "{{subject}} changes {{object}}"
-    },
-    "sub": "kind of",
-    "quantity": "quantity"
   },
   "chat": {
     "example": "For example: \"Is this kind the same as Specimen?\"",

@@ -45,6 +45,16 @@ describe('ContentsPanel', () => {
     expect(h).toContain('データ B')
     expect(h).toContain('熱伝導率 の中身')
   })
+  it('小見出しは複数のデータセットにまたがるときだけ', () => {
+    const one = load({ tables: [{ dataset: { id: 'a', label: 'データ A' }, table: table('試料') }, { dataset: { id: 'a', label: 'データ A' }, table: table('測定') }] })
+    const h = html(<ContentsPanel target={{ dataset: 'a' }} state={{ status: 'ok', data: one }} />)
+    expect(h).not.toContain('<h4>')
+  })
+  it('失敗: 文言と「もう一度」', () => {
+    const h = html(<ContentsPanel target={{ term: 't' }} state={{ status: 'error' }} />)
+    expect(h).toContain('中身を読み込めませんでした')
+    expect(h).toContain('もう一度')
+  })
   it('ほか N 表は「中身まで見る」で', () => {
     const h = html(<ContentsPanel target={{ term: 't' }} state={{ status: 'ok', data: load({ more: 2 }) }} />)
     expect(h).toContain('ほか 2 表は「中身まで見る」で')

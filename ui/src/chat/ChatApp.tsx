@@ -155,8 +155,6 @@ export function ChatApp() {
   // 未確認の図: 手番の返りのもの（すぐ使える）と、図を取り直して届いたもの（再読み込みのあとでも拾える）
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
   const [chartTick, setChartTick] = useState(0)
-  // 生まれた輪は ✓ の直後だけ（手番の直後は薄い札が増えるだけ）
-  const [bornTick, setBornTick] = useState(0)
   const [busy, setBusy] = useState<Busy>(null)
   const [pendingUser, setPendingUser] = useState<string | null>(null)
   const [pendingReading, setPendingReading] = useState(false)
@@ -430,7 +428,6 @@ export function ChatApp() {
         const res = await confirmTurn(id, turnId, lang, decisions, getActiveCredentials())
         await reread(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
-        setBornTick((n) => n + 1)
         afterChange()
       } catch (e) {
         setError(messageOf(e))
@@ -516,7 +513,7 @@ export function ChatApp() {
   }
 
   // ── 図の読み取り（地図・局所の図・上の 1 行・手で足すフォームが同じものを見る） ──
-  const { data: skyData, retry: retrySky } = useSky(chartTick, lang, bornTick)
+  const { data: skyData, retry: retrySky, tick: skyTick } = useSky(chartTick, lang)
   const chartDrafts = useMemo<SkyDraft[]>(() => (skyData.status === 'ok' ? skyData.proposed : []), [skyData])
   const skyTerms = useMemo(() => (skyData.status === 'ok' ? skyData.sky.terms.map((x) => ({ slug: x.slug, label: x.label })) : []), [skyData])
 
@@ -550,9 +547,10 @@ export function ChatApp() {
     return ids
   }, [focus, okSky])
   // 押した点の中身（ABox）: pickedId → key → fetch。sky が読み直されたら読み直す
-  const contentsTarget = useMemo(() => contentsKeyOf(pickedId, okSky, session?.id ?? null), [pickedId, okSky, session?.id])
+  const attachedId = useMemo(() => [...(session?.turns ?? [])].reverse().find((x) => x.attachment)?.attachment?.dataset_id ?? null, [session])
+  const contentsTarget = useMemo(() => contentsKeyOf(pickedId, okSky, session?.id ?? null, attachedId), [pickedId, okSky, session?.id, attachedId])
   const contentsKey = contentsTarget && contentsTarget !== 'unpublished' ? contentsTarget : null
-  const contents = useContents(contentsKey, lang, `${chartTick}.${bornTick}`)
+  const contents = useContents(contentsKey, lang, skyTick)
   const pickedName = useMemo(() => {
     if (!pickedId) return ''
     const n = pickedId.split('|')
@@ -718,7 +716,7 @@ export function ChatApp() {
                 fitLabel={t('map.fit')}
               />
               <p className="chat-map-legend">{t('map.legend')}</p>
-              <ContentsPanel target={contentsTarget} state={contents} name={pickedName} onHighlight={setHighlight} />
+              <ContentsPanel target={contentsTarget} state={contents.state} onRetry={contents.retry} name={pickedName} onHighlight={setHighlight} />
             </>
           )}
         </div>

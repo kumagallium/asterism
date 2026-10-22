@@ -449,11 +449,6 @@
   overflow: auto;
   padding: var(--space-3);
 }
-.chart-pane {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
 .chart-placeholder {
   min-height: 360px;
 }
@@ -519,15 +514,6 @@
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--muted);
-}
-/* 凡例の札の見本（角の丸い四角）と、薄い札の見本 */
-.chart-legend i.chart-legend-card {
-  width: 14px;
-  height: 10px;
-  border-radius: 4px;
-}
-.chart-legend i.chart-legend-thin {
-  opacity: 0.55;
 }
 .hand-form {
   display: flex;

@@ -760,7 +760,7 @@ export async function getPoint(query: PointQuery, lang: 'ja' | 'en' = 'ja'): Pro
 // ── 中身（ABox・PR 11k）: GET /api/chat/contents ──────────────────
 
 /** 押した点から決まる「何の中身か」。 */
-export type ContentsKey = { kind: string } | { term: string } | { dataset: string } | { session: string }
+export type ContentsKey = { kind: string; dataset?: string } | { term: string } | { dataset: string; kind?: string } | { session: string }
 
 /** データセットごとの表。 */
 export interface ContentsTable {
