@@ -1,0 +1,446 @@
+/* 3 領域の殻（PR 11a）: 左＝話の一覧／中央＝チャット／右＝図。色・余白は index.css のトークンから（点線は使わない）。 */
+
+.chat-app {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(340px, 480px) minmax(0, 1fr);
+  background: var(--bg);
+  font-family: var(--font-ui);
+  color: var(--fg);
+}
+.chat-app.is-folded {
+  grid-template-columns: 56px minmax(340px, 480px) minmax(0, 1fr);
+}
+.chat-app [hidden] {
+  display: none !important;
+}
+
+/* ── 左: 話の一覧 ── */
+.chat-list {
+  min-height: 0;
+  display: flex;
+  background: var(--surface-alt);
+  border-right: 1px solid var(--border);
+}
+.chat-list-inner {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.chat-list-inner--folded {
+  align-items: center;
+  padding: var(--space-3) var(--space-2);
+}
+.chat-list-spacer {
+  flex: 1;
+}
+.chat-list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.chat-brand-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.chat-new {
+  align-self: stretch;
+}
+.chat-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-list-foot {
+  display: flex;
+}
+.chat-icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  font-weight: 400;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+.chat-icon-btn:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--fg);
+}
+.chat-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.chat-row.is-active {
+  background: var(--primary-soft);
+}
+.chat-row:hover:not(.is-active) {
+  background: var(--surface-sink);
+}
+.chat-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.45em 0.6em;
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--fg);
+  background: none;
+  border: none;
+}
+.chat-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-row-badge {
+  flex: none;
+  padding: 0 0.5em;
+  font-size: 0.7rem;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+.chat-row-more {
+  flex: none;
+  opacity: 0;
+}
+.chat-row:hover .chat-row-more,
+.chat-row:focus-within .chat-row-more,
+.chat-row.is-active .chat-row-more {
+  opacity: 1;
+}
+@media (hover: none) {
+  .chat-row-more {
+    opacity: 1;
+  }
+}
+.chat-row-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4em 0.6em;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.chat-row--ask {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.chat-row-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.chat-note-line {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ── 中央: チャット ── */
+.chat-center {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.chat-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-empty {
+  margin: auto 0;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.chat-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.chat-foot .promote-err {
+  font-size: 0.8rem;
+}
+.chat-composer--nokey {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 返事 1 枚: 提案（未確認）は薄く、確認済みは濃く */
+.chat-card {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.chat-card[data-state='confirmed'] {
+  background: var(--surface);
+  border-color: var(--primary);
+}
+.chat-card[data-state='reverted'] {
+  color: var(--muted);
+}
+.chat-card-text {
+  margin: 0;
+  word-break: break-word;
+}
+.chat-sentences {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-sentences ul {
+  margin: var(--space-1) 0 0;
+  padding-left: 1.1rem;
+}
+.chat-sentences-more {
+  list-style: none;
+  margin-left: -1.1rem;
+  color: var(--muted);
+}
+.chat-sentences-more summary {
+  cursor: pointer;
+}
+.chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.chat-chip {
+  padding: 0.25em 0.8em;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: left;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+.chat-chip:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+.chat-note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.chat-note--ai_failed,
+.chat-note--dropped {
+  color: var(--body);
+}
+.chat-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 0.8rem;
+}
+.chat-choice legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  color: var(--muted);
+}
+.chat-card-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.chat-mark {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.chat-mark--proposed {
+  color: var(--accent-strong);
+}
+.chat-mark--confirmed {
+  color: var(--success-fg);
+}
+
+/* ── 右: 図 ── */
+.chat-right {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-right-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+}
+.chart-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chart-placeholder {
+  min-height: 360px;
+}
+.hand-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.hand-lead {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.hand-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.hand-input,
+.hand-select {
+  min-width: 0;
+  padding: 0.4em 0.6em;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.hand-input {
+  flex: 1 1 8rem;
+}
+.hand-select {
+  flex: 1 1 5rem;
+  max-width: 100%;
+}
+
+/* ── 980px 以下: 中央と右をタブ・左は ≡ で左から出るシート ── */
+.chat-tabbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.chat-tabs {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: var(--space-1);
+}
+.chat-tab {
+  padding: 0.35em 1.1em;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 999px;
+}
+.chat-tab.active {
+  color: var(--fg);
+  background: var(--primary-soft);
+}
+.chat-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  padding: 0;
+  background: rgba(20, 35, 22, 0.28);
+  border: none;
+  border-radius: 0;
+}
+.chat-app.is-tabs {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.chat-app.is-tabs .chat-center,
+.chat-app.is-tabs .chat-right {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: none;
+}
+.chat-app.is-tabs .chat-list {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  width: min(280px, 82vw);
+  transform: translateX(-104%);
+  transition: transform 0.18s ease;
+  box-shadow: var(--shadow);
+}
+.chat-app.is-tabs .chat-list.is-open {
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-app.is-tabs .chat-list {
+    transition: none;
+  }
+}

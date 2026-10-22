@@ -12158,6 +12158,7 @@ def build_app(
     # 用意したルートを、統合段としてここでまとめて配線する。
     # ------------------------------------------------------------------
     # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
+    from asterism_api.chat_routes import register_chat  # 話（チャット・ui-redesign PR 11a）
     from asterism_api.consult_graph_routes import register_consult_graph  # 作業場の会話
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
@@ -12170,7 +12171,13 @@ def build_app(
     # label_resolvers=_crosswalk_label_resolvers: 契約メモ contract_b_hub_names.md
     # の R1/R3（ハブとつながりの表示名）が項目の表示名を引くのに使う。cards_routes /
     # classes_routes は main.py を import できない（循環）ので、ここで渡す。
-    register_cards(app, cfg, label_resolvers=_crosswalk_label_resolvers)
+    register_cards(
+        app,
+        cfg,
+        label_resolvers=_crosswalk_label_resolvers,
+        # GET /api/sky の proposed（鍵つきだけ）。main を import できない cards_routes へ渡す
+        credential_ok=lambda authorization, token: _write_credential_ok(cfg, authorization, token),
+    )
     register_place(app, cfg)
     register_license(app, cfg)
     register_vocab(app, cfg, write_auth=_write_auth)
@@ -12180,6 +12187,7 @@ def build_app(
     register_questions(app, cfg, write_auth=_write_auth)  # ⑥ 自分の問い（questions.json）
     register_upper(app, cfg, write_auth=_write_auth)  # ③⑤ の当てはめ（upper.json）
     register_sky_suggestions(app, cfg, write_auth=_write_auth)  # 公開のあとの「結べそうな線」
+    register_chat(app, cfg, _resolve_llm, write_auth=_write_auth)  # 話（チャット）の API
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）

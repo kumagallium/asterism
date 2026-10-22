@@ -1951,7 +1951,8 @@ def test_sky_with_no_published_dataset_is_the_empty_shape(tmp_path: Path) -> Non
         r = client.get("/api/sky")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body) == _SKY_KEYS
+        assert set(body) == _SKY_KEYS | {"proposed"}  # 鍵つき（_AUTH）は未確認の提案も
+        assert body["proposed"] == []
         assert set(body["facts"]) == _SKY_FACT_KEYS
         assert body["datasets"] == [] and body["terms"] == [] and body["questions"] == []
         assert body["facts"]["datasets"] == 0 and body["truncated"] is False
@@ -1959,10 +1960,10 @@ def test_sky_with_no_published_dataset_is_the_empty_shape(tmp_path: Path) -> Non
 
 def test_sky_one_published_dataset_returns_its_kinds_and_facts(tmp_path: Path) -> None:
     with _network_client(tmp_path) as client:
-        r = client.get("/api/sky")  # トークン不要（/api/network と同じ扱い）
+        r = client.get("/api/sky", headers={"X-Asterism-Token": ""})  # 鍵なし
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body) == _SKY_KEYS
+        assert set(body) == _SKY_KEYS  # 鍵なしは proposed の欄ごと無い
         assert set(body["facts"]) == _SKY_FACT_KEYS
         (ds,) = body["datasets"]
         assert ds["id"] == LIB_DATASET and ds["label"] == "貸出記録"
@@ -1987,7 +1988,7 @@ def test_sky_returns_the_empty_shape_when_sky_view_is_not_installed(
     monkeypatch.delattr(asterism, "sky_view", raising=False)
     monkeypatch.setitem(sys.modules, "asterism.sky_view", None)  # import が ImportError になる
     with _network_client(tmp_path) as client:
-        r = client.get("/api/sky")
+        r = client.get("/api/sky", headers={"X-Asterism-Token": ""})
         assert r.status_code == 200, r.text  # 503 でなく空の形
         body = r.json()
         assert set(body) == _SKY_KEYS and body["datasets"] == []

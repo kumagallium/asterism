@@ -51,6 +51,8 @@ export interface LlmSettings {
    *  find. Callers often pass this straight to `onClick`, so anything that is
    *  not a section name (a MouseEvent) is ignored and opens the first tab. */
   openSettings: (section?: SettingsSection | MouseEvent) => void
+  /** True while the settings modal is open (the shell watches it to leave `#/settings`). */
+  settingsOpen: boolean
 }
 
 export const SettingsCtx = createContext<LlmSettings | null>(null)

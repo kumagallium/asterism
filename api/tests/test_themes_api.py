@@ -594,7 +594,9 @@ def test_the_sky_of_drafts_needs_the_token_and_works_with_no_data(tmp_path: Path
         en = client.get("/api/themes/drafts/sky", params={"lang": "en"}).json()["drafts"][0]
         assert "Thermal Conductivity" in {c["label"] for c in en["concepts"]}
         # the public sky is untouched: a draft is not on it
-        sky = client.get("/api/sky").json()
+        # （鍵つきの GET /api/sky は proposed に下書きを足す — 公開の事実は鍵なしの形で見る）
+        sky = client.get("/api/sky", headers={"X-Asterism-Token": ""}).json()
+        assert "proposed" not in sky
         assert "熱伝導率" not in json.dumps(sky, ensure_ascii=False)
 
 

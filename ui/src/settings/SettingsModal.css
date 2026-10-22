@@ -713,3 +713,10 @@
   margin: 1.25rem 0 0;
   font-size: 0.85rem;
 }
+
+/* 言語の切り替え（最初のタブの上・殻から移した）。 */
+.settings-lang {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-5) 0;
+}

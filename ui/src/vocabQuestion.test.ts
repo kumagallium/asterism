@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { parseHash } from './App'
+import { parseHash } from './legacyRoute'
 import type { Alignment } from './crosswalkApi'
 import i18n from './i18n'
 import type { GroundCandidate } from './groundingApi'
