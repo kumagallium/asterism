@@ -1,6 +1,4 @@
 {
-  "subtitle": "A record of every import: when, what, and how much came in.",
-  "loading": "Loading history…",
   "empty": {
     "title": "No ingest records yet",
     "sub": "Ingest data via \"Add data\" and records will appear here.",
@@ -28,9 +26,6 @@
     "error": "Failed",
     "unknown": "Unknown"
   },
-  "errCount": " ({{n}} failed)",
-  "loadFailed": "Couldn't load the ingest history. Wait a moment, then press \"Reload\".",
-  "reload": "Reload",
   "detailSummary": "Details (technical)",
   "card": {
     "rowsAndFacts": "Read {{ok}} of {{total}} rows — {{facts}} facts recorded",

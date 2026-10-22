@@ -109,12 +109,6 @@
     "createBtn": "Connect this to your other data",
     "createMore": "Connect another"
   },
-  "mapBand": {
-    "title": "Overview",
-    "en": "overview",
-    "sub": "See <1>what data exists and how it connects</1> in a single map.",
-    "open": "Open"
-  },
   "purposes": {
     "label": "Questions this data can answer"
   },
@@ -290,14 +284,12 @@
     "error": "Could not load the design to review"
   },
   "lifecycle": {
-    "head": "Lifecycle actions",
     "retractedStatus": "Status: <1>Unpublished</1> — not used in answers; data and IDs stay so existing citations keep working. You can publish it again any time.",
     "retractConfirm": "Stop publishing this dataset?\nIt drops out of answers, but the data and IDs remain, so links to what has already been cited keep working (you can publish it again later).",
     "retracting": "Unpublishing…",
     "reinstating": "Publishing again…",
     "deleteConfirmPromoted": "Permanently delete this dataset?\nIt is published, so links to what has already been cited may stop opening. \"Unpublish\" is usually the better choice.\n\nDelete anyway?",
     "deleteConfirm": "Delete this dataset? (Not published, so it is safe to delete.)",
-    "deleteDone": "Deleted.",
     "deleting": "Deleting…",
     "delete": "Delete",
     "error": "Action failed"

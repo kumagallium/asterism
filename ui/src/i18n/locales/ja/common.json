@@ -1,8 +1,7 @@
 {
   "docTitle": "asterism — 研究データをつながったデータに",
   "brand": {
-    "name": "asterism",
-    "tag": "研究データを、つながりに"
+    "name": "asterism"
   },
   "langToggle": {
     "label": "言語",
@@ -10,15 +9,8 @@
     "en": "English"
   },
   "nav": {
-    "collapse": "たたむ",
-    "expand": "ひろげる",
-    "cards": "見る",
-    "home": "ホーム",
-    "gallery": "データ",
     "crosswalk": "つながり",
-    "ask": "質問する",
-    "vocab": "知りたいこと",
-    "workbench": "データを置く"
+    "ask": "質問する"
   },
   "status": {
     "mock": "お試し用のサンプルデータを表示中"

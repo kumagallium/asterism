@@ -1,6 +1,4 @@
 {
-  "lead": "The relations you decided, newest first. You can undo any of them.",
-  "filterAria": "Filter decisions",
   "filter": {
     "all": "All",
     "sub": "Kind of",
@@ -11,31 +9,15 @@
     "broken": "Broken",
     "knowledge": "Knowledge"
   },
-  "loading": "Loading decisions…",
-  "loadingPerspectives": "Loading connections…",
   "empty": "Nothing decided yet. You can decide in one line from a star or a term.",
   "emptyFilter": "Nothing matches this filter.",
   "broken": "Broken",
-  "brokenHint": "What this was linked to can no longer be found. You can still undo it.",
   "questions": "Questions {{n}}",
-  "undo": "Undo",
-  "undoAria": "Confirm undo",
-  "undoLead": "If you undo this, {{effect}}",
-  "undoNoCount": "This will be undone. Could not count how many questions would change.",
-  "undoConfirm": "Undo",
-  "undoing": "Undoing…",
   "cancel": "Cancel",
   "sentence": {
     "other": "\"{{subject}}\" and \"{{target}}\" ({{relation}})"
   },
   "about": "Only those involving “{{name}}”",
   "aboutClear": "Show all",
-  "batch": "Confirmed together ({{n}})",
-  "batchBy": {
-    "ai": "A person confirmed an AI draft",
-    "machine": "A person confirmed a name match",
-    "human": "Confirmed by a person"
-  },
-  "batchOpen": "See what is inside",
-  "reasonLabel": "Why"
+  "batch": "Confirmed together ({{n}})"
 }

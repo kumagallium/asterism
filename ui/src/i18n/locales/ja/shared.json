@@ -30,18 +30,7 @@
     "close": "出どころのパネルを閉じる"
   },
   "step": {
-    "curve": "測定曲線",
-    "sample": "試料",
-    "paper": "論文",
-    "digitization": "デジタル化",
-    "ingestion": "取り込み",
-    "activity": "処理"
-  },
-  "activityLabel": {
-    "Activity": "処理",
-    "IngestionActivity": "取り込み",
-    "DigitizationActivity": "デジタル化",
-    "DocumentParsingActivity": "文書の読み取り"
+    "paper": "論文"
   },
   "detailKey": {
     "atTime": "日時",
@@ -54,17 +43,7 @@
     "yMin": "最小値"
   },
   "field": {
-    "propertyY": "測る量",
-    "yMax": "最大値",
-    "yMin": "最小値",
-    "composition": "組成",
-    "paper": "論文",
-    "title": "題名",
-    "name": "名前",
-    "measurements": "測定",
-    "doi": "DOI",
-    "DOI": "DOI",
-    "id": "ID"
+    "paper": "論文"
   },
   "count": {
     "file": "ファイル"

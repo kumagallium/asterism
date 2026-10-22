@@ -1,9 +1,5 @@
 {
-  "lead": "テーマごとに、問いと、答えられるデータの数が並びます。",
-  "newTheme": "？ 新しいテーマを作る",
-  "loading": "読み込み中…",
   "loadError": "テーマの一覧を読み込めませんでした。",
-  "reload": "もう一度読み込む",
   "empty": "まだテーマがありません。「新しいテーマを作る」から、知りたいことを書いてみてください。",
   "aiMark": "AI 下書き",
   "pick": "選んでください",
@@ -63,16 +59,9 @@
     "knowledgeTotal": "知識 {{n}} 件",
     "removed": "テーマ「{{label}}」を外しました。ほかで使っていない概念 {{concepts}} 件と関係 {{relations}} 件も消えました（残したもの {{kept}} 件）。"
   },
-  "unassigned": {
-    "title": "テーマに入っていない問い"
-  },
   "wizard": {
-    "close": "閉じる",
     "saveErr": "下書きを保存できませんでした: {{detail}}",
-    "closeAsk": "閉じます。下書きは？",
-    "keepClose": "残して閉じる",
-    "discardClose": "捨てて閉じる",
-    "keepGoing": "続ける"
+    "closeAsk": "閉じます。下書きは？"
   },
   "write": {
     "themeName": "テーマの名前（任意）",
@@ -156,90 +145,22 @@
   },
   "firstThemeLabel": "はじめの問い",
   "review": {
-    "questionsAria": "問いごとの答え方",
-    "still": "まだ",
-    "counts": "知識 {{k}}・データ {{d}}",
-    "wanted": "欲しいデータ: {{text}}",
-    "sentences": "文 {{n}} 件",
-    "noSentences": "まだ関係がありません。",
-    "dismiss": "外す（次から出しません）",
-    "dismissAria": "「{{sentence}}」を外す",
-    "problem": {
-      "same": "自分自身には結べません（確定しません）",
-      "mixed": "種類と項目は結べません（確定しません）",
-      "cycle": "一周してしまう（循環）ため、確定しません",
-      "quantity_target": "「量」は、項目から量の種類へだけ結べます（確定しません）",
-      "target_not_property": "下げる・上げる・変えるの相手は項目だけです（確定しません）"
-    },
-    "add": "手で足す",
-    "addName": "概念の名前",
     "addNamePlaceholder": "名前（例: 粒界散乱）",
-    "addKind": "種類か項目か",
-    "addGo": "足す",
-    "addEn": "英語名",
-    "addAliases": "別名",
-    "addAliasesPlaceholder": "別名（カンマ区切り）",
-    "confirm": "{{n}} 件を置く",
-    "confirmNone": "問いだけを置く",
-    "unlinkedNote": "問いにつながらない概念 {{n}} 件は含みません。",
-    "thinNote": "提案 {{n}} 件は、「図に入れる」と返事をするまで置く対象に含みません。"
+    "addAliasesPlaceholder": "別名（カンマ区切り）"
   },
   "answer": {
-    "label": "答え方:",
-    "pickWay": "答え方",
-    "pickTarget": "対象",
-    "pickKind": "種類",
-    "pickProperty": "項目",
-    "none": "（指定しない）",
-    "noConcepts": "先に概念を足すと、選べます。",
     "option": {
       "lowers": "〜を下げるもの",
       "raises": "〜を上げるもの",
       "affects": "〜を変えるもの",
-      "parts": "〜の一部",
-      "kinds": "〜の一種",
-      "count": "〜の件数",
-      "range": "〜の〜の範囲",
-      "top": "〜の〜が最大",
-      "filter": "〜のうち〜に値を含むもの",
-      "group": "〜を〜ごとに数える",
-      "trend": "〜の〜と〜の並び",
-      "join": "〜が〜で別の種類へつなぐ",
-      "memo": "まだ決めない（メモ）"
+      "filter": "〜のうち〜に値を含むもの"
     },
     "way": {
-      "lowers": "{{target}} を下げるもの",
-      "raises": "{{target}} を上げるもの",
-      "affects": "{{target}} を変えるもの",
-      "parts": "{{target}} の一部",
-      "kinds": "{{target}} の一種",
-      "count": "{{kind}} の件数",
-      "range": "{{kind}} の {{property}} の範囲",
-      "rangeOnly": "{{property}} の範囲",
-      "top": "{{kind}} の {{property}} が最大",
-      "topOnly": "{{property}} が最大",
-      "filter": "{{kind}} のうち、{{property}} に {{value}} を含むもの",
-      "filterExact": "{{kind}} のうち、{{property}} が {{value}} のもの",
-      "group": "{{kind}} を {{property}} ごとに数える",
-      "trend": "{{kind}} の {{property}} と {{property2}} の並び",
-      "join": "{{kind}} が {{property}} {{kind2}}",
-      "none": "まだ決まっていません"
+      "filter": "{{kind}} のうち、{{property}} に {{value}} を含むもの"
     },
-    "pickValue": "値（問いの文にある語）",
-    "pickMatch": "一致のしかた",
-    "pickPropertyX": "項目（横）",
-    "pickPropertyY": "項目（縦）",
     "pickLink": "つなぐ項目",
-    "pickKind2": "つなぐ先の種類",
-    "match": {
-      "contains": "含む",
-      "exact": "ちょうど同じ"
-    },
     "hint": {
-      "filter": "値の欄には、問いの文にある語を書きます（データの値は見ません）。",
-      "group": "項目の値ごとに、データセットごとの件数を数えます。",
-      "trend": "横の項目の順に、縦の項目の値を並べます。",
-      "join": "種類の項目がつなぐ先の種類まで、1 段だけたどって数えます。"
+      "filter": "値の欄には、問いの文にある語を書きます（データの値は見ません）。"
     }
   },
   "map": {

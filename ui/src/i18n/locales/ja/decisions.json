@@ -1,6 +1,4 @@
 {
-  "lead": "人が決めた関係の一覧です。いつでも取り消せます。",
-  "filterAria": "決めたことの絞り込み",
   "filter": {
     "all": "すべて",
     "sub": "一種",
@@ -11,31 +9,15 @@
     "broken": "切れている",
     "knowledge": "知識"
   },
-  "loading": "決めたことを読み込んでいます…",
-  "loadingPerspectives": "つながりを読み込んでいます…",
   "empty": "まだ決めたことはありません。星や用語から「ひとこと決める」ができます。",
   "emptyFilter": "この絞り込みに当てはまるものはありません。",
   "broken": "切れている",
-  "brokenHint": "結ばれていた先が、今は見つかりません。取り消しはできます。",
   "questions": "問い {{n}}",
-  "undo": "取り消す",
-  "undoAria": "取り消しの確認",
-  "undoLead": "取り消すと、{{effect}}",
-  "undoNoCount": "取り消します。答えられる問いの数は、試算できませんでした。",
-  "undoConfirm": "取り消す",
-  "undoing": "取り消しています…",
   "cancel": "やめる",
   "sentence": {
     "other": "「{{subject}}」と「{{target}}」（{{relation}}）"
   },
   "about": "「{{name}}」に掛かるものだけ",
   "aboutClear": "すべて見る",
-  "batch": "まとめて確定（{{n}} 件）",
-  "batchBy": {
-    "ai": "AI の下書きを人が確定",
-    "machine": "名前の一致を人が確定",
-    "human": "人が確定"
-  },
-  "batchOpen": "中身を見る",
-  "reasonLabel": "理由"
+  "batch": "まとめて確定（{{n}} 件）"
 }

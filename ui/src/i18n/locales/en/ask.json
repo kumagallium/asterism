@@ -3,19 +3,12 @@
   "demoBadge": "demo sample data",
   "inputPlaceholder": "Ask about your published data in plain language",
   "inputPlaceholderLocked": "You can ask once AI is set up",
-  "submitTitle": "You can send once AI is set up (Settings: ⚙, bottom left)",
   "answering": "Answering…",
-  "send": "Send",
   "composerHint": "Enter to send · Shift+Enter for a new line",
   "conversationAria": "Conversation",
   "interrupted": "The page was closed while this answer was pending, so it never arrived.",
   "failed": "Could not get an answer.",
-  "retry": "Retry",
-  "retryBusy": "You can't re-send while an answer is on its way",
   "stop": "Stop",
-  "stopTitle": "Stop waiting for the answer (Retry re-sends it)",
-  "stopped": "Stopped waiting for the answer.",
-  "unanswered": "That didn't work. Rephrasing the question often helps.",
   "empty": {
     "title": "Answers about your published data, with sources",
     "noPublished": {
@@ -28,15 +21,6 @@
       "body": "Once AI is set up on the server, this page just works. To set it up yourself, open Settings.",
       "cta": "Open Settings"
     }
-  },
-  "examples": {
-    "aria": "Example questions",
-    "hint": "Tap to put it in the box (nothing is sent)",
-    "items": [
-      "Which thermoelectric material has the highest ZT?",
-      "Which samples contain SnSe?",
-      "What kinds of data does the new design have?"
-    ]
   },
   "threads": {
     "aria": "Chat history",
@@ -64,14 +48,6 @@
       "older": "Older"
     }
   },
-  "badge": {
-    "verifiedTools": "Answer you can verify",
-    "verifiedToolsTitle": "Lookups used: {{tools}}",
-    "unverifiedSparql": "AI-built query (not verified)",
-    "grounded": "Grounded answer",
-    "plusUnverifiedSparql": "+ AI-built query (not verified)",
-    "noSources": "AI's general knowledge (no data backing)"
-  },
   "headNote": {
     "verified": "A lookup a person checked · comes with sources",
     "unverified": "Not checked by a person · verify the sources before using these numbers",
@@ -87,14 +63,6 @@
     "hint": "the published data this number was read from",
     "via": "read by: {{tools}}",
     "unknown": "Not found (deleted, or published again)"
-  },
-  "sourcePanel": {
-    "ariaLabel": "Source",
-    "sub": "The published data this answer read. Look inside from here.",
-    "howHeading": "How it was read",
-    "howNote": "A fixed, human-vetted way of reading it — the same question always gives the same result.",
-    "open": "Open this dataset",
-    "gone": "This dataset could not be found. It may have been deleted, or published again."
   },
   "notes": {
     "heading": "Data quality notes"
@@ -113,10 +81,6 @@
     "hint": "These are the read-only queries this answer ran (verified tools use a fixed template; the escape is AI-generated).",
     "copy": "Copy SPARQL",
     "copied": "✓ Copied"
-  },
-  "warning": {
-    "untypedNumeric": "This answer compares values that are saved as text, not as numbers — so a maximum, minimum or ranking here can be wrong. Open that dataset, choose “Revise the design”, tell the AI that this column is numeric, and rebuild it.",
-    "untypedNumericTech": "SPARQL compares untyped values as strings (\"9.4\" > \"100.0\"). Variable: {{variable}}. To handle it in the query itself, cast with xsd:double({{variable}})."
   },
   "toVocab": "Add this question to a theme and grow it"
 }
