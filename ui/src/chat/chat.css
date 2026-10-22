@@ -463,3 +463,57 @@
 .chat-note--ai_failed {
   font-weight: 500;
 }
+
+/* ── 📎 表を添える（PR 11c） ── */
+.chat-attach {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  font-size: 1rem;
+}
+.chat-attach-head {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--body);
+}
+.chat-bindings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.chat-binding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+.chat-binding-radios {
+  display: inline-flex;
+  gap: var(--space-3);
+  font-size: 0.8rem;
+}
+.chat-note--shape {
+  opacity: 0.8;
+}
+.chat-note--ingest_stop,
+.chat-note--attach_failed {
+  color: var(--body);
+  font-weight: 500;
+}
+.chat-note--unsupported {
+  color: var(--muted);
+}
+
+.chat-right-scroll[hidden] {
+  display: none;
+}
+.chat-add-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+}

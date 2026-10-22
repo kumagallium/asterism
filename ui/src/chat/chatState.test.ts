@@ -4,10 +4,14 @@ import {
   applyConfirm,
   applyRevert,
   applyTurnResponse,
-  confirmTarget,
+  confirmTargets,
+  awaitingChoice,
+  showMachineMark,
   handFormShown,
   keptName,
   nameTable,
+  runningJobs,
+  bindingDecisions,
   preferReloaded,
   settleAsk,
   nextHandKey,
@@ -25,6 +29,7 @@ const turn = (id: string, state: TurnState, ops = 0, notes: string[] = []): Turn
     sentences: [],
     questions: [],
     bindings: [],
+    suggestions: [],
     notes: notes.map((kind) => ({ kind, text: 'n', choice: null })),
     answer: null,
     table: null,
@@ -34,6 +39,8 @@ const turn = (id: string, state: TurnState, ops = 0, notes: string[] = []): Turn
   before: state === 'proposed' ? {} : null,
   commit: null,
   by: 'human',
+  attachment: null,
+  job_id: null,
 })
 const session = (turns: Turn[], over: Partial<Session> = {}): Session => ({
   id: 'cabc12345x',
@@ -49,9 +56,9 @@ const brief = (over = {}) => ({ id: 'cabc12345x', title: '熱電材料', theme_i
 
 describe('chatState', () => {
   it('✓ の対象は最後の未確認の返事だけ。none や確認済みには出ない', () => {
-    expect(confirmTarget([turn('t1', 'proposed'), turn('t2', 'proposed'), turn('t3', 'none')])).toBe('t2')
-    expect(confirmTarget([turn('t1', 'none'), turn('t2', 'confirmed'), turn('t3', 'reverted')])).toBeNull()
-    expect(confirmTarget([])).toBeNull()
+    expect([...confirmTargets([turn('t1', 'proposed'), turn('t2', 'proposed'), turn('t3', 'none')])]).toEqual(['t2'])
+    expect(confirmTargets([turn('t1', 'none'), turn('t2', 'confirmed'), turn('t3', 'reverted')]).size).toBe(0)
+    expect(confirmTargets([]).size).toBe(0)
   })
   it('件数は未確認の手番の差分の合計', () => {
     expect(proposedCount([turn('t1', 'proposed', 2), turn('t2', 'confirmed', 5), turn('t3', 'proposed', 1)])).toBe(3)
@@ -80,7 +87,7 @@ describe('chatState', () => {
     expect(s.turns[0].commit).toEqual(commit)
     expect(s.theme_id).toBe('th1')
     expect(s.draft_id).toBeNull()
-    expect(confirmTarget(s.turns)).toBeNull()
+    expect(confirmTargets(s.turns).size).toBe(0)
   })
   it('✓ が置けなかった返り（commit_error）は手番を置き換えるだけ', () => {
     const base = session([turn('t1', 'proposed', 1)])
@@ -96,9 +103,9 @@ describe('chatState', () => {
   })
   it('戻したあと ✓ の対象は前の未確認へ移る', () => {
     const base = session([turn('t1', 'proposed'), turn('t2', 'proposed')])
-    expect(confirmTarget(base.turns)).toBe('t2')
+    expect([...confirmTargets(base.turns)]).toEqual(['t2'])
     const s = applyRevert(base, { turn: turn('t2', 'reverted'), session: brief(), draft: null, reverted: ['t2'] })
-    expect(confirmTarget(s.turns)).toBe('t1')
+    expect([...confirmTargets(s.turns)]).toEqual(['t1'])
   })
   it('✓ の返りの removed／kept を手番に保つ', () => {
     const base = session([turn('t1', 'proposed', 1), turn('t2', 'proposed', 1)])
@@ -165,5 +172,71 @@ describe('話の読み直し・チップ・名前', () => {
     expect(keptName('dens', names)).toBe('密度')
     expect(keptName('zzz', names)).toBe('zzz')
     expect(keptName('zzz', undefined)).toBe('zzz')
+  })
+})
+
+describe('📎 表を添える', () => {
+  it('running の手番は ✓ の対象にならず、ジョブの id があれば購読し直す', () => {
+    const running: Turn = { ...turn('t1', 'running'), job_id: 'j1' }
+    const noJob = turn('t2', 'running')
+    expect(confirmTargets([running, noJob]).size).toBe(0)
+    expect(proposedCount([running])).toBe(0)
+    expect(runningJobs([running, noJob, turn('t3', 'proposed')])).toEqual([{ turnId: 't1', jobId: 'j1' }])
+  })
+  it('bindings の decided: 既定に人の選びを重ねる', () => {
+    const b = (column: string, decided: 'bind' | 'skip') => ({ column, label: column, term: column, term_label: column, relation: 'eq', subject: '', decided })
+    const bs = [b('価格', 'bind'), b('産地', 'bind'), b('備考', 'skip')]
+    expect(bindingDecisions(bs, {})).toEqual([
+      { column: '価格', subject: '', decided: 'bind' },
+      { column: '産地', subject: '', decided: 'bind' },
+      { column: '備考', subject: '', decided: 'skip' },
+    ])
+    expect(bindingDecisions(bs, { 1: 'skip', 2: 'bind' }).map((d) => d.decided)).toEqual(['bind', 'skip', 'bind'])
+  })
+  it('✓ の返りの followup（機械の手番）は話の末尾に足される', () => {
+    const t1 = turn('t1', 'proposed')
+    const follow: Turn = { ...turn('t9', 'proposed'), by: 'machine', user: null }
+    const s = applyConfirm(session([t1]), { turn: { ...t1, state: 'confirmed' }, session: brief(), followup: follow })
+    expect(s.turns.map((t) => t.id)).toEqual(['t1', 't9'])
+  })
+})
+
+describe('✓ の区分（話・表・機械）と選び待ち', () => {
+  const table = (id: string): Turn => ({
+    ...turn(id, 'proposed'),
+    attachment: { dataset_id: 'd', name: 'a.csv', rows: 3, kinds: [], id_column: 'id' },
+  })
+  const machine = (id: string): Turn => {
+    const t = turn(id, 'proposed')
+    return { ...t, by: 'machine', user: null, reply: { ...t.reply, suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] } }
+  }
+  const waiting = (id: string): Turn => {
+    const t = turn(id, 'proposed')
+    return {
+      ...t,
+      reply: { ...t.reply, notes: [{ kind: 'choice_id', text: 'n', choice: { label: 'l', options: [{ value: 'a', label: 'A' }], default: 'a' } }] },
+    }
+  }
+  it('話の提案は最後の 1 つ・表と機械の手番はそれぞれに', () => {
+    const ts = [turn('t1', 'proposed', 1), table('t2'), turn('t3', 'proposed', 2), table('t4'), machine('t5')]
+    expect([...confirmTargets(ts)].sort()).toEqual(['t2', 't3', 't4', 't5'])
+  })
+  it('ops の数は話の提案だけ数える', () => {
+    const t2 = { ...table('t2'), reply: { ...table('t2').reply, ops: [{ op: 'x' }, { op: 'y' }] } }
+    expect(proposedCount([turn('t1', 'proposed', 2), t2])).toBe(2)
+  })
+  it('選び待ちには ✓ を出さない・決めたあとは出す', () => {
+    expect(awaitingChoice(waiting('t1'))).toBe(true)
+    expect(confirmTargets([waiting('t1')]).size).toBe(0)
+    const t = waiting('t1')
+    t.reply.notes[0].choice = { ...t.reply.notes[0].choice!, chosen: 'a' }
+    expect(awaitingChoice(t)).toBe(false)
+    expect(confirmTargets([t]).has('t1')).toBe(true)
+  })
+  it('機械の印は名前の一致の手番だけ', () => {
+    expect(showMachineMark(machine('t1'))).toBe(true)
+    expect(showMachineMark({ ...table('t2'), by: 'machine' })).toBe(false)
+    expect(showMachineMark({ ...waiting('t3'), by: 'machine' })).toBe(false)
+    expect(showMachineMark(turn('t4', 'proposed'))).toBe(false)
   })
 })

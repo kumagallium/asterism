@@ -547,7 +547,12 @@ export function drawSky(
   const focus = st.focusId
   const near = st.near
   const dimmed = (id: string): boolean => !!near && !near.has(id)
-  const alphaOf = (id: string): number => (dimmed(id) ? 0.22 : 1)
+  // 未公開（取り込み済み）のデータセットの星・丸は薄く（0.55）。星座の線・名前も同じ
+  const thin = (id: string): number => {
+    const n = layout.nodes.get(id)
+    return n && (n.type === 'kind' || n.type === 'dataset') && n.proposed ? 0.55 : 1
+  }
+  const alphaOf = (id: string): number => (dimmed(id) ? 0.22 : 1) * thin(id)
   const scaleOf = (id: string): number => {
     const t0 = st.born.get(id)
     if (t0 === undefined || st.reducedMotion) return 1
@@ -560,7 +565,7 @@ export function drawSky(
   for (const cl of layout.clusters) {
     ctx.save()
     const inCluster = cl.nodeIds.some((id) => !dimmed(id))
-    ctx.globalAlpha = (near && !inCluster ? 0.25 : 1) * A
+    ctx.globalAlpha = (near && !inCluster ? 0.25 : 1) * (cl.nodeIds.length ? thin(cl.nodeIds[0]) : 1) * A
     ctx.font = `600 11px ${pal.font}`
     ctx.fillStyle = pal.body
     ctx.textBaseline = 'alphabetic'
@@ -575,7 +580,7 @@ export function drawSky(
     const a = node(e.from)
     const c = node(e.to)
     if (!a || !c) continue
-    ctx.globalAlpha = (near && !(near.has(e.from) || near.has(e.to)) ? 0.25 : 1) * A
+    ctx.globalAlpha = (near && !(near.has(e.from) || near.has(e.to)) ? 0.25 : 1) * thin(e.from) * A
     ctx.beginPath()
     ctx.moveTo(a.x, a.y)
     ctx.lineTo(c.x, c.y)

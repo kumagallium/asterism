@@ -807,3 +807,23 @@ describe('layoutSky — 上の帯の知識の段（結果が上・原因が下�
     expect(l.height).toBeGreaterThanOrEqual(620)
   })
 })
+
+describe('layoutSky — 未公開（proposed）のデータセット', () => {
+  it('proposed が星・丸に通り、並びは公開済みの後ろ', () => {
+    const base = makeSky(2, 3)
+    const thin = { id: 'zz-thin', label: '価格表', created_at: '', kinds: [{ iri: 'urn:k', label: '値段の記録', count: 5, links: [], standard: null }], proposed: true }
+    const withThin = { ...base, datasets: [...base.datasets, thin] }
+    const l = layoutSky(withThin, { width: 1000 })
+    const star = [...l.nodes.values()].find((n) => n.type === 'kind' && n.datasetId === 'zz-thin')
+    expect(star && star.type === 'kind' && star.proposed).toBe(true)
+    const plain = [...l.nodes.values()].filter((n) => n.type === 'kind' && n.datasetId !== 'zz-thin')
+    expect(plain.length).toBeGreaterThan(0)
+    expect(plain.every((n) => n.type === 'kind' && !n.proposed)).toBe(true)
+    // 薄い星があっても、公開済みの並びは変わらない
+    const before = layoutSky(base, { width: 1000 })
+    for (const n of before.nodes.values()) if (n.type === 'kind') expect(l.nodes.get(n.id)?.x).toBeCloseTo(n.x, 5)
+    const circles = layoutSky(withThin, { width: 1000, mode: 'circles' })
+    const ds = [...circles.nodes.values()].find((n) => n.type === 'dataset' && n.datasetId === 'zz-thin')
+    expect(ds && ds.type === 'dataset' && ds.proposed).toBe(true)
+  })
+})

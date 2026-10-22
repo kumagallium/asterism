@@ -1041,7 +1041,7 @@ def run_undo_turn(session: dict, text: str, *, root: Any, at: str, lang: str) ->
     """「さっきのを戻して」— AI を呼ばず、最後の未確認の返事を戻す（決定論）。無ければ一言。"""
     lg = _lg(lang)
     text = text.strip()
-    proposed = [t for t in session.get("turns") or [] if t.get("state") == "proposed"]
+    proposed = [t for t in session.get("turns") or [] if _is_theme_proposal(t)]
     if proposed:
         try:
             revert(session, proposed[-1]["id"], root=root, at=at, lang=lang)
@@ -1360,6 +1360,17 @@ def commit_body(draft: dict, lang: str) -> dict:
     return body
 
 
+def _is_theme_proposal(turn: dict) -> bool:
+    """テーマの下書きに属する未確認の返事か。📎 の表の返事・機械の「結べそうな関係」の手番は別の道
+    （``chat_attach``）で ✓／戻すので、テーマの ✓ や「戻して」の数に入れない。"""
+    return (
+        turn.get("state") == "proposed"
+        and not turn.get("attachment")
+        and not turn.get("attach_run")
+        and not (turn.get("reply") or {}).get("suggestions")
+    )
+
+
 def _find(session: dict, turn_id: str) -> dict:
     for t in session.get("turns") or []:
         if t.get("id") == turn_id:
@@ -1382,11 +1393,11 @@ async def confirm(
     ``commit = None`` で返す（会話の中で読める）。書き込みの失敗は例外のまま上へ。"""
     turn = _find(session, turn_id)
     draft = _current_draft(session, root)
-    if turn.get("state") != "proposed" or draft is None:
+    if not _is_theme_proposal(turn) or draft is None:
         raise TurnRefused(
             409, "確認するものがありません" if _lg(lang) == "ja" else "Nothing to confirm."
         )
-    last = [t for t in session["turns"] if t.get("state") == "proposed"][-1]
+    last = [t for t in session["turns"] if _is_theme_proposal(t)][-1]
     if last is not turn:
         raise TurnRefused(
             409,
@@ -1424,7 +1435,7 @@ async def confirm(
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
     for t in session["turns"]:
-        if t.get("state") == "proposed":
+        if _is_theme_proposal(t):
             t["state"] = "confirmed"
             t["before"] = None
             t["commit"] = dict(record)
@@ -1441,7 +1452,7 @@ def revert(
         raise TurnRefused(409, "取り消せるのは未確認の返事だけです")
     turns = session["turns"]
     start = turns.index(turn)
-    undone = [t for t in turns[start:] if t.get("state") == "proposed"]
+    undone = [t for t in turns[start:] if _is_theme_proposal(t)]
     before = turn.get("before")
     # 確認で消えた下書きを、控えから作り直してはいけない
     owner = before.get("id") if before is not None else session.get("draft_id")

@@ -111,6 +111,8 @@ export interface KindNode extends NodeBase {
   count: number
   /** 半径（件数の対数・面積比例）。 */
   r: number
+  /** 未公開のデータセットの星（薄く描く）。 */
+  proposed?: boolean
 }
 export interface DatasetNode extends NodeBase {
   type: 'dataset'
@@ -119,6 +121,7 @@ export interface DatasetNode extends NodeBase {
   kindCount: number
   kindIris: string[]
   r: number
+  proposed?: boolean
 }
 export interface TermNode extends NodeBase {
   type: 'term'
@@ -276,10 +279,14 @@ export function termLabel(t: SkyTerm, lang: 'ja' | 'en' = 'ja'): string {
   return t.label || t.label_en || t.slug
 }
 
-/** 作成の古い順（同時刻は id）。新しいデータセットは常に末尾。 */
+/** 作成の古い順（同時刻は id）。新しいデータセットは常に末尾。未公開（proposed）はさらにその後ろ。 */
 export function orderedDatasets(sky: SkyData): SkyDataset[] {
   return [...sky.datasets].sort((a, b) =>
-    a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    !!a.proposed !== !!b.proposed
+      ? a.proposed
+        ? 1
+        : -1
+      : a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   )
 }
 
@@ -560,6 +567,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
           datasetId: b.d.id,
           count: p.k.count,
           r: starR(p.k.count),
+          ...(b.d.proposed ? { proposed: true } : {}),
         }
         nodes.set(p.id, node)
         rels.push({ id: p.id, x: p.x, relY: p.y })
@@ -591,6 +599,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
         kindCount: b.d.kinds.length,
         kindIris: b.d.kinds.map((k) => k.iri),
         r: circleR(count),
+        ...(b.d.proposed ? { proposed: true } : {}),
       })
       rels.push({ id, x: cx, relY: cyRel })
       for (const k of b.d.kinds) {

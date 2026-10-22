@@ -108,7 +108,8 @@ def _key(item: dict) -> tuple[str, str, str]:
 #: 来歴（会話で受けた線の「誰が・どのまとめで・なぜ」）。公開で ``assert_alignment`` に渡す。
 #: 人が表で直に受けた線には付かない（``assert_alignment`` の既定 = ``human``）。
 _PROVENANCE = ("drafted_by", "batch", "reason")
-_UPPER_DRAFTED_BY = ("ai", "human")
+#: ``machine`` = 📎 の表の ✓ で、列の意味と共有の用語の名前の完全一致を機械が計算した線（PR 11c）
+_UPPER_DRAFTED_BY = ("ai", "human", "machine")
 
 
 def _clean_provenance(item: dict) -> dict[str, str]:

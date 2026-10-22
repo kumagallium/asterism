@@ -18,12 +18,14 @@
   "compose": {
     "placeholder": "Write what you want to know (e.g. Which elements lower thermal conductivity?)",
     "send": "Send",
-    "noKey": "Enter the server key in Settings › Server to chat"
+    "noKey": "Enter the server key in Settings › Server to chat",
+    "attach": "Attach a table"
   },
   "reply": {
     "byMachine": "Machine",
     "thinking": "Thinking",
     "more": "{{n}} more",
+    "publish": "✓ Publish",
     "confirm": "✓ Confirm",
     "count": "{{n}}",
     "confirmed": "✓ Confirmed ({{at}})",
@@ -58,7 +60,7 @@
     "decide": "Decide"
   },
   "empty": {
-    "first": "Write what you want to know and the chart grows here"
+    "first": "Write what you want to know, or attach a table, and the chart grows here"
   },
   "error": {
     "badShape": "The server's reply was not in the expected shape",
@@ -71,7 +73,26 @@
       "turn": "Sending",
       "confirm": "Confirming",
       "revert": "Undoing",
-      "sky": "Loading the chart"
+      "sky": "Loading the chart",
+      "attach": "attaching a table"
     }
+  },
+  "attach": {
+    "interrupted": "Reading stopped partway",
+    "attachFailed": "Could not read the table",
+    "aiFailed": "The AI could not answer",
+    "reading": "Reading…",
+    "readingWith": "Reading… ({{message}})",
+    "failed": "Could not read the table",
+    "unsupported": "Documents cannot be attached yet (attach a table)",
+    "bind": "Link",
+    "skip": "Do not link",
+    "decide": "Decide",
+    "chosen": "Decided: {{label}}",
+    "area": "Add data",
+    "close": "Close",
+    "rows": "{{n}} rows",
+    "bindLine": "Column \"{{column}}\" is the same as \"{{term}}\"",
+    "suggestionLine": "\"{{subject}}\" is the same as \"{{term}}\""
   }
 }

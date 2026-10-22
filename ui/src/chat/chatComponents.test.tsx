@@ -4,6 +4,8 @@ import '../i18n'
 import { ThemesApiError } from '../themes/themesApi'
 import type { Reply, SessionSummary, Turn } from './chatApi'
 import { ChatPane } from './ChatPane'
+import { AddPanel } from './AddPanel'
+import { Composer } from './Composer'
 import { HandForm } from './HandForm'
 import { ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
 import { SessionList } from './SessionList'
@@ -15,6 +17,7 @@ const reply = (over: Partial<Reply> = {}): Reply => ({
   sentences: [],
   questions: [],
   bindings: [],
+  suggestions: [],
   notes: [],
   answer: null,
   table: null,
@@ -30,6 +33,8 @@ const turn = (over: Partial<Turn> = {}): Turn => ({
   before: null,
   commit: null,
   by: 'human',
+  attachment: null,
+  job_id: null,
   ...over,
 })
 const card = (t: Turn, canConfirm = true, count = 2) =>
@@ -111,6 +116,87 @@ describe('ReplyCard', () => {
   })
   it('文言に「そう」「線」「ことば」「下書き」「置く」は無い', () => {
     expect(text(card(turn()))).not.toMatch(/そう|線|ことば|下書き|置く|pending/)
+  })
+})
+
+describe('📎 表を添える', () => {
+  const binding = (column: string, decided: 'bind' | 'skip' = 'bind') => ({ column, label: column, term: column, term_label: column, relation: 'eq', subject: '', decided })
+  it('入力欄に 📎（隠し input・表の拡張子だけ）がある', () => {
+    const html = renderToStaticMarkup(<Composer onSend={async () => true} onAttach={noop} busy={false} noKey={false} onOpenSettings={noop} />)
+    expect(html).toContain('data-testid="chat-attach"')
+    expect(html).toMatch(/type="file"[^>]*multiple|multiple[^>]*type="file"/)
+    expect(html).toContain('accept=".csv,.tsv,.xlsx,.xls,.json"')
+    expect(text(html)).toContain('📎')
+  })
+  it('running の手番は「読んでいます…（段の 1 行）」で、✓ も戻すも出さない', () => {
+    const html = renderToStaticMarkup(
+      <ReplyCard turn={turn({ state: 'running', job_id: 'j1' })} canConfirm count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} progress="列の意味を調べています" />,
+    )
+    expect(html).toContain('consult-bubble--pending')
+    expect(html).toContain('consult-spinner')
+    expect(text(html)).toContain('読んでいます…（列の意味を調べています）')
+    expect(html).not.toContain('reply-confirm')
+    expect(html).not.toContain('reply-revert')
+  })
+  it('bindings は 1 行ずつ「結ぶ／結ばない」のラジオ・既定は decided', () => {
+    const html = card(turn({ attachment: { dataset_id: 'd', name: '価格表.csv', rows: 12, kinds: [], id_column: 'id' }, reply: reply({ bindings: [binding('価格'), binding('備考', 'skip')] }) }))
+    expect(html.match(/<li class="chat-binding"/g)).toHaveLength(2)
+    expect(text(html)).toContain('列「価格」は「価格」と同じもの')
+    expect(text(html)).toContain('結ぶ')
+    expect(text(html)).toContain('結ばない')
+    expect(html).toContain('name="bind-t1-0"')
+    expect(text(html)).toContain('📎 価格表.csv・12 行')
+    const radios = [...html.matchAll(/<input[^>]*name="bind-t1-(0|1)"[^>]*>/g)].map((m) => m[0])
+    expect(radios.filter((r) => r.includes('checked'))).toHaveLength(2)
+  })
+  it('choice はラジオ 1 組＋「決める」・決めたあとは印だけ', () => {
+    const choice = { label: 'ID にする列', options: [{ value: 'id', label: '番号' }, { value: 'code', label: '記号' }], default: 'id' }
+    const html = card(turn({ reply: reply({ notes: [{ kind: 'choice_id', text: 'ID の候補が 2 つあります', choice }] }) }))
+    // onChoose を渡さない描画では「決める」は出ない（渡した描画で確かめる）
+    const withBtn = renderToStaticMarkup(
+      <ReplyCard turn={turn({ reply: reply({ notes: [{ kind: 'choice_id', text: 'x', choice }] }) })} canConfirm count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} onChoose={noop} />,
+    )
+    expect(html).not.toContain('choice-decide')
+    expect(withBtn).toContain('data-testid="choice-decide"')
+    expect(text(withBtn)).toContain('決める')
+    expect(withBtn.match(/type="radio"/g)).toHaveLength(2)
+    const done = renderToStaticMarkup(
+      <ReplyCard turn={turn({ reply: reply({ notes: [{ kind: 'choice_id', text: 'x', choice: { ...choice, chosen: 'code' } }] }) })} canConfirm count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} onChoose={noop} />,
+    )
+    expect(done).not.toContain('choice-decide')
+    expect(text(done)).toContain('決めた: 記号')
+  })
+  it('📎 の手番に「機械」は出ない・名前の一致には出る', () => {
+    const at = { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' }
+    expect(text(card(turn({ by: 'machine', attachment: at })))).not.toContain('機械')
+    expect(text(card(turn({ by: 'machine', user: null, reply: reply({ suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] }) })))).toContain('機械')
+  })
+  it('選び待ちに ✓ は無く、表の手番の ✓ は「公開」', () => {
+    const choice = { label: 'L', options: [{ value: 'a', label: 'A' }], default: 'a' }
+    const wait = card(turn({ reply: reply({ notes: [{ kind: 'choice_id', text: 'x', choice }] }) }), false)
+    expect(wait).not.toContain('reply-confirm')
+    const pub = card(turn({ attachment: { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' } }))
+    expect(text(pub)).toContain('✓ 公開')
+    expect(text(pub)).not.toContain('件')
+  })
+  it('機械の手番は suggestions を 1 行ずつ・新しい kind も描ける', () => {
+    const html = card(turn({ by: 'machine', user: null, reply: reply({ text: '', suggestions: [{ subject: '価格', term: '値段', relation: 'eq' }] }) }))
+    expect(text(html)).toContain('「価格」は「値段」と同じもの')
+    const kinds = ['shape', 'ingest_stop', 'attach_failed', 'unsupported']
+    const notes = card(turn({ reply: reply({ notes: kinds.map((kind) => ({ kind, text: `注記-${kind}`, choice: null })) }) }))
+    for (const k of kinds) expect(notes).toContain(`chat-note chat-note--${k}`)
+    expect(text(notes)).not.toMatch(/そう|線|ことば|下書き|置く|pending/)
+  })
+})
+
+describe('AddPanel（AI 未設定のとき右に出すかんたん）', () => {
+  it('上に「データを添える」と「閉じる」・sky-add-area の見た目', () => {
+    const html = renderToStaticMarkup(<AddPanel onClose={noop} />)
+    expect(html).toContain('class="sky-add-area chat-add-area"')
+    expect(html).toContain('data-testid="add-area"')
+    expect(html).toContain('data-testid="add-close"')
+    expect(text(html)).toContain('データを添える')
+    expect(text(html)).toContain('閉じる')
   })
 })
 

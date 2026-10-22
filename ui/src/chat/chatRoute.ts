@@ -2,14 +2,16 @@
 //   #/              新しい話（まだ保存していない）
 //   #/t/<id>        保存した話
 //   #/settings      設定（モーダルを開く）
+// 新しい話・話には `?add=1` が付くことがある（AI 未設定のとき 📎 で右の領域にかんたんを出す）。
 // 旧い hash（#/home・#/questions …）は全部 #/ に読み替える。
 
-export type ChatRoute = { kind: 'new' } | { kind: 'session'; id: string } | { kind: 'settings' }
+export type ChatRoute = { kind: 'new'; add?: boolean } | { kind: 'session'; id: string; add?: boolean } | { kind: 'settings' }
 
 /** サーバが振る話の id（`c` + base36 の 8〜12 文字）。 */
 export const SESSION_ID_RE = /^c[a-z0-9]{8,12}$/
 
 export function parseChatHash(hash: string): ChatRoute {
+  const add = /[?&]add=1(?:&|$)/.test(hash.split('?')[1] ? `?${hash.split('?')[1]}` : '')
   const parts = hash
     .replace(/^#\/?/, '')
     .split('?')[0]
@@ -23,15 +25,15 @@ export function parseChatHash(hash: string): ChatRoute {
     } catch {
       return { kind: 'new' }
     }
-    if (SESSION_ID_RE.test(id)) return { kind: 'session', id }
+    if (SESSION_ID_RE.test(id)) return add ? { kind: 'session', id, add } : { kind: 'session', id }
   }
-  return { kind: 'new' }
+  return add && parts.length === 0 ? { kind: 'new', add } : { kind: 'new' }
 }
 
 export function chatHash(route: ChatRoute): string {
-  if (route.kind === 'session') return `#/t/${encodeURIComponent(route.id)}`
+  if (route.kind === 'session') return `#/t/${encodeURIComponent(route.id)}${route.add ? '?add=1' : ''}`
   if (route.kind === 'settings') return '#/settings'
-  return '#/'
+  return route.add ? '#/?add=1' : '#/'
 }
 
 const LEGACY_RE =

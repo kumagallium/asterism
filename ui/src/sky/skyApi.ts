@@ -18,6 +18,8 @@ export interface SkyDataset {
   label: string
   created_at: string
   kinds: SkyKind[]
+  /** 取り込み済みで未公開（薄く描く）。 */
+  proposed?: boolean
 }
 
 export type SkyRelation = 'subClassOf' | 'equivalentClass' | 'subPropertyOf' | 'equivalentProperty'

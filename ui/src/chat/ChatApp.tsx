@@ -4,6 +4,7 @@
 // 話の状態（手番・題・テーマ・未確認の下書き）はサーバが持つ。ここは取得・状態・DOM だけで、変換は chatState.ts の純関数。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { subscribeJob, type JobHandle } from '../api'
 import { useLlmSettings } from '../settings/context'
 import { ThemesApiError } from '../themes/themesApi'
 import {
@@ -11,10 +12,13 @@ import {
   createSession,
   deleteSession,
   getSession,
+  isAiUnset,
   isKeyMissing,
   listSessions,
+  postAttach,
   postTurn,
   revertTurn,
+  type BindingDecision,
   type GraphOp,
   type SetAnswerBody,
   type Session,
@@ -23,7 +27,8 @@ import {
   type TurnInput,
 } from './chatApi'
 import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
-import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded } from './chatState'
+import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
+import { AddPanel } from './AddPanel'
 import { ChartPane } from './ChartPane'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
@@ -44,7 +49,7 @@ export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
   const lang: 'ja' | 'en' = i18n.language.startsWith('en') ? 'en' : 'ja'
-  const { openSettings, settingsOpen, getActiveCredentials } = useLlmSettings()
+  const { openSettings, settingsOpen, getActiveCredentials, isReady } = useLlmSettings()
   const layout = useChatLayout()
 
   // ── ルート ──
@@ -144,6 +149,13 @@ export function ChatApp() {
   const [bornTick, setBornTick] = useState(0)
   const [busy, setBusy] = useState<Busy>(null)
   const [pendingUser, setPendingUser] = useState<string | null>(null)
+  const [pendingReading, setPendingReading] = useState(false)
+  // 読んでいる手番（表を添えた）の進み: 手番の id → 1 行
+  const [progress, setProgress] = useState<Record<string, string>>({})
+  const watching = useRef(new Map<string, JobHandle>())
+  // 購読を終えた手番（id → ジョブの id）。読み直しても running のままなら再購読しない
+  const finished = useRef(new Map<string, string>())
+  const [interrupted, setInterrupted] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
   const [tab, setTab] = useState<'chat' | 'chart'>('chat')
@@ -157,6 +169,58 @@ export function ChatApp() {
   const reread = useCallback(async (id: string, applied: (cur: Session) => Session) => {
     const fresh = await getSession(id).catch(() => null)
     setLoaded((cur) => (cur && cur.id === id ? { id, session: preferReloaded(applied(cur.session), fresh) } : cur))
+    return fresh
+  }, [])
+
+  /** 読んでいる手番のジョブを購読する。進みの 1 行を更新し、終わったら（失敗も）話を読み直す。 */
+  const watch = useCallback(
+    (sessionId: string, turnId: string, jobId: string) => {
+      if (watching.current.has(turnId) || finished.current.get(turnId) === jobId) return
+      setInterrupted((cur) => {
+        if (!cur[turnId]) return cur
+        const rest = { ...cur }
+        delete rest[turnId]
+        return rest
+      })
+      const finish = () => {
+        watching.current.delete(turnId)
+        finished.current.set(turnId, jobId)
+        setProgress((cur) => {
+          const rest = { ...cur }
+          delete rest[turnId]
+          return rest
+        })
+        void reread(sessionId, (cur) => cur).then((fresh) => {
+          // 読み直してもまだ読んでいる印なら、ジョブは止まっている（サーバが次の読み直しで落とす）
+          if (fresh?.turns.some((x) => x.id === turnId && x.state === 'running')) setInterrupted((cur) => ({ ...cur, [turnId]: true }))
+          afterChange()
+        })
+      }
+      watching.current.set(
+        turnId,
+        subscribeJob(jobId, {
+          onRunning: (d) => {
+            if (typeof d.message === 'string' && d.message) setProgress((cur) => ({ ...cur, [turnId]: d.message as string }))
+          },
+          onDone: finish,
+          onError: finish,
+          onCancelled: finish,
+        }),
+      )
+    },
+    [reread, afterChange],
+  )
+  // 話を開き直したとき、読んでいる手番があればジョブを購読し直す。閉じるとき（画面を離れる）は全部閉じる
+  useEffect(() => {
+    if (!session) return
+    for (const j of runningJobs(session.turns)) watch(session.id, j.turnId, j.jobId)
+  }, [session, watch])
+  useEffect(() => {
+    const open = watching.current
+    return () => {
+      for (const h of open.values()) h.close()
+      open.clear()
+    }
   }, [])
 
   /** 手番を送る。最初の送信では話を作り、hash を `#/t/<id>` に置き換えてから手番を送る。 */
@@ -208,14 +272,110 @@ export function ChatApp() {
   const onSendOps = useCallback((ops: GraphOp[]) => runTurn({ ops }), [runTurn])
   const onSendAnswer = useCallback((set_answer: SetAnswerBody) => runTurn({ set_answer }), [runTurn])
 
+  // ── AI 未設定: 右の領域に「データを添える」（かんたん）を出す ──
+  const addOpen = view.kind !== 'settings' && !!view.add
+  const openAdd = useCallback(() => {
+    navigate(view.kind === 'session' ? { kind: 'session', id: view.id, add: true } : { kind: 'new', add: true })
+    setTab('chart')
+  }, [view, navigate])
+  const closeAdd = useCallback(() => {
+    navigate(view.kind === 'session' ? { kind: 'session', id: view.id } : { kind: 'new' }, { replace: true })
+  }, [view, navigate])
+  // 閉じたら図を取り直す（かんたんの完了で `#/home?new=` → `#/` に転送された場合も含む）
+  const prevAdd = useRef(addOpen)
+  useEffect(() => {
+    if (prevAdd.current && !addOpen) afterChange()
+    prevAdd.current = addOpen
+  }, [addOpen, afterChange])
+
+  /** 表を添える。選んだらすぐ送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら右にかんたんを出す。 */
+  const onAttach = useCallback(
+    async (files: File[]): Promise<boolean> => {
+      if (busy) return false
+      if (view.kind === 'session' && !session) return false // 話を読み込み中
+      if (!isReady) {
+        openAdd()
+        return false
+      }
+      setBusy('send')
+      setError(null)
+      setPendingUser(files.map((f) => `📎 ${f.name}`).join('\n'))
+      setPendingReading(true)
+      try {
+        let s = session
+        let created = false
+        if (!s) {
+          s = await createSession('')
+          created = true
+          setLoaded({ id: s.id, session: s })
+          navigate({ kind: 'session', id: s.id }, { replace: true })
+        }
+        const id = s.id
+        let res: Awaited<ReturnType<typeof postAttach>>
+        try {
+          res = await postAttach(id, files, lang, getActiveCredentials())
+        } catch (e) {
+          // 例外のときだけ空の話を消す（201 で job_id が無いのは成功）
+          if (created) {
+            await deleteSession(id).catch(() => undefined)
+            setLoaded(null)
+            reloadSessions()
+          }
+          if (isAiUnset(e)) {
+            // 作った話は消したので、新しい話のまま右に出す
+            if (created) navigate({ kind: 'new', add: true }, { replace: true })
+            else openAdd()
+            setTab('chart')
+            return false
+          }
+          if (created) navigate({ kind: 'new' }, { replace: true })
+          throw e
+        }
+        await reread(id, (cur) => applyTurnResponse(cur, { turn: res.turn, session: res.session, draft: null }))
+        if (res.job_id) watch(id, res.turn.id, res.job_id)
+        afterChange()
+        return true
+      } catch (e) {
+        setError(messageOf(e))
+        return false
+      } finally {
+        setPendingUser(null)
+        setPendingReading(false)
+        setBusy(null)
+      }
+    },
+    [busy, view.kind, session, isReady, lang, getActiveCredentials, navigate, openAdd, reread, watch, afterChange, reloadSessions],
+  )
+
+  /** 返事の中の小さな選択を決める。続きがジョブで走る（読んでいます）。 */
+  const onChoose = useCallback(
+    async (turnId: string, noteIndex: number, value: string) => {
+      if (!session || busy) return
+      const id = session.id
+      setBusy('send')
+      setError(null)
+      try {
+        const res = await postTurn(id, { choice: { turn_id: turnId, note_index: noteIndex, value }, lang }, getActiveCredentials())
+        await reread(id, (cur) => applyTurnResponse(cur, res))
+        if (res.job_id) watch(id, res.turn.id, res.job_id)
+        afterChange()
+      } catch (e) {
+        setError(messageOf(e))
+      } finally {
+        setBusy(null)
+      }
+    },
+    [session, busy, lang, getActiveCredentials, reread, watch, afterChange],
+  )
+
   const onConfirm = useCallback(
-    async (turnId: string) => {
+    async (turnId: string, decisions?: BindingDecision[]) => {
       if (!session || busy) return
       const id = session.id
       setBusy('confirm')
       setError(null)
       try {
-        const res = await confirmTurn(id, turnId, lang)
+        const res = await confirmTurn(id, turnId, lang, decisions, getActiveCredentials())
         await reread(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
         setBornTick((n) => n + 1)
@@ -226,7 +386,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [session, busy, lang, reread, afterChange],
+    [session, busy, lang, getActiveCredentials, reread, afterChange],
   )
 
   const onRevert = useCallback(
@@ -325,17 +485,23 @@ export function ChatApp() {
           busy={busy !== null}
           sending={busy === 'send' && pendingUser !== null}
           pendingUser={pendingUser}
+          pendingReading={pendingReading}
+          progress={progress}
+          interrupted={interrupted}
+          onAttach={onAttach}
+          onChoose={(turnId, i, v) => void onChoose(turnId, i, v)}
           error={error}
           noKey={noKey}
           names={names}
           onSend={onSend}
-          onConfirm={(id) => void onConfirm(id)}
+          onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}
         />
       </section>
       <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
-        <div className="chat-right-scroll">
+        {addOpen && <AddPanel onClose={closeAdd} />}
+        <div className="chat-right-scroll" hidden={addOpen}>
           <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} onTerms={setSkyTerms} />
         </div>
         {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
