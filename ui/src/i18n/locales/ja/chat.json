@@ -23,7 +23,7 @@
     "hint": "Enter で送る・Shift+Enter で改行"
   },
   "reply": {
-    "byMachine": "機械",
+    "byMachine": "自動（名前の一致）",
     "thinking": "考えています",
     "more": "ほか {{n}} 件",
     "publish": "公開",
@@ -51,10 +51,10 @@
     "back": "戻る",
     "failed": "図を読み込めませんでした",
     "retry": "もう一度",
-    "legendCard": "札＝概念",
-    "legendStar": "星＝データ",
-    "legendThin": "薄い＝提案",
-    "noName": "まだ名前のないデータ"
+    "legendCard": "札＝用語",
+    "legendStar": "丸＝データの種類",
+    "legendThin": "薄い＝提案（未確認）",
+    "noName": "用語に結ばれていないデータ"
   },
   "hand": {
     "lead": "AI なしで足す",
@@ -115,7 +115,7 @@
     "titleDraft": "提案",
     "termClass": "種類",
     "termProperty": "項目",
-    "contents": "中身",
+    "contents": "中身を見る",
     "showText": "{{name}}を見せて",
     "revert": "戻す",
     "revertAsk": "この確認を取り消します",

@@ -23,7 +23,7 @@
     "hint": "Enter to send · Shift+Enter for a new line"
   },
   "reply": {
-    "byMachine": "Machine",
+    "byMachine": "automatic (name match)",
     "thinking": "Thinking",
     "more": "{{n}} more",
     "publish": "Publish",
@@ -51,10 +51,10 @@
     "back": "Back",
     "failed": "Could not load the chart",
     "retry": "Retry",
-    "legendCard": "Card = concept",
-    "legendStar": "Star = data",
-    "legendThin": "Faint = proposal",
-    "noName": "Data with no name yet"
+    "legendCard": "Card = term",
+    "legendStar": "Dot = kind of data",
+    "legendThin": "Faint = proposed (not confirmed)",
+    "noName": "Data not tied to any term"
   },
   "hand": {
     "lead": "Add without AI",
@@ -115,7 +115,7 @@
     "titleDraft": "Proposal",
     "termClass": "kind",
     "termProperty": "field",
-    "contents": "Contents",
+    "contents": "Show rows",
     "showText": "Show {{name}}",
     "revert": "Undo",
     "revertAsk": "This confirmation will be undone",

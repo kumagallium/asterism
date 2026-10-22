@@ -173,8 +173,8 @@ describe('表を添える（クリップ）', () => {
   })
   it('📎 の手番に「機械」は出ない・名前の一致には出る', () => {
     const at = { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' }
-    expect(text(card(turn({ by: 'machine', attachment: at })))).not.toContain('機械')
-    expect(text(card(turn({ by: 'machine', user: null, reply: reply({ suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] }) })))).toContain('機械')
+    expect(text(card(turn({ by: 'machine', attachment: at })))).not.toContain('自動（名前の一致）')
+    expect(text(card(turn({ by: 'machine', user: null, reply: reply({ suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] }) })))).toContain('自動（名前の一致）')
   })
   it('選び待ちに ✓ は無く、表の手番の ✓ は「公開」', () => {
     const choice = { label: 'L', options: [{ value: 'a', label: 'A' }], default: 'a' }
@@ -268,10 +268,10 @@ describe('HandForm', () => {
   })
   it('機械の手番には印・state none には ✓ も戻すも出ない', () => {
     const m = card(turn({ by: 'machine', state: 'none' }))
-    expect(text(m)).toContain('機械')
+    expect(text(m)).toContain('自動（名前の一致）')
     expect(m).not.toContain('reply-confirm')
     expect(m).not.toContain('reply-revert')
-    expect(text(card(turn({ by: 'ai' })))).not.toContain('機械')
+    expect(text(card(turn({ by: 'ai' })))).not.toContain('自動（名前の一致）')
   })
   it('機械の手番の text と同じ注記は二重に出さない（違う注記は残す）', () => {
     const same = card(turn({ by: 'machine', state: 'none', reply: reply({ text: '同じ文です', notes: [{ kind: 'info', text: '同じ文です', choice: null }] }) }))

@@ -743,7 +743,7 @@ def test_first_turn_with_an_ai_proposes_the_whole_map(tmp_path: Path) -> None:
         assert len(reply["sentences"]) == 12
         assert reply["questions"] == ["組成ごとの熱伝導率の最小値は？"]
         assert reply["notes"] == []
-        assert "概念 6" in reply["text"] and "関係 5" in reply["text"]
+        assert "用語 6" in reply["text"] and "関係 5" in reply["text"]
         assert "熱伝導率 を下げるもの" in reply["text"]  # 答え方の実行文
         assert "試料ごとの 粒径・熱伝導率 の表" in reply["text"]  # 欲しいデータ
         assert session["title"] == "熱電材料" and session["draft_id"] == draft["draft_id"]
@@ -959,7 +959,7 @@ def test_after_confirm_an_edit_is_a_diff_on_a_seeded_draft_and_confirm_removes(
         assert turn["before"] is None  # この手番で種つきの下書きを作った
         assert turn["reply"]["sentences"] == ["「粒界散乱」を外す"]
         assert [o["op"] for o in turn["reply"]["ops"]] == ["remove"]
-        assert "図に 概念" not in turn["reply"]["text"]
+        assert "図に 用語" not in turn["reply"]["text"]
         did = out["session"]["draft_id"]
         draft = themes.load_draft(root, did)
         assert draft["extend"] == out["session"]["theme_id"]
@@ -1054,7 +1054,7 @@ def test_a_question_after_confirm_grows_the_seeded_draft(tmp_path: Path) -> None
         assert [o["op"] for o in turn["reply"]["ops"]] == [
             "add_concept", "add_relation", "add_question"
         ]  # fmt: skip
-        assert "概念 1" in turn["reply"]["text"] and "関係 1" in turn["reply"]["text"]
+        assert "用語 1" in turn["reply"]["text"] and "関係 1" in turn["reply"]["text"]
         (card,) = client.get("/api/sky").json()["proposed"]
         assert card["removals"] == {"terms": [], "lines": []}
 
