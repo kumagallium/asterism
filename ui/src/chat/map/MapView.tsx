@@ -131,7 +131,9 @@ export function MapView({
     // reducer の呼び出しごとに作り直さず、refresh の前に 1 回だけ作る
     const computeEmphasis = (): { strong: Set<string>; active: string | null } | null => {
       const p = propsRef.current
-      const active = hovRef.current ?? p.selectedId
+      // 地図に無い点（形が変わって消えた提案の札など）を選んだままなら、強調は無しとして扱う
+      const want = hovRef.current ?? p.selectedId
+      const active = want && graph.hasNode(want) ? want : null
       const hl = p.highlightIds && p.highlightIds.size > 0 ? p.highlightIds : null
       if (!active && !hl) return null
       const strong = mapNeighborhood(graph, active)
@@ -144,7 +146,6 @@ export function MapView({
       em = computeEmphasis()
       sigma.refresh()
     }
-    refreshRef.current = refresh
     let sigma: Sigma
     try {
       sigma = new Sigma(graph, host, {
@@ -204,9 +205,12 @@ export function MapView({
         },
       })
     } catch {
-      // WebGL が使えない環境では静かに空にする
+      // WebGL が使えない環境（作れない GPU・ブロックリスト）では静かに空にする。refresh の先は無い
+      refreshRef.current = null
+      laidRef.current = null
       return
     }
+    refreshRef.current = refresh
     bindMapEvents(
       sigma,
       graph,
