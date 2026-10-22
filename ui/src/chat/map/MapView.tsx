@@ -139,8 +139,9 @@ export function MapView({
           const thin = a.role === 'entity' ? pal.entityThin : a.role === 'dataset' ? withAlpha(pal.dataset, 0.55) : pal.activityThin
           let color = a.proposed ? thin : base
           if (isRemove) color = pal.accent
+          // この話の点は前に出す（名前は重なりの規則に任せる。必ず出すのは選んだ点と hover の近傍だけ。
+          // この話の名前は下の「この話の周り」で全部読める）
           const out: Record<string, unknown> = { ...data, type: 'circle', color, zIndex: isFocus ? 2 : 0 }
-          if (isFocus) out.forceLabel = true
           if (em) {
             const isStrong = em.strong.has(id)
             const isActive = id === em.active || (p.highlightIds?.has(id) ?? false)
