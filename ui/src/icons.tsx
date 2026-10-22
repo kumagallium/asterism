@@ -323,3 +323,21 @@ export function BrandMark({ className, size = 26 }: IconProps) {
     </svg>
   )
 }
+
+/** Paperclip — attach a table to the chat. */
+export function PaperclipIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M21 11.5l-8.6 8.6a5.25 5.25 0 0 1-7.4-7.4l9.2-9.2a3.5 3.5 0 0 1 5 5l-9.2 9.2a1.75 1.75 0 0 1-2.5-2.5L15.9 7.1" />
+    </Icon>
+  )
+}
+
+/** Three lines — open the list of chats. */
+export function MenuIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </Icon>
+  )
+}

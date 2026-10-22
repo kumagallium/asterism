@@ -4,6 +4,7 @@
 // 話の状態（手番・題・テーマ・未確認の下書き）はサーバが持つ。ここは取得・状態・DOM だけで、変換は chatState.ts の純関数。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { GearIcon, MenuIcon } from '../icons'
 import { subscribeJob, type JobHandle } from '../api'
 import { useLlmSettings } from '../settings/context'
 import { ThemesApiError } from '../themes/themesApi'
@@ -334,7 +335,7 @@ export function ChatApp() {
       }
       setBusy('send')
       setError(null)
-      setPendingUser(files.map((f) => `📎 ${f.name}`).join('\n'))
+      setPendingUser(files.map((f) => f.name).join('\n'))
       setPendingReading(true)
       try {
         let s = session
@@ -532,7 +533,7 @@ export function ChatApp() {
       {layout.tabs && (
         <div className="chat-tabbar">
           <button type="button" className="chat-icon-btn" data-testid="list-toggle" onClick={layout.toggleList} aria-label={t('list.toggle')} title={t('list.toggle')} aria-expanded={layout.sheetOpen}>
-            ≡
+            <MenuIcon size={20} />
           </button>
           <div className="chat-tabs" role="tablist" aria-label={t('tabs.label')}>
             <button type="button" role="tab" data-testid="tab-chat" aria-selected={tab === 'chat'} className={`chat-tab${tab === 'chat' ? ' active' : ''}`} onClick={() => setTab('chat')}>
@@ -543,7 +544,7 @@ export function ChatApp() {
             </button>
           </div>
           <button type="button" className="chat-icon-btn" onClick={() => openSettings()} aria-label={ts('open')} title={ts('open')}>
-            ⚙
+            <GearIcon size={18} />
           </button>
         </div>
       )}

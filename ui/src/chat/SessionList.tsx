@@ -2,7 +2,7 @@
 // たたむと ≡ と ⚙ だけ。鍵が無い（401/503）ときは一覧の代わりに 1 行。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BrandMark, GearIcon } from '../icons'
+import { BrandMark, GearIcon, MenuIcon } from '../icons'
 import { MoreMenu } from '../MoreMenu'
 import type { ThemesApiError } from '../themes/themesApi'
 import { deleteSession, isKeyMissing, renameSession, type SessionSummary } from './chatApi'
@@ -38,7 +38,7 @@ export function SessionList(p: SessionListProps) {
 
   const toggle = p.showToggle && (
     <button type="button" className="chat-icon-btn" data-testid="list-toggle" onClick={p.onToggle} aria-label={t('list.toggle')} title={t('list.toggle')} aria-expanded={!p.folded}>
-      ≡
+      <MenuIcon size={20} />
     </button>
   )
   const gear = (
