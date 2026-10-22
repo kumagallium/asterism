@@ -27,6 +27,8 @@ from typing import Any
 
 from asterism import substrate
 from asterism.class_schema import class_schema
+from asterism.mapping_ir_read import BUILTIN_PREFIXES, read_mapping_ir
+from asterism.mapping_ir_read import expand as mi_expand
 from asterism.subjects import resolve_dataset_label
 
 from asterism_api import chat_tables, registry
@@ -147,6 +149,33 @@ async def _owners_of_kind(client: Any, kind_iri: str, published: list[str]) -> l
     return sorted(i for i in ids if i)
 
 
+def registry_names(root: Path, dataset_id: str, kind_iri: str) -> dict[str, str]:
+    """登録の設計が付けた名前 → ``{IRI: 名前}``（種類の ``subject.label`` と、その種類の項目の
+    ``label``。同じ項目に名前が割れるときは付けない）。読めなければ空。"""
+    data = registry.load_dataset(root, dataset_id)
+    text = ((data or {}).get("artifacts") or {}).get("mapping.yaml") or ""
+    if not text.strip():
+        return {}
+    try:
+        ir = read_mapping_ir(text)
+    except Exception:
+        return {}
+    prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
+    out: dict[str, str] = {}
+    found: dict[str, set[str]] = {}
+    for tm in ir.maps:
+        if kind_iri not in {mi_expand(prefixes, c) for c in tm.subject_classes}:
+            continue
+        if (tm.subject_label or "").strip():
+            out.setdefault(kind_iri, tm.subject_label.strip())
+        for prop in tm.properties:
+            label = (prop.label or prop.link_label or "").strip()
+            if prop.predicate and label:
+                found.setdefault(mi_expand(prefixes, prop.predicate), set()).add(label)
+    out.update({p: next(iter(v)) for p, v in found.items() if len(v) == 1})
+    return out
+
+
 def _last_attached(session: dict | None) -> str | None:
     """話の最後の添えた表の dataset id（戻した手番は数えない）。"""
     for turn in reversed((session or {}).get("turns") or []):
@@ -210,6 +239,7 @@ async def build_contents(
     title, note, skipped = "", None, 0
     #: データセット id → 読む graph（下の表を読むとき必ず渡す）
     scoped: dict[str, list[str]] = {}
+    drafts: set[str] = set()  # 公開前のデータセット（名前は登録の設計から）
     pairs: list[tuple[str, str]] = []
     published = await chat_tables._published_graphs(client, root)
 
@@ -237,6 +267,8 @@ async def build_contents(
                 return {"title": "", "tables": [], "more": 0, "note": None}  # 添えた表が消えた
             title = resolve_dataset_label(root, dataset_id)
             scoped = {dataset_id: graphs}
+            if not (registry.load_dataset(root, dataset_id) or {}).get("meta", {}).get("promoted"):
+                drafts.add(dataset_id)
             if kind is not None:  # dataset + kind: その種類の表 1 つだけ
                 pairs = [(dataset_id, kind)]
             if unread:
@@ -244,7 +276,13 @@ async def build_contents(
     tables: list[dict[str, Any]] = []
     for did, kind_iri in pairs[:MAX_TABLES]:
         table = await chat_tables.table_for_kind(
-            client, root, kind_iri, limit=limit, lang=lang, graphs=scoped.get(did)
+            client,
+            root,
+            kind_iri,
+            limit=limit,
+            lang=lang,
+            graphs=scoped.get(did),
+            names=registry_names(root, did, kind_iri) if did in drafts else None,
         )
         if kind is not None:
             title = table["kind"]["label"]

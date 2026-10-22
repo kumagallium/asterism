@@ -92,11 +92,15 @@ async def table_for_kind(
     limit: int = 20,
     lang: str = "ja",
     graphs: list[str] | None = None,
+    names: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """種類 1 つの表 → ``{kind, columns, rows, total, truncated}``（形は契約 A2）。
 
     ``graphs`` を渡すと、公開済みの版グラフの代わりにその graph だけを読む（中身の表が、
-    1 つのデータセットや、公開前の版グラフを読むため）。既定（``None``）は公開済み全部。"""
+    1 つのデータセットや、公開前の版グラフを読むため）。既定（``None``）は公開済み全部。
+
+    ``names``（IRI → 名前）は登録の設計が付けた名前で、種類と項目の名前をストアの名前より先に使う
+    （公開前の graph にはまだ名前の triple が無いため）。既定は使わない。"""
     check_iri(kind_iri)
     clause = subjects.class_type_clause(kind_iri)
     if clause is None:
@@ -104,7 +108,10 @@ async def table_for_kind(
     root = Path(root)
     labels = await class_labels(client, root, {kind_iri})
     out: dict[str, Any] = {
-        "kind": {"iri": kind_iri, "label": labels.get(kind_iri) or kind_iri},
+        "kind": {
+            "iri": kind_iri,
+            "label": (names or {}).get(kind_iri) or labels.get(kind_iri) or kind_iri,
+        },
         "columns": [],
         "rows": [],
         "total": 0,
@@ -183,7 +190,9 @@ async def table_for_kind(
         for i, info in (await resolve_cited(client, root, linked)).items():
             names_of[i] = info.get("label") or subject_tools._local_name(i)
     prop_names = await shared_vocab._display_labels(client, props)
-    out["columns"] = [{"iri": p, "label": prop_names.get(p) or p} for p in props]
+    out["columns"] = [
+        {"iri": p, "label": (names or {}).get(p) or prop_names.get(p) or p} for p in props
+    ]
 
     def cell(items: list[tuple[str, str | None]]) -> dict[str, str]:
         texts = [names_of.get(i, v) if i is not None else v for v, i in items]

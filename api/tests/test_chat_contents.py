@@ -299,3 +299,16 @@ def test_a_property_term_resolves_at_most_three_members(tmp_path: Path, monkeypa
     }
     term, pairs, skipped = asyncio.run(chat_contents.targets_of_term(None, tmp_path, sky, SV + "t"))
     assert term is not None and len(calls) == 3 and len(pairs) == 3 and skipped == 2
+
+
+def test_an_unpublished_table_uses_the_names_the_design_gave(tmp_path: Path) -> None:
+    client, dsid = _unpublished(tmp_path)
+    with client:
+        body = _get(client, dataset=dsid, kind=EX + "Sample").json()
+        table = body["tables"][0]["table"]
+        assert table["kind"]["label"] == "試料"  # IR の subject.label
+        names = {c["iri"]: c["label"] for c in table["columns"]}
+        assert names[EX + "price"] == "価格" and names[EX + "weight"] == "重さ"
+        # dataset 単独・session の下書きの経路も同じ
+        alone = _get(client, dataset=dsid).json()["tables"][0]["table"]
+        assert alone["kind"]["label"] == "試料"
