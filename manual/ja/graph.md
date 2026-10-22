@@ -25,7 +25,7 @@
 
 図の下の凡例に「札＝概念」「星＝データ」「薄い＝提案」が出ます。同じ内容なら、いつも同じ絵が描かれます。
 
-<!-- screenshot: confirm -->
+![✓ で確認済み。図の札と関係が濃くなる](../screenshots/confirm.png)
 
 ## 薄いと濃い
 
@@ -51,8 +51,8 @@
 
 星のうち、まだ公開していない表の星は薄く出ます。
 
-<!-- screenshot: point-term -->
-<!-- screenshot: point-star -->
+![図の札を押すと出る 1 枚（文・来歴）](../screenshots/point-term.png)
+![図の星を押すと出る 1 枚（中身）](../screenshots/point-star.png)
 
 ## 図を直す
 
@@ -84,7 +84,7 @@
 
 「チャット」「図」のタブで切り替えます。
 
-<!-- screenshot: mobile-tabs -->
+![375px では「チャット」と「図」のタブ](../screenshots/mobile-tabs.png)
 
 ## 中身まで見る（値の網）
 

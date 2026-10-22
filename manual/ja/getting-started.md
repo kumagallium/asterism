@@ -48,9 +48,9 @@ Asterism は、チャットで知りたいことを話すと、AI が答えに�
 3. 返事の文を読んで、合っていれば「✓ 確認」を押します。図が濃くなり（確認済み）、来歴が残ります。違うときは「粒界散乱は外して」のように書いて直します。
 4. 押さずに続けても提案は消えません。「戻す」で取り消せます。
 
-<!-- screenshot: home-empty -->
-<!-- screenshot: reply -->
-<!-- screenshot: confirm -->
+![最初の画面。左に話の一覧、中にチャット、右に図](../screenshots/home-empty.png)
+![問いを書くと返事が 1 枚。提案は図に薄く入る](../screenshots/reply.png)
+![✓ で確認済み。図の札と関係が濃くなる](../screenshots/confirm.png)
 
 AI の返事は、データの値を見ずに、文と差分だけを書きます。確認済みになったものだけが、質問（[質問する](./ask.md)）やほかの AI からの問い合わせで使われます。
 
@@ -64,9 +64,9 @@ AI の返事は、データの値を見ずに、文と差分だけを書きま�
 - 「✓ 公開」で公開されます。公開するまで、データは誰にも見えません
 - 公開したあとは、答えられる問いの提案が続きます
 
-<!-- screenshot: attach -->
-<!-- screenshot: attach-reply -->
-<!-- screenshot: published -->
+![📎 で表を添えると、読んでいる間の返事](../screenshots/attach.png)
+![表を読んだ返事 1 枚（何の表か・ID・列の意味・結ぶ／結ばない）](../screenshots/attach-reply.png)
+![✓ で公開。図の最下段に星座が濃く出る](../screenshots/published.png)
 
 詳しくは [データの追加](./add-data.md)、図の読み方は [図](./graph.md) を見てください。
 
