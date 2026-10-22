@@ -1,4 +1,5 @@
-// 右の領域＝図（PR 11a）。星図の canvas だけを新しく書く（配置・描画・表は sky/ の純関数と部品を import で流用）。
+// 右の領域＝図（PR 11a）。PR 11f から「1 枚の知識の図」（概念の札・札の直下の星・最下段の名前のない星。`graph/`）。
+// 表（SkyTables）・パレット・輪・選択の濃淡は sky/ の純関数と部品を import で流用する。
 // `GET /api/sky`（鍵つき）の `proposed` を未確認の薄い札として重ねる。`refreshKey` が変わるたびに取り直し、
 // 増えた用語・種類の点に「生まれた輪」を 1 度出す。線のドラッグ・札は載せない（11b 以降）。
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -8,13 +9,16 @@ import { drawRemovals, removalOverlay } from '../chart/chartOverlay'
 import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
-import { bornAlive, drawSky, formatCount, hitLineEdge, hitTest, readSkyPalette, visiblePointLabels, type SkyLabels, type SkyPalette } from '../sky/skyDraw'
-import { kindId, layoutSky, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from '../sky/skyLayout'
+import { bornAlive, formatCount, readSkyPalette, visiblePointLabels, type SkyPalette } from '../sky/skyDraw'
+import { kindId, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from '../sky/skyLayout'
 import { SkyTables } from '../sky/SkyTables'
 import { buildSkyTables } from '../sky/skyTable'
 import '../sky/sky.css'
 import { getSkyWithProposed, type SkyDraft } from './chatApi'
 import { selectionOfEdge, selectionOfNode, type Highlight, type PointSel } from './chatState'
+import { drawGraph, type GraphLabels } from './graph/graphDraw'
+import { layoutGraph } from './graph/graphLayout'
+import { hitEdge, hitNode, hitStdLine } from './graph/hit'
 
 // sigma（WebGL）は「中身まで見る」を開くときだけ読む。
 const NetworkView = lazy(() => import('../NetworkView').then((m) => ({ default: m.NetworkView })))
@@ -137,10 +141,13 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   }, [load.status, deep])
 
   const layout = useMemo<SkyLayout>(
-    () => layoutSky(drawn, { width, lang, minHeight: 360, drafts: nothing ? [] : proposed }),
+    () => layoutGraph(drawn, { width, lang, drafts: nothing ? [] : proposed }),
     [drawn, width, lang, proposed, nothing],
   )
   const removals = useMemo(() => removalOverlay(layout, nothing ? [] : proposed), [layout, proposed, nothing])
+  // 外す提案の札は drawGraph が描く（札の形が変わるので）。線の「×」だけ drawRemovals で重ねる
+  const removeNodeIds = useMemo<ReadonlySet<string>>(() => new Set(removals.nodeIds), [removals])
+  const removalLines = useMemo(() => ({ nodeIds: [], edges: removals.edges }), [removals])
   const tables = useMemo(() => buildSkyTables(sky, lang), [sky, lang])
   const visible = useMemo(() => visiblePointLabels(layout), [layout])
 
@@ -172,8 +179,9 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const activeId = selectedId && layout.nodes.has(selectedId) ? selectedId : null
 
-  const labels = useMemo<SkyLabels>(
+  const labels = useMemo<GraphLabels>(
     () => ({
+      noName: tc('chart.noName'),
       names: t('bands.names'),
       mid: t('bands.data'),
       midCircles: t('bands.dataCircles'),
@@ -188,7 +196,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
       count: (n) => t('unit.count', { n: formatCount(n, lang) }),
       kinds: (n) => t('unit.kinds', { n }),
     }),
-    [t, lang],
+    [t, tc, lang],
   )
 
   // ── 描画 ──
@@ -197,7 +205,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const hoverRef = useRef<string | null>(null)
   const bornRef = useRef<Map<string, number>>(new Map())
   const rafRef = useRef(0)
-  const stateRef = useRef<{ layout: SkyLayout; labels: SkyLabels; visible: ReadonlySet<string>; removals: ReturnType<typeof removalOverlay>; selectedId: string | null; hl: { focusId: string; near: ReadonlySet<string> } | null; reduced: boolean; nothing: boolean } | null>(null)
+  const stateRef = useRef<{ layout: SkyLayout; labels: GraphLabels; visible: ReadonlySet<string>; removeNodeIds: ReadonlySet<string>; removalLines: ReturnType<typeof removalOverlay>; selectedId: string | null; hl: { focusId: string; near: ReadonlySet<string> } | null; reduced: boolean; nothing: boolean } | null>(null)
 
   const paint = useCallback(function paintFrame() {
     rafRef.current = 0
@@ -219,15 +227,15 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     const hover = hoverRef.current
     const focusId = s.nothing ? null : (hover ?? s.hl?.focusId ?? s.selectedId)
     const near = !focusId ? null : !hover && s.hl ? s.hl.near : neighborhood(s.layout, focusId)
-    drawSky(
+    drawGraph(
       ctx,
       s.layout,
       paletteRef.current,
       s.labels,
-      { focusId, near, born: bornRef.current, now, reducedMotion: s.reduced, alpha: s.nothing ? 0.38 : 1 },
+      { focusId, near, born: bornRef.current, now, reducedMotion: s.reduced, alpha: s.nothing ? 0.38 : 1, removeNodeIds: s.removeNodeIds },
       s.visible,
     )
-    drawRemovals(ctx, s.layout, paletteRef.current, s.removals, s.labels.draftRemove)
+    drawRemovals(ctx, s.layout, paletteRef.current, s.removalLines, s.labels.draftRemove)
     if (!s.reduced && bornAlive(bornRef.current, now)) rafRef.current = requestAnimationFrame(paintFrame)
   }, [])
   const schedule = useCallback(() => {
@@ -235,9 +243,9 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   }, [paint])
 
   useEffect(() => {
-    stateRef.current = { layout, labels, visible, removals, selectedId: activeId, hl, reduced, nothing }
+    stateRef.current = { layout, labels, visible, removeNodeIds, removalLines, selectedId: activeId, hl, reduced, nothing }
     schedule()
-  }, [layout, labels, visible, removals, activeId, hl, reduced, nothing, schedule])
+  }, [layout, labels, visible, removeNodeIds, removalLines, activeId, hl, reduced, nothing, schedule])
   useEffect(() => {
     let alive = true
     void document.fonts?.ready.then(() => alive && schedule())
@@ -265,7 +273,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const onMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     if (nothing) return
     const p = localPoint(ev)
-    const id = hitTest(layout, p.x, p.y)?.id ?? null
+    const id = hitNode(layout, p.x, p.y)?.id ?? null
     if (id !== hoverRef.current) {
       hoverRef.current = id
       schedule()
@@ -281,14 +289,21 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const onClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     if (nothing) return
     const p = localPoint(ev)
-    const n = hitTest(layout, p.x, p.y)
+    const n = hitNode(layout, p.x, p.y)
     if (n) {
+      // 札の中の標準の語の 1 行を押したら、標準の語の 1 枚
+      const std = hitStdLine(layout, p.x, p.y)
+      if (std && std.stdId && std.stdLabel) {
+        setSelectedId(std.id)
+        onSelect?.({ kind: 'std', iri: std.stdId.slice(2), label: std.stdLabel.slice(std.stdLabel.indexOf(':') + 1) })
+        return
+      }
       const sel = selectionOfNode(n, layout)
       setSelectedId(sel ? n.id : null)
       onSelect?.(sel)
       return
     }
-    const e = hitLineEdge(layout, p.x, p.y)
+    const e = hitEdge(layout, p.x, p.y)
     const sel = e ? selectionOfEdge(layout, e) : null
     setSelectedId(null)
     onSelect?.(sel)
@@ -307,8 +322,8 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     if (!ctx) return setPngError(true)
     ctx.setTransform(scale, 0, 0, scale, 0, 0)
     paletteRef.current ??= readSkyPalette()
-    drawSky(ctx, layout, paletteRef.current, labels, { focusId: null, near: null, born: new Map(), now: 0, reducedMotion: true, alpha: nothing ? 0.38 : 1 }, visible)
-    drawRemovals(ctx, layout, paletteRef.current, removals, labels.draftRemove)
+    drawGraph(ctx, layout, paletteRef.current, labels, { focusId: null, near: null, born: new Map(), now: 0, reducedMotion: true, alpha: nothing ? 0.38 : 1, removeNodeIds }, visible)
+    drawRemovals(ctx, layout, paletteRef.current, removalLines, labels.draftRemove)
     off.toBlob((blob) => {
       if (!blob) return setPngError(true)
       const url = URL.createObjectURL(blob)
@@ -419,18 +434,18 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
             ]}
           />
         </div>
-        <div className="sky-legend">
+        <div className="sky-legend chart-legend">
+          <span>
+            <i className="chart-legend-card" style={{ background: 'var(--activity)' }} />
+            {tc('chart.legendCard')}
+          </span>
           <span>
             <i style={{ background: 'var(--entity)' }} />
-            {layout.mode === 'circles' ? t('legend.dataset') : t('legend.kind')}
+            {tc('chart.legendStar')}
           </span>
           <span>
-            <i style={{ background: 'var(--activity)' }} />
-            {t('legend.term')}
-          </span>
-          <span>
-            <i style={{ background: 'var(--accent)' }} />
-            {t('legend.std')}
+            <i className="chart-legend-card chart-legend-thin" style={{ background: 'var(--activity)' }} />
+            {tc('chart.legendThin')}
           </span>
         </div>
         {pngError && (

@@ -47,7 +47,11 @@
   "chart": {
     "back": "Back",
     "failed": "Could not load the chart",
-    "retry": "Retry"
+    "retry": "Retry",
+    "legendCard": "Card = concept",
+    "legendStar": "Star = data",
+    "legendThin": "Faint = proposal",
+    "noName": "Data with no name yet"
   },
   "hand": {
     "lead": "Add without AI",

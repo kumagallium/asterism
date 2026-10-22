@@ -47,7 +47,11 @@
   "chart": {
     "back": "戻る",
     "failed": "図を読み込めませんでした",
-    "retry": "もう一度"
+    "retry": "もう一度",
+    "legendCard": "札＝概念",
+    "legendStar": "星＝データ",
+    "legendThin": "薄い＝提案",
+    "noName": "まだ名前のないデータ"
   },
   "hand": {
     "lead": "AI なしで足す",
