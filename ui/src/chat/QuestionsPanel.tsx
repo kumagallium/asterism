@@ -34,7 +34,7 @@ export function QuestionsPanel({ questions, sky, proposed, onPick, onAsk, busy }
     })
   }
   const askButton = (q: string) => (
-    <button type="button" className="btn btn--sm" data-testid="question-ask" disabled={busy || sent.has(q)} onClick={() => ask(q)}>
+    <button type="button" className="link-btn chat-question-ask" data-testid="question-ask" disabled={busy || sent.has(q)} onClick={() => ask(q)}>
       {sent.has(q) ? t('row.sent') : t('row.ask')}
     </button>
   )

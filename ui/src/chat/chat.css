@@ -1004,3 +1004,13 @@ button.chat-question-title:hover {
 .chat-question.is-proposed {
   opacity: 0.55;
 }
+
+/* 問いの「答えて」は静かなリンク（行が増えても塗りのボタンが並ばない）。送ったあとは薄く */
+.chat-question-ask {
+  flex: none;
+  font-size: 0.85rem;
+}
+.chat-question-ask:disabled {
+  color: var(--muted);
+  cursor: default;
+}
