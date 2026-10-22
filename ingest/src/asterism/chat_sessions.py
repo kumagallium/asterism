@@ -75,6 +75,9 @@ NOTE_KINDS = frozenset(
         "ingest_stop",
         "attach_failed",
         "unsupported",
+        # 11d — 「見せて」の表と Ask
+        "ask_unavailable",
+        "ask_failed",
     }
 )
 TURN_STATES = ("none", "running", "proposed", "confirmed", "reverted")

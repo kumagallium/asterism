@@ -3136,6 +3136,10 @@ class Settings:
         # got bound — 8765 is a *preference*, and a fallback port must not turn
         # the settings screen into a wrong string that looks authoritative.
         self.mcp_url = (e.get("ASTERISM_MCP_URL") or "").strip() or None
+        # The demo-agent (Ask) a chat question is sent to ("答えて"・PR 11d). asterism-local
+        # puts the child it spawned on ``app.state.demo_agent_url`` instead; this is for a
+        # hosted install whose demo-agent runs beside the api. Unset → the chat says so.
+        self.demo_agent_url = (e.get("ASTERISM_DEMO_AGENT_URL") or "").strip().rstrip("/") or None
 
 
 # ----------------------------------------------------------------------------

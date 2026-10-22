@@ -31,6 +31,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from asterism import chat_sessions, graph_diff, shared_vocab, themes
 from asterism.shared_vocab import SharedTerm, normalize_label
 from asterism_step0.graph_propose import (
@@ -41,7 +42,7 @@ from asterism_step0.graph_propose import (
 )
 from asterism_step0.theme_propose import ThemeDraftError, propose_theme_draft
 
-from asterism_api import chat_seed
+from asterism_api import chat_intent, chat_seed
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +51,19 @@ __all__ = [
     "TurnRefused",
     "ai_text_turn",
     "apply_text_turn",
+    "ask_history",
+    "ask_remote",
     "blank_answer",
     "commit_body",
     "confirm",
     "is_undo",
     "prepare_text_turn",
     "revert",
+    "run_ask_turn",
+    "run_ask_unavailable_turn",
     "run_ops_turn",
     "run_set_answer_turn",
+    "run_show_turn",
     "run_text_turn",
     "run_undo_turn",
     "sync_answers",
@@ -333,18 +339,11 @@ def run_text_turn(
 
 _MAX_HISTORY = 12  # AI に見せる話の手番（最近）
 _MAX_CONTENT = 2000
-_UNDO_JA = re.compile(
-    r"^(さっきの|前の|今の|それ|元に)[をは]?(戻して|取り消して|やめて)(ください|くれ)?[。！!]?$"
-)
-_UNDO_EN = re.compile(
-    r"^(undo|revert)( that| it| this| the last( step| one)?)?[.!]?$", re.IGNORECASE
-)
 
 
 def is_undo(text: str) -> bool:
-    """「さっきのを戻して」か（決定論・AI を呼ばない）。"""
-    t = text.strip()
-    return bool(_UNDO_JA.match(t) or _UNDO_EN.match(t))
+    """「さっきのを戻して」か（決定論・AI を呼ばない）。規則は ``chat_intent`` にある。"""
+    return chat_intent.is_undo(text)
 
 
 _ASKING = re.compile(r"(?:[？?]|とは|か)[\s。.!！]*\Z")
@@ -1371,6 +1370,13 @@ def _is_theme_proposal(turn: dict) -> bool:
     )
 
 
+def _theme_by_id(root: Any, theme_id: Any) -> dict | None:
+    if not theme_id:
+        return None
+    data = themes.load_themes_file(root)
+    return next((t for t in (data or {}).get("themes") or [] if t.get("id") == theme_id), None)
+
+
 def _find(session: dict, turn_id: str) -> dict:
     for t in session.get("turns") or []:
         if t.get("id") == turn_id:
@@ -1479,3 +1485,202 @@ def revert(
         t["state"] = "reverted"
         t["before"] = None
     return turn, [t["id"] for t in undone]
+
+
+# ---- 「見せて」の表・Ask（11d） ----------------------------------------------------------------
+
+_ASK_HISTORY = 6  # demo-agent に見せる、話の Ask の手番（最近）
+_ASK_TIMEOUT = httpx.Timeout(600, connect=10)
+_LLM_HEADERS = ("x-api-key", "x-llm-provider", "x-llm-model", "x-llm-api-base", "x-llm-max-tokens")
+
+_ASK_TEXT = {
+    "ja": {
+        "unavailable": "質問の答えはこの環境では出せません",
+        "failed": "答えを取れませんでした。もう一度試してください",
+        "no_table": "表にできるものが見つかりませんでした",
+        "table": "「{name}」の表（{shown} 件・全 {total} 件）",
+        "via": "用語「{term}」に入っている種類「{kind}」の表",
+    },
+    "en": {
+        "unavailable": "Answers to questions are not available in this environment",
+        "failed": "Could not get an answer. Please try again",
+        "no_table": "Nothing to show as a table was found",
+        "table": "Table of \"{name}\" ({shown} of {total})",
+        "via": "Table of the kind \"{kind}\" inside the term \"{term}\"",
+    },
+}
+
+
+def run_show_turn(
+    session: dict,
+    text: str,
+    table: dict | None,
+    *,
+    via_term: str | None = None,
+    at: str,
+    lang: str,
+) -> dict:
+    """「<名前>を見せて」— AI を呼ばず、閉じたテンプレートの表を返事にする（``state: none``・
+    ``by: machine``）。``table`` が ``None`` なら一言だけ。用語から引いたときは ``via_term``
+    （用語の名前）。"""
+    lg = _lg(lang)
+    t = _ASK_TEXT[lg]
+    notes: list[dict] = []
+    if table is None:
+        said = t["no_table"]
+        notes.append(note("info", said))
+    else:
+        name = str(table["kind"]["label"])
+        said = t["table"].format(name=name, shown=len(table["rows"]), total=table["total"])
+        if via_term:
+            notes.append(note("info", t["via"].format(term=via_term, kind=name)))
+    reply = _reply(said, notes=notes)
+    reply["table"] = table
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text.strip(), "attachments": []},
+        reply=reply,
+        state="none",
+        before=None,
+        by="machine",
+    )
+
+
+def ask_history(session: dict) -> list[dict]:
+    """話の Ask の手番だけ（``reply.answer`` がある・戻していない）を古い順に
+    ``user`` → ``assistant``。最近 6 件。"""
+    kept = [
+        t
+        for t in session.get("turns") or []
+        if (t.get("reply") or {}).get("answer") and t.get("state") != "reverted"
+    ]
+    out: list[dict] = []
+    for t in kept[-_ASK_HISTORY:]:
+        said = (t.get("user") or {}).get("text")
+        answer = str(((t.get("reply") or {}).get("answer") or {}).get("text") or "").strip()
+        if said and answer:
+            out.append({"role": "user", "content": str(said)[:_MAX_CONTENT]})
+            out.append({"role": "assistant", "content": answer[:_MAX_CONTENT]})
+    return out
+
+
+async def ask_remote(
+    url: str,
+    question: str,
+    history: list[dict],
+    llm_headers: dict[str, str],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict:
+    """demo-agent の ``POST /demo/ask``（**ロックの外**）。返り = ``{"ok": True, "data": …}`` または
+    ``{"ok": False, "reason": "network"|"status"|"shape"}``（失敗は例外にしない・詳細はログ）。"""
+    headers = {k: v for k, v in llm_headers.items() if k.lower() in _LLM_HEADERS and v}
+    try:
+        async with httpx.AsyncClient(transport=transport, timeout=_ASK_TIMEOUT) as http:
+            res = await http.post(
+                url.rstrip("/") + "/demo/ask",
+                json={"question": question, "history": history},
+                headers=headers,
+            )
+    except httpx.HTTPError:
+        logger.warning("chat ask: demo-agent unreachable", exc_info=True)
+        return {"ok": False, "reason": "network"}
+    if res.status_code != 200:
+        logger.warning("chat ask: demo-agent answered %s: %s", res.status_code, res.text[:200])
+        return {"ok": False, "reason": "status"}
+    try:
+        data = res.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("answer"), str):
+        logger.warning("chat ask: unexpected body from demo-agent")
+        return {"ok": False, "reason": "shape"}
+    return {"ok": True, "data": data}
+
+
+def _short(iri: str) -> str:
+    return re.split(r"[#/]", iri.rstrip("/#"))[-1] or iri
+
+
+def _answer_of(data: dict, cited: dict[str, dict[str, str]]) -> dict:
+    """demo-agent の返事 → ``reply.answer``（出典の名前とデータセット名は ``cited`` から）。"""
+    citations = []
+    for c in data.get("citations") or []:
+        if not isinstance(c, dict) or not c.get("iri"):
+            continue
+        iri = str(c["iri"])
+        got = cited.get(iri) or {}
+        citations.append(
+            {
+                "iri": iri,
+                "label": str(c.get("label") or got.get("label") or _short(iri)),
+                "dataset_id": str(c.get("dataset_id") or got.get("dataset_id") or ""),
+                "dataset_label": str(c.get("dataset_label") or got.get("dataset_label") or ""),
+            }
+        )
+    warnings = []
+    for w in data.get("warnings") or []:
+        msg = w if isinstance(w, str) else (w or {}).get("message") or (w or {}).get("text")
+        if msg:
+            warnings.append({"message": str(msg)})
+    tools = []
+    for v in data.get("verified_tools") or []:
+        name = v if isinstance(v, str) else (v or {}).get("title") or (v or {}).get("name")
+        if name:
+            tools.append(str(name))
+    return {
+        "text": str(data.get("answer") or ""),
+        "citations": citations,
+        "notes": [str(n) for n in data.get("notes") or [] if isinstance(n, str)],
+        "warnings": warnings,
+        "verified_tools": tools,
+        "unverified_sparql": bool(data.get("unverified_sparql")),
+        "answered": bool(data.get("answered", True)),
+    }
+
+
+def run_ask_turn(
+    session: dict,
+    text: str,
+    outcome: dict,
+    *,
+    cited: dict[str, dict[str, str]] | None = None,
+    at: str,
+    lang: str,
+) -> dict:
+    """Ask の手番を足す。``outcome`` = :func:`ask_remote` の返り。何も保存しない（返事の記録だけ・
+    ``state: none``）。失敗は ``notes.ask_failed``（種別だけ）。"""
+    lg = _lg(lang)
+    user = {"text": text.strip(), "attachments": []}
+    if not outcome.get("ok"):
+        said = _ASK_TEXT[lg]["failed"]
+        return _append_turn(
+            session,
+            at=at,
+            user=user,
+            reply=_reply(said, notes=[note("ask_failed", said)]),
+            state="none",
+            before=None,
+            by="machine",
+        )
+    answer = _answer_of(outcome["data"], cited or {})
+    reply = _reply(answer["text"])
+    reply["answer"] = answer
+    return _append_turn(
+        session, at=at, user=user, reply=reply, state="none", before=None, by="ai"
+    )
+
+
+def run_ask_unavailable_turn(session: dict, text: str, *, at: str, lang: str) -> dict:
+    """demo-agent の URL が無い環境 — 一言だけ（``notes.ask_unavailable``・``state: none``）。"""
+    said = _ASK_TEXT[_lg(lang)]["unavailable"]
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text.strip(), "attachments": []},
+        reply=_reply(said, notes=[note("ask_unavailable", said)]),
+        state="none",
+        before=None,
+        by="machine",
+    )

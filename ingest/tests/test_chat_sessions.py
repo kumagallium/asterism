@@ -117,3 +117,4 @@ def test_turn_of_batch_and_turn_of_minted(tmp_path: Path) -> None:
     }
     assert cs.turn_of_minted(tmp_path, "gone") is None  # 戻した手番は引かない
     assert cs.turn_of_minted(tmp_path, "unknown") is None
+    assert {"ask_unavailable", "ask_failed"} <= cs.NOTE_KINDS

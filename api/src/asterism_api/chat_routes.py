@@ -12,6 +12,9 @@
   未設定なら 11a の道（``notes.ai_unset``）。「さっきのを戻して」は AI を呼ばず決定論で戻す。
 * ``POST …/turns/{turn}/confirm`` — ✓。``POST …/turns/{turn}/revert`` — 未確認の返事を控えに戻す。
 * ``GET  /api/chat/point`` — 点（用語・種類・標準用語・視点・線・未確認の札）の 1 枚。
+* 文の手番は ``chat_intent.classify`` で振り分ける: 「<名前>を見せて」は AI を呼ばず閉じた
+  テンプレートの表（``reply.table``）・「答えて」の問いは demo-agent の Ask（``reply.answer``）・
+  それ以外は図の提案（11b）。
 
 全部 ``write_auth``。下書き・テーマの読み書きは ``app.state.themes_lock`` で 1 つずつ。
 組み立ては :mod:`asterism_api.chat_turns`（ここは受け取りと HTTP への写像だけ）。
@@ -28,12 +31,12 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import chat_sessions, shared_vocab, themes
+from asterism import chat_sessions, shared_vocab, sky_view, themes
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from asterism_api import chat_attach, chat_point, chat_turns
+from asterism_api import chat_attach, chat_intent, chat_point, chat_tables, chat_turns
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
 
@@ -323,10 +326,97 @@ def register_chat(
 
     # ---- 手番 ---------------------------------------------------------------------------------
 
+    async def _sky_names() -> tuple[dict, dict[str, str]]:
+        """公開済みの星図と、種類・用語の表示名 → IRI（種類が先）。読めなければ空。"""
+        try:
+            sky = await sky_view.sky_view(_client(), root)
+        except Exception:
+            logger.warning("chat intent: sky read failed", exc_info=True)
+            return {}, {}
+        names: dict[str, str] = {}
+        for d in sky.get("datasets") or []:
+            for k in d.get("kinds") or []:
+                names.setdefault(str(k["label"]), k["iri"])
+        for t in sky.get("terms") or []:
+            for label in (t.get("label"), t.get("label_en")):
+                if label:
+                    names.setdefault(str(label), t["iri"])
+        return sky, names
+
+    def _demo_url() -> str | None:
+        return getattr(app.state, "demo_agent_url", None) or cfg.demo_agent_url
+
+    async def _show_turn(
+        session_id: str, text: str, lang: str, sky: dict, iri: str
+    ) -> tuple[dict, dict]:
+        """「<名前>を見せて」— 読むだけで表を作り（AI なし）、短いロックで手番を足す。"""
+        kinds = {k["iri"] for d in sky.get("datasets") or [] for k in d.get("kinds") or []}
+        via: str | None = None
+        kind_iri: str | None = iri if iri in kinds else None
+        if kind_iri is None:
+            kind_iri = chat_tables.kind_for_term(sky, iri)
+            term = next((t for t in sky.get("terms") or [] if t["iri"] == iri), None)
+            via = str((term or {}).get("label") or "") or None
+        table = None
+        if kind_iri is not None:
+            try:
+                table = await chat_tables.table_for_kind(_client(), root, kind_iri, lang=lang)
+            except Exception:
+                logger.warning("chat show: table failed", exc_info=True)
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = chat_turns.run_show_turn(
+                session, text, table, via_term=via if kind_iri != iri else None,
+                at=_now(), lang=lang,
+            )
+            saved = chat_sessions.save_session(root, session)
+        return turn, saved
+
+    async def _ask_turn(
+        session_id: str, text: str, lang: str, llm_headers: dict[str, str]
+    ) -> tuple[dict, dict]:
+        """「答えて」の問い — 既存の Ask（demo-agent）へ。呼び出しは**ロックの外**。"""
+        url = _demo_url()
+        if url is None:
+            async with lock:
+                session = _session_or_404(session_id)
+                turn = chat_turns.run_ask_unavailable_turn(session, text, at=_now(), lang=lang)
+                return turn, chat_sessions.save_session(root, session)
+        async with lock:
+            history = chat_turns.ask_history(_session_or_404(session_id))
+        outcome = await chat_turns.ask_remote(
+            url,
+            text,
+            history,
+            llm_headers,
+            transport=getattr(app.state, "ask_transport", None),
+        )
+        cited: dict[str, dict[str, str]] = {}
+        if outcome.get("ok"):
+            try:
+                cited = await chat_tables.resolve_cited(
+                    _client(),
+                    root,
+                    [
+                        str(c.get("iri"))
+                        for c in outcome["data"].get("citations") or []
+                        if isinstance(c, dict)
+                    ],
+                )
+            except Exception:
+                logger.warning("chat ask: citation names failed", exc_info=True)
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = chat_turns.run_ask_turn(
+                session, text, outcome, cited=cited, at=_now(), lang=lang
+            )
+            return turn, chat_sessions.save_session(root, session)
+
     @app.post("/api/chat/sessions/{session_id}/turns", dependencies=deps)
     async def chat_turn(
         session_id: str,
         body: TurnBody,
+        request: Request,
         x_api_key: str | None = Header(default=None),
         x_llm_provider: str | None = Header(default=None),
         x_llm_model: str | None = Header(default=None),
@@ -371,6 +461,33 @@ def register_chat(
                 {"turn": turn, "session": _head(saved), "draft": card, "reverted": reverted or []},
                 status_code=201,
             )
+
+        # 振り分け（決定論）: 「見せて」は表・「答えて」は Ask。AI（11b の道）は呼ばない
+        if has_text and not chat_turns.is_undo(text) and chat_intent.may_need_names(text):
+            sky, names = await _sky_names()
+            draft_id = _session_or_404(session_id).get("draft_id")
+            intent = chat_intent.classify(
+                text,
+                names=names,
+                draft_open=bool(draft_id and themes.load_draft(root, draft_id) is not None),
+            )
+            if intent == "show":
+                label = chat_intent.show_target(text, names)
+                turn, saved = await _show_turn(session_id, text, body.lang, sky, names[label])
+                return JSONResponse(
+                    {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                     "reverted": []},
+                    status_code=201,
+                )  # fmt: skip
+            if intent == "ask":
+                turn, saved = await _ask_turn(
+                    session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+                )
+                return JSONResponse(
+                    {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                     "reverted": []},
+                    status_code=201,
+                )  # fmt: skip
 
         # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
         llm: Any = None

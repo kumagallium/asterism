@@ -1213,6 +1213,7 @@ def build_local_app(
         settings = Settings()  # 書き込みゲートが build_app と同じ設定を見るため
     app = build_app(settings, oxigraph_client=oxigraph_client, start_watcher=start_watcher)
     if demo_agent_url is not None:
+        app.state.demo_agent_url = demo_agent_url  # チャットの「答えて」の行き先
         app.include_router(create_demo_relay(demo_agent_url, demo_relay_client))
     if pdf_runtime is not None:
         from asterism_api.pdf_runtime.routes import create_pdf_runtime_router
