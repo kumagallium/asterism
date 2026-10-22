@@ -16,7 +16,7 @@ export interface LocalPanelProps {
   local: LocalSky
   /** 取り直しで増えた点（生まれた輪）。 */
   born?: string[]
-  onSelect?: (sel: PointSel | null) => void
+  onSelect?: (sel: PointSel | null, nodeId?: string | null) => void
   highlight?: Highlight | null
 }
 
@@ -46,7 +46,10 @@ export function LocalPanel({ lang, local, born = NO_BORN, onSelect, highlight = 
           <ChevronIcon size={16} className={open ? 'chat-local-chevron is-open' : 'chat-local-chevron'} />
         </button>
       </div>
-      {open && <ChartPane lang={lang} data={data} hideFacts onSelect={onSelect} highlight={highlight} />}
+      {/* 閉じても mount したまま（開き直しで生まれた輪が二度出ない） */}
+      <div hidden={!open}>
+        <ChartPane lang={lang} data={data} hideFacts onSelect={onSelect} highlight={highlight} />
+      </div>
     </section>
   )
 }

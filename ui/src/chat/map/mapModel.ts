@@ -207,7 +207,65 @@ export function buildMapGraph(
     })
     g.setNodeAttribute(id, 'size', termSize(members, degree))
   })
-  return g
+  return canonical(g)
+}
+
+const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+/** 線の同一性の鍵（端は id の順・関係・薄さ）。 */
+function edgeKey(a: string, b: string, at: MapEdgeAttrs): string {
+  const [p, q] = a < b ? [a, b] : [b, a]
+  return `${at.kind}|${p}|${q}|${at.relation ?? ''}|${at.thin ? 1 : 0}`
+}
+
+/** 点は id の順・線は鍵の順に入れ直したグラフ。隣の順が入力順に依らなくなるので、forceAtlas2 の結果も入力順に依らない。
+ *  グラフ属性 `signature`（点の id と線の鍵）が同じなら、形は同じ＝配置を使い回せる。 */
+function canonical(g: Graph): Graph {
+  const out = new Graph({ type: 'undirected', multi: true })
+  const nodes = g.nodes().sort(cmp)
+  for (const id of nodes) out.addNode(id, { ...g.getNodeAttributes(id) })
+  const edges = g
+    .edges()
+    .map((e) => {
+      const [a, b] = g.extremities(e)
+      const at = g.getEdgeAttributes(e) as unknown as MapEdgeAttrs
+      return { a, b, at, key: edgeKey(a, b, at) }
+    })
+    .sort((p, q) => cmp(p.key, q.key))
+  for (const e of edges) out.addEdge(e.a, e.b, { ...e.at })
+  out.setAttribute('datasetLabels', g.getAttribute('datasetLabels'))
+  out.setAttribute('signature', `${nodes.join('\n')}\n#\n${edges.map((e) => e.key).join('\n')}`)
+  return out
+}
+
+/** 形の署名（点の id と線の鍵）。同じなら配置を使い回してよい。 */
+export function mapSignature(g: Graph): string {
+  return String(g.getAttribute('signature') ?? '')
+}
+
+/** 配置済みのグラフに、新しいグラフの点の属性（位置以外）を写す（形が同じとき。色・大きさ・薄さの変化を反映する）。 */
+export function syncMapAttributes(laidOut: Graph, fresh: Graph): void {
+  fresh.forEachNode((id, a) => {
+    if (!laidOut.hasNode(id)) return
+    const { x: _x, y: _y, ...rest } = a as MapNodeAttrs
+    void _x
+    void _y
+    // 置き換え（merge だと無くなった proposed・remove が残る）。位置だけ配置済みのものを保つ
+    laidOut.replaceNodeAttributes(id, { ...rest, x: laidOut.getNodeAttribute(id, 'x'), y: laidOut.getNodeAttribute(id, 'y') })
+  })
+  laidOut.setAttribute('datasetLabels', fresh.getAttribute('datasetLabels'))
+}
+
+/** sigma の resize は、容器が隠れている（幅か高さが 0）と例外を投げる。隠れているときは何もしない。 */
+export function safeResize(sigma: { resize: () => void; refresh: () => void }, width: number, height: number): boolean {
+  if (width <= 0 || height <= 0) return false
+  try {
+    sigma.resize()
+    sigma.refresh()
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** 決定論の配置（グラフを直接書き換える）。初期位置を hashPosition に戻してから配置するので、何度呼んでも同じ。 */

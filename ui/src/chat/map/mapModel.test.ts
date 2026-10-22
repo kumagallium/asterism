@@ -3,7 +3,7 @@ import { EMPTY_SKY } from '../../sky/skyApi'
 import type { DraftSky, SkyData, SkyDataset, SkyTerm } from '../../sky/skyApi'
 import { draftNodeId, hubNodeId, kindId, termId } from '../../sky/skyLayout'
 import { selectionOfNode } from '../chatState'
-import { buildMapGraph, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, termSize } from './mapModel'
+import { buildMapGraph, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, mapSignature, safeResize, syncMapAttributes, termSize } from './mapModel'
 
 const term = (slug: string, label: string, members: SkyTerm['members'] = []): SkyTerm => ({
   iri: `urn:t:${slug}`,
@@ -160,5 +160,53 @@ describe('mapNeighborhood / mapSelection', () => {
     expect(mapSelection(g, hubNodeId('v1'))).toEqual({ kind: 'hub', iri: 'v1', label: '視点' })
     expect(mapSelection(g, draftNodeId('d1', 'n1'))).toEqual({ kind: 'draft', iri: 'n1', draftId: 'd1', label: '新語' })
     expect(mapSelection(g, 'nope')).toBeNull()
+  })
+})
+
+describe('入力の順に依らない・形が同じなら配置を使い回せる', () => {
+  const coords = (g: ReturnType<typeof buildMapGraph>): string =>
+    JSON.stringify(g.nodes().sort().map((id) => [id, Math.round(g.getNodeAttribute(id, 'x') * 1000), Math.round(g.getNodeAttribute(id, 'y') * 1000)]))
+  it('terms・edges・datasets・kinds・drafts の順を入れ替えても座標は同じ', () => {
+    const big: SkyData = {
+      ...sky,
+      terms: [...sky.terms, term('t4', '四'), term('t5', '五', [{ iri: 'urn:k:b', dataset_id: 'ds1', relation: 'subClassOf' }])],
+      edges: [...(sky.edges ?? []), { from: 'urn:t:t4', to: 'urn:t:material', relation: 'isPartOf', reason: null }, { from: 'urn:t:t5', to: 'urn:t:t4', relation: 'lowers', reason: null }],
+    }
+    const a = buildMapGraph(big, [draft], proposed, 'ja')
+    layoutMap(a)
+    const shuffled: SkyData = {
+      ...big,
+      terms: [...big.terms].reverse(),
+      edges: [...(big.edges ?? [])].reverse(),
+      datasets: big.datasets.map((d) => ({ ...d, kinds: [...d.kinds].reverse() })).reverse(),
+      hubs: [...big.hubs].reverse(),
+    }
+    const b = buildMapGraph(shuffled, [{ ...draft, concepts: [...draft.concepts].reverse(), relations: [...draft.relations].reverse() }], proposed, 'ja')
+    layoutMap(b)
+    expect(coords(a)).toBe(coords(b))
+    expect(mapSignature(a)).toBe(mapSignature(b))
+  })
+  it('属性だけ変わった（薄い → 濃い）ときは署名が同じで、位置を保って属性を写せる', () => {
+    const a = buildMapGraph(sky, [draft], proposed, 'ja')
+    layoutMap(a)
+    const solid: DraftSky = { ...draft, concepts: draft.concepts.map((c) => ({ ...c, state: 'solid' as const })) }
+    const b = buildMapGraph(sky, [solid], proposed, 'ja')
+    expect(mapSignature(b)).toBe(mapSignature(a))
+    const id = draftNodeId('d1', 'n1')
+    const before = [a.getNodeAttribute(id, 'x'), a.getNodeAttribute(id, 'y')]
+    expect(a.getNodeAttribute(id, 'proposed')).toBe(true)
+    syncMapAttributes(a, b)
+    expect(a.getNodeAttribute(id, 'proposed')).toBeUndefined()
+    expect([a.getNodeAttribute(id, 'x'), a.getNodeAttribute(id, 'y')]).toEqual(before)
+  })
+  it('safeResize は隠れている（0 幅）と例外を投げる sigma でも落ちない', () => {
+    const calls: string[] = []
+    const ok = { resize: () => calls.push('resize'), refresh: () => calls.push('refresh') }
+    expect(safeResize(ok, 0, 100)).toBe(false)
+    expect(calls).toEqual([])
+    expect(safeResize(ok, 300, 200)).toBe(true)
+    expect(calls).toEqual(['resize', 'refresh'])
+    const bad = { resize: () => { throw new Error('Container has no width') }, refresh: () => undefined }
+    expect(safeResize(bad, 300, 200)).toBe(false)
   })
 })

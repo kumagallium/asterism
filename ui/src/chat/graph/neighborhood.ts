@@ -102,7 +102,8 @@ export function localSky(
 
   // ── cap（提案の札は切らない。残りを用語に割る） ──
   const candidates = [...core, ...hop]
-  const budget = Math.max(0, cap - draftCards)
+  // 提案の札は切らない。残りを用語に割る（選んだ用語は必ず 1 枠）
+  const budget = Math.max(sel.t && termByIri.has(sel.t) ? 1 : 0, cap - draftCards)
   const keptIris = candidates.slice(0, budget)
   const more = candidates.length - keptIris.length
   const keptTerms = keptIris.map((i) => termByIri.get(i) as SkyTerm)
@@ -153,6 +154,6 @@ export function localSky(
     drafts: keepDrafts.slice(),
     proposedDatasets: outProposed,
     more,
-    empty: keptTerms.length === 0 && draftCards === 0,
+    empty: keptTerms.length === 0 && draftCards === 0 && !sel.k && !sel.h,
   }
 }

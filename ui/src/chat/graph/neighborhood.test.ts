@@ -107,4 +107,25 @@ describe('localSky', () => {
     const r = localSky(withP, [], [p, ds('p2', ['Q'])], focus({ termIris: new Set([`${NS}pt`]) }))
     expect(r.proposedDatasets.map((d) => d.id)).toEqual(['p1'])
   })
+
+  it('用語に結ばれていない種類を選んだときは、その種類だけでも出す（empty にしない）', () => {
+    const lonely: SkyData = { ...sky, datasets: [...sky.datasets, ds('d9', ['Z'])] }
+    const r = localSky(lonely, [], [], focus({ selectedId: kindId('d9', `${NS}d9/Z`) }))
+    expect(r.empty).toBe(false)
+    expect(r.sky.terms).toEqual([])
+    expect(r.sky.datasets.map((d) => d.id)).toEqual(['d9'])
+  })
+
+  it('提案の札が cap を超えていても、選んだ用語は残る', () => {
+    const many: DraftSky = {
+      draft_id: 'big',
+      theme_label: 'T',
+      concepts: Array.from({ length: 31 }, (_, i) => ({ key: `k${i}`, label: `新${i}`, kind: 'class' as const, use: 'new' as const })),
+      relations: [],
+      questions: [],
+    }
+    const r = localSky(sky, [many], [], focus({ draftIds: new Set(['big']), selectedId: termId(`${NS}b`) }), 30)
+    expect(slugs(r)).toContain('b')
+    expect(r.drafts.map((d) => d.draft_id)).toEqual(['big'])
+  })
 })

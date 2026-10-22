@@ -33,11 +33,12 @@ describe('LocalPanel', () => {
     expect(html).toContain('aria-expanded="true"')
     expect(html).toContain('chart-pane')
   })
-  it('覚えている「たたむ」で始まり、中身を出さない', () => {
+  it('覚えている「たたむ」で始まり、中身は隠す（mount はしたまま＝開き直しで生まれた輪が二度出ない）', () => {
     stubStorage({ [LOCAL_OPEN_KEY]: '0' })
     const html = panel(['urn:a'])
     expect(html).toContain('aria-expanded="false"')
-    expect(html).not.toContain('chart-pane')
+    expect(html).toContain('<div hidden="">')
+    expect(html).toContain('chart-pane')
   })
   it('開閉を localStorage に書く。読めなくても落ちない', () => {
     const m = stubStorage()

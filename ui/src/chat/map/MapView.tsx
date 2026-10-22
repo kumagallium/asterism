@@ -1,10 +1,11 @@
 // 全体の地図（丸＋横の文字）。sigma を素で作って壊す（NetworkView.tsx の NetworkCanvas と同じ流儀）。
 // データと配置は mapModel.ts の純関数。契約 pr11h-contract.md §3。
 import Sigma from 'sigma'
+import type Graph from 'graphology'
 import { useEffect, useMemo, useRef } from 'react'
 import type { DraftSky, SkyData, SkyDataset } from '../../sky/skyApi'
 import type { PointSel } from '../chatState'
-import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood } from './mapModel'
+import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature, safeResize, syncMapAttributes } from './mapModel'
 import type { MapNodeAttrs } from './mapModel'
 
 export interface MapViewProps {
@@ -23,6 +24,8 @@ export interface MapViewProps {
   onSelect: (sel: PointSel | null, nodeId: string | null) => void
   ariaLabel: string
   fitLabel: string
+  /** 点が 1 つも無いときの 1 行。 */
+  emptyLabel?: string
 }
 
 /** CSS 変数を実際の色に解決する（sigma は CSS 変数を読めない）。 */
@@ -85,17 +88,18 @@ export function MapView({
   onSelect,
   ariaLabel,
   fitLabel,
+  emptyLabel,
 }: MapViewProps) {
-  // グラフを作り直すのは sky／drafts／proposedDatasets／lang が変わったときだけ
-  const graph = useMemo(() => {
-    const g = buildMapGraph(sky, drafts, proposedDatasets, lang)
-    layoutMap(g)
-    return g
-  }, [sky, drafts, proposedDatasets, lang])
+  // グラフは sky／drafts／proposedDatasets／lang が変わるたびに作る（速い）。形（点の id と線）が前と同じなら、
+  // 配置済みのグラフと sigma を使い回して属性（色・大きさ・薄さ）だけ写す（配置は遅い・作り直すとカメラが戻る）
+  const fresh = useMemo(() => buildMapGraph(sky, drafts, proposedDatasets, lang), [sky, drafts, proposedDatasets, lang])
 
   const hostRef = useRef<HTMLDivElement>(null)
   const sigmaRef = useRef<Sigma | null>(null)
+  const refreshRef = useRef<(() => void) | null>(null)
   const hovRef = useRef<string | null>(null)
+  const laidRef = useRef<{ sig: string; graph: Graph } | null>(null)
+  const roRef = useRef<ResizeObserver | null>(null)
   const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect })
   useEffect(() => {
     propsRef.current = { focusIds, selectedId, highlightIds, removeIds, onSelect }
@@ -104,9 +108,28 @@ export function MapView({
   useEffect(() => {
     const host = hostRef.current
     if (!host || typeof WebGLRenderingContext === 'undefined') return
+    const sig = mapSignature(fresh)
+    const laid = laidRef.current
+    if (laid && laid.sig === sig && sigmaRef.current) {
+      // 形が同じ: 属性だけ写して描き直す（sigma はそのまま。カメラも動かない）
+      syncMapAttributes(laid.graph, fresh)
+      refreshRef.current?.()
+      return
+    }
+    // 形が変わった: 前の sigma を壊し、配置して作り直す
+    roRef.current?.disconnect()
+    roRef.current = null
+    sigmaRef.current?.kill()
+    sigmaRef.current = null
+    refreshRef.current = null
+    hovRef.current = null
+    layoutMap(fresh)
+    laidRef.current = { sig, graph: fresh }
+    const graph = fresh
     const pal = readPalette()
-    // 濃く出す点の集まり（hover か選んだ点の近傍＋1 枚などで押した点とその近傍）。無ければ null＝全部ふつう
-    const emphasis = (): { strong: Set<string>; active: string | null } | null => {
+    // 濃く出す点の集まり（hover か選んだ点の近傍＋1 枚などで押した点とその近傍）。無ければ null＝全部ふつう。
+    // reducer の呼び出しごとに作り直さず、refresh の前に 1 回だけ作る
+    const computeEmphasis = (): { strong: Set<string>; active: string | null } | null => {
       const p = propsRef.current
       const active = hovRef.current ?? p.selectedId
       const hl = p.highlightIds && p.highlightIds.size > 0 ? p.highlightIds : null
@@ -115,9 +138,18 @@ export function MapView({
       if (hl) for (const id of hl) for (const n of mapNeighborhood(graph, id)) strong.add(n)
       return { strong, active }
     }
+    let em = computeEmphasis()
+    const emphasis = () => em
+    const refresh = (): void => {
+      em = computeEmphasis()
+      sigma.refresh()
+    }
+    refreshRef.current = refresh
     let sigma: Sigma
     try {
       sigma = new Sigma(graph, host, {
+        // 隠れた容器（375 のタブ・データを添える欄の間）でも例外にしない。見えたら resize する
+        allowInvalidContainer: true,
         renderEdgeLabels: false,
         zIndex: true,
         labelSize: 12,
@@ -179,30 +211,54 @@ export function MapView({
       (sel, id) => propsRef.current.onSelect(sel, id),
       (id) => {
         hovRef.current = id
-        sigma.refresh()
+        refresh()
       },
     )
     sigmaRef.current = sigma
-    return () => {
-      sigma.kill()
-      sigmaRef.current = null
-      hovRef.current = null
+    // 容器が見えた（幅と高さが 0 でなくなった）・大きさが変わったときに測り直す
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => {
+        const r = host.getBoundingClientRect()
+        safeResize(sigma, r.width, r.height)
+      })
+      ro.observe(host)
+      roRef.current = ro
     }
-  }, [graph])
+  }, [fresh])
+
+  // 外すときだけ壊す
+  useEffect(
+    () => () => {
+      roRef.current?.disconnect()
+      roRef.current = null
+      sigmaRef.current?.kill()
+      sigmaRef.current = null
+      refreshRef.current = null
+    },
+    [],
+  )
 
   useEffect(() => {
-    sigmaRef.current?.refresh()
+    refreshRef.current?.()
   }, [focusIds, selectedId, highlightIds, removeIds])
 
-  // 高さが変わったら描き直す
+  // 高さが変わったら描き直す（隠れているときは何もしない）
   useEffect(() => {
-    sigmaRef.current?.resize()
-    sigmaRef.current?.refresh()
+    const host = hostRef.current
+    const sigma = sigmaRef.current
+    if (!host || !sigma) return
+    const r = host.getBoundingClientRect()
+    safeResize(sigma, r.width, r.height)
   }, [height])
 
   return (
     <div className="chat-map" data-testid="chat-map" style={{ height }}>
       <div ref={hostRef} className="chat-map-canvas" style={{ width: '100%', height: '100%' }} role="img" aria-label={ariaLabel} />
+      {fresh.order === 0 && emptyLabel && (
+        <p className="chat-map-empty" data-testid="map-empty">
+          {emptyLabel}
+        </p>
+      )}
       <button
         type="button"
         className="chat-map-fit"

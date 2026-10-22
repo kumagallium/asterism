@@ -58,7 +58,8 @@ export interface ChartPaneProps {
   /** 上の「答えられる問い N / M」を出さない（地図の上の 1 行が持つ）。 */
   hideFacts?: boolean
   /** 点か線を押した（空白を押すと null＝1 枚を閉じる）。 */
-  onSelect?: (sel: PointSel | null) => void
+  /** 押した点（第 2 引数は点の id。線を押したときは null）。 */
+  onSelect?: (sel: PointSel | null, nodeId?: string | null) => void
   /** 1 枚の中の文・表・出典を押した: 図でそれを濃くする（null で戻す）。 */
   highlight?: Highlight | null
 }
@@ -263,18 +264,18 @@ export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSele
       const std = hitStdLine(layout, p.x, p.y)
       if (std && std.stdId && std.stdLabel) {
         setSelectedId(std.id)
-        onSelect?.({ kind: 'std', iri: std.stdId.slice(2), label: std.stdLabel.slice(std.stdLabel.indexOf(':') + 1) })
+        onSelect?.({ kind: 'std', iri: std.stdId.slice(2), label: std.stdLabel.slice(std.stdLabel.indexOf(':') + 1) }, std.id)
         return
       }
       const sel = selectionOfNode(n, layout)
       setSelectedId(sel ? n.id : null)
-      onSelect?.(sel)
+      onSelect?.(sel, n.id)
       return
     }
     const e = hitEdge(layout, p.x, p.y)
     const sel = e ? selectionOfEdge(layout, e) : null
     setSelectedId(null)
-    onSelect?.(sel)
+    onSelect?.(sel, null)
   }
 
   // ── 画像で保存 ──

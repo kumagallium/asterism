@@ -538,12 +538,24 @@ export function ChatApp() {
     return { termIris, draftIds: new Set(sessionDraft ? [sessionDraft.draft_id] : []), selectedId: pickedId }
   }, [session, okSky, sessionDraft, pickedId])
   const local = useMemo(() => (okSky ? localSky(okSky.sky, okSky.proposed, okSky.proposedDatasets, focus) : null), [okSky, focus])
+  // この話の点だけ（確認した用語と、この話の提案の札）。1 ホップや押した点の周りは入れない
   const focusIds = useMemo(() => {
     const ids = new Set<string>()
-    for (const x of local?.sky.terms ?? []) ids.add(termId(x.iri))
-    for (const d of local?.drafts ?? []) for (const c of d.concepts) if (!c.use.startsWith('existing:')) ids.add(draftNodeId(d.draft_id, c.key))
+    for (const iri of focus.termIris) ids.add(termId(iri))
+    for (const d of local?.drafts ?? []) {
+      if (!focus.draftIds.has(d.draft_id)) continue
+      for (const c of d.concepts) if (!c.use.startsWith('existing:')) ids.add(draftNodeId(d.draft_id, c.key))
+    }
     return ids
-  }, [local])
+  }, [focus, local])
+  // 局所の札を押したときも、地図の選んだ点と局所の焦点を合わせる
+  const onLocalSelect = useCallback(
+    (next: PointSel | null, nodeId?: string | null) => {
+      if (nodeId) setPickedId(nodeId)
+      onSelect(next)
+    },
+    [onSelect],
+  )
   const removeIds = useMemo(() => new Set((okSky?.proposed ?? []).flatMap((d) => d.removals?.terms ?? []).map(termId)), [okSky])
   const highlightIds = useMemo<ReadonlySet<string> | null>(() => {
     if (!highlight || !okSky) return null
@@ -691,11 +703,12 @@ export function ChatApp() {
                 highlightIds={highlightIds}
                 removeIds={removeIds}
                 onSelect={onMapSelect}
+                emptyLabel={t('map.empty')}
                 ariaLabel={t('map.aria')}
                 fitLabel={t('map.fit')}
               />
               <p className="chat-map-legend">{t('map.legend')}</p>
-              {local && <LocalPanel lang={lang} local={local} born={okSky.born} onSelect={onSelect} highlight={highlight} />}
+              {local && <LocalPanel lang={lang} local={local} born={okSky.born} onSelect={onLocalSelect} highlight={highlight} />}
             </>
           )}
         </div>
