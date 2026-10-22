@@ -22,6 +22,8 @@ import {
   type BindingDecision,
   type GraphOp,
   type Point,
+  RevertFailedError,
+  type Undone,
   type SetAnswerBody,
   type Session,
   type SessionSummary,
@@ -29,7 +31,7 @@ import {
   type TurnInput,
 } from './chatApi'
 import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
-import { pointQueryOf, sameSel, type Highlight, type PointSel } from './chatState'
+import { pointQueryOf, removeOf, sameSel, thinPointOf, type Highlight, type PointSel } from './chatState'
 import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
 import { AddPanel } from './AddPanel'
 import { ChartPane } from './ChartPane'
@@ -168,6 +170,8 @@ export function ChatApp() {
   const [point, setPoint] = useState<Point | null>(null)
   const [pointTick, setPointTick] = useState(0)
   const [highlight, setHighlight] = useState<Highlight | null>(null)
+  /** 確認済みの手番を戻した結果（手番の id → 結果）。 */
+  const [undone, setUndone] = useState<Record<string, Undone>>({})
   const onSelect = useCallback((next: PointSel | null) => {
     setHighlight(null)
     setSel((cur) => (sameSel(cur, next) ? cur : next))
@@ -176,15 +180,20 @@ export function ChatApp() {
   }, [layout.tabs])
   useEffect(() => {
     if (!sel) return
+    // 薄い星（未公開）は api を呼ばず、小さな 1 枚を作る
+    if (sel.kind === 'kind' && sel.thin) {
+      setPoint(thinPointOf(sel))
+      return
+    }
     let off = false
-    getPoint(pointQueryOf(sel))
+    getPoint(pointQueryOf(sel), lang)
       .then((p) => !off && setPoint(p))
       // 取れなければ 1 枚は出さない（消えた点・壊れた返り）
       .catch(() => !off && setPoint(null))
     return () => {
       off = true
     }
-  }, [sel, pointTick])
+  }, [sel, pointTick, lang])
 
   const afterChange = useCallback(() => {
     setChartTick((n) => n + 1)
@@ -423,11 +432,14 @@ export function ChatApp() {
       setError(null)
       try {
         const res = await revertTurn(id, turnId, lang)
+        if (res.undone) setUndone((cur) => ({ ...cur, [turnId]: res.undone as Undone }))
         await reread(id, (cur) => applyRevert(cur, res))
         setDraft(res.draft)
         afterChange()
       } catch (e) {
-        setError(messageOf(e))
+        // 戻せなかったものがあれば、その手番に赤い 1 行（「戻す」は残る）
+        if (e instanceof RevertFailedError) setUndone((cur) => ({ ...cur, [turnId]: e.undone }))
+        else setError(messageOf(e))
       } finally {
         setBusy(null)
       }
@@ -454,6 +466,16 @@ export function ChatApp() {
       }
     },
     [busy, lang, session, reread, afterChange],
+  )
+  /** 1 枚の「戻す」（確認済みの用語・線）: 外す提案の手番を足す。✓ で確定する。 */
+  const onPointRemove = useCallback(
+    async () => {
+      if (!sel) return
+      const remove = removeOf(sel)
+      if (!remove) return
+      await runTurn({ remove })
+    },
+    [sel, runTurn],
   )
   const titleOf = useCallback((id: string) => sessions?.find((x) => x.id === id)?.title || undefined, [sessions])
 
@@ -552,6 +574,8 @@ export function ChatApp() {
           titleOf={titleOf}
           onContents={(name) => void onSend(t('point.showText', { name }))}
           onPointRevert={(p) => void onPointRevert(p)}
+          onPointRemove={() => void onPointRemove()}
+          undone={undone}
           onHighlight={setHighlight}
         />
       </section>

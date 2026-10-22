@@ -2,7 +2,7 @@
 // notes.kind の全部（ai_unset・ai_failed・dropped・no_question・commit_error・info）と questions を今から描ける（11b が使う）。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { BindingDecision, Decided, Note, Turn } from './chatApi'
+import type { BindingDecision, Decided, Note, Turn, Undone } from './chatApi'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ReplyAnswer, ReplyTable } from './chatApi'
@@ -32,6 +32,8 @@ export interface ReplyCardProps {
   interrupted?: boolean
   /** 返事の中の小さな選択を決めた（手番・注記の番号・値）。 */
   onChoose?: (turnId: string, noteIndex: number, value: string) => void
+  /** 確認済みの手番を戻した結果（失敗なら failed つき）。 */
+  undone?: Undone
   /** 表の種類・出典を押した（図で濃く）。 */
   onHighlight?: (h: Highlight | null) => void
 }
@@ -110,9 +112,22 @@ export function ReplyTableView({ table, onHighlight }: { table: ReplyTable; onHi
                       {r.label || r.iri}
                     </button>
                   </th>
-                  {table.columns.map((c) => (
-                    <td key={c.iri}>{r.cells[c.iri] ?? ''}</td>
-                  ))}
+                  {table.columns.map((c) => {
+                    const cell = r.cells[c.iri]
+                    const tx = cell?.text ?? ''
+                    const short = tx.length > 24 ? `${tx.slice(0, 24)}…` : tx
+                    return (
+                      <td key={c.iri} title={tx.length > 24 ? tx : undefined}>
+                        {cell?.iri ? (
+                          <button type="button" className="link-btn" onClick={() => onHighlight?.({ iris: [cell.iri as string] })}>
+                            {short}
+                          </button>
+                        ) : (
+                          short
+                        )}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -132,11 +147,25 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
       <div className="chat-answer-text answer-md">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer.text}</ReactMarkdown>
       </div>
+      {answer.answered === false && (
+        <p className="chat-note-line" data-testid="reply-no-answer">
+          {t('ask.noAnswer')}
+        </p>
+      )}
+      {answer.unverified_sparql && (
+        <p className="chat-answer-warning" role="note" data-testid="reply-unverified">
+          {t('ask.unverified')}
+        </p>
+      )}
       {answer.citations.length > 0 && (
         <ul className="chat-citations" data-testid="reply-citations" aria-label={t('ask.sources')}>
           {answer.citations.map((c, i) => (
             <li key={i}>
-              <button type="button" className="chat-citation" onClick={() => onHighlight?.({ iris: [c.iri] })}>
+              <button
+                type="button"
+                className="chat-citation"
+                onClick={() => onHighlight?.({ iris: [c.iri], ...(c.dataset_id ? { datasetId: c.dataset_id } : {}) })}
+              >
                 <span className="chat-citation-name">{c.label || c.iri}</span>
                 {c.dataset_label && <span className="sky-meta">{c.dataset_label}</span>}
               </button>
@@ -154,7 +183,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
           {n}
         </p>
       ))}
-      {answer.verified_tools.length > 0 && (
+      {answer.verified_tools.length > 0 && !answer.unverified_sparql && (
         <span className="chat-mark chat-mark--confirmed" data-testid="reply-verified" title={answer.verified_tools.join(' · ')}>
           {t('ask.verified')}
         </span>
@@ -186,7 +215,7 @@ export function ReplyCard(p: ReplyCardProps) {
   return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} /> : <ReplyBody {...p} />
 }
 
-function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names, onChoose, onHighlight }: ReplyCardProps) {
+function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names, onChoose, onHighlight, undone }: ReplyCardProps) {
   const { t, i18n } = useTranslation('chat')
   const r = turn.reply
   // 結ぶ／結ばないの選び（変えたものだけ持つ。✓ のときに既定へ重ねて送る）
@@ -200,6 +229,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   const proposed = turn.state === 'proposed'
   const machineMark = showMachineMark(turn)
   const publish = turnKind(turn) !== 'theme'
+  const [undoAsk, setUndoAsk] = useState(false)
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set())
   const unsend = (q: string) =>
     setSent((cur) => {
@@ -317,6 +347,21 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
               {t('reply.kept', { slug: keptName(k.slug, names), reason: k.reason })}
             </p>
           ))}
+        {undone && (
+          <>
+            {(undone.failed ?? []).map((f, i) => (
+              <p key={i} className="promote-err" role="alert" data-testid="reply-undo-failed">
+                {t('reply.undoneFailed', { what: f.what, reason: f.reason })}
+              </p>
+            ))}
+            {!undone.failed && (
+              <p className="chat-note-line" data-testid="reply-undone">
+                {t('reply.undone', { lines: undone.lines, terms: undone.terms })}
+                {undone.kept.length > 0 && t('reply.undoneKept', { names: undone.kept.map((k) => keptName(k.slug, names)).join('・') })}
+              </p>
+            )}
+          </>
+        )}
         {(turn.state !== 'none' || machineMark) && (
           <div className="chat-card-foot">
             {machineMark && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
@@ -330,6 +375,28 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
                 {publish ? t('reply.publish') : t('reply.confirm')}
                 {!publish && count > 0 && ` ${t('reply.count', { n: count })}`}
               </button>
+            )}
+            {turn.state === 'confirmed' && turn.commit && !undoAsk && (
+              <button type="button" className="link-btn" data-testid="reply-undo" disabled={busy} onClick={() => setUndoAsk(true)}>
+                {t('reply.revert')}
+              </button>
+            )}
+            {turn.state === 'confirmed' && turn.commit && undoAsk && (
+              <span className="chat-point-ask" data-testid="reply-undo-ask">
+                <span>{t('reply.undoAsk', { terms: turn.commit.minted.length, lines: turn.commit.lines })}</span>
+                <button
+                  type="button"
+                  className="link-btn"
+                  data-testid="reply-undo-yes"
+                  disabled={busy}
+                  onClick={() => {
+                    setUndoAsk(false)
+                    onRevert(turn.id)
+                  }}
+                >
+                  {t('reply.revert')}
+                </button>
+              </span>
             )}
             {proposed && (
               <button type="button" className="link-btn" data-testid="reply-revert" disabled={busy} onClick={() => onRevert(turn.id)}>

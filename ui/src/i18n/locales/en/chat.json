@@ -33,7 +33,11 @@
     "reverted": "Undone",
     "removed": "Removed: {{terms}} terms, {{lines}} relations",
     "kept": "Kept: {{slug}} ({{reason}})",
-    "revert": "Undo"
+    "revert": "Undo",
+    "undoAsk": "Undo what this ✓ added: {{terms}} terms, {{lines}} sentences",
+    "undone": "Undone: {{lines}} sentences, {{terms}} terms",
+    "undoneKept": " (kept: {{names}})",
+    "undoneFailed": "Could not undo: {{what}} ({{reason}})"
   },
   "tabs": {
     "label": "Area to show",
@@ -101,7 +105,6 @@
     "titleKind": "Kind",
     "titleStd": "Standard term",
     "titleHub": "Link",
-    "titleLine": "Link",
     "titleDraft": "Proposal",
     "termClass": "kind",
     "termProperty": "field",
@@ -123,7 +126,10 @@
     "members": "Kinds inside",
     "standard": "Standard term",
     "noSentence": "No sentences yet",
-    "untitled": "New chat"
+    "untitled": "New chat",
+    "removeAsk": "Propose removing \"{{name}}\" from the chart (confirm with ✓)",
+    "boundTerms": "Bound terms",
+    "unpublished": "Not published yet"
   },
   "table": {
     "more": "{{n}} more",
@@ -132,7 +138,8 @@
   },
   "ask": {
     "verified": "Answered with deterministic tools",
-    "noAnswer": "No answer came back",
-    "sources": "Sources"
+    "noAnswer": "No answer came out",
+    "sources": "Sources",
+    "unverified": "Answered with a query that was not verified"
   }
 }

@@ -49,11 +49,17 @@ export interface Reply {
   table: ReplyTable | null
 }
 
+/** 表のセル。`iri` があれば図の点（押すと濃く）。 */
+export interface TableCell {
+  text: string
+  iri?: string
+}
+
 /** 「見せて」の表（`reply.table`）。 */
 export interface ReplyTable {
   kind: { iri: string; label: string }
   columns: { iri: string; label: string }[]
-  rows: { iri: string; label: string; cells: Record<string, string> }[]
+  rows: { iri: string; label: string; cells: Record<string, TableCell> }[]
   total: number
   truncated: boolean
 }
@@ -65,6 +71,10 @@ export interface ReplyAnswer {
   notes: string[]
   warnings: string[]
   verified_tools: string[]
+  /** 検証していない問い合わせで答えた。 */
+  unverified_sparql: boolean
+  /** false なら答えが出なかった（無ければ true）。 */
+  answered: boolean
 }
 
 /** 列と用語の一致 1 件。`decided` は既定（結ぶ／結ばない）で、✓ のときに人の選びを送る。 */
@@ -176,11 +186,31 @@ export interface BindingDecision {
   decided: Decided
 }
 
+/** 確認済みの手番を戻した結果（`undone`）。 */
+export interface Undone {
+  lines: number
+  terms: number
+  questions: number
+  kept: { slug: string; reason: string }[]
+  failed?: { what: string; reason: string }[]
+}
+
 export interface RevertResponse {
   turn: Turn
   session: SessionBrief
   draft: SkyDraft | null
   reverted: string[]
+  /** 確認済みの手番を戻したときだけ。 */
+  undone?: Undone
+}
+
+/** 戻す途中で失敗した（409）。何が戻せなかったかを `undone.failed` に持つ。 */
+export class RevertFailedError extends ThemesApiError {
+  undone: Undone
+  constructor(message: string, detail: string, undone: Undone) {
+    super(message, 409, detail)
+    this.undone = undone
+  }
 }
 
 /** 鍵が無い（401/503）。話を保存できない。 */
@@ -264,8 +294,12 @@ export function tableOf(v: unknown): ReplyTable | null {
     .filter(isObj)
     .filter((r) => typeof r.iri === 'string')
     .map((r) => {
-      const cells: Record<string, string> = {}
-      if (isObj(r.cells)) for (const [k, x] of Object.entries(r.cells)) if (typeof x === 'string') cells[k] = x
+      const cells: Record<string, TableCell> = {}
+      if (isObj(r.cells))
+        for (const [k, x] of Object.entries(r.cells)) {
+          if (typeof x === 'string') cells[k] = { text: x }
+          else if (isObj(x)) cells[k] = typeof x.iri === 'string' && x.iri ? { text: str(x.text), iri: x.iri } : { text: str(x.text) }
+        }
       return { iri: str(r.iri), label: str(r.label, str(r.iri)), cells }
     })
   const total = typeof v.total === 'number' ? v.total : rows.length
@@ -288,6 +322,8 @@ export function answerOf(v: unknown): ReplyAnswer | null {
     notes: lines(v.notes),
     warnings: lines(v.warnings),
     verified_tools: strs(v.verified_tools),
+    unverified_sparql: v.unverified_sparql === true,
+    answered: v.answered !== false,
   }
 }
 
@@ -482,6 +518,8 @@ export interface TurnInput {
   set_answer?: SetAnswerBody
   /** 返事の中の小さな選択（ラジオ 1 組）。 */
   choice?: { turn_id: string; note_index: number; value: string }
+  /** 確認済みの点（用語か線）を外す提案。 */
+  remove?: { iri: string } | { from: string; relation: string; to: string }
   lang?: 'ja' | 'en'
 }
 
@@ -544,17 +582,40 @@ export async function confirmTurn(
   }
 }
 
+function undoneOf(v: unknown): Undone | undefined {
+  if (!isObj(v)) return undefined
+  const n = (x: unknown): number => (typeof x === 'number' ? x : Array.isArray(x) ? x.length : 0)
+  const failed = Array.isArray(v.failed) ? v.failed.filter(isObj).map((f) => ({ what: str(f.what), reason: str(f.reason) })) : []
+  return {
+    lines: n(v.lines),
+    terms: n(v.terms),
+    questions: n(v.questions),
+    kept: Array.isArray(v.kept) ? v.kept.filter(isObj).map((k) => ({ slug: str(k.slug), reason: str(k.reason) })).filter((k) => k.slug !== '') : [],
+    ...(failed.length > 0 ? { failed } : {}),
+  }
+}
+
 export async function revertTurn(id: string, turnId: string, lang: 'ja' | 'en' = 'ja'): Promise<RevertResponse> {
-  const res = await call(
-    `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/revert?lang=${lang}`,
-    { method: 'POST', headers: json(), body: '{}' },
-    'revert',
-  )
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/revert?lang=${lang}`, {
+    method: 'POST',
+    headers: json(),
+    body: '{}',
+  })
+  if (!res.ok) {
+    if (res.status === 409) {
+      const raw = await res.clone().json().catch(() => null)
+      const d = isObj(raw) ? (isObj(raw.detail) ? raw.detail : raw) : null
+      const undone = d ? undoneOf(d.undone) : undefined
+      if (undone?.failed) throw new RevertFailedError(i18n.t('themes:error.failed', { op: i18n.t('chat:error.ops.revert'), status: 409, detail: '' }), '', undone)
+    }
+    throw await asError(res, i18n.t('chat:error.ops.revert'))
+  }
   const body: unknown = await res.json()
   const turn = isObj(body) ? normalizeTurn(body.turn) : null
   const session = isObj(body) ? brief(body.session) : null
   if (!turn || !session || !isObj(body)) throw badShape()
-  return { turn, session, draft: draftSky(body.draft), reverted: strs(body.reverted) }
+  const undone = undoneOf(body.undone)
+  return { turn, session, draft: draftSky(body.draft), reverted: strs(body.reverted), ...(undone ? { undone } : {}) }
 }
 
 /**
@@ -626,6 +687,10 @@ export interface Point {
   members: { iri: string; label: string; dataset_label: string }[]
   can_revert: boolean
   dataset_id?: string
+  /** 標準の語（あれば）。 */
+  standard: { iri: string; label: string; prefix: string } | null
+  /** 薄い星（未公開のデータセットの種類）。api を呼ばずに作る小さな 1 枚。 */
+  thin?: { dataset: string }
   revert: { session_id: string; turn_id: string } | null
 }
 
@@ -673,12 +738,13 @@ export function normalizePoint(v: unknown): Point | null {
       : [],
     can_revert: v.can_revert === true,
     ...(typeof v.dataset_id === 'string' ? { dataset_id: v.dataset_id } : {}),
+    standard: isObj(v.standard) && typeof v.standard.iri === 'string' ? { iri: v.standard.iri, label: str(v.standard.label), prefix: str(v.standard.prefix) } : null,
     revert: rev,
   }
 }
 
-export async function getPoint(query: PointQuery): Promise<Point> {
-  const qs = new URLSearchParams(query as Record<string, string>).toString()
+export async function getPoint(query: PointQuery, lang: 'ja' | 'en' = 'ja'): Promise<Point> {
+  const qs = new URLSearchParams({ ...(query as Record<string, string>), lang }).toString()
   const res = await call(`/api/chat/point?${qs}`, { headers: authHeaders() }, 'point')
   const p = normalizePoint(await res.json())
   if (!p) throw badShape()

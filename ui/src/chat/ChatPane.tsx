@@ -1,7 +1,7 @@
 // 中央の領域＝チャット（PR 11a）。人の文（右寄せ）と返事（ReplyCard）を時系列に並べ、下に入力欄。
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { BindingDecision, Point, Session } from './chatApi'
+import type { BindingDecision, Point, Session, Undone } from './chatApi'
 import { confirmTargets, proposedCount, type Highlight } from './chatState'
 import { PointCard } from './PointCard'
 import { Composer } from './Composer'
@@ -44,6 +44,10 @@ export interface ChatPaneProps {
   /** 「中身」（<名前>を見せて）。 */
   onContents?: (name: string) => void
   onPointRevert?: (point: Point) => void
+  /** 確認済みの用語・線を外す提案にする。 */
+  onPointRemove?: (point: Point) => void
+  /** 確認済みの手番を戻した結果（手番の id → 結果）。 */
+  undone?: Record<string, Undone>
   /** 1 枚・表・出典の中で押したものを図で濃くする。 */
   onHighlight?: (h: Highlight | null) => void
 }
@@ -69,6 +73,7 @@ export function ChatPane(p: ChatPaneProps) {
             titleOf={p.titleOf}
             onContents={(name) => void p.onContents?.(name)}
             onRevert={(pt) => p.onPointRevert?.(pt)}
+            onRemove={(pt) => p.onPointRemove?.(pt)}
             onHighlight={(h) => p.onHighlight?.(h)}
           />
         </div>
@@ -110,6 +115,7 @@ export function ChatPane(p: ChatPaneProps) {
                 interrupted={p.interrupted?.[turn.id]}
                 onChoose={p.onChoose}
                 onHighlight={p.onHighlight}
+                undone={p.undone?.[turn.id]}
               />
             </div>
           ))

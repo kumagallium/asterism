@@ -1,6 +1,6 @@
 // 話の状態の純関数（vitest で検査する）。画面は fetch の返りをここに通して話を更新する。
 import type { SkyEdge, SkyLayout, SkyNode } from '../sky/skyLayout'
-import type { Binding, BindingDecision, Decided, ConfirmResponse, RevertResponse, Session, SessionBrief, Turn, TurnResponse } from './chatApi'
+import type { Point, Binding, BindingDecision, Decided, ConfirmResponse, RevertResponse, Session, SessionBrief, Turn, TurnResponse } from './chatApi'
 
 export type TurnKind = 'theme' | 'table' | 'machine'
 
@@ -162,27 +162,33 @@ export function bindingDecisions(bindings: readonly Binding[], picked: Readonly<
 
 // ── 点を押した 1 枚（PR 11d） ─────────────────────────────────────
 
-/** 押した点か線。`line` は両端の IRI と関係（`GET /api/chat/point?from=&relation=&to=`）。 */
+/**
+ * 押した点か線。`line` の `from`／`to` は api にそのまま渡す形（確認済みは IRI・提案は `draft:<id>:<key>`・標準の語は curie）。
+ * `kind` の `thin` は薄い星（未公開のデータセットの種類）で、api を呼ばない。
+ */
 export type PointSel =
-  | { kind: 'term' | 'kind' | 'std' | 'hub' | 'draft'; iri: string; label: string }
-  | { kind: 'line'; from: string; relation: string; to: string; label: string }
+  | { kind: 'term' | 'kind' | 'std' | 'hub'; iri: string; label: string; thin?: { dataset: string } }
+  | { kind: 'draft'; iri: string; draftId: string; label: string }
+  | { kind: 'line'; from: string; relation: string; to: string; label: string; draft?: boolean }
 
-/** 図で濃くするもの: 点（IRI）か、線（両端の IRI）。 */
-export type Highlight = { iris: string[] } | { edge: { from: string; to: string } }
+/** 図で濃くするもの: 点（IRI。`datasetId` があればその星座の種類を先に）、星座だけ（`iris` 空）、線（両端の IRI）。 */
+export type Highlight = { iris: string[]; datasetId?: string } | { edge: { from: string; to: string } }
 
 /** 図の点を 1 枚の対象にする。データセットの丸（IRI を持たない）は対象にしない。 */
-export function selectionOfNode(n: SkyNode): PointSel | null {
+export function selectionOfNode(n: SkyNode, layout?: SkyLayout): PointSel | null {
   switch (n.type) {
     case 'term':
       return { kind: 'term', iri: n.iri, label: n.label }
-    case 'kind':
+    case 'kind': {
+      if (n.proposed) return { kind: 'kind', iri: n.iri, label: n.label, thin: { dataset: layout?.nodes.get(`d|${n.datasetId}`)?.label ?? '' } }
       return { kind: 'kind', iri: n.iri, label: n.label }
+    }
     case 'std':
       return { kind: 'std', iri: n.iri, label: n.label }
     case 'hub':
       return { kind: 'hub', iri: n.hubId, label: n.label }
     case 'draft':
-      return { kind: 'draft', iri: n.conceptKey, label: n.label }
+      return { kind: 'draft', iri: n.conceptKey, draftId: n.draftId, label: n.label }
     default:
       return null
   }
@@ -197,23 +203,62 @@ export function selectionOfEdge(layout: SkyLayout, e: SkyEdge): PointSel | null 
     return { kind: 'line', from: a.iri, relation: e.relation, to: b.iri, label: `${a.label} → ${b.label}` }
   }
   if (e.kind === 'draft' && e.draft) {
+    const d = e.draft
     const a = layout.nodes.get(e.from)
     const b = layout.nodes.get(e.to)
-    return { kind: 'line', from: e.draft.fromKey, relation: e.draft.rel, to: e.draft.toKey, label: `${a?.label ?? e.draft.fromKey} → ${b?.label ?? e.draft.toKey}` }
+    // 標準の語（std の節）は curie のまま、提案の札は draft:<id>:<key>
+    const ref = (n: SkyNode | undefined, key: string) => (n?.type === 'std' ? key : `draft:${d.draftId}:${key}`)
+    return {
+      kind: 'line',
+      from: ref(a, d.fromKey),
+      relation: d.rel,
+      to: ref(b, d.toKey),
+      label: `${a?.label ?? d.fromKey} → ${b?.label ?? d.toKey}`,
+      draft: true,
+    }
   }
   return null
 }
 
-/** `GET /api/chat/point` の問い合わせ。 */
+/** `GET /api/chat/point` の問い合わせ。提案の札は `draft:<id>:<key>`・視点は `hub:<id>`。 */
 export function pointQueryOf(sel: PointSel): { iri: string } | { from: string; relation: string; to: string } {
-  return sel.kind === 'line' ? { from: sel.from, relation: sel.relation, to: sel.to } : { iri: sel.iri }
+  if (sel.kind === 'line') return { from: sel.from, relation: sel.relation, to: sel.to }
+  if (sel.kind === 'draft') return { iri: `draft:${sel.draftId}:${sel.iri}` }
+  if (sel.kind === 'hub') return { iri: `hub:${sel.iri}` }
+  return { iri: sel.iri }
+}
+
+/** 確認済みの用語・線を外す提案の本体（`POST …/turns {remove}`）。用語と線だけ。 */
+export function removeOf(sel: PointSel): { iri: string } | { from: string; relation: string; to: string } | null {
+  if (sel.kind === 'line') return sel.draft ? null : { from: sel.from, relation: sel.relation, to: sel.to }
+  if (sel.kind === 'term') return { iri: sel.iri }
+  return null
 }
 
 /** 同じ対象か（取り直しの要否）。 */
 export function sameSel(a: PointSel | null, b: PointSel | null): boolean {
   if (!a || !b) return a === b
   if (a.kind === 'line' || b.kind === 'line') return a.kind === 'line' && b.kind === 'line' && a.from === b.from && a.relation === b.relation && a.to === b.to
+  if (a.kind === 'draft' || b.kind === 'draft') return a.kind === 'draft' && b.kind === 'draft' && a.draftId === b.draftId && a.iri === b.iri
   return a.kind === b.kind && a.iri === b.iri
+}
+
+/** 薄い星の小さな 1 枚（api を呼ばない）。名前・データセット名。 */
+export function thinPointOf(sel: { iri: string; label: string; thin?: { dataset: string } }): Point {
+  return {
+    iri: sel.iri,
+    kind: 'kind',
+    label: sel.label,
+    term_kind: '',
+    sentences: [],
+    provenance: null,
+    questions: [],
+    members: [],
+    can_revert: false,
+    standard: null,
+    thin: { dataset: sel.thin?.dataset ?? '' },
+    revert: null,
+  }
 }
 
 /** 来歴の「誰が」の鍵（`chat:point.by*`）。 */

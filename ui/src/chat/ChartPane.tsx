@@ -9,7 +9,7 @@ import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
 import { bornAlive, drawSky, formatCount, hitLineEdge, hitTest, readSkyPalette, visiblePointLabels, type SkyLabels, type SkyPalette } from '../sky/skyDraw'
-import { layoutSky, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from '../sky/skyLayout'
+import { kindId, layoutSky, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout } from '../sky/skyLayout'
 import { SkyTables } from '../sky/SkyTables'
 import { buildSkyTables } from '../sky/skyTable'
 import '../sky/sky.css'
@@ -156,7 +156,17 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
       const b = nodeIdsForIris(layout, [highlight.edge.to])[0]
       return a && b ? { focusId: a, near: new Set([a, b]) } : null
     }
-    const ids = nodeIdsForIris(layout, highlight.iris)
+    let ids = nodeIdsForIris(layout, highlight.iris)
+    if (highlight.datasetId) {
+      // 出典: その星座の種類を先に。引けなければ星座（データセットの丸と種類）を濃く
+      const ds = highlight.datasetId
+      const k = highlight.iris.map((i) => kindId(ds, i)).filter((id) => layout.nodes.has(id))
+      if (k.length > 0) ids = k
+      else {
+        const all = [...layout.nodes.values()].filter((n) => (n.type === 'dataset' || n.type === 'kind') && n.datasetId === ds).map((n) => n.id)
+        if (all.length > 0) return { focusId: all[0], near: new Set(all) }
+      }
+    }
     return ids.length > 0 ? { focusId: ids[0], near: neighborhoodOf(layout, ids) } : null
   }, [highlight, layout])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -273,7 +283,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     const p = localPoint(ev)
     const n = hitTest(layout, p.x, p.y)
     if (n) {
-      const sel = selectionOfNode(n)
+      const sel = selectionOfNode(n, layout)
       setSelectedId(sel ? n.id : null)
       onSelect?.(sel)
       return

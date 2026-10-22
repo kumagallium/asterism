@@ -333,6 +333,7 @@ const point = (over: Partial<Point> = {}): Point => ({
   questions: [{ title: '熱伝導率を下げる要素は？', mode: 'knowledge', answering: 2, knowledge: 1 }],
   members: [{ iri: 'https://ex.org/kind/sample', label: '試料', dataset_label: '熱電データ' }],
   can_revert: true,
+  standard: null,
   revert: { session_id: 'cabc12345x', turn_id: 't1' },
   ...over,
 })
@@ -389,8 +390,8 @@ describe('ReplyCard の表と答え', () => {
         reply: reply({
           table: {
             kind: { iri: 'k', label: '試料' },
-            columns: [{ iri: 'p1', label: '組成' }],
-            rows: [{ iri: 's1', label: '試料1', cells: { p1: 'Bi2Te3' } }],
+            columns: [{ iri: 'p1', label: '組成' }, { iri: 'p2', label: '相' }],
+            rows: [{ iri: 's1', label: '試料1', cells: { p1: { text: 'Bi2Te3' }, p2: { text: '0123456789012345678901234567890', iri: 'https://ex.org/x' } } }],
             total: 25,
             truncated: true,
           },
@@ -402,6 +403,8 @@ describe('ReplyCard の表と答え', () => {
     expect(text(html)).toContain('組成')
     expect(text(html)).toContain('Bi2Te3')
     expect(text(html)).toContain('ほか 24 件')
+    expect(text(html)).toContain('012345678901234567890123…')
+    expect(html).toContain('title="0123456789012345678901234567890"')
   })
   it('答え: 本文・出典（名前とデータセット名）・警告・決定論の印。✓ も戻すも無い', () => {
     const html = card(
@@ -415,6 +418,8 @@ describe('ReplyCard の表と答え', () => {
             notes: [],
             warnings: ['一部の値は推定です'],
             verified_tools: ['count'],
+            unverified_sparql: false,
+            answered: true,
           },
         }),
       }),
@@ -427,5 +432,64 @@ describe('ReplyCard の表と答え', () => {
     expect(html).toContain('data-testid="reply-verified"')
     expect(html).not.toContain('reply-confirm')
     expect(html).not.toContain('reply-revert')
+  })
+})
+
+describe('点の 1 枚の穴（11d）', () => {
+  it('線の 1 枚: 見出しが文そのもの・文は重ねない・「文はまだありません」は出ない', () => {
+    const html = pcard(point({ kind: 'line', label: '格子熱伝導率 → 熱伝導率', members: [], can_revert: false, revert: null, provenance: null }))
+    expect(html).toContain('<h3><span>格子熱伝導率は熱伝導率の一部</span>')
+    expect(html).not.toContain('point-sentences')
+    expect(text(html)).not.toContain('つながり')
+    expect(text(html)).not.toContain('文はまだありません')
+  })
+  it('提案の札でも文を出す・文が無くても「まだありません」は出さない', () => {
+    const withS = pcard(point({ kind: 'draft', members: [], can_revert: false, revert: null, provenance: null }))
+    expect(withS).toContain('point-sentences')
+    const none = pcard(point({ kind: 'draft', sentences: [], members: [], can_revert: false, revert: null, provenance: null }))
+    expect(text(none)).not.toContain('文はまだありません')
+    expect(text(pcard(point({ kind: 'term', sentences: [] })))).toContain('文はまだありません')
+  })
+  it('標準用語は ≡ prefix:label・種類の見出しは「結ばれた用語」', () => {
+    const html = pcard(point({ standard: { iri: 'http://qudt.org/Kelvin', label: 'Kelvin', prefix: 'qudt' } }))
+    expect(text(html)).toContain('≡ qudt:Kelvin')
+    const k = pcard(point({ kind: 'kind', can_revert: false, revert: null }))
+    expect(text(k)).toContain('結ばれた用語')
+    expect(text(k)).not.toContain('入っている種類')
+  })
+  it('薄い星: 名前・データセット名・まだ公開していません。ほかは出ない', () => {
+    const html = pcard(point({ kind: 'kind', label: '商品', thin: { dataset: '価格表' }, members: [], sentences: [], can_revert: false, revert: null }))
+    expect(html).toContain('data-thin="true"')
+    expect(text(html)).toContain('商品')
+    expect(text(html)).toContain('価格表')
+    expect(text(html)).toContain('まだ公開していません')
+    expect(html).not.toContain('point-contents')
+  })
+  it('戻す: 確認済み（revert なし）は外す提案の確認文・未確認は取り消し', () => {
+    const open = (p: Point) => renderToStaticMarkup(<PointCard point={p} busy={false} onContents={noop} onRevert={noop} onRemove={noop} onHighlight={noop} />)
+    expect(open(point({ revert: null }))).toContain('point-revert')
+    expect(open(point())).toContain('point-revert')
+    expect(open(point({ kind: 'std', revert: null }))).not.toContain('point-revert')
+  })
+  it('確認済みの返事に「戻す」・戻した結果の 1 行・失敗は赤い 1 行', () => {
+    const confirmed = turn({ state: 'confirmed', commit: { theme_id: 't', minted: ['a', 'b'], lines: 3, questions: [], batch: 'b', at: '2026-10-22T00:00:00Z' } })
+    expect(card(confirmed, false)).toContain('data-testid="reply-undo"')
+    const done = renderToStaticMarkup(
+      <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 3, terms: 2, questions: 0, kept: [{ slug: 'x', reason: 'r' }] }} />,
+    )
+    expect(text(done)).toContain('戻しました: 文 3・用語 2（残した: x）')
+    const failed = renderToStaticMarkup(
+      <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 0, terms: 0, questions: 0, kept: [], failed: [{ what: '文', reason: '失敗' }] }} />,
+    )
+    expect(failed).toContain('reply-undo-failed')
+    expect(failed).toContain('data-testid="reply-undo"')
+    expect(card(turn({ state: 'proposed' }), true)).not.toContain('reply-undo')
+  })
+  it('Ask の印: 検証していない問い合わせ・答えが出ませんでした', () => {
+    const base = { text: '3 件', citations: [], notes: [], warnings: [], verified_tools: [] as string[] }
+    const mk = (extra: object) => card(turn({ state: 'none', reply: reply({ answer: { ...base, unverified_sparql: false, answered: true, ...extra } }) }), false)
+    expect(text(mk({ unverified_sparql: true }))).toContain('検証していない問い合わせで答えました')
+    expect(text(mk({ answered: false }))).toContain('答えが出ませんでした')
+    expect(text(mk({}))).not.toContain('答えが出ませんでした')
   })
 })
