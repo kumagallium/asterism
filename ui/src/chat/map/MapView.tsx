@@ -211,6 +211,8 @@ export function MapView({
       return
     }
     refreshRef.current = refresh
+    // 撮影と検証の道具のために、sigma を容器から引けるようにしておく（製品の動きには使わない）
+    ;(host as HTMLDivElement & { sigma?: Sigma }).sigma = sigma
     bindMapEvents(
       sigma,
       graph,
@@ -240,6 +242,7 @@ export function MapView({
       sigmaRef.current?.kill()
       sigmaRef.current = null
       refreshRef.current = null
+      if (hostRef.current) delete (hostRef.current as HTMLDivElement & { sigma?: Sigma }).sigma
     },
     [],
   )
