@@ -362,6 +362,37 @@ async def test_mint_writes_tbox_scaffold_cq_and_wired(tmp_path: Path) -> None:
     assert not (tmp_path / "vocab-shared" / "wired.json.tmp").exists()
 
 
+async def test_term_provenance_reads_who_and_when_and_writes_nothing(tmp_path: Path) -> None:
+    client = _Client()
+    cq = [CQSpec("回折点は何件か", "count")]
+    await sv.mint_term(
+        client, tmp_path, slug="by_human", kind="class", label="人の語", cqs=cq, at=AT
+    )
+    await sv.mint_term(
+        client,
+        tmp_path,
+        slug="by_ai",
+        kind="class",
+        label="AI の語",
+        cqs=cq,
+        drafted_by="ai",
+        at="2026-10-22T00:00:00+00:00",
+    )
+    before = len(client.ds)
+    assert await sv.term_provenance(client, sv.SV + "by_human") == {
+        "drafted_by": "human",
+        "at": AT,
+    }
+    assert await sv.term_provenance(client, sv.SV + "by_ai") == {
+        "drafted_by": "ai",
+        "at": "2026-10-22T00:00:00+00:00",
+    }
+    assert await sv.term_provenance(client, sv.SV + "nobody") is None
+    with pytest.raises(ValueError):
+        await sv.term_provenance(client, "not an iri")
+    assert len(client.ds) == before
+
+
 async def test_mint_without_cq_is_refused_and_writes_nothing(tmp_path: Path) -> None:
     client = _Client()
     with pytest.raises(TermError):

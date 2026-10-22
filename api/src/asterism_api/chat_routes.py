@@ -11,6 +11,7 @@
   設定されていれば AI の返事（準備＝ロックの中 → AI＝**ロックの外** → 適用＝ロックの中で読み直し）。
   未設定なら 11a の道（``notes.ai_unset``）。「さっきのを戻して」は AI を呼ばず決定論で戻す。
 * ``POST …/turns/{turn}/confirm`` — ✓。``POST …/turns/{turn}/revert`` — 未確認の返事を控えに戻す。
+* ``GET  /api/chat/point`` — 点（用語・種類・標準用語・視点・線・未確認の札）の 1 枚。
 
 全部 ``write_auth``。下書き・テーマの読み書きは ``app.state.themes_lock`` で 1 つずつ。
 組み立ては :mod:`asterism_api.chat_turns`（ここは受け取りと HTTP への写像だけ）。
@@ -28,11 +29,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from asterism import chat_sessions, shared_vocab, themes
-from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from asterism_api import chat_attach, chat_turns
+from asterism_api import chat_attach, chat_point, chat_turns
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
 
@@ -258,6 +259,27 @@ def register_chat(
         if session is None:
             raise HTTPException(404, "その話はありません")
         return JSONResponse(session)
+
+    # ---- 点の 1 枚 ---------------------------------------------------------------------------
+
+    @app.get("/api/chat/point", dependencies=deps)
+    async def chat_point_card(
+        iri: str | None = Query(default=None),
+        from_: str | None = Query(default=None, alias="from"),
+        relation: str | None = Query(default=None),
+        to: str | None = Query(default=None),
+        lang: Literal["ja", "en"] = "ja",
+    ) -> JSONResponse:
+        try:
+            card = await chat_point.build_point(
+                _client(), root, iri=iri, source=from_, relation=relation, target=to, lang=lang
+            )
+        except chat_point.PointError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        except Exception as exc:
+            logger.warning("chat point failed", exc_info=True)
+            raise HTTPException(502, f"point read failed: {exc}") from exc
+        return JSONResponse(card)
 
     # ---- 名前・消す ---------------------------------------------------------------------------
 

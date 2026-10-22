@@ -96,3 +96,24 @@ def test_draft_session_map_reads_once_and_id_re_rejects_trailing_newline(tmp_pat
     assert b["id"] not in cs.draft_session_map(tmp_path).values()
     assert not cs.ID_RE.match(a["id"] + "\n")
     assert cs.load_session(tmp_path, a["id"] + "\n") is None
+
+
+def test_turn_of_batch_and_turn_of_minted(tmp_path: Path) -> None:
+    a = cs.new_session("熱電材料")
+    a["turns"] = [
+        {"id": "t1", "state": "confirmed", "commit": {"minted": ["lattice"], "theme_id": "th1",
+                                                      "at": "2026-10-22T00:00:00+00:00"}},
+        {"id": "t2", "state": "reverted", "commit": {"minted": ["gone"], "theme_id": "th1"}},
+    ]  # fmt: skip
+    a = cs.save_session(tmp_path, a)
+    assert cs.turn_of_batch(tmp_path, f"{a['id']}:t1") == {"session_id": a["id"], "turn_id": "t1"}
+    for bad in (None, "", "no-colon", f"{a['id']}:t9", "cnosuchone0:t1", "../x:t1"):
+        assert cs.turn_of_batch(tmp_path, bad) is None
+    assert cs.turn_of_minted(tmp_path, "lattice") == {
+        "session_id": a["id"],
+        "turn_id": "t1",
+        "theme_id": "th1",
+        "at": "2026-10-22T00:00:00+00:00",
+    }
+    assert cs.turn_of_minted(tmp_path, "gone") is None  # 戻した手番は引かない
+    assert cs.turn_of_minted(tmp_path, "unknown") is None
