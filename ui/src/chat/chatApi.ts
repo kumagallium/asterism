@@ -756,3 +756,43 @@ export async function getPoint(query: PointQuery, lang: 'ja' | 'en' = 'ja'): Pro
   if (!p) throw badShape()
   return p
 }
+
+// ── 中身（ABox・PR 11k）: GET /api/chat/contents ──────────────────
+
+/** 押した点から決まる「何の中身か」。 */
+export type ContentsKey = { kind: string; dataset?: string } | { term: string } | { dataset: string; kind?: string } | { session: string }
+
+/** データセットごとの表。 */
+export interface ContentsTable {
+  dataset: { id: string; label: string }
+  table: ReplyTable
+}
+
+export interface ContentsLoad {
+  title: string
+  tables: ContentsTable[]
+  /** 出し切れなかった表の数。 */
+  more: number
+  note: string | null
+}
+
+/** 壊れた返りは null（呼び出し側が失敗として扱う）。表の読み方は `tableOf` と同じ。 */
+export function contentsOf(v: unknown): ContentsLoad | null {
+  if (!isObj(v) || !Array.isArray(v.tables)) return null
+  const tables: ContentsTable[] = []
+  for (const x of v.tables) {
+    if (!isObj(x) || !isObj(x.dataset)) return null
+    const table = tableOf(x.table)
+    if (!table) return null
+    tables.push({ dataset: { id: str(x.dataset.id), label: str(x.dataset.label, str(x.dataset.id)) }, table })
+  }
+  return { title: str(v.title), tables, more: typeof v.more === 'number' ? v.more : 0, note: typeof v.note === 'string' ? v.note : null }
+}
+
+export async function fetchContents(key: ContentsKey, lang: 'ja' | 'en' = 'ja', signal?: AbortSignal): Promise<ContentsLoad> {
+  const qs = new URLSearchParams({ ...(key as Record<string, string>), lang }).toString()
+  const res = await call(`/api/chat/contents?${qs}`, { headers: authHeaders(), signal }, 'contents')
+  const c = contentsOf(await res.json())
+  if (!c) throw badShape()
+  return c
+}

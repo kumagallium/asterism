@@ -3,7 +3,7 @@ import { EMPTY_SKY } from '../../sky/skyApi'
 import type { DraftSky, SkyData, SkyDataset, SkyTerm } from '../../sky/skyApi'
 import { draftNodeId, hubNodeId, kindId, termId } from '../../sky/skyLayout'
 import { selectionOfNode } from '../chatState'
-import { buildMapGraph, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, mapSignature, safeResize, syncMapAttributes, termSize } from './mapModel'
+import { buildMapGraph, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, mapSignature, relationLabel, safeResize, syncMapAttributes, termSize } from './mapModel'
 
 const term = (slug: string, label: string, members: SkyTerm['members'] = []): SkyTerm => ({
   iri: `urn:t:${slug}`,
@@ -208,5 +208,36 @@ describe('入力の順に依らない・形が同じなら配置を使い回せ�
     expect(calls).toEqual(['resize', 'refresh'])
     const bad = { resize: () => { throw new Error('Container has no width') }, refresh: () => undefined }
     expect(safeResize(bad, 300, 200)).toBe(false)
+  })
+})
+
+describe('線の名前（label）', () => {
+  const labels = (g: ReturnType<typeof buildMapGraph>, kind: string) =>
+    g.edges().filter((e) => g.getEdgeAttribute(e, 'kind') === kind).map((e) => g.getEdgeAttribute(e, 'label'))
+
+  it('concept の線にだけ label が付き、lang で変わる', () => {
+    const ja = buildMapGraph(sky, [], [], 'ja')
+    const en = buildMapGraph(sky, [], [], 'en')
+    expect(labels(ja, 'concept')).toEqual(['変える'])
+    expect(labels(en, 'concept')).toEqual(['changes'])
+    expect(labels(ja, 'member').every((l) => l === undefined)).toBe(true)
+    expect(labels(ja, 'dataset').every((l) => l === undefined)).toBe(true)
+  })
+
+  it('label は形ではない（signature は言語で変わらない）', () => {
+    expect(mapSignature(buildMapGraph(sky, [], [], 'ja'))).toBe(mapSignature(buildMapGraph(sky, [], [], 'en')))
+  })
+
+  it('関係の語', () => {
+    expect(relationLabel('isPartOf', 'ja')).toBe('一部')
+    expect(relationLabel('isA', 'en')).toBe('kind of')
+    expect(relationLabel('zzz', 'ja')).toBeUndefined()
+  })
+
+  it('syncMapAttributes は線の label も写す（ja で配置 → en を sync）', () => {
+    const laid = buildMapGraph(sky, [], [], 'ja')
+    layoutMap(laid)
+    syncMapAttributes(laid, buildMapGraph(sky, [], [], 'en'))
+    expect(labels(laid, 'concept')).toEqual(['changes'])
   })
 })

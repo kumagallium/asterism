@@ -37,9 +37,10 @@ import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable,
 import { AddPanel } from './AddPanel'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
-import { LocalPanel } from './LocalPanel'
+import { ContentsPanel } from './ContentsPanel'
+import { contentsKeyOf } from './contentsKey'
+import { useContents } from './useContents'
 import { MapView as MapHost } from './map/MapView'
-import { localSky } from './graph/neighborhood'
 import { useSky } from './useSky'
 import { draftNodeId, kindId, termId } from '../sky/skyLayout'
 import { SessionList } from './SessionList'
@@ -154,8 +155,6 @@ export function ChatApp() {
   // 未確認の図: 手番の返りのもの（すぐ使える）と、図を取り直して届いたもの（再読み込みのあとでも拾える）
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
   const [chartTick, setChartTick] = useState(0)
-  // 生まれた輪は ✓ の直後だけ（手番の直後は薄い札が増えるだけ）
-  const [bornTick, setBornTick] = useState(0)
   const [busy, setBusy] = useState<Busy>(null)
   const [pendingUser, setPendingUser] = useState<string | null>(null)
   const [pendingReading, setPendingReading] = useState(false)
@@ -188,8 +187,9 @@ export function ChatApp() {
   }, [layout.tabs])
   const onMapSelect = useCallback(
     (next: PointSel | null, nodeId: string | null) => {
-      setPickedId(nodeId)
       onSelect(next)
+      // onSelect は next=null で pickedId を空にする。d|（データセット）は 1 枚を出さず中身だけ変える
+      setPickedId(nodeId)
     },
     [onSelect],
   )
@@ -428,7 +428,6 @@ export function ChatApp() {
         const res = await confirmTurn(id, turnId, lang, decisions, getActiveCredentials())
         await reread(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
-        setBornTick((n) => n + 1)
         afterChange()
       } catch (e) {
         setError(messageOf(e))
@@ -514,7 +513,7 @@ export function ChatApp() {
   }
 
   // ── 図の読み取り（地図・局所の図・上の 1 行・手で足すフォームが同じものを見る） ──
-  const { data: skyData, retry: retrySky } = useSky(chartTick, lang, bornTick)
+  const { data: skyData, retry: retrySky, tick: skyTick } = useSky(chartTick, lang)
   const chartDrafts = useMemo<SkyDraft[]>(() => (skyData.status === 'ok' ? skyData.proposed : []), [skyData])
   const skyTerms = useMemo(() => (skyData.status === 'ok' ? skyData.sky.terms.map((x) => ({ slug: x.slug, label: x.label })) : []), [skyData])
 
@@ -537,25 +536,34 @@ export function ChatApp() {
     const termIris = new Set((okSky?.sky.terms ?? []).filter((x) => slugs.has(x.slug)).map((x) => x.iri))
     return { termIris, draftIds: new Set(sessionDraft ? [sessionDraft.draft_id] : []), selectedId: pickedId }
   }, [session, okSky, sessionDraft, pickedId])
-  const local = useMemo(() => (okSky ? localSky(okSky.sky, okSky.proposed, okSky.proposedDatasets, focus) : null), [okSky, focus])
   // この話の点だけ（確認した用語と、この話の提案の札）。1 ホップや押した点の周りは入れない
   const focusIds = useMemo(() => {
     const ids = new Set<string>()
     for (const iri of focus.termIris) ids.add(termId(iri))
-    for (const d of local?.drafts ?? []) {
+    for (const d of okSky?.proposed ?? []) {
       if (!focus.draftIds.has(d.draft_id)) continue
       for (const c of d.concepts) if (!c.use.startsWith('existing:')) ids.add(draftNodeId(d.draft_id, c.key))
     }
     return ids
-  }, [focus, local])
-  // 局所の札を押したときも、地図の選んだ点と局所の焦点を合わせる
-  const onLocalSelect = useCallback(
-    (next: PointSel | null, nodeId?: string | null) => {
-      if (nodeId) setPickedId(nodeId)
-      onSelect(next)
-    },
-    [onSelect],
-  )
+  }, [focus, okSky])
+  // 押した点の中身（ABox）: pickedId → key → fetch。sky が読み直されたら読み直す
+  const attachedId = useMemo(() => [...(session?.turns ?? [])].reverse().find((x) => x.attachment)?.attachment?.dataset_id ?? null, [session])
+  const contentsTarget = useMemo(() => contentsKeyOf(pickedId, okSky, session?.id ?? null, attachedId), [pickedId, okSky, session?.id, attachedId])
+  const contentsKey = contentsTarget && contentsTarget !== 'unpublished' ? contentsTarget : null
+  const contents = useContents(contentsKey, lang, skyTick)
+  const pickedName = useMemo(() => {
+    if (!pickedId) return ''
+    const n = pickedId.split('|')
+    if (n[0] === 't') return okSky?.sky.terms.find((x) => x.iri === n.slice(1).join('|'))?.label ?? ''
+    if (n[0] === 'd') return [...(okSky?.sky.datasets ?? []), ...(okSky?.proposedDatasets ?? [])].find((d) => d.id === n[1])?.label ?? ''
+    if (n[0] === 'k') {
+      const iri = n.slice(2).join('|')
+      for (const d of [...(okSky?.sky.datasets ?? []), ...(okSky?.proposedDatasets ?? [])]) if (d.id === n[1]) return d.kinds.find((k) => k.iri === iri)?.label ?? ''
+    }
+    if (n[0] === 'h') return okSky?.sky.hubs.find((h) => h.id === n[1])?.label ?? ''
+    if (n[0] === 'draft') return okSky?.proposed.find((d) => d.draft_id === n[1])?.concepts.find((c) => c.key === n.slice(2).join('|'))?.label ?? ''
+    return ''
+  }, [pickedId, okSky])
   const removeIds = useMemo(() => new Set((okSky?.proposed ?? []).flatMap((d) => d.removals?.terms ?? []).map(termId)), [okSky])
   const highlightIds = useMemo<ReadonlySet<string> | null>(() => {
     if (!highlight || !okSky) return null
@@ -708,7 +716,7 @@ export function ChatApp() {
                 fitLabel={t('map.fit')}
               />
               <p className="chat-map-legend">{t('map.legend')}</p>
-              {local && <LocalPanel lang={lang} local={local} born={okSky.born} onSelect={onLocalSelect} highlight={highlight} />}
+              <ContentsPanel target={contentsTarget} state={contents.state} onRetry={contents.retry} name={pickedName} onHighlight={setHighlight} />
             </>
           )}
         </div>

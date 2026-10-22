@@ -6,7 +6,6 @@ import type Sigma from 'sigma'
 import { hashPosition, layoutNetwork, neighborhoodOf } from '../../networkModel'
 import { draftCardConcepts, draftNodeId, hubNodeId, kindId, termId, termLabel } from '../../sky/skyLayout'
 import type { DraftSky, SkyData, SkyDataset, SkyKnowledgeRelation } from '../../sky/skyApi'
-import { starRadius } from '../graph/graphLayout'
 import type { PointSel } from '../chatState'
 
 export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub' | 'dataset'
@@ -34,9 +33,14 @@ export interface MapNodeAttrs {
 export interface MapEdgeAttrs {
   kind: MapEdgeKind
   relation?: string
+  /** 関係の表示名（concept の線だけ。hover で出す。形ではないので signature・線の鍵には入れない）。 */
+  label?: string
   /** 提案の薄い線。 */
   thin?: boolean
 }
+
+/** 件数の固定の対数の半径（1 件 5・10 件 7・100 件 9・1,000 件 12・1 万件以上 13）。11f の札の図から引き継いだ式。 */
+export const starRadius = (count: number): number => (count > 0 ? Math.min(13, 5 + 2.2 * Math.log10(count)) : 4)
 
 /** 種類の丸の大きさ（3〜12）。`starRadius`（5〜13・件数の固定の対数）を相対値に写す。 */
 export function kindSize(count: number): number {
@@ -53,6 +57,18 @@ export const HUB_SIZE = 8
 /** データセット（表の名前）の丸。種類をまとめる要で、押しても 1 枚は出ない。 */
 export const DATASET_SIZE = 6
 export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
+
+/** 関係の短い表示名。この辞書が正本（sky.json のキーは参照しない）。
+ *  i18n のシングルトンは module 直下で読まない罠があるので、lang 引数で引く辞書にしてある。 */
+const RELATION_LABEL: Record<'ja' | 'en', Record<string, string>> = {
+  ja: { isA: '一種', isPartOf: '一部', lowers: '下げる', raises: '上げる', affects: '変える' },
+  en: { isA: 'kind of', isPartOf: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes' },
+}
+
+/** 関係の表示名。引けなければ undefined。 */
+export function relationLabel(relation: string, lang: 'ja' | 'en'): string | undefined {
+  return RELATION_LABEL[lang][relation]
+}
 
 const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = {
   part: 'isPartOf',
@@ -148,7 +164,8 @@ export function buildMapGraph(
     const b = termId(l.to)
     if (a === b || !g.hasNode(a) || !g.hasNode(b)) continue
     conceptSeen.add(`${a}>${b}>${l.relation}`)
-    addEdge(a, b, { kind: 'concept', relation: l.relation }, true)
+    const label = relationLabel(l.relation, lang)
+    addEdge(a, b, { kind: 'concept', relation: l.relation, ...(label ? { label } : {}) }, true)
   }
 
   // 視点と入っている種類
@@ -252,6 +269,13 @@ export function syncMapAttributes(laidOut: Graph, fresh: Graph): void {
     void _y
     // 置き換え（merge だと無くなった proposed・remove が残る）。位置だけ配置済みのものを保つ
     laidOut.replaceNodeAttributes(id, { ...rest, x: laidOut.getNodeAttribute(id, 'x'), y: laidOut.getNodeAttribute(id, 'y') })
+  })
+  // 線は鍵（端・関係・薄さ）で対応づけ、位置を持たない属性（label・kind・thin など）を丸ごと写す。label は形ではないので lang だけ変わるとここで反映する
+  const freshEdges = new Map<string, MapEdgeAttrs>()
+  fresh.forEachEdge((_e, at, s, t) => freshEdges.set(edgeKey(s, t, at as unknown as MapEdgeAttrs), at as unknown as MapEdgeAttrs))
+  laidOut.forEachEdge((e, at, s, t) => {
+    const f = freshEdges.get(edgeKey(s, t, at as unknown as MapEdgeAttrs))
+    if (f) laidOut.replaceEdgeAttributes(e, { ...f })
   })
   laidOut.setAttribute('datasetLabels', fresh.getAttribute('datasetLabels'))
 }

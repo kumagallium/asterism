@@ -13,6 +13,7 @@
 * ``POST …/turns/{turn}/confirm`` — ✓。``POST …/turns/{turn}/revert`` — 未確認の返事を控えに戻す。
   確認済みの手番は ``commit`` の記録から取り消す（線・用語・問い。ほかが使う用語は残す）。
 * ``GET  /api/chat/point`` — 点（用語・種類・標準用語・視点・線・未確認の札）の 1 枚。
+* ``GET  /api/chat/contents`` — 押した点の中身（ABox）の表（kind・term・dataset・session の 1 つ）。
 * 文の手番は ``chat_intent.classify`` で振り分ける: 「<名前>を見せて」は AI を呼ばず閉じた
   テンプレートの表（``reply.table``）・「答えて」の問いは demo-agent の Ask（``reply.answer``）・
   それ以外は図の提案（11b）。
@@ -37,7 +38,14 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from asterism_api import chat_attach, chat_intent, chat_point, chat_tables, chat_turns
+from asterism_api import (
+    chat_attach,
+    chat_contents,
+    chat_intent,
+    chat_point,
+    chat_tables,
+    chat_turns,
+)
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
 
@@ -304,6 +312,49 @@ def register_chat(
         except Exception as exc:
             logger.warning("chat point failed", exc_info=True)
             raise HTTPException(502, f"point read failed ({type(exc).__name__})") from exc
+        return JSONResponse(card)
+
+    # ---- 点の中身（ABox） -----------------------------------------------------------------------
+
+    @app.get("/api/chat/contents", dependencies=deps)
+    async def chat_contents_of(
+        kind: str | None = Query(default=None),
+        term: str | None = Query(default=None),
+        dataset: str | None = Query(default=None),
+        session: str | None = Query(default=None),
+        lang: Literal["ja", "en"] = "ja",
+        limit: int = Query(default=chat_tables.MAX_ROWS, ge=1),
+    ) -> JSONResponse:
+        """押した点の中身の表（読むだけ・AI を呼ばない・ロック不要）。"""
+        # 5 通り: kind 単独・term・dataset 単独・session・dataset + kind
+        if sum(x is not None for x in (term, session)) + (
+            1 if (kind is not None or dataset is not None) else 0
+        ) != 1:
+            raise HTTPException(
+                400, "kind・term・dataset・session のどれか 1 つ（dataset と kind は一緒に可）"
+            )
+        found = _session_or_404(session) if session is not None else None
+        sky: dict = {}
+        try:
+            if term is not None:
+                sky = await sky_view.sky_view(_client(), root)
+            card = await chat_contents.build_contents(
+                _client(),
+                root,
+                kind=kind,
+                term=term,
+                dataset=dataset,
+                session=found,
+                use_session=session is not None,
+                sky=sky,
+                lang=lang,
+                limit=limit,
+            )
+        except chat_contents.ContentsError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        except Exception as exc:
+            logger.warning("chat contents failed", exc_info=True)
+            raise HTTPException(502, f"contents read failed ({type(exc).__name__})") from exc
         return JSONResponse(card)
 
     # ---- 名前・消す ---------------------------------------------------------------------------

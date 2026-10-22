@@ -1,40 +1,14 @@
 {
-  "bands": {
-    "names": "Terms (top band)",
-    "data": "Data (constellations)",
-    "dataCircles": "Data (one circle = one dataset)",
-    "std": "Standard terms (horizon)",
-    "noStar": "No stars yet",
-    "property": "field",
-    "draft": "proposal",
-    "draftRemove": "remove?"
-  },
-  "unit": {
-    "count": "{{n}} rows",
-    "kinds": "{{n}} kinds"
-  },
   "facts": {
     "answerable": "confirmed questions (answerable / all)",
-    "kinds": "kinds",
-    "terms": "terms",
-    "datasets": "datasets",
-    "triples": "facts",
     "none": "No confirmed questions yet (ask in the chat and press Confirm)"
   },
-  "quiet": "Quiet mode",
   "deep": "See the contents",
   "deepBack": "Back to the sky chart",
-  "deepLead": "A network linked by values. It shows individual records, not kinds.",
-  "png": {
-    "button": "Save as image",
-    "desktop": "Saving an image is not supported in the desktop app. Use the browser version to save it.",
-    "failed": "Could not create the image."
-  },
   "state": {
     "loading": "Loading the sky chart…"
   },
   "chart": {
-    "aria": "Sky chart. {{datasets}} datasets, {{kinds}} kinds, {{terms}} terms. A table with the same content is below the chart.",
     "ariaSample": "Sample sky chart (not your data)"
   },
   "empty": {
@@ -96,52 +70,13 @@
   },
   "questions": {
     "theme": "First questions",
-    "knowledgeN": "Knowledge {{n}}",
     "knowledgeTitle": "Answered by {{n}} confirmed knowledge relations"
   },
   "table": {
-    "summary": "Table with the same content as the chart",
-    "empty": "Nothing to list yet.",
-    "stars": "Datasets and kinds",
-    "terms": "Terms",
-    "standards": "Standard terms",
-    "hubs": "Connections",
-    "colDataset": "Dataset",
-    "colKind": "Kind",
-    "colCount": "Rows",
-    "colTerms": "Terms",
-    "colStandard": "Standard term",
-    "colTerm": "Term",
-    "colType": "Type",
-    "colKinds": "Kinds inside",
-    "colQuestions": "Questions it answers",
-    "colBound": "Linked to",
-    "colHub": "Connection",
-    "colMembers": "Kinds taking part",
-    "typeClass": "kind",
-    "typeProperty": "field",
-    "close": "Close",
-    "lines": "Knowledge relations",
-    "colLine": "Relation",
-    "colReason": "Reason"
-  },
-  "more": {
-    "label": "More",
-    "numbers": "See the numbers"
+    "empty": "Nothing to list yet."
   },
   "drafts": {
     "review": "{{n}} to check →"
-  },
-  "line": {
-    "partOf": "part",
-    "sentence": {
-      "isPartOf": "{{subject}} is a part of {{object}}",
-      "lowers": "{{subject}} lowers {{object}}",
-      "raises": "{{subject}} raises {{object}}",
-      "affects": "{{subject}} changes {{object}}"
-    },
-    "sub": "kind of",
-    "quantity": "quantity"
   },
   "chat": {
     "example": "For example: \"Is this kind the same as Specimen?\"",

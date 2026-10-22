@@ -50,11 +50,7 @@
   "chart": {
     "back": "Back",
     "failed": "Could not load the chart",
-    "retry": "Retry",
-    "legendCard": "Card = term",
-    "legendStar": "Dot = kind of data",
-    "legendThin": "Faint = proposed (not confirmed)",
-    "noName": "Data not tied to any term"
+    "retry": "Retry"
   },
   "hand": {
     "lead": "Add without AI",
@@ -86,7 +82,8 @@
       "revert": "Undoing",
       "sky": "Loading the chart",
       "attach": "attaching a table",
-      "point": "Loading the card"
+      "point": "Loading the card",
+      "contents": "Loading contents"
     }
   },
   "attach": {
@@ -158,10 +155,16 @@
     "legend": "Blue = term · Green = kind of data · Grey = table name · Faint = proposal not yet confirmed",
     "empty": "Nothing yet. Write a question or attach a table and the map grows here"
   },
-  "local": {
-    "title": "This chat on the chart",
-    "more": "{{n}} more on the map above",
-    "open": "Open",
-    "close": "Collapse"
+  "contents": {
+    "title": "Contents",
+    "of": "Contents of {{name}}",
+    "hint": "Click a dot on the map to see its contents here",
+    "empty": "No rows yet",
+    "unpublished": "Confirm and publish, and its rows will appear here",
+    "moreTables": "{{n}} more tables in \"See the contents\"",
+    "full": "See the contents",
+    "toggle": "Open or close",
+    "failed": "Could not load the contents",
+    "retry": "Retry"
   }
 }
