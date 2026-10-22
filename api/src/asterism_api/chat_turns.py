@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from asterism import chat_sessions, graph_diff, shared_vocab, themes
+from asterism import chat_sessions, crosswalk_runtime, graph_diff, query_tools, shared_vocab, themes
 from asterism.shared_vocab import SharedTerm, normalize_label
 from asterism_step0.graph_propose import (
     _QUESTION_LIKE,
@@ -59,6 +59,7 @@ __all__ = [
     "is_undo",
     "prepare_text_turn",
     "revert",
+    "revert_confirmed",
     "run_ask_turn",
     "run_ask_unavailable_turn",
     "run_ops_turn",
@@ -1413,6 +1414,7 @@ async def confirm(
         )
     body = commit_body(draft, lang)
     body["batch"] = turn["batch"]
+    prior = _theme_by_id(root, draft.get("extend"))
     notes = [n for n in turn["reply"].get("notes") or [] if n.get("kind") != "commit_error"]
     try:
         out = await themes.commit_theme(client, root, body, at=at)
@@ -1437,6 +1439,15 @@ async def confirm(
         "removed": removed,
         "kept": kept,
         "at": at,
+        # 戻す（11d）が取り消せるように、この ✓ で増えた問い（前のテーマに無かったもの）を控える
+        "new_questions": [
+            n for n in out["questions"] if n not in ((prior or {}).get("questions") or [])
+        ],
+        "new_memo": [
+            str(m["id"])
+            for m in out["theme"].get("memo_questions") or []
+            if m.get("id") not in {x.get("id") for x in (prior or {}).get("memo_questions") or []}
+        ],
     }
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
@@ -1684,3 +1695,129 @@ def run_ask_unavailable_turn(session: dict, text: str, *, at: str, lang: str) ->
         before=None,
         by="machine",
     )
+
+
+# ---- 確認済みの戻す（11d） ---------------------------------------------------------------------
+
+_DATA_NO_REVERT = {
+    "ja": "公開したデータは戻せません（データの削除で）",
+    "en": "Published data cannot be reverted (delete it from Data)",
+}
+
+
+async def revert_confirmed(
+    session: dict, turn_id: str, *, client: Any, root: Any, at: str, lang: str = "ja"
+) -> tuple[dict, dict, list[str]]:
+    """確認済みの手番を、``commit`` の記録から取り消す。返り = ``(手番, undone, 戻した手番の id)``。
+
+    線（同じ ``batch`` で足したもの）→ ``remove_alignment``・この ✓ で増えた問い → テーマから外す
+    （道具も外す）・この ✓ で鋳造した用語 → ``remove_term``（問い・ほかの関係が使っていれば残して
+    ``kept``）。同じ ``commit``（``batch``）を共有する手番は全部 ``reverted``。話の ``theme_id`` は
+    残す。公開したデータの手番は 409。"""
+    lg = _lg(lang)
+    turn = _find(session, turn_id)
+    if turn.get("attachment") or turn.get("attach_run"):
+        raise TurnRefused(409, _DATA_NO_REVERT[lg])
+    commit = turn.get("commit")
+    if turn.get("state") != "confirmed" or not isinstance(commit, dict):
+        raise TurnRefused(
+            409,
+            "戻せるのは確認済みの手番だけです"
+            if lg == "ja"
+            else "Only confirmed turns can be undone",
+        )
+    batch = commit.get("batch")
+    theme_id = commit.get("theme_id")
+    undone: dict = {"lines": 0, "terms": 0, "questions": 0, "kept": []}
+    minted = [str(x) for x in commit.get("minted") or []]
+
+    # 1. 線 — この ✓ の batch で足したものだけ
+    gone_lines: set[tuple[str, str, str]] = set()
+    if batch:
+        for ln in await crosswalk_runtime.list_alignments(client):
+            if ln.get("batch") != batch:
+                continue
+            try:
+                await crosswalk_runtime.remove_alignment(
+                    client, ln["source"], ln["target"], ln["relation"]
+                )
+            except Exception:
+                logger.warning("chat revert: remove_alignment failed", exc_info=True)
+                continue
+            gone_lines.add((ln["source"], ln["relation"], ln["target"]))
+    undone["lines"] = len(gone_lines)
+
+    # 2. 問い — テーマの記録から外す（この ✓ で増えたものだけ）
+    new_q = [str(n) for n in commit.get("new_questions") or []]
+    new_memo = {str(m) for m in commit.get("new_memo") or []}
+    data = themes.load_themes_file(root)
+    if data is not None and theme_id:
+        others = [t for t in data["themes"] if t.get("id") != theme_id]
+        elsewhere = {
+            n
+            for t in others
+            for n in (*(t.get("questions") or []), *(t.get("support_questions") or []))
+        }
+        for t in data["themes"]:
+            if t.get("id") != theme_id:
+                continue
+            had = len(t.get("questions") or []) + len(t.get("memo_questions") or [])
+            t["questions"] = [n for n in t.get("questions") or [] if n not in new_q]
+            t["memo_questions"] = [
+                m for m in t.get("memo_questions") or [] if str(m.get("id")) not in new_memo
+            ]
+            for n in new_q:
+                (t.get("selections") or {}).pop(n, None)
+                (t.get("wanted") or {}).pop(n, None)
+            undone["questions"] = had - len(t["questions"]) - len(t["memo_questions"])
+            t["relations"] = [
+                r
+                for r in t.get("relations") or []
+                if (str(r.get("from")), str(r.get("relation")), str(r.get("to"))) not in gone_lines
+            ]
+        themes._save_themes(root, data)
+        drop = [n for n in new_q if n not in elsewhere]
+        if drop:
+            query_tools.remove_registry_query_tools_by_name(root, shared_vocab.REGISTRY_ID, drop)
+
+    # 3. 用語 — ほかが使っていれば残す
+    msg = chat_seed._KEPT[lg]
+    blocked = chat_seed._question_users(root) & set(minted)
+    gone_slugs: set[str] = set()
+    for slug in minted:
+        if slug in blocked:
+            undone["kept"].append({"slug": slug, "reason": msg["question"]})
+            continue
+        try:
+            await shared_vocab.remove_term(client, root, slug)
+        except shared_vocab.TermNotFound:
+            gone_slugs.add(slug)
+        except shared_vocab.TermHasLines:
+            undone["kept"].append({"slug": slug, "reason": msg["linked"]})
+        except Exception:
+            logger.warning("chat revert: remove_term failed", exc_info=True)
+            undone["kept"].append({"slug": slug, "reason": msg["failed"]})
+        else:
+            undone["terms"] += 1
+            gone_slugs.add(slug)
+    if gone_slugs:
+        data = themes.load_themes_file(root)
+        if data is not None:
+            for t in data["themes"]:
+                if t.get("id") == theme_id:
+                    for k in ("uses", "minted"):
+                        if k in t:
+                            t[k] = [s for s in t[k] if s not in gone_slugs]
+            themes._save_themes(root, data)
+    try:
+        await shared_vocab.recompute_wired(client, root, at=at)
+    except Exception:
+        logger.warning("chat revert: recompute_wired failed", exc_info=True)
+
+    reverted = []
+    for t in session["turns"]:
+        c = t.get("commit")
+        if t.get("state") == "confirmed" and isinstance(c, dict) and c.get("batch") == batch:
+            t["state"] = "reverted"
+            reverted.append(t["id"])
+    return turn, undone, reverted

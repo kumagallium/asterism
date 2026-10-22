@@ -11,6 +11,7 @@
   設定されていれば AI の返事（準備＝ロックの中 → AI＝**ロックの外** → 適用＝ロックの中で読み直し）。
   未設定なら 11a の道（``notes.ai_unset``）。「さっきのを戻して」は AI を呼ばず決定論で戻す。
 * ``POST …/turns/{turn}/confirm`` — ✓。``POST …/turns/{turn}/revert`` — 未確認の返事を控えに戻す。
+  確認済みの手番は ``commit`` の記録から取り消す（線・用語・問い。ほかが使う用語は残す）。
 * ``GET  /api/chat/point`` — 点（用語・種類・標準用語・視点・線・未確認の札）の 1 枚。
 * 文の手番は ``chat_intent.classify`` で振り分ける: 「<名前>を見せて」は AI を呼ばず閉じた
   テンプレートの表（``reply.table``）・「答えて」の問いは demo-agent の Ask（``reply.answer``）・
@@ -31,7 +32,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import chat_sessions, shared_vocab, sky_view, themes
+from asterism import chat_sessions, crosswalk_runtime, shared_vocab, sky_view, themes
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -703,6 +704,56 @@ def register_chat(
             }
         )
 
+    async def _revert_confirmed(session: dict, target: dict, lang: str) -> JSONResponse:
+        """確認済みの手番の戻す（呼び手が ``lock`` を持っている）。公開したデータは戻せない（409）。
+        機械の手番（名前が一致した関係）は、足した関係を外して次から出さない。テーマの手番は
+        ``commit`` の記録から取り消す。"""
+        suggestions = (target.get("reply") or {}).get("suggestions")
+        if target.get("attachment") or target.get("attach_run"):
+            raise HTTPException(409, chat_turns._DATA_NO_REVERT["en" if lang == "en" else "ja"])
+        if suggestions:
+            for item in suggestions:
+                try:
+                    await crosswalk_runtime.remove_alignment(
+                        _client(), item["subject"], item["term"], item["relation"]
+                    )
+                except Exception:
+                    logger.warning("chat revert: suggestion line not removed", exc_info=True)
+            await chat_attach.revert_suggestion(app, target, token=cfg.api_token)
+            try:
+                await shared_vocab.recompute_wired(_client(), root, at=_now())
+            except Exception:
+                logger.warning("chat revert: recompute_wired failed", exc_info=True)
+            saved = chat_sessions.save_session(root, session)
+            return JSONResponse(
+                {
+                    "turn": target,
+                    "session": _head(saved),
+                    "draft": _draft_card(saved, lang),
+                    "undone": {"lines": len(suggestions), "terms": 0, "questions": 0, "kept": []},
+                    "reverted": [target["id"]],
+                }
+            )
+        try:
+            turn, undone, reverted = await chat_turns.revert_confirmed(
+                session, target["id"], client=_client(), root=root, at=_now(), lang=lang
+            )
+        except chat_turns.TurnRefused as exc:
+            raise _refused(exc) from exc
+        except Exception as exc:  # ストアの書き込みの失敗
+            logger.warning("chat revert confirmed failed", exc_info=True)
+            raise HTTPException(502, f"revert failed: {exc}") from exc
+        saved = chat_sessions.save_session(root, session)
+        return JSONResponse(
+            {
+                "turn": turn,
+                "session": _head(saved),
+                "draft": _draft_card(saved, lang),
+                "undone": undone,
+                "reverted": reverted,
+            }
+        )
+
     @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/revert", dependencies=deps)
     async def chat_revert(session_id: str, turn_id: str, lang: str = "ja") -> JSONResponse:
         async with lock:
@@ -732,6 +783,8 @@ def register_chat(
                             "reverted": [turn_id],
                         }
                     )
+            if target is not None and target.get("state") == "confirmed":
+                return await _revert_confirmed(session, target, lang)
             try:
                 turn, undone = chat_turns.revert(
                     session, turn_id, root=root, at=_now(), lang=lang

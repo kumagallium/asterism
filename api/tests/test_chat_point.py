@@ -4,7 +4,8 @@
 線 1 本の来歴／標準用語／未確認の札／公開した種類 = ``dataset_id`` と ``members``）・
 表（見本のデータで
 20 行以内・項目の名前・``total``）・振り分け ``classify``（12 例）・Ask（偽の demo-agent = ``httpx.
-MockTransport``。URL 無し・失敗も）・
+MockTransport``。URL 無し・失敗も）・確認済みの戻す（線と用語が消え、ほかの問いが使う用語は
+``kept``）・
 見せて／Ask は LLM を呼ばない。
 """
 
@@ -395,3 +396,95 @@ def test_a_question_with_an_open_draft_stays_a_draft_unless_asked_to_answer(tmp_
         assert len(llm.calls) == 1 and calls == []
         t = _say(client, sid, "熱伝導率を下げるものを教えて")["turn"]
         assert t["reply"]["answer"] is not None and len(calls) == 1 and len(llm.calls) == 1
+
+
+# ---- 確認済みの戻す -----------------------------------------------------------------------
+
+
+def test_revert_of_a_confirmed_turn_takes_back_lines_terms_and_questions(tmp_path: Path) -> None:
+    client, _ = _confirmed_theme(tmp_path)
+    root = tmp_path / "registry"
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER)["turn"]
+        commit = client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/confirm", json={}).json()[
+            "commit"
+        ]
+        assert commit["new_questions"] and commit["minted"]
+        iris = _labels(client)
+        theme_id = commit["theme_id"]
+        # ほかの問い（別のテーマ）が「点欠陥散乱」を使っている
+        slug = shared_vocab.slug_of(iris["点欠陥散乱"])
+        data = themes.load_themes_file(root)
+        sel = {"kq_x": {"mode": "knowledge", "target_slug": slug}}
+        other = {"id": "other", "label": "別", "created_at": "x", "questions": [],
+                 "support_questions": [], "memo_questions": [], "wanted": {}, "minted": [],
+                 "uses": [], "relations": [], "selections": sel}  # fmt: skip
+        data["themes"].append(other)
+        themes._save_themes(root, data)
+
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/revert", json={})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        undone = body["undone"]
+        assert undone["lines"] == 6 and undone["questions"] >= 1  # 5 つの関係 + 標準の量へ 1 本
+        assert undone["terms"] == len(commit["minted"]) - 1
+        assert undone["kept"] == [{"slug": slug, "reason": "問いが使っています"}]
+        assert body["turn"]["state"] == "reverted" and body["reverted"] == [t1["id"]]
+        assert body["session"]["theme_id"] == theme_id  # テーマは残す
+        assert list(_labels(client)) == ["点欠陥散乱"]
+        lines = asyncio.run(crosswalk_runtime.list_alignments(client.app.state.client))
+        assert [ln for ln in lines if ln.get("batch") == commit["batch"]] == []
+        theme = next(t for t in themes.load_themes_file(root)["themes"] if t["id"] == theme_id)
+        assert (theme["questions"], theme["memo_questions"], theme["relations"]) == ([], [], [])
+        assert theme["minted"] == [slug]
+        assert _point(client, iri=iris["粒界散乱"]).status_code == 404
+        # 2 度目は 409
+        assert client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/revert").status_code == 409
+        # 戻したあとの文は、テーマがまだあるので続きの図になる
+        sess = chat_sessions.load_session(root, sid)
+        assert [t["state"] for t in sess["turns"]] == ["reverted"]
+
+
+def test_published_data_cannot_be_reverted(tmp_path: Path) -> None:
+    client, _ = _confirmed_theme(tmp_path)
+    with client:
+        sid = _new(client)
+        s = chat_sessions.load_session(tmp_path / "registry", sid)
+        s["turns"].append({"id": "t1", "at": "x", "user": {"text": "", "attachments": []},
+                           "reply": {"text": "", "ops": [], "sentences": [], "questions": [],
+                                     "bindings": [], "notes": [], "answer": None, "table": None},
+                           "batch": f"{sid}:t1", "state": "confirmed", "before": None,
+                           "commit": {"dataset_id": "d"}, "by": "machine",
+                           "attachment": {"dataset_id": "d"}})  # fmt: skip
+        chat_sessions.save_session(tmp_path / "registry", s)
+        r = client.post(f"/api/chat/sessions/{sid}/turns/t1/revert")
+        assert r.status_code == 409 and "公開したデータは戻せません（データの削除で）" in r.text
+
+
+def test_reverting_a_confirmed_machine_turn_removes_its_lines_and_dismisses(
+    tmp_path: Path,
+) -> None:
+    client, _dsid = _published(tmp_path, apply=False)
+    with client:
+        sid = _new(client)
+        (cand,) = client.get("/api/sky/suggestions").json()["suggestions"]
+        item = {k: cand[k] for k in ("subject", "term", "relation")}
+        s = chat_sessions.load_session(tmp_path / "registry", sid)
+        reply = {"text": "", "ops": [], "sentences": [], "questions": [], "bindings": [],
+                 "notes": [], "answer": None, "table": None, "suggestions": [item]}  # fmt: skip
+        s["turns"].append({"id": "t1", "at": "x", "user": None, "reply": reply,
+                           "batch": f"{sid}:t1", "state": "proposed", "before": None,
+                           "commit": None, "by": "machine"})  # fmt: skip
+        chat_sessions.save_session(tmp_path / "registry", s)
+        c = client.post(f"/api/chat/sessions/{sid}/turns/t1/confirm", json={})
+        assert c.status_code == 200, c.text
+        lines = client.get("/api/crosswalk/alignments").json()["alignments"]
+        assert any(ln["batch"] == f"{sid}:t1" for ln in lines)
+        r = client.post(f"/api/chat/sessions/{sid}/turns/t1/revert")
+        assert r.status_code == 200, r.text
+        assert r.json()["turn"]["state"] == "reverted" and r.json()["undone"]["lines"] == 1
+        lines = client.get("/api/crosswalk/alignments").json()["alignments"]
+        assert not any(ln["batch"] == f"{sid}:t1" for ln in lines)
+        # 次から出さない
+        assert client.get("/api/sky/suggestions").json()["suggestions"] == []

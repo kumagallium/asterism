@@ -288,9 +288,11 @@ def test_confirm_places_the_theme_and_the_next_text_extends_it(tmp_path: Path) -
         assert nxt["turn"]["state"] == "proposed" and nxt["turn"]["before"] is None
         stored_draft = themes.load_draft(tmp_path / "registry", nxt["draft"]["draft_id"])
         assert stored_draft["extend"] == did and nxt["draft"]["draft_id"] != did
-        # 確認済みの返事は ✓ も戻すも 409
+        # 確認済みの返事は ✓ できない。戻すは commit の記録から取り消す（11d）
         assert client.post(f"/api/chat/sessions/{sid}/turns/t1/confirm").status_code == 409
-        assert client.post(f"/api/chat/sessions/{sid}/turns/t1/revert").status_code == 409
+        r = client.post(f"/api/chat/sessions/{sid}/turns/t1/revert")
+        assert r.status_code == 200, r.text
+        assert r.json()["reverted"] == ["t1", "t2", "t3"] and "undone" in r.json()
 
 
 def test_confirm_refusal_is_a_note_not_an_error(tmp_path: Path) -> None:
