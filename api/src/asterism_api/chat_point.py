@@ -288,6 +288,7 @@ def _kind_point(ctx: _Ctx, iri: str) -> dict[str, Any]:
     out = _base(iri, "kind", str(k["label"]))
     out["term_kind"] = "class"
     out["dataset_id"] = ctx.kind_dataset[iri]["id"]
+    out["dataset_label"] = ctx.dataset_label(out["dataset_id"])
     out["standard"] = ctx.standard_of(k.get("standard"))
     out["sentences"] = ctx.sentences_of(iri)
     for t in ctx.sky.get("terms") or []:

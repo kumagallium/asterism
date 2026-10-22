@@ -172,6 +172,7 @@ def test_a_published_kind_and_its_term(tmp_path: Path) -> None:
         (kind,) = [k for d in sky["datasets"] for k in d["kinds"] if k["iri"] == EX + "Sample"]
         card = _point(client, iri=kind["iri"]).json()
         assert card["kind"] == "kind" and card["dataset_id"] == dsid
+        assert card["dataset_label"] == next(d["label"] for d in sky["datasets"] if d["id"] == dsid)
         assert card["label"] == kind["label"] and card["term_kind"] == "class"
         assert [m["iri"] for m in card["members"]] == [SV + "specimen"]
         assert card["members"][0]["label"] == "試料"
