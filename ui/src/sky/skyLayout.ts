@@ -133,6 +133,8 @@ export interface TermNode extends NodeBase {
   /** 入っている点（星または丸）の id。 */
   memberIds: string[]
   stdId: string | null
+  /** 1 枚の知識の図だけ: 札の中の 1 行に出す標準の語（`prefix:label`）。 */
+  stdLabel?: string
   /** 段（0 が星に近い側）。 */
   lane: number
 }

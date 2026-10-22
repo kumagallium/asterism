@@ -302,6 +302,9 @@ export interface ConceptEdgeGeom {
   /** 線の中ほど（小さな札を置く所）。 */
   mx: number
   my: number
+  /** 1 回折れる線（1 枚の知識の図）: 折れ目。あれば始点 → 折れ目 → 終点の折れ線で、`cx`/`cy` は折れ目と同じ。 */
+  bx?: number
+  by?: number
 }
 
 export interface RouteCard {
