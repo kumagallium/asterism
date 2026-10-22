@@ -131,6 +131,8 @@ export interface Turn {
   before: unknown | null
   commit: CommitRecord | null
   by: 'ai' | 'human' | 'machine'
+  /** AI の振り分け（chat＝地の文だけの返事）。古い手番・機械の手番には無い。 */
+  route?: 'chat' | 'ask' | 'propose'
 }
 
 /** 手番のあとで変わる話の欄。 */
@@ -520,8 +522,8 @@ export interface TurnInput {
   choice?: { turn_id: string; note_index: number; value: string }
   /** 確認済みの点（用語か線）を外す提案。 */
   remove?: { iri: string } | { from: string; relation: string; to: string }
-  /** 問いのタブの「答えて」: 振り分けを飛ばして必ず Ask へ。 */
-  intent?: 'ask'
+  /** 振り分けを飛ばす: 'ask'＝必ず答える（問いのタブ）／'propose'＝必ず知識グラフへの提案（返事の下のチップ）。 */
+  intent?: 'ask' | 'propose'
   lang?: 'ja' | 'en'
 }
 

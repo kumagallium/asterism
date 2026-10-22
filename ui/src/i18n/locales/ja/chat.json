@@ -40,7 +40,9 @@
     "undoneKept": "（残した: {{names}}）",
     "undoneFailed": "戻せませんでした: {{what}}（{{reason}}）",
     "cardProposed": "知識グラフへの提案 · {{n}} 件",
-    "cardProposedNone": "知識グラフへの提案"
+    "cardProposedNone": "知識グラフへの提案",
+    "proposeChip": "知識グラフに足す",
+    "sent": "送りました"
   },
   "tabs": {
     "label": "表示する領域",
@@ -66,7 +68,7 @@
     "decide": "決める"
   },
   "empty": {
-    "first": "知りたいことを書くか、データの表（CSV・Excel）を添えてください。右の知識グラフに用語とデータが増えていきます"
+    "first": "知りたいことを書くか、データの表（CSV・Excel）を添えてください。質問には入れたデータから答え、知りたいことは右の知識グラフに増えていきます"
   },
   "error": {
     "badShape": "サーバの返事の形が想定と違います",

@@ -325,6 +325,7 @@ export function ChatApp() {
   )
 
   const onSend = useCallback((text: string) => runTurn({ text }), [runTurn])
+  const onPropose = useCallback((text: string) => runTurn({ text, intent: 'propose' }), [runTurn])
   const onSendOps = useCallback((ops: GraphOp[]) => runTurn({ ops }), [runTurn])
   const onSendAnswer = useCallback((set_answer: SetAnswerBody) => runTurn({ set_answer }), [runTurn])
 
@@ -701,6 +702,7 @@ export function ChatApp() {
           noKey={noKey}
           names={names}
           onSend={onSend}
+          onPropose={onPropose}
           onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}

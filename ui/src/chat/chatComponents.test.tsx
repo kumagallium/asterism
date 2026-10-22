@@ -72,6 +72,14 @@ const list = (over: Partial<Parameters<typeof SessionList>[0]> = {}) =>
   )
 
 describe('ReplyCard', () => {
+  it('route: chat の返事は札が出ず、「知識グラフに足す」のチップが出る', () => {
+    const t = turn({ route: 'chat', state: 'none', by: 'ai', reply: reply({ text: 'どういたしまして' }) })
+    const html = renderToStaticMarkup(<ReplyCard turn={t} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} onPropose={noop} />)
+    expect(html).toContain('どういたしまして')
+    expect(html).not.toContain('data-testid="reply-card"')
+    expect(html).toContain('data-testid="reply-propose"')
+    expect(html).toContain('知識グラフに足す')
+  })
   it('未確認の最後の返事には 確認＋件数と「戻す」。札の上の行はこの手番の件数', () => {
     const html = card(turn({ reply: reply({ ops: [{ op: 'add_concept' }, { op: 'add_relation' }] }) }))
     expect(html).toContain('data-testid="reply-confirm"')
