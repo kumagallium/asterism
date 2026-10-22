@@ -148,5 +148,16 @@
     "noAnswer": "No answer came out",
     "sources": "Sources",
     "unverified": "Answered with a query that was not verified"
+  },
+  "map": {
+    "fit": "Fit all",
+    "aria": "Map of terms and data",
+    "legend": "Blue = term · Green = kind of data · Faint = proposed (not confirmed)"
+  },
+  "local": {
+    "title": "Around this chat",
+    "more": "{{n}} more on the map",
+    "open": "Open",
+    "close": "Collapse"
   }
 }

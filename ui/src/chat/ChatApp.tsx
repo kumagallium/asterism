@@ -2,7 +2,7 @@
 // hash が唯一の真実源（`#/` 新しい話・`#/t/<id>` 保存した話・`#/settings` 設定）。`navigate()` が pushState/replaceState で
 // hash を書き、hashchange（戻る・進む・手入力）でも state に反映する。
 // 話の状態（手番・題・テーマ・未確認の下書き）はサーバが持つ。ここは取得・状態・DOM だけで、変換は chatState.ts の純関数。
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GearIcon, MenuIcon } from '../icons'
 import { subscribeJob, type JobHandle } from '../api'
@@ -35,9 +35,13 @@ import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './ch
 import { pointQueryOf, removeOf, sameSel, thinPointOf, type Highlight, type PointSel } from './chatState'
 import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
 import { AddPanel } from './AddPanel'
-import { ChartPane } from './ChartPane'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
+import { LocalPanel } from './LocalPanel'
+import { MapHost } from './MapHost'
+import { localSky } from './graph/neighborhood'
+import { useSky } from './useSky'
+import { draftNodeId, kindId, termId } from '../sky/skyLayout'
 import { SessionList } from './SessionList'
 import { useChatLayout } from './useChatLayout'
 import './chat.css'
@@ -54,6 +58,7 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
+  const { t: tsky } = useTranslation('sky')
   const lang: 'ja' | 'en' = i18n.language.startsWith('en') ? 'en' : 'ja'
   const { openSettings, settingsOpen, getActiveCredentials, isReady } = useLlmSettings()
   const layout = useChatLayout()
@@ -148,8 +153,6 @@ export function ChatApp() {
 
   // 未確認の図: 手番の返りのもの（すぐ使える）と、図を取り直して届いたもの（再読み込みのあとでも拾える）
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
-  const [chartDrafts, setChartDrafts] = useState<SkyDraft[]>([])
-  const [skyTerms, setSkyTerms] = useState<{ slug: string; label: string }[]>([])
   const [chartTick, setChartTick] = useState(0)
   // 生まれた輪は ✓ の直後だけ（手番の直後は薄い札が増えるだけ）
   const [bornTick, setBornTick] = useState(0)
@@ -173,12 +176,23 @@ export function ChatApp() {
   const [highlight, setHighlight] = useState<Highlight | null>(null)
   /** 確認済みの手番を戻した結果（手番の id → 結果）。 */
   const [undone, setUndone] = useState<Record<string, Undone>>({})
+  /** 地図で押した点の id（局所の図の焦点）。 */
+  const [pickedId, setPickedId] = useState<string | null>(null)
   const onSelect = useCallback((next: PointSel | null) => {
     setHighlight(null)
     setSel((cur) => (sameSel(cur, next) ? cur : next))
-    if (!next) setPoint(null)
-    else if (layout.tabs) setTab('chat')
+    if (!next) {
+      setPoint(null)
+      setPickedId(null)
+    } else if (layout.tabs) setTab('chat')
   }, [layout.tabs])
+  const onMapSelect = useCallback(
+    (next: PointSel | null, nodeId: string | null) => {
+      setPickedId(nodeId)
+      onSelect(next)
+    },
+    [onSelect],
+  )
   useEffect(() => {
     if (!sel) return
     // 薄い星（未公開）は api を呼ばず、小さな 1 枚を作る
@@ -483,6 +497,7 @@ export function ChatApp() {
   const newChat = () => {
     setSel(null)
     setPoint(null)
+    setPickedId(null)
     setHighlight(null)
     setComposerKey((n) => n + 1)
     setError(null)
@@ -498,6 +513,11 @@ export function ChatApp() {
     setTab('chat')
   }
 
+  // ── 図の読み取り（地図・局所の図・上の 1 行・手で足すフォームが同じものを見る） ──
+  const { data: skyData, retry: retrySky } = useSky(chartTick, lang, bornTick)
+  const chartDrafts = useMemo<SkyDraft[]>(() => (skyData.status === 'ok' ? skyData.proposed : []), [skyData])
+  const skyTerms = useMemo(() => (skyData.status === 'ok' ? skyData.sky.terms.map((x) => ({ slug: x.slug, label: x.label })) : []), [skyData])
+
   // この話の未確認の図（手で足すフォームの材料）
   const ofSession = (d: SkyDraft | null | undefined): d is SkyDraft =>
     !!d && !!session && (d.draft_id === session.draft_id || d.session_id === session.id)
@@ -509,6 +529,56 @@ export function ChatApp() {
   const names = useMemo(() => nameTable(skyTerms, sessionDraft), [skyTerms, sessionDraft])
   const showHand = !!session && handFormShown(session)
   const noKey = isKeyMissing(listError)
+
+  // ── 右の領域: 地図（基本）＋局所のパネル（補足） ──
+  const okSky = skyData.status === 'ok' ? skyData : null
+  const focus = useMemo(() => {
+    const slugs = new Set(session?.turns.filter((x) => x.state === 'confirmed').flatMap((x) => x.commit?.minted ?? []) ?? [])
+    const termIris = new Set((okSky?.sky.terms ?? []).filter((x) => slugs.has(x.slug)).map((x) => x.iri))
+    return { termIris, draftIds: new Set(sessionDraft ? [sessionDraft.draft_id] : []), selectedId: pickedId }
+  }, [session, okSky, sessionDraft, pickedId])
+  const local = useMemo(() => (okSky ? localSky(okSky.sky, okSky.proposed, okSky.proposedDatasets, focus) : null), [okSky, focus])
+  const focusIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const x of local?.sky.terms ?? []) ids.add(termId(x.iri))
+    for (const d of local?.drafts ?? []) for (const c of d.concepts) if (!c.use.startsWith('existing:')) ids.add(draftNodeId(d.draft_id, c.key))
+    return ids
+  }, [local])
+  const removeIds = useMemo(() => new Set((okSky?.proposed ?? []).flatMap((d) => d.removals?.terms ?? []).map(termId)), [okSky])
+  const highlightIds = useMemo<ReadonlySet<string> | null>(() => {
+    if (!highlight || !okSky) return null
+    const ids = new Set<string>()
+    const iris = 'edge' in highlight ? [highlight.edge.from, highlight.edge.to] : highlight.iris
+    const want = new Set(iris)
+    for (const x of okSky.sky.terms) if (want.has(x.iri)) ids.add(termId(x.iri))
+    if (!('edge' in highlight)) {
+      for (const d of [...okSky.sky.datasets, ...okSky.proposedDatasets]) {
+        if (highlight.datasetId && d.id !== highlight.datasetId) continue
+        for (const k of d.kinds) if (want.has(k.iri)) ids.add(kindId(d.id, k.iri))
+      }
+    }
+    return ids.size > 0 ? ids : null
+  }, [highlight, okSky])
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [mapH, setMapH] = useState(420)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const apply = () => {
+      if (layout.tabs) return setMapH(Math.round(window.innerHeight * 0.55))
+      const h = el.clientHeight
+      if (h > 0) setMapH(Math.max(260, Math.round(h * 0.6)))
+    }
+    apply()
+    window.addEventListener('resize', apply)
+    if (typeof ResizeObserver === 'undefined') return () => window.removeEventListener('resize', apply)
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => {
+      window.removeEventListener('resize', apply)
+      ro.disconnect()
+    }
+  }, [layout.tabs, addOpen, tab])
 
   const list = (
     <SessionList
@@ -582,8 +652,52 @@ export function ChatApp() {
       </section>
       <section className="chat-right" hidden={layout.tabs && tab !== 'chart'}>
         {addOpen && <AddPanel onClose={closeAdd} />}
-        <div className="chat-right-scroll" hidden={addOpen}>
-          <ChartPane lang={lang} refreshKey={chartTick} bornKey={bornTick} onProposed={setChartDrafts} onTerms={setSkyTerms} onSelect={onSelect} highlight={highlight} />
+        <div className="chat-right-scroll" ref={scrollRef} hidden={addOpen}>
+          {skyData.status === 'error' && (
+            <div className="sky-placeholder chart-placeholder" role="alert">
+              <span>{t('chart.failed')}</span>
+              <button type="button" className="btn btn--sm" onClick={retrySky}>
+                {t('chart.retry')}
+              </button>
+            </div>
+          )}
+          {skyData.status === 'loading' && (
+            <div className="sky-placeholder chart-placeholder" role="status">
+              {tsky('state.loading')}
+            </div>
+          )}
+          {okSky && (
+            <>
+              <div className="sky-facts">
+                {okSky.sky.facts.questions_total > 0 ? (
+                  <span className="sky-facts-lead">
+                    <b>
+                      {okSky.sky.facts.questions_answerable} / {okSky.sky.facts.questions_total}
+                    </b>
+                    {tsky('facts.answerable')}
+                  </span>
+                ) : (
+                  <span className="sky-facts-none">{tsky('facts.none')}</span>
+                )}
+              </div>
+              <MapHost
+                sky={okSky.sky}
+                drafts={okSky.proposed}
+                proposedDatasets={okSky.proposedDatasets}
+                lang={lang}
+                height={mapH}
+                focusIds={focusIds}
+                selectedId={pickedId}
+                highlightIds={highlightIds}
+                removeIds={removeIds}
+                onSelect={onMapSelect}
+                ariaLabel={t('map.aria')}
+                fitLabel={t('map.fit')}
+              />
+              <p className="chat-map-legend">{t('map.legend')}</p>
+              {local && <LocalPanel lang={lang} local={local} born={okSky.born} onSelect={onSelect} highlight={highlight} />}
+            </>
+          )}
         </div>
         {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>
