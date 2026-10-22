@@ -1155,7 +1155,8 @@ def test_history_skips_reverted_and_machine_turns() -> None:
 
 
 def test_intent_ask_skips_the_classifier(tmp_path: Path) -> None:
-    # 問いのタブの「答えて」: 問いらしい語が無い文でも Ask の道に入る（URL なしなら ask_unavailable）
+    # 問いのタブの「答えて」: 問いらしい語が無い文でも Ask の道に入る
+    # （demo-agent の URL が無ければ ask_unavailable）
     client, _ = _ai_client(tmp_path)
     with client:
         sid = _new(client)
