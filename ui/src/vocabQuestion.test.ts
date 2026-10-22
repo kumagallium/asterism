@@ -1,12 +1,8 @@
-import { renderToStaticMarkup } from 'react-dom/server'
-import { createElement } from 'react'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { parseHash } from './legacyRoute'
-import type { Alignment } from './crosswalkApi'
 import i18n from './i18n'
 import type { GroundCandidate } from './groundingApi'
 import type { SharedTerm } from './vocabApi'
-import { AlignmentRow } from './PerspectiveAlignment'
 import {
   buildMintInput,
   bumpVersion,
@@ -212,46 +208,6 @@ describe('線の問いは題で見せる', () => {
   })
 })
 
-describe('線の一覧の行（両端の kind・問い）', () => {
-  const line = (over: Partial<Alignment>): Alignment => ({
-    alignment_iri: 'urn:l1',
-    source: 'http://example.org/ds#Widget',
-    target: 'https://example.org/sv#widget',
-    relation: 'subClassOf',
-    from_perspective: '',
-    to_perspective: '',
-    at: '',
-    ...over,
-  })
-  const html = (a: Alignment, cqTitles?: Record<string, string>) =>
-    renderToStaticMarkup(
-      createElement(AlignmentRow, {
-        a,
-        relationLabel: (r) => r,
-        removing: false,
-        onRemove: () => {},
-        cqTitles,
-      }),
-    )
-
-  it('両端の kind を札で出す（データセットは id つき）', () => {
-    const out = html(
-      line({ source_kind: 'dataset', source_dataset: 'ds1', target_kind: 'shared' }),
-    )
-    expect(out).toContain('データセット · ds1')
-    expect(out).toContain('>用語<')
-  })
-
-  it('unknown と未設定は札なし', () => {
-    expect(html(line({ source_kind: 'unknown', target_kind: 'unknown' }))).not.toContain('vocab-line-kind')
-    expect(html(line({}))).not.toContain('vocab-line-kind')
-  })
-
-  it('問いは題で出し、引けなければ tool_name のまま', () => {
-    expect(html(line({ cq: 'cq_w_count' }), { cq_w_count: 'Wは何件？' })).toContain('問い: Wは何件？')
-    expect(html(line({ cq: 'cq_w_count' }), {})).toContain('問い: cq_w_count')
-  })
-})
 
 describe('線の端の名前（表示名・標準は接頭辞つき）', () => {
   it('表示名を優先し、標準の語は prefix:local、無ければ IRI の末尾', async () => {

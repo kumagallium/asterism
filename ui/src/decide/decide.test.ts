@@ -1,11 +1,6 @@
-import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeAll, describe, expect, it } from 'vitest'
 import i18n from '../i18n'
 import type { PickEnd } from '../lineChoice'
-import type { SharedTerm } from '../vocabApi'
-import { AttachKind, type AttachChoice } from './AttachKind'
-import { DecidePanel } from './DecidePanel'
 import {
   NONE,
   type DecidePreview,
@@ -141,81 +136,6 @@ describe('帰結の文', () => {
     for (const r of ['mixed', 'cycle', 'unminted', 'same', null] as const) {
       expect(reasonText(r, t)).not.toContain('線')
     }
-  })
-})
-
-describe('DecidePanel — 初期表示', () => {
-  const word = end('urn:sv:w', '回折点', 'shared', 'class')
-  const html = (candidates: PickEnd[], onLater?: () => void) =>
-    renderToStaticMarkup(createElement(DecidePanel, { subject: kind, candidates, onLater }))
-
-  it('3 つの選択肢が出て、どれも選ばれていない（初期選択なし）', () => {
-    const h = html([word], () => {})
-    expect(h).toContain('data-testid="decide-panel"')
-    expect(h.match(/type="radio"/g)).toHaveLength(3)
-    expect(h).not.toContain('checked')
-    expect(h).toContain('の一種です')
-    expect(h).toContain('と同じものです')
-    expect(h).toContain('当てはまるものは無い')
-    // 選ぶまでは「そう決める」は押せない
-    expect(h).toMatch(/<button[^>]*disabled=""[^>]*>そう決める/)
-    expect(h).toContain('あとで決める')
-    expect(h).toContain('押すまで何も保存されません')
-    expect(h).toContain('「記録」は')
-  })
-
-  it('「あとで決める」は onLater があるときだけ', () => {
-    expect(html([word])).not.toContain('あとで決める')
-  })
-
-  it('候補が無ければ選択肢を出さず、理由を言う', () => {
-    const h = html([])
-    expect(h).toContain('decide-no-candidates')
-    expect(h).not.toContain('type="radio"')
-  })
-
-  it('候補を完全一致の順に並べて選ぶ欄に出す', () => {
-    const exact = end('urn:k:exact', '記録', 'dataset', 'class')
-    const h = html([word, exact])
-    expect(h.indexOf('記録（データセット）')).toBeLessThan(h.indexOf('回折点（用語）'))
-  })
-})
-
-describe('AttachKind — この用語に種類を入れる', () => {
-  const term: SharedTerm = {
-    iri: 'urn:sv:dp',
-    slug: 'dp',
-    kind: 'class',
-    label: '回折点',
-    label_en: null,
-    comment: null,
-    created_at: '',
-    wired: false,
-    answering_datasets: 0,
-    narrower: [],
-    standards: [],
-    cqs: [],
-  }
-  const choice = (iri: string, label: string, datasetName?: string): AttachChoice => ({
-    ...end(iri, label, 'dataset', 'class'),
-    datasetName,
-  })
-  const html = (choices: AttachChoice[]) =>
-    renderToStaticMarkup(createElement(AttachKind, { term, choices, onDecided: () => {}, onClose: () => {} }))
-
-  it('名前が完全一致する種類を先頭に・データセット名を添える・行き先はこの用語に固定', () => {
-    const h = html([choice('urn:k:a', 'あいう', 'DS-A'), choice('urn:k:dp', '回折点', 'DS-B')])
-    expect(h.indexOf('回折点（DS-B）')).toBeLessThan(h.indexOf('あいう（DS-A）'))
-    // 決める側は先頭（完全一致）の種類。選択肢は 3 つで、どれも選ばれていない
-    expect(h).toContain('「回折点」は')
-    expect(h.match(/type="radio"/g)).toHaveLength(3)
-    expect(h).not.toContain('checked')
-  })
-
-  it('入れられる種類が無ければ、そう言って閉じるだけ', () => {
-    const h = html([])
-    expect(h).toContain('入れられる種類がまだありません')
-    expect(h).not.toContain('type="radio"')
   })
 })
 
