@@ -202,7 +202,8 @@ def test_show_makes_a_table_without_the_llm(tmp_path: Path) -> None:
         assert names[EX + "price"] == "価格" and names[EX + "weight"] == "重さ"
         by_iri = {r["iri"]: r for r in table["rows"]}
         row = by_iri[EXR + "sample/s2"]
-        assert row["cells"][EX + "price"] == "30" and row["cells"][EX + "weight"] == "7"
+        assert row["cells"][EX + "price"] == {"text": "30"}
+        assert row["cells"][EX + "weight"] == {"text": "7"}
         assert turn["reply"]["answer"] is None and turn["reply"]["notes"] == []
         assert out["draft"] is None  # 図の提案ではない
         assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None
@@ -257,7 +258,13 @@ def test_the_table_is_at_most_20_rows(tmp_path: Path) -> None:
 
 # ---- 振り分け -----------------------------------------------------------------------------
 
-NAMES = {"試料": EX + "Sample", "値段の記録": EX + "Price", "格子熱伝導率": SV + "lattice"}
+NAMES = {
+    "試料": {"iri": EX + "Sample", "kind": "dataset_kind"},
+    "値段の記録": {"iri": EX + "Price", "kind": "dataset_kind"},
+    "格子熱伝導率": {"iri": SV + "lattice", "kind": "class"},
+    "熱伝導率": {"iri": SV + "kappa", "kind": "class"},
+    "Te": {"iri": SV + "te", "kind": "class"},
+}
 
 
 @pytest.mark.parametrize(
@@ -272,6 +279,18 @@ NAMES = {"試料": EX + "Sample", "値段の記録": EX + "Price", "格子熱伝
         ("値段の記録は何件？", False, "ask"),
         ("格子熱伝導率を下げるものを教えて", True, "ask"),
         ("格子熱伝導率を下げるのは？", True, "graph"),  # 下書きが開いている ？ は図
+        ("熱伝導率を下げる要素は？", False, "graph"),  # 用語名だけの当たりは図
+        ("値段の記録は何件ある？", False, "ask"),
+        ("Show 試料", False, "show"),
+        ("試料を表にして", False, "show"),
+        ("試料の一覧にして", False, "show"),
+        ("試料を見せてください", False, "show"),
+        ("show me the 試料 table", False, "show"),
+        ("試料 table", False, "show"),
+        ("What is the price? answer", False, "ask"),
+        ("Tell me", False, "ask"),
+        ("How does temperature change kappa?", False, "graph"),  # Te は単語の境目で当てる
+        ("Show Te", False, "show"),
         ("熱電材料について？", False, "graph"),  # 名前に当たらない ？ は図
         ("粒界散乱を前の位置に戻して", False, "graph"),
         ("試料を図に足して", False, "graph"),
@@ -488,3 +507,153 @@ def test_reverting_a_confirmed_machine_turn_removes_its_lines_and_dismisses(
         assert not any(ln["batch"] == f"{sid}:t1" for ln in lines)
         # 次から出さない
         assert client.get("/api/sky/suggestions").json()["suggestions"] == []
+
+
+# ---- 11d の直し: 点・表・戻す・点から外す ------------------------------------------------------
+
+
+def test_confirmed_flag_standard_and_draft_lines(tmp_path: Path) -> None:
+    client, _ = _confirmed_theme(tmp_path)
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER)["turn"]
+        root = tmp_path / "registry"
+        draft_id = chat_sessions.load_session(root, sid)["draft_id"]
+        card = _point(client, iri=f"draft:{draft_id}:c4").json()
+        assert card["confirmed"] is False
+        (sent,) = card["sentences"]
+        line = _point(
+            client, **{"from": sent["source"], "relation": sent["relation"], "to": sent["target"]}
+        ).json()
+        assert line["kind"] == "line" and line["confirmed"] is False
+        assert line["label"] == "粒界散乱 は 格子熱伝導率 を下げる" and line["can_revert"] is True
+        miss = _point(client, iri="draft:dnone:c1")
+        assert miss.status_code == 404 and "その提案はありません" in miss.text
+        client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/confirm", json={})
+        iris = _labels(client)
+        term = _point(client, iri=iris["粒界散乱"]).json()
+        assert term["confirmed"] is True and "standard" in term
+        std = _point(client, iri="http://qudt.org/vocab/quantitykind/ThermalConductivity").json()
+        assert std["confirmed"] is True
+        # hub: の検査
+        assert _point(client, iri="hub:").status_code == 422
+        assert _point(client, iri="hub:a b").status_code == 422
+
+
+def test_term_members_are_kinds_only_and_have_a_standard_field(tmp_path: Path) -> None:
+    client, _dsid = _published(tmp_path)
+    with client:
+        term = _point(client, iri=SV + "specimen").json()
+        assert [m["iri"] for m in term["members"]] == [EX + "Sample"]
+        assert term["standard"] is None
+        assert _point(client, iri=EX + "Sample").json()["standard"] is None
+
+
+def test_a_cell_that_is_another_subject_shows_its_name(tmp_path: Path) -> None:
+    client, dsid = _published(tmp_path)
+    with client:
+        from asterism import substrate
+
+        store = client.app.state.client.store
+        graph = ox.NamedNode(substrate.versioned_graph_iri(dsid, 1))
+        rel = ox.NamedNode(EX + "partner")
+        s1, s2 = ox.NamedNode(EXR + "sample/s1"), ox.NamedNode(EXR + "sample/s2")
+        store.add(ox.Quad(s1, rel, s2, graph))
+        store.add(ox.Quad(ox.NamedNode(EXR + "sample/s1"), ox.NamedNode(EX + "note"),
+                          ox.Literal("メモ"), graph))  # fmt: skip
+        sid = _new(client)
+        table = _say(client, sid, "試料を見せて")["turn"]["reply"]["table"]
+        row = {r["iri"]: r for r in table["rows"]}[EXR + "sample/s1"]
+        cell = row["cells"][EX + "partner"]
+        assert cell["iri"] == EXR + "sample/s2" and cell["text"] != cell["iri"]
+        assert row["cells"][EX + "note"] == {"text": "メモ"}
+
+
+def test_a_failed_removal_keeps_the_turn_and_returns_409(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _confirmed_theme(tmp_path)
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER)["turn"]
+        client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/confirm", json={})
+
+        async def boom(*a, **k):
+            raise RuntimeError("store down")
+
+        monkeypatch.setattr(crosswalk_runtime, "remove_alignment", boom)
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/revert")
+        assert r.status_code == 409, r.text
+        failed = r.json()["undone"]["failed"]
+        assert failed and {"what", "reason"} <= set(failed[0]) and r.json()["reverted"] == []
+        sess = chat_sessions.load_session(tmp_path / "registry", sid)
+        assert sess["turns"][0]["state"] == "confirmed"
+        monkeypatch.undo()
+        again = client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/revert")
+        assert again.status_code == 200 and again.json()["undone"]["failed"] == []
+
+
+def test_remove_from_a_point_proposes_then_confirm_removes(tmp_path: Path) -> None:
+    from tests.test_chat_api import _confirmed, _terms_by_label
+
+    client, _llm = _confirmed(tmp_path, "粒界散乱")
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER)["turn"]
+        client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/confirm", json={})
+        iris = _labels(client)
+        base = f"/api/chat/sessions/{sid}/turns"
+        both = client.post(base, json={"remove": {"iri": iris["粒界散乱"]}, "text": "x"})
+        assert both.status_code == 422
+        assert client.post(base, json={"remove": {"iri": "draft:d:c1"}}).status_code == 422
+        r = client.post(base, json={"remove": {"iri": iris["粒界散乱"]}})
+        assert r.status_code == 201, r.text
+        turn = r.json()["turn"]
+        assert turn["state"] == "proposed" and turn["by"] == "human"
+        assert turn["reply"]["sentences"] == ["「粒界散乱」を外す"]
+        (card,) = client.get("/api/sky").json()["proposed"]
+        assert card["removals"]["terms"] == [iris["粒界散乱"]]
+        c = client.post(f"{base}/{turn['id']}/confirm", json={})
+        assert c.status_code == 200 and c.json()["commit"]["removed"]["terms"] == 1
+        assert "粒界散乱" not in _terms_by_label(client)
+
+
+def test_remove_a_confirmed_relation_and_refuse_published_kinds(tmp_path: Path) -> None:
+    from tests.test_chat_api import _confirmed
+
+    client, _llm = _confirmed(tmp_path, "粒界散乱")
+    with client:
+        sid = _new(client)
+        t1 = _say(client, sid, Q_LOWER)["turn"]
+        client.post(f"/api/chat/sessions/{sid}/turns/{t1['id']}/confirm", json={})
+        iris = _labels(client)
+        a, b = iris["粒界散乱"], iris["格子熱伝導率"]
+        pred = next(
+            ln["relation"]
+            for ln in asyncio.run(crosswalk_runtime.list_alignments(client.app.state.client))
+            if ln["source"] == a and ln["target"] == b
+        )
+        r = client.post(
+            f"/api/chat/sessions/{sid}/turns",
+            json={"remove": {"from": a, "relation": pred, "to": b}},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["turn"]["state"] == "proposed"
+        assert r.json()["turn"]["reply"]["ops"][0]["target"] == "relation"
+
+
+def test_remove_refuses_a_published_kind(tmp_path: Path) -> None:
+    client, _dsid = _published(tmp_path)
+    with client:
+        sid = _new(client)
+        r = client.post(f"/api/chat/sessions/{sid}/turns", json={"remove": {"iri": EX + "Sample"}})
+        assert r.status_code == 422 and "公開したデータは戻せません" in r.text
+
+
+def test_ask_turns_are_not_in_the_chart_history() -> None:
+    from asterism_api import chat_turns
+
+    session = {"turns": [
+        {"state": "none", "by": "machine", "user": {"text": "q"},
+         "reply": {"text": "", "answer": {"text": "a"}}},
+        {"state": "proposed", "by": "ai", "user": {"text": "図"}, "reply": {"text": "ok"}},
+    ]}  # fmt: skip
+    assert [m["content"] for m in chat_turns._history(session)] == ["図", "ok"]

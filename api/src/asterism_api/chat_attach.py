@@ -1141,17 +1141,25 @@ async def confirm_suggestion(
     return None
 
 
-async def revert_suggestion(app: FastAPI, turn: dict, *, token: str | None) -> None:
-    """機械の手番の戻す — 外して次から出さない（``/api/sky/suggestions/dismiss``）。"""
+async def revert_suggestion(app: FastAPI, turn: dict, *, token: str | None) -> bool:
+    """機械の手番の戻す — 外して次から出さない（``/api/sky/suggestions/dismiss``）。
+    返り = 成否。失敗（通信・``status`` が 4xx/5xx）なら手番は戻さない（もう一度押せる）。"""
     http = make_http(app, token, {})
     try:
-        await http.post(
+        resp = await http.post(
             "/api/sky/suggestions/dismiss", json={"items": turn["reply"]["suggestions"]}
         )
+        ok = resp.status_code < 400
+    except Exception:
+        logger.warning("chat revert: dismiss request failed", exc_info=True)
+        ok = False
     finally:
         await http.aclose()
+    if not ok:
+        return False
     turn["state"] = "reverted"
     turn["before"] = None
+    return True
 
 
 # ---- 図の薄い星座（GET /api/sky の proposed_datasets） -----------------------------------------
