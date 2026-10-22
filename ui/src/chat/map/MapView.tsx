@@ -155,8 +155,8 @@ export function MapView({
         labelSize: 12,
         labelFont: 'inherit',
         labelRenderedSizeThreshold: 2,
-        labelDensity: 0.6,
-        labelGridCellSize: 140,
+        labelDensity: 1,
+        labelGridCellSize: 100,
         labelColor: { color: pal.label },
         defaultEdgeColor: pal.edge,
         minCameraRatio: 0.02,
@@ -174,6 +174,8 @@ export function MapView({
           // この話の点は前に出す（名前は重なりの規則に任せる。必ず出すのは選んだ点と hover の近傍だけ。
           // この話の名前は下の「この話の周り」で全部読める）
           const out: Record<string, unknown> = { ...data, type: 'circle', color, zIndex: isFocus ? 2 : 0 }
+          // データセットの丸（表の名前）は星座の見出し。名前を必ず出す
+          if (a.type === 'dataset') out.forceLabel = true
           if (em) {
             const isStrong = em.strong.has(id)
             const isActive = id === em.active || (p.highlightIds?.has(id) ?? false)
