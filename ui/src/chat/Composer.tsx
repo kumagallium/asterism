@@ -1,7 +1,9 @@
 // 入力欄（PR 11a・11g で見慣れたチャットの形に）。1 つの丸い枠の中に、1〜8 行に伸びる textarea と、
-// 下の行（左＝表を添えるクリップ・右＝丸い送るボタン）。Enter で送る・Shift+Enter で改行・IME 変換中は送らない。
+// 下の行（左＝表を添えるクリップ・右＝丸い送るボタン）。Enter で送る・Shift+Enter で改行・IME の変換中と確定の Enter は送らない
+// （WebKit は確定の Enter が普通の Enter に見える→ `useImeEnterGuard`）。
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useImeEnterGuard } from './useImeEnterGuard'
 import { GearIcon, PaperclipIcon, SendIcon } from '../icons'
 
 export interface ComposerProps {
@@ -31,6 +33,7 @@ function fitHeight(el: HTMLTextAreaElement): void {
 
 export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: ComposerProps) {
   const { t } = useTranslation('chat')
+  const { compositionHandlers, isImeKey } = useImeEnterGuard()
   const { t: ts } = useTranslation('settings')
   const [text, setText] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
@@ -85,8 +88,9 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: Comp
           aria-label={t('compose.placeholder')}
           maxLength={2000}
           onChange={(e) => setText(e.target.value)}
+          {...compositionHandlers}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            if (e.key === 'Enter' && !e.shiftKey && !isImeKey(e)) {
               e.preventDefault()
               void submit()
             }
