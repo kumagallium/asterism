@@ -1,14 +1,4 @@
 {
-  "bands": {
-    "names": "Terms (top band)",
-    "data": "Data (constellations)",
-    "dataCircles": "Data (one circle = one dataset)",
-    "std": "Standard terms (horizon)",
-    "noStar": "No stars yet",
-    "property": "field",
-    "draft": "proposal",
-    "draftRemove": "remove?"
-  },
   "unit": {
     "count": "{{n}} rows",
     "kinds": "{{n}} kinds"
@@ -21,20 +11,12 @@
     "triples": "facts",
     "none": "No confirmed questions yet (ask in the chat and press Confirm)"
   },
-  "quiet": "Quiet mode",
   "deep": "See the contents",
   "deepBack": "Back to the sky chart",
-  "deepLead": "A network linked by values. It shows individual records, not kinds.",
-  "png": {
-    "button": "Save as image",
-    "desktop": "Saving an image is not supported in the desktop app. Use the browser version to save it.",
-    "failed": "Could not create the image."
-  },
   "state": {
     "loading": "Loading the sky chart…"
   },
   "chart": {
-    "aria": "Sky chart. {{datasets}} datasets, {{kinds}} kinds, {{terms}} terms. A table with the same content is below the chart.",
     "ariaSample": "Sample sky chart (not your data)"
   },
   "empty": {
@@ -124,10 +106,6 @@
     "lines": "Knowledge relations",
     "colLine": "Relation",
     "colReason": "Reason"
-  },
-  "more": {
-    "label": "More",
-    "numbers": "See the numbers"
   },
   "drafts": {
     "review": "{{n}} to check →"
