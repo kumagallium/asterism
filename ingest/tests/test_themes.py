@@ -949,7 +949,7 @@ async def test_a_concept_the_questions_cannot_reach_is_refused(tmp_path: Path) -
     assert "stray" in out["minted"]
     # a theme whose questions are all memos cannot place a concept at all
     only_memo = _heat(answers=[_a(Q_LOWER, "memo")])
-    with pytest.raises(ThemeError, match="答え方が決まった問いが無いため、用語を置けません"):
+    with pytest.raises(ThemeError, match="答え方が決まった問いが無いので、まだ承認できません"):
         await themes.commit_theme(_Client(), tmp_path / "fresh", only_memo, at=AT)
 
 

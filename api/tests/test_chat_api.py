@@ -1266,3 +1266,22 @@ def test_router_exception_falls_back_to_propose(tmp_path: Path) -> None:
         sid = _new(client)
         t = _say(client, sid, Q_LOWER)["turn"]
         assert t["state"] == "proposed" and len(llm.calls) == 1
+
+
+def test_non_question_text_does_not_become_a_question_and_can_be_confirmed(
+    tmp_path: Path,
+) -> None:
+    # 問いでない文（チップで提案に回した雑談）: 人の文は問いに入れず、AI の答えの問いで ✓ できる
+    said = "熱電材料の熱伝導率って、組成でけっこう変わるよね"
+    client, _ = _ai_client(tmp_path, json.dumps(AI_JSON))
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, said, intent="propose")
+        did = out["draft"]["draft_id"]
+        stored = themes.load_draft(tmp_path / "registry", did)
+        assert said not in stored["questions"] and Q_LOWER in stored["questions"]
+        assert stored["answers"][0]["question"] == Q_LOWER
+        assert stored["answers"][0]["mode"] == "knowledge"
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{out['turn']['id']}/confirm", json={})
+        assert r.status_code == 200, r.text
+        assert r.json()["confirmed"] == [out["turn"]["id"]]
