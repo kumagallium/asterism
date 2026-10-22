@@ -689,6 +689,8 @@ export interface Point {
   /** ストアにある（✓ 済みの用語・線・公開済みの種類・標準の語・視点）。提案の札・提案の線・薄い星は false。 */
   confirmed: boolean
   dataset_id?: string
+  /** 公開済みの種類の持ち主のデータセットの表示名（それ以外は空）。 */
+  dataset_label: string
   /** 標準の語（あれば）。 */
   standard: { iri: string; label: string; prefix: string } | null
   /** 薄い星（未公開のデータセットの種類）。api を呼ばずに作る小さな 1 枚。 */
@@ -741,6 +743,7 @@ export function normalizePoint(v: unknown): Point | null {
     can_revert: v.can_revert === true,
     confirmed: v.confirmed === true,
     ...(typeof v.dataset_id === 'string' ? { dataset_id: v.dataset_id } : {}),
+    dataset_label: typeof v.dataset_label === 'string' ? v.dataset_label : '',
     standard: isObj(v.standard) && typeof v.standard.iri === 'string' ? { iri: v.standard.iri, label: str(v.standard.label), prefix: str(v.standard.prefix) } : null,
     revert: rev,
   }

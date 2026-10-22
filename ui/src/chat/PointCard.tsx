@@ -73,6 +73,9 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
         {sub && <span className="sky-meta">{sub}</span>}
       </h3>
       {p.kind !== 'line' && <div className="sky-about-name">{p.label || p.iri}</div>}
+      {p.kind === 'kind' && p.dataset_label && (
+        <p className="sky-meta" data-testid="point-dataset">{p.dataset_label}</p>
+      )}
       {std && (
         <p className="chat-point-std">
           <span className="sky-std">≡ {std.prefix ? `${std.prefix}:` : ''}{std.label}</span>

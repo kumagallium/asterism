@@ -40,6 +40,22 @@ export function removalOverlay(layout: SkyLayout, proposed: readonly Pick<DraftS
   return { nodeIds, edges }
 }
 
+/** 線の道すじ。1 枚の知識の図は直線か折れ線（`bx`/`by`・`bx2`/`by2`）、星図の帯は 2 次ベジェ。 */
+function tracePath(
+  ctx: Ctx,
+  g: { x1: number; y1: number; cx: number; cy: number; x2: number; y2: number; bx?: number; by?: number; bx2?: number; by2?: number; pts?: { x: number; y: number }[] },
+): void {
+  ctx.beginPath()
+  ctx.moveTo(g.x1, g.y1)
+  if (g.pts && g.pts.length >= 2) {
+    for (const q of g.pts.slice(1)) ctx.lineTo(q.x, q.y)
+  } else if (g.bx !== undefined && g.by !== undefined) {
+    ctx.lineTo(g.bx, g.by)
+    if (g.bx2 !== undefined && g.by2 !== undefined) ctx.lineTo(g.bx2, g.by2)
+    ctx.lineTo(g.x2, g.y2)
+  } else ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2)
+}
+
 function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath()
   ctx.moveTo(x + r, y)
@@ -69,16 +85,12 @@ export function drawRemovals(ctx: Ctx, layout: SkyLayout, pal: SkyPalette, ov: R
     ctx.globalAlpha = 1
     ctx.strokeStyle = pal.paper
     ctx.lineWidth = 3.5
-    ctx.beginPath()
-    ctx.moveTo(g.x1, g.y1)
-    ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2)
+    tracePath(ctx, g)
     ctx.stroke()
     ctx.globalAlpha = 0.5
     ctx.strokeStyle = pal.accent
     ctx.lineWidth = 1.4
-    ctx.beginPath()
-    ctx.moveTo(g.x1, g.y1)
-    ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2)
+    tracePath(ctx, g)
     ctx.stroke()
     ctx.font = `600 11px ${pal.font}`
     const w = ctx.measureText('×').width + 10

@@ -335,6 +335,7 @@ const point = (over: Partial<Point> = {}): Point => ({
   can_revert: true,
   confirmed: true,
   standard: null,
+  dataset_label: '',
   revert: { session_id: 'cabc12345x', turn_id: 't1' },
   ...over,
 })
@@ -464,6 +465,12 @@ describe('点の 1 枚の穴（11d）', () => {
     const k = pcard(point({ kind: 'kind', can_revert: false, revert: null }))
     expect(text(k)).toContain('結ばれた用語')
     expect(text(k)).not.toContain('入っている種類')
+  })
+  it('公開済みの種類: 名前の下にデータセット名が出る', () => {
+    const html = pcard(point({ kind: 'kind', label: '商品', dataset_label: '価格表', members: [] }))
+    expect(html).toContain('data-testid="point-dataset"')
+    expect(text(html)).toContain('価格表')
+    expect(pcard(point({ kind: 'kind', label: '商品', members: [] }))).not.toContain('point-dataset')
   })
   it('薄い星: 名前・データセット名・まだ公開していません。ほかは出ない', () => {
     const html = pcard(point({ kind: 'kind', label: '商品', thin: { dataset: '価格表' }, members: [], sentences: [], can_revert: false, revert: null }))

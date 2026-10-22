@@ -113,6 +113,10 @@ export interface KindNode extends NodeBase {
   r: number
   /** 未公開のデータセットの星（薄く描く）。 */
   proposed?: boolean
+  /** 1 枚の知識の図だけ: 概念の札の中の行にある星なら、その札の id。名前は星の右に出す（最下段の星は下）。 */
+  card?: string
+  /** 1 枚の知識の図だけ（card のある星）: 名前と件数に使える幅（星の右端から札の右の余白まで）。 */
+  rowW?: number
 }
 export interface DatasetNode extends NodeBase {
   type: 'dataset'
@@ -133,6 +137,9 @@ export interface TermNode extends NodeBase {
   /** 入っている点（星または丸）の id。 */
   memberIds: string[]
   stdId: string | null
+  /** 1 枚の知識の図だけ: 札の中の 1 行に出す標準の語（`prefix:label`）と、その行の中心の y。 */
+  stdLabel?: string
+  stdY?: number
   /** 段（0 が星に近い側）。 */
   lane: number
 }
@@ -188,6 +195,8 @@ export interface SkyEdge {
   /** concept・draft だけ: 線の道すじ（札の縁から縁へ）と、小さな札の位置（置けないなら null）。layoutSky が決める。 */
   geom?: ConceptEdgeGeom
   pill?: { x: number; y: number } | null
+  /** 1 枚の知識の図だけ: 小さな札の幅（押せる範囲）。 */
+  pillW?: number
 }
 
 /** 提案の線 1 本の素性。`fromKey`/`toKey` は下書きの概念の key（標準の語は curie）。 */
