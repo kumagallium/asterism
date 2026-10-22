@@ -78,8 +78,6 @@
     "example": "For example: \"Is this kind the same as Specimen?\"",
     "bind": "Let AI link",
     "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press “Add to the map”.",
-    "writePlaceholder": "What you want to know, in one line (e.g. What can lower thermal conductivity?)",
-    "consultPlaceholder": "Say it in a line (e.g. I think scattering factors tie to lattice thermal conductivity)",
     "askStar": "Ask about this star",
     "askQuestion": "Write a question",
     "starPlaceholder": "A line about this star (e.g. Is this kind the same as Specimen?)",
