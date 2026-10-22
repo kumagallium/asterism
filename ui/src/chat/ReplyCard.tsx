@@ -1,7 +1,10 @@
-// 返事 1 枚（PR 11a）。text → sentences → questions（チップ）→ notes → 下の行（状態の印・✓・戻す）。
-// notes.kind の全部（ai_unset・ai_failed・dropped・no_question・commit_error・info）と questions を今から描ける（11b が使う）。
+// 返事 1 枚（PR 11a・11g）。AI の行＝先頭の印＋地の文（text）＋差し込みの札（図への提案: sentences → questions（チップ）→ notes →
+// 下の行（✓・戻す））。札の上の行は状態（図への提案 N 件／確認済み／取り消し済み）。
+// notes.kind の全部（ai_unset・ai_failed・dropped・no_question・commit_error・info）と questions を描ける（11b が使う）。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { BrandMark, CheckIcon, PaperclipIcon } from '../icons'
+import { Thinking } from './ChatPane'
 import type { BindingDecision, Decided, Note, Turn, Undone } from './chatApi'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -192,20 +195,17 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
   )
 }
 
-/** 表を読んでいる最中の手番（返事の場所に 1 行）。 */
+/** 表を読んでいる最中の手番（AI の行に 1 行）。 */
 function Reading({ progress, interrupted }: { progress?: string; interrupted?: boolean }) {
   const { t } = useTranslation('chat')
-  if (interrupted)
-    return (
-      <div className="consult-msg consult-msg--assistant" data-testid="reply-interrupted">
-        <div className="consult-bubble">{t('attach.interrupted')}</div>
-      </div>
-    )
   return (
-    <div className="consult-msg consult-msg--assistant" data-testid="reply-reading">
-      <div className="consult-bubble consult-bubble--pending">
-        <span className="consult-spinner" aria-hidden="true" />
-        {progress ? t('attach.readingWith', { message: progress }) : t('attach.reading')}
+    <div className="chat-msg chat-msg--ai" data-testid={interrupted ? 'reply-interrupted' : 'reply-reading'}>
+      <BrandMark size={18} className="chat-ai-mark" />
+      <div className="chat-ai-body">
+        <p className="chat-ai-text chat-ai-text--wait">
+          {!interrupted && <Thinking />}
+          {interrupted ? t('attach.interrupted') : progress ? t('attach.readingWith', { message: progress }) : t('attach.reading')}
+        </p>
       </div>
     </div>
   )
@@ -242,15 +242,50 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   // text と箇条書きが同じ内容なら片方だけ。人の手番（user が null）は箇条書き 1 行だけ
   const sameAsOnly = sentences.length === 1 && r.text.trim() === sentences[0].trim()
   const showText = !!r.text && !r.answer && !sameAsOnly && !(turn.user === null && sentences.length > 0)
+  // 札の上の行: 添えた表／図への提案 N 件（この手番の分）／確認済み／取り消し済み（Ask の答えや表だけの返事には出さない）
+  const headKind = turn.attachment ? 'attachment' : turn.state === 'proposed' && !publish ? 'proposed' : turn.state === 'confirmed' ? 'confirmed' : turn.state === 'reverted' ? 'reverted' : null
+  const ownCount = r.ops.length
+  const showFoot = (canConfirm && turn.state !== 'none') || (turn.state === 'confirmed' && !!turn.commit) || proposed
+  const hasRemoved = turn.state === 'confirmed' && !!turn.commit?.removed && (turn.commit.removed.terms > 0 || turn.commit.removed.lines > 0)
+  const hasKept = turn.state === 'confirmed' && (turn.commit?.kept ?? []).length > 0
+  // 中身の無い札（文だけの返事）は出さない
+  const hasCard =
+    !!headKind || machineMark || sentences.length > 0 || !!r.table || !!r.answer || r.suggestions.length > 0 || r.bindings.length > 0 || r.questions.length > 0 || notes.length > 0 || hasRemoved || hasKept || !!undone || showFoot
   return (
-    <div className="consult-msg consult-msg--assistant">
+    <div className="chat-msg chat-msg--ai">
+      <BrandMark size={18} className="chat-ai-mark" />
+      <div className="chat-ai-body">
+        {showText && <p className="chat-ai-text">{r.text}</p>}
+      {hasCard && (
       <div className="chat-card" data-testid="reply-card" data-state={turn.state}>
-        {turn.attachment && (
-          <p className="chat-attach-head" data-testid="reply-attachment">
-            📎 {turn.attachment.name}・{t('attach.rows', { n: turn.attachment.rows })}
-          </p>
+        {(headKind || machineMark) && (
+          <div className={`chat-card-head${headKind === 'confirmed' ? ' chat-card-head--confirmed' : ''}`}>
+            {headKind === 'attachment' && turn.attachment && (
+              <span className="chat-card-head-main" data-testid="reply-attachment">
+                <PaperclipIcon size={14} />
+                {turn.attachment.name}・{t('attach.rows', { n: turn.attachment.rows })}
+              </span>
+            )}
+            {headKind === 'proposed' && (
+              <span className="chat-card-head-main chat-mark--proposed">{ownCount > 0 ? t('reply.cardProposed', { n: ownCount }) : t('reply.cardProposedNone')}</span>
+            )}
+            {headKind === 'confirmed' && (
+              <span className="chat-card-head-main">
+                <CheckIcon size={14} />
+                {t('reply.confirmed', { at: stamp(turn.commit?.at || turn.at, i18n.language) })}
+              </span>
+            )}
+            {headKind === 'reverted' && <span className="chat-card-head-main">{t('reply.reverted')}</span>}
+            {machineMark && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
+            {turn.attachment && turn.state === 'confirmed' && (
+              <span className="chat-card-head-main chat-card-head--confirmed">
+                <CheckIcon size={14} />
+                {t('reply.confirmed', { at: stamp(turn.commit?.at || turn.at, i18n.language) })}
+              </span>
+            )}
+            {turn.attachment && turn.state === 'reverted' && <span className="chat-card-head-main">{t('reply.reverted')}</span>}
+          </div>
         )}
-        {showText && <p className="chat-card-text">{r.text}</p>}
         {sentences.length > 0 && (
           <ul className="chat-sentences">
             {head.map((s, i) => (
@@ -362,16 +397,11 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             )}
           </>
         )}
-        {(turn.state !== 'none' || machineMark) && (
+        {showFoot && (
           <div className="chat-card-foot">
-            {machineMark && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
-            {turn.state === 'proposed' && <span className="chat-mark chat-mark--proposed">{t('reply.proposed')}</span>}
-            {turn.state === 'confirmed' && (
-              <span className="chat-mark chat-mark--confirmed">{t('reply.confirmed', { at: stamp(turn.commit?.at || turn.at, i18n.language) })}</span>
-            )}
-            {turn.state === 'reverted' && <span className="chat-mark chat-mark--reverted">{t('reply.reverted')}</span>}
             {canConfirm && turn.state !== 'none' && (
-              <button type="button" className="btn btn--sm" data-testid="reply-confirm" disabled={busy} onClick={() => onConfirm(turn.id, r.bindings.length > 0 ? bindingDecisions(r.bindings, picked) : undefined)}>
+              <button type="button" className="btn btn--sm chat-confirm" data-testid="reply-confirm" disabled={busy} onClick={() => onConfirm(turn.id, r.bindings.length > 0 ? bindingDecisions(r.bindings, picked) : undefined)}>
+                <CheckIcon size={14} />
                 {publish ? t('reply.publish') : t('reply.confirm')}
                 {!publish && count > 0 && ` ${t('reply.count', { n: count })}`}
               </button>
@@ -405,6 +435,8 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             )}
           </div>
         )}
+      </div>
+      )}
       </div>
     </div>
   )

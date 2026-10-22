@@ -118,9 +118,9 @@ def _reply(
 
 
 _AI_UNSET = {
-    "ja": "AI が設定されていないので、概念と関係は図の下の欄で手で足せます。"
+    "ja": "AI が設定されていないので、用語と関係は図の下の欄で手で足せます。"
     "設定 › AI で鍵を入れると AI が提案します",
-    "en": "AI is not set up, so add concepts and relations by hand in the panel under the chart. "
+    "en": "AI is not set up, so add terms and relations by hand in the panel under the chart. "
     "Add a key in Settings › AI and the AI will propose them.",
 }
 
@@ -901,7 +901,7 @@ def _created_turn(
     shape = _answer_shape(answer, draft["concepts"], lg)
     wanted = str(answer.get("wanted_data") or "").strip()
     if lg == "ja":
-        said = f"図に 概念 {n_concepts}・関係 {n_rels} を足しました。"
+        said = f"図に 用語 {n_concepts}・関係 {n_rels} を足しました。"
         said += f"答え方: {shape}。" if shape else "答え方: まだ決まっていません。"
         if wanted:
             said += f"欲しいデータ: {wanted}"
@@ -938,7 +938,7 @@ def _created_turn(
         notes.append(
             note(
                 "dropped",
-                f"前に外したものは入れていません: 概念 {gc}・関係 {gr}"
+                f"前に外したものは入れていません: 用語 {gc}・関係 {gr}"
                 if lg == "ja"
                 else f"Left out what you removed before: {gc} concepts, {gr} relations",
             )

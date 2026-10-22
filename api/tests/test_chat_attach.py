@@ -144,7 +144,8 @@ def test_an_attached_table_becomes_one_reply(tmp_path: Path) -> None:
         assert att["kinds"] and att["kinds"][0]["count"] == 3
         assert att["id_column"]
         text = turn["reply"]["text"]
-        assert "表「価格表」を読みました（3 行・1 行＝" in text and "✓ で公開します" in text
+        assert "表「価格表」を読みました（3 行・1 行＝" in text
+        assert "「公開」を押すと公開します" in text
         assert "価格の値（価格）" in text  # 列の意味
         # 結ぶ列: 完全一致した「価格」だけ・既定は結ぶ
         (b,) = turn["reply"]["bindings"]

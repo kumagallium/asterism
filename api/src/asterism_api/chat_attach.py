@@ -93,9 +93,9 @@ _T: dict[str, dict[str, str]] = {
         "choice_id": "ID にする列",
         "read": "表「{name}」を読みました。ID にする列を選んでください。",
         "reply": "表「{name}」を読みました（{rows} 行・1 行＝{kind}）。ID＝{id}。"
-        "列の意味: {meanings}。✓ で公開します。",
+        "列の意味: {meanings}。「公開」を押すと公開します。",
         "reply_nomeaning": "表「{name}」を読みました（{rows} 行・1 行＝{kind}）。ID＝{id}。"
-        "✓ で公開します。",
+        "「公開」を押すと公開します。",
         "more": "ほか {n} 列",
         "sentence": "列「{column}」は「{term}」と同じもの",
         "row_kind": "{stem} の 1 行",
@@ -139,9 +139,9 @@ _T: dict[str, dict[str, str]] = {
         "choice_id": "Column to use as ID",
         "read": 'Read the table "{name}". Please choose the column to use as ID.',
         "reply": 'Read the table "{name}" ({rows} rows, one row = {kind}). ID = {id}. '
-        "Column meanings: {meanings}. Press ✓ to publish.",
+        "Column meanings: {meanings}. Press Publish to publish.",
         "reply_nomeaning": 'Read the table "{name}" ({rows} rows, one row = {kind}). '
-        "ID = {id}. Press ✓ to publish.",
+        "ID = {id}. Press Publish to publish.",
         "more": "and {n} more",
         "sentence": 'Column "{column}" is the same thing as "{term}"',
         "row_kind": "Row of {stem}",

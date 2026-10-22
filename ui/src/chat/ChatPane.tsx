@@ -1,6 +1,8 @@
-// 中央の領域＝チャット（PR 11a）。人の文（右寄せ）と返事（ReplyCard）を時系列に並べ、下に入力欄。
+// 中央の領域＝チャット（PR 11a・11g で見慣れたチャットの文法に）。人の文は右の吹き出し、AI の文は地の文
+// （先頭に小さな印）＋図への提案の札（ReplyCard）。時系列に並べ、下に入力欄。
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { BrandMark, PaperclipIcon } from '../icons'
 import type { BindingDecision, Point, Session, Undone } from './chatApi'
 import { confirmTargets, proposedCount, type Highlight } from './chatState'
 import { PointCard } from './PointCard'
@@ -52,6 +54,17 @@ export interface ChatPaneProps {
   onHighlight?: (h: Highlight | null) => void
 }
 
+/** 考えている印（3 つの点が順に濃くなる。reduced-motion では静止）。 */
+export function Thinking() {
+  return (
+    <span className="chat-thinking" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </span>
+  )
+}
+
 export function ChatPane(p: ChatPaneProps) {
   const { t } = useTranslation('chat')
   const turns = p.session?.turns ?? []
@@ -91,12 +104,13 @@ export function ChatPane(p: ChatPaneProps) {
           turns.map((turn) => (
             <div key={turn.id} className="chat-turn">
               {turn.user && (
-                <div className="consult-msg consult-msg--user">
-                  <div className="consult-bubble">
+                <div className="chat-msg chat-msg--user">
+                  <div className="chat-bubble">
                     {turn.user.text}
                     {turn.user.attachments.map((a, i) => (
-                      <div key={i} data-testid="user-attachment">
-                        📎 {a.name}
+                      <div key={i} className="chat-bubble-file" data-testid="user-attachment">
+                        <PaperclipIcon size={14} />
+                        {a.name}
                       </div>
                     ))}
                   </div>
@@ -121,15 +135,29 @@ export function ChatPane(p: ChatPaneProps) {
           ))
         )}
         {p.pendingUser && (
-          <div className="consult-msg consult-msg--user" data-testid="pending-user">
-            <div className="consult-bubble">{p.pendingUser}</div>
+          <div className="chat-msg chat-msg--user" data-testid="pending-user">
+            <div className="chat-bubble">
+              {p.pendingReading ? (
+                p.pendingUser.split('\n').map((name, i) => (
+                  <div key={i} className="chat-bubble-file">
+                    <PaperclipIcon size={14} />
+                    {name}
+                  </div>
+                ))
+              ) : (
+                p.pendingUser
+              )}
+            </div>
           </div>
         )}
         {p.sending && !!p.pendingUser && (
-          <div className="consult-msg consult-msg--assistant" data-testid="reply-thinking">
-            <div className="consult-bubble consult-bubble--pending">
-              <span className="consult-spinner" aria-hidden="true" />
-              {p.pendingReading ? t('attach.reading') : t('reply.thinking')}
+          <div className="chat-msg chat-msg--ai" data-testid="reply-thinking">
+            <BrandMark size={18} className="chat-ai-mark" />
+            <div className="chat-ai-body">
+              <p className="chat-ai-text chat-ai-text--wait">
+                <Thinking />
+                {p.pendingReading ? t('attach.reading') : t('reply.thinking')}
+              </p>
             </div>
           </div>
         )}

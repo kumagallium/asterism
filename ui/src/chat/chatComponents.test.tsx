@@ -72,11 +72,12 @@ const list = (over: Partial<Parameters<typeof SessionList>[0]> = {}) =>
   )
 
 describe('ReplyCard', () => {
-  it('未確認の最後の返事には ✓ 確認＋件数と「戻す」', () => {
-    const html = card(turn())
+  it('未確認の最後の返事には 確認＋件数と「戻す」。札の上の行はこの手番の件数', () => {
+    const html = card(turn({ reply: reply({ ops: [{ op: 'add_concept' }, { op: 'add_relation' }] }) }))
     expect(html).toContain('data-testid="reply-confirm"')
     expect(html).toContain('data-testid="reply-revert"')
-    expect(text(html)).toContain('✓ 確認 2 件')
+    expect(text(html)).toContain('確認 2 件')
+    expect(text(html)).toContain('図への提案 · 2 件')
   })
   it('最後でない未確認の返事には ✓ を出さず、「戻す」は残る', () => {
     const html = card(turn(), false)
@@ -89,7 +90,7 @@ describe('ReplyCard', () => {
     expect(html).not.toContain('reply-revert')
   })
   it('確認済みは日時つきの印、取り消し済みはその印だけ', () => {
-    expect(text(card(turn({ state: 'confirmed', commit: { theme_id: 'x', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T09:30:00Z' } }), false))).toContain('✓ 確認済み')
+    expect(text(card(turn({ state: 'confirmed', commit: { theme_id: 'x', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T09:30:00Z' } }), false))).toContain('確認済み ·')
     const rev = card(turn({ state: 'reverted' }), false)
     expect(text(rev)).toContain('取り消し済み')
     expect(rev).not.toContain('reply-revert')
@@ -120,21 +121,23 @@ describe('ReplyCard', () => {
   })
 })
 
-describe('📎 表を添える', () => {
+describe('表を添える（クリップ）', () => {
   const binding = (column: string, decided: 'bind' | 'skip' = 'bind') => ({ column, label: column, term: column, term_label: column, relation: 'eq', subject: '', decided })
-  it('入力欄に 📎（隠し input・表の拡張子だけ）がある', () => {
+  it('入力欄にクリップ（隠し input・表の拡張子だけ）があり、絵文字は使わない', () => {
     const html = renderToStaticMarkup(<Composer onSend={async () => true} onAttach={noop} busy={false} noKey={false} onOpenSettings={noop} />)
     expect(html).toContain('data-testid="chat-attach"')
     expect(html).toMatch(/type="file"[^>]*multiple|multiple[^>]*type="file"/)
     expect(html).toContain('accept=".csv,.tsv,.xlsx,.xls,.json"')
-    expect(text(html)).toContain('📎')
+    expect(text(html)).not.toContain('📎')
+    expect(html).toContain('<svg')
+    expect(html).toContain('data-testid="chat-send"')
   })
   it('running の手番は「読んでいます…（段の 1 行）」で、✓ も戻すも出さない', () => {
     const html = renderToStaticMarkup(
       <ReplyCard turn={turn({ state: 'running', job_id: 'j1' })} canConfirm count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} progress="列の意味を調べています" />,
     )
-    expect(html).toContain('consult-bubble--pending')
-    expect(html).toContain('consult-spinner')
+    expect(html).toContain('chat-thinking')
+    expect(html).toContain('data-testid="reply-reading"')
     expect(text(html)).toContain('読んでいます…（列の意味を調べています）')
     expect(html).not.toContain('reply-confirm')
     expect(html).not.toContain('reply-revert')
@@ -146,7 +149,8 @@ describe('📎 表を添える', () => {
     expect(text(html)).toContain('結ぶ')
     expect(text(html)).toContain('結ばない')
     expect(html).toContain('name="bind-t1-0"')
-    expect(text(html)).toContain('📎 価格表.csv・12 行')
+    expect(text(html)).toContain('価格表.csv・12 行')
+    expect(text(html)).not.toContain('📎')
     const radios = [...html.matchAll(/<input[^>]*name="bind-t1-(0|1)"[^>]*>/g)].map((m) => m[0])
     expect(radios.filter((r) => r.includes('checked'))).toHaveLength(2)
   })
@@ -169,15 +173,15 @@ describe('📎 表を添える', () => {
   })
   it('📎 の手番に「機械」は出ない・名前の一致には出る', () => {
     const at = { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' }
-    expect(text(card(turn({ by: 'machine', attachment: at })))).not.toContain('機械')
-    expect(text(card(turn({ by: 'machine', user: null, reply: reply({ suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] }) })))).toContain('機械')
+    expect(text(card(turn({ by: 'machine', attachment: at })))).not.toContain('自動（名前の一致）')
+    expect(text(card(turn({ by: 'machine', user: null, reply: reply({ suggestions: [{ subject: 'a', term: 'b', relation: 'eq' }] }) })))).toContain('自動（名前の一致）')
   })
   it('選び待ちに ✓ は無く、表の手番の ✓ は「公開」', () => {
     const choice = { label: 'L', options: [{ value: 'a', label: 'A' }], default: 'a' }
     const wait = card(turn({ reply: reply({ notes: [{ kind: 'choice_id', text: 'x', choice }] }) }), false)
     expect(wait).not.toContain('reply-confirm')
     const pub = card(turn({ attachment: { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' } }))
-    expect(text(pub)).toContain('✓ 公開')
+    expect(text(pub)).toContain('公開')
     expect(text(pub)).not.toContain('件')
   })
   it('機械の手番は suggestions を 1 行ずつ・新しい kind も描ける', () => {
@@ -215,7 +219,7 @@ describe('SessionList', () => {
     expect(html).not.toContain('session-row')
     expect(text(html)).toContain('設定 › サーバで鍵を入れると、話を保存できます')
   })
-  it('たたむと ≡ だけ（新しい話も一覧も出ない）', () => {
+  it('たたむと一覧の開閉だけ（新しい話も一覧も出ない）', () => {
     const html = list({ folded: true })
     expect(html).toContain('list-toggle')
     expect(html).not.toContain('session-new')
@@ -264,10 +268,10 @@ describe('HandForm', () => {
   })
   it('機械の手番には印・state none には ✓ も戻すも出ない', () => {
     const m = card(turn({ by: 'machine', state: 'none' }))
-    expect(text(m)).toContain('機械')
+    expect(text(m)).toContain('自動（名前の一致）')
     expect(m).not.toContain('reply-confirm')
     expect(m).not.toContain('reply-revert')
-    expect(text(card(turn({ by: 'ai' })))).not.toContain('機械')
+    expect(text(card(turn({ by: 'ai' })))).not.toContain('自動（名前の一致）')
   })
   it('機械の手番の text と同じ注記は二重に出さない（違う注記は残す）', () => {
     const same = card(turn({ by: 'machine', state: 'none', reply: reply({ text: '同じ文です', notes: [{ kind: 'info', text: '同じ文です', choice: null }] }) }))
@@ -350,7 +354,7 @@ describe('PointCard', () => {
     expect(tx).toContain('格子熱伝導率')
     expect(tx).toContain('項目')
     expect(tx).toContain('格子熱伝導率は熱伝導率の一部')
-    expect(tx).toContain('話「熱電材料」で 2026-10-22 に AI が足し、人が ✓')
+    expect(tx).toContain('話「熱電材料」で 2026-10-22 に AI が足し、人が確認')
     expect(html).toContain('href="#/t/cabc12345x"')
     expect(html).toContain('data-testid="point-contents"')
     expect(html).toContain('data-testid="point-revert"')

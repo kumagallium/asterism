@@ -4,13 +4,13 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px minmax(340px, 480px) minmax(0, 1fr);
+  grid-template-columns: 240px minmax(360px, 560px) minmax(0, 1fr);
   background: var(--bg);
   font-family: var(--font-ui);
   color: var(--fg);
 }
 .chat-app.is-folded {
-  grid-template-columns: 56px minmax(340px, 480px) minmax(0, 1fr);
+  grid-template-columns: 56px minmax(360px, 560px) minmax(0, 1fr);
 }
 .chat-app [hidden] {
   display: none !important;
@@ -186,8 +186,8 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
 }
 .chat-turn {
   display: flex;
@@ -205,8 +205,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border-top: 1px solid var(--border);
+  padding: var(--space-2) var(--space-5) var(--space-3);
 }
 .chat-foot .promote-err {
   font-size: 0.8rem;
@@ -217,26 +216,141 @@
   gap: var(--space-2);
 }
 
-/* 返事 1 枚: 提案（未確認）は薄く、確認済みは濃く */
+/* ── チャットの文法（11g）: 人＝右の吹き出し・AI＝先頭の印＋地の文＋差し込みの札 ── */
+.chat-msg {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.chat-msg--user {
+  justify-content: flex-end;
+}
+.chat-bubble {
+  max-width: 85%;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--primary-soft);
+  border-radius: 16px 16px 6px 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-bubble-file {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  margin-top: 0.3em;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.chat-msg--ai {
+  align-items: flex-start;
+}
+.chat-ai-mark {
+  flex: none;
+  margin-top: 0.3rem;
+  color: var(--muted);
+}
+.chat-ai-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-ai-text {
+  margin: 0;
+  padding-top: 0.2rem;
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: var(--body);
+  word-break: break-word;
+}
+.chat-ai-text--wait {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
+.chat-thinking {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 0.6em;
+}
+.chat-thinking i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.35;
+  animation: chat-dot 1.2s infinite ease-in-out;
+}
+.chat-thinking i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.chat-thinking i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes chat-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-thinking i {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* 差し込みの札（図への提案・表・答え）。確認済みも枠は同じ（上の行の印で言い分ける） */
 .chat-card {
   max-width: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: 0.6rem 0.8rem;
-  font-size: 0.84rem;
-  line-height: 1.55;
-  background: var(--surface-alt);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--body);
+  word-break: break-word;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-}
-.chat-card[data-state='confirmed'] {
-  background: var(--surface);
-  border-color: var(--primary);
+  box-shadow: var(--shadow-soft);
 }
 .chat-card[data-state='reverted'] {
   color: var(--muted);
+  box-shadow: none;
+}
+.chat-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.chat-card-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.chat-card-head--confirmed,
+.chat-card-head .chat-card-head--confirmed {
+  color: var(--success-fg);
+}
+.chat-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
 }
 .chat-card-text {
   margin: 0;
@@ -309,6 +423,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-3);
+  padding-top: var(--space-1);
 }
 .chat-mark {
   font-size: 0.75rem;
@@ -448,6 +563,15 @@
 .chat-app.is-tabs .chat-list.is-open {
   transform: none;
 }
+.chat-app.is-tabs .chat-bubble {
+  max-width: 88%;
+}
+.chat-app.is-tabs .chat-scroll {
+  padding: var(--space-3);
+}
+.chat-app.is-tabs .chat-foot {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
 @media (prefers-reduced-motion: reduce) {
   .chat-app.is-tabs .chat-list {
     transition: none;
@@ -473,17 +597,115 @@
   font-weight: 500;
 }
 
-/* ── 📎 表を添える（PR 11c） ── */
-.chat-attach {
-  flex: 0 0 auto;
-  align-self: flex-end;
-  font-size: 1rem;
+/* ── 入力欄（11g）: 1 つの丸い枠。中に 1〜8 行に伸びる textarea と下の行（クリップ・丸い送るボタン） ── */
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
-.chat-attach-head {
+.chat-composer-box {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.chat-composer-box:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-softer);
+}
+.chat-composer-box.is-busy {
+  opacity: 0.8;
+}
+.chat-input,
+.chat-input:focus {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 24px;
+  max-height: 208px;
   margin: 0;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--body);
+  padding: 0.7rem 0.9rem 0.25rem;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+}
+.chat-input::placeholder {
+  color: var(--faint);
+}
+.chat-composer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 0.45rem 0.45rem 0.45rem;
+}
+.chat-composer-spacer {
+  flex: 1;
+}
+.chat-attach {
+  flex: none;
+}
+.chat-send {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-fg);
+  background: var(--primary);
+  border: none;
+  border-radius: 50%;
+  transition: background-color 0.15s;
+}
+.chat-send:hover:not(:disabled) {
+  background: #356040;
+}
+.chat-send:disabled {
+  color: var(--muted);
+  background: var(--surface-sink);
+  cursor: default;
+}
+.chat-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-spinner {
+    animation: none;
+  }
+}
+.chat-composer-hint {
+  margin: 0;
+  padding: 0 0.7rem;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+@media (hover: none) {
+  .chat-composer-hint {
+    display: none;
+  }
 }
 .chat-bindings {
   list-style: none;
