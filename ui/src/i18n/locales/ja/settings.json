@@ -264,8 +264,5 @@
     "retry": "もう一度試す",
     "logPath": "くわしい記録: {{path}}",
     "requestFailed": "操作できませんでした。少し待ってから、もう一度お試しください。"
-  },
-  "developer": {
-    "sparqlLink": "開発者向け: SPARQL を直接書く →"
   }
 }

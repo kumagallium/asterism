@@ -6,11 +6,5 @@
     "note": "Your work up to just now may already be saved (check Datasets after reloading).",
     "reload": "Reload",
     "detailsSummary": "Error details"
-  },
-  "mermaid": {
-    "renderFailed": "This diagram can't be displayed (your data is unaffected).",
-    "renderFailedSource": "The diagram's source (technical details)",
-    "loadFailed": "The diagram renderer failed to load. The app may have been updated — reloading fixes this.",
-    "reload": "Reload"
   }
 }

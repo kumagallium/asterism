@@ -102,8 +102,6 @@
     "varies": "varies per record",
     "diagramAria": "A diagram of the shape this design makes. Boxes are kinds of data; arrows are the links between them.",
     "askLink": "Ask the AI about links",
-    "askDup": "Ask the AI about the duplicate",
-    "askDupPrefill": "The gate says {{names}} build the same record from the same columns. I want to judge whether they are copies of one thing or different things. Looking at the columns of this table, tell me concretely which to keep — or whether to split the items instead",
     "addSameId": "+ Add a kind with the same ID",
     "addSameIdHint": "Name the new kind. Any language works — the published English-letter name is made by the machine. After adding it, move items onto it with the “Carried by” picker on the right.",
     "addSameIdName": "Name of the new kind (any language works)",

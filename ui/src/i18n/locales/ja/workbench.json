@@ -1,112 +1,22 @@
 {
-  "mode": {
-    "groupLabel": "データの追加方法",
-    "new": "新しいデータから作る",
-    "newTag": "CSV / JSON",
-    "crosswalk": "既存データを横断でつなぐ",
-    "crosswalkTag": "crosswalk"
-  },
   "intro": "データソースをつなぎ、<strong>AI が設計 → 確認・修正 → 保存</strong>の順に進めます。保存するとデータセット一覧に並びます。構造解析は内部で自動実行するので、確認したいときだけ「構造を見る」を押してください。",
-  "restore": {
-    "note": "前回の作業を復元しました（再実行する場合のみソースを選び直してください）。",
-    "clear": "作業内容をクリア",
-    "clearConfirm": "AI が提案した設計と保存結果を含む作業内容をすべて消去します。よろしいですか？"
-  },
-  "redesign": {
-    "badge": "設計の見直し",
-    "banner": "既存のデータセット <strong>{{name}}</strong> の設計を見直しています。保存すると同じデータセットの取り込みルールが更新されます（データは「データを更新（再取り込み）」で反映してください）。",
-    "badgeAdopted": "保存済みの設計",
-    "bannerAdopted": "この設計はデータセット <strong>{{name}}</strong> として保存済みです。以降の保存（やり直し・AI 修正後の再保存）は同じデータセットを更新します — 新しいデータセットは作られません。",
-    "findingsTitle": "見直しのきっかけ",
-    "findingsBody": "下のレビューコメント欄に同じ内容を入れてあります。「コメントを反映して再生成」で AI に直してもらえます。項目の意味だけ直したいときは、この指摘は閉じてかまいません。",
-    "findingsDismiss": "この指摘を閉じる"
-  },
-  "step": {
-    "design": "AI が設計",
-    "designEn": "design",
-    "review": "確認・修正",
-    "reviewEn": "review",
-    "save": "保存",
-    "saveEn": "save",
-    "guard": "先に「AI が設計」で設計図を生成してください。"
-  },
   "source": {
-    "label": "データソース",
-    "kindsGroupLabel": "データソースの種類",
-    "soonTitle": "近日対応",
-    "soonBadge": "近日",
-    "note": "あらゆる構造化ソースに対応予定（現在は CSV・TSV・装置テキスト（.txt/.dat/.asc）/ JSON / 文書）",
     "csv": "表計算 / CSV・装置テキスト",
     "json": "JSON",
     "db": "DB",
     "api": "API 連携",
-    "apiShort": "API",
-    "document": "文書（{{formats}}）",
-    "pickJson": "JSON を選択",
-    "pickCsv": "CSV/TSV/装置テキストを選択",
-    "noFile": "ファイル未選択",
-    "fkJson": "ファイルをまたぐ共通 ID フィールド（任意）",
-    "fkCsv": "ファイルをまたぐ共通 ID 列（任意）",
-    "footSelected": "{{n}} 件のファイルを選択中 — 全ステップで同じソースを使います",
-    "footEmpty": "ここで選んだソースを全ステップで共有します",
-    "inspectHide": "構造解析を隠す",
-    "inspectShow": "構造を見る（任意・LLM 不要）",
-    "analyzing": "解析中…"
+    "document": "文書（{{formats}}）"
   },
   "design": {
-    "hint": "AI がデータの<strong>設計図（語彙）</strong>と<strong>取り込みルール</strong>の案を提案します。AI には、設定で選択中のモデルを使います。",
     "apiKeyLabel": "Anthropic API キー (sk-…)",
-    "hintsLegend": "ヒント (任意・当てはまるものにチェックすると精度が上がります)",
-    "domainFreeLabel": "その他の補足 (自由記入・任意)",
-    "domainFreePlaceholder": "例: この分野では A と B は同じ量の別名。図の値は WebPlotDigitizer で読み取った。",
     "propose": "設計図を提案",
-    "proposing": "提案中…",
-    "jobLabel": "AI が設計図を設計中…",
-    "inspectDetails": "この提案が使った構造解析を表示"
-  },
-  "review": {
-    "hint": "提案を確認し、直したい点をコメントすると AI が再生成します（任意）。",
-    "commentLabel": "レビューコメント",
-    "commentPlaceholder": "例: Sample IRI を (SID, sample_id) の複合キーにして。設計根拠も同期更新して。",
-    "regenerate": "コメントを反映して再生成",
-    "regenerating": "再生成中…",
-    "jobLabel": "AI が設計図を再生成中…"
-  },
-  "save": {
-    "hint": "設計を 4 つの成果物に分け、保存前に 8 項目の自動チェックを通して<strong>データセットに保存</strong>します。",
-    "save": "確定してデータセットに保存",
-    "saving": "追加中…",
-    "added": "データセットに追加しました。",
-    "addedRedesign": "データセットの設計を更新しました。",
-    "duplicateNote": "保存済みのため、保存ボタンは無効化されています。下の「保存し直す」からやり直しても、新しいデータセットは増えず、この同じデータセットが更新されます。",
-    "again": "保存し直す",
-    "incompleteHeading": "設計は保存しましたが、このままでは取り込めません",
-    "noRml": "変換ルール（RML）が生成されていないため、このデータは取り込めません。設計をやり直すか、「確認・修正」で補ってください。",
-    "incomplete": "設計が不完全なため、このままでは取り込めません。設計をやり直すか、「確認・修正」で補ってください。",
-    "warningsLabel": "検出された警告:",
-    "validationHead": "ソースデータに照らして設計を検証したところ、次の問題が見つかりました（取り込み前にここで修正してください）:",
-    "openDataset": "データセットを開く（取り込み・公開へ）",
-    "backToKantan": "かんたんモードに戻って続ける",
-    "advisoryHead": "設計の弱いところ（直さなくても保存できます）"
+    "proposing": "提案中…"
   },
   "fix": {
-    "groupLabel": "検証エラーの自動修正",
-    "hint": "上の検証で不合格・警告が出ています。ワンクリックで、その内容を AI に渡して設計（§RML 含む）を作り直してもらえます。再生成後にもう一度「確定してデータセットに保存」を押して再検証してください。",
-    "fix": "この不合格を AI に直してもらう",
-    "fixing": "AI が修正中…",
-    "needKey": "AI に修正してもらうには、設定でモデルとキーを用意してください。",
     "commentIntro": "次の検証エラーを修正して §RML を作り直してください（許可された Tier 0 関数だけを使う・存在しない列を参照しない）:"
   },
   "autocorrect": {
-    "converged": "AI が設計を自動検証しました（{{rounds}} 回の自己修正で問題を解消）",
-    "bestEffort": "AI が {{rounds}} 回自己修正しましたが、{{count}} 件の問題が残っています",
-    "cleanFirst": "AI の初回設計で静的な問題は見つかりませんでした",
-    "advisoryOnly": "AI が {{count}} 件の問題を検出しました（自己修正は無効）",
-    "remainingLabel": "残っている問題:",
-    "prefillFix": "残りの問題を下の修正ボックスに転記しました。「この不合格を AI に直してもらう」で再依頼できます。",
-    "caveat": "これは実データとの静的検証です。収束は「取り込み可能」を保証しません（取り込み時に本検証が走ります）。",
-    "tabularCaveat": "JSON/XML ソースの参照は列レベルで検証されていません。",
-    "coverageCaveat": "自己修正の過程でマッピング量が減った可能性があります。設計の網羅性を確認してください。"
+    "advisoryOnly": "AI が {{count}} 件の問題を検出しました（自己修正は無効）"
   },
   "job": {
     "elapsed": "{{mm}}分{{ss}}秒経過 ・ 通常 1〜6 分 ・ 接続は維持されています",
@@ -114,49 +24,7 @@
     "silent": "サーバからの応答が {{s}} 秒途絶えています（自動再接続中…）",
     "cancel": "キャンセル",
     "cancelling": "キャンセル中…",
-    "cancelled": "キャンセルしました",
-    "resumedFailed": "中断していたジョブを再開できませんでした: {{message}}"
-  },
-  "resume": {
-    "restored": "前回の結果を復元しました",
-    "reconnecting": "前回のジョブに再接続中…"
-  },
-  "materialize": {
-    "artifactsHeading": "生成物（{{n}}）",
-    "downloadTitle": "{{name}} をダウンロード",
-    "notExtractedTitle": "{{name}} は抽出されませんでした",
-    "validationHeading": "保存前の自動チェック（8 項目）",
-    "summaryOk": "問題なし — 保存できます",
-    "summaryBad": "保存を止める問題があります（コード {{code}}）— 修正が必要です"
-  },
-  "status": {
-    "pass": "合格",
-    "skip": "スキップ（実行せず）",
-    "warn": "警告",
-    "fail": "不合格（要修正）"
-  },
-  "trap": {
-    "T1": "IRI の一意性（複合キーが全体で一意か）",
-    "T2": "BOM（読み取り文字コードが utf-8-sig か）",
-    "T3": "空白ノードなし（bnode-free）",
-    "T4": "MIE のキーワード／カテゴリ（5 個以上）",
-    "T5": "Mermaid のコロン回避（図ラベルに : を含まない）",
-    "T6": "サンプルが実在行か（捏造でないか）",
-    "T7": "設計根拠（理由／代替案／トレードオフ）",
-    "T8": "AI 幻覚テスト（任意）"
-  },
-  "ingest": {
-    "heading": "データを取り込む（人間ゲート）",
-    "noRml": "この設計には取り込みルール（RML）が無いため取り込めません。「AI が設計」ステップで取り込みルールを作ると、ここから安全に取り込めるようになります。",
-    "note": "承認すると、この取り込みルール（RML）を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0 関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に取り込みます。共有データ（canonical・質問する（Ask）の引用対象）は汚しません。",
-    "previewSummary": "RML マッピングを確認（{{n}} 行）",
-    "doneCount": "✓ 下書きグラフに取り込みました（{{n}} 件）。",
-    "ingesting": "取り込み中…",
-    "approve": "データを取り込む（承認）",
-    "notSaved": "この設計はまだ保存されていません（dataset が見つかりません）。",
-    "needCsv": "取り込みには設計に使ったソースファイル（CSV/TSV/装置テキスト）が必要です。データソース欄で選び直してください（リロード後は再選択が必要）。",
-    "failed": "取り込みに失敗しました: {{message}}",
-    "cancelled": "取り込みをキャンセルしました。途中まで書き込まれたデータは破棄済みです。"
+    "cancelled": "キャンセルしました"
   },
   "progress": {
     "ingesting": "取り込み中…",
@@ -171,10 +39,6 @@
     "jsonColumns": "セルの中に JSON（配列やオブジェクト）が入っている列がある"
   },
   "skeleton": {
-    "generate": "設計を生成（骨格を確認しながら）",
-    "generating": "骨格を生成中…",
-    "singleShot": "一括生成（確認なし）",
-    "jobLabel": "骨格を生成中",
     "continuing": "設計を生成中…",
     "continue": "この骨格で続行",
     "discard": "骨格を破棄",
@@ -271,7 +135,7 @@
       "hint": "クラスとデータ ID はここに示す名前空間の下に作られ、恒久的な識別子になります。再利用する標準語彙（schema: など）はそのまま、この設計固有の名前空間が意図した置き場所かを確認してください。",
       "hintPlain": "AI が書いた ID のアドレスです。ふつうは触る必要はありません。",
       "placeholderWarn": "仮のドメイン（example.org など）です — このままでは公開できる識別子になりません。名前空間を編集してください。",
-      "placeholderWarnPlain": "仮のアドレス（example.org など）のままです。このままでは引用できる ID になりません。「AI にもう一度考えさせる」で作り直すか、詳細モードで直せます。",
+      "placeholderWarnPlain": "仮のアドレス（example.org など）のままです。このままでは引用できる ID になりません。「AI にもう一度考えさせる」で作り直せます。",
       "confirmPlaceholder": "名前空間が仮ドメインのままです（{{prefixes}}）。このまま続行しますか？（後段の自動修正が書き換えを試みますが、ここで直すのが確実です）",
       "nameLabel": "ID に入る英字の名前（表示名は最後の「公開する」で別に付けます）",
       "nameHint": "ID の中に入る英字の名前です（英字・数字・ハイフンだけ）。公開一覧に出る表示名は、最後の「公開する」で別に付けます。今後このデータセットに足していくデータも表せる名前が安全です（例: 1 つの材料名より、測定・実験の種類）。",
@@ -283,31 +147,5 @@
     "remove": "この種類を消す",
     "removeConfirm": "消す",
     "removeCancel": "やめる"
-  },
-  "dialect": {
-    "title": "読み取り設定（任意）",
-    "hint": "装置ファイルの読み取り方（文字コード・区切り・見出し前の行数）を自動判定しました。誤りがあれば生成前にここで直せます。きれいな CSV は表示されません。",
-    "colEncoding": "文字コード",
-    "colDelimiter": "区切り文字",
-    "colSkipRows": "見出しより前の行数",
-    "colCollapse": "連続する区切りを1つとして扱う",
-    "colPreamble": "見出し前のメタ情報",
-    "originDetected": "自動検出",
-    "originSpecified": "指定",
-    "reset": "自動検出に戻す",
-    "delim": {
-      "comma": "カンマ",
-      "tab": "タブ",
-      "semicolon": "セミコロン",
-      "pipe": "パイプ",
-      "whitespace": "空白（連続を1つ）"
-    },
-    "preamble": {
-      "drop": "取り込まない（既定）",
-      "keyvalue": "Key: value を列にする",
-      "keyvalue_cells": "区切られた key=value を列にする（装置メタ行）",
-      "lines": "各行を列にする",
-      "hint": "見出し前のメタ情報を列として、データの各行に横付けして取り込みます（試料名・測定日などを測定値と一緒に問い合わせできます）。"
-    }
   }
 }
