@@ -9,8 +9,8 @@ import type { DraftSky, SkyData, SkyDataset, SkyKnowledgeRelation } from '../../
 import { starRadius } from '../graph/graphLayout'
 import type { PointSel } from '../chatState'
 
-export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub'
-export type MapEdgeKind = 'concept' | 'member' | 'draft' | 'hub'
+export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub' | 'dataset'
+export type MapEdgeKind = 'concept' | 'member' | 'draft' | 'hub' | 'dataset'
 
 export interface MapNodeAttrs {
   type: MapNodeType
@@ -27,8 +27,8 @@ export interface MapNodeAttrs {
   size: number
   x: number
   y: number
-  /** 色の役割: 用語・視点・提案＝activity／データの種類＝entity。 */
-  role: 'activity' | 'entity'
+  /** 色の役割: 用語・視点・提案＝activity／データの種類＝entity／データセット（表の名前）＝dataset（灰）。 */
+  role: 'activity' | 'entity' | 'dataset'
 }
 
 export interface MapEdgeAttrs {
@@ -50,6 +50,9 @@ export function termSize(members: number, degree: number): number {
 }
 
 export const HUB_SIZE = 8
+/** データセット（表の名前）の丸。種類をまとめる要で、押しても 1 枚は出ない。 */
+export const DATASET_SIZE = 6
+export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 
 const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = {
   part: 'isPartOf',
@@ -91,9 +94,15 @@ export function buildMapGraph(
   const datasetLabel = new Map<string, string>()
   for (const d of datasets) {
     datasetLabel.set(d.id, d.label)
+    const proposed = d.proposed === true || (proposedIds.has(d.id) && !have.has(d.id))
+    // データセットの丸（表の名前）。その種類を線で束ねて 1 つのまとまりにする（孤立した種類が散らばらない）
+    const did = datasetNodeId(d.id)
+    if (d.kinds.length > 0) {
+      addNode(did, { type: 'dataset', label: d.label, datasetId: d.id, ...(proposed ? { proposed: true } : {}), size: DATASET_SIZE, role: 'dataset' })
+    }
     for (const k of d.kinds) {
-      const proposed = d.proposed === true || (proposedIds.has(d.id) && !have.has(d.id))
-      addNode(kindId(d.id, k.iri), {
+      const kid = kindId(d.id, k.iri)
+      addNode(kid, {
         type: 'kind',
         label: k.label,
         iri: k.iri,
@@ -102,6 +111,7 @@ export function buildMapGraph(
         size: kindSize(k.count),
         role: 'entity',
       })
+      addEdge(did, kid, { kind: 'dataset', ...(proposed ? { thin: true } : {}) }, false)
     }
   }
 
@@ -231,6 +241,7 @@ export function mapSelection(g: Graph, id: string): PointSel | null {
     case 'draft':
       return { kind: 'draft', iri: a.conceptKey ?? '', draftId: a.draftId ?? '', label: a.label }
     default:
+      // データセットの丸は 1 枚を持たない
       return null
   }
 }

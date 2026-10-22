@@ -3,7 +3,7 @@ import { EMPTY_SKY } from '../../sky/skyApi'
 import type { DraftSky, SkyData, SkyDataset, SkyTerm } from '../../sky/skyApi'
 import { draftNodeId, hubNodeId, kindId, termId } from '../../sky/skyLayout'
 import { selectionOfNode } from '../chatState'
-import { buildMapGraph, kindSize, layoutMap, mapNeighborhood, mapSelection, termSize } from './mapModel'
+import { buildMapGraph, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, termSize } from './mapModel'
 
 const term = (slug: string, label: string, members: SkyTerm['members'] = []): SkyTerm => ({
   iri: `urn:t:${slug}`,
@@ -67,8 +67,11 @@ describe('buildMapGraph', () => {
   const g = buildMapGraph(sky, [draft], proposed, 'ja')
 
   it('点の数と id', () => {
-    // 種類 3（公開 2＋未公開 1）・用語 3・視点 1・提案の札 1（existing は寄せる）
-    expect(g.order).toBe(8)
+    // 種類 3（公開 2＋未公開 1）・データセットの丸 2・用語 3・視点 1・提案の札 1（existing は寄せる）
+    expect(g.order).toBe(10)
+    expect(g.hasNode(datasetNodeId('ds1'))).toBe(true)
+    expect(g.getNodeAttribute(datasetNodeId('ds2'), 'proposed')).toBe(true)
+    expect(mapSelection(g, datasetNodeId('ds1'))).toBeNull() // データセットの丸は 1 枚を持たない
     expect(g.hasNode(termId('urn:t:material'))).toBe(true)
     expect(g.hasNode(kindId('ds1', 'urn:k:a'))).toBe(true)
     expect(g.hasNode(kindId('ds2', 'urn:k:c'))).toBe(true)
@@ -83,6 +86,7 @@ describe('buildMapGraph', () => {
     expect(kinds.member).toBe(2)
     expect(kinds.concept).toBe(1)
     expect(kinds.hub).toBe(2)
+    expect(kinds.dataset).toBe(3) // データセットの丸とその種類
     // n1→材料 lowers（薄い）と 測定→材料 raises（solid）。affects の薄い線は張らない
     expect(kinds.draft).toBe(2)
     const rels: string[] = []

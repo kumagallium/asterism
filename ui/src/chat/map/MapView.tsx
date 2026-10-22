@@ -43,6 +43,7 @@ function withAlpha(color: string, alpha: number): string {
 interface Palette {
   activity: string
   entity: string
+  dataset: string
   activityThin: string
   entityThin: string
   accent: string
@@ -55,10 +56,12 @@ interface Palette {
 function readPalette(): Palette {
   const activity = cssColor('--activity', '#3b6fb6')
   const entity = cssColor('--entity', '#2f8f5b')
+  const dataset = cssColor('--muted', '#54695b')
   const border = cssColor('--border-strong', '#c7d4c4')
   return {
     activity,
     entity,
+    dataset,
     activityThin: withAlpha(activity, 0.55),
     entityThin: withAlpha(entity, 0.55),
     accent: cssColor('--accent', '#d6452c'),
@@ -119,7 +122,7 @@ export function MapView({
         zIndex: true,
         labelSize: 12,
         labelFont: 'inherit',
-        labelRenderedSizeThreshold: 6,
+        labelRenderedSizeThreshold: 2,
         labelDensity: 0.6,
         labelGridCellSize: 140,
         labelColor: { color: pal.label },
@@ -132,8 +135,8 @@ export function MapView({
           const em = emphasis()
           const isFocus = p.focusIds.has(id)
           const isRemove = p.removeIds.has(id) || a.remove === true
-          const base = a.role === 'entity' ? pal.entity : pal.activity
-          const thin = a.role === 'entity' ? pal.entityThin : pal.activityThin
+          const base = a.role === 'entity' ? pal.entity : a.role === 'dataset' ? pal.dataset : pal.activity
+          const thin = a.role === 'entity' ? pal.entityThin : a.role === 'dataset' ? withAlpha(pal.dataset, 0.55) : pal.activityThin
           let color = a.proposed ? thin : base
           if (isRemove) color = pal.accent
           const out: Record<string, unknown> = { ...data, type: 'circle', color, zIndex: isFocus ? 2 : 0 }
