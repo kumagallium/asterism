@@ -58,8 +58,9 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
   const sentences = p.kind === 'line' ? p.sentences.filter((s) => s.text !== lineText) : p.sentences
   const showNone = p.kind === 'term' || p.kind === 'kind'
   // 外す提案（確認済みの用語・線）か、従来の取り消し（未確認の提案の手番）か
-  const canRemove = p.can_revert && !p.revert && (p.kind === 'term' || p.kind === 'line') && !!onRemove
-  const canUndo = p.can_revert && !!p.revert
+  // 確認済み（ストアにある）の用語・線は「外す提案」（✓ で確定）。未確認の札・線は、その提案の手番の取り消し。
+  const canRemove = p.confirmed && (p.kind === 'term' || p.kind === 'line') && !!onRemove
+  const canUndo = !p.confirmed && p.can_revert && !!p.revert
   const provLine = prov
     ? sessionId
       ? t('point.prov', { title: titleOf?.(sessionId) || t('point.untitled'), at: dayOf(prov.at), by: t(`point.${byKeyOf(prov.drafted_by)}`) })

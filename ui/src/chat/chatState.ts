@@ -255,6 +255,7 @@ export function thinPointOf(sel: { iri: string; label: string; thin?: { dataset:
     questions: [],
     members: [],
     can_revert: false,
+    confirmed: false,
     standard: null,
     thin: { dataset: sel.thin?.dataset ?? '' },
     revert: null,

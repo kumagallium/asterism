@@ -35,6 +35,8 @@ from asterism.grounding import term_display_name
 __all__ = ["PointError", "build_point"]
 
 _MAX_SENTENCES = 50
+#: ``hub:`` の後ろ（空でなく、IRI に使えない字を含まない）
+_HUB_REST = re.compile(r'^[^\s<>"{}|\\^`]+$')
 
 
 class PointError(Exception):
@@ -111,6 +113,18 @@ class _Ctx:
                 self.kind_dataset.setdefault(k["iri"], d)
         self.std_ns = shared_vocab.known_namespaces()
         self._batches: dict[str, dict[str, Any] | None] = {}
+
+    def standard_of(self, iri: str | None) -> dict[str, str] | None:
+        """標準の語 ``{iri, label, prefix}``（``sky_view`` の ``standards`` と同じ形）。"""
+        if not iri:
+            return None
+        found = next((x for x in self.sky.get("standards") or [] if x.get("iri") == iri), None)
+        e = found or sky_view._standard_entry(iri)
+        return {
+            "iri": str(e["iri"]),
+            "label": str(e["label"]),
+            "prefix": str(e.get("prefix") or ""),
+        }
 
     def is_standard(self, iri: str) -> bool:
         return any(iri.startswith(ns) for ns in self.std_ns)
@@ -225,6 +239,8 @@ def _base(iri: str, kind: str, label: str) -> dict[str, Any]:
         "provenance": None,
         "questions": [],
         "members": [],
+        "standard": None,
+        "confirmed": True,  # ストアにある（✓ 済み・公開済み・標準・視点）。未確認の札・提案の線は False
         "can_revert": False,
         "revert": None,
     }
@@ -238,8 +254,9 @@ async def _term_point(ctx: _Ctx, client: Any, iri: str) -> dict[str, Any]:
     out["questions"] = ctx.question_cards(iri)
     sky_term = next((t for t in ctx.sky.get("terms") or [] if t["iri"] == iri), None)
     seen: set[str] = set()
+    out["standard"] = ctx.standard_of(((sky_term or {}).get("standard") or {}).get("iri"))
     for m in (sky_term or {}).get("members") or []:
-        if m["iri"] in seen:
+        if m["iri"] in seen or m["iri"] not in ctx.kinds:  # 種類（class）だけ。項目は入れない
             continue
         seen.add(m["iri"])
         out["members"].append(
@@ -271,6 +288,7 @@ def _kind_point(ctx: _Ctx, iri: str) -> dict[str, Any]:
     out = _base(iri, "kind", str(k["label"]))
     out["term_kind"] = "class"
     out["dataset_id"] = ctx.kind_dataset[iri]["id"]
+    out["standard"] = ctx.standard_of(k.get("standard"))
     out["sentences"] = ctx.sentences_of(iri)
     for t in ctx.sky.get("terms") or []:
         if any(m["iri"] == iri for m in t.get("members") or []):
@@ -326,86 +344,149 @@ def _line_point(ctx: _Ctx, ln: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _draft_point(root: Path, lg: str, iri: str) -> dict[str, Any]:
-    parts = iri.split(":", 2)
+class _DraftView:
+    """提案（未確認の下書き）1 つを読んだもの。札と線の両方がこれで名前・来歴を引く。"""
+
+    def __init__(self, root: Path, lg: str, draft_id: str) -> None:
+        draft = themes.load_draft(root, draft_id) if themes._ID_RE.match(draft_id) else None
+        if draft is None:
+            raise PointError(404, "その提案はありません")
+        self.lg = lg
+        self.draft_id = draft_id
+        self.draft = draft
+        self.concepts = {str(c.get("key")): c for c in draft.get("concepts") or []}
+        self.at = str(draft.get("updated_at") or "")
+        self.session_id = chat_sessions.session_of_draft(root, draft_id)
+        session = chat_sessions.load_session(root, self.session_id) if self.session_id else None
+        self.proposed = [
+            t
+            for t in (session or {}).get("turns") or []
+            if t.get("state") == "proposed"
+            and not t.get("attachment")
+            and not t.get("attach_run")
+            and not (t.get("reply") or {}).get("suggestions")
+        ]
+
+    def label(self, c: dict[str, Any]) -> str:
+        ja, en = str(c.get("label_ja") or ""), str(c.get("label_en") or "")
+        return (en or ja) if self.lg == "en" else (ja or en or str(c.get("key")))
+
+    def name_of(self, ref: str) -> str:
+        c = self.concepts.get(ref)
+        return self.label(c) if c else (term_display_name(ref) or ref)
+
+    def end(self, ref: str) -> str:
+        return f"draft:{self.draft_id}:{ref}" if ref in self.concepts else str(ref)
+
+    def turn_for(self, key: str | None) -> dict[str, Any] | None:
+        """この札（key）を足した提案の手番。無ければ最後の提案の手番。"""
+        if key is not None:
+            for t in self.proposed:
+                if any(
+                    o.get("op") == "add_concept" and o.get("key") == key
+                    for o in (t.get("reply") or {}).get("ops") or []
+                ):
+                    return t
+        return self.proposed[-1] if self.proposed else None
+
+    def sentence(self, r: dict[str, Any], turn: dict[str, Any] | None) -> dict[str, Any] | None:
+        rel = str(r.get("rel"))
+        template = graph_diff.REL_SENTENCE[self.lg].get(rel)
+        if template is None:
+            return None
+        return {
+            "text": template.format(
+                s=self.name_of(str(r.get("from"))), o=self.name_of(str(r.get("to")))
+            ),
+            "relation": rel,
+            "source": self.end(str(r.get("from"))),
+            "target": self.end(str(r.get("to"))),
+            "drafted_by": r.get("by") or "human",
+            "at": self.at,
+            "batch": None,
+            "reason": r.get("reason") or None,
+            "session_id": self.session_id,
+            "turn_id": (turn or {}).get("id"),
+        }
+
+    def revert_of(self, out: dict[str, Any], turn: dict[str, Any] | None) -> None:
+        if turn is not None and self.session_id:
+            out["can_revert"] = True
+            out["revert"] = {"session_id": self.session_id, "turn_id": turn["id"]}
+
+
+def _split_draft_ref(ref: str) -> tuple[str, str]:
+    parts = ref.split(":", 2)
     if len(parts) != 3 or not parts[1] or not parts[2]:
         raise PointError(422, "未確認の札の形が合いません")
-    _, draft_id, key = parts
-    draft = themes.load_draft(root, draft_id) if themes._ID_RE.match(draft_id) else None
-    if draft is None:
-        raise PointError(404, "その下書きはありません")
-    concepts = {str(c.get("key")): c for c in draft.get("concepts") or []}
-    concept = concepts.get(key)
+    return parts[1], parts[2]
+
+
+def _draft_point(root: Path, lg: str, iri: str) -> dict[str, Any]:
+    draft_id, key = _split_draft_ref(iri)
+    view = _DraftView(root, lg, draft_id)
+    concept = view.concepts.get(key)
     if concept is None:
         raise PointError(404, "その札はありません")
-
-    def label(c: dict[str, Any]) -> str:
-        ja, en = str(c.get("label_ja") or ""), str(c.get("label_en") or "")
-        return (en or ja) if lg == "en" else (ja or en or str(c.get("key")))
-
-    def name_of(ref: str) -> str:
-        c = concepts.get(ref)
-        return label(c) if c else (term_display_name(ref) or ref)
-
-    session_id = chat_sessions.session_of_draft(root, draft_id)
-    session = chat_sessions.load_session(root, session_id) if session_id else None
-    proposed = [
-        t
-        for t in (session or {}).get("turns") or []
-        if t.get("state") == "proposed"
-        and not t.get("attachment")
-        and not t.get("attach_run")
-        and not (t.get("reply") or {}).get("suggestions")
-    ]
-    mine = next(
-        (
-            t
-            for t in proposed
-            if any(
-                o.get("op") == "add_concept" and o.get("key") == key
-                for o in (t.get("reply") or {}).get("ops") or []
-            )
-        ),
-        proposed[-1] if proposed else None,
-    )
-    at = str(draft.get("updated_at") or "")
-    out = _base(iri, "draft", label(concept))
+    mine = view.turn_for(key)
+    out = _base(iri, "draft", view.label(concept))
+    out["confirmed"] = False
     out["term_kind"] = concept.get("kind")
-    for r in draft.get("relations") or []:
+    for r in view.draft.get("relations") or []:
         if key not in (r.get("from"), r.get("to")):
             continue
-        rel = str(r.get("rel"))
-        template = graph_diff.REL_SENTENCE[lg].get(rel)
-        if template is None:
-            continue
-
-        def end(ref: str) -> str:
-            return f"draft:{draft_id}:{ref}" if ref in concepts else str(ref)
-
-        out["sentences"].append(
-            {
-                "text": template.format(s=name_of(str(r.get("from"))), o=name_of(str(r.get("to")))),
-                "relation": rel,
-                "source": end(str(r.get("from"))),
-                "target": end(str(r.get("to"))),
-                "drafted_by": r.get("by") or "human",
-                "at": at,
-                "batch": None,
-                "reason": r.get("reason") or None,
-                "session_id": session_id,
-                "turn_id": (mine or {}).get("id"),
-            }
-        )
+        sentence = view.sentence(r, mine)
+        if sentence is not None:
+            out["sentences"].append(sentence)
     out["provenance"] = {
         "drafted_by": concept.get("by") or "human",
-        "at": at,
-        "theme_id": draft.get("extend"),
-        "session_id": session_id,
+        "at": view.at,
+        "theme_id": view.draft.get("extend"),
+        "session_id": view.session_id,
         "turn_id": (mine or {}).get("id"),
     }
-    if mine is not None and session_id:
-        out["can_revert"] = True
-        out["revert"] = {"session_id": session_id, "turn_id": mine["id"]}
+    view.revert_of(out, mine)
+    return out
+
+
+def _draft_line_point(
+    root: Path, lg: str, source: str, relation: str, target: str
+) -> dict[str, Any]:
+    """提案の線 — ``from`` / ``to`` のどちらかまたは両方が ``draft:<id>:<key>``。"""
+    ids = {_split_draft_ref(x)[0] for x in (source, target) if x.startswith("draft:")}
+    if len(ids) != 1:
+        raise PointError(422, "線の両端が別の提案にまたがっています")
+    view = _DraftView(root, lg, ids.pop())
+
+    def key_of(ref: str) -> str:
+        return _split_draft_ref(ref)[1] if ref.startswith("draft:") else ref
+
+    want = (key_of(source), relation, key_of(target))
+    found = next(
+        (
+            r
+            for r in view.draft.get("relations") or []
+            if (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) == want
+        ),
+        None,
+    )
+    if found is None:
+        raise PointError(404, "その関係はありません")
+    mine = view.turn_for(want[0] if want[0] in view.concepts else None)
+    sentence = view.sentence(found, mine)
+    if sentence is None:
+        raise PointError(404, "その関係は図に出していません")
+    out = _base(f"{source}|{relation}|{target}", "line", sentence["text"])
+    out["confirmed"] = False
+    out["sentences"] = [sentence]
+    out["provenance"] = {
+        "drafted_by": sentence["drafted_by"],
+        "at": view.at,
+        "theme_id": view.draft.get("extend"),
+        "session_id": view.session_id,
+        "turn_id": (mine or {}).get("id"),
+    }
+    view.revert_of(out, mine)
     return out
 
 
@@ -432,12 +513,19 @@ async def build_point(
         raise PointError(422, "from・relation・to を 3 つとも指定してください")
     if iri is None and not all(line_given):
         raise PointError(422, "iri か from・relation・to を指定してください")
+    if any(x is not None and x.startswith("draft:") for x in (source, target)) and all(line_given):
+        return _draft_line_point(root, lg, str(source), str(relation), str(target))
     for value in (iri, source, target):
-        if value is not None and not value.startswith("hub:"):  # 視点の札は IRI ではない
-            try:
-                shared_vocab._check_iri(value)
-            except ValueError as exc:
-                raise PointError(422, "IRI の形が合いません") from exc
+        if value is None:
+            continue
+        if value.startswith("hub:"):  # 視点の札は IRI ではない（後ろは空でない・IRI の字だけ）
+            if not _HUB_REST.match(value[4:]):
+                raise PointError(422, "視点の形が合いません")
+            continue
+        try:
+            shared_vocab._check_iri(value)
+        except ValueError as exc:
+            raise PointError(422, "IRI の形が合いません") from exc
     terms = await shared_vocab._read_terms(client)
     lines = await crosswalk_runtime.list_alignments(client, registry_root=root)
     sky = await sky_view.sky_view(client, root)

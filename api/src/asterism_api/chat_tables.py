@@ -8,8 +8,10 @@
    ``?s a <種類>``）。
 2. 個体の数（``total``）— 同じ範囲の ``COUNT(DISTINCT ?s)``。
 3. 個体の名前 — ``subjects.LABEL_PREDICATES`` の優先順（``subjects.pick_label``）。
-4. 値 — ``VALUES ?s { … }`` で ``?s ?p ?o``（``?p`` は IRI・``?o`` は文字列・
-   最大 :data:`MAX_CELLS` セル）。
+4. 値 — ``VALUES ?s { … }`` で ``?s ?p ?o``（``?p`` は IRI）。主語は先に（20 個まで）決め、その
+   主語の値だけを引く。``LIMIT`` は 主語の数 × :data:`MAX_CELLS_PER_ROW`。値が公開済みのグラフの
+   主語の IRI なら、その名前（:func:`resolve_cited` と同じ引き方）に置き換え、セルは
+   ``{"text": 名前, "iri": IRI}``（文字列の値は ``{"text"}`` だけ）。
 
 項目の名前は ``shared_vocab._display_labels``（ontology graph と共有の語の ``rdfs:label``・無ければ
 IRI の末尾）、種類の名前は ``class_schema.class_labels``。
@@ -26,6 +28,7 @@ from asterism.class_schema import class_labels
 
 __all__ = [
     "MAX_CELLS",
+    "MAX_CELLS_PER_ROW",
     "MAX_COLUMNS",
     "check_iri",
     "kind_for_term",
@@ -33,8 +36,13 @@ __all__ = [
     "table_for_kind",
 ]
 
-MAX_CELLS = 2000
+MAX_ROWS = 20
+#: 1 個体あたりに引く値（行）の上限。値の問い合わせの ``LIMIT`` は 個体の数 × この数 — 全体の
+#: 上限で打ち切って、途中の個体の値が欠けることがないように、打ち切りは個体の単位にする。
+MAX_CELLS_PER_ROW = 100
+MAX_CELLS = MAX_ROWS * MAX_CELLS_PER_ROW
 MAX_COLUMNS = 12
+_MAX_LINKED = 500  # 値が別の個体の IRI のとき、名前を引く IRI の上限
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 #: ``questions_routes._IRI_RE`` と同じ形（絶対 http(s) IRI・空白と SPARQL の記号を含まない）
 _IRI_RE = re.compile(r'^https?://[^\s<>"{}|\\^`]+$', re.IGNORECASE)
@@ -115,7 +123,8 @@ async def table_for_kind(
     listed = _rows(
         await client.sparql_select(
             f"SELECT DISTINCT ?s\n{named}"
-            f"WHERE {{ GRAPH ?g {{ {clause}FILTER(isIRI(?s)) }} }} ORDER BY ?s LIMIT {int(limit)}"
+            f"WHERE {{ GRAPH ?g {{ {clause}FILTER(isIRI(?s)) }} }} "
+            f"ORDER BY ?s LIMIT {min(int(limit), MAX_ROWS)}"
         )
     )
     subjects_iris = [s for s in (_v(r, "s") for r in listed) if s and _IRI_RE.match(s)]
@@ -141,34 +150,54 @@ async def table_for_kind(
         )
     cell_rows = _rows(
         await client.sparql_select(
-            f"SELECT ?s ?p (STR(?o) AS ?v)\n{named}"
+            f"SELECT ?s ?p ?o\n{named}"
             f"WHERE {{ GRAPH ?g {{ VALUES ?s {{ {values} }} ?s ?p ?o "
-            f"FILTER(isIRI(?p) && ?p != <{_RDF_TYPE}>) }} }} ORDER BY ?s ?p ?o LIMIT {MAX_CELLS}"
+            f"FILTER(isIRI(?p) && ?p != <{_RDF_TYPE}>) }} }} ORDER BY ?s ?p ?o "
+            f"LIMIT {len(subjects_iris) * MAX_CELLS_PER_ROW}"
         )
     )
     skip = set(subjects.LABEL_PREDICATES)
-    cells: dict[str, dict[str, list[str]]] = {s: {} for s in subjects_iris}
+    #: 主語 → 項目 → [(値の文字列, 値が IRI ならその IRI)]
+    cells: dict[str, dict[str, list[tuple[str, str | None]]]] = {s: {} for s in subjects_iris}
     used: dict[str, int] = {}
     for r in cell_rows:
-        s, p, v = _v(r, "s"), _v(r, "p"), _v(r, "v")
+        s, p, v = _v(r, "s"), _v(r, "p"), _v(r, "o")
         if s not in cells or not p or v is None or p in skip or not _IRI_RE.match(p):
             continue
+        is_iri = (r.get("o") or {}).get("type") in ("uri", "iri") and bool(_IRI_RE.match(v))
         slot = cells[s].setdefault(p, [])
-        if v not in slot:
-            slot.append(v)
+        if all(v != x for x, _ in slot):
+            slot.append((v, v if is_iri else None))
         used[p] = used.get(p, 0) + 1
     props = sorted(used, key=lambda p: (-used[p], p))[:MAX_COLUMNS]
+    linked = sorted(
+        {i for s in cells for p in props for _, i in cells[s].get(p, []) if i is not None}
+    )[:_MAX_LINKED]
+    names_of: dict[str, str] = {}
+    if linked:
+        for i, info in (await resolve_cited(client, root, linked)).items():
+            names_of[i] = info.get("label") or subject_tools._local_name(i)
     prop_names = await shared_vocab._display_labels(client, props)
     out["columns"] = [{"iri": p, "label": prop_names.get(p) or p} for p in props]
+
+    def cell(items: list[tuple[str, str | None]]) -> dict[str, str]:
+        texts = [names_of.get(i, v) if i is not None else v for v, i in items]
+        only = items[0][1] if len(items) == 1 else None
+        out_cell = {"text": " / ".join(texts)}
+        if only is not None and only in names_of:
+            out_cell["iri"] = only
+        return out_cell
+
     out["rows"] = [
         {
             "iri": s,
             "label": subjects.pick_label(cands.get(s) or []) or subject_tools._local_name(s),
-            "cells": {p: " / ".join(cells[s][p]) for p in props if p in cells[s]},
+            "cells": {p: cell(cells[s][p]) for p in props if p in cells[s]},
         }
         for s in subjects_iris
     ]
-    out["truncated"] = total > len(subjects_iris) or len(cell_rows) >= MAX_CELLS
+    cap = len(subjects_iris) * MAX_CELLS_PER_ROW
+    out["truncated"] = total > len(subjects_iris) or len(cell_rows) >= cap
     return out
 
 

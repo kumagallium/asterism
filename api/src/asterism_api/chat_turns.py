@@ -428,12 +428,14 @@ class PreparedTurn:
 
 def _history(session: dict) -> list[dict]:
     """話の手番を古い順に ``user`` → ``assistant``。
-    ``user`` が無い・戻した・機械の手番は飛ばす（最近 12 件）。"""
+    ``user`` が無い・戻した・機械の手番・Ask の手番（``reply.answer``）は飛ばす（最近 12 件）。"""
     out: list[dict] = []
     kept = [
         t
         for t in (session.get("turns") or [])
-        if t.get("state") != "reverted" and t.get("by") != "machine"
+        if t.get("state") != "reverted"
+        and t.get("by") != "machine"
+        and not (t.get("reply") or {}).get("answer")  # Ask の手番は図の AI に見せない
     ]
     for t in kept[-_MAX_HISTORY:]:
         said = (t.get("user") or {}).get("text")
@@ -1115,6 +1117,158 @@ def run_ops_turn(
     )
 
 
+# ---- 点から外す手番（11d） ---------------------------------------------------------------------
+
+_REMOVE_TEXT = {
+    "ja": {
+        "draft": "未確認のものは、その提案を戻してください",
+        "std": "標準の語は外せません",
+        "no_term": "その用語はありません",
+        "no_relation": "その関係はありません",
+        "bad_relation": "その関係は外せません",
+        "outside": "この用語・関係が入っている図が見つかりません",
+        "not_here": "いま開いている提案には入っていません",
+    },
+    "en": {
+        "draft": "Something unconfirmed is undone by reverting its proposal",
+        "std": "A standard term cannot be removed",
+        "no_term": "No such term",
+        "no_relation": "No such relation",
+        "bad_relation": "That relation cannot be removed",
+        "outside": "No chart holds this term or relation",
+        "not_here": "It is not in the proposal that is open",
+    },
+}
+
+
+def _concept_slug(c: dict) -> str:
+    use = str(c.get("use") or "")
+    return str(c.get("slug") or (use[len("existing:") :] if use.startswith("existing:") else ""))
+
+
+def _remove_op(draft: dict, target: dict) -> dict | None:
+    """``target``（確認済みの用語 ``{"slug"}``／関係 ``{"from", "relation", "to"}`` の IRI）に
+    当たる ``remove`` の操作。この図に無ければ ``None``。"""
+    rows = [c for c in draft.get("concepts") or [] if isinstance(c, dict)]
+    slug_of = {str(c.get("key")): _concept_slug(c) for c in rows}
+    if "slug" in target:
+        key = next((k for k, sl in slug_of.items() if sl and sl == target["slug"]), None)
+        return None if key is None else {"op": "remove", "target": "concept", "key": key}
+    kinds = {_concept_slug(c): c.get("kind") for c in rows}
+    for r in draft.get("relations") or []:
+        f = slug_of.get(str(r.get("from")), "")
+        if not f:
+            continue
+        end = slug_of.get(str(r.get("to"))) or str(r.get("to"))
+        iris = chat_seed._line_iris({"kinds": kinds}, (f, str(r.get("rel")), end))
+        if iris == (target["from"], target["relation"], target["to"]):
+            return {
+                "op": "remove",
+                "target": "relation",
+                "from": str(r.get("from")),
+                "rel": str(r.get("rel")),
+                "to": str(r.get("to")),
+            }
+    return None
+
+
+def run_remove_turn(
+    session: dict,
+    remove: dict,
+    *,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    published_kinds: set[str],
+    at: str,
+    lang: str,
+) -> dict:
+    """点から外す — 確認済みの用語・関係を**外す提案**にする（✓ でストアからも外れる・11b-2）。
+
+    いま開いている提案があればそこへ、無ければ確認済みのテーマを種にした下書き
+    （:func:`_seeded_draft`）を作って、その概念／関係に ``remove``（``by: human``）を当てる。
+    未確認のもの（``draft:``）・公開した種類・標準の語は 422。"""
+    lg = _lg(lang)
+    t = _REMOVE_TEXT[lg]
+    iri = remove.get("iri")
+    ends = [remove.get(k) for k in ("from", "to")]
+    if any(isinstance(x, str) and x.startswith("draft:") for x in (iri, *ends)):
+        raise TurnRefused(422, t["draft"])
+    target: dict
+    if iri is not None:
+        if iri in published_kinds:
+            raise TurnRefused(422, _DATA_NO_REVERT[lg])
+        if any(iri.startswith(ns) for ns in shared_vocab.known_namespaces()):
+            raise TurnRefused(422, t["std"])
+        term = next((x for x in existing if x.iri == iri), None)
+        if term is None:
+            raise TurnRefused(404, t["no_term"])
+        target = {"slug": term.slug}
+    else:
+        rel = graph_diff.PRED_TO_REL.get(str(remove.get("relation")))
+        if rel is None:
+            raise TurnRefused(422, t["bad_relation"])
+        if any(not isinstance(x, str) or not x for x in ends):
+            raise TurnRefused(422, t["no_relation"])
+        target = {"from": ends[0], "relation": remove["relation"], "to": ends[1]}
+    draft = _current_draft(session, root)
+    fresh: dict | None = None
+    if draft is None:
+        data = themes.load_themes_file(root) or {}
+        mine = _theme_of(session, root)
+        others = [x for x in data.get("themes") or [] if x is not mine]
+        found: tuple[dict, dict] | None = None
+        for theme in ([mine] if mine else []) + others:
+            seed = chat_seed.seed_from_theme(root, existing, theme)
+            if _remove_op(seed, target) is not None:
+                found = (theme, seed)
+                break
+        if found is None:
+            raise TurnRefused(404, t["outside"])
+        draft, fresh = _seeded_draft(found[0], found[1], [], root=root, at=at)
+    op = _remove_op(draft, target)
+    if op is None:
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise TurnRefused(409, t["not_here"])
+    keys = [str(c.get("key")) for c in draft.get("concepts") or []]
+    try:
+        clean = validate_graph_diff({"ops": [op]}, known_keys=keys, allow_taken_keys=True)["ops"]
+    except GraphDiffError as exc:
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise TurnRefused(422, f"差分が決まった形ではありません: {exc}") from exc
+    new, report = graph_diff.apply_to_draft(
+        draft, clean, existing=existing, dismissed=dismissed, by="human"
+    )
+    sentences = graph_diff.ops_to_sentences(clean, {"concepts": draft.get("concepts")}, lg)
+    if report["applied"] < 1:  # 当たらなかった（作った種つきの下書きは残さない）
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise TurnRefused(409, t["not_here"])
+    before = None if fresh is not None else copy.deepcopy(draft)
+    try:
+        saved = _save(root, new, at)
+    except TurnRefused:
+        if fresh is not None:
+            themes.delete_draft(root, draft["id"])
+        raise
+    _adopt_draft(session, saved)
+    if fresh is not None:
+        _adopt_seed(session, saved, fresh)
+    return _append_turn(
+        session,
+        at=at,
+        user=None,
+        reply=_reply(
+            "・".join(sentences), ops=clean, sentences=sentences, notes=[]
+        ),
+        state="proposed",
+        before=before,
+        by="human",
+    )
+
+
 # ---- 答え方を決める手番 --------------------------------------------------------------------------
 
 #: データの答え方で、op ごとに要る欄（``themes.data_answer_complete`` と同じ）
@@ -1705,6 +1859,34 @@ _DATA_NO_REVERT = {
 }
 
 
+_REVERT_FAILED = {"ja": "外せませんでした", "en": "could not be removed"}
+
+
+async def _term_name(client: Any, slug: str) -> str:
+    """外せなかった用語の名前（引けなければ slug）。"""
+    try:
+        iri = shared_vocab.term_iri(slug)
+        return next((t.label for t in await shared_vocab._read_terms(client) if t.iri == iri), slug)
+    except Exception:
+        return slug
+
+
+async def _line_name(client: Any, ln: dict, lg: str) -> str:
+    """外せなかった関係の一言（用語の名前で「A は B を下げる」の形）。引けなければ末尾の名前。"""
+    rel = graph_diff.PRED_TO_REL.get(str(ln.get("relation")))
+    try:
+        names = {t.iri: t.label for t in await shared_vocab._read_terms(client)}
+    except Exception:
+        names = {}
+
+    def name(iri: str) -> str:
+        return names.get(iri) or re.split(r"[#/]", iri.rstrip("/#"))[-1] or iri
+
+    if rel is None or rel not in graph_diff.REL_SENTENCE[lg]:
+        return f"{name(ln['source'])} - {name(ln['target'])}"
+    return graph_diff.REL_SENTENCE[lg][rel].format(s=name(ln["source"]), o=name(ln["target"]))
+
+
 async def revert_confirmed(
     session: dict, turn_id: str, *, client: Any, root: Any, at: str, lang: str = "ja"
 ) -> tuple[dict, dict, list[str]]:
@@ -1728,8 +1910,9 @@ async def revert_confirmed(
         )
     batch = commit.get("batch")
     theme_id = commit.get("theme_id")
-    undone: dict = {"lines": 0, "terms": 0, "questions": 0, "kept": []}
+    undone: dict = {"lines": 0, "terms": 0, "questions": 0, "kept": [], "failed": []}
     minted = [str(x) for x in commit.get("minted") or []]
+    failed_why = _REVERT_FAILED[lg]
 
     # 1. 線 — この ✓ の batch で足したものだけ
     gone_lines: set[tuple[str, str, str]] = set()
@@ -1743,6 +1926,9 @@ async def revert_confirmed(
                 )
             except Exception:
                 logger.warning("chat revert: remove_alignment failed", exc_info=True)
+                undone["failed"].append(
+                    {"what": await _line_name(client, ln, lg), "reason": failed_why}
+                )
                 continue
             gone_lines.add((ln["source"], ln["relation"], ln["target"]))
     undone["lines"] = len(gone_lines)
@@ -1796,7 +1982,9 @@ async def revert_confirmed(
             undone["kept"].append({"slug": slug, "reason": msg["linked"]})
         except Exception:
             logger.warning("chat revert: remove_term failed", exc_info=True)
-            undone["kept"].append({"slug": slug, "reason": msg["failed"]})
+            undone["failed"].append(
+                {"what": await _term_name(client, slug), "reason": failed_why}
+            )
         else:
             undone["terms"] += 1
             gone_slugs.add(slug)
@@ -1814,7 +2002,9 @@ async def revert_confirmed(
     except Exception:
         logger.warning("chat revert: recompute_wired failed", exc_info=True)
 
-    reverted = []
+    reverted: list[str] = []
+    if undone["failed"]:  # 1 つでも外せなければ手番は戻さない（もう一度押せる）
+        return turn, undone, reverted
     for t in session["turns"]:
         c = t.get("commit")
         if t.get("state") == "confirmed" and isinstance(c, dict) and c.get("batch") == batch:
