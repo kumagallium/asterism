@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.57.1](https://github.com/kumagallium/asterism/compare/v0.57.0...v0.57.1) - 2026-10-22
+
+- fix: 本番で分かりにくかった言葉と見え方 — 空の状態の文・「話」→「チャット」・見本の廃止・提案の 1 枚の来歴・凡例（UI 全面再設計 11i） by @kumagallium in https://github.com/kumagallium/asterism/pull/743
+- feat(ui): 右の領域を上＝地図・下＝押した点の中身（ABox の表）に。局所の札の図を廃止（UI 全面再設計 11k） by @kumagallium in https://github.com/kumagallium/asterism/pull/744
+- feat(ui): 右の領域の一番上に「知識グラフ」「問い」のタブ＋言葉の棚卸し（承認・データ・データセット）（UI 全面再設計 11l） by @kumagallium in https://github.com/kumagallium/asterism/pull/745
+- feat(chat): 会話を既定に — AI が 1 文ごとに 会話／答える／提案 を判断。例文とマニュアルを価格表の例に（UI 全面再設計 11m） by @kumagallium in https://github.com/kumagallium/asterism/pull/746
+
 ## [v0.57.0](https://github.com/kumagallium/asterism/compare/v0.56.0...v0.57.0) - 2026-10-22
 
 - feat: ゼロベースの殻 — 話の一覧／チャット／図の 3 領域・話の API・AI 無しの会話と ✓（UI 全面再設計 11a） by @kumagallium in https://github.com/kumagallium/asterism/pull/734
