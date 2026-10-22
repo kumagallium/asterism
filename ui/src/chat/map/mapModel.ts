@@ -58,7 +58,7 @@ export const HUB_SIZE = 8
 export const DATASET_SIZE = 6
 export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 
-/** 関係の短い表示名。sky.json の line.partOf／line.sub と同じ語（一部・一種）。下げる・上げる・変えるは sky.json に短い語が無いのでここで持つ。
+/** 関係の短い表示名。この辞書が正本（sky.json のキーは参照しない）。
  *  i18n のシングルトンは module 直下で読まない罠があるので、lang 引数で引く辞書にしてある。 */
 const RELATION_LABEL: Record<'ja' | 'en', Record<string, string>> = {
   ja: { isA: '一種', isPartOf: '一部', lowers: '下げる', raises: '上げる', affects: '変える' },
@@ -269,6 +269,13 @@ export function syncMapAttributes(laidOut: Graph, fresh: Graph): void {
     void _y
     // 置き換え（merge だと無くなった proposed・remove が残る）。位置だけ配置済みのものを保つ
     laidOut.replaceNodeAttributes(id, { ...rest, x: laidOut.getNodeAttribute(id, 'x'), y: laidOut.getNodeAttribute(id, 'y') })
+  })
+  // 線は鍵（端・関係・薄さ）で対応づけ、位置を持たない属性（label・kind・thin など）を丸ごと写す。label は形ではないので lang だけ変わるとここで反映する
+  const freshEdges = new Map<string, MapEdgeAttrs>()
+  fresh.forEachEdge((_e, at, s, t) => freshEdges.set(edgeKey(s, t, at as unknown as MapEdgeAttrs), at as unknown as MapEdgeAttrs))
+  laidOut.forEachEdge((e, at, s, t) => {
+    const f = freshEdges.get(edgeKey(s, t, at as unknown as MapEdgeAttrs))
+    if (f) laidOut.replaceEdgeAttributes(e, { ...f })
   })
   laidOut.setAttribute('datasetLabels', fresh.getAttribute('datasetLabels'))
 }

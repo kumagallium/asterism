@@ -233,4 +233,11 @@ describe('線の名前（label）', () => {
     expect(relationLabel('isA', 'en')).toBe('kind of')
     expect(relationLabel('zzz', 'ja')).toBeUndefined()
   })
+
+  it('syncMapAttributes は線の label も写す（ja で配置 → en を sync）', () => {
+    const laid = buildMapGraph(sky, [], [], 'ja')
+    layoutMap(laid)
+    syncMapAttributes(laid, buildMapGraph(sky, [], [], 'en'))
+    expect(labels(laid, 'concept')).toEqual(['changes'])
+  })
 })
