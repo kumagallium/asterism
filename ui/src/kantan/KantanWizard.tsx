@@ -81,7 +81,6 @@ import {
   alignmentWordSplit,
   deleteDataset,
   getAlignment,
-  getCatalogDatasets,
   getDatasetRules,
   getKindCounts,
   promoteDataset,
@@ -92,7 +91,7 @@ import {
   type RuleTerm,
 } from '../galleryApi'
 import type { DetailTab } from '../GalleryView'
-import type { RedesignTarget } from '../WorkbenchView'
+import type { RedesignTarget } from '../redesignTarget'
 import { useIdMove } from '../idMove'
 import { IdMoveNotice } from '../IdMoveNotice'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
@@ -190,7 +189,6 @@ import {
   useDocumentFormats,
   type DocumentFormats,
 } from '../documentFormats'
-import { requestConsult } from '../consult/consultOpen'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
@@ -942,25 +940,14 @@ function clearKantanJob() {
 
 export function KantanWizard({
   onBusyChange,
-  onHandoffToDetail,
-  handoffRef,
   onOpenDataset,
   onOpenAsk,
   redesignTarget,
   onRedesignConsumed,
-  onRedesignDetail,
-  onCreateCrosswalk,
   onShortcutDone,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
-  /** Called when the user opens the finished design in the detail tier. */
-  onHandoffToDetail: () => void
-  /** Filled with the "prepare the detail-tier handoff" writer, so the tier
-   *  toggle above can run it before switching. It answers false when the reader
-   *  declined to replace an unfinished session saved over there — the caller
-   *  must then stay put (DETAIL-GAP-V3). */
-  handoffRef?: { current: (() => boolean) | null }
   /** Opens the catalog detail for a dataset (S9's grow-the-dataset exits land
    *  on the ファイル tab, where the append / re-ingest controls live). `focus`
    *  names which of the two the person chose — a receiver that does not use it
@@ -972,13 +959,6 @@ export function KantanWizard({
    *  re-check flow (seeds the wizard at S6 — the item meanings). */
   redesignTarget?: RedesignTarget | null
   onRedesignConsumed?: () => void
-  /** "構造から見直す": hand the (possibly refined) design to the detail tier
-   *  as a redesign target — the full structural review lives there. */
-  onRedesignDetail?: (target: RedesignTarget) => void
-  /** Opens the guided "connect your data" flow. Offered on S9 only once a SECOND
-   *  dataset is published — that is the moment connecting first becomes possible,
-   *  and the moment the value of it is easiest to see. */
-  onCreateCrosswalk?: () => void
   /** S1 の「同じ形なら設計なしで追加」の帯（契約メモ contract_pr_f10.md
    *  §1.2-2）が「そのまま追加」で完了したときの着地先。渡されたときだけ帯を
    *  出す（`#/datasets/add` から来たときだけ — 見直す等の他の入口では出さない）。 */
@@ -1422,10 +1402,6 @@ export function KantanWizard({
   const [publishing, setPublishing] = useState(false)
   const [pubErr, setPubErr] = useState('')
   const [published, setPublished] = useState<boolean>(snap.published ?? false)
-  // How many datasets are published (this one included). Fetched only once S9 is
-  // reached, so it costs nothing during the wizard. null = unknown → the connect
-  // offer stays hidden (fail closed: never point at a dead end).
-  const [publishedCount, setPublishedCount] = useState<number | null>(null)
 
   // かんたん見直し (catalog 見直す): the wizard reopens an existing dataset at
   // S6. `reingested` = whether THIS session ran the refine → re-ingest chain;
@@ -1712,23 +1688,6 @@ export function KantanWizard({
   // データセットの詳細の公開確認も、同じ読み方・同じ知らせを使う。
   const idMove = useIdMove(step === 8 ? kzDatasetId : null)
 
-  // Count published datasets when S9 is reached, to decide whether connecting is
-  // even possible yet. A failure leaves it null and the offer simply does not
-  // appear — a broken count must not produce a button that leads nowhere.
-  useEffect(() => {
-    if (step !== 9) return
-    let off = false
-    getCatalogDatasets()
-      .then((all) => {
-        if (off) return
-        setPublishedCount(all.filter((d) => d.statusKind === 'pub' && !d.isCrosswalk).length)
-      })
-      .catch(() => !off && setPublishedCount(null))
-    return () => {
-      off = true
-    }
-  }, [step])
-
   // Persist the (serializable) wizard state so a tab switch / reload is
   // recoverable. Files are not persistable — restore is best-effort by design.
   useEffect(() => {
@@ -1823,120 +1782,6 @@ export function KantanWizard({
     reshapeSpec,
     reshapeApplied,
   ])
-
-  // Hand the design in hand to the detail tier: a WB_STORAGE-compatible
-  // snapshot (mirrors WorkbenchView's WorkbenchSnapshot shape). Returns null
-  // when there is nothing to hand over — at S1/S2 the detail tier should keep
-  // whatever it had rather than be reset to an empty design.
-  function buildDetailSnapshot(): Record<string, unknown> | null {
-    if (!proposal && !skeleton) return null
-    const shared = {
-      mode: 'new',
-      source: kind === 'json' ? 'json' : 'csv',
-      // The column the human said the files share (S2's third question), in the
-      // very field the detail tier asks for it — DETAIL-GAP-19.
-      fk: sharedKey ?? '',
-      markdown: inspectionMd,
-      // What the human told the AI up front (S2's optional line) belongs in the
-      // detail tier's own free-text hint box — DETAIL-GAP-11.
-      domainFree: preHint.trim(),
-      // Q2 said the ID recurs elsewhere (or unknown = safe side): the detail
-      // tier shows the same composite-key hint pre-ticked.
-      presetIds: q2 !== 'only' ? ['composite-key'] : [],
-      materialized: null,
-      dialectOverrides,
-      // The server-side copy of the source: without it, "fix it yourself in
-      // detail mode" arrives with no files at all in the browsers that cannot
-      // keep them (private windows, old WebViews) — RESUME-13.
-      ...(stagingId ? { stagingId } : {}),
-      // The wizard's registered record (once the auto chain minted / reopened
-      // one): the detail tier must UPDATE this dataset in place on save —
-      // without this, a handoff after S5 would re-mint a duplicate record.
-      ...(kzDatasetId
-        ? {
-            redesignId: kzDatasetId,
-            redesignName: kzDatasetName ?? undefined,
-            redesignOrigin: redesigning ? 'catalog' : 'adopted',
-          }
-        : {}),
-    }
-    // Still at the data-counting gate: the design does not exist yet, and what
-    // the reader is looking at IS the staged skeleton. Handing over an empty
-    // snapshot made it read as "the gate I was on is gone" (DETAIL-GAP-18).
-    if (!proposal) {
-      return {
-        ...shared,
-        step: 1,
-        proposal: '',
-        stagedSkeleton: skeleton,
-        stagedAnnotations: annotations,
-      }
-    }
-    return {
-      ...shared,
-      step: 2,
-      proposal,
-      stagedSkeleton: null,
-      stagedAnnotations: null,
-      // WHAT to fix, pre-filled into the detail tier's refine box. The AI-facing
-      // technical lines are handed over verbatim (the plain sentences are for
-      // this screen only), so the reader can press 修正を依頼 straight away.
-      ...(stop?.fixLines?.length
-        ? {
-            comment: `${t('workbench:fix.commentIntro')}\n${stop.fixLines
-              .map((l) => `- ${l}`)
-              .join('\n')}`,
-          }
-        : {}),
-    }
-  }
-
-  /** Write that snapshot — ONLY when the reader actually crosses over. It used
-   *  to be written on every design change, so one visit to かんたん silently
-   *  overwrote an unfinished session saved in the detail tier, which K1 promises
-   *  to leave alone. Answers false when the reader declines to replace such a
-   *  session, in which case the caller must NOT switch tiers (DETAIL-GAP-V3). */
-  function writeDetailHandoff(): boolean {
-    const snapshot = buildDetailSnapshot()
-    if (!snapshot) return true
-    try {
-      const raw = sessionStorage.getItem(WB_STORAGE)
-      if (raw) {
-        const wb = JSON.parse(raw) as { mode?: string; redesignId?: string; proposal?: string }
-        const otherWork =
-          wb.mode === 'crosswalk' ||
-          (!!wb.redesignId && wb.redesignId !== kzDatasetId) ||
-          (!wb.redesignId && !!wb.proposal && !kzDatasetId && wb.proposal !== proposal)
-        if (otherWork && !window.confirm(t('kantan:tier.replaceDetailConfirm'))) return false
-      }
-    } catch {
-      /* unreadable snapshot — nothing worth protecting */
-    }
-    try {
-      sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
-      // Mark the crossing on kantan's own snapshot, synchronously: this
-      // component unmounts on the very next render, so a state update would
-      // never reach the persist effect. Coming back reads it to know that the
-      // detail tier's copy is the newer one (DETAIL-GAP-04 / DETAIL-GAP-05).
-      const raw = sessionStorage.getItem(KZ_STORAGE)
-      const current = raw ? (JSON.parse(raw) as Partial<KantanSnapshot>) : {}
-      sessionStorage.setItem(KZ_STORAGE, JSON.stringify({ ...current, handedToDetail: true }))
-    } catch {
-      /* non-fatal */
-    }
-    return true
-  }
-
-  // The tier toggle lives one level up (WorkbenchTier) and switches without
-  // going through openDetail, so it needs the same preparation: hand it the
-  // current writer rather than a stale closure.
-  useEffect(() => {
-    if (!handoffRef) return
-    handoffRef.current = writeDetailHandoff
-    return () => {
-      handoffRef.current = null
-    }
-  })
 
   // Resume an in-flight job this tier owns (S3 skeleton, or the AI fix / S6
   // reflect) after leaving the screen: the same SSE replay, under kantan's own
@@ -4765,23 +4610,6 @@ export function KantanWizard({
     exitRedesign()
   }
 
-  // "構造から見直す": hand the CURRENT (possibly refined) design to the detail
-  // tier as a proper redesign target — same consumption path as the catalog's
-  // 見直す, so a later save updates THIS dataset, never a duplicate.
-  function openStructural() {
-    if (!kzDatasetId || !proposal) return
-    try {
-      sessionStorage.removeItem(KZ_STORAGE)
-    } catch {
-      /* non-fatal */
-    }
-    onRedesignDetail?.({
-      datasetId: kzDatasetId,
-      datasetName: kzDatasetName ?? '',
-      proposalMd: proposal,
-    })
-  }
-
   /** Land a finished refine — shared by the live chain and the resumed one, so
    *  a refine that outlived a tab switch continues exactly as it would have. */
   function finishRefine(result: unknown) {
@@ -5054,17 +4882,6 @@ export function KantanWizard({
   function continueWithoutFix() {
     setStop(null)
     void runPipeline('materialize', proposal)
-  }
-
-  function openDetail() {
-    // Write the WB_STORAGE handoff snapshot now — crossing over is the moment
-    // it becomes true, and the only moment at which replacing whatever the
-    // detail tier had is what the reader asked for (DETAIL-GAP-V3).
-    if (!writeDetailHandoff()) return
-    // The kantan snapshot STAYS — switching tiers is a look, not a goodbye:
-    // coming back must reopen the same screen rather than an empty drop zone
-    // that reads as "everything is gone" (DETAIL-GAP-04).
-    onHandoffToDetail()
   }
 
   // The S5 "files missing" card (a reload dropped the File objects): re-dropping
@@ -5359,9 +5176,6 @@ export function KantanWizard({
       : null
   const stopHint = stopPlain?.hint
   const aiFixable = stopAllowsAiFix(stop)
-  // Which stops detail mode can actually help with: the ones about the DESIGN.
-  const showOpenDetail =
-    stop?.kind === 'design' || stop?.kind === 'weakness' || stopPlain?.hint === 'fix'
   // Whether a more specific primary already exists — retry is then demoted to a
   // secondary (ghost) button so a card never shows two filled CTAs.
   const stopPrimaryElsewhere =
@@ -5381,7 +5195,7 @@ export function KantanWizard({
   const showAiSetupExit =
     canOpenAiSettings && !!stopPlain?.title && AI_SETUP_TITLES.has(stopPlain.title)
   // …so the stop card's quieter second row is never an empty flex box.
-  const showMinorActions = stopHint !== 'restart' || showOpenDetail || showAiSetupExit
+  const showMinorActions = stopHint !== 'restart' || showAiSetupExit
 
   // The S3/S4 job failure, in the same plain vocabulary as the S5 stop card.
   const jobPlain = errMsg ? plainError(errMsg) : null
@@ -5716,14 +5530,6 @@ export function KantanWizard({
               <button
                 type="button"
                 className="btn btn--ghost btn--sm"
-                onClick={openStructural}
-                disabled={busy || !proposal}
-              >
-                {t('kantan:redesign.structural')}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
                 onClick={cancelRedesign}
                 disabled={busy}
               >
@@ -5732,10 +5538,6 @@ export function KantanWizard({
             </span>
           </div>
           <p className="kz-note">{t('kantan:redesign.bannerNote')}</p>
-          {/* The button above opens the specialists' screen. Unsaid, it is a
-              door people either never open or open and get lost behind
-              (DETAIL-GAP-09). */}
-          <p className="kz-note">{t('kantan:redesign.structuralNote')}</p>
         </section>
       )}
 
@@ -6051,19 +5853,6 @@ export function KantanWizard({
                   onClick={restartFromScratch}
                 >
                   {t('kantan:s5.stop.restart')}
-                </button>
-              )}
-              {/* Detail mode is the second of K11's two exits — but only for
-                  the stops it can DO anything about. Sending someone into the
-                  specialists' screen over an unreachable server or a missing
-                  access code is a detour with no exit (DETAIL-GAP-20). */}
-              {showOpenDetail && (
-                <button
-                  type="button"
-                  className={fixStuck ? undefined : 'btn btn--ghost btn--sm'}
-                  onClick={openDetail}
-                >
-                  {t('kantan:s5.stop.openDetail')}
                 </button>
               )}
               {/* The failures that ARE about the AI setup, offered only to
@@ -6777,19 +6566,6 @@ export function KantanWizard({
             <QuestionSuggestBlock datasetId={kzDatasetId} onStart={(q) => void openSky(q)} />
           )}
           <div className="kz-next">
-          {onCreateCrosswalk && publishedCount !== null && publishedCount >= 2 && (
-            <div className="kz-next-card">
-              <h4 className="kz-next-title">{t('kantan:s9.connectTitle')}</h4>
-              <p className="kz-note kz-prose">
-                {t('kantan:s9.connectBody', { count: publishedCount })}
-              </p>
-              <div className="kz-actions">
-                <button type="button" onClick={onCreateCrosswalk}>
-                  {t('kantan:s9.connectBtn')}
-                </button>
-              </div>
-            </div>
-          )}
           {/* 外の世界とつなぐ導線。つながり (crosswalk) がデータセット同士を結ぶ
               のに対し、こちらは自分で作ったことばを既存の標準に結ぶ。どちらも
               同じ align() が書く可逆な主張なのに、かんたん側には crosswalk の
@@ -7401,19 +7177,17 @@ export function KantanWizard({
               <p className="kz-note kz-prose">
                 {t('kantan:meanings.someBlank', { count: blankMeanings })}
               </p>
-              <div className="kz-actions">
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={() =>
-                    kzDatasetId
-                      ? setChatOpenSignal((n) => n + 1)
-                      : requestConsult(t('kantan:meanings.askConsultPrefill'))
-                  }
-                >
-                  {t('kantan:meanings.askConsult')}
-                </button>
-              </div>
+              {kzDatasetId && (
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => setChatOpenSignal((n) => n + 1)}
+                  >
+                    {t('kantan:meanings.askConsult')}
+                  </button>
+                </div>
+              )}
             </>
           )}
           {/* ☑「他のデータとつながる手がかり」— 旧④の問②をここへ移した（ADR
@@ -7470,19 +7244,17 @@ export function KantanWizard({
             <li>{t('kantan:meanings.link.whenNo')}</li>
             <li>{t('kantan:meanings.link.whenSafe')}</li>
           </ul>
-          <div className="kz-actions">
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() =>
-                kzDatasetId
-                  ? setChatOpenSignal((n) => n + 1)
-                  : requestConsult(t('kantan:meanings.link.askConsultPrefill'))
-              }
-            >
-              {t('kantan:meanings.link.askConsult')}
-            </button>
-          </div>
+          {kzDatasetId && (
+            <div className="kz-actions">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setChatOpenSignal((n) => n + 1)}
+              >
+                {t('kantan:meanings.link.askConsult')}
+              </button>
+            </div>
+          )}
           {/* 左に表・右に会話（design.md §16.2）。会話は設計ができてから（api が mapping.yaml を読む）。 */}
           <div className={kzDatasetId ? 'kz-ws' : 'kz-ws kz-ws--solo'}>
           <div className="kz-ws-main">
@@ -7968,13 +7740,6 @@ export function KantanWizard({
                     disabled={assembleBusy}
                   >
                     {t('kantan:links.back')}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => requestConsult(t('kantan:links.keyConsultPrefill'))}
-                  >
-                    {t('kantan:links.askConsult')}
                   </button>
                 </div>
               </>

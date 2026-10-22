@@ -44,7 +44,6 @@ import {
 } from './skeletonKinds'
 import { mergeNodes, skeletonShape, type ShapeField, type ShapeTone } from './shapeGraph'
 import { ShapeGraph } from './kantan/ShapeGraph'
-import { requestConsult } from './consult/consultOpen'
 
 /** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
 interface KindBlock {
@@ -2972,27 +2971,6 @@ export function SkeletonGate({
                     .join(t('skeletongate:key.listSeparator')),
                 })}
               </p>
-              <div className="kz-actions">
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={() =>
-                    requestConsult(
-                      t('skeletongate:zone.askDupPrefill', {
-                        names: skeleton.maps
-                          .filter((m) => twinNames.has(m.name))
-                          .map(
-                            (m) =>
-                              kindDisplayName(m.subject, nsDetected) || m.name,
-                          )
-                          .join(t('skeletongate:key.listSeparator')),
-                      }),
-                    )
-                  }
-                >
-                  {t('skeletongate:zone.askDup')}
-                </button>
-              </div>
             </>
           )}
           {/* 「形が違うとき（直す）」— 切り替え式（ADR D4）。既定はどれも開かず、

@@ -37,7 +37,7 @@ import './network.css'
 
 export interface NetworkViewProps {
   /** 「このページを開く」（1 件のページ）。 */
-  onOpenSubject: (iri: string) => void
+  onOpenSubject?: (iri: string) => void
   /** 「一覧で開く」— `resolveSet` の結果を受けて、絞り込みのページへ遷移する。 */
   onOpenSet: (result: SetResolveResult) => void
 }
@@ -499,7 +499,7 @@ export function NetworkView({ onOpenSubject, onOpenSet }: NetworkViewProps) {
                     .join(' · ')}
                 </span>
                 <div className="network-bar-actions">
-                  {(selected.nodeKind === 'entity' || selected.nodeKind === 'hub') && (
+                  {onOpenSubject && (selected.nodeKind === 'entity' || selected.nodeKind === 'hub') && (
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
