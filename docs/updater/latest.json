@@ -1,11 +1,11 @@
 {
-  "version": "0.56.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 61d655eea6dd17eba1fbc573daa402f2dd5e63f8 -->\n\n## What's Changed\n* feat: 問いの提案 — データ・論文・図の穴から AI が CQ を下書きし、閉じた形に落ちるものだけチップで出す（10a〜10d・金標準と物差し） by @kumagallium in https://github.com/kumagallium/asterism/pull/732\n* feat: 作業場の文法 — 左に図・右に会話。AI の差分の提案カードで図が育つ・線を直せる・ホームとかんたんも同じ会話（UI 全面再設計 7a〜7c） by @kumagallium in https://github.com/kumagallium/asterism/pull/726\n* docs(manual): マニュアルを作業場の UI（左に会話・右に星図）に書き換え・スクリーンショット 12 枚を撮り直し by @kumagallium in https://github.com/kumagallium/asterism/pull/730\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.55.0...v0.56.0",
-  "pub_date": "2026-10-21T22:39:48Z",
+  "version": "0.57.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a12be97f04aeaf4aa1a19e4f49cfb2e99d30e24d -->\n\n## What's Changed\n* feat: ゼロベースの殻 — 話の一覧／チャット／図の 3 領域・話の API・AI 無しの会話と ✓（UI 全面再設計 11a） by @kumagallium in https://github.com/kumagallium/asterism/pull/734\n* feat: 返事 1 枚 — AI の返事に提案を畳み、即座に図に薄く入れ、✓ で濃く。✓ のあとも話が続く（UI 全面再設計 11b） by @kumagallium in https://github.com/kumagallium/asterism/pull/735\n* feat: 📎 でデータ — 表を添えるとかんたんの段を順に通して返事 1 枚に畳み、✓ で公開（UI 全面再設計 11c） by @kumagallium in https://github.com/kumagallium/asterism/pull/736\n* feat: 点を押す 1 枚（文・来歴・中身・戻す）・「見せて」で表・Ask を同じチャットで出典つきに・確認済みの戻す（UI 全面再設計 11d） by @kumagallium in https://github.com/kumagallium/asterism/pull/737\n* feat: 図のゼロベース — 3 段をやめて 1 枚の知識の図に（UI 全面再設計 11f） by @kumagallium in https://github.com/kumagallium/asterism/pull/738\n* chore: 掃除 — ナビ・ページ・ウィザードの残骸・死んだ文言と CSS を消し、マニュアル・ADR §2.4g・ROADMAP を 3 領域に合わせる（UI 全面再設計 11e） by @kumagallium in https://github.com/kumagallium/asterism/pull/739\n* feat: チャットの詰め — 見慣れたチャットの文法に合わせ、入力欄の崩れと絵文字を無くす（UI 全面再設計 11g） by @kumagallium in https://github.com/kumagallium/asterism/pull/740\n* feat: 全体の地図を基本に、局所の図を補足のパネルに — 丸＋横の文字の地図（sigma・決定論）と「この話の周り」（UI 全面再設計 11h） by @kumagallium in https://github.com/kumagallium/asterism/pull/741\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.56.0...v0.57.0",
+  "pub_date": "2026-10-22T07:01:17Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVphcUd4M0NZT0htQ2lyMkJZZ0dMNDVtQWdRQncrNGNrUVZtZ2htMWI5RWZqQThkUC9DWmpESE1XNTdHb1B4dVVnamVUV1ZmUk9UeHNXZTErdVlzYlEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNjIyMzg4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkxRR3B5NDc3ZmY5di9rQXh6RGFMV1R0eW1GclVRK2hkdm8xWFZWMUUrOCt0aWlsbTFacFdOSVp0aDlZTVpaNFh2T2JxcmhPSHZoRFFnUEhFU01mZEJnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.56.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWNtek9PSXNxaDlNUlFHaTRjZkpQZHpzWFFyOXozWjRIczNiUEszSGVESENiOXV0eXhkdlRFeitEMWRMTUk3bkFOc1hKdW03ZUZkUXNaejVYelV6TEE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNjUyNDc3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cjdjakl6R1ZCajRmdEo5RElpTjBQZzFPYUFnTkozTzNhTEZkRGc1OUpkdkRBbnQ5dmQvMlptOU9HRG04djh2cDNhTTM2MDJnVG9MYy83bWtERE9IYkRnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.57.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
