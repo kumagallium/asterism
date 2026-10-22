@@ -118,6 +118,11 @@ def may_need_names(text: str) -> bool:
     )
 
 
+def has_graph_words(text: str) -> bool:
+    """図を直す言葉（図に・足して・外して…）を含むか — 含む文は AI の振り分けを飛ばして提案へ。"""
+    return any(w in text for w in _GRAPH_WORDS)
+
+
 def classify(text: str, *, names: dict, draft_open: bool) -> Intent:
     """文 → ``undo`` / ``show`` / ``ask`` / ``graph``。``names`` は公開済みの種類・用語の表示名
     （``{名前: {"iri", "kind": "class"|"property"|"dataset_kind"}}``。値が文字列なら

@@ -27,6 +27,8 @@ export interface ReplyCardProps {
   /** チップを押した（その文を送る）。 */
   /** 送れたら true（失敗なら false で、チップの印を戻す）。 */
   onAsk: (question: string) => Promise<boolean> | boolean | void
+  /** 会話の返事の下のチップ: その手番の人の文を、知識グラフへの提案として送り直す。 */
+  onPropose?: (text: string) => Promise<boolean> | boolean | void
   /** 残した語の slug → 名前（引けなければ slug のまま）。 */
   names?: ReadonlyMap<string, string>
   /** 読んでいる手番の進みの 1 行（`state: running`）。 */
@@ -215,7 +217,7 @@ export function ReplyCard(p: ReplyCardProps) {
   return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} /> : <ReplyBody {...p} />
 }
 
-function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, names, onChoose, onHighlight, undone }: ReplyCardProps) {
+function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, onPropose, names, onChoose, onHighlight, undone }: ReplyCardProps) {
   const { t, i18n } = useTranslation('chat')
   const r = turn.reply
   // 結ぶ／結ばないの選び（変えたものだけ持つ。✓ のときに既定へ重ねて送る）
@@ -231,6 +233,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   const publish = turnKind(turn) !== 'theme'
   const [undoAsk, setUndoAsk] = useState(false)
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set())
+  const [proposeSent, setProposeSent] = useState(false)
   const unsend = (q: string) =>
     setSent((cur) => {
       const n = new Set(cur)
@@ -249,13 +252,34 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   const hasRemoved = turn.state === 'confirmed' && !!turn.commit?.removed && (turn.commit.removed.terms > 0 || turn.commit.removed.lines > 0)
   const hasKept = turn.state === 'confirmed' && (turn.commit?.kept ?? []).length > 0
   // 中身の無い札（文だけの返事）は出さない
-  const hasCard =
+  // 会話の返事（route: chat）は地の文だけ。札は出さず、下に「知識グラフに足す」のチップ
+  const isChat = turn.route === 'chat'
+  const hasCard = !isChat &&
     !!headKind || machineMark || sentences.length > 0 || !!r.table || !!r.answer || r.suggestions.length > 0 || r.bindings.length > 0 || r.questions.length > 0 || notes.length > 0 || hasRemoved || hasKept || !!undone || showFoot
   return (
     <div className="chat-msg chat-msg--ai">
       <BrandMark size={18} className="chat-ai-mark" />
       <div className="chat-ai-body">
         {showText && <p className="chat-ai-text">{r.text}</p>}
+      {isChat && onPropose && turn.user && (
+        <div className="chat-chips">
+          <button
+            type="button"
+            className={`chat-chip${proposeSent ? ' is-sent' : ''}`}
+            data-testid="reply-propose"
+            disabled={busy || proposeSent}
+            onClick={() => {
+              const userText = turn.user?.text ?? ''
+              setProposeSent(true)
+              void settleAsk(() => onPropose(userText)).then((ok) => {
+                if (!ok) setProposeSent(false)
+              })
+            }}
+          >
+            {proposeSent ? t('reply.sent') : t('reply.proposeChip')}
+          </button>
+        </div>
+      )}
       {hasCard && (
       <div className="chat-card" data-testid="reply-card" data-state={turn.state}>
         {(headKind || machineMark) && (

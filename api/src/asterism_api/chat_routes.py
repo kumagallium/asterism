@@ -43,8 +43,10 @@ from asterism_api import (
     chat_contents,
     chat_intent,
     chat_point,
+    chat_route,
     chat_tables,
     chat_turns,
+    registry,
 )
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
@@ -138,8 +140,8 @@ class TurnBody(BaseModel):
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
     choice: ChoiceBody | None = None
     remove: RemoveBody | None = None
-    # 「答えて」ボタン: 振り分けを飛ばして必ず Ask へ（text と一緒に送る）
-    intent: Literal["ask"] | None = None
+    # 「答えて」／「知識グラフに足す」チップ: 振り分けを飛ばして Ask／提案へ
+    intent: Literal["ask", "propose"] | None = None
     lang: Literal["ja", "en"] = "ja"
 
 
@@ -490,6 +492,14 @@ def register_chat(
             )
             return turn, chat_sessions.save_session(root, session)
 
+    def _n_datasets() -> int:
+        """公開済みのデータセットの数（sky は読まない軽い読み）。"""
+        return sum(
+            1
+            for m in registry.list_datasets(root)
+            if m.get("promoted") and not shared_vocab.is_system_entry(m)
+        )
+
     @app.post("/api/chat/sessions/{session_id}/turns", dependencies=deps)
     async def chat_turn(
         session_id: str,
@@ -588,7 +598,13 @@ def register_chat(
             )  # fmt: skip
 
         # 振り分け（決定論）: 「見せて」は表・「答えて」は Ask。AI（11b の道）は呼ばない
-        if has_text and not chat_turns.is_undo(text) and chat_intent.may_need_names(text):
+        propose_forced = has_text and body.intent == "propose"  # チップ: 1・2 を飛ばす
+        if (
+            has_text
+            and not propose_forced
+            and not chat_turns.is_undo(text)
+            and chat_intent.may_need_names(text)
+        ):
             sky, names = await _sky_names()
             draft_id = _session_or_404(session_id).get("draft_id")
             intent = chat_intent.classify(
@@ -625,6 +641,52 @@ def register_chat(
             llm = resolve_llm(
                 provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
             )
+        # 11m: AI の振り分け（会話／答える／提案）。ロックの外。落ちたら提案（今の挙動）
+        if (
+            llm is not None
+            and has_text
+            and body.intent != "propose"
+            and not chat_intent.has_graph_words(text)  # 図の言葉は決定論で提案へ
+        ):
+            async with lock:
+                s0 = _session_or_404(session_id)
+                hist = chat_route.history_of(s0)
+                label = s0.get("title")
+                has_draft = bool(s0.get("draft_id"))
+            try:
+                routed = await asyncio.to_thread(
+                    chat_route.route_message,
+                    llm,
+                    text=text,
+                    history=hist,
+                    lang=body.lang,
+                    theme_label=label,
+                    has_draft=has_draft,
+                    n_terms=len(existing),
+                    n_datasets=await asyncio.to_thread(_n_datasets),
+                )
+                await asyncio.to_thread(
+                    _record_usage, root, "chat.route", provider, llm, model
+                )
+            except Exception:
+                logger.warning("chat route: fell back to propose", exc_info=True)
+                routed = None
+            if routed is not None and routed.mode == "ask":
+                turn, saved = await _ask_turn(
+                    session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+                )
+                return JSONResponse(
+                    {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                     "reverted": []},
+                    status_code=201,
+                )  # fmt: skip
+            if routed is not None and routed.mode == "chat":
+                async with lock:
+                    session = _session_or_404(session_id)
+                    turn = chat_turns.run_chat_turn(
+                        session, text, routed.reply, at=_now(), lang=body.lang
+                    )
+                    return _done(session, turn)
         if llm is not None:
             async with lock:  # 1. 準備（読むだけ）
                 session = _session_or_404(session_id)

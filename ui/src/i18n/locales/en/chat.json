@@ -40,7 +40,9 @@
     "undoneKept": " (kept: {{names}})",
     "undoneFailed": "Could not undo: {{what}} ({{reason}})",
     "cardProposed": "Proposed for the knowledge graph · {{n}}",
-    "cardProposedNone": "Proposed for the knowledge graph"
+    "cardProposedNone": "Proposed for the knowledge graph",
+    "proposeChip": "Add to the knowledge graph",
+    "sent": "Sent"
   },
   "tabs": {
     "label": "Area to show",
@@ -66,7 +68,7 @@
     "decide": "Decide"
   },
   "empty": {
-    "first": "Write what you want to know, or attach a data table (CSV, Excel). Terms and data grow in the knowledge graph to the right"
+    "first": "Write what you want to know, or attach a data table (CSV, Excel). Questions are answered from the data you added; what you want to know grows in the knowledge graph to the right"
   },
   "error": {
     "badShape": "The server's reply was not in the expected shape",

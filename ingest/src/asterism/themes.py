@@ -1682,7 +1682,7 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                 anchors.update(str(i) for i in (prior_tools.get(n) or {}).get("for_terms") or [])
         if not anchors:  # 答え方の決まった問いが 1 つも無い（メモの問いだけ）
             raise ThemeError(
-                "答え方が決まった問いが無いため、用語を置けません。先に問いの答え方を選んでください"
+                "答え方が決まった問いが無いので、まだ承認できません。先に問いの答え方を選んでください"
             )
         reach = _connected(anchors, [(a, c) for a, _r, c in edges])
         lonely = [r.label_ja for r in rows if r.mint and r.iri not in reach]

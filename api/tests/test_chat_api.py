@@ -16,6 +16,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from asterism import chat_sessions, shared_vocab, themes
 from asterism_step0.graph_propose import validate_graph_diff
 from fastapi.testclient import TestClient
@@ -722,8 +723,8 @@ def test_bind_column_by_hand_is_dropped_for_a_theme(tmp_path: Path) -> None:
 # ---- 11b: AI の返事 -----------------------------------------------------------------------------
 
 
-def _ai_client(tmp_path: Path, *responses: str):
-    llm = _LLM(*responses)
+def _ai_client(tmp_path: Path, *responses: str, route: str = "propose", route_reply: str = ""):
+    llm = _LLM(*responses, route=route, route_reply=route_reply)
     app, _ = _app(tmp_path, llm)
     return TestClient(app, headers={**_AUTH, **KEY}), llm
 
@@ -916,6 +917,9 @@ class _EditLLM(_LLM):
         self.seen: list[str] = []
 
     def complete(self, system_prompt: str, user_message: str) -> str:
+        r = self.routed(system_prompt, user_message)
+        if r is not None:
+            return r
         if not self.calls:
             return super().complete(system_prompt, user_message)
         self.calls.append((system_prompt, user_message))
@@ -1163,3 +1167,121 @@ def test_intent_ask_skips_the_classifier(tmp_path: Path) -> None:
         t = _say(client, sid, "試料", intent="ask")["turn"]
         (n,) = t["reply"]["notes"]
         assert n["kind"] == "ask_unavailable"
+
+
+# ---- 11m: 1 文の振り分け（会話／答える／提案） ------------------------------------------------
+
+
+def test_route_chat_makes_a_plain_reply_without_ops(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="chat", route_reply="どういたしまして。")
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, "ありがとう")
+        t = out["turn"]
+        assert t["route"] == "chat" and t["by"] == "ai" and t["state"] == "none"
+        assert t["before"] is None and t["reply"]["text"] == "どういたしまして。"
+        assert t["reply"]["ops"] == [] and t["reply"]["notes"] == []
+        assert out["draft"] is None or out["session"]["draft_id"] is None
+        assert llm.calls == [] and len(llm.route_calls) == 1  # 提案の AI は呼ばない
+
+
+def test_route_ask_goes_to_the_ask_path(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="ask")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, "試料は何件？")["turn"]
+        (n,) = t["reply"]["notes"]  # demo-agent の URL が無い環境
+        assert n["kind"] == "ask_unavailable" and t["route"] == "ask"
+        assert llm.calls == []
+
+
+def test_broken_route_falls_back_to_propose(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="broken")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER)["turn"]
+        assert t["state"] == "proposed" and len(llm.calls) == 1 and len(llm.route_calls) == 1
+
+
+def test_intent_propose_skips_the_router(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="chat", route_reply="x")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER, intent="propose")["turn"]
+        assert t["state"] == "proposed" and llm.route_calls == []
+
+
+def test_route_history_carries_recent_turns(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="chat", route_reply="こんにちは。")
+    with client:
+        sid = _new(client)
+        _say(client, sid, "こんにちは")
+        _say(client, sid, "ありがとう")
+        user = llm.route_calls[1][1]
+        assert "person: こんにちは" in user and "assistant: こんにちは。" in user
+
+
+@pytest.mark.parametrize("text", ["価格を図に足して", "店は外して"])
+def test_graph_words_skip_the_router(tmp_path: Path, text: str) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="chat", route_reply="x")
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, text)["turn"]
+        assert t["state"] == "proposed" and llm.route_calls == []
+
+
+def test_router_gets_dataset_count(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, route="chat", route_reply="はい")
+    with client:
+        sid = _new(client)
+        _say(client, sid, "ありがとう")
+        assert "Datasets: 0" in llm.route_calls[0][1]
+
+
+def test_chat_turn_keeps_draft_and_cannot_be_confirmed_or_reverted(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), route="propose")
+    with client:
+        sid = _new(client)
+        did = _say(client, sid, Q_LOWER)["draft"]["draft_id"]
+        llm.route, llm.route_reply = "chat", "どうも。"
+        out = _say(client, sid, "ありがとう")
+        assert out["session"]["draft_id"] == did and out["draft"]["draft_id"] == did
+        tid = out["turn"]["id"]
+        for verb in ("confirm", "revert"):
+            r = client.post(f"/api/chat/sessions/{sid}/turns/{tid}/{verb}")
+            assert r.status_code == 409, (verb, r.text)
+
+
+def test_router_exception_falls_back_to_propose(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON))
+    orig = llm.routed
+
+    def boom(system: str, user: str):
+        if orig(system, user) is not None:
+            raise RuntimeError("down")
+        return None
+
+    llm.routed = boom
+    with client:
+        sid = _new(client)
+        t = _say(client, sid, Q_LOWER)["turn"]
+        assert t["state"] == "proposed" and len(llm.calls) == 1
+
+
+def test_non_question_text_does_not_become_a_question_and_can_be_confirmed(
+    tmp_path: Path,
+) -> None:
+    # 問いでない文（チップで提案に回した雑談）: 人の文は問いに入れず、AI の答えの問いで ✓ できる
+    said = "熱電材料の熱伝導率って、組成でけっこう変わるよね"
+    client, _ = _ai_client(tmp_path, json.dumps(AI_JSON))
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, said, intent="propose")
+        did = out["draft"]["draft_id"]
+        stored = themes.load_draft(tmp_path / "registry", did)
+        assert said not in stored["questions"] and Q_LOWER in stored["questions"]
+        assert stored["answers"][0]["question"] == Q_LOWER
+        assert stored["answers"][0]["mode"] == "knowledge"
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{out['turn']['id']}/confirm", json={})
+        assert r.status_code == 200, r.text
+        assert r.json()["confirmed"] == [out["turn"]["id"]]

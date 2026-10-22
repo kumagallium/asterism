@@ -213,6 +213,7 @@ def _append_turn(
     state: str,
     before: dict | None,
     by: str,
+    route: str | None = None,
 ) -> dict:
     turn_id = chat_sessions.new_turn_id(session)
     batch = f"{session['id']}:{turn_id}"
@@ -227,6 +228,8 @@ def _append_turn(
         "commit": None,
         "by": by,
     }
+    if route:  # 11m: 1 文の振り分け先（chat／ask）。UI が返事の見せ方を変える
+        turn["route"] = route
     session["turns"].append(turn)
     return turn
 
@@ -850,14 +853,21 @@ def _apply_create(
     lg: str,
 ) -> dict:
     extend, extra_notes = _resolve_extend(session, root, lg)
-    out = themes.postprocess_draft(ai, questions=[text], existing=existing, dismissed=dismissed)
-    label = out["theme_label"] or themes.default_label([text])
+    # 文が問いでなければ、人の文は問いにしない（✓ が「答え方が決まった問いが無い」で止まる）。
+    # 下書きの問いは AI の答え（answers）＋ 提案の問いから作る。AI には文を文脈として渡し済み
+    qs = [text]
+    if not is_question(text):
+        from_ai = [str(a.get("question") or "") for a in ai.get("answers") or []]
+        from_ai += [str(q) for q in ai.get("suggested_questions") or []]
+        qs = themes.clean_questions(from_ai) or [text]
+    out = themes.postprocess_draft(ai, questions=qs, existing=existing, dismissed=dismissed)
+    label = out["theme_label"] or themes.default_label(qs)
     if extend:
         data = themes.load_themes_file(root) or {"themes": []}
         label = next((t.get("label") for t in data["themes"] if t.get("id") == extend), label)
     made: dict | None = None
     try:
-        made = themes.create_draft(root, "", [text], at=at, extend=extend)
+        made = themes.create_draft(root, "", qs, at=at, extend=extend)
         draft = _save(
             root,
             {
@@ -1837,12 +1847,29 @@ def run_ask_turn(
             state="none",
             before=None,
             by="machine",
+            route="ask",
         )
     answer = _answer_of(outcome["data"], cited or {})
     reply = _reply(answer["text"])
     reply["answer"] = answer
     return _append_turn(
-        session, at=at, user=user, reply=reply, state="none", before=None, by="ai"
+        session, at=at, user=user, reply=reply, state="none", before=None, by="ai", route="ask"
+    )
+
+
+def run_chat_turn(session: dict, text: str, reply: str, *, at: str, lang: str) -> dict:
+    """会話の手番（11m）— 地の文だけの返事。札も承認も出ない（``ops: []``・``state: none``）。
+
+    ``route: "chat"`` を手番に持たせ、UI が返事の下に「知識グラフに足す」チップを出す。"""
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": text.strip(), "attachments": []},
+        reply=_reply(reply, ops=[]),
+        state="none",
+        before=None,
+        by="ai",
+        route="chat",
     )
 
 
@@ -1857,6 +1884,7 @@ def run_ask_unavailable_turn(session: dict, text: str, *, at: str, lang: str) ->
         state="none",
         before=None,
         by="machine",
+        route="ask",
     )
 
 
