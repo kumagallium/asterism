@@ -9,12 +9,13 @@ import { drawRemovals, removalOverlay } from '../chart/chartOverlay'
 import { MoreMenu } from '../MoreMenu'
 import { SAMPLE_SKY } from '../sky/sample'
 import { EMPTY_SKY, type SkyData, type SkyDataset } from '../sky/skyApi'
+import type { SkyDraft } from './chatApi'
 import { bornAlive, formatCount, readSkyPalette, visiblePointLabels, type SkyPalette } from '../sky/skyDraw'
 import { kindId, neighborhood, neighborhoodOf, nodeIdsForIris, type SkyLayout, type SkyNode } from '../sky/skyLayout'
 import { SkyTables } from '../sky/SkyTables'
 import { buildSkyTables } from '../sky/skyTable'
 import '../sky/sky.css'
-import { getSkyWithProposed, type SkyDraft } from './chatApi'
+import type { SkyLoad } from './useSky'
 import { selectionOfEdge, selectionOfNode, type Highlight, type PointSel } from './chatState'
 import { drawGraph, type GraphLabels } from './graph/graphDraw'
 import { layoutGraph } from './graph/graphLayout'
@@ -48,74 +49,30 @@ const prefersReducedMotion = (): boolean => {
   }
 }
 
-type Load = { status: 'loading' } | { status: 'error' } | { status: 'ok'; sky: SkyData; proposed: SkyDraft[]; proposedDatasets: SkyDataset[] }
-
-/** 星図に出ている種類・用語の IRI（増えたものに輪を出すため）。 */
-function irisOf(sky: SkyData): Set<string> {
-  const out = new Set<string>()
-  for (const t of sky.terms) out.add(t.iri)
-  for (const d of sky.datasets) for (const k of d.kinds) out.add(k.iri)
-  return out
-}
-
 export interface ChartPaneProps {
   lang: 'ja' | 'en'
-  /** 変わるたびに図を取り直す（手番・✓・戻すのあと）。 */
-  refreshKey: number
-  /** 変わったときの取り直しだけ、増えた点に生まれた輪を出す（✓ の直後）。 */
-  bornKey?: number
-  /** 取り直した未確認の札を知らせる（手で足すフォームが、いまある概念を選べるように）。 */
-  onProposed?: (drafts: SkyDraft[]) => void
-  /** 図の語（slug → 名前を引くため）を知らせる。 */
-  onTerms?: (terms: { slug: string; label: string }[]) => void
+  /** 読み取り（`useSky`）の結果。局所のパネルでは `localSky` で近傍に絞ったものを `ok` に包んで渡す。 */
+  data: SkyLoad
+  /** 読み込みに失敗したときの「もう一度」。 */
+  onRetry?: () => void
+  /** 上の「答えられる問い N / M」を出さない（地図の上の 1 行が持つ）。 */
+  hideFacts?: boolean
   /** 点か線を押した（空白を押すと null＝1 枚を閉じる）。 */
   onSelect?: (sel: PointSel | null) => void
   /** 1 枚の中の文・表・出典を押した: 図でそれを濃くする（null で戻す）。 */
   highlight?: Highlight | null
 }
 
-export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, onSelect, highlight = null }: ChartPaneProps) {
+export function ChartPane({ lang, data: load, onRetry, hideFacts = false, onSelect, highlight = null }: ChartPaneProps) {
   const { t } = useTranslation('sky')
   const { t: tc } = useTranslation('chat')
-  const [load, setLoad] = useState<Load>({ status: 'loading' })
-  const [retryTick, setRetryTick] = useState(0)
   const [deep, setDeep] = useState(false)
-  const prevIris = useRef<Set<string> | null>(null)
-  const lastBornKey = useRef(bornKey)
-  const bornIris = useRef<string[]>([])
-  const onProposedRef = useRef(onProposed)
-  const onTermsRef = useRef(onTerms)
-  useEffect(() => {
-    onProposedRef.current = onProposed
-    onTermsRef.current = onTerms
-  })
-
-  useEffect(() => {
-    let off = false
-    getSkyWithProposed(lang)
-      .then(({ sky, proposed, proposedDatasets }) => {
-        if (off) return
-        const now = irisOf(sky)
-        // 取り直したあとに増えた点（最初の読み込みは除く）に輪を出す
-        const ring = bornKey !== lastBornKey.current
-        lastBornKey.current = bornKey
-        bornIris.current = ring && prevIris.current ? [...now].filter((i) => !prevIris.current!.has(i)) : []
-        prevIris.current = now
-        setLoad({ status: 'ok', sky, proposed, proposedDatasets })
-        onProposedRef.current?.(proposed)
-        onTermsRef.current?.(sky.terms.map((x) => ({ slug: x.slug, label: x.label })))
-      })
-      // 取り直しの失敗では、いま描いている図を消さない（最初の読み込みだけエラーにする）
-      .catch(() => !off && setLoad((cur) => (cur.status === 'ok' ? cur : { status: 'error' })))
-    return () => {
-      off = true
-    }
-  }, [lang, refreshKey, bornKey, retryTick])
+  const bornHandled = useRef<string[] | null>(null)
 
   const sky = load.status === 'ok' ? load.sky : EMPTY_SKY
   const proposed = useMemo<SkyDraft[]>(() => (load.status === 'ok' ? load.proposed : []), [load])
   const proposedDatasets = useMemo<SkyDataset[]>(() => (load.status === 'ok' ? load.proposedDatasets : []), [load])
-  const nothing = sky.datasets.length === 0 && sky.questions.length === 0 && proposed.length === 0 && proposedDatasets.length === 0
+  const nothing = sky.datasets.length === 0 && sky.terms.length === 0 && sky.questions.length === 0 && proposed.length === 0 && proposedDatasets.length === 0
   // 取り込み済みで未公開のデータセットは、薄い星座として足す（公開すると datasets に移り濃くなる）
   const withThin = useMemo<SkyData>(
     () => (proposedDatasets.length === 0 ? sky : { ...sky, datasets: [...sky.datasets, ...proposedDatasets] }),
@@ -255,15 +212,16 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
     }
   }, [schedule])
 
-  // 取り直しで増えた点に、生まれた輪を 1 度だけ
+  // 取り直しで増えた点（`useSky` の born）に、生まれた輪を 1 度だけ
+  const born = load.status === 'ok' ? load.born : null
   useEffect(() => {
-    const iris = bornIris.current
-    if (iris.length === 0 || reduced || nothing) return
-    bornIris.current = []
+    if (!born || born === bornHandled.current) return
+    bornHandled.current = born
+    if (born.length === 0 || reduced || nothing) return
     const now = performance.now()
-    for (const id of nodeIdsForIris(layout, iris)) bornRef.current.set(id, now)
+    for (const id of nodeIdsForIris(layout, born)) bornRef.current.set(id, now)
     schedule()
-  }, [layout, reduced, nothing, schedule])
+  }, [born, layout, reduced, nothing, schedule])
 
   // ── ポインタ（hover で近傍を濃く・押して選ぶ） ──
   const localPoint = (ev: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
@@ -386,7 +344,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
       <div className="chart-pane">
         <div className="sky-placeholder chart-placeholder" role="alert">
           <span>{tc('chart.failed')}</span>
-          <button type="button" className="btn btn--sm" onClick={() => setRetryTick((n) => n + 1)}>
+          <button type="button" className="btn btn--sm" onClick={() => onRetry?.()}>
             {tc('chart.retry')}
           </button>
         </div>
@@ -398,6 +356,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
   const ariaLabel = nothing ? t('chart.ariaSample') : t('chart.aria', { datasets: sky.datasets.length, kinds: f.kinds, terms: f.terms })
   return (
     <div className="chart-pane">
+      {!hideFacts && (
       <div className="sky-facts">
         {f.questions_total > 0 ? (
           <span className="sky-facts-lead">
@@ -410,6 +369,7 @@ export function ChartPane({ lang, refreshKey, bornKey = 0, onProposed, onTerms, 
           <span className="sky-facts-none">{t('facts.none')}</span>
         )}
       </div>
+      )}
       <div className="sky-chartwrap" ref={wrapRef}>
         <div className="sky-figure">
           <canvas
