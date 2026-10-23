@@ -1,6 +1,5 @@
 """AI の適性検査（PR 11q）— 推奨／条件つき／非推奨・取り消し・保存の形・鍵が残らない・読むだけ。"""
 
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import json
