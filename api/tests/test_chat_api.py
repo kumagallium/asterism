@@ -804,7 +804,7 @@ def test_ai_failure_is_a_note_and_makes_no_draft(tmp_path: Path) -> None:
         (n,) = turn["reply"]["notes"]
         assert n["kind"] == "ai_failed" and "決まった形になりませんでした" in n["text"]
         assert n["text"].startswith("AI の答えが決まった形になりませんでした")
-        assert "対象を 1 つに絞って言い直してください" in n["text"]  # 次の一手
+        assert "問いを 1 文で短く言い直してください" in n["text"]  # 次の一手（下書きが無い）
         assert out["session"]["draft_id"] is None and out["draft"] is None
         assert _draft_ids(tmp_path) == []
         assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None

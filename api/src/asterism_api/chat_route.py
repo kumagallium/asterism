@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 from asterism_step0.llm import as_completion
 
+from asterism_api.chat_intent import _QUESTION_MARK
+
 Mode = Literal["chat", "ask", "propose"]
 _MODES = ("chat", "ask", "propose")
 
@@ -49,19 +51,19 @@ Output ONLY a JSON object, no markdown fence:
 {{"mode": "chat" | "ask" | "propose", "reply": "..."}}
 """
 
-#: 未承認の提案がある話で、？で終わらない文に付ける注意書き
+#: 未承認の提案がある話で、疑問でない文に付ける注意書き
 DRAFT_NOTE = (
     "Note: this conversation has an unapproved proposal. If the message is a reply to it "
-    "(a correction or an addition), choose propose."
+    "(a correction, an addition or an objection), choose propose. Greetings, thanks, short "
+    "acknowledgements (OK, that is fine) and questions about how to use the product stay chat."
 )
 
-#: 会話の返事が聞き返しになっている印（決定論の網。当たれば propose に落とす）
+#: 会話の返事が聞き返しになっている印（決定論の網）。返事が疑問で終わるときだけ見る
 _ASKS_BACK = (
-    "教えていただけ", "教えてください", "教えて下さい", "具体的に", "詳しく", "詳細を",
-    "could you", "can you", "more details", "more detail", "please clarify", "please specify",
+    "いただけますか", "教えてください", "教えて下さい", "could you", "can you", "more details",
 )  # fmt: skip
 
-#: 履歴に渡す手番の数と、AI の返事の長さ
+#: 履歴に渡す#: 履歴に渡す手番の数と、AI の返事の長さ
 _MAX_TURNS = 6
 _MAX_REPLY = 200
 
@@ -116,7 +118,8 @@ def _read(text: str) -> RouteResult:
     if not isinstance(reply, str) or not reply.strip():
         raise RouteError("chat needs a reply")
     low = reply.lower()
-    if any(w in low for w in _ASKS_BACK):  # 聞き返しは返事にしない（呼ぶ側が propose に落とす）
+    # 聞き返しは返事にしない（呼ぶ側が propose に落とす）
+    if _QUESTION_MARK.search(reply) and any(w in low for w in _ASKS_BACK):
         raise RouteError("chat reply asks the person to explain more")
     return RouteResult("chat", reply.strip())
 
@@ -141,7 +144,7 @@ def route_message(
     ]
     if n_datasets is not None:
         lines.append(f"Datasets: {n_datasets}")
-    if has_draft and not re.search(r"[?\uff1f]\s*$", text.strip()):
+    if has_draft and not _QUESTION_MARK.search(text.strip()):
         lines.append(DRAFT_NOTE)
     lines.append("")
     lines.append("# Recent turns")

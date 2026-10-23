@@ -25,6 +25,7 @@ __all__ = [
     "classify",
     "entry_iri",
     "has_fix_words",
+    "is_remove_form",
     "is_undo",
     "parse_remove",
     "show_target",
@@ -42,12 +43,16 @@ _UNDO_EN = re.compile(
 #: 含まれていれば必ず図の手番にする語（「ひとつ前の位置に戻して」のように名前を含んでも図）
 _GRAPH_WORDS = ("図に", "足して", "外して", "付け替え", "直して", "広げて")
 
-#: 指摘・訂正の言葉（11n）— 含む文は AI の振り分けを飛ばして提案（直し）へ（疑問文は除く）
-_FIX_WORDS = (
-    "間違い", "間違って", "違う", "違って", "おかしい", "誤り", "ずれて", "伸びている",
-    "付け替え", "入れ替え",
-    "wrong", "incorrect", "mistake", "should be",
-)  # fmt: skip
+#: 指摘・訂正の言葉（11n）— 未承認の提案がある話で、疑問文でない文に含まれていれば提案（直し）へ。
+#: 普通の文に多い語（伸びている・入れ替え）は入れない
+_FIX_WORDS_JA = ("間違", "誤り", "おかしい", "違う", "ずれて", "付け替え", "直して")
+_FIX_EN = re.compile(r"\b(?:wrong|incorrect|mistake|mistaken|should be)\b", re.IGNORECASE)
+#: 疑問文と見る形（ja: 末尾・語 / en: 先頭の疑問詞）
+_ASKING_END_JA = re.compile(r"(?:か|かな|ですか|のは|でしょうか)[\s。.!！]*\Z")
+_ASKING_WORDS_JA = ("知りたい", "なぜ", "とは", "教えて", "答えて", "どう", "何")
+_ASKING_START_EN = re.compile(
+    r"^(?:what|why|how|which|where|when|can|could|should|tell|is|are|do|does)\b", re.IGNORECASE
+)
 
 _SHOW_TAIL = (
     r"(?:(?:一覧|表)(?:を|で)?"
@@ -158,14 +163,24 @@ def classify(text: str, *, names: dict, draft_open: bool) -> Intent:
     return "graph"
 
 
-def has_fix_words(text: str) -> bool:
-    """指摘・訂正の言葉（間違い・違う・おかしい…）を含むか。「？」で終わる疑問文は対象外
-    （「空間群の種類は？」「これは間違い？」は聞かれているので振り分けに任せる）。"""
+def _is_asking(text: str) -> bool:
+    """疑問文か（末尾が ？／か／ですか…、知りたい・なぜ・とは…を含む、英語の先頭が疑問詞）。"""
     t = text.strip()
-    if _QUESTION_MARK.search(t):
+    return bool(
+        _QUESTION_MARK.search(t)
+        or _ASKING_END_JA.search(t)
+        or any(w in t for w in _ASKING_WORDS_JA)
+        or _ASKING_START_EN.match(t)
+    )
+
+
+def has_fix_words(text: str) -> bool:
+    """指摘・訂正の言葉（間違い・違う・おかしい…）を含む疑問文でない文か。呼ぶ側は
+    **未承認の提案がある話**でだけ使う（「違う店の値段も知りたい」を直しにしない）。"""
+    t = text.strip()
+    if not t or _is_asking(t):
         return False
-    low = t.lower()
-    return any(w in low for w in _FIX_WORDS)
+    return any(w in t for w in _FIX_WORDS_JA) or bool(_FIX_EN.search(t))
 
 
 # ---- 外す指示の決定論（11n）-----------------------------------------------------------------
@@ -197,11 +212,12 @@ def _names_of(concept: dict) -> set[str]:
 
 
 def _find_key(draft: dict, name: str) -> str | None:
+    """名前に当たる概念の鍵。2 件以上に当たる（label と aliases の衝突を含む）なら ``None``。"""
     f = _flat(name)
-    for c in draft.get("concepts") or []:
-        if f and f in _names_of(c):
-            return str(c.get("key"))
-    return None
+    hits = {
+        str(c.get("key")) for c in draft.get("concepts") or [] if f and f in _names_of(c)
+    }
+    return next(iter(hits)) if len(hits) == 1 else None
 
 
 def parse_remove(text: str, draft: dict | None) -> list[dict] | None:
@@ -213,7 +229,7 @@ def parse_remove(text: str, draft: dict | None) -> list[dict] | None:
     t = text.strip()
     rels = [r for r in draft.get("relations") or [] if r.get("from") and r.get("to")]
     concepts = {"concepts": draft.get("concepts") or []}
-    m = _NOT_JA.match(t) or _NOT_EN.match(t)
+    m = _NOT_JA.match(t) or _NOT_EN.match(t.lower())
     if m:
         a, b = _find_key(draft, m["a"]), _find_key(draft, m["b"])
         want = _NOT_REL[m["k"]]
@@ -222,7 +238,7 @@ def parse_remove(text: str, draft: dict | None) -> list[dict] | None:
             if a and b and r["from"] == a and r["to"] == b and r.get("rel") == want
         ]  # fmt: skip
         return [_remove_rel(r) for r in hit[:1]] or None
-    m = _REMOVE_JA.match(t) or _REMOVE_EN.match(t.lower() if t.isascii() else t)
+    m = _REMOVE_JA.match(t) or _REMOVE_EN.match(t.lower())
     if not m:
         return None
     body = _flat(m["body"])
@@ -237,6 +253,12 @@ def parse_remove(text: str, draft: dict | None) -> list[dict] | None:
     if key is not None:
         return [{"op": "remove", "target": "concept", "key": key, "reason": ""}]
     return None
+
+
+def is_remove_form(text: str) -> bool:
+    """「〜を外して」「remove 〜」の形か（下書きに当たったかは問わない）。"""
+    t = text.strip()
+    return bool(_REMOVE_JA.match(t) or _REMOVE_EN.match(t.lower()))
 
 
 def _remove_rel(r: dict) -> dict:

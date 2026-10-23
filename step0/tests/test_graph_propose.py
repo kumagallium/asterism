@@ -318,6 +318,7 @@ def test_the_last_retry_asks_to_fix_the_previous_json_with_an_example() -> None:
     assert "Previous answer" not in llm.calls[1][1]
     assert "Previous answer" in llm.calls[2][1] and '"op": "nope"' in llm.calls[2][1]
     assert "Example of the expected shape" in llm.calls[2][1]
+    assert '"key": "c1"' in llm.calls[2][1]  # 例の鍵は図にあるもの
 
 
 def test_the_guided_schema_is_set_for_the_call_and_put_back() -> None:

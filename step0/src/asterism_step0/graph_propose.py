@@ -192,9 +192,9 @@ Hard rules:
 - Do NOT write SPARQL, IRIs, URLs, code or anything between < > or { }. Names only.
 - Do not use any value from a data file: you have none.
 - A key that is not on the graph (and not added by "add_concept" in the same answer) is wrong.
-- When asked for the kinds or a list of X, give the lower concepts and examples of X.
+- When asked for the kinds or a list of X, give the subtypes or examples of X.
   Do not mix in a related but different classification of the same field.
-  If you are not sure, give fewer.
+  Do not invent relations; omit a relation you are not sure of.
 """
 
 GRAPH_DIFF_SYSTEM_PROMPT = (
@@ -601,19 +601,25 @@ def graph_diff_user_message(
 #: 形が合わないときの試行の数（最初 + 聞き直し 2 回）
 _ATTEMPTS = 3
 
-_FIX_EXAMPLE = (
-    '{"reply": "one short sentence", "ops": [{"op": "remove", "target": "relation", '
-    '"from": "a1", "rel": "sub", "to": "b2", "reason": "one line"}]}'
-)
+_PREVIOUS_MAX = 20000
 
 
-def _fix_tail(previous: str) -> str:
-    """Last retry: show the previous answer and ask for the same JSON, repaired."""
+def _fix_tail(previous: str, key: str) -> str:
+    """Last retry: show the previous answer (whole, up to 20,000 characters) and ask for the
+    same JSON, repaired. The example only shows the shape; its key is one on the graph."""
+    prev = previous.strip()
+    if len(prev) > _PREVIOUS_MAX:
+        prev = prev[:_PREVIOUS_MAX] + "\uff08途中まで\uff09"
+    example = (
+        '{"reply": "one short sentence", "ops": [{"op": "rename", "key": "' + key + '", '
+        '"label_ja": "...", "label_en": "...", "aliases": [], "reason": "one line"}]}'
+    )
     return (
         "\n\nThis is your last try. Fix YOUR PREVIOUS JSON below instead of starting over: "
         "change only what the refusal names, keep the rest as it is.\n"
-        f"Previous answer:\n{' '.join(previous.split())[:3000]}\n"
-        f"Example of the expected shape (the values are only an example):\n{_FIX_EXAMPLE}\n"
+        f"Previous answer:\n{prev}\n"
+        "Example of the expected shape (only the shape: use keys that are on the graph, "
+        f"never copy the values):\n{example}\n"
     )
 
 
@@ -665,7 +671,8 @@ def propose_graph_diff(
             problem=problem,
         )
         if attempt == _ATTEMPTS - 1 and previous is not None:
-            user += _fix_tail(previous)  # 最後の聞き直し: 前の JSON をそのまま直す
+            first = next((str(c.get('key')) for c in graph.get('concepts') or []), '<key>')
+            user += _fix_tail(previous, first)  # 最後の聞き直し: 前の JSON をそのまま直す
         text = _complete_guided(client, system, user, schema)
         try:
             diff = validate_graph_diff(_extract_json_object(text), known_keys=keys)

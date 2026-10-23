@@ -668,8 +668,11 @@ _AI_FAILED = {
 }
 
 
-_SHAPE_WHY = (  # (正規表現, ja) — 差分の検査の文を利用者に見える語に
-    (re.compile(r"^(?P<p>.+?): '(?P<k>.*)' is not a key on the graph"), 'ja_key'),
+_SHAPE_KEY = re.compile(r"^(?P<p>.+?): '(?P<k>.*)' is not a key on the graph")
+_SHAPE_WHY = (  # (正規表現, ja) — 検査の文を利用者に見える語に。残りは英語のまま
+    (re.compile(r"^the model did not return a JSON object"), "答えが JSON ではありませんでした"),
+    (re.compile(r"^the model's JSON could not be read"), "答えの JSON が読めませんでした"),
+    (re.compile(r"^focus_key '(?P<k>.*)' is not a concept on the map"), "知識グラフに無い用語です"),
     (re.compile(r"looks like code"), "コードや IRI に見えます"),
     (re.compile(r"must be one of"), "決まった値ではありません"),
     (re.compile(r"is required"), "足りません"),
@@ -680,32 +683,60 @@ _SHAPE_WHY = (  # (正規表現, ja) — 差分の検査の文を利用者に見
     (re.compile(r"must be"), "形が違います"),
 )
 
-_SHAPE_NEXT = {
-    "ja": "対象を 1 つに絞って言い直してください（例:「三斜晶系 は 空間群 の一種」を外して）",
-    "en": 'Narrow it to one target and say it again (for example: remove "A is a kind of B")',
+_SHAPE_NEXT = {  # (下書きがあるとき, 無いとき)
+    "ja": (
+        "対象を 1 つに絞って言い直してください（例:「三斜晶系 は 空間群 の一種」を外して）",
+        "問いを 1 文で短く言い直してください",
+    ),
+    "en": (
+        'Narrow it to one target and say it again (for example: remove "A is a kind of B")',
+        "Please say the question again in one short sentence",
+    ),
 }
 _SHAPE_MAX = 120
+_KEY_MAX = 30
+
+
+def _cut(s: str, n: int) -> str:
+    return s if len(s) <= n else s[: n - 1] + "…"
 
 
 def _shape_why(raw: str, lg: str) -> str:
-    """``GraphDiffError`` の文 → 120 字までの理由（ja は利用者に見える語に）。"""
+    """``GraphDiffError`` / ``ThemeDraftError`` の文 → 120 字までの理由（ja は見える語に）。"""
     raw = " ".join(raw.split())
     if lg == "ja":
-        m = _SHAPE_WHY[0][0].match(raw)
+        m = _SHAPE_KEY.match(raw)
         if m:
-            return f'{m["p"]}: 知らない鍵 "{m["k"]}"'[:_SHAPE_MAX]
+            return _cut(f'{m["p"]}: 知らない鍵 "{_cut(m["k"], _KEY_MAX)}"', _SHAPE_MAX)
         path = raw.split(": ", 1)[0] if ": " in raw else ""
-        for pat, ja in _SHAPE_WHY[1:]:
-            if pat.search(raw):
-                return (f"{path}: {ja}" if path else ja)[:_SHAPE_MAX]
-    return raw[:_SHAPE_MAX]
+        for pat, ja in _SHAPE_WHY:
+            mm = pat.search(raw)
+            if mm:
+                if "k" in pat.groupindex:
+                    return _cut(f"'{_cut(mm['k'], _KEY_MAX)}' は{ja}", _SHAPE_MAX)
+                return _cut(f"{path}: {ja}" if path and path.count(" ") == 0 else ja, _SHAPE_MAX)
+    return _cut(raw, _SHAPE_MAX)
 
 
-def _shape_note(base: str, raw: str, lg: str) -> str:
-    """形の誤りの注記 = 見出し + 理由の要約 + 次の一手。"""
+def _shape_note(base: str, raw: str, lg: str, *, has_draft: bool = True) -> str:
+    """形の誤りの注記 = 見出し + 理由の要約 + 次の一手（下書きが無いときは問いの言い直し）。"""
     why = _shape_why(raw, lg) if raw.strip() else ""
     head = f"{base}（{why}）" if why else base
-    return f"{head}。{_SHAPE_NEXT[lg]}" if lg == "ja" else f"{head}. {_SHAPE_NEXT[lg]}"
+    nxt = _SHAPE_NEXT[lg][0 if has_draft else 1]
+    return f"{head}。{nxt}" if lg == "ja" else f"{head}. {nxt}"
+
+
+_REMOVE_HINT = {
+    "ja": "承認済みの用語は、その点を押して「戻す」で外せます",
+    "en": "An approved term can be removed: press its point and choose Undo",
+}
+
+
+def run_hint_turn(session: dict, text: str, *, at: str, lang: str) -> dict:
+    """AI 未設定で「〜を外して」が下書きの何にも当たらなかったとき、外し方を案内する手番。"""
+    lg = _lg(lang)
+    said = _REMOVE_HINT[lg]
+    return _machine_turn(session, text, said, lg, [note("info", said)], at)
 
 
 def _machine_turn(
@@ -753,7 +784,10 @@ def apply_text_turn(
             else "The knowledge graph was not changed."
         )
         if reason == "shape":  # 11n: 理由の要約と次の一手を人に見せる
-            detail = _shape_note(detail, str(ai_result.get("detail") or ""), lg)
+            detail = _shape_note(
+                detail, str(ai_result.get("detail") or ""), lg,
+                has_draft=prepared.mode != "create",
+            )  # fmt: skip
         return _machine_turn(session, text, said, lg, [note("ai_failed", detail)], at)
     draft = _current_draft(session, root)
     theme = _theme_of(session, root)

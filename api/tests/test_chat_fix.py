@@ -30,6 +30,7 @@ DRAFT = {
         "おかしい",
         "That is wrong",
         "it should be a part of X",
+        "付け替えて",
     ],
 )
 def test_fix_words_hit(text: str) -> None:
@@ -37,7 +38,22 @@ def test_fix_words_hit(text: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "text", ["空間群の種類は？", "これは間違い？", "is this wrong?", "熱伝導率を下げるものは", ""]
+    "text",
+    [
+        "空間群の種類は？",
+        "これは間違い？",
+        "is this wrong?",
+        "熱伝導率を下げるものは",
+        "",
+        "違う店の値段も知りたい",
+        "売上が伸びている理由を知りたい",
+        "これは間違いですか",
+        "付け替えとは何ですか",
+        "What should be the unit",
+        "入れ替え戦の結果を見せて",
+        "なぜ違うのか教えて",
+        "How is this different, is it wrong",
+    ],
 )
 def test_fix_words_miss(text: str) -> None:
     assert not chat_intent.has_fix_words(text)
@@ -76,13 +92,27 @@ def test_draft_in_progress_adds_the_note_unless_a_question() -> None:
     "reply",
     [
         "もう少し詳しく教えていただけますか？",
-        "具体的にどの部分ですか",
+        "どの部分か教えてください？",
         "Could you give more details?",
     ],
 )
 def test_asking_back_reply_is_not_a_chat(reply: str) -> None:
     with pytest.raises(chat_route.RouteError):
         _route(json.dumps({"mode": "chat", "reply": reply}))
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "詳しくは設定画面をご覧ください。",
+        "具体的に言うと、温度のことです。",
+        "詳細を表示するには点を押します。",
+        "I can show more details in the panel.",
+    ],
+)
+def test_ordinary_replies_with_the_words_pass(reply: str) -> None:
+    r, _ = _route(json.dumps({"mode": "chat", "reply": reply}))
+    assert r.reply == reply
 
 
 def test_normal_chat_reply_still_passes() -> None:
@@ -117,6 +147,45 @@ def test_parse_remove_no_match_goes_to_the_ai() -> None:
     assert chat_intent.parse_remove("存在しない語を外して", DRAFT) is None
     assert chat_intent.parse_remove("粒界を広げて", DRAFT) is None
     assert chat_intent.parse_remove("三斜を外して", None) is None
+
+
+def test_parse_remove_ambiguous_name_goes_to_the_ai() -> None:
+    d = {
+        "concepts": [
+            {"key": "a", "label_ja": "温度", "aliases": []},
+            {"key": "b", "label_ja": "気温", "aliases": ["温度"]},
+        ],
+        "relations": [],
+    }
+    assert chat_intent.parse_remove("温度を外して", d) is None
+
+
+def test_parse_remove_english_is_case_insensitive() -> None:
+    ops = chat_intent.parse_remove("Remove Triclinic", DRAFT)
+    assert ops and ops[0]["target"] == "concept" and ops[0]["key"] == "b"
+    ops = chat_intent.parse_remove("Triclinic is NOT a part of 熱伝導率", DRAFT)
+    assert ops and ops[0]["rel"] == "part"
+
+
+def test_remove_form_and_hint_turn() -> None:
+    assert chat_intent.is_remove_form("熱伝導率を外して")
+    assert not chat_intent.is_remove_form("熱伝導率を広げて")
+    session = {"id": "s", "turns": []}
+    t = chat_turns.run_hint_turn(session, "熱伝導率を外して", at="t", lang="ja")
+    assert t["state"] == "none" and "戻す" in t["reply"]["text"]
+
+
+def test_shape_why_ja_for_theme_errors_and_next_step() -> None:
+    f = chat_turns._shape_why
+    assert f("the model did not return a JSON object", "ja") == "答えが JSON ではありませんでした"
+    assert "読めませんでした" in f("the model's JSON could not be read: x", "ja")
+    why = f("focus_key 'n1' is not a concept on the map", "ja")
+    assert why == "'n1' は知識グラフに無い用語です"
+    long_key = "k" * 80
+    out = f(f"ops[1].to: '{long_key}' is not a key on the graph (x)", "ja")
+    assert out.endswith('…"') and len(out) <= 120
+    note = chat_turns._shape_note("X", "bad", "ja", has_draft=False)
+    assert "問いを 1 文で短く言い直してください" in note and "外して" not in note
 
 
 def test_shape_note_has_reason_and_next_step() -> None:
