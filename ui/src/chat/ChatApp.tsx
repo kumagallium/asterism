@@ -42,7 +42,7 @@ import { HandForm } from './HandForm'
 import { ContentsPanel } from './ContentsPanel'
 import { SentencesPanel } from './SentencesPanel'
 import { ScopeBar } from './ScopeBar'
-import { readSubTab, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, writeSubTab, type SentenceRow, type SubTab } from './sentenceRows'
+import { pointGroupOf, readSubTab, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, writeSubTab, type SentenceRow, type SubTab, type SubTabChoice } from './sentenceRows'
 import { isAnswerable, type SkyQuestion } from '../sky/skyApi'
 import { QuestionsPanel } from './QuestionsPanel'
 import { normalizeQuestion } from './questionsState'
@@ -182,6 +182,8 @@ export function ChatApp() {
   // ── 点を押した 1 枚（図の点・線 → GET /api/chat/point → チャットの先頭） ──
   const [sel, setSel] = useState<PointSel | null>(null)
   const [point, setPoint] = useState<Point | null>(null)
+  /** いま `point` が届いている対象（古い 1 枚が残っているあいだ、範囲の判定に使わない）。 */
+  const [pointOf, setPointOf] = useState<PointSel | null>(null)
   const [pointTick, setPointTick] = useState(0)
   const [highlight, setHighlight] = useState<Highlight | null>(null)
   /** 確認済みの手番を戻した結果（手番の id → 結果）。 */
@@ -191,7 +193,7 @@ export function ChatApp() {
   /** 範囲（PR 11o）: 点を選ぶか「文」の行の「直す」で付く。送っても消えない。選択解除と新しいチャットで消える。 */
   const [scope, setScope] = useState<{ node: string; line?: { from: string; rel: string; to: string }; name: string } | null>(null)
   const [fixKey, setFixKey] = useState(0)
-  const [subStored, setSubStored] = useState<string | null>(readSubTab)
+  const [subStored, setSubStored] = useState<SubTabChoice | null>(readSubTab)
   const onSelect = useCallback((next: PointSel | null) => {
     setHighlight(null)
     setSel((cur) => (sameSel(cur, next) ? cur : next))
@@ -207,22 +209,28 @@ export function ChatApp() {
       setPickedId(nodeId)
       // 範囲: 用語・種類・提案の札はその点、確認済みの線はその線。データセットと選択解除は範囲なし
       const head = nodeId?.split('|')[0]
-      if (next && nodeId && (head === 't' || head === 'k' || head === 'draft')) setScope({ node: nodeId, name: next.label })
+      const ownDraft = head !== 'draft' || nodeId?.split('|')[1] === session?.draft_id // 他の話の提案の札には範囲を付けない
+      if (next && nodeId && ownDraft && (head === 't' || head === 'draft')) setScope({ node: nodeId, name: next.label })
       else if (next && next.kind === 'line' && !next.draft) setScope({ node: termId(next.from), line: { from: next.from, rel: next.relation, to: next.to }, name: next.label })
       else setScope(null)
     },
-    [onSelect],
+    [onSelect, session?.draft_id],
   )
   useEffect(() => {
     if (!sel) return
     // 薄い星（未公開）は api を呼ばず、小さな 1 枚を作る
     if (sel.kind === 'kind' && sel.thin) {
       setPoint(thinPointOf(sel))
+      setPointOf(sel)
       return
     }
     let off = false
     getPoint(pointQueryOf(sel), lang)
-      .then((p) => !off && setPoint(p))
+      .then((p) => {
+        if (off) return
+        setPoint(p)
+        setPointOf(sel)
+      })
       // 取れなければ 1 枚は出さない（消えた点・壊れた返り）
       .catch(() => !off && setPoint(null))
     return () => {
@@ -538,6 +546,7 @@ export function ChatApp() {
   }
   const openSession = (id: string) => {
     setError(null)
+    setScope(null)
     navigate({ kind: 'session', id })
     layout.closeSheet()
     setTab('chat')
@@ -598,17 +607,27 @@ export function ChatApp() {
   // ── 「文」のタブ（PR 11o） ──
   const subTab: SubTab = subTabOf(subStored, pickedId)
   const chooseSub = useCallback((v: SubTab) => {
-    setSubStored(v)
-    writeSubTab(v)
-  }, [])
+    const choice: SubTabChoice = { tab: v, group: pointGroupOf(pickedId) }
+    setSubStored(choice)
+    writeSubTab(choice)
+  }, [pickedId])
   const proposedTurnId = useMemo(() => [...(session?.turns ?? [])].reverse().find((x) => x.state === 'proposed')?.id ?? null, [session])
+  // 文の名前: 下書きの名前に、標準の語（curie → 表示名）を足す。引けなければ rowsOfDraft が ':' の右を出す
+  const rowNames = useMemo(() => {
+    const m = new Map(names)
+    for (const x of okSky?.sky.standards ?? []) {
+      const local = x.iri.split(/[/#]/).pop() ?? ''
+      if (x.prefix && local && x.label) m.set(`${x.prefix}:${local}`, x.label)
+    }
+    return m
+  }, [names, okSky])
   const sentenceRows = useMemo<SentenceRow[]>(() => {
-    if (sel) return point ? rowsOfPoint(point) : []
+    if (sel) return point ? rowsOfPoint(point) : [] // 読み込み中は前の 1 枚の行が残る
     if (pickedId) return []
-    return rowsOfDraft(sessionDraft, names, proposedTurnId, lang)
-  }, [sel, point, pickedId, sessionDraft, names, proposedTurnId, lang])
+    return rowsOfDraft(sessionDraft, rowNames, proposedTurnId, lang)
+  }, [sel, point, pickedId, sessionDraft, rowNames, proposedTurnId, lang])
   // 範囲の行が読み直した文から消えたら、点だけの範囲に戻す（rows が当てになるのは、点の 1 枚が届いているときか何も選んでいないとき）
-  const rowsReliable = sel ? !!point : !pickedId
+  const rowsReliable = sel ? !!point && sameSel(pointOf, sel) : !pickedId
   useEffect(() => {
     if (!rowsReliable) return
     setScope((cur) => {
@@ -616,6 +635,20 @@ export function ChatApp() {
       return next === cur ? cur : next
     })
   }, [rowsReliable, sentenceRows, pickedName, point])
+  // 範囲の点が下書きの札で、その下書きが消えた（全体の承認・戻す）ら札を外す
+  useEffect(() => {
+    if (!okSky) return
+    setScope((cur) => {
+      if (!cur?.node.startsWith('draft|')) return cur
+      const id = cur.node.split('|')[1]
+      return okSky.proposed.some((d) => d.draft_id === id) ? cur : null
+    })
+  }, [okSky])
+  /** 他の話の提案の行は読むだけ。 */
+  const rowEditable = useCallback((r: SentenceRow) => !r.draft || r.draft.draftId === session?.draft_id, [session?.draft_id])
+  const backToChat = useCallback(() => {
+    if (layout.tabs) setTab('chat')
+  }, [layout.tabs])
   /** 下書きの概念の key → 地図の点の id（既にある語ならその用語の点）。 */
   const nodeOfKey = useCallback(
     (draftId: string, key: string): string => {
@@ -638,10 +671,12 @@ export function ChatApp() {
   )
   const onSentenceRemove = useCallback(
     (row: SentenceRow) => {
-      if (row.draft) void runTurn({ ops: [{ op: 'remove', target: 'relation', from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] })
-      else if (row.source && row.relation && row.target) void runTurn({ remove: { from: row.source, relation: row.relation, to: row.target } })
+      let run: Promise<boolean> | null = null
+      if (row.draft && !row.approved) run = runTurn({ ops: [{ op: 'remove', target: 'relation', from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] })
+      else if (row.source && row.relation && row.target) run = runTurn({ remove: { from: row.source, relation: row.relation, to: row.target } })
+      if (run) void run.finally(backToChat)
     },
-    [runTurn],
+    [runTurn, backToChat],
   )
   const onSentenceFix = useCallback(
     (row: SentenceRow) => {
@@ -655,9 +690,9 @@ export function ChatApp() {
   )
   const onSentenceApprove = useCallback(
     (row: SentenceRow) => {
-      if (row.draft?.turnId) void onConfirm(row.draft.turnId, undefined, { relations: [{ from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] })
+      if (row.draft?.turnId) void onConfirm(row.draft.turnId, undefined, { relations: [{ from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] }).finally(backToChat)
     },
-    [onConfirm],
+    [onConfirm, backToChat],
   )
   const removeIds = useMemo(() => new Set((okSky?.proposed ?? []).flatMap((d) => d.removals?.terms ?? []).map(termId)), [okSky])
   const highlightIds = useMemo<ReadonlySet<string> | null>(() => {
@@ -791,13 +826,17 @@ export function ChatApp() {
           noKey={noKey}
           names={names}
           onSend={onSendScoped}
+          onAsk={onSend}
           onPropose={onPropose}
           onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}
           point={sel ? point : null}
           titleOf={titleOf}
-          onContents={(name) => void onSend(t('point.showText', { name }))}
+          onContents={(name) => {
+            chooseSub('data')
+            void onSend(t('point.showText', { name }))
+          }}
           onPointRevert={(p) => void onPointRevert(p)}
           onPointRemove={() => void onPointRemove()}
           undone={undone}
@@ -866,7 +905,10 @@ export function ChatApp() {
               </div>
               {subTab === 'sentences' ? (
                 <SentencesPanel
+                  key={pickedId ?? ''}
                   rows={sentenceRows}
+                  loading={!!sel && !point}
+                  editable={rowEditable}
                   noSelection={!pickedId && !sel}
                   hasTheme={!!session?.theme_id}
                   busy={busy !== null}

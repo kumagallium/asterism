@@ -42,8 +42,7 @@
     "cardProposed": "Proposed for the knowledge graph · {{n}}",
     "cardProposedNone": "Proposed for the knowledge graph",
     "proposeChip": "Add to the knowledge graph",
-    "sent": "Sent",
-    "outOfScope": "Changes outside the scope were dropped"
+    "sent": "Sent"
   },
   "tabs": {
     "label": "Area to show",
@@ -177,10 +176,11 @@
     "fix": "Fix",
     "approve": "Approve",
     "hint": "Select a point in the knowledge graph to see its sentences here",
-    "proposedHead": "Proposed in this chat"
+    "proposedHead": "Proposed in this chat",
+    "loading": "Loading…"
   },
   "scope": {
-    "about": "About {{name}}",
+    "about": "Scope: {{name}}",
     "clear": "Clear scope",
     "fixPlaceholder": "Describe how to fix this sentence (e.g. part of, not kind of)"
   }

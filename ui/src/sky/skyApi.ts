@@ -180,6 +180,8 @@ export interface DraftSkyRelation {
   to: string
   rel: string
   state?: DraftLineState
+  /** この話の承認済みの種（濃い行として文に出す）。 */
+  from_seed?: boolean
   /** 下書きの関係の添字（提案の線は null）。 */
   index?: number | null
   /** 機械が確定から外す印（種類と項目の混在・循環など）。 */

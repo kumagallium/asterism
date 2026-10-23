@@ -1056,7 +1056,7 @@ button.chat-question-title:hover {
   gap: var(--space-2);
   color: var(--fg);
 }
-.chat-sentences-row.is-thin {
+.chat-sentences-row.is-thin .chat-sentences-text {
   opacity: 0.55;
 }
 .chat-sentences-row.is-lit .chat-sentences-text {
@@ -1084,16 +1084,21 @@ button.chat-question-title:hover {
   align-items: center;
   gap: var(--space-1);
   max-width: 100%;
+  min-width: 0;
   padding: 0.15em 0.4em 0.15em 0.8em;
   font-size: 0.8rem;
   color: var(--fg);
   background: var(--primary-soft);
   border-radius: 999px;
+}
+.chat-scope-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .chat-scope-x {
+  flex: none;
   padding: 0 0.3em;
   font-size: 1rem;
   line-height: 1;

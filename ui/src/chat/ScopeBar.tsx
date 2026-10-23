@@ -11,7 +11,7 @@ export function ScopeBar({ name, onClear }: ScopeBarProps) {
   return (
     <div className="chat-scope">
       <span className="chat-scope-chip" data-testid="scope-chip">
-        {t('scope.about', { name })}
+        <span className="chat-scope-text">{t('scope.about', { name })}</span>
         <button type="button" className="chat-scope-x" data-testid="scope-clear" onClick={onClear} aria-label={t('scope.clear')} title={t('scope.clear')}>
           ×
         </button>

@@ -42,8 +42,7 @@
     "cardProposed": "知識グラフへの提案 · {{n}} 件",
     "cardProposedNone": "知識グラフへの提案",
     "proposeChip": "知識グラフに足す",
-    "sent": "送りました",
-    "outOfScope": "範囲の外の変更は捨てました"
+    "sent": "送りました"
   },
   "tabs": {
     "label": "表示する領域",
@@ -177,7 +176,8 @@
     "fix": "直す",
     "approve": "承認",
     "hint": "知識グラフの点を押すと、その点についての文がここに出ます",
-    "proposedHead": "この話の提案"
+    "proposedHead": "この話の提案",
+    "loading": "読み込み中…"
   },
   "scope": {
     "about": "{{name}} について",

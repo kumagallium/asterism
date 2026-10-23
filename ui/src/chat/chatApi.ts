@@ -700,6 +700,8 @@ export interface PointSentence {
   rel?: string
   to?: string
   draft_id?: string
+  /** この話の承認済みの種（濃い行）。 */
+  from_seed?: boolean
 }
 export interface Point {
   iri: string
@@ -758,6 +760,7 @@ export function normalizePoint(v: unknown): Point | null {
           turn_id: strOrNull(s.turn_id),
           ...(typeof s.from === 'string' && typeof s.rel === 'string' && typeof s.to === 'string' ? { from: s.from, rel: s.rel, to: s.to } : {}),
           ...(typeof s.draft_id === 'string' ? { draft_id: s.draft_id } : {}),
+          ...(s.from_seed === true ? { from_seed: true } : {}),
         }))
       : [],
     provenance: prov,

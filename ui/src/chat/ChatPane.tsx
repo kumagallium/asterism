@@ -28,6 +28,8 @@ export interface ChatPaneProps {
   onSend: (text: string) => Promise<boolean>
   /** 会話の返事の下のチップ: 同じ文を知識グラフへの提案として送る。 */
   onPropose?: (text: string) => Promise<boolean>
+  /** 返事の札の質問チップ: 範囲なしの素の送信（無ければ onSend）。 */
+  onAsk?: (text: string) => Promise<boolean>
   /** 表を添える。 */
   onAttach?: (files: File[]) => Promise<boolean> | boolean | void
   /** 読んでいる手番の id → 進みの 1 行。 */
@@ -129,7 +131,7 @@ export function ChatPane(p: ChatPaneProps) {
                 busy={p.busy}
                 onConfirm={p.onConfirm}
                 onRevert={p.onRevert}
-                onAsk={(q) => p.onSend(q)}
+                onAsk={(q) => (p.onAsk ?? p.onSend)(q)}
                 onPropose={p.onPropose}
                 names={p.names}
                 progress={p.progress?.[turn.id]}
