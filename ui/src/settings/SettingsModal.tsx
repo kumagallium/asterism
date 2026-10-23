@@ -5,6 +5,7 @@ import { getAppDataInfo } from '../appdata'
 import { LanguageToggle } from '../i18n/LanguageToggle'
 import { AboutTab } from './AboutTab'
 import { ConnectTab } from './ConnectTab'
+import { McpServersTab } from './McpServersTab'
 import { InstanceSection } from './InstanceSection'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
@@ -41,7 +42,7 @@ import {
 // Most of those used to live under "Models", so guidance like "enter it in
 // settings" landed on a page whose tab names said nothing about the field being
 // described. 保存先・PDF の読み取りは「このアプリ」タブの中の節（条件つき）。
-type Tab = 'ai' | 'server' | 'usage' | 'connect' | 'about'
+type Tab = 'ai' | 'server' | 'usage' | 'connect' | 'mcp' | 'about'
 
 /** DOM id of the block a section name scrolls to. */
 const SECTION_ANCHOR: Record<SettingsSection, string> = {
@@ -75,6 +76,8 @@ export function SettingsModal({
 
   // 共有ブラウザ版（複数ユーザーが同じ api を見ている）ではストレージタブ自体を出さない。
   const showConnectTab = getAppDataInfo()?.mcpUrl != null
+  // MCP サーバの登録は設定を書ける単一ユーザー（デスクトップ）だけ。
+  const showMcpTab = getAppDataInfo()?.singleUser === true
 
   // Land on the section the user was sent to. Chosen during render (rather than
   // after paint) so the modal never flashes the wrong tab, and remembered so a
@@ -169,6 +172,7 @@ export function SettingsModal({
               'usage',
               // 接続先はこの機が MCP を出しているときだけ（--no-mcp・共有 api では出ない）。
               ...(showConnectTab ? (['connect'] as const) : []),
+              ...(showMcpTab ? (['mcp'] as const) : []),
               'about',
             ] as Tab[]
           ).map((id) => (
@@ -191,6 +195,7 @@ export function SettingsModal({
             </div>
           )}
           {tab === 'connect' && showConnectTab && <ConnectTab />}
+          {tab === 'mcp' && showMcpTab && <McpServersTab />}
           {tab === 'about' && <AboutTab />}
         </div>
       </div>
