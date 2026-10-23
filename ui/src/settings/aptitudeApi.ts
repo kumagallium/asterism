@@ -43,8 +43,9 @@ export async function fetchAptitudes(): Promise<Record<string, AptitudeResult>> 
   try {
     const res = await fetch(`${API_BASE}/api/ai/aptitude`, { headers: authHeaders() })
     if (!res.ok) return {}
-    const body: unknown = await res.json()
-    return body && typeof body === 'object' ? (body as Record<string, AptitudeResult>) : {}
+    const body = (await res.json()) as { aptitude?: unknown } | null
+    const t = body?.aptitude
+    return t && typeof t === 'object' ? (t as Record<string, AptitudeResult>) : {}
   } catch {
     return {}
   }
@@ -78,4 +79,17 @@ export function watchAptitude(
     onError: h.onError,
     onCancelled: () => h.onError('cancelled'),
   })
+}
+
+/** 落ちた問の表示用の分け方。種類ごとに 1 から数える（形の修正は index 5〜9 → 修正 #1〜5）。 */
+export function failureParts(f: AptitudeFailure): { kindKey: string; no: number; reason: string } {
+  const isDiff = f.kind === 'shape' && (f.reason === 'diff' || f.index >= 5)
+  const kindKey = f.kind === 'shape' ? (isDiff ? 'shapeDiff' : 'shapeCreate') : f.kind
+  const no = (isDiff ? f.index - 5 : f.index) + 1
+  return { kindKey, no, reason: f.reason }
+}
+
+/** 条件つきの案内の種類: 形か対象が足りない → scope、振り分けだけ → routing。 */
+export function limitedHintKey(r: AptitudeResult): 'limitedHint' | 'limitedHintRouting' {
+  return pct(r.shape) < 90 || pct(r.scope) < 80 ? 'limitedHint' : 'limitedHintRouting'
 }

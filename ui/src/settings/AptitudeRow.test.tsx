@@ -15,9 +15,11 @@ describe('AptitudeView', () => {
     expect(h).toContain('形 95%・振り分け 90%・対象 80%')
   })
   it('条件つきは案内つき・非推奨は muted のクラス', () => {
-    const l = renderToStaticMarkup(<AptitudeView result={{ ...base, verdict: 'limited' }} />)
+    const l = renderToStaticMarkup(<AptitudeView result={{ ...base, verdict: 'limited', shape: 0.5 }} />)
     expect(l).toContain('条件つき')
     expect(l).toContain('対象を絞って使うと通りやすい設定です')
+    const r = renderToStaticMarkup(<AptitudeView result={{ ...base, verdict: 'limited', routing: 0.8 }} />)
+    expect(r).toContain('会話が提案に混ざる')
     const p = renderToStaticMarkup(<AptitudeView result={{ ...base, verdict: 'poor' }} />)
     expect(p).toContain('aptitude-badge--poor')
   })

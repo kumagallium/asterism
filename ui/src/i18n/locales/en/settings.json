@@ -278,6 +278,24 @@
     "rates": "Shape {{shape}}% · Routing {{routing}}% · Scope {{scope}}%",
     "failed": "Show failed items",
     "limitedHint": "Works better when you narrow the scope",
-    "cost": "About 40 calls, 2 to 3 minutes"
+    "cost": "About 40 calls, 2 to 3 minutes",
+    "limitedHintRouting": "Chat may be mixed into proposals. Writing \"revise this\" makes a correction reliable",
+    "kind": {
+      "shapeCreate": "Shape (proposal)",
+      "shapeDiff": "Shape (revision)",
+      "routing": "Routing",
+      "scope": "Scope"
+    },
+    "reason": {
+      "shape": "unreadable shape",
+      "unreadable": "unreadable",
+      "outOfScope": "change outside the scope",
+      "routing": "expected {{expected}}, got {{actual}}"
+    },
+    "mode": {
+      "chat": "chat",
+      "ask": "answer",
+      "propose": "proposal"
+    }
   }
 }

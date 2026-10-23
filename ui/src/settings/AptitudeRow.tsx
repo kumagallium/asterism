@@ -1,14 +1,33 @@
 // モデルの行の「適性を調べる」: ボタン・進み・バッジ・率・落ちた問（PR 11q）。
 import { useEffect, useRef, useState } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
+import type { JobHandle } from '../api'
 import {
+  failureParts,
+  limitedHintKey,
   pct,
   startAptitude,
   verdictClass,
   watchAptitude,
+  type AptitudeFailure,
   type AptitudeResult,
 } from './aptitudeApi'
 import type { LlmCredentials } from './store'
+
+function failureText(f: AptitudeFailure, t: TFunction<'settings'>): string {
+  const { kindKey, no, reason } = failureParts(f)
+  const mode = (m: string) => t(`aptitude.mode.${m}`, { defaultValue: m })
+  let why = reason
+  if (reason === 'create' || reason === 'diff') why = t('aptitude.reason.shape')
+  else if (reason === 'unreadable') why = t('aptitude.reason.unreadable')
+  else if (reason === 'out_of_scope') why = t('aptitude.reason.outOfScope')
+  else if (reason.includes('->')) {
+    const [a, b] = reason.split('->')
+    why = t('aptitude.reason.routing', { expected: mode(a), actual: mode(b) })
+  }
+  return `${t(`aptitude.kind.${kindKey}`)} #${no} — ${why}`
+}
 
 /** 保存済みの結果（または未検査）の表示。静的に描ける。 */
 export function AptitudeView({ result }: { result: AptitudeResult | null }) {
@@ -33,7 +52,7 @@ export function AptitudeView({ result }: { result: AptitudeResult | null }) {
           scope: pct(result.scope),
         })}
       </span>
-      {result.verdict === 'limited' && <p className="field-help">{t('aptitude.limitedHint')}</p>}
+      {result.verdict === 'limited' && <p className="field-help">{t(`aptitude.${limitedHintKey(result)}`)}</p>}
       {result.failed.length > 0 && (
         <>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => setOpen(!open)}>
@@ -43,8 +62,7 @@ export function AptitudeView({ result }: { result: AptitudeResult | null }) {
             <ul className="aptitude-failed">
               {result.failed.map((f, i) => (
                 <li key={i}>
-                  {f.kind} #{f.index + 1}
-                  {f.reason ? ` — ${f.reason}` : ''}
+                  {failureText(f, t)}
                 </li>
               ))}
             </ul>
@@ -67,8 +85,18 @@ export function AptitudeRow({
   const { t } = useTranslation('settings')
   const [progress, setProgress] = useState<{ n: number; total: number } | null>(null)
   const [error, setError] = useState('')
-  const closeRef = useRef<(() => void) | null>(null)
-  useEffect(() => () => closeRef.current?.(), [])
+  const handleRef = useRef<JobHandle | null>(null)
+  // 閉じる・タブを切り替える（unmount）ときは、走っているジョブを取り消す。
+  useEffect(
+    () => () => {
+      const h = handleRef.current
+      if (h) {
+        h.close()
+        void h.cancel().catch(() => undefined)
+      }
+    },
+    [],
+  )
 
   async function run() {
     setError('')
@@ -78,15 +106,17 @@ export function AptitudeRow({
       const h = watchAptitude(id, {
         onProgress: (n, total) => setProgress({ n, total }),
         onDone: (r) => {
+          handleRef.current = null
           setProgress(null)
           onSaved(r)
         },
         onError: (m) => {
+          handleRef.current = null
           setProgress(null)
           setError(m)
         },
       })
-      closeRef.current = h.close
+      handleRef.current = h
     } catch (e) {
       setProgress(null)
       setError(e instanceof Error ? e.message : String(e))

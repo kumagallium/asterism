@@ -18,14 +18,13 @@
 <div class="tablewrap"><table><thead><tr><th>要求</th><th>内容</th><th>適性検査で測れるか</th></tr></thead><tbody><tr><td>形</td><td>提案を、決まった形の JSON で 1 回で返す（聞き直しなし）</td><td>測れる</td></tr><tr><td>振り分け</td><td>1 つの発言を、雑談・質問・提案のどれかに正しく分ける</td><td>測れる</td></tr><tr><td>対象の遵守</td><td>「この用語について」と絞った修正で、対象の外には触れない</td><td>測れる</td></tr><tr><td>知識</td><td>分野の言葉を取り違えない（例: 結晶系と空間群）</td><td>測れない</td></tr></tbody></table></div>
 <h2 id="適性検査の内容と判定">適性検査の内容と判定</h2>
 <p>検査は、同梱の固定の台本（価格表の例）を AI に順に出して、返りを数えます。乱数は使わず、何度やっても同じ問いです。データも話も読み書きしません。</p>
-<div class="tablewrap"><table><thead><tr><th>検査</th><th>問い</th><th>合格の条件</th></tr></thead><tbody><tr><td>形</td><td>新規の提案 5 問・対象つきの修正 5 問</td><td>初回の返事が読める</td></tr><tr><td>振り分け</td><td>雑談 10・質問 10・提案 10 の計 30 文</td><td>ラベルどおりに分ける</td></tr><tr><td>対象の遵守</td><td>対象つきの修正 5 問</td><td>対象の外への変更が 1 件もない</td></tr></tbody></table></div>
-<div class="tablewrap"><table><thead><tr><th>判定</th><th>条件</th></tr></thead><tbody><tr><td>推奨</td><td>形 90% 以上・振り分け 90% 以上・対象 80% 以上</td></tr><tr><td>条件つき</td><td>形か対象が届かないが、振り分け 70% 以上。対象を絞って使うと通りやすい</td></tr><tr><td>非推奨</td><td>上のどちらでもない</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>検査</th><th>問い</th><th>合格の条件</th></tr></thead><tbody><tr><td>形</td><td>新規の提案 5 問・対象つきの修正 5 問</td><td>初回の返事が読める</td></tr><tr><td>振り分け</td><td>雑談 10・質問 10・提案 10 の計 30 文</td><td>ラベルどおりに分ける</td></tr><tr><td>対象の遵守</td><td>対象つきの修正 5 問</td><td>対象の外への変更が 1 件もない。変更が 1 件も返らない問も不合格</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>判定</th><th>条件</th></tr></thead><tbody><tr><td>推奨</td><td>形 90% 以上・振り分け 90% 以上・対象 80% 以上</td></tr><tr><td>条件つき</td><td>推奨ではないが、振り分け 70% 以上。形か対象が足りないときは、対象を絞って使うと通りやすい。振り分けだけが足りないときは、会話が提案に混ざることがあるので、指摘は「修正して」と書くと確実</td></tr><tr><td>非推奨</td><td>上のどちらでもない</td></tr></tbody></table></div>
 <p>呼び出しは約 40 回で、2〜3 分かかります。落ちた問は番号と種類で確かめられます。</p>
 <h2 id="知識は検査で測れません">知識は検査で測れません</h2>
 <p>分野の分類（例: 結晶系と空間群）を混同しない知識は、強いモデルほど確かです。検査が「推奨」でも、分野によっては提案に誤りが出ます。承認の前に確かめてください。提案だけ上位のモデルに分ける使い方を勧めます（設定はまだありません。使用中のモデルを切り替えて使います）。</p>
 <h2 id="試した結果">試した結果</h2>
-<p>実測したものだけを載せます。</p>
-<div class="tablewrap"><table><thead><tr><th>モデル</th><th>判定</th><th>備考</th></tr></thead><tbody><tr><td>gpt-oss-120b</td><td>条件つきの見込み</td><td>本番での観察から。検査はあなたの環境で実行してください</td></tr></tbody></table></div>
+<p>実測したものだけを載せます。まだ載せられる結果はありません。検査の結果を教えていただければ載せます。</p>
 <h2 id="関連">関連</h2>
 <p>検査の押し方は <a href="./settings.html#適性を調べる">設定</a> を参照してください。</p>
 <footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>

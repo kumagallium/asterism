@@ -277,6 +277,24 @@
     "rates": "形 {{shape}}%・振り分け {{routing}}%・対象 {{scope}}%",
     "failed": "落ちた問を見る",
     "limitedHint": "対象を絞って使うと通りやすい設定です",
-    "cost": "約 40 回の呼び出しで 2〜3 分かかります"
+    "cost": "約 40 回の呼び出しで 2〜3 分かかります",
+    "limitedHintRouting": "会話が提案に混ざることがあります。指摘は「修正して」と書くと確実です",
+    "kind": {
+      "shapeCreate": "形（提案）",
+      "shapeDiff": "形（修正）",
+      "routing": "振り分け",
+      "scope": "対象"
+    },
+    "reason": {
+      "shape": "読めない形",
+      "unreadable": "読めない",
+      "outOfScope": "対象外の変更",
+      "routing": "期待 {{expected}}・実際 {{actual}}"
+    },
+    "mode": {
+      "chat": "会話",
+      "ask": "回答",
+      "propose": "提案"
+    }
   }
 }

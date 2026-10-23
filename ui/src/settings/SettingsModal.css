@@ -746,7 +746,7 @@
   color: var(--success-fg);
 }
 .aptitude-badge--limited {
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 .aptitude-badge--poor {
   color: var(--muted);
