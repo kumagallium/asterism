@@ -32,6 +32,7 @@ prefixes:
   prov: "http://www.w3.org/ns/prov#"
   rdfs: "http://www.w3.org/2000/01/rdf-schema#"
   dcterms: "http://purl.org/dc/terms/"
+  skos: "http://www.w3.org/2004/02/skos/core#"
 
 # 親ファイル（判断・規則・解釈・観察）は同じ列を持つので、項目の並びを 1 回だけ書いて使い回す
 maps:
@@ -212,4 +213,45 @@ maps:
         column: position
         datatype: xsd:integer
         label: 並び
+  # トピック（概念・材料・手法…）。Graphium の export_asterism_claims(includeTopics) が出す topics.json。
+  # 概念は skos:Concept の行として写し、派生元の知見へ prov:wasDerivedFrom で結ぶ（用語＝共有語にするかは人が後で決める）
+  - name: topic
+    source: topics.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{id}"
+      classes: [skos:Concept]
+      label: トピック
+    properties:
+      - predicate: dcterms:identifier
+        column: id
+        label: トピックの id
+      - predicate: skos:prefLabel
+        column: title
+        label: 名前
+      - predicate: sv:source_url
+        column: source_url
+        function: iri_safe
+        object_type: iri
+        label: Graphium のページの URL
+      - predicate: sv:topic_type
+        column: topic_type
+        label: 種類の札（concept / material / method / agent / place）
+      - predicate: prov:wasDerivedFrom
+        column: claim_iri
+        function: json_array
+        object_type: iri
+        label: 派生元の知見
+      - predicate: sv:source_note
+        column: source_note
+        function: json_array
+        label: 元のノート
+      - predicate: prov:generatedAtTime
+        column: generated_at
+        datatype: xsd:dateTime
+        label: 生成した時刻
+      - predicate: sv:exported_at
+        column: exported_at
+        datatype: xsd:dateTime
+        label: 書き出した時刻
 ```

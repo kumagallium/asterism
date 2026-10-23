@@ -15,13 +15,15 @@ Graphium で保存 ──export_asterism_claims──▶ flat JSON ──append_
 
 | ファイル | 何か |
 |---|---|
-| `mapping-ir.yaml` | Graphium の書き出し（型ごとの JSON＋子の JSON）を読む設計（Mapping IR）。型は共有語 `sv:judgment` `sv:rule` `sv:interpretation` と `sosa:Observation`。主語は `https://kumagallium.github.io/Graphium/claim/{id}`。どの map も `optional: true` |
+| `mapping-ir.yaml` | Graphium の書き出し（型ごとの JSON＋子の JSON＋トピック）を読む設計（Mapping IR）。型は共有語 `sv:judgment` `sv:rule` `sv:interpretation` と `sosa:Observation`、トピックは `skos:Concept`（`prov:wasDerivedFrom` で知見へ）。主語は `https://kumagallium.github.io/Graphium/claim/{id}`。どの map も `optional: true` |
 | `proposal.md` | 上の IR を `POST /api/materialize` に渡すときの文書（§9 に IR を入れたもの） |
-| `sample/*.json` | Graphium の `export_asterism_claims` が返す形の見本（判断 1・規則 1・解釈 1・観察 2 と子の表） |
+| `sample/*.json` | Graphium の `export_asterism_claims` が返す形の見本（判断 1・規則 1・解釈 1・観察 2 と子の表・トピック 2） |
 | `anomaly.rq` | 「規則に反する観察」を探す SPARQL（違和感検知）。出典は `sv:source_url` |
 | `loop.md` | 実機で 1 周通した記録（増分と上げ直しの両方） |
 
 ## 契約（Graphium → Asterism の行）
+
+- トピック（`topics.json`・`export_asterism_claims(includeTopics: true)`）は概念の行: `id`・`iri`・`source_url`・`title`・`topic_type`（concept / material / method / agent / place）・`claim_iri`（派生元の知見の完全 IRI の配列）。本文は出さない（人の文章は Graphium が正本）。Asterism では `skos:Concept` として知識グラフに出る。共有語（用語）にするかは人が後で決める（問いの無い用語は作らない）
 
 - 1 件 1 オブジェクト・**キーは全行に出す**（無い値は `null`・配列は `[]`）
 - `id`・`iri`・`source_url`（Graphium のノートの URL）を必ず持つ
