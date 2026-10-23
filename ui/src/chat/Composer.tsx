@@ -16,6 +16,12 @@ export interface ComposerProps {
   onOpenSettings: () => void
   /** 表を添えた（選ぶとすぐ）。 */
   onAttach?: (files: File[]) => Promise<boolean> | boolean | void
+  /** 範囲の札（入力欄の上）。 */
+  scopeBar?: React.ReactNode
+  /** 既定の例文の代わりに出す一時の例文（「この文を直す」）。 */
+  placeholder?: string
+  /** 変わるたびに入力欄へフォーカスする（0 は何もしない）。 */
+  focusKey?: number
 }
 
 /** 1 行の高さ（0.95rem × 1.6）・上下の余白・伸びる上限（8 行）。 */
@@ -31,7 +37,7 @@ function fitHeight(el: HTMLTextAreaElement): void {
   el.style.height = `${Math.max(LINE_PX + PAD_PX, Math.min(sh, LINE_PX * MAX_LINES + PAD_PX))}px`
 }
 
-export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: ComposerProps) {
+export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach, scopeBar, placeholder, focusKey = 0 }: ComposerProps) {
   const { t } = useTranslation('chat')
   const { compositionHandlers, isImeKey } = useImeEnterGuard()
   const { t: ts } = useTranslation('settings')
@@ -44,6 +50,9 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: Comp
     if (wasBusy.current && !busy) area.current?.focus()
     wasBusy.current = busy
   }, [busy])
+  useEffect(() => {
+    if (focusKey > 0) area.current?.focus()
+  }, [focusKey])
   // 書いた量に合わせて伸びる（つまみでの手動の伸縮は無し）。幅が変わったとき・隠れていたのが見えたときも測り直す
   useEffect(() => {
     const el = area.current
@@ -76,6 +85,7 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: Comp
 
   return (
     <div className="chat-composer">
+      {scopeBar}
       <div className={`chat-composer-box${busy ? ' is-busy' : ''}`}>
         <textarea
           ref={area}
@@ -84,8 +94,8 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach }: Comp
           rows={1}
           value={text}
           disabled={busy}
-          placeholder={t('compose.placeholder')}
-          aria-label={t('compose.placeholder')}
+          placeholder={placeholder ?? t('compose.placeholder')}
+          aria-label={placeholder ?? t('compose.placeholder')}
           maxLength={2000}
           onChange={(e) => setText(e.target.value)}
           {...compositionHandlers}

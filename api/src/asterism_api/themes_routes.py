@@ -231,6 +231,7 @@ def draft_sky_card(draft: dict, lang: str = "ja", seed: dict | None = None) -> d
     する）。``removals`` = 確認済みのテーマを種にした下書きで、種にあって下書きに無いもの
     ``{"terms": [IRI], "lines": [{from, to, relation}]}``（種が無ければ空）。"""
     lg = _lang(lang)
+    seed_keys, seed_rels = chat_seed.seed_marks(seed, draft)  # 承認済みの種（from_seed）
     return {
         "draft_id": draft["id"],
         "theme_label": draft["label"],
@@ -242,11 +243,18 @@ def draft_sky_card(draft: dict, lang: str = "ja", seed: dict | None = None) -> d
                 else (c.get("label_ja") or ""),
                 "kind": c.get("kind"),
                 "use": c.get("use") or "new",
+                "from_seed": str(c.get("key")) in seed_keys,
             }
             for c in draft.get("concepts") or []
         ],
         "relations": [
-            {"from": r.get("from"), "to": r.get("to"), "rel": r.get("rel")}
+            {
+                "from": r.get("from"),
+                "to": r.get("to"),
+                "rel": r.get("rel"),
+                "from_seed": (str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+                in seed_rels,
+            }
             for r in draft.get("relations") or []
         ],
         "questions": list(draft.get("questions") or []),

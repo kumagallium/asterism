@@ -516,6 +516,11 @@ export interface SetAnswerBody {
   kind2?: string
 }
 
+export interface ScopeBody {
+  node: string
+  line?: { from: string; rel: string; to: string }
+}
+
 export interface TurnInput {
   text?: string
   ops?: GraphOp[]
@@ -524,6 +529,8 @@ export interface TurnInput {
   choice?: { turn_id: string; note_index: number; value: string }
   /** 確認済みの点（用語か線）を外す提案。 */
   remove?: { iri: string } | { from: string; relation: string; to: string }
+  /** 範囲（PR 11o）: 点（地図の id）かその 1 文。付けると AI の振り分けを飛ばして提案（直し）になる。 */
+  scope?: ScopeBody
   /** 振り分けを飛ばす: 'ask'＝必ず答える（問いのタブ）／'propose'＝必ず知識グラフへの提案（返事の下のチップ）。 */
   intent?: 'ask' | 'propose'
   lang?: 'ja' | 'en'
@@ -563,16 +570,23 @@ export async function postAttach(id: string, files: File[], lang: 'ja' | 'en', c
 /** AI が設定されていない（attach の 503）。鍵が無い 503 とは `detail` で見分ける。 */
 export const isAiUnset = (e: unknown): boolean => e instanceof ThemesApiError && e.status === 503 && e.detail.includes('AI')
 
+/** 1 行だけ承認する（PR 11o §0.3）。 */
+export interface ConfirmOnly {
+  relations: { from: string; rel: string; to: string }[]
+  concepts?: string[]
+}
+
 export async function confirmTurn(
   id: string,
   turnId: string,
   lang: 'ja' | 'en',
   bindings?: BindingDecision[],
   creds: LlmCredentials | null = null,
+  only?: ConfirmOnly,
 ): Promise<ConfirmResponse> {
   const res = await call(
     `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/confirm`,
-    { method: 'POST', headers: json(llmHeaders(creds)), body: JSON.stringify(bindings ? { lang, bindings } : { lang }) },
+    { method: 'POST', headers: json(llmHeaders(creds)), body: JSON.stringify({ lang, ...(bindings ? { bindings } : {}), ...(only ? { only } : {}) }) },
     'confirm',
   )
   const body: unknown = await res.json()
@@ -681,6 +695,13 @@ export interface PointSentence {
   reason: string
   session_id: string | null
   turn_id: string | null
+  /** 下書きの札の文だけ（PR 11o）: 行を特定する鍵（下書きの概念の key と短い関係名）。 */
+  from?: string
+  rel?: string
+  to?: string
+  draft_id?: string
+  /** この話の承認済みの種（濃い行）。 */
+  from_seed?: boolean
 }
 export interface Point {
   iri: string
@@ -737,6 +758,9 @@ export function normalizePoint(v: unknown): Point | null {
           reason: str(s.reason),
           session_id: strOrNull(s.session_id),
           turn_id: strOrNull(s.turn_id),
+          ...(typeof s.from === 'string' && typeof s.rel === 'string' && typeof s.to === 'string' ? { from: s.from, rel: s.rel, to: s.to } : {}),
+          ...(typeof s.draft_id === 'string' ? { draft_id: s.draft_id } : {}),
+          ...(s.from_seed === true ? { from_seed: true } : {}),
         }))
       : [],
     provenance: prov,

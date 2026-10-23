@@ -606,8 +606,9 @@ def test_the_sky_of_drafts_needs_the_token_and_works_with_no_data(tmp_path: Path
         assert d["draft_id"] == draft["id"] and d["theme_label"] == "熱電材料"
         assert d["questions"] == [Q_LOWER]
         assert {"key": "c1", "label": "熱伝導率", "kind": "property",
-                "use": "standard:quantitykind:ThermalConductivity"} in d["concepts"]  # fmt: skip
-        assert {"from": "c4", "to": "c2", "rel": "lowers"} in d["relations"]
+                "use": "standard:quantitykind:ThermalConductivity",
+                "from_seed": False} in d["concepts"]  # fmt: skip
+        assert {"from": "c4", "to": "c2", "rel": "lowers", "from_seed": False} in d["relations"]
         en = client.get("/api/themes/drafts/sky", params={"lang": "en"}).json()["drafts"][0]
         assert "Thermal Conductivity" in {c["label"] for c in en["concepts"]}
         # the public sky is untouched: a draft is not on it

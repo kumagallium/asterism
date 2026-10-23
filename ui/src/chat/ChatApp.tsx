@@ -21,6 +21,7 @@ import {
   postTurn,
   revertTurn,
   type BindingDecision,
+  type ConfirmOnly,
   type GraphOp,
   type Point,
   RevertFailedError,
@@ -29,6 +30,7 @@ import {
   type Session,
   type SessionSummary,
   type SkyDraft,
+  type ScopeBody,
   type TurnInput,
 } from './chatApi'
 import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
@@ -38,6 +40,9 @@ import { AddPanel } from './AddPanel'
 import { ChatPane } from './ChatPane'
 import { HandForm } from './HandForm'
 import { ContentsPanel } from './ContentsPanel'
+import { SentencesPanel } from './SentencesPanel'
+import { ScopeBar } from './ScopeBar'
+import { pointGroupOf, readSubTab, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, writeSubTab, type SentenceRow, type SubTab, type SubTabChoice } from './sentenceRows'
 import { isAnswerable, type SkyQuestion } from '../sky/skyApi'
 import { QuestionsPanel } from './QuestionsPanel'
 import { normalizeQuestion } from './questionsState'
@@ -177,12 +182,18 @@ export function ChatApp() {
   // ── 点を押した 1 枚（図の点・線 → GET /api/chat/point → チャットの先頭） ──
   const [sel, setSel] = useState<PointSel | null>(null)
   const [point, setPoint] = useState<Point | null>(null)
+  /** いま `point` が届いている対象（古い 1 枚が残っているあいだ、範囲の判定に使わない）。 */
+  const [pointOf, setPointOf] = useState<PointSel | null>(null)
   const [pointTick, setPointTick] = useState(0)
   const [highlight, setHighlight] = useState<Highlight | null>(null)
   /** 確認済みの手番を戻した結果（手番の id → 結果）。 */
   const [undone, setUndone] = useState<Record<string, Undone>>({})
   /** 地図で押した点の id（局所の図の焦点）。 */
   const [pickedId, setPickedId] = useState<string | null>(null)
+  /** 範囲（PR 11o）: 点を選ぶか「文」の行の「直す」で付く。送っても消えない。選択解除と新しいチャットで消える。 */
+  const [scope, setScope] = useState<{ node: string; line?: { from: string; rel: string; to: string }; name: string } | null>(null)
+  const [fixKey, setFixKey] = useState(0)
+  const [subStored, setSubStored] = useState<SubTabChoice | null>(readSubTab)
   const onSelect = useCallback((next: PointSel | null) => {
     setHighlight(null)
     setSel((cur) => (sameSel(cur, next) ? cur : next))
@@ -196,19 +207,30 @@ export function ChatApp() {
       onSelect(next)
       // onSelect は next=null で pickedId を空にする。d|（データセット）は 1 枚を出さず中身だけ変える
       setPickedId(nodeId)
+      // 範囲: 用語・種類・提案の札はその点、確認済みの線はその線。データセットと選択解除は範囲なし
+      const head = nodeId?.split('|')[0]
+      const ownDraft = head !== 'draft' || nodeId?.split('|')[1] === session?.draft_id // 他の話の提案の札には範囲を付けない
+      if (next && nodeId && ownDraft && (head === 't' || head === 'draft')) setScope({ node: nodeId, name: next.label })
+      else if (next && next.kind === 'line' && !next.draft) setScope({ node: termId(next.from), line: { from: next.from, rel: next.relation, to: next.to }, name: next.label })
+      else setScope(null)
     },
-    [onSelect],
+    [onSelect, session?.draft_id],
   )
   useEffect(() => {
     if (!sel) return
     // 薄い星（未公開）は api を呼ばず、小さな 1 枚を作る
     if (sel.kind === 'kind' && sel.thin) {
       setPoint(thinPointOf(sel))
+      setPointOf(sel)
       return
     }
     let off = false
     getPoint(pointQueryOf(sel), lang)
-      .then((p) => !off && setPoint(p))
+      .then((p) => {
+        if (off) return
+        setPoint(p)
+        setPointOf(sel)
+      })
       // 取れなければ 1 枚は出さない（消えた点・壊れた返り）
       .catch(() => !off && setPoint(null))
     return () => {
@@ -218,6 +240,7 @@ export function ChatApp() {
 
   const afterChange = useCallback(() => {
     setChartTick((n) => n + 1)
+    setPointTick((n) => n + 1) // 選んでいる点の文も読み直す（読み直し中は前の行を残す）
     reloadSessions()
   }, [reloadSessions])
 
@@ -326,6 +349,14 @@ export function ChatApp() {
 
   const onSend = useCallback((text: string) => runTurn({ text }), [runTurn])
   const onPropose = useCallback((text: string) => runTurn({ text, intent: 'propose' }), [runTurn])
+  /** 入力欄から送る文。範囲の札があれば添える（送っても札は残る）。 */
+  const onSendScoped = useCallback(
+    (text: string) => {
+      const sc: ScopeBody | undefined = scope ? { node: scope.node, ...(scope.line ? { line: scope.line } : {}) } : undefined
+      return runTurn(sc ? { text, scope: sc } : { text })
+    },
+    [runTurn, scope],
+  )
   const onSendOps = useCallback((ops: GraphOp[]) => runTurn({ ops }), [runTurn])
   const onSendAnswer = useCallback((set_answer: SetAnswerBody) => runTurn({ set_answer }), [runTurn])
 
@@ -426,13 +457,13 @@ export function ChatApp() {
   )
 
   const onConfirm = useCallback(
-    async (turnId: string, decisions?: BindingDecision[]) => {
+    async (turnId: string, decisions?: BindingDecision[], only?: ConfirmOnly) => {
       if (!session || busy) return
       const id = session.id
       setBusy('confirm')
       setError(null)
       try {
-        const res = await confirmTurn(id, turnId, lang, decisions, getActiveCredentials())
+        const res = await confirmTurn(id, turnId, lang, decisions, getActiveCredentials(), only)
         await reread(id, (cur) => applyConfirm(cur, res))
         if (res.session.draft_id === null) setDraft(null)
         afterChange()
@@ -504,6 +535,7 @@ export function ChatApp() {
     setSel(null)
     setPoint(null)
     setPickedId(null)
+    setScope(null)
     setHighlight(null)
     setComposerKey((n) => n + 1)
     setError(null)
@@ -514,6 +546,7 @@ export function ChatApp() {
   }
   const openSession = (id: string) => {
     setError(null)
+    setScope(null)
     navigate({ kind: 'session', id })
     layout.closeSheet()
     setTab('chat')
@@ -571,10 +604,104 @@ export function ChatApp() {
     if (n[0] === 'draft') return okSky?.proposed.find((d) => d.draft_id === n[1])?.concepts.find((c) => c.key === n.slice(2).join('|'))?.label ?? ''
     return ''
   }, [pickedId, okSky])
+  // ── 「文」のタブ（PR 11o） ──
+  // 「データを見る」は一時の切り替え（覚えない）。同じ点のあいだだけ効く
+  const [tempTab, setTempTab] = useState<{ pickedId: string | null } | null>(null)
+  const subTab: SubTab = tempTab && tempTab.pickedId === pickedId ? 'data' : subTabOf(subStored, pickedId)
+  const chooseSub = useCallback((v: SubTab) => {
+    setTempTab(null)
+    const choice: SubTabChoice = { tab: v, group: pointGroupOf(pickedId) }
+    setSubStored(choice)
+    writeSubTab(choice)
+  }, [pickedId])
+  const proposedTurnId = useMemo(() => [...(session?.turns ?? [])].reverse().find((x) => x.state === 'proposed')?.id ?? null, [session])
+  // 文の名前: 下書きの名前に、標準の語（curie → 表示名）を足す。引けなければ rowsOfDraft が ':' の右を出す
+  const rowNames = useMemo(() => {
+    const m = new Map(names)
+    for (const x of okSky?.sky.standards ?? []) {
+      const local = x.iri.split(/[/#]/).pop() ?? ''
+      if (x.prefix && local && x.label) m.set(`${x.prefix}:${local}`, x.label)
+    }
+    return m
+  }, [names, okSky])
+  const sentenceRows = useMemo<SentenceRow[]>(() => {
+    if (sel) return point ? rowsOfPoint(point) : [] // 読み込み中は前の 1 枚の行が残る
+    if (pickedId) return []
+    return rowsOfDraft(sessionDraft, rowNames, proposedTurnId, lang)
+  }, [sel, point, pickedId, sessionDraft, rowNames, proposedTurnId, lang])
+  // 範囲の行が読み直した文から消えたら、点だけの範囲に戻す（rows が当てになるのは、点の 1 枚が届いているときか何も選んでいないとき）
+  const rowsReliable = sel ? !!point && sameSel(pointOf, sel) : !pickedId
+  useEffect(() => {
+    if (!rowsReliable) return
+    setScope((cur) => {
+      const next = shrinkScope(cur, sentenceRows, pickedName || point?.label || '')
+      return next === cur ? cur : next
+    })
+  }, [rowsReliable, sentenceRows, pickedName, point])
+  // 範囲の点が下書きの札で、その下書きが消えた（全体の承認・戻す）ら札を外す
+  useEffect(() => {
+    if (!okSky) return
+    setScope((cur) => {
+      if (!cur?.node.startsWith('draft|')) return cur
+      const id = cur.node.split('|')[1]
+      return okSky.proposed.some((d) => d.draft_id === id) ? cur : null
+    })
+  }, [okSky])
+  /** 他の話の提案の行は読むだけ。 */
+  const rowEditable = useCallback((r: SentenceRow) => !r.draft || r.draft.draftId === session?.draft_id, [session?.draft_id])
+  const backToChat = useCallback(() => {
+    if (layout.tabs) setTab('chat')
+  }, [layout.tabs])
+  /** 下書きの概念の key → 地図の点の id（既にある語ならその用語の点）。 */
+  const nodeOfKey = useCallback(
+    (draftId: string, key: string): string => {
+      const c = okSky?.proposed.find((d) => d.draft_id === draftId)?.concepts.find((x) => x.key === key)
+      if (c?.use.startsWith('existing:')) {
+        const term = okSky?.sky.terms.find((x) => x.slug === c.use.slice('existing:'.length))
+        if (term) return termId(term.iri)
+      }
+      return draftNodeId(draftId, key)
+    },
+    [okSky],
+  )
+  const onSentencePress = useCallback(
+    (row: SentenceRow | null) => {
+      if (!row) return setHighlight(null)
+      if (row.draft) setHighlight({ nodes: [nodeOfKey(row.draft.draftId, row.draft.from), nodeOfKey(row.draft.draftId, row.draft.to)] })
+      else if (row.source && row.target) setHighlight({ iris: [row.source, row.target] })
+    },
+    [nodeOfKey],
+  )
+  const onSentenceRemove = useCallback(
+    (row: SentenceRow) => {
+      let run: Promise<boolean> | null = null
+      if (row.draft && !row.approved) run = runTurn({ ops: [{ op: 'remove', target: 'relation', from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] })
+      else if (row.source && row.relation && row.target) run = runTurn({ remove: { from: row.source, relation: row.relation, to: row.target } })
+      if (run) void run.finally(backToChat)
+    },
+    [runTurn, backToChat],
+  )
+  const onSentenceFix = useCallback(
+    (row: SentenceRow) => {
+      if (row.draft) setScope({ node: nodeOfKey(row.draft.draftId, row.draft.from), line: { from: row.draft.from, rel: row.draft.rel, to: row.draft.to }, name: row.text })
+      else if (row.source && row.relation && row.target) setScope({ node: termId(row.source), line: { from: row.source, rel: row.relation, to: row.target }, name: row.text })
+      else return
+      setFixKey((n) => n + 1)
+      if (layout.tabs) setTab('chat')
+    },
+    [nodeOfKey, layout.tabs],
+  )
+  const onSentenceApprove = useCallback(
+    (row: SentenceRow) => {
+      if (row.draft?.turnId) void onConfirm(row.draft.turnId, undefined, { relations: [{ from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] }).finally(backToChat)
+    },
+    [onConfirm, backToChat],
+  )
   const removeIds = useMemo(() => new Set((okSky?.proposed ?? []).flatMap((d) => d.removals?.terms ?? []).map(termId)), [okSky])
   const highlightIds = useMemo<ReadonlySet<string> | null>(() => {
     if (!highlight || !okSky) return null
     const ids = new Set<string>()
+    if ('nodes' in highlight) return highlight.nodes.length > 0 ? new Set(highlight.nodes) : null
     const iris = 'edge' in highlight ? [highlight.edge.from, highlight.edge.to] : highlight.iris
     const want = new Set(iris)
     for (const x of okSky.sky.terms) if (want.has(x.iri)) ids.add(termId(x.iri))
@@ -701,18 +828,25 @@ export function ChatApp() {
           error={error}
           noKey={noKey}
           names={names}
-          onSend={onSend}
+          onSend={onSendScoped}
+          onAsk={onSend}
           onPropose={onPropose}
           onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}
           point={sel ? point : null}
           titleOf={titleOf}
-          onContents={(name) => void onSend(t('point.showText', { name }))}
+          onContents={(name) => {
+            setTempTab({ pickedId })
+            void onSend(t('point.showText', { name }))
+          }}
           onPointRevert={(p) => void onPointRevert(p)}
           onPointRemove={() => void onPointRemove()}
           undone={undone}
           onHighlight={setHighlight}
+          scopeBar={scope ? <ScopeBar name={scope.name} onClear={() => setScope(null)} /> : undefined}
+          placeholder={scope?.line ? t('scope.fixPlaceholder') : undefined}
+          focusKey={fixKey}
         />
       </section>
       <section className="chat-right" hidden={layout.tabs && tab === 'chat'}>
@@ -764,7 +898,31 @@ export function ChatApp() {
                 fitLabel={t('map.fit')}
               />
               <p className="chat-map-legend">{t('map.legend')}</p>
-              <ContentsPanel target={contentsTarget} state={contents.state} onRetry={contents.retry} name={pickedName} onHighlight={setHighlight} />
+              <div className="chat-rtabs chat-subtabs" role="tablist" aria-label={t('sentences.tabs')}>
+                <button type="button" role="tab" data-testid="tab-sentences" aria-selected={subTab === 'sentences'} className={`chat-tab${subTab === 'sentences' ? ' active' : ''}`} onClick={() => chooseSub('sentences')}>
+                  {t('sentences.tab')}
+                </button>
+                <button type="button" role="tab" data-testid="tab-data" aria-selected={subTab === 'data'} className={`chat-tab${subTab === 'data' ? ' active' : ''}`} onClick={() => chooseSub('data')}>
+                  {t('sentences.dataTab')}
+                </button>
+              </div>
+              {subTab === 'sentences' ? (
+                <SentencesPanel
+                  key={pickedId ?? ''}
+                  rows={sentenceRows}
+                  loading={!!sel && !point}
+                  editable={rowEditable}
+                  noSelection={!pickedId && !sel}
+                  hasTheme={!!session?.theme_id}
+                  busy={busy !== null}
+                  onPress={onSentencePress}
+                  onRemove={onSentenceRemove}
+                  onFix={onSentenceFix}
+                  onApprove={onSentenceApprove}
+                />
+              ) : (
+                <ContentsPanel target={contentsTarget} state={contents.state} onRetry={contents.retry} name={pickedName} onHighlight={setHighlight} />
+              )}
             </>
           )}
         </div>
