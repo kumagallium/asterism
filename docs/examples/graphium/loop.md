@@ -56,10 +56,43 @@ Graphium は `feat/asterism-push` の MCP（`scripts/bundle-mcp.mjs` で束ね�
 - ingest 直後〜promote までの間は `promoted` が下りるので `append_rows` は 409。`resync_rows` は promote まで待ってから返る
 - Ask は切り替えまで旧版（v1）を読み、旧版は `pendingDrop` で消える
 
+## トピックを概念として写す（2026-10-23 追記）
+
+Graphium のトピック（概念・材料・手法…の話題ページ）を `skos:Concept` の行として同じデータセットに写し、派生元の知見へ `prov:wasDerivedFrom` で結ぶ。用語（共有語 `sv:`）にはしない — Asterism の「問いの無い用語は作らない」門があるので、用語にするかは人が後で決める。
+
+| 順 | ツール | 入れたもの | 返ったもの |
+|---|---|---|---|
+| ① Asterism | `POST /api/materialize`（`dataset_id` 付き＝同じデータセットの設計を置き直す） | `mapping-ir.yaml`（map `topic` を足した版） | 検証の指摘 0 件・公開状態は保たれる |
+| ② Graphium | `export_asterism_claims(includeTopics: true)` | 語の基底・知見の基底・型の語 | 7 ファイル（`topics.json` 2 件: 焼成温度 concept・試料 B material） |
+| ③ Asterism | `resync_rows` | 7 ファイル全量 | `version: …/v5`・`triples: 133` |
+| ④ Asterism | `sparql_query` | `skos:Concept` → `prov:wasDerivedFrom` → 知見の数 | 焼成温度 → 4 件・試料 B → 2 件。`source_url` は `…/app/#knowledge/topic/<id>` |
+| ⑤ Graphium | `mark_asterism_sent`（トピックの id も） | — | `marked: 2`。次の `onlyUnsent` は 0 件 |
+
+- `find_datasets` の種類に「トピック」が加わる（判断・規則・解釈・観察・トピック）
+- 設計を変えるのは人（①）。`resync_rows` は承認済みの設計で写しを作り直すだけ
+- 次の一歩: 同じ名前のトピックが他のデータセットの値と重なれば Asterism の crosswalk が候補を出す（候補 C）。用語にする（候補 A の後半）は、問いを添えて `POST /api/vocab/shared` か、チャットで「焼成温度を用語にして」
+
+## 材料名でつなぐ（候補 C・2026-10-23 追記）
+
+Graphium のトピック（material）の名前が、別のデータセットの値と重なれば、Asterism の「つながり（crosswalk）」が候補を出す。LLM 不要・コード変更なし。
+
+| 順 | 何を | 返ったもの |
+|---|---|---|
+| ① Asterism | 2 つ目のデータセット「熱電材料の試料表」（`te-samples/samples.csv`・材料／焼成温度／ZT）を設計 → 取り込み → 公開 | 16 トリプル |
+| ② Graphium → Asterism | 材料トピック Bi2Te3・PbTe（派生元の知見つき）を `includeTopics` で書き出し → `resync_rows` | v6・152 トリプル |
+| ③ Asterism | `POST /api/crosswalk/discover`（2 データセット・`min_shared_keys: 1`） | 候補 1 件: 試料表 `材料` × Graphium `skos:prefLabel`（重なり Bi2Te3・PbTe、正規化 identity） |
+| ④ Asterism | 候補の `build_config` をそのまま `POST /api/crosswalk/material/build` | ハブ `crosswalk-material`（14 トリプル・links 試料表 3・Graphium 2） |
+| ⑤ Asterism | `crosswalk.rq`（試料の ZT × その材料のトピックの知見） | 5 行: Bi2Te3（ZT 0.88／0.95）→「660 K で焼成した試料 A は分解した」「焼成温度を 620 K に下げる」・PbTe（1.4）→「670 K で焼成した試料 C は分解しなかった」 |
+
+- つなぐ鍵は**名前の文字列**。表記が違えば（Bi₂Te₃ と Bi2Te3）candidates に出ない — 正規化は閉じた集合（identity ほか）から選ぶ
+- 作るのは人（④）。候補を出すまでは機械
+
 ## 残った穴・次の一歩
 
 - 本物の vault に型付きの知見が無い。Graphium の「Asterism と連携する」をオンにし、知見に型（judgment / rule / interpretation / sosa:Observation）を付けるところから
 - 知見を直した・消したときは上げ直し（`resync_rows`）。`onlyUnsent` は id で判定するので増分では届かない（上の節）
 - 保存のたびに自動で送るフック（案 2・Graphium が直接 POST）は未着手。今は Claude が ①〜④ を順に呼ぶ
+- **トピックを用語（共有語 `sv:`）にする**のは人の手: Asterism のチャットに知りたいこと（例「焼成温度は分解にどう効くか」）を書くと AI が概念・関係を足し、承認で用語になる（マニュアル「話・用語・標準用語 — 問いから育てる」）。Graphium のトピックと同じ名前にすれば、名前の完全一致で関係の候補が出る。機械で勝手に用語にはしない（問いの無い用語は作らない）
+- **答えを知見（claim）として Graphium に書き戻す口は作らない**（Graphium の約束: 会話から推論した来歴を書き戻すツールは作らない）。答えは回答ページ（`save_answer`）に残し、知見にするかは Graphium の取り込み・点検で人が決める
 - `_claim_properties` の子の表は親→子の向きの線（`sv:condition` 等）を持たず、子→親（`sv:of_rule` / `sv:of_observation`）だけ。Asterism の設計の助言が「つながっていない」と言うのはこのため（問いは通る）
 - 「下がった／上がった」の寄せ（状態語彙）は範囲外のまま

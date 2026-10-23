@@ -1,0 +1,35 @@
+[
+  {
+    "id": "topic-firing-temperature",
+    "iri": "https://kumagallium.github.io/Graphium/claim/topic-firing-temperature",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/topic/topic-firing-temperature",
+    "title": "焼成温度",
+    "topic_type": "concept",
+    "claim_iri": [
+      "https://kumagallium.github.io/Graphium/claim/rule-firing-650k",
+      "https://kumagallium.github.io/Graphium/claim/obs-660k-decomposed",
+      "https://kumagallium.github.io/Graphium/claim/obs-660k-intact"
+    ],
+    "source_note": [
+      "note-sintering-2026-10"
+    ],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  },
+  {
+    "id": "topic-sample-b",
+    "iri": "https://kumagallium.github.io/Graphium/claim/topic-sample-b",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/topic/topic-sample-b",
+    "title": "試料 B",
+    "topic_type": "material",
+    "claim_iri": [
+      "https://kumagallium.github.io/Graphium/claim/obs-660k-intact",
+      "https://kumagallium.github.io/Graphium/claim/interp-b-impurity"
+    ],
+    "source_note": [
+      "note-sintering-2026-10"
+    ],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  }
+]
