@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.61.0](https://github.com/kumagallium/asterism/compare/v0.60.0...v0.61.0) - 2026-10-23
+
+- feat(mcp-client): 登録した MCP サーバの道具を呼ぶ側（mcp_client・/api/mcp-servers・設定タブ「MCP サーバ」） by @kumagallium in https://github.com/kumagallium/asterism/pull/759
+- feat(source-switch): 取り込み元の切り替え — 📎 の 2 択・staging の origins・source_origins・被りの通知 by @kumagallium in https://github.com/kumagallium/asterism/pull/761
+- feat(source-push): ✓ の後の送り込み — ローカル原本を取り込み元の家へ by @kumagallium in https://github.com/kumagallium/asterism/pull/762
+
 ## [v0.60.0](https://github.com/kumagallium/asterism/compare/v0.59.0...v0.60.0) - 2026-10-23
 
 - feat(mcp): アプリ内 /mcp に append_rows と resync_rows（上げ直し）を足し、Graphium との循環の見本を置く by @kumagallium in https://github.com/kumagallium/asterism/pull/749
