@@ -46,7 +46,7 @@
 <p>接続した AI は、聞くだけでなく、<strong>公開済みのデータセットに新しい行を足す</strong>こともできます（ツール <code>append_rows</code>）。ほかの記録の道具（実験ノート・判断の記録など）に書いたものを、AI が Asterism の形に直して渡す使い方です。</p>
 <div class="tablewrap"><table><thead><tr><th>項目</th><th>内容</th></tr></thead><tbody><tr><td>足せる先</td><td>承認して公開済みのデータセットだけ。データセットの設計は変わらず、行が増えるだけです</td></tr><tr><td>渡すもの</td><td>データセットの id・設計で読むファイルの名前（例 <code>judgments.json</code>）・1 件 1 オブジェクトの行。子の表（例 <code>rule_terms.json</code>）は同じ 1 回に一緒に渡せます</td></tr><tr><td>同じ行をもう一度</td><td>同じ内容の行は、もう一度送っても増えません（1 回分のまま）。内容を直した行は別の行として足されます（置き換えはまだできません）</td></tr><tr><td>最初の 1 回</td><td>設計はこの画面の外で人が決めて承認します（チャットにファイルを添えて作る、または設計の見本を使う）。<code>append_rows</code> はその後の回だけに使います</td></tr><tr><td>鍵</td><td>この画面の接続先（同じパソコンの中）からだけ使えます。別の鍵の配布はありません</td></tr><tr><td>直した・消した行</td><td><code>append_rows</code> では届きません。もう 1 つのツール <code>resync_rows</code> に<strong>全部の行</strong>を渡すと、元のファイルを置き直して取り込み直し、新しい版に差し替えます（id が同じなら知識グラフの名前は変わりません）。ふだんの同期はこちらを既定にし、<code>append_rows</code> は増分だけに使います</td></tr></tbody></table></div>
 <p>ほかの道具と組み合わせる手順の見本は、リポジトリの<a href="https://github.com/kumagallium/asterism/tree/main/docs/examples/graphium"><code>docs/examples/graphium/</code></a>にあります（記録の道具 Graphium で書いた判断・規則・観察を、保存のたびにAsterism へ足し、AI が検索して答えを Graphium に戻す 1 周）。</p>
-<h2 id="MCP-サーバ-タブ">「MCP サーバ」タブ</h2>
+<h2 id="MCP-サーバ-タブ">「MCP サーバ」タブ <span class="badge">v0.61.0 (2026-10-23) で追加</span></h2>
 <p>ほかのアプリが出している MCP サーバを登録し、そのアプリが持つ<strong>表のファイル</strong>をチャットの 📎 の<strong>取り込み元</strong>に選べるようにするタブです。デスクトップアプリ（単一ユーザーモード）でだけ出ます。ブラウザから共有のサーバを開いているときは出ません。</p>
 <p><img src="../screenshots/settings-mcp-servers-form.png" alt="MCP サーバタブ（Graphium と連携する: パスを入れてコマンド全文を確かめる）"><img src="../screenshots/settings-mcp-servers.png" alt="つながったあと"></p>
 <h3 id="Graphium-と連携する">Graphium と連携する</h3>
