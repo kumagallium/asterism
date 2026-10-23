@@ -137,7 +137,7 @@ Asterism を起動している間だけ使えます。アプリを終了する�
 [`docs/examples/graphium/`](https://github.com/kumagallium/asterism/tree/main/docs/examples/graphium)
 にあります（記録の道具 Graphium で書いた判断・規則・観察を、保存のたびに
 Asterism へ足し、AI が検索して答えを Graphium に戻す 1 周）。
-## 「MCP サーバ」タブ
+## 「MCP サーバ」タブ <Badge type="tip" text="v0.61.0 (2026-10-23) で追加" />
 
 ほかのアプリが出している MCP サーバを登録し、そのアプリが持つ**表のファイル**を
 チャットの 📎 の**取り込み元**に選べるようにするタブです。デスクトップアプリ
