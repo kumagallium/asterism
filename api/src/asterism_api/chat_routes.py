@@ -151,6 +151,14 @@ class ScopeBody(BaseModel):
     line: ScopeLine | None = None
 
 
+class AttachFromSourceBody(BaseModel):
+    """📎 の 2 択の片方: 取り込み元（MCP サーバ）のファイルの id。"""
+
+    server: str
+    ids: list[str]
+    lang: str = "ja"
+
+
 class TurnBody(BaseModel):
     text: str | None = None
     scope: ScopeBody | None = None
@@ -1126,6 +1134,7 @@ def register_chat(
         lang: str,
         llm_headers: dict[str, str],
         resume: dict | None = None,
+        homes: dict[str, dict] | None = None,
     ) -> str:
         jobs = app.state.jobs
         return jobs.start_coro(
@@ -1140,6 +1149,7 @@ def register_chat(
                 token=cfg.api_token,
                 emit=emit,
                 resume=resume,
+                homes=homes,
             )
         )
 
@@ -1190,7 +1200,7 @@ def register_chat(
             )
         if not _ai_ready(llm_headers):
             raise HTTPException(503, "AI が設定されていません")
-        cap = int(os.environ.get("ASTERISM_MAX_UPLOAD_BYTES", str(1 << 30)))
+        cap = _upload_cap()
         data: list[tuple[str, bytes]] = []
         total = 0
         for name, f in zip(names, uploads, strict=True):
@@ -1199,6 +1209,20 @@ def register_chat(
             if cap > 0 and total > cap:
                 raise HTTPException(413, "ファイルが大きすぎます")
             data.append((name, blob))
+        return await _begin_attach(session_id, data, lang, llm_headers)
+
+    def _upload_cap() -> int:
+        return int(os.environ.get("ASTERISM_MAX_UPLOAD_BYTES", str(1 << 30)))
+
+    async def _begin_attach(
+        session_id: str,
+        data: list[tuple[str, bytes]],
+        lang: str,
+        llm_headers: dict[str, str],
+        homes: dict[str, dict] | None = None,
+    ) -> JSONResponse:
+        """📎 の共通の出口: 人の手番（running）を作り、走者を始める。bytes の出どころ
+        （ブラウザ／MCP の取り込み元）はここでは区別しない。"""
         async with lock:
             session = _session_or_404(session_id)
             turn = chat_turns._append_turn(
@@ -1211,12 +1235,57 @@ def register_chat(
                 by="machine",
             )
             turn["attachment"] = None
-            job_id = _start_attach_job(session_id, turn["id"], data, lang, llm_headers)
+            job_id = _start_attach_job(
+                session_id, turn["id"], data, lang, llm_headers, homes=homes
+            )
             turn["job_id"] = job_id
             saved = chat_sessions.save_session(root, session)
         return JSONResponse(
             {"turn": turn, "session": _head(saved), "job_id": job_id}, status_code=201
         )
+
+    @app.post("/api/chat/sessions/{session_id}/attach-from-source", dependencies=deps)
+    async def chat_attach_from_source(
+        session_id: str, body: AttachFromSourceBody, request: Request
+    ) -> JSONResponse:
+        """📎 の 2 択の片方 — 取り込み元（登録した MCP サーバ）のファイルを添える
+        （ADR source-switch-mcp-client.md §5）。api が ``get`` で bytes を取り、ブラウザから
+        の 📎 と同じ検査（表の拡張子・AI の有無・容量）を通して同じ走者に流す。
+        家（server・id・name）は staging の ``origins`` → データセットの ``source_origins``
+        に残る。単一ユーザーでなければ 404・未有効のサーバは 409（``mcp_client_routes``）。"""
+        _session_or_404(session_id)
+        registry_ = getattr(app.state, "mcp_registry", None)
+        if registry_ is None:
+            raise HTTPException(404, "MCP servers are only available in single-user mode")
+        ids = [i for i in dict.fromkeys(body.ids) if isinstance(i, str) and i.strip()]
+        if not ids:
+            raise HTTPException(422, "取り込み元のファイルが選ばれていません")
+        if len(ids) > 20:
+            raise HTTPException(422, "一度に添えられるのは 20 件までです")
+        lang = "en" if body.lang.lower().startswith("en") else "ja"
+        llm_headers = chat_attach.llm_headers_of(request.headers)
+        if not _ai_ready(llm_headers):
+            raise HTTPException(503, "AI が設定されていません")
+        cap = _upload_cap()
+        data: list[tuple[str, bytes]] = []
+        homes: dict[str, dict] = {}
+        total = 0
+        for file_id in ids:
+            got = await registry_.get_source_file(body.server, file_id)
+            name = os.path.basename(got.name) or "data"
+            if not chat_attach.is_table_name(name):
+                raise HTTPException(422, f"「{name}」は表ではありません")
+            total += len(got.data)
+            if cap > 0 and total > cap:
+                raise HTTPException(413, "ファイルが大きすぎます")
+            # 同じ名前が 2 回来たら後ろに番号（家は別なので別の行として残す）
+            if name in homes:
+                stem, dot, ext = name.rpartition(".")
+                n = len(homes) + 1
+                name = f"{stem or ext}-{n}.{ext}" if dot else f"{name}-{n}"
+            data.append((name, got.data))
+            homes[name] = {"server": body.server, "id": got.id, "name": got.name}
+        return await _begin_attach(session_id, data, lang, llm_headers, homes)
 
     async def _choice_turn(
         session_id: str, body: TurnBody, llm_headers: dict[str, str]

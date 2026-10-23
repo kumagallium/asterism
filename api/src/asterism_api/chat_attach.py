@@ -92,6 +92,9 @@ _T: dict[str, dict[str, str]] = {
         ),
         "choice_id": "ID にする列",
         "read": "表「{name}」を読みました。ID にする列を選んでください。",
+        "duplicate_source": (
+            "「{name}」は既にデータセット「{dataset}」の取り込み元です（同じ中身）。"
+        ),
         "reply": "表「{name}」を読みました（{rows} 行・1 行＝{kind}）。ID＝{id}。"
         "列の意味: {meanings}。「公開」を押すと公開します。",
         "reply_nomeaning": "表「{name}」を読みました（{rows} 行・1 行＝{kind}）。ID＝{id}。"
@@ -138,6 +141,9 @@ _T: dict[str, dict[str, str]] = {
         ),
         "choice_id": "Column to use as ID",
         "read": 'Read the table "{name}". Please choose the column to use as ID.',
+        "duplicate_source": (
+            '"{name}" is already the source of the dataset "{dataset}" (same content).'
+        ),
         "reply": 'Read the table "{name}" ({rows} rows, one row = {kind}). ID = {id}. '
         "Column meanings: {meanings}. Press Publish to publish.",
         "reply_nomeaning": 'Read the table "{name}" ({rows} rows, one row = {kind}). '
@@ -369,16 +375,31 @@ def _issues_of(res: httpx.Response) -> list[str] | None:
 # ---- 段 ----------------------------------------------------------------------------------------
 
 
-async def _stage_place_and_read(ctx: _Ctx, files: list[tuple[str, bytes]], st: dict) -> None:
-    """① 置く → ② 読む → ③ 意味と結ぶ候補。"""
+async def _stage_place_and_read(
+    ctx: _Ctx,
+    files: list[tuple[str, bytes]],
+    st: dict,
+    homes: dict[str, dict] | None = None,
+) -> None:
+    """① 置く → ② 読む → ③ 意味と結ぶ候補。
+
+    ``homes`` = ``{添えた名前: {server, id, name}}``（MCP の取り込み元から取った物。
+    ADR source-switch-mcp-client.md §5）。staging が raw の bytes から sha256 を計算し
+    ``origins`` に書く。同じ中身が既にどこかのデータセットの取り込み元なら ``duplicates``
+    が返るので、``st`` に控えて最後の返事に 1 行足す（設計は続ける）。"""
     ctx.stage(1)
     upload = [
         ("files", (name, data, mimetypes.guess_type(name)[0] or "application/octet-stream"))
         for name, data in files
     ]
-    res = await _req(ctx, "POST", "/api/staging", files=upload)
+    data = {"source_homes": json.dumps(homes, ensure_ascii=False)} if homes else None
+    res = await _req(ctx, "POST", "/api/staging", files=upload, data=data)
     st["staging_id"] = res.json()["staging_id"]
     st["sources"] = list(res.json().get("sources") or [])
+    st["homes"] = homes or {}
+    st["duplicates"] = [
+        d for d in (res.json().get("duplicates") or []) if isinstance(d, dict)
+    ]
     # 保存された名前（canonical）→ 人が付けた名前
     try:
         from asterism_api import staging
@@ -769,11 +790,12 @@ def _final_reply(ctx: _Ctx, st: dict, summary: dict, shape: list[dict]) -> tuple
         else text(lang, "reply_nomeaning", **common)
     )
     bindings = [_public_binding(b) for b in st["bindings_resolved"]]
+    notes = [*_duplicate_notes(lang, st), *shape]
     reply = chat_turns._reply(
         body,
         sentences=[_bind_sentence(lang, b) for b in bindings],
         bindings=bindings,
-        notes=shape,
+        notes=notes,
     )
     attachment = {
         "dataset_id": st["dataset_id"],
@@ -785,6 +807,28 @@ def _final_reply(ctx: _Ctx, st: dict, summary: dict, shape: list[dict]) -> tuple
         "meanings": [m for m in st["meanings"] if m.get("label")],
     }
     return reply, attachment
+
+
+def _duplicate_notes(lang: str, st: dict) -> list[dict]:
+    """「この表は既にデータセット X の取り込み元です」— 中身（sha256）で合流した知らせ。
+    データセットごとに 1 行。``choice`` に id を持たせ、画面がそこへの導線を出せるように。"""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for d in st.get("duplicates") or []:
+        ds_id = str(d.get("dataset_id") or "")
+        if not ds_id or ds_id in seen or ds_id == st.get("dataset_id"):
+            continue
+        seen.add(ds_id)
+        shown = st.get("shown") or {}
+        name = shown.get(d.get("name")) or d.get("name") or st.get("name") or ""
+        out.append(
+            chat_turns.note(
+                "duplicate_source",
+                text(lang, "duplicate_source", name=name, dataset=d.get("dataset_name") or ds_id),
+                {"dataset_id": ds_id, "label": "", "options": []},
+            )
+        )
+    return out
 
 
 def _choice_reply(ctx: _Ctx, st: dict, ask: list[str]) -> dict:
@@ -824,6 +868,7 @@ async def run_attach(
     token: str | None,
     emit: Callable[..., None],
     resume: dict | None = None,
+    homes: dict[str, dict] | None = None,
 ) -> dict:
     """添えた表をかんたんの段に通し、手番を書き換えて保存する。
     返り = ``{"state": …}``（ジョブの結果）。
@@ -852,7 +897,7 @@ async def run_attach(
                 "name": _stem(files[0][0]) + (f" {text(lang, 'others')}" if len(files) > 1 else ""),
                 "picks": {},
             }
-            await _stage_place_and_read(ctx, files, st)
+            await _stage_place_and_read(ctx, files, st, homes)
         _numbers_picked, ask = _numbers(st)
         if ask:
             reply, state = _choice_reply(ctx, st, ask), "proposed"

@@ -39,6 +39,7 @@ can never be a path. Everything else is best-effort: an unreadable record is a
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -80,14 +81,57 @@ def dir_for(registry_root: Path | str, staging_id: str, *, create: bool = False)
     return d
 
 
-def write_meta(sdir: Path, sources: list[str], names: dict[str, str] | None = None) -> dict:
+def write_meta(
+    sdir: Path,
+    sources: list[str],
+    names: dict[str, str] | None = None,
+    origins: list[dict] | None = None,
+) -> dict:
     """``names`` = ``{raw/ file name: the name the user dropped}`` (only the pairs
-    where the two differ); the field is omitted when empty."""
+    where the two differ); the field is omitted when empty.
+
+    ``origins`` (ADR source-switch-mcp-client.md §5) = the raw uploads' identity:
+    ``[{name, sha256: "sha256:<hex>", home: {server, id, name} | {server: "local"}}]``.
+    **A separate key from** ``sources`` (which stays the list of canonical table
+    names) — the attach copies it onto the dataset as ``source_origins``."""
     meta: dict = {"created_at": datetime.now(UTC).isoformat(), "sources": list(sources)}
     if names:
         meta["names"] = dict(names)
+    if origins:
+        meta["origins"] = [dict(o) for o in origins]
     (sdir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
     return meta
+
+
+LOCAL_HOME: dict = {"server": "local"}
+
+
+def sha256_of(path: Path) -> str:
+    """``"sha256:<hex>"`` of a file's bytes (the same spelling Graphium's index uses)."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def compute_origins(sdir: Path, homes: dict[str, dict] | None = None) -> list[dict]:
+    """One origin per file in ``raw/`` — hashed from the bytes **on disk**, never from
+    what the caller claimed. ``homes`` = ``{raw/ name: home}``; a file without one is
+    local (``{"server": "local"}``)."""
+    out: list[dict] = []
+    for path in raw_paths(sdir):
+        home = (homes or {}).get(path.name)
+        if not isinstance(home, dict) or not isinstance(home.get("server"), str):
+            home = dict(LOCAL_HOME)
+        out.append({"name": path.name, "sha256": sha256_of(path), "home": home})
+    return out
+
+
+def is_local_origin(origin: dict) -> bool:
+    """The ONE definition of a local original (ADR §7): no home, or ``home.server == "local"``."""
+    home = origin.get("home") if isinstance(origin, dict) else None
+    return not isinstance(home, dict) or home.get("server") in (None, "", "local")
 
 
 def load(registry_root: Path | str, staging_id: str) -> tuple[Path, list[Path]]:
