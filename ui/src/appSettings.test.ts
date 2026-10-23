@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const put = vi.fn(async (_s: Record<string, unknown>) => undefined)
+const put = vi.fn<(s: Record<string, unknown>) => Promise<void>>(async () => undefined)
 let remote: Record<string, unknown> = {}
 vi.mock('./appdata', () => ({
   initAppData: async () => ({ singleUser: true }),
