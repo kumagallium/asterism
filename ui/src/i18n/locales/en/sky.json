@@ -118,9 +118,6 @@
   "now": {
     "star": "Now: star \"{{name}}\" — ask about this star"
   },
-  "tools": {
-    "summary": "{{n}} sentences · add by hand"
-  },
   "place": {
     "content": "What will be placed",
     "thin": "{{n}} still proposals"

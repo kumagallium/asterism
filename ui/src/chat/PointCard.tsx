@@ -110,12 +110,12 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
           )}
           {(canUndo || canRemove) && !asking && (
             <button type="button" className="link-btn" data-testid="point-revert" disabled={busy} onClick={() => setAsking(true)}>
-              {t('point.revert')}
+              {canUndo ? t('point.revert') : t('point.delete')}
             </button>
           )}
           {(canUndo || canRemove) && asking && (
             <span className="chat-point-ask" data-testid="point-revert-ask">
-              <span>{canUndo ? t('point.revertAsk') : t('point.removeAsk', { name: p.kind === 'line' ? lineText : p.label })}</span>
+              <span>{canUndo ? t('point.revertAsk') : t('point.deleteAsk')}</span>
               <button
                 type="button"
                 className="btn btn--sm"
@@ -127,7 +127,7 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
                   else onRemove?.(p)
                 }}
               >
-                {t('point.revertYes')}
+                {canUndo ? t('point.revertYes') : t('point.deleteYes')}
               </button>
               <button type="button" className="link-btn" data-testid="point-revert-no" onClick={() => setAsking(false)}>
                 {t('point.revertNo')}
