@@ -47,6 +47,7 @@ from asterism_api import (
     chat_tables,
     chat_turns,
     registry,
+    source_push,
 )
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
 from asterism_api.themes_routes import draft_sky_card
@@ -942,14 +943,23 @@ def register_chat(
         llm_headers: dict[str, str],
         out: tuple[dict, dict | None, dict | None, dict],
     ) -> JSONResponse:
-        """公開できたら、ロックの外で問いの提案を取り、短いロックで手番に書き足す。"""
+        """公開できたら、ロックの外で (1) ローカル原本を取り込み元の家へ送り（ADR
+        source-switch-mcp-client.md §7。``add`` の呼び手は Asterism でここだけ）、(2) 問いの
+        提案を取り、短いロックで手番に書き足す。送り込みの失敗は注記だけで、公開は
+        取り消さない。"""
         turn, commit, followup, saved = out
         if commit:
+            sent_notes = await source_push.push_originals_home(
+                getattr(app.state, "mcp_registry", None),
+                cfg.registry_root,
+                commit["dataset_id"],
+                lang=lang,
+            )
             questions = await chat_attach.suggest_questions(
                 app, cfg, commit["dataset_id"], lang=lang, llm_headers=llm_headers,
                 token=cfg.api_token,
             )
-            if questions:
+            if questions or sent_notes:
                 async with lock:
                     again = chat_sessions.load_session(root, session_id)
                     mine = next(
@@ -957,7 +967,13 @@ def register_chat(
                         None,
                     )
                     if again is not None and mine is not None:
-                        chat_attach.add_questions(mine, questions)
+                        if sent_notes:
+                            mine["reply"]["notes"] = [
+                                *(mine["reply"].get("notes") or []),
+                                *sent_notes,
+                            ]
+                        if questions:
+                            chat_attach.add_questions(mine, questions)
                         saved = chat_sessions.save_session(root, again)
                         turn = mine
         return JSONResponse(
