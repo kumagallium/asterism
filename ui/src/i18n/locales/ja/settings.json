@@ -266,7 +266,6 @@
     "logPath": "くわしい記録: {{path}}",
     "requestFailed": "操作できませんでした。少し待ってから、もう一度お試しください。"
   },
-<<<<<<< HEAD
   "aptitude": {
     "run": "適性を調べる",
     "running": "調べています {{n}} / {{total}}",
@@ -297,7 +296,8 @@
       "chat": "会話",
       "ask": "回答",
       "propose": "提案"
-=======
+    }
+  },
   "mcp": {
     "title": "MCP サーバ",
     "intro": "ほかのアプリの MCP サーバを登録すると、そのアプリが持つ表のファイルを取り込み元に選べます。登録しただけでは動きません。コマンド全文を確かめてから有効にしてください。",
@@ -361,15 +361,8 @@
       "badEnvLine": "環境変数の行を NAME=値 の形にしてください: {{line}}",
       "secretEnv": "環境変数 {{name}} は秘密の名前に見えるため保存されません（設定に秘密は入れられません）。",
       "badJson": "JSON として読めません。",
-<<<<<<< HEAD
-      "emptyServers": "mcpServers の中身が空です。"
->>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
-=======
       "emptyServers": "mcpServers の中身が空です。",
       "urlSecret": "URL にユーザー名・パスワードや、秘密に見える名前の引数（token= など）は入れられません。"
-<<<<<<< HEAD
->>>>>>> 331e09aa (fix(mcp-client): レビューの指摘を反映（fastmcp の下限・秘密判定の統一・/call の引数）)
-=======
     },
     "preset": {
       "title": "Graphium と連携する",
@@ -386,7 +379,6 @@
       "noTool": "つながりましたが {{tool}} がありません（Graphium のビルドが古い可能性）",
       "failed": "つなげませんでした",
       "detailsTitle": "ほかの MCP サーバ（くわしい設定）"
->>>>>>> cfa963bd (feat(ui): 設定タブの一番上に「Graphium と連携する」（連携のプリセット）)
     }
   }
 }

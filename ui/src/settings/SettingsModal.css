@@ -721,7 +721,6 @@
   padding: var(--space-2) var(--space-5) 0;
 }
 
-<<<<<<< HEAD
 /* AI の適性検査（色はトークンだけ） */
 .aptitude-row {
   display: flex;
@@ -764,7 +763,6 @@
   padding-left: 18px;
   font-size: 0.8rem;
   color: var(--muted);
-=======
 /* ---- MCP サーバ タブ ---- */
 .mcp-subtitle {
   margin: 12px 0 0;
@@ -819,5 +817,4 @@
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
->>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
 }
