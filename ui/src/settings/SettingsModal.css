@@ -721,6 +721,7 @@
   padding: var(--space-2) var(--space-5) 0;
 }
 
+<<<<<<< HEAD
 /* AI の適性検査（色はトークンだけ） */
 .aptitude-row {
   display: flex;
@@ -763,4 +764,60 @@
   padding-left: 18px;
   font-size: 0.8rem;
   color: var(--muted);
+=======
+/* ---- MCP サーバ タブ ---- */
+.mcp-subtitle {
+  margin: 12px 0 0;
+  font-size: 0.8rem;
+  color: var(--fg);
+}
+.mcp-command {
+  display: block;
+  margin: 6px 0;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+.mcp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--fg);
+}
+.mcp-tools {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.78rem;
+}
+.mcp-form {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.mcp-form input,
+.mcp-form textarea,
+.mcp-form select,
+.mcp-select,
+.mcp-paste {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+}
+.mcp-recent {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+.mcp-recent th,
+.mcp-recent td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+>>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
 }

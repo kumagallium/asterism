@@ -9,7 +9,8 @@
     "server": "このサーバ",
     "usage": "AI の使用量",
     "about": "このアプリ",
-    "connect": "ほかの AI から使う"
+    "connect": "ほかの AI から使う",
+    "mcp": "MCP サーバ"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",
@@ -265,6 +266,7 @@
     "logPath": "くわしい記録: {{path}}",
     "requestFailed": "操作できませんでした。少し待ってから、もう一度お試しください。"
   },
+<<<<<<< HEAD
   "aptitude": {
     "run": "適性を調べる",
     "running": "調べています {{n}} / {{total}}",
@@ -295,6 +297,72 @@
       "chat": "会話",
       "ask": "回答",
       "propose": "提案"
+=======
+  "mcp": {
+    "title": "MCP サーバ",
+    "intro": "ほかのアプリの MCP サーバを登録すると、そのアプリが持つ表のファイルを取り込み元に選べます。登録しただけでは動きません。コマンド全文を確かめてから有効にしてください。",
+    "browserOnly": "この画面（ブラウザでの表示）からは設定できません。デスクトップアプリの画面から開いてください。",
+    "listTitle": "登録済みの MCP サーバ",
+    "empty": "まだ登録がありません。",
+    "transportStdio": "stdio（コマンドを起動）",
+    "transportHttp": "HTTP",
+    "enabled": "有効",
+    "showTools": "道具を見る",
+    "delete": "削除",
+    "noTools": "道具がありません。",
+    "confirmDelete": "MCP サーバ「{{name}}」を削除しますか。",
+    "overwrite": "「{{name}}」はすでに登録されています。上書きしますか。",
+    "addTitle": "MCP サーバを追加",
+    "name": "名前",
+    "transport": "方式",
+    "command": "コマンド（プログラムのフルパス）",
+    "args": "引数（1 行に 1 つ）",
+    "env": "環境変数（1 行に NAME=値）",
+    "url": "URL",
+    "save": "追加する",
+    "fillExample": "例から入れる",
+    "pasteLabel": "JSON を貼り付け（1 件、または {\"mcpServers\": {…}} 全体）",
+    "pasteSave": "貼り付けた内容を追加する",
+    "newDisabled": "追加したサーバは無効の状態で保存されます。コマンド全文を確かめてから、一覧で有効にしてください。",
+    "sourceTitle": "取り込み元",
+    "homeLabel": "取り込み元のファイルを持つサーバ",
+    "homeNone": "なし",
+    "providerHelp": "取り込み元のサーバが持つ道具の名前です。「道具を見る」で確かめられます。",
+    "provider": {
+      "list": "一覧の道具",
+      "get": "取得の道具",
+      "add": "追加の道具"
+    },
+    "originalsTitle": "原本を送る",
+    "originalsLabel": "承認したデータセットの元の表を、取り込み元のサーバにも送る（既定: オン）",
+    "originalsNoHome": "取り込み元のサーバを選ぶと切り替えられます。",
+    "recentTitle": "直近の呼び出し",
+    "recentEmpty": "まだ呼び出しがありません。",
+    "recent": {
+      "server": "サーバ",
+      "tool": "道具",
+      "result": "結果",
+      "at": "時刻",
+      "ok": "成功",
+      "okCount": "成功（{{count}} 件）",
+      "fail": "失敗: {{reason}}"
+    },
+    "issue": {
+      "badName": "名前に使えるのは英数字と _ . - だけです（先頭は英数字・64 文字まで）。",
+      "secretName": "秘密の名前に見えるため、この名前では保存できません。",
+      "notObject": "{{name}}: 設定は JSON オブジェクトで書いてください。",
+      "forbiddenField": "{{field}} は保存できません（認証つきの HTTP サーバには未対応です）。",
+      "badTransport": "方式は stdio か http にしてください。",
+      "badUrl": "URL は http:// か https:// で始めてください。",
+      "noCommand": "コマンドを入力してください。",
+      "badArgs": "引数は文字列の並びにしてください。",
+      "badEnv": "環境変数は {名前: 値} の文字列にしてください。",
+      "badEnvName": "環境変数の名前 {{name}} は使えません。",
+      "badEnvLine": "環境変数の行を NAME=値 の形にしてください: {{line}}",
+      "secretEnv": "環境変数 {{name}} は秘密の名前に見えるため保存されません（設定に秘密は入れられません）。",
+      "badJson": "JSON として読めません。",
+      "emptyServers": "mcpServers の中身が空です。"
+>>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
     }
   }
 }

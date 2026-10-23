@@ -9,7 +9,8 @@
     "server": "This server",
     "usage": "AI usage",
     "about": "About",
-    "connect": "Use from other AI"
+    "connect": "Use from other AI",
+    "mcp": "MCP servers"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",
@@ -266,6 +267,7 @@
     "logPath": "Details: {{path}}",
     "requestFailed": "That did not work. Please wait a moment and try again."
   },
+<<<<<<< HEAD
   "aptitude": {
     "run": "Check aptitude",
     "running": "Checking {{n}} / {{total}}",
@@ -296,6 +298,72 @@
       "chat": "chat",
       "ask": "answer",
       "propose": "proposal"
+=======
+  "mcp": {
+    "title": "MCP servers",
+    "intro": "Register another app's MCP server to choose the table files it holds as an import source. Registering alone does nothing. Check the full command before you enable it.",
+    "browserOnly": "This cannot be set from this view (the browser). Open it from the desktop app.",
+    "listTitle": "Registered MCP servers",
+    "empty": "Nothing registered yet.",
+    "transportStdio": "stdio (launch a command)",
+    "transportHttp": "HTTP",
+    "enabled": "Enabled",
+    "showTools": "Show tools",
+    "delete": "Delete",
+    "noTools": "No tools.",
+    "confirmDelete": "Delete MCP server \"{{name}}\"?",
+    "overwrite": "\"{{name}}\" is already registered. Overwrite it?",
+    "addTitle": "Add an MCP server",
+    "name": "Name",
+    "transport": "Type",
+    "command": "Command (full path of the program)",
+    "args": "Arguments (one per line)",
+    "env": "Environment variables (NAME=value, one per line)",
+    "url": "URL",
+    "save": "Add",
+    "fillExample": "Fill from example",
+    "pasteLabel": "Paste JSON (one entry, or a whole {\"mcpServers\": {…}})",
+    "pasteSave": "Add pasted content",
+    "newDisabled": "Added servers are saved as disabled. Check the full command, then enable the server in the list.",
+    "sourceTitle": "Import source",
+    "homeLabel": "Server that holds the import source files",
+    "homeNone": "None",
+    "providerHelp": "Names of the tools the import source server provides. Use \"Show tools\" to check them.",
+    "provider": {
+      "list": "List tool",
+      "get": "Get tool",
+      "add": "Add tool"
+    },
+    "originalsTitle": "Send originals",
+    "originalsLabel": "Also store the original tables of approved datasets on the import source server (default: on)",
+    "originalsNoHome": "Choose an import source server to change this.",
+    "recentTitle": "Recent calls",
+    "recentEmpty": "No calls yet.",
+    "recent": {
+      "server": "Server",
+      "tool": "Tool",
+      "result": "Result",
+      "at": "Time",
+      "ok": "Succeeded",
+      "okCount": "Succeeded ({{count}} items)",
+      "fail": "Failed: {{reason}}"
+    },
+    "issue": {
+      "badName": "A name may use only letters, digits, _ . - (start with a letter or digit, up to 64 characters).",
+      "secretName": "This name looks like a secret and cannot be saved.",
+      "notObject": "{{name}}: write the setting as a JSON object.",
+      "forbiddenField": "{{field}} cannot be saved (HTTP servers that need authentication are not supported).",
+      "badTransport": "Type must be stdio or http.",
+      "badUrl": "The URL must start with http:// or https://.",
+      "noCommand": "Enter a command.",
+      "badArgs": "Arguments must be a list of strings.",
+      "badEnv": "Environment variables must be {name: value} strings.",
+      "badEnvName": "The environment variable name {{name}} cannot be used.",
+      "badEnvLine": "Write each environment variable line as NAME=value: {{line}}",
+      "secretEnv": "The environment variable {{name}} looks like a secret and will not be saved (secrets cannot be stored in settings).",
+      "badJson": "This is not valid JSON.",
+      "emptyServers": "mcpServers is empty."
+>>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
     }
   }
 }
