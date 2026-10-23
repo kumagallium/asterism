@@ -72,13 +72,13 @@ const list = (over: Partial<Parameters<typeof SessionList>[0]> = {}) =>
   )
 
 describe('ReplyCard', () => {
-  it('route: chat の返事は札が出ず、「知識グラフに足す」のチップが出る', () => {
+  it('route: chat の返事は札が出ず、「知識グラフに追加」のチップが出る', () => {
     const t = turn({ route: 'chat', state: 'none', by: 'ai', reply: reply({ text: 'どういたしまして' }) })
     const html = renderToStaticMarkup(<ReplyCard turn={t} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} onPropose={noop} />)
     expect(html).toContain('どういたしまして')
     expect(html).not.toContain('data-testid="reply-card"')
     expect(html).toContain('data-testid="reply-propose"')
-    expect(html).toContain('知識グラフに足す')
+    expect(html).toContain('知識グラフに追加')
   })
   it('未確認の最後の返事には 確認＋件数と「戻す」。札の上の行はこの手番の件数', () => {
     const html = card(turn({ reply: reply({ ops: [{ op: 'add_concept' }, { op: 'add_relation' }] }) }))
@@ -320,15 +320,15 @@ describe('ChatPane の楽観表示', () => {
 
 describe('ReplyCard の ✓ で外した件数', () => {
   const commit = { theme_id: 't', minted: [], lines: 1, questions: [], batch: 'b', at: '2026-10-22T00:00:00Z' }
-  it('外しました・残した', () => {
+  it('削除しました・残した', () => {
     const t = text(
       card(turn({ state: 'confirmed', commit: { ...commit, removed: { terms: 3, lines: 2 }, kept: [{ slug: 'seebeck', reason: '使われている' }] } }), false),
     )
-    expect(t).toContain('外しました: 用語 3・関係 2')
+    expect(t).toContain('削除しました: 用語 3・関係 2')
     expect(t).toContain('残した: seebeck（使われている）')
   })
   it('外していなければ出さない', () => {
-    expect(text(card(turn({ state: 'confirmed', commit }), false))).not.toContain('外しました')
+    expect(text(card(turn({ state: 'confirmed', commit }), false))).not.toContain('削除しました')
   })
 })
 
@@ -362,7 +362,7 @@ describe('PointCard', () => {
     expect(tx).toContain('格子熱伝導率')
     expect(tx).toContain('項目')
     expect(html).not.toContain('point-sentences')
-    expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が足し、人が承認')
+    expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が追加し、人が承認')
     expect(html).toContain('href="#/t/cabc12345x"')
     expect(html).toContain('data-testid="point-contents"')
     expect(html).toContain('data-testid="point-revert"')
@@ -505,7 +505,7 @@ describe('点の 1 枚の穴（11d）', () => {
     const done = renderToStaticMarkup(
       <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 3, terms: 2, questions: 0, kept: [{ slug: 'x', reason: 'r' }] }} />,
     )
-    expect(text(done)).toContain('戻しました: 文 3・用語 2（残した: x）')
+    expect(text(done)).toContain('取り消しました: 関係 3・用語 2（残した: x）')
     const failed = renderToStaticMarkup(
       <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 0, terms: 0, questions: 0, kept: [], failed: [{ what: '文', reason: '失敗' }] }} />,
     )

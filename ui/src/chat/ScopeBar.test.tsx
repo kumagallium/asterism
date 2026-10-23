@@ -7,7 +7,7 @@ describe('ScopeBar', () => {
   it('「〈名前〉について」と外す ×', () => {
     const h = renderToStaticMarkup(<ScopeBar name="熱伝導率" onClear={() => undefined} />)
     expect(h).toContain('data-testid="scope-chip"')
-    expect(h).toContain('熱伝導率 について')
+    expect(h).toContain('対象: 熱伝導率')
     expect(h).toContain('data-testid="scope-clear"')
   })
 })

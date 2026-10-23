@@ -28,12 +28,12 @@ describe('SentencesPanel', () => {
   it('テーマなしでは承認が出ない', () => {
     expect(panel([thin], { hasTheme: false })).not.toContain('sentence-approve')
   })
-  it('空: 選んでいなければ案内・選んでいて 0 件なら「文はまだありません」', () => {
-    expect(panel([], { noSelection: true })).toContain('知識グラフの点を押すと、その点についての文がここに出ます')
-    expect(panel([])).toContain('文はまだありません')
+  it('空: 選んでいなければ案内・選んでいて 0 件なら「関係はまだありません」', () => {
+    expect(panel([], { noSelection: true })).toContain('知識グラフの点を選ぶと、その点の関係がここに出ます')
+    expect(panel([])).toContain('関係はまだありません')
   })
   it('選んでいないときの提案の行には見出し', () => {
-    expect(panel([thin], { noSelection: true })).toContain('この話の提案')
+    expect(panel([thin], { noSelection: true })).toContain('このチャットの提案')
   })
 })
 
