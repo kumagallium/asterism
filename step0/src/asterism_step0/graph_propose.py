@@ -640,6 +640,7 @@ def propose_graph_diff(
     message: str,
     lang: str | None = None,
     scope: str | None = None,
+    attempts: int | None = None,
 ) -> dict:
     """One guided call (up to two retries when the shape is refused) → ``{reply, ops}`` validated,
     with the ops cut to what the screen can take (:func:`filter_ops_for_screen`).
@@ -651,6 +652,9 @@ def propose_graph_diff(
     value); ``messages`` = the recent turns (the last 12 ride the call), ``message`` = the
     person's latest sentence. On the home and dataset screens the keys are the term slugs, so
     those count as keys on the graph.
+
+    ``attempts`` = how many answers may be asked for (``None`` = the usual ``_ATTEMPTS``; the
+    aptitude check passes 1: it looks at the very first answer only).
 
     Raises :class:`GraphDiffError` when the third answer is also off-shape; provider errors
     propagate (the api maps them to 502)."""
@@ -664,7 +668,8 @@ def propose_graph_diff(
     problem: str | None = None
     previous: str | None = None
     last: GraphDiffError | None = None
-    for attempt in range(_ATTEMPTS):
+    tries = _ATTEMPTS if attempts is None else max(1, attempts)
+    for attempt in range(tries):
         user = graph_diff_user_message(
             screen=screen,
             graph=graph,
@@ -677,7 +682,7 @@ def propose_graph_diff(
             problem=problem,
             scope=scope,
         )
-        if attempt == _ATTEMPTS - 1 and previous is not None:
+        if attempt == tries - 1 and previous is not None:
             first = next((str(c.get('key')) for c in graph.get('concepts') or []), '<key>')
             user += _fix_tail(previous, first)  # 最後の聞き直し: 前の JSON をそのまま直す
         text = _complete_guided(client, system, user, schema)
