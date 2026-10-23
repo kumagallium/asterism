@@ -674,6 +674,7 @@ def propose_theme_draft(
     known_standards: list[dict],
     language: str | None = None,
     label: str | None = None,
+    attempts: int | None = None,
 ) -> dict:
     """One guided call (one retry when the shape is refused) → the validated closed JSON
     (v2: ``theme_label`` / ``concepts`` / ``relations`` / ``answers`` /
@@ -684,7 +685,7 @@ def propose_theme_draft(
     schema = theme_draft_json_schema()
     problem: str | None = None
     last: ThemeDraftError | None = None
-    for _attempt in range(2):
+    for _attempt in range(2 if attempts is None else max(1, attempts)):
         user = theme_draft_user_message(
             questions,
             known_terms,

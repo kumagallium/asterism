@@ -935,6 +935,10 @@ _SHAPE_NEXT = {  # (下書きがあるとき, 無いとき)
         "Please say the question again in one short sentence",
     ),
 }
+_APTITUDE_HINT = {
+    "ja": "設定の「適性を調べる」で、このモデルが向くか確かめられます",
+    "en": 'You can check whether this model suits Asterism with "Check aptitude" in Settings',
+}
 _SHAPE_MAX = 120
 _KEY_MAX = 30
 
@@ -965,7 +969,8 @@ def _shape_note(base: str, raw: str, lg: str, *, has_draft: bool = True) -> str:
     why = _shape_why(raw, lg) if raw.strip() else ""
     head = f"{base}（{why}）" if why else base
     nxt = _SHAPE_NEXT[lg][0 if has_draft else 1]
-    return f"{head}。{nxt}" if lg == "ja" else f"{head}. {nxt}"
+    tail = _APTITUDE_HINT[lg]  # 11q: 使っているモデルが向くかは設定の適性検査で確かめられる
+    return f"{head}。{nxt}。{tail}" if lg == "ja" else f"{head}. {nxt}. {tail}"
 
 
 _REMOVE_HINT = {
