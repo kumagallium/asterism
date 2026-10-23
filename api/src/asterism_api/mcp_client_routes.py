@@ -26,6 +26,7 @@ HTTP の対応表: 未登録 404・設定が読めない 400・未有効 409・a
 
 from __future__ import annotations
 
+import glob
 import hmac
 import logging
 import os
@@ -258,9 +259,15 @@ def register_mcp_client_routes(
             raise HTTPException(400, "candidates は文字列の配列です")
         found: str | None = None
         for cand in candidates[:32]:
-            path = Path(os.path.expanduser(cand))
-            if path.is_file() and os.access(path, os.X_OK):
-                found = str(path)
+            expanded = os.path.expanduser(cand)
+            # nvm のように版ごとのフォルダに入る物は * で受け、新しい版（名前の降順）を先に
+            paths = sorted(glob.glob(expanded), reverse=True) if "*" in expanded else [expanded]
+            for p in paths:
+                path = Path(p)
+                if path.is_file() and os.access(path, os.X_OK):
+                    found = str(path)
+                    break
+            if found:
                 break
         if found is None:
             found = shutil.which(command)

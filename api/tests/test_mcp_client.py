@@ -638,6 +638,17 @@ def test_locate_finds_an_executable_among_candidates_without_starting_it(
         assert r.status_code == 200, r.text
         assert r.json()["found"] == str(exe)
         assert r.json()["user_home"] == str(Path.home())
+        # * は版ごとのフォルダ（nvm）を受け、新しい版が先
+        for v in ("v20.1.0", "v24.0.0"):
+            d = tmp_path / "nvm" / v / "bin"
+            d.mkdir(parents=True)
+            (d / "node").write_text("#!/bin/sh\n")
+            (d / "node").chmod(0o755)
+        r = client.post(
+            "/api/mcp-servers/locate",
+            json={"command": "node", "candidates": [str(tmp_path / "nvm" / "*" / "bin" / "node")]},
+        )
+        assert r.json()["found"] == str(tmp_path / "nvm" / "v24.0.0" / "bin" / "node")
         # 候補に無ければ PATH（python は確実にある）
         r = client.post("/api/mcp-servers/locate", json={"command": "python3", "candidates": []})
         assert r.status_code == 200

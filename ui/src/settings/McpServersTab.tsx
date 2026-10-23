@@ -207,11 +207,16 @@ export function McpServersTab() {
     existingStdio?.env?.[GRAPHIUM_PRESET.envName] ??
     (located ? GRAPHIUM_PRESET.defaultRoot(located.userHome) : '')
   const nodeValue = fNode ?? existingStdio?.command ?? located?.found ?? ''
-  const formInput = { nodePath: nodeValue, scriptPath: scriptValue, root: rootValue }
+  // 画面ではホームを ~ に省略する（長いフルパスで驚かせない）。保存する値はフルパスのまま。
+  const userHome = located?.userHome ?? ''
+  const tilde = (p: string) => (userHome && (p === userHome || p.startsWith(userHome + '/')) ? '~' + p.slice(userHome.length) : p)
+  // 入力に ~/ が来たらフルパスに戻す（起動時に ~ は展開されない）
+  const expand = (p: string) => (userHome && p.startsWith('~/') ? userHome + p.slice(1) : p)
+  const formInput = { nodePath: expand(nodeValue.trim()), scriptPath: expand(scriptValue.trim()), root: expand(rootValue.trim()) }
   const formReady = nodeValue.trim() !== '' && scriptValue.trim() !== '' && rootValue.trim() !== ''
   const showPresetForm = pState !== 'on' && (openForm || pState === 'partial')
   const fullCommand = (e: { command: string; args: string[]; env: Record<string, string> }) =>
-    [e.command, ...e.args].join(' ')
+    [e.command, ...e.args].map(tilde).join(' ')
 
   async function verifyPreset() {
     setBusy(true)
@@ -290,7 +295,7 @@ export function McpServersTab() {
           <>
             <p className="field-help">{t('mcp.preset.connected')}</p>
             <code className="about-value mcp-command">{fullCommand(existingStdio)}</code>
-            <code className="about-value mcp-command">{`${GRAPHIUM_PRESET.envName}=${existingStdio.env?.[GRAPHIUM_PRESET.envName] ?? ''}`}</code>
+            <code className="about-value mcp-command">{`${GRAPHIUM_PRESET.envName}=${tilde(existingStdio.env?.[GRAPHIUM_PRESET.envName] ?? '')}`}</code>
             <div className="serverkey-controls">
               <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void verifyPreset()}>
                 {t('mcp.preset.verify')}
@@ -316,8 +321,8 @@ export function McpServersTab() {
               )}
             </div>
             <p className="field-help">{t('mcp.preset.command')}</p>
-            <code className="about-value mcp-command">{`${nodeValue} ${scriptValue}`.trim()}</code>
-            <code className="about-value mcp-command">{`${GRAPHIUM_PRESET.envName}=${rootValue}`}</code>
+            <code className="about-value mcp-command">{`${tilde(nodeValue)} ${tilde(scriptValue)}`.trim()}</code>
+            <code className="about-value mcp-command">{`${GRAPHIUM_PRESET.envName}=${tilde(rootValue)}`}</code>
             <div className="serverkey-controls">
               <button
                 type="button"
@@ -357,9 +362,9 @@ export function McpServersTab() {
               </div>
               {s.transport === 'stdio' ? (
                 <>
-                  <code className="about-value mcp-command">{[s.command, ...(s.args ?? [])].join(' ')}</code>
+                  <code className="about-value mcp-command">{[s.command, ...(s.args ?? [])].map(tilde).join(' ')}</code>
                   {Object.entries(s.env ?? {}).map(([k, v]) => (
-                    <code className="about-value mcp-command" key={k}>{`${k}=${v}`}</code>
+                    <code className="about-value mcp-command" key={k}>{`${k}=${tilde(v)}`}</code>
                   ))}
                 </>
               ) : (

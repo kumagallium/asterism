@@ -22,7 +22,7 @@ export const MCP_PRESETS: McpPreset[] = [
     id: 'graphium',
     serverName: 'graphium',
     command: 'node',
-    nodeCandidates: ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node'],
+    nodeCandidates: ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node', '~/.nvm/versions/node/*/bin/node'],
     defaultRoot: (userHome) => `${userHome}/Documents/Graphium`,
     envName: 'GRAPHIUM_ROOT',
     sourceProvider: { list: 'list_media', get: 'get_media_file', add: 'add_material' },
