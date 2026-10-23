@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.60.0](https://github.com/kumagallium/asterism/compare/v0.59.0...v0.60.0) - 2026-10-23
+
+- feat(mcp): アプリ内 /mcp に append_rows と resync_rows（上げ直し）を足し、Graphium との循環の見本を置く by @kumagallium in https://github.com/kumagallium/asterism/pull/749
+- docs(examples): Graphium のトピックを skos:Concept として写し、材料名で他のデータセットとつなぐ（#749 の上） by @kumagallium in https://github.com/kumagallium/asterism/pull/757
+
 ## [v0.59.0](https://github.com/kumagallium/asterism/compare/v0.58.0...v0.59.0) - 2026-10-23
 
 - feat: AI の適性検査 — Asterism が前提にする AI の線引きを、利用者が自分の環境で確かめられる（UI 全面再設計 11q） by @kumagallium in https://github.com/kumagallium/asterism/pull/754
