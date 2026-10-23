@@ -1221,7 +1221,7 @@ def build_local_app(
         assert settings is not None
         app.include_router(create_pdf_runtime_router(pdf_runtime, settings))
     if mcp:
-        attach_mcp(app)
+        attach_mcp(app, settings)
     if ui_dist is not None:
         app.mount("/", SpaStaticFiles(directory=str(ui_dist), html=True), name="spa")
     app.add_middleware(LoopbackTokenInjector, token=token)

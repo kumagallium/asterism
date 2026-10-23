@@ -39,9 +39,13 @@
 <p>各 AI 呼び出しで使ったトークン数の集計と、概算コストを確認できます。日・月・年の粒度で切り替えられ、機能（質問する・設計の提案など）× モデルの内訳も見られます。トークン単価を設定していないモデルの使用分は、概算コストには含まれません。GitHub Copilot（サブスク）の行は従量課金がないので、コストの欄に「サブスク（従量課金なし）」と出て、金額は計算しません。</p>
 <figure><a href="../screenshots/settings-usage.png" title="原寸で開く"><img src="../screenshots/settings-usage.png" alt="AI の使用量タブ"></a></figure>
 <h2 id="ほかの-AI-から使う-タブ">「ほかの AI から使う」タブ <span class="badge">v0.23.0 (2026-08-28) で追加</span></h2>
-<p>Asterism に取り込んだデータを、Claude Code・Claude Desktop・Cursor・VS Codeなどの AI から直接聞けるようにするタブです。データをコピーして渡すのではなく、AI に<strong>接続先</strong>（<code>http://127.0.0.1:8765/mcp</code> のようなアドレス）を教えるだけで、その AI が Asterism に問い合わせて答えます。</p>
+<p>Asterism に取り込んだデータを、Claude Code・Claude Desktop・Cursor・VS Codeなどの AI から直接聞けるようにするタブです（公開済みのデータセットに行を足すこともできます。下の「AI からデータを追記する」）。データをコピーして渡すのではなく、AI に<strong>接続先</strong>（<code>http://127.0.0.1:8765/mcp</code> のようなアドレス）を教えるだけで、その AI が Asterism に問い合わせて答えます。</p>
 <p>使っている AI を選ぶと、その AI に必要な手順と、貼り付ける内容が出ます。「コピー」ボタンで写して、AI 側に貼り付けてください。接続先は起動のたびにこの画面で確認します（別のプログラムが同じ番号を使っていると、Asterism は別の番号で起動するため）。</p>
 <p>Asterism を起動している間だけ使えます。アプリを終了すると、AI からは繋がらなくなります。</p>
+<h3 id="AI-からデータを追記する-append_rows">AI からデータを追記する（<code>append_rows</code>）</h3>
+<p>接続した AI は、聞くだけでなく、<strong>公開済みのデータセットに新しい行を足す</strong>こともできます（ツール <code>append_rows</code>）。ほかの記録の道具（実験ノート・判断の記録など）に書いたものを、AI が Asterism の形に直して渡す使い方です。</p>
+<div class="tablewrap"><table><thead><tr><th>項目</th><th>内容</th></tr></thead><tbody><tr><td>足せる先</td><td>承認して公開済みのデータセットだけ。データセットの設計は変わらず、行が増えるだけです</td></tr><tr><td>渡すもの</td><td>データセットの id・設計で読むファイルの名前（例 <code>judgments.json</code>）・1 件 1 オブジェクトの行。子の表（例 <code>rule_terms.json</code>）は同じ 1 回に一緒に渡せます</td></tr><tr><td>同じ行をもう一度</td><td>同じ内容の行は、もう一度送っても増えません（1 回分のまま）。内容を直した行は別の行として足されます（置き換えはまだできません）</td></tr><tr><td>最初の 1 回</td><td>設計はこの画面の外で人が決めて承認します（チャットにファイルを添えて作る、または設計の見本を使う）。<code>append_rows</code> はその後の回だけに使います</td></tr><tr><td>鍵</td><td>この画面の接続先（同じパソコンの中）からだけ使えます。別の鍵の配布はありません</td></tr><tr><td>直した・消した行</td><td><code>append_rows</code> では届きません。もう 1 つのツール <code>resync_rows</code> に<strong>全部の行</strong>を渡すと、元のファイルを置き直して取り込み直し、新しい版に差し替えます（id が同じなら知識グラフの名前は変わりません）。ふだんの同期はこちらを既定にし、<code>append_rows</code> は増分だけに使います</td></tr></tbody></table></div>
+<p>ほかの道具と組み合わせる手順の見本は、リポジトリの<a href="https://github.com/kumagallium/asterism/tree/main/docs/examples/graphium"><code>docs/examples/graphium/</code></a>にあります（記録の道具 Graphium で書いた判断・規則・観察を、保存のたびにAsterism へ足し、AI が検索して答えを Graphium に戻す 1 周）。</p>
 <h2 id="このアプリ-タブ">「このアプリ」タブ <span class="badge">v0.13.2 (2026-08-14) で追加</span></h2>
 <p>このパソコンに入っているアプリそのものについての設定を、1 つにまとめたタブです。インストールされているバージョンの確認と、更新の確認ができます（詳しくは <a href="./desktop.html">desktop.md</a>）。デスクトップ版では、同じタブの下に「ローカル保存先」と「PDF の読み取り」も並びます。</p>
 <h3 id="保存先">保存先 <span class="badge">v0.17.4 (2026-08-20) で追加</span></h3>

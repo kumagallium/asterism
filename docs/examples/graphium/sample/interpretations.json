@@ -1,0 +1,29 @@
+[
+  {
+    "id": "interp-b-impurity",
+    "iri": "https://kumagallium.github.io/Graphium/claim/interp-b-impurity",
+    "source_url": "https://kumagallium.github.io/Graphium/app/#knowledge/claim/interp-b-impurity",
+    "type": "https://kumagallium.github.io/asterism/vocab/shared#interpretation",
+    "type_term": "interpretation",
+    "title": "試料 B が分解しなかったのは不純物が相を安定化したためと解釈する",
+    "statement_form": "instance",
+    "claim_role": [
+      "interpretation"
+    ],
+    "epistemic_status": null,
+    "trigger_iri": [],
+    "action": null,
+    "rationale": null,
+    "rationale_rule_iri": [],
+    "outcome_iri": [],
+    "outcome_assessment": null,
+    "feature_of_interest": null,
+    "evidence": [
+      "https://kumagallium.github.io/Graphium/claim/obs-660k-intact"
+    ],
+    "review_state": "extracted",
+    "source_note": [],
+    "generated_at": "2026-10-20T09:00:00.000Z",
+    "exported_at": "2026-10-23T00:00:00.000Z"
+  }
+]

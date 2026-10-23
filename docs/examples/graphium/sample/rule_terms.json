@@ -1,0 +1,26 @@
+[
+  {
+    "rule_id": "rule-firing-650k",
+    "rule_iri": "https://kumagallium.github.io/Graphium/claim/rule-firing-650k",
+    "role": "condition",
+    "position": 0,
+    "item": "焼成温度",
+    "item_iri": "http://qudt.org/vocab/quantitykind/Temperature",
+    "comparator": "ge",
+    "value_number": 650,
+    "value_text": null,
+    "unit": "K"
+  },
+  {
+    "rule_id": "rule-firing-650k",
+    "rule_iri": "https://kumagallium.github.io/Graphium/claim/rule-firing-650k",
+    "role": "consequence",
+    "position": 0,
+    "item": "分解",
+    "item_iri": null,
+    "comparator": "present",
+    "value_number": null,
+    "value_text": null,
+    "unit": null
+  }
+]

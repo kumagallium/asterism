@@ -1,0 +1,17 @@
+# 規則に反する観察を探す（違和感検知）。
+# 規則の条件（量 ?qk が ?th 以上）を満たす観察のうち、帰結（状態 ?stateItem が ?expected）と違う観察を返す。
+# 出典は sv:source_url（Graphium のノートの URL）。
+PREFIX sv:   <https://kumagallium.github.io/asterism/vocab/shared#>
+PREFIX sosa: <http://www.w3.org/ns/sosa/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?obs ?title ?temp ?state ?url WHERE {
+  ?rule a sv:rule .
+  ?cond sv:of_rule ?rule ; sv:role "condition" ;
+        sv:item_iri ?qk ; sv:comparator "ge" ; sv:value_number ?th .
+  ?cons sv:of_rule ?rule ; sv:role "consequence" ;
+        sv:item ?stateItem ; sv:comparator ?expected .
+  ?obs a sosa:Observation ; rdfs:label ?title ; sv:source_url ?url .
+  ?r1 sv:of_observation ?obs ; sv:item_iri ?qk ; sv:value_number ?temp .
+  ?r2 sv:of_observation ?obs ; sv:item ?stateItem ; sv:value_text ?state .
+  FILTER(?temp >= ?th && ?state != ?expected)
+}

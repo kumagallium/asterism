@@ -88,3 +88,25 @@ URL の組み立ては **SPA 自身の origin** から行う（`window.location.
 - 実機: 隔離ホームで `asterism-local --port 8792` を起動し、
   `claude mcp add --transport http … http://127.0.0.1:8792/mcp` → `claude mcp list` が
   **✓ Connected**（2026-08-28）。
+
+## 6. 書き込みツール `append_rows`・`resync_rows`（2026-10-23）
+
+- アプリ内の `/mcp` だけに載せる。単独の MCP サーバ（`build_server`）は読み取り専用のまま
+  で、本番の MCP 前段の境界は変わらない。
+- 鍵はこれまでのループバック注入にそのまま乗る。新しい鍵・環境変数は足さない。
+- 中身は `POST /api/datasets/{id}/append` と同じ追記の中核を呼ぶだけ。公開済みデータセットに
+  JSON の行を足す（同一の行は再送しても増えない・変えた行は並んで入る）。
+- 意味の変化: 接続した AI（とそれが読む文章）から、公開済みの知識グラフに行が足せるように
+  なった。読み取りだけだった口に書き込みが加わるので、登録するのは信頼する AI に限る。
+- 設計（マッピング）は変えられない。最初の設計の承認は人がアプリ内で行い、このツールは
+  承認済みの設計を育てるだけ。失敗は例外にせず `{dataset_id, error, status}` で返す。
+- `resync_rows(dataset_id, files)` は**上げ直し（全量・冪等）**。source を全置換して ingest（アップ
+  ロード付き）→ promote を順に呼び、新しい版に差し替える。追記は Graph Store POST だけで古い
+  値を消さないので、元（例: 外部の記録の道具）で直した・消した・作り直した行はこちらでしか
+  届かない。ふだんの同期はこちらを既定にし、`append_rows` は増分の任意機能。IRI は行の id
+  から作るので変わらない。
+- 門は `append_rows` と同じ（公開済み・retracted／deleted でない）。未公開のデータセットは
+  公開できない（最初の公開は人の承認）。`dataset_id` は registry の id の形に限る（URL に
+  埋めるため。合わなければ 400）。rows が全部空の上げ直しは断る（公開済みを黙って空にしない）。
+- ingest の完了は `asyncio.shield` で待つ（MCP 側のキャンセルで取り込みを道連れにしない）。
+  promote だけ失敗したときは `ingested: true, promoted: false` と復旧の手がかりを返す。

@@ -1,0 +1,215 @@
+## Schema proposal
+
+### Class diagram
+```mermaid
+classDiagram
+    class Judgment
+    class Rule
+    class Interpretation
+    class Observation
+```
+
+### MIE
+```yaml
+schema_info:
+  title: Graphium の知見
+  keywords: [judgment, rule, interpretation, observation]
+  categories: []
+```
+
+### 9. Declarative mapping spec
+
+```yaml
+# Graphium の知見（judgment / rule / interpretation / sosa:Observation）を取り込む設計の見本。
+# Graphium の MCP ツール export_asterism_claims が返す flat JSON（1 件 1 オブジェクト・キーは全行に出す）
+# をそのまま読む。型は Asterism の共有語 sv:（利用者が鋳造）。主語は claimBaseIri + id。
+# source は JSON を表にした名前（judgments.json → judgments.csv。取り込み側が機械で変換する）。
+# どの map も optional: true — その回に 0 件の種類（ファイルが無い・[]）は 0 行として通す。
+version: 1
+prefixes:
+  sv: "https://kumagallium.github.io/asterism/vocab/shared#"
+  sosa: "http://www.w3.org/ns/sosa/"
+  prov: "http://www.w3.org/ns/prov#"
+  rdfs: "http://www.w3.org/2000/01/rdf-schema#"
+  dcterms: "http://purl.org/dc/terms/"
+
+# 親ファイル（判断・規則・解釈・観察）は同じ列を持つので、項目の並びを 1 回だけ書いて使い回す
+maps:
+  - name: judgment
+    source: judgments.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{id}"
+      classes: [sv:judgment]
+      label: 判断
+    properties: &claim_properties
+      - predicate: dcterms:identifier
+        column: id
+        label: 知見の id
+      - predicate: rdfs:label
+        column: title
+        label: 題
+      - predicate: sv:source_url
+        column: source_url
+        function: iri_safe
+        object_type: iri
+        label: Graphium のノートの URL
+      - predicate: sv:statement_form
+        column: statement_form
+        label: 文の形（instance / general）
+      - predicate: sv:claim_role
+        column: claim_role
+        function: json_array
+        label: 知見の役割
+      - predicate: sv:epistemic_status
+        column: epistemic_status
+        label: 認識の状態
+      - predicate: sv:trigger
+        column: trigger_iri
+        function: json_array
+        object_type: iri
+        label: きっかけになった知見
+      - predicate: sv:action
+        column: action
+        label: 行動
+      - predicate: sv:rationale
+        column: rationale
+        label: 理由
+      - predicate: sv:rationale_rule
+        column: rationale_rule_iri
+        function: json_array
+        object_type: iri
+        label: 理由にした規則
+      - predicate: sv:outcome
+        column: outcome_iri
+        function: json_array
+        object_type: iri
+        label: 結果の観察
+      - predicate: sv:outcome_assessment
+        column: outcome_assessment
+        label: 結果の評価
+      - predicate: sv:feature_of_interest
+        column: feature_of_interest
+        label: 対象
+      - predicate: sv:evidence
+        column: evidence
+        function: json_array
+        object_type: iri
+        label: 根拠
+      - predicate: sv:review_state
+        column: review_state
+        label: 確からしさ
+      - predicate: sv:source_note
+        column: source_note
+        function: json_array
+        label: 元のノート
+      - predicate: prov:generatedAtTime
+        column: generated_at
+        datatype: xsd:dateTime
+        label: 生成した時刻
+      - predicate: sv:exported_at
+        column: exported_at
+        datatype: xsd:dateTime
+        label: 書き出した時刻
+  - name: rule
+    source: rules.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{id}"
+      classes: [sv:rule]
+      label: 規則
+    properties: *claim_properties
+  - name: interpretation
+    source: interpretations.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{id}"
+      classes: [sv:interpretation]
+      label: 解釈
+    properties: *claim_properties
+  - name: observation
+    source: observations.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{id}"
+      classes: [sosa:Observation]
+      label: 観察
+    properties: *claim_properties
+  # 規則の条件・帰結（1 行 1 項目。子から親の規則へ sv:of_rule で結ぶ。向きは子→親だけ）
+  - name: rule_term
+    source: rule_terms.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{rule_id}/term/{role}/{position}"
+      label: 規則の項目
+    properties:
+      - predicate: sv:role
+        column: role
+        label: 条件か帰結か
+      - predicate: sv:of_rule
+        object_template: "https://kumagallium.github.io/Graphium/claim/{rule_id}"
+        object_type: iri
+        label: 属する規則
+      - predicate: sv:item
+        column: item
+        label: 項目
+      - predicate: sv:item_iri
+        column: item_iri
+        function: iri_safe
+        object_type: iri
+        label: 項目の量の種類
+      - predicate: sv:comparator
+        column: comparator
+        label: 比較
+      - predicate: sv:value_number
+        column: value_number
+        datatype: xsd:double
+        label: 値（数）
+      - predicate: sv:value_text
+        column: value_text
+        label: 値（文字）
+      - predicate: sv:unit
+        column: unit
+        label: 単位
+      - predicate: sv:position
+        column: position
+        datatype: xsd:integer
+        label: 並び
+  # 観察の結果（1 行 1 項目。子から親の観察へ sv:of_observation で結ぶ。向きは子→親だけ）
+  - name: observation_result
+    source: observation_terms.csv
+    optional: true
+    subject:
+      template: "https://kumagallium.github.io/Graphium/claim/{observation_id}/result/{position}"
+      label: 観察の結果
+    properties:
+      - predicate: sv:of_observation
+        object_template: "https://kumagallium.github.io/Graphium/claim/{observation_id}"
+        object_type: iri
+        label: 属する観察
+      - predicate: sv:item
+        column: item
+        label: 項目
+      - predicate: sv:item_iri
+        column: item_iri
+        function: iri_safe
+        object_type: iri
+        label: 項目の量の種類
+      - predicate: sv:comparator
+        column: comparator
+        label: 比較
+      - predicate: sv:value_number
+        column: value_number
+        datatype: xsd:double
+        label: 値（数）
+      - predicate: sv:value_text
+        column: value_text
+        label: 値（文字）
+      - predicate: sv:unit
+        column: unit
+        label: 単位
+      - predicate: sv:position
+        column: position
+        datatype: xsd:integer
+        label: 並び
+```
