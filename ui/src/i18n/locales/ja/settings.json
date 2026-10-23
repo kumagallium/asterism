@@ -367,7 +367,26 @@
 =======
       "emptyServers": "mcpServers の中身が空です。",
       "urlSecret": "URL にユーザー名・パスワードや、秘密に見える名前の引数（token= など）は入れられません。"
+<<<<<<< HEAD
 >>>>>>> 331e09aa (fix(mcp-client): レビューの指摘を反映（fastmcp の下限・秘密判定の統一・/call の引数）)
+=======
+    },
+    "preset": {
+      "title": "Graphium と連携する",
+      "intro": "Graphium に置いた表のファイルを、チャットの 📎 から取り込み元に選べるようにします。Graphium のソースを clone して `pnpm bundle:mcp` でビルドした `dist-mcp/graphium-mcp.mjs` と、この PC の Node 20 以上が要ります。",
+      "script": "Graphium の MCP サーバのファイル（graphium-mcp.mjs のフルパス）",
+      "root": "Graphium のフォルダ（vault）",
+      "node": "node のパス",
+      "nodeMissing": "node が見つかりませんでした。パスを入れてください。",
+      "command": "起動するコマンド全文（「つなぐ」を押すと、このコマンドを有効にします）",
+      "connect": "つなぐ",
+      "connected": "つながっています:",
+      "verify": "確かめる",
+      "okTools": "Graphium につながりました（{{tool}} が見つかりました）",
+      "noTool": "つながりましたが {{tool}} がありません（Graphium のビルドが古い可能性）",
+      "failed": "つなげませんでした",
+      "detailsTitle": "ほかの MCP サーバ（くわしい設定）"
+>>>>>>> cfa963bd (feat(ui): 設定タブの一番上に「Graphium と連携する」（連携のプリセット）)
     }
   }
 }

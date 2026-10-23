@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MCP_SERVER_EXAMPLES } from './mcpServerExamples'
+import { GRAPHIUM_PRESET, presetEntry, presetState } from './mcpPresets'
 import {
   buildEntryFromForm,
   looksSecret,
@@ -21,20 +21,37 @@ const base: McpFormInput = {
   url: '',
 }
 
-describe('mcp server examples', () => {
-  it('Graphium の例は stdio で、取り込み元の 3 道具名を持つ', () => {
-    const ex = MCP_SERVER_EXAMPLES.find((e) => e.id === 'graphium')
-    expect(ex?.transport).toBe('stdio')
-    expect(ex?.command).toBe('/usr/local/bin/node')
-    expect(ex?.env).toHaveProperty('GRAPHIUM_ROOT')
-    expect(ex?.sourceProvider).toEqual({ list: 'list_media', get: 'get_media_file', add: 'add_material' })
+describe('mcp presets', () => {
+  const P = GRAPHIUM_PRESET
+  const entry = presetEntry(P, { nodePath: '/usr/local/bin/node', scriptPath: '/g/dist-mcp/graphium-mcp.mjs', root: '/v' })
+  const provider = P.sourceProvider
+  const none = { list: '', get: '', add: '' }
+  it('Graphium のプリセットは取り込み元の 3 道具名を持つ', () => {
+    expect(P.serverName).toBe('graphium')
+    expect(P.envName).toBe('GRAPHIUM_ROOT')
+    expect(provider).toEqual({ list: 'list_media', get: 'get_media_file', add: 'add_material' })
+    expect(P.defaultRoot('/Users/a')).toBe('/Users/a/Documents/Graphium')
   })
-  it('例は秘密の名前を含まず、そのまま検証を通る', () => {
-    for (const ex of MCP_SERVER_EXAMPLES) {
-      const r = normalizeEntry(ex.name, ex)
-      expect(r.errors).toEqual([])
-      expect(r.warnings).toEqual([])
-    }
+  it('presetEntry は有効な stdio 1 件で、検証を通り秘密の警告もない', () => {
+    expect(entry).toEqual({
+      transport: 'stdio',
+      command: '/usr/local/bin/node',
+      args: ['/g/dist-mcp/graphium-mcp.mjs'],
+      env: { GRAPHIUM_ROOT: '/v' },
+      enabled: true,
+    })
+    const r = normalizeEntry(P.serverName, entry)
+    expect(r.errors).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+  it('presetState: off / on / partial', () => {
+    expect(presetState(P, { servers: {}, home: '', provider: none })).toBe('off')
+    expect(presetState(P, { servers: { graphium: entry }, home: 'graphium', provider })).toBe('on')
+    expect(presetState(P, { servers: { graphium: entry }, home: '', provider })).toBe('partial')
+    expect(presetState(P, { servers: { graphium: entry }, home: 'graphium', provider: none })).toBe('partial')
+    expect(presetState(P, { servers: {}, home: 'graphium', provider })).toBe('partial')
+    const off = { ...entry, enabled: false }
+    expect(presetState(P, { servers: { graphium: off }, home: '', provider })).toBe('off')
   })
 })
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
+import { flushAppSettingsAndWait, getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 import {
   buildEntryFromForm,
   envToLines,
@@ -8,10 +8,11 @@ import {
   type McpFormIssue,
   type McpServerEntry,
 } from './mcpServerForm'
-import { MCP_SERVER_EXAMPLES } from './mcpServerExamples'
+import { GRAPHIUM_PRESET, presetEntry, presetState } from './mcpPresets'
 import {
   fetchMcpServers,
   fetchMcpServerTools,
+  locateMcpCommand,
   type McpRecentCall,
   type McpToolInfo,
   type SourceProviderNames,
@@ -54,6 +55,15 @@ export function McpServersTab() {
   const [errors, setErrors] = useState<McpFormIssue[]>([])
   const [warnings, setWarnings] = useState<McpFormIssue[]>([])
 
+  // Graphium プリセットの節
+  const [located, setLocated] = useState<{ found: string | null; userHome: string } | null>(null)
+  const [openForm, setOpenForm] = useState(false)
+  const [fScript, setFScript] = useState<string | null>(null)
+  const [fRoot, setFRoot] = useState<string | null>(null)
+  const [fNode, setFNode] = useState<string | null>(null)
+  const [connectMsg, setConnectMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
   const reloadRecent = useCallback(() => {
     fetchMcpServers()
       .then((r) => setRecent(r.recent))
@@ -63,6 +73,13 @@ export function McpServersTab() {
   useEffect(() => {
     if (writable) reloadRecent()
   }, [writable, reloadRecent])
+
+  useEffect(() => {
+    if (!writable) return
+    locateMcpCommand(GRAPHIUM_PRESET.command, GRAPHIUM_PRESET.nodeCandidates)
+      .then((r) => setLocated({ found: r.found, userHome: r.user_home }))
+      .catch(() => setLocated(null))
+  }, [writable])
 
   if (!writable) {
     return (
@@ -132,9 +149,13 @@ export function McpServersTab() {
   }
 
   function fillExample() {
-    const ex = MCP_SERVER_EXAMPLES[0]
-    setName(ex.name)
-    setTransport(ex.transport)
+    const ex = presetEntry(GRAPHIUM_PRESET, {
+      nodePath: '/usr/local/bin/node',
+      scriptPath: `/path/to/Graphium/${GRAPHIUM_PRESET.scriptHint}`,
+      root: '/path/to/your/Graphium-vault',
+    })
+    setName(GRAPHIUM_PRESET.serverName)
+    setTransport('stdio')
     setCommand(ex.command)
     setArgs(ex.args.join('\n'))
     setEnv(envToLines(ex.env))
@@ -177,8 +198,146 @@ export function McpServersTab() {
 
   const names = Object.keys(servers)
 
+  const pState = presetState(GRAPHIUM_PRESET, { servers, home, provider })
+  const existing = servers[GRAPHIUM_PRESET.serverName]
+  const existingStdio = existing && existing.transport === 'stdio' ? existing : undefined
+  const scriptValue = fScript ?? existingStdio?.args?.[0] ?? ''
+  const rootValue =
+    fRoot ??
+    existingStdio?.env?.[GRAPHIUM_PRESET.envName] ??
+    (located ? GRAPHIUM_PRESET.defaultRoot(located.userHome) : '')
+  const nodeValue = fNode ?? existingStdio?.command ?? located?.found ?? ''
+  const formInput = { nodePath: nodeValue, scriptPath: scriptValue, root: rootValue }
+  const formReady = nodeValue.trim() !== '' && scriptValue.trim() !== '' && rootValue.trim() !== ''
+  const showPresetForm = pState !== 'on' && (openForm || pState === 'partial')
+  const fullCommand = (e: { command: string; args: string[]; env: Record<string, string> }) =>
+    [e.command, ...e.args].join(' ')
+
+  async function verifyPreset() {
+    setBusy(true)
+    try {
+      await flushAppSettingsAndWait() // 遅延書き込みより先に確かめに行かない
+      const list = await fetchMcpServerTools(GRAPHIUM_PRESET.serverName)
+      const has = list.some((x) => x.name === GRAPHIUM_PRESET.sourceProvider.list)
+      setConnectMsg({
+        ok: has,
+        text: has
+          ? t('mcp.preset.okTools', { tool: GRAPHIUM_PRESET.sourceProvider.list })
+          : t('mcp.preset.noTool', { tool: GRAPHIUM_PRESET.sourceProvider.list }),
+      })
+    } catch (e) {
+      setConnectMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    }
+    setBusy(false)
+    reloadRecent()
+  }
+
+  async function connectPreset() {
+    if (!formReady) return
+    const entry = presetEntry(GRAPHIUM_PRESET, formInput)
+    saveServers({ ...servers, [GRAPHIUM_PRESET.serverName]: entry })
+    changeHome(GRAPHIUM_PRESET.serverName)
+    setProvider({ ...GRAPHIUM_PRESET.sourceProvider })
+    putAppSetting('sourceProvider', GRAPHIUM_PRESET.sourceProvider)
+    if (getServerSetting<boolean>('sendOriginalsToHome') === undefined || getServerSetting<boolean>('sendOriginalsToHome') === null) {
+      setSendOriginals(true)
+      putAppSetting('sendOriginalsToHome', true)
+    }
+    setOpenForm(false)
+    await verifyPreset()
+  }
+
+  function togglePreset(checked: boolean) {
+    setConnectMsg(null)
+    if (checked) {
+      setOpenForm(true)
+      return
+    }
+    setOpenForm(false)
+    if (existing) saveServers({ ...servers, [GRAPHIUM_PRESET.serverName]: { ...existing, enabled: false } as McpServerEntry })
+    if (home === GRAPHIUM_PRESET.serverName) changeHome('')
+  }
+
+  const originalsCheck = (
+    <>
+      <label className="mcp-check">
+        <input
+          type="checkbox"
+          disabled={!home}
+          checked={sendOriginals}
+          onChange={(e) => {
+            setSendOriginals(e.target.checked)
+            putAppSetting('sendOriginalsToHome', e.target.checked)
+          }}
+        />
+        {t('mcp.originalsLabel')}
+      </label>
+      {!home && <p className="field-help">{t('mcp.originalsNoHome')}</p>}
+    </>
+  )
+  const detailsOpen = pState === 'off' && names.length >= 1
+
   return (
     <div className="connect-tab">
+      <section className="serverkeys storage-section">
+        <h4 className="serverkeys-title">{t('mcp.preset.title')}</h4>
+        <p className="field-help">{t('mcp.preset.intro')}</p>
+        <label className="mcp-check">
+          <input type="checkbox" checked={pState === 'on'} onChange={(e) => togglePreset(e.target.checked)} />
+          {t('mcp.preset.title')}
+        </label>
+        {pState === 'on' && existingStdio && (
+          <>
+            <p className="field-help">{t('mcp.preset.connected')}</p>
+            <code className="about-value mcp-command">{fullCommand(existingStdio)}</code>
+            <code className="about-value mcp-command">{`${GRAPHIUM_PRESET.envName}=${existingStdio.env?.[GRAPHIUM_PRESET.envName] ?? ''}`}</code>
+            <div className="serverkey-controls">
+              <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void verifyPreset()}>
+                {t('mcp.preset.verify')}
+              </button>
+            </div>
+          </>
+        )}
+        {showPresetForm && (
+          <>
+            <div className="mcp-form">
+              <label className="about-label">{t('mcp.preset.script')}</label>
+              <input
+                value={scriptValue}
+                onChange={(e) => setFScript(e.target.value)}
+                placeholder={`/path/to/Graphium/${GRAPHIUM_PRESET.scriptHint}`}
+              />
+              <label className="about-label">{t('mcp.preset.root')}</label>
+              <input value={rootValue} onChange={(e) => setFRoot(e.target.value)} />
+              <label className="about-label">{t('mcp.preset.node')}</label>
+              <input value={nodeValue} onChange={(e) => setFNode(e.target.value)} placeholder="/usr/local/bin/node" />
+              {located && !located.found && nodeValue === '' && (
+                <p className="field-help">{t('mcp.preset.nodeMissing')}</p>
+              )}
+            </div>
+            <p className="field-help">{t('mcp.preset.command')}</p>
+            <code className="about-value mcp-command">{`${nodeValue} ${scriptValue}`.trim()}</code>
+            <code className="about-value mcp-command">{`${GRAPHIUM_PRESET.envName}=${rootValue}`}</code>
+            <div className="serverkey-controls">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={!formReady || busy}
+                onClick={() => void connectPreset()}
+              >
+                {t('mcp.preset.connect')}
+              </button>
+            </div>
+          </>
+        )}
+        {connectMsg && (
+          <p className={connectMsg.ok ? 'field-help' : 'field-help field-error'}>{connectMsg.text}</p>
+        )}
+        {originalsCheck}
+      </section>
+
+      <details open={detailsOpen} key={detailsOpen ? 'open' : 'closed'}>
+        <summary className="about-label">{t('mcp.preset.detailsTitle')}</summary>
       <section className="serverkeys storage-section">
         <h4 className="serverkeys-title">{t('mcp.title')}</h4>
         <p className="field-help">{t('mcp.intro')}</p>
@@ -334,7 +493,7 @@ export function McpServersTab() {
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            onClick={() => changeProvider(MCP_SERVER_EXAMPLES[0].sourceProvider)}
+            onClick={() => changeProvider(GRAPHIUM_PRESET.sourceProvider)}
           >
             {t('mcp.fillExample')}
           </button>
@@ -343,19 +502,7 @@ export function McpServersTab() {
 
       <section className="serverkeys storage-section">
         <h4 className="serverkeys-title">{t('mcp.originalsTitle')}</h4>
-        <label className="mcp-check">
-          <input
-            type="checkbox"
-            disabled={!home}
-            checked={sendOriginals}
-            onChange={(e) => {
-              setSendOriginals(e.target.checked)
-              putAppSetting('sendOriginalsToHome', e.target.checked)
-            }}
-          />
-          {t('mcp.originalsLabel')}
-        </label>
-        {!home && <p className="field-help">{t('mcp.originalsNoHome')}</p>}
+        {originalsCheck}
       </section>
 
       <section className="serverkeys storage-section">
@@ -393,6 +540,7 @@ export function McpServersTab() {
           </table>
         )}
       </section>
+      </details>
     </div>
   )
 }

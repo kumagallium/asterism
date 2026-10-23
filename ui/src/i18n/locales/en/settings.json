@@ -368,7 +368,26 @@
 =======
       "emptyServers": "mcpServers is empty.",
       "urlSecret": "The URL must not carry a user name, a password, or a query parameter whose name looks like a secret (such as token=)."
+<<<<<<< HEAD
 >>>>>>> 331e09aa (fix(mcp-client): レビューの指摘を反映（fastmcp の下限・秘密判定の統一・/call の引数）)
+=======
+    },
+    "preset": {
+      "title": "Connect with Graphium",
+      "intro": "Lets you pick table files kept in Graphium as an import source from the chat 📎. You need `dist-mcp/graphium-mcp.mjs`, built by cloning the Graphium source and running `pnpm bundle:mcp`, and Node 20 or later on this PC.",
+      "script": "Graphium MCP server file (full path of graphium-mcp.mjs)",
+      "root": "Graphium folder (vault)",
+      "node": "Path to node",
+      "nodeMissing": "node was not found. Enter its path.",
+      "command": "Full command to run (pressing Connect enables this command)",
+      "connect": "Connect",
+      "connected": "Connected:",
+      "verify": "Check",
+      "okTools": "Connected to Graphium ({{tool}} was found)",
+      "noTool": "Connected, but {{tool}} is missing (the Graphium build may be out of date)",
+      "failed": "Could not connect",
+      "detailsTitle": "Other MCP servers (advanced settings)"
+>>>>>>> cfa963bd (feat(ui): 設定タブの一番上に「Graphium と連携する」（連携のプリセット）)
     }
   }
 }

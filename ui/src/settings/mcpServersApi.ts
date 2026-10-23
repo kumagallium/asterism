@@ -75,3 +75,17 @@ export async function fetchMcpServerTools(name: string): Promise<McpToolInfo[]> 
   const data = (await res.json()) as { tools?: McpToolInfo[] }
   return data.tools ?? []
 }
+
+/** node など実行ファイルの場所を探す（読むだけ・起動しない）。単一ユーザーでなければ 404。 */
+export async function locateMcpCommand(
+  command: string,
+  candidates: string[],
+): Promise<{ found: string | null; user_home: string }> {
+  const res = await fetch(`${API_BASE}/api/mcp-servers/locate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ command, candidates }),
+  })
+  if (!res.ok) throw await failure(res)
+  return (await res.json()) as { found: string | null; user_home: string }
+}

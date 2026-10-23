@@ -35,8 +35,12 @@ Asterism はこれまで MCP を**出す**だけだった（`mcp_mount.py`）。
 （[`mcp_client.py`](../../api/src/asterism_api/mcp_client.py)）を足す。
 
 - **Graphium 固有のコードは置かない。** Asterism は §3 のプロトコルの項目だけ読み、道具名
-  の既定は空。Graphium の道具名（`list_media`／`get_media_file`／`add_material`）は設定画面の
-  登録フォームの「例」（`connectRecipes` と同じ性質のデータ）として置く。
+  の既定は空。Graphium の道具名（`list_media`／`get_media_file`／`add_material`）と起動の形は
+  設定画面の**連携のプリセット**（`ui/src/settings/mcpPresets.ts`。`connectRecipes` と同じ性質の
+  データ）として置く。利用者が見るのは「Graphium と連携する」の ☑ 1 つで、入れるのは
+  `graphium-mcp.mjs` のパスだけ（node は api の `/api/mcp-servers/locate` が候補と PATH から探し、
+  vault は既定 `~/Documents/Graphium`）。汎用の登録フォームは「ほかの MCP サーバ（くわしい設定）」
+  に畳む（利用者の裁定 2026-10-23: 手段でなく目的を前に出す）。
 - **読み取りの道具を呼ぶ側**であり、書き込みの道具は `add` の 1 つだけ。しかも ✓ の送り込み
   （§7）の内部コードからだけ呼ぶ。HTTP からは呼べない。この例外は利用者の裁定「Asterism に
   落とした原本は既定で相手へ送る」に由来する。
@@ -75,6 +79,7 @@ Asterism は JSON として読めない本文を失敗として扱う。
 | **登録しただけでは動かない** | `enabled` の既定は false。画面に**コマンド全文**を出し、利用者が確かめてから有効化する。未有効のサーバには `tools`・`call`・`source-items` のどれも繋がない（409） |
 | **コマンドは設定からだけ読む** | リクエストでコマンド・引数・URL を受ける口は無い。`settings.json` を書けるのは UI の `putAppSetting` だけで、api は読むだけ（サーバ側から `settings.json` を書かない） |
 | **`/call` は allowlist 2 名** | `sourceProvider.list` と `.get` だけ。`add` は ✓ の後処理からだけ（403） |
+| **`locate` は読むだけ** | `POST /api/mcp-servers/locate {command, candidates}` は実行ファイルの存在と実行可能の検査だけで、起動も保存もしない。`command` は名前（パス区切りを拒否）。単一ユーザー限定 |
 | **起動を伴う経路は POST** | GET は状態を変えない前提（`local.py`）。`GET /api/mcp-servers` は設定の写しと直近の呼び出しを返すだけで繋がない |
 | **子を残さない** | `keep_alive=False`。接続はリクエストごとに開いて閉じる。一覧は短く、bytes を運ぶ取得は長いタイムアウト |
 | **秘密を設定に入れない** | `headers`／`auth` は保存前に拒否（`_strip_secrets` は `Authorization` を落とさないので平文で残ってしまう）。`env` の名前が秘密に見えるものは警告（api が保存時に黙って落とすため）。HTTP の認証ヘッダは v1 の範囲外 |

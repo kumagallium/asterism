@@ -238,6 +238,17 @@ export function putAppSetting(key: string, value: unknown): void {
   scheduleFlush()
 }
 
+/** 溜まっている更新を書き終えるまで待つ（「つなぐ」の直後にサーバへ確かめに行くとき用:
+ *  遅延書き込みより先に /api/mcp-servers/… を叩くと「登録されていません」になる）。 */
+export async function flushAppSettingsAndWait(): Promise<void> {
+  if (!serverMode || !pendingPatch) return
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  await flushAppSettings()
+}
+
 export function flushAppSettingsNow(): void {
   if (!serverMode || !pendingPatch) return
   if (flushTimer !== null) {
