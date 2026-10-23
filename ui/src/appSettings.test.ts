@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const put = vi.fn(async () => undefined)
+const put = vi.fn(async (_s: Record<string, unknown>) => undefined)
 let remote: Record<string, unknown> = {}
 vi.mock('./appdata', () => ({
   initAppData: async () => ({ singleUser: true }),
   fetchAppDataSettings: async () => remote,
-  putAppDataSettings: (s: Record<string, unknown>) => put(s as never),
+  putAppDataSettings: (s: Record<string, unknown>) => put(s),
 }))
 
 import { bootstrapAppSettings, flushAppSettingsNow, putAppSetting } from './appSettings'
