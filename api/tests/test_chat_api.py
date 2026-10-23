@@ -783,14 +783,14 @@ def test_second_turn_retargets_and_undo_does_not_call_the_ai(tmp_path: Path) -> 
         assert said_undo["reverted"] == ["t2"]
         assert len(llm.calls) == 2
         assert u["state"] == "none" and u["by"] == "machine"
-        assert u["reply"]["text"] == "1 つ前に戻しました"
+        assert u["reply"]["text"] == "1 つ前を取り消しました"
         back = themes.load_draft(tmp_path / "registry", did)
         assert back["relations"] == t2["before"]["relations"]
         got = client.get(f"/api/chat/sessions/{sid}").json()
         assert [t["state"] for t in got["turns"]] == ["proposed", "reverted", "none"]
         # もう戻すものが 1 つ（最初の返事）。戻すと下書きごと消える
         again = _say(client, sid, "undo")["turn"]
-        assert again["reply"]["text"] == "1 つ前に戻しました" and len(llm.calls) == 2
+        assert again["reply"]["text"] == "1 つ前を取り消しました" and len(llm.calls) == 2
         assert _draft_ids(tmp_path) == []
         nothing = _say(client, sid, "前のを取り消して")["turn"]
         assert nothing["reply"]["notes"][0]["kind"] == "info" and len(llm.calls) == 2
@@ -964,7 +964,7 @@ def test_after_confirm_an_edit_is_a_diff_on_a_seeded_draft_and_confirm_removes(
         turn = out["turn"]
         assert turn["state"] == "proposed", turn["reply"]["notes"]
         assert turn["before"] is None  # この手番で種つきの下書きを作った
-        assert turn["reply"]["sentences"] == ["「粒界散乱」を外す"]
+        assert turn["reply"]["sentences"] == ["「粒界散乱」を削除"]
         assert [o["op"] for o in turn["reply"]["ops"]] == ["remove"]
         assert "知識グラフに 用語" not in turn["reply"]["text"]
         did = out["session"]["draft_id"]

@@ -1689,7 +1689,7 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         if lonely:
             raise ThemeError(
                 "問いに関係でつながらない概念があります（問いの対象か、それにつながる関係を"
-                f"足してください）: {'、'.join(lonely[:5])}",
+                f"追加してください）: {'、'.join(lonely[:5])}",
             )
 
     # --- CQ tool names, lint -------------------------------------------------------

@@ -19,9 +19,6 @@
     "manual": "Decide by hand"
   },
   "about": {
-    "titleKind": "About this star",
-    "titleDataset": "About this dataset",
-    "titleTerm": "About this term",
     "titleStd": "Standard term",
     "titleHub": "Connection",
     "viewKind": "View {{name}} →",
@@ -55,10 +52,8 @@
     "draftOpen": "Open where you left off →",
     "knowledgeLines": "What is known",
     "answeredByKnowledge": "Knowledge {{n}}",
-    "titleQuestion": "About this question",
     "questionBack": "Pick another",
     "questionNeeds": "Terms it needs",
-    "titleProposal": "About this proposal",
     "draftDiscard": "Discard",
     "discardAsk": "This discards the draft. It cannot be undone.",
     "discardYes": "Discard",
@@ -78,9 +73,7 @@
     "example": "For example: \"Is this kind the same as Specimen?\"",
     "bind": "Let AI link",
     "bindHint": "AI proposes links for published kinds that no term has been linked to yet ({{n}}). It only proposes: nothing is written until you press “Add to the map”.",
-    "askStar": "Ask about this star",
     "askQuestion": "Write a question",
-    "starPlaceholder": "A line about this star (e.g. Is this kind the same as Specimen?)",
     "askAria": "Where this line goes"
   },
   "suggest": {
@@ -117,9 +110,6 @@
   },
   "now": {
     "star": "Now: star \"{{name}}\" — ask about this star"
-  },
-  "tools": {
-    "summary": "{{n}} sentences · add by hand"
   },
   "place": {
     "content": "What will be placed",

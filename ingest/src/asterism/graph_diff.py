@@ -821,7 +821,7 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
                 what = "kind of thing" if kind == "class" else "property"
                 out.append(f"Add {name_of(op)} ({what})")
             else:
-                out.append(f"「{name_of(op)}」を{'種類' if kind == 'class' else '項目'}として足す")
+                out.append(f"「{name_of(op)}」を{'種類' if kind == 'class' else '項目'}として追加")
         elif name == "add_relation":
             out.append(rel(op["from"], op["rel"], op["to"]))
         elif name == "retarget":
@@ -830,11 +830,11 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
         elif name == "remove":
             if op.get("target") == "concept":
                 out.append(
-                    f"「{label(op['key'])}」を外す" if lg == "ja" else f"Remove {label(op['key'])}"
+                    f"「{label(op['key'])}」を削除" if lg == "ja" else f"Delete {label(op['key'])}"
                 )
             else:
                 line = rel(op["from"], op["rel"], op["to"])
-                out.append(f"{line} を外す" if lg == "ja" else f"Remove: {line}")
+                out.append(f"{line} を削除" if lg == "ja" else f"Delete: {line}")
         elif name == "rename":
             new = name_of(op)
             old = label(op["key"])
@@ -843,7 +843,7 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
             )
         elif name == "add_question":
             q = op.get("question")
-            out.append(f"問いを足す: {q}" if lg == "ja" else f"Add a question: {q}")
+            out.append(f"問いを追加: {q}" if lg == "ja" else f"Add a question: {q}")
         elif name == "bind_column":
             col = op.get("column")
             subject = f"列「{col}」" if lg == "ja" else f"Column {col}"

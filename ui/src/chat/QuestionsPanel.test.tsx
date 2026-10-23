@@ -68,7 +68,7 @@ describe('QuestionsPanel', () => {
   it('「答えて」のボタンが行ごとに出る（薄い提案には出ない）', () => {
     const h = html(<QuestionsPanel {...props} questions={[q({ answering: 1, needs: ['t:a'] })]} proposed={['薄い']} />)
     expect(h.match(/data-testid="question-ask"/g)).toHaveLength(1)
-    expect(h).toContain('答えて')
+    expect(h).toContain('回答')
     expect(h).not.toContain('disabled')
   })
   it('busy の間は押せない', () => {

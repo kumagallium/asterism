@@ -19,9 +19,6 @@
     "manual": "手で決める"
   },
   "about": {
-    "titleKind": "この星について",
-    "titleDataset": "このデータセットについて",
-    "titleTerm": "この用語について",
     "titleStd": "標準用語",
     "titleHub": "つながり",
     "viewKind": "{{name}} を見る →",
@@ -55,10 +52,8 @@
     "draftOpen": "続きから開く →",
     "knowledgeLines": "知っていること",
     "answeredByKnowledge": "知識 {{n}}",
-    "titleQuestion": "この問いについて",
     "questionBack": "選びなおす",
     "questionNeeds": "要る用語",
-    "titleProposal": "この提案について",
     "draftDiscard": "捨てる",
     "discardAsk": "この下書きを捨てます。もとに戻せません。",
     "discardYes": "捨てる",
@@ -78,9 +73,7 @@
     "example": "たとえば「この種類は 試料 と同じもの？」",
     "bind": "AI に結ばせる",
     "bindHint": "公開済みの種類で、用語にまだ結ばれていないもの（{{n}} 件）を AI が結びます。提案が出るだけで、「図に入れる」を押すまで何も書きません。",
-    "askStar": "この星について聞く",
     "askQuestion": "問いを書く",
-    "starPlaceholder": "この星について一言（例: この種類は 試料 と同じもの？）",
     "askAria": "この一言の送り先"
   },
   "suggest": {
@@ -117,9 +110,6 @@
   },
   "now": {
     "star": "いま: 星「{{name}}」 — この星のことを聞けます"
-  },
-  "tools": {
-    "summary": "文 {{n}} 件・手で足す"
   },
   "place": {
     "content": "置く内容",

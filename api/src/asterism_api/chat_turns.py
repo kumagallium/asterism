@@ -124,7 +124,7 @@ def _reply(
 
 
 _AI_UNSET = {
-    "ja": "AI が設定されていないので、用語と関係は知識グラフの下の欄で手で足せます。"
+    "ja": "AI が設定されていないので、用語と関係は知識グラフの下の欄で手で追加できます。"
     "設定 › AI で鍵を入れると AI が提案します",
     "en": "AI is not set up, so add terms and relations by hand in the panel "
     "under the knowledge graph. "
@@ -138,7 +138,7 @@ _DROPPED = {
         "cycle": "輪になります",
         "mixed": "種類と項目が混ざります",
         "unknown_key": "知らない名前です",
-        "dismissed": "前に外したものです",
+        "dismissed": "前に削除したものです",
         "invalid": "形が合いません",
         "unsupported": "ここでは使えません",
         "dataset_only": "表の列だけに使えます",
@@ -147,14 +147,14 @@ _DROPPED = {
         "target_not_property": "下げる・上げる・変えるの相手は項目だけです",
         "not_found": "見つかりません",
         "limit": "上限に達しました",
-        "not_renamable": "名前を直せません",
+        "not_renamable": "名前を修正できません",
     },
     "en": {
         "duplicate": "already there",
         "cycle": "it would loop",
         "mixed": "a kind and an item cannot be mixed",
         "unknown_key": "unknown name",
-        "dismissed": "you removed it before",
+        "dismissed": "you deleted it before",
         "invalid": "the shape does not fit",
         "unsupported": "not usable here",
         "dataset_only": "only for table columns",
@@ -414,24 +414,24 @@ def theme_context(draft: dict) -> tuple[dict, list[dict]]:
 
 
 _SCOPE_GONE = {
-    "ja": "選んだ範囲が、この話の知識グラフにありません",
+    "ja": "選んだ対象が、このチャットの知識グラフにありません",
     "en": "The chosen scope is not in this chat's knowledge graph.",
 }
 _OUT_OF_SCOPE = {
-    "ja": "範囲の外の変更 {n} 件は外しました",
+    "ja": "対象外の変更 {n} 件を除きました",
     "en": "Left out {n} change(s) outside the scope.",
 }
 _NOTHING_IN_SCOPE = {
-    "ja": "範囲の中では変えるものがありませんでした",
-    "en": "There was nothing to change inside the scope.",
+    "ja": "対象の中に更新するものがありませんでした",
+    "en": "There was nothing to update inside the scope.",
 }
 _SCOPE_NEEDS_AI = {
-    "ja": "範囲つきの直しには AI の設定が要ります。行の「外す」は AI なしで使えます",
-    "en": "A scoped fix needs the AI to be set up. Removing a row works without it.",
+    "ja": "対象つきの修正には AI の設定が要ります。行の「削除」は AI なしで使えます",
+    "en": "A scoped edit needs the AI to be set up. Deleting a row works without it.",
 }
 _KEPT_APPROVED = {
-    "ja": "承認済みの {n} 行は残っています（「文」の行の「外す」で外せます）",
-    "en": "{n} approved row(s) remain (remove them with Remove on the row in Sentences).",
+    "ja": "承認済みの {n} 行は残っています（「関係」の行の「削除」で消せます）",
+    "en": "{n} approved row(s) remain (delete them with Delete on the row in Relations).",
 }
 _ONLY_LAST = {
     "ja": "最後の提案の行だけ承認できます",
@@ -927,11 +927,11 @@ _SHAPE_WHY = (  # (正規表現, ja) — 検査の文を利用者に見える語
 
 _SHAPE_NEXT = {  # (下書きがあるとき, 無いとき)
     "ja": (
-        "対象を 1 つに絞って言い直してください（例:「三斜晶系 は 空間群 の一種」を外して）",
+        "対象を 1 つに絞って言い直してください（例:「三斜晶系 は 空間群 の一種」を削除して）",
         "問いを 1 文で短く言い直してください",
     ),
     "en": (
-        'Narrow it to one target and say it again (for example: remove "A is a kind of B")',
+        'Narrow it to one target and say it again (for example: delete "A is a kind of B")',
         "Please say the question again in one short sentence",
     ),
 }
@@ -969,8 +969,8 @@ def _shape_note(base: str, raw: str, lg: str, *, has_draft: bool = True) -> str:
 
 
 _REMOVE_HINT = {
-    "ja": "承認済みの用語は、その点を押して「戻す」で外せます",
-    "en": "An approved term can be removed: press its point and choose Undo",
+    "ja": "承認済みの用語は、その点を選んで「削除」で消せます",
+    "en": "An approved term can be deleted: select its point and choose Delete",
 }
 
 
@@ -1028,9 +1028,9 @@ def apply_text_turn(
         detail = _AI_FAILED[lg][reason]  # network の詳細は session.json に残さない
         logger.warning("chat turn: AI failed (%s): %s", reason, ai_result.get("detail") or "")
         said = (
-            "今回は知識グラフを変えられませんでした。"
+            "今回は知識グラフを更新できませんでした。"
             if lg == "ja"
-            else "The knowledge graph was not changed."
+            else "Could not update the knowledge graph."
         )
         if reason == "shape":  # 11n: 理由の要約と次の一手を人に見せる
             detail = _shape_note(
@@ -1278,7 +1278,7 @@ def _created_turn(
     shape = _answer_shape(answer, draft["concepts"], lg)
     wanted = str(answer.get("wanted_data") or "").strip()
     if lg == "ja":
-        said = f"知識グラフに 用語 {n_concepts}・関係 {n_rels} を足しました。"
+        said = f"知識グラフに 用語 {n_concepts}・関係 {n_rels} を追加しました。"
         said += f"答え方: {shape}。" if shape else "答え方: まだ決まっていません。"
         if wanted:
             said += f"欲しいデータ: {wanted}"
@@ -1315,9 +1315,9 @@ def _created_turn(
         notes.append(
             note(
                 "dropped",
-                f"前に外したものは入れていません: 用語 {gc}・関係 {gr}"
+                f"前に削除したものは入れていません: 用語 {gc}・関係 {gr}"
                 if lg == "ja"
-                else f"Left out what you removed before: {gc} concepts, {gr} relations",
+                else f"Left out what you deleted before: {gc} concepts, {gr} relations",
             )
         )
     return _append_turn(
@@ -1402,10 +1402,10 @@ def _apply_diff(
     if not said:
         n = report["applied"]
         if lg == "ja":
-            said = f"知識グラフを {n} 件直しました。" if n else "知識グラフは変えていません。"
+            said = f"知識グラフを {n} 件更新しました。" if n else "知識グラフは更新していません。"
         else:
             said = (
-                f"Changed {n} things in the knowledge graph."
+                f"Updated {n} things in the knowledge graph."
                 if n
                 else "The knowledge graph is unchanged."
             )
@@ -1430,9 +1430,9 @@ def run_undo_turn(session: dict, text: str, *, root: Any, at: str, lang: str) ->
             revert(session, proposed[-1]["id"], root=root, at=at, lang=lang)
         except TurnRefused as exc:
             return _machine_turn(session, text, str(exc), lg, [note("info", str(exc))], at)
-        said = "1 つ前に戻しました" if lg == "ja" else "Undid the last step"
+        said = "1 つ前を取り消しました" if lg == "ja" else "Undid the last step"
         return _machine_turn(session, text, said, lg, [], at)
-    said = "戻すものがありません" if lg == "ja" else "There is nothing to undo"
+    said = "取り消すものがありません" if lg == "ja" else "There is nothing to undo"
     return _machine_turn(session, text, said, lg, [note("info", said)], at)
 
 
@@ -1483,7 +1483,7 @@ def run_ops_turn(
     if applied_sentences:
         said = "・".join(applied_sentences)
     else:
-        said = "足せるものがありませんでした。" if lg == "ja" else "Nothing could be added."
+        said = "追加できるものがありませんでした。" if lg == "ja" else "Nothing could be added."
     return _append_turn(
         session,
         at=at,
@@ -1504,20 +1504,20 @@ def run_ops_turn(
 
 _REMOVE_TEXT = {
     "ja": {
-        "draft": "承認していないものは、その提案を戻してください",
-        "std": "標準の語は外せません",
+        "draft": "承認していないものは、その提案を取り消してください",
+        "std": "標準の語は削除できません",
         "no_term": "その用語はありません",
         "no_relation": "その関係はありません",
-        "bad_relation": "その関係は外せません",
+        "bad_relation": "その関係は削除できません",
         "outside": "この用語・関係が入っている知識グラフが見つかりません",
         "not_here": "いま開いている提案には入っていません",
     },
     "en": {
-        "draft": "Something not yet approved is undone by reverting its proposal",
-        "std": "A standard term cannot be removed",
+        "draft": "Something not yet approved is undone by undoing its proposal",
+        "std": "A standard term cannot be deleted",
         "no_term": "No such term",
         "no_relation": "No such relation",
-        "bad_relation": "That relation cannot be removed",
+        "bad_relation": "That relation cannot be deleted",
         "outside": "No knowledge graph holds this term or relation",
         "not_here": "It is not in the proposal that is open",
     },
@@ -2443,12 +2443,12 @@ def run_ask_unavailable_turn(session: dict, text: str, *, at: str, lang: str) ->
 # ---- 確認済みの戻す（11d） ---------------------------------------------------------------------
 
 _DATA_NO_REVERT = {
-    "ja": "公開したデータは戻せません（データの削除で）",
-    "en": "Published data cannot be reverted (delete it from Data)",
+    "ja": "公開したデータは取り消せません（データの削除で）",
+    "en": "Published data cannot be undone (delete it from Data)",
 }
 
 
-_REVERT_FAILED = {"ja": "外せませんでした", "en": "could not be removed"}
+_REVERT_FAILED = {"ja": "削除できませんでした", "en": "could not be deleted"}
 
 
 async def _term_name(client: Any, slug: str) -> str:
@@ -2493,7 +2493,7 @@ async def revert_confirmed(
     if turn.get("state") != "confirmed" or not isinstance(commit, dict):
         raise TurnRefused(
             409,
-            "戻せるのは承認済みの手番だけです"
+            "取り消せるのは承認済みの手番だけです"
             if lg == "ja"
             else "Only approved turns can be undone",
         )
