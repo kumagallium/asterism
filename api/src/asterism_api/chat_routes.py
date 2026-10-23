@@ -993,9 +993,9 @@ def register_chat(
         body_undone = {**body_undone, "failed": failed}
         return JSONResponse(
             {
-                "detail": "外せないものがありました。もう一度試してください"
+                "detail": "削除できないものがありました。もう一度試してください"
                 if lang != "en"
-                else "Some items could not be removed. Please try again.",
+                else "Some items could not be deleted. Please try again.",
                 "turn": turn,
                 "session": _head(session),
                 "draft": _draft_card(session, lang),

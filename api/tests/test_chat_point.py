@@ -297,6 +297,13 @@ NAMES = {
         ("試料を図に足して", False, "graph"),
         ("値段の記録を見せて、図に足して", False, "graph"),
         ("試料を外して 答えて", False, "graph"),  # 図を直す語が勝つ
+        ("試料を図に追加して", False, "graph"),
+        ("試料を削除して 回答して", False, "graph"),  # 新しい語も図を直す語が勝つ
+        ("粒界散乱を修正して", False, "graph"),
+        ("取り消して", False, "graph"),  # 前置き無しは undo の形ではない
+        ("さっきのを取り消して", False, "undo"),
+        ("What is the price? answer", False, "ask"),
+        ("価格を回答して", False, "ask"),
         ("粒界散乱は格子熱伝導率を下げる", False, "graph"),
     ],
 )
@@ -479,7 +486,7 @@ def test_published_data_cannot_be_reverted(tmp_path: Path) -> None:
                            "attachment": {"dataset_id": "d"}})  # fmt: skip
         chat_sessions.save_session(tmp_path / "registry", s)
         r = client.post(f"/api/chat/sessions/{sid}/turns/t1/revert")
-        assert r.status_code == 409 and "公開したデータは戻せません（データの削除で）" in r.text
+        assert r.status_code == 409 and "公開したデータは取り消せません（データの削除で）" in r.text
 
 
 def test_reverting_a_confirmed_machine_turn_removes_its_lines_and_dismisses(
@@ -646,7 +653,7 @@ def test_remove_refuses_a_published_kind(tmp_path: Path) -> None:
     with client:
         sid = _new(client)
         r = client.post(f"/api/chat/sessions/{sid}/turns", json={"remove": {"iri": EX + "Sample"}})
-        assert r.status_code == 422 and "公開したデータは戻せません" in r.text
+        assert r.status_code == 422 and "公開したデータは取り消せません" in r.text
 
 
 def test_ask_turns_are_not_in_the_chart_history() -> None:

@@ -222,12 +222,12 @@ _KEPT = {
     "ja": {
         "question": "問いが使っています",
         "linked": "ほかの関係が残っています",
-        "failed": "外せませんでした",
+        "failed": "削除できませんでした",
     },
     "en": {
         "question": "a question uses it",
         "linked": "other relations still use it",
-        "failed": "could not be removed",
+        "failed": "could not be deleted",
     },
 }
 

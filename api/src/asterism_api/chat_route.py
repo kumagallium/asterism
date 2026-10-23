@@ -42,7 +42,7 @@ missing and choose "propose" instead.
 
 When you are unsure, choose "chat" and end the reply with a short sentence saying they can
 also add it to the knowledge graph. Write that sentence in the person's language:
-Japanese "知識グラフに足すこともできます", English "You can also add it to the knowledge graph".
+Japanese "知識グラフに追加することもできます", English "You can also add it to the knowledge graph".
 
 The context lines tell you the state of the conversation; use them only to decide.
 Reply in the language named in "Reply language".

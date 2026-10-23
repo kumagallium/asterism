@@ -110,7 +110,7 @@ def test_scoped_text_skips_the_router_puts_scope_in_the_prompt_and_drops_the_res
         turn = out["turn"]
         assert [o["op"] for o in turn["reply"]["ops"]] == ["add_concept", "add_relation"]
         (n,) = [x for x in turn["reply"]["notes"] if x["kind"] == "info"]
-        assert n["text"] == "範囲の外の変更 1 件は外しました"
+        assert n["text"] == "対象外の変更 1 件を除きました"
         draft = themes.load_draft(root, out["session"]["draft_id"])
         assert any(c["label_ja"] == "点欠陥散乱" for c in draft["concepts"])
         assert any(c["label_ja"] == "ナノ析出物" for c in draft["concepts"])
@@ -288,7 +288,7 @@ def test_after_one_row_approval_double_sum_and_revert(tmp_path: Path) -> None:
         assert any(c["label_ja"] == "ナノ析出物" for c in kept["concepts"])
         assert len(kept["relations"]) == len(draft["relations"])  # 種の行 + 承認した 1 行
         notes = [n["text"] for n in r.json()["turn"]["reply"]["notes"]]
-        assert "承認済みの 1 行は残っています（「文」の行の「外す」で外せます）" in notes
+        assert "承認済みの 1 行は残っています（「関係」の行の「削除」で消せます）" in notes
         assert any(c["label_ja"] == "点欠陥散乱" for c in kept["concepts"]) is True
 
 
@@ -339,8 +339,8 @@ def test_everything_outside_the_scope_is_a_plain_sentence_and_no_change(tmp_path
         out = _say(client, sid, "足して", scope={"node": "t|" + iris["電子熱伝導率"]})
         turn = out["turn"]
         assert turn["state"] == "none" and turn["reply"]["ops"] == []
-        assert turn["reply"]["text"] == "範囲の中では変えるものがありませんでした"
-        assert turn["reply"]["notes"][0]["text"] == "範囲の外の変更 3 件は外しました"
+        assert turn["reply"]["text"] == "対象の中に更新するものがありませんでした"
+        assert turn["reply"]["notes"][0]["text"] == "対象外の変更 3 件を除きました"
 
 
 def test_line_scope_keeps_only_that_line() -> None:

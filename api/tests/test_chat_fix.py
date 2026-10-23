@@ -129,6 +129,18 @@ def test_parse_remove_by_sentence() -> None:
     assert ops and ops[0]["rel"] == "part" and ops[0]["to"] == "c"
 
 
+def test_parse_remove_new_words_same_as_old() -> None:
+    old = chat_intent.parse_remove("「三斜晶系 は 空間群 の一種」を外して", DRAFT)
+    assert chat_intent.parse_remove("「三斜晶系 は 空間群 の一種」を削除して", DRAFT) == old
+    assert chat_intent.parse_remove("delete triclinic is a part of 熱伝導率", DRAFT)
+
+
+def test_fix_words_include_edit() -> None:
+    assert chat_intent.has_fix_words("この関係を修正")
+    assert chat_intent.has_fix_words("ここは直して")
+    assert chat_intent.is_undo("さっきのを取り消して") and chat_intent.is_undo("undo")
+
+
 def test_parse_remove_not_a_kind() -> None:
     ops = chat_intent.parse_remove("三斜晶系は空間群の一種ではない", DRAFT)
     assert ops and (ops[0]["from"], ops[0]["rel"], ops[0]["to"]) == ("b", "sub", "a")
@@ -172,7 +184,7 @@ def test_remove_form_and_hint_turn() -> None:
     assert not chat_intent.is_remove_form("熱伝導率を広げて")
     session = {"id": "s", "turns": []}
     t = chat_turns.run_hint_turn(session, "熱伝導率を外して", at="t", lang="ja")
-    assert t["state"] == "none" and "戻す" in t["reply"]["text"]
+    assert t["state"] == "none" and "削除" in t["reply"]["text"]
 
 
 def test_shape_why_ja_for_theme_errors_and_next_step() -> None:

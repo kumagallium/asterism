@@ -417,7 +417,7 @@ def test_the_theme_confirm_and_undo_ignore_table_turns(tmp_path: Path) -> None:
             f"/api/chat/sessions/{sid}/turns", json={"text": "さっきのを戻して"}, headers=KEY
         )
         assert r.status_code == 201, r.text
-        assert "戻すものがありません" in r.json()["turn"]["reply"]["text"]
+        assert "取り消すものがありません" in r.json()["turn"]["reply"]["text"]
         assert _turn(client, sid, turn["id"])["state"] == "proposed"
         session = chat_sessions.load_session(tmp_path / "registry", sid)
         assert session is not None
