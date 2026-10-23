@@ -616,7 +616,7 @@ def test_remove_from_a_point_proposes_then_confirm_removes(tmp_path: Path) -> No
         assert r.status_code == 201, r.text
         turn = r.json()["turn"]
         assert turn["state"] == "proposed" and turn["by"] == "human"
-        assert turn["reply"]["sentences"] == ["「粒界散乱」を外す"]
+        assert turn["reply"]["sentences"] == ["「粒界散乱」を削除"]
         (card,) = client.get("/api/sky").json()["proposed"]
         assert card["removals"]["terms"] == [iris["粒界散乱"]]
         c = client.post(f"{base}/{turn['id']}/confirm", json={})

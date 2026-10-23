@@ -964,7 +964,7 @@ def test_after_confirm_an_edit_is_a_diff_on_a_seeded_draft_and_confirm_removes(
         turn = out["turn"]
         assert turn["state"] == "proposed", turn["reply"]["notes"]
         assert turn["before"] is None  # この手番で種つきの下書きを作った
-        assert turn["reply"]["sentences"] == ["「粒界散乱」を外す"]
+        assert turn["reply"]["sentences"] == ["「粒界散乱」を削除"]
         assert [o["op"] for o in turn["reply"]["ops"]] == ["remove"]
         assert "知識グラフに 用語" not in turn["reply"]["text"]
         did = out["session"]["draft_id"]

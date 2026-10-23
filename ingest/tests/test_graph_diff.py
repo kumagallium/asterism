@@ -416,13 +416,13 @@ def test_sentences_use_the_screens_wording_in_both_languages() -> None:
     ]  # fmt: skip
     ja = gd.ops_to_sentences(ops, graph, "ja")
     assert ja[0] == "粒界散乱 は 格子熱伝導率 を下げる に付け替え"
-    assert ja[1] == "「点欠陥散乱」を種類として足す"
+    assert ja[1] == "「点欠陥散乱」を種類として追加"
     assert ja[2] == "点欠陥散乱 は 格子熱伝導率 を下げる"
     assert ja[3] == "格子熱伝導率 は 熱伝導率 の一部"
-    assert ja[4] == "粒界散乱 は 熱伝導率 を下げる を外す"
-    assert ja[5] == "「粒界散乱」を外す"
+    assert ja[4] == "粒界散乱 は 熱伝導率 を下げる を削除"
+    assert ja[5] == "「粒界散乱」を削除"
     assert ja[6] == "「粒界散乱」の名前を「粒界での散乱」に"
-    assert ja[7] == "問いを足す: 何が下げる？"
+    assert ja[7] == "問いを追加: 何が下げる？"
     assert ja[8].startswith("熱伝導率 の量は ") and "標準" in ja[8]
     en = gd.ops_to_sentences(ops[:4], graph, "en")
     assert en[0] == "Move to: grain boundary scattering lowers lattice thermal conductivity"
