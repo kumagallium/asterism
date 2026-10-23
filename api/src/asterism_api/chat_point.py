@@ -409,6 +409,11 @@ class _DraftView:
             "reason": r.get("reason") or None,
             "session_id": self.session_id,
             "turn_id": (turn or {}).get("id"),
+            # 11o: 行を特定する鍵（外す・承認・範囲に使う）。下書きの鍵と短い関係名
+            "from": str(r.get("from")),
+            "rel": rel,
+            "to": str(r.get("to")),
+            "draft_id": self.draft_id,
         }
 
     def revert_of(self, out: dict[str, Any], turn: dict[str, Any] | None) -> None:

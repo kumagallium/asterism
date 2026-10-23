@@ -134,8 +134,26 @@ class RemoveBody(BaseModel):
         return self
 
 
+class ScopeLine(BaseModel):
+    """範囲の 1 行。下書きの鍵・短い関係名、承認済みの行は IRI（サーバが slug に直す）。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str = Field(alias="from", min_length=1, max_length=500)
+    rel: str = Field(min_length=1, max_length=500)
+    to: str = Field(min_length=1, max_length=500)
+
+
+class ScopeBody(BaseModel):
+    """チャットの範囲（11o）。``node`` = UI の点の id（``t|<iri>``・``k|<データセット>|<iri>``・
+    ``draft|<下書き>|<鍵>``）。``line`` = 範囲を 1 行に絞るとき。"""
+
+    node: str = Field(min_length=1, max_length=1000)
+    line: ScopeLine | None = None
+
+
 class TurnBody(BaseModel):
     text: str | None = None
+    scope: ScopeBody | None = None
     set_answer: SetAnswerBody | None = None
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
     choice: ChoiceBody | None = None
@@ -143,6 +161,20 @@ class TurnBody(BaseModel):
     # 「答えて」／「知識グラフに足す」チップ: 振り分けを飛ばして Ask／提案へ
     intent: Literal["ask", "propose"] | None = None
     lang: Literal["ja", "en"] = "ja"
+
+
+class OnlyRelation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str = Field(alias="from", min_length=1, max_length=500)
+    rel: str = Field(min_length=1, max_length=500)
+    to: str = Field(min_length=1, max_length=500)
+
+
+class OnlyBody(BaseModel):
+    """1 行の承認（11o）— 選んだ行（と両端の未承認の概念）だけを承認する。"""
+
+    relations: list[OnlyRelation] = Field(default_factory=list, max_length=20)
+    concepts: list[str] = Field(default_factory=list, max_length=40)
 
 
 class BindingDecision(BaseModel):
@@ -154,6 +186,8 @@ class ConfirmBody(BaseModel):
     lang: Literal["ja", "en"] = "ja"
     #: 📎 の表の ✓ で、列ごとの「結ぶ／結ばない」
     bindings: list[BindingDecision] | None = Field(default=None, max_length=500)
+    #: 11o: 1 行の承認（テーマがあるときだけ）
+    only: OnlyBody | None = None
 
 
 def _ai_unset(key: str | None, provider: str, api_base: str | None) -> bool:
@@ -512,6 +546,14 @@ def register_chat(
         x_llm_max_tokens: str | None = Header(default=None),
     ) -> JSONResponse:
         has_text = body.text is not None
+        # 11o: 範囲（点か行）。範囲つきの文は AI の振り分けを飛ばして提案（直し）へ
+        scope: dict | None = None
+        if body.scope is not None and has_text:
+            ln = body.scope.line
+            scope = {
+                "node": body.scope.node,
+                "line": {"from": ln.from_, "rel": ln.rel, "to": ln.to} if ln else None,
+            }
         given = [
             body.text is not None,
             body.ops is not None,
@@ -601,6 +643,7 @@ def register_chat(
         propose_forced = has_text and body.intent == "propose"  # チップ: 1・2 を飛ばす
         if (
             has_text
+            and scope is None
             and not propose_forced
             and not chat_turns.is_undo(text)
             and chat_intent.may_need_names(text)
@@ -668,6 +711,7 @@ def register_chat(
             llm is not None
             and has_text
             and body.intent != "propose"
+            and scope is None  # 範囲つきは直しに決まっている
             and not chat_intent.has_graph_words(text)  # 図の言葉は決定論で提案へ
             and not (has_draft_now and chat_intent.has_fix_words(text))  # 指摘・訂正も提案へ
         ):
@@ -713,9 +757,12 @@ def register_chat(
         if llm is not None:
             async with lock:  # 1. 準備（読むだけ）
                 session = _session_or_404(session_id)
-                prepared = chat_turns.prepare_text_turn(
-                    session, text, root=root, existing=existing, lang=body.lang
-                )
+                try:
+                    prepared = chat_turns.prepare_text_turn(
+                        session, text, root=root, existing=existing, lang=body.lang, scope=scope
+                    )
+                except chat_turns.TurnRefused as exc:
+                    raise _refused(exc) from exc
             result: dict | None = None
             if prepared.mode != "refuse":  # 2. AI（ロックの外）
                 result = await chat_turns.ai_text_turn(prepared, llm)
@@ -822,9 +869,22 @@ def register_chat(
             if attach_out is None:
                 was = {t["id"] for t in session["turns"] if t.get("state") == "proposed"}
                 try:
-                    turn, commit = await chat_turns.confirm(
-                        session, turn_id, client=_client(), lang=lang, root=root, at=_now()
-                    )
+                    if body is not None and body.only is not None:
+                        only = {
+                            "relations": [
+                                {"from": r.from_, "rel": r.rel, "to": r.to}
+                                for r in body.only.relations
+                            ],
+                            "concepts": list(body.only.concepts),
+                        }
+                        turn, commit = await chat_turns.confirm_only(
+                            session, turn_id, only, client=_client(), lang=lang, root=root,
+                            existing=await _terms(), fetch_terms=_terms, at=_now(),
+                        )  # fmt: skip
+                    else:
+                        turn, commit = await chat_turns.confirm(
+                            session, turn_id, client=_client(), lang=lang, root=root, at=_now()
+                        )
                 except chat_turns.TurnRefused as exc:
                     raise _refused(exc) from exc
                 except Exception as exc:  # 書き込みの失敗（commit_theme は巻き戻し済み）

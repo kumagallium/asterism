@@ -561,6 +561,7 @@ def graph_diff_user_message(
     message: str,
     lang: str | None,
     problem: str | None = None,
+    scope: str | None = None,
 ) -> str:
     """The user message: the graph's NAMES (never data), the term / standard names, the column
     HEADINGS with a type hint (a dataset only), the recent conversation, and the person's
@@ -594,9 +595,13 @@ def graph_diff_user_message(
             for m in recent
         ]
         parts.append("# Conversation so far\n" + "\n".join(turns))
+    if scope:  # 11o: 人が絞った範囲（この点・この 1 文の外は変えない）
+        parts.append("# Scope \u2014 change only this\n" + scope[:_LEN_SCOPE])
     parts.append("# The person now says\n" + " ".join(message.split())[:_LEN_MESSAGE])
     return "\n\n".join(parts) + _language_tail(lang) + _problem_tail(problem)
 
+
+_LEN_SCOPE = 3000
 
 #: 形が合わないときの試行の数（最初 + 聞き直し 2 回）
 _ATTEMPTS = 3
@@ -634,6 +639,7 @@ def propose_graph_diff(
     messages: list[dict] | None = None,
     message: str,
     lang: str | None = None,
+    scope: str | None = None,
 ) -> dict:
     """One guided call (up to two retries when the shape is refused) → ``{reply, ops}`` validated,
     with the ops cut to what the screen can take (:func:`filter_ops_for_screen`).
@@ -669,6 +675,7 @@ def propose_graph_diff(
             message=message,
             lang=lang,
             problem=problem,
+            scope=scope,
         )
         if attempt == _ATTEMPTS - 1 and previous is not None:
             first = next((str(c.get('key')) for c in graph.get('concepts') or []), '<key>')

@@ -56,8 +56,11 @@ __all__ = [
     "blank_answer",
     "commit_body",
     "confirm",
+    "confirm_only",
+    "filter_ops_to_scope",
     "is_undo",
     "prepare_text_turn",
+    "resolve_scope",
     "revert",
     "revert_confirmed",
     "run_ask_turn",
@@ -67,6 +70,7 @@ __all__ = [
     "run_show_turn",
     "run_text_turn",
     "run_undo_turn",
+    "scope_prompt",
     "sync_answers",
     "theme_context",
 ]
@@ -407,6 +411,154 @@ def theme_context(draft: dict) -> tuple[dict, list[dict]]:
     return graph, themes.default_standards(list(draft.get("questions") or []))
 
 
+_SCOPE_GONE = {
+    "ja": "選んだ範囲が、この話の知識グラフにありません",
+    "en": "The chosen scope is not in this chat's knowledge graph.",
+}
+_OUT_OF_SCOPE = {
+    "ja": "範囲の外の変更 {n} 件は捨てました",
+    "en": "Dropped {n} change(s) outside the scope.",
+}
+_ONE_HOP_MAX = 40
+
+
+def _rel_short(rel: str) -> str:
+    """関係名の正規化 — 述語の IRI／局所名 → 図の短い関係名（短い名はそのまま）。"""
+    local = re.split(r"[/#]", rel.strip())[-1]
+    return graph_diff.PRED_TO_REL.get(local) or rel
+
+
+def _scope_gone(lg: str) -> TurnRefused:
+    return TurnRefused(400, _SCOPE_GONE[lg])
+
+
+def resolve_scope(
+    scope: dict,
+    graph: dict,
+    existing: list[SharedTerm],
+    lg: str,
+    *,
+    draft_id: str | None = None,
+) -> dict:
+    """範囲 ``{"node", "line"?}`` を、図（``theme_context`` の ``graph``）の鍵に直す。
+    返り = ``{"keys": [鍵], "name": 表示名, "line": [from, rel, to] | None}``。
+    点の id は ``t|<iri>``・``k|<データセット>|<iri>``（承認済みの用語 → ``existing:<slug>``）と
+    ``draft|<下書き>|<鍵>``（``draft:`` の形も可）。図に無ければ 400。"""
+    concepts = {str(c.get("key")): c for c in graph.get("concepts") or []}
+    by_iri = {t.iri: t.slug for t in existing}
+    slug_key = {
+        str(c.get("use"))[len("existing:") :]: k
+        for k, c in concepts.items()
+        if str(c.get("use") or "").startswith("existing:")
+    }
+    cache: dict[str, Any] = {}
+
+    def key_of_iri(iri: str) -> str | None:
+        slug = by_iri.get(iri)
+        if slug is not None:
+            return slug_key.get(slug)
+        ref = chat_seed._std_by_iri(iri, cache)  # 標準の語の端は curie が鍵
+        return ref.curie if ref is not None else None
+
+    def end(ref: str) -> str | None:
+        if ref in concepts:
+            return ref
+        if ref.startswith("http"):
+            return key_of_iri(ref)
+        return ref if ":" in ref and not ref.startswith(("draft", "t|")) else None
+
+    def label(k: str) -> str:
+        c = concepts.get(k)
+        if c is None:
+            ref = themes.std_by_curie(k) if ":" in k else None
+            return ref.label if ref is not None else k
+        return _name(c, lg) or k
+
+    line = scope.get("line")
+    if line:
+        f = end(str(line["from"]))
+        t = end(str(line["to"]))
+        rel = _rel_short(str(line["rel"]))
+        has = any(
+            (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) == (f, rel, t)
+            for r in graph.get("relations") or []
+        )
+        if f is None or t is None or not has:
+            raise _scope_gone(lg)
+        return {"keys": [f, t], "name": f"{label(f)} - {label(t)}", "line": [f, rel, t]}
+    node = str(scope.get("node") or "")
+    key: str | None
+    if node.startswith(("draft|", "draft:")):
+        parts = node.replace("draft:", "draft|", 1).split("|", 2)
+        if len(parts) != 3 or (draft_id is not None and parts[1] != draft_id):
+            raise _scope_gone(lg)
+        key = parts[2] if parts[2] in concepts else None
+    elif node.startswith("t|"):
+        key = key_of_iri(node[2:])
+    elif node.startswith("k|"):
+        key = key_of_iri(node.split("|", 2)[-1])
+    else:
+        key = None
+    if key is None:
+        raise _scope_gone(lg)
+    return {"keys": [key], "name": label(key), "line": None}
+
+
+def scope_prompt(scope: dict, graph: dict) -> str:
+    """prompt の「# Scope」節の本文（点の名前・その 1 ホップの文・行ならその 1 文）。"""
+    names = {str(c.get("key")): c for c in graph.get("concepts") or []}
+
+    def nm(k: str) -> str:
+        c = names.get(k)
+        return f"{k} ({(c or {}).get('label_ja') or (c or {}).get('label_en') or k})"
+
+    keys = set(scope["keys"])
+    line = scope.get("line")
+    if line:
+        head = f"Only this one relation: {nm(line[0])} -[{line[1]}]-> {nm(line[2])}"
+        near = []
+    else:
+        head = f"Only this item: {nm(scope['keys'][0])}"
+        near = [
+            f"{nm(str(r.get('from')))} -[{r.get('rel')}]-> {nm(str(r.get('to')))}"
+            for r in graph.get("relations") or []
+            if keys & {str(r.get("from")), str(r.get("to"))}
+        ][:_ONE_HOP_MAX]
+    return (
+        head
+        + ("\nRelations touching it:\n" + "\n".join(near) if near else "")
+        + "\nChange nothing that does not touch this. New items only if they connect to it."
+    )
+
+
+def filter_ops_to_scope(ops: list[dict], scope: dict | list | set) -> tuple[list[dict], list[dict]]:
+    """差分を範囲に触れる操作だけにする（純関数）→ ``(残す, 捨てる)``。``scope`` = ``resolve_scope``
+    の結果（または鍵の集まり）。概念 = 鍵が範囲の点（線なら両端）。関係 = 両端のどちらかが範囲。
+    ``add_concept`` は、範囲の点に結ぶ ``add_relation`` が同じ差分にあるときだけ。"""
+    keys = set(scope["keys"] if isinstance(scope, dict) else scope)
+    kept_rel = [
+        o for o in ops if o.get("op") == "add_relation" and keys & {o.get("from"), o.get("to")}
+    ]
+    linked = {x for o in kept_rel for x in (o.get("from"), o.get("to"))} - keys
+
+    def keep(o: dict) -> bool:
+        name = o.get("op")
+        if name == "add_concept":
+            return o.get("key") in keys or o.get("key") in linked
+        if name in ("add_relation", "remove", "retarget") and (
+            name != "remove" or o.get("target") == "relation"
+        ):
+            return bool(keys & {o.get("from"), o.get("to"), o.get("new_to")})
+        if name in ("remove", "rename"):
+            return o.get("key") in keys
+        if name == "add_question":
+            return o.get("target") in keys
+        return False
+
+    kept = [o for o in ops if keep(o)]
+    return kept, [o for o in ops if not keep(o)]
+
+
 @dataclass
 class PreparedTurn:
     """準備（ロックの中・読むだけ）の結果。``mode`` = ``create``（テーマも下書きも無い）/
@@ -428,6 +580,8 @@ class PreparedTurn:
     standards: list[dict] = field(default_factory=list)
     messages: list[dict] = field(default_factory=list)
     refusal: str = ""
+    #: 11o: 範囲（``resolve_scope`` の結果）。あれば prompt に節を足し、返った差分を範囲に絞る
+    scope: dict | None = None
 
 
 def _history(session: dict) -> list[dict]:
@@ -459,8 +613,11 @@ def prepare_text_turn(
     root: Any,
     existing: list[SharedTerm],
     lang: str,
+    scope: dict | None = None,
 ) -> PreparedTurn:
-    """AI に渡すものを組む（読むだけ・``session`` も下書きも書き換えない）。"""
+    """AI に渡すものを組む（読むだけ・``session`` も下書きも書き換えない）。
+    ``scope``（11o）= ``{"node": …, "line": {from, rel, to} | None}``。あれば問いとは読まず、
+    下書き（無ければ確認済みのテーマの種）の中でその範囲を探す（無ければ 400）。"""
     lg = _lg(lang)
     text = text.strip()
     draft = themes.load_draft(root, session["draft_id"]) if session.get("draft_id") else None
@@ -469,7 +626,8 @@ def prepare_text_turn(
         for t in existing
     ]
     theme = _theme_of(session, root) if draft is None else None
-    if theme is not None and not is_question(text):  # 確認済みのテーマへの直し（種つきの差分）
+    if theme is not None and (scope is not None or not is_question(text)):
+        # 確認済みのテーマへの直し（種つきの差分）
         seed = chat_seed.seed_from_theme(root, existing, theme)
         graph, standards = theme_context(seed)
         return PreparedTurn(
@@ -481,7 +639,12 @@ def prepare_text_turn(
             existing_terms=terms,
             standards=standards,
             messages=_history(session),
+            scope=resolve_scope(scope, graph, existing, lg, draft_id="")  # 下書きは無い
+            if scope is not None
+            else None,
         )
+    if scope is not None and draft is None:
+        raise TurnRefused(400, _SCOPE_GONE[lg])
     if draft is None:
         folded = " ".join(text.split())
         if len(folded) > themes._QUESTION_MAX:
@@ -516,6 +679,9 @@ def prepare_text_turn(
         existing_terms=terms,
         standards=standards,
         messages=_history(session),
+        scope=resolve_scope(scope, graph, existing, lg, draft_id=str(draft["id"]))
+        if scope is not None
+        else None,
     )
 
 
@@ -546,6 +712,7 @@ async def ai_text_turn(prepared: PreparedTurn, llm: Any) -> dict:
                 messages=prepared.messages,
                 message=prepared.text,
                 lang=prepared.lang,
+                scope=scope_prompt(prepared.scope, prepared.graph) if prepared.scope else None,
             )
     except (ThemeDraftError, GraphDiffError) as exc:
         return {"ok": False, "reason": "shape", "detail": str(exc)}
@@ -810,6 +977,37 @@ def apply_text_turn(
             else "Another step went ahead. Please send it again."
         )
         return _machine_turn(session, text, said, lg, [note("info", said)], at)
+    scope_note: dict | None = None
+    if prepared.scope is not None and prepared.mode in ("diff", "seed_diff"):
+        value = ai_result["value"]
+        kept_ops, dropped_ops = filter_ops_to_scope(value.get("ops") or [], prepared.scope)
+        ai_result = {**ai_result, "value": {**value, "ops": kept_ops}}
+        if dropped_ops:
+            scope_note = note("info", _OUT_OF_SCOPE[lg].format(n=len(dropped_ops)))
+    turn = _apply_text(
+        session, prepared, ai_result, theme=theme, draft=draft, root=root, existing=existing,
+        dismissed=dismissed, at=at, lg=lg,
+    )  # fmt: skip
+    if scope_note is not None:
+        turn["reply"]["notes"] = [*(turn["reply"].get("notes") or []), scope_note]
+    return turn
+
+
+def _apply_text(
+    session: dict,
+    prepared: PreparedTurn,
+    ai_result: dict,
+    *,
+    theme: dict | None,
+    draft: dict | None,
+    root: Any,
+    existing: list[SharedTerm],
+    dismissed: list[dict],
+    at: str,
+    lg: str,
+) -> dict:
+    """``apply_text_turn`` の本体（AI の答えを当てる）。"""
+    text = prepared.text
     if prepared.mode == "expand":
         assert theme is not None
         return _apply_expand(
@@ -1634,6 +1832,133 @@ def _find(session: dict, turn_id: str) -> dict:
         if t.get("id") == turn_id:
             return t
     raise TurnRefused(404, "その手番はありません")
+
+
+async def confirm_only(
+    session: dict,
+    turn_id: str,
+    only: dict,
+    *,
+    client: Any,
+    lang: str,
+    root: Any,
+    existing: list[SharedTerm],
+    fetch_terms: Any,
+    at: str,
+) -> tuple[dict, dict | None]:
+    """1 行の承認（11o）— 選んだ行と、その両端のうち未承認の概念だけを承認する。
+    ``only`` = ``{"relations": [{from, rel, to}], "concepts": [鍵]}``（下書きの鍵・短い関係名）。
+
+    承認済みのテーマがあるときだけ（無ければ 409）。絞った下書き = テーマの種（下書きに残って
+    いるもの）＋選んだ行＋その両端の未承認の概念。問いは入れない。``commit_theme`` が断れば
+    手番の ``notes`` に ``commit_error`` を足して ``commit = None``。通れば、元の下書きは残り
+    （新しく承認した用語は ``existing:`` に直す）、手番の ``confirmed`` に ``only`` を記録する。"""
+    lg = _lg(lang)
+    turn = _find(session, turn_id)
+    theme = _theme_of(session, root)
+    if theme is None:
+        raise TurnRefused(
+            409,
+            "返事の承認で全部をまとめて承認してください"
+            if lg == "ja"
+            else "Please approve the whole reply instead.",
+        )
+    draft = _current_draft(session, root)
+    if not _is_theme_proposal(turn) or draft is None:
+        raise TurnRefused(
+            409, "承認するものがありません" if lg == "ja" else "Nothing to approve."
+        )
+    rows = [c for c in draft.get("concepts") or [] if isinstance(c, dict)]
+    by_key = {str(c.get("key")): c for c in rows}
+    uses = set(theme.get("uses") or [])
+    approved = {
+        k for k, c in by_key.items() if _concept_slug(c) and _concept_slug(c) in uses
+    }
+    slug_of = {k: _concept_slug(c) for k, c in by_key.items()}
+    seed = chat_seed.seed_from_theme(root, existing, theme)
+    seed_rels = {tuple(t) for t in seed["seed"]["relations"]}
+
+    def is_seed_rel(r: dict) -> bool:
+        f, t = str(r.get("from")), str(r.get("to"))
+        return (slug_of.get(f, ""), str(r.get("rel")), slug_of.get(t) or t) in seed_rels
+
+    wanted: list[dict] = []
+    for w in only.get("relations") or []:
+        rel = _rel_short(str(w["rel"]))
+        hit = next(
+            (
+                r
+                for r in draft.get("relations") or []
+                if (str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+                == (str(w["from"]), rel, str(w["to"]))
+            ),
+            None,
+        )
+        if hit is None:
+            raise TurnRefused(
+                409, "その行は、いまの提案にありません" if lg == "ja" else "That row is gone."
+            )
+        wanted.append(hit)
+    extra = [str(k) for k in only.get("concepts") or []]
+    if any(k not in by_key for k in extra) or not (wanted or extra):
+        raise TurnRefused(
+            409, "承認する行が選ばれていません" if lg == "ja" else "No row is chosen."
+        )
+    chosen = {
+        *approved,
+        *extra,
+        *(str(r.get(x)) for r in wanted for x in ("from", "to") if str(r.get(x)) in by_key),
+    }
+    reduced_rels = [
+        r
+        for r in draft.get("relations") or []
+        if isinstance(r, dict)
+        and (any(r is w for w in wanted) or (is_seed_rel(r) and r.get("problem") is None))
+    ]
+    reduced = {
+        **draft,
+        "concepts": [c for c in rows if str(c.get("key")) in chosen],
+        "relations": reduced_rels,
+        "questions": [],
+        "answers": [],
+    }
+    body = commit_body(reduced, lang)
+    body["batch"] = turn["batch"]
+    notes = [n for n in turn["reply"].get("notes") or [] if n.get("kind") != "commit_error"]
+    try:
+        out = await themes.commit_theme(client, root, body, at=at)
+    except themes.ThemeError as exc:
+        turn["reply"]["notes"] = [*notes, note("commit_error", str(exc))]
+        return turn, None
+    turn["reply"]["notes"] = notes
+    # 新しく承認した用語は「既にある用語」に直す（残りの提案が、あとで二重に鋳造しない）
+    fresh = await fetch_terms()
+    minted = iter(out["minted"])
+    fixed: list[dict] = []
+    for c in rows:
+        if str(c.get("key")) in chosen and not _is_existing(c) and str(c.get("use")) == "new":
+            slug = next(minted, "")
+            c = {**c, "use": f"existing:{slug}", "slug": slug} if slug else c
+        fixed.append(c)
+    draft = _save(root, {**draft, "concepts": fixed}, at)
+    seeded = chat_seed.seed_from_theme(root, fresh, out["theme"])
+    session["seed"] = {"draft_id": draft["id"], **seeded["seed"]}
+    record = {
+        "only": {
+            "relations": [
+                {"from": w["from"], "rel": _rel_short(str(w["rel"])),
+                 "to": w["to"]} for w in only.get("relations") or []
+            ],
+            "concepts": extra,
+        },
+        "theme_id": out["theme"]["id"],
+        "minted": list(out["minted"]),
+        "lines": out["lines"],
+        "batch": out["batch"],
+        "at": at,
+    }  # fmt: skip
+    turn["confirmed"] = [*(turn.get("confirmed") or []), record]
+    return turn, record
 
 
 async def confirm(
