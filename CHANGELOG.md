@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.61.1](https://github.com/kumagallium/asterism/compare/v0.61.0...v0.61.1) - 2026-10-23
+
+- docs(manual): 「更新を知る」に v0.61.0（Graphium と連携する）を足す by @kumagallium in https://github.com/kumagallium/asterism/pull/763
+
 ## [v0.61.0](https://github.com/kumagallium/asterism/compare/v0.60.0...v0.61.0) - 2026-10-23
 
 - feat(mcp-client): 登録した MCP サーバの道具を呼ぶ側（mcp_client・/api/mcp-servers・設定タブ「MCP サーバ」） by @kumagallium in https://github.com/kumagallium/asterism/pull/759
