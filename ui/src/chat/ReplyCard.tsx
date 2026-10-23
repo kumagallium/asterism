@@ -49,7 +49,7 @@ function stamp(iso: string, lang: string): string {
   return d.toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; busy: boolean; onDecide?: (value: string) => void }) {
+export function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; busy: boolean; onDecide?: (value: string) => void }) {
   const { t } = useTranslation('chat')
   const [picked, setPicked] = useState(note.choice?.default ?? '')
   const cls = note.kind === 'commit_error' ? 'promote-err' : `chat-note chat-note--${note.kind}`
@@ -58,7 +58,7 @@ function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; bu
   return (
     <div className={cls} data-note-kind={note.kind} role={note.kind === 'commit_error' ? 'alert' : undefined}>
       <span>{note.text}</span>
-      {choice && chosen === undefined && (
+      {choice && choice.options.length > 0 && chosen === undefined && (
         <fieldset className="chat-choice">
           <legend>{choice.label}</legend>
           {choice.options.map((o) => (
@@ -74,7 +74,7 @@ function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; bu
           )}
         </fieldset>
       )}
-      {choice && chosen !== undefined && (
+      {choice && choice.options.length > 0 && chosen !== undefined && (
         <span className="chat-mark chat-mark--confirmed" data-testid="choice-chosen">
           {t('attach.chosen', { label: choice.options.find((o) => o.value === chosen)?.label ?? chosen })}
         </span>

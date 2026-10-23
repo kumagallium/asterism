@@ -20,7 +20,18 @@
     "send": "送る",
     "noKey": "設定 › サーバで鍵を入れると、チャットできます",
     "attach": "表を添える",
+    "attachLocal": "この PC のファイル",
+    "attachFrom": "{{server}} のファイル",
     "hint": "Enter で送る・Shift+Enter で改行"
+  },
+  "sourcePicker": {
+    "title": "取り込み元のファイル",
+    "loading": "読み込み中…",
+    "empty": "表のファイルがありません",
+    "attach": "添える",
+    "cancel": "やめる",
+    "failed": "取り込み元のファイルを取得できませんでした",
+    "from": "{{server}} から選びます"
   },
   "reply": {
     "byMachine": "自動（名前の一致）",
@@ -84,7 +95,9 @@
       "sky": "知識グラフの読み込み",
       "attach": "表を添える操作",
       "point": "点の読み込み",
-      "contents": "データの読み込み"
+      "contents": "データの読み込み",
+      "sourceItems": "取り込み元のファイル一覧の取得",
+      "attachFromSource": "取り込み元のファイルを添える操作"
     }
   },
   "attach": {

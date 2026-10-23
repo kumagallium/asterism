@@ -567,6 +567,60 @@ export async function postAttach(id: string, files: File[], lang: 'ja' | 'en', c
   return { turn, session, job_id: strOrNull(body.job_id) }
 }
 
+/** 取り込み元の MCP サーバのファイル 1 件（一覧用）。 */
+export interface SourceItem {
+  id: string
+  name: string
+  mimeType: string
+  size: number | null
+  uploadedAt: string | null
+  folder: string | null
+}
+
+/** 取り込み元の MCP サーバにある表のファイルの一覧。拡張子はドット付き小文字。 */
+export async function fetchSourceItems(server: string, exts: string[]): Promise<SourceItem[]> {
+  const res = await call(
+    `/api/mcp-servers/${encodeURIComponent(server)}/source-items`,
+    { method: 'POST', headers: json(), body: JSON.stringify({ exts }) },
+    'sourceItems',
+  )
+  const body: unknown = await res.json()
+  if (!isObj(body) || !Array.isArray(body.items)) throw badShape()
+  const out: SourceItem[] = []
+  for (const it of body.items) {
+    if (!isObj(it) || typeof it.id !== 'string' || typeof it.name !== 'string') throw badShape()
+    out.push({
+      id: it.id,
+      name: it.name,
+      mimeType: typeof it.mimeType === 'string' ? it.mimeType : '',
+      size: typeof it.size === 'number' ? it.size : null,
+      uploadedAt: strOrNull(it.uploadedAt),
+      folder: strOrNull(it.folder),
+    })
+  }
+  return out
+}
+
+/** 取り込み元のファイルを添える（📎 と同じ返り）。 */
+export async function postAttachFromSource(
+  id: string,
+  server: string,
+  ids: string[],
+  lang: 'ja' | 'en',
+  creds: LlmCredentials | null,
+): Promise<AttachResponse> {
+  const res = await call(
+    `/api/chat/sessions/${encodeURIComponent(id)}/attach-from-source`,
+    { method: 'POST', headers: json(llmHeaders(creds)), body: JSON.stringify({ server, ids, lang }) },
+    'attachFromSource',
+  )
+  const body: unknown = await res.json()
+  const turn = isObj(body) ? normalizeTurn(body.turn) : null
+  const session = isObj(body) ? brief(body.session) : null
+  if (!turn || !session || !isObj(body)) throw badShape()
+  return { turn, session, job_id: strOrNull(body.job_id) }
+}
+
 /** AI が設定されていない（attach の 503）。鍵が無い 503 とは `detail` で見分ける。 */
 export const isAiUnset = (e: unknown): boolean => e instanceof ThemesApiError && e.status === 503 && e.detail.includes('AI')
 

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useTranslation } from 'react-i18next'
 import { GearIcon, MenuIcon } from '../icons'
 import { subscribeJob, type JobHandle } from '../api'
+import { getServerSetting } from '../appSettings'
 import { useLlmSettings } from '../settings/context'
 import { ThemesApiError } from '../themes/themesApi'
 import {
@@ -15,6 +16,7 @@ import {
   getPoint,
   getSession,
   isAiUnset,
+  postAttachFromSource,
   isKeyMissing,
   listSessions,
   postAttach,
@@ -376,9 +378,9 @@ export function ChatApp() {
     prevAdd.current = addOpen
   }, [addOpen, afterChange])
 
-  /** 表を添える。選んだらすぐ送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら右にかんたんを出す。 */
-  const onAttach = useCallback(
-    async (files: File[]): Promise<boolean> => {
+  /** 表を添える共通の流れ。話が無ければ作り、`send` で送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら右にかんたんを出す。 */
+  const attachFlow = useCallback(
+    async (label: string, send: (id: string) => Promise<Awaited<ReturnType<typeof postAttach>>>): Promise<boolean> => {
       if (busy) return false
       if (view.kind === 'session' && !session) return false // 話を読み込み中
       if (!isReady) {
@@ -387,7 +389,7 @@ export function ChatApp() {
       }
       setBusy('send')
       setError(null)
-      setPendingUser(files.map((f) => f.name).join('\n'))
+      setPendingUser(label)
       setPendingReading(true)
       try {
         let s = session
@@ -401,7 +403,7 @@ export function ChatApp() {
         const id = s.id
         let res: Awaited<ReturnType<typeof postAttach>>
         try {
-          res = await postAttach(id, files, lang, getActiveCredentials())
+          res = await send(id)
         } catch (e) {
           // 例外のときだけ空の話を消す（201 で job_id が無いのは成功）
           if (created) {
@@ -432,7 +434,21 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [busy, view.kind, session, isReady, lang, getActiveCredentials, navigate, openAdd, reread, watch, afterChange, reloadSessions],
+    [busy, view.kind, session, isReady, navigate, openAdd, reread, watch, afterChange, reloadSessions],
+  )
+
+  /** 表を添える（この PC のファイル）。 */
+  const onAttach = useCallback(
+    (files: File[]): Promise<boolean> =>
+      attachFlow(files.map((f) => f.name).join('\n'), (id) => postAttach(id, files, lang, getActiveCredentials())),
+    [attachFlow, lang, getActiveCredentials],
+  )
+
+  /** 表を添える（取り込み元の MCP サーバのファイル）。 */
+  const onAttachFromSource = useCallback(
+    (server: string, ids: string[]): Promise<boolean> =>
+      attachFlow(ids.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials())),
+    [attachFlow, lang, getActiveCredentials],
   )
 
   /** 返事の中の小さな選択を決める。続きがジョブで走る（読んでいます）。 */
@@ -824,6 +840,8 @@ export function ChatApp() {
           progress={progress}
           interrupted={interrupted}
           onAttach={onAttach}
+          sourceHome={getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? null}
+          onAttachFromSource={(ids) => onAttachFromSource(getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? '', ids)}
           onChoose={(turnId, i, v) => void onChoose(turnId, i, v)}
           error={error}
           noKey={noKey}

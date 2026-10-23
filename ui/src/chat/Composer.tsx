@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useImeEnterGuard } from './useImeEnterGuard'
+import { SourcePicker } from './SourcePicker'
 import { GearIcon, PaperclipIcon, SendIcon } from '../icons'
 
 export interface ComposerProps {
@@ -16,6 +17,10 @@ export interface ComposerProps {
   onOpenSettings: () => void
   /** 表を添えた（選ぶとすぐ）。 */
   onAttach?: (files: File[]) => Promise<boolean> | boolean | void
+  /** 取り込み元の MCP サーバ名（設定済みのとき）。あれば 📎 は 2 択のメニューになる。 */
+  sourceHome?: string | null
+  /** 取り込み元のファイルを添えた（選んだ id）。送れたら true。 */
+  onAttachFromSource?: (ids: string[]) => Promise<boolean>
   /** 範囲の札（入力欄の上）。 */
   scopeBar?: React.ReactNode
   /** 既定の例文の代わりに出す一時の例文（「この文を直す」）。 */
@@ -37,13 +42,16 @@ function fitHeight(el: HTMLTextAreaElement): void {
   el.style.height = `${Math.max(LINE_PX + PAD_PX, Math.min(sh, LINE_PX * MAX_LINES + PAD_PX))}px`
 }
 
-export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach, scopeBar, placeholder, focusKey = 0 }: ComposerProps) {
+export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach, sourceHome, onAttachFromSource, scopeBar, placeholder, focusKey = 0 }: ComposerProps) {
   const { t } = useTranslation('chat')
   const { compositionHandlers, isImeKey } = useImeEnterGuard()
   const { t: ts } = useTranslation('settings')
   const [text, setText] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const withSource = !!sourceHome && !!onAttachFromSource
   const wasBusy = useRef(false)
   // 送信などが終わって入力欄が使えるようになったら、フォーカスを返す
   useEffect(() => {
@@ -63,6 +71,22 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach, scopeB
     ro.observe(el.parentElement ?? el)
     return () => ro.disconnect()
   }, [text, busy, noKey])
+
+  // メニューは外を押す・Escape で閉じる
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return
+      if (e instanceof MouseEvent && (e.target as HTMLElement | null)?.closest('.chat-attach-wrap')) return
+      setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', close)
+    }
+  }, [menuOpen])
 
   if (noKey) {
     return (
@@ -122,17 +146,50 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach, scopeB
                   if (files.length > 0) void onAttach(files)
                 }}
               />
-              <button
-                type="button"
-                className="chat-icon-btn chat-attach"
-                data-testid="chat-attach"
-                disabled={busy}
-                onClick={() => fileInput.current?.click()}
-                aria-label={t('compose.attach')}
-                title={t('compose.attach')}
-              >
-                <PaperclipIcon size={18} />
-              </button>
+              <span className="chat-attach-wrap">
+                <button
+                  type="button"
+                  className="chat-icon-btn chat-attach"
+                  data-testid="chat-attach"
+                  disabled={busy}
+                  aria-haspopup={withSource ? 'menu' : undefined}
+                  aria-expanded={withSource ? menuOpen : undefined}
+                  onClick={() => (withSource ? setMenuOpen((v) => !v) : fileInput.current?.click())}
+                  aria-label={t('compose.attach')}
+                  title={t('compose.attach')}
+                >
+                  <PaperclipIcon size={18} />
+                </button>
+                {withSource && menuOpen && (
+                  <div className="chat-attach-menu" role="menu" data-testid="chat-attach-menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="chat-attach-local"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        fileInput.current?.click()
+                      }}
+                    >
+                      {t('compose.attachLocal')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="chat-attach-source"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        setPickerOpen(true)
+                      }}
+                    >
+                      {t('compose.attachFrom', { server: sourceHome })}
+                    </button>
+                  </div>
+                )}
+              </span>
+              {withSource && pickerOpen && sourceHome && onAttachFromSource && (
+                <SourcePicker server={sourceHome} onAttach={onAttachFromSource} onClose={() => setPickerOpen(false)} />
+              )}
             </>
           )}
           <span className="chat-composer-spacer" />

@@ -20,7 +20,18 @@
     "send": "Send",
     "noKey": "Settings › Server: enter the key to chat",
     "attach": "Attach a table",
+    "attachLocal": "File from this PC",
+    "attachFrom": "File from {{server}}",
     "hint": "Enter to send · Shift+Enter for a new line"
+  },
+  "sourcePicker": {
+    "title": "Files in the import source",
+    "loading": "Loading…",
+    "empty": "No table files",
+    "attach": "Attach",
+    "cancel": "Cancel",
+    "failed": "Could not get the files from the import source",
+    "from": "Choose from {{server}}"
   },
   "reply": {
     "byMachine": "automatic (name match)",
@@ -84,7 +95,9 @@
       "sky": "Loading the knowledge graph",
       "attach": "attaching a table",
       "point": "Loading the card",
-      "contents": "Loading data"
+      "contents": "Loading data",
+      "sourceItems": "Loading the list of files in the import source",
+      "attachFromSource": "attaching files from the import source"
     }
   },
   "attach": {
