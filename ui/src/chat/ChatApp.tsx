@@ -605,8 +605,11 @@ export function ChatApp() {
     return ''
   }, [pickedId, okSky])
   // ── 「文」のタブ（PR 11o） ──
-  const subTab: SubTab = subTabOf(subStored, pickedId)
+  // 「データを見る」は一時の切り替え（覚えない）。同じ点のあいだだけ効く
+  const [tempTab, setTempTab] = useState<{ pickedId: string | null } | null>(null)
+  const subTab: SubTab = tempTab && tempTab.pickedId === pickedId ? 'data' : subTabOf(subStored, pickedId)
   const chooseSub = useCallback((v: SubTab) => {
+    setTempTab(null)
     const choice: SubTabChoice = { tab: v, group: pointGroupOf(pickedId) }
     setSubStored(choice)
     writeSubTab(choice)
@@ -834,7 +837,7 @@ export function ChatApp() {
           point={sel ? point : null}
           titleOf={titleOf}
           onContents={(name) => {
-            chooseSub('data')
+            setTempTab({ pickedId })
             void onSend(t('point.showText', { name }))
           }}
           onPointRevert={(p) => void onPointRevert(p)}

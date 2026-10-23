@@ -118,7 +118,8 @@ export const writeSubTab = (v: SubTabChoice): void => {
 export const rowKey = (r: SentenceRow): string => (r.draft ? `d|${r.draft.from}|${r.draft.rel}|${r.draft.to}` : `a|${r.source ?? ''}|${r.relation ?? ''}|${r.target ?? ''}`)
 
 /** 外すを出せるか: 未承認の行（AI を呼ばない手番）か、IRI を持つ承認済みの行。 */
-export const canRemoveRow = (r: SentenceRow): boolean => (!r.approved && !!r.draft) || (r.approved && !!r.source && !!r.relation && !!r.target)
+export const canRemoveRow = (r: SentenceRow): boolean =>
+  (!r.approved && !!r.draft) || (r.approved && /^https?:/.test(r.source ?? '') && !!r.relation && /^https?:/.test(r.target ?? ''))
 
 export interface ScopeLike {
   node: string

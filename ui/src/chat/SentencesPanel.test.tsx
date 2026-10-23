@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import '../i18n'
 import { SentencesPanel } from './SentencesPanel'
-import { relSentence, rowKey, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, type SentenceRow } from './sentenceRows'
+import { canRemoveRow, relSentence, rowKey, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, type SentenceRow } from './sentenceRows'
 import type { Point } from './chatApi'
 import type { DraftSky } from '../sky/skyApi'
 
@@ -74,6 +74,12 @@ describe('sentenceRows', () => {
     expect(h).not.toContain('sentence-remove')
     expect(h).toContain('sentence-fix')
     expect(panel([{ ...seed, source: 's', relation: 'sub', target: 'o' }])).toContain('sentence-remove')
+  })
+  it('承認済みの行の外すは IRI のときだけ（draft: の参照では出さない）', () => {
+    const d = { draftId: 'd1', from: 'c2', rel: 'sub', to: 'c1', turnId: null }
+    expect(canRemoveRow({ text: 'x', approved: true, source: 'draft:theme:c2', relation: 'sub', target: 'draft:theme:c1', draft: d })).toBe(false)
+    expect(canRemoveRow({ text: 'x', approved: true, source: 'https://ex.org/a', relation: 'sub', target: 'https://ex.org/b', draft: d })).toBe(true)
+    expect(canRemoveRow(thin)).toBe(true)
   })
   it('他の話の提案の行は読むだけ（外す・直す・承認が出ない）', () => {
     const h = panel([thin], { editable: () => false })
