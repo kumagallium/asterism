@@ -26,7 +26,7 @@
     "copilotSubscription": "GitHub Copilot (subscription, this computer only)"
   },
   "models": {
-    "intro": "Register the AIs you use. Whichever one you pick here is the one every feature uses.",
+    "intro": "Register the AI to use here. The selected one is used by every feature that calls an AI: proposals, answers and data import.",
     "empty": "None registered yet.",
     "serverConfigured": "AI is already set up on this server ({{provider}}). You can use AI without adding anything here.",
     "activeBadge": "active",
