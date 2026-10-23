@@ -199,16 +199,17 @@ def test_the_prompt_carries_names_only_and_the_models_ops_are_not_trusted(tmp_pa
         assert r2.status_code == 422
 
 
-def test_an_off_shape_answer_is_retried_once_then_502(tmp_path: Path) -> None:
+def test_an_off_shape_answer_is_retried_twice_then_502(tmp_path: Path) -> None:
+    # 11n で聞き直しが 2 回（計 3 回の呼び出し）になった
     junk = json.dumps({"reply": "", "ops": [{"op": "add_relation", "from": "zz", "rel": "eq",
                                              "to": "c1", "reason": ""}]})  # fmt: skip
-    llm = _LLM(json.dumps(WRONG), junk, junk)
+    llm = _LLM(json.dumps(WRONG), junk, junk, junk)
     app, _ = _app(tmp_path, llm)
     with TestClient(app, headers={**_AUTH, **KEY}) as client:
         draft = _theme_draft(client)
         r = _propose(client, "theme", {"draft_id": draft["id"]})
         assert r.status_code == 502 and "決まった形" in r.json()["detail"]
-        assert len(llm.calls) == 3  # the draft + the answer + the one retry
+        assert len(llm.calls) == 4  # the draft + the answer + two retries
 
 
 def test_without_an_ai_it_is_503_and_a_missing_context_is_404_422(tmp_path: Path) -> None:
