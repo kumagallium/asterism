@@ -7,7 +7,7 @@ import type { Point } from './chatApi'
 import type { DraftSky } from '../sky/skyApi'
 
 const noop = () => undefined
-const approved: SentenceRow = { text: '三斜晶系 は 空間群 の一種', approved: true, source: 's', relation: 'sub', target: 'o' }
+const approved: SentenceRow = { text: '三斜晶系 は 空間群 の一種', approved: true, source: 'https://ex.org/s', relation: 'sub', target: 'https://ex.org/o' }
 const thin: SentenceRow = { text: 'A は B を下げる', approved: false, draft: { draftId: 'd1', from: 'a', rel: 'lowers', to: 'b', turnId: 't2' } }
 const panel = (rows: SentenceRow[], over: Partial<Parameters<typeof SentencesPanel>[0]> = {}) =>
   renderToStaticMarkup(<SentencesPanel rows={rows} noSelection={false} hasTheme busy={false} onPress={noop} onRemove={noop} onFix={noop} onApprove={noop} {...over} />)
@@ -73,7 +73,7 @@ describe('sentenceRows', () => {
     expect(h).not.toContain('sentence-approve')
     expect(h).not.toContain('sentence-remove')
     expect(h).toContain('sentence-fix')
-    expect(panel([{ ...seed, source: 's', relation: 'sub', target: 'o' }])).toContain('sentence-remove')
+    expect(panel([{ ...seed, source: 'https://ex.org/s', relation: 'sub', target: 'https://ex.org/o' }])).toContain('sentence-remove')
   })
   it('承認済みの行の外すは IRI のときだけ（draft: の参照では出さない）', () => {
     const d = { draftId: 'd1', from: 'c2', rel: 'sub', to: 'c1', turnId: null }
@@ -89,7 +89,7 @@ describe('sentenceRows', () => {
   })
   it('rowKey: 下書きの鍵か IRI の組', () => {
     expect(rowKey(thin)).toBe('d|a|lowers|b')
-    expect(rowKey(approved)).toBe('a|s|sub|o')
+    expect(rowKey(approved)).toBe('a|https://ex.org/s|sub|https://ex.org/o')
   })
   it('rowsOfPoint: 下書きの鍵がある文は未承認', () => {
     const base = { text: 'x', relation: 'r', source: 's', target: 'o', drafted_by: 'ai', at: '', batch: '', reason: '', session_id: null, turn_id: 't1' }
