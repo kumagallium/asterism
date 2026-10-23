@@ -55,7 +55,7 @@ uv pip install --python "$PYBIN" --break-system-packages --no-sources \
 # .pth files pass that and break after relocation). Require the real package
 # directories and forbid editable install remnants.
 SITE="$(dirname "$PYBIN")/../lib/python3.11/site-packages"
-for pkg in asterism asterism_api asterism_step0 asterism_mcp morph_kgc copilot; do
+for pkg in asterism asterism_api asterism_step0 asterism_mcp morph_kgc copilot fastmcp; do
   [ -d "$SITE/$pkg" ] || { echo "bundle is not self-contained: $pkg missing from site-packages" >&2; exit 1; }
 done
 # The on-demand PDF runtime reads its pinned dependency list and model commits from the

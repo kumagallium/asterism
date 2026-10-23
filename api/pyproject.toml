@@ -19,6 +19,11 @@ dependencies = [
     # SDK 同梱の CLI 自動ダウンロードは使わない（利用者の `copilot` CLI を使う）。
     "github-copilot-sdk>=1.0.23,<2",
     "fastapi>=0.110",
+    # MCP クライアント（呼ぶ側・asterism_api.mcp_client）。利用者が設定画面で登録した
+    # MCP サーバの道具を列挙・呼び出す（取り込み元の切り替え）。遅延 import。
+    # 出す側（mcp_mount.py）は依然 [local] の asterism-mcp-tools 経由。
+    # 下限は StdioTransport(keep_alive=) と StreamableHttpTransport が揃う 2.0。
+    "fastmcp>=2.0",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",
 ]
