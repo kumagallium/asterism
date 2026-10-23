@@ -172,7 +172,7 @@ export type PointSel =
   | { kind: 'line'; from: string; relation: string; to: string; label: string; draft?: boolean }
 
 /** 図で濃くするもの: 点（IRI。`datasetId` があればその星座の種類を先に）、星座だけ（`iris` 空）、線（両端の IRI）。 */
-export type Highlight = { iris: string[]; datasetId?: string } | { edge: { from: string; to: string } }
+export type Highlight = { iris: string[]; datasetId?: string } | { edge: { from: string; to: string } } | { nodes: string[] }
 
 /** 図の点を 1 枚の対象にする。データセットの丸（IRI を持たない）は対象にしない。 */
 export function selectionOfNode(n: SkyNode, layout?: SkyLayout): PointSel | null {

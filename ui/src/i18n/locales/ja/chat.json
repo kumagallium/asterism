@@ -42,7 +42,8 @@
     "cardProposed": "知識グラフへの提案 · {{n}} 件",
     "cardProposedNone": "知識グラフへの提案",
     "proposeChip": "知識グラフに足す",
-    "sent": "送りました"
+    "sent": "送りました",
+    "outOfScope": "範囲の外の変更は捨てました"
   },
   "tabs": {
     "label": "表示する領域",
@@ -167,5 +168,20 @@
     "toggle": "開閉",
     "failed": "データを読み込めませんでした",
     "retry": "もう一度"
+  },
+  "sentences": {
+    "tabs": "右の下のパネル",
+    "tab": "文",
+    "dataTab": "データ",
+    "remove": "外す",
+    "fix": "直す",
+    "approve": "承認",
+    "hint": "知識グラフの点を押すと、その点についての文がここに出ます",
+    "proposedHead": "この話の提案"
+  },
+  "scope": {
+    "about": "{{name}} について",
+    "clear": "範囲を外す",
+    "fixPlaceholder": "この文を直す指示を書く（例: 一種 ではなく 一部）"
   }
 }

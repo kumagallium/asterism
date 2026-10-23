@@ -1,4 +1,4 @@
-// 点を押すと会話の先頭に出る 1 枚（PR 11d）。名前と種別・標準用語・文・来歴・中身・戻す・答える問い・入っている種類。
+// 点を押すと会話の先頭に出る 1 枚（PR 11d）。名前と種別・標準用語・来歴・中身・戻す・答える問い・入っている種類。
 // 描くだけ（取得・戻すは ChatApp）。ボタンはこの 1 枚の中の「中身」「戻す」だけ。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -24,7 +24,6 @@ const dayOf = (iso: string): string => (iso.length >= 10 ? iso.slice(0, 10) : is
 export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRemove, onHighlight }: PointCardProps) {
   const { t } = useTranslation('chat')
   const [asking, setAsking] = useState(false)
-  const [lit, setLit] = useState<number | null>(null)
   if (p.thin) {
     // 薄い星（未公開）: api を呼ばない小さな 1 枚
     return (
@@ -55,8 +54,6 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
   const std = p.standard
   // 線の 1 枚は見出しが文そのもの。同じ文は重ねない
   const lineText = p.kind === 'line' ? (p.sentences[0]?.text || p.label || p.iri) : ''
-  const sentences = p.kind === 'line' ? p.sentences.filter((s) => s.text !== lineText) : p.sentences
-  const showNone = p.kind === 'term' || p.kind === 'kind'
   // 外す提案（確認済みの用語・線）か、従来の取り消し（未確認の提案の手番）か
   // 確認済み（ストアにある）の用語・線は「外す提案」（✓ で確定）。未確認の札・線は、その提案の手番の取り消し。
   const canRemove = p.confirmed && (p.kind === 'term' || p.kind === 'line') && !!onRemove
@@ -85,29 +82,6 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
         <p className="chat-point-std">
           <span className="sky-std">≡ {std.prefix ? `${std.prefix}:` : ''}{std.label}</span>
         </p>
-      )}
-      {(sentences.length > 0 || showNone) && (
-        <ul className="chat-point-sentences" data-testid="point-sentences">
-          {sentences.length === 0 ? (
-            <li className="sky-meta">{t('point.noSentence')}</li>
-          ) : (
-            sentences.map((s, i) => (
-              <li key={i}>
-                <button
-                  type="button"
-                  className={`link-btn chat-point-sentence${lit === i ? ' is-lit' : ''}`}
-                  onClick={() => {
-                    const on = lit !== i
-                    setLit(on ? i : null)
-                    onHighlight(on && s.source && s.target ? { edge: { from: s.source, to: s.target } } : null)
-                  }}
-                >
-                  {s.text}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
       )}
       {isDraft && (
         <p className="chat-point-prov" data-testid="point-draft-how">

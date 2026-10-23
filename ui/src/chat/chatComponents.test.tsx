@@ -361,7 +361,7 @@ describe('PointCard', () => {
     expect(html).toContain('data-testid="point-card"')
     expect(tx).toContain('格子熱伝導率')
     expect(tx).toContain('項目')
-    expect(tx).toContain('格子熱伝導率は熱伝導率の一部')
+    expect(html).not.toContain('point-sentences')
     expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が足し、人が承認')
     expect(html).toContain('href="#/t/cabc12345x"')
     expect(html).toContain('data-testid="point-contents"')
@@ -464,12 +464,12 @@ describe('点の 1 枚の穴（11d）', () => {
     expect(text(html)).not.toContain('つながり')
     expect(text(html)).not.toContain('文はまだありません')
   })
-  it('提案の札でも文を出す・文が無くても「まだありません」は出さない', () => {
+  it('文の一覧は 1 枚に出さない（「文」のタブへ）', () => {
     const withS = pcard(point({ kind: 'draft', members: [], can_revert: false, revert: null, provenance: null }))
-    expect(withS).toContain('point-sentences')
+    expect(withS).not.toContain('point-sentences')
     const none = pcard(point({ kind: 'draft', sentences: [], members: [], can_revert: false, revert: null, provenance: null }))
     expect(text(none)).not.toContain('文はまだありません')
-    expect(text(pcard(point({ kind: 'term', sentences: [] })))).toContain('文はまだありません')
+    expect(text(pcard(point({ kind: 'term', sentences: [] })))).not.toContain('文はまだありません')
   })
   it('標準用語は ≡ prefix:label・種類の見出しは「結ばれた用語」', () => {
     const html = pcard(point({ standard: { iri: 'http://qudt.org/Kelvin', label: 'Kelvin', prefix: 'qudt' } }))

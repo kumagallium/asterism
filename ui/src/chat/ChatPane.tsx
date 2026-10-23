@@ -54,6 +54,10 @@ export interface ChatPaneProps {
   undone?: Record<string, Undone>
   /** 1 枚・表・出典の中で押したものを図で濃くする。 */
   onHighlight?: (h: Highlight | null) => void
+  /** 範囲の札（入力欄の上）・直すときの一時の例文・フォーカスの合図。 */
+  scopeBar?: React.ReactNode
+  placeholder?: string
+  focusKey?: number
 }
 
 /** 考えている印（3 つの点が順に濃くなる。reduced-motion では静止）。 */
@@ -172,7 +176,7 @@ export function ChatPane(p: ChatPaneProps) {
             {p.error}
           </p>
         )}
-        <Composer onSend={p.onSend} onAttach={p.onAttach} busy={p.busy} noKey={p.noKey} onOpenSettings={p.onOpenSettings} />
+        <Composer onSend={p.onSend} onAttach={p.onAttach} busy={p.busy} noKey={p.noKey} onOpenSettings={p.onOpenSettings} scopeBar={p.scopeBar} placeholder={p.placeholder} focusKey={p.focusKey} />
       </div>
     </div>
   )
