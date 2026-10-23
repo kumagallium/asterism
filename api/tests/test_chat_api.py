@@ -182,7 +182,7 @@ def test_ops_turn_changes_the_draft_and_returns_sentences(tmp_path: Path) -> Non
         assert reply["notes"] == []
         d = out["draft"]
         assert {c["label"] for c in d["concepts"]} == {"熱伝導率", "粒界散乱"}
-        assert d["relations"] == [{"from": "h2", "to": "h1", "rel": "lowers"}]
+        assert d["relations"] == [{"from": "h2", "to": "h1", "rel": "lowers", "from_seed": False}]
         stored = themes.load_draft(tmp_path / "registry", d["draft_id"])
         assert all(c["by"] == "human" for c in stored["concepts"])
         # 送り直し（もう当たっている）は変わらない
@@ -419,7 +419,9 @@ def test_sky_proposed_only_with_the_key(tmp_path: Path) -> None:
         (card,) = mine["proposed"]
         assert card["session_id"] == sid and card["theme_label"] == Q_LOWER[:20]
         assert {c["label"] for c in card["concepts"]} == {"熱伝導率", "粒界散乱"}
-        assert card["relations"] == [{"from": "h2", "to": "h1", "rel": "lowers"}]
+        assert card["relations"] == [
+            {"from": "h2", "to": "h1", "rel": "lowers", "from_seed": False}
+        ]
         en = client.get("/api/sky", params={"lang": "en"}).json()["proposed"][0]
         assert en["session_id"] == sid
         # 鍵なし・違う鍵なら欄ごと無し（公開済みの事実だけ）

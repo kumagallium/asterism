@@ -32,6 +32,8 @@ from asterism import (
 )
 from asterism.grounding import term_display_name
 
+from asterism_api import chat_seed
+
 __all__ = ["PointError", "build_point"]
 
 _MAX_SENTENCES = 50
@@ -359,6 +361,9 @@ class _DraftView:
         self.concepts = {str(c.get("key")): c for c in draft.get("concepts") or []}
         self.at = str(draft.get("updated_at") or "")
         self.session_id = chat_sessions.session_of_draft(root, draft_id)
+        self.seed_keys, self.seed_rels = chat_seed.seed_marks(
+            chat_sessions.draft_seed_map(root).get(draft_id), draft
+        )
         session = chat_sessions.load_session(root, self.session_id) if self.session_id else None
         self.proposed = [
             t
@@ -414,6 +419,8 @@ class _DraftView:
             "rel": rel,
             "to": str(r.get("to")),
             "draft_id": self.draft_id,
+            # 承認済みの種にある行（UI は濃く出す）
+            "from_seed": (str(r.get("from")), rel, str(r.get("to"))) in self.seed_rels,
         }
 
     def revert_of(self, out: dict[str, Any], turn: dict[str, Any] | None) -> None:

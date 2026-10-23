@@ -110,7 +110,7 @@ def test_scoped_text_skips_the_router_puts_scope_in_the_prompt_and_drops_the_res
         turn = out["turn"]
         assert [o["op"] for o in turn["reply"]["ops"]] == ["add_concept", "add_relation"]
         (n,) = [x for x in turn["reply"]["notes"] if x["kind"] == "info"]
-        assert n["text"] == "範囲の外の変更 1 件は捨てました"
+        assert n["text"] == "範囲の外の変更 1 件は外しました"
         draft = themes.load_draft(root, out["session"]["draft_id"])
         assert any(c["label_ja"] == "点欠陥散乱" for c in draft["concepts"])
         assert any(c["label_ja"] == "ナノ析出物" for c in draft["concepts"])
@@ -125,7 +125,7 @@ def test_scoped_text_english_note_and_line_scope(tmp_path: Path) -> None:
         out = _say(client, sid, "add it", lang="en", scope={"node": "x", "line": line})
         assert "Only this one relation" in llm.calls[-1][1]
         notes = [x["text"] for x in out["turn"]["reply"]["notes"]]
-        assert "Dropped 1 change(s) outside the scope." in notes
+        assert "Left out 3 change(s) outside the scope." in notes
 
 
 def test_scope_with_no_such_point_is_400(tmp_path: Path) -> None:
@@ -230,3 +230,160 @@ def test_scope_shape_is_checked(tmp_path: Path, bad: dict) -> None:
         sid = _new(client)
         r = client.post(f"/api/chat/sessions/{sid}/turns", json={"text": "x", "scope": bad})
         assert r.status_code == 422
+
+
+# ---- checker の指摘の直し -----------------------------------------------------------------------
+
+
+def test_scoped_text_without_an_ai_is_a_hint_and_makes_no_draft(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        out = _say(client, sid, "直して", scope={"node": "t|https://x.example/a"})
+        assert out["turn"]["state"] == "none" and out["session"]["draft_id"] is None
+        assert "AI の設定が要ります" in out["turn"]["reply"]["text"]
+        en = _say(client, sid, "fix", lang="en", scope={"node": "x"})["turn"]["reply"]["text"]
+        assert "needs the AI" in en
+
+
+def test_seed_rows_are_marked_in_the_sky_and_the_card(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        did = out["session"]["draft_id"]
+        (card,) = client.get("/api/sky").json()["proposed"]
+        marks = {r["from_seed"] for r in card["relations"]}
+        assert marks == {True, False}
+        assert sum(1 for r in card["relations"] if not r["from_seed"]) == 1
+        assert [c["label"] for c in card["concepts"] if not c["from_seed"]] == ["ナノ析出物"]
+        pt = client.get("/api/chat/point", params={"iri": f"draft:{did}:n1"}).json()
+        assert [s["from_seed"] for s in pt["sentences"]] == [False]
+        lattice = next(c["key"] for c in card["concepts"] if c["label"] == "格子熱伝導率")
+        pt2 = client.get("/api/chat/point", params={"iri": f"draft:{did}:{lattice}"}).json()
+        assert {s["from_seed"] for s in pt2["sentences"]} == {True, False}
+
+
+def test_after_one_row_approval_double_sum_and_revert(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    root = tmp_path / "registry"
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        turn = out["turn"]
+        draft = themes.load_draft(root, out["session"]["draft_id"])
+        lattice = next(c["key"] for c in draft["concepts"] if c["label_ja"] == "格子熱伝導率")
+        only = {"relations": [{"from": "n1", "rel": "lowers", "to": lattice}]}
+        url = f"/api/chat/sessions/{sid}/turns/{turn['id']}"
+        first = client.post(url + "/confirm", json={"only": only}).json()
+        minted = first["commit"]["minted"]
+        assert len(minted) == 1
+        # (a) 二重承認は 409
+        again = client.post(url + "/confirm", json={"only": only})
+        assert again.status_code == 409 and "承認済み" in again.json()["detail"]
+        # (c) 取り消しは承認済みの行を残す
+        r = client.post(url + "/revert")
+        assert r.status_code == 200, r.text
+        kept = themes.load_draft(root, chat_sessions.load_session(root, sid)["draft_id"])
+        assert any(c["label_ja"] == "ナノ析出物" for c in kept["concepts"])
+        assert len(kept["relations"]) == len(draft["relations"])  # 種の行 + 承認した 1 行
+        notes = [n["text"] for n in r.json()["turn"]["reply"]["notes"]]
+        assert "承認済みの 1 行は残っています（点を押して「戻す」）" in notes
+        assert any(c["label_ja"] == "点欠陥散乱" for c in kept["concepts"]) is True
+
+
+def test_full_confirm_sums_the_minted_of_the_one_row_approval(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    root = tmp_path / "registry"
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        turn = out["turn"]
+        draft = themes.load_draft(root, out["session"]["draft_id"])
+        lattice = next(c["key"] for c in draft["concepts"] if c["label_ja"] == "格子熱伝導率")
+        url = f"/api/chat/sessions/{sid}/turns/{turn['id']}/confirm"
+        only = {"relations": [{"from": "n1", "rel": "lowers", "to": lattice}]}
+        slug = client.post(url, json={"only": only}).json()["commit"]["minted"][0]
+        full = client.post(url, json={}).json()
+        assert full["commit"] is not None
+        assert slug in full["commit"]["minted"]
+
+
+def test_a_failure_after_the_commit_puts_the_draft_back(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _ai(tmp_path)
+    root = tmp_path / "registry"
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        did = out["session"]["draft_id"]
+        draft = themes.load_draft(root, did)
+        lattice = next(c["key"] for c in draft["concepts"] if c["label_ja"] == "格子熱伝導率")
+
+        def boom(*a, **k):
+            raise RuntimeError("disk")
+
+        monkeypatch.setattr(chat_turns, "_save", boom)
+        only = {"relations": [{"from": "n1", "rel": "lowers", "to": lattice}]}
+        r = client.post(
+            f"/api/chat/sessions/{sid}/turns/{out['turn']['id']}/confirm", json={"only": only}
+        )
+        assert r.status_code == 502
+        back = themes.load_draft(root, did)
+        assert back is not None and len(back["relations"]) == len(draft["relations"])
+
+
+def test_everything_outside_the_scope_is_a_plain_sentence_and_no_change(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "足して", scope={"node": "t|" + iris["電子熱伝導率"]})
+        turn = out["turn"]
+        assert turn["state"] == "none" and turn["reply"]["ops"] == []
+        assert turn["reply"]["text"] == "範囲の中では変えるものがありませんでした"
+        assert turn["reply"]["notes"][0]["text"] == "範囲の外の変更 3 件は外しました"
+
+
+def test_line_scope_keeps_only_that_line() -> None:
+    scope = {"keys": ["a", "b"], "line": ["a", "sub", "b"]}
+    rm = {"op": "remove", "target": "relation", "from": "a", "rel": "sub", "to": "b"}
+    rt = {"op": "retarget", "from": "a", "rel": "sub", "to": "b", "new_to": "z"}
+    add = {"op": "add_relation", "from": "a", "rel": "part", "to": "b", "reason": ""}
+    ren = {"op": "rename", "key": "b", "label_ja": "x"}
+    other_rel = {"op": "remove", "target": "relation", "from": "a", "rel": "sub", "to": "c"}
+    other_con = {"op": "remove", "target": "concept", "key": "a"}
+    other_add = {"op": "add_relation", "from": "a", "rel": "lowers", "to": "c", "reason": ""}
+    kept, dropped = chat_turns.filter_ops_to_scope(
+        [rm, rt, add, ren, other_rel, other_con, other_add, {"op": "add_concept", "key": "n"}],
+        scope,
+    )
+    assert kept == [rm, rt, add, ren] and len(dropped) == 4
+
+
+def test_scope_filter_uses_the_key_the_diff_folds_into() -> None:
+    concepts = [{"key": "k1", "label_ja": "格子熱伝導率", "label_en": "", "kind": "property"}]
+    ops = [
+        {"op": "add_concept", "key": "n9", "label_ja": "格子熱伝導率", "label_en": "",
+         "kind": "property"},
+        {"op": "add_relation", "from": "n9", "rel": "lowers", "to": "k1", "reason": ""},
+        {"op": "add_relation", "from": "n9", "rel": "raises", "to": "k2", "reason": ""},
+    ]  # fmt: skip
+    alias = chat_turns.scope_aliases(ops, concepts)
+    assert alias == {"n9": "k1"}
+    kept, dropped = chat_turns.filter_ops_to_scope(ops, {"keys": ["k1"]}, alias)
+    assert kept == ops and dropped == []
+    kept, _ = chat_turns.filter_ops_to_scope(ops, {"keys": ["k1"]})
+    assert len(kept) == 2  # 寄せないと n9→k2 は範囲に触れない（寄せると k1→k2 で残る）
+    assert chat_turns.filter_ops_to_scope(ops[:2], {"keys": ["zz"]}, alias)[0] == []
+
+
+def test_eq_line_scope_ignores_direction() -> None:
+    graph = {
+        "concepts": [{"key": "a", "label_ja": "A"}, {"key": "b", "label_ja": "B"}],
+        "relations": [{"from": "b", "rel": "eq", "to": "a"}],
+    }
+    got = chat_turns.resolve_scope({"node": "x", "line": {"from": "a", "rel": "eq", "to": "b"}},
+                                   graph, [], "ja")  # fmt: skip
+    assert got["keys"] == ["a", "b"]
+    with pytest.raises(chat_turns.TurnRefused):
+        chat_turns.resolve_scope({"node": "x", "line": {"from": "a", "rel": "sub", "to": "b"}},
+                                 graph, [], "ja")  # fmt: skip

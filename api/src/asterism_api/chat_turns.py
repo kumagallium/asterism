@@ -66,10 +66,12 @@ __all__ = [
     "run_ask_turn",
     "run_ask_unavailable_turn",
     "run_ops_turn",
+    "run_scope_hint_turn",
     "run_set_answer_turn",
     "run_show_turn",
     "run_text_turn",
     "run_undo_turn",
+    "scope_aliases",
     "scope_prompt",
     "sync_answers",
     "theme_context",
@@ -416,8 +418,24 @@ _SCOPE_GONE = {
     "en": "The chosen scope is not in this chat's knowledge graph.",
 }
 _OUT_OF_SCOPE = {
-    "ja": "範囲の外の変更 {n} 件は捨てました",
-    "en": "Dropped {n} change(s) outside the scope.",
+    "ja": "範囲の外の変更 {n} 件は外しました",
+    "en": "Left out {n} change(s) outside the scope.",
+}
+_NOTHING_IN_SCOPE = {
+    "ja": "範囲の中では変えるものがありませんでした",
+    "en": "There was nothing to change inside the scope.",
+}
+_SCOPE_NEEDS_AI = {
+    "ja": "範囲つきの直しには AI の設定が要ります。行の「外す」は AI なしで使えます",
+    "en": "A scoped fix needs the AI to be set up. Removing a row works without it.",
+}
+_KEPT_APPROVED = {
+    "ja": "承認済みの {n} 行は残っています（点を押して「戻す」）",
+    "en": "{n} approved row(s) remain (select the item and press Undo).",
+}
+_ALREADY_APPROVED = {
+    "ja": "その行は承認済みです",
+    "en": "That row is already approved.",
 }
 _ONE_HOP_MAX = 40
 
@@ -480,7 +498,9 @@ def resolve_scope(
         t = end(str(line["to"]))
         rel = _rel_short(str(line["rel"]))
         has = any(
-            (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) == (f, rel, t)
+            (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) in ((f, rel, t), (t, rel, f))
+            if rel == "eq"  # 「同じ」は向きを問わない
+            else (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) == (f, rel, t)
             for r in graph.get("relations") or []
         )
         if f is None or t is None or not has:
@@ -531,28 +551,79 @@ def scope_prompt(scope: dict, graph: dict) -> str:
     )
 
 
-def filter_ops_to_scope(ops: list[dict], scope: dict | list | set) -> tuple[list[dict], list[dict]]:
+def scope_aliases(ops: list[dict], concepts: list[dict]) -> dict[str, str]:
+    """差分の ``add_concept`` の鍵 → 図にある同名・同じ種類の概念の鍵（``graph_diff`` が既存に
+    寄せるものと同じ判定）。絞り込みを、寄せたあとの鍵で行うために使う。"""
+    out: dict[str, str] = {}
+    for o in ops:
+        if o.get("op") != "add_concept":
+            continue
+        n = normalize_label(str(o.get("label_ja") or ""))
+        if not n:
+            continue
+        for c in concepts:
+            if c.get("kind") == o.get("kind") and n in themes._norm_set(
+                c.get("label_ja"), c.get("label_en")
+            ):
+                out[str(o.get("key"))] = str(c.get("key"))
+                break
+    return out
+
+
+def filter_ops_to_scope(
+    ops: list[dict], scope: dict | list | set, alias: dict[str, str] | None = None
+) -> tuple[list[dict], list[dict]]:
     """差分を範囲に触れる操作だけにする（純関数）→ ``(残す, 捨てる)``。``scope`` = ``resolve_scope``
-    の結果（または鍵の集まり）。概念 = 鍵が範囲の点（線なら両端）。関係 = 両端のどちらかが範囲。
-    ``add_concept`` は、範囲の点に結ぶ ``add_relation`` が同じ差分にあるときだけ。"""
+    の結果（または鍵の集まり）。点の範囲: 概念 = 鍵が範囲の点、関係 = 両端のどちらかが範囲、
+    ``add_concept`` は範囲の点に結ぶ ``add_relation`` が同じ差分にあるときだけ。行の範囲
+    （``scope["line"]``）: その線の ``remove``／``retarget``、同じ両端の ``add_relation``、
+    両端の ``rename`` だけ。``alias`` = 新しい鍵 → 既存の鍵（寄せたあとの鍵で見る）。"""
     keys = set(scope["keys"] if isinstance(scope, dict) else scope)
+    line = scope.get("line") if isinstance(scope, dict) else None
+    al = alias or {}
+
+    def k(x: Any) -> Any:
+        return al.get(x, x)
+
+    if line:
+        f, rel, t = line
+        ends = {(f, t), (t, f)} if rel == "eq" else {(f, t)}
+
+        def keep_line(o: dict) -> bool:
+            name = o.get("op")
+            pair = (k(o.get("from")), k(o.get("to")))
+            if name == "add_relation":
+                return pair in {(f, t), (t, f)}
+            if name == "retarget":
+                return pair in ends and _rel_short(str(o.get("rel"))) == rel
+            if name == "remove" and o.get("target") == "relation":
+                return pair in ends and _rel_short(str(o.get("rel"))) == rel
+            if name == "rename":
+                return k(o.get("key")) in keys
+            return False
+
+        kept = [o for o in ops if keep_line(o)]
+        return kept, [o for o in ops if o not in kept]
+
     kept_rel = [
-        o for o in ops if o.get("op") == "add_relation" and keys & {o.get("from"), o.get("to")}
+        o
+        for o in ops
+        if o.get("op") == "add_relation" and keys & {k(o.get("from")), k(o.get("to"))}
     ]
-    linked = {x for o in kept_rel for x in (o.get("from"), o.get("to"))} - keys
+    linked = {k(x) for o in kept_rel for x in (o.get("from"), o.get("to"))} - keys
 
     def keep(o: dict) -> bool:
         name = o.get("op")
         if name == "add_concept":
-            return o.get("key") in keys or o.get("key") in linked
-        if name in ("add_relation", "remove", "retarget") and (
-            name != "remove" or o.get("target") == "relation"
+            return k(o.get("key")) in keys or k(o.get("key")) in linked
+        if name in ("add_relation", "retarget") or (
+            name == "remove" and o.get("target") == "relation"
         ):
-            return bool(keys & {o.get("from"), o.get("to"), o.get("new_to")})
+            return bool(keys & {k(o.get("from")), k(o.get("to")), k(o.get("new_to"))})
         if name in ("remove", "rename"):
-            return o.get("key") in keys
+            return k(o.get("key")) in keys
         if name == "add_question":
-            return o.get("target") in keys
+            return k(o.get("target")) in keys
         return False
 
     kept = [o for o in ops if keep(o)]
@@ -906,6 +977,13 @@ def run_hint_turn(session: dict, text: str, *, at: str, lang: str) -> dict:
     return _machine_turn(session, text, said, lg, [note("info", said)], at)
 
 
+def run_scope_hint_turn(session: dict, text: str, *, at: str, lang: str) -> dict:
+    """AI 未設定で範囲つきの文が来たとき — 下書きを作らず、AI の設定が要ると案内する手番。"""
+    lg = _lg(lang)
+    said = _SCOPE_NEEDS_AI[lg]
+    return _machine_turn(session, text, said, lg, [note("info", said)], at)
+
+
 def _machine_turn(
     session: dict, text: str, said: str, lg: str, notes: list[dict], at: str, *, by: str = "machine"
 ) -> dict:
@@ -980,8 +1058,14 @@ def apply_text_turn(
     scope_note: dict | None = None
     if prepared.scope is not None and prepared.mode in ("diff", "seed_diff"):
         value = ai_result["value"]
-        kept_ops, dropped_ops = filter_ops_to_scope(value.get("ops") or [], prepared.scope)
-        ai_result = {**ai_result, "value": {**value, "ops": kept_ops}}
+        all_ops = value.get("ops") or []
+        kept_ops, dropped_ops = filter_ops_to_scope(
+            all_ops, prepared.scope, scope_aliases(all_ops, prepared.graph.get("concepts") or [])
+        )
+        value = {**value, "ops": kept_ops}
+        if dropped_ops and not kept_ops:  # 全部が範囲の外 — AI の本文は捨てる
+            value["reply"] = _NOTHING_IN_SCOPE[lg]
+        ai_result = {**ai_result, "value": value}
         if dropped_ops:
             scope_note = note("info", _OUT_OF_SCOPE[lg].format(n=len(dropped_ops)))
     turn = _apply_text(
@@ -1898,6 +1982,8 @@ async def confirm_only(
             raise TurnRefused(
                 409, "その行は、いまの提案にありません" if lg == "ja" else "That row is gone."
             )
+        if is_seed_rel(hit):  # 承認済み（二重に承認しない）
+            raise TurnRefused(409, _ALREADY_APPROVED[lg])
         wanted.append(hit)
     extra = [str(k) for k in only.get("concepts") or []]
     if any(k not in by_key for k in extra) or not (wanted or extra):
@@ -1925,24 +2011,33 @@ async def confirm_only(
     body = commit_body(reduced, lang)
     body["batch"] = turn["batch"]
     notes = [n for n in turn["reply"].get("notes") or [] if n.get("kind") != "commit_error"]
+    snapshot = copy.deepcopy(draft)  # commit_theme は通ると下書きを消す。後段で落ちたら書き戻す
     try:
         out = await themes.commit_theme(client, root, body, at=at)
     except themes.ThemeError as exc:
         turn["reply"]["notes"] = [*notes, note("commit_error", str(exc))]
         return turn, None
     turn["reply"]["notes"] = notes
-    # 新しく承認した用語は「既にある用語」に直す（残りの提案が、あとで二重に鋳造しない）
-    fresh = await fetch_terms()
-    minted = iter(out["minted"])
-    fixed: list[dict] = []
-    for c in rows:
-        if str(c.get("key")) in chosen and not _is_existing(c) and str(c.get("use")) == "new":
-            slug = next(minted, "")
-            c = {**c, "use": f"existing:{slug}", "slug": slug} if slug else c
-        fixed.append(c)
-    draft = _save(root, {**draft, "concepts": fixed}, at)
-    seeded = chat_seed.seed_from_theme(root, fresh, out["theme"])
-    session["seed"] = {"draft_id": draft["id"], **seeded["seed"]}
+    try:
+        # 新しく承認した用語は「既にある用語」に直す（残りの提案が、あとで二重に鋳造しない）。
+        # 承認した行・概念は下書きに残す（種の控えと突き合わせるため。印 ``from_seed`` で濃く出る）
+        fresh = await fetch_terms()
+        minted = iter(out["minted"])
+        fixed: list[dict] = []
+        for c in rows:
+            if str(c.get("key")) in chosen and not _is_existing(c) and str(c.get("use")) == "new":
+                slug = next(minted, "")
+                c = {**c, "use": f"existing:{slug}", "slug": slug} if slug else c
+            fixed.append(c)
+        draft = _save(root, {**draft, "concepts": fixed}, at)
+        seeded = chat_seed.seed_from_theme(root, fresh, out["theme"])
+        session["seed"] = {"draft_id": draft["id"], **seeded["seed"]}
+    except Exception:
+        try:  # 下書きを書き戻す（書き戻しの失敗は元の例外を隠さない）
+            themes.save_draft(root, snapshot)
+        except Exception:
+            logger.warning("chat confirm_only: could not restore the draft", exc_info=True)
+        raise
     record = {
         "only": {
             "relations": [
@@ -2025,6 +2120,16 @@ async def confirm(
             if m.get("id") not in {x.get("id") for x in (prior or {}).get("memo_questions") or []}
         ],
     }
+    # 1 行の承認（11o）で鋳造した分も、この承認の記録に足す（戻す・来歴が全部拾えるように）
+    earlier = [
+        m
+        for t in session["turns"]
+        if _is_theme_proposal(t)
+        for rec in t.get("confirmed") or []
+        if isinstance(rec, dict)
+        for m in rec.get("minted") or []
+    ]
+    record["minted"] = list(dict.fromkeys([*earlier, *record["minted"]]))
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
     for t in session["turns"]:
@@ -2056,14 +2161,45 @@ def revert(
             if _lg(lang) == "ja"
             else "This proposal is already approved.",
         )
-    if before is None:  # この手番で下書きを作った — 下書きごと消す
+    approved_n = sum(
+        len(rec.get("only", {}).get("relations") or [])
+        for t in undone
+        for rec in t.get("confirmed") or []
+        if isinstance(rec, dict)
+    )
+    now = themes.load_draft(root, owner)
+    if approved_n and now is not None:
+        # 1 行の承認（11o）をした返事 — 承認済みの行・概念（種の控えにあるもの）は戻さない
+        keys, rels = chat_seed.seed_marks(session.get("seed"), now)
+        base = copy.deepcopy(before) if before is not None else {**now, "concepts": [],
+                                                                  "relations": []}
+        have_c = {str(c.get("key")) for c in base.get("concepts") or []}
+        have_r = {(str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+                  for r in base.get("relations") or []}  # fmt: skip
+        base["concepts"] = [
+            *(base.get("concepts") or []),
+            *(c for c in now.get("concepts") or [] if str(c.get("key")) in keys - have_c),
+        ]
+        base["relations"] = [
+            *(base.get("relations") or []),
+            *(
+                r
+                for r in now.get("relations") or []
+                if (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) in rels - have_r
+            ),
+        ]
+        base["label"] = now.get("label", base.get("label"))
+        saved = _save(root, base, at)
+        session["draft_id"] = saved["id"]
+        note_text = _KEPT_APPROVED[_lg(lang)].format(n=approved_n)
+        turn["reply"]["notes"] = [*(turn["reply"].get("notes") or []), note("info", note_text)]
+    elif before is None:  # この手番で下書きを作った — 下書きごと消す
         if session.get("draft_id"):
             themes.delete_draft(root, session["draft_id"])
         session["draft_id"] = None
         session.pop("seed", None)
     else:
         restored = copy.deepcopy(before)
-        now = themes.load_draft(root, owner)
         if now is not None:  # 直した名前は戻さない
             restored["label"] = now.get("label", restored.get("label"))
         saved = _save(root, restored, at)

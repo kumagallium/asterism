@@ -19,7 +19,7 @@ from asterism import crosswalk_runtime, graph_diff, themes
 from asterism import shared_vocab as sv
 from asterism.shared_vocab import SharedTerm
 
-__all__ = ["apply_removals", "seed_from_theme", "seed_gone", "sky_removals"]
+__all__ = ["apply_removals", "seed_from_theme", "seed_gone", "seed_marks", "sky_removals"]
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,36 @@ def _line_iris(seed: dict, trip: tuple[str, str, str]) -> tuple[str, str, str] |
         return sv.term_iri(f), pred, sv.term_iri(t)
     except (ValueError, themes.ThemeError):
         return None
+
+
+def seed_marks(seed: dict | None, draft: dict) -> tuple[set[str], set[tuple[str, str, str]]]:
+    """下書きの中で、種（承認済み）にあるもの → ``(概念の鍵, 関係の (from, rel, to) 鍵)``。
+    種が無ければ両方空。UI が承認済みの行を濃く出すための印（``from_seed``）に使う。"""
+    if not seed:
+        return set(), set()
+    rows = [c for c in draft.get("concepts") or [] if isinstance(c, dict)]
+
+    def slug(c: dict) -> str:
+        use = str(c.get("use") or "")
+        bare = use[len("existing:") :] if use.startswith("existing:") else ""
+        return str(c.get("slug") or bare)
+
+    slug_of = {str(c.get("key")): slug(c) for c in rows}
+    have = set(seed.get("concepts") or [])
+    keys = {k for k, sl in slug_of.items() if sl and sl in have}
+    seed_rels = {tuple(t) for t in seed.get("relations") or []}
+    rels = {
+        (str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+        for r in draft.get("relations") or []
+        if isinstance(r, dict)
+        and (
+            slug_of.get(str(r.get("from")), ""),
+            str(r.get("rel")),
+            slug_of.get(str(r.get("to"))) or str(r.get("to")),
+        )
+        in seed_rels
+    }
+    return keys, rels
 
 
 def sky_removals(seed: dict | None, draft: dict) -> dict:

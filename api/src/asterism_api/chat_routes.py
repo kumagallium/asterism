@@ -695,6 +695,11 @@ def register_chat(
                     except chat_turns.TurnRefused as exc:
                         raise _refused(exc) from exc
                     return _done(session, turn)
+                if scope is not None and llm_unset:  # 範囲つきの直しは AI が要る
+                    turn = chat_turns.run_scope_hint_turn(
+                        session, text, at=_now(), lang=body.lang
+                    )
+                    return _done(session, turn)
                 if llm_unset and chat_intent.is_remove_form(text):
                     turn = chat_turns.run_hint_turn(session, text, at=_now(), lang=body.lang)
                     return _done(session, turn)
