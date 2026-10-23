@@ -720,3 +720,47 @@
   justify-content: flex-end;
   padding: var(--space-2) var(--space-5) 0;
 }
+
+/* AI の適性検査（色はトークンだけ） */
+.aptitude-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.aptitude-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.aptitude-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+}
+.aptitude-badge--good {
+  color: var(--success-fg);
+}
+.aptitude-badge--limited {
+  color: var(--accent);
+}
+.aptitude-badge--poor {
+  color: var(--muted);
+}
+.aptitude-none,
+.aptitude-rates,
+.aptitude-running {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.aptitude-failed {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}

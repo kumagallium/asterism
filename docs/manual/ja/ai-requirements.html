@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI の要件 — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="page-ai-requirements">
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="workspace.html">見る</a></li><li><a href="graph.html">知識グラフ</a></li><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">話・用語・標準用語</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a class="here" href="ai-requirements.html">AI の要件</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
+<main>
+<h1 id="AI-の要件">AI の要件</h1>
+<p>Asterism は、決まった形の JSON を指示どおりに返せる AI を前提にしています。目安は、設定の「適性を調べる」で結果が「推奨」になることです。</p>
+<figure><a href="../screenshots/aptitude.png" title="原寸で開く"><img src="../screenshots/aptitude.png" alt="設定の AI タブ。モデルごとに適性のバッジと率が出る"></a></figure>
+<h2 id="Asterism-が-AI-に求める-4-つのこと">Asterism が AI に求める 4 つのこと</h2>
+<div class="tablewrap"><table><thead><tr><th>要求</th><th>内容</th><th>適性検査で測れるか</th></tr></thead><tbody><tr><td>形</td><td>提案を、決まった形の JSON で 1 回で返す（聞き直しなし）</td><td>測れる</td></tr><tr><td>振り分け</td><td>1 つの発言を、雑談・質問・提案のどれかに正しく分ける</td><td>測れる</td></tr><tr><td>対象の遵守</td><td>「この用語について」と絞った修正で、対象の外には触れない</td><td>測れる</td></tr><tr><td>知識</td><td>分野の言葉を取り違えない（例: 結晶系と空間群）</td><td>測れない</td></tr></tbody></table></div>
+<h2 id="適性検査の内容と判定">適性検査の内容と判定</h2>
+<p>検査は、同梱の固定の台本（価格表の例）を AI に順に出して、返りを数えます。乱数は使わず、何度やっても同じ問いです。データも話も読み書きしません。</p>
+<div class="tablewrap"><table><thead><tr><th>検査</th><th>問い</th><th>合格の条件</th></tr></thead><tbody><tr><td>形</td><td>新規の提案 5 問・対象つきの修正 5 問</td><td>初回の返事が読める</td></tr><tr><td>振り分け</td><td>雑談 10・質問 10・提案 10 の計 30 文</td><td>ラベルどおりに分ける</td></tr><tr><td>対象の遵守</td><td>対象つきの修正 5 問</td><td>対象の外への変更が 1 件もない</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>判定</th><th>条件</th></tr></thead><tbody><tr><td>推奨</td><td>形 90% 以上・振り分け 90% 以上・対象 80% 以上</td></tr><tr><td>条件つき</td><td>形か対象が届かないが、振り分け 70% 以上。対象を絞って使うと通りやすい</td></tr><tr><td>非推奨</td><td>上のどちらでもない</td></tr></tbody></table></div>
+<p>呼び出しは約 45 回で、2〜3 分かかります。落ちた問は番号と種類で確かめられます。</p>
+<h2 id="知識は検査で測れません">知識は検査で測れません</h2>
+<p>分野の分類（例: 結晶系と空間群）を混同しない知識は、強いモデルほど確かです。検査が「推奨」でも、分野によっては提案に誤りが出ます。承認の前に確かめてください。提案だけ上位のモデルに分ける使い方を勧めます（設定はまだありません。使用中のモデルを切り替えて使います）。</p>
+<h2 id="試した結果">試した結果</h2>
+<p>実測したものだけを載せます。</p>
+<div class="tablewrap"><table><thead><tr><th>モデル</th><th>判定</th><th>備考</th></tr></thead><tbody><tr><td>gpt-oss-120b</td><td>条件つきの見込み</td><td>本番での観察から。検査はあなたの環境で実行してください</td></tr></tbody></table></div>
+<h2 id="関連">関連</h2>
+<p>検査の押し方は <a href="./settings.html#適性を調べる">設定</a> を参照してください。</p>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/ai-requirements.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>

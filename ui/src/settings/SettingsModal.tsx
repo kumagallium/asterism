@@ -9,6 +9,8 @@ import { InstanceSection } from './InstanceSection'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
+import { AptitudeRow } from './AptitudeRow'
+import { aptitudeKey, fetchAptitudes, type AptitudeResult } from './aptitudeApi'
 import { AvailableModelsError, fetchAvailableModels, type AvailableModel } from './modelsApi'
 import { initAppData } from '../appdata'
 import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
@@ -18,6 +20,7 @@ import {
   LOCAL_AI_KEY,
   PROVIDERS,
   type CredentialGroupInfo,
+  type LlmCredentials,
   type LlmModelConfig,
   type Provider,
   type RateCurrency,
@@ -240,7 +243,23 @@ function ServerTab() {
 
 function ModelsTab() {
   const { t } = useTranslation('settings')
+  const [aptitudes, setAptitudes] = useState<Record<string, AptitudeResult>>({})
+  useEffect(() => {
+    void fetchAptitudes().then(setAptitudes)
+  }, [])
   const settings = useLlmSettings()
+  // 検査はそのモデルの座標で走らせる（使用中でなくてよい）。使えないモデルは null。
+  const credsOf = (m: LlmModelConfig): LlmCredentials | null => {
+    const key = settings.keyForModel(m)
+    if (providerNeedsKey(m.provider) && !key && !settings.hasServerKey(m.provider)) return null
+    return {
+      provider: m.provider,
+      modelId: m.modelId,
+      apiBase: m.apiBase,
+      apiKey: providerNeedsKey(m.provider) ? key : '',
+      maxTokens: m.maxTokens ?? null,
+    }
+  }
   const [editing, setEditing] = useState<LlmModelConfig | null>(null)
   // Nothing registered → the add form IS the screen. Derived, not just an
   // initial state: deleting the last one lands in the same place a first run
@@ -306,6 +325,11 @@ function ModelsTab() {
                         ? t('models.keyServer')
                         : t('models.keyMissing')}
                   </div>
+                  <AptitudeRow
+                    saved={aptitudes[aptitudeKey(m.provider, m.modelId)] ?? null}
+                    creds={credsOf(m)}
+                    onSaved={(r) => setAptitudes((a) => ({ ...a, [aptitudeKey(m.provider, m.modelId)]: r }))}
+                  />
                 </div>
                 <div className="model-actions">
                   <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(m)}>

@@ -265,5 +265,19 @@
     "retry": "Try again",
     "logPath": "Details: {{path}}",
     "requestFailed": "That did not work. Please wait a moment and try again."
+  },
+  "aptitude": {
+    "run": "Check aptitude",
+    "running": "Checking {{n}} / {{total}}",
+    "verdict": {
+      "good": "Recommended",
+      "limited": "Conditional",
+      "poor": "Not recommended"
+    },
+    "none": "Not checked",
+    "rates": "Shape {{shape}}% · Routing {{routing}}% · Scope {{scope}}%",
+    "failed": "Show failed items",
+    "limitedHint": "Works better when you narrow the scope",
+    "cost": "About 45 calls, 2 to 3 minutes"
   }
 }
