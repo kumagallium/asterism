@@ -803,7 +803,8 @@ def test_ai_failure_is_a_note_and_makes_no_draft(tmp_path: Path) -> None:
         assert turn["state"] == "none" and turn["before"] is None and turn["by"] == "machine"
         (n,) = turn["reply"]["notes"]
         assert n["kind"] == "ai_failed" and "決まった形になりませんでした" in n["text"]
-        assert n["text"] == "AI の答えが決まった形になりませんでした"  # 詳細は残さない
+        assert n["text"].startswith("AI の答えが決まった形になりませんでした")
+        assert "対象を 1 つに絞って言い直してください" in n["text"]  # 次の一手
         assert out["session"]["draft_id"] is None and out["draft"] is None
         assert _draft_ids(tmp_path) == []
         assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None
@@ -1285,3 +1286,33 @@ def test_non_question_text_does_not_become_a_question_and_can_be_confirmed(
         r = client.post(f"/api/chat/sessions/{sid}/turns/{out['turn']['id']}/confirm", json={})
         assert r.status_code == 200, r.text
         assert r.json()["confirmed"] == [out["turn"]["id"]]
+
+
+# ---- 11n: 指摘・訂正／外す指示の決定論 ----------------------------------------------------------
+
+
+def test_remove_sentence_is_deterministic_without_an_ai(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB])
+        out = _say(client, sid, "「粒界散乱 は 熱伝導率 を下げる」を外して")
+        turn = out["turn"]
+        assert turn["state"] == "proposed" and turn["user"]["text"].startswith("「粒界散乱")
+        (op,) = turn["reply"]["ops"]
+        assert op["op"] == "remove" and op["target"] == "relation" and op["rel"] == "lowers"
+        draft = themes.load_draft(tmp_path / "registry", out["draft"]["draft_id"])
+        assert draft["relations"] == []
+
+
+def test_fix_sentence_skips_the_router_and_proposes(tmp_path: Path) -> None:
+    client, llm = _ai_client(tmp_path, json.dumps(AI_JSON), json.dumps(WRONG), route="chat",
+                             route_reply="どうも")  # fmt: skip
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        n = len(llm.calls)
+        out = _say(client, sid, "粒界散乱から熱伝導率が伸びているので間違いっぽい")
+        assert out["turn"]["by"] == "ai"  # 会話に振られていない
+        assert not any(c[0].startswith("# Asterism chat router") for c in llm.calls[n:])

@@ -668,6 +668,46 @@ _AI_FAILED = {
 }
 
 
+_SHAPE_WHY = (  # (正規表現, ja) — 差分の検査の文を利用者に見える語に
+    (re.compile(r"^(?P<p>.+?): '(?P<k>.*)' is not a key on the graph"), 'ja_key'),
+    (re.compile(r"looks like code"), "コードや IRI に見えます"),
+    (re.compile(r"must be one of"), "決まった値ではありません"),
+    (re.compile(r"is required"), "足りません"),
+    (re.compile(r"is empty"), "空です"),
+    (re.compile(r"longer than"), "長すぎます"),
+    (re.compile(r"more than"), "多すぎます"),
+    (re.compile(r"is already used"), "鍵が重複しています"),
+    (re.compile(r"must be"), "形が違います"),
+)
+
+_SHAPE_NEXT = {
+    "ja": "対象を 1 つに絞って言い直してください（例:「三斜晶系 は 空間群 の一種」を外して）",
+    "en": 'Narrow it to one target and say it again (for example: remove "A is a kind of B")',
+}
+_SHAPE_MAX = 120
+
+
+def _shape_why(raw: str, lg: str) -> str:
+    """``GraphDiffError`` の文 → 120 字までの理由（ja は利用者に見える語に）。"""
+    raw = " ".join(raw.split())
+    if lg == "ja":
+        m = _SHAPE_WHY[0][0].match(raw)
+        if m:
+            return f'{m["p"]}: 知らない鍵 "{m["k"]}"'[:_SHAPE_MAX]
+        path = raw.split(": ", 1)[0] if ": " in raw else ""
+        for pat, ja in _SHAPE_WHY[1:]:
+            if pat.search(raw):
+                return (f"{path}: {ja}" if path else ja)[:_SHAPE_MAX]
+    return raw[:_SHAPE_MAX]
+
+
+def _shape_note(base: str, raw: str, lg: str) -> str:
+    """形の誤りの注記 = 見出し + 理由の要約 + 次の一手。"""
+    why = _shape_why(raw, lg) if raw.strip() else ""
+    head = f"{base}（{why}）" if why else base
+    return f"{head}。{_SHAPE_NEXT[lg]}" if lg == "ja" else f"{head}. {_SHAPE_NEXT[lg]}"
+
+
 def _machine_turn(
     session: dict, text: str, said: str, lg: str, notes: list[dict], at: str, *, by: str = "machine"
 ) -> dict:
@@ -705,13 +745,15 @@ def apply_text_turn(
     assert ai_result is not None
     if not ai_result.get("ok"):
         reason = ai_result.get("reason") or "network"
-        detail = _AI_FAILED[lg][reason]  # 詳細は session.json に残さない
+        detail = _AI_FAILED[lg][reason]  # network の詳細は session.json に残さない
         logger.warning("chat turn: AI failed (%s): %s", reason, ai_result.get("detail") or "")
         said = (
             "今回は知識グラフを変えられませんでした。"
             if lg == "ja"
             else "The knowledge graph was not changed."
         )
+        if reason == "shape":  # 11n: 理由の要約と次の一手を人に見せる
+            detail = _shape_note(detail, str(ai_result.get("detail") or ""), lg)
         return _machine_turn(session, text, said, lg, [note("ai_failed", detail)], at)
     draft = _current_draft(session, root)
     theme = _theme_of(session, root)
@@ -1086,8 +1128,10 @@ def run_ops_turn(
     existing: list[SharedTerm],
     dismissed: list[dict],
     at: str,
+    user_text: str | None = None,
 ) -> dict:
-    """人の直接編集（差分）を下書きに当てる手番。検査は提案のときと同じ閉じた検査
+    """人の直接編集（差分）を下書きに当てる手番。``user_text`` があれば人の文として残す
+    （11n: 「〈文〉を外して」を決定論で remove にしたとき）。検査は提案のときと同じ閉じた検査
     （``validate_graph_diff`` → ``graph_diff.apply_to_draft``）。"""
     lg = _lg(lang)
     draft = _current_draft(session, root)
@@ -1123,7 +1167,7 @@ def run_ops_turn(
     return _append_turn(
         session,
         at=at,
-        user=None,
+        user={"text": user_text, "attachments": []} if user_text else None,
         reply=_reply(
             said,
             ops=[clean[i] for i in kept],

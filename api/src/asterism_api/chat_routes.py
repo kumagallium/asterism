@@ -632,6 +632,23 @@ def register_chat(
                     status_code=201,
                 )  # fmt: skip
 
+        # 11n: 「〈文〉を外して」「A は B の一種ではない」は AI を呼ばずに remove にする
+        if has_text and not chat_turns.is_undo(text):
+            async with lock:
+                session = _session_or_404(session_id)
+                cur = session.get("draft_id")
+                cur_draft = themes.load_draft(root, cur) if cur else None
+                removal = chat_intent.parse_remove(text, cur_draft)
+                if removal:
+                    try:
+                        turn = chat_turns.run_ops_turn(
+                            session, removal, lang=body.lang, root=root, existing=existing,
+                            dismissed=dismissed, at=_now(), user_text=text,
+                        )  # fmt: skip
+                    except chat_turns.TurnRefused as exc:
+                        raise _refused(exc) from exc
+                    return _done(session, turn)
+
         # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
         llm: Any = None
         provider, model, api_base, key = _llm_coords(
@@ -647,6 +664,7 @@ def register_chat(
             and has_text
             and body.intent != "propose"
             and not chat_intent.has_graph_words(text)  # 図の言葉は決定論で提案へ
+            and not chat_intent.has_fix_words(text)  # 指摘・訂正も提案（直し）へ
         ):
             async with lock:
                 s0 = _session_or_404(session_id)

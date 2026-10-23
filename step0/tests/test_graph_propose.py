@@ -303,11 +303,21 @@ def test_an_off_shape_answer_is_retried_once_with_the_reason() -> None:
     assert "refused" not in llm.calls[0][1]
 
 
-def test_two_refusals_raise() -> None:
-    llm = _LLM("not json", json.dumps({"ops": [{"op": "nope"}]}))
+def test_three_refusals_raise() -> None:
+    llm = _LLM("not json", json.dumps({"ops": [{"op": "nope"}]}), "still not json")
     with pytest.raises(GraphDiffError):
         _propose(llm)
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
+
+
+def test_the_last_retry_asks_to_fix_the_previous_json_with_an_example() -> None:
+    bad = json.dumps({"reply": "x", "ops": [{"op": "nope"}]})
+    llm = _LLM("not json", bad, json.dumps({"reply": "ok", "ops": []}))
+    out = _propose(llm)
+    assert out["ops"] == [] and len(llm.calls) == 3
+    assert "Previous answer" not in llm.calls[1][1]
+    assert "Previous answer" in llm.calls[2][1] and '"op": "nope"' in llm.calls[2][1]
+    assert "Example of the expected shape" in llm.calls[2][1]
 
 
 def test_the_guided_schema_is_set_for_the_call_and_put_back() -> None:

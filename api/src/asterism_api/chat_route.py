@@ -34,6 +34,10 @@ Modes:
 - "propose": something they want to know, a piece of knowledge they want to add, or the
   design of their data (terms, relations, questions). Leave reply empty.
 
+Never ask the person to explain more in a "chat" reply (no "please tell me more", no
+"could you be specific", no "詳しく教えて"). If something is missing, name the ONE thing that is
+missing and choose "propose" instead.
+
 When you are unsure, choose "chat" and end the reply with a short sentence saying they can
 also add it to the knowledge graph. Write that sentence in the person's language:
 Japanese "知識グラフに足すこともできます", English "You can also add it to the knowledge graph".
@@ -44,6 +48,18 @@ Reply in the language named in "Reply language".
 Output ONLY a JSON object, no markdown fence:
 {{"mode": "chat" | "ask" | "propose", "reply": "..."}}
 """
+
+#: 未承認の提案がある話で、？で終わらない文に付ける注意書き
+DRAFT_NOTE = (
+    "Note: this conversation has an unapproved proposal. If the message is a reply to it "
+    "(a correction or an addition), choose propose."
+)
+
+#: 会話の返事が聞き返しになっている印（決定論の網。当たれば propose に落とす）
+_ASKS_BACK = (
+    "教えていただけ", "教えてください", "教えて下さい", "具体的に", "詳しく", "詳細を",
+    "could you", "can you", "more details", "more detail", "please clarify", "please specify",
+)  # fmt: skip
 
 #: 履歴に渡す手番の数と、AI の返事の長さ
 _MAX_TURNS = 6
@@ -99,6 +115,9 @@ def _read(text: str) -> RouteResult:
     reply = obj.get("reply")
     if not isinstance(reply, str) or not reply.strip():
         raise RouteError("chat needs a reply")
+    low = reply.lower()
+    if any(w in low for w in _ASKS_BACK):  # 聞き返しは返事にしない（呼ぶ側が propose に落とす）
+        raise RouteError("chat reply asks the person to explain more")
     return RouteResult("chat", reply.strip())
 
 
@@ -122,6 +141,8 @@ def route_message(
     ]
     if n_datasets is not None:
         lines.append(f"Datasets: {n_datasets}")
+    if has_draft and not re.search(r"[?\uff1f]\s*$", text.strip()):
+        lines.append(DRAFT_NOTE)
     lines.append("")
     lines.append("# Recent turns")
     if history:

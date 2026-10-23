@@ -17,9 +17,18 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
+from asterism import graph_diff
 from asterism.shared_vocab import normalize_label
 
-__all__ = ["Intent", "classify", "entry_iri", "is_undo", "show_target"]
+__all__ = [
+    "Intent",
+    "classify",
+    "entry_iri",
+    "has_fix_words",
+    "is_undo",
+    "parse_remove",
+    "show_target",
+]
 
 Intent = Literal["undo", "show", "ask", "graph"]
 
@@ -32,6 +41,13 @@ _UNDO_EN = re.compile(
 
 #: 含まれていれば必ず図の手番にする語（「ひとつ前の位置に戻して」のように名前を含んでも図）
 _GRAPH_WORDS = ("図に", "足して", "外して", "付け替え", "直して", "広げて")
+
+#: 指摘・訂正の言葉（11n）— 含む文は AI の振り分けを飛ばして提案（直し）へ（疑問文は除く）
+_FIX_WORDS = (
+    "間違い", "間違って", "違う", "違って", "おかしい", "誤り", "ずれて", "伸びている",
+    "付け替え", "入れ替え",
+    "wrong", "incorrect", "mistake", "should be",
+)  # fmt: skip
 
 _SHOW_TAIL = (
     r"(?:(?:一覧|表)(?:を|で)?"
@@ -140,3 +156,91 @@ def classify(text: str, *, names: dict, draft_open: bool) -> Intent:
     if _QUESTION_MARK.search(n) and not draft_open and _kind_hit(t, names):
         return "ask"
     return "graph"
+
+
+def has_fix_words(text: str) -> bool:
+    """指摘・訂正の言葉（間違い・違う・おかしい…）を含むか。「？」で終わる疑問文は対象外
+    （「空間群の種類は？」「これは間違い？」は聞かれているので振り分けに任せる）。"""
+    t = text.strip()
+    if _QUESTION_MARK.search(t):
+        return False
+    low = t.lower()
+    return any(w in low for w in _FIX_WORDS)
+
+
+# ---- 外す指示の決定論（11n）-----------------------------------------------------------------
+
+_QUOTES = "「」『』\"'“”"
+_REMOVE_JA = re.compile(
+    r"^(?P<body>.+?)\s*を\s*(?:外し|はずし|消し|削除し)(?:て|てください|て下さい|てくれ)?[\s。.!！]*$"
+)
+_REMOVE_EN = re.compile(r"^(?:please\s+)?(?:remove|drop|delete|take out)\s+(?P<body>.+?)[\s.!]*$")
+_NOT_JA = re.compile(
+    r"^(?P<a>.+?)\s*は\s*(?P<b>.+?)\s*の\s*(?P<k>一種|一部)\s*(?:では|じゃ)\s*(?:ない|ありません)"
+    r"[\s。.!！]*$"
+)
+_NOT_EN = re.compile(
+    r"^(?P<a>.+?)\s+is\s+not\s+an?\s+(?P<k>kind|part)\s+of\s+(?P<b>.+?)[\s.!]*$"
+)
+_NOT_REL = {"一種": "sub", "kind": "sub", "一部": "part", "part": "part"}
+
+
+def _flat(s: str) -> str:
+    """照合用: 引用符を外し、空白を詰めて正規化する。"""
+    return re.sub(r"\s+", "", normalize_label(s.strip().strip(_QUOTES)))
+
+
+def _names_of(concept: dict) -> set[str]:
+    out = {_flat(str(concept.get(k) or "")) for k in ("label_ja", "label_en")}
+    out |= {_flat(str(a)) for a in concept.get("aliases") or []}
+    return {n for n in out if n}
+
+
+def _find_key(draft: dict, name: str) -> str | None:
+    f = _flat(name)
+    for c in draft.get("concepts") or []:
+        if f and f in _names_of(c):
+            return str(c.get("key"))
+    return None
+
+
+def parse_remove(text: str, draft: dict | None) -> list[dict] | None:
+    """「〈文〉を外して」「〈A〉は〈B〉の一種ではない」「〈名前〉を外して」→ ``remove`` の op の列。
+    下書きの文（``ops_to_sentences`` と同じ言い方）か概念の名前に当たらなければ ``None``
+    （今まで通り AI へ）。決定論・AI を呼ばない。"""
+    if not draft:
+        return None
+    t = text.strip()
+    rels = [r for r in draft.get("relations") or [] if r.get("from") and r.get("to")]
+    concepts = {"concepts": draft.get("concepts") or []}
+    m = _NOT_JA.match(t) or _NOT_EN.match(t)
+    if m:
+        a, b = _find_key(draft, m["a"]), _find_key(draft, m["b"])
+        want = _NOT_REL[m["k"]]
+        hit = [
+            r for r in rels
+            if a and b and r["from"] == a and r["to"] == b and r.get("rel") == want
+        ]  # fmt: skip
+        return [_remove_rel(r) for r in hit[:1]] or None
+    m = _REMOVE_JA.match(t) or _REMOVE_EN.match(t.lower() if t.isascii() else t)
+    if not m:
+        return None
+    body = _flat(m["body"])
+    if not body:
+        return None
+    for r in rels:  # 文の一致（ja・en どちらの言い方でも）
+        op = {"op": "add_relation", "from": r["from"], "rel": r.get("rel"), "to": r["to"]}
+        for lg in ("ja", "en"):
+            if _flat(graph_diff.ops_to_sentences([op], concepts, lg)[0]) == body:
+                return [_remove_rel(r)]
+    key = _find_key(draft, m["body"])  # 名前の一致
+    if key is not None:
+        return [{"op": "remove", "target": "concept", "key": key, "reason": ""}]
+    return None
+
+
+def _remove_rel(r: dict) -> dict:
+    return {
+        "op": "remove", "target": "relation", "from": r["from"], "rel": r.get("rel"),
+        "to": r["to"], "reason": "",
+    }  # fmt: skip

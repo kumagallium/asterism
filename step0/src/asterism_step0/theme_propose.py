@@ -169,6 +169,9 @@ Hard rules:
 - Output ONLY the JSON object. No prose, no markdown fence.
 - Do NOT write SPARQL, IRIs, URLs, code or anything between < > or { }. Names only.
 - Do not use any value from a data file: you have none.
+- When asked for the kinds or a list of X, give the lower concepts and examples of X.
+  Do not mix in a related but different classification of the same field.
+  If you are not sure, give fewer.
 """
 
 THEME_DRAFT_SYSTEM_PROMPT = (
