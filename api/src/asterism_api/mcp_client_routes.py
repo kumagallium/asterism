@@ -28,6 +28,10 @@ from __future__ import annotations
 
 import hmac
 import logging
+import os
+import re
+import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -51,8 +55,6 @@ from asterism_api.mcp_client import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from pathlib import Path
-
     from asterism_api.main import Settings
 
 logger = logging.getLogger(__name__)
@@ -233,6 +235,36 @@ def register_mcp_client_routes(
             "max_source_file_bytes": MAX_SOURCE_FILE_BYTES,
             "recent": [r.public() for r in reg.client.recent],
         }
+
+    @app.post("/api/mcp-servers/locate", dependencies=write_auth)
+    async def mcp_servers_locate(request: Request) -> dict[str, Any]:
+        """連携のプリセット（「Graphium と連携する」）が、node のような実行ファイルの
+        **在りか**を探す口。読むだけ（存在と実行可能の検査）で、起動も保存もしない。
+        本文 ``{command: "node", candidates: ["/opt/homebrew/bin/node", …]}``。候補を順に
+        見て、無ければ PATH（``shutil.which``）。デスクトップ版は PATH を引き継がないことが
+        あるので候補が先。返り ``{found: path | null, user_home: "<ホーム>"}``（``user_home`` は
+        既定の vault の場所を UI が組み立てるため）。"""
+        _registry_or_404()
+        _reject_if_content_length_exceeds(request, MAX_CALL_BODY_BYTES)
+        try:
+            body = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "body must be JSON") from exc
+        command = body.get("command") if isinstance(body, dict) else None
+        candidates = body.get("candidates") if isinstance(body, dict) else None
+        if not isinstance(command, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", command):
+            raise HTTPException(400, "command は実行ファイルの名前です (例: node)")
+        if not isinstance(candidates, list) or not all(isinstance(c, str) for c in candidates):
+            raise HTTPException(400, "candidates は文字列の配列です")
+        found: str | None = None
+        for cand in candidates[:32]:
+            path = Path(os.path.expanduser(cand))
+            if path.is_file() and os.access(path, os.X_OK):
+                found = str(path)
+                break
+        if found is None:
+            found = shutil.which(command)
+        return {"found": found, "user_home": str(Path.home())}
 
     @app.post("/api/mcp-servers/{name}/tools", dependencies=write_auth)
     async def mcp_servers_tools(name: str) -> dict[str, Any]:

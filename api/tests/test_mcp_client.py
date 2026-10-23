@@ -620,3 +620,42 @@ def test_call_only_forwards_the_contract_arguments(tmp_path: Path, healthy_clien
         assert r.status_code == 200
     assert "get" not in seen
     assert seen["list"]["limit"] == 5
+
+
+def test_locate_finds_an_executable_among_candidates_without_starting_it(
+    tmp_path: Path, healthy_client
+) -> None:
+    client, seen = _client_with_fake(tmp_path, healthy_client)
+    exe = tmp_path / "node"
+    exe.write_text("#!/bin/sh\necho hi\n")
+    exe.chmod(0o755)
+    missing = tmp_path / "nope" / "node"
+    with client:
+        r = client.post(
+            "/api/mcp-servers/locate",
+            json={"command": "node", "candidates": [str(missing), str(exe)]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["found"] == str(exe)
+        assert r.json()["user_home"] == str(Path.home())
+        # 候補に無ければ PATH（python は確実にある）
+        r = client.post("/api/mcp-servers/locate", json={"command": "python3", "candidates": []})
+        assert r.status_code == 200
+        assert (
+            client.post(
+                "/api/mcp-servers/locate", json={"command": "../x", "candidates": []}
+            ).status_code
+            == 400
+        )
+    assert seen == {}  # 何も起動していない
+
+
+def test_locate_is_404_outside_single_user(tmp_path: Path, healthy_client) -> None:
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        assert (
+            client.post(
+                "/api/mcp-servers/locate", json={"command": "node", "candidates": []}
+            ).status_code
+            == 404
+        )
