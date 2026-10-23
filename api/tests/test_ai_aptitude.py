@@ -119,6 +119,7 @@ def _api(tmp_path: Path, llm: _Fake):
     cfg = _settings(tmp_path)
     cfg.appdata_root = tmp_path / "appdata"
     cfg.appdata_root.mkdir()
+    cfg.single_user = True
     ds = rdflib.Dataset()
     app = build_app(
         cfg, oxigraph_client=_DatasetClient(ds), start_watcher=False,
