@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import '../i18n'
 import { SentencesPanel } from './SentencesPanel'
-import { relSentence, rowsOfDraft, rowsOfPoint, subTabOf, type SentenceRow } from './sentenceRows'
+import { relSentence, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, type SentenceRow } from './sentenceRows'
 import type { Point } from './chatApi'
 import type { DraftSky } from '../sky/skyApi'
 
@@ -73,5 +73,21 @@ describe('sentenceRows', () => {
     expect(subTabOf(null, 'd|ds')).toBe('data')
     expect(subTabOf('data', 't|x')).toBe('data')
     expect(subTabOf('bad', 'k|a|b')).toBe('data')
+  })
+})
+
+describe('読み直しと範囲', () => {
+  const base = { text: 'x', relation: 'r', source: 's', target: 'o', drafted_by: 'ai', at: '', batch: '', reason: '', session_id: null, turn_id: 't1' }
+  const pt = (n: number) => ({ sentences: Array.from({ length: n }, (_, i) => ({ ...base, text: `文${i}`, from: `a${i}`, rel: 'sub', to: 'b', draft_id: 'd1' })) }) as unknown as Point
+  it('point が変わると行も変わる', () => {
+    expect(rowsOfPoint(pt(4))).toHaveLength(4)
+    expect(rowsOfPoint(pt(3))).toHaveLength(3)
+  })
+  it('shrinkScope: 行が消えたら点だけに戻る・残っていればそのまま', () => {
+    const sc = { node: 'draft|d1|c3', name: 'A は B の一種', line: { from: 'a0', rel: 'sub', to: 'b' } }
+    expect(shrinkScope(sc, rowsOfPoint(pt(4)), '値段')).toBe(sc)
+    const after = shrinkScope(sc, rowsOfPoint(pt(0)), '値段')
+    expect(after).toEqual({ node: 'draft|d1|c3', name: '値段' })
+    expect(shrinkScope({ node: 'n', name: 'n' }, [], 'x')).toEqual({ node: 'n', name: 'n' })
   })
 })

@@ -91,3 +91,20 @@ export const writeSubTab = (v: SubTab): void => {
     /* 保存できなくても今回の表示には効く */
   }
 }
+
+export interface ScopeLike {
+  node: string
+  line?: { from: string; rel: string; to: string }
+  name: string
+}
+
+/** 範囲の行が読み直した行から消えていたら、点だけの範囲に戻す（札の文も点の名前に）。消えていなければそのまま。 */
+export function shrinkScope<T extends ScopeLike>(scope: T | null, rows: readonly SentenceRow[], pointName: string): T | null {
+  if (!scope?.line) return scope
+  const { from, rel, to } = scope.line
+  const alive = rows.some((r) => (r.draft ? r.draft.from === from && r.draft.rel === rel && r.draft.to === to : r.source === from && r.relation === rel && r.target === to))
+  if (alive) return scope
+  const { line: _line, ...rest } = scope
+  void _line
+  return { ...rest, name: pointName || scope.name } as T
+}

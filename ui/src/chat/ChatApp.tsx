@@ -42,7 +42,7 @@ import { HandForm } from './HandForm'
 import { ContentsPanel } from './ContentsPanel'
 import { SentencesPanel } from './SentencesPanel'
 import { ScopeBar } from './ScopeBar'
-import { readSubTab, rowsOfDraft, rowsOfPoint, subTabOf, writeSubTab, type SentenceRow, type SubTab } from './sentenceRows'
+import { readSubTab, rowsOfDraft, rowsOfPoint, shrinkScope, subTabOf, writeSubTab, type SentenceRow, type SubTab } from './sentenceRows'
 import { isAnswerable, type SkyQuestion } from '../sky/skyApi'
 import { QuestionsPanel } from './QuestionsPanel'
 import { normalizeQuestion } from './questionsState'
@@ -232,6 +232,7 @@ export function ChatApp() {
 
   const afterChange = useCallback(() => {
     setChartTick((n) => n + 1)
+    setPointTick((n) => n + 1) // 選んでいる点の文も読み直す（読み直し中は前の行を残す）
     reloadSessions()
   }, [reloadSessions])
 
@@ -606,6 +607,15 @@ export function ChatApp() {
     if (pickedId) return []
     return rowsOfDraft(sessionDraft, names, proposedTurnId, lang)
   }, [sel, point, pickedId, sessionDraft, names, proposedTurnId, lang])
+  // 範囲の行が読み直した文から消えたら、点だけの範囲に戻す（rows が当てになるのは、点の 1 枚が届いているときか何も選んでいないとき）
+  const rowsReliable = sel ? !!point : !pickedId
+  useEffect(() => {
+    if (!rowsReliable) return
+    setScope((cur) => {
+      const next = shrinkScope(cur, sentenceRows, pickedName || point?.label || '')
+      return next === cur ? cur : next
+    })
+  }, [rowsReliable, sentenceRows, pickedName, point])
   /** 下書きの概念の key → 地図の点の id（既にある語ならその用語の点）。 */
   const nodeOfKey = useCallback(
     (draftId: string, key: string): string => {
