@@ -71,7 +71,7 @@ export function SourcePickerView({ server, state, selected, busy, onToggle, onAt
   )
 }
 
-export function SourcePicker({ server, onAttach, onClose }: { server: string; onAttach: (ids: string[]) => Promise<boolean>; onClose: () => void }) {
+export function SourcePicker({ server, onAttach, onClose }: { server: string; onAttach: (ids: string[], names: string[]) => Promise<boolean>; onClose: () => void }) {
   const { t } = useTranslation('chat')
   const [state, setState] = useState<PickerState>({ phase: 'loading' })
   const [selected, setSelected] = useState<string[]>([])
@@ -103,7 +103,8 @@ export function SourcePicker({ server, onAttach, onClose }: { server: string; on
       onClose={onClose}
       onAttach={() => {
         setBusy(true)
-        void onAttach(selected).then((ok) => {
+        const names = selected.map((id) => (state.phase === 'ready' ? state.items.find((i) => i.id === id)?.name : undefined) ?? id)
+        void onAttach(selected, names).then((ok) => {
           setBusy(false)
           if (ok) onClose()
         })

@@ -20,7 +20,7 @@ export interface ComposerProps {
   /** 取り込み元の MCP サーバ名（設定済みのとき）。あれば 📎 は 2 択のメニューになる。 */
   sourceHome?: string | null
   /** 取り込み元のファイルを添えた（選んだ id）。送れたら true。 */
-  onAttachFromSource?: (ids: string[]) => Promise<boolean>
+  onAttachFromSource?: (ids: string[], names: string[]) => Promise<boolean>
   /** 範囲の札（入力欄の上）。 */
   scopeBar?: React.ReactNode
   /** 既定の例文の代わりに出す一時の例文（「この文を直す」）。 */

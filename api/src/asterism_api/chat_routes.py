@@ -1278,11 +1278,17 @@ def register_chat(
             total += len(got.data)
             if cap > 0 and total > cap:
                 raise HTTPException(413, "ファイルが大きすぎます")
-            # 同じ名前が 2 回来たら後ろに番号（家は別なので別の行として残す）
+            # 同じ名前が 2 回来たら後ろに番号（家は別なので別の行として残す）。
+            # 番号付きの名前が既にある名前と衝突しないところまで進める
             if name in homes:
                 stem, dot, ext = name.rpartition(".")
-                n = len(homes) + 1
-                name = f"{stem or ext}-{n}.{ext}" if dot else f"{name}-{n}"
+                n = 2
+                while True:
+                    cand = f"{stem or ext}-{n}.{ext}" if dot else f"{name}-{n}"
+                    if cand not in homes:
+                        name = cand
+                        break
+                    n += 1
             data.append((name, got.data))
             homes[name] = {"server": body.server, "id": got.id, "name": got.name}
         return await _begin_attach(session_id, data, lang, llm_headers, homes)

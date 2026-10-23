@@ -360,3 +360,33 @@ def test_a_second_drop_of_the_same_bytes_is_told_in_the_reply(tmp_path: Path) ->
         assert note["dataset_id"] == t1["attachment"]["dataset_id"]
         assert note["choice"] is None  # 未回答の選択と見なされて「公開」が隠れないように
         assert "既にデータセット" in note["text"] and "copy.csv" in note["text"]
+
+
+def test_xlsx_origin_survives_the_attach(tmp_path: Path, healthy_client) -> None:
+    """レビュー（2026-10-23・高）: ブックの原本は saved に載らないが source/ に同居する。
+    突き合わせは saved でなく source/ の実物で。"""
+    book = _xlsx_bytes({"A": [["sid", "name"], [1, "Bi2Te3"]]})
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _new_dataset(client)
+        r = client.post("/api/staging", files=[("files", ("book.xlsx", book, _XLSX_MIME))])
+        sid = r.json()["staging_id"]
+        r = client.post(f"/api/datasets/{ds_id}/source", data={"staging_id": sid})
+        assert r.status_code == 200, r.text
+    meta = _meta(tmp_path, ds_id)
+    assert meta["source_origins"] == [
+        {"name": "book.xlsx", "sha256": _sha(book), "home": {"server": "local"}}
+    ]
+    assert (tmp_path / "registry" / ds_id / "source" / "book.xlsx").is_file()
+
+
+def test_attach_from_source_numbering_never_collides(tmp_path: Path) -> None:
+    app = _chat_app(tmp_path, _Stub(), {"a": PRICES})
+    # 偽サーバの get は name=id を返す。番号付きの名前が既存名とぶつかる並びを用意する
+    srv = _fake_source({"x.csv": PRICES, "x-2.csv": PRICES, "y.csv": PRICES})
+    app.state.mcp_registry.client = McpClient(transport_factory=lambda cfg: FastMCPTransport(srv))
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        r = _from_source(client, sid, "g", ["x.csv", "x-2.csv", "y.csv"])
+        assert r.status_code == 201, r.text
+        names = [a["name"] for a in r.json()["turn"]["user"]["attachments"]]
+        assert len(set(names)) == 3

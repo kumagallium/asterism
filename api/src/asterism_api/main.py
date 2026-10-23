@@ -6526,7 +6526,9 @@ def build_app(
             "sheets": meta.get("sheets") or {},
             "origins": meta.get("origins") or [],
             # Same bytes already attached to a dataset → tell, do not stop (§6).
-            "duplicates": _origin_duplicates(cfg.registry_root, meta.get("origins") or []),
+            "duplicates": await asyncio.to_thread(
+                _origin_duplicates, cfg.registry_root, meta.get("origins") or []
+            ),
             "expires_at": staging.expires_at(sdir),
         }
 
@@ -10306,10 +10308,17 @@ def build_app(
             # rows whose raw file was persisted (a narrowed sheet choice keeps the
             # workbook, which is what the hash is of). Replaced wholesale, like
             # source/ itself is.
+            # NOTE: match against the files actually in source/, not ``saved`` —
+            # a workbook's original is kept alongside its derived CSVs but is
+            # not listed in ``saved`` (review 2026-10-23: xlsx origins vanished).
+            persisted_dir = registry.source_dir(cfg.registry_root, dataset_id)
             staged_origins = [
                 o
                 for o in (smeta.get("origins") or [])
-                if isinstance(o, dict) and o.get("name") in set(saved)
+                if isinstance(o, dict)
+                and isinstance(o.get("name"), str)
+                and persisted_dir is not None
+                and (persisted_dir / o["name"]).is_file()
             ]
             registry.update_meta_atomic(
                 cfg.registry_root, dataset_id, {"source_origins": staged_origins}

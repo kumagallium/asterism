@@ -33,7 +33,7 @@ export interface ChatPaneProps {
   /** 表を添える。 */
   onAttach?: (files: File[]) => Promise<boolean> | boolean | void
   sourceHome?: string | null
-  onAttachFromSource?: (ids: string[]) => Promise<boolean>
+  onAttachFromSource?: (ids: string[], names: string[]) => Promise<boolean>
   /** 読んでいる手番の id → 進みの 1 行。 */
   progress?: Readonly<Record<string, string>>
   /** 読み取りが途中で止まった手番の id。 */

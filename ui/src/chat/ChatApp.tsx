@@ -446,8 +446,8 @@ export function ChatApp() {
 
   /** 表を添える（取り込み元の MCP サーバのファイル）。 */
   const onAttachFromSource = useCallback(
-    (server: string, ids: string[]): Promise<boolean> =>
-      attachFlow(ids.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials())),
+    (server: string, ids: string[], names: string[]): Promise<boolean> =>
+      attachFlow(names.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials())),
     [attachFlow, lang, getActiveCredentials],
   )
 
@@ -841,7 +841,7 @@ export function ChatApp() {
           interrupted={interrupted}
           onAttach={onAttach}
           sourceHome={getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? null}
-          onAttachFromSource={(ids) => onAttachFromSource(getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? '', ids)}
+          onAttachFromSource={(ids, names) => onAttachFromSource(getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? '', ids, names)}
           onChoose={(turnId, i, v) => void onChoose(turnId, i, v)}
           error={error}
           noKey={noKey}
