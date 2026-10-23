@@ -56,6 +56,22 @@ Graphium は `feat/asterism-push` の MCP（`scripts/bundle-mcp.mjs` で束ね�
 - ingest 直後〜promote までの間は `promoted` が下りるので `append_rows` は 409。`resync_rows` は promote まで待ってから返る
 - Ask は切り替えまで旧版（v1）を読み、旧版は `pendingDrop` で消える
 
+## トピックを概念として写す（2026-10-23 追記）
+
+Graphium のトピック（概念・材料・手法…の話題ページ）を `skos:Concept` の行として同じデータセットに写し、派生元の知見へ `prov:wasDerivedFrom` で結ぶ。用語（共有語 `sv:`）にはしない — Asterism の「問いの無い用語は作らない」門があるので、用語にするかは人が後で決める。
+
+| 順 | ツール | 入れたもの | 返ったもの |
+|---|---|---|---|
+| ① Asterism | `POST /api/materialize`（`dataset_id` 付き＝同じデータセットの設計を置き直す） | `mapping-ir.yaml`（map `topic` を足した版） | 検証の指摘 0 件・公開状態は保たれる |
+| ② Graphium | `export_asterism_claims(includeTopics: true)` | 語の基底・知見の基底・型の語 | 7 ファイル（`topics.json` 2 件: 焼成温度 concept・試料 B material） |
+| ③ Asterism | `resync_rows` | 7 ファイル全量 | `version: …/v5`・`triples: 133` |
+| ④ Asterism | `sparql_query` | `skos:Concept` → `prov:wasDerivedFrom` → 知見の数 | 焼成温度 → 4 件・試料 B → 2 件。`source_url` は `…/app/#knowledge/topic/<id>` |
+| ⑤ Graphium | `mark_asterism_sent`（トピックの id も） | — | `marked: 2`。次の `onlyUnsent` は 0 件 |
+
+- `find_datasets` の種類に「トピック」が加わる（判断・規則・解釈・観察・トピック）
+- 設計を変えるのは人（①）。`resync_rows` は承認済みの設計で写しを作り直すだけ
+- 次の一歩: 同じ名前のトピックが他のデータセットの値と重なれば Asterism の crosswalk が候補を出す（候補 C）。用語にする（候補 A の後半）は、問いを添えて `POST /api/vocab/shared` か、チャットで「焼成温度を用語にして」
+
 ## 残った穴・次の一歩
 
 - 本物の vault に型付きの知見が無い。Graphium の「Asterism と連携する」をオンにし、知見に型（judgment / rule / interpretation / sosa:Observation）を付けるところから
