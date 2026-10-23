@@ -56,7 +56,25 @@ FastMCP スクリプト・`FAKE_ROOT` のファイルを一覧・取得・追加
 
    名前でなく中身（sha256）で合流していることの確認。
 
-## 4. 残り（Graphium の道具ができてから）
+## 4. A3 — ✓ の後の送り込み（偽の家）
+
+1. 📎「この PC のファイル」で `stock.csv`（3 行）を添える → 設計 → 「公開」。
+2. 返事の 1 枚に注記: 「「stock.csv」を graphium にも送りました。」（`manual/screenshots/attach-sent-home.png`）。
+   一時フォルダに `added-79c825d6-stock.csv` が増えた（偽の家は sha256 の先頭 8 文字で名前を付ける）。
+3. データセットの `meta.json`（実物）: `home` が書き戻されている。
+
+```json
+"source_origins": [{"name": "stock.csv",
+  "sha256": "sha256:79c825d616e266d257ad24452709a20eb47e66ee33ccd13b4b3a79d22216bb5c",
+  "home": {"server": "graphium", "id": "added-79c825d6-stock.csv", "name": "stock.csv"}}]
+```
+
+4. 同じ `stock.csv` をもう一度添えて「公開」→ 注記「「stock.csv」は graphium に既にありました（同じ中身）。」・
+   一時フォルダは増えない（3 件のまま）・新しいデータセットの `home.id` も同じ `added-79c825d6-stock.csv`。
+5. 取り込み元から選んで添えた表（§3 の `価格表.csv`）は home 済みなので ✓ しても送られない
+   （pytest `test_originals_that_already_have_a_home_are_not_sent`）。
+
+## 5. 残り（Graphium の道具ができてから）
 
 - [ ] Graphium の `dist-mcp/graphium-mcp.mjs` を stdio で登録（`command` は `which node` のフルパス・
   `env` に `GRAPHIUM_ROOT=<一時 vault>`）→ `tools` に `list_media` が出る。

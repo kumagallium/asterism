@@ -137,7 +137,12 @@ HTTP の対応表: 未登録 404・設定が読めない 400・未有効 409・a
   と一致することを確かめ、`add({bytes_base64, name, mimeType})` を呼ぶ。返った `id` を
   `update_meta_atomic` で `source_origins[].home` に書き戻す（home 済み＝`server` が
   `"local"` 以外）。32 MiB 超は送らず通知。**失敗しても公開は取り消さない**（通知だけ）。
-- 通知の 1 行「〈サーバ名〉にも置きました（既にありました）」は短いロックで手番に足す。
+- 通知は表ごとに 1 行「「〈置いた名前〉」を 〈サーバ名〉 にも送りました／に既にありました（同じ中身）」
+  （注記 `sent_home`）、送れなければ `send_failed`。短いロックで手番に足す。相手と注記と `home.name`
+  に渡す名前は**利用者が置いた名前**（`meta.source_names`）で、保存名（`source-<hash>.csv`）ではない。
+  繋げない／時間切れ／未有効は残りの表も同じなので 1 行で打ち切る（✓ の応答を件数ぶん待たせない）。
+  **送れなかった原本を後から送り直す経路は v1 に無い**（✓ は手番ごとに 1 回。`home` は local のまま
+  残るので、次の版で「送り直す」を足せる）。
 - 設定 `sendOriginalsToHome`（既定 true）で切れる。**`add` の呼び手はここだけ**
   （`attach_source`・`_persist_source_uploads`・ingest・`resync_rows` からは呼ばない）。
   かんたんウィザードの公開は範囲外。

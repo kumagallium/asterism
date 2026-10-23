@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import mimetypes
@@ -89,30 +90,40 @@ async def push_originals_home(
     targets = [o for o in origins if _pushable(o)]
     if not targets:
         return []
+    # 相手と注記に見せる名前は、利用者が置いた名前（``meta.source_names``: 保存名→置いた名前）。
+    # 保存名（``source-<hash>.csv``）は Asterism の都合で、相手に残すと分からなくなる。
+    shown = meta.get("source_names") if isinstance(meta.get("source_names"), dict) else {}
     source_dir = registry.source_dir(registry_root, dataset_id)
     notes: list[dict] = []
-    changed = False
+    sent: dict[str, dict] = {}  # 保存名 → 新しい home
     for origin in targets:
         name = str(origin["name"])
+        label = str(shown.get(name) or name)
         path = (source_dir / name) if source_dir is not None else None
-        if path is None or not path.is_file():
-            continue  # 保存ファイルが無い（置き換え済み）＝送る物が無い
-        if staging.sha256_of(path) != origin.get("sha256"):
-            notes.append(_note("send_failed", _text(lang, "mismatch", name=name, server=server)))
-            continue
-        size = path.stat().st_size
-        if size > MAX_SOURCE_FILE_BYTES:
-            notes.append(_note("send_failed", _text(lang, "too_big", name=name, server=server)))
-            continue
         try:
+            if path is None or not path.is_file():
+                continue  # 保存ファイルが無い（置き換え済み）＝送る物が無い
+            size = path.stat().st_size
+            if size > MAX_SOURCE_FILE_BYTES:
+                notes.append(
+                    _note("send_failed", _text(lang, "too_big", name=label, server=server))
+                )
+                continue
+            digest = await asyncio.to_thread(staging.sha256_of, path)
+            if digest != origin.get("sha256"):
+                notes.append(
+                    _note("send_failed", _text(lang, "mismatch", name=label, server=server))
+                )
+                continue
+            payload = await asyncio.to_thread(_encode, path)
             cfg = mcp_registry.enabled_server_or_raise(server)
             result = await mcp_registry.client.call_tool(
                 cfg,
                 add_tool,
                 {
-                    "bytes_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
-                    "name": name,
-                    "mimeType": mimetypes.guess_type(name)[0] or "application/octet-stream",
+                    "bytes_base64": payload,
+                    "name": label,
+                    "mimeType": mimetypes.guess_type(label)[0] or "application/octet-stream",
                 },
                 timeout_s=mcp_registry.client.get_timeout_s,
             )
@@ -120,28 +131,63 @@ async def push_originals_home(
             new_id = data.get("id")
             if not isinstance(new_id, str) or not new_id:
                 raise McpToolError("返事に id がありません")
+        except (McpConnectError, McpTimeout) as exc:
+            # 繋げない／時間切れは、残りの表も同じ結果になる。1 件ずつ待って ✓ の応答を
+            # 長く止めない（1 行で済ませて打ち切る）
+            notes.append(
+                _note(
+                    "send_failed", _text(lang, "failed", name=label, server=server, reason=str(exc))
+                )
+            )
+            break
         except HTTPException as exc:
             notes.append(
                 _note(
                     "send_failed",
-                    _text(lang, "failed", name=name, server=server, reason=exc.detail),
+                    _text(lang, "failed", name=label, server=server, reason=exc.detail),
                 )
             )
-            continue
-        except (McpConnectError, McpTimeout, McpToolError) as exc:
+            break  # 未有効など設定の問題も、残りは同じ
+        except Exception as exc:  # 道具の失敗・読めないファイル・想定外。公開は取り消さない
+            logger.warning("source push failed for %s: %s", name, exc, exc_info=True)
             notes.append(
                 _note(
-                    "send_failed", _text(lang, "failed", name=name, server=server, reason=str(exc))
+                    "send_failed", _text(lang, "failed", name=label, server=server, reason=str(exc))
                 )
             )
             continue
-        origin["home"] = {"server": server, "id": new_id, "name": name}
-        changed = True
+        sent[name] = {"server": server, "id": new_id, "name": label}
         key = "existed" if data.get("duplicate") is True else "sent"
-        notes.append(_note("sent_home", _text(lang, key, name=name, server=server)))
+        notes.append(_note("sent_home", _text(lang, key, name=label, server=server)))
+    if sent:
+        # 送っている間に meta が変わっていても（再 attach 等）、古い一覧で上書きしない:
+        # 読み直して、同じ名前・同じ sha256 の行にだけ home を足す
+        try:
+            _write_homes_back(registry_root, dataset_id, {o["name"]: o for o in targets}, sent)
+        except Exception as exc:
+            logger.warning("source push: could not record the home for %s: %s", dataset_id, exc)
+    return notes
+
+
+def _encode(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+def _write_homes_back(
+    registry_root: Path, dataset_id: str, targets: dict[str, dict], sent: dict[str, dict]
+) -> None:
+    fresh = registry.load_meta(registry_root, dataset_id) or {}
+    origins = [o for o in (fresh.get("source_origins") or []) if isinstance(o, dict)]
+    changed = False
+    for o in origins:
+        name = o.get("name")
+        home = sent.get(name)
+        before = targets.get(name)
+        if home and before and o.get("sha256") == before.get("sha256"):
+            o["home"] = home
+            changed = True
     if changed:
         registry.update_meta_atomic(registry_root, dataset_id, {"source_origins": origins})
-    return notes
 
 
 def _note(kind: str, text: str) -> dict:

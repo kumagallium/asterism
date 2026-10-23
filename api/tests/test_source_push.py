@@ -138,8 +138,11 @@ def test_confirm_sends_the_local_original_home_and_writes_the_id_back(tmp_path: 
         (note,) = [n for n in out["turn"]["reply"]["notes"] if n["kind"] == "sent_home"]
         assert "g にも送りました" in note["text"]
     assert len(home.added) == 1 and home.added[0]["sha256"] == _sha(PRICES)
+    # 相手と注記に見せるのは利用者が置いた名前（保存名 source-<hash>.csv ではない）
+    assert home.added[0]["name"] == "価格表.csv" and "「価格表.csv」" in note["text"]
     (origin,) = _meta(tmp_path, ds_id)["source_origins"]
-    assert origin["home"] == {"server": "g", "id": "m-1", "name": origin["name"]}
+    assert origin["name"].startswith("source-")
+    assert origin["home"] == {"server": "g", "id": "m-1", "name": "価格表.csv"}
 
 
 def test_a_duplicate_answer_still_records_the_id(tmp_path: Path) -> None:
@@ -199,7 +202,7 @@ def test_failure_keeps_the_publish_and_tells(tmp_path: Path) -> None:
         (note,) = [n for n in out["turn"]["reply"]["notes"] if n["kind"] == "send_failed"]
         assert "disk full" in note["text"]
     (origin,) = _meta(tmp_path, turn["attachment"]["dataset_id"])["source_origins"]
-    assert staging.is_local_origin(origin)  # 家は書き戻されない＝次の機会に送れる
+    assert staging.is_local_origin(origin)  # 家は書き戻されない（再送の経路は v1 に無い＝ADR §7）
 
 
 def test_setting_off_sends_nothing(tmp_path: Path) -> None:
@@ -258,3 +261,32 @@ def test_add_is_called_from_the_confirm_hook_only() -> None:
         if "provider().add" in p.read_text("utf-8") or ".add_tool" in p.read_text("utf-8")
     ]
     assert callers == ["source_push.py"], callers
+
+
+def test_a_dead_home_is_told_once_and_does_not_hold_the_confirm(tmp_path: Path) -> None:
+    """繋げない家に表が 2 つあっても、1 行で打ち切る（✓ の応答を件数ぶん待たせない）。"""
+    home = _Home()
+    app = _app(tmp_path, home)
+    app.state.mcp_registry.client = McpClient(
+        connect_timeout_s=2, list_timeout_s=2, get_timeout_s=2
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        r = client.post(
+            f"/api/chat/sessions/{sid}/attach",
+            files=[
+                ("files", ("a.csv", PRICES, "text/csv")),
+                ("files", ("b.csv", _SRC_FILES["price.csv"][:-1] + b"9\n", "text/csv")),
+            ],
+            data={"lang": "ja"},
+            headers=KEY,
+        )
+        assert r.status_code == 201, r.text
+        _drain(client, r.json()["job_id"])
+        turn = _turn(client, sid, r.json()["turn"]["id"])
+        if turn["state"] != "proposed":
+            pytest.skip("two-table attach did not reach proposed in this fixture")
+        out = _confirm(client, sid, turn["id"])
+        assert out["commit"]
+        failed = [n for n in out["turn"]["reply"]["notes"] if n["kind"] == "send_failed"]
+        assert len(failed) == 1
