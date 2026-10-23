@@ -6722,6 +6722,11 @@ def build_app(
             raise HTTPException(400, "body must be JSON") from exc
         if not isinstance(payload, dict):
             raise HTTPException(400, "settings body must be a JSON object")
+        # 適性検査の結果（aptitude）は検査のジョブだけが書く。PUT の中身は捨て、今のを保つ
+        payload.pop("aptitude", None)
+        kept = appdata.read_settings(root).get("aptitude")
+        if isinstance(kept, dict):
+            payload["aptitude"] = kept
         try:
             appdata.write_settings(root, payload)
         except appdata.SettingsTooLarge as exc:

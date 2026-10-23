@@ -157,3 +157,15 @@ def test_shape_note_points_to_the_check() -> None:
 
     assert "適性を調べる" in chat_turns._shape_note("形が崩れました", "", "ja")
     assert "Check aptitude" in chat_turns._shape_note("Bad shape", "", "en")
+
+
+def test_put_settings_keeps_aptitude_and_ignores_the_put_one(tmp_path: Path) -> None:
+    app, _, cfg = _api(tmp_path, _Fake("good"))
+    mine = {"p::m": {"verdict": "good"}}
+    (cfg.appdata_root / "settings.json").write_text(json.dumps({"aptitude": mine}), "utf-8")
+    with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        assert c.put("/api/appdata/settings", json={"theme": "x"}).status_code == 200
+        assert c.get("/api/appdata/settings").json()["settings"] == {"theme": "x", "aptitude": mine}
+        fake = {"aptitude": {"p::m": {"verdict": "poor"}}, "theme": "y"}
+        c.put("/api/appdata/settings", json=fake)
+        assert c.get("/api/appdata/settings").json()["settings"]["aptitude"] == mine
