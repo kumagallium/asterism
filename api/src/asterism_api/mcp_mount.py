@@ -104,6 +104,8 @@ def attach_mcp(app: FastAPI, settings: Settings | None = None) -> bool:
         get_client=lambda: app.state.client,
         get_rebuilder=lambda: getattr(app.state, "crosswalk_rebuilder", None),
         log_job=lambda record: _log_job(cfg, record),
+        get_app=lambda: app,
+        token=cfg.api_token,
     )
     mcp_app = server.http_app(path="/")
 

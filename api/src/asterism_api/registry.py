@@ -135,6 +135,11 @@ def source_kind_of(filenames: list[str]) -> str:
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ID_RE = re.compile(r"[a-z0-9-]{1,128}")
+
+
+def is_valid_dataset_id(dataset_id: str) -> bool:
+    """dataset id の形（[a-z0-9-]・128 字まで）か。URL に埋める前の門に使う。"""
+    return bool(_ID_RE.fullmatch(dataset_id))
 # ``class Id`` or ``class Id["display name"]`` — the second form is emitted by
 # ir2mermaid/ttl2mermaid when a class's real name isn't a Mermaid-safe bare
 # identifier (e.g. non-ASCII); group 2 (the display name) is what a human
