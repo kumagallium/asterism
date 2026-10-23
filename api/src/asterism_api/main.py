@@ -4312,6 +4312,53 @@ def _preamble_header_json(inspections: list, paths: list[Path]) -> str:
     return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
 
 
+def _parse_source_homes(raw: str) -> dict[str, dict]:
+    """``source_homes`` form field → ``{dropped name: home}``. Malformed → 400."""
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(400, "source_homes must be JSON") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(400, "source_homes must be a JSON object")
+    out: dict[str, dict] = {}
+    for name, home in data.items():
+        if not isinstance(home, dict) or not isinstance(home.get("server"), str):
+            raise HTTPException(400, f"source_homes[{name!r}] must be {{server, id, name}}")
+        out[Path(str(name)).name] = {
+            k: v for k, v in home.items() if k in ("server", "id", "name") and isinstance(v, str)
+        }
+    return out
+
+
+def _origin_duplicates(registry_root: Path, origins: list[dict]) -> list[dict]:
+    """Datasets that already hold one of these originals (by content hash, not by
+    name — ADR source-switch §6). Reads every meta.json once; ``source_origins`` is
+    small and the registry is a laptop's."""
+    wanted = {
+        o["sha256"]: o.get("name")
+        for o in origins
+        if isinstance(o, dict) and isinstance(o.get("sha256"), str)
+    }
+    if not wanted:
+        return []
+    hits: list[dict] = []
+    for meta in registry.list_datasets(registry_root):
+        for o in meta.get("source_origins") or []:
+            if isinstance(o, dict) and o.get("sha256") in wanted:
+                hits.append(
+                    {
+                        "name": wanted[o["sha256"]],
+                        "sha256": o["sha256"],
+                        "dataset_id": meta.get("id"),
+                        "dataset_name": meta.get("name") or meta.get("id"),
+                        "source_name": o.get("name"),
+                    }
+                )
+    return hits
+
+
 def _staging_meta(sdir: Path) -> dict:
     """The staging record's ``meta.json`` (``{}`` when unreadable)."""
     try:
@@ -6408,6 +6455,13 @@ def build_app(
     @app.post("/api/staging", dependencies=_write_auth)
     async def create_staging(
         files: list[UploadFile] = File(..., description="Source file(s) to stage for design"),
+        source_homes: str = Form(
+            default="",
+            description=(
+                "JSON {dropped file name: {server, id, name}} — where each upload came "
+                "from when it was fetched from an MCP source (ADR source-switch-mcp-client.md)."
+            ),
+        ),
     ) -> dict[str, object]:
         """Give the design-time source a server-side home the moment it is
         dropped (ADR source-staging.md). Returns ``staging_id`` + the canonical
@@ -6417,6 +6471,7 @@ def build_app(
         client keeps its own copy (the legacy path is unchanged)."""
         if not files:
             raise HTTPException(400, "no files uploaded")
+        homes_by_dropped = _parse_source_homes(source_homes)
         staging.sweep(cfg.registry_root)
         sid = staging.new_id()
         sdir = staging.dir_for(cfg.registry_root, sid, create=True)
@@ -6444,7 +6499,17 @@ def build_app(
             placed_names.update(
                 {csv: dropped_as[book] for csv, book in origins.items() if book in dropped_as}
             )
-            meta = staging.write_meta(sdir, [p.name for p in paths], names=placed_names)
+            # The uploads' identity (sha256 of the bytes on disk + where they came
+            # from). Local 📎 too — that is what makes "already the source of
+            # dataset X" work for a plain drop. NOTE: a different key from the
+            # local ``origins`` above (workbook provenance) and from ``sources``.
+            source_origins = staging.compute_origins(
+                sdir, {raw: homes_by_dropped[name] for raw, name in dropped_as.items()
+                       if name in homes_by_dropped}
+            )
+            meta = staging.write_meta(
+                sdir, [p.name for p in paths], names=placed_names, origins=source_origins
+            )
             if sheets:
                 # Which derived table came from which worksheet — the record has
                 # to remember it, because everything downstream sees only the
@@ -6459,6 +6524,11 @@ def build_app(
             "staging_id": sid,
             "sources": meta["sources"],
             "sheets": meta.get("sheets") or {},
+            "origins": meta.get("origins") or [],
+            # Same bytes already attached to a dataset → tell, do not stop (§6).
+            "duplicates": await asyncio.to_thread(
+                _origin_duplicates, cfg.registry_root, meta.get("origins") or []
+            ),
             "expires_at": staging.expires_at(sdir),
         }
 
@@ -9381,7 +9451,21 @@ def build_app(
                 for k, v in _dataset_source_names(data["meta"]).items()
                 if k in {p.name for p in source_paths}
             }
-            staging.write_meta(sdir, [p.name for p in source_paths], names=recount_names)
+            # The origins of the files still on disk ride along, so a re-attach
+            # after the counting gate keeps the dataset's ``source_origins``
+            # (ADR source-switch §6) instead of forgetting where they came from.
+            kept = {p.name for p in source_paths}
+            recount_origins = [
+                o
+                for o in (data["meta"].get("source_origins") or [])
+                if isinstance(o, dict) and o.get("name") in kept
+            ]
+            staging.write_meta(
+                sdir,
+                [p.name for p in source_paths],
+                names=recount_names,
+                origins=recount_origins,
+            )
         except Exception:
             shutil.rmtree(sdir, ignore_errors=True)
             raise
@@ -10220,12 +10304,34 @@ def build_app(
             finally:
                 for u in uploads:
                     await u.close()
+            # The uploads' identity travels with them (ADR source-switch §6): the
+            # rows whose raw file was persisted (a narrowed sheet choice keeps the
+            # workbook, which is what the hash is of). Replaced wholesale, like
+            # source/ itself is.
+            # NOTE: match against the files actually in source/, not ``saved`` —
+            # a workbook's original is kept alongside its derived CSVs but is
+            # not listed in ``saved`` (review 2026-10-23: xlsx origins vanished).
+            persisted_dir = registry.source_dir(cfg.registry_root, dataset_id)
+            staged_origins = [
+                o
+                for o in (smeta.get("origins") or [])
+                if isinstance(o, dict)
+                and isinstance(o.get("name"), str)
+                and persisted_dir is not None
+                and (persisted_dir / o["name"]).is_file()
+            ]
+            registry.update_meta_atomic(
+                cfg.registry_root, dataset_id, {"source_origins": staged_origins}
+            )
             # Consumed: the dataset's source/ is now the durable home.
             staging.delete(cfg.registry_root, staging_id)
         else:
             if not files:
                 raise HTTPException(400, "no source files uploaded")
             saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
+            # A direct upload replaced source/ — whatever origins were recorded no
+            # longer describe the files on disk.
+            registry.update_meta_atomic(cfg.registry_root, dataset_id, {"source_origins": []})
         # Reshape (R13/R14/R21): raw was just (re)persisted above — regenerate
         # its derived tables from THIS raw, never trust whatever the old ones
         # said. The staged spec (a fresh design round) wins outright; otherwise

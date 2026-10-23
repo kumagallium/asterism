@@ -32,6 +32,8 @@ export interface ChatPaneProps {
   onAsk?: (text: string) => Promise<boolean>
   /** 表を添える。 */
   onAttach?: (files: File[]) => Promise<boolean> | boolean | void
+  sourceHome?: string | null
+  onAttachFromSource?: (ids: string[], names: string[]) => Promise<boolean>
   /** 読んでいる手番の id → 進みの 1 行。 */
   progress?: Readonly<Record<string, string>>
   /** 読み取りが途中で止まった手番の id。 */
@@ -178,7 +180,7 @@ export function ChatPane(p: ChatPaneProps) {
             {p.error}
           </p>
         )}
-        <Composer onSend={p.onSend} onAttach={p.onAttach} busy={p.busy} noKey={p.noKey} onOpenSettings={p.onOpenSettings} scopeBar={p.scopeBar} placeholder={p.placeholder} focusKey={p.focusKey} />
+        <Composer onSend={p.onSend} onAttach={p.onAttach} sourceHome={p.sourceHome} onAttachFromSource={p.onAttachFromSource} busy={p.busy} noKey={p.noKey} onOpenSettings={p.onOpenSettings} scopeBar={p.scopeBar} placeholder={p.placeholder} focusKey={p.focusKey} />
       </div>
     </div>
   )

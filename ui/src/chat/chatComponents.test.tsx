@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../i18n'
 import { ThemesApiError } from '../themes/themesApi'
 import type { Point, Reply, SessionSummary, Turn } from './chatApi'
@@ -8,7 +8,10 @@ import { ChatPane } from './ChatPane'
 import { AddPanel } from './AddPanel'
 import { Composer } from './Composer'
 import { HandForm } from './HandForm'
-import { ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
+import { NoteLine, ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
+import { SourcePickerView } from './SourcePicker'
+import { formatSize } from './sourcePickerUtil'
+import { fetchSourceItems } from './chatApi'
 import { SessionList } from './SessionList'
 
 const noop = () => {}
@@ -519,5 +522,61 @@ describe('点の 1 枚の穴（11d）', () => {
     expect(text(mk({ unverified_sparql: true }))).toContain('検証していない問い合わせで答えました')
     expect(text(mk({ answered: false }))).toContain('答えが出ませんでした')
     expect(text(mk({}))).not.toContain('答えが出ませんでした')
+  })
+})
+
+describe('取り込み元の切り替え', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('Composer: sourceHome 無しは hidden input があり、メニューは出ない', () => {
+    const html = renderToStaticMarkup(<Composer onSend={async () => true} onAttach={noop} busy={false} noKey={false} onOpenSettings={noop} />)
+    expect(html).toContain('data-testid="chat-attach-input"')
+    expect(html).not.toContain('aria-haspopup')
+  })
+
+  it('Composer: sourceHome ありは 📎 がメニューを開く形になる', () => {
+    const html = renderToStaticMarkup(
+      <Composer onSend={async () => true} onAttach={noop} sourceHome="drive" onAttachFromSource={async () => true} busy={false} noKey={false} onOpenSettings={noop} />,
+    )
+    expect(html).toContain('aria-haspopup="menu"')
+    expect(html).toContain('data-testid="chat-attach-input"')
+  })
+
+  it('SourcePickerView: 一覧を出し、選んだ id だけ checked', () => {
+    const items = [
+      { id: 'a', name: '価格表.csv', mimeType: 'text/csv', size: 2048, uploadedAt: '2026-10-01T00:00:00Z', folder: null },
+      { id: 'b', name: '在庫.xlsx', mimeType: '', size: null, uploadedAt: null, folder: null },
+    ]
+    const html = renderToStaticMarkup(
+      <SourcePickerView server="drive" state={{ phase: 'ready', items }} selected={['b']} busy={false} onToggle={noop} onAttach={noop} onClose={noop} />,
+    )
+    expect(html).toContain('価格表.csv')
+    expect(html).toContain('2 KB')
+    expect(html.match(/checked=""/g)).toHaveLength(1)
+    expect(formatSize(3 * 1024 * 1024)).toBe('3.0 MB')
+    const empty = renderToStaticMarkup(
+      <SourcePickerView server="drive" state={{ phase: 'ready', items: [] }} selected={[]} busy={false} onToggle={noop} onAttach={noop} onClose={noop} />,
+    )
+    expect(empty).toContain('表のファイルがありません')
+    expect(empty).toContain('disabled')
+  })
+
+  it('fetchSourceItems: 拡張子を本文で送り、items を返す', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ server: 'drive', items: [{ id: 'a', name: 'x.csv', mimeType: 'text/csv', size: 10, uploadedAt: null, folder: null }] })))
+    vi.stubGlobal('fetch', fetchMock)
+    const items = await fetchSourceItems('drive', ['.csv'])
+    expect(items.map((i) => i.id)).toEqual(['a'])
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain('/api/mcp-servers/drive/source-items')
+    expect(JSON.parse(init.body as string)).toEqual({ exts: ['.csv'] })
+  })
+
+  it('NoteLine: duplicate_source は radio 無しで text だけ', () => {
+    const note = { kind: 'duplicate_source', text: '「X」は既にデータセット「Y」の取り込み元です（同じ中身）。', choice: null }
+    const html = renderToStaticMarkup(<NoteLine note={note as never} name="n" busy={false} />)
+    expect(html).toContain('chat-note--duplicate_source')
+    expect(html).toContain('取り込み元です')
+    expect(html).not.toContain('radio')
+    expect(html).not.toContain('fieldset')
   })
 })

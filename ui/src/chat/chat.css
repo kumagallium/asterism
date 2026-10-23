@@ -1106,3 +1106,108 @@ button.chat-question-title:hover {
   background: none;
   border: none;
 }
+
+/* 📎 のメニュー（この PC のファイル／取り込み元のファイル） */
+.chat-attach-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.chat-attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  padding: 4px;
+  z-index: 20;
+}
+.chat-attach-menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: var(--fg);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.chat-attach-menu button:hover {
+  background: var(--surface-alt);
+}
+
+/* 取り込み元のファイルの一覧のダイアログ */
+.source-picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 35, 22, 0.32);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 16px 16px;
+  z-index: 100;
+}
+.source-picker {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  width: min(560px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.source-picker-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.source-picker-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--fg);
+}
+.source-picker-from {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.source-picker-body {
+  padding: 8px 18px;
+  overflow-y: auto;
+  min-height: 80px;
+}
+.source-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.source-picker-list label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.source-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.source-picker-meta {
+  flex: none;
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.source-picker-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
