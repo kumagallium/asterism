@@ -19,7 +19,7 @@ Graphium で保存 ──export_asterism_claims──▶ flat JSON ──append_
 | `proposal.md` | 上の IR を `POST /api/materialize` に渡すときの文書（§9 に IR を入れたもの） |
 | `sample/*.json` | Graphium の `export_asterism_claims` が返す形の見本（判断 1・規則 1・解釈 1・観察 2 と子の表） |
 | `anomaly.rq` | 「規則に反する観察」を探す SPARQL（違和感検知）。出典は `sv:source_url` |
-| `loop.md` | 実機で 1 周通した記録 |
+| `loop.md` | 実機で 1 周通した記録（増分と上げ直しの両方） |
 
 ## 契約（Graphium → Asterism の行）
 
@@ -47,6 +47,15 @@ Asterism のチャットで「judgment・rule・interpretation を用語とし�
 
 ### 2. 以後は保存のたびに（AI がやる）
 Claude Desktop などに Graphium と Asterism の両方の MCP をつなぎ、次の順で頼む。
+**既定は上げ直し（全量・冪等）**。日々の増分だけなら `append_rows` でもよいが、直した・消した知見は上げ直しでしか届かない。
+
+| 順 | ツール | 何を渡す |
+|---|---|---|
+| ① | Graphium `export_asterism_claims` | `asterism`（語の基底・知見の基底・型の語）。全量 |
+| ② | Asterism `resync_rows` | `dataset_id`・`files`（①の全ファイル。0 件の種類は `[]`） |
+| ③ | Graphium `mark_asterism_sent` | ②で入った `id` と `dataset_id` |
+
+増分だけのとき:
 
 | 順 | ツール | 何を渡す |
 |---|---|---|
@@ -63,4 +72,6 @@ Claude Desktop などに Graphium と Asterism の両方の MCP をつなぎ、�
 ## 守っていること
 - Asterism のストアに入るのは承認済みの設計の行だけ。追記は設計を変えない
 - 主語は `claimBaseIri/{id}`。`example.org` は使わない
+- 写しは作り直せる（Asterism の行は Graphium の主張の投影・読み取り専用）。Graphium の主張を Asterism で直さない — 直すのは Graphium、意味（型・設計）を直すのは Asterism。1 つの物の家は 1 つ、写しは機械が作る
+- `append_rows` では同一トリプルだけが重なる。同じ id で値が違う行は並ぶ。訂正は上げ直し
 - 既存の MCP ツールの名前・引数は変えていない

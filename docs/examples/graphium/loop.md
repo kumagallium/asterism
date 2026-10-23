@@ -38,10 +38,28 @@ Graphium は `feat/asterism-push` の MCP（`scripts/bundle-mcp.mjs` で束ね�
 - バッチに無い種類（判断・規則・解釈・規則の項目）は `[]` の代役で 0 行として通る
 - 答えの出典は `source_url`（Graphium のノートの URL）で、`save_answer` の `citations` にはその知見 id を渡した
 
+## 直した知見が反映される 1 周（上げ直し・2026-10-23 追記）
+
+同期の既定は**上げ直し（全量・冪等）**。`append_rows` は Graph Store POST で足すだけなので、Graphium 側で知見を直した・消した・作り直した（新しい id で同じ内容）ときは届かない。`resync_rows` が source を全置換して ingest → promote を走らせ、新しい版に差し替える。
+
+| 順 | ツール | 入れたもの | 返ったもの |
+|---|---|---|---|
+| ① Graphium | 観察 B を直す（「分解しなかった」→「分解した」・値 `absent` → `present`） | — | — |
+| ② Graphium | `export_asterism_claims`（`onlyUnsent` 無し＝全量） | 語の基底・知見の基底・型の語 | 6 ファイル（観察 3・子 6 ほか） |
+| ③ Asterism | `resync_rows` | `dataset_id`・`files`（②の全ファイル） | `version: …/graphium-44da84da/v2`・`triples: 111`・`promoted: true` |
+| ④ Asterism | `sparql_query`（`anomaly.rq`） | — | **C だけ**（直した B は出ない。直す前は B と C の 2 件） |
+| ⑤ Asterism | B の結果の値 | — | `…/claim/obs-660k-intact/result/1` に `present` だけ（古い `absent` は無い・主語 IRI は同じ） |
+| ⑥ Graphium | `mark_asterism_sent`（全 id） | — | `alreadySent: 6`（台帳は id で持つので上げ直しでは増えない） |
+| ⑦ Asterism | `append_rows`（試料 D・680 K）を v2 に | — | 増分は上げ直しの後もそのまま効く（v2 に 21 トリプル・`anomaly.rq` に C と D） |
+
+- 上げ直しは**必ず全量をアップロード**する（アップロード無しの再 ingest は積み増した `source/` を読み直すので古い行が残る）
+- ingest 直後〜promote までの間は `promoted` が下りるので `append_rows` は 409。`resync_rows` は promote まで待ってから返る
+- Ask は切り替えまで旧版（v1）を読み、旧版は `pendingDrop` で消える
+
 ## 残った穴・次の一歩
 
 - 本物の vault に型付きの知見が無い。Graphium の「Asterism と連携する」をオンにし、知見に型（judgment / rule / interpretation / sosa:Observation）を付けるところから
-- 送信後に Graphium 側で知見を**直した**場合、`onlyUnsent` は出さない（id で判定）。Asterism の行も古いまま。更新の運び方は未着手
+- 知見を直した・消したときは上げ直し（`resync_rows`）。`onlyUnsent` は id で判定するので増分では届かない（上の節）
 - 保存のたびに自動で送るフック（案 2・Graphium が直接 POST）は未着手。今は Claude が ①〜④ を順に呼ぶ
 - `_claim_properties` の子の表は親→子の向きの線（`sv:condition` 等）を持たず、子→親（`sv:of_rule` / `sv:of_observation`）だけ。Asterism の設計の助言が「つながっていない」と言うのはこのため（問いは通る）
 - 「下がった／上がった」の寄せ（状態語彙）は範囲外のまま
