@@ -19,7 +19,8 @@ Graphium で保存 ──export_asterism_claims──▶ flat JSON ──append_
 | `proposal.md` | 上の IR を `POST /api/materialize` に渡すときの文書（§9 に IR を入れたもの） |
 | `sample/*.json` | Graphium の `export_asterism_claims` が返す形の見本（判断 1・規則 1・解釈 1・観察 2 と子の表・トピック 2） |
 | `anomaly.rq` | 「規則に反する観察」を探す SPARQL（違和感検知）。出典は `sv:source_url` |
-| `loop.md` | 実機で 1 周通した記録（増分と上げ直しの両方） |
+| `loop.md` | 実機で 1 周通した記録（増分・上げ直し・トピック・材料でつなぐ） |
+| `te-samples/`・`crosswalk.rq` | 材料名でつなぐ見本: 2 つ目のデータセット（試料表）と、つないだ後に ZT と知見をまたぐ問い |
 
 ## 契約（Graphium → Asterism の行）
 

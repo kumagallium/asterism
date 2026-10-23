@@ -1,0 +1,12 @@
+# 材料でつないで、試料表の ZT と Graphium の知見を 1 つの問いでまたぐ。
+# ハブ（crosswalk「材料」）は値の重なりから機械が候補を出し、人が「作る」を押したもの。
+PREFIX xw:   <https://kumagallium.github.io/asterism/crosswalk/ontology#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX ex:   <https://kumagallium.github.io/asterism/example/te-samples#>
+SELECT ?material ?zt ?claim WHERE {
+  ?s ex:material ?material ; ex:zt ?zt ; xw:hasMaterial ?hub .
+  ?topic xw:hasMaterial ?hub ; skos:prefLabel ?tl ; prov:wasDerivedFrom ?c .
+  ?c rdfs:label ?claim
+} ORDER BY ?material ?zt

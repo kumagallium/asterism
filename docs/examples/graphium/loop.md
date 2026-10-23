@@ -72,6 +72,21 @@ Graphium のトピック（概念・材料・手法…の話題ページ）を `
 - 設計を変えるのは人（①）。`resync_rows` は承認済みの設計で写しを作り直すだけ
 - 次の一歩: 同じ名前のトピックが他のデータセットの値と重なれば Asterism の crosswalk が候補を出す（候補 C）。用語にする（候補 A の後半）は、問いを添えて `POST /api/vocab/shared` か、チャットで「焼成温度を用語にして」
 
+## 材料名でつなぐ（候補 C・2026-10-23 追記）
+
+Graphium のトピック（material）の名前が、別のデータセットの値と重なれば、Asterism の「つながり（crosswalk）」が候補を出す。LLM 不要・コード変更なし。
+
+| 順 | 何を | 返ったもの |
+|---|---|---|
+| ① Asterism | 2 つ目のデータセット「熱電材料の試料表」（`te-samples/samples.csv`・材料／焼成温度／ZT）を設計 → 取り込み → 公開 | 16 トリプル |
+| ② Graphium → Asterism | 材料トピック Bi2Te3・PbTe（派生元の知見つき）を `includeTopics` で書き出し → `resync_rows` | v6・152 トリプル |
+| ③ Asterism | `POST /api/crosswalk/discover`（2 データセット・`min_shared_keys: 1`） | 候補 1 件: 試料表 `材料` × Graphium `skos:prefLabel`（重なり Bi2Te3・PbTe、正規化 identity） |
+| ④ Asterism | 候補の `build_config` をそのまま `POST /api/crosswalk/material/build` | ハブ `crosswalk-material`（14 トリプル・links 試料表 3・Graphium 2） |
+| ⑤ Asterism | `crosswalk.rq`（試料の ZT × その材料のトピックの知見） | 5 行: Bi2Te3（ZT 0.88／0.95）→「660 K で焼成した試料 A は分解した」「焼成温度を 620 K に下げる」・PbTe（1.4）→「670 K で焼成した試料 C は分解しなかった」 |
+
+- つなぐ鍵は**名前の文字列**。表記が違えば（Bi₂Te₃ と Bi2Te3）candidates に出ない — 正規化は閉じた集合（identity ほか）から選ぶ
+- 作るのは人（④）。候補を出すまでは機械
+
 ## 残った穴・次の一歩
 
 - 本物の vault に型付きの知見が無い。Graphium の「Asterism と連携する」をオンにし、知見に型（judgment / rule / interpretation / sosa:Observation）を付けるところから
