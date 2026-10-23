@@ -430,8 +430,12 @@ _SCOPE_NEEDS_AI = {
     "en": "A scoped fix needs the AI to be set up. Removing a row works without it.",
 }
 _KEPT_APPROVED = {
-    "ja": "承認済みの {n} 行は残っています（点を押して「戻す」）",
-    "en": "{n} approved row(s) remain (select the item and press Undo).",
+    "ja": "承認済みの {n} 行は残っています（「文」の行の「外す」で外せます）",
+    "en": "{n} approved row(s) remain (remove them with Remove on the row in Sentences).",
+}
+_ONLY_LAST = {
+    "ja": "最後の提案の行だけ承認できます",
+    "en": "Only a row of the latest proposal can be approved.",
 }
 _ALREADY_APPROVED = {
     "ja": "その行は承認済みです",
@@ -1952,6 +1956,8 @@ async def confirm_only(
         raise TurnRefused(
             409, "承認するものがありません" if lg == "ja" else "Nothing to approve."
         )
+    if [t for t in session["turns"] if _is_theme_proposal(t)][-1] is not turn:
+        raise TurnRefused(409, _ONLY_LAST[lg])
     rows = [c for c in draft.get("concepts") or [] if isinstance(c, dict)]
     by_key = {str(c.get("key")): c for c in rows}
     uses = set(theme.get("uses") or [])
@@ -2130,6 +2136,13 @@ async def confirm(
         for m in rec.get("minted") or []
     ]
     record["minted"] = list(dict.fromkeys([*earlier, *record["minted"]]))
+    record["lines"] = int(record["lines"] or 0) + sum(
+        int(rec.get("lines") or 0)
+        for t in session["turns"]
+        if _is_theme_proposal(t)
+        for rec in t.get("confirmed") or []
+        if isinstance(rec, dict)
+    )
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
     for t in session["turns"]:
@@ -2492,9 +2505,19 @@ async def revert_confirmed(
 
     # 1. 線 — この ✓ の batch で足したものだけ
     gone_lines: set[tuple[str, str, str]] = set()
-    if batch:
+    # 1 行の承認（11o）の batch の線も、この返事の単位として外す
+    batches = {batch} if batch else set()
+    for t in session["turns"]:
+        c = t.get("commit")
+        if isinstance(c, dict) and c.get("batch") == batch:
+            batches |= {
+                str(r["batch"])
+                for r in t.get("confirmed") or []
+                if isinstance(r, dict) and r.get("batch")
+            }
+    if batches:
         for ln in await crosswalk_runtime.list_alignments(client):
-            if ln.get("batch") != batch:
+            if ln.get("batch") not in batches:
                 continue
             try:
                 await crosswalk_runtime.remove_alignment(

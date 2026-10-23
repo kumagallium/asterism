@@ -385,6 +385,19 @@ class _DraftView:
     def end(self, ref: str) -> str:
         return f"draft:{self.draft_id}:{ref}" if ref in self.concepts else str(ref)
 
+    def approved_iris(self, f: str, rel: str, t: str) -> tuple[str, str, str] | None:
+        """承認済みの行 → ``(主語の IRI, 述語, 目的語の IRI)``（用語は ``existing:<slug>``、
+        標準の語は curie の IRI）。IRI にできなければ ``None``。"""
+
+        def slug(key: str) -> str:
+            c = self.concepts.get(key) or {}
+            use = str(c.get("use") or "")
+            bare = use[len("existing:") :] if use.startswith("existing:") else ""
+            return str(c.get("slug") or bare)
+
+        kinds = {slug(k): c.get("kind") for k, c in self.concepts.items() if slug(k)}
+        return chat_seed._line_iris({"kinds": kinds}, (slug(f), rel, slug(t) or t))
+
     def turn_for(self, key: str | None) -> dict[str, Any] | None:
         """この札（key）を足した提案の手番。無ければ最後の提案の手番。"""
         if key is not None:
@@ -401,13 +414,18 @@ class _DraftView:
         template = graph_diff.REL_SENTENCE[self.lg].get(rel)
         if template is None:
             return None
+        f, t = str(r.get("from")), str(r.get("to"))
+        marked = (f, rel, t) in self.seed_rels
+        source, relation, target = self.end(f), rel, self.end(t)
+        if marked:  # 承認済みの行は IRI の形（外す・戻すが承認済みの行として扱える）
+            iris = self.approved_iris(f, rel, t)
+            if iris is not None:
+                source, relation, target = iris
         return {
-            "text": template.format(
-                s=self.name_of(str(r.get("from"))), o=self.name_of(str(r.get("to")))
-            ),
-            "relation": rel,
-            "source": self.end(str(r.get("from"))),
-            "target": self.end(str(r.get("to"))),
+            "text": template.format(s=self.name_of(f), o=self.name_of(t)),
+            "relation": relation,
+            "source": source,
+            "target": target,
             "drafted_by": r.get("by") or "human",
             "at": self.at,
             "batch": None,
@@ -420,7 +438,7 @@ class _DraftView:
             "to": str(r.get("to")),
             "draft_id": self.draft_id,
             # 承認済みの種にある行（UI は濃く出す）
-            "from_seed": (str(r.get("from")), rel, str(r.get("to"))) in self.seed_rels,
+            "from_seed": marked,
         }
 
     def revert_of(self, out: dict[str, Any], turn: dict[str, Any] | None) -> None:

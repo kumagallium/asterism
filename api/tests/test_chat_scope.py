@@ -288,7 +288,7 @@ def test_after_one_row_approval_double_sum_and_revert(tmp_path: Path) -> None:
         assert any(c["label_ja"] == "ナノ析出物" for c in kept["concepts"])
         assert len(kept["relations"]) == len(draft["relations"])  # 種の行 + 承認した 1 行
         notes = [n["text"] for n in r.json()["turn"]["reply"]["notes"]]
-        assert "承認済みの 1 行は残っています（点を押して「戻す」）" in notes
+        assert "承認済みの 1 行は残っています（「文」の行の「外す」で外せます）" in notes
         assert any(c["label_ja"] == "点欠陥散乱" for c in kept["concepts"]) is True
 
 
@@ -387,3 +387,78 @@ def test_eq_line_scope_ignores_direction() -> None:
     with pytest.raises(chat_turns.TurnRefused):
         chat_turns.resolve_scope({"node": "x", "line": {"from": "a", "rel": "sub", "to": "b"}},
                                  graph, [], "ja")  # fmt: skip
+
+
+def _more(to: str) -> list[dict]:
+    """別の返事 — 新しい概念 1 つを、既にある概念に結ぶ。"""
+    new = {"op": "add_concept", "key": "m1", "label_ja": "ドーパント", "label_en": "",
+           "aliases": [], "kind": "class", "use": "new", "reason": ""}  # fmt: skip
+    return [new, {"op": "add_relation", "from": "m1", "rel": "lowers", "to": to, "reason": ""}]
+
+
+# ---- checker 2 回目 ---------------------------------------------------------------------------
+
+
+def test_seed_rows_on_a_draft_card_are_in_the_approved_iri_form(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        did = out["session"]["draft_id"]
+        (card,) = client.get("/api/sky").json()["proposed"]
+        lattice = next(c["key"] for c in card["concepts"] if c["label"] == "格子熱伝導率")
+        pt = client.get("/api/chat/point", params={"iri": f"draft:{did}:{lattice}"}).json()
+        seeded = [s for s in pt["sentences"] if s["from_seed"]]
+        fresh = [s for s in pt["sentences"] if not s["from_seed"]]
+        assert seeded and fresh
+        for s in seeded:
+            assert s["source"].startswith("http") and s["target"].startswith("http")
+            assert not s["relation"].startswith("draft")
+            assert s["from"] in card["concepts"][0].keys() | {s["from"]}
+        assert any(s["source"] == iris["粒界散乱"] for s in seeded)
+        assert fresh[0]["source"].startswith("draft:") and fresh[0]["relation"] == "lowers"
+
+
+def test_one_row_approval_only_for_the_latest_proposal(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    root = tmp_path / "registry"
+    with client:
+        sid, iris = _approved_session(client)
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        draft = themes.load_draft(root, out["session"]["draft_id"])
+        lattice = next(c["key"] for c in draft["concepts"] if c["label_ja"] == "格子熱伝導率")
+        _ops(client, sid, _more(lattice))  # 後の提案が最後になる
+        only = {"relations": [{"from": "n1", "rel": "lowers", "to": lattice}]}
+        r = client.post(
+            f"/api/chat/sessions/{sid}/turns/{out['turn']['id']}/confirm", json={"only": only}
+        )
+        assert r.status_code == 409 and "最後の提案" in r.json()["detail"]
+
+
+def test_undoing_the_full_confirm_also_removes_the_one_row_lines(tmp_path: Path) -> None:
+    client, _ = _ai(tmp_path)
+    root = tmp_path / "registry"
+    with client:
+        sid, iris = _approved_session(client)
+
+        def lines() -> int:
+            theme_id = chat_sessions.load_session(root, sid)["theme_id"]
+            data = themes.load_themes_file(root)
+            return len(next(t for t in data["themes"] if t["id"] == theme_id)["relations"])
+
+        base = lines()
+        out = _say(client, sid, "ナノ析出物を足して", scope={"node": "t|" + iris["格子熱伝導率"]})
+        t2 = out["turn"]
+        draft = themes.load_draft(root, out["session"]["draft_id"])
+        lattice = next(c["key"] for c in draft["concepts"] if c["label_ja"] == "格子熱伝導率")
+        only = {"relations": [{"from": "n1", "rel": "lowers", "to": lattice}]}
+        one = client.post(f"/api/chat/sessions/{sid}/turns/{t2['id']}/confirm", json={"only": only})
+        assert one.json()["commit"] is not None and lines() == base + 1
+        t3 = _ops(client, sid, _more(lattice))["turn"]
+        full = client.post(f"/api/chat/sessions/{sid}/turns/{t3['id']}/confirm", json={})
+        assert full.json()["commit"] is not None
+        assert full.json()["commit"]["lines"] >= 1
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{t3['id']}/revert")
+        assert r.status_code == 200, r.text
+        assert lines() == base
+        assert "ナノ析出物" not in _term_iris(client)
