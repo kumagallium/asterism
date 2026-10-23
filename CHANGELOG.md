@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.59.0](https://github.com/kumagallium/asterism/compare/v0.58.0...v0.59.0) - 2026-10-23
+
+- feat: AI の適性検査 — Asterism が前提にする AI の線引きを、利用者が自分の環境で確かめられる（UI 全面再設計 11q） by @kumagallium in https://github.com/kumagallium/asterism/pull/754
+- test(api): 聞き直しが 2 回になった分、作業場の会話のテストを合わせる（main の CI 赤の直し） by @kumagallium in https://github.com/kumagallium/asterism/pull/756
+
 ## [v0.58.0](https://github.com/kumagallium/asterism/compare/v0.57.1...v0.58.0) - 2026-10-23
 
 - fix(ui): IME の変換確定の Enter でチャットを送信しない（WebKit 対応） by @kumagallium in https://github.com/kumagallium/asterism/pull/748
