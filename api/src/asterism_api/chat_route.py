@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 from asterism_step0.llm import as_completion
 
+from asterism_api.chat_intent import _QUESTION_MARK
+
 Mode = Literal["chat", "ask", "propose"]
 _MODES = ("chat", "ask", "propose")
 
@@ -34,6 +36,10 @@ Modes:
 - "propose": something they want to know, a piece of knowledge they want to add, or the
   design of their data (terms, relations, questions). Leave reply empty.
 
+Never ask the person to explain more in a "chat" reply (no "please tell me more", no
+"could you be specific", no "詳しく教えて"). If something is missing, name the ONE thing that is
+missing and choose "propose" instead.
+
 When you are unsure, choose "chat" and end the reply with a short sentence saying they can
 also add it to the knowledge graph. Write that sentence in the person's language:
 Japanese "知識グラフに足すこともできます", English "You can also add it to the knowledge graph".
@@ -45,7 +51,19 @@ Output ONLY a JSON object, no markdown fence:
 {{"mode": "chat" | "ask" | "propose", "reply": "..."}}
 """
 
-#: 履歴に渡す手番の数と、AI の返事の長さ
+#: 未承認の提案がある話で、疑問でない文に付ける注意書き
+DRAFT_NOTE = (
+    "Note: this conversation has an unapproved proposal. If the message is a reply to it "
+    "(a correction, an addition or an objection), choose propose. Greetings, thanks, short "
+    "acknowledgements (OK, that is fine) and questions about how to use the product stay chat."
+)
+
+#: 会話の返事が聞き返しになっている印（決定論の網）。返事が疑問で終わるときだけ見る
+_ASKS_BACK = (
+    "いただけますか", "教えてください", "教えて下さい", "could you", "can you", "more details",
+)  # fmt: skip
+
+#: 履歴に渡す#: 履歴に渡す手番の数と、AI の返事の長さ
 _MAX_TURNS = 6
 _MAX_REPLY = 200
 
@@ -99,6 +117,10 @@ def _read(text: str) -> RouteResult:
     reply = obj.get("reply")
     if not isinstance(reply, str) or not reply.strip():
         raise RouteError("chat needs a reply")
+    low = reply.lower()
+    # 聞き返しは返事にしない（呼ぶ側が propose に落とす）
+    if _QUESTION_MARK.search(reply) and any(w in low for w in _ASKS_BACK):
+        raise RouteError("chat reply asks the person to explain more")
     return RouteResult("chat", reply.strip())
 
 
@@ -122,6 +144,8 @@ def route_message(
     ]
     if n_datasets is not None:
         lines.append(f"Datasets: {n_datasets}")
+    if has_draft and not _QUESTION_MARK.search(text.strip()):
+        lines.append(DRAFT_NOTE)
     lines.append("")
     lines.append("# Recent turns")
     if history:

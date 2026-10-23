@@ -17,9 +17,19 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
+from asterism import graph_diff
 from asterism.shared_vocab import normalize_label
 
-__all__ = ["Intent", "classify", "entry_iri", "is_undo", "show_target"]
+__all__ = [
+    "Intent",
+    "classify",
+    "entry_iri",
+    "has_fix_words",
+    "is_remove_form",
+    "is_undo",
+    "parse_remove",
+    "show_target",
+]
 
 Intent = Literal["undo", "show", "ask", "graph"]
 
@@ -32,6 +42,17 @@ _UNDO_EN = re.compile(
 
 #: 含まれていれば必ず図の手番にする語（「ひとつ前の位置に戻して」のように名前を含んでも図）
 _GRAPH_WORDS = ("図に", "足して", "外して", "付け替え", "直して", "広げて")
+
+#: 指摘・訂正の言葉（11n）— 未承認の提案がある話で、疑問文でない文に含まれていれば提案（直し）へ。
+#: 普通の文に多い語（伸びている・入れ替え）は入れない
+_FIX_WORDS_JA = ("間違", "誤り", "おかしい", "違う", "ずれて", "付け替え", "直して")
+_FIX_EN = re.compile(r"\b(?:wrong|incorrect|mistake|mistaken|should be)\b", re.IGNORECASE)
+#: 疑問文と見る形（ja: 末尾・語 / en: 先頭の疑問詞）
+_ASKING_END_JA = re.compile(r"(?:か|かな|ですか|のは|でしょうか)[\s。.!！]*\Z")
+_ASKING_WORDS_JA = ("知りたい", "なぜ", "とは", "教えて", "答えて", "どう", "何")
+_ASKING_START_EN = re.compile(
+    r"^(?:what|why|how|which|where|when|can|could|should|tell|is|are|do|does)\b", re.IGNORECASE
+)
 
 _SHOW_TAIL = (
     r"(?:(?:一覧|表)(?:を|で)?"
@@ -140,3 +161,108 @@ def classify(text: str, *, names: dict, draft_open: bool) -> Intent:
     if _QUESTION_MARK.search(n) and not draft_open and _kind_hit(t, names):
         return "ask"
     return "graph"
+
+
+def _is_asking(text: str) -> bool:
+    """疑問文か（末尾が ？／か／ですか…、知りたい・なぜ・とは…を含む、英語の先頭が疑問詞）。"""
+    t = text.strip()
+    return bool(
+        _QUESTION_MARK.search(t)
+        or _ASKING_END_JA.search(t)
+        or any(w in t for w in _ASKING_WORDS_JA)
+        or _ASKING_START_EN.match(t)
+    )
+
+
+def has_fix_words(text: str) -> bool:
+    """指摘・訂正の言葉（間違い・違う・おかしい…）を含む疑問文でない文か。呼ぶ側は
+    **未承認の提案がある話**でだけ使う（「違う店の値段も知りたい」を直しにしない）。"""
+    t = text.strip()
+    if not t or _is_asking(t):
+        return False
+    return any(w in t for w in _FIX_WORDS_JA) or bool(_FIX_EN.search(t))
+
+
+# ---- 外す指示の決定論（11n）-----------------------------------------------------------------
+
+_QUOTES = "「」『』\"'“”"
+_REMOVE_JA = re.compile(
+    r"^(?P<body>.+?)\s*を\s*(?:外し|はずし|消し|削除し)(?:て|てください|て下さい|てくれ)?[\s。.!！]*$"
+)
+_REMOVE_EN = re.compile(r"^(?:please\s+)?(?:remove|drop|delete|take out)\s+(?P<body>.+?)[\s.!]*$")
+_NOT_JA = re.compile(
+    r"^(?P<a>.+?)\s*は\s*(?P<b>.+?)\s*の\s*(?P<k>一種|一部)\s*(?:では|じゃ)\s*(?:ない|ありません)"
+    r"[\s。.!！]*$"
+)
+_NOT_EN = re.compile(
+    r"^(?P<a>.+?)\s+is\s+not\s+an?\s+(?P<k>kind|part)\s+of\s+(?P<b>.+?)[\s.!]*$"
+)
+_NOT_REL = {"一種": "sub", "kind": "sub", "一部": "part", "part": "part"}
+
+
+def _flat(s: str) -> str:
+    """照合用: 引用符を外し、空白を詰めて正規化する。"""
+    return re.sub(r"\s+", "", normalize_label(s.strip().strip(_QUOTES)))
+
+
+def _names_of(concept: dict) -> set[str]:
+    out = {_flat(str(concept.get(k) or "")) for k in ("label_ja", "label_en")}
+    out |= {_flat(str(a)) for a in concept.get("aliases") or []}
+    return {n for n in out if n}
+
+
+def _find_key(draft: dict, name: str) -> str | None:
+    """名前に当たる概念の鍵。2 件以上に当たる（label と aliases の衝突を含む）なら ``None``。"""
+    f = _flat(name)
+    hits = {
+        str(c.get("key")) for c in draft.get("concepts") or [] if f and f in _names_of(c)
+    }
+    return next(iter(hits)) if len(hits) == 1 else None
+
+
+def parse_remove(text: str, draft: dict | None) -> list[dict] | None:
+    """「〈文〉を外して」「〈A〉は〈B〉の一種ではない」「〈名前〉を外して」→ ``remove`` の op の列。
+    下書きの文（``ops_to_sentences`` と同じ言い方）か概念の名前に当たらなければ ``None``
+    （今まで通り AI へ）。決定論・AI を呼ばない。"""
+    if not draft:
+        return None
+    t = text.strip()
+    rels = [r for r in draft.get("relations") or [] if r.get("from") and r.get("to")]
+    concepts = {"concepts": draft.get("concepts") or []}
+    m = _NOT_JA.match(t) or _NOT_EN.match(t.lower())
+    if m:
+        a, b = _find_key(draft, m["a"]), _find_key(draft, m["b"])
+        want = _NOT_REL[m["k"]]
+        hit = [
+            r for r in rels
+            if a and b and r["from"] == a and r["to"] == b and r.get("rel") == want
+        ]  # fmt: skip
+        return [_remove_rel(r) for r in hit[:1]] or None
+    m = _REMOVE_JA.match(t) or _REMOVE_EN.match(t.lower())
+    if not m:
+        return None
+    body = _flat(m["body"])
+    if not body:
+        return None
+    for r in rels:  # 文の一致（ja・en どちらの言い方でも）
+        op = {"op": "add_relation", "from": r["from"], "rel": r.get("rel"), "to": r["to"]}
+        for lg in ("ja", "en"):
+            if _flat(graph_diff.ops_to_sentences([op], concepts, lg)[0]) == body:
+                return [_remove_rel(r)]
+    key = _find_key(draft, m["body"])  # 名前の一致
+    if key is not None:
+        return [{"op": "remove", "target": "concept", "key": key, "reason": ""}]
+    return None
+
+
+def is_remove_form(text: str) -> bool:
+    """「〜を外して」「remove 〜」の形か（下書きに当たったかは問わない）。"""
+    t = text.strip()
+    return bool(_REMOVE_JA.match(t) or _REMOVE_EN.match(t.lower()))
+
+
+def _remove_rel(r: dict) -> dict:
+    return {
+        "op": "remove", "target": "relation", "from": r["from"], "rel": r.get("rel"),
+        "to": r["to"], "reason": "",
+    }  # fmt: skip

@@ -18,7 +18,8 @@ that are shown and never stored. It is the same discipline as :mod:`asterism_ste
 The shape is enforced twice, like the theme draft: :func:`graph_diff_json_schema` for
 guided-decoding servers and :func:`validate_graph_diff` for every provider (the strict gate).
 ``reason`` / ``wanted_data`` / ``reply`` are cut to length, never refused. A refused answer is
-asked for once more with the reason named; a second refusal raises :class:`GraphDiffError`.
+asked for up to twice more with the reason named (the last time as "fix your previous JSON",
+with an example); a third refusal raises :class:`GraphDiffError`.
 """
 
 from __future__ import annotations
@@ -191,6 +192,9 @@ Hard rules:
 - Do NOT write SPARQL, IRIs, URLs, code or anything between < > or { }. Names only.
 - Do not use any value from a data file: you have none.
 - A key that is not on the graph (and not added by "add_concept" in the same answer) is wrong.
+- When asked for the kinds or a list of X, give the subtypes or examples of X.
+  Do not mix in a related but different classification of the same field.
+  Do not invent relations; omit a relation you are not sure of.
 """
 
 GRAPH_DIFF_SYSTEM_PROMPT = (
@@ -594,6 +598,31 @@ def graph_diff_user_message(
     return "\n\n".join(parts) + _language_tail(lang) + _problem_tail(problem)
 
 
+#: 形が合わないときの試行の数（最初 + 聞き直し 2 回）
+_ATTEMPTS = 3
+
+_PREVIOUS_MAX = 20000
+
+
+def _fix_tail(previous: str, key: str) -> str:
+    """Last retry: show the previous answer (whole, up to 20,000 characters) and ask for the
+    same JSON, repaired. The example only shows the shape; its key is one on the graph."""
+    prev = previous.strip()
+    if len(prev) > _PREVIOUS_MAX:
+        prev = prev[:_PREVIOUS_MAX] + "\uff08途中まで\uff09"
+    example = (
+        '{"reply": "one short sentence", "ops": [{"op": "rename", "key": "' + key + '", '
+        '"label_ja": "...", "label_en": "...", "aliases": [], "reason": "one line"}]}'
+    )
+    return (
+        "\n\nThis is your last try. Fix YOUR PREVIOUS JSON below instead of starting over: "
+        "change only what the refusal names, keep the rest as it is.\n"
+        f"Previous answer:\n{prev}\n"
+        "Example of the expected shape (only the shape: use keys that are on the graph, "
+        f"never copy the values):\n{example}\n"
+    )
+
+
 def propose_graph_diff(
     client: LLMClient,
     *,
@@ -606,8 +635,8 @@ def propose_graph_diff(
     message: str,
     lang: str | None = None,
 ) -> dict:
-    """One guided call (one retry when the shape is refused) → ``{reply, ops}`` validated, with
-    the ops cut to what the screen can take (:func:`filter_ops_for_screen`).
+    """One guided call (up to two retries when the shape is refused) → ``{reply, ops}`` validated,
+    with the ops cut to what the screen can take (:func:`filter_ops_for_screen`).
 
     ``graph`` = ``{concepts[{key,label_ja,label_en,kind,use}], relations[{from,rel,to}],
     questions[…]}`` — what is on the person's screen; ``existing_terms`` = ``{slug,label_ja,
@@ -617,7 +646,7 @@ def propose_graph_diff(
     person's latest sentence. On the home and dataset screens the keys are the term slugs, so
     those count as keys on the graph.
 
-    Raises :class:`GraphDiffError` when the second answer is also off-shape; provider errors
+    Raises :class:`GraphDiffError` when the third answer is also off-shape; provider errors
     propagate (the api maps them to 502)."""
     if screen not in SCREENS:
         raise GraphDiffError(f"screen must be one of {SCREENS}")
@@ -627,8 +656,9 @@ def propose_graph_diff(
     schema = graph_diff_json_schema()
     system = _system_prompt(screen)
     problem: str | None = None
+    previous: str | None = None
     last: GraphDiffError | None = None
-    for _attempt in range(2):
+    for attempt in range(_ATTEMPTS):
         user = graph_diff_user_message(
             screen=screen,
             graph=graph,
@@ -640,6 +670,9 @@ def propose_graph_diff(
             lang=lang,
             problem=problem,
         )
+        if attempt == _ATTEMPTS - 1 and previous is not None:
+            first = next((str(c.get('key')) for c in graph.get('concepts') or []), '<key>')
+            user += _fix_tail(previous, first)  # 最後の聞き直し: 前の JSON をそのまま直す
         text = _complete_guided(client, system, user, schema)
         try:
             diff = validate_graph_diff(_extract_json_object(text), known_keys=keys)
@@ -647,5 +680,6 @@ def propose_graph_diff(
         except (GraphDiffError, ThemeDraftError) as exc:
             last = exc if isinstance(exc, GraphDiffError) else GraphDiffError(str(exc))
             problem = str(exc)
+            previous = text
     assert last is not None
     raise last

@@ -632,21 +632,44 @@ def register_chat(
                     status_code=201,
                 )  # fmt: skip
 
-        # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
-        llm: Any = None
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, root
         )
-        if has_text and not chat_turns.is_undo(text) and not _ai_unset(key, provider, api_base):
+        llm_unset = _ai_unset(key, provider, api_base)
+        # 11n: 「〈文〉を外して」「A は B の一種ではない」は AI を呼ばずに remove にする
+        if has_text and not chat_turns.is_undo(text):
+            async with lock:
+                session = _session_or_404(session_id)
+                cur = session.get("draft_id")
+                cur_draft = themes.load_draft(root, cur) if cur else None
+                removal = chat_intent.parse_remove(text, cur_draft)
+                if removal:
+                    try:
+                        turn = chat_turns.run_ops_turn(
+                            session, removal, lang=body.lang, root=root, existing=existing,
+                            dismissed=dismissed, at=_now(), user_text=text,
+                        )  # fmt: skip
+                    except chat_turns.TurnRefused as exc:
+                        raise _refused(exc) from exc
+                    return _done(session, turn)
+                if llm_unset and chat_intent.is_remove_form(text):
+                    turn = chat_turns.run_hint_turn(session, text, at=_now(), lang=body.lang)
+                    return _done(session, turn)
+
+        # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
+        llm: Any = None
+        if has_text and not chat_turns.is_undo(text) and not llm_unset:
             llm = resolve_llm(
                 provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
             )
         # 11m: AI の振り分け（会話／答える／提案）。ロックの外。落ちたら提案（今の挙動）
+        has_draft_now = bool(_session_or_404(session_id).get("draft_id"))
         if (
             llm is not None
             and has_text
             and body.intent != "propose"
             and not chat_intent.has_graph_words(text)  # 図の言葉は決定論で提案へ
+            and not (has_draft_now and chat_intent.has_fix_words(text))  # 指摘・訂正も提案へ
         ):
             async with lock:
                 s0 = _session_or_404(session_id)
