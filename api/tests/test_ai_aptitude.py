@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -66,14 +69,27 @@ class _Fake:
         return json.dumps({"reply": "直します。", "ops": ops}, ensure_ascii=False)
 
 
+#: 見本の種類名（ask の「？」の文がこれを含むと決定論の ask に当たる）
+_NAMES = {
+    n: {"iri": f"https://example.org/{i}", "kind": "class"}
+    for i, n in enumerate(["値段の記録", "食材の名前", "食材", "値段", "店", "賞味期限"])
+}
+
+
 def test_script_sizes_and_no_deterministic_words() -> None:
     assert len(ai_aptitude.SHAPE_CREATE) == 5 and len(ai_aptitude.SHAPE_DIFF) == 5
     assert len(ai_aptitude.ROUTING) == 30 and ai_aptitude.TOTAL == 40
     kinds = [e for _, e in ai_aptitude.ROUTING]
     assert [kinds.count(k) for k in ("chat", "ask", "propose")] == [10, 10, 10]
+    draft = {"concepts": ai_aptitude.GRAPH["concepts"], "relations": ai_aptitude.GRAPH["relations"]}
     for text, _ in ai_aptitude.ROUTING:  # 決定論に当たる文は AI の振り分けを測れない
+        assert chat_intent.classify(text, names=_NAMES, draft_open=False) == "graph", text
+        assert chat_intent.classify(text, names=_NAMES, draft_open=True) == "graph", text
+        assert not chat_intent.is_undo(text), text
         assert not chat_intent.has_graph_words(text), text
         assert not chat_intent.has_fix_words(text), text
+        assert chat_intent.parse_remove(text, None) is None, text
+        assert chat_intent.parse_remove(text, draft) is None, text
 
 
 def test_judge_boundaries() -> None:
@@ -128,23 +144,162 @@ def _api(tmp_path: Path, llm: _Fake):
     return app, ds, cfg
 
 
+def _events(body: str) -> list[dict]:
+    out: list[dict] = []
+    name = ""
+    for ln in body.splitlines():  # "event: x" の次の "data: {…}" に名前を足す
+        if ln.startswith("event: "):
+            name = ln[7:]
+        elif ln.startswith("data: "):
+            out.append({"event": name, **json.loads(ln[6:])})
+    return out
+
+
+def _run(c: TestClient, **headers: str) -> list[dict]:
+    r = c.post("/api/ai/aptitude", headers=headers)
+    assert r.status_code == 202
+    return _events(c.get(f"/api/jobs/{r.json()['job_id']}/stream").text)
+
+
+def _done(events: list[dict]) -> dict:
+    done = [e for e in events if e.get("event") == "done"]
+    assert len(done) == 1, events[-2:]
+    return done[0]["result"]
+
+
 def test_api_runs_saves_without_key_and_leaves_store(tmp_path: Path) -> None:
     app, ds, cfg = _api(tmp_path, _Fake("limited"))
     with TestClient(app, headers={**_AUTH, **KEY}) as c:
-        r = c.post("/api/ai/aptitude", headers={"X-LLM-Provider": "openai", "X-LLM-Model": "m1"})
-        assert r.status_code == 202
-        body = c.get(f"/api/jobs/{r.json()['job_id']}/stream").text
-        assert '"n": 40' in body.replace('"n":40', '"n": 40') and '"total": 40' in body.replace(
-            '"total":40', '"total": 40'
-        )
-        assert "event: done" in body or '"event": "done"' in body or "done" in body
+        events = _run(c, **{"X-LLM-Provider": "openai", "X-LLM-Model": "m1"})
+        progress = [e for e in events if e.get("event") == "running" and "n" in e]
+        assert progress[0]["n"] == 1 and progress[-1]["n"] == 40 and progress[-1]["total"] == 40
+        result = _done(events)
         got = c.get("/api/ai/aptitude").json()["aptitude"]
     entry = got["openai::m1"]
     assert entry["verdict"] == "limited" and entry["scope"] == 0.4
     assert set(entry) == {"verdict", "shape", "routing", "scope", "failed", "at", "model"}
+    assert result == {"provider": "openai", **entry}  # GET と done は同じ
     raw = (cfg.appdata_root / "settings.json").read_text("utf-8")
     assert "test-key" not in raw
     assert len(ds) == 0  # 読むだけ
+
+
+def test_models_coexist_and_rerun_overwrites(tmp_path: Path) -> None:
+    llm = _Fake("good")
+    app, _, _ = _api(tmp_path, llm)
+    with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        _run(c, **{"X-LLM-Provider": "openai", "X-LLM-Model": "a"})
+        llm.mode, llm.diffs = "poor", 0
+        _run(c, **{"X-LLM-Provider": "openai", "X-LLM-Model": "b"})
+        got = c.get("/api/ai/aptitude").json()["aptitude"]
+        assert got["openai::a"]["verdict"] == "good" and got["openai::b"]["verdict"] == "poor"
+        _run(c, **{"X-LLM-Provider": "openai", "X-LLM-Model": "a"})  # poor のまま再実行
+        again = c.get("/api/ai/aptitude").json()["aptitude"]
+    assert again["openai::a"]["verdict"] == "poor" and again["openai::b"]["verdict"] == "poor"
+
+
+class _Boom:
+    def complete(self, system: str, user: str) -> str:
+        raise RuntimeError("provider down")
+
+
+def test_llm_exception_is_a_job_error_and_not_saved(tmp_path: Path) -> None:
+    app, _, cfg = _api(tmp_path, _Boom())  # type: ignore[arg-type]
+    with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        events = _run(c)
+        assert any(e.get("event") == "error" for e in events)
+        assert not any(e.get("event") == "done" for e in events)
+        assert c.get("/api/ai/aptitude").json() == {"aptitude": {}}
+    assert not (cfg.appdata_root / "settings.json").exists()
+
+
+class _Gated(_Fake):
+    """3 回目の呼び出しで止まる（取り消しを試すため）。"""
+
+    def __init__(self) -> None:
+        super().__init__("good")
+        self.reached = threading.Event()
+        self.gate = threading.Event()
+
+    def complete(self, system: str, user: str) -> str:
+        if self.calls == 2:
+            self.reached.set()
+            self.gate.wait(5)
+        return super().complete(system, user)
+
+
+def test_cancel_via_api_saves_nothing(tmp_path: Path) -> None:
+    llm = _Gated()
+    app, _, cfg = _api(tmp_path, llm)  # type: ignore[arg-type]
+    with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        job = c.post("/api/ai/aptitude").json()["job_id"]
+        assert llm.reached.wait(5)
+        assert c.post(f"/api/jobs/{job}/cancel").status_code == 200
+        llm.gate.set()
+        body = c.get(f"/api/jobs/{job}/stream").text
+        assert "cancelled" in body and '"done"' not in body
+        deadline = time.time() + 5
+        while time.time() < deadline and llm.calls < 4:
+            time.sleep(0.05)
+        time.sleep(0.3)
+        assert llm.calls <= 4  # 次の問の手前で止まる
+        assert c.get("/api/ai/aptitude").json() == {"aptitude": {}}
+    assert not (cfg.appdata_root / "settings.json").exists()
+
+
+def test_get_is_empty_without_appdata(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False,
+        llm_factory=lambda key: _Fake("good"),
+    )  # fmt: skip
+    with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        assert c.get("/api/ai/aptitude").json() == {"aptitude": {}}
+        assert _done(_run(c))["verdict"] == "good"  # 保存はできなくても結果は返る
+        assert c.get("/api/ai/aptitude").json() == {"aptitude": {}}
+
+
+def test_post_needs_write_auth(tmp_path: Path) -> None:
+    app, _, _ = _api(tmp_path, _Fake("good"))
+    with TestClient(app, headers=KEY) as c:  # トークン無し
+        assert c.post("/api/ai/aptitude").status_code in (401, 503)
+
+
+class _Junk(_Fake):
+    """振り分けは JSON でない・提案は崩れる・修正は対象外。"""
+
+    def complete(self, system: str, user: str) -> str:
+        if system.startswith("# Asterism chat router"):
+            return "no json"
+        if system == THEME_DRAFT_SYSTEM_PROMPT:
+            return "broken"
+        self.mode = "limited"
+        self.diffs = 0  # 常に対象外の変更が混ざる
+        return super().complete(system, user)
+
+
+def test_failed_reasons_have_the_agreed_shapes() -> None:
+    r = ai_aptitude.run_aptitude(_Junk("good"))
+    reasons = {(f["kind"], f["reason"]) for f in r.failed}
+    assert ("shape", "create") in reasons and ("routing", "unreadable") in reasons
+    assert ("scope", "out_of_scope") in reasons
+    r2 = ai_aptitude.run_aptitude(_Fake("poor"))
+    assert {f["reason"] for f in r2.failed if f["kind"] == "shape"} == {"create", "diff"}
+    assert {f["reason"] for f in r2.failed if f["kind"] == "scope"} == {"unreadable"}
+    wrong = [f["reason"] for f in r2.failed if f["kind"] == "routing"]
+    assert wrong and all(re.fullmatch(r"(chat|ask|propose)->(chat|ask|propose)", w) for w in wrong)
+    assert all(isinstance(f["index"], int) and f["index"] >= 0 for f in r2.failed)
+
+
+def test_cancel_after_the_last_question() -> None:
+    n = {"i": 0}
+
+    def cancel() -> bool:
+        n["i"] += 1
+        return n["i"] > ai_aptitude.TOTAL  # 40 問すべての手前では False・最後のあとで True
+
+    with pytest.raises(ai_aptitude.AptitudeCancelled):
+        ai_aptitude.run_aptitude(_Fake("good"), should_cancel=cancel)
 
 
 def test_api_refuses_without_a_key(tmp_path: Path) -> None:

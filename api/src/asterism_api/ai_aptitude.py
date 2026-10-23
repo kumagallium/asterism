@@ -90,26 +90,26 @@ ROUTING: list[tuple[str, str]] = [
     ("Thanks, that helps", "chat"),
     ("Hello there", "chat"),
     ("What can this app do for me?", "chat"),
-    ("じゃがいもが一番安い店は？ 教えて", "ask"),
-    ("値段の記録は何件ある？", "ask"),
-    ("先週いちばん高かった食材は？", "ask"),
-    ("牛乳の平均の値段を教えて", "ask"),
-    ("どの店の記録が一番多い？", "ask"),
-    ("卵の値段が 200 円を超えた日はある？", "ask"),
-    ("登録した食材は全部で何種類？", "ask"),
+    ("じゃがいもが一番安い店はどこ", "ask"),
+    ("牛乳の平均の値段はいくら", "ask"),
+    ("先週いちばん高かったのはどれ？", "ask"),
+    ("一番たくさん買ったのはどこ？", "ask"),
+    ("記録は全部で何件ある？", "ask"),
+    ("卵が 200 円を超えた日はある？", "ask"),
+    ("登録したのは全部で何種類？", "ask"),
     ("Which shop sells potatoes cheapest?", "ask"),
     ("How many price records are there?", "ask"),
     ("What was the highest price of milk?", "ask"),
-    ("食材ごとに値段を比べたい", "propose"),
+    ("食材の産地も記録したい", "propose"),
     ("店の営業時間も知りたい", "propose"),
     ("賞味期限が近いものを先に使う方法を整理したい", "propose"),
-    ("産地によって値段がどう変わるかを調べたい", "propose"),
+    ("産地と値段の関係を知識に入れたい", "propose"),
     ("特売の日は値段が下がるという知識を入れたい", "propose"),
     ("まとめ買いと 1 つあたりの値段の関係を扱いたい", "propose"),
     ("食材の種類と栄養の関係も考えたい", "propose"),
     ("I want to compare prices by shop", "propose"),
     ("I also want to track the best-before date", "propose"),
-    ("Bulk buying should lower the unit price", "propose"),
+    ("I want to record that bulk buying lowers the unit price", "propose"),
 ]  # fmt: skip
 
 TOTAL = len(SHAPE_CREATE) + len(SHAPE_DIFF) + len(ROUTING)
@@ -237,6 +237,8 @@ def run_aptitude(
                 {"kind": "routing", "index": i - 1, "reason": f"{expected}->{routed.mode}"}
             )
 
+    if should_cancel is not None and should_cancel():  # 最後の問のあとの取り消しにも応える
+        raise AptitudeCancelled()
     n_shape = len(SHAPE_CREATE) + len(SHAPE_DIFF)
     verdict = judge(
         shape_ok / n_shape, routing_ok / len(ROUTING), scope_ok / len(SHAPE_DIFF)
