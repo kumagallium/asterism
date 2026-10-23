@@ -2,6 +2,7 @@
 // たたむと ≡ と ⚙ だけ。鍵が無い（401/503）ときは一覧の代わりに 1 行。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useImeEnterGuard } from './useImeEnterGuard'
 import { BrandMark, GearIcon, MenuIcon } from '../icons'
 import { MoreMenu } from '../MoreMenu'
 import type { ThemesApiError } from '../themes/themesApi'
@@ -28,6 +29,7 @@ export interface SessionListProps {
 
 export function SessionList(p: SessionListProps) {
   const { t } = useTranslation('chat')
+  const { compositionHandlers, isImeKey } = useImeEnterGuard()
   const { t: ts } = useTranslation('settings')
   const { t: tb } = useTranslation()
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -140,8 +142,9 @@ export function SessionList(p: SessionListProps) {
                     aria-label={t('list.renameLabel')}
                     onChange={(e) => setDraftName(e.target.value)}
                     onBlur={() => setRenaming(null)}
+                    {...compositionHandlers}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) void commitRename(s.id)
+                      if (e.key === 'Enter' && !isImeKey(e)) void commitRename(s.id)
                       else if (e.key === 'Escape') setRenaming(null)
                     }}
                   />
