@@ -811,7 +811,8 @@ def _final_reply(ctx: _Ctx, st: dict, summary: dict, shape: list[dict]) -> tuple
 
 def _duplicate_notes(lang: str, st: dict) -> list[dict]:
     """「この表は既にデータセット X の取り込み元です」— 中身（sha256）で合流した知らせ。
-    データセットごとに 1 行。``choice`` に id を持たせ、画面がそこへの導線を出せるように。"""
+    データセットごとに 1 行。``dataset_id`` を注記に添え、画面がそこへの導線を出せるように
+    （``choice`` は使わない: 画面は未回答の ``choice`` がある手番の「公開」を隠すため）。"""
     seen: set[str] = set()
     out: list[dict] = []
     for d in st.get("duplicates") or []:
@@ -821,13 +822,12 @@ def _duplicate_notes(lang: str, st: dict) -> list[dict]:
         seen.add(ds_id)
         shown = st.get("shown") or {}
         name = shown.get(d.get("name")) or d.get("name") or st.get("name") or ""
-        out.append(
-            chat_turns.note(
-                "duplicate_source",
-                text(lang, "duplicate_source", name=name, dataset=d.get("dataset_name") or ds_id),
-                {"dataset_id": ds_id, "label": "", "options": []},
-            )
+        note = chat_turns.note(
+            "duplicate_source",
+            text(lang, "duplicate_source", name=name, dataset=d.get("dataset_name") or ds_id),
         )
+        note["dataset_id"] = ds_id
+        out.append(note)
     return out
 
 

@@ -357,5 +357,6 @@ def test_a_second_drop_of_the_same_bytes_is_told_in_the_reply(tmp_path: Path) ->
         t2 = _turn(client, sid, second["turn"]["id"])
         assert t2["state"] == "proposed"  # 設計は続く
         (note,) = [n for n in t2["reply"]["notes"] if n["kind"] == "duplicate_source"]
-        assert note["choice"]["dataset_id"] == t1["attachment"]["dataset_id"]
+        assert note["dataset_id"] == t1["attachment"]["dataset_id"]
+        assert note["choice"] is None  # 未回答の選択と見なされて「公開」が隠れないように
         assert "既にデータセット" in note["text"] and "copy.csv" in note["text"]
