@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.58.0](https://github.com/kumagallium/asterism/compare/v0.57.1...v0.58.0) - 2026-10-23
+
+- fix(ui): IME の変換確定の Enter でチャットを送信しない（WebKit 対応） by @kumagallium in https://github.com/kumagallium/asterism/pull/748
+- feat(chat): 指摘・訂正は直しへ／聞き返し禁止／形の誤りの理由と次の一手／「〈文〉を外して」の決定論（UI 全面再設計 11n） by @kumagallium in https://github.com/kumagallium/asterism/pull/750
+- feat(chat): 右で選ぶとチャットの範囲が絞られる — 「文」「データ」のタブ・1 行の 外す／直す／承認・範囲の札（UI 全面再設計 11o） by @kumagallium in https://github.com/kumagallium/asterism/pull/751
+- feat(chat): 操作の語を製品の格に合わせる — 関係・削除・修正・取り消す・追加・対象・回答（UI 全面再設計 11p） by @kumagallium in https://github.com/kumagallium/asterism/pull/752
+- build(deps): Bump Songmu/tagpr from 1.21.2 to 1.21.3 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/723
+
 ## [v0.57.1](https://github.com/kumagallium/asterism/compare/v0.57.0...v0.57.1) - 2026-10-22
 
 - fix: 本番で分かりにくかった言葉と見え方 — 空の状態の文・「話」→「チャット」・見本の廃止・提案の 1 枚の来歴・凡例（UI 全面再設計 11i） by @kumagallium in https://github.com/kumagallium/asterism/pull/743
