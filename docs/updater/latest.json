@@ -1,11 +1,11 @@
 {
-  "version": "0.57.1",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f01a4eee2c88b1566b58882d90b0bbaf369680fd -->\n\n## What's Changed\n* fix: 本番で分かりにくかった言葉と見え方 — 空の状態の文・「話」→「チャット」・見本の廃止・提案の 1 枚の来歴・凡例（UI 全面再設計 11i） by @kumagallium in https://github.com/kumagallium/asterism/pull/743\n* feat(ui): 右の領域を上＝地図・下＝押した点の中身（ABox の表）に。局所の札の図を廃止（UI 全面再設計 11k） by @kumagallium in https://github.com/kumagallium/asterism/pull/744\n* feat(ui): 右の領域の一番上に「知識グラフ」「問い」のタブ＋言葉の棚卸し（承認・データ・データセット）（UI 全面再設計 11l） by @kumagallium in https://github.com/kumagallium/asterism/pull/745\n* feat(chat): 会話を既定に — AI が 1 文ごとに 会話／答える／提案 を判断。例文とマニュアルを価格表の例に（UI 全面再設計 11m） by @kumagallium in https://github.com/kumagallium/asterism/pull/746\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.57.0...v0.57.1",
-  "pub_date": "2026-10-22T21:41:58Z",
+  "version": "0.58.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 30927ccfa3d8f9304910faf9a6b0e3926068ac51 -->\n\n## What's Changed\n* fix(ui): IME の変換確定の Enter でチャットを送信しない（WebKit 対応） by @kumagallium in https://github.com/kumagallium/asterism/pull/748\n* feat(chat): 指摘・訂正は直しへ／聞き返し禁止／形の誤りの理由と次の一手／「〈文〉を外して」の決定論（UI 全面再設計 11n） by @kumagallium in https://github.com/kumagallium/asterism/pull/750\n* feat(chat): 右で選ぶとチャットの範囲が絞られる — 「文」「データ」のタブ・1 行の 外す／直す／承認・範囲の札（UI 全面再設計 11o） by @kumagallium in https://github.com/kumagallium/asterism/pull/751\n* feat(chat): 操作の語を製品の格に合わせる — 関係・削除・修正・取り消す・追加・対象・回答（UI 全面再設計 11p） by @kumagallium in https://github.com/kumagallium/asterism/pull/752\n* build(deps): Bump Songmu/tagpr from 1.21.2 to 1.21.3 by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/723\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.57.1...v0.58.0",
+  "pub_date": "2026-10-23T02:29:32Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZYSDBSUTNRRW5Ra3ZsOWx4bzEwVUJ0cnh0OS9FM0Q0eXgwZ2VJZGlmYkJHc0djK3B6akFRbFRUcVZTclRsZlMrWTcweHNQa01nUThlVmxzVzI2NmdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzA1MzE3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CldCdDZqL3lPMnBWRFQvM0hRUUdhcnJDZ2NyeitpT2FnYkowSGFhYUtRMVVpWVNHelpibkNOUlY1dE90bEpwTXJVK2VCTDZ2UnpOazEvZ0hsbU41TkRRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.57.1/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZ5Q1NRVG90dzVMVnUwMitWM0gxZSt4TnBhV29la3J2TU9NcWhkZnpNaVQ4SHdpNUhZdktaZjBPVVVGc1VYRWNYenJlNGdFakREazVsNU9LcjEvNEFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzIyNTcyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmhaWkl0bk1XZ0FJY3FUV2x3WVdaOVJRbUU0Y2kvaVdBOEZ2UkdCTDgybmRicUtnSlFpQktUdXhhZzVyWWwvazFqVElsN2pxTm82WXpZRDNsb1B5NEFnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.58.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
