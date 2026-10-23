@@ -92,5 +92,7 @@ Graphium のトピック（material）の名前が、別のデータセットの
 - 本物の vault に型付きの知見が無い。Graphium の「Asterism と連携する」をオンにし、知見に型（judgment / rule / interpretation / sosa:Observation）を付けるところから
 - 知見を直した・消したときは上げ直し（`resync_rows`）。`onlyUnsent` は id で判定するので増分では届かない（上の節）
 - 保存のたびに自動で送るフック（案 2・Graphium が直接 POST）は未着手。今は Claude が ①〜④ を順に呼ぶ
+- **トピックを用語（共有語 `sv:`）にする**のは人の手: Asterism のチャットに知りたいこと（例「焼成温度は分解にどう効くか」）を書くと AI が概念・関係を足し、承認で用語になる（マニュアル「話・用語・標準用語 — 問いから育てる」）。Graphium のトピックと同じ名前にすれば、名前の完全一致で関係の候補が出る。機械で勝手に用語にはしない（問いの無い用語は作らない）
+- **答えを知見（claim）として Graphium に書き戻す口は作らない**（Graphium の約束: 会話から推論した来歴を書き戻すツールは作らない）。答えは回答ページ（`save_answer`）に残し、知見にするかは Graphium の取り込み・点検で人が決める
 - `_claim_properties` の子の表は親→子の向きの線（`sv:condition` 等）を持たず、子→親（`sv:of_rule` / `sv:of_observation`）だけ。Asterism の設計の助言が「つながっていない」と言うのはこのため（問いは通る）
 - 「下がった／上がった」の寄せ（状態語彙）は範囲外のまま
