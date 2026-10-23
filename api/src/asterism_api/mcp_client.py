@@ -151,7 +151,7 @@ def parse_server(name: str, raw: Any) -> tuple[McpServerConfig, list[str]]:
     （api の ``_strip_secrets`` が保存時に黙って落とすので、そのまま使うと起動時に
     その変数が無い）。
     """
-    if not _NAME_RE.match(name or ""):
+    if not _NAME_RE.fullmatch(name or ""):
         raise McpConfigError(f"サーバ名 {name!r} は使えません (英数字と _ . - だけ・64 文字まで)")
     if _looks_secret(name):
         raise McpConfigError(f"サーバ名 {name!r} は秘密の名前に見えるため保存できません")
@@ -183,7 +183,7 @@ def parse_server(name: str, raw: Any) -> tuple[McpServerConfig, list[str]]:
         ):
             raise McpConfigError(f"{name}: env は {{名前: 値}} の文字列です")
         for k in env_raw:
-            if not _ENV_NAME_RE.match(k):
+            if not _ENV_NAME_RE.fullmatch(k):
                 raise McpConfigError(f"{name}: 環境変数の名前 {k!r} は使えません")
             if _looks_secret(k):
                 warnings.append(
@@ -209,7 +209,22 @@ def parse_server(name: str, raw: Any) -> tuple[McpServerConfig, list[str]]:
     url = raw.get("url")
     if not isinstance(url, str) or not re.match(r"^https?://", url.strip()):
         raise McpConfigError(f"{name}: url は http:// か https:// で始めます")
+    if _url_carries_secret(url.strip()):
+        raise McpConfigError(
+            f"{name}: url にユーザー名・パスワードや秘密に見える名前の引数は入れられません"
+        )
     return McpServerConfig(name=name, transport="http", enabled=enabled, url=url.strip()), warnings
+
+
+def _url_carries_secret(url: str) -> bool:
+    """userinfo（user:pass@）や ``?token=`` は、繋げなかったときの文言（httpx の
+    ``for url '…'``）と「直近の呼び出し」にそのまま出る。保存前に断る。"""
+    from urllib.parse import parse_qsl, urlsplit
+
+    parts = urlsplit(url)
+    if parts.username or parts.password:
+        return True
+    return any(_looks_secret(k) for k, _v in parse_qsl(parts.query, keep_blank_values=True))
 
 
 def parse_servers(settings: dict[str, Any]) -> tuple[dict[str, McpServerConfig], dict[str, str]]:
@@ -481,6 +496,26 @@ def _innermost(exc: BaseException) -> BaseException:
     return inner
 
 
+def _chain(exc: BaseException):
+    """例外とその原因（``__cause__``／``__context__``・ExceptionGroup の中身）を順に。
+    fastmcp の接続時の時間切れは ``RuntimeError('Client failed to connect: …')`` に
+    包まれて届くので、外側だけ見ると「繋げない」に見える（レビュー L1）。"""
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    while stack:
+        cur = stack.pop()
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        yield cur
+        if isinstance(cur, BaseExceptionGroup):
+            stack.extend(cur.exceptions)
+        if cur.__cause__ is not None:
+            stack.append(cur.__cause__)
+        elif cur.__context__ is not None:
+            stack.append(cur.__context__)
+
+
 def _short(exc: BaseException) -> str:
     """例外を画面に出せる 1 行に（ExceptionGroup は中身の最初の 1 件）。"""
     inner = _innermost(exc)
@@ -491,10 +526,12 @@ def _short(exc: BaseException) -> str:
 def _is_timeout(exc: BaseException) -> bool:
     """fastmcp は自分の ``timeout`` で先に切り、``McpError('... timed out')`` を投げる。
     ``asyncio.wait_for`` の TimeoutError と合わせて、どちらも「時間切れ」として扱う。"""
-    inner = _innermost(exc)
-    if isinstance(inner, TimeoutError):
-        return True
-    return "timed out" in str(inner).lower()
+    for cur in _chain(exc):
+        if isinstance(cur, TimeoutError):
+            return True
+        if "timed out" in str(cur).lower() or "timeout" in type(cur).__name__.lower():
+            return True
+    return False
 
 
 # ---- 取り込み元プロトコルの返事を読む（§5） ------------------------------------------

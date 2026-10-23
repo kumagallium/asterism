@@ -8,7 +8,9 @@ import {
   parseEnvLines,
   parsePastedJson,
   type McpFormInput,
+  urlCarriesSecret,
 } from './mcpServerForm'
+import { isSecretKeyName } from '../appSettings'
 
 const base: McpFormInput = {
   name: 'graphium',
@@ -120,5 +122,24 @@ describe('normalizeEntry / parsePastedJson', () => {
     expect(parsePastedJson('{', 'x').error?.code).toBe('badJson')
     expect(parsePastedJson('{"mcpServers":{}}', 'x').error?.code).toBe('emptyServers')
     expect(parsePastedJson('[]', 'x').error?.code).toBe('notObject')
+  })
+})
+
+describe('レビュー（2026-10-23）で足した穴', () => {
+  it('貼り付けた JSON の cwd を落とさない', () => {
+    const r = normalizeEntry('g', { transport: 'stdio', command: 'node', cwd: '/w' })
+    expect(r.entry).toMatchObject({ transport: 'stdio', cwd: '/w' })
+  })
+  it('userinfo や秘密に見える query の URL は保存前に断る', () => {
+    expect(urlCarriesSecret('http://u:p@127.0.0.1/mcp')).toBe(true)
+    expect(urlCarriesSecret('http://127.0.0.1/mcp?token=a')).toBe(true)
+    expect(urlCarriesSecret('http://127.0.0.1/mcp?lang=ja')).toBe(false)
+    expect(normalizeEntry('s', { transport: 'http', url: 'http://127.0.0.1/mcp?token=a' }).errors[0].code).toBe('urlSecret')
+  })
+  it('appSettings の秘密判定は api と同じ基準（keycloak・KEYBOARD は残る）', () => {
+    expect(isSecretKeyName('keycloak')).toBe(false)
+    expect(isSecretKeyName('KEYBOARD')).toBe(false)
+    expect(isSecretKeyName('key')).toBe(true)
+    expect(isSecretKeyName('PASSWD_FILE')).toBe(true)
   })
 })

@@ -113,10 +113,12 @@ export function McpServersTab() {
     }
     setErrors(errs)
     setWarnings(warns)
-    if (errs.length === 0) {
-      saveServers(next)
-      setPasted('')
-    }
+    if (errs.length !== 0) return
+    // フォームからの追加と同じく、同名の上書きは確かめてから（コマンドが黙って置き換わらないように）
+    const clobbered = parsed.items.filter(({ name: n, result }) => result.entry && servers[n]).map(({ name: n }) => n)
+    if (clobbered.length > 0 && !window.confirm(t('mcp.overwrite', { name: clobbered.join(', ') }))) return
+    saveServers(next)
+    setPasted('')
   }
 
   function resetForm() {

@@ -569,3 +569,54 @@ def test_build_transport_for_stdio_uses_the_configured_command_only() -> None:
     )
     t = build_transport(cfg)
     assert (t.command, t.args, t.cwd, t.keep_alive) == ("node", ["a", "b"], "/w", False)
+
+
+# ---- レビュー（2026-10-23）で足した穴 ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://user:pw@127.0.0.1/mcp", "http://127.0.0.1/mcp?token=abc", "http://x/mcp?api_key=1"],
+)
+def test_parse_rejects_urls_that_would_leak_a_secret_into_error_text(url: str) -> None:
+    with pytest.raises(McpConfigError, match="url"):
+        parse_server("s", {"transport": "http", "url": url})
+    parse_server("s", {"transport": "http", "url": "http://127.0.0.1/mcp?lang=ja"})
+
+
+def test_parse_names_do_not_accept_a_trailing_newline() -> None:
+    with pytest.raises(McpConfigError):
+        parse_server("abc\n", {"transport": "http", "url": "http://x/mcp"})
+    with pytest.raises(McpConfigError):
+        parse_server("s", {"transport": "stdio", "command": "node", "env": {"FOO\n": "1"}})
+
+
+def test_timeout_is_recognised_through_the_cause_chain() -> None:
+    from asterism_api.mcp_client import _is_timeout
+
+    try:
+        try:
+            raise TimeoutError("init")
+        except TimeoutError as inner:
+            raise RuntimeError("Client failed to connect: ") from inner
+    except RuntimeError as outer:
+        assert _is_timeout(outer)
+    assert not _is_timeout(RuntimeError("connection refused"))
+    assert _is_timeout(ExceptionGroup("g", [RuntimeError("Request 'tools/call' timed out")]))
+
+
+def test_call_only_forwards_the_contract_arguments(tmp_path: Path, healthy_client) -> None:
+    client, seen = _client_with_fake(tmp_path, healthy_client)
+    with client:
+        r = client.post(
+            "/api/mcp-servers/fake/call",
+            json={"tool": "get_media_file", "args": {"id": "f1", "path": "/etc/hosts"}},
+        )
+        assert r.status_code == 400
+        assert "path" in r.json()["detail"]
+        r = client.post(
+            "/api/mcp-servers/fake/call", json={"tool": "list_media", "args": {"limit": 5}}
+        )
+        assert r.status_code == 200
+    assert "get" not in seen
+    assert seen["list"]["limit"] == 5

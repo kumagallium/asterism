@@ -89,12 +89,21 @@ function isEmptySnapshot(s: LocalSnapshot): boolean {
 /** Drop anything that looks like a secret before it leaves the browser (D3
  *  defense-in-depth; the model registry stored here never carries a raw key —
  *  see settings/store.ts — but this guards against a future mistake). */
+// api 側 appdata._is_secret_key と同じ基準（`key` は完全一致・ほかは部分一致）。以前の
+// /key|token|secret|password/i は `keycloak` や `KEYBOARD` のような正当な名前まで黙って
+// 落とし、MCP サーバの登録が開き直すと消えていた（レビュー M2・2026-10-23）。
+const SECRET_KEY_MARKERS = ['apikey', 'api_key', 'token', 'secret', 'password', 'passwd', 'credential']
+export function isSecretKeyName(key: string): boolean {
+  const lowered = key.toLowerCase()
+  return lowered === 'key' || SECRET_KEY_MARKERS.some((m) => lowered.includes(m))
+}
+
 function stripSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSecrets)
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (/key|token|secret|password/i.test(k)) continue
+      if (isSecretKeyName(k)) continue
       out[k] = stripSecrets(v)
     }
     return out

@@ -22,8 +22,9 @@ dependencies = [
     # MCP クライアント（呼ぶ側・asterism_api.mcp_client）。利用者が設定画面で登録した
     # MCP サーバの道具を列挙・呼び出す（取り込み元の切り替え）。遅延 import。
     # 出す側（mcp_mount.py）は依然 [local] の asterism-mcp-tools 経由。
-    # 下限は StdioTransport(keep_alive=) と StreamableHttpTransport が揃う 2.0。
-    "fastmcp>=2.0",
+    # 下限は StdioTransport(keep_alive=)・Client(init_timeout=) が揃う 2.6（2.3 で
+    # call_tool_mcp と StreamableHttpTransport、2.6 で keep_alive と init_timeout）。
+    "fastmcp>=2.6",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",
 ]

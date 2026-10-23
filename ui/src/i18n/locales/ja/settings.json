@@ -361,8 +361,13 @@
       "badEnvLine": "環境変数の行を NAME=値 の形にしてください: {{line}}",
       "secretEnv": "環境変数 {{name}} は秘密の名前に見えるため保存されません（設定に秘密は入れられません）。",
       "badJson": "JSON として読めません。",
+<<<<<<< HEAD
       "emptyServers": "mcpServers の中身が空です。"
 >>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
+=======
+      "emptyServers": "mcpServers の中身が空です。",
+      "urlSecret": "URL にユーザー名・パスワードや、秘密に見える名前の引数（token= など）は入れられません。"
+>>>>>>> 331e09aa (fix(mcp-client): レビューの指摘を反映（fastmcp の下限・秘密判定の統一・/call の引数）)
     }
   }
 }

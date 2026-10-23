@@ -20,7 +20,7 @@ closure で import できないので verbatim コピーを持つ（理由は ``
 * 起動を伴う経路はすべて **POST**（GET は状態を変えない前提・``local.py``）。
 * 4 本とも ``_write_auth``（ループバックでは ``LoopbackTokenInjector`` が足す）。
 
-HTTP の対応表: 設定が無い／読めないサーバ 404・未有効 409・allowlist 外 403・
+HTTP の対応表: 未登録 404・設定が読めない 400・未有効 409・allowlist 外 403・
 繋げない 502・道具の失敗と形違い 502（本文に道具の文言）・時間切れ 504。
 """
 
@@ -59,6 +59,11 @@ logger = logging.getLogger(__name__)
 
 #: ``/call`` の本文（JSON）の上限。道具の引数は小さい（id・拡張子の配列）。
 MAX_CALL_BODY_BYTES = 64 * 1024
+
+#: ``/call`` が通す引数の名前（取り込み元プロトコル §3 の入力だけ）。道具名の allowlist
+#: だけだと、相手が ``path`` のような引数を解釈する場合に HTTP から任意のファイルを読ませる
+#: 口になる（レビュー M3）。
+CALL_ARGS_ALLOWED = {"list": {"exts", "folder", "limit"}, "get": {"id", "inline"}}
 
 
 def _require_write_auth(cfg: Settings):
@@ -266,6 +271,10 @@ def register_mcp_client_routes(
                 403,
                 f"道具 {tool} はこの経路から呼べません (呼べるのは取り込み元の一覧と取得だけです)",
             )
+        role = "get" if tool == provider.get else "list"
+        extra = set(args) - CALL_ARGS_ALLOWED[role]
+        if extra:
+            raise HTTPException(400, f"引数 {', '.join(sorted(extra))} はこの経路から渡せません")
         server = reg.enabled_server_or_raise(name)
         timeout = reg.client.get_timeout_s if tool == provider.get else None
         result = await _call_or_http_error(reg.client, server, tool, args, timeout_s=timeout)

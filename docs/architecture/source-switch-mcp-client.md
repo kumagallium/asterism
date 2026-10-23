@@ -41,8 +41,9 @@ Asterism はこれまで MCP を**出す**だけだった（`mcp_mount.py`）。
   （§7）の内部コードからだけ呼ぶ。HTTP からは呼べない。この例外は利用者の裁定「Asterism に
   落とした原本は既定で相手へ送る」に由来する。
 - ライブラリは `fastmcp.Client`（既に出す側で使っている `fastmcp` の同じ版）。
-  `StdioTransport(keep_alive=False)` と `StreamableHttpTransport`。下限 `fastmcp>=2.0`
-  （`keep_alive` 引数と `StreamableHttpTransport` が揃う版）。mcp SDK v2 の改名
+  `StdioTransport(keep_alive=False)` と `StreamableHttpTransport`。下限 `fastmcp>=2.6`
+  （2.3 で `call_tool_mcp` と `StreamableHttpTransport`、2.6 で `keep_alive` と
+  `init_timeout` が揃う。PyPI の wheel で確認・2026-10-23）。mcp SDK v2 の改名
   （`isError`→`is_error`・`inputSchema`→`input_schema`）は両名を見て吸収する。
 
 ## 3. 取り込み元プロトコル（Asterism 側の仕様）
@@ -77,10 +78,13 @@ Asterism は JSON として読めない本文を失敗として扱う。
 | **起動を伴う経路は POST** | GET は状態を変えない前提（`local.py`）。`GET /api/mcp-servers` は設定の写しと直近の呼び出しを返すだけで繋がない |
 | **子を残さない** | `keep_alive=False`。接続はリクエストごとに開いて閉じる。一覧は短く、bytes を運ぶ取得は長いタイムアウト |
 | **秘密を設定に入れない** | `headers`／`auth` は保存前に拒否（`_strip_secrets` は `Authorization` を落とさないので平文で残ってしまう）。`env` の名前が秘密に見えるものは警告（api が保存時に黙って落とすため）。HTTP の認証ヘッダは v1 の範囲外 |
+| **`/call` の引数も縛る** | 通す引数は §3 の入力だけ（`list`: `exts`/`folder`/`limit`・`get`: `id`/`inline`）。相手が `path` のような引数を解釈しても HTTP から任意のファイルを読ませる口にならない |
 | **呼び出しを見せる** | 直近の呼び出し（サーバ・道具・結果の件数か理由・時刻）を設定画面に出す。中身（bytes・一覧の本文）は持たない |
 
 HTTP の対応表: 未登録 404・設定が読めない 400・未有効 409・allowlist 外 403・繋げない 502・
 道具の失敗と形違い 502（本文に道具の文言）・時間切れ 504。
+
+既知の弱さ: 時間切れの判定は fastmcp の版で例外の型と code が違う（3.x は `McpError(408)`・4.x は `MCPError(-32001)`）ため、`TimeoutError` の連鎖と「timed out」の文言で見分けている。相手の道具が返した無関係なエラー文に「timed out」が入ると 504 に誤分類される。
 
 不変条件: **出す側（`mcp_mount.py`・`mcp_write_tools.py`・`asterism_mcp.server`）から
 `mcp_client` を import しない**。相手→Asterism→相手の輪を作らない。

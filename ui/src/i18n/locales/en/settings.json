@@ -362,8 +362,13 @@
       "badEnvLine": "Write each environment variable line as NAME=value: {{line}}",
       "secretEnv": "The environment variable {{name}} looks like a secret and will not be saved (secrets cannot be stored in settings).",
       "badJson": "This is not valid JSON.",
+<<<<<<< HEAD
       "emptyServers": "mcpServers is empty."
 >>>>>>> 55ec8828 (feat(ui): 設定タブ「MCP サーバ」＋ ADR・手順書・ROADMAP（取り込み元の切り替え A1）)
+=======
+      "emptyServers": "mcpServers is empty.",
+      "urlSecret": "The URL must not carry a user name, a password, or a query parameter whose name looks like a secret (such as token=)."
+>>>>>>> 331e09aa (fix(mcp-client): レビューの指摘を反映（fastmcp の下限・秘密判定の統一・/call の引数）)
     }
   }
 }

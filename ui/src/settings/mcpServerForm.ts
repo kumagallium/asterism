@@ -5,7 +5,7 @@
 export type McpFormIssue = { code: string; params?: Record<string, string> }
 
 export type McpServerEntry =
-  | { transport: 'stdio'; command: string; args: string[]; env: Record<string, string>; enabled: boolean }
+  | { transport: 'stdio'; command: string; args: string[]; env: Record<string, string>; enabled: boolean; cwd?: string }
   | { transport: 'http'; url: string; enabled: boolean }
 
 export interface McpFormInput {
@@ -25,6 +25,20 @@ const SECRET_MARKERS = ['apikey', 'api_key', 'token', 'secret', 'password', 'pas
 export function looksSecret(key: string): boolean {
   const lowered = key.toLowerCase()
   return lowered === 'key' || SECRET_MARKERS.some((m) => lowered.includes(m))
+}
+
+/** URL に userinfo（user:pass@）や秘密に見える名前の query が入っていると、繋げなかった
+ *  ときの文言や「直近の呼び出し」にそのまま出る（レビュー L3）。保存前に断る。 */
+export function urlCarriesSecret(url: string): boolean {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  if (u.username || u.password) return true
+  for (const k of u.searchParams.keys()) if (looksSecret(k)) return true
+  return false
 }
 
 export function parseArgsLines(text: string): string[] {
@@ -89,6 +103,7 @@ export function normalizeEntry(name: string, raw: unknown): BuildResult {
   if (r.transport === 'http') {
     const url = typeof r.url === 'string' ? r.url.trim() : ''
     if (!/^https?:\/\//.test(url)) return fail('badUrl')
+    if (urlCarriesSecret(url)) return fail('urlSecret')
     return { entry: { transport: 'http', url, enabled }, errors, warnings }
   }
 
@@ -109,6 +124,7 @@ export function normalizeEntry(name: string, raw: unknown): BuildResult {
     if (!ENV_NAME_RE.test(k)) return fail('badEnvName', { name: k })
     if (looksSecret(k)) warnings.push({ code: 'secretEnv', params: { name: k } })
   }
+  const cwd = typeof r.cwd === 'string' && r.cwd.trim() ? r.cwd.trim() : undefined
   return {
     entry: {
       transport: 'stdio',
@@ -116,6 +132,7 @@ export function normalizeEntry(name: string, raw: unknown): BuildResult {
       args: args as string[],
       env: { ...(env as Record<string, string>) },
       enabled,
+      ...(cwd ? { cwd } : {}),
     },
     errors,
     warnings,
