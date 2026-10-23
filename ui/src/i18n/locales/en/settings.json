@@ -278,6 +278,6 @@
     "rates": "Shape {{shape}}% · Routing {{routing}}% · Scope {{scope}}%",
     "failed": "Show failed items",
     "limitedHint": "Works better when you narrow the scope",
-    "cost": "About 45 calls, 2 to 3 minutes"
+    "cost": "About 40 calls, 2 to 3 minutes"
   }
 }

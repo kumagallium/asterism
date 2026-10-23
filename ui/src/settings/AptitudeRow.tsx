@@ -72,7 +72,7 @@ export function AptitudeRow({
 
   async function run() {
     setError('')
-    setProgress({ n: 0, total: 45 })
+    setProgress({ n: 0, total: 40 })
     try {
       const id = await startAptitude(creds)
       const h = watchAptitude(id, {

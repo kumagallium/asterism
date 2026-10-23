@@ -204,6 +204,14 @@ async function flushAppSettings(): Promise<void> {
   const clean = stripSecrets(patch) as Record<string, unknown>
   const merged = { ...serverSettings, ...clean }
   try {
+    // 適性検査の結果はサーバ側（ジョブ）が書く。起動時に読んだ古い写しで丸ごと
+    // PUT して消さないよう、送る直前に最新を読み直して持たせる。
+    const fresh = (await fetchAppDataSettings()).aptitude
+    if (fresh !== undefined) merged.aptitude = fresh
+  } catch {
+    /* 読めなければ手元の値のまま送る */
+  }
+  try {
     await putAppDataSettings(merged)
     serverSettings = merged
   } catch {
