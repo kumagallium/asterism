@@ -1,11 +1,11 @@
 {
-  "version": "0.61.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 09d4410ec6ef786519c37961e7d89ae6c0c9eb2e -->\n\n## What's Changed\n* feat(mcp-client): 登録した MCP サーバの道具を呼ぶ側（mcp_client・/api/mcp-servers・設定タブ「MCP サーバ」） by @kumagallium in https://github.com/kumagallium/asterism/pull/759\n* feat(source-switch): 取り込み元の切り替え — 📎 の 2 択・staging の origins・source_origins・被りの通知 by @kumagallium in https://github.com/kumagallium/asterism/pull/761\n* feat(source-push): ✓ の後の送り込み — ローカル原本を取り込み元の家へ by @kumagallium in https://github.com/kumagallium/asterism/pull/762\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.60.0...v0.61.0",
-  "pub_date": "2026-10-23T07:53:49Z",
+  "version": "0.61.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ef682a85db43b3a169c1e90ee34f0aabdf02aa4b -->\n\n## What's Changed\n* docs(manual): 「更新を知る」に v0.61.0（Graphium と連携する）を足す by @kumagallium in https://github.com/kumagallium/asterism/pull/763\n* docs(examples): 取り込み元の切り替えを本物の Graphium v0.95.4 の MCP で取り直す（§5） by @kumagallium in https://github.com/kumagallium/asterism/pull/768\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.61.0...v0.61.1",
+  "pub_date": "2026-10-26T20:54:50Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWE1ZEYwUTlCellnTXIxai9sNjNUczRWY0Ezb0JLNHJQaDBOclhuSm45U2pWeWZCWTJ0QURJaEYwSjR5clkzclQvUmVEL09tb0xYMDg1Z0YzczRpSkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzQyMDI4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkJRZm1KR1Z3dXhFSjZ2bXEvU2lXYXN5dGhEV3pBS0psM1kyTmdHa3pCUzFISHAycVNFYkJEZ21NOWptdnh5VXBlNWIwMnVGOU42WWZvaXh1VlNhdUNnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.61.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVNpeGdKRDI2Ri94bGp2NGlhVDcveGJoWFFPSXFGVDRQRmMzUWNTUjY4Z2lJTXRjMVZOS0psL3B6RVVoK1h1aFdiMzY5eHBOekhwU29hUkZiYmxuZ1FNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMDQ4MDkwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnFPclcrSkM4WS8yTVA5dlVOVm1CcUlOdEJtU2RQaU5helA3Qkt5bGlWS3hPMDZyb1dCY2MyR09mdlVINUJXL245TEh2YUV1aSsrd1JDYUxMSWJJakF3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.61.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
