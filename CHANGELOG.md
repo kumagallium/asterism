@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.61.2](https://github.com/kumagallium/asterism/compare/v0.61.1...v0.61.2) - 2026-10-26
+
+- feat(mcp): find_datasets に origins（元ファイルと Graphium の素材 ID）を返す by @kumagallium in https://github.com/kumagallium/asterism/pull/769
+
 ## [v0.61.1](https://github.com/kumagallium/asterism/compare/v0.61.0...v0.61.1) - 2026-10-26
 
 - docs(manual): 「更新を知る」に v0.61.0（Graphium と連携する）を足す by @kumagallium in https://github.com/kumagallium/asterism/pull/763
