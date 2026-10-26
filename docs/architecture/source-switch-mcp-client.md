@@ -178,3 +178,24 @@ HTTP の対応表: 未登録 404・設定が読めない 400・未有効 409・a
 - stdio は利用者の PC に相手の実行環境（例: Node 20.16+ と相手のソースのビルド）が要る。
   デスクトップ版の Asterism は Node を同梱しない。URL 型なら不要。
 - 32 MiB 超は取れない・送れない。json は送らない。`folder` は未対応。HTTP の認証なし。
+
+## 11. `find_datasets` が `origins` を返す（2026-10-27）
+
+§6 の `source_origins` は、これまで dataset の `meta.json` にしか無く、外へ出す MCP
+（`/mcp`・`mcp-endpoint-on-the-app.md`）からは見えなかった。Graphium のチャット（Copilot）
+に「在庫の表はどのファイルから来た？」と聞くと、`provenance_of` を 5 回引いて「不明」と
+答えた（実機・`docs/examples/source-switch/README.md` の続き）。
+
+`find_datasets` の各データセットに `origins` を足す（`ingest/src/asterism/catalog.py` の
+`_origins`）。形は `meta.json` の `source_origins` と同じで、壊れた要素は 1 つずつ捨てる:
+
+```json
+"origins": [{"name": "stock.csv", "sha256": "sha256:254fb006…",
+             "home": {"server": "graphium", "id": "b3824b93-…", "name": "stock.csv"}}]
+```
+
+新しい道具は足さない。AI はどの問いでも最初に `find_datasets` を呼ぶので、そこに載せれば
+「どこから来た表か」は 1 回の呼び出しで分かり、`provenance_of`（IRI 1 つの来歴）と役割が
+重ならない。道具の説明文にも「出どころの問いはここ」と書いた。§9 の「出典の本文を読む」
+（相手のノート本文を引く）は引き続き範囲外。
+

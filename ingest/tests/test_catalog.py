@@ -190,3 +190,45 @@ def test_a_malformed_artifact_does_not_hide_the_dataset(monkeypatch, tmp_path) -
     assert [x["name"] for x in out["datasets"]] == ["ZEM"]
     assert out["datasets"][0]["description"] == ""
     assert d.is_dir()
+
+
+def test_origins_name_the_source_file_and_its_home(monkeypatch, tmp_path) -> None:
+    """ADR source-switch-mcp-client.md §6: a dataset remembers the file it was built
+    from and, when that file lives in a source server (Graphium), its home there.
+    find_datasets surfaces it so an agent can answer "where did these rows come
+    from" without a per-IRI provenance walk; malformed entries are dropped."""
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    _dataset(
+        reg,
+        "stock-5108ed63",
+        name="stock",
+        source_origins=[
+            {
+                "name": "stock.csv",
+                "sha256": "sha256:254fb006",
+                "home": {"server": "graphium", "id": "b3824b93", "name": "stock.csv"},
+            },
+            {"name": "local.csv", "sha256": "sha256:aa"},
+            {"name": "no-home-name.csv", "home": {"server": "graphium", "id": "x"}},
+            {"sha256": "sha256:bb"},
+            "not-a-dict",
+        ],
+    )
+    _dataset(reg, "price-569fc2b7", name="price")
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+
+    by_id = {d["id"]: d for d in find_datasets()["datasets"]}
+    assert by_id["stock-5108ed63"]["origins"] == [
+        {
+            "name": "stock.csv",
+            "sha256": "sha256:254fb006",
+            "home": {"server": "graphium", "id": "b3824b93", "name": "stock.csv"},
+        },
+        {"name": "local.csv", "sha256": "sha256:aa"},
+        {
+            "name": "no-home-name.csv",
+            "home": {"server": "graphium", "id": "x", "name": "no-home-name.csv"},
+        },
+    ]
+    assert by_id["price-569fc2b7"]["origins"] == []
