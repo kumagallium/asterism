@@ -157,6 +157,36 @@ def _ttl_description(dataset_dir: Path) -> str:
     return ""
 
 
+def _origins(raw: object) -> list[dict[str, Any]]:
+    """The dataset's ``source_origins`` (ADR source-switch-mcp-client.md §6) as the
+    catalog shows them: the original file's name, its content hash, and — when the
+    file lives in a source server such as Graphium — ``home`` (server / id / name).
+    Malformed entries are dropped one by one (the same "one bad artifact must not
+    hide the dataset" contract as the rest of this module)."""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        entry: dict[str, Any] = {"name": item["name"]}
+        if isinstance(item.get("sha256"), str):
+            entry["sha256"] = item["sha256"]
+        home = item.get("home")
+        if (
+            isinstance(home, dict)
+            and isinstance(home.get("server"), str)
+            and isinstance(home.get("id"), str)
+        ):
+            entry["home"] = {
+                "server": home["server"],
+                "id": home["id"],
+                "name": home["name"] if isinstance(home.get("name"), str) else item["name"],
+            }
+        out.append(entry)
+    return out
+
+
 def _registry_entries(
     reg: Path, descriptions: Mapping[str, str] | None = None
 ) -> list[dict[str, Any]]:
@@ -195,6 +225,7 @@ def _registry_entries(
                 "graph": meta.get("live_graph") or meta.get("canonical_graph"),
                 "triples": meta.get("triples_promoted"),
                 "promoted_at": meta.get("promoted_at"),
+                "origins": _origins(meta.get("source_origins")),
             }
         )
     return entries
@@ -231,6 +262,7 @@ def _bundled_entries() -> list[dict[str, Any]]:
                 "graph": desc.graph_base,
                 "triples": None,
                 "promoted_at": None,
+                "origins": [],
             }
         )
     return entries
@@ -307,6 +339,7 @@ def find_datasets(
                 "graph": None,
                 "triples": None,
                 "promoted_at": None,
+                "origins": [],
             }
             by_id[dataset] = entry
             entries.append(entry)
