@@ -94,7 +94,9 @@ _T: dict[str, dict[str, str]] = {
             "The paper is long, so only {n} sentences were read "
             "(abstract, results, discussion and conclusion first)"
         ),
-        "evidence_dropped": "Left out {n} relations whose evidence sentences or term kinds do not fit",
+        "evidence_dropped": (
+            "Left out {n} relations whose evidence sentences or term kinds do not fit"
+        ),
         "propose_failed": "Could not make proposals from the paper (the paper is attached)",
         "commit_failed": "Could not confirm the proposals (the paper was published)",
         "terms_dropped": "Left out {n} terms that appear in no relation or question",
