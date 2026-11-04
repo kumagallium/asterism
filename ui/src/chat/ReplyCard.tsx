@@ -287,7 +287,10 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             {headKind === 'attachment' && turn.attachment && (
               <span className="chat-card-head-main" data-testid="reply-attachment">
                 <PaperclipIcon size={14} />
-                {turn.attachment.name}・{t('attach.rows', { n: turn.attachment.rows })}
+                {turn.attachment.name}・
+                {turn.attachment.kind === 'document'
+                  ? t('attach.paperCounts', { sections: turn.attachment.sections ?? 0, sentences: turn.attachment.sentences ?? 0 })
+                  : t('attach.rows', { n: turn.attachment.rows })}
               </span>
             )}
             {headKind === 'proposed' && (

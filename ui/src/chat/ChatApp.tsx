@@ -2,6 +2,7 @@
 // hash が唯一の真実源（`#/` 新しい話・`#/t/<id>` 保存した話・`#/settings` 設定）。`navigate()` が pushState/replaceState で
 // hash を書き、hashchange（戻る・進む・手入力）でも state に反映する。
 // 話の状態（手番・題・テーマ・未確認の下書き）はサーバが持つ。ここは取得・状態・DOM だけで、変換は chatState.ts の純関数。
+import { allDocumentNames } from './sourcePickerUtil'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GearIcon, MenuIcon } from '../icons'
@@ -380,10 +381,10 @@ export function ChatApp() {
 
   /** 表を添える共通の流れ。話が無ければ作り、`send` で送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら右にかんたんを出す。 */
   const attachFlow = useCallback(
-    async (label: string, send: (id: string) => Promise<Awaited<ReturnType<typeof postAttach>>>): Promise<boolean> => {
+    async (label: string, send: (id: string) => Promise<Awaited<ReturnType<typeof postAttach>>>, names: string[]): Promise<boolean> => {
       if (busy) return false
       if (view.kind === 'session' && !session) return false // 話を読み込み中
-      if (!isReady) {
+      if (!isReady && !allDocumentNames(names)) { // 論文だけなら AI は要らない
         openAdd()
         return false
       }
@@ -440,14 +441,14 @@ export function ChatApp() {
   /** 表を添える（この PC のファイル）。 */
   const onAttach = useCallback(
     (files: File[]): Promise<boolean> =>
-      attachFlow(files.map((f) => f.name).join('\n'), (id) => postAttach(id, files, lang, getActiveCredentials())),
+      attachFlow(files.map((f) => f.name).join('\n'), (id) => postAttach(id, files, lang, getActiveCredentials()), files.map((f) => f.name)),
     [attachFlow, lang, getActiveCredentials],
   )
 
   /** 表を添える（取り込み元の MCP サーバのファイル）。 */
   const onAttachFromSource = useCallback(
     (server: string, ids: string[], names: string[]): Promise<boolean> =>
-      attachFlow(names.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials())),
+      attachFlow(names.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials()), names),
     [attachFlow, lang, getActiveCredentials],
   )
 

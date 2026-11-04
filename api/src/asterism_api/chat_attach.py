@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from asterism_api.main import Settings
 
 __all__ = [
+    "DOCUMENT_EXTS",
     "TABLE_EXTS",
     "add_questions",
     "confirm_attach",
@@ -56,17 +57,23 @@ __all__ = [
     "discard_dataset",
     "id_candidates",
     "interrupted_reply",
+    "is_document_name",
     "is_table_name",
+    "kind_of",
     "proposed_datasets",
     "revert_suggestion",
     "run_attach",
+    "run_document_attach",
     "suggest_questions",
 ]
 
 logger = logging.getLogger(__name__)
 
-#: 添えられる表の拡張子（文書は 10b〔11d 以降〕）
+#: 添えられる表の拡張子
 TABLE_EXTS = (".csv", ".tsv", ".xlsx", ".xls", ".json")
+#: 添えられる論文（文書）の拡張子 — ``main._DOCUMENT_SOURCE_SUFFIXES`` と同じ（ずれたら落ちる）
+DOCUMENT_EXTS = (".pdf", ".docx", ".xml")
+_DOCO = "http://purl.org/spar/doco/"
 _MAX_FIT_COLUMNS = 60
 _MAX_MEANINGS_SHOWN = 8
 _MAX_SHAPE_NOTES = 5
@@ -113,7 +120,27 @@ _T: dict[str, dict[str, str]] = {
         ),
         "leftover": "取り込んだデータを片づけられませんでした",
         "ingest_stop": "取り込みの途中で止まりました。表の中身を確かめて、もう一度添えてください。",
-        "unsupported": "文書はまだ添えられません（表を添えてください）",
+        "unsupported": (
+            "この形式は添えられません（表は CSV・Excel・JSON、論文は PDF・Word・JATS XML）"
+        ),
+        "mixed": "表と論文は別々に添えてください",
+        "pdf_unavailable": (
+            "PDF を読み取る部品がまだ使えません。設定の「PDF の読み取り」で入れるか、"
+            "準備が終わるのを待ってください（Word・JATS XML はそのまま添えられます）"
+        ),
+        "docx_unavailable": (
+            "Word を読み取る部品（pandoc）がありません。PDF か JATS XML で添えてください"
+        ),
+        "pdf_unavailable_server": (
+            "この環境では PDF を読み取れません（管理者に Docling の設定を頼んでください）"
+        ),
+        "paper_failed": "論文を読み取れませんでした。形式を確かめて、もう一度添えてください。",
+        "document_empty": "論文から文を読み取れませんでした（画像だけの PDF などは読めません）",
+        "s_read": "論文を節と文に分けています",
+        "paper_reply": (
+            "{name} を読み込みました。節 {sections}・文 {sentences}。"
+            "承認すると知識グラフに置き、回答で文を引用できるようになります"
+        ),
         "dup": "ID が重なっています（{n} 行が同じ ID になります）。",
         "missing": "ID の列「{c}」が表にありません。",
         "measure": "ID にした列は測定値のようです。",
@@ -164,7 +191,29 @@ _T: dict[str, dict[str, str]] = {
         ),
         "leftover": "Could not clean up the data that was loaded",
         "ingest_stop": "Loading stopped partway. Check the table and attach it again.",
-        "unsupported": "Documents can't be attached yet (please attach a table)",
+        "unsupported": (
+            "This format can't be attached (tables: CSV, Excel, JSON; papers: PDF, Word, JATS XML)"
+        ),
+        "mixed": "Please attach tables and papers separately",
+        "pdf_unavailable": (
+            "The PDF reader is not ready yet. Install it from Settings > PDF reading, "
+            "or wait until it finishes setting up (Word and JATS XML can be attached as they are)"
+        ),
+        "docx_unavailable": (
+            "The Word reader (pandoc) is not installed. Attach a PDF or JATS XML instead"
+        ),
+        "pdf_unavailable_server": (
+            "PDFs can't be read in this environment (ask your administrator to set up Docling)"
+        ),
+        "paper_failed": "Could not read the paper. Check its format and attach it again.",
+        "document_empty": (
+            "No sentences could be read from the paper (image-only PDFs can't be read)"
+        ),
+        "s_read": "splitting the paper into sections and sentences",
+        "paper_reply": (
+            "Read {name}. {sections} sections, {sentences} sentences. "
+            "Approve to place it in the knowledge graph so answers can quote its sentences"
+        ),
         "dup": "IDs overlap ({n} rows share an ID).",
         "missing": 'The ID column "{c}" is not in the table.',
         "measure": "The ID column looks like a measured value.",
@@ -193,6 +242,19 @@ def text(lang: str, key: str, **kw: Any) -> str:
 
 def is_table_name(name: str) -> bool:
     return name.lower().endswith(TABLE_EXTS)
+
+
+def is_document_name(name: str) -> bool:
+    return name.lower().endswith(DOCUMENT_EXTS)
+
+
+def kind_of(names: list[str]) -> str | None:
+    """添えた名前の種類。全部が表＝``"table"``・全部が論文＝``"document"``・混在や他＝``None``。"""
+    if names and all(is_table_name(n) for n in names):
+        return "table"
+    if names and all(is_document_name(n) for n in names):
+        return "document"
+    return None
 
 
 def _stem(name: str) -> str:
@@ -798,6 +860,7 @@ def _final_reply(ctx: _Ctx, st: dict, summary: dict, shape: list[dict]) -> tuple
         notes=notes,
     )
     attachment = {
+        "kind": "table",
         "dataset_id": st["dataset_id"],
         "staging_id": st["staging_id"],
         "name": st["name"],
@@ -953,6 +1016,123 @@ async def run_attach(
     return {"state": state}
 
 
+async def _paper_counts(ctx: _Ctx, dataset_id: str) -> dict[str, int]:
+    """論文の節・段落・文の数 — ``draft-stats``（未公開の版 graph を数える既存の口）の
+    ``doco:Section`` / ``doco:Paragraph`` / ``doco:Sentence``。"""
+    res = await _req(ctx, "GET", f"/api/datasets/{dataset_id}/draft-stats")
+    by_iri = {str(c.get("iri")): int(c.get("n") or 0) for c in res.json().get("classes") or []}
+    return {
+        "sections": by_iri.get(_DOCO + "Section", 0),
+        "paragraphs": by_iri.get(_DOCO + "Paragraph", 0),
+        "sentences": by_iri.get(_DOCO + "Sentence", 0),
+    }
+
+
+async def run_document_attach(
+    app: FastAPI,
+    cfg: Settings,
+    session_id: str,
+    turn_id: str,
+    files: list[tuple[str, bytes]] | None,
+    *,
+    lang: str,
+    llm_headers: dict[str, str],
+    token: str | None,
+    emit: Callable[..., None],
+    resume: dict | None = None,
+    homes: dict[str, dict] | None = None,
+) -> dict:
+    """添えた論文（PDF・Word・JATS XML）を文書の取り込みに通し、手番を書き換えて保存する。
+    ``/api/documents`` → ``/ingest`` を呼ぶだけ（エンジンは変えない・AI は呼ばない）。
+    ``resume``・``homes`` は :func:`run_attach` と引数をそろえるためで、論文では使わない。"""
+    lang = _lg(lang)
+    http = make_http(app, token, llm_headers)
+    ctx = _Ctx(app, cfg, http, lang, emit)
+    lock: asyncio.Lock = app.state.themes_lock
+    root = cfg.registry_root
+    st: dict = {"lang": lang}
+    attachment: dict | None = None
+    cancelled: BaseException | None = None
+    try:
+        assert files
+        st["name"] = _stem(files[0][0]) + (f" {text(lang, 'others')}" if len(files) > 1 else "")
+        ctx.stage(1, "s_read")
+        upload = [
+            ("files", (name, data, mimetypes.guess_type(name)[0] or "application/octet-stream"))
+            for name, data in files
+        ]
+        res = await _req(ctx, "POST", "/api/documents", files=upload, data={"name": st["name"]})
+        st["dataset_id"] = res.json()["dataset_id"]
+        ctx.stage(2, "s_read")  # PDF は Docling が遅い — 段の言葉は同じ
+        res = await ctx.http.post(f"/api/datasets/{st['dataset_id']}/ingest")
+        if res.status_code != 202:
+            raise AttachError("failed", f"ingest -> {res.status_code}: {_detail(res)}")
+        await _job_result(ctx, res.json()["job_id"])
+        counts = await _paper_counts(ctx, st["dataset_id"])
+        if counts["sentences"] <= 0:
+            reply = chat_turns._reply(
+                "", notes=[chat_turns.note("document_empty", text(lang, "document_empty"))]
+            )
+            state = "none"  # 承認は出さない（データセットは下で片づける）
+        else:
+            body = text(
+                lang,
+                "paper_reply",
+                name=st["name"],
+                sections=counts["sections"],
+                sentences=counts["sentences"],
+            )
+            reply = chat_turns._reply(body)
+            attachment = {
+                "kind": "document",
+                "dataset_id": st["dataset_id"],
+                "name": st["name"],
+                **counts,
+            }
+            state = "proposed"
+    except AttachError as exc:
+        logger.warning("paper attach stopped (%s): %s", exc.kind, exc.detail)
+        reply = chat_turns._reply(
+            "", notes=[chat_turns.note("attach_failed", text(lang, "paper_failed"))]
+        )
+        state = "none"
+    except BaseException as exc:  # CancelledError も — 手番が running のまま固まらないように
+        if isinstance(exc, Exception):
+            logger.warning("paper attach failed", exc_info=True)
+            key = "paper_failed"
+        else:
+            logger.warning("paper attach cancelled (%s)", type(exc).__name__)
+            key = "interrupted"
+            cancelled = exc
+        reply = chat_turns._reply("", notes=[chat_turns.note("attach_failed", text(lang, key))])
+        state = "none"
+    finally:
+        await http.aclose()
+    if attachment is None and st.get("dataset_id"):  # 残さない手番の取り込み済みデータは片づける
+        if not await discard_dataset(app, cfg, st["dataset_id"], token=token):
+            reply["notes"].append(chat_turns.note("info", text(lang, "leftover")))
+        st.pop("dataset_id", None)
+    async with lock:
+        session = chat_sessions.load_session(root, session_id)
+        if session is None:  # 話が捨てられた
+            if attachment is not None:
+                await discard_dataset(app, cfg, attachment["dataset_id"], token=token)
+            if cancelled is not None:
+                raise cancelled
+            return {"state": "none"}
+        turn = _find(session, turn_id)
+        turn["reply"] = reply
+        turn["state"] = state
+        if attachment is not None:
+            turn["attachment"] = attachment
+        turn["attach_run"] = st
+        turn.pop("job_id", None)
+        chat_sessions.save_session(root, session)
+    if cancelled is not None:
+        raise cancelled
+    return {"state": state}
+
+
 async def discard_dataset(
     app: FastAPI, cfg: Settings, dataset_id: str, *, token: str | None
 ) -> bool:
@@ -1022,17 +1202,19 @@ async def confirm_attach(
     http = make_http(app, token, llm_headers)
     ctx = _Ctx(app, cfg, http, lang, lambda **_: None)
     try:
-        _write_upper(cfg, dataset_id, reply.get("bindings") or [], turn["batch"], at)
-        res = await http.post(f"/api/datasets/{dataset_id}/publish-names")
-        if res.status_code not in (200, 409):  # 409 = まだ公開した名前が無い（初めての公開）
-            raise AttachError("failed", f"publish-names -> {res.status_code}: {_detail(res)}")
+        is_paper = att.get("kind") == "document"
+        if not is_paper:  # 論文は結ぶ列も公開する名前も無い — promote だけ
+            _write_upper(cfg, dataset_id, reply.get("bindings") or [], turn["batch"], at)
+            res = await http.post(f"/api/datasets/{dataset_id}/publish-names")
+            if res.status_code not in (200, 409):  # 409 = まだ公開した名前が無い（初めての公開）
+                raise AttachError("failed", f"publish-names -> {res.status_code}: {_detail(res)}")
         await _req(ctx, "POST", f"/api/datasets/{dataset_id}/promote")
         data = registry.load_dataset(cfg.registry_root, dataset_id) or {}
         commit = {
             "dataset_id": dataset_id,
             "published_at": (data.get("meta") or {}).get("promoted_at") or at,
         }
-        followup = await _followup(ctx, session, turn, dataset_id, at)
+        followup = None if is_paper else await _followup(ctx, session, turn, dataset_id, at)
     except Exception as exc:
         logger.warning("attach publish failed: %s", exc, exc_info=True)
         await http.aclose()
@@ -1128,14 +1310,16 @@ async def suggest_questions(
     lang: str,
     llm_headers: dict[str, str],
     token: str | None,
+    screen: str = "dataset",
 ) -> list[dict]:
-    """10a — 公開のあとの問いの提案（AI の失敗・未設定は空）。**ロックの外**で呼ぶ。"""
+    """10a — 公開のあとの問いの提案（AI の失敗・未設定は空）。**ロックの外**で呼ぶ。
+    ``screen``: 表は ``"dataset"``・論文は ``"paper"``（10b）。"""
     lang = _lg(lang)
     http = make_http(app, token, llm_headers)
     try:
         res = await http.post(
             "/api/consult/suggest-questions",
-            json={"screen": "dataset", "context": {"dataset_id": dataset_id}, "lang": lang},
+            json={"screen": screen, "context": {"dataset_id": dataset_id}, "lang": lang},
         )
         if res.status_code != 200:
             return []

@@ -2,7 +2,7 @@
 // 選んだ id を `onAttach` に渡す。Escape で閉じる。
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TABLE_EXTS, formatSize } from './sourcePickerUtil'
+import { ATTACH_EXTS, formatSize } from './sourcePickerUtil'
 import { fetchSourceItems, type SourceItem } from './chatApi'
 import { ThemesApiError } from '../themes/themesApi'
 
@@ -79,7 +79,7 @@ export function SourcePicker({ server, onAttach, onClose }: { server: string; on
 
   useEffect(() => {
     let live = true
-    fetchSourceItems(server, TABLE_EXTS).then(
+    fetchSourceItems(server, ATTACH_EXTS).then(
       (items) => live && setState({ phase: 'ready', items }),
       (e: unknown) => live && setState({ phase: 'error', message: e instanceof ThemesApiError && e.detail ? e.detail : t('sourcePicker.failed') }),
     )

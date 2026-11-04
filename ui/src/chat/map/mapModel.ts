@@ -113,7 +113,7 @@ export function buildMapGraph(
     const proposed = d.proposed === true || (proposedIds.has(d.id) && !have.has(d.id))
     // データセットの丸（表の名前）。その種類を線で束ねて 1 つのまとまりにする（孤立した種類が散らばらない）
     const did = datasetNodeId(d.id)
-    if (d.kinds.length > 0) {
+    if (d.kinds.length > 0 || d.document) {
       addNode(did, { type: 'dataset', label: d.label, datasetId: d.id, ...(proposed ? { proposed: true } : {}), size: DATASET_SIZE, role: 'dataset' })
     }
     for (const k of d.kinds) {

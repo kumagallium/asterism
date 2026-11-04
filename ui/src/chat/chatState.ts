@@ -43,7 +43,7 @@ export function proposedCount(turns: readonly Turn[]): number {
 export function showMachineMark(t: Turn): boolean {
   if (t.by !== 'machine') return false
   if (t.attachment) return false
-  return !t.reply.notes.some((n) => n.kind === 'choice_id' || n.kind === 'attach_failed' || n.kind === 'unsupported')
+  return !t.reply.notes.some((n) => ['choice_id', 'attach_failed', 'unsupported', 'mixed', 'pdf_unavailable', 'docx_unavailable', 'document_empty'].includes(n.kind))
 }
 
 /** 一覧と見出しに出す題。空なら「新しい話」。 */

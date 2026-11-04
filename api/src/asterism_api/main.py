@@ -2996,6 +2996,18 @@ _DOCUMENT_TOOL_NAMES = ("search_text", "quote_with_citation", "fetch_passage")
 _DOCUMENT_SOURCE_SUFFIXES = (".xml", ".docx", ".pdf")
 
 
+def can_convert_pdf(cfg: Settings) -> bool:
+    """この環境で PDF を読み取れるか（Docling が設定されているか）。``/api/instance`` の
+    ``can_convert_pdf`` とチャットの 📎 が同じ答えを使う。"""
+    return cfg.docling_url is not None
+
+
+def can_convert_docx() -> bool:
+    """この環境で Word（.docx）を読み取れるか（pandoc が PATH にあるか）。``/api/instance`` の
+    ``can_convert_docx`` とチャットの 📎 が同じ答えを使う。"""
+    return documents.pandoc_available()
+
+
 def _document_tool_specs() -> list[dict]:
     """Raw query-tool dicts (the document recall set) read from the papers example's
     vetted ``query_tools.yaml`` as content — nothing is generated at runtime."""
@@ -6375,8 +6387,8 @@ def build_app(
             "app_version": cfg.app_version,
             "desktop": cfg.app_version is not None,
             "write_gate": write_gate,
-            "can_convert_docx": documents.pandoc_available(),
-            "can_convert_pdf": cfg.docling_url is not None,
+            "can_convert_docx": can_convert_docx(),
+            "can_convert_pdf": can_convert_pdf(cfg),
         }
 
     @app.get("/api/desktop/update-check")
