@@ -32,6 +32,19 @@ export interface Note {
 /** 図への差分 1 件（`add_concept` / `add_relation` …）。形はサーバの検査が正で、UI は読まない。 */
 export type GraphOp = { op: string } & Record<string, unknown>
 
+/** 12b: 論文の関係の根拠の文（サーバがストアから引いた文。`text` は 150 字まで・`path` は節の構造の番号）。 */
+export interface Evidence {
+  iri: string
+  text: string
+  path: string | null
+}
+
+/** 関係の差分（`add_relation`）の根拠の文。論文以外の提案・根拠の無い関係は空。 */
+export function evidenceOf(op: GraphOp | undefined): Evidence[] {
+  const ev = op?.op === 'add_relation' ? op.evidence : undefined
+  return Array.isArray(ev) ? (ev as Evidence[]).filter((e) => typeof e?.text === 'string' && e.text !== '') : []
+}
+
 export interface Reply {
   text: string
   ops: GraphOp[]
@@ -139,6 +152,8 @@ export interface Turn {
   by: 'ai' | 'human' | 'machine'
   /** AI の振り分け（chat＝地の文だけの返事）。古い手番・機械の手番には無い。 */
   route?: 'chat' | 'ask' | 'propose'
+  /** 12b: 論文の手番が下書きに入れた提案（あるときだけ。承認で公開と確定を 1 度にする）。 */
+  paper?: { draft_id: string; created: boolean; promoted: boolean }
 }
 
 /** 手番のあとで変わる話の欄。 */
@@ -386,6 +401,10 @@ export function normalizeTurn(v: unknown): Turn | null {
     before: v.before ?? null,
     // 11m: 振り分け（chat／ask）。無い・未知の値は省く
     ...(v.route === 'chat' || v.route === 'ask' || v.route === 'propose' ? { route: v.route } : {}),
+    // 12b: 論文の手番が下書きに入れた提案（あるときだけ）
+    ...(isObj(v.paper) && typeof v.paper.draft_id === 'string'
+      ? { paper: { draft_id: v.paper.draft_id, created: v.paper.created === true, promoted: v.paper.promoted === true } }
+      : {}),
     commit: commitOf(v.commit),
     by,
     attachment: attachmentOf(v.attachment),

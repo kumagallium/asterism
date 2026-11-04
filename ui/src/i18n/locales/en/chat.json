@@ -52,6 +52,7 @@
     "undoneFailed": "Could not undo: {{what}} ({{reason}})",
     "cardProposed": "Proposed for the knowledge graph · {{n}}",
     "cardProposedNone": "Proposed for the knowledge graph",
+    "evidence": "Evidence sentence",
     "proposeChip": "Add to the knowledge graph",
     "sent": "Sent"
   },

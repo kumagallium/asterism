@@ -52,6 +52,7 @@
     "undoneFailed": "取り消せませんでした: {{what}}（{{reason}}）",
     "cardProposed": "知識グラフへの提案 · {{n}} 件",
     "cardProposedNone": "知識グラフへの提案",
+    "evidence": "根拠の文",
     "proposeChip": "知識グラフに追加",
     "sent": "送りました"
   },

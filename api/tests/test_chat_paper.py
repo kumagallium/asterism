@@ -1,0 +1,594 @@
+"""12b — 添えた論文から、用語・関係・問いを根拠の文つきで提案する。
+
+JATS は ``datasets/papers/`` の実物（Docling 不要）、AI は固定応答のスタブ。確かめること: 番号つきの
+文の並べ方（参考文献を除く・300 で切る）／機械の検査（実在しない番号・語が現れない・英語の語の境目・
+別名で通る）／下書きの根拠の文（IRI と文はストアから）／承認 1 つで公開と確定・関係の来歴に
+``prov:wasDerivedFrom``／確定の失敗で論文は公開のまま・もう一度で確定／取り消しで下書きが戻る／
+AI 無し・失敗は 12a のまま／問いの提案を二重に呼ばない。
+"""
+
+# ruff: noqa: RUF001
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+import rdflib
+from asterism import chat_sessions, themes
+from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, list_alignments
+from asterism.shared_vocab import SharedTerm, normalize_label
+from fastapi.testclient import TestClient
+
+from asterism_api import chat_attach, chat_paper
+from tests.test_chat_attach import JATS, KEY, _app, _attach_many, _drain, _new, _turn
+from tests.test_crosswalk_api import _AUTH
+
+PROV_FROM = "http://www.w3.org/ns/prov#wasDerivedFrom"
+
+
+# ---- 文の並べ方・検査（純関数） ---------------------------------------------------------------
+
+
+def _b(**kw: str) -> dict:
+    return {k: {"type": "literal", "value": v} for k, v in kw.items()}
+
+
+def test_mentions_uses_word_boundaries_for_english_and_ignores_width_and_case() -> None:
+    said = normalize_label("The lattice thermal conductivity is low in ＺＴ materials.")
+    assert chat_paper.mentions(said, "Lattice Thermal Conductivity")  # 大文字小文字
+    assert chat_paper.mentions(said, "ZT")  # 全角半角
+    assert not chat_paper.mentions("many conductivities", "conductivity")  # 語の境目
+    assert not chat_paper.mentions("a subconductivity", "conductivity")
+    assert chat_paper.mentions("ゼーベック 係数が大きい", "ゼーベック係数")  # 日本語は空白を無視
+    assert chat_paper.mentions("ゼーベック係数が大きい", "係数")  # 日本語は部分一致
+    assert not chat_paper.mentions("anything", "  ")
+
+
+def test_reference_and_acknowledgement_sections_are_left_out() -> None:
+    secs = [
+        _b(sec="http://x/sec/a", title="1. Introduction", path="1", child="http://x/sec/a1"),
+        _b(sec="http://x/sec/a1", title="1.1 Background", path="1-1"),
+        _b(sec="http://x/sec/r", title="References", path="9"),
+        _b(sec="http://x/sec/k", title="謝辞", path="10"),
+        _b(sec="http://x/sec/d", title="Notes", path="11",
+           role="http://purl.org/spar/deo/Acknowledgements"),
+    ]  # fmt: skip
+    sents = [
+        _b(s="http://x/s/1", t="Intro.", b="0", sec="http://x/sec/a"),
+        _b(s="http://x/s/2", t="Sub.", b="10", sec="http://x/sec/a1"),
+        _b(s="http://x/s/3", t="Ref 1.", b="20", sec="http://x/sec/r"),
+        _b(s="http://x/s/4", t="ありがとう。", b="30", sec="http://x/sec/k"),
+        _b(s="http://x/s/5", t="By role.", b="40", sec="http://x/sec/d"),
+    ]
+    rows = chat_paper.build_rows(sents, secs)
+    assert [(r["text"], r["skip"]) for r in rows] == [
+        ("Intro.", False), ("Sub.", False), ("Ref 1.", True), ("ありがとう。", True),
+        ("By role.", True),
+    ]  # fmt: skip
+    picked, truncated = chat_paper.select_sentences(rows)
+    assert [(r["id"], r["text"]) for r in picked] == [("s1", "Intro."), ("s2", "Sub.")]
+    assert truncated is False
+    assert rows[1]["path"] == "1-1"  # 文の属する節のパス
+
+
+def test_titles_that_cannot_be_read_leave_every_sentence_in() -> None:
+    sents = [_b(s=f"http://x/s/{i}", t=f"S{i}.", b=str(i), sec="http://x/sec/_body")
+             for i in range(3)]  # fmt: skip
+    secs = [_b(sec="http://x/sec/_body", title="", path="")]
+    rows = chat_paper.build_rows(sents, secs)
+    assert not any(r["skip"] for r in rows) and rows[0]["path"] is None
+
+
+def test_more_than_300_sentences_keep_abstract_results_and_conclusion_first() -> None:
+    secs = [
+        _b(sec="http://x/sec/i", title="Introduction", role="http://purl.org/spar/deo/Introduction"),
+        _b(sec="http://x/sec/r", title="Results", role="http://purl.org/spar/deo/Results"),
+    ]
+    sents = [_b(s=f"http://x/i/{i}", t=f"Intro {i}.", b=str(i), sec="http://x/sec/i")
+             for i in range(250)]  # fmt: skip
+    sents += [_b(s=f"http://x/r/{i}", t=f"Result {i}.", b=str(1000 + i), sec="http://x/sec/r")
+              for i in range(120)]  # fmt: skip
+    picked, truncated = chat_paper.select_sentences(chat_paper.build_rows(sents, secs))
+    assert truncated and len(picked) == chat_paper.MAX_SENTENCES
+    assert [r["id"] for r in picked[:2]] == ["s1", "s2"]  # 出現順に振り直す
+    assert sum(1 for r in picked if r["text"].startswith("Result")) == 120  # 優先は全部残る
+    assert sum(1 for r in picked if r["text"].startswith("Intro")) == 180
+    assert [r["begin"] for r in picked] == sorted(r["begin"] for r in picked)
+    # 役割が 1 つも取れなければ先頭から
+    plain = [_b(s=f"http://x/p/{i}", t=f"P{i}.", b=str(i), sec="http://x/sec/p")
+             for i in range(400)]  # fmt: skip
+    picked, truncated = chat_paper.select_sentences(
+        chat_paper.build_rows(plain, [_b(sec="http://x/sec/p", title="Body")])
+    )
+    assert truncated and [r["text"] for r in picked][-1] == "P299."
+
+
+def _term(slug: str, label: str, en: str, kind: str, aliases: tuple[str, ...] = ()) -> SharedTerm:
+    return SharedTerm(iri=f"https://x/sv/{slug}", slug=slug, kind=kind, label=label,
+                      label_en=en, comment=None, created_at="t", aliases=aliases)  # fmt: skip
+
+
+def test_check_ops_drops_what_the_sentences_do_not_support() -> None:
+    by_id = {
+        "s1": {"id": "s1", "iri": "http://x/s/1", "path": "2-5",
+               "text": "Scattering at the grain boundaries lowers the lattice thermal "
+                       "conductivity."},
+        "s2": {"id": "s2", "iri": "http://x/s/2", "path": None, "text": "Seebeck is large. " * 20},
+    }  # fmt: skip
+    c = lambda key, ja, en, kind, **kw: {  # noqa: E731
+        "op": "add_concept", "key": key, "label_ja": ja, "label_en": en, "aliases": [],
+        "kind": kind, "use": "new", "reason": "", **kw,
+    }  # fmt: skip
+    rel = lambda a, r, b, ev: {  # noqa: E731
+        "op": "add_relation", "from": a, "rel": r, "to": b, "evidence": ev, "reason": ""
+    }  # fmt: skip
+    ops = [
+        c("n1", "粒界", "grain boundaries", "class"),
+        c("n2", "格子熱伝導率", "lattice thermal conductivity", "property"),
+        c("n3", "ゼーベック", "Seebeck coefficient", "property"),
+        c("n4", "導電", "conductivity", "property"),
+        c("n5", "散乱", "x", "class", aliases=["scattering"]),  # 別名で通る
+        rel("n1", "lowers", "n2", ["s1"]),  # 通る（両端が文に現れる）
+        rel("n1", "lowers", "n2", ["s9"]),  # 番号の文が無い
+        rel("n3", "affects", "n2", ["s1"]),  # n3 の名前が s1 に無い
+        rel("n5", "lowers", "n2", ["s1"]),  # 別名 scattering で通る
+        rel("n1", "lowers", "n4", ["s1"]),  # conductivity は lattice thermal conductivity の中で
+        # 語の境目では現れる（"thermal conductivity" の前は空白）— ただし n1 は通るので通る
+        rel("n1", "lowers", "c9", ["s1"]),  # 知らない端
+        {"op": "add_question", "question": "何が下げる？", "mode": "knowledge",
+         "op_kind": "factors", "target": "n2", "direction": "lowers", "reason": ""},
+    ]  # fmt: skip
+    kept, dropped = chat_paper.check_ops(ops, concepts=[], existing=[], by_id=by_id)
+    rels = [o for o in kept if o["op"] == "add_relation"]
+    assert [(o["from"], o["to"]) for o in rels] == [("n1", "n2"), ("n5", "n2"), ("n1", "n4")]
+    assert dropped == 3
+    assert [o["op"] for o in kept].count("add_concept") == 5  # 概念は残す
+    assert [o["op"] for o in kept].count("add_question") == 1
+    assert rels[0]["evidence"] == [{"iri": "http://x/s/1", "text": by_id["s1"]["text"][:150],
+                                    "path": "2-5"}]  # fmt: skip
+
+
+def test_check_ops_uses_the_store_names_and_aliases_of_existing_terms() -> None:
+    by_id = {"s1": {"id": "s1", "iri": "http://x/s/1", "path": None,
+                    "text": "TE が大きい。ZT is high."}}  # fmt: skip
+    existing = [_term("zt", "性能指数", "figure of merit", "property", aliases=("ZT",))]
+    ops = [
+        {"op": "add_concept", "key": "n1", "label_ja": "性能指数", "label_en": "", "aliases": [],
+         "kind": "property", "use": "existing:zt", "reason": ""},  # 名前は文に無いが別名 ZT がある
+        {"op": "add_concept", "key": "n2", "label_ja": "熱電", "label_en": "TE", "aliases": [],
+         "kind": "property", "use": "new", "reason": ""},
+        {"op": "add_relation", "from": "n2", "rel": "raises", "to": "n1", "evidence": ["s1"],
+         "reason": ""},
+    ]  # fmt: skip
+    kept, dropped = chat_paper.check_ops(ops, concepts=[], existing=existing, by_id=by_id)
+    assert dropped == 0 and kept[-1]["evidence"][0]["iri"] == "http://x/s/1"
+    # 下書きの概念（既存の用語に結んだ行）も、ストアの名前で引く
+    row = {"key": "c1", "label_ja": "別の言い方", "label_en": "", "aliases": [], "kind": "property",
+           "use": "existing:zt"}  # fmt: skip
+    ops2 = [
+        {"op": "add_relation", "from": "n2", "rel": "raises", "to": "c1", "evidence": ["s1"],
+         "reason": ""},
+    ]  # fmt: skip
+    kept, dropped = chat_paper.check_ops(
+        [ops[1], *ops2], concepts=[row], existing=existing, by_id=by_id
+    )
+    assert dropped == 0
+
+
+# ---- 走者・承認・取り消し（本物のストア＋AI のスタブ） --------------------------------------
+
+
+def _add_concept(key: str, ja: str, en: str, kind: str, **kw: Any) -> dict:
+    return {"op": "add_concept", "key": key, "label_ja": ja, "label_en": en, "aliases": [],
+            "kind": kind, "use": "new", "reason": "本文にある", **kw}  # fmt: skip
+
+
+def _answer(sentences: dict[str, str], *, ask: bool = True) -> dict:
+    """スタブの答え。実物の論文（PMC5951533）の文の語から作る。"""
+    ops: list[dict] = [
+        _add_concept("n1", "粒界と相の境界", "grain and phase boundaries", "class"),
+        _add_concept("n2", "熱伝導率", "thermal conductivity", "property"),
+        _add_concept("n3", "ゼーベック係数", "Seebeck coefficient", "property"),
+        _add_concept("n4", "性能指数", "figure of merit", "property"),
+        {"op": "add_relation", "from": "n1", "rel": "lowers", "to": "n2",
+         "evidence": [sentences["boundary"]], "reason": "散乱で下がる"},
+        {"op": "add_relation", "from": "n2", "rel": "affects", "to": "n4",
+         "evidence": [sentences["seebeck"]], "reason": "低い熱伝導率が効く"},
+        {"op": "add_relation", "from": "n3", "rel": "raises", "to": "n4",
+         "evidence": [sentences["seebeck"]], "reason": "支配的"},
+        {"op": "add_relation", "from": "n1", "rel": "affects", "to": "n4",
+         "evidence": [sentences["seebeck"]], "reason": "粒界はその文に無い"},  # 落ちる（名前）
+        {"op": "add_relation", "from": "n3", "rel": "affects", "to": "n2",
+         "evidence": ["s9999"], "reason": "番号が無い"},  # 落ちる（番号）
+    ]  # fmt: skip
+    if ask:
+        ops.append({"op": "add_question", "question": "格子熱伝導率を下げる要因は？",
+                    "mode": "knowledge", "op_kind": "factors", "target": "n2",
+                    "direction": "lowers", "reason": ""})  # fmt: skip
+    return {"reply": "AI の地の文（保存しない）", "ops": ops}
+
+
+class _PaperLLM:
+    """論文の提案の呼び出し（graph_propose）だけに答えるスタブ。"""
+
+    def __init__(self, numbers: dict[str, str] | None = None, *, fail: bool = False,
+                 ask: bool = True) -> None:  # fmt: skip
+        self.numbers = numbers
+        self.fail = fail
+        self.ask = ask
+        self.users: list[str] = []
+
+    def complete(self, system: str, user: str) -> str:
+        assert "numbered SENTENCES" in system, system[:80]
+        self.users.append(user)
+        if self.fail:
+            raise RuntimeError("AI down")
+        return json.dumps(_answer(self.numbers or {}, ask=self.ask), ensure_ascii=False)
+
+
+def _numbers(user: str) -> dict[str, str]:
+    """プロンプトの番号つきの文（``- s12 | 文``）から、使う 2 つの文の番号を引く。"""
+    rows = {m[1]: m[2] for m in (re.match(r"- (s\d+) \| (.*)", x) for x in user.splitlines()) if m}
+
+    def find(needle: str) -> str:
+        hit = [k for k, v in rows.items() if needle in v]
+        assert hit, needle  # スタブの中の失敗は、固まらずに見える形で
+        return hit[0]
+
+    return {
+        "boundary": find("additional scattering at the grain and phase boundaries"),
+        "seebeck": find("The values of the figure of merit are dominated by the high values"),
+    }
+
+
+class _TwoStep(_PaperLLM):
+    """1 回目の呼び出しでプロンプトから番号を引き、答えを返す。"""
+
+    def complete(self, system: str, user: str) -> str:
+        if self.numbers is None:
+            self.numbers = _numbers(user)
+        return super().complete(system, user)
+
+
+def _paper(client: TestClient, sid: str, headers: dict | None = KEY) -> dict:
+    r = _attach_many(client, sid, [("論文.xml", JATS)], headers=headers if headers else {})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    _drain(client, body["job_id"])
+    return _turn(client, sid, body["turn"]["id"])
+
+
+def _confirm(client: TestClient, sid: str, tid: str, **body: Any):
+    return client.post(f"/api/chat/sessions/{sid}/turns/{tid}/confirm", json=body, headers=KEY)
+
+
+def test_a_paper_with_an_ai_proposes_terms_relations_and_questions_with_evidence(
+    tmp_path: Path,
+) -> None:
+    llm = _TwoStep()
+    app, _ = _app(tmp_path, llm)
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        assert turn["state"] == "proposed" and turn["attachment"]["kind"] == "document"
+        assert "用語 4・関係 3・問い 1 を提案しました" in turn["reply"]["text"]
+        assert "AI の地の文" not in turn["reply"]["text"]  # AI の文は保存しない
+        ops = turn["reply"]["ops"]
+        rels = [o for o in ops if o["op"] == "add_relation"]
+        assert len(rels) == 3 and len(turn["reply"]["sentences"]) == len(ops)
+        notes = [n["text"] for n in turn["reply"]["notes"]]
+        assert "根拠の文が合わない関係を 2 件除きました" in notes
+        # 根拠の文はストアから引いた文（IRI・150 字以内・節の path）。AI の文字列ではない
+        for r in rels:
+            (ev,) = r["evidence"]
+            assert ev["iri"].startswith("https://") and "/sent/" in ev["iri"]
+            assert 0 < len(ev["text"]) <= 150 and ev["path"]
+        assert rels[0]["evidence"][0]["text"].startswith("All samples with a decomposition")
+        assert rels[1]["evidence"] == rels[2]["evidence"]  # 同じ文を根拠にした 2 本
+        # 下書き: 関係に evidence・問いが入る・話の下書きになる
+        session = chat_sessions.load_session(tmp_path / "registry", sid)
+        draft = themes.load_draft(tmp_path / "registry", session["draft_id"])
+        assert draft is not None and len(draft["concepts"]) == 4
+        assert all(r["evidence"] and r["by"] == "ai" for r in draft["relations"])
+        assert draft["questions"] == ["格子熱伝導率を下げる要因は？"]
+        assert turn["paper"] == {"draft_id": draft["id"], "created": True, "promoted": False}
+        assert turn["before"] is None
+        # AI に渡ったのは番号つきの文（参考文献・謝辞は除く）
+        user = llm.users[0]
+        assert "# Sentences of the paper" in user and "gratefully acknowledge" not in user
+        assert "s1 | The search for alternative energy technologies" in user
+        # 12a の札（論文名・節・文）はそのまま
+        assert turn["attachment"]["sentences"] > 0
+
+
+def test_one_approval_publishes_the_paper_and_confirms_the_draft_with_evidence(
+    tmp_path: Path,
+) -> None:
+    seen: list[dict] = []
+
+    async def spy(*a: Any, **kw: Any) -> list[dict]:
+        seen.append(kw)
+        return []
+
+    app, ds = _app(tmp_path, _TwoStep())
+    real = chat_attach.suggest_questions
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        chat_attach.suggest_questions = spy  # type: ignore[assignment]
+        try:
+            r = _confirm(client, sid, turn["id"])
+        finally:
+            chat_attach.suggest_questions = real  # type: ignore[assignment]
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["turn"]["state"] == "confirmed" and body["confirmed"] == [turn["id"]]
+        assert body["commit"]["dataset_id"] == dsid and body["commit"]["theme_id"]
+        assert not seen  # この手番に問いの提案がある — 10b の問いの提案は呼ばない
+        meta = json.loads((tmp_path / "registry" / dsid / "meta.json").read_text())
+        assert meta["promoted"] is True  # 論文の公開
+        # 関係の来歴に根拠の文 IRI（prov:wasDerivedFrom）
+        derived = {
+            (str(s), str(o))
+            for s, p, o in ds.graph(rdflib.URIRef(ALIGNMENT_GRAPH))
+            if str(p) == PROV_FROM
+        }
+        assert len(derived) == 3 and all("/sent/" in o for _, o in derived)
+        rows = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(rows) == 3 and all(len(x["evidence"]) == 1 for x in rows)
+        # 話: 下書きは確定して消え、テーマが置かれる
+        session = chat_sessions.load_session(tmp_path / "registry", sid)
+        assert session["draft_id"] is None and session["theme_id"]
+        assert themes.list_drafts(tmp_path / "registry") == []
+
+
+def test_a_failed_confirmation_keeps_the_paper_published_and_a_second_approval_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        real = themes.commit_theme
+
+        async def boom(*a: Any, **kw: Any) -> dict:
+            raise themes.ThemeError("検査で断られました")
+
+        monkeypatch.setattr(themes, "commit_theme", boom)
+        r = _confirm(client, sid, turn["id"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["turn"]["state"] == "proposed" and body["commit"] is None
+        texts = [n["text"] for n in body["turn"]["reply"]["notes"]]
+        assert "提案は確定できませんでした（論文は公開しました）" in texts
+        meta = json.loads((tmp_path / "registry" / dsid / "meta.json").read_text())
+        assert meta["promoted"] is True
+        session = chat_sessions.load_session(tmp_path / "registry", sid)
+        assert session["draft_id"]  # 下書きは残る
+        assert body["turn"]["paper"]["promoted"] is True
+        # もう一度 ✓ — 公開はやり直さず、確定だけ
+        monkeypatch.setattr(themes, "commit_theme", real)
+        r = _confirm(client, sid, turn["id"])
+        assert r.status_code == 200, r.text
+        assert r.json()["turn"]["state"] == "confirmed" and r.json()["commit"]["theme_id"]
+        assert [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+
+
+def test_undoing_an_unapproved_paper_discards_the_dataset_and_the_draft_it_made(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        assert themes.list_drafts(tmp_path / "registry")
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{turn['id']}/revert")
+        assert r.status_code == 200, r.text
+        assert r.json()["turn"]["state"] == "reverted" and r.json()["reverted"] == [turn["id"]]
+        assert themes.list_drafts(tmp_path / "registry") == []
+        assert not (tmp_path / "registry" / dsid).exists()  # データセットも片づく
+        assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None
+
+
+def test_undoing_a_paper_puts_back_the_draft_it_was_added_to(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        root = tmp_path / "registry"
+        at = "2026-11-04T00:00:00+00:00"
+        made = themes.create_draft(root, "熱", ["熱を下げるものは？"], at=at)
+        row = {"key": "h1", "label_ja": "比熱", "label_en": "", "aliases": [],
+               "kind": "property", "use": "new", "slug": "", "reason": "", "match": None,
+               "by": "human"}  # fmt: skip
+        before = themes.save_draft(root, {**made, "step": 2, "concepts": [row]})
+        session = chat_sessions.load_session(root, sid)
+        session["draft_id"] = before["id"]
+        chat_sessions.save_session(root, session)
+        turn = _paper(client, sid)
+        mid = themes.load_draft(root, before["id"])
+        assert len(mid["concepts"]) == 1 + 4 and turn["paper"]["created"] is False
+        assert turn["before"]["concepts"] == before["concepts"]  # 当てる前の下書きを控える
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{turn['id']}/revert")
+        assert r.status_code == 200, r.text
+        after = themes.load_draft(root, before["id"])
+        assert [c["label_ja"] for c in after["concepts"]] == ["比熱"]
+        assert after["relations"] == [] and after["questions"] == before["questions"]
+        assert chat_sessions.load_session(root, sid)["draft_id"] == before["id"]
+
+
+def test_without_an_ai_the_paper_is_attached_as_in_12a(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)  # AI 未設定
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid, headers=None)
+        assert turn["state"] == "proposed" and "paper" not in turn
+        assert turn["reply"]["ops"] == [] and "提案しました" not in turn["reply"]["text"]
+        assert themes.list_drafts(tmp_path / "registry") == []
+
+
+def test_an_ai_that_fails_leaves_the_paper_with_a_note(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _PaperLLM({}, fail=True))
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        assert turn["state"] == "proposed" and "paper" not in turn
+        assert turn["reply"]["ops"] == []
+        texts = [n["text"] for n in turn["reply"]["notes"]]
+        assert "論文からの提案を作れませんでした（論文は添えました）" in texts
+        assert themes.list_drafts(tmp_path / "registry") == []
+
+
+def test_a_proposal_without_a_question_cannot_be_confirmed_but_the_paper_is_published(
+    tmp_path: Path,
+) -> None:
+    """答え方の決まった問いが 1 つも無いと ``commit_theme`` は断る（承認の規則）。論文は公開のまま、
+    注記を付けて手番は提案のまま — 問いを足してもう一度 ✓ できる。"""
+    seen: list[dict] = []
+
+    async def spy(*a: Any, **kw: Any) -> list[dict]:
+        seen.append(kw)
+        return []
+
+    class _NoAsk(_TwoStep):
+        def __init__(self) -> None:
+            super().__init__(ask=False)
+
+    app, _ = _app(tmp_path, _NoAsk())
+    real = chat_attach.suggest_questions
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        assert not [o for o in turn["reply"]["ops"] if o["op"] == "add_question"]
+        chat_attach.suggest_questions = spy  # type: ignore[assignment]
+        try:
+            r = _confirm(client, sid, turn["id"])
+        finally:
+            chat_attach.suggest_questions = real  # type: ignore[assignment]
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["turn"]["state"] == "proposed" and body["commit"] is None
+        kinds = [n["kind"] for n in body["turn"]["reply"]["notes"]]
+        assert kinds.count("commit_error") == 2  # 断られた理由＋「論文は公開しました」
+        assert not seen
+        dsid = turn["attachment"]["dataset_id"]
+        meta = json.loads((tmp_path / "registry" / dsid / "meta.json").read_text())
+        assert meta["promoted"] is True
+
+
+def test_an_unlinked_term_is_shown_before_approval(tmp_path: Path) -> None:
+    class _Orphan(_TwoStep):
+        def complete(self, system: str, user: str) -> str:
+            if self.numbers is None:
+                self.numbers = _numbers(user)
+            out = _answer(self.numbers)
+            out["ops"].append(_add_concept("n9", "孤立した語", "orphan term", "property"))
+            return json.dumps(out, ensure_ascii=False)
+
+    app, _ = _app(tmp_path, _Orphan())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        texts = [n["text"] for n in turn["reply"]["notes"]]
+        assert any("問いにつながらない用語があります" in t and "孤立した語" in t for t in texts)
+
+
+def test_a_later_text_confirmation_does_not_confirm_an_unpublished_paper(tmp_path: Path) -> None:
+    """文の手番の ✓ は下書き全部を確認済みにするが、公開していない論文の手番は触らない。"""
+    app, _ = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        root = tmp_path / "registry"
+        dsid = turn["attachment"]["dataset_id"]
+        # 手で足した手番（文の手番の提案）— その ✓ で下書き全部を確認する
+        hand = [
+            {"op": "add_concept", "key": "h1", "label_ja": "粒界散乱", "label_en": "",
+             "aliases": [], "kind": "class", "use": "new", "reason": ""},
+            {"op": "add_relation", "from": "h1", "rel": "lowers", "to": "n2", "reason": ""},
+        ]  # fmt: skip
+        r = client.post(f"/api/chat/sessions/{sid}/turns", json={"ops": hand})
+        assert r.status_code == 201, r.text
+        mine = r.json()["turn"]
+        r = _confirm(client, sid, mine["id"])
+        assert r.status_code == 200, r.text
+        assert r.json()["turn"]["state"] == "confirmed"
+        again = _turn(client, sid, turn["id"])
+        assert again["state"] == "proposed"  # 論文はまだ公開していない
+        assert not json.loads((root / dsid / "meta.json").read_text()).get("promoted")
+        # 論文の ✓ — 下書きはもう確認済みなので、公開だけ
+        r = _confirm(client, sid, turn["id"])
+        assert r.status_code == 200, r.text
+        assert r.json()["turn"]["state"] == "confirmed"
+        assert json.loads((root / dsid / "meta.json").read_text())["promoted"] is True
+
+
+def test_the_one_row_approval_works_on_a_paper_turn_s_draft(tmp_path: Path) -> None:
+    """関係のタブの 1 行の承認（11o）は、論文の手番が下書きに入れた行にもそのまま効く。"""
+
+    class _Seq(_TwoStep):
+        """1 回目 = いつもの答え・2 回目 = 別の 2 語と 1 本の関係。"""
+
+        def complete(self, system: str, user: str) -> str:
+            if self.users:
+                self.users.append(user)
+                rows = {
+                    m[1]: m[2]
+                    for m in (re.match(r"- (s\d+) \| (.*)", x) for x in user.splitlines())
+                    if m
+                }
+                num = next(k for k, v in rows.items() if "the specific heat capacity" in v)
+                known = re.search(r"^- (\S+) \| 熱伝導率 \|", user, re.M)
+                assert known, user  # 1 回目で承認した用語が、種として図に載っている
+                return json.dumps({"reply": "", "ops": [
+                    _add_concept("n1", "比熱", "specific heat capacity", "property"),
+                    {"op": "add_relation", "from": "n1", "rel": "affects", "to": known[1],
+                     "evidence": [num], "reason": "式に出る"},
+                ]}, ensure_ascii=False)  # fmt: skip
+            return super().complete(system, user)
+
+    app, ds = _app(tmp_path, _Seq())
+    root = tmp_path / "registry"
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        first = _paper(client, sid)
+        assert _confirm(client, sid, first["id"]).status_code == 200  # テーマが置かれる
+        second = _paper(client, sid)
+        assert second["paper"]["created"] is True and second["state"] == "proposed"
+        session = chat_sessions.load_session(root, sid)
+        draft = themes.load_draft(root, session["draft_id"])
+        rel = next(r for r in draft["relations"] if r.get("evidence"))
+        r = _confirm(
+            client, sid, second["id"],
+            only={"relations": [{"from": rel["from"], "rel": rel["rel"], "to": rel["to"]}],
+                  "concepts": []},
+        )  # fmt: skip
+        assert r.status_code == 200, r.text
+        assert r.json()["turn"]["state"] == "proposed"  # 1 行だけ。論文はまだ公開しない
+        notes = [n for n in r.json()["turn"]["reply"]["notes"] if n["kind"] == "commit_error"]
+        assert not notes, notes
+        rows = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(rows) == 4 and all("/sent/" in e for x in rows for e in x["evidence"])
+
+
+# ---- 小道具 -------------------------------------------------------------------------------------
+
+
+class _Wrap:
+    """``list_alignments`` に渡す、テストの Dataset を包んだ client。"""
+
+    def __new__(cls, ds: rdflib.Dataset) -> Any:
+        from tests.test_crosswalk_api import _DatasetClient
+
+        return _DatasetClient(ds)
+
+
+def _run(coro: Any) -> Any:
+    import asyncio
+
+    return asyncio.run(coro)

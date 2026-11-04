@@ -1261,6 +1261,8 @@ class _Line:
     relation: str  # a key of ALIGN_RELATIONS
     reason: str | None = None
     ai: bool = False
+    #: 根拠の文の IRI（12b・論文の ``doco:Sentence``）。来歴ノードに ``prov:wasDerivedFrom`` で残す
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass
@@ -1284,6 +1286,21 @@ class _Plan:
 
 def _display_label(row_label_ja: str, row_label_en: str, lang: str) -> str:
     return (row_label_en or row_label_ja) if lang.startswith("en") else row_label_ja
+
+
+_EVIDENCE_IRI = re.compile(r'^https?://[^\s<>"{}|\\^`]+$')
+_EVIDENCE_MAX = 3  # 1 本の線に残す根拠の文の数（AI の evidence の上限と同じ）
+
+
+def _evidence_iris(raw: Any) -> tuple[str, ...]:
+    """下書きの関係の ``evidence``（``[{iri, text, path}]``）→ 来歴に残す文の IRI（上限つき・
+    絶対 IRI だけ・重複なし）。無い・形が違うものは空（論文以外の提案はこれまでどおり）。"""
+    out: list[str] = []
+    for e in raw if isinstance(raw, list) else []:
+        iri = e.get("iri") if isinstance(e, dict) else e
+        if isinstance(iri, str) and iri not in out and _EVIDENCE_IRI.match(iri):
+            out.append(iri)
+    return tuple(out[:_EVIDENCE_MAX])
 
 
 def _line_reason(text: Any) -> str | None:
@@ -1462,12 +1479,18 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
     seen_lines: set[tuple[str, str, str]] = set()
 
     def add_line(
-        source: str, target: str, relation: str, *, reason: str | None = None, ai: bool = False
+        source: str,
+        target: str,
+        relation: str,
+        *,
+        reason: str | None = None,
+        ai: bool = False,
+        evidence: tuple[str, ...] = (),
     ) -> None:
         t = (source, relation, target)
         if t not in seen_lines:
             seen_lines.add(t)
-            lines.append(_Line(source, target, relation, reason, ai))
+            lines.append(_Line(source, target, relation, reason, ai, evidence))
 
     for row in rows:  # the machine's own "same as the standard" lines
         if row.std is not None:
@@ -1517,6 +1540,7 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             relation_predicate(rel, subj.kind),
             reason=_line_reason(raw.get("reason")),
             ai=ai_drafted and raw.get("by") == "ai",
+            evidence=_evidence_iris(raw.get("evidence")),
         )
 
     # shapes: the store's declarations for the ends that already exist; the rows this commit
@@ -1863,6 +1887,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
                 drafted_by="ai" if ln.ai else "human",
                 batch=plan.batch,
                 reason=ln.reason,
+                evidence=list(ln.evidence) or None,
             )
             added_lines.append(ln)
             owned.append(_line_record(ln))

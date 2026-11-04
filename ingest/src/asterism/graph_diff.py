@@ -341,6 +341,8 @@ class _Applier:
                 "reason": op.get("reason") or "",
                 "problem": None,
                 "by": self.by,
+                # 論文の根拠の文（12b・機械がストアから引いた {iri, text, path}）。無ければ足さない
+                **({"evidence": list(op["evidence"])} if op.get("evidence") else {}),
             }
         )
         self.applied += 1

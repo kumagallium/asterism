@@ -857,6 +857,8 @@ def _draft_ops(draft: dict) -> list[dict]:
                     "rel": r.get("rel"),
                     "to": r.get("to"),
                     "reason": r.get("reason") or "",
+                    # 論文の根拠の文（12b）。無い関係には足さない
+                    **({"evidence": r["evidence"]} if r.get("evidence") else {}),
                 }
             )
     for a in draft.get("answers") or []:
@@ -1429,7 +1431,7 @@ def run_undo_turn(session: dict, text: str, *, root: Any, at: str, lang: str) ->
     """「さっきのを戻して」— AI を呼ばず、最後の未確認の返事を戻す（決定論）。無ければ一言。"""
     lg = _lg(lang)
     text = text.strip()
-    proposed = [t for t in session.get("turns") or [] if _is_theme_proposal(t)]
+    proposed = [t for t in session.get("turns") or [] if _is_text_proposal(t)]
     if proposed:
         try:
             revert(session, proposed[-1]["id"], root=root, at=at, lang=lang)
@@ -1886,6 +1888,8 @@ def commit_body(draft: dict, lang: str) -> dict:
                 "to": r.get("to"),
                 "reason": r.get("reason") or "",
                 "by": r.get("by") or "human",
+                # 論文の根拠の文（12b）— commit_theme が来歴の prov:wasDerivedFrom にする
+                **({"evidence": r["evidence"]} if r.get("evidence") else {}),
             }
             for r in relations
         ],
@@ -1904,13 +1908,19 @@ def commit_body(draft: dict, lang: str) -> dict:
 
 def _is_theme_proposal(turn: dict) -> bool:
     """テーマの下書きに属する未確認の返事か。📎 の表の返事・機械の「結べそうな関係」の手番は別の道
-    （``chat_attach``）で ✓／戻すので、テーマの ✓ や「戻して」の数に入れない。"""
+    （``chat_attach``）で ✓／戻すので、テーマの ✓ や「戻して」の数に入れない。**論文の手番で
+    下書きに提案を入れたもの**（12b・``turn["paper"]``）は下書きの持ち主なので入れる（1 行の承認が
+    効く）。ただし ✓ の「最後の提案」・「戻して」の数え方では :func:`_is_text_proposal` を使う。"""
     return (
         turn.get("state") == "proposed"
-        and not turn.get("attachment")
-        and not turn.get("attach_run")
+        and (bool(turn.get("paper")) or (not turn.get("attachment") and not turn.get("attach_run")))
         and not (turn.get("reply") or {}).get("suggestions")
     )
+
+
+def _is_text_proposal(turn: dict) -> bool:
+    """:func:`_is_theme_proposal` のうち、論文の手番ではないもの（文の手番の提案）。"""
+    return _is_theme_proposal(turn) and not turn.get("paper")
 
 
 def _theme_by_id(root: Any, theme_id: Any) -> dict | None:
@@ -2075,19 +2085,23 @@ async def confirm(
     lang: str,
     root: Any,
     at: str,
+    paper_turn: dict | None = None,
 ) -> tuple[dict, dict | None]:
     """✓ — その時点の下書き全部を確認済みにする。返り = ``(手番, commit | None)``。
 
     ``ThemeError``（検査で断られた）は例外にせず、手番の ``notes`` に ``commit_error`` を足して
-    ``commit = None`` で返す（会話の中で読める）。書き込みの失敗は例外のまま上へ。"""
-    turn = _find(session, turn_id)
+    ``commit = None`` で返す（会話の中で読める）。書き込みの失敗は例外のまま上へ。
+
+    ``paper_turn``（12b）= 論文の手番の ✓（公開のあと）。その手番を ``turn`` として、下書きの
+    確認だけを同じ手順でやる（手番の種類と「最後の提案」の確認は呼び手がした）。"""
+    turn = paper_turn if paper_turn is not None else _find(session, turn_id)
     draft = _current_draft(session, root)
-    if not _is_theme_proposal(turn) or draft is None:
+    if draft is None or (paper_turn is None and not _is_theme_proposal(turn)):
         raise TurnRefused(
             409, "承認するものがありません" if _lg(lang) == "ja" else "Nothing to approve."
         )
-    last = [t for t in session["turns"] if _is_theme_proposal(t)][-1]
-    if last is not turn:
+    last = [t for t in session["turns"] if _is_text_proposal(t)][-1:]
+    if paper_turn is None and (not last or last[0] is not turn):
         raise TurnRefused(
             409,
             "最後の提案を承認してください"
@@ -2151,10 +2165,11 @@ async def confirm(
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
     for t in session["turns"]:
-        if _is_theme_proposal(t):
-            t["state"] = "confirmed"
+        paper = t.get("paper") or {}
+        if _is_theme_proposal(t) and not (paper and not paper.get("promoted")):
+            t["state"] = "confirmed"  # 公開していない論文の手番は、その手番の ✓ で公開する
             t["before"] = None
-            t["commit"] = dict(record)
+            t["commit"] = {**(paper.get("commit") or {}), **record}
     return turn, record
 
 
@@ -2169,6 +2184,14 @@ def revert(
     turns = session["turns"]
     start = turns.index(turn)
     undone = [t for t in turns[start:] if _is_theme_proposal(t)]
+    if any(t.get("paper") for t in undone if t is not turn):
+        # あとに添えた論文は取り込んだデータが残る — 先にその論文の手番を取り消す（12b）
+        raise TurnRefused(
+            409,
+            "あとに添えた論文を先に取り消してください"
+            if _lg(lang) == "ja"
+            else "Please undo the paper attached later first.",
+        )
     before = turn.get("before")
     # 確認で消えた下書きを、控えから作り直してはいけない
     owner = before.get("id") if before is not None else session.get("draft_id")
@@ -2226,6 +2249,22 @@ def revert(
         t["state"] = "reverted"
         t["before"] = None
     return turn, [t["id"] for t in undone]
+
+
+def revert_paper(
+    session: dict, turn: dict, *, root: Any, at: str, lang: str = "ja"
+) -> list[str]:
+    """未承認の論文の手番（12b）が下書きに入れた差分を戻す → 取り消した手番の id。取り込んだ
+    データセットの片づけは呼び手。下書きがもう無い（別の ✓ で確認済み）ときは、手番を閉じるだけ。
+    あとに添えた論文があれば 409（:func:`revert`）。"""
+    paper = turn.get("paper") or {}
+    owner = paper.get("draft_id")
+    if not owner or session.get("draft_id") != owner or themes.load_draft(root, owner) is None:
+        turn["state"] = "reverted"
+        turn["before"] = None
+        return [turn["id"]]
+    _, undone = revert(session, turn["id"], root=root, at=at, lang=lang)
+    return undone
 
 
 # ---- 「見せて」の表・Ask（11d） ----------------------------------------------------------------

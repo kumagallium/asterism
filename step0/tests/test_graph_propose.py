@@ -403,3 +403,84 @@ def test_a_question_sentence_only_refuses_iri_and_code_symbols() -> None:
     out = validate_graph_diff({"reply": "", "ops": [q]}, known_keys=KEYS)
     assert out["ops"][0]["question"] == "Where is the cheapest shop?"
     _bad({**q, "question": "see http://example.org/x"})
+
+
+# ---- 12b: 論文の画面（screen="paper"・根拠の文の番号） -----------------------------------------
+
+_PAPER_REL = {"op": "add_relation", "from": "c3", "rel": "lowers", "to": "c1",
+              "evidence": ["s12", "s13"], "reason": "本文にある"}  # fmt: skip
+_SENTENCES = [{"id": "s12", "text": "Grain boundary scattering lowers thermal conductivity."},
+              {"id": "s13", "text": "It is strong in thin films."}]  # fmt: skip
+
+
+def test_paper_relation_needs_evidence_numbers_only() -> None:
+    out = validate_graph_diff({"reply": "", "ops": [_PAPER_REL]}, known_keys=KEYS, screen="paper")
+    assert out["ops"][0]["evidence"] == ["s12", "s13"]
+    for bad in (
+        None,  # 必須
+        [],
+        ["s1", "s2", "s3", "s4"],  # 3 個まで
+        ["Grain boundary scattering lowers thermal conductivity."],  # 引用文は拒む
+        ["https://example.org/sent/1"],  # IRI は拒む
+        ["12"],  # 番号の形ではない
+    ):
+        with pytest.raises(GraphDiffError):
+            validate_graph_diff(
+                {"reply": "", "ops": [{**_PAPER_REL, "evidence": bad}]},
+                known_keys=KEYS, screen="paper",
+            )  # fmt: skip
+
+
+def test_other_screens_drop_evidence_instead_of_refusing_it() -> None:
+    for screen in (None, "theme", "home"):
+        out = validate_graph_diff({"reply": "", "ops": [_PAPER_REL]}, known_keys=KEYS,
+                                  screen=screen)  # fmt: skip
+        assert "evidence" not in out["ops"][0]
+
+
+def test_paper_screen_takes_only_the_three_additive_operations() -> None:
+    concept = {"op": "add_concept", "key": "n1", "label_ja": "薄膜", "label_en": "thin film",
+               "aliases": [], "kind": "class", "use": "new", "reason": ""}  # fmt: skip
+    question = {"op": "add_question", "question": "何が熱伝導率を下げる？", "mode": "knowledge",
+                "op_kind": "factors", "target": "c1", "direction": "lowers",
+                "reason": ""}  # fmt: skip
+    gone = {"op": "remove", "target": "concept", "key": "c2", "reason": ""}
+    rename = {"op": "rename", "key": "c2", "label_ja": "格子", "label_en": "", "aliases": [],
+              "reason": ""}  # fmt: skip
+    ops = [concept, _PAPER_REL, question, gone, rename]
+    assert [o["op"] for o in filter_ops_for_screen(ops, "paper")] == [
+        "add_concept", "add_relation", "add_question",
+    ]
+    enum = graph_diff_json_schema(screen="paper")["properties"]["ops"]["items"]["properties"]
+    assert enum["op"]["enum"] == ["add_concept", "add_relation", "add_question"]
+    assert enum["evidence"]["items"]["pattern"] == "^s[0-9]{1,4}$"
+    # 他の画面のスキーマは変わらない（evidence を持たない）
+    assert "evidence" not in graph_diff_json_schema()["properties"]["ops"]["items"]["properties"]
+
+
+def test_paper_propose_sends_the_numbered_sentences_and_returns_evidence() -> None:
+    answer = {"reply": "", "ops": [
+        _PAPER_REL,
+        {"op": "remove", "target": "concept", "key": "c2", "reason": ""},
+    ]}  # fmt: skip
+    llm = _LLM(json.dumps(answer))
+    out = _propose(llm, screen="paper", sentences=_SENTENCES, message="read")
+    system, user = llm.calls[0]
+    assert "# Sentences of the paper" in user
+    assert "s12 | Grain boundary scattering lowers thermal conductivity." in user
+    assert "evidence" in system  # 論文の画面の注意書き
+    assert [o["op"] for o in out["ops"]] == ["add_relation"]
+    assert out["ops"][0]["evidence"] == ["s12", "s13"]
+    # 他の画面の prompt には文の節も evidence の説明も無い
+    plain = _LLM(json.dumps(RETARGET))
+    _propose(plain, sentences=_SENTENCES)
+    assert "Sentences of the paper" not in plain.calls[0][1]
+    assert "evidence" not in plain.calls[0][0]
+
+
+def test_paper_propose_retries_when_evidence_is_missing() -> None:
+    no_ev = {"reply": "", "ops": [{k: v for k, v in _PAPER_REL.items() if k != "evidence"}]}
+    llm = _LLM(json.dumps(no_ev), json.dumps({"reply": "", "ops": [_PAPER_REL]}))
+    out = _propose(llm, screen="paper", sentences=_SENTENCES, message="read")
+    assert len(llm.calls) == 2 and "evidence" in llm.calls[1][1]  # 理由を名指しして聞き直す
+    assert out["ops"][0]["evidence"] == ["s12", "s13"]

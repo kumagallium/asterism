@@ -1631,3 +1631,54 @@ def test_match_rows_placeholder_ids_do_not_repeat_across_batches() -> None:
     )
     assert second[0]["slug"] != first[0]["slug"]
     assert second[0]["slug"] == "t2"
+
+
+# ---------------------------------------------------------------------------
+# 12b: 論文の根拠の文 — 関係の来歴に prov:wasDerivedFrom
+# ---------------------------------------------------------------------------
+
+_SENT = "https://example.org/paper/p1/sec/s1/para/0/sent/"
+
+
+async def test_a_relation_with_evidence_keeps_the_sentence_iris_in_its_provenance(
+    tmp_path: Path,
+) -> None:
+    c = _Client()
+    ev = [
+        {"iri": _SENT + "0", "text": "A is a kind of B.", "path": "intro"},
+        {"iri": _SENT + "1", "text": "More.", "path": None},
+        {"iri": _SENT + "0", "text": "dup", "path": None},  # 同じ文は 1 つに
+        {"iri": "not an iri", "text": "x", "path": None},  # IRI でないものは捨てる
+    ]
+    body = _cell()
+    body["relations"] = [{"from": "t1", "rel": "sub", "to": "t3", "reason": "", "evidence": ev}]
+    await themes.commit_theme(c, tmp_path, body, at=AT)
+    rows = await list_alignments(c)
+    assert [r["evidence"] for r in rows] == [[_SENT + "0", _SENT + "1"]]
+    prov = "http://www.w3.org/ns/prov#wasDerivedFrom"
+    derived = {o for s, p, o in c.triples(ALIGNMENT_GRAPH) if p == prov}
+    assert derived == {_SENT + "0", _SENT + "1"}
+
+
+async def test_a_relation_without_evidence_commits_as_before(tmp_path: Path) -> None:
+    c = _Client()
+    await themes.commit_theme(c, tmp_path, _cell(), at=AT)
+    assert [r["evidence"] for r in await list_alignments(c)] == [[]]
+    assert not [1 for _, p, _ in c.triples(ALIGNMENT_GRAPH) if p.endswith("wasDerivedFrom")]
+
+
+async def test_an_existing_line_keeps_its_provenance_and_gets_no_new_evidence(
+    tmp_path: Path,
+) -> None:
+    c = _Client()
+    await themes.commit_theme(c, tmp_path, _cell(), at=AT)  # 根拠の無い線が先にある
+    again = _cell()
+    again["concepts"] = [
+        {**x, "use": f"existing:{x['slug']}", "slug": ""} for x in again["concepts"]
+    ]
+    again["relations"] = [
+        {"from": "t1", "rel": "sub", "to": "t3", "reason": "",
+         "evidence": [{"iri": _SENT + "9", "text": "x", "path": None}]},
+    ]  # fmt: skip
+    await themes.commit_theme(c, tmp_path, again, at=AT)
+    assert [r["evidence"] for r in await list_alignments(c)] == [[]]
