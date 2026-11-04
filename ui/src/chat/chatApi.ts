@@ -95,11 +95,17 @@ export interface Suggestion {
   relation: string
 }
 export interface Attachment {
+  /** 無いものは表（古い手番の互換）。 */
+  kind?: 'table' | 'document'
   dataset_id: string
   name: string
   rows: number
   kinds: { iri: string; label: string; count: number }[]
   id_column: string
+  /** 論文のとき: 節・段落・文の数。 */
+  sections?: number
+  paragraphs?: number
+  sentences?: number
 }
 
 export type TurnState = 'none' | 'running' | 'proposed' | 'confirmed' | 'reverted'
@@ -260,7 +266,11 @@ function binding(o: Record<string, unknown>): Binding {
 
 function attachmentOf(v: unknown): Attachment | null {
   if (!isObj(v)) return null
+  const count = (x: unknown) => (typeof x === 'number' ? x : 0)
+  const paper = v.kind === 'document'
   return {
+    kind: paper ? 'document' : 'table',
+    ...(paper ? { sections: count(v.sections), paragraphs: count(v.paragraphs), sentences: count(v.sentences) } : {}),
     dataset_id: str(v.dataset_id),
     name: str(v.name),
     rows: typeof v.rows === 'number' ? v.rows : 0,

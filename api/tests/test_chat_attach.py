@@ -5,7 +5,7 @@
 ingest（Morph-KGC）→ promote が通る。確かめること: 添えた表が 1 枚の返事になる（行数・1 行＝・
 ID・列の意味・結ぶ列）／ID の候補が 2 つ以上なら止まって選ぶと続く／✓ ＝ 公開（``upper.json`` に
 machine の線・promote・機械の手番・戻す）／``GET /api/sky`` の ``proposed_datasets``（鍵つきだけ）／
-AI 未設定は 503／文書は ``unsupported``／走者が LLM を直接呼ばない（system prompt はかんたんの
+AI 未設定は 503／形式の外は ``unsupported``／走者が LLM を直接呼ばない（system prompt はかんたんの
 既存のものだけ）。
 """
 
@@ -32,6 +32,7 @@ _MEANINGS = "what each COLUMN of a data file MEANS"
 _REFINE = "same RDF / OWL / SPARQL ontology engineer"
 _QUESTIONS = "questions"
 
+JATS = (Path(__file__).resolve().parents[2] / "datasets/papers/jats/PMC5951533.xml").read_bytes()
 PRICES = "食材,価格,店\nトマト,120,A\nきゅうり,80,B\nなす,100,C\n".encode()
 TWO_NUMBERS = "id,code,価格\nA1,x1,120\nA2,x2,80\nA3,x3,100\n".encode()
 
@@ -356,14 +357,14 @@ def test_attach_without_an_ai_is_503_and_the_chat_is_untouched(tmp_path: Path) -
         assert client.get(f"/api/chat/sessions/{sid}").json()["turns"] == []
 
 
-def test_a_document_is_unsupported_without_running_anything(tmp_path: Path) -> None:
+def test_an_unknown_format_is_unsupported_without_running_anything(tmp_path: Path) -> None:
     llm = _Stub()
     app, _ = _app(tmp_path, llm)
     with TestClient(app, headers=_AUTH) as client:
         sid = _new(client)
         r = client.post(
             f"/api/chat/sessions/{sid}/attach",
-            files=[("files", ("論文.pdf", b"%PDF-1.4", "application/pdf"))],
+            files=[("files", ("メモ.txt", b"hello", "text/plain"))],
             headers=KEY,
         )
         assert r.status_code == 201, r.text
@@ -371,9 +372,127 @@ def test_a_document_is_unsupported_without_running_anything(tmp_path: Path) -> N
         assert turn["state"] == "none" and r.json()["job_id"] is None
         (note,) = turn["reply"]["notes"]
         assert note["kind"] == "unsupported"
-        assert note["text"] == "文書はまだ添えられません（表を添えてください）"
-        assert turn["user"]["attachments"][0]["name"] == "論文.pdf"
+        assert note["text"] == (
+            "この形式は添えられません（表は CSV・Excel・JSON、論文は PDF・Word・JATS XML）"
+        )
+        assert turn["user"]["attachments"][0]["name"] == "メモ.txt"
         assert llm.calls == []
+
+
+def _attach_many(client: TestClient, sid: str, files: list[tuple[str, bytes]], headers=KEY):
+    return client.post(
+        f"/api/chat/sessions/{sid}/attach",
+        files=[("files", (n, d, "application/octet-stream")) for n, d in files],
+        data={"lang": "ja"},
+        headers=headers,
+    )
+
+
+def _run_paper(client: TestClient, sid: str) -> dict:
+    r = _attach_many(client, sid, [("論文.xml", JATS)], headers={})  # AI のヘッダ無し
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["turn"]["state"] == "running" and body["job_id"]
+    _drain(client, body["job_id"])
+    return _turn(client, sid, body["turn"]["id"])
+
+
+def test_an_attached_paper_becomes_one_reply_without_an_ai(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)  # llm_factory なし = AI 未設定
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _run_paper(client, sid)
+        assert turn["state"] == "proposed"
+        att = turn["attachment"]
+        assert att["kind"] == "document" and att["name"] == "論文"
+        assert att["sections"] > 0 and att["paragraphs"] > 0 and att["sentences"] > 0
+        assert f"節 {att['sections']}・文 {att['sentences']}" in turn["reply"]["text"]
+        assert turn["reply"]["bindings"] == []
+
+
+def test_confirming_a_paper_only_promotes_and_asks_for_paper_questions(tmp_path: Path) -> None:
+    """承認 ＝ promote だけ（結ぶ列・公開する名前・値の一致の関係は無い）。問いは ``paper``。"""
+    seen: list[dict] = []
+    real = chat_attach.suggest_questions
+
+    async def spy(*a: Any, **kw: Any):
+        seen.append(kw)
+        return []
+
+    app, ds = _app(tmp_path)
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _run_paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        chat_attach.suggest_questions = spy  # type: ignore[assignment]
+        try:
+            r = client.post(
+                f"/api/chat/sessions/{sid}/turns/{turn['id']}/confirm", json={}, headers=KEY
+            )
+        finally:
+            chat_attach.suggest_questions = real  # type: ignore[assignment]
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["turn"]["state"] == "confirmed" and body["followup"] is None
+        root = tmp_path / "registry"
+        assert json.loads((root / dsid / "meta.json").read_text())["promoted"] is True
+        upper = root / dsid / "upper.json"  # 結ぶ列の線は書かない
+        assert "machine" not in (upper.read_text() if upper.exists() else "")
+        assert seen and seen[0]["screen"] == "paper"
+        # 公開のあと、文が store に載っている（回答の引用元になる）
+        sentence = rdflib.URIRef("http://purl.org/spar/doco/Sentence")
+        assert any(True for _ in ds.quads((None, rdflib.RDF.type, sentence, None)))
+
+
+def test_tables_and_papers_do_not_mix(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        r = _attach_many(client, sid, [("価格表.csv", PRICES), ("論文.xml", JATS)])
+        turn = r.json()["turn"]
+        assert turn["state"] == "none" and r.json()["job_id"] is None
+        assert turn["reply"]["notes"][0]["kind"] == "mixed"
+        assert turn["reply"]["notes"][0]["text"] == "表と論文は別々に添えてください"
+
+
+def test_a_pdf_without_the_converter_is_told_before_anything_is_made(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())  # docling_url なし
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        root = tmp_path / "registry"
+        r = _attach_many(client, sid, [("論文.pdf", b"%PDF-1.4")])
+        turn = r.json()["turn"]
+        assert turn["state"] == "none" and r.json()["job_id"] is None
+        (note,) = turn["reply"]["notes"]
+        assert note["kind"] == "pdf_unavailable"
+        assert "管理者" in note["text"]  # サーバ版（app_version なし）の文
+        assert not list(root.glob("*/meta.json"))  # データセットは作られない
+
+
+def test_a_paper_with_no_sentences_leaves_nothing_behind(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)
+    empty = b"<?xml version='1.0'?><article><front/><body/></article>"
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        r = _attach_many(client, sid, [("空.xml", empty)], headers={})
+        assert r.status_code == 201, r.text
+        _drain(client, r.json()["job_id"])
+        turn = _turn(client, sid, r.json()["turn"]["id"])
+        assert turn["state"] == "none" and turn.get("attachment") is None
+        (note,) = turn["reply"]["notes"]
+        assert note["kind"] in ("document_empty", "attach_failed")
+        root = tmp_path / "registry"
+        assert not [p for p in root.glob("*/meta.json")]
+
+
+def test_document_exts_match_the_ingest_engine() -> None:
+    from asterism_api.main import _DOCUMENT_SOURCE_SUFFIXES
+
+    assert set(chat_attach.DOCUMENT_EXTS) == set(_DOCUMENT_SOURCE_SUFFIXES)
+    assert chat_attach.kind_of(["a.csv", "b.xlsx"]) == "table"
+    assert chat_attach.kind_of(["a.PDF", "b.docx"]) == "document"
+    assert chat_attach.kind_of(["a.csv", "b.pdf"]) is None
+    assert chat_attach.kind_of(["a.txt"]) is None
 
 
 def test_attach_needs_the_token_and_a_file(tmp_path: Path) -> None:

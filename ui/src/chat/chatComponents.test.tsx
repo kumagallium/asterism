@@ -138,7 +138,7 @@ describe('表を添える（クリップ）', () => {
     const html = renderToStaticMarkup(<Composer onSend={async () => true} onAttach={noop} busy={false} noKey={false} onOpenSettings={noop} />)
     expect(html).toContain('data-testid="chat-attach"')
     expect(html).toMatch(/type="file"[^>]*multiple|multiple[^>]*type="file"/)
-    expect(html).toContain('accept=".csv,.tsv,.xlsx,.xls,.json"')
+    expect(html).toContain('accept=".csv,.tsv,.xlsx,.xls,.json,.pdf,.docx,.xml"')
     expect(text(html)).not.toContain('📎')
     expect(html).toContain('<svg')
     expect(html).toContain('data-testid="chat-send"')
@@ -194,6 +194,14 @@ describe('表を添える（クリップ）', () => {
     const pub = card(turn({ attachment: { dataset_id: 'd', name: 'a.csv', rows: 1, kinds: [], id_column: 'id' } }))
     expect(text(pub)).toContain('公開')
     expect(text(pub)).not.toContain('件')
+  })
+  it('論文の見出しは「名前・節 n・文 m」・関係の候補の欄は出ない', () => {
+    const at = { kind: 'document' as const, dataset_id: 'd', name: '論文', rows: 0, kinds: [], id_column: '', sections: 5, paragraphs: 20, sentences: 80 }
+    const html = card(turn({ attachment: at, reply: reply({ text: '読み込みました' }) }))
+    expect(text(html)).toContain('論文・節 5・文 80')
+    expect(text(html)).not.toContain('行')
+    expect(html).not.toContain('data-testid="reply-bindings"')
+    expect(text(html)).toContain('公開')
   })
   it('機械の手番は suggestions を 1 行ずつ・新しい kind も描ける', () => {
     const html = card(turn({ by: 'machine', user: null, reply: reply({ text: '', suggestions: [{ subject: '価格', term: '値段', relation: 'eq' }] }) }))
@@ -557,7 +565,7 @@ describe('取り込み元の切り替え', () => {
     const empty = renderToStaticMarkup(
       <SourcePickerView server="drive" state={{ phase: 'ready', items: [] }} selected={[]} busy={false} onToggle={noop} onAttach={noop} onClose={noop} />,
     )
-    expect(empty).toContain('表のファイルがありません')
+    expect(empty).toContain('添えられるファイルがありません')
     expect(empty).toContain('disabled')
   })
 

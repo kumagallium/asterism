@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useImeEnterGuard } from './useImeEnterGuard'
 import { SourcePicker } from './SourcePicker'
+import { ATTACH_EXTS } from './sourcePickerUtil'
 import { GearIcon, PaperclipIcon, SendIcon } from '../icons'
 
 export interface ComposerProps {
@@ -139,7 +140,7 @@ export function Composer({ onSend, busy, noKey, onOpenSettings, onAttach, source
                 multiple
                 hidden
                 data-testid="chat-attach-input"
-                accept=".csv,.tsv,.xlsx,.xls,.json"
+                accept={ATTACH_EXTS.join(',')}
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? [])
                   e.target.value = ''

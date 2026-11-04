@@ -19,7 +19,7 @@
     "placeholder": "Write what you want to know (e.g. Which shop sells potatoes cheapest?)",
     "send": "Send",
     "noKey": "Settings › Server: enter the key to chat",
-    "attach": "Attach a table",
+    "attach": "Attach a file",
     "attachLocal": "File from this PC",
     "attachFrom": "File from {{server}}",
     "hint": "Enter to send · Shift+Enter for a new line"
@@ -27,7 +27,7 @@
   "sourcePicker": {
     "title": "Files in the import source",
     "loading": "Loading…",
-    "empty": "No table files",
+    "empty": "No files to attach",
     "attach": "Attach",
     "cancel": "Cancel",
     "failed": "Could not get the files from the import source",
@@ -79,7 +79,7 @@
     "decide": "Decide"
   },
   "empty": {
-    "first": "Write what you want to know, or attach a data table (CSV, Excel). Questions are answered from the data you added; what you want to know grows in the knowledge graph to the right"
+    "first": "Write what you want to know, or attach a data table (CSV, Excel) or a paper (PDF, Word). Questions are answered from the data you added; what you want to know grows in the knowledge graph to the right"
   },
   "error": {
     "badShape": "The server's reply was not in the expected shape",
@@ -93,7 +93,7 @@
       "confirm": "Approving",
       "revert": "Undoing",
       "sky": "Loading the knowledge graph",
-      "attach": "attaching a table",
+      "attach": "attaching a file",
       "point": "Loading the card",
       "contents": "Loading data",
       "sourceItems": "Loading the list of files in the import source",
@@ -107,7 +107,7 @@
     "reading": "Reading…",
     "readingWith": "Reading… ({{message}})",
     "failed": "Could not read the table",
-    "unsupported": "Documents cannot be attached yet (attach a table)",
+    "unsupported": "This format can't be attached (tables: CSV, Excel, JSON; papers: PDF, Word, JATS XML)",
     "bind": "Link",
     "skip": "Do not link",
     "decide": "Decide",
@@ -115,6 +115,7 @@
     "area": "Add data",
     "close": "Close",
     "rows": "{{n}} rows",
+    "paperCounts": "{{sections}} sections, {{sentences}} sentences",
     "bindLine": "Column \"{{column}}\" is the same as \"{{term}}\"",
     "suggestionLine": "\"{{subject}}\" is the same as \"{{term}}\""
   },

@@ -955,9 +955,10 @@ def register_chat(
                 commit["dataset_id"],
                 lang=lang,
             )
+            paper = (turn.get("attachment") or {}).get("kind") == "document"
             questions = await chat_attach.suggest_questions(
                 app, cfg, commit["dataset_id"], lang=lang, llm_headers=llm_headers,
-                token=cfg.api_token,
+                token=cfg.api_token, screen="paper" if paper else "dataset",
             )
             if questions or sent_notes:
                 async with lock:
@@ -1151,10 +1152,12 @@ def register_chat(
         llm_headers: dict[str, str],
         resume: dict | None = None,
         homes: dict[str, dict] | None = None,
+        kind: str = "table",
     ) -> str:
         jobs = app.state.jobs
+        runner = chat_attach.run_document_attach if kind == "document" else chat_attach.run_attach
         return jobs.start_coro(
-            lambda emit, _cancel: chat_attach.run_attach(
+            lambda emit, _cancel: runner(
                 app,
                 cfg,
                 session_id,
@@ -1179,6 +1182,49 @@ def register_chat(
         )
         return not _ai_unset(key, provider, api_base)
 
+    async def _refused_turn(
+        session_id: str, names: list[str], lang: str, key: str
+    ) -> JSONResponse:
+        """走者を始めない手番（形式の外・混在・PDF の部品なし）— 注記 1 つで ``state: none``。
+        ``key`` は言葉の鍵（サーバ版の PDF は ``pdf_unavailable_server`` — 注記の種類は同じ）。"""
+        async with lock:
+            session = _session_or_404(session_id)
+            turn = chat_turns._append_turn(
+                session,
+                at=_now(),
+                user={"text": "", "attachments": [{"name": n, "size": 0} for n in names]},
+                reply=chat_turns._reply(
+                    "",
+                    notes=[
+                        chat_turns.note(key.removesuffix("_server"), chat_attach.text(lang, key))
+                    ],
+                ),
+                state="none",
+                before=None,
+                by="machine",
+            )
+            saved = chat_sessions.save_session(root, session)
+        return JSONResponse(
+            {"turn": turn, "session": _head(saved), "job_id": None}, status_code=201
+        )
+
+    def _attach_gate(names: list[str], lang: str) -> tuple[str | None, str | None]:
+        """添えた名前の振り分け。返り = ``(kind, 断りの注記のキー)``。"""
+        kind = chat_attach.kind_of(names)
+        if kind is None:
+            mixed = any(chat_attach.is_table_name(n) for n in names) and any(
+                chat_attach.is_document_name(n) for n in names
+            )
+            return None, "mixed" if mixed else "unsupported"
+        if kind == "document" and any(n.lower().endswith(".pdf") for n in names):
+            from asterism_api.main import can_convert_pdf
+
+            if not can_convert_pdf(cfg):
+                # 同梱版（desktop）は設定から部品を入れられる・サーバ版は管理者の設定
+                desktop = cfg.app_version is not None
+                return kind, "pdf_unavailable" if desktop else "pdf_unavailable_server"
+        return kind, None
+
     @app.post("/api/chat/sessions/{session_id}/attach", dependencies=deps)
     async def chat_attach_files(session_id: str, request: Request) -> JSONResponse:
         """📎 — 表を添える。人の手番（``state: running``）を作り、かんたんの段を通すジョブを始める。
@@ -1193,28 +1239,10 @@ def register_chat(
             raise HTTPException(422, "表のファイルがありません")
         llm_headers = chat_attach.llm_headers_of(request.headers)
         names = [os.path.basename(str(f.filename or "")) or "data" for f in uploads]
-        if not all(chat_attach.is_table_name(n) for n in names):
-            async with lock:
-                session = _session_or_404(session_id)
-                turn = chat_turns._append_turn(
-                    session,
-                    at=_now(),
-                    user={"text": "", "attachments": [{"name": n, "size": 0} for n in names]},
-                    reply=chat_turns._reply(
-                        "",
-                        notes=[
-                            chat_turns.note("unsupported", chat_attach.text(lang, "unsupported"))
-                        ],
-                    ),
-                    state="none",
-                    before=None,
-                    by="machine",
-                )
-                saved = chat_sessions.save_session(root, session)
-            return JSONResponse(
-                {"turn": turn, "session": _head(saved), "job_id": None}, status_code=201
-            )
-        if not _ai_ready(llm_headers):
+        kind, refusal = _attach_gate(names, lang)
+        if refusal is not None:
+            return await _refused_turn(session_id, names, lang, refusal)
+        if kind == "table" and not _ai_ready(llm_headers):  # 論文は AI を使わない
             raise HTTPException(503, "AI が設定されていません")
         cap = _upload_cap()
         data: list[tuple[str, bytes]] = []
@@ -1225,7 +1253,7 @@ def register_chat(
             if cap > 0 and total > cap:
                 raise HTTPException(413, "ファイルが大きすぎます")
             data.append((name, blob))
-        return await _begin_attach(session_id, data, lang, llm_headers)
+        return await _begin_attach(session_id, data, lang, llm_headers, kind=kind or "table")
 
     def _upload_cap() -> int:
         return int(os.environ.get("ASTERISM_MAX_UPLOAD_BYTES", str(1 << 30)))
@@ -1236,6 +1264,7 @@ def register_chat(
         lang: str,
         llm_headers: dict[str, str],
         homes: dict[str, dict] | None = None,
+        kind: str = "table",
     ) -> JSONResponse:
         """📎 の共通の出口: 人の手番（running）を作り、走者を始める。bytes の出どころ
         （ブラウザ／MCP の取り込み元）はここでは区別しない。"""
@@ -1252,7 +1281,7 @@ def register_chat(
             )
             turn["attachment"] = None
             job_id = _start_attach_job(
-                session_id, turn["id"], data, lang, llm_headers, homes=homes
+                session_id, turn["id"], data, lang, llm_headers, homes=homes, kind=kind
             )
             turn["job_id"] = job_id
             saved = chat_sessions.save_session(root, session)
@@ -1280,8 +1309,6 @@ def register_chat(
             raise HTTPException(422, "一度に添えられるのは 20 件までです")
         lang = "en" if body.lang.lower().startswith("en") else "ja"
         llm_headers = chat_attach.llm_headers_of(request.headers)
-        if not _ai_ready(llm_headers):
-            raise HTTPException(503, "AI が設定されていません")
         cap = _upload_cap()
         data: list[tuple[str, bytes]] = []
         homes: dict[str, dict] = {}
@@ -1289,8 +1316,8 @@ def register_chat(
         for file_id in ids:
             got = await registry_.get_source_file(body.server, file_id)
             name = os.path.basename(got.name) or "data"
-            if not chat_attach.is_table_name(name):
-                raise HTTPException(422, f"「{name}」は表ではありません")
+            if not (chat_attach.is_table_name(name) or chat_attach.is_document_name(name)):
+                raise HTTPException(422, f"「{name}」は表でも論文でもありません")
             total += len(got.data)
             if cap > 0 and total > cap:
                 raise HTTPException(413, "ファイルが大きすぎます")
@@ -1307,7 +1334,15 @@ def register_chat(
                     n += 1
             data.append((name, got.data))
             homes[name] = {"server": body.server, "id": got.id, "name": got.name}
-        return await _begin_attach(session_id, data, lang, llm_headers, homes)
+        names = [n for n, _ in data]
+        kind, refusal = _attach_gate(names, lang)
+        if refusal is not None:
+            return await _refused_turn(session_id, names, lang, refusal)
+        if kind == "table" and not _ai_ready(llm_headers):  # 論文は AI を使わない
+            raise HTTPException(503, "AI が設定されていません")
+        return await _begin_attach(
+            session_id, data, lang, llm_headers, homes, kind=kind or "table"
+        )
 
     async def _choice_turn(
         session_id: str, body: TurnBody, llm_headers: dict[str, str]

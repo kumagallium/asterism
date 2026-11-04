@@ -19,7 +19,7 @@
     "placeholder": "知りたいことを書く（例: じゃがいもが一番安い店は？）",
     "send": "送る",
     "noKey": "設定 › サーバで鍵を入れると、チャットできます",
-    "attach": "表を添える",
+    "attach": "ファイルを添える",
     "attachLocal": "この PC のファイル",
     "attachFrom": "{{server}} のファイル",
     "hint": "Enter で送る・Shift+Enter で改行"
@@ -27,7 +27,7 @@
   "sourcePicker": {
     "title": "取り込み元のファイル",
     "loading": "読み込み中…",
-    "empty": "表のファイルがありません",
+    "empty": "添えられるファイルがありません",
     "attach": "添える",
     "cancel": "やめる",
     "failed": "取り込み元のファイルを取得できませんでした",
@@ -79,7 +79,7 @@
     "decide": "決める"
   },
   "empty": {
-    "first": "知りたいことを書くか、データの表（CSV・Excel）を添えてください。質問には入れたデータから答え、知りたいことは右の知識グラフに増えていきます"
+    "first": "知りたいことを書くか、データの表（CSV・Excel）か論文（PDF・Word）を添えてください。質問には入れたデータから答え、知りたいことは右の知識グラフに増えていきます"
   },
   "error": {
     "badShape": "サーバの返事の形が想定と違います",
@@ -93,7 +93,7 @@
       "confirm": "承認",
       "revert": "取り消しの操作",
       "sky": "知識グラフの読み込み",
-      "attach": "表を添える操作",
+      "attach": "ファイルを添える操作",
       "point": "点の読み込み",
       "contents": "データの読み込み",
       "sourceItems": "取り込み元のファイル一覧の取得",
@@ -107,7 +107,7 @@
     "reading": "読んでいます…",
     "readingWith": "読んでいます…（{{message}}）",
     "failed": "表を読めませんでした",
-    "unsupported": "文書はまだ添えられません（表を添えてください）",
+    "unsupported": "この形式は添えられません（表は CSV・Excel・JSON、論文は PDF・Word・JATS XML）",
     "bind": "結ぶ",
     "skip": "結ばない",
     "decide": "決める",
@@ -115,6 +115,7 @@
     "area": "データを添える",
     "close": "閉じる",
     "rows": "{{n}} 行",
+    "paperCounts": "節 {{sections}}・文 {{sentences}}",
     "bindLine": "列「{{column}}」は「{{term}}」と同じもの",
     "suggestionLine": "「{{subject}}」は「{{term}}」と同じもの"
   },
