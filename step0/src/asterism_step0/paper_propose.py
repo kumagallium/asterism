@@ -4,8 +4,9 @@
 書けなかった（gpt-oss-120b の実機で 6 回とも別の欄で外れた）。そこで AI の仕事を
 「名前 → 関係 → 名前＋根拠の文の番号」に絞る。AI が書くのはこれだけ::
 
-    {"relations": [{"from": "...", "from_ja": "...|null", "rel": "part|sub|lowers|raises|affects",
-                    "to": "...", "to_ja": "...|null", "evidence": ["s12"]}]}
+    {"relations": [{"from": "...", "from_ja": "...|null", "from_en": "...|null",
+                    "rel": "part|sub|lowers|raises|affects",
+                    "to": "...", "to_ja": "...|null", "to_en": "...|null", "evidence": ["s12"]}]}
 
 用語の鍵・種類・問い・理由・``use`` は書かせない（機械が組む — ``asterism_api.chat_paper``）。
 引用文も書かせない（番号だけ・機械がストアから引く）。検証は 1 本ずつ（形の悪い 1 本はその本だけ
@@ -24,7 +25,6 @@ from asterism_step0.theme_propose import (
     ThemeDraftError,
     _complete_guided,
     _extract_json_object,
-    _language_tail,
     _lines,
     _problem_tail,
 )
@@ -60,12 +60,14 @@ You read the numbered sentences of one paper and list the RELATIONS between term
 sentences state. Answer with ONE JSON object and nothing else:
 
 {"relations": [
-  {"from": "synthesis procedure", "from_ja": "合成手順", "rel": "part",
-   "to": "MatPROV dataset", "to_ja": "MatPROV データセット", "evidence": ["s12"]}
+  {"from": "synthesis procedure", "from_ja": "合成手順", "from_en": "synthesis procedure",
+   "rel": "part", "to": "MatPROV dataset", "to_ja": "MatPROV データセット",
+   "to_en": "MatPROV dataset", "evidence": ["s12"]}
 ]}
 
-- "from" / "to": a term exactly as the sentences write it (keep the paper's own language).
-  "from_ja" / "to_ja": its Japanese name, or null.
+- "from" / "to": a term exactly as the sentences write it (never translate it).
+  "from_ja" / "to_ja": its Japanese name, "from_en" / "to_en": its English name
+  (null when you do not know one).
 - "rel": exactly one of
   part (from is a part of to) / sub (from is a kind of to) /
   lowers (from lowers to) / raises (from raises to) / affects (from changes to).
@@ -81,7 +83,7 @@ def paper_relations_json_schema() -> dict:
     """guided decoding 用のスキーマ — 全欄必須（``*_ja`` は null 可）・``rel`` は enum・
     ``evidence`` は番号の pattern。"""
     name = {"type": "string", "maxLength": _LEN_NAME}
-    name_ja = {"type": ["string", "null"], "maxLength": _LEN_NAME}
+    name_ja = {"type": ["string", "null"], "maxLength": _LEN_NAME}  # *_en も同じ形
     return {
         "type": "object",
         "additionalProperties": False,
@@ -93,13 +95,17 @@ def paper_relations_json_schema() -> dict:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["from", "from_ja", "rel", "to", "to_ja", "evidence"],
+                    "required": [
+                        "from", "from_ja", "from_en", "rel", "to", "to_ja", "to_en", "evidence",
+                    ],
                     "properties": {
                         "from": name,
                         "from_ja": name_ja,
+                        "from_en": name_ja,
                         "rel": {"type": "string", "enum": list(PAPER_RELS)},
                         "to": name,
                         "to_ja": name_ja,
+                        "to_en": name_ja,
                         "evidence": {
                             "type": "array",
                             "minItems": 1,
@@ -139,23 +145,30 @@ def _one(o: Any) -> dict | None:
     return {
         "from": frm,
         "from_ja": _name(o.get("from_ja")),
+        "from_en": _name(o.get("from_en")),
         "rel": o["rel"],
         "to": to,
         "to_ja": _name(o.get("to_ja")),
+        "to_en": _name(o.get("to_en")),
         "evidence": list(dict.fromkeys(e.strip() for e in ev)),
     }
 
 
 def validate_paper_relations(raw: Any) -> dict:
-    """答えを 1 本ずつ検証する → ``{relations, shape_dropped}``。形の悪い 1 本・20 本を超える分は
-    落として数える（``shape_dropped``）。鍵や種類の欄が来ても無視する。``raw`` が object でない・
-    ``relations`` が配列でないときだけ :class:`PaperProposeError`。"""
+    """答えを 1 本ずつ検証する → ``{relations, shape_dropped, over_limit}``。形の悪い 1 本は落として
+    数え（``shape_dropped``）、20 本を超える分は別に数える（``over_limit``）。鍵や種類の欄が来ても
+    無視する。``raw`` が object でない・``relations`` が配列でないときだけ
+    :class:`PaperProposeError`。"""
     if not isinstance(raw, dict) or not isinstance(raw.get("relations"), list):
         raise PaperProposeError("$.relations: must be a list")
     items = raw["relations"]
     good = [r for r in (_one(o) for o in items) if r is not None]
     kept = good[:MAX_RELATIONS]
-    return {"relations": kept, "shape_dropped": len(items) - len(kept)}
+    return {
+        "relations": kept,
+        "shape_dropped": len(items) - len(good),
+        "over_limit": len(good) - len(kept),
+    }
 
 
 def _user_message(
@@ -174,7 +187,6 @@ def _user_message(
         + _lines(rows)
         + "\n\n# Existing terms (日本語 | English)\n"
         + _lines(terms)
-        + _language_tail(lang)
         + _problem_tail(problem)
     )
 

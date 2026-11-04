@@ -23,6 +23,7 @@ import asyncio
 import copy
 import logging
 import re
+import unicodedata
 from typing import TYPE_CHECKING, Any
 
 from asterism import documents as doc
@@ -76,7 +77,10 @@ _T: dict[str, dict[str, str]] = {
     "ja": {
         "summary": "用語 {c}・関係 {r}・問い {q} を提案しました。",
         "long": "論文が長いので、{n} 文だけを読みました（要旨・結果・考察・結論を優先）",
-        "evidence_dropped": "根拠の文か用語の種類が合わない関係を {n} 件除きました",
+        "evidence_dropped": "根拠の文が合わない関係を {n} 件除きました",
+        "kind_dropped": "用語の種類が合わない関係を {n} 件除きました",
+        "q_limit": "問いの数の上限（5）を超えたまとまりの関係を {n} 件除きました",
+        "rel_limit": "関係の数の上限（20）を超えた分を {n} 件除きました",
         "propose_failed": "論文からの提案を作れませんでした（論文は添えました）",
         "commit_failed": "提案は確定できませんでした（論文は公開しました）",
         "terms_dropped": "どの関係にも問いにも出ない用語を {n} 件除きました",
@@ -85,7 +89,8 @@ _T: dict[str, dict[str, str]] = {
         "undone_published": "提案は取り消しました（論文は公開済みです）",
         "empty": "論文から、根拠の文つきで提案できる関係が見つかりませんでした（論文は添えました）",
         "unlinked": (
-            "問いにつながらない用語があります（承認の前に、関係を足すか外してください）: {names}"
+            "この話の下書きに、問いにつながらない用語があります: {names}"
+            "（承認の前に、関係を足すか外してください）"
         ),
     },
     "en": {
@@ -94,9 +99,10 @@ _T: dict[str, dict[str, str]] = {
             "The paper is long, so only {n} sentences were read "
             "(abstract, results, discussion and conclusion first)"
         ),
-        "evidence_dropped": (
-            "Left out {n} relations whose evidence sentences or term kinds do not fit"
-        ),
+        "evidence_dropped": "Left out {n} relations whose evidence sentences do not fit",
+        "kind_dropped": "Left out {n} relations whose term kinds do not fit",
+        "q_limit": "Left out {n} relations of groups beyond the limit of 5 questions",
+        "rel_limit": "Left out {n} relations beyond the limit of 20",
         "propose_failed": "Could not make proposals from the paper (the paper is attached)",
         "commit_failed": "Could not confirm the proposals (the paper was published)",
         "terms_dropped": "Left out {n} terms that appear in no relation or question",
@@ -105,8 +111,10 @@ _T: dict[str, dict[str, str]] = {
         "(the paper is attached)",
         "undone_published": "The proposals were undone (the paper stays published)",
         "empty": "Found no relation that the paper's sentences support (the paper is attached)",
-        "unlinked": "Some terms do not connect to a question (add a relation or remove them before "
-        "approving): {names}",
+        "unlinked": (
+            "This chat's draft has terms that do not connect to a question: {names} "
+            "(add a relation or remove them before approving)"
+        ),
     },
 }
 
@@ -245,47 +253,102 @@ _QUOTES = "'\u2019"
 _HYPHENS = "-\u2010\u2011\u2012\u2013\u00ad"
 
 
+def _fold(s: str) -> str:
+    """大文字小文字を残して整える（NFKC・改行前のハイフンをつなぐ・ハイフンと空白を 1 つに）。"""
+    s = re.sub(rf"[{_HYPHENS}]\s*\n\s*", "", s)
+    s = unicodedata.normalize("NFKC", s)
+    return " ".join(re.sub(rf"[{_HYPHENS}]+", " ", s).split())
+
+
 def prep_text(s: str) -> str:
     """照合の前の整え方: 改行の前のハイフン（``thermo-\\nelectric``）はつなぎ、NFKC・大文字小文字・
     空白・ハイフンを 1 つの空白に揃える。"""
-    s = re.sub(rf"[{_HYPHENS}]\s*\n\s*", "", s)
-    s = shared_vocab.normalize_label(s)
-    return " ".join(re.sub(rf"[{_HYPHENS}]+", " ", s).split())
+    return _fold(s).casefold()
 
 
 def _is_word(c: str) -> bool:
     return (c.isalnum() and ord(c) < _CJK_FROM) or c in _QUOTES
 
 
-def _variants(w: str) -> list[str]:
-    """英語の 1 語の単数・複数（s・es・ies↔y）を同じとみなす正規表現の候補。"""
-    if not re.fullmatch(r"[a-z]+", w):
-        return [re.escape(w)]
-    base = {w}
+#: 単数と複数が同じ形の語・``s`` で終わるが単数の語（小さな表）
+_INVARIANT = frozenset({
+    "series", "species", "news", "bias", "gas", "lens", "chaos", "atlas", "canvas", "axis",
+    "basis", "analysis", "synthesis", "hypothesis", "thesis", "diagnosis", "crisis", "physics",
+    "mathematics", "statistics", "mechanics", "kinetics", "thermodynamics",
+})  # fmt: skip
+#: 不規則な複数形 → 単数形
+_IRREGULAR = {
+    "analyses": "analysis", "syntheses": "synthesis", "hypotheses": "hypothesis",
+    "theses": "thesis", "diagnoses": "diagnosis", "crises": "crisis", "matrices": "matrix",
+    "indices": "index", "vertices": "vertex", "appendices": "appendix", "gases": "gas",
+    "axes": "axis", "biases": "bias",
+}  # fmt: skip
+
+
+def _singular(w: str) -> str:
+    """小文字の 1 語を単数形に寄せる（規則は 1 つ — :func:`term_key` と :func:`mentions` が共有）。
+    数字を含む語・3 文字以下の語は触らない。``ies→y``・``zes→ze``・``xes/ches/shes`` は語幹・
+    それ以外の末尾 ``s`` は 1 文字落とす（``ss``/``us``/``is`` 終わりと表の語は落とさない）。"""
+    if w in _IRREGULAR:
+        return _IRREGULAR[w]
+    if len(w) <= 3 or not re.fullmatch(r"[a-z]+", w) or w in _INVARIANT:
+        return w
     if w.endswith("ies") and len(w) > 4:
-        base.add(w[:-3] + "y")
-    elif w.endswith("es") and len(w) > 3:
-        base |= {w[:-2], w[:-1]}
-    elif w.endswith("s") and not w.endswith("ss") and len(w) > 3:
-        base.add(w[:-1])
-    alts: set[str] = set()
-    for b in base:
-        alts |= {b, b + "s", b + "es"}
-        if b.endswith("y") and len(b) > 2:
-            alts.add(b[:-1] + "ies")
-    return [re.escape(a) for a in sorted(alts, key=len, reverse=True)]
+        return w[:-3] + "y"
+    if w.endswith("zes"):
+        return w[:-1]
+    if re.search(r"(xes|ches|shes|sses)$", w):
+        return w[:-2]
+    if w.endswith("s") and not re.search(r"(ss|us|is)$", w):
+        return w[:-1]
+    return w
+
+
+def _plurals(w: str) -> set[str]:
+    out = {w + "s"}
+    if re.search(r"(s|x|z|ch|sh)$", w):
+        out.add(w + "es")
+    if w.endswith("y") and len(w) > 2 and w[-2] not in "aeiou":
+        out.add(w[:-1] + "ies")
+    if w.endswith("is"):
+        out.add(w[:-2] + "es")
+    out |= {k for k, v in _IRREGULAR.items() if v == w}
+    return out
+
+
+def _word(raw: str) -> tuple[str, set[str]]:
+    """(元の大文字小文字のままの 1 語) → ``(単数形の鍵, 同じ語とみなす表面の形)``。数字を含む語は
+    そのまま。全部大文字の語（化学式・略号）は単数化せず、末尾に小文字の ``s`` 1 つが付いた形
+    （``ZTs``）だけを同じとみなす。"""
+    low = raw.casefold()
+    if any(c.isdigit() for c in raw) or not re.fullmatch(r"[A-Za-z]+", raw):
+        return low, {low}
+    if re.fullmatch(r"[A-Z]{2,}s?", raw):
+        base = low[:-1] if raw.endswith("s") else low
+        return base, {base, base + "s"}
+    sing = _singular(low)
+    return sing, {low, sing, *_plurals(sing)}
+
+
+def term_key(name: str) -> str:
+    """名前を 1 つの用語にまとめるための鍵: 大文字小文字・全角半角・空白・ハイフンを揃え、英語の
+    語は単数形に寄せる（:func:`_word` の規則）。"""
+    return " ".join(_word(w)[0] for w in _fold(name).split(" "))
 
 
 def mentions(text_norm: str, name: str) -> bool:
     """整えた文（:func:`prep_text`）に、用語の名前が現れるか。語の境目は Unicode の文字・数字
     （アポストロフィも語の一部。日本語などは境目を見ず部分一致）。英語は語ごとに単数・複数を同じと
-    みなす。ラテン文字だけで 3 文字未満の名前（``ZT``）は照合に使わない。英数字の無い名前は、
-    PDF の抽出で入る空白を無視して比べる。"""
-    n = prep_text(name)
+    みなす（:func:`_word`）。ラテン文字だけで 3 文字未満の名前（``ZT``）は照合に使わない。英数字の
+    無い名前は、PDF の抽出で入る空白を無視して比べる。"""
+    n = _fold(name)
     bare = n.replace(" ", "")
     if not bare or (all(ord(c) < 0x250 for c in bare) and len(bare) < 3):
         return False
-    pat = " ".join("(?:" + "|".join(_variants(w)) + ")" for w in n.split(" "))
+    pat = " ".join(
+        "(?:" + "|".join(re.escape(f) for f in sorted(_word(w)[1], key=len, reverse=True)) + ")"
+        for w in n.split(" ")
+    )
     for m in re.finditer(pat, text_norm):
         a, b = m.start(), m.end()
         if _is_word(text_norm[a]) and a > 0 and _is_word(text_norm[a - 1]):
@@ -294,7 +357,7 @@ def mentions(text_norm: str, name: str) -> bool:
             continue
         return True
     if not any(c.isalnum() and ord(c) < _CJK_FROM for c in n):
-        return bare in text_norm.replace(" ", "")
+        return bare.casefold() in text_norm.replace(" ", "")
     return False
 
 
@@ -365,9 +428,10 @@ def check_ops(
 _Q_REFS = ("target", "kind", "property", "property2", "kind2")
 
 
-def prune_unlinked(ops: list[dict]) -> tuple[list[dict], int]:
+def prune_unlinked(ops: list[dict], *, include_existing: bool = False) -> tuple[list[dict], int]:
     """検査で関係を落としたあとの後処理 → ``(操作, 落とした用語の数)``。どの関係にも問いにも出ない
-    **新しい**用語（``use`` が既存でない ``add_concept``）を落とし、それを指す問いも落とす。"""
+    **新しい**用語（``use`` が既存でない ``add_concept``）を落とし、それを指す問いも落とす。
+    ``include_existing=True`` は、関係を失った既存の用語の ``add_concept`` も外す。"""
     used: set[str] = set()
     for o in ops:
         if o.get("op") == "add_relation":
@@ -378,7 +442,7 @@ def prune_unlinked(ops: list[dict]) -> tuple[list[dict], int]:
         str(o.get("key"))
         for o in ops
         if o.get("op") == "add_concept"
-        and not str(o.get("use") or "new").startswith("existing:")
+        and (include_existing or not str(o.get("use") or "new").startswith("existing:"))
         and str(o.get("key")) not in used
     }
     out = [
@@ -413,73 +477,96 @@ _Q_TEXT = {
 }
 
 
-def _singular(w: str) -> str:
-    if w.endswith("ies") and len(w) > 4:
-        return w[:-3] + "y"
-    if re.search(r"(sses|xes|ches|shes|zes)$", w):
-        return w[:-2]
-    if w.endswith("s") and not re.search(r"(ss|us|is)$", w) and len(w) > 3:
-        return w[:-1]
-    return w
-
-
-def term_key(name: str) -> str:
-    """名前を 1 つの用語にまとめるための鍵: 大文字小文字・全角半角・空白・ハイフンを揃え、英語の
-    語は単数形に寄せる。"""
-    return " ".join(_singular(w) for w in prep_text(name).split(" "))
-
-
 def _is_japanese(name: str) -> bool:
     return any(ord(c) >= _CJK_FROM for c in name)
+
+
+def _join_evidence(a: list[str], b: list[str]) -> list[str]:
+    return list(dict.fromkeys([*a, *b]))[:3]
 
 
 def build_ops(
     relations: list[dict], existing: list[SharedTerm]
 ) -> tuple[list[dict], int]:
-    """AI の関係（``from``/``to``/``rel``/``evidence``）→ 差分の ops と、落とした関係の数。決定論。
+    """AI の関係（``from``/``to``/``rel``/``evidence`` と任意の ``*_ja``/``*_en``）→ 差分の ops と、
+    用語の種類が合わなくて落とした関係の数。決定論。
 
-    - 名前を :func:`term_key` で 1 つの用語にまとめる（既存の用語の名前・別名に当たれば
-      ``use: existing:<slug>`` とその種類）。標準の語は、適用の段の照合が当てる。
+    - 名前を :func:`term_key` で 1 つの用語にまとめる。既存の用語の名前・別名に当たれば
+      ``use: existing:<slug>``・既存の種類・**既存の名前**（札・問い文もそれ）。同じ名前の既存の
+      用語が複数あれば、関係の位置に合う種類（lowers 系の相手 = property・part/sub は相手側の種類）
+      を選ぶ（合うものが無ければ先勝ち）。標準の語は、適用の段の照合が当てる。
     - 種類: ``lowers``/``raises``/``affects`` の相手（to）= ``property``、それ以外 = ``class``。
-      既存の用語は既存の種類。食い違う関係（``part``/``sub`` の両端の種類が違う・相手が class の
-      ``lowers`` 系）は落とす。
+      食い違う関係（``part``/``sub`` の両端の種類が違う・相手が class の ``lowers`` 系・自己参照）
+      は落とす。
+    - 名前: ``label_en`` = ``*_en`` → ラテン文字の名前 → 空。``label_ja`` = ``*_ja`` → 日本語の
+      名前 → 名前。書かれた別の名前は別名に足す（照合にも使う）。
+    - 同じ (from, rel, to) は 1 本にまとめ、根拠の番号は出現順に最大 3 つ。
     - 鍵は ``n1``… を出てきた順に振る。``add_concept`` → ``add_relation`` の順。問いは含めない。"""
-    by_name: dict[str, SharedTerm] = {}
+    by_name: dict[str, list[SharedTerm]] = {}
     for t in sorted(existing, key=lambda x: x.slug):
         for nm in (t.label, t.label_en, *t.aliases):
             if nm:
-                by_name.setdefault(term_key(nm), t)
-    terms: dict[str, dict] = {}  # 用語の鍵 → {en, ja, aliases, kind, existing}
+                lst = by_name.setdefault(term_key(nm), [])
+                if t not in lst:
+                    lst.append(t)
+    terms: dict[str, dict] = {}  # 用語の鍵 → {en, ja, aliases, kind, cands, existing}
 
-    def end(name: str, ja: str | None) -> str:
+    def end(name: str, ja: str | None, en: str | None) -> str:
         k = term_key(name)
-        hit = by_name.get(k) or (by_name.get(term_key(ja)) if ja else None)
-        if hit is not None:
-            k = f"existing:{hit.slug}"  # 英語名と日本語名で書かれても同じ既存の用語
+        cands = by_name.get(k) or next(
+            (by_name[term_key(x)] for x in (ja, en) if x and term_key(x) in by_name), []
+        )
+        if cands:
+            k = "existing:" + "|".join(t.slug for t in cands)  # 言語が違っても同じ既存の用語
         t = terms.get(k)
         if t is None:
             t = terms[k] = {
-                "en": "" if _is_japanese(name) else name,
-                "ja": name if _is_japanese(name) else (ja or name),
-                "aliases": [],
-                "kind": None,
-                "existing": hit,
-            }
-        elif name not in (t["en"], t["ja"]) and name not in t["aliases"]:
-            t["aliases"].append(name)  # 単数・複数など、同じ用語の別の書き方
+                "en": en or ("" if _is_japanese(name) else name),
+                "ja": ja or name,
+                "aliases": [], "kind": None, "cands": cands, "existing": None,
+            }  # fmt: skip
+        for nm in (name, ja, en):
+            if nm and nm not in (t["en"], t["ja"]) and nm not in t["aliases"]:
+                t["aliases"].append(nm)  # 単数・複数・別の言語など、同じ用語の別の書き方
         return k
 
-    pairs = [(end(r["from"], r.get("from_ja")), end(r["to"], r.get("to_ja")), r) for r in relations]
-    for _f, to, r in pairs:  # 種類: 相手になった用語は property
-        if r["rel"] in _FACTOR_DIR and terms[to]["existing"] is None:
-            terms[to]["kind"] = "property"
-    for t in terms.values():
+    pairs = [
+        (end(r["from"], r.get("from_ja"), r.get("from_en")),
+         end(r["to"], r.get("to_ja"), r.get("to_en")), r)
+        for r in relations
+    ]  # fmt: skip
+    factor_to = {to for _f, to, r in pairs if r["rel"] in _FACTOR_DIR}
+    for k, t in terms.items():  # 既存の用語を選ぶ（1 つに決まらなければ関係の位置の種類で）
+        if len(t["cands"]) == 1:
+            t["existing"] = t["cands"][0]
+        elif t["cands"] and k in factor_to:
+            t["existing"] = next((c for c in t["cands"] if c.kind == "property"), t["cands"][0])
         if t["existing"] is not None:
             t["kind"] = t["existing"].kind
-        elif t["kind"] is None:
-            t["kind"] = "class"
+        elif not t["cands"]:
+            t["kind"] = "property" if k in factor_to else "class"
+    for _ in range(2):  # 残り（同名・種類違い）は、part/sub の相手側の種類に合わせる
+        for k, t in terms.items():
+            if t["cands"] and t["existing"] is None:
+                partner = [
+                    terms[b if a == k else a]["kind"] for a, b, r in pairs
+                    if r["rel"] in ("part", "sub") and k in (a, b) and a != b
+                ]  # fmt: skip
+                pick = next((c for c in t["cands"] if c.kind in partner), None)
+                if pick is not None:
+                    t["existing"], t["kind"] = pick, pick.kind
+    for t in terms.values():
+        if t["existing"] is None and t["kind"] is None:
+            t["existing"] = t["cands"][0]
+            t["kind"] = t["existing"].kind
+        if t["existing"] is not None:  # 札・問い文は既存の名前（書かれた名前は別名に回す）
+            ex = t["existing"]
+            for nm in (t["en"], t["ja"]):
+                if nm and nm not in (ex.label, ex.label_en) and nm not in t["aliases"]:
+                    t["aliases"].append(nm)
+            t["ja"], t["en"] = ex.label, ex.label_en or ""
     dropped = 0
-    kept: list[tuple[str, str, dict]] = []
+    merged: dict[tuple[str, str, str], list[str]] = {}
     for f, to, r in pairs:
         kf, kt = terms[f]["kind"], terms[to]["kind"]
         same = r["rel"] in ("part", "sub") and kf == kt
@@ -487,10 +574,10 @@ def build_ops(
         if f == to or not (same or factor):
             dropped += 1
             continue
-        kept.append((f, to, r))
+        merged[(f, r["rel"], to)] = _join_evidence(merged.get((f, r["rel"], to), []), r["evidence"])
     keys: dict[str, str] = {}
     ops: list[dict] = []
-    for f, to, _r in kept:
+    for f, _rel, to in merged:
         for k in (f, to):
             if k not in keys:
                 keys[k] = f"n{len(keys) + 1}"
@@ -503,11 +590,11 @@ def build_ops(
                         "reason": "",
                     }
                 )  # fmt: skip
-    for f, to, r in kept:
+    for (f, rel, to), ev in merged.items():
         ops.append(
             {
-                "op": "add_relation", "from": keys[f], "rel": r["rel"], "to": keys[to],
-                "evidence": list(r["evidence"]), "reason": "",
+                "op": "add_relation", "from": keys[f], "rel": rel, "to": keys[to],
+                "evidence": ev, "reason": "",
             }
         )  # fmt: skip
     return ops, dropped
@@ -602,15 +689,16 @@ async def make_proposal(
                 await asyncio.to_thread(on_usage)
             except Exception:
                 logger.warning("paper propose: usage not recorded", exc_info=True)
-        ops, shape_gone = build_ops(value.get("relations") or [], existing)
-        ops, dropped = check_ops(
+        ops, kind_gone = build_ops(value.get("relations") or [], existing)
+        ops, evidence_gone = check_ops(
             ops, concepts=[], existing=existing, by_id={r["id"]: r for r in rows}
         )
-        ops, terms_dropped = prune_unlinked(ops)
-        ops, uncovered = add_questions(ops, lang)
-        ops, more_terms = prune_unlinked(ops)
+        ops, terms_dropped = prune_unlinked(ops, include_existing=True)
+        ops, q_gone = add_questions(ops, lang)
+        ops, more_terms = prune_unlinked(ops, include_existing=True)
         return {
-            "ok": True, "ops": ops, "dropped": dropped + shape_gone + uncovered,
+            "ok": True, "ops": ops, "dropped": evidence_gone, "kind_dropped": kind_gone,
+            "q_dropped": q_gone, "over_limit": int(value.get("over_limit") or 0),
             "truncated": truncated, "terms_dropped": terms_dropped + more_terms,
             "shape_dropped": int(value.get("shape_dropped") or 0),
         }  # fmt: skip
@@ -622,6 +710,19 @@ async def make_proposal(
 
 
 # ---- 下書きに当てる（ロックの中・読み直した話に） --------------------------------------------
+
+
+async def _draft_refused(
+    client: Any, root: Any, draft: dict, lang: str, turn: dict, at: str
+) -> bool:
+    """この下書き（提案を当てる前）が、すでに ``commit_theme`` の検査で断られるか。"""
+    try:
+        body = chat_turns.commit_body(draft, lang)
+        body["batch"] = turn["batch"]
+        await themes.check_commit(client, root, body, at=at)
+    except themes.ThemeError:
+        return True
+    return False
 
 
 async def apply_proposal(
@@ -655,6 +756,10 @@ async def apply_proposal(
         notes.append(
             chat_turns.note("info", text(lg, "evidence_dropped", n=proposal["dropped"]))
         )
+    for key, field in (("kind_dropped", "kind_dropped"), ("q_limit", "q_dropped"),
+                       ("rel_limit", "over_limit")):  # fmt: skip
+        if proposal.get(field):
+            notes.append(chat_turns.note("info", text(lg, key, n=proposal[field])))
     if proposal.get("shape_dropped"):
         notes.append(
             chat_turns.note("info", text(lg, "shape_dropped", n=proposal["shape_dropped"]))
@@ -702,12 +807,30 @@ async def apply_proposal(
                     body["batch"] = turn["batch"]
                     await themes.check_commit(client, root, body, at=at)
                 except themes.ThemeError:
-                    notes.append(chat_turns.note("info", text(lg, "cannot_link")))
-                    applied_ops, applied_sentences = [], []
+                    # 当てる前の下書きでも断られるなら、原因は前からの下書き — 提案は出して注記する
+                    old_keys = {str(c.get("key")) for c in draft.get("concepts") or []}
+                    names = [
+                        str(c.get("label_ja") or c.get("key"))
+                        for c in new.get("concepts") or []
+                        if str(c.get("key")) in report["unlinked"]
+                        and str(c.get("key")) in old_keys
+                    ]
+                    if (
+                        not created
+                        and names
+                        and await _draft_refused(client, root, draft, lang, turn, at)
+                    ):
+                        saved_ok = True
+                        report = {**report, "unlinked": [
+                            k for k in report["unlinked"] if k in old_keys
+                        ]}  # fmt: skip
+                    else:
+                        notes.append(chat_turns.note("info", text(lg, "cannot_link")))
+                        applied_ops, applied_sentences = [], []
                 else:
                     saved_ok = True
             if saved_ok:
-                if report["unlinked"]:  # 検査は通ったが孤立がある（既存の用語など）
+                if report["unlinked"]:  # 検査は通ったが孤立がある、または前からの孤立
                     by_key = {str(c.get("key")): c for c in new.get("concepts") or []}
                     shown = [
                         str((by_key.get(k) or {}).get("label_ja") or k)

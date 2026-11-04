@@ -19,8 +19,9 @@ from asterism_step0.paper_propose import (
     validate_paper_relations,
 )
 
-GOOD = {"from": "synthesis procedure", "from_ja": "合成手順", "rel": "part",
-        "to": "MatPROV dataset", "to_ja": None, "evidence": ["s12"]}  # fmt: skip
+GOOD = {"from": "synthesis procedure", "from_ja": "合成手順", "from_en": None, "rel": "part",
+        "to": "MatPROV dataset", "to_ja": None, "to_en": "MatPROV dataset",
+        "evidence": ["s12"]}  # fmt: skip
 SENTENCES = [{"id": "s12", "text": "The synthesis procedure is part of the MatPROV dataset."}]
 
 
@@ -37,7 +38,7 @@ class _LLM:
 def test_a_good_relation_is_kept_and_extra_fields_are_ignored() -> None:
     noisy = {**GOOD, "key": "n1", "kind": "class", "question": "?", "reason": "x", "use": "new"}
     out = validate_paper_relations({"relations": [noisy], "ops": [1]})
-    assert out == {"relations": [{**GOOD}], "shape_dropped": 0}
+    assert out == {"relations": [{**GOOD}], "shape_dropped": 0, "over_limit": 0}
 
 
 def test_each_relation_is_judged_alone_and_the_bad_ones_are_counted() -> None:
@@ -61,7 +62,7 @@ def test_each_relation_is_judged_alone_and_the_bad_ones_are_counted() -> None:
 def test_at_most_twenty_relations() -> None:
     items = [{**GOOD, "to": f"dataset {i}"} for i in range(25)]
     out = validate_paper_relations({"relations": items})
-    assert len(out["relations"]) == 20 and out["shape_dropped"] == 5
+    assert len(out["relations"]) == 20 and out["over_limit"] == 5 and out["shape_dropped"] == 0
 
 
 def test_a_bad_japanese_name_only_loses_the_japanese_name() -> None:
@@ -77,11 +78,14 @@ def test_only_an_unreadable_shape_is_refused(raw: object) -> None:
 
 def test_schema_requires_every_field_and_pins_rel_and_evidence() -> None:
     item = paper_relations_json_schema()["properties"]["relations"]["items"]
-    assert item["required"] == ["from", "from_ja", "rel", "to", "to_ja", "evidence"]
+    assert item["required"] == [
+        "from", "from_ja", "from_en", "rel", "to", "to_ja", "to_en", "evidence",
+    ]
     assert item["additionalProperties"] is False
     assert item["properties"]["rel"]["enum"] == list(PAPER_RELS)
     assert item["properties"]["evidence"]["items"]["pattern"] == "^s[0-9]{1,4}$"
-    assert "null" in item["properties"]["from_ja"]["type"]
+    assert all("null" in item["properties"][k]["type"]
+               for k in ("from_ja", "from_en", "to_ja", "to_en"))  # fmt: skip
 
 
 def test_propose_sends_sentences_and_existing_names_and_keeps_good_relations() -> None:
@@ -93,7 +97,9 @@ def test_propose_sends_sentences_and_existing_names_and_keeps_good_relations() -
     assert "s12 | The synthesis procedure is part of" in user
     assert "熱伝導率 | thermal conductivity" in user
     assert "keys, kinds, questions" in system
-    assert out == {"relations": [GOOD], "shape_dropped": 1}
+    assert out == {"relations": [GOOD], "shape_dropped": 1, "over_limit": 0}
+    assert "from_en" in system and "never translate" in system
+    assert "日本語で" not in user and "Japanese" not in user.split("# Existing terms")[0]
     assert len(llm.calls) == 1  # 1 本の外れでは聞き直さない
 
 
