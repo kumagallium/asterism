@@ -3,7 +3,7 @@
 12a の走者（``chat_attach.run_document_attach``）に「提案」の段を 1 つ足す部品。流れ:
 
 1. 下書きの版 graph の ``doco:Sentence`` を、出現順に ``s1``… の番号つきで並べる（参考文献・
-   謝辞の節は除く・上限 300 文。決定論・:func:`read_sentences` / :func:`select_sentences`）。
+   謝辞の節は除く・上限 150 文。決定論・:func:`read_sentences` / :func:`select_sentences`）。
 2. ``graph_propose``（``screen="paper"``）に番号つきの文・既存の用語・標準の語の名前を渡す。
    AI は関係ごとに**文の番号**（``evidence``）を選ぶだけで、引用文は書かない。
 3. 機械が確かめる（:func:`check_ops`）— 番号の文が実在する・両端の用語の名前のどれかがその文に
@@ -56,11 +56,11 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 #: AI に渡す文の上限（超えたら要旨・結果・考察・結論を優先して残す）
-MAX_SENTENCES = 300
+MAX_SENTENCES = 150
 #: 下書きの根拠の文（evidence.text）の長さ（札は 150 字で切って「…」・title に全文）
 EVIDENCE_TEXT_MAX = 1000
-#: AI に渡す文の合計の長さ（超えたら 300 文と同じ優先順で切る）
-MAX_PROMPT_CHARS = 60_000
+#: AI に渡す文の合計の長さ（超えたら文の上限と同じ優先順で切る）
+MAX_PROMPT_CHARS = 30_000
 _PROMPT_SENTENCE_MAX = 600  # step0 が 1 文をプロンプトに載せる長さ
 #: 参考文献・謝辞の節（見出しを ``_heading_key`` で整えて比べる）
 _SKIP_TITLE = re.compile(
@@ -81,27 +81,34 @@ _ASK = (
 _T: dict[str, dict[str, str]] = {
     "ja": {
         "summary": "用語 {c}・関係 {r}・問い {q} を提案しました。",
-        "long": "論文が長いので、先頭から 300 文だけを読みました",
+        "long": "論文が長いので、{n} 文だけを読みました（要旨・結果・考察・結論を優先）",
         "evidence_dropped": "根拠の文が合わない関係を {n} 件除きました",
         "propose_failed": "論文からの提案を作れませんでした（論文は添えました）",
         "commit_failed": "提案は確定できませんでした（論文は公開しました）",
         "terms_dropped": "どの関係にも問いにも出ない用語を {n} 件除きました",
+        "shape_dropped": "形の合わない提案を {n} 件除きました",
         "cannot_link": "論文からの提案を、問いにつながる形にできませんでした（論文は添えました）",
         "undone_published": "提案は取り消しました（論文は公開済みです）",
+        "empty": "論文から、根拠の文つきで提案できる関係が見つかりませんでした（論文は添えました）",
         "unlinked": (
             "問いにつながらない用語があります（承認の前に、関係を足すか外してください）: {names}"
         ),
     },
     "en": {
         "summary": "Proposed {c} terms, {r} relations and {q} questions.",
-        "long": "The paper is long, so only the first 300 sentences were read",
+        "long": (
+            "The paper is long, so only {n} sentences were read "
+            "(abstract, results, discussion and conclusion first)"
+        ),
         "evidence_dropped": "Left out {n} relations whose evidence sentences do not fit",
         "propose_failed": "Could not make proposals from the paper (the paper is attached)",
         "commit_failed": "Could not confirm the proposals (the paper was published)",
         "terms_dropped": "Left out {n} terms that appear in no relation or question",
+        "shape_dropped": "Left out {n} proposals whose shape did not fit",
         "cannot_link": "Could not shape the proposals so that they connect to a question "
         "(the paper is attached)",
         "undone_published": "The proposals were undone (the paper stays published)",
+        "empty": "Found no relation that the paper's sentences support (the paper is attached)",
         "unlinked": "Some terms do not connect to a question (add a relation or remove them before "
         "approving): {names}",
     },
@@ -466,7 +473,7 @@ async def make_proposal(
         ops, terms_dropped = prune_unlinked(ops)
         return {
             "ok": True, "ops": ops, "dropped": dropped, "truncated": truncated,
-            "terms_dropped": terms_dropped,
+            "terms_dropped": terms_dropped, "shape_dropped": int(value.get("shape_dropped") or 0),
         }  # fmt: skip
     except (GraphDiffError, ThemeDraftError) as exc:
         logger.warning("paper propose: shape refused: %s", exc)
@@ -504,16 +511,22 @@ async def apply_proposal(
     reply = turn["reply"]
     notes: list[dict] = list(reply.get("notes") or [])
     if proposal.get("truncated"):
-        notes.append(chat_turns.note("info", text(lg, "long")))
+        notes.append(chat_turns.note("info", text(lg, "long", n=MAX_SENTENCES)))
     if proposal.get("dropped"):
         notes.append(
             chat_turns.note("info", text(lg, "evidence_dropped", n=proposal["dropped"]))
+        )
+    if proposal.get("shape_dropped"):
+        notes.append(
+            chat_turns.note("info", text(lg, "shape_dropped", n=proposal["shape_dropped"]))
         )
     if proposal.get("terms_dropped"):
         notes.append(
             chat_turns.note("info", text(lg, "terms_dropped", n=proposal["terms_dropped"]))
         )
     ops = list(proposal.get("ops") or [])
+    if not ops:  # 検査と後処理で何も残らなかった — 黙らずに言う
+        notes.append(chat_turns.note("info", text(lg, "empty")))
     draft = chat_turns._current_draft(session, root)
     created = False
     fresh_seed: dict | None = None

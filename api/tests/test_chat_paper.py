@@ -1,7 +1,7 @@
 """12b — 添えた論文から、用語・関係・問いを根拠の文つきで提案する。
 
 JATS は ``datasets/papers/`` の実物（Docling 不要）、AI は固定応答のスタブ。確かめること: 番号つきの
-文の並べ方（参考文献を除く・300 で切る）／機械の検査（実在しない番号・語が現れない・英語の語の境目・
+文の並べ方（参考文献を除く・上限で切る）／機械の検査（実在しない番号・語が現れない・英語の語の境目・
 別名で通る）／下書きの根拠の文（IRI と文はストアから）／承認 1 つで公開と確定・関係の来歴に
 ``prov:wasDerivedFrom``／確定の失敗で論文は公開のまま・もう一度で確定／取り消しで下書きが戻る／
 AI 無し・失敗は 12a のまま／問いの提案を二重に呼ばない。
@@ -10,6 +10,7 @@ AI 無し・失敗は 12a のまま／問いの提案を二重に呼ばない。
 # ruff: noqa: RUF001
 from __future__ import annotations
 
+import functools
 import json
 import re
 from pathlib import Path
@@ -107,7 +108,7 @@ def test_titles_that_cannot_be_read_leave_every_sentence_in() -> None:
     assert not any(r["skip"] for r in rows) and rows[0]["path"] is None
 
 
-def test_more_than_300_sentences_keep_abstract_results_and_conclusion_first() -> None:
+def test_more_than_the_limit_sentences_keep_abstract_results_and_conclusion_first() -> None:
     secs = [
         _b(sec="http://x/sec/i", title="Introduction", role="http://purl.org/spar/deo/Introduction"),
         _b(sec="http://x/sec/r", title="Results", role="http://purl.org/spar/deo/Results"),
@@ -120,7 +121,8 @@ def test_more_than_300_sentences_keep_abstract_results_and_conclusion_first() ->
     assert truncated and len(picked) == chat_paper.MAX_SENTENCES
     assert [r["id"] for r in picked[:2]] == ["s1", "s2"]  # 出現順に振り直す
     assert sum(1 for r in picked if r["text"].startswith("Result")) == 120  # 優先は全部残る
-    assert sum(1 for r in picked if r["text"].startswith("Intro")) == 180
+    n_intro = chat_paper.MAX_SENTENCES - 120
+    assert sum(1 for r in picked if r["text"].startswith("Intro")) == n_intro
     assert [r["begin"] for r in picked] == sorted(r["begin"] for r in picked)
     # 役割が 1 つも取れなければ先頭から
     plain = [_b(s=f"http://x/p/{i}", t=f"P{i}.", b=str(i), sec="http://x/sec/p")
@@ -128,7 +130,7 @@ def test_more_than_300_sentences_keep_abstract_results_and_conclusion_first() ->
     picked, truncated = chat_paper.select_sentences(
         chat_paper.build_rows(plain, [_b(sec="http://x/sec/p", title="Body")])
     )
-    assert truncated and [r["text"] for r in picked][-1] == "P299."
+    assert truncated and [r["text"] for r in picked][-1] == f"P{chat_paper.MAX_SENTENCES - 1}."
 
 
 def _term(slug: str, label: str, en: str, kind: str, aliases: tuple[str, ...] = ()) -> SharedTerm:
@@ -624,8 +626,13 @@ def test_undoing_after_the_paper_was_published_keeps_the_paper_and_drops_the_pro
         assert chat_sessions.load_session(root, sid)["draft_id"] is None
 
 
-def test_the_one_row_approval_skips_the_unpublished_paper_s_rows_only(tmp_path: Path) -> None:
+def test_the_one_row_approval_skips_the_unpublished_paper_s_rows_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """1 行の承認（11o）は、論文の根拠つきの行・用語には 409、触れない手の行には効く。"""
+    # 2 回目のスタブが使う文（材料と方法の節）は上限の外 — このテストでは上限を広げる
+    wide = functools.partial(chat_paper.select_sentences, limit=400, budget=200_000)
+    monkeypatch.setattr(chat_paper, "select_sentences", wide)
 
     class _Seq(_TwoStep):
         """1 回目 = いつもの答え・2 回目 = 別の 1 語と 1 本の関係。"""

@@ -439,6 +439,62 @@ def test_other_screens_drop_evidence_instead_of_refusing_it() -> None:
         assert "evidence" not in out["ops"][0]
 
 
+def test_paper_screen_rekeys_concepts_whose_key_is_a_name() -> None:
+    # gpt-oss-120b の実機: 名前をそのまま鍵にする → paper 画面だけ機械が振り直し、参照も追う
+    raw = {
+        "reply": "",
+        "ops": [
+            {"op": "add_concept", "key": "Synthesis backbone", "label_ja": "合成の骨格",
+             "label_en": "synthesis backbone", "kind": "class", "reason": "r"},
+            {"op": "add_concept", "key": "n1", "label_ja": "合成手順",
+             "label_en": "synthesis procedure", "kind": "class", "reason": "r"},
+            {"op": "add_relation", "from": "Synthesis backbone", "rel": "part", "to": "n1",
+             "reason": "r", "evidence": ["s3"]},
+        ],
+    }  # fmt: skip
+    out = validate_graph_diff(raw, known_keys=[], screen="paper")
+    keys = [o["key"] for o in out["ops"] if o["op"] == "add_concept"]
+    assert keys == ["p1", "n1"]
+    rel = next(o for o in out["ops"] if o["op"] == "add_relation")
+    assert (rel["from"], rel["to"]) == ("p1", "n1")
+    assert out["ops"][0]["label_en"] == "synthesis backbone"  # 名前の欄は触らない
+    raw["ops"][1] = {**raw["ops"][1], "kind": "Quantity"}  # 種類の言い換えは寄せる
+    assert validate_graph_diff(raw, known_keys=[], screen="paper")["ops"][1]["kind"] == "property"
+    raw["ops"][1] = {k: v for k, v in raw["ops"][1].items() if k != "kind"}  # 欄が無い → class
+    assert validate_graph_diff(raw, known_keys=[], screen="paper")["ops"][1]["kind"] == "class"
+    with pytest.raises(GraphDiffError):  # 他の画面は今どおり断る
+        validate_graph_diff(raw, known_keys=[], screen="theme")
+
+
+def test_paper_screen_drops_only_the_operations_whose_shape_does_not_fit() -> None:
+    # gpt-oss-120b の実機: 1 件の取り違えで差分全体を失わない（その 1 件だけ落とす）
+    raw = {
+        "reply": "",
+        "ops": [
+            {"op": "add_concept", "key": "n1", "label_ja": "合成手順",
+             "label_en": "synthesis procedure", "kind": "class", "reason": "r"},
+            {"op": "add_concept", "key": "n1", "label_ja": "重なり", "label_en": "dup",
+             "kind": "class", "reason": "r"},
+            {"op": "add_concept", "key": "n2", "label_ja": None, "kind": "class", "reason": "r"},
+            {"op": "add_relation", "from": "n2", "rel": "part", "to": "n1", "reason": "r",
+             "evidence": ["s1"]},
+            {"op": "add_relation", "from": "n1", "rel": "nope", "to": "n1", "reason": "r",
+             "evidence": ["s1"]},
+            {"op": "add_concept", "key": "n3", "label_ja": "操作", "label_en": "operation",
+             "kind": "class", "reason": "r"},
+            {"op": "add_relation", "from": "n3", "rel": "part", "to": "n1", "reason": "r",
+             "evidence": ["s2"]},
+        ],
+    }  # fmt: skip
+    out = validate_graph_diff(raw, known_keys=[], screen="paper")
+    assert [(o["op"], o.get("key") or o.get("from")) for o in out["ops"]] == [
+        ("add_concept", "n1"), ("add_concept", "n3"), ("add_relation", "n3"),
+    ]  # fmt: skip
+    assert out["shape_dropped"] == 4
+    with pytest.raises(GraphDiffError):  # 他の画面は今どおり全体を断る
+        validate_graph_diff(raw, known_keys=[], screen="theme")
+
+
 def test_paper_screen_takes_only_the_three_additive_operations() -> None:
     concept = {"op": "add_concept", "key": "n1", "label_ja": "薄膜", "label_en": "thin film",
                "aliases": [], "kind": "class", "use": "new", "reason": ""}  # fmt: skip
