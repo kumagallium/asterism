@@ -125,14 +125,17 @@ _T: dict[str, dict[str, str]] = {
         ),
         "mixed": "表と論文は別々に添えてください",
         "pdf_unavailable": (
-            "PDF を読み取る部品が入っていません。設定の「PDF の読み取り」から入れてください"
-            "（Word・JATS XML はそのまま添えられます）"
+            "PDF を読み取る部品がまだ使えません。設定の「PDF の読み取り」で入れるか、"
+            "準備が終わるのを待ってください（Word・JATS XML はそのまま添えられます）"
+        ),
+        "docx_unavailable": (
+            "Word を読み取る部品（pandoc）がありません。PDF か JATS XML で添えてください"
         ),
         "pdf_unavailable_server": (
             "この環境では PDF を読み取れません（管理者に Docling の設定を頼んでください）"
         ),
         "paper_failed": "論文を読み取れませんでした。形式を確かめて、もう一度添えてください。",
-        "document_empty": "文を読み取れませんでした（画像だけの PDF は読めません）",
+        "document_empty": "論文から文を読み取れませんでした（画像だけの PDF などは読めません）",
         "s_read": "読み取っています",
         "paper_reply": (
             "{name} を読み込みました。節 {sections}・文 {sentences}。"
@@ -193,14 +196,19 @@ _T: dict[str, dict[str, str]] = {
         ),
         "mixed": "Please attach tables and papers separately",
         "pdf_unavailable": (
-            "The PDF reader is not installed. Install it from Settings > PDF reading "
-            "(Word and JATS XML can be attached as they are)"
+            "The PDF reader is not ready yet. Install it from Settings > PDF reading, "
+            "or wait until it finishes setting up (Word and JATS XML can be attached as they are)"
+        ),
+        "docx_unavailable": (
+            "The Word reader (pandoc) is not installed. Attach a PDF or JATS XML instead"
         ),
         "pdf_unavailable_server": (
             "PDFs can't be read in this environment (ask your administrator to set up Docling)"
         ),
         "paper_failed": "Could not read the paper. Check its format and attach it again.",
-        "document_empty": "No sentences could be read (PDFs that are only images can't be read)",
+        "document_empty": (
+            "No sentences could be read from the paper (image-only PDFs can't be read)"
+        ),
         "s_read": "Reading the paper",
         "paper_reply": (
             "Read {name}. {sections} sections, {sentences} sentences. "

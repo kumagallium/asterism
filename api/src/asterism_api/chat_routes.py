@@ -1223,6 +1223,11 @@ def register_chat(
                 # 同梱版（desktop）は設定から部品を入れられる・サーバ版は管理者の設定
                 desktop = cfg.app_version is not None
                 return kind, "pdf_unavailable" if desktop else "pdf_unavailable_server"
+        if kind == "document" and any(n.lower().endswith(".docx") for n in names):
+            from asterism_api.main import can_convert_docx
+
+            if not can_convert_docx():
+                return kind, "docx_unavailable"
         return kind, None
 
     @app.post("/api/chat/sessions/{session_id}/attach", dependencies=deps)

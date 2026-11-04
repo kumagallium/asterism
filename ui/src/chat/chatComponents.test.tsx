@@ -10,7 +10,7 @@ import { Composer } from './Composer'
 import { HandForm } from './HandForm'
 import { NoteLine, ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
 import { SourcePickerView } from './SourcePicker'
-import { formatSize } from './sourcePickerUtil'
+import { allDocumentNames, formatSize } from './sourcePickerUtil'
 import { fetchSourceItems } from './chatApi'
 import { SessionList } from './SessionList'
 
@@ -562,6 +562,10 @@ describe('取り込み元の切り替え', () => {
     expect(html).toContain('2 KB')
     expect(html.match(/checked=""/g)).toHaveLength(1)
     expect(formatSize(3 * 1024 * 1024)).toBe('3.0 MB')
+    // 論文だけなら AI 未設定でも送る（表が 1 つでも混ざれば今どおり）
+    expect(allDocumentNames(['a.PDF', 'b.docx', 'c.xml'])).toBe(true)
+    expect(allDocumentNames(['a.pdf', 'b.csv'])).toBe(false)
+    expect(allDocumentNames([])).toBe(false)
     const empty = renderToStaticMarkup(
       <SourcePickerView server="drive" state={{ phase: 'ready', items: [] }} selected={[]} busy={false} onToggle={noop} onAttach={noop} onClose={noop} />,
     )

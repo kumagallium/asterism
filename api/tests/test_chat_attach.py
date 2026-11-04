@@ -439,9 +439,12 @@ def test_confirming_a_paper_only_promotes_and_asks_for_paper_questions(tmp_path:
         upper = root / dsid / "upper.json"  # 結ぶ列の線は書かない
         assert "machine" not in (upper.read_text() if upper.exists() else "")
         assert seen and seen[0]["screen"] == "paper"
-        # 公開のあと、文が store に載っている（回答の引用元になる）
+        # 公開した版の graph に文が載っている（下書きの graph にあるだけでは通らない）
+        meta = json.loads((root / dsid / "meta.json").read_text())
+        live = meta.get("live_graph")
+        assert live and not meta.get("graph_iri")
         sentence = rdflib.URIRef("http://purl.org/spar/doco/Sentence")
-        assert any(True for _ in ds.quads((None, rdflib.RDF.type, sentence, None)))
+        assert any(True for _ in ds.quads((None, rdflib.RDF.type, sentence, rdflib.URIRef(live))))
 
 
 def test_tables_and_papers_do_not_mix(tmp_path: Path) -> None:
@@ -469,6 +472,31 @@ def test_a_pdf_without_the_converter_is_told_before_anything_is_made(tmp_path: P
         assert not list(root.glob("*/meta.json"))  # データセットは作られない
 
 
+def test_the_desktop_pdf_message_and_a_missing_pandoc_stop_before_anything_is_made(
+    tmp_path: Path, monkeypatch
+) -> None:
+    settings = _settings(tmp_path)
+    settings.app_version = "0.0.0"  # デスクトップ版
+    ds = rdflib.Dataset()
+    app = build_app(
+        settings, oxigraph_client=_DatasetClient(ds), start_watcher=False, llm_factory=None
+    )
+    monkeypatch.setattr("asterism_api.main.can_convert_docx", lambda: False)
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        r = _attach_many(client, sid, [("論文.pdf", b"%PDF-1.4")])
+        (note,) = r.json()["turn"]["reply"]["notes"]
+        assert note["kind"] == "pdf_unavailable"
+        assert note["text"].startswith("PDF を読み取る部品がまだ使えません。")
+        assert "「PDF の読み取り」" in note["text"]
+        r = _attach_many(client, sid, [("議事録.docx", b"PK")])
+        turn = r.json()["turn"]
+        assert turn["state"] == "none" and r.json()["job_id"] is None
+        (note,) = turn["reply"]["notes"]
+        assert note["kind"] == "docx_unavailable" and "pandoc" in note["text"]
+        assert not list((tmp_path / "registry").glob("*/meta.json"))
+
+
 def test_a_paper_with_no_sentences_leaves_nothing_behind(tmp_path: Path) -> None:
     app, _ = _app(tmp_path)
     empty = b"<?xml version='1.0'?><article><front/><body/></article>"
@@ -480,7 +508,8 @@ def test_a_paper_with_no_sentences_leaves_nothing_behind(tmp_path: Path) -> None
         turn = _turn(client, sid, r.json()["turn"]["id"])
         assert turn["state"] == "none" and turn.get("attachment") is None
         (note,) = turn["reply"]["notes"]
-        assert note["kind"] in ("document_empty", "attach_failed")
+        assert note["kind"] == "document_empty"
+        assert note["text"] == "論文から文を読み取れませんでした（画像だけの PDF などは読めません）"
         root = tmp_path / "registry"
         assert not [p for p in root.glob("*/meta.json")]
 

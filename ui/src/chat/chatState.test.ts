@@ -247,6 +247,11 @@ describe('✓ の区分（話・表・機械）と選び待ち', () => {
     expect(showMachineMark({ ...table('t2'), by: 'machine' })).toBe(false)
     expect(showMachineMark({ ...waiting('t3'), by: 'machine' })).toBe(false)
     expect(showMachineMark(turn('t4', 'proposed'))).toBe(false)
+    for (const kind of ['mixed', 'pdf_unavailable', 'docx_unavailable', 'document_empty']) {
+      const m = machine('t5')
+      m.reply.notes = [{ kind, text: kind, choice: null }]
+      expect(showMachineMark(m)).toBe(false)
+    }
   })
 })
 

@@ -11,3 +11,8 @@ export function formatSize(n: number): string {
   if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
   return `${Math.max(1, Math.round(n / 1024))} KB`
 }
+
+/** 添える名前が全部論文か（論文は AI を使わないので、AI 未設定でも送れる）。 */
+export function allDocumentNames(names: string[]): boolean {
+  return names.length > 0 && names.every((n) => DOCUMENT_EXTS.some((e) => n.toLowerCase().endsWith(e)))
+}
