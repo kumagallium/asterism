@@ -576,6 +576,34 @@ def test_demo_relay_forwards_ask_headers_but_never_the_write_token(
     assert json.loads(fwd.content)["question"] == "ZT top3?"
 
 
+def test_demo_relay_sends_the_answer_ai_as_plain_headers(tmp_path: Path) -> None:
+    # design §21: Ask は答える AI。X-LLM-Answer-* を X-LLM-* に畳み、作る AI の組は送らない
+    seen: dict[str, httpx.Request] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["req"] = request
+        return httpx.Response(200, json={"answer": "ok", "citations": []})
+
+    app = _relay_app(tmp_path, handler)
+    r = _request_as(
+        app,
+        ("127.0.0.1", 999),
+        "POST",
+        "/demo/ask",
+        json={"question": "q"},
+        headers={
+            "X-API-Key": "sk-make", "X-LLM-Provider": "anthropic", "X-LLM-Model": "big",
+            "X-LLM-Answer-Provider": "openai-compatible", "X-LLM-Answer-Model": "small",
+            "X-LLM-Answer-Key": "sk-answer",
+        },
+    )  # fmt: skip
+    assert r.status_code == 200, r.text
+    fwd = seen["req"].headers
+    assert fwd["x-api-key"] == "sk-answer" and fwd["x-llm-provider"] == "openai-compatible"
+    assert fwd["x-llm-model"] == "small"
+    assert not any(k.startswith("x-llm-answer") for k in fwd)
+
+
 def test_demo_relay_passes_query_params_and_status(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.params.get("iri") == "https://x/1":

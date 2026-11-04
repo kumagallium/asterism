@@ -22,6 +22,8 @@ export interface AptitudeResult {
   failed: AptitudeFailure[]
   at: string
   model?: string
+  /** 役割ごとの判定（design §21.5）。サーバが付ける（古い結果にも読むときに付く）。 */
+  roles?: { make: Verdict; answer: Verdict }
 }
 
 /** 保存の鍵（"<provider>::<model>"）。 */

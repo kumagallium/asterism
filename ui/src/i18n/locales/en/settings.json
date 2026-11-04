@@ -27,10 +27,11 @@
     "copilotSubscription": "GitHub Copilot (subscription, this computer only)"
   },
   "models": {
-    "intro": "Register the AI to use here. The selected one is used by every feature that calls an AI: proposals, answers and data import.",
+    "intro": "Register the AI models to use here. You can pick one per role: the making AI proposes knowledge graphs and designs; the answering AI answers, routes messages and makes scoped fixes.",
     "empty": "None registered yet.",
     "serverConfigured": "AI is already set up on this server ({{provider}}). You can use AI without adding anything here.",
-    "activeBadge": "active",
+    "makeBadge": "making",
+    "answerBadge": "answering",
     "keySet": "using your key",
     "keyServer": "using the server's setup (no key needed)",
     "keyMissing": "needs a key",
@@ -39,7 +40,14 @@
     "delete": "Delete",
     "confirmDelete": "Delete",
     "add": "Add",
-    "keySubscription": "no key needed (uses your Copilot plan's allowance)"
+    "keySubscription": "no key needed (uses your Copilot plan's allowance)",
+    "roles": {
+      "make": "Making AI",
+      "makeHelp": "Proposes knowledge graphs, proposals from papers and designs. Pick a strong model",
+      "answer": "Answering AI",
+      "answerHelp": "Answers, routes messages and makes scoped fixes. A weaker model is enough",
+      "same": "Same as the making AI"
+    }
   },
   "form": {
     "addTitle": "Add model",
@@ -297,7 +305,13 @@
       "chat": "chat",
       "ask": "answer",
       "propose": "proposal"
-    }
+    },
+    "role": {
+      "make": "Making",
+      "answer": "Answering"
+    },
+    "roleVerdict": "{{role}}: {{verdict}}",
+    "answerOnlyHint": "Suited to answering. Pick a stronger model for making to be sure"
   },
   "mcp": {
     "title": "MCP servers",

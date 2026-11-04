@@ -47,6 +47,7 @@ from asterism_api import (
     chat_route,
     chat_tables,
     chat_turns,
+    llm_roles,
     registry,
     source_push,
 )
@@ -641,7 +642,7 @@ def register_chat(
         # 問いのタブの「答えて」: 振り分けを飛ばして必ず Ask
         if has_text and body.intent == "ask":
             turn, saved = await _ask_turn(
-                session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+                session_id, text, body.lang, llm_roles.answer_headers(request.headers)
             )
             return JSONResponse(
                 {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
@@ -677,7 +678,7 @@ def register_chat(
                 )  # fmt: skip
             if intent == "ask":
                 turn, saved = await _ask_turn(
-                    session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+                    session_id, text, body.lang, llm_roles.answer_headers(request.headers)
                 )
                 return JSONResponse(
                     {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
@@ -689,6 +690,13 @@ def register_chat(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, root
         )
         llm_unset = _ai_unset(key, provider, api_base)
+        # §21: 振り分けと範囲つきの直しは「答える AI」（指定が無ければ作る AI と同じ）
+        ans = llm_roles.answer_headers(request.headers)
+        a_provider, a_model, a_base, a_key = _llm_coords(
+            ans.get("x-api-key"), ans.get("x-llm-provider"), ans.get("x-llm-model"),
+            ans.get("x-llm-api-base"), root,
+        )  # fmt: skip
+        answer_unset = _ai_unset(a_key, a_provider, a_base)
         # 11n: 「〈文〉を外して」「A は B の一種ではない」は AI を呼ばずに remove にする
         if has_text and not chat_turns.is_undo(text):
             async with lock:
@@ -705,7 +713,7 @@ def register_chat(
                     except chat_turns.TurnRefused as exc:
                         raise _refused(exc) from exc
                     return _done(session, turn)
-                if scope is not None and llm_unset:  # 範囲つきの直しは AI が要る
+                if scope is not None and answer_unset:  # 範囲つきの直しは AI が要る
                     turn = chat_turns.run_scope_hint_turn(
                         session, text, at=_now(), lang=body.lang
                     )
@@ -715,15 +723,27 @@ def register_chat(
                     return _done(session, turn)
 
         # AI の道（文の手番で、AI が設定されていて、「戻して」でないとき）
-        llm: Any = None
-        if has_text and not chat_turns.is_undo(text) and not llm_unset:
-            llm = resolve_llm(
-                provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
-            )
+        llm: Any = None  # 作る AI（範囲つきなら答える AI）
+        answer_llm: Any = None
+        if has_text and not chat_turns.is_undo(text):
+            if not llm_unset:
+                llm = resolve_llm(
+                    provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+                )
+            if not llm_roles.has_answer_role(request.headers):
+                answer_llm = llm
+            elif not answer_unset:
+                answer_llm = resolve_llm(
+                    a_provider, a_model, a_base, a_key,
+                    max_tokens=_llm_max_tokens(ans.get("x-llm-max-tokens")),
+                )  # fmt: skip
+            if scope is not None:
+                llm = answer_llm
+                provider, model = a_provider, a_model  # 使用量の記録も答える AI で
         # 11m: AI の振り分け（会話／答える／提案）。ロックの外。落ちたら提案（今の挙動）
         has_draft_now = bool(_session_or_404(session_id).get("draft_id"))
         if (
-            llm is not None
+            answer_llm is not None
             and has_text
             and body.intent != "propose"
             and scope is None  # 範囲つきは直しに決まっている
@@ -738,7 +758,7 @@ def register_chat(
             try:
                 routed = await asyncio.to_thread(
                     chat_route.route_message,
-                    llm,
+                    answer_llm,
                     text=text,
                     history=hist,
                     lang=body.lang,
@@ -748,14 +768,14 @@ def register_chat(
                     n_datasets=await asyncio.to_thread(_n_datasets),
                 )
                 await asyncio.to_thread(
-                    _record_usage, root, "chat.route", provider, llm, model
+                    _record_usage, root, "chat.route", a_provider, answer_llm, a_model
                 )
             except Exception:
                 logger.warning("chat route: fell back to propose", exc_info=True)
                 routed = None
             if routed is not None and routed.mode == "ask":
                 turn, saved = await _ask_turn(
-                    session_id, text, body.lang, chat_attach.llm_headers_of(request.headers)
+                    session_id, text, body.lang, llm_roles.answer_headers(request.headers)
                 )
                 return JSONResponse(
                     {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),

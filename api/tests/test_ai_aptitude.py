@@ -13,7 +13,7 @@ import rdflib
 from asterism_step0.theme_propose import THEME_DRAFT_SYSTEM_PROMPT
 from fastapi.testclient import TestClient
 
-from asterism_api import ai_aptitude, chat_intent
+from asterism_api import ai_aptitude, appdata, chat_intent
 from asterism_api.main import build_app
 from tests.test_crosswalk_api import _AUTH, _DatasetClient, _settings
 from tests.test_themes_api import AI_JSON, KEY
@@ -177,7 +177,7 @@ def test_api_runs_saves_without_key_and_leaves_store(tmp_path: Path) -> None:
         got = c.get("/api/ai/aptitude").json()["aptitude"]
     entry = got["openai::m1"]
     assert entry["verdict"] == "limited" and entry["scope"] == 0.4
-    assert set(entry) == {"verdict", "shape", "routing", "scope", "failed", "at", "model"}
+    assert set(entry) == {"verdict", "shape", "routing", "scope", "failed", "at", "model", "roles"}
     assert result == {"provider": "openai", **entry}  # GET と done は同じ
     raw = (cfg.appdata_root / "settings.json").read_text("utf-8")
     assert "test-key" not in raw
@@ -325,3 +325,22 @@ def test_put_settings_keeps_aptitude_and_ignores_the_put_one(tmp_path: Path) -> 
         fake = {"aptitude": {"p::m": {"verdict": "poor"}}, "theme": "y"}
         c.put("/api/appdata/settings", json=fake)
         assert c.get("/api/appdata/settings").json()["settings"]["aptitude"] == mine
+
+
+def test_judge_roles_boundaries() -> None:
+    # 作る = 形だけ・答える = 振り分け＋対象（design §21.5）
+    assert ai_aptitude.judge_roles(0.9, 0.0, 0.0) == {"make": "good", "answer": "poor"}
+    assert ai_aptitude.judge_roles(0.7, 0.9, 0.8) == {"make": "limited", "answer": "good"}
+    assert ai_aptitude.judge_roles(0.6, 0.9, 0.6) == {"make": "poor", "answer": "limited"}
+    assert ai_aptitude.judge_roles(0.6, 0.69, 1.0) == {"make": "poor", "answer": "poor"}
+
+
+def test_saved_results_without_roles_get_them_on_read(tmp_path: Path) -> None:
+    app, _, cfg = _api(tmp_path, _Fake("good"))
+    old = {"verdict": "limited", "shape": 0.5, "routing": 1.0, "scope": 1.0, "failed": [],
+           "at": "2026-10-30T00:00:00+00:00", "model": "m"}  # fmt: skip
+    appdata.write_settings(cfg.appdata_root, {"aptitude": {"openai::m": old}})
+    with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        got = c.get("/api/ai/aptitude").json()["aptitude"]["openai::m"]
+    assert got["roles"] == {"make": "poor", "answer": "good"}
+    assert appdata.read_settings(cfg.appdata_root)["aptitude"]["openai::m"] == old  # 書き換えない
