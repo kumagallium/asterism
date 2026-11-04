@@ -14,7 +14,7 @@
 <h1 id="AI-の要件">AI の要件</h1>
 <p>Asterism は、決まった形の JSON を指示どおりに返せる AI を前提にしています。目安は、設定の「適性を調べる」で、使う役割の結果が「推奨」になることです。</p>
 <p>作るのは強いモデル、使う（答える）のは弱いモデルでかまいません。知識グラフや設計の提案は長い入力と多くの決まりを 1 回で守る作業ですが、回答は決まった道具が答えを出すので、弱いモデルでも崩れにくいからです。設定の「作る AI」と「答える AI」で分けて選べます（<a href="./settings.html#作る-AI-と答える-AI">設定</a>）。</p>
-<figure><a href="../screenshots/aptitude.png" title="原寸で開く"><img src="../screenshots/aptitude.png" alt="設定の AI タブ。上で作る AI と答える AI を選び、モデルごとに役割ごとの適性のバッジと率が出る"></a></figure>
+<figure><a href="../screenshots/aptitude.png" title="原寸で開く"><img src="../screenshots/aptitude.png" alt="設定の AI タブ。上で作る AI と答える AI を選び、行に役割のバッジと「適性を調べる」が出る"></a></figure>
 <h2 id="Asterism-が-AI-に求める-4-つのこと">Asterism が AI に求める 4 つのこと</h2>
 <div class="tablewrap"><table><thead><tr><th>要求</th><th>内容</th><th>適性検査で測れるか</th></tr></thead><tbody><tr><td>形</td><td>提案を、決まった形の JSON で 1 回で返す（聞き直しなし）</td><td>測れる</td></tr><tr><td>振り分け</td><td>1 つの発言を、雑談・質問・提案のどれかに正しく分ける</td><td>測れる</td></tr><tr><td>対象の遵守</td><td>「この用語について」と絞った修正で、対象の外には触れない</td><td>測れる</td></tr><tr><td>知識</td><td>分野の言葉を取り違えない（例: 結晶系と空間群）</td><td>測れない</td></tr></tbody></table></div>
 <h2 id="適性検査の内容と判定">適性検査の内容と判定</h2>
