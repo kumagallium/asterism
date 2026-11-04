@@ -63,7 +63,7 @@ __all__ = [
     "validate_graph_diff",
 ]
 
-SCREENS = ("theme", "home", "dataset", "paper")
+SCREENS = ("theme", "home", "dataset")
 OP_NAMES = (
     "add_concept",
     "add_relation",
@@ -73,15 +73,8 @@ OP_NAMES = (
     "add_question",
     "bind_column",
 )
-#: 根拠の文の番号（``s1``…）。引用文・IRI は形で拒む
-_EVIDENCE_RE = re.compile(r"^s[0-9]{1,4}\Z")
-_MAX_EVIDENCE = 3
-_MAX_SENTENCES = 300
-_LEN_SENTENCE = 600  # prompt に載せる 1 文の長さの上限
 #: ``expand=True`` — only ops that ADD to the graph (nothing is moved or taken away).
 _ADDITIVE_OPS = ("add_concept", "add_relation", "add_question")
-#: 論文の画面（12b）で使える操作 = 足す操作だけ（``add_relation`` は根拠の文の番号が必須）
-_PAPER_OPS = _ADDITIVE_OPS
 #: a column is tied to a concept by "same" / "a kind of" / "its quantity is".
 BIND_RELATIONS = ("eq", "sub", "quantity")
 _QUESTION_OPS = (*KNOWLEDGE_OPS, *DATA_OPS)
@@ -190,27 +183,6 @@ _SCREEN_NOTES = {
         "standard curie) a column means: rel eq (the column IS that term), sub (a kind of it) or\n"
         "quantity (its quantity kind). You never see the values of a column. Do not add concepts.\n"
     ),
-    "paper": (
-        "You are given the numbered SENTENCES of one paper the person attached (s1, s2, ...),\n"
-        "the concepts and questions already on the graph, and the names of existing and standard\n"
-        "terms. Read the sentences and propose the terms (\"add_concept\"), the relations between\n"
-        "them (\"add_relation\") and the questions the paper could answer (\"add_question\").\n"
-        "Use ONLY these three operations.\n"
-        "Every \"add_relation\" MUST carry \"evidence\": the numbers of one to three sentences\n"
-        "that say it, e.g. [\"s12\", \"s13\"]. Give the NUMBERS only; never copy a sentence,\n"
-        "an IRI or a quotation. Both ends of the relation must be named in those sentences.\n"
-        "Omit a relation the sentences do not state. Always add at least one question about a\n"
-        "concept (mode knowledge, with its \"target\"), and connect every concept you add to that\n"
-        "target through relations (a term that no question reaches cannot be approved).\n"
-        "Reuse an existing term (use \"existing:<slug>\") instead of adding it again.\n"
-        "A new concept's \"key\" is a short id (n1, n2, ...), NOT its name; its \"kind\" is\n"
-        "exactly \"class\" (a thing, material, method, process) or \"property\" (a quantity\n"
-        "or attribute). For example:\n"
-        '{"op": "add_concept", "key": "n1", "label_ja": "合成手順", "label_en": "synthesis\n'
-        ' procedure", "aliases": [], "kind": "class", "use": "new", "reason": "..."}\n'
-        'Add the field to each relation: {"op": "add_relation", "from": "<key>", "rel": "...",\n'
-        ' "to": "<key or curie>", "evidence": ["s12"], "reason": "..."}.\n'
-    ),
 }
 
 _RULES = """\
@@ -246,15 +218,13 @@ def _string(max_length: int, *, nullable: bool = False) -> dict:
     return {"type": ["string", "null"] if nullable else "string", "maxLength": max_length}
 
 
-def graph_diff_json_schema(*, expand: bool = False, screen: str | None = None) -> dict:
+def graph_diff_json_schema(*, expand: bool = False) -> dict:
     """The closed shape as a JSON Schema for guided-decoding servers. Flat on purpose (one
     object type with nullable fields; ``oneOf`` is poorly supported by guided decoding) —
     :func:`validate_graph_diff` is the per-operation gate. Bounded strings, no free-form
-    object. ``screen="paper"`` (12b) = the three additive operations and ``evidence`` (the
-    numbers of the sentences a relation is read from); other screens carry no ``evidence``."""
-    paper = screen == "paper"
-    ops = [*_PAPER_OPS] if paper else [*_ADDITIVE_OPS] if expand else [*OP_NAMES]
-    schema = {
+    object."""
+    ops = [*_ADDITIVE_OPS] if expand else [*OP_NAMES]
+    return {
         "type": "object",
         "additionalProperties": False,
         "required": ["reply", "ops"],
@@ -296,54 +266,11 @@ def graph_diff_json_schema(*, expand: bool = False, screen: str | None = None) -
                         "kind2": _string(_LEN_KEY, nullable=True),
                         "wanted_data": _string(_LEN_REASON, nullable=True),
                         "column": _string(_LEN_COLUMN, nullable=True),
-                        **(
-                            {
-                                "evidence": {
-                                    "type": ["array", "null"],
-                                    "maxItems": _MAX_EVIDENCE,
-                                    "items": {"type": "string", "pattern": "^s[0-9]{1,4}$"},
-                                }
-                            }
-                            if paper
-                            else {}
-                        ),
                     },
                 },
             },
         },
     }
-    if paper:
-        # 3 つの op の欄だけにし、全部を必須（null 可）にする。guided decoding は必須でない欄を
-        # 飛ばしがち（gpt-oss-120b の実機で key・名前・from/to が抜けた）
-        item = schema["properties"]["ops"]["items"]
-        item["properties"] = {k: item["properties"][k] for k in _PAPER_FIELDS}
-        item["required"] = list(_PAPER_FIELDS)
-    return schema
-
-
-#: paper 画面のスキーマの欄（3 つの op が使うものだけ）。
-_PAPER_FIELDS = (
-    "op",
-    "reason",
-    "key",
-    "label_ja",
-    "label_en",
-    "aliases",
-    "kind",
-    "use",
-    "from",
-    "rel",
-    "to",
-    "evidence",
-    "target",
-    "question",
-    "mode",
-    "op_kind",
-    "direction",
-    "property",
-    "value",
-    "wanted_data",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -412,23 +339,7 @@ def _aliases(v: Any, path: str) -> list[str]:
     return [a for a in out if a]
 
 
-def _evidence(v: Any, path: str) -> list[str]:
-    """論文の関係の根拠 = 文の番号（``s12``）が 1〜3 個。引用文・IRI・番号以外は拒む
-    （:func:`_op` は、拒まれた関係の根拠を空にして差分は受ける）。"""
-    if not isinstance(v, list) or not v:
-        raise _fail(path, "is required (the numbers of the sentences, e.g. [\"s12\"])")
-    if len(v) > _MAX_EVIDENCE:
-        raise _fail(path, f"more than {_MAX_EVIDENCE} items")
-    out: list[str] = []
-    for j, e in enumerate(v):
-        if not isinstance(e, str) or not _EVIDENCE_RE.match(e.strip()):
-            raise _fail(f"{path}[{j}]", "must be a sentence number like s12 (numbers only)")
-        if e.strip() not in out:
-            out.append(e.strip())
-    return out
-
-
-def _op(o: Any, p: str, keys: set[str], new_keys: set[str], *, screen: str | None = None) -> dict:
+def _op(o: Any, p: str, keys: set[str], new_keys: set[str]) -> dict:
     if not isinstance(o, dict):
         raise _fail(p, "must be an object")
     name = o.get("op")
@@ -437,11 +348,8 @@ def _op(o: Any, p: str, keys: set[str], new_keys: set[str], *, screen: str | Non
     reason = _cut(o.get("reason", ""), f"{p}.reason", _LEN_REASON)
     if name == "add_concept":
         kind = o.get("kind")
-        if screen == "paper":  # 弱いモデルの語の揺れ（"Class"・"quantity" など）を 2 つに寄せる
-            # 欄が無ければ class（合わない関係は適用の段の種類の検査で落ちる）
-            kind = _PAPER_KIND_ALIASES.get(" ".join(str(kind or "class").lower().split()), kind)
         if kind not in TERM_KINDS:
-            raise _fail(f"{p}.kind", f"must be one of {TERM_KINDS} (got {str(kind)[:40]!r})")
+            raise _fail(f"{p}.kind", f"must be one of {TERM_KINDS}")
         use = " ".join(str(o.get("use") or "new").split())
         if not _USE_RE.match(use):
             raise _fail(f"{p}.use", "must be new, existing:<slug> or standard:<curie>")
@@ -456,21 +364,13 @@ def _op(o: Any, p: str, keys: set[str], new_keys: set[str], *, screen: str | Non
             "reason": reason,
         }
     if name == "add_relation":
-        rel_op = {
+        return {
             "op": name,
             "from": _ref(o.get("from"), f"{p}.from", keys, curie_ok=False),
             "rel": _rel(o.get("rel"), f"{p}.rel"),
             "to": _ref(o.get("to"), f"{p}.to", keys, curie_ok=True),
             "reason": reason,
         }
-        if screen == "paper":  # 他の画面の evidence は受け取っても捨てる
-            try:
-                rel_op["evidence"] = _evidence(o.get("evidence"), f"{p}.evidence")
-            except GraphDiffError:
-                # 無い・形の悪い根拠はその関係だけ落とす（差分全体は拒まない）— 呼び手が空の
-                # evidence の関係を数えて除く。拒否と聞き直しは op の形が壊れたときだけ
-                rel_op["evidence"] = []
-        return rel_op
     if name == "retarget":
         return {
             "op": name,
@@ -554,7 +454,6 @@ def validate_graph_diff(
     known_keys: Iterable[str],
     expand: bool = False,
     allow_taken_keys: bool = False,
-    screen: str | None = None,
 ) -> dict:
     """Check ``raw`` against the closed diff and return a normalised copy ``{reply, ops}``
     (only the fields of each operation; strings whitespace-folded). Raises
@@ -570,9 +469,7 @@ def validate_graph_diff(
     additive operations are accepted, at most 10. ``allow_taken_keys=True`` (the apply step
     only) lets an ``add_concept`` key that is already on the graph through: a resent diff is a
     no-op for the applier to report, not a refusal (a key repeated inside one diff is still
-    refused). ``screen="paper"`` (12b): ``add_relation`` carries ``evidence`` (1–3 sentence
-    numbers); a missing or malformed one becomes ``[]`` (the caller drops that relation — the rest
-    of the diff stands); every other screen drops an ``evidence`` it was handed."""
+    refused)."""
     if not isinstance(raw, dict):
         raise _fail("$", "must be an object")
     known = {str(k) for k in known_keys}
@@ -582,8 +479,6 @@ def validate_graph_diff(
     limit = _MAX_EXPAND_OPS if expand else _MAX_OPS
     if len(ops_raw) > limit:
         raise _fail("ops", f"more than {limit} operations")
-    if screen == "paper":
-        return _validate_paper(raw, ops_raw, known)
     # first pass: the keys this diff adds (so an add_concept may come after its first use)
     new_keys: set[str] = set()
     for i, o in enumerate(ops_raw):
@@ -599,108 +494,8 @@ def validate_graph_diff(
     for i, o in enumerate(ops_raw):
         if expand and not (isinstance(o, dict) and o.get("op") in _ADDITIVE_OPS):
             raise _fail(f"ops[{i}].op", f"must be one of {_ADDITIVE_OPS} here")
-        ops.append(_op(o, f"ops[{i}]", keys, new_keys, screen=screen))
+        ops.append(_op(o, f"ops[{i}]", keys, new_keys))
     return {"reply": _cut(raw.get("reply", ""), "reply", _LEN_REPLY), "ops": ops}
-
-
-#: paper 画面だけ: 用語の種類の言い換え → ``class`` / ``property``（それ以外は今どおり断る）。
-_PAPER_KIND_ALIASES = {
-    "class": "class",
-    "concept": "class",
-    "entity": "class",
-    "thing": "class",
-    "material": "class",
-    "method": "class",
-    "process": "class",
-    "property": "property",
-    "quantity": "property",
-    "attribute": "property",
-    "measure": "property",
-}
-
-def _validate_paper(raw: dict, ops_raw: list, known: set[str]) -> dict:
-    """paper 画面（12b）の検証: 形の合わない操作は**その 1 件だけ**落とし（数を
-    ``shape_dropped`` に）、残りは受ける。弱いモデル（gpt-oss-120b の実機）は 1 件の欄の取り違え
-    で差分全体を失いやすく、論文の提案は 1 件ずつ独立に人が承認するため。落とすのは: 形の悪い
-    操作・同じ鍵の 2 つ目以降の ``add_concept``・図に無い鍵を参照する操作（落ちた概念を指すもの
-    も）。差分そのものの形（ops が配列でない・数が多すぎる）は今どおり断る。"""
-    if len(ops_raw) > _MAX_OPS:
-        raise _fail("ops", f"more than {_MAX_OPS} operations")
-    ops_raw = _rekey_paper(ops_raw, known)
-    new_keys: set[str] = set()
-    concepts: list[tuple[int, Any]] = []
-    others: list[tuple[int, Any]] = []
-    for i, o in enumerate(ops_raw):
-        (concepts if isinstance(o, dict) and o.get("op") == "add_concept" else others).append(
-            (i, o)
-        )
-    ops: dict[int, dict] = {}
-    for i, o in concepts:
-        key = o.get("key")
-        if not isinstance(key, str) or not _KEY_RE.match(key) or key in known or key in new_keys:
-            continue
-        try:
-            ops[i] = _op(o, f"ops[{i}]", known | {key}, {key}, screen="paper")
-        except (GraphDiffError, ThemeDraftError):
-            continue
-        new_keys.add(key)
-    keys = known | new_keys
-    for i, o in others:
-        try:
-            ops[i] = _op(o, f"ops[{i}]", keys, new_keys, screen="paper")
-        except (GraphDiffError, ThemeDraftError):
-            continue
-    return {
-        "reply": _cut(raw.get("reply", ""), "reply", _LEN_REPLY),
-        "ops": [ops[i] for i in sorted(ops)],
-        "shape_dropped": len(ops_raw) - len(ops),
-    }
-
-
-#: 鍵の振り直しで書き換えない欄（名前・文・根拠の番号）。
-_REKEY_TEXT_FIELDS = frozenset(
-    {"op", "label_ja", "label_en", "aliases", "question", "reason", "evidence", "wanted_data"}
-)
-
-
-def _rekey_paper(ops_raw: list, known: set[str]) -> list:
-    """paper 画面（12b）だけ: ``add_concept`` の鍵が形に合わないときは機械が ``p1``… に
-    振り直し、同じ差分の中の参照（``from`` / ``to`` など）も書き換える。鍵は差分の中だけの参照で、
-    弱いモデルは名前をそのまま鍵にしがち（gpt-oss-120b の実機）。名前や文の欄は触らない。"""
-    rename: dict[str, str] = {}
-    taken = set(known)
-    n = 0
-    out: list = []
-    for o in ops_raw:
-        if isinstance(o, dict) and o.get("op") == "add_concept":
-            key = o.get("key")
-            if not isinstance(key, str) or not _KEY_RE.match(key):  # 重なりは今どおり断る
-                n += 1
-                while f"p{n}" in taken:
-                    n += 1
-                fresh = f"p{n}"
-                if isinstance(key, str) and key not in rename:
-                    rename[key] = fresh
-                o = {**o, "key": fresh}
-            if isinstance(o.get("key"), str):
-                taken.add(o["key"])
-        out.append(o)
-    if not rename:
-        return out
-
-    def swap(v: Any) -> Any:
-        if isinstance(v, str):
-            return rename.get(v, v)
-        if isinstance(v, list):
-            return [rename.get(x, x) if isinstance(x, str) else x for x in v]
-        return v
-
-    return [
-        {k: (v if k in _REKEY_TEXT_FIELDS or k == "key" else swap(v)) for k, v in o.items()}
-        if isinstance(o, dict)
-        else o
-        for o in out
-    ]
 
 
 def filter_ops_for_screen(ops: list[dict], screen: str) -> list[dict]:
@@ -715,8 +510,6 @@ def filter_ops_for_screen(ops: list[dict], screen: str) -> list[dict]:
             return name == "add_relation" or (name == "remove" and op.get("target") == "relation")
         if screen == "dataset":
             return name == "bind_column" and op.get("rel") in ("eq", "sub")
-        if screen == "paper":
-            return name in _PAPER_OPS
         return name != "bind_column"
 
     return [op for op in ops if keep(op)]
@@ -769,12 +562,10 @@ def graph_diff_user_message(
     lang: str | None,
     problem: str | None = None,
     scope: str | None = None,
-    sentences: list[dict] | None = None,
 ) -> str:
     """The user message: the graph's NAMES (never data), the term / standard names, the column
-    HEADINGS with a type hint (a dataset only), the numbered SENTENCES of the paper (a paper
-    only — ``[{id: "s1", text}]``, the text the person attached), the recent conversation, and
-    the person's latest sentence."""
+    HEADINGS with a type hint (a dataset only), the recent conversation, and the person's
+    latest sentence."""
     parts = [
         "# Screen\n" + screen,
         "# Concepts on the graph (key | 日本語 | English | kind | use)\n"
@@ -792,12 +583,6 @@ def graph_diff_user_message(
         parts.append(
             "# Column headings (heading | type hint; you never see the values)\n" + _lines(cols)
         )
-    if screen == "paper":
-        rows = [
-            f"{x['id']} | " + " ".join(str(x.get("text") or "").split())[:_LEN_SENTENCE]
-            for x in (sentences or [])[:_MAX_SENTENCES]
-        ]
-        parts.append("# Sentences of the paper (number | sentence)\n" + _lines(rows))
     recent = [
         m
         for m in messages[-_MAX_MESSAGES:]
@@ -824,7 +609,7 @@ _ATTEMPTS = 3
 _PREVIOUS_MAX = 20000
 
 
-def _fix_tail(previous: str, key: str, *, screen: str = "theme") -> str:
+def _fix_tail(previous: str, key: str) -> str:
     """Last retry: show the previous answer (whole, up to 20,000 characters) and ask for the
     same JSON, repaired. The example only shows the shape; its key is one on the graph."""
     prev = previous.strip()
@@ -834,12 +619,6 @@ def _fix_tail(previous: str, key: str, *, screen: str = "theme") -> str:
         '{"reply": "one short sentence", "ops": [{"op": "rename", "key": "' + key + '", '
         '"label_ja": "...", "label_en": "...", "aliases": [], "reason": "one line"}]}'
     )
-    if screen == "paper":  # rename は使えない — 根拠の番号つきの関係の形を見せる
-        example = (
-            '{"reply": "one short sentence", "ops": [{"op": "add_relation", "from": "' + key
-            + '", "rel": "affects", "to": "' + key + '", "evidence": ["s1"], '
-            '"reason": "one line"}]}'
-        )
     return (
         "\n\nThis is your last try. Fix YOUR PREVIOUS JSON below instead of starting over: "
         "change only what the refusal names, keep the rest as it is.\n"
@@ -862,7 +641,6 @@ def propose_graph_diff(
     lang: str | None = None,
     scope: str | None = None,
     attempts: int | None = None,
-    sentences: list[dict] | None = None,
 ) -> dict:
     """One guided call (up to two retries when the shape is refused) → ``{reply, ops}`` validated,
     with the ops cut to what the screen can take (:func:`filter_ops_for_screen`).
@@ -878,18 +656,14 @@ def propose_graph_diff(
     ``attempts`` = how many answers may be asked for (``None`` = the usual ``_ATTEMPTS``; the
     aptitude check passes 1: it looks at the very first answer only).
 
-    ``sentences`` (``screen="paper"`` only, 12b) = the paper's sentences ``[{id: "s1", text}]``
-    (numbered by the caller; at most 300). The model answers a relation with the NUMBERS of the
-    sentences it is read from (``evidence``) — the caller draws the quoted text from the store.
-
     Raises :class:`GraphDiffError` when the third answer is also off-shape; provider errors
     propagate (the api maps them to 502)."""
     if screen not in SCREENS:
         raise GraphDiffError(f"screen must be one of {SCREENS}")
     keys = {str(c.get("key")) for c in graph.get("concepts") or []}
-    if screen not in ("theme", "paper"):
+    if screen != "theme":
         keys |= {str(t.get("slug")) for t in existing_terms}
-    schema = graph_diff_json_schema(screen=screen)
+    schema = graph_diff_json_schema()
     system = _system_prompt(screen)
     problem: str | None = None
     previous: str | None = None
@@ -907,15 +681,13 @@ def propose_graph_diff(
             lang=lang,
             problem=problem,
             scope=scope,
-            sentences=sentences,
         )
         if attempt == tries - 1 and previous is not None:
             first = next((str(c.get('key')) for c in graph.get('concepts') or []), '<key>')
-            # 最後の聞き直し: 前の JSON をそのまま直す
-            user += _fix_tail(previous, first, screen=screen)
+            user += _fix_tail(previous, first)  # 最後の聞き直し: 前の JSON をそのまま直す
         text = _complete_guided(client, system, user, schema)
         try:
-            diff = validate_graph_diff(_extract_json_object(text), known_keys=keys, screen=screen)
+            diff = validate_graph_diff(_extract_json_object(text), known_keys=keys)
             return {**diff, "ops": filter_ops_for_screen(diff["ops"], screen)}
         except (GraphDiffError, ThemeDraftError) as exc:
             last = exc if isinstance(exc, GraphDiffError) else GraphDiffError(str(exc))

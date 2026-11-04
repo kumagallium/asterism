@@ -4,8 +4,9 @@
 
 1. 下書きの版 graph の ``doco:Sentence`` を、出現順に ``s1``… の番号つきで並べる（参考文献・
    謝辞の節は除く・上限 150 文。決定論・:func:`read_sentences` / :func:`select_sentences`）。
-2. ``graph_propose``（``screen="paper"``）に番号つきの文・既存の用語・標準の語の名前を渡す。
-   AI は関係ごとに**文の番号**（``evidence``）を選ぶだけで、引用文は書かない。
+2. ``paper_propose`` に番号つきの文・既存の用語の名前を渡す。AI が書くのは「名前 → 関係 →
+   名前＋根拠の文の番号」だけ。用語の鍵・種類・問いは機械が組む（:func:`build_ops` /
+   :func:`add_questions`）。引用文は書かせない。
 3. 機械が確かめる（:func:`check_ops`）— 番号の文が実在する・両端の用語の名前のどれかがその文に
    現れる。合わない関係は落とす。残った関係の ``evidence`` は、**ストアから引いた文**
    （IRI・150 字・節の path）に置き換える（AI の文字列は使わない）。
@@ -24,12 +25,11 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from asterism import chat_sessions, graph_diff, shared_vocab, substrate, themes
 from asterism import documents as doc
+from asterism import graph_diff, shared_vocab, substrate, themes
 from asterism.paper_sections import _heading_key, _is_abstract, _is_conclusion
 from asterism.shared_vocab import SharedTerm
-from asterism_step0.graph_propose import GraphDiffError, propose_graph_diff
-from asterism_step0.theme_propose import ThemeDraftError
+from asterism_step0.paper_propose import PaperProposeError, propose_paper_relations
 
 from asterism_api import chat_seed, chat_turns, registry
 
@@ -71,12 +71,6 @@ _SKIP_TITLE = re.compile(
 _SKIP_ROLES = frozenset({"acknowledgements", "acknowledgments", "bibliography", "references"})
 #: 切るときに優先する役割
 _PREFER_ROLES = frozenset({"results", "discussion", "conclusion", "abstract"})
-
-_ASK = (
-    "Read the numbered sentences of the paper the person attached. Propose the terms, the "
-    "relations between them (each with the numbers of the sentences that state it) and the "
-    "questions the paper could answer."
-)
 
 _T: dict[str, dict[str, str]] = {
     "ja": {
@@ -397,25 +391,182 @@ def prune_unlinked(ops: list[dict]) -> tuple[list[dict], int]:
 # ---- 提案を作る（AI の往復・ロックの外） ------------------------------------------------------
 
 
-def _context(
-    session: dict, root: Any, existing: list[SharedTerm]
-) -> tuple[dict, list[dict], list[dict]]:
-    """AI に見せる図 → ``(graph, standards, 概念の行)``。下書きがあればそれ・無くて確認済みの
-    テーマがあればその種・どちらも無ければ空（``prepare_text_turn`` と同じ順）。"""
-    draft = themes.load_draft(root, session["draft_id"]) if session.get("draft_id") else None
-    if draft is not None:
-        graph, standards = chat_turns.theme_context(draft)
-        return graph, standards, list(draft.get("concepts") or [])
-    theme = chat_turns._theme_of(session, root)
-    if theme is not None:
-        seed = chat_seed.seed_from_theme(root, existing, theme)
-        graph, standards = chat_turns.theme_context(seed)
-        return graph, standards, list(seed.get("concepts") or [])
-    return (
-        {"concepts": [], "relations": [], "questions": []},
-        themes.default_standards([]),
-        [],
-    )
+_Q_MAX = 5
+_FACTOR_DIR = {"lowers": "lowers", "raises": "raises", "affects": "affects"}
+_Q_TEXT = {
+    "ja": {
+        "part": "{to} の一部は？",
+        "sub": "{to} の種類は？",
+        "lowers": "{to} を下げるものは？",
+        "raises": "{to} を上げるものは？",
+        "affects": "{to} を変えるものは？",
+    },
+    "en": {
+        "part": "What are the parts of {to}?",
+        "sub": "What are the kinds of {to}?",
+        "lowers": "What lowers {to}?",
+        "raises": "What raises {to}?",
+        "affects": "What changes {to}?",
+    },
+}
+
+
+def _singular(w: str) -> str:
+    if w.endswith("ies") and len(w) > 4:
+        return w[:-3] + "y"
+    if re.search(r"(sses|xes|ches|shes|zes)$", w):
+        return w[:-2]
+    if w.endswith("s") and not re.search(r"(ss|us|is)$", w) and len(w) > 3:
+        return w[:-1]
+    return w
+
+
+def term_key(name: str) -> str:
+    """名前を 1 つの用語にまとめるための鍵: 大文字小文字・全角半角・空白・ハイフンを揃え、英語の
+    語は単数形に寄せる。"""
+    return " ".join(_singular(w) for w in prep_text(name).split(" "))
+
+
+def _is_japanese(name: str) -> bool:
+    return any(ord(c) >= _CJK_FROM for c in name)
+
+
+def build_ops(
+    relations: list[dict], existing: list[SharedTerm]
+) -> tuple[list[dict], int]:
+    """AI の関係（``from``/``to``/``rel``/``evidence``）→ 差分の ops と、落とした関係の数。決定論。
+
+    - 名前を :func:`term_key` で 1 つの用語にまとめる（既存の用語の名前・別名に当たれば
+      ``use: existing:<slug>`` とその種類）。標準の語は、適用の段の照合が当てる。
+    - 種類: ``lowers``/``raises``/``affects`` の相手（to）= ``property``、それ以外 = ``class``。
+      既存の用語は既存の種類。食い違う関係（``part``/``sub`` の両端の種類が違う・相手が class の
+      ``lowers`` 系）は落とす。
+    - 鍵は ``n1``… を出てきた順に振る。``add_concept`` → ``add_relation`` の順。問いは含めない。"""
+    by_name: dict[str, SharedTerm] = {}
+    for t in sorted(existing, key=lambda x: x.slug):
+        for nm in (t.label, t.label_en, *t.aliases):
+            if nm:
+                by_name.setdefault(term_key(nm), t)
+    terms: dict[str, dict] = {}  # 用語の鍵 → {en, ja, aliases, kind, existing}
+
+    def end(name: str, ja: str | None) -> str:
+        k = term_key(name)
+        hit = by_name.get(k) or (by_name.get(term_key(ja)) if ja else None)
+        if hit is not None:
+            k = f"existing:{hit.slug}"  # 英語名と日本語名で書かれても同じ既存の用語
+        t = terms.get(k)
+        if t is None:
+            t = terms[k] = {
+                "en": "" if _is_japanese(name) else name,
+                "ja": name if _is_japanese(name) else (ja or name),
+                "aliases": [],
+                "kind": None,
+                "existing": hit,
+            }
+        elif name not in (t["en"], t["ja"]) and name not in t["aliases"]:
+            t["aliases"].append(name)  # 単数・複数など、同じ用語の別の書き方
+        return k
+
+    pairs = [(end(r["from"], r.get("from_ja")), end(r["to"], r.get("to_ja")), r) for r in relations]
+    for _f, to, r in pairs:  # 種類: 相手になった用語は property
+        if r["rel"] in _FACTOR_DIR and terms[to]["existing"] is None:
+            terms[to]["kind"] = "property"
+    for t in terms.values():
+        if t["existing"] is not None:
+            t["kind"] = t["existing"].kind
+        elif t["kind"] is None:
+            t["kind"] = "class"
+    dropped = 0
+    kept: list[tuple[str, str, dict]] = []
+    for f, to, r in pairs:
+        kf, kt = terms[f]["kind"], terms[to]["kind"]
+        same = r["rel"] in ("part", "sub") and kf == kt
+        factor = r["rel"] in _FACTOR_DIR and kt == "property"
+        if f == to or not (same or factor):
+            dropped += 1
+            continue
+        kept.append((f, to, r))
+    keys: dict[str, str] = {}
+    ops: list[dict] = []
+    for f, to, _r in kept:
+        for k in (f, to):
+            if k not in keys:
+                keys[k] = f"n{len(keys) + 1}"
+                t = terms[k]
+                ops.append(
+                    {
+                        "op": "add_concept", "key": keys[k], "label_ja": t["ja"],
+                        "label_en": t["en"], "aliases": t["aliases"][:12], "kind": t["kind"],
+                        "use": f"existing:{t['existing'].slug}" if t["existing"] else "new",
+                        "reason": "",
+                    }
+                )  # fmt: skip
+    for f, to, r in kept:
+        ops.append(
+            {
+                "op": "add_relation", "from": keys[f], "rel": r["rel"], "to": keys[to],
+                "evidence": list(r["evidence"]), "reason": "",
+            }
+        )  # fmt: skip
+    return ops, dropped
+
+
+def add_questions(ops: list[dict], lang: str) -> tuple[list[dict], int]:
+    """残った関係から問いを機械が組んで ops の末尾に足す → ``(ops, 5 つを超えて落とした関係の数)``。
+
+    相手（to）ごとの問い（part → 一部・sub → 種類・lowers/raises/affects → 下げる／上げる／
+    変えるもの）。関係を向きなしの網として、新しい用語を含む連結成分ごとに、相手の多い用語の問いを
+    1 つ選ぶ（= 全部の用語が問いの対象から関係でたどれる最小の数）。最大 5。5 を超える成分の
+    関係は落とす（用語は ``prune_unlinked`` 相当で残らない）。"""
+    lg = "en" if lang == "en" else "ja"
+    rels = [o for o in ops if o.get("op") == "add_relation"]
+    concepts = {str(o["key"]): o for o in ops if o.get("op") == "add_concept"}
+    parent: dict[str, str] = {k: k for k in concepts}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for r in rels:
+        parent[find(str(r["from"]))] = find(str(r["to"]))
+    comps: dict[str, list[dict]] = {}
+    for r in rels:
+        comps.setdefault(find(str(r["from"])), []).append(r)
+    chosen: list[dict] = []
+    for members in sorted(comps.values(), key=len, reverse=True):
+        if not any(str(c["use"]) == "new" for k, c in concepts.items()
+                   if find(k) == find(str(members[0]["from"]))):  # fmt: skip
+            continue  # 既存の用語だけの成分は、承認に問いを要らない
+        incoming: dict[str, int] = {}
+        for r in members:
+            incoming[str(r["to"])] = incoming.get(str(r["to"]), 0) + 1
+        target = max(incoming, key=lambda k: (incoming[k], -int(k[1:])))
+        chosen.append(next(r for r in members if str(r["to"]) == target))
+    dropped = 0
+    if len(chosen) > _Q_MAX:
+        left = {find(str(r["from"])) for r in chosen[_Q_MAX:]}
+        chosen = chosen[:_Q_MAX]
+        before = len(rels)
+        ops = [o for o in ops if o.get("op") != "add_relation" or find(str(o["from"])) not in left]
+        dropped = before - sum(1 for o in ops if o.get("op") == "add_relation")
+    questions = []
+    for r in chosen:
+        tgt = concepts[str(r["to"])]
+        name = (tgt["label_en"] or tgt["label_ja"]) if lg == "en" else tgt["label_ja"]
+        rel = str(r["rel"])
+        questions.append(
+            {
+                "op": "add_question", "question": _Q_TEXT[lg][rel].format(to=name),
+                "mode": "knowledge",
+                "op_kind": "parts" if rel == "part" else "kinds" if rel == "sub" else "factors",
+                "target": str(r["to"]), "direction": _FACTOR_DIR.get(rel),
+                "kind": None, "property": None, "value": "", "match": None, "property2": None,
+                "kind2": None, "wanted_data": "", "reason": "",
+            }
+        )  # fmt: skip
+    return [*ops, *questions], dropped
 
 
 async def make_proposal(
@@ -436,46 +587,32 @@ async def make_proposal(
         if not rows:
             return {"ok": False}
         existing = await shared_vocab._read_terms(app.state.client)
-        lock: asyncio.Lock = app.state.themes_lock
-        async with lock:
-            session = chat_sessions.load_session(cfg.registry_root, session_id)
-            if session is None:
-                return {"ok": False}
-            graph, standards, concepts = _context(session, cfg.registry_root, existing)
-        terms = [
-            {"slug": t.slug, "label_ja": t.label, "label_en": t.label_en or "", "kind": t.kind}
-            for t in existing
-        ]
+        terms = [{"label_ja": t.label, "label_en": t.label_en or ""} for t in existing]
         value = await asyncio.to_thread(
-            propose_graph_diff,
+            propose_paper_relations,
             llm,
-            screen="paper",
-            graph=graph,
-            existing_terms=terms,
-            standards=standards,
-            columns=None,
-            messages=[],
-            message=_ASK,
-            lang=lang,
-            sentences=[{"id": r["id"], "text": r["text"]} for r in rows],
+            [{"id": r["id"], "text": r["text"]} for r in rows],
+            terms,
+            lang,
         )
         if on_usage is not None:
             try:
                 await asyncio.to_thread(on_usage)
             except Exception:
                 logger.warning("paper propose: usage not recorded", exc_info=True)
+        ops, shape_gone = build_ops(value.get("relations") or [], existing)
         ops, dropped = check_ops(
-            value.get("ops") or [],
-            concepts=concepts,
-            existing=existing,
-            by_id={r["id"]: r for r in rows},
+            ops, concepts=[], existing=existing, by_id={r["id"]: r for r in rows}
         )
         ops, terms_dropped = prune_unlinked(ops)
+        ops, uncovered = add_questions(ops, lang)
+        ops, more_terms = prune_unlinked(ops)
         return {
-            "ok": True, "ops": ops, "dropped": dropped, "truncated": truncated,
-            "terms_dropped": terms_dropped, "shape_dropped": int(value.get("shape_dropped") or 0),
+            "ok": True, "ops": ops, "dropped": dropped + shape_gone + uncovered,
+            "truncated": truncated, "terms_dropped": terms_dropped + more_terms,
+            "shape_dropped": int(value.get("shape_dropped") or 0),
         }  # fmt: skip
-    except (GraphDiffError, ThemeDraftError) as exc:
+    except PaperProposeError as exc:
         logger.warning("paper propose: shape refused: %s", exc)
     except Exception:
         logger.warning("paper propose failed", exc_info=True)

@@ -205,6 +205,96 @@ def test_check_ops_uses_the_store_names_and_aliases_of_existing_terms() -> None:
     assert dropped == 0
 
 
+def _r(frm: str, rel: str, to: str, ev: str = "s1", **ja: str) -> dict:
+    return {"from": frm, "from_ja": ja.get("f"), "rel": rel, "to": to, "to_ja": ja.get("t"),
+            "evidence": [ev]}  # fmt: skip
+
+
+def test_build_ops_merges_names_infers_kinds_and_drops_conflicts() -> None:
+    rels = [
+        _r("Grain boundary", "lowers", "thermal conductivity", f="粒界", t="熱伝導率"),
+        _r("grain  boundaries", "affects", "Figure-of-Merit"),  # 大文字小文字・空白・単数複数
+        _r("thermal conductivity", "affects", "figure of merit"),
+        _r("heat", "part", "figure of merit"),  # part の両端の種類が違う（class と property）
+        _r("heat", "sub", "heat"),  # 自分自身
+    ]
+    ops, dropped = chat_paper.build_ops(rels, [])
+    concepts = {o["key"]: o for o in ops if o["op"] == "add_concept"}
+    assert [(c["label_en"], c["label_ja"], c["kind"]) for c in concepts.values()] == [
+        ("Grain boundary", "粒界", "class"),
+        ("thermal conductivity", "熱伝導率", "property"),
+        ("Figure-of-Merit", "Figure-of-Merit", "property"),
+    ]
+    assert concepts["n1"]["aliases"] == ["grain  boundaries"]
+    rel_ops = [o for o in ops if o["op"] == "add_relation"]
+    assert [(o["from"], o["rel"], o["to"]) for o in rel_ops] == [
+        ("n1", "lowers", "n2"), ("n1", "affects", "n3"), ("n2", "affects", "n3"),
+    ]  # fmt: skip
+    assert dropped == 2 and all(o["evidence"] == ["s1"] for o in rel_ops)
+
+
+def test_build_ops_uses_existing_terms_by_name_or_alias_and_keeps_their_kind() -> None:
+    existing = [_term("zt", "性能指数", "figure of merit", "property", aliases=("ZT value",))]
+    rels = [
+        _r("Seebeck coefficient", "raises", "ZT values"),  # 別名（単数複数の違い）
+        _r("figure of merit", "sub", "性能指数"),  # 同じ既存の用語どうし → 自分自身で落ちる
+        _r("sample", "part", "figure of merit"),  # 既存は property・sample は class → 落ちる
+    ]
+    ops, dropped = chat_paper.build_ops(rels, existing)
+    by = {o["label_en"] or o["label_ja"]: o for o in ops if o["op"] == "add_concept"}
+    assert by["ZT values"]["use"] == "existing:zt" and by["ZT values"]["kind"] == "property"
+    assert by["Seebeck coefficient"]["use"] == "new"
+    assert dropped == 2 and "sample" not in by
+
+
+def _chain_ops(n_components: int, lang: str = "ja") -> tuple[list[dict], int]:
+    rels = []
+    for i in range(n_components):  # 成分ごとに 2 本（a_i, b_i → t_i）
+        rels += [_r(f"a{i} term", "lowers", f"t{i} term"), _r(f"b{i} term", "lowers", f"t{i} term")]
+    ops, _ = chat_paper.build_ops(rels, [])
+    return chat_paper.add_questions(ops, lang)
+
+
+def test_questions_are_the_fewest_that_reach_every_term_and_at_most_five() -> None:
+    ops, dropped = _chain_ops(1)
+    qs = [o for o in ops if o["op"] == "add_question"]
+    assert dropped == 0 and len(qs) == 1  # 1 つの網には問い 1 つ
+    assert qs[0]["target"] == "n2" and qs[0]["op_kind"] == "factors"
+    assert qs[0]["direction"] == "lowers" and qs[0]["question"] == "t0 term を下げるものは？"
+    ops, dropped = _chain_ops(7)  # 7 つの網 → 問いは 5 つまで・残りの網の関係は落とす
+    qs = [o for o in ops if o["op"] == "add_question"]
+    assert len(qs) == 5 and dropped == 4
+    assert len([o for o in ops if o["op"] == "add_relation"]) == 10
+    # すべての問いが、残った用語から関係でたどれる（問いに入らない網の用語は prune される）
+    kept, _ = chat_paper.prune_unlinked(ops)
+    assert len([o for o in kept if o["op"] == "add_concept"]) == 15
+
+
+def test_questions_follow_the_relation_kind_in_japanese_and_english() -> None:
+    cases = {
+        "part": ("{} の一部は？", "What are the parts of {}?", "parts", None),
+        "sub": ("{} の種類は？", "What are the kinds of {}?", "kinds", None),
+        "lowers": ("{} を下げるものは？", "What lowers {}?", "factors", "lowers"),
+        "raises": ("{} を上げるものは？", "What raises {}?", "factors", "raises"),
+        "affects": ("{} を変えるものは？", "What changes {}?", "factors", "affects"),
+    }
+    for rel, (ja, en, kind, direction) in cases.items():
+        prop = rel in ("lowers", "raises", "affects")
+        a, b = ("quantity a", "quantity b") if prop else ("thing a", "thing b")
+        for lang, want in (("ja", ja), ("en", en)):
+            base, _ = chat_paper.build_ops([_r(a, rel, b, f="甲", t="乙")], [])
+            made = chat_paper.add_questions(base, lang)[0]
+            q = next(o for o in made if o["op"] == "add_question")
+            assert q["question"] == want.format("乙" if lang == "ja" else b)
+            assert (q["mode"], q["op_kind"], q["direction"]) == ("knowledge", kind, direction)
+
+
+def test_a_net_of_existing_terms_only_needs_no_question() -> None:
+    existing = [_term("a", "甲", "alpha", "class"), _term("b", "乙", "beta", "class")]
+    ops, _ = chat_paper.build_ops([_r("alpha", "part", "beta")], existing)
+    assert [o for o in chat_paper.add_questions(ops, "ja")[0] if o["op"] == "add_question"] == []
+
+
 # ---- 走者・承認・取り消し（本物のストア＋AI のスタブ） --------------------------------------
 
 
@@ -213,47 +303,45 @@ def _add_concept(key: str, ja: str, en: str, kind: str, **kw: Any) -> dict:
             "kind": kind, "use": "new", "reason": "本文にある", **kw}  # fmt: skip
 
 
-def _answer(sentences: dict[str, str], *, ask: bool = True) -> dict:
-    """スタブの答え。実物の論文（PMC5951533）の文の語から作る。"""
-    ops: list[dict] = [
-        _add_concept("n1", "粒界と相の境界", "grain and phase boundaries", "class"),
-        _add_concept("n2", "熱伝導率", "thermal conductivity", "property"),
-        _add_concept("n3", "ゼーベック係数", "Seebeck coefficient", "property"),
-        _add_concept("n4", "性能指数", "figure of merit", "property"),
-        {"op": "add_relation", "from": "n1", "rel": "lowers", "to": "n2",
-         "evidence": [sentences["boundary"]], "reason": "散乱で下がる"},
-        {"op": "add_relation", "from": "n2", "rel": "affects", "to": "n4",
-         "evidence": [sentences["seebeck"]], "reason": "低い熱伝導率が効く"},
-        {"op": "add_relation", "from": "n3", "rel": "raises", "to": "n4",
-         "evidence": [sentences["seebeck"]], "reason": "支配的"},
-        {"op": "add_relation", "from": "n1", "rel": "affects", "to": "n4",
-         "evidence": [sentences["seebeck"]], "reason": "粒界はその文に無い"},  # 落ちる（名前）
-        {"op": "add_relation", "from": "n3", "rel": "affects", "to": "n2",
-         "evidence": ["s9999"], "reason": "番号が無い"},  # 落ちる（番号）
-    ]  # fmt: skip
-    if ask:
-        ops.append({"op": "add_question", "question": "格子熱伝導率を下げる要因は？",
-                    "mode": "knowledge", "op_kind": "factors", "target": "n2",
-                    "direction": "lowers", "reason": ""})  # fmt: skip
-    return {"reply": "AI の地の文（保存しない）", "ops": ops}
+def _rel(frm: str, frm_ja: str | None, rel: str, to: str, to_ja: str | None, *ev: str) -> dict:
+    return {"from": frm, "from_ja": frm_ja, "rel": rel, "to": to, "to_ja": to_ja,
+            "evidence": list(ev)}  # fmt: skip
+
+
+def _answer(sentences: dict[str, str], *, orphan: bool = False) -> dict:
+    """スタブの答え（AI は名前 → 関係 → 名前＋根拠の番号だけ）。実物の論文（PMC5951533）の語。"""
+    b, z = sentences["boundary"], sentences["seebeck"]
+    rels = [
+        _rel("grain and phase boundaries", "粒界と相の境界", "lowers",
+             "thermal conductivity", "熱伝導率", b),
+        _rel("thermal conductivity", "熱伝導率", "affects", "figure of merit", "性能指数", z),
+        _rel("Seebeck coefficients", "ゼーベック係数", "raises", "figure of merit", None, z),
+        # 落ちる関係: 粒界はその文に無い／番号の文が無い
+        _rel("grain and phase boundaries", None, "affects", "figure of merit", None, z),
+        _rel("Seebeck coefficient", None, "affects", "thermal conductivity", None, "s9999"),
+    ]
+    if orphan:  # この関係だけに出る用語は、関係が落ちると孤立する
+        rels.append(_rel("resistivity", "電気抵抗率", "affects", "Seebeck coefficient", None,
+                         "s9999"))
+    return {"relations": rels}
 
 
 class _PaperLLM:
-    """論文の提案の呼び出し（graph_propose）だけに答えるスタブ。"""
+    """論文の提案の呼び出し（paper_propose）だけに答えるスタブ。"""
 
     def __init__(self, numbers: dict[str, str] | None = None, *, fail: bool = False,
-                 ask: bool = True) -> None:  # fmt: skip
+                 orphan: bool = False) -> None:  # fmt: skip
         self.numbers = numbers
         self.fail = fail
-        self.ask = ask
+        self.orphan = orphan
         self.users: list[str] = []
 
     def complete(self, system: str, user: str) -> str:
-        assert "numbered SENTENCES" in system, system[:80]
+        assert "RELATIONS" in system, system[:80]
         self.users.append(user)
         if self.fail:
             raise RuntimeError("AI down")
-        return json.dumps(_answer(self.numbers or {}, ask=self.ask), ensure_ascii=False)
+        return json.dumps(_answer(self.numbers or {}, orphan=self.orphan), ensure_ascii=False)
 
 
 def _numbers(user: str) -> dict[str, str]:
@@ -320,10 +408,10 @@ def test_a_paper_with_an_ai_proposes_terms_relations_and_questions_with_evidence
         draft = themes.load_draft(tmp_path / "registry", session["draft_id"])
         assert draft is not None and len(draft["concepts"]) == 4
         assert all(r["evidence"] and r["by"] == "ai" for r in draft["relations"])
-        assert draft["questions"] == ["格子熱伝導率を下げる要因は？"]
+        assert draft["questions"] == ["性能指数 を変えるものは？"]
         assert turn["paper"] == {
             "draft_id": draft["id"], "created": True, "promoted": False,
-            "concepts": ["n1", "n2", "n3", "n4"], "questions": ["格子熱伝導率を下げる要因は？"],
+            "concepts": ["n1", "n2", "n3", "n4"], "questions": ["性能指数 を変えるものは？"],
         }  # fmt: skip
         assert turn["before"] is None
         # AI に渡ったのは番号つきの文（参考文献・謝辞は除く）
@@ -484,49 +572,45 @@ def test_an_ai_that_fails_leaves_the_paper_with_a_note(tmp_path: Path) -> None:
 def test_a_proposal_that_cannot_be_confirmed_is_not_shown_and_the_paper_is_attached_alone(
     tmp_path: Path,
 ) -> None:
-    """答え方の決まった問いが無いと ``commit_theme`` は断る。提案の時点で同じ検査（書かずに）を
-    走らせ、通らなければ提案を出さず論文だけにする。承認は 12a のとおり公開だけ。"""
-    class _NoAsk(_TwoStep):
-        def __init__(self) -> None:
-            super().__init__(ask=False)
-
-    app, _ = _app(tmp_path, _NoAsk())
+    """下書きがすでに承認できない形（孤立した用語）だと、``commit_theme`` と同じ検査（書かずに）が
+    断る。提案を出さず論文だけにする。承認は 12a のとおり公開だけ。"""
+    app, _ = _app(tmp_path, _TwoStep())
     with TestClient(app, headers=_AUTH) as client:
         sid = _new(client)
+        root = tmp_path / "registry"
+        at = "2026-11-04T00:00:00+00:00"
+        made = themes.create_draft(root, "熱", ["熱を下げるものは？"], at=at)
+        row = {"key": "h1", "label_ja": "孤立", "label_en": "", "aliases": [], "kind": "class",
+               "use": "new", "slug": "", "reason": "", "match": None, "by": "human"}  # fmt: skip
+        base = themes.save_draft(root, {**made, "step": 2, "concepts": [row]})
+        session = chat_sessions.load_session(root, sid)
+        session["draft_id"] = base["id"]
+        chat_sessions.save_session(root, session)
         turn = _paper(client, sid)
         assert "paper" not in turn and turn["reply"]["ops"] == []
         texts = [n["text"] for n in turn["reply"]["notes"]]
         assert "論文からの提案を、問いにつながる形にできませんでした（論文は添えました）" in texts
-        assert themes.list_drafts(tmp_path / "registry") == []  # 作った下書きは残さない
-        assert chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"] is None
+        assert themes.load_draft(root, base["id"])["concepts"] == [row]  # 下書きは変えない
         r = _confirm(client, sid, turn["id"])
         assert r.status_code == 200 and r.json()["turn"]["state"] == "confirmed"
         dsid = turn["attachment"]["dataset_id"]
-        meta = json.loads((tmp_path / "registry" / dsid / "meta.json").read_text())
-        assert meta["promoted"] is True
+        assert json.loads((root / dsid / "meta.json").read_text())["promoted"] is True
 
 
 def test_a_term_in_no_relation_or_question_is_dropped_from_the_proposal(tmp_path: Path) -> None:
-    class _Orphan(_TwoStep):
-        def complete(self, system: str, user: str) -> str:
-            if self.numbers is None:
-                self.numbers = _numbers(user)
-            out = _answer(self.numbers)
-            out["ops"].append(_add_concept("n9", "孤立した語", "orphan term", "property"))
-            return json.dumps(out, ensure_ascii=False)
-
-    app, _ = _app(tmp_path, _Orphan())
+    app, _ = _app(tmp_path, _TwoStep(orphan=True))
     with TestClient(app, headers=_AUTH) as client:
         sid = _new(client)
         turn = _paper(client, sid)
         texts = [n["text"] for n in turn["reply"]["notes"]]
         assert "どの関係にも問いにも出ない用語を 1 件除きました" in texts
+        assert "根拠の文が合わない関係を 3 件除きました" in texts
         assert "用語 4・関係 3・問い 1" in turn["reply"]["text"]
         draft = themes.load_draft(
             tmp_path / "registry",
             chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"],
         )
-        assert "孤立した語" not in [c["label_ja"] for c in draft["concepts"]]
+        assert "電気抵抗率" not in [c["label_ja"] for c in draft["concepts"]]
         assert _confirm(client, sid, turn["id"]).json()["turn"]["state"] == "confirmed"
 
 
@@ -635,7 +719,7 @@ def test_the_one_row_approval_skips_the_unpublished_paper_s_rows_only(
     monkeypatch.setattr(chat_paper, "select_sentences", wide)
 
     class _Seq(_TwoStep):
-        """1 回目 = いつもの答え・2 回目 = 別の 1 語と 1 本の関係。"""
+        """1 回目 = いつもの答え・2 回目 = 別の 1 語から、承認済みの用語への 1 本の関係。"""
 
         def complete(self, system: str, user: str) -> str:
             if self.users:
@@ -646,13 +730,10 @@ def test_the_one_row_approval_skips_the_unpublished_paper_s_rows_only(
                     if m
                 }
                 num = next(k for k, v in rows.items() if "the specific heat capacity" in v)
-                known = re.search(r"^- (\S+) \| 熱伝導率 \|", user, re.M)
-                assert known, user  # 1 回目で承認した用語が、種として図に載っている
-                return json.dumps({"reply": "", "ops": [
-                    _add_concept("n1", "比熱", "specific heat capacity", "property"),
-                    {"op": "add_relation", "from": "n1", "rel": "affects", "to": known[1],
-                     "evidence": [num], "reason": "式に出る"},
-                ]}, ensure_ascii=False)  # fmt: skip
+                assert "熱伝導率 | thermal conductivity" in user  # 1 回目で承認した用語の名前
+                rel = _rel("specific heat capacity", "比熱", "affects",
+                           "thermal conductivity", None, num)  # fmt: skip
+                return json.dumps({"relations": [rel]}, ensure_ascii=False)
             return super().complete(system, user)
 
     app, _ = _app(tmp_path, _Seq())
