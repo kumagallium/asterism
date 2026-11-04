@@ -431,6 +431,20 @@ def test_sentences_use_the_screens_wording_in_both_languages() -> None:
         [{"op": "bind_column", "column": "kappa", "to": "c1", "rel": "eq", "reason": ""}], graph
     )
     assert cols == ["列「kappa」 と 熱伝導率 は同じもの"]
+    # 既存の用語・標準の語を使う add_concept は「追加」と言わない（12b）
+    use = [
+        {"op": "add_concept", "key": "n2", "label_ja": "材料", "label_en": "material",
+         "aliases": [], "kind": "class", "use": "existing:material", "reason": ""},
+        {"op": "add_concept", "key": "n3", "label_ja": "熱伝導率",
+         "label_en": "thermal conductivity", "aliases": [], "kind": "property",
+         "use": "standard:quantitykind:ThermalConductivity",
+         "reason": ""},
+    ]  # fmt: skip
+    assert gd.ops_to_sentences(use, graph, "ja") == [
+        "既存の用語「材料」を使う",
+        "標準の語「熱伝導率」を使う",
+    ]
+    assert gd.ops_to_sentences(use, graph, "en")[0] == "Use the existing term material"
 
 
 def test_dismissal_keys_name_concepts_and_both_ends_of_a_line() -> None:
