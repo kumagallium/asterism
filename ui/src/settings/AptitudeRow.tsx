@@ -40,11 +40,32 @@ export function AptitudeView({ result }: { result: AptitudeResult | null }) {
       </span>
     )
   }
+  const roles = result.roles
+  const hint = roles
+    ? roles.make !== 'good' && roles.answer === 'good'
+      ? 'answerOnlyHint'
+      : roles.answer === 'limited'
+        ? limitedHintKey(result)
+        : null
+    : result.verdict === 'limited'
+      ? limitedHintKey(result)
+      : null
   return (
     <div className="aptitude-view">
-      <span className={verdictClass(result.verdict)} data-testid="aptitude-badge">
-        {t(`aptitude.verdict.${result.verdict}`)}
-      </span>
+      {roles ? (
+        (['make', 'answer'] as const).map((role) => (
+          <span key={role} className={verdictClass(roles[role])} data-testid={`aptitude-badge-${role}`}>
+            {t('aptitude.roleVerdict', {
+              role: t(`aptitude.role.${role}`),
+              verdict: t(`aptitude.verdict.${roles[role]}`),
+            })}
+          </span>
+        ))
+      ) : (
+        <span className={verdictClass(result.verdict)} data-testid="aptitude-badge">
+          {t(`aptitude.verdict.${result.verdict}`)}
+        </span>
+      )}
       <span className="aptitude-rates" data-testid="aptitude-rates">
         {t('aptitude.rates', {
           shape: pct(result.shape),
@@ -52,7 +73,7 @@ export function AptitudeView({ result }: { result: AptitudeResult | null }) {
           scope: pct(result.scope),
         })}
       </span>
-      {result.verdict === 'limited' && <p className="field-help">{t(`aptitude.${limitedHintKey(result)}`)}</p>}
+      {hint && <p className="field-help">{t(`aptitude.${hint}`)}</p>}
       {result.failed.length > 0 && (
         <>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => setOpen(!open)}>

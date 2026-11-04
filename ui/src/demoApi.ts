@@ -19,7 +19,7 @@
 // The mock fixtures mirror the contract samples in the demo handoff.
 
 import i18n from './i18n'
-import { type LlmCredentials, llmHeaders } from './settings/store'
+import { answerCredentials, type LlmCredentials, llmHeaders } from './settings/store'
 
 // ---- contract types (§3) -------------------------------------------------
 
@@ -356,7 +356,8 @@ export async function ask(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...llmHeaders(creds ?? null),
+      // Ask は「答える AI」（design §21）。demo-agent は役割を知らないので、その組だけを送る
+      ...llmHeaders(answerCredentials(creds ?? null)),
     },
     body: JSON.stringify(
       history.length > 0 ? { question, history, language } : { question, language },

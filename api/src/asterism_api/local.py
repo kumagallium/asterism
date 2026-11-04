@@ -65,6 +65,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
 from asterism_api import appdata, demo_sample, exchange, registry
+from asterism_api.llm_roles import PLAIN_HEADERS, answer_headers
 from asterism_api.mcp_mount import MCP_PATH, attach_mcp
 
 if TYPE_CHECKING:
@@ -590,8 +591,10 @@ def create_demo_relay(demo_base_url: str, client: httpx.AsyncClient | None = Non
         headers = {
             name: value
             for name, value in request.headers.items()
-            if name.lower() in _DEMO_FORWARD_HEADERS
+            if name.lower() in _DEMO_FORWARD_HEADERS and name.lower() not in PLAIN_HEADERS
         }
+        # Ask は「答える AI」（design §21）。その組を X-LLM-* に畳んで渡す
+        headers.update(answer_headers(request.headers))
         body = await request.body()
         try:
             upstream = await http.request(

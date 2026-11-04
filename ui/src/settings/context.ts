@@ -15,6 +15,8 @@ export interface LlmSettings {
   models: LlmModelConfig[]
   activeModelId: string | null
   activeModel: LlmModelConfig | null
+  /** 「答える AI」のモデル（design §21）。null＝「作る AI」（activeModel）と同じ。 */
+  answerModelId: string | null
   /** The active model + its key, or null when nothing usable is configured. */
   getActiveCredentials: () => LlmCredentials | null
   /** True when AI calls can go out: a registered model with a key (typed here
@@ -40,6 +42,8 @@ export interface LlmSettings {
   /** Re-fetch the server-side key providers (after setting/clearing one). */
   refreshServerKeys: () => void
   setActiveModel: (id: string) => void
+  /** null＝作る AI と同じ。 */
+  setAnswerModel: (id: string | null) => void
   addModel: (m: LlmModelConfig) => void
   updateModel: (id: string, patch: Partial<Omit<LlmModelConfig, 'id'>>) => void
   removeModel: (id: string) => void
