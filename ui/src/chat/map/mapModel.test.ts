@@ -80,6 +80,15 @@ describe('buildMapGraph', () => {
     expect(g.hasNode(draftNodeId('d1', 'e1'))).toBe(false)
   })
 
+  it('論文は種類が無くてもデータセットの丸を描き、種類の無いふつうのデータセットは描かない', () => {
+    const paper: SkyDataset = { id: 'p1', label: '論文', created_at: '2026-03-01', kinds: [], document: true }
+    const empty: SkyDataset = { id: 'e1', label: '空', created_at: '2026-03-02', kinds: [] }
+    const g2 = buildMapGraph({ ...EMPTY_SKY, datasets: [paper, empty] }, [], [], 'ja')
+    expect(g2.hasNode(datasetNodeId('p1'))).toBe(true)
+    expect(g2.hasNode(datasetNodeId('e1'))).toBe(false)
+    expect(g2.order).toBe(1)
+  })
+
   it('線は二重に張らず、薄い提案は本物と同じ関係なら張らない', () => {
     const kinds: Record<string, number> = {}
     g.forEachEdge((_e, a) => (kinds[a.kind] = (kinds[a.kind] ?? 0) + 1))

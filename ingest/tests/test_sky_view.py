@@ -414,6 +414,32 @@ async def test_unpublished_and_retracted_datasets_are_not_listed(tmp_path: Path)
     assert [d["id"] for d in out["datasets"]] == ["wx-a", "wy-b"]
 
 
+async def test_a_paper_is_one_dataset_point_without_its_structure_kinds(tmp_path: Path) -> None:
+    client, root = await _world(tmp_path)
+    _meta(
+        root,
+        "paper-x",
+        name="論文",
+        promoted=True,
+        source_kind="xml",
+        created_at="2026-10-09T00:00:00Z",
+    )
+    await _publish(
+        client,
+        "paper-x",
+        "@prefix doco: <http://purl.org/spar/doco/> .\n"
+        "r:s-1 a doco:Sentence .\nr:sec-1 a doco:Section .\n",
+    )
+    out = await sky_view(client, root)
+    paper = next(d for d in out["datasets"] if d["id"] == "paper-x")
+    assert paper["kinds"] == []  # 構造の種類は点にしない
+    assert paper["document"] is True  # 点は描く（種類が無くても論文の灰の点）
+    assert all("document" not in d for d in out["datasets"] if d["id"] != "paper-x")
+    iris = {k["iri"] for d in out["datasets"] for k in d["kinds"]}
+    assert not any(i.startswith("http://purl.org/spar/doco/") for i in iris)
+    assert out["facts"]["datasets"] == 3
+
+
 async def test_published_graphs_skips_graphs_of_retracted_datasets(tmp_path: Path) -> None:
     client, root = await _world(tmp_path)
     before = (await sky_view(client, root))["facts"]["published_graphs"]

@@ -136,7 +136,7 @@ _T: dict[str, dict[str, str]] = {
         ),
         "paper_failed": "論文を読み取れませんでした。形式を確かめて、もう一度添えてください。",
         "document_empty": "論文から文を読み取れませんでした（画像だけの PDF などは読めません）",
-        "s_read": "読み取っています",
+        "s_read": "論文を節と文に分けています",
         "paper_reply": (
             "{name} を読み込みました。節 {sections}・文 {sentences}。"
             "承認すると知識グラフに置き、回答で文を引用できるようになります"
@@ -209,7 +209,7 @@ _T: dict[str, dict[str, str]] = {
         "document_empty": (
             "No sentences could be read from the paper (image-only PDFs can't be read)"
         ),
-        "s_read": "Reading the paper",
+        "s_read": "splitting the paper into sections and sentences",
         "paper_reply": (
             "Read {name}. {sections} sections, {sentences} sentences. "
             "Approve to place it in the knowledge graph so answers can quote its sentences"

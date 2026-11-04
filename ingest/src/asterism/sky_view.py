@@ -157,6 +157,8 @@ def _published_datasets(root: Path) -> list[dict[str, Any]]:
                 "label": resolve_dataset_label(root, did),
                 "created_at": created,
                 "promoted_at": str(meta.get("promoted_at") or ""),
+                # 論文（文書型・source_kind=xml）。節・段落・文の構造はデータの種類として出さない
+                "document": str(meta.get("source_kind") or "csv") == "xml",
             }
         )
     out.sort(key=lambda d: (d["created_at"], d["id"]))
@@ -429,6 +431,7 @@ async def sky_view(
     if not published:
         return _empty()  # 公開 0 件: store には問い合わせない
     ds_ids = {d["id"] for d in published}
+    doc_ids = {d["id"] for d in published if d["document"]}
 
     # 公開 graph の数は datasets・kinds と同じ「公開済み」で数える
     # （registry に公開済みの登録がある graph とハブの graph だけ。登録なし・取り下げは数えない）。
@@ -445,6 +448,8 @@ async def sky_view(
     for g in raw_counts.get("graphs", []):
         did = g.get("dataset_id")
         if g.get("hub") or did not in ds_ids:  # ハブ・登録の無い graph は中身として数えない
+            continue
+        if did in doc_ids:  # 論文はデータセットの点だけ（構造の種類は引用で使い、図には出さない）
             continue
         for k in g.get("kinds", []):
             iri = k["class_iri"]
@@ -550,6 +555,7 @@ async def sky_view(
             "id": d["id"],
             "label": d["label"],
             "created_at": d["created_at"],
+            **({"document": True} if d["document"] else {}),
             "kinds": [
                 {
                     "iri": iri,

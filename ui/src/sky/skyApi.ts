@@ -20,6 +20,8 @@ export interface SkyDataset {
   kinds: SkyKind[]
   /** 取り込み済みで未公開（薄く描く）。 */
   proposed?: boolean
+  /** 論文（節・段落・文の構造は種類として来ない）。種類が無くても灰の点を描く。 */
+  document?: boolean
 }
 
 export type SkyRelation = 'subClassOf' | 'equivalentClass' | 'subPropertyOf' | 'equivalentProperty'
