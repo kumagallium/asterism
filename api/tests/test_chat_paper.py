@@ -395,7 +395,7 @@ def test_a_paper_with_an_ai_proposes_terms_relations_and_questions_with_evidence
         rels = [o for o in ops if o["op"] == "add_relation"]
         assert len(rels) == 3 and len(turn["reply"]["sentences"]) == len(ops)
         notes = [n["text"] for n in turn["reply"]["notes"]]
-        assert "根拠の文が合わない関係を 2 件除きました" in notes
+        assert "根拠の文か用語の種類が合わない関係を 2 件除きました" in notes
         # 根拠の文はストアから引いた文（IRI・150 字以内・節の path）。AI の文字列ではない
         for r in rels:
             (ev,) = r["evidence"]
@@ -604,7 +604,7 @@ def test_a_term_in_no_relation_or_question_is_dropped_from_the_proposal(tmp_path
         turn = _paper(client, sid)
         texts = [n["text"] for n in turn["reply"]["notes"]]
         assert "どの関係にも問いにも出ない用語を 1 件除きました" in texts
-        assert "根拠の文が合わない関係を 3 件除きました" in texts
+        assert "根拠の文か用語の種類が合わない関係を 3 件除きました" in texts
         assert "用語 4・関係 3・問い 1" in turn["reply"]["text"]
         draft = themes.load_draft(
             tmp_path / "registry",

@@ -76,7 +76,7 @@ _T: dict[str, dict[str, str]] = {
     "ja": {
         "summary": "用語 {c}・関係 {r}・問い {q} を提案しました。",
         "long": "論文が長いので、{n} 文だけを読みました（要旨・結果・考察・結論を優先）",
-        "evidence_dropped": "根拠の文が合わない関係を {n} 件除きました",
+        "evidence_dropped": "根拠の文か用語の種類が合わない関係を {n} 件除きました",
         "propose_failed": "論文からの提案を作れませんでした（論文は添えました）",
         "commit_failed": "提案は確定できませんでした（論文は公開しました）",
         "terms_dropped": "どの関係にも問いにも出ない用語を {n} 件除きました",
@@ -94,7 +94,7 @@ _T: dict[str, dict[str, str]] = {
             "The paper is long, so only {n} sentences were read "
             "(abstract, results, discussion and conclusion first)"
         ),
-        "evidence_dropped": "Left out {n} relations whose evidence sentences do not fit",
+        "evidence_dropped": "Left out {n} relations whose evidence sentences or term kinds do not fit",
         "propose_failed": "Could not make proposals from the paper (the paper is attached)",
         "commit_failed": "Could not confirm the proposals (the paper was published)",
         "terms_dropped": "Left out {n} terms that appear in no relation or question",
