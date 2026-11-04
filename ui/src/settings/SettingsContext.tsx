@@ -25,6 +25,11 @@ import {
   migrateLegacy,
   saveModelsState,
   setKey as persistKey,
+  withActiveModel,
+  withAddedModel,
+  withoutModel,
+  type LlmModelConfig,
+  type LlmRoleCredentials,
 } from './store'
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -94,6 +99,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     () => state.models.find((m) => m.id === state.activeModelId) ?? null,
     [state.models, state.activeModelId],
   )
+  const answerModel = useMemo(
+    () => state.models.find((m) => m.id === state.answerModelId) ?? null,
+    [state.models, state.answerModelId],
+  )
 
   // With nothing registered, an administrator-configured shared key is enough on
   // its own: the browser sends only the provider (+ the server's own default
@@ -115,6 +124,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<LlmSettings>(() => {
     const hasServerKey = (provider: string) => !!serverKeyProviders[provider]
     const usesServerFallback = !activeModel && fallbackProvider !== null
+    const roleCoords = (m: LlmModelConfig) => ({
+      provider: m.provider,
+      modelId: m.modelId,
+      apiBase: m.apiBase,
+      maxTokens: m.maxTokens ?? null,
+    })
+    const credsOf = (m: LlmModelConfig): LlmRoleCredentials | null => {
+      const apiKey = getKey(groupOfModel(m))
+      // No browser key is OK when the server has one for this provider: send the
+      // other coordinates with an empty key so llmHeaders omits X-API-Key and the
+      // backend falls back to its operator key.
+      if (!isModelReady(m.provider, !!apiKey, hasServerKey(m.provider), copilotAvailable)) return null
+      // Copilot never sends a key (the CLI on this computer is the login).
+      return { ...roleCoords(m), apiKey: providerNeedsKey(m.provider) ? apiKey : '' }
+    }
     const getActiveCredentials = () => {
       if (!activeModel) {
         if (!fallbackProvider) return null
@@ -128,19 +152,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           maxTokens: null,
         }
       }
-      const apiKey = getKey(groupOfModel(activeModel))
-      // No browser key is OK when the server has one for this provider: send the
-      // other coordinates with an empty key so llmHeaders omits X-API-Key and the
-      // backend falls back to its operator key.
-      if (!isModelReady(activeModel.provider, !!apiKey, hasServerKey(activeModel.provider), copilotAvailable)) return null
-      return {
-        provider: activeModel.provider,
-        modelId: activeModel.modelId,
-        apiBase: activeModel.apiBase,
-        // Copilot never sends a key (the CLI on this computer is the login).
-        apiKey: providerNeedsKey(activeModel.provider) ? apiKey : '',
-        maxTokens: activeModel.maxTokens ?? null,
-      }
+      const make = credsOf(activeModel)
+      if (!make) return null
+      // 答える AI が別のモデルなら別の組を足す（design §21）。鍵が無くても作る AI の鍵へは
+      // 落とさない（別の提供元へ作る AI の鍵を送らない）— 空の鍵のまま送り、呼び出しが失敗する。
+      if (!answerModel || answerModel.id === activeModel.id) return make
+      const answer = credsOf(answerModel) ?? { ...roleCoords(answerModel), apiKey: '' }
+      return { ...make, answer }
     }
     const activeHasBrowserKey = !!activeModel && hasKey(groupOfModel(activeModel))
     const activeHasServerKey = !!activeModel && hasServerKey(activeModel.provider)
@@ -149,6 +167,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       models: state.models,
       activeModelId: state.activeModelId,
       activeModel,
+      answerModelId: answerModel && answerModel.id !== state.activeModelId ? answerModel.id : null,
       getActiveCredentials,
       isReady:
         (activeKeyless ? copilotAvailable : activeHasBrowserKey || activeHasServerKey) ||
@@ -161,23 +180,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       hasServerKey,
       copilotAvailable,
       refreshServerKeys,
-      setActiveModel: (id) => persist({ ...state, activeModelId: id }),
-      addModel: (m) =>
-        persist({
-          models: [...state.models, m],
-          activeModelId: state.activeModelId ?? m.id,
-        }),
+      setActiveModel: (id) => persist(withActiveModel(state, id)),
+      setAnswerModel: (id) => persist({ ...state, answerModelId: id }),
+      addModel: (m) => persist(withAddedModel(state, m)),
       updateModel: (id, patch) =>
         persist({
           ...state,
           models: state.models.map((m) => (m.id === id ? { ...m, ...patch } : m)),
         }),
-      removeModel: (id) => {
-        const models = state.models.filter((m) => m.id !== id)
-        const activeModelId =
-          state.activeModelId === id ? (models[0]?.id ?? null) : state.activeModelId
-        persist({ models, activeModelId })
-      },
+      removeModel: (id) => persist(withoutModel(state, id)),
       keyForModel: (m) => getKey(groupOfModel(m)),
       hasKeyForModel: (m) => hasKey(groupOfModel(m)),
       setKeyForModel: (m, apiKey, remember) => {
@@ -196,6 +207,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [
     state,
     activeModel,
+    answerModel,
     persist,
     keysVersion,
     serverKeyProviders,

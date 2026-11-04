@@ -119,8 +119,37 @@
   border-color: var(--primary);
   background: var(--primary-soft);
 }
-.model-pick {
-  padding-top: 2px;
+/* 役割ごとのモデル（design §21） */
+.role-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  margin: 0 0 14px;
+}
+.role-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.role-pick-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+.role-pick select {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+.role-pick select:focus {
+  outline: 2px solid var(--primary-soft);
+  border-color: var(--primary);
 }
 .model-main {
   flex: 1;

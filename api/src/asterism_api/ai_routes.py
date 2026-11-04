@@ -91,4 +91,11 @@ def register_ai(
     async def aptitude_list() -> dict:
         root = cfg.appdata_root
         table = appdata.read_settings(root).get("aptitude") if root is not None else None
-        return {"aptitude": table if isinstance(table, dict) else {}}
+        if not isinstance(table, dict):
+            return {"aptitude": {}}
+        return {
+            "aptitude": {
+                k: ai_aptitude.with_roles(v) if isinstance(v, dict) else v
+                for k, v in table.items()
+            }
+        }

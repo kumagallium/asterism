@@ -27,10 +27,11 @@
     "copilotSubscription": "GitHub Copilot（サブスク・このパソコンのみ）"
   },
   "models": {
-    "intro": "使う AI をここに登録します。選んだ 1 つが、提案・回答・データの取り込みなど、AI を使う全機能で使われます。",
+    "intro": "使う AI をここに登録します。役割ごとに選べます。作る AI は知識グラフや設計の提案、答える AI は回答・振り分け・対象を絞った直しに使います。",
     "empty": "まだ 1 つも登録されていません。",
     "serverConfigured": "このサーバでは AI を設定済みです（{{provider}}）。ここで追加しなくても AI は使えます。",
-    "activeBadge": "使用中",
+    "makeBadge": "作る",
+    "answerBadge": "答える",
     "keySet": "自分のキーで使用",
     "keyServer": "サーバの設定で使用（キー入力は不要）",
     "keyMissing": "キーが必要です",
@@ -39,7 +40,14 @@
     "delete": "削除",
     "confirmDelete": "削除する",
     "add": "追加",
-    "keySubscription": "キー不要（Copilot のプランの枠で使用）"
+    "keySubscription": "キー不要（Copilot のプランの枠で使用）",
+    "roles": {
+      "make": "作る AI",
+      "makeHelp": "知識グラフの提案・論文からの提案・設計。強いモデルを選んでください",
+      "answer": "答える AI",
+      "answerHelp": "回答・振り分け・対象を絞った直し。弱いモデルでも足ります",
+      "same": "作る AI と同じ"
+    }
   },
   "form": {
     "addTitle": "モデルを追加",
@@ -296,7 +304,13 @@
       "chat": "会話",
       "ask": "回答",
       "propose": "提案"
-    }
+    },
+    "role": {
+      "make": "作る",
+      "answer": "答える"
+    },
+    "roleVerdict": "{{role}}: {{verdict}}",
+    "answerOnlyHint": "答える AI に向いています。作る AI は別の強いモデルを選ぶと確実です"
   },
   "mcp": {
     "title": "MCP サーバ",
