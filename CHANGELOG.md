@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.62.0](https://github.com/kumagallium/asterism/compare/v0.61.2...v0.62.0) - 2026-11-04
+
+- feat: AI を役割で 2 つに — 作る AI と答える AI by @kumagallium in https://github.com/kumagallium/asterism/pull/776
+- [feat] チャットの 📎 で論文（PDF・Word・JATS XML）を添える（12a） by @kumagallium in https://github.com/kumagallium/asterism/pull/775
+- [feat] 論文から関係と根拠の文を AI が選び、用語・問いを機械が組んで提案する（12b） by @kumagallium in https://github.com/kumagallium/asterism/pull/777
+
 ## [v0.61.2](https://github.com/kumagallium/asterism/compare/v0.61.1...v0.61.2) - 2026-10-26
 
 - feat(mcp): find_datasets に origins（元ファイルと Graphium の素材 ID）を返す by @kumagallium in https://github.com/kumagallium/asterism/pull/769
