@@ -951,6 +951,20 @@ def register_chat(
         before = turn.get("before")
         commit = paper.get("commit")
         if not paper.get("promoted"):
+            draft0 = chat_turns._current_draft(session, root)
+            if draft0 is not None and draft0.get("id") == paper.get("draft_id"):
+                # 公開の前に、確定の検査を書かずに走らせる — 通らないなら論文も公開しない
+                body0 = chat_turns.commit_body(draft0, lang)
+                body0["batch"] = turn["batch"]
+                try:
+                    await themes.check_commit(_client(), root, body0, at=_now())
+                except themes.ThemeError as exc:
+                    turn["reply"]["notes"] = [
+                        *(n for n in turn["reply"].get("notes") or []
+                          if n.get("kind") != "commit_error"),
+                        chat_turns.note("commit_error", str(exc)),
+                    ]  # fmt: skip
+                    return turn, None, None, _save_after_confirm(session, None, lang)
             try:
                 turn, commit, _ = await chat_attach.confirm_attach(
                     app, cfg, session, turn, lang=lang, decisions=decisions,
@@ -1173,6 +1187,29 @@ def register_chat(
                                 )
                             except chat_turns.TurnRefused as exc:
                                 raise _refused(exc) from exc
+                            if target["paper"].get("promoted"):
+                                # 公開済み（確定だけ落ちた）— 論文は残し、提案だけ取り消す
+                                target["state"] = "confirmed"
+                                target["before"] = None
+                                target["commit"] = target["paper"].get("commit")
+                                target["reply"]["ops"] = []
+                                target["reply"]["sentences"] = []
+                                target["reply"]["notes"] = [
+                                    *(n for n in target["reply"].get("notes") or []
+                                      if n.get("kind") != "commit_error"),
+                                    chat_turns.note(
+                                        "info", chat_paper.text(lang, "undone_published")
+                                    ),
+                                ]  # fmt: skip
+                                saved = chat_sessions.save_session(root, session)
+                                return JSONResponse(
+                                    {
+                                        "turn": target,
+                                        "session": _head(saved),
+                                        "draft": _draft_card(saved, lang),
+                                        "reverted": [i for i in reverted_ids if i != turn_id],
+                                    }
+                                )
                         dataset_id = (target.get("attachment") or {}).get("dataset_id")
                         if dataset_id and not await chat_attach.discard_dataset(
                             app, cfg, dataset_id, token=cfg.api_token

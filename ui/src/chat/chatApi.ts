@@ -32,7 +32,7 @@ export interface Note {
 /** 図への差分 1 件（`add_concept` / `add_relation` …）。形はサーバの検査が正で、UI は読まない。 */
 export type GraphOp = { op: string } & Record<string, unknown>
 
-/** 12b: 論文の関係の根拠の文（サーバがストアから引いた文。`text` は 150 字まで・`path` は節の構造の番号）。 */
+/** 12b: 論文の関係の根拠の文（サーバがストアから引いた文。`text` は 1000 字まで・`path` は節の構造の番号）。 */
 export interface Evidence {
   iri: string
   text: string

@@ -1149,8 +1149,8 @@ async def run_document_attach(
         turn.pop("job_id", None)
         if proposal is not None:  # 提案を話の下書きに当てる（読み直した話に・失敗は論文だけ）
             try:
-                chat_paper.apply_proposal(
-                    session, turn, proposal, root=root,
+                await chat_paper.apply_proposal(
+                    session, turn, proposal, client=app.state.client, root=root,
                     existing=await shared_vocab._read_terms(app.state.client),
                     dismissed=shared_vocab.load_dismissed(root),
                     at=datetime.now(UTC).isoformat(), lang=lang, label=str(st.get("name") or ""),

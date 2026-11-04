@@ -1828,6 +1828,35 @@ async def _line_exists(client: Any, ln: _Line) -> bool:
     )
 
 
+async def check_commit(client: Any, root: Path | str, body: dict, *, at: str) -> None:
+    """:func:`commit_theme` が断る検査だけを、**何も書かずに**走らせる（断れば ``ThemeError``）。
+    承認の前に「通るか」を見るために使う（論文の公開の前・提案を出す前）。根拠の文が公開済みかの
+    確認（:func:`_require_live_evidence`）は含まない — 公開の前には満たせないので。"""
+    await _plan_commit(client, root, body, at=at)
+
+
+async def _require_live_evidence(client: Any, lines: list[_Line]) -> None:
+    """関係の根拠の文（``evidence``）が、公開済みの版 graph の ``doco:Sentence`` として実在するか
+    を 1 回の SPARQL で確かめる。無ければ :class:`ThemeError`（書く前に断る）。"""
+    wanted = sorted({e for ln in lines for e in ln.evidence})
+    if not wanted:
+        return
+    values = " ".join(f"<{e}>" for e in wanted)
+    from asterism import substrate
+
+    res = await client.sparql_select(
+        f"SELECT DISTINCT ?s WHERE {{ VALUES ?s {{ {values} }} "
+        f"GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ ?d <{substrate.LIVE_GRAPH_PREDICATE}> ?g }} "
+        f"GRAPH ?g {{ ?s a <http://purl.org/spar/doco/Sentence> }} }}"
+    )
+    results = res.get("results", {}) if isinstance(res, dict) else {}
+    found = {b["s"]["value"] for b in results.get("bindings", [])}
+    if set(wanted) - found:
+        raise ThemeError(
+            "根拠の文が公開済みの論文に見つかりません。論文を公開してから承認してください"
+        )
+
+
 async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) -> dict:
     """Turn a confirmed draft into stored terms, lines, CQs and a theme record — as ONE
     operation. Returns ``{"theme", "minted": [slug], "lines": n, "questions": [name],
@@ -1842,6 +1871,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
     it is kept in the theme record only. Raises :class:`ThemeError` (nothing written) or
     re-raises the write failure (after the rollback)."""
     plan = await _plan_commit(client, root, body, at=at)
+    await _require_live_evidence(client, plan.lines)
     prior_themes_text = read_themes_text(root)
     prior_counts = (_read_wired_text(root), _read_knowledge_text(root))
     minted: list[str] = []

@@ -424,11 +424,12 @@ def test_paper_relation_needs_evidence_numbers_only() -> None:
         ["https://example.org/sent/1"],  # IRI は拒む
         ["12"],  # 番号の形ではない
     ):
-        with pytest.raises(GraphDiffError):
-            validate_graph_diff(
-                {"reply": "", "ops": [{**_PAPER_REL, "evidence": bad}]},
-                known_keys=KEYS, screen="paper",
-            )  # fmt: skip
+        # 悪い根拠は、その関係だけ空にして差分は受ける（他の関係は残る）
+        out = validate_graph_diff(
+            {"reply": "", "ops": [{**_PAPER_REL, "evidence": bad}, {**_PAPER_REL}]},
+            known_keys=KEYS, screen="paper",
+        )  # fmt: skip
+        assert [o["evidence"] for o in out["ops"]] == [[], ["s12", "s13"]]
 
 
 def test_other_screens_drop_evidence_instead_of_refusing_it() -> None:
@@ -478,9 +479,10 @@ def test_paper_propose_sends_the_numbered_sentences_and_returns_evidence() -> No
     assert "evidence" not in plain.calls[0][0]
 
 
-def test_paper_propose_retries_when_evidence_is_missing() -> None:
-    no_ev = {"reply": "", "ops": [{k: v for k, v in _PAPER_REL.items() if k != "evidence"}]}
-    llm = _LLM(json.dumps(no_ev), json.dumps({"reply": "", "ops": [_PAPER_REL]}))
+def test_paper_propose_keeps_the_diff_when_one_evidence_is_missing() -> None:
+    no_ev = {"reply": "", "ops": [{k: v for k, v in _PAPER_REL.items() if k != "evidence"},
+                                  _PAPER_REL]}  # fmt: skip
+    llm = _LLM(json.dumps(no_ev))
     out = _propose(llm, screen="paper", sentences=_SENTENCES, message="read")
-    assert len(llm.calls) == 2 and "evidence" in llm.calls[1][1]  # 理由を名指しして聞き直す
-    assert out["ops"][0]["evidence"] == ["s12", "s13"]
+    assert len(llm.calls) == 1  # 聞き直さない
+    assert [o["evidence"] for o in out["ops"]] == [[], ["s12", "s13"]]

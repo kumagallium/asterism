@@ -49,7 +49,9 @@ function stamp(iso: string, lang: string): string {
   return d.toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-/** 関係の行の下に、根拠の文を小さく 1 行（引用符つき・150 字は api が切る・押すと全文＝title）。 */
+const EVIDENCE_SHOWN = 150
+
+/** 関係の行の下に、根拠の文を小さく 1 行（引用符つき・札では 150 字で切って「…」・title に全文）。 */
 export function EvidenceLine({ evidence }: { evidence: Evidence[] }) {
   const { t } = useTranslation('chat')
   if (evidence.length === 0) return null
@@ -57,7 +59,7 @@ export function EvidenceLine({ evidence }: { evidence: Evidence[] }) {
     <div className="chat-evidence" data-testid="reply-evidence">
       {evidence.map((e) => (
         <q key={e.iri} className="chat-evidence-text" title={`${t('reply.evidence')}: ${e.text}`}>
-          {e.text}
+          {e.text.length > EVIDENCE_SHOWN ? `${e.text.slice(0, EVIDENCE_SHOWN)}…` : e.text}
         </q>
       ))}
     </div>

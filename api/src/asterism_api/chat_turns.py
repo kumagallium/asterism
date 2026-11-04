@@ -1937,6 +1937,47 @@ def _find(session: dict, turn_id: str) -> dict:
     raise TurnRefused(404, "その手番はありません")
 
 
+_PENDING_PAPER = {
+    "ja": "論文〈{name}〉の提案が承認待ちです。先に論文を承認するか取り消してください",
+    "en": 'The proposals from the paper "{name}" are waiting for approval. '
+    "Approve the paper first, or undo it.",
+}
+
+
+def _guard_pending_paper(
+    session: dict,
+    draft: dict,
+    lg: str,
+    *,
+    relations: list[dict] | None = None,
+    concepts: set[str] | None = None,
+) -> None:
+    """公開していない論文の手番（12b）が下書きに入れた差分には、その論文の ✓ より先に触れない
+    （根拠の文がまだ公開されていない）。``relations`` / ``concepts`` を渡すと（1 行の承認）その
+    行・用語が論文のものに触れるときだけ、渡さないと（全部の ✓）下書きに論文の差分が残って
+    いるときに、409 にする。"""
+    for t in session.get("turns") or []:
+        paper = t.get("paper") or {}
+        if t.get("state") != "proposed" or not paper or paper.get("promoted"):
+            continue
+        owned_c, owned_q = set(paper.get("concepts") or []), set(paper.get("questions") or [])
+        if relations is None:
+            keys = {str(c.get("key")) for c in draft.get("concepts") or []}
+            touched = (
+                any(r.get("evidence") for r in draft.get("relations") or [])
+                or bool(owned_c & keys)
+                or bool(owned_q & set(draft.get("questions") or []))
+            )
+        else:
+            ends = {str(r.get(x)) for r in relations for x in ("from", "to")}
+            touched = any(r.get("evidence") for r in relations) or bool(
+                owned_c & (ends | (concepts or set()))
+            )
+        if touched:
+            name = (t.get("attachment") or {}).get("name") or ""
+            raise TurnRefused(409, _PENDING_PAPER[lg].format(name=name))
+
+
 async def confirm_only(
     session: dict,
     turn_id: str,
@@ -2011,6 +2052,7 @@ async def confirm_only(
         raise TurnRefused(
             409, "承認する行が選ばれていません" if lg == "ja" else "No row is chosen."
         )
+    _guard_pending_paper(session, draft, lg, relations=wanted, concepts=set(extra))
     chosen = {
         *approved,
         *extra,
@@ -2108,6 +2150,8 @@ async def confirm(
             if _lg(lang) == "ja"
             else "Please approve the latest proposal.",
         )
+    if paper_turn is None:
+        _guard_pending_paper(session, draft, _lg(lang))
     body = commit_body(draft, lang)
     body["batch"] = turn["batch"]
     prior = _theme_by_id(root, draft.get("extend"))

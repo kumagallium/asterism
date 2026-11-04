@@ -221,6 +221,11 @@ describe('表を添える（クリップ）', () => {
     expect(html.match(/data-testid="reply-evidence"/g)).toHaveLength(1) // 根拠の無い関係には出ない
     expect(html).toContain(ev.text)
     expect(html).toContain('title="根拠の文: ' + ev.text)
+    // 150 字を超える文は札では切って「…」・title に全文
+    const long = 'あ'.repeat(200)
+    const cut = card(turn({ attachment: at, reply: reply({ ops: [{ op: 'add_relation', evidence: [{ iri: 'i', text: long, path: null }] }], sentences: ['x'] }) }))
+    expect(cut).toContain('あ'.repeat(150) + '…')
+    expect(cut).toContain('title="根拠の文: ' + long)
     expect(text(html)).toContain('知識グラフへの提案 · 3 件')
     expect(text(html)).toContain('承認')
     expect(text(html)).not.toContain('公開')

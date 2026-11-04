@@ -376,7 +376,8 @@ def _aliases(v: Any, path: str) -> list[str]:
 
 
 def _evidence(v: Any, path: str) -> list[str]:
-    """論文の関係の根拠 = 文の番号（``s12``）が 1〜3 個。引用文・IRI・番号以外は拒む。"""
+    """論文の関係の根拠 = 文の番号（``s12``）が 1〜3 個。引用文・IRI・番号以外は拒む
+    （:func:`_op` は、拒まれた関係の根拠を空にして差分は受ける）。"""
     if not isinstance(v, list) or not v:
         raise _fail(path, "is required (the numbers of the sentences, e.g. [\"s12\"])")
     if len(v) > _MAX_EVIDENCE:
@@ -423,7 +424,12 @@ def _op(o: Any, p: str, keys: set[str], new_keys: set[str], *, screen: str | Non
             "reason": reason,
         }
         if screen == "paper":  # 他の画面の evidence は受け取っても捨てる
-            rel_op["evidence"] = _evidence(o.get("evidence"), f"{p}.evidence")
+            try:
+                rel_op["evidence"] = _evidence(o.get("evidence"), f"{p}.evidence")
+            except GraphDiffError:
+                # 無い・形の悪い根拠はその関係だけ落とす（差分全体は拒まない）— 呼び手が空の
+                # evidence の関係を数えて除く。拒否と聞き直しは op の形が壊れたときだけ
+                rel_op["evidence"] = []
         return rel_op
     if name == "retarget":
         return {
@@ -524,8 +530,9 @@ def validate_graph_diff(
     additive operations are accepted, at most 10. ``allow_taken_keys=True`` (the apply step
     only) lets an ``add_concept`` key that is already on the graph through: a resent diff is a
     no-op for the applier to report, not a refusal (a key repeated inside one diff is still
-    refused). ``screen="paper"`` (12b): ``add_relation`` must carry ``evidence`` (1–3 sentence
-    numbers); every other screen drops an ``evidence`` it was handed."""
+    refused). ``screen="paper"`` (12b): ``add_relation`` carries ``evidence`` (1–3 sentence
+    numbers); a missing or malformed one becomes ``[]`` (the caller drops that relation — the rest
+    of the diff stands); every other screen drops an ``evidence`` it was handed."""
     if not isinstance(raw, dict):
         raise _fail("$", "must be an object")
     known = {str(k) for k in known_keys}

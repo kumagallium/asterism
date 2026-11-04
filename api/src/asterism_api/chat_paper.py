@@ -40,12 +40,14 @@ if TYPE_CHECKING:
 
 __all__ = [
     "EVIDENCE_TEXT_MAX",
+    "MAX_PROMPT_CHARS",
     "MAX_SENTENCES",
     "apply_proposal",
     "build_rows",
     "check_ops",
     "make_proposal",
     "mentions",
+    "prep_text",
     "read_sentences",
     "select_sentences",
     "text",
@@ -55,8 +57,11 @@ logger = logging.getLogger(__name__)
 
 #: AI に渡す文の上限（超えたら要旨・結果・考察・結論を優先して残す）
 MAX_SENTENCES = 300
-#: 下書きの根拠の文（evidence.text）の長さ
-EVIDENCE_TEXT_MAX = 150
+#: 下書きの根拠の文（evidence.text）の長さ（札は 150 字で切って「…」・title に全文）
+EVIDENCE_TEXT_MAX = 1000
+#: AI に渡す文の合計の長さ（超えたら 300 文と同じ優先順で切る）
+MAX_PROMPT_CHARS = 60_000
+_PROMPT_SENTENCE_MAX = 600  # step0 が 1 文をプロンプトに載せる長さ
 #: 参考文献・謝辞の節（見出しを ``_heading_key`` で整えて比べる）
 _SKIP_TITLE = re.compile(
     r"^(references?|bibliography|literature cited|works cited|acknowledge?ments?"
@@ -80,6 +85,9 @@ _T: dict[str, dict[str, str]] = {
         "evidence_dropped": "根拠の文が合わない関係を {n} 件除きました",
         "propose_failed": "論文からの提案を作れませんでした（論文は添えました）",
         "commit_failed": "提案は確定できませんでした（論文は公開しました）",
+        "terms_dropped": "どの関係にも問いにも出ない用語を {n} 件除きました",
+        "cannot_link": "論文からの提案を、問いにつながる形にできませんでした（論文は添えました）",
+        "undone_published": "提案は取り消しました（論文は公開済みです）",
         "unlinked": (
             "問いにつながらない用語があります（承認の前に、関係を足すか外してください）: {names}"
         ),
@@ -90,6 +98,10 @@ _T: dict[str, dict[str, str]] = {
         "evidence_dropped": "Left out {n} relations whose evidence sentences do not fit",
         "propose_failed": "Could not make proposals from the paper (the paper is attached)",
         "commit_failed": "Could not confirm the proposals (the paper was published)",
+        "terms_dropped": "Left out {n} terms that appear in no relation or question",
+        "cannot_link": "Could not shape the proposals so that they connect to a question "
+        "(the paper is attached)",
+        "undone_published": "The proposals were undone (the paper stays published)",
         "unlinked": "Some terms do not connect to a question (add a relation or remove them before "
         "approving): {names}",
     },
@@ -161,23 +173,31 @@ def build_rows(sentence_bindings: list[dict], section_bindings: list[dict]) -> l
     return sorted(rows.values(), key=lambda r: (r["begin"], r["iri"]))
 
 
-def select_sentences(rows: list[dict], limit: int = MAX_SENTENCES) -> tuple[list[dict], bool]:
+def select_sentences(
+    rows: list[dict], limit: int = MAX_SENTENCES, budget: int = MAX_PROMPT_CHARS
+) -> tuple[list[dict], bool]:
     """AI に渡す文を選び、出現順に ``s1``… を振る → ``(行, 切ったか)``。純関数。
 
-    参考文献・謝辞は除く。``limit`` を超えたら、要旨・結果・考察・結論の節の文を優先し、余りを
-    先頭から詰める（役割が 1 つも取れなければ先頭から）。"""
+    参考文献・謝辞は除く。文の数が ``limit`` を、文字の合計が ``budget`` を超えたら、要旨・結果・
+    考察・結論の節の文を優先し、余りを先頭から詰める（役割が 1 つも取れなければ先頭から）。"""
     kept = [r for r in rows if not r["skip"]]
-    truncated = len(kept) > limit
-    if truncated:
+
+    def cost(r: dict) -> int:
+        return min(len(r["text"]), _PROMPT_SENTENCE_MAX)
+
+    if len(kept) > limit or sum(cost(r) for r in kept) > budget:
         preferred = [r for r in kept if r["prefer"]]
-        if preferred:
-            head = preferred[:limit]
-            taken = {r["iri"] for r in head}
-            rest = [r for r in kept if r["iri"] not in taken][: limit - len(head)]
-            kept = sorted([*head, *rest], key=lambda r: (r["begin"], r["iri"]))
-        else:
-            kept = kept[:limit]
-    return [{**r, "id": f"s{i}"} for i, r in enumerate(kept, start=1)], truncated
+        order = [*preferred, *(r for r in kept if not r["prefer"])] if preferred else kept
+        taken: list[dict] = []
+        used = 0
+        for r in order:  # 入りきらなくなったところで止める（先頭から）
+            if len(taken) >= limit or used + cost(r) > budget:
+                break
+            taken.append(r)
+            used += cost(r)
+        kept = sorted(taken, key=lambda r: (r["begin"], r["iri"]))
+        return [{**r, "id": f"s{i}"} for i, r in enumerate(kept, start=1)], True
+    return [{**r, "id": f"s{i}"} for i, r in enumerate(kept, start=1)], False
 
 
 async def read_sentences(app: FastAPI, cfg: Settings, dataset_id: str) -> list[dict]:
@@ -217,23 +237,61 @@ async def read_sentences(app: FastAPI, cfg: Settings, dataset_id: str) -> list[d
 # ---- 機械の検査（落とす理由） -----------------------------------------------------------------
 
 
+_CJK_FROM = 0x2E80  # これ以上（日本語など）は語の境目を見ない
+_QUOTES = "'\u2019"
+_HYPHENS = "-\u2010\u2011\u2012\u2013\u00ad"
+
+
+def prep_text(s: str) -> str:
+    """照合の前の整え方: 改行の前のハイフン（``thermo-\\nelectric``）はつなぎ、NFKC・大文字小文字・
+    空白・ハイフンを 1 つの空白に揃える。"""
+    s = re.sub(rf"[{_HYPHENS}]\s*\n\s*", "", s)
+    s = shared_vocab.normalize_label(s)
+    return " ".join(re.sub(rf"[{_HYPHENS}]+", " ", s).split())
+
+
+def _is_word(c: str) -> bool:
+    return (c.isalnum() and ord(c) < _CJK_FROM) or c in _QUOTES
+
+
+def _variants(w: str) -> list[str]:
+    """英語の 1 語の単数・複数（s・es・ies↔y）を同じとみなす正規表現の候補。"""
+    if not re.fullmatch(r"[a-z]+", w):
+        return [re.escape(w)]
+    base = {w}
+    if w.endswith("ies") and len(w) > 4:
+        base.add(w[:-3] + "y")
+    elif w.endswith("es") and len(w) > 3:
+        base |= {w[:-2], w[:-1]}
+    elif w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+        base.add(w[:-1])
+    alts: set[str] = set()
+    for b in base:
+        alts |= {b, b + "s", b + "es"}
+        if b.endswith("y") and len(b) > 2:
+            alts.add(b[:-1] + "ies")
+    return [re.escape(a) for a in sorted(alts, key=len, reverse=True)]
+
+
 def mentions(text_norm: str, name: str) -> bool:
-    """正規化した文（``normalize_label``）に、用語の名前が現れるか。大文字小文字・全角半角・
-    空白は正規化。英数字で始まる／終わる名前は語の境目で（``conductivity`` は
-    ``conductivities`` に当たらない）。英数字の無い名前（日本語など）は、PDF の抽出で入る空白を
-    無視して部分一致。"""
-    n = shared_vocab.normalize_label(name)
-    if not n:
+    """整えた文（:func:`prep_text`）に、用語の名前が現れるか。語の境目は Unicode の文字・数字
+    （アポストロフィも語の一部。日本語などは境目を見ず部分一致）。英語は語ごとに単数・複数を同じと
+    みなす。ラテン文字だけで 3 文字未満の名前（``ZT``）は照合に使わない。英数字の無い名前は、
+    PDF の抽出で入る空白を無視して比べる。"""
+    n = prep_text(name)
+    bare = n.replace(" ", "")
+    if not bare or (all(ord(c) < 0x250 for c in bare) and len(bare) < 3):
         return False
-    pat = re.escape(n)
-    if re.match(r"[a-z0-9]", n[0]):
-        pat = r"(?<![a-z0-9])" + pat
-    if re.match(r"[a-z0-9]", n[-1]):
-        pat += r"(?![a-z0-9])"
-    if re.search(pat, text_norm):
+    pat = " ".join("(?:" + "|".join(_variants(w)) + ")" for w in n.split(" "))
+    for m in re.finditer(pat, text_norm):
+        a, b = m.start(), m.end()
+        if _is_word(text_norm[a]) and a > 0 and _is_word(text_norm[a - 1]):
+            continue
+        if _is_word(text_norm[b - 1]) and b < len(text_norm) and _is_word(text_norm[b]):
+            continue
         return True
-    if not re.search(r"[a-z0-9]", n):
-        return n.replace(" ", "") in text_norm.replace(" ", "")
+    if not any(c.isalnum() and ord(c) < _CJK_FROM for c in n):
+        return bare in text_norm.replace(" ", "")
     return False
 
 
@@ -277,7 +335,7 @@ def check_ops(
         if not ids or any(r is None for r in rows):
             dropped += 1
             continue
-        said = shared_vocab.normalize_label(" ".join(r["text"] for r in rows if r))
+        said = prep_text(" ".join(r["text"] for r in rows if r))
 
         def present(ref: str, said: str = said) -> bool:
             ends = names.get(str(ref))
@@ -299,6 +357,34 @@ def check_ops(
                 )
         kept.append({**o, "evidence": evidence})
     return kept, dropped
+
+
+_Q_REFS = ("target", "kind", "property", "property2", "kind2")
+
+
+def prune_unlinked(ops: list[dict]) -> tuple[list[dict], int]:
+    """検査で関係を落としたあとの後処理 → ``(操作, 落とした用語の数)``。どの関係にも問いにも出ない
+    **新しい**用語（``use`` が既存でない ``add_concept``）を落とし、それを指す問いも落とす。"""
+    used: set[str] = set()
+    for o in ops:
+        if o.get("op") == "add_relation":
+            used |= {str(o.get("from")), str(o.get("to"))}
+        elif o.get("op") == "add_question":
+            used |= {str(o[k]) for k in _Q_REFS if o.get(k)}
+    gone = {
+        str(o.get("key"))
+        for o in ops
+        if o.get("op") == "add_concept"
+        and not str(o.get("use") or "new").startswith("existing:")
+        and str(o.get("key")) not in used
+    }
+    out = [
+        o
+        for o in ops
+        if not (o.get("op") == "add_concept" and str(o.get("key")) in gone)
+        and not (o.get("op") == "add_question" and any(str(o.get(k)) in gone for k in _Q_REFS))
+    ]
+    return out, len(gone)
 
 
 # ---- 提案を作る（AI の往復・ロックの外） ------------------------------------------------------
@@ -377,7 +463,11 @@ async def make_proposal(
             existing=existing,
             by_id={r["id"]: r for r in rows},
         )
-        return {"ok": True, "ops": ops, "dropped": dropped, "truncated": truncated}
+        ops, terms_dropped = prune_unlinked(ops)
+        return {
+            "ok": True, "ops": ops, "dropped": dropped, "truncated": truncated,
+            "terms_dropped": terms_dropped,
+        }  # fmt: skip
     except (GraphDiffError, ThemeDraftError) as exc:
         logger.warning("paper propose: shape refused: %s", exc)
     except Exception:
@@ -388,11 +478,12 @@ async def make_proposal(
 # ---- 下書きに当てる（ロックの中・読み直した話に） --------------------------------------------
 
 
-def apply_proposal(
+async def apply_proposal(
     session: dict,
     turn: dict,
     proposal: dict,
     *,
+    client: Any,
     root: Any,
     existing: list[SharedTerm],
     dismissed: list[dict],
@@ -402,10 +493,13 @@ def apply_proposal(
 ) -> None:
     """検査を通した差分を話の下書きに当て、論文の手番の返事を提案の札にする。``session`` と
     ``turn`` を書き換える（保存は呼ぶ側）。下書きに入れたものがあれば ``turn["paper"]`` に
-    ``{draft_id, created, promoted}``・``turn["before"]`` に当てる前の下書き（取り消しで戻す）。
+    ``{draft_id, created, promoted, concepts, questions}``（この手番が足した用語の鍵と問い）・
+    ``turn["before"]`` に当てる前の下書き（取り消しで戻す）。
 
-    下書きが無ければ、確認済みのテーマの種・それも無ければ空の下書きを作る（何も入らなければ
-    作った下書きは捨てる）。呼び手は ``proposal["ok"]`` が真のときだけ呼ぶ。"""
+    下書きが無ければ、確認済みのテーマの種・それも無ければ空の下書きを作る（何も入らなければ・
+    例外が出たら作った下書きは捨てる）。当てた下書きが ``commit_theme`` の検査（書かずに走らせる）を
+    通らないときは、提案を出さず論文だけにして注記を付ける。呼び手は ``proposal["ok"]`` が真の
+    ときだけ呼ぶ。"""
     lg = "en" if lang == "en" else "ja"
     reply = turn["reply"]
     notes: list[dict] = list(reply.get("notes") or [])
@@ -415,77 +509,107 @@ def apply_proposal(
         notes.append(
             chat_turns.note("info", text(lg, "evidence_dropped", n=proposal["dropped"]))
         )
+    if proposal.get("terms_dropped"):
+        notes.append(
+            chat_turns.note("info", text(lg, "terms_dropped", n=proposal["terms_dropped"]))
+        )
     ops = list(proposal.get("ops") or [])
     draft = chat_turns._current_draft(session, root)
     created = False
     fresh_seed: dict | None = None
-    if ops and draft is None:
-        created = True
-        theme = chat_turns._theme_of(session, root)
-        if theme is not None:
-            seed = chat_seed.seed_from_theme(root, existing, theme)
-            draft, fresh_seed = chat_turns._seeded_draft(theme, seed, [], root=root, at=at)
-        else:
-            made = themes.create_draft(root, label[:80], [], at=at)
-            draft = chat_turns._save(root, {**made, "step": 2}, at)
-    applied_ops: list[dict] = []
-    applied_sentences: list[str] = []
-    if ops and draft is not None:
-        new, report = graph_diff.apply_to_draft(
-            draft, ops, existing=existing, dismissed=dismissed, by="ai"
-        )
-        sentences = graph_diff.ops_to_sentences(ops, {"concepts": draft.get("concepts")}, lg)
-        gone = {d["index"]: d["reason"] for d in report["dropped"]}
-        for i, reason in gone.items():
-            said = sentences[i] if i < len(sentences) else ""
-            notes.append(
-                chat_turns.note("dropped", f"{said}: {chat_turns.dropped_reason(reason, lg)}")
+    try:
+        if ops and draft is None:
+            created = True
+            theme = chat_turns._theme_of(session, root)
+            if theme is not None:
+                seed = chat_seed.seed_from_theme(root, existing, theme)
+                draft, fresh_seed = chat_turns._seeded_draft(theme, seed, [], root=root, at=at)
+            else:
+                made = themes.create_draft(root, label[:80], [], at=at)
+                draft = chat_turns._save(root, {**made, "step": 2}, at)
+        applied_ops: list[dict] = []
+        applied_sentences: list[str] = []
+        saved_ok = False
+        if ops and draft is not None:
+            new, report = graph_diff.apply_to_draft(
+                draft, ops, existing=existing, dismissed=dismissed, by="ai"
             )
-        kept = [i for i in range(len(ops)) if i not in gone]
-        applied_ops = [ops[i] for i in kept]
-        applied_sentences = [sentences[i] for i in kept if i < len(sentences)]
-        if report["applied"] > 0:
-            chat = draft.get("chat") or {}
-            new["chat"] = {
-                "messages": list(chat.get("messages") or []),
-                "proposals": [
-                    *(chat.get("proposals") or []),
-                    {
-                        "proposal_id": graph_diff.proposal_id(ops),
-                        "ops": applied_ops,
-                        "at": at,
-                        "by": "ai",
-                    },
-                ],
-            }
-            if report["unlinked"]:  # 承認（commit_theme）が断る理由を、先に見せる
-                by_key = {str(c.get("key")): c for c in new.get("concepts") or []}
-                shown = [
-                    str((by_key.get(k) or {}).get("label_ja") or k) for k in report["unlinked"]
-                ]
+            sentences = graph_diff.ops_to_sentences(ops, {"concepts": draft.get("concepts")}, lg)
+            gone = {d["index"]: d["reason"] for d in report["dropped"]}
+            for i, reason in gone.items():
+                said = sentences[i] if i < len(sentences) else ""
                 notes.append(
-                    chat_turns.note("info", text(lg, "unlinked", names="、".join(shown[:8])))
+                    chat_turns.note("dropped", f"{said}: {chat_turns.dropped_reason(reason, lg)}")
                 )
-            before = None if created else copy.deepcopy(draft)
-            try:
+            kept = [i for i in range(len(ops)) if i not in gone]
+            applied_ops = [ops[i] for i in kept]
+            applied_sentences = [sentences[i] for i in kept if i < len(sentences)]
+            if report["applied"] > 0:
+                try:  # commit_theme と同じ検査を、書かずに走らせる
+                    body = chat_turns.commit_body(new, lang)
+                    body["batch"] = turn["batch"]
+                    await themes.check_commit(client, root, body, at=at)
+                except themes.ThemeError:
+                    notes.append(chat_turns.note("info", text(lg, "cannot_link")))
+                    applied_ops, applied_sentences = [], []
+                else:
+                    saved_ok = True
+            if saved_ok:
+                if report["unlinked"]:  # 検査は通ったが孤立がある（既存の用語など）
+                    by_key = {str(c.get("key")): c for c in new.get("concepts") or []}
+                    shown = [
+                        str((by_key.get(k) or {}).get("label_ja") or k)
+                        for k in report["unlinked"]
+                    ]
+                    notes.append(
+                        chat_turns.note("info", text(lg, "unlinked", names="、".join(shown[:8])))
+                    )
+                chat = draft.get("chat") or {}
+                new["chat"] = {
+                    "messages": list(chat.get("messages") or []),
+                    "proposals": [
+                        *(chat.get("proposals") or []),
+                        {
+                            "proposal_id": graph_diff.proposal_id(ops),
+                            "ops": applied_ops,
+                            "at": at,
+                            "by": "ai",
+                        },
+                    ],
+                }
+                before = None if created else copy.deepcopy(draft)
                 saved = chat_turns._save(root, new, at)
-            except chat_turns.TurnRefused:
-                if created:
-                    themes.delete_draft(root, draft["id"])
-                raise
-            chat_turns._adopt_draft(session, saved)
-            if fresh_seed is not None:
-                chat_turns._adopt_seed(session, saved, fresh_seed)
-            turn["before"] = before
-            turn["paper"] = {"draft_id": saved["id"], "created": created, "promoted": False}
-        elif created:  # 何も入らなかった — 作った下書きは残さない
+                chat_turns._adopt_draft(session, saved)
+                if fresh_seed is not None:
+                    chat_turns._adopt_seed(session, saved, fresh_seed)
+                had_c = {str(c.get("key")) for c in draft.get("concepts") or []}
+                had_q = set(draft.get("questions") or [])
+                turn["before"] = before
+                turn["paper"] = {
+                    "draft_id": saved["id"],
+                    "created": created,
+                    "promoted": False,
+                    "concepts": [
+                        str(c.get("key")) for c in saved.get("concepts") or []
+                        if str(c.get("key")) not in had_c
+                    ],
+                    "questions": [q for q in saved.get("questions") or [] if q not in had_q],
+                }  # fmt: skip
+        if created and not saved_ok and draft is not None:  # 何も入らなかった — 下書きは残さない
             themes.delete_draft(root, draft["id"])
+    except BaseException:
+        if created and draft is not None:  # 作った下書きを孤児にしない
+            themes.delete_draft(root, draft["id"])
+            if session.get("draft_id") == draft["id"]:
+                session["draft_id"] = None
+                session.pop("seed", None)
+        raise
     n_c = sum(1 for o in applied_ops if o.get("op") == "add_concept")
     n_r = sum(1 for o in applied_ops if o.get("op") == "add_relation")
     n_q = sum(1 for o in applied_ops if o.get("op") == "add_question")
     if n_c or n_r or n_q:
-        body = str(reply.get("text") or "").strip()
-        reply["text"] = f"{body} {text(lg, 'summary', c=n_c, r=n_r, q=n_q)}".strip()
+        body_text = str(reply.get("text") or "").strip()
+        reply["text"] = f"{body_text} {text(lg, 'summary', c=n_c, r=n_r, q=n_q)}".strip()
     reply["ops"] = applied_ops
     reply["sentences"] = applied_sentences
     reply["notes"] = notes
