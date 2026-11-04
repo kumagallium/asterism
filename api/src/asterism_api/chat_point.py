@@ -369,8 +369,7 @@ class _DraftView:
             t
             for t in (session or {}).get("turns") or []
             if t.get("state") == "proposed"
-            and not t.get("attachment")
-            and not t.get("attach_run")
+            and (t.get("paper") or (not t.get("attachment") and not t.get("attach_run")))
             and not (t.get("reply") or {}).get("suggestions")
         ]
 

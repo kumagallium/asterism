@@ -936,6 +936,7 @@ async def assert_alignment(
     drafted_by: str = "human",
     batch: str | None = None,
     reason: str | None = None,
+    evidence: list[str] | None = None,
 ) -> dict:
     """Assert a schema relationship (``relation`` from :data:`ALIGN_RELATIONS`) between
     two terms (``source`` -> ``target``, both absolute IRIs). Additive, idempotent
@@ -959,7 +960,11 @@ async def assert_alignment(
     candidate a person confirmed, ``"human"``) is always written as
     ``xw:draftedBy``; ``batch`` (the id of the "decide these together" operation) as
     ``xw:batch``; ``reason`` (one line, at most :data:`REASON_MAX` characters, line breaks
-    folded to spaces) as ``xw:reason``. The date is ``prov:endedAtTime`` (``at``)."""
+    folded to spaces) as ``xw:reason``. The date is ``prov:endedAtTime`` (``at``).
+
+    ``evidence`` (12b) = absolute IRIs of the sentences (``doco:Sentence``) the line was read from;
+    each is written on the provenance node as ``prov:wasDerivedFrom`` (a paper's quoted
+    sentence, drawn from the store by the machine — never a string the model wrote)."""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
     if drafted_by not in DRAFTED_BY:
@@ -972,6 +977,9 @@ async def assert_alignment(
         raise ValueError(f"reason must be at most {REASON_MAX} characters")
     _check_iri(source)
     _check_iri(target)
+    evidence_iris = list(dict.fromkeys(evidence or []))
+    for e in evidence_iris:
+        _check_iri(e)
     ctx = await _endpoint_context(client)
     s_kind, s_dataset = _kind_of(source, ctx)
     t_kind, t_dataset = _kind_of(target, ctx)
@@ -997,6 +1005,8 @@ async def assert_alignment(
         extra += f'<{XW}batch> "{_sparql_str(batch_text)}" ; '
     if reason_text:
         extra += f'<{XW}reason> "{_sparql_str(reason_text)}" ; '
+    for e in evidence_iris:
+        extra += f"<{_PROV}wasDerivedFrom> <{e}> ; "
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} ;"
         f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
@@ -1093,6 +1103,14 @@ async def list_alignments(
     bindings = await _select_bindings(client, q)
     ctx = await _endpoint_context(client)
     wanted = _perspective_terms(registry_root) if scope == "perspective" and registry_root else None
+    # 根拠の文（12b）— 1 本の線に複数あり得るので別に引いて束ねる
+    evidence: dict[str, list[str]] = {}
+    for e in await _select_bindings(
+        client,
+        f"SELECT ?a ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
+        f"?a a <{XW}Alignment> ; <{_PROV}wasDerivedFrom> ?e }} }} ORDER BY ?e",
+    ):
+        evidence.setdefault(e["a"]["value"], []).append(e["e"]["value"])
     out: list[dict] = []
     for b in bindings:
         source, target = b["source"]["value"], b["target"]["value"]
@@ -1136,6 +1154,7 @@ async def list_alignments(
                 "drafted_by": b.get("drafter", {}).get("value") or "human",
                 "batch": b.get("batch", {}).get("value") or None,
                 "reason": b.get("reason", {}).get("value") or None,
+                "evidence": evidence.get(b["a"]["value"], []),
                 "broken": broken,
             }
         )

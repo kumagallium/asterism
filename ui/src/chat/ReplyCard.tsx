@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BrandMark, CheckIcon, PaperclipIcon } from '../icons'
 import { Thinking } from './ChatPane'
-import type { BindingDecision, Decided, Note, Turn, Undone } from './chatApi'
+import { evidenceOf, type BindingDecision, type Decided, type Evidence, type Note, type Turn, type Undone } from './chatApi'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ReplyAnswer, ReplyTable } from './chatApi'
@@ -47,6 +47,23 @@ function stamp(iso: string, lang: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const EVIDENCE_SHOWN = 150
+
+/** 関係の行の下に、根拠の文を小さく 1 行（引用符つき・札では 150 字で切って「…」・title に全文）。 */
+export function EvidenceLine({ evidence }: { evidence: Evidence[] }) {
+  const { t } = useTranslation('chat')
+  if (evidence.length === 0) return null
+  return (
+    <div className="chat-evidence" data-testid="reply-evidence">
+      {evidence.map((e) => (
+        <q key={e.iri} className="chat-evidence-text" title={`${t('reply.evidence')}: ${e.text}`}>
+          {e.text.length > EVIDENCE_SHOWN ? `${e.text.slice(0, EVIDENCE_SHOWN)}…` : e.text}
+        </q>
+      ))}
+    </div>
+  )
 }
 
 export function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; busy: boolean; onDecide?: (value: string) => void }) {
@@ -227,10 +244,13 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
   const sentences = r.sentences.filter((sn) => !bindingSentence(sn))
   const head = sentences.slice(0, SENTENCE_LIMIT)
   const rest = sentences.slice(SENTENCE_LIMIT)
+  // 12b: 提案の行（sentences[i]）は ops[i] と同じ並び。長さが合うときだけ、関係の根拠の文を行の下に出す
+  const sameLength = r.ops.length === r.sentences.length && r.bindings.length === 0
   const open = turn.state === 'proposed'
   const proposed = turn.state === 'proposed'
   const machineMark = showMachineMark(turn)
-  const publish = turnKind(turn) !== 'theme'
+  // 論文の手番が提案を持つとき（12b）は、✓ が公開と確定を 1 度にする — 「承認」
+  const publish = turnKind(turn) !== 'theme' && !turn.paper
   const [undoAsk, setUndoAsk] = useState(false)
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set())
   const [proposeSent, setProposeSent] = useState(false)
@@ -293,6 +313,11 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
                   : t('attach.rows', { n: turn.attachment.rows })}
               </span>
             )}
+            {headKind === 'attachment' && turn.paper && ownCount > 0 && (
+              <span className="chat-card-head-main chat-mark--proposed" data-testid="reply-paper-proposed">
+                {t('reply.cardProposed', { n: ownCount })}
+              </span>
+            )}
             {headKind === 'proposed' && (
               <span className="chat-card-head-main chat-mark--proposed">{ownCount > 0 ? t('reply.cardProposed', { n: ownCount }) : t('reply.cardProposedNone')}</span>
             )}
@@ -316,7 +341,10 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
         {sentences.length > 0 && (
           <ul className="chat-sentences">
             {head.map((s, i) => (
-              <li key={i}>{s}</li>
+              <li key={i}>
+                {s}
+                <EvidenceLine evidence={evidenceOf(sameLength ? r.ops[i] : undefined)} />
+              </li>
             ))}
             {rest.length > 0 && (
               <li className="chat-sentences-more">
@@ -324,7 +352,10 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
                   <summary>{t('reply.more', { n: rest.length })}</summary>
                   <ul>
                     {rest.map((s, i) => (
-                      <li key={i}>{s}</li>
+                      <li key={i}>
+                        {s}
+                        <EvidenceLine evidence={evidenceOf(sameLength ? r.ops[SENTENCE_LIMIT + i] : undefined)} />
+                      </li>
                     ))}
                   </ul>
                 </details>
@@ -430,7 +461,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
               <button type="button" className="btn btn--sm chat-confirm" data-testid="reply-confirm" disabled={busy} onClick={() => onConfirm(turn.id, r.bindings.length > 0 ? bindingDecisions(r.bindings, picked) : undefined)}>
                 <CheckIcon size={14} />
                 {publish ? t('reply.publish') : t('reply.confirm')}
-                {!publish && count > 0 && ` ${t('reply.count', { n: count })}`}
+                {!publish && (turn.paper ? ownCount : count) > 0 && ` ${t('reply.count', { n: turn.paper ? ownCount : count })}`}
               </button>
             )}
             {turn.state === 'confirmed' && turn.commit && !undoAsk && (

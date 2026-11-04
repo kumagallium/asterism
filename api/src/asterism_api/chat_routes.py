@@ -42,6 +42,7 @@ from asterism_api import (
     chat_attach,
     chat_contents,
     chat_intent,
+    chat_paper,
     chat_point,
     chat_route,
     chat_tables,
@@ -883,7 +884,9 @@ def register_chat(
             if target is not None and target.get("state") == "proposed":
                 if (target.get("reply") or {}).get("suggestions"):
                     return await _confirm_suggestion(session, target, lang)
-                if target.get("attachment") or target.get("attach_run"):
+                if (target.get("attachment") or target.get("attach_run")) and not (
+                    target.get("paper") and body is not None and body.only is not None
+                ):  # 論文の手番の 1 行の承認（11o）は下書きの道
                     llm_headers = {
                         k: v
                         for k, v in {
@@ -939,6 +942,8 @@ def register_chat(
     ) -> tuple[dict, dict | None, dict | None, dict]:
         """📎 の表の ✓ ＝ 公開の機械の手番まで（呼び手が ``lock`` を持っている）。
         問いの提案は AI の往復が長いので、ロックの外で :func:`_finish_attach` が足す。"""
+        if turn.get("paper"):  # 12b: 論文の提案を持つ手番は、公開のあとに下書きも確定する
+            return await _confirm_paper(session, turn, lang, decisions, llm_headers)
         try:
             turn, commit, followup = await chat_attach.confirm_attach(
                 app,
@@ -955,6 +960,68 @@ def register_chat(
             raise _refused(exc) from exc
         saved = _save_after_confirm(session, None, lang)
         return turn, commit, followup, saved
+
+    async def _confirm_paper(
+        session: dict, turn: dict, lang: str, decisions: dict[str, str], llm_headers: dict[str, str]
+    ) -> tuple[dict, dict | None, dict | None, dict]:
+        """論文の手番の ✓（12b）＝ ① 公開（``confirm_attach``）→ ② その話の下書きの確定
+        （``chat_turns.confirm`` と同じ）。②が落ちたら論文は公開のまま、注記を付けて手番は
+        提案のまま残す（もう一度 ✓ で②だけやり直す）。呼び手が ``lock`` を持っている。"""
+        paper = turn["paper"]
+        before = turn.get("before")
+        commit = paper.get("commit")
+        if not paper.get("promoted"):
+            draft0 = chat_turns._current_draft(session, root)
+            if draft0 is not None and draft0.get("id") == paper.get("draft_id"):
+                # 公開の前に、確定の検査を書かずに走らせる — 通らないなら論文も公開しない
+                body0 = chat_turns.commit_body(draft0, lang)
+                body0["batch"] = turn["batch"]
+                try:
+                    await themes.check_commit(_client(), root, body0, at=_now())
+                except themes.ThemeError as exc:
+                    turn["reply"]["notes"] = [
+                        *(n for n in turn["reply"].get("notes") or []
+                          if n.get("kind") != "commit_error"),
+                        chat_turns.note("commit_error", str(exc)),
+                    ]  # fmt: skip
+                    return turn, None, None, _save_after_confirm(session, None, lang)
+            try:
+                turn, commit, _ = await chat_attach.confirm_attach(
+                    app, cfg, session, turn, lang=lang, decisions=decisions,
+                    llm_headers=llm_headers, token=cfg.api_token, at=_now(),
+                )  # fmt: skip
+            except chat_turns.TurnRefused as exc:
+                raise _refused(exc) from exc
+            if commit is None:  # 公開できなかった（commit_error は手番に付いている）
+                return turn, None, None, _save_after_confirm(session, None, lang)
+            paper["promoted"] = True
+            paper["commit"] = commit
+        else:  # 公開は済んでいる — ②だけやり直す
+            turn["state"] = "confirmed"
+            turn["commit"] = commit
+        turn["before"] = None
+        draft = chat_turns._current_draft(session, root)
+        if draft is not None and draft.get("id") == paper.get("draft_id"):
+            theme_commit: dict | None = None
+            try:
+                _, theme_commit = await chat_turns.confirm(
+                    session, turn["id"], client=_client(), lang=lang, root=root, at=_now(),
+                    paper_turn=turn,
+                )  # fmt: skip
+            except Exception:  # 断られた（ThemeError）は commit=None。書き込みの失敗もここへ
+                logger.warning("paper confirm: draft not confirmed", exc_info=True)
+            if theme_commit is None:
+                turn["state"] = "proposed"
+                turn["before"] = before
+                turn["commit"] = None
+                turn["reply"]["notes"] = [
+                    *(turn["reply"].get("notes") or []),
+                    chat_turns.note("commit_error", chat_paper.text(lang, "commit_failed")),
+                ]
+                return turn, None, None, _save_after_confirm(session, None, lang)
+            commit = {**(commit or {}), **theme_commit}
+            turn["commit"] = commit
+        return turn, commit, None, _save_after_confirm(session, commit, lang)
 
     async def _finish_attach(
         session_id: str,
@@ -976,7 +1043,9 @@ def register_chat(
                 lang=lang,
             )
             paper = (turn.get("attachment") or {}).get("kind") == "document"
-            questions = await chat_attach.suggest_questions(
+            # 12b: この手番で問いの提案を出していれば、10b の問いの提案は呼ばない（二重にしない）
+            has_own = any(o.get("op") == "add_question" for o in turn["reply"].get("ops") or [])
+            questions = [] if has_own else await chat_attach.suggest_questions(
                 app, cfg, commit["dataset_id"], lang=lang, llm_headers=llm_headers,
                 token=cfg.api_token, screen="paper" if paper else "dataset",
             )
@@ -1120,6 +1189,7 @@ def register_chat(
             target = next((t for t in session["turns"] if t.get("id") == turn_id), None)
             if target is not None and target.get("state") == "proposed":
                 is_suggestion = bool((target.get("reply") or {}).get("suggestions"))
+                reverted_ids = [turn_id]
                 if is_suggestion or target.get("attachment") or target.get("attach_run"):
                     if is_suggestion:
                         if not await chat_attach.revert_suggestion(
@@ -1129,7 +1199,37 @@ def register_chat(
                             return _revert_failed(
                                 session, target, lang, [{"what": "dismiss", "reason": why}]
                             )
-                    else:  # 📎 の表: 取り込んだ未公開のデータを消して、返事を戻す
+                    else:  # 📎 の表・論文: 取り込んだ未公開のデータを消して、返事を戻す
+                        if target.get("paper"):  # 12b: 論文が下書きに入れた差分も戻す
+                            try:
+                                reverted_ids = chat_turns.revert_paper(
+                                    session, target, root=root, at=_now(), lang=lang
+                                )
+                            except chat_turns.TurnRefused as exc:
+                                raise _refused(exc) from exc
+                            if target["paper"].get("promoted"):
+                                # 公開済み（確定だけ落ちた）— 論文は残し、提案だけ取り消す
+                                target["state"] = "confirmed"
+                                target["before"] = None
+                                target["commit"] = target["paper"].get("commit")
+                                target["reply"]["ops"] = []
+                                target["reply"]["sentences"] = []
+                                target["reply"]["notes"] = [
+                                    *(n for n in target["reply"].get("notes") or []
+                                      if n.get("kind") != "commit_error"),
+                                    chat_turns.note(
+                                        "info", chat_paper.text(lang, "undone_published")
+                                    ),
+                                ]  # fmt: skip
+                                saved = chat_sessions.save_session(root, session)
+                                return JSONResponse(
+                                    {
+                                        "turn": target,
+                                        "session": _head(saved),
+                                        "draft": _draft_card(saved, lang),
+                                        "reverted": [i for i in reverted_ids if i != turn_id],
+                                    }
+                                )
                         dataset_id = (target.get("attachment") or {}).get("dataset_id")
                         if dataset_id and not await chat_attach.discard_dataset(
                             app, cfg, dataset_id, token=cfg.api_token
@@ -1145,7 +1245,7 @@ def register_chat(
                             "turn": target,
                             "session": _head(saved),
                             "draft": _draft_card(saved, lang),
-                            "reverted": [turn_id],
+                            "reverted": reverted_ids,
                         }
                     )
             if target is not None and target.get("state") == "confirmed":
@@ -1176,6 +1276,10 @@ def register_chat(
     ) -> str:
         jobs = app.state.jobs
         runner = chat_attach.run_document_attach if kind == "document" else chat_attach.run_attach
+        extra: dict[str, Any] = {}
+        if kind == "document":  # 12b: AI が設定されていれば、論文から提案する
+            llm, on_usage = _paper_llm(llm_headers)
+            extra = {"llm": llm, "on_usage": on_usage}
         return jobs.start_coro(
             lambda emit, _cancel: runner(
                 app,
@@ -1189,8 +1293,34 @@ def register_chat(
                 emit=emit,
                 resume=resume,
                 homes=homes,
+                **extra,
             )
         )
+
+    def _paper_llm(llm_headers: dict[str, str]) -> tuple[Any, Any]:
+        """論文の提案に使う AI と使用量の記録 → ``(llm, on_usage)``。未設定・作れなければ
+        ``(None, None)``（論文だけ添える）。"""
+        provider, model, api_base, key = _llm_coords(
+            llm_headers.get("x-api-key"),
+            llm_headers.get("x-llm-provider"),
+            llm_headers.get("x-llm-model"),
+            llm_headers.get("x-llm-api-base"),
+            root,
+        )
+        if _ai_unset(key, provider, api_base):
+            return None, None
+        try:
+            llm = resolve_llm(
+                provider,
+                model,
+                api_base,
+                key,
+                max_tokens=_llm_max_tokens(llm_headers.get("x-llm-max-tokens")),
+            )
+        except Exception:
+            logger.warning("paper propose: no AI client", exc_info=True)
+            return None, None
+        return llm, lambda: _record_usage(root, "chat.paper", provider, llm, model)
 
     def _ai_ready(llm_headers: dict[str, str]) -> bool:
         provider, _model, api_base, key = _llm_coords(

@@ -33,6 +33,7 @@ import logging
 import mimetypes
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -40,7 +41,7 @@ from asterism import chat_sessions, shared_vocab
 from asterism.class_schema import class_labels
 from asterism.mapping_ir_read import read_mapping_ir
 
-from asterism_api import chat_turns, registry
+from asterism_api import chat_paper, chat_turns, registry
 from asterism_api.upper_routes import dump_upper, load_upper, merge_upper, resolve_property_ref
 
 if TYPE_CHECKING:
@@ -137,6 +138,7 @@ _T: dict[str, dict[str, str]] = {
         "paper_failed": "論文を読み取れませんでした。形式を確かめて、もう一度添えてください。",
         "document_empty": "論文から文を読み取れませんでした（画像だけの PDF などは読めません）",
         "s_read": "論文を節と文に分けています",
+        "s_propose": "論文を読んで、用語・関係・問いを考えています",
         "paper_reply": (
             "{name} を読み込みました。節 {sections}・文 {sentences}。"
             "承認すると知識グラフに置き、回答で文を引用できるようになります"
@@ -210,6 +212,7 @@ _T: dict[str, dict[str, str]] = {
             "No sentences could be read from the paper (image-only PDFs can't be read)"
         ),
         "s_read": "splitting the paper into sections and sentences",
+        "s_propose": "reading the paper to propose terms, relations and questions",
         "paper_reply": (
             "Read {name}. {sections} sections, {sentences} sentences. "
             "Approve to place it in the knowledge graph so answers can quote its sentences"
@@ -1041,10 +1044,16 @@ async def run_document_attach(
     emit: Callable[..., None],
     resume: dict | None = None,
     homes: dict[str, dict] | None = None,
+    llm: Any = None,
+    on_usage: Callable[[], None] | None = None,
 ) -> dict:
     """添えた論文（PDF・Word・JATS XML）を文書の取り込みに通し、手番を書き換えて保存する。
-    ``/api/documents`` → ``/ingest`` を呼ぶだけ（エンジンは変えない・AI は呼ばない）。
-    ``resume``・``homes`` は :func:`run_attach` と引数をそろえるためで、論文では使わない。"""
+    ``/api/documents`` → ``/ingest`` を呼ぶだけ（エンジンは変えない）。
+    ``resume``・``homes`` は :func:`run_attach` と引数をそろえるためで、論文では使わない。
+
+    ``llm``（12b）= 設定済みの AI。あれば取り込みのあとに用語・関係・問いを根拠の文つきで提案し
+    （:mod:`asterism_api.chat_paper`）、話の下書きに当てる。無い・失敗したら論文だけ（12a のまま）。
+    ``on_usage`` = AI を呼んだあとの使用量の記録。"""
     lang = _lg(lang)
     http = make_http(app, token, llm_headers)
     ctx = _Ctx(app, cfg, http, lang, emit)
@@ -1053,6 +1062,7 @@ async def run_document_attach(
     st: dict = {"lang": lang}
     attachment: dict | None = None
     cancelled: BaseException | None = None
+    proposal: dict | None = None
     try:
         assert files
         st["name"] = _stem(files[0][0]) + (f" {text(lang, 'others')}" if len(files) > 1 else "")
@@ -1090,6 +1100,16 @@ async def run_document_attach(
                 **counts,
             }
             state = "proposed"
+            if llm is not None:  # 提案の段（AI が設定されているときだけ）
+                ctx.stage(3, "s_propose")
+                proposal = await chat_paper.make_proposal(
+                    app, cfg, session_id, st["dataset_id"], llm=llm, on_usage=on_usage, lang=lang
+                )
+                if not proposal.get("ok"):
+                    reply["notes"].append(
+                        chat_turns.note("info", chat_paper.text(lang, "propose_failed"))
+                    )
+                    proposal = None
     except AttachError as exc:
         logger.warning("paper attach stopped (%s): %s", exc.kind, exc.detail)
         reply = chat_turns._reply(
@@ -1127,6 +1147,20 @@ async def run_document_attach(
             turn["attachment"] = attachment
         turn["attach_run"] = st
         turn.pop("job_id", None)
+        if proposal is not None:  # 提案を話の下書きに当てる（読み直した話に・失敗は論文だけ）
+            try:
+                await chat_paper.apply_proposal(
+                    session, turn, proposal, client=app.state.client, root=root,
+                    existing=await shared_vocab._read_terms(app.state.client),
+                    dismissed=shared_vocab.load_dismissed(root),
+                    at=datetime.now(UTC).isoformat(), lang=lang, label=str(st.get("name") or ""),
+                )  # fmt: skip
+            except Exception:
+                logger.warning("paper propose: could not apply", exc_info=True)
+                turn["reply"]["notes"] = [
+                    *(turn["reply"].get("notes") or []),
+                    chat_turns.note("info", chat_paper.text(lang, "propose_failed")),
+                ]
         chat_sessions.save_session(root, session)
     if cancelled is not None:
         raise cancelled

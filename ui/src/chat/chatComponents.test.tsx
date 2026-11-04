@@ -11,7 +11,7 @@ import { HandForm } from './HandForm'
 import { NoteLine, ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
 import { SourcePickerView } from './SourcePicker'
 import { allDocumentNames, formatSize } from './sourcePickerUtil'
-import { fetchSourceItems } from './chatApi'
+import { evidenceOf, fetchSourceItems, normalizeTurn } from './chatApi'
 import { SessionList } from './SessionList'
 
 const noop = () => {}
@@ -202,6 +202,39 @@ describe('表を添える（クリップ）', () => {
     expect(text(html)).not.toContain('行')
     expect(html).not.toContain('data-testid="reply-bindings"')
     expect(text(html)).toContain('公開')
+  })
+  it('論文の提案: 関係の行の下に根拠の文・根拠の無い関係の行は今どおり・✓ は「承認」', () => {
+    const at = { kind: 'document' as const, dataset_id: 'd', name: '論文', rows: 0, kinds: [], id_column: '', sections: 5, paragraphs: 20, sentences: 80 }
+    const ev = { iri: 'https://x/sent/1', text: 'Grain boundary scattering lowers the lattice thermal conductivity.', path: '2-5' }
+    const ops = [
+      { op: 'add_concept', key: 'n1', label_ja: '粒界' },
+      { op: 'add_relation', from: 'n1', rel: 'lowers', to: 'n2', evidence: [ev] },
+      { op: 'add_relation', from: 'n2', rel: 'affects', to: 'n3' },
+    ]
+    const html = card(
+      turn({
+        attachment: at,
+        paper: { draft_id: 'x', created: true, promoted: false },
+        reply: reply({ text: '読み込みました', ops, sentences: ['粒界', '粒界は熱伝導率を下げる', '熱伝導率は性能指数を変える'] }),
+      }),
+    )
+    expect(html.match(/data-testid="reply-evidence"/g)).toHaveLength(1) // 根拠の無い関係には出ない
+    expect(html).toContain(ev.text)
+    expect(html).toContain('title="根拠の文: ' + ev.text)
+    // 150 字を超える文は札では切って「…」・title に全文
+    const long = 'あ'.repeat(200)
+    const cut = card(turn({ attachment: at, reply: reply({ ops: [{ op: 'add_relation', evidence: [{ iri: 'i', text: long, path: null }] }], sentences: ['x'] }) }))
+    expect(cut).toContain('あ'.repeat(150) + '…')
+    expect(cut).toContain('title="根拠の文: ' + long)
+    expect(text(html)).toContain('知識グラフへの提案 · 3 件')
+    expect(text(html)).toContain('承認')
+    expect(text(html)).not.toContain('公開')
+    // 提案の無い論文・文の手番の提案には根拠の欄が出ない
+    const plain = card(turn({ attachment: at, reply: reply({ text: '読み込みました' }) }))
+    expect(plain).not.toContain('reply-evidence')
+    expect(card(turn({ reply: reply({ ops, sentences: ['a', 'b', 'c'] }) }))).toContain('reply-evidence')
+    // 行と提案の並びが合わなければ（長さが違う）出さない
+    expect(card(turn({ reply: reply({ ops, sentences: ['a', 'b'] }) }))).not.toContain('reply-evidence')
   })
   it('機械の手番は suggestions を 1 行ずつ・新しい kind も描ける', () => {
     const html = card(turn({ by: 'machine', user: null, reply: reply({ text: '', suggestions: [{ subject: '価格', term: '値段', relation: 'eq' }] }) }))
@@ -590,5 +623,21 @@ describe('取り込み元の切り替え', () => {
     expect(html).toContain('取り込み元です')
     expect(html).not.toContain('radio')
     expect(html).not.toContain('fieldset')
+  })
+})
+
+describe('論文の提案の受け取り（12b）', () => {
+  it('手番の paper と関係の evidence を落とさない・形が違うものは無いものとして扱う', () => {
+    const raw = {
+      ...turn({ state: 'proposed' }),
+      paper: { draft_id: 'x', created: true, promoted: false },
+    }
+    expect(normalizeTurn(raw)?.paper).toEqual({ draft_id: 'x', created: true, promoted: false })
+    expect(normalizeTurn(turn())?.paper).toBeUndefined()
+    expect(normalizeTurn({ ...turn(), paper: { created: true } })?.paper).toBeUndefined()
+    const ev = { iri: 'https://x/s', text: '文', path: null }
+    expect(evidenceOf({ op: 'add_relation', evidence: [ev, { iri: 'a', text: '', path: null }, 3] })).toEqual([ev])
+    expect(evidenceOf({ op: 'add_concept', evidence: [ev] })).toEqual([])
+    expect(evidenceOf(undefined)).toEqual([])
   })
 })

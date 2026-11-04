@@ -341,6 +341,8 @@ class _Applier:
                 "reason": op.get("reason") or "",
                 "problem": None,
                 "by": self.by,
+                # 論文の根拠の文（12b・機械がストアから引いた {iri, text, path}）。無ければ足さない
+                **({"evidence": list(op["evidence"])} if op.get("evidence") else {}),
             }
         )
         self.applied += 1
@@ -817,6 +819,14 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
         name = op.get("op")
         if name == "add_concept":
             kind = op.get("kind")
+            use = str(op.get("use") or "new")
+            if use.startswith(("existing:", "standard:")):  # 足すのでなく、ある語を使う
+                std = use.startswith("standard:")
+                if lg == "en":
+                    out.append(f"Use the {'standard' if std else 'existing'} term {name_of(op)}")
+                else:
+                    out.append(f"{'標準の語' if std else '既存の用語'}「{name_of(op)}」を使う")
+                continue
             if lg == "en":
                 what = "kind of thing" if kind == "class" else "property"
                 out.append(f"Add {name_of(op)} ({what})")

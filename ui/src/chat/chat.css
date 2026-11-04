@@ -367,6 +367,18 @@
   margin: var(--space-1) 0 0;
   padding-left: 1.1rem;
 }
+/* 12b: 関係の行の下の根拠の文（小さく 1 行・長ければ省略・全文は title） */
+.chat-evidence {
+  margin-top: 1px;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.chat-evidence-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .chat-sentences-more {
   list-style: none;
   margin-left: -1.1rem;
