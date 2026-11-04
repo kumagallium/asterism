@@ -291,26 +291,58 @@ function ModelsTab() {
 
 
       {!showForm && (
+        <div className="role-picks">
+          <label className="role-pick">
+            <span className="role-pick-name">{t('models.roles.make')}</span>
+            <select
+              data-testid="role-make"
+              value={settings.activeModelId ?? ''}
+              onChange={(e) => settings.setActiveModel(e.target.value)}
+            >
+              {settings.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <span className="field-help">{t('models.roles.makeHelp')}</span>
+          </label>
+          <label className="role-pick">
+            <span className="role-pick-name">{t('models.roles.answer')}</span>
+            <select
+              data-testid="role-answer"
+              value={settings.answerModelId ?? ''}
+              onChange={(e) => settings.setAnswerModel(e.target.value || null)}
+            >
+              <option value="">{t('models.roles.same')}</option>
+              {settings.models
+                .filter((m) => m.id !== settings.activeModelId)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+            </select>
+            <span className="field-help">{t('models.roles.answerHelp')}</span>
+          </label>
+        </div>
+      )}
+
+      {!showForm && (
         <ul className="model-list">
           {settings.models.map((m) => {
             const active = m.id === settings.activeModelId
+            const answering = m.id === (settings.answerModelId ?? settings.activeModelId)
             const keySet = settings.hasKeyForModel(m)
             const keyless = !providerNeedsKey(m.provider)
             const viaServer = !keySet && settings.hasServerKey(m.provider)
             return (
-              <li key={m.id} className={`model-row${active ? ' active' : ''}`}>
-                <label className="model-pick">
-                  <input
-                    type="radio"
-                    name="active-model"
-                    checked={active}
-                    onChange={() => settings.setActiveModel(m.id)}
-                  />
-                </label>
+              <li key={m.id} className={`model-row${active || answering ? ' active' : ''}`}>
                 <div className="model-main">
                   <div className="model-name">
                     {m.name}
-                    {active && <span className="model-badge">{t('models.activeBadge')}</span>}
+                    {active && <span className="model-badge">{t('models.makeBadge')}</span>}
+                    {answering && <span className="model-badge">{t('models.answerBadge')}</span>}
                   </div>
                   <div className="model-sub">
                     <span className="model-provider">{providerName(m.provider, t)}</span>

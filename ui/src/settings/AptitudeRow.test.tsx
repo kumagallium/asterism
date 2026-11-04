@@ -23,6 +23,16 @@ describe('AptitudeView', () => {
     const p = renderToStaticMarkup(<AptitudeView result={{ ...base, verdict: 'poor' }} />)
     expect(p).toContain('aptitude-badge--poor')
   })
+  it('役割ごとの 2 つのバッジ（design §21）', () => {
+    const h = renderToStaticMarkup(
+      <AptitudeView result={{ ...base, shape: 0.5, roles: { make: 'poor', answer: 'good' } }} />,
+    )
+    expect(h).toContain('data-testid="aptitude-badge-make"')
+    expect(h).toContain('作る: 非推奨')
+    expect(h).toContain('答える: 推奨')
+    expect(h).toContain('答える AI に向いています')
+    expect(h).not.toContain('data-testid="aptitude-badge"')
+  })
   it('落ちた問があれば見るボタン・結果が無ければ未検査', () => {
     const f = renderToStaticMarkup(
       <AptitudeView result={{ ...base, failed: [{ kind: 'shape', index: 2, reason: 'x' }] }} />,

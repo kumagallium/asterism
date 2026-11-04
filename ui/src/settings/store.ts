@@ -62,7 +62,12 @@ export interface LlmCredentials {
   apiKey: string
   /** Per-model max output tokens (null → server default). */
   maxTokens: number | null
+  /** 「答える AI」が「作る AI」と別のモデルのときだけ（design §21）。無ければ同じモデル。 */
+  answer?: LlmRoleCredentials | null
 }
+
+/** One role's coordinates (the same shape without the nested `answer`). */
+export type LlmRoleCredentials = Omit<LlmCredentials, 'answer'>
 
 export interface ProviderMeta {
   id: Provider
@@ -122,7 +127,27 @@ export function llmHeaders(creds: LlmCredentials | null): Record<string, string>
   if (typeof creds.maxTokens === 'number' && creds.maxTokens > 0) {
     h['X-LLM-Max-Tokens'] = String(creds.maxTokens)
   }
+  // 答える AI は別の組で送り、サーバが呼び出しの役割で選ぶ（design §21.3）。
+  const a = creds.answer
+  if (a) {
+    if (a.apiKey) h['X-LLM-Answer-Key'] = a.apiKey
+    h['X-LLM-Answer-Provider'] = a.provider
+    if (a.modelId) h['X-LLM-Answer-Model'] = a.modelId
+    if (a.apiBase) h['X-LLM-Answer-Api-Base'] = a.apiBase
+    if (typeof a.maxTokens === 'number' && a.maxTokens > 0) {
+      h['X-LLM-Answer-Max-Tokens'] = String(a.maxTokens)
+    }
+  }
   return h
+}
+
+/** 答える AI だけの座標（Ask のように、役割を知らない相手へ直接送るとき）。 */
+export function answerCredentials(creds: LlmCredentials | null): LlmRoleCredentials | null {
+  if (!creds) return null
+  if (creds.answer) return creds.answer
+  const make: LlmRoleCredentials = { ...creds }
+  delete (make as LlmCredentials).answer
+  return make
 }
 
 // The provider catalog (ported from Graphium). openai-compatible is the seam for
@@ -182,9 +207,12 @@ const KEYS_KEY = 'asterism.keys' // { [group]: apiKey } — local OR session
 const REMEMBER_KEY = 'asterism.keyRemember' // { [group]: boolean } — localStorage
 const LEGACY_KEY = 'asterism.apiKey' // pre-settings single key (sessionStorage)
 
-interface ModelsState {
+export interface ModelsState {
   models: LlmModelConfig[]
+  /** 「作る AI」（design §21。既存の「使用中のモデル」をそのまま使う）。 */
   activeModelId: string | null
+  /** 「答える AI」。null・未設定＝作る AI と同じ（移行は無害）。 */
+  answerModelId?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +313,26 @@ export function saveModelsState(state: ModelsState): void {
     return
   }
   localStorage.setItem(MODELS_KEY, JSON.stringify(state))
+}
+
+// 状態の移り変わり（answerModelId を落とさない・古い指定を残さない。design §21）
+
+export function withAddedModel(state: ModelsState, m: LlmModelConfig): ModelsState {
+  return { ...state, models: [...state.models, m], activeModelId: state.activeModelId ?? m.id }
+}
+
+/** 答える AI と同じモデルを作る AI にしたら、答える AI は「同じ」に戻す。 */
+export function withActiveModel(state: ModelsState, id: string): ModelsState {
+  const answerModelId = state.answerModelId === id ? null : (state.answerModelId ?? null)
+  return { ...state, activeModelId: id, answerModelId }
+}
+
+export function withoutModel(state: ModelsState, id: string): ModelsState {
+  const models = state.models.filter((m) => m.id !== id)
+  const activeModelId = state.activeModelId === id ? (models[0]?.id ?? null) : state.activeModelId
+  const answer = state.answerModelId ?? null
+  const answerModelId = answer === id || answer === activeModelId ? null : answer
+  return { models, activeModelId, answerModelId }
 }
 
 export function makeModel(input: Omit<LlmModelConfig, 'id'>): LlmModelConfig {
@@ -415,7 +463,10 @@ export function cleanupLegacySeed(hasAnthropicServerKey: boolean): ModelsState |
   const activeModelId = models.some((m) => m.id === state.activeModelId)
     ? state.activeModelId
     : (models[0]?.id ?? null)
-  const next: ModelsState = { models, activeModelId }
+  const answerModelId = models.some((m) => m.id === state.answerModelId)
+    ? state.answerModelId
+    : null
+  const next: ModelsState = { models, activeModelId, answerModelId }
   saveModelsState(next)
   return next
 }

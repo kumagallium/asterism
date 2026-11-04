@@ -31,8 +31,10 @@ __all__ = [
     "AptitudeCancelled",
     "AptitudeResult",
     "judge",
+    "judge_roles",
     "run_aptitude",
     "settings_key",
+    "with_roles",
 ]
 
 #: 提案（新規）の問い 5（価格表の例）
@@ -119,6 +121,7 @@ _SHAPE_GOOD = 0.9
 _ROUTING_GOOD = 0.9
 _SCOPE_GOOD = 0.8
 _ROUTING_LIMITED = 0.7
+_SHAPE_LIMITED = 0.7
 
 
 class AptitudeCancelled(Exception):
@@ -139,6 +142,7 @@ class AptitudeResult:
         return {
             "verdict": self.verdict, "shape": self.shape, "routing": self.routing,
             "scope": self.scope, "failed": self.failed, "at": self.at,
+            "roles": judge_roles(self.shape, self.routing, self.scope),
         }  # fmt: skip
 
 
@@ -157,6 +161,38 @@ def judge(shape: float, routing: float, scope: float) -> str:
     if routing >= _ROUTING_LIMITED:
         return "limited"
     return "poor"
+
+
+def judge_roles(shape: float, routing: float, scope: float) -> dict[str, str]:
+    """役割ごとの判定（design §21.5）。``{"make": …, "answer": …}``。
+
+    * 作る（提案・設計を新しく書く）= 形だけ。形 ≥ 90% 推奨・≥ 70% 条件つき
+    * 答える（振り分け・対象を絞った修正）= 振り分け ≥ 90% かつ 対象 ≥ 80% で推奨・
+      振り分け ≥ 70% で条件つき"""
+    if shape >= _SHAPE_GOOD:
+        make = "good"
+    elif shape >= _SHAPE_LIMITED:
+        make = "limited"
+    else:
+        make = "poor"
+    if routing >= _ROUTING_GOOD and scope >= _SCOPE_GOOD:
+        answer = "good"
+    elif routing >= _ROUTING_LIMITED:
+        answer = "limited"
+    else:
+        answer = "poor"
+    return {"make": make, "answer": answer}
+
+
+def with_roles(entry: dict) -> dict:
+    """保存済みの結果に役割の判定を付ける（§21 より前の結果は率だけ・再検査は要らない）。"""
+    if isinstance(entry.get("roles"), dict):
+        return entry
+    try:
+        roles = judge_roles(float(entry["shape"]), float(entry["routing"]), float(entry["scope"]))
+    except (KeyError, TypeError, ValueError):
+        return entry
+    return {**entry, "roles": roles}
 
 
 def _rate(ok: int, total: int) -> float:
