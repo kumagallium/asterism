@@ -102,3 +102,46 @@ def test_convert_pdf_to_jats_rejects_oversized() -> None:
 
     with pytest.raises(ConversionError, match="too large"):
         convert_pdf_to_jats(b"%PDF-" + b"0" * (_MAX_PDF_BYTES + 1), sidecar_url="http://x")
+
+
+# --- 13c: 表のセルを table-wrap に -------------------------------------------------------
+
+_TINY = json.loads((_FIXTURES / "docling_tiny_table.json").read_text(encoding="utf-8"))
+
+
+def test_table_cells_become_table_wrap_and_caption_stays_prose() -> None:
+    from asterism.documents import tables_of_jats
+
+    jats = docling_dict_to_jats(_TINY)
+    assert jats.count("<table-wrap ") == 1  # セルの無い表 2 は見出しだけ（今までどおり）
+    assert "<p>Table 2. A table whose cells were not extracted.</p>" in jats
+    assert "<p>Table 1. Seebeck coefficient and ZT of two samples.</p>" in jats  # 文として残る
+    (t,) = tables_of_jats(jats)
+    assert (t["id"], t["label"]) == ("tbl1", "Table 1")
+    assert t["caption"] == "Seebeck coefficient and ZT of two samples."
+    # 見出しは column_header の 2 行を重ねて 1 行に（結合セルは左上の値を広げる）
+    prop = "Thermoelectric properties"
+    assert t["header"] == ["Sample", f"{prop} S (µV/K)", f"{prop} ZT"]
+    assert t["rows"] == [["ZrNiSn", "-210", "0.4"], ["HfNiSn", "-190", ""]]
+
+
+def test_table_wrap_keeps_sentence_counts() -> None:
+    # 表のセルを足しても、文・節の数は見出しだけのときと同じ
+    bare = json.loads(json.dumps(_TINY))
+    for tb in bare["tables"]:
+        tb["data"] = {}
+    a = structure_jats(docling_dict_to_jats(_TINY), paper_iri=_PAPER)
+    b = structure_jats(docling_dict_to_jats(bare), paper_iri=_PAPER)
+    for cls in ("Section", "Paragraph", "Sentence"):
+        assert _count(a, cls) == _count(b, cls)
+
+
+def test_grid_form_is_preferred_and_first_row_is_header_without_marks() -> None:
+    from asterism.documents import tables_of_jats
+
+    cell = lambda t: {"text": t, "column_header": False}  # noqa: E731
+    doc = json.loads(json.dumps(_TINY))
+    grid = [[cell("A"), cell("B")], [cell("1"), cell("2")], [cell("3"), cell("4")]]
+    doc["tables"][0]["data"] = {"grid": grid}
+    (t,) = tables_of_jats(docling_dict_to_jats(doc))
+    assert t["header"] == ["A", "B"] and t["rows"] == [["1", "2"], ["3", "4"]]

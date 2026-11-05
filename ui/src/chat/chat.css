@@ -1307,3 +1307,36 @@ button.chat-question-title:hover {
   font-size: 0.7rem;
   font-weight: normal;
 }
+
+/* ── 論文の表（13c） ── */
+.chat-paper-tables {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-paper-tables-head {
+  font-weight: 600;
+}
+.chat-paper-table-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-paper-table {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.85rem;
+}
+.chat-paper-table-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-paper-table .btn,
+.chat-paper-table .link-btn {
+  flex-shrink: 0;
+}

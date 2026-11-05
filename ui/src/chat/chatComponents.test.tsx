@@ -681,3 +681,58 @@ describe('論文の提案の受け取り（12b）', () => {
     expect(evidenceOf(undefined)).toEqual([])
   })
 })
+
+describe('論文の表（13c）', () => {
+  const paper = { kind: 'document' as const, dataset_id: 'p1', name: '論文', rows: 0, kinds: [], id_column: '', sections: 3, paragraphs: 9, sentences: 40 }
+  const tb = (over: Record<string, unknown> = {}) => ({ id: 'tbl1', label: 'Table 2', caption: 'Seebeck と ZT', n_rows: 12, n_cols: 5, header: ['試料', 'S', 'ZT'], imported: null, ...over })
+
+  it('表ごとに 1 行・「データとして取り込む」と列名の title', () => {
+    const html = card(turn({ attachment: paper, reply: reply({ tables: [tb(), tb({ id: 'tbl2', label: '', caption: '' })] }) }))
+    expect(text(html)).toContain('論文の表 · 2 件')
+    expect(text(html)).toContain('表 2 — Seebeck と ZT（12 行 × 5 列）')
+    expect(text(html)).toContain('tbl2（12 行 × 5 列）')
+    expect(html.match(/data-testid="paper-table-import"/g)).toHaveLength(2)
+    expect(html).toContain('title="試料 | S | ZT"')
+  })
+
+  it('取り込んだ表は「取り込みました → 新しい手番へ」に変わる・取り消された手番なら押せる', () => {
+    const t = turn({ attachment: paper, reply: reply({ tables: [tb({ imported: 'n1' })] }) })
+    const done = renderToStaticMarkup(<ReplyCard turn={t} canConfirm count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} importedAlive={() => true} />)
+    expect(text(done)).toContain('取り込みました → 新しい手番へ')
+    expect(done).not.toContain('data-testid="paper-table-import"')
+    const again = renderToStaticMarkup(<ReplyCard turn={t} canConfirm count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} importedAlive={() => false} onImportTable={noop} />)
+    expect(again).toContain('data-testid="paper-table-import"')
+  })
+
+  it('取り消した論文・表の無い論文・表の手番には欄が出ない', () => {
+    expect(card(turn({ attachment: paper, state: 'proposed' }))).not.toContain('paper-tables')
+    const reverted = card(turn({ attachment: paper, state: 'reverted', reply: reply({ tables: [tb()] }) }))
+    expect(reverted).toContain('disabled')
+    expect(card(turn({ attachment: { ...paper, kind: 'table' }, reply: reply({ tables: [tb()] }) }))).not.toContain('paper-tables')
+  })
+
+  it('取り込んだ表の手番の頭に「論文「X」の表 2 から」', () => {
+    const t = turn({ attachment: { ...paper, kind: 'table', rows: 12, source_paper: { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 2', caption: '', name: '論文' } }, source_paper: { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 2', caption: '', name: '論文' } })
+    expect(text(card(t))).toContain('論文「論文」の表 2 から')
+  })
+
+  it('normalizeTurn は tables・source_paper を読む', () => {
+    const raw = { ...turn(), source_paper: { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 2', caption: 'c', name: '論文' }, reply: { ...reply(), tables: [tb({ imported: 'n1' }), { nope: 1 }] } }
+    const n = normalizeTurn(raw)
+    expect(n?.source_paper?.table_id).toBe('tbl1')
+    expect(n?.reply.tables).toEqual([tb({ imported: 'n1' })])
+    expect(normalizeTurn(turn())?.reply.tables).toBeUndefined()
+  })
+})
+
+describe('論文の表の取り込み（13c 見直し）', () => {
+  it('読んでいる間にも出所が出る', () => {
+    const sp = { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 1', caption: '', name: '論文' }
+    expect(text(card(turn({ state: 'running', source_paper: sp })))).toContain('論文「論文」の表 1 から')
+  })
+  it('表の行のボタンは控えめ（主ボタンにしない）', () => {
+    const paper = { kind: 'document' as const, dataset_id: 'p1', name: '論文', rows: 0, kinds: [], id_column: '' }
+    const html = card(turn({ attachment: paper, reply: reply({ tables: [{ id: 'a', label: '', caption: '', n_rows: 2, n_cols: 2, header: ['x', 'y'], imported: null }] }) }))
+    expect(html).toMatch(/class="btn btn--sm btn--ghost" data-testid="paper-table-import"/)
+  })
+})

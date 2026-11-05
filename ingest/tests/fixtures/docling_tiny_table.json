@@ -1,0 +1,212 @@
+{
+ "schema_name": "DoclingDocument",
+ "version": "1.0.0",
+ "name": "tiny",
+ "body": {
+  "self_ref": "#/body",
+  "children": [
+   {
+    "$ref": "#/texts/0"
+   },
+   {
+    "$ref": "#/texts/1"
+   },
+   {
+    "$ref": "#/tables/0"
+   },
+   {
+    "$ref": "#/tables/1"
+   }
+  ]
+ },
+ "groups": [],
+ "texts": [
+  {
+   "self_ref": "#/texts/0",
+   "label": "title",
+   "text": "Tiny paper"
+  },
+  {
+   "self_ref": "#/texts/1",
+   "label": "section_header",
+   "level": 1,
+   "text": "1. Results"
+  },
+  {
+   "self_ref": "#/texts/2",
+   "label": "caption",
+   "text": "Table 1. Seebeck coefficient and ZT of two samples."
+  },
+  {
+   "self_ref": "#/texts/3",
+   "label": "caption",
+   "text": "Table 2. A table whose cells were not extracted."
+  }
+ ],
+ "pictures": [],
+ "tables": [
+  {
+   "self_ref": "#/tables/0",
+   "label": "table",
+   "captions": [
+    {
+     "$ref": "#/texts/2"
+    }
+   ],
+   "children": [],
+   "data": {
+    "table_cells": [
+     {
+      "text": "Sample",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 0,
+      "end_row_offset_idx": 1,
+      "start_col_offset_idx": 0,
+      "end_col_offset_idx": 1,
+      "column_header": true,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "Thermoelectric properties",
+      "row_span": 1,
+      "col_span": 2,
+      "start_row_offset_idx": 0,
+      "end_row_offset_idx": 1,
+      "start_col_offset_idx": 1,
+      "end_col_offset_idx": 3,
+      "column_header": true,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 1,
+      "end_row_offset_idx": 2,
+      "start_col_offset_idx": 0,
+      "end_col_offset_idx": 1,
+      "column_header": true,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "S (µV/K)",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 1,
+      "end_row_offset_idx": 2,
+      "start_col_offset_idx": 1,
+      "end_col_offset_idx": 2,
+      "column_header": true,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "ZT",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 1,
+      "end_row_offset_idx": 2,
+      "start_col_offset_idx": 2,
+      "end_col_offset_idx": 3,
+      "column_header": true,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "ZrNiSn",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 2,
+      "end_row_offset_idx": 3,
+      "start_col_offset_idx": 0,
+      "end_col_offset_idx": 1,
+      "column_header": false,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "-210",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 2,
+      "end_row_offset_idx": 3,
+      "start_col_offset_idx": 1,
+      "end_col_offset_idx": 2,
+      "column_header": false,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "0.4",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 2,
+      "end_row_offset_idx": 3,
+      "start_col_offset_idx": 2,
+      "end_col_offset_idx": 3,
+      "column_header": false,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "HfNiSn",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 3,
+      "end_row_offset_idx": 4,
+      "start_col_offset_idx": 0,
+      "end_col_offset_idx": 1,
+      "column_header": false,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "-190",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 3,
+      "end_row_offset_idx": 4,
+      "start_col_offset_idx": 1,
+      "end_col_offset_idx": 2,
+      "column_header": false,
+      "row_header": false,
+      "row_section": false
+     },
+     {
+      "text": "",
+      "row_span": 1,
+      "col_span": 1,
+      "start_row_offset_idx": 3,
+      "end_row_offset_idx": 4,
+      "start_col_offset_idx": 2,
+      "end_col_offset_idx": 3,
+      "column_header": false,
+      "row_header": false,
+      "row_section": false
+     }
+    ],
+    "num_rows": 4,
+    "num_cols": 3
+   }
+  },
+  {
+   "self_ref": "#/tables/1",
+   "label": "table",
+   "captions": [
+    {
+     "$ref": "#/texts/3"
+    }
+   ],
+   "children": [],
+   "data": {
+    "table_cells": [],
+    "num_rows": 0,
+    "num_cols": 0
+   }
+  }
+ ]
+}

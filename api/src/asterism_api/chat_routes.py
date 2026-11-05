@@ -164,6 +164,13 @@ class AttachFromSourceBody(BaseModel):
     lang: str = "ja"
 
 
+class ImportTableBody(BaseModel):
+    """論文の表を、データとして取り込む（13c）。"""
+
+    table_id: str
+    lang: str = "ja"
+
+
 class TurnBody(BaseModel):
     text: str | None = None
     scope: ScopeBody | None = None
@@ -1315,6 +1322,7 @@ def register_chat(
         resume: dict | None = None,
         homes: dict[str, dict] | None = None,
         kind: str = "table",
+        source_paper: dict | None = None,
     ) -> str:
         jobs = app.state.jobs
         runner = chat_attach.run_document_attach if kind == "document" else chat_attach.run_attach
@@ -1322,6 +1330,8 @@ def register_chat(
         if kind == "document":  # 12b: AI が設定されていれば、論文から提案する
             llm, on_usage = _paper_llm(llm_headers)
             extra = {"llm": llm, "on_usage": on_usage}
+        elif source_paper:  # 13c: 論文の表から来た取り込み
+            extra = {"source_paper": source_paper}
         return jobs.start_coro(
             lambda emit, _cancel: runner(
                 app,
@@ -1462,11 +1472,22 @@ def register_chat(
         llm_headers: dict[str, str],
         homes: dict[str, dict] | None = None,
         kind: str = "table",
+        source_paper: dict | None = None,
     ) -> JSONResponse:
         """📎 の共通の出口: 人の手番（running）を作り、走者を始める。bytes の出どころ
-        （ブラウザ／MCP の取り込み元）はここでは区別しない。"""
+        （ブラウザ／MCP の取り込み元）はここでは区別しない。
+
+        ``source_paper``（13c）= 論文の表から来たとき。論文の手番がまだ生きていて（承認待ち
+        か承認済み）・その表をまだ取り込んでいないことを**ロックの中で**確かめ（違えば 409）、
+        論文の返事の表に「取り込んだ手番」を残す。"""
         async with lock:
             session = _session_or_404(session_id)
+            paper_table: dict | None = None
+            if source_paper:
+                paper_turn = next(
+                    (t for t in session["turns"] if t.get("id") == source_paper["turn_id"]), None
+                )
+                paper_table = _paper_table_of(session, paper_turn, source_paper["table_id"])
             turn = chat_turns._append_turn(
                 session,
                 at=_now(),
@@ -1477,13 +1498,88 @@ def register_chat(
                 by="machine",
             )
             turn["attachment"] = None
+            meta_source: dict | None = None
+            if source_paper:
+                meta_source = {k: v for k, v in source_paper.items() if k != "turn_id"}
+                turn["source_paper"] = meta_source
+                if paper_table is not None:
+                    paper_table["imported"] = turn["id"]
             job_id = _start_attach_job(
-                session_id, turn["id"], data, lang, llm_headers, homes=homes, kind=kind
+                session_id,
+                turn["id"],
+                data,
+                lang,
+                llm_headers,
+                homes=homes,
+                kind=kind,
+                source_paper=meta_source,
             )
             turn["job_id"] = job_id
             saved = chat_sessions.save_session(root, session)
         return JSONResponse(
             {"turn": turn, "session": _head(saved), "job_id": job_id}, status_code=201
+        )
+
+    def _paper_table_of(session: dict, paper_turn: dict | None, table_id: str) -> dict:
+        """論文の手番の返事から、押された表の行を引く。手番が無い・論文でない・取り消された・
+        表が無いは 404 / 409。取り込んだ手番がまだ生きていれば 409（もう取り込んでいる）。"""
+        if paper_turn is None:
+            raise HTTPException(404, "その手番はありません")
+        if (paper_turn.get("attachment") or {}).get("kind") != "document":
+            raise HTTPException(422, "論文の手番ではありません")
+        if paper_turn.get("state") not in ("proposed", "confirmed"):
+            raise HTTPException(409, "この論文は取り消されたので、表は取り込めません")
+        listed = (paper_turn.get("reply") or {}).get("tables") or []
+        row = next((t for t in listed if t.get("id") == table_id), None)
+        if row is None:
+            raise HTTPException(404, "その表はありません")
+        done = next((t for t in session["turns"] if t.get("id") == row.get("imported")), None)
+        if done is not None and done.get("state") in ("running", "proposed", "confirmed"):
+            raise HTTPException(409, "この表はもう取り込んでいます")
+        return row
+
+    @app.post("/api/chat/sessions/{session_id}/turns/{turn_id}/import-table", dependencies=deps)
+    async def chat_import_table(
+        session_id: str, turn_id: str, body: ImportTableBody, request: Request
+    ) -> JSONResponse:
+        """論文の表 1 つを、データとして取り込む（13c）。表を CSV（UTF-8・見出し 1 行）にして、
+        📎 で表を添えたときと同じ走者を**新しい手番**として走らせる（AI の設計 → 承認）。
+        表のセルは論文の取り込み元から引く（返事には載せない）。
+        AI が無ければ表の取り込みと同じ 503。"""
+        lang = "en" if body.lang.lower().startswith("en") else "ja"
+        llm_headers = chat_attach.llm_headers_of(request.headers)
+        session = _session_or_404(session_id)
+        paper_turn = next((t for t in session["turns"] if t.get("id") == turn_id), None)
+        # 早めに 404 / 409（本番はロックの中）
+        listed_row = _paper_table_of(session, paper_turn, body.table_id)
+        assert paper_turn is not None
+        attachment = paper_turn["attachment"]
+        if not _ai_ready(llm_headers):
+            raise HTTPException(503, "AI が設定されていません")
+        found = await asyncio.to_thread(chat_attach.paper_tables, root, attachment["dataset_id"])
+        table = next((t for t in found["tables"] if t["id"] == body.table_id), None)
+        if table is None:
+            raise HTTPException(404, "その表は論文から読めません")
+        if list(listed_row.get("header") or []) != list(table["header"]):
+            raise HTTPException(
+                409, "論文が読み直されて表が変わりました。論文を添え直してください"
+            )
+        name = chat_attach.table_file_name(str(attachment.get("name") or "paper"), table)
+        source = {
+            "dataset_id": attachment["dataset_id"],
+            "table_id": table["id"],
+            "label": table.get("label") or "",
+            "caption": table.get("caption") or "",
+            "name": str(attachment.get("name") or ""),
+            "turn_id": turn_id,
+        }
+        return await _begin_attach(
+            session_id,
+            [(name, chat_attach.table_csv(table))],
+            lang,
+            llm_headers,
+            kind="table",
+            source_paper=source,
         )
 
     @app.post("/api/chat/sessions/{session_id}/attach-from-source", dependencies=deps)

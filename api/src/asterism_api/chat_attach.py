@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import csv
+import io
 import json
 import logging
 import mimetypes
@@ -37,7 +39,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from asterism import chat_sessions, shared_vocab
+from asterism import chat_sessions, documents, shared_vocab
 from asterism.class_schema import class_labels
 from asterism.mapping_ir_read import read_mapping_ir
 
@@ -61,11 +63,15 @@ __all__ = [
     "is_document_name",
     "is_table_name",
     "kind_of",
+    "paper_tables",
     "proposed_datasets",
+    "public_table",
     "revert_suggestion",
     "run_attach",
     "run_document_attach",
     "suggest_questions",
+    "table_csv",
+    "table_file_name",
 ]
 
 logger = logging.getLogger(__name__)
@@ -139,6 +145,9 @@ _T: dict[str, dict[str, str]] = {
         "document_empty": "論文から文を読み取れませんでした（画像だけの PDF などは読めません）",
         "s_read": "論文を節と文に分けています",
         "s_propose": "論文を読んで、用語・関係・問いを考えています",
+        "tables_skipped": "取り込めない形の表を {n} 件除きました",
+        "tables_capped": "表は先頭の {n} 件だけ出しています（ほか {m} 件は出していません）",
+        "tables_truncated": "{rows} 行を超える表が {n} 件あります。先頭の {rows} 行だけを使います",
         "paper_reply": (
             "{name} を読み込みました。節 {sections}・文 {sentences}。"
             "承認すると知識グラフに置き、回答で文を引用できるようになります"
@@ -213,6 +222,11 @@ _T: dict[str, dict[str, str]] = {
         ),
         "s_read": "splitting the paper into sections and sentences",
         "s_propose": "reading the paper to propose terms, relations and questions",
+        "tables_skipped": "Left out {n} table(s) that cannot be imported as data",
+        "tables_capped": "Only the first {n} tables are offered ({m} more were left out)",
+        "tables_truncated": (
+            "{n} table(s) have more than {rows} rows; only the first {rows} rows are used"
+        ),
         "paper_reply": (
             "Read {name}. {sections} sections, {sentences} sentences. "
             "Approve to place it in the knowledge graph so answers can quote its sentences"
@@ -935,11 +949,16 @@ async def run_attach(
     emit: Callable[..., None],
     resume: dict | None = None,
     homes: dict[str, dict] | None = None,
+    source_paper: dict | None = None,
 ) -> dict:
     """添えた表をかんたんの段に通し、手番を書き換えて保存する。
     返り = ``{"state": …}``（ジョブの結果）。
 
-    ``resume = {"note_index", "value"}`` なら、控え（``turn["attach_run"]``）から ④ を続ける。"""
+    ``resume = {"note_index", "value"}`` なら、控え（``turn["attach_run"]``）から ④ を続ける。
+
+    ``source_paper``（13c）= 論文の表から来たときの出所 ``{dataset_id, table_id, label, caption}``。
+    取り込んだデータセットの meta に ``source_paper`` として残し、手番の ``attachment`` にも持つ。
+    """
     lang = _lg(lang)
     http = make_http(app, token, llm_headers)
     ctx = _Ctx(app, cfg, http, lang, emit)
@@ -963,15 +982,22 @@ async def run_attach(
                 "name": _stem(files[0][0]) + (f" {text(lang, 'others')}" if len(files) > 1 else ""),
                 "picks": {},
             }
+            if source_paper:
+                st["source_paper"] = source_paper  # ID の選択のあとの続きでも出所を失わない
             await _stage_place_and_read(ctx, files, st, homes)
+        source_paper = source_paper or st.get("source_paper")
         _numbers_picked, ask = _numbers(st)
         if ask:
             reply, state = _choice_reply(ctx, st, ask), "proposed"
         else:
             shape = await _stage_skeleton_to_ingest(ctx, st)
+            if source_paper and st.get("dataset_id"):
+                registry.update_meta_atomic(root, st["dataset_id"], {"source_paper": source_paper})
             st["bindings_resolved"] = _resolve_bindings(st, root)
             summary = await _summary(ctx, st)
             reply, attachment = _final_reply(ctx, st, summary, shape)
+            if source_paper:
+                attachment["source_paper"] = source_paper
             state = "proposed"
             st.pop("rows", None)  # 例の値は、選び終わったあとは持たない
     except AttachError as exc:
@@ -1029,6 +1055,89 @@ async def _paper_counts(ctx: _Ctx, dataset_id: str) -> dict[str, int]:
         "paragraphs": by_iri.get(_DOCO + "Paragraph", 0),
         "sentences": by_iri.get(_DOCO + "Sentence", 0),
     }
+
+
+def paper_tables(root: Any, dataset_id: str) -> dict:
+    """論文のデータセットの取り込み元から表を読む（13c・決定論）。
+    ``.xml``（JATS・Word は変換済み）はそのまま、``.pdf`` は取り込みのときに控えた
+    ``<name>.pdf.jats`` から。返り = ``{"tables": [取り込める表（行つき）], "skipped", "capped",
+    "truncated"}``。表のセルは返事に載せず、取り込むときにここから引く（控えは取り込み元そのもの）。"""
+    kept: list[dict] = []
+    skipped = capped = 0
+    for k, path in enumerate(registry.list_source_files(root, dataset_id), start=1):
+        suffix = path.suffix.lower()
+        if suffix == ".pdf":
+            path = path.with_name(path.name + ".jats")
+        elif suffix != ".xml":
+            continue
+        try:
+            found = documents.tables_of_jats(path.read_bytes())
+        except OSError:
+            continue
+        got = documents.importable_tables(found)
+        skipped += got["skipped"]
+        capped += got["capped"]
+        for t in got["tables"]:
+            # 文書が 2 つ以上のとき、表の id が重ならないように 2 つ目からは印を足す
+            kept.append({**t, "id": t["id"] if k == 1 else f"{t['id']}@{k}"})
+    if len(kept) > documents.MAX_TABLES:
+        capped += len(kept) - documents.MAX_TABLES
+        kept = kept[: documents.MAX_TABLES]
+    return {
+        "tables": kept,
+        "skipped": skipped,
+        "capped": capped,
+        "truncated": sum(1 for t in kept if t.get("truncated")),
+    }
+
+
+def public_table(t: dict) -> dict:
+    """返事に載せる表の形（行の中身は入れない）。"""
+    return {
+        "id": t["id"],
+        "label": t.get("label") or "",
+        "caption": t.get("caption") or "",
+        "n_rows": len(t["rows"]),
+        "n_cols": len(t["header"]),
+        "header": list(t["header"]),
+    }
+
+
+def _table_notes(lang: str, found: dict) -> list[dict]:
+    notes: list[dict] = []
+    if found["skipped"]:
+        notes.append(chat_turns.note("info", text(lang, "tables_skipped", n=found["skipped"])))
+    if found["capped"]:
+        notes.append(
+            chat_turns.note(
+                "info", text(lang, "tables_capped", n=documents.MAX_TABLES, m=found["capped"])
+            )
+        )
+    if found["truncated"]:
+        notes.append(
+            chat_turns.note(
+                "info",
+                text(lang, "tables_truncated", n=found["truncated"], rows=documents.MAX_TABLE_ROWS),
+            )
+        )
+    return notes
+
+
+def table_csv(table: dict) -> bytes:
+    """表 → CSV（UTF-8・見出し 1 行）。表のセルの文字列はここで CSV になるだけ。"""
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(table["header"])
+    w.writerows(table["rows"])
+    return buf.getvalue().encode("utf-8")
+
+
+def table_file_name(paper_name: str, table: dict) -> str:
+    """``<論文名>_<label か tblN>.csv`` — ファイル名に使えない字は ``_`` に。"""
+    tag = (table.get("label") or "").strip() or str(table["id"])
+    paper = paper_name.encode("utf-8")[:120].decode("utf-8", "ignore")  # 長い論文名は切る
+    safe = re.sub(r"[\\/:*?\"<>|\s@]+", "_", f"{paper}_{tag}").strip("_.") or "table"
+    return f"{safe}.csv"
 
 
 async def run_document_attach(
@@ -1100,6 +1209,13 @@ async def run_document_attach(
                 **counts,
             }
             state = "proposed"
+            try:  # 13c: 表を見つける（決定論・読めなくても論文は添える）
+                found = paper_tables(root, st["dataset_id"])
+                if found["tables"]:
+                    reply["tables"] = [public_table(t) for t in found["tables"]]
+                reply["notes"].extend(_table_notes(lang, found))
+            except Exception:
+                logger.warning("paper attach: could not read tables", exc_info=True)
             if llm is not None:  # 提案の段（AI が設定されているときだけ）
                 ctx.stage(3, "s_propose")
                 proposal = await chat_paper.make_proposal(

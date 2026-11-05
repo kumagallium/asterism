@@ -21,6 +21,7 @@ import {
   isKeyMissing,
   listSessions,
   postAttach,
+  postImportTable,
   postTurn,
   revertTurn,
   type BindingDecision,
@@ -485,6 +486,32 @@ export function ChatApp() {
     [session, busy, lang, getActiveCredentials, reread, watch, afterChange],
   )
 
+  /** 論文の表を 1 つ、データとして取り込む。新しい手番が走る（表を添えたときと同じ）。 */
+  const onImportTable = useCallback(
+    async (turnId: string, tableId: string) => {
+      if (!session || busy) return
+      if (!isReady) {
+        openAdd() // 表の設計は AI が要る
+        return
+      }
+      const id = session.id
+      setBusy('send')
+      setError(null)
+      try {
+        const res = await postImportTable(id, turnId, tableId, lang, getActiveCredentials())
+        await reread(id, (cur) => applyTurnResponse(cur, { turn: res.turn, session: res.session, draft: null }))
+        if (res.job_id) watch(id, res.turn.id, res.job_id)
+        afterChange()
+      } catch (e) {
+        if (isAiUnset(e)) openAdd()
+        else setError(messageOf(e))
+      } finally {
+        setBusy(null)
+      }
+    },
+    [session, busy, isReady, openAdd, lang, getActiveCredentials, reread, watch, afterChange],
+  )
+
   const onConfirm = useCallback(
     async (turnId: string, decisions?: BindingDecision[], only?: ConfirmOnly) => {
       if (!session || busy) return
@@ -894,6 +921,7 @@ export function ChatApp() {
           sourceHome={getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? null}
           onAttachFromSource={(ids, names) => onAttachFromSource(getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? '', ids, names)}
           onChoose={(turnId, i, v) => void onChoose(turnId, i, v)}
+          onImportTable={(turnId, tableId) => void onImportTable(turnId, tableId)}
           error={error}
           noKey={noKey}
           names={names}

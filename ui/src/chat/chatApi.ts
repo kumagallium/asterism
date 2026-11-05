@@ -85,6 +85,8 @@ export interface Reply {
   answer: ReplyAnswer | null
   /** 「見せて」の表。 */
   table: ReplyTable | null
+  /** 13c: 論文から見つけた表（論文の手番だけ）。 */
+  tables?: PaperTable[]
 }
 
 /** 表のセル。`iri` があれば図の点（押すと濃く）。 */
@@ -133,6 +135,30 @@ export interface Suggestion {
   term: string
   relation: string
 }
+/** 13c: 表の出所（論文の表から取り込んだデータ）。 */
+export interface SourcePaper {
+  /** 論文のデータセットの id。 */
+  dataset_id: string
+  table_id: string
+  /** 論文での名前（`Table 2` など）。無ければ空。 */
+  label: string
+  caption: string
+  /** 論文の名前（取り込み時）。 */
+  name: string
+}
+
+/** 13c: 論文から見つけた、データとして取り込める表（行の中身は持たない）。 */
+export interface PaperTable {
+  id: string
+  label: string
+  caption: string
+  n_rows: number
+  n_cols: number
+  header: string[]
+  /** 取り込んだ手番の id（まだなら null）。 */
+  imported: string | null
+}
+
 export interface Attachment {
   /** 無いものは表（古い手番の互換）。 */
   kind?: 'table' | 'document'
@@ -145,6 +171,8 @@ export interface Attachment {
   sections?: number
   paragraphs?: number
   sentences?: number
+  /** 13c: 論文の表から取り込んだ表のとき。 */
+  source_paper?: SourcePaper
 }
 
 export type TurnState = 'none' | 'running' | 'proposed' | 'confirmed' | 'reverted'
@@ -180,6 +208,8 @@ export interface Turn {
   route?: 'chat' | 'ask' | 'propose'
   /** 12b: 論文の手番が下書きに入れた提案（あるときだけ。承認で公開と確定を 1 度にする）。 */
   paper?: { draft_id: string; created: boolean; promoted: boolean }
+  /** 13c: 論文の表から取り込んだ手番の出所（あるときだけ）。 */
+  source_paper?: SourcePaper
 }
 
 /** 手番のあとで変わる話の欄。 */
@@ -307,6 +337,29 @@ function binding(o: Record<string, unknown>): Binding {
   }
 }
 
+function sourcePaperOf(v: unknown): SourcePaper | undefined {
+  if (!isObj(v) || typeof v.table_id !== 'string') return undefined
+  return { dataset_id: str(v.dataset_id), table_id: v.table_id, label: str(v.label), caption: str(v.caption), name: str(v.name) }
+}
+
+function paperTablesOf(v: unknown): PaperTable[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const num = (x: unknown) => (typeof x === 'number' ? x : 0)
+  const out = v
+    .filter(isObj)
+    .filter((t) => typeof t.id === 'string')
+    .map((t) => ({
+      id: str(t.id),
+      label: str(t.label),
+      caption: str(t.caption),
+      n_rows: num(t.n_rows),
+      n_cols: num(t.n_cols),
+      header: strs(t.header),
+      imported: strOrNull(t.imported),
+    }))
+  return out.length > 0 ? out : undefined
+}
+
 function attachmentOf(v: unknown): Attachment | null {
   if (!isObj(v)) return null
   const count = (x: unknown) => (typeof x === 'number' ? x : 0)
@@ -321,6 +374,7 @@ function attachmentOf(v: unknown): Attachment | null {
       ? v.kinds.filter(isObj).map((k) => ({ iri: str(k.iri), label: str(k.label), count: typeof k.count === 'number' ? k.count : 0 }))
       : [],
     id_column: str(v.id_column),
+    ...(sourcePaperOf(v.source_paper) ? { source_paper: sourcePaperOf(v.source_paper) } : {}),
   }
 }
 
@@ -338,6 +392,7 @@ function reply(v: unknown): Reply | null {
     notes: Array.isArray(v.notes) ? v.notes.map(note).filter((n): n is Note => n !== null) : [],
     answer: answerOf(v.answer),
     table: tableOf(v.table),
+    ...(paperTablesOf(v.tables) ? { tables: paperTablesOf(v.tables) } : {}),
   }
 }
 
@@ -439,6 +494,7 @@ export function normalizeTurn(v: unknown): Turn | null {
     ...(isObj(v.paper) && typeof v.paper.draft_id === 'string'
       ? { paper: { draft_id: v.paper.draft_id, created: v.paper.created === true, promoted: v.paper.promoted === true } }
       : {}),
+    ...(sourcePaperOf(v.source_paper) ? { source_paper: sourcePaperOf(v.source_paper) } : {}),
     commit: commitOf(v.commit),
     by,
     attachment: attachmentOf(v.attachment),
@@ -676,6 +732,26 @@ export async function postAttachFromSource(
     `/api/chat/sessions/${encodeURIComponent(id)}/attach-from-source`,
     { method: 'POST', headers: json(llmHeaders(creds)), body: JSON.stringify({ server, ids, lang }) },
     'attachFromSource',
+  )
+  const body: unknown = await res.json()
+  const turn = isObj(body) ? normalizeTurn(body.turn) : null
+  const session = isObj(body) ? brief(body.session) : null
+  if (!turn || !session || !isObj(body)) throw badShape()
+  return { turn, session, job_id: strOrNull(body.job_id) }
+}
+
+/** 論文の表 1 つをデータとして取り込む（13c）。新しい手番（running）とジョブの id が返る。 */
+export async function postImportTable(
+  id: string,
+  turnId: string,
+  tableId: string,
+  lang: 'ja' | 'en',
+  creds: LlmCredentials | null,
+): Promise<AttachResponse> {
+  const res = await call(
+    `/api/chat/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/import-table`,
+    { method: 'POST', headers: json(llmHeaders(creds)), body: JSON.stringify({ table_id: tableId, lang }) },
+    'importTable',
   )
   const body: unknown = await res.json()
   const turn = isObj(body) ? normalizeTurn(body.turn) : null
