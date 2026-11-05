@@ -1,0 +1,41 @@
+// 論文の根拠の文を、関係の行の下に小さく出す共通の部品（12b の返事の札・12c の「文」のタブ）。
+// 引用符つき・札では 150 字で切って「…」・title に全文。論文名と節があれば「論文名 · 節」を添える。
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { Evidence } from './chatApi'
+import { clipEvidence, evidenceSource } from './evidenceText'
+
+/**
+ * 根拠の文。`collapse` なら 2 件以上のとき 1 件目だけ出し「ほか n 件」（押すと開く・開いた状態は部品ごとのローカル state）。
+ */
+export function EvidenceLine({ evidence, collapse }: { evidence: Evidence[]; collapse?: boolean }) {
+  const { t } = useTranslation('chat')
+  const [open, setOpen] = useState(false)
+  if (evidence.length === 0) return null
+  const hidden = collapse && !open ? evidence.length - 1 : 0
+  const shown = hidden > 0 ? evidence.slice(0, 1) : evidence
+  return (
+    <div className="chat-evidence" data-testid="reply-evidence">
+      {shown.map((e) => {
+        const src = evidenceSource(e, t)
+        return (
+          <div key={e.iri} className="chat-evidence-item">
+            <q className="chat-evidence-text" title={`${t('reply.evidence')}: ${e.full ?? e.text}`}>
+              {clipEvidence(e.text)}
+            </q>
+            {src && (
+              <span className="chat-evidence-src" data-testid="evidence-source">
+                {src}
+              </span>
+            )}
+          </div>
+        )
+      })}
+      {hidden > 0 && (
+        <button type="button" className="link-btn chat-evidence-more" data-testid="evidence-more" onClick={() => setOpen(true)}>
+          {t('evidence.more', { n: hidden })}
+        </button>
+      )}
+    </div>
+  )
+}

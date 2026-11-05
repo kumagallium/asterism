@@ -45,6 +45,7 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
     std: t('point.titleStd'),
     hub: t('point.titleHub'),
     draft: t('point.titleDraft'),
+    paper: t('point.titlePaper'),
   }[p.kind as Exclude<Point['kind'], 'line'>]
   const sub = p.kind === 'term' && (p.term_kind === 'property' || p.term_kind === 'class') ? (p.term_kind === 'property' ? t('point.termProperty') : t('point.termClass')) : ''
   // 来歴: provenance があればそれ、無ければ最初の文のもの

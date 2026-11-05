@@ -624,13 +624,15 @@ export function ChatApp() {
   // ── 「文」のタブ（PR 11o） ──
   // 「データを見る」は一時の切り替え（覚えない）。同じ点のあいだだけ効く
   const [tempTab, setTempTab] = useState<{ pickedId: string | null } | null>(null)
-  const subTab: SubTab = tempTab && tempTab.pickedId === pickedId ? 'data' : subTabOf(subStored, pickedId)
+  // 論文の点（paper）は d| でも「文」が既定（その論文が支える関係と根拠の文）。種類は用語と同じ側に寄せる
+  const groupId = sel?.kind === 'paper' ? `paper|${pickedId ?? ''}` : pickedId
+  const subTab: SubTab = tempTab && tempTab.pickedId === pickedId ? 'data' : subTabOf(subStored, groupId)
   const chooseSub = useCallback((v: SubTab) => {
     setTempTab(null)
-    const choice: SubTabChoice = { tab: v, group: pointGroupOf(pickedId) }
+    const choice: SubTabChoice = { tab: v, group: pointGroupOf(groupId) }
     setSubStored(choice)
     writeSubTab(choice)
-  }, [pickedId])
+  }, [groupId])
   const proposedTurnId = useMemo(() => [...(session?.turns ?? [])].reverse().find((x) => x.state === 'proposed')?.id ?? null, [session])
   // 文の名前: 下書きの名前に、標準の語（curie → 表示名）を足す。引けなければ rowsOfDraft が ':' の右を出す
   const rowNames = useMemo(() => {

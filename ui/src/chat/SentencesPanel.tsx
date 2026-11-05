@@ -2,6 +2,7 @@
 // 行の右に 外す・直す・承認（承認は未承認の行だけ・この話に承認済みのテーマがあるときだけ）。描くだけ（送るのは ChatApp）。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { EvidenceLine } from './EvidenceLine'
 import { canRemoveRow, rowKey, type SentenceRow } from './sentenceRows'
 
 export interface SentencesPanelProps {
@@ -69,6 +70,7 @@ export function SentencesPanel({ rows, noSelection, hasTheme, busy, emptyText, l
                   )}
                 </span>
               )}
+              {r.evidence && r.evidence.length > 0 && <EvidenceLine evidence={r.evidence} collapse />}
             </li>
             )
           })}

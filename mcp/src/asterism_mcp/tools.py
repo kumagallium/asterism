@@ -678,6 +678,14 @@ async def answer_knowledge_question(
         client,
         {"op": sel.get("op"), "target": target_iri, "direction": sel.get("direction")},
     )
+    # 根拠の文（12c）— 項目ごとに 3 件まで。ストアから 1 回で引く（引けない IRI は黙って省く）
+    from asterism.evidence import resolve_evidence
+
+    cited = await resolve_evidence(
+        client,
+        [e for it in answer["items"] for e in it.get("evidence", [])[:3]],
+        registry_root=registry_root,
+    )
     return {
         "found": True,
         "tool_name": tool_name,
@@ -695,6 +703,16 @@ async def answer_knowledge_question(
                 "reason": it["reason"],
                 "drafted_by": it["drafted_by"],
                 "at": it["at"],
+                "evidence": [
+                    {
+                        "iri": e,
+                        "text": cited[e]["text"],
+                        "section": cited[e]["section"],
+                        "dataset_label": cited[e]["dataset_label"],
+                    }
+                    for e in it.get("evidence", [])[:3]
+                    if e in cited
+                ],
             }
             for it in answer["items"]
         ],

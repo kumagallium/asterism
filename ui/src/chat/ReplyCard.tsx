@@ -5,7 +5,9 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BrandMark, CheckIcon, PaperclipIcon } from '../icons'
 import { Thinking } from './ChatPane'
-import { evidenceOf, type BindingDecision, type Decided, type Evidence, type Note, type Turn, type Undone } from './chatApi'
+import { evidenceOf, type BindingDecision, type Decided, type Note, type Turn, type Undone } from './chatApi'
+import { clipEvidence, evidenceSource } from './evidenceText'
+import { EvidenceLine } from './EvidenceLine'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ReplyAnswer, ReplyTable } from './chatApi'
@@ -47,23 +49,6 @@ function stamp(iso: string, lang: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-const EVIDENCE_SHOWN = 150
-
-/** 関係の行の下に、根拠の文を小さく 1 行（引用符つき・札では 150 字で切って「…」・title に全文）。 */
-export function EvidenceLine({ evidence }: { evidence: Evidence[] }) {
-  const { t } = useTranslation('chat')
-  if (evidence.length === 0) return null
-  return (
-    <div className="chat-evidence" data-testid="reply-evidence">
-      {evidence.map((e) => (
-        <q key={e.iri} className="chat-evidence-text" title={`${t('reply.evidence')}: ${e.text}`}>
-          {e.text.length > EVIDENCE_SHOWN ? `${e.text.slice(0, EVIDENCE_SHOWN)}…` : e.text}
-        </q>
-      ))}
-    </div>
-  )
 }
 
 export function NoteLine({ note, name, busy, onDecide }: { note: Note; name: string; busy: boolean; onDecide?: (value: string) => void }) {
@@ -188,8 +173,19 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
                 className="chat-citation"
                 onClick={() => onHighlight?.({ iris: [c.iri], ...(c.dataset_id ? { datasetId: c.dataset_id } : {}) })}
               >
-                <span className="chat-citation-name">{c.label || c.iri}</span>
-                {c.dataset_label && <span className="sky-meta">{c.dataset_label}</span>}
+                {c.quote ? (
+                  <>
+                    <q className="chat-citation-quote" title={c.quote}>
+                      {clipEvidence(c.quote)}
+                    </q>
+                    <span className="sky-meta">{evidenceSource({ dataset_label: c.dataset_label || c.label, section: c.section ?? null, path: c.path ?? null }, t)}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="chat-citation-name">{c.label || c.iri}</span>
+                    {c.dataset_label && <span className="sky-meta">{c.dataset_label}</span>}
+                  </>
+                )}
               </button>
             </li>
           ))}

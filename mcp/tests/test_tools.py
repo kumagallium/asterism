@@ -1362,12 +1362,72 @@ async def test_answer_knowledge_question_reads_the_theme_and_runs_the_closed_tem
         {
             "label": "粒界散乱", "relation": "lowers", "via_label": "格子熱伝導率",
             "reason": "粒界でフォノンが散乱", "drafted_by": "ai", "at": "2026-10-20T00:00:00+00:00",
+            "evidence": [],  # 根拠の無い線は空（12c）
         }
     ]  # fmt: skip
     # the runner reads the alignment graph only (a confirmed line), over the closed template
     from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
 
     assert seen and ALIGNMENT_GRAPH in seen[0]
+
+
+async def test_answer_knowledge_question_items_carry_evidence_sentences_up_to_three(
+    tmp_path,
+) -> None:
+    """論文の根拠の文（12c）— 項目に {iri, text, section, dataset_label}・3 件まで。"""
+    from asterism import shared_vocab as sv
+
+    _write_themes(
+        tmp_path,
+        {
+            "kq_x": {
+                "mode": "knowledge", "op": "factors", "target_slug": "thermal_conductivity",
+                "target": "熱伝導率", "title": "q", "direction": "lowers",
+            }
+        },
+    )  # fmt: skip
+    graph = "https://ex/paper/v1"
+    (tmp_path / "paper-x").mkdir()
+    (tmp_path / "paper-x" / "meta.json").write_text(
+        json.dumps(
+            {"id": "paper-x", "name": "論文X", "promoted": True, "source_kind": "xml",
+             "live_graph": graph}
+        ),
+        encoding="utf-8",
+    )  # fmt: skip
+    sent = "https://ex/paper/sent/"
+
+    def uri(v: str) -> dict:
+        return {"type": "uri", "value": v}
+
+    def lit(v: str) -> dict:
+        return {"type": "literal", "value": v}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if b"SELECT ?e ?g" in request.content or "SELECT+%3Fe+%3Fg" in str(request.url):
+            rows = [
+                {"e": uri(sent + str(i)), "g": uri(graph), "t": lit(f"sentence {i}"),
+                 "title": lit("Results")}
+                for i in (1, 2, 3, 4)  # 4 件とも引ける（上限の 3 件で止まることを確かめる）
+            ]  # fmt: skip
+        else:
+            base = {
+                "from": uri(sv.term_iri("a")), "rel": uri(_LOWERS),
+                "via": uri(sv.term_iri("b")), "lbl": lit("A"), "vlbl": lit("B"),
+            }  # fmt: skip
+            rows = [{**base, "ev": uri(sent + str(i))} for i in (1, 2, 3, 4)]
+        body = {"head": {"vars": []}, "results": {"bindings": rows}}
+        return httpx.Response(
+            200, text=json.dumps(body), headers={"content-type": "application/sparql-results+json"}
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+    out = await answer_knowledge_question("kq_x", client, registry_root=tmp_path)
+    assert [e["iri"] for e in out["items"][0]["evidence"]] == [sent + "1", sent + "2", sent + "3"]
+    assert out["items"][0]["evidence"][0] == {
+        "iri": sent + "1", "text": "sentence 1", "section": "Results", "dataset_label": "論文X",
+    }  # fmt: skip
 
 
 async def test_answer_knowledge_question_refuses_what_is_not_a_knowledge_question(

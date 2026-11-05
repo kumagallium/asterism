@@ -405,6 +405,54 @@ def _collect_tool_citations(into: list[dict], items: list) -> None:
             into.append({"iri": iri})
 
 
+def _collect_knowledge_citations(into: list[dict], items: list) -> None:
+    """知識の問い（``answer_knowledge_question``）の項目の根拠の文 IRI を出典に足す。
+    他の道具と違い、件数に関わらず足す（根拠の文は項目が持つ・上限は ``_CITE_IRIS_MAX``・
+    重複なし・項目の順）。文字列（引用）はここでは付けない — 後段が文 IRI からストアで引く。"""
+    seen = {c["iri"] for c in into}
+    for row in items or []:
+        if not isinstance(row, dict):
+            continue
+        for ev in row.get("evidence") or []:
+            iri = ev.get("iri") if isinstance(ev, dict) else None
+            if not isinstance(iri, str) or not iri.startswith(("http://", "https://")):
+                continue
+            if iri in seen or len(into) >= _CITE_IRIS_MAX:
+                continue
+            seen.add(iri)
+            into.append({"iri": iri})
+
+
+def _knowledge_tool_def(reg_root: str | None) -> dict | None:
+    """registry の ``themes.json`` に知識の問い（``kq_…``）があれば、その名前を並べた道具の定義。"""
+    if not reg_root:
+        return None
+    from asterism.themes import load_themes_file
+
+    names: list[str] = []
+    with contextlib.suppress(Exception):
+        for theme in (load_themes_file(reg_root) or {}).get("themes") or []:
+            for name, sel in (theme.get("selections") or {}).items():
+                if isinstance(sel, dict) and sel.get("mode") == "knowledge":
+                    names.append(f"{name} ({sel.get('title') or name})")
+    if not names:
+        return None
+    return {
+        "name": "answer_knowledge_question",
+        "description": (
+            "[verified] Answer a KNOWLEDGE question from the relations a person confirmed "
+            "(what lowers / raises / affects a term, its parts, its kinds). Each item may carry "
+            "the paper sentences it was read from (evidence). Takes only the question's name. "
+            "Available: " + "; ".join(names[:20])
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"tool_name": {"type": "string"}},
+            "required": ["tool_name"],
+        },
+    }
+
+
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*(.+?)\s*```$", re.DOTALL)
 
 
@@ -820,6 +868,10 @@ async def _llm_answer_via(
     # tools (the declared content) and tell it so — it must answer from them or
     # honestly decline, never attempt run_sparql (which it does not have).
     tools = [*content_defs]
+    reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
+    knowledge_def = _knowledge_tool_def(reg_root)
+    if knowledge_def is not None:
+        tools.append(knowledge_def)
     if _EXPOSE_RAW_SPARQL:
         tools.append(_RUN_SPARQL_TOOL)
     else:
@@ -872,6 +924,21 @@ async def _llm_answer_via(
                     if warning not in data_warnings:
                         data_warnings.append(warning)
                 return result
+            if name == "answer_knowledge_question" and reg_root:
+                from asterism_mcp.tools import answer_knowledge_question
+
+                out = await answer_knowledge_question(
+                    str(inp.get("tool_name") or ""), client, registry_root=reg_root
+                )
+                if out.get("found"):
+                    verified_used.append(
+                        {"dataset": "knowledge", "name": out["tool_name"], "title": out["question"]}
+                    )
+                    _collect_knowledge_citations(tool_citations, out.get("items") or [])
+                    # 他の道具と同じく LLM に返す件数は 50 件まで（打ち切ったら truncated。count は全件）
+                    items = out.get("items") or []
+                    out = {**out, "items": items[:50], "truncated": len(items) > 50}
+                return out
             if name in content_registry:
                 # A declared (verified) query tool from another dataset, e.g.
                 # Materials Project's thermoelectric_structure — run the fixed

@@ -255,6 +255,8 @@ export function MapView({
           return out
         },
         edgeReducer: (edge, data) => {
+          // 論文から用語への根拠の線は細く
+          if (data.kind === 'evidence') data = { ...data, size: 0.6 }
           // 線の名前は hover 中の線だけ。その線は濃く少し太く
           const hovered = edge === hovEdgeRef.current
           // forceLabel: sigma は両端の名前が出ている線しか名前を描かない。hover 中の線は必ず描く

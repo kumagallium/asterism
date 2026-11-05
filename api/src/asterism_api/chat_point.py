@@ -25,6 +25,7 @@ from typing import Any
 from asterism import (
     chat_sessions,
     crosswalk_runtime,
+    evidence,
     graph_diff,
     shared_vocab,
     sky_view,
@@ -100,9 +101,12 @@ class _Ctx:
         terms: list[Any],
         lines: list[dict[str, Any]],
         sky: dict[str, Any],
+        cited: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self.root = root
         self.lg = _lg(lang)
+        #: 根拠の文 IRI → 文の中身（``evidence.resolve_evidence``・12c）
+        self.cited = cited or {}
         self.terms = {t.iri: t for t in terms}
         self.lines = lines
         self.sky = sky
@@ -159,7 +163,7 @@ class _Ctx:
         if rel is None:
             return None
         loc = self.turn_of_batch(ln.get("batch")) or {}
-        return {
+        out = {
             "text": graph_diff.REL_SENTENCE[self.lg][rel].format(
                 s=self.name(ln["source"]), o=self.name(ln["target"])
             ),
@@ -173,6 +177,11 @@ class _Ctx:
             "session_id": loc.get("session_id"),
             "turn_id": loc.get("turn_id"),
         }
+        # 論文の根拠の文（12c・ストアから引けたものだけ。根拠の無い関係は今のまま）
+        ev = [self.cited[e] for e in ln.get("evidence") or [] if e in self.cited]
+        if ev:
+            out["evidence"] = ev
+        return out
 
     def sentences_of(self, iri: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -311,6 +320,32 @@ def _std_point(ctx: _Ctx, iri: str) -> dict[str, Any]:
     return out
 
 
+def _paper_point(ctx: _Ctx, iri: str) -> dict[str, Any]:
+    """論文の点 — ``paper:<dataset_id>``。根拠の文がこの論文にある確定した関係を文にして並べる
+    （各文には、その関係の根拠を全部付ける）。公開済みの論文でなければ 404。"""
+    did = iri[len("paper:") :]
+    ds = ctx.datasets.get(did)
+    if ds is None or not ds.get("document"):
+        raise PointError(404, "その論文はありません")
+    out = _base(iri, "paper", str(ds["label"]))
+    out["dataset_id"] = did
+    out["dataset_label"] = str(ds["label"])
+    seen: set[tuple[str, str, str]] = set()
+    for ln in ctx.lines:
+        mine = [(ctx.cited.get(e) or {}).get("dataset_id") for e in ln.get("evidence") or []]
+        if did not in mine:
+            continue
+        key = (ln["source"], ln["relation"], ln["target"])
+        s = ctx.sentence(ln)
+        if s is None or key in seen:
+            continue
+        seen.add(key)
+        out["sentences"].append(s)
+        if len(out["sentences"]) >= _MAX_SENTENCES:
+            break
+    return out
+
+
 def _hub_point(ctx: _Ctx, iri: str, hub: dict[str, Any]) -> dict[str, Any]:
     out = _base(iri, "hub", str(hub["label"]))
     for kind_iri in hub.get("members") or []:
@@ -420,7 +455,7 @@ class _DraftView:
             iris = self.approved_iris(f, rel, t)
             if iris is not None:
                 source, relation, target = iris
-        return {
+        out = {
             "text": template.format(s=self.name_of(f), o=self.name_of(t)),
             "relation": relation,
             "source": source,
@@ -439,6 +474,24 @@ class _DraftView:
             # 承認済みの種にある行（UI は濃く出す）
             "from_seed": marked,
         }
+        # 論文の根拠の文（12c）— 下書きの関係の evidence を同じ形に（論文名はその手番の論文）
+        att = (turn or {}).get("attachment") or {}
+        ev = [
+            {
+                "iri": str(e["iri"]),
+                "text": evidence.cut(str(e.get("text") or "")),
+                "full": str(e.get("text") or ""),
+                "section": None,
+                "path": e.get("path"),
+                "dataset_id": att.get("dataset_id"),
+                "dataset_label": str(att.get("name") or ""),
+            }
+            for e in r.get("evidence") or []
+            if isinstance(e, dict) and e.get("iri")
+        ]
+        if ev:
+            out["evidence"] = ev
+        return out
 
     def revert_of(self, out: dict[str, Any], turn: dict[str, Any] | None) -> None:
         if turn is not None and self.session_id:
@@ -549,6 +602,10 @@ async def build_point(
     for value in (iri, source, target):
         if value is None:
             continue
+        if value.startswith("paper:"):  # 論文の点（後ろは dataset_id）
+            if not _HUB_REST.match(value[6:]):
+                raise PointError(422, "論文の形が合いません")
+            continue
         if value.startswith("hub:"):  # 視点の札は IRI ではない（後ろは空でない・IRI の字だけ）
             if not _HUB_REST.match(value[4:]):
                 raise PointError(422, "視点の形が合いません")
@@ -560,7 +617,13 @@ async def build_point(
     terms = await shared_vocab._read_terms(client)
     lines = await crosswalk_runtime.list_alignments(client, registry_root=root)
     sky = await sky_view.sky_view(client, root)
-    ctx = _Ctx(root, lang, terms, lines, sky)
+    # 確定した関係の根拠の文は 1 回にまとめて引く（12c・引けない文は黙って省く）
+    cited = await evidence.resolve_evidence(
+        client, [e for ln in lines for e in ln.get("evidence") or []], registry_root=root
+    )
+    ctx = _Ctx(root, lang, terms, lines, sky, cited)
+    if iri is not None and iri.startswith("paper:"):
+        return _paper_point(ctx, iri)
     if all(line_given):
         ln = next(
             (

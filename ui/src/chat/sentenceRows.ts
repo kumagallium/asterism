@@ -1,6 +1,6 @@
 // 「文」のタブの行（PR 11o）。点の 1 枚の文と、この話の下書き全体から、画面に出す 1 行ずつを組む。純関数。
 // 言い方は api の graph_diff.REL_SENTENCE と同じ（「A は B の一種」）。
-import type { Point } from './chatApi'
+import type { Evidence, Point } from './chatApi'
 import type { DraftSky } from '../sky/skyApi'
 
 export interface SentenceRow {
@@ -14,6 +14,8 @@ export interface SentenceRow {
   target?: string
   /** 下書きの鍵（未承認の行と、この話の種の行）と、その提案の手番。 */
   draft?: { draftId: string; from: string; rel: string; to: string; turnId: string | null }
+  /** 論文の根拠の文（12c・無ければ根拠なしの行）。 */
+  evidence?: Evidence[]
 }
 
 const SENTENCE = {
@@ -50,8 +52,9 @@ export function rowsOfPoint(p: Point): SentenceRow[] {
     .map((s): SentenceRow => {
       const hasKey = s.from !== undefined && s.rel !== undefined && s.to !== undefined && s.draft_id !== undefined
       const draft = hasKey ? { draftId: s.draft_id as string, from: s.from as string, rel: s.rel as string, to: s.to as string, turnId: s.turn_id } : undefined
-      if (hasKey && !s.from_seed) return { text: s.text, approved: false, draft }
-      return { text: s.text, approved: true, source: s.source, relation: s.relation, target: s.target, ...(draft ? { draft } : {}) }
+      const evidence = s.evidence && s.evidence.length > 0 ? { evidence: s.evidence } : {}
+      if (hasKey && !s.from_seed) return { text: s.text, approved: false, draft, ...evidence }
+      return { text: s.text, approved: true, source: s.source, relation: s.relation, target: s.target, ...(draft ? { draft } : {}), ...evidence }
     })
 }
 

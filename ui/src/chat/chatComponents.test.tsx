@@ -471,6 +471,36 @@ describe('ReplyCard の表と答え', () => {
     expect(text(html)).toContain('012345678901234567890123…')
     expect(html).toContain('title="0123456789012345678901234567890"')
   })
+  it('答えの出典: 論文の根拠の文は「…」＋論文名 · 節・ほかの出典は今のまま', () => {
+    const html = card(
+      turn({
+        state: 'none',
+        reply: reply({
+          text: 'x',
+          answer: {
+            text: 'x',
+            citations: [
+              { iri: 'https://ex.org/sent/1', label: '論文X', dataset_id: 'p1', dataset_label: '論文X', quote: '粒界はフォノンを散乱する。', section: 'Results' },
+              { iri: 'https://ex.org/sent/2', label: '論文X', dataset_id: 'p1', dataset_label: '論文X', quote: '節の題名が無い文。', section: null, path: '3' },
+              { iri: 'k', label: '価格表', dataset_id: 'd1', dataset_label: 'スーパー' },
+            ],
+            notes: [],
+            warnings: [],
+            verified_tools: [],
+            unverified_sparql: false,
+            answered: true,
+          },
+        }),
+      }),
+      false,
+    )
+    expect(html).toContain('chat-citation-quote')
+    expect(text(html)).toContain('粒界はフォノンを散乱する。')
+    expect(text(html)).toContain('論文X · Results')
+    expect(text(html)).toContain('価格表')
+    expect(text(html)).toContain('論文X · 節 3')
+    expect(html.match(/chat-citation-quote/g)).toHaveLength(2)
+  })
   it('答え: 本文・出典（名前とデータセット名）・警告・決定論の印。✓ も戻すも無い', () => {
     const html = card(
       turn({

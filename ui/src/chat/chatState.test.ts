@@ -261,6 +261,7 @@ describe('点の選択', () => {
     expect(pointQueryOf({ kind: 'term', iri: 'a', label: 'A' })).toEqual({ iri: 'a' })
     expect(pointQueryOf({ kind: 'draft', iri: 'k1', draftId: 'd9', label: 'A' })).toEqual({ iri: 'draft:d9:k1' })
     expect(pointQueryOf({ kind: 'hub', iri: 'h1', label: 'H' })).toEqual({ iri: 'hub:h1' })
+    expect(pointQueryOf({ kind: 'paper', iri: 'p1', label: '論文' })).toEqual({ iri: 'paper:p1' })
     expect(pointQueryOf({ kind: 'line', from: 'a', relation: 'isPartOf', to: 'b', label: 'x' })).toEqual({ from: 'a', relation: 'isPartOf', to: 'b' })
     expect(pointQueryOf({ kind: 'line', from: 'draft:d9:k1', relation: 'lowers', to: 'qudt:Kelvin', label: 'x', draft: true })).toEqual({
       from: 'draft:d9:k1',

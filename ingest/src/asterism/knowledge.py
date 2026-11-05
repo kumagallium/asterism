@@ -59,14 +59,15 @@ async def _lines_to(
     part = f"{{ ?via <{ALIGN_RELATIONS['isPartOf']}> <{target_iri}> . ?from ?rel ?via }}"
     body = f"{direct} UNION {part}" if via_parts else direct
     query = (
-        "SELECT ?from ?rel ?via ?lbl ?vlbl ?who ?reason ?at ?batch "
+        "SELECT ?from ?rel ?via ?lbl ?vlbl ?who ?reason ?at ?batch ?ev "
         f"FROM NAMED <{ALIGNMENT_GRAPH}> FROM NAMED <{SHARED_VOCAB_GRAPH}> WHERE {{ "
         f"GRAPH <{ALIGNMENT_GRAPH}> {{ VALUES (?rel ?rn) {{ {pairs} }} {body} "
         "FILTER(isIRI(?from)) "
         f"OPTIONAL {{ ?a <{XW}alignSource> ?from ; <{XW}alignTarget> ?via ; "
         f"<{XW}alignRelation> ?rn . "
         f"OPTIONAL {{ ?a <{XW}draftedBy> ?who }} OPTIONAL {{ ?a <{XW}reason> ?reason }} "
-        f"OPTIONAL {{ ?a <{_PROV}endedAtTime> ?at }} OPTIONAL {{ ?a <{XW}batch> ?batch }} }} }} "
+        f"OPTIONAL {{ ?a <{_PROV}endedAtTime> ?at }} OPTIONAL {{ ?a <{XW}batch> ?batch }} "
+        f"OPTIONAL {{ ?a <{_PROV}wasDerivedFrom> ?ev }} }} }} "
         f"OPTIONAL {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ ?from <{_RDFS_LABEL}> ?lbl }} }} "
         f"OPTIONAL {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ ?via <{_RDFS_LABEL}> ?vlbl }} }} }}"
     )
@@ -75,8 +76,10 @@ async def _lines_to(
     for b in await _bindings(client, query):
         key = (b["from"]["value"], rel_by_iri[b["rel"]["value"]], b["via"]["value"])
         d = acc.setdefault(
-            key, {"labels": set(), "via_labels": set(), "meta": {}}
+            key, {"labels": set(), "via_labels": set(), "meta": {}, "evidence": set()}
         )
+        if b.get("ev"):  # 論文の根拠の文（12b・prov:wasDerivedFrom）
+            d["evidence"].add(str(b["ev"]["value"]))
         for var, bag in (("lbl", "labels"), ("vlbl", "via_labels")):
             cell = b.get(var)
             if cell:
@@ -96,6 +99,7 @@ async def _lines_to(
             "drafted_by": d["meta"].get("who"),
             "at": d["meta"].get("at"),
             "batch": d["meta"].get("batch"),
+            "evidence": sorted(d["evidence"]),  # 重複なし・IRI 順（同じ問いは同じ並び）
         }
         for (iri, rel, via), d in acc.items()
     ]

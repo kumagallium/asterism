@@ -89,6 +89,26 @@ describe('buildMapGraph', () => {
     expect(g2.order).toBe(1)
   })
 
+  it('論文の点 → 根拠になっている用語へ細い evidence の線（用語が地図に無ければ引かない・論文でない丸は線なし）', () => {
+    const paper: SkyDataset = { id: 'p1', label: '論文', created_at: '2026-03-01', kinds: [], document: true, evidence_terms: ['urn:t:material', 'urn:t:gone'] }
+    const plain: SkyDataset = { id: 'ds9', label: '表', created_at: '2026-03-02', kinds: [{ iri: 'urn:k:z', label: 'Z', count: 1, links: [], standard: null }], evidence_terms: ['urn:t:material'] }
+    const g2 = buildMapGraph({ ...sky, datasets: [...sky.datasets, paper, plain] }, [], [], 'ja')
+    const ev: { from: string; to: string; thin?: boolean }[] = []
+    g2.forEachEdge((_e, a, s, t) => a.kind === 'evidence' && ev.push({ from: s, to: t, thin: a.thin }))
+    expect(ev).toHaveLength(1)
+    expect([ev[0].from, ev[0].to].sort()).toEqual([datasetNodeId('p1'), termId('urn:t:material')].sort())
+    expect(ev[0].thin).toBe(true)
+  })
+
+  it('論文の丸を押すと paper の 1 枚・表の丸と未公開の論文は 1 枚を持たない', () => {
+    const paper: SkyDataset = { id: 'p1', label: '論文', created_at: '2026-03-01', kinds: [], document: true }
+    const draftPaper: SkyDataset = { id: 'p2', label: '未公開', created_at: '2026-03-02', kinds: [], document: true, proposed: true }
+    const g2 = buildMapGraph({ ...sky, datasets: [...sky.datasets, paper] }, [], [draftPaper], 'ja')
+    expect(mapSelection(g2, datasetNodeId('p1'))).toEqual({ kind: 'paper', iri: 'p1', label: '論文' })
+    expect(mapSelection(g2, datasetNodeId('p2'))).toBeNull()
+    expect(mapSelection(g2, datasetNodeId('ds1'))).toBeNull()
+  })
+
   it('線は二重に張らず、薄い提案は本物と同じ関係なら張らない', () => {
     const kinds: Record<string, number> = {}
     g.forEachEdge((_e, a) => (kinds[a.kind] = (kinds[a.kind] ?? 0) + 1))
