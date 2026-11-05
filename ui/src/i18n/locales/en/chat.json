@@ -163,6 +163,7 @@
     "kindCol": "Name"
   },
   "evidence": {
+    "papers": "{{n}} papers",
     "more": "{{n}} more",
     "section": "Section {{n}}"
   },

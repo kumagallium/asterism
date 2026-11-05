@@ -163,6 +163,7 @@
     "kindCol": "名前"
   },
   "evidence": {
+    "papers": "論文 {{n}} 本",
     "more": "ほか {{n}} 件",
     "section": "節 {{n}}"
   },

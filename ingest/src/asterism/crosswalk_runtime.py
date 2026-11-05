@@ -1247,6 +1247,31 @@ async def remove_evidence(
     await client.sparql_update(f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
 
 
+async def drop_evidence_in_graphs(client, graphs: list[str]) -> int:
+    """指定の graph（論文の版 graph）にある文（``doco:Sentence``）を指す ``prov:wasDerivedFrom``
+    を、ALIGNMENT_GRAPH から外す（13a: 論文を消すとき。関係そのものは残す）。graph が消える前に
+    呼ぶ。文 IRI を先に引いて VALUES で 1 回の UPDATE にする。返り = 外した文の数。"""
+    gs = [g for g in dict.fromkeys(graphs) if _EVIDENCE_IRI_RE.fullmatch(g)]
+    if not gs:
+        return 0
+    values = " ".join(f"<{g}>" for g in gs)
+    res = await client.sparql_select(
+        f"SELECT DISTINCT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{_PROV}wasDerivedFrom> ?e }} "
+        f"VALUES ?g {{ {values} }} GRAPH ?g {{ ?e a <http://purl.org/spar/doco/Sentence> }} }}"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    sentences = [b["e"]["value"] for b in rows if _EVIDENCE_IRI_RE.fullmatch(b["e"]["value"])]
+    if not sentences:
+        return 0
+    vals = " ".join(f"<{e}>" for e in sentences)
+    await client.sparql_update(
+        f"DELETE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{_PROV}wasDerivedFrom> ?e }} }} "
+        f"WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{_PROV}wasDerivedFrom> ?e }} "
+        f"VALUES ?e {{ {vals} }} }}"
+    )
+    return len(sentences)
+
+
 def _count_triples(turtle: str) -> int:
     """Count the asserted triples in the hub Turtle: every line ending in ``.`` that
     is not a ``@prefix`` directive or a comment (the builder emits one statement per

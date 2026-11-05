@@ -75,7 +75,8 @@ _PREFER_ROLES = frozenset({"results", "discussion", "conclusion", "abstract"})
 
 _T: dict[str, dict[str, str]] = {
     "ja": {
-        "summary": "用語 {c}・関係 {r}・問い {q} を提案しました。",
+        "summary": "用語 {c}・関係 {r}{k}・問い {q} を提案しました。",
+        "supports_k": "（うち既にある関係を支える {k}）",
         "long": "論文が長いので、{n} 文だけを読みました（要旨・結果・考察・結論を優先）",
         "evidence_dropped": "根拠の文が合わない関係を {n} 件除きました",
         "kind_dropped": "用語の種類が合わない関係を {n} 件除きました",
@@ -94,7 +95,8 @@ _T: dict[str, dict[str, str]] = {
         ),
     },
     "en": {
-        "summary": "Proposed {c} terms, {r} relations and {q} questions.",
+        "summary": "Proposed {c} terms, {r} relations{k} and {q} questions.",
+        "supports_k": " (of which {k} support existing relations)",
         "long": (
             "The paper is long, so only {n} sentences were read "
             "(abstract, results, discussion and conclusion first)"
@@ -658,6 +660,35 @@ def add_questions(ops: list[dict], lang: str) -> tuple[list[dict], int]:
     return [*ops, *questions], dropped
 
 
+async def mark_supports(client: Any, ops: list[dict]) -> list[dict]:
+    """関係の両端が既存の用語で、その 3 つ組が既に確定しているなら、op に ``supports: True``
+    を付ける（13a: 承認すると新しい線は増えず、この論文の根拠の文だけが足される）。
+    関係が無い・検索に失敗したときは ops をそのまま返す（札が出ないだけ）。"""
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+
+    concepts = {str(o.get("key")): o for o in ops if o.get("op") == "add_concept"}
+    out: list[dict] = []
+    for o in ops:
+        if o.get("op") == "add_relation":
+            a, b = concepts.get(str(o.get("from"))), concepts.get(str(o.get("to")))
+            ua, ub = str((a or {}).get("use") or ""), str((b or {}).get("use") or "")
+            if a and b and ua.startswith("existing:") and ub.startswith("existing:"):
+                try:
+                    pred = themes.relation_predicate(str(o.get("rel")), str(a.get("kind")))
+                    src = shared_vocab.term_iri(ua.split(":", 1)[1])
+                    dst = shared_vocab.term_iri(ub.split(":", 1)[1])
+                    if await shared_vocab._ask(
+                        client,
+                        f"ASK {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> {{ <{src}> <{ALIGN_RELATIONS[pred]}> "
+                        f"<{dst}> }} }}",
+                    ):
+                        o = {**o, "supports": True}
+                except Exception:
+                    logger.warning("paper propose: supports check failed", exc_info=True)
+        out.append(o)
+    return out
+
+
 async def make_proposal(
     app: FastAPI,
     cfg: Settings,
@@ -696,6 +727,7 @@ async def make_proposal(
         ops, terms_dropped = prune_unlinked(ops, include_existing=True)
         ops, q_gone = add_questions(ops, lang)
         ops, more_terms = prune_unlinked(ops, include_existing=True)
+        ops = await mark_supports(app.state.client, ops)
         return {
             "ok": True, "ops": ops, "dropped": evidence_gone, "kind_dropped": kind_gone,
             "q_dropped": q_gone, "over_limit": int(value.get("over_limit") or 0),
@@ -884,7 +916,9 @@ async def apply_proposal(
     n_q = sum(1 for o in applied_ops if o.get("op") == "add_question")
     if n_c or n_r or n_q:
         body_text = str(reply.get("text") or "").strip()
-        reply["text"] = f"{body_text} {text(lg, 'summary', c=n_c, r=n_r, q=n_q)}".strip()
+        n_k = sum(1 for o in applied_ops if o.get("op") == "add_relation" and o.get("supports"))
+        k_txt = text(lg, "supports_k", k=n_k) if n_k else ""
+        reply["text"] = f"{body_text} {text(lg, 'summary', c=n_c, r=n_r, k=k_txt, q=n_q)}".strip()
     reply["ops"] = applied_ops
     reply["sentences"] = applied_sentences
     reply["notes"] = notes

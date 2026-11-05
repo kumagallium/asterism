@@ -203,6 +203,11 @@ describe('表を添える（クリップ）', () => {
     expect(html).not.toContain('data-testid="reply-bindings"')
     expect(text(html)).toContain('公開')
   })
+  it('既にある関係を支える提案の札の文がそのまま出る（13a）', () => {
+    const line = '既にある関係「粒界 は 熱伝導率 を下げる」を、この論文も支えます'
+    const ops = [{ op: 'add_relation', from: 'n1', rel: 'lowers', to: 'n2', supports: true }]
+    expect(card(turn({ reply: reply({ text: 't', ops, sentences: [line] }) }))).toContain(line)
+  })
   it('論文の提案: 関係の行の下に根拠の文・根拠の無い関係の行は今どおり・✓ は「承認」', () => {
     const at = { kind: 'document' as const, dataset_id: 'd', name: '論文', rows: 0, kinds: [], id_column: '', sections: 5, paragraphs: 20, sentences: 80 }
     const ev = { iri: 'https://x/sent/1', text: 'Grain boundary scattering lowers the lattice thermal conductivity.', path: '2-5' }

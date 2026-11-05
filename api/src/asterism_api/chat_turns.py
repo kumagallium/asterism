@@ -2112,6 +2112,7 @@ async def confirm_only(
         "theme_id": out["theme"]["id"],
         "minted": list(out["minted"]),
         "lines": out["lines"],
+        "supported": list(out.get("supported") or []),
         "batch": out["batch"],
         "at": at,
     }  # fmt: skip
@@ -2175,6 +2176,7 @@ async def confirm(
         "minted": list(out["minted"]),
         "lines": out["lines"],
         "questions": list(out["questions"]),
+        "supported": list(out.get("supported") or []),
         "batch": out["batch"],
         "removed": removed,
         "kept": kept,
@@ -2206,6 +2208,18 @@ async def confirm(
         for rec in t.get("confirmed") or []
         if isinstance(rec, dict)
     )
+    # 既にある線に足した根拠（13a）も、1 行の承認の分を足す（取り消しが全部外せるように）
+    record["supported"] = [
+        *(
+            sp
+            for t in session["turns"]
+            if _is_theme_proposal(t)
+            for rec in t.get("confirmed") or []
+            if isinstance(rec, dict)
+            for sp in rec.get("supported") or []
+        ),
+        *record["supported"],
+    ]
     session["theme_id"] = record["theme_id"]
     session["draft_id"] = None
     for t in session["turns"]:
@@ -2623,6 +2637,45 @@ async def revert_confirmed(
                 continue
             gone_lines.add((ln["source"], ln["relation"], ln["target"]))
     undone["lines"] = len(gone_lines)
+
+    # 1b. 既にある線に足した根拠の文 — 外すのは根拠だけ（線は消さない・13a）
+    undone["evidence"] = 0
+    supported: list[dict] = [sp for sp in commit.get("supported") or [] if isinstance(sp, dict)]
+    for t in session["turns"]:
+        c = t.get("commit")
+        if isinstance(c, dict) and c.get("batch") == batch:
+            supported += [
+                sp
+                for r in t.get("confirmed") or []
+                if isinstance(r, dict)
+                for sp in r.get("supported") or []
+                if isinstance(sp, dict)
+            ]
+    done_ev: set[tuple[str, str, str, str]] = set()
+    for sp in supported:
+        src, rel, dst = str(sp.get("source")), str(sp.get("relation")), str(sp.get("target"))
+        if (src, rel, dst) in gone_lines:  # 線ごと消えたなら根拠も一緒に消えている
+            continue
+        fresh = [
+            str(e) for e in sp.get("evidence") or [] if (src, rel, dst, str(e)) not in done_ev
+        ]
+        if not fresh:
+            continue
+        try:
+            await crosswalk_runtime.remove_evidence(client, src, dst, rel, fresh)
+        except Exception:
+            logger.warning("chat revert: remove_evidence failed", exc_info=True)
+            undone["failed"].append(
+                {
+                    "what": await _line_name(
+                        client, {"source": src, "target": dst, "relation": rel}, lg
+                    ),
+                    "reason": failed_why,
+                }
+            )
+            continue
+        done_ev.update((src, rel, dst, e) for e in fresh)
+        undone["evidence"] += len(fresh)
 
     # 2. 問い — テーマの記録から外す（この ✓ で増えたものだけ）
     new_q = [str(n) for n in commit.get("new_questions") or []]

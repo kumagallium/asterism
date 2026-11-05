@@ -833,7 +833,15 @@ def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str
             else:
                 out.append(f"「{name_of(op)}」を{'種類' if kind == 'class' else '項目'}として追加")
         elif name == "add_relation":
-            out.append(rel(op["from"], op["rel"], op["to"]))
+            line = rel(op["from"], op["rel"], op["to"])
+            if op.get("supports"):  # 13a: 既に確定している関係を、この論文も支える
+                out.append(
+                    f"既にある関係「{line}」を、この論文も支えます"
+                    if lg == "ja"
+                    else f'This paper also supports the existing relation "{line}".'
+                )
+            else:
+                out.append(line)
         elif name == "retarget":
             line = rel(op["from"], op["rel"], op["new_to"])
             out.append(f"{line} に付け替え" if lg == "ja" else f"Move to: {line}")

@@ -11527,6 +11527,12 @@ def build_app(
         # graph-name index (cheap), so delete stays complete without waiting for a
         # restart's reconciliation pass.
         to_drop.update(await substrate.all_version_graphs(client, dataset_id=dataset_id))
+        # 13a: 論文の文を指す根拠（prov:wasDerivedFrom）を関係から外す（関係は残す）。
+        # 版 graph が消える前に引く。外せなくても削除は止めない。
+        try:
+            await crosswalk_runtime.drop_evidence_in_graphs(client, sorted(to_drop))
+        except Exception:
+            logger.warning("delete dataset: could not drop paper evidence", exc_info=True)
         for g in sorted(to_drop):
             await substrate.mark_pending_drop(client, g)
         if promoted:

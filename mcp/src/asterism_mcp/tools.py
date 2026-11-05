@@ -679,13 +679,18 @@ async def answer_knowledge_question(
         {"op": sel.get("op"), "target": target_iri, "direction": sel.get("direction")},
     )
     # 根拠の文（12c）— 項目ごとに 3 件まで。ストアから 1 回で引く（引けない IRI は黙って省く）
-    from asterism.evidence import resolve_evidence
+    from asterism.evidence import order_by_paper, resolve_evidence
 
+    # 13a: 3 件の上限でも、なるべく別の論文から選ぶ（論文ごとに 1 件ずつ先・論文名の順）
     cited = await resolve_evidence(
         client,
-        [e for it in answer["items"] for e in it.get("evidence", [])[:3]],
+        [e for it in answer["items"] for e in it.get("evidence", [])],
         registry_root=registry_root,
     )
+
+    def _three(it: dict) -> list[dict]:
+        return order_by_paper([cited[e] for e in it.get("evidence", []) if e in cited], 3)
+
     return {
         "found": True,
         "tool_name": tool_name,
@@ -705,13 +710,12 @@ async def answer_knowledge_question(
                 "at": it["at"],
                 "evidence": [
                     {
-                        "iri": e,
-                        "text": cited[e]["text"],
-                        "section": cited[e]["section"],
-                        "dataset_label": cited[e]["dataset_label"],
+                        "iri": e["iri"],
+                        "text": e["text"],
+                        "section": e["section"],
+                        "dataset_label": e["dataset_label"],
                     }
-                    for e in it.get("evidence", [])[:3]
-                    if e in cited
+                    for e in _three(it)
                 ],
             }
             for it in answer["items"]

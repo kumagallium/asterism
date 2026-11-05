@@ -12,6 +12,8 @@ export function EvidenceLine({ evidence, collapse }: { evidence: Evidence[]; col
   const { t } = useTranslation('chat')
   const [open, setOpen] = useState(false)
   if (evidence.length === 0) return null
+  // 13a: 根拠が 2 本以上の論文にまたがるときだけ「論文 k 本」を添える（論文が分からない文は数えない）
+  const papers = new Set(evidence.map((e) => e.dataset_id || e.dataset_label || '').filter(Boolean)).size
   const hidden = collapse && !open ? evidence.length - 1 : 0
   const shown = hidden > 0 ? evidence.slice(0, 1) : evidence
   return (
@@ -31,6 +33,11 @@ export function EvidenceLine({ evidence, collapse }: { evidence: Evidence[]; col
           </div>
         )
       })}
+      {papers >= 2 && (
+        <span className="chat-evidence-src" data-testid="evidence-papers">
+          {t('evidence.papers', { n: papers })}
+        </span>
+      )}
       {hidden > 0 && (
         <button type="button" className="link-btn chat-evidence-more" data-testid="evidence-more" onClick={() => setOpen(true)}>
           {t('evidence.more', { n: hidden })}
