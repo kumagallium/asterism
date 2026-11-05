@@ -160,3 +160,20 @@ def test_a_real_docling_fixture_gives_a_bounded_non_empty_text() -> None:
     path = Path(__file__).parent / "fixtures" / "docling_ma11040649.json"
     got = extract_from_docling(json.loads(path.read_text(encoding="utf-8")))
     assert got and len(got.text) <= MAX_CHARS
+
+
+def test_table_and_figure_captions_inside_a_section_are_not_fed_to_the_ai() -> None:
+    """13c: 表のある節でも、AI の入力は表の無いときと同じ（caption の <p> が二重に入らない）。"""
+    plain = _jats(("Results", ABS), ("Conclusion", CON))
+    with_tables = (
+        "<article><body><sec><title>Results</title>"
+        f"<p>{ABS}</p><table-wrap id='t1'><label>Table 1</label>"
+        "<caption><p>CAPTION-SHOULD-NOT-APPEAR</p></caption><table><tbody><tr><td>1</td></tr></tbody>"
+        "</table></table-wrap><fig id='f1'><caption><p>FIG-CAPTION</p></caption></fig></sec>"
+        f"<sec><title>Conclusion</title><p>{CON}</p>"
+        "<table-wrap><caption><p>CAPTION-SHOULD-NOT-APPEAR</p></caption></table-wrap></sec></article>"
+        .replace("</sec></article>", "</sec></body></article>")
+    )
+    a, b = extract_from_jats(plain), extract_from_jats(with_tables)
+    assert "CAPTION" not in b.text and "FIG-CAPTION" not in b.text
+    assert [s for s in b.sections] == [s for s in a.sections]

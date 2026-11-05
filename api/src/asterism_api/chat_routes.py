@@ -1550,7 +1550,8 @@ def register_chat(
         llm_headers = chat_attach.llm_headers_of(request.headers)
         session = _session_or_404(session_id)
         paper_turn = next((t for t in session["turns"] if t.get("id") == turn_id), None)
-        _paper_table_of(session, paper_turn, body.table_id)  # 早めに 404 / 409（本番はロックの中）
+        # 早めに 404 / 409（本番はロックの中）
+        listed_row = _paper_table_of(session, paper_turn, body.table_id)
         assert paper_turn is not None
         attachment = paper_turn["attachment"]
         if not _ai_ready(llm_headers):
@@ -1559,6 +1560,10 @@ def register_chat(
         table = next((t for t in found["tables"] if t["id"] == body.table_id), None)
         if table is None:
             raise HTTPException(404, "その表は論文から読めません")
+        if list(listed_row.get("header") or []) != list(table["header"]):
+            raise HTTPException(
+                409, "論文が読み直されて表が変わりました。論文を添え直してください"
+            )
         name = chat_attach.table_file_name(str(attachment.get("name") or "paper"), table)
         source = {
             "dataset_id": attachment["dataset_id"],

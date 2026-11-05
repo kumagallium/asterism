@@ -93,7 +93,12 @@ def _is_conclusion(title: str) -> bool:
 
 def _paragraphs(el) -> list[str]:
     """``el`` の下の段落（入れ子の節・リストも文書の順に）。段落が無ければ ``el`` 自身の文字。"""
-    out = [_squash("".join(p.itertext())) for p in el.iter("p")]
+    # 表・図の中の <p>（caption など）は本文でない（_body_paragraphs と同じ扱い）
+    skip: set[int] = set()
+    for tag in ("fig", "table-wrap"):
+        for sub in el.iter(tag):
+            skip.update(id(p) for p in sub.iter("p"))
+    out = [_squash("".join(p.itertext())) for p in el.iter("p") if id(p) not in skip]
     out = [p for p in out if p]
     if not out:
         own = _squash("".join(el.itertext()))

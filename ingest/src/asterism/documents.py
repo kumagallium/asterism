@@ -782,18 +782,27 @@ def derive_doc_id(xml_text: str, *, fallback: str) -> str:
 #: 提案する表の上限と、1 表の行数の上限（超えたら切って注記）
 MAX_TABLES = 20
 MAX_TABLE_ROWS = 5000
+#: 展開したあとの 1 表のセル数の上限（結合セルで膨らませた表を除く）・結合の幅／高さの上限
+MAX_TABLE_CELLS = 200_000
+MAX_SPAN = 100
 
 
 def _span(el, name: str) -> int:
     try:
-        return max(1, min(int(el.get(name) or 1), 1000))
+        return max(1, min(int(el.get(name) or 1), MAX_SPAN))
     except ValueError:
         return 1
 
 
+class _TooManyCells(Exception):
+    """展開後のセル数が :data:`MAX_TABLE_CELLS` を超えた。"""
+
+
 def _expand_rows(trs: list) -> list[list[str]]:
-    """``<tr>`` の並び → 文字列の格子。``rowspan``・``colspan`` は左上の値を広げる。"""
+    """``<tr>`` の並び → 文字列の格子。``rowspan``・``colspan`` は左上の値を広げる。
+    展開後のセルが :data:`MAX_TABLE_CELLS` を超えたら :class:`_TooManyCells`。"""
     grid: list[list[str]] = []
+    budget = 0
     pending: dict[tuple[int, int], str] = {}  # (行, 列) → rowspan で下に広がる値
     for r, tr in enumerate(trs):
         row: list[str] = []
@@ -806,6 +815,9 @@ def _expand_rows(trs: list) -> list[list[str]]:
                 col += 1
             value = _text(cell)
             rs, cs = _span(cell, "rowspan"), _span(cell, "colspan")
+            budget += rs * cs
+            if budget > MAX_TABLE_CELLS:
+                raise _TooManyCells
             for k in range(cs):
                 row.append(value)
                 for dr in range(1, rs):
@@ -843,6 +855,7 @@ def tables_of_jats(jats: bytes | str) -> list[dict]:
     except Exception:
         return []
     out: list[dict] = []
+    used: set[str] = set()
     for n, wrap in enumerate(root.iter("table-wrap"), start=1):
         table = wrap.find(".//table")
         if table is None:
@@ -851,7 +864,10 @@ def tables_of_jats(jats: bytes | str) -> list[dict]:
         body_trs = [tr for tb in table.findall("tbody") for tr in tb.findall("tr")]
         if not body_trs and not head_trs:
             body_trs = table.findall("tr")
-        grid = _expand_rows(head_trs + body_trs)
+        try:
+            grid = _expand_rows(head_trs + body_trs)
+        except _TooManyCells:
+            continue  # 取り込めない表として除く（提案に出ない）
         n_head = len(head_trs)
         if n_head == 0 and grid:
             n_head = 1  # thead が無い表は最初の行が見出し
@@ -859,8 +875,14 @@ def tables_of_jats(jats: bytes | str) -> list[dict]:
         header = _merge_header(grid[:n_head], width)
         rows = [(r + [""] * width)[:width] for r in grid[n_head:]]
         label_el, cap_el = wrap.find("label"), wrap.find("caption")
+        base = wrap.get("id") or f"tbl{n}"
+        tid, k = base, 1
+        while tid in used:  # 明示の id と fallback の tblN が衝突しても重ならない
+            k += 1
+            tid = f"{base}_{k}"
+        used.add(tid)
         item: dict = {
-            "id": wrap.get("id") or f"tbl{n}",
+            "id": tid,
             "label": _text(label_el) if label_el is not None else "",
             "caption": _text(cap_el) if cap_el is not None else "",
             "header": header,

@@ -736,6 +736,7 @@ def test_importing_a_paper_table_runs_a_new_table_turn_with_its_source(tmp_path:
         att = done["attachment"]
         assert att["kind"] == "table" and att["rows"] == 3
         assert att["source_paper"]["label"] == "Table 1"
+        assert done["source_paper"]["table_id"] == "t1"  # 終わったあとの読み直しにも出所が残る
         # 出所は meta に・論文の表の欄は「取り込んだ手番」を指す
         root = tmp_path / "registry"
         meta = json.loads((root / att["dataset_id"] / "meta.json").read_text())
@@ -776,3 +777,21 @@ def test_a_table_turn_is_not_a_paper_for_import(tmp_path: Path) -> None:
         sid = _new(client)
         turn = _run(client, sid, "価格表.csv", PRICES)
         assert _import(client, sid, turn["id"], "t1").status_code == 422
+
+
+def test_table_file_name_cuts_a_long_paper_name_and_stays_safe() -> None:
+    name = chat_attach.table_file_name("長" * 200, {"id": "t1", "label": "Table 1"})
+    assert len(name.encode("utf-8")) < 160 and name.endswith("_Table_1.csv")
+    assert "/" not in chat_attach.table_file_name("a/b", {"id": "t1", "label": ""})
+
+
+def test_import_is_409_when_the_paper_was_read_again_and_tables_changed(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        paper = _run_table_paper(client, sid)
+        root = tmp_path / "registry"
+        src = next((root / paper["attachment"]["dataset_id"] / "source").glob("*.xml"))
+        src.write_text(src.read_text("utf-8").replace("<th>Seebeck</th>", "<th>S2</th>"), "utf-8")
+        r = _import(client, sid, paper["id"], "t1")
+        assert r.status_code == 409 and "読み直されて" in r.text

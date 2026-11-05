@@ -326,3 +326,22 @@ def test_importable_rules_and_header_fix_and_caps() -> None:
         f"<article><body><table-wrap><table><tbody>{head}{rows}</tbody></table></table-wrap></body></article>"
     )
     assert len(t["rows"]) == MAX_TABLE_ROWS and t["truncated"] is True
+
+
+def test_table_ids_never_collide_and_oversized_tables_are_dropped() -> None:
+    from asterism.documents import MAX_SPAN, tables_of_jats
+
+    tbl = "<table><tbody><tr><td>a</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></tbody></table>"
+    xml = f"<article><body><table-wrap id='tbl2'>{tbl}</table-wrap><table-wrap>{tbl}</table-wrap>" \
+        f"<table-wrap id='tbl2'>{tbl}</table-wrap></body></article>"
+    ids = [t["id"] for t in tables_of_jats(xml)]
+    assert len(set(ids)) == 3 and ids[0] == "tbl2"
+    # rowspan / colspan は MAX_SPAN で頭打ち・展開後のセルが多すぎる表は除く
+    cells = "".join(
+        f"<td rowspan='{MAX_SPAN * 10}' colspan='{MAX_SPAN * 10}'>x</td>" for _ in range(30)
+    )
+    big = (
+        f"<article><body><table-wrap><table><tbody><tr>{cells}</tr></tbody></table>"
+        "</table-wrap></body></article>"
+    )
+    assert tables_of_jats(big) == []

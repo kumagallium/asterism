@@ -713,7 +713,7 @@ describe('論文の表（13c）', () => {
 
   it('取り込んだ表の手番の頭に「論文「X」の表 2 から」', () => {
     const t = turn({ attachment: { ...paper, kind: 'table', rows: 12, source_paper: { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 2', caption: '', name: '論文' } }, source_paper: { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 2', caption: '', name: '論文' } })
-    expect(text(card(t))).toContain('論文「論文」の表 2から')
+    expect(text(card(t))).toContain('論文「論文」の表 2 から')
   })
 
   it('normalizeTurn は tables・source_paper を読む', () => {
@@ -722,5 +722,17 @@ describe('論文の表（13c）', () => {
     expect(n?.source_paper?.table_id).toBe('tbl1')
     expect(n?.reply.tables).toEqual([tb({ imported: 'n1' })])
     expect(normalizeTurn(turn())?.reply.tables).toBeUndefined()
+  })
+})
+
+describe('論文の表の取り込み（13c 見直し）', () => {
+  it('読んでいる間にも出所が出る', () => {
+    const sp = { dataset_id: 'p1', table_id: 'tbl1', label: 'Table 1', caption: '', name: '論文' }
+    expect(text(card(turn({ state: 'running', source_paper: sp })))).toContain('論文「論文」の表 1 から')
+  })
+  it('表の行のボタンは控えめ（主ボタンにしない）', () => {
+    const paper = { kind: 'document' as const, dataset_id: 'p1', name: '論文', rows: 0, kinds: [], id_column: '' }
+    const html = card(turn({ attachment: paper, reply: reply({ tables: [{ id: 'a', label: '', caption: '', n_rows: 2, n_cols: 2, header: ['x', 'y'], imported: null }] }) }))
+    expect(html).toMatch(/class="btn btn--sm btn--ghost" data-testid="paper-table-import"/)
   })
 })

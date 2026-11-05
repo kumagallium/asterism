@@ -124,7 +124,7 @@
     "tableLineNoCaption": "{{name}}（{{rows}} 行 × {{cols}} 列）",
     "importTable": "データとして取り込む",
     "tableImported": "取り込みました → 新しい手番へ",
-    "fromPaper": "論文「{{paper}}」の{{table}}から",
+    "fromPaper": "論文「{{paper}}」の{{table}} から",
     "paperCounts": "節 {{sections}}・文 {{sentences}}",
     "bindLine": "列「{{column}}」は「{{term}}」と同じもの",
     "suggestionLine": "「{{subject}}」は「{{term}}」と同じもの"

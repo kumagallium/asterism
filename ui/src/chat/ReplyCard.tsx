@@ -228,7 +228,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
 }
 
 /** 表を読んでいる最中の手番（AI の行に 1 行）。 */
-function Reading({ progress, interrupted }: { progress?: string; interrupted?: boolean }) {
+function Reading({ progress, interrupted, from }: { progress?: string; interrupted?: boolean; from?: string }) {
   const { t } = useTranslation('chat')
   return (
     <div className="chat-msg chat-msg--ai" data-testid={interrupted ? 'reply-interrupted' : 'reply-reading'}>
@@ -238,6 +238,11 @@ function Reading({ progress, interrupted }: { progress?: string; interrupted?: b
           {!interrupted && <Thinking />}
           {interrupted ? t('attach.interrupted') : progress ? t('attach.readingWith', { message: progress }) : t('attach.reading')}
         </p>
+        {from && (
+          <p className="chat-note-line" data-testid="reply-from-paper">
+            {from}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -260,12 +265,12 @@ function PaperTables({ turn, busy, onImport, alive }: { turn: Turn; busy: boolea
     <div className="chat-paper-tables" data-testid="paper-tables">
       <p className="chat-note-line chat-paper-tables-head">{t('attach.paperTables', { n: tables.length })}</p>
       <ul className="chat-paper-table-list">
-        {tables.map((tb) => {
+        {tables.map((tb, ti) => {
           const name = tableName(tb.label, tb.id, i18n.language)
           const done = !!tb.imported && (alive ? alive(tb.imported) : true)
           const args = { name, caption: tb.caption, rows: tb.n_rows, cols: tb.n_cols }
           return (
-            <li key={tb.id} className="chat-paper-table" data-table={tb.id} title={tb.header.join(' | ')}>
+            <li key={`${tb.id}-${ti}`} className="chat-paper-table" data-table={tb.id} title={tb.header.join(' | ')}>
               <span className="chat-paper-table-name">{t(tb.caption ? 'attach.tableLine' : 'attach.tableLineNoCaption', args)}</span>
               {done ? (
                 <button
@@ -277,7 +282,7 @@ function PaperTables({ turn, busy, onImport, alive }: { turn: Turn; busy: boolea
                   {t('attach.tableImported')}
                 </button>
               ) : (
-                <button type="button" className="btn btn--sm" data-testid="paper-table-import" disabled={busy || !live || !onImport} onClick={() => onImport?.(turn.id, tb.id)}>
+                <button type="button" className="btn btn--sm btn--ghost" data-testid="paper-table-import" disabled={busy || !live || !onImport} onClick={() => onImport?.(turn.id, tb.id)}>
                   {t('attach.importTable')}
                 </button>
               )}
@@ -290,7 +295,11 @@ function PaperTables({ turn, busy, onImport, alive }: { turn: Turn; busy: boolea
 }
 
 export function ReplyCard(p: ReplyCardProps) {
-  return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} /> : <ReplyBody {...p} />
+  const { t, i18n } = useTranslation('chat')
+  const sp = p.turn.source_paper
+  // 13c: 読んでいる間にも「論文「X」の表 2 から」を出す（終わるのを待たない）
+  const from = sp ? t('attach.fromPaper', { paper: sp.name, table: tableName(sp.label, sp.table_id, i18n.language) }) : undefined
+  return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} from={from} /> : <ReplyBody {...p} />
 }
 
 function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, onPropose, names, onChoose, onImportTable, importedAlive, onHighlight, undone }: ReplyCardProps) {

@@ -1135,7 +1135,8 @@ def table_csv(table: dict) -> bytes:
 def table_file_name(paper_name: str, table: dict) -> str:
     """``<論文名>_<label か tblN>.csv`` — ファイル名に使えない字は ``_`` に。"""
     tag = (table.get("label") or "").strip() or str(table["id"])
-    safe = re.sub(r"[\\/:*?\"<>|\s@]+", "_", f"{paper_name}_{tag}").strip("_.") or "table"
+    paper = paper_name.encode("utf-8")[:120].decode("utf-8", "ignore")  # 長い論文名は切る
+    safe = re.sub(r"[\\/:*?\"<>|\s@]+", "_", f"{paper}_{tag}").strip("_.") or "table"
     return f"{safe}.csv"
 
 
