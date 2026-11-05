@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { BrandMark, CheckIcon, PaperclipIcon } from '../icons'
 import { Thinking } from './ChatPane'
 import { evidenceOf, type BindingDecision, type Decided, type Note, type Turn, type Undone } from './chatApi'
-import { clipEvidence } from './evidenceText'
+import { clipEvidence, evidenceSource } from './evidenceText'
 import { EvidenceLine } from './EvidenceLine'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -178,7 +178,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
                     <q className="chat-citation-quote" title={c.quote}>
                       {clipEvidence(c.quote)}
                     </q>
-                    <span className="sky-meta">{[c.dataset_label || c.label, c.section].filter(Boolean).join(' · ')}</span>
+                    <span className="sky-meta">{evidenceSource({ dataset_label: c.dataset_label || c.label, section: c.section ?? null, path: c.path ?? null }, t)}</span>
                   </>
                 ) : (
                   <>

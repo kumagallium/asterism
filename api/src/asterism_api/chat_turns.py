@@ -2444,6 +2444,7 @@ def _answer_of(data: dict, cited: dict[str, dict[str, str]]) -> dict:
         if got.get("quote"):  # 論文の根拠の文（ストアから引いたもの・AI の文字列は使わない）
             entry["quote"] = str(got["quote"])
             entry["section"] = str(got.get("section") or "") or None
+            entry["path"] = str(got.get("path") or "") or None
             entry["label"] = str(got.get("label") or entry["dataset_label"])
         citations.append(entry)
     warnings = []

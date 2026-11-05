@@ -547,6 +547,7 @@ def register_chat(
                         "dataset_label": e["dataset_label"],
                         "quote": e["text"],
                         "section": e["section"] or "",
+                        "path": e["path"] or "",
                     }
             except Exception:
                 logger.warning("chat ask: evidence sentences failed", exc_info=True)

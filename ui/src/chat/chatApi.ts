@@ -106,7 +106,7 @@ export interface ReplyTable {
 export interface ReplyAnswer {
   text: string
   /** `quote`・`section` は論文の根拠の文の出典だけ（12c・サーバがストアから引いた文）。 */
-  citations: { iri: string; label: string; dataset_id: string; dataset_label: string; quote?: string; section?: string | null }[]
+  citations: { iri: string; label: string; dataset_id: string; dataset_label: string; quote?: string; section?: string | null; path?: string | null }[]
   notes: string[]
   warnings: string[]
   verified_tools: string[]
@@ -375,7 +375,7 @@ export function answerOf(v: unknown): ReplyAnswer | null {
             label: str(c.label),
             dataset_id: str(c.dataset_id),
             dataset_label: str(c.dataset_label),
-            ...(typeof c.quote === 'string' && c.quote !== '' ? { quote: c.quote, section: strOrNull(c.section) } : {}),
+            ...(typeof c.quote === 'string' && c.quote !== '' ? { quote: c.quote, section: strOrNull(c.section), path: strOrNull(c.path) } : {}),
           }))
       : [],
     notes: lines(v.notes),

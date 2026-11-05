@@ -1147,4 +1147,5 @@ def test_evidence_shows_in_draft_points_then_confirmed_lines_the_paper_point_and
         assert c1["quote"] == ev["text"] and c1["dataset_id"] == dsid
         assert c1["label"] == ev["dataset_label"]  # 名前は論文名（AI の名前ではない）
         assert c1["dataset_label"] == ev["dataset_label"] and "section" in c1
+        assert c1["path"] == ev["path"]  # 節の題名が無い文は UI が「節 n」にする
         assert "quote" not in c2  # ほかの出典は今のまま
