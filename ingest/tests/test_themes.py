@@ -1683,8 +1683,38 @@ async def test_a_relation_without_evidence_commits_as_before(tmp_path: Path) -> 
     assert not [1 for _, p, _ in c.triples(ALIGNMENT_GRAPH) if p.endswith("wasDerivedFrom")]
 
 
-async def test_an_existing_line_keeps_its_provenance_and_gets_no_new_evidence(
+async def test_an_existing_line_gets_the_second_papers_evidence_and_keeps_its_provenance(
     tmp_path: Path,
+) -> None:
+    c = _Client()
+    _publish_sentences(c, "9")
+    first = await themes.commit_theme(c, tmp_path, _cell(), at=AT)  # 根拠の無い線が先にある
+    before = (await list_alignments(c))[0]
+    again = _cell()
+    again["concepts"] = [
+        {**x, "use": f"existing:{x['slug']}", "slug": ""} for x in again["concepts"]
+    ]
+    again["relations"] = [
+        {"from": "t1", "rel": "sub", "to": "t3", "reason": "別の理由",
+         "evidence": [{"iri": _SENT + "9", "text": "x", "path": None}]},
+    ]  # fmt: skip
+    out = await themes.commit_theme(c, tmp_path, again, at="2026-11-06T00:00:00+00:00")
+    row = (await list_alignments(c))[0]
+    assert row["evidence"] == [_SENT + "9"]
+    # 来歴（誰が・いつ・どの batch・理由）は 1 本目のまま
+    for k in ("drafted_by", "at", "batch", "reason"):
+        assert row[k] == before[k]
+    assert first["supported"] == []
+    got = [(x["relation"], x["evidence"]) for x in out["supported"]]
+    assert got == [("subClassOf", [_SENT + "9"])]
+    # もう一度同じ根拠で承認しても二重に足さず、記録にも出ない
+    out2 = await themes.commit_theme(c, tmp_path, again, at="2026-11-07T00:00:00+00:00")
+    assert out2["supported"] == []
+    assert (await list_alignments(c))[0]["evidence"] == [_SENT + "9"]
+
+
+async def test_a_failure_after_adding_evidence_takes_the_evidence_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     c = _Client()
     _publish_sentences(c, "9")
@@ -1697,7 +1727,29 @@ async def test_an_existing_line_keeps_its_provenance_and_gets_no_new_evidence(
         {"from": "t1", "rel": "sub", "to": "t3", "reason": "",
          "evidence": [{"iri": _SENT + "9", "text": "x", "path": None}]},
     ]  # fmt: skip
-    await themes.commit_theme(c, tmp_path, again, at=AT)
+
+    def boom(*a: object, **k: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(themes, "_save_themes", boom)
+    with pytest.raises(OSError, match="disk full"):
+        await themes.commit_theme(c, tmp_path, again, at=AT)
+    assert [r["evidence"] for r in await list_alignments(c)] == [[]]  # 根拠は元に戻る
+
+
+async def test_an_existing_line_with_unpublished_evidence_is_refused(tmp_path: Path) -> None:
+    c = _Client()
+    await themes.commit_theme(c, tmp_path, _cell(), at=AT)
+    again = _cell()
+    again["concepts"] = [
+        {**x, "use": f"existing:{x['slug']}", "slug": ""} for x in again["concepts"]
+    ]
+    again["relations"] = [
+        {"from": "t1", "rel": "sub", "to": "t3", "reason": "",
+         "evidence": [{"iri": _SENT + "5", "text": "x", "path": None}]},
+    ]  # fmt: skip
+    with pytest.raises(themes.ThemeError, match="根拠の文"):
+        await themes.commit_theme(c, tmp_path, again, at=AT)
     assert [r["evidence"] for r in await list_alignments(c)] == [[]]
 
 

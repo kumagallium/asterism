@@ -1008,7 +1008,10 @@ async def assert_alignment(
     for e in evidence_iris:
         extra += f"<{_PROV}wasDerivedFrom> <{e}> ; "
     await client.sparql_update(
-        f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} ;"
+        # 来歴は作り直すが、既にある根拠の文（別の論文が束ねたもの）は残す（13a）
+        f"DELETE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} "
+        f"WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} "
+        f"FILTER(?p != <{_PROV}wasDerivedFrom>) }} ;"
         f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
         f"<{source}> <{rel_iri}> <{target}> . "
         f"<{align_iri}> a <{XW}Alignment> ; "
@@ -1185,6 +1188,92 @@ async def remove_alignment(client, source: str, target: str, relation: str) -> N
         f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{source}> <{rel_iri}> <{target}> }} }} ;"
         f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }}"
     )
+
+
+_EVIDENCE_IRI_RE = re.compile(r'https?://[^\s<>"{}|\\^`]+')
+
+
+def _evidence_list(evidence: list[str]) -> list[str]:
+    """根拠の文の IRI を検査して重複を除く（SPARQL に入れるのは検査済みの IRI だけ）。"""
+    out: list[str] = []
+    for e in evidence:
+        if not isinstance(e, str) or not _EVIDENCE_IRI_RE.fullmatch(e):
+            raise ValueError(f"not an evidence IRI: {e!r}")
+        if e not in out:
+            out.append(e)
+    return out
+
+
+async def add_evidence(
+    client, source: str, target: str, relation: str, evidence: list[str]
+) -> int:
+    """既にある線の来歴ノードに ``prov:wasDerivedFrom`` を **足すだけ**（13a）。
+    ``draftedBy`` / ``batch`` / ``at`` / ``reason`` は変えない。既に付いている IRI は数えない。
+    返り = 新しく付いた数。来歴ノードが無ければ 0（何も書かない）。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+    wanted = _evidence_list(evidence)
+    if not wanted:
+        return 0
+    align_iri = _alignment_iri(source, relation, target)
+    res = await client.sparql_select(
+        f"SELECT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> a <{XW}Alignment> . "
+        f"OPTIONAL {{ <{align_iri}> <{_PROV}wasDerivedFrom> ?e }} }} }}"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    if not rows:
+        return 0
+    have = {b["e"]["value"] for b in rows if "e" in b}
+    fresh = [e for e in wanted if e not in have]
+    if not fresh:
+        return 0
+    triples = " ".join(f"<{align_iri}> <{_PROV}wasDerivedFrom> <{e}> ." for e in fresh)
+    await client.sparql_update(f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
+    return len(fresh)
+
+
+async def remove_evidence(
+    client, source: str, target: str, relation: str, evidence: list[str]
+) -> None:
+    """指定の ``prov:wasDerivedFrom`` だけを来歴ノードから外す（線そのものは残す）。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+    wanted = _evidence_list(evidence)
+    if not wanted:
+        return
+    align_iri = _alignment_iri(source, relation, target)
+    triples = " ".join(f"<{align_iri}> <{_PROV}wasDerivedFrom> <{e}> ." for e in wanted)
+    await client.sparql_update(f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
+
+
+async def drop_evidence_in_graphs(client, graphs: list[str]) -> int:
+    """指定の graph（論文の版 graph）にある文（``doco:Sentence``）を指す ``prov:wasDerivedFrom``
+    を、ALIGNMENT_GRAPH から外す（13a: 論文を消すとき。関係そのものは残す）。graph が消える前に
+    呼ぶ。文 IRI を先に引いて VALUES で 1 回の UPDATE にする。返り = 外した文の数。"""
+    gs = [g for g in dict.fromkeys(graphs) if _EVIDENCE_IRI_RE.fullmatch(g)]
+    if not gs:
+        return 0
+    values = " ".join(f"<{g}>" for g in gs)
+    res = await client.sparql_select(
+        f"SELECT DISTINCT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> "
+        f"{{ ?a <{_PROV}wasDerivedFrom> ?e }} "
+        f"VALUES ?g {{ {values} }} GRAPH ?g {{ ?e a <http://purl.org/spar/doco/Sentence> }} }}"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    sentences = [b["e"]["value"] for b in rows if _EVIDENCE_IRI_RE.fullmatch(b["e"]["value"])]
+    if not sentences:
+        return 0
+    vals = " ".join(f"<{e}>" for e in sentences)
+    await client.sparql_update(
+        f"DELETE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{_PROV}wasDerivedFrom> ?e }} }} "
+        f"WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{_PROV}wasDerivedFrom> ?e }} "
+        f"VALUES ?e {{ {vals} }} }}"
+    )
+    return len(sentences)
 
 
 def _count_triples(turtle: str) -> int:

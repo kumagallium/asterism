@@ -1149,3 +1149,158 @@ def test_evidence_shows_in_draft_points_then_confirmed_lines_the_paper_point_and
         assert c1["dataset_label"] == ev["dataset_label"] and "section" in c1
         assert c1["path"] == ev["path"]  # 節の題名が無い文は UI が「節 n」にする
         assert "quote" not in c2  # ほかの出典は今のまま
+
+
+# ---------------------------------------------------------------------------
+# 13a: 同じ関係を複数の論文が支えたら、根拠を全部残す
+# ---------------------------------------------------------------------------
+
+#: 論文 B = 論文 A と同じ文を持つ別の論文（別の PMC 番号 → 別のデータセット・別の文 IRI）
+JATS_B = JATS.replace(b"5951533", b"5959999")
+
+
+def _paper_b(client: TestClient, sid: str) -> dict:
+    r = _attach_many(client, sid, [("論文B.xml", JATS_B)])
+    assert r.status_code == 201, r.text
+    body = r.json()
+    _drain(client, body["job_id"])
+    return _turn(client, sid, body["turn"]["id"])
+
+
+def _two_papers(client: TestClient, app: Any, ds: Any) -> tuple[dict, dict, list[dict]]:
+    """論文 A を承認 → 論文 B を添える。返り = (A の手番, B の手番, A だけのときの関係)。"""
+    sid_a = _new(client)
+    turn_a = _paper(client, sid_a)
+    assert _confirm(client, sid_a, turn_a["id"]).status_code == 200
+    only_a = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]  # 論文 A が支える線
+    sid_b = _new(client)
+    turn_b = _paper_b(client, sid_b)
+    turn_b["sid"] = sid_b
+    return turn_a, turn_b, only_a
+
+
+def test_a_second_paper_supporting_a_confirmed_relation_adds_its_evidence_and_keeps_provenance(
+    tmp_path: Path,
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        turn_a, turn_b, only_a = _two_papers(client, app, ds)
+        assert turn_a["attachment"]["dataset_id"] != turn_b["attachment"]["dataset_id"]
+        assert len(only_a) == 3
+        # 札: 既にある関係を、この論文も支える
+        sentences = turn_b["reply"]["sentences"]
+        assert any("既にある関係「" in s and "この論文も支えます" in s for s in sentences)
+        rels = [o for o in turn_b["reply"]["ops"] if o["op"] == "add_relation"]
+        assert rels and all(o.get("supports") for o in rels)
+        n = len(rels)
+        assert f"関係 {n}（うち既にある関係を支える {n}）" in turn_b["reply"]["text"]
+        # 承認 → 同じ 3 本の線に、根拠が 2 本ずつ。来歴（誰が・いつ・batch・理由）は A のまま
+        r = _confirm(client, turn_b["sid"], turn_b["id"])
+        assert r.status_code == 200, r.text
+        both = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(both) == len(only_a)
+        before = {(x["source"], x["relation"], x["target"]): x for x in only_a}
+        for x in both:
+            old = before[(x["source"], x["relation"], x["target"])]
+            assert len(x["evidence"]) == 2 and old["evidence"][0] in x["evidence"]
+            for k in ("drafted_by", "at", "batch", "reason"):
+                assert x[k] == old[k]
+        assert len(r.json()["commit"]["supported"]) == 3
+        # 論文 B の点にも、線の文にも、根拠が論文ごとに 1 件ずつ先に出る
+        dsid_a, dsid_b = (t["attachment"]["dataset_id"] for t in (turn_a, turn_b))
+        paper_b = _point_get(client, iri=f"paper:{dsid_b}").json()
+        assert len(paper_b["sentences"]) == 3
+        assert all(
+            dsid_b in {e["dataset_id"] for e in s["evidence"]} for s in paper_b["sentences"]
+        )
+        paper_a = _point_get(client, iri=f"paper:{dsid_a}").json()
+        assert len(paper_a["sentences"]) == 3  # A の点も今のまま 3 本
+        line = _point_get(
+            client, **{"from": both[0]["source"], "relation": both[0]["relation"],
+                       "to": both[0]["target"]}
+        ).json()  # fmt: skip
+        ev = line["sentences"][0]["evidence"]
+        assert {e["dataset_id"] for e in ev} == {dsid_a, dsid_b} and len(ev) == 2
+        labels = [e["dataset_label"] for e in ev]
+        assert labels == sorted(labels)
+
+
+def test_deleting_a_paper_takes_only_its_evidence_off_and_the_relations_stay(
+    tmp_path: Path,
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        _turn_a, turn_b, only_a = _two_papers(client, app, ds)
+        assert _confirm(client, turn_b["sid"], turn_b["id"]).status_code == 200
+        dsid_b = turn_b["attachment"]["dataset_id"]
+        r = client.delete(f"/api/datasets/{dsid_b}", params={"force": "true"})
+        assert r.status_code == 200, r.text
+        after = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(after) == len(only_a)  # 関係は残る
+        by_a = {(x["source"], x["relation"], x["target"]): x["evidence"] for x in only_a}
+        for x in after:
+            assert x["evidence"] == by_a[(x["source"], x["relation"], x["target"])]
+
+
+def test_reverting_a_confirmed_turn_takes_off_only_the_evidence_it_added(tmp_path: Path) -> None:
+    from asterism_api import chat_turns
+
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        _turn_a, turn_b, only_a = _two_papers(client, app, ds)
+        r = _confirm(client, turn_b["sid"], turn_b["id"])
+        commit = r.json()["commit"]
+        both = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(both) == 3 and all(len(x["evidence"]) == 2 for x in both)
+        # 論文の手番は取り消せない（公開したデータ）。同じ commit を持つ本文の手番として戻す
+        session = {
+            "turns": [
+                {
+                    "id": "t1", "state": "confirmed", "confirmed": [],
+                    "commit": {**commit, "minted": []},
+                }
+            ]
+        }
+        _turn, undone, _ids = _run(
+            chat_turns.revert_confirmed(
+                session, "t1", client=app.state.client, root=tmp_path / "registry",
+                at="2026-11-06T00:00:00+00:00",
+            )
+        )  # fmt: skip
+        assert undone["evidence"] == 3 and not undone["failed"]
+        after = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(after) == len(only_a)  # 線は消さない
+        by_a = {(x["source"], x["relation"], x["target"]): x["evidence"] for x in only_a}
+        for x in after:
+            assert x["evidence"] == by_a[(x["source"], x["relation"], x["target"])]
+
+
+def test_a_relation_whose_evidence_is_all_attached_already_leaves_the_proposal(
+    tmp_path: Path,
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        _turn_a, turn_b, _only_a = _two_papers(client, app, ds)
+        assert _confirm(client, turn_b["sid"], turn_b["id"]).status_code == 200
+        line = next(x for x in _run(list_alignments(_Wrap(ds))) if len(x["evidence"]) == 2)
+        slug = {k: shared_vocab.slug_of(line[k]) for k in ("source", "target")}
+        rel = line["relation"]
+        kind = "property"  # この 3 本はどれも lowers／raises／affects
+
+        def ops(evidence: list[str]) -> list[dict]:
+            return [
+                {"op": "add_concept", "key": "n1", "kind": "class",
+                 "use": f"existing:{slug['source']}"},
+                {"op": "add_concept", "key": "n2", "kind": kind,
+                 "use": f"existing:{slug['target']}"},
+                {"op": "add_relation", "from": "n1", "rel": rel, "to": "n2",
+                 "evidence": [{"iri": e, "text": "x", "path": None} for e in evidence]},
+            ]  # fmt: skip
+
+        have = line["evidence"]
+        got = _run(chat_paper.mark_supports(app.state.client, ops(have)))
+        assert [o for o in got if o["op"] == "add_relation"] == []  # 付くものが無い — 外す
+        new = [have[0], "https://example.org/paper/pq/sent/1"]
+        got = _run(chat_paper.mark_supports(app.state.client, ops(new)))
+        (r,) = [o for o in got if o["op"] == "add_relation"]
+        assert r["supports"] is True  # 1 つでも新しい根拠があれば「支える」

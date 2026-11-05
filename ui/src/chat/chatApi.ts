@@ -240,6 +240,8 @@ export interface Undone {
   lines: number
   terms: number
   questions: number
+  /** 13a: 外した根拠の文の数（0 のときは無い）。 */
+  evidence?: number
   kept: { slug: string; reason: string }[]
   failed?: { what: string; reason: string }[]
 }
@@ -717,7 +719,7 @@ export async function confirmTurn(
   }
 }
 
-function undoneOf(v: unknown): Undone | undefined {
+export function undoneOf(v: unknown): Undone | undefined {
   if (!isObj(v)) return undefined
   const n = (x: unknown): number => (typeof x === 'number' ? x : Array.isArray(x) ? x.length : 0)
   const failed = Array.isArray(v.failed) ? v.failed.filter(isObj).map((f) => ({ what: str(f.what), reason: str(f.reason) })) : []
@@ -725,6 +727,7 @@ function undoneOf(v: unknown): Undone | undefined {
     lines: n(v.lines),
     terms: n(v.terms),
     questions: n(v.questions),
+    ...(n(v.evidence) > 0 ? { evidence: n(v.evidence) } : {}),
     kept: Array.isArray(v.kept) ? v.kept.filter(isObj).map((k) => ({ slug: str(k.slug), reason: str(k.reason) })).filter((k) => k.slug !== '') : [],
     ...(failed.length > 0 ? { failed } : {}),
   }

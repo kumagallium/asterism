@@ -22,7 +22,7 @@ from asterism import substrate
 from asterism.subjects import resolve_dataset_label, valid_dataset_id
 from asterism.themes import _EVIDENCE_IRI
 
-__all__ = ["TEXT_MAX", "cut", "resolve_evidence"]
+__all__ = ["TEXT_MAX", "cut", "order_by_paper", "paper_count", "resolve_evidence"]
 
 #: 札に出す文の長さ（超えたら「…」で切る・全文は ``full``）
 TEXT_MAX = 150
@@ -63,6 +63,30 @@ def _paper_graphs(registry_root: Path) -> dict[str, tuple[str, str]]:
 def cut(text: str) -> str:
     """150 字で切る（超えたら末尾に「…」）。"""
     return text if len(text) <= TEXT_MAX else text[:TEXT_MAX].rstrip() + "…"
+
+
+def _paper_key(item: dict) -> str:
+    return str(item.get("dataset_id") or item.get("dataset_label") or "")
+
+
+def paper_count(items: list[dict]) -> int:
+    """根拠の文がまたがる論文の数（論文が分からない文は数えない）。"""
+    return len({k for k in (_paper_key(i) for i in items) if k})
+
+
+def order_by_paper(items: list[dict], limit: int | None = None) -> list[dict]:
+    """根拠の並び（13a）: 論文ごとに 1 件ずつ先に（論文名の順）、残りは元の順でそのあと。
+    ``limit`` があれば先頭から切る — 上限があるときも、なるべく別の論文から選ばれる。
+    論文の分からない文は 1 つの組として扱う。"""
+    firsts: dict[str, dict] = {}
+    for it in items:
+        firsts.setdefault(_paper_key(it), it)
+    head = sorted(
+        firsts.values(), key=lambda it: (str(it.get("dataset_label") or ""), _paper_key(it))
+    )
+    rest = [it for it in items if not any(it is h for h in head)]
+    out = [*head, *rest]
+    return out if limit is None else out[:limit]
 
 
 async def resolve_evidence(

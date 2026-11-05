@@ -14,7 +14,12 @@ import pytest
 
 from asterism import evidence, knowledge, substrate
 from asterism import shared_vocab as sv
-from asterism.crosswalk_runtime import assert_alignment
+from asterism.crosswalk_runtime import (
+    add_evidence,
+    assert_alignment,
+    list_alignments,
+    remove_evidence,
+)
 from asterism.sky_view import sky_view
 
 pyoxigraph = pytest.importorskip("pyoxigraph")
@@ -188,3 +193,102 @@ async def test_an_iri_with_a_trailing_newline_is_dropped_and_the_others_are_stil
     assert list(got) == [S + "2"]  # 改行つきは入らず、SPARQL 全体は落ちない
     assert "\n<" not in c.queries[0].split("VALUES ?e")[1].split("}")[0]
     assert themes._evidence_iris([S + "1\n", S + "2"]) == (S + "2",)
+
+
+async def test_add_evidence_only_inserts_and_never_counts_twice(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    # 線が無ければ何も書かない
+    assert await add_evidence(c, pore, tc, "lowers", [S + "1"]) == 0
+    await assert_alignment(
+        c, pore, tc, "lowers", at=AT, drafted_by="ai", batch="b1", reason="r", evidence=[S + "1"]
+    )
+    before = (await list_alignments(c))[0]
+    assert await add_evidence(c, pore, tc, "lowers", [S + "1", S + "2", S + "2"]) == 1
+    assert await add_evidence(c, pore, tc, "lowers", [S + "1", S + "2"]) == 0
+    after = (await list_alignments(c))[0]
+    assert after["evidence"] == [S + "1", S + "2"]
+    for k in ("drafted_by", "batch", "reason", "at"):
+        assert after[k] == before[k]
+    with pytest.raises(ValueError):
+        await add_evidence(c, pore, tc, "lowers", [S + "1\n"])
+
+
+async def test_remove_evidence_removes_only_the_named_sentences(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "1", S + "2"])
+    await remove_evidence(c, pore, tc, "lowers", [S + "2"])
+    rows = await list_alignments(c)
+    assert len(rows) == 1 and rows[0]["evidence"] == [S + "1"]
+
+
+def test_order_by_paper_puts_one_per_paper_first_by_paper_name_then_the_rest() -> None:
+    def e(n: int, did: str, label: str) -> dict:
+        return {"iri": f"i{n}", "dataset_id": did, "dataset_label": label}
+
+    items = [e(1, "y", "論文Y"), e(2, "y", "論文Y"), e(3, "x", "論文X"), e(4, "z", "論文Z")]
+    got = [i["iri"] for i in evidence.order_by_paper(items)]
+    assert got == ["i3", "i1", "i4", "i2"]  # X・Y・Z の先頭 1 件ずつ → 残り
+    assert [i["iri"] for i in evidence.order_by_paper(items, 2)] == ["i3", "i1"]
+    assert evidence.paper_count(items) == 3
+    assert evidence.paper_count(items[:2]) == 1
+    assert evidence.order_by_paper([]) == []
+
+
+async def test_drop_evidence_in_graphs_removes_only_that_papers_sentences(tmp_path: Path) -> None:
+    from asterism.crosswalk_runtime import drop_evidence_in_graphs
+
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    other = "https://example.org/paper/pz/sent/1"
+    gz = substrate.versioned_graph_iri("paper-z", 1)
+    c.load(gz, f"<{other}> a <http://purl.org/spar/doco/Sentence> .")
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "1", other])
+    live = substrate.versioned_graph_iri("paper-x", 1)
+    assert await drop_evidence_in_graphs(c, [live]) == 1
+    (row,) = await list_alignments(c)
+    assert row["evidence"] == [other]  # 関係は残り、別の論文の根拠も残る
+    assert await drop_evidence_in_graphs(c, []) == 0
+
+
+async def test_sky_view_lists_evidence_terms_for_both_papers_that_support_a_line(
+    tmp_path: Path,
+) -> None:
+    c, root = await _world(tmp_path)
+    _terms(c)
+    # 2 本目の公開済みの論文（別の文 IRI）
+    _meta(root, "paper-w", name="論文W", promoted=True, source_kind="xml", created_at="2026-11-02",
+          live_graph=substrate.versioned_graph_iri("paper-w", 1))  # fmt: skip
+    live_w = substrate.versioned_graph_iri("paper-w", 1)
+    c.load(live_w, PAPER_TTL.replace("paper/px", "paper/pw"))
+    await substrate.mark_graph_promoted(
+        c, substrate.canonical_graph_iri("paper-w"), live_graph=live_w
+    )
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    sw = "https://example.org/paper/pw/sent/1"
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "1", sw])
+    out = await sky_view(c, root)
+    for did in ("paper-x", "paper-w"):
+        d = next(x for x in out["datasets"] if x["id"] == did)
+        assert d["evidence_terms"] == sorted({pore, tc})
+
+
+async def test_reasserting_a_line_keeps_the_evidence_other_papers_bundled(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(c, pore, tc, "lowers", at=AT, drafted_by="ai", evidence=[S + "1"])
+    await add_evidence(c, pore, tc, "lowers", [S + "2"])
+    # 別の入口で同じ線をつなぎ直す（根拠なし）— 束ねた根拠は消えず、来歴は新しい値になる
+    await assert_alignment(c, pore, tc, "lowers", at="2026-11-09T00:00:00+00:00", reason="again")
+    (row,) = await list_alignments(c)
+    assert row["evidence"] == [S + "1", S + "2"]
+    assert row["drafted_by"] == "human" and row["reason"] == "again"
+    # 新しい根拠は和集合になる
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "long", S + "1"])
+    (row,) = await list_alignments(c)
+    assert row["evidence"] == [S + "1", S + "2", S + "long"]

@@ -48,6 +48,7 @@
     "revert": "Undo",
     "undoAsk": "Undo the {{terms}} terms and {{lines}} relations this approval added",
     "undone": "Undone: {{lines}} relations, {{terms}} terms",
+    "undoneEvidence": ", evidence sentences {{n}}",
     "undoneKept": " (kept: {{names}})",
     "undoneFailed": "Could not undo: {{what}} ({{reason}})",
     "cardProposed": "Proposed for the knowledge graph · {{n}}",
@@ -163,6 +164,7 @@
     "kindCol": "Name"
   },
   "evidence": {
+    "papers": "{{n}} papers",
     "more": "{{n}} more",
     "section": "Section {{n}}"
   },

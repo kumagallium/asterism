@@ -180,7 +180,7 @@ class _Ctx:
         # 論文の根拠の文（12c・ストアから引けたものだけ。根拠の無い関係は今のまま）
         ev = [self.cited[e] for e in ln.get("evidence") or [] if e in self.cited]
         if ev:
-            out["evidence"] = ev
+            out["evidence"] = evidence.order_by_paper(ev)  # 論文ごとに 1 件ずつ先に（13a）
         return out
 
     def sentences_of(self, iri: str) -> list[dict[str, Any]]:

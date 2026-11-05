@@ -59,6 +59,14 @@ describe('根拠の文（12c）', () => {
     expect(h).not.toContain('根拠2')
     expect(h).toContain('ほか 2 件')
   })
+  it('根拠が 2 本以上の論文にまたがるときだけ「論文 k 本」（1 本のときは出さない）', () => {
+    const two = panel([withEv([ev(1, { dataset_id: 'a' }), ev(2, { dataset_id: 'b', dataset_label: '論文Y' })])])
+    expect(two).toContain('data-testid="evidence-papers"')
+    expect(two).toContain('論文 2 本')
+    const one = panel([withEv([ev(1, { dataset_id: 'a' }), ev(2, { dataset_id: 'a' })])])
+    expect(one).not.toContain('evidence-papers')
+    expect(panel([withEv([ev(1)])])).not.toContain('evidence-papers')
+  })
   it('根拠の無い行は今のまま', () => {
     expect(panel([approved, thin])).not.toContain('reply-evidence')
   })
