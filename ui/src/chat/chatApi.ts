@@ -37,6 +37,31 @@ export interface Evidence {
   iri: string
   text: string
   path: string | null
+  /** 12c: 全文（`text` は 150 字で切ったもの）・節の題名・論文の名前（点の文だけ。下書きの差分の根拠には無い）。 */
+  full?: string
+  section?: string | null
+  dataset_id?: string | null
+  dataset_label?: string
+}
+
+/** 点の文の根拠（`GET /api/chat/point`）。形の合わないものは捨てる。 */
+export function evidenceList(v: unknown): Evidence[] {
+  if (!Array.isArray(v)) return []
+  return v.filter(isObj).flatMap((e) =>
+    typeof e.iri === 'string' && typeof e.text === 'string' && e.text !== ''
+      ? [
+          {
+            iri: e.iri,
+            text: e.text,
+            path: strOrNull(e.path),
+            ...(typeof e.full === 'string' && e.full !== '' ? { full: e.full } : {}),
+            ...(typeof e.section === 'string' && e.section !== '' ? { section: e.section } : {}),
+            ...(typeof e.dataset_id === 'string' ? { dataset_id: e.dataset_id } : {}),
+            ...(typeof e.dataset_label === 'string' && e.dataset_label !== '' ? { dataset_label: e.dataset_label } : {}),
+          },
+        ]
+      : [],
+  )
 }
 
 /** 関係の差分（`add_relation`）の根拠の文。論文以外の提案・根拠の無い関係は空。 */
@@ -80,7 +105,8 @@ export interface ReplyTable {
 /** Ask の答え（`reply.answer`）。 */
 export interface ReplyAnswer {
   text: string
-  citations: { iri: string; label: string; dataset_id: string; dataset_label: string }[]
+  /** `quote`・`section` は論文の根拠の文の出典だけ（12c・サーバがストアから引いた文）。 */
+  citations: { iri: string; label: string; dataset_id: string; dataset_label: string; quote?: string; section?: string | null }[]
   notes: string[]
   warnings: string[]
   verified_tools: string[]
@@ -344,7 +370,13 @@ export function answerOf(v: unknown): ReplyAnswer | null {
       ? v.citations
           .filter(isObj)
           .filter((c) => typeof c.iri === 'string')
-          .map((c) => ({ iri: str(c.iri), label: str(c.label), dataset_id: str(c.dataset_id), dataset_label: str(c.dataset_label) }))
+          .map((c) => ({
+            iri: str(c.iri),
+            label: str(c.label),
+            dataset_id: str(c.dataset_id),
+            dataset_label: str(c.dataset_label),
+            ...(typeof c.quote === 'string' && c.quote !== '' ? { quote: c.quote, section: strOrNull(c.section) } : {}),
+          }))
       : [],
     notes: lines(v.notes),
     warnings: lines(v.warnings),
@@ -764,8 +796,8 @@ export function proposedDatasetsOf(v: unknown): SkyDataset[] {
 
 // ── 点を押した 1 枚（`GET /api/chat/point`・契約 pr11d §A1） ───────────
 
-export type PointKind = 'term' | 'kind' | 'std' | 'hub' | 'line' | 'draft'
-const POINT_KINDS: readonly PointKind[] = ['term', 'kind', 'std', 'hub', 'line', 'draft']
+export type PointKind = 'term' | 'kind' | 'std' | 'hub' | 'line' | 'draft' | 'paper'
+const POINT_KINDS: readonly PointKind[] = ['term', 'kind', 'std', 'hub', 'line', 'draft', 'paper']
 
 export interface PointSentence {
   text: string
@@ -785,6 +817,8 @@ export interface PointSentence {
   draft_id?: string
   /** この話の承認済みの種（濃い行）。 */
   from_seed?: boolean
+  /** 論文の根拠の文（12c・無ければ根拠なしの関係）。 */
+  evidence?: Evidence[]
 }
 export interface Point {
   iri: string
@@ -844,6 +878,7 @@ export function normalizePoint(v: unknown): Point | null {
           ...(typeof s.from === 'string' && typeof s.rel === 'string' && typeof s.to === 'string' ? { from: s.from, rel: s.rel, to: s.to } : {}),
           ...(typeof s.draft_id === 'string' ? { draft_id: s.draft_id } : {}),
           ...(s.from_seed === true ? { from_seed: true } : {}),
+          ...(evidenceList(s.evidence).length > 0 ? { evidence: evidenceList(s.evidence) } : {}),
         }))
       : [],
     provenance: prov,

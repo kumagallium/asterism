@@ -9,7 +9,7 @@ import type { DraftSky, SkyData, SkyDataset, SkyKnowledgeRelation } from '../../
 import type { PointSel } from '../chatState'
 
 export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub' | 'dataset'
-export type MapEdgeKind = 'concept' | 'member' | 'draft' | 'hub' | 'dataset'
+export type MapEdgeKind = 'concept' | 'member' | 'draft' | 'hub' | 'dataset' | 'evidence'
 
 export interface MapNodeAttrs {
   type: MapNodeType
@@ -23,6 +23,8 @@ export interface MapNodeAttrs {
   proposed?: boolean
   /** 外す提案の用語。 */
   remove?: boolean
+  /** 論文のデータセットの丸（押すと、その論文が支える関係と根拠の文）。 */
+  document?: boolean
   size: number
   x: number
   y: number
@@ -114,7 +116,7 @@ export function buildMapGraph(
     // データセットの丸（表の名前）。その種類を線で束ねて 1 つのまとまりにする（孤立した種類が散らばらない）
     const did = datasetNodeId(d.id)
     if (d.kinds.length > 0 || d.document) {
-      addNode(did, { type: 'dataset', label: d.label, datasetId: d.id, ...(proposed ? { proposed: true } : {}), size: DATASET_SIZE, role: 'dataset' })
+      addNode(did, { type: 'dataset', label: d.label, datasetId: d.id, ...(d.document ? { document: true } : {}), ...(proposed ? { proposed: true } : {}), size: DATASET_SIZE, role: 'dataset' })
     }
     for (const k of d.kinds) {
       const kid = kindId(d.id, k.iri)
@@ -155,6 +157,13 @@ export function buildMapGraph(
       if (!g.hasNode(kid)) continue
       addEdge(id, kid, { kind: 'member', relation: m.relation }, false)
     }
+  }
+
+  // 論文の点 → その論文が根拠になっている用語（12c・細い線。用語の点が地図に無ければ引かない）
+  for (const d of datasets) {
+    if (!d.document || !d.evidence_terms) continue
+    const did = datasetNodeId(d.id)
+    for (const iri of d.evidence_terms) addEdge(did, termId(iri), { kind: 'evidence', thin: true }, false)
   }
 
   // 用語どうしの知識の線
@@ -220,7 +229,7 @@ export function buildMapGraph(
     let degree = 0
     g.forEachEdge(id, (_e, ea) => {
       if (ea.kind === 'member') members++
-      else degree++
+      else if (ea.kind !== 'evidence') degree++  // 論文の根拠の線は用語どうしの関係ではない
     })
     g.setNodeAttribute(id, 'size', termSize(members, degree))
   })
@@ -322,8 +331,10 @@ export function mapSelection(g: Graph, id: string): PointSel | null {
       return { kind: 'hub', iri: a.iri ?? '', label: a.label }
     case 'draft':
       return { kind: 'draft', iri: a.conceptKey ?? '', draftId: a.draftId ?? '', label: a.label }
+    case 'dataset':
+      // 公開済みの論文の丸だけ 1 枚を持つ（その論文が支える関係と根拠の文）。表の丸は持たない
+      return a.document && !a.proposed && a.datasetId ? { kind: 'paper', iri: a.datasetId, label: a.label } : null
     default:
-      // データセットの丸は 1 枚を持たない
       return null
   }
 }

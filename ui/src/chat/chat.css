@@ -379,6 +379,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 12c: 根拠の文の出所（論文名 · 節）と「ほか n 件」 */
+.chat-evidence-src {
+  display: block;
+  font-size: 0.7rem;
+}
+.chat-evidence-more {
+  font-size: 0.72rem;
+}
 .chat-sentences-more {
   list-style: none;
   margin-left: -1.1rem;
@@ -916,6 +924,10 @@
 }
 .chat-citation-name {
   font-weight: 600;
+}
+/* 論文の根拠の文の出典: 「…」＋論文名 · 節 */
+.chat-citation-quote {
+  font-size: 0.78rem;
 }
 .chat-answer-warning {
   margin: 0;

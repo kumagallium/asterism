@@ -22,6 +22,8 @@ export interface SkyDataset {
   proposed?: boolean
   /** 論文（節・段落・文の構造は種類として来ない）。種類が無くても灰の点を描く。 */
   document?: boolean
+  /** 論文だけ: 根拠の文がこの論文にある確定した関係の両端の用語 IRI（12c）。 */
+  evidence_terms?: string[]
 }
 
 export type SkyRelation = 'subClassOf' | 'equivalentClass' | 'subPropertyOf' | 'equivalentProperty'

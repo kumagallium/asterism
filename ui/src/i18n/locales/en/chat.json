@@ -125,6 +125,7 @@
     "titleKind": "Kind",
     "titleStd": "Standard term",
     "titleHub": "Link",
+    "titlePaper": "Paper",
     "titleDraft": "Proposal",
     "termClass": "kind",
     "termProperty": "field",
@@ -160,6 +161,10 @@
     "more": "{{n}} more",
     "empty": "No matching rows",
     "kindCol": "Name"
+  },
+  "evidence": {
+    "more": "{{n}} more",
+    "section": "Section {{n}}"
   },
   "ask": {
     "verified": "Answered with deterministic tools",

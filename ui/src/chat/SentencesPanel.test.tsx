@@ -37,6 +37,43 @@ describe('SentencesPanel', () => {
   })
 })
 
+describe('根拠の文（12c）', () => {
+  const ev = (n: number, over: Record<string, unknown> = {}) => ({ iri: `https://ex.org/sent/${n}`, text: `根拠${n}`, path: null, dataset_label: '論文X', ...over })
+  const withEv = (evidence: ReturnType<typeof ev>[]): SentenceRow => ({ ...approved, evidence })
+  it('行の下に根拠の文を小さく 1 行と「論文名 · 節」（title に全文）', () => {
+    const h = panel([withEv([ev(1, { text: 'あ'.repeat(150) + '…', full: 'あ'.repeat(200), section: 'Results' })])])
+    expect(h).toContain('data-testid="reply-evidence"')
+    expect(h).toContain('論文X · Results')
+    expect(h).toContain(`title="根拠の文: ${'あ'.repeat(200)}"`)
+    expect(h).not.toContain('evidence-more')
+  })
+  it('節の題名が無ければ path から「節 n」・どちらも無ければ論文名だけ', () => {
+    expect(panel([withEv([ev(1, { path: '2.1' })])])).toContain('論文X · 節 2.1')
+    const bare = panel([withEv([ev(1)])])
+    expect(bare).toContain('>論文X<')
+    expect(bare).not.toContain(' · ')
+  })
+  it('2 件以上は 1 件目だけ出して「ほか n 件」', () => {
+    const h = panel([withEv([ev(1), ev(2), ev(3)])])
+    expect(h).toContain('根拠1')
+    expect(h).not.toContain('根拠2')
+    expect(h).toContain('ほか 2 件')
+  })
+  it('根拠の無い行は今のまま', () => {
+    expect(panel([approved, thin])).not.toContain('reply-evidence')
+  })
+  it('rowsOfPoint は evidence を通す（無い文には付けない）', () => {
+    const base = { text: 'x', relation: 'r', source: 's', target: 'o', drafted_by: 'ai', at: '', batch: '', reason: '', session_id: null, turn_id: 't1' }
+    const p = { sentences: [{ ...base, evidence: [ev(1)] }, base] } as unknown as Point
+    const rows = rowsOfPoint(p)
+    expect(rows[0].evidence).toHaveLength(1)
+    expect('evidence' in rows[1]).toBe(false)
+  })
+  it('論文の点は d| でも「文」のタブが既定（paper| の頭で用語側に寄せる）', () => {
+    expect(subTabOf(null, 'paper|d|p1')).toBe('sentences')
+  })
+})
+
 describe('sentenceRows', () => {
   it('relSentence は REL_SENTENCE と同じ言い方', () => {
     expect(relSentence('sub', 'A', 'B', 'ja')).toBe('A は B の一種')

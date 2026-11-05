@@ -167,7 +167,7 @@ export function bindingDecisions(bindings: readonly Binding[], picked: Readonly<
  * `kind` の `thin` は薄い星（未公開のデータセットの種類）で、api を呼ばない。
  */
 export type PointSel =
-  | { kind: 'term' | 'kind' | 'std' | 'hub'; iri: string; label: string; thin?: { dataset: string } }
+  | { kind: 'term' | 'kind' | 'std' | 'hub' | 'paper'; iri: string; label: string; thin?: { dataset: string } }
   | { kind: 'draft'; iri: string; draftId: string; label: string }
   | { kind: 'line'; from: string; relation: string; to: string; label: string; draft?: boolean }
 
@@ -225,6 +225,7 @@ export function pointQueryOf(sel: PointSel): { iri: string } | { from: string; r
   if (sel.kind === 'line') return { from: sel.from, relation: sel.relation, to: sel.to }
   if (sel.kind === 'draft') return { iri: `draft:${sel.draftId}:${sel.iri}` }
   if (sel.kind === 'hub') return { iri: `hub:${sel.iri}` }
+  if (sel.kind === 'paper') return { iri: `paper:${sel.iri}` }
   return { iri: sel.iri }
 }
 
