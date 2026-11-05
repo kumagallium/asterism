@@ -1288,7 +1288,8 @@ def _display_label(row_label_ja: str, row_label_en: str, lang: str) -> str:
     return (row_label_en or row_label_ja) if lang.startswith("en") else row_label_ja
 
 
-_EVIDENCE_IRI = re.compile(r'^https?://[^\s<>"{}|\\^`]+$')
+# 照合は fullmatch で（``$`` は末尾の改行を通すので使わない）
+_EVIDENCE_IRI = re.compile(r'https?://[^\s<>"{}|\\^`]+')
 _EVIDENCE_MAX = 3  # 1 本の線に残す根拠の文の数（AI の evidence の上限と同じ）
 
 
@@ -1298,7 +1299,7 @@ def _evidence_iris(raw: Any) -> tuple[str, ...]:
     out: list[str] = []
     for e in raw if isinstance(raw, list) else []:
         iri = e.get("iri") if isinstance(e, dict) else e
-        if isinstance(iri, str) and iri not in out and _EVIDENCE_IRI.match(iri):
+        if isinstance(iri, str) and iri not in out and _EVIDENCE_IRI.fullmatch(iri):
             out.append(iri)
     return tuple(out[:_EVIDENCE_MAX])
 

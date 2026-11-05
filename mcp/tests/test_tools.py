@@ -1408,7 +1408,7 @@ async def test_answer_knowledge_question_items_carry_evidence_sentences_up_to_th
             rows = [
                 {"e": uri(sent + str(i)), "g": uri(graph), "t": lit(f"sentence {i}"),
                  "title": lit("Results")}
-                for i in (1, 2, 3)  # 4 は引けない
+                for i in (1, 2, 3, 4)  # 4 件とも引ける（上限の 3 件で止まることを確かめる）
             ]  # fmt: skip
         else:
             base = {

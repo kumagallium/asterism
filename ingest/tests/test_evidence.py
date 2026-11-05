@@ -174,3 +174,17 @@ async def test_sky_view_lists_evidence_terms_for_papers_only(tmp_path: Path) -> 
     _meta(root, "wx", name="観測", promoted=True, created_at="2026-11-02")
     again = await sky_view(c, root)
     assert "evidence_terms" not in next(d for d in again["datasets"] if d["id"] == "wx")
+
+
+async def test_an_iri_with_a_trailing_newline_is_dropped_and_the_others_are_still_read(
+    tmp_path: Path,
+) -> None:
+    from asterism import themes
+
+    c, root = await _world(tmp_path)
+    got = await evidence.resolve_evidence(
+        c, [S + "1\n", "https://x/a\n", S + "2"], registry_root=root
+    )
+    assert list(got) == [S + "2"]  # 改行つきは入らず、SPARQL 全体は落ちない
+    assert "\n<" not in c.queries[0].split("VALUES ?e")[1].split("}")[0]
+    assert themes._evidence_iris([S + "1\n", S + "2"]) == (S + "2",)

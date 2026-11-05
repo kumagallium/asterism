@@ -54,7 +54,7 @@ def _paper_graphs(registry_root: Path) -> dict[str, tuple[str, str]]:
         graph = (
             meta.get("live_graph") or meta.get("graph_iri") or substrate.canonical_graph_iri(did)
         )
-        if not _EVIDENCE_IRI.match(str(graph)):
+        if not _EVIDENCE_IRI.fullmatch(str(graph)):
             continue
         out[str(graph)] = (did, resolve_dataset_label(registry_root, did))
     return out
@@ -73,7 +73,9 @@ async def resolve_evidence(
     ``text`` は 150 字で切る（末尾「…」）・``full`` は全文・``section`` は節の題名（無ければ
     ``None``）・``path`` は ``lit:structuralPath``（無ければ ``None``）。引けない IRI・形の悪い
     IRI は返さない。"""
-    wanted = list(dict.fromkeys(i for i in iris if isinstance(i, str) and _EVIDENCE_IRI.match(i)))
+    wanted = list(
+        dict.fromkeys(i for i in iris if isinstance(i, str) and _EVIDENCE_IRI.fullmatch(i))
+    )
     if not wanted or registry_root is None:
         return {}
     graphs = _paper_graphs(Path(registry_root))
