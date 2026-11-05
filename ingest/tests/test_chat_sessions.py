@@ -118,3 +118,68 @@ def test_turn_of_batch_and_turn_of_minted(tmp_path: Path) -> None:
     assert cs.turn_of_minted(tmp_path, "gone") is None  # 戻した手番は引かない
     assert cs.turn_of_minted(tmp_path, "unknown") is None
     assert {"ask_unavailable", "ask_failed"} <= cs.NOTE_KINDS
+
+
+# ---------------------------------------------------------------------------
+# 13d: 線を支えた commit の索引
+# ---------------------------------------------------------------------------
+
+_TRIP = ("s:a", "lowers", "s:b")
+
+
+def _confirmed(
+    tid: str,
+    batch: str,
+    at: object,
+    ev: list[str],
+    *,
+    paper: bool = False,
+    state: str = "confirmed",
+) -> dict:
+    commit: dict = {
+        "batch": batch,
+        "theme_id": f"th-{batch}",
+        "supported": [
+            {"source": _TRIP[0], "relation": _TRIP[1], "target": _TRIP[2], "evidence": ev}
+        ],
+    }
+    if at is not None:
+        commit["at"] = at
+    return {"id": tid, "state": state, "commit": commit, **({"paper": {"x": 1}} if paper else {})}
+
+
+def test_parse_at_reads_z_and_offset_as_the_same_instant() -> None:
+    from asterism import chat_sessions as cs
+
+    assert cs.parse_at("2026-11-01T00:00:00Z") == cs.parse_at("2026-11-01T00:00:00+00:00")
+    assert cs.parse_at("2026-11-01T09:00:00+09:00") == cs.parse_at("2026-11-01T00:00:00Z")
+    assert cs.parse_at("2026-11-01T00:00:00") is not None  # タイムゾーン無しは UTC
+    assert cs.parse_at("") is None and cs.parse_at(None) is None and cs.parse_at("x") is None
+
+
+def test_supporter_index_skips_reverted_prefers_current_and_orders_by_instant(
+    tmp_path: Path,
+) -> None:
+    from asterism import chat_sessions as cs
+
+    saved = cs.new_session("saved")
+    saved["turns"] = [
+        _confirmed("t1", "late", "2026-11-03T00:00:00+00:00", ["e1"]),
+        _confirmed("t2", "undone", "2026-11-01T00:00:00Z", ["e1"], state="reverted"),
+        _confirmed("t3", "noat", None, ["e1"], paper=True),
+        _confirmed("t4", "tz", "2026-11-02T09:00:00+09:00", ["e1"]),  # = 11-02 00:00Z
+        _confirmed("t5", "other", "2026-11-01T00:00:00Z", ["zzz"]),  # 別の根拠
+    ]
+    cs.save_session(tmp_path, saved)
+    index = cs.supporter_index(tmp_path)
+    got = cs.supporting_commits(index, _TRIP, ["e1"], exclude_batches=set())
+    assert [r["batch"] for r in got] == ["tz", "late", "noat"]  # 取り消し済みなし・at 無しは最後
+    assert got[2]["paper"] is True and got[0]["drafted_by"] is None
+    rest = cs.supporting_commits(index, _TRIP, ["e1"], exclude_batches={"tz"})
+    assert [r["batch"] for r in rest] == ["late", "noat"]
+    # 保存済みの話より、手元（current）の同じ id の話が優先される
+    current = {**saved, "turns": [_confirmed("t1", "mine", "2026-11-01T00:00:00Z", ["e1"])]}
+    got = cs.supporting_commits(
+        cs.supporter_index(tmp_path, current=current), _TRIP, ["e1"], exclude_batches=set()
+    )
+    assert [r["batch"] for r in got] == ["mine"]

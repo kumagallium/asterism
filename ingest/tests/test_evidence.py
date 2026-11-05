@@ -313,3 +313,17 @@ async def test_reasserting_a_line_keeps_the_evidence_other_papers_bundled(tmp_pa
     await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "long", S + "1"])
     (row,) = await list_alignments(c)
     assert row["evidence"] == [S + "1", S + "2", S + "long"]
+
+
+async def test_move_provenance_without_drafted_by_or_at_keeps_them(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(
+        c, pore, tc, "lowers", at=AT, drafted_by="machine", batch="b1", evidence=[S + "1"]
+    )
+    before = (await list_alignments(c))[0]
+    assert await move_provenance(c, pore, tc, "lowers", batch="b2") is True
+    (row,) = await list_alignments(c)
+    assert (row["batch"], row["drafted_by"], row["at"]) == ("b2", "machine", before["at"])
+

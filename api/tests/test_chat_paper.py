@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 import rdflib
-from asterism import chat_sessions, shared_vocab, themes
+from asterism import chat_sessions, crosswalk_runtime, shared_vocab, themes
 from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, list_alignments
 from asterism.shared_vocab import SharedTerm
 from fastapi.testclient import TestClient
@@ -1275,49 +1275,173 @@ def test_reverting_a_confirmed_turn_takes_off_only_the_evidence_it_added(tmp_pat
             assert x["evidence"] == by_a[(x["source"], x["relation"], x["target"])]
 
 
+def _revert_commit(app: Any, root: Path, commit: dict) -> dict:
+    """commit だけを持つ手番を取り消す（論文の手番は取り消せないので、13a のテストと同じ作り）。"""
+    from asterism_api import chat_turns
+
+    session = {
+        "id": "scratch",
+        "turns": [{"id": "t1", "state": "confirmed", "confirmed": [],
+                   "commit": {**commit, "minted": []}}],
+    }  # fmt: skip
+    _t, undone, _ids = _run(
+        chat_turns.revert_confirmed(
+            session, "t1", client=app.state.client, root=root, at="2026-11-06T00:00:00+00:00"
+        )
+    )  # fmt: skip
+    return undone
+
+
+def _two_confirmed(client: TestClient) -> tuple[dict, dict, str]:
+    """論文 A→B の順に承認。返り = (A の commit, B の commit, B の話の id)。"""
+    sid_a = _new(client)
+    turn_a = _paper(client, sid_a)
+    commit_a = _confirm(client, sid_a, turn_a["id"]).json()["commit"]
+    sid_b = _new(client)
+    turn_b = _paper_b(client, sid_b)
+    commit_b = _confirm(client, sid_b, turn_b["id"]).json()["commit"]
+    assert commit_a["batch"] != commit_b["batch"] and commit_b["supported"]
+    return commit_a, commit_b, sid_b
+
+
+def _lines(ds: Any) -> list[dict]:
+    return [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+
+
+def _theme_has(root: Path, triple: tuple[str, str, str]) -> set[str]:
+    data = themes.load_themes_file(root)
+    return {
+        t["id"]
+        for t in (data or {}).get("themes", [])
+        for r in t.get("relations") or []
+        if (r.get("from"), r.get("relation"), r.get("to")) == triple
+    }
+
+
 def test_reverting_the_turn_that_added_a_line_keeps_it_when_another_paper_supports_it(
     tmp_path: Path,
 ) -> None:
     """13d: 足した手番（A の commit）を取り消しても、論文 B が根拠を足した線は残る。
-    来歴は B へ移り、B の commit を取り消すと、その線が消える。"""
-    from asterism_api import chat_turns
-
+    来歴は B へ移り、A の根拠は外れ、記録も B のテーマへ移る。B を取り消すと全部消える。"""
     app, ds = _app(tmp_path, _TwoStep())
     root = tmp_path / "registry"
     with TestClient(app, headers=_AUTH) as client:
-        sid_a = _new(client)
-        turn_a = _paper(client, sid_a)
-        commit_a = _confirm(client, sid_a, turn_a["id"]).json()["commit"]
-        turn_b = _paper_b(client, sid_b := _new(client))
-        commit_b = _confirm(client, sid_b, turn_b["id"]).json()["commit"]
-        assert commit_a["batch"] != commit_b["batch"] and commit_b["supported"]
-        both = [x for x in _run(list_alignments(_Wrap(ds))) if len(x["evidence"]) == 2]
+        commit_a, commit_b, _sid_b = _two_confirmed(client)
+        both = [x for x in _lines(ds) if len(x["evidence"]) == 2]
         assert len(both) == 3
-
-        def revert(commit: dict) -> dict:
-            session = {
-                "id": "scratch",
-                "turns": [{"id": "t1", "state": "confirmed", "confirmed": [],
-                           "commit": {**commit, "minted": []}}],
-            }  # fmt: skip
-            _t, undone, _ids = _run(
-                chat_turns.revert_confirmed(
-                    session, "t1", client=app.state.client, root=root,
-                    at="2026-11-06T00:00:00+00:00",
-                )
-            )  # fmt: skip
-            return undone
-
-        undone = revert(commit_a)
+        trips = [(x["source"], x["relation"], x["target"]) for x in both]
+        undone = _revert_commit(app, root, commit_a)
         assert undone["kept_lines"] == 3 and not undone["failed"]  # 根拠の無い線は消える
         assert undone["kept_lines_reason"] == "ほかの論文が支えているので残しました"
-        kept = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
-        assert len(kept) == 3 and all(len(x["evidence"]) == 2 for x in kept)  # 根拠は両方残る
+        assert undone["evidence"] == 3  # A が足した根拠が 1 本ずつ外れる
+        kept = _lines(ds)
+        assert len(kept) == 3 and all(len(x["evidence"]) == 1 for x in kept)
         assert {x["batch"] for x in kept} == {commit_b["batch"]}  # 来歴は B の commit へ
-        # B 側の commit を取り消すと、その線は消える
-        undone = revert(commit_b)
+        for x in kept:
+            assert x["evidence"] == [e for sp in commit_b["supported"]
+                                     if (sp["source"], sp["relation"], sp["target"])
+                                     == (x["source"], x["relation"], x["target"])
+                                     for e in sp["evidence"]]  # fmt: skip
+        # テーマの記録: B のテーマにあり、A のテーマ（別なら）には無い
+        for tr in trips:
+            has = _theme_has(root, tr)
+            assert commit_b["theme_id"] in has
+            if commit_a["theme_id"] != commit_b["theme_id"]:
+                assert commit_a["theme_id"] not in has
+        # B 側の commit を取り消すと、線もどのテーマの記録も残らない
+        undone = _revert_commit(app, root, commit_b)
         assert undone["lines"] == 3 and undone["kept_lines"] == 0
-        assert [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]] == []
+        assert _lines(ds) == []
+        assert all(_theme_has(root, tr) == set() for tr in trips)
+
+
+def _fake_supporter(root: Path, sid: str, batch: str, at: Any, ev: list[dict], state: str) -> None:
+    s = chat_sessions.new_session(sid)
+    s["id"] = sid
+    commit: dict = {"batch": batch, "theme_id": None, "supported": ev}
+    if at:
+        commit["at"] = at
+    s["turns"] = [{"id": "t1", "state": state, "commit": commit}]
+    chat_sessions.save_session(root, s)
+
+
+def test_the_earliest_live_supporter_inherits_and_reverted_ones_do_not(tmp_path: Path) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    root = tmp_path / "registry"
+    with TestClient(app, headers=_AUTH) as client:
+        commit_a, commit_b, _sid_b = _two_confirmed(client)
+        sup = commit_b["supported"]
+        # 取り消し済み（最も早い）・at 無し（最後）・B より早い生きた支え手（Z 表記）
+        _fake_supporter(root, "cdead0001", "dead:t1", "1999-01-01T00:00:00Z", sup, "reverted")
+        _fake_supporter(root, "cnoat0001", "noat:t1", None, sup, "confirmed")
+        _fake_supporter(root, "cearly001", "early:t1", "2000-01-01T00:00:00Z", sup, "confirmed")
+        undone = _revert_commit(app, root, commit_a)
+        assert undone["kept_lines"] == 3
+        assert {x["batch"] for x in _lines(ds)} == {"early:t1"}
+
+
+def _strip_b(root: Path, sid_b: str, *, keep_paper: bool) -> None:
+    s = chat_sessions.load_session(root, sid_b)
+    for t in s["turns"]:
+        for sp in (t.get("commit") or {}).get("supported") or []:
+            sp.pop("drafted_by", None)  # v0.64.0 の記録には無い
+        if not keep_paper:
+            t.pop("paper", None)
+    chat_sessions.save_session(root, s)
+
+
+def _humanize(ds: Any, client: Any) -> None:
+    for x in _lines(ds):
+        _run(
+            crosswalk_runtime.move_provenance(
+                client, x["source"], x["target"], x["relation"],
+                batch=x["batch"], drafted_by="human",
+            )
+        )  # fmt: skip
+
+
+def test_an_old_record_without_drafted_by_moves_ai_for_a_paper_and_keeps_it_otherwise(
+    tmp_path: Path,
+) -> None:
+    for keep_paper, want in ((True, "ai"), (False, "human")):
+        sub = tmp_path / ("paper" if keep_paper else "text")
+        sub.mkdir()
+        app, ds = _app(sub, _TwoStep())
+        root = sub / "registry"
+        with TestClient(app, headers=_AUTH) as client:
+            commit_a, _commit_b, sid_b = _two_confirmed(client)
+            _humanize(ds, app.state.client)
+            _strip_b(root, sid_b, keep_paper=keep_paper)
+            undone = _revert_commit(app, root, commit_a)
+            assert undone["kept_lines"] == 3
+            assert {x["drafted_by"] for x in _lines(ds)} == {want}
+
+
+def test_a_supporter_commit_records_drafted_by_and_it_moves_to_the_provenance(
+    tmp_path: Path,
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    root = tmp_path / "registry"
+    with TestClient(app, headers=_AUTH) as client:
+        commit_a, commit_b, _sid_b = _two_confirmed(client)
+        assert {sp["drafted_by"] for sp in commit_b["supported"]} == {"ai"}
+        _humanize(ds, app.state.client)
+        _revert_commit(app, root, commit_a)
+        assert {x["drafted_by"] for x in _lines(ds)} == {"ai"}
+
+
+def test_reverting_reads_the_sessions_once(tmp_path: Path, monkeypatch: Any) -> None:
+    app, _ds = _app(tmp_path, _TwoStep())
+    root = tmp_path / "registry"
+    with TestClient(app, headers=_AUTH) as client:
+        commit_a, _commit_b, _sid_b = _two_confirmed(client)
+        calls: list[int] = []
+        real = chat_sessions.supporter_index
+        monkeypatch.setattr(
+            chat_sessions, "supporter_index", lambda *a, **k: calls.append(1) or real(*a, **k)
+        )
+        _revert_commit(app, root, commit_a)
+        assert calls == [1]  # 線が 3 本あっても 1 回
 
 
 def test_reverting_still_removes_a_line_nobody_else_supports(tmp_path: Path) -> None:
