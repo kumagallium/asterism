@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.63.0](https://github.com/kumagallium/asterism/compare/v0.62.0...v0.63.0) - 2026-11-05
+
+- [docs] manual: v0.62.0 の節目とバッジ（論文を添える・作る AI と答える AI） by @kumagallium in https://github.com/kumagallium/asterism/pull/779
+- 12c: 論文の根拠の文を知識グラフ・文のタブ・回答の出典に出す by @kumagallium in https://github.com/kumagallium/asterism/pull/781
+
 ## [v0.62.0](https://github.com/kumagallium/asterism/compare/v0.61.2...v0.62.0) - 2026-11-04
 
 - feat: AI を役割で 2 つに — 作る AI と答える AI by @kumagallium in https://github.com/kumagallium/asterism/pull/776
