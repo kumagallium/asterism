@@ -100,7 +100,8 @@
       "contents": "Loading data",
       "sourceItems": "Loading the list of files in the import source",
       "paper": "Loading the paper",
-      "attachFromSource": "attaching files from the import source"
+      "attachFromSource": "attaching files from the import source",
+      "importTable": "importing a table from the paper"
     }
   },
   "attach": {
@@ -118,6 +119,12 @@
     "area": "Add data",
     "close": "Close",
     "rows": "{{n}} rows",
+    "paperTables": "Tables in the paper · {{n}}",
+    "tableLine": "{{name}} — {{caption}} ({{rows}} rows × {{cols}} columns)",
+    "tableLineNoCaption": "{{name}} ({{rows}} rows × {{cols}} columns)",
+    "importTable": "Import as data",
+    "tableImported": "Imported → go to the new turn",
+    "fromPaper": "From {{table}} of the paper \"{{paper}}\"",
     "paperCounts": "{{sections}} sections, {{sentences}} sentences",
     "bindLine": "Column \"{{column}}\" is the same as \"{{term}}\"",
     "suggestionLine": "\"{{subject}}\" is the same as \"{{term}}\""

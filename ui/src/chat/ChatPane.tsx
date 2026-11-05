@@ -40,6 +40,8 @@ export interface ChatPaneProps {
   interrupted?: Readonly<Record<string, boolean>>
   /** 返事の中の小さな選択を決めた。 */
   onChoose?: (turnId: string, noteIndex: number, value: string) => void
+  /** 13c: 論文の表を、データとして取り込む。 */
+  onImportTable?: (turnId: string, tableId: string) => void
   /** 残した語の slug → 名前。 */
   names?: ReadonlyMap<string, string>
   onConfirm: (turnId: string, decisions?: BindingDecision[]) => void
@@ -114,7 +116,7 @@ export function ChatPane(p: ChatPaneProps) {
           <p className="chat-empty">{t('empty.first')}</p>
         ) : (
           turns.map((turn) => (
-            <div key={turn.id} className="chat-turn">
+            <div key={turn.id} id={`turn-${turn.id}`} className="chat-turn">
               {turn.user && (
                 <div className="chat-msg chat-msg--user">
                   <div className="chat-bubble">
@@ -141,6 +143,8 @@ export function ChatPane(p: ChatPaneProps) {
                 progress={p.progress?.[turn.id]}
                 interrupted={p.interrupted?.[turn.id]}
                 onChoose={p.onChoose}
+                onImportTable={p.onImportTable}
+                importedAlive={(id) => turns.some((x) => x.id === id && x.state !== 'reverted' && x.state !== 'none')}
                 onHighlight={p.onHighlight}
                 undone={p.undone?.[turn.id]}
               />

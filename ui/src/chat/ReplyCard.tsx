@@ -40,6 +40,10 @@ export interface ReplyCardProps {
   interrupted?: boolean
   /** 返事の中の小さな選択を決めた（手番・注記の番号・値）。 */
   onChoose?: (turnId: string, noteIndex: number, value: string) => void
+  /** 13c: 論文の表を 1 つ、データとして取り込む（新しい手番が走る）。 */
+  onImportTable?: (turnId: string, tableId: string) => void
+  /** 13c: 取り込んだ手番がまだ生きているか（取り消されたら、もう一度取り込める）。 */
+  importedAlive?: (turnId: string) => boolean
   /** 確認済みの手番を戻した結果（失敗なら failed つき）。 */
   undone?: Undone
   /** 表の種類・出典を押した（図で濃く）。 */
@@ -239,11 +243,57 @@ function Reading({ progress, interrupted }: { progress?: string; interrupted?: b
   )
 }
 
+/** 論文の表の名前。日本語の画面では `Table 2` を「表 2」に（それ以外の名前はそのまま・無ければ id）。 */
+function tableName(label: string, id: string, lang: string): string {
+  const m = /^\s*(?:table|tab\.?)\s*(\d+)\s*$/i.exec(label)
+  if (m && lang.startsWith('ja')) return `表 ${m[1]}`
+  return label.trim() || id
+}
+
+/** 13c: 論文の表の欄 — 表ごとに 1 行と「データとして取り込む」。押した表は新しい手番へ。 */
+function PaperTables({ turn, busy, onImport, alive }: { turn: Turn; busy: boolean; onImport?: (turnId: string, tableId: string) => void; alive?: (turnId: string) => boolean }) {
+  const { t, i18n } = useTranslation('chat')
+  const tables = turn.reply.tables ?? []
+  if (turn.attachment?.kind !== 'document' || tables.length === 0) return null
+  const live = turn.state === 'proposed' || turn.state === 'confirmed'
+  return (
+    <div className="chat-paper-tables" data-testid="paper-tables">
+      <p className="chat-note-line chat-paper-tables-head">{t('attach.paperTables', { n: tables.length })}</p>
+      <ul className="chat-paper-table-list">
+        {tables.map((tb) => {
+          const name = tableName(tb.label, tb.id, i18n.language)
+          const done = !!tb.imported && (alive ? alive(tb.imported) : true)
+          const args = { name, caption: tb.caption, rows: tb.n_rows, cols: tb.n_cols }
+          return (
+            <li key={tb.id} className="chat-paper-table" data-table={tb.id} title={tb.header.join(' | ')}>
+              <span className="chat-paper-table-name">{t(tb.caption ? 'attach.tableLine' : 'attach.tableLineNoCaption', args)}</span>
+              {done ? (
+                <button
+                  type="button"
+                  className="link-btn"
+                  data-testid="paper-table-imported"
+                  onClick={() => document.getElementById(`turn-${tb.imported}`)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })}
+                >
+                  {t('attach.tableImported')}
+                </button>
+              ) : (
+                <button type="button" className="btn btn--sm" data-testid="paper-table-import" disabled={busy || !live || !onImport} onClick={() => onImport?.(turn.id, tb.id)}>
+                  {t('attach.importTable')}
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export function ReplyCard(p: ReplyCardProps) {
   return p.turn.state === 'running' ? <Reading progress={p.progress} interrupted={p.interrupted} /> : <ReplyBody {...p} />
 }
 
-function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, onPropose, names, onChoose, onHighlight, undone }: ReplyCardProps) {
+function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, onPropose, names, onChoose, onImportTable, importedAlive, onHighlight, undone }: ReplyCardProps) {
   const { t, i18n } = useTranslation('chat')
   const r = turn.reply
   // 結ぶ／結ばないの選び（変えたものだけ持つ。✓ のときに既定へ重ねて送る）
@@ -347,6 +397,11 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             {turn.attachment && turn.state === 'reverted' && <span className="chat-card-head-main">{t('reply.reverted')}</span>}
           </div>
         )}
+        {turn.source_paper && (
+          <p className="chat-note-line" data-testid="reply-from-paper">
+            {t('attach.fromPaper', { paper: turn.source_paper.name, table: tableName(turn.source_paper.label, turn.source_paper.table_id, i18n.language) })}
+          </p>
+        )}
         {sentences.length > 0 && (
           <ul className="chat-sentences">
             {head.map((s, i) => (
@@ -429,6 +484,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             ))}
           </div>
         )}
+        <PaperTables turn={turn} busy={busy} onImport={onImportTable} alive={importedAlive} />
         {notes.map((n, i) => (
           <NoteLine
             key={i}

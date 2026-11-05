@@ -100,7 +100,8 @@
       "contents": "データの読み込み",
       "sourceItems": "取り込み元のファイル一覧の取得",
       "paper": "論文の読み込み",
-      "attachFromSource": "取り込み元のファイルを添える操作"
+      "attachFromSource": "取り込み元のファイルを添える操作",
+      "importTable": "論文の表の取り込み"
     }
   },
   "attach": {
@@ -118,6 +119,12 @@
     "area": "データを添える",
     "close": "閉じる",
     "rows": "{{n}} 行",
+    "paperTables": "論文の表 · {{n}} 件",
+    "tableLine": "{{name}} — {{caption}}（{{rows}} 行 × {{cols}} 列）",
+    "tableLineNoCaption": "{{name}}（{{rows}} 行 × {{cols}} 列）",
+    "importTable": "データとして取り込む",
+    "tableImported": "取り込みました → 新しい手番へ",
+    "fromPaper": "論文「{{paper}}」の{{table}}から",
     "paperCounts": "節 {{sections}}・文 {{sentences}}",
     "bindLine": "列「{{column}}」は「{{term}}」と同じもの",
     "suggestionLine": "「{{subject}}」は「{{term}}」と同じもの"
