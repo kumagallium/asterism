@@ -658,3 +658,37 @@ async def test_meta_graphs_lists_only_meta_named_graphs() -> None:
     assert out == [meta_iri]
     assert substrate.META_GRAPH_BASE in client.queries[0]
     assert "STRSTARTS" in client.queries[0]
+
+
+# ----------------------------------------------------------------------------
+# 13e: 論文の表から取り込んだ出所
+# ----------------------------------------------------------------------------
+
+_SOURCE_PAPER = {
+    "dataset_id": "paper-22222222",
+    "table_id": "tbl2",
+    "label": "Table 2",
+    "caption": "熱伝導率",
+    "name": "論文X",
+}
+
+
+def test_add_source_paper_writes_derived_from_and_source_literals() -> None:
+    g = m.build_metadata_graph(None, "tbl-11111111")
+    assert m.add_source_paper(g, "tbl-11111111", _SOURCE_PAPER) is True
+    d = rdflib.URIRef(substrate.dataset_iri("tbl-11111111"))
+    assert (d, m.PROV.wasDerivedFrom, rdflib.URIRef(substrate.dataset_iri("paper-22222222"))) in g
+    texts = {(str(o), o.language) for o in g.objects(d, m.DCTERMS.source)}
+    assert ("論文「論文X」の表2（熱伝導率）", "ja") in texts  # noqa: RUF001
+    assert ('Table 2 of the paper "論文X" (熱伝導率)', "en") in texts
+    # 何度足しても同じ（graph は集合）
+    m.add_source_paper(g, "tbl-11111111", _SOURCE_PAPER)
+    assert len(list(g.objects(d, m.DCTERMS.source))) == 2
+
+
+def test_add_source_paper_without_source_changes_nothing() -> None:
+    g = m.build_metadata_graph(None, "plain-33333333")
+    before = set(g)
+    assert m.add_source_paper(g, "plain-33333333", None) is False
+    assert m.add_source_paper(g, "plain-33333333", {"dataset_id": "../bad"}) is False
+    assert set(g) == before

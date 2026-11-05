@@ -167,3 +167,38 @@ def test_update_projection_is_idempotent_history_grows_once(tmp_path: Path) -> N
     assert normalize_document(parse_mie_yaml(on_disk_mie)) == normalize_document(
         parse_mie_yaml(new_mie)
     )
+
+
+def test_load_dataset_adds_source_paper_to_the_description(tmp_path: Path) -> None:
+    # 13e: meta.source_paper があるデータセットの説明（metadata.ttl）に出所が重なる。
+    # 出所の無いデータセットは何も変わらない。
+    from asterism.metadata import PROV, graph_from_turtle
+    from asterism.substrate import dataset_iri
+
+    root = tmp_path / "registry"
+    meta = _save(tmp_path)
+    plain = registry.load_dataset(root, meta["id"])
+    assert plain is not None
+    assert "wasDerivedFrom" not in plain["artifacts"]["metadata.ttl"]
+
+    registry.update_meta_atomic(
+        root,
+        meta["id"],
+        {
+            "source_paper": {
+                "dataset_id": "paper-22222222",
+                "table_id": "tbl2",
+                "label": "Table 2",
+                "caption": "c",
+                "name": "論文X",
+            }
+        },
+    )
+    data = registry.load_dataset(root, meta["id"])
+    assert data is not None
+    g = graph_from_turtle(data["artifacts"]["metadata.ttl"])
+    d = rdflib.URIRef(dataset_iri(meta["id"]))
+    assert (d, PROV.wasDerivedFrom, rdflib.URIRef(dataset_iri("paper-22222222"))) in g
+    assert any("論文「論文X」" in str(o) for o in g.objects(d, DCTERMS.source))
+    # 元の説明は残る
+    assert (d, DCTERMS.description, None) in g

@@ -30,7 +30,9 @@ from pathlib import Path
 
 import yaml
 from asterism.metadata import (
+    add_source_paper,
     build_metadata_graph,
+    graph_from_turtle,
     metadata_turtle,
     parse_mie_yaml,
     project_mie_yaml,
@@ -1115,7 +1117,36 @@ def load_dataset(root: Path, dataset_id: str) -> dict | None:
         for key, filename in _ARTIFACT_FILES.items()
         if (dest / filename).is_file()
     }
+    _add_source_paper_to_description(artifacts, dataset_id, meta)
     return {"meta": meta, "artifacts": artifacts}
+
+
+def _add_source_paper_to_description(
+    artifacts: dict[str, str], dataset_id: str, meta: dict
+) -> None:
+    """論文の表から取り込んだデータセット（13e）の説明に、出所を機械が足す。
+
+    ``meta.source_paper`` があるときだけ、``metadata.ttl``（無ければ型だけの説明）に
+    ``prov:wasDerivedFrom`` と ``dcterms:source`` を重ねる（``artifacts`` をその場で書き換え）。
+    読む側（公開・投影のやり直し）は全部ここを通るので、公開の説明に必ず付き、移行は要らない。
+    出所の無いデータセットは何も変わらない。壊れた説明でも読み込みは止めない。
+    """
+    source = meta.get("source_paper")
+    if not isinstance(source, dict):
+        return
+    try:
+        text = artifacts.get("metadata.ttl") or ""
+        graph = (
+            graph_from_turtle(text)
+            if text.strip()
+            else build_metadata_graph(None, dataset_id)
+        )
+        if add_source_paper(graph, dataset_id, source):
+            artifacts["metadata.ttl"] = metadata_turtle(graph)
+    except Exception:
+        logger.warning(
+            "dataset %s: could not add source_paper to description", dataset_id, exc_info=True
+        )
 
 
 def dataset_origin(root: Path, dataset_id: str) -> str:

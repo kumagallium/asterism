@@ -263,6 +263,24 @@ def test_dataset_and_kind_reads_only_that_datasets_graph(tmp_path: Path) -> None
         assert _get(client, kind=EX + "Sample", session="x").status_code == 400
 
 
+def test_dataset_of_a_paper_table_carries_source_paper(tmp_path: Path) -> None:
+    # 13e: 論文の表のデータセットは dataset.source_paper を持つ。無ければ項目が無い
+    client, dsid = _published(tmp_path)
+    with client:
+        plain = _get(client, dataset=dsid).json()["tables"][0]["dataset"]
+        assert "source_paper" not in plain
+        sp = {
+            "dataset_id": "paper-22222222",
+            "table_id": "tbl2",
+            "label": "Table 2",
+            "caption": "c",
+            "name": "論文X",
+        }
+        registry.update_meta_atomic(tmp_path / "registry", dsid, {"source_paper": sp})
+        got = _get(client, dataset=dsid).json()["tables"][0]["dataset"]
+        assert got["source_paper"] == sp
+
+
 def test_dataset_and_kind_of_an_unpublished_dataset_reads_the_staged_graph(tmp_path: Path) -> None:
     client, dsid = _unpublished(tmp_path)
     with client:

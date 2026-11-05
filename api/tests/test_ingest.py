@@ -58,10 +58,12 @@ class _RecordingOxi:
     def __init__(self) -> None:
         self.store_calls: list[str | None] = []
         self.updates: list[str] = []
+        self.store_bodies: dict[str | None, bytes] = {}  # graph -> 最後に POST された中身
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/store":
                 self.store_calls.append(request.url.params.get("graph"))
+                self.store_bodies[request.url.params.get("graph")] = request.content
                 return httpx.Response(204)
             if request.url.path == "/update":
                 self.updates.append(request.content.decode())
@@ -1303,6 +1305,42 @@ def test_ingest_of_unpublished_dataset_writes_meta_graph(tmp_path: Path, monkeyp
     # POSTed to the meta IRI, replaced (not merged) — a DROP precedes the load.
     assert meta_iri in oxi.store_calls
     assert any(f"DROP SILENT GRAPH <{meta_iri}>" in u for u in oxi.updates)
+
+
+def test_meta_graph_carries_source_paper_only_when_the_table_came_from_a_paper(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # 13e: 論文の表から取り込んだデータセットの説明の graph に prov:wasDerivedFrom と
+    # dcterms:source が入る。出所の無いデータセットは変わらない。
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+    bodies: dict[str, str] = {}
+    for tag, source in (("paper", True), ("plain", False)):
+        sub = tmp_path / tag
+        dataset_id = _save_dataset_with_rml(sub)
+        if source:
+            registry.update_meta_atomic(
+                sub / "registry",
+                dataset_id,
+                {
+                    "source_paper": {
+                        "dataset_id": "paper-22222222",
+                        "table_id": "tbl2",
+                        "label": "Table 2",
+                        "caption": "c",
+                        "name": "論文X",
+                    }
+                },
+            )
+        oxi = _RecordingOxi()
+        app = build_app(_settings(sub), oxigraph_client=oxi.client, start_watcher=False)
+        with TestClient(app, headers=_AUTH) as client:
+            status, events = _drive_ingest(
+                client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+            )
+            assert status == 202 and "done" in [n for n, _ in events], events
+        bodies[tag] = oxi.store_bodies[substrate.meta_graph_iri(dataset_id)].decode()
+    assert "wasDerivedFrom" in bodies["paper"] and "論文「論文X」" in bodies["paper"]
+    assert "wasDerivedFrom" not in bodies["plain"] and "dcterms:source" not in bodies["plain"]
 
 
 def test_ingest_of_already_promoted_dataset_does_not_rewrite_meta(

@@ -232,3 +232,32 @@ def test_origins_name_the_source_file_and_its_home(monkeypatch, tmp_path) -> Non
         },
     ]
     assert by_id["price-569fc2b7"]["origins"] == []
+
+
+def test_source_paper_is_reported_only_for_paper_table_datasets(monkeypatch, tmp_path) -> None:
+    # 13e: 論文の表から取り込んだデータセットだけ source_paper を持つ（無いものは項目ごと無い）
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    _dataset(
+        reg,
+        "tbl-11111111",
+        name="Table 2",
+        source_paper={
+            "dataset_id": "paper-22222222",
+            "table_id": "tbl2",
+            "label": "Table 2",
+            "caption": "Thermal conductivity",
+            "name": "Paper X",
+        },
+    )
+    _dataset(reg, "plain-33333333", name="Plain")
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+
+    by_id = {d["id"]: d for d in find_datasets()["datasets"]}
+    assert by_id["tbl-11111111"]["source_paper"] == {
+        "dataset_id": "paper-22222222",
+        "name": "Paper X",
+        "label": "Table 2",
+        "caption": "Thermal conductivity",
+    }
+    assert "source_paper" not in by_id["plain-33333333"]
