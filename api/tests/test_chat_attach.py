@@ -668,3 +668,111 @@ def test_provisional_id_is_only_the_machines_placement() -> None:
     assert f("食材", {}, {}) is False
     text = chat_attach.text("ja", "id_provisional", id="No")
     assert text == "No（機械の仮置き）"
+
+
+# --- 13c: 論文の表を、表ごとにデータとして取り込む ---------------------------------------
+
+TABLE_PAPER = b"""<article><front><article-meta><title-group><article-title>Tiny</article-title>
+</title-group></article-meta></front><body><sec id="s1"><title>Results</title>
+<p>The Seebeck coefficient was measured at 300 K for two samples.</p>
+<table-wrap id="t1"><label>Table 1</label><caption><p>Seebeck coefficient and ZT.</p></caption>
+<table><thead><tr><th>Sample</th><th>Seebeck</th><th>ZT</th></tr></thead><tbody>
+<tr><td>ZrNiSn</td><td>-210</td><td>0.4</td></tr><tr><td>HfNiSn</td><td>-190</td><td>0.3</td></tr>
+<tr><td>TiNiSn</td><td>-180</td><td>0.2</td></tr></tbody></table></table-wrap>
+<table-wrap id="t2"><label>Table 2</label><caption><p>Too small.</p></caption>
+<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody>
+</table></table-wrap></sec></body></article>"""
+
+
+def _run_table_paper(client: TestClient, sid: str) -> dict:
+    r = _attach_many(client, sid, [("論文.xml", TABLE_PAPER)], headers={})
+    assert r.status_code == 201, r.text
+    _drain(client, r.json()["job_id"])
+    return _turn(client, sid, r.json()["turn"]["id"])
+
+
+def _import(client: TestClient, sid: str, tid: str, table_id: str, headers=KEY):
+    return client.post(
+        f"/api/chat/sessions/{sid}/turns/{tid}/import-table",
+        json={"table_id": table_id, "lang": "ja"},
+        headers=headers,
+    )
+
+
+def test_a_paper_lists_its_importable_tables_without_the_cells(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path)  # AI が無くても提案は出る
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _run_table_paper(client, sid)
+        assert turn["state"] == "proposed"
+        (t,) = turn["reply"]["tables"]  # 行が 1 つの表 2 は出ない
+        assert t == {
+            "id": "t1",
+            "label": "Table 1",
+            "caption": "Seebeck coefficient and ZT.",
+            "n_rows": 3,
+            "n_cols": 3,
+            "header": ["Sample", "Seebeck", "ZT"],
+        }
+        assert "ZrNiSn" not in json.dumps(turn["reply"])  # 行の中身は返事に入れない
+        assert any("1 件除きました" in n["text"] for n in turn["reply"]["notes"])
+
+
+def test_importing_a_paper_table_runs_a_new_table_turn_with_its_source(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        paper = _run_table_paper(client, sid)
+        r = _import(client, sid, paper["id"], "t1")
+        assert r.status_code == 201, r.text
+        body = r.json()
+        new = body["turn"]
+        assert new["id"] != paper["id"] and new["state"] == "running"
+        assert new["user"]["attachments"][0]["name"] == "論文_Table_1.csv"
+        assert new["source_paper"]["table_id"] == "t1" and new["source_paper"]["name"] == "論文"
+        _drain(client, body["job_id"])
+        done = _turn(client, sid, new["id"])
+        assert done["state"] == "proposed"
+        att = done["attachment"]
+        assert att["kind"] == "table" and att["rows"] == 3
+        assert att["source_paper"]["label"] == "Table 1"
+        # 出所は meta に・論文の表の欄は「取り込んだ手番」を指す
+        root = tmp_path / "registry"
+        meta = json.loads((root / att["dataset_id"] / "meta.json").read_text())
+        assert meta["source_paper"]["dataset_id"] == paper["attachment"]["dataset_id"]
+        got = meta["source_paper"]
+        assert (got["table_id"], got["label"]) == ("t1", "Table 1")
+        assert meta["source_paper"]["caption"] == "Seebeck coefficient and ZT."
+        assert _turn(client, sid, paper["id"])["reply"]["tables"][0]["imported"] == new["id"]
+        # CSV の中身は表と一致する（取り込み元として保存された）
+        csv_files = [p for p in (root / att["dataset_id"] / "source").glob("*.csv")]
+        assert csv_files
+        assert csv_files[0].read_text("utf-8").splitlines() == [
+            "Sample,Seebeck,ZT",
+            "ZrNiSn,-210,0.4",
+            "HfNiSn,-190,0.3",
+            "TiNiSn,-180,0.2",
+        ]
+        # もう一度押すと 409（取り込んだ手番が生きている）
+        assert _import(client, sid, paper["id"], "t1").status_code == 409
+
+
+def test_import_is_refused_for_a_reverted_paper_unknown_table_or_no_ai(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        paper = _run_table_paper(client, sid)
+        assert _import(client, sid, paper["id"], "nope").status_code == 404
+        assert _import(client, sid, paper["id"], "t1", headers={}).status_code == 503
+        r = client.post(f"/api/chat/sessions/{sid}/turns/{paper['id']}/revert", headers=KEY)
+        assert r.status_code == 200, r.text
+        assert _import(client, sid, paper["id"], "t1").status_code == 409
+        assert _import(client, sid, "no-such-turn", "t1").status_code == 404
+
+
+def test_a_table_turn_is_not_a_paper_for_import(tmp_path: Path) -> None:
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _run(client, sid, "価格表.csv", PRICES)
+        assert _import(client, sid, turn["id"], "t1").status_code == 422
