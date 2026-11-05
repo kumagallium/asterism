@@ -34,6 +34,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from asterism import chat_sessions, crosswalk_runtime, evidence, shared_vocab, sky_view, themes
+from asterism.subjects import valid_dataset_id
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -44,6 +45,7 @@ from asterism_api import (
     chat_intent,
     chat_paper,
     chat_point,
+    chat_reader,
     chat_route,
     chat_tables,
     chat_turns,
@@ -361,6 +363,25 @@ def register_chat(
         except Exception as exc:
             logger.warning("chat point failed", exc_info=True)
             raise HTTPException(502, f"point read failed ({type(exc).__name__})") from exc
+        return JSONResponse(card)
+
+    # ---- 論文の本文（13b） -----------------------------------------------------------------------
+
+    @app.get("/api/chat/paper", dependencies=deps)
+    async def chat_paper_text(
+        dataset_id: str = Query(...), lang: Literal["ja", "en"] = "ja"
+    ) -> JSONResponse:
+        """公開済みの論文の本文（節・段落・文の順）と根拠の文（読むだけ・AI を呼ばない）。"""
+        did = valid_dataset_id(dataset_id)
+        if did is None:
+            raise HTTPException(422, "dataset_id の形が合いません")
+        try:
+            card = await chat_reader.build_paper(_client(), root, did)
+        except chat_reader.PaperNotFound as exc:
+            raise HTTPException(404, "その論文はありません") from exc
+        except Exception as exc:
+            logger.warning("chat paper failed", exc_info=True)
+            raise HTTPException(502, f"paper read failed ({type(exc).__name__})") from exc
         return JSONResponse(card)
 
     # ---- 点の中身（ABox） -----------------------------------------------------------------------

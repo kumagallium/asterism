@@ -4,6 +4,35 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Evidence } from './chatApi'
 import { clipEvidence, evidenceSource } from './evidenceText'
+import { useOpenPaper } from './paperReaderContext'
+
+/** 根拠の文 1 件。`dataset_id` があって公開済みなら、押すと論文の本文が開く（13b）。 */
+function EvidenceItem({ e }: { e: Evidence }) {
+  const { t } = useTranslation('chat')
+  const open = useOpenPaper(e.dataset_id)
+  const src = evidenceSource(e, t)
+  const quote = (
+    <q className="chat-evidence-text" title={`${t('reply.evidence')}: ${e.full ?? e.text}`}>
+      {clipEvidence(e.text)}
+    </q>
+  )
+  return (
+    <div className="chat-evidence-item">
+      {open ? (
+        <button type="button" className="link-btn chat-evidence-open" data-testid="evidence-open" title={t('reader.openSentence')} onClick={() => open(e.iri)}>
+          {quote}
+        </button>
+      ) : (
+        quote
+      )}
+      {src && (
+        <span className="chat-evidence-src" data-testid="evidence-source">
+          {src}
+        </span>
+      )}
+    </div>
+  )
+}
 
 /**
  * 根拠の文。`collapse` なら 2 件以上のとき 1 件目だけ出し「ほか n 件」（押すと開く・開いた状態は部品ごとのローカル state）。
@@ -18,21 +47,9 @@ export function EvidenceLine({ evidence, collapse }: { evidence: Evidence[]; col
   const shown = hidden > 0 ? evidence.slice(0, 1) : evidence
   return (
     <div className="chat-evidence" data-testid="reply-evidence">
-      {shown.map((e) => {
-        const src = evidenceSource(e, t)
-        return (
-          <div key={e.iri} className="chat-evidence-item">
-            <q className="chat-evidence-text" title={`${t('reply.evidence')}: ${e.full ?? e.text}`}>
-              {clipEvidence(e.text)}
-            </q>
-            {src && (
-              <span className="chat-evidence-src" data-testid="evidence-source">
-                {src}
-              </span>
-            )}
-          </div>
-        )
-      })}
+      {shown.map((e) => (
+        <EvidenceItem key={e.iri} e={e} />
+      ))}
       {papers >= 2 && (
         <span className="chat-evidence-src" data-testid="evidence-papers">
           {t('evidence.papers', { n: papers })}

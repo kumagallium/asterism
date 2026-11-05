@@ -99,6 +99,7 @@
       "point": "Loading the card",
       "contents": "Loading data",
       "sourceItems": "Loading the list of files in the import source",
+      "paper": "Loading the paper",
       "attachFromSource": "attaching files from the import source"
     }
   },
@@ -167,6 +168,21 @@
     "papers": "{{n}} papers",
     "more": "{{n}} more",
     "section": "Section {{n}}"
+  },
+  "reader": {
+    "back": "← Back to chat",
+    "open": "Open the paper",
+    "openSentence": "Open this sentence in the paper",
+    "sectionN": "Section {{n}}",
+    "loading": "Loading the paper…",
+    "failed": "Could not open the paper",
+    "unavailable": "This paper cannot be opened",
+    "draftBadge": "Not approved yet",
+    "focusMissing": "This sentence is not in the text shown",
+    "evidenceMark": "A sentence that backs a relation",
+    "seeRelation": "See the relation this backs in the knowledge graph",
+    "truncated": "The paper is long, so only the first {{n}} sentences are shown",
+    "empty": "The paper has no text"
   },
   "ask": {
     "verified": "Answered with deterministic tools",

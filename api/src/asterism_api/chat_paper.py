@@ -380,12 +380,14 @@ def check_ops(
     concepts: list[dict],
     existing: list[SharedTerm],
     by_id: dict[str, dict],
+    dataset_id: str | None = None,
 ) -> tuple[list[dict], int]:
     """AI の差分を機械で確かめる → ``(残した操作, 落とした関係の数)``。
 
     落とす関係（``add_relation``）: ① ``evidence`` の番号が渡した文（``by_id``）に無い ② 両端の
     用語の名前のどれかが、根拠の文（複数なら連結）に現れない（:func:`mentions`）。残した関係の
     ``evidence`` は ``[{iri, text, path}]`` に置き換える（文はストアから引いた行から）。
+    ``dataset_id`` があれば各根拠に付ける（13b: 札の文を押して、その論文の本文を開くため）。
     概念・問いは触らない（関係から参照されなくなっても概念は残す）。"""
     by_slug = {t.slug: t for t in existing}
     names = {str(c.get("key")): _names_of(c, by_slug) for c in concepts}
@@ -420,9 +422,10 @@ def check_ops(
         for r in rows:
             if r and r["iri"] not in seen:
                 seen.add(r["iri"])
-                evidence.append(
-                    {"iri": r["iri"], "text": r["text"][:EVIDENCE_TEXT_MAX], "path": r["path"]}
-                )
+                item = {"iri": r["iri"], "text": r["text"][:EVIDENCE_TEXT_MAX], "path": r["path"]}
+                if dataset_id:
+                    item["dataset_id"] = dataset_id
+                evidence.append(item)
         kept.append({**o, "evidence": evidence})
     return kept, dropped
 
@@ -737,7 +740,11 @@ async def make_proposal(
                 logger.warning("paper propose: usage not recorded", exc_info=True)
         ops, kind_gone = build_ops(value.get("relations") or [], existing)
         ops, evidence_gone = check_ops(
-            ops, concepts=[], existing=existing, by_id={r["id"]: r for r in rows}
+            ops,
+            concepts=[],
+            existing=existing,
+            by_id={r["id"]: r for r in rows},
+            dataset_id=dataset_id,
         )
         ops = await mark_supports(app.state.client, ops)
         ops, terms_dropped = prune_unlinked(ops, include_existing=True)

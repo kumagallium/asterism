@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Point, PointSentence } from './chatApi'
 import { byKeyOf, showsContents, type Highlight } from './chatState'
+import { useOpenPaper } from './paperReaderContext'
 
 export interface PointCardProps {
   point: Point
@@ -24,6 +25,7 @@ const dayOf = (iso: string): string => (iso.length >= 10 ? iso.slice(0, 10) : is
 export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRemove, onHighlight }: PointCardProps) {
   const { t } = useTranslation('chat')
   const [asking, setAsking] = useState(false)
+  const openPaper = useOpenPaper(p.kind === 'paper' ? p.dataset_id : null)
   if (p.thin) {
     // 薄い星（未公開）: api を呼ばない小さな 1 枚
     return (
@@ -102,11 +104,16 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
           )}
         </p>
       )}
-      {(showsContents(p.kind, p.members.length) || canUndo || canRemove) && (
+      {(showsContents(p.kind, p.members.length) || canUndo || canRemove || !!openPaper) && (
         <div className="sky-about-actions">
           {showsContents(p.kind, p.members.length) && (
             <button type="button" className="btn btn--sm" data-testid="point-contents" disabled={busy} onClick={() => onContents(p.label)}>
               {t('point.contents')}
+            </button>
+          )}
+          {openPaper && (
+            <button type="button" className="btn btn--sm" data-testid="point-open-paper" onClick={() => openPaper(null)}>
+              {t('reader.open')}
             </button>
           )}
           {(canUndo || canRemove) && !asking && (

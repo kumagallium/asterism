@@ -8,6 +8,7 @@ import { Thinking } from './ChatPane'
 import { evidenceOf, type BindingDecision, type Decided, type Note, type Turn, type Undone } from './chatApi'
 import { clipEvidence, evidenceSource } from './evidenceText'
 import { EvidenceLine } from './EvidenceLine'
+import { useOpenPaper } from './paperReaderContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ReplyAnswer, ReplyTable } from './chatApi'
@@ -146,6 +147,36 @@ export function ReplyTableView({ table, onHighlight }: { table: ReplyTable; onHi
   )
 }
 
+/** 回答の出典 1 件。`quote` と `dataset_id` があり公開済みなら、図の強調に加えて論文の本文も開く（13b）。 */
+function CitationButton({ c, onHighlight }: { c: ReplyAnswer['citations'][number]; onHighlight?: (h: Highlight | null) => void }) {
+  const { t } = useTranslation('chat')
+  const open = useOpenPaper(c.quote ? c.dataset_id : null)
+  return (
+    <button
+      type="button"
+      className="chat-citation"
+      onClick={() => {
+        onHighlight?.({ iris: [c.iri], ...(c.dataset_id ? { datasetId: c.dataset_id } : {}) })
+        open?.(c.iri)
+      }}
+    >
+      {c.quote ? (
+        <>
+          <q className="chat-citation-quote" title={c.quote}>
+            {clipEvidence(c.quote)}
+          </q>
+          <span className="sky-meta">{evidenceSource({ dataset_label: c.dataset_label || c.label, section: c.section ?? null, path: c.path ?? null }, t)}</span>
+        </>
+      ) : (
+        <>
+          <span className="chat-citation-name">{c.label || c.iri}</span>
+          {c.dataset_label && <span className="sky-meta">{c.dataset_label}</span>}
+        </>
+      )}
+    </button>
+  )
+}
+
 /** Ask の答え（出典つき）。 */
 export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; onHighlight?: (h: Highlight | null) => void }) {
   const { t } = useTranslation('chat')
@@ -168,25 +199,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
         <ul className="chat-citations" data-testid="reply-citations" aria-label={t('ask.sources')}>
           {answer.citations.map((c, i) => (
             <li key={i}>
-              <button
-                type="button"
-                className="chat-citation"
-                onClick={() => onHighlight?.({ iris: [c.iri], ...(c.dataset_id ? { datasetId: c.dataset_id } : {}) })}
-              >
-                {c.quote ? (
-                  <>
-                    <q className="chat-citation-quote" title={c.quote}>
-                      {clipEvidence(c.quote)}
-                    </q>
-                    <span className="sky-meta">{evidenceSource({ dataset_label: c.dataset_label || c.label, section: c.section ?? null, path: c.path ?? null }, t)}</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="chat-citation-name">{c.label || c.iri}</span>
-                    {c.dataset_label && <span className="sky-meta">{c.dataset_label}</span>}
-                  </>
-                )}
-              </button>
+              <CitationButton c={c} onHighlight={onHighlight} />
             </li>
           ))}
         </ul>

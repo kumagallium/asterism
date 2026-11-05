@@ -99,6 +99,7 @@
       "point": "点の読み込み",
       "contents": "データの読み込み",
       "sourceItems": "取り込み元のファイル一覧の取得",
+      "paper": "論文の読み込み",
       "attachFromSource": "取り込み元のファイルを添える操作"
     }
   },
@@ -167,6 +168,21 @@
     "papers": "論文 {{n}} 本",
     "more": "ほか {{n}} 件",
     "section": "節 {{n}}"
+  },
+  "reader": {
+    "back": "← 会話に戻る",
+    "open": "論文を開く",
+    "openSentence": "この文を論文の中で開く",
+    "sectionN": "節 {{n}}",
+    "loading": "論文を読み込んでいます…",
+    "failed": "論文を開けませんでした",
+    "unavailable": "この論文は開けません",
+    "draftBadge": "承認前",
+    "focusMissing": "この文は表示している本文の中にありません",
+    "evidenceMark": "根拠になっている文",
+    "seeRelation": "根拠になっている関係を知識グラフで見る",
+    "truncated": "長い論文なので、先頭の {{n}} 文だけを出しています",
+    "empty": "本文がありません"
   },
   "ask": {
     "verified": "決定論の道具で答えました",

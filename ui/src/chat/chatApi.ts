@@ -947,3 +947,55 @@ export async function fetchContents(key: ContentsKey, lang: 'ja' | 'en' = 'ja', 
   if (!c) throw badShape()
   return c
 }
+
+// ── 論文の本文（13b）: GET /api/chat/paper ───────────────────────
+
+export interface PaperSection {
+  iri: string
+  title: string | null
+  path: string | null
+  role: string | null
+  depth: number
+  paragraphs: { iri: string; sentences: { iri: string; text: string }[] }[]
+}
+export interface PaperText {
+  dataset_id: string
+  label: string
+  sections: PaperSection[]
+  /** 確定した関係の根拠になっている文の IRI。 */
+  evidence: string[]
+  truncated: boolean
+  /** 公開済みか（false = 承認前の下書きの版を読んでいる・根拠は空）。 */
+  published: boolean
+}
+
+/** 壊れた返りは null（呼び出し側が失敗として扱う）。 */
+export function paperOf(v: unknown): PaperText | null {
+  if (!isObj(v) || typeof v.dataset_id !== 'string' || !Array.isArray(v.sections)) return null
+  const sections: PaperSection[] = []
+  for (const s of v.sections) {
+    if (!isObj(s) || typeof s.iri !== 'string' || !Array.isArray(s.paragraphs)) return null
+    sections.push({
+      iri: s.iri,
+      title: typeof s.title === 'string' && s.title !== '' ? s.title : null,
+      path: typeof s.path === 'string' && s.path !== '' ? s.path : null,
+      role: strOrNull(s.role),
+      depth: typeof s.depth === 'number' && s.depth > 0 ? s.depth : 0,
+      paragraphs: s.paragraphs.filter(isObj).map((p) => ({
+        iri: str(p.iri),
+        sentences: Array.isArray(p.sentences)
+          ? p.sentences.filter(isObj).flatMap((x) => (typeof x.iri === 'string' && typeof x.text === 'string' ? [{ iri: x.iri, text: x.text }] : []))
+          : [],
+      })),
+    })
+  }
+  return { dataset_id: v.dataset_id, label: str(v.label, v.dataset_id), sections, evidence: strs(v.evidence), truncated: v.truncated === true, published: v.published !== false }
+}
+
+export async function getPaper(datasetId: string, lang: 'ja' | 'en' = 'ja', signal?: AbortSignal): Promise<PaperText> {
+  const qs = new URLSearchParams({ dataset_id: datasetId, lang }).toString()
+  const res = await call(`/api/chat/paper?${qs}`, { headers: authHeaders(), signal }, 'paper')
+  const p = paperOf(await res.json())
+  if (!p) throw badShape()
+  return p
+}
