@@ -1091,6 +1091,7 @@ class _FakeCopilotSession:
         self.kwargs = kwargs
         self.script = script
         self.handlers: list = []
+        self.results: list = []  # 各道具が LLM に返した文字列
         self.prompt = ""
         self.disconnected = False
 
@@ -1105,6 +1106,7 @@ class _FakeCopilotSession:
             inv = types.SimpleNamespace(arguments=args, tool_name=name)
             res = await tools[name].handler(inv)
             assert res.text_result_for_llm
+            self.results.append(res.text_result_for_llm)
         for h in self.handlers:
             h(
                 types.SimpleNamespace(
@@ -1209,6 +1211,49 @@ def test_copilot_loop_routes_tools_to_execute_tool_and_blocks_builtins(monkeypat
         ("copilot-subscription", "m",  # 実際に使われたモデル名（auto ではなく）
          {"input_tokens": 50, "output_tokens": 9, "cache_read_tokens": 0, "cache_write_tokens": 0})
     ]
+
+
+def test_the_knowledge_tool_is_wired_through_the_loop(monkeypatch, tmp_path) -> None:
+    """知識の道具: 道具として渡る・verified_tools と出典（文 IRI）に足る・LLM への結果は 50 件で打ち切る。"""
+    from asterism import shared_vocab as sv
+    import asterism_mcp.tools as mcp_tools
+
+    path = sv._dir(tmp_path) / "themes.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sel = {"kq_a": {"mode": "knowledge", "title": "Aを下げるものは"}}
+    path.write_text(json.dumps({"themes": [{"id": "t1", "selections": sel}]}), encoding="utf-8")
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(tmp_path))
+    seen: list = []
+
+    async def fake(name, client, *, registry_root=None):
+        seen.append(name)
+        items = [{"label": f"t{i}", "evidence": [{"iri": f"https://ex/sent/{i}"}]} for i in range(60)]
+        return {"found": True, "tool_name": name, "question": "Aを下げるものは", "count": 60, "items": items}
+
+    monkeypatch.setattr(mcp_tools, "answer_knowledge_question", fake)
+    sessions: list = []
+    script = [
+        ("answer_knowledge_question", {"tool_name": "kq_a"}),
+        ("submit_answer", {"answer": "60 件です。", "citations": []}),
+    ]
+    _copilot_setup(monkeypatch, script, sessions)
+    monkeypatch.setenv("ASTERISM_SINGLE_USER", "1")
+
+    async def no_usage(*a, **k):
+        return None
+
+    monkeypatch.setattr(demo, "_post_usage", no_usage)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "Aを下げるものは？"},
+        headers={"X-LLM-Provider": "copilot-subscription"},
+    ).json()
+    assert seen == ["kq_a"]
+    assert "answer_knowledge_question" in sessions[0].kwargs["available_tools"]
+    assert body["verified_tools"] == [{"dataset": "knowledge", "name": "kq_a", "title": "Aを下げるものは"}]
+    iris = [c["iri"] for c in body["citations"]]
+    assert iris == [f"https://ex/sent/{i}" for i in range(demo._CITE_IRIS_MAX)]
+    sent = json.loads(sessions[0].results[0])
+    assert len(sent["items"]) == 50 and sent["truncated"] is True and sent["count"] == 60
 
 
 def test_copilot_falls_back_to_text_when_no_submit(monkeypatch) -> None:

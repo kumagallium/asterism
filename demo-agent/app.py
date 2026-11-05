@@ -935,6 +935,9 @@ async def _llm_answer_via(
                         {"dataset": "knowledge", "name": out["tool_name"], "title": out["question"]}
                     )
                     _collect_knowledge_citations(tool_citations, out.get("items") or [])
+                    # 他の道具と同じく LLM に返す件数は 50 件まで（打ち切ったら truncated。count は全件）
+                    items = out.get("items") or []
+                    out = {**out, "items": items[:50], "truncated": len(items) > 50}
                 return out
             if name in content_registry:
                 # A declared (verified) query tool from another dataset, e.g.
