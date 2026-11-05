@@ -590,6 +590,11 @@ describe('点の 1 枚の穴（11d）', () => {
     )
     expect(text(withEv)).toContain('取り消しました: 関係 0・用語 0・根拠の文 3')
     expect(text(done)).not.toContain('根拠の文')
+    expect(done).not.toContain('reply-undone-kept-lines')
+    const keptLines = renderToStaticMarkup(
+      <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 1, terms: 0, questions: 0, kept_lines: 2, kept: [] }} />,
+    )
+    expect(text(keptLines)).toContain('関係 2 本は、ほかの論文が支えているので残しました')
     const failed = renderToStaticMarkup(
       <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 0, terms: 0, questions: 0, kept: [], failed: [{ what: '文', reason: '失敗' }] }} />,
     )

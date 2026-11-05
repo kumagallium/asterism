@@ -1275,6 +1275,75 @@ def test_reverting_a_confirmed_turn_takes_off_only_the_evidence_it_added(tmp_pat
             assert x["evidence"] == by_a[(x["source"], x["relation"], x["target"])]
 
 
+def test_reverting_the_turn_that_added_a_line_keeps_it_when_another_paper_supports_it(
+    tmp_path: Path,
+) -> None:
+    """13d: 足した手番（A の commit）を取り消しても、論文 B が根拠を足した線は残る。
+    来歴は B へ移り、B の commit を取り消すと、その線が消える。"""
+    from asterism_api import chat_turns
+
+    app, ds = _app(tmp_path, _TwoStep())
+    root = tmp_path / "registry"
+    with TestClient(app, headers=_AUTH) as client:
+        sid_a = _new(client)
+        turn_a = _paper(client, sid_a)
+        commit_a = _confirm(client, sid_a, turn_a["id"]).json()["commit"]
+        turn_b = _paper_b(client, sid_b := _new(client))
+        commit_b = _confirm(client, sid_b, turn_b["id"]).json()["commit"]
+        assert commit_a["batch"] != commit_b["batch"] and commit_b["supported"]
+        both = [x for x in _run(list_alignments(_Wrap(ds))) if len(x["evidence"]) == 2]
+        assert len(both) == 3
+
+        def revert(commit: dict) -> dict:
+            session = {
+                "id": "scratch",
+                "turns": [{"id": "t1", "state": "confirmed", "confirmed": [],
+                           "commit": {**commit, "minted": []}}],
+            }  # fmt: skip
+            _t, undone, _ids = _run(
+                chat_turns.revert_confirmed(
+                    session, "t1", client=app.state.client, root=root,
+                    at="2026-11-06T00:00:00+00:00",
+                )
+            )  # fmt: skip
+            return undone
+
+        undone = revert(commit_a)
+        assert undone["kept_lines"] == 3 and not undone["failed"]  # 根拠の無い線は消える
+        assert undone["kept_lines_reason"] == "ほかの論文が支えているので残しました"
+        kept = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert len(kept) == 3 and all(len(x["evidence"]) == 2 for x in kept)  # 根拠は両方残る
+        assert {x["batch"] for x in kept} == {commit_b["batch"]}  # 来歴は B の commit へ
+        # B 側の commit を取り消すと、その線は消える
+        undone = revert(commit_b)
+        assert undone["lines"] == 3 and undone["kept_lines"] == 0
+        assert [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]] == []
+
+
+def test_reverting_still_removes_a_line_nobody_else_supports(tmp_path: Path) -> None:
+    from asterism_api import chat_turns
+
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        commit = _confirm(client, sid, turn["id"]).json()["commit"]
+        session = {
+            "id": "scratch",
+            "turns": [{"id": "t1", "state": "confirmed", "confirmed": [],
+                       "commit": {**commit, "minted": []}}],
+        }  # fmt: skip
+        _t, undone, _ids = _run(
+            chat_turns.revert_confirmed(
+                session, "t1", client=app.state.client, root=tmp_path / "registry",
+                at="2026-11-06T00:00:00+00:00",
+            )
+        )  # fmt: skip
+        assert undone["lines"] == 5 and undone["kept_lines"] == 0  # 根拠つき 3 本＋根拠の無い 2 本
+        assert "kept_lines_reason" not in undone
+        assert [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]] == []
+
+
 def test_a_relation_whose_evidence_is_all_attached_already_leaves_the_proposal(
     tmp_path: Path,
 ) -> None:

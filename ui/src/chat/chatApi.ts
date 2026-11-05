@@ -272,6 +272,8 @@ export interface Undone {
   questions: number
   /** 13a: 外した根拠の文の数（0 のときは無い）。 */
   evidence?: number
+  /** 13d: ほかの論文が支えているので残した線の数（0 のときは無い）。 */
+  kept_lines?: number
   kept: { slug: string; reason: string }[]
   failed?: { what: string; reason: string }[]
 }
@@ -804,6 +806,7 @@ export function undoneOf(v: unknown): Undone | undefined {
     terms: n(v.terms),
     questions: n(v.questions),
     ...(n(v.evidence) > 0 ? { evidence: n(v.evidence) } : {}),
+    ...(n(v.kept_lines) > 0 ? { kept_lines: n(v.kept_lines) } : {}),
     kept: Array.isArray(v.kept) ? v.kept.filter(isObj).map((k) => ({ slug: str(k.slug), reason: str(k.reason) })).filter((k) => k.slug !== '') : [],
     ...(failed.length > 0 ? { failed } : {}),
   }
