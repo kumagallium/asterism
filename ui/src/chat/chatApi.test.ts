@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerOf, evidenceList, normalizePoint } from './chatApi'
+import { answerOf, evidenceList, normalizePoint, undoneOf } from './chatApi'
 
 describe('論文の根拠の文（12c）', () => {
   const e = { iri: 'https://ex.org/s/1', text: '根拠', full: '根拠の全文', section: 'Results', path: '2', dataset_id: 'p1', dataset_label: '論文X' }
@@ -24,5 +24,14 @@ describe('論文の根拠の文（12c）', () => {
     })
     expect(a?.citations[0]).toMatchObject({ quote: '根拠', section: 'Results' })
     expect(a?.citations[1]).not.toHaveProperty('quote')
+  })
+})
+
+describe('取り消しの根拠の数（13a）', () => {
+  it('undone.evidence は 0 のとき無く、1 以上なら数が入る', () => {
+    const base = { lines: 0, terms: 0, questions: 0, kept: [] }
+    expect(undoneOf({ ...base, evidence: 2 })?.evidence).toBe(2)
+    expect(undoneOf({ ...base, evidence: 0 })).not.toHaveProperty('evidence')
+    expect(undoneOf(base)).not.toHaveProperty('evidence')
   })
 })

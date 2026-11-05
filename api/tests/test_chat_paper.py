@@ -1273,3 +1273,34 @@ def test_reverting_a_confirmed_turn_takes_off_only_the_evidence_it_added(tmp_pat
         by_a = {(x["source"], x["relation"], x["target"]): x["evidence"] for x in only_a}
         for x in after:
             assert x["evidence"] == by_a[(x["source"], x["relation"], x["target"])]
+
+
+def test_a_relation_whose_evidence_is_all_attached_already_leaves_the_proposal(
+    tmp_path: Path,
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        _turn_a, turn_b, _only_a = _two_papers(client, app, ds)
+        assert _confirm(client, turn_b["sid"], turn_b["id"]).status_code == 200
+        line = next(x for x in _run(list_alignments(_Wrap(ds))) if len(x["evidence"]) == 2)
+        slug = {k: shared_vocab.slug_of(line[k]) for k in ("source", "target")}
+        rel = line["relation"]
+        kind = "property"  # この 3 本はどれも lowers／raises／affects
+
+        def ops(evidence: list[str]) -> list[dict]:
+            return [
+                {"op": "add_concept", "key": "n1", "kind": "class",
+                 "use": f"existing:{slug['source']}"},
+                {"op": "add_concept", "key": "n2", "kind": kind,
+                 "use": f"existing:{slug['target']}"},
+                {"op": "add_relation", "from": "n1", "rel": rel, "to": "n2",
+                 "evidence": [{"iri": e, "text": "x", "path": None} for e in evidence]},
+            ]  # fmt: skip
+
+        have = line["evidence"]
+        got = _run(chat_paper.mark_supports(app.state.client, ops(have)))
+        assert [o for o in got if o["op"] == "add_relation"] == []  # 付くものが無い — 外す
+        new = [have[0], "https://example.org/paper/pq/sent/1"]
+        got = _run(chat_paper.mark_supports(app.state.client, ops(new)))
+        (r,) = [o for o in got if o["op"] == "add_relation"]
+        assert r["supports"] is True  # 1 つでも新しい根拠があれば「支える」

@@ -1713,6 +1713,30 @@ async def test_an_existing_line_gets_the_second_papers_evidence_and_keeps_its_pr
     assert (await list_alignments(c))[0]["evidence"] == [_SENT + "9"]
 
 
+async def test_a_failure_after_adding_evidence_takes_the_evidence_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = _Client()
+    _publish_sentences(c, "9")
+    await themes.commit_theme(c, tmp_path, _cell(), at=AT)  # 根拠の無い線が先にある
+    again = _cell()
+    again["concepts"] = [
+        {**x, "use": f"existing:{x['slug']}", "slug": ""} for x in again["concepts"]
+    ]
+    again["relations"] = [
+        {"from": "t1", "rel": "sub", "to": "t3", "reason": "",
+         "evidence": [{"iri": _SENT + "9", "text": "x", "path": None}]},
+    ]  # fmt: skip
+
+    def boom(*a: object, **k: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(themes, "_save_themes", boom)
+    with pytest.raises(OSError, match="disk full"):
+        await themes.commit_theme(c, tmp_path, again, at=AT)
+    assert [r["evidence"] for r in await list_alignments(c)] == [[]]  # 根拠は元に戻る
+
+
 async def test_an_existing_line_with_unpublished_evidence_is_refused(tmp_path: Path) -> None:
     c = _Client()
     await themes.commit_theme(c, tmp_path, _cell(), at=AT)

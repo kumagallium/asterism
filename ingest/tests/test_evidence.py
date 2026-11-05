@@ -253,3 +253,42 @@ async def test_drop_evidence_in_graphs_removes_only_that_papers_sentences(tmp_pa
     (row,) = await list_alignments(c)
     assert row["evidence"] == [other]  # 関係は残り、別の論文の根拠も残る
     assert await drop_evidence_in_graphs(c, []) == 0
+
+
+async def test_sky_view_lists_evidence_terms_for_both_papers_that_support_a_line(
+    tmp_path: Path,
+) -> None:
+    c, root = await _world(tmp_path)
+    _terms(c)
+    # 2 本目の公開済みの論文（別の文 IRI）
+    _meta(root, "paper-w", name="論文W", promoted=True, source_kind="xml", created_at="2026-11-02",
+          live_graph=substrate.versioned_graph_iri("paper-w", 1))  # fmt: skip
+    live_w = substrate.versioned_graph_iri("paper-w", 1)
+    c.load(live_w, PAPER_TTL.replace("paper/px", "paper/pw"))
+    await substrate.mark_graph_promoted(
+        c, substrate.canonical_graph_iri("paper-w"), live_graph=live_w
+    )
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    sw = "https://example.org/paper/pw/sent/1"
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "1", sw])
+    out = await sky_view(c, root)
+    for did in ("paper-x", "paper-w"):
+        d = next(x for x in out["datasets"] if x["id"] == did)
+        assert d["evidence_terms"] == sorted({pore, tc})
+
+
+async def test_reasserting_a_line_keeps_the_evidence_other_papers_bundled(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(c, pore, tc, "lowers", at=AT, drafted_by="ai", evidence=[S + "1"])
+    await add_evidence(c, pore, tc, "lowers", [S + "2"])
+    # 別の入口で同じ線をつなぎ直す（根拠なし）— 束ねた根拠は消えず、来歴は新しい値になる
+    await assert_alignment(c, pore, tc, "lowers", at="2026-11-09T00:00:00+00:00", reason="again")
+    (row,) = await list_alignments(c)
+    assert row["evidence"] == [S + "1", S + "2"]
+    assert row["drafted_by"] == "human" and row["reason"] == "again"
+    # 新しい根拠は和集合になる
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "long", S + "1"])
+    (row,) = await list_alignments(c)
+    assert row["evidence"] == [S + "1", S + "2", S + "long"]

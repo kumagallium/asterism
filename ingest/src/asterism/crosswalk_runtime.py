@@ -1008,7 +1008,10 @@ async def assert_alignment(
     for e in evidence_iris:
         extra += f"<{_PROV}wasDerivedFrom> <{e}> ; "
     await client.sparql_update(
-        f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} ;"
+        # 来歴は作り直すが、既にある根拠の文（別の論文が束ねたもの）は残す（13a）
+        f"DELETE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} "
+        f"WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} "
+        f"FILTER(?p != <{_PROV}wasDerivedFrom>) }} ;"
         f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
         f"<{source}> <{rel_iri}> <{target}> . "
         f"<{align_iri}> a <{XW}Alignment> ; "

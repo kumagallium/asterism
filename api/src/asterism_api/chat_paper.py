@@ -662,9 +662,10 @@ def add_questions(ops: list[dict], lang: str) -> tuple[list[dict], int]:
 
 async def mark_supports(client: Any, ops: list[dict]) -> list[dict]:
     """関係の両端が既存の用語で、その 3 つ組が既に確定しているなら、op に ``supports: True``
-    を付ける（13a: 承認すると新しい線は増えず、この論文の根拠の文だけが足される）。
+    を付ける（13a: 承認すると新しい線は増えず、この論文の根拠の文だけが足される）。この論文の
+    根拠が全部すでに付いている関係は、承認しても何も変わらないので提案から外す（注記にも数えない）。
     関係が無い・検索に失敗したときは ops をそのまま返す（札が出ないだけ）。"""
-    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS, _alignment_iri
 
     concepts = {str(o.get("key")): o for o in ops if o.get("op") == "add_concept"}
     out: list[dict] = []
@@ -682,6 +683,20 @@ async def mark_supports(client: Any, ops: list[dict]) -> list[dict]:
                         f"ASK {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> "
                         f"{{ <{src}> <{ALIGN_RELATIONS[pred]}> <{dst}> }} }}",
                     ):
+                        node = _alignment_iri(src, pred, dst)
+                        res = await client.sparql_select(
+                            f"SELECT ?e WHERE {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> "
+                            f"{{ <{node}> <http://www.w3.org/ns/prov#wasDerivedFrom> ?e }} }}"
+                        )
+                        rows = res.get("results", {}).get("bindings", []) if res else []
+                        have = {b["e"]["value"] for b in rows}
+                        mine = {
+                            str(e.get("iri"))
+                            for e in o.get("evidence") or []
+                            if isinstance(e, dict) and e.get("iri")
+                        }
+                        if mine and mine <= have:
+                            continue  # 新しく付く根拠が無い — 承認しても何も変わらないので外す
                         o = {**o, "supports": True}
                 except Exception:
                     logger.warning("paper propose: supports check failed", exc_info=True)
@@ -724,10 +739,10 @@ async def make_proposal(
         ops, evidence_gone = check_ops(
             ops, concepts=[], existing=existing, by_id={r["id"]: r for r in rows}
         )
+        ops = await mark_supports(app.state.client, ops)
         ops, terms_dropped = prune_unlinked(ops, include_existing=True)
         ops, q_gone = add_questions(ops, lang)
         ops, more_terms = prune_unlinked(ops, include_existing=True)
-        ops = await mark_supports(app.state.client, ops)
         return {
             "ok": True, "ops": ops, "dropped": evidence_gone, "kind_dropped": kind_gone,
             "q_dropped": q_gone, "over_limit": int(value.get("over_limit") or 0),

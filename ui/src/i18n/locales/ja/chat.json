@@ -48,6 +48,7 @@
     "revert": "取り消す",
     "undoAsk": "この承認で追加した 用語 {{terms}}・関係 {{lines}} を取り消します",
     "undone": "取り消しました: 関係 {{lines}}・用語 {{terms}}",
+    "undoneEvidence": "・根拠の文 {{n}}",
     "undoneKept": "（残した: {{names}}）",
     "undoneFailed": "取り消せませんでした: {{what}}（{{reason}}）",
     "cardProposed": "知識グラフへの提案 · {{n}} 件",

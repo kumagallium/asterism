@@ -446,6 +446,7 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
             {!undone.failed && (
               <p className="chat-note-line" data-testid="reply-undone">
                 {t('reply.undone', { lines: undone.lines, terms: undone.terms })}
+                {!!undone.evidence && t('chat:reply.undoneEvidence', { n: undone.evidence })}
                 {undone.kept.length > 0 && t('reply.undoneKept', { names: undone.kept.map((k) => keptName(k.slug, names)).join('・') })}
               </p>
             )}

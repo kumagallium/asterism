@@ -585,6 +585,11 @@ describe('点の 1 枚の穴（11d）', () => {
       <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 3, terms: 2, questions: 0, kept: [{ slug: 'x', reason: 'r' }] }} />,
     )
     expect(text(done)).toContain('取り消しました: 関係 3・用語 2（残した: x）')
+    const withEv = renderToStaticMarkup(
+      <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 0, terms: 0, questions: 0, evidence: 3, kept: [] }} />,
+    )
+    expect(text(withEv)).toContain('取り消しました: 関係 0・用語 0・根拠の文 3')
+    expect(text(done)).not.toContain('根拠の文')
     const failed = renderToStaticMarkup(
       <ReplyCard turn={confirmed} canConfirm={false} count={0} busy={false} onConfirm={noop} onRevert={noop} onAsk={noop} undone={{ lines: 0, terms: 0, questions: 0, kept: [], failed: [{ what: '文', reason: '失敗' }] }} />,
     )
