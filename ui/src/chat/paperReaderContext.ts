@@ -5,15 +5,13 @@ import { createContext, useContext } from 'react'
 export interface PaperReaderApi {
   /** 論文を開く（`focus` = 強調して送る文の IRI）。 */
   open: (datasetId: string, focus: string | null) => void
-  /** 開こうとして 404 だった論文（未公開）— 押せない見た目にする。 */
-  unavailable: ReadonlySet<string>
 }
 
 export const PaperReaderContext = createContext<PaperReaderApi | null>(null)
 
-/** 論文を開ける文脈。`datasetId` が無い・未公開なら null（押せない）。 */
+/** 論文を開ける文脈。`datasetId` が無い（文脈も無い）なら null（押せない）。開けるかは押したときに api が決める（404 はその回だけ「開けません」）。 */
 export function useOpenPaper(datasetId: string | null | undefined): ((focus: string | null) => void) | null {
   const ctx = useContext(PaperReaderContext)
-  if (!ctx || !datasetId || ctx.unavailable.has(datasetId)) return null
+  if (!ctx || !datasetId) return null
   return (focus) => ctx.open(datasetId, focus)
 }

@@ -19,7 +19,7 @@ function EvidenceItem({ e }: { e: Evidence }) {
   return (
     <div className="chat-evidence-item">
       {open ? (
-        <button type="button" className="link-btn chat-evidence-open" data-testid="evidence-open" aria-label={t('reader.openSentence')} onClick={() => open(e.iri)}>
+        <button type="button" className="link-btn chat-evidence-open" data-testid="evidence-open" title={t('reader.openSentence')} onClick={() => open(e.iri)}>
           {quote}
         </button>
       ) : (

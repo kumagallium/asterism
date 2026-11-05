@@ -62,6 +62,8 @@ export interface ChatPaneProps {
   scopeBar?: React.ReactNode
   placeholder?: string
   focusKey?: number
+  /** 論文から戻ったとき、新しい返事が来ていたら末尾へ送る合図（増えたら送る）。 */
+  returnKey?: number
 }
 
 /** 考えている印（3 つの点が順に濃くなる。reduced-motion では静止）。 */
@@ -83,7 +85,7 @@ export function ChatPane(p: ChatPaneProps) {
   const endRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: 'end' })
-  }, [turns.length, p.busy, p.sending, p.pendingUser])
+  }, [turns.length, p.busy, p.sending, p.pendingUser, p.returnKey])
 
   return (
     <div className="chat-pane">

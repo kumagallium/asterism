@@ -1302,3 +1302,8 @@ button.chat-question-title:hover {
   font: inherit;
   color: inherit;
 }
+.chat-reader-draft {
+  margin-left: var(--space-2);
+  font-size: 0.7rem;
+  font-weight: normal;
+}

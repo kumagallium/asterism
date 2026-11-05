@@ -1317,13 +1317,18 @@ def test_the_paper_text_comes_in_document_order_with_the_evidence_marked(tmp_pat
         sid = _new(client)
         turn = _paper(client, sid)
         dsid = turn["attachment"]["dataset_id"]
-        # 公開前（下書き）の論文は開けない
-        assert client.get("/api/chat/paper", params={"dataset_id": dsid}).status_code == 404
+        # 承認前の論文も開ける（下書きの版 graph・published=false・根拠は無い）
+        draft = client.get("/api/chat/paper", params={"dataset_id": dsid})
+        assert draft.status_code == 200, draft.text
+        assert draft.json()["published"] is False and draft.json()["evidence"] == []
+        dsecs = draft.json()["sections"]
+        assert sum(len(p["sentences"]) for s in dsecs for p in s["paragraphs"]) > 50
         assert _confirm(client, sid, turn["id"]).status_code == 200
         r = client.get("/api/chat/paper", params={"dataset_id": dsid})
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["dataset_id"] == dsid and body["label"] and body["truncated"] is False
+        assert body["published"] is True
         secs = body["sections"]
         sents = [x for s in secs for p in s["paragraphs"] for x in p["sentences"]]
         assert secs and len(sents) > 50 and len({x["iri"] for x in sents}) == len(sents)
@@ -1378,3 +1383,74 @@ def test_a_long_paper_is_cut_from_the_start_and_says_so(tmp_path: Path, monkeypa
         ).json()
         assert body["truncated"] is True
         assert sum(len(p["sentences"]) for s in body["sections"] for p in s["paragraphs"]) == 5
+
+
+def test_a_truncated_paper_keeps_the_first_sentences_in_order(tmp_path: Path, monkeypatch) -> None:
+    from asterism_api import chat_reader
+
+    app, _ = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        full = client.get("/api/chat/paper", params={"dataset_id": dsid}).json()
+        every = [x["iri"] for s in full["sections"] for p in s["paragraphs"] for x in p["sentences"]]  # noqa: E501
+        monkeypatch.setattr(chat_reader, "MAX_SENTENCES", 5)
+        cut = client.get("/api/chat/paper", params={"dataset_id": dsid}).json()
+        got = [x["iri"] for s in cut["sections"] for p in s["paragraphs"] for x in p["sentences"]]
+        assert cut["truncated"] is True and full["truncated"] is False
+        assert got == every[:5]  # 先頭から切れている
+
+
+def test_a_published_table_dataset_and_a_draft_table_are_not_papers(tmp_path: Path) -> None:
+    from tests.test_chat_attach import PRICES, _Stub
+    from tests.test_chat_attach import _run as run_attach
+
+    app, _ = _app(tmp_path, _Stub())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = run_attach(client, sid, "価格表.csv", PRICES)
+        dsid = turn["attachment"]["dataset_id"]
+        assert client.get("/api/chat/paper", params={"dataset_id": dsid}).status_code == 404
+        r = _confirm(client, sid, turn["id"], bindings=[{"column": "価格", "decided": "bind"}])
+        assert r.status_code == 200, r.text
+        assert client.get("/api/chat/paper", params={"dataset_id": dsid}).status_code == 404
+
+
+def test_the_evidence_of_a_paper_is_only_its_own_sentences_across_two_papers(
+    tmp_path: Path,
+) -> None:
+    app, ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        turn_a, turn_b, _ = _two_papers(client, app, ds)
+        assert _confirm(client, turn_b["sid"], turn_b["id"]).status_code == 200
+        dsid_a, dsid_b = (t["attachment"]["dataset_id"] for t in (turn_a, turn_b))
+        lines = [x for x in _run(list_alignments(_Wrap(ds))) if x["evidence"]]
+        assert all(len(x["evidence"]) == 2 for x in lines)  # 1 本の関係を 2 本の論文が支える
+        for did in (dsid_a, dsid_b):
+            body = client.get("/api/chat/paper", params={"dataset_id": did}).json()
+            secs = body["sections"]
+            sents = {x["iri"] for s in secs for p in s["paragraphs"] for x in p["sentences"]}
+            expected = {e for x in lines for e in x["evidence"]} & sents
+            assert expected and set(body["evidence"]) == expected
+
+
+def test_draft_reply_evidence_carries_the_dataset_id_so_the_sentence_can_open_the_paper(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        rels = [o for o in turn["reply"]["ops"] if o["op"] == "add_relation"]
+        assert rels and all(e["dataset_id"] == dsid for r in rels for e in r["evidence"])
+        assert _confirm(client, sid, turn["id"]).status_code == 200
+        saved = client.get(f"/api/chat/sessions/{sid}").json()
+        done = next(t for t in saved["turns"] if t["id"] == turn["id"])
+        assert all(
+            e["dataset_id"] == dsid
+            for o in done["reply"]["ops"]
+            if o["op"] == "add_relation"
+            for e in o["evidence"]
+        )

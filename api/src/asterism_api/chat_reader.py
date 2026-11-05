@@ -3,22 +3,30 @@
 根拠の文を押したときに、会話の列を論文の本文に入れ替えるための読み出し。
 ``GET /api/chat/paper`` の本体。
 
-* 見る graph は :func:`asterism.evidence._paper_graphs` と同じ（公開済みの論文だけ・graph IRI は
-  registry から引いて形を検査済み）。外からの文字列は SPARQL に入れない。
-* SPARQL は 2 回（文＋段落＋節の対応・節の題名と入れ子）。文書の順は ``nif:beginIndex``。
+* 公開済みの論文は公開中の版（:func:`asterism.evidence._paper_graphs` と同じ）。**未公開の論文も
+  開ける**（承認を決めるときこそ前後の文脈が要る）— 削除・取り消しされていない論文のデータセット
+  （``source_kind == "xml"``）なら、下書きの版 graph（``chat_paper.read_sentences`` と同じ解決:
+  ``graph_iri`` → ``live_graph`` → canonical）を読む。返りの ``published`` で区別する。
+  graph IRI は registry から引いて形を検査済み。外からの文字列は SPARQL に入れない。
+* SPARQL は文書の読み出しで 2 回（文＋段落＋節の対応・節の題名と入れ子）。
+  文書の順は ``nif:beginIndex``。
 * 入れ子の節は平らにして ``depth``（0 始まり）。文を持たない節は出さない。
-* ``evidence`` = この論文の文のうち、確定した関係の根拠になっているもの。
+* ``evidence`` = この論文の文のうち、確定した関係の根拠になっているもの（公開済みのときだけ。
+  来歴 ``prov:wasDerivedFrom`` を関係の graph から 1 回引いて突き合わせる）。
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime, evidence
 from asterism import documents as doc
+from asterism import evidence, substrate
+from asterism.subjects import resolve_dataset_label
+from asterism.themes import _EVIDENCE_IRI
 
-__all__ = ["MAX_SENTENCES", "PaperNotFound", "build_paper", "flatten"]
+__all__ = ["MAX_SENTENCES", "PaperNotFound", "build_paper", "flatten", "locate"]
 
 #: 返す文の上限（超えたら先頭から・``truncated: true``）
 MAX_SENTENCES = 5000
@@ -26,6 +34,33 @@ MAX_SENTENCES = 5000
 
 class PaperNotFound(Exception):
     """公開済みの論文ではない（未公開・論文でない・無い）。"""
+
+
+_PROV = "http://www.w3.org/ns/prov#"
+
+
+def locate(root: Path, dataset_id: str) -> tuple[str, str, bool]:
+    """開く論文の ``(graph IRI, 論文名, 公開済みか)``。開けなければ :class:`PaperNotFound`。"""
+    for g, (did, label) in evidence._paper_graphs(root).items():
+        if did == dataset_id:
+            return g, label, True
+    try:
+        meta = json.loads((root / dataset_id / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise PaperNotFound(dataset_id) from None
+    if (
+        not isinstance(meta, dict)
+        or meta.get("status") in evidence._UNPUBLISHED_STATUS
+        or meta.get("is_shared_vocab")
+        or str(meta.get("source_kind") or "csv") != "xml"
+    ):
+        raise PaperNotFound(dataset_id)
+    graph = str(
+        meta.get("graph_iri") or meta.get("live_graph") or substrate.canonical_graph_iri(dataset_id)
+    )
+    if not _EVIDENCE_IRI.fullmatch(graph):
+        raise PaperNotFound(dataset_id)
+    return graph, resolve_dataset_label(root, dataset_id), False
 
 
 def _v(b: dict, k: str) -> str | None:
@@ -132,11 +167,7 @@ def flatten(sentence_bindings: list[dict], section_bindings: list[dict]) -> list
 async def build_paper(client: Any, registry_root: Path | str, dataset_id: str) -> dict[str, Any]:
     """``GET /api/chat/paper`` の返り。公開済みの論文でなければ :class:`PaperNotFound`。"""
     root = Path(registry_root)
-    graphs = evidence._paper_graphs(root)
-    found = next(((g, v[1]) for g, v in graphs.items() if v[0] == dataset_id), None)
-    if found is None:
-        raise PaperNotFound(dataset_id)
-    graph, label = found
+    graph, label, published = locate(root, dataset_id)
     po, nif, lit = doc.PO, doc.NIF, doc.LIT
     section = f"<{doc.DOCO}Section>"
     sent = await client.sparql_select(
@@ -155,20 +186,25 @@ async def build_paper(client: Any, registry_root: Path | str, dataset_id: str) -
     sent_rows = _rows(sent)
     truncated = len(sent_rows) > MAX_SENTENCES
     sections = flatten(sent_rows[:MAX_SENTENCES], _rows(secs))
-    mine = {x["iri"] for s in sections for p in s["paragraphs"] for x in p["sentences"]}
-    lines = await crosswalk_runtime.list_alignments(client, registry_root=root)
-    cited = {e for ln in lines for e in ln.get("evidence") or []}
-    ordered = [
-        x["iri"]
-        for s in sections
-        for p in s["paragraphs"]
-        for x in p["sentences"]
-        if x["iri"] in cited and x["iri"] in mine
-    ]
+    ordered: list[str] = []
+    if published:
+        res = await client.sparql_select(
+            f"SELECT DISTINCT ?e WHERE {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> {{ "
+            f"?a <{_PROV}wasDerivedFrom> ?e }} }}"
+        )
+        cited = {_v(x, "e") for x in _rows(res)}
+        ordered = [
+            x["iri"]
+            for s in sections
+            for p in s["paragraphs"]
+            for x in p["sentences"]
+            if x["iri"] in cited
+        ]
     return {
         "dataset_id": dataset_id,
         "label": label,
         "sections": sections,
         "evidence": ordered,
+        "published": published,
         "truncated": truncated,
     }

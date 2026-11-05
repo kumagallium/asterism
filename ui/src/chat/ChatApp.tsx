@@ -183,7 +183,9 @@ export function ChatApp() {
   const [composerKey, setComposerKey] = useState(0)
   // 13b: 会話の列の代わりに論文の本文を出す。ChatPane は閉じずに隠すだけ（入力欄の下書きを残す）
   const [reader, setReader] = useState<{ datasetId: string; focus: string | null } | null>(null)
-  const [unavailablePapers, setUnavailablePapers] = useState<ReadonlySet<string>>(() => new Set())
+  // 論文を開いたときの手番の数 — 開いているあいだに返事が来ていたら、戻ったとき末尾へ送る
+  const turnsAtOpen = useRef(0)
+  const [returnKey, setReturnKey] = useState(0)
   // 話を切り替える・新しい話にしたら閉じる
   useEffect(() => {
     setReader(null)
@@ -815,16 +817,21 @@ export function ChatApp() {
     />
   )
 
+  const turnCount = session?.turns.length ?? 0
+  const closeReader = useCallback(() => {
+    setReader(null)
+    if (turnCount > turnsAtOpen.current) setReturnKey((n) => n + 1)
+  }, [turnCount])
   const paperReaderApi = useMemo<PaperReaderApi>(
     () => ({
       open: (datasetId, focus) => {
         setError(null)
+        turnsAtOpen.current = turnCount
         setReader({ datasetId, focus })
         if (layout.tabs) setTab('chat')
       },
-      unavailable: unavailablePapers,
     }),
-    [unavailablePapers, layout.tabs],
+    [layout.tabs, turnCount],
   )
 
   return (
@@ -862,10 +869,9 @@ export function ChatApp() {
                 datasetId={reader.datasetId}
                 focus={reader.focus}
                 lang={lang}
-                onBack={() => setReader(null)}
+                onBack={closeReader}
                 onHighlight={setHighlight}
-                onUnavailable={(id) => {
-                  setUnavailablePapers((prev) => new Set(prev).add(id))
+                onUnavailable={() => {
                   setReader(null)
                   setError(t('reader.unavailable'))
                 }}
@@ -910,6 +916,7 @@ export function ChatApp() {
           scopeBar={scope ? <ScopeBar name={scope.name} onClear={() => setScope(null)} /> : undefined}
           placeholder={scope?.line ? t('scope.fixPlaceholder') : undefined}
           focusKey={fixKey}
+            returnKey={returnKey}
             />
           }
         />

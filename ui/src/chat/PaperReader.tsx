@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ThemesApiError } from '../themes/themesApi'
-import { getPaper, getPoint, type PaperText, type Point } from './chatApi'
+import { getPaper, getPoint, type PaperText } from './chatApi'
 import type { Highlight } from './chatState'
 
 export interface PaperReaderProps {
@@ -41,22 +41,15 @@ export function PaperReader({ datasetId, focus, lang, onBack, onHighlight, onUna
   }, [datasetId, lang])
 
   const paper = load.status === 'ok' ? load.paper : null
-  const pointOnce = useRef<Promise<Point> | null>(null)
-  useEffect(() => {
-    pointOnce.current = null
-  }, [datasetId])
 
-  /** 根拠の文を押す: その文を根拠に持つ関係の線を知識グラフで濃くする（論文の点 `paper:<id>` の文から引く）。 */
+  /** 根拠の文を押す: その文を根拠に持つ関係の線を知識グラフで濃くする。承認で変わるので、押すたびに点を引く。 */
   const showRelation = (iri: string) => {
-    pointOnce.current ??= getPoint({ iri: `paper:${datasetId}` }, lang)
-    pointOnce.current.then(
+    getPoint({ iri: `paper:${datasetId}` }, lang).then(
       (pt) => {
         const s = pt.sentences.find((x) => x.source && x.target && (x.evidence ?? []).some((e) => e.iri === iri))
         if (s) onHighlight({ edge: { from: s.source, to: s.target } })
       },
-      () => {
-        pointOnce.current = null
-      },
+      () => undefined,
     )
   }
   return <PaperReaderView paper={paper} loading={load.status === 'loading'} error={load.status === 'error' ? load.message : null} focus={focus} onBack={onBack} onSentence={showRelation} />
@@ -77,6 +70,7 @@ export function PaperReaderView({ paper, loading, error, focus, onBack, onSenten
   const { t } = useTranslation('chat')
   const focusRef = useRef<HTMLSpanElement | null>(null)
   const evidence = useMemo(() => new Set(paper?.evidence ?? []), [paper])
+  const hasFocus = useMemo(() => !!focus && !!paper?.sections.some((sec) => sec.paragraphs.some((p) => p.sentences.some((x) => x.iri === focus))), [paper, focus])
   useEffect(() => {
     if (paper) focusRef.current?.scrollIntoView?.({ block: 'center' })
   }, [paper, focus])
@@ -86,13 +80,25 @@ export function PaperReaderView({ paper, loading, error, focus, onBack, onSenten
         <button type="button" className="link-btn" data-testid="reader-back" onClick={onBack}>
           {t('reader.back')}
         </button>
-        <h2 className="chat-reader-title">{paper?.label ?? ''}</h2>
+        <h2 className="chat-reader-title">
+          {paper?.label ?? ''}
+          {paper && !paper.published && (
+            <span className="chat-mark chat-reader-draft" data-testid="reader-draft">
+              {t('reader.draftBadge')}
+            </span>
+          )}
+        </h2>
       </div>
       <div className="chat-reader-body">
         {loading && <p className="chat-note-line">{t('reader.loading')}</p>}
         {error && (
           <p className="promote-err" role="alert">
             {t('reader.failed')}: {error}
+          </p>
+        )}
+        {paper && focus && !hasFocus && (
+          <p className="chat-note-line" role="status" data-testid="reader-focus-missing">
+            {t('reader.focusMissing')}
           </p>
         )}
         {paper && paper.sections.length === 0 && <p className="chat-note-line">{t('reader.empty')}</p>}

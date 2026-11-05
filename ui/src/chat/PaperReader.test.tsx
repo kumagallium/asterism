@@ -13,6 +13,7 @@ const paper: PaperText = {
   dataset_id: 'p1',
   label: '論文X',
   truncated: false,
+  published: true,
   evidence: ['s2'],
   sections: [
     { iri: 'sec1', title: 'Introduction', path: 'intro', role: 'introduction', depth: 0, paragraphs: [{ iri: 'p1', sentences: [{ iri: 's1', text: 'First.' }, { iri: 's2', text: 'Second.' }] }] },
@@ -43,6 +44,21 @@ describe('PaperReaderView（13b）', () => {
     expect(renderToStaticMarkup(<PaperReaderView paper={null} error="boom" focus={null} onBack={noop} onSentence={noop} />)).toContain('論文を開けませんでした: boom')
     expect(view(null, { ...paper, truncated: true })).toContain('先頭の 3 文だけ')
   })
+  it('承認前は見出しの横に「承認前」・本文に無い focus は注記', () => {
+    expect(view(null)).not.toContain('reader-draft')
+    expect(view(null, { ...paper, published: false, evidence: [] })).toContain('承認前')
+    expect(view('zzz')).toContain('この文は表示している本文の中にありません')
+    expect(view('s1')).not.toContain('表示している本文の中にありません')
+  })
+  it('ボタンの名前は文の本文（aria-label で上書きしない）', () => {
+    const h = renderToStaticMarkup(
+      <PaperReaderContext.Provider value={{ open: noop }}>
+        <EvidenceLine evidence={[{ iri: 'i', text: '根拠の本文', path: null, dataset_id: 'p1' }]} />
+      </PaperReaderContext.Provider>,
+    )
+    expect(h).not.toContain('aria-label')
+    expect(h).toContain('根拠の本文')
+  })
   it('paperOf は形の合うものだけ通す', () => {
     expect(paperOf({ dataset_id: 'p1', label: 'L', sections: [], evidence: ['a', 1], truncated: true })).toMatchObject({ evidence: ['a'], truncated: true })
     expect(paperOf({ dataset_id: 'p1', sections: [{ nope: 1 }] })).toBeNull()
@@ -50,9 +66,9 @@ describe('PaperReaderView（13b）', () => {
   })
 })
 
-describe('EvidenceLine が押せるのは dataset_id があって公開済みのときだけ（13b）', () => {
+describe('EvidenceLine が押せるのは dataset_id があるときだけ（13b）', () => {
   const ev = (over: Partial<Evidence> = {}): Evidence => ({ iri: 'https://ex.org/s/1', text: '根拠', path: null, dataset_label: '論文X', ...over })
-  const api = (unavailable: string[] = []): PaperReaderApi => ({ open: noop, unavailable: new Set(unavailable) })
+  const api = (): PaperReaderApi => ({ open: noop })
   const line = (e: Evidence, ctx: PaperReaderApi | null) =>
     renderToStaticMarkup(
       <PaperReaderContext.Provider value={ctx}>
@@ -62,10 +78,9 @@ describe('EvidenceLine が押せるのは dataset_id があって公開済みの
   it('dataset_id あり・文脈あり → ボタン', () => {
     expect(line(ev({ dataset_id: 'p1' }), api())).toContain('data-testid="evidence-open"')
   })
-  it('dataset_id なし・文脈なし・未公開（404 だった）→ 押せない', () => {
+  it('dataset_id なし・文脈なし → 押せない', () => {
     expect(line(ev(), api())).not.toContain('evidence-open')
     expect(line(ev({ dataset_id: 'p1' }), null)).not.toContain('evidence-open')
-    expect(line(ev({ dataset_id: 'p1' }), api(['p1']))).not.toContain('evidence-open')
   })
 })
 

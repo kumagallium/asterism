@@ -965,6 +965,8 @@ export interface PaperText {
   /** 確定した関係の根拠になっている文の IRI。 */
   evidence: string[]
   truncated: boolean
+  /** 公開済みか（false = 承認前の下書きの版を読んでいる・根拠は空）。 */
+  published: boolean
 }
 
 /** 壊れた返りは null（呼び出し側が失敗として扱う）。 */
@@ -987,7 +989,7 @@ export function paperOf(v: unknown): PaperText | null {
       })),
     })
   }
-  return { dataset_id: v.dataset_id, label: str(v.label, v.dataset_id), sections, evidence: strs(v.evidence), truncated: v.truncated === true }
+  return { dataset_id: v.dataset_id, label: str(v.label, v.dataset_id), sections, evidence: strs(v.evidence), truncated: v.truncated === true, published: v.published !== false }
 }
 
 export async function getPaper(datasetId: string, lang: 'ja' | 'en' = 'ja', signal?: AbortSignal): Promise<PaperText> {
