@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.64.0](https://github.com/kumagallium/asterism/compare/v0.63.0...v0.64.0) - 2026-11-05
+
+- [docs] manual: v0.63.0 の節目とバッジ（論文の根拠の文を見る） by @kumagallium in https://github.com/kumagallium/asterism/pull/782
+- 13a: 同じ関係を複数の論文が支えたら、根拠を全部残す by @kumagallium in https://github.com/kumagallium/asterism/pull/784
+- 13b: 根拠の文から論文を開く（左の会話の列に本文） by @kumagallium in https://github.com/kumagallium/asterism/pull/785
+- 13c: 論文の表を、表ごとにデータとして取り込む提案 by @kumagallium in https://github.com/kumagallium/asterism/pull/786
+
 ## [v0.63.0](https://github.com/kumagallium/asterism/compare/v0.62.0...v0.63.0) - 2026-11-05
 
 - [docs] manual: v0.62.0 の節目とバッジ（論文を添える・作る AI と答える AI） by @kumagallium in https://github.com/kumagallium/asterism/pull/779
