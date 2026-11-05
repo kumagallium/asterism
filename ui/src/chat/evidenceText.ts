@@ -13,6 +13,6 @@ export const clipEvidence = (text: string): string => (text.length > EVIDENCE_SH
  */
 export function evidenceSource(e: Pick<Evidence, 'dataset_label' | 'section' | 'path'>, t: TFunction<'chat'>): string {
   if (!e.dataset_label) return ''
-  const sec = e.section ? e.section : e.path ? t('evidence.section', { n: e.path }) : ''
+  const sec = e.section ? e.section : e.path ? t('chat:evidence.section', { n: e.path }) : ''
   return sec ? `${e.dataset_label} · ${sec}` : e.dataset_label
 }
