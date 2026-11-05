@@ -2435,14 +2435,17 @@ def _answer_of(data: dict, cited: dict[str, dict[str, str]]) -> dict:
             continue
         iri = str(c["iri"])
         got = cited.get(iri) or {}
-        citations.append(
-            {
-                "iri": iri,
-                "label": str(c.get("label") or got.get("label") or _short(iri)),
-                "dataset_id": str(c.get("dataset_id") or got.get("dataset_id") or ""),
-                "dataset_label": str(c.get("dataset_label") or got.get("dataset_label") or ""),
-            }
-        )
+        entry = {
+            "iri": iri,
+            "label": str(c.get("label") or got.get("label") or _short(iri)),
+            "dataset_id": str(c.get("dataset_id") or got.get("dataset_id") or ""),
+            "dataset_label": str(c.get("dataset_label") or got.get("dataset_label") or ""),
+        }
+        if got.get("quote"):  # 論文の根拠の文（ストアから引いたもの・AI の文字列は使わない）
+            entry["quote"] = str(got["quote"])
+            entry["section"] = str(got.get("section") or "") or None
+            entry["label"] = str(got.get("label") or entry["dataset_label"])
+        citations.append(entry)
     warnings = []
     for w in data.get("warnings") or []:
         msg = w if isinstance(w, str) else (w or {}).get("message") or (w or {}).get("text")

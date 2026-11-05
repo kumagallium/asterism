@@ -33,7 +33,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import chat_sessions, crosswalk_runtime, shared_vocab, sky_view, themes
+from asterism import chat_sessions, crosswalk_runtime, evidence, shared_vocab, sky_view, themes
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -530,6 +530,26 @@ def register_chat(
                 )
             except Exception:
                 logger.warning("chat ask: citation names failed", exc_info=True)
+            try:  # 論文の根拠の文の出典は、ストアから引いた文・節・論文名で上書き（機械が付ける）
+                said = await evidence.resolve_evidence(
+                    _client(),
+                    [
+                        str(c.get("iri"))
+                        for c in outcome["data"].get("citations") or []
+                        if isinstance(c, dict)
+                    ],
+                    registry_root=root,
+                )
+                for iri, e in said.items():
+                    cited[iri] = {
+                        "label": e["dataset_label"],
+                        "dataset_id": e["dataset_id"],
+                        "dataset_label": e["dataset_label"],
+                        "quote": e["text"],
+                        "section": e["section"] or "",
+                    }
+            except Exception:
+                logger.warning("chat ask: evidence sentences failed", exc_info=True)
         async with lock:
             session = _session_or_404(session_id)
             turn = chat_turns.run_ask_turn(

@@ -873,6 +873,53 @@ def test_the_top_value_shape_is_cited_too() -> None:
     assert out == [{"iri": "https://ex/peak/9"}]
 
 
+def _kq_items(n: int, per: int = 1) -> list[dict]:
+    return [
+        {"label": f"t{i}", "evidence": [{"iri": f"https://ex/sent/{i}-{j}"} for j in range(per)]}
+        for i in range(n)
+    ]
+
+
+def test_a_knowledge_answers_evidence_sentences_are_cited_whatever_the_count() -> None:
+    """知識の問いは 4 件以上でも、項目の根拠の文を出典に足す（重複なし・項目の順）。"""
+    out: list[dict] = []
+    items = _kq_items(5)
+    items[1]["evidence"].append({"iri": "https://ex/sent/0-0"})  # 重複は 1 つ
+    demo._collect_knowledge_citations(out, items)
+    assert [c["iri"] for c in out] == [f"https://ex/sent/{i}-0" for i in range(5)]
+
+
+def test_knowledge_citations_stop_at_the_cap_and_skip_non_iris() -> None:
+    out: list[dict] = [{"iri": "https://ex/already"}]
+    items = _kq_items(3, per=5)
+    items[0]["evidence"].insert(0, {"iri": "not an iri"})
+    items.append({"label": "no evidence"})
+    demo._collect_knowledge_citations(out, items)
+    assert len(out) == demo._CITE_IRIS_MAX
+    assert out[0] == {"iri": "https://ex/already"} and out[1] == {"iri": "https://ex/sent/0-0"}
+
+
+def test_the_knowledge_tool_is_offered_only_when_a_knowledge_question_exists(tmp_path) -> None:
+    from asterism import shared_vocab as sv
+
+    assert demo._knowledge_tool_def(None) is None
+    assert demo._knowledge_tool_def(str(tmp_path)) is None
+    path = sv._dir(tmp_path) / "themes.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sel = {"kq_a": {"mode": "knowledge", "title": "Aを下げるものは"}, "cq_b": {"op": "count"}}
+    path.write_text(json.dumps({"themes": [{"id": "t1", "selections": sel}]}), encoding="utf-8")
+    tool = demo._knowledge_tool_def(str(tmp_path))
+    assert tool is not None and tool["name"] == "answer_knowledge_question"
+    assert "kq_a" in tool["description"] and "cq_b" not in tool["description"]
+
+
+def test_other_tools_keep_the_small_result_rule() -> None:
+    rows = [{"subject_iri": f"https://ex/peak/{i}"} for i in range(demo._CITE_ROWS_MAX + 1)]
+    out: list[dict] = []
+    demo._collect_tool_citations(out, rows)
+    assert out == []
+
+
 def test_a_listing_is_left_to_the_model() -> None:
     """A result too big to BE the evidence is not harvested — so nothing is
     silently truncated into a handful of arbitrary citations."""

@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 import rdflib
-from asterism import chat_sessions, themes
+from asterism import chat_sessions, shared_vocab, themes
 from asterism.crosswalk_runtime import ALIGNMENT_GRAPH, list_alignments
 from asterism.shared_vocab import SharedTerm
 from fastapi.testclient import TestClient
@@ -1079,3 +1079,72 @@ def test_an_existing_term_keeps_its_own_name_on_the_card_and_in_the_question(
             "優秀さの指標 を変えるものは？"
         ]  # 問い文も既存の名前
         assert _confirm(client, sid, turn["id"]).json()["turn"]["state"] == "confirmed"
+
+
+# ---------------------------------------------------------------------------
+# 12c: 根拠の文を見せる（点・論文の点・回答の出典）
+# ---------------------------------------------------------------------------
+
+
+def _point_get(client: TestClient, **params: str):
+    return client.get("/api/chat/point", params=params)
+
+
+def test_evidence_shows_in_draft_points_then_confirmed_lines_the_paper_point_and_answers(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    app, _ = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        turn = _paper(client, sid)
+        dsid = turn["attachment"]["dataset_id"]
+        name = turn["attachment"]["name"]
+        draft_id = chat_sessions.load_session(tmp_path / "registry", sid)["draft_id"]
+        # 下書きの札: 関係の evidence が文に付く（論文名はその手番の論文・full は text）
+        card = _point_get(client, iri=f"draft:{draft_id}:n1").json()
+        (ev,) = card["sentences"][0]["evidence"]
+        assert ev["dataset_label"] == name and ev["dataset_id"] == dsid and ev["section"] is None
+        assert ev["path"] and ev["iri"].startswith("https://") and ev["text"]
+        assert ev["full"].startswith(ev["text"].rstrip("…"))
+        assert _confirm(client, sid, turn["id"]).status_code == 200
+        # 確定した線: ストアから引いた文・節・論文名
+        terms = {t.label: t.iri for t in _run(shared_vocab._read_terms(app.state.client))}
+        ends = {"from": terms["粒界と相の境界"], "relation": "lowers", "to": terms["熱伝導率"]}
+        line = _point_get(client, **ends).json()
+        (ev,) = line["sentences"][0]["evidence"]
+        assert ev["text"].startswith("All samples with a decomposition")
+        assert ev["dataset_id"] == dsid and ev["dataset_label"] and ev["path"]
+        assert len(ev["text"]) <= 151 and ev["full"].startswith(ev["text"].rstrip("…"))
+        # 論文の点: この論文が根拠になっている関係（根拠を全部付けて）
+        paper = _point_get(client, iri=f"paper:{dsid}").json()
+        assert paper["kind"] == "paper" and paper["confirmed"] is True
+        assert paper["label"] == ev["dataset_label"] and paper["questions"] == []
+        assert len(paper["sentences"]) == 3
+        assert all(s["evidence"] and s["evidence"][0]["dataset_id"] == dsid
+                   for s in paper["sentences"])  # fmt: skip
+        assert _point_get(client, iri="paper:no-such").status_code == 404
+        assert _point_get(client, iri="paper:bad id").status_code == 422
+        # 回答の出典: 文 IRI には quote・section・論文名（AI の文字列ではなくストアから）
+        reply = {
+            "answer": "粒界は熱伝導率を下げます。", "answered": True,
+            "citations": [{"iri": ev["iri"], "label": "AI が書いた名前"},
+                          {"iri": "https://x.example/none"}],
+        }  # fmt: skip
+        client.app.state.demo_agent_url = "http://demo.test"
+        client.app.state.ask_transport = httpx.MockTransport(
+            lambda req: httpx.Response(200, json=reply)
+        )
+        sid2 = _new(client)
+        r = client.post(
+            f"/api/chat/sessions/{sid2}/turns",
+            json={"text": "熱伝導率を下げるものは何か 答えて"},
+            headers=KEY,
+        )
+        assert r.status_code == 201, r.text
+        c1, c2 = r.json()["turn"]["reply"]["answer"]["citations"]
+        assert c1["quote"] == ev["text"] and c1["dataset_id"] == dsid
+        assert c1["label"] == ev["dataset_label"]  # 名前は論文名（AI の名前ではない）
+        assert c1["dataset_label"] == ev["dataset_label"] and "section" in c1
+        assert "quote" not in c2  # ほかの出典は今のまま
