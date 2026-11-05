@@ -55,6 +55,9 @@ import { MapView as MapHost } from './map/MapView'
 import { useSky } from './useSky'
 import { draftNodeId, kindId, termId } from '../sky/skyLayout'
 import { SessionList } from './SessionList'
+import { PaperReader } from './PaperReader'
+import { ReaderSlot } from './ReaderSlot'
+import { PaperReaderContext, type PaperReaderApi } from './paperReaderContext'
 import { useChatLayout } from './useChatLayout'
 import './chat.css'
 
@@ -178,6 +181,13 @@ export function ChatApp() {
   const [interrupted, setInterrupted] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [composerKey, setComposerKey] = useState(0)
+  // 13b: 会話の列の代わりに論文の本文を出す。ChatPane は閉じずに隠すだけ（入力欄の下書きを残す）
+  const [reader, setReader] = useState<{ datasetId: string; focus: string | null } | null>(null)
+  const [unavailablePapers, setUnavailablePapers] = useState<ReadonlySet<string>>(() => new Set())
+  // 話を切り替える・新しい話にしたら閉じる
+  useEffect(() => {
+    setReader(null)
+  }, [view, composerKey])
   const [tab, setTab] = useState<'chat' | 'chart' | 'questions'>('chat')
   // 右の領域の一番上のタブ（1,440）。375 では上のタブの行（tab）が兼ねる
   const [rtab, setRtab] = useState<'graph' | 'questions'>('graph')
@@ -805,7 +815,20 @@ export function ChatApp() {
     />
   )
 
+  const paperReaderApi = useMemo<PaperReaderApi>(
+    () => ({
+      open: (datasetId, focus) => {
+        setError(null)
+        setReader({ datasetId, focus })
+        if (layout.tabs) setTab('chat')
+      },
+      unavailable: unavailablePapers,
+    }),
+    [unavailablePapers, layout.tabs],
+  )
+
   return (
+    <PaperReaderContext.Provider value={paperReaderApi}>
     <div className={`chat-app${layout.tabs ? ' is-tabs' : ''}${layout.folded ? ' is-folded' : ''}`}>
       {layout.tabs && (
         <div className="chat-tabbar">
@@ -831,7 +854,26 @@ export function ChatApp() {
       {layout.sheetOpen && <button type="button" className="chat-scrim" aria-label={t('list.close')} onClick={layout.closeSheet} />}
       <aside className={`chat-list${layout.sheetOpen ? ' is-open' : ''}`} inert={layout.tabs && !layout.sheetOpen}>{list}</aside>
       <section className="chat-center" hidden={layout.tabs && tab !== 'chat'}>
-        <ChatPane
+        <ReaderSlot
+          reader={
+            reader && (
+              <PaperReader
+                key={reader.datasetId}
+                datasetId={reader.datasetId}
+                focus={reader.focus}
+                lang={lang}
+                onBack={() => setReader(null)}
+                onHighlight={setHighlight}
+                onUnavailable={(id) => {
+                  setUnavailablePapers((prev) => new Set(prev).add(id))
+                  setReader(null)
+                  setError(t('reader.unavailable'))
+                }}
+              />
+            )
+          }
+          pane={
+            <ChatPane
           key={composerKey}
           session={session}
           loading={!!viewId && !session && !loadError}
@@ -868,6 +910,8 @@ export function ChatApp() {
           scopeBar={scope ? <ScopeBar name={scope.name} onClear={() => setScope(null)} /> : undefined}
           placeholder={scope?.line ? t('scope.fixPlaceholder') : undefined}
           focusKey={fixKey}
+            />
+          }
         />
       </section>
       <section className="chat-right" hidden={layout.tabs && tab === 'chat'}>
@@ -950,5 +994,6 @@ export function ChatApp() {
         {showHand && rightView === 'graph' && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
       </section>
     </div>
+    </PaperReaderContext.Provider>
   )
 }
