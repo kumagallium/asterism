@@ -1187,6 +1187,66 @@ async def remove_alignment(client, source: str, target: str, relation: str) -> N
     )
 
 
+_EVIDENCE_IRI_RE = re.compile(r'https?://[^\s<>"{}|\\^`]+')
+
+
+def _evidence_list(evidence: list[str]) -> list[str]:
+    """根拠の文の IRI を検査して重複を除く（SPARQL に入れるのは検査済みの IRI だけ）。"""
+    out: list[str] = []
+    for e in evidence:
+        if not isinstance(e, str) or not _EVIDENCE_IRI_RE.fullmatch(e):
+            raise ValueError(f"not an evidence IRI: {e!r}")
+        if e not in out:
+            out.append(e)
+    return out
+
+
+async def add_evidence(
+    client, source: str, target: str, relation: str, evidence: list[str]
+) -> int:
+    """既にある線の来歴ノードに ``prov:wasDerivedFrom`` を **足すだけ**（13a）。
+    ``draftedBy`` / ``batch`` / ``at`` / ``reason`` は変えない。既に付いている IRI は数えない。
+    返り = 新しく付いた数。来歴ノードが無ければ 0（何も書かない）。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+    wanted = _evidence_list(evidence)
+    if not wanted:
+        return 0
+    align_iri = _alignment_iri(source, relation, target)
+    res = await client.sparql_select(
+        f"SELECT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> a <{XW}Alignment> . "
+        f"OPTIONAL {{ <{align_iri}> <{_PROV}wasDerivedFrom> ?e }} }} }}"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    if not rows:
+        return 0
+    have = {b["e"]["value"] for b in rows if "e" in b}
+    fresh = [e for e in wanted if e not in have]
+    if not fresh:
+        return 0
+    triples = " ".join(f"<{align_iri}> <{_PROV}wasDerivedFrom> <{e}> ." for e in fresh)
+    await client.sparql_update(f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
+    return len(fresh)
+
+
+async def remove_evidence(
+    client, source: str, target: str, relation: str, evidence: list[str]
+) -> None:
+    """指定の ``prov:wasDerivedFrom`` だけを来歴ノードから外す（線そのものは残す）。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+    wanted = _evidence_list(evidence)
+    if not wanted:
+        return
+    align_iri = _alignment_iri(source, relation, target)
+    triples = " ".join(f"<{align_iri}> <{_PROV}wasDerivedFrom> <{e}> ." for e in wanted)
+    await client.sparql_update(f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
+
+
 def _count_triples(turtle: str) -> int:
     """Count the asserted triples in the hub Turtle: every line ending in ``.`` that
     is not a ``@prefix`` directive or a comment (the builder emits one statement per

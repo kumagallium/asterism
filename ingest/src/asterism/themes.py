@@ -46,8 +46,10 @@ from asterism.crosswalk_runtime import (
     REASON_MAX,
     _check_same_shape,
     _declared_shapes,
+    add_evidence,
     assert_alignment,
     remove_alignment,
+    remove_evidence,
 )
 from asterism.query_tools import remove_registry_query_tools_by_name
 from asterism.shared_vocab import CQSpec, SharedTerm, normalize_label
@@ -1878,6 +1880,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
     minted: list[str] = []
     added_lines: list[_Line] = []
     added_tools: list[str] = []
+    supported: list[dict] = []  # 既にある線に足した根拠（取り消し用・13a）
     try:
         for row in plan.rows:
             if not row.mint:
@@ -1906,6 +1909,22 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         for ln in plan.lines:
             trip = (ln.source, ln.relation, ln.target)
             if await _line_exists(client, ln):
+                if ln.evidence:
+                    # 既にある線を別の論文も支える: 来歴は変えず、根拠の文だけ足す（13a）
+                    before = await _evidence_of(client, ln)
+                    n = await add_evidence(
+                        client, ln.source, ln.target, ln.relation, list(ln.evidence)
+                    )
+                    if n:
+                        new = [e for e in ln.evidence if e not in before]
+                        supported.append(
+                            {
+                                "source": ln.source,
+                                "relation": ln.relation,
+                                "target": ln.target,
+                                "evidence": new,
+                            }
+                        )
                 if trip in plan.shared_lines:  # another theme's line this one relies on too
                     owned.append(_line_record(ln))
                 continue
@@ -1929,6 +1948,13 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         _save_themes(root, {**plan.base, "themes": placed})
         await sv.recompute_wired(client, root, at=at)
     except BaseException:
+        for sp in reversed(supported):
+            try:
+                await remove_evidence(
+                    client, sp["source"], sp["target"], sp["relation"], sp["evidence"]
+                )
+            except Exception:
+                logger.warning("themes: rollback of evidence failed", exc_info=True)
         await _rollback(
             client, root, minted, added_lines, added_tools, prior_themes_text, prior_counts
         )
@@ -1942,7 +1968,21 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
         "questions": plan.theme["questions"],
         "memo": len(plan.theme["memo_questions"]),
         "batch": plan.batch,
+        "supported": supported,
     }
+
+
+async def _evidence_of(client: Any, ln: _Line) -> set[str]:
+    """既にある線の来歴ノードに付いている根拠の文の IRI（足す前の控え）。"""
+    from asterism.crosswalk_runtime import _alignment_iri
+
+    node = _alignment_iri(ln.source, ln.relation, ln.target)
+    res = await client.sparql_select(
+        f"SELECT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{node}> "
+        f"<http://www.w3.org/ns/prov#wasDerivedFrom> ?e }} }}"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    return {b["e"]["value"] for b in rows}
 
 
 def _line_record(ln: _Line) -> dict:

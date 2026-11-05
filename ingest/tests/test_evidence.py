@@ -14,7 +14,12 @@ import pytest
 
 from asterism import evidence, knowledge, substrate
 from asterism import shared_vocab as sv
-from asterism.crosswalk_runtime import assert_alignment
+from asterism.crosswalk_runtime import (
+    add_evidence,
+    assert_alignment,
+    list_alignments,
+    remove_evidence,
+)
 from asterism.sky_view import sky_view
 
 pyoxigraph = pytest.importorskip("pyoxigraph")
@@ -188,3 +193,33 @@ async def test_an_iri_with_a_trailing_newline_is_dropped_and_the_others_are_stil
     assert list(got) == [S + "2"]  # 改行つきは入らず、SPARQL 全体は落ちない
     assert "\n<" not in c.queries[0].split("VALUES ?e")[1].split("}")[0]
     assert themes._evidence_iris([S + "1\n", S + "2"]) == (S + "2",)
+
+
+async def test_add_evidence_only_inserts_and_never_counts_twice(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    # 線が無ければ何も書かない
+    assert await add_evidence(c, pore, tc, "lowers", [S + "1"]) == 0
+    await assert_alignment(
+        c, pore, tc, "lowers", at=AT, drafted_by="ai", batch="b1", reason="r", evidence=[S + "1"]
+    )
+    before = (await list_alignments(c))[0]
+    assert await add_evidence(c, pore, tc, "lowers", [S + "1", S + "2", S + "2"]) == 1
+    assert await add_evidence(c, pore, tc, "lowers", [S + "1", S + "2"]) == 0
+    after = (await list_alignments(c))[0]
+    assert after["evidence"] == [S + "1", S + "2"]
+    for k in ("drafted_by", "batch", "reason", "at"):
+        assert after[k] == before[k]
+    with pytest.raises(ValueError):
+        await add_evidence(c, pore, tc, "lowers", [S + "1\n"])
+
+
+async def test_remove_evidence_removes_only_the_named_sentences(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "1", S + "2"])
+    await remove_evidence(c, pore, tc, "lowers", [S + "2"])
+    rows = await list_alignments(c)
+    assert len(rows) == 1 and rows[0]["evidence"] == [S + "1"]
