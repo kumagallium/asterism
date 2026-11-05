@@ -18,6 +18,7 @@ from asterism.crosswalk_runtime import (
     add_evidence,
     assert_alignment,
     list_alignments,
+    move_provenance,
     remove_evidence,
 )
 from asterism.sky_view import sky_view
@@ -223,6 +224,26 @@ async def test_remove_evidence_removes_only_the_named_sentences(tmp_path: Path) 
     await remove_evidence(c, pore, tc, "lowers", [S + "2"])
     rows = await list_alignments(c)
     assert len(rows) == 1 and rows[0]["evidence"] == [S + "1"]
+
+
+async def test_move_provenance_rewrites_only_the_meta(tmp_path: Path) -> None:
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    # 線が無ければ何も書かない
+    kw = {"batch": "s2:t9", "drafted_by": "ai", "at": "2026-11-02T00:00:00+00:00"}
+    assert await move_provenance(c, pore, tc, "lowers", **kw) is False
+    await assert_alignment(
+        c, pore, tc, "lowers", at=AT, drafted_by="human", batch="b1", reason="r", evidence=[S + "1"]
+    )
+    await add_evidence(c, pore, tc, "lowers", [S + "2"])
+    assert await move_provenance(c, pore, tc, "lowers", **kw) is True
+    (row,) = await list_alignments(c)
+    assert (row["batch"], row["drafted_by"]) == ("s2:t9", "ai")
+    assert row["at"].startswith("2026-11-02") and row["reason"] is None
+    assert row["evidence"] == [S + "1", S + "2"]  # 根拠・3 つ組はそのまま
+    with pytest.raises(ValueError):
+        await move_provenance(c, pore, tc, "lowers", **{**kw, "drafted_by": "bot"})
 
 
 def test_order_by_paper_puts_one_per_paper_first_by_paper_name_then_the_rest() -> None:

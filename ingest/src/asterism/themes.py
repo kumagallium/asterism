@@ -1923,6 +1923,8 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
                                 "relation": ln.relation,
                                 "target": ln.target,
                                 "evidence": new,
+                                # 13d: 足した手番が取り消されたとき、線の来歴をこちらへ移すために
+                                "drafted_by": "ai" if ln.ai else "human",
                             }
                         )
                 if trip in plan.shared_lines:  # another theme's line this one relies on too

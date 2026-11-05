@@ -2554,6 +2554,10 @@ _DATA_NO_REVERT = {
 }
 
 
+_KEPT_LINES = {
+    "ja": "ほかの論文が支えているので残しました",
+    "en": "kept because other papers support them",
+}
 _REVERT_FAILED = {"ja": "削除できませんでした", "en": "could not be deleted"}
 
 
@@ -2605,7 +2609,9 @@ async def revert_confirmed(
         )
     batch = commit.get("batch")
     theme_id = commit.get("theme_id")
-    undone: dict = {"lines": 0, "terms": 0, "questions": 0, "kept": [], "failed": []}
+    undone: dict = {
+        "lines": 0, "terms": 0, "questions": 0, "kept": [], "failed": [], "kept_lines": 0,
+    }  # fmt: skip
     minted = [str(x) for x in commit.get("minted") or []]
     failed_why = _REVERT_FAILED[lg]
 
@@ -2625,6 +2631,29 @@ async def revert_confirmed(
         for ln in await crosswalk_runtime.list_alignments(client):
             if ln.get("batch") not in batches:
                 continue
+            # ほかの論文が根拠を足して支えている線は残し、来歴を支えた側へ移す（13d）
+            supporters = chat_sessions.supporting_commits(
+                root,
+                (ln["source"], ln["relation"], ln["target"]),
+                list(ln.get("evidence") or []),
+                exclude_batches=batches,
+                current=session,
+            )
+            if supporters:
+                heir = supporters[0]  # いちばん早く支えた commit
+                try:
+                    await crosswalk_runtime.move_provenance(
+                        client, ln["source"], ln["target"], ln["relation"],
+                        batch=heir["batch"], drafted_by=heir["drafted_by"], at=heir["at"],
+                    )  # fmt: skip
+                except Exception:
+                    logger.warning("chat revert: move_provenance failed", exc_info=True)
+                    undone["failed"].append(
+                        {"what": await _line_name(client, ln, lg), "reason": failed_why}
+                    )
+                else:
+                    undone["kept_lines"] += 1
+                continue
             try:
                 await crosswalk_runtime.remove_alignment(
                     client, ln["source"], ln["target"], ln["relation"]
@@ -2637,6 +2666,8 @@ async def revert_confirmed(
                 continue
             gone_lines.add((ln["source"], ln["relation"], ln["target"]))
     undone["lines"] = len(gone_lines)
+    if undone["kept_lines"]:
+        undone["kept_lines_reason"] = _KEPT_LINES[lg]
 
     # 1b. 既にある線に足した根拠の文 — 外すのは根拠だけ（線は消さない・13a）
     undone["evidence"] = 0

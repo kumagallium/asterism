@@ -236,6 +236,48 @@ def seed_of_draft(root: Path | str, draft_id: str) -> dict | None:
     return draft_seed_map(root).get(draft_id)
 
 
+def supporting_commits(
+    root: Path | str,
+    triple: tuple[str, str, str],
+    evidence: list[str],
+    *,
+    exclude_batches: set[str],
+    current: dict | None = None,
+) -> list[dict[str, Any]]:
+    """その線（source, relation, target）の根拠を、確認済みの手番の ``commit.supported`` で足した
+    commit を、全部の話から探す（13d）。``evidence`` のどれかを足したものだけ・``exclude_batches``
+    の commit は除く。返り = ``[{"batch", "at", "drafted_by", "session_id", "turn_id"}]``（at 順・
+    同じ batch は 1 件）。``current`` = まだ保存していない手元の話（同じ id の保存より優先）。"""
+    want = set(evidence)
+    sessions = [s for s in _all(root) if not (current and s.get("id") == current.get("id"))]
+    if current is not None:
+        sessions.append(current)
+    found: dict[str, dict[str, Any]] = {}
+    for s in sessions:
+        for t in s.get("turns") or []:
+            c = t.get("commit")
+            if t.get("state") != "confirmed" or not isinstance(c, dict):
+                continue
+            batch = c.get("batch")
+            if not batch or batch in exclude_batches or batch in found:
+                continue
+            for sp in c.get("supported") or []:
+                if not isinstance(sp, dict):
+                    continue
+                if (sp.get("source"), sp.get("relation"), sp.get("target")) != triple:
+                    continue
+                if want & {str(e) for e in sp.get("evidence") or []}:
+                    found[str(batch)] = {
+                        "batch": str(batch),
+                        "at": str(c.get("at") or t.get("at") or ""),
+                        "drafted_by": str(sp.get("drafted_by") or "human"),
+                        "session_id": s.get("id"),
+                        "turn_id": t.get("id"),
+                    }
+                    break
+    return sorted(found.values(), key=lambda x: x["at"])
+
+
 def turn_of_batch(root: Path | str, batch: str | None) -> dict[str, str] | None:
     """``<話の id>:<手番の id>`` の batch → ``{"session_id", "turn_id"}``。その手番が実際にある
     ときだけ（形が違う・話が無い・手番が無いなら ``None``）。"""

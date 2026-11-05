@@ -1250,6 +1250,46 @@ async def remove_evidence(
     await client.sparql_update(f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
 
 
+async def move_provenance(
+    client, source: str, target: str, relation: str, *, batch: str, drafted_by: str, at: str
+) -> bool:
+    """既にある線の来歴の meta（``batch`` / ``draftedBy`` / ``endedAtTime``）だけを書き換える
+    （13d: 足した手番を取り消すとき、ほかの論文が支える線を残して、来歴をその論文の手番へ移す）。
+    ``reason`` は足した手番のものなので外す。根拠（``wasDerivedFrom``）・3 つ組・種類の記録は
+    そのまま。来歴ノードが無ければ ``False``（何も書かない）。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if drafted_by not in DRAFTED_BY:
+        raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")
+    batch_text = (batch or "").strip()
+    if len(batch_text) > BATCH_MAX or any(ord(c) < 32 for c in batch_text):
+        raise ValueError(f"batch must be a single line of at most {BATCH_MAX} characters")
+    _check_iri(source)
+    _check_iri(target)
+    if not re.fullmatch(r"[0-9T:.+\-Z]+", at or ""):
+        raise ValueError(f"not a dateTime: {at!r}")
+    align_iri = _alignment_iri(source, relation, target)
+    res = await client.sparql_select(
+        f"SELECT ?a WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a a <{XW}Alignment> . "
+        f"FILTER(?a = <{align_iri}>) }} }} LIMIT 1"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    if not rows:
+        return False
+    meta = (f"<{XW}batch>", f"<{XW}draftedBy>", f"<{XW}reason>", f"<{_PROV}endedAtTime>")
+    values = " ".join(meta)
+    ins = f'<{XW}draftedBy> "{drafted_by}" ; <{_PROV}endedAtTime> "{at}"^^<{_XSD}dateTime>'
+    if batch_text:
+        ins += f' ; <{XW}batch> "{_sparql_str(batch_text)}"'
+    await client.sparql_update(
+        f"DELETE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} "
+        f"WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} "
+        f"VALUES ?p {{ {values} }} }} ;"
+        f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> {ins} }} }}"
+    )
+    return True
+
+
 async def drop_evidence_in_graphs(client, graphs: list[str]) -> int:
     """指定の graph（論文の版 graph）にある文（``doco:Sentence``）を指す ``prov:wasDerivedFrom``
     を、ALIGNMENT_GRAPH から外す（13a: 論文を消すとき。関係そのものは残す）。graph が消える前に
